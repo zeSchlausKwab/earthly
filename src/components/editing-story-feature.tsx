@@ -32,13 +32,21 @@ export default function EditingStoryFeature({
   feature: CustomFeature
   rootNaddr: string
 }) {
+  let identifier: string | undefined
+  let pubkey: string | undefined
+
   const geometry = feature.geometry
   const featureProperties = feature.properties
 
   const { ndk, ndkUser } = useNDKStore()
   const { geometryCollection, setGeometry } = useEditingCollectionStore()
 
-  const { identifier, kind, pubkey } = decodeNaddr(rootNaddr)
+  if (rootNaddr) {
+    const decoded = decodeNaddr(rootNaddr)
+    identifier = decoded.identifier
+    pubkey = decoded.pubkey
+  }
+  
 
   const [approvalEvent, setApprovalEvent] = useState<NDKEvent>()
   const [originalEvent, setOriginalEvent] = useState<NDKEvent>()
