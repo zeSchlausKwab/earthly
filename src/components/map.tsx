@@ -66,7 +66,8 @@ export default function Map() {
 
   useEffect(() => {
     recentCollection.current?.clearLayers()
-    if (collections) {
+    if (collections && recentCollection.current) {
+    
       collections.forEach((collection) => {
         L.geoJSON(collection.features, {
           style: (feature) => {

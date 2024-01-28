@@ -30,7 +30,7 @@ export default function EditingStoryMetaForm({
   }, [value])
 
   return (
-    <div className={"rounded-lg border p-4 text-sm"}>
+    <div className={"flex flex-row text-sm"}>
       {" "}
       <Input
         value={title}

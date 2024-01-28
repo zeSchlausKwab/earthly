@@ -15,6 +15,11 @@ export const runtimeGeometryFeatureToNostr = (
     content: runtimeFeature.content,
     created_at: runtimeFeature.created_at,
     tags: [
+      [
+        "a",
+        `34550:${runtimeFeature.communityEventAuthorPubkey}:${runtimeFeature.motherEventIdentifier}`,
+        "wss://relay.earthly.land",
+      ],
       ["d", runtimeFeature.d],
       ["published_at", runtimeFeature.published_at.toString()],
       ["name", runtimeFeature.name],

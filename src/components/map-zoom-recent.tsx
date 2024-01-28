@@ -17,7 +17,7 @@ export default function MapZoomRecent({
       const lastCollection = recentCollections[recentCollections.length - 1]
       if (!lastCollection) return
       const bounds = L.geoJSON(lastCollection.features).getBounds()
-      map.fitBounds(bounds, { animate: true })
+      // map.fitBounds(bounds, { animate: true })
     }
   }, [recentCollections, map])
 

@@ -25,12 +25,12 @@ import { decodeNaddr } from "~/utils/naddr"
 export default function EditingStoryForm({
   naddr,
   onSubmit,
-  onUpdate,
+  onUpdateCollectionData,
   onDiscard,
 }: {
   naddr: string | undefined
   onSubmit: (data: EditingCollectionFormSchema) => void
-  onUpdate: (data: UpdateCollectionFormSchema) => void
+  onUpdateCollectionData: (data: UpdateCollectionFormSchema) => void
   onDiscard: () => void
 }) {
   const { ndk } = useNDKStore()
@@ -61,8 +61,8 @@ export default function EditingStoryForm({
     })
   }, [naddr])
 
-  const handleUpdate = () => {
-    onUpdate({
+  const handleUpdateCollectionData = () => {
+    onUpdateCollectionData({
       storyTitle: form.getValues("storyTitle"),
       storyDescription: form.getValues("storyDescription"),
       naddr: naddr ?? "",
@@ -77,7 +77,7 @@ export default function EditingStoryForm({
   }
 
   return (
-    <div className={"flex w-1/2 h-96 flex-col gap-2 break-all"}>
+    <div className={"flex h-96 flex-col gap-2 break-all"}>
       {image && (
         <Image
           alt="header image"
@@ -124,8 +124,8 @@ export default function EditingStoryForm({
       </Form>
       <div className={"flex flex-row justify-between"}>
         {naddr ? (
-          <Button size={"sm"} onClick={handleUpdate}>
-            Update
+          <Button size={"sm"} onClick={handleUpdateCollectionData}>
+            Update collection
           </Button>
         ) : (
           <Button size={"sm"} onClick={handleSubmit}>

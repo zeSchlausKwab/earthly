@@ -27,7 +27,7 @@ export type UpdateCollectionFormSchema = z.infer<
 >
 
 export const persistedCollectionSchema = z.object({
-  kind: z.literal(NDKKind.Article),
+  kind: z.literal(34550 as NDKKind),
   pubkey: z.string().min(1),
   content: z.string(),
   created_at: z
@@ -38,28 +38,37 @@ export const persistedCollectionSchema = z.object({
     .tuple([
       z.tuple([z.literal("d"), z.string().uuid()]),
       z.tuple([z.literal("title"), z.string()]),
+      z.tuple([z.literal("description"), z.string()]),
       z.tuple([z.literal("image"), z.string()]),
       z.tuple([z.literal("published_at"), z.string()]),
       // z.tuple([z.literal("g"), z.string()]),
-      z.tuple([z.literal("y"), z.string()]),
+      z.tuple([z.literal("y"), z.literal("collection")]),
+      z.tuple([z.literal("relay"), z.string(), z.literal("author")]),
+      z.tuple([z.literal("relay"), z.string(), z.literal("requests")]),
+      z.tuple([z.literal("relay"), z.string(), z.literal("approvals")]),
     ])
-    .rest(z.tuple([z.literal("f"), z.string()])),
+    .rest(z.tuple([z.literal("p"), z.string(), z.literal("moderator")])),
 })
 export type NostrCollection = z.infer<typeof persistedCollectionSchema>
 
 export const runtimeCollectionSchema = z.object({
-  kind: z.literal(NDKKind.Article),
+  kind: z.literal(34550 as NDKKind),
   pubkey: z.string().min(1),
   content: z.string(),
   created_at: z
     .number()
     .int()
     .default(Math.floor(Date.now() / 1000)),
-  d: z.string().uuid(),
+  identifier: z.string().uuid(),
   title: z.string(),
+  description: z.string(),
   image: z.string(),
   published_at: z.number(),
-  features: z.array(z.unknown()),
+  authorRelay: z.string(),
+  requestsRelay: z.string(),
+  approvalsRelay: z.string(),
+  moderatorPubKeys: z.array(z.string()),
+  // features: z.array(z.unknown()),
   // geohash: z.string(),
 })
 

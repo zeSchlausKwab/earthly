@@ -1,13 +1,12 @@
-import { create } from "zustand"
-import { useNDKStore } from "~/store/ndk-store"
-import { type NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
+import { NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
 import { nip19 } from "nostr-tools"
+import { create } from "zustand"
+import { mapGeometryCollectionFeature } from "~/mapper/geometry-feature"
 import {
   CustomFeature,
   type CustomFeatureCollection,
 } from "~/store/edit-collection-store"
-import { mapGeometryCollectionFeature } from "~/mapper/geometry-feature"
-import { decodeNaddr } from "~/utils/naddr"
+import { useNDKStore } from "~/store/ndk-store"
 
 export type RecentCollection = {
   naddr: string
@@ -36,34 +35,44 @@ export const useRecentCollectionsStore = create<{
       limit: 20,
     })
 
-    sub.on("event", async (event: NDKEvent) => {
-      // console.log("event", event)
+    sub.on("event", async (rootCollectionEvent: NDKEvent) => {
       const naddr = nip19.naddrEncode({
-        pubkey: event.pubkey,
-        kind: event.kind ?? NDKKind.Article,
-        identifier: event.tagValue("d") ?? "",
+        pubkey: rootCollectionEvent.pubkey,
+        kind: rootCollectionEvent.kind ?? NDKKind.Article,
+        identifier: rootCollectionEvent.tagValue("d") ?? "",
       })
 
-      const featureIdentifiers = event.getMatchingTags("f") as [
-        string,
-        string,
-      ][]
-
-      const featureEvents = featureIdentifiers.map(async ([, naddr]) => {
-        const featureNaddrData = decodeNaddr(naddr)
-
-        return await ndkInstance.fetchEvent({
-          kinds: [featureNaddrData.kind],
-          authors: [featureNaddrData.pubkey],
-          "#d": [featureNaddrData.identifier],
-        })
+      const featureEvents = await ndkInstance.fetchEvents({
+        kinds: [4550 as NDKKind],
+        authors: [
+          ...rootCollectionEvent
+            .getMatchingTags("p")
+            .map((tag) => tag[1])
+            .filter((author): author is string => author !== undefined),
+        ],
+        "#a": [
+          `34550:${rootCollectionEvent.pubkey}:${rootCollectionEvent.tagValue(
+            "d",
+          )}`,
+        ],
       })
 
-      const featureEventsResolved = await Promise.all(featureEvents)
-
-      const features = featureEventsResolved.map((ev) => {
+      const features = Array.from(featureEvents).map((ev) => {
         if (!ev) return
-        return mapGeometryCollectionFeature(ev)
+        const contentEvent = new NDKEvent(undefined, JSON.parse(ev.content))
+        return mapGeometryCollectionFeature(contentEvent)
+      })
+
+      const featureIdentifiers: string[] = []
+
+      featureEvents.forEach((fe) => {
+        featureIdentifiers.push(
+          nip19.naddrEncode({
+            identifier: fe.tagValue("d") ?? "",
+            kind: fe.kind ?? 30333,
+            pubkey: fe.pubkey,
+          }),
+        )
       })
 
       const validFeatures = features.filter(
@@ -99,13 +108,14 @@ export const useRecentCollectionsStore = create<{
               ...state.collections,
               {
                 naddr,
-                title: event.tagValue("title") ?? "",
-                identifier: event.tagValue("d") ?? "",
-                published_at: event.tagValue("published_at") ?? "",
-                pubkey: event.pubkey,
-                description: event.content,
-                headerImage: event.tagValue("image") ?? "",
-                featureNaddrs: featureIdentifiers.map((e) => e[1]),
+                title: rootCollectionEvent.tagValue("title") ?? "",
+                identifier: rootCollectionEvent.tagValue("d") ?? "",
+                published_at:
+                  rootCollectionEvent.tagValue("published_at") ?? "",
+                pubkey: rootCollectionEvent.pubkey,
+                description: rootCollectionEvent.content,
+                headerImage: rootCollectionEvent.tagValue("image") ?? "",
+                featureNaddrs: featureIdentifiers,
                 features: {
                   type: "FeatureCollection",
                   features: validFeatures,

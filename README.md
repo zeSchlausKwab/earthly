@@ -22,6 +22,9 @@ If you are not familiar with the different technologies used in this project, pl
 
 `HOST=192.168.0.XXX npm run dev`
 
+pk_main: `637266428a21f96391963f25ac08a4fa97995766fb7c36114533f3021cfd8d2c` -> `fae0f0e6c4c1807575839a6560e69f297ae7bd88b44e880ed07ddf90d4cebaeb`
+pk_second: `c9dd118c4e0e613c392ae84e4c1659d708c8a77989c47bf177026e0c9c4e61c8` -> `dcc05ae327acb50c573e677d9aa146f29f8a3cb3dc109275b4da944759d8a1aa`
+
 ## Learn More
 
 To learn more about the [T3 Stack](https://create.t3.gg/), take a look at the following resources:

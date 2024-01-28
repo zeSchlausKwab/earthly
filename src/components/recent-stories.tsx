@@ -10,7 +10,6 @@ import {
 import { useRecentCollectionsStore } from "~/store/recent-collections-store"
 import { useNDKStore } from "~/store/ndk-store"
 import Image from "next/image"
-import { useMedia } from "use-media"
 
 export default function RecentStories() {
   const { ndkUser } = useNDKStore()
@@ -21,8 +20,8 @@ export default function RecentStories() {
     void setGeometryFromNostr(naddr)
   }
 
-  const handleClone = () => {
-    console.log("clone")
+  const handleClone = (naddr: string) => {
+    void setGeometryFromNostr(naddr)
   }
 
   return (
@@ -46,7 +45,9 @@ export default function RecentStories() {
                   edit
                 </Button>
               ) : (
-                <Button onClick={handleClone}>clone</Button>
+                <Button onClick={() => handleClone(collection.naddr)}>
+                  clone
+                </Button>
               )}
             </div>
             <b>{collection.naddr}</b>

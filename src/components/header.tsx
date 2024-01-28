@@ -165,6 +165,7 @@ export default function Header() {
     <header className="flex flex-none flex-row items-center justify-between p-4">
       <h1 className="text-2xl font-bold">earthly</h1>
       <div className="z-50 flex flex-row gap-8 text-xs">
+        {ndkUser?.pubkey}
         <MapSettings />
         <UserInfo />
         {ndkUser ? (

@@ -93,7 +93,7 @@ export default function Home() {
       <Layout>
         <main className="flex flex-grow flex-col-reverse lg:flex-row lg:overflow-auto">
           {isWide ? (
-            <div className="flex flex-col gap-2 p-4 lg:w-1/3 lg:overflow-y-scroll">
+            <div className="flex w-1/2 flex-col gap-2 p-4 lg:w-1/2 lg:overflow-y-scroll">
               <Alert variant="destructive">
                 <Terminal className="h-4 w-4" />
                 <AlertTitle>Warning!</AlertTitle>

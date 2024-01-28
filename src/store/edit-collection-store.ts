@@ -3,12 +3,14 @@ import { type Feature, type FeatureCollection, type Geometry } from "geojson"
 import { useNDKStore } from "~/store/ndk-store"
 import { mapGeometryCollectionFeature } from "~/mapper/geometry-feature"
 import { decodeNaddr } from "~/utils/naddr"
+import { NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
 
 export interface FeatureProperties {
   id: string
   name: string
   description: string
   color: string
+  approved: boolean
 }
 
 export type CustomFeature = Feature<Geometry, FeatureProperties>
@@ -23,7 +25,10 @@ export const useEditingCollectionStore = create<{
   reset: () => void
   setGeometry: (geometry: CustomFeatureCollection) => void
   addFeature: (feature: CustomFeature) => void
-  setGeometryFromNostr: (eventId: string) => Promise<void>
+  setGeometryFromNostr: (
+    eventId: string,
+    withUnapproved?: boolean,
+  ) => Promise<void>
 }>()((set, get, store) => ({
   naddr: undefined,
   geometryCollection: {
@@ -50,7 +55,7 @@ export const useEditingCollectionStore = create<{
       },
     }))
   },
-  setGeometryFromNostr: async (naddr: string) => {
+  setGeometryFromNostr: async (naddr: string, withUnapproved = false) => {
     const ndkInstance = useNDKStore.getState().ndk
     if (!ndkInstance) {
       throw new Error("NDK not initialized")
@@ -60,40 +65,50 @@ export const useEditingCollectionStore = create<{
 
     const collectionEvent = await ndkInstance.fetchEvent({
       kinds: [collectionNaddrData.kind],
-      authors: [collectionNaddrData.pubkey],
+      // authors: [collectionNaddrData.pubkey],
       "#d": [collectionNaddrData.identifier],
     })
+
+    console.log(collectionEvent)
 
     if (!collectionEvent) {
       throw new Error("Event not found")
     }
 
-    const geometryCollection = await Promise.all(
-      collectionEvent?.getMatchingTags("f").map(async (e) => {
-        if (!e) return
+    const validGeometryCollection = []
 
-        const naddrData = decodeNaddr(e[1] ?? "")
+    if (withUnapproved) {
+      const geometryCollection = await ndkInstance.fetchEvents({
+        kinds: [30333 as NDKKind],
+        "#a": [
+          `34550:${collectionEvent.pubkey}:${collectionEvent.tagValue("d")}`,
+        ],
+      })
 
-        const geoEvent = await ndkInstance.fetchEvent({
-          authors: [naddrData.pubkey],
-          "#d": [naddrData.identifier],
-        })
+      geometryCollection.forEach((ev) => {
+        if (!ev) return
+        validGeometryCollection.push(mapGeometryCollectionFeature(ev))
+      })
+    } else {
+      const geometryCollection = await ndkInstance.fetchEvents({
+        kinds: [4550 as NDKKind],
+        "#a": [
+          `34550:${collectionEvent.pubkey}:${collectionEvent.tagValue("d")}`,
+        ],
+      })
 
-        if (!geoEvent) return
-
-        return mapGeometryCollectionFeature(geoEvent)
-      }),
-    )
-
-    const validGeometryCollection = geometryCollection.filter(
-      (e) => e !== undefined,
-    ) as CustomFeature[]
+      geometryCollection.forEach((ev) => {
+        if (!ev) return
+        const contentEvent = new NDKEvent(undefined, JSON.parse(ev.content))
+        validGeometryCollection.push(mapGeometryCollectionFeature(contentEvent))
+      })
+    }
 
     set({
       naddr: naddr,
       geometryCollection: {
         type: "FeatureCollection",
-        features: validGeometryCollection,
+        features: validGeometryCollection as CustomFeature[],
       },
     })
   },

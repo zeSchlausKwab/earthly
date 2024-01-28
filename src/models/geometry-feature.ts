@@ -11,6 +11,7 @@ export const persistedGeometryFeatureSchema = z.object({
     .int()
     .default(Math.floor(Date.now() / 1000)),
   tags: z.tuple([
+    z.tuple([z.literal("a"), z.string(), z.string()]),
     z.tuple([z.literal("d"), z.string().uuid()]),
     z.tuple([z.literal("published_at"), z.string()]),
     z.tuple([z.literal("name"), z.string()]),
@@ -28,6 +29,8 @@ export type NostrGeometryFeature = z.infer<
 export const runtimeGeometryFeatureSchema = z.object({
   kind: z.literal(30333 as NDKKind),
   pubkey: z.string().min(1),
+  communityEventAuthorPubkey: z.string().min(1),
+  motherEventIdentifier: z.string().min(1),
   content: z.string(),
   created_at: z
     .number()
