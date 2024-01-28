@@ -7,6 +7,7 @@ import { FeatureGroup, MapContainer, Popup, TileLayer } from "react-leaflet"
 import { v4 as uuidv4 } from "uuid"
 
 import { Feature, FeatureCollection, Geometry, Position } from "geojson"
+import Control from "react-leaflet-custom-control"
 import { EditControl } from "react-leaflet-draw"
 import {
   CustomFeatureCollection,
@@ -15,10 +16,13 @@ import {
 } from "~/store/edit-collection-store"
 import { useRecentCollectionsStore } from "~/store/recent-collections-store"
 
+import { LocateFixed } from "lucide-react"
 import dynamic from "next/dynamic"
 import FeaturePopup from "~/components/feature-popup"
 import MapZoomLocation from "./map-zoom-location"
 import MapZoomFeature from "./map-zoom-on-feature"
+import { Button } from "./ui/button"
+import useMedia from "use-media"
 
 const MapZoomEdit = dynamic(() => import("./map-zoom-edit"), {
   ssr: false,
@@ -47,6 +51,7 @@ function removeAttributionFlag() {
 export default function Map() {
   const { geometryCollection, setGeometry } = useEditingCollectionStore()
   const { collections } = useRecentCollectionsStore()
+  const isWide = useMedia({ minWidth: "1024px" })
 
   const [geojson, setGeojson] = useState<L.FeatureGroup | null>(null)
   const [selectedFeature, setSelectedFeature] = useState<
@@ -207,6 +212,12 @@ export default function Map() {
         center={[29.756433, -95.36403]}
         zoom={13}
       >
+        <Control position="bottomleft">
+          <Button variant="outline" className="z-50 mb-4 ml-4">
+            <LocateFixed />
+          </Button>
+        </Control>
+
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"

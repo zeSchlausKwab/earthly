@@ -1,6 +1,6 @@
 import { NDKNip07Signer } from "@nostr-dev-kit/ndk"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { LocateFixed, PanelTopClose } from "lucide-react"
+import { PanelTopClose } from "lucide-react"
 import dynamic from "next/dynamic"
 import Head from "next/head"
 import { useEffect, useState } from "react"
@@ -124,13 +124,6 @@ export default function Home() {
                 </SheetContent>
               </Sheet>
             )}
-            <Button
-              variant="outline"
-              className="absolute bottom-0 left-0 z-10 mb-4 ml-4"
-              onClick={handleUserLocationClick}
-            >
-              <LocateFixed />
-            </Button>
             <Map />
             <PassphraseLoginDialog
               open={passphraseDialogOpen}
