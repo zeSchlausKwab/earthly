@@ -136,11 +136,6 @@ export default function EditingStoryForm({
           />
         </form>
       </Form>
-      <div className={"flex flex-row justify-between"}>
-        <Button size={"sm"} variant={"destructive"} onClick={onDiscard}>
-          Discard
-        </Button>
-      </div>
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import { NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
 import { type LineString, type Point, type Polygon } from "geojson"
-import { CheckCheck, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { useEffect, useState } from "react"
 import EditingStoryMetaForm from "~/components/editing-story-meta-form"
 import LineStringDisplay from "~/components/geomety-types/line-string-display"
@@ -19,7 +19,6 @@ import {
 } from "~/store/edit-collection-store"
 import { useNDKStore } from "~/store/ndk-store"
 import { decodeNaddr } from "~/utils/naddr"
-import { Button } from "./ui/button"
 
 export const Icons = {
   spinner: Loader2,
@@ -76,6 +75,7 @@ export default function EditingStoryFeature({
     featureId: string,
     title: string,
     description: string,
+    color: string,
   ) => {
     const newGeometryCollection = {
       ...geometryCollection,
@@ -87,6 +87,7 @@ export default function EditingStoryFeature({
               ...feature.properties,
               description: description,
               name: title,
+              color: color,
             },
           }
         } else {
@@ -97,64 +98,26 @@ export default function EditingStoryFeature({
     setGeometry(newGeometryCollection)
   }
 
-  const handleFeatureApproval = async () => {
-    if (ndk && ndkUser && originalEvent) {
-      const now = Math.floor(Date.now() / 1000)
-      const ev = await originalEvent.toNostrEvent()
-
-      const approvalEvent = new NDKEvent(ndk, {
-        kind: 4550 as NDKKind,
-        pubkey: ndkUser.pubkey,
-        content: JSON.stringify(ev),
-        created_at: now,
-        tags: [
-          [
-            "a",
-            `34550:${ndkUser?.pubkey}:${identifier}`,
-            "wss://relay.earthly.land",
-          ],
-          ["e", `${originalEvent?.id}`, "wss://relay.earthly.land"],
-          ["p", `${ndkUser?.pubkey}`, "wss://relay.earthly.land"],
-          ["k", "4326"],
-        ],
-      })
-
-      const publishedApprovalEvent = await approvalEvent.publish()
-
-      if (publishedApprovalEvent) {
-        setApprovalEvent(approvalEvent)
-      }
-    }
-  }
-
   return (
-    <div className="flex flex-col text-xs">
+    <div className="flex flex-col rounded-lg border p-2 text-xs">
       <Accordion type="single" collapsible className={"flex flex-col"}>
         <AccordionItem value="item-1">
-          <div className="flex flex-row gap-2">
-            {!approvalEvent && (
-              <Button onClick={handleFeatureApproval}>
-                <CheckCheck />
-              </Button>
-            )}
-            <p
-              className={"w-[20%] text-sm"}
-              style={{ color: feature.properties.color }}
-            >
-              {feature.properties.color}
-            </p>
-            <EditingStoryMetaForm
-              title={featureProperties.name}
-              description={featureProperties.description}
-              onChange={(title, description) =>
-                handleFeatureMetaChange(
-                  feature.properties.id,
-                  title,
-                  description,
-                )
-              }
-            />
-          </div>
+          <EditingStoryMetaForm
+            title={featureProperties.name}
+            description={featureProperties.description}
+            color={featureProperties.color}
+            approvalEvent={approvalEvent}
+            originalEvent={originalEvent}
+            identifier={identifier}
+            onChange={(title, description) =>
+              handleFeatureMetaChange(
+                feature.properties.id,
+                title,
+                description,
+                featureProperties.color,
+              )
+            }
+          />
           <AccordionTrigger className={"gap-2"}>
             <Badge className={"w-[20%]"} variant="outline">
               {geometry.type}
