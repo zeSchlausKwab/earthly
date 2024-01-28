@@ -1,8 +1,9 @@
-import { create } from "zustand"
+import { NDKEvent, type NDKKind, type NostrEvent } from "@nostr-dev-kit/ndk"
+import type { GeometryCollection } from "geojson"
 import { type Feature, type FeatureCollection, type Geometry } from "geojson"
+import { create } from "zustand"
 import { useNDKStore } from "~/store/ndk-store"
 import { decodeNaddr } from "~/utils/naddr"
-import { NDKEvent, type NDKKind, type NostrEvent } from "@nostr-dev-kit/ndk"
 
 export type FeatureProperties = {
   id: string
@@ -10,9 +11,10 @@ export type FeatureProperties = {
   name: string
   description: string
   color: string
-  approved: boolean
+  approved?: boolean
 }
 
+export type NostrableGeometry = Exclude<Geometry, GeometryCollection>
 export type CustomFeature = Feature<Geometry, FeatureProperties>
 export type CustomFeatureCollection = FeatureCollection<
   Geometry,

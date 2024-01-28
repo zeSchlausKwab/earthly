@@ -260,7 +260,7 @@ export default function Map() {
           )}
         </FeatureGroup>
         <FeatureGroup ref={recentCollection}></FeatureGroup>
-        <MapZoomEdit geojson={geometryCollection} />
+        {/* <MapZoomEdit geojson={geometryCollection} /> */}
         <MapZoomRecent recentCollections={collections} />
         <MapZoomLocation />
         <MapZoomFeature />

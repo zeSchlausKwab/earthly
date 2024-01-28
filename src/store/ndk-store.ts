@@ -24,7 +24,7 @@ export const useNDKStore = create<NostrKeyState>()((set, get, store) => ({
   initPrivateKey: async (nsec) => {
     localStorage.setItem("shouldReconnect", "true")
     set({ ndk: undefined, ndkUser: undefined })
-    const privateKey = toHexString(nip19.decode(nsec).data as Uint8Array)
+    const privateKey = toHexString(nip19.decode(nsec).data)
     const newSigner = new NDKPrivateKeySigner(privateKey)
     const newSignerUser = await newSigner.user()
 

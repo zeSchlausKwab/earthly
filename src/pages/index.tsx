@@ -92,7 +92,7 @@ export default function Home() {
         <Layout>
           <main className="flex flex-grow flex-col-reverse lg:flex-row lg:overflow-auto">
             {isWide ? (
-              <div className="flex w-1/2 flex-col gap-2 p-4 lg:w-1/2 lg:overflow-y-scroll">
+              <div className="flex w-2/5 flex-col gap-2 p-4 lg:overflow-y-scroll">
                 <DevelopmentDisclaimer />
                 <EditingStory />
                 <RecentStories />
@@ -118,7 +118,9 @@ export default function Home() {
                 </SheetContent>
               </Sheet>
             )}
-            <Map />
+            <div className="w-3/5">
+              <Map />
+            </div>
             <PassphraseLoginDialog
               open={passphraseDialogOpen}
               onRefuse={() => handleRefusePassphraseLogin()}

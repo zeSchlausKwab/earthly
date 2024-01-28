@@ -1,6 +1,6 @@
 import { NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
 import { type GeoJsonGeometryTypes } from "geojson"
-import { Loader2 } from "lucide-react"
+import { Loader2, Upload } from "lucide-react"
 import { useEffect, useState } from "react"
 import { v4 as uuidv4 } from "uuid"
 import EditingStoryForm from "~/components/editing-story-form"
@@ -24,7 +24,19 @@ import { Button } from "~/components/ui/button"
 import { Label } from "~/components/ui/label"
 import { Switch } from "~/components/ui/switch"
 import { decodeNaddr } from "~/utils/naddr"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "./ui/dialog"
+import { Input } from "./ui/input"
 import { toast } from "./ui/use-toast"
+import GeoJsonUploadDialog from "./geo-json-upload-dialog"
+import EditingStoryTable from "./edit-story-table"
 
 export const Icons = {
   spinner: Loader2,
@@ -346,6 +358,23 @@ export default function EditingStory({}) {
       {geometryCollection.features.length > 0 ? (
         <div className={"flex flex-col rounded-lg border p-4"}>
           <div className="flex items-center space-x-2">
+            <Dialog>
+              <DialogTrigger asChild>
+                <Upload className="h-4 w-4" />
+              </DialogTrigger>
+              <DialogContent className="min-w-[80vw]">
+                <DialogHeader>
+                  <DialogTitle>Upload geojson</DialogTitle>
+                  <DialogDescription>
+                    Make sure the file is formatted properly
+                  </DialogDescription>
+                </DialogHeader>
+                <GeoJsonUploadDialog />
+                <DialogFooter>
+                  <Button type="submit">Save changes</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
             <Switch
               id="show-unapproved-features"
               defaultChecked={false}
@@ -368,7 +397,10 @@ export default function EditingStory({}) {
               <div>{collectionMeta?.description}</div>
             </div>
           )}
-          <div className={"flex flex-col"}>
+
+          <EditingStoryTable tableData={geometryCollection} />
+
+          {/* <div className={"flex flex-col"}>
             {geometryCollection.features.map((feature, index) => {
               return (
                 <EditingStoryFeature
@@ -378,7 +410,7 @@ export default function EditingStory({}) {
                 />
               )
             })}
-          </div>
+          </div> */}
           {naddr && (
             <Button onClick={handleSubmitGeometryChanges}>
               Submit changes

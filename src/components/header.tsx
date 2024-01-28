@@ -122,15 +122,13 @@ export default function Header() {
         const sk = nip19.decode(inValue)
         console.log(sk)
         setKeyPair({
-          npub: nip19.npubEncode(
-            getPublicKey(sk.data as Uint8Array),
-          ) as `npub1${string}`,
+          npub: nip19.npubEncode(getPublicKey(sk.data as Uint8Array)),
           nsec: inValue as `nsec1${string}`,
         })
       } else {
         const sk = Uint8Array.from(Buffer.from(inValue, "hex"))
         setKeyPair({
-          npub: nip19.npubEncode(getPublicKey(sk)) as `npub1${string}`,
+          npub: nip19.npubEncode(getPublicKey(sk)),
           nsec: nip19.nsecEncode(sk),
         })
       }
