@@ -1,6 +1,12 @@
 import crypto from "crypto"
 import { Buffer } from "buffer"
 
+export function toHexString(byteArray: Uint8Array) {
+  return Array.from(byteArray, function (byte) {
+    return ("0" + (byte & 0xff).toString(16)).slice(-2)
+  }).join("")
+}
+
 function create32ByteBuffer(inputString: string) {
   const hash = crypto.createHash("sha256").update(inputString).digest("hex")
   const buffer = Buffer.from(hash, "hex")

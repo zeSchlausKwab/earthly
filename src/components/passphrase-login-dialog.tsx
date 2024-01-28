@@ -1,4 +1,3 @@
-import { nip19 } from "nostr-tools"
 import { useState } from "react"
 import { Icons } from "~/components/editing-story"
 import { Input } from "~/components/ui/input"
@@ -33,7 +32,10 @@ export default function PassphraseLoginDialog({
 
   const handlePassphraseSubmit = async () => {
     const storedEncryptedNsec = localStorage.getItem("encryptedNsec")
-    const nsec = decryptMessage(storedEncryptedNsec!, passphrase)
+    const nsec = decryptMessage(
+      storedEncryptedNsec!,
+      passphrase,
+    ) as `nsec1${string}`
 
     if (!nsec) {
       toast({
@@ -41,15 +43,13 @@ export default function PassphraseLoginDialog({
         description: "Please try again",
       })
     } else {
-      const privateKey = nip19.decode(nsec as `nsec1${string}`).data.toString()
-
       toast({
         title: "Successfully logged in",
         description: "Welcome back!",
       })
 
       setIsInitiating(true)
-      await initPrivateKey(privateKey)
+      await initPrivateKey(nsec)
       setIsInitiating(false)
       onLogin()
     }

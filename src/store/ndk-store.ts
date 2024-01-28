@@ -1,15 +1,17 @@
-import { create } from "zustand"
 import NDK, {
   type NDKNip07Signer,
   NDKPrivateKeySigner,
   type NDKUser,
 } from "@nostr-dev-kit/ndk"
+import { nip19 } from "nostr-tools"
+import { create } from "zustand"
 import { relayList } from "~/config/relay-list"
+import { toHexString } from "~/utils/crypto"
 
 interface NostrKeyState {
   ndk: NDK | undefined
   ndkUser: NDKUser | undefined
-  initPrivateKey: (privateKey: string) => Promise<void>
+  initPrivateKey: (nsec: `nsec1${string}`) => Promise<void>
   initSigner: (nip07Signer: NDKNip07Signer) => Promise<NDK>
   initAnonymous: () => Promise<void>
   logout: () => void
@@ -19,10 +21,10 @@ interface NostrKeyState {
 export const useNDKStore = create<NostrKeyState>()((set, get, store) => ({
   ndk: undefined,
   ndkUser: undefined,
-  initPrivateKey: async (privateKey) => {
+  initPrivateKey: async (nsec) => {
     localStorage.setItem("shouldReconnect", "true")
     set({ ndk: undefined, ndkUser: undefined })
-
+    const privateKey = toHexString(nip19.decode(nsec).data as Uint8Array)
     const newSigner = new NDKPrivateKeySigner(privateKey)
     const newSignerUser = await newSigner.user()
 

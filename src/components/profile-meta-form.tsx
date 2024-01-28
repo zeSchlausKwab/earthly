@@ -65,8 +65,6 @@ export default function ProfileMetaForm() {
     user.profile.website = data.website ?? user?.profile?.website
     user.profile.name = data.name ?? user?.profile?.name
 
-    console.log(user.profile)
-
     await user?.publish()
   }
 

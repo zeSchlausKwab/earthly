@@ -62,8 +62,6 @@ export default function FeaturesCommentReply({
       ],
     })
 
-    console.log(replyEvent)
-
     await replyEvent.publish()
 
     setIsReplyFormOpen(false)

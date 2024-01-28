@@ -1,30 +1,12 @@
-import { Button } from "~/components/ui/button"
-import React, { ChangeEvent, useState } from "react"
-import { NDKNip07Signer } from "@nostr-dev-kit/ndk"
-import { useNDKStore } from "~/store/ndk-store"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "~/components/ui/popover"
-import { Input } from "~/components/ui/input"
-import { generatePrivateKey, getPublicKey, nip19 } from "nostr-tools"
-import { Separator } from "~/components/ui/separator"
-import { ClipboardCopy, Copy, Info, Settings } from "lucide-react"
-import { useToast } from "~/components/ui/use-toast"
-import { z } from "zod"
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "~/components/ui/form"
 import { zodResolver } from "@hookform/resolvers/zod"
+import { NDKNip07Signer } from "@nostr-dev-kit/ndk"
+import { ClipboardCopy, Copy, Info, Settings } from "lucide-react"
+import { generateSecretKey, getPublicKey, nip19 } from "nostr-tools"
+import { ChangeEvent, useState } from "react"
 import { useForm } from "react-hook-form"
-import UserInfo from "~/components/user-info"
+import { z } from "zod"
 import MapSettings from "~/components/map-settings"
+import { Button } from "~/components/ui/button"
 import {
   Dialog,
   DialogClose,
@@ -35,15 +17,45 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "~/components/ui/dialog"
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "~/components/ui/form"
+import { Input } from "~/components/ui/input"
 import { Label } from "~/components/ui/label"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "~/components/ui/popover"
+import { Separator } from "~/components/ui/separator"
+import { useToast } from "~/components/ui/use-toast"
+import UserInfo from "~/components/user-info"
+import { useNDKStore } from "~/store/ndk-store"
 import { encryptMessage } from "~/utils/crypto"
 import ProfileMetaForm from "./profile-meta-form"
 import SiteInfo from "./site-info"
 
 const privateKeySchema = z.object({
-  privateKey: z
-    .string()
-    .min(64, "Private key should be at least 64 characters long"),
+  nsecOrPrivateKey: z.string().refine(
+    (value) => {
+      let properNsec = false
+      try {
+        properNsec = Boolean(nip19.decode(value))
+      } catch (err) {
+        console.log(err)
+      }
+      const isPrivateKey = value.length === 64 && !value.startsWith("nsec")
+      return properNsec || isPrivateKey
+    },
+    {
+      message: "Invalid nsec or private key string",
+    },
+  ),
 })
 
 export default function Header() {
@@ -52,21 +64,17 @@ export default function Header() {
   const { toast } = useToast()
 
   const [keyPair, setKeyPair] = useState<{
-    publicKey: string
-    privateKey: string
-    npub?: string
-    nsec?: string
+    npub?: `npub1${string}` | undefined
+    nsec?: `nsec1${string}` | undefined
   }>({
-    publicKey: "",
-    privateKey: "",
-    npub: "",
-    nsec: "",
+    npub: undefined,
+    nsec: undefined,
   })
   const [passphrase, setPassphrase] = useState<string>("")
   const form = useForm<z.infer<typeof privateKeySchema>>({
     resolver: zodResolver(privateKeySchema),
     defaultValues: {
-      privateKey: "",
+      nsecOrPrivateKey: "",
     },
   })
   const onAuthenticateWithSigner = async () => {
@@ -80,10 +88,8 @@ export default function Header() {
         })
 
         setKeyPair({
-          publicKey: user.pubkey,
-          privateKey: "",
-          npub: user.npub,
-          nsec: "",
+          npub: user.npub as `npub1${string}`,
+          nsec: undefined,
         })
 
         toast({
@@ -95,37 +101,43 @@ export default function Header() {
   }
 
   const onGenerateKeyPair = async () => {
-    const generatedPrivateKey = generatePrivateKey()
-    const publicKey = getPublicKey(generatedPrivateKey)
+    const sk = generateSecretKey()
+    const nsec = nip19.nsecEncode(sk)
+    const publicKey = getPublicKey(sk)
     setKeyPair({
-      publicKey,
-      privateKey: generatedPrivateKey,
       npub: nip19.npubEncode(publicKey),
-      nsec: nip19.nsecEncode(generatedPrivateKey),
+      nsec: nsec,
     })
-    form.setValue("privateKey", generatedPrivateKey)
-    await form.trigger("privateKey")
+    form.setValue("nsecOrPrivateKey", nsec)
+    await form.trigger("nsecOrPrivateKey")
   }
 
   const onPrivateKeyInput = async (e: ChangeEvent<HTMLInputElement>) => {
-    const privateKey = e.target.value
-    form.setValue("privateKey", privateKey)
-    const formState = await form.trigger("privateKey")
+    const inValue = e.target.value
+    form.setValue("nsecOrPrivateKey", inValue)
+    const formState = await form.trigger("nsecOrPrivateKey")
 
     if (formState) {
-      const publicKey = getPublicKey(privateKey)
-      setKeyPair({
-        publicKey: publicKey,
-        privateKey: privateKey,
-        npub: nip19.npubEncode(publicKey),
-        nsec: nip19.nsecEncode(privateKey),
-      })
+      if (inValue.startsWith("nsec")) {
+        const sk = nip19.decode(inValue)
+        console.log(sk)
+        setKeyPair({
+          npub: nip19.npubEncode(
+            getPublicKey(sk.data as Uint8Array),
+          ) as `npub1${string}`,
+          nsec: inValue as `nsec1${string}`,
+        })
+      } else {
+        const sk = Uint8Array.from(Buffer.from(inValue, "hex"))
+        setKeyPair({
+          npub: nip19.npubEncode(getPublicKey(sk)) as `npub1${string}`,
+          nsec: nip19.nsecEncode(sk),
+        })
+      }
     } else {
       setKeyPair({
-        publicKey: "",
-        privateKey: "",
-        npub: "",
-        nsec: "",
+        npub: undefined,
+        nsec: undefined,
       })
     }
   }
@@ -140,12 +152,14 @@ export default function Header() {
       return
     }
     localStorage.setItem("encryptedNsec", encryptedNsec)
-    await initPrivateKey(keyPair.privateKey)
+    if (keyPair.nsec) {
+      await initPrivateKey(keyPair.nsec)
+    }
   }
 
   const handleCopyPrivateKeyToClipboard = async () => {
     try {
-      await navigator.clipboard.writeText(keyPair.privateKey)
+      await navigator.clipboard.writeText(keyPair.nsec as string)
       toast({
         title: "Private key copied to clipboard",
         description: "Preserve this key in a safe place.",
@@ -180,7 +194,7 @@ export default function Header() {
                   <DialogTrigger asChild>
                     <Button
                       className={"flex-grow"}
-                      disabled={!Boolean(keyPair.privateKey)}
+                      disabled={!Boolean(keyPair.npub)}
                     >
                       Authenticate with private key
                     </Button>
@@ -200,16 +214,13 @@ export default function Header() {
                         </Label>
                         <Input
                           id="privateKey"
-                          defaultValue={keyPair.privateKey}
+                          defaultValue={keyPair.nsec}
                           readOnly
                         />
                         <Button type="submit" size="sm" className="px-3">
                           <span className="sr-only">Copy</span>
                           <Copy className="h-4 w-4" />
                         </Button>
-                      </div>
-                      <div className={"text-xs text-gray-600"}>
-                        {keyPair.nsec}
                       </div>
                       <div className="flex flex-row items-center gap-4">
                         <Label htmlFor="publicKey" className={"w-24"}>
@@ -217,16 +228,13 @@ export default function Header() {
                         </Label>
                         <Input
                           id="publicKey"
-                          defaultValue={keyPair.publicKey}
+                          defaultValue={keyPair.npub}
                           readOnly
                         />
                         <Button type="submit" size="sm" className="px-3">
                           <span className="sr-only">Copy</span>
                           <Copy className="h-4 w-4" />
                         </Button>
-                      </div>
-                      <div className={"text-xs text-gray-600"}>
-                        {keyPair.npub}
                       </div>
                       <Separator orientation={"horizontal"} />
                       <div className="flex flex-row items-center gap-4">
@@ -267,16 +275,16 @@ export default function Header() {
                     <form className="flex-grow">
                       <FormField
                         control={form.control}
-                        name="privateKey"
+                        name="nsecOrPrivateKey"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Private Key</FormLabel>
+                            <FormLabel>Private Key or nsec</FormLabel>
                             <FormControl>
                               <div
                                 className={"flex flex-row items-center gap-2"}
                               >
                                 <Input
-                                  placeholder="...private key"
+                                  placeholder="...private key or nsec"
                                   {...field}
                                   onChange={onPrivateKeyInput}
                                 />
@@ -285,9 +293,9 @@ export default function Header() {
                                 />
                               </div>
                             </FormControl>
-                            {form.formState.errors.privateKey && (
+                            {form.formState.errors.nsecOrPrivateKey && (
                               <FormMessage>
-                                {form.formState.errors.privateKey.message}
+                                {form.formState.errors.nsecOrPrivateKey.message}
                               </FormMessage>
                             )}
                           </FormItem>
@@ -297,11 +305,7 @@ export default function Header() {
                   </Form>
                 </div>
                 <div className={"p-2 text-xs"}>
-                  {keyPair.publicKey ? (
-                    <p>{keyPair.publicKey}</p>
-                  ) : (
-                    <p>No private key set.</p>
-                  )}
+                  {keyPair.nsec ? <p>{keyPair.npub}</p> : <p>No nsec set.</p>}
                 </div>
               </div>
             </PopoverContent>
@@ -309,9 +313,7 @@ export default function Header() {
         )}
         <Popover>
           <PopoverTrigger>
-            <Button variant="outline" size="icon">
-              <Settings />
-            </Button>
+            <Settings />
           </PopoverTrigger>
           <PopoverContent>
             <ProfileMetaForm />
@@ -319,9 +321,7 @@ export default function Header() {
         </Popover>
         <Popover>
           <PopoverTrigger>
-            <Button variant="outline" size="icon">
-              <Info />
-            </Button>
+            <Info />
           </PopoverTrigger>
           <PopoverContent>
             <SiteInfo />
