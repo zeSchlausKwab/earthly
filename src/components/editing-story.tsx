@@ -15,7 +15,6 @@ import {
 import LineStringDisplay from "~/components/geomety-types/line-string-display"
 import PointDisplay from "~/components/geomety-types/point-display"
 import PolygonDisplay from "~/components/geomety-types/polygon-display"
-import { Input } from "~/components/ui/input"
 import { useNDKStore } from "~/store/ndk-store"
 import { NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
 import * as React from "react"
@@ -38,14 +37,14 @@ import {
 
 import { decodeNaddr } from "~/utils/naddr"
 import diff from "microdiff"
-import { Textarea } from "~/components/ui/textarea"
+import EditingStoryMetaForm from "~/components/editing-story-meta-form"
 
 export const Icons = {
   spinner: Loader2,
 }
 
 export default function EditingStory({}) {
-  const { geometryCollection, naddr } = useEditingCollectionStore()
+  const { geometryCollection, naddr, setGeometry } = useEditingCollectionStore()
   const { ndk, ndkUser } = useNDKStore()
 
   const [isPersisting, setIsPersisting] = useState<boolean>(false)
@@ -259,7 +258,30 @@ export default function EditingStory({}) {
     console.log("discard")
   }
 
-  // TODO: implement on change for text fields and do a color picker
+  const handleFeatureMetaChange = (
+    featureId: string,
+    title: string,
+    description: string,
+  ) => {
+    const newGeometryCollection = {
+      ...geometryCollection,
+      features: geometryCollection.features.map((feature) => {
+        if (feature.properties.id === featureId) {
+          return {
+            ...feature,
+            properties: {
+              ...feature.properties,
+              description: description,
+              name: title,
+            },
+          }
+        } else {
+          return feature
+        }
+      }),
+    }
+    setGeometry(newGeometryCollection)
+  }
 
   return (
     <div className={"rounded-lg border p-4 text-sm"}>
@@ -282,10 +304,17 @@ export default function EditingStory({}) {
                 >
                   {feature.properties.color}
                 </p>
-                <p className={""}>
-                  <Input value={featureProperties.name} />
-                  <Textarea value={featureProperties.description} />
-                </p>
+                <EditingStoryMetaForm
+                  title={featureProperties.name}
+                  description={featureProperties.description}
+                  onChange={(title, description) =>
+                    handleFeatureMetaChange(
+                      feature.properties.id as string,
+                      title,
+                      description,
+                    )
+                  }
+                />
                 <Badge className={"w-[20%]"} variant="outline">
                   {geometry.type}
                 </Badge>

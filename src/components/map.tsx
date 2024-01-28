@@ -141,6 +141,7 @@ export default function Map() {
           if (!feature) return
           layer.on("click", () => {
             // TODO: this is a hack to get around bad typing
+            console.log("feature", feature)
             setSelectedFeature(feature as CustomFeatureGeo)
           })
         },
@@ -227,12 +228,7 @@ export default function Map() {
             }}
           />
           {selectedFeature && (
-            <Popup
-              position={[
-                selectedFeature.geometry.coordinates[1] ?? 0,
-                selectedFeature.geometry.coordinates[0] ?? 0,
-              ]}
-            >
+            <Popup>
               <FeaturePopup
                 key={selectedFeature.properties.id}
                 featureId={selectedFeature.properties.id}
