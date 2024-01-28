@@ -1,10 +1,10 @@
-import { type LineString } from "geojson";
-import { Badge } from "~/components/ui/badge";
+import { type LineString } from "geojson"
+import { Badge } from "~/components/ui/badge"
 
 export default function LineStringDisplay({
   geometry,
 }: {
-  geometry: LineString;
+  geometry: LineString
 }) {
   return (
     <p>
@@ -13,8 +13,8 @@ export default function LineStringDisplay({
           <Badge key={index} variant="outline">
             lat: {cord[0]} - lon: {cord[1]}
           </Badge>
-        );
+        )
       })}
     </p>
-  );
+  )
 }

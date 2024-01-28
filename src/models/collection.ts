@@ -1,5 +1,5 @@
-import { z } from "zod";
-import { NDKKind } from "@nostr-dev-kit/ndk";
+import { z } from "zod"
+import { NDKKind } from "@nostr-dev-kit/ndk"
 
 export const editCollectionFormSchema = z.object({
   storyTitle: z.string().min(3, {
@@ -8,10 +8,10 @@ export const editCollectionFormSchema = z.object({
   storyDescription: z.string().min(3, {
     message: "Give a short description of your story.",
   }),
-});
+})
 export type EditingCollectionFormSchema = z.infer<
   typeof editCollectionFormSchema
->;
+>
 
 export const updateCollectionFormSchema = z.object({
   naddr: z.string().min(1),
@@ -21,10 +21,10 @@ export const updateCollectionFormSchema = z.object({
   storyDescription: z.string().min(3, {
     message: "Give a short description of your story.",
   }),
-});
+})
 export type UpdateCollectionFormSchema = z.infer<
   typeof updateCollectionFormSchema
->;
+>
 
 export const persistedCollectionSchema = z.object({
   kind: z.literal(NDKKind.Article),
@@ -43,8 +43,8 @@ export const persistedCollectionSchema = z.object({
       z.tuple([z.literal("y"), z.string()]),
     ])
     .rest(z.tuple([z.literal("f"), z.string()])),
-});
-export type NostrCollection = z.infer<typeof persistedCollectionSchema>;
+})
+export type NostrCollection = z.infer<typeof persistedCollectionSchema>
 
 export const runtimeCollectionSchema = z.object({
   kind: z.literal(NDKKind.Article),
@@ -59,6 +59,6 @@ export const runtimeCollectionSchema = z.object({
   image: z.string(),
   published_at: z.number(),
   features: z.array(z.unknown()),
-});
+})
 
-export type RuntimeCollection = z.infer<typeof runtimeCollectionSchema>;
+export type RuntimeCollection = z.infer<typeof runtimeCollectionSchema>

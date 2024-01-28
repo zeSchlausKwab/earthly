@@ -1,27 +1,26 @@
-import { useNDKStore } from "~/store/ndk-store";
-import NostrFeature from "~/pages/components/nostr-feature";
-import { Button } from "~/components/ui/button";
-import { publicKeyTest } from "~/pages";
-import { useEditingCollectionStore } from "~/store/edit-collection-store";
+import NostrFeature from "~/pages/components/nostr-feature"
+import { Button } from "~/components/ui/button"
+import { publicKeyTest } from "~/pages"
+import { useEditingCollectionStore } from "~/store/edit-collection-store"
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from "~/components/ui/accordion";
-import { useRecentCollectionsStore } from "~/store/recent-collections-store";
+} from "~/components/ui/accordion"
+import { useRecentCollectionsStore } from "~/store/recent-collections-store"
 
 export default function RecentStories() {
-  const { collections } = useRecentCollectionsStore();
-  const { setGeometryFromNostr } = useEditingCollectionStore();
+  const { collections } = useRecentCollectionsStore()
+  const { setGeometryFromNostr } = useEditingCollectionStore()
 
   const handleEdit = (naddr: string) => {
-    setGeometryFromNostr(naddr);
-  };
+    setGeometryFromNostr(naddr)
+  }
 
   const handleClone = () => {
-    console.log("clone");
-  };
+    console.log("clone")
+  }
 
   return (
     <div className={"break-all rounded-lg border text-sm"}>
@@ -47,14 +46,14 @@ export default function RecentStories() {
                 <AccordionTrigger>geometry</AccordionTrigger>
                 <AccordionContent className={"flex flex-col gap-2"}>
                   {collection.featureNaddrs.map((tag) => {
-                    return <NostrFeature key={tag} naddr={tag} />;
+                    return <NostrFeature key={tag} naddr={tag} />
                   })}
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
           </div>
-        );
+        )
       })}
     </div>
-  );
+  )
 }

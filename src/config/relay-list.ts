@@ -6,4 +6,4 @@ export const relayList = [
   // "wss://relay.wellorder.net",
   // "wss://nostr-pub.wellorder.net",
   // "wss://nostr.einundzwanzig.space",
-];
+]

@@ -1,10 +1,10 @@
-import { type NDKEvent } from "@nostr-dev-kit/ndk";
+import { type NDKEvent } from "@nostr-dev-kit/ndk"
 import {
   type NostrGeometryFeature,
   persistedGeometryFeatureSchema,
   type RuntimeGeometryFeature,
-} from "~/models/geometry-feature";
-import { type GeoJsonGeometryTypes } from "geojson";
+} from "~/models/geometry-feature"
+import { type GeoJsonGeometryTypes } from "geojson"
 
 export const runtimeGeometryFeatureToNostr = (
   runtimeFeature: RuntimeGeometryFeature,
@@ -23,8 +23,8 @@ export const runtimeGeometryFeatureToNostr = (
       ["coordinates", JSON.stringify(runtimeFeature.coordinates)],
       ["y", "feature"],
     ],
-  } as NostrGeometryFeature);
-};
+  } as NostrGeometryFeature)
+}
 
 export const getProperties = (event: NDKEvent) => {
   return {
@@ -32,15 +32,15 @@ export const getProperties = (event: NDKEvent) => {
     description: event?.content,
     color: event?.tagValue("color") ?? "#000000",
     name: event?.tagValue("name") ?? "",
-  };
-};
+  }
+}
 
 function getCoordinates(event: NDKEvent) {
-  return JSON.parse(event?.tagValue("coordinates") ?? "[]") as number[][];
+  return JSON.parse(event?.tagValue("coordinates") ?? "[]") as number[][]
 }
 
 export const mapGeometryCollectionFeature = (event: NDKEvent) => {
-  const geometryType = event?.tagValue("type") as GeoJsonGeometryTypes;
+  const geometryType = event?.tagValue("type") as GeoJsonGeometryTypes
 
   return {
     Point: {
@@ -99,13 +99,13 @@ export const mapGeometryCollectionFeature = (event: NDKEvent) => {
       },
       properties: getProperties(event),
     },
-  }[geometryType];
-};
+  }[geometryType]
+}
 
 export const nostrGeometryFeatureToRuntime = (
   nostrFeature: NostrGeometryFeature,
 ) => {
-  const event = nostrFeature as unknown as NDKEvent;
+  const event = nostrFeature as unknown as NDKEvent
   return {
     kind: nostrFeature.kind,
     pubkey: nostrFeature.pubkey,
@@ -117,5 +117,5 @@ export const nostrGeometryFeatureToRuntime = (
     color: event.tagValue("color") ?? "",
     type: event.tagValue("type") ?? "",
     coordinates: JSON.parse(event?.tagValue("coordinates") ?? "[]"),
-  } as RuntimeGeometryFeature;
-};
+  } as RuntimeGeometryFeature
+}

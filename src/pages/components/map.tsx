@@ -1,49 +1,49 @@
-import * as React from "react";
-import { useEffect, useRef, useState } from "react";
-import "leaflet/dist/leaflet.css";
-import "leaflet-draw/dist/leaflet.draw.css";
-import { FeatureGroup, MapContainer, Popup, TileLayer } from "react-leaflet";
-import * as L from "leaflet";
+import * as React from "react"
+import { useEffect, useRef, useState } from "react"
+import "leaflet/dist/leaflet.css"
+import "leaflet-draw/dist/leaflet.draw.css"
+import { FeatureGroup, MapContainer, Popup, TileLayer } from "react-leaflet"
+import * as L from "leaflet"
 
-import { v4 as uuidv4 } from "uuid";
+import { v4 as uuidv4 } from "uuid"
 
-import { EditControl } from "react-leaflet-draw";
-import { useEditingCollectionStore } from "~/store/edit-collection-store";
-import { FeaturePopup } from "~/pages/components/feature-popup";
-import { MapZoom } from "~/pages/components/map-zoom";
-import { useRecentCollectionsStore } from "~/store/recent-collections-store";
+import { EditControl } from "react-leaflet-draw"
+import { useEditingCollectionStore } from "~/store/edit-collection-store"
+import { FeaturePopup } from "~/pages/components/feature-popup"
+import { MapZoom } from "~/pages/components/map-zoom"
+import { useRecentCollectionsStore } from "~/store/recent-collections-store"
 
 export default function Map() {
-  const { geometryCollection, setGeometry } = useEditingCollectionStore();
-  const { collections } = useRecentCollectionsStore();
+  const { geometryCollection, setGeometry } = useEditingCollectionStore()
+  const { collections } = useRecentCollectionsStore()
 
-  const [geojson, setGeojson] = useState<L.FeatureGroup | null>(null);
-  const [selectedFeature, setSelectedFeature] = useState(null);
+  const [geojson, setGeojson] = useState<L.FeatureGroup | null>(null)
+  const [selectedFeature, setSelectedFeature] = useState(null)
 
-  const ref = useRef<L.FeatureGroup>(null);
-  const recentCollection = useRef<L.FeatureGroup>(null);
+  const ref = useRef<L.FeatureGroup>(null)
+  const recentCollection = useRef<L.FeatureGroup>(null)
 
   useEffect(() => {
     if (geometryCollection) {
-      ref.current?.clearLayers();
-      setGeojson(geometryCollection);
+      ref.current?.clearLayers()
+      setGeojson(geometryCollection)
     }
-  }, [geometryCollection]);
+  }, [geometryCollection])
 
   useEffect(() => {
-    recentCollection.current?.clearLayers();
+    recentCollection.current?.clearLayers()
     if (collections) {
       collections.forEach((collection) => {
         L.geoJSON(collection.features, {
           style: (feature) => {
             return {
               color: feature.properties.color,
-            };
+            }
           },
-        }).addTo(recentCollection.current);
-      });
+        }).addTo(recentCollection.current)
+      })
     }
-  }, [collections]);
+  }, [collections])
 
   const handleFeatureDescriptionChange = (
     featureId: string,
@@ -63,14 +63,14 @@ export default function Map() {
               name: title,
               color: color,
             },
-          };
+          }
         } else {
-          return feature;
+          return feature
         }
       }),
-    };
-    setGeometry(newGeometryCollection);
-  };
+    }
+    setGeometry(newGeometryCollection)
+  }
 
   const handleFeatureDelete = (featureId: string) => {
     const newGeometryCollection = {
@@ -78,9 +78,9 @@ export default function Map() {
       features: geometryCollection.features.filter(
         (feature) => feature.properties.id !== featureId,
       ),
-    };
-    setGeometry(newGeometryCollection);
-  };
+    }
+    setGeometry(newGeometryCollection)
+  }
 
   useEffect(() => {
     if (ref.current?.getLayers().length === 0 && geojson) {
@@ -88,12 +88,12 @@ export default function Map() {
         style: (feature) => {
           return {
             color: feature.properties.color,
-          };
+          }
         },
         onEachFeature: (feature, layer) => {
           layer.on("click", () => {
-            setSelectedFeature(feature);
-          });
+            setSelectedFeature(feature)
+          })
         },
       }).eachLayer((layer) => {
         if (
@@ -104,18 +104,18 @@ export default function Map() {
           if (layer?.feature?.properties.radius && ref.current) {
             new L.Circle(layer.feature.geometry.coordinates.slice().reverse(), {
               radius: layer.feature?.properties.radius,
-            }).addTo(ref.current);
+            }).addTo(ref.current)
           } else {
-            ref.current?.addLayer(layer);
+            ref.current?.addLayer(layer)
           }
         }
-      });
+      })
     }
-  }, [geojson]);
+  }, [geojson])
 
   const handleChange = () => {
-    console.log("change");
-    const geo = ref.current?.toGeoJSON();
+    console.log("change")
+    const geo = ref.current?.toGeoJSON()
 
     const geoWithProperties = {
       type: "FeatureCollection",
@@ -139,12 +139,12 @@ export default function Map() {
               feature.properties.description ??
               `description for ${feature.geometry.type}-${Date.now()}`,
           },
-        };
+        }
       }),
-    };
+    }
 
-    setGeometry(geoWithProperties);
-  };
+    setGeometry(geoWithProperties)
+  }
 
   return (
     <>
@@ -184,7 +184,7 @@ export default function Map() {
                 selectedFeature.geometry.coordinates[0],
               ]}
               onClose={() => {
-                setSelectedFeature(null);
+                setSelectedFeature(null)
               }}
             >
               <FeaturePopup
@@ -203,5 +203,5 @@ export default function Map() {
         <MapZoom geojson={geometryCollection} />
       </MapContainer>
     </>
-  );
+  )
 }

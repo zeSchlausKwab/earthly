@@ -1,11 +1,11 @@
-import { type NDKEvent, NDKKind } from "@nostr-dev-kit/ndk";
+import { type NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
 import {
   type NostrCollection,
   persistedCollectionSchema,
   type RuntimeCollection,
   runtimeCollectionSchema,
-} from "~/models/collection";
-import { nip19 } from "nostr-tools";
+} from "~/models/collection"
+import { nip19 } from "nostr-tools"
 
 export const mapFeatureEventsToIdentifiers = (
   newFeatureEvents: NDKEvent[],
@@ -15,11 +15,11 @@ export const mapFeatureEventsToIdentifiers = (
       pubkey: event.pubkey,
       kind: event.kind ?? NDKKind.Article,
       identifier: event.tagValue("d") ?? "",
-    });
+    })
 
-    return ["f", naddr];
-  });
-};
+    return ["f", naddr]
+  })
+}
 
 export const runtimeCollectionToNostr = (
   runtimeCollection: RuntimeCollection,
@@ -37,11 +37,11 @@ export const runtimeCollectionToNostr = (
       ["y", "collection"],
       ...runtimeCollection.features,
     ],
-  } as NostrCollection);
-};
+  } as NostrCollection)
+}
 
 export const nostrCollectionToRuntime = (nostrCollection: NostrCollection) => {
-  const event = nostrCollection as unknown as NDKEvent;
+  const event = nostrCollection as unknown as NDKEvent
   return runtimeCollectionSchema.parse({
     kind: nostrCollection.kind,
     pubkey: nostrCollection.pubkey,
@@ -52,5 +52,5 @@ export const nostrCollectionToRuntime = (nostrCollection: NostrCollection) => {
     image: event.tagValue("image") ?? "",
     published_at: new Date(event.tagValue("published_at") ?? "").getDate(),
     features: [event.getMatchingTags("f")],
-  } as RuntimeCollection);
-};
+  } as RuntimeCollection)
+}

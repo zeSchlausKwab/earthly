@@ -1,5 +1,5 @@
-import { type Polygon } from "geojson";
-import { Badge } from "~/components/ui/badge";
+import { type Polygon } from "geojson"
+import { Badge } from "~/components/ui/badge"
 
 export default function PolygonDisplay({ geometry }: { geometry: Polygon }) {
   return (
@@ -9,8 +9,8 @@ export default function PolygonDisplay({ geometry }: { geometry: Polygon }) {
           <Badge key={index} variant="outline">
             lat: {cord[0]} - lon: {cord[1]}
           </Badge>
-        );
+        )
       })}
     </p>
-  );
+  )
 }

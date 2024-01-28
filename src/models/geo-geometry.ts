@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "zod"
 
 export const geoGeometrySchema = z.union([
   z.literal("Point"),
@@ -8,4 +8,4 @@ export const geoGeometrySchema = z.union([
   z.literal("Polygon"),
   z.literal("MultiPolygon"),
   z.literal("GeometryCollection"),
-]);
+])

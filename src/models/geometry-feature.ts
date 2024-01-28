@@ -1,6 +1,6 @@
-import { z } from "zod";
-import { type NDKKind } from "@nostr-dev-kit/ndk";
-import { geoGeometrySchema } from "~/models/geo-geometry";
+import { z } from "zod"
+import { type NDKKind } from "@nostr-dev-kit/ndk"
+import { geoGeometrySchema } from "~/models/geo-geometry"
 
 export const persistedGeometryFeatureSchema = z.object({
   kind: z.literal(30333 as NDKKind),
@@ -19,10 +19,10 @@ export const persistedGeometryFeatureSchema = z.object({
     z.tuple([z.literal("coordinates"), z.string()]),
     z.tuple([z.literal("y"), z.string()]),
   ]),
-});
+})
 export type NostrGeometryFeature = z.infer<
   typeof persistedGeometryFeatureSchema
->;
+>
 
 export const runtimeGeometryFeatureSchema = z.object({
   kind: z.literal(30333 as NDKKind),
@@ -38,8 +38,8 @@ export const runtimeGeometryFeatureSchema = z.object({
   color: z.string(),
   type: geoGeometrySchema,
   coordinates: z.array(z.number()),
-});
+})
 
 export type RuntimeGeometryFeature = z.infer<
   typeof runtimeGeometryFeatureSchema
->;
+>

@@ -1,26 +1,26 @@
-import React, { useEffect, useState } from "react";
-import { useNDKStore } from "~/store/ndk-store";
-import { type NDKUserProfile } from "@nostr-dev-kit/ndk";
-import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
-import { Globe, User } from "lucide-react";
+import React, { useEffect, useState } from "react"
+import { useNDKStore } from "~/store/ndk-store"
+import { type NDKUserProfile } from "@nostr-dev-kit/ndk"
+import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar"
+import { Globe, User } from "lucide-react"
 
 export const UserInfo = () => {
-  const { ndkUser, ndk } = useNDKStore();
+  const { ndkUser, ndk } = useNDKStore()
 
   const [fetchedProfile, setFetchedProfile] = useState<
     NDKUserProfile | undefined
-  >(undefined);
+  >(undefined)
 
   useEffect(() => {
     const fetchUser = async () => {
       if (ndkUser && ndk) {
-        const newUser = await ndkUser?.fetchProfile();
-        setFetchedProfile(newUser);
+        const newUser = await ndkUser?.fetchProfile()
+        setFetchedProfile(newUser)
       }
-    };
+    }
 
-    void fetchUser();
-  }, [ndkUser, ndk]);
+    void fetchUser()
+  }, [ndkUser, ndk])
 
   return (
     <div>
@@ -48,5 +48,5 @@ export const UserInfo = () => {
         </div>
       )}
     </div>
-  );
-};
+  )
+}
