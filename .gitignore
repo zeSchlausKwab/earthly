@@ -7,6 +7,7 @@
 
 # .idea and all contents
 /.idea
+/.vscode
 
 # testing
 /coverage
