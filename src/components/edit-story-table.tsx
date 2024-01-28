@@ -35,9 +35,11 @@ declare module "@tanstack/react-table" {
 export default function EditingStoryTable({
   tableData,
   gorupItems,
+  splitItems,
 }: {
   tableData: CustomFeatureCollection
   gorupItems: (ids: string[]) => void
+  splitItems: (ids: string) => void
 }) {
   const [data, setData] = useState<CustomFeatureWithSubRows[]>(
     tableData.features as CustomFeatureWithSubRows[],
@@ -162,10 +164,24 @@ export default function EditingStoryTable({
     setSelectedGeometryType(undefined)
   }
 
+  const handleSplitItems = () => {
+    const selectedIds = Object.entries(selectedRows)
+      .filter((k, v) => {
+        return k[1] === true
+      })
+      .map((k) => k[0])
+
+    splitItems(selectedIds[0] ?? "")
+    setSelectedRows({})
+    setSelectedGeometryType(undefined)
+  }
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-row">
-        {selectedGeometryType && (
+        {selectedGeometryType && selectedGeometryType?.startsWith("Multi") ? (
+          <Button onClick={() => handleSplitItems()}>Split group</Button>
+        ) : (
           <Button onClick={() => handleGroupItems()}>Group items</Button>
         )}
       </div>

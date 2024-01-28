@@ -356,8 +356,6 @@ export default function EditingStory({}) {
   }
 
   const handleGroupItems = (ids: string[]) => {
-    console.log(geometryCollection)
-
     const groupedFeatures = ids.reduce((grouped: any, id) => {
       const feature = geometryCollection.features.find(
         (feature) => feature.properties.id === id,
@@ -375,7 +373,7 @@ export default function EditingStory({}) {
               type: multiType,
               coordinates: [coordinates],
             },
-            properties: feature.properties, // take properties from the first feature
+            properties: feature.properties,
           }
         } else {
           grouped[multiType].geometry.coordinates.push(coordinates)
@@ -398,6 +396,37 @@ export default function EditingStory({}) {
         ...newGeometry,
       ],
     } as CustomFeatureCollection)
+  }
+
+  const handleSplitItems = (id: string) => {
+    const newFeatures = geometryCollection.features.reduce(
+      (features: any, feature) => {
+        const geometry = feature.geometry as unknown as { coordinates: [] }
+        if (id === feature.properties.id) {
+          const singleType = feature.geometry.type.slice(5)
+          geometry.coordinates.forEach((coordinate: any) => {
+            features.push({
+              type: "Feature",
+              geometry: {
+                type: singleType,
+                coordinates: coordinate,
+              },
+              properties: { ...feature.properties, id: uuidv4() },
+            })
+          })
+        } else {
+          features.push(feature)
+        }
+
+        return features
+      },
+      [],
+    )
+
+    setGeometry({
+      ...geometryCollection,
+      features: newFeatures,
+    })
   }
 
   return (
@@ -448,6 +477,7 @@ export default function EditingStory({}) {
           <EditingStoryTable
             tableData={geometryCollection}
             gorupItems={handleGroupItems}
+            splitItems={handleSplitItems}
           />
 
           {/* <div className={"flex flex-col"}>
