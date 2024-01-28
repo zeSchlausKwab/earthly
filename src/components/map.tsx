@@ -19,7 +19,11 @@ import { Feature, FeatureCollection, Geometry, Position } from "geojson"
 import dynamic from "next/dynamic"
 import FeaturePopup from "~/components/feature-popup"
 
-const MapZoom = dynamic(() => import("./map-zoom"), {
+const MapZoomEdit = dynamic(() => import("./map-zoom-edit"), {
+  ssr: false,
+})
+
+const MapZoomRecent = dynamic(() => import("./map-zoom-recent"), {
   ssr: false,
 })
 
@@ -205,6 +209,7 @@ export default function Map() {
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+          opacity={0.8}
         />
         <FeatureGroup ref={ref}>
           <EditControl
@@ -241,7 +246,8 @@ export default function Map() {
           )}
         </FeatureGroup>
         <FeatureGroup ref={recentCollection}></FeatureGroup>
-        <MapZoom geojson={geometryCollection} />
+        <MapZoomEdit geojson={geometryCollection} />
+        <MapZoomRecent recentCollections={collections} />
       </MapContainer>
     </>
   )

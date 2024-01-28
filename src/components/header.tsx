@@ -25,6 +25,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import UserInfo from "~/components/user-info"
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert"
+import MapSettings from "~/components/map-settings"
 
 const privateKeySchema = z.object({
   privateKey: z
@@ -145,6 +146,7 @@ export default function Header() {
         </AlertDescription>
       </Alert>
       <div className="z-50 flex flex-row gap-8 text-xs">
+        <MapSettings />
         <UserInfo />
         <Popover>
           <PopoverTrigger asChild>
