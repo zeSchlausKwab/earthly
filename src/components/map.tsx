@@ -1,12 +1,12 @@
-import * as React from "react"
-import { useEffect, useRef, useState } from "react"
-import "leaflet/dist/leaflet.css"
-import "leaflet-draw/dist/leaflet.draw.css"
-import { FeatureGroup, MapContainer, Popup, TileLayer } from "react-leaflet"
 import * as L from "leaflet"
+import "leaflet-draw/dist/leaflet.draw.css"
+import "leaflet/dist/leaflet.css"
+import { useEffect, useRef, useState } from "react"
+import { FeatureGroup, MapContainer, Popup, TileLayer } from "react-leaflet"
 
 import { v4 as uuidv4 } from "uuid"
 
+import { Feature, FeatureCollection, Geometry, Position } from "geojson"
 import { EditControl } from "react-leaflet-draw"
 import {
   CustomFeatureCollection,
@@ -14,7 +14,6 @@ import {
   useEditingCollectionStore,
 } from "~/store/edit-collection-store"
 import { useRecentCollectionsStore } from "~/store/recent-collections-store"
-import { Feature, FeatureCollection, Geometry, Position } from "geojson"
 
 import dynamic from "next/dynamic"
 import FeaturePopup from "~/components/feature-popup"
@@ -100,9 +99,9 @@ export default function Map() {
             ...feature,
             properties: {
               ...feature.properties,
-              description: description,
-              name: title,
               color: color,
+              name: title,
+              description: description,
             },
           }
         } else {

@@ -51,6 +51,7 @@ export default function EditingStoryFeature({
   const [originalEvent, setOriginalEvent] = useState<NDKEvent>()
 
   const fetchData = async () => {
+    if (!featureProperties.noteId) return
     const approvalEvent = await ndk?.fetchEvent({
       kinds: [4550 as NDKKind],
       "#e": [featureProperties.noteId],

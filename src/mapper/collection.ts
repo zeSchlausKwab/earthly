@@ -1,25 +1,10 @@
-import { type NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
+import { type NDKEvent } from "@nostr-dev-kit/ndk"
 import {
   type NostrCollection,
   persistedCollectionSchema,
   type RuntimeCollection,
   runtimeCollectionSchema,
 } from "~/models/collection"
-import { nip19 } from "nostr-tools"
-
-export const mapFeatureEventsToIdentifiers = (
-  newFeatureEvents: NDKEvent[],
-): Array<["f", string]> => {
-  return newFeatureEvents.map((event) => {
-    const naddr = nip19.naddrEncode({
-      pubkey: event.pubkey,
-      kind: event.kind ?? NDKKind.Article,
-      identifier: event.tagValue("d") ?? "",
-    })
-
-    return ["f", naddr]
-  })
-}
 
 export const runtimeCollectionToNostr = (
   runtimeCollection: RuntimeCollection,

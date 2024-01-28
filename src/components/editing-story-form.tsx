@@ -93,6 +93,15 @@ export default function EditingStoryForm({
         />
       )}
       {naddr ? <b>naddr: {naddr}</b> : <b>new story</b>}
+      {naddr ? (
+        <Button size={"sm"} onClick={handleUpdateCollectionData}>
+          Update collection
+        </Button>
+      ) : (
+        <Button size={"sm"} onClick={handleSubmit}>
+          Submit
+        </Button>
+      )}
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
           <FormField
@@ -128,15 +137,6 @@ export default function EditingStoryForm({
         </form>
       </Form>
       <div className={"flex flex-row justify-between"}>
-        {naddr ? (
-          <Button size={"sm"} onClick={handleUpdateCollectionData}>
-            Update collection
-          </Button>
-        ) : (
-          <Button size={"sm"} onClick={handleSubmit}>
-            Submit
-          </Button>
-        )}
         <Button size={"sm"} variant={"destructive"} onClick={onDiscard}>
           Discard
         </Button>

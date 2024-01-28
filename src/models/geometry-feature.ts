@@ -10,9 +10,9 @@ export const persistedFeatureEventContentSchema = z.object({
   }),
   properties: z.object({
     id: z.string(),
+    color: z.string(),
     name: z.string(),
     description: z.string(),
-    color: z.string(),
   }),
 })
 

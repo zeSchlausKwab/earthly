@@ -1,29 +1,30 @@
-import {
-  CustomFeature,
-  useEditingCollectionStore,
-} from "~/store/edit-collection-store"
-import { type GeoJsonGeometryTypes } from "geojson"
-import { useNDKStore } from "~/store/ndk-store"
 import { NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
-import * as React from "react"
-import { useEffect, useState } from "react"
+import { type GeoJsonGeometryTypes } from "geojson"
 import { Loader2 } from "lucide-react"
-import EditingStoryForm from "~/components/editing-story-form"
-import { runtimeGeometryFeatureToNostr } from "~/mapper/geometry-feature"
-import { runtimeCollectionToNostr } from "~/mapper/collection"
+import { useEffect, useState } from "react"
 import { v4 as uuidv4 } from "uuid"
+import EditingStoryForm from "~/components/editing-story-form"
+import { runtimeCollectionToNostr } from "~/mapper/collection"
+import { runtimeGeometryFeatureToNostr } from "~/mapper/geometry-feature"
 import {
   type EditingCollectionFormSchema,
   type UpdateCollectionFormSchema,
 } from "~/models/collection"
+import {
+  CustomFeature,
+  useEditingCollectionStore,
+} from "~/store/edit-collection-store"
+import { useNDKStore } from "~/store/ndk-store"
 
-import { decodeNaddr } from "~/utils/naddr"
+import { useQuery } from "@tanstack/react-query"
 import diff from "microdiff"
-import { Button } from "~/components/ui/button"
-import { Switch } from "~/components/ui/switch"
-import { Label } from "~/components/ui/label"
 import EditingStoryFeature from "~/components/editing-story-feature"
+import { Button } from "~/components/ui/button"
+import { Label } from "~/components/ui/label"
+import { Switch } from "~/components/ui/switch"
+import { decodeNaddr } from "~/utils/naddr"
 import { toast } from "./ui/use-toast"
+import { isEqual } from "lodash"
 
 export const Icons = {
   spinner: Loader2,
@@ -33,6 +34,28 @@ export default function EditingStory({}) {
   const { geometryCollection, naddr, setGeometry, setGeometryFromNostr } =
     useEditingCollectionStore()
   const { ndk, ndkUser } = useNDKStore()
+
+  const { data, error } = useQuery({
+    queryKey: ["naddrEvent"],
+    queryFn: async () => {
+      const naddrData = decodeNaddr(naddr!)
+      return ndk?.fetchEvent({
+        kinds: [34550 as NDKKind],
+        authors: [naddrData.pubkey],
+        "#d": [naddrData.identifier],
+      })
+    },
+    enabled: Boolean(naddr),
+    onSuccess(event) {
+      if (event) {
+        setCollectionMeta({
+          title: event.tagValue("title") ?? "",
+          description: event.content,
+          image: event.tagValue("image") ?? "",
+        })
+      }
+    },
+  })
 
   const [iAmOwner, setIAmOwner] = useState<boolean>(false)
   const [showUnapprovedFeatures, setShowUnapprovedFeatures] =
@@ -57,20 +80,6 @@ export default function EditingStory({}) {
     }
     const naddrData = decodeNaddr(naddr)
     setIAmOwner(ndkUser?.pubkey === naddrData.pubkey)
-    ndk
-      ?.fetchEvent({
-        kinds: [naddrData.kind as NDKKind],
-        authors: [naddrData.pubkey],
-        "#d": [naddrData.identifier],
-      })
-      .then((event) => {
-        if (!event) return
-        setCollectionMeta({
-          title: event.tagValue("title") ?? "",
-          description: event.content,
-          image: event.tagValue("image") ?? "",
-        })
-      })
   }, [naddr])
 
   const handlePersistCollection = async (data: EditingCollectionFormSchema) => {
@@ -176,144 +185,77 @@ export default function EditingStory({}) {
     const { kind, pubkey, identifier } = decodeNaddr(data.naddr)
 
     const lastMotherEvent = await ndk?.fetchEvent({
-      // TODO: dont understand why kinds: [kind as NDKKind] is not working
-      // kinds: [kind as NDKKind],
+      kinds: [34550 as NDKKind],
       authors: [pubkey],
       "#d": [identifier],
     })
 
     if (!lastMotherEvent) return
 
-    const existingFeatureEvents = await Promise.all(
-      lastMotherEvent.getMatchingTags("f").map(async (featureEvent) => {
-        if (featureEvent[1]) {
-          const {
-            kind: featureKind,
-            pubkey: featurePubkey,
-            identifier: featureIdentifier,
-          } = decodeNaddr(featureEvent[1])
+    const existingFeatureEvents = await ndk.fetchEvents({
+      kinds: [4550 as NDKKind],
+      authors: [
+        ...lastMotherEvent
+          .getMatchingTags("p")
+          .map((tag) => tag[1])
+          .filter((author): author is string => author !== undefined),
+      ],
+      "#a": [
+        `34550:${lastMotherEvent.pubkey}:${lastMotherEvent.tagValue("d")}`,
+      ],
+    })
 
-          const lastFeatureEvent = await ndk?.fetchEvent({
-            kinds: [4326 as NDKKind],
-            authors: [pubkey],
-            "#d": [featureIdentifier],
-          })
-          if (!lastFeatureEvent) return
-          return lastFeatureEvent
-        }
-      }),
+    const existingGeometryFeatures = Array.from(existingFeatureEvents).map(
+      (event) => {
+        const geoEvent = JSON.parse(event.content)
+        const customFeature = JSON.parse(geoEvent.content) as CustomFeature
+        delete customFeature.properties.noteId
+        return customFeature
+      },
     )
 
-    // const newAndChangedFeatures = geometryCollection.features
-    //   .map((feature) => {
-    //     const existingFeature = existingFeatureEvents.find(
-    //       (existingFeature) => {
-    //         console.log("existingFeature", existingFeature)
-    //         return existingFeature?.properties.id === feature.properties.id
-    //       },
-    //     )
+    const newFeatures = geometryCollection.features.filter((feature) => {
+      return !existingGeometryFeatures.some((existingFeature) =>
+        existingFeature.properties.id === feature.properties.id ? true : false,
+      )
+    })
 
-    //     if (!existingFeature) return feature
+    const editedFeatures = geometryCollection.features.filter((feature) => {
+      const targetFeature = existingGeometryFeatures.find((existingFeature) => {
+        return feature.properties.id === existingFeature.properties.id
+      })
+      if (!targetFeature) return false
+      return !isEqual(feature, targetFeature)
+    })
 
-    //     const hasDiff = diff(feature, existingFeature as any).length > 0
+    console.log("newFeatures", newFeatures)
+    console.log("editedFeatures", editedFeatures)
 
-    //     if (hasDiff) {
-    //       return feature
-    //     } else {
-    //       return
-    //     }
-    //   })
-    //   .filter((feature) => feature)
-
-    // const now = Math.floor(Date.now() / 1000)
-
-    // const deletedFeatureEvents = existingFeatureEvents.filter(
-    //   (existingFeature) => {
-    //     return !geometryCollection.features.find((feature) => {
-    //       return feature.properties.id === existingFeature?.properties.id
-    //     })
-    //   },
-    // )
-
-    // const newFeatureEvents = newAndChangedFeatures.map((feature) => {
-    //   if (!feature) return
-
-    //   const geometry = feature.geometry as unknown as {
-    //     coordinates: []
-    //     type: GeoJsonGeometryTypes
-    //   }
-
-    //   const geohashCenter = geohashFromFeatures(feature)
-
-    //   return new NDKEvent(
-    //     ndk,
-    //     runtimeGeometryFeatureToNostr({
-    //       kind: 4326 as NDKKind,
-    //       pubkey: pubkey,
-    //       content: feature.properties.description,
-    //       created_at: now,
-    //       d: feature.properties.id,
-    //       published_at: now,
-    //       name: feature.properties.name,
-    //       color: feature.properties.color,
-    //       type: geometry.type,
-    //       coordinates: geometry.coordinates,
-    //       // geohash: geohashCenter,
-    //     }),
+    // const lodashDiff = geometryCollection.features.filter((feature) => {
+    //   return !existingGeometryFeatures.some((existingFeature) =>
+    //     isEqual(feature, existingFeature),
     //   )
     // })
 
-    // const validFeatureEvents = newFeatureEvents.filter(
-    //   (event): event is NDKEvent => event !== undefined,
-    // )
-
-    // const remainingEventPointers = lastMotherEvent
-    //   .getMatchingTags("f")
-    //   .filter((tag) => {
-    //     if (!tag[1]) return true
-    //     const { identifier } = decodeNaddr(tag[1])
-    //     return !deletedFeatureEvents.find((event) => {
-    //       if (!event) return false
-    //       return event.properties.id === identifier
-    //     })
+    // const singleElementDiffs = lodashDiff.map((diffFeature) => {
+    //   const targetFeature = existingGeometryFeatures.find((existingFeature) => {
+    //     return diffFeature.properties.id === existingFeature.properties.id
     //   })
-
-    // const uniqueFeaturePointerList = [
-    //   ...mapFeatureEventsToIdentifiers(validFeatureEvents),
-    //   ...remainingEventPointers,
-    // ].filter((value, index, self) => {
-    //   return self.map((item) => item[1]).indexOf(value[1]) === index
+    //   if (!targetFeature) return
+    //   return {
+    //     index: existingGeometryFeatures.indexOf(targetFeature),
+    //     diff: diff(diffFeature, targetFeature),
+    //   }
     // })
 
-    // TODO: not sue if these are the current collections
-    // const motherGeohash = geohashFromFeatures(
-    //   geometryCollection.features.flatMap((feature) => {
-    //     const geometry = feature.geometry as unknown as {
-    //       coordinates: []
-    //       type: GeoJsonGeometryTypes
-    //     }
-    //     return geometry.coordinates
-    //   }),
-    // )
+    // console.log("existingGeometryFeatures", existingGeometryFeatures)
+    // console.log("lodashDiff", lodashDiff)
+    // console.log("singleElementDiffs", singleElementDiffs)
 
-    // const newMotherNDKEvent = new NDKEvent(
-    //   ndk,
-    //   runtimeCollectionToNostr({
-    //     kind: kind,
-    //     content: data.storyDescription ?? "",
-    //     created_at: now,
-    //     pubkey: pubkey,
-    //     d: lastMotherEvent.tagValue("d") ?? "",
-    //     title: `${data.storyTitle}`,
-    //     image: `https://source.unsplash.com/random/400x200`,
-    //     published_at: parseInt(lastMotherEvent.tagValue("published_at") ?? ""),
-    //     features: uniqueFeaturePointerList,
-    //     // geohash: motherGeohash,
-    //   }),
-    // )
+    // const newFeatures = singleElementDiffs.
 
-    // await Promise.all(validFeatureEvents.map((event) => event.publish()))
-    // await newMotherNDKEvent.publish()
+    // console.log("newFeatures", newFeatures)
+    // console.log("changedFeatures", changedFeatures)
 
     setIsPersisting(false)
   }

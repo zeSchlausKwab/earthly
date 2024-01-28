@@ -6,7 +6,7 @@ import { NDKEvent, type NDKKind, type NostrEvent } from "@nostr-dev-kit/ndk"
 
 export interface FeatureProperties {
   id: string
-  noteId: string
+  noteId?: string
   name: string
   description: string
   color: string

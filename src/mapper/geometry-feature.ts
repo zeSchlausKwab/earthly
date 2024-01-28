@@ -20,9 +20,9 @@ export const runtimeGeometryFeatureToNostr = (
       },
       properties: {
         id: runtimeFeature.d,
+        color: runtimeFeature.color,
         name: runtimeFeature.name,
         description: runtimeFeature.description,
-        color: runtimeFeature.color,
       },
     } as PersistedFeatureEventContent),
     created_at: runtimeFeature.created_at,
