@@ -128,11 +128,6 @@ export default function EditingStoryFeature({
 
   return (
     <div className="flex flex-col text-xs">
-      <div>{originalEvent?.id}</div>
-
-      <div>{approvalEvent?.tagValue("e")}</div>
-      <div>{feature.properties.noteId}</div>
-
       {!approvalEvent && (
         <Button onClick={handleFeatureApproval}>Approve this feature</Button>
       )}

@@ -2,10 +2,28 @@ import { z } from "zod"
 import { type NDKKind } from "@nostr-dev-kit/ndk"
 import { geoGeometrySchema } from "~/models/geo-geometry"
 
+export const persistedFeatureEventContentSchema = z.object({
+  type: z.literal("Feature"),
+  geometry: z.object({
+    type: z.string(),
+    coordinates: z.array(z.number()),
+  }),
+  properties: z.object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string(),
+    color: z.string(),
+  }),
+})
+
+export type PersistedFeatureEventContent = z.infer<
+  typeof persistedFeatureEventContentSchema
+>
+
 export const persistedGeometryFeatureSchema = z.object({
   kind: z.literal(4326 as NDKKind),
   pubkey: z.string().min(1),
-  content: z.string(),
+  content: z.string(persistedFeatureEventContentSchema),
   created_at: z
     .number()
     .int()
@@ -14,10 +32,6 @@ export const persistedGeometryFeatureSchema = z.object({
     z.tuple([z.literal("a"), z.string(), z.string()]),
     z.tuple([z.literal("d"), z.string().uuid()]),
     z.tuple([z.literal("published_at"), z.string()]),
-    z.tuple([z.literal("name"), z.string()]),
-    z.tuple([z.literal("description"), z.string()]),
-    z.tuple([z.literal("color"), z.string()]),
-    z.tuple([z.literal("type"), geoGeometrySchema]),
     z.tuple([z.literal("y"), z.string()]),
   ]),
 })

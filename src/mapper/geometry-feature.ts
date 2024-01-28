@@ -1,10 +1,10 @@
 import { type NDKEvent } from "@nostr-dev-kit/ndk"
 import {
   type NostrGeometryFeature,
+  type PersistedFeatureEventContent,
   persistedGeometryFeatureSchema,
   type RuntimeGeometryFeature,
 } from "~/models/geometry-feature"
-import { type GeoJsonGeometryTypes } from "geojson"
 
 export const runtimeGeometryFeatureToNostr = (
   runtimeFeature: RuntimeGeometryFeature,
@@ -12,7 +12,19 @@ export const runtimeGeometryFeatureToNostr = (
   return persistedGeometryFeatureSchema.parse({
     kind: runtimeFeature.kind,
     pubkey: runtimeFeature.pubkey,
-    content: JSON.stringify(runtimeFeature.coordinates),
+    content: JSON.stringify({
+      type: "Feature",
+      geometry: {
+        type: runtimeFeature.type,
+        coordinates: runtimeFeature.coordinates,
+      },
+      properties: {
+        id: runtimeFeature.d,
+        name: runtimeFeature.name,
+        description: runtimeFeature.description,
+        color: runtimeFeature.color,
+      },
+    } as PersistedFeatureEventContent),
     created_at: runtimeFeature.created_at,
     tags: [
       [
@@ -22,101 +34,16 @@ export const runtimeGeometryFeatureToNostr = (
       ],
       ["d", runtimeFeature.d],
       ["published_at", runtimeFeature.published_at.toString()],
-      ["name", runtimeFeature.name],
-      ["description", runtimeFeature.description],
-      ["color", runtimeFeature.color],
-      ["type", runtimeFeature.type],
       ["y", "feature"],
     ],
   } as NostrGeometryFeature)
-}
-
-export const getProperties = (event: NDKEvent) => {
-  return {
-    id: event?.tagValue("d") ?? "",
-    noteId: event.id,
-    description: event?.content,
-    color: event?.tagValue("color") ?? "#000000",
-    name: event?.tagValue("name") ?? "",
-  }
-}
-
-function getCoordinates(event: NDKEvent) {
-  try {
-    return JSON.parse(event?.content ?? "[]") as number[][]
-  } catch (error) {
-    console.error("Error parsing JSON:", error)
-    return []
-  }
-}
-
-export const mapGeometryCollectionFeature = (event: NDKEvent) => {
-  const geometryType = event?.tagValue("type") as GeoJsonGeometryTypes
-
-  return {
-    Point: {
-      type: "Feature",
-      geometry: {
-        type: "Point",
-        coordinates: getCoordinates(event),
-      },
-      properties: getProperties(event),
-    },
-    MultiPoint: {
-      type: "Feature",
-      geometry: {
-        type: "MultiPoint",
-        coordinates: getCoordinates(event),
-      },
-      properties: getProperties(event),
-    },
-    LineString: {
-      type: "Feature",
-      geometry: {
-        type: "LineString",
-        coordinates: getCoordinates(event),
-      },
-      properties: getProperties(event),
-    },
-    MultiLineString: {
-      type: "Feature",
-      geometry: {
-        type: "MultiLineString",
-        coordinates: getCoordinates(event),
-      },
-      properties: getProperties(event),
-    },
-    Polygon: {
-      type: "Feature",
-      geometry: {
-        type: "Polygon",
-        coordinates: getCoordinates(event),
-      },
-      properties: getProperties(event),
-    },
-    MultiPolygon: {
-      type: "Feature",
-      geometry: {
-        type: "MultiPolygon",
-        coordinates: getCoordinates(event),
-      },
-      properties: getProperties(event),
-    },
-    GeometryCollection: {
-      type: "Feature",
-      geometry: {
-        type: "GeometryCollection",
-        geometries: getCoordinates(event),
-      },
-      properties: getProperties(event),
-    },
-  }[geometryType]
 }
 
 export const nostrGeometryFeatureToRuntime = (
   nostrFeature: NostrGeometryFeature,
 ) => {
   const event = nostrFeature as unknown as NDKEvent
+  const content = event?.content as unknown as PersistedFeatureEventContent
   return {
     kind: nostrFeature.kind,
     pubkey: nostrFeature.pubkey,
@@ -127,7 +54,7 @@ export const nostrGeometryFeatureToRuntime = (
     name: event.tagValue("name") ?? "",
     color: event.tagValue("color") ?? "",
     type: event.tagValue("type") ?? "",
-    coordinates: JSON.parse(nostrFeature.content) as [],
+    coordinates: content.geometry.coordinates,
     communityEventAuthorPubkey: event.tagValue("a")?.split(":")[1] ?? "",
     content: nostrFeature.content,
     motherEventIdentifier: event.tagValue("a")?.split(":")[2] ?? "",

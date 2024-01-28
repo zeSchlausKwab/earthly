@@ -1,4 +1,10 @@
-import { Input } from "~/components/ui/input"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { NDKKind } from "@nostr-dev-kit/ndk"
+import { useQuery } from "@tanstack/react-query"
+import Image from "next/image"
+import { useState } from "react"
+import { useForm } from "react-hook-form"
+import { Button } from "~/components/ui/button"
 import {
   Form,
   FormControl,
@@ -7,19 +13,14 @@ import {
   FormLabel,
   FormMessage,
 } from "~/components/ui/form"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
+import { Input } from "~/components/ui/input"
 import { Textarea } from "~/components/ui/textarea"
-import { Button } from "~/components/ui/button"
 import {
   editCollectionFormSchema,
   type EditingCollectionFormSchema,
   UpdateCollectionFormSchema,
 } from "~/models/collection"
-import { useEffect, useState } from "react"
-import { type NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
 import { useNDKStore } from "~/store/ndk-store"
-import Image from "next/image"
 import { decodeNaddr } from "~/utils/naddr"
 
 export default function EditingStoryForm({
@@ -45,21 +46,25 @@ export default function EditingStoryForm({
     },
   })
 
-  useEffect(() => {
-    if (!naddr) return
-    const naddrData = decodeNaddr(naddr)
-    const sub = ndk?.subscribe({
-      kinds: [NDKKind.Article],
-      authors: [naddrData.pubkey],
-      "#d": [naddrData.identifier],
-    })
-
-    sub?.on("event", (event: NDKEvent) => {
-      form.setValue("storyTitle", event.tagValue("title") ?? "")
-      form.setValue("storyDescription", event.content)
-      setImage(event.tagValue("image") ?? "")
-    })
-  }, [naddr])
+  const { data, error } = useQuery({
+    queryKey: ["naddrEvent"],
+    queryFn: async () => {
+      const naddrData = decodeNaddr(naddr!)
+      return ndk?.fetchEvent({
+        kinds: [34550 as NDKKind],
+        // authors: [naddrData.pubkey],
+        "#d": [naddrData.identifier],
+      })
+    },
+    enabled: Boolean(naddr),
+    onSuccess(data) {
+      if (data) {
+        setImage(data.tagValue("image") ?? "")
+        form.setValue("storyTitle", data?.tagValue("title") ?? "")
+        form.setValue("storyDescription", data?.content ?? "")
+      }
+    },
+  })
 
   const handleUpdateCollectionData = () => {
     onUpdateCollectionData({

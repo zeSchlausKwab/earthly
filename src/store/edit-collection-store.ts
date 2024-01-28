@@ -1,9 +1,8 @@
 import { create } from "zustand"
 import { type Feature, type FeatureCollection, type Geometry } from "geojson"
 import { useNDKStore } from "~/store/ndk-store"
-import { mapGeometryCollectionFeature } from "~/mapper/geometry-feature"
 import { decodeNaddr } from "~/utils/naddr"
-import { NDKEvent, NDKKind, NostrEvent } from "@nostr-dev-kit/ndk"
+import { NDKEvent, type NDKKind, type NostrEvent } from "@nostr-dev-kit/ndk"
 
 export interface FeatureProperties {
   id: string
@@ -86,9 +85,13 @@ export const useEditingCollectionStore = create<{
 
       geometryCollection.forEach((ev) => {
         if (!ev) return
-        validGeometryCollection.push(
-          mapGeometryCollectionFeature(ev) as CustomFeature,
-        )
+        validGeometryCollection.push({
+          ...(JSON.parse(ev.content) as CustomFeature),
+          properties: {
+            ...JSON.parse(ev.content).properties,
+            noteId: ev.id,
+          },
+        })
       })
     } else {
       const geometryCollection = await ndkInstance.fetchEvents({
@@ -104,9 +107,14 @@ export const useEditingCollectionStore = create<{
           undefined,
           JSON.parse(ev.content) as NostrEvent,
         )
-        validGeometryCollection.push(
-          mapGeometryCollectionFeature(contentEvent) as CustomFeature,
-        )
+
+        validGeometryCollection.push({
+          ...(JSON.parse(contentEvent.content) as CustomFeature),
+          properties: {
+            ...JSON.parse(contentEvent.content).properties,
+            noteId: contentEvent.id,
+          },
+        })
       })
     }
 

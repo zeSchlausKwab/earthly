@@ -1,4 +1,7 @@
-import { useEditingCollectionStore } from "~/store/edit-collection-store"
+import {
+  CustomFeature,
+  useEditingCollectionStore,
+} from "~/store/edit-collection-store"
 import { type GeoJsonGeometryTypes } from "geojson"
 import { useNDKStore } from "~/store/ndk-store"
 import { NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
@@ -6,10 +9,7 @@ import * as React from "react"
 import { useEffect, useState } from "react"
 import { Loader2 } from "lucide-react"
 import EditingStoryForm from "~/components/editing-story-form"
-import {
-  mapGeometryCollectionFeature,
-  runtimeGeometryFeatureToNostr,
-} from "~/mapper/geometry-feature"
+import { runtimeGeometryFeatureToNostr } from "~/mapper/geometry-feature"
 import { runtimeCollectionToNostr } from "~/mapper/collection"
 import { v4 as uuidv4 } from "uuid"
 import {
@@ -199,83 +199,84 @@ export default function EditingStory({}) {
             "#d": [featureIdentifier],
           })
           if (!lastFeatureEvent) return
-          return mapGeometryCollectionFeature(lastFeatureEvent)
+          return lastFeatureEvent
         }
       }),
     )
 
-    const newAndChangedFeatures = geometryCollection.features
-      .map((feature) => {
-        const existingFeature = existingFeatureEvents.find(
-          (existingFeature) => {
-            return existingFeature?.properties.id === feature.properties.id
-          },
-        )
+    // const newAndChangedFeatures = geometryCollection.features
+    //   .map((feature) => {
+    //     const existingFeature = existingFeatureEvents.find(
+    //       (existingFeature) => {
+    //         console.log("existingFeature", existingFeature)
+    //         return existingFeature?.properties.id === feature.properties.id
+    //       },
+    //     )
 
-        if (!existingFeature) return feature
+    //     if (!existingFeature) return feature
 
-        const hasDiff = diff(feature, existingFeature as any).length > 0
+    //     const hasDiff = diff(feature, existingFeature as any).length > 0
 
-        if (hasDiff) {
-          return feature
-        } else {
-          return
-        }
-      })
-      .filter((feature) => feature)
+    //     if (hasDiff) {
+    //       return feature
+    //     } else {
+    //       return
+    //     }
+    //   })
+    //   .filter((feature) => feature)
 
-    const now = Math.floor(Date.now() / 1000)
+    // const now = Math.floor(Date.now() / 1000)
 
-    const deletedFeatureEvents = existingFeatureEvents.filter(
-      (existingFeature) => {
-        return !geometryCollection.features.find((feature) => {
-          return feature.properties.id === existingFeature?.properties.id
-        })
-      },
-    )
+    // const deletedFeatureEvents = existingFeatureEvents.filter(
+    //   (existingFeature) => {
+    //     return !geometryCollection.features.find((feature) => {
+    //       return feature.properties.id === existingFeature?.properties.id
+    //     })
+    //   },
+    // )
 
-    const newFeatureEvents = newAndChangedFeatures.map((feature) => {
-      if (!feature) return
+    // const newFeatureEvents = newAndChangedFeatures.map((feature) => {
+    //   if (!feature) return
 
-      const geometry = feature.geometry as unknown as {
-        coordinates: []
-        type: GeoJsonGeometryTypes
-      }
+    //   const geometry = feature.geometry as unknown as {
+    //     coordinates: []
+    //     type: GeoJsonGeometryTypes
+    //   }
 
-      // const geohashCenter = geohashFromFeatures(feature)
+    //   const geohashCenter = geohashFromFeatures(feature)
 
-      // return new NDKEvent(
-      //   ndk,
-      //   runtimeGeometryFeatureToNostr({
-      //     kind: 4326 as NDKKind,
-      //     pubkey: pubkey,
-      //     content: feature.properties.description,
-      //     created_at: now,
-      //     d: feature.properties.id,
-      //     published_at: now,
-      //     name: feature.properties.name,
-      //     color: feature.properties.color,
-      //     type: geometry.type,
-      //     coordinates: geometry.coordinates,
-      //     // geohash: geohashCenter,
-      //   }),
-      // )
-    })
+    //   return new NDKEvent(
+    //     ndk,
+    //     runtimeGeometryFeatureToNostr({
+    //       kind: 4326 as NDKKind,
+    //       pubkey: pubkey,
+    //       content: feature.properties.description,
+    //       created_at: now,
+    //       d: feature.properties.id,
+    //       published_at: now,
+    //       name: feature.properties.name,
+    //       color: feature.properties.color,
+    //       type: geometry.type,
+    //       coordinates: geometry.coordinates,
+    //       // geohash: geohashCenter,
+    //     }),
+    //   )
+    // })
 
     // const validFeatureEvents = newFeatureEvents.filter(
     //   (event): event is NDKEvent => event !== undefined,
     // )
 
-    const remainingEventPointers = lastMotherEvent
-      .getMatchingTags("f")
-      .filter((tag) => {
-        if (!tag[1]) return true
-        const { identifier } = decodeNaddr(tag[1])
-        return !deletedFeatureEvents.find((event) => {
-          if (!event) return false
-          return event.properties.id === identifier
-        })
-      })
+    // const remainingEventPointers = lastMotherEvent
+    //   .getMatchingTags("f")
+    //   .filter((tag) => {
+    //     if (!tag[1]) return true
+    //     const { identifier } = decodeNaddr(tag[1])
+    //     return !deletedFeatureEvents.find((event) => {
+    //       if (!event) return false
+    //       return event.properties.id === identifier
+    //     })
+    //   })
 
     // const uniqueFeaturePointerList = [
     //   ...mapFeatureEventsToIdentifiers(validFeatureEvents),
@@ -344,63 +345,67 @@ export default function EditingStory({}) {
       ],
     })
 
-    // const arrExistingFeatureEvents = await Promise.all(
-    //   Array.from(existingFeatureEvents).map(async (ev) => {
-    //     const resolvedGeometryEvent = await ndk.fetchEvent({
-    //       ids: [ev.tagValue("e") ?? ""],
-    //     })
-    //     return mapGeometryCollectionFeature(resolvedGeometryEvent)
-    //   }),
-    // )
+    const arrExistingFeatureEvents = await Promise.all(
+      Array.from(existingFeatureEvents).map(async (ev) => {
+        const resolvedGeometryEvent = await ndk.fetchEvent({
+          ids: [ev.tagValue("e") ?? ""],
+        })
+        if (!resolvedGeometryEvent) return
+        return JSON.parse(resolvedGeometryEvent?.content) as CustomFeature
+      }),
+    )
 
-    // const newAndChangedFeatures = geometryCollection.features
-    //   .map((feature) => {
-    //     const existingFeature = arrExistingFeatureEvents.find(
-    //       (existingFeature) => {
-    //         return existingFeature?.properties.id === feature.properties.id
-    //       },
-    //     )
+    console.log(arrExistingFeatureEvents)
 
-    //     if (!existingFeature) return feature
+    const newAndChangedFeatures = geometryCollection.features
+      .map((feature) => {
+        const existingFeature = arrExistingFeatureEvents.find(
+          (existingFeature) => {
+            if (!existingFeature) return false
+            return existingFeature?.properties.id === feature.properties.id
+          },
+        )
 
-    //     const hasDiff = diff(feature, existingFeature as any).length > 0
+        if (!existingFeature) return feature
 
-    //     if (hasDiff) {
-    //       return feature
-    //     } else {
-    //       return
-    //     }
-    //   })
-    //   .filter((e) => e !== undefined) as CustomFeature[]
+        const hasDiff = diff(feature, existingFeature as any).length > 0
 
-    // const now = Math.floor(Date.now() / 1000)
+        if (hasDiff) {
+          return feature
+        } else {
+          return
+        }
+      })
+      .filter((e) => e !== undefined) as CustomFeature[]
 
-    // const newAndChangedEvents = newAndChangedFeatures.map((feature) => {
-    //   const geometry = feature.geometry as unknown as {
-    //     coordinates: []
-    //     type: GeoJsonGeometryTypes
-    //   }
+    const now = Math.floor(Date.now() / 1000)
 
-    //   return new NDKEvent(
-    //     ndk,
-    //     runtimeGeometryFeatureToNostr({
-    //       kind: 4326 as NDKKind,
-    //       pubkey: ndkUser?.pubkey ?? "",
-    //       content: feature.properties.description,
-    //       created_at: now,
-    //       d: feature.properties.id,
-    //       communityEventAuthorPubkey: lastMotherEvent.pubkey ?? "",
-    //       motherEventIdentifier: lastMotherEvent.tagValue("d") ?? "",
-    //       published_at: now,
-    //       name: feature.properties.name,
-    //       color: feature.properties.color,
-    //       type: geometry.type,
-    //       coordinates: geometry.coordinates,
-    //     }),
-    //   )
-    // })
+    const newAndChangedEvents = newAndChangedFeatures.map((feature) => {
+      const geometry = feature.geometry as unknown as {
+        coordinates: []
+        type: GeoJsonGeometryTypes
+      }
 
-    // await Promise.all(newAndChangedEvents.map((event) => event.publish()))
+      return new NDKEvent(
+        ndk,
+        runtimeGeometryFeatureToNostr({
+          kind: 4326 as NDKKind,
+          pubkey: ndkUser?.pubkey ?? "",
+          description: feature.properties.description,
+          created_at: now,
+          d: feature.properties.id,
+          communityEventAuthorPubkey: lastMotherEvent.pubkey ?? "",
+          motherEventIdentifier: lastMotherEvent.tagValue("d") ?? "",
+          published_at: now,
+          name: feature.properties.name,
+          color: feature.properties.color,
+          type: geometry.type,
+          coordinates: geometry.coordinates,
+        }),
+      )
+    })
+
+    await Promise.all(newAndChangedEvents.map((event) => event.publish()))
     setIsPersisting(false)
   }
 

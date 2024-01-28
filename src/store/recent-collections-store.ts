@@ -1,9 +1,8 @@
 import { NDKEvent, NDKKind, NostrEvent } from "@nostr-dev-kit/ndk"
 import { nip19 } from "nostr-tools"
 import { create } from "zustand"
-import { mapGeometryCollectionFeature } from "~/mapper/geometry-feature"
 import {
-  CustomFeature,
+  type CustomFeature,
   type CustomFeatureCollection,
 } from "~/store/edit-collection-store"
 import { useNDKStore } from "~/store/ndk-store"
@@ -38,7 +37,7 @@ export const useRecentCollectionsStore = create<{
     sub.on("event", async (rootCollectionEvent: NDKEvent) => {
       const naddr = nip19.naddrEncode({
         pubkey: rootCollectionEvent.pubkey,
-        kind: rootCollectionEvent.kind ?? NDKKind.Article,
+        kind: rootCollectionEvent.kind ?? (34550 as NDKKind),
         identifier: rootCollectionEvent.tagValue("d") ?? "",
       })
 
@@ -63,7 +62,7 @@ export const useRecentCollectionsStore = create<{
           undefined,
           JSON.parse(ev.content) as NostrEvent,
         )
-        return mapGeometryCollectionFeature(contentEvent)
+        return JSON.parse(contentEvent.content) as CustomFeature
       })
 
       const featureIdentifiers: string[] = []
@@ -72,7 +71,7 @@ export const useRecentCollectionsStore = create<{
         featureIdentifiers.push(
           nip19.naddrEncode({
             identifier: fe.tagValue("d") ?? "",
-            kind: fe.kind ?? 4326,
+            kind: fe.kind ?? 4550,
             pubkey: fe.pubkey,
           }),
         )
