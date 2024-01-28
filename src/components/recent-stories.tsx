@@ -1,15 +1,16 @@
+import Image from "next/image"
 import NostrFeature from "~/components/nostr-feature"
-import { Button } from "~/components/ui/button"
-import { useEditingCollectionStore } from "~/store/edit-collection-store"
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "~/components/ui/accordion"
-import { useRecentCollectionsStore } from "~/store/recent-collections-store"
+import { Button } from "~/components/ui/button"
+import { useEditingCollectionStore } from "~/store/edit-collection-store"
 import { useNDKStore } from "~/store/ndk-store"
-import Image from "next/image"
+import { useRecentCollectionsStore } from "~/store/recent-collections-store"
+import { formatNostrTime } from "~/utils/time"
 
 export default function RecentStories() {
   const { ndkUser } = useNDKStore()
@@ -26,16 +27,14 @@ export default function RecentStories() {
 
   return (
     <div
-      className={
-        "flex flex-row break-all rounded-lg border text-sm lg:flex-col"
-      }
+      className={"grid grid-cols-2 gap-2 break-all text-sm lg:flex lg:flex-col"}
     >
       {collections.map((collection, index) => {
         return (
           <div
             key={collection.naddr}
             className={
-              "flex w-96 flex-col gap-4 overflow-x-scroll p-3 lg:w-full"
+              "flex w-96 flex-col gap-4 overflow-x-scroll rounded-lg border p-3 lg:w-full"
             }
           >
             <div className={"flex justify-between"}>
@@ -50,7 +49,6 @@ export default function RecentStories() {
                 </Button>
               )}
             </div>
-            <b>{collection.naddr}</b>
             <div className={"flex flex-row gap-4"}>
               <Image
                 src={collection.headerImage}
@@ -58,11 +56,10 @@ export default function RecentStories() {
                 width={0}
                 height={0}
                 sizes="100vw"
-                style={{ width: "100%", height: "auto" }} // optional
+                style={{ width: "50%", height: "auto" }} // optional
               />
               <div className={"flex flex-col"}>
-                <div>{collection.identifier}</div>
-                <div>{collection.published_at}</div>
+                <div>{formatNostrTime(collection.published_at)}</div>
                 <div>{collection.description}</div>
               </div>
             </div>

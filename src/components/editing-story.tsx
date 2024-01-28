@@ -17,6 +17,7 @@ import {
 import { useNDKStore } from "~/store/ndk-store"
 
 import { useQuery } from "@tanstack/react-query"
+import { isEqual } from "lodash"
 import diff from "microdiff"
 import EditingStoryFeature from "~/components/editing-story-feature"
 import { Button } from "~/components/ui/button"
@@ -24,7 +25,6 @@ import { Label } from "~/components/ui/label"
 import { Switch } from "~/components/ui/switch"
 import { decodeNaddr } from "~/utils/naddr"
 import { toast } from "./ui/use-toast"
-import { isEqual } from "lodash"
 
 export const Icons = {
   spinner: Loader2,
@@ -356,46 +356,51 @@ export default function EditingStory({}) {
   }
 
   return (
-    <div className={"flex flex-row rounded-lg border p-4 lg:flex-col"}>
-      <div className="flex items-center space-x-2">
-        <Switch
-          id="show-unapproved-features"
-          defaultChecked={false}
-          onCheckedChange={(checked) => setShowUnapprovedFeatures(checked)}
-        />
-        <Label htmlFor="show-unapproved-features">
-          Show unapproved features
-        </Label>
-      </div>
-      {iAmOwner ? (
-        <EditingStoryForm
-          onSubmit={handlePersistCollection}
-          onUpdateCollectionData={handleUpdateCollection}
-          onDiscard={onDiscard}
-          naddr={naddr}
-        />
-      ) : (
-        <div className={"flex flex-col gap-2"}>
-          <b>{collectionMeta?.title}</b>
-          <div>{collectionMeta?.description}</div>
-        </div>
-      )}
-
-      <div className={"flex flex-col"}>
-        {geometryCollection.features.map((feature, index) => {
-          return (
-            <EditingStoryFeature
-              key={feature.properties.id}
-              feature={feature}
-              rootNaddr={naddr ?? ""}
+    <div>
+      {geometryCollection.features.length > 0 ? (
+        <div className={"flex flex-row rounded-lg border p-4 lg:flex-col"}>
+          <div className="flex items-center space-x-2">
+            <Switch
+              id="show-unapproved-features"
+              defaultChecked={false}
+              onCheckedChange={(checked) => setShowUnapprovedFeatures(checked)}
             />
-          )
-        })}
-      </div>
-      {naddr && (
-        <Button onClick={handleSubmitGeometryChanges}>Submit changes</Button>
-      )}
-      {isPersisting && <Icons.spinner className="h-4 w-4 animate-spin" />}
+            <Label htmlFor="show-unapproved-features">
+              Show unapproved features
+            </Label>
+          </div>
+          {iAmOwner ? (
+            <EditingStoryForm
+              onSubmit={handlePersistCollection}
+              onUpdateCollectionData={handleUpdateCollection}
+              onDiscard={onDiscard}
+              naddr={naddr}
+            />
+          ) : (
+            <div className={"flex flex-col gap-2"}>
+              <b>{collectionMeta?.title}</b>
+              <div>{collectionMeta?.description}</div>
+            </div>
+          )}
+          <div className={"grid grid-cols-2 gap-2 lg:flex lg:flex-col"}>
+            {geometryCollection.features.map((feature, index) => {
+              return (
+                <EditingStoryFeature
+                  key={feature.properties.id}
+                  feature={feature}
+                  rootNaddr={naddr ?? ""}
+                />
+              )
+            })}
+          </div>
+          {naddr && (
+            <Button onClick={handleSubmitGeometryChanges}>
+              Submit changes
+            </Button>
+          )}
+          {isPersisting && <Icons.spinner className="h-4 w-4 animate-spin" />}
+        </div>
+      ) : null}
     </div>
   )
 }

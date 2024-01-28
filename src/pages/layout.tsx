@@ -2,14 +2,17 @@ import React, { type ReactNode } from "react"
 import { Toaster } from "~/components/ui/toaster"
 import Header from "~/components/header"
 import Footer from "~/components/footer"
+import useMedia from "use-media"
 
 export default function Layout({ children }: { children: ReactNode }) {
+  const isWide = useMedia({ minWidth: "1024px" })
+
   return (
     <div className={"flex h-screen flex-col"}>
-      <Header />
+      {isWide ? <Header /> : null}
       {children}
       <Toaster />
-      <Footer />
+      {isWide ? <Footer /> : null}
     </div>
   )
 }
