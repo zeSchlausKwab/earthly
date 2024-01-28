@@ -10,7 +10,7 @@ import {
 import { Input } from "~/components/ui/input"
 import { generatePrivateKey, getPublicKey, nip19 } from "nostr-tools"
 import { Separator } from "~/components/ui/separator"
-import { ClipboardCopy, Copy, Github, Info } from "lucide-react"
+import { ClipboardCopy, Copy, Info, Settings } from "lucide-react"
 import { useToast } from "~/components/ui/use-toast"
 import { z } from "zod"
 import {
@@ -37,6 +37,8 @@ import {
 } from "~/components/ui/dialog"
 import { Label } from "~/components/ui/label"
 import { encryptMessage } from "~/utils/crypto"
+import ProfileMetaForm from "./profile-meta-form"
+import SiteInfo from "./site-info"
 
 const privateKeySchema = z.object({
   privateKey: z
@@ -307,41 +309,22 @@ export default function Header() {
         )}
         <Popover>
           <PopoverTrigger>
-            {" "}
+            <Button variant="outline" size="icon">
+              <Settings />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent>
+            <ProfileMetaForm />
+          </PopoverContent>
+        </Popover>
+        <Popover>
+          <PopoverTrigger>
             <Button variant="outline" size="icon">
               <Info />
             </Button>
           </PopoverTrigger>
           <PopoverContent>
-            <div className="flex flex-col gap-2 text-sm">
-              <div className="flex flex-row items-center gap-2">
-                <Github className="h-4 w-4" />
-                <a href="https://github.com/moogmodular/earthly">
-                  github.com/moogmodular/earthly
-                </a>
-              </div>
-              <article className="prose">
-                <h1>earthly 🌍</h1>
-                <p>
-                  earthly.land is the geojson editor on nostr no one has ever
-                  asked for.
-                </p>
-                <ul>
-                  <li>geometry features are 4326 Kinds</li>
-                  <li>
-                    geometry features are collected in 3455 moderated
-                    communities that are called collections
-                  </li>
-                  <li>later, collections can be composed in Article kinds</li>
-                </ul>
-                <p>
-                  This project is in an early WIP stage. It is not ready for
-                  production use. The relay https://relay.earthly.land is being
-                  nuked regularly, however you can visit the website, generate a
-                  keypair and start editing geojson features.
-                </p>
-              </article>
-            </div>
+            <SiteInfo />
           </PopoverContent>
         </Popover>
       </div>

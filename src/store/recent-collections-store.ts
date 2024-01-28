@@ -65,17 +65,20 @@ export const useRecentCollectionsStore = create<{
         return JSON.parse(contentEvent.content) as CustomFeature
       })
 
-      const featureIdentifiers: string[] = []
-
-      featureEvents.forEach((fe) => {
-        featureIdentifiers.push(
-          nip19.naddrEncode({
-            identifier: fe.tagValue("d") ?? "",
-            kind: fe.kind ?? 4550,
-            pubkey: fe.pubkey,
-          }),
-        )
-      })
+      const featureIdentifiers = Array.from(featureEvents)
+        .map((ev) => {
+          if (!ev) return
+          const contentEvent = new NDKEvent(
+            undefined,
+            JSON.parse(ev.content) as NostrEvent,
+          )
+          return nip19.naddrEncode({
+            identifier: contentEvent.tagValue("d") ?? "",
+            kind: contentEvent.kind ?? (4326 as NDKKind),
+            pubkey: contentEvent.pubkey,
+          })
+        })
+        .filter((e): e is `naddr1${string}` => e !== undefined)
 
       const validFeatures = features.filter(
         (e) => e !== undefined,
@@ -84,6 +87,17 @@ export const useRecentCollectionsStore = create<{
       const existingCollection = get().collections.find(
         (collection) => collection.naddr === naddr,
       )
+
+      // console.groupCollapsed(
+      //   "RecentCollectionsStore",
+      //   rootCollectionEvent.tagValue("title"),
+      // )
+
+      // console.log("features", features)
+      // console.log("featureEvents", featureEvents)
+      // console.log("featureIdentifiers", featureIdentifiers)
+
+      // console.groupEnd()
 
       if (existingCollection) {
         set((state) => {
