@@ -46,7 +46,6 @@ export default function EditingStoryFeature({
     identifier = decoded.identifier
     pubkey = decoded.pubkey
   }
-  
 
   const [approvalEvent, setApprovalEvent] = useState<NDKEvent>()
   const [originalEvent, setOriginalEvent] = useState<NDKEvent>()
@@ -115,7 +114,7 @@ export default function EditingStoryFeature({
           ],
           ["e", `${originalEvent?.id}`, "wss://relay.earthly.land"],
           ["p", `${ndkUser?.pubkey}`, "wss://relay.earthly.land"],
-          ["k", "30333"],
+          ["k", "4326"],
         ],
       })
 

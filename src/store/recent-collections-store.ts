@@ -72,7 +72,7 @@ export const useRecentCollectionsStore = create<{
         featureIdentifiers.push(
           nip19.naddrEncode({
             identifier: fe.tagValue("d") ?? "",
-            kind: fe.kind ?? 30333,
+            kind: fe.kind ?? 4326,
             pubkey: fe.pubkey,
           }),
         )

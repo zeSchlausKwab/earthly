@@ -78,7 +78,7 @@ export const useEditingCollectionStore = create<{
 
     if (withUnapproved) {
       const geometryCollection = await ndkInstance.fetchEvents({
-        kinds: [30333 as NDKKind],
+        kinds: [4326 as NDKKind],
         "#a": [
           `34550:${collectionEvent.pubkey}:${collectionEvent.tagValue("d")}`,
         ],

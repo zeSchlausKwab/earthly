@@ -23,6 +23,7 @@ import { Button } from "~/components/ui/button"
 import { Switch } from "~/components/ui/switch"
 import { Label } from "~/components/ui/label"
 import EditingStoryFeature from "~/components/editing-story-feature"
+import { toast } from "./ui/use-toast"
 
 export const Icons = {
   spinner: Loader2,
@@ -108,9 +109,9 @@ export default function EditingStory({}) {
         return new NDKEvent(
           ndk,
           runtimeGeometryFeatureToNostr({
-            kind: 30333 as NDKKind,
+            kind: 4326 as NDKKind,
             pubkey: ndkUser?.pubkey ?? "",
-            content: feature.properties.description,
+            description: feature.properties.description,
             created_at: now,
             d: feature.properties.id,
             communityEventAuthorPubkey: ndkUser?.pubkey ?? "",
@@ -120,7 +121,6 @@ export default function EditingStory({}) {
             color: feature.properties.color,
             type: geometry.type,
             coordinates: geometry.coordinates,
-            // geohash: geohashCenter,
           }),
         )
       }),
@@ -142,7 +142,7 @@ export default function EditingStory({}) {
             ],
             ["e", event.id, "wss://relay.earthly.land"],
             ["p", `${ndkUser?.pubkey}`, "wss://relay.earthly.land"],
-            ["k", "30333"],
+            ["k", "4326"],
           ],
         })
         return approvalEvent
@@ -152,7 +152,21 @@ export default function EditingStory({}) {
     await motherNDKEvent.publish()
     await Promise.all(newFeatureEvents.map((event) => event.publish()))
     await Promise.all(newFeatureApprovals.map((event) => event.publish()))
-    setIsPersisting(false)
+      .then(() => {
+        setIsPersisting(false)
+        toast({
+          title: "Event published",
+          description: "Event published successfully",
+        })
+      })
+      .catch((e) => {
+        setIsPersisting(false)
+        toast({
+          title: "Failed to publish event",
+          variant: "destructive",
+          description: "Error: " + JSON.stringify(e),
+        })
+      })
   }
 
   const handleUpdateCollection = async (data: UpdateCollectionFormSchema) => {
@@ -180,7 +194,7 @@ export default function EditingStory({}) {
           } = decodeNaddr(featureEvent[1])
 
           const lastFeatureEvent = await ndk?.fetchEvent({
-            kinds: [30333 as NDKKind],
+            kinds: [4326 as NDKKind],
             authors: [pubkey],
             "#d": [featureIdentifier],
           })
@@ -233,7 +247,7 @@ export default function EditingStory({}) {
       // return new NDKEvent(
       //   ndk,
       //   runtimeGeometryFeatureToNostr({
-      //     kind: 30333 as NDKKind,
+      //     kind: 4326 as NDKKind,
       //     pubkey: pubkey,
       //     content: feature.properties.description,
       //     created_at: now,
@@ -370,7 +384,7 @@ export default function EditingStory({}) {
     //   return new NDKEvent(
     //     ndk,
     //     runtimeGeometryFeatureToNostr({
-    //       kind: 30333 as NDKKind,
+    //       kind: 4326 as NDKKind,
     //       pubkey: ndkUser?.pubkey ?? "",
     //       content: feature.properties.description,
     //       created_at: now,

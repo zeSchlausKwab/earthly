@@ -12,7 +12,7 @@ export const runtimeGeometryFeatureToNostr = (
   return persistedGeometryFeatureSchema.parse({
     kind: runtimeFeature.kind,
     pubkey: runtimeFeature.pubkey,
-    content: runtimeFeature.content,
+    content: JSON.stringify(runtimeFeature.coordinates),
     created_at: runtimeFeature.created_at,
     tags: [
       [
@@ -23,10 +23,9 @@ export const runtimeGeometryFeatureToNostr = (
       ["d", runtimeFeature.d],
       ["published_at", runtimeFeature.published_at.toString()],
       ["name", runtimeFeature.name],
+      ["description", runtimeFeature.description],
       ["color", runtimeFeature.color],
       ["type", runtimeFeature.type],
-      ["coordinates", JSON.stringify(runtimeFeature.coordinates)],
-      // ["g", runtimeFeature.geohash],
       ["y", "feature"],
     ],
   } as NostrGeometryFeature)
@@ -43,7 +42,12 @@ export const getProperties = (event: NDKEvent) => {
 }
 
 function getCoordinates(event: NDKEvent) {
-  return JSON.parse(event?.tagValue("coordinates") ?? "[]") as number[][]
+  try {
+    return JSON.parse(event?.content ?? "[]") as number[][]
+  } catch (error) {
+    console.error("Error parsing JSON:", error)
+    return []
+  }
 }
 
 export const mapGeometryCollectionFeature = (event: NDKEvent) => {
@@ -116,13 +120,16 @@ export const nostrGeometryFeatureToRuntime = (
   return {
     kind: nostrFeature.kind,
     pubkey: nostrFeature.pubkey,
-    content: nostrFeature.content,
+    description: event.tagValue("description"),
     created_at: nostrFeature.created_at,
     d: event.tagValue("d") ?? "",
     published_at: new Date(event.tagValue("published_at") ?? "").getDate(),
     name: event.tagValue("name") ?? "",
     color: event.tagValue("color") ?? "",
     type: event.tagValue("type") ?? "",
-    coordinates: JSON.parse(event?.tagValue("coordinates") ?? "[]"),
+    coordinates: JSON.parse(nostrFeature.content) as [],
+    communityEventAuthorPubkey: event.tagValue("a")?.split(":")[1] ?? "",
+    content: nostrFeature.content,
+    motherEventIdentifier: event.tagValue("a")?.split(":")[2] ?? "",
   } as RuntimeGeometryFeature
 }
