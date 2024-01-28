@@ -14,6 +14,14 @@ If you are not familiar with the different technologies used in this project, pl
 - [Tailwind CSS](https://tailwindcss.com)
 - [tRPC](https://trpc.io)
 
+## nostream db dev operations
+
+`psql -U nostr_ts_relay -d nostr_ts_relay`
+
+`DELETE FROM events;`
+
+`HOST=192.168.0.XXX npm run dev`
+
 ## Learn More
 
 To learn more about the [T3 Stack](https://create.t3.gg/), take a look at the following resources:
