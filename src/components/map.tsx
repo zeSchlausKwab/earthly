@@ -31,6 +31,14 @@ export type CustomFeatureGeo = Feature<Geometry, FeatureProperties> & {
   }
 }
 
+// remove unnecessary attribution flag
+function removeAttributionFlag() {
+  const svgElement = document.querySelector("svg.leaflet-attribution-flag")
+  if (svgElement) {
+    svgElement.remove()
+  }
+}
+
 export default function Map() {
   const { geometryCollection, setGeometry } = useEditingCollectionStore()
   const { collections } = useRecentCollectionsStore()
@@ -44,6 +52,7 @@ export default function Map() {
   const recentCollection = useRef<L.FeatureGroup>(null)
 
   useEffect(() => {
+    removeAttributionFlag()
     if (geometryCollection) {
       ref.current?.clearLayers()
       const featureGroup = L.geoJSON(geometryCollection)
