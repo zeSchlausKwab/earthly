@@ -113,14 +113,13 @@ export default function Home() {
                     <PanelTopClose />
                   </Button>
                 </SheetTrigger>
-                <SheetContent className="h-4/5 w-full" side={"bottom"}>
-                  <SheetHeader>
-                    <SheetDescription className={"flex flex-col"}>
-                      <DevelopmentDisclaimer />
-                      <EditingStory />
-                      <RecentStories />
-                    </SheetDescription>
-                  </SheetHeader>
+                <SheetContent
+                  className="h-4/5 w-full lg:overflow-y-scroll"
+                  side={"bottom"}
+                >
+                  <DevelopmentDisclaimer />
+                  <EditingStory />
+                  <RecentStories />
                 </SheetContent>
               </Sheet>
             )}

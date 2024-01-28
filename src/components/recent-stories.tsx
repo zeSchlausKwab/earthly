@@ -1,3 +1,4 @@
+import { ScanEye } from "lucide-react"
 import Image from "next/image"
 import NostrFeature from "~/components/nostr-feature"
 import {
@@ -25,20 +26,43 @@ export default function RecentStories() {
     void setGeometryFromNostr(naddr)
   }
 
+  const handleZoomOnNaddr = (naddr: string) => {
+    // const collection = collections.find((c) => c.naddr === naddr)
+    // if (collection) {
+    //   const { lat, lng, zoom } = collection
+    //   window.map?.flyTo([lat, lng], zoom)
+    // }
+    console.log("zoom on naddr", naddr)
+  }
+
   return (
     <div
-      className={"grid grid-cols-2 gap-2 break-all text-sm lg:flex lg:flex-col"}
+      className={
+        "grid grid-cols-2 gap-2 overflow-y-auto overflow-x-scroll break-all text-sm lg:flex lg:flex-col"
+      }
     >
       {collections.map((collection, index) => {
         return (
           <div
             key={collection.naddr}
-            className={
-              "flex w-96 flex-col gap-4 overflow-x-scroll rounded-lg border p-3 lg:w-full"
-            }
+            className={"flex  flex-col gap-2 rounded-lg border p-3 lg:w-full"}
           >
-            <div className={"flex justify-between"}>
-              <b>{collection.title}</b>
+            <b>{collection.title}</b>
+
+            <Image
+              src={collection.headerImage}
+              alt={collection.title}
+              width={0}
+              height={0}
+              sizes="100vw"
+              style={{ width: "50%", height: "auto" }} // optional
+            />
+            <div className={"flex flex-col"}>
+              <div>{formatNostrTime(collection.published_at)}</div>
+              <div>{collection.description}</div>
+            </div>
+            <div className="flex flex-row items-center justify-between">
+              <ScanEye onClick={() => handleZoomOnNaddr(collection.naddr)} />
               {ndkUser?.pubkey === collection.pubkey ? (
                 <Button onClick={() => handleEdit(collection.naddr)}>
                   edit
@@ -48,20 +72,6 @@ export default function RecentStories() {
                   clone
                 </Button>
               )}
-            </div>
-            <div className={"flex flex-row gap-4"}>
-              <Image
-                src={collection.headerImage}
-                alt={collection.title}
-                width={0}
-                height={0}
-                sizes="100vw"
-                style={{ width: "50%", height: "auto" }} // optional
-              />
-              <div className={"flex flex-col"}>
-                <div>{formatNostrTime(collection.published_at)}</div>
-                <div>{collection.description}</div>
-              </div>
             </div>
             <Accordion type="single" collapsible>
               <AccordionItem value="item-1">

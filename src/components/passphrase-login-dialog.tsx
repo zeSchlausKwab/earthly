@@ -1,21 +1,21 @@
-import React, { useState } from "react"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "~/components/ui/alert-dialog"
-import { Label } from "~/components/ui/label"
+import { nip19 } from "nostr-tools"
+import { useState } from "react"
+import { Icons } from "~/components/editing-story"
 import { Input } from "~/components/ui/input"
+import { Label } from "~/components/ui/label"
+import { toast } from "~/components/ui/use-toast"
 import { useNDKStore } from "~/store/ndk-store"
 import { decryptMessage } from "~/utils/crypto"
-import { nip19 } from "nostr-tools"
-import { toast } from "~/components/ui/use-toast"
-import { Icons } from "~/components/editing-story"
+import { Button } from "./ui/button"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog"
 
 export default function PassphraseLoginDialog({
   open,
@@ -56,37 +56,37 @@ export default function PassphraseLoginDialog({
   }
 
   return (
-    <AlertDialog open={open}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>
+    <Dialog open={open}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Authenticate</DialogTitle>
+          <DialogDescription>
             You have a private key stored on this site
-          </AlertDialogTitle>
-          <AlertDialogDescription className={"flex flex-col gap-4"}>
-            Enter the passphrase to decrypt it
-            <div className={"flex w-full flex-row items-center gap-4"}>
-              <Label htmlFor="passphrase" className={"w-24"}>
-                Passphrase
-              </Label>
-              <Input
-                id="passphrase"
-                className={"w-40"}
-                type={"password"}
-                onChange={(e) => setPassphrase(e.target.value)}
-              />
-              {isInitiating && (
-                <Icons.spinner className="h-6 w-6 animate-spin" />
-              )}
-            </div>
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel onClick={onRefuse}>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={handlePassphraseSubmit}>
-            Continue
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+          </DialogDescription>
+        </DialogHeader>
+        <div className={"flex flex-row items-center justify-between gap-4"}>
+          <Label htmlFor="passphrase" className={"w-24"}>
+            Passphrase
+          </Label>
+          <Input
+            id="passphrase"
+            className={"w-1/2"}
+            type={"password"}
+            onChange={(e) => setPassphrase(e.target.value)}
+          />
+          {isInitiating && <Icons.spinner className="h-6 w-6 animate-spin" />}
+        </div>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button onClick={onRefuse} type="button" variant="secondary">
+              Close
+            </Button>
+          </DialogClose>
+          <Button onClick={handlePassphraseSubmit} type="submit">
+            Confirm
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
