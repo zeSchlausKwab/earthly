@@ -16,8 +16,10 @@ import FeaturesContext from "./feature-context"
 
 export default function Story({
   collection,
+  inFocusOnMap,
 }: {
   collection: RecentCollection
+  inFocusOnMap?: boolean
 }) {
   const { ndkUser } = useNDKStore()
   const { setGeometryFromNostr } = useEditingCollectionStore()
@@ -37,8 +39,9 @@ export default function Story({
 
   return (
     <div
+      id={collection.identifier}
       key={collection.naddr}
-      className={"flex  flex-col gap-2 rounded-lg border p-3 lg:w-full"}
+      className={`flex flex-col gap-2 rounded-lg border p-3 hover:border-cyan-800 hover:shadow-md lg:w-full ${inFocusOnMap ? "border-cyan-800 shadow-md" : ""}`}
     >
       <b>{collection.title}</b>
 

@@ -19,9 +19,10 @@ import { useRecentCollectionsStore } from "~/store/recent-collections-store"
 import { LocateFixed } from "lucide-react"
 import dynamic from "next/dynamic"
 import FeaturePopup from "~/components/map/feature-popup"
-import MapZoomFeature from "./map-zoom-on-feature"
-import { Button } from "../ui/button"
+import { useMapListStore } from "~/store/map-list-store"
 import { useZoomUIStore } from "~/store/zoom-ui-store"
+import { Button } from "../ui/button"
+import MapZoomFeature from "./map-zoom-on-feature"
 
 const MapZoomEdit = dynamic(() => import("./map-zoom-edit"), {
   ssr: false,
@@ -51,6 +52,7 @@ export default function Map() {
   const { geometryCollection, setGeometry } = useEditingCollectionStore()
   const { collections } = useRecentCollectionsStore()
   const { setLocationFromUser } = useZoomUIStore()
+  const { setHoveredCollection } = useMapListStore()
 
   const [geojson, setGeojson] = useState<L.FeatureGroup | null>(null)
   const [selectedFeature, setSelectedFeature] = useState<
@@ -84,6 +86,20 @@ export default function Map() {
                 color: "#000000",
               }
             }
+          },
+          onEachFeature: (feature, layer) => {
+            if (!feature) return
+            layer.on("mouseover", () => {
+              const targetCollection = collections.find((c) =>
+                c.features.features.some(
+                  (f) => f.properties.id === feature.properties.id,
+                ),
+              )
+              setHoveredCollection(targetCollection?.identifier ?? null)
+            })
+            layer.on("mouseout", () => {
+              setHoveredCollection(null)
+            })
           },
         }).addTo(recentCollection.current as L.FeatureGroup)
       })
