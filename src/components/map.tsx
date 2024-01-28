@@ -219,7 +219,7 @@ export default function Map() {
           <Button
             onClick={setLocationFromUser}
             variant="outline"
-            className="z-50 mb-4 ml-4"
+            className="z-50 mb-2 ml-4"
           >
             <LocateFixed />
           </Button>

@@ -5,6 +5,7 @@ import { type CustomFeature } from "~/store/edit-collection-store"
 import { useNDKStore } from "~/store/ndk-store"
 import { decodeNaddr } from "~/utils/naddr"
 import FeaturesCommentReply from "./feature-comment-reply"
+import ProfileByPubkey from "./profile-by-bubkey"
 
 export default function FeaturesContext({ naddr }: { naddr: string }) {
   const { ndk } = useNDKStore()
@@ -32,8 +33,13 @@ export default function FeaturesContext({ naddr }: { naddr: string }) {
 
   return (
     <div className={"flex flex-col rounded-lg border p-2 text-sm"}>
-      <b>{customFeature?.properties.name}</b>
-      <p>{customFeature?.properties.description}</p>
+      <div className="flex flex-row">
+        <div className="flex flex-col">
+          {featureEvent && <ProfileByPubkey pubkey={featureEvent?.pubkey} />}
+          <b>{customFeature?.properties.name}</b>
+          <p>{customFeature?.properties.description}</p>
+        </div>
+      </div>
       {featureEvent && (
         <FeaturesCommentReply
           parentEvent={featureEvent}

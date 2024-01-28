@@ -1,11 +1,12 @@
 import { NDKEvent } from "@nostr-dev-kit/ndk"
+import { useQuery } from "@tanstack/react-query"
 import { MessageCircle, X } from "lucide-react"
 import { useState } from "react"
 import { useNDKStore } from "~/store/ndk-store"
+import { formatNostrTime } from "~/utils/time"
+import ProfileByPubkey from "./profile-by-bubkey"
 import { Button } from "./ui/button"
 import { Textarea } from "./ui/textarea"
-import { useQuery } from "@tanstack/react-query"
-import ProfileByPubkey from "./profile-by-bubkey"
 
 export default function FeaturesCommentReply({
   parentEvent,
@@ -30,7 +31,10 @@ export default function FeaturesCommentReply({
     enabled: Boolean(parentEvent),
     onSuccess(data) {
       if (data) {
-        setChildReplyEvents(Array.from(data))
+        const orderedData = Array.from(data).sort((a, b) => {
+          return (b.created_at ?? 0) - (a.created_at ?? 0)
+        })
+        setChildReplyEvents(orderedData)
       }
     },
   })
@@ -66,8 +70,13 @@ export default function FeaturesCommentReply({
   }
 
   return (
-    <div className={"flex flex-col gap-2 p-2 text-sm"}>
-      <ProfileByPubkey pubkey={parentEvent.author.pubkey} />
+    <div className={"flex flex-col gap-2 p-1 text-sm"}>
+      {forRootFeature ? null : (
+        <div className="flex flex-row justify-between">
+          <ProfileByPubkey pubkey={parentEvent.author.pubkey} />
+          <div>{formatNostrTime(parentEvent.created_at?.toString() ?? "")}</div>
+        </div>
+      )}
       {parentEvent && !forRootFeature ? parentEvent.content : null}
       {isReplyFormOpen ? (
         <div className="flex flex-row justify-between">
