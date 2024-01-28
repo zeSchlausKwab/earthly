@@ -35,6 +35,7 @@ export const runtimeGeometryFeatureToNostr = (
 export const getProperties = (event: NDKEvent) => {
   return {
     id: event?.tagValue("d") ?? "",
+    noteId: event.id,
     description: event?.content,
     color: event?.tagValue("color") ?? "#000000",
     name: event?.tagValue("name") ?? "",

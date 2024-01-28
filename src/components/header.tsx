@@ -84,11 +84,6 @@ export default function Header() {
           nsec: "",
         })
 
-        const resolvedUser = await test.fetchProfile()
-
-        console.log("Permission granted to read their public key:", user.npub)
-        console.log("User profile:", resolvedUser)
-
         toast({
           title: "Successfully authenticated with signer",
           description: `You are now authenticated with your signer.`,

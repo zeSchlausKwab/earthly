@@ -1,7 +1,4 @@
-import {
-  CustomFeature,
-  useEditingCollectionStore,
-} from "~/store/edit-collection-store"
+import { useEditingCollectionStore } from "~/store/edit-collection-store"
 import { type GeoJsonGeometryTypes } from "geojson"
 import { useNDKStore } from "~/store/ndk-store"
 import { NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
@@ -13,10 +10,7 @@ import {
   mapGeometryCollectionFeature,
   runtimeGeometryFeatureToNostr,
 } from "~/mapper/geometry-feature"
-import {
-  mapFeatureEventsToIdentifiers,
-  runtimeCollectionToNostr,
-} from "~/mapper/collection"
+import { runtimeCollectionToNostr } from "~/mapper/collection"
 import { v4 as uuidv4 } from "uuid"
 import {
   type EditingCollectionFormSchema,
@@ -42,28 +36,12 @@ export default function EditingStory({}) {
   const [iAmOwner, setIAmOwner] = useState<boolean>(false)
   const [showUnapprovedFeatures, setShowUnapprovedFeatures] =
     useState<boolean>(false)
-  const [approvalEvents, setApprovalEvents] = useState<NDKEvent[]>([])
   const [isPersisting, setIsPersisting] = useState<boolean>(false)
   const [collectionMeta, setCollectionMeta] = useState<{
     title: string
     description: string
     image: string
   }>()
-
-  useEffect(() => {
-    const doApprovedFeatures = async () => {
-      if (!naddr) return
-      const { kind, pubkey, identifier } = decodeNaddr(naddr)
-      const approvalEvents = await ndk?.fetchEvents({
-        kinds: [4550 as NDKKind],
-        "#a": [`34550:${pubkey}:${identifier}`],
-      })
-      console.log("approvalEvents", approvalEvents)
-      if (!approvalEvents) return
-      setApprovalEvents(Array.from(approvalEvents))
-    }
-    void doApprovedFeatures()
-  }, [iAmOwner])
 
   useEffect(() => {
     if (ndk && naddr) {
@@ -252,27 +230,27 @@ export default function EditingStory({}) {
 
       // const geohashCenter = geohashFromFeatures(feature)
 
-      return new NDKEvent(
-        ndk,
-        runtimeGeometryFeatureToNostr({
-          kind: 30333 as NDKKind,
-          pubkey: pubkey,
-          content: feature.properties.description,
-          created_at: now,
-          d: feature.properties.id,
-          published_at: now,
-          name: feature.properties.name,
-          color: feature.properties.color,
-          type: geometry.type,
-          coordinates: geometry.coordinates,
-          // geohash: geohashCenter,
-        }),
-      )
+      // return new NDKEvent(
+      //   ndk,
+      //   runtimeGeometryFeatureToNostr({
+      //     kind: 30333 as NDKKind,
+      //     pubkey: pubkey,
+      //     content: feature.properties.description,
+      //     created_at: now,
+      //     d: feature.properties.id,
+      //     published_at: now,
+      //     name: feature.properties.name,
+      //     color: feature.properties.color,
+      //     type: geometry.type,
+      //     coordinates: geometry.coordinates,
+      //     // geohash: geohashCenter,
+      //   }),
+      // )
     })
 
-    const validFeatureEvents = newFeatureEvents.filter(
-      (event): event is NDKEvent => event !== undefined,
-    )
+    // const validFeatureEvents = newFeatureEvents.filter(
+    //   (event): event is NDKEvent => event !== undefined,
+    // )
 
     const remainingEventPointers = lastMotherEvent
       .getMatchingTags("f")
@@ -285,12 +263,12 @@ export default function EditingStory({}) {
         })
       })
 
-    const uniqueFeaturePointerList = [
-      ...mapFeatureEventsToIdentifiers(validFeatureEvents),
-      ...remainingEventPointers,
-    ].filter((value, index, self) => {
-      return self.map((item) => item[1]).indexOf(value[1]) === index
-    })
+    // const uniqueFeaturePointerList = [
+    //   ...mapFeatureEventsToIdentifiers(validFeatureEvents),
+    //   ...remainingEventPointers,
+    // ].filter((value, index, self) => {
+    //   return self.map((item) => item[1]).indexOf(value[1]) === index
+    // })
 
     // TODO: not sue if these are the current collections
     // const motherGeohash = geohashFromFeatures(
@@ -303,30 +281,26 @@ export default function EditingStory({}) {
     //   }),
     // )
 
-    const newMotherNDKEvent = new NDKEvent(
-      ndk,
-      runtimeCollectionToNostr({
-        kind: kind,
-        content: data.storyDescription ?? "",
-        created_at: now,
-        pubkey: pubkey,
-        d: lastMotherEvent.tagValue("d") ?? "",
-        title: `${data.storyTitle}`,
-        image: `https://source.unsplash.com/random/400x200`,
-        published_at: parseInt(lastMotherEvent.tagValue("published_at") ?? ""),
-        features: uniqueFeaturePointerList,
-        // geohash: motherGeohash,
-      }),
-    )
+    // const newMotherNDKEvent = new NDKEvent(
+    //   ndk,
+    //   runtimeCollectionToNostr({
+    //     kind: kind,
+    //     content: data.storyDescription ?? "",
+    //     created_at: now,
+    //     pubkey: pubkey,
+    //     d: lastMotherEvent.tagValue("d") ?? "",
+    //     title: `${data.storyTitle}`,
+    //     image: `https://source.unsplash.com/random/400x200`,
+    //     published_at: parseInt(lastMotherEvent.tagValue("published_at") ?? ""),
+    //     features: uniqueFeaturePointerList,
+    //     // geohash: motherGeohash,
+    //   }),
+    // )
 
     // await Promise.all(validFeatureEvents.map((event) => event.publish()))
     // await newMotherNDKEvent.publish()
 
     setIsPersisting(false)
-  }
-
-  const handleSubmitNewFeature = () => {
-    console.log("submit new feature")
   }
 
   const handleSubmitGeometryChanges = async () => {
@@ -335,19 +309,11 @@ export default function EditingStory({}) {
 
     const { kind, pubkey, identifier } = decodeNaddr(naddr)
 
-    console.log("kind", kind)
-    console.log("pubkey", pubkey)
-    console.log("identifier", identifier)
-
-    console.log("ndk", ndk)
-
     const lastMotherEvent = await ndk?.fetchEvent({
       kinds: [kind as NDKKind],
       // authors: [pubkey],
       "#d": [identifier],
     })
-
-    console.log("lastMotherEvent", lastMotherEvent)
 
     if (!lastMotherEvent) return
 
@@ -364,67 +330,63 @@ export default function EditingStory({}) {
       ],
     })
 
-    console.log("existingFeatureEvents", existingFeatureEvents)
+    // const arrExistingFeatureEvents = await Promise.all(
+    //   Array.from(existingFeatureEvents).map(async (ev) => {
+    //     const resolvedGeometryEvent = await ndk.fetchEvent({
+    //       ids: [ev.tagValue("e") ?? ""],
+    //     })
+    //     return mapGeometryCollectionFeature(resolvedGeometryEvent)
+    //   }),
+    // )
 
-    const arrExistingFeatureEvents = await Promise.all(
-      Array.from(existingFeatureEvents).map(async (ev) => {
-        const resolvedGeometryEvent = await ndk.fetchEvent({
-          ids: [ev.tagValue("e") ?? ""],
-        })
-        return mapGeometryCollectionFeature(resolvedGeometryEvent)
-      }),
-    )
+    // const newAndChangedFeatures = geometryCollection.features
+    //   .map((feature) => {
+    //     const existingFeature = arrExistingFeatureEvents.find(
+    //       (existingFeature) => {
+    //         return existingFeature?.properties.id === feature.properties.id
+    //       },
+    //     )
 
-    const newAndChangedFeatures = geometryCollection.features
-      .map((feature) => {
-        const existingFeature = arrExistingFeatureEvents.find(
-          (existingFeature) => {
-            return existingFeature?.properties.id === feature.properties.id
-          },
-        )
+    //     if (!existingFeature) return feature
 
-        if (!existingFeature) return feature
+    //     const hasDiff = diff(feature, existingFeature as any).length > 0
 
-        const hasDiff = diff(feature, existingFeature as any).length > 0
+    //     if (hasDiff) {
+    //       return feature
+    //     } else {
+    //       return
+    //     }
+    //   })
+    //   .filter((e) => e !== undefined) as CustomFeature[]
 
-        if (hasDiff) {
-          return feature
-        } else {
-          return
-        }
-      })
-      .filter((e) => e !== undefined) as CustomFeature[]
+    // const now = Math.floor(Date.now() / 1000)
 
-    const now = Math.floor(Date.now() / 1000)
+    // const newAndChangedEvents = newAndChangedFeatures.map((feature) => {
+    //   const geometry = feature.geometry as unknown as {
+    //     coordinates: []
+    //     type: GeoJsonGeometryTypes
+    //   }
 
-    const newAndChangedEvents = newAndChangedFeatures.map((feature) => {
-      const geometry = feature.geometry as unknown as {
-        coordinates: []
-        type: GeoJsonGeometryTypes
-      }
+    //   return new NDKEvent(
+    //     ndk,
+    //     runtimeGeometryFeatureToNostr({
+    //       kind: 30333 as NDKKind,
+    //       pubkey: ndkUser?.pubkey ?? "",
+    //       content: feature.properties.description,
+    //       created_at: now,
+    //       d: feature.properties.id,
+    //       communityEventAuthorPubkey: lastMotherEvent.pubkey ?? "",
+    //       motherEventIdentifier: lastMotherEvent.tagValue("d") ?? "",
+    //       published_at: now,
+    //       name: feature.properties.name,
+    //       color: feature.properties.color,
+    //       type: geometry.type,
+    //       coordinates: geometry.coordinates,
+    //     }),
+    //   )
+    // })
 
-      return new NDKEvent(
-        ndk,
-        runtimeGeometryFeatureToNostr({
-          kind: 30333 as NDKKind,
-          pubkey: ndkUser?.pubkey ?? "",
-          content: feature.properties.description,
-          created_at: now,
-          d: feature.properties.id,
-          communityEventAuthorPubkey: lastMotherEvent.pubkey ?? "",
-          motherEventIdentifier: lastMotherEvent.tagValue("d") ?? "",
-          published_at: now,
-          name: feature.properties.name,
-          color: feature.properties.color,
-          type: geometry.type,
-          coordinates: geometry.coordinates,
-        }),
-      )
-    })
-
-    console.log("newAndChangedEvents", newAndChangedEvents)
-
-    await Promise.all(newAndChangedEvents.map((event) => event.publish()))
+    // await Promise.all(newAndChangedEvents.map((event) => event.publish()))
     setIsPersisting(false)
   }
 
@@ -464,6 +426,7 @@ export default function EditingStory({}) {
             <EditingStoryFeature
               key={feature.properties.id}
               feature={feature}
+              rootNaddr={naddr ?? ""}
             />
           )
         })}

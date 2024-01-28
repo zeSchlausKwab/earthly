@@ -3,10 +3,11 @@ import { type Feature, type FeatureCollection, type Geometry } from "geojson"
 import { useNDKStore } from "~/store/ndk-store"
 import { mapGeometryCollectionFeature } from "~/mapper/geometry-feature"
 import { decodeNaddr } from "~/utils/naddr"
-import { NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
+import { NDKEvent, NDKKind, NostrEvent } from "@nostr-dev-kit/ndk"
 
 export interface FeatureProperties {
   id: string
+  noteId: string
   name: string
   description: string
   color: string
@@ -69,13 +70,11 @@ export const useEditingCollectionStore = create<{
       "#d": [collectionNaddrData.identifier],
     })
 
-    console.log(collectionEvent)
-
     if (!collectionEvent) {
       throw new Error("Event not found")
     }
 
-    const validGeometryCollection = []
+    const validGeometryCollection: CustomFeature[] = []
 
     if (withUnapproved) {
       const geometryCollection = await ndkInstance.fetchEvents({
@@ -87,7 +86,9 @@ export const useEditingCollectionStore = create<{
 
       geometryCollection.forEach((ev) => {
         if (!ev) return
-        validGeometryCollection.push(mapGeometryCollectionFeature(ev))
+        validGeometryCollection.push(
+          mapGeometryCollectionFeature(ev) as CustomFeature,
+        )
       })
     } else {
       const geometryCollection = await ndkInstance.fetchEvents({
@@ -99,8 +100,13 @@ export const useEditingCollectionStore = create<{
 
       geometryCollection.forEach((ev) => {
         if (!ev) return
-        const contentEvent = new NDKEvent(undefined, JSON.parse(ev.content))
-        validGeometryCollection.push(mapGeometryCollectionFeature(contentEvent))
+        const contentEvent = new NDKEvent(
+          undefined,
+          JSON.parse(ev.content) as NostrEvent,
+        )
+        validGeometryCollection.push(
+          mapGeometryCollectionFeature(contentEvent) as CustomFeature,
+        )
       })
     }
 
@@ -108,7 +114,7 @@ export const useEditingCollectionStore = create<{
       naddr: naddr,
       geometryCollection: {
         type: "FeatureCollection",
-        features: validGeometryCollection as CustomFeature[],
+        features: validGeometryCollection,
       },
     })
   },

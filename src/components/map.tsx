@@ -67,7 +67,6 @@ export default function Map() {
   useEffect(() => {
     recentCollection.current?.clearLayers()
     if (collections && recentCollection.current) {
-    
       collections.forEach((collection) => {
         L.geoJSON(collection.features, {
           style: (feature) => {
@@ -142,7 +141,6 @@ export default function Map() {
           if (!feature) return
           layer.on("click", () => {
             // TODO: this is a hack to get around bad typing
-            console.log("feature", feature)
             setSelectedFeature(feature as CustomFeatureGeo)
           })
         },

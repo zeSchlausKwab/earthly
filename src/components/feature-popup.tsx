@@ -35,7 +35,6 @@ export default function FeaturePopup({
   })
 
   useEffect(() => {
-    console.log("value", value)
     onChange(featureId, value.title, value.description, value.color)
   }, [value])
 

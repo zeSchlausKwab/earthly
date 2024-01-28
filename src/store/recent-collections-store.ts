@@ -1,4 +1,4 @@
-import { NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
+import { NDKEvent, NDKKind, NostrEvent } from "@nostr-dev-kit/ndk"
 import { nip19 } from "nostr-tools"
 import { create } from "zustand"
 import { mapGeometryCollectionFeature } from "~/mapper/geometry-feature"
@@ -59,7 +59,10 @@ export const useRecentCollectionsStore = create<{
 
       const features = Array.from(featureEvents).map((ev) => {
         if (!ev) return
-        const contentEvent = new NDKEvent(undefined, JSON.parse(ev.content))
+        const contentEvent = new NDKEvent(
+          undefined,
+          JSON.parse(ev.content) as NostrEvent,
+        )
         return mapGeometryCollectionFeature(contentEvent)
       })
 

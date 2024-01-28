@@ -8,7 +8,6 @@ export default function MapSettings() {
 
   const handleChange = (e: boolean) => {
     setMapFollowRecentEvents(e)
-    console.log(e)
   }
 
   return (
