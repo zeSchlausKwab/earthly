@@ -36,14 +36,15 @@ export default function ProfileMetaForm() {
   const { data, error } = useQuery({
     queryKey: [`user-${ndkUser?.pubkey}`],
     queryFn: async () => {
-      return await ndkUser?.fetchProfile()
+      const res = await ndkUser?.fetchProfile()
+
+      if (res) {
+        form.reset(res)
+      }
+
+      return res
     },
     enabled: Boolean(ndkUser?.pubkey),
-    onSuccess(data) {
-      if (data) {
-        form.reset(data)
-      }
-    },
   })
 
   const handleFormSubmit = async (data: ProfileMetaSchema) => {

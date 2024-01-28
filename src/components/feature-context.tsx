@@ -16,19 +16,21 @@ export default function FeaturesContext({ naddr }: { naddr: string }) {
     queryKey: [`event-${naddr}`],
     queryFn: async () => {
       const naddrData = decodeNaddr(naddr)
-      return ndk?.fetchEvent({
+
+      const res = await ndk?.fetchEvent({
         kinds: [naddrData.kind],
         authors: [naddrData.pubkey],
         "#d": [naddrData.identifier],
       })
+
+      if (res) {
+        setFeatureEvent(res)
+        setCustomFeature(JSON.parse(res?.content ?? "") as CustomFeature)
+      }
+
+      return res
     },
     enabled: Boolean(naddr),
-    onSuccess(data) {
-      if (data) {
-        setFeatureEvent(data)
-        setCustomFeature(JSON.parse(data?.content ?? "") as CustomFeature)
-      }
-    },
   })
 
   return (

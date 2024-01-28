@@ -19,10 +19,8 @@ import { useRecentCollectionsStore } from "~/store/recent-collections-store"
 import { LocateFixed } from "lucide-react"
 import dynamic from "next/dynamic"
 import FeaturePopup from "~/components/feature-popup"
-import MapZoomLocation from "./map-zoom-location"
 import MapZoomFeature from "./map-zoom-on-feature"
 import { Button } from "./ui/button"
-import useMedia from "use-media"
 import { useZoomUIStore } from "~/store/zoom-ui-store"
 
 const MapZoomEdit = dynamic(() => import("./map-zoom-edit"), {
@@ -54,8 +52,6 @@ export default function Map() {
   const { collections } = useRecentCollectionsStore()
   const { setLocationFromUser } = useZoomUIStore()
 
-  const isWide = useMedia({ minWidth: "1024px" })
-
   const [geojson, setGeojson] = useState<L.FeatureGroup | null>(null)
   const [selectedFeature, setSelectedFeature] = useState<
     CustomFeatureGeo | undefined
@@ -84,9 +80,8 @@ export default function Map() {
                 color: feature.properties.color,
               }
             } else {
-              // Handle the case when 'feature' is undefined
               return {
-                color: "#000000", // default color
+                color: "#000000",
               }
             }
           },
@@ -139,7 +134,7 @@ export default function Map() {
         style: (feature) => {
           if (!feature) {
             return {
-              color: "#000000", // default color
+              color: "#000000",
             }
           }
           return {
@@ -212,7 +207,7 @@ export default function Map() {
           width: "100%",
           zIndex: 0,
         }}
-        center={[29.756433, -95.36403]}
+        center={[48.208, 16.373]}
         zoom={13}
       >
         <Control position="bottomleft">
@@ -262,7 +257,7 @@ export default function Map() {
         <FeatureGroup ref={recentCollection}></FeatureGroup>
         {/* <MapZoomEdit geojson={geometryCollection} /> */}
         <MapZoomRecent recentCollections={collections} />
-        <MapZoomLocation />
+        {/* <MapZoomLocation /> */}
         <MapZoomFeature />
       </MapContainer>
     </>

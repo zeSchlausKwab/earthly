@@ -50,20 +50,22 @@ export default function EditingStoryForm({
     queryKey: ["naddrEvent"],
     queryFn: async () => {
       const naddrData = decodeNaddr(naddr!)
-      return ndk?.fetchEvent({
+
+      const res = await ndk?.fetchEvent({
         kinds: [34550 as NDKKind],
         // authors: [naddrData.pubkey],
         "#d": [naddrData.identifier],
       })
-    },
-    enabled: Boolean(naddr),
-    onSuccess(data) {
-      if (data) {
-        setImage(data.tagValue("image") ?? "")
+
+      if (res) {
+        setImage(res.tagValue("image") ?? "")
         form.setValue("storyTitle", data?.tagValue("title") ?? "")
         form.setValue("storyDescription", data?.content ?? "")
       }
+
+      return res
     },
+    enabled: Boolean(naddr),
   })
 
   const handleUpdateCollectionData = () => {

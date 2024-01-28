@@ -12,6 +12,7 @@ import {
 } from "~/models/collection"
 import {
   CustomFeature,
+  CustomFeatureCollection,
   useEditingCollectionStore,
 } from "~/store/edit-collection-store"
 import { useNDKStore } from "~/store/ndk-store"
@@ -19,7 +20,6 @@ import { useNDKStore } from "~/store/ndk-store"
 import { useQuery } from "@tanstack/react-query"
 import { isEqual } from "lodash"
 import diff from "microdiff"
-import EditingStoryFeature from "~/components/editing-story-feature"
 import { Button } from "~/components/ui/button"
 import { Label } from "~/components/ui/label"
 import { Switch } from "~/components/ui/switch"
@@ -33,10 +33,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./ui/dialog"
-import { Input } from "./ui/input"
 import { toast } from "./ui/use-toast"
 import GeoJsonUploadDialog from "./geo-json-upload-dialog"
 import EditingStoryTable from "./edit-story-table"
+import { CustomFeatureGeo } from "./map"
 
 export const Icons = {
   spinner: Loader2,
@@ -51,22 +51,24 @@ export default function EditingStory({}) {
     queryKey: ["naddrEvent"],
     queryFn: async () => {
       const naddrData = decodeNaddr(naddr!)
-      return ndk?.fetchEvent({
+
+      const res = await ndk?.fetchEvent({
         kinds: [34550 as NDKKind],
         authors: [naddrData.pubkey],
         "#d": [naddrData.identifier],
       })
-    },
-    enabled: Boolean(naddr),
-    onSuccess(event) {
-      if (event) {
+
+      if (res) {
         setCollectionMeta({
-          title: event.tagValue("title") ?? "",
-          description: event.content,
-          image: event.tagValue("image") ?? "",
+          title: res.tagValue("title") ?? "",
+          description: res.content,
+          image: res.tagValue("image") ?? "",
         })
       }
+
+      return res
     },
+    enabled: Boolean(naddr),
   })
 
   const [iAmOwner, setIAmOwner] = useState<boolean>(false)
@@ -353,6 +355,51 @@ export default function EditingStory({}) {
     console.log("discard")
   }
 
+  const handleGroupItems = (ids: string[]) => {
+    console.log(geometryCollection)
+
+    const groupedFeatures = ids.reduce((grouped: any, id) => {
+      const feature = geometryCollection.features.find(
+        (feature) => feature.properties.id === id,
+      )
+
+      if (feature) {
+        const { type, coordinates, geometry } =
+          feature.geometry as unknown as CustomFeatureGeo & { coordinates: [] }
+        const multiType = `Multi${type.charAt(0).toUpperCase() + type.slice(1)}`
+
+        if (!grouped[multiType]) {
+          grouped[multiType] = {
+            type: "Feature",
+            geometry: {
+              type: multiType,
+              coordinates: [coordinates],
+            },
+            properties: feature.properties, // take properties from the first feature
+          }
+        } else {
+          grouped[multiType].geometry.coordinates.push(coordinates)
+        }
+      }
+
+      return grouped
+    }, {})
+
+    const newGeometry = Object.values(groupedFeatures)
+
+    console.log(newGeometry)
+
+    setGeometry({
+      ...geometryCollection,
+      features: [
+        ...geometryCollection.features.filter(
+          (feature) => !ids.includes(feature.properties.id),
+        ),
+        ...newGeometry,
+      ],
+    } as CustomFeatureCollection)
+  }
+
   return (
     <div>
       {geometryCollection.features.length > 0 ? (
@@ -398,7 +445,10 @@ export default function EditingStory({}) {
             </div>
           )}
 
-          <EditingStoryTable tableData={geometryCollection} />
+          <EditingStoryTable
+            tableData={geometryCollection}
+            gorupItems={handleGroupItems}
+          />
 
           {/* <div className={"flex flex-col"}>
             {geometryCollection.features.map((feature, index) => {

@@ -23,20 +23,21 @@ export default function FeaturesCommentReply({
   const { data, error } = useQuery({
     queryKey: [`event-${parentEvent.id}`],
     queryFn: async () => {
-      return ndk?.fetchEvents({
+      const data = await ndk?.fetchEvents({
         kinds: [1],
         "#e": [parentEvent.id],
       })
-    },
-    enabled: Boolean(parentEvent),
-    onSuccess(data) {
+
       if (data) {
         const orderedData = Array.from(data).sort((a, b) => {
           return (b.created_at ?? 0) - (a.created_at ?? 0)
         })
         setChildReplyEvents(orderedData)
       }
+
+      return data
     },
+    enabled: Boolean(parentEvent),
   })
 
   const handleRevealReplyToFeatureOrNoteClick = () => {
