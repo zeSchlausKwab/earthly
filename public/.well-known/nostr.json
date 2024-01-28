@@ -1,6 +1,7 @@
 {
   "names": {
-    "zeRealSchlausKwab": "3aa5817273c3b2f94f491840e0472f049d0f10009e23de63006166bca9b36ea3"
+    "zeRealSchlausKwab": "3aa5817273c3b2f94f491840e0472f049d0f10009e23de63006166bca9b36ea3",
+    "earthly": "6ef777a78b2405fad6b4db2a619116441123b03cf148688084280db15439dac4"
   },
   "relays": {
     "3aa5817273c3b2f94f491840e0472f049d0f10009e23de63006166bca9b36ea3": [
@@ -19,6 +20,12 @@
       "wss://offchain.pub",
       "wss://relay.current.fyi",
       "wss://brb.io"
+    ],
+    "6ef777a78b2405fad6b4db2a619116441123b03cf148688084280db15439dac4": [
+      "wss://relay.earthly.land",
+      "wss://nos.lol",
+      "wss://nostr.mom",
+      "wss://relay.damus.io"
     ]
   }
 }
