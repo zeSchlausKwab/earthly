@@ -23,6 +23,7 @@ import MapZoomLocation from "./map-zoom-location"
 import MapZoomFeature from "./map-zoom-on-feature"
 import { Button } from "./ui/button"
 import useMedia from "use-media"
+import { useZoomUIStore } from "~/store/zoom-ui-store"
 
 const MapZoomEdit = dynamic(() => import("./map-zoom-edit"), {
   ssr: false,
@@ -51,6 +52,8 @@ function removeAttributionFlag() {
 export default function Map() {
   const { geometryCollection, setGeometry } = useEditingCollectionStore()
   const { collections } = useRecentCollectionsStore()
+  const { setLocationFromUser } = useZoomUIStore()
+
   const isWide = useMedia({ minWidth: "1024px" })
 
   const [geojson, setGeojson] = useState<L.FeatureGroup | null>(null)
@@ -213,7 +216,11 @@ export default function Map() {
         zoom={13}
       >
         <Control position="bottomleft">
-          <Button variant="outline" className="z-50 mb-4 ml-4">
+          <Button
+            onClick={setLocationFromUser}
+            variant="outline"
+            className="z-50 mb-4 ml-4"
+          >
             <LocateFixed />
           </Button>
         </Control>

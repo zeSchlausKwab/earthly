@@ -15,7 +15,6 @@ import { Sheet, SheetContent, SheetTrigger } from "~/components/ui/sheet"
 import Layout from "~/pages/layout"
 import { useNDKStore } from "~/store/ndk-store"
 import { useRecentCollectionsStore } from "~/store/recent-collections-store"
-import { useZoomUIStore } from "~/store/zoom-ui-store"
 
 const queryClient = new QueryClient()
 
@@ -25,7 +24,6 @@ export default function Home() {
   const isWide = useMedia({ minWidth: "1024px" })
   const { initAnonymous, ndk, initSigner } = useNDKStore()
   const { init: recentCollectionInit } = useRecentCollectionsStore()
-  const { setLocationFromUser } = useZoomUIStore()
 
   const [passphraseDialogOpen, setPassphraseDialogOpen] = useState(false)
 
@@ -81,10 +79,6 @@ export default function Home() {
       console.log("webln not found")
     }
     await recentCollectionInit()
-  }
-
-  const handleUserLocationClick = () => {
-    setLocationFromUser()
   }
 
   return (
