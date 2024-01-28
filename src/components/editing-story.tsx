@@ -12,16 +12,16 @@ import {
   type Point,
   type Polygon,
 } from "geojson"
-import LineStringDisplay from "~/pages/components/geomety-types/line-string-display"
-import PointDisplay from "~/pages/components/geomety-types/point-display"
-import PolygonDisplay from "~/pages/components/geomety-types/polygon-display"
+import LineStringDisplay from "~/components/geomety-types/line-string-display"
+import PointDisplay from "~/components/geomety-types/point-display"
+import PolygonDisplay from "~/components/geomety-types/polygon-display"
 import { Input } from "~/components/ui/input"
 import { useNDKStore } from "~/store/ndk-store"
 import { NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
 import * as React from "react"
 import { useState } from "react"
 import { Loader2 } from "lucide-react"
-import EditingStoryForm from "~/pages/components/editing-story-form"
+import EditingStoryForm from "~/components/editing-story-form"
 import {
   mapGeometryCollectionFeature,
   runtimeGeometryFeatureToNostr,

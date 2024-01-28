@@ -1,7 +1,7 @@
 import { Separator } from "~/components/ui/separator"
 import React from "react"
 
-export const Footer = () => {
+export default function Footer() {
   return (
     <footer className="flex flex-none flex-row justify-between p-4 text-center">
       <div>

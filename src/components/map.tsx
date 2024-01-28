@@ -13,11 +13,11 @@ import {
   FeatureProperties,
   useEditingCollectionStore,
 } from "~/store/edit-collection-store"
-import { FeaturePopup } from "~/pages/components/feature-popup"
 import { useRecentCollectionsStore } from "~/store/recent-collections-store"
 import { Feature, FeatureCollection, Geometry, Position } from "geojson"
 
 import dynamic from "next/dynamic"
+import FeaturePopup from "~/components/feature-popup"
 
 const MapZoom = dynamic(() => import("./map-zoom"), {
   ssr: false,

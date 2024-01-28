@@ -4,7 +4,7 @@ import { Textarea } from "~/components/ui/textarea"
 import { Input } from "~/components/ui/input"
 import { Button } from "~/components/ui/button"
 
-export function FeaturePopup({
+export default function FeaturePopup({
   featureId,
   currentDescription,
   currentTitle,

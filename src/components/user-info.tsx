@@ -4,7 +4,7 @@ import { type NDKUserProfile } from "@nostr-dev-kit/ndk"
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar"
 import { Globe, User } from "lucide-react"
 
-export const UserInfo = () => {
+export default function UserInfo() {
   const { ndkUser, ndk } = useNDKStore()
 
   const [fetchedProfile, setFetchedProfile] = useState<

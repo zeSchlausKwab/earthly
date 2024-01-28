@@ -1,10 +1,10 @@
 import Head from "next/head"
 import dynamic from "next/dynamic"
 import { useEffect } from "react"
-import { Layout } from "~/pages/layout"
-import EditingStory from "~/pages/components/editing-story"
+import Layout from "~/pages/layout"
+import EditingStory from "~/components/editing-story"
 import { useNDKStore } from "~/store/ndk-store"
-import RecentStories from "~/pages/components/recent-stories"
+import RecentStories from "~/components/recent-stories"
 import { useRecentCollectionsStore } from "~/store/recent-collections-store"
 
 const Map = dynamic(() => import("../components/map"), { ssr: false })

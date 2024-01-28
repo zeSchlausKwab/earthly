@@ -1,4 +1,4 @@
-import NostrFeature from "~/pages/components/nostr-feature"
+import NostrFeature from "~/components/nostr-feature"
 import { Button } from "~/components/ui/button"
 import { useEditingCollectionStore } from "~/store/edit-collection-store"
 import {

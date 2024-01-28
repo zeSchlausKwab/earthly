@@ -23,7 +23,7 @@ import {
 } from "~/components/ui/form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
-import { UserInfo } from "~/pages/components/user-info"
+import UserInfo from "~/components/user-info"
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert"
 
 const privateKeySchema = z.object({
@@ -32,7 +32,7 @@ const privateKeySchema = z.object({
     .min(64, "Private key should be at least 64 characters long"),
 })
 
-export const Header = () => {
+export default function Header() {
   const { ndk, initPrivateKey, initSigner } = useNDKStore()
 
   const { toast } = useToast()

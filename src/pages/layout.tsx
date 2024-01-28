@@ -1,13 +1,15 @@
 import React, { type ReactNode } from "react"
-import { Header } from "~/pages/components/header"
-import { Footer } from "~/pages/components/footer"
 import { Toaster } from "~/components/ui/toaster"
+import Header from "~/components/header"
+import Footer from "~/components/footer"
 
-export const Layout = ({ children }: { children: ReactNode }) => (
-  <div className={"flex h-screen flex-col"}>
-    <Header />
-    {children}
-    <Toaster />
-    <Footer />
-  </div>
-)
+export default function Layout({ children }: { children: ReactNode }) {
+  return (
+    <div className={"flex h-screen flex-col"}>
+      <Header />
+      {children}
+      <Toaster />
+      <Footer />
+    </div>
+  )
+}
