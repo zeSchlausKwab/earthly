@@ -8,7 +8,6 @@ export default function MapZoomLocation({}) {
       (position) => {
         const latitude = position.coords.latitude
         const longitude = position.coords.longitude
-        console.log(`Latitude: ${latitude}, Longitude: ${longitude}`)
 
         map.setView([latitude, longitude], 15)
       },

@@ -228,9 +228,6 @@ export default function EditingStory({}) {
       return !isEqual(feature, targetFeature)
     })
 
-    console.log("newFeatures", newFeatures)
-    console.log("editedFeatures", editedFeatures)
-
     // const lodashDiff = geometryCollection.features.filter((feature) => {
     //   return !existingGeometryFeatures.some((existingFeature) =>
     //     isEqual(feature, existingFeature),
@@ -247,15 +244,6 @@ export default function EditingStory({}) {
     //     diff: diff(diffFeature, targetFeature),
     //   }
     // })
-
-    // console.log("existingGeometryFeatures", existingGeometryFeatures)
-    // console.log("lodashDiff", lodashDiff)
-    // console.log("singleElementDiffs", singleElementDiffs)
-
-    // const newFeatures = singleElementDiffs.
-
-    // console.log("newFeatures", newFeatures)
-    // console.log("changedFeatures", changedFeatures)
 
     setIsPersisting(false)
   }
@@ -296,8 +284,6 @@ export default function EditingStory({}) {
         return JSON.parse(resolvedGeometryEvent?.content) as CustomFeature
       }),
     )
-
-    console.log(arrExistingFeatureEvents)
 
     const newAndChangedFeatures = geometryCollection.features
       .map((feature) => {
