@@ -3,7 +3,7 @@ import React from "react"
 
 export const Footer = () => {
   return (
-    <footer className="flex flex-none flex-row justify-between bg-gray-200 p-4 text-center">
+    <footer className="flex flex-none flex-row justify-between p-4 text-center">
       <div>
         &copy; {new Date().getFullYear()} Your Company Name. All rights
         reserved.

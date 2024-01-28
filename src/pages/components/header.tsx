@@ -10,7 +10,7 @@ import {
 import { Input } from "~/components/ui/input"
 import { generatePrivateKey, getPublicKey } from "nostr-tools"
 import { Separator } from "~/components/ui/separator"
-import { ClipboardCopy } from "lucide-react"
+import { ClipboardCopy, Terminal } from "lucide-react"
 import { useToast } from "~/components/ui/use-toast"
 import { z } from "zod"
 import {
@@ -24,6 +24,7 @@ import {
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { UserInfo } from "~/pages/components/user-info"
+import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert"
 
 const privateKeySchema = z.object({
   privateKey: z
@@ -130,8 +131,19 @@ export const Header = () => {
   }
 
   return (
-    <header className="flex flex-none flex-row items-center justify-between bg-gray-200 p-4">
+    <header className="flex flex-none flex-row items-center justify-between p-4">
       <h1 className="text-2xl font-bold">earthly</h1>
+      <Alert variant="destructive" className={"w-2/3"}>
+        <Terminal className="h-4 w-4" />
+        <AlertTitle>Warning!</AlertTitle>
+        <AlertDescription>
+          This website is in early alpha. The events you create are sent to{" "}
+          <b>wss://relay.earthly.land</b> and can be nuked at any time. If the
+          relay is down the relays can be pulled from your metadata and be
+          visible to the public.{" "}
+          <b>Please do not use this for anything sensitive.</b>
+        </AlertDescription>
+      </Alert>
       <div className="z-50 flex flex-row gap-8 text-xs">
         <UserInfo />
         <Popover>
