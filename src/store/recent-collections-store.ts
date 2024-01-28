@@ -16,6 +16,7 @@ export type RecentCollection = {
   published_at: string
   pubkey: string
   description: string
+  headerImage: string
   featureNaddrs: string[]
   features: CustomFeatureCollection
 }
@@ -102,6 +103,7 @@ export const useRecentCollectionsStore = create<{
                 published_at: event.tagValue("published_at") ?? "",
                 pubkey: event.pubkey,
                 description: event.content,
+                headerImage: event.tagValue("image") ?? "",
                 featureNaddrs: featureIdentifiers.map((e) => e[1]),
                 features: {
                   type: "FeatureCollection",

@@ -9,6 +9,7 @@ import {
 } from "~/components/ui/accordion"
 import { useRecentCollectionsStore } from "~/store/recent-collections-store"
 import { useNDKStore } from "~/store/ndk-store"
+import Image from "next/image"
 
 export default function RecentStories() {
   const { ndkUser } = useNDKStore()
@@ -26,8 +27,9 @@ export default function RecentStories() {
   return (
     <div className={"break-all rounded-lg border text-sm"}>
       {collections.map((collection, index) => {
+        console.log(collection)
         return (
-          <div key={collection.naddr} className={"p-3"}>
+          <div key={collection.naddr} className={"flex flex-col gap-4 p-3"}>
             <div className={"flex justify-between"}>
               <b>{collection.title}</b>
               {ndkUser?.pubkey === collection.pubkey ? (
@@ -39,9 +41,21 @@ export default function RecentStories() {
               )}
             </div>
             <b>{collection.naddr}</b>
-            <div>{collection.identifier}</div>
-            <div>{collection.published_at}</div>
-            <div>{collection.description}</div>
+            <div className={"flex flex-row gap-4"}>
+              <Image
+                src={collection.headerImage}
+                alt={collection.title}
+                width={0}
+                height={0}
+                sizes="100vw"
+                style={{ width: "100%", height: "auto" }} // optional
+              />
+              <div className={"flex flex-col"}>
+                <div>{collection.identifier}</div>
+                <div>{collection.published_at}</div>
+                <div>{collection.description}</div>
+              </div>
+            </div>
             <Accordion type="single" collapsible>
               <AccordionItem value="item-1">
                 <AccordionTrigger>geometry</AccordionTrigger>
