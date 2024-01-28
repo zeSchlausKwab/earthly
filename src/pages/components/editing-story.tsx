@@ -20,7 +20,6 @@ import { useNDKStore } from "~/store/ndk-store"
 import { NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
 import * as React from "react"
 import { useState } from "react"
-import { publicKeyTest } from "~/pages"
 import { Loader2 } from "lucide-react"
 import EditingStoryForm from "~/pages/components/editing-story-form"
 import {
@@ -47,7 +46,7 @@ export const Icons = {
 
 export default function EditingStory({}) {
   const { geometryCollection, naddr } = useEditingCollectionStore()
-  const { ndk } = useNDKStore()
+  const { ndk, ndkUser } = useNDKStore()
 
   const [isPersisting, setIsPersisting] = useState<boolean>(false)
 
@@ -68,7 +67,7 @@ export default function EditingStory({}) {
           ndk,
           runtimeGeometryFeatureToNostr({
             kind: 30333 as NDKKind,
-            pubkey: publicKeyTest,
+            pubkey: ndkUser?.pubkey ?? "",
             content: feature.properties.description,
             created_at: now,
             d: feature.properties.id,
@@ -88,7 +87,7 @@ export default function EditingStory({}) {
         kind: NDKKind.Article,
         content: data.storyDescription ?? "",
         created_at: now,
-        pubkey: publicKeyTest,
+        pubkey: ndkUser?.pubkey ?? "",
         d: uuidv4(),
         title: `${data.storyTitle}`,
         image: `https://source.unsplash.com/random/400x200`,
@@ -97,7 +96,7 @@ export default function EditingStory({}) {
       }),
     )
 
-    await motherNDKEvent.publish()
+    await motherNDKEvent.publish().catch((e) => console.log("e", e))
     await Promise.all(newFeatureEvents.map((event) => event.publish()))
     setIsPersisting(false)
   }
@@ -119,21 +118,21 @@ export default function EditingStory({}) {
 
     const existingFeatureEvents = await Promise.all(
       lastMotherEvent.getMatchingTags("f").map(async (featureEvent) => {
-        const {
-          kind: featureKind,
-          pubkey: featurePubkey,
-          identifier: featureIdentifier,
-        } = decodeNaddr(featureEvent[1])
+        if (featureEvent[1]) {
+          const {
+            kind: featureKind,
+            pubkey: featurePubkey,
+            identifier: featureIdentifier,
+          } = decodeNaddr(featureEvent[1])
 
-        const lastFeatureEvent = await ndk?.fetchEvent({
-          kinds: [30333 as NDKKind],
-          authors: [pubkey],
-          "#d": [featureIdentifier],
-        })
-
-        if (!lastFeatureEvent) return
-
-        return mapGeometryCollectionFeature(lastFeatureEvent)
+          const lastFeatureEvent = await ndk?.fetchEvent({
+            kinds: [30333 as NDKKind],
+            authors: [pubkey],
+            "#d": [featureIdentifier],
+          })
+          if (!lastFeatureEvent) return
+          return mapGeometryCollectionFeature(lastFeatureEvent)
+        }
       }),
     )
 
@@ -168,6 +167,8 @@ export default function EditingStory({}) {
     )
 
     const newFeatureEvents = newAndChangedFeatures.map((feature) => {
+      if (!feature) return
+
       const geometry = feature.geometry as unknown as {
         coordinates: []
         type: GeoJsonGeometryTypes
@@ -189,18 +190,24 @@ export default function EditingStory({}) {
       )
     })
 
-    const remaininingEventPinters = lastMotherEvent
+    const validFeatureEvents = newFeatureEvents.filter(
+      (event): event is NDKEvent => event !== undefined,
+    )
+
+    const remainingEventPointers = lastMotherEvent
       .getMatchingTags("f")
       .filter((tag) => {
+        if (!tag[1]) return true
         const { identifier } = decodeNaddr(tag[1])
         return !deletedFeatureEvents.find((event) => {
+          if (!event) return false
           return event.properties.id === identifier
         })
       })
 
     const uniqueFeaturePointerList = [
-      ...mapFeatureEventsToIdentifiers(newFeatureEvents),
-      ...remaininingEventPinters,
+      ...mapFeatureEventsToIdentifiers(validFeatureEvents),
+      ...remainingEventPointers,
     ].filter((value, index, self) => {
       return self.map((item) => item[1]).indexOf(value[1]) === index
     })
@@ -220,7 +227,7 @@ export default function EditingStory({}) {
       }),
     )
 
-    await Promise.all(newFeatureEvents.map((event) => event.publish()))
+    await Promise.all(validFeatureEvents.map((event) => event.publish()))
     await newMotherNDKEvent.publish()
 
     setIsPersisting(false)

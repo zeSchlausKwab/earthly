@@ -8,17 +8,37 @@ import * as L from "leaflet"
 import { v4 as uuidv4 } from "uuid"
 
 import { EditControl } from "react-leaflet-draw"
-import { useEditingCollectionStore } from "~/store/edit-collection-store"
+import {
+  CustomFeatureCollection,
+  FeatureProperties,
+  useEditingCollectionStore,
+} from "~/store/edit-collection-store"
 import { FeaturePopup } from "~/pages/components/feature-popup"
-import { MapZoom } from "~/pages/components/map-zoom"
 import { useRecentCollectionsStore } from "~/store/recent-collections-store"
+import { Feature, FeatureCollection, Geometry, Position } from "geojson"
+
+import dynamic from "next/dynamic"
+
+const MapZoom = dynamic(() => import("./map-zoom"), {
+  ssr: false,
+})
+
+// TODO: this is a hack to get around bad typing
+
+export type CustomFeatureGeo = Feature<Geometry, FeatureProperties> & {
+  geometry: Geometry & {
+    coordinates: Position
+  }
+}
 
 export default function Map() {
   const { geometryCollection, setGeometry } = useEditingCollectionStore()
   const { collections } = useRecentCollectionsStore()
 
   const [geojson, setGeojson] = useState<L.FeatureGroup | null>(null)
-  const [selectedFeature, setSelectedFeature] = useState(null)
+  const [selectedFeature, setSelectedFeature] = useState<
+    CustomFeatureGeo | undefined
+  >(undefined)
 
   const ref = useRef<L.FeatureGroup>(null)
   const recentCollection = useRef<L.FeatureGroup>(null)
@@ -26,7 +46,8 @@ export default function Map() {
   useEffect(() => {
     if (geometryCollection) {
       ref.current?.clearLayers()
-      setGeojson(geometryCollection)
+      const featureGroup = L.geoJSON(geometryCollection)
+      setGeojson(featureGroup)
     }
   }, [geometryCollection])
 
@@ -36,11 +57,18 @@ export default function Map() {
       collections.forEach((collection) => {
         L.geoJSON(collection.features, {
           style: (feature) => {
-            return {
-              color: feature.properties.color,
+            if (feature) {
+              return {
+                color: feature.properties.color,
+              }
+            } else {
+              // Handle the case when 'feature' is undefined
+              return {
+                color: "#000000", // default color
+              }
             }
           },
-        }).addTo(recentCollection.current)
+        }).addTo(recentCollection.current as L.FeatureGroup)
       })
     }
   }, [collections])
@@ -84,15 +112,23 @@ export default function Map() {
 
   useEffect(() => {
     if (ref.current?.getLayers().length === 0 && geojson) {
-      L.geoJSON(geojson, {
+      const geojsonObject = geojson.toGeoJSON()
+      L.geoJSON(geojsonObject, {
         style: (feature) => {
+          if (!feature) {
+            return {
+              color: "#000000", // default color
+            }
+          }
           return {
             color: feature.properties.color,
           }
         },
         onEachFeature: (feature, layer) => {
+          if (!feature) return
           layer.on("click", () => {
-            setSelectedFeature(feature)
+            // TODO: this is a hack to get around bad typing
+            setSelectedFeature(feature as CustomFeatureGeo)
           })
         },
       }).eachLayer((layer) => {
@@ -114,12 +150,12 @@ export default function Map() {
   }, [geojson])
 
   const handleChange = () => {
-    console.log("change")
-    const geo = ref.current?.toGeoJSON()
+    const geo = ref.current?.toGeoJSON() as FeatureCollection
 
     const geoWithProperties = {
       type: "FeatureCollection",
       features: geo?.features.map((feature) => {
+        if (!feature.properties) return
         return {
           type: feature.type,
           geometry: feature.geometry,
@@ -143,12 +179,11 @@ export default function Map() {
       }),
     }
 
-    setGeometry(geoWithProperties)
+    setGeometry(geoWithProperties as CustomFeatureCollection)
   }
 
   return (
     <>
-      {JSON.stringify(selectedFeature)}
       <MapContainer
         style={{
           height: "100%",
@@ -180,12 +215,9 @@ export default function Map() {
           {selectedFeature && (
             <Popup
               position={[
-                selectedFeature.geometry.coordinates[1],
-                selectedFeature.geometry.coordinates[0],
+                selectedFeature.geometry.coordinates[1] ?? 0,
+                selectedFeature.geometry.coordinates[0] ?? 0,
               ]}
-              onClose={() => {
-                setSelectedFeature(null)
-              }}
             >
               <FeaturePopup
                 key={selectedFeature.properties.id}

@@ -53,7 +53,7 @@ export const Header = () => {
     const nip07signer = new NDKNip07Signer()
     await initSigner(nip07signer)
 
-    nip07signer.user().then(async (user) => {
+    await nip07signer.user().then(async (user) => {
       if (!!user.npub && ndk) {
         const test = ndk.getUser({
           npub: user.npub,

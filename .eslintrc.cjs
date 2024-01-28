@@ -15,7 +15,9 @@ const config = {
     // Feel free to reconfigure them to your own preference.
     "@typescript-eslint/array-type": "off",
     "@typescript-eslint/consistent-type-definitions": "off",
-
+    "@typescript-eslint/no-unsafe-member-access": "warn", // TODO: hack, enable
+    "@typescript-eslint/no-unsafe-assignment": "warn", // TODO: hack, enable
+    "@typescript-eslint/no-unsafe-call": "warn", // TODO: hack, enable
     "@typescript-eslint/consistent-type-imports": [
       "warn",
       {

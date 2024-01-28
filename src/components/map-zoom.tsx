@@ -3,7 +3,11 @@ import { useMap } from "react-leaflet"
 import * as L from "leaflet"
 import { type CustomFeatureCollection } from "~/store/edit-collection-store"
 
-export function MapZoom({ geojson }: { geojson: CustomFeatureCollection }) {
+export default function MapZoom({
+  geojson,
+}: {
+  geojson: CustomFeatureCollection
+}) {
   const map = useMap()
 
   useEffect(() => {

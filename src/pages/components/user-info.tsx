@@ -13,9 +13,12 @@ export const UserInfo = () => {
 
   useEffect(() => {
     const fetchUser = async () => {
-      if (ndkUser && ndk) {
-        const newUser = await ndkUser?.fetchProfile()
+      const newUser = await ndkUser?.fetchProfile()
+      if (newUser && ndk) {
         setFetchedProfile(newUser)
+      } else {
+        // Handle the case when 'newUser' is null
+        setFetchedProfile(undefined)
       }
     }
 

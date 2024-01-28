@@ -1,6 +1,5 @@
 import NostrFeature from "~/pages/components/nostr-feature"
 import { Button } from "~/components/ui/button"
-import { publicKeyTest } from "~/pages"
 import { useEditingCollectionStore } from "~/store/edit-collection-store"
 import {
   Accordion,
@@ -9,13 +8,15 @@ import {
   AccordionTrigger,
 } from "~/components/ui/accordion"
 import { useRecentCollectionsStore } from "~/store/recent-collections-store"
+import { useNDKStore } from "~/store/ndk-store"
 
 export default function RecentStories() {
+  const { ndkUser } = useNDKStore()
   const { collections } = useRecentCollectionsStore()
   const { setGeometryFromNostr } = useEditingCollectionStore()
 
   const handleEdit = (naddr: string) => {
-    setGeometryFromNostr(naddr)
+    void setGeometryFromNostr(naddr)
   }
 
   const handleClone = () => {
@@ -29,7 +30,7 @@ export default function RecentStories() {
           <div key={collection.naddr} className={"p-3"}>
             <div className={"flex justify-between"}>
               <b>{collection.title}</b>
-              {publicKeyTest === collection.pubkey ? (
+              {ndkUser?.pubkey === collection.pubkey ? (
                 <Button onClick={() => handleEdit(collection.naddr)}>
                   edit
                 </Button>

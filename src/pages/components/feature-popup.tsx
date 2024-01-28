@@ -29,9 +29,9 @@ export function FeaturePopup({
     color: string
     description: string
   }>({
-    title: currentTitle,
-    description: currentDescription,
-    color: currentColor,
+    title: currentTitle ?? "",
+    description: currentDescription ?? "",
+    color: currentColor ?? "",
   })
 
   useEffect(() => {

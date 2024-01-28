@@ -2,7 +2,10 @@ import { create } from "zustand"
 import { useNDKStore } from "~/store/ndk-store"
 import { type NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
 import { nip19 } from "nostr-tools"
-import { type CustomFeatureCollection } from "~/store/edit-collection-store"
+import {
+  CustomFeature,
+  type CustomFeatureCollection,
+} from "~/store/edit-collection-store"
 import { mapGeometryCollectionFeature } from "~/mapper/geometry-feature"
 import { decodeNaddr } from "~/utils/naddr"
 
@@ -18,7 +21,7 @@ export type RecentCollection = {
 }
 
 export const useRecentCollectionsStore = create<{
-  init: () => void
+  init: () => Promise<void>
   collections: RecentCollection[]
 }>()((set, get, store) => ({
   init: async () => {
@@ -47,13 +50,11 @@ export const useRecentCollectionsStore = create<{
       const featureEvents = featureIdentifiers.map(async ([, naddr]) => {
         const featureNaddrData = decodeNaddr(naddr)
 
-        const ev = await ndkInstance.fetchEvent({
+        return await ndkInstance.fetchEvent({
           kinds: [featureNaddrData.kind],
           authors: [featureNaddrData.pubkey],
           "#d": [featureNaddrData.identifier],
         })
-
-        return ev
       })
 
       const featureEventsResolved = await Promise.all(featureEvents)
@@ -62,6 +63,10 @@ export const useRecentCollectionsStore = create<{
         if (!ev) return
         return mapGeometryCollectionFeature(ev)
       })
+
+      const validFeatures = features.filter(
+        (e) => e !== undefined,
+      ) as CustomFeature[]
 
       const existingCollection = get().collections.find(
         (collection) => collection.naddr === naddr,
@@ -76,7 +81,7 @@ export const useRecentCollectionsStore = create<{
                   ...collection,
                   features: {
                     type: "FeatureCollection",
-                    features: features,
+                    features: validFeatures,
                   },
                 }
               }
@@ -100,7 +105,7 @@ export const useRecentCollectionsStore = create<{
                 featureNaddrs: featureIdentifiers.map((e) => e[1]),
                 features: {
                   type: "FeatureCollection",
-                  features: features,
+                  features: validFeatures,
                 },
               },
             ],

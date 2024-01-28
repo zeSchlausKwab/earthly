@@ -4,7 +4,7 @@ import { useNDKStore } from "~/store/ndk-store"
 import { mapGeometryCollectionFeature } from "~/mapper/geometry-feature"
 import { decodeNaddr } from "~/utils/naddr"
 
-interface FeatureProperties {
+export interface FeatureProperties {
   id: string
   name: string
   description: string
@@ -23,7 +23,7 @@ export const useEditingCollectionStore = create<{
   reset: () => void
   setGeometry: (geometry: CustomFeatureCollection) => void
   addFeature: (feature: CustomFeature) => void
-  setGeometryFromNostr: (eventId: string) => void
+  setGeometryFromNostr: (eventId: string) => Promise<void>
 }>()((set, get, store) => ({
   naddr: undefined,
   geometryCollection: {
@@ -70,6 +70,8 @@ export const useEditingCollectionStore = create<{
 
     const geometryCollection = await Promise.all(
       collectionEvent?.getMatchingTags("f").map(async (e) => {
+        if (!e) return
+
         const naddrData = decodeNaddr(e[1] ?? "")
 
         const geoEvent = await ndkInstance.fetchEvent({
@@ -83,11 +85,15 @@ export const useEditingCollectionStore = create<{
       }),
     )
 
+    const validGeometryCollection = geometryCollection.filter(
+      (e) => e !== undefined,
+    ) as CustomFeature[]
+
     set({
       naddr: naddr,
       geometryCollection: {
         type: "FeatureCollection",
-        features: geometryCollection,
+        features: validGeometryCollection,
       },
     })
   },

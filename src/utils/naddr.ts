@@ -1,7 +1,7 @@
 import { nip19 } from "nostr-tools"
-import { type AddressPointer } from "nostr-tools/lib/types/nip19"
+import { AddressPointer } from "nostr-tools/nip19"
 
-export const decodeNaddr = (naddr: string) => {
+export const decodeNaddr = (naddr: string): AddressPointer => {
   const naddrDecodeRes = nip19.decode(naddr)
   return naddrDecodeRes?.data as AddressPointer
 }
