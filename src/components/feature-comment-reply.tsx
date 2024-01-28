@@ -80,7 +80,9 @@ export default function FeaturesCommentReply({
       {parentEvent && !forRootFeature ? parentEvent.content : null}
       {isReplyFormOpen ? (
         <div className="flex flex-row justify-between">
-          <Button onClick={handleSendReplyToNote}>Send</Button>
+          <Button size={"sm"} onClick={handleSendReplyToNote}>
+            Send
+          </Button>
           <Button
             variant={"secondary"}
             size={"icon"}
@@ -90,9 +92,11 @@ export default function FeaturesCommentReply({
           </Button>
         </div>
       ) : (
-        <Button size={"icon"} onClick={handleRevealReplyToFeatureOrNoteClick}>
-          <MessageCircle />
-        </Button>
+        <MessageCircle
+          className="cursor-pointer hover:text-blue-500"
+          size={16}
+          onClick={handleRevealReplyToFeatureOrNoteClick}
+        />
       )}
       {isReplyFormOpen && (
         <div>
