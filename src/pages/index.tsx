@@ -10,10 +10,19 @@ import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert"
 import { Terminal } from "lucide-react"
 import { NDKNip07Signer } from "@nostr-dev-kit/ndk"
 import PassphraseLoginDialog from "~/components/passphrase-login-dialog"
+import { useMedia } from "use-media"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTrigger,
+} from "~/components/ui/sheet"
 
 const Map = dynamic(() => import("../components/map"), { ssr: false })
 
 export default function Home() {
+  const isWide = useMedia({ minWidth: "1024px" })
   const { initAnonymous, ndkUser, ndk, initSigner } = useNDKStore()
   const { init: recentCollectionInit, collections } =
     useRecentCollectionsStore()
@@ -82,28 +91,56 @@ export default function Home() {
         <link rel="icon" href="/favicon.ico" />
       </Head>
       <Layout>
-        <main className="flex flex-grow flex-row overflow-auto">
-          <div className="flex w-1/3 flex-col gap-2 overflow-y-scroll p-4">
-            <Alert variant="destructive">
-              <Terminal className="h-4 w-4" />
-              <AlertTitle>Warning!</AlertTitle>
-              <AlertDescription>
-                This website is in early alpha. The events you create are sent
-                to <b>wss://relay.earthly.land</b> and can be nuked at any time.
-                If the relay is down the relays can be pulled from your metadata
-                and be visible to the public.{" "}
-                <b>Please do not use this for anything sensitive.</b>{" "}
-                <b className={"italic underline"}>
-                  However feel free to draw something interesting.
-                </b>
-              </AlertDescription>
-            </Alert>
-            <EditingStory />
-            <RecentStories />
-          </div>
-          <div className="flex flex-grow flex-col p-4">
-            <Map />
-          </div>
+        <main className="flex flex-grow flex-col-reverse lg:flex-row lg:overflow-auto">
+          {isWide ? (
+            <div className="flex flex-col gap-2 p-4 lg:w-1/3 lg:overflow-y-scroll">
+              <Alert variant="destructive">
+                <Terminal className="h-4 w-4" />
+                <AlertTitle>Warning!</AlertTitle>
+                <AlertDescription>
+                  This website is in early alpha. The events you create are sent
+                  to <b>wss://relay.earthly.land</b> and can be nuked at any
+                  time-. If the relay is down the relays can be pulled from your
+                  metadata and be visible to the public.{" "}
+                  <b>Please do not use this for anything sensitive.</b>{" "}
+                  <b className={"italic underline"}>
+                    However feel free to draw something interesting.
+                  </b>
+                </AlertDescription>
+              </Alert>
+              <EditingStory />
+              <RecentStories />
+            </div>
+          ) : (
+            <Sheet>
+              <SheetTrigger>Open</SheetTrigger>
+              <SheetContent className="h-2/3 w-[2/3] sm:w-full" side={"bottom"}>
+                <SheetHeader>
+                  <SheetDescription className={"flex flex-col"}>
+                    <Alert variant="destructive">
+                      <Terminal className="h-4 w-4" />
+                      <AlertTitle>Warning!</AlertTitle>
+                      <AlertDescription>
+                        This website is in early alpha. The events you create
+                        are sent to <b>wss://relay.earthly.land</b> and can be
+                        nuked at any time-. If the relay is down the relays can
+                        be pulled from your metadata and be visible to the
+                        public.{" "}
+                        <b>Please do not use this for anything sensitive.</b>{" "}
+                        <b className={"italic underline"}>
+                          However feel free to draw something interesting.
+                        </b>
+                      </AlertDescription>
+                    </Alert>
+                    <EditingStory />
+                    <RecentStories />
+                  </SheetDescription>
+                </SheetHeader>
+              </SheetContent>
+            </Sheet>
+          )}
+
+          <Map />
           <PassphraseLoginDialog
             open={passphraseDialogOpen}
             onRefuse={() => handleRefusePassphraseLogin()}

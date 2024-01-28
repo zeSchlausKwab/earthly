@@ -66,6 +66,7 @@
     "superjson": "^2.2.1",
     "tailwind-merge": "^2.0.0",
     "tailwindcss-animate": "^1.0.7",
+    "use-media": "^1.5.0",
     "uuid": "^9.0.1",
     "webln": "^0.3.2",
     "zod": "^3.22.4",

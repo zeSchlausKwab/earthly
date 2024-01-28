@@ -10,6 +10,7 @@ import {
 import { useRecentCollectionsStore } from "~/store/recent-collections-store"
 import { useNDKStore } from "~/store/ndk-store"
 import Image from "next/image"
+import { useMedia } from "use-media"
 
 export default function RecentStories() {
   const { ndkUser } = useNDKStore()
@@ -25,10 +26,19 @@ export default function RecentStories() {
   }
 
   return (
-    <div className={"break-all rounded-lg border text-sm"}>
+    <div
+      className={
+        "flex flex-row break-all rounded-lg border text-sm lg:flex-col"
+      }
+    >
       {collections.map((collection, index) => {
         return (
-          <div key={collection.naddr} className={"flex flex-col gap-4 p-3"}>
+          <div
+            key={collection.naddr}
+            className={
+              "flex w-96 flex-col gap-4 overflow-x-scroll p-3 lg:w-full"
+            }
+          >
             <div className={"flex justify-between"}>
               <b>{collection.title}</b>
               {ndkUser?.pubkey === collection.pubkey ? (
@@ -58,7 +68,7 @@ export default function RecentStories() {
             <Accordion type="single" collapsible>
               <AccordionItem value="item-1">
                 <AccordionTrigger>geometry</AccordionTrigger>
-                <AccordionContent className={"flex flex-col gap-2"}>
+                <AccordionContent className={"flex gap-2 lg:flex-col"}>
                   {collection.featureNaddrs.map((tag) => {
                     return <NostrFeature key={tag} naddr={tag} />
                   })}

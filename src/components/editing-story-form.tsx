@@ -77,7 +77,7 @@ export default function EditingStoryForm({
   }
 
   return (
-    <div className={"flex flex-col gap-2 break-all"}>
+    <div className={"flex w-1/2 h-96 flex-col gap-2 break-all"}>
       {image && (
         <Image
           alt="header image"
@@ -113,7 +113,7 @@ export default function EditingStoryForm({
                   <Textarea
                     {...field}
                     placeholder={"new story description..."}
-                    rows={10}
+                    rows={5}
                   />
                 </FormControl>
                 <FormMessage />

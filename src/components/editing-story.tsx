@@ -284,59 +284,68 @@ export default function EditingStory({}) {
   }
 
   return (
-    <div className={"rounded-lg border p-4 text-sm"}>
+    <div
+      className={"flex flex-row items-center rounded-lg border p-4 lg:flex-col"}
+    >
       <EditingStoryForm
         onSubmit={handlePersistCollection}
         onUpdate={handleUpdateCollection}
         onDiscard={onDiscard}
         naddr={naddr}
       />
-      {geometryCollection.features.map((feature, index) => {
-        const geometry = feature.geometry
-        const featureProperties = feature.properties
-        return (
-          <Accordion key={index} type="single" collapsible>
-            <AccordionItem value="item-1">
-              <AccordionTrigger className={"gap-2"}>
-                <p
-                  className={"w-[20%] text-sm"}
-                  style={{ color: feature.properties.color }}
-                >
-                  {feature.properties.color}
-                </p>
-                <EditingStoryMetaForm
-                  title={featureProperties.name}
-                  description={featureProperties.description}
-                  onChange={(title, description) =>
-                    handleFeatureMetaChange(
-                      feature.properties.id as string,
-                      title,
-                      description,
-                    )
-                  }
-                />
-                <Badge className={"w-[20%]"} variant="outline">
-                  {geometry.type}
-                </Badge>
-              </AccordionTrigger>
-              <AccordionContent>
-                {{
-                  Point: <PointDisplay geometry={geometry as Point} />,
-                  Polygon: <PolygonDisplay geometry={geometry as Polygon} />,
-                  LineString: (
-                    <LineStringDisplay geometry={geometry as LineString} />
-                  ),
-                  GeometryCollection: <p>{geometry.type}</p>,
-                  MultiLineString: <p>{geometry.type}</p>,
-                  MultiPoint: <p>{geometry.type}</p>,
-                  MultiPolygon: <p>{geometry.type}</p>,
-                  default: <p>{geometry.type}</p>,
-                }[geometry.type] ?? <p>unknown object...</p>}
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
-        )
-      })}
+      <div className={"flex max-h-[300px] w-1/2 flex-col overflow-y-scroll"}>
+        {geometryCollection.features.map((feature, index) => {
+          const geometry = feature.geometry
+          const featureProperties = feature.properties
+          return (
+            <Accordion
+              key={index}
+              type="single"
+              collapsible
+              className={"flex flex-col"}
+            >
+              <AccordionItem value="item-1">
+                <AccordionTrigger className={"gap-2"}>
+                  <p
+                    className={"w-[20%] text-sm"}
+                    style={{ color: feature.properties.color }}
+                  >
+                    {feature.properties.color}
+                  </p>
+                  <EditingStoryMetaForm
+                    title={featureProperties.name}
+                    description={featureProperties.description}
+                    onChange={(title, description) =>
+                      handleFeatureMetaChange(
+                        feature.properties.id as string,
+                        title,
+                        description,
+                      )
+                    }
+                  />
+                  <Badge className={"w-[20%]"} variant="outline">
+                    {geometry.type}
+                  </Badge>
+                </AccordionTrigger>
+                <AccordionContent>
+                  {{
+                    Point: <PointDisplay geometry={geometry as Point} />,
+                    Polygon: <PolygonDisplay geometry={geometry as Polygon} />,
+                    LineString: (
+                      <LineStringDisplay geometry={geometry as LineString} />
+                    ),
+                    GeometryCollection: <p>{geometry.type}</p>,
+                    MultiLineString: <p>{geometry.type}</p>,
+                    MultiPoint: <p>{geometry.type}</p>,
+                    MultiPolygon: <p>{geometry.type}</p>,
+                    default: <p>{geometry.type}</p>,
+                  }[geometry.type] ?? <p>unknown object...</p>}
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          )
+        })}
+      </div>
       {isPersisting && <Icons.spinner className="h-4 w-4 animate-spin" />}
     </div>
   )
