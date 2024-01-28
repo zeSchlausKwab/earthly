@@ -37,9 +37,7 @@ export default function RecentStories() {
 
   return (
     <div
-      className={
-        "grid grid-cols-2 gap-2 overflow-y-auto overflow-x-scroll break-all text-sm lg:flex lg:flex-col"
-      }
+      className={"grid grid-cols-2 gap-2 break-all text-sm lg:flex lg:flex-col"}
     >
       {collections.map((collection, index) => {
         return (

@@ -7,7 +7,7 @@ export default function LineStringDisplay({
   geometry: LineString
 }) {
   return (
-    <p>
+    <>
       {geometry.coordinates.map((cord, index) => {
         return (
           <Badge key={index} variant="outline">
@@ -15,6 +15,6 @@ export default function LineStringDisplay({
           </Badge>
         )
       })}
-    </p>
+    </>
   )
 }

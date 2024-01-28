@@ -1,6 +1,6 @@
 import { NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
 import { type LineString, type Point, type Polygon } from "geojson"
-import { Loader2 } from "lucide-react"
+import { CheckCheck, Loader2 } from "lucide-react"
 import { useEffect, useState } from "react"
 import EditingStoryMetaForm from "~/components/editing-story-meta-form"
 import LineStringDisplay from "~/components/geomety-types/line-string-display"
@@ -129,12 +129,14 @@ export default function EditingStoryFeature({
 
   return (
     <div className="flex flex-col text-xs">
-      {!approvalEvent && (
-        <Button onClick={handleFeatureApproval}>Approve this feature</Button>
-      )}
       <Accordion type="single" collapsible className={"flex flex-col"}>
         <AccordionItem value="item-1">
-          <AccordionTrigger className={"gap-2"}>
+          <div className="flex flex-row gap-2">
+            {!approvalEvent && (
+              <Button onClick={handleFeatureApproval}>
+                <CheckCheck />
+              </Button>
+            )}
             <p
               className={"w-[20%] text-sm"}
               style={{ color: feature.properties.color }}
@@ -152,6 +154,8 @@ export default function EditingStoryFeature({
                 )
               }
             />
+          </div>
+          <AccordionTrigger className={"gap-2"}>
             <Badge className={"w-[20%]"} variant="outline">
               {geometry.type}
             </Badge>

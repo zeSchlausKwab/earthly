@@ -7,16 +7,11 @@ import { useEffect, useState } from "react"
 import { useMedia } from "use-media"
 import DevelopmentDisclaimer from "~/components/development-disclaimer"
 import EditingStory from "~/components/editing-story"
+import Header from "~/components/header"
 import PassphraseLoginDialog from "~/components/passphrase-login-dialog"
 import RecentStories from "~/components/recent-stories"
 import { Button } from "~/components/ui/button"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTrigger,
-} from "~/components/ui/sheet"
+import { Sheet, SheetContent, SheetTrigger } from "~/components/ui/sheet"
 import Layout from "~/pages/layout"
 import { useNDKStore } from "~/store/ndk-store"
 import { useRecentCollectionsStore } from "~/store/recent-collections-store"
@@ -114,9 +109,10 @@ export default function Home() {
                   </Button>
                 </SheetTrigger>
                 <SheetContent
-                  className="h-4/5 w-full lg:overflow-y-scroll"
+                  className="h-4/5 w-full overflow-y-scroll"
                   side={"bottom"}
                 >
+                  <Header />
                   <DevelopmentDisclaimer />
                   <EditingStory />
                   <RecentStories />

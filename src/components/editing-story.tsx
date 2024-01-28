@@ -358,7 +358,7 @@ export default function EditingStory({}) {
   return (
     <div>
       {geometryCollection.features.length > 0 ? (
-        <div className={"flex flex-row rounded-lg border p-4 lg:flex-col"}>
+        <div className={"flex flex-col rounded-lg border p-4"}>
           <div className="flex items-center space-x-2">
             <Switch
               id="show-unapproved-features"
@@ -382,7 +382,7 @@ export default function EditingStory({}) {
               <div>{collectionMeta?.description}</div>
             </div>
           )}
-          <div className={"grid grid-cols-2 gap-2 lg:flex lg:flex-col"}>
+          <div className={"flex flex-col"}>
             {geometryCollection.features.map((feature, index) => {
               return (
                 <EditingStoryFeature
