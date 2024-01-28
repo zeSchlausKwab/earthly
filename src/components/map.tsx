@@ -17,6 +17,8 @@ import { useRecentCollectionsStore } from "~/store/recent-collections-store"
 
 import dynamic from "next/dynamic"
 import FeaturePopup from "~/components/feature-popup"
+import MapZoomLocation from "./map-zoom-location"
+import MapZoomFeature from "./map-zoom-on-feature"
 
 const MapZoomEdit = dynamic(() => import("./map-zoom-edit"), {
   ssr: false,
@@ -242,6 +244,8 @@ export default function Map() {
         <FeatureGroup ref={recentCollection}></FeatureGroup>
         <MapZoomEdit geojson={geometryCollection} />
         <MapZoomRecent recentCollections={collections} />
+        <MapZoomLocation />
+        <MapZoomFeature />
       </MapContainer>
     </>
   )

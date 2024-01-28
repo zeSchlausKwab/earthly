@@ -10,13 +10,18 @@ import {
 import { Button } from "~/components/ui/button"
 import { useEditingCollectionStore } from "~/store/edit-collection-store"
 import { useNDKStore } from "~/store/ndk-store"
-import { useRecentCollectionsStore } from "~/store/recent-collections-store"
+import {
+  RecentCollection,
+  useRecentCollectionsStore,
+} from "~/store/recent-collections-store"
+import { useZoomUIStore } from "~/store/zoom-ui-store"
 import { formatNostrTime } from "~/utils/time"
 
 export default function RecentStories() {
   const { ndkUser } = useNDKStore()
   const { collections } = useRecentCollectionsStore()
   const { setGeometryFromNostr } = useEditingCollectionStore()
+  const { setCollection } = useZoomUIStore()
 
   const handleEdit = (naddr: string) => {
     void setGeometryFromNostr(naddr)
@@ -26,13 +31,8 @@ export default function RecentStories() {
     void setGeometryFromNostr(naddr)
   }
 
-  const handleZoomOnNaddr = (naddr: string) => {
-    // const collection = collections.find((c) => c.naddr === naddr)
-    // if (collection) {
-    //   const { lat, lng, zoom } = collection
-    //   window.map?.flyTo([lat, lng], zoom)
-    // }
-    console.log("zoom on naddr", naddr)
+  const handleZoomOnFeature = (collection: RecentCollection) => {
+    setCollection(collection.features)
   }
 
   return (
@@ -60,7 +60,7 @@ export default function RecentStories() {
               <div>{collection.description}</div>
             </div>
             <div className="flex flex-row items-center justify-between">
-              <ScanEye onClick={() => handleZoomOnNaddr(collection.naddr)} />
+              <ScanEye onClick={() => handleZoomOnFeature(collection)} />
               {ndkUser?.pubkey === collection.pubkey ? (
                 <Button onClick={() => handleEdit(collection.naddr)}>
                   edit

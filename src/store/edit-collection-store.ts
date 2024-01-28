@@ -4,7 +4,7 @@ import { useNDKStore } from "~/store/ndk-store"
 import { decodeNaddr } from "~/utils/naddr"
 import { NDKEvent, type NDKKind, type NostrEvent } from "@nostr-dev-kit/ndk"
 
-export interface FeatureProperties {
+export type FeatureProperties = {
   id: string
   noteId?: string
   name: string
