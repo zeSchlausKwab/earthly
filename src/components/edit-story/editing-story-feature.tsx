@@ -1,8 +1,8 @@
-import { NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
+import { type NDKEvent, type NDKKind } from "@nostr-dev-kit/ndk"
 import { type LineString, type Point, type Polygon } from "geojson"
 import { Loader2 } from "lucide-react"
 import { useEffect, useState } from "react"
-import EditingStoryMetaForm from "~/components/editing-story-meta-form"
+import EditingStoryMetaForm from "~/components/edit-story/editing-story-meta-form"
 import LineStringDisplay from "~/components/geomety-types/line-string-display"
 import PointDisplay from "~/components/geomety-types/point-display"
 import PolygonDisplay from "~/components/geomety-types/polygon-display"
@@ -14,7 +14,7 @@ import {
 } from "~/components/ui/accordion"
 import { Badge } from "~/components/ui/badge"
 import {
-  CustomFeature,
+  type CustomFeature,
   useEditingCollectionStore,
 } from "~/store/edit-collection-store"
 import { useNDKStore } from "~/store/ndk-store"

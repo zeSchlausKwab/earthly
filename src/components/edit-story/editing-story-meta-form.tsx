@@ -3,9 +3,9 @@ import { useEffect, useState } from "react"
 import { CheckCheck, Loader2 } from "lucide-react"
 import { Input } from "~/components/ui/input"
 import { Textarea } from "~/components/ui/textarea"
-import { NDKEvent, NDKKind } from "@nostr-dev-kit/ndk"
+import { NDKEvent, type NDKKind } from "@nostr-dev-kit/ndk"
 import { useNDKStore } from "~/store/ndk-store"
-import { Button } from "./ui/button"
+import { Button } from "../ui/button"
 
 export const Icons = {
   spinner: Loader2,

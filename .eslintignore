@@ -1,6 +1,6 @@
 src/components/ui/**
-src/components/editing-story.tsx
-src/components/map.tsx
+src/components/edit-story/editing-story.tsx
+src/components/map/map.tsx
 src/lib/create-plate-ui.ts
 src/types/global.ts
 src/utils/geo.ts

@@ -5,7 +5,7 @@ import { type CustomFeature } from "~/store/edit-collection-store"
 import { useNDKStore } from "~/store/ndk-store"
 import { decodeNaddr } from "~/utils/naddr"
 import FeaturesCommentReply from "./feature-comment-reply"
-import ProfileByPubkey from "./profile-by-bubkey"
+import ProfileByPubkey from "../profile-by-bubkey"
 
 export default function FeaturesContext({ naddr }: { naddr: string }) {
   const { ndk } = useNDKStore()

@@ -18,9 +18,9 @@ import { useRecentCollectionsStore } from "~/store/recent-collections-store"
 
 import { LocateFixed } from "lucide-react"
 import dynamic from "next/dynamic"
-import FeaturePopup from "~/components/feature-popup"
+import FeaturePopup from "~/components/map/feature-popup"
 import MapZoomFeature from "./map-zoom-on-feature"
-import { Button } from "./ui/button"
+import { Button } from "../ui/button"
 import { useZoomUIStore } from "~/store/zoom-ui-store"
 
 const MapZoomEdit = dynamic(() => import("./map-zoom-edit"), {

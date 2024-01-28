@@ -3,7 +3,7 @@ import { type GeoJsonGeometryTypes } from "geojson"
 import { Loader2, Upload } from "lucide-react"
 import { useEffect, useState } from "react"
 import { v4 as uuidv4 } from "uuid"
-import EditingStoryForm from "~/components/editing-story-form"
+import EditingStoryForm from "~/components/edit-story/editing-story-form"
 import { runtimeCollectionToNostr } from "~/mapper/collection"
 import { runtimeGeometryFeatureToNostr } from "~/mapper/geometry-feature"
 import {
@@ -32,11 +32,11 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "./ui/dialog"
-import { toast } from "./ui/use-toast"
-import GeoJsonUploadDialog from "./geo-json-upload-dialog"
+} from "../ui/dialog"
+import { toast } from "../ui/use-toast"
+import GeoJsonUploadDialog from "../geo-json-upload-dialog"
 import EditingStoryTable from "./edit-story-table"
-import { CustomFeatureGeo } from "./map"
+import { CustomFeatureGeo } from "../map/map"
 
 export const Icons = {
   spinner: Loader2,

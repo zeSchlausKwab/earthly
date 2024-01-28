@@ -5,7 +5,7 @@ import { generateSecretKey, getPublicKey, nip19 } from "nostr-tools"
 import { ChangeEvent, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import MapSettings from "~/components/map-settings"
+import MapSettings from "~/components/map/map-settings"
 import { Button } from "~/components/ui/button"
 import {
   Dialog,

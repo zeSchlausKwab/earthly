@@ -9,7 +9,7 @@ import {
   type CustomFeature,
   type CustomFeatureCollection,
 } from "~/store/edit-collection-store"
-import { Checkbox } from "./ui/checkbox"
+import { Checkbox } from "../ui/checkbox"
 import {
   Table,
   TableBody,
@@ -17,8 +17,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "./ui/table"
-import { Button } from "./ui/button"
+} from "../ui/table"
+import { Button } from "../ui/button"
 
 type CustomFeatureWithSubRows = CustomFeature & {
   selected: boolean

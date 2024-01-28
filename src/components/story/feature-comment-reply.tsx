@@ -4,9 +4,9 @@ import { MessageCircle, X } from "lucide-react"
 import { useState } from "react"
 import { useNDKStore } from "~/store/ndk-store"
 import { formatNostrTime } from "~/utils/time"
-import ProfileByPubkey from "./profile-by-bubkey"
-import { Button } from "./ui/button"
-import { Textarea } from "./ui/textarea"
+import ProfileByPubkey from "../profile-by-bubkey"
+import { Button } from "../ui/button"
+import { Textarea } from "../ui/textarea"
 
 export default function FeaturesCommentReply({
   parentEvent,

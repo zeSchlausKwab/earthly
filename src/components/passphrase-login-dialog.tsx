@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Icons } from "~/components/editing-story"
+import { Icons } from "~/components/edit-story/editing-story"
 import { Input } from "~/components/ui/input"
 import { Label } from "~/components/ui/label"
 import { toast } from "~/components/ui/use-toast"

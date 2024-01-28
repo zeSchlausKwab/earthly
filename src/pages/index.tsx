@@ -6,10 +6,10 @@ import Head from "next/head"
 import { useEffect, useState } from "react"
 import { useMedia } from "use-media"
 import DevelopmentDisclaimer from "~/components/development-disclaimer"
-import EditingStory from "~/components/editing-story"
+import EditingStory from "~/components/edit-story/editing-story"
 import Header from "~/components/header"
 import PassphraseLoginDialog from "~/components/passphrase-login-dialog"
-import RecentStories from "~/components/recent-stories"
+import RecentStories from "~/components/story/recent-stories"
 import { Button } from "~/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "~/components/ui/sheet"
 import Layout from "~/pages/layout"
@@ -18,7 +18,7 @@ import { useRecentCollectionsStore } from "~/store/recent-collections-store"
 
 const queryClient = new QueryClient()
 
-const Map = dynamic(() => import("../components/map"), { ssr: false })
+const Map = dynamic(() => import("../components/map/map"), { ssr: false })
 
 export default function Home() {
   const isWide = useMedia({ minWidth: "1024px" })
