@@ -8,9 +8,9 @@ import {
   PopoverTrigger,
 } from "~/components/ui/popover"
 import { Input } from "~/components/ui/input"
-import { generatePrivateKey, getPublicKey } from "nostr-tools"
+import { generatePrivateKey, getPublicKey, nip19 } from "nostr-tools"
 import { Separator } from "~/components/ui/separator"
-import { ClipboardCopy } from "lucide-react"
+import { ClipboardCopy, Copy } from "lucide-react"
 import { useToast } from "~/components/ui/use-toast"
 import { z } from "zod"
 import {
@@ -25,6 +25,18 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import UserInfo from "~/components/user-info"
 import MapSettings from "~/components/map-settings"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "~/components/ui/dialog"
+import { Label } from "~/components/ui/label"
+import { encryptMessage } from "~/utils/crypto"
 
 const privateKeySchema = z.object({
   privateKey: z
@@ -33,17 +45,22 @@ const privateKeySchema = z.object({
 })
 
 export default function Header() {
-  const { ndk, initPrivateKey, initSigner } = useNDKStore()
+  const { ndk, initPrivateKey, initSigner, ndkUser, logout } = useNDKStore()
 
   const { toast } = useToast()
 
   const [keyPair, setKeyPair] = useState<{
     publicKey: string
     privateKey: string
+    npub?: string
+    nsec?: string
   }>({
     publicKey: "",
     privateKey: "",
+    npub: "",
+    nsec: "",
   })
+  const [passphrase, setPassphrase] = useState<string>("")
   const form = useForm<z.infer<typeof privateKeySchema>>({
     resolver: zodResolver(privateKeySchema),
     defaultValues: {
@@ -61,8 +78,10 @@ export default function Header() {
         })
 
         setKeyPair({
-          publicKey: user.npub,
+          publicKey: user.pubkey,
           privateKey: "",
+          npub: user.npub,
+          nsec: "",
         })
 
         const resolvedUser = await test.fetchProfile()
@@ -78,20 +97,14 @@ export default function Header() {
     })
   }
 
-  const onAuthenticateWithPrivateKey = async () => {
-    await initPrivateKey(keyPair.privateKey)
-    toast({
-      title: "Successfully authenticated with private key",
-      description: "You are now authenticated with your private key.",
-    })
-  }
-
   const onGenerateKeyPair = async () => {
     const generatedPrivateKey = generatePrivateKey()
     const publicKey = getPublicKey(generatedPrivateKey)
     setKeyPair({
       publicKey,
       privateKey: generatedPrivateKey,
+      npub: nip19.npubEncode(publicKey),
+      nsec: nip19.nsecEncode(generatedPrivateKey),
     })
     form.setValue("privateKey", generatedPrivateKey)
     await form.trigger("privateKey")
@@ -103,16 +116,34 @@ export default function Header() {
     const formState = await form.trigger("privateKey")
 
     if (formState) {
+      const publicKey = getPublicKey(privateKey)
       setKeyPair({
-        publicKey: getPublicKey(privateKey),
+        publicKey: publicKey,
         privateKey: privateKey,
+        npub: nip19.npubEncode(publicKey),
+        nsec: nip19.nsecEncode(privateKey),
       })
     } else {
       setKeyPair({
         publicKey: "",
         privateKey: "",
+        npub: "",
+        nsec: "",
       })
     }
+  }
+
+  const handlePrivateKeyLogin = async () => {
+    const encryptedNsec = encryptMessage(keyPair.nsec ?? "", passphrase)
+    if (!encryptedNsec) {
+      toast({
+        title: "Failed to encrypt private key",
+        description: "Please try again.",
+      })
+      return
+    }
+    localStorage.setItem("encryptedNsec", encryptedNsec)
+    await initPrivateKey(keyPair.privateKey)
   }
 
   const handleCopyPrivateKeyToClipboard = async () => {
@@ -133,72 +164,152 @@ export default function Header() {
   return (
     <header className="flex flex-none flex-row items-center justify-between p-4">
       <h1 className="text-2xl font-bold">earthly</h1>
-
       <div className="z-50 flex flex-row gap-8 text-xs">
         <MapSettings />
         <UserInfo />
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button>Authenticate</Button>
-          </PopoverTrigger>
-          <PopoverContent className="break-all">
-            <div className="flex flex-col gap-4">
-              <Button onClick={onAuthenticateWithSigner}>
-                Authenticate with signer
-              </Button>
-              <Button
-                className={"flex-grow"}
-                disabled={!Boolean(keyPair.privateKey)}
-                onClick={onAuthenticateWithPrivateKey}
-              >
-                Authenticate with private key
-              </Button>
-              <Separator orientation={"horizontal"} />
-              <Button onClick={onGenerateKeyPair}>
-                Generate new private key
-              </Button>
-              <div className={"flex flex-row"}>
-                <Form {...form}>
-                  <form className="flex-grow">
-                    <FormField
-                      control={form.control}
-                      name="privateKey"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Private Key</FormLabel>
-                          <FormControl>
-                            <div className={"flex flex-row items-center gap-2"}>
-                              <Input
-                                placeholder="...private key"
-                                {...field}
-                                onChange={onPrivateKeyInput}
-                              />
-                              <ClipboardCopy
-                                onClick={handleCopyPrivateKeyToClipboard}
-                              />
-                            </div>
-                          </FormControl>
-                          {form.formState.errors.privateKey && (
-                            <FormMessage>
-                              {form.formState.errors.privateKey.message}
-                            </FormMessage>
-                          )}
-                        </FormItem>
-                      )}
-                    />
-                  </form>
-                </Form>
+        {ndkUser ? (
+          <Button onClick={logout}>Log Out</Button>
+        ) : (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button>Authenticate</Button>
+            </PopoverTrigger>
+            <PopoverContent className="break-all">
+              <div className="flex flex-col gap-4">
+                <Button onClick={onAuthenticateWithSigner}>
+                  Authenticate with signer
+                </Button>
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button
+                      className={"flex-grow"}
+                      disabled={!Boolean(keyPair.privateKey)}
+                    >
+                      Authenticate with private key
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-3xl">
+                    <DialogHeader>
+                      <DialogTitle>Authenticate with private key</DialogTitle>
+                      <DialogDescription>
+                        Your nsec will be encrypted with a passphrase and stored
+                        in your browser.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex flex-col gap-6">
+                      <div className="flex flex-row items-center gap-4">
+                        <Label htmlFor="privateKey" className={"w-24"}>
+                          Private key
+                        </Label>
+                        <Input
+                          id="privateKey"
+                          defaultValue={keyPair.privateKey}
+                          readOnly
+                        />
+                        <Button type="submit" size="sm" className="px-3">
+                          <span className="sr-only">Copy</span>
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className={"text-xs text-gray-600"}>
+                        {keyPair.nsec}
+                      </div>
+                      <div className="flex flex-row items-center gap-4">
+                        <Label htmlFor="publicKey" className={"w-24"}>
+                          Public key
+                        </Label>
+                        <Input
+                          id="publicKey"
+                          defaultValue={keyPair.publicKey}
+                          readOnly
+                        />
+                        <Button type="submit" size="sm" className="px-3">
+                          <span className="sr-only">Copy</span>
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className={"text-xs text-gray-600"}>
+                        {keyPair.npub}
+                      </div>
+                      <Separator orientation={"horizontal"} />
+                      <div className="flex flex-row items-center gap-4">
+                        <Label htmlFor="passphrase" className={"w-24"}>
+                          Passphrase
+                        </Label>
+                        <Input
+                          id="passphrase"
+                          className={"w-40"}
+                          type={"password"}
+                          onChange={(e) => setPassphrase(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <DialogFooter className="sm:justify-between">
+                      <DialogClose asChild>
+                        <Button type="button" variant="secondary">
+                          Close
+                        </Button>
+                      </DialogClose>
+                      <Button
+                        type="button"
+                        variant="default"
+                        onClick={handlePrivateKeyLogin}
+                      >
+                        Login
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+
+                <Separator orientation={"horizontal"} />
+                <Button onClick={onGenerateKeyPair}>
+                  Generate new private key
+                </Button>
+                <div className={"flex flex-row"}>
+                  <Form {...form}>
+                    <form className="flex-grow">
+                      <FormField
+                        control={form.control}
+                        name="privateKey"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Private Key</FormLabel>
+                            <FormControl>
+                              <div
+                                className={"flex flex-row items-center gap-2"}
+                              >
+                                <Input
+                                  placeholder="...private key"
+                                  {...field}
+                                  onChange={onPrivateKeyInput}
+                                />
+                                <ClipboardCopy
+                                  onClick={handleCopyPrivateKeyToClipboard}
+                                />
+                              </div>
+                            </FormControl>
+                            {form.formState.errors.privateKey && (
+                              <FormMessage>
+                                {form.formState.errors.privateKey.message}
+                              </FormMessage>
+                            )}
+                          </FormItem>
+                        )}
+                      />
+                    </form>
+                  </Form>
+                </div>
+                <div className={"p-2 text-xs"}>
+                  {keyPair.publicKey ? (
+                    <p>{keyPair.publicKey}</p>
+                  ) : (
+                    <p>No private key set.</p>
+                  )}
+                </div>
               </div>
-              <div className={"p-2 text-xs"}>
-                {keyPair.publicKey ? (
-                  <p>{keyPair.publicKey}</p>
-                ) : (
-                  <p>No private key set.</p>
-                )}
-              </div>
-            </div>
-          </PopoverContent>
-        </Popover>
+            </PopoverContent>
+          </Popover>
+        )}
       </div>
     </header>
   )

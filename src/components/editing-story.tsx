@@ -63,6 +63,8 @@ export default function EditingStory({}) {
           type: GeoJsonGeometryTypes
         }
 
+        // const geohashCenter = geohashFromFeatures(feature)
+
         return new NDKEvent(
           ndk,
           runtimeGeometryFeatureToNostr({
@@ -76,10 +78,13 @@ export default function EditingStory({}) {
             color: feature.properties.color,
             type: geometry.type,
             coordinates: geometry.coordinates,
+            // geohash: geohashCenter,
           }),
         )
       }),
     )
+
+    // const motherGeohash = geohashFromFeatures(geometryCollection.features)
 
     const motherNDKEvent = new NDKEvent(
       ndk,
@@ -90,9 +95,10 @@ export default function EditingStory({}) {
         pubkey: ndkUser?.pubkey ?? "",
         d: uuidv4(),
         title: `${data.storyTitle}`,
-        image: `https://source.unsplash.com/random/400x200`,
+        image: `https://source.unsplash.com/random/400x200`, // TODO: implement nip-95
         published_at: now,
         features: [...mapFeatureEventsToIdentifiers(newFeatureEvents)],
+        // geohash: motherGeohash,
       }),
     )
 
@@ -173,6 +179,9 @@ export default function EditingStory({}) {
         coordinates: []
         type: GeoJsonGeometryTypes
       }
+
+      // const geohashCenter = geohashFromFeatures(feature)
+
       return new NDKEvent(
         ndk,
         runtimeGeometryFeatureToNostr({
@@ -186,6 +195,7 @@ export default function EditingStory({}) {
           color: feature.properties.color,
           type: geometry.type,
           coordinates: geometry.coordinates,
+          // geohash: geohashCenter,
         }),
       )
     })
@@ -212,6 +222,17 @@ export default function EditingStory({}) {
       return self.map((item) => item[1]).indexOf(value[1]) === index
     })
 
+    // TODO: not sue if these are the current collections
+    // const motherGeohash = geohashFromFeatures(
+    //   geometryCollection.features.flatMap((feature) => {
+    //     const geometry = feature.geometry as unknown as {
+    //       coordinates: []
+    //       type: GeoJsonGeometryTypes
+    //     }
+    //     return geometry.coordinates
+    //   }),
+    // )
+
     const newMotherNDKEvent = new NDKEvent(
       ndk,
       runtimeCollectionToNostr({
@@ -224,6 +245,7 @@ export default function EditingStory({}) {
         image: `https://source.unsplash.com/random/400x200`,
         published_at: parseInt(lastMotherEvent.tagValue("published_at") ?? ""),
         features: uniqueFeaturePointerList,
+        // geohash: motherGeohash,
       }),
     )
 

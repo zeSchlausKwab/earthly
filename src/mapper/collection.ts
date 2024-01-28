@@ -34,6 +34,7 @@ export const runtimeCollectionToNostr = (
       ["title", runtimeCollection.title],
       ["image", runtimeCollection.image],
       ["published_at", runtimeCollection.published_at.toString()],
+      // ["g", runtimeCollection.geohash],
       ["y", "collection"],
       ...runtimeCollection.features,
     ],

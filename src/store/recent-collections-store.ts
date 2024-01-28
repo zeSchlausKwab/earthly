@@ -37,6 +37,7 @@ export const useRecentCollectionsStore = create<{
     })
 
     sub.on("event", async (event: NDKEvent) => {
+      // console.log("event", event)
       const naddr = nip19.naddrEncode({
         pubkey: event.pubkey,
         kind: event.kind ?? NDKKind.Article,

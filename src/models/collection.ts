@@ -40,6 +40,7 @@ export const persistedCollectionSchema = z.object({
       z.tuple([z.literal("title"), z.string()]),
       z.tuple([z.literal("image"), z.string()]),
       z.tuple([z.literal("published_at"), z.string()]),
+      // z.tuple([z.literal("g"), z.string()]),
       z.tuple([z.literal("y"), z.string()]),
     ])
     .rest(z.tuple([z.literal("f"), z.string()])),
@@ -59,6 +60,7 @@ export const runtimeCollectionSchema = z.object({
   image: z.string(),
   published_at: z.number(),
   features: z.array(z.unknown()),
+  // geohash: z.string(),
 })
 
 export type RuntimeCollection = z.infer<typeof runtimeCollectionSchema>

@@ -1,6 +1,6 @@
 import Head from "next/head"
 import dynamic from "next/dynamic"
-import React, { useEffect } from "react"
+import React, { useEffect, useState } from "react"
 import Layout from "~/pages/layout"
 import EditingStory from "~/components/editing-story"
 import { useNDKStore } from "~/store/ndk-store"
@@ -8,21 +8,71 @@ import RecentStories from "~/components/recent-stories"
 import { useRecentCollectionsStore } from "~/store/recent-collections-store"
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert"
 import { Terminal } from "lucide-react"
+import { NDKNip07Signer } from "@nostr-dev-kit/ndk"
+import PassphraseLoginDialog from "~/components/passphrase-login-dialog"
 
 const Map = dynamic(() => import("../components/map"), { ssr: false })
 
 export default function Home() {
-  const { initAnonymous } = useNDKStore()
+  const { initAnonymous, ndkUser, ndk, initSigner } = useNDKStore()
   const { init: recentCollectionInit, collections } =
     useRecentCollectionsStore()
 
+  const [passphraseDialogOpen, setPassphraseDialogOpen] = useState(false)
+
   useEffect(() => {
-    const initAll = async () => {
+    const shouldReconnect = Boolean(localStorage.getItem("shouldReconnect"))
+    const storedEncryptedNsec = localStorage.getItem("encryptedNsec")
+
+    if (storedEncryptedNsec) {
+      setPassphraseDialogOpen(true)
+    }
+
+    const initWithNothing = async () => {
       await initAnonymous()
       await recentCollectionInit()
+
+      if (typeof window.webln !== "undefined") {
+        await window.webln.enable()
+      } else {
+        console.log("webln not found")
+      }
     }
-    void initAll()
+
+    const initWithWigner = async () => {
+      const signer = new NDKNip07Signer()
+      await initSigner(signer)
+      await recentCollectionInit()
+
+      if (typeof window.webln !== "undefined") {
+        await window.webln.enable()
+      } else {
+        console.log("webln not found")
+      }
+    }
+
+    if (!ndk && shouldReconnect) {
+      void initWithWigner()
+    } else if (!ndk && !shouldReconnect) {
+      void initWithNothing()
+    }
   }, [])
+
+  const handleRefusePassphraseLogin = () => {
+    localStorage.removeItem("encryptedNsec")
+    localStorage.removeItem("shouldReconnect")
+    setPassphraseDialogOpen(false)
+  }
+
+  const handleRPassphraseLogin = async () => {
+    setPassphraseDialogOpen(false)
+    if (typeof window.webln !== "undefined") {
+      await window.webln.enable()
+    } else {
+      console.log("webln not found")
+    }
+    await recentCollectionInit()
+  }
 
   return (
     <>
@@ -54,6 +104,11 @@ export default function Home() {
           <div className="flex flex-grow flex-col p-4">
             <Map />
           </div>
+          <PassphraseLoginDialog
+            open={passphraseDialogOpen}
+            onRefuse={() => handleRefusePassphraseLogin()}
+            onLogin={() => handleRPassphraseLogin()}
+          />
         </main>
       </Layout>
     </>

@@ -17,6 +17,7 @@ export const persistedGeometryFeatureSchema = z.object({
     z.tuple([z.literal("color"), z.string()]),
     z.tuple([z.literal("type"), geoGeometrySchema]),
     z.tuple([z.literal("coordinates"), z.string()]),
+    // z.tuple([z.literal("g"), z.string()]),
     z.tuple([z.literal("y"), z.string()]),
   ]),
 })
@@ -38,6 +39,7 @@ export const runtimeGeometryFeatureSchema = z.object({
   color: z.string(),
   type: geoGeometrySchema,
   coordinates: z.array(z.number()),
+  // geohash: z.string(),
 })
 
 export type RuntimeGeometryFeature = z.infer<

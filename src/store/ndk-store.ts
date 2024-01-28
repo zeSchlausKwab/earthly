@@ -12,6 +12,7 @@ interface NostrKeyState {
   initPrivateKey: (privateKey: string) => Promise<void>
   initSigner: (nip07Signer: NDKNip07Signer) => Promise<NDK>
   initAnonymous: () => Promise<void>
+  logout: () => void
   disconnect: () => void
 }
 
@@ -19,6 +20,7 @@ export const useNDKStore = create<NostrKeyState>()((set, get, store) => ({
   ndk: undefined,
   ndkUser: undefined,
   initPrivateKey: async (privateKey) => {
+    localStorage.setItem("shouldReconnect", "true")
     set({ ndk: undefined, ndkUser: undefined })
 
     const newSigner = new NDKPrivateKeySigner(privateKey)
@@ -34,6 +36,7 @@ export const useNDKStore = create<NostrKeyState>()((set, get, store) => ({
     return
   },
   initSigner: async (nip07Signer) => {
+    localStorage.setItem("shouldReconnect", "true")
     set({ ndk: undefined, ndkUser: undefined })
 
     const newSignerUser = await nip07Signer.user()
@@ -51,9 +54,16 @@ export const useNDKStore = create<NostrKeyState>()((set, get, store) => ({
     const ndk = new NDK({
       explicitRelayUrls: relayList,
     })
+
     await ndk.connect()
     set({ ndk })
     return
+  },
+  logout: () => {
+    localStorage.removeItem("shouldReconnect")
+    localStorage.removeItem("encryptedNsec")
+    set({ ndk: undefined, ndkUser: undefined })
+    void store.getState().initAnonymous()
   },
   disconnect: () => {
     set({ ndk: undefined })

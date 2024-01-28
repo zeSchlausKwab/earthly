@@ -21,6 +21,7 @@ export const runtimeGeometryFeatureToNostr = (
       ["color", runtimeFeature.color],
       ["type", runtimeFeature.type],
       ["coordinates", JSON.stringify(runtimeFeature.coordinates)],
+      // ["g", runtimeFeature.geohash],
       ["y", "feature"],
     ],
   } as NostrGeometryFeature)

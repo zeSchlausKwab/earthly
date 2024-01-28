@@ -14,6 +14,7 @@ export default function UserInfo() {
   useEffect(() => {
     const fetchUser = async () => {
       const newUser = await ndkUser?.fetchProfile()
+      console.log("newUser", ndkUser)
       if (newUser && ndk) {
         setFetchedProfile(newUser)
       } else {
@@ -23,7 +24,7 @@ export default function UserInfo() {
     }
 
     void fetchUser()
-  }, [ndkUser, ndk])
+  }, [ndkUser])
 
   return (
     <div>

@@ -27,7 +27,6 @@ export default function RecentStories() {
   return (
     <div className={"break-all rounded-lg border text-sm"}>
       {collections.map((collection, index) => {
-        console.log(collection)
         return (
           <div key={collection.naddr} className={"flex flex-col gap-4 p-3"}>
             <div className={"flex justify-between"}>
