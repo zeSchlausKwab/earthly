@@ -1,7 +1,17 @@
+import { useEffect } from "react"
 import { useMap } from "react-leaflet"
+import { useZoomUIStore } from "~/store/zoom-ui-store"
 
 export default function MapZoomLocation({}) {
   const map = useMap()
+
+  const { locationFromUser } = useZoomUIStore()
+
+  useEffect(() => {
+    if (locationFromUser) {
+      map.setView(locationFromUser, 15)
+    }
+  }, [locationFromUser])
 
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(

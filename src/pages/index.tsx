@@ -1,6 +1,6 @@
 import { NDKNip07Signer } from "@nostr-dev-kit/ndk"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { PanelTopClose } from "lucide-react"
+import { LocateFixed, PanelTopClose } from "lucide-react"
 import dynamic from "next/dynamic"
 import Head from "next/head"
 import { useEffect, useState } from "react"
@@ -15,6 +15,7 @@ import { Sheet, SheetContent, SheetTrigger } from "~/components/ui/sheet"
 import Layout from "~/pages/layout"
 import { useNDKStore } from "~/store/ndk-store"
 import { useRecentCollectionsStore } from "~/store/recent-collections-store"
+import { useZoomUIStore } from "~/store/zoom-ui-store"
 
 const queryClient = new QueryClient()
 
@@ -22,9 +23,9 @@ const Map = dynamic(() => import("../components/map"), { ssr: false })
 
 export default function Home() {
   const isWide = useMedia({ minWidth: "1024px" })
-  const { initAnonymous, ndkUser, ndk, initSigner } = useNDKStore()
-  const { init: recentCollectionInit, collections } =
-    useRecentCollectionsStore()
+  const { initAnonymous, ndk, initSigner } = useNDKStore()
+  const { init: recentCollectionInit } = useRecentCollectionsStore()
+  const { setLocationFromUser } = useZoomUIStore()
 
   const [passphraseDialogOpen, setPassphraseDialogOpen] = useState(false)
 
@@ -82,6 +83,10 @@ export default function Home() {
     await recentCollectionInit()
   }
 
+  const handleUserLocationClick = () => {
+    setLocationFromUser()
+  }
+
   return (
     <>
       <QueryClientProvider client={queryClient}>
@@ -119,7 +124,13 @@ export default function Home() {
                 </SheetContent>
               </Sheet>
             )}
-
+            <Button
+              variant="outline"
+              className="absolute bottom-0 left-0 z-10 mb-4 ml-4"
+              onClick={handleUserLocationClick}
+            >
+              <LocateFixed />
+            </Button>
             <Map />
             <PassphraseLoginDialog
               open={passphraseDialogOpen}
