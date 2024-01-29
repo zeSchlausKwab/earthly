@@ -13,6 +13,7 @@ import {
 import {
   CustomFeature,
   CustomFeatureCollection,
+  FeatureReference,
   useEditingCollectionStore,
 } from "~/store/edit-collection-store"
 import { useNDKStore } from "~/store/ndk-store"
@@ -37,6 +38,7 @@ import { toast } from "../ui/use-toast"
 import GeoJsonUploadDialog from "../geo-json-upload-dialog"
 import EditingStoryTable from "./edit-story-table"
 import { CustomFeatureGeo } from "../map/map"
+import CuratedItems from "./curated-items"
 
 export const Icons = {
   spinner: Loader2,
@@ -98,7 +100,7 @@ export default function EditingStory({}) {
 
   const handlePersistCollection = async (data: EditingCollectionFormSchema) => {
     if (!ndk) return
-    setIsPersisting(true)
+    // setIsPersisting(true)
 
     const now = Math.floor(Date.now() / 1000)
     const motherEventId = uuidv4()
@@ -129,23 +131,50 @@ export default function EditingStory({}) {
           type: GeoJsonGeometryTypes
         }
 
-        return new NDKEvent(
-          ndk,
-          runtimeGeometryFeatureToNostr({
+        if (feature.properties.isLink) {
+          return new NDKEvent(ndk, {
             kind: 4326 as NDKKind,
             pubkey: ndkUser?.pubkey ?? "",
-            description: feature.properties.description,
             created_at: now,
-            d: feature.properties.id,
-            communityEventAuthorPubkey: ndkUser?.pubkey ?? "",
-            motherEventIdentifier: motherEventId,
-            published_at: now,
-            name: feature.properties.name,
-            color: feature.properties.color,
-            type: geometry.type,
-            coordinates: geometry.coordinates,
-          }),
-        )
+            content: JSON.stringify({
+              type: "FeatureReference",
+              category: `countries:${feature.properties.name}`,
+              id: feature.properties.id,
+              properties: {
+                name: feature.properties.name,
+                description: feature.properties.description,
+              },
+            } as FeatureReference<{}>),
+            tags: [
+              [
+                "a",
+                `34550:${ndkUser?.pubkey}:${feature.properties.id}`,
+                "wss://relay.earthly.land",
+              ],
+              ["d", feature.properties.id],
+              ["published_at", now.toString()],
+              ["y", "feature"],
+            ],
+          })
+        } else {
+          return new NDKEvent(
+            ndk,
+            runtimeGeometryFeatureToNostr({
+              kind: 4326 as NDKKind,
+              pubkey: ndkUser?.pubkey ?? "",
+              description: feature.properties.description,
+              created_at: now,
+              d: feature.properties.id,
+              communityEventAuthorPubkey: ndkUser?.pubkey ?? "",
+              motherEventIdentifier: motherEventId,
+              published_at: now,
+              name: feature.properties.name,
+              color: feature.properties.color,
+              type: geometry.type,
+              coordinates: geometry.coordinates,
+            }),
+          )
+        }
       }),
     )
 
@@ -171,6 +200,8 @@ export default function EditingStory({}) {
         return approvalEvent
       }),
     )
+
+    console.log(newFeatureEvents)
 
     await motherNDKEvent.publish()
     await Promise.all(newFeatureEvents.map((event) => event.publish()))
@@ -479,6 +510,7 @@ export default function EditingStory({}) {
             gorupItems={handleGroupItems}
             splitItems={handleSplitItems}
           />
+          <CuratedItems />
 
           {/* <div className={"flex flex-col"}>
             {geometryCollection.features.map((feature, index) => {

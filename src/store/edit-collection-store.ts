@@ -1,6 +1,8 @@
 import { NDKEvent, type NDKKind, type NostrEvent } from "@nostr-dev-kit/ndk"
+import { CuratedFeature } from "@prisma/client"
 import type { GeometryCollection } from "geojson"
 import { type Feature, type FeatureCollection, type Geometry } from "geojson"
+import { v4 as uuidv4 } from "uuid"
 import { create } from "zustand"
 import { useNDKStore } from "~/store/ndk-store"
 import { decodeNaddr } from "~/utils/naddr"
@@ -12,8 +14,15 @@ export type FeatureProperties = {
   description: string
   color: string
   approved?: boolean
+  isLink?: boolean
 }
 
+export type FeatureReference<P> = {
+  type: "FeatureReference"
+  category: `${string}:${string}`
+  id: string
+  properties: P
+}
 export type NostrableGeometry = Exclude<Geometry, GeometryCollection>
 export type CustomFeature = Feature<Geometry, FeatureProperties>
 export type CustomFeatureCollection = FeatureCollection<
@@ -27,6 +36,7 @@ export const useEditingCollectionStore = create<{
   reset: () => void
   setGeometry: (geometry: CustomFeatureCollection) => void
   addFeature: (feature: CustomFeature) => void
+  addCuratedFeature: (curatedFeature: CuratedFeature) => void
   setGeometryFromNostr: (
     eventId: string,
     withUnapproved?: boolean,
@@ -54,6 +64,36 @@ export const useEditingCollectionStore = create<{
       geometryCollection: {
         ...state.geometryCollection,
         features: [...state.geometryCollection.features, feature],
+      },
+    }))
+  },
+  addCuratedFeature: (feature) => {
+    const innerFeature = feature.geometry as FeatureReference<
+      Record<string, string>
+    >
+    const beFeature = {
+      type: "Feature",
+      geometry: innerFeature as unknown as Geometry,
+      properties: {
+        id: feature.id,
+        color:
+          "#" +
+          Math.floor(Math.random() * 16777215)
+            .toString(16)
+            .padStart(6, "0"),
+
+        name: feature.name,
+        description: feature.isoA3,
+        isLink: true,
+      },
+    } as CustomFeature
+
+    console.log(beFeature)
+
+    set((state) => ({
+      geometryCollection: {
+        ...state.geometryCollection,
+        features: [...state.geometryCollection.features, beFeature],
       },
     }))
   },

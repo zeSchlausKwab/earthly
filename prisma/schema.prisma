@@ -10,11 +10,31 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Post {
-  id        Int      @id @default(autoincrement())
+model CuratedFeature {
+  id        String   @id @default(uuid())
   name      String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  geometry     Json
+  geometryType String
+  admin        String
+  isoA3        String
+
+  categoryId String
+  category   CuratedFeatureCategory @relation(fields: [categoryId], references: [id])
+
+  @@index([name])
+}
+
+model CuratedFeatureCategory {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  curatedFeature CuratedFeature[]
 
   @@index([name])
 }

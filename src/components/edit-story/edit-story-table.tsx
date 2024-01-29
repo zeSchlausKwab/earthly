@@ -19,9 +19,11 @@ import {
   TableRow,
 } from "../ui/table"
 import { Button } from "../ui/button"
+import { Signpost } from "lucide-react"
 
 type CustomFeatureWithSubRows = CustomFeature & {
   selected: boolean
+  isLink: boolean
   subRows: CustomFeature[]
   getCheckboxProps: (roe: typeof TableRow) => { disabled: boolean }
 }
@@ -41,14 +43,18 @@ export default function EditingStoryTable({
   gorupItems: (ids: string[]) => void
   splitItems: (ids: string) => void
 }) {
-  const [data, setData] = useState<CustomFeatureWithSubRows[]>(
-    tableData.features as CustomFeatureWithSubRows[],
-  )
+  const [data, setData] = useState<CustomFeatureWithSubRows[]>([])
   const [selectedGeometryType, setSelectedGeometryType] = useState<string>()
   const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
-    setData(tableData.features as CustomFeatureWithSubRows[])
+    const mappedItmens = tableData.features.map((item) => {
+      return {
+        ...item,
+        isLink: item.properties.isLink,
+      } as CustomFeatureWithSubRows
+    })
+    setData(mappedItmens)
   }, [tableData])
 
   const table = useReactTable<CustomFeatureWithSubRows>({
@@ -96,6 +102,17 @@ export default function EditingStoryTable({
           )
         },
         header: "Group",
+      },
+      {
+        cell: ({ getValue, cell, row, column: { id }, table }) => {
+          const isLink = row.original.isLink
+          return isLink ? (
+            <Signpost size={24} />
+          ) : (
+            <div className="h-4 w-4"></div>
+          )
+        },
+        header: "is link",
       },
       {
         accessorFn: (row) => row.geometry.type,

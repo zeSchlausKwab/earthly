@@ -1,6 +1,7 @@
 import { NDKEvent, NDKKind, NostrEvent } from "@nostr-dev-kit/ndk"
 import { nip19 } from "nostr-tools"
 import { create } from "zustand"
+import { vanillaClient } from "~/server/vanilla-client"
 import {
   type CustomFeature,
   type CustomFeatureCollection,
@@ -65,6 +66,34 @@ export const useRecentCollectionsStore = create<{
         return JSON.parse(contentEvent.content) as CustomFeature
       })
 
+      const featuresWithResolvedReferences = await Promise.all(
+        features.map(async (feature) => {
+          if (!feature) return
+          if (
+            (feature.type as "Feature" | "FeatureReference") ===
+            "FeatureReference"
+          ) {
+            const resolvedReference =
+              await vanillaClient.curatedItems.getOne.query({
+                id: (feature.id as string) ?? "",
+              })
+            if (!resolvedReference) return
+            return {
+              type: "Feature",
+              geometry: resolvedReference.geometry,
+              properties: {
+                ...resolvedReference,
+                id: resolvedReference.id,
+                name: resolvedReference.name,
+                noteId: resolvedReference.id,
+              },
+            }
+          } else {
+            return feature
+          }
+        }),
+      )
+
       const featureIdentifiers = Array.from(featureEvents)
         .map((ev) => {
           if (!ev) return
@@ -80,24 +109,13 @@ export const useRecentCollectionsStore = create<{
         })
         .filter((e): e is `naddr1${string}` => e !== undefined)
 
-      const validFeatures = features.filter(
+      const validFeatures = featuresWithResolvedReferences.filter(
         (e) => e !== undefined,
       ) as CustomFeature[]
 
       const existingCollection = get().collections.find(
         (collection) => collection.naddr === naddr,
       )
-
-      // console.groupCollapsed(
-      //   "RecentCollectionsStore",
-      //   rootCollectionEvent.tagValue("title"),
-      // )
-
-      // console.log("features", features)
-      // console.log("featureEvents", featureEvents)
-      // console.log("featureIdentifiers", featureIdentifiers)
-
-      // console.groupEnd()
 
       if (existingCollection) {
         set((state) => {

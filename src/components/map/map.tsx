@@ -60,7 +60,8 @@ export default function Map() {
   >(undefined)
 
   const ref = useRef<L.FeatureGroup>(null)
-  const recentCollection = useRef<L.FeatureGroup>(null)
+  const recentCollectionFG = useRef<L.FeatureGroup>(null)
+  const curatedCollectionFG = useRef<L.FeatureGroup>(null)
 
   useEffect(() => {
     removeAttributionFlag()
@@ -72,8 +73,8 @@ export default function Map() {
   }, [geometryCollection])
 
   useEffect(() => {
-    recentCollection.current?.clearLayers()
-    if (collections && recentCollection.current) {
+    recentCollectionFG.current?.clearLayers()
+    if (collections && recentCollectionFG.current) {
       collections.forEach((collection) => {
         L.geoJSON(collection.features, {
           style: (feature) => {
@@ -101,7 +102,7 @@ export default function Map() {
               setHoveredCollection(null)
             })
           },
-        }).addTo(recentCollection.current as L.FeatureGroup)
+        }).addTo(recentCollectionFG.current as L.FeatureGroup)
       })
     }
   }, [collections])
@@ -207,6 +208,7 @@ export default function Map() {
             description:
               feature.properties.description ??
               `description for ${feature.geometry.type}-${Date.now()}`,
+            isLink: Boolean(feature.properties.isLink) ?? false,
           },
         }
       }),
@@ -270,7 +272,8 @@ export default function Map() {
             </Popup>
           )}
         </FeatureGroup>
-        <FeatureGroup ref={recentCollection}></FeatureGroup>
+        <FeatureGroup ref={recentCollectionFG}></FeatureGroup>
+        {/* <FeatureGroup ref={curatedCollectionFG}></FeatureGroup> */}
         {/* <MapZoomEdit geojson={geometryCollection} /> */}
         <MapZoomRecent recentCollections={collections} />
         {/* <MapZoomLocation /> */}
