@@ -30,4 +30,17 @@ export const curatedItemsRouter = createTRPCRouter({
       })
       return curatedItem
     }),
+  getOneByName: publicProcedure
+    .input(
+      z.object({
+        category: z.string(),
+        name: z.string(),
+      }),
+    )
+    .query(async ({ input, ctx }) => {
+      const curatedItem = await ctx.db.curatedFeature.findFirst({
+        where: { name: input.name, category: { name: input.category } },
+      })
+      return curatedItem
+    }),
 })

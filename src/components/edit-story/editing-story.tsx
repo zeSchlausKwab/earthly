@@ -100,7 +100,7 @@ export default function EditingStory({}) {
 
   const handlePersistCollection = async (data: EditingCollectionFormSchema) => {
     if (!ndk) return
-    // setIsPersisting(true)
+    setIsPersisting(true)
 
     const now = Math.floor(Date.now() / 1000)
     const motherEventId = uuidv4()
@@ -200,8 +200,6 @@ export default function EditingStory({}) {
         return approvalEvent
       }),
     )
-
-    console.log(newFeatureEvents)
 
     await motherNDKEvent.publish()
     await Promise.all(newFeatureEvents.map((event) => event.publish()))

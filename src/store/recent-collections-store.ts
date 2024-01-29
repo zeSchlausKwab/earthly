@@ -3,6 +3,7 @@ import { nip19 } from "nostr-tools"
 import { create } from "zustand"
 import { vanillaClient } from "~/server/vanilla-client"
 import {
+  FeatureReference,
   type CustomFeature,
   type CustomFeatureCollection,
 } from "~/store/edit-collection-store"
@@ -73,9 +74,14 @@ export const useRecentCollectionsStore = create<{
             (feature.type as "Feature" | "FeatureReference") ===
             "FeatureReference"
           ) {
+            const featureReference = feature as unknown as FeatureReference<
+              Record<string, string>
+            >
+            const split = featureReference.category.split(":")
             const resolvedReference =
-              await vanillaClient.curatedItems.getOne.query({
-                id: (feature.id as string) ?? "",
+              await vanillaClient.curatedItems.getOneByName.query({
+                category: `${split[0]}`,
+                name: `${split[1]}`,
               })
             if (!resolvedReference) return
             return {
