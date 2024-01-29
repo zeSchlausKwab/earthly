@@ -58,7 +58,9 @@ export default function Story({
         <div>{collection.description}</div>
       </div>
       <div className="flex flex-row items-center justify-between">
-        <ScanEye onClick={() => handleZoomOnFeature(collection)} />
+        <Button variant="outline" size="icon">
+          <ScanEye onClick={() => handleZoomOnFeature(collection)} />
+        </Button>
         {ndkUser?.pubkey === collection.pubkey ? (
           <Button onClick={() => handleEdit(collection.naddr)}>edit</Button>
         ) : (
