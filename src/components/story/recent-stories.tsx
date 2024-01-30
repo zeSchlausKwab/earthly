@@ -20,16 +20,23 @@ export default function RecentStories() {
     <div
       className={"grid grid-cols-2 gap-2 break-all text-sm lg:flex lg:flex-col"}
     >
-      {collections.map((collection, index) => {
-        const inFocusOnMap = hoveredCollection === collection.identifier
-        return (
-          <Story
-            key={index}
-            collection={collection}
-            inFocusOnMap={inFocusOnMap}
-          />
-        )
-      })}
+      {collections
+        .sort((a, b) => {
+          return (
+            new Date(Number(b.published_at) * 1000).getTime() -
+            new Date(Number(b.published_at) * 1000).getTime()
+          )
+        })
+        .map((collection, index) => {
+          const inFocusOnMap = hoveredCollection === collection.identifier
+          return (
+            <Story
+              key={index}
+              collection={collection}
+              inFocusOnMap={inFocusOnMap}
+            />
+          )
+        })}
     </div>
   )
 }

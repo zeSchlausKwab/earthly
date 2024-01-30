@@ -90,16 +90,13 @@ export default function Map() {
           },
           onEachFeature: (feature, layer) => {
             if (!feature) return
-            layer.on("mouseover", () => {
+            layer.on("click", () => {
               const targetCollection = collections.find((c) =>
                 c.features.features.some(
                   (f) => f.properties.id === feature.properties.id,
                 ),
               )
               setHoveredCollection(targetCollection?.identifier ?? null)
-            })
-            layer.on("mouseout", () => {
-              setHoveredCollection(null)
             })
           },
         }).addTo(recentCollectionFG.current as L.FeatureGroup)
