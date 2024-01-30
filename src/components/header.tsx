@@ -174,7 +174,7 @@ export default function Header() {
 
   return (
     <header className="flex flex-none flex-row items-center justify-between p-4">
-      <div className="relative h-full w-[100px]">
+      <div className="relative h-full w-[140px]">
         <Image fill src="/logo_text.svg" alt="earthly.land logo" />
       </div>
       <div className="z-50 flex flex-row gap-8 text-xs">
