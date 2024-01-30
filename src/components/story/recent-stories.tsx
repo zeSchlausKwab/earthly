@@ -24,7 +24,7 @@ export default function RecentStories() {
         .sort((a, b) => {
           return (
             new Date(Number(b.published_at) * 1000).getTime() -
-            new Date(Number(b.published_at) * 1000).getTime()
+            new Date(Number(a.published_at) * 1000).getTime()
           )
         })
         .map((collection, index) => {

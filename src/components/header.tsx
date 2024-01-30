@@ -1,12 +1,14 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { NDKNip07Signer } from "@nostr-dev-kit/ndk"
 import { ClipboardCopy, Copy, Info, Settings } from "lucide-react"
+import Image from "next/image"
 import { generateSecretKey, getPublicKey, nip19 } from "nostr-tools"
 import { ChangeEvent, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import MapSettings from "~/components/map/map-settings"
 import { Button } from "~/components/ui/button"
+
 import {
   Dialog,
   DialogClose,
@@ -172,7 +174,9 @@ export default function Header() {
 
   return (
     <header className="flex flex-none flex-row items-center justify-between p-4">
-      <h1 className="text-2xl font-bold">earthly</h1>
+      <div className="relative h-full w-[100px]">
+        <Image fill src="/logo_text.svg" alt="earthly.land logo" />
+      </div>
       <div className="z-50 flex flex-row gap-8 text-xs">
         <MapSettings />
         <UserInfo />

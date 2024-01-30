@@ -13,6 +13,7 @@ import { type RecentCollection } from "~/store/recent-collections-store"
 import { useZoomUIStore } from "~/store/zoom-ui-store"
 import { formatNostrTime } from "~/utils/time"
 import FeaturesContext from "./feature-context"
+import ProfileByPubkey from "../profile-by-bubkey"
 
 export default function Story({
   collection,
@@ -43,30 +44,31 @@ export default function Story({
       key={collection.naddr}
       className={`flex flex-col gap-2 rounded-lg border p-3 hover:border-cyan-800 hover:shadow-md lg:w-full ${inFocusOnMap ? "border-cyan-800 shadow-md" : ""}`}
     >
-      <b>{collection.title}</b>
-
-      <Image
-        src={collection.headerImage}
-        alt={collection.title}
-        width={0}
-        height={0}
-        sizes="100vw"
-        style={{ width: "50%", height: "auto" }} // optional
-      />
-      <div className={"flex flex-col"}>
-        <div>{formatNostrTime(collection.published_at)}</div>
-        <div>{collection.description}</div>
+      <div className="flex flex-row gap-2">
+        <div className="relative aspect-video w-1/3">
+          <Image fill src={collection.headerImage} alt={collection.title} />
+        </div>
+        <div className="flex h-full w-2/3 flex-col justify-between">
+          <div className="flex flex-row justify-between">
+            <ProfileByPubkey pubkey={collection.pubkey} />
+            <div>{formatNostrTime(collection.published_at)}</div>
+          </div>
+          <div className="flex flex-row justify-between">
+            <Button variant="outline" size="icon">
+              <ScanEye onClick={() => handleZoomOnFeature(collection)} />
+            </Button>
+            {ndkUser?.pubkey === collection.pubkey ? (
+              <Button onClick={() => handleEdit(collection.naddr)}>edit</Button>
+            ) : (
+              <Button onClick={() => handleClone(collection.naddr)}>
+                clone
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
-      <div className="flex flex-row items-center justify-between">
-        <Button variant="outline" size="icon">
-          <ScanEye onClick={() => handleZoomOnFeature(collection)} />
-        </Button>
-        {ndkUser?.pubkey === collection.pubkey ? (
-          <Button onClick={() => handleEdit(collection.naddr)}>edit</Button>
-        ) : (
-          <Button onClick={() => handleClone(collection.naddr)}>clone</Button>
-        )}
-      </div>
+      <b className="text-md">{collection.title}</b>
+      <div>{collection.description}</div>
       <Accordion type="single" collapsible>
         <AccordionItem value="item-1">
           <AccordionTrigger>discussion</AccordionTrigger>

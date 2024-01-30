@@ -2,8 +2,8 @@ import { NDKEvent, type NDKKind, type NostrEvent } from "@nostr-dev-kit/ndk"
 import { CuratedFeature } from "@prisma/client"
 import type { GeometryCollection } from "geojson"
 import { type Feature, type FeatureCollection, type Geometry } from "geojson"
-import { v4 as uuidv4 } from "uuid"
 import { create } from "zustand"
+import { vanillaClient } from "~/server/vanilla-client"
 import { useNDKStore } from "~/store/ndk-store"
 import { decodeNaddr } from "~/utils/naddr"
 
@@ -160,11 +160,46 @@ export const useEditingCollectionStore = create<{
       })
     }
 
+    const featuresWithResolvedReferences = await Promise.all(
+      validGeometryCollection.map(async (feature) => {
+        if (!feature) return
+        if (
+          (feature.type as "Feature" | "FeatureReference") ===
+          "FeatureReference"
+        ) {
+          const featureReference = feature as unknown as FeatureReference<
+            Record<string, string>
+          >
+          const split = featureReference.category.split(":")
+          const resolvedReference =
+            await vanillaClient.curatedItems.getOneByName.query({
+              category: `${split[0]}`,
+              name: `${split[1]}`,
+            })
+          if (!resolvedReference) return
+          return {
+            type: "Feature",
+            geometry: resolvedReference.geometry,
+            properties: {
+              ...resolvedReference,
+              id: resolvedReference.id,
+              name: resolvedReference.name,
+              noteId: resolvedReference.id,
+            },
+          } as unknown as CustomFeature
+        } else {
+          return feature
+        }
+      }),
+    )
+
     set({
       naddr: naddr,
       geometryCollection: {
         type: "FeatureCollection",
-        features: validGeometryCollection,
+        features: featuresWithResolvedReferences.filter(
+          (e) => e !== undefined,
+        ) as CustomFeature[],
       },
     })
   },
