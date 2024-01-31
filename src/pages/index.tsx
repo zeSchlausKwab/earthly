@@ -118,9 +118,7 @@ export default function Home() {
                 </SheetContent>
               </Sheet>
             )}
-            <div className="w-3/5">
-              <Map />
-            </div>
+            <Map />
             <PassphraseLoginDialog
               open={passphraseDialogOpen}
               onRefuse={() => handleRefusePassphraseLogin()}

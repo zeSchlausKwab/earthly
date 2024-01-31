@@ -9,6 +9,7 @@ import { z } from "zod"
 import MapSettings from "~/components/map/map-settings"
 import { Button } from "~/components/ui/button"
 
+import useMedia from "use-media"
 import {
   Dialog,
   DialogClose,
@@ -62,6 +63,8 @@ const privateKeySchema = z.object({
 
 export default function Header() {
   const { ndk, initPrivateKey, initSigner, ndkUser, logout } = useNDKStore()
+
+  const isWide = useMedia({ minWidth: "1024px" })
 
   const { toast } = useToast()
 
@@ -173,15 +176,22 @@ export default function Header() {
   }
 
   return (
-    <header className="flex flex-none flex-row items-center justify-between p-4">
-      <div className="relative h-full w-[140px]">
-        <Image fill src="/logo_text.svg" alt="earthly.land logo" />
-      </div>
-      <div className="z-50 flex flex-row gap-8 text-xs">
+    <header className="flex flex-row items-center justify-between lg:p-4">
+      {isWide ? (
+        <div className="h-full w-[50px] lg:relative lg:w-[140px]">
+          <Image fill src="/logo_text.svg" alt="earthly.land logo" />
+        </div>
+      ) : (
+        <Image src="/logo.svg" alt="earthly.land logo" width={30} height={30} />
+      )}
+
+      <div className="z-50 flex flex-row items-center gap-4 text-xs lg:gap-8">
         <MapSettings />
-        <UserInfo />
+        <UserInfo onlyImageOnMobile />
         {ndkUser ? (
-          <Button onClick={logout}>Log Out</Button>
+          <Button size={!isWide ? "xs" : "sm"} onClick={logout}>
+            Log Out
+          </Button>
         ) : (
           <Popover>
             <PopoverTrigger asChild>
@@ -315,7 +325,7 @@ export default function Header() {
         )}
         <Popover>
           <PopoverTrigger>
-            <Settings />
+            <Settings className="h-4 w-4 lg:h-6 lg:w-6" />
           </PopoverTrigger>
           <PopoverContent>
             <ProfileMetaForm />
@@ -323,7 +333,7 @@ export default function Header() {
         </Popover>
         <Popover>
           <PopoverTrigger>
-            <Info />
+            <Info className="h-4 w-4 lg:h-6 lg:w-6" />
           </PopoverTrigger>
           <PopoverContent>
             <SiteInfo />

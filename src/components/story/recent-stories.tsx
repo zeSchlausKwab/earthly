@@ -17,9 +17,7 @@ export default function RecentStories() {
   }, [hoveredCollection])
 
   return (
-    <div
-      className={"grid grid-cols-2 gap-2 break-all text-sm lg:flex lg:flex-col"}
-    >
+    <div className={"flex flex-col gap-2 break-all text-sm"}>
       {collections
         .sort((a, b) => {
           return (

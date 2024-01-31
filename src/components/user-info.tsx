@@ -1,11 +1,17 @@
-import React, { useEffect, useState } from "react"
-import { useNDKStore } from "~/store/ndk-store"
 import { type NDKUserProfile } from "@nostr-dev-kit/ndk"
-import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar"
 import { Globe, User } from "lucide-react"
+import { useEffect, useState } from "react"
+import useMedia from "use-media"
+import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar"
+import { useNDKStore } from "~/store/ndk-store"
 
-export default function UserInfo() {
+export default function UserInfo({
+  onlyImageOnMobile = false,
+}: {
+  onlyImageOnMobile?: boolean
+}) {
   const { ndkUser, ndk } = useNDKStore()
+  const isWide = useMedia({ minWidth: "1024px" })
 
   const [fetchedProfile, setFetchedProfile] = useState<
     NDKUserProfile | undefined
@@ -28,26 +34,31 @@ export default function UserInfo() {
   return (
     <div>
       {fetchedProfile && (
-        <div className={"flex flex-row gap-4"}>
+        <div className={"flex flex-row lg:gap-4"}>
           <Avatar>
-            <AvatarImage src={fetchedProfile.image} />
+            <AvatarImage
+              className="h-8 w-8 lg:h-10 lg:w-10"
+              src={fetchedProfile.image}
+            />
             <AvatarFallback>{fetchedProfile.name?.at(0)}</AvatarFallback>
           </Avatar>
-          <div className={"flex flex-col justify-around"}>
-            <div className={"flex flex-row gap-1"}>
-              <User size={16} color="#8b8c4a" />
-              <div>{fetchedProfile.name}</div>
+          {onlyImageOnMobile && !isWide ? null : (
+            <div className={"flex flex-col justify-around"}>
+              <div className={"flex flex-row gap-1"}>
+                <User size={16} color="#8b8c4a" />
+                <div>{fetchedProfile.name}</div>
+              </div>
+              <div className={"flex flex-row gap-1"}>
+                <Globe size={16} color="#8b8c4a" />
+                <div>{fetchedProfile.website}</div>
+              </div>
+              {/*TODO: add nip 05 verification*/}
+              {/*<div className={"flex flex-row"}>*/}
+              {/*  <ShieldCheck size={16}/>*/}
+              {/*  <div>{fetchedProfile.nip05}</div>*/}
+              {/*</div>*/}
             </div>
-            <div className={"flex flex-row gap-1"}>
-              <Globe size={16} color="#8b8c4a" />
-              <div>{fetchedProfile.website}</div>
-            </div>
-            {/*TODO: add nip 05 verification*/}
-            {/*<div className={"flex flex-row"}>*/}
-            {/*  <ShieldCheck size={16}/>*/}
-            {/*  <div>{fetchedProfile.nip05}</div>*/}
-            {/*</div>*/}
-          </div>
+          )}
         </div>
       )}
     </div>

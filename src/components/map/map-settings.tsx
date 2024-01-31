@@ -1,6 +1,6 @@
-import { useUserSettingsStore } from "~/store/user-settings"
-import { Toggle } from "~/components/ui/toggle"
 import { Pause, Play } from "lucide-react"
+import { Toggle } from "~/components/ui/toggle"
+import { useUserSettingsStore } from "~/store/user-settings"
 
 export default function MapSettings() {
   const { mapFollowRecentEvents, setMapFollowRecentEvents } =
@@ -15,7 +15,6 @@ export default function MapSettings() {
       <Toggle
         variant="default"
         aria-label="Toggle italic"
-        className="w-12"
         onClick={() => handleChange(!mapFollowRecentEvents)}
         value={mapFollowRecentEvents.toString()}
         defaultValue={mapFollowRecentEvents.toString()}

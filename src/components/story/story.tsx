@@ -12,8 +12,8 @@ import { useNDKStore } from "~/store/ndk-store"
 import { type RecentCollection } from "~/store/recent-collections-store"
 import { useZoomUIStore } from "~/store/zoom-ui-store"
 import { formatNostrTime } from "~/utils/time"
-import FeaturesContext from "./feature-context"
 import ProfileByPubkey from "../profile-by-bubkey"
+import FeaturesContext from "./feature-context"
 
 export default function Story({
   collection,
@@ -44,12 +44,12 @@ export default function Story({
       key={collection.naddr}
       className={`flex flex-col gap-2 rounded-lg border p-3 hover:border-cyan-800 hover:shadow-md lg:w-full ${inFocusOnMap ? "border-cyan-800 shadow-md" : ""}`}
     >
-      <div className="flex flex-row gap-2">
-        <div className="relative aspect-video w-1/3">
+      <div className="flex flex-col gap-2 lg:flex-row">
+        <div className="relative aspect-video lg:w-1/3">
           <Image fill src={collection.headerImage} alt={collection.title} />
         </div>
-        <div className="flex h-full w-2/3 flex-col justify-between">
-          <div className="flex flex-row justify-between">
+        <div className="flex h-full flex-col justify-between lg:w-2/3">
+          <div className="flex flex-col justify-between lg:flex-row">
             <ProfileByPubkey pubkey={collection.pubkey} />
             <div>{formatNostrTime(collection.published_at)}</div>
           </div>
