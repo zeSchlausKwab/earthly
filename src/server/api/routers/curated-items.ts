@@ -1,22 +1,19 @@
-import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc"
 
 export const curatedItemsRouter = createTRPCRouter({
   all: publicProcedure.query(async ({ input, ctx }) => {
-    const curatedItems = await ctx.db.curatedFeature.findMany({})
-    return curatedItems
+    return await ctx.db.curatedFeature.findMany({})
   }),
   allCategories: publicProcedure.query(async ({ input, ctx }) => {
-    const curatedItems = await ctx.db.curatedFeatureCategory.findMany({
+    return await ctx.db.curatedFeatureCategory.findMany({
       include: {
         curatedFeature: {
           select: { admin: true, isoA3: true, name: true, id: true },
         },
       },
     })
-    return curatedItems
   }),
   getOne: publicProcedure
     .input(
@@ -25,10 +22,9 @@ export const curatedItemsRouter = createTRPCRouter({
       }),
     )
     .query(async ({ input, ctx }) => {
-      const curatedItem = await ctx.db.curatedFeature.findUnique({
+      return await ctx.db.curatedFeature.findUnique({
         where: { id: input.id },
       })
-      return curatedItem
     }),
   getOneByName: publicProcedure
     .input(
@@ -38,9 +34,8 @@ export const curatedItemsRouter = createTRPCRouter({
       }),
     )
     .query(async ({ input, ctx }) => {
-      const curatedItem = await ctx.db.curatedFeature.findFirst({
+      return await ctx.db.curatedFeature.findFirst({
         where: { name: input.name, category: { name: input.category } },
       })
-      return curatedItem
     }),
 })
