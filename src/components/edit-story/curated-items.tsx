@@ -27,9 +27,8 @@ type CuratedFeature = Category["curatedFeature"][0]
 
 function CategoryItem({ category }: { category: Category }) {
   const [open, setOpen] = useState(false)
-  const [selectedStatus, setSelectedStatus] = useState<CuratedFeature | null>(
-    null,
-  )
+  const [selectedStatus, setSelectedStatus] =
+    useState<CuratedFeature>(undefined)
 
   const utils = api.useUtils()
 
@@ -60,16 +59,17 @@ function CategoryItem({ category }: { category: Category }) {
             <CommandList>
               <CommandEmpty>No results found.</CommandEmpty>
               <CommandGroup>
-                {category.curatedFeature.map((feature) => (
+                {category.curatedFeature.map((feature: CuratedFeature) => (
                   <CommandItem
                     key={feature.name}
                     value={feature.name}
                     onSelect={(value) => {
                       setSelectedStatus(
-                        category.curatedFeature.find((f) => f.name === value) ??
-                          null,
+                        category.curatedFeature.find(
+                          (f: CuratedFeature) => f.name === value,
+                        ) ?? null,
                       )
-                      void handleItemSelected(feature.id)
+                      void handleItemSelected(feature.id as string)
                       setOpen(false)
                     }}
                   >
@@ -102,7 +102,7 @@ export default function CuratedItems({}) {
         </CollapsibleTrigger>
       </div>
       <CollapsibleContent className="space-y-2">
-        {data?.map((category) => {
+        {data?.map((category: string) => {
           return <CategoryItem category={category} />
         })}
       </CollapsibleContent>

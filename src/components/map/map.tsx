@@ -52,7 +52,7 @@ export default function Map() {
   const { geometryCollection, setGeometry } = useEditingCollectionStore()
   const { collections } = useRecentCollectionsStore()
   const { setLocationFromUser } = useZoomUIStore()
-  const { setHoveredCollection } = useMapListStore()
+  const { focusedCollection, pinnedCollections } = useMapListStore()
 
   const [geojson, setGeojson] = useState<L.FeatureGroup | null>(null)
   const [selectedFeature, setSelectedFeature] = useState<
@@ -61,7 +61,6 @@ export default function Map() {
 
   const ref = useRef<L.FeatureGroup>(null)
   const recentCollectionFG = useRef<L.FeatureGroup>(null)
-  const curatedCollectionFG = useRef<L.FeatureGroup>(null)
 
   useEffect(() => {
     removeAttributionFlag()
@@ -75,34 +74,40 @@ export default function Map() {
   useEffect(() => {
     recentCollectionFG.current?.clearLayers()
     if (collections && recentCollectionFG.current) {
-      collections.forEach((collection) => {
-        L.geoJSON(collection.features, {
-          style: (feature) => {
-            if (feature) {
-              return {
-                color: feature.properties.color,
+      collections
+        .filter((feature) => {
+          return (
+            feature.identifier === focusedCollection ||
+            pinnedCollections.includes(feature.identifier)
+          )
+        })
+        .forEach((collection) => {
+          L.geoJSON(collection.features, {
+            style: (feature) => {
+              if (feature) {
+                return {
+                  color: feature.properties.color,
+                }
+              } else {
+                return {
+                  color: "#000000",
+                }
               }
-            } else {
-              return {
-                color: "#000000",
-              }
-            }
-          },
-          onEachFeature: (feature, layer) => {
-            if (!feature) return
-            layer.on("click", () => {
-              const targetCollection = collections.find((c) =>
-                c.features.features.some(
-                  (f) => f.properties.id === feature.properties.id,
-                ),
-              )
-              setHoveredCollection(targetCollection?.identifier ?? null)
-            })
-          },
-        }).addTo(recentCollectionFG.current as L.FeatureGroup)
-      })
+            },
+            onEachFeature: (feature, layer) => {
+              if (!feature) return
+              layer.on("click", () => {
+                const targetCollection = collections.find((c) =>
+                  c.features.features.some(
+                    (f) => f.properties.id === feature.properties.id,
+                  ),
+                )
+              })
+            },
+          }).addTo(recentCollectionFG.current as L.FeatureGroup)
+        })
     }
-  }, [collections])
+  }, [collections, pinnedCollections, focusedCollection])
 
   const handleFeatureDescriptionChange = (
     featureId: string,
@@ -271,7 +276,6 @@ export default function Map() {
         </FeatureGroup>
         <FeatureGroup ref={recentCollectionFG}></FeatureGroup>
         {/* <FeatureGroup ref={curatedCollectionFG}></FeatureGroup> */}
-        {/* <MapZoomEdit geojson={geometryCollection} /> */}
         <MapZoomRecent recentCollections={collections} />
         {/* <MapZoomLocation /> */}
         <MapZoomFeature />

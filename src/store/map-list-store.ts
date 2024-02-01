@@ -1,12 +1,26 @@
 import { create } from "zustand"
 
 type MapListState = {
-  hoveredCollection: string | null
-  setHoveredCollection: (collection: string | null) => void
+  focusedCollection: string | undefined
+  setFocusedCollection: (collectionId: string) => void
+  pinnedCollections: string[]
+  addPinnedCollection: (collectionId: string) => void
+  removePinnedCollection: (collectionId: string) => void
 }
 
 export const useMapListStore = create<MapListState>()((set, get, store) => ({
-  hoveredCollection: null,
-  setHoveredCollection: (collection) =>
-    set(() => ({ hoveredCollection: collection })),
+  focusedCollection: undefined,
+  setFocusedCollection: (collectionId: string) =>
+    set(() => ({ focusedCollection: collectionId })),
+  pinnedCollections: [],
+  addPinnedCollection: (collectionId: string) =>
+    set((state) => ({
+      pinnedCollections: [...state.pinnedCollections, collectionId],
+    })),
+  removePinnedCollection: (collectionId: string) =>
+    set((state) => ({
+      pinnedCollections: state.pinnedCollections.filter(
+        (id) => id !== collectionId,
+      ),
+    })),
 }))
