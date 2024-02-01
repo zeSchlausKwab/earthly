@@ -1,4 +1,3 @@
-import { Toggle } from "@radix-ui/react-toggle"
 import { ChevronRight, Pin, PinOff, ScanEye } from "lucide-react"
 import Image from "next/image"
 import { useEffect, useState } from "react"
@@ -18,6 +17,7 @@ import { formatNostrTime } from "~/utils/time"
 import ProfileByPubkey from "../profile-by-bubkey"
 import SimpleTooltip from "../simple-tooltip"
 import FeaturesContext from "./feature-context"
+import { Toggle } from "../ui/toggle"
 
 export default function Story({
   collection,

@@ -1,13 +1,3 @@
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@radix-ui/react-collapsible"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@radix-ui/react-popover"
 import { PanelTopOpen } from "lucide-react"
 import { useState } from "react"
 import { useEditingCollectionStore } from "~/store/edit-collection-store"
@@ -21,6 +11,12 @@ import {
   CommandItem,
   CommandList,
 } from "../ui/command"
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "../ui/collapsible"
 
 type Category = RouterOutputs["curatedItems"]["allCategories"][0]
 type CuratedFeature = Category["curatedFeature"][0]
