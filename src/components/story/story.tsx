@@ -1,6 +1,5 @@
 import { ChevronRight, Pin, PinOff, ScanEye } from "lucide-react"
 import Image from "next/image"
-import { useEffect, useState } from "react"
 import {
   Accordion,
   AccordionContent,
@@ -16,8 +15,8 @@ import { useZoomUIStore } from "~/store/zoom-ui-store"
 import { formatNostrTime } from "~/utils/time"
 import ProfileByPubkey from "../profile-by-bubkey"
 import SimpleTooltip from "../simple-tooltip"
-import FeaturesContext from "./feature-context"
 import { Toggle } from "../ui/toggle"
+import FeaturesContext from "./feature-context"
 
 export default function Story({
   collection,
@@ -31,15 +30,12 @@ export default function Story({
     addPinnedCollection,
     removePinnedCollection,
     focusedCollection,
+    pinnedCollections,
     setFocusedCollection,
   } = useMapListStore()
 
-  const [pinned, setPinned] = useState(false)
-  const [focused, setFocused] = useState(false)
-
-  useEffect(() => {
-    setFocused(focusedCollection === collection.identifier)
-  }, [focusedCollection])
+  const focused = focusedCollection === collection.identifier
+  const pinned = pinnedCollections.includes(collection.identifier)
 
   const handleEdit = (naddr: string) => {
     void setGeometryFromNostr(naddr)
@@ -59,7 +55,6 @@ export default function Story({
     } else {
       removePinnedCollection(collection.identifier)
     }
-    setPinned(e)
   }
 
   const handleFocusChange = (e: boolean) => {
@@ -70,9 +65,7 @@ export default function Story({
   return (
     <div className="flex flex-row gap-1 lg:w-full">
       <div className="flex w-12 flex-col gap-1">
-        <div
-          className={`rounded-lg border p-3 ${pinned ? "bg-green-500" : ""}`}
-        >
+        <div className={`rounded-lg border ${pinned ? "bg-green-500" : ""}`}>
           <SimpleTooltip message="pin this">
             <Toggle
               aria-label="toggle pin"
