@@ -10,6 +10,7 @@ import EditingStory from "~/components/edit-story/editing-story"
 import Header from "~/components/header"
 import PassphraseLoginDialog from "~/components/passphrase-login-dialog"
 import RecentStories from "~/components/story/recent-stories"
+import RecentStoriesMobile from "~/components/story/recent-stories-mobile"
 import { Button } from "~/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "~/components/ui/sheet"
 import Layout from "~/pages/layout"
@@ -108,13 +109,13 @@ export default function Home() {
                   </Button>
                 </SheetTrigger>
                 <SheetContent
-                  className="h-4/5 w-full overflow-y-scroll"
+                  className="h-1/2 w-full overflow-y-scroll"
                   side={"bottom"}
                 >
                   <Header />
                   <DevelopmentDisclaimer />
                   <EditingStory />
-                  <RecentStories />
+                  <RecentStoriesMobile />
                 </SheetContent>
               </Sheet>
             )}
