@@ -5,11 +5,7 @@ import { useMapListStore } from "~/store/map-list-store"
 import { Button } from "../ui/button"
 import L from "leaflet"
 
-export default function NewFeatureControl({
-  handleChange,
-}: {
-  handleChange: () => void
-}) {
+export default function NewFeatureControl({ handleChange }: { handleChange: () => void }) {
   const { setEditForNew, editOrFocus } = useMapListStore()
 
   const pointerIcon = new L.DivIcon({

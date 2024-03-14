@@ -10,10 +10,7 @@ const __dirname = path.dirname(__filename)
 const prisma = new PrismaClient()
 
 async function main() {
-  await Promise.all([
-    await prisma.curatedFeatureCategory.deleteMany(),
-    await prisma.curatedFeature.deleteMany(),
-  ])
+  await Promise.all([await prisma.curatedFeatureCategory.deleteMany(), await prisma.curatedFeature.deleteMany()])
 
   const curatedFeatureCategory = await prisma.curatedFeatureCategory.create({
     data: {
@@ -22,10 +19,7 @@ async function main() {
     },
   })
 
-  const geoJsonData = fs.readFileSync(
-    path.join(__dirname, "./curation-seed/countries.geojson"),
-    "utf8",
-  )
+  const geoJsonData = fs.readFileSync(path.join(__dirname, "./curation-seed/countries.geojson"), "utf8")
   const geoJsonObject = JSON.parse(geoJsonData)
 
   const curatedFeatures = await Promise.all(

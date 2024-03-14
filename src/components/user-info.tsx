@@ -5,17 +5,11 @@ import useMedia from "use-media"
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar"
 import { useNDKStore } from "~/store/ndk-store"
 
-export default function UserInfo({
-  onlyImageOnMobile = false,
-}: {
-  onlyImageOnMobile?: boolean
-}) {
+export default function UserInfo({ onlyImageOnMobile = false }: { onlyImageOnMobile?: boolean }) {
   const { ndkUser, ndk } = useNDKStore()
   const isWide = useMedia({ minWidth: "1024px" })
 
-  const [fetchedProfile, setFetchedProfile] = useState<
-    NDKUserProfile | undefined
-  >(undefined)
+  const [fetchedProfile, setFetchedProfile] = useState<NDKUserProfile | undefined>(undefined)
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -36,10 +30,7 @@ export default function UserInfo({
       {fetchedProfile && (
         <div className={"flex flex-row lg:gap-4"}>
           <Avatar>
-            <AvatarImage
-              className="h-8 w-8 lg:h-10 lg:w-10"
-              src={fetchedProfile.image}
-            />
+            <AvatarImage className="h-8 w-8 lg:h-10 lg:w-10" src={fetchedProfile.image} />
             <AvatarFallback>{fetchedProfile.name?.at(0)}</AvatarFallback>
           </Avatar>
           {onlyImageOnMobile && !isWide ? null : (

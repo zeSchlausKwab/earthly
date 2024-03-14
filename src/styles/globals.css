@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-@import 'custom.css';
+@import "custom.css";
 
 * {
   -ms-overflow-style: none;

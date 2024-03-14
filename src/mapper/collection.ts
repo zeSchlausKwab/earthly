@@ -6,9 +6,7 @@ import {
   runtimeCollectionSchema,
 } from "~/models/collection"
 
-export const runtimeCollectionToNostr = (
-  runtimeCollection: RuntimeCollection,
-) => {
+export const runtimeCollectionToNostr = (runtimeCollection: RuntimeCollection) => {
   return persistedCollectionSchema.parse({
     kind: runtimeCollection.kind,
     pubkey: runtimeCollection.pubkey,
@@ -25,11 +23,7 @@ export const runtimeCollectionToNostr = (
       ["relay", runtimeCollection.authorRelay, "author"],
       ["relay", runtimeCollection.requestsRelay, "requests"],
       ["relay", runtimeCollection.approvalsRelay, "approvals"],
-      ...runtimeCollection.moderatorPubKeys.map((pubkey) => [
-        "p",
-        pubkey,
-        "moderator",
-      ]),
+      ...runtimeCollection.moderatorPubKeys.map((pubkey) => ["p", pubkey, "moderator"]),
     ],
   } as NostrCollection)
 }
@@ -38,10 +32,8 @@ export const nostrCollectionToRuntime = (nostrCollection: NostrCollection) => {
   const event = nostrCollection as unknown as NDKEvent
   const relayTags = event.getMatchingTags("relay")
   const authorRelay = relayTags.find((tag) => tag[2] === "author")?.[1] ?? ""
-  const requestsRelay =
-    relayTags.find((tag) => tag[2] === "requests")?.[1] ?? ""
-  const approvalsRelay =
-    relayTags.find((tag) => tag[2] === "approvals")?.[1] ?? ""
+  const requestsRelay = relayTags.find((tag) => tag[2] === "requests")?.[1] ?? ""
+  const approvalsRelay = relayTags.find((tag) => tag[2] === "approvals")?.[1] ?? ""
 
   return runtimeCollectionSchema.parse({
     kind: nostrCollection.kind,

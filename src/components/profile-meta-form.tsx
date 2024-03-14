@@ -2,14 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useQuery } from "@tanstack/react-query"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "~/components/ui/form"
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "~/components/ui/form"
 import { Input } from "~/components/ui/input"
 import { useNDKStore } from "~/store/ndk-store"
 import { Button } from "./ui/button"
@@ -72,10 +65,7 @@ export default function ProfileMetaForm() {
   return (
     <div className="flex flex-col gap-2 text-sm">
       <Form {...form}>
-        <form
-          onSubmit={form.handleSubmit(handleFormSubmit)}
-          className="space-y-8"
-        >
+        <form onSubmit={form.handleSubmit(handleFormSubmit)} className="space-y-8">
           <FormField
             control={form.control}
             name="displayName"

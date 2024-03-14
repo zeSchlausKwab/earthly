@@ -1,18 +1,7 @@
 import { ReactNode } from "react"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./ui/tooltip"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip"
 
-export default function SimpleTooltip({
-  children,
-  message,
-}: {
-  children: ReactNode
-  message: string
-}) {
+export default function SimpleTooltip({ children, message }: { children: ReactNode; message: string }) {
   return (
     <TooltipProvider delayDuration={300}>
       <Tooltip>

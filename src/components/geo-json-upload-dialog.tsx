@@ -9,18 +9,8 @@ import {
   useReactTable,
 } from "@tanstack/react-table"
 import { type ReactNode, useState } from "react"
-import {
-  type CustomFeature,
-  type CustomFeatureCollection,
-} from "~/store/edit-collection-store"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "./ui/table"
+import { type CustomFeature, type CustomFeatureCollection } from "~/store/edit-collection-store"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table"
 
 const geoJsonMockData: CustomFeatureCollection = {
   type: "FeatureCollection",
@@ -267,9 +257,7 @@ const columns: ColumnDef<CustomFeatureWithSubRows>[] = [
     accessorFn: (row) => row.geometry.type,
     header: "Type",
     cell: (cell) => {
-      return (
-        <div className="flex items-center">{cell.getValue() as ReactNode}</div>
-      )
+      return <div className="flex items-center">{cell.getValue() as ReactNode}</div>
     },
   },
   {
@@ -298,10 +286,7 @@ const columns: ColumnDef<CustomFeatureWithSubRows>[] = [
     cell: (cell) => {
       return (
         <div className="flex items-center">
-          <div
-            className="rounded-ful mr-2 h-4 w-4"
-            style={{ backgroundColor: cell.getValue() as string }}
-          ></div>
+          <div className="rounded-ful mr-2 h-4 w-4" style={{ backgroundColor: cell.getValue() as string }}></div>
           <div>{cell.getValue() as ReactNode}</div>
         </div>
       )
@@ -353,12 +338,7 @@ export default function GeoJsonUploadDialog({}) {
               {headerGroup.headers.map((header) => {
                 return (
                   <TableHead key={header.id}>
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext(),
-                        )}
+                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                   </TableHead>
                 )
               })}
@@ -368,14 +348,9 @@ export default function GeoJsonUploadDialog({}) {
         <TableBody>
           {table.getRowModel().rows?.length ? (
             table.getRowModel().rows.map((row) => (
-              <TableRow
-                key={row.id}
-                data-state={row.getIsSelected() && "selected"}
-              >
+              <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
                 {row.getVisibleCells().map((cell) => (
-                  <TableCell key={cell.id}>
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </TableCell>
+                  <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
                 ))}
               </TableRow>
             ))

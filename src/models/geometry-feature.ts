@@ -16,9 +16,7 @@ export const persistedFeatureEventContentSchema = z.object({
   }),
 })
 
-export type PersistedFeatureEventContent = z.infer<
-  typeof persistedFeatureEventContentSchema
->
+export type PersistedFeatureEventContent = z.infer<typeof persistedFeatureEventContentSchema>
 
 export const persistedGeometryFeatureSchema = z.object({
   kind: z.literal(4326 as NDKKind),
@@ -35,9 +33,7 @@ export const persistedGeometryFeatureSchema = z.object({
     z.tuple([z.literal("y"), z.string()]),
   ]),
 })
-export type NostrGeometryFeature = z.infer<
-  typeof persistedGeometryFeatureSchema
->
+export type NostrGeometryFeature = z.infer<typeof persistedGeometryFeatureSchema>
 
 export const runtimeGeometryFeatureSchema = z.object({
   kind: z.literal(4326 as NDKKind),
@@ -57,6 +53,4 @@ export const runtimeGeometryFeatureSchema = z.object({
   coordinates: z.array(z.number()),
 })
 
-export type RuntimeGeometryFeature = z.infer<
-  typeof runtimeGeometryFeatureSchema
->
+export type RuntimeGeometryFeature = z.infer<typeof runtimeGeometryFeatureSchema>

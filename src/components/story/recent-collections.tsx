@@ -1,10 +1,7 @@
 import { useAutoAnimate } from "@formkit/auto-animate/react"
 import { useEffect, useState } from "react"
 import { useMapListStore } from "~/store/map-list-store"
-import {
-  useRecentCollectionsStore,
-  type RecentCollection,
-} from "~/store/recent-collections-store"
+import { useRecentCollectionsStore, type RecentCollection } from "~/store/recent-collections-store"
 import { type RecentFeature } from "~/store/recent-features-store"
 import Story from "./story"
 
@@ -13,9 +10,7 @@ export default function RecentCollections() {
   const { pinnedCollections } = useMapListStore()
 
   const [parent] = useAutoAnimate()
-  const [recentItems, setRecentItems] = useState<
-    (RecentCollection | RecentFeature)[]
-  >([])
+  const [recentItems, setRecentItems] = useState<(RecentCollection | RecentFeature)[]>([])
   const [pinnedToView, setPinnedToView] = useState<RecentCollection[]>([])
   const [notPinnedToView, setNotPinnedToView] = useState<RecentCollection[]>([])
 
@@ -57,14 +52,8 @@ export default function RecentCollections() {
     }
   }, [recentItems, pinnedCollections])
 
-  const sortByPublished = (
-    a: RecentCollection,
-    b: RecentCollection,
-  ): number => {
-    return (
-      new Date(Number(b.published_at) * 1000).getTime() -
-      new Date(Number(a.published_at) * 1000).getTime()
-    )
+  const sortByPublished = (a: RecentCollection, b: RecentCollection): number => {
+    return new Date(Number(b.published_at) * 1000).getTime() - new Date(Number(a.published_at) * 1000).getTime()
   }
   return (
     <div className={"flex flex-col gap-2 break-all text-sm"} ref={parent}>

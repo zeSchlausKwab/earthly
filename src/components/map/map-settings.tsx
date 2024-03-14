@@ -3,8 +3,7 @@ import { Toggle } from "~/components/ui/toggle"
 import { useUserSettingsStore } from "~/store/user-settings"
 
 export default function MapSettings() {
-  const { mapFollowRecentEvents, setMapFollowRecentEvents } =
-    useUserSettingsStore()
+  const { mapFollowRecentEvents, setMapFollowRecentEvents } = useUserSettingsStore()
 
   const handleChange = (e: boolean) => {
     setMapFollowRecentEvents(e)
@@ -19,11 +18,7 @@ export default function MapSettings() {
         value={mapFollowRecentEvents.toString()}
         defaultValue={mapFollowRecentEvents.toString()}
       >
-        {mapFollowRecentEvents ? (
-          <Pause className="h-4 w-4" />
-        ) : (
-          <Play className="h-4 w-4" />
-        )}
+        {mapFollowRecentEvents ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
       </Toggle>
     </>
   )

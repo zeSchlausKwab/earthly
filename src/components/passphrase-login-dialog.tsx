@@ -32,10 +32,7 @@ export default function PassphraseLoginDialog({
 
   const handlePassphraseSubmit = async () => {
     const storedEncryptedNsec = localStorage.getItem("encryptedNsec")
-    const nsec = decryptMessage(
-      storedEncryptedNsec!,
-      passphrase,
-    ) as `nsec1${string}`
+    const nsec = decryptMessage(storedEncryptedNsec!, passphrase) as `nsec1${string}`
 
     if (!nsec) {
       toast({
@@ -60,9 +57,7 @@ export default function PassphraseLoginDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Authenticate</DialogTitle>
-          <DialogDescription>
-            You have a private key stored on this site
-          </DialogDescription>
+          <DialogDescription>You have a private key stored on this site</DialogDescription>
         </DialogHeader>
         <div className={"flex flex-row items-center justify-between gap-4"}>
           <Label htmlFor="passphrase" className={"w-24"}>

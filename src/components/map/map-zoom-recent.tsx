@@ -4,11 +4,7 @@ import * as L from "leaflet"
 import { type RecentCollection } from "~/store/recent-collections-store"
 import { useUserSettingsStore } from "~/store/user-settings"
 
-export default function MapZoomRecent({
-  recentCollections,
-}: {
-  recentCollections: RecentCollection[]
-}) {
+export default function MapZoomRecent({ recentCollections }: { recentCollections: RecentCollection[] }) {
   const { mapFollowRecentEvents } = useUserSettingsStore()
   const map = useMap()
 

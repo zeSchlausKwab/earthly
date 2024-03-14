@@ -19,10 +19,7 @@ export function encryptMessage(message: string, password: string) {
     const iv = crypto.randomBytes(16)
     const cipher = crypto.createCipheriv("aes-256-cbc", buffer, iv)
 
-    const encrypted = Buffer.concat([
-      cipher.update(message, "utf-8"),
-      cipher.final(),
-    ])
+    const encrypted = Buffer.concat([cipher.update(message, "utf-8"), cipher.final()])
 
     return encrypted.toString("base64") + "?iv=" + iv.toString("base64")
   } catch (e) {

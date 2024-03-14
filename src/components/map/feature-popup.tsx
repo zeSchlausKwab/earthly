@@ -16,12 +16,7 @@ export default function FeaturePopup({
   currentTitle: string | undefined
   currentColor: string | undefined
   currentDescription: string | undefined
-  onChange: (
-    featureId: string,
-    title: string,
-    description: string,
-    color: string,
-  ) => void
+  onChange: (featureId: string, title: string, description: string, color: string) => void
   onDelete: (featureId: string) => void
 }) {
   const [value, setValue] = React.useState<{

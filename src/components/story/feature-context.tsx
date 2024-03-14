@@ -3,11 +3,7 @@ import { useNDKStore } from "~/store/ndk-store"
 import { decodeNaddr } from "~/utils/naddr"
 import FeaturesCommentReply from "./feature-comment-reply"
 
-export default function FeaturesContext({
-  naddr,
-}: {
-  naddr: `naddr${string}`
-}) {
+export default function FeaturesContext({ naddr }: { naddr: `naddr${string}` }) {
   const { ndk } = useNDKStore()
 
   const { data, error } = useQuery({
@@ -26,11 +22,5 @@ export default function FeaturesContext({
     enabled: Boolean(naddr),
   })
 
-  return (
-    <div>
-      {data && (
-        <FeaturesCommentReply parentEvent={data} forRootFeature={true} />
-      )}
-    </div>
-  )
+  return <div>{data && <FeaturesCommentReply parentEvent={data} forRootFeature={true} />}</div>
 }

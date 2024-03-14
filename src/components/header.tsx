@@ -200,7 +200,9 @@ export default function Header() {
                   <DialogContent className="sm:max-w-3xl">
                     <DialogHeader>
                       <DialogTitle>Authenticate with private key</DialogTitle>
-                      <DialogDescription>Your nsec will be encrypted with a passphrase and stored in your browser.</DialogDescription>
+                      <DialogDescription>
+                        Your nsec will be encrypted with a passphrase and stored in your browser.
+                      </DialogDescription>
                     </DialogHeader>
                     <div className="flex flex-col gap-6">
                       <div className="flex flex-row items-center gap-4">
@@ -228,7 +230,12 @@ export default function Header() {
                         <Label htmlFor="passphrase" className={"w-24"}>
                           Passphrase
                         </Label>
-                        <Input id="passphrase" className={"w-40"} type={"password"} onChange={(e) => setPassphrase(e.target.value)} />
+                        <Input
+                          id="passphrase"
+                          className={"w-40"}
+                          type={"password"}
+                          onChange={(e) => setPassphrase(e.target.value)}
+                        />
                       </div>
                     </div>
                     <DialogFooter className="sm:justify-between">

@@ -7,6 +7,5 @@ interface Store {
 
 export const useUserSettingsStore = create<Store>()((set, get, store) => ({
   mapFollowRecentEvents: false,
-  setMapFollowRecentEvents: (value) =>
-    set((state) => ({ mapFollowRecentEvents: value })),
+  setMapFollowRecentEvents: (value) => set((state) => ({ mapFollowRecentEvents: value })),
 }))
