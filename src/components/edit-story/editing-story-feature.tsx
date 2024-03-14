@@ -6,17 +6,10 @@ import EditingStoryMetaForm from "~/components/edit-story/editing-story-meta-for
 import LineStringDisplay from "~/components/geomety-types/line-string-display"
 import PointDisplay from "~/components/geomety-types/point-display"
 import PolygonDisplay from "~/components/geomety-types/polygon-display"
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "~/components/ui/accordion"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "~/components/ui/accordion"
 import { Badge } from "~/components/ui/badge"
-import {
-  type CustomFeature,
-  useEditingCollectionStore,
-} from "~/store/edit-collection-store"
+import { featureEventKind } from "~/config/constants"
+import { type CustomFeature, useEditingCollectionStore } from "~/store/edit-collection-store"
 import { useNDKStore } from "~/store/ndk-store"
 import { decodeNaddr } from "~/utils/naddr"
 
@@ -29,7 +22,7 @@ export default function EditingStoryFeature({
   rootNaddr,
 }: {
   feature: CustomFeature
-  rootNaddr: string
+  rootNaddr: `naddr${string}`
 }) {
   let identifier: string | undefined
   let pubkey: string | undefined
@@ -54,7 +47,7 @@ export default function EditingStoryFeature({
     const approvalEvent = await ndk?.fetchEvent({
       kinds: [4550 as NDKKind],
       "#e": [featureProperties.noteId],
-      "#a": [`34550:${pubkey}:${identifier}`],
+      "#a": [`${featureEventKind}:${pubkey}:${identifier}`],
     })
 
     const originalEvent = await ndk?.fetchEvent({
@@ -71,12 +64,7 @@ export default function EditingStoryFeature({
     }
   }, [ndk, rootNaddr])
 
-  const handleFeatureMetaChange = (
-    featureId: string,
-    title: string,
-    description: string,
-    color: string,
-  ) => {
+  const handleFeatureMetaChange = (featureId: string, title: string, description: string, color: string) => {
     const newGeometryCollection = {
       ...geometryCollection,
       features: geometryCollection.features.map((feature) => {
@@ -110,12 +98,7 @@ export default function EditingStoryFeature({
             originalEvent={originalEvent}
             identifier={identifier}
             onChange={(title, description) =>
-              handleFeatureMetaChange(
-                feature.properties.id,
-                title,
-                description,
-                featureProperties.color,
-              )
+              handleFeatureMetaChange(feature.properties.id, title, description, featureProperties.color)
             }
           />
           <AccordionTrigger className={"gap-2"}>
@@ -127,9 +110,7 @@ export default function EditingStoryFeature({
             {{
               Point: <PointDisplay geometry={geometry as Point} />,
               Polygon: <PolygonDisplay geometry={geometry as Polygon} />,
-              LineString: (
-                <LineStringDisplay geometry={geometry as LineString} />
-              ),
+              LineString: <LineStringDisplay geometry={geometry as LineString} />,
               GeometryCollection: <p>{geometry.type}</p>,
               MultiLineString: <p>{geometry.type}</p>,
               MultiPoint: <p>{geometry.type}</p>,

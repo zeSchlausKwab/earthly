@@ -1,4 +1,5 @@
 import { type NDKEvent } from "@nostr-dev-kit/ndk"
+import { featureEventKind } from "~/config/constants"
 import {
   type NostrGeometryFeature,
   type PersistedFeatureEventContent,
@@ -6,9 +7,7 @@ import {
   type RuntimeGeometryFeature,
 } from "~/models/geometry-feature"
 
-export const runtimeGeometryFeatureToNostr = (
-  runtimeFeature: RuntimeGeometryFeature,
-) => {
+export const runtimeGeometryFeatureToNostr = (runtimeFeature: RuntimeGeometryFeature) => {
   return persistedGeometryFeatureSchema.parse({
     kind: runtimeFeature.kind,
     pubkey: runtimeFeature.pubkey,
@@ -29,7 +28,7 @@ export const runtimeGeometryFeatureToNostr = (
     tags: [
       [
         "a",
-        `34550:${runtimeFeature.communityEventAuthorPubkey}:${runtimeFeature.motherEventIdentifier}`,
+        `${featureEventKind}:${runtimeFeature.communityEventAuthorPubkey}:${runtimeFeature.motherEventIdentifier}`,
         "wss://relay.earthly.land",
       ],
       ["d", runtimeFeature.d],
@@ -39,9 +38,7 @@ export const runtimeGeometryFeatureToNostr = (
   } as NostrGeometryFeature)
 }
 
-export const nostrGeometryFeatureToRuntime = (
-  nostrFeature: NostrGeometryFeature,
-) => {
+export const nostrGeometryFeatureToRuntime = (nostrFeature: NostrGeometryFeature) => {
   const event = nostrFeature as unknown as NDKEvent
   const content = event?.content as unknown as PersistedFeatureEventContent
   return {

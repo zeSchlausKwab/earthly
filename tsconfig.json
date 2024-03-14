@@ -30,14 +30,6 @@
       "@/*": ["./*"]
     }
   },
-  "include": [
-    ".eslintrc.cjs",
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    "**/*.cjs",
-    "**/*.js",
-    ".next/types/**/*.ts"
-  ],
+  "include": [".eslintrc.cjs", "next-env.d.ts", "**/*.ts", "**/*.tsx", "**/*.cjs", "**/*.js", ".next/types/**/*.ts"],
   "exclude": ["node_modules", "src/lib/create-plate-ui.ts"]
 }

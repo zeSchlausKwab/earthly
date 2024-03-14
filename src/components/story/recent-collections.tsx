@@ -2,25 +2,38 @@ import { useAutoAnimate } from "@formkit/auto-animate/react"
 import { useEffect, useState } from "react"
 import { useMapListStore } from "~/store/map-list-store"
 import {
-  RecentCollection,
   useRecentCollectionsStore,
+  type RecentCollection,
 } from "~/store/recent-collections-store"
-import { useZoomUIStore } from "~/store/zoom-ui-store"
+import { type RecentFeature } from "~/store/recent-features-store"
 import Story from "./story"
 
-export default function RecentStories() {
-  const { collections } = useRecentCollectionsStore()
+export default function RecentCollections() {
+  const { recentCollections } = useRecentCollectionsStore()
   const { pinnedCollections } = useMapListStore()
-  const { setCollection } = useZoomUIStore()
 
   const [parent] = useAutoAnimate()
+  const [recentItems, setRecentItems] = useState<
+    (RecentCollection | RecentFeature)[]
+  >([])
   const [pinnedToView, setPinnedToView] = useState<RecentCollection[]>([])
   const [notPinnedToView, setNotPinnedToView] = useState<RecentCollection[]>([])
 
   useEffect(() => {
+    setRecentItems(recentCollections)
+    const timeoutId = setTimeout(() => {
+      console.log(recentItems)
+    }, 2000)
+
+    return () => {
+      clearTimeout(timeoutId)
+    }
+  }, [recentItems])
+
+  useEffect(() => {
     const timer = setTimeout(() => {
-      if (collections.length > 0) {
-        const mostRecentCollection = collections[0]
+      if (recentCollections.length > 0) {
+        const mostRecentCollection = recentCollections[0]
         if (!mostRecentCollection?.identifier) return
         // setFocusedCollection(mostRecentCollection.identifier)
         // setCollection(mostRecentCollection.features)
@@ -28,21 +41,21 @@ export default function RecentStories() {
     }, 1000)
 
     return () => clearTimeout(timer)
-  }, [collections])
+  }, [recentCollections])
 
   useEffect(() => {
-    if (collections.length > 0) {
-      const pinnedToView = collections.filter((collection) => {
+    if (recentItems.length > 0) {
+      const pinnedToView = recentCollections.filter((collection) => {
         return pinnedCollections.includes(collection.identifier)
       })
-      const notPinnedToView = collections.filter((collection) => {
+      const notPinnedToView = recentCollections.filter((collection) => {
         return !pinnedCollections.includes(collection.identifier)
       })
 
       setPinnedToView(pinnedToView)
       setNotPinnedToView(notPinnedToView)
     }
-  }, [collections, pinnedCollections])
+  }, [recentItems, pinnedCollections])
 
   const sortByPublished = (
     a: RecentCollection,

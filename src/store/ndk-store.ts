@@ -1,8 +1,4 @@
-import NDK, {
-  type NDKNip07Signer,
-  NDKPrivateKeySigner,
-  type NDKUser,
-} from "@nostr-dev-kit/ndk"
+import NDK, { NDKPrivateKeySigner, type NDKNip07Signer, type NDKUser } from "@nostr-dev-kit/ndk"
 import { nip19 } from "nostr-tools"
 import { create } from "zustand"
 import { relayList } from "~/config/relay-list"

@@ -1,16 +1,13 @@
-import { NDKEvent, NDKKind, NostrEvent } from "@nostr-dev-kit/ndk"
+import { NDKEvent, type NDKKind, type NDKSubscription, type NostrEvent } from "@nostr-dev-kit/ndk"
 import { nip19 } from "nostr-tools"
 import { create } from "zustand"
+import { approvalEventKind, featureEventKind, moderatedCommunityEventKind } from "~/config/constants"
 import { vanillaClient } from "~/server/vanilla-client"
-import {
-  FeatureReference,
-  type CustomFeature,
-  type CustomFeatureCollection,
-} from "~/store/edit-collection-store"
+import { type CustomFeature, type FeatureReference } from "~/store/edit-collection-store"
 import { useNDKStore } from "~/store/ndk-store"
 
 export type RecentCollection = {
-  naddr: string
+  naddr: `naddr${string}`
   title: string
   identifier: string
   published_at: string
@@ -18,71 +15,77 @@ export type RecentCollection = {
   description: string
   headerImage: string
   featureNaddrs: string[]
-  features: CustomFeatureCollection
+  features: CustomFeature[]
 }
 
+let sub: NDKSubscription
+
 export const useRecentCollectionsStore = create<{
-  init: () => Promise<void>
-  collections: RecentCollection[]
+  initRecentCollections: () => Promise<void>
+  recentCollections: RecentCollection[]
 }>()((set, get, store) => ({
-  init: async () => {
+  initRecentCollections: async () => {
     const ndkInstance = useNDKStore.getState().ndk
+    if (sub) {
+      sub.stop()
+      set(() => {
+        return {
+          recentCollections: [],
+        }
+      })
+    }
     if (!ndkInstance) {
       throw new Error("NDK not initialized")
     }
 
-    const sub = ndkInstance.subscribe({
-      "#y": ["collection"],
+    sub = ndkInstance.subscribe({
+      kinds: [moderatedCommunityEventKind],
       limit: 20,
     })
 
     sub.on("event", async (rootCollectionEvent: NDKEvent) => {
       const naddr = nip19.naddrEncode({
         pubkey: rootCollectionEvent.pubkey,
-        kind: rootCollectionEvent.kind ?? (34550 as NDKKind),
+        kind: rootCollectionEvent.kind ?? moderatedCommunityEventKind,
         identifier: rootCollectionEvent.tagValue("d") ?? "",
       })
 
-      const featureEvents = await ndkInstance.fetchEvents({
-        kinds: [4550 as NDKKind],
-        authors: [
-          ...rootCollectionEvent
-            .getMatchingTags("p")
-            .map((tag) => tag[1])
-            .filter((author): author is string => author !== undefined),
-        ],
-        "#a": [
-          `34550:${rootCollectionEvent.pubkey}:${rootCollectionEvent.tagValue(
-            "d",
-          )}`,
-        ],
-      })
+      console.log("rootCollectionEvent", rootCollectionEvent.kind)
+
+      const featureEvents =
+        rootCollectionEvent.kind === moderatedCommunityEventKind
+          ? await ndkInstance.fetchEvents({
+              kinds: [approvalEventKind],
+              authors: [
+                ...rootCollectionEvent
+                  .getMatchingTags("p")
+                  .map((tag) => tag[1])
+                  .filter((author): author is string => author !== undefined),
+              ],
+              "#a": [`${featureEventKind}:${rootCollectionEvent.pubkey}:${rootCollectionEvent.tagValue("d")}`],
+            })
+          : await ndkInstance.fetchEvents({
+              kinds: [featureEventKind],
+              authors: [rootCollectionEvent.pubkey],
+              "#a": [`${featureEventKind}:${rootCollectionEvent.pubkey}:${rootCollectionEvent.tagValue("d")}`],
+            })
 
       const features = Array.from(featureEvents).map((ev) => {
         if (!ev) return
-        const contentEvent = new NDKEvent(
-          undefined,
-          JSON.parse(ev.content) as NostrEvent,
-        )
+        const contentEvent = new NDKEvent(undefined, JSON.parse(ev.content) as NostrEvent)
         return JSON.parse(contentEvent.content) as CustomFeature
       })
 
       const featuresWithResolvedReferences = await Promise.all(
         features.map(async (feature) => {
           if (!feature) return
-          if (
-            (feature.type as "Feature" | "FeatureReference") ===
-            "FeatureReference"
-          ) {
-            const featureReference = feature as unknown as FeatureReference<
-              Record<string, string>
-            >
+          if ((feature.type as "Feature" | "FeatureReference") === "FeatureReference") {
+            const featureReference = feature as unknown as FeatureReference<Record<string, string>>
             const split = featureReference.category.split(":")
-            const resolvedReference =
-              await vanillaClient.curatedItems.getOneByName.query({
-                category: `${split[0]}`,
-                name: `${split[1]}`,
-              })
+            const resolvedReference = await vanillaClient.curatedItems.getOneByName.query({
+              category: `${split[0]}`,
+              name: `${split[1]}`,
+            })
             if (!resolvedReference) return
             return {
               type: "Feature",
@@ -103,10 +106,7 @@ export const useRecentCollectionsStore = create<{
       const featureIdentifiers = Array.from(featureEvents)
         .map((ev) => {
           if (!ev) return
-          const contentEvent = new NDKEvent(
-            undefined,
-            JSON.parse(ev.content) as NostrEvent,
-          )
+          const contentEvent = new NDKEvent(undefined, JSON.parse(ev.content) as NostrEvent)
           return nip19.naddrEncode({
             identifier: contentEvent.tagValue("d") ?? "",
             kind: contentEvent.kind ?? (4326 as NDKKind),
@@ -115,25 +115,20 @@ export const useRecentCollectionsStore = create<{
         })
         .filter((e): e is `naddr1${string}` => e !== undefined)
 
-      const validFeatures = featuresWithResolvedReferences.filter(
-        (e) => e !== undefined,
-      ) as CustomFeature[]
+      const validFeatures = featuresWithResolvedReferences.filter((e) => e !== undefined) as CustomFeature[]
 
-      const existingCollection = get().collections.find(
-        (collection) => collection.naddr === naddr,
-      )
+      const existingCollection = get().recentCollections.find((collection) => collection.naddr === naddr)
+
+      // console.log("validFeatures", validFeatures)
 
       if (existingCollection) {
         set((state) => {
           return {
-            collections: state.collections.map((collection) => {
+            recentCollections: state.recentCollections.map((collection) => {
               if (collection.naddr === naddr) {
                 return {
                   ...collection,
-                  features: {
-                    type: "FeatureCollection",
-                    features: validFeatures,
-                  },
+                  features: validFeatures,
                 }
               }
               return collection
@@ -144,22 +139,18 @@ export const useRecentCollectionsStore = create<{
       } else {
         set((state) => {
           return {
-            collections: [
-              ...state.collections,
+            recentCollections: [
+              ...state.recentCollections,
               {
                 naddr,
                 title: rootCollectionEvent.tagValue("title") ?? "",
                 identifier: rootCollectionEvent.tagValue("d") ?? "",
-                published_at:
-                  rootCollectionEvent.tagValue("published_at") ?? "",
+                published_at: rootCollectionEvent.tagValue("published_at") ?? "",
                 pubkey: rootCollectionEvent.pubkey,
                 description: rootCollectionEvent.content,
                 headerImage: rootCollectionEvent.tagValue("image") ?? "",
                 featureNaddrs: featureIdentifiers,
-                features: {
-                  type: "FeatureCollection",
-                  features: validFeatures,
-                },
+                features: validFeatures,
               },
             ],
           }
@@ -169,5 +160,5 @@ export const useRecentCollectionsStore = create<{
     })
     return
   },
-  collections: [],
+  recentCollections: [],
 }))

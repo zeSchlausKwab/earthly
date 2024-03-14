@@ -1,15 +1,15 @@
 import { create } from "zustand"
-import { CustomFeatureCollection } from "./edit-collection-store"
+import { type CustomFeature } from "./edit-collection-store"
 
 type ZoomUIState = {
-  collection: CustomFeatureCollection | null
+  collection: CustomFeature[]
   locationFromUser: { lat: number; lng: number } | null
-  setCollection: (collection: CustomFeatureCollection) => void
+  setCollection: (collection: CustomFeature[]) => void
   setLocationFromUser: () => void
 }
 
-export const useZoomUIStore = create<ZoomUIState>()((set, get, store) => ({
-  collection: null,
+export const useZoomUIStore = create<ZoomUIState>()((set) => ({
+  collection: [],
   locationFromUser: null,
   setCollection: (collection) => set(() => ({ collection })),
   setLocationFromUser: () => {

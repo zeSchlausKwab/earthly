@@ -6,6 +6,7 @@ import { Textarea } from "~/components/ui/textarea"
 import { NDKEvent, type NDKKind } from "@nostr-dev-kit/ndk"
 import { useNDKStore } from "~/store/ndk-store"
 import { Button } from "../ui/button"
+import { featureEventKind } from "~/config/constants"
 
 export const Icons = {
   spinner: Loader2,
@@ -55,11 +56,7 @@ export default function EditingStoryMetaForm({
         content: JSON.stringify(ev),
         created_at: now,
         tags: [
-          [
-            "a",
-            `34550:${ndkUser?.pubkey}:${identifier}`,
-            "wss://relay.earthly.land",
-          ],
+          ["a", `${featureEventKind}:${ndkUser?.pubkey}:${identifier}`, "wss://relay.earthly.land"],
           ["e", `${originalEvent?.id}`, "wss://relay.earthly.land"],
           ["p", `${ndkUser?.pubkey}`, "wss://relay.earthly.land"],
           ["k", "4326"],
@@ -88,15 +85,9 @@ export default function EditingStoryMetaForm({
             value={color}
           />
         </div>
-        <Input
-          value={title}
-          onChange={(e) => setValue({ ...value, title: e.target.value })}
-        />
+        <Input value={title} onChange={(e) => setValue({ ...value, title: e.target.value })} />
       </div>
-      <Textarea
-        value={description}
-        onChange={(e) => setValue({ ...value, description: e.target.value })}
-      />
+      <Textarea value={description} onChange={(e) => setValue({ ...value, description: e.target.value })} />
     </div>
   )
 }

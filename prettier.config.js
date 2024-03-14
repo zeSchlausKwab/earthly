@@ -2,6 +2,8 @@
 const config = {
   plugins: ["prettier-plugin-tailwindcss"],
   semi: false,
+  printWidth: 120,
+  trailingComma: "all",
 }
 
 export default config

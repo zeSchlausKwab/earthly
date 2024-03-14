@@ -20,21 +20,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "~/components/ui/dialog"
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "~/components/ui/form"
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "~/components/ui/form"
 import { Input } from "~/components/ui/input"
 import { Label } from "~/components/ui/label"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "~/components/ui/popover"
+import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover"
 import { Separator } from "~/components/ui/separator"
 import { useToast } from "~/components/ui/use-toast"
 import UserInfo from "~/components/user-info"
@@ -42,6 +31,7 @@ import { useNDKStore } from "~/store/ndk-store"
 import { encryptMessage } from "~/utils/crypto"
 import ProfileMetaForm from "./profile-meta-form"
 import SiteInfo from "./site-info"
+import ServerUtils from "./server-utils"
 
 const privateKeySchema = z.object({
   nsecOrPrivateKey: z.string().refine(
@@ -184,6 +174,7 @@ export default function Header() {
       ) : (
         <Image src="/logo.svg" alt="earthly.land logo" width={30} height={30} />
       )}
+      <ServerUtils />
 
       <div className="z-50 flex flex-row items-center gap-4 text-xs lg:gap-8">
         <MapSettings />
@@ -199,36 +190,24 @@ export default function Header() {
             </PopoverTrigger>
             <PopoverContent className="break-all">
               <div className="flex flex-col gap-4">
-                <Button onClick={onAuthenticateWithSigner}>
-                  Authenticate with signer
-                </Button>
+                <Button onClick={onAuthenticateWithSigner}>Authenticate with signer</Button>
                 <Dialog>
                   <DialogTrigger asChild>
-                    <Button
-                      className={"flex-grow"}
-                      disabled={!Boolean(keyPair.npub)}
-                    >
+                    <Button className={"flex-grow"} disabled={!Boolean(keyPair.npub)}>
                       Authenticate with private key
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="sm:max-w-3xl">
                     <DialogHeader>
                       <DialogTitle>Authenticate with private key</DialogTitle>
-                      <DialogDescription>
-                        Your nsec will be encrypted with a passphrase and stored
-                        in your browser.
-                      </DialogDescription>
+                      <DialogDescription>Your nsec will be encrypted with a passphrase and stored in your browser.</DialogDescription>
                     </DialogHeader>
                     <div className="flex flex-col gap-6">
                       <div className="flex flex-row items-center gap-4">
                         <Label htmlFor="privateKey" className={"w-24"}>
                           Private key
                         </Label>
-                        <Input
-                          id="privateKey"
-                          defaultValue={keyPair.nsec}
-                          readOnly
-                        />
+                        <Input id="privateKey" defaultValue={keyPair.nsec} readOnly />
                         <Button type="submit" size="sm" className="px-3">
                           <span className="sr-only">Copy</span>
                           <Copy className="h-4 w-4" />
@@ -238,11 +217,7 @@ export default function Header() {
                         <Label htmlFor="publicKey" className={"w-24"}>
                           Public key
                         </Label>
-                        <Input
-                          id="publicKey"
-                          defaultValue={keyPair.npub}
-                          readOnly
-                        />
+                        <Input id="publicKey" defaultValue={keyPair.npub} readOnly />
                         <Button type="submit" size="sm" className="px-3">
                           <span className="sr-only">Copy</span>
                           <Copy className="h-4 w-4" />
@@ -253,12 +228,7 @@ export default function Header() {
                         <Label htmlFor="passphrase" className={"w-24"}>
                           Passphrase
                         </Label>
-                        <Input
-                          id="passphrase"
-                          className={"w-40"}
-                          type={"password"}
-                          onChange={(e) => setPassphrase(e.target.value)}
-                        />
+                        <Input id="passphrase" className={"w-40"} type={"password"} onChange={(e) => setPassphrase(e.target.value)} />
                       </div>
                     </div>
                     <DialogFooter className="sm:justify-between">
@@ -267,11 +237,7 @@ export default function Header() {
                           Close
                         </Button>
                       </DialogClose>
-                      <Button
-                        type="button"
-                        variant="default"
-                        onClick={handlePrivateKeyLogin}
-                      >
+                      <Button type="button" variant="default" onClick={handlePrivateKeyLogin}>
                         Login
                       </Button>
                     </DialogFooter>
@@ -279,9 +245,7 @@ export default function Header() {
                 </Dialog>
 
                 <Separator orientation={"horizontal"} />
-                <Button onClick={onGenerateKeyPair}>
-                  Generate new private key
-                </Button>
+                <Button onClick={onGenerateKeyPair}>Generate new private key</Button>
                 <div className={"flex flex-row"}>
                   <Form {...form}>
                     <form className="flex-grow">
@@ -292,23 +256,13 @@ export default function Header() {
                           <FormItem>
                             <FormLabel>Private Key or nsec</FormLabel>
                             <FormControl>
-                              <div
-                                className={"flex flex-row items-center gap-2"}
-                              >
-                                <Input
-                                  placeholder="...private key or nsec"
-                                  {...field}
-                                  onChange={onPrivateKeyInput}
-                                />
-                                <ClipboardCopy
-                                  onClick={handleCopyPrivateKeyToClipboard}
-                                />
+                              <div className={"flex flex-row items-center gap-2"}>
+                                <Input placeholder="...private key or nsec" {...field} onChange={onPrivateKeyInput} />
+                                <ClipboardCopy onClick={handleCopyPrivateKeyToClipboard} />
                               </div>
                             </FormControl>
                             {form.formState.errors.nsecOrPrivateKey && (
-                              <FormMessage>
-                                {form.formState.errors.nsecOrPrivateKey.message}
-                              </FormMessage>
+                              <FormMessage>{form.formState.errors.nsecOrPrivateKey.message}</FormMessage>
                             )}
                           </FormItem>
                         )}
@@ -316,9 +270,7 @@ export default function Header() {
                     </form>
                   </Form>
                 </div>
-                <div className={"p-2 text-xs"}>
-                  {keyPair.nsec ? <p>{keyPair.npub}</p> : <p>No nsec set.</p>}
-                </div>
+                <div className={"p-2 text-xs"}>{keyPair.nsec ? <p>{keyPair.npub}</p> : <p>No nsec set.</p>}</div>
               </div>
             </PopoverContent>
           </Popover>

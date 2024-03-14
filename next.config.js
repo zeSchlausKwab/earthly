@@ -7,6 +7,7 @@ await import("./src/env.js")
 /** @type {import("next").NextConfig} */
 const config = {
   reactStrictMode: true,
+  transpilePackages: ["react-leaflet-cluster"],
   images: {
     domains: ["source.unsplash.com"],
   },
@@ -18,6 +19,9 @@ const config = {
   i18n: {
     locales: ["en"],
     defaultLocale: "en",
+  },
+  experimental: {
+    esmExternals: "loose",
   },
 }
 

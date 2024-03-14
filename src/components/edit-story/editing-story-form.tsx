@@ -1,30 +1,23 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { NDKKind } from "@nostr-dev-kit/ndk"
 import { useQuery } from "@tanstack/react-query"
 import Image from "next/image"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { Button } from "~/components/ui/button"
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "~/components/ui/form"
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "~/components/ui/form"
 import { Input } from "~/components/ui/input"
 import { Textarea } from "~/components/ui/textarea"
+import { moderatedCommunityEventKind } from "~/config/constants"
 import {
   editCollectionFormSchema,
   type EditingCollectionFormSchema,
-  UpdateCollectionFormSchema,
+  type UpdateCollectionFormSchema,
 } from "~/models/collection"
+import { useMapListStore } from "~/store/map-list-store"
 import { useNDKStore } from "~/store/ndk-store"
 import { decodeNaddr } from "~/utils/naddr"
 
 export default function EditingStoryForm({
-  naddr,
   onSubmit,
   onUpdateCollectionData,
   onDiscard,
@@ -35,6 +28,7 @@ export default function EditingStoryForm({
   onDiscard: () => void
 }) {
   const { ndk } = useNDKStore()
+  const { editOrFocus } = useMapListStore()
 
   const [image, setImage] = useState<string>("")
 
@@ -47,13 +41,16 @@ export default function EditingStoryForm({
   })
 
   const { data, error } = useQuery({
-    queryKey: ["naddrEvent"],
+    queryKey: [`${editOrFocus.naddr}`],
     queryFn: async () => {
-      const naddrData = decodeNaddr(naddr!)
+      if (!editOrFocus.naddr) {
+        return
+      }
+      const naddrData = decodeNaddr(editOrFocus.naddr)
 
       const res = await ndk?.fetchEvent({
-        kinds: [34550 as NDKKind],
-        // authors: [naddrData.pubkey],
+        kinds: [moderatedCommunityEventKind],
+        authors: [naddrData.pubkey],
         "#d": [naddrData.identifier],
       })
 
@@ -65,14 +62,14 @@ export default function EditingStoryForm({
 
       return res
     },
-    enabled: Boolean(naddr),
+    enabled: Boolean(editOrFocus.naddr),
   })
 
   const handleUpdateCollectionData = () => {
     onUpdateCollectionData({
       storyTitle: form.getValues("storyTitle"),
       storyDescription: form.getValues("storyDescription"),
-      naddr: naddr ?? "",
+      naddr: editOrFocus.naddr ?? "",
     })
   }
 
@@ -94,8 +91,7 @@ export default function EditingStoryForm({
           className={"h-32 w-full rounded-lg object-cover"}
         />
       )}
-      {naddr ? <b>naddr: {naddr}</b> : <b>new story</b>}
-      {naddr ? (
+      {editOrFocus.naddr ? (
         <Button size={"sm"} onClick={handleUpdateCollectionData}>
           Update collection
         </Button>
@@ -126,11 +122,7 @@ export default function EditingStoryForm({
               <FormItem>
                 <FormLabel>Story description</FormLabel>
                 <FormControl>
-                  <Textarea
-                    {...field}
-                    placeholder={"new story description..."}
-                    rows={5}
-                  />
+                  <Textarea {...field} placeholder={"new story description..."} rows={5} />
                 </FormControl>
                 <FormMessage />
               </FormItem>

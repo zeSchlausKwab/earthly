@@ -1,21 +1,19 @@
-import { useNDKStore } from "~/store/ndk-store"
-import { useEffect, useState } from "react"
 import { type NDKEvent } from "@nostr-dev-kit/ndk"
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "~/components/ui/accordion"
+import { useEffect, useState } from "react"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "~/components/ui/accordion"
+import { useMapListStore } from "~/store/map-list-store"
+import { useNDKStore } from "~/store/ndk-store"
 import { decodeNaddr } from "~/utils/naddr"
 
-export default function NostrFeature({ naddr }: { naddr: string }) {
+export default function NostrFeature() {
   const { ndk } = useNDKStore()
+  const { editOrFocus } = useMapListStore()
   const [featureEvent, setFeatureEvent] = useState<NDKEvent>()
 
-  const naddrData = decodeNaddr(naddr)
-
   useEffect(() => {
+    if (!ndk || !editOrFocus.naddr) return
+    const naddrData = decodeNaddr(editOrFocus.naddr)
+
     const sub = ndk?.subscribe({
       authors: [naddrData.pubkey],
       "#d": [naddrData.identifier],
@@ -32,8 +30,6 @@ export default function NostrFeature({ naddr }: { naddr: string }) {
 
   return (
     <div className={"rounded-lg border p-2 text-sm"}>
-      {naddr}
-      {naddrData.identifier}
       {featureEvent && (
         <div className={"p-3"}>
           <Accordion type="single" collapsible>
@@ -46,7 +42,6 @@ export default function NostrFeature({ naddr }: { naddr: string }) {
                 <div>{featureEvent.created_at}</div>
                 <b>{featureEvent.id}</b>
                 <div>{featureEvent.pubkey}</div>
-                <div>{JSON.stringify(naddrData)}</div>
                 <div>{featureEvent.tagValue("color")}</div>
                 <div>{featureEvent.tagValue("type")}</div>
                 <div>{featureEvent.tagValue("coordinates")}</div>

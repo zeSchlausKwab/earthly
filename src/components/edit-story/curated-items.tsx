@@ -1,30 +1,18 @@
 import { PanelTopOpen } from "lucide-react"
 import { useState } from "react"
 import { useEditingCollectionStore } from "~/store/edit-collection-store"
-import { RouterOutputs, api } from "~/utils/api"
+import { type RouterOutputs, api } from "~/utils/api"
 import { Button } from "../ui/button"
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "../ui/command"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "../ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "../ui/collapsible"
 
 type Category = RouterOutputs["curatedItems"]["allCategories"][0]
 type CuratedFeature = Category["curatedFeature"][0]
 
+const [open, setOpen] = useState(false)
 function CategoryItem({ category }: { category: Category }) {
-  const [open, setOpen] = useState(false)
-  const [selectedStatus, setSelectedStatus] =
-    useState<CuratedFeature>(undefined)
+  const [selectedStatus, setSelectedStatus] = useState<CuratedFeature | undefined>()
 
   const utils = api.useUtils()
 
@@ -42,11 +30,7 @@ function CategoryItem({ category }: { category: Category }) {
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button variant="outline" className="justify-start">
-            {selectedStatus ? (
-              <>{selectedStatus.name}</>
-            ) : (
-              <>+ add one of {category.name}</>
-            )}
+            {selectedStatus ? <>{selectedStatus.name}</> : <>+ add one of {category.name}</>}
           </Button>
         </PopoverTrigger>
         <PopoverContent className="p-0" side="right" align="start">
@@ -61,11 +45,9 @@ function CategoryItem({ category }: { category: Category }) {
                     value={feature.name}
                     onSelect={(value) => {
                       setSelectedStatus(
-                        category.curatedFeature.find(
-                          (f: CuratedFeature) => f.name === value,
-                        ) ?? null,
+                        category.curatedFeature.find((f: CuratedFeature) => f.name === value) ?? undefined,
                       )
-                      void handleItemSelected(feature.id as string)
+                      void handleItemSelected(feature.id)
                       setOpen(false)
                     }}
                   >
@@ -98,7 +80,7 @@ export default function CuratedItems({}) {
         </CollapsibleTrigger>
       </div>
       <CollapsibleContent className="space-y-2">
-        {data?.map((category: string) => {
+        {data?.map((category) => {
           return <CategoryItem category={category} />
         })}
       </CollapsibleContent>

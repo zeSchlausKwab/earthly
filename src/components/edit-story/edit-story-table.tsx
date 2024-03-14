@@ -1,23 +1,8 @@
-import {
-  flexRender,
-  getCoreRowModel,
-  type RowData,
-  useReactTable,
-} from "@tanstack/react-table"
+import { flexRender, getCoreRowModel, type RowData, useReactTable } from "@tanstack/react-table"
 import { type ReactNode, useEffect, useState } from "react"
-import {
-  type CustomFeature,
-  type CustomFeatureCollection,
-} from "~/store/edit-collection-store"
+import { type CustomFeature, type CustomFeatureCollection } from "~/store/edit-collection-store"
 import { Checkbox } from "../ui/checkbox"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../ui/table"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table"
 import { Button } from "../ui/button"
 import { Signpost } from "lucide-react"
 
@@ -63,14 +48,10 @@ export default function EditingStoryTable({
       {
         cell: ({ getValue, cell, row, column: { id }, table }) => {
           const localId = row.original.properties.id
-          const isDisabled = selectedGeometryType
-            ? selectedGeometryType !== row.original.geometry.type
-            : false
+          const isDisabled = selectedGeometryType ? selectedGeometryType !== row.original.geometry.type : false
 
           const onCheckedChange = (e: boolean) => {
-            const numberOfSelectedRows = Object.values(selectedRows).filter(
-              (v) => v === true,
-            ).length
+            const numberOfSelectedRows = Object.values(selectedRows).filter((v) => v === true).length
 
             if (numberOfSelectedRows === 0) {
               setSelectedGeometryType(row.original.geometry.type)
@@ -93,24 +74,14 @@ export default function EditingStoryTable({
               }
             })
           }
-          return (
-            <Checkbox
-              checked={selectedRows[localId]}
-              disabled={isDisabled}
-              onCheckedChange={onCheckedChange}
-            />
-          )
+          return <Checkbox checked={selectedRows[localId]} disabled={isDisabled} onCheckedChange={onCheckedChange} />
         },
         header: "Group",
       },
       {
         cell: ({ getValue, cell, row, column: { id }, table }) => {
           const isLink = row.original.isLink
-          return isLink ? (
-            <Signpost size={24} />
-          ) : (
-            <div className="h-4 w-4"></div>
-          )
+          return isLink ? <Signpost size={24} /> : <div className="h-4 w-4"></div>
         },
         header: "is link",
       },
@@ -132,10 +103,7 @@ export default function EditingStoryTable({
         cell: (cell) => {
           return (
             <div className="flex items-center">
-              <div
-                className="rounded-ful mr-2 h-4 w-4"
-                style={{ backgroundColor: cell.getValue() as string }}
-              ></div>
+              <div className="rounded-ful mr-2 h-4 w-4" style={{ backgroundColor: cell.getValue() as string }}></div>
               <div>{cell.getValue() as ReactNode}</div>
             </div>
           )
@@ -210,12 +178,7 @@ export default function EditingStoryTable({
                 {headerGroup.headers.map((header) => {
                   return (
                     <TableHead key={header.id}>
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext(),
-                          )}
+                      {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                     </TableHead>
                   )
                 })}
@@ -225,26 +188,15 @@ export default function EditingStoryTable({
           <TableBody>
             {table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  data-state={row.getIsSelected() && "selected"}
-                >
+                <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
-                    </TableCell>
+                    <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
                   ))}
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                <TableCell
-                  colSpan={table.getAllColumns().length}
-                  className="h-24 text-center"
-                >
+                <TableCell colSpan={table.getAllColumns().length} className="h-24 text-center">
                   No results.
                 </TableCell>
               </TableRow>

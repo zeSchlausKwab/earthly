@@ -1,8 +1,9 @@
 import { NDKEvent, type NDKKind, type NostrEvent } from "@nostr-dev-kit/ndk"
-import { CuratedFeature } from "@prisma/client"
+import { type CuratedFeature } from "@prisma/client"
 import type { GeometryCollection } from "geojson"
 import { type Feature, type FeatureCollection, type Geometry } from "geojson"
 import { create } from "zustand"
+import { approvalEventKind, featureEventKind } from "~/config/constants"
 import { vanillaClient } from "~/server/vanilla-client"
 import { useNDKStore } from "~/store/ndk-store"
 import { decodeNaddr } from "~/utils/naddr"
@@ -25,10 +26,7 @@ export type FeatureReference<P> = {
 }
 export type NostrableGeometry = Exclude<Geometry, GeometryCollection>
 export type CustomFeature = Feature<Geometry, FeatureProperties>
-export type CustomFeatureCollection = FeatureCollection<
-  Geometry,
-  FeatureProperties
->
+export type CustomFeatureCollection = FeatureCollection<Geometry, FeatureProperties>
 
 export const useEditingCollectionStore = create<{
   naddr: string | undefined
@@ -37,10 +35,7 @@ export const useEditingCollectionStore = create<{
   setGeometry: (geometry: CustomFeatureCollection) => void
   addFeature: (feature: CustomFeature) => void
   addCuratedFeature: (curatedFeature: CuratedFeature) => void
-  setGeometryFromNostr: (
-    eventId: string,
-    withUnapproved?: boolean,
-  ) => Promise<void>
+  setGeometryFromNostr: (naddr: `naddr${string}`, withUnapproved?: boolean) => Promise<void>
 }>()((set, get, store) => ({
   naddr: undefined,
   geometryCollection: {
@@ -68,9 +63,7 @@ export const useEditingCollectionStore = create<{
     }))
   },
   addCuratedFeature: (feature) => {
-    const innerFeature = feature.geometry as FeatureReference<
-      Record<string, string>
-    >
+    const innerFeature = feature.geometry as FeatureReference<Record<string, string>>
     const beFeature = {
       type: "Feature",
       geometry: innerFeature as unknown as Geometry,
@@ -88,8 +81,6 @@ export const useEditingCollectionStore = create<{
       },
     } as CustomFeature
 
-    console.log(beFeature)
-
     set((state) => ({
       geometryCollection: {
         ...state.geometryCollection,
@@ -97,7 +88,7 @@ export const useEditingCollectionStore = create<{
       },
     }))
   },
-  setGeometryFromNostr: async (naddr: string, withUnapproved = false) => {
+  setGeometryFromNostr: async (naddr: `naddr${string}`, withUnapproved = false) => {
     const ndkInstance = useNDKStore.getState().ndk
     if (!ndkInstance) {
       throw new Error("NDK not initialized")
@@ -107,7 +98,7 @@ export const useEditingCollectionStore = create<{
 
     const collectionEvent = await ndkInstance.fetchEvent({
       kinds: [collectionNaddrData.kind],
-      // authors: [collectionNaddrData.pubkey],
+      authors: [collectionNaddrData.pubkey],
       "#d": [collectionNaddrData.identifier],
     })
 
@@ -119,10 +110,8 @@ export const useEditingCollectionStore = create<{
 
     if (withUnapproved) {
       const geometryCollection = await ndkInstance.fetchEvents({
-        kinds: [4326 as NDKKind],
-        "#a": [
-          `34550:${collectionEvent.pubkey}:${collectionEvent.tagValue("d")}`,
-        ],
+        kinds: [featureEventKind],
+        "#a": [`${featureEventKind}:${collectionEvent.pubkey}:${collectionEvent.tagValue("d")}`],
       })
 
       geometryCollection.forEach((ev) => {
@@ -137,18 +126,13 @@ export const useEditingCollectionStore = create<{
       })
     } else {
       const geometryCollection = await ndkInstance.fetchEvents({
-        kinds: [4550 as NDKKind],
-        "#a": [
-          `34550:${collectionEvent.pubkey}:${collectionEvent.tagValue("d")}`,
-        ],
+        kinds: [approvalEventKind],
+        "#a": [`${featureEventKind}:${collectionEvent.pubkey}:${collectionEvent.tagValue("d")}`],
       })
 
       geometryCollection.forEach((ev) => {
         if (!ev) return
-        const contentEvent = new NDKEvent(
-          undefined,
-          JSON.parse(ev.content) as NostrEvent,
-        )
+        const contentEvent = new NDKEvent(undefined, JSON.parse(ev.content) as NostrEvent)
 
         validGeometryCollection.push({
           ...(JSON.parse(contentEvent.content) as CustomFeature),
@@ -163,19 +147,13 @@ export const useEditingCollectionStore = create<{
     const featuresWithResolvedReferences = await Promise.all(
       validGeometryCollection.map(async (feature) => {
         if (!feature) return
-        if (
-          (feature.type as "Feature" | "FeatureReference") ===
-          "FeatureReference"
-        ) {
-          const featureReference = feature as unknown as FeatureReference<
-            Record<string, string>
-          >
+        if ((feature.type as "Feature" | "FeatureReference") === "FeatureReference") {
+          const featureReference = feature as unknown as FeatureReference<Record<string, string>>
           const split = featureReference.category.split(":")
-          const resolvedReference =
-            await vanillaClient.curatedItems.getOneByName.query({
-              category: `${split[0]}`,
-              name: `${split[1]}`,
-            })
+          const resolvedReference = await vanillaClient.curatedItems.getOneByName.query({
+            category: `${split[0]}`,
+            name: `${split[1]}`,
+          })
           if (!resolvedReference) return
           return {
             type: "Feature",
@@ -197,9 +175,7 @@ export const useEditingCollectionStore = create<{
       naddr: naddr,
       geometryCollection: {
         type: "FeatureCollection",
-        features: featuresWithResolvedReferences.filter(
-          (e) => e !== undefined,
-        ) as CustomFeature[],
+        features: featuresWithResolvedReferences.filter((e) => e !== undefined) as CustomFeature[],
       },
     })
   },

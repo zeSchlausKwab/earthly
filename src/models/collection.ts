@@ -1,5 +1,6 @@
 import { z } from "zod"
-import { NDKKind } from "@nostr-dev-kit/ndk"
+import { type NDKKind } from "@nostr-dev-kit/ndk"
+import { moderatedCommunityEventKind } from "~/config/constants"
 
 export const editCollectionFormSchema = z.object({
   storyTitle: z.string().min(3, {
@@ -9,9 +10,7 @@ export const editCollectionFormSchema = z.object({
     message: "Give a short description of your story.",
   }),
 })
-export type EditingCollectionFormSchema = z.infer<
-  typeof editCollectionFormSchema
->
+export type EditingCollectionFormSchema = z.infer<typeof editCollectionFormSchema>
 
 export const updateCollectionFormSchema = z.object({
   naddr: z.string().min(1),
@@ -22,12 +21,10 @@ export const updateCollectionFormSchema = z.object({
     message: "Give a short description of your story.",
   }),
 })
-export type UpdateCollectionFormSchema = z.infer<
-  typeof updateCollectionFormSchema
->
+export type UpdateCollectionFormSchema = z.infer<typeof updateCollectionFormSchema>
 
 export const persistedCollectionSchema = z.object({
-  kind: z.literal(34550 as NDKKind),
+  kind: z.literal(moderatedCommunityEventKind),
   pubkey: z.string().min(1),
   content: z.string(),
   created_at: z
@@ -52,7 +49,7 @@ export const persistedCollectionSchema = z.object({
 export type NostrCollection = z.infer<typeof persistedCollectionSchema>
 
 export const runtimeCollectionSchema = z.object({
-  kind: z.literal(34550 as NDKKind),
+  kind: z.literal(moderatedCommunityEventKind),
   pubkey: z.string().min(1),
   content: z.string(),
   created_at: z

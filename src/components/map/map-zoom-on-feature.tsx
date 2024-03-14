@@ -11,6 +11,7 @@ export default function MapZoomFeature({}) {
   useEffect(() => {
     if (collection) {
       const bounds = L.geoJSON(collection).getBounds()
+      console.log(bounds)
       map.fitBounds(bounds, { animate: true })
     }
   }, [collection])
