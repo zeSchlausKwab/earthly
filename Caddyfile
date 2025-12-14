@@ -1,0 +1,29 @@
+# Earthly Production Configuration
+# Caddy automatically provisions and renews SSL certificates
+
+# Main web application
+earthly.city {
+    reverse_proxy 127.0.0.1:3000
+    encode gzip
+
+    log {
+        output file /var/log/caddy/earthly-access.log
+        format json
+    }
+}
+
+# Redirect www → naked domain
+www.earthly.city {
+    redir https://earthly.city{uri}
+}
+
+
+# Fallback for IP-based access (during transition or development)
+:80 {
+    # Main web application
+    handle {
+        reverse_proxy 127.0.0.1:3000
+    }
+
+    encode gzip
+}

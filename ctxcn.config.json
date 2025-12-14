@@ -1,0 +1,10 @@
+{
+  "source": "src/ctxcn",
+  "relays": [
+    "ws://localhost:3334",
+    "wss://relay.wavefunc.live"
+  ],
+  "addedClients": [
+    "bb0707242a17a4be881919b3dcfea63f42aacedc3ff898a66be30af195ff32b2"
+  ]
+}

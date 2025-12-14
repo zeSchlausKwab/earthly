@@ -1,11 +1,21 @@
-# earthly 🌍
+# bun-react-tailwind-shadcn-template
 
-[earthly.land](https://earthly.land) is the geojson editor on nostr no one has ever asked for.
+To install dependencies:
 
-- geometry features are [4326](https://github.com/nostr-protocol/nips/pull/136) Kinds
-- geometry features are collected in [3455 moderated communities](https://github.com/nostr-protocol/nips/blob/master/72.md) that are called `collections`
-- later, `collections` can be composed in Article kinds
+```bash
+bun install
+```
 
-# development
+To start a development server:
 
-This project is in an early WIP stage. It is not ready for production use. The relay `https://relay.earthly.land` is being nuked regularly, however you can visit the website, generate a keypair and start editing geojson features.
+```bash
+bun dev
+```
+
+To run for production:
+
+```bash
+bun start
+```
+
+This project was created using `bun init` in bun v1.3.1. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
