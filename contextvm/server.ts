@@ -56,23 +56,14 @@ async function main() {
 
         const output = { result };
         return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(output, null, 2),
-            },
-          ],
+          content: [],
           structuredContent: output,
         };
       } catch (error: any) {
         console.error(`❌ Location search failed: ${error.message}`);
         return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({ error: error.message }),
-            },
-          ],
+          content: [],
+          structuredContent: { error: error.message },
           isError: true,
         };
       }
@@ -98,23 +89,14 @@ async function main() {
 
         const output = { result };
         return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(output, null, 2),
-            },
-          ],
+          content: [],
           structuredContent: output,
         };
       } catch (error: any) {
         console.error(`❌ Reverse lookup failed: ${error.message}`);
         return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({ error: error.message }),
-            },
-          ],
+          content: [],
+          structuredContent: { error: error.message },
           isError: true,
         };
       }
