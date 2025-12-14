@@ -17,7 +17,10 @@ import { reverseLookup, searchLocation } from "./tools/nominatim.ts";
 const SERVER_PRIVATE_KEY =
   serverConfig.serverKey ||
   "0000000000000000000000000000000000000000000000000000000000000001"; // Dev fallback
-const RELAYS = [serverConfig.relayUrl];
+const RELAYS = [
+  serverConfig.relayUrl || "ws://localhost:3334",
+  "wss://relay.contextvm.org/",
+];
 
 async function main() {
   console.log("🗺️ Starting ContextVM Geo Server...\n");
@@ -128,7 +131,7 @@ async function main() {
       website: "https://earthly.city",
       about:
         "Geocoding and reverse geocoding tools backed by OpenStreetMap Nominatim.",
-      picture: "https://earthly.city/images/logo.png",
+      picture: "https://openmaptiles.org/img/home-banner-map.png",
     },
   });
 
