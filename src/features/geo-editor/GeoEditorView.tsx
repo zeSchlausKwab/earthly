@@ -1671,28 +1671,29 @@ export function GeoEditorView() {
     if (!map.current) return;
     const mapInstance = map.current;
 
-    const handleInspectorClick = (event: maplibregl.MapMouseEvent & any) => {
+    const handleInspectorClick = async (event: maplibregl.MapMouseEvent & any) => {
       const { lng, lat } = event.lngLat;
       console.log("[Inspector] Map click", { lng, lat });
       setReverseLookupStatus("loading");
       setReverseLookupError(null);
       setReverseLookupResult(null);
-      earthlyGeoServer
-        .ReverseLookup(lat, lng)
-        .then((response) => {
-          console.log("[Inspector] Reverse lookup response", response);
-          setReverseLookupResult(response.result);
-        })
-        .catch((error) => {
-          console.error("[Inspector] Reverse lookup error", error);
-          setReverseLookupError(
-            error instanceof Error ? error.message : "Reverse lookup failed"
-          );
-          setReverseLookupResult(null);
-        })
-        .finally(() => {
-          setReverseLookupStatus("idle");
-        });
+
+      try {
+        // Give the client a moment to connect if it hasn't already
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const response = await earthlyGeoServer.ReverseLookup(lat, lng);
+        console.log("[Inspector] Reverse lookup response", response);
+        setReverseLookupResult(response.result);
+      } catch (error) {
+        console.error("[Inspector] Reverse lookup error", error);
+        const errorMessage = error instanceof Error && error.message === "Not connected"
+          ? "Cannot connect to geo server. Make sure the relay is running (bun relay)."
+          : error instanceof Error ? error.message : "Reverse lookup failed";
+        setReverseLookupError(errorMessage);
+        setReverseLookupResult(null);
+      } finally {
+        setReverseLookupStatus("idle");
+      }
     };
 
     if (inspectorActive) {

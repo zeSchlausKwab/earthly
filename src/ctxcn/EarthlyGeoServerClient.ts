@@ -6,7 +6,6 @@ import {
   PrivateKeySigner,
   ApplesauceRelayPool,
 } from "@contextvm/sdk";
-import { config } from "../config";
 
 export interface SearchLocationInput {
   /**
@@ -90,49 +89,34 @@ export interface ReverseLookupOutput {
 }
 
 export type EarthlyGeoServer = {
-  SearchLocation: (
-    query: string,
-    limit?: number
-  ) => Promise<SearchLocationOutput>;
-  ReverseLookup: (
-    lat: number,
-    lon: number,
-    zoom?: number
-  ) => Promise<ReverseLookupOutput>;
+  SearchLocation: (query: string, limit?: number) => Promise<SearchLocationOutput>;
+  ReverseLookup: (lat: number, lon: number, zoom?: number) => Promise<ReverseLookupOutput>;
 };
 
 export class EarthlyGeoServerClient implements EarthlyGeoServer {
-  /** Server pubkey from config (or override via constructor) */
-  static get SERVER_PUBKEY(): string {
-    return config.serverPubkey;
-  }
-
-  static getDefaultRelays(): string[] {
-    return [config.relayUrl];
-  }
+  static readonly SERVER_PUBKEY = "ceadb7d5b739189fb3ecb7023a0c3f55d8995404d7750f5068865decf8b304cc";
+  static readonly DEFAULT_RELAYS = ["ws://localhost:3334", "wss://relay.wavefunc.live"];
   private client: Client;
   private transport: Transport;
 
   constructor(
-    options: Partial<NostrTransportOptions> & {
-      privateKey?: string;
-      relays?: string[];
-    } = {}
+    options: Partial<NostrTransportOptions> & { privateKey?: string; relays?: string[] } = {}
   ) {
     this.client = new Client({
       name: "EarthlyGeoServerClient",
       version: "1.0.0",
     });
 
-    // Private key precedence: constructor options > config
-    const resolvedPrivateKey = options.privateKey || config.clientKey;
+    // Private key precedence: constructor options > config file
+    const resolvedPrivateKey = options.privateKey ||
+      "";
 
     const {
       privateKey: _,
-      relays = EarthlyGeoServerClient.getDefaultRelays(),
+      relays = EarthlyGeoServerClient.DEFAULT_RELAYS,
       signer = new PrivateKeySigner(resolvedPrivateKey),
       relayHandler = new ApplesauceRelayPool(relays),
-      serverPubkey,
+ 			serverPubkey,
       ...rest
     } = options;
 
@@ -165,20 +149,19 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
     return result.structuredContent as T;
   }
 
-  /**
+    /**
    * Search for locations using OpenStreetMap Nominatim API. Returns coordinates, bounding boxes, and geojson outlines.
    * @param {string} query The location query (e.g., "New York City")
    * @param {number} limit [optional] Maximum number of results (default: 10, max: 50)
    * @returns {Promise<SearchLocationOutput>} The result of the search_location operation
    */
   async SearchLocation(
-    query: string,
-    limit?: number
+    query: string, limit?: number
   ): Promise<SearchLocationOutput> {
     return this.call("search_location", { query, limit });
   }
 
-  /**
+    /**
    * Reverse geocode coordinates using OpenStreetMap Nominatim API. Returns address information for a point.
    * @param {number} lat Latitude coordinate in WGS84
    * @param {number} lon Longitude coordinate in WGS84
@@ -186,9 +169,7 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
    * @returns {Promise<ReverseLookupOutput>} The result of the reverse_lookup operation
    */
   async ReverseLookup(
-    lat: number,
-    lon: number,
-    zoom?: number
+    lat: number, lon: number, zoom?: number
   ): Promise<ReverseLookupOutput> {
     return this.call("reverse_lookup", { lat, lon, zoom });
   }
