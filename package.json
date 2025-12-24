@@ -16,7 +16,7 @@
     "deploy": "./scripts/deploy.sh"
   },
   "dependencies": {
-    "@contextvm/sdk": "^0.1.41",
+    "@contextvm/sdk": "^0.1.47",
     "@faker-js/faker": "^10.1.0",
     "@modelcontextprotocol/sdk": "1.25.1",
     "@nostr-dev-kit/blossom": "^7.0.0",
@@ -36,6 +36,7 @@
     "@radix-ui/react-separator": "^1.1.8",
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "@tanstack/react-table": "^8.21.3",
     "@turf/turf": "^7.3.1",
     "@types/maplibre-gl": "^1.14.0",
     "@yudiel/react-qr-scanner": "^2.5.0",

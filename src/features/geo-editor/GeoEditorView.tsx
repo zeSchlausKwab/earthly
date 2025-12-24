@@ -53,7 +53,6 @@ type ReverseLookupResult = ReverseLookupOutput["result"];
 export function GeoEditorView() {
   const map = useRef<maplibregl.Map | null>(null);
   const editor = useEditorStore((state) => state.editor);
-  const setEditor = useEditorStore((state) => state.setEditor);
 
   const resolvedCollectionsRef = useRef<
     Map<
@@ -93,17 +92,13 @@ export function GeoEditorView() {
   );
   const collectionMeta = useEditorStore((state) => state.collectionMeta);
   const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta);
-  const newCollectionProp = useEditorStore((state) => state.newCollectionProp);
   const setNewCollectionProp = useEditorStore(
     (state) => state.setNewCollectionProp
   );
-  const newFeatureProp = useEditorStore((state) => state.newFeatureProp);
   const setNewFeatureProp = useEditorStore((state) => state.setNewFeatureProp);
   const isPublishing = useEditorStore((state) => state.isPublishing);
   const setIsPublishing = useEditorStore((state) => state.setIsPublishing);
-  const publishMessage = useEditorStore((state) => state.publishMessage);
   const setPublishMessage = useEditorStore((state) => state.setPublishMessage);
-  const publishError = useEditorStore((state) => state.publishError);
   const setPublishError = useEditorStore((state) => state.setPublishError);
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
   const showDatasetsPanel = useEditorStore((state) => state.showDatasetsPanel);
@@ -120,7 +115,6 @@ export function GeoEditorView() {
   );
   const mobileInfoOpen = useEditorStore((state) => state.mobileInfoOpen);
   const setMobileInfoOpen = useEditorStore((state) => state.setMobileInfoOpen);
-  const showTips = useEditorStore((state) => state.showTips);
   const setShowTips = useEditorStore((state) => state.setShowTips);
   const mobileToolsOpen = useEditorStore((state) => state.mobileToolsOpen);
   const mobileSearchOpen = useEditorStore((state) => state.mobileSearchOpen);
@@ -152,18 +146,7 @@ export function GeoEditorView() {
   >("properties");
   const [previousMode, setPreviousMode] = useState<string | null>(null);
 
-  // Search State from Store
-  const searchQuery = useEditorStore((state) => state.searchQuery);
-  const searchResults = useEditorStore((state) => state.searchResults);
-  const searchLoading = useEditorStore((state) => state.searchLoading);
-  const searchError = useEditorStore((state) => state.searchError);
-  const setSearchQuery = useEditorStore((state) => state.setSearchQuery);
-  const clearSearch = useEditorStore((state) => state.clearSearch);
   const mapSource = useEditorStore((state) => state.mapSource);
-
-  const setSearchResults = useEditorStore((state) => state.setSearchResults);
-  const setSearchLoading = useEditorStore((state) => state.setSearchLoading);
-  const setSearchError = useEditorStore((state) => state.setSearchError);
 
   const inspectorActive = useEditorStore((state) => state.inspectorActive);
   const setInspectorActive = useEditorStore(
@@ -184,9 +167,6 @@ export function GeoEditorView() {
   const setViewingCollection = useEditorStore(
     (state) => state.setViewCollection
   );
-  const viewingCollectionEvents = useEditorStore(
-    (state) => state.viewCollectionEvents
-  );
   const setViewingCollectionEvents = useEditorStore(
     (state) => state.setViewCollectionEvents
   );
@@ -198,13 +178,10 @@ export function GeoEditorView() {
     useState(0);
   const blobReferences = useEditorStore((state) => state.blobReferences);
   const setBlobReferences = useEditorStore((state) => state.setBlobReferences);
-  const blobDraftUrl = useEditorStore((state) => state.blobDraftUrl);
   const setBlobDraftUrl = useEditorStore((state) => state.setBlobDraftUrl);
-  const blobDraftStatus = useEditorStore((state) => state.blobDraftStatus);
   const setBlobDraftStatus = useEditorStore(
     (state) => state.setBlobDraftStatus
   );
-  const blobDraftError = useEditorStore((state) => state.blobDraftError);
   const setBlobDraftError = useEditorStore((state) => state.setBlobDraftError);
   const blobPreviewCollection = useEditorStore(
     (state) => state.blobPreviewCollection
@@ -212,22 +189,10 @@ export function GeoEditorView() {
   const setBlobPreviewCollection = useEditorStore(
     (state) => state.setBlobPreviewCollection
   );
-  const previewingBlobReferenceId = useEditorStore(
-    (state) => state.previewingBlobReferenceId
-  );
   const setPreviewingBlobReferenceId = useEditorStore(
     (state) => state.setPreviewingBlobReferenceId
   );
 
-  const fetchBlobReference = useEditorStore(
-    (state) => state.fetchBlobReference
-  );
-  const previewBlobReference = useEditorStore(
-    (state) => state.previewBlobReference
-  );
-  const removeBlobReference = useEditorStore(
-    (state) => state.removeBlobReference
-  );
   const resetBlobReferenceState = useCallback(() => {
     setBlobReferences([]);
     setBlobPreviewCollection(null);
@@ -466,38 +431,6 @@ export function GeoEditorView() {
     [editor, zoomToSearchResult]
   );
 
-  // performSearch is now in store
-  // toggleInspector is now handled via store action or effect, but logic was:
-  /*
-  const toggleInspector = useCallback(() => {
-    const currentModeValue = editor?.getMode() ?? "select";
-    if (!inspectorActive) {
-      console.log("[Inspector] Activating, previous mode:", currentModeValue);
-      if (editor?.canFinishDrawing()) {
-        editor.finishDrawing();
-      }
-      setPreviousMode(currentModeValue);
-      editor?.setMode("static");
-      setCurrentMode("static");
-      setInspectorActive(true);
-    } else {
-      console.log(
-        "[Inspector] Deactivating, restoring mode:",
-        previousMode || "select"
-      );
-      setInspectorActive(false);
-      setReverseLookupResult(null);
-      if (previousMode) {
-        editor?.setMode(previousMode as EditorMode);
-        setCurrentMode(previousMode as EditorMode);
-      } else {
-        editor?.setMode("select");
-        setCurrentMode("select");
-      }
-    }
-  }, [editor, inspectorActive, previousMode, setInspectorActive]);
-  */
-
   const disableInspector = useCallback(() => {
     setInspectorActive(false);
     if (editor) {
@@ -594,16 +527,6 @@ export function GeoEditorView() {
     [setDebugEvent, setDebugDialogOpen]
   );
 
-  const handleDebugDialogChange = useCallback(
-    (open: boolean) => {
-      setDebugDialogOpen(open);
-      if (!open) {
-        setDebugEvent(null);
-      }
-    },
-    [setDebugDialogOpen, setDebugEvent]
-  );
-
   const toggleDatasetVisibility = useCallback(
     (event: NDKGeoEvent) => {
       const key = getDatasetKey(event);
@@ -619,14 +542,6 @@ export function GeoEditorView() {
     () => features.find((feature) => feature.id === selectedFeatureId) ?? null,
     [features, selectedFeatureId]
   );
-
-  const activeDatasetInfo = useMemo(() => {
-    if (!activeDataset) return null;
-    return {
-      name: getDatasetName(activeDataset),
-      isOwner: currentUser?.pubkey === activeDataset.pubkey,
-    };
-  }, [activeDataset, currentUser?.pubkey, getDatasetName]);
 
   const serializeEditorFeature = (feature: EditorFeature) => {
     const sanitized = sanitizeEditorProperties(
@@ -722,96 +637,6 @@ export function GeoEditorView() {
       return collection;
     }, [editor, collectionMeta, activeDataset, getDatasetName, blobReferences]);
 
-  const handleCollectionNameChange = useCallback(
-    (value: string) => {
-      setCollectionMeta({ ...collectionMeta, name: value });
-    },
-    [collectionMeta, setCollectionMeta]
-  );
-
-  const handleCollectionDescriptionChange = useCallback(
-    (value: string) => {
-      setCollectionMeta({
-        ...collectionMeta,
-        description: value,
-      });
-    },
-    [collectionMeta, setCollectionMeta]
-  );
-
-  const handleCollectionColorChange = useCallback(
-    (value: string) => {
-      setCollectionMeta({ ...collectionMeta, color: value });
-    },
-    [collectionMeta, setCollectionMeta]
-  );
-
-  const handleCollectionCustomPropertyChange = useCallback(
-    (key: string, rawValue: string) => {
-      const parsed = parseCustomValue(rawValue);
-      setCollectionMeta({
-        ...collectionMeta,
-        customProperties: {
-          ...collectionMeta.customProperties,
-          [key]: parsed,
-        },
-      });
-    },
-    [collectionMeta, setCollectionMeta]
-  );
-
-  const handleRemoveCollectionCustomProperty = useCallback(
-    (key: string) => {
-      const next = { ...collectionMeta.customProperties };
-      delete next[key];
-      setCollectionMeta({ ...collectionMeta, customProperties: next });
-    },
-    [collectionMeta, setCollectionMeta]
-  );
-
-  const handleNewCollectionPropKeyChange = useCallback(
-    (value: string) => {
-      setNewCollectionProp({ ...newCollectionProp, key: value });
-    },
-    [newCollectionProp, setNewCollectionProp]
-  );
-
-  const handleNewCollectionPropValueChange = useCallback(
-    (value: string) => {
-      setNewCollectionProp({ ...newCollectionProp, value });
-    },
-    [newCollectionProp, setNewCollectionProp]
-  );
-
-  const addCollectionCustomProperty = useCallback(() => {
-    if (!newCollectionProp.key.trim()) return;
-    const parsed = parseCustomValue(newCollectionProp.value);
-    setCollectionMeta({
-      ...collectionMeta,
-      customProperties: {
-        ...collectionMeta.customProperties,
-        [newCollectionProp.key.trim()]: parsed,
-      },
-    });
-    setNewCollectionProp({ key: "", value: "" });
-  }, [
-    newCollectionProp,
-    collectionMeta,
-    setNewCollectionProp,
-    setCollectionMeta,
-  ]);
-
-  const handleBlobDraftUrlChange = useCallback(
-    (value: string) => {
-      setBlobDraftUrl(value);
-      if (blobDraftStatus === "error") {
-        setBlobDraftStatus("idle");
-        setBlobDraftError(null);
-      }
-    },
-    [blobDraftStatus, setBlobDraftUrl, setBlobDraftStatus, setBlobDraftError]
-  );
-
   const persistFeatureUpdate = useCallback(
     (updated: EditorFeature) => {
       if (editor) {
@@ -823,122 +648,6 @@ export function GeoEditorView() {
       // We can just let the store handle it via the event listener.
     },
     [editor]
-  );
-
-  const handleFeatureFieldChange = useCallback(
-    (field: "name" | "description" | "color", value: string) => {
-      if (!selectedFeature) return;
-      const updated: EditorFeature = {
-        ...selectedFeature,
-        properties: {
-          ...selectedFeature.properties,
-          [field]: value,
-        },
-      };
-      persistFeatureUpdate(updated);
-    },
-    [selectedFeature, persistFeatureUpdate]
-  );
-
-  const handleFeatureCustomPropertyChange = useCallback(
-    (key: string, rawValue: string) => {
-      if (!selectedFeature) return;
-      const parsed = parseCustomValue(rawValue);
-      const nextCustom = {
-        ...(selectedFeature.properties?.customProperties || {}),
-        [key]: parsed,
-      };
-      const updated: EditorFeature = {
-        ...selectedFeature,
-        properties: {
-          ...selectedFeature.properties,
-          customProperties: nextCustom,
-        },
-      };
-      persistFeatureUpdate(updated);
-    },
-    [selectedFeature, persistFeatureUpdate]
-  );
-
-  const removeFeatureCustomProperty = useCallback(
-    (key: string) => {
-      if (!selectedFeature) return;
-      const nextCustom = {
-        ...(selectedFeature.properties?.customProperties || {}),
-      };
-      delete nextCustom[key];
-      const updated: EditorFeature = {
-        ...selectedFeature,
-        properties: {
-          ...selectedFeature.properties,
-          customProperties: nextCustom,
-        },
-      };
-      persistFeatureUpdate(updated);
-    },
-    [selectedFeature, persistFeatureUpdate]
-  );
-
-  const handleRemoveFeatureProperty = useCallback(
-    (key: string) => {
-      if (!selectedFeature) return;
-      if (editor) {
-        const updatedProps = { ...selectedFeature.properties };
-        delete updatedProps[key];
-        editor.updateFeature(selectedFeature.id, {
-          ...selectedFeature,
-          properties: updatedProps,
-        });
-      }
-      setDeletingKey(null);
-    },
-    [selectedFeature, editor, setDeletingKey]
-  );
-
-  const addFeatureCustomProperty = useCallback(() => {
-    if (!selectedFeature || !newFeatureProp.key.trim()) return;
-    const parsed = parseCustomValue(newFeatureProp.value);
-    const nextCustom = {
-      ...(selectedFeature.properties?.customProperties || {}),
-      [newFeatureProp.key.trim()]: parsed,
-    };
-    const updated: EditorFeature = {
-      ...selectedFeature,
-      properties: {
-        ...selectedFeature.properties,
-        customProperties: nextCustom,
-      },
-    };
-    persistFeatureUpdate(updated);
-    setNewFeatureProp({ key: "", value: "" });
-  }, [
-    selectedFeature,
-    newFeatureProp,
-    persistFeatureUpdate,
-    setNewFeatureProp,
-  ]);
-
-  const handleNewFeaturePropKeyChange = useCallback(
-    (value: string) => {
-      setNewFeatureProp({ ...newFeatureProp, key: value });
-    },
-    [newFeatureProp, setNewFeatureProp]
-  );
-
-  const handleNewFeaturePropValueChange = useCallback(
-    (value: string) => {
-      setNewFeatureProp({ ...newFeatureProp, value });
-    },
-    [newFeatureProp, setNewFeatureProp]
-  );
-
-  const selectFeatureInEditor = useCallback(
-    (featureId: string) => {
-      if (!editor) return;
-      editor.selectFeature(featureId);
-      setSelectedFeatureIds([featureId]);
-    },
-    [editor, setSelectedFeatureIds]
   );
 
   const handlePublishNew = useCallback(async () => {
@@ -1387,46 +1096,6 @@ export function GeoEditorView() {
     [editor, setCollectionMeta]
   );
 
-  const handleLoadSession = useCallback(
-    (sessionData: any) => {
-      if (!editor) return;
-
-      // Clear existing
-      const all = editor.getAllFeatures();
-      if (all.length > 0) {
-        editor.deleteFeatures(all.map((f) => f.id));
-      }
-
-      // Load features
-      if (sessionData.features && Array.isArray(sessionData.features)) {
-        sessionData.features.forEach((f: any) => editor.addFeature(f));
-      }
-
-      // Load selection
-      if (
-        sessionData.selectedFeatureIds &&
-        Array.isArray(sessionData.selectedFeatureIds)
-      ) {
-        editor.selection.clearSelection();
-        editor.selection.select(sessionData.selectedFeatureIds);
-        // Store updates automatically via event
-      }
-
-      // Load metadata
-      if (sessionData.collectionMeta) {
-        setCollectionMeta(sessionData.collectionMeta);
-      }
-
-      // Load blob references
-      if (sessionData.blobReferences) {
-        setBlobReferences(sessionData.blobReferences);
-      }
-
-      setActiveDataset(null);
-    },
-    [editor, setCollectionMeta, setBlobReferences, setActiveDataset]
-  );
-
   const togglePanLock = useCallback(() => {
     if (!editor) return;
     if (isDrawingMode) return;
@@ -1560,34 +1229,6 @@ export function GeoEditorView() {
   const multiSelectModifierLabel =
     editor?.getMultiSelectModifierLabel() ?? "Shift";
 
-  const handleDatasetsPanelToggle = useCallback(() => {
-    if (isMobile) {
-      setMobileDatasetsOpen(!mobileDatasetsOpen);
-    } else {
-      setShowDatasetsPanel(!showDatasetsPanel);
-    }
-  }, [
-    isMobile,
-    mobileDatasetsOpen,
-    setMobileDatasetsOpen,
-    showDatasetsPanel,
-    setShowDatasetsPanel,
-  ]);
-
-  const handleInfoPanelToggle = useCallback(() => {
-    if (isMobile) {
-      setMobileInfoOpen(!mobileInfoOpen);
-    } else {
-      setShowInfoPanel(!showInfoPanel);
-    }
-  }, [
-    isMobile,
-    mobileInfoOpen,
-    setMobileInfoOpen,
-    showInfoPanel,
-    setShowInfoPanel,
-  ]);
-
   useEffect(() => {
     if (isMobile) {
       setMobileDatasetsOpen(false);
@@ -1671,7 +1312,9 @@ export function GeoEditorView() {
     if (!map.current) return;
     const mapInstance = map.current;
 
-    const handleInspectorClick = async (event: maplibregl.MapMouseEvent & any) => {
+    const handleInspectorClick = async (
+      event: maplibregl.MapMouseEvent & any
+    ) => {
       const { lng, lat } = event.lngLat;
       console.log("[Inspector] Map click", { lng, lat });
       setReverseLookupStatus("loading");
@@ -1680,15 +1323,18 @@ export function GeoEditorView() {
 
       try {
         // Give the client a moment to connect if it hasn't already
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 100));
         const response = await earthlyGeoServer.ReverseLookup(lat, lng);
         console.log("[Inspector] Reverse lookup response", response);
         setReverseLookupResult(response.result);
       } catch (error) {
         console.error("[Inspector] Reverse lookup error", error);
-        const errorMessage = error instanceof Error && error.message === "Not connected"
-          ? "Cannot connect to geo server. Make sure the relay is running (bun relay)."
-          : error instanceof Error ? error.message : "Reverse lookup failed";
+        const errorMessage =
+          error instanceof Error && error.message === "Not connected"
+            ? "Cannot connect to geo server. Make sure the relay is running (bun relay)."
+            : error instanceof Error
+            ? error.message
+            : "Reverse lookup failed";
         setReverseLookupError(errorMessage);
         setReverseLookupResult(null);
       } finally {
@@ -1788,7 +1434,7 @@ export function GeoEditorView() {
       )}
 
       {!isMobile && mounted && showDatasetsPanel && (
-        <div className="pointer-events-auto absolute left-4 top-[88px] bottom-4 z-40 hidden md:flex w-80">
+        <div className="pointer-events-auto absolute left-4 top-[88px] bottom-4 z-40 hidden md:flex w-[25vw]">
           <div className="flex-1 overflow-hidden rounded-2xl bg-white/95 shadow-xl backdrop-blur">
             <div className="h-full overflow-y-auto p-4">
               <GeoDatasetsPanelContent
