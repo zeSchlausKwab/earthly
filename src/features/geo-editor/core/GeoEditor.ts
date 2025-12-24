@@ -366,7 +366,12 @@ export class GeoEditor {
             "#1d4ed8",
             "#3bb2d0",
           ],
-          "circle-stroke-width": ["case", ["==", ["get", "active"], true], 3, 2],
+          "circle-stroke-width": [
+            "case",
+            ["==", ["get", "active"], true],
+            3,
+            2,
+          ],
           "circle-stroke-color": [
             "case",
             ["==", ["get", "active"], true],
@@ -1215,10 +1220,15 @@ export class GeoEditor {
 
   canFinishDrawing(): boolean {
     if (this.mode === "draw_linestring") {
-      return this.drawLineMode.getCoordinates().length >= this.DRAW_MIN_LINE_POINTS;
+      return (
+        this.drawLineMode.getCoordinates().length >= this.DRAW_MIN_LINE_POINTS
+      );
     }
     if (this.mode === "draw_polygon") {
-      return this.drawPolygonMode.getCoordinates().length >= this.DRAW_MIN_POLYGON_POINTS;
+      return (
+        this.drawPolygonMode.getCoordinates().length >=
+        this.DRAW_MIN_POLYGON_POINTS
+      );
     }
     return false;
   }
@@ -1513,9 +1523,7 @@ export class GeoEditor {
     return Math.sqrt(dx * dx + dy * dy);
   }
 
-  private isTouchLikeEvent(
-    event: MapMouseEvent | MapTouchEvent
-  ): boolean {
+  private isTouchLikeEvent(event: MapMouseEvent | MapTouchEvent): boolean {
     const original = (event as any).originalEvent;
     if (!original) return false;
     if (typeof (original as any).pointerType === "string") {
@@ -2089,18 +2097,26 @@ export class GeoEditor {
   }
 
   destroy(): void {
-    if (this.doubleClickZoomDisabled && this.map.doubleClickZoom) {
-      this.map.doubleClickZoom.enable();
-      this.doubleClickZoomDisabled = false;
-    }
-    if (this.map.dragPan && !this.map.dragPan.isEnabled()) {
-      this.map.dragPan.enable();
+    try {
+      if (this.doubleClickZoomDisabled && this.map.doubleClickZoom) {
+        this.map.doubleClickZoom.enable();
+        this.doubleClickZoomDisabled = false;
+      }
+      if (this.map.dragPan && !this.map.dragPan.isEnabled()) {
+        this.map.dragPan.enable();
+      }
+    } catch {
+      // Map may have been removed
     }
 
     // Remove event listeners
     window.removeEventListener("keydown", this.keyDownHandler);
     window.removeEventListener("keyup", this.keyUpHandler);
-    this.map.off("move", this.gizmoRenderHandler);
+    try {
+      this.map.off("move", this.gizmoRenderHandler);
+    } catch {
+      // Map may have been removed
+    }
 
     // Remove managers
     this.history.onRemove();
@@ -2114,54 +2130,58 @@ export class GeoEditor {
     this.drawPolygonMode.onRemove();
     this.editMode.onRemove();
 
-    // Remove layers
-    if (this.map.getLayer(this.LAYER_SELECTION_BOX))
-      this.map.removeLayer(this.LAYER_SELECTION_BOX);
-    if (this.map.getLayer(this.LAYER_MIDPOINT))
-      this.map.removeLayer(this.LAYER_MIDPOINT);
-    if (this.map.getLayer(this.LAYER_VERTEX))
-      this.map.removeLayer(this.LAYER_VERTEX);
-    if (this.map.getLayer(this.LAYER_SELECTION_POINT))
-      this.map.removeLayer(this.LAYER_SELECTION_POINT);
-    if (this.map.getLayer(this.LAYER_CURSOR))
-      this.map.removeLayer(this.LAYER_CURSOR);
-    if (this.map.getLayer(this.LAYER_SELECTION_LINE))
-      this.map.removeLayer(this.LAYER_SELECTION_LINE);
-    if (this.map.getLayer(this.LAYER_POINT))
-      this.map.removeLayer(this.LAYER_POINT);
-    if (this.map.getLayer(this.LAYER_SELECTION_FILL))
-      this.map.removeLayer(this.LAYER_SELECTION_FILL);
-    if (this.map.getLayer(this.LAYER_GIZMO_ROTATE))
-      this.map.removeLayer(this.LAYER_GIZMO_ROTATE);
-    if (this.map.getLayer(this.LAYER_GIZMO_MOVE))
-      this.map.removeLayer(this.LAYER_GIZMO_MOVE);
-    if (this.map.getLayer(this.LAYER_GIZMO_CENTER))
-      this.map.removeLayer(this.LAYER_GIZMO_CENTER);
-    if (this.map.getLayer(this.LAYER_GIZMO_LINE))
-      this.map.removeLayer(this.LAYER_GIZMO_LINE);
-    if (this.map.getLayer(this.LAYER_LINE))
-      this.map.removeLayer(this.LAYER_LINE);
-    if (this.map.getLayer(this.LAYER_FILL))
-      this.map.removeLayer(this.LAYER_FILL);
+    // Remove layers and sources - wrap in try-catch as map may have been removed
+    try {
+      if (this.map.getLayer(this.LAYER_SELECTION_BOX))
+        this.map.removeLayer(this.LAYER_SELECTION_BOX);
+      if (this.map.getLayer(this.LAYER_MIDPOINT))
+        this.map.removeLayer(this.LAYER_MIDPOINT);
+      if (this.map.getLayer(this.LAYER_VERTEX))
+        this.map.removeLayer(this.LAYER_VERTEX);
+      if (this.map.getLayer(this.LAYER_SELECTION_POINT))
+        this.map.removeLayer(this.LAYER_SELECTION_POINT);
+      if (this.map.getLayer(this.LAYER_CURSOR))
+        this.map.removeLayer(this.LAYER_CURSOR);
+      if (this.map.getLayer(this.LAYER_SELECTION_LINE))
+        this.map.removeLayer(this.LAYER_SELECTION_LINE);
+      if (this.map.getLayer(this.LAYER_POINT))
+        this.map.removeLayer(this.LAYER_POINT);
+      if (this.map.getLayer(this.LAYER_SELECTION_FILL))
+        this.map.removeLayer(this.LAYER_SELECTION_FILL);
+      if (this.map.getLayer(this.LAYER_GIZMO_ROTATE))
+        this.map.removeLayer(this.LAYER_GIZMO_ROTATE);
+      if (this.map.getLayer(this.LAYER_GIZMO_MOVE))
+        this.map.removeLayer(this.LAYER_GIZMO_MOVE);
+      if (this.map.getLayer(this.LAYER_GIZMO_CENTER))
+        this.map.removeLayer(this.LAYER_GIZMO_CENTER);
+      if (this.map.getLayer(this.LAYER_GIZMO_LINE))
+        this.map.removeLayer(this.LAYER_GIZMO_LINE);
+      if (this.map.getLayer(this.LAYER_LINE))
+        this.map.removeLayer(this.LAYER_LINE);
+      if (this.map.getLayer(this.LAYER_FILL))
+        this.map.removeLayer(this.LAYER_FILL);
 
-    // Remove sources
-    if (this.map.getSource(this.SOURCE_ID)) {
-      this.map.removeSource(this.SOURCE_ID);
-    }
-    if (this.map.getSource(this.SOURCE_VERTICES)) {
-      this.map.removeSource(this.SOURCE_VERTICES);
-    }
-    if (this.map.getSource(this.SOURCE_SELECTION)) {
-      this.map.removeSource(this.SOURCE_SELECTION);
-    }
-    if (this.map.getSource(this.SOURCE_SELECTION_BOX)) {
-      this.map.removeSource(this.SOURCE_SELECTION_BOX);
-    }
-    if (this.map.getSource(this.SOURCE_CURSOR)) {
-      this.map.removeSource(this.SOURCE_CURSOR);
-    }
-    if (this.map.getSource(this.SOURCE_GIZMO)) {
-      this.map.removeSource(this.SOURCE_GIZMO);
+      // Remove sources
+      if (this.map.getSource(this.SOURCE_ID)) {
+        this.map.removeSource(this.SOURCE_ID);
+      }
+      if (this.map.getSource(this.SOURCE_VERTICES)) {
+        this.map.removeSource(this.SOURCE_VERTICES);
+      }
+      if (this.map.getSource(this.SOURCE_SELECTION)) {
+        this.map.removeSource(this.SOURCE_SELECTION);
+      }
+      if (this.map.getSource(this.SOURCE_SELECTION_BOX)) {
+        this.map.removeSource(this.SOURCE_SELECTION_BOX);
+      }
+      if (this.map.getSource(this.SOURCE_CURSOR)) {
+        this.map.removeSource(this.SOURCE_CURSOR);
+      }
+      if (this.map.getSource(this.SOURCE_GIZMO)) {
+        this.map.removeSource(this.SOURCE_GIZMO);
+      }
+    } catch {
+      // Map may have been removed during source switch
     }
 
     this.features.clear();

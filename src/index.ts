@@ -16,7 +16,6 @@ const EXPECTED_PUBKEY = APP_PRIVATE_KEY
   ? getPublicKey(hexToBytes(APP_PRIVATE_KEY))
   : undefined;
 
-
 // Define route handlers that work in both modes
 const apiRoutes: Record<string, any> = {
   "/api/hello": {

@@ -962,77 +962,97 @@ export function GeoEditorView() {
     const mapInstance = map.current;
 
     const initLayers = () => {
-      if (mapInstance.getSource(REMOTE_SOURCE_ID)) return;
+      // Guard against accessing removed maps or maps without loaded styles
+      try {
+        if (!mapInstance.isStyleLoaded()) return;
+        if (mapInstance.getSource(REMOTE_SOURCE_ID)) return;
+      } catch {
+        // Map may have been removed during source switch
+        return;
+      }
 
-      // Remote dataset preview source/layers
-      mapInstance.addSource(REMOTE_SOURCE_ID, {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
-      mapInstance.addLayer({
-        id: REMOTE_FILL_LAYER,
-        type: "fill",
-        source: REMOTE_SOURCE_ID,
-        filter: [
-          "any",
-          ["==", ["geometry-type"], "Polygon"],
-          ["==", ["geometry-type"], "MultiPolygon"],
-        ],
-        paint: {
-          "fill-color": "#1d4ed8",
-          "fill-opacity": 0.15,
-        },
-      });
-      mapInstance.addLayer({
-        id: REMOTE_LINE_LAYER,
-        type: "line",
-        source: REMOTE_SOURCE_ID,
-        paint: {
-          "line-color": "#1d4ed8",
-          "line-width": 2,
-          "line-dasharray": [2, 2],
-        },
-      });
+      try {
+        // Remote dataset preview source/layers
+        mapInstance.addSource(REMOTE_SOURCE_ID, {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+        });
+        mapInstance.addLayer({
+          id: REMOTE_FILL_LAYER,
+          type: "fill",
+          source: REMOTE_SOURCE_ID,
+          filter: [
+            "any",
+            ["==", ["geometry-type"], "Polygon"],
+            ["==", ["geometry-type"], "MultiPolygon"],
+          ],
+          paint: {
+            "fill-color": "#1d4ed8",
+            "fill-opacity": 0.15,
+          },
+        });
+        mapInstance.addLayer({
+          id: REMOTE_LINE_LAYER,
+          type: "line",
+          source: REMOTE_SOURCE_ID,
+          paint: {
+            "line-color": "#1d4ed8",
+            "line-width": 2,
+            "line-dasharray": [2, 2],
+          },
+        });
 
-      mapInstance.addSource(BLOB_PREVIEW_SOURCE_ID, {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
-      mapInstance.addLayer({
-        id: BLOB_PREVIEW_FILL_LAYER,
-        type: "fill",
-        source: BLOB_PREVIEW_SOURCE_ID,
-        filter: [
-          "any",
-          ["==", ["geometry-type"], "Polygon"],
-          ["==", ["geometry-type"], "MultiPolygon"],
-        ],
-        paint: {
-          "fill-color": "#f97316",
-          "fill-opacity": 0.2,
-        },
-      });
-      mapInstance.addLayer({
-        id: BLOB_PREVIEW_LINE_LAYER,
-        type: "line",
-        source: BLOB_PREVIEW_SOURCE_ID,
-        paint: {
-          "line-color": "#f97316",
-          "line-width": 2,
-        },
-      });
-      setRemoteLayersReady(true);
+        mapInstance.addSource(BLOB_PREVIEW_SOURCE_ID, {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+        });
+        mapInstance.addLayer({
+          id: BLOB_PREVIEW_FILL_LAYER,
+          type: "fill",
+          source: BLOB_PREVIEW_SOURCE_ID,
+          filter: [
+            "any",
+            ["==", ["geometry-type"], "Polygon"],
+            ["==", ["geometry-type"], "MultiPolygon"],
+          ],
+          paint: {
+            "fill-color": "#f97316",
+            "fill-opacity": 0.2,
+          },
+        });
+        mapInstance.addLayer({
+          id: BLOB_PREVIEW_LINE_LAYER,
+          type: "line",
+          source: BLOB_PREVIEW_SOURCE_ID,
+          paint: {
+            "line-color": "#f97316",
+            "line-width": 2,
+          },
+        });
+        setRemoteLayersReady(true);
+      } catch (error) {
+        // Map may have been removed during layer initialization
+        console.warn("Failed to initialize map layers:", error);
+      }
     };
 
-    if (mapInstance.isStyleLoaded()) {
-      initLayers();
+    try {
+      if (mapInstance.isStyleLoaded()) {
+        initLayers();
+      }
+    } catch {
+      // Map may have been removed
     }
 
     // Re-initialize layers when style changes
     mapInstance.on("styledata", initLayers);
 
     return () => {
-      mapInstance.off("styledata", initLayers);
+      try {
+        mapInstance.off("styledata", initLayers);
+      } catch {
+        // Map may have been removed
+      }
     };
   }, [mounted, setRemoteLayersReady]);
 
@@ -1145,16 +1165,23 @@ export function GeoEditorView() {
   useEffect(() => {
     if (!editor) return;
     if (!map.current) return;
-    const source = map.current.getSource(REMOTE_SOURCE_ID) as
-      | GeoJSONSource
-      | undefined;
-    if (!source) return;
 
-    const collection = convertGeoEventsToFeatureCollection(
-      visibleGeoEvents,
-      resolvedCollectionResolver
-    );
-    source.setData(collection);
+    try {
+      // Guard against accessing sources before style is loaded (can happen during map source switches)
+      if (!map.current.isStyleLoaded()) return;
+      const source = map.current.getSource(REMOTE_SOURCE_ID) as
+        | GeoJSONSource
+        | undefined;
+      if (!source) return;
+
+      const collection = convertGeoEventsToFeatureCollection(
+        visibleGeoEvents,
+        resolvedCollectionResolver
+      );
+      source.setData(collection);
+    } catch {
+      // Map may have been removed during source switch
+    }
   }, [
     visibleGeoEvents,
     resolvedCollectionsVersion,
@@ -1215,14 +1242,21 @@ export function GeoEditorView() {
 
   useEffect(() => {
     if (!map.current) return;
-    const source = map.current.getSource(BLOB_PREVIEW_SOURCE_ID) as
-      | GeoJSONSource
-      | undefined;
-    if (!source) return;
-    if (blobPreviewCollection) {
-      source.setData(blobPreviewCollection);
-    } else {
-      source.setData({ type: "FeatureCollection", features: [] });
+
+    try {
+      // Guard against accessing sources before style is loaded (can happen during map source switches)
+      if (!map.current.isStyleLoaded()) return;
+      const source = map.current.getSource(BLOB_PREVIEW_SOURCE_ID) as
+        | GeoJSONSource
+        | undefined;
+      if (!source) return;
+      if (blobPreviewCollection) {
+        source.setData(blobPreviewCollection);
+      } else {
+        source.setData({ type: "FeatureCollection", features: [] });
+      }
+    } catch {
+      // Map may have been removed during source switch
     }
   }, [blobPreviewCollection]);
 
