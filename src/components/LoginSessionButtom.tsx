@@ -5,66 +5,73 @@ import {
 	useNDKCurrentUser,
 	useNDKSessionLogin,
 	useNDKSessionLogout
-} from '@nostr-dev-kit/react';
-import { AppWindowIcon, KeyRoundIcon, Link, LogOutIcon, QrCodeIcon, SettingsIcon } from 'lucide-react';
-import { useState } from 'react';
-import { Nip46LoginDialog } from './Nip46LoginDialog';
-import { SignupDialog } from './SignupDialog';
-import { Button } from './ui/button';
-import { ButtonGroup } from './ui/button-group';
+} from '@nostr-dev-kit/react'
+import {
+	AppWindowIcon,
+	KeyRoundIcon,
+	Link,
+	LogOutIcon,
+	QrCodeIcon,
+	SettingsIcon
+} from 'lucide-react'
+import { useState } from 'react'
+import { Nip46LoginDialog } from './Nip46LoginDialog'
+import { SignupDialog } from './SignupDialog'
+import { Button } from './ui/button'
+import { ButtonGroup } from './ui/button-group'
 // import { AppWindowIcon } from "./ui/icons/lucide-app-window";
 // import { KeyRoundIcon } from "./ui/icons/lucide-key-round";
 // import { QrCodeIcon } from "./ui/icons/lucide-qr-code";
 // import { WalletButton } from "./WalletButton";
 // import { LogOutIcon } from "./ui/icons/lucide-log-out";
 // import { SettingsIcon } from "./ui/icons/lucide-settings";
-import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 // import { useUIStore } from "../stores/uiStore";
 // import { usePlatform } from "../lib/hooks/usePlatform";
 // import { Link } from "@tanstack/react-router";
 
 export function LoginSessionButtons() {
-	const login = useNDKSessionLogin();
-	const logout = useNDKSessionLogout();
-	const currentUser = useNDKCurrentUser();
+	const login = useNDKSessionLogin()
+	const logout = useNDKSessionLogout()
+	const currentUser = useNDKCurrentUser()
 	// const shouldPulseLogin = useUIStore((state) => state.shouldPulseLogin);
 	// const { isTauri } = usePlatform();
 
-	const [loading, setLoading] = useState(false);
-	const [showSignupDialog, setShowSignupDialog] = useState(false);
+	const [loading, setLoading] = useState(false)
+	const [showSignupDialog, setShowSignupDialog] = useState(false)
 
 	const handleSignup = async (signer: NDKPrivateKeySigner) => {
 		try {
-			await login(signer);
+			await login(signer)
 		} catch (error) {
-			console.error('Login failed:', error);
-			throw error;
+			console.error('Login failed:', error)
+			throw error
 		}
-	};
+	}
 
 	const handleNip07Login = async () => {
 		try {
-			setLoading(true);
-			const signer = new NDKNip07Signer();
-			await login(signer);
+			setLoading(true)
+			const signer = new NDKNip07Signer()
+			await login(signer)
 		} catch (error) {
-			console.error('Extension login failed:', error);
+			console.error('Extension login failed:', error)
 		} finally {
-			setLoading(false);
+			setLoading(false)
 		}
-	};
+	}
 
 	const handleNip46Login = async (signer: NDKNip46Signer) => {
 		try {
-			setLoading(true);
-			await login(signer);
+			setLoading(true)
+			await login(signer)
 		} catch (error) {
-			console.error('NIP-46 login failed:', error);
-			throw error; // Re-throw so the dialog can handle it
+			console.error('NIP-46 login failed:', error)
+			throw error // Re-throw so the dialog can handle it
 		} finally {
-			setLoading(false);
+			setLoading(false)
 		}
-	};
+	}
 
 	return (
 		<div className="flex items-center gap-4">
@@ -127,7 +134,11 @@ export function LoginSessionButtons() {
 			)}
 
 			{/* Signup Dialog */}
-			<SignupDialog open={showSignupDialog} onOpenChange={setShowSignupDialog} onConfirm={handleSignup} />
+			<SignupDialog
+				open={showSignupDialog}
+				onOpenChange={setShowSignupDialog}
+				onConfirm={handleSignup}
+			/>
 		</div>
-	);
+	)
 }

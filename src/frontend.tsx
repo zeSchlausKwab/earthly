@@ -5,14 +5,14 @@
  * It is included in `src/index.html`.
  */
 
-import NDKCacheAdapterDexie from '@nostr-dev-kit/ndk-cache-dexie';
-import { NDKHeadless, NDKSessionLocalStorage } from '@nostr-dev-kit/react';
-import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
-import { App } from './App';
-import { config } from './config';
+import NDKCacheAdapterDexie from '@nostr-dev-kit/ndk-cache-dexie'
+import { NDKHeadless, NDKSessionLocalStorage } from '@nostr-dev-kit/react'
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import { App } from './App'
+import { config } from './config'
 
-const elem = document.getElementById('root')!;
+const elem = document.getElementById('root')!
 
 // Initialize Dexie cache adapter for efficient caching and cache invalidation
 const dexieAdapter = new NDKCacheAdapterDexie({
@@ -21,7 +21,7 @@ const dexieAdapter = new NDKCacheAdapterDexie({
 	eventCacheSize: 10000,
 	eventTagsCacheSize: 20000,
 	saveSig: true
-});
+})
 
 // App renders synchronously - config values are baked in at build time
 const app = (
@@ -38,13 +38,13 @@ const app = (
 		/>
 		<App />
 	</StrictMode>
-);
+)
 
 if (import.meta.hot) {
 	// With hot module reloading, `import.meta.hot.data` is persisted.
-	const root = (import.meta.hot.data.root ??= createRoot(elem));
-	root.render(app);
+	const root = (import.meta.hot.data.root ??= createRoot(elem))
+	root.render(app)
 } else {
 	// The hot module reloading API is not available in production.
-	createRoot(elem).render(app);
+	createRoot(elem).render(app)
 }

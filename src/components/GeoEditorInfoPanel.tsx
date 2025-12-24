@@ -1,24 +1,24 @@
-import { Eye, EyeOff, Maximize2, X } from 'lucide-react';
-import React from 'react';
-import { cn } from '@/lib/utils';
-import { useEditorStore } from '../features/geo-editor/store';
-import type { NDKGeoCollectionEvent } from '../lib/ndk/NDKGeoCollectionEvent';
-import type { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent';
-import { Button } from './ui/Button';
-import { Input } from './ui/Input';
+import { Eye, EyeOff, Maximize2, X } from 'lucide-react'
+import React from 'react'
+import { cn } from '@/lib/utils'
+import { useEditorStore } from '../features/geo-editor/store'
+import type { NDKGeoCollectionEvent } from '../lib/ndk/NDKGeoCollectionEvent'
+import type { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
+import { Button } from './ui/Button'
+import { Input } from './ui/Input'
 
 export interface GeoEditorInfoPanelProps {
-	currentUserPubkey?: string;
-	onLoadDataset: (event: NDKGeoEvent) => void;
-	onToggleVisibility: (event: NDKGeoEvent) => void;
-	onZoomToDataset: (event: NDKGeoEvent) => void;
-	onDeleteDataset: (event: NDKGeoEvent) => void;
-	onZoomToCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void;
-	deletingKey: string | null;
-	onExitViewMode?: () => void;
-	onClose?: () => void;
-	getDatasetKey: (event: NDKGeoEvent) => string;
-	getDatasetName: (event: NDKGeoEvent) => string;
+	currentUserPubkey?: string
+	onLoadDataset: (event: NDKGeoEvent) => void
+	onToggleVisibility: (event: NDKGeoEvent) => void
+	onZoomToDataset: (event: NDKGeoEvent) => void
+	onDeleteDataset: (event: NDKGeoEvent) => void
+	onZoomToCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
+	deletingKey: string | null
+	onExitViewMode?: () => void
+	onClose?: () => void
+	getDatasetKey: (event: NDKGeoEvent) => string
+	getDatasetName: (event: NDKGeoEvent) => string
 }
 
 export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
@@ -34,150 +34,152 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onClose,
 		getDatasetKey,
 		getDatasetName
-	} = props;
+	} = props
 
-	const stats = useEditorStore((state) => state.stats);
-	const collectionMeta = useEditorStore((state) => state.collectionMeta);
-	const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta);
-	const newCollectionProp = useEditorStore((state) => state.newCollectionProp);
-	const setNewCollectionProp = useEditorStore((state) => state.setNewCollectionProp);
+	const stats = useEditorStore((state) => state.stats)
+	const collectionMeta = useEditorStore((state) => state.collectionMeta)
+	const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta)
+	const newCollectionProp = useEditorStore((state) => state.newCollectionProp)
+	const setNewCollectionProp = useEditorStore((state) => state.setNewCollectionProp)
 
-	const features = useEditorStore((state) => state.features);
-	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds);
-	const setSelectedFeatureIds = useEditorStore((state) => state.setSelectedFeatureIds);
-	const editor = useEditorStore((state) => state.editor);
+	const features = useEditorStore((state) => state.features)
+	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
+	const setSelectedFeatureIds = useEditorStore((state) => state.setSelectedFeatureIds)
+	const editor = useEditorStore((state) => state.editor)
 
-	const newFeatureProp = useEditorStore((state) => state.newFeatureProp);
-	const setNewFeatureProp = useEditorStore((state) => state.setNewFeatureProp);
+	const newFeatureProp = useEditorStore((state) => state.newFeatureProp)
+	const setNewFeatureProp = useEditorStore((state) => state.setNewFeatureProp)
 
-	const activeDataset = useEditorStore((state) => state.activeDataset);
-	const datasetVisibility = useEditorStore((state) => state.datasetVisibility);
+	const activeDataset = useEditorStore((state) => state.activeDataset)
+	const datasetVisibility = useEditorStore((state) => state.datasetVisibility)
 
-	const isPublishing = useEditorStore((state) => state.isPublishing);
-	const publishMessage = useEditorStore((state) => state.publishMessage);
-	const publishError = useEditorStore((state) => state.publishError);
+	const isPublishing = useEditorStore((state) => state.isPublishing)
+	const publishMessage = useEditorStore((state) => state.publishMessage)
+	const publishError = useEditorStore((state) => state.publishError)
 
-	const blobReferences = useEditorStore((state) => state.blobReferences);
-	const blobDraftUrl = useEditorStore((state) => state.blobDraftUrl);
-	const setBlobDraftUrl = useEditorStore((state) => state.setBlobDraftUrl);
-	const blobDraftStatus = useEditorStore((state) => state.blobDraftStatus);
-	const blobDraftError = useEditorStore((state) => state.blobDraftError);
-	const previewingBlobReferenceId = useEditorStore((state) => state.previewingBlobReferenceId);
+	const blobReferences = useEditorStore((state) => state.blobReferences)
+	const blobDraftUrl = useEditorStore((state) => state.blobDraftUrl)
+	const setBlobDraftUrl = useEditorStore((state) => state.setBlobDraftUrl)
+	const blobDraftStatus = useEditorStore((state) => state.blobDraftStatus)
+	const blobDraftError = useEditorStore((state) => state.blobDraftError)
+	const previewingBlobReferenceId = useEditorStore((state) => state.previewingBlobReferenceId)
 
-	const fetchBlobReference = useEditorStore((state) => state.fetchBlobReference);
-	const previewBlobReference = useEditorStore((state) => state.previewBlobReference);
-	const removeBlobReference = useEditorStore((state) => state.removeBlobReference);
+	const fetchBlobReference = useEditorStore((state) => state.fetchBlobReference)
+	const previewBlobReference = useEditorStore((state) => state.previewBlobReference)
+	const removeBlobReference = useEditorStore((state) => state.removeBlobReference)
 
-	const viewMode = useEditorStore((state) => state.viewMode);
-	const viewDataset = useEditorStore((state) => state.viewDataset);
-	const viewCollection = useEditorStore((state) => state.viewCollection);
-	const viewCollectionEvents = useEditorStore((state) => state.viewCollectionEvents);
+	const viewMode = useEditorStore((state) => state.viewMode)
+	const viewDataset = useEditorStore((state) => state.viewDataset)
+	const viewCollection = useEditorStore((state) => state.viewCollection)
+	const viewCollectionEvents = useEditorStore((state) => state.viewCollectionEvents)
 
-	const selectionCount = selectedFeatureIds.length;
-	const selectedFeatureId = selectionCount === 1 ? selectedFeatureIds[0] : null;
-	const selectedFeature = selectedFeatureId ? (features.find((f) => f.id === selectedFeatureId) ?? null) : null;
+	const selectionCount = selectedFeatureIds.length
+	const selectedFeatureId = selectionCount === 1 ? selectedFeatureIds[0] : null
+	const selectedFeature = selectedFeatureId
+		? (features.find((f) => f.id === selectedFeatureId) ?? null)
+		: null
 
-	const multiSelectModifierLabel = editor?.getMultiSelectModifierLabel() ?? 'Shift';
+	const multiSelectModifierLabel = editor?.getMultiSelectModifierLabel() ?? 'Shift'
 
 	const activeDatasetInfo = activeDataset
 		? {
 				name: getDatasetName(activeDataset),
 				isOwner: currentUserPubkey === activeDataset.pubkey
 			}
-		: null;
+		: null
 
 	// Handlers
 	const onCollectionNameChange = (value: string) => {
-		setCollectionMeta({ ...collectionMeta, name: value });
-	};
+		setCollectionMeta({ ...collectionMeta, name: value })
+	}
 
 	const onCollectionDescriptionChange = (value: string) => {
-		setCollectionMeta({ ...collectionMeta, description: value });
-	};
+		setCollectionMeta({ ...collectionMeta, description: value })
+	}
 
 	const onCollectionColorChange = (value: string) => {
-		setCollectionMeta({ ...collectionMeta, color: value });
-	};
+		setCollectionMeta({ ...collectionMeta, color: value })
+	}
 
 	const onCollectionCustomPropertyChange = (key: string, value: string) => {
 		setCollectionMeta({
 			...collectionMeta,
 			customProperties: { ...collectionMeta.customProperties, [key]: value }
-		});
-	};
+		})
+	}
 
 	const onCollectionCustomPropertyRemove = (key: string) => {
-		const next = { ...collectionMeta.customProperties };
-		delete next[key];
-		setCollectionMeta({ ...collectionMeta, customProperties: next });
-	};
+		const next = { ...collectionMeta.customProperties }
+		delete next[key]
+		setCollectionMeta({ ...collectionMeta, customProperties: next })
+	}
 
 	const onCollectionPropKeyChange = (value: string) => {
-		setNewCollectionProp({ ...newCollectionProp, key: value });
-	};
+		setNewCollectionProp({ ...newCollectionProp, key: value })
+	}
 
 	const onCollectionPropValueChange = (value: string) => {
-		setNewCollectionProp({ ...newCollectionProp, value: value });
-	};
+		setNewCollectionProp({ ...newCollectionProp, value: value })
+	}
 
 	const onAddCollectionProp = () => {
-		if (!newCollectionProp.key) return;
+		if (!newCollectionProp.key) return
 		setCollectionMeta({
 			...collectionMeta,
 			customProperties: {
 				...collectionMeta.customProperties,
 				[newCollectionProp.key]: newCollectionProp.value
 			}
-		});
-		setNewCollectionProp({ key: '', value: '' });
-	};
+		})
+		setNewCollectionProp({ key: '', value: '' })
+	}
 
 	const onFeatureFieldChange = (field: 'name' | 'description' | 'color', value: string) => {
-		if (!selectedFeature || !editor) return;
+		if (!selectedFeature || !editor) return
 		editor.updateFeature(selectedFeature.id, {
 			...selectedFeature,
 			properties: { ...selectedFeature.properties, [field]: value }
-		});
-	};
+		})
+	}
 
 	const onFeatureCustomPropertyChange = (key: string, value: string) => {
-		if (!selectedFeature || !editor) return;
-		const currentProps = selectedFeature.properties?.customProperties || {};
+		if (!selectedFeature || !editor) return
+		const currentProps = selectedFeature.properties?.customProperties || {}
 		editor.updateFeature(selectedFeature.id, {
 			...selectedFeature,
 			properties: {
 				...selectedFeature.properties,
 				customProperties: { ...currentProps, [key]: value }
 			}
-		});
-	};
+		})
+	}
 
 	const onRemoveFeatureCustomProperty = (key: string) => {
-		if (!selectedFeature || !editor) return;
+		if (!selectedFeature || !editor) return
 		const currentProps = {
 			...(selectedFeature.properties?.customProperties || {})
-		};
-		delete currentProps[key];
+		}
+		delete currentProps[key]
 		editor.updateFeature(selectedFeature.id, {
 			...selectedFeature,
 			properties: {
 				...selectedFeature.properties,
 				customProperties: currentProps
 			}
-		});
-	};
+		})
+	}
 
 	const onFeaturePropKeyChange = (value: string) => {
-		setNewFeatureProp({ ...newFeatureProp, key: value });
-	};
+		setNewFeatureProp({ ...newFeatureProp, key: value })
+	}
 
 	const onFeaturePropValueChange = (value: string) => {
-		setNewFeatureProp({ ...newFeatureProp, value: value });
-	};
+		setNewFeatureProp({ ...newFeatureProp, value: value })
+	}
 
 	const onAddFeatureCustomProperty = () => {
-		if (!selectedFeature || !editor || !newFeatureProp.key) return;
-		const currentProps = selectedFeature.properties?.customProperties || {};
+		if (!selectedFeature || !editor || !newFeatureProp.key) return
+		const currentProps = selectedFeature.properties?.customProperties || {}
 		editor.updateFeature(selectedFeature.id, {
 			...selectedFeature,
 			properties: {
@@ -187,25 +189,28 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					[newFeatureProp.key]: newFeatureProp.value
 				}
 			}
-		});
-		setNewFeatureProp({ key: '', value: '' });
-	};
+		})
+		setNewFeatureProp({ key: '', value: '' })
+	}
 
 	const onSelectFeature = (id: string) => {
-		setSelectedFeatureIds([id]);
-	};
+		setSelectedFeatureIds([id])
+	}
 
 	const datasetActionCard = (event: NDKGeoEvent) => {
-		const datasetKey = getDatasetKey(event);
-		const datasetName = getDatasetName(event);
-		const isVisible = datasetVisibility[datasetKey] !== false;
-		const isOwned = currentUserPubkey === event.pubkey;
-		const primaryLabel = isOwned ? 'Edit dataset' : 'Load copy';
+		const datasetKey = getDatasetKey(event)
+		const datasetName = getDatasetName(event)
+		const isVisible = datasetVisibility[datasetKey] !== false
+		const isOwned = currentUserPubkey === event.pubkey
+		const primaryLabel = isOwned ? 'Edit dataset' : 'Load copy'
 
 		return (
 			<div
 				key={`${event.id}-${datasetKey}`}
-				className={cn('rounded-lg border border-gray-200 bg-white p-3 text-sm space-y-2', !isVisible && 'opacity-60')}
+				className={cn(
+					'rounded-lg border border-gray-200 bg-white p-3 text-sm space-y-2',
+					!isVisible && 'opacity-60'
+				)}
 			>
 				<div className="font-semibold text-gray-900 truncate">{datasetName}</div>
 				<div className="text-[11px] text-gray-500 truncate">
@@ -214,7 +219,10 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				{event.hashtags.length > 0 && (
 					<div className="flex flex-wrap gap-1">
 						{event.hashtags.slice(0, 3).map((tag) => (
-							<span key={tag} className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">
+							<span
+								key={tag}
+								className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700"
+							>
 								#{tag}
 							</span>
 						))}
@@ -225,7 +233,9 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						size="sm"
 						className={cn(
 							'w-full',
-							isOwned ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-blue-600 text-white hover:bg-blue-700'
+							isOwned
+								? 'bg-green-600 text-white hover:bg-green-700'
+								: 'bg-blue-600 text-white hover:bg-blue-700'
 						)}
 						onClick={() => onLoadDataset(event)}
 						disabled={isPublishing}
@@ -244,25 +254,35 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						</Button>
 					)}
 					<div className="flex items-center justify-between gap-2 text-[11px]">
-						<Button size="sm" variant="outline" className="flex-1" onClick={() => onToggleVisibility(event)}>
+						<Button
+							size="sm"
+							variant="outline"
+							className="flex-1"
+							onClick={() => onToggleVisibility(event)}
+						>
 							{isVisible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
 							{isVisible ? 'Hide' : 'Show'}
 						</Button>
-						<Button size="sm" variant="outline" className="flex-1" onClick={() => onZoomToDataset(event)}>
+						<Button
+							size="sm"
+							variant="outline"
+							className="flex-1"
+							onClick={() => onZoomToDataset(event)}
+						>
 							<Maximize2 className="h-3 w-3" />
 							Zoom
 						</Button>
 					</div>
 				</div>
 			</div>
-		);
-	};
+		)
+	}
 
 	if (viewMode === 'view') {
-		const headerTitle = viewCollection ? 'Collection overview' : 'Dataset overview';
+		const headerTitle = viewCollection ? 'Collection overview' : 'Dataset overview'
 		const subtitle = viewCollection
 			? 'Inspect linked datasets and metadata'
-			: 'Inspect dataset metadata without editing';
+			: 'Inspect dataset metadata without editing'
 
 		return (
 			<div className="space-y-4 text-sm">
@@ -278,7 +298,12 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 							</Button>
 						)}
 						{onClose && (
-							<Button size="icon" variant="ghost" onClick={onClose} aria-label="Close properties panel">
+							<Button
+								size="icon"
+								variant="ghost"
+								onClick={onClose}
+								aria-label="Close properties panel"
+							>
 								<X className="h-4 w-4" />
 							</Button>
 						)}
@@ -304,7 +329,9 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 								)}
 							</div>
 							{viewCollection.metadata.description && (
-								<p className="text-sm text-gray-600 whitespace-pre-line">{viewCollection.metadata.description}</p>
+								<p className="text-sm text-gray-600 whitespace-pre-line">
+									{viewCollection.metadata.description}
+								</p>
 							)}
 							<div className="text-[11px] text-gray-500">
 								Maintainer: {viewCollection.pubkey.slice(0, 8)}…{viewCollection.pubkey.slice(-4)}
@@ -316,7 +343,10 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 							{viewCollection.metadata.tags && viewCollection.metadata.tags.length > 0 && (
 								<div className="flex flex-wrap gap-1">
 									{viewCollection.metadata.tags.slice(0, 5).map((tag) => (
-										<span key={tag} className="rounded bg-purple-100 px-1.5 py-0.5 text-[10px] text-purple-700">
+										<span
+											key={tag}
+											className="rounded bg-purple-100 px-1.5 py-0.5 text-[10px] text-purple-700"
+										>
 											#{tag}
 										</span>
 									))}
@@ -327,10 +357,13 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 							<h4 className="text-sm font-semibold text-gray-800">Linked geo events</h4>
 							{viewCollectionEvents.length === 0 ? (
 								<p className="text-xs text-gray-500">
-									No linked geo events are currently loaded. Listen for their coordinates or load datasets first.
+									No linked geo events are currently loaded. Listen for their coordinates or load
+									datasets first.
 								</p>
 							) : (
-								<div className="space-y-2">{viewCollectionEvents.map((event) => datasetActionCard(event))}</div>
+								<div className="space-y-2">
+									{viewCollectionEvents.map((event) => datasetActionCard(event))}
+								</div>
 							)}
 						</section>
 					</>
@@ -339,21 +372,29 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				{viewDataset && !viewCollection && (
 					<>
 						<section className="rounded-lg border border-gray-200 p-3 space-y-2">
-							<div className="text-base font-semibold text-gray-900">{getDatasetName(viewDataset)}</div>
+							<div className="text-base font-semibold text-gray-900">
+								{getDatasetName(viewDataset)}
+							</div>
 							<div className="text-[11px] text-gray-500">
 								Owner: {viewDataset.pubkey.slice(0, 8)}…{viewDataset.pubkey.slice(-4)}
 							</div>
 							{viewDataset.hashtags.length > 0 && (
 								<div className="flex flex-wrap gap-1">
 									{viewDataset.hashtags.slice(0, 5).map((tag) => (
-										<span key={tag} className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">
+										<span
+											key={tag}
+											className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700"
+										>
 											#{tag}
 										</span>
 									))}
 								</div>
 							)}
 							<div className="text-xs text-gray-600 space-y-1">
-								<div>Bounding box: {viewDataset.boundingBox ? viewDataset.boundingBox.join(', ') : 'Not provided'}</div>
+								<div>
+									Bounding box:{' '}
+									{viewDataset.boundingBox ? viewDataset.boundingBox.join(', ') : 'Not provided'}
+								</div>
 								<div>Geohash: {viewDataset.geohash ?? '—'}</div>
 								<div>Collections referenced: {viewDataset.collectionReferences.length}</div>
 							</div>
@@ -365,7 +406,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					</>
 				)}
 			</div>
-		);
+		)
 	}
 
 	return (
@@ -439,7 +480,11 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 									value={String(value)}
 									onChange={(e) => onCollectionCustomPropertyChange(key, e.target.value)}
 								/>
-								<Button size="sm" variant="destructive" onClick={() => onCollectionCustomPropertyRemove(key)}>
+								<Button
+									size="sm"
+									variant="destructive"
+									onClick={() => onCollectionCustomPropertyRemove(key)}
+								>
 									✕
 								</Button>
 							</div>
@@ -469,7 +514,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				<div>
 					<h4 className="text-sm font-semibold text-gray-800">External geometry references</h4>
 					<p className="text-xs text-gray-500">
-						Link remote GeoJSON blobs for oversized geometries. They will be referenced via blob tags when publishing.
+						Link remote GeoJSON blobs for oversized geometries. They will be referenced via blob
+						tags when publishing.
 					</p>
 				</div>
 				<div className="flex flex-col gap-2">
@@ -479,22 +525,36 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						onChange={(e) => setBlobDraftUrl(e.target.value)}
 						disabled={blobDraftStatus === 'loading'}
 					/>
-					<Button onClick={fetchBlobReference} disabled={!blobDraftUrl || blobDraftStatus === 'loading'}>
+					<Button
+						onClick={fetchBlobReference}
+						disabled={!blobDraftUrl || blobDraftStatus === 'loading'}
+					>
 						{blobDraftStatus === 'loading' ? 'Fetching…' : 'Fetch & attach'}
 					</Button>
-					{blobDraftStatus === 'error' && blobDraftError && <p className="text-xs text-red-600">{blobDraftError}</p>}
+					{blobDraftStatus === 'error' && blobDraftError && (
+						<p className="text-xs text-red-600">{blobDraftError}</p>
+					)}
 				</div>
 				<div className="space-y-2">
-					{blobReferences.length === 0 && <p className="text-xs text-gray-500">No external references added yet.</p>}
+					{blobReferences.length === 0 && (
+						<p className="text-xs text-gray-500">No external references added yet.</p>
+					)}
 					{blobReferences.map((reference) => {
-						const isPreviewing = previewingBlobReferenceId === reference.id && reference.status === 'ready';
+						const isPreviewing =
+							previewingBlobReferenceId === reference.id && reference.status === 'ready'
 						return (
-							<div key={reference.id} className="rounded border border-gray-200 p-3 text-sm space-y-2 bg-white">
+							<div
+								key={reference.id}
+								className="rounded border border-gray-200 p-3 text-sm space-y-2 bg-white"
+							>
 								<div className="flex items-start justify-between gap-2">
 									<div className="space-y-1">
 										<div className="font-semibold text-gray-900 break-all">{reference.url}</div>
 										<div className="text-[11px] text-gray-500 space-x-2">
-											<span>Scope: {reference.scope === 'feature' ? 'Single feature' : 'Full collection'}</span>
+											<span>
+												Scope:{' '}
+												{reference.scope === 'feature' ? 'Single feature' : 'Full collection'}
+											</span>
 											{reference.scope === 'feature' && reference.featureId && (
 												<span>Feature ID: {reference.featureId}</span>
 											)}
@@ -535,11 +595,15 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 										onClick={() => previewBlobReference(reference.id)}
 										disabled={reference.status === 'loading'}
 									>
-										{reference.status === 'loading' ? 'Loading…' : isPreviewing ? 'Previewing' : 'Preview on map'}
+										{reference.status === 'loading'
+											? 'Loading…'
+											: isPreviewing
+												? 'Previewing'
+												: 'Preview on map'}
 									</Button>
 								</div>
 							</div>
-						);
+						)
 					})}
 				</div>
 			</section>
@@ -579,19 +643,25 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						{Object.entries(selectedFeature.properties?.customProperties ?? {}).length === 0 ? (
 							<p className="text-[11px] text-gray-500">No custom properties</p>
 						) : (
-							Object.entries(selectedFeature.properties?.customProperties ?? {}).map(([key, value]) => (
-								<div key={key} className="flex items-center gap-2 text-xs">
-									<span className="min-w-[60px] font-medium text-gray-700">{key}</span>
-									<Input
-										className="flex-1 rounded border border-gray-200 px-2 py-1"
-										value={String(value)}
-										onChange={(e) => onFeatureCustomPropertyChange(key, e.target.value)}
-									/>
-									<Button size="sm" variant="destructive" onClick={() => onRemoveFeatureCustomProperty(key)}>
-										✕
-									</Button>
-								</div>
-							))
+							Object.entries(selectedFeature.properties?.customProperties ?? {}).map(
+								([key, value]) => (
+									<div key={key} className="flex items-center gap-2 text-xs">
+										<span className="min-w-[60px] font-medium text-gray-700">{key}</span>
+										<Input
+											className="flex-1 rounded border border-gray-200 px-2 py-1"
+											value={String(value)}
+											onChange={(e) => onFeatureCustomPropertyChange(key, e.target.value)}
+										/>
+										<Button
+											size="sm"
+											variant="destructive"
+											onClick={() => onRemoveFeatureCustomProperty(key)}
+										>
+											✕
+										</Button>
+									</div>
+								)
+							)
 						)}
 						<div className="flex items-center gap-2">
 							<Input
@@ -624,7 +694,9 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 			{publishError && <p className="text-xs text-red-600">{publishError}</p>}
 
 			<section className="rounded-lg border border-gray-200 p-3">
-				<div className="text-sm font-semibold text-gray-800 mb-2">Geometries ({features.length})</div>
+				<div className="text-sm font-semibold text-gray-800 mb-2">
+					Geometries ({features.length})
+				</div>
 				{features.length === 0 ? (
 					<p className="text-xs text-gray-500">Draw or load geometries to edit their metadata.</p>
 				) : (
@@ -641,7 +713,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 										: 'border-gray-200 text-gray-700'
 								)}
 							>
-								{feature.properties?.name || `${feature.geometry.type} • ${feature.id.slice(0, 8)}…`}
+								{feature.properties?.name ||
+									`${feature.geometry.type} • ${feature.id.slice(0, 8)}…`}
 							</button>
 						))}
 					</div>
@@ -656,8 +729,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						</p>
 						<p>
 							Press <strong>Delete/Backspace</strong> or use the trash icon to remove them. Hold{' '}
-							<strong>{multiSelectModifierLabel}</strong> while clicking or dragging with the Select tool to add to the
-							selection.
+							<strong>{multiSelectModifierLabel}</strong> while clicking or dragging with the Select
+							tool to add to the selection.
 						</p>
 					</>
 				) : (
@@ -666,7 +739,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						<ul className="list-inside list-disc space-y-1">
 							<li>Use the Select tool to click a feature.</li>
 							<li>
-								Hold <strong>{multiSelectModifierLabel}</strong> to multi-select or drag to box-select.
+								Hold <strong>{multiSelectModifierLabel}</strong> to multi-select or drag to
+								box-select.
 							</li>
 							<li>The active geometry is highlighted on the map.</li>
 						</ul>
@@ -685,13 +759,16 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				</ul>
 			</section>
 		</div>
-	);
+	)
 }
 
-export function GeoEditorInfoPanel({ className, ...props }: GeoEditorInfoPanelProps & { className?: string }) {
+export function GeoEditorInfoPanel({
+	className,
+	...props
+}: GeoEditorInfoPanelProps & { className?: string }) {
 	return (
 		<div className={cn('w-96 rounded-2xl bg-white p-4 shadow-xl', className)}>
 			<GeoEditorInfoPanelContent {...props} />
 		</div>
-	);
+	)
 }

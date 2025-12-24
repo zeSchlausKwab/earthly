@@ -5,7 +5,7 @@
  * Used by both build-time injection and runtime validation.
  */
 
-import { z } from 'zod';
+import { z } from 'zod'
 
 /**
  * Zod schema defining all environment variables with their types and defaults.
@@ -30,10 +30,16 @@ export const envSchema = z.object({
 	SERVER_KEY: z.string().length(64).optional(),
 
 	/** Public key of the ContextVM geo server (derived from SERVER_KEY) */
-	SERVER_PUBKEY: z.string().length(64).default('ceadb7d5b739189fb3ecb7023a0c3f55d8995404d7750f5068865decf8b304cc'),
+	SERVER_PUBKEY: z
+		.string()
+		.length(64)
+		.default('ceadb7d5b739189fb3ecb7023a0c3f55d8995404d7750f5068865decf8b304cc'),
 
 	/** Client private key for ContextVM communication */
-	CLIENT_KEY: z.string().length(64).default('4e842ce1a820603c44f6ce3c4acd6527fdeb4898a9023d84bed51c1b4417eb5c'),
+	CLIENT_KEY: z
+		.string()
+		.length(64)
+		.default('4e842ce1a820603c44f6ce3c4acd6527fdeb4898a9023d84bed51c1b4417eb5c'),
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// App Configuration
@@ -44,18 +50,18 @@ export const envSchema = z.object({
 
 	/** Runtime environment */
 	NODE_ENV: z.enum(['development', 'production', 'test']).default('development')
-});
+})
 
 /** Inferred TypeScript type from the schema */
-export type Env = z.infer<typeof envSchema>;
+export type Env = z.infer<typeof envSchema>
 
 /**
  * List of environment variables that should be injected into the frontend bundle.
  * Backend-only variables (like private keys) are excluded.
  */
-export const FRONTEND_ENV_KEYS = ['RELAY_URL', 'SERVER_PUBKEY', 'CLIENT_KEY', 'NODE_ENV'] as const;
+export const FRONTEND_ENV_KEYS = ['RELAY_URL', 'SERVER_PUBKEY', 'CLIENT_KEY', 'NODE_ENV'] as const
 
-export type FrontendEnvKey = (typeof FRONTEND_ENV_KEYS)[number];
+export type FrontendEnvKey = (typeof FRONTEND_ENV_KEYS)[number]
 
 /**
  * Parse and validate environment variables.
@@ -65,7 +71,7 @@ export type FrontendEnvKey = (typeof FRONTEND_ENV_KEYS)[number];
  * @throws ZodError if validation fails
  */
 export function parseEnv(env: Record<string, string | undefined>): Env {
-	return envSchema.parse(env);
+	return envSchema.parse(env)
 }
 
 /**
@@ -73,5 +79,5 @@ export function parseEnv(env: Record<string, string | undefined>): Env {
  * Returns success/error result.
  */
 export function safeParseEnv(env: Record<string, string | undefined>) {
-	return envSchema.safeParse(env);
+	return envSchema.safeParse(env)
 }

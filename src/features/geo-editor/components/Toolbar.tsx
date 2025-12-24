@@ -21,53 +21,60 @@ import {
 	Upload,
 	UploadCloud,
 	X
-} from 'lucide-react';
-import type React from 'react';
-import { useRef } from 'react';
-import { LoginSessionButtons } from '../../../components/LoginSessionButtom';
-import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover';
-import type { EditorMode } from '../core';
-import { useEditorStore } from '../store';
-import type { GeoSearchResult } from '../types';
-import { MapSettingsPanel } from './MapSettingsPanel';
+} from 'lucide-react'
+import type React from 'react'
+import { useRef } from 'react'
+import { LoginSessionButtons } from '../../../components/LoginSessionButtom'
+import { Button } from '../../../components/ui/button'
+import { Input } from '../../../components/ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
+import type { EditorMode } from '../core'
+import { useEditorStore } from '../store'
+import type { GeoSearchResult } from '../types'
+import { MapSettingsPanel } from './MapSettingsPanel'
 
 type ToolbarButton = {
-	key: string;
-	icon: React.ComponentType<any>;
-	onClick: () => void;
-	disabled?: boolean;
-	variant?: 'default' | 'outline';
-	ariaLabel: string;
-};
+	key: string
+	icon: React.ComponentType<any>
+	onClick: () => void
+	disabled?: boolean
+	variant?: 'default' | 'outline'
+	ariaLabel: string
+}
 
 type IconButtonRowProps = {
-	buttons: ToolbarButton[];
-	className?: string;
-	wrap?: boolean;
-};
+	buttons: ToolbarButton[]
+	className?: string
+	wrap?: boolean
+}
 
 type SearchBarProps = {
-	searchQuery: string;
-	searchLoading: boolean;
-	placeholder: string;
-	onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
-	onQueryChange?: (value: string) => void;
-	onClearQuery?: () => void;
-	className?: string;
-};
+	searchQuery: string
+	searchLoading: boolean
+	placeholder: string
+	onSubmit: (event: React.FormEvent<HTMLFormElement>) => void
+	onQueryChange?: (value: string) => void
+	onClearQuery?: () => void
+	className?: string
+}
 
 function IconButtonRow({ buttons, className = '', wrap = false }: IconButtonRowProps) {
 	return (
 		<div className={`flex items-center gap-1 ${wrap ? 'flex-wrap' : ''} ${className}`}>
 			{buttons.map(({ key, icon: Icon, variant = 'outline', disabled, onClick, ariaLabel }) => (
-				<Button key={key} size="icon" variant={variant} disabled={disabled} aria-label={ariaLabel} onClick={onClick}>
+				<Button
+					key={key}
+					size="icon"
+					variant={variant}
+					disabled={disabled}
+					aria-label={ariaLabel}
+					onClick={onClick}
+				>
 					<Icon className="h-4 w-4" />
 				</Button>
 			))}
 		</div>
-	);
+	)
 }
 
 function SearchBar({
@@ -99,34 +106,44 @@ function SearchBar({
 					</button>
 				)}
 			</div>
-			<Button type="submit" size="icon" variant="default" aria-label="Search location" disabled={searchLoading}>
-				{searchLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+			<Button
+				type="submit"
+				size="icon"
+				variant="default"
+				aria-label="Search location"
+				disabled={searchLoading}
+			>
+				{searchLoading ? (
+					<RefreshCw className="h-4 w-4 animate-spin" />
+				) : (
+					<Search className="h-4 w-4" />
+				)}
 			</Button>
 		</form>
-	);
+	)
 }
 
 interface DatasetActionsProps {
-	onExport?: () => void;
-	canExport?: boolean;
-	onImport?: (file: File) => void;
-	onClear?: () => void;
-	canClear?: boolean;
-	onPublishNew?: () => void;
-	canPublishNew?: boolean;
-	onPublishUpdate?: () => void;
-	canPublishUpdate?: boolean;
-	onPublishCopy?: () => void;
-	canPublishCopy?: boolean;
-	isPublishing?: boolean;
+	onExport?: () => void
+	canExport?: boolean
+	onImport?: (file: File) => void
+	onClear?: () => void
+	canClear?: boolean
+	onPublishNew?: () => void
+	canPublishNew?: boolean
+	onPublishUpdate?: () => void
+	canPublishUpdate?: boolean
+	onPublishCopy?: () => void
+	canPublishCopy?: boolean
+	isPublishing?: boolean
 }
 
 interface ToolbarProps {
-	datasetActions?: DatasetActionsProps;
-	isMobile?: boolean;
-	showLogin?: boolean;
-	onSearchResultSelect?: (result: GeoSearchResult) => void;
-	onInspectorDeactivate?: () => void;
+	datasetActions?: DatasetActionsProps
+	isMobile?: boolean
+	showLogin?: boolean
+	onSearchResultSelect?: (result: GeoSearchResult) => void
+	onInspectorDeactivate?: () => void
 }
 
 export function Toolbar({
@@ -136,133 +153,133 @@ export function Toolbar({
 	onSearchResultSelect,
 	onInspectorDeactivate
 }: ToolbarProps) {
-	const editor = useEditorStore((state) => state.editor);
-	const mode = useEditorStore((state) => state.mode);
-	const setMode = useEditorStore((state) => state.setMode);
-	const snappingEnabled = useEditorStore((state) => state.snappingEnabled);
-	const setSnappingEnabled = useEditorStore((state) => state.setSnappingEnabled);
-	const history = useEditorStore((state) => state.history);
-	const setHistoryState = useEditorStore((state) => state.setHistoryState);
+	const editor = useEditorStore((state) => state.editor)
+	const mode = useEditorStore((state) => state.mode)
+	const setMode = useEditorStore((state) => state.setMode)
+	const snappingEnabled = useEditorStore((state) => state.snappingEnabled)
+	const setSnappingEnabled = useEditorStore((state) => state.setSnappingEnabled)
+	const history = useEditorStore((state) => state.history)
+	const setHistoryState = useEditorStore((state) => state.setHistoryState)
 
 	// UI State
-	const showTips = useEditorStore((state) => state.showTips);
-	const setShowTips = useEditorStore((state) => state.setShowTips);
-	const showDatasetsPanel = useEditorStore((state) => state.showDatasetsPanel);
-	const setShowDatasetsPanel = useEditorStore((state) => state.setShowDatasetsPanel);
-	const showInfoPanel = useEditorStore((state) => state.showInfoPanel);
-	const setShowInfoPanel = useEditorStore((state) => state.setShowInfoPanel);
-	const setMobileActiveState = useEditorStore((state) => state.setMobileActiveState);
-	const mobileDatasetsOpen = useEditorStore((state) => state.mobileDatasetsOpen);
-	const mobileInfoOpen = useEditorStore((state) => state.mobileInfoOpen);
-	const mobileToolsOpen = useEditorStore((state) => state.mobileToolsOpen);
-	const mobileSearchOpen = useEditorStore((state) => state.mobileSearchOpen);
-	const mobileActionsOpen = useEditorStore((state) => state.mobileActionsOpen);
-	const inspectorActive = useEditorStore((state) => state.inspectorActive);
-	const setInspectorActive = useEditorStore((state) => state.setInspectorActive);
-	const showMapSettings = useEditorStore((state) => state.showMapSettings);
-	const setShowMapSettings = useEditorStore((state) => state.setShowMapSettings);
+	const showTips = useEditorStore((state) => state.showTips)
+	const setShowTips = useEditorStore((state) => state.setShowTips)
+	const showDatasetsPanel = useEditorStore((state) => state.showDatasetsPanel)
+	const setShowDatasetsPanel = useEditorStore((state) => state.setShowDatasetsPanel)
+	const showInfoPanel = useEditorStore((state) => state.showInfoPanel)
+	const setShowInfoPanel = useEditorStore((state) => state.setShowInfoPanel)
+	const setMobileActiveState = useEditorStore((state) => state.setMobileActiveState)
+	const mobileDatasetsOpen = useEditorStore((state) => state.mobileDatasetsOpen)
+	const mobileInfoOpen = useEditorStore((state) => state.mobileInfoOpen)
+	const mobileToolsOpen = useEditorStore((state) => state.mobileToolsOpen)
+	const mobileSearchOpen = useEditorStore((state) => state.mobileSearchOpen)
+	const mobileActionsOpen = useEditorStore((state) => state.mobileActionsOpen)
+	const inspectorActive = useEditorStore((state) => state.inspectorActive)
+	const setInspectorActive = useEditorStore((state) => state.setInspectorActive)
+	const showMapSettings = useEditorStore((state) => state.showMapSettings)
+	const setShowMapSettings = useEditorStore((state) => state.setShowMapSettings)
 
 	// Search State
-	const searchQuery = useEditorStore((state) => state.searchQuery);
-	const searchResults = useEditorStore((state) => state.searchResults);
-	const searchLoading = useEditorStore((state) => state.searchLoading);
-	const searchError = useEditorStore((state) => state.searchError);
-	const setSearchQuery = useEditorStore((state) => state.setSearchQuery);
-	const performSearch = useEditorStore((state) => state.performSearch);
-	const clearSearch = useEditorStore((state) => state.clearSearch);
+	const searchQuery = useEditorStore((state) => state.searchQuery)
+	const searchResults = useEditorStore((state) => state.searchResults)
+	const searchLoading = useEditorStore((state) => state.searchLoading)
+	const searchError = useEditorStore((state) => state.searchError)
+	const setSearchQuery = useEditorStore((state) => state.setSearchQuery)
+	const performSearch = useEditorStore((state) => state.performSearch)
+	const clearSearch = useEditorStore((state) => state.clearSearch)
 
-	const fileInputRef = useRef<HTMLInputElement>(null);
+	const fileInputRef = useRef<HTMLInputElement>(null)
 
 	const handleModeChange = (newMode: EditorMode) => {
-		setMode(newMode);
+		setMode(newMode)
 		if (inspectorActive) {
-			setInspectorActive(false);
-			onInspectorDeactivate?.();
+			setInspectorActive(false)
+			onInspectorDeactivate?.()
 		}
-	};
+	}
 
 	const handleUndo = () => {
-		editor?.undo();
-		setHistoryState(editor?.history.canUndo() ?? false, editor?.history.canRedo() ?? false);
-	};
+		editor?.undo()
+		setHistoryState(editor?.history.canUndo() ?? false, editor?.history.canRedo() ?? false)
+	}
 
 	const handleRedo = () => {
-		editor?.redo();
-		setHistoryState(editor?.history.canUndo() ?? false, editor?.history.canRedo() ?? false);
-	};
+		editor?.redo()
+		setHistoryState(editor?.history.canUndo() ?? false, editor?.history.canRedo() ?? false)
+	}
 
 	const handleToggleSnapping = () => {
-		setSnappingEnabled(!snappingEnabled);
-	};
+		setSnappingEnabled(!snappingEnabled)
+	}
 
 	const handleToggleDatasets = () => {
 		if (isMobile) {
-			setMobileActiveState(mobileDatasetsOpen ? null : 'datasets');
+			setMobileActiveState(mobileDatasetsOpen ? null : 'datasets')
 		} else {
-			setShowDatasetsPanel(!showDatasetsPanel);
+			setShowDatasetsPanel(!showDatasetsPanel)
 		}
-	};
+	}
 
 	const handleToggleInfo = () => {
 		if (isMobile) {
-			setMobileActiveState(mobileInfoOpen ? null : 'info');
+			setMobileActiveState(mobileInfoOpen ? null : 'info')
 		} else {
-			setShowInfoPanel(!showInfoPanel);
+			setShowInfoPanel(!showInfoPanel)
 		}
-	};
+	}
 
 	const handleToggleTips = () => {
-		setShowTips((prev) => !prev);
-	};
+		setShowTips((prev) => !prev)
+	}
 
 	const handleToggleInspector = () => {
 		if (inspectorActive) {
-			setInspectorActive(false);
-			onInspectorDeactivate?.();
+			setInspectorActive(false)
+			onInspectorDeactivate?.()
 		} else {
-			setInspectorActive(true);
+			setInspectorActive(true)
 			if (mode !== 'select') {
-				setMode('select');
+				setMode('select')
 			}
 		}
-	};
+	}
 
 	const handleToggleMapSettings = () => {
-		setShowMapSettings(!showMapSettings);
-	};
+		setShowMapSettings(!showMapSettings)
+	}
 
 	const handleSearchSubmit = (e: React.FormEvent) => {
-		e.preventDefault();
-		performSearch();
-	};
+		e.preventDefault()
+		performSearch()
+	}
 
 	const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-		const file = e.target.files?.[0];
+		const file = e.target.files?.[0]
 		if (file && datasetActions?.onImport) {
-			datasetActions.onImport(file);
+			datasetActions.onImport(file)
 		}
 		if (fileInputRef.current) {
-			fileInputRef.current.value = '';
+			fileInputRef.current.value = ''
 		}
-	};
+	}
 
 	const handleDeleteSelected = () => {
-		const selected = editor?.getSelectedFeatures();
+		const selected = editor?.getSelectedFeatures()
 		if (selected && selected.length > 0) {
-			editor?.deleteFeatures(selected.map((f) => f.id));
+			editor?.deleteFeatures(selected.map((f) => f.id))
 		}
-	};
+	}
 
 	const handleMergeSelected = () => {
-		editor?.combineSelectedFeatures();
-	};
+		editor?.combineSelectedFeatures()
+	}
 
 	const handleSplitSelected = () => {
-		editor?.splitSelectedFeatures();
-	};
+		editor?.splitSelectedFeatures()
+	}
 
-	const datasetsOpen = isMobile ? mobileDatasetsOpen : showDatasetsPanel;
-	const infoPanelOpen = isMobile ? mobileInfoOpen : showInfoPanel;
+	const datasetsOpen = isMobile ? mobileDatasetsOpen : showDatasetsPanel
+	const infoPanelOpen = isMobile ? mobileInfoOpen : showInfoPanel
 
 	// Desktop Toolbar Configuration
 	const desktopButtons: ToolbarButton[] = [
@@ -348,7 +365,7 @@ export function Toolbar({
 			onClick: handleSplitSelected,
 			ariaLabel: 'Split selected'
 		}
-	];
+	]
 
 	const datasetButtons: ToolbarButton[] = [
 		{
@@ -371,7 +388,7 @@ export function Toolbar({
 			disabled: !datasetActions?.canClear,
 			ariaLabel: 'Clear all features'
 		}
-	];
+	]
 
 	const publishButtons: ToolbarButton[] = [
 		{
@@ -395,7 +412,7 @@ export function Toolbar({
 			disabled: !datasetActions?.canPublishCopy || datasetActions?.isPublishing,
 			ariaLabel: 'Fork dataset'
 		}
-	];
+	]
 
 	const reverseLookupButton: ToolbarButton = {
 		key: 'reverse-lookup',
@@ -403,7 +420,7 @@ export function Toolbar({
 		onClick: handleToggleInspector, // Reusing inspector for now as it handles reverse lookup
 		variant: inspectorActive ? 'default' : 'outline',
 		ariaLabel: 'Reverse lookup'
-	};
+	}
 
 	const actionButtons: ToolbarButton[] = [
 		// Import
@@ -437,7 +454,7 @@ export function Toolbar({
 			disabled: !datasetActions?.canPublishUpdate || datasetActions?.isPublishing,
 			ariaLabel: 'Update existing dataset'
 		}
-	];
+	]
 
 	const sidebarButtons: ToolbarButton[] = [
 		// Toggle Sidebar
@@ -455,7 +472,7 @@ export function Toolbar({
 			variant: infoPanelOpen ? 'default' : 'outline',
 			ariaLabel: 'Toggle info panel'
 		}
-	];
+	]
 	// Mobile Toolbar Configuration
 	const mobileDrawButtons: ToolbarButton[] = [
 		{
@@ -486,7 +503,7 @@ export function Toolbar({
 			variant: mode === 'draw_polygon' ? 'default' : 'outline',
 			ariaLabel: 'Draw polygon'
 		}
-	];
+	]
 
 	const mobileEditButtons: ToolbarButton[] = [
 		{
@@ -549,7 +566,7 @@ export function Toolbar({
 			variant: showMapSettings ? 'default' : 'outline',
 			ariaLabel: 'Map Settings'
 		}
-	];
+	]
 
 	if (isMobile) {
 		return (
@@ -571,8 +588,8 @@ export function Toolbar({
 								searchLoading={searchLoading}
 								placeholder="Search location..."
 								onSubmit={(e) => {
-									e.preventDefault();
-									handleSearchSubmit(e);
+									e.preventDefault()
+									handleSearchSubmit(e)
 								}}
 								onQueryChange={setSearchQuery}
 								onClearQuery={clearSearch}
@@ -615,7 +632,7 @@ export function Toolbar({
 					)}
 				</div>
 			</>
-		);
+		)
 	}
 
 	return (
@@ -640,7 +657,12 @@ export function Toolbar({
 							<div className="absolute top-full left-0 mt-2 w-64 rounded-lg bg-white p-2 shadow-lg z-50 border border-gray-100">
 								<div className="flex items-center justify-between border-b border-gray-100 pb-2 mb-2">
 									<span className="text-xs font-medium text-gray-500">Results</span>
-									<Button variant="ghost" size="sm" className="h-auto p-0 text-xs" onClick={clearSearch}>
+									<Button
+										variant="ghost"
+										size="sm"
+										className="h-auto p-0 text-xs"
+										onClick={clearSearch}
+									>
 										Close
 									</Button>
 								</div>
@@ -667,7 +689,11 @@ export function Toolbar({
 
 					<Popover open={showMapSettings} onOpenChange={setShowMapSettings}>
 						<PopoverTrigger asChild>
-							<Button variant={showMapSettings ? 'default' : 'outline'} size="icon" aria-label="Map Settings">
+							<Button
+								variant={showMapSettings ? 'default' : 'outline'}
+								size="icon"
+								aria-label="Map Settings"
+							>
 								<MapIcon className="h-4 w-4" />
 							</Button>
 						</PopoverTrigger>
@@ -685,10 +711,12 @@ export function Toolbar({
 			</div>
 
 			{searchError && (
-				<div className="rounded-lg bg-red-50 p-2 text-xs text-red-600 shadow-sm self-start">{searchError}</div>
+				<div className="rounded-lg bg-red-50 p-2 text-xs text-red-600 shadow-sm self-start">
+					{searchError}
+				</div>
 			)}
 		</div>
-	);
+	)
 }
 
 // Helper component for Help Icon
@@ -710,5 +738,5 @@ function HelpIcon(props: any) {
 			<path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
 			<path d="M12 17h.01" />
 		</svg>
-	);
+	)
 }

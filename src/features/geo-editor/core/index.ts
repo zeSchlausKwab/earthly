@@ -1,9 +1,9 @@
-export { GeoEditor } from './GeoEditor';
+export { GeoEditor } from './GeoEditor'
 
-export { HistoryManager } from './managers/HistoryManager';
-export { SelectionManager } from './managers/SelectionManager';
-export { SnapManager } from './managers/SnapManager';
-export { TransformManager } from './managers/TransformManager';
+export { HistoryManager } from './managers/HistoryManager'
+export { SelectionManager } from './managers/SelectionManager'
+export { SnapManager } from './managers/SnapManager'
+export { TransformManager } from './managers/TransformManager'
 export type {
 	DrawFeatureType,
 	EditorEvent,
@@ -17,4 +17,4 @@ export type {
 	SelectionBounds,
 	SnapResult,
 	TransformOptions
-} from './types';
+} from './types'

@@ -1,57 +1,57 @@
-import { namedFlavor, layers as protomapsLayers } from '@protomaps/basemaps';
-import maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
-import { PMTiles, Protocol, TileType } from 'pmtiles';
-import type React from 'react';
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { type BBox, lonLatToWorldGeohash, tileCenterLonLat } from '@/lib/worldGeohash';
+import { namedFlavor, layers as protomapsLayers } from '@protomaps/basemaps'
+import maplibregl from 'maplibre-gl'
+import 'maplibre-gl/dist/maplibre-gl.css'
+import { PMTiles, Protocol, TileType } from 'pmtiles'
+import type React from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { type BBox, lonLatToWorldGeohash, tileCenterLonLat } from '@/lib/worldGeohash'
 
 interface MapContextType {
-	map: maplibregl.Map | null;
-	isLoaded: boolean;
+	map: maplibregl.Map | null
+	isLoaded: boolean
 }
 
 const MapContext = createContext<MapContextType>({
 	map: null,
 	isLoaded: false
-});
+})
 
-export const useMap = () => useContext(MapContext);
+export const useMap = () => useContext(MapContext)
 
 /**
  * Announcement record that maps geohashes to PMTiles chunk files.
  * This enables Blossom map discovery to find which PMTiles file
  * contains tiles for a given region.
  */
-export type AnnouncementRecord = Record<string, { bbox: BBox; file: string; maxZoom: number }>;
+export type AnnouncementRecord = Record<string, { bbox: BBox; file: string; maxZoom: number }>
 
 export interface MapSource {
-	type: 'default' | 'pmtiles' | 'blossom';
-	location: 'remote' | 'local';
-	url?: string;
-	file?: File;
+	type: 'default' | 'pmtiles' | 'blossom'
+	location: 'remote' | 'local'
+	url?: string
+	file?: File
 	/** Base URL for fetching PMTiles chunks (used with blossom map discovery) */
-	blossomServer?: string;
+	blossomServer?: string
 	/** URL to fetch the announcement record (used with blossom map discovery) */
-	announcementUrl?: string;
+	announcementUrl?: string
 }
 
 interface MapProps {
-	style?: string | maplibregl.StyleSpecification;
-	center?: [number, number];
-	zoom?: number;
-	children?: React.ReactNode;
-	className?: string;
-	onLoad?: (map: maplibregl.Map) => void;
-	mapSource?: MapSource;
+	style?: string | maplibregl.StyleSpecification
+	center?: [number, number]
+	zoom?: number
+	children?: React.ReactNode
+	className?: string
+	onLoad?: (map: maplibregl.Map) => void
+	mapSource?: MapSource
 }
 
 // Protocol registration flags (module-level to prevent re-registration)
-let pmworldProtocolRegistered = false;
-let pmtilesProtocolRegistered = false;
+let pmworldProtocolRegistered = false
+let pmtilesProtocolRegistered = false
 
 // Cache for PMTiles instances (using object to avoid shadowing native Map with component name)
-const pmtilesCache: Record<string, PMTiles> = {};
+const pmtilesCache: Record<string, PMTiles> = {}
 
 // Shared refs for pmworld protocol (accessible from protocol handler)
 const pmworldState = {
@@ -59,7 +59,7 @@ const pmworldState = {
 	precision: 1,
 	maxZoom: 8,
 	blossomServer: 'http://localhost:3001'
-};
+}
 
 export const Map: React.FC<MapProps> = ({
 	style: initialStyle = 'https://tiles.openfreemap.org/styles/liberty',
@@ -70,27 +70,27 @@ export const Map: React.FC<MapProps> = ({
 	onLoad,
 	mapSource = { type: 'default', location: 'remote' }
 }) => {
-	const mapContainer = useRef<HTMLDivElement>(null);
-	const mapRef = useRef<maplibregl.Map | null>(null);
-	const protocolRef = useRef<Protocol | null>(null);
-	const [isLoaded, setIsLoaded] = useState(false);
-	const [announcement, setAnnouncement] = useState<AnnouncementRecord | null>(null);
-	const [tileSourceMaxZoom, setTileSourceMaxZoom] = useState<number | null>(null);
-	const currentStyleUrlRef = useRef<string | null>(null);
+	const mapContainer = useRef<HTMLDivElement>(null)
+	const mapRef = useRef<maplibregl.Map | null>(null)
+	const protocolRef = useRef<Protocol | null>(null)
+	const [isLoaded, setIsLoaded] = useState(false)
+	const [announcement, setAnnouncement] = useState<AnnouncementRecord | null>(null)
+	const [tileSourceMaxZoom, setTileSourceMaxZoom] = useState<number | null>(null)
+	const currentStyleUrlRef = useRef<string | null>(null)
 
 	// Register protocols once
 	useEffect(() => {
 		if (!pmtilesProtocolRegistered) {
-			const protocol = new Protocol();
-			maplibregl.addProtocol('pmtiles', protocol.tile);
-			protocolRef.current = protocol;
-			pmtilesProtocolRegistered = true;
+			const protocol = new Protocol()
+			maplibregl.addProtocol('pmtiles', protocol.tile)
+			protocolRef.current = protocol
+			pmtilesProtocolRegistered = true
 		}
 
 		if (!pmworldProtocolRegistered) {
 			maplibregl.addProtocol('pmworld', async (params, abortController) => {
 				if (params.type === 'json') {
-					const maxzoom = pmworldState.maxZoom;
+					const maxzoom = pmworldState.maxZoom
 					return {
 						data: {
 							tiles: [`${params.url}/{z}/{x}/{y}`],
@@ -98,133 +98,135 @@ export const Map: React.FC<MapProps> = ({
 							maxzoom,
 							bounds: [-180, -90, 180, 90]
 						}
-					};
+					}
 				}
 
-				const m = params.url.match(/^pmworld:\/\/.+\/(\d+)\/(\d+)\/(\d+)$/);
-				if (!m) throw new Error('Invalid pmworld URL');
-				const z = Number(m[1]);
-				const x = Number(m[2]);
-				const y = Number(m[3]);
+				const m = params.url.match(/^pmworld:\/\/.+\/(\d+)\/(\d+)\/(\d+)$/)
+				if (!m) throw new Error('Invalid pmworld URL')
+				const z = Number(m[1])
+				const x = Number(m[2])
+				const y = Number(m[3])
 
-				const center = tileCenterLonLat(z, x, y);
-				const gh = lonLatToWorldGeohash(pmworldState.precision, center.lon, center.lat);
-				const record = pmworldState.announcement?.[gh];
-				if (!record) return { data: new Uint8Array() };
+				const center = tileCenterLonLat(z, x, y)
+				const gh = lonLatToWorldGeohash(pmworldState.precision, center.lon, center.lat)
+				const record = pmworldState.announcement?.[gh]
+				if (!record) return { data: new Uint8Array() }
 
-				const pmtilesUrl = `${pmworldState.blossomServer}/${record.file}`;
-				let pm = pmtilesCache[pmtilesUrl];
+				const pmtilesUrl = `${pmworldState.blossomServer}/${record.file}`
+				let pm = pmtilesCache[pmtilesUrl]
 				if (!pm) {
-					pm = new PMTiles(pmtilesUrl);
-					pmtilesCache[pmtilesUrl] = pm;
+					pm = new PMTiles(pmtilesUrl)
+					pmtilesCache[pmtilesUrl] = pm
 				}
 
-				const header = await pm.getHeader();
-				const resp = await pm.getZxy(z, x, y, abortController.signal);
+				const header = await pm.getHeader()
+				const resp = await pm.getZxy(z, x, y, abortController.signal)
 				if (resp) {
 					return {
 						data: new Uint8Array(resp.data),
 						cacheControl: resp.cacheControl,
 						expires: resp.expires
-					};
+					}
 				}
-				if (header.tileType === TileType.Mvt) return { data: new Uint8Array() };
-				return { data: null };
-			});
-			pmworldProtocolRegistered = true;
+				if (header.tileType === TileType.Mvt) return { data: new Uint8Array() }
+				return { data: null }
+			})
+			pmworldProtocolRegistered = true
 		}
-	}, []);
+	}, [])
 
 	// Fetch announcement for blossom source
 	useEffect(() => {
 		if (mapSource.type !== 'blossom') {
-			setAnnouncement(null);
-			setTileSourceMaxZoom(null);
-			return;
+			setAnnouncement(null)
+			setTileSourceMaxZoom(null)
+			return
 		}
 
-		const announcementUrl = mapSource.announcementUrl || 'http://localhost:3333/api/announcement';
-		const blossomServer = mapSource.blossomServer || 'http://localhost:3001';
-		pmworldState.blossomServer = blossomServer;
+		const announcementUrl = mapSource.announcementUrl || 'http://localhost:3333/api/announcement'
+		const blossomServer = mapSource.blossomServer || 'http://localhost:3001'
+		pmworldState.blossomServer = blossomServer
 
-		let cancelled = false;
-		(async () => {
+		let cancelled = false
+		;(async () => {
 			try {
-				const res = await fetch(announcementUrl);
+				const res = await fetch(announcementUrl)
 				if (!res.ok) {
-					console.error('Failed to fetch announcement:', res.statusText);
-					return;
+					console.error('Failed to fetch announcement:', res.statusText)
+					return
 				}
-				const data = (await res.json()) as AnnouncementRecord;
-				if (cancelled) return;
+				const data = (await res.json()) as AnnouncementRecord
+				if (cancelled) return
 
-				setAnnouncement(data);
-				pmworldState.announcement = data;
+				setAnnouncement(data)
+				pmworldState.announcement = data
 
-				const firstKey = Object.keys(data)[0];
+				const firstKey = Object.keys(data)[0]
 				if (firstKey && firstKey.length > 0) {
-					pmworldState.precision = firstKey.length;
+					pmworldState.precision = firstKey.length
 				}
 
-				const announcedMaxZoom = Object.values(data).reduce((acc, v) => Math.max(acc, v.maxZoom), 0);
+				const announcedMaxZoom = Object.values(data).reduce((acc, v) => Math.max(acc, v.maxZoom), 0)
 
-				const firstRecord = firstKey ? data[firstKey] : undefined;
+				const firstRecord = firstKey ? data[firstKey] : undefined
 				if (!firstRecord) {
 					if (Number.isFinite(announcedMaxZoom) && announcedMaxZoom > 0) {
-						pmworldState.maxZoom = announcedMaxZoom;
-						setTileSourceMaxZoom(announcedMaxZoom);
+						pmworldState.maxZoom = announcedMaxZoom
+						setTileSourceMaxZoom(announcedMaxZoom)
 					} else {
-						setTileSourceMaxZoom(pmworldState.maxZoom);
+						setTileSourceMaxZoom(pmworldState.maxZoom)
 					}
-					return;
+					return
 				}
 
 				// Probe first PMTiles file for actual maxZoom
 				try {
-					const pmtilesUrl = `${blossomServer}/${firstRecord.file}`;
-					let pm = pmtilesCache[pmtilesUrl];
+					const pmtilesUrl = `${blossomServer}/${firstRecord.file}`
+					let pm = pmtilesCache[pmtilesUrl]
 					if (!pm) {
-						pm = new PMTiles(pmtilesUrl);
-						pmtilesCache[pmtilesUrl] = pm;
+						pm = new PMTiles(pmtilesUrl)
+						pmtilesCache[pmtilesUrl] = pm
 					}
-					const header = await pm.getHeader();
-					const nativeMaxZoom = header.maxZoom;
+					const header = await pm.getHeader()
+					const nativeMaxZoom = header.maxZoom
 					const effectiveMaxZoom =
 						Number.isFinite(nativeMaxZoom) && nativeMaxZoom >= 0
 							? nativeMaxZoom
 							: Number.isFinite(announcedMaxZoom) && announcedMaxZoom >= 0
 								? announcedMaxZoom
-								: pmworldState.maxZoom;
+								: pmworldState.maxZoom
 
-					pmworldState.maxZoom = effectiveMaxZoom;
-					setTileSourceMaxZoom(effectiveMaxZoom);
+					pmworldState.maxZoom = effectiveMaxZoom
+					setTileSourceMaxZoom(effectiveMaxZoom)
 				} catch {
 					const fallback =
-						Number.isFinite(announcedMaxZoom) && announcedMaxZoom > 0 ? announcedMaxZoom : pmworldState.maxZoom;
-					pmworldState.maxZoom = fallback;
-					setTileSourceMaxZoom(fallback);
+						Number.isFinite(announcedMaxZoom) && announcedMaxZoom > 0
+							? announcedMaxZoom
+							: pmworldState.maxZoom
+					pmworldState.maxZoom = fallback
+					setTileSourceMaxZoom(fallback)
 				}
 			} catch (error) {
-				console.error('Failed to fetch announcement:', error);
+				console.error('Failed to fetch announcement:', error)
 			}
-		})();
+		})()
 
 		return () => {
-			cancelled = true;
-		};
-	}, [mapSource.type, mapSource.announcementUrl, mapSource.blossomServer]);
+			cancelled = true
+		}
+	}, [mapSource.type, mapSource.announcementUrl, mapSource.blossomServer])
 
 	// Initialize map
 	useEffect(() => {
-		if (!mapContainer.current) return;
-		if (mapRef.current) return;
+		if (!mapContainer.current) return
+		if (mapRef.current) return
 
 		// For blossom, wait until we have the announcement
 		if (mapSource.type === 'blossom' && tileSourceMaxZoom === null) {
-			return;
+			return
 		}
 
-		let mapStyle: string | maplibregl.StyleSpecification = initialStyle;
+		let mapStyle: string | maplibregl.StyleSpecification = initialStyle
 
 		if (mapSource.type === 'blossom' && tileSourceMaxZoom !== null) {
 			mapStyle = {
@@ -244,14 +246,14 @@ export const Map: React.FC<MapProps> = ({
 				layers: protomapsLayers('protomaps', namedFlavor('light'), {
 					lang: 'en'
 				})
-			};
+			}
 		} else if (mapSource.type === 'pmtiles') {
-			let url = mapSource.url;
+			let url = mapSource.url
 			if (mapSource.location === 'local' && mapSource.file) {
-				url = URL.createObjectURL(mapSource.file);
+				url = URL.createObjectURL(mapSource.file)
 			}
 			if (url) {
-				const pmtilesUrl = url.startsWith('pmtiles://') ? url : `pmtiles://${url}`;
+				const pmtilesUrl = url.startsWith('pmtiles://') ? url : `pmtiles://${url}`
 				mapStyle = {
 					version: 8,
 					glyphs: 'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf',
@@ -267,7 +269,7 @@ export const Map: React.FC<MapProps> = ({
 					layers: protomapsLayers('protomaps', namedFlavor('light'), {
 						lang: 'en'
 					})
-				};
+				}
 			}
 		}
 
@@ -277,50 +279,50 @@ export const Map: React.FC<MapProps> = ({
 			center,
 			zoom,
 			maxZoom: 22
-		});
+		})
 
-		mapRef.current = map;
+		mapRef.current = map
 
 		map.on('load', () => {
-			setIsLoaded(true);
-			if (onLoad) onLoad(map);
-		});
+			setIsLoaded(true)
+			if (onLoad) onLoad(map)
+		})
 
 		const resizeObserver = new ResizeObserver(() => {
-			map.resize();
-		});
-		resizeObserver.observe(mapContainer.current);
+			map.resize()
+		})
+		resizeObserver.observe(mapContainer.current)
 
 		return () => {
-			resizeObserver.disconnect();
-			map.remove();
-			mapRef.current = null;
-			setIsLoaded(false);
-		};
-	}, [mapSource.type, tileSourceMaxZoom]);
+			resizeObserver.disconnect()
+			map.remove()
+			mapRef.current = null
+			setIsLoaded(false)
+		}
+	}, [mapSource.type, tileSourceMaxZoom])
 
 	// Handle map source updates (for switching sources after init)
 	useEffect(() => {
-		const map = mapRef.current;
-		if (!map) return;
+		const map = mapRef.current
+		if (!map) return
 
 		const updateStyle = async () => {
 			if (mapSource.type === 'default') {
-				if (currentStyleUrlRef.current === initialStyle) return;
-				map.setStyle(initialStyle);
-				currentStyleUrlRef.current = initialStyle as string;
+				if (currentStyleUrlRef.current === initialStyle) return
+				map.setStyle(initialStyle)
+				currentStyleUrlRef.current = initialStyle as string
 			} else if (mapSource.type === 'pmtiles') {
-				let url = mapSource.url;
+				let url = mapSource.url
 
 				if (mapSource.location === 'local' && mapSource.file) {
-					url = URL.createObjectURL(mapSource.file);
+					url = URL.createObjectURL(mapSource.file)
 				}
 
-				if (!url) return;
+				if (!url) return
 
-				const pmtilesUrl = url.startsWith('pmtiles://') ? url : `pmtiles://${url}`;
+				const pmtilesUrl = url.startsWith('pmtiles://') ? url : `pmtiles://${url}`
 
-				if (currentStyleUrlRef.current === pmtilesUrl) return;
+				if (currentStyleUrlRef.current === pmtilesUrl) return
 
 				const style: maplibregl.StyleSpecification = {
 					version: 8,
@@ -337,13 +339,13 @@ export const Map: React.FC<MapProps> = ({
 					layers: protomapsLayers('protomaps', namedFlavor('light'), {
 						lang: 'en'
 					})
-				};
+				}
 
-				map.setStyle(style);
-				currentStyleUrlRef.current = pmtilesUrl;
+				map.setStyle(style)
+				currentStyleUrlRef.current = pmtilesUrl
 			} else if (mapSource.type === 'blossom' && tileSourceMaxZoom !== null) {
-				const styleKey = `pmworld:${tileSourceMaxZoom}`;
-				if (currentStyleUrlRef.current === styleKey) return;
+				const styleKey = `pmworld:${tileSourceMaxZoom}`
+				if (currentStyleUrlRef.current === styleKey) return
 
 				const style: maplibregl.StyleSpecification = {
 					version: 8,
@@ -362,20 +364,20 @@ export const Map: React.FC<MapProps> = ({
 					layers: protomapsLayers('protomaps', namedFlavor('light'), {
 						lang: 'en'
 					})
-				};
+				}
 
-				map.setStyle(style);
-				currentStyleUrlRef.current = styleKey;
+				map.setStyle(style)
+				currentStyleUrlRef.current = styleKey
 			}
-		};
+		}
 
-		updateStyle();
-	}, [mapSource, initialStyle, tileSourceMaxZoom]);
+		updateStyle()
+	}, [mapSource, initialStyle, tileSourceMaxZoom])
 
 	return (
 		<MapContext.Provider value={{ map: mapRef.current, isLoaded }}>
 			<div ref={mapContainer} className={className} />
 			{children}
 		</MapContext.Provider>
-	);
-};
+	)
+}

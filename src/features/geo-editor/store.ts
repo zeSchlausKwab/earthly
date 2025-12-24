@@ -1,155 +1,162 @@
-import type { FeatureCollection } from 'geojson';
-import { create } from 'zustand';
-import { earthlyGeoServer } from '../../ctxcn/EarthlyGeoServerClient';
-import type { NDKGeoCollectionEvent } from '../../lib/ndk/NDKGeoCollectionEvent';
-import type { NDKGeoEvent } from '../../lib/ndk/NDKGeoEvent';
-import type { EditorFeature, EditorMode, GeoEditor } from './core';
-import type { CollectionMeta, EditorBlobReference, GeoSearchResult } from './types';
-import { detectBlobScope, ensureFeatureCollection, fetchGeoJsonPayload, summarizeFeatureCollection } from './utils';
+import type { FeatureCollection } from 'geojson'
+import { create } from 'zustand'
+import { earthlyGeoServer } from '../../ctxcn/EarthlyGeoServerClient'
+import type { NDKGeoCollectionEvent } from '../../lib/ndk/NDKGeoCollectionEvent'
+import type { NDKGeoEvent } from '../../lib/ndk/NDKGeoEvent'
+import type { EditorFeature, EditorMode, GeoEditor } from './core'
+import type { CollectionMeta, EditorBlobReference, GeoSearchResult } from './types'
+import {
+	detectBlobScope,
+	ensureFeatureCollection,
+	fetchGeoJsonPayload,
+	summarizeFeatureCollection
+} from './utils'
 
 interface EditorStats {
-	points: number;
-	lines: number;
-	polygons: number;
-	total: number;
+	points: number
+	lines: number
+	polygons: number
+	total: number
 }
 
 interface EditorState {
-	editor: GeoEditor | null;
-	features: EditorFeature[];
-	stats: EditorStats;
-	mode: EditorMode;
-	selectedFeatureIds: string[];
-	snappingEnabled: boolean;
-	panLocked: boolean;
-	canFinishDrawing: boolean;
+	editor: GeoEditor | null
+	features: EditorFeature[]
+	stats: EditorStats
+	mode: EditorMode
+	selectedFeatureIds: string[]
+	snappingEnabled: boolean
+	panLocked: boolean
+	canFinishDrawing: boolean
 	history: {
-		canUndo: boolean;
-		canRedo: boolean;
-	};
+		canUndo: boolean
+		canRedo: boolean
+	}
 
 	// Metadata & Dataset State
-	collectionMeta: CollectionMeta;
-	activeDataset: NDKGeoEvent | null;
-	datasetVisibility: Record<string, boolean>;
+	collectionMeta: CollectionMeta
+	activeDataset: NDKGeoEvent | null
+	datasetVisibility: Record<string, boolean>
 
 	// Publishing State
-	isPublishing: boolean;
-	publishMessage: string | null;
-	publishError: string | null;
+	isPublishing: boolean
+	publishMessage: string | null
+	publishError: string | null
 
 	// Blob References State
-	blobReferences: EditorBlobReference[];
-	blobDraftUrl: string;
-	blobDraftStatus: 'idle' | 'loading' | 'error';
-	blobDraftError: string | null;
-	previewingBlobReferenceId: string | null;
-	blobPreviewCollection: FeatureCollection | null;
+	blobReferences: EditorBlobReference[]
+	blobDraftUrl: string
+	blobDraftStatus: 'idle' | 'loading' | 'error'
+	blobDraftError: string | null
+	previewingBlobReferenceId: string | null
+	blobPreviewCollection: FeatureCollection | null
 
 	// View Mode State
-	viewMode: 'edit' | 'view';
-	viewDataset: NDKGeoEvent | null;
-	viewCollection: NDKGeoCollectionEvent | null;
-	viewCollectionEvents: NDKGeoEvent[];
+	viewMode: 'edit' | 'view'
+	viewDataset: NDKGeoEvent | null
+	viewCollection: NDKGeoCollectionEvent | null
+	viewCollectionEvents: NDKGeoEvent[]
 
 	// UI Input State (moved from view)
-	newCollectionProp: { key: string; value: string };
-	newFeatureProp: { key: string; value: string };
+	newCollectionProp: { key: string; value: string }
+	newFeatureProp: { key: string; value: string }
 
 	// UI State
-	showTips: boolean;
-	showDatasetsPanel: boolean;
-	showInfoPanel: boolean;
-	mobileDatasetsOpen: boolean;
-	mobileInfoOpen: boolean;
-	mobileToolsOpen: boolean;
-	mobileSearchOpen: boolean;
-	mobileActionsOpen: boolean;
-	inspectorActive: boolean;
+	showTips: boolean
+	showDatasetsPanel: boolean
+	showInfoPanel: boolean
+	mobileDatasetsOpen: boolean
+	mobileInfoOpen: boolean
+	mobileToolsOpen: boolean
+	mobileSearchOpen: boolean
+	mobileActionsOpen: boolean
+	inspectorActive: boolean
 
 	// Search State
-	searchQuery: string;
-	searchResults: GeoSearchResult[];
-	searchLoading: boolean;
-	searchError: string | null;
+	searchQuery: string
+	searchResults: GeoSearchResult[]
+	searchLoading: boolean
+	searchError: string | null
 
 	// Actions
-	setEditor: (editor: GeoEditor | null) => void;
-	setFeatures: (features: EditorFeature[]) => void;
-	setMode: (mode: EditorMode) => void;
-	setSelectedFeatureIds: (ids: string[]) => void;
-	setSnappingEnabled: (enabled: boolean) => void;
-	setPanLocked: (locked: boolean) => void;
-	setCanFinishDrawing: (canFinish: boolean) => void;
-	setHistoryState: (canUndo: boolean, canRedo: boolean) => void;
+	setEditor: (editor: GeoEditor | null) => void
+	setFeatures: (features: EditorFeature[]) => void
+	setMode: (mode: EditorMode) => void
+	setSelectedFeatureIds: (ids: string[]) => void
+	setSnappingEnabled: (enabled: boolean) => void
+	setPanLocked: (locked: boolean) => void
+	setCanFinishDrawing: (canFinish: boolean) => void
+	setHistoryState: (canUndo: boolean, canRedo: boolean) => void
 
-	setCollectionMeta: (meta: CollectionMeta) => void;
-	setActiveDataset: (dataset: NDKGeoEvent | null) => void;
+	setCollectionMeta: (meta: CollectionMeta) => void
+	setActiveDataset: (dataset: NDKGeoEvent | null) => void
 	setDatasetVisibility: (
-		visibility: Record<string, boolean> | ((prev: Record<string, boolean>) => Record<string, boolean>)
-	) => void;
+		visibility:
+			| Record<string, boolean>
+			| ((prev: Record<string, boolean>) => Record<string, boolean>)
+	) => void
 
-	setIsPublishing: (isPublishing: boolean) => void;
-	setPublishMessage: (message: string | null) => void;
-	setPublishError: (error: string | null) => void;
+	setIsPublishing: (isPublishing: boolean) => void
+	setPublishMessage: (message: string | null) => void
+	setPublishError: (error: string | null) => void
 
-	setBlobReferences: (refs: EditorBlobReference[]) => void;
-	setBlobDraftUrl: (url: string) => void;
-	setBlobDraftStatus: (status: 'idle' | 'loading' | 'error') => void;
-	setBlobDraftError: (error: string | null) => void;
-	setPreviewingBlobReferenceId: (id: string | null) => void;
-	setBlobPreviewCollection: (collection: FeatureCollection | null) => void;
+	setBlobReferences: (refs: EditorBlobReference[]) => void
+	setBlobDraftUrl: (url: string) => void
+	setBlobDraftStatus: (status: 'idle' | 'loading' | 'error') => void
+	setBlobDraftError: (error: string | null) => void
+	setPreviewingBlobReferenceId: (id: string | null) => void
+	setBlobPreviewCollection: (collection: FeatureCollection | null) => void
 
-	fetchBlobReference: () => Promise<void>;
-	previewBlobReference: (id: string) => Promise<void>;
-	removeBlobReference: (id: string) => void;
+	fetchBlobReference: () => Promise<void>
+	previewBlobReference: (id: string) => Promise<void>
+	removeBlobReference: (id: string) => void
 
-	setViewMode: (mode: 'edit' | 'view') => void;
-	setViewDataset: (dataset: NDKGeoEvent | null) => void;
-	setViewCollection: (collection: NDKGeoCollectionEvent | null) => void;
-	setViewCollectionEvents: (events: NDKGeoEvent[]) => void;
+	setViewMode: (mode: 'edit' | 'view') => void
+	setViewDataset: (dataset: NDKGeoEvent | null) => void
+	setViewCollection: (collection: NDKGeoCollectionEvent | null) => void
+	setViewCollectionEvents: (events: NDKGeoEvent[]) => void
 
-	setNewCollectionProp: (prop: { key: string; value: string }) => void;
-	setNewFeatureProp: (prop: { key: string; value: string }) => void;
+	setNewCollectionProp: (prop: { key: string; value: string }) => void
+	setNewFeatureProp: (prop: { key: string; value: string }) => void
 
 	// UI Actions
-	setShowTips: (show: boolean | ((prev: boolean) => boolean)) => void;
-	setShowDatasetsPanel: (show: boolean | ((prev: boolean) => boolean)) => void;
-	setShowInfoPanel: (show: boolean | ((prev: boolean) => boolean)) => void;
-	setMobileDatasetsOpen: (open: boolean) => void;
-	setMobileInfoOpen: (open: boolean) => void;
-	setMobileToolsOpen: (open: boolean) => void;
-	setMobileSearchOpen: (open: boolean) => void;
-	setMobileActionsOpen: (open: boolean) => void;
-	setMobileActiveState: (state: 'datasets' | 'info' | 'tools' | 'search' | 'actions' | null) => void;
-	setInspectorActive: (active: boolean) => void;
+	setShowTips: (show: boolean | ((prev: boolean) => boolean)) => void
+	setShowDatasetsPanel: (show: boolean | ((prev: boolean) => boolean)) => void
+	setShowInfoPanel: (show: boolean | ((prev: boolean) => boolean)) => void
+	setMobileDatasetsOpen: (open: boolean) => void
+	setMobileInfoOpen: (open: boolean) => void
+	setMobileToolsOpen: (open: boolean) => void
+	setMobileSearchOpen: (open: boolean) => void
+	setMobileActionsOpen: (open: boolean) => void
+	setMobileActiveState: (state: 'datasets' | 'info' | 'tools' | 'search' | 'actions' | null) => void
+	setInspectorActive: (active: boolean) => void
 
 	// Search Actions
-	setSearchQuery: (query: string) => void;
-	setSearchResults: (results: GeoSearchResult[]) => void;
-	setSearchLoading: (loading: boolean) => void;
-	setSearchError: (error: string | null) => void;
-	performSearch: () => Promise<void>;
-	clearSearch: () => void;
+	setSearchQuery: (query: string) => void
+	setSearchResults: (results: GeoSearchResult[]) => void
+	setSearchLoading: (loading: boolean) => void
+	setSearchError: (error: string | null) => void
+	performSearch: () => Promise<void>
+	clearSearch: () => void
 
-	setMapSource: (source: EditorState['mapSource']) => void;
-	setShowMapSettings: (show: boolean) => void;
+	setMapSource: (source: EditorState['mapSource']) => void
+	setShowMapSettings: (show: boolean) => void
 
 	// Map Source State
 	mapSource: {
-		type: 'default' | 'pmtiles' | 'blossom';
-		location: 'remote' | 'local';
-		url?: string;
-		file?: File;
+		type: 'default' | 'pmtiles' | 'blossom'
+		location: 'remote' | 'local'
+		url?: string
+		file?: File
 		/** Base URL for fetching PMTiles chunks (used with blossom) */
-		blossomServer?: string;
+		blossomServer?: string
 		/** URL to fetch the announcement record (used with blossom) */
-		announcementUrl?: string;
-	};
-	showMapSettings: boolean;
+		announcementUrl?: string
+	}
+	showMapSettings: boolean
 
 	// Computed/Helpers
-	updateStats: () => void;
+	updateStats: () => void
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -211,30 +218,30 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 	setEditor: (editor) => set({ editor }),
 
 	setFeatures: (features) => {
-		set({ features });
-		get().updateStats();
+		set({ features })
+		get().updateStats()
 	},
 
 	setMode: (mode) => {
-		const { editor } = get();
+		const { editor } = get()
 		if (editor && editor.getMode() !== mode) {
-			editor.setMode(mode);
+			editor.setMode(mode)
 		}
-		set({ mode });
+		set({ mode })
 	},
 
 	setSelectedFeatureIds: (selectedFeatureIds) => set({ selectedFeatureIds }),
 
 	setSnappingEnabled: (snappingEnabled) => {
-		set({ snappingEnabled });
+		set({ snappingEnabled })
 	},
 
 	setPanLocked: (panLocked) => {
-		const { editor } = get();
+		const { editor } = get()
 		if (editor) {
-			editor.setPanLocked(panLocked);
+			editor.setPanLocked(panLocked)
 		}
-		set({ panLocked });
+		set({ panLocked })
 	},
 
 	setCanFinishDrawing: (canFinishDrawing) => set({ canFinishDrawing }),
@@ -260,19 +267,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 	setBlobPreviewCollection: (blobPreviewCollection) => set({ blobPreviewCollection }),
 
 	fetchBlobReference: async () => {
-		const { blobDraftUrl, blobDraftStatus } = get();
-		const url = blobDraftUrl.trim();
-		if (!url) return;
+		const { blobDraftUrl, blobDraftStatus } = get()
+		const url = blobDraftUrl.trim()
+		if (!url) return
 
-		set({ blobDraftStatus: 'loading', blobDraftError: null });
+		set({ blobDraftStatus: 'loading', blobDraftError: null })
 
 		try {
-			const { payload, size, mimeType } = await fetchGeoJsonPayload(url);
-			const normalized = ensureFeatureCollection(payload);
-			const collection = JSON.parse(JSON.stringify(normalized)) as FeatureCollection;
-			const summary = summarizeFeatureCollection(collection);
-			const scopeInfo = detectBlobScope(collection);
-			const id = crypto.randomUUID();
+			const { payload, size, mimeType } = await fetchGeoJsonPayload(url)
+			const normalized = ensureFeatureCollection(payload)
+			const collection = JSON.parse(JSON.stringify(normalized)) as FeatureCollection
+			const summary = summarizeFeatureCollection(collection)
+			const scopeInfo = detectBlobScope(collection)
+			const id = crypto.randomUUID()
 
 			const reference: EditorBlobReference = {
 				id,
@@ -285,7 +292,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 				previewCollection: collection,
 				size,
 				mimeType
-			};
+			}
 
 			set((state) => ({
 				blobReferences: [...state.blobReferences, reference],
@@ -293,41 +300,41 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 				previewingBlobReferenceId: id,
 				blobDraftUrl: '',
 				blobDraftStatus: 'idle'
-			}));
+			}))
 		} catch (error) {
-			console.error('Failed to fetch external GeoJSON', error);
+			console.error('Failed to fetch external GeoJSON', error)
 			set({
 				blobDraftStatus: 'error',
 				blobDraftError: error instanceof Error ? error.message : 'Failed to fetch external GeoJSON.'
-			});
+			})
 		}
 	},
 
 	previewBlobReference: async (id: string) => {
-		const { blobReferences } = get();
-		const reference = blobReferences.find((ref) => ref.id === id);
-		if (!reference) return;
+		const { blobReferences } = get()
+		const reference = blobReferences.find((ref) => ref.id === id)
+		if (!reference) return
 
 		if (reference.status === 'ready' && reference.previewCollection) {
 			set({
 				previewingBlobReferenceId: id,
 				blobPreviewCollection: reference.previewCollection
-			});
-			return;
+			})
+			return
 		}
 
 		set((state) => ({
 			blobReferences: state.blobReferences.map((ref) =>
 				ref.id === id ? { ...ref, status: 'loading', error: undefined } : ref
 			)
-		}));
+		}))
 
 		try {
-			const { payload, size, mimeType } = await fetchGeoJsonPayload(reference.url);
-			const normalized = ensureFeatureCollection(payload);
-			const collection = JSON.parse(JSON.stringify(normalized)) as FeatureCollection;
-			const summary = summarizeFeatureCollection(collection);
-			const scopeInfo = detectBlobScope(collection);
+			const { payload, size, mimeType } = await fetchGeoJsonPayload(reference.url)
+			const normalized = ensureFeatureCollection(payload)
+			const collection = JSON.parse(JSON.stringify(normalized)) as FeatureCollection
+			const summary = summarizeFeatureCollection(collection)
+			const scopeInfo = detectBlobScope(collection)
 
 			set((state) => ({
 				blobReferences: state.blobReferences.map((ref) =>
@@ -346,9 +353,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 				),
 				blobPreviewCollection: collection,
 				previewingBlobReferenceId: id
-			}));
+			}))
 		} catch (error) {
-			console.error('Failed to preview blob reference', error);
+			console.error('Failed to preview blob reference', error)
 			set((state) => ({
 				blobReferences: state.blobReferences.map((ref) =>
 					ref.id === id
@@ -359,22 +366,22 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 							}
 						: ref
 				)
-			}));
+			}))
 		}
 	},
 
 	removeBlobReference: (id: string) => {
-		const { previewingBlobReferenceId } = get();
+		const { previewingBlobReferenceId } = get()
 		set((state) => {
 			const newState: Partial<EditorState> = {
 				blobReferences: state.blobReferences.filter((reference) => reference.id !== id)
-			};
-			if (previewingBlobReferenceId === id) {
-				newState.previewingBlobReferenceId = null;
-				newState.blobPreviewCollection = null;
 			}
-			return newState;
-		});
+			if (previewingBlobReferenceId === id) {
+				newState.previewingBlobReferenceId = null
+				newState.blobPreviewCollection = null
+			}
+			return newState
+		})
 	},
 
 	setViewMode: (viewMode) => set({ viewMode }),
@@ -420,25 +427,25 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 	setSearchError: (searchError) => set({ searchError }),
 
 	performSearch: async () => {
-		const { searchQuery } = get();
-		const trimmed = searchQuery.trim();
+		const { searchQuery } = get()
+		const trimmed = searchQuery.trim()
 		if (!trimmed) {
-			set({ searchError: 'Enter a search query', searchResults: [] });
-			return;
+			set({ searchError: 'Enter a search query', searchResults: [] })
+			return
 		}
 
-		set({ searchLoading: true, searchError: null });
+		set({ searchLoading: true, searchError: null })
 
 		try {
-			const response = await earthlyGeoServer.SearchLocation(trimmed, 8);
-			set({ searchResults: response.result?.results ?? [] });
+			const response = await earthlyGeoServer.SearchLocation(trimmed, 8)
+			set({ searchResults: response.result?.results ?? [] })
 		} catch (error) {
 			set({
 				searchError: error instanceof Error ? error.message : 'Search failed',
 				searchResults: []
-			});
+			})
 		} finally {
-			set({ searchLoading: false });
+			set({ searchLoading: false })
 		}
 	},
 
@@ -455,13 +462,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 	setShowMapSettings: (showMapSettings) => set({ showMapSettings }),
 
 	updateStats: () => {
-		const { features } = get();
+		const { features } = get()
 		const stats = {
 			points: features.filter((f) => f.geometry.type === 'Point').length,
 			lines: features.filter((f) => f.geometry.type === 'LineString').length,
 			polygons: features.filter((f) => f.geometry.type === 'Polygon').length,
 			total: features.length
-		};
-		set({ stats });
+		}
+		set({ stats })
 	}
-}));
+}))

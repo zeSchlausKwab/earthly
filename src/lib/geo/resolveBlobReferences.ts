@@ -1,9 +1,9 @@
-import type { Feature, FeatureCollection } from 'geojson';
-import type { GeoBlobReference, NDKGeoEvent } from '../ndk/NDKGeoEvent';
+import type { Feature, FeatureCollection } from 'geojson'
+import type { GeoBlobReference, NDKGeoEvent } from '../ndk/NDKGeoEvent'
 
-type BlobPayload = FeatureCollection | Feature;
+type BlobPayload = FeatureCollection | Feature
 
-const blobCache = new Map<string, BlobPayload>();
+const blobCache = new Map<string, BlobPayload>()
 
 function isFeatureCollection(payload: unknown): payload is FeatureCollection {
 	return (
@@ -11,7 +11,7 @@ function isFeatureCollection(payload: unknown): payload is FeatureCollection {
 		payload !== null &&
 		(payload as FeatureCollection).type === 'FeatureCollection' &&
 		Array.isArray((payload as FeatureCollection).features)
-	);
+	)
 }
 
 function isFeature(payload: unknown): payload is Feature {
@@ -20,64 +20,66 @@ function isFeature(payload: unknown): payload is Feature {
 		payload !== null &&
 		(payload as Feature).type === 'Feature' &&
 		'geometry' in (payload as Feature)
-	);
+	)
 }
 
 function cloneFeature(feature: Feature): Feature {
-	return JSON.parse(JSON.stringify(feature));
+	return JSON.parse(JSON.stringify(feature))
 }
 
 function normalizeToFeatureArray(payload: BlobPayload): Feature[] {
 	if (isFeature(payload)) {
-		return payload.geometry ? [payload] : [];
+		return payload.geometry ? [payload] : []
 	}
 	if (isFeatureCollection(payload)) {
-		return (payload.features ?? []).filter((feature) => Boolean(feature.geometry));
+		return (payload.features ?? []).filter((feature) => Boolean(feature.geometry))
 	}
-	return [];
+	return []
 }
 
 async function fetchBlobReference(reference: GeoBlobReference): Promise<BlobPayload> {
-	const cached = blobCache.get(reference.url);
-	if (cached) return cached;
+	const cached = blobCache.get(reference.url)
+	if (cached) return cached
 	if (!globalThis.fetch) {
-		throw new Error('fetch API is not available in this environment.');
+		throw new Error('fetch API is not available in this environment.')
 	}
-	const response = await fetch(reference.url);
+	const response = await fetch(reference.url)
 	if (!response.ok) {
-		throw new Error(`Failed to fetch ${reference.url}: ${response.status}`);
+		throw new Error(`Failed to fetch ${reference.url}: ${response.status}`)
 	}
-	const json = await response.json();
+	const json = await response.json()
 	if (!isFeatureCollection(json) && !isFeature(json)) {
-		throw new Error('Blob payload is not a GeoJSON Feature or FeatureCollection.');
+		throw new Error('Blob payload is not a GeoJSON Feature or FeatureCollection.')
 	}
-	blobCache.set(reference.url, json);
-	return json;
+	blobCache.set(reference.url, json)
+	return json
 }
 
-export async function resolveGeoEventFeatureCollection(event: NDKGeoEvent): Promise<FeatureCollection> {
-	const baseCollection = event.featureCollection;
+export async function resolveGeoEventFeatureCollection(
+	event: NDKGeoEvent
+): Promise<FeatureCollection> {
+	const baseCollection = event.featureCollection
 	if (event.blobReferences.length === 0) {
-		return baseCollection;
+		return baseCollection
 	}
 
 	let features = baseCollection.features
 		.filter((feature) => Boolean(feature.geometry))
-		.map((feature) => cloneFeature(feature));
+		.map((feature) => cloneFeature(feature))
 
 	for (const reference of event.blobReferences) {
 		try {
-			const payload = await fetchBlobReference(reference);
-			const resolvedFeatures = normalizeToFeatureArray(payload).map(cloneFeature);
-			if (resolvedFeatures.length === 0) continue;
+			const payload = await fetchBlobReference(reference)
+			const resolvedFeatures = normalizeToFeatureArray(payload).map(cloneFeature)
+			if (resolvedFeatures.length === 0) continue
 
 			if (reference.scope === 'collection') {
-				features = [...features, ...resolvedFeatures];
-				continue;
+				features = [...features, ...resolvedFeatures]
+				continue
 			}
 
 			if (reference.scope === 'feature') {
-				const featureId = reference.featureId;
+				const featureId = reference.featureId
 				if (featureId) {
 					features = features.filter((feature) => {
 						const currentId =
@@ -85,19 +87,19 @@ export async function resolveGeoEventFeatureCollection(event: NDKGeoEvent): Prom
 								? feature.id
 								: typeof feature.id === 'number'
 									? String(feature.id)
-									: undefined;
-						return currentId !== featureId;
-					});
+									: undefined
+						return currentId !== featureId
+					})
 				}
-				features = [...features, ...resolvedFeatures];
+				features = [...features, ...resolvedFeatures]
 			}
 		} catch (error) {
-			console.warn('Failed to resolve blob reference', reference.url, error);
+			console.warn('Failed to resolve blob reference', reference.url, error)
 		}
 	}
 
 	return {
 		...baseCollection,
 		features
-	};
+	}
 }

@@ -12,7 +12,7 @@ const DEV_DEFAULTS = {
 	RELAY_URL: 'ws://localhost:3334',
 	SERVER_PUBKEY: 'ceadb7d5b739189fb3ecb7023a0c3f55d8995404d7750f5068865decf8b304cc',
 	CLIENT_KEY: '4e842ce1a820603c44f6ce3c4acd6527fdeb4898a9023d84bed51c1b4417eb5c'
-} as const;
+} as const
 
 /**
  * Safely access process.env with fallback.
@@ -21,12 +21,12 @@ const DEV_DEFAULTS = {
  */
 function safeEnv<T>(getValue: () => T, fallback: T): T {
 	try {
-		const value = getValue();
+		const value = getValue()
 		// In production, bundler replaces with string literal, so value is defined
 		// In dev, process.env doesn't exist, throws, caught below
-		return value ?? fallback;
+		return value ?? fallback
 	} catch {
-		return fallback;
+		return fallback
 	}
 }
 
@@ -52,7 +52,7 @@ export const config = {
 
 	/** Whether running in development mode */
 	isDevelopment: safeEnv(() => process.env.NODE_ENV !== 'production', true)
-} as const;
+} as const
 
 /** Type for the frontend config object */
-export type ClientConfig = typeof config;
+export type ClientConfig = typeof config

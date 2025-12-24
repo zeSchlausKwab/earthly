@@ -14,11 +14,11 @@
  *   import { isTauri, getPlatform } from "@/config/platform";
  */
 
-export { type ClientConfig, config } from './env.client';
+export { type ClientConfig, config } from './env.client'
 export {
 	getLocalhostAddress,
 	getPlatform,
 	isMobile,
 	isTauri,
 	type Platform
-} from './platform';
+} from './platform'

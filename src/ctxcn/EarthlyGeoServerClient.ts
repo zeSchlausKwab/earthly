@@ -3,115 +3,115 @@ import {
 	NostrClientTransport,
 	type NostrTransportOptions,
 	PrivateKeySigner
-} from '@contextvm/sdk';
-import { Client } from '@modelcontextprotocol/sdk/client';
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+} from '@contextvm/sdk'
+import { Client } from '@modelcontextprotocol/sdk/client'
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 
 export interface SearchLocationInput {
 	/**
 	 * The location query (e.g., "New York City")
 	 */
-	query: string;
+	query: string
 	/**
 	 * Maximum number of results (default: 10, max: 50)
 	 */
-	limit?: number;
+	limit?: number
 }
 
 export interface SearchLocationOutput {
 	result: {
-		query: string;
-		count: number;
+		query: string
+		count: number
 		results: {
-			placeId: number;
-			displayName: string;
+			placeId: number
+			displayName: string
 			coordinates: {
-				lat: number;
-				lon: number;
-			};
+				lat: number
+				lon: number
+			}
 			/**
 			 * Bounding box in [west, south, east, north] order
 			 */
-			boundingbox: [number, number, number, number] | null;
-			type: string;
-			class: string;
-			importance?: number;
+			boundingbox: [number, number, number, number] | null
+			type: string
+			class: string
+			importance?: number
 			address?: {
-				[k: string]: string;
-			};
-			geojson?: unknown;
-		}[];
-	};
+				[k: string]: string
+			}
+			geojson?: unknown
+		}[]
+	}
 }
 
 export interface ReverseLookupInput {
 	/**
 	 * Latitude coordinate in WGS84
 	 */
-	lat: number;
+	lat: number
 	/**
 	 * Longitude coordinate in WGS84
 	 */
-	lon: number;
+	lon: number
 	/**
 	 * Level of detail required (0-18, default 18)
 	 */
-	zoom?: number;
+	zoom?: number
 }
 
 export interface ReverseLookupOutput {
 	result: {
 		coordinates: {
-			lat: number;
-			lon: number;
-		};
-		zoom: number;
+			lat: number
+			lon: number
+		}
+		zoom: number
 		result: {
-			placeId: number;
-			displayName: string;
+			placeId: number
+			displayName: string
 			coordinates: {
-				lat: number;
-				lon: number;
-			};
+				lat: number
+				lon: number
+			}
 			/**
 			 * Bounding box in [west, south, east, north] order
 			 */
-			boundingbox: [number, number, number, number] | null;
-			type: string;
-			class: string;
-			importance?: number;
+			boundingbox: [number, number, number, number] | null
+			type: string
+			class: string
+			importance?: number
 			address?: {
-				[k: string]: string;
-			};
-			geojson?: unknown;
-		} | null;
-	};
+				[k: string]: string
+			}
+			geojson?: unknown
+		} | null
+	}
 }
 
 export type EarthlyGeoServer = {
-	SearchLocation: (query: string, limit?: number) => Promise<SearchLocationOutput>;
-	ReverseLookup: (lat: number, lon: number, zoom?: number) => Promise<ReverseLookupOutput>;
-};
+	SearchLocation: (query: string, limit?: number) => Promise<SearchLocationOutput>
+	ReverseLookup: (lat: number, lon: number, zoom?: number) => Promise<ReverseLookupOutput>
+}
 
 export class EarthlyGeoServerClient implements EarthlyGeoServer {
-	static readonly SERVER_PUBKEY = 'ceadb7d5b739189fb3ecb7023a0c3f55d8995404d7750f5068865decf8b304cc';
-	static readonly DEFAULT_RELAYS = ['ws://localhost:3334', 'wss://relay.wavefunc.live'];
-	private client: Client;
-	private transport: Transport;
+	static readonly SERVER_PUBKEY = 'ceadb7d5b739189fb3ecb7023a0c3f55d8995404d7750f5068865decf8b304cc'
+	static readonly DEFAULT_RELAYS = ['ws://localhost:3334', 'wss://relay.wavefunc.live']
+	private client: Client
+	private transport: Transport
 
 	constructor(
 		options: Partial<NostrTransportOptions> & {
-			privateKey?: string;
-			relays?: string[];
+			privateKey?: string
+			relays?: string[]
 		} = {}
 	) {
 		this.client = new Client({
 			name: 'EarthlyGeoServerClient',
 			version: '1.0.0'
-		});
+		})
 
 		// Private key precedence: constructor options > config file
-		const resolvedPrivateKey = options.privateKey || '';
+		const resolvedPrivateKey = options.privateKey || ''
 
 		const {
 			privateKey: _,
@@ -120,7 +120,7 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 			relayHandler = new ApplesauceRelayPool(relays),
 			serverPubkey,
 			...rest
-		} = options;
+		} = options
 
 		this.transport = new NostrClientTransport({
 			serverPubkey: serverPubkey || EarthlyGeoServerClient.SERVER_PUBKEY,
@@ -128,24 +128,24 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 			relayHandler,
 			isStateless: true,
 			...rest
-		});
+		})
 
 		// Auto-connect in constructor
 		this.client.connect(this.transport).catch((error) => {
-			console.error(`Failed to connect to server: ${error}`);
-		});
+			console.error(`Failed to connect to server: ${error}`)
+		})
 	}
 
 	async disconnect(): Promise<void> {
-		await this.transport.close();
+		await this.transport.close()
 	}
 
 	private async call<T = unknown>(name: string, args: Record<string, unknown>): Promise<T> {
 		const result = await this.client.callTool({
 			name,
 			arguments: { ...args }
-		});
-		return result.structuredContent as T;
+		})
+		return result.structuredContent as T
 	}
 
 	/**
@@ -155,7 +155,7 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 	 * @returns {Promise<SearchLocationOutput>} The result of the search_location operation
 	 */
 	async SearchLocation(query: string, limit?: number): Promise<SearchLocationOutput> {
-		return this.call('search_location', { query, limit });
+		return this.call('search_location', { query, limit })
 	}
 
 	/**
@@ -166,7 +166,7 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 	 * @returns {Promise<ReverseLookupOutput>} The result of the reverse_lookup operation
 	 */
 	async ReverseLookup(lat: number, lon: number, zoom?: number): Promise<ReverseLookupOutput> {
-		return this.call('reverse_lookup', { lat, lon, zoom });
+		return this.call('reverse_lookup', { lat, lon, zoom })
 	}
 }
 
@@ -179,4 +179,4 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
  * import { earthlyGeoServer } from './EarthlyGeoServerClient';
  * const result = await earthlyGeoServer.SomeMethod();
  */
-export const earthlyGeoServer = new EarthlyGeoServerClient();
+export const earthlyGeoServer = new EarthlyGeoServerClient()

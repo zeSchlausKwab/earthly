@@ -1,29 +1,29 @@
-import { useNDK, useNDKCurrentUser } from '@nostr-dev-kit/react';
-import * as turf from '@turf/turf';
-import type { FeatureCollection } from 'geojson';
-import { Edit3, FilePenLine, Layers, Search, UploadCloud } from 'lucide-react';
-import maplibregl, { type GeoJSONSource } from 'maplibre-gl';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { GeoDatasetsPanelContent } from '../../components/GeoDatasetsPanel';
-import { GeoEditorInfoPanelContent } from '../../components/GeoEditorInfoPanel';
-import { LoginSessionButtons } from '../../components/LoginSessionButtom';
-import { Button } from '../../components/ui/button';
-import { Sheet, SheetContent } from '../../components/ui/sheet';
-import { earthlyGeoServer, type ReverseLookupOutput } from '../../ctxcn/EarthlyGeoServerClient';
-import { resolveGeoEventFeatureCollection } from '../../lib/geo/resolveBlobReferences';
-import { useIsMobile } from '../../lib/hooks/useIsMobile';
-import { useGeoCollections, useStations } from '../../lib/hooks/useStations';
-import type { NDKGeoCollectionEvent } from '../../lib/ndk/NDKGeoCollectionEvent';
-import type { GeoBlobReference } from '../../lib/ndk/NDKGeoEvent';
-import { NDKGeoEvent } from '../../lib/ndk/NDKGeoEvent';
-import { Editor } from './components/Editor';
-import { LocationInspectorPanel } from './components/LocationInspectorPanel';
-import { Magnifier } from './components/Magnifier';
-import { Map as MapComponent } from './components/Map';
-import { Toolbar } from './components/Toolbar';
-import type { EditorFeature, EditorMode } from './core';
-import { useEditorStore } from './store';
-import type { EditorBlobReference } from './types';
+import { useNDK, useNDKCurrentUser } from '@nostr-dev-kit/react'
+import * as turf from '@turf/turf'
+import type { FeatureCollection } from 'geojson'
+import { Edit3, FilePenLine, Layers, Search, UploadCloud } from 'lucide-react'
+import maplibregl, { type GeoJSONSource } from 'maplibre-gl'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { GeoDatasetsPanelContent } from '../../components/GeoDatasetsPanel'
+import { GeoEditorInfoPanelContent } from '../../components/GeoEditorInfoPanel'
+import { LoginSessionButtons } from '../../components/LoginSessionButtom'
+import { Button } from '../../components/ui/button'
+import { Sheet, SheetContent } from '../../components/ui/sheet'
+import { earthlyGeoServer, type ReverseLookupOutput } from '../../ctxcn/EarthlyGeoServerClient'
+import { resolveGeoEventFeatureCollection } from '../../lib/geo/resolveBlobReferences'
+import { useIsMobile } from '../../lib/hooks/useIsMobile'
+import { useGeoCollections, useStations } from '../../lib/hooks/useStations'
+import type { NDKGeoCollectionEvent } from '../../lib/ndk/NDKGeoCollectionEvent'
+import type { GeoBlobReference } from '../../lib/ndk/NDKGeoEvent'
+import { NDKGeoEvent } from '../../lib/ndk/NDKGeoEvent'
+import { Editor } from './components/Editor'
+import { LocationInspectorPanel } from './components/LocationInspectorPanel'
+import { Magnifier } from './components/Magnifier'
+import { Map as MapComponent } from './components/Map'
+import { Toolbar } from './components/Toolbar'
+import type { EditorFeature, EditorMode } from './core'
+import { useEditorStore } from './store'
+import type { EditorBlobReference } from './types'
 import {
 	convertGeoEventsToEditorFeatures,
 	convertGeoEventsToFeatureCollection,
@@ -32,128 +32,132 @@ import {
 	extractCollectionMeta,
 	parseCustomValue,
 	sanitizeEditorProperties
-} from './utils';
+} from './utils'
 
-const REMOTE_SOURCE_ID = 'geo-editor-remote-datasets';
-const REMOTE_FILL_LAYER = 'geo-editor-remote-fill';
-const REMOTE_LINE_LAYER = 'geo-editor-remote-line';
-const BLOB_PREVIEW_SOURCE_ID = 'geo-editor-blob-preview';
-const BLOB_PREVIEW_FILL_LAYER = 'geo-editor-blob-preview-fill';
-const BLOB_PREVIEW_LINE_LAYER = 'geo-editor-blob-preview-line';
-const MAGNIFIER_SIZE = 140;
-const MAGNIFIER_OFFSET = { x: 80, y: -80 };
-const POINTER_OFFSET = { x: 0, y: -48 }; // keep in sync with GeoEditor pointerOffsetPx
+const REMOTE_SOURCE_ID = 'geo-editor-remote-datasets'
+const REMOTE_FILL_LAYER = 'geo-editor-remote-fill'
+const REMOTE_LINE_LAYER = 'geo-editor-remote-line'
+const BLOB_PREVIEW_SOURCE_ID = 'geo-editor-blob-preview'
+const BLOB_PREVIEW_FILL_LAYER = 'geo-editor-blob-preview-fill'
+const BLOB_PREVIEW_LINE_LAYER = 'geo-editor-blob-preview-line'
+const MAGNIFIER_SIZE = 140
+const MAGNIFIER_OFFSET = { x: 80, y: -80 }
+const POINTER_OFFSET = { x: 0, y: -48 } // keep in sync with GeoEditor pointerOffsetPx
 
-import type { GeoSearchResult } from './types';
+import type { GeoSearchResult } from './types'
 
-type ReverseLookupResult = ReverseLookupOutput['result'];
+type ReverseLookupResult = ReverseLookupOutput['result']
 
 export function GeoEditorView() {
-	const map = useRef<maplibregl.Map | null>(null);
-	const editor = useEditorStore((state) => state.editor);
+	const map = useRef<maplibregl.Map | null>(null)
+	const editor = useEditorStore((state) => state.editor)
 
 	const resolvedCollectionsRef = useRef<
 		Map<
 			string,
 			{
-				eventId?: string | null;
-				featureCollection: FeatureCollection;
+				eventId?: string | null
+				featureCollection: FeatureCollection
 			}
 		>
-	>(new Map());
-	const isMountedRef = useRef(true);
-	const geoEventsRef = useRef<NDKGeoEvent[]>([]);
-	const [mounted, setMounted] = useState(false);
-	const [mapError, setMapError] = useState<string | null>(null);
+	>(new Map())
+	const isMountedRef = useRef(true)
+	const geoEventsRef = useRef<NDKGeoEvent[]>([])
+	const [mounted, setMounted] = useState(false)
+	const [mapError, setMapError] = useState<string | null>(null)
 
-	const features = useEditorStore((state) => state.features);
-	const setFeatures = useEditorStore((state) => state.setFeatures);
-	const stats = useEditorStore((state) => state.stats);
-	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds);
-	const selectionCount = selectedFeatureIds.length;
-	const selectedFeatureId = selectionCount === 1 ? selectedFeatureIds[0] : null;
-	const setSelectedFeatureIds = useEditorStore((state) => state.setSelectedFeatureIds);
+	const features = useEditorStore((state) => state.features)
+	const setFeatures = useEditorStore((state) => state.setFeatures)
+	const stats = useEditorStore((state) => state.stats)
+	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
+	const selectionCount = selectedFeatureIds.length
+	const selectedFeatureId = selectionCount === 1 ? selectedFeatureIds[0] : null
+	const setSelectedFeatureIds = useEditorStore((state) => state.setSelectedFeatureIds)
 
-	const { events: geoEvents } = useStations([{ limit: 50 }]);
-	const { events: collectionEvents } = useGeoCollections([{ limit: 50 }]);
-	const { ndk } = useNDK();
-	const currentUser = useNDKCurrentUser();
-	const activeDataset = useEditorStore((state) => state.activeDataset);
-	const setActiveDataset = useEditorStore((state) => state.setActiveDataset);
-	const datasetVisibility = useEditorStore((state) => state.datasetVisibility);
-	const setDatasetVisibility = useEditorStore((state) => state.setDatasetVisibility);
-	const collectionMeta = useEditorStore((state) => state.collectionMeta);
-	const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta);
-	const setNewCollectionProp = useEditorStore((state) => state.setNewCollectionProp);
-	const setNewFeatureProp = useEditorStore((state) => state.setNewFeatureProp);
-	const isPublishing = useEditorStore((state) => state.isPublishing);
-	const setIsPublishing = useEditorStore((state) => state.setIsPublishing);
-	const setPublishMessage = useEditorStore((state) => state.setPublishMessage);
-	const setPublishError = useEditorStore((state) => state.setPublishError);
-	const [deletingKey, setDeletingKey] = useState<string | null>(null);
-	const showDatasetsPanel = useEditorStore((state) => state.showDatasetsPanel);
-	const setShowDatasetsPanel = useEditorStore((state) => state.setShowDatasetsPanel);
-	const showInfoPanel = useEditorStore((state) => state.showInfoPanel);
-	const setShowInfoPanel = useEditorStore((state) => state.setShowInfoPanel);
-	const mobileDatasetsOpen = useEditorStore((state) => state.mobileDatasetsOpen);
-	const setMobileDatasetsOpen = useEditorStore((state) => state.setMobileDatasetsOpen);
-	const mobileInfoOpen = useEditorStore((state) => state.mobileInfoOpen);
-	const setMobileInfoOpen = useEditorStore((state) => state.setMobileInfoOpen);
-	const setShowTips = useEditorStore((state) => state.setShowTips);
-	const mobileToolsOpen = useEditorStore((state) => state.mobileToolsOpen);
-	const mobileSearchOpen = useEditorStore((state) => state.mobileSearchOpen);
-	const mobileActionsOpen = useEditorStore((state) => state.mobileActionsOpen);
-	const setMobileActiveState = useEditorStore((state) => state.setMobileActiveState);
+	const { events: geoEvents } = useStations([{ limit: 50 }])
+	const { events: collectionEvents } = useGeoCollections([{ limit: 50 }])
+	const { ndk } = useNDK()
+	const currentUser = useNDKCurrentUser()
+	const activeDataset = useEditorStore((state) => state.activeDataset)
+	const setActiveDataset = useEditorStore((state) => state.setActiveDataset)
+	const datasetVisibility = useEditorStore((state) => state.datasetVisibility)
+	const setDatasetVisibility = useEditorStore((state) => state.setDatasetVisibility)
+	const collectionMeta = useEditorStore((state) => state.collectionMeta)
+	const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta)
+	const setNewCollectionProp = useEditorStore((state) => state.setNewCollectionProp)
+	const setNewFeatureProp = useEditorStore((state) => state.setNewFeatureProp)
+	const isPublishing = useEditorStore((state) => state.isPublishing)
+	const setIsPublishing = useEditorStore((state) => state.setIsPublishing)
+	const setPublishMessage = useEditorStore((state) => state.setPublishMessage)
+	const setPublishError = useEditorStore((state) => state.setPublishError)
+	const [deletingKey, setDeletingKey] = useState<string | null>(null)
+	const showDatasetsPanel = useEditorStore((state) => state.showDatasetsPanel)
+	const setShowDatasetsPanel = useEditorStore((state) => state.setShowDatasetsPanel)
+	const showInfoPanel = useEditorStore((state) => state.showInfoPanel)
+	const setShowInfoPanel = useEditorStore((state) => state.setShowInfoPanel)
+	const mobileDatasetsOpen = useEditorStore((state) => state.mobileDatasetsOpen)
+	const setMobileDatasetsOpen = useEditorStore((state) => state.setMobileDatasetsOpen)
+	const mobileInfoOpen = useEditorStore((state) => state.mobileInfoOpen)
+	const setMobileInfoOpen = useEditorStore((state) => state.setMobileInfoOpen)
+	const setShowTips = useEditorStore((state) => state.setShowTips)
+	const mobileToolsOpen = useEditorStore((state) => state.mobileToolsOpen)
+	const mobileSearchOpen = useEditorStore((state) => state.mobileSearchOpen)
+	const mobileActionsOpen = useEditorStore((state) => state.mobileActionsOpen)
+	const setMobileActiveState = useEditorStore((state) => state.setMobileActiveState)
 
-	const panLocked = useEditorStore((state) => state.panLocked);
-	const setPanLocked = useEditorStore((state) => state.setPanLocked);
-	const canFinishDrawing = useEditorStore((state) => state.canFinishDrawing);
-	const currentMode = useEditorStore((state) => state.mode);
-	const setCurrentMode = useEditorStore((state) => state.setMode);
+	const panLocked = useEditorStore((state) => state.panLocked)
+	const setPanLocked = useEditorStore((state) => state.setPanLocked)
+	const canFinishDrawing = useEditorStore((state) => state.canFinishDrawing)
+	const currentMode = useEditorStore((state) => state.mode)
+	const setCurrentMode = useEditorStore((state) => state.setMode)
 
 	// Local UI state
-	const [showToolbar, setShowToolbar] = useState(true);
-	const [sidebarMode, setSidebarMode] = useState<'datasets' | 'info' | 'editor' | 'dataset' | 'inspector'>('datasets');
-	const [isDrawingMode, setIsDrawingMode] = useState(false);
-	const [magnifierEnabled, setMagnifierEnabled] = useState(false);
-	const [magnifierVisible, setMagnifierVisible] = useState(false);
-	const [magnifierPosition, setMagnifierPosition] = useState({ x: 0, y: 0 });
-	const [magnifierCenter, setMagnifierCenter] = useState<[number, number]>([0, 0]);
-	const [infoMode, setInfoMode] = useState<'properties' | 'json' | 'edit' | 'view'>('properties');
-	const [previousMode, setPreviousMode] = useState<string | null>(null);
+	const [showToolbar, setShowToolbar] = useState(true)
+	const [sidebarMode, setSidebarMode] = useState<
+		'datasets' | 'info' | 'editor' | 'dataset' | 'inspector'
+	>('datasets')
+	const [isDrawingMode, setIsDrawingMode] = useState(false)
+	const [magnifierEnabled, setMagnifierEnabled] = useState(false)
+	const [magnifierVisible, setMagnifierVisible] = useState(false)
+	const [magnifierPosition, setMagnifierPosition] = useState({ x: 0, y: 0 })
+	const [magnifierCenter, setMagnifierCenter] = useState<[number, number]>([0, 0])
+	const [infoMode, setInfoMode] = useState<'properties' | 'json' | 'edit' | 'view'>('properties')
+	const [previousMode, setPreviousMode] = useState<string | null>(null)
 
-	const mapSource = useEditorStore((state) => state.mapSource);
+	const mapSource = useEditorStore((state) => state.mapSource)
 
-	const inspectorActive = useEditorStore((state) => state.inspectorActive);
-	const setInspectorActive = useEditorStore((state) => state.setInspectorActive);
-	const [reverseLookupResult, setReverseLookupResult] = useState<ReverseLookupResult | null>(null);
-	const [remoteLayersReady, setRemoteLayersReady] = useState(false);
-	const [reverseLookupStatus, setReverseLookupStatus] = useState<'idle' | 'loading' | 'error'>('idle');
-	const [reverseLookupError, setReverseLookupError] = useState<string | null>(null);
-	const viewingDataset = useEditorStore((state) => state.viewDataset);
-	const setViewingDataset = useEditorStore((state) => state.setViewDataset);
-	const viewingCollection = useEditorStore((state) => state.viewCollection);
-	const setViewingCollection = useEditorStore((state) => state.setViewCollection);
-	const setViewingCollectionEvents = useEditorStore((state) => state.setViewCollectionEvents);
-	const [debugEvent, setDebugEvent] = useState<NDKGeoEvent | NDKGeoCollectionEvent | null>(null);
-	const [debugDialogOpen, setDebugDialogOpen] = useState(false);
-	const [resolvedCollectionsVersion, setResolvedCollectionsVersion] = useState(0);
-	const blobReferences = useEditorStore((state) => state.blobReferences);
-	const setBlobReferences = useEditorStore((state) => state.setBlobReferences);
-	const setBlobDraftUrl = useEditorStore((state) => state.setBlobDraftUrl);
-	const setBlobDraftStatus = useEditorStore((state) => state.setBlobDraftStatus);
-	const setBlobDraftError = useEditorStore((state) => state.setBlobDraftError);
-	const blobPreviewCollection = useEditorStore((state) => state.blobPreviewCollection);
-	const setBlobPreviewCollection = useEditorStore((state) => state.setBlobPreviewCollection);
-	const setPreviewingBlobReferenceId = useEditorStore((state) => state.setPreviewingBlobReferenceId);
+	const inspectorActive = useEditorStore((state) => state.inspectorActive)
+	const setInspectorActive = useEditorStore((state) => state.setInspectorActive)
+	const [reverseLookupResult, setReverseLookupResult] = useState<ReverseLookupResult | null>(null)
+	const [remoteLayersReady, setRemoteLayersReady] = useState(false)
+	const [reverseLookupStatus, setReverseLookupStatus] = useState<'idle' | 'loading' | 'error'>(
+		'idle'
+	)
+	const [reverseLookupError, setReverseLookupError] = useState<string | null>(null)
+	const viewingDataset = useEditorStore((state) => state.viewDataset)
+	const setViewingDataset = useEditorStore((state) => state.setViewDataset)
+	const viewingCollection = useEditorStore((state) => state.viewCollection)
+	const setViewingCollection = useEditorStore((state) => state.setViewCollection)
+	const setViewingCollectionEvents = useEditorStore((state) => state.setViewCollectionEvents)
+	const [debugEvent, setDebugEvent] = useState<NDKGeoEvent | NDKGeoCollectionEvent | null>(null)
+	const [debugDialogOpen, setDebugDialogOpen] = useState(false)
+	const [resolvedCollectionsVersion, setResolvedCollectionsVersion] = useState(0)
+	const blobReferences = useEditorStore((state) => state.blobReferences)
+	const setBlobReferences = useEditorStore((state) => state.setBlobReferences)
+	const setBlobDraftUrl = useEditorStore((state) => state.setBlobDraftUrl)
+	const setBlobDraftStatus = useEditorStore((state) => state.setBlobDraftStatus)
+	const setBlobDraftError = useEditorStore((state) => state.setBlobDraftError)
+	const blobPreviewCollection = useEditorStore((state) => state.blobPreviewCollection)
+	const setBlobPreviewCollection = useEditorStore((state) => state.setBlobPreviewCollection)
+	const setPreviewingBlobReferenceId = useEditorStore((state) => state.setPreviewingBlobReferenceId)
 
 	const resetBlobReferenceState = useCallback(() => {
-		setBlobReferences([]);
-		setBlobPreviewCollection(null);
-		setPreviewingBlobReferenceId(null);
-		setBlobDraftUrl('');
-		setBlobDraftStatus('idle');
-		setBlobDraftError(null);
+		setBlobReferences([])
+		setBlobPreviewCollection(null)
+		setPreviewingBlobReferenceId(null)
+		setBlobDraftUrl('')
+		setBlobDraftStatus('idle')
+		setBlobDraftError(null)
 	}, [
 		setBlobReferences,
 		setBlobPreviewCollection,
@@ -161,7 +165,7 @@ export function GeoEditorView() {
 		setBlobDraftUrl,
 		setBlobDraftStatus,
 		setBlobDraftError
-	]);
+	])
 
 	const convertGeoBlobReferencesToEditor = useCallback(
 		(references: GeoBlobReference[] = []): EditorBlobReference[] =>
@@ -171,7 +175,7 @@ export function GeoEditorView() {
 				status: 'idle'
 			})),
 		[]
-	);
+	)
 
 	const serializeBlobReferences = useCallback(
 		(): GeoBlobReference[] =>
@@ -186,81 +190,86 @@ export function GeoEditorView() {
 					mimeType
 				})),
 		[blobReferences]
-	);
+	)
 	useEffect(() => {
 		return () => {
-			isMountedRef.current = false;
-		};
-	}, []);
-
-	useEffect(() => {
-		geoEventsRef.current = geoEvents;
-	}, [geoEvents]);
-	const isMobile = useIsMobile();
-
-	useEffect(() => {
-		const shouldLock = isDrawingMode;
-		setPanLocked(shouldLock);
-		if (editor) {
-			editor.setPanLocked(shouldLock);
+			isMountedRef.current = false
 		}
-	}, [isDrawingMode, editor, setPanLocked]);
+	}, [])
 
-	useEffect(() => {}, [inspectorActive]);
+	useEffect(() => {
+		geoEventsRef.current = geoEvents
+	}, [geoEvents])
+	const isMobile = useIsMobile()
 
-	useEffect(() => {}, [reverseLookupResult]);
+	useEffect(() => {
+		const shouldLock = isDrawingMode
+		setPanLocked(shouldLock)
+		if (editor) {
+			editor.setPanLocked(shouldLock)
+		}
+	}, [isDrawingMode, editor, setPanLocked])
+
+	useEffect(() => {}, [inspectorActive])
+
+	useEffect(() => {}, [reverseLookupResult])
 
 	const getDatasetName = useCallback(
 		(event: NDKGeoEvent) =>
 			((event.featureCollection as any)?.name as string | undefined) ?? event.datasetId ?? event.id,
 		[]
-	);
-	const getDatasetKey = useCallback((event: NDKGeoEvent) => `${event.pubkey}:${event.datasetId ?? event.id}`, []);
+	)
+	const getDatasetKey = useCallback(
+		(event: NDKGeoEvent) => `${event.pubkey}:${event.datasetId ?? event.id}`,
+		[]
+	)
 
 	const resolvedCollectionResolver = useCallback(
 		(event: NDKGeoEvent) => {
-			const datasetKey = getDatasetKey(event);
-			return resolvedCollectionsRef.current.get(datasetKey)?.featureCollection;
+			const datasetKey = getDatasetKey(event)
+			return resolvedCollectionsRef.current.get(datasetKey)?.featureCollection
 		},
 		[getDatasetKey]
-	);
+	)
 
 	const ensureResolvedFeatureCollection = useCallback(
 		async (event: NDKGeoEvent) => {
 			if (event.blobReferences.length === 0) {
-				return event.featureCollection;
+				return event.featureCollection
 			}
-			const datasetKey = getDatasetKey(event);
-			const cached = resolvedCollectionsRef.current.get(datasetKey);
+			const datasetKey = getDatasetKey(event)
+			const cached = resolvedCollectionsRef.current.get(datasetKey)
 			if (cached && cached.eventId === event.id) {
-				return cached.featureCollection;
+				return cached.featureCollection
 			}
-			const resolved = await resolveGeoEventFeatureCollection(event);
+			const resolved = await resolveGeoEventFeatureCollection(event)
 			resolvedCollectionsRef.current.set(datasetKey, {
 				eventId: event.id,
 				featureCollection: resolved
-			});
+			})
 			if (isMountedRef.current) {
-				setResolvedCollectionsVersion((version) => version + 1);
+				setResolvedCollectionsVersion((version) => version + 1)
 			}
-			return resolved;
+			return resolved
 		},
 		[getDatasetKey]
-	);
+	)
 
 	const handleDatasetSelect = (event: NDKGeoEvent) => {
-		if (activeDataset?.id === event.id) return;
+		if (activeDataset?.id === event.id) return
 		if (editor) {
 			// If we have an editor, we might want to do something specific
 			// But mostly we just zoom
 		}
-		loadDatasetForEditing(event);
-	};
+		loadDatasetForEditing(event)
+	}
 	const zoomToDataset = useCallback(
 		(event: NDKGeoEvent) => {
-			if (!map.current) return;
-			const resolvedCollection = resolvedCollectionResolver(event);
-			const bbox = event.boundingBox || ((resolvedCollection as any)?.bbox ?? (event.featureCollection as any)?.bbox);
+			if (!map.current) return
+			const resolvedCollection = resolvedCollectionResolver(event)
+			const bbox =
+				event.boundingBox ||
+				((resolvedCollection as any)?.bbox ?? (event.featureCollection as any)?.bbox)
 			if (bbox && Array.isArray(bbox) && bbox.length === 4) {
 				map.current.fitBounds(
 					[
@@ -268,26 +277,26 @@ export function GeoEditorView() {
 						[bbox[2], bbox[3]]
 					],
 					{ padding: 40, duration: 500 }
-				);
-				return;
+				)
+				return
 			}
 
-			const collection = convertGeoEventsToFeatureCollection([event], resolvedCollectionResolver);
-			const coords = turf.coordAll(collection);
-			if (coords.length === 0) return;
+			const collection = convertGeoEventsToFeatureCollection([event], resolvedCollectionResolver)
+			const coords = turf.coordAll(collection)
+			if (coords.length === 0) return
 			const bounds = coords.reduce(
 				(acc, coord) => acc.extend(coord as [number, number]),
 				new maplibregl.LngLatBounds(coords[0] as [number, number], coords[0] as [number, number])
-			);
-			map.current.fitBounds(bounds, { padding: 40, duration: 500 });
+			)
+			map.current.fitBounds(bounds, { padding: 40, duration: 500 })
 		},
 		[resolvedCollectionResolver]
-	);
+	)
 
 	const zoomToCollection = useCallback(
 		(collection: NDKGeoCollectionEvent, eventsInCollection: NDKGeoEvent[]) => {
-			if (!map.current) return;
-			const bbox = collection.boundingBox;
+			if (!map.current) return
+			const bbox = collection.boundingBox
 			if (bbox && bbox.length === 4) {
 				map.current.fitBounds(
 					[
@@ -295,53 +304,56 @@ export function GeoEditorView() {
 						[bbox[2], bbox[3]]
 					],
 					{ padding: 40, duration: 500 }
-				);
-				return;
+				)
+				return
 			}
 
 			const eventsToUse =
 				eventsInCollection.length > 0
 					? eventsInCollection
 					: geoEvents.filter((event) => {
-							const datasetId = event.datasetId ?? event.dTag ?? event.id;
-							if (!datasetId) return false;
-							const coordinate = `${event.kind ?? NDKGeoEvent.kinds[0]}:${event.pubkey}:${datasetId}`;
-							return collection.datasetReferences.includes(coordinate);
-						});
+							const datasetId = event.datasetId ?? event.dTag ?? event.id
+							if (!datasetId) return false
+							const coordinate = `${event.kind ?? NDKGeoEvent.kinds[0]}:${event.pubkey}:${datasetId}`
+							return collection.datasetReferences.includes(coordinate)
+						})
 
-			if (eventsToUse.length === 0) return;
+			if (eventsToUse.length === 0) return
 
-			const collectionFc = convertGeoEventsToFeatureCollection(eventsToUse, resolvedCollectionResolver);
-			const coords = turf.coordAll(collectionFc);
-			if (coords.length === 0) return;
+			const collectionFc = convertGeoEventsToFeatureCollection(
+				eventsToUse,
+				resolvedCollectionResolver
+			)
+			const coords = turf.coordAll(collectionFc)
+			if (coords.length === 0) return
 			const bounds = coords.reduce(
 				(acc, coord) => acc.extend(coord as [number, number]),
 				new maplibregl.LngLatBounds(coords[0] as [number, number], coords[0] as [number, number])
-			);
-			map.current.fitBounds(bounds, { padding: 40, duration: 500 });
+			)
+			map.current.fitBounds(bounds, { padding: 40, duration: 500 })
 		},
 		[geoEvents, resolvedCollectionResolver]
-	);
+	)
 
 	const zoomToSearchResult = useCallback((result: GeoSearchResult) => {
-		if (!map.current) return;
+		if (!map.current) return
 		if (result.boundingbox) {
-			const [west, south, east, north] = result.boundingbox;
+			const [west, south, east, north] = result.boundingbox
 			map.current.fitBounds(
 				[
 					[west, south],
 					[east, north]
 				],
 				{ padding: 40, duration: 500 }
-			);
-			return;
+			)
+			return
 		}
 		map.current.flyTo({
 			center: [result.coordinates.lon, result.coordinates.lat],
 			zoom: 14,
 			duration: 500
-		});
-	}, []);
+		})
+	}, [])
 
 	const handleSearchResultSelect = useCallback(
 		(result: GeoSearchResult) => {
@@ -349,72 +361,84 @@ export function GeoEditorView() {
 				// If we have an editor, we might want to do something specific
 				// But mostly we just zoom
 			}
-			zoomToSearchResult(result);
+			zoomToSearchResult(result)
 		},
 		[editor, zoomToSearchResult]
-	);
+	)
 
 	const disableInspector = useCallback(() => {
-		setInspectorActive(false);
+		setInspectorActive(false)
 		if (editor) {
-			editor.setMode((previousMode as EditorMode) || 'select');
-			setCurrentMode((previousMode as EditorMode) || 'select');
+			editor.setMode((previousMode as EditorMode) || 'select')
+			setCurrentMode((previousMode as EditorMode) || 'select')
 		}
-		setSidebarMode('info');
-	}, [previousMode, editor, setCurrentMode, setInspectorActive]);
+		setSidebarMode('info')
+	}, [previousMode, editor, setCurrentMode, setInspectorActive])
 
 	const ensureInfoPanelVisible = () => {
 		if (isMobile) {
-			setMobileInfoOpen(true);
+			setMobileInfoOpen(true)
 		} else {
-			setShowInfoPanel(true);
+			setShowInfoPanel(true)
 		}
-	};
+	}
 
 	const exitViewMode = useCallback(() => {
-		setInfoMode('edit');
-		setViewingDataset(null);
-		setViewingCollection(null);
-		setViewingCollectionEvents([]);
-		setSidebarMode('editor');
-	}, [setInfoMode, setViewingDataset, setViewingCollection, setViewingCollectionEvents, setSidebarMode]);
+		setInfoMode('edit')
+		setViewingDataset(null)
+		setViewingCollection(null)
+		setViewingCollectionEvents([])
+		setSidebarMode('editor')
+	}, [
+		setInfoMode,
+		setViewingDataset,
+		setViewingCollection,
+		setViewingCollectionEvents,
+		setSidebarMode
+	])
 
 	const resolveEventsForCollection = useCallback(
 		(collection: NDKGeoCollectionEvent): NDKGeoEvent[] => {
-			const references = new Set(collection.datasetReferences);
-			if (references.size === 0) return [];
+			const references = new Set(collection.datasetReferences)
+			if (references.size === 0) return []
 			return geoEvents.filter((event) => {
-				const datasetId = event.datasetId ?? event.dTag ?? event.id;
-				if (!datasetId) return false;
-				const coordinate = `${event.kind ?? NDKGeoEvent.kinds[0]}:${event.pubkey}:${datasetId}`;
-				return references.has(coordinate);
-			});
+				const datasetId = event.datasetId ?? event.dTag ?? event.id
+				if (!datasetId) return false
+				const coordinate = `${event.kind ?? NDKGeoEvent.kinds[0]}:${event.pubkey}:${datasetId}`
+				return references.has(coordinate)
+			})
 		},
 		[geoEvents]
-	);
+	)
 
 	const handleInspectDataset = useCallback(
 		(event: NDKGeoEvent) => {
-			setViewingDataset(event);
-			setViewingCollection(null);
-			setViewingCollectionEvents([]);
-			setInfoMode('view');
-			setSidebarMode('dataset');
-			ensureInfoPanelVisible();
+			setViewingDataset(event)
+			setViewingCollection(null)
+			setViewingCollectionEvents([])
+			setInfoMode('view')
+			setSidebarMode('dataset')
+			ensureInfoPanelVisible()
 		},
-		[setViewingDataset, setViewingCollection, setViewingCollectionEvents, setInfoMode, setSidebarMode]
-	);
+		[
+			setViewingDataset,
+			setViewingCollection,
+			setViewingCollectionEvents,
+			setInfoMode,
+			setSidebarMode
+		]
+	)
 
 	const handleInspectCollection = useCallback(
 		(collection: NDKGeoCollectionEvent, eventsInCollection: NDKGeoEvent[]) => {
 			const referencedEvents =
-				eventsInCollection.length > 0 ? eventsInCollection : resolveEventsForCollection(collection);
-			setViewingCollection(collection);
-			setViewingCollectionEvents(referencedEvents);
-			setViewingDataset(null);
-			setInfoMode('view');
-			setSidebarMode('dataset');
-			ensureInfoPanelVisible();
+				eventsInCollection.length > 0 ? eventsInCollection : resolveEventsForCollection(collection)
+			setViewingCollection(collection)
+			setViewingCollectionEvents(referencedEvents)
+			setViewingDataset(null)
+			setInfoMode('view')
+			setSidebarMode('dataset')
+			ensureInfoPanelVisible()
 		},
 		[
 			resolveEventsForCollection,
@@ -424,78 +448,84 @@ export function GeoEditorView() {
 			setInfoMode,
 			setSidebarMode
 		]
-	);
+	)
 
 	const handleOpenDebug = useCallback(
 		(event: NDKGeoEvent | NDKGeoCollectionEvent) => {
-			setDebugEvent(event);
-			setDebugDialogOpen(true);
+			setDebugEvent(event)
+			setDebugDialogOpen(true)
 		},
 		[setDebugEvent, setDebugDialogOpen]
-	);
+	)
 
 	const toggleDatasetVisibility = useCallback(
 		(event: NDKGeoEvent) => {
-			const key = getDatasetKey(event);
+			const key = getDatasetKey(event)
 			setDatasetVisibility((prev) => ({
 				...prev,
 				[key]: !(prev[key] !== false)
-			}));
+			}))
 		},
 		[getDatasetKey, setDatasetVisibility]
-	);
+	)
 
 	const selectedFeature = useMemo(
 		() => features.find((feature) => feature.id === selectedFeatureId) ?? null,
 		[features, selectedFeatureId]
-	);
+	)
 
 	const serializeEditorFeature = (feature: EditorFeature) => {
-		const sanitized = sanitizeEditorProperties(feature.properties as Record<string, any> | undefined);
+		const sanitized = sanitizeEditorProperties(
+			feature.properties as Record<string, any> | undefined
+		)
 		return {
 			type: 'Feature',
 			id: feature.id,
 			geometry: JSON.parse(JSON.stringify(feature.geometry)),
 			...(sanitized ? { properties: sanitized } : {})
-		};
-	};
+		}
+	}
 
 	const handleClear = useCallback(() => {
-		if (!editor) return;
-		const all = editor.getAllFeatures();
-		editor.deleteFeatures(all.map((f) => f.id));
-		setSelectedFeatureIds([]);
-	}, [editor, setSelectedFeatureIds]);
+		if (!editor) return
+		const all = editor.getAllFeatures()
+		editor.deleteFeatures(all.map((f) => f.id))
+		setSelectedFeatureIds([])
+	}, [editor, setSelectedFeatureIds])
 	const buildCollectionFromEditor = useCallback((): FeatureCollection | null => {
-		if (!editor) return null;
-		const currentFeatures = editor.getAllFeatures();
-		if (currentFeatures.length === 0) return null;
+		if (!editor) return null
+		const currentFeatures = editor.getAllFeatures()
+		if (currentFeatures.length === 0) return null
 
 		const collectionName =
 			collectionMeta.name ||
-			(activeDataset ? getDatasetName(activeDataset) : `Geo dataset ${new Date().toLocaleString()}`);
+			(activeDataset ? getDatasetName(activeDataset) : `Geo dataset ${new Date().toLocaleString()}`)
 
 		const collection: FeatureCollection & {
-			name?: string;
-			description?: string;
-			color?: string;
-			properties?: Record<string, any>;
+			name?: string
+			description?: string
+			color?: string
+			properties?: Record<string, any>
 		} = {
 			type: 'FeatureCollection',
 			features: currentFeatures.map(serializeEditorFeature) as any
-		};
+		}
 
 		const existingIds = new Set(
 			collection.features
 				.map((feature) =>
-					typeof feature.id === 'string' ? feature.id : typeof feature.id === 'number' ? String(feature.id) : undefined
+					typeof feature.id === 'string'
+						? feature.id
+						: typeof feature.id === 'number'
+							? String(feature.id)
+							: undefined
 				)
 				.filter((id): id is string => Boolean(id))
-		);
+		)
 		blobReferences.forEach((reference) => {
-			if (reference.scope !== 'feature' || !reference.featureId) return;
-			if (existingIds.has(reference.featureId)) return;
-			existingIds.add(reference.featureId);
+			if (reference.scope !== 'feature' || !reference.featureId) return
+			if (existingIds.has(reference.featureId)) return
+			existingIds.add(reference.featureId)
 			collection.features.push({
 				type: 'Feature',
 				id: reference.featureId,
@@ -504,41 +534,41 @@ export function GeoEditorView() {
 					externalPlaceholder: true,
 					blobUrl: reference.url
 				}
-			} as any);
-		});
+			} as any)
+		})
 
-		(collection as any).name = collectionName;
+		;(collection as any).name = collectionName
 		if (collectionMeta.description) {
-			(collection as any).description = collectionMeta.description;
+			;(collection as any).description = collectionMeta.description
 		}
 		if (collectionMeta.color) {
-			(collection as any).color = collectionMeta.color;
+			;(collection as any).color = collectionMeta.color
 		}
 		const extraProps: Record<string, any> = {
 			...collectionMeta.customProperties
-		};
+		}
 		if (collectionMeta.color) {
-			extraProps.color = collectionMeta.color;
+			extraProps.color = collectionMeta.color
 		}
 		if (collectionMeta.description) {
-			extraProps.description = collectionMeta.description;
+			extraProps.description = collectionMeta.description
 		}
 		if (collectionMeta.name) {
-			extraProps.name = collectionMeta.name;
+			extraProps.name = collectionMeta.name
 		}
 		if (Object.keys(extraProps).length > 0) {
-			(collection as any).properties = {
+			;(collection as any).properties = {
 				...(collection as any).properties,
 				...extraProps
-			};
+			}
 		}
-		return collection;
-	}, [editor, collectionMeta, activeDataset, getDatasetName, blobReferences]);
+		return collection
+	}, [editor, collectionMeta, activeDataset, getDatasetName, blobReferences])
 
 	const persistFeatureUpdate = useCallback(
 		(updated: EditorFeature) => {
 			if (editor) {
-				editor.updateFeature(updated.id, updated);
+				editor.updateFeature(updated.id, updated)
 			}
 			// Store updates automatically via event listener in Editor component
 			// But let's keep it for responsiveness if needed, but correctly.
@@ -546,36 +576,36 @@ export function GeoEditorView() {
 			// We can just let the store handle it via the event listener.
 		},
 		[editor]
-	);
+	)
 
 	const handlePublishNew = useCallback(async () => {
-		if (!editor) return;
-		setIsPublishing(true);
-		setPublishMessage('Preparing dataset...');
-		setPublishError(null);
+		if (!editor) return
+		setIsPublishing(true)
+		setPublishMessage('Preparing dataset...')
+		setPublishError(null)
 
 		try {
-			const collection = buildCollectionFromEditor();
-			if (!collection) throw new Error('No features to publish');
+			const collection = buildCollectionFromEditor()
+			if (!collection) throw new Error('No features to publish')
 
 			if (!ndk) {
-				setPublishError('NDK is not ready.');
-				return;
+				setPublishError('NDK is not ready.')
+				return
 			}
 
-			const event = new NDKGeoEvent(ndk);
-			event.featureCollection = collection;
-			event.blobReferences = serializeBlobReferences();
-			await event.publishNew();
-			setPublishMessage('Dataset published successfully.');
-			setActiveDataset(event);
-			setCollectionMeta(extractCollectionMeta(collection));
-			setSelectedFeatureIds([]);
+			const event = new NDKGeoEvent(ndk)
+			event.featureCollection = collection
+			event.blobReferences = serializeBlobReferences()
+			await event.publishNew()
+			setPublishMessage('Dataset published successfully.')
+			setActiveDataset(event)
+			setCollectionMeta(extractCollectionMeta(collection))
+			setSelectedFeatureIds([])
 		} catch (error) {
-			console.error('Failed to publish dataset', error);
-			setPublishError('Failed to publish dataset. Check console for details.');
+			console.error('Failed to publish dataset', error)
+			setPublishError('Failed to publish dataset. Check console for details.')
 		} finally {
-			setIsPublishing(false);
+			setIsPublishing(false)
 		}
 	}, [
 		editor,
@@ -588,48 +618,48 @@ export function GeoEditorView() {
 		setActiveDataset,
 		setCollectionMeta,
 		setSelectedFeatureIds
-	]);
+	])
 
 	const handlePublishUpdate = useCallback(async () => {
-		if (!editor || !activeDataset) return;
-		setIsPublishing(true);
-		setPublishMessage('Updating dataset...');
-		setPublishError(null);
+		if (!editor || !activeDataset) return
+		setIsPublishing(true)
+		setPublishMessage('Updating dataset...')
+		setPublishError(null)
 
 		if (currentUser?.pubkey !== activeDataset.pubkey) {
-			setPublishError('You can only update datasets you own.');
-			return;
+			setPublishError('You can only update datasets you own.')
+			return
 		}
 
-		const collection = buildCollectionFromEditor();
+		const collection = buildCollectionFromEditor()
 		if (!collection) {
-			setPublishError('Draw or load geometry before publishing.');
-			return;
+			setPublishError('Draw or load geometry before publishing.')
+			return
 		}
 
 		try {
-			setIsPublishing(true);
-			setPublishError(null);
-			setPublishMessage(null);
+			setIsPublishing(true)
+			setPublishError(null)
+			setPublishMessage(null)
 
-			const event = new NDKGeoEvent(ndk || undefined);
-			event.featureCollection = collection;
-			event.datasetId = activeDataset.datasetId ?? activeDataset.id;
-			event.hashtags = activeDataset.hashtags;
-			event.collectionReferences = activeDataset.collectionReferences;
-			event.relayHints = activeDataset.relayHints;
-			event.blobReferences = serializeBlobReferences();
+			const event = new NDKGeoEvent(ndk || undefined)
+			event.featureCollection = collection
+			event.datasetId = activeDataset.datasetId ?? activeDataset.id
+			event.hashtags = activeDataset.hashtags
+			event.collectionReferences = activeDataset.collectionReferences
+			event.relayHints = activeDataset.relayHints
+			event.blobReferences = serializeBlobReferences()
 
-			await event.publishUpdate(activeDataset);
-			setPublishMessage('Dataset update published successfully.');
-			setActiveDataset(event);
-			setCollectionMeta(extractCollectionMeta(collection));
-			setSelectedFeatureIds([]);
+			await event.publishUpdate(activeDataset)
+			setPublishMessage('Dataset update published successfully.')
+			setActiveDataset(event)
+			setCollectionMeta(extractCollectionMeta(collection))
+			setSelectedFeatureIds([])
 		} catch (error) {
-			console.error('Failed to publish dataset update', error);
-			setPublishError('Failed to publish dataset update. Check console for details.');
+			console.error('Failed to publish dataset update', error)
+			setPublishError('Failed to publish dataset update. Check console for details.')
 		} finally {
-			setIsPublishing(false);
+			setIsPublishing(false)
 		}
 	}, [
 		editor,
@@ -644,21 +674,21 @@ export function GeoEditorView() {
 		setActiveDataset,
 		setCollectionMeta,
 		setSelectedFeatureIds
-	]);
+	])
 
 	const clearEditingSession = useCallback(() => {
-		if (!editor) return;
-		editor.setFeatures([]);
-		setFeatures([]);
-		setActiveDataset(null);
-		setPublishMessage(null);
-		setPublishError(null);
-		setSelectedFeatureIds([]);
-		setCollectionMeta(createDefaultCollectionMeta());
-		setNewCollectionProp({ key: '', value: '' });
-		setNewFeatureProp({ key: '', value: '' });
-		resetBlobReferenceState();
-		exitViewMode();
+		if (!editor) return
+		editor.setFeatures([])
+		setFeatures([])
+		setActiveDataset(null)
+		setPublishMessage(null)
+		setPublishError(null)
+		setSelectedFeatureIds([])
+		setCollectionMeta(createDefaultCollectionMeta())
+		setNewCollectionProp({ key: '', value: '' })
+		setNewFeatureProp({ key: '', value: '' })
+		resetBlobReferenceState()
+		exitViewMode()
 	}, [
 		editor,
 		setFeatures,
@@ -671,48 +701,48 @@ export function GeoEditorView() {
 		setNewFeatureProp,
 		resetBlobReferenceState,
 		exitViewMode
-	]);
+	])
 
 	const handleDeleteDataset = useCallback(
 		async (event: NDKGeoEvent) => {
 			if (!ndk) {
-				alert('NDK is not ready.');
-				return;
+				alert('NDK is not ready.')
+				return
 			}
 			if (!event.datasetId) {
-				alert('Dataset is missing a d tag and cannot be deleted.');
-				return;
+				alert('Dataset is missing a d tag and cannot be deleted.')
+				return
 			}
 			if (!confirm(`Delete dataset "${getDatasetName(event)}"? This action cannot be undone.`)) {
-				return;
+				return
 			}
 
-			const key = getDatasetKey(event);
+			const key = getDatasetKey(event)
 			try {
-				setDeletingKey(key);
-				await NDKGeoEvent.deleteDataset(ndk, event);
+				setDeletingKey(key)
+				await NDKGeoEvent.deleteDataset(ndk, event)
 				if (activeDataset && getDatasetKey(activeDataset) === key) {
-					clearEditingSession();
+					clearEditingSession()
 				}
 			} catch (error) {
-				console.error('Failed to delete dataset', error);
-				alert('Failed to delete dataset. Check console for details.');
+				console.error('Failed to delete dataset', error)
+				alert('Failed to delete dataset. Check console for details.')
 			} finally {
-				setDeletingKey(null);
+				setDeletingKey(null)
 			}
 		},
 		[ndk, activeDataset, getDatasetKey, getDatasetName, setDeletingKey, clearEditingSession]
-	);
+	)
 
 	const handlePaste = useCallback(
 		async (e: ClipboardEvent) => {
-			if (!editor) return;
-			const text = e.clipboardData?.getData('text/plain');
-			if (!text) return;
+			if (!editor) return
+			const text = e.clipboardData?.getData('text/plain')
+			if (!text) return
 
 			try {
-				const json = JSON.parse(text);
-				const collection = ensureFeatureCollection(json);
+				const json = JSON.parse(text)
+				const collection = ensureFeatureCollection(json)
 				const newFeatures = collection.features.map((f: any) => ({
 					...f,
 					id: f.id || crypto.randomUUID(),
@@ -721,50 +751,50 @@ export function GeoEditorView() {
 						meta: 'feature',
 						featureId: f.id || crypto.randomUUID()
 					}
-				}));
-				newFeatures.forEach((f) => editor.addFeature(f as EditorFeature));
+				}))
+				newFeatures.forEach((f) => editor.addFeature(f as EditorFeature))
 			} catch (error) {
-				console.error('Failed to paste GeoJSON:', error);
+				console.error('Failed to paste GeoJSON:', error)
 			}
 		},
 		[editor]
-	);
+	)
 
 	useEffect(() => {
-		document.addEventListener('paste', handlePaste);
+		document.addEventListener('paste', handlePaste)
 		return () => {
-			document.removeEventListener('paste', handlePaste);
-		};
-	}, [handlePaste]);
+			document.removeEventListener('paste', handlePaste)
+		}
+	}, [handlePaste])
 
 	const loadDatasetForEditing = useCallback(
 		async (event: NDKGeoEvent) => {
-			if (!editor) return;
+			if (!editor) return
 			try {
-				await ensureResolvedFeatureCollection(event);
+				await ensureResolvedFeatureCollection(event)
 			} catch (error) {
-				console.error('Failed to resolve external blobs for dataset', error);
-				setPublishError('Failed to load dataset blobs. Check console for details.');
-				return;
+				console.error('Failed to resolve external blobs for dataset', error)
+				setPublishError('Failed to load dataset blobs. Check console for details.')
+				return
 			}
-			const datasetFeatures = convertGeoEventsToEditorFeatures([event], resolvedCollectionResolver);
-			editor.setFeatures(datasetFeatures);
-			setFeatures(datasetFeatures);
-			setActiveDataset(event);
-			setPublishMessage(null);
-			setPublishError(null);
-			setSelectedFeatureIds([]);
-			const collection = resolvedCollectionResolver(event) ?? event.featureCollection;
-			setCollectionMeta(extractCollectionMeta(collection));
-			setNewCollectionProp({ key: '', value: '' });
-			setNewFeatureProp({ key: '', value: '' });
-			setBlobReferences(convertGeoBlobReferencesToEditor(event.blobReferences));
-			setBlobPreviewCollection(null);
-			setPreviewingBlobReferenceId(null);
-			setBlobDraftUrl('');
-			setBlobDraftStatus('idle');
-			setBlobDraftError(null);
-			exitViewMode();
+			const datasetFeatures = convertGeoEventsToEditorFeatures([event], resolvedCollectionResolver)
+			editor.setFeatures(datasetFeatures)
+			setFeatures(datasetFeatures)
+			setActiveDataset(event)
+			setPublishMessage(null)
+			setPublishError(null)
+			setSelectedFeatureIds([])
+			const collection = resolvedCollectionResolver(event) ?? event.featureCollection
+			setCollectionMeta(extractCollectionMeta(collection))
+			setNewCollectionProp({ key: '', value: '' })
+			setNewFeatureProp({ key: '', value: '' })
+			setBlobReferences(convertGeoBlobReferencesToEditor(event.blobReferences))
+			setBlobPreviewCollection(null)
+			setPreviewingBlobReferenceId(null)
+			setBlobDraftUrl('')
+			setBlobDraftStatus('idle')
+			setBlobDraftError(null)
+			exitViewMode()
 		},
 		[
 			editor,
@@ -787,36 +817,36 @@ export function GeoEditorView() {
 			setBlobDraftError,
 			exitViewMode
 		]
-	);
+	)
 
 	const handlePublishCopy = useCallback(async () => {
-		if (!editor) return;
-		setIsPublishing(true);
-		setPublishMessage('Creating copy...');
-		setPublishError(null);
+		if (!editor) return
+		setIsPublishing(true)
+		setPublishMessage('Creating copy...')
+		setPublishError(null)
 
 		try {
-			const collection = buildCollectionFromEditor();
-			if (!collection) throw new Error('No features to publish');
+			const collection = buildCollectionFromEditor()
+			if (!collection) throw new Error('No features to publish')
 
 			if (!ndk) {
-				setPublishError('NDK is not ready.');
-				return;
+				setPublishError('NDK is not ready.')
+				return
 			}
 
-			const event = new NDKGeoEvent(ndk);
-			event.featureCollection = collection;
-			event.blobReferences = serializeBlobReferences();
-			await event.publishNew();
-			setPublishMessage('Dataset copy published successfully.');
-			setActiveDataset(event);
-			setCollectionMeta(extractCollectionMeta(collection));
-			setSelectedFeatureIds([]);
+			const event = new NDKGeoEvent(ndk)
+			event.featureCollection = collection
+			event.blobReferences = serializeBlobReferences()
+			await event.publishNew()
+			setPublishMessage('Dataset copy published successfully.')
+			setActiveDataset(event)
+			setCollectionMeta(extractCollectionMeta(collection))
+			setSelectedFeatureIds([])
 		} catch (error) {
-			console.error('Failed to publish dataset copy', error);
-			setPublishError('Failed to publish dataset copy. Check console for details.');
+			console.error('Failed to publish dataset copy', error)
+			setPublishError('Failed to publish dataset copy. Check console for details.')
 		} finally {
-			setIsPublishing(false);
+			setIsPublishing(false)
 		}
 	}, [
 		editor,
@@ -829,21 +859,21 @@ export function GeoEditorView() {
 		setActiveDataset,
 		setCollectionMeta,
 		setSelectedFeatureIds
-	]);
+	])
 
 	// Initialize extra layers when map is ready
 	useEffect(() => {
-		if (!map.current || !mounted) return;
-		const mapInstance = map.current;
+		if (!map.current || !mounted) return
+		const mapInstance = map.current
 
 		const initLayers = () => {
 			// Guard against accessing removed maps or maps without loaded styles
 			try {
-				if (!mapInstance.isStyleLoaded()) return;
-				if (mapInstance.getSource(REMOTE_SOURCE_ID)) return;
+				if (!mapInstance.isStyleLoaded()) return
+				if (mapInstance.getSource(REMOTE_SOURCE_ID)) return
 			} catch {
 				// Map may have been removed during source switch
-				return;
+				return
 			}
 
 			try {
@@ -851,17 +881,21 @@ export function GeoEditorView() {
 				mapInstance.addSource(REMOTE_SOURCE_ID, {
 					type: 'geojson',
 					data: { type: 'FeatureCollection', features: [] }
-				});
+				})
 				mapInstance.addLayer({
 					id: REMOTE_FILL_LAYER,
 					type: 'fill',
 					source: REMOTE_SOURCE_ID,
-					filter: ['any', ['==', ['geometry-type'], 'Polygon'], ['==', ['geometry-type'], 'MultiPolygon']],
+					filter: [
+						'any',
+						['==', ['geometry-type'], 'Polygon'],
+						['==', ['geometry-type'], 'MultiPolygon']
+					],
 					paint: {
 						'fill-color': '#1d4ed8',
 						'fill-opacity': 0.15
 					}
-				});
+				})
 				mapInstance.addLayer({
 					id: REMOTE_LINE_LAYER,
 					type: 'line',
@@ -871,22 +905,26 @@ export function GeoEditorView() {
 						'line-width': 2,
 						'line-dasharray': [2, 2]
 					}
-				});
+				})
 
 				mapInstance.addSource(BLOB_PREVIEW_SOURCE_ID, {
 					type: 'geojson',
 					data: { type: 'FeatureCollection', features: [] }
-				});
+				})
 				mapInstance.addLayer({
 					id: BLOB_PREVIEW_FILL_LAYER,
 					type: 'fill',
 					source: BLOB_PREVIEW_SOURCE_ID,
-					filter: ['any', ['==', ['geometry-type'], 'Polygon'], ['==', ['geometry-type'], 'MultiPolygon']],
+					filter: [
+						'any',
+						['==', ['geometry-type'], 'Polygon'],
+						['==', ['geometry-type'], 'MultiPolygon']
+					],
 					paint: {
 						'fill-color': '#f97316',
 						'fill-opacity': 0.2
 					}
-				});
+				})
 				mapInstance.addLayer({
 					id: BLOB_PREVIEW_LINE_LAYER,
 					type: 'line',
@@ -895,33 +933,33 @@ export function GeoEditorView() {
 						'line-color': '#f97316',
 						'line-width': 2
 					}
-				});
-				setRemoteLayersReady(true);
+				})
+				setRemoteLayersReady(true)
 			} catch (error) {
 				// Map may have been removed during layer initialization
-				console.warn('Failed to initialize map layers:', error);
+				console.warn('Failed to initialize map layers:', error)
 			}
-		};
+		}
 
 		try {
 			if (mapInstance.isStyleLoaded()) {
-				initLayers();
+				initLayers()
 			}
 		} catch {
 			// Map may have been removed
 		}
 
 		// Re-initialize layers when style changes
-		mapInstance.on('styledata', initLayers);
+		mapInstance.on('styledata', initLayers)
 
 		return () => {
 			try {
-				mapInstance.off('styledata', initLayers);
+				mapInstance.off('styledata', initLayers)
 			} catch {
 				// Map may have been removed
 			}
-		};
-	}, [mounted, setRemoteLayersReady]);
+		}
+	}, [mounted, setRemoteLayersReady])
 
 	// The following block was part of updateFeatureStats, but its context is now unclear
 	// if (
@@ -932,31 +970,31 @@ export function GeoEditorView() {
 	// }
 
 	const exportGeoJSON = useCallback(() => {
-		if (!editor) return;
+		if (!editor) return
 
 		const geojson = {
 			type: 'FeatureCollection',
 			features: editor.getAllFeatures()
-		};
+		}
 
 		const blob = new Blob([JSON.stringify(geojson, null, 2)], {
 			type: 'application/json'
-		});
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = 'features.geojson';
-		a.click();
-		URL.revokeObjectURL(url);
-	}, [editor]);
+		})
+		const url = URL.createObjectURL(blob)
+		const a = document.createElement('a')
+		a.href = url
+		a.download = 'features.geojson'
+		a.click()
+		URL.revokeObjectURL(url)
+	}, [editor])
 
 	const handleImport = useCallback(
 		async (file: File) => {
-			if (!editor) return;
-			const text = await file.text();
+			if (!editor) return
+			const text = await file.text()
 			try {
-				const json = JSON.parse(text);
-				const collection = ensureFeatureCollection(json);
+				const json = JSON.parse(text)
+				const collection = ensureFeatureCollection(json)
 				const newFeatures = collection.features.map((f: any) => ({
 					...f,
 					id: f.id || crypto.randomUUID(),
@@ -965,153 +1003,168 @@ export function GeoEditorView() {
 						meta: 'feature',
 						featureId: f.id || crypto.randomUUID()
 					}
-				}));
+				}))
 
-				newFeatures.forEach((f) => editor.addFeature(f as EditorFeature));
+				newFeatures.forEach((f) => editor.addFeature(f as EditorFeature))
 
 				// Stats updated automatically via store
 
-				const meta = extractCollectionMeta(collection);
+				const meta = extractCollectionMeta(collection)
 				if (meta) {
-					setCollectionMeta(meta);
+					setCollectionMeta(meta)
 				}
 			} catch (e) {
-				console.error('Failed to import GeoJSON:', e);
-				alert('Failed to import GeoJSON');
+				console.error('Failed to import GeoJSON:', e)
+				alert('Failed to import GeoJSON')
 			}
 		},
 		[editor, setCollectionMeta]
-	);
+	)
 
 	const togglePanLock = useCallback(() => {
-		if (!editor) return;
-		if (isDrawingMode) return;
-		const next = !panLocked;
-		editor.setPanLocked(next);
-		setPanLocked(next);
-	}, [editor, isDrawingMode, panLocked, setPanLocked]);
+		if (!editor) return
+		if (isDrawingMode) return
+		const next = !panLocked
+		editor.setPanLocked(next)
+		setPanLocked(next)
+	}, [editor, isDrawingMode, panLocked, setPanLocked])
 
 	const toggleMagnifier = useCallback(() => {
-		const next = !magnifierEnabled;
-		setMagnifierEnabled(next);
+		const next = !magnifierEnabled
+		setMagnifierEnabled(next)
 		if (!next) {
-			setMagnifierVisible(false);
+			setMagnifierVisible(false)
 		}
-	}, [magnifierEnabled, setMagnifierEnabled, setMagnifierVisible]);
+	}, [magnifierEnabled, setMagnifierEnabled, setMagnifierVisible])
 
 	useEffect(() => {
 		setDatasetVisibility((prev) => {
-			const next: Record<string, boolean> = {};
-			let changed = false;
+			const next: Record<string, boolean> = {}
+			let changed = false
 
 			geoEvents.forEach((event) => {
-				const key = getDatasetKey(event);
-				const value = prev[key] === undefined ? true : prev[key];
-				next[key] = value;
+				const key = getDatasetKey(event)
+				const value = prev[key] === undefined ? true : prev[key]
+				next[key] = value
 				if (prev[key] !== value) {
-					changed = true;
+					changed = true
 				}
-			});
+			})
 
 			if (Object.keys(prev).length !== Object.keys(next).length) {
-				changed = true;
+				changed = true
 			}
 
-			return changed ? next : prev;
-		});
-	}, [geoEvents, getDatasetKey, setDatasetVisibility]);
+			return changed ? next : prev
+		})
+	}, [geoEvents, getDatasetKey, setDatasetVisibility])
 
 	const visibleGeoEvents = useMemo(
 		() => geoEvents.filter((event) => datasetVisibility[getDatasetKey(event)] !== false),
 		[geoEvents, datasetVisibility, getDatasetKey]
-	);
+	)
 
 	useEffect(() => {
-		if (!editor) return;
-		if (!map.current) return;
+		if (!editor) return
+		if (!map.current) return
 
 		try {
 			// Guard against accessing sources before style is loaded (can happen during map source switches)
-			if (!map.current.isStyleLoaded()) return;
-			const source = map.current.getSource(REMOTE_SOURCE_ID) as GeoJSONSource | undefined;
-			if (!source) return;
+			if (!map.current.isStyleLoaded()) return
+			const source = map.current.getSource(REMOTE_SOURCE_ID) as GeoJSONSource | undefined
+			if (!source) return
 
-			const collection = convertGeoEventsToFeatureCollection(visibleGeoEvents, resolvedCollectionResolver);
-			source.setData(collection);
+			const collection = convertGeoEventsToFeatureCollection(
+				visibleGeoEvents,
+				resolvedCollectionResolver
+			)
+			source.setData(collection)
 		} catch {
 			// Map may have been removed during source switch
 		}
-	}, [visibleGeoEvents, resolvedCollectionsVersion, resolvedCollectionResolver, editor, remoteLayersReady]);
+	}, [
+		visibleGeoEvents,
+		resolvedCollectionsVersion,
+		resolvedCollectionResolver,
+		editor,
+		remoteLayersReady
+	])
 
 	useEffect(() => {
-		if (!map.current) return;
-		const mapInstance = map.current;
+		if (!map.current) return
+		const mapInstance = map.current
 
 		const updateMagnifier = (event: maplibregl.MapTouchEvent) => {
-			if (!magnifierEnabled) return;
-			const point = event.point;
-			const container = mapInstance.getContainer();
-			const width = container.clientWidth;
-			const height = container.clientHeight;
-			const posX = Math.min(Math.max(point.x + MAGNIFIER_OFFSET.x, MAGNIFIER_SIZE / 2), width - MAGNIFIER_SIZE / 2);
-			const posY = Math.min(Math.max(point.y + MAGNIFIER_OFFSET.y, MAGNIFIER_SIZE / 2), height - MAGNIFIER_SIZE / 2);
-			const targetX = Math.min(Math.max(point.x + POINTER_OFFSET.x, 0), width);
-			const targetY = Math.min(Math.max(point.y + POINTER_OFFSET.y, 0), height);
-			const lngLat = mapInstance.unproject([targetX, targetY]);
+			if (!magnifierEnabled) return
+			const point = event.point
+			const container = mapInstance.getContainer()
+			const width = container.clientWidth
+			const height = container.clientHeight
+			const posX = Math.min(
+				Math.max(point.x + MAGNIFIER_OFFSET.x, MAGNIFIER_SIZE / 2),
+				width - MAGNIFIER_SIZE / 2
+			)
+			const posY = Math.min(
+				Math.max(point.y + MAGNIFIER_OFFSET.y, MAGNIFIER_SIZE / 2),
+				height - MAGNIFIER_SIZE / 2
+			)
+			const targetX = Math.min(Math.max(point.x + POINTER_OFFSET.x, 0), width)
+			const targetY = Math.min(Math.max(point.y + POINTER_OFFSET.y, 0), height)
+			const lngLat = mapInstance.unproject([targetX, targetY])
 
-			setMagnifierPosition({ x: posX, y: posY });
-			setMagnifierCenter([lngLat.lng, lngLat.lat]);
-			setMagnifierVisible(true);
-		};
+			setMagnifierPosition({ x: posX, y: posY })
+			setMagnifierCenter([lngLat.lng, lngLat.lat])
+			setMagnifierVisible(true)
+		}
 
-		const handleTouchStart = (e: maplibregl.MapTouchEvent) => updateMagnifier(e);
-		const handleTouchMove = (e: maplibregl.MapTouchEvent) => updateMagnifier(e);
+		const handleTouchStart = (e: maplibregl.MapTouchEvent) => updateMagnifier(e)
+		const handleTouchMove = (e: maplibregl.MapTouchEvent) => updateMagnifier(e)
 		const handleTouchEnd = () => {
-			setMagnifierVisible(false);
-		};
+			setMagnifierVisible(false)
+		}
 
-		mapInstance.on('touchstart', handleTouchStart);
-		mapInstance.on('touchmove', handleTouchMove);
-		mapInstance.on('touchend', handleTouchEnd);
+		mapInstance.on('touchstart', handleTouchStart)
+		mapInstance.on('touchmove', handleTouchMove)
+		mapInstance.on('touchend', handleTouchEnd)
 
 		return () => {
-			mapInstance.off('touchstart', handleTouchStart);
-			mapInstance.off('touchmove', handleTouchMove);
-			mapInstance.off('touchend', handleTouchEnd);
-		};
-	}, [magnifierEnabled, setMagnifierPosition, setMagnifierCenter, setMagnifierVisible]);
+			mapInstance.off('touchstart', handleTouchStart)
+			mapInstance.off('touchmove', handleTouchMove)
+			mapInstance.off('touchend', handleTouchEnd)
+		}
+	}, [magnifierEnabled, setMagnifierPosition, setMagnifierCenter, setMagnifierVisible])
 
 	useEffect(() => {
-		if (!map.current) return;
+		if (!map.current) return
 
 		try {
 			// Guard against accessing sources before style is loaded (can happen during map source switches)
-			if (!map.current.isStyleLoaded()) return;
-			const source = map.current.getSource(BLOB_PREVIEW_SOURCE_ID) as GeoJSONSource | undefined;
-			if (!source) return;
+			if (!map.current.isStyleLoaded()) return
+			const source = map.current.getSource(BLOB_PREVIEW_SOURCE_ID) as GeoJSONSource | undefined
+			if (!source) return
 			if (blobPreviewCollection) {
-				source.setData(blobPreviewCollection);
+				source.setData(blobPreviewCollection)
 			} else {
-				source.setData({ type: 'FeatureCollection', features: [] });
+				source.setData({ type: 'FeatureCollection', features: [] })
 			}
 		} catch {
 			// Map may have been removed during source switch
 		}
-	}, [blobPreviewCollection]);
+	}, [blobPreviewCollection])
 
-	const multiSelectModifierLabel = editor?.getMultiSelectModifierLabel() ?? 'Shift';
+	const multiSelectModifierLabel = editor?.getMultiSelectModifierLabel() ?? 'Shift'
 
 	useEffect(() => {
 		if (isMobile) {
-			setMobileDatasetsOpen(false);
-			setMobileInfoOpen(false);
-			setShowToolbar(false);
-			setShowTips(false);
+			setMobileDatasetsOpen(false)
+			setMobileInfoOpen(false)
+			setShowToolbar(false)
+			setShowTips(false)
 		} else {
-			setShowDatasetsPanel(true);
-			setShowInfoPanel(true);
-			setShowToolbar(true);
-			setShowTips(true);
+			setShowDatasetsPanel(true)
+			setShowInfoPanel(true)
+			setShowToolbar(true)
+			setShowTips(true)
 		}
 	}, [
 		isMobile,
@@ -1121,97 +1174,97 @@ export function GeoEditorView() {
 		setShowTips,
 		setShowDatasetsPanel,
 		setShowInfoPanel
-	]);
+	])
 
 	useEffect(() => {
-		let cancelled = false;
-		(async () => {
+		let cancelled = false
+		;(async () => {
 			for (const event of geoEvents) {
-				if (cancelled) break;
-				if (event.blobReferences.length === 0) continue;
+				if (cancelled) break
+				if (event.blobReferences.length === 0) continue
 				try {
-					await ensureResolvedFeatureCollection(event);
+					await ensureResolvedFeatureCollection(event)
 				} catch (error) {
-					console.warn('Failed to resolve external blob for dataset', event.id, error);
+					console.warn('Failed to resolve external blob for dataset', event.id, error)
 				}
 			}
-		})();
+		})()
 		return () => {
-			cancelled = true;
-		};
-	}, [geoEvents, ensureResolvedFeatureCollection]);
+			cancelled = true
+		}
+	}, [geoEvents, ensureResolvedFeatureCollection])
 
 	useEffect(() => {
-		if (!map.current) return;
-		const mapInstance = map.current;
+		if (!map.current) return
+		const mapInstance = map.current
 
 		const handleMapDatasetClick = (event: maplibregl.MapLayerMouseEvent & any) => {
-			const feature = event.features?.[0];
-			if (!feature?.properties) return;
-			const sourceEventId = feature.properties.sourceEventId as string | undefined;
-			const datasetId = feature.properties.datasetId as string | undefined;
+			const feature = event.features?.[0]
+			if (!feature?.properties) return
+			const sourceEventId = feature.properties.sourceEventId as string | undefined
+			const datasetId = feature.properties.datasetId as string | undefined
 
 			const dataset =
 				geoEventsRef.current.find((ev) => ev.id === sourceEventId) ??
-				geoEventsRef.current.find((ev) => (ev.datasetId ?? ev.id) === datasetId);
+				geoEventsRef.current.find((ev) => (ev.datasetId ?? ev.id) === datasetId)
 
-			if (!dataset) return;
+			if (!dataset) return
 
-			ensureResolvedFeatureCollection(dataset).catch(() => undefined);
-			handleInspectDataset(dataset);
-		};
+			ensureResolvedFeatureCollection(dataset).catch(() => undefined)
+			handleInspectDataset(dataset)
+		}
 
-		mapInstance.on('click', REMOTE_FILL_LAYER, handleMapDatasetClick);
-		mapInstance.on('click', REMOTE_LINE_LAYER, handleMapDatasetClick);
+		mapInstance.on('click', REMOTE_FILL_LAYER, handleMapDatasetClick)
+		mapInstance.on('click', REMOTE_LINE_LAYER, handleMapDatasetClick)
 
 		return () => {
-			mapInstance.off('click', REMOTE_FILL_LAYER, handleMapDatasetClick);
-			mapInstance.off('click', REMOTE_LINE_LAYER, handleMapDatasetClick);
-		};
-	}, [handleInspectDataset, ensureResolvedFeatureCollection]);
+			mapInstance.off('click', REMOTE_FILL_LAYER, handleMapDatasetClick)
+			mapInstance.off('click', REMOTE_LINE_LAYER, handleMapDatasetClick)
+		}
+	}, [handleInspectDataset, ensureResolvedFeatureCollection])
 
 	useEffect(() => {
-		if (!map.current) return;
-		const mapInstance = map.current;
+		if (!map.current) return
+		const mapInstance = map.current
 
 		const handleInspectorClick = async (event: maplibregl.MapMouseEvent & any) => {
-			const { lng, lat } = event.lngLat;
-			console.log('[Inspector] Map click', { lng, lat });
-			setReverseLookupStatus('loading');
-			setReverseLookupError(null);
-			setReverseLookupResult(null);
+			const { lng, lat } = event.lngLat
+			console.log('[Inspector] Map click', { lng, lat })
+			setReverseLookupStatus('loading')
+			setReverseLookupError(null)
+			setReverseLookupResult(null)
 
 			try {
 				// Give the client a moment to connect if it hasn't already
-				await new Promise((resolve) => setTimeout(resolve, 100));
-				const response = await earthlyGeoServer.ReverseLookup(lat, lng);
-				console.log('[Inspector] Reverse lookup response', response);
-				setReverseLookupResult(response.result);
+				await new Promise((resolve) => setTimeout(resolve, 100))
+				const response = await earthlyGeoServer.ReverseLookup(lat, lng)
+				console.log('[Inspector] Reverse lookup response', response)
+				setReverseLookupResult(response.result)
 			} catch (error) {
-				console.error('[Inspector] Reverse lookup error', error);
+				console.error('[Inspector] Reverse lookup error', error)
 				const errorMessage =
 					error instanceof Error && error.message === 'Not connected'
 						? 'Cannot connect to geo server. Make sure the relay is running (bun relay).'
 						: error instanceof Error
 							? error.message
-							: 'Reverse lookup failed';
-				setReverseLookupError(errorMessage);
-				setReverseLookupResult(null);
+							: 'Reverse lookup failed'
+				setReverseLookupError(errorMessage)
+				setReverseLookupResult(null)
 			} finally {
-				setReverseLookupStatus('idle');
+				setReverseLookupStatus('idle')
 			}
-		};
+		}
 
 		if (inspectorActive) {
-			mapInstance.getCanvas().style.cursor = 'crosshair';
-			mapInstance.on('click', handleInspectorClick);
+			mapInstance.getCanvas().style.cursor = 'crosshair'
+			mapInstance.on('click', handleInspectorClick)
 		}
 
 		return () => {
-			mapInstance.getCanvas().style.cursor = '';
-			mapInstance.off('click', handleInspectorClick);
-		};
-	}, [inspectorActive, setReverseLookupStatus, setReverseLookupError, setReverseLookupResult]);
+			mapInstance.getCanvas().style.cursor = ''
+			mapInstance.off('click', handleInspectorClick)
+		}
+	}, [inspectorActive, setReverseLookupStatus, setReverseLookupError, setReverseLookupResult])
 
 	return (
 		<div className="relative h-screen w-full">
@@ -1219,8 +1272,8 @@ export function GeoEditorView() {
 			{/* Map Container */}
 			<MapComponent
 				onLoad={(m) => {
-					map.current = m;
-					setMounted(true);
+					map.current = m
+					setMounted(true)
 				}}
 				mapSource={mapSource}
 			>
@@ -1267,9 +1320,14 @@ export function GeoEditorView() {
 								canPublishNew: features.length > 0 && !activeDataset,
 								onPublishUpdate: handlePublishUpdate,
 								canPublishUpdate:
-									!!activeDataset && currentUser?.pubkey === activeDataset?.pubkey && features.length > 0,
+									!!activeDataset &&
+									currentUser?.pubkey === activeDataset?.pubkey &&
+									features.length > 0,
 								onPublishCopy: handlePublishCopy,
-								canPublishCopy: !!activeDataset && currentUser?.pubkey !== activeDataset?.pubkey && features.length > 0,
+								canPublishCopy:
+									!!activeDataset &&
+									currentUser?.pubkey !== activeDataset?.pubkey &&
+									features.length > 0,
 								isPublishing
 							}}
 							isMobile={isMobile}
@@ -1318,8 +1376,10 @@ export function GeoEditorView() {
 							<div className="pointer-events-none absolute bottom-8 left-1/2 -translate-x-1/2 rounded-full bg-black/75 px-4 py-1 text-xs text-white backdrop-blur">
 								{editor.getMode() === 'select' && 'Select features to edit'}
 								{editor.getMode() === 'draw_point' && 'Click to place point'}
-								{editor.getMode() === 'draw_linestring' && 'Click to add points, double-click to finish'}
-								{editor.getMode() === 'draw_polygon' && 'Click to add points, double-click to finish'}
+								{editor.getMode() === 'draw_linestring' &&
+									'Click to add points, double-click to finish'}
+								{editor.getMode() === 'draw_polygon' &&
+									'Click to add points, double-click to finish'}
 								{editor.getMode() === 'edit' && 'Drag vertices to edit'}
 							</div>
 						)}
@@ -1349,7 +1409,7 @@ export function GeoEditorView() {
 									result={reverseLookupResult}
 									onPause={() => setInspectorActive(false)}
 									onClear={() => {
-										setReverseLookupResult(null);
+										setReverseLookupResult(null)
 									}}
 								/>
 							) : sidebarMode === 'dataset' ? (
@@ -1368,7 +1428,9 @@ export function GeoEditorView() {
 										getDatasetName={getDatasetName}
 									/>
 								) : (
-									<div className="text-sm text-gray-600">Select a dataset or collection to inspect.</div>
+									<div className="text-sm text-gray-600">
+										Select a dataset or collection to inspect.
+									</div>
 								)
 							) : (
 								<GeoEditorInfoPanelContent
@@ -1525,5 +1587,5 @@ export function GeoEditorView() {
 				</>
 			)}
 		</div>
-	);
+	)
 }

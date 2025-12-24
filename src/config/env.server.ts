@@ -5,13 +5,13 @@
  * Use this in server-side code (src/index.ts, contextvm/server.ts, etc.)
  */
 
-import { type Env, parseEnv } from './env.schema';
+import { type Env, parseEnv } from './env.schema'
 
 /**
  * Validated server environment configuration.
  * Throws on startup if required variables are missing or invalid.
  */
-export const serverEnv: Env = parseEnv(process.env);
+export const serverEnv: Env = parseEnv(process.env)
 
 /**
  * Server configuration object with convenient property names.
@@ -40,6 +40,6 @@ export const serverConfig = {
 
 	/** Current environment name */
 	nodeEnv: serverEnv.NODE_ENV
-} as const;
+} as const
 
-export type ServerConfig = typeof serverConfig;
+export type ServerConfig = typeof serverConfig

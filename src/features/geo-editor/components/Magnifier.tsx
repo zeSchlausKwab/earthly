@@ -1,23 +1,23 @@
-import maplibregl from 'maplibre-gl';
-import React, { useEffect, useRef } from 'react';
+import maplibregl from 'maplibre-gl'
+import React, { useEffect, useRef } from 'react'
 
 interface MagnifierProps {
-	enabled: boolean;
-	visible: boolean;
-	position: { x: number; y: number };
-	center: [number, number] | null;
-	mainMap: maplibregl.Map | null;
-	size: number;
+	enabled: boolean
+	visible: boolean
+	position: { x: number; y: number }
+	center: [number, number] | null
+	mainMap: maplibregl.Map | null
+	size: number
 }
 
 export function Magnifier({ enabled, visible, position, center, mainMap, size }: MagnifierProps) {
-	const containerRef = useRef<HTMLDivElement>(null);
-	const mapRef = useRef<maplibregl.Map | null>(null);
+	const containerRef = useRef<HTMLDivElement>(null)
+	const mapRef = useRef<maplibregl.Map | null>(null)
 
 	useEffect(() => {
-		if (!enabled || !visible) return;
-		if (!containerRef.current) return;
-		if (!mainMap) return;
+		if (!enabled || !visible) return
+		if (!containerRef.current) return
+		if (!mainMap) return
 
 		if (!mapRef.current) {
 			mapRef.current = new maplibregl.Map({
@@ -28,36 +28,36 @@ export function Magnifier({ enabled, visible, position, center, mainMap, size }:
 				interactive: false,
 				attributionControl: false,
 				preserveDrawingBuffer: true
-			} as any);
+			} as any)
 
-			mapRef.current.dragPan.disable();
-			mapRef.current.scrollZoom.disable();
-			mapRef.current.touchZoomRotate.disable();
-			mapRef.current.doubleClickZoom.disable();
+			mapRef.current.dragPan.disable()
+			mapRef.current.scrollZoom.disable()
+			mapRef.current.touchZoomRotate.disable()
+			mapRef.current.doubleClickZoom.disable()
 		} else {
-			mapRef.current.resize();
+			mapRef.current.resize()
 		}
 
 		return () => {
-			mapRef.current?.remove();
-			mapRef.current = null;
-		};
-	}, [enabled, visible, mainMap]);
+			mapRef.current?.remove()
+			mapRef.current = null
+		}
+	}, [enabled, visible, mainMap])
 
 	useEffect(() => {
-		if (!enabled) return;
-		if (!mapRef.current || !mainMap) return;
-		if (!center) return;
+		if (!enabled) return
+		if (!mapRef.current || !mainMap) return
+		if (!center) return
 		mapRef.current.jumpTo({
 			center: center,
 			zoom: mainMap.getZoom() + 1,
 			bearing: mainMap.getBearing(),
 			pitch: mainMap.getPitch()
-		});
-		mapRef.current.resize();
-	}, [center, enabled, mainMap]);
+		})
+		mapRef.current.resize()
+	}, [center, enabled, mainMap])
 
-	if (!enabled || !visible) return null;
+	if (!enabled || !visible) return null
 
 	return (
 		<div
@@ -87,5 +87,5 @@ export function Magnifier({ enabled, visible, position, center, mainMap, size }:
 				</div>
 			</div>
 		</div>
-	);
+	)
 }

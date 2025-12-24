@@ -12,12 +12,13 @@
 	"formatter": {
 		"enabled": true,
 		"indentStyle": "tab",
-		"lineWidth": 120
+		"lineWidth": 100
 	},
 	"javascript": {
 		"formatter": {
 			"quoteStyle": "single",
-			"trailingCommas": "none"
+			"trailingCommas": "none",
+			"semicolons": "asNeeded"
 		}
 	},
 	"files": {

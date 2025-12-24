@@ -1,170 +1,183 @@
-import { NDKPrivateKeySigner } from '@nostr-dev-kit/ndk';
-import { Scanner } from '@yudiel/react-qr-scanner';
-import { AlertTriangle, CheckCircle2, ChevronDown, Copy, QrCode } from 'lucide-react';
-import { nip19 } from 'nostr-tools';
-import { useCallback, useEffect, useState } from 'react';
-import { Alert, AlertDescription, AlertTitle } from './ui/alert';
-import { Button } from './ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
+import { NDKPrivateKeySigner } from '@nostr-dev-kit/ndk'
+import { Scanner } from '@yudiel/react-qr-scanner'
+import { AlertTriangle, CheckCircle2, ChevronDown, Copy, QrCode } from 'lucide-react'
+import { nip19 } from 'nostr-tools'
+import { useCallback, useEffect, useState } from 'react'
+import { Alert, AlertDescription, AlertTitle } from './ui/alert'
+import { Button } from './ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible'
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle
+} from './ui/dialog'
+import { Input } from './ui/input'
+import { Label } from './ui/label'
 
 interface SignupDialogProps {
-	open: boolean;
-	onOpenChange: (open: boolean) => void;
-	onConfirm: (signer: any) => Promise<void>;
+	open: boolean
+	onOpenChange: (open: boolean) => void
+	onConfirm: (signer: any) => Promise<void>
 }
 
-type Mode = 'create' | 'import';
+type Mode = 'create' | 'import'
 
 export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProps) {
-	const [mode, setMode] = useState<Mode>('create');
-	const [signer] = useState(() => NDKPrivateKeySigner.generate());
-	const [nsecCopied, setNsecCopied] = useState(false);
-	const [npubCopied, setNpubCopied] = useState(false);
-	const [loading, setLoading] = useState(false);
-	const [nsec, setNsec] = useState('');
-	const [npub, setNpub] = useState('');
-	const [importKey, setImportKey] = useState('');
-	const [importError, setImportError] = useState('');
-	const [isImportCollapsed, setIsImportCollapsed] = useState(false);
-	const [showScanner, setShowScanner] = useState(false);
-	const [scanError, setScanError] = useState<string | null>(null);
+	const [mode, setMode] = useState<Mode>('create')
+	const [signer] = useState(() => NDKPrivateKeySigner.generate())
+	const [nsecCopied, setNsecCopied] = useState(false)
+	const [npubCopied, setNpubCopied] = useState(false)
+	const [loading, setLoading] = useState(false)
+	const [nsec, setNsec] = useState('')
+	const [npub, setNpub] = useState('')
+	const [importKey, setImportKey] = useState('')
+	const [importError, setImportError] = useState('')
+	const [isImportCollapsed, setIsImportCollapsed] = useState(false)
+	const [showScanner, setShowScanner] = useState(false)
+	const [scanError, setScanError] = useState<string | null>(null)
 
 	// Generate nsec and npub when dialog opens
 	useEffect(() => {
 		if (open && signer) {
 			// Get the hex private key
-			const privateKeyHex = signer.privateKey;
+			const privateKeyHex = signer.privateKey
 			if (privateKeyHex) {
 				// Convert hex to Uint8Array for encoding
-				const privateKeyBytes = new Uint8Array(privateKeyHex.match(/.{1,2}/g)?.map((byte) => parseInt(byte, 16)) || []);
-				setNsec(nip19.nsecEncode(privateKeyBytes));
+				const privateKeyBytes = new Uint8Array(
+					privateKeyHex.match(/.{1,2}/g)?.map((byte) => parseInt(byte, 16)) || []
+				)
+				setNsec(nip19.nsecEncode(privateKeyBytes))
 			}
 
 			// Get public key
 			signer.user().then((user) => {
 				if (user.pubkey) {
-					setNpub(nip19.npubEncode(user.pubkey));
+					setNpub(nip19.npubEncode(user.pubkey))
 				}
-			});
+			})
 		}
-	}, [open, signer]);
+	}, [open, signer])
 
 	const handleCopyNsec = async () => {
-		await navigator.clipboard.writeText(nsec);
-		setNsecCopied(true);
-		setTimeout(() => setNsecCopied(false), 2000);
-	};
+		await navigator.clipboard.writeText(nsec)
+		setNsecCopied(true)
+		setTimeout(() => setNsecCopied(false), 2000)
+	}
 
 	const handleCopyNpub = async () => {
-		await navigator.clipboard.writeText(npub);
-		setNpubCopied(true);
-		setTimeout(() => setNpubCopied(false), 2000);
-	};
+		await navigator.clipboard.writeText(npub)
+		setNpubCopied(true)
+		setTimeout(() => setNpubCopied(false), 2000)
+	}
 
 	const parsePrivateKey = (input: string): string | null => {
-		const trimmed = input.trim();
+		const trimmed = input.trim()
 
 		// Try to decode nsec
 		if (trimmed.startsWith('nsec1')) {
 			try {
-				const { type, data } = nip19.decode(trimmed);
+				const { type, data } = nip19.decode(trimmed)
 				if (type === 'nsec') {
 					// Convert Uint8Array to hex string
 					return Array.from(data as Uint8Array)
 						.map((b) => b.toString(16).padStart(2, '0'))
-						.join('');
+						.join('')
 				}
 			} catch (e) {
-				return null;
+				return null
 			}
 		}
 
 		// Try as hex key (64 characters)
 		if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
-			return trimmed.toLowerCase();
+			return trimmed.toLowerCase()
 		}
 
-		return null;
-	};
+		return null
+	}
 
 	const handleImportKeyChange = (value: string) => {
-		setImportKey(value);
-		setImportError('');
+		setImportKey(value)
+		setImportError('')
 
 		if (value.trim()) {
-			const parsed = parsePrivateKey(value);
+			const parsed = parsePrivateKey(value)
 			if (!parsed) {
-				setImportError('Invalid private key. Please enter a valid nsec or hex private key.');
+				setImportError('Invalid private key. Please enter a valid nsec or hex private key.')
 			}
 		}
-	};
+	}
 
 	const handleConfirm = async () => {
 		try {
-			setLoading(true);
+			setLoading(true)
 
-			let signerToUse = signer;
+			let signerToUse = signer
 
 			if (mode === 'import') {
-				const privateKeyHex = parsePrivateKey(importKey);
+				const privateKeyHex = parsePrivateKey(importKey)
 				if (!privateKeyHex) {
-					setImportError('Invalid private key. Please enter a valid nsec or hex private key.');
-					setLoading(false);
-					return;
+					setImportError('Invalid private key. Please enter a valid nsec or hex private key.')
+					setLoading(false)
+					return
 				}
-				signerToUse = new NDKPrivateKeySigner(privateKeyHex);
+				signerToUse = new NDKPrivateKeySigner(privateKeyHex)
 			}
 
-			await onConfirm(signerToUse);
-			onOpenChange(false);
+			await onConfirm(signerToUse)
+			onOpenChange(false)
 
 			// Reset state
-			setMode('create');
-			setImportKey('');
-			setImportError('');
+			setMode('create')
+			setImportKey('')
+			setImportError('')
 		} catch (error) {
-			console.error('Signup/Login failed:', error);
+			console.error('Signup/Login failed:', error)
 		} finally {
-			setLoading(false);
+			setLoading(false)
 		}
-	};
+	}
 
 	const handleScanQR = () => {
-		setShowScanner(true);
-		setScanError(null);
-	};
+		setShowScanner(true)
+		setScanError(null)
+	}
 
 	const handleScan = useCallback((detectedCodes: any[]) => {
 		if (detectedCodes && detectedCodes.length > 0) {
-			const result = detectedCodes[0].rawValue;
+			const result = detectedCodes[0].rawValue
 			if (result) {
 				// Try to parse the scanned result
-				const parsed = parsePrivateKey(result);
+				const parsed = parsePrivateKey(result)
 				if (parsed) {
-					setImportKey(result);
-					setImportError('');
-					setShowScanner(false);
-					setScanError(null);
+					setImportKey(result)
+					setImportError('')
+					setShowScanner(false)
+					setScanError(null)
 				} else {
-					setScanError('The scanned QR code does not contain a valid private key (nsec or hex format)');
+					setScanError(
+						'The scanned QR code does not contain a valid private key (nsec or hex format)'
+					)
 				}
 			}
 		}
-	}, []);
+	}, [])
 
 	const handleScanError = useCallback((err: any) => {
-		console.error(err);
-		setScanError('Error accessing camera: ' + (err.message || 'Unknown error'));
-	}, []);
+		console.error(err)
+		setScanError('Error accessing camera: ' + (err.message || 'Unknown error'))
+	}, [])
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="max-w-2xl">
 				<DialogHeader>
-					<DialogTitle>{mode === 'create' ? 'Create Your Nostr Account' : 'Login with Private Key'}</DialogTitle>
+					<DialogTitle>
+						{mode === 'create' ? 'Create Your Nostr Account' : 'Login with Private Key'}
+					</DialogTitle>
 					<DialogDescription>
 						{mode === 'create'
 							? 'Your account has been generated. Please save your private key (nsec) securely.'
@@ -200,9 +213,9 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 								<AlertTriangle className="h-4 w-4" />
 								<AlertTitle>Important: Save Your Private Key</AlertTitle>
 								<AlertDescription>
-									Your private key (nsec) is the only way to access your account. If you lose it, you will lose access
-									to your account forever. There is no way to recover it. Store it somewhere safe, like a password
-									manager.
+									Your private key (nsec) is the only way to access your account. If you lose it,
+									you will lose access to your account forever. There is no way to recover it. Store
+									it somewhere safe, like a password manager.
 								</AlertDescription>
 							</Alert>
 
@@ -213,20 +226,42 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 									<div className="flex-1 p-3 bg-destructive/10 border border-destructive/30 rounded-md font-mono text-sm break-all">
 										{nsec}
 									</div>
-									<Button variant="outline" size="icon" onClick={handleCopyNsec} className="flex-shrink-0">
-										{nsecCopied ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
+									<Button
+										variant="outline"
+										size="icon"
+										onClick={handleCopyNsec}
+										className="flex-shrink-0"
+									>
+										{nsecCopied ? (
+											<CheckCircle2 className="w-4 h-4 text-green-600" />
+										) : (
+											<Copy className="w-4 h-4" />
+										)}
 									</Button>
 								</div>
-								<p className="text-xs text-muted-foreground">Keep this private! Never share your nsec with anyone.</p>
+								<p className="text-xs text-muted-foreground">
+									Keep this private! Never share your nsec with anyone.
+								</p>
 							</div>
 
 							{/* Public Key (npub) */}
 							<div className="space-y-2">
 								<Label htmlFor="npub">Public Key (npub)</Label>
 								<div className="flex gap-2">
-									<div className="flex-1 p-3 bg-muted rounded-md font-mono text-sm break-all">{npub}</div>
-									<Button variant="outline" size="icon" onClick={handleCopyNpub} className="flex-shrink-0">
-										{npubCopied ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
+									<div className="flex-1 p-3 bg-muted rounded-md font-mono text-sm break-all">
+										{npub}
+									</div>
+									<Button
+										variant="outline"
+										size="icon"
+										onClick={handleCopyNpub}
+										className="flex-shrink-0"
+									>
+										{npubCopied ? (
+											<CheckCircle2 className="w-4 h-4 text-green-600" />
+										) : (
+											<Copy className="w-4 h-4" />
+										)}
 									</Button>
 								</div>
 								<p className="text-xs text-muted-foreground">
@@ -259,13 +294,18 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 										<div className="space-y-1">
 											<h3 className="font-semibold text-destructive">⚠️ Security Warning</h3>
 											<p className="text-sm text-muted-foreground">
-												Only enter your private key on trusted devices and applications. Never share your private key
-												with anyone. Anyone with access to your private key can control your account.
+												Only enter your private key on trusted devices and applications. Never share
+												your private key with anyone. Anyone with access to your private key can
+												control your account.
 											</p>
 										</div>
 									</div>
 									<CollapsibleTrigger asChild>
-										<Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0 hover:bg-destructive/20">
+										<Button
+											variant="ghost"
+											size="sm"
+											className="h-8 w-8 p-0 shrink-0 hover:bg-destructive/20"
+										>
 											<ChevronDown
 												className={`h-4 w-4 transition-transform ${isImportCollapsed ? 'rotate-180' : ''}`}
 											/>
@@ -328,7 +368,10 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 					<Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
 						Cancel
 					</Button>
-					<Button onClick={handleConfirm} disabled={loading || (mode === 'import' && (!importKey || !!importError))}>
+					<Button
+						onClick={handleConfirm}
+						disabled={loading || (mode === 'import' && (!importKey || !!importError))}
+					>
 						{loading
 							? mode === 'create'
 								? 'Creating Account...'
@@ -345,7 +388,9 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 				<DialogContent className="sm:max-w-md">
 					<DialogHeader>
 						<DialogTitle>Scan Private Key QR Code</DialogTitle>
-						<DialogDescription>Scan a QR code containing your private key (nsec or hex format)</DialogDescription>
+						<DialogDescription>
+							Scan a QR code containing your private key (nsec or hex format)
+						</DialogDescription>
 					</DialogHeader>
 
 					<div className="space-y-4">
@@ -380,5 +425,5 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 				</DialogContent>
 			</Dialog>
 		</Dialog>
-	);
+	)
 }

@@ -1,17 +1,17 @@
-import { X } from 'lucide-react';
-import { Button } from '../../../components/ui/button';
-import type { ReverseLookupOutput } from '../../../ctxcn/EarthlyGeoServerClient';
+import { X } from 'lucide-react'
+import { Button } from '../../../components/ui/button'
+import type { ReverseLookupOutput } from '../../../ctxcn/EarthlyGeoServerClient'
 
-type ReverseLookupResult = ReverseLookupOutput['result'];
+type ReverseLookupResult = ReverseLookupOutput['result']
 
 interface LocationInspectorPanelProps {
-	inspectorActive: boolean;
-	loading: boolean;
-	error: string | null;
-	result: ReverseLookupResult | null;
-	onPause: () => void;
-	onClear: () => void;
-	className?: string;
+	inspectorActive: boolean
+	loading: boolean
+	error: string | null
+	result: ReverseLookupResult | null
+	onPause: () => void
+	onClear: () => void
+	className?: string
 }
 
 export function LocationInspectorPanel({
@@ -46,17 +46,23 @@ export function LocationInspectorPanel({
 				{result && (
 					<div className="space-y-3">
 						<div>
-							<div className="font-medium leading-tight">{result.result?.displayName ?? 'No address found'}</div>
+							<div className="font-medium leading-tight">
+								{result.result?.displayName ?? 'No address found'}
+							</div>
 							<div className="mt-1 text-xs text-gray-500">
 								{result.coordinates.lat.toFixed(4)}, {result.coordinates.lon.toFixed(4)}
 							</div>
 						</div>
 						<div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
 							{result.result?.type && (
-								<span className="rounded-full bg-gray-100 px-2 py-1 capitalize">{result.result.type}</span>
+								<span className="rounded-full bg-gray-100 px-2 py-1 capitalize">
+									{result.result.type}
+								</span>
 							)}
 							{result.result?.class && (
-								<span className="rounded-full bg-gray-100 px-2 py-1 capitalize">{result.result.class}</span>
+								<span className="rounded-full bg-gray-100 px-2 py-1 capitalize">
+									{result.result.class}
+								</span>
 							)}
 							{result.zoom !== undefined && (
 								<span className="rounded-full bg-gray-100 px-2 py-1">zoom {result.zoom}</span>
@@ -81,5 +87,5 @@ export function LocationInspectorPanel({
 				)}
 			</div>
 		</div>
-	);
+	)
 }

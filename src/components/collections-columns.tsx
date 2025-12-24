@@ -1,31 +1,33 @@
-import type { ColumnDef } from '@tanstack/react-table';
-import { Bug, Maximize2, Search } from 'lucide-react';
-import type { NDKGeoCollectionEvent } from '../lib/ndk/NDKGeoCollectionEvent';
-import type { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent';
-import { Button } from './ui/button';
+import type { ColumnDef } from '@tanstack/react-table'
+import { Bug, Maximize2, Search } from 'lucide-react'
+import type { NDKGeoCollectionEvent } from '../lib/ndk/NDKGeoCollectionEvent'
+import type { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
+import { Button } from './ui/button'
 
 export interface CollectionRowData {
-	collection: NDKGeoCollectionEvent;
-	collectionName: string;
-	datasetCount: number;
-	referencedEvents: NDKGeoEvent[];
-	zoomDisabled: boolean;
+	collection: NDKGeoCollectionEvent
+	collectionName: string
+	datasetCount: number
+	referencedEvents: NDKGeoEvent[]
+	zoomDisabled: boolean
 }
 
 export interface CollectionColumnsContext {
-	onZoomToCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void;
-	onInspectCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void;
-	onOpenDebug?: (event: NDKGeoCollectionEvent) => void;
-	getDatasetName: (event: NDKGeoEvent) => string;
+	onZoomToCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
+	onInspectCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
+	onOpenDebug?: (event: NDKGeoCollectionEvent) => void
+	getDatasetName: (event: NDKGeoEvent) => string
 }
 
-export const createCollectionColumns = (context: CollectionColumnsContext): ColumnDef<CollectionRowData>[] => [
+export const createCollectionColumns = (
+	context: CollectionColumnsContext
+): ColumnDef<CollectionRowData>[] => [
 	{
 		accessorKey: 'collectionName',
 		header: 'Collection',
 		cell: ({ row }) => {
-			const { collection, collectionName, datasetCount, referencedEvents } = row.original;
-			const metadata = collection.metadata;
+			const { collection, collectionName, datasetCount, referencedEvents } = row.original
+			const metadata = collection.metadata
 
 			return (
 				<div className="space-y-2 min-w-[200px]">
@@ -40,21 +42,24 @@ export const createCollectionColumns = (context: CollectionColumnsContext): Colu
 					{metadata.tags && metadata.tags.length > 0 && (
 						<div className="flex flex-wrap gap-1">
 							{metadata.tags.slice(0, 3).map((tag) => (
-								<span key={tag} className="rounded bg-purple-100 px-1.5 py-0.5 text-[10px] text-purple-700">
+								<span
+									key={tag}
+									className="rounded bg-purple-100 px-1.5 py-0.5 text-[10px] text-purple-700"
+								>
 									#{tag}
 								</span>
 							))}
 						</div>
 					)}
 				</div>
-			);
+			)
 		}
 	},
 	{
 		id: 'datasets',
 		header: 'Geo Events',
 		cell: ({ row }) => {
-			const { referencedEvents } = row.original;
+			const { referencedEvents } = row.original
 			return (
 				<div className="min-w-[150px]">
 					{referencedEvents.length === 0 ? (
@@ -67,14 +72,14 @@ export const createCollectionColumns = (context: CollectionColumnsContext): Colu
 						</ul>
 					)}
 				</div>
-			);
+			)
 		}
 	},
 	{
 		id: 'actions',
 		header: 'Actions',
 		cell: ({ row }) => {
-			const { collection, referencedEvents, zoomDisabled } = row.original;
+			const { collection, referencedEvents, zoomDisabled } = row.original
 			return (
 				<div className="flex items-center gap-1">
 					<Button
@@ -108,7 +113,7 @@ export const createCollectionColumns = (context: CollectionColumnsContext): Colu
 						</Button>
 					)}
 				</div>
-			);
+			)
 		}
 	}
-];
+]
