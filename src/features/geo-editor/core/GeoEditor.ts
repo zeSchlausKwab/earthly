@@ -3,7 +3,6 @@ import type { Feature, FeatureCollection, Geometry, Position } from 'geojson'
 import type {
 	GeoJSONSource,
 	MapGeoJSONFeature,
-	MapLayerMouseEvent,
 	Map as MapLibreMap,
 	MapMouseEvent,
 	MapTouchEvent
@@ -1381,12 +1380,6 @@ export class GeoEditor {
 		return [lngLat.lng, lngLat.lat]
 	}
 
-	private distanceBetweenScreenPoints(a: ScreenPoint, b: ScreenPoint): number {
-		const dx = a.x - b.x
-		const dy = a.y - b.y
-		return Math.sqrt(dx * dx + dy * dy)
-	}
-
 	private isTouchLikeEvent(event: MapMouseEvent | MapTouchEvent): boolean {
 		const original = (event as any).originalEvent
 		if (!original) return false
@@ -1593,7 +1586,7 @@ export class GeoEditor {
 		if (!this.eventHandlers.has(eventType)) {
 			this.eventHandlers.set(eventType, new Set())
 		}
-		this.eventHandlers.get(eventType)!.add(handler)
+		this.eventHandlers.get(eventType)?.add(handler)
 	}
 
 	off(eventType: EditorEventType, handler: EditorEventHandler): void {
