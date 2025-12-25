@@ -1,7 +1,7 @@
+import { join } from 'node:path'
 import { hexToBytes } from '@noble/hashes/utils'
 import { file, serve } from 'bun'
 import { getPublicKey } from 'nostr-tools/pure'
-import { join } from 'path'
 
 const isProduction = process.env.NODE_ENV === 'production'
 
@@ -12,20 +12,57 @@ console.log(`NODE_ENV: ${process.env.NODE_ENV}`)
 const APP_PRIVATE_KEY = process.env.APP_PRIVATE_KEY
 const EXPECTED_PUBKEY = APP_PRIVATE_KEY ? getPublicKey(hexToBytes(APP_PRIVATE_KEY)) : undefined
 
+// CORS headers for API responses
+const CORS_HEADERS = {
+	'Access-Control-Allow-Origin': '*',
+	'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+	'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+}
+
+// Helper to create JSON response with CORS headers
+function jsonResponse(data: unknown, init?: ResponseInit): Response {
+	return Response.json(data, {
+		...init,
+		headers: {
+			...CORS_HEADERS,
+			...init?.headers
+		}
+	})
+}
+
+async function readAnnouncement() {
+	const jsonPath = new URL('../map-chunks/announcement.json', import.meta.url)
+
+	const jsonFile = Bun.file(jsonPath)
+	if (await jsonFile.exists()) return await jsonFile.json()
+
+	return null
+}
+
 // Define route handlers that work in both modes
 const apiRoutes: Record<string, any> = {
 	'/api/hello': {
-		async GET(req) {
+		async GET(_req) {
 			return Response.json({
 				message: 'Hello, world!',
 				method: 'GET'
 			})
 		},
-		async PUT(req) {
+		async PUT(_req) {
 			return Response.json({
 				message: 'Hello, world!',
 				method: 'PUT'
 			})
+		}
+	},
+
+	'/api/announcement': {
+		async GET() {
+			const data = await readAnnouncement()
+			if (!data) {
+				return jsonResponse({ error: 'Missing announcement file' }, { status: 404 })
+			}
+			return jsonResponse(data)
 		}
 	},
 

@@ -99,7 +99,12 @@ export class GeoEditor {
 	private readonly keyDownHandler = this.onKeyDown.bind(this)
 	private readonly keyUpHandler = this.onKeyUp.bind(this)
 	private readonly gizmoRenderHandler = () => this.renderGizmo()
+	private readonly styleLoadHandler = () => {
+		this.setupLayers()
+		this.setInitialModeIfNeeded()
+	}
 	private readonly multiSelectModifier: 'ctrl' | 'shift'
+	private didSetInitialMode: boolean = false
 
 	constructor(map: MapLibreMap, options: GeoEditorOptions = {}) {
 		this.map = map
@@ -153,13 +158,11 @@ export class GeoEditor {
 		this.drawPolygonMode.onAdd(this.map)
 		this.editMode.onAdd(this.map)
 
-		// Setup map layers and sources - ensure style is loaded
-		if (this.map.isStyleLoaded()) {
-			this.setupLayers()
-		} else {
-			this.map.once('styledata', () => {
-				this.setupLayers()
-			})
+		// Setup layers/sources only once the style is loaded.
+		// MapLibre can temporarily have no style during `setStyle()` which makes `getSource()` crash internally.
+		this.map.on('style.load', this.styleLoadHandler)
+		if (this.isStyleReady()) {
+			this.styleLoadHandler()
 		}
 
 		// Re-add layers when style changes (e.g. switching basemaps)
@@ -169,14 +172,39 @@ export class GeoEditor {
 
 		// Setup event listeners
 		this.setupEventListeners()
+	}
 
-		// Set initial mode
-		this.setMode(this.options.defaultMode)
+	private isStyleReady(): boolean {
+		try {
+			// Avoid calling `isStyleLoaded()` when no style exists.
+			if (!this.map?.getStyle?.()) return false
+			return this.map.isStyleLoaded()
+		} catch {
+			return false
+		}
+	}
+
+	private safeGetGeoJSONSource(id: string): GeoJSONSource | undefined {
+		if (!this.isStyleReady()) return undefined
+		try {
+			return this.map.getSource(id) as GeoJSONSource | undefined
+		} catch {
+			return undefined
+		}
+	}
+
+	private setInitialModeIfNeeded(): void {
+		if (this.didSetInitialMode) return
+		this.didSetInitialMode = true
+		// Defer so external subscribers (React effect) can attach `mode.change` handlers first.
+		queueMicrotask(() => this.setMode(this.options.defaultMode))
 	}
 
 	private setupLayers(): void {
+		if (!this.isStyleReady()) return
+
 		// Add main feature source
-		if (!this.map.getSource(this.SOURCE_ID)) {
+		if (!this.safeGetGeoJSONSource(this.SOURCE_ID)) {
 			this.map.addSource(this.SOURCE_ID, {
 				type: 'geojson',
 				data: this.getFeatureCollection()
@@ -184,31 +212,31 @@ export class GeoEditor {
 		}
 
 		// Add vertices source for edit mode
-		if (!this.map.getSource(this.SOURCE_VERTICES)) {
+		if (!this.safeGetGeoJSONSource(this.SOURCE_VERTICES)) {
 			this.map.addSource(this.SOURCE_VERTICES, {
 				type: 'geojson',
 				data: { type: 'FeatureCollection', features: [] }
 			})
 		}
-		if (!this.map.getSource(this.SOURCE_SELECTION)) {
+		if (!this.safeGetGeoJSONSource(this.SOURCE_SELECTION)) {
 			this.map.addSource(this.SOURCE_SELECTION, {
 				type: 'geojson',
 				data: { type: 'FeatureCollection', features: [] }
 			})
 		}
-		if (!this.map.getSource(this.SOURCE_SELECTION_BOX)) {
+		if (!this.safeGetGeoJSONSource(this.SOURCE_SELECTION_BOX)) {
 			this.map.addSource(this.SOURCE_SELECTION_BOX, {
 				type: 'geojson',
 				data: { type: 'FeatureCollection', features: [] }
 			})
 		}
-		if (!this.map.getSource(this.SOURCE_GIZMO)) {
+		if (!this.safeGetGeoJSONSource(this.SOURCE_GIZMO)) {
 			this.map.addSource(this.SOURCE_GIZMO, {
 				type: 'geojson',
 				data: { type: 'FeatureCollection', features: [] }
 			})
 		}
-		if (!this.map.getSource(this.SOURCE_CURSOR)) {
+		if (!this.safeGetGeoJSONSource(this.SOURCE_CURSOR)) {
 			this.map.addSource(this.SOURCE_CURSOR, {
 				type: 'geojson',
 				data: { type: 'FeatureCollection', features: [] }
@@ -1641,7 +1669,7 @@ export class GeoEditor {
 	}
 
 	private updateCursorIndicator(position?: Position): void {
-		const source = this.map.getSource(this.SOURCE_CURSOR) as GeoJSONSource | undefined
+		const source = this.safeGetGeoJSONSource(this.SOURCE_CURSOR)
 		if (!source) {
 			return
 		}
@@ -1671,7 +1699,7 @@ export class GeoEditor {
 	}
 
 	private renderSelectionIndicator(): void {
-		const source = this.map.getSource(this.SOURCE_SELECTION) as GeoJSONSource | undefined
+		const source = this.safeGetGeoJSONSource(this.SOURCE_SELECTION)
 		if (!source) {
 			return
 		}
@@ -1707,7 +1735,7 @@ export class GeoEditor {
 	}
 
 	private renderGizmo(): void {
-		const source = this.map.getSource(this.SOURCE_GIZMO) as GeoJSONSource | undefined
+		const source = this.safeGetGeoJSONSource(this.SOURCE_GIZMO)
 		if (!source) {
 			return
 		}
@@ -1784,7 +1812,7 @@ export class GeoEditor {
 	}
 
 	private renderSelectionBox(): void {
-		const source = this.map.getSource(this.SOURCE_SELECTION_BOX) as GeoJSONSource | undefined
+		const source = this.safeGetGeoJSONSource(this.SOURCE_SELECTION_BOX)
 		if (!source) {
 			return
 		}
@@ -1830,7 +1858,7 @@ export class GeoEditor {
 	private renderVertices(): void {
 		if (this.mode !== 'edit') {
 			// Clear vertices when not in edit mode
-			const source = this.map.getSource(this.SOURCE_VERTICES) as GeoJSONSource
+			const source = this.safeGetGeoJSONSource(this.SOURCE_VERTICES)
 			if (source) {
 				source.setData({ type: 'FeatureCollection', features: [] })
 			}
@@ -1877,7 +1905,7 @@ export class GeoEditor {
 			})
 		})
 
-		const source = this.map.getSource(this.SOURCE_VERTICES) as GeoJSONSource
+		const source = this.safeGetGeoJSONSource(this.SOURCE_VERTICES)
 		if (source) {
 			source.setData({
 				type: 'FeatureCollection',
@@ -1904,7 +1932,7 @@ export class GeoEditor {
 	}
 
 	private render(): void {
-		const source = this.map.getSource(this.SOURCE_ID) as GeoJSONSource
+		const source = this.safeGetGeoJSONSource(this.SOURCE_ID)
 		if (source) {
 			source.setData(this.getFeatureCollection())
 		}
@@ -1930,6 +1958,7 @@ export class GeoEditor {
 		window.removeEventListener('keyup', this.keyUpHandler)
 		try {
 			this.map.off('move', this.gizmoRenderHandler)
+			this.map.off('style.load', this.styleLoadHandler)
 		} catch {
 			// Map may have been removed
 		}

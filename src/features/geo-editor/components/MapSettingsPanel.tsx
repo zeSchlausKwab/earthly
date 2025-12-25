@@ -38,7 +38,7 @@ export function MapSettingsPanel() {
 				type: 'blossom',
 				location: 'remote',
 				blossomServer: mapSource.blossomServer || 'http://localhost:3001',
-				announcementUrl: mapSource.announcementUrl || 'http://localhost:3333/api/announcement'
+				announcementUrl: mapSource.announcementUrl || 'http://localhost:3000/api/announcement'
 			})
 		}
 	}
@@ -168,7 +168,7 @@ export function MapSettingsPanel() {
 						<Input
 							value={mapSource.announcementUrl || ''}
 							onChange={handleAnnouncementUrlChange}
-							placeholder="http://localhost:3333/api/announcement"
+							placeholder="http://localhost:3000/api/announcement"
 						/>
 						<p className="text-xs text-gray-500">
 							Endpoint that returns the geohash-to-chunk mapping.

@@ -6,6 +6,9 @@ import type React from 'react'
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { type BBox, lonLatToWorldGeohash, tileCenterLonLat } from '@/lib/worldGeohash'
 
+const DEFAULT_CENTER: [number, number] = [-74.006, 40.7128]
+const DEFAULT_ZOOM = 12
+
 interface MapContextType {
 	map: maplibregl.Map | null
 	isLoaded: boolean
@@ -61,22 +64,29 @@ const pmworldState = {
 	blossomServer: 'http://localhost:3001'
 }
 
-export const Map: React.FC<MapProps> = ({
+export const GeoEditorMap: React.FC<MapProps> = ({
 	style: initialStyle = 'https://tiles.openfreemap.org/styles/liberty',
-	center = [-74.006, 40.7128],
-	zoom = 12,
+	center: centerProp,
+	zoom: zoomProp,
 	children,
 	className = 'w-full h-full',
 	onLoad,
 	mapSource = { type: 'default', location: 'remote' }
 }) => {
+	const center = centerProp ?? DEFAULT_CENTER
+	const zoom = zoomProp ?? DEFAULT_ZOOM
 	const mapContainer = useRef<HTMLDivElement>(null)
 	const mapRef = useRef<maplibregl.Map | null>(null)
 	const protocolRef = useRef<Protocol | null>(null)
 	const [isLoaded, setIsLoaded] = useState(false)
-	const [announcement, setAnnouncement] = useState<AnnouncementRecord | null>(null)
+	const [_announcement, setAnnouncement] = useState<AnnouncementRecord | null>(null)
 	const [tileSourceMaxZoom, setTileSourceMaxZoom] = useState<number | null>(null)
 	const currentStyleUrlRef = useRef<string | null>(null)
+	const onLoadRef = useRef<MapProps['onLoad']>(onLoad)
+
+	useEffect(() => {
+		onLoadRef.current = onLoad
+	}, [onLoad])
 
 	// Register protocols once
 	useEffect(() => {
@@ -143,7 +153,7 @@ export const Map: React.FC<MapProps> = ({
 			return
 		}
 
-		const announcementUrl = mapSource.announcementUrl || 'http://localhost:3333/api/announcement'
+		const announcementUrl = mapSource.announcementUrl || 'http://localhost:3000/api/announcement'
 		const blossomServer = mapSource.blossomServer || 'http://localhost:3001'
 		pmworldState.blossomServer = blossomServer
 
@@ -227,8 +237,10 @@ export const Map: React.FC<MapProps> = ({
 		}
 
 		let mapStyle: string | maplibregl.StyleSpecification = initialStyle
+		let initialStyleKey: string | null = null
 
 		if (mapSource.type === 'blossom' && tileSourceMaxZoom !== null) {
+			initialStyleKey = `pmworld:${tileSourceMaxZoom}`
 			mapStyle = {
 				version: 8,
 				glyphs: 'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf',
@@ -254,6 +266,7 @@ export const Map: React.FC<MapProps> = ({
 			}
 			if (url) {
 				const pmtilesUrl = url.startsWith('pmtiles://') ? url : `pmtiles://${url}`
+				initialStyleKey = pmtilesUrl
 				mapStyle = {
 					version: 8,
 					glyphs: 'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf',
@@ -271,6 +284,12 @@ export const Map: React.FC<MapProps> = ({
 					})
 				}
 			}
+		} else if (typeof initialStyle === 'string') {
+			// Default remote style URL
+			initialStyleKey = initialStyle
+		} else {
+			// Inline style object – we just want to avoid re-setting it immediately after init.
+			initialStyleKey = '__inline_style__'
 		}
 
 		const map = new maplibregl.Map({
@@ -282,10 +301,11 @@ export const Map: React.FC<MapProps> = ({
 		})
 
 		mapRef.current = map
+		currentStyleUrlRef.current = initialStyleKey
 
 		map.on('load', () => {
 			setIsLoaded(true)
-			if (onLoad) onLoad(map)
+			onLoadRef.current?.(map)
 		})
 
 		const resizeObserver = new ResizeObserver(() => {
@@ -299,7 +319,27 @@ export const Map: React.FC<MapProps> = ({
 			mapRef.current = null
 			setIsLoaded(false)
 		}
-	}, [mapSource.type, tileSourceMaxZoom])
+	}, [
+		mapSource.type,
+		tileSourceMaxZoom,
+		mapSource.url,
+		mapSource.file,
+		mapSource.location,
+		initialStyle,
+		center,
+		zoom
+	])
+
+	// Keep view in sync without destroying/recreating the map instance.
+	useEffect(() => {
+		const map = mapRef.current
+		if (!map) return
+		try {
+			map.jumpTo({ center, zoom })
+		} catch {
+			// Map may have been removed
+		}
+	}, [center, zoom])
 
 	// Handle map source updates (for switching sources after init)
 	useEffect(() => {

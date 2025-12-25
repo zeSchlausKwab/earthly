@@ -1,7 +1,7 @@
 {
 	"$schema": "https://biomejs.dev/schemas/2.3.10/schema.json",
 	"assist": {
-		"enabled": true
+		"enabled": false
 	},
 	"linter": {
 		"enabled": true,
@@ -17,7 +17,6 @@
 	"javascript": {
 		"formatter": {
 			"quoteStyle": "single",
-			"trailingCommas": "none",
 			"semicolons": "asNeeded"
 		}
 	},
