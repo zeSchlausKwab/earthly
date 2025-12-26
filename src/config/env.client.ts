@@ -9,9 +9,9 @@
 
 // Development defaults (used when process.env is not available)
 const DEV_DEFAULTS = {
-	RELAY_URL: 'ws://localhost:3334',
+	RELAY_URL: 'wss://relay.wavefunc.live',
 	SERVER_PUBKEY: 'ceadb7d5b739189fb3ecb7023a0c3f55d8995404d7750f5068865decf8b304cc',
-	CLIENT_KEY: '4e842ce1a820603c44f6ce3c4acd6527fdeb4898a9023d84bed51c1b4417eb5c'
+	CLIENT_KEY: '4e842ce1a820603c44f6ce3c4acd6527fdeb4898a9023d84bed51c1b4417eb5c',
 } as const
 
 /**
@@ -51,7 +51,7 @@ export const config = {
 	isProduction: safeEnv(() => process.env.NODE_ENV === 'production', false),
 
 	/** Whether running in development mode */
-	isDevelopment: safeEnv(() => process.env.NODE_ENV !== 'production', true)
+	isDevelopment: safeEnv(() => process.env.NODE_ENV !== 'production', true),
 } as const
 
 /** Type for the frontend config object */
