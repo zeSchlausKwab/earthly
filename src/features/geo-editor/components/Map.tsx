@@ -3,8 +3,11 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { PMTiles, Protocol, TileType } from 'pmtiles'
 import type React from 'react'
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { useSubscribe } from '@nostr-dev-kit/react'
+import { config } from '@/config'
 import { type BBox, lonLatToWorldGeohash, tileCenterLonLat } from '@/lib/worldGeohash'
+import { NDKMapLayerSetEvent, type MapLayerSetAnnouncementPayload } from '@/lib/ndk/NDKMapLayerSetEvent'
 
 const DEFAULT_CENTER: [number, number] = [-74.006, 40.7128]
 const DEFAULT_ZOOM = 12
@@ -35,8 +38,6 @@ export interface MapSource {
 	file?: File
 	/** Base URL for fetching PMTiles chunks (used with blossom map discovery) */
 	blossomServer?: string
-	/** URL to fetch the announcement record (used with blossom map discovery) */
-	announcementUrl?: string
 }
 
 interface MapProps {
@@ -145,7 +146,39 @@ export const GeoEditorMap: React.FC<MapProps> = ({
 		}
 	}, [])
 
-	// Fetch announcement for blossom source
+	// Subscribe to map layer set announcement (Nostr).
+	// IMPORTANT: NDK requires at least one filter; passing [] will throw.
+	// We always subscribe and only *use* the result when mapSource.type === 'blossom'.
+	const { events: mapLayerSetEvents } = useSubscribe([
+		{
+			kinds: NDKMapLayerSetEvent.kinds,
+			authors: [config.serverPubkey],
+			limit: 10
+		}
+	])
+
+	// Derive a stable "latest content" so our effect doesn't re-trigger on every render.
+	const latestLayerSetContent = useMemo(() => {
+		let best: (typeof mapLayerSetEvents)[number] | null = null
+		for (const ev of mapLayerSetEvents) {
+			if (!best) {
+				best = ev
+				continue
+			}
+			const a = ev.created_at ?? 0
+			const b = best.created_at ?? 0
+			if (a > b) {
+				best = ev
+			} else if (a === b) {
+				// tie-breaker for stability
+				const aid = ev.id ?? ''
+				const bid = best.id ?? ''
+				if (aid > bid) best = ev
+			}
+		}
+		return best?.content ?? null
+	}, [mapLayerSetEvents])
+
 	useEffect(() => {
 		if (mapSource.type !== 'blossom') {
 			setAnnouncement(null)
@@ -153,19 +186,38 @@ export const GeoEditorMap: React.FC<MapProps> = ({
 			return
 		}
 
-		const announcementUrl = mapSource.announcementUrl || 'http://localhost:3000/api/announcement'
-		const blossomServer = mapSource.blossomServer || 'http://localhost:3001'
+		let payload: MapLayerSetAnnouncementPayload | null = null
+		if (latestLayerSetContent) {
+			try {
+				const parsed = JSON.parse(latestLayerSetContent) as Partial<MapLayerSetAnnouncementPayload>
+				if (parsed && parsed.version === 1 && Array.isArray(parsed.layers)) {
+					payload = parsed as MapLayerSetAnnouncementPayload
+				}
+			} catch {
+				payload = null
+			}
+		}
+		const chunkedVectorLayer =
+			payload?.layers.find((l) => l.kind === 'chunked-vector') ?? null
+
+		const announcement = (chunkedVectorLayer && 'announcement' in chunkedVectorLayer
+			? chunkedVectorLayer.announcement
+			: null) as AnnouncementRecord | null
+
+		const blossomServer =
+			(mapSource.blossomServer && mapSource.blossomServer.trim().length > 0
+				? mapSource.blossomServer.trim()
+				: chunkedVectorLayer && 'blossomServer' in chunkedVectorLayer
+					? chunkedVectorLayer.blossomServer
+					: 'http://localhost:3001') || 'http://localhost:3001'
+
 		pmworldState.blossomServer = blossomServer
 
 		let cancelled = false
 		;(async () => {
 			try {
-				const res = await fetch(announcementUrl)
-				if (!res.ok) {
-					console.error('Failed to fetch announcement:', res.statusText)
-					return
-				}
-				const data = (await res.json()) as AnnouncementRecord
+				const data = announcement
+				if (!data || Object.keys(data).length === 0) return
 				if (cancelled) return
 
 				setAnnouncement(data)
@@ -217,14 +269,14 @@ export const GeoEditorMap: React.FC<MapProps> = ({
 					setTileSourceMaxZoom(fallback)
 				}
 			} catch (error) {
-				console.error('Failed to fetch announcement:', error)
+				console.error('Failed to apply announcement:', error)
 			}
 		})()
 
 		return () => {
 			cancelled = true
 		}
-	}, [mapSource.type, mapSource.announcementUrl, mapSource.blossomServer])
+	}, [mapSource.type, mapSource.blossomServer, latestLayerSetContent])
 
 	// Initialize map
 	useEffect(() => {

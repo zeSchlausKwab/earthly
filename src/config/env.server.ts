@@ -32,6 +32,9 @@ export const serverConfig = {
 	/** App private key for signing */
 	appPrivateKey: serverEnv.APP_PRIVATE_KEY,
 
+	/** Blossom base URL used by the server when publishing map layer set announcements */
+	blossomServer: serverEnv.BLOSSOM_SERVER,
+
 	/** Whether running in production mode */
 	isProduction: serverEnv.NODE_ENV === 'production',
 
@@ -39,7 +42,7 @@ export const serverConfig = {
 	isDevelopment: serverEnv.NODE_ENV === 'development',
 
 	/** Current environment name */
-	nodeEnv: serverEnv.NODE_ENV
+	nodeEnv: serverEnv.NODE_ENV,
 } as const
 
 export type ServerConfig = typeof serverConfig

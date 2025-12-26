@@ -37,8 +37,7 @@ export function MapSettingsPanel() {
 			setMapSource({
 				type: 'blossom',
 				location: 'remote',
-				blossomServer: mapSource.blossomServer || 'http://localhost:3001',
-				announcementUrl: mapSource.announcementUrl || 'http://localhost:3000/api/announcement'
+				blossomServer: mapSource.blossomServer || 'http://localhost:3001'
 			})
 		}
 	}
@@ -71,13 +70,6 @@ export function MapSettingsPanel() {
 		setMapSource({
 			...mapSource,
 			blossomServer: e.target.value
-		})
-	}
-
-	const handleAnnouncementUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-		setMapSource({
-			...mapSource,
-			announcementUrl: e.target.value
 		})
 	}
 
@@ -159,19 +151,7 @@ export function MapSettingsPanel() {
 							placeholder="http://localhost:3001"
 						/>
 						<p className="text-xs text-gray-500">
-							Base URL for the Blossom server hosting PMTiles chunks.
-						</p>
-					</div>
-
-					<div className="space-y-2">
-						<Label>Announcement URL</Label>
-						<Input
-							value={mapSource.announcementUrl || ''}
-							onChange={handleAnnouncementUrlChange}
-							placeholder="http://localhost:3000/api/announcement"
-						/>
-						<p className="text-xs text-gray-500">
-							Endpoint that returns the geohash-to-chunk mapping.
+							Optional override. Normally discovered from the Nostr announcement event.
 						</p>
 					</div>
 				</>

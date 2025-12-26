@@ -9,7 +9,7 @@ import {
 	detectBlobScope,
 	ensureFeatureCollection,
 	fetchGeoJsonPayload,
-	summarizeFeatureCollection
+	summarizeFeatureCollection,
 } from './utils'
 
 interface EditorStats {
@@ -93,7 +93,7 @@ interface EditorState {
 	setDatasetVisibility: (
 		visibility:
 			| Record<string, boolean>
-			| ((prev: Record<string, boolean>) => Record<string, boolean>)
+			| ((prev: Record<string, boolean>) => Record<string, boolean>),
 	) => void
 
 	setIsPublishing: (isPublishing: boolean) => void
@@ -150,8 +150,6 @@ interface EditorState {
 		file?: File
 		/** Base URL for fetching PMTiles chunks (used with blossom) */
 		blossomServer?: string
-		/** URL to fetch the announcement record (used with blossom) */
-		announcementUrl?: string
 	}
 	showMapSettings: boolean
 
@@ -174,7 +172,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 		name: '',
 		description: '',
 		color: '#3b82f6',
-		customProperties: {}
+		customProperties: {},
 	},
 	activeDataset: null,
 	datasetVisibility: {},
@@ -252,7 +250,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 	setActiveDataset: (activeDataset) => set({ activeDataset }),
 	setDatasetVisibility: (update) =>
 		set((state) => ({
-			datasetVisibility: typeof update === 'function' ? update(state.datasetVisibility) : update
+			datasetVisibility: typeof update === 'function' ? update(state.datasetVisibility) : update,
 		})),
 
 	setIsPublishing: (isPublishing) => set({ isPublishing }),
@@ -267,7 +265,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 	setBlobPreviewCollection: (blobPreviewCollection) => set({ blobPreviewCollection }),
 
 	fetchBlobReference: async () => {
-		const { blobDraftUrl, blobDraftStatus } = get()
+		const { blobDraftUrl } = get()
 		const url = blobDraftUrl.trim()
 		if (!url) return
 
@@ -291,7 +289,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 				geometryTypes: summary.geometryTypes,
 				previewCollection: collection,
 				size,
-				mimeType
+				mimeType,
 			}
 
 			set((state) => ({
@@ -299,13 +297,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 				blobPreviewCollection: collection,
 				previewingBlobReferenceId: id,
 				blobDraftUrl: '',
-				blobDraftStatus: 'idle'
+				blobDraftStatus: 'idle',
 			}))
 		} catch (error) {
 			console.error('Failed to fetch external GeoJSON', error)
 			set({
 				blobDraftStatus: 'error',
-				blobDraftError: error instanceof Error ? error.message : 'Failed to fetch external GeoJSON.'
+				blobDraftError:
+					error instanceof Error ? error.message : 'Failed to fetch external GeoJSON.',
 			})
 		}
 	},
@@ -318,15 +317,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 		if (reference.status === 'ready' && reference.previewCollection) {
 			set({
 				previewingBlobReferenceId: id,
-				blobPreviewCollection: reference.previewCollection
+				blobPreviewCollection: reference.previewCollection,
 			})
 			return
 		}
 
 		set((state) => ({
 			blobReferences: state.blobReferences.map((ref) =>
-				ref.id === id ? { ...ref, status: 'loading', error: undefined } : ref
-			)
+				ref.id === id ? { ...ref, status: 'loading', error: undefined } : ref,
+			),
 		}))
 
 		try {
@@ -347,12 +346,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 								geometryTypes: summary.geometryTypes,
 								previewCollection: collection,
 								size: size ?? ref.size,
-								mimeType: mimeType ?? ref.mimeType
+								mimeType: mimeType ?? ref.mimeType,
 							}
-						: ref
+						: ref,
 				),
 				blobPreviewCollection: collection,
-				previewingBlobReferenceId: id
+				previewingBlobReferenceId: id,
 			}))
 		} catch (error) {
 			console.error('Failed to preview blob reference', error)
@@ -362,10 +361,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 						? {
 								...ref,
 								status: 'error',
-								error: error instanceof Error ? error.message : 'Failed to load external GeoJSON.'
+								error: error instanceof Error ? error.message : 'Failed to load external GeoJSON.',
 							}
-						: ref
-				)
+						: ref,
+				),
 			}))
 		}
 	},
@@ -374,7 +373,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 		const { previewingBlobReferenceId } = get()
 		set((state) => {
 			const newState: Partial<EditorState> = {
-				blobReferences: state.blobReferences.filter((reference) => reference.id !== id)
+				blobReferences: state.blobReferences.filter((reference) => reference.id !== id),
 			}
 			if (previewingBlobReferenceId === id) {
 				newState.previewingBlobReferenceId = null
@@ -395,15 +394,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 	// UI Actions
 	setShowTips: (showTips) =>
 		set((state) => ({
-			showTips: typeof showTips === 'function' ? showTips(state.showTips) : showTips
+			showTips: typeof showTips === 'function' ? showTips(state.showTips) : showTips,
 		})),
 	setShowDatasetsPanel: (show) =>
 		set((state) => ({
-			showDatasetsPanel: typeof show === 'function' ? show(state.showDatasetsPanel) : show
+			showDatasetsPanel: typeof show === 'function' ? show(state.showDatasetsPanel) : show,
 		})),
 	setShowInfoPanel: (show) =>
 		set((state) => ({
-			showInfoPanel: typeof show === 'function' ? show(state.showInfoPanel) : show
+			showInfoPanel: typeof show === 'function' ? show(state.showInfoPanel) : show,
 		})),
 	setMobileDatasetsOpen: (open) => set({ mobileDatasetsOpen: open }),
 	setMobileInfoOpen: (open) => set({ mobileInfoOpen: open }),
@@ -416,7 +415,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 			mobileInfoOpen: state === 'info',
 			mobileToolsOpen: state === 'tools',
 			mobileSearchOpen: state === 'search',
-			mobileActionsOpen: state === 'actions'
+			mobileActionsOpen: state === 'actions',
 		}),
 	setInspectorActive: (active) => set({ inspectorActive: active }),
 
@@ -442,7 +441,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 		} catch (error) {
 			set({
 				searchError: error instanceof Error ? error.message : 'Search failed',
-				searchResults: []
+				searchResults: [],
 			})
 		} finally {
 			set({ searchLoading: false })
@@ -454,7 +453,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 	mapSource: {
 		type: 'default',
 		location: 'remote',
-		url: 'https://build.protomaps.com/20251202.pmtiles'
+		url: 'https://build.protomaps.com/20251202.pmtiles',
 	},
 	showMapSettings: false,
 
@@ -467,8 +466,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 			points: features.filter((f) => f.geometry.type === 'Point').length,
 			lines: features.filter((f) => f.geometry.type === 'LineString').length,
 			polygons: features.filter((f) => f.geometry.type === 'Polygon').length,
-			total: features.length
+			total: features.length,
 		}
 		set({ stats })
-	}
+	},
 }))
