@@ -21,6 +21,7 @@ import { serve } from 'bun'
 
 const PORT = process.env.BLOSSOM_PORT ? parseInt(process.env.BLOSSOM_PORT, 10) : 3001
 const isProduction = process.env.NODE_ENV === 'production'
+const PUBLIC_URL = isProduction ? 'https://blossom.earthly.city' : `http://localhost:${PORT}`
 
 // In production, map-chunks is relative to cwd; in dev, relative to this file
 const MAP_CHUNKS_DIR = isProduction
@@ -228,7 +229,7 @@ async function handleUpload(req: Request): Promise<Response> {
 			sha256,
 			size: bodyBuffer.byteLength,
 			type: contentType,
-			url: `http://localhost:${PORT}/${sha256}`,
+			url: `${PUBLIC_URL}/${sha256}`,
 		},
 		{
 			status: 200,

@@ -288,7 +288,9 @@ export type EarthlyGeoServer = {
 
 export class EarthlyGeoServerClient implements EarthlyGeoServer {
   static readonly SERVER_PUBKEY = "ceadb7d5b739189fb3ecb7023a0c3f55d8995404d7750f5068865decf8b304cc";
-  static readonly DEFAULT_RELAYS = ["ws://localhost:3334"];
+  static readonly DEFAULT_RELAYS = typeof window !== 'undefined' && window.location.hostname === 'localhost' 
+    ? ["wss://relay.wavefunc.live", "ws://localhost:3334"]
+    : ["wss://relay.wavefunc.live"];
   private client: Client;
   private transport: Transport;
 
