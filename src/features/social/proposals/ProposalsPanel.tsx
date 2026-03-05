@@ -55,6 +55,20 @@ export function ProposalsPanel({
 		[acceptProposal, onProposalAccepted],
 	)
 
+	const handleReject = useCallback(
+		async (proposal: NDKGeoEditProposalEvent, reason: string) => {
+			await rejectProposal(proposal, reason.trim() || undefined)
+		},
+		[rejectProposal],
+	)
+
+	const handleRejectWithoutReason = useCallback(
+		async (proposal: NDKGeoEditProposalEvent) => {
+			await rejectProposal(proposal)
+		},
+		[rejectProposal],
+	)
+
 	if (!target) {
 		return (
 			<div className={`p-4 text-center text-sm text-gray-500 ${className}`}>
@@ -113,7 +127,8 @@ export function ProposalsPanel({
 										onToggleProposalOverlay?.(pw.proposal, !visibleProposalIds.has(id))
 									}
 									onAccept={() => handleAccept(pw.proposal)}
-									onReject={() => rejectProposal(pw.proposal)}
+									onRequestChanges={(reason) => handleReject(pw.proposal, reason)}
+									onReject={() => handleRejectWithoutReason(pw.proposal)}
 								/>
 							)
 						})}
@@ -142,7 +157,8 @@ export function ProposalsPanel({
 												onToggleProposalOverlay?.(pw.proposal, !visibleProposalIds.has(id))
 											}
 											onAccept={() => handleAccept(pw.proposal)}
-											onReject={() => rejectProposal(pw.proposal)}
+											onRequestChanges={(reason) => handleReject(pw.proposal, reason)}
+											onReject={() => handleRejectWithoutReason(pw.proposal)}
 										/>
 									)
 								})}

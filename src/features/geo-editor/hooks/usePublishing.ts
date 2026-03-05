@@ -47,6 +47,10 @@ export function usePublishing({
 	const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta)
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
 	const setSelectedFeatureIds = useEditorStore((state) => state.setSelectedFeatureIds)
+	const setMode = useEditorStore((state) => state.setMode)
+	const setViewMode = useEditorStore((state) => state.setViewMode)
+	const setViewDataset = useEditorStore((state) => state.setViewDataset)
+	const setViewCollection = useEditorStore((state) => state.setViewCollection)
 
 	// Blossom dialog state
 	const setBlossomUploadDialogOpen = useEditorStore((state) => state.setBlossomUploadDialogOpen)
@@ -274,6 +278,16 @@ export function usePublishing({
 		[activeDatasetContextRefs, mapContexts, ndk],
 	)
 
+	const switchToDatasetViewMode = useCallback(
+		(dataset: NDKGeoEvent) => {
+			setMode('select')
+			setViewMode('view')
+			setViewDataset(dataset)
+			setViewCollection(null)
+		},
+		[setMode, setViewMode, setViewDataset, setViewCollection],
+	)
+
 	const handlePublishNew = useCallback(async () => {
 		if (!editor) return
 		setIsPublishing(true)
@@ -325,6 +339,7 @@ export function usePublishing({
 			setActiveDatasetContextRefs(event.contextReferences)
 			setCollectionMeta(extractCollectionMeta(collection))
 			setSelectedFeatureIds([])
+			switchToDatasetViewMode(event)
 		} catch (error) {
 			console.error('Failed to publish dataset', error)
 			setPublishError('Failed to publish dataset. Check console for details.')
@@ -346,6 +361,7 @@ export function usePublishing({
 		setActiveDatasetContextRefs,
 		setCollectionMeta,
 		setSelectedFeatureIds,
+		switchToDatasetViewMode,
 	])
 
 	/**
@@ -401,6 +417,7 @@ export function usePublishing({
 				setActiveDatasetContextRefs(event.contextReferences)
 				setCollectionMeta(extractCollectionMeta(collection))
 				setSelectedFeatureIds([])
+				switchToDatasetViewMode(event)
 
 				// Clean up dialog state
 				setPendingPublishCollection(null)
@@ -426,6 +443,7 @@ export function usePublishing({
 			setActiveDatasetContextRefs,
 			setCollectionMeta,
 			setSelectedFeatureIds,
+			switchToDatasetViewMode,
 			setPendingPublishCollection,
 			setBlossomUploadDialogOpen,
 		],
@@ -493,6 +511,7 @@ export function usePublishing({
 			setActiveDatasetContextRefs(event.contextReferences)
 			setCollectionMeta(extractCollectionMeta(collection))
 			setSelectedFeatureIds([])
+			switchToDatasetViewMode(event)
 		} catch (error) {
 			console.error('Failed to publish dataset update', error)
 			setPublishError('Failed to publish dataset update. Check console for details.')
@@ -516,6 +535,7 @@ export function usePublishing({
 		setActiveDatasetContextRefs,
 		setCollectionMeta,
 		setSelectedFeatureIds,
+		switchToDatasetViewMode,
 	])
 
 	const handlePublishCopy = useCallback(async () => {
@@ -562,6 +582,7 @@ export function usePublishing({
 			setActiveDatasetContextRefs(event.contextReferences)
 			setCollectionMeta(extractCollectionMeta(collection))
 			setSelectedFeatureIds([])
+			switchToDatasetViewMode(event)
 		} catch (error) {
 			console.error('Failed to publish dataset copy', error)
 			setPublishError('Failed to publish dataset copy. Check console for details.')
@@ -583,6 +604,7 @@ export function usePublishing({
 		setActiveDatasetContextRefs,
 		setCollectionMeta,
 		setSelectedFeatureIds,
+		switchToDatasetViewMode,
 	])
 
 	const handleProposeEdit = useCallback(
@@ -613,6 +635,8 @@ export function usePublishing({
 
 				await proposal.publishProposal()
 				setPublishMessage('Edit proposal published successfully.')
+				switchToDatasetViewMode(activeDataset)
+				setSelectedFeatureIds([])
 			} catch (error) {
 				console.error('Failed to publish edit proposal', error)
 				setPublishError('Failed to publish edit proposal. Check console for details.')
@@ -628,6 +652,8 @@ export function usePublishing({
 			setPublishError,
 			buildCollectionFromEditor,
 			ndk,
+			switchToDatasetViewMode,
+			setSelectedFeatureIds,
 		],
 	)
 

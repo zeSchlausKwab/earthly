@@ -1,9 +1,18 @@
-import { ChevronDown, ChevronRight, Eye, EyeOff, Check, X } from 'lucide-react'
-import { useMemo } from 'react'
+import {
+	ChevronDown,
+	ChevronRight,
+	Eye,
+	EyeOff,
+	Check,
+	MessageSquareWarning,
+	X,
+} from 'lucide-react'
+import { useCallback, useMemo, useState } from 'react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { UserProfile } from '@/components/user-profile'
+import { GeoCommentForm } from '../comments'
 import type { ProposalWithStatus } from '../hooks/useGeoProposals'
 import type { ProposalStatus } from '@/lib/ndk/proposalStatus'
 
@@ -15,7 +24,8 @@ interface ProposalCardProps {
 	onToggleExpanded: () => void
 	onToggleOverlay: () => void
 	onAccept: () => void
-	onReject: () => void
+	onRequestChanges: (reason: string) => Promise<void>
+	onReject: () => Promise<void>
 }
 
 const STATUS_STYLES: Record<ProposalStatus, { label: string; className: string }> = {
@@ -33,13 +43,16 @@ export function ProposalCard({
 	onToggleExpanded,
 	onToggleOverlay,
 	onAccept,
+	onRequestChanges,
 	onReject,
 }: ProposalCardProps) {
-	const { proposal, status } = proposalWithStatus
+	const { proposal, status, statusInfo } = proposalWithStatus
 	const statusStyle = STATUS_STYLES[status]
+	const [showChangesNeededForm, setShowChangesNeededForm] = useState(false)
 
 	const featureCount = proposal.featureCollection.features.length
 	const description = proposal.description
+	const statusReason = statusInfo?.reason?.trim()
 
 	const timestamp = useMemo(() => {
 		if (!proposal.created_at) return 'Unknown time'
@@ -56,6 +69,16 @@ export function ProposalCard({
 		if (diffDays < 7) return `${diffDays}d ago`
 		return date.toLocaleDateString()
 	}, [proposal.created_at])
+
+	const handleSubmitChangesNeeded = useCallback(
+		async (text: string) => {
+			const reason = text.trim()
+			if (!reason) return
+			await onRequestChanges(reason)
+			setShowChangesNeededForm(false)
+		},
+		[onRequestChanges],
+	)
 
 	return (
 		<Collapsible open={isExpanded} onOpenChange={onToggleExpanded}>
@@ -100,6 +123,15 @@ export function ProposalCard({
 						<div className="text-[10px] text-gray-400">
 							{featureCount} feature{featureCount === 1 ? '' : 's'}
 						</div>
+
+						{statusReason && (
+							<div className="rounded-md border border-amber-200 bg-amber-50 p-2">
+								<p className="text-[10px] font-medium uppercase tracking-wider text-amber-800">
+									Changes needed
+								</p>
+								<p className="mt-1 text-xs text-amber-900 leading-relaxed">{statusReason}</p>
+							</div>
+						)}
 
 						{/* Action row */}
 						<div className="flex items-center gap-1.5 pt-1">
@@ -154,11 +186,28 @@ export function ProposalCard({
 									<Tooltip>
 										<TooltipTrigger asChild>
 											<Button
+												variant={showChangesNeededForm ? 'default' : 'outline'}
+												size="icon-xs"
+												onClick={(e) => {
+													e.stopPropagation()
+													setShowChangesNeededForm((prev) => !prev)
+												}}
+												className="h-6 w-6"
+											>
+												<MessageSquareWarning className="h-3.5 w-3.5" />
+											</Button>
+										</TooltipTrigger>
+										<TooltipContent>Changes needed</TooltipContent>
+									</Tooltip>
+
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<Button
 												variant="outline"
 												size="icon-xs"
 												onClick={(e) => {
 													e.stopPropagation()
-													onReject()
+													void onReject()
 												}}
 												className="h-6 w-6 text-red-500 hover:text-red-600 border-red-200 hover:bg-red-50"
 											>
@@ -170,6 +219,19 @@ export function ProposalCard({
 								</div>
 							)}
 						</div>
+
+						{isOwner && status === 'open' && showChangesNeededForm && (
+							<div className="rounded-md border border-red-200 bg-red-50/40 p-2">
+								<p className="mb-2 text-[11px] font-medium text-red-700">
+									Describe what should be changed before this can be accepted.
+								</p>
+								<GeoCommentForm
+									onSubmit={handleSubmitChangesNeeded}
+									onCancel={() => setShowChangesNeededForm(false)}
+									placeholder="What needs to change?"
+								/>
+							</div>
+						)}
 					</div>
 				</CollapsibleContent>
 			</div>
