@@ -353,7 +353,88 @@ Example reaction to a dataset:
 
 ⸻
 
-10 Open Questions / TODO
+10 Geo Edit Proposal Event (kind 37519)
+
+Edit proposals allow users to suggest changes to another user's GeoJSON dataset. The proposal contains the full replacement FeatureCollection — not a diff. The dataset owner can preview the proposed geometry on the map, then accept or reject.
+
+10.1 Event Structure
+
+Field Purpose
+kind 37519 identifies an edit proposal (parameterized replaceable).
+content JSON.stringify(...) of the proposed RFC 7946 FeatureCollection. Full replacement content.
+tags Target reference, metadata, and discovery (see below).
+
+10.2 Tags
+
+Tag Example Purpose
+d ["d", "pr8k2m1n"] Unique proposal identifier.
+a ["a", "37515:<owner-pubkey>:<dataset-d-tag>"] Address of the target dataset.
+p ["p", "<owner-pubkey>"] Dataset owner's pubkey (enables relay filtering and notifications).
+base-version ["base-version", "<event-id>"] Event ID of the dataset version this proposal is based on.
+description ["description", "Refined eastern boundary"] Human-readable summary of changes.
+bbox ["bbox", "16.1,48.1,16.7,48.4"] Bounding box of proposed content.
+g ["g", "u2yh7"] Geohash of proposed content centroid.
+t ["t", "parks"] Hashtags (typically carried from target).
+
+10.3 Status Tracking
+
+Proposal lifecycle is tracked with NIP-34 status event kinds (regular events, not replaceable):
+
+Kind Status Meaning
+1630 open Proposal is open for review (implicit default — no status event needed).
+1631 applied Owner accepted and republished the dataset with proposed content.
+1632 closed Owner rejected the proposal.
+1633 draft Proposer marked as work-in-progress.
+
+Status events reference the proposal via `a` tag (`37519:<proposer-pubkey>:<proposal-d-tag>`) and optionally `e` tag (proposal event ID). The `content` field may contain a reason string. A `p` tag SHOULD reference the proposal author for notifications.
+
+The latest status event by `created_at` determines the current proposal state. If no status events exist, the proposal is implicitly "open".
+
+10.4 Accept Flow
+
+1. Owner reviews proposal content (shown as map overlay).
+2. Owner clicks "Accept".
+3. Client creates a new NDKGeoEvent with the proposal's FeatureCollection.
+4. Client calls `publishUpdate(originalDataset)` — preserves d-tag lineage, increments version.
+5. Client carries forward the target's hashtags, collection references, context references, and relay hints.
+6. Client publishes a kind 1631 (applied) status event referencing the proposal.
+
+10.5 Example Proposal Event
+
+```json
+{
+  "kind": 37519,
+  "content": "{\"type\":\"FeatureCollection\",\"features\":[...]}",
+  "tags": [
+    ["d", "pr8k2m1n"],
+    ["a", "37515:npub1owner...:dataset-uuid"],
+    ["p", "npub1owner..."],
+    ["base-version", "abc123eventid..."],
+    ["description", "Refined southeastern border alignment"],
+    ["bbox", "12.0,50.0,15.0,51.5"],
+    ["g", "u2cb5"],
+    ["t", "boundaries"]
+  ]
+}
+```
+
+10.6 Example Status Event (Applied)
+
+```json
+{
+  "kind": 1631,
+  "content": "",
+  "tags": [
+    ["a", "37519:npub1proposer...:pr8k2m1n"],
+    ["e", "proposal-event-id"],
+    ["p", "npub1proposer..."]
+  ]
+}
+```
+
+⸻
+
+11 Open Questions / TODO
 • Should we reserve a separate kind for single Feature objects?
 • Add optional time tag for temporal datasets?
 • Handling tiled GeoJSON (e.g. RFC-8462 GeoJSON seq)?

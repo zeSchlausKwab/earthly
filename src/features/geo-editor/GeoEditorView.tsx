@@ -36,6 +36,7 @@ import {
 	useBlobResolution,
 	useCollectionContextEditor,
 	useCommentGeometry,
+	useProposalGeometry,
 	useDatasetManagement,
 	useInspector,
 	useMagnifier,
@@ -90,6 +91,7 @@ export function GeoEditorView() {
 	} = useInspector(map)
 
 	const { handleCommentGeometryVisibility } = useCommentGeometry(map)
+	const { visibleProposalIds, handleToggleProposalOverlay } = useProposalGeometry(map)
 
 	// Zoom helpers (no deps, defined early so hooks can reference them)
 	const handleZoomToBounds = useCallback((bounds: [number, number, number, number]) => {
@@ -217,12 +219,14 @@ export function GeoEditorView() {
 		handlePublishNew,
 		handlePublishUpdate,
 		handlePublishCopy,
+		handleProposeEdit,
 		handleDeleteDataset,
 		handlePublishWithBlossomUpload,
 		buildCollectionFromEditor,
 		canPublishNew,
 		canPublishUpdate,
 		canPublishCopy,
+		canProposeEdit,
 	} = usePublishing({
 		ndk: ndk ?? undefined,
 		currentUserPubkey: currentUser?.pubkey,
@@ -1226,6 +1230,8 @@ export function GeoEditorView() {
 					userPubkey={userPubkey}
 					// Filter visibility sync
 					onFilteredDatasetKeysChange={handleFilteredDatasetKeysChange}
+					onToggleProposalOverlay={handleToggleProposalOverlay}
+					visibleProposalIds={visibleProposalIds}
 				/>
 			)}
 
@@ -1328,6 +1334,13 @@ export function GeoEditorView() {
 										canPublishUpdate,
 										onPublishCopy: handlePublishCopy,
 										canPublishCopy,
+										onProposeEdit: () => {
+											const description = prompt('Describe your proposed changes:')
+											if (description) {
+												handleProposeEdit(description)
+											}
+										},
+										canProposeEdit,
 										isPublishing,
 									}}
 									isMobile={isMobile}
@@ -1422,6 +1435,8 @@ export function GeoEditorView() {
 							onBlossomUploadComplete={handleBlobUploadComplete}
 							ndk={ndk}
 							onFilteredDatasetKeysChange={handleFilteredDatasetKeysChange}
+							onToggleProposalOverlay={handleToggleProposalOverlay}
+							visibleProposalIds={visibleProposalIds}
 						/>
 					)}
 

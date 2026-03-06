@@ -1,4 +1,4 @@
-import { ChevronDown, CopyPlus, RefreshCw, UploadCloud } from 'lucide-react'
+import { ChevronDown, CopyPlus, GitPullRequest, RefreshCw, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
 	DropdownMenu,
@@ -13,10 +13,12 @@ export interface PublishDropdownProps {
 	canPublishNew?: boolean
 	canPublishUpdate?: boolean
 	canPublishCopy?: boolean
+	canProposeEdit?: boolean
 	isPublishing?: boolean
 	onPublishNew?: () => void
 	onPublishUpdate?: () => void
 	onPublishCopy?: () => void
+	onProposeEdit?: () => void
 	small?: boolean
 }
 
@@ -24,10 +26,12 @@ export function PublishDropdown({
 	canPublishNew,
 	canPublishUpdate,
 	canPublishCopy,
+	canProposeEdit,
 	isPublishing,
 	onPublishNew,
 	onPublishUpdate,
 	onPublishCopy,
+	onProposeEdit,
 	small,
 }: PublishDropdownProps) {
 	const iconSize = small ? 'h-3.5 w-3.5' : 'h-4 w-4'
@@ -41,7 +45,7 @@ export function PublishDropdown({
 	const PrimaryIcon = primaryIcon
 
 	// If no actions available, show disabled button
-	if (!hasPrimaryAction && !canPublishCopy) {
+	if (!hasPrimaryAction && !canPublishCopy && !canProposeEdit) {
 		return (
 			<TooltipProvider delayDuration={500}>
 				<Tooltip>
@@ -64,7 +68,7 @@ export function PublishDropdown({
 	}
 
 	// Show dropdown if fork is also available
-	const showDropdown = canPublishCopy || (canPublishUpdate && canPublishNew)
+	const showDropdown = canPublishCopy || canProposeEdit || (canPublishUpdate && canPublishNew)
 
 	if (!showDropdown) {
 		return (
@@ -131,6 +135,15 @@ export function PublishDropdown({
 							<DropdownMenuItem onClick={onPublishCopy}>
 								<CopyPlus className="h-4 w-4" />
 								Fork as new dataset
+							</DropdownMenuItem>
+						</>
+					)}
+					{canProposeEdit && (
+						<>
+							<DropdownMenuSeparator />
+							<DropdownMenuItem onClick={onProposeEdit}>
+								<GitPullRequest className="h-4 w-4" />
+								Propose edit to owner
 							</DropdownMenuItem>
 						</>
 					)}

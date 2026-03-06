@@ -4,6 +4,8 @@ import { useCallback, useMemo } from 'react'
 import { validateDatasetForContext } from '@/lib/context/validation'
 import type { GeoBlobReference, NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import { NDKGeoEvent as NDKGeoEventClass } from '@/lib/ndk/NDKGeoEvent'
+import { NDKGeoEditProposalEvent } from '@/lib/ndk/NDKGeoEditProposalEvent'
+import { GEO_EVENT_KIND } from '@/lib/ndk/kinds'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import type { EditorFeature } from '../core'
 import { useEditorStore } from '../store'
@@ -583,6 +585,52 @@ export function usePublishing({
 		setSelectedFeatureIds,
 	])
 
+	const handleProposeEdit = useCallback(
+		async (description: string) => {
+			if (!editor || !activeDataset) return
+			setIsPublishing(true)
+			setPublishMessage('Creating edit proposal...')
+			setPublishError(null)
+
+			try {
+				const collection = buildCollectionFromEditor()
+				if (!collection) throw new Error('No features to publish')
+
+				if (!ndk) {
+					setPublishError('NDK is not ready.')
+					return
+				}
+
+				const proposal = new NDKGeoEditProposalEvent(ndk)
+				proposal.featureCollection = collection
+				proposal.targetAddress = `${GEO_EVENT_KIND}:${activeDataset.pubkey}:${activeDataset.dTag}`
+				proposal.ownerPubkey = activeDataset.pubkey
+				if (activeDataset.id) {
+					proposal.baseVersion = activeDataset.id
+				}
+				proposal.description = description
+				proposal.hashtags = activeDataset.hashtags
+
+				await proposal.publishProposal()
+				setPublishMessage('Edit proposal published successfully.')
+			} catch (error) {
+				console.error('Failed to publish edit proposal', error)
+				setPublishError('Failed to publish edit proposal. Check console for details.')
+			} finally {
+				setIsPublishing(false)
+			}
+		},
+		[
+			editor,
+			activeDataset,
+			setIsPublishing,
+			setPublishMessage,
+			setPublishError,
+			buildCollectionFromEditor,
+			ndk,
+		],
+	)
+
 	const handleDeleteDataset = useCallback(
 		async (event: NDKGeoEvent, onClear: () => void) => {
 			if (!ndk) {
@@ -625,12 +673,15 @@ export function usePublishing({
 		!!activeDataset && currentUserPubkey === activeDataset?.pubkey && features.length > 0
 	const canPublishCopy =
 		!!activeDataset && currentUserPubkey !== activeDataset?.pubkey && features.length > 0
+	const canProposeEdit =
+		!!activeDataset && currentUserPubkey !== activeDataset?.pubkey && features.length > 0
 
 	return {
 		// Actions
 		handlePublishNew,
 		handlePublishUpdate,
 		handlePublishCopy,
+		handleProposeEdit,
 		handleDeleteDataset,
 		handlePublishWithBlossomUpload,
 		buildCollectionFromEditor,
@@ -644,5 +695,6 @@ export function usePublishing({
 		canPublishNew,
 		canPublishUpdate,
 		canPublishCopy,
+		canProposeEdit,
 	}
 }

@@ -83,6 +83,15 @@ export interface GeoEditorInfoPanelProps {
 	onCloseContextEditor?: () => void
 	/** Available contexts for dataset attachment */
 	mapContextEvents?: NDKMapContextEvent[]
+	/** Callback when a proposal overlay visibility is toggled */
+	onToggleProposalOverlay?: (
+		proposal: import('@/lib/ndk/NDKGeoEditProposalEvent').NDKGeoEditProposalEvent,
+		visible: boolean,
+	) => void
+	/** Callback when a proposal is accepted */
+	onProposalAccepted?: () => void
+	/** Set of proposal IDs whose overlay is visible */
+	visibleProposalIds?: Set<string>
 	/** Callback when a feature is zoomed to from the geometries list */
 	onZoomToFeature?: (feature: EditorFeature) => void
 	/** Current feature collection for size checking */
@@ -121,6 +130,9 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onSaveContext,
 		onCloseContextEditor,
 		mapContextEvents = [],
+		onToggleProposalOverlay,
+		onProposalAccepted,
+		visibleProposalIds,
 		onZoomToFeature,
 		featureCollectionForUpload,
 		onBlossomUploadComplete,
@@ -587,6 +599,9 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				availableFeatures={availableFeatures}
 				onMentionVisibilityToggle={onMentionVisibilityToggle}
 				onMentionZoomTo={onMentionZoomTo}
+				onToggleProposalOverlay={onToggleProposalOverlay}
+				onProposalAccepted={onProposalAccepted}
+				visibleProposalIds={visibleProposalIds}
 			/>
 		)
 	}

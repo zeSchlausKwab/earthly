@@ -51,6 +51,8 @@ interface DatasetActionsProps {
 	canPublishUpdate?: boolean
 	onPublishCopy?: () => void
 	canPublishCopy?: boolean
+	onProposeEdit?: () => void
+	canProposeEdit?: boolean
 	isPublishing?: boolean
 }
 
@@ -395,10 +397,12 @@ export function Toolbar({
 									canPublishNew={datasetActions.canPublishNew}
 									canPublishUpdate={datasetActions.canPublishUpdate}
 									canPublishCopy={datasetActions.canPublishCopy}
+									canProposeEdit={datasetActions.canProposeEdit}
 									isPublishing={datasetActions.isPublishing}
 									onPublishNew={datasetActions.onPublishNew}
 									onPublishUpdate={datasetActions.onPublishUpdate}
 									onPublishCopy={datasetActions.onPublishCopy}
+									onProposeEdit={datasetActions.onProposeEdit}
 									small
 								/>
 								<Divider />
@@ -553,10 +557,12 @@ export function Toolbar({
 							canPublishNew={datasetActions?.canPublishNew}
 							canPublishUpdate={datasetActions?.canPublishUpdate}
 							canPublishCopy={datasetActions?.canPublishCopy}
+							canProposeEdit={datasetActions?.canProposeEdit}
 							isPublishing={datasetActions?.isPublishing}
 							onPublishNew={datasetActions?.onPublishNew}
 							onPublishUpdate={datasetActions?.onPublishUpdate}
 							onPublishCopy={datasetActions?.onPublishCopy}
+							onProposeEdit={datasetActions?.onProposeEdit}
 						/>
 
 						<Divider />

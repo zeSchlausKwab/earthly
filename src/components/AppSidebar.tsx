@@ -18,6 +18,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import type { NDKGeoCollectionEvent } from '../lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
+import type { NDKGeoEditProposalEvent } from '../lib/ndk/NDKGeoEditProposalEvent'
 import type { NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
 import { ShoutboxPanel } from '../features/social/shoutbox'
 import { GeoDatasetsPanelContent } from './GeoDatasetsPanel'
@@ -159,6 +160,12 @@ interface AppSidebarProps {
 	userPubkey?: string
 	/** Callback when filtered dataset keys change (for map visibility sync) */
 	onFilteredDatasetKeysChange?: (keys: Set<string>) => void
+	/** Callback when a proposal overlay visibility is toggled */
+	onToggleProposalOverlay?: (proposal: NDKGeoEditProposalEvent, visible: boolean) => void
+	/** Callback when a proposal is accepted */
+	onProposalAccepted?: () => void
+	/** Set of proposal IDs whose overlay is visible */
+	visibleProposalIds?: Set<string>
 }
 
 export function AppSidebar({
@@ -218,6 +225,9 @@ export function AppSidebar({
 	userPubkey,
 	// Filter sync
 	onFilteredDatasetKeysChange,
+	onToggleProposalOverlay,
+	onProposalAccepted,
+	visibleProposalIds,
 }: AppSidebarProps) {
 	const { setOpen, sidebarExpanded, setSidebarExpanded } = useSidebar()
 	const viewMode = useEditorStore((state) => state.sidebarViewMode)
@@ -647,6 +657,9 @@ export function AppSidebar({
 		availableFeatures,
 		onMentionVisibilityToggle,
 		onMentionZoomTo,
+		onToggleProposalOverlay,
+		onProposalAccepted,
+		visibleProposalIds,
 		onEditCollection: handleEditCollection,
 		collectionEditorMode,
 		editingCollection,

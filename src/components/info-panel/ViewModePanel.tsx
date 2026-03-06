@@ -1,4 +1,4 @@
-import { Maximize2, FileText, MessageCircle, MapPin } from 'lucide-react'
+import { Maximize2, FileText, MessageCircle, MapPin, GitPullRequest } from 'lucide-react'
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { useEditorStore } from '@/features/geo-editor/store'
@@ -11,6 +11,8 @@ import { Button } from '../ui/button'
 import { DataTable } from '../ui/data-table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { CommentsPanel } from '@/features/social/comments'
+import { ProposalsPanel } from '@/features/social/proposals'
+import type { NDKGeoEditProposalEvent } from '@/lib/ndk/NDKGeoEditProposalEvent'
 import { GeoRichTextEditor, type GeoFeatureItem } from '../editor/GeoRichTextEditor'
 import {
 	createViewModeColumns,
@@ -44,9 +46,15 @@ export interface ViewModePanelProps {
 	) => void
 	/** Callback to zoom to a mentioned geometry */
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
+	/** Callback when a proposal overlay visibility is toggled */
+	onToggleProposalOverlay?: (proposal: NDKGeoEditProposalEvent, visible: boolean) => void
+	/** Callback when a proposal is accepted */
+	onProposalAccepted?: () => void
+	/** Set of proposal IDs whose overlay is visible */
+	visibleProposalIds?: Set<string>
 }
 
-type ViewTab = 'details' | 'comments'
+type ViewTab = 'details' | 'comments' | 'proposals'
 
 export interface ViewModePanelCallbacks {
 	onCommentGeojsonVisibilityChange?: (comment: NDKGeoCommentEvent, visible: boolean) => void
@@ -79,6 +87,9 @@ export function ViewModePanel({
 	availableFeatures = [],
 	onMentionVisibilityToggle,
 	onMentionZoomTo,
+	onToggleProposalOverlay,
+	onProposalAccepted,
+	visibleProposalIds = new Set(),
 }: ViewModePanelProps) {
 	const [activeTab, setActiveTab] = useState<ViewTab>('details')
 	const [visibleGeojsonCommentIds, setVisibleGeojsonCommentIds] = useState<Set<string>>(new Set())
@@ -256,6 +267,17 @@ export function ViewModePanel({
 					<MessageCircle className="h-3.5 w-3.5" />
 					Comments
 				</Button>
+				{viewDataset && (
+					<Button
+						variant={activeTab === 'proposals' ? 'default' : 'ghost'}
+						size="sm"
+						onClick={() => setActiveTab('proposals')}
+						className="gap-1.5"
+					>
+						<GitPullRequest className="h-3.5 w-3.5" />
+						Proposals
+					</Button>
+				)}
 
 				{/* Attach geometry button - only show when on comments tab */}
 				{activeTab === 'comments' && (
@@ -436,7 +458,7 @@ export function ViewModePanel({
 							</>
 						)}
 					</div>
-				) : (
+				) : activeTab === 'comments' ? (
 					<CommentsPanel
 						key={commentTarget?.id ?? commentTarget?.dTag ?? 'no-target'}
 						target={commentTarget}
@@ -449,7 +471,16 @@ export function ViewModePanel({
 						onMentionVisibilityToggle={onMentionVisibilityToggle}
 						onMentionZoomTo={onMentionZoomTo}
 					/>
-				)}
+				) : activeTab === 'proposals' ? (
+					<ProposalsPanel
+						key={viewDataset?.id ?? viewDataset?.dTag ?? 'no-target'}
+						target={viewDataset}
+						currentUserPubkey={currentUserPubkey}
+						onToggleProposalOverlay={onToggleProposalOverlay}
+						onProposalAccepted={onProposalAccepted}
+						visibleProposalIds={visibleProposalIds}
+					/>
+				) : null}
 			</div>
 		</div>
 	)
