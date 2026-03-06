@@ -4,6 +4,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { ChatMessage, RoutstrModel, ToolCall, ProviderType, ProviderConfig } from './routstr'
+import type { EntityType } from '@/components/entity-search'
 import {
 	fetchModels,
 	streamChatCompletion,
@@ -101,8 +102,19 @@ export interface ChatSession {
 	id: string
 	title: string
 	messages: ChatMessage[]
+	references: ChatReference[]
 	createdAt: number
 	updatedAt: number
+}
+
+export interface ChatReference {
+	id: string
+	name: string
+	type: EntityType
+	subtitle?: string
+	address?: string
+	pubkey?: string
+	createdAt?: number
 }
 
 function createChatId(): string {
@@ -132,6 +144,7 @@ function createEmptyChatSession(): ChatSession {
 		id: createChatId(),
 		title: DEFAULT_CHAT_TITLE,
 		messages: [],
+		references: [],
 		createdAt: now,
 		updatedAt: now,
 	}
@@ -147,6 +160,7 @@ function applyMessagesToActiveChat(
 		return {
 			...chat,
 			messages,
+			references: chat.references ?? [],
 			title: buildChatTitle(messages),
 			updatedAt: Date.now(),
 		}
@@ -161,6 +175,33 @@ function applyMessagesToActiveChat(
 			id: activeChatId ?? fallback.id,
 			messages,
 			title: buildChatTitle(messages),
+			references: [],
+		},
+	]
+}
+
+function applyReferencesToActiveChat(
+	chatSessions: ChatSession[],
+	activeChatId: string | null,
+	references: ChatReference[],
+): ChatSession[] {
+	const nextSessions = chatSessions.map((chat) => {
+		if (chat.id !== activeChatId) return chat
+		return {
+			...chat,
+			references,
+			updatedAt: Date.now(),
+		}
+	})
+	if (nextSessions.some((chat) => chat.id === activeChatId)) return nextSessions
+
+	const fallback = createEmptyChatSession()
+	return [
+		...nextSessions,
+		{
+			...fallback,
+			id: activeChatId ?? fallback.id,
+			references,
 		},
 	]
 }
@@ -534,6 +575,7 @@ interface ChatState {
 	lastProgressKind: StreamProgressKind | null
 	error: string | null
 	diagnostics: ChatDiagnostics
+	references: ChatReference[]
 	// Stats
 	totalSpent: number // Total sats spent in this session
 	totalRefunded: number // Total sats refunded
@@ -555,6 +597,7 @@ interface ChatActions {
 	createChat: () => void
 	switchChat: (chatId: string) => void
 	deleteChat: (chatId: string) => void
+	setReferences: (references: ChatReference[]) => void
 	// Chat actions
 	sendMessage: (content: string, options?: SendMessageOptions) => Promise<void>
 	cancelStream: () => void
@@ -593,6 +636,7 @@ function createInitialState(): ChatState {
 		lastProgressKind: null,
 		error: null,
 		diagnostics: EMPTY_CHAT_DIAGNOSTICS,
+		references: initialChat.references,
 		totalSpent: 0,
 		totalRefunded: 0,
 	}
@@ -707,6 +751,7 @@ export const useChatStore = create<ChatStore>()(
 					return {
 						activeChatId: target.id,
 						messages: target.messages,
+						references: target.references ?? [],
 						error: null,
 						streamWarning: null,
 						streamPhase: 'idle',
@@ -730,6 +775,7 @@ export const useChatStore = create<ChatStore>()(
 						chatSessions: sortChatSessionsByRecent(ensured),
 						activeChatId: nextActiveId,
 						messages: activeChat?.messages ?? [],
+						references: activeChat?.references ?? [],
 						error: null,
 						streamWarning: null,
 						streamPhase: 'idle',
@@ -738,6 +784,17 @@ export const useChatStore = create<ChatStore>()(
 						diagnostics: EMPTY_CHAT_DIAGNOSTICS,
 					}
 				})
+			},
+
+			setReferences: (references: ChatReference[]) => {
+				set((state) => ({
+					references,
+					chatSessions: applyReferencesToActiveChat(
+						state.chatSessions,
+						state.activeChatId,
+						references,
+					),
+				}))
 			},
 
 			sendMessage: async (content: string, options?: SendMessageOptions) => {
@@ -1360,6 +1417,7 @@ export const useChatStore = create<ChatStore>()(
 					chatSessions: sortChatSessionsByRecent(chatSessions),
 					activeChatId,
 					messages: activeChat?.messages ?? [],
+					references: activeChat?.references ?? [],
 				}
 			},
 		},
@@ -1380,6 +1438,7 @@ export const chatActions = {
 	createChat: () => useChatStore.getState().createChat(),
 	switchChat: (chatId: string) => useChatStore.getState().switchChat(chatId),
 	deleteChat: (chatId: string) => useChatStore.getState().deleteChat(chatId),
+	setReferences: (references: ChatReference[]) => useChatStore.getState().setReferences(references),
 	cancelStream: () => useChatStore.getState().cancelStream(),
 	reset: () => useChatStore.getState().reset(),
 }

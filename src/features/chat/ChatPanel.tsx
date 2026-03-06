@@ -2,6 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useChatStore } from './store'
 import { useNip60Store } from '@/lib/stores/nip60'
 import { useEditorStore } from '@/features/geo-editor/store'
+import {
+	EntityReferenceToolbar,
+	getEntityReferenceKey,
+	type EntitySearchResult,
+} from '@/components/entity-search'
 import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
@@ -39,6 +44,7 @@ import { analyzeToolResultGeometryContent, bakeToolResultContentToEditor } from 
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import type { ChatReference } from './store'
 
 const EMPTY_STATE_PROMPTS = [
 	'Get me the route from Linz to Vienna and bring it to the editor.',
@@ -72,11 +78,11 @@ const defaultGetDatasetName = (event: NDKGeoEvent): string =>
 	event.datasetId ?? event.dTag ?? event.id ?? 'Untitled'
 
 export function ChatPanel({
-	geoEvents: _geoEvents = [],
-	collectionEvents: _collectionEvents = [],
-	mapContextEvents: _mapContextEvents = [],
-	availableFeatures: _availableFeatures = [],
-	getDatasetName: _getDatasetName = defaultGetDatasetName,
+	geoEvents = [],
+	collectionEvents = [],
+	mapContextEvents = [],
+	availableFeatures = [],
+	getDatasetName = defaultGetDatasetName,
 	onStartNewDataset,
 	onSwitchWorkspace,
 }: ChatPanelProps) {
@@ -107,6 +113,8 @@ export function ChatPanel({
 		setToolsEnabled,
 		sendMessage,
 		clearMessages,
+		references,
+		setReferences,
 		cancelStream,
 	} = useChatStore()
 	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
@@ -167,7 +175,9 @@ export function ChatPanel({
 		const message = input.trim()
 		setInput('')
 		if (!ensureChatWorkspace()) return
-		await sendMessage(message)
+		await sendMessage(message, {
+			referenceContextMessage: buildReferenceContextMessage(references),
+		})
 	}
 
 	const handleCreateWorkspace = () => {
@@ -194,6 +204,29 @@ export function ChatPanel({
 		window.requestAnimationFrame(() => {
 			textareaRef.current?.focus()
 		})
+	}
+
+	const handleAddReference = (result: EntitySearchResult) => {
+		const key = getEntityReferenceKey(result)
+		const nextReference: ChatReference = {
+			id: result.id,
+			name: result.name,
+			type: result.type,
+			subtitle: result.subtitle,
+			address: result.address,
+			pubkey: result.pubkey,
+			createdAt: result.createdAt,
+		}
+		if (references.some((reference) => getChatReferenceKey(reference) === key)) return
+		setReferences([...references, nextReference])
+	}
+
+	const handleRemoveReference = (referenceKey: string) => {
+		setReferences(references.filter((reference) => getChatReferenceKey(reference) !== referenceKey))
+	}
+
+	const handleClearReferences = () => {
+		setReferences([])
 	}
 
 	const selectedModelData = models.find((m) => m.id === selectedModel)
@@ -598,42 +631,99 @@ export function ChatPanel({
 
 			{/* Input */}
 			<form onSubmit={handleSubmit} className="shrink-0 border-t p-3">
-				<div className="flex gap-2">
-					<textarea
-						ref={textareaRef}
-						value={input}
-						onChange={(e) => setInput(e.target.value)}
-						onKeyDown={handleKeyDown}
-						placeholder={
-							!selectedModel
-								? 'Select a model...'
-								: isWalletRequired && walletStatus !== 'ready'
-									? 'Connect wallet to chat...'
-									: 'Type a message...'
-						}
-						disabled={isStreaming || !canSend}
-						className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[38px] max-h-[150px]"
-						rows={1}
+				<div className="space-y-2">
+					<EntityReferenceToolbar
+						sources={{
+							datasets: geoEvents,
+							collections: collectionEvents,
+							contexts: mapContextEvents,
+							features: availableFeatures,
+						}}
+						references={references.map(chatReferenceToSearchResult)}
+						onAddReference={handleAddReference}
+						onRemoveReference={handleRemoveReference}
+						onClearReferences={handleClearReferences}
+						searchMode="both"
+						getDatasetName={getDatasetName}
+						placeholder="Add geometry, dataset, collection, or context references..."
+						className="min-w-0"
 					/>
-					{isStreaming ? (
-						<Button
-							type="button"
-							variant="destructive"
-							size="icon"
-							onClick={cancelStream}
-							title="Stop"
-						>
-							<span className="h-3 w-3 bg-current" />
-						</Button>
-					) : (
-						<Button type="submit" size="icon" disabled={!input.trim() || !canSend} title="Send">
-							<Send className="h-4 w-4" />
-						</Button>
-					)}
+					<div className="flex gap-2">
+						<textarea
+							ref={textareaRef}
+							value={input}
+							onChange={(e) => setInput(e.target.value)}
+							onKeyDown={handleKeyDown}
+							placeholder={
+								!selectedModel
+									? 'Select a model...'
+									: isWalletRequired && walletStatus !== 'ready'
+										? 'Connect wallet to chat...'
+										: 'Type a message...'
+							}
+							disabled={isStreaming || !canSend}
+							className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[38px] max-h-[150px]"
+							rows={1}
+						/>
+						{isStreaming ? (
+							<Button
+								type="button"
+								variant="destructive"
+								size="icon"
+								onClick={cancelStream}
+								title="Stop"
+							>
+								<span className="h-3 w-3 bg-current" />
+							</Button>
+						) : (
+							<Button type="submit" size="icon" disabled={!input.trim() || !canSend} title="Send">
+								<Send className="h-4 w-4" />
+							</Button>
+						)}
+					</div>
 				</div>
 			</form>
 		</div>
 	)
+}
+
+function getChatReferenceKey(reference: ChatReference): string {
+	const stableId = reference.id || reference.name || 'unknown'
+	return `${reference.type}:${stableId}:${reference.pubkey ?? ''}`
+}
+
+function chatReferenceToSearchResult(reference: ChatReference): EntitySearchResult {
+	return {
+		id: reference.id,
+		name: reference.name,
+		type: reference.type,
+		subtitle: reference.subtitle,
+		address: reference.address,
+		pubkey: reference.pubkey,
+		createdAt: reference.createdAt,
+		entity: reference as unknown as GeoFeatureItem,
+	}
+}
+
+function buildReferenceContextMessage(references: ChatReference[]): string | undefined {
+	if (references.length === 0) return undefined
+	const lines = references.map((reference, index) => {
+		const parts = [
+			`${index + 1}. type=${reference.type}`,
+			`name="${reference.name}"`,
+			reference.subtitle ? `subtitle="${reference.subtitle}"` : null,
+			reference.address ? `address="${reference.address}"` : null,
+			reference.pubkey ? `pubkey="${reference.pubkey}"` : null,
+			reference.createdAt ? `createdAt=${reference.createdAt}` : null,
+		].filter(Boolean)
+		return parts.join(' | ')
+	})
+	return [
+		'The user attached the following entity references for this request.',
+		'Use them as high-priority context and as likely targets for inspection, comparison, or editing.',
+		'If a reference needs verification or expansion, use tools to inspect it before making destructive changes.',
+		...lines,
+	].join('\n')
 }
 
 interface MessageBubbleProps {
