@@ -110,6 +110,7 @@ interface AppSidebarProps {
 	deletingKey: string | null
 	onClearEditing: () => void
 	onLoadDataset: (event: NDKGeoEvent) => void
+	onStartNewDataset?: () => void
 	onToggleVisibility: (event: NDKGeoEvent) => void
 	onToggleAllVisibility: (visible: boolean) => void
 	onToggleCollectionVisibility: (collection: NDKGeoCollectionEvent) => void
@@ -180,6 +181,7 @@ export function AppSidebar({
 	deletingKey,
 	onClearEditing,
 	onLoadDataset,
+	onStartNewDataset,
 	onToggleVisibility,
 	onToggleAllVisibility,
 	onToggleCollectionVisibility,
@@ -645,6 +647,7 @@ export function AppSidebar({
 	const editorPanelProps = {
 		currentUserPubkey,
 		onLoadDataset: handleLoadDataset,
+		onStartNewDataset,
 		onToggleVisibility,
 		onZoomToDataset,
 		onDeleteDataset,
@@ -812,7 +815,7 @@ export function AppSidebar({
 											isActive={
 												activeEntity === item.entity && (splitWithEditor || showEntityAsFullPanel)
 											}
-											className="px-2.5 md:px-2 border border-red-300 bg-red-50 text-red-900 hover:bg-red-100 data-[active=true]:bg-red-600 data-[active=true]:text-white data-[active=true]:border-red-600 font-semibold shadow-sm"
+											className="px-2.5 md:px-2 border border-sidebar-border/70 bg-sidebar-accent/30 text-sidebar-foreground hover:bg-sidebar-accent data-[active=true]:border-sidebar-primary data-[active=true]:bg-sidebar-primary data-[active=true]:text-sidebar-primary-foreground"
 										>
 											<item.icon />
 											<span>{item.title}</span>
@@ -828,7 +831,7 @@ export function AppSidebar({
 										}}
 										onClick={() => setSplitWithEditor((prev) => !prev)}
 										isActive={splitWithEditor}
-										className="px-2.5 md:px-2 border border-orange-200 bg-orange-50/70 text-orange-800 hover:bg-orange-100 data-[active=true]:bg-orange-600 data-[active=true]:text-white data-[active=true]:border-orange-600"
+										className="px-2.5 md:px-2 border border-dashed border-sidebar-border text-sidebar-foreground/80 hover:bg-sidebar-accent data-[active=true]:border-sidebar-primary data-[active=true]:bg-sidebar-primary/10 data-[active=true]:text-sidebar-primary"
 									>
 										<PanelTop />
 										<span>{splitWithEditor ? 'Split On' : 'Split Off'}</span>

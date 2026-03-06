@@ -974,6 +974,7 @@ export function GeoEditorView() {
 		navigateToView,
 		clearFocus,
 		loadDatasetForEditing,
+		startNewDataset,
 		handleInspectDataset,
 		handleInspectCollection,
 	})
@@ -1185,6 +1186,7 @@ export function GeoEditorView() {
 					deletingKey={deletingKey}
 					onClearEditing={clearEditingSession}
 					onLoadDataset={handleDatasetSelect}
+					onStartNewDataset={startNewDataset}
 					onToggleVisibility={handleToggleVisibilityWithExitFocus}
 					onToggleAllVisibility={handleToggleAllVisibilityWithExitFocus}
 					onToggleCollectionVisibility={handleToggleCollectionVisibility}
@@ -1397,6 +1399,7 @@ export function GeoEditorView() {
 							multiSelectModifier={multiSelectModifierLabel}
 							onClearEditing={clearEditingSession}
 							onLoadDataset={loadDatasetForEditing}
+							onStartNewDataset={startNewDataset}
 							onToggleVisibility={handleToggleVisibilityWithExitFocus}
 							onToggleAllVisibility={handleToggleAllVisibilityWithExitFocus}
 							onZoomToDataset={zoomToDataset}

@@ -23,6 +23,8 @@ export const createMetadataSlice: StateCreator<EditorState, [], [], MetadataSlic
 			}
 			const updatedDraft = {
 				...geoEditDrafts[activeGeoEditDraftId],
+				name: collectionMeta.name,
+				description: collectionMeta.description,
 				collectionMeta,
 				updatedAt: Date.now(),
 			}

@@ -14,6 +14,7 @@ interface UseCollectionContextEditorParams {
 	handleInspectDataset: (event: NDKGeoEvent) => void
 	handleInspectCollection: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
 	loadDatasetForEditing: (event: NDKGeoEvent) => void
+	startNewDataset: () => void
 }
 
 export function useCollectionContextEditor({
@@ -24,6 +25,7 @@ export function useCollectionContextEditor({
 	navigateToView,
 	clearFocus,
 	loadDatasetForEditing,
+	startNewDataset,
 	handleInspectDataset,
 	handleInspectCollection,
 }: UseCollectionContextEditorParams) {
@@ -34,6 +36,7 @@ export function useCollectionContextEditor({
 	const setViewContext = useEditorStore((state) => state.setViewContext)
 	const setViewContextDatasets = useEditorStore((state) => state.setViewContextDatasets)
 	const setViewContextCollections = useEditorStore((state) => state.setViewContextCollections)
+	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
 
 	// Collection Editor state
 	const [collectionEditorMode, setCollectionEditorMode] = useState<'none' | 'create' | 'edit'>(
@@ -187,6 +190,10 @@ export function useCollectionContextEditor({
 
 	const handleOpenGeometryEditor = useCallback(() => {
 		clearEditorModes()
+		if (!activeGeoEditDraftId) {
+			startNewDataset()
+			return
+		}
 		setViewModeState('edit')
 		setViewDatasetState(null)
 		setViewCollectionState(null)
@@ -203,6 +210,8 @@ export function useCollectionContextEditor({
 		setViewContextCollections,
 		clearFocus,
 		clearEditorModes,
+		activeGeoEditDraftId,
+		startNewDataset,
 	])
 
 	// Inspect wrappers that clear editor modes

@@ -20,6 +20,13 @@ interface ResolvedCache {
 	featureCollection: FeatureCollection
 }
 
+function createBlankDraftSourceId() {
+	if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+		return `session:${crypto.randomUUID()}`
+	}
+	return `session:${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
 function getCollectionName(collection: FeatureCollection): string | undefined {
 	const maybeName = (collection as FeatureCollection & { name?: unknown }).name
 	return typeof maybeName === 'string' ? maybeName : undefined
@@ -77,6 +84,8 @@ export function useDatasetManagement(
 	const setViewCollection = useEditorStore((state) => state.setViewCollection)
 	const setDatasetResolving = useEditorStore((state) => state.setDatasetResolving)
 	const setDatasetResolvingProgress = useEditorStore((state) => state.setDatasetResolvingProgress)
+	const setActiveGeoEditDraftId = useEditorStore((state) => state.setActiveGeoEditDraftId)
+	const createGeoEditDraft = useEditorStore((state) => state.createGeoEditDraft)
 	const activeContextScopeCoordinate = useEditorStore((state) => state.activeContextScopeCoordinate)
 
 	const getDatasetKey = useCallback(
@@ -307,6 +316,11 @@ export function useDatasetManagement(
 				return
 			}
 			const datasetFeatures = convertGeoEventsToEditorFeatures([event], resolvedCollectionResolver)
+			const collection = resolvedCollectionResolver(event) ?? event.featureCollection
+			const collectionMeta = extractCollectionMeta(collection)
+			const draftSourceId = `dataset:${getDatasetKey(event)}`
+
+			setActiveGeoEditDraftId(null)
 			editor.setFeatures(datasetFeatures)
 			setFeatures(datasetFeatures)
 			setActiveDataset(event)
@@ -314,8 +328,7 @@ export function useDatasetManagement(
 			setPublishMessage(null)
 			setPublishError(null)
 			setSelectedFeatureIds([])
-			const collection = resolvedCollectionResolver(event) ?? event.featureCollection
-			setCollectionMeta(extractCollectionMeta(collection))
+			setCollectionMeta(collectionMeta)
 			setNewCollectionProp({ key: '', value: '' })
 			setNewFeatureProp({ key: '', value: '' })
 			setBlobReferences(convertGeoBlobReferencesToEditor(event.blobReferences))
@@ -328,11 +341,19 @@ export function useDatasetManagement(
 			setViewMode('edit')
 			setViewDataset(null)
 			setViewCollection(null)
+			createGeoEditDraft(draftSourceId, {
+				name: collectionMeta.name,
+				description: collectionMeta.description,
+				collectionMeta,
+				features: datasetFeatures,
+				selectedFeatureIds: [],
+			})
 		},
 		[
 			editor,
 			ensureResolvedFeatureCollection,
 			setPublishError,
+			getDatasetKey,
 			resolvedCollectionResolver,
 			setFeatures,
 			setActiveDataset,
@@ -352,11 +373,14 @@ export function useDatasetManagement(
 			setViewMode,
 			setViewDataset,
 			setViewCollection,
+			setActiveGeoEditDraftId,
+			createGeoEditDraft,
 		],
 	)
 
 	const clearEditingSession = useCallback(() => {
 		if (!editor) return
+		setActiveGeoEditDraftId(null)
 		editor.setFeatures([])
 		setFeatures([])
 		setActiveDataset(null)
@@ -380,6 +404,7 @@ export function useDatasetManagement(
 		setNewCollectionProp,
 		setNewFeatureProp,
 		resetBlobReferenceState,
+		setActiveGeoEditDraftId,
 	])
 
 	/**
@@ -388,14 +413,19 @@ export function useDatasetManagement(
 	 */
 	const startNewDataset = useCallback(() => {
 		if (!editor) return
+		const collectionMeta = createDefaultCollectionMeta()
+		const contextRefs = activeContextScopeCoordinate ? [activeContextScopeCoordinate] : []
+		const draftSourceId = createBlankDraftSourceId()
+
+		setActiveGeoEditDraftId(null)
 		editor.setFeatures([])
 		setFeatures([])
 		setActiveDataset(null)
-		setActiveDatasetContextRefs(activeContextScopeCoordinate ? [activeContextScopeCoordinate] : [])
+		setActiveDatasetContextRefs(contextRefs)
 		setPublishMessage(null)
 		setPublishError(null)
 		setSelectedFeatureIds([])
-		setCollectionMeta(createDefaultCollectionMeta())
+		setCollectionMeta(collectionMeta)
 		setNewCollectionProp({ key: '', value: '' })
 		setNewFeatureProp({ key: '', value: '' })
 		resetBlobReferenceState()
@@ -403,6 +433,13 @@ export function useDatasetManagement(
 		setViewMode('edit')
 		setViewDataset(null)
 		setViewCollection(null)
+		createGeoEditDraft(draftSourceId, {
+			name: '',
+			description: '',
+			collectionMeta,
+			features: [],
+			selectedFeatureIds: [],
+		})
 	}, [
 		editor,
 		setFeatures,
@@ -419,6 +456,8 @@ export function useDatasetManagement(
 		setViewMode,
 		setViewDataset,
 		setViewCollection,
+		setActiveGeoEditDraftId,
+		createGeoEditDraft,
 	])
 
 	/**
@@ -427,6 +466,7 @@ export function useDatasetManagement(
 	 */
 	const cancelEditing = useCallback(() => {
 		if (!editor) return
+		setActiveGeoEditDraftId(null)
 		editor.setFeatures([])
 		setFeatures([])
 		setActiveDataset(null)
@@ -457,6 +497,7 @@ export function useDatasetManagement(
 		setViewMode,
 		setViewDataset,
 		setViewCollection,
+		setActiveGeoEditDraftId,
 	])
 
 	const resolveEventsForCollection = useCallback(

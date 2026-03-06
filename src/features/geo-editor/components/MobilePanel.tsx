@@ -65,6 +65,7 @@ export interface MobilePanelProps {
 	// Dataset callbacks
 	onClearEditing: () => void
 	onLoadDataset: (event: NDKGeoEvent) => void
+	onStartNewDataset?: () => void
 	onToggleVisibility: (event: NDKGeoEvent) => void
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: NDKGeoEvent) => void
@@ -112,6 +113,15 @@ export interface MobilePanelProps {
 	ndk?: import('@nostr-dev-kit/ndk').default | null
 	/** Callback when filtered dataset keys change (for map visibility sync) */
 	onFilteredDatasetKeysChange?: (keys: Set<string>) => void
+	/** Callback when a proposal overlay visibility is toggled */
+	onToggleProposalOverlay?: (
+		proposal: import('@/lib/ndk/NDKGeoEditProposalEvent').NDKGeoEditProposalEvent,
+		visible: boolean,
+	) => void
+	/** Callback when a proposal is accepted */
+	onProposalAccepted?: () => void
+	/** Set of proposal IDs whose overlay is visible */
+	visibleProposalIds?: Set<string>
 }
 
 const TAB_CONFIG: { id: MobilePanelTab; label: string; icon: typeof Database }[] = [
@@ -155,6 +165,7 @@ export function MobilePanel(props: MobilePanelProps) {
 		multiSelectModifier = 'Shift',
 		onClearEditing,
 		onLoadDataset,
+		onStartNewDataset,
 		onToggleVisibility,
 		onToggleAllVisibility,
 		onZoomToDataset,
@@ -193,6 +204,9 @@ export function MobilePanel(props: MobilePanelProps) {
 		onBlossomUploadComplete,
 		ndk,
 		onFilteredDatasetKeysChange,
+		onToggleProposalOverlay,
+		onProposalAccepted,
+		visibleProposalIds,
 	} = props
 	const { contextNaddr, encodeContextNaddr, navigateToContext, clearContextScope } = useRouting()
 
@@ -477,6 +491,7 @@ export function MobilePanel(props: MobilePanelProps) {
 						<GeoEditorInfoPanelContent
 							currentUserPubkey={currentUserPubkey}
 							onLoadDataset={onLoadDataset}
+							onStartNewDataset={onStartNewDataset}
 							onToggleVisibility={onToggleVisibility}
 							onZoomToDataset={onZoomToDataset}
 							onDeleteDataset={onDeleteDataset}
@@ -492,6 +507,9 @@ export function MobilePanel(props: MobilePanelProps) {
 							availableFeatures={availableFeatures}
 							onMentionVisibilityToggle={onMentionVisibilityToggle}
 							onMentionZoomTo={onMentionZoomTo}
+							onToggleProposalOverlay={onToggleProposalOverlay}
+							onProposalAccepted={onProposalAccepted}
+							visibleProposalIds={visibleProposalIds}
 							onEditCollection={onEditCollection}
 							collectionEditorMode={collectionEditorMode}
 							editingCollection={editingCollection}
@@ -513,6 +531,7 @@ export function MobilePanel(props: MobilePanelProps) {
 						<GeoEditorInfoPanelContent
 							currentUserPubkey={currentUserPubkey}
 							onLoadDataset={onLoadDataset}
+							onStartNewDataset={onStartNewDataset}
 							onToggleVisibility={onToggleVisibility}
 							onZoomToDataset={onZoomToDataset}
 							onDeleteDataset={onDeleteDataset}
@@ -528,6 +547,9 @@ export function MobilePanel(props: MobilePanelProps) {
 							availableFeatures={availableFeatures}
 							onMentionVisibilityToggle={onMentionVisibilityToggle}
 							onMentionZoomTo={onMentionZoomTo}
+							onToggleProposalOverlay={onToggleProposalOverlay}
+							onProposalAccepted={onProposalAccepted}
+							visibleProposalIds={visibleProposalIds}
 							onEditCollection={onEditCollection}
 							collectionEditorMode={collectionEditorMode}
 							editingCollection={editingCollection}

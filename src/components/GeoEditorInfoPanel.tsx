@@ -40,6 +40,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 export interface GeoEditorInfoPanelProps {
 	currentUserPubkey?: string
 	onLoadDataset: (event: NDKGeoEvent) => void
+	onStartNewDataset?: () => void
 	onToggleVisibility: (event: NDKGeoEvent) => void
 	onZoomToDataset: (event: NDKGeoEvent) => void
 	onDeleteDataset: (event: NDKGeoEvent) => void
@@ -105,6 +106,7 @@ export interface GeoEditorInfoPanelProps {
 export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	const {
 		onLoadDataset,
+		onStartNewDataset,
 		onToggleVisibility,
 		onZoomToDataset,
 		onDeleteDataset,
@@ -142,9 +144,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	// Store state
 	const stats = useEditorStore((state) => state.stats)
 	const features = useEditorStore((state) => state.features)
-	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 	const activeDataset = useEditorStore((state) => state.activeDataset)
-	const collectionMeta = useEditorStore((state) => state.collectionMeta)
 	const publishMessage = useEditorStore((state) => state.publishMessage)
 	const publishError = useEditorStore((state) => state.publishError)
 	const viewMode = useEditorStore((state) => state.viewMode)
@@ -175,20 +175,22 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 			}
 		: null
 
-	const draftSourceId = activeDataset ? `dataset:${getDatasetKey(activeDataset)}` : '__editor__'
-	const draftsForSource = useMemo(
-		() =>
-			Object.values(geoEditDrafts)
-				.filter((draft) => draft.sourceId === draftSourceId)
-				.sort((a, b) => b.updatedAt - a.updatedAt),
-		[draftSourceId, geoEditDrafts],
-	)
 	const activeDraft = useMemo(
 		() => (activeGeoEditDraftId ? (geoEditDrafts[activeGeoEditDraftId] ?? null) : null),
 		[activeGeoEditDraftId, geoEditDrafts],
 	)
+	const currentDraftSourceId = activeDataset
+		? `dataset:${getDatasetKey(activeDataset)}`
+		: (activeDraft?.sourceId ?? null)
+	const draftsForSource = useMemo(
+		() =>
+			Object.values(geoEditDrafts)
+				.filter((draft) => draft.sourceId === currentDraftSourceId)
+				.sort((a, b) => b.updatedAt - a.updatedAt),
+		[currentDraftSourceId, geoEditDrafts],
+	)
 	const selectedDraftId =
-		activeDraft && activeDraft.sourceId === draftSourceId ? activeDraft.id : draftsForSource[0]?.id
+		activeDraft && activeDraft.sourceId === currentDraftSourceId ? activeDraft.id : undefined
 
 	const applyDraft = useCallback(
 		(draftId: string) => {
@@ -200,35 +202,24 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	useEffect(() => {
 		if (collectionEditorMode !== 'none' || contextEditorMode !== 'none' || viewMode === 'view')
 			return
+		if (!currentDraftSourceId) return
+		if (activeDraft?.sourceId === currentDraftSourceId) return
 
 		const store = useEditorStore.getState()
-		const existingDrafts = Object.values(store.geoEditDrafts)
-			.filter((draft) => draft.sourceId === draftSourceId)
-			.sort((a, b) => b.updatedAt - a.updatedAt)
-
-		if (existingDrafts.length > 0) {
-			const preferredDraft =
-				existingDrafts.find((draft) => draft.id === store.activeGeoEditDraftId) ?? existingDrafts[0]
-			if (!preferredDraft) return
-			applyDraft(preferredDraft.id)
-			return
-		}
-
-		const createdDraftId = createGeoEditDraft(draftSourceId, {
+		createGeoEditDraft(currentDraftSourceId, {
 			name: store.collectionMeta.name,
 			description: store.collectionMeta.description,
 			collectionMeta: store.collectionMeta,
 			features: store.features,
 			selectedFeatureIds: store.selectedFeatureIds,
 		})
-		applyDraft(createdDraftId)
 	}, [
 		collectionEditorMode,
 		contextEditorMode,
 		viewMode,
-		draftSourceId,
+		currentDraftSourceId,
+		activeDraft?.sourceId,
 		createGeoEditDraft,
-		applyDraft,
 	])
 
 	const handleDraftChange = useCallback(
@@ -239,40 +230,19 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	)
 
 	const handleCreateDraft = useCallback(() => {
-		const createdDraftId = createGeoEditDraft(draftSourceId, {
-			name: collectionMeta.name,
-			description: collectionMeta.description,
-			collectionMeta,
-			features,
-			selectedFeatureIds,
-		})
-		applyDraft(createdDraftId)
-	}, [createGeoEditDraft, draftSourceId, collectionMeta, features, selectedFeatureIds, applyDraft])
+		onStartNewDataset?.()
+	}, [onStartNewDataset])
 
 	const handleDeleteDraft = useCallback(() => {
-		if (!activeDraft) return
-		deleteGeoEditDraft(activeDraft.id)
-		const store = useEditorStore.getState()
-		const remainingDrafts = Object.values(store.geoEditDrafts)
-			.filter((draft) => draft.sourceId === draftSourceId)
-			.sort((a, b) => b.updatedAt - a.updatedAt)
-
-		if (remainingDrafts.length > 0) {
-			const nextDraft = remainingDrafts[0]
-			if (!nextDraft) return
-			applyDraft(nextDraft.id)
+		if (activeDraft) {
+			deleteGeoEditDraft(activeDraft.id)
+		}
+		if (activeDataset) {
+			onLoadDataset(activeDataset)
 			return
 		}
-
-		const createdDraftId = createGeoEditDraft(draftSourceId, {
-			name: store.collectionMeta.name,
-			description: store.collectionMeta.description,
-			collectionMeta: store.collectionMeta,
-			features: store.features,
-			selectedFeatureIds: store.selectedFeatureIds,
-		})
-		applyDraft(createdDraftId)
-	}, [activeDraft, deleteGeoEditDraft, draftSourceId, applyDraft, createGeoEditDraft])
+		onStartNewDataset?.()
+	}, [activeDraft, activeDataset, deleteGeoEditDraft, onLoadDataset, onStartNewDataset])
 
 	// Toggle to view mode - show the active dataset in view mode
 	const handleSwitchToView = () => {
@@ -642,23 +612,28 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 			<div className="space-y-1 rounded-md border border-emerald-200 bg-emerald-50/40 p-2">
 				<div className="flex items-center justify-between">
 					<div className="text-[10px] font-medium text-emerald-900 uppercase tracking-wide">
-						Drafts
+						Local drafts
 					</div>
 					<div className="text-[10px] text-emerald-800">
 						{activeDraft
 							? `Saved ${new Date(activeDraft.updatedAt).toLocaleTimeString()}`
-							: 'Auto-save'}
+							: 'Auto-saved on this device'}
 					</div>
 				</div>
 				<div className="flex items-center gap-1">
 					<Select value={selectedDraftId} onValueChange={handleDraftChange}>
 						<SelectTrigger className="w-full h-7 bg-white text-xs">
-							<SelectValue placeholder="Select draft" />
+							<SelectValue placeholder="Select saved draft" />
 						</SelectTrigger>
 						<SelectContent>
 							{draftsForSource.map((draft, index) => (
 								<SelectItem key={draft.id} value={draft.id}>
-									{(draft.name || `Draft ${index + 1}`).trim()} ({draft.id.slice(0, 8)})
+									{(
+										draft.collectionMeta.name ||
+										draft.name ||
+										(activeDataset ? `Draft ${index + 1}` : `Untitled ${index + 1}`)
+									).trim()}{' '}
+									({draft.id.slice(0, 8)})
 								</SelectItem>
 							))}
 						</SelectContent>
@@ -668,7 +643,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						size="icon-sm"
 						variant="outline"
 						onClick={handleCreateDraft}
-						title="Create draft"
+						title="Start a new empty dataset"
 					>
 						<Plus className="h-3 w-3" />
 					</Button>
@@ -677,8 +652,12 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						size="icon-sm"
 						variant="outline"
 						onClick={handleDeleteDraft}
-						disabled={draftsForSource.length <= 1}
-						title="Delete draft"
+						disabled={!activeDraft && !activeDataset && !onStartNewDataset}
+						title={
+							activeDataset
+								? 'Discard current draft and reload the source dataset'
+								: 'Discard current draft and start over'
+						}
 					>
 						<Trash2 className="h-3 w-3" />
 					</Button>
