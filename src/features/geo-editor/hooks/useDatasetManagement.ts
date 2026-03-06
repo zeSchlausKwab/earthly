@@ -324,7 +324,6 @@ export function useDatasetManagement(
 				})
 				updateWorkspace(workspaceId, {
 					activeDraftId: draftId,
-					label: collectionMeta.name || workspace.label,
 					datasetKey: workspace.datasetKey ?? getDatasetKey(event),
 				})
 				return
@@ -348,7 +347,6 @@ export function useDatasetManagement(
 			})
 			updateWorkspace(workspaceId, {
 				activeDraftId: draftId,
-				label: workspace.label || 'Untitled',
 			})
 		},
 		[
@@ -534,7 +532,6 @@ export function useDatasetManagement(
 				setActiveWorkspaceId(existingWorkspace.id)
 				activateWorkspaceChat(chatSessionId)
 				updateWorkspace(existingWorkspace.id, {
-					label: collectionMeta.name || getDatasetName(event),
 					datasetKey,
 					chatSessionId,
 				})
@@ -555,7 +552,6 @@ export function useDatasetManagement(
 			})
 			updateWorkspace(workspaceId, {
 				activeDraftId: draftId,
-				label: collectionMeta.name || getDatasetName(event),
 				datasetKey,
 			})
 		},
@@ -645,6 +641,33 @@ export function useDatasetManagement(
 		[clearEditingSession, deleteGeoEditDraft, deleteWorkspaceState, editor, switchToWorkspace],
 	)
 
+	const createDraftInWorkspace = useCallback(
+		async (workspaceId: string) => {
+			if (!editor) return
+			const beforeSwitch = useEditorStore.getState()
+			if (!beforeSwitch.workspaces[workspaceId]) return
+			if (beforeSwitch.activeWorkspaceId !== workspaceId) {
+				await switchToWorkspace(workspaceId)
+			}
+
+			const store = useEditorStore.getState()
+			const workspace = store.workspaces[workspaceId]
+			if (!workspace) return
+
+			const draftId = createGeoEditDraft(workspace.sourceId, {
+				name: store.collectionMeta.name,
+				description: store.collectionMeta.description,
+				collectionMeta: store.collectionMeta,
+				features: store.features,
+				selectedFeatureIds: store.selectedFeatureIds,
+			})
+			updateWorkspace(workspaceId, {
+				activeDraftId: draftId,
+			})
+		},
+		[editor, switchToWorkspace, createGeoEditDraft, updateWorkspace],
+	)
+
 	/**
 	 * Start a new dataset editing session.
 	 * Clears any existing data and switches to edit mode.
@@ -656,7 +679,7 @@ export function useDatasetManagement(
 		const draftSourceId = createBlankDraftSourceId()
 		const workspaceId = createWorkspace({
 			sourceId: draftSourceId,
-			label: 'Untitled',
+			label: 'Untitled workspace',
 			kind: 'scratch',
 			chatSessionId: createWorkspaceChat(),
 		})
@@ -676,7 +699,6 @@ export function useDatasetManagement(
 		})
 		updateWorkspace(workspaceId, {
 			activeDraftId: draftId,
-			label: 'Untitled',
 		})
 	}, [
 		editor,
@@ -763,6 +785,7 @@ export function useDatasetManagement(
 		loadDatasetForEditing,
 		switchToWorkspace,
 		deleteWorkspace,
+		createDraftInWorkspace,
 		clearEditingSession,
 		startNewDataset,
 		cancelEditing,

@@ -47,6 +47,7 @@ import { useRouting, type SidebarViewMode } from '../features/geo-editor/hooks/u
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
 import type { EditorFeature } from '../features/geo-editor/core'
 import { EntitySearchPopover, type EntitySearchResult } from './entity-search'
+import { WorkspaceDraftNavigator } from './WorkspaceDraftNavigator'
 
 type SidebarContentMode = Exclude<SidebarViewMode, 'combined'>
 type EntityWorkspace = 'geometry' | 'collection' | 'context'
@@ -113,6 +114,7 @@ interface AppSidebarProps {
 	onStartNewDataset?: () => void
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void
+	onAddDraftToWorkspace?: (workspaceId: string) => void | Promise<void>
 	onToggleVisibility: (event: NDKGeoEvent) => void
 	onToggleAllVisibility: (visible: boolean) => void
 	onToggleCollectionVisibility: (collection: NDKGeoCollectionEvent) => void
@@ -186,6 +188,7 @@ export function AppSidebar({
 	onStartNewDataset,
 	onSwitchWorkspace,
 	onDeleteWorkspace,
+	onAddDraftToWorkspace,
 	onToggleVisibility,
 	onToggleAllVisibility,
 	onToggleCollectionVisibility,
@@ -971,6 +974,12 @@ export function AppSidebar({
 							<LoginSessionButtons />
 						</div>
 					</div>
+					<WorkspaceDraftNavigator
+						onStartNewDataset={onStartNewDataset}
+						onSwitchWorkspace={onSwitchWorkspace}
+						onDeleteWorkspace={onDeleteWorkspace}
+						onAddDraftToWorkspace={onAddDraftToWorkspace}
+					/>
 				</SidebarHeader>
 
 				<SidebarContent className="p-2">

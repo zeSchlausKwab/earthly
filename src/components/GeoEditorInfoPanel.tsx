@@ -1,4 +1,4 @@
-import { Eye, Plus, Trash2 } from 'lucide-react'
+import { Eye } from 'lucide-react'
 import type { FeatureCollection, Geometry } from 'geojson'
 import { cn } from '@/lib/utils'
 import { useCallback, useEffect, useMemo } from 'react'
@@ -24,7 +24,6 @@ import { GeoCollectionEditorPanel } from '../features/collections/GeoCollectionE
 import { MapContextEditorPanel } from '../features/contexts/MapContextEditorPanel'
 import { Button } from './ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
 import { EntitySearchPopover, type EntitySearchResult } from './entity-search'
 import type { EditorFeature } from '../features/geo-editor/core'
@@ -107,8 +106,6 @@ export interface GeoEditorInfoPanelProps {
 export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	const {
 		onLoadDataset,
-		onStartNewDataset,
-		onSwitchWorkspace,
 		onToggleVisibility,
 		onZoomToDataset,
 		onDeleteDataset,
@@ -163,8 +160,6 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	const geoEditDrafts = useEditorStore((state) => state.geoEditDrafts)
 	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
 	const createGeoEditDraft = useEditorStore((state) => state.createGeoEditDraft)
-	const loadGeoEditDraft = useEditorStore((state) => state.loadGeoEditDraft)
-	const deleteGeoEditDraft = useEditorStore((state) => state.deleteGeoEditDraft)
 
 	const existingCollectionBlob = blobReferences.find(
 		(ref) => ref.scope === 'collection' && Boolean(ref.url),
@@ -181,31 +176,9 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		() => (activeGeoEditDraftId ? (geoEditDrafts[activeGeoEditDraftId] ?? null) : null),
 		[activeGeoEditDraftId, geoEditDrafts],
 	)
-	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
-	const workspaces = useEditorStore((state) => state.workspaces)
 	const currentDraftSourceId = activeDataset
 		? `dataset:${getDatasetKey(activeDataset)}`
 		: (activeDraft?.sourceId ?? null)
-	const sortedWorkspaces = useMemo(
-		() => Object.values(workspaces).sort((a, b) => b.updatedAt - a.updatedAt),
-		[workspaces],
-	)
-	const draftsForSource = useMemo(
-		() =>
-			Object.values(geoEditDrafts)
-				.filter((draft) => draft.sourceId === currentDraftSourceId)
-				.sort((a, b) => b.updatedAt - a.updatedAt),
-		[currentDraftSourceId, geoEditDrafts],
-	)
-	const selectedDraftId =
-		activeDraft && activeDraft.sourceId === currentDraftSourceId ? activeDraft.id : undefined
-
-	const applyDraft = useCallback(
-		(draftId: string) => {
-			loadGeoEditDraft(draftId)
-		},
-		[loadGeoEditDraft],
-	)
 
 	useEffect(() => {
 		if (collectionEditorMode !== 'none' || contextEditorMode !== 'none' || viewMode === 'view')
@@ -229,29 +202,6 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		activeDraft?.sourceId,
 		createGeoEditDraft,
 	])
-
-	const handleDraftChange = useCallback(
-		(draftId: string) => {
-			applyDraft(draftId)
-		},
-		[applyDraft],
-	)
-
-	const handleCreateDraft = useCallback(() => {
-		onStartNewDataset?.()
-	}, [onStartNewDataset])
-
-	const handleDeleteDraft = useCallback(() => {
-		if (activeDraft) {
-			deleteGeoEditDraft(activeDraft.id)
-		}
-		if (activeDataset) {
-			onLoadDataset(activeDataset)
-			return
-		}
-		onStartNewDataset?.()
-	}, [activeDraft, activeDataset, deleteGeoEditDraft, onLoadDataset, onStartNewDataset])
-
 	// Toggle to view mode - show the active dataset in view mode
 	const handleSwitchToView = () => {
 		if (activeDataset) {
@@ -615,81 +565,6 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				<span>{stats.points} pts</span>
 				<span>{stats.lines} lines</span>
 				<span>{stats.polygons} polys</span>
-			</div>
-
-			<div className="space-y-1 rounded-md border border-emerald-200 bg-emerald-50/40 p-2">
-				<div className="text-[10px] font-medium text-emerald-900 uppercase tracking-wide">
-					Workspaces
-				</div>
-				<div className="flex items-center gap-1">
-					<Select
-						value={activeWorkspaceId ?? ''}
-						onValueChange={(workspaceId) => onSwitchWorkspace?.(workspaceId)}
-					>
-						<SelectTrigger className="w-full h-7 bg-white text-xs">
-							<SelectValue placeholder="Select workspace" />
-						</SelectTrigger>
-						<SelectContent>
-							{sortedWorkspaces.map((workspace) => (
-								<SelectItem key={workspace.id} value={workspace.id}>
-									{workspace.label} {workspace.kind === 'scratch' ? '(draft)' : '(dataset)'}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				</div>
-				<div className="flex items-center justify-between">
-					<div className="text-[10px] font-medium text-emerald-900 uppercase tracking-wide">
-						Local drafts
-					</div>
-					<div className="text-[10px] text-emerald-800">
-						{activeDraft
-							? `Saved ${new Date(activeDraft.updatedAt).toLocaleTimeString()}`
-							: 'Auto-saved on this device'}
-					</div>
-				</div>
-				<div className="flex items-center gap-1">
-					<Select value={selectedDraftId} onValueChange={handleDraftChange}>
-						<SelectTrigger className="w-full h-7 bg-white text-xs">
-							<SelectValue placeholder="Select saved draft" />
-						</SelectTrigger>
-						<SelectContent>
-							{draftsForSource.map((draft, index) => (
-								<SelectItem key={draft.id} value={draft.id}>
-									{(
-										draft.collectionMeta.name ||
-										draft.name ||
-										(activeDataset ? `Draft ${index + 1}` : `Untitled ${index + 1}`)
-									).trim()}{' '}
-									({draft.id.slice(0, 8)})
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-					<Button
-						type="button"
-						size="icon-sm"
-						variant="outline"
-						onClick={handleCreateDraft}
-						title="Start a new empty dataset"
-					>
-						<Plus className="h-3 w-3" />
-					</Button>
-					<Button
-						type="button"
-						size="icon-sm"
-						variant="outline"
-						onClick={handleDeleteDraft}
-						disabled={!activeDraft && !activeDataset && !onStartNewDataset}
-						title={
-							activeDataset
-								? 'Discard current draft and reload the source dataset'
-								: 'Discard current draft and start over'
-						}
-					>
-						<Trash2 className="h-3 w-3" />
-					</Button>
-				</div>
 			</div>
 
 			{/* Dataset size indicator - shows warning when over limit */}

@@ -123,7 +123,6 @@ export const createDraftSlice: StateCreator<EditorState, [], [], DraftSlice> = (
 			if (activeWorkspace?.sourceId === sourceId) {
 				get().touchActiveWorkspace({
 					activeDraftId: id,
-					label: draft.collectionMeta.name || activeWorkspace.label,
 				})
 			}
 			return id
@@ -188,7 +187,6 @@ export const createDraftSlice: StateCreator<EditorState, [], [], DraftSlice> = (
 			if (activeWorkspace?.sourceId === updatedDraft.sourceId) {
 				get().touchActiveWorkspace({
 					activeDraftId: id,
-					label: updatedDraft.collectionMeta.name || activeWorkspace.label,
 				})
 			}
 			get().updateStats()

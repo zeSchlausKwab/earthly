@@ -204,6 +204,7 @@ export function GeoEditorView() {
 		loadDatasetForEditing,
 		switchToWorkspace,
 		deleteWorkspace,
+		createDraftInWorkspace,
 		clearEditingSession,
 		startNewDataset,
 		cancelEditing,
@@ -1192,6 +1193,7 @@ export function GeoEditorView() {
 					onStartNewDataset={startNewDataset}
 					onSwitchWorkspace={switchToWorkspace}
 					onDeleteWorkspace={deleteWorkspace}
+					onAddDraftToWorkspace={createDraftInWorkspace}
 					onToggleVisibility={handleToggleVisibilityWithExitFocus}
 					onToggleAllVisibility={handleToggleAllVisibilityWithExitFocus}
 					onToggleCollectionVisibility={handleToggleCollectionVisibility}

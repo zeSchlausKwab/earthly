@@ -24,7 +24,6 @@ import {
 	Loader2,
 	Send,
 	Trash2,
-	Plus,
 	Wallet,
 	Bot,
 	User,
@@ -88,6 +87,8 @@ export function ChatPanel({
 }: ChatPanelProps) {
 	const {
 		messages,
+		chatSessions,
+		activeChatId,
 		models,
 		selectedModel,
 		modelsLoading,
@@ -112,13 +113,15 @@ export function ChatPanel({
 		setSelectedModel,
 		setToolsEnabled,
 		sendMessage,
-		clearMessages,
+		createChat,
+		switchChat,
+		deleteChat,
 		references,
 		setReferences,
 		cancelStream,
 	} = useChatStore()
 	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
-	const workspaces = useEditorStore((state) => state.workspaces)
+	const updateWorkspace = useEditorStore((state) => state.updateWorkspace)
 
 	const { status: walletStatus, balance: walletBalance } = useNip60Store()
 
@@ -180,16 +183,28 @@ export function ChatPanel({
 		})
 	}
 
-	const handleCreateWorkspace = () => {
-		onStartNewDataset?.()
+	const bindActiveWorkspaceChat = (chatId: string | null) => {
+		if (!activeWorkspaceId || !chatId) return
+		updateWorkspace(activeWorkspaceId, { chatSessionId: chatId })
 	}
 
-	const handleSwitchWorkspace = (workspaceId: string) => {
-		onSwitchWorkspace?.(workspaceId)
+	const handleCreateChat = () => {
+		if (isStreaming) return
+		createChat()
+		const nextChatId = useChatStore.getState().activeChatId
+		bindActiveWorkspaceChat(nextChatId)
 	}
 
-	const handleClearConversation = () => {
-		clearMessages()
+	const handleSwitchChat = (chatId: string) => {
+		if (isStreaming) return
+		switchChat(chatId)
+		bindActiveWorkspaceChat(chatId)
+	}
+
+	const handleDeleteChat = () => {
+		if (!activeChatId || isStreaming) return
+		deleteChat(activeChatId)
+		bindActiveWorkspaceChat(useChatStore.getState().activeChatId)
 	}
 
 	const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -230,9 +245,9 @@ export function ChatPanel({
 	}
 
 	const selectedModelData = models.find((m) => m.id === selectedModel)
-	const sortedWorkspaces = useMemo(
-		() => Object.values(workspaces).sort((a, b) => b.updatedAt - a.updatedAt),
-		[workspaces],
+	const sortedChatSessions = useMemo(
+		() => [...chatSessions].sort((a, b) => b.updatedAt - a.updatedAt),
+		[chatSessions],
 	)
 	const selectedModelLabel = selectedModelData?.name ?? 'No model selected'
 	const providerLabel = PROVIDER_LABELS[provider]
@@ -283,27 +298,26 @@ export function ChatPanel({
 						variant="outline"
 						size="sm"
 						className="h-8 text-xs"
-						onClick={handleCreateWorkspace}
+						onClick={handleCreateChat}
 						disabled={isStreaming}
 					>
-						<Plus className="h-3.5 w-3.5 mr-1" />
-						New workspace
+						New chat
 					</Button>
 					<Select
-						value={activeWorkspaceId ?? ''}
-						onValueChange={handleSwitchWorkspace}
-						disabled={isStreaming || sortedWorkspaces.length === 0}
+						value={activeChatId ?? ''}
+						onValueChange={handleSwitchChat}
+						disabled={isStreaming}
 					>
-						<SelectTrigger className="h-auto min-h-8 flex-1 min-w-0 items-start text-xs whitespace-normal *:data-[slot=select-value]:line-clamp-none *:data-[slot=select-value]:whitespace-normal *:data-[slot=select-value]:break-all *:data-[slot=select-value]:text-left">
-							<SelectValue placeholder="Select workspace" />
+						<SelectTrigger className="h-8 flex-1 text-xs">
+							<SelectValue placeholder="Select chat" />
 						</SelectTrigger>
 						<SelectContent>
-							{sortedWorkspaces.map((workspace) => (
-								<SelectItem key={workspace.id} value={workspace.id}>
-									<div className="flex min-w-0 items-start gap-2">
-										<span className="min-w-0 break-all whitespace-normal">{workspace.label}</span>
+							{sortedChatSessions.map((chat) => (
+								<SelectItem key={chat.id} value={chat.id}>
+									<div className="flex min-w-0 items-center gap-2">
+										<span className="truncate">{chat.title}</span>
 										<span className="shrink-0 text-[10px] text-muted-foreground">
-											{workspace.kind === 'scratch' ? 'draft' : 'dataset'}
+											{new Date(chat.updatedAt).toLocaleTimeString()}
 										</span>
 									</div>
 								</SelectItem>
@@ -314,9 +328,9 @@ export function ChatPanel({
 						type="button"
 						variant="ghost"
 						size="icon"
-						onClick={handleClearConversation}
-						disabled={messages.length === 0 || isStreaming}
-						title="Clear conversation"
+						onClick={handleDeleteChat}
+						disabled={!activeChatId || isStreaming}
+						title="Delete chat"
 					>
 						<Trash2 className="h-4 w-4" />
 					</Button>

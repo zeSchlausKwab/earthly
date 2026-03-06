@@ -4,7 +4,7 @@ import type { EditorState, MetadataSlice } from './types'
 
 export const createMetadataSlice: StateCreator<EditorState, [], [], MetadataSlice> = (
 	set,
-	get,
+	_get,
 ) => ({
 	collectionMeta: {
 		name: '',
@@ -40,9 +40,6 @@ export const createMetadataSlice: StateCreator<EditorState, [], [], MetadataSlic
 				collectionMeta,
 				geoEditDrafts: nextDrafts,
 			}
-		})
-		get().touchActiveWorkspace({
-			label: collectionMeta.name.trim() || undefined,
 		})
 	},
 
