@@ -10,7 +10,7 @@ interface CommentLayerEntry {
 	cursorLayerIds: string[]
 	comment: NDKGeoCommentEvent
 	handleClick: (event: maplibregl.MapLayerMouseEvent) => void
-	handleMouseEnter: () => void
+	handleMouseMove: (event: maplibregl.MapLayerMouseEvent) => void
 	handleMouseLeave: () => void
 }
 
@@ -84,7 +84,7 @@ export function useCommentGeometry(mapRef: React.RefObject<maplibregl.Map | null
 			existing.cursorLayerIds.forEach((layerId) => {
 				try {
 					mapInstance.off('click', layerId, existing.handleClick)
-					mapInstance.off('mouseenter', layerId, existing.handleMouseEnter)
+					mapInstance.off('mousemove', layerId, existing.handleMouseMove)
 					mapInstance.off('mouseleave', layerId, existing.handleMouseLeave)
 				} catch {
 					// Layer may already be gone.
@@ -240,21 +240,43 @@ export function useCommentGeometry(mapRef: React.RefObject<maplibregl.Map | null
 				setAnnotationPopupData({
 					comment,
 					feature: feature as unknown as CommentAnnotationPopupData['feature'],
-					clickPosition: { x: event.point.x, y: event.point.y },
+					screenPosition: { x: event.point.x, y: event.point.y },
+					pinned: true,
 				})
 			}
 
-			const handleMouseEnter = () => {
+			const handleMouseMove = (event: maplibregl.MapLayerMouseEvent) => {
+				const feature = event.features?.[0]
 				mapInstance.getCanvas().style.cursor = 'pointer'
+				if (!feature) return
+				setAnnotationPopupData((current) => {
+					if (
+						current?.pinned &&
+						(current.comment.id ?? current.comment.commentId) === commentId
+					) {
+						return current
+					}
+					return {
+						comment,
+						feature: feature as unknown as CommentAnnotationPopupData['feature'],
+						screenPosition: { x: event.point.x, y: event.point.y },
+						pinned: false,
+					}
+				})
 			}
 
 			const handleMouseLeave = () => {
 				mapInstance.getCanvas().style.cursor = ''
+				setAnnotationPopupData((current) => {
+					if (!current || current.pinned) return current
+					const currentId = current.comment.id ?? current.comment.commentId
+					return currentId === commentId ? null : current
+				})
 			}
 
 			cursorLayerIds.forEach((layerId) => {
 				mapInstance.on('click', layerId, handleClick)
-				mapInstance.on('mouseenter', layerId, handleMouseEnter)
+				mapInstance.on('mousemove', layerId, handleMouseMove)
 				mapInstance.on('mouseleave', layerId, handleMouseLeave)
 			})
 
@@ -264,7 +286,7 @@ export function useCommentGeometry(mapRef: React.RefObject<maplibregl.Map | null
 				cursorLayerIds,
 				comment,
 				handleClick,
-				handleMouseEnter,
+				handleMouseMove,
 				handleMouseLeave,
 			})
 		},

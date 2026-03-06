@@ -9,7 +9,8 @@ import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
 export interface CommentAnnotationPopupData {
 	comment: NDKGeoCommentEvent
 	feature: Feature<Geometry>
-	clickPosition: { x: number; y: number }
+	screenPosition: { x: number; y: number }
+	pinned?: boolean
 }
 
 interface CommentAnnotationPopupProps {
@@ -74,21 +75,21 @@ export function CommentAnnotationPopup({
 	})
 
 	useEffect(() => {
-		if (!data?.clickPosition || !containerRef.current) return
+		if (!data?.screenPosition || !containerRef.current) return
 
 		const containerRect = containerRef.current.getBoundingClientRect()
-		let x = data.clickPosition.x - POPUP_WIDTH / 2
+		let x = data.screenPosition.x - POPUP_WIDTH / 2
 		x = Math.max(8, Math.min(x, containerRect.width - POPUP_WIDTH - 8))
 
-		const spaceAbove = data.clickPosition.y - OFFSET
-		const spaceBelow = containerRect.height - data.clickPosition.y - OFFSET
+		const spaceAbove = data.screenPosition.y - OFFSET
+		const spaceBelow = containerRect.height - data.screenPosition.y - OFFSET
 
 		if (spaceAbove >= POPUP_HEIGHT_ESTIMATE) {
-			setPosition({ x, y: data.clickPosition.y - OFFSET, anchor: 'bottom' })
+			setPosition({ x, y: data.screenPosition.y - OFFSET, anchor: 'bottom' })
 		} else {
-			setPosition({ x, y: data.clickPosition.y + OFFSET, anchor: 'top' })
+			setPosition({ x, y: data.screenPosition.y + OFFSET, anchor: 'top' })
 		}
-	}, [data?.clickPosition, containerRef])
+	}, [data?.screenPosition, containerRef])
 
 	if (!data) return null
 

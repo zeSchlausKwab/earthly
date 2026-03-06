@@ -1,5 +1,5 @@
-import { MessageCircle, RefreshCw } from 'lucide-react'
-import { useState, useCallback, useEffect } from 'react'
+import { Eye, EyeOff, MessageCircle, RefreshCw } from 'lucide-react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { useGeoComments } from '../hooks/useGeoComments'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
@@ -59,14 +59,23 @@ export function CommentsPanel({
 	availableFeatures = [],
 	className = '',
 }: CommentsPanelProps) {
-	const { comments, count, isLoading, postComment, postReply } = useGeoComments({ target })
+	const { comments, allComments, count, isLoading, postComment, postReply } = useGeoComments({ target })
 
 	const [isRefreshing, setIsRefreshing] = useState(false)
 	const [activeComposerId, setActiveComposerId] = useState<string>(ROOT_COMPOSER_ID)
+	const [entityAnnotationsVisible, setEntityAnnotationsVisible] = useState(true)
+	const initializedCommentIdsRef = useRef<Set<string>>(new Set())
 
 	useEffect(() => {
 		setActiveComposerId(ROOT_COMPOSER_ID)
+		setEntityAnnotationsVisible(true)
+		initializedCommentIdsRef.current = new Set()
 	}, [target?.id, target?.dTag])
+
+	const commentsWithGeometry = useMemo(
+		() => allComments.filter((comment) => (comment.geojson?.features.length ?? 0) > 0),
+		[allComments],
+	)
 
 	const handlePostComment = useCallback(
 		async (text: string, geojson?: FeatureCollection) => {
@@ -98,6 +107,32 @@ export function CommentsPanel({
 		},
 		[activeComposerId, onClearAttachment],
 	)
+
+	useEffect(() => {
+		if (!onCommentGeojsonVisibilityChange || !entityAnnotationsVisible) return
+
+		for (const comment of commentsWithGeometry) {
+			const commentId = comment.id ?? comment.commentId ?? ''
+			if (!commentId || initializedCommentIdsRef.current.has(commentId)) continue
+
+			initializedCommentIdsRef.current.add(commentId)
+			onCommentGeojsonVisibilityChange(comment, true)
+		}
+	}, [commentsWithGeometry, entityAnnotationsVisible, onCommentGeojsonVisibilityChange])
+
+	const handleToggleEntityAnnotations = useCallback(() => {
+		if (!onCommentGeojsonVisibilityChange) return
+
+		const nextVisible = !entityAnnotationsVisible
+		setEntityAnnotationsVisible(nextVisible)
+
+		for (const comment of commentsWithGeometry) {
+			const commentId = comment.id ?? comment.commentId ?? ''
+			if (!commentId) continue
+			initializedCommentIdsRef.current.add(commentId)
+			onCommentGeojsonVisibilityChange(comment, nextVisible)
+		}
+	}, [commentsWithGeometry, entityAnnotationsVisible, onCommentGeojsonVisibilityChange])
 
 	if (!target) {
 		return (
@@ -146,9 +181,27 @@ export function CommentsPanel({
 						onReplyClick={() => handleComposerTargetChange(ROOT_COMPOSER_ID)}
 						commentCount={count}
 					/>
-					<span className="text-xs text-gray-500">
-						{count} comment{count === 1 ? '' : 's'}
-					</span>
+					<div className="flex items-center gap-2">
+						{commentsWithGeometry.length > 0 && onCommentGeojsonVisibilityChange && (
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								onClick={handleToggleEntityAnnotations}
+								className="gap-1.5"
+							>
+								{entityAnnotationsVisible ? (
+									<EyeOff className="h-3.5 w-3.5" />
+								) : (
+									<Eye className="h-3.5 w-3.5" />
+								)}
+								{entityAnnotationsVisible ? 'Hide annotations' : 'Show annotations'}
+							</Button>
+						)}
+						<span className="text-xs text-gray-500">
+							{count} comment{count === 1 ? '' : 's'}
+						</span>
+					</div>
 				</div>
 			</div>
 
