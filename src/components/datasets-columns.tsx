@@ -1,5 +1,5 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { Bug, Download, Loader2, Maximize2, Pencil, Search, Trash2 } from 'lucide-react'
+import { Bug, Download, Loader2, Maximize2, Pencil, Search, Trash2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
 import { Button } from './ui/button'
@@ -7,7 +7,7 @@ import { UserProfile } from './user-profile'
 import { nip19 } from 'nostr-tools'
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
 import { useEditorStore } from '../features/geo-editor/store'
-import { memo } from 'react'
+import { memo, useEffect, useState } from 'react'
 
 export interface DatasetRowData {
 	event: NDKGeoEvent
@@ -124,6 +124,70 @@ const DatasetLoadButton = memo(function DatasetLoadButton({
 	)
 })
 
+const DatasetDeleteButton = memo(function DatasetDeleteButton({
+	datasetKey,
+	event,
+	deletingKey,
+	onDeleteDataset,
+}: {
+	datasetKey: string
+	event: NDKGeoEvent
+	deletingKey: string | null
+	onDeleteDataset: (event: NDKGeoEvent) => void
+}) {
+	const [confirmingDelete, setConfirmingDelete] = useState(false)
+	const isDeleting = deletingKey === datasetKey
+
+	useEffect(() => {
+		if (!isDeleting) {
+			setConfirmingDelete(false)
+		}
+	}, [isDeleting])
+
+	if (confirmingDelete || isDeleting) {
+		return (
+			<div className="flex items-center gap-0.5 rounded-md border border-rose-200 bg-rose-50 p-0.5">
+				<Button
+					size="icon-sm"
+					variant="ghost"
+					onClick={() => setConfirmingDelete(false)}
+					disabled={isDeleting}
+					aria-label="Cancel dataset deletion"
+					title="Keep dataset"
+				>
+					<X className="h-3 w-3" />
+				</Button>
+				<Button
+					size="icon-sm"
+					variant="destructive"
+					onClick={() => onDeleteDataset(event)}
+					disabled={isDeleting}
+					aria-label="Confirm dataset deletion"
+					title={isDeleting ? 'Deleting…' : 'Delete dataset'}
+				>
+					{isDeleting ? (
+						<Loader2 className="h-3 w-3 animate-spin" />
+					) : (
+						<Trash2 className="h-3 w-3" />
+					)}
+				</Button>
+			</div>
+		)
+	}
+
+	return (
+		<Button
+			size="icon-sm"
+			variant="destructive"
+			onClick={() => setConfirmingDelete(true)}
+			aria-label="Delete dataset"
+			title="Delete dataset"
+		>
+			<Trash2 className="h-3 w-3" />
+		</Button>
+	)
+})
+
 export const createDatasetColumns = (
 	context: DatasetColumnsContext,
 ): ColumnDef<DatasetRowData>[] => [
@@ -195,8 +259,9 @@ export const createDatasetColumns = (
 			}
 
 			return (
-				<div
-					className="space-y-0.5 max-w-[160px] cursor-grab active:cursor-grabbing"
+				<button
+					type="button"
+					className="max-w-[160px] cursor-grab space-y-0.5 text-left active:cursor-grabbing"
 					draggable
 					onDragStart={handleDragStart}
 				>
@@ -216,7 +281,7 @@ export const createDatasetColumns = (
 							))}
 						</div>
 					)}
-				</div>
+				</button>
 			)
 		},
 	},
@@ -236,16 +301,12 @@ export const createDatasetColumns = (
 						onLoadDataset={context.onLoadDataset}
 					/>
 					{isOwned && (
-						<Button
-							size="icon-sm"
-							variant="destructive"
-							onClick={() => context.onDeleteDataset(event)}
-							disabled={context.deletingKey === datasetKey}
-							aria-label="Delete dataset"
-							title={context.deletingKey === datasetKey ? 'Deleting…' : 'Delete dataset'}
-						>
-							<Trash2 className="h-3 w-3" />
-						</Button>
+						<DatasetDeleteButton
+							datasetKey={datasetKey}
+							event={event}
+							deletingKey={context.deletingKey}
+							onDeleteDataset={context.onDeleteDataset}
+						/>
 					)}
 					<Button
 						size="icon-sm"

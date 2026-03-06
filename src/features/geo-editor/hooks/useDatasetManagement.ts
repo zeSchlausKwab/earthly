@@ -654,18 +654,81 @@ export function useDatasetManagement(
 			const workspace = store.workspaces[workspaceId]
 			if (!workspace) return
 
+			if (workspace.datasetKey) {
+				const event =
+					geoEventsRef.current.find(
+						(geoEvent) => getDatasetKey(geoEvent) === workspace.datasetKey,
+					) ?? null
+				if (event) {
+					try {
+						await ensureResolvedFeatureCollection(event)
+					} catch (error) {
+						console.error('Failed to resolve external blobs for fresh workspace draft', error)
+						setPublishError('Failed to load dataset blobs. Check console for details.')
+						return
+					}
+
+					const datasetFeatures = convertGeoEventsToEditorFeatures(
+						[event],
+						resolvedCollectionResolver,
+					)
+					const collection = resolvedCollectionResolver(event) ?? event.featureCollection
+					const collectionMeta = extractCollectionMeta(collection)
+
+					applyEditingState({
+						features: datasetFeatures,
+						activeDataset: event,
+						contextRefs: event.contextReferences,
+						collectionMeta,
+						blobReferences: event.blobReferences,
+					})
+
+					const draftId = createGeoEditDraft(workspace.sourceId, {
+						name: collectionMeta.name,
+						description: collectionMeta.description,
+						collectionMeta,
+						features: datasetFeatures,
+						selectedFeatureIds: [],
+					})
+					updateWorkspace(workspaceId, {
+						activeDraftId: draftId,
+					})
+					return
+				}
+			}
+
+			const collectionMeta = createDefaultCollectionMeta()
+			const contextRefs = activeContextScopeCoordinate ? [activeContextScopeCoordinate] : []
+			applyEditingState({
+				features: [],
+				activeDataset: null,
+				contextRefs,
+				collectionMeta,
+				blobReferences: [],
+			})
 			const draftId = createGeoEditDraft(workspace.sourceId, {
-				name: store.collectionMeta.name,
-				description: store.collectionMeta.description,
-				collectionMeta: store.collectionMeta,
-				features: store.features,
-				selectedFeatureIds: store.selectedFeatureIds,
+				name: '',
+				description: '',
+				collectionMeta,
+				features: [],
+				selectedFeatureIds: [],
 			})
 			updateWorkspace(workspaceId, {
 				activeDraftId: draftId,
 			})
 		},
-		[editor, switchToWorkspace, createGeoEditDraft, updateWorkspace],
+		[
+			editor,
+			switchToWorkspace,
+			getDatasetKey,
+			ensureResolvedFeatureCollection,
+			setPublishError,
+			resolvedCollectionResolver,
+			applyEditingState,
+			createGeoEditDraft,
+			updateWorkspace,
+			activeContextScopeCoordinate,
+		],
 	)
 
 	/**

@@ -1,4 +1,5 @@
 import { Eye, EyeOff, Maximize2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import { Button } from '../ui/button'
@@ -35,6 +36,14 @@ export function DatasetActionCard({
 	onDeleteDataset,
 }: DatasetActionCardProps) {
 	const primaryLabel = isOwned ? 'Edit dataset' : 'Load copy'
+	const [confirmingDelete, setConfirmingDelete] = useState(false)
+	const isDeleting = deletingKey === datasetKey
+
+	useEffect(() => {
+		if (!isDeleting) {
+			setConfirmingDelete(false)
+		}
+	}, [isDeleting])
 
 	return (
 		<div
@@ -70,17 +79,43 @@ export function DatasetActionCard({
 				>
 					{primaryLabel}
 				</Button>
-				{isOwned && (
-					<Button
-						size="sm"
-						variant="destructive"
-						className="w-full"
-						onClick={() => onDeleteDataset(event)}
-						disabled={deletingKey === datasetKey}
-					>
-						{deletingKey === datasetKey ? 'Deleting…' : 'Delete'}
-					</Button>
-				)}
+				{isOwned &&
+					(confirmingDelete || isDeleting ? (
+						<div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">
+							<p className="text-[11px] font-medium text-rose-900">
+								Delete this dataset from Nostr?
+							</p>
+							<div className="mt-2 flex items-center justify-end gap-2">
+								<Button
+									size="sm"
+									variant="ghost"
+									className="h-7 px-2 text-[11px]"
+									onClick={() => setConfirmingDelete(false)}
+									disabled={isDeleting}
+								>
+									Keep
+								</Button>
+								<Button
+									size="sm"
+									variant="destructive"
+									className="h-7 px-2 text-[11px]"
+									onClick={() => onDeleteDataset(event)}
+									disabled={isDeleting}
+								>
+									{isDeleting ? 'Deleting…' : 'Delete'}
+								</Button>
+							</div>
+						</div>
+					) : (
+						<Button
+							size="sm"
+							variant="destructive"
+							className="w-full"
+							onClick={() => setConfirmingDelete(true)}
+						>
+							Delete
+						</Button>
+					))}
 				<div className="flex items-center justify-between gap-2 text-[11px]">
 					<Button
 						size="sm"

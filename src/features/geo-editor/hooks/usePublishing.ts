@@ -1,6 +1,7 @@
 import type NDK from '@nostr-dev-kit/ndk'
 import type { FeatureCollection } from 'geojson'
 import { useCallback, useMemo } from 'react'
+import { toast } from 'sonner'
 import { validateDatasetForContext } from '@/lib/context/validation'
 import type { GeoBlobReference, NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import { NDKGeoEvent as NDKGeoEventClass } from '@/lib/ndk/NDKGeoEvent'
@@ -660,14 +661,11 @@ export function usePublishing({
 	const handleDeleteDataset = useCallback(
 		async (event: NDKGeoEvent, onClear: () => void) => {
 			if (!ndk) {
-				alert('NDK is not ready.')
+				toast.error('NDK is not ready.')
 				return
 			}
-			if (!event.datasetId) {
-				alert('Dataset is missing a d tag and cannot be deleted.')
-				return
-			}
-			if (!confirm(`Delete dataset "${getDatasetName(event)}"? This action cannot be undone.`)) {
+			if (!(event.datasetId ?? event.dTag)) {
+				toast.error('Dataset is missing a d tag and cannot be deleted.')
 				return
 			}
 
@@ -677,9 +675,10 @@ export function usePublishing({
 				if (activeDataset && getDatasetKey(activeDataset) === key) {
 					onClear()
 				}
+				toast.success(`Deleted "${getDatasetName(event)}".`)
 			} catch (error) {
 				console.error('Failed to delete dataset', error)
-				alert('Failed to delete dataset. Check console for details.')
+				toast.error('Failed to delete dataset. Check console for details.')
 			}
 		},
 		[ndk, activeDataset, getDatasetKey, getDatasetName],

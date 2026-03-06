@@ -2,6 +2,7 @@ import { useNDK, useNDKCurrentUser } from '@nostr-dev-kit/react'
 import { Edit3, Globe, Layers, Lock, LockOpen, Search, UploadCloud, X } from 'lucide-react'
 import type maplibregl from 'maplibre-gl'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { AppSidebar } from '@/components/AppSidebar'
 import { BlossomUploadDialog } from '@/components/BlossomUploadDialog'
 import { DebugDialog } from '@/components/DebugDialog'
@@ -938,7 +939,7 @@ export function GeoEditorView() {
 				if (meta) setCollectionMeta(meta)
 			} catch (e) {
 				console.error('Failed to import GeoJSON:', e)
-				alert('Failed to import GeoJSON')
+				toast.error('Failed to import GeoJSON')
 			}
 		},
 		[editor, setCollectionMeta],
@@ -1343,12 +1344,7 @@ export function GeoEditorView() {
 										canPublishUpdate,
 										onPublishCopy: handlePublishCopy,
 										canPublishCopy,
-										onProposeEdit: () => {
-											const description = prompt('Describe your proposed changes:')
-											if (description) {
-												handleProposeEdit(description)
-											}
-										},
+										onProposeEdit: handleProposeEdit,
 										canProposeEdit,
 										isPublishing,
 									}}

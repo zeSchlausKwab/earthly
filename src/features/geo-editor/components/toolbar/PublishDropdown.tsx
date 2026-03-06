@@ -1,12 +1,15 @@
+import { useState } from 'react'
 import { ChevronDown, CopyPlus, GitPullRequest, RefreshCw, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuLabel,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 export interface PublishDropdownProps {
@@ -18,7 +21,7 @@ export interface PublishDropdownProps {
 	onPublishNew?: () => void
 	onPublishUpdate?: () => void
 	onPublishCopy?: () => void
-	onProposeEdit?: () => void
+	onProposeEdit?: (description: string) => void
 	small?: boolean
 }
 
@@ -34,8 +37,17 @@ export function PublishDropdown({
 	onProposeEdit,
 	small,
 }: PublishDropdownProps) {
+	const [open, setOpen] = useState(false)
+	const [composingProposal, setComposingProposal] = useState(false)
+	const [proposalDescription, setProposalDescription] = useState('')
 	const iconSize = small ? 'h-3.5 w-3.5' : 'h-4 w-4'
 	const buttonSize = small ? 'h-8' : 'h-9'
+	const trimmedProposalDescription = proposalDescription.trim()
+
+	const resetProposalComposer = () => {
+		setComposingProposal(false)
+		setProposalDescription('')
+	}
 
 	// Determine primary action based on state
 	const hasPrimaryAction = canPublishUpdate || canPublishNew
@@ -96,7 +108,15 @@ export function PublishDropdown({
 
 	return (
 		<TooltipProvider delayDuration={500}>
-			<DropdownMenu>
+			<DropdownMenu
+				open={open}
+				onOpenChange={(nextOpen) => {
+					setOpen(nextOpen)
+					if (!nextOpen) {
+						resetProposalComposer()
+					}
+				}}
+			>
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<DropdownMenuTrigger asChild>
@@ -141,10 +161,55 @@ export function PublishDropdown({
 					{canProposeEdit && (
 						<>
 							<DropdownMenuSeparator />
-							<DropdownMenuItem onClick={onProposeEdit}>
-								<GitPullRequest className="h-4 w-4" />
-								Propose edit to owner
-							</DropdownMenuItem>
+							{!composingProposal ? (
+								<DropdownMenuItem
+									onSelect={(event) => {
+										event.preventDefault()
+										setComposingProposal(true)
+									}}
+								>
+									<GitPullRequest className="h-4 w-4" />
+									Propose edit to owner
+								</DropdownMenuItem>
+							) : (
+								<div className="space-y-2 px-2 py-2">
+									<DropdownMenuLabel className="px-0 py-0 text-xs font-medium text-slate-700">
+										Proposal summary
+									</DropdownMenuLabel>
+									<Textarea
+										value={proposalDescription}
+										onChange={(event) => setProposalDescription(event.target.value)}
+										placeholder="Describe your proposed changes..."
+										className="min-h-20 text-sm"
+										autoFocus
+									/>
+									<div className="flex items-center justify-end gap-2">
+										<Button
+											type="button"
+											size="sm"
+											variant="ghost"
+											className="h-8 px-2 text-xs"
+											onClick={resetProposalComposer}
+										>
+											Cancel
+										</Button>
+										<Button
+											type="button"
+											size="sm"
+											className="h-8 bg-emerald-600 px-2 text-xs hover:bg-emerald-700"
+											onClick={() => {
+												if (!trimmedProposalDescription) return
+												onProposeEdit?.(trimmedProposalDescription)
+												setOpen(false)
+												resetProposalComposer()
+											}}
+											disabled={!trimmedProposalDescription || isPublishing}
+										>
+											Send proposal
+										</Button>
+									</div>
+								</div>
+							)}
 						</>
 					)}
 				</DropdownMenuContent>

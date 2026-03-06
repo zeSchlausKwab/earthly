@@ -194,6 +194,7 @@ export function UserProfilePanel({
 }: UserProfilePanelProps) {
 	const [activeTab, setActiveTab] = useState<TabMode>('datasets')
 	const [deletingWorkspaceId, setDeletingWorkspaceId] = useState<string | null>(null)
+	const [confirmingWorkspaceId, setConfirmingWorkspaceId] = useState<string | null>(null)
 	const filterState = useFilterState()
 
 	const isOwnProfile = currentUserPubkey === pubkey
@@ -224,18 +225,15 @@ export function UserProfilePanel({
 	const handleDeleteWorkspace = useCallback(
 		async (workspaceId: string) => {
 			if (!onDeleteWorkspace) return
-			const workspace = workspaces[workspaceId]
-			if (!workspace) return
-			const confirmed = window.confirm(`Delete workspace "${workspace.label}"?`)
-			if (!confirmed) return
 			setDeletingWorkspaceId(workspaceId)
 			try {
 				await onDeleteWorkspace(workspaceId)
 			} finally {
+				setConfirmingWorkspaceId((current) => (current === workspaceId ? null : current))
 				setDeletingWorkspaceId((current) => (current === workspaceId ? null : current))
 			}
 		},
-		[onDeleteWorkspace, workspaces],
+		[onDeleteWorkspace],
 	)
 
 	// Build reference map for collections
@@ -760,6 +758,7 @@ export function UserProfilePanel({
 					{sortedWorkspaces.map((workspace) => {
 						const isActive = workspace.id === activeWorkspaceId
 						const isDeleting = deletingWorkspaceId === workspace.id
+						const isConfirmingDelete = confirmingWorkspaceId === workspace.id
 						return (
 							<div
 								key={workspace.id}
@@ -797,7 +796,7 @@ export function UserProfilePanel({
 												size="sm"
 												variant="outline"
 												onClick={() => onSwitchWorkspace(workspace.id)}
-												disabled={isDeleting}
+												disabled={isDeleting || isConfirmingDelete}
 											>
 												Open
 											</Button>
@@ -806,14 +805,45 @@ export function UserProfilePanel({
 											size="sm"
 											variant="ghost"
 											className="text-destructive hover:text-destructive"
-											onClick={() => void handleDeleteWorkspace(workspace.id)}
+											onClick={() =>
+												setConfirmingWorkspaceId((current) =>
+													current === workspace.id ? null : workspace.id,
+												)
+											}
 											disabled={!onDeleteWorkspace || isDeleting}
 										>
 											<Trash2 className="mr-1 h-3.5 w-3.5" />
-											{isDeleting ? 'Deleting...' : 'Delete'}
+											{isConfirmingDelete ? 'Cancel' : isDeleting ? 'Deleting...' : 'Delete'}
 										</Button>
 									</div>
 								</div>
+								{isConfirmingDelete ? (
+									<div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-900">
+										<span className="min-w-0 flex-1 truncate">
+											Remove workspace "{workspace.label}"?
+										</span>
+										<div className="flex shrink-0 items-center gap-2">
+											<Button
+												size="sm"
+												variant="ghost"
+												className="h-7 px-2 text-[11px]"
+												onClick={() => setConfirmingWorkspaceId(null)}
+												disabled={isDeleting}
+											>
+												Keep
+											</Button>
+											<Button
+												size="sm"
+												variant="destructive"
+												className="h-7 px-2 text-[11px]"
+												onClick={() => void handleDeleteWorkspace(workspace.id)}
+												disabled={isDeleting}
+											>
+												{isDeleting ? 'Deleting...' : 'Delete'}
+											</Button>
+										</div>
+									</div>
+								) : null}
 							</div>
 						)
 					})}

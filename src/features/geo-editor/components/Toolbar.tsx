@@ -51,7 +51,7 @@ interface DatasetActionsProps {
 	canPublishUpdate?: boolean
 	onPublishCopy?: () => void
 	canPublishCopy?: boolean
-	onProposeEdit?: () => void
+	onProposeEdit?: (description: string) => void
 	canProposeEdit?: boolean
 	isPublishing?: boolean
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+	Check,
 	ChevronDown,
 	ChevronRight,
 	FilePenLine,
@@ -7,11 +8,13 @@ import {
 	Layers,
 	Plus,
 	Trash2,
+	X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useEditorStore, type GeoCollectionEditDraft } from '@/features/geo-editor/store'
 import { Button } from './ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible'
+import { Input } from './ui/input'
 
 interface WorkspaceDraftNavigatorProps {
 	onStartNewDataset?: () => void
@@ -38,6 +41,11 @@ export function WorkspaceDraftNavigator({
 
 	const [open, setOpen] = useState(false)
 	const [expandedWorkspaceIds, setExpandedWorkspaceIds] = useState<Record<string, boolean>>({})
+	const [renamingWorkspaceId, setRenamingWorkspaceId] = useState<string | null>(null)
+	const [workspaceLabelDraft, setWorkspaceLabelDraft] = useState('')
+	const [confirmingWorkspaceDeleteId, setConfirmingWorkspaceDeleteId] = useState<string | null>(
+		null,
+	)
 
 	const activeDraft = useMemo(
 		() => (activeGeoEditDraftId ? (geoEditDrafts[activeGeoEditDraftId] ?? null) : null),
@@ -64,10 +72,38 @@ export function WorkspaceDraftNavigator({
 		onStartNewDataset?.()
 	}
 
+	const handleBeginWorkspaceRename = (workspaceId: string, currentLabel: string) => {
+		setConfirmingWorkspaceDeleteId((current) => (current === workspaceId ? null : current))
+		setRenamingWorkspaceId(workspaceId)
+		setWorkspaceLabelDraft(currentLabel)
+	}
+
 	const handleRenameWorkspace = (workspaceId: string, currentLabel: string) => {
-		const nextLabel = window.prompt('Rename workspace', currentLabel)?.trim()
+		const nextLabel = workspaceLabelDraft.trim()
 		if (!nextLabel || nextLabel === currentLabel) return
 		updateWorkspace(workspaceId, { label: nextLabel })
+		setRenamingWorkspaceId(null)
+		setWorkspaceLabelDraft('')
+	}
+
+	const handleCancelWorkspaceRename = () => {
+		setRenamingWorkspaceId(null)
+		setWorkspaceLabelDraft('')
+	}
+
+	const handleRequestWorkspaceDelete = (workspaceId: string) => {
+		setRenamingWorkspaceId((current) => (current === workspaceId ? null : current))
+		setWorkspaceLabelDraft('')
+		setConfirmingWorkspaceDeleteId(workspaceId)
+	}
+
+	const handleCancelWorkspaceDelete = () => {
+		setConfirmingWorkspaceDeleteId(null)
+	}
+
+	const handleConfirmWorkspaceDelete = (workspaceId: string) => {
+		setConfirmingWorkspaceDeleteId(null)
+		void onDeleteWorkspace?.(workspaceId)
 	}
 
 	const activeWorkspace = activeWorkspaceId
@@ -125,6 +161,8 @@ export function WorkspaceDraftNavigator({
 								.sort((a, b) => b.updatedAt - a.updatedAt)
 							const isActiveWorkspace = workspace.id === activeWorkspaceId
 							const isExpanded = expandedWorkspaceIds[workspace.id] ?? isActiveWorkspace
+							const isRenamingWorkspace = renamingWorkspaceId === workspace.id
+							const isConfirmingWorkspaceDelete = confirmingWorkspaceDeleteId === workspace.id
 
 							return (
 								<div
@@ -156,72 +194,137 @@ export function WorkspaceDraftNavigator({
 												<ChevronRight className="h-3.5 w-3.5" />
 											)}
 										</button>
-										<button
-											type="button"
-											onClick={() => onSwitchWorkspace?.(workspace.id)}
-											className="min-w-0 flex-1 rounded px-1 py-1 text-left transition-colors hover:bg-black/5"
-										>
-											<div className="flex min-w-0 items-center gap-2">
-												<span className="truncate text-xs font-medium text-slate-900">
-													{workspace.label}
-												</span>
-												<span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-slate-500">
-													{workspace.kind === 'scratch' ? 'draft' : 'dataset'}
-												</span>
-												{isActiveWorkspace ? (
-													<span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-emerald-700">
-														Active
-													</span>
-												) : null}
-											</div>
-											<div className="mt-0.5 text-[10px] text-slate-500">
-												{drafts.length} draft{drafts.length === 1 ? '' : 's'}
-											</div>
-										</button>
-										<div className="flex shrink-0 items-center gap-1">
-											<Button
-												type="button"
-												size="icon-sm"
-												variant="ghost"
-												className="h-7 w-7"
-												onClick={(event) => {
-													event.stopPropagation()
-													void onAddDraftToWorkspace?.(workspace.id)
-												}}
-												title="Add new draft to this workspace"
-											>
-												<Plus className="h-3.5 w-3.5" />
-											</Button>
-											<Button
-												type="button"
-												size="icon-sm"
-												variant="ghost"
-												className="h-7 w-7"
-												onClick={(event) => {
-													event.stopPropagation()
+										{isRenamingWorkspace ? (
+											<form
+												className="flex min-w-0 flex-1 items-center gap-1"
+												onSubmit={(event) => {
+													event.preventDefault()
 													handleRenameWorkspace(workspace.id, workspace.label)
 												}}
-												title="Rename workspace"
 											>
-												<FilePenLine className="h-3.5 w-3.5" />
-											</Button>
-											<Button
-												type="button"
-												size="icon-sm"
-												variant="ghost"
-												className="h-7 w-7 text-destructive hover:text-destructive"
-												onClick={(event) => {
-													event.stopPropagation()
-													const confirmed = window.confirm(`Delete workspace "${workspace.label}"?`)
-													if (!confirmed) return
-													void onDeleteWorkspace?.(workspace.id)
-												}}
-												title="Delete workspace"
-											>
-												<Trash2 className="h-3.5 w-3.5" />
-											</Button>
-										</div>
+												<Input
+													value={workspaceLabelDraft}
+													onChange={(event) => setWorkspaceLabelDraft(event.target.value)}
+													className="h-8 text-xs"
+													autoFocus
+													maxLength={120}
+												/>
+												<Button
+													type="submit"
+													size="icon-sm"
+													variant="outline"
+													className="h-7 w-7"
+													title="Save workspace name"
+												>
+													<Check className="h-3.5 w-3.5" />
+												</Button>
+												<Button
+													type="button"
+													size="icon-sm"
+													variant="ghost"
+													className="h-7 w-7"
+													onClick={handleCancelWorkspaceRename}
+													title="Cancel rename"
+												>
+													<X className="h-3.5 w-3.5" />
+												</Button>
+											</form>
+										) : (
+											<>
+												<button
+													type="button"
+													onClick={() => onSwitchWorkspace?.(workspace.id)}
+													className="min-w-0 flex-1 rounded px-1 py-1 text-left transition-colors hover:bg-black/5"
+												>
+													<div className="flex min-w-0 items-center gap-2">
+														<span className="truncate text-xs font-medium text-slate-900">
+															{workspace.label}
+														</span>
+														<span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-slate-500">
+															{workspace.kind === 'scratch' ? 'draft' : 'dataset'}
+														</span>
+														{isActiveWorkspace ? (
+															<span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-emerald-700">
+																Active
+															</span>
+														) : null}
+													</div>
+													<div className="mt-0.5 text-[10px] text-slate-500">
+														{drafts.length} draft{drafts.length === 1 ? '' : 's'}
+													</div>
+												</button>
+												<div className="flex shrink-0 items-center gap-1">
+													<Button
+														type="button"
+														size="icon-sm"
+														variant="ghost"
+														className="h-7 w-7"
+														onClick={(event) => {
+															event.stopPropagation()
+															void onAddDraftToWorkspace?.(workspace.id)
+														}}
+														title="Add new draft to this workspace"
+													>
+														<Plus className="h-3.5 w-3.5" />
+													</Button>
+													<Button
+														type="button"
+														size="icon-sm"
+														variant="ghost"
+														className="h-7 w-7"
+														onClick={(event) => {
+															event.stopPropagation()
+															handleBeginWorkspaceRename(workspace.id, workspace.label)
+														}}
+														title="Rename workspace"
+													>
+														<FilePenLine className="h-3.5 w-3.5" />
+													</Button>
+													<Button
+														type="button"
+														size="icon-sm"
+														variant="ghost"
+														className="h-7 w-7 text-destructive hover:text-destructive"
+														onClick={(event) => {
+															event.stopPropagation()
+															handleRequestWorkspaceDelete(workspace.id)
+														}}
+														title="Delete workspace"
+													>
+														<Trash2 className="h-3.5 w-3.5" />
+													</Button>
+												</div>
+											</>
+										)}
 									</div>
+
+									{isConfirmingWorkspaceDelete ? (
+										<div className="flex items-center justify-between gap-3 border-t border-rose-200 bg-rose-50/90 px-3 py-2 text-[11px] text-rose-900">
+											<span className="min-w-0 flex-1 truncate">
+												Delete workspace "{workspace.label}" and its linked session state?
+											</span>
+											<div className="flex shrink-0 items-center gap-1.5">
+												<Button
+													type="button"
+													size="sm"
+													variant="ghost"
+													className="h-7 px-2 text-[11px]"
+													onClick={handleCancelWorkspaceDelete}
+												>
+													Cancel
+												</Button>
+												<Button
+													type="button"
+													size="sm"
+													variant="destructive"
+													className="h-7 px-2 text-[11px]"
+													onClick={() => handleConfirmWorkspaceDelete(workspace.id)}
+												>
+													Delete
+												</Button>
+											</div>
+										</div>
+									) : null}
 
 									{isExpanded ? (
 										<div className="space-y-1 border-t border-slate-200/80 bg-white/60 px-2 py-1.5">
