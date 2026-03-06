@@ -617,6 +617,7 @@ export function AppSidebar({
 	const userProfilePanelProps = {
 		geoEvents,
 		collectionEvents,
+		mapContextEvents,
 		currentUserPubkey,
 		datasetVisibility,
 		collectionVisibility,
@@ -634,7 +635,9 @@ export function AppSidebar({
 		onToggleAllCollectionVisibility,
 		onZoomToCollection,
 		onInspectCollection: handleInspectCollection,
+		onInspectContext: handleInspectContext,
 		onEditCollection: handleEditCollection,
+		onEditContext: handleEditContext,
 		onOpenDebug,
 	}
 

@@ -43,6 +43,8 @@ interface PublishedDataset {
 	datasetId: string;
 	coordinate: string;
 	name: string;
+	ownerPubkey: string;
+	featureCollection: FeatureCollection;
 	bbox?: BoundingBox;
 }
 
@@ -270,6 +272,21 @@ function getCollectionName(content: string, fallback: string): string {
 	return fallback;
 }
 
+function parseFeatureCollection(content: string): FeatureCollection {
+	try {
+		const parsed = JSON.parse(content) as FeatureCollection;
+		if (parsed?.type === "FeatureCollection" && Array.isArray(parsed.features)) {
+			return parsed;
+		}
+	} catch {
+		// no-op
+	}
+	return {
+		type: "FeatureCollection",
+		features: [],
+	};
+}
+
 async function createIdentity(
 	label: string,
 	secretKey: string,
@@ -350,12 +367,15 @@ async function publishDataset({
 
 	const datasetCoordinate = coordinate(GEO_EVENT_KIND, identity.pubkey, datasetId);
 	const datasetName = getCollectionName(geoEventData.content, datasetId);
+	const featureCollection = parseFeatureCollection(geoEventData.content);
 
 	return {
 		id: event.id ?? null,
 		datasetId,
 		coordinate: datasetCoordinate,
 		name: datasetName,
+		ownerPubkey: identity.pubkey,
+		featureCollection,
 		bbox: parseBbox(tags),
 	};
 }
@@ -411,7 +431,6 @@ interface PublishProposalOptions {
 	identity: SeedIdentity;
 	proposalId: string;
 	targetDataset: PublishedDataset;
-	targetOwner: SeedIdentity;
 	description: string;
 	featureCollection: FeatureCollection;
 	hashtags?: string[];
@@ -421,17 +440,20 @@ async function publishProposal({
 	identity,
 	proposalId,
 	targetDataset,
-	targetOwner,
 	description,
 	featureCollection,
 	hashtags = [],
 }: PublishProposalOptions): Promise<void> {
-	const targetAddress = coordinate(GEO_EVENT_KIND, targetOwner.pubkey, targetDataset.datasetId);
+	const targetAddress = coordinate(
+		GEO_EVENT_KIND,
+		targetDataset.ownerPubkey,
+		targetDataset.datasetId,
+	);
 
 	const tags: NDKTag[] = [
 		["d", proposalId],
 		["a", targetAddress],
-		["p", targetOwner.pubkey],
+		["p", targetDataset.ownerPubkey],
 		["description", description],
 	];
 	if (targetDataset.id) {
@@ -452,6 +474,97 @@ async function publishProposal({
 	await event.publish();
 
 	console.log(`  Proposal published: "${description}" by ${identity.label} -> ${targetDataset.name}`);
+}
+
+function nudgePosition(
+	position: [number, number],
+	seedFactor: number,
+): [number, number] {
+	const [lon, lat] = position;
+	const deltaLon = 0.004 + seedFactor * 0.0006;
+	const deltaLat = 0.002 + seedFactor * 0.0004;
+	return [lon + deltaLon, lat + deltaLat];
+}
+
+function mutateFeatureCollectionForProposal(
+	featureCollection: FeatureCollection,
+	seedFactor: number,
+): FeatureCollection {
+	const cloned = JSON.parse(JSON.stringify(featureCollection)) as FeatureCollection;
+	const firstFeature = cloned.features[0];
+	const geometry = firstFeature?.geometry;
+	if (!firstFeature || !geometry) return cloned;
+
+	switch (geometry.type) {
+		case "Point": {
+			geometry.coordinates = nudgePosition(
+				geometry.coordinates as [number, number],
+				seedFactor,
+			);
+			break;
+		}
+		case "MultiPoint":
+		case "LineString": {
+			const coords = geometry.coordinates as [number, number][];
+			const idx = Math.max(0, Math.floor(coords.length / 2));
+			if (coords[idx]) coords[idx] = nudgePosition(coords[idx], seedFactor);
+			break;
+		}
+		case "Polygon": {
+			const ring = geometry.coordinates[0];
+			if (ring && ring.length > 3) {
+				ring[1] = nudgePosition(ring[1] as [number, number], seedFactor);
+				ring[ring.length - 1] = [...ring[0]] as [number, number];
+			}
+			break;
+		}
+		case "MultiLineString": {
+			const line = geometry.coordinates[0];
+			if (line && line.length > 0) {
+				const idx = Math.max(0, Math.floor(line.length / 2));
+				line[idx] = nudgePosition(line[idx] as [number, number], seedFactor);
+			}
+			break;
+		}
+		case "MultiPolygon": {
+			const ring = geometry.coordinates[0]?.[0];
+			if (ring && ring.length > 3) {
+				ring[1] = nudgePosition(ring[1] as [number, number], seedFactor);
+				ring[ring.length - 1] = [...ring[0]] as [number, number];
+			}
+			break;
+		}
+		case "GeometryCollection": {
+			const pointLike = geometry.geometries.find((item) => item.type === "Point");
+			if (pointLike?.type === "Point") {
+				pointLike.coordinates = nudgePosition(
+					pointLike.coordinates as [number, number],
+					seedFactor,
+				);
+			}
+			break;
+		}
+	}
+
+	if (firstFeature.properties && typeof firstFeature.properties === "object") {
+		(firstFeature.properties as Record<string, unknown>).seed_proposal = `proposal-${seedFactor}`;
+	}
+
+	return cloned;
+}
+
+function pickProposalAuthor(
+	targetDataset: PublishedDataset,
+	identities: SeedIdentity[],
+	seedIndex: number,
+): SeedIdentity {
+	const candidates = identities.filter(
+		(identity) => identity.pubkey !== targetDataset.ownerPubkey,
+	);
+	if (candidates.length === 0) {
+		return identities[0];
+	}
+	return candidates[seedIndex % candidates.length] ?? candidates[0];
 }
 
 function createRailCorridorFeatureCollection(): FeatureCollection & Record<string, unknown> {
@@ -2047,91 +2160,7 @@ async function seedData() {
 		),
 	});
 
-	// ── Edit Proposals ──────────────────────────────────────────────────
-	console.log("[Seed] Publishing edit proposals...");
-
-	// Sachsen state boundary dataset (owned by planner)
-	const sachsenDataset = stateDatasets.find((d) => d.datasetId === "seed-state-sachsen");
-
-	if (sachsenDataset) {
-		// mobility proposes a boundary refinement to planner's Sachsen dataset
-		const sachsenFc = JSON.parse(
-			(await generateGeoEventData(undefined, {
-				useRealData: true,
-				stateName: "Sachsen",
-				hashtags: ["east-germany"],
-			})).content,
-		) as FeatureCollection;
-		// Slightly modify coordinates to simulate a proposed edit
-		if (sachsenFc.features[0]?.geometry?.type === "Polygon") {
-			const coords = (sachsenFc.features[0].geometry as any).coordinates[0];
-			if (coords && coords.length > 2) {
-				coords[1] = [coords[1][0] + 0.01, coords[1][1] - 0.005];
-			}
-		}
-		await publishProposal({
-			identity: mobility,
-			proposalId: "seed-proposal-sachsen-border",
-			targetDataset: sachsenDataset,
-			targetOwner: planner,
-			description: "Refined southeastern border alignment based on updated survey data",
-			featureCollection: sachsenFc,
-			hashtags: ["boundaries", "refinement"],
-		});
-	}
-
-	// mobility proposes adding a corridor to heritage's bike network dataset
-	const bikeNetworkFc = createBikeNetworkFeatureCollection();
-	bikeNetworkFc.features.push({
-		type: "Feature",
-		id: "proposed-re7-extension",
-		geometry: {
-			type: "LineString",
-			coordinates: [
-				[13.41, 52.52],
-				[13.45, 52.54],
-				[13.50, 52.55],
-				[13.55, 52.53],
-			],
-		},
-		properties: {
-			name: "Proposed RE7 corridor extension",
-			corridor_code: "RE7X",
-			status: "planned",
-			surface: "rail",
-			length_km: 12.4,
-		},
-	});
-	await publishProposal({
-		identity: mobility,
-		proposalId: "seed-proposal-bike-extension",
-		targetDataset: bikeDataset,
-		targetOwner: heritage,
-		description: "Added planned RE7 corridor extension through eastern Berlin",
-		featureCollection: bikeNetworkFc,
-		hashtags: ["mobility", "rail", "extension"],
-	});
-
-	// planner proposes property updates to heritage's hotspots
-	if (heritageHotspotsDataset) {
-		const hotspotsFc = createHeritageHotspotsFeatureCollection();
-		// Modify a property to simulate a proposed edit
-		if (hotspotsFc.features[0]?.properties) {
-			(hotspotsFc.features[0].properties as Record<string, unknown>).significance = "national";
-			(hotspotsFc.features[0].properties as Record<string, unknown>).updated_classification = true;
-		}
-		await publishProposal({
-			identity: planner,
-			proposalId: "seed-proposal-heritage-classification",
-			targetDataset: heritageHotspotsDataset,
-			targetOwner: heritage,
-			description: "Updated significance classification for Leipzig passage",
-			featureCollection: hotspotsFc,
-			hashtags: ["heritage", "classification"],
-		});
-	}
-
-	const totalDatasets = [
+	const allPublishedDatasets: PublishedDataset[] = [
 		...stateDatasets,
 		railDataset,
 		bikeDataset,
@@ -2143,10 +2172,33 @@ async function seedData() {
 		hikingTrailsDataset,
 		surfSpotsDataset,
 		bestBeachesDataset,
-	].length;
+	];
+
+	// ── Edit Proposals ──────────────────────────────────────────────────
+	console.log("[Seed] Publishing edit proposals...");
+	const proposalIdentities = [planner, mobility, heritage];
+	let proposalCount = 0;
+	for (const [index, dataset] of allPublishedDatasets.entries()) {
+		const proposalAuthor = pickProposalAuthor(dataset, proposalIdentities, index);
+		const proposalFeatureCollection = mutateFeatureCollectionForProposal(
+			dataset.featureCollection,
+			index + 1,
+		);
+		await publishProposal({
+			identity: proposalAuthor,
+			proposalId: `seed-proposal-${dataset.datasetId}`,
+			targetDataset: dataset,
+			description: `Seeded proposal refining "${dataset.name}"`,
+			featureCollection: proposalFeatureCollection,
+			hashtags: ["seed", "proposal", "autogen"],
+		});
+		proposalCount += 1;
+	}
+
+	const totalDatasets = allPublishedDatasets.length;
 	console.log("[Seed] Complete.");
 	console.log(
-		`[Seed] Published 3 users, 9 contexts, ${totalDatasets} datasets, 8 collections, and 3 proposals.`,
+		`[Seed] Published 3 users, 9 contexts, ${totalDatasets} datasets, 8 collections, and ${proposalCount} proposals.`,
 	);
 	process.exit(0);
 }

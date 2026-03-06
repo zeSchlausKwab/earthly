@@ -562,6 +562,7 @@ export function MobilePanel(props: MobilePanelProps) {
 							pubkey={userPubkey ?? currentUserPubkey}
 							geoEvents={geoEvents}
 							collectionEvents={collectionEvents}
+							mapContextEvents={mapContextEvents}
 							currentUserPubkey={currentUserPubkey}
 							datasetVisibility={datasetVisibility}
 							collectionVisibility={collectionVisibility}
@@ -579,7 +580,9 @@ export function MobilePanel(props: MobilePanelProps) {
 							onToggleAllCollectionVisibility={onToggleAllCollectionVisibility}
 							onZoomToCollection={onZoomToCollection}
 							onInspectCollection={onInspectCollection}
+							onInspectContext={onInspectContext}
 							onEditCollection={onEditCollection}
+							onEditContext={onEditContext}
 							onOpenDebug={onOpenDebug}
 						/>
 					)}
@@ -617,6 +620,7 @@ interface MobileProfileContentProps {
 	pubkey?: string | null
 	geoEvents: NDKGeoEvent[]
 	collectionEvents: NDKGeoCollectionEvent[]
+	mapContextEvents: NDKMapContextEvent[]
 	currentUserPubkey?: string
 	datasetVisibility: Record<string, boolean>
 	collectionVisibility: Record<string, boolean>
@@ -634,8 +638,10 @@ interface MobileProfileContentProps {
 	onToggleAllCollectionVisibility: (visible: boolean) => void
 	onZoomToCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
 	onInspectCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
+	onInspectContext?: (context: NDKMapContextEvent) => void
 	onEditCollection?: (collection: NDKGeoCollectionEvent) => void
-	onOpenDebug?: (event: NDKGeoEvent | NDKGeoCollectionEvent) => void
+	onEditContext?: (context: NDKMapContextEvent) => void
+	onOpenDebug?: (event: NDKGeoEvent | NDKGeoCollectionEvent | NDKMapContextEvent) => void
 }
 
 function MobileProfileContent(props: MobileProfileContentProps) {
