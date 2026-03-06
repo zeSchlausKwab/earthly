@@ -1,4 +1,4 @@
-import { Heart, MessageCircle, Zap } from 'lucide-react'
+import { Heart, MessageCircle, PencilLine, Zap } from 'lucide-react'
 import { useNDKCurrentUser } from '@nostr-dev-kit/react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,8 @@ interface GeoSocialActionsProps {
 	onReplyClick?: () => void
 	commentCount?: number
 	showCommentButton?: boolean
+	showAnnotateButton?: boolean
+	onAnnotateClick?: () => void
 	/** Whether to show the zap button (default: true for geo events) */
 	showZapButton?: boolean
 	className?: string
@@ -26,6 +28,8 @@ export function GeoSocialActions({
 	onReplyClick,
 	commentCount = 0,
 	showCommentButton = true,
+	showAnnotateButton = false,
+	onAnnotateClick,
 	showZapButton = true,
 	className = '',
 	compact = false,
@@ -124,6 +128,23 @@ export function GeoSocialActions({
 					<TooltipContent>
 						{userHasZapped ? 'You zapped this' : currentUser ? 'Zap' : 'Log in to zap'}
 					</TooltipContent>
+				</Tooltip>
+			)}
+
+			{showAnnotateButton && onAnnotateClick && (
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							variant="ghost"
+							size={buttonSize}
+							onClick={onAnnotateClick}
+							className="gap-1 text-amber-600 hover:text-amber-700"
+						>
+							<PencilLine className={iconSize} />
+							{!compact && <span className="text-xs font-medium">Annotate</span>}
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent>Add comment annotation</TooltipContent>
 				</Tooltip>
 			)}
 

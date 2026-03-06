@@ -86,6 +86,12 @@ export function useMapInteractions({
 		}
 
 		const handleMapDatasetClick = (event: maplibregl.MapLayerMouseEvent) => {
+			if (isInDrawingMode) {
+				hoveredFeatureKeyRef.current = null
+				setFeaturePopupData(null)
+				return
+			}
+
 			const feature = event.features?.[0]
 			if (!feature) return
 
@@ -122,7 +128,7 @@ export function useMapInteractions({
 
 		const handleMapDatasetHover = (event: maplibregl.MapLayerMouseEvent) => {
 			const feature = event.features?.[0]
-			if (!feature || viewMode === 'edit') {
+			if (!feature || viewMode === 'edit' || isInDrawingMode) {
 				hoveredFeatureKeyRef.current = null
 				setFeaturePopupData(null)
 				return

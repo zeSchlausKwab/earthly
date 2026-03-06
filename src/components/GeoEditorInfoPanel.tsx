@@ -52,7 +52,10 @@ export interface GeoEditorInfoPanelProps {
 	getDatasetKey: (event: NDKGeoEvent) => string
 	getDatasetName: (event: NDKGeoEvent) => string
 	/** Callback to add/remove comment GeoJSON overlay on map */
-	onCommentGeometryVisibility?: (commentId: string, geojson: FeatureCollection | null) => void
+	onCommentGeometryVisibility?: (
+		comment: import('../lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent,
+		visible: boolean,
+	) => void
 	/** Callback to zoom to a bounding box */
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
 	/** Available features for $ mentions in comments */
@@ -485,6 +488,11 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					getDatasetName={getDatasetName}
 					onLoadDataset={onLoadDataset}
 					onZoomToDataset={onZoomToDataset}
+					onCommentGeometryVisibility={onCommentGeometryVisibility}
+					onZoomToBounds={onZoomToBounds}
+					availableFeatures={availableFeatures}
+					onMentionVisibilityToggle={onMentionVisibilityToggle}
+					onMentionZoomTo={onMentionZoomTo}
 					onOpenReferenceCollection={
 						onInspectCollection
 							? (collection) => {

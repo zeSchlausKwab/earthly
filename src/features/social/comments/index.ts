@@ -1,4 +1,5 @@
 export { CommentsPanel } from './CommentsPanel'
+export { CommentAnnotationComposer } from './CommentAnnotationComposer'
 export { GeoComment } from './GeoComment'
 export { GeoCommentForm } from './GeoCommentForm'
 export { GeoMention, parseGeoMentions, type TextSegment } from './GeoMention'

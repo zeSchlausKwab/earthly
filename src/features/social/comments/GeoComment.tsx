@@ -4,10 +4,11 @@ import type { FeatureCollection } from 'geojson'
 import type { CommentNode } from '../hooks/useGeoComments'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
 import { Button } from '@/components/ui/button'
+import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { GeoCommentForm } from './GeoCommentForm'
 import { GeoSocialActions } from './GeoSocialActions'
-import { GeoRichTextEditor } from '@/components/editor/GeoRichTextEditor'
+import { RichContentRenderer } from '@/components/editor'
 import { UserProfile } from '@/components/user-profile'
 
 interface GeoCommentProps {
@@ -26,6 +27,9 @@ interface GeoCommentProps {
 	) => void
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
 	visibleGeojsonCommentIds?: Set<string>
+	availableFeatures?: GeoFeatureItem[]
+	activeComposerId: string
+	onComposerTargetChange: (composerId: string) => void
 	maxDepth?: number
 	className?: string
 }
@@ -41,16 +45,20 @@ export function GeoComment({
 	onMentionVisibilityToggle,
 	onMentionZoomTo,
 	visibleGeojsonCommentIds = new Set(),
+	availableFeatures = [],
+	activeComposerId,
+	onComposerTargetChange,
 	maxDepth = 5,
 	className = '',
 }: GeoCommentProps) {
 	const { event: comment, children, depth } = commentNode
 	const [isExpanded, setIsExpanded] = useState(true)
-	const [showReplyForm, setShowReplyForm] = useState(false)
 
+	const commentId = comment.id ?? comment.commentId ?? ''
 	const hasGeojson = comment.geojson && comment.geojson.features.length > 0
 	const featureCount = comment.geojson?.features.length ?? 0
-	const isGeojsonVisible = visibleGeojsonCommentIds.has(comment.id ?? comment.commentId ?? '')
+	const isGeojsonVisible = visibleGeojsonCommentIds.has(commentId)
+	const showReplyForm = activeComposerId === commentId
 
 	const timestamp = useMemo(() => {
 		if (!comment.created_at) return 'Unknown time'
@@ -70,7 +78,7 @@ export function GeoComment({
 
 	const handleReply = async (text: string, geojson?: FeatureCollection) => {
 		await onReply(comment, text, geojson)
-		setShowReplyForm(false)
+		onComposerTargetChange('root')
 	}
 
 	const handleToggleGeojsonVisibility = () => {
@@ -122,15 +130,12 @@ export function GeoComment({
 					</div>
 				</div>
 
-				{/* Content rendered with GeoRichTextEditor for consistent mention display */}
 				<div className="text-sm text-gray-800">
-					<GeoRichTextEditor
-						initialValue={comment.text}
-						readOnly
+					<RichContentRenderer
+						content={comment.text}
 						onMentionVisibilityToggle={onMentionVisibilityToggle}
 						onMentionZoomTo={onMentionZoomTo}
-						className="prose-sm"
-						rows={1}
+						className="space-y-2"
 					/>
 				</div>
 
@@ -186,7 +191,9 @@ export function GeoComment({
 				<div className="mt-2 flex items-center justify-between">
 					<GeoSocialActions
 						target={comment}
-						onReplyClick={() => setShowReplyForm(!showReplyForm)}
+						onReplyClick={() =>
+							onComposerTargetChange(showReplyForm ? 'root' : commentId)
+						}
 						commentCount={children.length}
 						compact
 					/>
@@ -197,10 +204,11 @@ export function GeoComment({
 					<div className="mt-2 pt-2 border-t border-gray-100">
 						<GeoCommentForm
 							onSubmit={handleReply}
-							onCancel={() => setShowReplyForm(false)}
+							onCancel={() => onComposerTargetChange('root')}
 							placeholder="Write a reply..."
 							isReply
 							autoFocus
+							availableFeatures={availableFeatures}
 						/>
 					</div>
 				)}
@@ -219,6 +227,9 @@ export function GeoComment({
 							onMentionVisibilityToggle={onMentionVisibilityToggle}
 							onMentionZoomTo={onMentionZoomTo}
 							visibleGeojsonCommentIds={visibleGeojsonCommentIds}
+							availableFeatures={availableFeatures}
+							activeComposerId={activeComposerId}
+							onComposerTargetChange={onComposerTargetChange}
 							maxDepth={maxDepth}
 						/>
 					))}

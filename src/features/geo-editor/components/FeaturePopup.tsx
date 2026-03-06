@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Feature, Geometry } from 'geojson'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import { RichContentRenderer } from '@/components/editor'
 
 export interface FeaturePopupData {
 	/** The dataset containing the hovered feature */
@@ -150,7 +151,9 @@ export function FeaturePopup({ data, containerRef }: FeaturePopupProps) {
 			</div>
 
 			<div className="px-3 py-2 space-y-2">
-				{description && <p className="text-xs text-gray-700 line-clamp-3">{description}</p>}
+				{description && (
+					<RichContentRenderer content={description} className="space-y-2 text-xs text-gray-700" />
+				)}
 				<div className="rounded-md border border-gray-100 bg-gray-50 px-2 py-1.5 text-[11px] text-gray-700 space-y-0.5">
 					<div>
 						<span className="text-gray-400">Geometry:</span> {feature.geometry.type}

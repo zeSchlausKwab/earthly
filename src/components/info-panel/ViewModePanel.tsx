@@ -5,6 +5,7 @@ import { useEditorStore } from '@/features/geo-editor/store'
 import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
+import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import { cn } from '@/lib/utils'
 import { validateDatasetForContext } from '@/lib/context/validation'
 import { Button } from '../ui/button'
@@ -13,7 +14,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { CommentsPanel } from '@/features/social/comments'
 import { ProposalsPanel } from '@/features/social/proposals'
 import type { NDKGeoEditProposalEvent } from '@/lib/ndk/NDKGeoEditProposalEvent'
-import { GeoRichTextEditor, type GeoFeatureItem } from '../editor/GeoRichTextEditor'
+import { RichContentRenderer } from '../editor'
+import type { GeoFeatureItem } from '../editor/GeoRichTextEditor'
 import {
 	createViewModeColumns,
 	type ViewModeColumnsContext,
@@ -33,7 +35,7 @@ export interface ViewModePanelProps {
 	getDatasetKey: (event: NDKGeoEvent) => string
 	getDatasetName: (event: NDKGeoEvent) => string
 	/** Callback to add/remove comment GeoJSON overlay on map */
-	onCommentGeometryVisibility?: (commentId: string, geojson: FeatureCollection | null) => void
+	onCommentGeometryVisibility?: (comment: NDKGeoCommentEvent, visible: boolean) => void
 	/** Callback to zoom to a bounding box */
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
 	/** Available features for $ mentions in comments */
@@ -55,6 +57,29 @@ export interface ViewModePanelProps {
 }
 
 type ViewTab = 'details' | 'comments' | 'proposals'
+
+function getDatasetDescription(dataset: NDKGeoEvent): string | null {
+	const collection = dataset.featureCollection as Record<string, unknown>
+	const properties =
+		typeof collection?.properties === 'object' && collection.properties
+			? (collection.properties as Record<string, unknown>)
+			: {}
+
+	const candidates = [
+		collection?.description,
+		collection?.summary,
+		properties.description,
+		properties.summary,
+	]
+
+	for (const value of candidates) {
+		if (typeof value === 'string' && value.trim()) {
+			return value.trim()
+		}
+	}
+
+	return null
+}
 
 export interface ViewModePanelCallbacks {
 	onCommentGeojsonVisibilityChange?: (comment: NDKGeoCommentEvent, visible: boolean) => void
@@ -108,14 +133,15 @@ export function ViewModePanel({
 	const headerTitle = viewCollection ? 'Collection overview' : 'Dataset overview'
 
 	// Get the target for comments (either dataset or collection)
-	const commentTarget = viewDataset ?? viewCollection
+	const commentTarget: NDKGeoEvent | NDKGeoCollectionEvent | NDKMapContextEvent | null =
+		viewDataset ?? viewCollection ?? viewContext
 
 	// Reset comment-related state when target changes
 	// biome-ignore lint/correctness/useExhaustiveDependencies: intentional reset on target change
 	useEffect(() => {
 		setVisibleGeojsonCommentIds(new Set())
 		setAttachedGeojson(null)
-	}, [viewDataset, viewCollection])
+	}, [viewDataset, viewCollection, viewContext])
 
 	// Get selected features for attachment
 	const selectedFeatures = useMemo(() => {
@@ -157,7 +183,7 @@ export function ViewModePanel({
 			})
 			// Add/remove comment's GeoJSON from map layers
 			if (onCommentGeometryVisibility) {
-				onCommentGeometryVisibility(id, visible ? (comment.geojson ?? null) : null)
+				onCommentGeometryVisibility(comment, visible)
 			}
 		},
 		[onCommentGeometryVisibility],
@@ -333,15 +359,13 @@ export function ViewModePanel({
 										)}
 									</div>
 									{viewCollection.metadata.description && (
-										<div className="text-sm text-gray-600">
-											<GeoRichTextEditor
-												initialValue={viewCollection.metadata.description}
-												readOnly
-												availableFeatures={availableFeatures}
-												onMentionVisibilityToggle={onMentionVisibilityToggle}
-												onMentionZoomTo={onMentionZoomTo}
-											/>
-										</div>
+										<RichContentRenderer
+											content={viewCollection.metadata.description}
+											availableFeatures={availableFeatures}
+											onMentionVisibilityToggle={onMentionVisibilityToggle}
+											onMentionZoomTo={onMentionZoomTo}
+											className="text-sm text-gray-600"
+										/>
 									)}
 									<div className="text-[11px] text-gray-500">
 										Maintainer: {viewCollection.pubkey.slice(0, 8)}…
@@ -391,6 +415,15 @@ export function ViewModePanel({
 									<div className="text-base font-semibold text-gray-900">
 										{getDatasetName(viewDataset)}
 									</div>
+									{getDatasetDescription(viewDataset) && (
+										<RichContentRenderer
+											content={getDatasetDescription(viewDataset) ?? ''}
+											availableFeatures={availableFeatures}
+											onMentionVisibilityToggle={onMentionVisibilityToggle}
+											onMentionZoomTo={onMentionZoomTo}
+											className="text-sm text-gray-600"
+										/>
+									)}
 									<div className="text-[11px] text-gray-500">
 										Owner: {viewDataset.pubkey.slice(0, 8)}…{viewDataset.pubkey.slice(-4)}
 									</div>

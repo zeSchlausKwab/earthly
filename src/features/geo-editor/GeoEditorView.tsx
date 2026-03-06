@@ -27,6 +27,7 @@ import { LocationInspectorPopup } from './components/LocationInspectorPopup'
 import { Magnifier } from './components/Magnifier'
 import { MapFeatureHoverOverlay } from './components/MapFeatureHoverOverlay'
 import { MobilePanel } from './components/MobilePanel'
+import { CommentAnnotationPopup } from './components/CommentAnnotationPopup'
 import { UserLocationMarker } from './components/UserLocationMarker'
 import { GeoEditorMap as MapComponent } from './components/Map'
 import { OsmResultsPanel } from './components/OsmResultsPanel'
@@ -91,7 +92,8 @@ export function GeoEditorView() {
 		disableInspector,
 	} = useInspector(map)
 
-	const { handleCommentGeometryVisibility } = useCommentGeometry(map)
+	const { handleCommentGeometryVisibility, annotationPopupData, setAnnotationPopupData } =
+		useCommentGeometry(map)
 	const { visibleProposalIds, handleToggleProposalOverlay } = useProposalGeometry(map)
 
 	// Zoom helpers (no deps, defined early so hooks can reference them)
@@ -1304,6 +1306,15 @@ export function GeoEditorView() {
 						currentUserPubkey={currentUser?.pubkey}
 						getDatasetName={getDatasetName}
 						handleInspectDatasetWithoutFocus={handleInspectDatasetWithoutFocus}
+					/>
+
+					<CommentAnnotationPopup
+						data={annotationPopupData}
+						containerRef={mapContainerRef}
+						availableFeatures={availableFeatures}
+						onMentionVisibilityToggle={handleMentionVisibilityToggle}
+						onMentionZoomTo={handleMentionZoomTo}
+						onClose={() => setAnnotationPopupData(null)}
 					/>
 
 					{mapError && (

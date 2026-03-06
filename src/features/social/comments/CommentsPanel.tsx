@@ -1,19 +1,22 @@
 import { MessageCircle, RefreshCw } from 'lucide-react'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { useGeoComments } from '../hooks/useGeoComments'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
+import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import { Button } from '@/components/ui/button'
 import { GeoComment } from './GeoComment'
 import { GeoCommentForm } from './GeoCommentForm'
 import { GeoSocialActions } from './GeoSocialActions'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 
+const ROOT_COMPOSER_ID = 'root'
+
 interface CommentsPanelProps {
-	/** The dataset or collection to show comments for */
-	target: NDKGeoEvent | NDKGeoCollectionEvent | null
+	/** The dataset, collection, or context to show comments for */
+	target: NDKGeoEvent | NDKGeoCollectionEvent | NDKMapContextEvent | null
 	/** Callback when a comment's GeoJSON visibility is toggled */
 	onCommentGeojsonVisibilityChange?: (comment: NDKGeoCommentEvent, visible: boolean) => void
 	/** Callback to zoom to a comment's GeoJSON */
@@ -38,7 +41,7 @@ interface CommentsPanelProps {
 }
 
 /**
- * Panel displaying comments for a geo dataset or collection.
+ * Panel displaying comments for a geo dataset, collection, or context.
  * Includes:
  * - Social actions for the target (reactions, zaps)
  * - Comment form for new comments
@@ -59,6 +62,11 @@ export function CommentsPanel({
 	const { comments, count, isLoading, postComment, postReply } = useGeoComments({ target })
 
 	const [isRefreshing, setIsRefreshing] = useState(false)
+	const [activeComposerId, setActiveComposerId] = useState<string>(ROOT_COMPOSER_ID)
+
+	useEffect(() => {
+		setActiveComposerId(ROOT_COMPOSER_ID)
+	}, [target?.id, target?.dTag])
 
 	const handlePostComment = useCallback(
 		async (text: string, geojson?: FeatureCollection) => {
@@ -81,10 +89,20 @@ export function CommentsPanel({
 		setIsRefreshing(false)
 	}, [])
 
+	const handleComposerTargetChange = useCallback(
+		(nextComposerId: string) => {
+			if (activeComposerId === ROOT_COMPOSER_ID && nextComposerId !== ROOT_COMPOSER_ID) {
+				onClearAttachment?.()
+			}
+			setActiveComposerId(nextComposerId)
+		},
+		[activeComposerId, onClearAttachment],
+	)
+
 	if (!target) {
 		return (
 			<div className={`p-4 text-center text-sm text-gray-500 ${className}`}>
-				Select a dataset or collection to view comments.
+				Select a dataset, collection, or context to view comments.
 			</div>
 		)
 	}
@@ -95,8 +113,10 @@ export function CommentsPanel({
 			const fc = target.featureCollection as { name?: string }
 			return fc?.name ?? target.datasetId ?? 'Dataset'
 		}
-		// NDKGeoCollectionEvent
-		return target.metadata?.name ?? target.collectionId ?? 'Collection'
+		if ('metadata' in target) {
+			return target.metadata?.name ?? target.collectionId ?? 'Collection'
+		}
+		return target.context.name ?? target.contextId ?? 'Context'
 	})()
 
 	return (
@@ -121,23 +141,29 @@ export function CommentsPanel({
 
 				{/* Social actions for the target */}
 				<div className="flex items-center justify-between">
-					<GeoSocialActions target={target} commentCount={count} showCommentButton={false} />
+					<GeoSocialActions
+						target={target}
+						onReplyClick={() => handleComposerTargetChange(ROOT_COMPOSER_ID)}
+						commentCount={count}
+					/>
 					<span className="text-xs text-gray-500">
 						{count} comment{count === 1 ? '' : 's'}
 					</span>
 				</div>
 			</div>
 
-			{/* New comment form */}
-			<div className="flex-shrink-0 mb-3">
-				<GeoCommentForm
-					onSubmit={handlePostComment}
-					placeholder="Share your thoughts..."
-					attachedGeojson={attachedGeojson}
-					onClearAttachment={onClearAttachment}
-					availableFeatures={availableFeatures}
-				/>
-			</div>
+			{activeComposerId === ROOT_COMPOSER_ID && (
+				<div className="flex-shrink-0 mb-3">
+					<GeoCommentForm
+						onSubmit={handlePostComment}
+						onCancel={() => handleComposerTargetChange(ROOT_COMPOSER_ID)}
+						placeholder="Share your thoughts..."
+						attachedGeojson={attachedGeojson}
+						onClearAttachment={onClearAttachment}
+						availableFeatures={availableFeatures}
+					/>
+				</div>
+			)}
 
 			{/* Comments list */}
 			<div className="flex-1 overflow-y-auto min-h-0">
@@ -164,6 +190,9 @@ export function CommentsPanel({
 								onMentionVisibilityToggle={onMentionVisibilityToggle}
 								onMentionZoomTo={onMentionZoomTo}
 								visibleGeojsonCommentIds={visibleGeojsonCommentIds}
+								availableFeatures={availableFeatures}
+								activeComposerId={activeComposerId}
+								onComposerTargetChange={handleComposerTargetChange}
 							/>
 						))}
 					</div>

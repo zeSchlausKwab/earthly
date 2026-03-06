@@ -92,7 +92,10 @@ export interface MobilePanelProps {
 
 	// Editor/Info panel callbacks
 	onExitViewMode?: () => void
-	onCommentGeometryVisibility?: (commentId: string, geojson: FeatureCollection | null) => void
+	onCommentGeometryVisibility?: (
+		comment: import('@/lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent,
+		visible: boolean,
+	) => void
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
 	availableFeatures?: GeoFeatureItem[]
 	onMentionVisibilityToggle?: (

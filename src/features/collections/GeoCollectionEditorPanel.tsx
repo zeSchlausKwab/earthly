@@ -36,7 +36,7 @@ interface GeoCollectionEditorPanelProps {
 	mapContextEvents?: NDKMapContextEvent[]
 	className?: string
 	/** Callback to add/remove comment GeoJSON overlay on map */
-	onCommentGeometryVisibility?: (commentId: string, geojson: FeatureCollection | null) => void
+	onCommentGeometryVisibility?: (comment: NDKGeoCommentEvent, visible: boolean) => void
 	/** Callback to zoom to a bounding box */
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
 	/** Callback when a geo mention's visibility is toggled */
@@ -404,7 +404,7 @@ export function GeoCollectionEditorPanel({
 				return next
 			})
 			if (onCommentGeometryVisibility) {
-				onCommentGeometryVisibility(id, visible ? (comment.geojson ?? null) : null)
+				onCommentGeometryVisibility(comment, visible)
 			}
 		},
 		[onCommentGeometryVisibility],

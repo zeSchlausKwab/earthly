@@ -11,3 +11,5 @@ export {
 	parseFromText,
 	type GeoMentionAttrs,
 } from './GeoMentionExtension'
+
+export { RichContentRenderer } from './RichContentRenderer'

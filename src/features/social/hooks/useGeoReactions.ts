@@ -4,9 +4,15 @@ import { useMemo, useCallback, useState } from 'react'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
+import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 
 /** Any Nostr event that can receive reactions */
-export type ReactableEvent = NDKGeoEvent | NDKGeoCollectionEvent | NDKGeoCommentEvent | NDKEventType
+export type ReactableEvent =
+	| NDKGeoEvent
+	| NDKGeoCollectionEvent
+	| NDKMapContextEvent
+	| NDKGeoCommentEvent
+	| NDKEventType
 
 export interface UseGeoReactionsOptions {
 	/** The event to fetch reactions for */

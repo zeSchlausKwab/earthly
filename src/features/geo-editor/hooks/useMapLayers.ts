@@ -477,9 +477,15 @@ export function useMapLayers({
 				(f) => f.type === 'Feature' && f.geometry !== null && isGeoJsonGeometry(f.geometry),
 			)
 
-			// Separate points from other geometries for clustering
-			const pointFeatures = safeFeatures.filter(
-				(f) => f.geometry?.type === 'Point' || f.geometry?.type === 'MultiPoint',
+			// Keep annotations out of clustering so they retain their label/popup behavior.
+			const pointFeatures = safeFeatures.filter((f) => {
+				if (f.geometry?.type !== 'Point' && f.geometry?.type !== 'MultiPoint') return false
+				return (f.properties as Record<string, unknown> | undefined)?.featureType !== 'annotation'
+			})
+			const annotationFeatures = safeFeatures.filter(
+				(f) =>
+					(f.geometry?.type === 'Point' || f.geometry?.type === 'MultiPoint') &&
+					(f.properties as Record<string, unknown> | undefined)?.featureType === 'annotation',
 			)
 			const nonPointFeatures = safeFeatures.filter(
 				(f) => f.geometry?.type !== 'Point' && f.geometry?.type !== 'MultiPoint',
@@ -487,7 +493,7 @@ export function useMapLayers({
 
 			const nonPointCollection = {
 				type: 'FeatureCollection' as const,
-				features: nonPointFeatures,
+				features: [...nonPointFeatures, ...annotationFeatures],
 			}
 
 			const pointCollection = {
