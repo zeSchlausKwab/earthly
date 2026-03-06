@@ -66,6 +66,8 @@ export interface MobilePanelProps {
 	onClearEditing: () => void
 	onLoadDataset: (event: NDKGeoEvent) => void
 	onStartNewDataset?: () => void
+	onSwitchWorkspace?: (workspaceId: string) => void
+	onDeleteWorkspace?: (workspaceId: string) => void
 	onToggleVisibility: (event: NDKGeoEvent) => void
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: NDKGeoEvent) => void
@@ -166,6 +168,8 @@ export function MobilePanel(props: MobilePanelProps) {
 		onClearEditing,
 		onLoadDataset,
 		onStartNewDataset,
+		onSwitchWorkspace,
+		onDeleteWorkspace,
 		onToggleVisibility,
 		onToggleAllVisibility,
 		onZoomToDataset,
@@ -492,6 +496,7 @@ export function MobilePanel(props: MobilePanelProps) {
 							currentUserPubkey={currentUserPubkey}
 							onLoadDataset={onLoadDataset}
 							onStartNewDataset={onStartNewDataset}
+							onSwitchWorkspace={onSwitchWorkspace}
 							onToggleVisibility={onToggleVisibility}
 							onZoomToDataset={onZoomToDataset}
 							onDeleteDataset={onDeleteDataset}
@@ -532,6 +537,7 @@ export function MobilePanel(props: MobilePanelProps) {
 							currentUserPubkey={currentUserPubkey}
 							onLoadDataset={onLoadDataset}
 							onStartNewDataset={onStartNewDataset}
+							onSwitchWorkspace={onSwitchWorkspace}
 							onToggleVisibility={onToggleVisibility}
 							onZoomToDataset={onZoomToDataset}
 							onDeleteDataset={onDeleteDataset}
@@ -575,6 +581,8 @@ export function MobilePanel(props: MobilePanelProps) {
 								mapContextEvents={mapContextEvents}
 								availableFeatures={availableFeatures}
 								getDatasetName={getDatasetName}
+								onStartNewDataset={onStartNewDataset}
+								onSwitchWorkspace={onSwitchWorkspace}
 							/>
 						</div>
 					)}
@@ -591,6 +599,8 @@ export function MobilePanel(props: MobilePanelProps) {
 							isPublishing={isPublishing}
 							deletingKey={deletingKey}
 							onLoadDataset={onLoadDataset}
+							onSwitchWorkspace={onSwitchWorkspace}
+							onDeleteWorkspace={onDeleteWorkspace}
 							onToggleVisibility={onToggleVisibility}
 							onToggleAllVisibility={onToggleAllVisibility}
 							onZoomToDataset={onZoomToDataset}
@@ -649,6 +659,8 @@ interface MobileProfileContentProps {
 	isPublishing: boolean
 	deletingKey: string | null
 	onLoadDataset: (event: NDKGeoEvent) => void
+	onSwitchWorkspace?: (workspaceId: string) => void
+	onDeleteWorkspace?: (workspaceId: string) => void
 	onToggleVisibility: (event: NDKGeoEvent) => void
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: NDKGeoEvent) => void

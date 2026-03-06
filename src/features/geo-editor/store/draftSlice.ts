@@ -116,6 +116,16 @@ export const createDraftSlice: StateCreator<EditorState, [], [], DraftSlice> = (
 				activeGeoEditDraftId: id,
 			})
 			writePersistedGeoCollectionDraftState(nextDrafts, id)
+			const workspaceState = get()
+			const activeWorkspace = workspaceState.activeWorkspaceId
+				? workspaceState.workspaces[workspaceState.activeWorkspaceId]
+				: null
+			if (activeWorkspace?.sourceId === sourceId) {
+				get().touchActiveWorkspace({
+					activeDraftId: id,
+					label: draft.collectionMeta.name || activeWorkspace.label,
+				})
+			}
 			return id
 		},
 
@@ -171,6 +181,16 @@ export const createDraftSlice: StateCreator<EditorState, [], [], DraftSlice> = (
 				geoEditDrafts: nextDrafts,
 			})
 			writePersistedGeoCollectionDraftState(nextDrafts, id)
+			const workspaceState = get()
+			const activeWorkspace = workspaceState.activeWorkspaceId
+				? workspaceState.workspaces[workspaceState.activeWorkspaceId]
+				: null
+			if (activeWorkspace?.sourceId === updatedDraft.sourceId) {
+				get().touchActiveWorkspace({
+					activeDraftId: id,
+					label: updatedDraft.collectionMeta.name || activeWorkspace.label,
+				})
+			}
 			get().updateStats()
 		},
 
@@ -189,6 +209,14 @@ export const createDraftSlice: StateCreator<EditorState, [], [], DraftSlice> = (
 				}
 
 				writePersistedGeoCollectionDraftState(nextDrafts, nextActiveId)
+				const activeWorkspace = state.activeWorkspaceId
+					? state.workspaces[state.activeWorkspaceId]
+					: null
+				if (activeWorkspace?.activeDraftId === id) {
+					queueMicrotask(() => {
+						get().touchActiveWorkspace({ activeDraftId: null })
+					})
+				}
 				return {
 					geoEditDrafts: nextDrafts,
 					activeGeoEditDraftId: nextActiveId,

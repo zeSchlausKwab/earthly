@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useChatStore } from './store'
 import { useNip60Store } from '@/lib/stores/nip60'
 import { useEditorStore } from '@/features/geo-editor/store'
-import { createDefaultCollectionMeta } from '@/features/geo-editor/utils'
 import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
@@ -65,38 +64,12 @@ interface ChatPanelProps {
 	mapContextEvents?: NDKMapContextEvent[]
 	availableFeatures?: GeoFeatureItem[]
 	getDatasetName?: (event: NDKGeoEvent) => string
+	onStartNewDataset?: () => void
+	onSwitchWorkspace?: (workspaceId: string) => void
 }
 
 const defaultGetDatasetName = (event: NDKGeoEvent): string =>
 	event.datasetId ?? event.dTag ?? event.id ?? 'Untitled'
-
-function ensureChatEditSession(): void {
-	const store = useEditorStore.getState()
-	if (store.viewMode === 'edit') return
-
-	// Mirror `startNewDataset` behavior so chat tools always have a clean edit session.
-	store.editor?.setFeatures([])
-	store.setFeatures([])
-	store.setActiveDataset(null)
-	store.setActiveDatasetContextRefs(
-		store.activeContextScopeCoordinate ? [store.activeContextScopeCoordinate] : [],
-	)
-	store.setPublishMessage(null)
-	store.setPublishError(null)
-	store.setSelectedFeatureIds([])
-	store.setCollectionMeta(createDefaultCollectionMeta())
-	store.setNewCollectionProp({ key: '', value: '' })
-	store.setNewFeatureProp({ key: '', value: '' })
-	store.setBlobReferences([])
-	store.setBlobPreviewCollection(null)
-	store.setPreviewingBlobReferenceId(null)
-	store.setBlobDraftUrl('')
-	store.setBlobDraftStatus('idle')
-	store.setBlobDraftError(null)
-	store.setViewMode('edit')
-	store.setViewDataset(null)
-	store.setViewCollection(null)
-}
 
 export function ChatPanel({
 	geoEvents: _geoEvents = [],
@@ -104,13 +77,13 @@ export function ChatPanel({
 	mapContextEvents: _mapContextEvents = [],
 	availableFeatures: _availableFeatures = [],
 	getDatasetName: _getDatasetName = defaultGetDatasetName,
+	onStartNewDataset,
+	onSwitchWorkspace,
 }: ChatPanelProps) {
 	const {
 		messages,
 		models,
 		selectedModel,
-		chatSessions,
-		activeChatId,
 		modelsLoading,
 		modelsError,
 		isStreaming,
@@ -133,11 +106,11 @@ export function ChatPanel({
 		setSelectedModel,
 		setToolsEnabled,
 		sendMessage,
-		createChat,
-		switchChat,
-		deleteChat,
+		clearMessages,
 		cancelStream,
 	} = useChatStore()
+	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
+	const workspaces = useEditorStore((state) => state.workspaces)
 
 	const { status: walletStatus, balance: walletBalance } = useNip60Store()
 
@@ -177,28 +150,36 @@ export function ChatPanel({
 		return () => window.clearInterval(interval)
 	}, [isStreaming])
 
+	const ensureChatWorkspace = () => {
+		const store = useEditorStore.getState()
+		if (store.activeWorkspaceId) {
+			onSwitchWorkspace?.(store.activeWorkspaceId)
+			return true
+		}
+		onStartNewDataset?.()
+		return Boolean(useEditorStore.getState().activeWorkspaceId)
+	}
+
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault()
 		if (!input.trim() || isStreaming) return
 
 		const message = input.trim()
 		setInput('')
-		ensureChatEditSession()
+		if (!ensureChatWorkspace()) return
 		await sendMessage(message)
 	}
 
-	const handleCreateChat = () => {
-		ensureChatEditSession()
-		createChat()
+	const handleCreateWorkspace = () => {
+		onStartNewDataset?.()
 	}
 
-	const handleSwitchChat = (chatId: string) => {
-		switchChat(chatId)
+	const handleSwitchWorkspace = (workspaceId: string) => {
+		onSwitchWorkspace?.(workspaceId)
 	}
 
-	const handleDeleteChat = () => {
-		if (!activeChatId) return
-		deleteChat(activeChatId)
+	const handleClearConversation = () => {
+		clearMessages()
 	}
 
 	const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -216,9 +197,9 @@ export function ChatPanel({
 	}
 
 	const selectedModelData = models.find((m) => m.id === selectedModel)
-	const sortedChatSessions = useMemo(
-		() => [...chatSessions].sort((a, b) => b.updatedAt - a.updatedAt),
-		[chatSessions],
+	const sortedWorkspaces = useMemo(
+		() => Object.values(workspaces).sort((a, b) => b.updatedAt - a.updatedAt),
+		[workspaces],
 	)
 	const selectedModelLabel = selectedModelData?.name ?? 'No model selected'
 	const providerLabel = PROVIDER_LABELS[provider]
@@ -269,29 +250,27 @@ export function ChatPanel({
 						variant="outline"
 						size="sm"
 						className="h-8 text-xs"
-						onClick={handleCreateChat}
+						onClick={handleCreateWorkspace}
 						disabled={isStreaming}
 					>
 						<Plus className="h-3.5 w-3.5 mr-1" />
-						New chat
+						New workspace
 					</Button>
 					<Select
-						value={activeChatId ?? ''}
-						onValueChange={handleSwitchChat}
-						disabled={isStreaming || sortedChatSessions.length === 0}
+						value={activeWorkspaceId ?? ''}
+						onValueChange={handleSwitchWorkspace}
+						disabled={isStreaming || sortedWorkspaces.length === 0}
 					>
 						<SelectTrigger className="h-auto min-h-8 flex-1 min-w-0 items-start text-xs whitespace-normal *:data-[slot=select-value]:line-clamp-none *:data-[slot=select-value]:whitespace-normal *:data-[slot=select-value]:break-all *:data-[slot=select-value]:text-left">
-							<SelectValue placeholder="Select chat" />
+							<SelectValue placeholder="Select workspace" />
 						</SelectTrigger>
 						<SelectContent>
-							{sortedChatSessions.map((chat) => (
-								<SelectItem key={chat.id} value={chat.id}>
+							{sortedWorkspaces.map((workspace) => (
+								<SelectItem key={workspace.id} value={workspace.id}>
 									<div className="flex min-w-0 items-start gap-2">
-										<span className="min-w-0 break-all whitespace-normal">
-											{chat.title || 'New chat'}
-										</span>
+										<span className="min-w-0 break-all whitespace-normal">{workspace.label}</span>
 										<span className="shrink-0 text-[10px] text-muted-foreground">
-											{new Date(chat.updatedAt).toLocaleDateString()}
+											{workspace.kind === 'scratch' ? 'draft' : 'dataset'}
 										</span>
 									</div>
 								</SelectItem>
@@ -302,9 +281,9 @@ export function ChatPanel({
 						type="button"
 						variant="ghost"
 						size="icon"
-						onClick={handleDeleteChat}
-						disabled={!activeChatId || isStreaming}
-						title="Delete chat"
+						onClick={handleClearConversation}
+						disabled={messages.length === 0 || isStreaming}
+						title="Clear conversation"
 					>
 						<Trash2 className="h-4 w-4" />
 					</Button>

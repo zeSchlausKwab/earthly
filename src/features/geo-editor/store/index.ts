@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { createEditorCoreSlice } from './editorCoreSlice'
 import { createDraftSlice } from './draftSlice'
+import { createWorkspaceSlice } from './workspaceSlice'
 import { createMetadataSlice } from './metadataSlice'
 import { createPublishingSlice } from './publishingSlice'
 import { createViewModeSlice } from './viewModeSlice'
@@ -12,6 +13,7 @@ import type { EditorState } from './types'
 export const useEditorStore = create<EditorState>((...a) => ({
 	...createEditorCoreSlice(...a),
 	...createDraftSlice(...a),
+	...createWorkspaceSlice(...a),
 	...createMetadataSlice(...a),
 	...createPublishingSlice(...a),
 	...createViewModeSlice(...a),
@@ -29,5 +31,6 @@ export type {
 	MobilePanelTab,
 	MobilePanelSnap,
 	GeoCollectionEditDraft,
+	GeoEditorWorkspace,
 	SidebarViewMode,
 } from './types'

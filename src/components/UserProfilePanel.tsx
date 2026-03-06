@@ -1,7 +1,16 @@
 import { useSubscribe } from '@nostr-dev-kit/react'
 import type { NDKEvent } from '@nostr-dev-kit/react'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Eye } from 'lucide-react'
+import {
+	Database,
+	Eye,
+	FolderOpen,
+	Globe,
+	Layers,
+	MessageCircle,
+	MessageSquare,
+	Trash2,
+} from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import type { NDKGeoCollectionEvent } from '../lib/ndk/NDKGeoCollectionEvent'
 import { NDKGeoEditProposalEvent } from '../lib/ndk/NDKGeoEditProposalEvent'
@@ -20,6 +29,7 @@ import {
 	type CollectionRowData,
 	createCollectionColumns,
 } from '../features/collections/collections-columns'
+import { useEditorStore } from '../features/geo-editor/store'
 import {
 	type ContextColumnsContext,
 	type ContextRowData,
@@ -64,6 +74,8 @@ export interface UserProfilePanelProps {
 	getDatasetKey: (event: NDKGeoEvent) => string
 	getDatasetName: (event: NDKGeoEvent) => string
 	onInspectDataset?: (event: NDKGeoEvent) => void
+	onSwitchWorkspace?: (workspaceId: string) => void
+	onDeleteWorkspace?: (workspaceId: string) => void | Promise<void>
 	// Collection callbacks
 	onToggleCollectionVisibility: (collection: NDKGeoCollectionEvent) => void
 	onToggleAllCollectionVisibility: (visible: boolean) => void
@@ -75,7 +87,7 @@ export interface UserProfilePanelProps {
 	onOpenDebug?: (event: NDKGeoEvent | NDKGeoCollectionEvent | NDKMapContextEvent) => void
 }
 
-type TabMode = 'datasets' | 'collections' | 'contexts' | 'proposals'
+type TabMode = 'datasets' | 'collections' | 'contexts' | 'proposals' | 'workspaces'
 
 interface UserProposalRow {
 	proposal: NDKGeoEditProposalEvent
@@ -89,7 +101,7 @@ interface UserProposalRow {
 }
 
 const getDatasetDescriptionText = (event: NDKGeoEvent): string | undefined => {
-	const featureCollection = event.featureCollection as Record<string, unknown>
+	const featureCollection = event.featureCollection as unknown as Record<string, unknown>
 	if (!featureCollection) return undefined
 	const candidates = [
 		featureCollection?.description,
@@ -169,6 +181,8 @@ export function UserProfilePanel({
 	getDatasetKey,
 	getDatasetName,
 	onInspectDataset,
+	onSwitchWorkspace,
+	onDeleteWorkspace,
 	onToggleCollectionVisibility,
 	onToggleAllCollectionVisibility,
 	onZoomToCollection,
@@ -179,9 +193,12 @@ export function UserProfilePanel({
 	onOpenDebug,
 }: UserProfilePanelProps) {
 	const [activeTab, setActiveTab] = useState<TabMode>('datasets')
+	const [deletingWorkspaceId, setDeletingWorkspaceId] = useState<string | null>(null)
 	const filterState = useFilterState()
 
 	const isOwnProfile = currentUserPubkey === pubkey
+	const workspaces = useEditorStore((state) => state.workspaces)
+	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
 
 	// Filter events to only show items owned by this user
 	const userGeoEvents = useMemo(
@@ -197,6 +214,28 @@ export function UserProfilePanel({
 	const userContextEvents = useMemo(
 		() => mapContextEvents.filter((event) => event.pubkey === pubkey),
 		[mapContextEvents, pubkey],
+	)
+
+	const sortedWorkspaces = useMemo(
+		() => Object.values(workspaces).sort((a, b) => b.updatedAt - a.updatedAt),
+		[workspaces],
+	)
+
+	const handleDeleteWorkspace = useCallback(
+		async (workspaceId: string) => {
+			if (!onDeleteWorkspace) return
+			const workspace = workspaces[workspaceId]
+			if (!workspace) return
+			const confirmed = window.confirm(`Delete workspace "${workspace.label}"?`)
+			if (!confirmed) return
+			setDeletingWorkspaceId(workspaceId)
+			try {
+				await onDeleteWorkspace(workspaceId)
+			} finally {
+				setDeletingWorkspaceId((current) => (current === workspaceId ? null : current))
+			}
+		},
+		[onDeleteWorkspace, workspaces],
 	)
 
 	// Build reference map for collections
@@ -310,6 +349,40 @@ export function UserProfilePanel({
 	const filteredCollections = collectionResult.items
 	const filteredContexts = contextResult.items
 	const filteredProposals = proposalResult.items
+	const tabItems = useMemo(() => {
+		const items: Array<{
+			id: TabMode
+			label: string
+			count: number
+			icon: typeof Database
+		}> = [
+			{ id: 'datasets', label: 'Datasets', count: userGeoEvents.length, icon: Database },
+			{
+				id: 'collections',
+				label: 'Collections',
+				count: userCollectionEvents.length,
+				icon: FolderOpen,
+			},
+			{ id: 'contexts', label: 'Contexts', count: userContextEvents.length, icon: Globe },
+			{ id: 'proposals', label: 'Proposals', count: userProposalRows.length, icon: MessageSquare },
+		]
+		if (isOwnProfile) {
+			items.push({
+				id: 'workspaces',
+				label: 'Workspaces',
+				count: sortedWorkspaces.length,
+				icon: Layers,
+			})
+		}
+		return items
+	}, [
+		isOwnProfile,
+		sortedWorkspaces.length,
+		userCollectionEvents.length,
+		userContextEvents.length,
+		userGeoEvents.length,
+		userProposalRows.length,
+	])
 
 	// Dataset table data
 	const datasetTableData: DatasetRowData[] = useMemo(() => {
@@ -549,7 +622,9 @@ export function UserProfilePanel({
 				? collectionResult
 				: activeTab === 'contexts'
 					? contextResult
-					: proposalResult
+					: activeTab === 'proposals'
+						? proposalResult
+						: null
 
 	return (
 		<div className="space-y-4">
@@ -566,49 +641,49 @@ export function UserProfilePanel({
 			</div>
 
 			{/* Tabs */}
-			<div className="flex gap-1 border-b border-gray-200">
-				<Button
-					variant={activeTab === 'datasets' ? 'default' : 'ghost'}
-					size="sm"
-					onClick={() => setActiveTab('datasets')}
-					className="rounded-b-none"
-				>
-					Datasets ({userGeoEvents.length})
-				</Button>
-				<Button
-					variant={activeTab === 'collections' ? 'default' : 'ghost'}
-					size="sm"
-					onClick={() => setActiveTab('collections')}
-					className="rounded-b-none"
-				>
-					Collections ({userCollectionEvents.length})
-				</Button>
-				<Button
-					variant={activeTab === 'contexts' ? 'default' : 'ghost'}
-					size="sm"
-					onClick={() => setActiveTab('contexts')}
-					className="rounded-b-none"
-				>
-					Contexts ({userContextEvents.length})
-				</Button>
-				<Button
-					variant={activeTab === 'proposals' ? 'default' : 'ghost'}
-					size="sm"
-					onClick={() => setActiveTab('proposals')}
-					className="rounded-b-none"
-				>
-					Proposals ({userProposalRows.length})
-				</Button>
+			<div
+				className={isOwnProfile ? 'grid grid-cols-5 gap-2' : 'grid grid-cols-4 gap-2'}
+				role="tablist"
+				aria-label="Profile sections"
+			>
+				{tabItems.map((tab) => {
+					const Icon = tab.icon
+					const isActive = activeTab === tab.id
+					return (
+						<Button
+							key={tab.id}
+							type="button"
+							variant={isActive ? 'default' : 'outline'}
+							size="sm"
+							role="tab"
+							aria-selected={isActive}
+							aria-label={`${tab.label} (${tab.count})`}
+							title={`${tab.label} (${tab.count})`}
+							onClick={() => setActiveTab(tab.id)}
+							className="flex h-auto min-h-14 w-full flex-col gap-1 rounded-xl px-2 py-2 text-center"
+						>
+							<span className="flex items-center justify-center gap-2">
+								<Icon className="h-4 w-4 shrink-0" />
+								<span className="text-sm font-semibold leading-none">{tab.count}</span>
+							</span>
+							<span className="hidden text-[10px] uppercase tracking-[0.14em] text-current/75 md:block">
+								{tab.label}
+							</span>
+						</Button>
+					)
+				})}
 			</div>
 
 			{/* Filter toolbar */}
-			<DatasetFilterToolbar
-				{...filterState}
-				totalCount={activeResult.totalCount}
-				filteredCount={activeResult.filteredCount}
-				displayedCount={activeResult.displayedCount}
-				hasMore={activeResult.hasMore}
-			/>
+			{activeResult ? (
+				<DatasetFilterToolbar
+					{...filterState}
+					totalCount={activeResult.totalCount}
+					filteredCount={activeResult.filteredCount}
+					displayedCount={activeResult.displayedCount}
+					hasMore={activeResult.hasMore}
+				/>
+			) : null}
 
 			{/* Content */}
 			{activeTab === 'datasets' ? (
@@ -656,22 +731,93 @@ export function UserProfilePanel({
 						}
 					/>
 				)
-			) : isProposalsLoading && userProposalRows.length === 0 ? (
-				<p className="text-xs text-gray-500">Loading change proposals...</p>
-			) : userProposalRows.length === 0 ? (
-				<p className="text-xs text-gray-500">No change proposals published by this user.</p>
-			) : filteredProposals.length === 0 ? (
-				<p className="text-xs text-gray-500">No proposals match your filters.</p>
+			) : activeTab === 'proposals' ? (
+				isProposalsLoading && userProposalRows.length === 0 ? (
+					<p className="text-xs text-gray-500">Loading change proposals...</p>
+				) : userProposalRows.length === 0 ? (
+					<p className="text-xs text-gray-500">No change proposals published by this user.</p>
+				) : filteredProposals.length === 0 ? (
+					<p className="text-xs text-gray-500">No proposals match your filters.</p>
+				) : (
+					<DataTable
+						columns={proposalColumns}
+						data={filteredProposals}
+						getRowId={(row) =>
+							row.proposal.id ??
+							row.proposal.proposalId ??
+							`${row.proposal.pubkey}:${row.proposal.created_at ?? 0}`
+						}
+					/>
+				)
+			) : !isOwnProfile ? (
+				<p className="text-xs text-gray-500">
+					Workspace management is only available on your profile.
+				</p>
+			) : sortedWorkspaces.length === 0 ? (
+				<p className="text-xs text-gray-500">No local workspaces yet.</p>
 			) : (
-				<DataTable
-					columns={proposalColumns}
-					data={filteredProposals}
-					getRowId={(row) =>
-						row.proposal.id ??
-						row.proposal.proposalId ??
-						`${row.proposal.pubkey}:${row.proposal.created_at ?? 0}`
-					}
-				/>
+				<div className="space-y-2">
+					{sortedWorkspaces.map((workspace) => {
+						const isActive = workspace.id === activeWorkspaceId
+						const isDeleting = deletingWorkspaceId === workspace.id
+						return (
+							<div
+								key={workspace.id}
+								className="rounded-xl border border-border/70 bg-card/70 px-3 py-3 shadow-sm"
+							>
+								<div className="flex items-start justify-between gap-3">
+									<div className="min-w-0 space-y-1">
+										<div className="flex flex-wrap items-center gap-2">
+											<p className="truncate text-sm font-medium text-foreground">
+												{workspace.label}
+											</p>
+											<span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+												{workspace.kind === 'scratch' ? 'draft' : 'dataset'}
+											</span>
+											{isActive ? (
+												<span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-emerald-700">
+													Active
+												</span>
+											) : null}
+										</div>
+										<p className="text-xs text-muted-foreground">
+											Updated {new Date(workspace.updatedAt).toLocaleString()}
+										</p>
+										<div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+											<span>{workspace.activeDraftId ? 'Draft linked' : 'No draft linked'}</span>
+											<span className="inline-flex items-center gap-1">
+												<MessageCircle className="h-3 w-3" />
+												{workspace.chatSessionId ? 'Chat attached' : 'No chat'}
+											</span>
+										</div>
+									</div>
+									<div className="flex shrink-0 items-center gap-2">
+										{!isActive && onSwitchWorkspace ? (
+											<Button
+												size="sm"
+												variant="outline"
+												onClick={() => onSwitchWorkspace(workspace.id)}
+												disabled={isDeleting}
+											>
+												Open
+											</Button>
+										) : null}
+										<Button
+											size="sm"
+											variant="ghost"
+											className="text-destructive hover:text-destructive"
+											onClick={() => void handleDeleteWorkspace(workspace.id)}
+											disabled={!onDeleteWorkspace || isDeleting}
+										>
+											<Trash2 className="mr-1 h-3.5 w-3.5" />
+											{isDeleting ? 'Deleting...' : 'Delete'}
+										</Button>
+									</div>
+								</div>
+							</div>
+						)
+					})}
+				</div>
 			)}
 		</div>
 	)

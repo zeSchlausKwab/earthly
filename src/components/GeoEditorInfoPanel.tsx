@@ -41,6 +41,7 @@ export interface GeoEditorInfoPanelProps {
 	currentUserPubkey?: string
 	onLoadDataset: (event: NDKGeoEvent) => void
 	onStartNewDataset?: () => void
+	onSwitchWorkspace?: (workspaceId: string) => void
 	onToggleVisibility: (event: NDKGeoEvent) => void
 	onZoomToDataset: (event: NDKGeoEvent) => void
 	onDeleteDataset: (event: NDKGeoEvent) => void
@@ -107,6 +108,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	const {
 		onLoadDataset,
 		onStartNewDataset,
+		onSwitchWorkspace,
 		onToggleVisibility,
 		onZoomToDataset,
 		onDeleteDataset,
@@ -179,9 +181,15 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		() => (activeGeoEditDraftId ? (geoEditDrafts[activeGeoEditDraftId] ?? null) : null),
 		[activeGeoEditDraftId, geoEditDrafts],
 	)
+	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
+	const workspaces = useEditorStore((state) => state.workspaces)
 	const currentDraftSourceId = activeDataset
 		? `dataset:${getDatasetKey(activeDataset)}`
 		: (activeDraft?.sourceId ?? null)
+	const sortedWorkspaces = useMemo(
+		() => Object.values(workspaces).sort((a, b) => b.updatedAt - a.updatedAt),
+		[workspaces],
+	)
 	const draftsForSource = useMemo(
 		() =>
 			Object.values(geoEditDrafts)
@@ -610,6 +618,26 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 			</div>
 
 			<div className="space-y-1 rounded-md border border-emerald-200 bg-emerald-50/40 p-2">
+				<div className="text-[10px] font-medium text-emerald-900 uppercase tracking-wide">
+					Workspaces
+				</div>
+				<div className="flex items-center gap-1">
+					<Select
+						value={activeWorkspaceId ?? ''}
+						onValueChange={(workspaceId) => onSwitchWorkspace?.(workspaceId)}
+					>
+						<SelectTrigger className="w-full h-7 bg-white text-xs">
+							<SelectValue placeholder="Select workspace" />
+						</SelectTrigger>
+						<SelectContent>
+							{sortedWorkspaces.map((workspace) => (
+								<SelectItem key={workspace.id} value={workspace.id}>
+									{workspace.label} {workspace.kind === 'scratch' ? '(draft)' : '(dataset)'}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</div>
 				<div className="flex items-center justify-between">
 					<div className="text-[10px] font-medium text-emerald-900 uppercase tracking-wide">
 						Local drafts

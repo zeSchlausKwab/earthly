@@ -72,6 +72,18 @@ export interface GeoCollectionEditDraft {
 	updatedAt: number
 }
 
+export interface GeoEditorWorkspace {
+	id: string
+	sourceId: string
+	label: string
+	kind: 'dataset' | 'scratch'
+	datasetKey: string | null
+	activeDraftId: string | null
+	chatSessionId: string | null
+	createdAt: number
+	updatedAt: number
+}
+
 // --- Slice State Interfaces ---
 
 export interface EditorCoreSlice {
@@ -121,6 +133,31 @@ export interface DraftSlice {
 	) => void
 	loadGeoEditDraft: (id: string) => void
 	deleteGeoEditDraft: (id: string) => void
+}
+
+export interface WorkspaceSlice {
+	workspaces: Record<string, GeoEditorWorkspace>
+	activeWorkspaceId: string | null
+
+	createWorkspace: (input: {
+		sourceId: string
+		label: string
+		kind: GeoEditorWorkspace['kind']
+		datasetKey?: string | null
+		activeDraftId?: string | null
+		chatSessionId?: string | null
+	}) => string
+	updateWorkspace: (
+		id: string,
+		updates: Partial<Omit<GeoEditorWorkspace, 'id' | 'createdAt'>>,
+	) => void
+	deleteWorkspace: (id: string) => void
+	setActiveWorkspaceId: (id: string | null) => void
+	touchActiveWorkspace: (
+		updates?: Partial<
+			Pick<GeoEditorWorkspace, 'label' | 'activeDraftId' | 'chatSessionId' | 'datasetKey'>
+		>,
+	) => void
 }
 
 export interface MetadataSlice {
@@ -323,6 +360,7 @@ export interface MapSourceSlice {
 /** Combined state — intersection of all slices */
 export type EditorState = EditorCoreSlice &
 	DraftSlice &
+	WorkspaceSlice &
 	MetadataSlice &
 	PublishingSlice &
 	ViewModeSlice &

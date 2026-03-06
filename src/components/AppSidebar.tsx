@@ -111,6 +111,8 @@ interface AppSidebarProps {
 	onClearEditing: () => void
 	onLoadDataset: (event: NDKGeoEvent) => void
 	onStartNewDataset?: () => void
+	onSwitchWorkspace?: (workspaceId: string) => void
+	onDeleteWorkspace?: (workspaceId: string) => void
 	onToggleVisibility: (event: NDKGeoEvent) => void
 	onToggleAllVisibility: (visible: boolean) => void
 	onToggleCollectionVisibility: (collection: NDKGeoCollectionEvent) => void
@@ -182,6 +184,8 @@ export function AppSidebar({
 	onClearEditing,
 	onLoadDataset,
 	onStartNewDataset,
+	onSwitchWorkspace,
+	onDeleteWorkspace,
 	onToggleVisibility,
 	onToggleAllVisibility,
 	onToggleCollectionVisibility,
@@ -633,6 +637,8 @@ export function AppSidebar({
 		getDatasetKey,
 		getDatasetName,
 		onInspectDataset: handleInspectDataset,
+		onSwitchWorkspace,
+		onDeleteWorkspace,
 		onToggleCollectionVisibility,
 		onToggleAllCollectionVisibility,
 		onZoomToCollection,
@@ -648,6 +654,7 @@ export function AppSidebar({
 		currentUserPubkey,
 		onLoadDataset: handleLoadDataset,
 		onStartNewDataset,
+		onSwitchWorkspace,
 		onToggleVisibility,
 		onZoomToDataset,
 		onDeleteDataset,
@@ -698,6 +705,8 @@ export function AppSidebar({
 						mapContextEvents={mapContextEvents}
 						availableFeatures={availableFeatures}
 						getDatasetName={getDatasetName}
+						onStartNewDataset={onStartNewDataset}
+						onSwitchWorkspace={onSwitchWorkspace}
 					/>
 				)
 			case 'user': {

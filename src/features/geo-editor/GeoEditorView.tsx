@@ -202,6 +202,8 @@ export function GeoEditorView() {
 		toggleDatasetVisibility,
 		toggleAllDatasetVisibility,
 		loadDatasetForEditing,
+		switchToWorkspace,
+		deleteWorkspace,
 		clearEditingSession,
 		startNewDataset,
 		cancelEditing,
@@ -975,6 +977,7 @@ export function GeoEditorView() {
 		clearFocus,
 		loadDatasetForEditing,
 		startNewDataset,
+		switchToWorkspace,
 		handleInspectDataset,
 		handleInspectCollection,
 	})
@@ -1187,6 +1190,8 @@ export function GeoEditorView() {
 					onClearEditing={clearEditingSession}
 					onLoadDataset={handleDatasetSelect}
 					onStartNewDataset={startNewDataset}
+					onSwitchWorkspace={switchToWorkspace}
+					onDeleteWorkspace={deleteWorkspace}
 					onToggleVisibility={handleToggleVisibilityWithExitFocus}
 					onToggleAllVisibility={handleToggleAllVisibilityWithExitFocus}
 					onToggleCollectionVisibility={handleToggleCollectionVisibility}
@@ -1400,6 +1405,8 @@ export function GeoEditorView() {
 							onClearEditing={clearEditingSession}
 							onLoadDataset={loadDatasetForEditing}
 							onStartNewDataset={startNewDataset}
+							onSwitchWorkspace={switchToWorkspace}
+							onDeleteWorkspace={deleteWorkspace}
 							onToggleVisibility={handleToggleVisibilityWithExitFocus}
 							onToggleAllVisibility={handleToggleAllVisibilityWithExitFocus}
 							onZoomToDataset={zoomToDataset}
