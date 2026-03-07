@@ -16,6 +16,8 @@ import { createUserProfileEvent } from "./gen_user";
 import { generateGeoEventData } from "./gen_geo_events";
 import type { Feature, FeatureCollection } from "geojson";
 import { NDKGeoCommentEvent } from "@/lib/ndk/NDKGeoCommentEvent";
+import { buildSeedCommentThreads } from "./seed/comments";
+import type { BoundingBox, CommentTarget, SeedIdentity } from "./seed/types";
 
 config();
 
@@ -25,14 +27,6 @@ const ndk = new NDK({
 	explicitRelayUrls: [RELAY_URL],
 	enableOutboxModel: false,
 });
-
-type BoundingBox = [number, number, number, number];
-
-interface SeedIdentity {
-	label: string;
-	signer: NDKPrivateKeySigner;
-	pubkey: string;
-}
 
 interface PublishedContext {
 	id: string | null;
@@ -57,15 +51,6 @@ interface PublishedCollection {
 	id: string | null;
 	collectionId: string;
 	coordinate: string;
-	name: string;
-	ownerPubkey: string;
-	bbox?: BoundingBox;
-}
-
-interface CommentTarget {
-	id: string | null;
-	kind: number;
-	dTag: string;
 	name: string;
 	ownerPubkey: string;
 	bbox?: BoundingBox;
@@ -179,75 +164,6 @@ function mergeBoundingBoxes(boxes: BoundingBox[]): BoundingBox | undefined {
 	return [west, south, east, north];
 }
 
-function bboxCenterPoint(bbox?: BoundingBox): [number, number] {
-	if (!bbox) return [13.405, 52.52];
-	return [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2];
-}
-
-function createCommentAnnotationFeatureCollection(
-	target: CommentTarget,
-	seedIndex: number,
-): FeatureCollection {
-	const [centerLon, centerLat] = bboxCenterPoint(target.bbox);
-	const delta = 0.01 + seedIndex * 0.0015;
-
-	return {
-		type: "FeatureCollection",
-		features: [
-			{
-				type: "Feature",
-				id: `comment-annotation-${target.dTag}-${seedIndex}`,
-				properties: {
-					featureType: "annotation",
-					name: `${target.name} note`,
-					text: `Observation ${seedIndex + 1}`,
-					description: `Seeded annotation for ${target.name} highlighting a non-canonical field note.`,
-					textColor: "#92400e",
-					textHaloColor: "#fff8db",
-					textHaloWidth: 1.5,
-				},
-				geometry: {
-					type: "Point",
-					coordinates: [centerLon, centerLat],
-				},
-			},
-			{
-				type: "Feature",
-				id: `comment-callout-${target.dTag}-${seedIndex}`,
-				properties: {
-					name: `${target.name} callout`,
-					description: `Seeded callout geometry anchored near the center of ${target.name}.`,
-					stroke: "#d97706",
-					color: "#d97706",
-					strokeWidth: 2,
-					lineDasharray: [2, 2],
-				},
-				geometry: {
-					type: "LineString",
-					coordinates: [
-						[centerLon, centerLat],
-						[centerLon + delta, centerLat + delta * 0.6],
-					],
-				},
-			},
-		],
-	};
-}
-
-function createSeedCommentText(target: CommentTarget, seedIndex: number): string {
-	const media = COMMENT_MEDIA_LIBRARY[seedIndex % COMMENT_MEDIA_LIBRARY.length] ?? COMMENT_MEDIA_LIBRARY[0];
-	return [
-		`Field note for ${target.name}: this seeded comment demonstrates rich media and non-canonical annotation geometry.`,
-		`Image: ${media?.image ?? ""}`,
-		`Video: ${media?.video ?? ""}`,
-		`Report: ${media?.external ?? ""}`,
-	].join("\n\n");
-}
-
-function createSeedReplyText(target: CommentTarget, seedIndex: number): string {
-	return `Follow-up on ${target.name}: seeded reply ${seedIndex + 1} confirming the note is discussion-only and should not be treated as canonical geometry.`;
-}
-
 const FEATURE_STYLE_PALETTES = {
 	amenities: {
 		fill: ["#0B7285", "#0E7490", "#2563EB", "#0891B2"],
@@ -270,27 +186,6 @@ const FEATURE_STYLE_PALETTES = {
 		opacity: [0.72, 0.8, 0.88],
 	},
 } as const;
-
-const COMMENT_MEDIA_LIBRARY = [
-	{
-		image:
-			"https://upload.wikimedia.org/wikipedia/commons/thumb/7/77/Delete_key1.jpg/640px-Delete_key1.jpg",
-		video: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
-		external: "https://earthly.local/field-notes/ops",
-	},
-	{
-		image:
-			"https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Example.jpg/640px-Example.jpg",
-		video: "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
-		external: "https://earthly.local/field-notes/community",
-	},
-	{
-		image:
-			"https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Fronalpstock_big.jpg/640px-Fronalpstock_big.jpg",
-		video: "https://www.youtube.com/watch?v=ScMzIvxBSi4",
-		external: "https://earthly.local/field-notes/monitoring",
-	},
-] as const;
 
 function decorateFeatures(
 	features: Feature[],
@@ -605,30 +500,54 @@ async function publishProposal({
 
 async function publishSeedCommentThread(
 	target: CommentTarget,
-	author: SeedIdentity,
-	replier: SeedIdentity,
+	identities: SeedIdentity[],
 	seedIndex: number,
-): Promise<void> {
+): Promise<number> {
 	const rootAddress = coordinate(target.kind, target.ownerPubkey, target.dTag);
+	const threadSpecs = buildSeedCommentThreads(target, seedIndex);
+	const baseTimestamp = Math.floor(Date.now() / 1000) + seedIndex * 900;
+	let publishedCount = 0;
 
-	const comment = new NDKGeoCommentEvent(ndk);
-	comment.commentContent = {
-		text: createSeedCommentText(target, seedIndex),
-		geojson: createCommentAnnotationFeatureCollection(target, seedIndex),
-	};
-	comment.setRootScope(target.kind, rootAddress, target.ownerPubkey);
-	comment.created_at = Math.floor(Date.now() / 1000) + seedIndex;
-	await comment.publishComment(author.signer);
+	for (const [threadIndex, threadSpec] of threadSpecs.entries()) {
+		const author =
+			identities[(seedIndex + threadIndex) % identities.length] ?? identities[0];
+		if (!author) continue;
 
-	const reply = new NDKGeoCommentEvent(ndk);
-	reply.commentContent = {
-		text: createSeedReplyText(target, seedIndex),
-	};
-	reply.setReplyScope(target.kind, rootAddress, target.ownerPubkey, comment);
-	reply.created_at = (comment.created_at ?? Math.floor(Date.now() / 1000)) + 60;
-	await reply.publishComment(replier.signer);
+		const comment = new NDKGeoCommentEvent(ndk);
+		comment.commentContent = {
+			text: threadSpec.text,
+			geojson: threadSpec.geojson,
+		};
+		comment.setRootScope(target.kind, rootAddress, target.ownerPubkey);
+		comment.created_at = baseTimestamp + threadIndex * 180;
+		await comment.publishComment(author.signer);
+		publishedCount += 1;
 
-	console.log(`  Comments published: ${target.name}`);
+		for (const [replyIndex, replySpec] of threadSpec.replies.entries()) {
+			let replyAuthor =
+				identities[(seedIndex + threadIndex + replyIndex + 1) % identities.length] ??
+				identities[0];
+			if (!replyAuthor) continue;
+			if (replyAuthor.pubkey === author.pubkey && identities.length > 1) {
+				replyAuthor =
+					identities[(seedIndex + threadIndex + replyIndex + 2) % identities.length] ??
+					replyAuthor;
+			}
+
+			const reply = new NDKGeoCommentEvent(ndk);
+			reply.commentContent = {
+				text: replySpec.text,
+				geojson: replySpec.geojson,
+			};
+			reply.setReplyScope(target.kind, rootAddress, target.ownerPubkey, comment);
+			reply.created_at = (comment.created_at ?? baseTimestamp) + (replyIndex + 1) * 45;
+			await reply.publishComment(replyAuthor.signer);
+			publishedCount += 1;
+		}
+	}
+
+	console.log(`  Comments published: ${target.name} (${publishedCount} events)`);
+	return publishedCount;
 }
 
 function nudgePosition(
@@ -2377,10 +2296,9 @@ async function seedData() {
 		})),
 	];
 
+	let seededCommentCount = 0;
 	for (const [index, target] of commentTargets.entries()) {
-		const author = commentAuthors[index % commentAuthors.length] ?? planner;
-		const replyAuthor = commentAuthors[(index + 1) % commentAuthors.length] ?? mobility;
-		await publishSeedCommentThread(target, author, replyAuthor, index);
+		seededCommentCount += await publishSeedCommentThread(target, commentAuthors, index);
 	}
 
 	// ── Edit Proposals ──────────────────────────────────────────────────
@@ -2405,9 +2323,11 @@ async function seedData() {
 	}
 
 	const totalDatasets = allPublishedDatasets.length;
+	const totalCollections = allPublishedCollections.length;
+	const totalContexts = allPublishedContexts.length;
 	console.log("[Seed] Complete.");
 	console.log(
-		`[Seed] Published 3 users, 9 contexts, ${totalDatasets} datasets, 8 collections, and ${proposalCount} proposals.`,
+		`[Seed] Published 3 users, ${totalContexts} contexts, ${totalDatasets} datasets, ${totalCollections} collections, ${seededCommentCount} comment events, and ${proposalCount} proposals.`,
 	);
 	process.exit(0);
 }
