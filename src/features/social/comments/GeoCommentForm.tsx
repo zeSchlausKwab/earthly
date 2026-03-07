@@ -3,6 +3,7 @@ import { forwardRef, useState, useRef, useCallback, useEffect, useMemo } from 'r
 import { useNDKCurrentUser } from '@nostr-dev-kit/react'
 import type { FeatureCollection } from 'geojson'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
 	GeoRichTextEditor,
@@ -60,6 +61,7 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 		const mode = useEditorStore((state) => state.mode)
 		const canFinishDrawing = useEditorStore((state) => state.canFinishDrawing)
 		const setFeatures = useEditorStore((state) => state.setFeatures)
+		const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 		const setSelectedFeatureIds = useEditorStore((state) => state.setSelectedFeatureIds)
 		const setMode = useEditorStore((state) => state.setMode)
 		const setHistoryState = useEditorStore((state) => state.setHistoryState)
@@ -78,10 +80,24 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 		const attachedFeatures = attachedGeojson?.features ?? []
 		const hasAttachedGeometry = attachedFeatures.length > 0
 		const draftFeatures = isGeometryDraftActive ? features.filter((feature) => feature.geometry !== null) : []
+		const draftAnnotationFeatures = useMemo(
+			() => draftFeatures.filter((feature) => feature.properties?.featureType === 'annotation'),
+			[draftFeatures],
+		)
 		const draftFeatureCount = draftFeatures.length
 		const totalFeatureCount = attachedFeatures.length + draftFeatureCount
 		const hasAnyGeometry = totalFeatureCount > 0
 		const isDrawingComplexGeometry = mode === 'draw_linestring' || mode === 'draw_polygon'
+		const activeDraftAnnotation = useMemo(() => {
+			const selectedAnnotation = draftAnnotationFeatures.find((feature) =>
+				selectedFeatureIds.includes(feature.id),
+			)
+			return selectedAnnotation ?? draftAnnotationFeatures[draftAnnotationFeatures.length - 1] ?? null
+		}, [draftAnnotationFeatures, selectedFeatureIds])
+		const activeDraftAnnotationText =
+			typeof activeDraftAnnotation?.properties?.text === 'string'
+				? activeDraftAnnotation.properties.text
+				: ''
 
 		const geometrySummary = useMemo(() => {
 			const counts = {
@@ -238,6 +254,21 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 			setHistoryState(false, false)
 		}, [editor, isGeometryDraftActive, setFeatures, setHistoryState, setSelectedFeatureIds])
 
+		const handleAnnotationTextChange = useCallback(
+			(value: string) => {
+				if (!editor || !activeDraftAnnotation) return
+				editor.updateFeature(activeDraftAnnotation.id, {
+					...activeDraftAnnotation,
+					properties: {
+						...activeDraftAnnotation.properties,
+						text: value,
+						name: value.trim() || undefined,
+					},
+				})
+			},
+			[activeDraftAnnotation, editor],
+		)
+
 		const handleCancel = () => {
 			restoreEditorState()
 			onCancel?.()
@@ -328,6 +359,31 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 								Clear draft
 							</Button>
 					</div>
+					{mode === 'draw_annotation' && draftAnnotationFeatures.length === 0 && (
+						<p className="mt-2 text-[11px] text-amber-700">
+							Click on the map to place a label, then type its text here.
+						</p>
+					)}
+					{activeDraftAnnotation && (
+						<div className="mt-2 space-y-1">
+							<div className="flex items-center justify-between gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-amber-700">
+								<span>Label text</span>
+								{draftAnnotationFeatures.length > 1 && (
+									<span className="text-[10px] normal-case tracking-normal text-stone-500">
+										Editing selected/latest label
+									</span>
+								)}
+							</div>
+							<Input
+								value={activeDraftAnnotationText}
+								onChange={(event) => handleAnnotationTextChange(event.target.value)}
+								placeholder="Type label text..."
+								className="h-8 rounded-none border-amber-200 bg-white px-2 text-sm"
+								disabled={isSubmitting || !currentUser}
+								autoFocus
+							/>
+						</div>
+					)}
 					{hasAnyGeometry && (
 						<div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-stone-700">
 							<span className="border border-stone-200 px-2 py-0.5 font-medium text-stone-900">
