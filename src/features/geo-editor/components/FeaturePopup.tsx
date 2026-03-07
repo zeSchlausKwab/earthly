@@ -1,7 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { Feature, Geometry } from 'geojson'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import { RichContentRenderer } from '@/components/editor'
+import {
+	resolveMapPopupPosition,
+	type MapPopupPlacement,
+} from './map-popup-positioning'
 
 export interface FeaturePopupData {
 	/** The dataset containing the hovered feature */
@@ -20,11 +24,14 @@ interface FeaturePopupProps {
 	data: FeaturePopupData | null
 	/** Container ref for positioning calculations */
 	containerRef: React.RefObject<HTMLDivElement | null>
+	placementMode?: MapPopupPlacement
+	toolbarOffset?: number
+	interactive?: boolean
+	onHoverChange?: (hovered: boolean) => void
 }
 
 const POPUP_WIDTH = 320
 const POPUP_HEIGHT_ESTIMATE = 240
-const OFFSET = 12
 
 function getDatasetDescription(dataset: NDKGeoEvent): string | null {
 	const featureCollection = dataset.featureCollection as Record<string, unknown> | undefined
@@ -87,43 +94,61 @@ function countGeometryVertices(geometry: Geometry): number {
 	return walk(geometry.coordinates)
 }
 
-export function FeaturePopup({ data, containerRef }: FeaturePopupProps) {
-	const [position, setPosition] = useState<{ x: number; y: number; anchor: 'top' | 'bottom' }>({
-		x: 0,
-		y: 0,
-		anchor: 'bottom',
-	})
+export function FeaturePopup({
+	data,
+	containerRef,
+	placementMode = 'geometry',
+	toolbarOffset = 72,
+	interactive = false,
+	onHoverChange,
+}: FeaturePopupProps) {
+	const popupRef = useRef<HTMLDivElement>(null)
+	const [position, setPosition] = useState({ left: 12, top: 12, maxHeight: 280 })
 
-	useEffect(() => {
-		if (!data?.clickPosition || !containerRef.current) return
+	const updatePosition = useCallback(() => {
+		if (!data || !containerRef.current || !popupRef.current) return
+		const containerRect = containerRef.current.getBoundingClientRect()
+		const popupWidth = popupRef.current.offsetWidth || POPUP_WIDTH
+		const popupHeight = popupRef.current.offsetHeight || POPUP_HEIGHT_ESTIMATE
+		setPosition(
+			resolveMapPopupPosition({
+				containerWidth: containerRect.width,
+				containerHeight: containerRect.height,
+				popupWidth,
+				popupHeight,
+				anchorPoint: data.clickPosition,
+				placement: placementMode,
+				toolbarOffset,
+				offset: 12,
+			}),
+		)
+	}, [containerRef, data, placementMode, toolbarOffset])
 
-		const container = containerRef.current
-		const containerRect = container.getBoundingClientRect()
-		const containerWidth = containerRect.width
-		const containerHeight = containerRect.height
+	useLayoutEffect(() => {
+		if (!data) return
+		updatePosition()
 
-		let x = data.clickPosition.x - POPUP_WIDTH / 2
-		x = Math.max(8, Math.min(x, containerWidth - POPUP_WIDTH - 8))
+		const popupEl = popupRef.current
+		const containerEl = containerRef.current
+		if (!popupEl || !containerEl) return
 
-		const spaceAbove = data.clickPosition.y - OFFSET
-		const spaceBelow = containerHeight - data.clickPosition.y - OFFSET
+		const handleResize = () => updatePosition()
+		window.addEventListener('resize', handleResize)
 
-		let y: number
-		let anchor: 'top' | 'bottom'
-
-		if (spaceAbove >= POPUP_HEIGHT_ESTIMATE) {
-			y = data.clickPosition.y - OFFSET
-			anchor = 'bottom'
-		} else if (spaceBelow >= POPUP_HEIGHT_ESTIMATE) {
-			y = data.clickPosition.y + OFFSET
-			anchor = 'top'
-		} else {
-			y = data.clickPosition.y - OFFSET
-			anchor = 'bottom'
+		if (typeof ResizeObserver !== 'undefined') {
+			const observer = new ResizeObserver(() => updatePosition())
+			observer.observe(popupEl)
+			observer.observe(containerEl)
+			return () => {
+				window.removeEventListener('resize', handleResize)
+				observer.disconnect()
+			}
 		}
 
-		setPosition({ x, y, anchor })
-	}, [data?.clickPosition, containerRef])
+		return () => {
+			window.removeEventListener('resize', handleResize)
+		}
+	}, [containerRef, data, updatePosition])
 
 	if (!data) return null
 
@@ -134,14 +159,18 @@ export function FeaturePopup({ data, containerRef }: FeaturePopupProps) {
 
 	return (
 		<div
-			className="pointer-events-none absolute z-50 overflow-hidden rounded-xl bg-white/95 shadow-2xl backdrop-blur ring-1 ring-black/5"
+			ref={popupRef}
+			className={`absolute z-50 flex flex-col overflow-hidden rounded-xl bg-white/95 shadow-2xl backdrop-blur ring-1 ring-black/5 ${
+				interactive ? 'pointer-events-auto' : 'pointer-events-none'
+			}`}
 			style={{
-				width: POPUP_WIDTH,
-				left: position.x,
-				...(position.anchor === 'bottom'
-					? { bottom: `calc(100% - ${position.y}px)` }
-					: { top: position.y }),
+				width: `min(${POPUP_WIDTH}px, calc(100% - 24px))`,
+				left: position.left,
+				top: position.top,
+				maxHeight: position.maxHeight,
 			}}
+			onMouseEnter={() => onHoverChange?.(true)}
+			onMouseLeave={() => onHoverChange?.(false)}
 		>
 			<div className="border-b border-gray-100 bg-gray-50/80 px-3 py-2">
 				<div className="font-semibold text-sm text-gray-900 truncate">{datasetName}</div>
@@ -150,7 +179,7 @@ export function FeaturePopup({ data, containerRef }: FeaturePopupProps) {
 				</div>
 			</div>
 
-			<div className="px-3 py-2 space-y-2">
+			<div className="space-y-2 overflow-y-auto px-3 py-2">
 				{description && (
 					<RichContentRenderer content={description} className="space-y-2 text-xs text-gray-700" />
 				)}

@@ -1,5 +1,18 @@
 import { useNDK, useNDKCurrentUser } from '@nostr-dev-kit/react'
-import { Edit3, Globe, Layers, Lock, LockOpen, Search, UploadCloud, X } from 'lucide-react'
+import {
+	Edit3,
+	Globe,
+	Layers,
+	Lock,
+	LockOpen,
+	MapPinned,
+	MessageSquare,
+	MessageSquareOff,
+	PanelTopOpen,
+	Search,
+	UploadCloud,
+	X,
+} from 'lucide-react'
 import type maplibregl from 'maplibre-gl'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -8,6 +21,7 @@ import { BlossomUploadDialog } from '@/components/BlossomUploadDialog'
 import { DebugDialog } from '@/components/DebugDialog'
 import { Button } from '@/components/ui/button'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAvailableGeoFeatures } from '@/lib/hooks/useAvailableGeoFeatures'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useGeoCollections, useMapContexts, useStations } from '@/lib/hooks/useStations'
@@ -28,6 +42,8 @@ import { Magnifier } from './components/Magnifier'
 import { MapFeatureHoverOverlay } from './components/MapFeatureHoverOverlay'
 import { MobilePanel } from './components/MobilePanel'
 import { CommentAnnotationPopup } from './components/CommentAnnotationPopup'
+import type { CommentAnnotationPopupData } from './components/CommentAnnotationPopup'
+import type { MapPopupPlacement } from './components/map-popup-positioning'
 import { UserLocationMarker } from './components/UserLocationMarker'
 import { GeoEditorMap as MapComponent } from './components/Map'
 import { OsmResultsPanel } from './components/OsmResultsPanel'
@@ -59,6 +75,8 @@ export function GeoEditorView() {
 	const [mapError, _setMapError] = useState<string | null>(null)
 	const [deletingKey, setDeletingKey] = useState<string | null>(null)
 	const [resolvedCollectionsVersion, setResolvedCollectionsVersion] = useState(0)
+	const [mapPopupsEnabled, setMapPopupsEnabled] = useState(true)
+	const [mapPopupPlacement, setMapPopupPlacement] = useState<MapPopupPlacement>('dock')
 
 	// Drawing mode state
 	const [isDrawingMode] = useState(false)
@@ -95,6 +113,10 @@ export function GeoEditorView() {
 	const { handleCommentGeometryVisibility, annotationPopupData, setAnnotationPopupData } =
 		useCommentGeometry(map, mounted)
 	const { visibleProposalIds, handleToggleProposalOverlay } = useProposalGeometry(map)
+	const [displayedAnnotationPopupData, setDisplayedAnnotationPopupData] =
+		useState<CommentAnnotationPopupData | null>(null)
+	const annotationPopupHoverRef = useRef(false)
+	const annotationPopupHideTimeoutRef = useRef<number | null>(null)
 
 	// Zoom helpers (no deps, defined early so hooks can reference them)
 	const handleZoomToBounds = useCallback((bounds: [number, number, number, number]) => {
@@ -181,6 +203,92 @@ export function GeoEditorView() {
 	const { ndk } = useNDK()
 	const currentUser = useNDKCurrentUser()
 	const isMobile = useIsMobile()
+	const mapPopupToolbarOffset = mounted && editor ? 72 : 16
+
+	const clearAnnotationPopupHideTimeout = useCallback(() => {
+		if (annotationPopupHideTimeoutRef.current !== null) {
+			window.clearTimeout(annotationPopupHideTimeoutRef.current)
+			annotationPopupHideTimeoutRef.current = null
+		}
+	}, [])
+
+	const scheduleAnnotationPopupHide = useCallback(() => {
+		clearAnnotationPopupHideTimeout()
+		annotationPopupHideTimeoutRef.current = window.setTimeout(() => {
+			if (annotationPopupHoverRef.current) return
+			setDisplayedAnnotationPopupData(null)
+			annotationPopupHideTimeoutRef.current = null
+		}, 1200)
+	}, [clearAnnotationPopupHideTimeout])
+
+	useEffect(() => {
+		if (!mapPopupsEnabled) {
+			clearAnnotationPopupHideTimeout()
+			setAnnotationPopupData(null)
+			setDisplayedAnnotationPopupData(null)
+		}
+	}, [clearAnnotationPopupHideTimeout, mapPopupsEnabled, setAnnotationPopupData])
+
+	useEffect(() => {
+		if (!mapPopupsEnabled) return
+		if (annotationPopupData) {
+			clearAnnotationPopupHideTimeout()
+			setDisplayedAnnotationPopupData(annotationPopupData)
+			return
+		}
+		if (
+			mapPopupPlacement === 'dock' &&
+			displayedAnnotationPopupData &&
+			!displayedAnnotationPopupData.pinned
+		) {
+			scheduleAnnotationPopupHide()
+			return
+		}
+		setDisplayedAnnotationPopupData(null)
+	}, [
+		annotationPopupData,
+		clearAnnotationPopupHideTimeout,
+		displayedAnnotationPopupData,
+		mapPopupPlacement,
+		mapPopupsEnabled,
+		scheduleAnnotationPopupHide,
+	])
+
+	useEffect(() => {
+		return () => clearAnnotationPopupHideTimeout()
+	}, [clearAnnotationPopupHideTimeout])
+
+	const handleAnnotationPopupHoverChange = useCallback(
+		(hovered: boolean) => {
+			annotationPopupHoverRef.current = hovered
+			if (hovered) {
+				clearAnnotationPopupHideTimeout()
+				return
+			}
+			if (
+				!annotationPopupData &&
+				mapPopupPlacement === 'dock' &&
+				displayedAnnotationPopupData &&
+				!displayedAnnotationPopupData.pinned
+			) {
+				scheduleAnnotationPopupHide()
+			}
+		},
+		[
+			annotationPopupData,
+			clearAnnotationPopupHideTimeout,
+			displayedAnnotationPopupData,
+			mapPopupPlacement,
+			scheduleAnnotationPopupHide,
+		],
+	)
+
+	const handleCloseAnnotationPopup = useCallback(() => {
+		clearAnnotationPopupHideTimeout()
+		setAnnotationPopupData(null)
+		setDisplayedAnnotationPopupData(null)
+	}, [clearAnnotationPopupHideTimeout, setAnnotationPopupData])
+
 
 	// Callback for ensuring info panel is visible
 	const openMobilePanel = useEditorStore((state) => state.openMobilePanel)
@@ -1310,16 +1418,27 @@ export function GeoEditorView() {
 						currentUserPubkey={currentUser?.pubkey}
 						getDatasetName={getDatasetName}
 						handleInspectDatasetWithoutFocus={handleInspectDatasetWithoutFocus}
+						popupsEnabled={mapPopupsEnabled}
+						placementMode={mapPopupPlacement}
+						toolbarOffset={mapPopupToolbarOffset}
+						suppressed={
+							mapPopupPlacement === 'dock' && Boolean(displayedAnnotationPopupData)
+						}
 					/>
 
-					<CommentAnnotationPopup
-						data={annotationPopupData}
-						containerRef={mapContainerRef}
-						availableFeatures={availableFeatures}
-						onMentionVisibilityToggle={handleMentionVisibilityToggle}
-						onMentionZoomTo={handleMentionZoomTo}
-						onClose={() => setAnnotationPopupData(null)}
-					/>
+					{mapPopupsEnabled && (
+						<CommentAnnotationPopup
+							data={displayedAnnotationPopupData}
+							containerRef={mapContainerRef}
+							placementMode={mapPopupPlacement}
+							toolbarOffset={mapPopupToolbarOffset}
+							onHoverChange={handleAnnotationPopupHoverChange}
+							availableFeatures={availableFeatures}
+							onMentionVisibilityToggle={handleMentionVisibilityToggle}
+							onMentionZoomTo={handleMentionZoomTo}
+							onClose={handleCloseAnnotationPopup}
+						/>
+					)}
 
 					{mapError && (
 						<div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded z-50">
@@ -1330,7 +1449,67 @@ export function GeoEditorView() {
 
 					{/* Desktop: Floating locate button */}
 					{!isMobile && (
-						<div className="absolute bottom-12 right-4 z-10">
+						<div className="absolute bottom-12 right-4 z-10 flex flex-col items-end gap-2">
+							<TooltipProvider delayDuration={250}>
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<Button
+											type="button"
+											variant={mapPopupsEnabled ? 'default' : 'outline'}
+											size="icon"
+											className="h-10 w-10 rounded-full bg-white/95 text-slate-700 shadow-lg backdrop-blur hover:bg-white"
+											onClick={() => setMapPopupsEnabled((current) => !current)}
+											aria-label={
+												mapPopupsEnabled ? 'Disable map popups' : 'Enable map popups'
+											}
+										>
+											{mapPopupsEnabled ? (
+												<MessageSquare className="h-4 w-4" />
+											) : (
+												<MessageSquareOff className="h-4 w-4" />
+											)}
+										</Button>
+									</TooltipTrigger>
+									<TooltipContent side="left" sideOffset={8}>
+										<p>{mapPopupsEnabled ? 'Disable map popups' : 'Enable map popups'}</p>
+									</TooltipContent>
+								</Tooltip>
+
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<Button
+											type="button"
+											variant="outline"
+											size="icon"
+											className="h-10 w-10 rounded-full bg-white/95 text-slate-700 shadow-lg backdrop-blur hover:bg-white"
+											onClick={() =>
+												setMapPopupPlacement((current) =>
+													current === 'geometry' ? 'dock' : 'geometry',
+												)
+											}
+											aria-label={
+												mapPopupPlacement === 'geometry'
+													? 'Dock popups in the top-right corner'
+													: 'Show popups above geometry'
+											}
+											disabled={!mapPopupsEnabled}
+										>
+											{mapPopupPlacement === 'geometry' ? (
+												<MapPinned className="h-4 w-4" />
+											) : (
+												<PanelTopOpen className="h-4 w-4" />
+											)}
+										</Button>
+									</TooltipTrigger>
+									<TooltipContent side="left" sideOffset={8}>
+										<p>
+											{mapPopupPlacement === 'geometry'
+												? 'Dock popups in the top-right corner'
+												: 'Show popups above geometry'}
+										</p>
+									</TooltipContent>
+								</Tooltip>
+							</TooltipProvider>
 							<LocateButton onLocate={handleLocate} />
 						</div>
 					)}

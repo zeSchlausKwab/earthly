@@ -1,10 +1,14 @@
 import { Calendar, MessageCircle, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { Feature, Geometry } from 'geojson'
 import { RichContentRenderer } from '@/components/editor'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { Button } from '@/components/ui/button'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
+import {
+	resolveMapPopupPosition,
+	type MapPopupPlacement,
+} from './map-popup-positioning'
 
 export interface CommentAnnotationPopupData {
 	comment: NDKGeoCommentEvent
@@ -16,6 +20,9 @@ export interface CommentAnnotationPopupData {
 interface CommentAnnotationPopupProps {
 	data: CommentAnnotationPopupData | null
 	containerRef: React.RefObject<HTMLDivElement | null>
+	placementMode?: MapPopupPlacement
+	toolbarOffset?: number
+	onHoverChange?: (hovered: boolean) => void
 	availableFeatures?: GeoFeatureItem[]
 	onMentionVisibilityToggle?: (
 		address: string,
@@ -28,7 +35,6 @@ interface CommentAnnotationPopupProps {
 
 const POPUP_WIDTH = 360
 const POPUP_HEIGHT_ESTIMATE = 280
-const OFFSET = 16
 
 function shortPubkey(pubkey: string): string {
 	if (!pubkey) return 'Unknown'
@@ -63,33 +69,61 @@ function getAnnotationDescription(feature: Feature<Geometry>): string | null {
 export function CommentAnnotationPopup({
 	data,
 	containerRef,
+	placementMode = 'geometry',
+	toolbarOffset = 72,
+	onHoverChange,
 	availableFeatures = [],
 	onMentionVisibilityToggle,
 	onMentionZoomTo,
 	onClose,
 }: CommentAnnotationPopupProps) {
-	const [position, setPosition] = useState<{ x: number; y: number; anchor: 'top' | 'bottom' }>({
-		x: 0,
-		y: 0,
-		anchor: 'bottom',
-	})
+	const popupRef = useRef<HTMLDivElement>(null)
+	const [position, setPosition] = useState({ left: 12, top: 12, maxHeight: 320 })
 
-	useEffect(() => {
-		if (!data?.screenPosition || !containerRef.current) return
-
+	const updatePosition = useCallback(() => {
+		if (!data || !containerRef.current || !popupRef.current) return
 		const containerRect = containerRef.current.getBoundingClientRect()
-		let x = data.screenPosition.x - POPUP_WIDTH / 2
-		x = Math.max(8, Math.min(x, containerRect.width - POPUP_WIDTH - 8))
+		const popupWidth = popupRef.current.offsetWidth || POPUP_WIDTH
+		const popupHeight = popupRef.current.offsetHeight || POPUP_HEIGHT_ESTIMATE
+		setPosition(
+			resolveMapPopupPosition({
+				containerWidth: containerRect.width,
+				containerHeight: containerRect.height,
+				popupWidth,
+				popupHeight,
+				anchorPoint: data.screenPosition,
+				placement: placementMode,
+				toolbarOffset,
+				offset: 16,
+			}),
+		)
+	}, [containerRef, data, placementMode, toolbarOffset])
 
-		const spaceAbove = data.screenPosition.y - OFFSET
-		const spaceBelow = containerRect.height - data.screenPosition.y - OFFSET
+	useLayoutEffect(() => {
+		if (!data) return
+		updatePosition()
 
-		if (spaceAbove >= POPUP_HEIGHT_ESTIMATE) {
-			setPosition({ x, y: data.screenPosition.y - OFFSET, anchor: 'bottom' })
-		} else {
-			setPosition({ x, y: data.screenPosition.y + OFFSET, anchor: 'top' })
+		const popupEl = popupRef.current
+		const containerEl = containerRef.current
+		if (!popupEl || !containerEl) return
+
+		const handleResize = () => updatePosition()
+		window.addEventListener('resize', handleResize)
+
+		if (typeof ResizeObserver !== 'undefined') {
+			const observer = new ResizeObserver(() => updatePosition())
+			observer.observe(popupEl)
+			observer.observe(containerEl)
+			return () => {
+				window.removeEventListener('resize', handleResize)
+				observer.disconnect()
+			}
 		}
-	}, [data?.screenPosition, containerRef])
+
+		return () => {
+			window.removeEventListener('resize', handleResize)
+		}
+	}, [containerRef, data, updatePosition])
 
 	if (!data) return null
 
@@ -99,15 +133,16 @@ export function CommentAnnotationPopup({
 
 	return (
 		<div
+			ref={popupRef}
 			className="pointer-events-auto absolute z-50 overflow-hidden rounded-2xl border border-amber-200 bg-white/95 shadow-2xl backdrop-blur"
 			style={{
-				width: POPUP_WIDTH,
-				left: position.x,
-				...(position.anchor === 'bottom'
-					? { bottom: `calc(100% - ${position.y}px)` }
-					: { top: position.y }),
-				maxHeight: 'min(70vh, 560px)',
+				width: `min(${POPUP_WIDTH}px, calc(100% - 24px))`,
+				left: position.left,
+				top: position.top,
+				maxHeight: position.maxHeight,
 			}}
+			onMouseEnter={() => onHoverChange?.(true)}
+			onMouseLeave={() => onHoverChange?.(false)}
 		>
 			<div className="flex items-start justify-between gap-3 border-b border-amber-100 bg-amber-50/80 px-4 py-3">
 				<div className="min-w-0">
