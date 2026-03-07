@@ -93,7 +93,7 @@ export function GeoEditorView() {
 	} = useInspector(map)
 
 	const { handleCommentGeometryVisibility, annotationPopupData, setAnnotationPopupData } =
-		useCommentGeometry(map)
+		useCommentGeometry(map, mounted)
 	const { visibleProposalIds, handleToggleProposalOverlay } = useProposalGeometry(map)
 
 	// Zoom helpers (no deps, defined early so hooks can reference them)
@@ -288,6 +288,7 @@ export function GeoEditorView() {
 		contextNaddr,
 		contextCoordinate,
 		userPubkey,
+		commentId: focusCommentId,
 	} = useRouting()
 
 	const {
@@ -1181,7 +1182,7 @@ export function GeoEditorView() {
 		<SidebarProvider sidebarExpanded={sidebarExpanded} onExpandedChange={setSidebarExpanded}>
 			{/* Sidebar - desktop only */}
 			{!isMobile && (
-				<AppSidebar
+					<AppSidebar
 					geoEvents={scopedGeoEvents}
 					collectionEvents={scopedCollectionEvents}
 					mapContextEvents={mapContextEvents}
@@ -1239,9 +1240,10 @@ export function GeoEditorView() {
 					onBlossomUploadComplete={handleBlobUploadComplete}
 					ndk={ndk}
 					// User profile props
-					userPubkey={userPubkey}
-					// Filter visibility sync
-					onFilteredDatasetKeysChange={handleFilteredDatasetKeysChange}
+						userPubkey={userPubkey}
+						focusCommentId={focusCommentId}
+						// Filter visibility sync
+						onFilteredDatasetKeysChange={handleFilteredDatasetKeysChange}
 					onToggleProposalOverlay={handleToggleProposalOverlay}
 					visibleProposalIds={visibleProposalIds}
 				/>
@@ -1453,6 +1455,7 @@ export function GeoEditorView() {
 							featureCollectionForUpload={memoizedFeatureCollection}
 							onBlossomUploadComplete={handleBlobUploadComplete}
 							ndk={ndk}
+							focusCommentId={focusCommentId}
 							onFilteredDatasetKeysChange={handleFilteredDatasetKeysChange}
 							onToggleProposalOverlay={handleToggleProposalOverlay}
 							visibleProposalIds={visibleProposalIds}

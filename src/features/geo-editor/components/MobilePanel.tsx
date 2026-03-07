@@ -127,6 +127,8 @@ export interface MobilePanelProps {
 	onProposalAccepted?: () => void
 	/** Set of proposal IDs whose overlay is visible */
 	visibleProposalIds?: Set<string>
+	/** Optional comment d-tag deep-linked from the route */
+	focusCommentId?: string
 }
 
 const TAB_CONFIG: { id: MobilePanelTab; label: string; icon: typeof Database }[] = [
@@ -214,6 +216,7 @@ export function MobilePanel(props: MobilePanelProps) {
 		onToggleProposalOverlay,
 		onProposalAccepted,
 		visibleProposalIds,
+		focusCommentId,
 	} = props
 	const { contextNaddr, encodeContextNaddr, navigateToContext, clearContextScope } = useRouting()
 
@@ -532,6 +535,7 @@ export function MobilePanel(props: MobilePanelProps) {
 							featureCollectionForUpload={featureCollectionForUpload}
 							onBlossomUploadComplete={onBlossomUploadComplete}
 							ndk={ndk}
+							focusCommentId={focusCommentId}
 						/>
 					)}
 
@@ -573,6 +577,7 @@ export function MobilePanel(props: MobilePanelProps) {
 							featureCollectionForUpload={featureCollectionForUpload}
 							onBlossomUploadComplete={onBlossomUploadComplete}
 							ndk={ndk}
+							focusCommentId={focusCommentId}
 						/>
 					)}
 

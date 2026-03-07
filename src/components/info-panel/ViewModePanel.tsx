@@ -54,9 +54,11 @@ export interface ViewModePanelProps {
 	onProposalAccepted?: () => void
 	/** Set of proposal IDs whose overlay is visible */
 	visibleProposalIds?: Set<string>
+	/** Optional comment d-tag from the route to reveal in the thread */
+	focusCommentId?: string
 }
 
-type ViewTab = 'details' | 'comments' | 'proposals'
+type ViewTab = 'details' | 'proposals'
 
 function getDatasetDescription(dataset: NDKGeoEvent): string | null {
 	const collection = dataset.featureCollection as Record<string, unknown>
@@ -115,6 +117,7 @@ export function ViewModePanel({
 	onToggleProposalOverlay,
 	onProposalAccepted,
 	visibleProposalIds = new Set(),
+	focusCommentId,
 }: ViewModePanelProps) {
 	const [activeTab, setActiveTab] = useState<ViewTab>('details')
 	const [visibleGeojsonCommentIds, setVisibleGeojsonCommentIds] = useState<Set<string>>(new Set())
@@ -142,6 +145,12 @@ export function ViewModePanel({
 		setVisibleGeojsonCommentIds(new Set())
 		setAttachedGeojson(null)
 	}, [viewDataset, viewCollection, viewContext])
+
+	useEffect(() => {
+		if (!viewDataset && activeTab === 'proposals') {
+			setActiveTab('details')
+		}
+	}, [activeTab, viewDataset])
 
 	// Get selected features for attachment
 	const selectedFeatures = useMemo(() => {
@@ -171,7 +180,7 @@ export function ViewModePanel({
 
 	const handleCommentGeojsonVisibilityChange = useCallback(
 		(comment: NDKGeoCommentEvent, visible: boolean) => {
-			const id = comment.id ?? comment.commentId ?? ''
+			const id = comment.commentId ?? comment.id ?? ''
 			setVisibleGeojsonCommentIds((prev) => {
 				const next = new Set(prev)
 				if (visible) {
@@ -264,6 +273,57 @@ export function ViewModePanel({
 		return hidden.size > 0 ? hidden : undefined
 	}, [viewDataset, viewContext, contextFilterMode])
 
+	const commentsSection = commentTarget ? (
+		<section className="space-y-3 border-t border-gray-100 pt-4">
+			<div className="flex items-center justify-between gap-3">
+				<div className="flex items-center gap-2">
+					<MessageCircle className="h-4 w-4 text-gray-400" />
+					<h4 className="text-sm font-semibold text-gray-900">Comments</h4>
+				</div>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							type="button"
+							variant={attachedGeojson ? 'default' : 'outline'}
+							size="sm"
+							onClick={attachedGeojson ? handleClearAttachment : handleAttachGeometry}
+							disabled={!canAttachGeometry && !attachedGeojson}
+							className="gap-1.5"
+						>
+							<MapPin className="h-3.5 w-3.5" />
+							{attachedGeojson
+								? `${attachedGeojson.features.length} attached`
+								: selectedFeatures.length > 0
+									? `Attach ${selectedFeatures.length}`
+									: 'Select geometry'}
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent>
+						{attachedGeojson
+							? 'Click to clear attachment'
+							: selectedFeatures.length > 0
+								? 'Attach selected geometry to your comment'
+								: 'Select geometry in the editor first, then attach it here'}
+					</TooltipContent>
+				</Tooltip>
+			</div>
+
+			<CommentsPanel
+				key={commentTarget.id ?? commentTarget.dTag ?? 'no-target'}
+				target={commentTarget}
+				onCommentGeojsonVisibilityChange={handleCommentGeojsonVisibilityChange}
+				onZoomToCommentGeojson={handleZoomToCommentGeojson}
+				visibleGeojsonCommentIds={visibleGeojsonCommentIds}
+				attachedGeojson={attachedGeojson}
+				onClearAttachment={handleClearAttachment}
+				availableFeatures={availableFeatures}
+				onMentionVisibilityToggle={onMentionVisibilityToggle}
+				onMentionZoomTo={onMentionZoomTo}
+				focusCommentId={focusCommentId}
+			/>
+		</section>
+	) : null
+
 	return (
 		<div className="flex flex-col h-full text-sm">
 			{/* Header */}
@@ -274,26 +334,17 @@ export function ViewModePanel({
 			</div>
 
 			{/* Tab buttons */}
-			<div className="flex-shrink-0 flex items-center gap-1 mb-3 border-b border-gray-100 pb-2">
-				<Button
-					variant={activeTab === 'details' ? 'default' : 'ghost'}
-					size="sm"
-					onClick={() => setActiveTab('details')}
-					className="gap-1.5"
-				>
-					<FileText className="h-3.5 w-3.5" />
-					Details
-				</Button>
-				<Button
-					variant={activeTab === 'comments' ? 'default' : 'ghost'}
-					size="sm"
-					onClick={() => setActiveTab('comments')}
-					className="gap-1.5"
-				>
-					<MessageCircle className="h-3.5 w-3.5" />
-					Comments
-				</Button>
-				{viewDataset && (
+			{viewDataset && (
+				<div className="flex-shrink-0 flex items-center gap-1 mb-3 border-b border-gray-100 pb-2">
+					<Button
+						variant={activeTab === 'details' ? 'default' : 'ghost'}
+						size="sm"
+						onClick={() => setActiveTab('details')}
+						className="gap-1.5"
+					>
+						<FileText className="h-3.5 w-3.5" />
+						Details
+					</Button>
 					<Button
 						variant={activeTab === 'proposals' ? 'default' : 'ghost'}
 						size="sm"
@@ -303,37 +354,8 @@ export function ViewModePanel({
 						<GitPullRequest className="h-3.5 w-3.5" />
 						Proposals
 					</Button>
-				)}
-
-				{/* Attach geometry button - only show when on comments tab */}
-				{activeTab === 'comments' && (
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								variant={attachedGeojson ? 'default' : 'outline'}
-								size="sm"
-								onClick={attachedGeojson ? handleClearAttachment : handleAttachGeometry}
-								disabled={!canAttachGeometry && !attachedGeojson}
-								className="ml-auto gap-1.5"
-							>
-								<MapPin className="h-3.5 w-3.5" />
-								{attachedGeojson
-									? `${attachedGeojson.features.length} attached`
-									: selectedFeatures.length > 0
-										? `Attach ${selectedFeatures.length}`
-										: 'Select geometry'}
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>
-							{attachedGeojson
-								? 'Click to clear attachment'
-								: selectedFeatures.length > 0
-									? 'Attach selected geometry to your comment'
-									: 'Select geometry in the editor first, then attach it here'}
-						</TooltipContent>
-					</Tooltip>
-				)}
-			</div>
+				</div>
+			)}
 
 			{/* Tab content */}
 			<div className="flex-1 overflow-y-auto min-h-0">
@@ -405,6 +427,8 @@ export function ViewModePanel({
 										/>
 									)}
 								</section>
+
+								{commentsSection}
 							</>
 						)}
 
@@ -488,22 +512,11 @@ export function ViewModePanel({
 										className="max-h-[40vh] overflow-y-auto"
 									/>
 								</section>
+
+								{commentsSection}
 							</>
 						)}
 					</div>
-				) : activeTab === 'comments' ? (
-					<CommentsPanel
-						key={commentTarget?.id ?? commentTarget?.dTag ?? 'no-target'}
-						target={commentTarget}
-						onCommentGeojsonVisibilityChange={handleCommentGeojsonVisibilityChange}
-						onZoomToCommentGeojson={handleZoomToCommentGeojson}
-						visibleGeojsonCommentIds={visibleGeojsonCommentIds}
-						attachedGeojson={attachedGeojson}
-						onClearAttachment={handleClearAttachment}
-						availableFeatures={availableFeatures}
-						onMentionVisibilityToggle={onMentionVisibilityToggle}
-						onMentionZoomTo={onMentionZoomTo}
-					/>
 				) : activeTab === 'proposals' ? (
 					<ProposalsPanel
 						key={viewDataset?.id ?? viewDataset?.dTag ?? 'no-target'}

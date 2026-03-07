@@ -37,6 +37,8 @@ interface CommentsPanelProps {
 	onClearAttachment?: () => void
 	/** Available features for $ mentions in the comment form */
 	availableFeatures?: GeoFeatureItem[]
+	/** Optional comment d-tag to scroll to when the thread loads */
+	focusCommentId?: string
 	className?: string
 }
 
@@ -57,6 +59,7 @@ export function CommentsPanel({
 	attachedGeojson,
 	onClearAttachment,
 	availableFeatures = [],
+	focusCommentId,
 	className = '',
 }: CommentsPanelProps) {
 	const { comments, allComments, count, isLoading, postComment, postReply } = useGeoComments({ target })
@@ -112,7 +115,7 @@ export function CommentsPanel({
 		if (!onCommentGeojsonVisibilityChange || !entityAnnotationsVisible) return
 
 		for (const comment of commentsWithGeometry) {
-			const commentId = comment.id ?? comment.commentId ?? ''
+			const commentId = comment.commentId ?? comment.id ?? ''
 			if (!commentId || initializedCommentIdsRef.current.has(commentId)) continue
 
 			initializedCommentIdsRef.current.add(commentId)
@@ -127,7 +130,7 @@ export function CommentsPanel({
 		setEntityAnnotationsVisible(nextVisible)
 
 		for (const comment of commentsWithGeometry) {
-			const commentId = comment.id ?? comment.commentId ?? ''
+			const commentId = comment.commentId ?? comment.id ?? ''
 			if (!commentId) continue
 			initializedCommentIdsRef.current.add(commentId)
 			onCommentGeojsonVisibilityChange(comment, nextVisible)
@@ -246,6 +249,7 @@ export function CommentsPanel({
 								availableFeatures={availableFeatures}
 								activeComposerId={activeComposerId}
 								onComposerTargetChange={handleComposerTargetChange}
+								focusCommentId={focusCommentId}
 							/>
 						))}
 					</div>

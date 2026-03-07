@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils'
 import { useNDK, useNDKCurrentUser } from '@nostr-dev-kit/react'
 import type { FeatureCollection } from 'geojson'
-import { Eye, EyeOff, FileText, MapPin, Maximize2, MessageCircle, Plus, Trash2 } from 'lucide-react'
+import { Eye, EyeOff, MapPin, Maximize2, MessageCircle, Plus, Trash2 } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useEditorStore, type GeoCollectionEditDraft } from '../geo-editor/store'
@@ -26,8 +26,6 @@ import {
 } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
-type EditorTab = 'details' | 'comments'
-
 interface GeoCollectionEditorPanelProps {
 	initialCollection?: NDKGeoCollectionEvent | null
 	onClose: () => void
@@ -47,6 +45,8 @@ interface GeoCollectionEditorPanelProps {
 	) => void
 	/** Callback to zoom to a mentioned geometry */
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
+	/** Optional comment d-tag from the route to reveal in the thread */
+	focusCommentId?: string
 }
 
 export function GeoCollectionEditorPanel({
@@ -60,13 +60,12 @@ export function GeoCollectionEditorPanel({
 	onZoomToBounds,
 	onMentionVisibilityToggle,
 	onMentionZoomTo,
+	focusCommentId,
 }: GeoCollectionEditorPanelProps) {
 	const { ndk } = useNDK()
 	const currentUser = useNDKCurrentUser()
 	const editorRef = useRef<GeoRichTextEditorRef>(null)
 
-	// Tabs
-	const [activeTab, setActiveTab] = useState<EditorTab>('details')
 	const [visibleGeojsonCommentIds, setVisibleGeojsonCommentIds] = useState<Set<string>>(new Set())
 	const [attachedGeojson, setAttachedGeojson] = useState<FeatureCollection | null>(null)
 	const [visibleReferenceAddrs, setVisibleReferenceAddrs] = useState<Set<string>>(new Set())
@@ -393,7 +392,7 @@ export function GeoCollectionEditorPanel({
 
 	const handleCommentGeojsonVisibilityChange = useCallback(
 		(comment: NDKGeoCommentEvent, visible: boolean) => {
-			const id = comment.id ?? comment.commentId ?? ''
+			const id = comment.commentId ?? comment.id ?? ''
 			setVisibleGeojsonCommentIds((prev) => {
 				const next = new Set(prev)
 				if (visible) {
@@ -438,60 +437,8 @@ export function GeoCollectionEditorPanel({
 				</h2>
 			</div>
 
-			{/* Tab buttons - only show for existing collections */}
-			{initialCollection && (
-				<div className="flex-shrink-0 flex items-center gap-1 px-4 pt-3 border-b border-gray-100 pb-2">
-					<Button
-						variant={activeTab === 'details' ? 'default' : 'ghost'}
-						size="sm"
-						onClick={() => setActiveTab('details')}
-						className="gap-1.5"
-					>
-						<FileText className="h-3.5 w-3.5" />
-						Edit
-					</Button>
-					<Button
-						variant={activeTab === 'comments' ? 'default' : 'ghost'}
-						size="sm"
-						onClick={() => setActiveTab('comments')}
-						className="gap-1.5"
-					>
-						<MessageCircle className="h-3.5 w-3.5" />
-						Comments
-					</Button>
-
-					{/* Attach geometry button */}
-					{activeTab === 'comments' && (
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<Button
-									variant={attachedGeojson ? 'default' : 'outline'}
-									size="sm"
-									onClick={attachedGeojson ? handleClearAttachment : handleAttachGeometry}
-									disabled={!canAttachGeometry && !attachedGeojson}
-									className="ml-auto gap-1.5"
-								>
-									<MapPin className="h-3.5 w-3.5" />
-									{attachedGeojson
-										? `${attachedGeojson.features.length} attached`
-										: selectedFeatures.length > 0
-											? `Attach ${selectedFeatures.length}`
-											: 'Select geometry'}
-								</Button>
-							</TooltipTrigger>
-							<TooltipContent>
-								{attachedGeojson
-									? 'Click to clear attached geometry'
-									: 'Select geometries on the map, then click to attach to your comment'}
-							</TooltipContent>
-						</Tooltip>
-					)}
-				</div>
-			)}
-
 			<div className="flex-1 overflow-y-auto">
-				{activeTab === 'details' ? (
-					<div className="p-4 space-y-4">
+				<div className="p-4 space-y-4">
 						<div className="space-y-2 rounded-md border border-emerald-200 bg-emerald-50/40 p-3">
 							<div className="flex items-center justify-between">
 								<Label className="text-xs font-medium text-emerald-900">Local Drafts</Label>
@@ -655,38 +602,70 @@ export function GeoCollectionEditorPanel({
 								</div>
 							)}
 						</div>
+
+						{initialCollection && (
+							<section className="space-y-3 border-t border-gray-100 pt-4">
+								<div className="flex items-center justify-between gap-3">
+									<div className="flex items-center gap-2">
+										<MessageCircle className="h-4 w-4 text-gray-400" />
+										<h3 className="text-sm font-semibold text-gray-900">Comments</h3>
+									</div>
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<Button
+												type="button"
+												variant={attachedGeojson ? 'default' : 'outline'}
+												size="sm"
+												onClick={attachedGeojson ? handleClearAttachment : handleAttachGeometry}
+												disabled={!canAttachGeometry && !attachedGeojson}
+												className="gap-1.5"
+											>
+												<MapPin className="h-3.5 w-3.5" />
+												{attachedGeojson
+													? `${attachedGeojson.features.length} attached`
+													: selectedFeatures.length > 0
+														? `Attach ${selectedFeatures.length}`
+														: 'Select geometry'}
+											</Button>
+										</TooltipTrigger>
+										<TooltipContent>
+											{attachedGeojson
+												? 'Click to clear attached geometry'
+												: 'Select geometries on the map, then click to attach to your comment'}
+										</TooltipContent>
+									</Tooltip>
+								</div>
+
+								<CommentsPanel
+									key={initialCollection.id ?? initialCollection.dTag ?? 'no-target'}
+									target={initialCollection}
+									onCommentGeojsonVisibilityChange={handleCommentGeojsonVisibilityChange}
+									onZoomToCommentGeojson={handleZoomToCommentGeojson}
+									visibleGeojsonCommentIds={visibleGeojsonCommentIds}
+									attachedGeojson={attachedGeojson}
+									onClearAttachment={handleClearAttachment}
+									availableFeatures={availableFeatures}
+									onMentionVisibilityToggle={onMentionVisibilityToggle}
+									onMentionZoomTo={onMentionZoomTo}
+									focusCommentId={focusCommentId}
+								/>
+							</section>
+						)}
 					</div>
-				) : (
-					<CommentsPanel
-						key={initialCollection?.id ?? initialCollection?.dTag ?? 'no-target'}
-						target={initialCollection ?? null}
-						onCommentGeojsonVisibilityChange={handleCommentGeojsonVisibilityChange}
-						onZoomToCommentGeojson={handleZoomToCommentGeojson}
-						visibleGeojsonCommentIds={visibleGeojsonCommentIds}
-						attachedGeojson={attachedGeojson}
-						onClearAttachment={handleClearAttachment}
-						availableFeatures={availableFeatures}
-						onMentionVisibilityToggle={onMentionVisibilityToggle}
-						onMentionZoomTo={onMentionZoomTo}
-					/>
-				)}
 			</div>
 
-			{/* Footer - only show on details tab */}
-			{activeTab === 'details' && (
-				<div className="p-4 border-t border-gray-100 flex justify-end gap-2">
-					<Button variant="ghost" onClick={onClose} disabled={isSaving}>
-						Cancel
-					</Button>
-					<Button
-						onClick={handleSave}
-						disabled={isSaving || !name.trim()}
-						className="bg-emerald-600 hover:bg-emerald-700"
-					>
-						{isSaving ? 'Saving...' : 'Save Collection'}
-					</Button>
-				</div>
-			)}
+			<div className="p-4 border-t border-gray-100 flex justify-end gap-2">
+				<Button variant="ghost" onClick={onClose} disabled={isSaving}>
+					Cancel
+				</Button>
+				<Button
+					onClick={handleSave}
+					disabled={isSaving || !name.trim()}
+					className="bg-emerald-600 hover:bg-emerald-700"
+				>
+					{isSaving ? 'Saving...' : 'Save Collection'}
+				</Button>
+			</div>
 		</div>
 	)
 }

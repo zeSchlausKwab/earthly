@@ -15,6 +15,7 @@ import {
 import { createUserProfileEvent } from "./gen_user";
 import { generateGeoEventData } from "./gen_geo_events";
 import type { Feature, FeatureCollection } from "geojson";
+import { NDKGeoCommentEvent } from "@/lib/ndk/NDKGeoCommentEvent";
 
 config();
 
@@ -36,6 +37,10 @@ interface SeedIdentity {
 interface PublishedContext {
 	id: string | null;
 	coordinate: string;
+	contextId: string;
+	name: string;
+	ownerPubkey: string;
+	bbox?: BoundingBox;
 }
 
 interface PublishedDataset {
@@ -45,6 +50,24 @@ interface PublishedDataset {
 	name: string;
 	ownerPubkey: string;
 	featureCollection: FeatureCollection;
+	bbox?: BoundingBox;
+}
+
+interface PublishedCollection {
+	id: string | null;
+	collectionId: string;
+	coordinate: string;
+	name: string;
+	ownerPubkey: string;
+	bbox?: BoundingBox;
+}
+
+interface CommentTarget {
+	id: string | null;
+	kind: number;
+	dTag: string;
+	name: string;
+	ownerPubkey: string;
 	bbox?: BoundingBox;
 }
 
@@ -156,6 +179,75 @@ function mergeBoundingBoxes(boxes: BoundingBox[]): BoundingBox | undefined {
 	return [west, south, east, north];
 }
 
+function bboxCenterPoint(bbox?: BoundingBox): [number, number] {
+	if (!bbox) return [13.405, 52.52];
+	return [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2];
+}
+
+function createCommentAnnotationFeatureCollection(
+	target: CommentTarget,
+	seedIndex: number,
+): FeatureCollection {
+	const [centerLon, centerLat] = bboxCenterPoint(target.bbox);
+	const delta = 0.01 + seedIndex * 0.0015;
+
+	return {
+		type: "FeatureCollection",
+		features: [
+			{
+				type: "Feature",
+				id: `comment-annotation-${target.dTag}-${seedIndex}`,
+				properties: {
+					featureType: "annotation",
+					name: `${target.name} note`,
+					text: `Observation ${seedIndex + 1}`,
+					description: `Seeded annotation for ${target.name} highlighting a non-canonical field note.`,
+					textColor: "#92400e",
+					textHaloColor: "#fff8db",
+					textHaloWidth: 1.5,
+				},
+				geometry: {
+					type: "Point",
+					coordinates: [centerLon, centerLat],
+				},
+			},
+			{
+				type: "Feature",
+				id: `comment-callout-${target.dTag}-${seedIndex}`,
+				properties: {
+					name: `${target.name} callout`,
+					description: `Seeded callout geometry anchored near the center of ${target.name}.`,
+					stroke: "#d97706",
+					color: "#d97706",
+					strokeWidth: 2,
+					lineDasharray: [2, 2],
+				},
+				geometry: {
+					type: "LineString",
+					coordinates: [
+						[centerLon, centerLat],
+						[centerLon + delta, centerLat + delta * 0.6],
+					],
+				},
+			},
+		],
+	};
+}
+
+function createSeedCommentText(target: CommentTarget, seedIndex: number): string {
+	const media = COMMENT_MEDIA_LIBRARY[seedIndex % COMMENT_MEDIA_LIBRARY.length] ?? COMMENT_MEDIA_LIBRARY[0];
+	return [
+		`Field note for ${target.name}: this seeded comment demonstrates rich media and non-canonical annotation geometry.`,
+		`Image: ${media?.image ?? ""}`,
+		`Video: ${media?.video ?? ""}`,
+		`Report: ${media?.external ?? ""}`,
+	].join("\n\n");
+}
+
+function createSeedReplyText(target: CommentTarget, seedIndex: number): string {
+	return `Follow-up on ${target.name}: seeded reply ${seedIndex + 1} confirming the note is discussion-only and should not be treated as canonical geometry.`;
+}
+
 const FEATURE_STYLE_PALETTES = {
 	amenities: {
 		fill: ["#0B7285", "#0E7490", "#2563EB", "#0891B2"],
@@ -178,6 +270,27 @@ const FEATURE_STYLE_PALETTES = {
 		opacity: [0.72, 0.8, 0.88],
 	},
 } as const;
+
+const COMMENT_MEDIA_LIBRARY = [
+	{
+		image:
+			"https://upload.wikimedia.org/wikipedia/commons/thumb/7/77/Delete_key1.jpg/640px-Delete_key1.jpg",
+		video: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+		external: "https://earthly.local/field-notes/ops",
+	},
+	{
+		image:
+			"https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Example.jpg/640px-Example.jpg",
+		video: "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+		external: "https://earthly.local/field-notes/community",
+	},
+	{
+		image:
+			"https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Fronalpstock_big.jpg/640px-Fronalpstock_big.jpg",
+		video: "https://www.youtube.com/watch?v=ScMzIvxBSi4",
+		external: "https://earthly.local/field-notes/monitoring",
+	},
+] as const;
 
 function decorateFeatures(
 	features: Feature[],
@@ -334,6 +447,13 @@ async function publishMapContext({
 	return {
 		id: event.id ?? null,
 		coordinate: contextCoordinate,
+		contextId,
+		name:
+			(typeof content.name === "string" && content.name.trim().length > 0
+				? content.name
+				: contextId),
+		ownerPubkey: identity.pubkey,
+		bbox,
 	};
 }
 
@@ -391,7 +511,7 @@ async function publishCollection({
 	license = "CC-BY-4.0",
 	picture,
 	bbox,
-}: PublishCollectionOptions): Promise<string> {
+}: PublishCollectionOptions): Promise<PublishedCollection> {
 	const event = new NDKEvent(ndk);
 	event.kind = GEO_COLLECTION_KIND;
 	event.content = JSON.stringify({
@@ -424,7 +544,14 @@ async function publishCollection({
 		collectionId,
 	);
 	console.log(`  Collection published: ${name}`);
-	return collectionCoordinate;
+	return {
+		id: event.id ?? null,
+		collectionId,
+		coordinate: collectionCoordinate,
+		name,
+		ownerPubkey: identity.pubkey,
+		bbox,
+	};
 }
 
 interface PublishProposalOptions {
@@ -476,6 +603,34 @@ async function publishProposal({
 	console.log(`  Proposal published: "${description}" by ${identity.label} -> ${targetDataset.name}`);
 }
 
+async function publishSeedCommentThread(
+	target: CommentTarget,
+	author: SeedIdentity,
+	replier: SeedIdentity,
+	seedIndex: number,
+): Promise<void> {
+	const rootAddress = coordinate(target.kind, target.ownerPubkey, target.dTag);
+
+	const comment = new NDKGeoCommentEvent(ndk);
+	comment.commentContent = {
+		text: createSeedCommentText(target, seedIndex),
+		geojson: createCommentAnnotationFeatureCollection(target, seedIndex),
+	};
+	comment.setRootScope(target.kind, rootAddress, target.ownerPubkey);
+	comment.created_at = Math.floor(Date.now() / 1000) + seedIndex;
+	await comment.publishComment(author.signer);
+
+	const reply = new NDKGeoCommentEvent(ndk);
+	reply.commentContent = {
+		text: createSeedReplyText(target, seedIndex),
+	};
+	reply.setReplyScope(target.kind, rootAddress, target.ownerPubkey, comment);
+	reply.created_at = (comment.created_at ?? Math.floor(Date.now() / 1000)) + 60;
+	await reply.publishComment(replier.signer);
+
+	console.log(`  Comments published: ${target.name}`);
+}
+
 function nudgePosition(
 	position: [number, number],
 	seedFactor: number,
@@ -512,7 +667,7 @@ function mutateFeatureCollectionForProposal(
 		}
 		case "Polygon": {
 			const ring = geometry.coordinates[0];
-			if (ring && ring.length > 3) {
+			if (ring && ring.length > 3 && ring[0] && ring[1]) {
 				ring[1] = nudgePosition(ring[1] as [number, number], seedFactor);
 				ring[ring.length - 1] = [...ring[0]] as [number, number];
 			}
@@ -528,7 +683,7 @@ function mutateFeatureCollectionForProposal(
 		}
 		case "MultiPolygon": {
 			const ring = geometry.coordinates[0]?.[0];
-			if (ring && ring.length > 3) {
+			if (ring && ring.length > 3 && ring[0] && ring[1]) {
 				ring[1] = nudgePosition(ring[1] as [number, number], seedFactor);
 				ring[ring.length - 1] = [...ring[0]] as [number, number];
 			}
@@ -562,9 +717,9 @@ function pickProposalAuthor(
 		(identity) => identity.pubkey !== targetDataset.ownerPubkey,
 	);
 	if (candidates.length === 0) {
-		return identities[0];
+		return identities[0]!;
 	}
-	return candidates[seedIndex % candidates.length] ?? candidates[0];
+	return candidates[seedIndex % candidates.length] ?? candidates[0]!;
 }
 
 function createRailCorridorFeatureCollection(): FeatureCollection & Record<string, unknown> {
@@ -1648,7 +1803,7 @@ async function seedData() {
 	);
 
 	console.log("[Seed] Publishing map contexts...");
-	await publishMapContext({
+	const rootContext = await publishMapContext({
 		identity: planner,
 		contextId: ROOT_CONTEXT_ID,
 		bbox: [10.3, 50.0, 15.3, 54.9],
@@ -1663,7 +1818,7 @@ async function seedData() {
 		},
 	});
 
-	await publishMapContext({
+	const adminContext = await publishMapContext({
 		identity: planner,
 		contextId: ADMIN_CONTEXT_ID,
 		parentCoordinate: rootContextCoordinate,
@@ -1679,7 +1834,7 @@ async function seedData() {
 		},
 	});
 
-	await publishMapContext({
+	const railContext = await publishMapContext({
 		identity: mobility,
 		contextId: RAIL_CONTEXT_ID,
 		parentCoordinate: rootContextCoordinate,
@@ -1717,7 +1872,7 @@ async function seedData() {
 		},
 	});
 
-	await publishMapContext({
+	const riverContext = await publishMapContext({
 		identity: mobility,
 		contextId: RIVER_CONTEXT_ID,
 		parentCoordinate: rootContextCoordinate,
@@ -1750,7 +1905,7 @@ async function seedData() {
 		},
 	});
 
-	await publishMapContext({
+	const heritageContext = await publishMapContext({
 		identity: heritage,
 		contextId: HERITAGE_CONTEXT_ID,
 		parentCoordinate: rootContextCoordinate,
@@ -1766,7 +1921,7 @@ async function seedData() {
 		},
 	});
 
-	await publishMapContext({
+	const toiletsContext = await publishMapContext({
 		identity: planner,
 		contextId: TOILETS_CONTEXT_ID,
 		parentCoordinate: rootContextCoordinate,
@@ -1798,7 +1953,7 @@ async function seedData() {
 		},
 	});
 
-	await publishMapContext({
+	const hikingContext = await publishMapContext({
 		identity: heritage,
 		contextId: HIKING_CONTEXT_ID,
 		parentCoordinate: rootContextCoordinate,
@@ -1831,7 +1986,7 @@ async function seedData() {
 		},
 	});
 
-	await publishMapContext({
+	const surfContext = await publishMapContext({
 		identity: mobility,
 		contextId: SURF_CONTEXT_ID,
 		parentCoordinate: rootContextCoordinate,
@@ -1870,7 +2025,7 @@ async function seedData() {
 		},
 	});
 
-	await publishMapContext({
+	const beachContext = await publishMapContext({
 		identity: heritage,
 		contextId: BEACH_CONTEXT_ID,
 		parentCoordinate: rootContextCoordinate,
@@ -2048,7 +2203,7 @@ async function seedData() {
 	console.log(`  Dataset published: ${bestBeachesDataset.name}`);
 
 	console.log("[Seed] Publishing collections...");
-	await publishCollection({
+	const adminCollection = await publishCollection({
 		identity: planner,
 		collectionId: ADMIN_COLLECTION_ID,
 		name: "East Germany Bundesländer Basemap",
@@ -2064,7 +2219,7 @@ async function seedData() {
 		),
 	});
 
-	await publishCollection({
+	const mobilityCollection = await publishCollection({
 		identity: mobility,
 		collectionId: MOBILITY_COLLECTION_ID,
 		name: "Berlin-Brandenburg Mobility Validation Kit",
@@ -2084,7 +2239,7 @@ async function seedData() {
 		),
 	});
 
-	await publishCollection({
+	const riverCollection = await publishCollection({
 		identity: mobility,
 		collectionId: RIVER_COLLECTION_ID,
 		name: "Havel-Spree Monitoring Pack",
@@ -2100,7 +2255,7 @@ async function seedData() {
 		),
 	});
 
-	await publishCollection({
+	const heritageCollection = await publishCollection({
 		identity: heritage,
 		collectionId: HERITAGE_COLLECTION_ID,
 		name: "Saxon Heritage Atlas",
@@ -2119,7 +2274,7 @@ async function seedData() {
 		),
 	});
 
-	await publishCollection({
+	const amenitiesCollection = await publishCollection({
 		identity: planner,
 		collectionId: AMENITIES_COLLECTION_ID,
 		name: "Accessible Amenities Starter Pack (Global)",
@@ -2135,7 +2290,7 @@ async function seedData() {
 		),
 	});
 
-	await publishCollection({
+	const outdoorCollection = await publishCollection({
 		identity: mobility,
 		collectionId: OUTDOOR_COLLECTION_ID,
 		name: "Global Outdoor Adventures Pack",
@@ -2173,6 +2328,60 @@ async function seedData() {
 		surfSpotsDataset,
 		bestBeachesDataset,
 	];
+	const allPublishedCollections: PublishedCollection[] = [
+		adminCollection,
+		mobilityCollection,
+		riverCollection,
+		heritageCollection,
+		amenitiesCollection,
+		outdoorCollection,
+	];
+	const allPublishedContexts: PublishedContext[] = [
+		rootContext,
+		adminContext,
+		railContext,
+		riverContext,
+		heritageContext,
+		toiletsContext,
+		hikingContext,
+		surfContext,
+		beachContext,
+	];
+
+	console.log("[Seed] Publishing seeded comments...");
+	const commentAuthors = [planner, mobility, heritage];
+	const commentTargets: CommentTarget[] = [
+		...allPublishedContexts.map((context) => ({
+			id: context.id,
+			kind: MAP_CONTEXT_KIND,
+			dTag: context.contextId,
+			name: context.name,
+			ownerPubkey: context.ownerPubkey,
+			bbox: context.bbox,
+		})),
+		...allPublishedCollections.map((collection) => ({
+			id: collection.id,
+			kind: GEO_COLLECTION_KIND,
+			dTag: collection.collectionId,
+			name: collection.name,
+			ownerPubkey: collection.ownerPubkey,
+			bbox: collection.bbox,
+		})),
+		...allPublishedDatasets.map((dataset) => ({
+			id: dataset.id,
+			kind: GEO_EVENT_KIND,
+			dTag: dataset.datasetId,
+			name: dataset.name,
+			ownerPubkey: dataset.ownerPubkey,
+			bbox: dataset.bbox,
+		})),
+	];
+
+	for (const [index, target] of commentTargets.entries()) {
+		const author = commentAuthors[index % commentAuthors.length] ?? planner;
+		const replyAuthor = commentAuthors[(index + 1) % commentAuthors.length] ?? mobility;
+		await publishSeedCommentThread(target, author, replyAuthor, index);
+	}
 
 	// ── Edit Proposals ──────────────────────────────────────────────────
 	console.log("[Seed] Publishing edit proposals...");

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import type maplibregl from 'maplibre-gl'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
@@ -59,7 +59,7 @@ function buildOverlayCollection(comment: NDKGeoCommentEvent): FeatureCollection 
 			...feature,
 			properties: {
 				...(feature.properties ?? {}),
-				commentId: comment.id ?? comment.commentId,
+				commentId: comment.commentId ?? comment.id,
 				commentText: comment.text,
 				commentPubkey: comment.pubkey,
 				commentCreatedAt: comment.created_at,
@@ -68,8 +68,12 @@ function buildOverlayCollection(comment: NDKGeoCommentEvent): FeatureCollection 
 	}
 }
 
-export function useCommentGeometry(mapRef: React.RefObject<maplibregl.Map | null>) {
+export function useCommentGeometry(
+	mapRef: React.RefObject<maplibregl.Map | null>,
+	mapReady = false,
+) {
 	const commentGeometryLayers = useRef<Map<string, CommentLayerEntry>>(new Map())
+	const desiredVisibleComments = useRef<Map<string, NDKGeoCommentEvent>>(new Map())
 	const [annotationPopupData, setAnnotationPopupData] = useState<CommentAnnotationPopupData | null>(
 		null,
 	)
@@ -104,24 +108,24 @@ export function useCommentGeometry(mapRef: React.RefObject<maplibregl.Map | null
 			commentGeometryLayers.current.delete(commentId)
 
 			setAnnotationPopupData((current) => {
-				const currentId = current?.comment.id ?? current?.comment.commentId
+				const currentId = current?.comment.commentId ?? current?.comment.id
 				return currentId === commentId ? null : current
 			})
 		},
 		[mapRef],
 	)
 
-	const handleCommentGeometryVisibility = useCallback(
-		(comment: NDKGeoCommentEvent, visible: boolean) => {
-			if (!mapRef.current) return
+	const showCommentLayers = useCallback(
+		(comment: NDKGeoCommentEvent) => {
+			if (!mapReady || !mapRef.current) return
 
-			const commentId = comment.id ?? comment.commentId ?? ''
+			const commentId = comment.commentId ?? comment.id ?? ''
 			if (!commentId) return
-
-			removeCommentLayers(commentId)
-			if (!visible || !comment.geojson || comment.geojson.features.length === 0) return
+			if (!comment.geojson || comment.geojson.features.length === 0) return
+			if (commentGeometryLayers.current.has(commentId)) return
 
 			const mapInstance = mapRef.current
+			if (!mapInstance.isStyleLoaded()) return
 			const sourceId = `comment-geo-${commentId}`
 			const fillLayerId = `comment-fill-${commentId}`
 			const lineLayerId = `comment-line-${commentId}`
@@ -252,7 +256,7 @@ export function useCommentGeometry(mapRef: React.RefObject<maplibregl.Map | null
 				setAnnotationPopupData((current) => {
 					if (
 						current?.pinned &&
-						(current.comment.id ?? current.comment.commentId) === commentId
+						(current.comment.commentId ?? current.comment.id) === commentId
 					) {
 						return current
 					}
@@ -269,7 +273,7 @@ export function useCommentGeometry(mapRef: React.RefObject<maplibregl.Map | null
 				mapInstance.getCanvas().style.cursor = ''
 				setAnnotationPopupData((current) => {
 					if (!current || current.pinned) return current
-					const currentId = current.comment.id ?? current.comment.commentId
+					const currentId = current.comment.commentId ?? current.comment.id
 					return currentId === commentId ? null : current
 				})
 			}
@@ -290,8 +294,53 @@ export function useCommentGeometry(mapRef: React.RefObject<maplibregl.Map | null
 				handleMouseLeave,
 			})
 		},
-		[mapRef, removeCommentLayers],
+		[mapReady, mapRef, removeCommentLayers],
 	)
+
+	const handleCommentGeometryVisibility = useCallback(
+		(comment: NDKGeoCommentEvent, visible: boolean) => {
+			const commentId = comment.commentId ?? comment.id ?? ''
+			if (!commentId) return
+
+			if (visible) {
+				desiredVisibleComments.current.set(commentId, comment)
+				if (!mapReady) return
+				showCommentLayers(comment)
+				return
+			}
+
+			desiredVisibleComments.current.delete(commentId)
+			removeCommentLayers(commentId)
+		},
+		[mapReady, removeCommentLayers, showCommentLayers],
+	)
+
+	useEffect(() => {
+		if (!mapReady || !mapRef.current) return
+
+		for (const [commentId, comment] of desiredVisibleComments.current) {
+			if (commentGeometryLayers.current.has(commentId)) continue
+			showCommentLayers(comment)
+		}
+	}, [mapReady, mapRef, showCommentLayers])
+
+	useEffect(() => {
+		if (!mapReady) return
+		const mapInstance = mapRef.current
+		if (!mapInstance) return
+
+		const replayVisibleComments = () => {
+			commentGeometryLayers.current.clear()
+			for (const comment of desiredVisibleComments.current.values()) {
+				showCommentLayers(comment)
+			}
+		}
+
+		mapInstance.on('style.load', replayVisibleComments)
+		return () => {
+			mapInstance.off('style.load', replayVisibleComments)
+		}
+	}, [mapReady, mapRef, showCommentLayers])
 
 	return {
 		commentGeometryLayers,

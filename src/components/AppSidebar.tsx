@@ -166,6 +166,8 @@ interface AppSidebarProps {
 	ndk?: import('@nostr-dev-kit/ndk').default | null
 	/** User pubkey from route (for user profile pages) */
 	userPubkey?: string
+	/** Optional comment d-tag deep-linked from the route */
+	focusCommentId?: string
 	/** Callback when filtered dataset keys change (for map visibility sync) */
 	onFilteredDatasetKeysChange?: (keys: Set<string>) => void
 	/** Callback when a proposal overlay visibility is toggled */
@@ -235,6 +237,7 @@ export function AppSidebar({
 	ndk,
 	// User profile props
 	userPubkey,
+	focusCommentId,
 	// Filter sync
 	onFilteredDatasetKeysChange,
 	onToggleProposalOverlay,
@@ -693,6 +696,7 @@ export function AppSidebar({
 		featureCollectionForUpload,
 		onBlossomUploadComplete,
 		ndk,
+		focusCommentId,
 	}
 
 	const renderWorkContent = (mode: WorkViewMode) => {

@@ -1,7 +1,16 @@
-import { Heart, MessageCircle, PencilLine, Zap } from 'lucide-react'
+import { Heart, MessageCircle, PencilLine, Share2, Zap } from 'lucide-react'
 import { useNDKCurrentUser } from '@nostr-dev-kit/react'
+import { nip19 } from 'nostr-tools'
+import { useMemo } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { buildRouteHash } from '@/features/geo-editor/hooks/useRouting'
+import {
+	GEO_COLLECTION_KIND,
+	GEO_COMMENT_KIND,
+	GEO_EVENT_KIND,
+	MAP_CONTEXT_KIND,
+} from '@/lib/ndk/kinds'
 import { useGeoReactions, type ReactableEvent } from '../hooks/useGeoReactions'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -17,6 +26,78 @@ interface GeoSocialActionsProps {
 	showZapButton?: boolean
 	className?: string
 	compact?: boolean
+}
+
+function getEntityRouteParts(kind: number): {
+	sidebarView: 'datasets' | 'collections' | 'contexts'
+	focusType: 'geoevent' | 'collection' | 'mapcontext'
+} | null {
+	switch (kind) {
+		case GEO_EVENT_KIND:
+			return { sidebarView: 'datasets', focusType: 'geoevent' }
+		case GEO_COLLECTION_KIND:
+			return { sidebarView: 'collections', focusType: 'collection' }
+		case MAP_CONTEXT_KIND:
+			return { sidebarView: 'contexts', focusType: 'mapcontext' }
+		default:
+			return null
+	}
+}
+
+function buildShareHash(target: ReactableEvent): string | null {
+	if (!target.kind) return null
+
+	if (target.kind === GEO_COMMENT_KIND) {
+		const commentTarget = target as {
+			rootAddress?: string
+			commentId?: string
+			dTag?: string
+		}
+		const rootAddress = commentTarget.rootAddress
+		const commentId = commentTarget.commentId ?? commentTarget.dTag
+		if (!rootAddress || !commentId) return null
+
+		const [kindValue, pubkey, ...identifierParts] = rootAddress.split(':')
+		const rootKind = Number.parseInt(kindValue ?? '', 10)
+		const identifier = identifierParts.join(':')
+		if (!Number.isFinite(rootKind) || !pubkey || !identifier) return null
+
+		const route = getEntityRouteParts(rootKind)
+		if (!route) return null
+
+		return buildRouteHash({
+			sidebarView: route.sidebarView,
+			focusType: route.focusType,
+			naddr: nip19.naddrEncode({
+				kind: rootKind,
+				pubkey,
+				identifier,
+			}),
+			commentId,
+		})
+	}
+
+	const targetWithDTag = target as {
+		dTag?: string
+		datasetId?: string
+		contextId?: string
+		pubkey: string
+	}
+	const identifier = targetWithDTag.dTag ?? targetWithDTag.datasetId ?? targetWithDTag.contextId
+	if (!identifier) return null
+
+	const route = getEntityRouteParts(target.kind)
+	if (!route) return null
+
+	return buildRouteHash({
+		sidebarView: route.sidebarView,
+		focusType: route.focusType,
+		naddr: nip19.naddrEncode({
+			kind: target.kind,
+			pubkey: target.pubkey,
+			identifier,
+		}),
+	})
 }
 
 /**
@@ -44,6 +125,7 @@ export function GeoSocialActions({
 		toggleReaction,
 		openZapDialog,
 	} = useGeoReactions({ target })
+	const shareHash = useMemo(() => buildShareHash(target), [target])
 
 	const formatCount = (count: number): string => {
 		if (count === 0) return ''
@@ -74,6 +156,24 @@ export function GeoSocialActions({
 			description: 'This feature is not yet implemented.',
 		})
 		void openZapDialog // Suppress unused warning
+	}
+
+	const handleShare = async () => {
+		if (!shareHash) {
+			toast.error('No share route available for this item')
+			return
+		}
+
+		const shareUrl = new URL(window.location.href)
+		shareUrl.hash = shareHash
+
+		try {
+			await navigator.clipboard.writeText(shareUrl.toString())
+			toast.success('Share link copied')
+		} catch (error) {
+			console.error('Failed to copy share link:', error)
+			toast.error('Failed to copy share link')
+		}
 	}
 
 	const buttonSize = compact ? 'sm' : 'default'
@@ -128,6 +228,24 @@ export function GeoSocialActions({
 					<TooltipContent>
 						{userHasZapped ? 'You zapped this' : currentUser ? 'Zap' : 'Log in to zap'}
 					</TooltipContent>
+				</Tooltip>
+			)}
+
+			{shareHash && (
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							type="button"
+							variant="ghost"
+							size={buttonSize}
+							onClick={handleShare}
+							className="gap-1 text-gray-500 hover:text-sky-600"
+						>
+							<Share2 className={iconSize} />
+							{!compact && <span className="text-xs font-medium">Share</span>}
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent>Copy share link</TooltipContent>
 				</Tooltip>
 			)}
 

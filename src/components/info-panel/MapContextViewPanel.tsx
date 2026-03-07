@@ -1,4 +1,4 @@
-import { Eye, FileText, Layers3, MapPin, Maximize2, MessageCircle } from 'lucide-react'
+import { Eye, Layers3, MapPin, Maximize2, MessageCircle } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
@@ -29,9 +29,8 @@ interface MapContextViewPanelProps {
 		visible: boolean,
 	) => void
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
+	focusCommentId?: string
 }
-
-type ViewTab = 'details' | 'comments'
 
 export function MapContextViewPanel({
 	getDatasetKey,
@@ -44,6 +43,7 @@ export function MapContextViewPanel({
 	availableFeatures = [],
 	onMentionVisibilityToggle,
 	onMentionZoomTo,
+	focusCommentId,
 }: MapContextViewPanelProps) {
 	const viewContext = useEditorStore((state) => state.viewContext)
 	const viewContextDatasets = useEditorStore((state) => state.viewContextDatasets)
@@ -53,7 +53,6 @@ export function MapContextViewPanel({
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 	const features = useEditorStore((state) => state.features)
 
-	const [activeTab, setActiveTab] = useState<ViewTab>('details')
 	const [visibleGeojsonCommentIds, setVisibleGeojsonCommentIds] = useState<Set<string>>(new Set())
 	const [attachedGeojson, setAttachedGeojson] = useState<FeatureCollection | null>(null)
 
@@ -114,7 +113,7 @@ export function MapContextViewPanel({
 
 	const handleCommentGeojsonVisibilityChange = useCallback(
 		(comment: NDKGeoCommentEvent, visible: boolean) => {
-			const id = comment.id ?? comment.commentId ?? ''
+			const id = comment.commentId ?? comment.id ?? ''
 			setVisibleGeojsonCommentIds((prev) => {
 				const next = new Set(prev)
 				if (visible) next.add(id)
@@ -158,6 +157,59 @@ export function MapContextViewPanel({
 
 	const contextContent = viewContext.context
 	const allowedGeometryTypes = contextContent.geometryConstraints?.allowedTypes ?? []
+	const commentsSection = (
+		<section className="space-y-3 border-t border-gray-100 pt-4">
+			<div className="flex items-center justify-between gap-3">
+				<div className="flex items-center gap-2">
+					<MessageCircle className="h-4 w-4 text-gray-400" />
+					<h3 className="font-medium text-gray-900">Comments</h3>
+				</div>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							type="button"
+							variant={attachedGeojson ? 'default' : 'outline'}
+							size="sm"
+							onClick={() => {
+								if (attachedGeojson) setAttachedGeojson(null)
+								else handleAttachGeometry()
+							}}
+							disabled={!canAttachGeometry && !attachedGeojson}
+							className="gap-1.5"
+						>
+							<MapPin className="h-3.5 w-3.5" />
+							{attachedGeojson
+								? `${attachedGeojson.features.length} attached`
+								: selectedFeatures.length > 0
+									? `Attach ${selectedFeatures.length}`
+									: 'Select geometry'}
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent>
+						{attachedGeojson
+							? 'Click to clear attachment'
+							: selectedFeatures.length > 0
+								? 'Attach selected geometry to your comment'
+								: 'Select geometry in the editor first, then attach it here'}
+					</TooltipContent>
+				</Tooltip>
+			</div>
+
+			<CommentsPanel
+				key={viewContext.id ?? viewContext.dTag ?? 'no-context'}
+				target={viewContext}
+				onCommentGeojsonVisibilityChange={handleCommentGeojsonVisibilityChange}
+				onZoomToCommentGeojson={handleZoomToCommentGeojson}
+				visibleGeojsonCommentIds={visibleGeojsonCommentIds}
+				attachedGeojson={attachedGeojson}
+				onClearAttachment={() => setAttachedGeojson(null)}
+				availableFeatures={availableFeatures}
+				onMentionVisibilityToggle={onMentionVisibilityToggle}
+				onMentionZoomTo={onMentionZoomTo}
+				focusCommentId={focusCommentId}
+			/>
+		</section>
+	)
 
 	return (
 		<div className="flex h-full flex-col text-sm">
@@ -167,61 +219,8 @@ export function MapContextViewPanel({
 				</h2>
 			</div>
 
-			<div className="mb-3 flex items-center gap-1 border-b border-gray-100 pb-2">
-				<Button
-					variant={activeTab === 'details' ? 'default' : 'ghost'}
-					size="sm"
-					onClick={() => setActiveTab('details')}
-					className="gap-1.5"
-				>
-					<FileText className="h-3.5 w-3.5" />
-					Details
-				</Button>
-				<Button
-					variant={activeTab === 'comments' ? 'default' : 'ghost'}
-					size="sm"
-					onClick={() => setActiveTab('comments')}
-					className="gap-1.5"
-				>
-					<MessageCircle className="h-3.5 w-3.5" />
-					Comments
-				</Button>
-
-				{activeTab === 'comments' && (
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								variant={attachedGeojson ? 'default' : 'outline'}
-								size="sm"
-								onClick={() => {
-									if (attachedGeojson) setAttachedGeojson(null)
-									else handleAttachGeometry()
-								}}
-								disabled={!canAttachGeometry && !attachedGeojson}
-								className="ml-auto gap-1.5"
-							>
-								<MapPin className="h-3.5 w-3.5" />
-								{attachedGeojson
-									? `${attachedGeojson.features.length} attached`
-									: selectedFeatures.length > 0
-										? `Attach ${selectedFeatures.length}`
-										: 'Select geometry'}
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>
-							{attachedGeojson
-								? 'Click to clear attachment'
-								: selectedFeatures.length > 0
-									? 'Attach selected geometry to your comment'
-									: 'Select geometry in the editor first, then attach it here'}
-						</TooltipContent>
-					</Tooltip>
-				)}
-			</div>
-
 			<div className="min-h-0 flex-1 overflow-y-auto">
-				{activeTab === 'details' ? (
-					<div className="space-y-4 text-sm">
+				<div className="space-y-4 text-sm">
 						<div className="space-y-2 rounded-lg border border-gray-200 p-3">
 							{contextContent.description && (
 								<RichContentRenderer
@@ -361,21 +360,9 @@ export function MapContextViewPanel({
 								</div>
 							)}
 						</div>
+
+						{commentsSection}
 					</div>
-				) : (
-					<CommentsPanel
-						key={viewContext.id ?? viewContext.dTag ?? 'no-context'}
-						target={viewContext}
-						onCommentGeojsonVisibilityChange={handleCommentGeojsonVisibilityChange}
-						onZoomToCommentGeojson={handleZoomToCommentGeojson}
-						visibleGeojsonCommentIds={visibleGeojsonCommentIds}
-						attachedGeojson={attachedGeojson}
-						onClearAttachment={() => setAttachedGeojson(null)}
-						availableFeatures={availableFeatures}
-						onMentionVisibilityToggle={onMentionVisibilityToggle}
-						onMentionZoomTo={onMentionZoomTo}
-					/>
-				)}
 			</div>
 		</div>
 	)

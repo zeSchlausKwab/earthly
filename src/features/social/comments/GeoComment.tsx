@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, Eye, EyeOff, MapPin } from 'lucide-react'
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import type { CommentNode } from '../hooks/useGeoComments'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
@@ -30,6 +30,7 @@ interface GeoCommentProps {
 	availableFeatures?: GeoFeatureItem[]
 	activeComposerId: string
 	onComposerTargetChange: (composerId: string) => void
+	focusCommentId?: string
 	maxDepth?: number
 	className?: string
 }
@@ -48,17 +49,20 @@ export function GeoComment({
 	availableFeatures = [],
 	activeComposerId,
 	onComposerTargetChange,
+	focusCommentId,
 	maxDepth = 5,
 	className = '',
 }: GeoCommentProps) {
 	const { event: comment, children, depth } = commentNode
 	const [isExpanded, setIsExpanded] = useState(true)
+	const commentRef = useRef<HTMLDivElement | null>(null)
 
-	const commentId = comment.id ?? comment.commentId ?? ''
+	const commentId = comment.commentId ?? comment.id ?? ''
 	const hasGeojson = comment.geojson && comment.geojson.features.length > 0
 	const featureCount = comment.geojson?.features.length ?? 0
 	const isGeojsonVisible = visibleGeojsonCommentIds.has(commentId)
 	const showReplyForm = activeComposerId === commentId
+	const isFocusedComment = focusCommentId === commentId
 
 	const timestamp = useMemo(() => {
 		if (!comment.created_at) return 'Unknown time'
@@ -97,11 +101,21 @@ export function GeoComment({
 
 	const hasChildren = children.length > 0
 
+	useEffect(() => {
+		if (!isFocusedComment || !commentRef.current) return
+		commentRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+	}, [isFocusedComment])
+
 	return (
 		<div className={`space-y-1 ${className}`}>
 			{/* Main comment */}
 			<div
-				className="group rounded-lg border border-gray-100 bg-white p-2 hover:border-gray-200 transition-colors"
+				ref={commentRef}
+				className={`group rounded-lg border bg-white p-2 transition-colors ${
+					isFocusedComment
+						? 'border-amber-300 bg-amber-50/40 shadow-sm'
+						: 'border-gray-100 hover:border-gray-200'
+				}`}
 				style={indentStyle}
 			>
 				{/* Header: author, timestamp, collapse button */}
@@ -230,6 +244,7 @@ export function GeoComment({
 							availableFeatures={availableFeatures}
 							activeComposerId={activeComposerId}
 							onComposerTargetChange={onComposerTargetChange}
+							focusCommentId={focusCommentId}
 							maxDepth={maxDepth}
 						/>
 					))}

@@ -1,7 +1,7 @@
-import { Eye } from 'lucide-react'
+import { Eye, MapPin, MessageCircle } from 'lucide-react'
 import type { FeatureCollection, Geometry } from 'geojson'
 import { cn } from '@/lib/utils'
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
 	getContextRequiredPropertyDefaults,
 	validateDatasetForContext,
@@ -22,6 +22,7 @@ import {
 import { DatasetSizeIndicator } from './info-panel/DatasetSizeIndicator'
 import { GeoCollectionEditorPanel } from '../features/collections/GeoCollectionEditorPanel'
 import { MapContextEditorPanel } from '../features/contexts/MapContextEditorPanel'
+import { CommentsPanel } from '../features/social/comments'
 import { Button } from './ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible'
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
@@ -104,6 +105,8 @@ export interface GeoEditorInfoPanelProps {
 	onBlossomUploadComplete?: (result: BlossomUploadResult) => void
 	/** NDK instance for authenticated uploads */
 	ndk?: import('@nostr-dev-kit/ndk').default | null
+	/** Optional comment d-tag from the route to reveal in the thread */
+	focusCommentId?: string
 }
 
 export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
@@ -141,6 +144,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		featureCollectionForUpload,
 		onBlossomUploadComplete,
 		ndk,
+		focusCommentId,
 	} = props
 
 	// Store state
@@ -160,9 +164,12 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	const activeDatasetContextRefs = useEditorStore((state) => state.activeDatasetContextRefs)
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
 	const setFeatures = useEditorStore((state) => state.setFeatures)
+	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 	const geoEditDrafts = useEditorStore((state) => state.geoEditDrafts)
 	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
 	const createGeoEditDraft = useEditorStore((state) => state.createGeoEditDraft)
+	const [visibleGeojsonCommentIds, setVisibleGeojsonCommentIds] = useState<Set<string>>(new Set())
+	const [attachedGeojson, setAttachedGeojson] = useState<FeatureCollection | null>(null)
 
 	const existingCollectionBlob = blobReferences.find(
 		(ref) => ref.scope === 'collection' && Boolean(ref.url),
@@ -179,6 +186,11 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		() => (activeGeoEditDraftId ? (geoEditDrafts[activeGeoEditDraftId] ?? null) : null),
 		[activeGeoEditDraftId, geoEditDrafts],
 	)
+	const selectedFeatures = useMemo(() => {
+		if (selectedFeatureIds.length === 0) return []
+		return features.filter((feature) => selectedFeatureIds.includes(feature.id))
+	}, [features, selectedFeatureIds])
+	const canAttachCommentGeometry = selectedFeatures.length > 0 && !attachedGeojson
 	const currentDraftSourceId = activeDataset
 		? `dataset:${getDatasetKey(activeDataset)}`
 		: (activeDraft?.sourceId ?? null)
@@ -451,6 +463,63 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		}
 	}
 
+	useEffect(() => {
+		setVisibleGeojsonCommentIds(new Set())
+		setAttachedGeojson(null)
+	}, [activeDataset?.id, activeDataset?.dTag])
+
+	const handleAttachCommentGeometry = useCallback(() => {
+		if (selectedFeatures.length === 0) return
+		setAttachedGeojson({
+			type: 'FeatureCollection',
+			features: selectedFeatures.map((feature) => ({
+				type: 'Feature' as const,
+				id: feature.id,
+				geometry: feature.geometry,
+				properties: feature.properties ?? {},
+			})),
+		})
+	}, [selectedFeatures])
+
+	const handleCommentGeojsonVisibilityChange = useCallback(
+		(comment: import('../lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent, visible: boolean) => {
+			const id = comment.commentId ?? comment.id ?? ''
+			setVisibleGeojsonCommentIds((prev) => {
+				const next = new Set(prev)
+				if (visible) next.add(id)
+				else next.delete(id)
+				return next
+			})
+			onCommentGeometryVisibility?.(comment, visible)
+		},
+		[onCommentGeometryVisibility],
+	)
+
+	const handleZoomToCommentGeojson = useCallback(
+		(comment: import('../lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent) => {
+			if (comment.boundingBox && onZoomToBounds) {
+				onZoomToBounds(comment.boundingBox)
+				return
+			}
+			if (comment.geojson && onZoomToBounds) {
+				import('@turf/turf')
+					.then((turf) => {
+						const bounds = turf.bbox(comment.geojson as FeatureCollection) as [
+							number,
+							number,
+							number,
+							number,
+						]
+						if (bounds.every((value) => Number.isFinite(value))) {
+							onZoomToBounds(bounds)
+						}
+					})
+					.catch(() => undefined)
+			}
+		},
+		[onZoomToBounds],
+	)
+
 	// Collection Editor mode takes precedence
 	if (collectionEditorMode !== 'none' && onSaveCollection && onCloseCollectionEditor) {
 		return (
@@ -464,6 +533,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				onZoomToBounds={onZoomToBounds}
 				onMentionVisibilityToggle={onMentionVisibilityToggle}
 				onMentionZoomTo={onMentionZoomTo}
+				focusCommentId={focusCommentId}
 			/>
 		)
 	}
@@ -501,6 +571,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 								}
 							: undefined
 					}
+					focusCommentId={focusCommentId}
 				/>
 			)
 		}
@@ -538,6 +609,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				onToggleProposalOverlay={onToggleProposalOverlay}
 				onProposalAccepted={onProposalAccepted}
 				visibleProposalIds={visibleProposalIds}
+				focusCommentId={focusCommentId}
 			/>
 		)
 	}
@@ -727,6 +799,46 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					contextPropertyTypeHints={contextPropertyTypeHints}
 				/>
 			</div>
+
+			{activeDataset && (
+				<div className="space-y-3 border-t border-gray-100 pt-3">
+					<div className="flex items-center justify-between gap-3">
+						<div className="flex items-center gap-2">
+							<MessageCircle className="h-4 w-4 text-gray-400" />
+							<div className="text-xs font-medium text-gray-700">Comments</div>
+						</div>
+						<Button
+							type="button"
+							size="sm"
+							variant={attachedGeojson ? 'default' : 'outline'}
+							onClick={attachedGeojson ? () => setAttachedGeojson(null) : handleAttachCommentGeometry}
+							disabled={!canAttachCommentGeometry && !attachedGeojson}
+							className="gap-1.5"
+						>
+							<MapPin className="h-3.5 w-3.5" />
+							{attachedGeojson
+								? `${attachedGeojson.features.length} attached`
+								: selectedFeatures.length > 0
+									? `Attach ${selectedFeatures.length}`
+									: 'Select geometry'}
+						</Button>
+					</div>
+
+					<CommentsPanel
+						key={activeDataset.id ?? activeDataset.dTag ?? 'edit-dataset'}
+						target={activeDataset}
+						onCommentGeojsonVisibilityChange={handleCommentGeojsonVisibilityChange}
+						onZoomToCommentGeojson={handleZoomToCommentGeojson}
+						visibleGeojsonCommentIds={visibleGeojsonCommentIds}
+						attachedGeojson={attachedGeojson}
+						onClearAttachment={() => setAttachedGeojson(null)}
+						availableFeatures={availableFeatures}
+						onMentionVisibilityToggle={onMentionVisibilityToggle}
+						onMentionZoomTo={onMentionZoomTo}
+						focusCommentId={focusCommentId}
+					/>
+				</div>
+			)}
 
 			{/* Publishing Status */}
 			{(publishMessage || publishError) && (
