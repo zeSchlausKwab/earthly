@@ -1,4 +1,4 @@
-import { Eye, MapPin, MessageCircle } from 'lucide-react'
+import { Eye, MapPin } from 'lucide-react'
 import type { FeatureCollection, Geometry } from 'geojson'
 import { cn } from '@/lib/utils'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -15,6 +15,8 @@ import type { MapContextValidationMode, NDKMapContextEvent } from '../lib/ndk/ND
 import {
 	BlobReferencesSection,
 	DatasetMetadataSection,
+	EntityPanelSectionHeader,
+	EntityPanelSurface,
 	GeometriesTable,
 	MapContextViewPanel,
 	ViewModePanel,
@@ -801,29 +803,29 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 			</div>
 
 			{activeDataset && (
-				<div className="space-y-3 border-t border-gray-100 pt-3">
-					<div className="flex items-center justify-between gap-3">
-						<div className="flex items-center gap-2">
-							<MessageCircle className="h-4 w-4 text-gray-400" />
-							<div className="text-xs font-medium text-gray-700">Comments</div>
-						</div>
-						<Button
-							type="button"
-							size="sm"
-							variant={attachedGeojson ? 'default' : 'outline'}
-							onClick={attachedGeojson ? () => setAttachedGeojson(null) : handleAttachCommentGeometry}
-							disabled={!canAttachCommentGeometry && !attachedGeojson}
-							className="gap-1.5"
-						>
-							<MapPin className="h-3.5 w-3.5" />
-							{attachedGeojson
-								? `${attachedGeojson.features.length} attached`
-								: selectedFeatures.length > 0
-									? `Attach ${selectedFeatures.length}`
-									: 'Select geometry'}
-						</Button>
-					</div>
-
+				<EntityPanelSurface tone="discussion" className="space-y-4">
+					<EntityPanelSectionHeader
+						eyebrow="Discussion"
+						title="Comments"
+						action={
+							canAttachCommentGeometry || attachedGeojson ? (
+								<Button
+									type="button"
+									size="sm"
+									variant={attachedGeojson ? 'default' : 'outline'}
+									onClick={attachedGeojson ? () => setAttachedGeojson(null) : handleAttachCommentGeometry}
+									className="gap-1.5 rounded-none border-stone-200 bg-white px-2 text-[11px] text-stone-700 hover:bg-stone-100"
+								>
+									<MapPin className="h-3.5 w-3.5" />
+									{attachedGeojson
+										? `Clear ${attachedGeojson.features.length} attachment${
+												attachedGeojson.features.length === 1 ? '' : 's'
+											}`
+										: `Attach ${selectedFeatures.length} selected`}
+								</Button>
+							) : null
+						}
+					/>
 					<CommentsPanel
 						key={activeDataset.id ?? activeDataset.dTag ?? 'edit-dataset'}
 						target={activeDataset}
@@ -837,7 +839,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						onMentionZoomTo={onMentionZoomTo}
 						focusCommentId={focusCommentId}
 					/>
-				</div>
+				</EntityPanelSurface>
 			)}
 
 			{/* Publishing Status */}

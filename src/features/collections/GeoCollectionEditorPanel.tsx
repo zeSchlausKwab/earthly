@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils'
 import { useNDK, useNDKCurrentUser } from '@nostr-dev-kit/react'
 import type { FeatureCollection } from 'geojson'
-import { Eye, EyeOff, MapPin, Maximize2, MessageCircle, Plus, Trash2 } from 'lucide-react'
+import { Eye, EyeOff, MapPin, Maximize2, Plus, Trash2 } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useEditorStore, type GeoCollectionEditDraft } from '../geo-editor/store'
@@ -24,7 +24,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from '@/components/ui/select'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { EntityPanelSectionHeader, EntityPanelSurface } from '@/components/info-panel/EntityPanelShell'
 
 interface GeoCollectionEditorPanelProps {
 	initialCollection?: NDKGeoCollectionEvent | null
@@ -604,38 +604,29 @@ export function GeoCollectionEditorPanel({
 						</div>
 
 						{initialCollection && (
-							<section className="space-y-3 border-t border-gray-100 pt-4">
-								<div className="flex items-center justify-between gap-3">
-									<div className="flex items-center gap-2">
-										<MessageCircle className="h-4 w-4 text-gray-400" />
-										<h3 className="text-sm font-semibold text-gray-900">Comments</h3>
-									</div>
-									<Tooltip>
-										<TooltipTrigger asChild>
+							<EntityPanelSurface tone="discussion" className="space-y-4 border-t-0">
+								<EntityPanelSectionHeader
+									eyebrow="Discussion"
+									title="Comments"
+									action={
+										canAttachGeometry || attachedGeojson ? (
 											<Button
 												type="button"
 												variant={attachedGeojson ? 'default' : 'outline'}
 												size="sm"
 												onClick={attachedGeojson ? handleClearAttachment : handleAttachGeometry}
-												disabled={!canAttachGeometry && !attachedGeojson}
-												className="gap-1.5"
+												className="gap-1.5 rounded-none border-stone-200 bg-white px-2 text-[11px] text-stone-700 hover:bg-stone-100"
 											>
 												<MapPin className="h-3.5 w-3.5" />
 												{attachedGeojson
-													? `${attachedGeojson.features.length} attached`
-													: selectedFeatures.length > 0
-														? `Attach ${selectedFeatures.length}`
-														: 'Select geometry'}
+													? `Clear ${attachedGeojson.features.length} attachment${
+															attachedGeojson.features.length === 1 ? '' : 's'
+														}`
+													: `Attach ${selectedFeatures.length} selected`}
 											</Button>
-										</TooltipTrigger>
-										<TooltipContent>
-											{attachedGeojson
-												? 'Click to clear attached geometry'
-												: 'Select geometries on the map, then click to attach to your comment'}
-										</TooltipContent>
-									</Tooltip>
-								</div>
-
+										) : null
+									}
+								/>
 								<CommentsPanel
 									key={initialCollection.id ?? initialCollection.dTag ?? 'no-target'}
 									target={initialCollection}
@@ -649,7 +640,7 @@ export function GeoCollectionEditorPanel({
 									onMentionZoomTo={onMentionZoomTo}
 									focusCommentId={focusCommentId}
 								/>
-							</section>
+							</EntityPanelSurface>
 						)}
 					</div>
 			</div>

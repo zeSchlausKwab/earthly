@@ -1,4 +1,4 @@
-import { Eye, Layers3, MapPin, Maximize2, MessageCircle } from 'lucide-react'
+import { Eye, Layers3, Maximize2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
@@ -10,9 +10,10 @@ import { CommentsPanel } from '@/features/social/comments'
 import { Button } from '../ui/button'
 import { Label } from '../ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { RichContentRenderer } from '../editor'
 import type { GeoFeatureItem } from '../editor/GeoRichTextEditor'
+import { EntityActionBar } from './EntityActionBar'
+import { EntityPanelSectionHeader, EntityPanelShell, EntityPanelSurface } from './EntityPanelShell'
 
 interface MapContextViewPanelProps {
 	getDatasetKey: (event: NDKGeoEvent) => string
@@ -158,14 +159,12 @@ export function MapContextViewPanel({
 	const contextContent = viewContext.context
 	const allowedGeometryTypes = contextContent.geometryConstraints?.allowedTypes ?? []
 	const commentsSection = (
-		<section className="space-y-3 border-t border-gray-100 pt-4">
-			<div className="flex items-center justify-between gap-3">
-				<div className="flex items-center gap-2">
-					<MessageCircle className="h-4 w-4 text-gray-400" />
-					<h3 className="font-medium text-gray-900">Comments</h3>
-				</div>
-				<Tooltip>
-					<TooltipTrigger asChild>
+		<EntityPanelSurface tone="discussion" className="space-y-4">
+			<EntityPanelSectionHeader
+				eyebrow="Discussion"
+				title="Comments"
+				action={
+					canAttachGeometry || attachedGeojson ? (
 						<Button
 							type="button"
 							variant={attachedGeojson ? 'default' : 'outline'}
@@ -174,27 +173,17 @@ export function MapContextViewPanel({
 								if (attachedGeojson) setAttachedGeojson(null)
 								else handleAttachGeometry()
 							}}
-							disabled={!canAttachGeometry && !attachedGeojson}
-							className="gap-1.5"
+							className="gap-1.5 rounded-none border-stone-200 bg-white px-2 text-[11px] text-stone-700 hover:bg-stone-100"
 						>
-							<MapPin className="h-3.5 w-3.5" />
 							{attachedGeojson
-								? `${attachedGeojson.features.length} attached`
-								: selectedFeatures.length > 0
-									? `Attach ${selectedFeatures.length}`
-									: 'Select geometry'}
+								? `Clear ${attachedGeojson.features.length} attachment${
+										attachedGeojson.features.length === 1 ? '' : 's'
+									}`
+								: `Attach ${selectedFeatures.length} selected`}
 						</Button>
-					</TooltipTrigger>
-					<TooltipContent>
-						{attachedGeojson
-							? 'Click to clear attachment'
-							: selectedFeatures.length > 0
-								? 'Attach selected geometry to your comment'
-								: 'Select geometry in the editor first, then attach it here'}
-					</TooltipContent>
-				</Tooltip>
-			</div>
-
+					) : null
+				}
+			/>
 			<CommentsPanel
 				key={viewContext.id ?? viewContext.dTag ?? 'no-context'}
 				target={viewContext}
@@ -208,162 +197,155 @@ export function MapContextViewPanel({
 				onMentionZoomTo={onMentionZoomTo}
 				focusCommentId={focusCommentId}
 			/>
-		</section>
+		</EntityPanelSurface>
 	)
 
 	return (
-		<div className="flex h-full flex-col text-sm">
-			<div className="mb-3 flex items-center justify-between gap-2">
-				<h2 className="text-lg font-semibold text-gray-900">
-					{contextContent.name || viewContext.contextId}
-				</h2>
-			</div>
-
-			<div className="min-h-0 flex-1 overflow-y-auto">
-				<div className="space-y-4 text-sm">
-						<div className="space-y-2 rounded-lg border border-gray-200 p-3">
-							{contextContent.description && (
-								<RichContentRenderer
-									content={contextContent.description}
-									availableFeatures={availableFeatures}
-									onMentionVisibilityToggle={onMentionVisibilityToggle}
-									onMentionZoomTo={onMentionZoomTo}
-									className="text-sm text-gray-600"
-								/>
-							)}
-							<div className="flex flex-wrap gap-2 text-[10px]">
-								<span className="rounded bg-blue-100 px-1.5 py-0.5 text-blue-700">
+		<EntityPanelShell title={contextContent.name || viewContext.contextId}>
+			<div className="space-y-3 text-[13px]">
+				<EntityPanelSurface tone="context" className="space-y-3">
+					{contextContent.description && (
+						<RichContentRenderer
+							content={contextContent.description}
+							availableFeatures={availableFeatures}
+							onMentionVisibilityToggle={onMentionVisibilityToggle}
+							onMentionZoomTo={onMentionZoomTo}
+							className="text-sm text-gray-600"
+						/>
+					)}
+					<div className="flex flex-wrap gap-2 text-[10px]">
+						<span className="border border-slate-200 px-2 py-0.5 text-blue-700">
 									use: {contextContent.contextUse}
-								</span>
-								<span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700">
+						</span>
+						<span className="border border-slate-200 px-2 py-0.5 text-amber-700">
 									validation: {contextContent.validationMode}
-								</span>
-								{allowedGeometryTypes.length > 0 && (
-									<span className="rounded bg-emerald-100 px-1.5 py-0.5 text-emerald-700">
+						</span>
+						{allowedGeometryTypes.length > 0 && (
+							<span className="border border-slate-200 px-2 py-0.5 text-emerald-700">
 										geometry: {allowedGeometryTypes.join(', ')}
-									</span>
-								)}
-							</div>
-						</div>
-
-						<div className="space-y-2 rounded-lg border border-gray-200 p-3">
-							<Label>Context filter mode</Label>
-							<Select
-								value={contextFilterMode}
-								onValueChange={(mode) => setContextFilterMode(mode as ContextFilterMode)}
-							>
-								<SelectTrigger>
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="off">off</SelectItem>
-									<SelectItem value="warn">warn</SelectItem>
-									<SelectItem value="strict">strict</SelectItem>
-								</SelectContent>
-							</Select>
-							<p className="text-[11px] text-gray-500">
-								Valid {counters.valid} · Invalid {counters.invalid} · Unresolved {counters.unresolved}
-							</p>
-						</div>
-
-						<div className="space-y-2">
-							<div className="flex items-center gap-2">
-								<Layers3 className="h-4 w-4 text-emerald-700" />
-								<h3 className="font-medium text-gray-900">Map lane datasets</h3>
-								<span className="text-xs text-gray-500">({mapLaneDatasets.length})</span>
-							</div>
-
-							{mapLaneDatasets.length === 0 ? (
-								<p className="text-xs text-gray-500">No datasets in the current filter mode.</p>
-							) : (
-								<div className="space-y-2">
-									{mapLaneDatasets.map((dataset) => {
-										const key = getDatasetKey(dataset)
-										const result = validationByDatasetKey.get(key)
-										const status = result?.status ?? 'unresolved'
-										const statusClass =
-											status === 'valid'
-												? 'bg-emerald-100 text-emerald-700'
-												: status === 'invalid'
-													? 'bg-red-100 text-red-700'
-													: 'bg-gray-100 text-gray-700'
-										return (
-											<div
-												key={key}
-												className="flex items-center justify-between gap-2 rounded border border-gray-200 p-2"
-											>
-												<div className="min-w-0">
-													<p className="truncate text-xs font-medium text-gray-900">
-														{getDatasetName(dataset)}
-													</p>
-													<div className="flex items-center gap-2">
-														<span className={`rounded px-1.5 py-0.5 text-[10px] ${statusClass}`}>
-															{status}
-														</span>
-														{result && result.featureErrorCount > 0 && (
-															<span className="text-[10px] text-red-600">
-																{result.featureErrorCount} invalid feature(s)
-															</span>
-														)}
-													</div>
-												</div>
-												<div className="flex shrink-0 items-center gap-1">
-													<Button size="icon-sm" variant="outline" onClick={() => onLoadDataset(dataset)}>
-														<Eye className="h-3 w-3" />
-													</Button>
-													<Button
-														size="icon-sm"
-														variant="outline"
-														onClick={() => onZoomToDataset(dataset)}
-													>
-														<Maximize2 className="h-3 w-3" />
-													</Button>
-												</div>
-											</div>
-										)
-									})}
-								</div>
-							)}
-						</div>
-
-						<div className="space-y-2">
-							<div className="flex items-center gap-2">
-								<h3 className="font-medium text-gray-900">Reference lane</h3>
-								<span className="text-xs text-gray-500">({viewContextCollections.length})</span>
-							</div>
-							{viewContextCollections.length === 0 ? (
-								<p className="text-xs text-gray-500">No attached references.</p>
-							) : (
-								<div className="space-y-2">
-									{viewContextCollections.map((collection) => (
-										<div
-											key={collection.id ?? collection.collectionId}
-											className="flex items-center justify-between gap-2 rounded border border-gray-200 p-2"
-										>
-											<div className="min-w-0">
-												<p className="truncate text-xs font-medium text-gray-900">
-													{collection.metadata.name ?? collection.collectionId}
-												</p>
-												<p className="text-[10px] text-gray-500">
-													{collection.datasetReferences.length} dataset reference(s)
-												</p>
-											</div>
-											<Button
-												size="sm"
-												variant="outline"
-												onClick={() => onOpenReferenceCollection?.(collection)}
-											>
-												Open isolation
-											</Button>
-										</div>
-									))}
-								</div>
-							)}
-						</div>
-
-						{commentsSection}
+							</span>
+						)}
 					</div>
+				</EntityPanelSurface>
+
+				<EntityPanelSurface tone="neutral" className="space-y-3">
+					<EntityPanelSectionHeader
+						eyebrow="Filter"
+						title="Context filter mode"
+						description={`Valid ${counters.valid} · Invalid ${counters.invalid} · Unresolved ${counters.unresolved}`}
+					/>
+					<Label className="sr-only">Context filter mode</Label>
+						<Select
+							value={contextFilterMode}
+							onValueChange={(mode) => setContextFilterMode(mode as ContextFilterMode)}
+						>
+						<SelectTrigger className="max-w-[10rem] rounded-none text-xs">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="off">off</SelectItem>
+							<SelectItem value="warn">warn</SelectItem>
+							<SelectItem value="strict">strict</SelectItem>
+						</SelectContent>
+					</Select>
+				</EntityPanelSurface>
+
+				<EntityPanelSurface tone="neutral" className="space-y-3">
+					<EntityPanelSectionHeader
+						eyebrow="Map Lane"
+						title={`Map lane datasets (${mapLaneDatasets.length})`}
+					/>
+
+					{mapLaneDatasets.length === 0 ? (
+						<p className="text-xs text-gray-500">No datasets in the current filter mode.</p>
+					) : (
+						<div className="space-y-2">
+							{mapLaneDatasets.map((dataset) => {
+								const key = getDatasetKey(dataset)
+								const result = validationByDatasetKey.get(key)
+								const status = result?.status ?? 'unresolved'
+								const statusClass =
+									status === 'valid'
+										? 'bg-emerald-100 text-emerald-700'
+										: status === 'invalid'
+											? 'bg-red-100 text-red-700'
+											: 'bg-gray-100 text-gray-700'
+								return (
+									<div key={key} className="flex items-center justify-between gap-2 border-b border-slate-200 py-2">
+										<div className="min-w-0">
+											<p className="truncate text-xs font-medium text-gray-900">
+												{getDatasetName(dataset)}
+											</p>
+											<div className="flex items-center gap-2">
+												<span className={`border px-2 py-0.5 text-[10px] ${statusClass}`}>
+													{status}
+												</span>
+												{result && result.featureErrorCount > 0 && (
+													<span className="text-[10px] text-red-600">
+														{result.featureErrorCount} invalid feature(s)
+													</span>
+												)}
+											</div>
+										</div>
+										<EntityActionBar
+											actions={[
+												{
+													icon: <Eye className="h-3.5 w-3.5" />,
+													label: 'Inspect dataset',
+													onClick: () => onLoadDataset(dataset),
+												},
+												{
+													icon: <Maximize2 className="h-3.5 w-3.5" />,
+													label: 'Zoom to dataset',
+													onClick: () => onZoomToDataset(dataset),
+												},
+											]}
+										/>
+									</div>
+								)
+							})}
+						</div>
+					)}
+				</EntityPanelSurface>
+
+				<EntityPanelSurface tone="neutral" className="space-y-3">
+					<EntityPanelSectionHeader
+						eyebrow="Reference Lane"
+						title={`References (${viewContextCollections.length})`}
+					/>
+					{viewContextCollections.length === 0 ? (
+						<p className="text-xs text-gray-500">No attached references.</p>
+					) : (
+						<div className="space-y-2">
+							{viewContextCollections.map((collection) => (
+								<div
+									key={collection.id ?? collection.collectionId}
+									className="flex items-center justify-between gap-2 border-b border-slate-200 py-2"
+								>
+									<div className="min-w-0">
+										<p className="truncate text-xs font-medium text-gray-900">
+											{collection.metadata.name ?? collection.collectionId}
+										</p>
+										<p className="text-[10px] text-gray-500">
+											{collection.datasetReferences.length} dataset reference(s)
+										</p>
+									</div>
+									<Button
+										size="sm"
+										variant="outline"
+										onClick={() => onOpenReferenceCollection?.(collection)}
+										className="rounded-none border-stone-200 bg-white px-2 text-xs"
+									>
+										Open isolation
+									</Button>
+								</div>
+							))}
+						</div>
+					)}
+				</EntityPanelSurface>
+
+				{commentsSection}
 			</div>
-		</div>
+		</EntityPanelShell>
 	)
 }

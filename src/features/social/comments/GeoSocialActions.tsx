@@ -193,7 +193,7 @@ export function GeoSocialActions({
 							userHasReacted
 								? 'text-rose-500 hover:text-rose-600'
 								: 'text-gray-500 hover:text-rose-500'
-						}`}
+						} rounded-none px-2 text-xs`}
 					>
 						<Heart className={`${iconSize} ${userHasReacted ? 'fill-current' : ''}`} />
 						{reactionCount > 0 && (
@@ -219,7 +219,7 @@ export function GeoSocialActions({
 								userHasZapped
 									? 'text-amber-500 hover:text-amber-600'
 									: 'text-gray-500 hover:text-amber-500'
-							}`}
+							} rounded-none px-2 text-xs`}
 						>
 							<Zap className={`${iconSize} ${userHasZapped ? 'fill-current' : ''}`} />
 							{zapCount > 0 && <span className="text-xs font-medium">{formatCount(zapCount)}</span>}
@@ -239,7 +239,7 @@ export function GeoSocialActions({
 							variant="ghost"
 							size={buttonSize}
 							onClick={handleShare}
-							className="gap-1 text-gray-500 hover:text-sky-600"
+							className="gap-1 rounded-none px-2 text-xs text-gray-500 hover:text-sky-600"
 						>
 							<Share2 className={iconSize} />
 							{!compact && <span className="text-xs font-medium">Share</span>}
@@ -256,7 +256,7 @@ export function GeoSocialActions({
 							variant="ghost"
 							size={buttonSize}
 							onClick={onAnnotateClick}
-							className="gap-1 text-amber-600 hover:text-amber-700"
+							className="gap-1 rounded-none px-2 text-xs text-amber-600 hover:text-amber-700"
 						>
 							<PencilLine className={iconSize} />
 							{!compact && <span className="text-xs font-medium">Annotate</span>}
@@ -274,7 +274,7 @@ export function GeoSocialActions({
 							variant="ghost"
 							size={buttonSize}
 							onClick={onReplyClick}
-							className="gap-1 text-gray-500 hover:text-emerald-500"
+							className="gap-1 rounded-none px-2 text-xs text-gray-500 hover:text-emerald-500"
 						>
 							<MessageCircle className={iconSize} />
 							{commentCount > 0 && (

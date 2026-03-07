@@ -33,7 +33,7 @@ export function DrawButtonGroup({ mode, onModeChange, disabled, small }: DrawBut
 								variant={mode === key ? 'default' : 'outline'}
 								disabled={disabled}
 								onClick={() => onModeChange(key)}
-								className={buttonSize}
+								className={`${buttonSize} rounded-none`}
 								aria-label={label}
 							>
 								<Icon className={iconSize} />

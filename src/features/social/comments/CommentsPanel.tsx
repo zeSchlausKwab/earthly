@@ -1,4 +1,4 @@
-import { Eye, EyeOff, MessageCircle, RefreshCw } from 'lucide-react'
+import { Eye, EyeOff, RefreshCw } from 'lucide-react'
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { useGeoComments } from '../hooks/useGeoComments'
@@ -64,7 +64,6 @@ export function CommentsPanel({
 }: CommentsPanelProps) {
 	const { comments, allComments, count, isLoading, postComment, postReply } = useGeoComments({ target })
 
-	const [isRefreshing, setIsRefreshing] = useState(false)
 	const [activeComposerId, setActiveComposerId] = useState<string>(ROOT_COMPOSER_ID)
 	const [entityAnnotationsVisible, setEntityAnnotationsVisible] = useState(true)
 	const initializedCommentIdsRef = useRef<Set<string>>(new Set())
@@ -93,13 +92,6 @@ export function CommentsPanel({
 		},
 		[postReply],
 	)
-
-	const handleRefresh = useCallback(async () => {
-		setIsRefreshing(true)
-		// The subscription auto-updates, but we can trigger a visual refresh
-		await new Promise((resolve) => setTimeout(resolve, 500))
-		setIsRefreshing(false)
-	}, [])
 
 	const handleComposerTargetChange = useCallback(
 		(nextComposerId: string) => {
@@ -145,53 +137,24 @@ export function CommentsPanel({
 		)
 	}
 
-	const targetName = (() => {
-		if ('featureCollection' in target) {
-			// NDKGeoEvent - try to get name from FeatureCollection or use datasetId
-			const fc = target.featureCollection as { name?: string }
-			return fc?.name ?? target.datasetId ?? 'Dataset'
-		}
-		if ('metadata' in target) {
-			return target.metadata?.name ?? target.collectionId ?? 'Collection'
-		}
-		return target.context.name ?? target.contextId ?? 'Context'
-	})()
-
 	return (
-		<div className={`flex flex-col h-full ${className}`}>
-			{/* Header with target info and social actions */}
-			<div className="flex-shrink-0 border-b border-gray-100 pb-3 mb-3">
-				<div className="flex items-center justify-between gap-2 mb-2">
-					<div className="flex items-center gap-2 min-w-0">
-						<MessageCircle className="h-4 w-4 text-gray-400 flex-shrink-0" />
-						<h3 className="text-sm font-semibold text-gray-800 truncate">{targetName}</h3>
-					</div>
-					<Button
-						variant="ghost"
-						size="icon-xs"
-						onClick={handleRefresh}
-						disabled={isRefreshing}
-						className="text-gray-400 hover:text-gray-600"
-					>
-						<RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-					</Button>
-				</div>
-
-				{/* Social actions for the target */}
-				<div className="flex items-center justify-between">
+		<div className={`flex h-full flex-col ${className}`}>
+			<div className="mb-2 flex-shrink-0 border-b border-stone-200 pb-2">
+				<div className="flex flex-wrap items-center justify-between gap-3">
 					<GeoSocialActions
 						target={target}
 						onReplyClick={() => handleComposerTargetChange(ROOT_COMPOSER_ID)}
 						commentCount={count}
+						compact
 					/>
-					<div className="flex items-center gap-2">
+					<div className="flex items-center gap-2 text-xs text-stone-500">
 						{commentsWithGeometry.length > 0 && onCommentGeojsonVisibilityChange && (
 							<Button
 								type="button"
 								variant="outline"
 								size="sm"
 								onClick={handleToggleEntityAnnotations}
-								className="gap-1.5"
+								className="gap-1.5 rounded-none border-stone-200 bg-white px-2 text-[11px] text-stone-700 hover:bg-stone-100"
 							>
 								{entityAnnotationsVisible ? (
 									<EyeOff className="h-3.5 w-3.5" />
@@ -201,7 +164,7 @@ export function CommentsPanel({
 								{entityAnnotationsVisible ? 'Hide annotations' : 'Show annotations'}
 							</Button>
 						)}
-						<span className="text-xs text-gray-500">
+						<span>
 							{count} comment{count === 1 ? '' : 's'}
 						</span>
 					</div>
@@ -222,15 +185,14 @@ export function CommentsPanel({
 			)}
 
 			{/* Comments list */}
-			<div className="flex-1 overflow-y-auto min-h-0">
+			<div className="min-h-0 flex-1 overflow-y-auto">
 				{isLoading && comments.length === 0 ? (
-					<div className="flex items-center justify-center py-8 text-sm text-gray-500">
-						<RefreshCw className="h-4 w-4 animate-spin mr-2" />
+					<div className="flex items-center justify-center py-8 text-sm text-stone-500">
+						<RefreshCw className="mr-2 h-4 w-4 animate-spin" />
 						Loading comments...
 					</div>
 				) : comments.length === 0 ? (
-					<div className="text-center py-8 text-sm text-gray-500">
-						<MessageCircle className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+					<div className="border border-dashed border-stone-200 py-8 text-center text-xs text-stone-500">
 						<p>No comments yet</p>
 						<p className="text-xs mt-1">Be the first to share your thoughts!</p>
 					</div>
