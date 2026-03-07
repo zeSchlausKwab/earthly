@@ -60,7 +60,7 @@ export function EntityPanelSurface({
 	return (
 		<section
 			className={cn(
-				tone === 'discussion' ? 'border' : 'border-t pt-3',
+				tone === 'discussion' ? 'border-t border-stone-200' : 'border-t pt-3',
 				surfaceToneClasses[tone],
 				className,
 			)}

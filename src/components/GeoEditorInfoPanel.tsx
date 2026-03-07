@@ -1,4 +1,4 @@
-import { Eye, MapPin } from 'lucide-react'
+import { Eye, MapPin, Pencil } from 'lucide-react'
 import type { FeatureCollection, Geometry } from 'geojson'
 import { cn } from '@/lib/utils'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -43,6 +43,7 @@ export interface GeoEditorInfoPanelProps {
 	currentUserPubkey?: string
 	onLoadDataset: (event: NDKGeoEvent) => void
 	onStartNewDataset?: () => void
+	onOpenGeometryEditor?: () => void
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onToggleVisibility: (event: NDKGeoEvent) => void
 	onZoomToDataset: (event: NDKGeoEvent) => void
@@ -109,6 +110,8 @@ export interface GeoEditorInfoPanelProps {
 	ndk?: import('@nostr-dev-kit/ndk').default | null
 	/** Optional comment d-tag from the route to reveal in the thread */
 	focusCommentId?: string
+	entityWorkspace?: 'geometry' | 'collection' | 'context'
+	entityIntent?: 'inspect' | 'edit'
 }
 
 export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
@@ -120,6 +123,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onZoomToCollection,
 		onInspectCollection,
 		currentUserPubkey,
+		onOpenGeometryEditor,
 		deletingKey,
 		onExitViewMode,
 		getDatasetKey,
@@ -147,6 +151,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onBlossomUploadComplete,
 		ndk,
 		focusCommentId,
+		entityWorkspace,
+		entityIntent,
 	} = props
 
 	// Store state
@@ -579,13 +585,33 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		}
 
 		if (!viewDataset && !viewCollection) {
+			const isEmptyGeometryInspect =
+				entityWorkspace === 'geometry' && entityIntent === 'inspect' && !viewContext
 			return (
 				<div className="h-full flex items-center justify-center p-6">
-					<div className="max-w-sm text-center space-y-2">
-						<p className="text-sm font-medium text-gray-900">Nothing selected</p>
-						<p className="text-xs text-gray-500">
-							Choose a geometry, collection, or context to inspect.
+					<div className="max-w-sm text-center space-y-3">
+						<p className="text-sm font-medium text-gray-900">
+							{isEmptyGeometryInspect ? 'No geometry selected' : 'Nothing selected'}
 						</p>
+						<p className="text-xs text-gray-500">
+							{isEmptyGeometryInspect
+								? 'Click on the map to inspect a geometry.'
+								: 'Choose a geometry, collection, or context to inspect.'}
+						</p>
+						{isEmptyGeometryInspect && onOpenGeometryEditor ? (
+							<div className="flex justify-center">
+								<Button
+									type="button"
+									size="sm"
+									variant="outline"
+									className="gap-1.5 rounded-none"
+									onClick={onOpenGeometryEditor}
+								>
+									<Pencil className="h-3.5 w-3.5" />
+									Start editing
+								</Button>
+							</div>
+						) : null}
 					</div>
 				</div>
 			)

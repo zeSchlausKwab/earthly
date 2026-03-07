@@ -124,6 +124,7 @@ interface AppSidebarProps {
 	getDatasetKey: (event: NDKGeoEvent) => string
 	getDatasetName: (event: NDKGeoEvent) => string
 	onOpenGeometryEditor?: () => void
+	onClearEntityEditors?: () => void
 	onZoomToCollection: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
 	onInspectDataset: (event: NDKGeoEvent) => void
 	onInspectCollection: (collection: NDKGeoCollectionEvent, datasets: NDKGeoEvent[]) => void
@@ -203,6 +204,7 @@ export function AppSidebar({
 	getDatasetKey,
 	getDatasetName,
 	onOpenGeometryEditor,
+	onClearEntityEditors,
 	onZoomToCollection,
 	onInspectDataset,
 	onInspectCollection,
@@ -374,6 +376,7 @@ export function AppSidebar({
 
 	const openGeometryWorkspace = () => {
 		leaveMetaOverrideIfNeeded()
+		onClearEntityEditors?.()
 		setActiveEntity('geometry')
 		setEntityIntent((prev) => ({ ...prev, geometry: 'edit' }))
 		setShowEntityAsFullPanel(true)
@@ -425,6 +428,9 @@ export function AppSidebar({
 
 	const openEmptyInspectWorkspace = (entity: EntityWorkspace) => {
 		leaveMetaOverrideIfNeeded()
+		if (entity === 'geometry') {
+			onClearEntityEditors?.()
+		}
 		setActiveEntity(entity)
 		setEntityIntent((prev) => ({ ...prev, [entity]: 'inspect' }))
 		setShowEntityAsFullPanel(true)
@@ -663,6 +669,7 @@ export function AppSidebar({
 		currentUserPubkey,
 		onLoadDataset: handleLoadDataset,
 		onStartNewDataset,
+		onOpenGeometryEditor,
 		onSwitchWorkspace,
 		onToggleVisibility,
 		onZoomToDataset,
@@ -697,6 +704,8 @@ export function AppSidebar({
 		onBlossomUploadComplete,
 		ndk,
 		focusCommentId,
+		entityWorkspace: activeEntity,
+		entityIntent: currentEntityIntent,
 	}
 
 	const renderWorkContent = (mode: WorkViewMode) => {
@@ -827,7 +836,7 @@ export function AppSidebar({
 											tooltip={{ children: item.title, hidden: false }}
 											onClick={() => {
 												if (item.entity === 'geometry') {
-													openGeometryWorkspace()
+													openEmptyInspectWorkspace('geometry')
 												} else if (item.entity === 'collection') {
 													openCollectionWorkspace()
 												} else {

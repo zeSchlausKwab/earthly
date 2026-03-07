@@ -2116,7 +2116,7 @@ async function seedData() {
 			featureCollection: createBestBeachesFeatureCollection(),
 			hashtags: ["beaches", "travel", "recreation", "global"],
 		}),
-		contextCoordinates: [rootContextCoordinate, beachContextCoordinate, surfContextCoordinate],
+		contextCoordinates: [rootContextCoordinate, beachContextCoordinate],
 		collectionCoordinates: [outdoorCollectionCoordinate],
 	});
 	console.log(`  Dataset published: ${bestBeachesDataset.name}`);

@@ -960,6 +960,7 @@ export function GeoEditorView() {
 		editingCollection,
 		contextEditorMode,
 		editingContext,
+		clearEditorModes,
 		handleCreateCollection,
 		handleEditCollection,
 		handleSaveCollection,
@@ -1207,6 +1208,7 @@ export function GeoEditorView() {
 					getDatasetKey={getDatasetKey}
 					getDatasetName={getDatasetName}
 					onOpenGeometryEditor={handleOpenGeometryEditor}
+					onClearEntityEditors={clearEditorModes}
 					onZoomToCollection={zoomToCollection}
 					onInspectDataset={handleInspectDatasetWithModeSwitch}
 					onInspectCollection={handleInspectCollectionWithModeSwitch}
