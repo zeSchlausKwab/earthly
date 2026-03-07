@@ -70,8 +70,10 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 		const [isSubmitting, setIsSubmitting] = useState(false)
 		const [isGeometryDraftActive, setIsGeometryDraftActive] = useState(false)
 		const richEditorRef = useRef<GeoRichTextEditorRef>(null)
+		const annotationInputRef = useRef<HTMLInputElement>(null)
 		const snapshotRef = useRef<EditorSnapshot | null>(null)
 		const restoredRef = useRef(false)
+		const previousDraftAnnotationCountRef = useRef(0)
 
 		// Always use the rich editor so `$` mentions can work in comments.
 		// If there are no available features yet, the editor will still open the menu (showing "No matches").
@@ -98,6 +100,25 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 			typeof activeDraftAnnotation?.properties?.text === 'string'
 				? activeDraftAnnotation.properties.text
 				: ''
+
+		useEffect(() => {
+			const currentCount = draftAnnotationFeatures.length
+			const previousCount = previousDraftAnnotationCountRef.current
+			previousDraftAnnotationCountRef.current = currentCount
+
+			if (currentCount <= previousCount || mode !== 'draw_annotation') return
+
+			const latestAnnotation = draftAnnotationFeatures[draftAnnotationFeatures.length - 1]
+			if (!latestAnnotation) return
+
+			setSelectedFeatureIds([latestAnnotation.id])
+			setMode('select')
+
+			window.requestAnimationFrame(() => {
+				annotationInputRef.current?.focus()
+				annotationInputRef.current?.select()
+			})
+		}, [draftAnnotationFeatures, mode, setMode, setSelectedFeatureIds])
 
 		const geometrySummary = useMemo(() => {
 			const counts = {
@@ -375,6 +396,7 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 								)}
 							</div>
 							<Input
+								ref={annotationInputRef}
 								value={activeDraftAnnotationText}
 								onChange={(event) => handleAnnotationTextChange(event.target.value)}
 								placeholder="Type label text..."

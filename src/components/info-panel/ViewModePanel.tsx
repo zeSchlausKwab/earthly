@@ -23,6 +23,7 @@ import {
 import { DatasetFeaturesList } from './DatasetFeaturesList'
 import { EntityActionBar } from './EntityActionBar'
 import { EntityPanelSectionHeader, EntityPanelShell, EntityPanelSurface } from './EntityPanelShell'
+import { UserProfile } from '../user-profile'
 
 export interface ViewModePanelProps {
 	currentUserPubkey?: string
@@ -336,206 +337,211 @@ export function ViewModePanel({
 
 	return (
 		<EntityPanelShell title={headerTitle} tabs={tabs}>
-				{activeTab === 'details' ? (
-					<div className="space-y-4">
-						{/* Collection View */}
-						{viewCollection && (
-							<>
-								<EntityPanelSurface tone="collection" className="space-y-3">
-									<EntityPanelSectionHeader
-										eyebrow="Collection"
-										title={viewCollection.metadata.name ?? viewCollection.collectionId}
-										action={
-											onZoomToCollection ? (
-												<EntityActionBar
-													actions={[
-														{
-															icon: <Maximize2 className="h-3.5 w-3.5" />,
-															label: 'Zoom bounds',
-															onClick: () =>
-																onZoomToCollection(viewCollection, viewCollectionEvents),
-														},
-													]}
-												/>
-											) : null
-										}
+			{activeTab === 'details' ? (
+				<div className="space-y-4">
+					{/* Collection View */}
+					{viewCollection && (
+						<>
+							<EntityPanelSurface tone="collection" className="space-y-3">
+								<EntityPanelSectionHeader
+									eyebrow="Collection"
+									title={viewCollection.metadata.name ?? viewCollection.collectionId}
+									action={
+										onZoomToCollection ? (
+											<EntityActionBar
+												actions={[
+													{
+														icon: <Maximize2 className="h-3.5 w-3.5" />,
+														label: 'Zoom bounds',
+														onClick: () => onZoomToCollection(viewCollection, viewCollectionEvents),
+													},
+												]}
+											/>
+										) : null
+									}
+								/>
+								{viewCollection.metadata.description && (
+									<RichContentRenderer
+										content={viewCollection.metadata.description}
+										availableFeatures={availableFeatures}
+										onMentionVisibilityToggle={onMentionVisibilityToggle}
+										onMentionZoomTo={onMentionZoomTo}
+										className="text-sm text-gray-600"
 									/>
-									{viewCollection.metadata.description && (
-										<RichContentRenderer
-											content={viewCollection.metadata.description}
-											availableFeatures={availableFeatures}
-											onMentionVisibilityToggle={onMentionVisibilityToggle}
-											onMentionZoomTo={onMentionZoomTo}
-											className="text-sm text-gray-600"
+								)}
+								<div className="flex flex-wrap gap-2 text-[11px] text-gray-600">
+									<div className="flex items-center gap-1.5 px-2 py-0.5">
+										<span className="shrink-0">Maintainer:</span>
+										<UserProfile
+											pubkey={viewCollection.pubkey}
+											mode="avatar-name"
+											size="xs"
+											showNip05Badge={false}
+											interactive={false}
 										/>
-									)}
-									<div className="flex flex-wrap gap-2 text-[11px] text-gray-600">
-										<span className="px-2 py-0.5">
-											Maintainer: {viewCollection.pubkey.slice(0, 8)}…
-											{viewCollection.pubkey.slice(-4)}
-										</span>
-										<span className="px-2 py-0.5">
-											{viewCollection.datasetReferences.length} linked dataset
-											{viewCollection.datasetReferences.length === 1 ? '' : 's'}
-										</span>
 									</div>
-									{viewCollection.metadata.tags && viewCollection.metadata.tags.length > 0 && (
-										<div className="flex flex-wrap gap-1.5">
-											{viewCollection.metadata.tags.slice(0, 5).map((tag) => (
-												<span
-													key={tag}
-													className="border border-slate-200 px-2 py-0.5 text-[10px] text-purple-700"
-												>
-													#{tag}
-												</span>
-											))}
-										</div>
-									)}
-								</EntityPanelSurface>
+									<span className="px-2 py-0.5">
+										{viewCollection.datasetReferences.length} linked dataset
+										{viewCollection.datasetReferences.length === 1 ? '' : 's'}
+									</span>
+								</div>
+								{viewCollection.metadata.tags && viewCollection.metadata.tags.length > 0 && (
+									<div className="flex flex-wrap gap-1.5">
+										{viewCollection.metadata.tags.slice(0, 5).map((tag) => (
+											<span
+												key={tag}
+												className="border border-slate-200 px-2 py-0.5 text-[10px] text-purple-700"
+											>
+												#{tag}
+											</span>
+										))}
+									</div>
+								)}
+							</EntityPanelSurface>
 
-								<EntityPanelSurface tone="neutral" className="space-y-3">
-									<EntityPanelSectionHeader
-										eyebrow="Contents"
-										title="Linked geo events"
-										description="Datasets currently attached to this collection."
+							<EntityPanelSurface tone="neutral" className="space-y-3">
+								<EntityPanelSectionHeader
+									eyebrow="Contents"
+									title="Linked geo events"
+									description="Datasets currently attached to this collection."
+								/>
+								{viewCollectionEvents.length === 0 ? (
+									<p className="text-xs text-gray-500">
+										No linked geo events are currently loaded. Listen for their coordinates or load
+										datasets first.
+									</p>
+								) : (
+									<DataTable
+										columns={linkedEventsColumns}
+										data={linkedEventsTableData}
+										getRowId={(row) => row.datasetKey}
+										getRowClassName={(row) => (!row.isVisible ? 'opacity-60' : undefined)}
 									/>
-									{viewCollectionEvents.length === 0 ? (
-										<p className="text-xs text-gray-500">
-											No linked geo events are currently loaded. Listen for their coordinates or
-											load datasets first.
-										</p>
-									) : (
-										<DataTable
-											columns={linkedEventsColumns}
-											data={linkedEventsTableData}
-											getRowId={(row) => row.datasetKey}
-											getRowClassName={(row) => (!row.isVisible ? 'opacity-60' : undefined)}
+								)}
+							</EntityPanelSurface>
+
+							{commentsSection}
+						</>
+					)}
+
+					{/* Dataset View (without collection) */}
+					{viewDataset && !viewCollection && (
+						<>
+							<EntityPanelSurface tone="dataset" className="space-y-3">
+								<EntityPanelSectionHeader eyebrow="Dataset" title={getDatasetName(viewDataset)} />
+								{getDatasetDescription(viewDataset) && (
+									<RichContentRenderer
+										content={getDatasetDescription(viewDataset) ?? ''}
+										availableFeatures={availableFeatures}
+										onMentionVisibilityToggle={onMentionVisibilityToggle}
+										onMentionZoomTo={onMentionZoomTo}
+										className="text-sm text-gray-600"
+									/>
+								)}
+								<div className="flex flex-wrap gap-2 text-[11px] text-gray-600">
+									<div className="flex items-center gap-1.5 px-2 py-0.5">
+										<span className="shrink-0">Owner:</span>
+										<UserProfile
+											pubkey={viewDataset.pubkey}
+											mode="avatar-name"
+											size="xs"
+											showNip05Badge={false}
+											interactive={false}
 										/>
-									)}
-								</EntityPanelSurface>
-
-								{commentsSection}
-							</>
-						)}
-
-						{/* Dataset View (without collection) */}
-						{viewDataset && !viewCollection && (
-							<>
-								<EntityPanelSurface tone="dataset" className="space-y-3">
-									<EntityPanelSectionHeader
-										eyebrow="Dataset"
-										title={getDatasetName(viewDataset)}
-									/>
-									{getDatasetDescription(viewDataset) && (
-										<RichContentRenderer
-											content={getDatasetDescription(viewDataset) ?? ''}
-											availableFeatures={availableFeatures}
-											onMentionVisibilityToggle={onMentionVisibilityToggle}
-											onMentionZoomTo={onMentionZoomTo}
-											className="text-sm text-gray-600"
-										/>
-									)}
-									<div className="flex flex-wrap gap-2 text-[11px] text-gray-600">
-										<span className="px-2 py-0.5">
-											Owner: {viewDataset.pubkey.slice(0, 8)}…{viewDataset.pubkey.slice(-4)}
-										</span>
-										<span className="px-2 py-0.5">
-											Collections referenced: {viewDataset.collectionReferences.length}
-										</span>
 									</div>
-									{viewDataset.hashtags.length > 0 && (
-										<div className="flex flex-wrap gap-1.5">
-											{viewDataset.hashtags.slice(0, 5).map((tag) => (
-												<span
-													key={tag}
-													className="border border-slate-200 px-2 py-0.5 text-[10px] text-blue-700"
-												>
-													#{tag}
-												</span>
-											))}
-										</div>
-									)}
-									<div className="grid gap-1 text-[11px] text-gray-600 sm:grid-cols-2">
-										<div className="border-l border-slate-200 pl-2">
-											Bounding box:{' '}
-											{viewDataset.boundingBox
-												? viewDataset.boundingBox.join(', ')
-												: 'Not provided'}
-										</div>
-										<div className="border-l border-slate-200 pl-2">
-											Geohash: {viewDataset.geohash ?? '—'}
-										</div>
+									<span className="px-2 py-0.5">
+										Collections referenced: {viewDataset.collectionReferences.length}
+									</span>
+								</div>
+								{viewDataset.hashtags.length > 0 && (
+									<div className="flex flex-wrap gap-1.5">
+										{viewDataset.hashtags.slice(0, 5).map((tag) => (
+											<span
+												key={tag}
+												className="border border-slate-200 px-2 py-0.5 text-[10px] text-blue-700"
+											>
+												#{tag}
+											</span>
+										))}
 									</div>
-								</EntityPanelSurface>
+								)}
+								<div className="grid gap-1 text-[11px] text-gray-600 sm:grid-cols-2">
+									<div className="border-l border-slate-200 pl-2">
+										Bounding box:{' '}
+										{viewDataset.boundingBox ? viewDataset.boundingBox.join(', ') : 'Not provided'}
+									</div>
+									<div className="border-l border-slate-200 pl-2">
+										Geohash: {viewDataset.geohash ?? '—'}
+									</div>
+								</div>
+							</EntityPanelSurface>
 
-								<EntityPanelSurface tone="neutral">
-									<EntityActionBar
-										actions={[
-											{
-												icon:
-													currentUserPubkey === viewDataset.pubkey ? (
-														<Pencil className="h-3.5 w-3.5" />
-													) : (
-														<CopyPlus className="h-3.5 w-3.5" />
-													),
-												label:
-													currentUserPubkey === viewDataset.pubkey
-														? 'Edit dataset'
-														: 'Load copy',
-												onClick: () => onLoadDataset(viewDataset),
-												variant: 'outline',
-												disabled: isPublishing,
-											},
-											{
-												icon:
-													datasetVisibility[getDatasetKey(viewDataset)] !== false ? (
-														<EyeOff className="h-3.5 w-3.5" />
-													) : (
-														<Eye className="h-3.5 w-3.5" />
-													),
-												label:
-													datasetVisibility[getDatasetKey(viewDataset)] !== false
-														? 'Hide dataset'
-														: 'Show dataset',
-												onClick: () => onToggleVisibility(viewDataset),
-											},
-											{
-												icon: <Maximize2 className="h-3.5 w-3.5" />,
-												label: 'Zoom to dataset',
-												onClick: () => onZoomToDataset(viewDataset),
-											},
-										]}
-									/>
-								</EntityPanelSurface>
+							<EntityPanelSurface tone="neutral">
+								<EntityActionBar
+									actions={[
+										{
+											icon:
+												currentUserPubkey === viewDataset.pubkey ? (
+													<Pencil className="h-3.5 w-3.5" />
+												) : (
+													<CopyPlus className="h-3.5 w-3.5" />
+												),
+											label:
+												currentUserPubkey === viewDataset.pubkey ? 'Edit dataset' : 'Load copy',
+											onClick: () => onLoadDataset(viewDataset),
+											variant: 'outline',
+											disabled: isPublishing,
+										},
+										{
+											icon:
+												datasetVisibility[getDatasetKey(viewDataset)] !== false ? (
+													<EyeOff className="h-3.5 w-3.5" />
+												) : (
+													<Eye className="h-3.5 w-3.5" />
+												),
+											label:
+												datasetVisibility[getDatasetKey(viewDataset)] !== false
+													? 'Hide dataset'
+													: 'Show dataset',
+											onClick: () => onToggleVisibility(viewDataset),
+										},
+										{
+											icon: <Maximize2 className="h-3.5 w-3.5" />,
+											label: 'Zoom to dataset',
+											onClick: () => onZoomToDataset(viewDataset),
+										},
+									]}
+								/>
+							</EntityPanelSurface>
 
-								<EntityPanelSurface tone="neutral" className="space-y-3">
-									<EntityPanelSectionHeader
-										eyebrow="Geometry"
-										title={`Features (${viewDataset.featureCollection?.features?.length ?? 0})`}
-									/>
-									<DatasetFeaturesList
-										featureCollection={viewDataset.featureCollection}
-										hiddenFeatureIds={hiddenFeatureIds}
-										className="max-h-[40vh] overflow-y-auto"
-									/>
-								</EntityPanelSurface>
+							<EntityPanelSurface tone="neutral" className="space-y-3">
+								<EntityPanelSectionHeader
+									eyebrow="Geometry"
+									title={`Features (${viewDataset.featureCollection?.features?.length ?? 0})`}
+								/>
+								<DatasetFeaturesList
+									featureCollection={viewDataset.featureCollection}
+									hiddenFeatureIds={hiddenFeatureIds}
+									className="max-h-[40vh] overflow-y-auto"
+								/>
+							</EntityPanelSurface>
 
-								{commentsSection}
-							</>
-						)}
-					</div>
-				) : activeTab === 'proposals' ? (
-					<EntityPanelSurface tone="neutral">
-						<ProposalsPanel
-							key={viewDataset?.id ?? viewDataset?.dTag ?? 'no-target'}
-							target={viewDataset}
-							currentUserPubkey={currentUserPubkey}
-							onToggleProposalOverlay={onToggleProposalOverlay}
-							onProposalAccepted={onProposalAccepted}
-							visibleProposalIds={visibleProposalIds}
-						/>
-					</EntityPanelSurface>
-				) : null}
+							{commentsSection}
+						</>
+					)}
+				</div>
+			) : activeTab === 'proposals' ? (
+				<EntityPanelSurface tone="neutral">
+					<ProposalsPanel
+						key={viewDataset?.id ?? viewDataset?.dTag ?? 'no-target'}
+						target={viewDataset}
+						currentUserPubkey={currentUserPubkey}
+						onToggleProposalOverlay={onToggleProposalOverlay}
+						onProposalAccepted={onProposalAccepted}
+						visibleProposalIds={visibleProposalIds}
+					/>
+				</EntityPanelSurface>
+			) : null}
 		</EntityPanelShell>
 	)
 }

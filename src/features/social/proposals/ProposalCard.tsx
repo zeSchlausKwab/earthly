@@ -101,6 +101,7 @@ export function ProposalCard({
 								mode="avatar-name"
 								size="xs"
 								showNip05Badge={false}
+								interactive={false}
 							/>
 							<span className="text-[10px] text-gray-400 flex-shrink-0">{timestamp}</span>
 						</div>

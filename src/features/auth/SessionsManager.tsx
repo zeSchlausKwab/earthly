@@ -9,19 +9,17 @@ import {
 	useNDKSessionLogout,
 	useNDKSessionSessions,
 	useNDKSessionSwitch,
-	useProfileValue,
 	type Hexpubkey,
 } from '@nostr-dev-kit/react'
-import { AppWindowIcon, KeyRoundIcon, LogOut, QrCodeIcon, User2Icon, Users } from 'lucide-react'
-import { nip19 } from 'nostr-tools'
+import { AppWindowIcon, KeyRoundIcon, LogOut, QrCodeIcon, Users } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { Nip46LoginDialog } from './Nip46LoginDialog'
 import { SignupDialog } from './SignupDialog'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { ButtonGroup } from '@/components/ui/button-group'
 import { Label } from '@/components/ui/label'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { UserProfile } from '@/components/user-profile'
 
 /**
  * Display a session item with profile info and actions
@@ -37,64 +35,39 @@ function SessionItem({
 	onSwitch: () => void
 	onLogout: () => void
 }) {
-	const profile = useProfileValue(pubkey)
-
-	// Get first 2 characters of name or pubkey for fallback
-	const getFallbackText = () => {
-		if (profile?.name) {
-			return profile.name.substring(0, 2).toUpperCase()
-		}
-		if (profile?.displayName) {
-			return profile.displayName.substring(0, 2).toUpperCase()
-		}
-		return pubkey.substring(0, 2).toUpperCase()
-	}
-
-	const displayName = profile?.name || profile?.displayName || `${pubkey.substring(0, 8)}...`
-	const npub = nip19.npubEncode(pubkey)
-	const shortNpub = `${npub.substring(0, 12)}...${npub.substring(npub.length - 4)}`
-
 	const handleClick = () => {
 		if (!isActive) {
 			onSwitch()
 		}
 	}
 
-	const handleKeyDown = (e: React.KeyboardEvent) => {
-		if ((e.key === 'Enter' || e.key === ' ') && !isActive) {
-			e.preventDefault()
-			onSwitch()
-		}
-	}
-
 	return (
 		<div
-			role="button"
-			tabIndex={isActive ? -1 : 0}
-			onClick={handleClick}
-			onKeyDown={handleKeyDown}
 			className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
 				isActive
 					? 'bg-primary/10 border-primary/30'
 					: 'bg-card hover:bg-muted/50 border-border cursor-pointer'
 			}`}
 		>
-			<Avatar className="w-10 h-10">
-				<AvatarImage src={profile?.image || profile?.picture} alt={displayName} />
-				<AvatarFallback className="text-sm">
-					{profile ? getFallbackText() : <User2Icon className="w-5 h-5" />}
-				</AvatarFallback>
-			</Avatar>
-
-			<div className="flex-1 min-w-0">
-				<div className="flex items-center gap-2">
-					<span className="font-medium truncate">{displayName}</span>
-					{isActive && (
-						<span className="text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded">Active</span>
-					)}
+			<button
+				type="button"
+				onClick={handleClick}
+				disabled={isActive}
+				className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-default"
+			>
+				<div className="min-w-0 flex-1">
+					<UserProfile
+						pubkey={pubkey}
+						mode="avatar-name"
+						size="md"
+						showNip05Badge={false}
+						interactive={false}
+					/>
 				</div>
-				<span className="text-xs text-muted-foreground font-mono">{shortNpub}</span>
-			</div>
+				{isActive && (
+					<span className="text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded">Active</span>
+				)}
+			</button>
 
 			<div className="flex items-center gap-1">
 				<Tooltip>

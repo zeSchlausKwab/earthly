@@ -72,6 +72,8 @@ export interface UserProfileProps {
 	onClick?: () => void
 	/** Custom fallback text (defaults to initials or pubkey prefix) */
 	fallbackText?: string
+	/** Disable click-to-profile navigation and render as static content */
+	interactive?: boolean
 }
 
 /**
@@ -91,6 +93,7 @@ function UserProfileComponent({
 	showBio = true,
 	onClick,
 	fallbackText,
+	interactive = true,
 }: UserProfileProps) {
 	const ndk = useNDK()
 	// useUser handles npub, nprofile, nip05, and hex pubkey resolution
@@ -296,6 +299,10 @@ function UserProfileComponent({
 
 	// Wrapper for click handling - always clickable, uses onClick or default navigation
 	const Wrapper = ({ children }: { children: React.ReactNode }) => {
+		if (!interactive) {
+			return <div className={cn('text-left', className)}>{children}</div>
+		}
+
 		const clickHandler = onClick ?? handleDefaultClick
 		return (
 			<button

@@ -4,11 +4,9 @@ import type { Feature, Geometry } from 'geojson'
 import { RichContentRenderer } from '@/components/editor'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { Button } from '@/components/ui/button'
+import { UserProfile } from '@/components/user-profile'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
-import {
-	resolveMapPopupPosition,
-	type MapPopupPlacement,
-} from './map-popup-positioning'
+import { resolveMapPopupPosition, type MapPopupPlacement } from './map-popup-positioning'
 
 export interface CommentAnnotationPopupData {
 	comment: NDKGeoCommentEvent
@@ -35,12 +33,6 @@ interface CommentAnnotationPopupProps {
 
 const POPUP_WIDTH = 360
 const POPUP_HEIGHT_ESTIMATE = 280
-
-function shortPubkey(pubkey: string): string {
-	if (!pubkey) return 'Unknown'
-	if (pubkey.length <= 16) return pubkey
-	return `${pubkey.slice(0, 8)}…${pubkey.slice(-4)}`
-}
 
 function formatCreatedAt(createdAt?: number): string {
 	if (!createdAt || !Number.isFinite(createdAt)) return 'Unknown time'
@@ -134,6 +126,8 @@ export function CommentAnnotationPopup({
 	return (
 		<div
 			ref={popupRef}
+			role="dialog"
+			aria-label={`${title} annotation`}
 			className="pointer-events-auto absolute z-50 overflow-hidden rounded-2xl border border-amber-200 bg-white/95 shadow-2xl backdrop-blur"
 			style={{
 				width: `min(${POPUP_WIDTH}px, calc(100% - 24px))`,
@@ -151,10 +145,16 @@ export function CommentAnnotationPopup({
 					</div>
 					<h3 className="truncate text-sm font-semibold text-gray-900">{title}</h3>
 					<div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-gray-500">
-						<span className="inline-flex items-center gap-1">
+						<div className="inline-flex items-center gap-1">
 							<MessageCircle className="h-3 w-3" />
-							{shortPubkey(comment.pubkey)}
-						</span>
+							<UserProfile
+								pubkey={comment.pubkey}
+								mode="avatar-name"
+								size="xs"
+								showNip05Badge={false}
+								interactive={false}
+							/>
+						</div>
 						<span className="inline-flex items-center gap-1">
 							<Calendar className="h-3 w-3" />
 							{formatCreatedAt(comment.created_at)}

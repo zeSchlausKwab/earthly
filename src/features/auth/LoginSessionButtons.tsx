@@ -3,70 +3,19 @@ import {
 	NDKSessionLocalStorage,
 	type NDKNip46Signer,
 	type NDKPrivateKeySigner,
-	type NDKUser,
 	removeStoredSession,
 	useNDKCurrentUser,
 	useNDKSessionLogin,
 	useNDKSessionLogout,
-	useProfileValue,
-	type Hexpubkey,
 } from '@nostr-dev-kit/react'
-import { AppWindowIcon, KeyRoundIcon, LogOutIcon, QrCodeIcon, User2Icon } from 'lucide-react'
+import { AppWindowIcon, KeyRoundIcon, LogOutIcon, QrCodeIcon } from 'lucide-react'
 import { useState, useRef } from 'react'
 import { Nip46LoginDialog } from './Nip46LoginDialog'
 import { SignupDialog } from './SignupDialog'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { ButtonGroup } from '@/components/ui/button-group'
+import { UserProfile } from '@/components/user-profile'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-
-/**
- * Display a mini profile with avatar and optional name
- */
-function MiniProfile({ userOrPubkey }: { userOrPubkey?: Hexpubkey | NDKUser | null | undefined }) {
-	const profile = useProfileValue(userOrPubkey)
-	const pubkey =
-		userOrPubkey instanceof Object && 'pubkey' in userOrPubkey ? userOrPubkey.pubkey : userOrPubkey
-
-	// Get first 2 characters of name or pubkey for fallback
-	const getFallbackText = () => {
-		if (profile?.name) {
-			return profile.name.substring(0, 2).toUpperCase()
-		}
-		if (profile?.displayName) {
-			return profile.displayName.substring(0, 2).toUpperCase()
-		}
-		if (pubkey) {
-			return pubkey.substring(0, 2).toUpperCase()
-		}
-		return '?'
-	}
-
-	return (
-		<Tooltip>
-			<TooltipTrigger asChild>
-				<Button variant="outline" className="p-1 h-auto">
-					<Avatar className="w-7 h-7">
-						<AvatarImage
-							src={profile?.image || profile?.picture}
-							alt={profile?.name || 'Profile'}
-						/>
-						<AvatarFallback className="text-xs">
-							{profile ? getFallbackText() : <User2Icon className="w-4 h-4" />}
-						</AvatarFallback>
-					</Avatar>
-				</Button>
-			</TooltipTrigger>
-			<TooltipContent>
-				<p>
-					{profile?.name ||
-						profile?.displayName ||
-						(pubkey ? `${pubkey.substring(0, 8)}...` : 'Profile')}
-				</p>
-			</TooltipContent>
-		</Tooltip>
-	)
-}
 
 export function LoginSessionButtons() {
 	const login = useNDKSessionLogin()
@@ -129,7 +78,15 @@ export function LoginSessionButtons() {
 		<div className="flex items-center gap-2">
 			{currentUser ? (
 				<ButtonGroup>
-					<MiniProfile userOrPubkey={currentUser} />
+					<div className="rounded-md border bg-background px-2 py-1">
+						<UserProfile
+							pubkey={currentUser.pubkey}
+							mode="avatar-name"
+							size="sm"
+							showNip05Badge={false}
+							interactive={false}
+						/>
+					</div>
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<Button variant="outline" size="icon" onClick={() => logout()}>

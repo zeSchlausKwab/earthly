@@ -8,9 +8,9 @@ import {
 	Radio,
 	Server,
 } from 'lucide-react'
-import { nip19 } from 'nostr-tools'
 import type React from 'react'
 import { useMemo, useRef, useState } from 'react'
+import { UserProfile } from '@/components/user-profile'
 import { SessionsManager } from '@/features/auth/SessionsManager'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -209,7 +209,8 @@ export function MapSettingsPanel() {
 										variant="outline"
 										size="icon"
 										onClick={() => {
-											const url = mapSource.url!
+											if (!mapSource.url) return
+											const url = mapSource.url
 											const filename = url.split('/').pop() || 'map.pmtiles'
 											const a = document.createElement('a')
 											a.href = url
@@ -291,16 +292,13 @@ export function MapSettingsPanel() {
 							{announcementSource.pubkey && (
 								<div className="flex items-center gap-1.5 pl-6">
 									<Globe className="h-3 w-3 text-muted-foreground" />
-									<span className="text-xs text-muted-foreground font-mono">
-										{(() => {
-											try {
-												const npub = nip19.npubEncode(announcementSource.pubkey)
-												return `${npub.slice(0, 12)}...${npub.slice(-6)}`
-											} catch {
-												return `${announcementSource.pubkey.slice(0, 10)}...`
-											}
-										})()}
-									</span>
+									<UserProfile
+										pubkey={announcementSource.pubkey}
+										mode="avatar-name"
+										size="xs"
+										showNip05Badge={false}
+										interactive={false}
+									/>
 								</div>
 							)}
 						</div>
@@ -330,14 +328,15 @@ export function MapSettingsPanel() {
 													dragIndex > layer.globalIndex && (
 														<div className="h-0.5 bg-primary rounded-full mx-2 mb-1" />
 													)}
-												<div
+												<li
 													draggable
+													aria-label={`Reorder layer ${layer.title}`}
 													onDragStart={handleDragStart(layer.globalIndex)}
 													onDragOver={handleDragOver(layer.globalIndex)}
 													onDragLeave={handleDragLeave}
 													onDrop={handleDrop(layer.globalIndex)}
 													onDragEnd={handleDragEnd}
-													className={`rounded-lg border bg-card p-3 space-y-2 transition-opacity ${
+													className={`list-none rounded-lg border bg-card p-3 space-y-2 transition-opacity ${
 														dragIndex === layer.globalIndex ? 'opacity-50' : ''
 													}`}
 												>
@@ -388,7 +387,7 @@ export function MapSettingsPanel() {
 															{Math.round(layer.opacity * 100)}%
 														</span>
 													</div>
-												</div>
+												</li>
 												{/* Drop indicator line for after last item */}
 												{dropIndex === layer.globalIndex &&
 													dragIndex !== null &&

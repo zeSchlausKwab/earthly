@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import { Button } from '../ui/button'
+import { UserProfile } from '../user-profile'
 
 export interface DatasetActionCardProps {
 	event: NDKGeoEvent
@@ -53,8 +54,15 @@ export function DatasetActionCard({
 			)}
 		>
 			<div className="font-semibold text-gray-900 truncate">{datasetName}</div>
-			<div className="text-[11px] text-gray-500 truncate">
-				Owner: {event.pubkey.slice(0, 8)}…{event.pubkey.slice(-4)}
+			<div className="flex items-center gap-1.5 text-[11px] text-gray-500">
+				<span className="shrink-0">Owner:</span>
+				<UserProfile
+					pubkey={event.pubkey}
+					mode="avatar-name"
+					size="xs"
+					showNip05Badge={false}
+					interactive={false}
+				/>
 			</div>
 			{event.hashtags.length > 0 && (
 				<div className="flex flex-wrap gap-1">
