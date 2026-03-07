@@ -766,11 +766,15 @@ export function AppSidebar({
 			return (
 				<ResizablePanelGroup direction="vertical" className="h-full">
 					<ResizablePanel id={`${activeEntity}-editor`} defaultSize={52} minSize={20}>
-						<div className="h-full overflow-y-auto">{renderEntityContent()}</div>
+						<div className="h-full min-w-0 overflow-y-auto overflow-x-hidden">
+							{renderEntityContent()}
+						</div>
 					</ResizablePanel>
 					<ResizableHandle withHandle />
 					<ResizablePanel id={`${activeWorkMode}-panel`} defaultSize={48} minSize={20}>
-						<div className="h-full overflow-y-auto">{renderWorkContent(activeWorkMode)}</div>
+						<div className="h-full min-w-0 overflow-y-auto overflow-x-hidden">
+							{renderWorkContent(activeWorkMode)}
+						</div>
 					</ResizablePanel>
 				</ResizablePanelGroup>
 			)
@@ -905,7 +909,10 @@ export function AppSidebar({
 			</Sidebar>
 
 			{/* Content sidebar (second nested sidebar) */}
-			<Sidebar collapsible="none" className="hidden flex-1 md:flex">
+			<Sidebar
+				collapsible="none"
+				className="hidden w-[calc(var(--sidebar-width)-var(--sidebar-width-icon)-1px)]! min-w-0 flex-1 md:flex"
+			>
 				<SidebarHeader className="gap-3.5 border-b p-4">
 					<div className="flex w-full items-center gap-2">
 						<div className="shrink-0">
