@@ -146,8 +146,14 @@ export interface QueryOsmNearbyInput {
 	 * OSM tag filters
 	 */
 	filters?: {
-		[k: string]: string
+		[k: string]: string | string[]
 	}
+	/**
+	 * Alternative filter groups combined with OR semantics.
+	 */
+	filterSets?: {
+		[k: string]: string | string[]
+	}[]
 	/**
 	 * Maximum results to return
 	 */
@@ -192,8 +198,14 @@ export interface QueryOsmBboxInput {
 	 * OSM tag filters
 	 */
 	filters?: {
-		[k: string]: string
+		[k: string]: string | string[]
 	}
+	/**
+	 * Alternative filter groups combined with OR semantics.
+	 */
+	filterSets?: {
+		[k: string]: string | string[]
+	}[]
 	/**
 	 * Maximum results to return
 	 */
@@ -852,16 +864,31 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 		lon: number,
 		radius?: number,
 		filters?: object,
-		limit?: number,
+		filterSetsOrLimit?: object[] | number,
+		limitOrIncludeRelations?: number | boolean,
 		includeRelations?: boolean,
 	): Promise<QueryOsmNearbyOutput> {
+		const filterSets = Array.isArray(filterSetsOrLimit) ? filterSetsOrLimit : undefined
+		const limit =
+			typeof filterSetsOrLimit === 'number'
+				? filterSetsOrLimit
+				: typeof limitOrIncludeRelations === 'number'
+					? limitOrIncludeRelations
+					: undefined
+		const normalizedIncludeRelations =
+			typeof includeRelations === 'boolean'
+				? includeRelations
+				: typeof limitOrIncludeRelations === 'boolean'
+					? limitOrIncludeRelations
+					: undefined
 		return this.call('query_osm_nearby', {
 			lat,
 			lon,
 			radius,
 			filters,
+			filterSets,
 			limit,
-			includeRelations,
+			includeRelations: normalizedIncludeRelations,
 		})
 	}
 
@@ -882,17 +909,32 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 		east: number,
 		north: number,
 		filters?: object,
-		limit?: number,
+		filterSetsOrLimit?: object[] | number,
+		limitOrIncludeRelations?: number | boolean,
 		includeRelations?: boolean,
 	): Promise<QueryOsmBboxOutput> {
+		const filterSets = Array.isArray(filterSetsOrLimit) ? filterSetsOrLimit : undefined
+		const limit =
+			typeof filterSetsOrLimit === 'number'
+				? filterSetsOrLimit
+				: typeof limitOrIncludeRelations === 'number'
+					? limitOrIncludeRelations
+					: undefined
+		const normalizedIncludeRelations =
+			typeof includeRelations === 'boolean'
+				? includeRelations
+				: typeof limitOrIncludeRelations === 'boolean'
+					? limitOrIncludeRelations
+					: undefined
 		return this.call('query_osm_bbox', {
 			west,
 			south,
 			east,
 			north,
 			filters,
+			filterSets,
 			limit,
-			includeRelations,
+			includeRelations: normalizedIncludeRelations,
 		})
 	}
 

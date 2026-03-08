@@ -120,6 +120,7 @@ export function createMapContextSystemMessage(): ChatMessage | null {
 			'For add_feature_to_editor, send one feature per call with compact JSON.',
 			'Do not ask the user for intermediate geometry parameters unless they explicitly want to customize shape details.',
 			'For OSM imports, first query candidates with query_osm_bbox/query_osm_nearby, verify non-empty results, then import with explicit bbox/point and filters.',
+			'When exact OSM tags are brittle, prefer filters with array values or filterSets to cover multiple tagging variants in one query.',
 			'When calling a tool, output strict JSON arguments only.',
 			`Current map state JSON:\n${JSON.stringify(compact)}`,
 		].join('\n\n'),

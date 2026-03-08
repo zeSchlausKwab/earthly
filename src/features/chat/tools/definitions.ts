@@ -235,7 +235,13 @@ export const geoTools: Tool[] = [
 					},
 					filters: {
 						type: 'object',
-						description: 'OSM tag filters like {"amenity": "cafe"} or {"shop": "supermarket"}',
+						description:
+							'OSM tag filters like {"amenity":"cafe"} or {"military":["base","air_base"]}. Array values mean OR.',
+					},
+					filterSets: {
+						type: 'array',
+						description:
+							'Optional OR-style filter groups. Pass an array of filter objects when one exact tag pattern is not enough.',
 					},
 					limit: {
 						type: 'number',
@@ -287,7 +293,13 @@ export const geoTools: Tool[] = [
 					},
 					filters: {
 						type: 'object',
-						description: 'OSM tag filters like {"amenity": "restaurant"}',
+						description:
+							'OSM tag filters like {"amenity":"restaurant"} or {"natural":["water","wetland"]}. Array values mean OR.',
+					},
+					filterSets: {
+						type: 'array',
+						description:
+							'Optional OR-style filter groups. Use this when OSM uses multiple tagging patterns for the same thing.',
 					},
 					limit: {
 						type: 'number',
@@ -558,7 +570,13 @@ export const geoTools: Tool[] = [
 					},
 					filters: {
 						type: 'object',
-						description: 'Optional OSM tag filters (example: {"waterway":"river"}).',
+						description:
+							'Optional OSM tag filters (example: {"waterway":"river"} or {"military":["base","air_base"]}).',
+					},
+					filterSets: {
+						type: 'array',
+						description:
+							'Optional OR-style filter groups for broader recall across multiple OSM tagging variants.',
 					},
 					limit: {
 						type: 'number',

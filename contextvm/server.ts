@@ -467,7 +467,7 @@ async function main() {
       inputSchema: queryNearbyInputSchema,
       outputSchema: queryFeaturesOutputSchema,
     },
-    async ({ lat, lon, radius, filters, limit, includeRelations }) => {
+    async ({ lat, lon, radius, filters, filterSets, limit, includeRelations }) => {
       try {
         console.log(`🗺️ Querying OSM nearby: ${lat},${lon} radius=${radius}m`);
         const result = fitQueryFeaturesForTransport(
@@ -476,6 +476,7 @@ async function main() {
             lon,
             radius,
             filters,
+            filterSets,
             limit,
             Boolean(includeRelations),
           ),
@@ -513,7 +514,7 @@ async function main() {
       inputSchema: queryBboxInputSchema,
       outputSchema: queryFeaturesOutputSchema,
     },
-    async ({ west, south, east, north, filters, limit, includeRelations }) => {
+    async ({ west, south, east, north, filters, filterSets, limit, includeRelations }) => {
       try {
         console.log(
           `🗺️ Querying OSM bbox: [${west},${south},${east},${north}]`,
@@ -525,6 +526,7 @@ async function main() {
             east,
             north,
             filters,
+            filterSets,
             limit,
             Boolean(includeRelations),
           ),

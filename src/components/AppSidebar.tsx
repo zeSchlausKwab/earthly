@@ -726,6 +726,7 @@ export function AppSidebar({
 						getDatasetName={getDatasetName}
 						onStartNewDataset={onStartNewDataset}
 						onSwitchWorkspace={onSwitchWorkspace}
+						onOpenSettings={() => navigateToView('settings')}
 					/>
 				)
 			case 'user': {

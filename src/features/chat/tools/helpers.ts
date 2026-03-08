@@ -108,21 +108,47 @@ export function clampRadiusMeters(value: unknown): number {
 	return Math.max(1, Math.min(MAX_NEARBY_RADIUS_METERS, numeric))
 }
 
-export function normalizeFilters(value: unknown): Record<string, string> | undefined {
+export function normalizeFilters(value: unknown): Record<string, string | string[]> | undefined {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) {
 		return undefined
 	}
 
 	const entries = Object.entries(value as Record<string, unknown>)
-	const normalized: Record<string, string> = {}
+	const normalized: Record<string, string | string[]> = {}
 
 	for (const [key, raw] of entries) {
 		if (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean') {
 			normalized[key] = String(raw)
+			continue
+		}
+		if (Array.isArray(raw)) {
+			const values = raw
+				.filter(
+					(entry): entry is string | number | boolean =>
+						typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean',
+				)
+				.map((entry) => String(entry))
+			if (values.length > 0) {
+				normalized[key] = values
+			}
 		}
 	}
 
 	return Object.keys(normalized).length > 0 ? normalized : undefined
+}
+
+export function normalizeFilterSets(
+	value: unknown,
+): Array<Record<string, string | string[]>> | undefined {
+	if (!Array.isArray(value)) {
+		return undefined
+	}
+
+	const normalized = value
+		.map((entry) => normalizeFilters(entry))
+		.filter((entry): entry is Record<string, string | string[]> => entry !== undefined)
+
+	return normalized.length > 0 ? normalized : undefined
 }
 
 // --- GeoJSON Type Guards ---

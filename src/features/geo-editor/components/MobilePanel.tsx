@@ -591,6 +591,7 @@ export function MobilePanel(props: MobilePanelProps) {
 								getDatasetName={getDatasetName}
 								onStartNewDataset={onStartNewDataset}
 								onSwitchWorkspace={onSwitchWorkspace}
+								onOpenSettings={() => setMobilePanelTab('settings')}
 							/>
 						</div>
 					)}

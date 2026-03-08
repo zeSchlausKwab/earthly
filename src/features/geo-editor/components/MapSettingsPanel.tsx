@@ -12,6 +12,7 @@ import type React from 'react'
 import { useMemo, useRef, useState } from 'react'
 import { UserProfile } from '@/components/user-profile'
 import { SessionsManager } from '@/features/auth/SessionsManager'
+import { ChatSettingsSection } from '@/features/chat'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -50,8 +51,7 @@ export function MapSettingsPanel() {
 		const serverMap = new Map<string, (MapLayerState & { globalIndex: number })[]>()
 		const serverOrder: string[] = []
 
-		for (let i = 0; i < mapLayers.length; i++) {
-			const layer = mapLayers[i]
+		for (const [i, layer] of mapLayers.entries()) {
 			const server = layer.blossomServer || 'unknown'
 			let serverLayers = serverMap.get(server)
 			if (!serverLayers) {
@@ -161,6 +161,10 @@ export function MapSettingsPanel() {
 		<div className="space-y-4">
 			{/* Sessions Manager */}
 			<SessionsManager />
+
+			<Separator />
+
+			<ChatSettingsSection />
 
 			<Separator />
 

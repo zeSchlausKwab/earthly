@@ -22,6 +22,7 @@ import {
 	clampPositiveInt,
 	clampRadiusMeters,
 	normalizeFilters,
+	normalizeFilterSets,
 	asFeatureObject,
 	ensureBbox,
 	getEditorViewportBbox,
@@ -174,6 +175,8 @@ export async function executeToolCall(toolCall: ToolCall): Promise<ToolResult> {
 				const lat = toFiniteNumber(args.lat)
 				const lon = toFiniteNumber(args.lon)
 				const radius = clampRadiusMeters(args.radius)
+				const filters = normalizeFilters(args.filters)
+				const filterSets = normalizeFilterSets(args.filterSets)
 				if (lat === undefined || lon === undefined) {
 					throw new Error('lat and lon must be valid numbers')
 				}
@@ -181,7 +184,8 @@ export async function executeToolCall(toolCall: ToolCall): Promise<ToolResult> {
 					lat,
 					lon,
 					radius,
-					normalizeFilters(args.filters) ?? undefined,
+					filters,
+					filterSets,
 					clampLimit(args.limit, DEFAULT_QUERY_LIMIT),
 					Boolean(args.includeRelations),
 				)
@@ -189,6 +193,8 @@ export async function executeToolCall(toolCall: ToolCall): Promise<ToolResult> {
 				break
 			}
 			case 'query_osm_bbox': {
+				const filters = normalizeFilters(args.filters)
+				const filterSets = normalizeFilterSets(args.filterSets)
 				if (!hasExplicitBbox(args)) {
 					throw new Error('west, south, east, and north are required and must be numbers')
 				}
@@ -201,7 +207,8 @@ export async function executeToolCall(toolCall: ToolCall): Promise<ToolResult> {
 					south,
 					east,
 					north,
-					normalizeFilters(args.filters) ?? undefined,
+					filters,
+					filterSets,
 					clampLimit(args.limit, DEFAULT_QUERY_LIMIT),
 					Boolean(args.includeRelations),
 				)
@@ -325,6 +332,7 @@ export async function executeToolCall(toolCall: ToolCall): Promise<ToolResult> {
 				const limit = clampLimit(args.limit, DEFAULT_IMPORT_LIMIT)
 				const replaceExisting = Boolean(args.replaceExisting)
 				const filters = normalizeFilters(args.filters)
+				const filterSets = normalizeFilterSets(args.filterSets)
 				const includeRelations = Boolean(args.includeRelations) || relationId !== undefined
 
 				let source = 'viewport'
@@ -339,6 +347,7 @@ export async function executeToolCall(toolCall: ToolCall): Promise<ToolResult> {
 						bbox[2],
 						bbox[3],
 						filters ?? undefined,
+						filterSets,
 						limit,
 						includeRelations,
 					)
@@ -360,6 +369,7 @@ export async function executeToolCall(toolCall: ToolCall): Promise<ToolResult> {
 						lon,
 						clampRadiusMeters(args.radius),
 						filters ?? undefined,
+						filterSets,
 						limit,
 						includeRelations,
 					)
@@ -447,6 +457,7 @@ export async function executeToolCall(toolCall: ToolCall): Promise<ToolResult> {
 					source,
 					name: name || null,
 					filters: filters ?? null,
+					filterSets: filterSets ?? null,
 					usedBbox,
 					queryResultCount: validFeatures.length,
 					nameMatchedCount: name ? matchedByName.length : null,

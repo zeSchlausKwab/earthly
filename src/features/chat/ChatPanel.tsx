@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useChatStore } from './store'
 import { useNip60Store } from '@/lib/stores/nip60'
+import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useEditorStore } from '@/features/geo-editor/store'
 import {
 	EntityReferenceToolbar,
@@ -11,7 +12,6 @@ import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import {
 	Select,
@@ -24,6 +24,7 @@ import {
 	Loader2,
 	Send,
 	Trash2,
+	Settings2,
 	Wallet,
 	Bot,
 	User,
@@ -36,13 +37,11 @@ import {
 	Check,
 	Copy,
 	ArrowDownToLine,
-	ChevronDown,
 } from 'lucide-react'
 import { estimateTokens, type ChatMessage, type ToolCall, type ProviderType } from './routstr'
 import { analyzeToolResultGeometryContent, bakeToolResultContentToEditor } from './tools'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import type { ChatReference } from './store'
 
 const EMPTY_STATE_PROMPTS = [
@@ -71,6 +70,7 @@ interface ChatPanelProps {
 	getDatasetName?: (event: NDKGeoEvent) => string
 	onStartNewDataset?: () => void
 	onSwitchWorkspace?: (workspaceId: string) => void
+	onOpenSettings?: () => void
 }
 
 const defaultGetDatasetName = (event: NDKGeoEvent): string =>
@@ -84,6 +84,7 @@ export function ChatPanel({
 	getDatasetName = defaultGetDatasetName,
 	onStartNewDataset,
 	onSwitchWorkspace,
+	onOpenSettings,
 }: ChatPanelProps) {
 	const {
 		messages,
@@ -105,13 +106,7 @@ export function ChatPanel({
 		diagnostics,
 		provider,
 		customEndpoint,
-		customApiKey,
-		setProvider,
-		setCustomEndpoint,
-		setCustomApiKey,
 		loadModels,
-		setSelectedModel,
-		setToolsEnabled,
 		sendMessage,
 		createChat,
 		switchChat,
@@ -122,21 +117,24 @@ export function ChatPanel({
 	} = useChatStore()
 	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
 	const updateWorkspace = useEditorStore((state) => state.updateWorkspace)
+	const setMobilePanelTab = useEditorStore((state) => state.setMobilePanelTab)
+	const setMobilePanelOpen = useEditorStore((state) => state.setMobilePanelOpen)
 
 	const { status: walletStatus, balance: walletBalance } = useNip60Store()
+	const isMobile = useIsMobile()
 
 	const [input, setInput] = useState('')
-	const [settingsOpen, setSettingsOpen] = useState(false)
 	const [nowMs, setNowMs] = useState(Date.now())
 	const messagesEndRef = useRef<HTMLDivElement>(null)
 	const textareaRef = useRef<HTMLTextAreaElement>(null)
 
 	// Load models on mount
 	useEffect(() => {
+		if (provider === 'custom' && !customEndpoint.trim()) return
 		if (models.length === 0 && !modelsLoading && !modelsError) {
-			loadModels()
+			void loadModels()
 		}
-	}, [models.length, modelsLoading, modelsError, loadModels])
+	}, [customEndpoint, loadModels, models.length, modelsError, modelsLoading, provider])
 
 	// Auto-scroll to bottom when messages change
 	const scrollTrigger = `${messages.length}:${streamingContent.length}:${executingTools ? 1 : 0}:${streamWarning ? 1 : 0}`
@@ -253,6 +251,18 @@ export function ChatPanel({
 	const providerLabel = PROVIDER_LABELS[provider]
 	const isWalletRequired = provider === 'routstr'
 	const canSend = !!selectedModel && (!isWalletRequired || walletStatus === 'ready')
+	const handleOpenSettings = () => {
+		if (onOpenSettings) {
+			onOpenSettings()
+			return
+		}
+		if (isMobile) {
+			setMobilePanelTab('settings')
+			setMobilePanelOpen(true)
+			return
+		}
+		window.location.hash = '#/settings'
+	}
 	const stalledSeconds =
 		isStreaming && lastProgressAt ? Math.max(0, Math.floor((nowMs - lastProgressAt) / 1000)) : 0
 	const phaseLabel = useMemo(() => {
@@ -337,97 +347,27 @@ export function ChatPanel({
 				</div>
 
 				<div className="flex items-center gap-2">
-					<Collapsible
-						open={settingsOpen}
-						onOpenChange={setSettingsOpen}
-						className="flex-1 min-w-0"
+					<div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border bg-muted/20 px-2.5 py-2">
+						<Bot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+						<div className="min-w-0">
+							<p className="truncate text-xs font-medium">
+								{providerLabel} · {selectedModelLabel}
+							</p>
+							<p className="truncate text-[11px] text-muted-foreground">
+								Configure provider, model, tools, and credentials in Settings
+							</p>
+						</div>
+					</div>
+					<Button
+						type="button"
+						variant="outline"
+						size="icon"
+						onClick={handleOpenSettings}
+						title="Open chat settings"
+						aria-label="Open chat settings"
 					>
-						<CollapsibleTrigger asChild>
-							<Button
-								type="button"
-								variant="outline"
-								className="w-full h-8 justify-between px-2 text-xs font-normal"
-							>
-								<span className="truncate">
-									{providerLabel} · {selectedModelLabel}
-								</span>
-								<ChevronDown
-									className={cn('h-3.5 w-3.5 transition-transform', settingsOpen && 'rotate-180')}
-								/>
-							</Button>
-						</CollapsibleTrigger>
-						<CollapsibleContent className="space-y-1.5 pt-2">
-							<Select
-								value={provider}
-								onValueChange={(v) => setProvider(v as ProviderType)}
-								disabled={isStreaming}
-							>
-								<SelectTrigger className="h-8 text-xs">
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="routstr">Routstr (paid)</SelectItem>
-									<SelectItem value="lmstudio">LM Studio</SelectItem>
-									<SelectItem value="ollama">Ollama</SelectItem>
-									<SelectItem value="custom">Custom endpoint</SelectItem>
-								</SelectContent>
-							</Select>
-
-							{provider === 'custom' && (
-								<div className="space-y-1.5">
-									<Input
-										placeholder="http://localhost:8080/v1"
-										value={customEndpoint}
-										onChange={(e) => setCustomEndpoint(e.target.value)}
-										disabled={isStreaming}
-										className="text-xs h-7"
-									/>
-									<Input
-										placeholder="API key (optional)"
-										type="password"
-										value={customApiKey}
-										onChange={(e) => setCustomApiKey(e.target.value)}
-										disabled={isStreaming}
-										className="text-xs h-7"
-									/>
-									<Button
-										variant="outline"
-										size="sm"
-										className="h-7 text-xs w-full"
-										onClick={loadModels}
-										disabled={!customEndpoint || isStreaming}
-									>
-										Connect
-									</Button>
-								</div>
-							)}
-
-							<Select
-								value={selectedModel || ''}
-								onValueChange={setSelectedModel}
-								disabled={modelsLoading || isStreaming}
-							>
-								<SelectTrigger className="h-8 text-xs">
-									<SelectValue placeholder={modelsLoading ? 'Loading models...' : 'Select model'} />
-								</SelectTrigger>
-								<SelectContent>
-									{models.map((model) => (
-										<SelectItem key={model.id} value={model.id}>
-											<div className="flex flex-col">
-												<span>{model.name}</span>
-												{isWalletRequired &&
-													(model.pricing.input > 0 || model.pricing.output > 0) && (
-														<span className="text-xs text-muted-foreground">
-															{model.pricing.input}/{model.pricing.output} sats/M tokens
-														</span>
-													)}
-											</div>
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</CollapsibleContent>
-					</Collapsible>
+						<Settings2 className="h-4 w-4" />
+					</Button>
 				</div>
 
 				{/* Wallet status / provider info and tools toggle */}
@@ -452,34 +392,14 @@ export function ChatPanel({
 							<span>Local - free</span>
 						</div>
 					)}
-					<div className="flex items-center gap-2">
-						{totalSpent > 0 && (
-							<span className="text-xs text-muted-foreground">Spent: {totalSpent} sats</span>
-						)}
-						<button
-							type="button"
-							onClick={() => setToolsEnabled(!toolsEnabled)}
-							className={cn(
-								'flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors',
-								toolsEnabled
-									? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400'
-									: 'bg-muted text-muted-foreground',
-							)}
-							title={
-								toolsEnabled
-									? 'Geo, map editor, and web tools enabled (GPT/Claude models recommended)'
-									: 'Tools disabled - click to enable'
-							}
-						>
+					{totalSpent > 0 ? (
+						<span className="text-xs text-muted-foreground">Spent: {totalSpent} sats</span>
+					) : (
+						<div className="flex items-center gap-1.5 text-muted-foreground text-xs">
 							<MapPin className="h-3 w-3" />
-							<span>Tools</span>
-							{toolsEnabled ? (
-								<ToggleRight className="h-3.5 w-3.5" />
-							) : (
-								<ToggleLeft className="h-3.5 w-3.5" />
-							)}
-						</button>
-					</div>
+							<span>Tools {toolsEnabled ? 'enabled' : 'disabled'}</span>
+						</div>
+					)}
 				</div>
 
 				{/* Diagnostics */}

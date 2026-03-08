@@ -117,6 +117,22 @@ export interface ChatReference {
 	createdAt?: number
 }
 
+export interface ChatSettingsSnapshot {
+	provider: ProviderType
+	customEndpoint: string
+	customApiKey: string
+	selectedModel: string | null
+	toolsEnabled: boolean
+}
+
+export const DEFAULT_CHAT_SETTINGS: ChatSettingsSnapshot = {
+	provider: 'routstr',
+	customEndpoint: '',
+	customApiKey: '',
+	selectedModel: null,
+	toolsEnabled: true,
+}
+
 function createChatId(): string {
 	if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
 		return crypto.randomUUID()
@@ -591,6 +607,7 @@ interface ChatActions {
 	setSelectedModel: (modelId: string) => void
 	// Settings
 	setToolsEnabled: (enabled: boolean) => void
+	hydrateSettings: (settings: Partial<ChatSettingsSnapshot>) => void
 	// Message management
 	addMessage: (message: ChatMessage) => void
 	clearMessages: () => void
@@ -614,9 +631,7 @@ type ChatStore = ChatState & ChatActions
 function createInitialState(): ChatState {
 	const initialChat = createEmptyChatSession()
 	return {
-		provider: 'routstr',
-		customEndpoint: '',
-		customApiKey: '',
+		...DEFAULT_CHAT_SETTINGS,
 		chatSessions: [initialChat],
 		activeChatId: initialChat.id,
 		messages: [],
@@ -698,6 +713,19 @@ export const useChatStore = create<ChatStore>()(
 
 			setToolsEnabled: (enabled: boolean) => {
 				set({ toolsEnabled: enabled })
+			},
+
+			hydrateSettings: (settings: Partial<ChatSettingsSnapshot>) => {
+				set({
+					provider: settings.provider ?? DEFAULT_CHAT_SETTINGS.provider,
+					customEndpoint: settings.customEndpoint ?? DEFAULT_CHAT_SETTINGS.customEndpoint,
+					customApiKey: settings.customApiKey ?? DEFAULT_CHAT_SETTINGS.customApiKey,
+					selectedModel: settings.selectedModel ?? DEFAULT_CHAT_SETTINGS.selectedModel,
+					toolsEnabled: settings.toolsEnabled ?? DEFAULT_CHAT_SETTINGS.toolsEnabled,
+					models: [],
+					modelsLoading: false,
+					modelsError: null,
+				})
 			},
 
 			addMessage: (message: ChatMessage) => {
@@ -1389,31 +1417,24 @@ export const useChatStore = create<ChatStore>()(
 			partialize: (state) => ({
 				chatSessions: state.chatSessions,
 				activeChatId: state.activeChatId,
-				selectedModel: state.selectedModel,
-				toolsEnabled: state.toolsEnabled,
-				provider: state.provider,
-				customEndpoint: state.customEndpoint,
-				customApiKey: state.customApiKey,
 			}),
 			merge: (persistedState, currentState) => {
 				const persisted = (persistedState as Partial<ChatState> | undefined) ?? {}
-				const merged = {
-					...currentState,
-					...persisted,
-				}
 				const persistedSessions = Array.isArray(persisted.chatSessions)
 					? persisted.chatSessions.filter((session) => typeof session?.id === 'string')
 					: []
 				const chatSessions =
 					persistedSessions.length > 0
 						? persistedSessions
-						: (merged.chatSessions ?? [createEmptyChatSession()])
-				const activeChatId = chatSessions.some((session) => session.id === merged.activeChatId)
-					? (merged.activeChatId ?? chatSessions[0]?.id ?? null)
+						: (currentState.chatSessions ?? [createEmptyChatSession()])
+				const persistedActiveChatId =
+					typeof persisted.activeChatId === 'string' ? persisted.activeChatId : null
+				const activeChatId = chatSessions.some((session) => session.id === persistedActiveChatId)
+					? persistedActiveChatId
 					: (chatSessions[0]?.id ?? null)
 				const activeChat = chatSessions.find((session) => session.id === activeChatId)
 				return {
-					...merged,
+					...currentState,
 					chatSessions: sortChatSessionsByRecent(chatSessions),
 					activeChatId,
 					messages: activeChat?.messages ?? [],
@@ -1432,6 +1453,8 @@ export const chatActions = {
 	loadModels: () => useChatStore.getState().loadModels(),
 	setSelectedModel: (modelId: string) => useChatStore.getState().setSelectedModel(modelId),
 	setToolsEnabled: (enabled: boolean) => useChatStore.getState().setToolsEnabled(enabled),
+	hydrateSettings: (settings: Partial<ChatSettingsSnapshot>) =>
+		useChatStore.getState().hydrateSettings(settings),
 	sendMessage: (content: string, options?: SendMessageOptions) =>
 		useChatStore.getState().sendMessage(content, options),
 	clearMessages: () => useChatStore.getState().clearMessages(),
