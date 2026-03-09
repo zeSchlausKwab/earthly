@@ -257,6 +257,14 @@ Recent evaluation runs surfaced a few stable rules for geo retrieval:
    - For "points only" prompts, retrieval can preserve canonical geometry semantics while presenting/importing representative points.
    - On the map, small polygons can collapse to proxy points at low zoom without losing the original polygon geometry.
 
+7. Attached chat geometry must be executor-readable.
+   - Transient polygon attachments cannot live only as prompt text.
+   - `query_osm_area` now reads attached geometry directly for the current request, even when no editor feature is selected.
+
+8. Spatial wording should map to explicit spatial filters.
+   - When the user says "actually inside", use `spatialFilter="point_within"` instead of `intersects`.
+   - This is the correct default for point imports inside an attached polygon.
+
 ## Prompt Cookbook (AI + Chat + Map)
 
 Use direct, imperative prompts that encourage tool action.

@@ -208,11 +208,17 @@ The current chat + geo stack works best when geo retrieval follows a few rules:
 - Tile large bbox queries before hitting Overpass.
   - Country-scale scans are more reliable when split into smaller tiles and merged client-side/server-side.
 
+- Make transient attachments directly callable by tools.
+  - Attached scratch geometry should be available to tool execution for the current request, not only embedded in prompt prose.
+
 - Keep canonical geometry and presentation separate.
   - Retrieval may preserve polygons/lines, while the map or import step can render representative points when the user explicitly asks for points.
 
 - Compact tool feedback for the LLM, not for the UI protocol.
   - Models need counts, subtype summaries, and a few samples more than giant raw GeoJSON dumps.
+
+- Map user phrasing to concrete spatial predicates.
+  - "Inside" should resolve to a strict containment mode like `point_within`, not a looser `intersects` fallback.
 
 ### 2. Web Server (new: `contextvm/web-server.ts`)
 
