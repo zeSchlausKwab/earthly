@@ -1,6 +1,7 @@
 /**
  * Chat Store - Zustand store for Routstr AI chat
  */
+import type { FeatureCollection } from 'geojson'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { ChatMessage, RoutstrModel, ToolCall, ProviderType, ProviderConfig } from './routstr'
@@ -649,6 +650,7 @@ interface SendMessageOptions {
 	referenceContextMessage?: string
 	selectionContextMessage?: string
 	geometryContextMessage?: string
+	geometryAttachment?: FeatureCollection | null
 }
 
 type ChatStore = ChatState & ChatActions
@@ -867,6 +869,7 @@ export const useChatStore = create<ChatStore>()(
 				const referenceContextMessage = options?.referenceContextMessage?.trim()
 				const selectionContextMessage = options?.selectionContextMessage?.trim()
 				const geometryContextMessage = options?.geometryContextMessage?.trim()
+				const geometryAttachment = options?.geometryAttachment ?? null
 
 				if (!selectedModel) {
 					toast.error('Please select a model first')
@@ -1321,7 +1324,9 @@ export const useChatStore = create<ChatStore>()(
 							// Execute each tool call
 							for (const toolCall of result.toolCalls) {
 								console.log(`[Chat] Executing tool: ${toolCall.function.name}`)
-								const toolResult = await executeToolCall(toolCall)
+								const toolResult = await executeToolCall(toolCall, {
+									attachedGeometry: geometryAttachment,
+								})
 
 								// Add tool result message
 								const toolMessage: ChatMessage = {

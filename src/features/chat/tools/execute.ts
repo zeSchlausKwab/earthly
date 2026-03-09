@@ -3,7 +3,7 @@
  */
 
 import { useEditorStore } from '@/features/geo-editor/store'
-import type { ToolCall, ToolResult } from './types'
+import type { ToolCall, ToolExecutionContext, ToolResult } from './types'
 import {
 	DEFAULT_QUERY_LIMIT,
 	DEFAULT_IMPORT_LIMIT,
@@ -159,7 +159,10 @@ async function queryOsmBboxWithFallback(
 	}
 }
 
-export async function executeToolCall(toolCall: ToolCall): Promise<ToolResult> {
+export async function executeToolCall(
+	toolCall: ToolCall,
+	context?: ToolExecutionContext,
+): Promise<ToolResult> {
 	const client = getGeoClient()
 
 	try {
@@ -377,9 +380,16 @@ export async function executeToolCall(toolCall: ToolCall): Promise<ToolResult> {
 
 				if (Boolean(args.selectedOnly)) {
 					areaFeatures = getSelectedAreaFeatures()
+					if (areaFeatures.length === 0 && context?.attachedGeometry) {
+						areaSource = 'attached_geometry'
+						areaFeatures = extractPolygonAreaFeatures(context.attachedGeometry)
+					}
 				} else if (args.areaGeojson && typeof args.areaGeojson === 'object') {
 					areaSource = 'geojson'
 					areaFeatures = extractPolygonAreaFeatures(args.areaGeojson)
+				} else if (context?.attachedGeometry) {
+					areaSource = 'attached_geometry'
+					areaFeatures = extractPolygonAreaFeatures(context.attachedGeometry)
 				} else if (relationId !== undefined) {
 					areaSource = 'relation'
 					const relationResponse = await client.GetOsmRelationGeometry(Math.floor(relationId))

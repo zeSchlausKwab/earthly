@@ -217,6 +217,7 @@ export function ChatPanel({
 				? buildSelectedGeometryContextMessage(selectedEditorFeatures)
 				: undefined,
 			geometryContextMessage,
+			geometryAttachment: attachedGeometry,
 		})
 		if (geometryContextMessage) {
 			setAttachedGeometry(null)
@@ -822,7 +823,7 @@ function buildAttachedGeometryContextMessage(geojson: FeatureCollection): string
 	return [
 		'The user attached transient chat geometry for this request.',
 		'This geometry is scratch context only. It is not canonical map data and was intentionally kept out of the editor dataset.',
-		'If the geometry is a polygon area, prefer query_osm_area with areaGeojson using the attached GeoJSON below.',
+		'If the geometry is a polygon area, prefer query_osm_area. The tool executor can use the attached geometry directly for this request even if no editor feature is selected.',
 		'If the geometry is points, lines, or annotations, use it as spatial guidance and explain any assumptions.',
 		`Attached feature count: ${geojson.features.length}.`,
 		'Attachment summary:',

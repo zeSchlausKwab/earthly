@@ -339,7 +339,7 @@ export const geoTools: Tool[] = [
 		function: {
 			name: 'query_osm_area',
 			description:
-				'Find OpenStreetMap features constrained to a polygonal area. The area can come from the current selected polygon(s), an explicit polygon GeoJSON payload, a country boundary, or an OSM relation. Can also clip matching lines to the area or convert results to representative points. Always provide filters, filterSets, or concept; unfiltered area scans are too large for Overpass.',
+				'Find OpenStreetMap features constrained to a polygonal area. The area can come from the current selected polygon(s), explicit areaGeojson, transient chat-attached geometry for the current request, a country boundary, or an OSM relation. Can also clip matching lines to the area or convert results to representative points. Always provide filters, filterSets, or concept; unfiltered area scans are too large for Overpass.',
 			parameters: {
 				type: 'object',
 				properties: {

@@ -7,6 +7,7 @@ export type {
 	Tool,
 	ToolCall,
 	ToolResult,
+	ToolExecutionContext,
 	GeometryBakeAnalysis,
 	GeometryBakeResult,
 	CachedMapSnapshot,

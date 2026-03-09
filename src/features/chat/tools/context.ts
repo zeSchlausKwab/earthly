@@ -122,6 +122,7 @@ export function createMapContextSystemMessage(): ChatMessage | null {
 			'For routing and travel-time polygons, use valhalla_route and valhalla_isochrone.',
 			'When a geometry-producing tool supports it, set toEditor=true to import directly and keep tool results compact.',
 			'If the user says "within this polygon" or explicitly attaches the current selection, use query_osm_area with selectedOnly=true.',
+			'If the user attached transient chat geometry, query_osm_area can use that attached geometry directly for the current request even when nothing is selected in the editor.',
 			'Use the concept argument when the user intent is semantic but OSM tagging is likely inconsistent. High-value examples: concept="military installation", concept="river", concept="bench".',
 			'If the user asks for points only, set outputGeometry="point_on_feature" unless exact point features already exist.',
 			'If the user asks for a line or river within a border, use query_osm_area with clipLines=true to keep geometry inside the area.',

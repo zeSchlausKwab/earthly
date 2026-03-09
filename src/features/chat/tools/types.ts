@@ -36,6 +36,10 @@ export interface ToolResult {
 	content: string
 }
 
+export interface ToolExecutionContext {
+	attachedGeometry?: GeoJSON.FeatureCollection | null
+}
+
 export interface GeometryBakeAnalysis {
 	canBake: boolean
 	featureCount: number
