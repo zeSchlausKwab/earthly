@@ -195,6 +195,25 @@ New tools needed:
 | `union_geometries` | Merge multiple polygons |
 | `clip_to_boundary` | Clip features to area |
 
+### Practical Retrieval Lessons
+
+The current chat + geo stack works best when geo retrieval follows a few rules:
+
+- Prefer semantic expansion over prompt-specific presets.
+  - Example: `military installation` should expand into multiple OSM tagging patterns instead of relying on one guessed tag.
+
+- Treat borders and drawn polygons as hard constraints.
+  - If the user asks for features inside Saudi Arabia or inside an attached polygon, fallback behavior must not silently widen to an unconstrained bbox import.
+
+- Tile large bbox queries before hitting Overpass.
+  - Country-scale scans are more reliable when split into smaller tiles and merged client-side/server-side.
+
+- Keep canonical geometry and presentation separate.
+  - Retrieval may preserve polygons/lines, while the map or import step can render representative points when the user explicitly asks for points.
+
+- Compact tool feedback for the LLM, not for the UI protocol.
+  - Models need counts, subtype summaries, and a few samples more than giant raw GeoJSON dumps.
+
 ### 2. Web Server (new: `contextvm/web-server.ts`)
 
 Tools for internet research:
