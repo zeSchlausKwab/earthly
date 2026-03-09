@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { FeatureCollection } from 'geojson'
 import { useChatStore } from './store'
 import { useNip60Store } from '@/lib/stores/nip60'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
@@ -11,6 +12,7 @@ import {
 import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import type { EditorFeature } from '@/features/geo-editor/core'
 import { Button } from '@/components/ui/button'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import {
@@ -18,7 +20,6 @@ import {
 	SelectContent,
 	SelectItem,
 	SelectTrigger,
-	SelectValue,
 } from '@/components/ui/select'
 import {
 	Loader2,
@@ -40,6 +41,7 @@ import {
 } from 'lucide-react'
 import { estimateTokens, type ChatMessage, type ToolCall, type ProviderType } from './routstr'
 import { analyzeToolResultGeometryContent, bakeToolResultContentToEditor } from './tools'
+import { ChatGeometryAttachment } from './ChatGeometryAttachment'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { ChatReference } from './store'
@@ -47,7 +49,9 @@ import type { ChatReference } from './store'
 const EMPTY_STATE_PROMPTS = [
 	'Get me the route from Linz to Vienna and bring it to the editor.',
 	'Generate a 20-minute bicycle isochrone from the current map center and add it to the editor.',
-	'Find military bases in the current viewport and add them as points with useful metadata in properties.',
+	'Give me all military installations as points in Saudi Arabia. Keep only features within Saudi borders and preserve useful metadata.',
+	'Give me the River Elbe within German borders only. Keep it as line geometry clipped to Germany.',
+	'Use the currently selected polygon as the search area and add all parking benches inside it.',
 	'Resolve Vienna as an OSM relation, fetch clean boundary geometry, and import it into the editor.',
 	'Import all rivers in my current viewport and label the major ones.',
 	'Capture a map snapshot and tell me what notable places are visible right now.',
@@ -119,11 +123,15 @@ export function ChatPanel({
 	const updateWorkspace = useEditorStore((state) => state.updateWorkspace)
 	const setMobilePanelTab = useEditorStore((state) => state.setMobilePanelTab)
 	const setMobilePanelOpen = useEditorStore((state) => state.setMobilePanelOpen)
+	const editorFeatures = useEditorStore((state) => state.features)
+	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 
 	const { status: walletStatus, balance: walletBalance } = useNip60Store()
 	const isMobile = useIsMobile()
 
 	const [input, setInput] = useState('')
+	const [selectionContextEnabled, setSelectionContextEnabled] = useState(false)
+	const [attachedGeometry, setAttachedGeometry] = useState<FeatureCollection | null>(null)
 	const [nowMs, setNowMs] = useState(Date.now())
 	const messagesEndRef = useRef<HTMLDivElement>(null)
 	const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -159,6 +167,30 @@ export function ChatPanel({
 		return () => window.clearInterval(interval)
 	}, [isStreaming])
 
+	const selectedEditorFeatures = useMemo(() => {
+		if (selectedFeatureIds.length === 0) return []
+		const selectedIds = new Set(selectedFeatureIds)
+		return editorFeatures.filter((feature) => selectedIds.has(feature.id))
+	}, [editorFeatures, selectedFeatureIds])
+	const selectedPolygonCount = useMemo(
+		() =>
+			selectedEditorFeatures.filter(
+				(feature) =>
+					feature.geometry?.type === 'Polygon' || feature.geometry?.type === 'MultiPolygon',
+			).length,
+		[selectedEditorFeatures],
+	)
+
+	useEffect(() => {
+		if (selectedEditorFeatures.length > 0) return
+		setSelectionContextEnabled(false)
+	}, [selectedEditorFeatures.length])
+
+	useEffect(() => {
+		setAttachedGeometry(null)
+		setSelectionContextEnabled(false)
+	}, [activeChatId])
+
 	const ensureChatWorkspace = () => {
 		const store = useEditorStore.getState()
 		if (store.activeWorkspaceId) {
@@ -174,11 +206,21 @@ export function ChatPanel({
 		if (!input.trim() || isStreaming) return
 
 		const message = input.trim()
+		const geometryContextMessage = attachedGeometry
+			? buildAttachedGeometryContextMessage(attachedGeometry)
+			: undefined
 		setInput('')
 		if (!ensureChatWorkspace()) return
 		await sendMessage(message, {
 			referenceContextMessage: buildReferenceContextMessage(references),
+			selectionContextMessage: selectionContextEnabled
+				? buildSelectedGeometryContextMessage(selectedEditorFeatures)
+				: undefined,
+			geometryContextMessage,
 		})
+		if (geometryContextMessage) {
+			setAttachedGeometry(null)
+		}
 	}
 
 	const bindActiveWorkspaceChat = (chatId: string | null) => {
@@ -246,6 +288,10 @@ export function ChatPanel({
 	const sortedChatSessions = useMemo(
 		() => [...chatSessions].sort((a, b) => b.updatedAt - a.updatedAt),
 		[chatSessions],
+	)
+	const activeChatSession = useMemo(
+		() => sortedChatSessions.find((chat) => chat.id === activeChatId) ?? null,
+		[activeChatId, sortedChatSessions],
 	)
 	const selectedModelLabel = selectedModelData?.name ?? 'No model selected'
 	const providerLabel = PROVIDER_LABELS[provider]
@@ -318,8 +364,19 @@ export function ChatPanel({
 						onValueChange={handleSwitchChat}
 						disabled={isStreaming}
 					>
-						<SelectTrigger className="h-8 flex-1 text-xs">
-							<SelectValue placeholder="Select chat" />
+						<SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
+							{activeChatSession ? (
+								<div className="flex min-w-0 items-center gap-2">
+									<span className="min-w-0 flex-1 truncate text-left">
+										{activeChatSession.title}
+									</span>
+									<span className="shrink-0 text-[10px] text-muted-foreground">
+										{new Date(activeChatSession.updatedAt).toLocaleTimeString()}
+									</span>
+								</div>
+							) : (
+								<span className="truncate text-muted-foreground">Select chat</span>
+							)}
 						</SelectTrigger>
 						<SelectContent>
 							{sortedChatSessions.map((chat) => (
@@ -566,22 +623,67 @@ export function ChatPanel({
 			{/* Input */}
 			<form onSubmit={handleSubmit} className="shrink-0 border-t p-3">
 				<div className="space-y-2">
-					<EntityReferenceToolbar
-						sources={{
-							datasets: geoEvents,
-							collections: collectionEvents,
-							contexts: mapContextEvents,
-							features: availableFeatures,
-						}}
-						references={references.map(chatReferenceToSearchResult)}
-						onAddReference={handleAddReference}
-						onRemoveReference={handleRemoveReference}
-						onClearReferences={handleClearReferences}
-						searchMode="both"
-						getDatasetName={getDatasetName}
-						placeholder="Add geometry, dataset, collection, or context references..."
-						className="min-w-0"
-					/>
+					<div className="flex flex-wrap items-start gap-2">
+						<EntityReferenceToolbar
+							sources={{
+								datasets: geoEvents,
+								collections: collectionEvents,
+								contexts: mapContextEvents,
+								features: availableFeatures,
+							}}
+							references={references.map(chatReferenceToSearchResult)}
+							onAddReference={handleAddReference}
+							onRemoveReference={handleRemoveReference}
+							onClearReferences={handleClearReferences}
+							searchMode="both"
+							getDatasetName={getDatasetName}
+							placeholder="Add geometry, dataset, collection, or context references..."
+							className="min-w-0 flex-1"
+						/>
+						<Button
+							type="button"
+							variant={selectionContextEnabled ? 'default' : 'outline'}
+							size="sm"
+							className="h-8 shrink-0 gap-1.5 text-xs"
+							onClick={() => setSelectionContextEnabled((prev) => !prev)}
+							disabled={selectedEditorFeatures.length === 0}
+							title={
+								selectedEditorFeatures.length === 0
+									? 'Select one or more map features first'
+									: 'Attach current selection as spatial chat context'
+							}
+						>
+							{selectionContextEnabled ? (
+								<ToggleRight className="h-3.5 w-3.5" />
+							) : (
+								<ToggleLeft className="h-3.5 w-3.5" />
+							)}
+							Select
+						</Button>
+						<ChatGeometryAttachment
+							key={activeChatId ?? 'chat-geometry'}
+							value={attachedGeometry}
+							onChange={setAttachedGeometry}
+							layout="detached"
+							panelClassName="w-full"
+						/>
+						{(selectedEditorFeatures.length > 0 || attachedGeometry) && (
+							<div className="basis-full text-[11px] text-muted-foreground">
+								{selectedEditorFeatures.length > 0 && (
+									<span>
+										{selectedEditorFeatures.length} selected
+										{selectedPolygonCount > 0
+											? ` · ${selectedPolygonCount} polygon${
+													selectedPolygonCount === 1 ? '' : 's'
+												}`
+											: ''}
+									</span>
+								)}
+								{selectedEditorFeatures.length > 0 && attachedGeometry ? <span> · </span> : null}
+								{attachedGeometry ? <span>{attachedGeometry.features.length} drawn attached</span> : null}
+							</div>
+						)}
+					</div>
 					<div className="flex gap-2">
 						<textarea
 							ref={textareaRef}
@@ -657,6 +759,75 @@ function buildReferenceContextMessage(references: ChatReference[]): string | und
 		'Use them as high-priority context and as likely targets for inspection, comparison, or editing.',
 		'If a reference needs verification or expansion, use tools to inspect it before making destructive changes.',
 		...lines,
+	].join('\n')
+}
+
+function buildSelectedGeometryContextMessage(selectedFeatures: EditorFeature[]): string | undefined {
+	if (selectedFeatures.length === 0) return undefined
+
+	const polygonCount = selectedFeatures.filter(
+		(feature) => feature.geometry?.type === 'Polygon' || feature.geometry?.type === 'MultiPolygon',
+	).length
+	const lines = selectedFeatures.slice(0, 8).map((feature, index) => {
+		const properties = feature.properties as Record<string, unknown> | undefined
+		const featureName = typeof properties?.name === 'string' ? properties.name : null
+		const featureType = typeof properties?.featureType === 'string' ? properties.featureType : null
+		return [
+			`${index + 1}. id=${feature.id}`,
+			`geometry=${feature.geometry?.type ?? 'Unknown'}`,
+			featureName ? `name="${featureName}"` : null,
+			featureType ? `featureType="${featureType}"` : null,
+		]
+			.filter(Boolean)
+			.join(' | ')
+	})
+
+	return [
+		'The user explicitly attached the current editor selection as context for this request.',
+		polygonCount > 0
+			? 'Treat the selected polygon or multipolygon features as the active area of interest. For area-constrained OSM lookup, prefer query_osm_area with selectedOnly=true.'
+			: 'Treat the selected features as high-priority context for inspection or follow-up tool calls.',
+		'Do not ask the user to redraw or re-describe the selection unless no selected geometry remains.',
+		`Selected feature count: ${selectedFeatures.length}. Polygon area count: ${polygonCount}.`,
+		'Selection summary:',
+		...lines,
+	].join('\n')
+}
+
+function buildAttachedGeometryContextMessage(geojson: FeatureCollection): string | undefined {
+	if (geojson.features.length === 0) return undefined
+
+	const featureSummary = geojson.features.slice(0, 8).map((feature, index) => {
+		const properties = feature.properties as Record<string, unknown> | undefined
+		const featureType = typeof properties?.featureType === 'string' ? properties.featureType : null
+		const featureName =
+			typeof properties?.name === 'string'
+				? properties.name
+				: typeof properties?.text === 'string'
+					? properties.text
+					: null
+		return [
+			`${index + 1}. geometry=${feature.geometry?.type ?? 'Unknown'}`,
+			featureType ? `featureType="${featureType}"` : null,
+			featureName ? `label="${featureName}"` : null,
+		]
+			.filter(Boolean)
+			.join(' | ')
+	})
+
+	const geojsonText = JSON.stringify(geojson)
+	const truncatedGeojsonText =
+		geojsonText.length > 4000 ? `${geojsonText.slice(0, 4000)}...[truncated]` : geojsonText
+
+	return [
+		'The user attached transient chat geometry for this request.',
+		'This geometry is scratch context only. It is not canonical map data and was intentionally kept out of the editor dataset.',
+		'If the geometry is a polygon area, prefer query_osm_area with areaGeojson using the attached GeoJSON below.',
+		'If the geometry is points, lines, or annotations, use it as spatial guidance and explain any assumptions.',
+		`Attached feature count: ${geojson.features.length}.`,
+		'Attachment summary:',
+		...featureSummary,
+		`Attached GeoJSON JSON:\n${truncatedGeojsonText}`,
 	].join('\n')
 }
 

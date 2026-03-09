@@ -32,4 +32,5 @@ export {
 export {
 	analyzeToolResultGeometryContent,
 	bakeToolResultContentToEditor,
+	compactToolMessageContentForPrompt,
 } from './helpers'

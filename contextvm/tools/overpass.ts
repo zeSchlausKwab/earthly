@@ -148,7 +148,7 @@ function buildFilterString(filters: OsmFilters): string {
 				if (normalizedValues.includes("*")) {
 					return `["${escapedKey}"]`;
 				}
-				return `["${escapedKey}"~"^(?:${normalizedValues.map(escapeOverpassRegex).join("|")})$"]`;
+				return `["${escapedKey}"~"^(${normalizedValues.map(escapeOverpassRegex).join("|")})$"]`;
 			}
 			if (value === "*") {
 				return `["${escapedKey}"]`;

@@ -233,6 +233,11 @@ export const geoTools: Tool[] = [
 						type: 'number',
 						description: 'Search radius in meters (1-5000, default 500)',
 					},
+					concept: {
+						type: 'string',
+						description:
+							'Optional semantic concept to expand into common OSM tag families before querying, e.g. "military installation", "river", or "bench".',
+					},
 					filters: {
 						type: 'object',
 						description:
@@ -245,7 +250,7 @@ export const geoTools: Tool[] = [
 					},
 					limit: {
 						type: 'number',
-						description: 'Maximum results to return (default 10)',
+						description: 'Maximum results to return (default 10, max 100)',
 					},
 					includeRelations: {
 						type: 'boolean',
@@ -291,6 +296,11 @@ export const geoTools: Tool[] = [
 						type: 'number',
 						description: 'Northern latitude of bounding box',
 					},
+					concept: {
+						type: 'string',
+						description:
+							'Optional semantic concept to expand into common OSM tag families before querying, e.g. "military installation", "river", or "bench".',
+					},
 					filters: {
 						type: 'object',
 						description:
@@ -303,7 +313,7 @@ export const geoTools: Tool[] = [
 					},
 					limit: {
 						type: 'number',
-						description: 'Maximum results to return (default 10)',
+						description: 'Maximum results to return (default 10, max 100)',
 					},
 					includeRelations: {
 						type: 'boolean',
@@ -321,6 +331,97 @@ export const geoTools: Tool[] = [
 					},
 				},
 				required: ['west', 'south', 'east', 'north'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'query_osm_area',
+			description:
+				'Find OpenStreetMap features constrained to a polygonal area. The area can come from the current selected polygon(s), an explicit polygon GeoJSON payload, a country boundary, or an OSM relation. Can also clip matching lines to the area or convert results to representative points. Always provide filters, filterSets, or concept; unfiltered area scans are too large for Overpass.',
+			parameters: {
+				type: 'object',
+				properties: {
+					selectedOnly: {
+						type: 'boolean',
+						description:
+							'Use the currently selected polygon or multipolygon editor features as the query area.',
+					},
+					areaGeojson: {
+						type: 'object',
+						description:
+							'Polygon or MultiPolygon GeoJSON area payload (Feature, FeatureCollection, or Geometry).',
+					},
+					countryCode: {
+						type: 'string',
+						description:
+							'ISO alpha-2 country code for an administrative boundary area, e.g. "DE" or "SA".',
+					},
+					countryName: {
+						type: 'string',
+						description: 'Fallback country name when countryCode is not available.',
+					},
+					relationId: {
+						type: 'number',
+						description: 'Optional OSM relation id to use as the area geometry.',
+					},
+					concept: {
+						type: 'string',
+						description:
+							'Optional semantic concept to expand into common OSM tag families before querying, e.g. "military installation", "river", or "bench".',
+					},
+					filters: {
+						type: 'object',
+						description:
+							'OSM tag filters like {"amenity":"bench"} or {"military":["base","air_base"]}. Array values mean OR.',
+					},
+					filterSets: {
+						type: 'array',
+						description:
+							'Optional OR-style filter groups. Use this when multiple OSM tagging patterns are likely.',
+					},
+					name: {
+						type: 'string',
+						description:
+							'Optional feature name to match after the area query. Matching normalizes common whitespace, hyphenation, and alias variants.',
+					},
+					limit: {
+						type: 'number',
+						description: 'Maximum raw OSM features to fetch before area filtering (default 100, max 100).',
+					},
+					includeRelations: {
+						type: 'boolean',
+						description:
+							'If true, include OSM relations in the raw query results (heavier but useful for routes/boundaries).',
+					},
+					spatialFilter: {
+						type: 'string',
+						description:
+							'"intersects" keeps features touching the area. "point_within" keeps only features whose representative point lies inside the area.',
+						enum: ['intersects', 'point_within'],
+					},
+					outputGeometry: {
+						type: 'string',
+						description:
+							'"native" preserves geometry, "point_on_feature" converts each result to an interior representative point, "centroid" converts to centroid points.',
+						enum: ['native', 'point_on_feature', 'centroid'],
+					},
+					clipLines: {
+						type: 'boolean',
+						description:
+							'When outputGeometry="native", clip matching LineString/MultiLineString features to the polygon area. Default true.',
+					},
+					toEditor: {
+						type: 'boolean',
+						description:
+							'If true, import filtered results directly into the editor and return a compact import summary.',
+					},
+					replaceExisting: {
+						type: 'boolean',
+						description: 'Used when toEditor=true. If true, replaces current editor features.',
+					},
+				},
 			},
 		},
 	},
@@ -535,6 +636,11 @@ export const geoTools: Tool[] = [
 						description:
 							'Optional target feature name to match (example: "Rhine"). Omit to import all matched features.',
 					},
+					concept: {
+						type: 'string',
+						description:
+							'Optional semantic concept to expand into common OSM tag families before querying, e.g. "military installation", "river", or "bench".',
+					},
 					relationId: {
 						type: 'number',
 						description:
@@ -581,7 +687,7 @@ export const geoTools: Tool[] = [
 					limit: {
 						type: 'number',
 						description:
-							'Max OSM features to fetch before filtering by name (default 100, max 500).',
+							'Max OSM features to fetch before filtering by name (default 100, max 100).',
 					},
 					includeRelations: {
 						type: 'boolean',

@@ -2,6 +2,7 @@ import type { FeatureCollection } from 'geojson'
 import type { GeoJSONSource } from 'maplibre-gl'
 import type maplibregl from 'maplibre-gl'
 import { useEffect, useState } from 'react'
+import { bbox as turfBbox, pointOnFeature } from '@turf/turf'
 import { isGeoJsonGeometry } from '@/lib/geo/normalizeGeoJSON'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import { useEditorStore } from '../store'
@@ -60,12 +61,16 @@ const REMOTE_ANNOTATION_LAYER = 'geo-editor-remote-annotation'
 const BLOB_PREVIEW_SOURCE_ID = 'geo-editor-blob-preview'
 const BLOB_PREVIEW_FILL_LAYER = 'geo-editor-blob-preview-fill'
 const BLOB_PREVIEW_LINE_LAYER = 'geo-editor-blob-preview-line'
+const REMOTE_POLYGON_PROXY_SOURCE_ID = 'geo-editor-remote-polygon-proxies'
+const REMOTE_POLYGON_PROXY_LAYER = 'geo-editor-remote-polygon-proxy'
 
 // Clustering source/layer IDs
 const CLUSTERED_SOURCE_ID = 'geo-editor-clustered-points'
 const CLUSTER_CIRCLE_LAYER = 'geo-editor-cluster-circles'
 const CLUSTER_COUNT_LAYER = 'geo-editor-cluster-count'
 const UNCLUSTERED_POINT_LAYER = 'geo-editor-unclustered-point'
+const POLYGON_PROXY_MAX_ZOOM = 8
+const SMALL_POLYGON_PROXY_MAX_SPAN_DEGREES = 0.18
 
 export {
 	REMOTE_FILL_LAYER,
@@ -74,8 +79,54 @@ export {
 	REMOTE_LABEL_LAYER,
 	REMOTE_ANNOTATION_ANCHOR_LAYER,
 	REMOTE_ANNOTATION_LAYER,
+	REMOTE_POLYGON_PROXY_LAYER,
 	CLUSTER_CIRCLE_LAYER,
 	UNCLUSTERED_POINT_LAYER,
+}
+
+function isPolygonGeometryType(type: string | undefined): boolean {
+	return type === 'Polygon' || type === 'MultiPolygon'
+}
+
+function shouldCollapsePolygonToProxy(feature: GeoJSON.Feature): boolean {
+	if (!isPolygonGeometryType(feature.geometry?.type)) return false
+
+	try {
+		const bbox = turfBbox(feature)
+		if (!Array.isArray(bbox) || bbox.length !== 4) return false
+		const lonSpan = Math.abs(bbox[2] - bbox[0])
+		const latSpan = Math.abs(bbox[3] - bbox[1])
+		const maxSpan = Math.max(lonSpan, latSpan)
+		return Number.isFinite(maxSpan) && maxSpan > 0 && maxSpan <= SMALL_POLYGON_PROXY_MAX_SPAN_DEGREES
+	} catch {
+		return false
+	}
+}
+
+function buildPolygonProxyFeature(feature: GeoJSON.Feature): GeoJSON.Feature<GeoJSON.Point> | null {
+	if (!shouldCollapsePolygonToProxy(feature)) return null
+
+	try {
+		const representative = pointOnFeature(feature)
+		const sourceBbox = turfBbox(feature)
+		return {
+			type: 'Feature',
+			id: `${feature.id ?? 'feature'}:polygon-proxy`,
+			geometry: representative.geometry,
+			properties: {
+				...(feature.properties ?? {}),
+				proxyFeature: true,
+				sourceGeometryType: feature.geometry?.type ?? 'Unknown',
+				proxySourceBbox: sourceBbox,
+				radius:
+					typeof feature.properties?.radius === 'number'
+						? feature.properties.radius
+						: 5,
+			},
+		}
+	} catch {
+		return null
+	}
 }
 
 interface UseMapLayersOptions {
@@ -140,7 +191,13 @@ export function useMapLayers({
 						],
 						paint: {
 							'fill-color': ['coalesce', ['get', 'fillColor'], ['get', 'color'], '#1d4ed8'],
-							'fill-opacity': ['coalesce', ['get', 'fillOpacity'], 0.15],
+							'fill-opacity': [
+								'step',
+								['zoom'],
+								['case', ['boolean', ['get', 'collapseToProxy'], false], 0, ['coalesce', ['get', 'fillOpacity'], 0.15]],
+								POLYGON_PROXY_MAX_ZOOM,
+								['coalesce', ['get', 'fillOpacity'], 0.15],
+							],
 						},
 					})
 				}
@@ -165,6 +222,13 @@ export function useMapLayers({
 								'#1d4ed8',
 							],
 							'line-width': ['coalesce', ['get', 'strokeWidth'], 2],
+							'line-opacity': [
+								'step',
+								['zoom'],
+								['case', ['boolean', ['get', 'collapseToProxy'], false], 0, 1],
+								POLYGON_PROXY_MAX_ZOOM,
+								1,
+							],
 						},
 					})
 				}
@@ -276,6 +340,13 @@ export function useMapLayers({
 							'text-color': '#374151',
 							'text-halo-color': '#ffffff',
 							'text-halo-width': 1.5,
+							'text-opacity': [
+								'step',
+								['zoom'],
+								['case', ['boolean', ['get', 'collapseToProxy'], false], 0, 1],
+								POLYGON_PROXY_MAX_ZOOM,
+								1,
+							],
 						},
 					})
 				}
@@ -311,6 +382,33 @@ export function useMapLayers({
 						paint: {
 							'line-color': '#f97316',
 							'line-width': 2,
+						},
+					})
+				}
+
+				if (!mapInstance.getSource(REMOTE_POLYGON_PROXY_SOURCE_ID)) {
+					mapInstance.addSource(REMOTE_POLYGON_PROXY_SOURCE_ID, {
+						type: 'geojson',
+						data: { type: 'FeatureCollection', features: [] },
+					})
+				}
+				if (!mapInstance.getLayer(REMOTE_POLYGON_PROXY_LAYER)) {
+					mapInstance.addLayer({
+						id: REMOTE_POLYGON_PROXY_LAYER,
+						type: 'circle',
+						source: REMOTE_POLYGON_PROXY_SOURCE_ID,
+						paint: {
+							'circle-radius': ['coalesce', ['get', 'radius'], 5],
+							'circle-color': ['coalesce', ['get', 'color'], ['get', 'fillColor'], '#1d4ed8'],
+							'circle-stroke-width': 2,
+							'circle-stroke-color': ['coalesce', ['get', 'strokeColor'], '#ffffff'],
+							'circle-opacity': [
+								'step',
+								['zoom'],
+								0.95,
+								POLYGON_PROXY_MAX_ZOOM,
+								0,
+							],
 						},
 					})
 				}
@@ -455,6 +553,7 @@ export function useMapLayers({
 
 		try {
 			const source = map.getSource(REMOTE_SOURCE_ID) as GeoJSONSource | undefined
+			const proxySource = map.getSource(REMOTE_POLYGON_PROXY_SOURCE_ID) as GeoJSONSource | undefined
 			const clusteredSource = map.getSource(CLUSTERED_SOURCE_ID) as GeoJSONSource | undefined
 			if (!source) return
 
@@ -490,10 +589,31 @@ export function useMapLayers({
 			const nonPointFeatures = safeFeatures.filter(
 				(f) => f.geometry?.type !== 'Point' && f.geometry?.type !== 'MultiPoint',
 			)
+			const polygonProxyEntries = nonPointFeatures
+				.map((feature) => {
+					if (!shouldCollapsePolygonToProxy(feature)) return null
+					return {
+						proxy: buildPolygonProxyFeature(feature),
+					}
+				})
+				.filter((entry): entry is NonNullable<typeof entry> => entry !== null && entry.proxy !== null)
 
 			const nonPointCollection = {
 				type: 'FeatureCollection' as const,
-				features: [...nonPointFeatures, ...annotationFeatures],
+				features: [
+					...nonPointFeatures.map((feature) =>
+						shouldCollapsePolygonToProxy(feature)
+							? {
+									...feature,
+									properties: {
+										...(feature.properties ?? {}),
+										collapseToProxy: true,
+									},
+								}
+							: feature,
+					),
+					...annotationFeatures,
+				],
 			}
 
 			const pointCollection = {
@@ -507,6 +627,12 @@ export function useMapLayers({
 			// Set point features to clustered source
 			if (clusteredSource) {
 				clusteredSource.setData(pointCollection)
+			}
+			if (proxySource) {
+				proxySource.setData({
+					type: 'FeatureCollection',
+					features: polygonProxyEntries.map((entry) => entry.proxy),
+				})
 			}
 		} catch {
 			// Map may have been removed during source switch

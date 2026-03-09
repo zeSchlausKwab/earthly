@@ -70,7 +70,7 @@ export const DEFAULT_QUERY_LIMIT = 50
 export const DEFAULT_IMPORT_LIMIT = 100
 export const DEFAULT_NEARBY_RADIUS_METERS = 500
 export const MAX_NEARBY_RADIUS_METERS = 5000
-export const MAX_QUERY_LIMIT = 500
+export const MAX_QUERY_LIMIT = 100
 export const DEFAULT_SNAPSHOT_MAX_WIDTH = 1024
 export const DEFAULT_SNAPSHOT_MAX_HEIGHT = 768
 export const MAX_SNAPSHOT_CACHE_SIZE = 5
@@ -80,6 +80,7 @@ export const TO_EDITOR_COMPATIBLE_TOOLS = new Set([
 	'query_osm_by_id',
 	'query_osm_nearby',
 	'query_osm_bbox',
+	'query_osm_area',
 	'get_osm_relation_geometry',
 	'get_country_boundary',
 	'valhalla_route',

@@ -17,6 +17,7 @@ import {
 	geoTools,
 	executeToolCall,
 	consumeMapSnapshot,
+	compactToolMessageContentForPrompt,
 } from './tools'
 import { nip60Actions, useNip60Store } from '@/lib/stores/nip60'
 import { toast } from 'sonner'
@@ -42,6 +43,7 @@ const MIN_CONTEXT_TOKENS_FOR_INLINE_IMAGE = 16000
 const STREAM_STALL_WARNING_MS = 15000
 const STREAM_STALL_TIMEOUT_MS = 45000
 const MIN_TOOL_ENABLED_MAX_TOKENS = 1024
+const OVERLOAD_RETRY_DELAYS_MS = [1500, 4000]
 
 type StreamProgressKind =
 	| 'request_start'
@@ -270,9 +272,11 @@ function sanitizeMessageForPrompt(message: ChatMessage): ChatMessage {
 			: message.reasoning_content
 
 	if (typeof content === 'string') {
+		const normalizedContent =
+			message.role === 'tool' ? compactToolMessageContentForPrompt(content) : content
 		return {
 			...message,
-			content: truncateTextForPrompt(content, maxChars),
+			content: truncateTextForPrompt(normalizedContent, maxChars),
 			reasoning_content,
 		}
 	}
@@ -322,9 +326,11 @@ function truncateMessageToTokenBudget(message: ChatMessage, budgetTokens: number
 			: message.reasoning_content
 
 	if (typeof content === 'string') {
+		const normalizedContent =
+			message.role === 'tool' ? compactToolMessageContentForPrompt(content) : content
 		return {
 			...message,
-			content: truncateTextForPrompt(content, maxChars),
+			content: truncateTextForPrompt(normalizedContent, maxChars),
 			reasoning_content,
 		}
 	}
@@ -506,6 +512,23 @@ function isContextOverflowError(error: unknown): boolean {
 	)
 }
 
+function isTransientProviderOverloadError(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error)
+	const lower = message.toLowerCase()
+	return (
+		lower.includes('currently overloaded') ||
+		lower.includes('server is busy') ||
+		lower.includes('rate limit') ||
+		lower.includes('too many requests') ||
+		lower.includes('503') ||
+		lower.includes('429')
+	)
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
 function buildEmergencyRetryMessages(conversationMessages: ChatMessage[]): ChatMessage[] {
 	const sanitized = conversationMessages.map(sanitizeMessageForPrompt)
 	const recentUserMessages = sanitized
@@ -624,6 +647,8 @@ interface ChatActions {
 
 interface SendMessageOptions {
 	referenceContextMessage?: string
+	selectionContextMessage?: string
+	geometryContextMessage?: string
 }
 
 type ChatStore = ChatState & ChatActions
@@ -840,6 +865,8 @@ export const useChatStore = create<ChatStore>()(
 					? Math.max(maxTokens, MIN_TOOL_ENABLED_MAX_TOKENS)
 					: maxTokens
 				const referenceContextMessage = options?.referenceContextMessage?.trim()
+				const selectionContextMessage = options?.selectionContextMessage?.trim()
+				const geometryContextMessage = options?.geometryContextMessage?.trim()
 
 				if (!selectedModel) {
 					toast.error('Please select a model first')
@@ -1091,6 +1118,7 @@ export const useChatStore = create<ChatStore>()(
 					streamAbortController = new AbortController()
 					let conversationMessages = [...get().messages]
 					let oneShotVisionMessages: ChatMessage[] = []
+					let oneShotGeometryContextMessage = geometryContextMessage
 					let totalToolCalls = 0
 					let round = 0
 					const effectiveContextTokens = getEffectiveContextTokens(model, providerConfig)
@@ -1138,39 +1166,36 @@ export const useChatStore = create<ChatStore>()(
 							oneShotVisionMessages = []
 						}
 
-						let mapContextMessage: ChatMessage | null = null
-						if (toolsEnabled) {
-							mapContextMessage = createMapContextSystemMessage()
-						}
-						const referenceContextSystemMessage: ChatMessage | null = referenceContextMessage
-							? {
-									role: 'system',
-									content: referenceContextMessage,
-								}
-							: null
+						const systemSections = [
+							toolsEnabled ? createMapContextSystemMessage()?.content : null,
+							referenceContextMessage || null,
+							selectionContextMessage || null,
+							oneShotGeometryContextMessage || null,
+						]
+							.map((section) =>
+								typeof section === 'string' ? section.trim() : messageContentToText(section),
+							)
+							.filter((section): section is string => Boolean(section))
+						const combinedSystemMessage: ChatMessage | null =
+							systemSections.length > 0
+								? {
+										role: 'system',
+										content: systemSections.join('\n\n'),
+									}
+								: null
 
-						const mapContextTokens = mapContextMessage
-							? estimateMessageTokensForBudget(sanitizeMessageForPrompt(mapContextMessage))
-							: 0
-						const referenceContextTokens = referenceContextSystemMessage
-							? estimateMessageTokensForBudget(
-									sanitizeMessageForPrompt(referenceContextSystemMessage),
-								)
+						const combinedSystemTokens = combinedSystemMessage
+							? estimateMessageTokensForBudget(sanitizeMessageForPrompt(combinedSystemMessage))
 							: 0
 						const conversationBudget = Math.max(
 							MIN_PROMPT_BUDGET_TOKENS,
-							promptBudgetTokens - mapContextTokens - referenceContextTokens,
+							promptBudgetTokens - combinedSystemTokens,
 						)
 						requestMessages = trimMessagesToPromptBudget(requestMessages, conversationBudget)
 
-						if (mapContextMessage) {
-							requestMessages = [sanitizeMessageForPrompt(mapContextMessage), ...requestMessages]
-						}
-						if (referenceContextSystemMessage) {
-							requestMessages = [
-								sanitizeMessageForPrompt(referenceContextSystemMessage),
-								...requestMessages,
-							]
+						if (combinedSystemMessage) {
+							requestMessages = [sanitizeMessageForPrompt(combinedSystemMessage), ...requestMessages]
+							oneShotGeometryContextMessage = undefined
 						}
 						requestMessages = ensureReasoningContentForToolMessages(
 							requestMessages,
@@ -1191,7 +1216,7 @@ export const useChatStore = create<ChatStore>()(
 							lastProgressKind: 'request_start',
 							diagnostics: {
 								...state.diagnostics,
-								mapContextTokens,
+								mapContextTokens: combinedSystemTokens,
 								requestMessageCount: requestMessages.length,
 								estimatedPromptTokens,
 								round: roundNumber,
@@ -1204,10 +1229,39 @@ export const useChatStore = create<ChatStore>()(
 							toolCalls: ToolCall[]
 							finishReason?: string
 							estimatedCompletionTokens: number
-						}
+						} | null = null
 
 						try {
-							result = await makeRequest(requestMessages)
+							let lastError: unknown
+							for (let attempt = 0; attempt <= OVERLOAD_RETRY_DELAYS_MS.length; attempt += 1) {
+								try {
+									result = await makeRequest(requestMessages)
+									lastError = null
+									break
+								} catch (error) {
+									lastError = error
+									if (
+										!isTransientProviderOverloadError(error) ||
+										attempt >= OVERLOAD_RETRY_DELAYS_MS.length
+									) {
+										throw error
+									}
+
+									const retryDelayMs = OVERLOAD_RETRY_DELAYS_MS[attempt]
+									set({
+										streamPhase: 'requesting',
+										streamWarning: `Provider overloaded. Retrying in ${Math.ceil(
+											retryDelayMs / 1000,
+										)}s...`,
+										lastProgressAt: Date.now(),
+										lastProgressKind: 'request_start',
+									})
+									await sleep(retryDelayMs)
+								}
+							}
+							if (!result && lastError) {
+								throw lastError
+							}
 						} catch (error) {
 							if (!isContextOverflowError(error)) {
 								throw error
@@ -1221,6 +1275,9 @@ export const useChatStore = create<ChatStore>()(
 							})
 							const emergencyMessages = buildEmergencyRetryMessages(conversationMessages)
 							result = await makeRequest(emergencyMessages)
+						}
+						if (!result) {
+							throw new Error('Chat request finished without a result.')
 						}
 
 						// If we got tool calls, execute them and continue
