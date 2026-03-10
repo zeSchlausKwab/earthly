@@ -199,6 +199,11 @@ function applyMessagesToActiveChat(
 	]
 }
 
+function hasChatSession(chatSessions: ChatSession[], chatId: string | null): boolean {
+	if (!chatId) return false
+	return chatSessions.some((chat) => chat.id === chatId)
+}
+
 function applyReferencesToActiveChat(
 	chatSessions: ChatSession[],
 	activeChatId: string | null,
@@ -688,6 +693,9 @@ const initialState: ChatState = createInitialState()
 
 // AbortController for canceling streams
 let streamAbortController: AbortController | null = null
+let currentStreamRunId = 0
+let currentStreamingChatId: string | null = null
+const DETACHED_STREAM_ERROR = 'Chat stream was canceled or detached from its session.'
 
 export const useChatStore = create<ChatStore>()(
 	persist(
@@ -818,7 +826,14 @@ export const useChatStore = create<ChatStore>()(
 			},
 
 			deleteChat: (chatId: string) => {
-				if (get().isStreaming) return
+				if (currentStreamingChatId === chatId && streamAbortController) {
+					currentStreamRunId += 1
+					streamAbortController.abort()
+					streamAbortController = null
+					currentStreamingChatId = null
+				} else if (get().isStreaming) {
+					return
+				}
 				set((state) => {
 					const remaining = state.chatSessions.filter((chat) => chat.id !== chatId)
 					const ensured = remaining.length > 0 ? remaining : [createEmptyChatSession()]
@@ -853,6 +868,7 @@ export const useChatStore = create<ChatStore>()(
 			},
 
 			sendMessage: async (content: string, options?: SendMessageOptions) => {
+				const targetChatId = get().activeChatId
 				const {
 					selectedModel,
 					models,
@@ -894,9 +910,12 @@ export const useChatStore = create<ChatStore>()(
 
 				// Add user message immediately
 				const userMessage: ChatMessage = { role: 'user', content }
+				const streamRunId = currentStreamRunId + 1
+				currentStreamRunId = streamRunId
+				currentStreamingChatId = targetChatId
 				set((state) => ({
 					messages: [...state.messages, userMessage],
-					chatSessions: applyMessagesToActiveChat(state.chatSessions, state.activeChatId, [
+					chatSessions: applyMessagesToActiveChat(state.chatSessions, targetChatId, [
 						...state.messages,
 						userMessage,
 					]),
@@ -909,6 +928,15 @@ export const useChatStore = create<ChatStore>()(
 					lastProgressAt: Date.now(),
 					lastProgressKind: 'request_start',
 				}))
+
+				const isStreamRunActive = () => {
+					const state = get()
+					return (
+						currentStreamRunId === streamRunId &&
+						currentStreamingChatId === targetChatId &&
+						hasChatSession(state.chatSessions, targetChatId)
+					)
+				}
 
 				// Helper to process refund (no-ops when refundToken is null)
 				const processRefund = async (refundToken: string | null) => {
@@ -1007,6 +1035,7 @@ export const useChatStore = create<ChatStore>()(
 								streamAbortController.abort()
 							}
 							if (settled) return
+							if (!isStreamRunActive()) return
 							settled = true
 							clearTimers()
 							set({
@@ -1020,6 +1049,7 @@ export const useChatStore = create<ChatStore>()(
 						}
 
 						const refreshActivity = (kind: StreamProgressKind) => {
+							if (!isStreamRunActive()) return
 							const now = Date.now()
 							set({
 								lastProgressAt: now,
@@ -1054,18 +1084,18 @@ export const useChatStore = create<ChatStore>()(
 							},
 							{
 								onToken: (token: string) => {
-									if (settled) return
+									if (settled || !isStreamRunActive()) return
 									accumulatedContent += token
 									set({ streamingContent: accumulatedContent })
 									refreshActivity('token')
 								},
 								onReasoningToken: (token: string) => {
-									if (settled) return
+									if (settled || !isStreamRunActive()) return
 									accumulatedReasoningContent += token
 									refreshActivity('reasoning')
 								},
 								onToolCall: (toolCalls: ToolCall[]) => {
-									if (settled) return
+									if (settled || !isStreamRunActive()) return
 									console.log(
 										'[Chat] Received tool calls:',
 										toolCalls.map((t) => t.function.name),
@@ -1075,6 +1105,12 @@ export const useChatStore = create<ChatStore>()(
 								},
 								onComplete: async (refundToken: string | null, finishReason?: string) => {
 									if (settled) return
+									if (!isStreamRunActive()) {
+										settled = true
+										clearTimers()
+										reject(new Error(DETACHED_STREAM_ERROR))
+										return
+									}
 									settled = true
 									resultFinishReason = finishReason
 									clearTimers()
@@ -1096,6 +1132,12 @@ export const useChatStore = create<ChatStore>()(
 								},
 								onError: async (error: Error, refundToken?: string | null) => {
 									if (settled) return
+									if (!isStreamRunActive()) {
+										settled = true
+										clearTimers()
+										reject(new Error(DETACHED_STREAM_ERROR))
+										return
+									}
 									settled = true
 									clearTimers()
 									if (refundToken) {
@@ -1161,6 +1203,9 @@ export const useChatStore = create<ChatStore>()(
 
 					// Loop to handle tool calls until the model returns a final answer.
 					while (true) {
+						if (!isStreamRunActive()) {
+							throw new Error(DETACHED_STREAM_ERROR)
+						}
 						round += 1
 						const roundNumber = round
 						let requestMessages: ChatMessage[] = [...conversationMessages]
@@ -1285,6 +1330,9 @@ export const useChatStore = create<ChatStore>()(
 
 						// If we got tool calls, execute them and continue
 						if (result.toolCalls.length > 0) {
+							if (!isStreamRunActive()) {
+								throw new Error(DETACHED_STREAM_ERROR)
+							}
 							totalToolCalls += result.toolCalls.length
 							set((state) => ({
 								executingTools: true,
@@ -1316,7 +1364,7 @@ export const useChatStore = create<ChatStore>()(
 								messages: conversationMessages,
 								chatSessions: applyMessagesToActiveChat(
 									state.chatSessions,
-									state.activeChatId,
+									targetChatId,
 									conversationMessages,
 								),
 							}))
@@ -1339,7 +1387,7 @@ export const useChatStore = create<ChatStore>()(
 									messages: conversationMessages,
 									chatSessions: applyMessagesToActiveChat(
 										state.chatSessions,
-										state.activeChatId,
+										targetChatId,
 										conversationMessages,
 									),
 								}))
@@ -1380,6 +1428,9 @@ export const useChatStore = create<ChatStore>()(
 
 						// No tool calls - we're done
 						if (result.content) {
+							if (!isStreamRunActive()) {
+								throw new Error(DETACHED_STREAM_ERROR)
+							}
 							const normalizedReasoningContent = result.reasoningContent.trim()
 							const assistantMessage: ChatMessage = {
 								role: 'assistant',
@@ -1391,7 +1442,7 @@ export const useChatStore = create<ChatStore>()(
 								messages: conversationMessages,
 								chatSessions: applyMessagesToActiveChat(
 									state.chatSessions,
-									state.activeChatId,
+									targetChatId,
 									conversationMessages,
 								),
 								isStreaming: false,
@@ -1429,6 +1480,9 @@ export const useChatStore = create<ChatStore>()(
 					}
 				} catch (err) {
 					const message = err instanceof Error ? err.message : 'Failed to send message'
+					if (message === DETACHED_STREAM_ERROR) {
+						return
+					}
 					set((state) => ({
 						isStreaming: false,
 						streamingContent: '',
@@ -1445,14 +1499,19 @@ export const useChatStore = create<ChatStore>()(
 					}))
 					toast.error(message)
 				} finally {
-					streamAbortController = null
+					if (currentStreamRunId === streamRunId) {
+						streamAbortController = null
+						currentStreamingChatId = null
+					}
 				}
 			},
 
 			cancelStream: () => {
 				if (streamAbortController) {
+					currentStreamRunId += 1
 					streamAbortController.abort()
 					streamAbortController = null
+					currentStreamingChatId = null
 				}
 				set((state) => ({
 					isStreaming: false,
@@ -1468,8 +1527,10 @@ export const useChatStore = create<ChatStore>()(
 
 			reset: () => {
 				if (streamAbortController) {
+					currentStreamRunId += 1
 					streamAbortController.abort()
 					streamAbortController = null
+					currentStreamingChatId = null
 				}
 				set(createInitialState())
 			},

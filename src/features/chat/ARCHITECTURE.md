@@ -265,6 +265,10 @@ Recent evaluation runs surfaced a few stable rules for geo retrieval:
    - When the user says "actually inside", use `spatialFilter="point_within"` instead of `intersects`.
    - This is the correct default for point imports inside an attached polygon.
 
+9. Nostr transport size is a hard systems constraint.
+   - Large geometry responses can fail before the chat client can compact or bake them.
+   - Geometry-producing MCP tools need aggressive server-side fitting, truncation, or omission to stay below encrypted Nostr payload limits.
+
 ## Prompt Cookbook (AI + Chat + Map)
 
 Use direct, imperative prompts that encourage tool action.

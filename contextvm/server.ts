@@ -72,7 +72,7 @@ const RELAYS = [
 ];
 const TEXT_ENCODER = new TextEncoder();
 const NOSTR_PLAINTEXT_LIMIT_BYTES = 65535;
-const TRANSPORT_RESPONSE_BUDGET_BYTES = 58_000;
+const TRANSPORT_RESPONSE_BUDGET_BYTES = 42_000;
 const COORDINATE_PRECISION_STEPS = [6, 5, 4] as const;
 const GEOMETRY_POINT_LIMIT_STEPS = [2000, 1000, 500, 250, 120, 80] as const;
 const FEATURE_CAP_STEPS = [200, 100, 50, 25, 10, 5, 2, 1] as const;
@@ -467,7 +467,15 @@ async function main() {
       inputSchema: queryNearbyInputSchema,
       outputSchema: queryFeaturesOutputSchema,
     },
-    async ({ lat, lon, radius, filters, filterSets, limit, includeRelations }) => {
+    async ({
+      lat,
+      lon,
+      radius,
+      filters,
+      filterSets,
+      limit,
+      includeRelations,
+    }) => {
       try {
         console.log(`🗺️ Querying OSM nearby: ${lat},${lon} radius=${radius}m`);
         const result = fitQueryFeaturesForTransport(
@@ -514,7 +522,16 @@ async function main() {
       inputSchema: queryBboxInputSchema,
       outputSchema: queryFeaturesOutputSchema,
     },
-    async ({ west, south, east, north, filters, filterSets, limit, includeRelations }) => {
+    async ({
+      west,
+      south,
+      east,
+      north,
+      filters,
+      filterSets,
+      limit,
+      includeRelations,
+    }) => {
       try {
         console.log(
           `🗺️ Querying OSM bbox: [${west},${south},${east},${north}]`,

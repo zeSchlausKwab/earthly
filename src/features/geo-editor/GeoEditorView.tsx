@@ -162,6 +162,7 @@ export function GeoEditorView() {
 	const activeDatasetContextRefs = useEditorStore((state) => state.activeDatasetContextRefs)
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
 	const datasetVisibility = useEditorStore((state) => state.datasetVisibility)
+	const editIsolationEnabled = useEditorStore((state) => state.editIsolationEnabled)
 	const setDatasetVisibility = useEditorStore((state) => state.setDatasetVisibility)
 	const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta)
 	const isPublishing = useEditorStore((state) => state.isPublishing)
@@ -543,6 +544,10 @@ export function GeoEditorView() {
 
 	// Visible geo events based on visibility toggle, focus mode, AND filter state
 	const visibleGeoEvents = useMemo(() => {
+		if (viewMode === 'edit' && editIsolationEnabled) {
+			return []
+		}
+
 		const isAllowedByContextScope = (event: NDKGeoEvent) => {
 			if (!activeContextCoordinate || !activeContext) return true
 			if (!event.contextReferences.includes(activeContextCoordinate)) return false
@@ -629,6 +634,8 @@ export function GeoEditorView() {
 		activeContextValidationByDatasetKey,
 		contextFilterMode,
 		filteredDatasetKeys,
+		viewMode,
+		editIsolationEnabled,
 	])
 
 	const lastContextCoordinateRef = useRef<string | null>(null)

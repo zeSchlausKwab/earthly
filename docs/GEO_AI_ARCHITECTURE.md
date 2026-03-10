@@ -220,6 +220,9 @@ The current chat + geo stack works best when geo retrieval follows a few rules:
 - Map user phrasing to concrete spatial predicates.
   - "Inside" should resolve to a strict containment mode like `point_within`, not a looser `intersects` fallback.
 
+- Treat Nostr transport size as a backend contract.
+  - Large geometry payloads must be simplified or dropped on the MCP server side before transport, because client-side compaction happens too late.
+
 ### 2. Web Server (new: `contextvm/web-server.ts`)
 
 Tools for internet research:

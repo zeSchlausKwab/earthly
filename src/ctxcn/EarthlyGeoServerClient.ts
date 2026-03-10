@@ -6,6 +6,7 @@ import {
 	PrivateKeySigner,
 	ApplesauceRelayPool,
 } from '@contextvm/sdk'
+import { config } from '@/config'
 
 export interface SearchLocationInput {
 	/**
@@ -755,16 +756,16 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 			version: '1.0.0',
 		})
 
-		// Private key precedence: constructor options > config file
-		const resolvedPrivateKey = options.privateKey || ''
+		// Runtime config takes precedence over generated fallbacks so local dev uses the local relay/server.
+		const resolvedPrivateKey = options.privateKey || config.clientKey || ''
 
 		// Use options.signer if provided, otherwise create from resolved private key
 		const signer = options.signer || new PrivateKeySigner(resolvedPrivateKey)
-		// Use options.relays if provided, otherwise use class DEFAULT_RELAYS
-		const relays = options.relays || EarthlyGeoServerClient.DEFAULT_RELAYS
+		// Prefer frontend runtime config and fall back to generated defaults for standalone consumers.
+		const relays = options.relays || config.relayUrls || EarthlyGeoServerClient.DEFAULT_RELAYS
 		// Use options.relayHandler if provided, otherwise create from relays
 		const relayHandler = options.relayHandler || new ApplesauceRelayPool(relays)
-		const serverPubkey = options.serverPubkey
+		const serverPubkey = options.serverPubkey || config.serverPubkey
 		const { privateKey: _, ...rest } = options
 
 		this.transport = new NostrClientTransport({

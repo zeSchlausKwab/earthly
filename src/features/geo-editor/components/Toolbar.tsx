@@ -2,6 +2,7 @@ import {
 	Copy,
 	Crosshair,
 	Edit3,
+	EyeOff,
 	Magnet,
 	MousePointer2,
 	Settings2,
@@ -85,6 +86,8 @@ export function Toolbar({
 	const mode = useEditorStore((state) => state.mode)
 	const snappingEnabled = useEditorStore((state) => state.snappingEnabled)
 	const viewMode = useEditorStore((state) => state.viewMode)
+	const editIsolationEnabled = useEditorStore((state) => state.editIsolationEnabled)
+	const toggleEditIsolation = useEditorStore((state) => state.toggleEditIsolation)
 	const history = useEditorStore((state) => state.history)
 
 	// UI State
@@ -131,6 +134,7 @@ export function Toolbar({
 	}
 
 	const handleToggleSnapping = () => runEditorCommand('toggle_snapping')
+	const handleToggleEditIsolation = () => toggleEditIsolation()
 	const handleToggleInspector = () => {
 		if (inspectorActive) {
 			setInspectorActive(false)
@@ -241,6 +245,15 @@ export function Toolbar({
 			disabled: isEditingDisabled,
 			ariaLabel: 'Edit vertices',
 			description: 'Edit vertices of selected feature',
+		},
+		{
+			key: 'edit-isolation',
+			icon: EyeOff,
+			onClick: handleToggleEditIsolation,
+			variant: editIsolationEnabled ? 'default' : 'outline',
+			disabled: isEditingDisabled,
+			ariaLabel: 'Toggle edit isolation',
+			description: 'Show only geometry in the current edit state',
 		},
 		{
 			key: 'delete',

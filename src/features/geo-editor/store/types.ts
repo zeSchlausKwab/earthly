@@ -214,6 +214,7 @@ export interface PublishingSlice {
 
 export interface ViewModeSlice {
 	viewMode: 'edit' | 'view'
+	editIsolationEnabled: boolean
 	viewDataset: NDKGeoEvent | null
 	viewCollection: NDKGeoCollectionEvent | null
 	viewCollectionEvents: NDKGeoEvent[]
@@ -243,6 +244,8 @@ export interface ViewModeSlice {
 	setContextFilterMode: (mode: ContextFilterMode) => void
 	setActiveContextScope: (naddr: string | null, coordinate: string | null) => void
 	clearActiveContextScope: () => void
+	setEditIsolationEnabled: (enabled: boolean) => void
+	toggleEditIsolation: () => void
 
 	setFocused: (type: 'geoevent' | 'collection' | 'mapcontext', naddr: string) => void
 	clearFocused: () => void
