@@ -24,6 +24,7 @@ interface EntitySearchPopoverProps {
 	placeholder?: string
 	searchMode?: SearchMode
 	compact?: boolean
+	inputClassName?: string
 	getDatasetName?: (event: NDKGeoEvent) => string
 }
 
@@ -34,6 +35,7 @@ export function EntitySearchPopover({
 	placeholder,
 	searchMode = 'local',
 	compact,
+	inputClassName,
 	getDatasetName,
 }: EntitySearchPopoverProps) {
 	const [query, setQuery] = useState('')
@@ -157,6 +159,7 @@ export function EntitySearchPopover({
 					onKeyDown={handleKeyDown}
 					placeholder={placeholder}
 					compact={compact}
+					inputClassName={inputClassName}
 				/>
 			</PopoverAnchor>
 			<PopoverContent

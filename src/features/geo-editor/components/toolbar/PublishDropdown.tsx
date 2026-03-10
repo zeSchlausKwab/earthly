@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ChevronDown, CopyPlus, GitPullRequest, RefreshCw, UploadCloud } from 'lucide-react'
+import { GeoRichTextEditor } from '@/components/editor/GeoRichTextEditor'
 import { Button } from '@/components/ui/button'
 import {
 	DropdownMenu,
@@ -9,7 +10,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 export interface PublishDropdownProps {
@@ -176,12 +176,12 @@ export function PublishDropdown({
 									<DropdownMenuLabel className="px-0 py-0 text-xs font-medium text-slate-700">
 										Proposal summary
 									</DropdownMenuLabel>
-									<Textarea
-										value={proposalDescription}
-										onChange={(event) => setProposalDescription(event.target.value)}
+									<GeoRichTextEditor
+										initialValue={proposalDescription}
+										onChange={setProposalDescription}
+										rows={3}
 										placeholder="Describe your proposed changes..."
-										className="min-h-20 text-sm"
-										autoFocus
+										className="min-h-[120px]"
 									/>
 									<div className="flex items-center justify-end gap-2">
 										<Button

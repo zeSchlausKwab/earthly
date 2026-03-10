@@ -7,10 +7,14 @@ interface EntitySearchInputProps
 	value: string
 	onChange: (value: string) => void
 	compact?: boolean
+	inputClassName?: string
 }
 
 export const EntitySearchInput = forwardRef<HTMLInputElement, EntitySearchInputProps>(
-	({ value, onChange, compact, className, placeholder = 'Search…', ...props }, ref) => {
+	(
+		{ value, onChange, compact, className, inputClassName, placeholder = 'Search…', ...props },
+		ref,
+	) => {
 		return (
 			<div className={cn('relative flex items-center', className)}>
 				<Search
@@ -29,6 +33,7 @@ export const EntitySearchInput = forwardRef<HTMLInputElement, EntitySearchInputP
 						'w-full rounded-md border border-input bg-background ring-offset-background',
 						'placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
 						compact ? 'h-7 pl-7 pr-7 text-xs' : 'h-8 pl-8 pr-8 text-sm',
+						inputClassName,
 					)}
 					{...props}
 				/>

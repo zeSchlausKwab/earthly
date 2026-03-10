@@ -14,16 +14,11 @@ import {
 	type GeoFeatureItem,
 	type GeoRichTextEditorRef,
 } from '@/components/editor'
+import { EntitySearchPopover, type EntitySearchResult } from '@/components/entity-search'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
@@ -34,7 +29,7 @@ import {
 } from '@/components/info-panel/EntityPanelShell'
 
 type SchemaFieldType = 'string' | 'number' | 'integer' | 'boolean'
-type ContextEditorTab = 'narrative' | 'references' | 'policy' | 'schema'
+type ContextEditorTab = 'content' | 'policy' | 'schema'
 
 interface SchemaBuilderField {
 	id: string
@@ -276,8 +271,7 @@ export function MapContextEditorPanel({
 	const [fixedReferences, setFixedReferences] = useState<MapContextFixedReference[]>(
 		initial?.fixedReferences ?? [],
 	)
-	const [activeTab, setActiveTab] = useState<ContextEditorTab>('narrative')
-	const [referenceDraftId, setReferenceDraftId] = useState<string>('none')
+	const [activeTab, setActiveTab] = useState<ContextEditorTab>('content')
 	const [schemaMode, setSchemaMode] = useState<'builder' | 'json'>('builder')
 	const [allowedGeometryTypes, setAllowedGeometryTypes] = useState<MapContextGeometryType[]>(
 		initial?.geometryConstraints?.allowedTypes ?? [],
@@ -298,18 +292,6 @@ export function MapContextEditorPanel({
 	const suggestedBuilderSampleJson = useMemo(() => sampleJsonFromBuilder(fields), [fields])
 	const effectiveSchemaJson =
 		schemaMode === 'builder' ? JSON.stringify(builderSchema, null, 2) : schemaJson
-	const referenceOptions = useMemo(() => {
-		return availableFeatures.map((feature) => ({
-			id: feature.id,
-			label:
-				feature.featureId && feature.datasetName
-					? `${feature.datasetName} / ${feature.name}`
-					: feature.name,
-			address: feature.address,
-			featureId: feature.featureId,
-			meta: feature.featureId ? feature.geometryType ?? 'Feature' : 'Dataset',
-		}))
-	}, [availableFeatures])
 
 	useEffect(() => {
 		const nextInitial = initialContext?.context
@@ -322,8 +304,7 @@ export function MapContextEditorPanel({
 		setValidationMode(nextInitial?.validationMode ?? 'none')
 		setAllowForeignAttachments(nextInitial?.allowForeignAttachments ?? false)
 		setFixedReferences(nextInitial?.fixedReferences ?? [])
-		setActiveTab('narrative')
-		setReferenceDraftId('none')
+		setActiveTab('content')
 		setAllowedGeometryTypes(nextInitial?.geometryConstraints?.allowedTypes ?? [])
 		setSchemaMode('builder')
 		setFields(nextFields)
@@ -372,7 +353,14 @@ export function MapContextEditorPanel({
 		}
 	}, [parsedSchema, samplePropertiesJson])
 
-	const validationEnabled = contextUse !== 'taxonomy' && validationMode !== 'none'
+	const validationEnabled =
+		allowForeignAttachments && contextUse !== 'taxonomy' && validationMode !== 'none'
+
+	useEffect(() => {
+		if (!allowForeignAttachments && activeTab === 'schema') {
+			setActiveTab('policy')
+		}
+	}, [activeTab, allowForeignAttachments])
 
 	const toggleAllowedGeometryType = (type: MapContextGeometryType, checked: boolean) => {
 		const next = new Set(allowedGeometryTypes)
@@ -384,22 +372,19 @@ export function MapContextEditorPanel({
 		setAllowedGeometryTypes(Array.from(next.values()))
 	}
 
-	const handleAddFixedReference = () => {
-		if (referenceDraftId === 'none') return
-		const selectedReference = referenceOptions.find((option) => option.id === referenceDraftId)
-		if (!selectedReference) return
-
+	const handleReferenceSearchSelect = (result: EntitySearchResult) => {
+		if (result.type !== 'feature') return
+		const selectedReference = result.entity
 		setFixedReferences((prev) =>
 			dedupeFixedReferences([
 				...prev,
 				{
 					address: selectedReference.address,
 					featureId: selectedReference.featureId,
-					label: selectedReference.label,
+					label: result.name,
 				},
 			]),
 		)
-		setReferenceDraftId('none')
 	}
 
 	const handleSave = async () => {
@@ -436,7 +421,9 @@ export function MapContextEditorPanel({
 				: new NDKMapContextEvent(ndk)
 
 			const effectiveValidationMode =
-				contextUse === 'taxonomy' ? 'none' : validationMode || 'optional'
+				!allowForeignAttachments || contextUse === 'taxonomy'
+					? 'none'
+					: validationMode || 'optional'
 
 			event.context = {
 				version: 1,
@@ -483,16 +470,10 @@ export function MapContextEditorPanel({
 				tabs={
 					<TabsList className="h-8 w-full justify-start overflow-x-auto rounded-none border-b border-slate-200 bg-transparent p-0">
 						<TabsTrigger
-							value="narrative"
+							value="content"
 							className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-slate-900 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
 						>
-							Narrative
-						</TabsTrigger>
-						<TabsTrigger
-							value="references"
-							className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-slate-900 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-						>
-							Sticky refs
+							Content
 						</TabsTrigger>
 						<TabsTrigger
 							value="policy"
@@ -500,16 +481,18 @@ export function MapContextEditorPanel({
 						>
 							Policy
 						</TabsTrigger>
-						<TabsTrigger
-							value="schema"
-							className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-slate-900 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-						>
-							Schema
-						</TabsTrigger>
+						{allowForeignAttachments && (
+							<TabsTrigger
+								value="schema"
+								className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-slate-900 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+							>
+								Schema
+							</TabsTrigger>
+						)}
 					</TabsList>
 				}
 			>
-				<TabsContent value="narrative" className="mt-0 space-y-3">
+				<TabsContent value="content" className="mt-0 space-y-3">
 					<EntityPanelSurface tone="context" className="space-y-3">
 						<EntityPanelSectionHeader
 							eyebrow="Narrative"
@@ -535,7 +518,7 @@ export function MapContextEditorPanel({
 								placeholder={`## Scope
 Write in Markdown. Mention datasets or features with $.`}
 								rows={8}
-								className="min-h-[180px] rounded-none border border-input px-2 py-2"
+								className="min-h-[280px] w-full"
 							/>
 						</div>
 						<div className="space-y-2">
@@ -548,9 +531,6 @@ Write in Markdown. Mention datasets or features with $.`}
 							/>
 						</div>
 					</EntityPanelSurface>
-				</TabsContent>
-
-				<TabsContent value="references" className="mt-0 space-y-3">
 					<EntityPanelSurface tone="neutral" className="space-y-3">
 						<EntityPanelSectionHeader
 							eyebrow="Sticky Refs"
@@ -559,33 +539,22 @@ Write in Markdown. Mention datasets or features with $.`}
 						/>
 						<div className="space-y-2">
 							<Label>Add sticky reference</Label>
-							<div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
-								<Select value={referenceDraftId} onValueChange={setReferenceDraftId}>
-									<SelectTrigger className="rounded-none">
-										<SelectValue placeholder="Choose a dataset or feature" />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="none">Choose a reference</SelectItem>
-										{referenceOptions.map((option) => (
-											<SelectItem key={option.id} value={option.id}>
-												{option.label} · {option.meta}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-								<Button
-									type="button"
-									variant="outline"
-									onClick={handleAddFixedReference}
-									disabled={referenceDraftId === 'none'}
-									className="rounded-none"
-								>
-									Pin
-								</Button>
-							</div>
-							{referenceOptions.length === 0 && (
+							<EntitySearchPopover
+								sources={{ features: availableFeatures }}
+								entityTypes={['feature']}
+								onSelect={handleReferenceSearchSelect}
+								placeholder="Search loaded datasets and features…"
+								searchMode="local"
+								inputClassName="rounded-none"
+							/>
+							{availableFeatures.length === 0 && (
 								<p className="text-[11px] text-slate-500">
 									Load datasets first if you want to pin sticky geometry.
+								</p>
+							)}
+							{availableFeatures.length > 0 && (
+								<p className="text-[11px] text-slate-500">
+									Select a dataset or feature from search to pin it immediately.
 								</p>
 							)}
 						</div>
@@ -669,86 +638,97 @@ Write in Markdown. Mention datasets or features with $.`}
 								onCheckedChange={setAllowForeignAttachments}
 							/>
 						</div>
+						{!allowForeignAttachments && (
+							<p className="text-[11px] text-slate-500">
+								Validation and schema controls stay hidden while foreign attachments are off.
+							</p>
+						)}
 					</EntityPanelSurface>
 
-					<EntityPanelSurface tone="neutral" className="space-y-3">
-						<EntityPanelSectionHeader
-							eyebrow="Validation"
-							title="Validation behavior"
-							description="Choose whether the context is taxonomy-only or also validates incoming geometry."
-						/>
-						<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-							<div className="space-y-2">
-								<Label>Context use</Label>
-								<Select
-									value={contextUse}
-									onValueChange={(value) => {
-										const nextUse = value as MapContextContent['contextUse']
-										setContextUse(nextUse)
-										if (nextUse === 'taxonomy') {
-											setValidationMode('none')
-										}
-									}}
-								>
-									<SelectTrigger className="rounded-none">
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="taxonomy">taxonomy</SelectItem>
-										<SelectItem value="validation">validation</SelectItem>
-										<SelectItem value="hybrid">hybrid</SelectItem>
-									</SelectContent>
-								</Select>
-							</div>
-							<div className="space-y-2">
-								<Label>Validation mode</Label>
-								<Select
-									value={validationMode}
-									onValueChange={(value) =>
-										setValidationMode(value as MapContextContent['validationMode'])
-									}
-									disabled={contextUse === 'taxonomy'}
-								>
-									<SelectTrigger className="rounded-none">
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="none">none</SelectItem>
-										<SelectItem value="optional">optional</SelectItem>
-										<SelectItem value="required">required</SelectItem>
-									</SelectContent>
-								</Select>
-							</div>
-						</div>
-						<div className="space-y-2">
-							<Label>Allowed geometry types</Label>
-							<div className="grid grid-cols-2 gap-2">
-								{MAP_CONTEXT_GEOMETRY_TYPES.map((geometryType) => (
-									<label
-										key={geometryType}
-										className={`flex items-center gap-2 border px-2 py-2 text-[11px] ${
-											validationEnabled
-												? 'border-slate-200 text-slate-700'
-												: 'border-slate-100 bg-slate-50 text-slate-400'
-										}`}
-									>
-										<input
-											type="checkbox"
-											checked={allowedGeometryTypes.includes(geometryType)}
-											disabled={!validationEnabled}
-											onChange={(event) =>
-												toggleAllowedGeometryType(geometryType, event.target.checked)
+					{allowForeignAttachments && (
+						<EntityPanelSurface tone="neutral" className="space-y-3">
+							<EntityPanelSectionHeader
+								eyebrow="Validation"
+								title="Validation behavior"
+								description="Choose whether the context is taxonomy-only or also validates incoming geometry."
+							/>
+							<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+								<div className="space-y-2">
+									<Label>Context use</Label>
+									<Select
+										value={contextUse}
+										onValueChange={(value) => {
+											const nextUse = value as MapContextContent['contextUse']
+											setContextUse(nextUse)
+											if (nextUse === 'taxonomy') {
+												setValidationMode('none')
 											}
-										/>
-										<span>{geometryType}</span>
-									</label>
-								))}
+										}}
+									>
+										<SelectTrigger className="rounded-none">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="taxonomy">taxonomy</SelectItem>
+											<SelectItem value="validation">validation</SelectItem>
+											<SelectItem value="hybrid">hybrid</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className="space-y-2">
+									<Label>Validation mode</Label>
+									<Select
+										value={validationMode}
+										onValueChange={(value) =>
+											setValidationMode(value as MapContextContent['validationMode'])
+										}
+										disabled={contextUse === 'taxonomy'}
+									>
+										<SelectTrigger className="rounded-none">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="none">none</SelectItem>
+											<SelectItem value="optional">optional</SelectItem>
+											<SelectItem value="required">required</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
 							</div>
-						</div>
-					</EntityPanelSurface>
+							<div className="space-y-2">
+								<Label>Allowed geometry types</Label>
+								<div className="grid grid-cols-2 gap-2">
+									{MAP_CONTEXT_GEOMETRY_TYPES.map((geometryType) => (
+										<label
+											key={geometryType}
+											className={`flex items-center gap-2 border px-2 py-2 text-[11px] ${
+												validationEnabled
+													? 'border-slate-200 text-slate-700'
+													: 'border-slate-100 bg-slate-50 text-slate-400'
+											}`}
+										>
+											<input
+												type="checkbox"
+												checked={allowedGeometryTypes.includes(geometryType)}
+												disabled={!validationEnabled}
+												onChange={(event) =>
+													toggleAllowedGeometryType(
+														geometryType,
+														event.target.checked,
+													)
+												}
+											/>
+											<span>{geometryType}</span>
+										</label>
+									))}
+								</div>
+							</div>
+						</EntityPanelSurface>
+					)}
 				</TabsContent>
 
-				<TabsContent value="schema" className="mt-0 space-y-3">
+				{allowForeignAttachments && (
+					<TabsContent value="schema" className="mt-0 space-y-3">
 					<EntityPanelSurface tone="neutral" className="space-y-3">
 						<EntityPanelSectionHeader
 							eyebrow="Schema"
@@ -924,7 +904,8 @@ Write in Markdown. Mention datasets or features with $.`}
 							</p>
 						</div>
 					</EntityPanelSurface>
-				</TabsContent>
+					</TabsContent>
+				)}
 
 				<EntityPanelSurface tone="neutral" className="space-y-2">
 					{saveError && <p className="text-xs text-red-600">{saveError}</p>}

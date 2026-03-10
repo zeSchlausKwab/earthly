@@ -696,7 +696,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					Dataset info
 				</CollapsibleTrigger>
 				<CollapsibleContent>
-					<DatasetMetadataSection />
+					<DatasetMetadataSection availableFeatures={availableFeatures} />
 				</CollapsibleContent>
 			</Collapsible>
 
@@ -822,6 +822,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					onZoomToFeature={onZoomToFeature}
 					contextValidationIssuesByFeatureId={contextValidationIssuesByFeatureId}
 					contextPropertyTypeHints={contextPropertyTypeHints}
+					availableFeatures={availableFeatures}
 				/>
 			</div>
 

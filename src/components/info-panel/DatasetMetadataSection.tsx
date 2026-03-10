@@ -1,12 +1,19 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { useEditorStore } from '@/features/geo-editor/store'
+import { GeoRichTextEditor, type GeoFeatureItem } from '../editor/GeoRichTextEditor'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 
 /**
  * Compact section for editing dataset/collection metadata.
  */
-export function DatasetMetadataSection() {
+interface DatasetMetadataSectionProps {
+	availableFeatures?: GeoFeatureItem[]
+}
+
+export function DatasetMetadataSection({
+	availableFeatures = [],
+}: DatasetMetadataSectionProps = {}) {
 	const collectionMeta = useEditorStore((state) => state.collectionMeta)
 	const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta)
 	const newCollectionProp = useEditorStore((state) => state.newCollectionProp)
@@ -73,12 +80,13 @@ export function DatasetMetadataSection() {
 				/>
 			</div>
 
-			{/* Description */}
-			<textarea
-				className="w-full h-12 rounded border border-gray-200 px-2 py-1 text-xs resize-none"
+			<GeoRichTextEditor
+				initialValue={collectionMeta.description}
 				placeholder="Description (optional)"
-				value={collectionMeta.description}
-				onChange={(e) => onDescriptionChange(e.target.value)}
+				availableFeatures={availableFeatures}
+				onChange={onDescriptionChange}
+				rows={3}
+				className="min-h-[110px]"
 			/>
 
 			{/* Custom properties - compact */}
