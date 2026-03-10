@@ -318,8 +318,10 @@ export function createMediaRichText(
 	return [
 		`${lead} for ${target.name}.`,
 		...extraParagraphs,
-		`Image: ${media?.image ?? ""}`,
-		`Video: ${media?.video ?? ""}`,
-		`Reference: ${media?.external ?? ""}`,
+		"Image:",
+		`![${target.name} media](${media?.image ?? ""})`,
+		"Video:",
+		`${media?.video ?? ""}`,
+		`Reference: [Field notes](${media?.external ?? ""})`,
 	].join("\n\n");
 }

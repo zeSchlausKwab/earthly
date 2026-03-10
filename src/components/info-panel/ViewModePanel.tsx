@@ -450,7 +450,7 @@ export function ViewModePanel({
 										/>
 									</div>
 									<span className="px-2 py-0.5">
-										Collections referenced: {viewDataset.collectionReferences.length}
+										Contexts attached: {viewDataset.contextReferences.length}
 									</span>
 								</div>
 								{viewDataset.hashtags.length > 0 && (

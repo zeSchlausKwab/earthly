@@ -1,5 +1,6 @@
-import { ExternalLink, Eye, EyeOff, MapPin, Maximize2, Play } from 'lucide-react'
+import { ExternalLink, Eye, EyeOff, MapPin, Maximize2, Play, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { GeoFeatureItem } from './GeoRichTextEditor'
 import { Button } from '../ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
@@ -66,6 +67,7 @@ interface CodeBlock {
 interface MediaBlock {
 	type: 'image' | 'video' | 'youtube'
 	url: string
+	label?: string
 }
 
 type ContentBlock = ParagraphBlock | HeadingBlock | QuoteBlock | ListBlock | CodeBlock | MediaBlock
@@ -84,6 +86,11 @@ const YOUTUBE_PATTERNS = [
 	/(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/[a-zA-Z0-9_-]{11}/i,
 ]
 const MEDIA_LINE_PATTERN = /^(https?:\/\/[^\s<>"{}|\\^`[\]]+)$/i
+const LABELED_MEDIA_PATTERN =
+	/^(image|video|media)\s*:\s*(https?:\/\/[^\s<>"{}|\\^`[\]]+)\s*$/i
+const MEDIA_LABEL_ONLY_PATTERN = /^(image|video|media)\s*:\s*$/i
+const MARKDOWN_IMAGE_PATTERN =
+	/^!\[([^\]]*)\]\((https?:\/\/[^\s<>"{}|\\^`()[\]]+)\)\s*$/i
 const TOKEN_PATTERN =
 	/(\[[^\]]+\]\((https?:\/\/[^\s)]+)\))|(nostr:(naddr1[a-z0-9]+)(#([a-zA-Z0-9_-]+))?)|(https?:\/\/[^\s<>"{}|\\^`[\]]+)|(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\n]+\*)/gi
 
@@ -216,6 +223,15 @@ function pushParagraph(lines: string[], blocks: ContentBlock[], availableFeature
 	lines.length = 0
 }
 
+function takeTrailingMediaLabel(lines: string[]): string | undefined {
+	const lastLine = lines.at(-1)?.trim()
+	if (!lastLine) return undefined
+	const match = lastLine.match(MEDIA_LABEL_ONLY_PATTERN)
+	if (!match?.[1]) return undefined
+	lines.pop()
+	return match[1]
+}
+
 function parseContent(text: string, availableFeatures: GeoFeatureItem[]): ContentBlock[] {
 	const trimmed = text.trim()
 	if (!trimmed) return []
@@ -274,13 +290,49 @@ function parseContent(text: string, availableFeatures: GeoFeatureItem[]): Conten
 			continue
 		}
 
+		const labeledMediaMatch = trimmedLine.match(LABELED_MEDIA_PATTERN)
+		if (labeledMediaMatch?.[1] && labeledMediaMatch[2]) {
+			const mediaType = detectMediaType(labeledMediaMatch[2])
+			if (mediaType !== 'link') {
+				pushParagraph(paragraphLines, blocks, availableFeatures)
+				flushList()
+				blocks.push({
+					type: mediaType,
+					url: labeledMediaMatch[2],
+					label: labeledMediaMatch[1],
+				})
+				continue
+			}
+		}
+
+		const markdownImageMatch = trimmedLine.match(MARKDOWN_IMAGE_PATTERN)
+		if (markdownImageMatch?.[2]) {
+			const mediaType = detectMediaType(markdownImageMatch[2])
+			if (mediaType !== 'link') {
+				const mediaLabel = takeTrailingMediaLabel(paragraphLines)
+				pushParagraph(paragraphLines, blocks, availableFeatures)
+				flushList()
+				blocks.push({
+					type: mediaType,
+					url: markdownImageMatch[2],
+					label: mediaLabel ?? markdownImageMatch[1] ?? undefined,
+				})
+				continue
+			}
+		}
+
 		const mediaMatch = trimmedLine.match(MEDIA_LINE_PATTERN)
 		if (mediaMatch?.[1]) {
 			const mediaType = detectMediaType(mediaMatch[1])
 			if (mediaType !== 'link') {
+				const mediaLabel = takeTrailingMediaLabel(paragraphLines)
 				pushParagraph(paragraphLines, blocks, availableFeatures)
 				flushList()
-				blocks.push({ type: mediaType, url: mediaMatch[1] })
+				blocks.push({
+					type: mediaType,
+					url: mediaMatch[1],
+					label: mediaLabel,
+				})
 				continue
 			}
 		}
@@ -459,23 +511,34 @@ function GeoMentionChip({ token }: { token: MentionInlineToken }) {
 	)
 }
 
-function renderMediaBlock(block: MediaBlock, index: number) {
+function renderMediaBlock(
+	block: MediaBlock,
+	index: number,
+	onImageOpen?: (url: string) => void,
+) {
+	const label = block.label ? `${block.label[0].toUpperCase()}${block.label.slice(1)}` : null
+
 	if (block.type === 'image') {
 		return (
-			<a
-				key={`image-${index}`}
-				href={block.url}
-				target="_blank"
-				rel="noopener noreferrer"
-				className="block overflow-hidden rounded-xl border border-amber-200 bg-amber-50/60"
-			>
-				<img
-					src={block.url}
-					alt=""
-					loading="lazy"
-					className="block max-h-[320px] w-full object-contain"
-				/>
-			</a>
+			<div key={`image-${index}`} className="space-y-2">
+				{label && (
+					<div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-500">
+						{label}
+					</div>
+				)}
+				<button
+					type="button"
+					onClick={() => onImageOpen?.(block.url)}
+					className="block w-full overflow-hidden rounded-xl border border-amber-200 bg-amber-50/60 text-left"
+				>
+					<img
+						src={block.url}
+						alt=""
+						loading="lazy"
+						className="block max-h-[320px] w-full object-contain"
+					/>
+				</button>
+			</div>
 		)
 	}
 
@@ -483,18 +546,22 @@ function renderMediaBlock(block: MediaBlock, index: number) {
 		const embedUrl = getYouTubeEmbedUrl(block.url)
 		if (embedUrl) {
 			return (
-				<div
-					key={`youtube:${block.url}:${index}`}
-					className="overflow-hidden rounded-xl border border-gray-200 bg-black"
-				>
-					<div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
-						<iframe
-							src={embedUrl}
-							title="Embedded video"
-							className="absolute inset-0 h-full w-full"
-							allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-							allowFullScreen
-						/>
+				<div key={`youtube:${block.url}:${index}`} className="space-y-2">
+					{label && (
+						<div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-500">
+							{label}
+						</div>
+					)}
+					<div className="overflow-hidden rounded-xl border border-gray-200 bg-black">
+						<div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+							<iframe
+								src={embedUrl}
+								title="Embedded video"
+								className="absolute inset-0 h-full w-full"
+								allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+								allowFullScreen
+							/>
+						</div>
 					</div>
 				</div>
 			)
@@ -503,13 +570,17 @@ function renderMediaBlock(block: MediaBlock, index: number) {
 
 	if (block.type === 'video' || block.type === 'youtube') {
 		return (
-			<div
-				key={`video:${block.url}:${index}`}
-				className="overflow-hidden rounded-xl border border-gray-200 bg-gray-950 p-1"
-			>
-				<video src={block.url} controls className="block max-h-[320px] w-full rounded-lg">
-					<track kind="captions" />
-				</video>
+			<div key={`video:${block.url}:${index}`} className="space-y-2">
+				{label && (
+					<div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-500">
+						{label}
+					</div>
+				)}
+				<div className="overflow-hidden rounded-xl border border-gray-200 bg-gray-950 p-1">
+					<video src={block.url} controls className="block max-h-[320px] w-full rounded-lg">
+						<track kind="captions" />
+					</video>
+				</div>
 			</div>
 		)
 	}
@@ -559,6 +630,7 @@ export function RichContentRenderer({
 		() => parseContent(content, availableFeatures),
 		[content, availableFeatures],
 	)
+	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
 
 	if (blocks.length === 0) {
 		return emptyState ? <div className={className}>{emptyState}</div> : null
@@ -655,8 +727,32 @@ export function RichContentRenderer({
 					)
 				}
 
-				return renderMediaBlock(block, index)
+				return renderMediaBlock(block, index, setLightboxUrl)
 			})}
+			{lightboxUrl &&
+				typeof document !== 'undefined' &&
+				createPortal(
+					<div
+						className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm"
+						onClick={() => setLightboxUrl(null)}
+					>
+						<button
+							type="button"
+							className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
+							onClick={() => setLightboxUrl(null)}
+							aria-label="Close image preview"
+						>
+							<X className="h-5 w-5" />
+						</button>
+						<img
+							src={lightboxUrl}
+							alt=""
+							className="max-h-[90vh] max-w-[90vw] object-contain shadow-2xl"
+							onClick={(event) => event.stopPropagation()}
+						/>
+					</div>,
+					document.body,
+				)}
 		</div>
 	)
 }
