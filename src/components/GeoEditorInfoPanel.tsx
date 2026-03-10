@@ -9,7 +9,6 @@ import {
 } from '../lib/context/validation'
 import { useEditorStore } from '../features/geo-editor/store'
 import { sanitizeEditorProperties } from '../features/geo-editor/utils'
-import type { NDKGeoCollectionEvent } from '../lib/ndk/NDKGeoCollectionEvent'
 import { NDKGeoEvent as NDKGeoEventClass, type NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
 import type { MapContextValidationMode, NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
 import {
@@ -22,7 +21,6 @@ import {
 	ViewModePanel,
 } from './info-panel'
 import { DatasetSizeIndicator } from './info-panel/DatasetSizeIndicator'
-import { GeoCollectionEditorPanel } from '../features/collections/GeoCollectionEditorPanel'
 import { MapContextEditorPanel } from '../features/contexts/MapContextEditorPanel'
 import { CommentsPanel } from '../features/social/comments'
 import { Button } from './ui/button'
@@ -48,10 +46,7 @@ export interface GeoEditorInfoPanelProps {
 	onToggleVisibility: (event: NDKGeoEvent) => void
 	onZoomToDataset: (event: NDKGeoEvent) => void
 	onDeleteDataset: (event: NDKGeoEvent) => void
-	onDeleteCollection?: (collection: NDKGeoCollectionEvent) => void
 	onDeleteContext?: (context: NDKMapContextEvent) => void
-	onZoomToCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
-	onInspectCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
 	deletingKey: string | null
 	onExitViewMode?: () => void
 	onClose?: () => void
@@ -74,15 +69,6 @@ export interface GeoEditorInfoPanelProps {
 	) => void
 	/** Callback to zoom to a mentioned geometry */
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
-	onEditCollection?: (collection: NDKGeoCollectionEvent) => void
-	/** Collection editor mode */
-	collectionEditorMode?: 'none' | 'create' | 'edit'
-	/** Collection being edited */
-	editingCollection?: NDKGeoCollectionEvent | null
-	/** Callback when collection is saved */
-	onSaveCollection?: (collection: NDKGeoCollectionEvent) => void
-	/** Callback to close collection editor */
-	onCloseCollectionEditor?: () => void
 	/** Context editor mode */
 	contextEditorMode?: 'none' | 'create' | 'edit'
 	/** Context being edited */
@@ -112,7 +98,7 @@ export interface GeoEditorInfoPanelProps {
 	ndk?: import('@nostr-dev-kit/ndk').default | null
 	/** Optional comment d-tag from the route to reveal in the thread */
 	focusCommentId?: string
-	entityWorkspace?: 'geometry' | 'collection' | 'context'
+	entityWorkspace?: 'geometry' | 'context'
 	entityIntent?: 'inspect' | 'edit'
 }
 
@@ -122,9 +108,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onToggleVisibility,
 		onZoomToDataset,
 		onDeleteDataset,
-		onDeleteCollection,
 		onDeleteContext,
-		onZoomToCollection,
 		currentUserPubkey,
 		onOpenGeometryEditor,
 		deletingKey,
@@ -136,11 +120,6 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		availableFeatures = [],
 		onMentionVisibilityToggle,
 		onMentionZoomTo,
-		onEditCollection: _onEditCollection,
-		collectionEditorMode = 'none',
-		editingCollection,
-		onSaveCollection,
-		onCloseCollectionEditor,
 		contextEditorMode = 'none',
 		editingContext,
 		onSaveContext,
@@ -166,7 +145,6 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	const publishError = useEditorStore((state) => state.publishError)
 	const viewMode = useEditorStore((state) => state.viewMode)
 	const viewDataset = useEditorStore((state) => state.viewDataset)
-	const viewCollection = useEditorStore((state) => state.viewCollection)
 	const setViewMode = useEditorStore((state) => state.setViewMode)
 	const setViewDataset = useEditorStore((state) => state.setViewDataset)
 	const blobReferences = useEditorStore((state) => state.blobReferences)
@@ -206,8 +184,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		: (activeDraft?.sourceId ?? null)
 
 	useEffect(() => {
-		if (collectionEditorMode !== 'none' || contextEditorMode !== 'none' || viewMode === 'view')
-			return
+		if (contextEditorMode !== 'none' || viewMode === 'view') return
 		if (!currentDraftSourceId) return
 		if (activeDraft?.sourceId === currentDraftSourceId) return
 
@@ -220,7 +197,6 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 			selectedFeatureIds: store.selectedFeatureIds,
 		})
 	}, [
-		collectionEditorMode,
 		contextEditorMode,
 		viewMode,
 		currentDraftSourceId,
@@ -535,24 +511,6 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		[onZoomToBounds],
 	)
 
-	// Collection Editor mode takes precedence
-	if (collectionEditorMode !== 'none' && onSaveCollection && onCloseCollectionEditor) {
-		return (
-			<GeoCollectionEditorPanel
-				initialCollection={editingCollection}
-				onClose={onCloseCollectionEditor}
-				onSave={onSaveCollection}
-				availableFeatures={availableFeatures}
-				mapContextEvents={mapContextEvents}
-				onCommentGeometryVisibility={onCommentGeometryVisibility}
-				onZoomToBounds={onZoomToBounds}
-				onMentionVisibilityToggle={onMentionVisibilityToggle}
-				onMentionZoomTo={onMentionZoomTo}
-				focusCommentId={focusCommentId}
-			/>
-		)
-	}
-
 	// Context Editor mode
 	if (contextEditorMode !== 'none' && onSaveContext && onCloseContextEditor) {
 		return (
@@ -587,7 +545,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 			)
 		}
 
-		if (!viewDataset && !viewCollection) {
+		if (!viewDataset) {
 			const isEmptyGeometryInspect =
 				entityWorkspace === 'geometry' && entityIntent === 'inspect' && !viewContext
 			return (
@@ -599,7 +557,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						<p className="text-xs text-gray-500">
 							{isEmptyGeometryInspect
 								? 'Click on the map to inspect a geometry.'
-								: 'Choose a geometry, collection, or context to inspect.'}
+								: 'Choose a geometry or context to inspect.'}
 						</p>
 						{isEmptyGeometryInspect && onOpenGeometryEditor ? (
 							<div className="flex justify-center">
@@ -627,8 +585,6 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				onToggleVisibility={onToggleVisibility}
 				onZoomToDataset={onZoomToDataset}
 				onDeleteDataset={onDeleteDataset}
-				onZoomToCollection={onZoomToCollection}
-				onDeleteCollection={onDeleteCollection}
 				deletingKey={deletingKey}
 				onExitViewMode={onExitViewMode}
 				getDatasetKey={getDatasetKey}

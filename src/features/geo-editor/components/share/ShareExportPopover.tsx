@@ -148,7 +148,7 @@ function resolveFeatureCollectionMeta(collection: FeatureCollection | null | und
 	return { name, description }
 }
 
-function mergeBboxes(
+function _mergeBboxes(
 	input: Array<[number, number, number, number] | undefined>,
 ): [number, number, number, number] | null {
 	const boxes = input.filter(
@@ -267,8 +267,6 @@ export function ShareExportPopover() {
 	const editor = useEditorStore((state) => state.editor)
 	const focusedMapGeometry = useEditorStore((state) => state.focusedMapGeometry)
 	const viewDataset = useEditorStore((state) => state.viewDataset)
-	const viewCollection = useEditorStore((state) => state.viewCollection)
-	const viewCollectionEvents = useEditorStore((state) => state.viewCollectionEvents)
 	const viewContext = useEditorStore((state) => state.viewContext)
 	const focusedNaddr = useEditorStore((state) => state.focusedNaddr)
 	const focusedType = useEditorStore((state) => state.focusedType)
@@ -305,13 +303,6 @@ export function ShareExportPopover() {
 				subjectLabel: 'feature collection',
 			}
 		}
-		if (focusedType === 'collection') {
-			return {
-				title: viewCollection?.metadata.name || focusedIdentifier || 'Collection',
-				description: viewCollection?.metadata.description,
-				subjectLabel: 'collection',
-			}
-		}
 		if (focusedType === 'mapcontext') {
 			return {
 				title: viewContext?.context.name || focusedIdentifier || 'Context',
@@ -331,7 +322,7 @@ export function ShareExportPopover() {
 			description: undefined,
 			subjectLabel: 'map view',
 		}
-	}, [focusedType, focusedNaddr, viewDataset, viewCollection, viewContext, route])
+	}, [focusedType, focusedNaddr, viewDataset, viewContext, route])
 
 	const focusedEntityBounds = useMemo(() => {
 		if (focusedMapGeometry?.bbox) {
@@ -340,24 +331,11 @@ export function ShareExportPopover() {
 		if (focusedType === 'geoevent') {
 			return viewDataset?.boundingBox ?? null
 		}
-		if (focusedType === 'collection') {
-			return mergeBboxes([
-				viewCollection?.boundingBox,
-				...viewCollectionEvents.map((event) => event.boundingBox),
-			])
-		}
 		if (focusedType === 'mapcontext') {
 			return viewContext?.boundingBox ?? null
 		}
 		return null
-	}, [
-		focusedMapGeometry,
-		focusedType,
-		viewDataset,
-		viewCollection,
-		viewCollectionEvents,
-		viewContext,
-	])
+	}, [focusedMapGeometry, focusedType, viewDataset, viewContext])
 
 	const selectedAspect = useMemo(
 		() => SHARE_ASPECTS.find((aspect) => aspect.id === shareAspect) ?? SHARE_ASPECTS[0],

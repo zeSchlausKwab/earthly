@@ -7,7 +7,6 @@ export type { SidebarViewMode }
 /** All valid sidebar view mode values */
 const SIDEBAR_VIEW_MODES: SidebarViewMode[] = [
 	'datasets',
-	'collections',
 	'contexts',
 	'context-editor',
 	'combined',
@@ -31,7 +30,7 @@ export interface RouteState {
 	/** Active context coordinate derived from naddr */
 	contextCoordinate?: string
 	/** Focus type for deep-linking to specific content */
-	focusType: 'none' | 'geoevent' | 'collection' | 'mapcontext'
+	focusType: 'none' | 'geoevent' | 'mapcontext'
 	/** Nostr address for focused content */
 	naddr?: string
 	/** Optional comment d-tag deep-linked beneath the focused entity */
@@ -49,8 +48,8 @@ function isSidebarViewMode(value: string): value is SidebarViewMode {
 	return SIDEBAR_VIEW_MODES.includes(value as SidebarViewMode)
 }
 
-function isFocusType(value: string): value is 'geoevent' | 'collection' | 'mapcontext' {
-	return value === 'geoevent' || value === 'collection' || value === 'mapcontext'
+function isFocusType(value: string): value is 'geoevent' | 'mapcontext' {
+	return value === 'geoevent' || value === 'mapcontext'
 }
 
 function decodeContextCoordinateFromNaddr(naddr: string): string | undefined {
@@ -187,7 +186,7 @@ export function buildRouteHash({
 }: {
 	sidebarView: SidebarViewMode
 	contextNaddr?: string
-	focusType?: 'geoevent' | 'collection' | 'mapcontext'
+	focusType?: 'geoevent' | 'mapcontext'
 	naddr?: string
 	commentId?: string
 }): string {
@@ -265,11 +264,7 @@ export function useRouting() {
 	 * Navigate to a focused route, preserving or setting sidebar view
 	 */
 	const navigateTo = useCallback(
-		(
-			focusType: 'geoevent' | 'collection' | 'mapcontext',
-			naddr: string,
-			sidebarView?: SidebarViewMode,
-		) => {
+		(focusType: 'geoevent' | 'mapcontext', naddr: string, sidebarView?: SidebarViewMode) => {
 			const currentRoute = parseHash()
 			const view = sidebarView ?? currentRoute.sidebarView
 			window.location.hash = buildRouteHash({
@@ -330,7 +325,7 @@ export function useRouting() {
 
 	const navigateToComment = useCallback(
 		(
-			focusType: 'geoevent' | 'collection' | 'mapcontext',
+			focusType: 'geoevent' | 'mapcontext',
 			naddr: string,
 			commentId: string,
 			sidebarView?: SidebarViewMode,
@@ -383,27 +378,6 @@ export function useRouting() {
 	)
 
 	/**
-	 * Generate naddr for a collection
-	 */
-	const encodeCollectionNaddr = useCallback(
-		(event: { kind?: number; pubkey: string; dTag?: string }): string | null => {
-			const identifier = event.dTag
-			if (!identifier || !event.kind) return null
-
-			try {
-				return nip19.naddrEncode({
-					kind: event.kind,
-					pubkey: event.pubkey,
-					identifier,
-				})
-			} catch {
-				return null
-			}
-		},
-		[],
-	)
-
-	/**
 	 * Generate naddr for a map context
 	 */
 	const encodeContextNaddr = useCallback(
@@ -440,9 +414,8 @@ export function useRouting() {
 		clearContextScope,
 		navigateHome,
 		encodeGeoEventNaddr,
-		encodeCollectionNaddr,
 		encodeContextNaddr,
-		/** Whether currently focused on a geoevent, collection or context */
+		/** Whether currently focused on a dataset or context */
 		isFocused: route.focusType !== 'none',
 		/** Current sidebar view mode from the route */
 		sidebarView: route.sidebarView,

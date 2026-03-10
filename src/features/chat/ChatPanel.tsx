@@ -9,18 +9,12 @@ import {
 	getEntityReferenceKey,
 	type EntitySearchResult,
 } from '@/components/entity-search'
-import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import type { EditorFeature } from '@/features/geo-editor/core'
 import { Button } from '@/components/ui/button'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-} from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import {
 	Loader2,
 	Send,
@@ -68,7 +62,6 @@ const PROVIDER_LABELS: Record<ProviderType, string> = {
 
 interface ChatPanelProps {
 	geoEvents?: NDKGeoEvent[]
-	collectionEvents?: NDKGeoCollectionEvent[]
 	mapContextEvents?: NDKMapContextEvent[]
 	availableFeatures?: GeoFeatureItem[]
 	getDatasetName?: (event: NDKGeoEvent) => string
@@ -82,7 +75,6 @@ const defaultGetDatasetName = (event: NDKGeoEvent): string =>
 
 export function ChatPanel({
 	geoEvents = [],
-	collectionEvents = [],
 	mapContextEvents = [],
 	availableFeatures = [],
 	getDatasetName = defaultGetDatasetName,
@@ -187,6 +179,7 @@ export function ChatPanel({
 	}, [selectedEditorFeatures.length])
 
 	useEffect(() => {
+		void activeChatId
 		setAttachedGeometry(null)
 		setSelectionContextEnabled(false)
 	}, [activeChatId])
@@ -628,7 +621,6 @@ export function ChatPanel({
 						<EntityReferenceToolbar
 							sources={{
 								datasets: geoEvents,
-								collections: collectionEvents,
 								contexts: mapContextEvents,
 								features: availableFeatures,
 							}}
@@ -638,7 +630,7 @@ export function ChatPanel({
 							onClearReferences={handleClearReferences}
 							searchMode="both"
 							getDatasetName={getDatasetName}
-							placeholder="Add geometry, dataset, collection, or context references..."
+							placeholder="Add geometry, dataset, or context references..."
 							className="min-w-0 flex-1"
 						/>
 						<Button
@@ -674,14 +666,14 @@ export function ChatPanel({
 									<span>
 										{selectedEditorFeatures.length} selected
 										{selectedPolygonCount > 0
-											? ` · ${selectedPolygonCount} polygon${
-													selectedPolygonCount === 1 ? '' : 's'
-												}`
+											? ` · ${selectedPolygonCount} polygon${selectedPolygonCount === 1 ? '' : 's'}`
 											: ''}
 									</span>
 								)}
 								{selectedEditorFeatures.length > 0 && attachedGeometry ? <span> · </span> : null}
-								{attachedGeometry ? <span>{attachedGeometry.features.length} drawn attached</span> : null}
+								{attachedGeometry ? (
+									<span>{attachedGeometry.features.length} drawn attached</span>
+								) : null}
 							</div>
 						)}
 					</div>
@@ -763,7 +755,9 @@ function buildReferenceContextMessage(references: ChatReference[]): string | und
 	].join('\n')
 }
 
-function buildSelectedGeometryContextMessage(selectedFeatures: EditorFeature[]): string | undefined {
+function buildSelectedGeometryContextMessage(
+	selectedFeatures: EditorFeature[],
+): string | undefined {
 	if (selectedFeatures.length === 0) return undefined
 
 	const polygonCount = selectedFeatures.filter(

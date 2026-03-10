@@ -102,25 +102,6 @@ export function generateGeoEventOGHtml(
 	})
 }
 
-/**
- * Generate OG HTML for a collection
- */
-export function generateCollectionOGHtml(
-	baseUrl: string,
-	naddr: string,
-	name: string,
-	description: string,
-	image?: string,
-): string {
-	return generateOGHtml({
-		title: name || 'Map Collection',
-		description: description || 'View this collection of geographic datasets on Earthly.',
-		url: `${baseUrl}/#/collection/${naddr}`,
-		image: image || `${baseUrl}/static/og-default.png`,
-		type: 'article',
-	})
-}
-
 function escapeHtml(text: string): string {
 	return text
 		.replace(/&/g, '&amp;')

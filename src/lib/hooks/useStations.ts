@@ -1,7 +1,6 @@
 import type { NDKFilter } from '@nostr-dev-kit/ndk'
 import { useNDK, useSubscribe, wrapEvent } from '@nostr-dev-kit/react'
 import { useEffect, useMemo, useState } from 'react'
-import { NDKGeoCollectionEvent } from '../ndk/NDKGeoCollectionEvent'
 import { NDKGeoEvent } from '../ndk/NDKGeoEvent'
 import { NDKMapContextEvent } from '../ndk/NDKMapContextEvent'
 
@@ -66,67 +65,6 @@ export function useStations(additionalFilters: Omit<NDKFilter, 'kinds'>[] = [{}]
 
 	return {
 		events: geoEvents,
-		eose,
-	}
-}
-
-export function useGeoCollections(additionalFilters: Omit<NDKFilter, 'kinds'>[] = [{}]) {
-	const filters = additionalFilters.map((filter) => ({
-		...filter,
-		kinds: NDKGeoCollectionEvent.kinds,
-	}))
-
-	const { events, eose } = useSubscribe(filters)
-	const collections = useMemo(() => {
-		const latestByCoordinate = new Map<string, NDKGeoCollectionEvent>()
-
-		for (const event of events) {
-			const maybeWrapped = wrapEvent(event)
-			if (maybeWrapped instanceof Promise) continue
-			const wrapped =
-				maybeWrapped instanceof NDKGeoCollectionEvent
-					? maybeWrapped
-					: NDKGeoCollectionEvent.from(maybeWrapped)
-
-			const collectionId = wrapped.collectionId ?? wrapped.dTag
-			const coordinate =
-				collectionId && wrapped.pubkey
-					? `${wrapped.kind ?? NDKGeoCollectionEvent.kinds[0]}:${wrapped.pubkey}:${collectionId}`
-					: `${wrapped.kind ?? NDKGeoCollectionEvent.kinds[0]}:${wrapped.pubkey ?? ''}:${
-							wrapped.id ?? wrapped.created_at ?? ''
-						}`
-
-			const existing = latestByCoordinate.get(coordinate)
-			if (!existing) {
-				latestByCoordinate.set(coordinate, wrapped)
-				continue
-			}
-
-			const existingCreatedAt = existing.created_at ?? 0
-			const wrappedCreatedAt = wrapped.created_at ?? 0
-			if (wrappedCreatedAt > existingCreatedAt) {
-				latestByCoordinate.set(coordinate, wrapped)
-				continue
-			}
-
-			if (wrappedCreatedAt === existingCreatedAt) {
-				const existingId = existing.id ?? ''
-				const wrappedId = wrapped.id ?? ''
-				if (wrappedId > existingId) {
-					latestByCoordinate.set(coordinate, wrapped)
-				}
-			}
-		}
-
-		return Array.from(latestByCoordinate.values()).sort((a, b) => {
-			const createdDiff = (b.created_at ?? 0) - (a.created_at ?? 0)
-			if (createdDiff !== 0) return createdDiff
-			return (b.id ?? '').localeCompare(a.id ?? '')
-		})
-	}, [events])
-
-	return {
-		events: collections,
 		eose,
 	}
 }

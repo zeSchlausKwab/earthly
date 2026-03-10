@@ -20,7 +20,6 @@ import { UserProfilePanel } from '@/components/UserProfilePanel'
 import { ShoutboxPanel } from '@/features/social/shoutbox'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
-import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
@@ -35,7 +34,6 @@ import { useRouting } from '../hooks/useRouting'
 
 export type MobilePanelTab =
 	| 'datasets'
-	| 'collections'
 	| 'contexts'
 	| 'context-editor'
 	| 'edit'
@@ -47,22 +45,16 @@ export type MobilePanelTab =
 	| 'help'
 
 export interface MobilePanelProps {
-	// Data
 	geoEvents: NDKGeoEvent[]
-	collectionEvents: NDKGeoCollectionEvent[]
 	mapContextEvents: NDKMapContextEvent[]
 	activeDataset: NDKGeoEvent | null
 	currentUserPubkey?: string
 	userPubkey?: string | null
 	datasetVisibility: Record<string, boolean>
-	collectionVisibility: Record<string, boolean>
 	isPublishing: boolean
 	deletingKey: string | null
 	isFocused: boolean
 	multiSelectModifier?: string
-
-	// Dataset callbacks
-	onClearEditing: () => void
 	onLoadDataset: (event: NDKGeoEvent) => void
 	onStartNewDataset?: () => void
 	onSwitchWorkspace?: (workspaceId: string) => void
@@ -71,27 +63,16 @@ export interface MobilePanelProps {
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: NDKGeoEvent) => void
 	onDeleteDataset: (event: NDKGeoEvent) => void
-	onDeleteCollection?: (collection: NDKGeoCollectionEvent) => void
 	onDeleteContext?: (context: NDKMapContextEvent) => void
 	getDatasetKey: (event: NDKGeoEvent) => string
 	getDatasetName: (event: NDKGeoEvent) => string
 	onOpenGeometryEditor?: () => void
 	onInspectDataset?: (event: NDKGeoEvent) => void
 	onExitFocus?: () => void
-
-	// Collection callbacks
-	onToggleCollectionVisibility: (collection: NDKGeoCollectionEvent) => void
-	onToggleAllCollectionVisibility: (visible: boolean) => void
-	onZoomToCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
-	onInspectCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
-	onCreateCollection?: () => void
-	onEditCollection?: (collection: NDKGeoCollectionEvent) => void
 	onInspectContext?: (context: NDKMapContextEvent) => void
 	onCreateContext?: () => void
 	onEditContext?: (context: NDKMapContextEvent) => void
-	onOpenDebug?: (event: NDKGeoEvent | NDKGeoCollectionEvent | NDKMapContextEvent) => void
-
-	// Editor/Info panel callbacks
+	onOpenDebug?: (event: NDKGeoEvent | NDKMapContextEvent) => void
 	onExitViewMode?: () => void
 	onCommentGeometryVisibility?: (
 		comment: import('@/lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent,
@@ -105,10 +86,6 @@ export interface MobilePanelProps {
 		visible: boolean,
 	) => void
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
-	collectionEditorMode?: 'none' | 'create' | 'edit'
-	editingCollection?: NDKGeoCollectionEvent | null
-	onSaveCollection?: (collection: NDKGeoCollectionEvent) => void
-	onCloseCollectionEditor?: () => void
 	contextEditorMode?: 'none' | 'create' | 'edit'
 	editingContext?: NDKMapContextEvent | null
 	onSaveContext?: (context: NDKMapContextEvent) => void
@@ -117,18 +94,13 @@ export interface MobilePanelProps {
 	featureCollectionForUpload?: FeatureCollection | null
 	onBlossomUploadComplete?: (result: BlossomUploadResult) => void
 	ndk?: import('@nostr-dev-kit/ndk').default | null
-	/** Callback when filtered dataset keys change (for map visibility sync) */
 	onFilteredDatasetKeysChange?: (keys: Set<string>) => void
-	/** Callback when a proposal overlay visibility is toggled */
 	onToggleProposalOverlay?: (
 		proposal: import('@/lib/ndk/NDKGeoEditProposalEvent').NDKGeoEditProposalEvent,
 		visible: boolean,
 	) => void
-	/** Callback when a proposal is accepted */
 	onProposalAccepted?: () => void
-	/** Set of proposal IDs whose overlay is visible */
 	visibleProposalIds?: Set<string>
-	/** Optional comment d-tag deep-linked from the route */
 	focusCommentId?: string
 }
 
@@ -159,18 +131,15 @@ function clampPanelHeightVh(heightVh: number): number {
 export function MobilePanel(props: MobilePanelProps) {
 	const {
 		geoEvents,
-		collectionEvents,
 		mapContextEvents,
 		activeDataset,
 		currentUserPubkey,
 		userPubkey,
 		datasetVisibility,
-		collectionVisibility,
 		isPublishing,
 		deletingKey,
 		isFocused,
 		multiSelectModifier = 'Shift',
-		onClearEditing,
 		onLoadDataset,
 		onStartNewDataset,
 		onSwitchWorkspace,
@@ -179,19 +148,12 @@ export function MobilePanel(props: MobilePanelProps) {
 		onToggleAllVisibility,
 		onZoomToDataset,
 		onDeleteDataset,
-		onDeleteCollection,
 		onDeleteContext,
 		getDatasetKey,
 		getDatasetName,
 		onOpenGeometryEditor,
 		onInspectDataset,
 		onExitFocus,
-		onToggleCollectionVisibility,
-		onToggleAllCollectionVisibility,
-		onZoomToCollection,
-		onInspectCollection,
-		onCreateCollection,
-		onEditCollection,
 		onInspectContext,
 		onCreateContext,
 		onEditContext,
@@ -202,10 +164,6 @@ export function MobilePanel(props: MobilePanelProps) {
 		availableFeatures,
 		onMentionVisibilityToggle,
 		onMentionZoomTo,
-		collectionEditorMode,
-		editingCollection,
-		onSaveCollection,
-		onCloseCollectionEditor,
 		contextEditorMode,
 		editingContext,
 		onSaveContext,
@@ -237,7 +195,6 @@ export function MobilePanel(props: MobilePanelProps) {
 		navigateToContext(naddr)
 	}
 
-	// Store state for panel
 	const mobilePanelOpen = useEditorStore((state) => state.mobilePanelOpen)
 	const mobilePanelTab = useEditorStore((state) => state.mobilePanelTab)
 	const mobilePanelSnap = useEditorStore((state) => state.mobilePanelSnap)
@@ -313,17 +270,17 @@ export function MobilePanel(props: MobilePanelProps) {
 		<Sheet open={mobilePanelOpen} onOpenChange={handleOpenChange} modal={false}>
 			<SheetContent
 				side="bottom"
-				className="p-0 md:hidden flex flex-col gap-0"
+				className="flex flex-col gap-0 p-0 md:hidden"
 				style={{ height: `${panelHeightVh}vh` }}
 				onPointerDownOutside={(e) => e.preventDefault()}
 				onInteractOutside={(e) => e.preventDefault()}
 			>
-				<div className="shrink-0 border-b border-gray-200 bg-white/95 backdrop-blur px-0 py-1">
+				<div className="shrink-0 border-b border-gray-200 bg-white/95 px-0 py-1 backdrop-blur">
 					<button
 						type="button"
 						onPointerDown={handleDragStart}
 						onClick={handleGrabberClick}
-						className="w-full flex items-center justify-center touch-none py-1"
+						className="flex w-full touch-none items-center justify-center py-1"
 						aria-label="Resize panel"
 					>
 						<span className="h-1.5 w-12 rounded-full bg-gray-300" />
@@ -342,7 +299,7 @@ export function MobilePanel(props: MobilePanelProps) {
 								compact
 							/>
 						</div>
-						{contextNaddr && (
+						{contextNaddr ? (
 							<button
 								type="button"
 								onClick={clearContextScope}
@@ -351,12 +308,11 @@ export function MobilePanel(props: MobilePanelProps) {
 							>
 								<X className="h-3.5 w-3.5" />
 							</button>
-						)}
+						) : null}
 					</div>
 				</div>
 
-				{/* Scrollable Tab Bar */}
-				<div className="border-b border-gray-200 bg-gray-50/80 shrink-0 overflow-x-auto scrollbar-hide">
+				<div className="shrink-0 overflow-x-auto border-b border-gray-200 bg-gray-50/80 scrollbar-hide">
 					<div className="flex min-w-max">
 						{TAB_CONFIG.map((tab) => {
 							const Icon = tab.icon
@@ -372,10 +328,10 @@ export function MobilePanel(props: MobilePanelProps) {
 										setMobilePanelTab(tab.id)
 									}}
 									className={cn(
-										'flex items-center justify-center gap-1 px-3 py-2.5 text-xs font-medium transition-colors whitespace-nowrap',
+										'flex items-center justify-center gap-1 whitespace-nowrap px-3 py-2.5 text-xs font-medium transition-colors',
 										isActive
-											? 'text-blue-600 border-b-2 border-blue-600 bg-white'
-											: 'text-gray-500 hover:text-gray-700 hover:bg-gray-100',
+											? 'border-b-2 border-blue-600 bg-white text-blue-600'
+											: 'text-gray-500 hover:bg-gray-100 hover:text-gray-700',
 									)}
 								>
 									<Icon className="h-3.5 w-3.5" />
@@ -386,120 +342,64 @@ export function MobilePanel(props: MobilePanelProps) {
 					</div>
 				</div>
 
-				{/* Tab Content */}
 				<div className="flex-1 overflow-y-auto px-3 pb-4 pt-2">
-					{mobilePanelTab === 'datasets' && (
+					{mobilePanelTab === 'datasets' ? (
 						<GeoDatasetsPanelContent
 							mode="datasets"
 							geoEvents={geoEvents}
-							collectionEvents={collectionEvents}
 							mapContextEvents={mapContextEvents}
 							activeDataset={activeDataset}
 							currentUserPubkey={currentUserPubkey}
 							datasetVisibility={datasetVisibility}
-							collectionVisibility={collectionVisibility}
 							isPublishing={isPublishing}
 							deletingKey={deletingKey}
-							onClearEditing={onClearEditing}
 							onLoadDataset={onLoadDataset}
 							onToggleVisibility={onToggleVisibility}
 							onToggleAllVisibility={onToggleAllVisibility}
-							onToggleCollectionVisibility={onToggleCollectionVisibility}
-							onToggleAllCollectionVisibility={onToggleAllCollectionVisibility}
 							onZoomToDataset={onZoomToDataset}
 							onDeleteDataset={onDeleteDataset}
 							getDatasetKey={getDatasetKey}
 							getDatasetName={getDatasetName}
-							onZoomToCollection={onZoomToCollection}
 							onInspectDataset={onInspectDataset}
-							onInspectCollection={onInspectCollection}
 							onInspectContext={onInspectContext}
 							onOpenDebug={onOpenDebug}
-							onCreateCollection={onCreateCollection}
 							onCreateContext={onCreateContext}
-							onEditCollection={onEditCollection}
 							onEditContext={onEditContext}
 							isFocused={isFocused}
 							onExitFocus={onExitFocus}
 							onFilteredDatasetKeysChange={onFilteredDatasetKeysChange}
 						/>
-					)}
+					) : null}
 
-					{mobilePanelTab === 'collections' && (
-						<GeoDatasetsPanelContent
-							mode="collections"
-							geoEvents={geoEvents}
-							collectionEvents={collectionEvents}
-							mapContextEvents={mapContextEvents}
-							activeDataset={activeDataset}
-							currentUserPubkey={currentUserPubkey}
-							datasetVisibility={datasetVisibility}
-							collectionVisibility={collectionVisibility}
-							isPublishing={isPublishing}
-							deletingKey={deletingKey}
-							onClearEditing={onClearEditing}
-							onLoadDataset={onLoadDataset}
-							onToggleVisibility={onToggleVisibility}
-							onToggleAllVisibility={onToggleAllVisibility}
-							onToggleCollectionVisibility={onToggleCollectionVisibility}
-							onToggleAllCollectionVisibility={onToggleAllCollectionVisibility}
-							onZoomToDataset={onZoomToDataset}
-							onDeleteDataset={onDeleteDataset}
-							getDatasetKey={getDatasetKey}
-							getDatasetName={getDatasetName}
-							onZoomToCollection={onZoomToCollection}
-							onInspectDataset={onInspectDataset}
-							onInspectCollection={onInspectCollection}
-							onInspectContext={onInspectContext}
-							onOpenDebug={onOpenDebug}
-							onCreateCollection={onCreateCollection}
-							onCreateContext={onCreateContext}
-							onEditCollection={onEditCollection}
-							onEditContext={onEditContext}
-							isFocused={isFocused}
-							onExitFocus={onExitFocus}
-							onFilteredDatasetKeysChange={onFilteredDatasetKeysChange}
-						/>
-					)}
-
-					{mobilePanelTab === 'contexts' && (
+					{mobilePanelTab === 'contexts' ? (
 						<GeoDatasetsPanelContent
 							mode="contexts"
 							geoEvents={geoEvents}
-							collectionEvents={collectionEvents}
 							mapContextEvents={mapContextEvents}
 							activeDataset={activeDataset}
 							currentUserPubkey={currentUserPubkey}
 							datasetVisibility={datasetVisibility}
-							collectionVisibility={collectionVisibility}
 							isPublishing={isPublishing}
 							deletingKey={deletingKey}
-							onClearEditing={onClearEditing}
 							onLoadDataset={onLoadDataset}
 							onToggleVisibility={onToggleVisibility}
 							onToggleAllVisibility={onToggleAllVisibility}
-							onToggleCollectionVisibility={onToggleCollectionVisibility}
-							onToggleAllCollectionVisibility={onToggleAllCollectionVisibility}
 							onZoomToDataset={onZoomToDataset}
 							onDeleteDataset={onDeleteDataset}
 							getDatasetKey={getDatasetKey}
 							getDatasetName={getDatasetName}
-							onZoomToCollection={onZoomToCollection}
 							onInspectDataset={onInspectDataset}
-							onInspectCollection={onInspectCollection}
 							onInspectContext={onInspectContext}
 							onOpenDebug={onOpenDebug}
-							onCreateCollection={onCreateCollection}
 							onCreateContext={onCreateContext}
-							onEditCollection={onEditCollection}
 							onEditContext={onEditContext}
 							isFocused={isFocused}
 							onExitFocus={onExitFocus}
 							onFilteredDatasetKeysChange={onFilteredDatasetKeysChange}
 						/>
-					)}
+					) : null}
 
-					{mobilePanelTab === 'context-editor' && (
+					{mobilePanelTab === 'context-editor' ? (
 						<GeoEditorInfoPanelContent
 							currentUserPubkey={currentUserPubkey}
 							onLoadDataset={onLoadDataset}
@@ -508,15 +408,12 @@ export function MobilePanel(props: MobilePanelProps) {
 							onToggleVisibility={onToggleVisibility}
 							onZoomToDataset={onZoomToDataset}
 							onDeleteDataset={onDeleteDataset}
-							onDeleteCollection={onDeleteCollection}
 							onDeleteContext={onDeleteContext}
-							onZoomToCollection={onZoomToCollection}
 							deletingKey={deletingKey}
 							onExitViewMode={onExitViewMode}
 							onClose={handleClose}
 							getDatasetKey={getDatasetKey}
 							getDatasetName={getDatasetName}
-							onInspectCollection={onInspectCollection}
 							onCommentGeometryVisibility={onCommentGeometryVisibility}
 							onZoomToBounds={onZoomToBounds}
 							availableFeatures={availableFeatures}
@@ -525,11 +422,6 @@ export function MobilePanel(props: MobilePanelProps) {
 							onToggleProposalOverlay={onToggleProposalOverlay}
 							onProposalAccepted={onProposalAccepted}
 							visibleProposalIds={visibleProposalIds}
-							onEditCollection={onEditCollection}
-							collectionEditorMode={collectionEditorMode}
-							editingCollection={editingCollection}
-							onSaveCollection={onSaveCollection}
-							onCloseCollectionEditor={onCloseCollectionEditor}
 							contextEditorMode={contextEditorMode !== 'none' ? contextEditorMode : 'create'}
 							editingContext={editingContext}
 							onSaveContext={onSaveContext}
@@ -541,26 +433,24 @@ export function MobilePanel(props: MobilePanelProps) {
 							ndk={ndk}
 							focusCommentId={focusCommentId}
 						/>
-					)}
+					) : null}
 
-					{mobilePanelTab === 'edit' && (
+					{mobilePanelTab === 'edit' ? (
 						<GeoEditorInfoPanelContent
 							currentUserPubkey={currentUserPubkey}
 							onLoadDataset={onLoadDataset}
 							onStartNewDataset={onStartNewDataset}
 							onSwitchWorkspace={onSwitchWorkspace}
+							onOpenGeometryEditor={onOpenGeometryEditor}
 							onToggleVisibility={onToggleVisibility}
 							onZoomToDataset={onZoomToDataset}
 							onDeleteDataset={onDeleteDataset}
-							onDeleteCollection={onDeleteCollection}
 							onDeleteContext={onDeleteContext}
-							onZoomToCollection={onZoomToCollection}
 							deletingKey={deletingKey}
 							onExitViewMode={onExitViewMode}
 							onClose={handleClose}
 							getDatasetKey={getDatasetKey}
 							getDatasetName={getDatasetName}
-							onInspectCollection={onInspectCollection}
 							onCommentGeometryVisibility={onCommentGeometryVisibility}
 							onZoomToBounds={onZoomToBounds}
 							availableFeatures={availableFeatures}
@@ -569,11 +459,6 @@ export function MobilePanel(props: MobilePanelProps) {
 							onToggleProposalOverlay={onToggleProposalOverlay}
 							onProposalAccepted={onProposalAccepted}
 							visibleProposalIds={visibleProposalIds}
-							onEditCollection={onEditCollection}
-							collectionEditorMode={collectionEditorMode}
-							editingCollection={editingCollection}
-							onSaveCollection={onSaveCollection}
-							onCloseCollectionEditor={onCloseCollectionEditor}
 							contextEditorMode={contextEditorMode}
 							editingContext={editingContext}
 							onSaveContext={onSaveContext}
@@ -585,13 +470,12 @@ export function MobilePanel(props: MobilePanelProps) {
 							ndk={ndk}
 							focusCommentId={focusCommentId}
 						/>
-					)}
+					) : null}
 
-					{mobilePanelTab === 'chat' && (
-						<div className="h-full -mx-3 -mt-2 -mb-4">
+					{mobilePanelTab === 'chat' ? (
+						<div className="-mx-3 -mb-4 -mt-2 h-full">
 							<ChatPanel
 								geoEvents={geoEvents}
-								collectionEvents={collectionEvents}
 								mapContextEvents={mapContextEvents}
 								availableFeatures={availableFeatures}
 								getDatasetName={getDatasetName}
@@ -600,17 +484,15 @@ export function MobilePanel(props: MobilePanelProps) {
 								onOpenSettings={() => setMobilePanelTab('settings')}
 							/>
 						</div>
-					)}
+					) : null}
 
-					{mobilePanelTab === 'profile' && (
+					{mobilePanelTab === 'profile' ? (
 						<MobileProfileContent
 							pubkey={userPubkey ?? currentUserPubkey}
 							geoEvents={geoEvents}
-							collectionEvents={collectionEvents}
 							mapContextEvents={mapContextEvents}
 							currentUserPubkey={currentUserPubkey}
 							datasetVisibility={datasetVisibility}
-							collectionVisibility={collectionVisibility}
 							isPublishing={isPublishing}
 							deletingKey={deletingKey}
 							onLoadDataset={onLoadDataset}
@@ -623,40 +505,35 @@ export function MobilePanel(props: MobilePanelProps) {
 							getDatasetKey={getDatasetKey}
 							getDatasetName={getDatasetName}
 							onInspectDataset={onInspectDataset}
-							onToggleCollectionVisibility={onToggleCollectionVisibility}
-							onToggleAllCollectionVisibility={onToggleAllCollectionVisibility}
-							onZoomToCollection={onZoomToCollection}
-							onInspectCollection={onInspectCollection}
 							onInspectContext={onInspectContext}
-							onEditCollection={onEditCollection}
 							onEditContext={onEditContext}
 							onOpenDebug={onOpenDebug}
 						/>
-					)}
+					) : null}
 
-					{mobilePanelTab === 'posts' && (
-						<div className="h-full -mx-3 -mt-2 -mb-4">
+					{mobilePanelTab === 'posts' ? (
+						<div className="-mx-3 -mb-4 -mt-2 h-full">
 							<ShoutboxPanel />
 						</div>
-					)}
+					) : null}
 
-					{mobilePanelTab === 'wallet' && (
-						<div className="h-full -mx-3 -mt-2 -mb-4 p-4">
+					{mobilePanelTab === 'wallet' ? (
+						<div className="-mx-3 -mb-4 -mt-2 h-full p-4">
 							<Nip60Wallet />
 						</div>
-					)}
+					) : null}
 
-					{mobilePanelTab === 'settings' && (
-						<div className="h-full -mx-3 -mt-2 -mb-4">
+					{mobilePanelTab === 'settings' ? (
+						<div className="-mx-3 -mb-4 -mt-2 h-full">
 							<MapSettingsPanel />
 						</div>
-					)}
+					) : null}
 
-					{mobilePanelTab === 'help' && (
-						<div className="h-full -mx-3 -mt-2 -mb-4">
+					{mobilePanelTab === 'help' ? (
+						<div className="-mx-3 -mb-4 -mt-2 h-full">
 							<HelpPanel multiSelectModifier={multiSelectModifier} />
 						</div>
-					)}
+					) : null}
 				</div>
 			</SheetContent>
 		</Sheet>
@@ -666,11 +543,9 @@ export function MobilePanel(props: MobilePanelProps) {
 interface MobileProfileContentProps {
 	pubkey?: string | null
 	geoEvents: NDKGeoEvent[]
-	collectionEvents: NDKGeoCollectionEvent[]
 	mapContextEvents: NDKMapContextEvent[]
 	currentUserPubkey?: string
 	datasetVisibility: Record<string, boolean>
-	collectionVisibility: Record<string, boolean>
 	isPublishing: boolean
 	deletingKey: string | null
 	onLoadDataset: (event: NDKGeoEvent) => void
@@ -683,14 +558,9 @@ interface MobileProfileContentProps {
 	getDatasetKey: (event: NDKGeoEvent) => string
 	getDatasetName: (event: NDKGeoEvent) => string
 	onInspectDataset?: (event: NDKGeoEvent) => void
-	onToggleCollectionVisibility: (collection: NDKGeoCollectionEvent) => void
-	onToggleAllCollectionVisibility: (visible: boolean) => void
-	onZoomToCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
-	onInspectCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
 	onInspectContext?: (context: NDKMapContextEvent) => void
-	onEditCollection?: (collection: NDKGeoCollectionEvent) => void
 	onEditContext?: (context: NDKMapContextEvent) => void
-	onOpenDebug?: (event: NDKGeoEvent | NDKGeoCollectionEvent | NDKMapContextEvent) => void
+	onOpenDebug?: (event: NDKGeoEvent | NDKMapContextEvent) => void
 }
 
 function MobileProfileContent(props: MobileProfileContentProps) {
@@ -698,8 +568,8 @@ function MobileProfileContent(props: MobileProfileContentProps) {
 
 	if (!pubkey) {
 		return (
-			<div className="flex flex-col items-center justify-center h-32 text-gray-500 text-sm">
-				<User className="h-8 w-8 mb-2 text-gray-400" />
+			<div className="flex h-32 flex-col items-center justify-center text-sm text-gray-500">
+				<User className="mb-2 h-8 w-8 text-gray-400" />
 				<p>Sign in to view your profile</p>
 			</div>
 		)

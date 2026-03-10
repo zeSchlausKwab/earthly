@@ -5,12 +5,7 @@ import { useMemo } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { buildRouteHash } from '@/features/geo-editor/hooks/useRouting'
-import {
-	GEO_COLLECTION_KIND,
-	GEO_COMMENT_KIND,
-	GEO_EVENT_KIND,
-	MAP_CONTEXT_KIND,
-} from '@/lib/ndk/kinds'
+import { GEO_COMMENT_KIND, GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/ndk/kinds'
 import { useGeoReactions, type ReactableEvent } from '../hooks/useGeoReactions'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -29,14 +24,12 @@ interface GeoSocialActionsProps {
 }
 
 function getEntityRouteParts(kind: number): {
-	sidebarView: 'datasets' | 'collections' | 'contexts'
-	focusType: 'geoevent' | 'collection' | 'mapcontext'
+	sidebarView: 'datasets' | 'contexts'
+	focusType: 'geoevent' | 'mapcontext'
 } | null {
 	switch (kind) {
 		case GEO_EVENT_KIND:
 			return { sidebarView: 'datasets', focusType: 'geoevent' }
-		case GEO_COLLECTION_KIND:
-			return { sidebarView: 'collections', focusType: 'collection' }
 		case MAP_CONTEXT_KIND:
 			return { sidebarView: 'contexts', focusType: 'mapcontext' }
 		default:

@@ -8,9 +8,7 @@ import {
 	type EntitySearchSources,
 	type EntityType,
 	ENTITY_TYPE_LABELS,
-	collectionFilterConfig,
 	contextFilterConfig,
-	collectionToSearchResult,
 	contextToSearchResult,
 	createDatasetFilterConfig,
 	datasetToSearchResult,
@@ -26,7 +24,7 @@ interface UseEntitySearchOptions {
 
 const defaultGetDatasetName = (event: NDKGeoEvent): string =>
 	event.datasetId ?? event.dTag ?? event.id ?? 'Untitled'
-const DEFAULT_ENTITY_TYPES: EntityType[] = ['dataset', 'collection', 'context', 'feature']
+const DEFAULT_ENTITY_TYPES: EntityType[] = ['dataset', 'context', 'feature']
 
 export function useEntitySearch({
 	sources,
@@ -42,19 +40,12 @@ export function useEntitySearch({
 	)
 
 	const datasets = sources.datasets ?? []
-	const collections = sources.collections ?? []
 	const contexts = sources.contexts ?? []
 	const features = sources.features ?? []
 
 	const datasetResult = useSortedFilteredItems(
 		activeTypes.includes('dataset') ? datasets : [],
 		datasetFilterConfig,
-		filterState,
-	)
-
-	const collectionResult = useSortedFilteredItems(
-		activeTypes.includes('collection') ? collections : [],
-		collectionFilterConfig,
 		filterState,
 	)
 
@@ -96,16 +87,6 @@ export function useEntitySearch({
 			})
 		}
 
-		if (activeTypes.includes('collection') && collectionResult.totalCount > 0) {
-			groups.push({
-				type: 'collection',
-				label: ENTITY_TYPE_LABELS.collection,
-				results: collectionResult.items.map(collectionToSearchResult),
-				totalCount: collectionResult.totalCount,
-				filteredCount: collectionResult.filteredCount,
-			})
-		}
-
 		if (activeTypes.includes('context') && contextResult.totalCount > 0) {
 			groups.push({
 				type: 'context',
@@ -137,5 +118,5 @@ export function useEntitySearch({
 			filteredCount,
 			hasResults: results.length > 0,
 		}
-	}, [activeTypes, datasetResult, collectionResult, contextResult, featureResult, getDatasetName])
+	}, [activeTypes, datasetResult, contextResult, featureResult, getDatasetName])
 }

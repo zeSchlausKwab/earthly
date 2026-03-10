@@ -1,18 +1,11 @@
 import { nip19 } from 'nostr-tools'
-import { GEO_EVENT_KIND, GEO_COLLECTION_KIND } from '../ndk/kinds'
+import { GEO_EVENT_KIND } from '../ndk/kinds'
 
 export interface GeoEventOGData {
 	title: string
 	description: string
 	image?: string
 	featureCount?: number
-}
-
-export interface CollectionOGData {
-	name: string
-	description: string
-	picture?: string
-	datasetCount?: number
 }
 
 /**
@@ -162,60 +155,5 @@ export async function fetchGeoEventOGData(
 		title: title || 'Geographic Dataset',
 		description: description || 'View this geographic dataset on Earthly',
 		featureCount,
-	}
-}
-
-/**
- * Fetch collection data for OG tags
- */
-export async function fetchCollectionOGData(
-	naddr: string,
-	relayUrl: string,
-): Promise<CollectionOGData | null> {
-	const decoded = decodeNaddr(naddr)
-	if (!decoded) return null
-	if (decoded.kind !== GEO_COLLECTION_KIND) return null
-
-	const event = await fetchEventFromRelay(relayUrl, {
-		kinds: [decoded.kind],
-		authors: [decoded.pubkey],
-		'#d': [decoded.identifier],
-	})
-
-	if (!event) return null
-
-	// Parse metadata from content
-	let name = ''
-	let description = ''
-	let picture: string | undefined
-
-	try {
-		const metadata = JSON.parse(event.content)
-		name = metadata.name || ''
-		description = metadata.description || ''
-		picture = metadata.picture
-	} catch {
-		// Invalid JSON content
-	}
-
-	// Count dataset references
-	const datasetCount = event.tags.filter((t) => t[0] === 'a').length
-
-	// Use d tag as fallback name
-	if (!name) {
-		const dTag = event.tags.find((t) => t[0] === 'd')
-		if (dTag?.[1]) name = dTag[1]
-	}
-
-	// Generate description if not found
-	if (!description && datasetCount > 0) {
-		description = `Collection with ${datasetCount} dataset${datasetCount !== 1 ? 's' : ''}`
-	}
-
-	return {
-		name: name || 'Map Collection',
-		description: description || 'View this collection on Earthly',
-		picture,
-		datasetCount,
 	}
 }

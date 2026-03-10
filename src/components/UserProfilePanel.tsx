@@ -1,17 +1,8 @@
 import { useSubscribe } from '@nostr-dev-kit/react'
 import type { NDKEvent } from '@nostr-dev-kit/react'
 import type { ColumnDef } from '@tanstack/react-table'
-import {
-	Database,
-	Eye,
-	Globe,
-	Layers,
-	MessageCircle,
-	MessageSquare,
-	Trash2,
-} from 'lucide-react'
+import { Database, Eye, Globe, Layers, MessageCircle, MessageSquare, Trash2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
-import type { NDKGeoCollectionEvent } from '../lib/ndk/NDKGeoCollectionEvent'
 import { NDKGeoEditProposalEvent } from '../lib/ndk/NDKGeoEditProposalEvent'
 import { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
@@ -23,16 +14,11 @@ import {
 	PROPOSAL_STATUS_OPEN_KIND,
 } from '../lib/ndk/kinds'
 import { getLatestProposalStatus, type ProposalStatus } from '../lib/ndk/proposalStatus'
-import {
-	type CollectionColumnsContext,
-	type CollectionRowData,
-	createCollectionColumns,
-} from '../features/collections/collections-columns'
 import { useEditorStore } from '../features/geo-editor/store'
 import {
+	createContextColumns,
 	type ContextColumnsContext,
 	type ContextRowData,
-	createContextColumns,
 } from '../features/contexts/contexts-columns'
 import {
 	DatasetFilterToolbar,
@@ -50,21 +36,13 @@ import { DataTable } from './ui/data-table'
 import { UserProfile } from './user-profile/UserProfile'
 
 export interface UserProfilePanelProps {
-	/** The pubkey of the user to display */
 	pubkey: string
-	/** All available geo events */
 	geoEvents: NDKGeoEvent[]
-	/** All available collection events */
-	collectionEvents: NDKGeoCollectionEvent[]
-	/** All available map context events */
 	mapContextEvents: NDKMapContextEvent[]
-	/** Current logged-in user's pubkey */
 	currentUserPubkey?: string
 	datasetVisibility: Record<string, boolean>
-	collectionVisibility: Record<string, boolean>
 	isPublishing: boolean
 	deletingKey: string | null
-	// Dataset callbacks
 	onLoadDataset: (event: NDKGeoEvent) => void
 	onToggleVisibility: (event: NDKGeoEvent) => void
 	onToggleAllVisibility: (visible: boolean) => void
@@ -75,18 +53,12 @@ export interface UserProfilePanelProps {
 	onInspectDataset?: (event: NDKGeoEvent) => void
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void | Promise<void>
-	// Collection callbacks
-	onToggleCollectionVisibility: (collection: NDKGeoCollectionEvent) => void
-	onToggleAllCollectionVisibility: (visible: boolean) => void
-	onZoomToCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
-	onInspectCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
 	onInspectContext?: (context: NDKMapContextEvent) => void
-	onEditCollection?: (collection: NDKGeoCollectionEvent) => void
 	onEditContext?: (context: NDKMapContextEvent) => void
-	onOpenDebug?: (event: NDKGeoEvent | NDKGeoCollectionEvent | NDKMapContextEvent) => void
+	onOpenDebug?: (event: NDKGeoEvent | NDKMapContextEvent) => void
 }
 
-type TabMode = 'datasets' | 'collections' | 'contexts' | 'proposals' | 'workspaces'
+type TabMode = 'datasets' | 'contexts' | 'proposals' | 'workspaces'
 
 interface UserProposalRow {
 	proposal: NDKGeoEditProposalEvent
@@ -103,10 +75,10 @@ const getDatasetDescriptionText = (event: NDKGeoEvent): string | undefined => {
 	const featureCollection = event.featureCollection as unknown as Record<string, unknown>
 	if (!featureCollection) return undefined
 	const candidates = [
-		featureCollection?.description,
-		featureCollection?.summary,
-		(featureCollection?.properties as Record<string, unknown>)?.description,
-		(featureCollection?.properties as Record<string, unknown>)?.summary,
+		featureCollection.description,
+		featureCollection.summary,
+		(featureCollection.properties as Record<string, unknown> | undefined)?.description,
+		(featureCollection.properties as Record<string, unknown> | undefined)?.summary,
 	]
 	for (const value of candidates) {
 		if (typeof value === 'string' && value.trim().length > 0) {
@@ -116,11 +88,6 @@ const getDatasetDescriptionText = (event: NDKGeoEvent): string | undefined => {
 	return undefined
 }
 
-const getCollectionDisplayName = (collection: NDKGeoCollectionEvent): string => {
-	const metadata = collection.metadata
-	return metadata.name ?? collection.collectionId ?? collection.id ?? 'Untitled'
-}
-
 const createDatasetFilterConfig = (
 	getDatasetName: (event: NDKGeoEvent) => string,
 ): FilterConfig<NDKGeoEvent> => ({
@@ -128,17 +95,8 @@ const createDatasetFilterConfig = (
 	getName: (event) => getDatasetName(event),
 })
 
-const collectionFilterConfig: FilterConfig<NDKGeoCollectionEvent> = {
-	getSearchableText: (collection) => {
-		const metadata = collection.metadata
-		return [metadata.name, metadata.description, collection.collectionId, collection.id]
-	},
-	getName: (collection) => getCollectionDisplayName(collection),
-}
-
-const getContextDisplayName = (context: NDKMapContextEvent): string => {
-	return context.context.name || context.contextId || context.id || 'Untitled'
-}
+const getContextDisplayName = (context: NDKMapContextEvent): string =>
+	context.context.name || context.contextId || context.id || 'Untitled'
 
 const contextFilterConfig: FilterConfig<NDKMapContextEvent> = {
 	getSearchableText: (context) => {
@@ -165,11 +123,9 @@ const PROPOSAL_STATUS_STYLES: Record<ProposalStatus, string> = {
 export function UserProfilePanel({
 	pubkey,
 	geoEvents,
-	collectionEvents,
 	mapContextEvents,
 	currentUserPubkey,
 	datasetVisibility,
-	collectionVisibility,
 	isPublishing,
 	deletingKey,
 	onLoadDataset,
@@ -182,12 +138,7 @@ export function UserProfilePanel({
 	onInspectDataset,
 	onSwitchWorkspace,
 	onDeleteWorkspace,
-	onToggleCollectionVisibility,
-	onToggleAllCollectionVisibility,
-	onZoomToCollection,
-	onInspectCollection,
 	onInspectContext,
-	onEditCollection,
 	onEditContext,
 	onOpenDebug,
 }: UserProfilePanelProps) {
@@ -200,22 +151,14 @@ export function UserProfilePanel({
 	const workspaces = useEditorStore((state) => state.workspaces)
 	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
 
-	// Filter events to only show items owned by this user
 	const userGeoEvents = useMemo(
 		() => geoEvents.filter((event) => event.pubkey === pubkey),
 		[geoEvents, pubkey],
 	)
-
-	const userCollectionEvents = useMemo(
-		() => collectionEvents.filter((event) => event.pubkey === pubkey),
-		[collectionEvents, pubkey],
-	)
-
 	const userContextEvents = useMemo(
 		() => mapContextEvents.filter((event) => event.pubkey === pubkey),
 		[mapContextEvents, pubkey],
 	)
-
 	const sortedWorkspaces = useMemo(
 		() => Object.values(workspaces).sort((a, b) => b.updatedAt - a.updatedAt),
 		[workspaces],
@@ -235,7 +178,6 @@ export function UserProfilePanel({
 		[onDeleteWorkspace],
 	)
 
-	// Build reference map for collections
 	const datasetReferenceMap = useMemo(() => {
 		const map = new Map<string, NDKGeoEvent>()
 		geoEvents.forEach((event) => {
@@ -247,7 +189,6 @@ export function UserProfilePanel({
 		return map
 	}, [geoEvents])
 
-	// Filter configs
 	const datasetFilterConfig = useMemo(
 		() => createDatasetFilterConfig(getDatasetName),
 		[getDatasetName],
@@ -255,12 +196,7 @@ export function UserProfilePanel({
 
 	const proposalFilters = useMemo(() => {
 		if (!pubkey) return false
-		return [
-			{
-				kinds: [GEO_EDIT_PROPOSAL_KIND],
-				authors: [pubkey],
-			},
-		]
+		return [{ kinds: [GEO_EDIT_PROPOSAL_KIND], authors: [pubkey] }]
 	}, [pubkey])
 
 	const { events: proposalEvents, eose: proposalEose } = useSubscribe(proposalFilters)
@@ -294,13 +230,7 @@ export function UserProfilePanel({
 	const { events: proposalStatusEvents, eose: proposalStatusEose } =
 		useSubscribe(proposalStatusFilters)
 
-	// Apply sorting/filtering to user's items
 	const datasetResult = useSortedFilteredItems(userGeoEvents, datasetFilterConfig, filterState)
-	const collectionResult = useSortedFilteredItems(
-		userCollectionEvents,
-		collectionFilterConfig,
-		filterState,
-	)
 	const contextResult = useSortedFilteredItems(userContextEvents, contextFilterConfig, filterState)
 
 	const userProposalRows = useMemo<UserProposalRow[]>(() => {
@@ -310,7 +240,6 @@ export function UserProfilePanel({
 			const statusInfo = proposal.proposalCoordinate
 				? getLatestProposalStatus(proposalStatusEvents, proposal.proposalCoordinate)
 				: undefined
-			const status = statusInfo?.status ?? 'open'
 			return {
 				proposal,
 				description: proposal.description?.trim() || '(No description)',
@@ -319,7 +248,7 @@ export function UserProfilePanel({
 					: proposal.targetDatasetId || 'Unknown dataset',
 				targetAddress,
 				targetDataset,
-				status,
+				status: statusInfo?.status ?? 'open',
 				created_at: proposal.created_at,
 				pubkey: proposal.pubkey,
 			}
@@ -341,18 +270,12 @@ export function UserProfilePanel({
 	)
 
 	const proposalResult = useSortedFilteredItems(userProposalRows, proposalFilterConfig, filterState)
-
 	const filteredGeoEvents = datasetResult.items
-	const filteredCollections = collectionResult.items
 	const filteredContexts = contextResult.items
 	const filteredProposals = proposalResult.items
+
 	const tabItems = useMemo(() => {
-		const items: Array<{
-			id: TabMode
-			label: string
-			count: number
-			icon: typeof Database
-		}> = [
+		const items: Array<{ id: TabMode; label: string; count: number; icon: typeof Database }> = [
 			{ id: 'datasets', label: 'Datasets', count: userGeoEvents.length, icon: Database },
 			{ id: 'contexts', label: 'Contexts', count: userContextEvents.length, icon: Globe },
 			{ id: 'proposals', label: 'Proposals', count: userProposalRows.length, icon: MessageSquare },
@@ -369,32 +292,28 @@ export function UserProfilePanel({
 	}, [
 		isOwnProfile,
 		sortedWorkspaces.length,
-		userCollectionEvents.length,
 		userContextEvents.length,
 		userGeoEvents.length,
 		userProposalRows.length,
 	])
 
-	// Dataset table data
-	const datasetTableData: DatasetRowData[] = useMemo(() => {
-		return filteredGeoEvents.map((event) => {
-			const datasetKey = getDatasetKey(event)
-			const isVisible = datasetVisibility[datasetKey] !== false
-			const datasetName = getDatasetName(event)
+	const datasetTableData: DatasetRowData[] = useMemo(
+		() =>
+			filteredGeoEvents.map((event) => {
+				const datasetKey = getDatasetKey(event)
+				return {
+					event,
+					datasetKey,
+					datasetName: getDatasetName(event),
+					isActive: false,
+					isOwned: true,
+					isVisible: datasetVisibility[datasetKey] !== false,
+					primaryLabel: isOwnProfile ? 'Edit dataset' : 'Load copy',
+				}
+			}),
+		[filteredGeoEvents, getDatasetKey, getDatasetName, datasetVisibility, isOwnProfile],
+	)
 
-			return {
-				event,
-				datasetKey,
-				datasetName,
-				isActive: false,
-				isOwned: true, // All items in this panel are owned by the profile user
-				isVisible,
-				primaryLabel: isOwnProfile ? 'Edit dataset' : 'Load copy',
-			}
-		})
-	}, [filteredGeoEvents, datasetVisibility, getDatasetKey, getDatasetName, isOwnProfile])
-
-	// Visibility state for datasets
 	const allVisibleState = useMemo((): 'all' | 'none' | 'some' => {
 		if (datasetTableData.length === 0) return 'none'
 		const visibleCount = datasetTableData.filter((row) => row.isVisible).length
@@ -403,52 +322,6 @@ export function UserProfilePanel({
 		return 'some'
 	}, [datasetTableData])
 
-	// Collection key helper
-	const getCollectionKey = useCallback((collection: NDKGeoCollectionEvent): string => {
-		return collection.dTag ?? collection.id ?? collection.collectionId ?? ''
-	}, [])
-
-	// Collection table data
-	const collectionTableData: CollectionRowData[] = useMemo(() => {
-		return filteredCollections.map((collection) => {
-			const collectionName = getCollectionDisplayName(collection)
-			const datasetCount = collection.datasetReferences.length
-			const referencedEvents = collection.datasetReferences
-				.map((reference) => datasetReferenceMap.get(reference))
-				.filter((event): event is NDKGeoEvent => Boolean(event))
-			const zoomDisabled =
-				!onZoomToCollection || (!collection.boundingBox && referencedEvents.length === 0)
-			const collectionKey = getCollectionKey(collection)
-			const isVisible = collectionVisibility[collectionKey] !== false
-
-			return {
-				collection,
-				collectionName,
-				datasetCount,
-				referencedEvents,
-				zoomDisabled,
-				isVisible,
-			}
-		})
-	}, [
-		filteredCollections,
-		datasetReferenceMap,
-		onZoomToCollection,
-		collectionVisibility,
-		getCollectionKey,
-	])
-
-	// Visibility state for collections
-	const allCollectionVisibleState = useMemo((): 'all' | 'none' | 'some' => {
-		if (collectionTableData.length === 0) return 'none'
-		const visibleCount = collectionTableData.filter((row) => row.isVisible).length
-		if (visibleCount === 0) return 'none'
-		if (visibleCount === collectionTableData.length) return 'all'
-		return 'some'
-	}, [collectionTableData])
-
-	// Dataset columns context
-	// Note: resolvingDatasets/resolvingProgress not included - DatasetLoadButton subscribes directly to store
 	const datasetColumnsContext: DatasetColumnsContext = useMemo(
 		() => ({
 			onLoadDataset,
@@ -475,41 +348,9 @@ export function UserProfilePanel({
 			allVisibleState,
 		],
 	)
-
-	// Collection columns context
-	const collectionColumnsContext: CollectionColumnsContext = useMemo(
-		() => ({
-			onZoomToCollection,
-			onInspectCollection,
-			onOpenDebug,
-			getDatasetName,
-			onEditCollection,
-			onToggleVisibility: onToggleCollectionVisibility,
-			onToggleAllVisibility: onToggleAllCollectionVisibility,
-			currentUserPubkey,
-			allVisibleState: allCollectionVisibleState,
-		}),
-		[
-			onZoomToCollection,
-			onInspectCollection,
-			onOpenDebug,
-			getDatasetName,
-			onEditCollection,
-			onToggleCollectionVisibility,
-			onToggleAllCollectionVisibility,
-			currentUserPubkey,
-			allCollectionVisibleState,
-		],
-	)
-
 	const datasetColumns = useMemo(
 		() => createDatasetColumns(datasetColumnsContext),
 		[datasetColumnsContext],
-	)
-
-	const collectionColumns = useMemo(
-		() => createCollectionColumns(collectionColumnsContext),
-		[collectionColumnsContext],
 	)
 
 	const contextColumnsContext: ContextColumnsContext = useMemo(
@@ -521,7 +362,6 @@ export function UserProfilePanel({
 		}),
 		[currentUserPubkey, onInspectContext, onEditContext, onOpenDebug],
 	)
-
 	const contextColumns = useMemo(
 		() => createContextColumns(contextColumnsContext),
 		[contextColumnsContext],
@@ -547,11 +387,11 @@ export function UserProfilePanel({
 				cell: ({ row }) => {
 					const item = row.original
 					return (
-						<div className="space-y-0.5 max-w-[260px]">
-							<div className="text-xs font-semibold text-gray-900 line-clamp-2">
+						<div className="max-w-[260px] space-y-0.5">
+							<div className="line-clamp-2 text-xs font-semibold text-gray-900">
 								{item.description}
 							</div>
-							<div className="text-[10px] text-gray-500 truncate" title={item.targetAddress}>
+							<div className="truncate text-[10px] text-gray-500" title={item.targetAddress}>
 								Target: {item.targetName}
 							</div>
 						</div>
@@ -610,17 +450,14 @@ export function UserProfilePanel({
 	const activeResult =
 		activeTab === 'datasets'
 			? datasetResult
-			: activeTab === 'collections'
-				? collectionResult
-				: activeTab === 'contexts'
-					? contextResult
-					: activeTab === 'proposals'
-						? proposalResult
-						: null
+			: activeTab === 'contexts'
+				? contextResult
+				: activeTab === 'proposals'
+					? proposalResult
+					: null
 
 	return (
 		<div className="space-y-4">
-			{/* User Profile Header */}
 			<div className="px-1">
 				<UserProfile
 					pubkey={pubkey}
@@ -629,12 +466,13 @@ export function UserProfilePanel({
 					showNip05Badge={true}
 					showBio={true}
 				/>
-				{isOwnProfile && <p className="text-xs text-emerald-600 mt-2">This is your profile</p>}
+				{isOwnProfile ? (
+					<p className="mt-2 text-xs text-emerald-600">This is your profile</p>
+				) : null}
 			</div>
 
-			{/* Tabs */}
 			<div
-				className={isOwnProfile ? 'grid grid-cols-5 gap-2' : 'grid grid-cols-4 gap-2'}
+				className={isOwnProfile ? 'grid grid-cols-4 gap-2' : 'grid grid-cols-3 gap-2'}
 				role="tablist"
 				aria-label="Profile sections"
 			>
@@ -666,7 +504,6 @@ export function UserProfilePanel({
 				})}
 			</div>
 
-			{/* Filter toolbar */}
 			{activeResult ? (
 				<DatasetFilterToolbar
 					{...filterState}
@@ -677,7 +514,6 @@ export function UserProfilePanel({
 				/>
 			) : null}
 
-			{/* Content */}
 			{activeTab === 'datasets' ? (
 				userGeoEvents.length === 0 ? (
 					<p className="text-xs text-gray-500">No datasets published by this user.</p>
@@ -688,24 +524,6 @@ export function UserProfilePanel({
 						columns={datasetColumns}
 						data={datasetTableData}
 						getRowId={(row) => row.datasetKey}
-						getRowClassName={(row) => (!row.isVisible ? 'opacity-60' : undefined)}
-					/>
-				)
-			) : activeTab === 'collections' ? (
-				userCollectionEvents.length === 0 ? (
-					<p className="text-xs text-gray-500">No collections created by this user.</p>
-				) : filteredCollections.length === 0 ? (
-					<p className="text-xs text-gray-500">No collections match your filters.</p>
-				) : (
-					<DataTable
-						columns={collectionColumns}
-						data={collectionTableData}
-						getRowId={(row) =>
-							row.collection.dTag ??
-							row.collection.collectionId ??
-							row.collection.id ??
-							row.collection.pubkey
-						}
 						getRowClassName={(row) => (!row.isVisible ? 'opacity-60' : undefined)}
 					/>
 				)

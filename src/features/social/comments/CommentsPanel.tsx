@@ -3,7 +3,6 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { useGeoComments } from '../hooks/useGeoComments'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
-import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import { Button } from '@/components/ui/button'
@@ -15,8 +14,8 @@ import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 const ROOT_COMPOSER_ID = 'root'
 
 interface CommentsPanelProps {
-	/** The dataset, collection, or context to show comments for */
-	target: NDKGeoEvent | NDKGeoCollectionEvent | NDKMapContextEvent | null
+	/** The dataset or context to show comments for */
+	target: NDKGeoEvent | NDKMapContextEvent | null
 	/** Callback when a comment's GeoJSON visibility is toggled */
 	onCommentGeojsonVisibilityChange?: (comment: NDKGeoCommentEvent, visible: boolean) => void
 	/** Callback to zoom to a comment's GeoJSON */
@@ -43,7 +42,7 @@ interface CommentsPanelProps {
 }
 
 /**
- * Panel displaying comments for a geo dataset, collection, or context.
+ * Panel displaying comments for a geo dataset or context.
  * Includes:
  * - Social actions for the target (reactions, zaps)
  * - Comment form for new comments
@@ -132,7 +131,7 @@ export function CommentsPanel({
 	if (!target) {
 		return (
 			<div className={`p-4 text-center text-sm text-gray-500 ${className}`}>
-				Select a dataset, collection, or context to view comments.
+				Select a dataset or context to view comments.
 			</div>
 		)
 	}

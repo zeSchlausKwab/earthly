@@ -1,5 +1,4 @@
 import type { FeatureCollection } from 'geojson'
-import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import type { ContextFilterMode } from '@/lib/context/validation'
@@ -8,7 +7,6 @@ import type { CollectionMeta, EditorBlobReference, GeoSearchResult } from '../ty
 
 export type SidebarViewMode =
 	| 'datasets'
-	| 'collections'
 	| 'contexts'
 	| 'context-editor'
 	| 'combined'
@@ -47,7 +45,6 @@ export interface MapLayerState {
 
 export type MobilePanelTab =
 	| 'datasets'
-	| 'collections'
 	| 'contexts'
 	| 'context-editor'
 	| 'edit'
@@ -216,17 +213,14 @@ export interface ViewModeSlice {
 	viewMode: 'edit' | 'view'
 	editIsolationEnabled: boolean
 	viewDataset: NDKGeoEvent | null
-	viewCollection: NDKGeoCollectionEvent | null
-	viewCollectionEvents: NDKGeoEvent[]
 	viewContext: NDKMapContextEvent | null
 	viewContextDatasets: NDKGeoEvent[]
-	viewContextCollections: NDKGeoCollectionEvent[]
 	contextFilterMode: ContextFilterMode
 	activeContextScopeNaddr: string | null
 	activeContextScopeCoordinate: string | null
 
 	focusedNaddr: string | null
-	focusedType: 'geoevent' | 'collection' | 'mapcontext' | null
+	focusedType: 'geoevent' | 'mapcontext' | null
 	focusedMapGeometry: {
 		bbox: [number, number, number, number]
 		datasetId?: string
@@ -236,18 +230,15 @@ export interface ViewModeSlice {
 
 	setViewMode: (mode: 'edit' | 'view') => void
 	setViewDataset: (dataset: NDKGeoEvent | null) => void
-	setViewCollection: (collection: NDKGeoCollectionEvent | null) => void
-	setViewCollectionEvents: (events: NDKGeoEvent[]) => void
 	setViewContext: (context: NDKMapContextEvent | null) => void
 	setViewContextDatasets: (events: NDKGeoEvent[]) => void
-	setViewContextCollections: (collections: NDKGeoCollectionEvent[]) => void
 	setContextFilterMode: (mode: ContextFilterMode) => void
 	setActiveContextScope: (naddr: string | null, coordinate: string | null) => void
 	clearActiveContextScope: () => void
 	setEditIsolationEnabled: (enabled: boolean) => void
 	toggleEditIsolation: () => void
 
-	setFocused: (type: 'geoevent' | 'collection' | 'mapcontext', naddr: string) => void
+	setFocused: (type: 'geoevent' | 'mapcontext', naddr: string) => void
 	clearFocused: () => void
 	setFocusedMapGeometry: (focused: ViewModeSlice['focusedMapGeometry']) => void
 	clearFocusedMapGeometry: () => void

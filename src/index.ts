@@ -7,9 +7,7 @@ import {
 	isCrawler,
 	generateHomeOGHtml,
 	generateGeoEventOGHtml,
-	generateCollectionOGHtml,
 	fetchGeoEventOGData,
-	fetchCollectionOGData,
 } from './lib/og'
 
 const isProduction = process.env.NODE_ENV === 'production'
@@ -69,33 +67,6 @@ async function handleGeoEventRoute(req: BunRouteRequest): Promise<Response> {
 	return Response.redirect(`${baseUrl}/#/geoevent/${naddr}`, 302)
 }
 
-async function handleCollectionRoute(req: BunRouteRequest): Promise<Response> {
-	const naddr = req.params.naddr ?? ''
-	const baseUrl = getBaseUrl(req)
-
-	if (!naddr) {
-		return Response.redirect(baseUrl, 302)
-	}
-
-	if (isCrawler(req)) {
-		// Fetch collection data and return OG HTML
-		const data = await fetchCollectionOGData(naddr, serverConfig.relayUrl)
-		const html = generateCollectionOGHtml(
-			baseUrl,
-			naddr,
-			data?.name ?? 'Map Collection',
-			data?.description ?? 'View this collection on Earthly',
-			data?.picture,
-		)
-		return new Response(html, {
-			headers: { 'Content-Type': 'text/html; charset=utf-8' },
-		})
-	}
-
-	// For regular users, redirect to hash-based route
-	return Response.redirect(`${baseUrl}/#/collection/${naddr}`, 302)
-}
-
 // Define route handlers that work in both modes
 const apiRoutes: Record<string, BunRoute> = {
 	'/api/hello': {
@@ -150,7 +121,6 @@ if (!isProduction) {
 		// OG routes for social media crawlers (production only)
 		const ogRoutes: Record<string, BunRoute> = {
 			'/geoevent/:naddr': handleGeoEventRoute,
-			'/collection/:naddr': handleCollectionRoute,
 		}
 
 		// Production: Serve static files from dist/ and public/

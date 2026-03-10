@@ -4,9 +4,7 @@ import maplibregl from 'maplibre-gl'
 import { useCallback, useRef } from 'react'
 import { useChatStore } from '@/features/chat'
 import { resolveGeoEventFeatureCollection } from '@/lib/geo/resolveBlobReferences'
-import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoEvent, GeoBlobReference } from '@/lib/ndk/NDKGeoEvent'
-import { GEO_EVENT_KIND } from '@/lib/ndk/kinds'
 import { useEditorStore } from '../store'
 import type { EditorBlobReference } from '../types'
 import {
@@ -82,7 +80,6 @@ export function useDatasetManagement(
 	const setBlobDraftError = useEditorStore((state) => state.setBlobDraftError)
 	const setViewMode = useEditorStore((state) => state.setViewMode)
 	const setViewDataset = useEditorStore((state) => state.setViewDataset)
-	const setViewCollection = useEditorStore((state) => state.setViewCollection)
 	const setDatasetResolving = useEditorStore((state) => state.setDatasetResolving)
 	const setDatasetResolvingProgress = useEditorStore((state) => state.setDatasetResolvingProgress)
 	const setActiveGeoEditDraftId = useEditorStore((state) => state.setActiveGeoEditDraftId)
@@ -227,7 +224,6 @@ export function useDatasetManagement(
 			setBlobDraftError(null)
 			setViewMode('edit')
 			setViewDataset(null)
-			setViewCollection(null)
 		},
 		[
 			editor,
@@ -250,7 +246,6 @@ export function useDatasetManagement(
 			setBlobDraftError,
 			setViewMode,
 			setViewDataset,
-			setViewCollection,
 		],
 	)
 
@@ -387,64 +382,6 @@ export function useDatasetManagement(
 
 			const collection = convertGeoEventsToFeatureCollection([event], resolvedCollectionResolver)
 			const coords = coordAll(collection)
-			// Filter out invalid coordinates (NaN, undefined, or out of valid lng/lat range)
-			const validCoords = coords.filter(
-				(coord): coord is [number, number] =>
-					Array.isArray(coord) &&
-					coord.length >= 2 &&
-					typeof coord[0] === 'number' &&
-					typeof coord[1] === 'number' &&
-					!Number.isNaN(coord[0]) &&
-					!Number.isNaN(coord[1]) &&
-					coord[0] >= -180 &&
-					coord[0] <= 180 &&
-					coord[1] >= -90 &&
-					coord[1] <= 90,
-			)
-			if (validCoords.length === 0) return
-			// Slice to [lng, lat] as MapLibre requires exactly 2-element arrays
-			const lngLatCoords = validCoords.map((c) => [c[0], c[1]] as [number, number])
-			const bounds = lngLatCoords.reduce(
-				(acc, coord) => acc.extend(coord),
-				new maplibregl.LngLatBounds(lngLatCoords[0], lngLatCoords[0]),
-			)
-			mapRef.current.fitBounds(bounds, { padding: 40, duration: 500 })
-		},
-		[mapRef, resolvedCollectionResolver],
-	)
-
-	const zoomToCollection = useCallback(
-		(collection: NDKGeoCollectionEvent, eventsInCollection: NDKGeoEvent[]) => {
-			if (!mapRef.current) return
-			const bbox = collection.boundingBox
-			if (bbox && bbox.length === 4) {
-				mapRef.current.fitBounds(
-					[
-						[bbox[0], bbox[1]],
-						[bbox[2], bbox[3]],
-					],
-					{ padding: 40, duration: 500 },
-				)
-				return
-			}
-
-			const eventsToUse =
-				eventsInCollection.length > 0
-					? eventsInCollection
-					: geoEventsRef.current.filter((event) => {
-							const datasetId = event.datasetId ?? event.dTag ?? event.id
-							if (!datasetId) return false
-							const coordinate = `${event.kind ?? GEO_EVENT_KIND}:${event.pubkey}:${datasetId}`
-							return collection.datasetReferences.includes(coordinate)
-						})
-
-			if (eventsToUse.length === 0) return
-
-			const collectionFc = convertGeoEventsToFeatureCollection(
-				eventsToUse,
-				resolvedCollectionResolver,
-			)
-			const coords = coordAll(collectionFc)
 			// Filter out invalid coordinates (NaN, undefined, or out of valid lng/lat range)
 			const validCoords = coords.filter(
 				(coord): coord is [number, number] =>
@@ -794,7 +731,6 @@ export function useDatasetManagement(
 		// Return to view mode
 		setViewMode('view')
 		setViewDataset(null)
-		setViewCollection(null)
 	}, [
 		editor,
 		setFeatures,
@@ -809,23 +745,8 @@ export function useDatasetManagement(
 		resetBlobReferenceState,
 		setViewMode,
 		setViewDataset,
-		setViewCollection,
 		setActiveGeoEditDraftId,
 	])
-
-	const resolveEventsForCollection = useCallback(
-		(collection: NDKGeoCollectionEvent): NDKGeoEvent[] => {
-			const references = new Set(collection.datasetReferences)
-			if (references.size === 0) return []
-			return geoEventsRef.current.filter((event) => {
-				const datasetId = event.datasetId ?? event.dTag ?? event.id
-				if (!datasetId) return false
-				const coordinate = `${event.kind ?? GEO_EVENT_KIND}:${event.pubkey}:${datasetId}`
-				return references.has(coordinate)
-			})
-		},
-		[],
-	)
 
 	return {
 		// Refs
@@ -839,10 +760,8 @@ export function useDatasetManagement(
 		ensureResolvedFeatureCollection,
 		convertGeoBlobReferencesToEditor,
 		resetBlobReferenceState,
-		resolveEventsForCollection,
 		// Actions
 		zoomToDataset,
-		zoomToCollection,
 		toggleDatasetVisibility,
 		toggleAllDatasetVisibility,
 		loadDatasetForEditing,

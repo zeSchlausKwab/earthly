@@ -4,7 +4,6 @@ import { useMemo, useState, useCallback } from 'react'
 import { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
 import { GEO_COMMENT_KIND } from '@/lib/ndk/kinds'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
-import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import type { FeatureCollection } from 'geojson'
 
@@ -15,8 +14,8 @@ export interface CommentNode {
 }
 
 export interface UseGeoCommentsOptions {
-	/** The dataset, collection, or context to fetch comments for */
-	target: NDKGeoEvent | NDKGeoCollectionEvent | NDKMapContextEvent | null
+	/** The dataset or context to fetch comments for */
+	target: NDKGeoEvent | NDKMapContextEvent | null
 	/** Maximum depth for nested replies */
 	maxDepth?: number
 }
@@ -41,13 +40,11 @@ export interface UseGeoCommentsResult {
 	/** Delete a comment */
 	deleteComment: (comment: NDKGeoCommentEvent) => Promise<void>
 	/** React to a comment or the target */
-	react: (
-		target: NDKGeoEvent | NDKGeoCollectionEvent | NDKMapContextEvent | NDKGeoCommentEvent,
-	) => Promise<void>
+	react: (target: NDKGeoEvent | NDKMapContextEvent | NDKGeoCommentEvent) => Promise<void>
 }
 
 /**
- * Hook for fetching and managing comments on geo datasets, collections, and contexts.
+ * Hook for fetching and managing comments on geo datasets and contexts.
  */
 export function useGeoComments({
 	target,
@@ -212,9 +209,7 @@ export function useGeoComments({
 	)
 
 	const react = useCallback(
-		async (
-			reactTarget: NDKGeoEvent | NDKGeoCollectionEvent | NDKMapContextEvent | NDKGeoCommentEvent,
-		) => {
+		async (reactTarget: NDKGeoEvent | NDKMapContextEvent | NDKGeoCommentEvent) => {
 			if (!ndk) {
 				throw new Error('NDK not available')
 			}
