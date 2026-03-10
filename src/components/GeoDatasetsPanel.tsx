@@ -308,6 +308,7 @@ export function GeoDatasetsPanelContent({
 					contextName: getContextDisplayName(context),
 					contextUse: content.contextUse,
 					validationMode: content.validationMode,
+					attachmentPolicy: content.allowForeignAttachments ? 'open' : 'closed',
 				}
 			}),
 		[filteredContexts],

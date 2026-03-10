@@ -9,6 +9,7 @@ export interface ContextRowData {
 	contextName: string
 	contextUse: string
 	validationMode: string
+	attachmentPolicy: string
 }
 
 export interface ContextColumnsContext {
@@ -70,6 +71,25 @@ export const createContextColumns = (
 						? 'bg-amber-100 text-amber-700'
 						: 'bg-gray-100 text-gray-700'
 			return <span className={`rounded px-1.5 py-0.5 text-[10px] ${className}`}>{mode}</span>
+		},
+	},
+	{
+		accessorKey: 'attachmentPolicy',
+		header: 'Policy',
+		size: 120,
+		cell: ({ row }) => {
+			const state = row.original.attachmentPolicy
+			return (
+				<span
+					className={`rounded px-1.5 py-0.5 text-[10px] ${
+						state === 'open'
+							? 'bg-emerald-100 text-emerald-700'
+							: 'bg-stone-100 text-stone-700'
+					}`}
+				>
+					{state}
+				</span>
+			)
 		},
 	},
 	{

@@ -1,10 +1,10 @@
-import { Eye, Layers3, Maximize2 } from 'lucide-react'
+import { Eye, Maximize2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
 import { useEditorStore } from '@/features/geo-editor/store'
+import { resolveContextFixedReferences } from '@/lib/context/references'
 import { validateDatasetForContext, type ContextFilterMode } from '@/lib/context/validation'
-import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import { CommentsPanel } from '@/features/social/comments'
 import { Button } from '../ui/button'
@@ -20,7 +20,6 @@ interface MapContextViewPanelProps {
 	getDatasetName: (event: NDKGeoEvent) => string
 	onLoadDataset: (event: NDKGeoEvent) => void
 	onZoomToDataset: (event: NDKGeoEvent) => void
-	onOpenReferenceCollection?: (collection: NDKGeoCollectionEvent) => void
 	onCommentGeometryVisibility?: (comment: NDKGeoCommentEvent, visible: boolean) => void
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
 	availableFeatures?: GeoFeatureItem[]
@@ -38,7 +37,6 @@ export function MapContextViewPanel({
 	getDatasetName,
 	onLoadDataset,
 	onZoomToDataset,
-	onOpenReferenceCollection,
 	onCommentGeometryVisibility,
 	onZoomToBounds,
 	availableFeatures = [],
@@ -48,7 +46,6 @@ export function MapContextViewPanel({
 }: MapContextViewPanelProps) {
 	const viewContext = useEditorStore((state) => state.viewContext)
 	const viewContextDatasets = useEditorStore((state) => state.viewContextDatasets)
-	const viewContextCollections = useEditorStore((state) => state.viewContextCollections)
 	const contextFilterMode = useEditorStore((state) => state.contextFilterMode)
 	const setContextFilterMode = useEditorStore((state) => state.setContextFilterMode)
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
@@ -71,6 +68,18 @@ export function MapContextViewPanel({
 		})
 		return map
 	}, [viewContext, viewContextDatasets, getDatasetKey, validationModeForDisplay])
+	const fixedReferences = useMemo(
+		() => resolveContextFixedReferences(viewContext, viewContextDatasets, availableFeatures),
+		[availableFeatures, viewContext, viewContextDatasets],
+	)
+	const fixedReferenceKeySet = useMemo(() => {
+		const keys = new Set<string>()
+		fixedReferences.forEach((reference) => {
+			if (!reference.dataset) return
+			keys.add(getDatasetKey(reference.dataset))
+		})
+		return keys
+	}, [fixedReferences, getDatasetKey])
 
 	const counters = useMemo(() => {
 		let valid = 0
@@ -158,6 +167,8 @@ export function MapContextViewPanel({
 
 	const contextContent = viewContext.context
 	const allowedGeometryTypes = contextContent.geometryConstraints?.allowedTypes ?? []
+	const stickyDatasetCount = fixedReferenceKeySet.size
+	const foreignDatasetCount = Math.max(0, viewContextDatasets.length - stickyDatasetCount)
 	const commentsSection = (
 		<EntityPanelSurface tone="discussion" className="space-y-4">
 			<EntityPanelSectionHeader
@@ -220,6 +231,12 @@ export function MapContextViewPanel({
 						<span className="border border-slate-200 px-2 py-0.5 text-amber-700">
 									validation: {contextContent.validationMode}
 						</span>
+						<span className="border border-slate-200 px-2 py-0.5 text-stone-700">
+							foreign attachments: {contextContent.allowForeignAttachments ? 'open' : 'closed'}
+						</span>
+						<span className="border border-slate-200 px-2 py-0.5 text-sky-700">
+							sticky refs: {fixedReferences.length}
+						</span>
 						{allowedGeometryTypes.length > 0 && (
 							<span className="border border-slate-200 px-2 py-0.5 text-emerald-700">
 										geometry: {allowedGeometryTypes.join(', ')}
@@ -254,6 +271,7 @@ export function MapContextViewPanel({
 					<EntityPanelSectionHeader
 						eyebrow="Map Lane"
 						title={`Map lane datasets (${mapLaneDatasets.length})`}
+						description={`sticky ${stickyDatasetCount} · foreign ${foreignDatasetCount}`}
 					/>
 
 					{mapLaneDatasets.length === 0 ? (
@@ -310,34 +328,53 @@ export function MapContextViewPanel({
 
 				<EntityPanelSurface tone="neutral" className="space-y-3">
 					<EntityPanelSectionHeader
-						eyebrow="Reference Lane"
-						title={`References (${viewContextCollections.length})`}
+						eyebrow="Pinned"
+						title={`Sticky references (${fixedReferences.length})`}
 					/>
-					{viewContextCollections.length === 0 ? (
-						<p className="text-xs text-gray-500">No attached references.</p>
+					{fixedReferences.length === 0 ? (
+						<p className="text-xs text-gray-500">No sticky references authored for this context.</p>
 					) : (
 						<div className="space-y-2">
-							{viewContextCollections.map((collection) => (
+							{fixedReferences.map((reference, index) => (
 								<div
-									key={collection.id ?? collection.collectionId}
+									key={`${reference.reference.address}:${reference.reference.featureId ?? 'dataset'}:${index}`}
 									className="flex items-center justify-between gap-2 border-b border-slate-200 py-2"
 								>
 									<div className="min-w-0">
 										<p className="truncate text-xs font-medium text-gray-900">
-											{collection.metadata.name ?? collection.collectionId}
+											{reference.label}
 										</p>
 										<p className="text-[10px] text-gray-500">
-											{collection.datasetReferences.length} dataset reference(s)
+											{reference.reference.featureId
+												? `feature ${reference.reference.featureId}`
+												: 'dataset reference'}
 										</p>
 									</div>
-									<Button
-										size="sm"
-										variant="outline"
-										onClick={() => onOpenReferenceCollection?.(collection)}
-										className="rounded-none border-stone-200 bg-white px-2 text-xs"
-									>
-										Open isolation
-									</Button>
+									<div className="flex items-center gap-2">
+										{reference.dataset && (
+											<Button
+												size="sm"
+												variant="outline"
+												onClick={() => onLoadDataset(reference.dataset)}
+												className="rounded-none border-stone-200 bg-white px-2 text-xs"
+											>
+												Inspect
+											</Button>
+										)}
+										<Button
+											size="sm"
+											variant="outline"
+											onClick={() =>
+												onMentionZoomTo?.(
+													reference.reference.address,
+													reference.reference.featureId,
+												)
+											}
+											className="rounded-none border-stone-200 bg-white px-2 text-xs"
+										>
+											Zoom
+										</Button>
+									</div>
 								</div>
 							))}
 						</div>

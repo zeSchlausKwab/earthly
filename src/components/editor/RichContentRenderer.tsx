@@ -17,17 +17,50 @@ interface RichContentRendererProps {
 	emptyState?: string | null
 }
 
-interface TextToken {
-	type: 'text' | 'link' | 'mention'
+interface BaseInlineToken {
+	type: 'text' | 'link' | 'mention' | 'strong' | 'emphasis' | 'code'
 	value: string
-	address?: string
+}
+
+interface MentionInlineToken extends BaseInlineToken {
+	type: 'mention'
+	address: string
 	featureId?: string
 	displayName?: string
 }
 
+interface LinkInlineToken extends BaseInlineToken {
+	type: 'link'
+	url: string
+}
+
+type InlineToken = BaseInlineToken | MentionInlineToken | LinkInlineToken
+
 interface ParagraphBlock {
 	type: 'paragraph'
-	tokens: TextToken[]
+	tokens: InlineToken[]
+}
+
+interface HeadingBlock {
+	type: 'heading'
+	level: number
+	tokens: InlineToken[]
+}
+
+interface QuoteBlock {
+	type: 'quote'
+	tokens: InlineToken[]
+}
+
+interface ListBlock {
+	type: 'list'
+	ordered: boolean
+	items: InlineToken[][]
+}
+
+interface CodeBlock {
+	type: 'codeblock'
+	code: string
 }
 
 interface MediaBlock {
@@ -35,7 +68,7 @@ interface MediaBlock {
 	url: string
 }
 
-type ContentBlock = ParagraphBlock | MediaBlock
+type ContentBlock = ParagraphBlock | HeadingBlock | QuoteBlock | ListBlock | CodeBlock | MediaBlock
 
 const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|webp|svg|avif)(\?.*)?$/i
 const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|m4v)(\?.*)?$/i
@@ -50,8 +83,9 @@ const YOUTUBE_PATTERNS = [
 	/(?:https?:\/\/)?(?:www\.)?youtube\.com\/shorts\/[a-zA-Z0-9_-]{11}/i,
 	/(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/[a-zA-Z0-9_-]{11}/i,
 ]
+const MEDIA_LINE_PATTERN = /^(https?:\/\/[^\s<>"{}|\\^`[\]]+)$/i
 const TOKEN_PATTERN =
-	/(nostr:(naddr1[a-z0-9]+)(#([a-zA-Z0-9_-]+))?)|(https?:\/\/[^\s<>"{}|\\^`[\]]+)/gi
+	/(\[[^\]]+\]\((https?:\/\/[^\s)]+)\))|(nostr:(naddr1[a-z0-9]+)(#([a-zA-Z0-9_-]+))?)|(https?:\/\/[^\s<>"{}|\\^`[\]]+)|(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\n]+\*)/gi
 
 function detectMediaType(url: string): 'image' | 'video' | 'youtube' | 'link' {
 	for (const pattern of YOUTUBE_PATTERNS) {
@@ -99,93 +133,222 @@ function resolveMentionLabel(
 	return match?.name ?? 'Reference'
 }
 
+function parseInlineTokens(text: string, availableFeatures: GeoFeatureItem[]): InlineToken[] {
+	if (!text) return []
+
+	const tokens: InlineToken[] = []
+	let cursor = 0
+	const matches = Array.from(text.matchAll(TOKEN_PATTERN))
+
+	for (const match of matches) {
+		const matchedValue = match[0]
+		if (!matchedValue) continue
+
+		if (match.index > cursor) {
+			tokens.push({
+				type: 'text',
+				value: text.slice(cursor, match.index),
+			})
+		}
+
+		if (match[1] && match[2]) {
+			const linkLabel = matchedValue.slice(1, matchedValue.indexOf(']('))
+			tokens.push({
+				type: 'link',
+				value: linkLabel,
+				url: match[2],
+			})
+		} else if (match[3]) {
+			const address = match[4]
+			const featureId = match[6] || undefined
+			if (address) {
+				tokens.push({
+					type: 'mention',
+					value: matchedValue,
+					address,
+					featureId,
+					displayName: resolveMentionLabel(address, featureId, availableFeatures),
+				})
+			}
+		} else if (match[7]) {
+			const cleanUrl = match[7].replace(/[.,;:!?)]+$/, '')
+			tokens.push({
+				type: 'link',
+				value: cleanUrl,
+				url: cleanUrl,
+			})
+		} else if (match[8]) {
+			tokens.push({
+				type: 'code',
+				value: match[8].slice(1, -1),
+			})
+		} else if (match[9]) {
+			tokens.push({
+				type: 'strong',
+				value: match[9].slice(2, -2),
+			})
+		} else if (match[10]) {
+			tokens.push({
+				type: 'emphasis',
+				value: match[10].slice(1, -1),
+			})
+		}
+
+		cursor = match.index + matchedValue.length
+	}
+
+	if (cursor < text.length) {
+		tokens.push({
+			type: 'text',
+			value: text.slice(cursor),
+		})
+	}
+
+	return tokens
+}
+
+function pushParagraph(lines: string[], blocks: ContentBlock[], availableFeatures: GeoFeatureItem[]) {
+	if (lines.length === 0) return
+	blocks.push({
+		type: 'paragraph',
+		tokens: parseInlineTokens(lines.join(' '), availableFeatures),
+	})
+	lines.length = 0
+}
+
 function parseContent(text: string, availableFeatures: GeoFeatureItem[]): ContentBlock[] {
 	const trimmed = text.trim()
 	if (!trimmed) return []
 
 	const lines = text.split('\n')
 	const blocks: ContentBlock[] = []
+	const paragraphLines: string[] = []
+	let activeList: ListBlock | null = null
+	let inCodeBlock = false
+	let codeFence: string | null = null
+	const codeLines: string[] = []
+
+	const flushList = () => {
+		if (activeList) {
+			blocks.push(activeList)
+			activeList = null
+		}
+	}
+
+	const flushCodeBlock = () => {
+		if (!inCodeBlock) return
+		blocks.push({
+			type: 'codeblock',
+			code: codeLines.join('\n'),
+		})
+		inCodeBlock = false
+		codeFence = null
+		codeLines.length = 0
+	}
 
 	for (const rawLine of lines) {
-		const line = rawLine.trim()
-		if (!line) continue
+		const line = rawLine.trimEnd()
+		const trimmedLine = line.trim()
 
-		const matches = Array.from(line.matchAll(TOKEN_PATTERN))
-		if (matches.length === 1) {
-			const standaloneUrl = matches[0]?.[5]?.replace(/[.,;:!?)]+$/, '')
-			if (standaloneUrl) {
-				const standaloneType = detectMediaType(standaloneUrl)
-				if (standaloneType !== 'link') {
-					blocks.push({ type: standaloneType, url: standaloneUrl })
-					continue
-				}
+		if (trimmedLine.startsWith('```')) {
+			pushParagraph(paragraphLines, blocks, availableFeatures)
+			flushList()
+			if (inCodeBlock) {
+				flushCodeBlock()
+			} else {
+				inCodeBlock = true
+				codeFence = trimmedLine
+			}
+			void codeFence
+			continue
+		}
+
+		if (inCodeBlock) {
+			codeLines.push(line)
+			continue
+		}
+
+		if (!trimmedLine) {
+			pushParagraph(paragraphLines, blocks, availableFeatures)
+			flushList()
+			continue
+		}
+
+		const mediaMatch = trimmedLine.match(MEDIA_LINE_PATTERN)
+		if (mediaMatch?.[1]) {
+			const mediaType = detectMediaType(mediaMatch[1])
+			if (mediaType !== 'link') {
+				pushParagraph(paragraphLines, blocks, availableFeatures)
+				flushList()
+				blocks.push({ type: mediaType, url: mediaMatch[1] })
+				continue
 			}
 		}
 
-		const tokens: TextToken[] = []
-		const mediaBlocks: MediaBlock[] = []
-		let cursor = 0
-
-		for (const match of matches) {
-			const matchedValue = match[0]
-			if (!matchedValue) continue
-
-			if (match.index > cursor) {
-				tokens.push({
-					type: 'text',
-					value: line.slice(cursor, match.index),
-				})
-			}
-
-			if (match[1]) {
-				const address = match[2]
-				const featureId = match[4] || undefined
-				if (address) {
-					tokens.push({
-						type: 'mention',
-						value: matchedValue,
-						address,
-						featureId,
-						displayName: resolveMentionLabel(address, featureId, availableFeatures),
-					})
-				}
-			} else if (match[5]) {
-				const cleanUrl = match[5].replace(/[.,;:!?)]+$/, '')
-				const mediaType = detectMediaType(cleanUrl)
-				if (mediaType === 'link') {
-					tokens.push({
-						type: 'link',
-						value: cleanUrl,
-					})
-				} else {
-					mediaBlocks.push({ type: mediaType, url: cleanUrl })
-				}
-			}
-
-			cursor = match.index + matchedValue.length
-		}
-
-		if (cursor < line.length) {
-			tokens.push({
-				type: 'text',
-				value: line.slice(cursor),
+		const headingMatch = trimmedLine.match(/^(#{1,6})\s+(.+)$/)
+		if (headingMatch?.[1] && headingMatch[2]) {
+			pushParagraph(paragraphLines, blocks, availableFeatures)
+			flushList()
+			blocks.push({
+				type: 'heading',
+				level: headingMatch[1].length,
+				tokens: parseInlineTokens(headingMatch[2], availableFeatures),
 			})
+			continue
 		}
 
-		if (tokens.some((token) => token.value.length > 0)) {
-			blocks.push({ type: 'paragraph', tokens })
+		const quoteMatch = trimmedLine.match(/^>\s?(.*)$/)
+		if (quoteMatch) {
+			pushParagraph(paragraphLines, blocks, availableFeatures)
+			flushList()
+			blocks.push({
+				type: 'quote',
+				tokens: parseInlineTokens(quoteMatch[1], availableFeatures),
+			})
+			continue
 		}
-		blocks.push(...mediaBlocks)
+
+		const orderedListMatch = trimmedLine.match(/^\d+\.\s+(.+)$/)
+		const unorderedListMatch = trimmedLine.match(/^[-*]\s+(.+)$/)
+		const listItemText = orderedListMatch?.[1] ?? unorderedListMatch?.[1]
+		if (listItemText) {
+			pushParagraph(paragraphLines, blocks, availableFeatures)
+			const ordered = Boolean(orderedListMatch)
+			if (!activeList || activeList.ordered !== ordered) {
+				flushList()
+				activeList = {
+					type: 'list',
+					ordered,
+					items: [],
+				}
+			}
+			activeList.items.push(parseInlineTokens(listItemText, availableFeatures))
+			continue
+		}
+
+		flushList()
+		paragraphLines.push(trimmedLine)
 	}
+
+	pushParagraph(paragraphLines, blocks, availableFeatures)
+	flushList()
+	flushCodeBlock()
 
 	return blocks
 }
 
-function tokenKey(token: TextToken): string {
-	return `${token.type}:${token.value}:${token.address ?? ''}:${token.featureId ?? ''}`
+function tokenKey(token: InlineToken): string {
+	const base = `${token.type}:${token.value}`
+	if (token.type === 'mention') {
+		return `${base}:${token.address}:${token.featureId ?? ''}`
+	}
+	if (token.type === 'link') {
+		return `${base}:${token.url}`
+	}
+	return base
 }
 
-function renderTextToken(token: TextToken) {
+function renderInlineToken(token: InlineToken) {
 	if (token.type === 'text') {
 		return (
 			<span key={tokenKey(token)} className="whitespace-pre-wrap break-words">
@@ -194,11 +357,38 @@ function renderTextToken(token: TextToken) {
 		)
 	}
 
+	if (token.type === 'strong') {
+		return (
+			<strong key={tokenKey(token)} className="font-semibold text-stone-900">
+				{token.value}
+			</strong>
+		)
+	}
+
+	if (token.type === 'emphasis') {
+		return (
+			<em key={tokenKey(token)} className="italic">
+				{token.value}
+			</em>
+		)
+	}
+
+	if (token.type === 'code') {
+		return (
+			<code
+				key={tokenKey(token)}
+				className="rounded bg-stone-100 px-1.5 py-0.5 font-mono text-[0.9em] text-stone-800"
+			>
+				{token.value}
+			</code>
+		)
+	}
+
 	if (token.type === 'link') {
 		return (
 			<a
 				key={tokenKey(token)}
-				href={token.value}
+				href={token.url}
 				target="_blank"
 				rel="noopener noreferrer"
 				className="inline-flex items-center gap-1 break-all text-sky-700 underline underline-offset-2 hover:text-sky-800"
@@ -212,11 +402,11 @@ function renderTextToken(token: TextToken) {
 	return <GeoMentionChip key={tokenKey(token)} token={token} />
 }
 
-function GeoMentionChip({ token }: { token: TextToken }) {
+function GeoMentionChip({ token }: { token: MentionInlineToken }) {
 	const [isVisible, setIsVisible] = useState(false)
 	const address = token.address ?? ''
 	const featureId = token.featureId
-	const callbacks = token as TextToken & {
+	const callbacks = token as MentionInlineToken & {
 		onMentionVisibilityToggle?: RichContentRendererProps['onMentionVisibilityToggle']
 		onMentionZoomTo?: RichContentRendererProps['onMentionZoomTo']
 	}
@@ -338,6 +528,25 @@ function renderMediaBlock(block: MediaBlock, index: number) {
 	)
 }
 
+function renderInlineTokens(
+	tokens: InlineToken[],
+	callbacks: Pick<
+		RichContentRendererProps,
+		'onMentionVisibilityToggle' | 'onMentionZoomTo'
+	>,
+) {
+	return tokens.map((token) => {
+		if (token.type !== 'mention') {
+			return renderInlineToken(token)
+		}
+
+		return renderInlineToken({
+			...token,
+			...callbacks,
+		} as MentionInlineToken)
+	})
+}
+
 export function RichContentRenderer({
 	content,
 	availableFeatures = [],
@@ -358,20 +567,91 @@ export function RichContentRenderer({
 	return (
 		<div className={`space-y-3 text-sm leading-relaxed text-gray-800 ${className}`}>
 			{blocks.map((block, index) => {
-				const blockKey =
-					block.type === 'paragraph'
-						? `paragraph:${block.tokens.map((token) => tokenKey(token)).join('|')}`
-						: `${block.type}:${block.url}:${index}`
 				if (block.type === 'paragraph') {
-					const tokens = block.tokens.map((token) => ({
-						...token,
+					return (
+						<p key={`paragraph-${index}`} className="break-words">
+							{renderInlineTokens(block.tokens, {
+								onMentionVisibilityToggle,
+								onMentionZoomTo,
+							})}
+						</p>
+					)
+				}
+
+				if (block.type === 'heading') {
+					const headingContent = renderInlineTokens(block.tokens, {
 						onMentionVisibilityToggle,
 						onMentionZoomTo,
-					}))
+					})
+					if (block.level <= 1) {
+						return (
+							<h1 key={`heading-${index}`} className="font-serif text-2xl text-stone-900">
+								{headingContent}
+							</h1>
+						)
+					}
+					if (block.level === 2) {
+						return (
+							<h2 key={`heading-${index}`} className="font-serif text-2xl text-stone-900">
+								{headingContent}
+							</h2>
+						)
+					}
+					if (block.level === 3) {
+						return (
+							<h3 key={`heading-${index}`} className="font-serif text-xl text-stone-900">
+								{headingContent}
+							</h3>
+						)
+					}
 					return (
-						<p key={blockKey} className="break-words">
-							{tokens.map((token) => renderTextToken(token))}
-						</p>
+						<h4 key={`heading-${index}`} className="text-base font-semibold text-stone-900">
+							{headingContent}
+						</h4>
+					)
+				}
+
+				if (block.type === 'quote') {
+					return (
+						<blockquote
+							key={`quote-${index}`}
+							className="border-l-2 border-amber-300 bg-amber-50/60 px-4 py-2 text-stone-700"
+						>
+							{renderInlineTokens(block.tokens, {
+								onMentionVisibilityToggle,
+								onMentionZoomTo,
+							})}
+						</blockquote>
+					)
+				}
+
+				if (block.type === 'list') {
+					const ListTag = block.ordered ? 'ol' : 'ul'
+					return (
+						<ListTag
+							key={`list-${index}`}
+							className={`space-y-1 pl-5 ${block.ordered ? 'list-decimal' : 'list-disc'}`}
+						>
+							{block.items.map((item, itemIndex) => (
+								<li key={`list-item-${index}-${itemIndex}`} className="pl-1">
+									{renderInlineTokens(item, {
+										onMentionVisibilityToggle,
+										onMentionZoomTo,
+									})}
+								</li>
+							))}
+						</ListTag>
+					)
+				}
+
+				if (block.type === 'codeblock') {
+					return (
+						<pre
+							key={`code-${index}`}
+							className="overflow-x-auto rounded-2xl border border-stone-200 bg-stone-950/95 p-4 font-mono text-xs text-stone-100"
+						>
+							<code>{block.code}</code>
+						</pre>
 					)
 				}
 

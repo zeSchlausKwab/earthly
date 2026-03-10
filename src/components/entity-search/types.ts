@@ -111,7 +111,9 @@ export function contextToSearchResult(context: NDKMapContextEvent): EntitySearch
 		id: context.id ?? context.dTag ?? '',
 		name: content.name || context.contextId || context.id || 'Untitled',
 		type: 'context',
-		subtitle: content.description ?? content.contextUse,
+		subtitle:
+			content.description ??
+			`${content.contextUse} · ${content.allowForeignAttachments ? 'open' : 'closed'}`,
 		pubkey: context.pubkey,
 		createdAt: context.created_at,
 		entity: context,
@@ -157,6 +159,7 @@ export const contextFilterConfig: FilterConfig<NDKMapContextEvent> = {
 			content.description,
 			content.contextUse,
 			content.validationMode,
+			content.allowForeignAttachments ? 'open' : 'closed',
 			context.contextId,
 			context.id,
 		]

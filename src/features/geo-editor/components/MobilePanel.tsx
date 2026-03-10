@@ -3,7 +3,6 @@ import type { FeatureCollection } from 'geojson'
 import {
 	Database,
 	FilePenLine,
-	FolderOpen,
 	Globe,
 	HelpCircle,
 	MessageCircle,
@@ -133,7 +132,6 @@ export interface MobilePanelProps {
 
 const TAB_CONFIG: { id: MobilePanelTab; label: string; icon: typeof Database }[] = [
 	{ id: 'datasets', label: 'Datasets', icon: Database },
-	{ id: 'collections', label: 'Collections', icon: FolderOpen },
 	{ id: 'contexts', label: 'Contexts', icon: Globe },
 	{ id: 'context-editor', label: 'Ctx Editor', icon: FilePenLine },
 	{ id: 'edit', label: 'Editor', icon: Pencil },

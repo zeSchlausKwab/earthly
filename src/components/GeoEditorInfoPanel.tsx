@@ -239,6 +239,10 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				.map((context) => {
 					const coordinate = context.contextCoordinate
 					if (!coordinate) return null
+					const isAttached = activeDatasetContextRefs.includes(coordinate)
+					if (!context.context.allowForeignAttachments && !isAttached) {
+						return null
+					}
 					return {
 						coordinate,
 						name: context.context.name || context.contextId || context.id || 'Untitled context',
@@ -258,7 +262,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						contextEvent: NDKMapContextEvent
 					} => entry !== null,
 				),
-		[mapContextEvents],
+		[mapContextEvents, activeDatasetContextRefs],
 	)
 
 	// Split into: already attached (always shown) + recent unattached (top 5)
@@ -553,6 +557,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				initialContext={editingContext}
 				onClose={onCloseContextEditor}
 				onSave={onSaveContext}
+				availableFeatures={availableFeatures}
 			/>
 		)
 	}
@@ -571,14 +576,6 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					availableFeatures={availableFeatures}
 					onMentionVisibilityToggle={onMentionVisibilityToggle}
 					onMentionZoomTo={onMentionZoomTo}
-					onOpenReferenceCollection={
-						onInspectCollection
-							? (collection) => {
-									setViewCollection(collection)
-									onInspectCollection(collection, [])
-								}
-							: undefined
-					}
 					focusCommentId={focusCommentId}
 				/>
 			)
@@ -796,11 +793,11 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 
 						{/* Search for more contexts */}
 						<EntitySearchPopover
-							sources={{ contexts: mapContextEvents }}
+							sources={{ contexts: attachableContexts.map((context) => context.contextEvent) }}
 							entityTypes={['context']}
 							onSelect={handleContextSearchSelect}
-							placeholder="Search contexts…"
-							searchMode="both"
+							placeholder="Search open contexts…"
+							searchMode="local"
 							compact
 						/>
 					</div>

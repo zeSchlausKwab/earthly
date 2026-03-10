@@ -20,13 +20,22 @@ export interface MapContextGeometryConstraints {
 	allowedTypes: MapContextGeometryType[]
 }
 
+export interface MapContextFixedReference {
+	address: string
+	featureId?: string
+	label?: string
+}
+
 export interface MapContextContent {
 	version?: 1
 	name: string
 	description?: string
+	descriptionFormat?: 'markdown'
 	image?: string
 	contextUse: MapContextUse
 	validationMode: MapContextValidationMode
+	allowForeignAttachments?: boolean
+	fixedReferences?: MapContextFixedReference[]
 	geometryConstraints?: MapContextGeometryConstraints
 	schemaDialect?: string
 	schema?: Record<string, unknown>
@@ -35,8 +44,11 @@ export interface MapContextContent {
 const DEFAULT_CONTENT: MapContextContent = {
 	version: 1,
 	name: '',
+	descriptionFormat: 'markdown',
 	contextUse: 'taxonomy',
 	validationMode: 'none',
+	allowForeignAttachments: false,
+	fixedReferences: [],
 }
 
 export class NDKMapContextEvent extends NDKEvent {

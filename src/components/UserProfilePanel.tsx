@@ -4,7 +4,6 @@ import type { ColumnDef } from '@tanstack/react-table'
 import {
 	Database,
 	Eye,
-	FolderOpen,
 	Globe,
 	Layers,
 	MessageCircle,
@@ -355,12 +354,6 @@ export function UserProfilePanel({
 			icon: typeof Database
 		}> = [
 			{ id: 'datasets', label: 'Datasets', count: userGeoEvents.length, icon: Database },
-			{
-				id: 'collections',
-				label: 'Collections',
-				count: userCollectionEvents.length,
-				icon: FolderOpen,
-			},
 			{ id: 'contexts', label: 'Contexts', count: userContextEvents.length, icon: Globe },
 			{ id: 'proposals', label: 'Proposals', count: userProposalRows.length, icon: MessageSquare },
 		]
@@ -541,6 +534,7 @@ export function UserProfilePanel({
 				contextName: getContextDisplayName(context),
 				contextUse: context.context.contextUse,
 				validationMode: context.context.validationMode,
+				attachmentPolicy: context.context.allowForeignAttachments ? 'open' : 'closed',
 			})),
 		[filteredContexts],
 	)

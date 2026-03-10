@@ -1,6 +1,5 @@
 import {
 	Database,
-	FolderOpen,
 	Globe,
 	HelpCircle,
 	MessageCircle,
@@ -63,7 +62,6 @@ const entityNavItems: {
 	icon: typeof Database
 }[] = [
 	{ entity: 'geometry', title: 'Geometry', icon: Pencil },
-	{ entity: 'collection', title: 'Collection', icon: FolderOpen },
 	{ entity: 'context', title: 'Context', icon: Globe },
 ]
 
@@ -73,7 +71,6 @@ const workNavItems: {
 	icon: typeof Database
 }[] = [
 	{ mode: 'datasets', title: 'Datasets', icon: Database },
-	{ mode: 'collections', title: 'Collections', icon: FolderOpen },
 	{ mode: 'contexts', title: 'Contexts', icon: Globe },
 	{ mode: 'chat', title: 'AI Chat', icon: MessageCircle },
 	{ mode: 'user', title: 'My Entities', icon: User },

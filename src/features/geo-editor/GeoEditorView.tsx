@@ -34,6 +34,7 @@ import {
 	isDatasetAllowedByContextFilter,
 	validateDatasetForContext,
 } from '@/lib/context/validation'
+import { getContextStickyDatasets } from '@/lib/context/references'
 import { Editor } from './components/Editor'
 import { ImportOsmDialog } from './components/ImportOsmDialog'
 import { LocateButton } from './components/LocateButton'
@@ -477,17 +478,34 @@ export function GeoEditorView() {
 		return getContextCoordinate(activeContext)
 	}, [activeContext, activeContextScope, contextCoordinate])
 
-	const activeContextAttachedDatasets = useMemo(() => {
+	const activeContextStickyDatasets = useMemo(() => {
+		if (!activeContext) return []
+		return getContextStickyDatasets(activeContext, geoEvents)
+	}, [activeContext, geoEvents])
+
+	const activeContextForeignAttachedDatasets = useMemo(() => {
+		if (!activeContextCoordinate || !activeContext?.context.allowForeignAttachments) return []
 		if (!activeContextCoordinate) return []
 		return geoEvents.filter((event) => event.contextReferences.includes(activeContextCoordinate))
-	}, [geoEvents, activeContextCoordinate])
+	}, [activeContext?.context.allowForeignAttachments, geoEvents, activeContextCoordinate])
+
+	const activeContextDatasetSet = useMemo(() => {
+		const datasets = new Map<string, NDKGeoEvent>()
+		;[...activeContextStickyDatasets, ...activeContextForeignAttachedDatasets].forEach((event) => {
+			const key = getDatasetKey(event)
+			datasets.set(key, event)
+		})
+		return datasets
+	}, [activeContextForeignAttachedDatasets, activeContextStickyDatasets, getDatasetKey])
+
+	const activeContextDatasets = useMemo(
+		() => Array.from(activeContextDatasetSet.values()),
+		[activeContextDatasetSet],
+	)
 
 	const activeContextReferenceCollections = useMemo(() => {
-		if (!activeContextCoordinate) return []
-		return collectionEvents.filter((collection) =>
-			collection.contextReferences.includes(activeContextCoordinate),
-		)
-	}, [collectionEvents, activeContextCoordinate])
+		return []
+	}, [])
 
 	const validationModeForActiveContext = contextFilterMode === 'off' ? 'warn' : contextFilterMode
 
@@ -496,7 +514,7 @@ export function GeoEditorView() {
 		if (!activeContext || !activeContextCoordinate) return map
 		if (activeContext.context.contextUse === 'taxonomy') return map
 
-		activeContextAttachedDatasets.forEach((event) => {
+		activeContextDatasets.forEach((event) => {
 			const collection = resolvedCollectionResolver(event) ?? event.featureCollection
 			map.set(
 				getDatasetKey(event),
@@ -508,7 +526,7 @@ export function GeoEditorView() {
 	}, [
 		activeContext,
 		activeContextCoordinate,
-		activeContextAttachedDatasets,
+		activeContextDatasets,
 		resolvedCollectionResolver,
 		getDatasetKey,
 		validationModeForActiveContext,
@@ -517,9 +535,9 @@ export function GeoEditorView() {
 	const scopedGeoEvents = useMemo(() => {
 		if (!activeContext || !activeContextCoordinate) return geoEvents
 		if (activeContext.context.contextUse === 'taxonomy') {
-			return activeContextAttachedDatasets
+			return activeContextDatasets
 		}
-		return activeContextAttachedDatasets.filter((event) => {
+		return activeContextDatasets.filter((event) => {
 			const key = getDatasetKey(event)
 			const validation = activeContextValidationByDatasetKey.get(key)
 			if (!validation) {
@@ -530,7 +548,7 @@ export function GeoEditorView() {
 	}, [
 		activeContext,
 		activeContextCoordinate,
-		activeContextAttachedDatasets,
+		activeContextDatasets,
 		activeContextValidationByDatasetKey,
 		getDatasetKey,
 		contextFilterMode,
@@ -548,9 +566,11 @@ export function GeoEditorView() {
 			return []
 		}
 
+		const activeContextDatasetKeys = new Set(activeContextDatasets.map((event) => getDatasetKey(event)))
+
 		const isAllowedByContextScope = (event: NDKGeoEvent) => {
 			if (!activeContextCoordinate || !activeContext) return true
-			if (!event.contextReferences.includes(activeContextCoordinate)) return false
+			if (!activeContextDatasetKeys.has(getDatasetKey(event))) return false
 			if (activeContext.context.contextUse === 'taxonomy') return true
 			const validation = activeContextValidationByDatasetKey.get(getDatasetKey(event))
 			if (!validation) {
@@ -601,7 +621,7 @@ export function GeoEditorView() {
 					return isEventVisible(event, false)
 				})
 			} else if (focusedType === 'mapcontext' && activeContext) {
-				const attachedVisible = activeContextAttachedDatasets.filter((event) =>
+				const attachedVisible = activeContextDatasets.filter((event) =>
 					isEventVisible(event, false),
 				)
 				if (activeContext.context.contextUse === 'taxonomy') {
@@ -629,7 +649,7 @@ export function GeoEditorView() {
 		encodeGeoEventNaddr,
 		encodeCollectionNaddr,
 		activeContext,
-		activeContextAttachedDatasets,
+		activeContextDatasets,
 		activeContextCoordinate,
 		activeContextValidationByDatasetKey,
 		contextFilterMode,
@@ -650,7 +670,7 @@ export function GeoEditorView() {
 
 		const coordinate = getContextCoordinate(activeContext)
 		setViewContext(activeContext)
-		setViewContextDatasets(activeContextAttachedDatasets)
+		setViewContextDatasets(activeContextDatasets)
 		setViewContextCollections(activeContextReferenceCollections)
 
 		if (coordinate && lastContextCoordinateRef.current !== coordinate) {
@@ -659,7 +679,7 @@ export function GeoEditorView() {
 		}
 	}, [
 		activeContext,
-		activeContextAttachedDatasets,
+		activeContextDatasets,
 		activeContextReferenceCollections,
 		setViewContext,
 		setViewContextDatasets,
@@ -672,7 +692,9 @@ export function GeoEditorView() {
 		if (activeDataset) return
 		if (features.length > 0) return
 
-		if (activeContextCoordinate) {
+		const canAutoAttachToContext = activeContext?.context.allowForeignAttachments ?? false
+
+		if (activeContextCoordinate && canAutoAttachToContext) {
 			if (
 				activeDatasetContextRefs.length === 1 &&
 				activeDatasetContextRefs[0] === activeContextCoordinate
@@ -690,6 +712,7 @@ export function GeoEditorView() {
 		activeDataset,
 		features.length,
 		activeContextCoordinate,
+		activeContext?.context.allowForeignAttachments,
 		activeDatasetContextRefs,
 		setActiveDatasetContextRefs,
 	])
