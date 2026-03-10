@@ -13,13 +13,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { RichContentRenderer } from '../editor'
 import type { GeoFeatureItem } from '../editor/GeoRichTextEditor'
 import { EntityActionBar } from './EntityActionBar'
+import { ConfirmDeleteAction } from './ConfirmDeleteAction'
 import { EntityPanelSectionHeader, EntityPanelShell, EntityPanelSurface } from './EntityPanelShell'
 
 interface MapContextViewPanelProps {
+	currentUserPubkey?: string
 	getDatasetKey: (event: NDKGeoEvent) => string
 	getDatasetName: (event: NDKGeoEvent) => string
 	onLoadDataset: (event: NDKGeoEvent) => void
 	onZoomToDataset: (event: NDKGeoEvent) => void
+	onDeleteContext?: (context: NDKMapContextEvent) => void
+	deletingKey?: string | null
 	onCommentGeometryVisibility?: (comment: NDKGeoCommentEvent, visible: boolean) => void
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
 	availableFeatures?: GeoFeatureItem[]
@@ -33,10 +37,13 @@ interface MapContextViewPanelProps {
 }
 
 export function MapContextViewPanel({
+	currentUserPubkey,
 	getDatasetKey,
 	getDatasetName,
 	onLoadDataset,
 	onZoomToDataset,
+	onDeleteContext,
+	deletingKey,
 	onCommentGeometryVisibility,
 	onZoomToBounds,
 	availableFeatures = [],
@@ -166,6 +173,8 @@ export function MapContextViewPanel({
 	}
 
 	const contextContent = viewContext.context
+	const contextKey = viewContext.contextId ?? viewContext.dTag ?? viewContext.id ?? null
+	const isDeletingContext = contextKey ? deletingKey === `context:${contextKey}` : false
 	const allowedGeometryTypes = contextContent.geometryConstraints?.allowedTypes ?? []
 	const stickyDatasetCount = fixedReferenceKeySet.size
 	const foreignDatasetCount = Math.max(0, viewContextDatasets.length - stickyDatasetCount)
@@ -215,6 +224,19 @@ export function MapContextViewPanel({
 		<EntityPanelShell title={contextContent.name || viewContext.contextId}>
 			<div className="space-y-3 text-[13px]">
 				<EntityPanelSurface tone="context" className="space-y-3">
+					<EntityPanelSectionHeader
+						eyebrow="Context"
+						title={contextContent.name || viewContext.contextId || 'Untitled context'}
+						action={
+							currentUserPubkey === viewContext.pubkey && onDeleteContext ? (
+								<ConfirmDeleteAction
+									label="Context"
+									isDeleting={isDeletingContext}
+									onConfirm={() => onDeleteContext(viewContext)}
+								/>
+							) : null
+						}
+					/>
 					{contextContent.description && (
 						<RichContentRenderer
 							content={contextContent.description}
@@ -226,10 +248,10 @@ export function MapContextViewPanel({
 					)}
 					<div className="flex flex-wrap gap-2 text-[10px]">
 						<span className="border border-slate-200 px-2 py-0.5 text-blue-700">
-									use: {contextContent.contextUse}
+							use: {contextContent.contextUse}
 						</span>
 						<span className="border border-slate-200 px-2 py-0.5 text-amber-700">
-									validation: {contextContent.validationMode}
+							validation: {contextContent.validationMode}
 						</span>
 						<span className="border border-slate-200 px-2 py-0.5 text-stone-700">
 							foreign attachments: {contextContent.allowForeignAttachments ? 'open' : 'closed'}
@@ -239,7 +261,7 @@ export function MapContextViewPanel({
 						</span>
 						{allowedGeometryTypes.length > 0 && (
 							<span className="border border-slate-200 px-2 py-0.5 text-emerald-700">
-										geometry: {allowedGeometryTypes.join(', ')}
+								geometry: {allowedGeometryTypes.join(', ')}
 							</span>
 						)}
 					</div>
@@ -252,10 +274,10 @@ export function MapContextViewPanel({
 						description={`Valid ${counters.valid} · Invalid ${counters.invalid} · Unresolved ${counters.unresolved}`}
 					/>
 					<Label className="sr-only">Context filter mode</Label>
-						<Select
-							value={contextFilterMode}
-							onValueChange={(mode) => setContextFilterMode(mode as ContextFilterMode)}
-						>
+					<Select
+						value={contextFilterMode}
+						onValueChange={(mode) => setContextFilterMode(mode as ContextFilterMode)}
+					>
 						<SelectTrigger className="max-w-[10rem] rounded-none text-xs">
 							<SelectValue />
 						</SelectTrigger>
@@ -289,7 +311,10 @@ export function MapContextViewPanel({
 											? 'bg-red-100 text-red-700'
 											: 'bg-gray-100 text-gray-700'
 								return (
-									<div key={key} className="flex items-center justify-between gap-2 border-b border-slate-200 py-2">
+									<div
+										key={key}
+										className="flex items-center justify-between gap-2 border-b border-slate-200 py-2"
+									>
 										<div className="min-w-0">
 											<p className="truncate text-xs font-medium text-gray-900">
 												{getDatasetName(dataset)}
@@ -341,9 +366,7 @@ export function MapContextViewPanel({
 									className="flex items-center justify-between gap-2 border-b border-slate-200 py-2"
 								>
 									<div className="min-w-0">
-										<p className="truncate text-xs font-medium text-gray-900">
-											{reference.label}
-										</p>
+										<p className="truncate text-xs font-medium text-gray-900">{reference.label}</p>
 										<p className="text-[10px] text-gray-500">
 											{reference.reference.featureId
 												? `feature ${reference.reference.featureId}`

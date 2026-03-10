@@ -71,6 +71,8 @@ export interface MobilePanelProps {
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: NDKGeoEvent) => void
 	onDeleteDataset: (event: NDKGeoEvent) => void
+	onDeleteCollection?: (collection: NDKGeoCollectionEvent) => void
+	onDeleteContext?: (context: NDKMapContextEvent) => void
 	getDatasetKey: (event: NDKGeoEvent) => string
 	getDatasetName: (event: NDKGeoEvent) => string
 	onOpenGeometryEditor?: () => void
@@ -177,6 +179,8 @@ export function MobilePanel(props: MobilePanelProps) {
 		onToggleAllVisibility,
 		onZoomToDataset,
 		onDeleteDataset,
+		onDeleteCollection,
+		onDeleteContext,
 		getDatasetKey,
 		getDatasetName,
 		onOpenGeometryEditor,
@@ -504,6 +508,8 @@ export function MobilePanel(props: MobilePanelProps) {
 							onToggleVisibility={onToggleVisibility}
 							onZoomToDataset={onZoomToDataset}
 							onDeleteDataset={onDeleteDataset}
+							onDeleteCollection={onDeleteCollection}
+							onDeleteContext={onDeleteContext}
 							onZoomToCollection={onZoomToCollection}
 							deletingKey={deletingKey}
 							onExitViewMode={onExitViewMode}
@@ -546,6 +552,8 @@ export function MobilePanel(props: MobilePanelProps) {
 							onToggleVisibility={onToggleVisibility}
 							onZoomToDataset={onZoomToDataset}
 							onDeleteDataset={onDeleteDataset}
+							onDeleteCollection={onDeleteCollection}
+							onDeleteContext={onDeleteContext}
 							onZoomToCollection={onZoomToCollection}
 							deletingKey={deletingKey}
 							onExitViewMode={onExitViewMode}

@@ -48,6 +48,8 @@ export interface GeoEditorInfoPanelProps {
 	onToggleVisibility: (event: NDKGeoEvent) => void
 	onZoomToDataset: (event: NDKGeoEvent) => void
 	onDeleteDataset: (event: NDKGeoEvent) => void
+	onDeleteCollection?: (collection: NDKGeoCollectionEvent) => void
+	onDeleteContext?: (context: NDKMapContextEvent) => void
 	onZoomToCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
 	onInspectCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
 	deletingKey: string | null
@@ -120,8 +122,9 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onToggleVisibility,
 		onZoomToDataset,
 		onDeleteDataset,
+		onDeleteCollection,
+		onDeleteContext,
 		onZoomToCollection,
-		onInspectCollection,
 		currentUserPubkey,
 		onOpenGeometryEditor,
 		deletingKey,
@@ -166,7 +169,6 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	const viewCollection = useEditorStore((state) => state.viewCollection)
 	const setViewMode = useEditorStore((state) => state.setViewMode)
 	const setViewDataset = useEditorStore((state) => state.setViewDataset)
-	const setViewCollection = useEditorStore((state) => state.setViewCollection)
 	const blobReferences = useEditorStore((state) => state.blobReferences)
 	const viewContext = useEditorStore((state) => state.viewContext)
 	const activeDatasetContextRefs = useEditorStore((state) => state.activeDatasetContextRefs)
@@ -475,10 +477,11 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		}
 	}
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: intentional reset on active dataset change
 	useEffect(() => {
 		setVisibleGeojsonCommentIds(new Set())
 		setAttachedGeojson(null)
-	}, [activeDataset?.id, activeDataset?.dTag])
+	}, [activeDataset])
 
 	const handleAttachCommentGeometry = useCallback(() => {
 		if (selectedFeatures.length === 0) return
@@ -567,10 +570,13 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		if (viewContext) {
 			return (
 				<MapContextViewPanel
+					currentUserPubkey={currentUserPubkey}
 					getDatasetKey={getDatasetKey}
 					getDatasetName={getDatasetName}
 					onLoadDataset={onLoadDataset}
 					onZoomToDataset={onZoomToDataset}
+					onDeleteContext={onDeleteContext}
+					deletingKey={deletingKey}
 					onCommentGeometryVisibility={onCommentGeometryVisibility}
 					onZoomToBounds={onZoomToBounds}
 					availableFeatures={availableFeatures}
@@ -622,6 +628,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				onZoomToDataset={onZoomToDataset}
 				onDeleteDataset={onDeleteDataset}
 				onZoomToCollection={onZoomToCollection}
+				onDeleteCollection={onDeleteCollection}
 				deletingKey={deletingKey}
 				onExitViewMode={onExitViewMode}
 				getDatasetKey={getDatasetKey}
@@ -837,7 +844,9 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 									type="button"
 									size="sm"
 									variant={attachedGeojson ? 'default' : 'outline'}
-									onClick={attachedGeojson ? () => setAttachedGeojson(null) : handleAttachCommentGeometry}
+									onClick={
+										attachedGeojson ? () => setAttachedGeojson(null) : handleAttachCommentGeometry
+									}
 									className="gap-1.5 rounded-none border-stone-200 bg-white px-2 text-[11px] text-stone-700 hover:bg-stone-100"
 								>
 									<MapPin className="h-3.5 w-3.5" />

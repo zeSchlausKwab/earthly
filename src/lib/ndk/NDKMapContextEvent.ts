@@ -1,4 +1,4 @@
-import { NDKEvent, type NDKSigner, registerEventClass } from '@nostr-dev-kit/react'
+import NDK, { NDKEvent, NDKKind, type NDKSigner, registerEventClass } from '@nostr-dev-kit/react'
 import { MAP_CONTEXT_KIND } from './kinds'
 import type { GeoBoundingBox } from './NDKGeoEvent'
 import { generateShortDTag } from './dTag'
@@ -178,6 +178,33 @@ export class NDKMapContextEvent extends NDKEvent {
 		await this.prepareForPublish(signer)
 		await this.publish()
 		return this
+	}
+
+	static async deleteContext(
+		ndk: NDK,
+		context: NDKMapContextEvent,
+		reason?: string,
+		signer?: NDKSigner,
+	): Promise<void> {
+		const contextId = context.contextId ?? context.dTag
+		if (!contextId) {
+			throw new Error('Context is missing a d tag and cannot be deleted.')
+		}
+		if (!context.pubkey) {
+			throw new Error('Context is missing a pubkey and cannot be deleted.')
+		}
+
+		const contextKind = context.kind ?? MAP_CONTEXT_KIND
+		const deletion = new NDKEvent(ndk)
+		deletion.kind = NDKKind.EventDeletion
+		deletion.content = reason ?? ''
+		deletion.tags.push(['a', `${contextKind}:${context.pubkey}:${contextId}`])
+		if (context.id) {
+			deletion.tags.push(['e', context.id])
+		}
+
+		await deletion.sign(signer)
+		await deletion.publish()
 	}
 }
 

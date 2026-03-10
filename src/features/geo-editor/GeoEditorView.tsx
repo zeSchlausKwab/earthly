@@ -25,8 +25,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useAvailableGeoFeatures } from '@/lib/hooks/useAvailableGeoFeatures'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useGeoCollections, useMapContexts, useStations } from '@/lib/hooks/useStations'
-import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
+import { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import { GEO_EVENT_KIND } from '@/lib/ndk/kinds'
 import {
 	defaultContextFilterMode,
@@ -290,7 +291,6 @@ export function GeoEditorView() {
 		setAnnotationPopupData(null)
 		setDisplayedAnnotationPopupData(null)
 	}, [clearAnnotationPopupHideTimeout, setAnnotationPopupData])
-
 
 	// Callback for ensuring info panel is visible
 	const openMobilePanel = useEditorStore((state) => state.openMobilePanel)
@@ -566,7 +566,9 @@ export function GeoEditorView() {
 			return []
 		}
 
-		const activeContextDatasetKeys = new Set(activeContextDatasets.map((event) => getDatasetKey(event)))
+		const activeContextDatasetKeys = new Set(
+			activeContextDatasets.map((event) => getDatasetKey(event)),
+		)
 
 		const isAllowedByContextScope = (event: NDKGeoEvent) => {
 			if (!activeContextCoordinate || !activeContext) return true
@@ -1007,6 +1009,14 @@ export function GeoEditorView() {
 		handleLoadDatasetForEditing(event)
 	}
 
+	const getCollectionKey = useCallback((collection: NDKGeoCollectionEvent): string => {
+		return collection.dTag ?? collection.id ?? collection.collectionId ?? ''
+	}, [])
+
+	const getContextKey = useCallback((context: NDKMapContextEvent): string => {
+		return context.contextId ?? context.dTag ?? context.id ?? ''
+	}, [])
+
 	const handleClear = useCallback(() => {
 		if (!editor) return
 		const all = editor.getAllFeatures()
@@ -1025,6 +1035,80 @@ export function GeoEditorView() {
 			}
 		},
 		[getDatasetKey, handleDeleteDataset, clearEditingSession],
+	)
+
+	const onDeleteCollection = useCallback(
+		async (collection: NDKGeoCollectionEvent) => {
+			if (!ndk) {
+				toast.error('NDK is not ready.')
+				return
+			}
+
+			const collectionId = getCollectionKey(collection)
+			if (!collectionId) {
+				toast.error('Collection is missing a d tag and cannot be deleted.')
+				return
+			}
+
+			setDeletingKey(`collection:${collectionId}`)
+			try {
+				await NDKGeoCollectionEvent.deleteCollection(ndk, collection)
+
+				const viewedCollection = useEditorStore.getState().viewCollection
+				const viewedCollectionId = viewedCollection ? getCollectionKey(viewedCollection) : null
+				if (viewedCollectionId === collectionId) {
+					exitViewMode()
+				}
+
+				toast.success(
+					`Deleted "${collection.metadata.name ?? collection.collectionId ?? 'collection'}".`,
+				)
+			} catch (error) {
+				console.error('Failed to delete collection', error)
+				toast.error('Failed to delete collection. Check console for details.')
+			} finally {
+				setDeletingKey(null)
+			}
+		},
+		[getCollectionKey, ndk, exitViewMode],
+	)
+
+	const onDeleteContext = useCallback(
+		async (context: NDKMapContextEvent) => {
+			if (!ndk) {
+				toast.error('NDK is not ready.')
+				return
+			}
+
+			const contextId = getContextKey(context)
+			if (!contextId) {
+				toast.error('Context is missing a d tag and cannot be deleted.')
+				return
+			}
+
+			const targetCoordinate = context.contextCoordinate
+			setDeletingKey(`context:${contextId}`)
+			try {
+				await NDKMapContextEvent.deleteContext(ndk, context)
+
+				const viewedContext = useEditorStore.getState().viewContext
+				const viewedContextId = viewedContext ? getContextKey(viewedContext) : null
+				if (viewedContextId === contextId) {
+					exitViewMode()
+				}
+				if (targetCoordinate && contextCoordinate === targetCoordinate) {
+					clearContextScope()
+				}
+
+				toast.success(`Deleted "${context.context.name || context.contextId || 'context'}".`)
+			} catch (error) {
+				console.error('Failed to delete context', error)
+				toast.error('Failed to delete context. Check console for details.')
+			} finally {
+				setDeletingKey(null)
+			}
+		},
+		[getContextKey, ndk, exitViewMode, clearContextScope, contextCoordinate],
 	)
 
 	// Export/Import
@@ -1281,11 +1365,6 @@ export function GeoEditorView() {
 		toggleAllDatasetVisibility,
 	})
 
-	// Get collection key for visibility tracking
-	const getCollectionKey = useCallback((collection: NDKGeoCollectionEvent): string => {
-		return collection.dTag ?? collection.id ?? collection.collectionId ?? ''
-	}, [])
-
 	// Toggle collection visibility
 	const handleToggleCollectionVisibility = useCallback(
 		(collection: NDKGeoCollectionEvent) => {
@@ -1321,7 +1400,7 @@ export function GeoEditorView() {
 		<SidebarProvider sidebarExpanded={sidebarExpanded} onExpandedChange={setSidebarExpanded}>
 			{/* Sidebar - desktop only */}
 			{!isMobile && (
-					<AppSidebar
+				<AppSidebar
 					geoEvents={scopedGeoEvents}
 					collectionEvents={scopedCollectionEvents}
 					mapContextEvents={mapContextEvents}
@@ -1343,6 +1422,8 @@ export function GeoEditorView() {
 					onToggleAllCollectionVisibility={handleToggleAllCollectionVisibility}
 					onZoomToDataset={zoomToDataset}
 					onDeleteDataset={onDeleteDataset}
+					onDeleteCollection={onDeleteCollection}
+					onDeleteContext={onDeleteContext}
 					getDatasetKey={getDatasetKey}
 					getDatasetName={getDatasetName}
 					onOpenGeometryEditor={handleOpenGeometryEditor}
@@ -1380,10 +1461,10 @@ export function GeoEditorView() {
 					onBlossomUploadComplete={handleBlobUploadComplete}
 					ndk={ndk}
 					// User profile props
-						userPubkey={userPubkey}
-						focusCommentId={focusCommentId}
-						// Filter visibility sync
-						onFilteredDatasetKeysChange={handleFilteredDatasetKeysChange}
+					userPubkey={userPubkey}
+					focusCommentId={focusCommentId}
+					// Filter visibility sync
+					onFilteredDatasetKeysChange={handleFilteredDatasetKeysChange}
 					onToggleProposalOverlay={handleToggleProposalOverlay}
 					visibleProposalIds={visibleProposalIds}
 				/>
@@ -1451,9 +1532,7 @@ export function GeoEditorView() {
 						popupsEnabled={mapPopupsEnabled}
 						placementMode={mapPopupPlacement}
 						toolbarOffset={mapPopupToolbarOffset}
-						suppressed={
-							mapPopupPlacement === 'dock' && Boolean(displayedAnnotationPopupData)
-						}
+						suppressed={mapPopupPlacement === 'dock' && Boolean(displayedAnnotationPopupData)}
 					/>
 
 					{mapPopupsEnabled && (
@@ -1489,9 +1568,7 @@ export function GeoEditorView() {
 											size="icon"
 											className="h-10 w-10 rounded-full bg-white/95 text-slate-700 shadow-lg backdrop-blur hover:bg-white"
 											onClick={() => setMapPopupsEnabled((current) => !current)}
-											aria-label={
-												mapPopupsEnabled ? 'Disable map popups' : 'Enable map popups'
-											}
+											aria-label={mapPopupsEnabled ? 'Disable map popups' : 'Enable map popups'}
 										>
 											{mapPopupsEnabled ? (
 												<MessageSquare className="h-4 w-4" />
@@ -1633,6 +1710,8 @@ export function GeoEditorView() {
 							onToggleAllVisibility={handleToggleAllVisibilityWithExitFocus}
 							onZoomToDataset={zoomToDataset}
 							onDeleteDataset={onDeleteDataset}
+							onDeleteCollection={onDeleteCollection}
+							onDeleteContext={onDeleteContext}
 							getDatasetKey={getDatasetKey}
 							getDatasetName={getDatasetName}
 							onOpenGeometryEditor={handleOpenGeometryEditor}

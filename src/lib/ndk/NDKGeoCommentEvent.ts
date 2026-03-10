@@ -290,11 +290,14 @@ export class NDKGeoCommentEvent extends NDKEvent {
 	): Promise<void> {
 		const commentId = comment.commentId ?? comment.dTag
 		if (!commentId) throw new Error('Comment is missing a d tag and cannot be deleted.')
+		if (!comment.pubkey) throw new Error('Comment is missing a pubkey and cannot be deleted.')
+
+		const commentKind = comment.kind ?? (NDKGeoCommentEvent.kinds[0] as number)
 
 		const deletion = new NDKEvent(ndk)
 		deletion.kind = NDKKind.EventDeletion
 		deletion.content = reason ?? ''
-		deletion.tags.push(['a', `${comment.kind}:${comment.pubkey}:${commentId}`])
+		deletion.tags.push(['a', `${commentKind}:${comment.pubkey}:${commentId}`])
 		if (comment.id) {
 			deletion.tags.push(['e', comment.id])
 		}

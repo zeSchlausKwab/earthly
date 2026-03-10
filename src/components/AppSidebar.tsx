@@ -118,6 +118,8 @@ interface AppSidebarProps {
 	onToggleAllCollectionVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: NDKGeoEvent) => void
 	onDeleteDataset: (event: NDKGeoEvent) => void
+	onDeleteCollection?: (collection: NDKGeoCollectionEvent) => void
+	onDeleteContext?: (context: NDKMapContextEvent) => void
 	getDatasetKey: (event: NDKGeoEvent) => string
 	getDatasetName: (event: NDKGeoEvent) => string
 	onOpenGeometryEditor?: () => void
@@ -198,6 +200,8 @@ export function AppSidebar({
 	onToggleAllCollectionVisibility,
 	onZoomToDataset,
 	onDeleteDataset,
+	onDeleteCollection,
+	onDeleteContext,
 	getDatasetKey,
 	getDatasetName,
 	onOpenGeometryEditor,
@@ -671,6 +675,8 @@ export function AppSidebar({
 		onToggleVisibility,
 		onZoomToDataset,
 		onDeleteDataset,
+		onDeleteCollection,
+		onDeleteContext,
 		onZoomToCollection,
 		deletingKey,
 		onExitViewMode,

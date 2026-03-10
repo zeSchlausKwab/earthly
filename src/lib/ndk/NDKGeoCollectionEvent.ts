@@ -165,11 +165,15 @@ export class NDKGeoCollectionEvent extends NDKEvent {
 		if (!collectionId) {
 			throw new Error('Collection is missing a d tag and cannot be deleted.')
 		}
+		if (!collection.pubkey) {
+			throw new Error('Collection is missing a pubkey and cannot be deleted.')
+		}
 
+		const collectionKind = collection.kind ?? GEO_COLLECTION_KIND
 		const deletion = new NDKEvent(ndk)
 		deletion.kind = NDKKind.EventDeletion
 		deletion.content = reason ?? ''
-		deletion.tags.push(['a', `${collection.kind}:${collection.pubkey}:${collectionId}`])
+		deletion.tags.push(['a', `${collectionKind}:${collection.pubkey}:${collectionId}`])
 		if (collection.id) {
 			deletion.tags.push(['e', collection.id])
 		}

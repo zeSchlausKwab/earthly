@@ -21,6 +21,7 @@ import {
 	type ViewModeRowData,
 } from './view-mode-columns'
 import { DatasetFeaturesList } from './DatasetFeaturesList'
+import { ConfirmDeleteAction } from './ConfirmDeleteAction'
 import { EntityActionBar } from './EntityActionBar'
 import { EntityPanelSectionHeader, EntityPanelShell, EntityPanelSurface } from './EntityPanelShell'
 import { UserProfile } from '../user-profile'
@@ -32,6 +33,7 @@ export interface ViewModePanelProps {
 	onZoomToDataset: (event: NDKGeoEvent) => void
 	onDeleteDataset: (event: NDKGeoEvent) => void
 	onZoomToCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
+	onDeleteCollection?: (collection: NDKGeoCollectionEvent) => void
 	deletingKey: string | null
 	onExitViewMode?: () => void
 	getDatasetKey: (event: NDKGeoEvent) => string
@@ -105,9 +107,10 @@ export function ViewModePanel({
 	onLoadDataset,
 	onToggleVisibility,
 	onZoomToDataset,
-	onDeleteDataset: _onDeleteDataset,
+	onDeleteDataset,
 	onZoomToCollection,
-	deletingKey: _deletingKey,
+	onDeleteCollection,
+	deletingKey,
 	onExitViewMode: _onExitViewMode,
 	getDatasetKey,
 	getDatasetName,
@@ -136,6 +139,13 @@ export function ViewModePanel({
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 
 	const headerTitle = viewCollection ? 'Collection overview' : 'Dataset overview'
+	const viewedDatasetKey = viewDataset ? getDatasetKey(viewDataset) : null
+	const viewedCollectionKey =
+		viewCollection?.collectionId ?? viewCollection?.dTag ?? viewCollection?.id ?? null
+	const isDeletingDataset = viewedDatasetKey ? deletingKey === viewedDatasetKey : false
+	const isDeletingCollection = viewedCollectionKey
+		? deletingKey === `collection:${viewedCollectionKey}`
+		: false
 
 	// Get the target for comments (either dataset or collection)
 	const commentTarget: NDKGeoEvent | NDKGeoCollectionEvent | NDKMapContextEvent | null =
@@ -347,17 +357,27 @@ export function ViewModePanel({
 									eyebrow="Collection"
 									title={viewCollection.metadata.name ?? viewCollection.collectionId}
 									action={
-										onZoomToCollection ? (
-											<EntityActionBar
-												actions={[
-													{
-														icon: <Maximize2 className="h-3.5 w-3.5" />,
-														label: 'Zoom bounds',
-														onClick: () => onZoomToCollection(viewCollection, viewCollectionEvents),
-													},
-												]}
-											/>
-										) : null
+										<div className="flex items-center gap-2">
+											{onZoomToCollection ? (
+												<EntityActionBar
+													actions={[
+														{
+															icon: <Maximize2 className="h-3.5 w-3.5" />,
+															label: 'Zoom bounds',
+															onClick: () =>
+																onZoomToCollection(viewCollection, viewCollectionEvents),
+														},
+													]}
+												/>
+											) : null}
+											{currentUserPubkey === viewCollection.pubkey && onDeleteCollection ? (
+												<ConfirmDeleteAction
+													label="Collection"
+													isDeleting={isDeletingCollection}
+													onConfirm={() => onDeleteCollection(viewCollection)}
+												/>
+											) : null}
+										</div>
 									}
 								/>
 								{viewCollection.metadata.description && (
@@ -477,41 +497,50 @@ export function ViewModePanel({
 							</EntityPanelSurface>
 
 							<EntityPanelSurface tone="neutral">
-								<EntityActionBar
-									actions={[
-										{
-											icon:
-												currentUserPubkey === viewDataset.pubkey ? (
-													<Pencil className="h-3.5 w-3.5" />
-												) : (
-													<CopyPlus className="h-3.5 w-3.5" />
-												),
-											label:
-												currentUserPubkey === viewDataset.pubkey ? 'Edit dataset' : 'Load copy',
-											onClick: () => onLoadDataset(viewDataset),
-											variant: 'outline',
-											disabled: isPublishing,
-										},
-										{
-											icon:
-												datasetVisibility[getDatasetKey(viewDataset)] !== false ? (
-													<EyeOff className="h-3.5 w-3.5" />
-												) : (
-													<Eye className="h-3.5 w-3.5" />
-												),
-											label:
-												datasetVisibility[getDatasetKey(viewDataset)] !== false
-													? 'Hide dataset'
-													: 'Show dataset',
-											onClick: () => onToggleVisibility(viewDataset),
-										},
-										{
-											icon: <Maximize2 className="h-3.5 w-3.5" />,
-											label: 'Zoom to dataset',
-											onClick: () => onZoomToDataset(viewDataset),
-										},
-									]}
-								/>
+								<div className="flex items-center justify-between gap-2">
+									<EntityActionBar
+										actions={[
+											{
+												icon:
+													currentUserPubkey === viewDataset.pubkey ? (
+														<Pencil className="h-3.5 w-3.5" />
+													) : (
+														<CopyPlus className="h-3.5 w-3.5" />
+													),
+												label:
+													currentUserPubkey === viewDataset.pubkey ? 'Edit dataset' : 'Load copy',
+												onClick: () => onLoadDataset(viewDataset),
+												variant: 'outline',
+												disabled: isPublishing,
+											},
+											{
+												icon:
+													datasetVisibility[getDatasetKey(viewDataset)] !== false ? (
+														<EyeOff className="h-3.5 w-3.5" />
+													) : (
+														<Eye className="h-3.5 w-3.5" />
+													),
+												label:
+													datasetVisibility[getDatasetKey(viewDataset)] !== false
+														? 'Hide dataset'
+														: 'Show dataset',
+												onClick: () => onToggleVisibility(viewDataset),
+											},
+											{
+												icon: <Maximize2 className="h-3.5 w-3.5" />,
+												label: 'Zoom to dataset',
+												onClick: () => onZoomToDataset(viewDataset),
+											},
+										]}
+									/>
+									{currentUserPubkey === viewDataset.pubkey ? (
+										<ConfirmDeleteAction
+											label="Dataset"
+											isDeleting={isDeletingDataset}
+											onConfirm={() => onDeleteDataset(viewDataset)}
+										/>
+									) : null}
+								</div>
 							</EntityPanelSurface>
 
 							<EntityPanelSurface tone="neutral" className="space-y-3">
