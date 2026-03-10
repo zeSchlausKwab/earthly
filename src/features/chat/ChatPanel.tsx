@@ -836,6 +836,76 @@ interface ParsedAssistantContent {
 	reasoningBlocks: string[]
 }
 
+interface ChatMarkdownTextToken {
+	type: 'text'
+	value: string
+}
+
+interface ChatMarkdownStrongToken {
+	type: 'strong'
+	value: string
+}
+
+interface ChatMarkdownEmphasisToken {
+	type: 'emphasis'
+	value: string
+}
+
+interface ChatMarkdownCodeToken {
+	type: 'code'
+	value: string
+}
+
+interface ChatMarkdownLinkToken {
+	type: 'link'
+	value: string
+	url: string
+}
+
+type ChatMarkdownInlineToken =
+	| ChatMarkdownTextToken
+	| ChatMarkdownStrongToken
+	| ChatMarkdownEmphasisToken
+	| ChatMarkdownCodeToken
+	| ChatMarkdownLinkToken
+
+interface ChatMarkdownParagraphBlock {
+	type: 'paragraph'
+	tokens: ChatMarkdownInlineToken[]
+}
+
+interface ChatMarkdownHeadingBlock {
+	type: 'heading'
+	level: number
+	tokens: ChatMarkdownInlineToken[]
+}
+
+interface ChatMarkdownQuoteBlock {
+	type: 'quote'
+	tokens: ChatMarkdownInlineToken[]
+}
+
+interface ChatMarkdownListBlock {
+	type: 'list'
+	ordered: boolean
+	items: ChatMarkdownInlineToken[][]
+}
+
+interface ChatMarkdownCodeBlock {
+	type: 'codeblock'
+	code: string
+}
+
+type ChatMarkdownBlock =
+	| ChatMarkdownParagraphBlock
+	| ChatMarkdownHeadingBlock
+	| ChatMarkdownQuoteBlock
+	| ChatMarkdownListBlock
+	| ChatMarkdownCodeBlock
+
+const CHAT_MARKDOWN_TOKEN_PATTERN =
+	/(\[[^\]]+\]\((https?:\/\/[^\s)]+)\))|(https?:\/\/[^\s<>"{}|\\^`[\]]+)|(`[^`]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)/gi
+
 function contentToDisplayText(content: ChatMessage['content']): string {
 	if (typeof content === 'string') return content
 	if (!content) return ''
@@ -848,6 +918,392 @@ function contentToDisplayText(content: ChatMessage['content']): string {
 		})
 		.filter((part) => part.length > 0)
 		.join('\n')
+}
+
+function parseChatMarkdownInlineTokens(text: string): ChatMarkdownInlineToken[] {
+	if (!text) return []
+
+	const tokens: ChatMarkdownInlineToken[] = []
+	let cursor = 0
+	const matches = Array.from(text.matchAll(CHAT_MARKDOWN_TOKEN_PATTERN))
+
+	for (const match of matches) {
+		const matchedValue = match[0]
+		if (!matchedValue) continue
+
+		if (match.index > cursor) {
+			tokens.push({
+				type: 'text',
+				value: text.slice(cursor, match.index),
+			})
+		}
+
+		if (match[1] && match[2]) {
+			const linkLabel = matchedValue.slice(1, matchedValue.indexOf(']('))
+			tokens.push({
+				type: 'link',
+				value: linkLabel,
+				url: match[2],
+			})
+		} else if (match[3]) {
+			const cleanUrl = match[3].replace(/[.,;:!?)]+$/, '')
+			tokens.push({
+				type: 'link',
+				value: cleanUrl,
+				url: cleanUrl,
+			})
+		} else if (match[4]) {
+			tokens.push({
+				type: 'code',
+				value: match[4].slice(1, -1),
+			})
+		} else if (match[5]) {
+			tokens.push({
+				type: 'strong',
+				value: match[5].slice(2, -2),
+			})
+		} else if (match[6]) {
+			tokens.push({
+				type: 'emphasis',
+				value: match[6].slice(1, -1),
+			})
+		}
+
+		cursor = match.index + matchedValue.length
+	}
+
+	if (cursor < text.length) {
+		tokens.push({
+			type: 'text',
+			value: text.slice(cursor),
+		})
+	}
+
+	return tokens
+}
+
+function pushChatMarkdownParagraph(lines: string[], blocks: ChatMarkdownBlock[]) {
+	if (lines.length === 0) return
+	blocks.push({
+		type: 'paragraph',
+		tokens: parseChatMarkdownInlineTokens(lines.join(' ')),
+	})
+	lines.length = 0
+}
+
+function parseChatMarkdown(text: string): ChatMarkdownBlock[] {
+	const trimmed = text.trim()
+	if (!trimmed) return []
+
+	const lines = text.split('\n')
+	const blocks: ChatMarkdownBlock[] = []
+	const paragraphLines: string[] = []
+	let activeList: ChatMarkdownListBlock | null = null
+	let inCodeBlock = false
+	const codeLines: string[] = []
+
+	const flushList = () => {
+		if (!activeList) return
+		blocks.push(activeList)
+		activeList = null
+	}
+
+	const flushCodeBlock = () => {
+		if (!inCodeBlock) return
+		blocks.push({
+			type: 'codeblock',
+			code: codeLines.join('\n'),
+		})
+		inCodeBlock = false
+		codeLines.length = 0
+	}
+
+	for (const rawLine of lines) {
+		const line = rawLine.trimEnd()
+		const trimmedLine = line.trim()
+
+		if (trimmedLine.startsWith('```')) {
+			pushChatMarkdownParagraph(paragraphLines, blocks)
+			flushList()
+			if (inCodeBlock) {
+				flushCodeBlock()
+			} else {
+				inCodeBlock = true
+			}
+			continue
+		}
+
+		if (inCodeBlock) {
+			codeLines.push(line)
+			continue
+		}
+
+		if (!trimmedLine) {
+			pushChatMarkdownParagraph(paragraphLines, blocks)
+			flushList()
+			continue
+		}
+
+		const headingMatch = trimmedLine.match(/^(#{1,6})\s+(.+)$/)
+		if (headingMatch?.[1] && headingMatch[2]) {
+			pushChatMarkdownParagraph(paragraphLines, blocks)
+			flushList()
+			blocks.push({
+				type: 'heading',
+				level: headingMatch[1].length,
+				tokens: parseChatMarkdownInlineTokens(headingMatch[2]),
+			})
+			continue
+		}
+
+		const quoteMatch = trimmedLine.match(/^>\s?(.*)$/)
+		if (quoteMatch) {
+			pushChatMarkdownParagraph(paragraphLines, blocks)
+			flushList()
+			blocks.push({
+				type: 'quote',
+				tokens: parseChatMarkdownInlineTokens(quoteMatch[1]),
+			})
+			continue
+		}
+
+		const orderedListMatch = trimmedLine.match(/^\d+\.\s+(.+)$/)
+		const unorderedListMatch = trimmedLine.match(/^[-*]\s+(.+)$/)
+		const listItemText = orderedListMatch?.[1] ?? unorderedListMatch?.[1]
+		if (listItemText) {
+			pushChatMarkdownParagraph(paragraphLines, blocks)
+			const ordered = Boolean(orderedListMatch)
+			if (!activeList || activeList.ordered !== ordered) {
+				flushList()
+				activeList = {
+					type: 'list',
+					ordered,
+					items: [],
+				}
+			}
+			activeList.items.push(parseChatMarkdownInlineTokens(listItemText))
+			continue
+		}
+
+		flushList()
+		paragraphLines.push(trimmedLine)
+	}
+
+	pushChatMarkdownParagraph(paragraphLines, blocks)
+	flushList()
+	flushCodeBlock()
+
+	return blocks
+}
+
+function getChatMarkdownInlineTokenSignature(token: ChatMarkdownInlineToken): string {
+	if (token.type === 'link') {
+		return `${token.type}:${token.value}:${token.url}`
+	}
+	return `${token.type}:${token.value}`
+}
+
+function getChatMarkdownBlockSignature(block: ChatMarkdownBlock): string {
+	if (block.type === 'paragraph' || block.type === 'quote') {
+		return `${block.type}:${block.tokens
+			.map((token) => getChatMarkdownInlineTokenSignature(token))
+			.join('|')}`
+	}
+	if (block.type === 'heading') {
+		return `heading:${block.level}:${block.tokens
+			.map((token) => getChatMarkdownInlineTokenSignature(token))
+			.join('|')}`
+	}
+	if (block.type === 'list') {
+		return `list:${block.ordered}:${block.items
+			.map((item) => item.map((token) => getChatMarkdownInlineTokenSignature(token)).join('|'))
+			.join('||')}`
+	}
+	return `codeblock:${block.code}`
+}
+
+function renderChatMarkdownInlineToken(
+	token: ChatMarkdownInlineToken,
+	variant: 'assistant' | 'user',
+	key: string,
+) {
+	if (token.type === 'text') {
+		return (
+			<span key={key} className="whitespace-pre-wrap break-words">
+				{token.value}
+			</span>
+		)
+	}
+
+	if (token.type === 'strong') {
+		return (
+			<strong key={key} className="font-semibold">
+				{token.value}
+			</strong>
+		)
+	}
+
+	if (token.type === 'emphasis') {
+		return (
+			<em key={key} className="italic">
+				{token.value}
+			</em>
+		)
+	}
+
+	if (token.type === 'code') {
+		return (
+			<code
+				key={key}
+				className={cn(
+					'rounded px-1.5 py-0.5 font-mono text-[0.9em]',
+					variant === 'assistant'
+						? 'bg-background/90 text-foreground'
+						: 'bg-primary-foreground/15 text-primary-foreground',
+				)}
+			>
+				{token.value}
+			</code>
+		)
+	}
+
+	return (
+		<a
+			key={key}
+			href={token.url}
+			target="_blank"
+			rel="noopener noreferrer"
+			className={cn(
+				'break-all underline underline-offset-2',
+				variant === 'assistant'
+					? 'text-blue-700 hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200'
+					: 'text-primary-foreground hover:text-primary-foreground/85',
+			)}
+		>
+			{token.value}
+		</a>
+	)
+}
+
+function renderChatMarkdownInlineTokens(
+	tokens: ChatMarkdownInlineToken[],
+	variant: 'assistant' | 'user',
+) {
+	const seen = new Map<string, number>()
+	return tokens.map((token) => {
+		const signature = getChatMarkdownInlineTokenSignature(token)
+		const nextCount = (seen.get(signature) ?? 0) + 1
+		seen.set(signature, nextCount)
+		return renderChatMarkdownInlineToken(token, variant, `${signature}:${nextCount}`)
+	})
+}
+
+function ChatMarkdownContent({
+	content,
+	variant,
+}: {
+	content: string
+	variant: 'assistant' | 'user'
+}) {
+	const blocks = useMemo(() => parseChatMarkdown(content), [content])
+	const keyedBlocks = useMemo(() => {
+		const seen = new Map<string, number>()
+		return blocks.map((block) => {
+			const signature = getChatMarkdownBlockSignature(block)
+			const nextCount = (seen.get(signature) ?? 0) + 1
+			seen.set(signature, nextCount)
+			return {
+				block,
+				key: `${signature}:${nextCount}`,
+			}
+		})
+	}, [blocks])
+
+	if (keyedBlocks.length === 0) return null
+
+	return (
+		<div className="space-y-3 leading-relaxed">
+			{keyedBlocks.map(({ block, key }) => {
+				if (block.type === 'paragraph') {
+					return (
+						<p key={key} className="break-words [overflow-wrap:anywhere]">
+							{renderChatMarkdownInlineTokens(block.tokens, variant)}
+						</p>
+					)
+				}
+
+				if (block.type === 'heading') {
+					const content = renderChatMarkdownInlineTokens(block.tokens, variant)
+					if (block.level <= 2) {
+						return (
+							<h2 key={key} className="text-base font-semibold tracking-tight">
+								{content}
+							</h2>
+						)
+					}
+					return (
+						<h3 key={key} className="text-sm font-semibold tracking-tight">
+							{content}
+						</h3>
+					)
+				}
+
+				if (block.type === 'quote') {
+					return (
+						<blockquote
+							key={key}
+							className={cn(
+								'border-l-2 pl-3 italic',
+								variant === 'assistant'
+									? 'border-border/80 text-muted-foreground'
+									: 'border-primary-foreground/40 text-primary-foreground/85',
+							)}
+						>
+							{renderChatMarkdownInlineTokens(block.tokens, variant)}
+						</blockquote>
+					)
+				}
+
+				if (block.type === 'list') {
+					const ListTag = block.ordered ? 'ol' : 'ul'
+					const seenItems = new Map<string, number>()
+					return (
+						<ListTag
+							key={key}
+							className={cn('space-y-1 pl-5', block.ordered ? 'list-decimal' : 'list-disc')}
+						>
+							{block.items.map((item) => {
+								const signature = item
+									.map((token) => getChatMarkdownInlineTokenSignature(token))
+									.join('|')
+								const nextCount = (seenItems.get(signature) ?? 0) + 1
+								seenItems.set(signature, nextCount)
+								return (
+									<li key={`${signature}:${nextCount}`} className="pl-1 break-words">
+										{renderChatMarkdownInlineTokens(item, variant)}
+									</li>
+								)
+							})}
+						</ListTag>
+					)
+				}
+
+				return (
+					<pre
+						key={key}
+						className={cn(
+							'overflow-x-auto rounded-md border p-3 font-mono text-[11px] leading-relaxed',
+							variant === 'assistant'
+								? 'border-border/80 bg-background/80 text-foreground'
+								: 'border-primary-foreground/20 bg-primary-foreground/10 text-primary-foreground',
+						)}
+					>
+						<code>{block.code}</code>
+					</pre>
+				)
+			})}
+		</div>
+	)
 }
 
 function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
@@ -907,9 +1363,12 @@ function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
 										className="absolute right-1.5 top-1.5"
 										title="Copy assistant message"
 									/>
-									<p className="whitespace-pre-wrap break-all [overflow-wrap:anywhere]">
-										{parsedAssistantContent.answerText}
-									</p>
+									<div className="pr-6">
+										<ChatMarkdownContent
+											content={parsedAssistantContent.answerText}
+											variant="assistant"
+										/>
+									</div>
 									<div className="mt-2 text-[10px] text-muted-foreground">
 										~{tokenEstimate.toLocaleString()} tok
 									</div>
@@ -967,7 +1426,9 @@ function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
 						className="absolute right-1.5 top-1.5"
 						title="Copy user message"
 					/>
-					<p className="whitespace-pre-wrap break-all [overflow-wrap:anywhere]">{contentText}</p>
+					<div className="pr-6">
+						<ChatMarkdownContent content={contentText} variant="user" />
+					</div>
 					<div className="mt-2 text-[10px] text-primary-foreground/80">
 						~{tokenEstimate.toLocaleString()} tok
 					</div>
@@ -995,9 +1456,12 @@ function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
 							className="absolute right-1.5 top-1.5"
 							title="Copy assistant message"
 						/>
-						<p className="whitespace-pre-wrap break-all [overflow-wrap:anywhere]">
-							{parsedAssistantContent.answerText}
-						</p>
+						<div className="pr-6">
+							<ChatMarkdownContent
+								content={parsedAssistantContent.answerText}
+								variant="assistant"
+							/>
+						</div>
 						<div className="mt-2 text-[10px] text-muted-foreground">
 							~{tokenEstimate.toLocaleString()} tok
 						</div>
