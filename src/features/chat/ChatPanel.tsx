@@ -15,7 +15,9 @@ import type { EditorFeature } from '@/features/geo-editor/core'
 import { Button } from '@/components/ui/button'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
+	AlertTriangle,
 	Loader2,
 	Send,
 	Trash2,
@@ -72,6 +74,21 @@ interface ChatPanelProps {
 
 const defaultGetDatasetName = (event: NDKGeoEvent): string =>
 	event.datasetId ?? event.dTag ?? event.id ?? 'Untitled'
+
+function DangerIndicator() {
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<span className="inline-flex shrink-0 items-center justify-center text-orange-500 dark:text-orange-400">
+					<AlertTriangle className="h-3.5 w-3.5" />
+				</span>
+			</TooltipTrigger>
+			<TooltipContent side="top" sideOffset={6}>
+				danger
+			</TooltipContent>
+		</Tooltip>
+	)
+}
 
 export function ChatPanel({
 	geoEvents = [],
@@ -401,8 +418,11 @@ export function ChatPanel({
 					<div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border bg-muted/20 px-2.5 py-2">
 						<Bot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 						<div className="min-w-0">
-							<p className="truncate text-xs font-medium">
-								{providerLabel} · {selectedModelLabel}
+							<p className="flex items-center gap-1.5 truncate text-xs font-medium">
+								<span className="truncate">{providerLabel}</span>
+								{provider === 'routstr' ? <DangerIndicator /> : null}
+								<span className="shrink-0">·</span>
+								<span className="truncate">{selectedModelLabel}</span>
 							</p>
 							<p className="truncate text-[11px] text-muted-foreground">
 								Configure provider, model, tools, and credentials in Settings

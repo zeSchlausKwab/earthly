@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Bot, KeyRound, Lock, Server, ToggleLeft, ToggleRight } from 'lucide-react'
+import { AlertTriangle, Bot, KeyRound, Lock, Server, ToggleLeft, ToggleRight } from 'lucide-react'
 import { useNDKCurrentUser } from '@nostr-dev-kit/react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,6 +11,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from '@/components/ui/select'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { ProviderType } from './routstr'
 import { useChatStore } from './store'
@@ -21,6 +22,21 @@ const PROVIDER_OPTIONS: { value: ProviderType; label: string }[] = [
 	{ value: 'ollama', label: 'Ollama' },
 	{ value: 'custom', label: 'Custom endpoint' },
 ]
+
+function DangerIndicator() {
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<span className="inline-flex shrink-0 items-center justify-center text-orange-500 dark:text-orange-400">
+					<AlertTriangle className="h-3.5 w-3.5" />
+				</span>
+			</TooltipTrigger>
+			<TooltipContent side="top" sideOffset={6}>
+				danger
+			</TooltipContent>
+		</Tooltip>
+	)
+}
 
 export function ChatSettingsSection() {
 	const currentUser = useNDKCurrentUser()
@@ -41,6 +57,7 @@ export function ChatSettingsSection() {
 		setSelectedModel,
 		setToolsEnabled,
 	} = useChatStore()
+	const selectedProviderOption = PROVIDER_OPTIONS.find((option) => option.value === provider)
 
 	useEffect(() => {
 		if (provider === 'custom' && !customEndpoint.trim()) return
@@ -57,8 +74,8 @@ export function ChatSettingsSection() {
 					<Label className="text-sm font-medium">AI Chat</Label>
 				</div>
 				<p className="text-xs text-muted-foreground">
-					Provider, model, tool access, and custom credentials are encrypted with the active
-					Nostr signer before they are stored locally.
+					Provider, model, tool access, and custom credentials are encrypted with the active Nostr
+					signer before they are stored locally.
 				</p>
 			</div>
 
@@ -70,12 +87,18 @@ export function ChatSettingsSection() {
 					disabled={isStreaming}
 				>
 					<SelectTrigger>
-						<SelectValue />
+						<span className="flex min-w-0 items-center gap-2">
+							<span className="truncate">{selectedProviderOption?.label ?? 'Select provider'}</span>
+							{provider === 'routstr' ? <DangerIndicator /> : null}
+						</span>
 					</SelectTrigger>
 					<SelectContent>
 						{PROVIDER_OPTIONS.map((option) => (
 							<SelectItem key={option.value} value={option.value}>
-								{option.label}
+								<span className="flex min-w-0 items-center gap-2">
+									<span className="truncate">{option.label}</span>
+									{option.value === 'routstr' ? <DangerIndicator /> : null}
+								</span>
 							</SelectItem>
 						))}
 					</SelectContent>

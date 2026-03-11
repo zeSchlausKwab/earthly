@@ -1,4 +1,5 @@
 import {
+	AlertTriangle,
 	Database,
 	Globe,
 	HelpCircle,
@@ -85,6 +86,14 @@ const metaNavItems: {
 	{ mode: 'settings', title: 'Settings', icon: Settings2 },
 	{ mode: 'help', title: 'Help', icon: HelpCircle },
 ]
+
+function SidebarDangerMarker() {
+	return (
+		<span className="inline-flex shrink-0 items-center justify-center text-orange-500">
+			<AlertTriangle className="h-3.5 w-3.5" />
+		</span>
+	)
+}
 
 function isWorkMode(mode: SidebarContentMode): mode is WorkViewMode {
 	return (WORK_VIEW_MODES as SidebarContentMode[]).includes(mode)
@@ -713,15 +722,31 @@ export function AppSidebar({
 						{metaNavItems.map((item) => (
 							<SidebarMenuItem key={item.mode}>
 								<SidebarMenuButton
-									tooltip={{ children: item.title, hidden: false }}
+									tooltip={{
+										children:
+											item.mode === 'wallet' ? (
+												<span className="inline-flex items-center gap-1.5">
+													<span>{item.title}</span>
+													<span className="text-orange-400">danger</span>
+												</span>
+											) : (
+												item.title
+											),
+										hidden: false,
+									}}
 									onClick={() => {
 										handleSelectMetaMode(item.mode)
 										setOpen(true)
 									}}
 									isActive={isMetaMode(contentMode) && contentMode === item.mode}
-									className="px-2.5 md:px-2"
+									className="relative px-2.5 md:px-2"
 								>
 									<item.icon />
+									{item.mode === 'wallet' ? (
+										<span className="pointer-events-none absolute left-5 top-1">
+											<SidebarDangerMarker />
+										</span>
+									) : null}
 									<span>{item.title}</span>
 								</SidebarMenuButton>
 							</SidebarMenuItem>
