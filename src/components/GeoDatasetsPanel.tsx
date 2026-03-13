@@ -2,6 +2,11 @@ import { Eye } from 'lucide-react'
 import { useEffect, useMemo, useRef } from 'react'
 import type { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
+import {
+	getEffectiveContextUse,
+	getEffectiveContextValidationMode,
+} from '@/lib/context/validation'
+import { orderContextsForDisplay } from '@/lib/context/displayOrdering'
 import { cn } from '@/lib/utils'
 import { useFilterState, useSortedFilteredItems, type FilterConfig } from './data-filter'
 import {
@@ -177,17 +182,33 @@ export function GeoDatasetsPanelContent({
 		return 'some'
 	}, [datasetTableData])
 
-	const contextTableData: ContextRowData[] = useMemo(
-		() =>
-			filteredContexts.map((context) => ({
+	const contextTableData: ContextRowData[] = useMemo(() => {
+		const nameByCoordinate = new Map<string, string>()
+		filteredContexts.forEach((context) => {
+			const coordinate = context.contextCoordinate
+			if (coordinate) {
+				nameByCoordinate.set(coordinate, getContextDisplayName(context))
+			}
+		})
+		return orderContextsForDisplay(filteredContexts).map(
+			({ context, depth, displayParentCoordinate }) => ({
 				context,
 				contextName: getContextDisplayName(context),
-				contextUse: context.context.contextUse,
-				validationMode: context.context.validationMode,
+				contextUse: getEffectiveContextUse(context),
+				validationMode: context.context.allowForeignAttachments
+					? getEffectiveContextValidationMode(context)
+					: null,
 				attachmentPolicy: context.context.allowForeignAttachments ? 'open' : 'closed',
-			})),
-		[filteredContexts],
-	)
+				displayDepth: depth,
+				displayParentName: displayParentCoordinate
+					? nameByCoordinate.get(displayParentCoordinate) ?? null
+					: null,
+				isCuratedChild:
+					depth > 0 && !context.context.allowForeignAttachments && context.contextReferences.length > 0,
+				attachmentCount: context.contextReferences.length,
+			}),
+		)
+	}, [filteredContexts])
 
 	const datasetColumnsContext: DatasetColumnsContext = useMemo(
 		() => ({

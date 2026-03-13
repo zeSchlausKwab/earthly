@@ -18,6 +18,7 @@ import {
 	ChevronDown,
 	ChevronUp,
 	Code2,
+	Globe,
 	Heading2,
 	Italic,
 	List,
@@ -35,6 +36,8 @@ export interface GeoFeatureItem {
 	name: string
 	/** The naddr1... address */
 	address: string
+	/** Entity type for reference rendering */
+	entityType?: 'dataset' | 'context' | 'feature'
 	/** Feature ID within the dataset (optional for dataset-level refs) */
 	featureId?: string
 	/** Geometry type for icon */
@@ -158,8 +161,10 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 		const createNameResolver = useCallback(
 			() =>
 				(address: string): string | undefined => {
-					const feature = availableFeaturesRef.current.find((f) => f.address === address)
-					return feature?.name
+					const exactDataset = availableFeaturesRef.current.find(
+						(item) => item.address === address && !item.featureId,
+					)
+					return exactDataset?.name
 				},
 			[],
 		)
@@ -350,6 +355,13 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 			if (!command) return
 			command(item)
 		}, [])
+
+		const getSuggestionIcon = (item: GeoFeatureItem) => {
+			if (item.entityType === 'context') {
+				return <Globe className="h-4 w-4 flex-shrink-0 text-amber-500" />
+			}
+			return <MapPin className="h-4 w-4 flex-shrink-0 text-gray-400" />
+		}
 
 		const insertMarkdown = useCallback(
 			(before: string, after = before, placeholderText = '') => {
@@ -557,7 +569,7 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 									)}
 									Format
 								</Button>
-								<span className="text-[10px] text-stone-500">$ for references</span>
+								<span className="text-[10px] text-stone-500">$ inserts nostr references</span>
 							</div>
 							{isToolbarExpanded && (
 								<div className="flex flex-wrap items-center gap-1 border-b border-gray-200 bg-white px-2 py-1">
@@ -677,7 +689,7 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 									`}
 									onClick={() => selectSuggestion(item)}
 								>
-									<MapPin className="h-4 w-4 text-gray-400 flex-shrink-0" />
+									{getSuggestionIcon(item)}
 									<div className="flex-1 min-w-0">
 										<div className="font-medium truncate">{item.name}</div>
 										{item.datasetName && (

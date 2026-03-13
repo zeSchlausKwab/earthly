@@ -5,6 +5,7 @@ import { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
 import { GEO_COMMENT_KIND } from '@/lib/ndk/kinds'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import { extractReferencedCoordinates, syncAddressReferenceTags } from '@/lib/ndk/nostrReferences'
 import type { FeatureCollection } from 'geojson'
 
 export interface CommentNode {
@@ -159,6 +160,11 @@ export function useGeoComments({
 
 				const address = `${targetKind}:${targetPubkey}:${targetDTag}`
 				comment.setRootScope(targetKind, address, targetPubkey)
+				syncAddressReferenceTags(
+					comment,
+					extractReferencedCoordinates(text),
+					comment.parentAddress ? [comment.parentAddress] : [],
+				)
 
 				await comment.publishComment()
 			} finally {
@@ -189,6 +195,11 @@ export function useGeoComments({
 
 				const rootAddress = `${targetKind}:${targetPubkey}:${targetDTag}`
 				reply.setReplyScope(targetKind, rootAddress, targetPubkey, parentComment)
+				syncAddressReferenceTags(
+					reply,
+					extractReferencedCoordinates(text),
+					reply.parentAddress ? [reply.parentAddress] : [],
+				)
 
 				await reply.publishComment()
 			} finally {

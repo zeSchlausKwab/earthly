@@ -127,11 +127,11 @@ Clients in the current app model SHOULD NOT surface kind `37516` as a first-clas
 
 2.3 Map Context Event (kind 37518)
 
-Map contexts provide shared taxonomy, optional schema validation, authored fixed references, and a binary policy for foreign attachments.
+Map contexts provide shared taxonomy, optional schema validation, Markdown narrative with inline NIP-27 references, and a binary policy for foreign attachments.
 
 Field Purpose
 kind 37518 identifies a map context definition.
-content JSON with { version?, name, description?, descriptionFormat?, image?, contextUse, validationMode, allowForeignAttachments?, fixedReferences?, geometryConstraints?, schemaDialect?, schema? }.
+content JSON with { name, description?, descriptionFormat?, image?, contextUse, validationMode, allowForeignAttachments?, geometryConstraints?, schemaDialect?, schema? }.
 tags Addressing and optional metadata.
 
 Tag Example Notes
@@ -139,32 +139,32 @@ d ["d", "hiking_trails"] Stable context identifier (parameterized replaceable ke
 bbox ["bbox", "16.1,48.1,16.7,48.4"] Optional geographic scope.
 t ["t", "history"] Optional hashtags.
 r ["r", "wss://geo.relay.org"] Optional relay hint.
-v ["v", "2"] Optional context version marker.
 schema-hash ["schema-hash", "sha256:..."] Optional schema integrity hint.
-parent ["parent", "37518:<pubkey>:<d>"] Optional hierarchy edge.
+a ["a", "37515:<pubkey>:<d>"] Queryable mirrored reference extracted from inline `nostr:naddr...` mentions in Markdown.
+c ["c", "37518:<pubkey>:<d>"] Optional attachment to an open parent / taxonomy context.
 
 Content fields:
 1. contextUse: taxonomy | validation | hybrid
 2. validationMode: none | optional | required
 3. descriptionFormat: currently `markdown`
-4. allowForeignAttachments: boolean. If false, clients SHOULD ignore foreign dataset attachments discovered via `c`.
-5. fixedReferences: optional array of authored sticky refs `{ address, featureId?, label? }`
-6. geometryConstraints: optional object with `allowedTypes: GeoJSONGeometryType[]`
-7. schemaDialect: optional JSON Schema dialect URI (recommended 2020-12)
-8. schema: optional self-contained JSON Schema object (no external $ref in v1)
+4. allowForeignAttachments: boolean. If false, clients SHOULD ignore foreign dataset and context attachments discovered via `c`, and the context is interpreted as `taxonomy` with `validationMode=none`.
+5. geometryConstraints: optional object with `allowedTypes: GeoJSONGeometryType[]`
+6. schemaDialect: optional JSON Schema dialect URI (recommended 2020-12)
+7. schema: optional self-contained JSON Schema object (no external $ref in v1)
+8. Inline `nostr:naddr...` mentions inside Markdown SHOULD be mirrored into `a` tags for queryability.
 
 Supported geometry types in v1:
 `Point | MultiPoint | LineString | MultiLineString | Polygon | MultiPolygon | GeometryCollection`
 
 Deterministic v2 interpretation:
-1. Fixed references authored on the context are sticky and always belong to the context view.
-2. Foreign dataset attachments are considered only when `allowForeignAttachments=true`.
+1. Curated dataset references come from inline Markdown mentions mirrored into `a` tags.
+2. Foreign dataset and context attachments are considered only when `allowForeignAttachments=true`.
 3. Dataset + taxonomy context: taxonomy only, no schema validation.
 4. Dataset + validation/hybrid context: schema validation target.
 
 Context attachment tag semantics (`c`):
 1. `["c", "<context-coordinate>"]` where `<context-coordinate>` is `<kind>:<pubkey>:<d>`.
-2. Publishers may include multiple `c` tags to attach one dataset to multiple contexts.
+2. Publishers may include multiple `c` tags to attach one dataset or one child context to multiple contexts.
 3. Clients SHOULD NOT query or render foreign `c` attachments for a context whose content sets `allowForeignAttachments=false`.
 
 Validation behavior:
@@ -175,9 +175,9 @@ Validation behavior:
 5. A validation/hybrid context SHOULD define at least one effective constraint (schema rule or allowed geometry type).
 
 Two-lane context view behavior:
-1. Sticky lane: fixed references authored on the context itself.
-2. Foreign lane: datasets discovered via `c` when `allowForeignAttachments=true`.
-3. Map lane: the union of sticky refs and allowed foreign attachments; strict mode includes only constraint-valid datasets.
+1. Curated lane: datasets/contexts referenced inline in the Markdown body.
+2. Foreign lane: datasets and child contexts discovered via `c` when `allowForeignAttachments=true`.
+3. Map lane: the union of curated dataset refs and allowed foreign dataset attachments; strict mode includes only constraint-valid datasets.
 
 ⸻
 
@@ -199,7 +199,7 @@ Kind Purpose
 
 ⸻
 
-5 Versioning & Updates 1. Kinds 37515/37518 are parameterized replaceable in this app model and SHOULD reuse the same d tag for updates. 2. Use the v tag to communicate a logical version sequence within a lineage. 3. Publish a new d only when intentionally creating a new lineage/breaking fork. 4. Reference predecessors via ["p", "<old-event-id>"] if history is desirable.
+5 Updates 1. Kinds 37515/37518 are parameterized replaceable in this app model and SHOULD reuse the same d tag for updates. 2. Publish a new d only when intentionally creating a new lineage/breaking fork. 3. Reference predecessors via ["p", "<old-event-id>"] if history is desirable.
 
 ⸻
 

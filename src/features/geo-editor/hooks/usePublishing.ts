@@ -8,6 +8,7 @@ import { NDKGeoEvent as NDKGeoEventClass } from '@/lib/ndk/NDKGeoEvent'
 import { NDKGeoEditProposalEvent } from '@/lib/ndk/NDKGeoEditProposalEvent'
 import { GEO_EVENT_KIND } from '@/lib/ndk/kinds'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import { extractReferencedCoordinates, syncAddressReferenceTags } from '@/lib/ndk/nostrReferences'
 import type { EditorFeature } from '../core'
 import { useEditorStore } from '../store'
 import type { EditorBlobReference } from '../types'
@@ -68,6 +69,28 @@ export function usePublishing({
 			...(sanitized ? { properties: sanitized } : {}),
 		}
 	}, [])
+
+	const getCollectionDescription = useCallback((collection: FeatureCollection): string => {
+		const maybeCollection = collection as FeatureCollection & {
+			description?: string
+			properties?: Record<string, unknown>
+		}
+		const direct = maybeCollection.description
+		if (typeof direct === 'string' && direct.trim().length > 0) return direct
+		const propertyDescription = maybeCollection.properties?.description
+		return typeof propertyDescription === 'string' ? propertyDescription : ''
+	}, [])
+
+	const syncRichTextReferenceTags = useCallback(
+		(
+			event: NDKGeoEvent | NDKGeoEditProposalEvent,
+			text: string | undefined,
+			preservedCoordinates: string[] = [],
+		) => {
+			syncAddressReferenceTags(event, extractReferencedCoordinates(text), preservedCoordinates)
+		},
+		[],
+	)
 
 	const serializeBlobReferences = useCallback(
 		(): GeoBlobReference[] =>
@@ -314,6 +337,7 @@ export function usePublishing({
 
 			const event = new NDKGeoEventClass(ndk)
 			event.contextReferences = activeDatasetContextRefs
+			syncRichTextReferenceTags(event, getCollectionDescription(collection))
 
 			if (collectionBlobRef) {
 				// Publish as STUB with external reference (per SPEC.md section 1.5)
@@ -391,6 +415,7 @@ export function usePublishing({
 
 				const event = new NDKGeoEventClass(ndk)
 				event.contextReferences = activeDatasetContextRefs
+				syncRichTextReferenceTags(event, getCollectionDescription(collection))
 				// Compute discovery metadata (bbox/geohash) from the full geometry first.
 				event.featureCollection = collection
 				event.updateDerivedMetadata()
@@ -486,6 +511,7 @@ export function usePublishing({
 			event.contextReferences = activeDatasetContextRefs
 			event.relayHints = activeDataset.relayHints
 			event.blobReferences = refs
+			syncRichTextReferenceTags(event, getCollectionDescription(collection))
 
 			if (collectionBlobRef) {
 				// Publish as STUB with external reference (per SPEC.md section 1.5)
@@ -565,6 +591,7 @@ export function usePublishing({
 			const event = new NDKGeoEventClass(ndk)
 			event.contextReferences = activeDatasetContextRefs
 			event.blobReferences = refs
+			syncRichTextReferenceTags(event, getCollectionDescription(collection))
 
 			if (collectionBlobRef) {
 				event.featureCollection = collection
@@ -633,6 +660,11 @@ export function usePublishing({
 				}
 				proposal.description = description
 				proposal.hashtags = activeDataset.hashtags
+				syncRichTextReferenceTags(
+					proposal,
+					description,
+					proposal.targetAddress ? [proposal.targetAddress] : [],
+				)
 
 				await proposal.publishProposal()
 				setPublishMessage('Edit proposal published successfully.')

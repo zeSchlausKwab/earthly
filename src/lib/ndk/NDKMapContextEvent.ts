@@ -20,14 +20,7 @@ export interface MapContextGeometryConstraints {
 	allowedTypes: MapContextGeometryType[]
 }
 
-export interface MapContextFixedReference {
-	address: string
-	featureId?: string
-	label?: string
-}
-
 export interface MapContextContent {
-	version?: 1
 	name: string
 	description?: string
 	descriptionFormat?: 'markdown'
@@ -35,20 +28,17 @@ export interface MapContextContent {
 	contextUse: MapContextUse
 	validationMode: MapContextValidationMode
 	allowForeignAttachments?: boolean
-	fixedReferences?: MapContextFixedReference[]
 	geometryConstraints?: MapContextGeometryConstraints
 	schemaDialect?: string
 	schema?: Record<string, unknown>
 }
 
 const DEFAULT_CONTENT: MapContextContent = {
-	version: 1,
 	name: '',
 	descriptionFormat: 'markdown',
 	contextUse: 'taxonomy',
 	validationMode: 'none',
 	allowForeignAttachments: false,
-	fixedReferences: [],
 }
 
 export class NDKMapContextEvent extends NDKEvent {
@@ -135,6 +125,27 @@ export class NDKMapContextEvent extends NDKEvent {
 
 	set version(value: string | undefined) {
 		this.replaceOptionalTag('v', value)
+	}
+
+	get contextReferences(): string[] {
+		return this.tags
+			.filter((tag) => tag[0] === 'c')
+			.flatMap((tag) => (typeof tag[1] === 'string' && tag[1] ? [tag[1]] : []))
+	}
+
+	set contextReferences(contexts: string[] | undefined) {
+		this.removeTag('c')
+		contexts?.forEach((value) => {
+			if (value) {
+				this.tags.push(['c', value])
+			}
+		})
+	}
+
+	get referencedAddresses(): string[] {
+		return this.tags
+			.filter((tag) => tag[0] === 'a')
+			.flatMap((tag) => (typeof tag[1] === 'string' && tag[1] ? [tag[1]] : []))
 	}
 
 	get schemaHash(): string | undefined {

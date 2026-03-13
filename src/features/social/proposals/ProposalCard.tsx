@@ -11,6 +11,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { RichContentRenderer } from '@/components/editor'
 import { UserProfile } from '@/components/user-profile'
 import { GeoCommentForm } from '../comments'
 import type { ProposalWithStatus } from '../hooks/useGeoProposals'
@@ -118,7 +119,12 @@ export function ProposalCard({
 				<CollapsibleContent>
 					<div className="px-2.5 pb-2.5 space-y-2">
 						{/* Description */}
-						{description && <p className="text-xs text-gray-600 leading-relaxed">{description}</p>}
+						{description && (
+							<RichContentRenderer
+								content={description}
+								className="space-y-2 text-xs leading-relaxed text-gray-600"
+							/>
+						)}
 
 						{/* Feature count */}
 						<div className="text-[10px] text-gray-400">

@@ -8,8 +8,12 @@ export interface ContextRowData {
 	context: NDKMapContextEvent
 	contextName: string
 	contextUse: string
-	validationMode: string
+	validationMode: string | null
 	attachmentPolicy: string
+	displayDepth: number
+	displayParentName: string | null
+	isCuratedChild: boolean
+	attachmentCount: number
 }
 
 export interface ContextColumnsContext {
@@ -26,12 +30,25 @@ export const createContextColumns = (
 		accessorKey: 'contextName',
 		header: 'Context',
 		cell: ({ row }) => {
-			const { context, contextName } = row.original
+			const {
+				context,
+				contextName,
+				displayDepth,
+				displayParentName,
+				isCuratedChild,
+				attachmentCount,
+			} = row.original
 			const content = context.context
 			return (
-				<div className="space-y-0.5 max-w-[180px]">
-					<div className="text-xs font-semibold text-gray-900 truncate" title={contextName}>
-						{contextName}
+				<div
+					className="max-w-[180px] space-y-0.5"
+					style={displayDepth > 0 ? { paddingLeft: `${displayDepth}rem` } : undefined}
+				>
+					<div className="flex items-center gap-1.5">
+						{displayDepth > 0 && <span className="text-[10px] text-slate-400">└</span>}
+						<div className="truncate text-xs font-semibold text-gray-900" title={contextName}>
+							{contextName}
+						</div>
 					</div>
 					<UserProfile
 						pubkey={context.pubkey}
@@ -39,6 +56,13 @@ export const createContextColumns = (
 						size="sm"
 						showNip05Badge={false}
 					/>
+					{isCuratedChild && (
+						<div className="text-[10px] text-slate-400">
+							curated child
+							{displayParentName ? ` · in ${displayParentName}` : ''}
+							{attachmentCount > 1 ? ` · ${attachmentCount} contexts` : ''}
+						</div>
+					)}
 					{content.description && (
 						<div className="text-[10px] text-gray-500 line-clamp-2">{content.description}</div>
 					)}
@@ -64,6 +88,9 @@ export const createContextColumns = (
 		size: 120,
 		cell: ({ row }) => {
 			const mode = row.original.validationMode
+			if (!mode) {
+				return <span className="text-[10px] text-slate-300">-</span>
+			}
 			const className =
 				mode === 'required'
 					? 'bg-red-100 text-red-700'

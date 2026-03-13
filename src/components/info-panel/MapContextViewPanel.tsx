@@ -3,10 +3,17 @@ import { useCallback, useMemo, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
 import { useEditorStore } from '@/features/geo-editor/store'
-import { resolveContextFixedReferences } from '@/lib/context/references'
-import { validateDatasetForContext, type ContextFilterMode } from '@/lib/context/validation'
+import { encodeContextNaddr, resolveContextReferences } from '@/lib/context/references'
+import {
+	getEffectiveContextUse,
+	getEffectiveContextValidationMode,
+	validateDatasetForContext,
+	type ContextFilterMode,
+} from '@/lib/context/validation'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import { CommentsPanel } from '@/features/social/comments'
+import { buildRouteHash } from '@/features/geo-editor/hooks/useRouting'
 import { Button } from '../ui/button'
 import { Label } from '../ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
@@ -27,6 +34,7 @@ interface MapContextViewPanelProps {
 	onCommentGeometryVisibility?: (comment: NDKGeoCommentEvent, visible: boolean) => void
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
 	availableFeatures?: GeoFeatureItem[]
+	mapContextEvents?: NDKMapContextEvent[]
 	onMentionVisibilityToggle?: (
 		address: string,
 		featureId: string | undefined,
@@ -47,6 +55,7 @@ export function MapContextViewPanel({
 	onCommentGeometryVisibility,
 	onZoomToBounds,
 	availableFeatures = [],
+	mapContextEvents = [],
 	onMentionVisibilityToggle,
 	onMentionZoomTo,
 	focusCommentId,
@@ -75,18 +84,26 @@ export function MapContextViewPanel({
 		})
 		return map
 	}, [viewContext, viewContextDatasets, getDatasetKey, validationModeForDisplay])
-	const fixedReferences = useMemo(
-		() => resolveContextFixedReferences(viewContext, viewContextDatasets, availableFeatures),
-		[availableFeatures, viewContext, viewContextDatasets],
+	const referencedEntities = useMemo(
+		() => resolveContextReferences(viewContext, viewContextDatasets, mapContextEvents, availableFeatures),
+		[availableFeatures, mapContextEvents, viewContext, viewContextDatasets],
 	)
-	const fixedReferenceKeySet = useMemo(() => {
+	const referencedDatasets = useMemo(
+		() => referencedEntities.filter((reference) => reference.type === 'dataset'),
+		[referencedEntities],
+	)
+	const referencedContexts = useMemo(
+		() => referencedEntities.filter((reference) => reference.type === 'context'),
+		[referencedEntities],
+	)
+	const referencedDatasetKeySet = useMemo(() => {
 		const keys = new Set<string>()
-		fixedReferences.forEach((reference) => {
+		referencedDatasets.forEach((reference) => {
 			if (!reference.dataset) return
 			keys.add(getDatasetKey(reference.dataset))
 		})
 		return keys
-	}, [fixedReferences, getDatasetKey])
+	}, [referencedDatasets, getDatasetKey])
 
 	const counters = useMemo(() => {
 		let valid = 0
@@ -112,6 +129,27 @@ export function MapContextViewPanel({
 		if (selectedFeatureIds.length === 0) return []
 		return features.filter((feature) => selectedFeatureIds.includes(feature.id))
 	}, [features, selectedFeatureIds])
+	const attachedContexts = useMemo(() => {
+		if (!viewContext?.context.allowForeignAttachments) return []
+		const coordinate = viewContext.contextCoordinate
+		if (!coordinate) return []
+		return mapContextEvents.filter(
+			(context) =>
+				context.id !== viewContext.id &&
+				context.contextCoordinate !== coordinate &&
+				context.contextReferences.includes(coordinate),
+		)
+	}, [mapContextEvents, viewContext])
+
+	const openContextRoute = useCallback((context: NDKMapContextEvent) => {
+		const naddr = encodeContextNaddr(context)
+		if (!naddr) return
+		window.location.hash = buildRouteHash({
+			sidebarView: 'contexts',
+			focusType: 'mapcontext',
+			naddr,
+		})
+	}, [])
 
 	const canAttachGeometry = selectedFeatures.length > 0 && !attachedGeojson
 
@@ -173,11 +211,13 @@ export function MapContextViewPanel({
 	}
 
 	const contextContent = viewContext.context
+	const effectiveContextUse = getEffectiveContextUse(viewContext)
+	const effectiveValidationMode = getEffectiveContextValidationMode(viewContext)
 	const contextKey = viewContext.contextId ?? viewContext.dTag ?? viewContext.id ?? null
 	const isDeletingContext = contextKey ? deletingKey === `context:${contextKey}` : false
 	const allowedGeometryTypes = contextContent.geometryConstraints?.allowedTypes ?? []
-	const stickyDatasetCount = fixedReferenceKeySet.size
-	const foreignDatasetCount = Math.max(0, viewContextDatasets.length - stickyDatasetCount)
+	const referencedDatasetCount = referencedDatasetKeySet.size
+	const foreignDatasetCount = Math.max(0, viewContextDatasets.length - referencedDatasetCount)
 	const commentsSection = (
 		<EntityPanelSurface tone="discussion" className="space-y-4">
 			<EntityPanelSectionHeader
@@ -248,17 +288,24 @@ export function MapContextViewPanel({
 					)}
 					<div className="flex flex-wrap gap-2 text-[10px]">
 						<span className="border border-slate-200 px-2 py-0.5 text-blue-700">
-							use: {contextContent.contextUse}
+							use: {effectiveContextUse}
 						</span>
-						<span className="border border-slate-200 px-2 py-0.5 text-amber-700">
-							validation: {contextContent.validationMode}
-						</span>
+						{viewContext.context.allowForeignAttachments && (
+							<span className="border border-slate-200 px-2 py-0.5 text-amber-700">
+								validation: {effectiveValidationMode}
+							</span>
+						)}
 						<span className="border border-slate-200 px-2 py-0.5 text-stone-700">
 							foreign attachments: {contextContent.allowForeignAttachments ? 'open' : 'closed'}
 						</span>
 						<span className="border border-slate-200 px-2 py-0.5 text-sky-700">
-							sticky refs: {fixedReferences.length}
+							curated refs: {referencedEntities.length}
 						</span>
+						{contextContent.allowForeignAttachments && (
+							<span className="border border-slate-200 px-2 py-0.5 text-violet-700">
+								child contexts: {attachedContexts.length}
+							</span>
+						)}
 						{allowedGeometryTypes.length > 0 && (
 							<span className="border border-slate-200 px-2 py-0.5 text-emerald-700">
 								geometry: {allowedGeometryTypes.join(', ')}
@@ -293,7 +340,7 @@ export function MapContextViewPanel({
 					<EntityPanelSectionHeader
 						eyebrow="Map Lane"
 						title={`Map lane datasets (${mapLaneDatasets.length})`}
-						description={`sticky ${stickyDatasetCount} · foreign ${foreignDatasetCount}`}
+						description={`curated ${referencedDatasetCount} · foreign ${foreignDatasetCount}`}
 					/>
 
 					{mapLaneDatasets.length === 0 ? (
@@ -353,24 +400,22 @@ export function MapContextViewPanel({
 
 				<EntityPanelSurface tone="neutral" className="space-y-3">
 					<EntityPanelSectionHeader
-						eyebrow="Pinned"
-						title={`Sticky references (${fixedReferences.length})`}
+						eyebrow="Curated"
+						title={`Referenced datasets (${referencedDatasets.length})`}
 					/>
-					{fixedReferences.length === 0 ? (
-						<p className="text-xs text-gray-500">No sticky references authored for this context.</p>
+					{referencedDatasets.length === 0 ? (
+						<p className="text-xs text-gray-500">No curated dataset references in this context.</p>
 					) : (
 						<div className="space-y-2">
-							{fixedReferences.map((reference, index) => (
+							{referencedDatasets.map((reference, index) => (
 								<div
-									key={`${reference.reference.address}:${reference.reference.featureId ?? 'dataset'}:${index}`}
+									key={`${reference.address}:${reference.featureId ?? 'dataset'}:${index}`}
 									className="flex items-center justify-between gap-2 border-b border-slate-200 py-2"
 								>
 									<div className="min-w-0">
 										<p className="truncate text-xs font-medium text-gray-900">{reference.label}</p>
 										<p className="text-[10px] text-gray-500">
-											{reference.reference.featureId
-												? `feature ${reference.reference.featureId}`
-												: 'dataset reference'}
+											{reference.featureId ? `feature ${reference.featureId}` : 'dataset reference'}
 										</p>
 									</div>
 									<div className="flex items-center gap-2">
@@ -389,8 +434,8 @@ export function MapContextViewPanel({
 											variant="outline"
 											onClick={() =>
 												onMentionZoomTo?.(
-													reference.reference.address,
-													reference.reference.featureId,
+													reference.address,
+													reference.featureId,
 												)
 											}
 											className="rounded-none border-stone-200 bg-white px-2 text-xs"
@@ -403,6 +448,85 @@ export function MapContextViewPanel({
 						</div>
 					)}
 				</EntityPanelSurface>
+
+				<EntityPanelSurface tone="neutral" className="space-y-3">
+					<EntityPanelSectionHeader
+						eyebrow="Attached Contexts"
+						title={`Child contexts (${attachedContexts.length})`}
+						description={
+							contextContent.allowForeignAttachments
+								? 'Contexts attached via c are discoverable here.'
+								: 'Closed contexts ignore inbound context attachments.'
+						}
+					/>
+					{attachedContexts.length === 0 ? (
+						<p className="text-xs text-gray-500">
+							{contextContent.allowForeignAttachments
+								? 'No attached child contexts.'
+								: 'Foreign context attachments are disabled.'}
+						</p>
+					) : (
+						<div className="space-y-2">
+							{attachedContexts.map((context) => (
+								<div
+									key={context.contextCoordinate ?? context.id}
+									className="flex items-center justify-between gap-2 border-b border-slate-200 py-2"
+								>
+									<div className="min-w-0">
+										<p className="truncate text-xs font-medium text-gray-900">
+											{context.context.name || context.contextId || 'Untitled context'}
+										</p>
+										<p className="truncate text-[10px] text-gray-500">
+											{context.context.allowForeignAttachments ? 'open' : 'closed'} ·{' '}
+											{getEffectiveContextUse(context)}
+										</p>
+									</div>
+									<Button
+										size="sm"
+										variant="outline"
+										onClick={() => openContextRoute(context)}
+										className="rounded-none border-stone-200 bg-white px-2 text-xs"
+									>
+										Open
+									</Button>
+								</div>
+							))}
+						</div>
+					)}
+				</EntityPanelSurface>
+
+				{referencedContexts.length > 0 && (
+					<EntityPanelSurface tone="neutral" className="space-y-3">
+						<EntityPanelSectionHeader
+							eyebrow="Curated"
+							title={`Referenced contexts (${referencedContexts.length})`}
+						/>
+						<div className="space-y-2">
+							{referencedContexts.map((reference, index) => (
+								<div
+									key={`${reference.address}:${index}`}
+									className="flex items-center justify-between gap-2 border-b border-slate-200 py-2"
+								>
+									<div className="min-w-0">
+										<p className="truncate text-xs font-medium text-gray-900">{reference.label}</p>
+										<p className="truncate text-[10px] text-gray-500">
+											{reference.context.context.allowForeignAttachments ? 'open' : 'closed'} ·{' '}
+											{getEffectiveContextUse(reference.context)}
+										</p>
+									</div>
+									<Button
+										size="sm"
+										variant="outline"
+										onClick={() => openContextRoute(reference.context)}
+										className="rounded-none border-stone-200 bg-white px-2 text-xs"
+									>
+										Open
+									</Button>
+								</div>
+							))}
+						</div>
+					</EntityPanelSurface>
+				)}
 
 				{commentsSection}
 			</div>

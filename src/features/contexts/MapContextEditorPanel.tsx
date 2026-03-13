@@ -6,9 +6,12 @@ import {
 	MAP_CONTEXT_GEOMETRY_TYPES,
 	NDKMapContextEvent,
 	type MapContextContent,
-	type MapContextFixedReference,
 	type MapContextGeometryType,
 } from '@/lib/ndk/NDKMapContextEvent'
+import {
+	extractReferencedCoordinates,
+	syncAddressReferenceTags,
+} from '@/lib/ndk/nostrReferences'
 import {
 	GeoRichTextEditor,
 	type GeoFeatureItem,
@@ -47,6 +50,7 @@ interface MapContextEditorPanelProps {
 	onClose: () => void
 	onSave: (context: NDKMapContextEvent) => void
 	availableFeatures?: GeoFeatureItem[]
+	mapContextEvents?: NDKMapContextEvent[]
 }
 
 const ajv = new Ajv2020({
@@ -228,28 +232,12 @@ function sampleJsonFromBuilder(fields: SchemaBuilderField[]): string {
 	return JSON.stringify(samplePropertiesFromBuilder(fields), null, 2)
 }
 
-function dedupeFixedReferences(references: MapContextFixedReference[]): MapContextFixedReference[] {
-	const seen = new Set<string>()
-	return references.flatMap((reference) => {
-		if (!reference.address.trim()) return []
-		const key = `${reference.address}#${reference.featureId ?? ''}`
-		if (seen.has(key)) return []
-		seen.add(key)
-		return [
-			{
-				address: reference.address,
-				featureId: reference.featureId || undefined,
-				label: reference.label?.trim() || undefined,
-			},
-		]
-	})
-}
-
 export function MapContextEditorPanel({
 	initialContext,
 	onClose,
 	onSave,
 	availableFeatures = [],
+	mapContextEvents = [],
 }: MapContextEditorPanelProps) {
 	const { ndk } = useNDK()
 	const currentUser = useNDKCurrentUser()
@@ -268,8 +256,8 @@ export function MapContextEditorPanel({
 	const [allowForeignAttachments, setAllowForeignAttachments] = useState(
 		initial?.allowForeignAttachments ?? false,
 	)
-	const [fixedReferences, setFixedReferences] = useState<MapContextFixedReference[]>(
-		initial?.fixedReferences ?? [],
+	const [attachedContextRefs, setAttachedContextRefs] = useState<string[]>(
+		initialContext?.contextReferences ?? [],
 	)
 	const [activeTab, setActiveTab] = useState<ContextEditorTab>('content')
 	const [schemaMode, setSchemaMode] = useState<'builder' | 'json'>('builder')
@@ -303,7 +291,7 @@ export function MapContextEditorPanel({
 		setContextUse(nextInitial?.contextUse ?? 'taxonomy')
 		setValidationMode(nextInitial?.validationMode ?? 'none')
 		setAllowForeignAttachments(nextInitial?.allowForeignAttachments ?? false)
-		setFixedReferences(nextInitial?.fixedReferences ?? [])
+		setAttachedContextRefs(initialContext?.contextReferences ?? [])
 		setActiveTab('content')
 		setAllowedGeometryTypes(nextInitial?.geometryConstraints?.allowedTypes ?? [])
 		setSchemaMode('builder')
@@ -362,6 +350,16 @@ export function MapContextEditorPanel({
 		}
 	}, [activeTab, allowForeignAttachments])
 
+	useEffect(() => {
+		if (allowForeignAttachments) return
+		if (contextUse !== 'taxonomy') {
+			setContextUse('taxonomy')
+		}
+		if (validationMode !== 'none') {
+			setValidationMode('none')
+		}
+	}, [allowForeignAttachments, contextUse, validationMode])
+
 	const toggleAllowedGeometryType = (type: MapContextGeometryType, checked: boolean) => {
 		const next = new Set(allowedGeometryTypes)
 		if (checked) {
@@ -372,19 +370,36 @@ export function MapContextEditorPanel({
 		setAllowedGeometryTypes(Array.from(next.values()))
 	}
 
-	const handleReferenceSearchSelect = (result: EntitySearchResult) => {
-		if (result.type !== 'feature') return
-		const selectedReference = result.entity
-		setFixedReferences((prev) =>
-			dedupeFixedReferences([
-				...prev,
-				{
-					address: selectedReference.address,
-					featureId: selectedReference.featureId,
-					label: result.name,
-				},
-			]),
-		)
+	const currentContextCoordinate = initialContext?.contextCoordinate ?? null
+	const attachableContexts = useMemo(() => {
+		const attached = new Set(attachedContextRefs)
+		return mapContextEvents
+			.filter((context) => {
+				const coordinate = context.contextCoordinate
+				if (!coordinate) return false
+				if (currentContextCoordinate && coordinate === currentContextCoordinate) return false
+				if (attached.has(coordinate)) return true
+				return context.context.allowForeignAttachments
+			})
+			.sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
+	}, [attachedContextRefs, currentContextCoordinate, mapContextEvents])
+
+	const attachedContexts = useMemo(
+		() =>
+			attachedContextRefs
+				.map((coordinate) =>
+					mapContextEvents.find((context) => context.contextCoordinate === coordinate) ?? null,
+				)
+				.filter((context): context is NDKMapContextEvent => Boolean(context)),
+		[attachedContextRefs, mapContextEvents],
+	)
+
+	const handleAttachmentSearchSelect = (result: EntitySearchResult) => {
+		if (result.type !== 'context') return
+		const selectedContext = result.entity as NDKMapContextEvent
+		const coordinate = selectedContext.contextCoordinate
+		if (!coordinate) return
+		setAttachedContextRefs((prev) => (prev.includes(coordinate) ? prev : [...prev, coordinate]))
 	}
 
 	const handleSave = async () => {
@@ -420,21 +435,20 @@ export function MapContextEditorPanel({
 				? NDKMapContextEvent.from(initialContext)
 				: new NDKMapContextEvent(ndk)
 
+			const effectiveContextUse = !allowForeignAttachments ? 'taxonomy' : contextUse
 			const effectiveValidationMode =
-				!allowForeignAttachments || contextUse === 'taxonomy'
+				!allowForeignAttachments || effectiveContextUse === 'taxonomy'
 					? 'none'
 					: validationMode || 'optional'
 
 			event.context = {
-				version: 1,
 				name: name.trim(),
 				description: description.length > 0 ? description : undefined,
 				descriptionFormat: 'markdown',
 				image: image.trim() || undefined,
-				contextUse,
+				contextUse: effectiveContextUse,
 				validationMode: effectiveValidationMode,
 				allowForeignAttachments,
-				fixedReferences: dedupeFixedReferences(fixedReferences),
 				geometryConstraints:
 					validationEnabled && allowedGeometryTypes.length > 0
 						? { allowedTypes: allowedGeometryTypes }
@@ -448,6 +462,8 @@ export function MapContextEditorPanel({
 						? (parsedSchema.schema as Record<string, unknown>)
 						: undefined,
 			}
+			event.contextReferences = attachedContextRefs
+			syncAddressReferenceTags(event, extractReferencedCoordinates(description))
 
 			await event.publishNew()
 			onSave(event)
@@ -497,7 +513,7 @@ export function MapContextEditorPanel({
 						<EntityPanelSectionHeader
 							eyebrow="Narrative"
 							title="Describe the context"
-							description="Markdown is stored verbatim. Use $ mentions to reference geometry inline."
+							description="Markdown is stored verbatim. Use $ to insert NIP-27 nostr references inline."
 						/>
 						<div className="space-y-2">
 							<Label>Name</Label>
@@ -516,7 +532,7 @@ export function MapContextEditorPanel({
 								onChange={setDescription}
 								availableFeatures={availableFeatures}
 								placeholder={`## Scope
-Write in Markdown. Mention datasets or features with $.`}
+Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 								rows={8}
 								className="min-h-[280px] w-full"
 							/>
@@ -530,92 +546,6 @@ Write in Markdown. Mention datasets or features with $.`}
 								className="rounded-none"
 							/>
 						</div>
-					</EntityPanelSurface>
-					<EntityPanelSurface tone="neutral" className="space-y-3">
-						<EntityPanelSectionHeader
-							eyebrow="Sticky Refs"
-							title="Authoritative references"
-							description="Pinned refs are owned by the context author and always render in the context."
-						/>
-						<div className="space-y-2">
-							<Label>Add sticky reference</Label>
-							<EntitySearchPopover
-								sources={{ features: availableFeatures }}
-								entityTypes={['feature']}
-								onSelect={handleReferenceSearchSelect}
-								placeholder="Search loaded datasets and features…"
-								searchMode="local"
-								inputClassName="rounded-none"
-							/>
-							{availableFeatures.length === 0 && (
-								<p className="text-[11px] text-slate-500">
-									Load datasets first if you want to pin sticky geometry.
-								</p>
-							)}
-							{availableFeatures.length > 0 && (
-								<p className="text-[11px] text-slate-500">
-									Select a dataset or feature from search to pin it immediately.
-								</p>
-							)}
-						</div>
-					</EntityPanelSurface>
-
-					<EntityPanelSurface tone="neutral" className="space-y-2">
-						<EntityPanelSectionHeader
-							eyebrow="Current"
-							title={`Pinned references (${fixedReferences.length})`}
-						/>
-						{fixedReferences.length === 0 ? (
-							<p className="border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
-								No sticky refs yet. This context will rely on its narrative and policy.
-							</p>
-						) : (
-							fixedReferences.map((reference, index) => (
-								<div
-									key={`${reference.address}:${reference.featureId ?? 'dataset'}:${index}`}
-									className="space-y-2 border border-slate-200 px-3 py-2"
-								>
-									<div className="flex items-start justify-between gap-2">
-										<div className="min-w-0">
-											<p className="truncate text-xs font-medium text-slate-900">
-												{reference.label || 'Pinned reference'}
-											</p>
-											<p className="truncate text-[10px] text-slate-500">
-												{reference.featureId ? `Feature ${reference.featureId}` : 'Dataset'} ·{' '}
-												{reference.address}
-											</p>
-										</div>
-										<Button
-											type="button"
-											variant="ghost"
-											size="sm"
-											className="h-6 rounded-none px-2 text-[11px]"
-											onClick={() =>
-												setFixedReferences((prev) =>
-													prev.filter((_, itemIndex) => itemIndex !== index),
-												)
-											}
-										>
-											Remove
-										</Button>
-									</div>
-									<Input
-										value={reference.label ?? ''}
-										onChange={(event) =>
-											setFixedReferences((prev) =>
-												prev.map((item, itemIndex) =>
-													itemIndex === index
-														? { ...item, label: event.target.value }
-														: item,
-												),
-											)
-										}
-										placeholder="Optional custom label"
-										className="rounded-none"
-									/>
-								</div>
-							))
-						)}
 					</EntityPanelSurface>
 				</TabsContent>
 
@@ -642,6 +572,66 @@ Write in Markdown. Mention datasets or features with $.`}
 							<p className="text-[11px] text-slate-500">
 								Validation and schema controls stay hidden while foreign attachments are off.
 							</p>
+						)}
+					</EntityPanelSurface>
+
+					<EntityPanelSurface tone="neutral" className="space-y-3">
+						<EntityPanelSectionHeader
+							eyebrow="Context Graph"
+							title="Attach this context"
+							description="Use c attachments for open parent contexts. Closed contexts are excluded from search unless already attached."
+						/>
+						<div className="space-y-2">
+							<Label>Attach to open context</Label>
+							<EntitySearchPopover
+								sources={{ contexts: attachableContexts }}
+								entityTypes={['context']}
+								onSelect={handleAttachmentSearchSelect}
+								placeholder="Search open contexts…"
+								searchMode="local"
+								inputClassName="rounded-none"
+							/>
+						</div>
+						{attachedContexts.length === 0 ? (
+							<p className="border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
+								This context is currently standalone.
+							</p>
+						) : (
+							<div className="space-y-2">
+								{attachedContexts.map((context) => {
+									const coordinate = context.contextCoordinate
+									if (!coordinate) return null
+									return (
+										<div
+											key={coordinate}
+											className="flex items-center justify-between gap-2 border border-slate-200 px-3 py-2"
+										>
+											<div className="min-w-0">
+												<p className="truncate text-xs font-medium text-slate-900">
+													{context.context.name || context.contextId || 'Untitled context'}
+												</p>
+												<p className="truncate text-[10px] text-slate-500">
+													{context.context.allowForeignAttachments ? 'open' : 'closed'} ·{' '}
+													{coordinate}
+												</p>
+											</div>
+											<Button
+												type="button"
+												variant="ghost"
+												size="sm"
+												className="h-6 rounded-none px-2 text-[11px]"
+												onClick={() =>
+													setAttachedContextRefs((prev) =>
+														prev.filter((value) => value !== coordinate),
+													)
+												}
+											>
+												Detach
+											</Button>
+										</div>
+									)
+								})}
+							</div>
 						)}
 					</EntityPanelSurface>
 

@@ -1,0 +1,160 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Earthly Geo Entities Poster</title>
+  <desc id="desc">Card-based overview of Earthly's geo entities: Dataset, Map Context, Geo Comment, Geo Edit Proposal, and Proposal Status.</desc>
+
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#132033" flood-opacity="0.08"/>
+    </filter>
+    <pattern id="paper-dots" x="0" y="0" width="36" height="36" patternUnits="userSpaceOnUse">
+      <circle cx="6" cy="8" r="1" fill="#d8d0c5" opacity="0.22"/>
+      <circle cx="28" cy="20" r="1" fill="#d8d0c5" opacity="0.18"/>
+    </pattern>
+    <style>
+      .display { font: 700 74px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2937; }
+      .subtitle { font: 400 34px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #374151; }
+      .callout { font: 500 24px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #3f3f46; }
+      .card-title { font: 700 28px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #f8fafc; }
+      .card-kind { font: 500 18px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: rgba(248,250,252,0.88); }
+      .card-body { font: 400 17px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2937; }
+      .footer { font: 500 24px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2937; }
+      .footer-strong { font-weight: 700; }
+      .icon { fill: none; stroke: #f8fafc; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+      .outline { fill: #fcfbf7; stroke: #7b8b98; stroke-width: 2; }
+      .blue { fill: #1f4467; }
+      .teal { fill: #6fa8aa; }
+      .amber { fill: #d79a52; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1200" rx="34" fill="#f6f1e8"/>
+  <rect width="1600" height="1200" rx="34" fill="url(#paper-dots)"/>
+
+  <text x="92" y="138" class="display">Earthly Geo Entities</text>
+  <text x="92" y="194" class="subtitle">What each Nostr entity does</text>
+
+  <g filter="url(#shadow)">
+    <rect x="1180" y="120" width="300" height="118" rx="24" fill="#fcfbf7" stroke="#d79a52" stroke-width="2.5"/>
+    <text x="1330" y="162" text-anchor="middle" class="callout">
+      <tspan x="1330" dy="0">37516 collections are</tspan>
+      <tspan x="1330" dy="30">deprecated in the</tspan>
+      <tspan x="1330" dy="30">active model</tspan>
+    </text>
+  </g>
+
+  <!-- Card 1 -->
+  <g filter="url(#shadow)">
+    <rect x="92" y="286" width="268" height="412" rx="28" class="outline"/>
+    <rect x="92" y="286" width="268" height="160" rx="28" class="blue"/>
+    <path class="icon" d="M158 338l28-14 28 14 28-14 28 14v60l-28-14-28 14-28-14-28 14z"/>
+    <path class="icon" d="M186 324v60M214 338v60M242 324v60"/>
+    <circle cx="255" cy="352" r="4" fill="#f8fafc"/>
+    <text x="226" y="484" text-anchor="middle" class="card-title">Dataset</text>
+    <text x="226" y="514" text-anchor="middle" class="card-kind">Kind: 37515</text>
+    <text x="118" y="560" class="card-body">
+      <tspan x="118" dy="0">- Stores the GeoJSON</tspan>
+      <tspan x="118" dy="27">  FeatureCollection</tspan>
+      <tspan x="118" dy="40">- Carries bbox, geohash,</tspan>
+      <tspan x="118" dy="27">  checksum, metadata</tspan>
+      <tspan x="118" dy="40">- Can attach itself to</tspan>
+      <tspan x="118" dy="27">  contexts with c tags</tspan>
+    </text>
+  </g>
+
+  <!-- Card 2 -->
+  <g filter="url(#shadow)">
+    <rect x="392" y="286" width="268" height="412" rx="28" class="outline"/>
+    <rect x="392" y="286" width="268" height="160" rx="28" class="blue"/>
+    <circle cx="526" cy="355" r="34" class="icon"/>
+    <path class="icon" d="M526 318v10M526 382v10M489 355h10M553 355h10"/>
+    <path class="icon" d="M526 355l16-10"/>
+    <path class="icon" d="M526 355l-8 18"/>
+    <circle cx="526" cy="355" r="6" fill="#f8fafc"/>
+    <text x="526" y="484" text-anchor="middle" class="card-title">Map Context</text>
+    <text x="526" y="514" text-anchor="middle" class="card-kind">Kind: 37518</text>
+    <text x="418" y="560" class="card-body">
+      <tspan x="418" dy="0">- Acts as a lens over</tspan>
+      <tspan x="418" dy="27">  datasets</tspan>
+      <tspan x="418" dy="40">- Pins sticky refs and</tspan>
+      <tspan x="418" dy="27">  controls foreign</tspan>
+      <tspan x="418" dy="27">  attachments</tspan>
+      <tspan x="418" dy="40">- Can validate geometry</tspan>
+      <tspan x="418" dy="27">  and schema rules</tspan>
+    </text>
+  </g>
+
+  <!-- Card 3 -->
+  <g filter="url(#shadow)">
+    <rect x="692" y="286" width="268" height="412" rx="28" class="outline"/>
+    <rect x="692" y="286" width="268" height="160" rx="28" class="teal"/>
+    <path class="icon" d="M786 333c0-18 16-30 36-30h18c20 0 36 12 36 30s-16 30-36 30h-10l-18 18v-18h-10c-20 0-36-12-36-30z"/>
+    <path class="icon" d="M818 332h26M818 348h38"/>
+    <path class="icon" d="M872 365l28 28"/>
+    <path class="icon" d="M895 364l9-9 12 12-9 9-18 6z"/>
+    <text x="826" y="484" text-anchor="middle" class="card-title">Geo Comment</text>
+    <text x="826" y="514" text-anchor="middle" class="card-kind">Kind: 37517</text>
+    <text x="718" y="560" class="card-body">
+      <tspan x="718" dy="0">- Adds threaded</tspan>
+      <tspan x="718" dy="27">  discussion to dataset</tspan>
+      <tspan x="718" dy="27">  or context</tspan>
+      <tspan x="718" dy="40">- Can include optional</tspan>
+      <tspan x="718" dy="27">  annotation GeoJSON</tspan>
+      <tspan x="718" dy="40">- Supports replies with</tspan>
+      <tspan x="718" dy="27">  NIP-22 threading</tspan>
+    </text>
+  </g>
+
+  <!-- Card 4 -->
+  <g filter="url(#shadow)">
+    <rect x="992" y="286" width="268" height="412" rx="28" class="outline"/>
+    <rect x="992" y="286" width="268" height="160" rx="28" class="amber"/>
+    <path class="icon" d="M1085 389l18-4 54-54-14-14-54 54z"/>
+    <path class="icon" d="M1143 317l14 14"/>
+    <path class="icon" d="M1078 396l25-7"/>
+    <path class="icon" d="M1118 330h58"/>
+    <path class="icon" d="M1148 314l28 16"/>
+    <text x="1126" y="484" text-anchor="middle" class="card-title">Geo Edit Proposal</text>
+    <text x="1126" y="514" text-anchor="middle" class="card-kind">Kind: 37519</text>
+    <text x="1018" y="560" class="card-body">
+      <tspan x="1018" dy="0">- Suggests full</tspan>
+      <tspan x="1018" dy="27">  replacement geometry</tspan>
+      <tspan x="1018" dy="27">  for a dataset</tspan>
+      <tspan x="1018" dy="40">- Targets an existing</tspan>
+      <tspan x="1018" dy="27">  dataset lineage</tspan>
+      <tspan x="1018" dy="40">- Lets the owner review</tspan>
+      <tspan x="1018" dy="27">  before applying</tspan>
+    </text>
+  </g>
+
+  <!-- Card 5 -->
+  <g filter="url(#shadow)">
+    <rect x="1142" y="736" width="268" height="320" rx="28" class="outline"/>
+    <rect x="1142" y="736" width="268" height="144" rx="28" class="amber"/>
+    <path class="icon" d="M1267 776l20-8 20 8 8 20-8 20-20 8-20-8-8-20z"/>
+    <circle cx="1287" cy="796" r="22" class="icon"/>
+    <path class="icon" d="M1277 797l8 8 15-18"/>
+    <text x="1276" y="918" text-anchor="middle" class="card-title">Proposal Status</text>
+    <text x="1276" y="948" text-anchor="middle" class="card-kind">Kind: 1630 to 1633</text>
+    <text x="1168" y="992" class="card-body">
+      <tspan x="1168" dy="0">- Tracks draft, open,</tspan>
+      <tspan x="1168" dy="27">  applied, or closed</tspan>
+      <tspan x="1168" dy="27">  state</tspan>
+      <tspan x="1168" dy="40">- References the</tspan>
+      <tspan x="1168" dy="27">  proposal with a tags</tspan>
+      <tspan x="1168" dy="40">- Separates review</tspan>
+      <tspan x="1168" dy="27">  state from geometry</tspan>
+      <tspan x="1168" dy="27">  payload</tspan>
+    </text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="92" y="1072" width="1318" height="76" rx="24" fill="#fcfbf7" stroke="#7b8b98" stroke-width="2"/>
+    <text x="126" y="1120" class="footer">
+      <tspan>Datasets carry geometry. Contexts organize and validate it. </tspan>
+      <tspan font-weight="700">Comments</tspan>
+      <tspan> discuss it. </tspan>
+      <tspan font-weight="700">Proposals</tspan>
+      <tspan> change it.</tspan>
+    </text>
+  </g>
+</svg>

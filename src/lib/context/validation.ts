@@ -34,15 +34,30 @@ export function getContextCoordinate(context: NDKMapContextEvent): string | null
 	return context.contextCoordinate ?? null
 }
 
+export function getEffectiveContextUse(
+	context: NDKMapContextEvent,
+): NDKMapContextEvent['context']['contextUse'] {
+	if (!context.context.allowForeignAttachments) return 'taxonomy'
+	return context.context.contextUse
+}
+
+export function getEffectiveContextValidationMode(
+	context: NDKMapContextEvent,
+): NDKMapContextEvent['context']['validationMode'] {
+	if (!context.context.allowForeignAttachments) return 'none'
+	if (getEffectiveContextUse(context) === 'taxonomy') return 'none'
+	return context.context.validationMode
+}
+
 export function defaultContextFilterMode(context: NDKMapContextEvent): ContextFilterMode {
-	const mode = context.context.validationMode
+	const mode = getEffectiveContextValidationMode(context)
 	if (mode === 'required') return 'strict'
 	if (mode === 'optional') return 'warn'
 	return 'off'
 }
 
 export function contextCanValidateDatasets(context: NDKMapContextEvent): boolean {
-	const use = context.context.contextUse
+	const use = getEffectiveContextUse(context)
 	return use === 'validation' || use === 'hybrid'
 }
 

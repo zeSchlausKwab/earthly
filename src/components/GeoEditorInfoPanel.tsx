@@ -3,6 +3,8 @@ import type { FeatureCollection, Geometry } from 'geojson'
 import { cn } from '@/lib/utils'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+	getEffectiveContextUse,
+	getEffectiveContextValidationMode,
 	getContextRequiredPropertyDefaults,
 	validateDatasetForContext,
 	type ContextValidationResult,
@@ -224,8 +226,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					return {
 						coordinate,
 						name: context.context.name || context.contextId || context.id || 'Untitled context',
-						validationMode: context.context.validationMode,
-						contextUse: context.context.contextUse,
+						validationMode: getEffectiveContextValidationMode(context),
+						contextUse: getEffectiveContextUse(context),
 						contextEvent: context,
 					}
 				})
@@ -519,6 +521,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				onClose={onCloseContextEditor}
 				onSave={onSaveContext}
 				availableFeatures={availableFeatures}
+				mapContextEvents={mapContextEvents}
 			/>
 		)
 	}
@@ -538,6 +541,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					onCommentGeometryVisibility={onCommentGeometryVisibility}
 					onZoomToBounds={onZoomToBounds}
 					availableFeatures={availableFeatures}
+					mapContextEvents={mapContextEvents}
 					onMentionVisibilityToggle={onMentionVisibilityToggle}
 					onMentionZoomTo={onMentionZoomTo}
 					focusCommentId={focusCommentId}

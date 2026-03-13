@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { nip19 } from 'nostr-tools'
 import type { FeatureCollection } from 'geojson'
 import type { NDKGeoEvent } from '../ndk/NDKGeoEvent'
+import type { NDKMapContextEvent } from '../ndk/NDKMapContextEvent'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 
 interface NamedFeatureCollection extends FeatureCollection {
@@ -16,6 +17,7 @@ interface NamedFeatureCollection extends FeatureCollection {
 export function useAvailableGeoFeatures(
 	geoEvents: NDKGeoEvent[],
 	resolvedCollectionResolver?: (event: NDKGeoEvent) => FeatureCollection | undefined,
+	mapContexts: NDKMapContextEvent[] = [],
 ): GeoFeatureItem[] {
 	return useMemo(() => {
 		const items: GeoFeatureItem[] = []
@@ -47,6 +49,7 @@ export function useAvailableGeoFeatures(
 				id: `dataset:${event.id ?? identifier}`,
 				name: datasetName,
 				address: naddr,
+				entityType: 'dataset',
 				datasetName,
 				geometryType: 'Dataset',
 			})
@@ -75,6 +78,7 @@ export function useAvailableGeoFeatures(
 						id: `feature:${event.id}:${featureId}`,
 						name: featureName,
 						address: naddr,
+						entityType: 'feature',
 						featureId,
 						datasetName,
 						geometryType,
@@ -83,6 +87,28 @@ export function useAvailableGeoFeatures(
 			}
 		}
 
+		for (const context of mapContexts) {
+			const identifier = context.contextId ?? context.dTag ?? context.id
+			if (!identifier || !context.pubkey || !context.kind) continue
+
+			try {
+				items.push({
+					id: `context:${context.id ?? identifier}`,
+					name: context.context.name || identifier,
+					address: nip19.naddrEncode({
+						kind: context.kind,
+						pubkey: context.pubkey,
+						identifier,
+					}),
+					entityType: 'context',
+					datasetName: context.context.allowForeignAttachments ? 'Open context' : 'Closed context',
+					geometryType: 'Context',
+				})
+			} catch {
+				// Ignore contexts that cannot be encoded.
+			}
+		}
+
 		return items
-	}, [geoEvents, resolvedCollectionResolver])
+	}, [geoEvents, mapContexts, resolvedCollectionResolver])
 }

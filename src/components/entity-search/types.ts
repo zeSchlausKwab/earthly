@@ -2,6 +2,10 @@ import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import type { FilterConfig } from '@/components/data-filter/types'
+import {
+	getEffectiveContextUse,
+	getEffectiveContextValidationMode,
+} from '@/lib/context/validation'
 
 // ── Entity types ──────────────────────────────────────────────────────
 
@@ -91,13 +95,14 @@ export function datasetToSearchResult(
 
 export function contextToSearchResult(context: NDKMapContextEvent): EntitySearchResult {
 	const content = context.context
+	const effectiveUse = getEffectiveContextUse(context)
 	return {
 		id: context.id ?? context.dTag ?? '',
 		name: content.name || context.contextId || context.id || 'Untitled',
 		type: 'context',
 		subtitle:
 			content.description ??
-			`${content.contextUse} · ${content.allowForeignAttachments ? 'open' : 'closed'}`,
+			`${effectiveUse} · ${content.allowForeignAttachments ? 'open' : 'closed'}`,
 		pubkey: context.pubkey,
 		createdAt: context.created_at,
 		entity: context,
@@ -132,8 +137,8 @@ export const contextFilterConfig: FilterConfig<NDKMapContextEvent> = {
 		return [
 			content.name,
 			content.description,
-			content.contextUse,
-			content.validationMode,
+			getEffectiveContextUse(context),
+			getEffectiveContextValidationMode(context),
 			content.allowForeignAttachments ? 'open' : 'closed',
 			context.contextId,
 			context.id,

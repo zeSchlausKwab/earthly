@@ -33,7 +33,7 @@ import {
 	isDatasetAllowedByContextFilter,
 	validateDatasetForContext,
 } from '@/lib/context/validation'
-import { getContextStickyDatasets } from '@/lib/context/references'
+import { getContextReferencedDatasets } from '@/lib/context/references'
 import { Editor } from './components/Editor'
 import { ImportOsmDialog } from './components/ImportOsmDialog'
 import { LocateButton } from './components/LocateButton'
@@ -469,7 +469,7 @@ export function GeoEditorView() {
 
 	const activeContextStickyDatasets = useMemo(() => {
 		if (!activeContext) return []
-		return getContextStickyDatasets(activeContext, geoEvents)
+		return getContextReferencedDatasets(activeContext, geoEvents)
 	}, [activeContext, geoEvents])
 
 	const activeContextForeignAttachedDatasets = useMemo(() => {
@@ -706,6 +706,7 @@ export function GeoEditorView() {
 	const availableFeatures = useAvailableGeoFeatures(
 		geoEventsForMentions,
 		resolvedCollectionResolver,
+		mapContextEvents,
 	)
 
 	// Map layers hook

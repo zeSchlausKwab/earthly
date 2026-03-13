@@ -13,6 +13,7 @@ import {
 	MAP_CONTEXT_KIND,
 } from "@/lib/ndk/kinds";
 import type { MapContextContent } from "@/lib/ndk/NDKMapContextEvent";
+import { extractReferencedCoordinates, syncAddressReferenceTags } from "@/lib/ndk/nostrReferences";
 import { createUserProfileEvent } from "./gen_user";
 import { generateGeoEventData } from "./gen_geo_events";
 import type { Feature, FeatureCollection } from "geojson";
@@ -62,8 +63,7 @@ interface PublishMapContextOptions {
 	content: MapContextContent;
 	hashtags?: string[];
 	bbox?: BoundingBox;
-	parentCoordinate?: string;
-	version?: string;
+	contextCoordinates?: string[];
 }
 
 const USER_PROFILES = {
@@ -256,6 +256,15 @@ function datasetAddress(pubkey: string, datasetId: string): string {
 	});
 }
 
+function contextAddress(pubkey: string, contextId: string): string {
+	return nip19.naddrEncode({
+		kind: MAP_CONTEXT_KIND,
+		pubkey,
+		identifier: contextId,
+		relays: [RELAY_URL],
+	});
+}
+
 function getCollectionName(content: string, fallback: string): string {
 	try {
 		const parsed = JSON.parse(content) as Record<string, unknown>;
@@ -337,21 +346,21 @@ async function publishMapContext({
 	content,
 	hashtags = [],
 	bbox,
-	parentCoordinate,
-	version = "1",
+	contextCoordinates = [],
 }: PublishMapContextOptions): Promise<PublishedContext> {
 	const event = new NDKEvent(ndk);
 	event.kind = MAP_CONTEXT_KIND;
 	event.content = JSON.stringify(content);
 
-	const tags: NDKTag[] = [["d", contextId], ["v", version], ["r", RELAY_URL]];
+	const tags: NDKTag[] = [["d", contextId], ["r", RELAY_URL]];
 	if (bbox) {
 		tags.push(["bbox", bboxToTagValue(bbox)]);
 		tags.push(["g", geohashFromBbox(bbox)]);
 	}
-	if (parentCoordinate) {
-		tags.push(["parent", parentCoordinate]);
-	}
+	contextCoordinates.forEach((coordinate) => appendUniqueTag(tags, "c", coordinate));
+	extractReferencedCoordinates(content.description).forEach((coordinate) =>
+		appendUniqueTag(tags, "a", coordinate),
+	);
 	hashtags.forEach((tag) => tags.push(["t", tag]));
 
 	event.tags = tags;
@@ -484,6 +493,11 @@ async function publishSeedCommentThread(
 			geojson: threadSpec.geojson,
 		};
 		comment.setRootScope(target.kind, rootAddress, target.ownerPubkey);
+		syncAddressReferenceTags(
+			comment,
+			extractReferencedCoordinates(threadSpec.text),
+			comment.parentAddress ? [comment.parentAddress] : [],
+		);
 		comment.created_at = baseTimestamp + threadIndex * 180;
 		await comment.publishComment(author.signer);
 		publishedCount += 1;
@@ -505,6 +519,11 @@ async function publishSeedCommentThread(
 				geojson: replySpec.geojson,
 			};
 			reply.setReplyScope(target.kind, rootAddress, target.ownerPubkey, comment);
+			syncAddressReferenceTags(
+				reply,
+				extractReferencedCoordinates(replySpec.text),
+				reply.parentAddress ? [reply.parentAddress] : [],
+			);
 			reply.created_at = (comment.created_at ?? baseTimestamp) + (replyIndex + 1) * 45;
 			await reply.publishComment(replyAuthor.signer);
 			publishedCount += 1;
@@ -1674,64 +1693,73 @@ async function seedData() {
 		bbox: [10.3, 50.0, 15.3, 54.9],
 		hashtags: ["taxonomy", "east-germany", "baseline"],
 		content: {
-			version: 1,
 			name: "East Germany Atlas",
-			description:
-				"## Regional baseline\nShared taxonomy context for regional datasets used during local development. Sticky references pin the administrative starter datasets while other publishers can still attach their own layers.",
+			description: `## Regional baseline
+Shared open taxonomy context for regional datasets and sub-contexts used during local development.
+
+Featured boundaries:
+- nostr:${datasetAddress(planner.pubkey, BRANDENBURG_DATASET_ID)}
+- nostr:${datasetAddress(planner.pubkey, SAXONY_DATASET_ID)}
+- nostr:${datasetAddress(planner.pubkey, THUERINGEN_DATASET_ID)}
+
+Featured child contexts:
+- nostr:${contextAddress(planner.pubkey, ADMIN_CONTEXT_ID)}
+- nostr:${contextAddress(mobility.pubkey, RAIL_CONTEXT_ID)}
+- nostr:${contextAddress(heritage.pubkey, HERITAGE_CONTEXT_ID)}
+
+Other publishers may attach their own geometry or contexts via c.`,
 			descriptionFormat: "markdown",
 			contextUse: "taxonomy",
 			validationMode: "none",
 			allowForeignAttachments: true,
-			fixedReferences: Object.entries(STATE_DATASET_IDS).map(([slug, datasetId]) => ({
-				address: datasetAddress(planner.pubkey, datasetId),
-				label: `State boundary · ${slug.replaceAll("-", " ")}`,
-			})),
 		},
 	});
 
 	const adminContext = await publishMapContext({
 		identity: planner,
 		contextId: ADMIN_CONTEXT_ID,
-		parentCoordinate: rootContextCoordinate,
+		contextCoordinates: [rootContextCoordinate],
 		bbox: [10.3, 50.0, 15.3, 54.9],
 		hashtags: ["administrative", "boundaries"],
 		content: {
-			version: 1,
 			name: "East German Administrative Boundaries",
-			description:
-				"## Authoritative border set\nClosed taxonomy context grouping Bundesländer boundaries and related administrative layers. Foreign attachments are intentionally disabled.",
+			description: `## Authoritative border set
+Closed taxonomy context grouping Bundesländer boundaries and related administrative layers.
+
+Curated boundary list:
+- nostr:${datasetAddress(planner.pubkey, BRANDENBURG_DATASET_ID)}
+- nostr:${datasetAddress(planner.pubkey, MECKPOM_DATASET_ID)}
+- nostr:${datasetAddress(planner.pubkey, SAXONY_DATASET_ID)}
+- nostr:${datasetAddress(planner.pubkey, SAXONY_ANHALT_DATASET_ID)}
+- nostr:${datasetAddress(planner.pubkey, THUERINGEN_DATASET_ID)}
+
+Foreign attachments are intentionally disabled.`,
 			descriptionFormat: "markdown",
 			contextUse: "taxonomy",
 			validationMode: "none",
 			allowForeignAttachments: false,
-			fixedReferences: Object.entries(STATE_DATASET_IDS).map(([slug, datasetId]) => ({
-				address: datasetAddress(planner.pubkey, datasetId),
-				label: `Official boundary · ${slug.replaceAll("-", " ")}`,
-			})),
 		},
 	});
 
 	const railContext = await publishMapContext({
 		identity: mobility,
 		contextId: RAIL_CONTEXT_ID,
-		parentCoordinate: rootContextCoordinate,
+		contextCoordinates: [rootContextCoordinate],
 		bbox: [12.5, 51.9, 14.2, 53.1],
 		hashtags: ["validation", "mobility", "line-geometry"],
 		content: {
-			version: 1,
 			name: "Rail Corridor Quality",
-			description:
-				"## Corridor QA\nRequired validation context for line-based mobility corridors in Berlin-Brandenburg. The baseline rail set is sticky while other publishers may attach compatible corridor datasets via `c`.",
+			description: `## Corridor QA
+Required validation context for line-based mobility corridors in Berlin-Brandenburg.
+
+Baseline corridor set:
+- nostr:${datasetAddress(mobility.pubkey, RAIL_DATASET_ID)}
+
+Other publishers may attach compatible corridor datasets via c.`,
 			descriptionFormat: "markdown",
 			contextUse: "hybrid",
 			validationMode: "required",
 			allowForeignAttachments: true,
-			fixedReferences: [
-				{
-					address: datasetAddress(mobility.pubkey, RAIL_DATASET_ID),
-					label: "Baseline rail corridor set",
-				},
-			],
 			geometryConstraints: {
 				allowedTypes: ["LineString", "MultiLineString"],
 			},
@@ -1760,24 +1788,22 @@ async function seedData() {
 	const riverContext = await publishMapContext({
 		identity: mobility,
 		contextId: RIVER_CONTEXT_ID,
-		parentCoordinate: rootContextCoordinate,
+		contextCoordinates: [rootContextCoordinate],
 		bbox: [13.05, 52.35, 13.58, 52.63],
 		hashtags: ["water", "monitoring", "optional-validation"],
 		content: {
-			version: 1,
 			name: "River Health Monitoring",
-			description:
-				"## Monitoring network\nOptional validation context for water monitoring stations in the Havel-Spree system. Authored station data stays pinned while community observations remain attachable.",
+			description: `## Monitoring network
+Optional validation context for water monitoring stations in the Havel-Spree system.
+
+Authored station dataset:
+- nostr:${datasetAddress(mobility.pubkey, WATER_QUALITY_DATASET_ID)}
+
+Community observations remain attachable.`,
 			descriptionFormat: "markdown",
 			contextUse: "hybrid",
 			validationMode: "optional",
 			allowForeignAttachments: true,
-			fixedReferences: [
-				{
-					address: datasetAddress(mobility.pubkey, WATER_QUALITY_DATASET_ID),
-					label: "Official monitoring stations",
-				},
-			],
 			geometryConstraints: {
 				allowedTypes: ["Point"],
 			},
@@ -1801,48 +1827,43 @@ async function seedData() {
 	const heritageContext = await publishMapContext({
 		identity: heritage,
 		contextId: HERITAGE_CONTEXT_ID,
-		parentCoordinate: rootContextCoordinate,
+		contextCoordinates: [rootContextCoordinate],
 		bbox: [11.8, 50.9, 14.2, 51.7],
 		hashtags: ["culture", "history", "taxonomy"],
 		content: {
-			version: 1,
 			name: "Cultural Heritage Hotspots",
-			description:
-				"## Curated heritage atlas\nClosed storytelling context for curated heritage zones, landmarks, and narrative map overlays. Geometry is hand-picked and discussion happens through comments instead of foreign attachments.",
+			description: `## Curated heritage atlas
+Closed storytelling context for curated heritage zones, landmarks, and narrative map overlays.
+
+Curated reference set:
+- nostr:${datasetAddress(heritage.pubkey, HERITAGE_HOTSPOTS_DATASET_ID)}
+
+Geometry is hand-picked and discussion happens through comments instead of foreign attachments.`,
 			descriptionFormat: "markdown",
 			contextUse: "taxonomy",
 			validationMode: "none",
 			allowForeignAttachments: false,
-			fixedReferences: [
-				{
-					address: datasetAddress(heritage.pubkey, HERITAGE_HOTSPOTS_DATASET_ID),
-					label: "Curated heritage hotspots",
-				},
-			],
 		},
 	});
 
 	const toiletsContext = await publishMapContext({
 		identity: planner,
 		contextId: TOILETS_CONTEXT_ID,
-		parentCoordinate: rootContextCoordinate,
 		bbox: [-124.0, -34.5, 152.0, 53.0],
 		hashtags: ["accessibility", "toilets", "wheelchair", "global"],
 		content: {
-			version: 1,
 			name: "Accessible Public Toilets (Global)",
-			description:
-				"## Accessibility requirements\nRequired accessibility context for global public toilets with wheelchair-ready access metadata. The seed dataset is pinned, and foreign toilet datasets may attach if they satisfy the rules.",
+			description: `## Accessibility requirements
+Required accessibility context for global public toilets with wheelchair-ready access metadata.
+
+Starter dataset:
+- nostr:${datasetAddress(planner.pubkey, ACCESSIBLE_TOILETS_DATASET_ID)}
+
+Foreign toilet datasets may attach if they satisfy the rules.`,
 			descriptionFormat: "markdown",
 			contextUse: "hybrid",
 			validationMode: "required",
 			allowForeignAttachments: true,
-			fixedReferences: [
-				{
-					address: datasetAddress(planner.pubkey, ACCESSIBLE_TOILETS_DATASET_ID),
-					label: "Starter accessible toilets dataset",
-				},
-			],
 			geometryConstraints: {
 				allowedTypes: ["Point"],
 			},
@@ -1865,24 +1886,21 @@ async function seedData() {
 	const hikingContext = await publishMapContext({
 		identity: heritage,
 		contextId: HIKING_CONTEXT_ID,
-		parentCoordinate: rootContextCoordinate,
 		bbox: [-106.0, -51.5, 176.0, 47.0],
 		hashtags: ["hiking", "trails", "outdoor", "global"],
 		content: {
-			version: 1,
 			name: "Hiking Trails Network (Global)",
-			description:
-				"## Trail network\nRequired validation context for mapped global hiking trails and route metadata. The authored seed route set is sticky while compatible routes from others can still join.",
+			description: `## Trail network
+Required validation context for mapped global hiking trails and route metadata.
+
+Seed route set:
+- nostr:${datasetAddress(heritage.pubkey, HIKING_TRAILS_DATASET_ID)}
+
+Compatible routes from others can still join.`,
 			descriptionFormat: "markdown",
 			contextUse: "hybrid",
 			validationMode: "required",
 			allowForeignAttachments: true,
-			fixedReferences: [
-				{
-					address: datasetAddress(heritage.pubkey, HIKING_TRAILS_DATASET_ID),
-					label: "Seed hiking trail routes",
-				},
-			],
 			geometryConstraints: {
 				allowedTypes: ["LineString", "MultiLineString"],
 			},
@@ -1906,24 +1924,21 @@ async function seedData() {
 	const surfContext = await publishMapContext({
 		identity: mobility,
 		contextId: SURF_CONTEXT_ID,
-		parentCoordinate: rootContextCoordinate,
 		bbox: [-159.0, -35.0, 116.0, 44.0],
 		hashtags: ["surfing", "spots", "community", "global"],
 		content: {
-			version: 1,
 			name: "Cool Surfing Spots (Global)",
-			description:
-				"## Community surf map\nOpen context for global surf breaks with optional data quality checks. The starter surf dataset is pinned as a reference lane.",
+			description: `## Community surf map
+Open context for global surf breaks with optional data quality checks.
+
+Starter surf dataset:
+- nostr:${datasetAddress(mobility.pubkey, SURF_SPOTS_DATASET_ID)}
+
+Other publishers may attach datasets or sub-contexts via c.`,
 			descriptionFormat: "markdown",
 			contextUse: "hybrid",
 			validationMode: "optional",
 			allowForeignAttachments: true,
-			fixedReferences: [
-				{
-					address: datasetAddress(mobility.pubkey, SURF_SPOTS_DATASET_ID),
-					label: "Seed surf spots",
-				},
-			],
 			geometryConstraints: {
 				allowedTypes: ["Point"],
 			},
@@ -1953,41 +1968,21 @@ async function seedData() {
 	const beachContext = await publishMapContext({
 		identity: heritage,
 		contextId: BEACH_CONTEXT_ID,
-		parentCoordinate: rootContextCoordinate,
 		bbox: [-158.0, -24.0, 149.0, 39.0],
 		hashtags: ["beaches", "recreation", "travel", "global"],
 		content: {
-			version: 1,
 			name: "Best Beaches (Global)",
-			description:
-				"## Curated beach guide\nClosed guide context for comparing facilities, water quality, and accessibility. The beach shortlist is fixed by the author and foreign geometry attachments stay hidden.",
+			description: `## Curated beach guide
+Closed guide context for comparing facilities, water quality, and accessibility.
+
+Author shortlist:
+- nostr:${datasetAddress(heritage.pubkey, BEST_BEACHES_DATASET_ID)}
+
+Foreign geometry attachments stay hidden.`,
 			descriptionFormat: "markdown",
-			contextUse: "hybrid",
-			validationMode: "optional",
+			contextUse: "taxonomy",
+			validationMode: "none",
 			allowForeignAttachments: false,
-			fixedReferences: [
-				{
-					address: datasetAddress(heritage.pubkey, BEST_BEACHES_DATASET_ID),
-					label: "Author beach shortlist",
-				},
-			],
-			geometryConstraints: {
-				allowedTypes: ["Polygon", "MultiPolygon"],
-			},
-			schemaDialect: "https://json-schema.org/draft/2020-12/schema",
-			schema: {
-				type: "object",
-				required: ["beach_id", "rating_10", "water_quality_class"],
-				properties: {
-					beach_id: { type: "string", minLength: 5 },
-					rating_10: { type: "number", minimum: 1, maximum: 10 },
-					water_quality_class: { type: "string", enum: ["excellent", "good", "fair"] },
-					lifeguard: { type: "boolean" },
-					dog_friendly: { type: "boolean" },
-					wheelchair_boardwalk: { type: "boolean" },
-				},
-				additionalProperties: true,
-			},
 		},
 	});
 
@@ -2017,7 +2012,7 @@ async function seedData() {
 					reference: `https://earthly.local/datasets/${state.slug}`,
 				}),
 			),
-			contextCoordinates: [rootContextCoordinate, adminContextCoordinate],
+		contextCoordinates: [adminContextCoordinate],
 		});
 		stateDatasets.push(published);
 		console.log(`  Dataset published: ${published.name}`);
@@ -2044,7 +2039,7 @@ async function seedData() {
 				reference: "https://earthly.local/datasets/rail-corridors",
 			}),
 		),
-		contextCoordinates: [rootContextCoordinate, railContextCoordinate],
+		contextCoordinates: [railContextCoordinate],
 	});
 	console.log(`  Dataset published: ${railDataset.name}`);
 
@@ -2067,7 +2062,7 @@ async function seedData() {
 				reference: "https://earthly.local/datasets/mobility-spines",
 			}),
 		),
-		contextCoordinates: [rootContextCoordinate, railContextCoordinate],
+		contextCoordinates: [railContextCoordinate],
 	});
 	console.log(`  Dataset published: ${bikeDataset.name}`);
 
@@ -2090,7 +2085,7 @@ async function seedData() {
 				reference: "https://earthly.local/datasets/invalid-rail-context",
 			}),
 		),
-		contextCoordinates: [rootContextCoordinate, railContextCoordinate],
+		contextCoordinates: [railContextCoordinate],
 	});
 	console.log(`  Dataset published: ${invalidRailContextDataset.name}`);
 
@@ -2114,7 +2109,7 @@ async function seedData() {
 				reference: "https://earthly.local/datasets/water-quality-stations",
 			}),
 		),
-		contextCoordinates: [rootContextCoordinate, riverContextCoordinate],
+		contextCoordinates: [riverContextCoordinate],
 	});
 	console.log(`  Dataset published: ${waterQualityDataset.name}`);
 
@@ -2137,7 +2132,7 @@ async function seedData() {
 				reference: "https://earthly.local/datasets/river-segments",
 			}),
 		),
-		contextCoordinates: [rootContextCoordinate, riverContextCoordinate],
+		contextCoordinates: [riverContextCoordinate],
 	});
 	console.log(`  Dataset published: ${riverSegmentsDataset.name}`);
 
@@ -2161,7 +2156,7 @@ async function seedData() {
 				reference: "https://earthly.local/datasets/heritage-hotspots",
 			}),
 		),
-		contextCoordinates: [rootContextCoordinate, heritageContextCoordinate],
+		contextCoordinates: [heritageContextCoordinate],
 	});
 	console.log(`  Dataset published: ${heritageHotspotsDataset.name}`);
 
@@ -2185,7 +2180,7 @@ async function seedData() {
 				reference: "https://earthly.local/datasets/accessible-toilets",
 			}),
 		),
-		contextCoordinates: [rootContextCoordinate, toiletsContextCoordinate],
+		contextCoordinates: [toiletsContextCoordinate],
 	});
 	console.log(`  Dataset published: ${accessibleToiletsDataset.name}`);
 
@@ -2208,7 +2203,7 @@ async function seedData() {
 				reference: "https://earthly.local/datasets/hiking-trails",
 			}),
 		),
-		contextCoordinates: [rootContextCoordinate, hikingContextCoordinate],
+		contextCoordinates: [hikingContextCoordinate],
 	});
 	console.log(`  Dataset published: ${hikingTrailsDataset.name}`);
 
@@ -2231,7 +2226,7 @@ async function seedData() {
 				reference: "https://earthly.local/datasets/surf-spots",
 			}),
 		),
-		contextCoordinates: [rootContextCoordinate, surfContextCoordinate],
+		contextCoordinates: [surfContextCoordinate],
 	});
 	console.log(`  Dataset published: ${surfSpotsDataset.name}`);
 
@@ -2254,7 +2249,7 @@ async function seedData() {
 				reference: "https://earthly.local/datasets/best-beaches",
 			}),
 		),
-		contextCoordinates: [rootContextCoordinate, beachContextCoordinate],
+		contextCoordinates: [beachContextCoordinate],
 	});
 	console.log(`  Dataset published: ${bestBeachesDataset.name}`);
 

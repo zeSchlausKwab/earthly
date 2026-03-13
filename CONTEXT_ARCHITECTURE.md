@@ -35,7 +35,7 @@ These are important before adding any new kind:
 
 1. Create/edit map contexts (name, Markdown description, image, optional schema, validation mode).
 2. Browse contexts in a list panel.
-3. Open a context route and filter map to sticky refs plus optional foreign attachments.
+3. Open a context route and filter map to curated Markdown refs plus optional foreign attachments.
 4. Validate attached geometry properties against context schema with three modes:
    - `none`
    - `optional`
@@ -82,7 +82,6 @@ Content JSON:
 
 ```json
 {
-  "version": 1,
   "name": "Hiking Trails",
   "description": "Trails with elevation metadata",
   "descriptionFormat": "markdown",
@@ -90,12 +89,6 @@ Content JSON:
   "contextUse": "hybrid",
   "validationMode": "required",
   "allowForeignAttachments": true,
-  "fixedReferences": [
-    {
-      "address": "naddr1...",
-      "label": "Austrian border"
-    }
-  ],
   "geometryConstraints": {
     "allowedTypes": ["LineString", "MultiLineString"]
   },
@@ -116,26 +109,26 @@ Tags:
 1. `["d", "<context-id>"]` required, stable identifier for updates.
 2. `["t", "..."]` optional hashtags.
 3. `["r", "..."]` optional relay hints.
-4. `["v", "<context-version>"]` optional semantic version.
-5. `["schema-hash", "sha256:<hex>"]` optional integrity hint.
-6. `["bbox", "w,s,e,n"]` optional geographic scope.
-7. `["parent", "<context-coordinate>"]` optional taxonomy parent for hierarchy.
+4. `["schema-hash", "sha256:<hex>"]` optional integrity hint.
+5. `["bbox", "w,s,e,n"]` optional geographic scope.
+6. `["a", "<coordinate>"]` mirrored queryable refs extracted from inline `nostr:naddr...` mentions.
+7. `["c", "<context-coordinate>"]` optional attachment to an open parent/taxonomy context.
 
 Field semantics:
 
 1. `contextUse`: `taxonomy | validation | hybrid`
 2. `validationMode` only matters when `contextUse` includes validation.
 3. `descriptionFormat` is currently `markdown`.
-4. `allowForeignAttachments` is a binary client-policy switch.
-5. `fixedReferences` stores authored sticky refs as `{ address, featureId?, label? }`.
+4. `allowForeignAttachments` is a binary client-policy switch. If false, the context is treated as `taxonomy` with `validationMode=none`.
+5. Inline `nostr:naddr...` mentions in Markdown define curated refs; clients SHOULD mirror them into `a` tags.
 6. `geometryConstraints.allowedTypes` optionally restricts allowed GeoJSON geometry types per feature.
 7. For `taxonomy` contexts, schema/geometry constraints SHOULD be omitted and validation mode SHOULD be `none`.
 
 ## 4.3 Attachment Model (MVP)
 
-Decision: attach contexts directly on target dataset events via a dedicated one-letter queryable tag.
+Decision: attach datasets and child contexts directly via a dedicated one-letter queryable tag.
 
-Tag on dataset:
+Tag on dataset or child context:
 
 1. `["c", "<context-coordinate>"]`
 2. Where `<context-coordinate>` is `<kind>:<pubkey>:<d>` for context (`37518:...`).
@@ -143,16 +136,18 @@ Tag on dataset:
 Rationale:
 
 1. Queryable via `#c` filters.
-2. Keeps route filtering simple (single query for datasets).
-3. Keeps v2 simple (no membership list, no per-attachment role field).
+2. Keeps route filtering simple (same query shape for datasets and child contexts).
+3. Keeps the model simple (no membership list, no per-attachment role field).
 
 Deterministic v2 interpretation:
 
 1. Dataset attachment:
    - `contextUse=taxonomy` => taxonomy only
    - `contextUse=validation|hybrid` => validation target
-2. Foreign attachments are only considered when `allowForeignAttachments=true`.
-3. Sticky refs authored on the context itself always belong to the context.
+2. Context attachment:
+   - child context appears in the parent attached-context lane
+3. Foreign attachments are only considered when `allowForeignAttachments=true`.
+4. Curated refs come from the Markdown body and mirrored `a` tags.
 
 Note:
 
@@ -183,7 +178,7 @@ Default by context mode:
 
 Attachment handling:
 
-1. Sticky refs are first-class context members.
+1. Curated refs extracted from Markdown are first-class context members.
 2. Foreign attachments are optional and client-gated by `allowForeignAttachments`.
 3. Dataset visibility in strict mode is based on dataset feature validation.
 4. Feature validation includes both property-schema checks and geometry-type checks when configured.
@@ -193,13 +188,13 @@ Attachment handling:
 For enforced contexts (`validationMode=required`) the UI must separate:
 
 1. Map lane (first-class):
-   - sticky refs plus any allowed foreign attachments that pass required validation
+   - curated dataset refs plus any allowed foreign dataset attachments that pass required validation
    - rendered on map in context view
    - used for validation counters and clean-map guarantees
-2. Sticky lane (second-class, still useful):
-   - authored refs shown with labels and narrative intent
+2. Curated lane (second-class, still useful):
+   - authored refs inferred from inline Markdown references
 3. Foreign lane (optional):
-   - datasets discovered via `c`
+   - datasets and child contexts discovered via `c`
    - shown only when the context explicitly opts in
 
 This preserves map cleanliness while keeping narrative/curation value.
@@ -209,7 +204,7 @@ This preserves map cleanliness while keeping narrative/curation value.
 Current app is hash-routed. Proposed routes:
 
 1. `#/contexts` -> context list panel.
-2. `#/context/<naddr>` -> focused context view (resolve sticky refs and, if enabled, filter datasets by `c` tag).
+2. `#/context/<naddr>` -> focused context view (resolve curated refs and, if enabled, filter datasets/child contexts by `c` tag).
 3. Optional back-compat alias: `#/context` -> same as `#/contexts`.
 
 Store/routing types must add `mapcontext` focus type and `contexts` sidebar mode.
@@ -224,7 +219,7 @@ Store/routing types must add `mapcontext` focus type and `contexts` sidebar mode
    - open/inspect actions
 
 2. `MapContextCreatorPanel`:
-   - fields: name, Markdown description, image, mode, foreign attachment policy, sticky refs
+   - fields: name, Markdown description, image, mode, foreign attachment policy, parent-context attachments
    - schema editor:
      - basic builder (fields + required toggles)
      - advanced JSON editor
@@ -234,10 +229,11 @@ Store/routing types must add `mapcontext` focus type and `contexts` sidebar mode
 
 1. Dataset editor/info view: "Attach to context" multi-select picker.
 2. Attachment should preserve existing `c` tags on update and allow removal.
-3. Context editor: sticky refs picker for authored references.
+3. Context editor: open-context attachment picker plus Markdown body using inline NIP-27 references.
 4. Context route should show separate sections:
    - validated/invalid datasets
-   - sticky refs and Markdown narrative
+   - curated Markdown refs and narrative
+   - attached child contexts
 
 ## 5.3 Validation UX
 
@@ -250,8 +246,8 @@ Store/routing types must add `mapcontext` focus type and `contexts` sidebar mode
 On `#/context/<naddr>`:
 
 1. Resolve context event (kind `37518`).
-2. Resolve sticky refs authored on the context.
-3. If `allowForeignAttachments=true`, query datasets with `#c = contextCoordinate`.
+2. Resolve curated refs from mirrored `a` tags / inline Markdown mentions.
+3. If `allowForeignAttachments=true`, query datasets and child contexts with `#c = contextCoordinate`.
 4. For each dataset:
    - resolve full feature collection (including blob refs)
    - validate each feature `properties` against schema (if schema exists)
@@ -295,7 +291,7 @@ Reason: strict consumers could lose large portions of existing attached content 
 
 1. Add `NDKMapContextEvent` + kind `37518`.
 2. Add list/create panels and `#/contexts`, `#/context/<naddr>` routes.
-3. Add sticky refs plus attachment via `c` tags on datasets.
+3. Add mirrored `a` refs plus attachment via `c` tags on datasets and contexts.
 4. Add JSON Schema validation (`ajv`) in context route.
 5. Add strictness toggle (`off|warn|strict`).
 
@@ -315,7 +311,7 @@ Resolved decisions from this iteration:
 4. Schema must be self-contained in v1 (no external `$ref` URLs).
 5. Context archive/tombstone behavior is accepted for future inclusion.
 6. v1 uses no per-attachment role field; interpretation is deterministic by event type + `contextUse`.
-7. Enforced contexts use sticky refs plus an optional foreign-attachment lane.
+7. Enforced contexts use curated refs plus an optional foreign-attachment lane.
 
 Remaining design question:
 
@@ -327,8 +323,8 @@ Implemented in current MVP:
 
 1. Kind `37518` defined and wired.
 2. `c` attachment tags on datasets.
-3. Deterministic v2 interpretation (sticky refs + optional foreign attachments).
+3. Deterministic interpretation (curated Markdown refs + optional foreign attachments).
 4. Validation mode semantics (`none|optional|required`) with viewer override (`off|warn|strict`).
-5. Context behavior based on sticky refs and explicit foreign-attachment intent.
+5. Context behavior based on mirrored inline refs and explicit foreign-attachment intent.
 6. Self-contained schema policy in v1 (no external `$ref` URLs).
 7. Replaceable update guidance aligned in `SPEC.md`.
