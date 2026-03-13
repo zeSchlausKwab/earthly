@@ -41,7 +41,8 @@ import {
 } from './toolbar/index'
 
 interface DatasetActionsProps {
-	onExport?: () => void
+	onExportGeoJSON?: () => void
+	onExportSHP?: () => void
 	canExport?: boolean
 	onImport?: (file: File) => void
 	onClear?: () => void
@@ -307,7 +308,7 @@ export function Toolbar({
 			type="file"
 			ref={fileInputRef}
 			className="hidden"
-			accept=".geojson,.json"
+			accept=".geojson,.json,.zip,.shp"
 			onChange={handleFileImport}
 		/>
 	)
@@ -388,7 +389,8 @@ export function Toolbar({
 							<div className="flex items-center justify-center gap-1 flex-wrap">
 								<FileDropdown
 									onImportClick={() => fileInputRef.current?.click()}
-									onExport={datasetActions.onExport ?? (() => {})}
+									onExportGeoJSON={datasetActions.onExportGeoJSON ?? (() => {})}
+									onExportSHP={datasetActions.onExportSHP ?? (() => {})}
 									canExport={datasetActions.canExport}
 									disabled={isEditingDisabled}
 									small
@@ -551,7 +553,8 @@ export function Toolbar({
 						{/* File, OSM, Map & Publish */}
 						<FileDropdown
 							onImportClick={() => fileInputRef.current?.click()}
-							onExport={datasetActions?.onExport ?? (() => {})}
+							onExportGeoJSON={datasetActions?.onExportGeoJSON ?? (() => {})}
+							onExportSHP={datasetActions?.onExportSHP ?? (() => {})}
 							canExport={datasetActions?.canExport}
 							disabled={isEditingDisabled}
 						/>

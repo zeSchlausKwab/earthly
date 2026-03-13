@@ -21,6 +21,7 @@
     "@contextvm/sdk": "^0.4.14",
     "@faker-js/faker": "^10.3.0",
     "@formkit/auto-animate": "^0.9.0",
+    "@mapbox/shp-write": "^0.4.3",
     "@modelcontextprotocol/sdk": "1.26.0",
     "@mozilla/readability": "^0.6.0",
     "@nostr-dev-kit/messages": "^2.0.0",
@@ -81,6 +82,7 @@
     "react-resizable-panels": "^2.1.7",
     "react-use": "^17.6.0",
     "react18-json-view": "^0.2.9",
+    "shpjs": "^6.2.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "zustand": "^5.0.11"

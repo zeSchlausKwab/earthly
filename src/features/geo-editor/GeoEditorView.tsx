@@ -33,11 +33,7 @@ import {
 	isDatasetAllowedByContextFilter,
 	validateDatasetForContext,
 } from '@/lib/context/validation'
-import {
-	getDefaultContextMapScopeMode,
-	resolveContextMapScope,
-} from '@/lib/context/scope'
-import { getContextReferencedDatasets } from '@/lib/context/references'
+import { getDefaultContextMapScopeMode, resolveContextMapScope } from '@/lib/context/scope'
 import { Editor } from './components/Editor'
 import { ImportOsmDialog } from './components/ImportOsmDialog'
 import { LocateButton } from './components/LocateButton'
@@ -69,6 +65,7 @@ import {
 	useRouting,
 	useViewMode,
 } from './hooks'
+import { exportShapefile, importShapefile } from './shapefile'
 import { useEditorStore } from './store'
 import type { GeoSearchResult } from './types'
 import { ensureFeatureCollection, extractCollectionMeta, toEditorFeature } from './utils'
@@ -1021,13 +1018,17 @@ export function GeoEditorView() {
 	)
 
 	// Export/Import
-	const exportGeoJSON = useCallback(() => {
+	const buildEditorFeatureCollection = useCallback(() => {
 		if (!editor) return
-
-		const geojson = {
+		return {
 			type: 'FeatureCollection',
 			features: editor.getAllFeatures(),
 		}
+	}, [editor])
+
+	const exportGeoJSON = useCallback(() => {
+		const geojson = buildEditorFeatureCollection()
+		if (!geojson) return
 
 		const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' })
 		const url = URL.createObjectURL(blob)
@@ -1036,44 +1037,69 @@ export function GeoEditorView() {
 		a.download = 'features.geojson'
 		a.click()
 		URL.revokeObjectURL(url)
-	}, [editor])
+	}, [buildEditorFeatureCollection])
+
+	const exportSHP = useCallback(async () => {
+		const collection = buildEditorFeatureCollection()
+		if (!collection) return
+
+		try {
+			const { blob, skippedCount, downloadName } = await exportShapefile(collection, 'features')
+			const url = URL.createObjectURL(blob)
+			const a = document.createElement('a')
+			a.href = url
+			a.download = downloadName
+			a.click()
+			URL.revokeObjectURL(url)
+
+			if (skippedCount > 0) {
+				toast.warning(`Exported SHP ZIP. Skipped ${skippedCount} unsupported feature(s).`)
+			} else {
+				toast.success('Exported SHP ZIP.')
+			}
+		} catch (error) {
+			console.error('Failed to export SHP:', error)
+			toast.error(error instanceof Error ? error.message : 'Failed to export SHP.')
+		}
+	}, [buildEditorFeatureCollection])
 
 	const handleImport = useCallback(
 		async (file: File) => {
 			if (!editor) return
-			const text = await file.text()
+
+			const extension = file.name.split('.').pop()?.toLowerCase()
 			try {
-				const json = JSON.parse(text)
-				const collection = ensureFeatureCollection(json)
-				const newFeatures = collection.features.map((f) => {
-					// Ensure ID is a string
-					const featureId = f.id != null ? String(f.id) : crypto.randomUUID()
+				let collection: GeoJSON.FeatureCollection
+				let importSource = 'geojson'
 
-					// Extract known properties, rest go to customProperties
-					const { name, description, meta, featureId: _, ...restProperties } = f.properties || {}
+				if (extension === 'zip' || extension === 'shp') {
+					collection = await importShapefile(file)
+					importSource = 'shapefile'
+				} else if (extension === 'geojson' || extension === 'json') {
+					const json = JSON.parse(await file.text())
+					collection = ensureFeatureCollection(json)
+				} else {
+					toast.error('Unsupported import format. Use GeoJSON, zipped SHP, or .shp.')
+					return
+				}
 
-					return {
-						...f,
-						id: featureId,
-						properties: {
-							name: name ?? f.properties?.name,
-							description: description ?? f.properties?.description,
-							meta: 'feature',
-							featureId,
-							customProperties: Object.keys(restProperties).length > 0 ? restProperties : undefined,
-						},
-					}
-				})
+				const newFeatures = collection.features.map((feature) =>
+					toEditorFeature(feature, importSource),
+				)
 
 				newFeatures.forEach((f) => {
 					editor.addFeature(f as EditorFeature)
 				})
 
 				const meta = extractCollectionMeta(collection)
+				if (!meta.name) {
+					meta.name = file.name.replace(/\.[^.]+$/, '')
+				}
 				if (meta) setCollectionMeta(meta)
+				toast.success(`Imported ${newFeatures.length} feature(s) from ${file.name}.`)
 			} catch (e) {
-				console.error('Failed to import GeoJSON:', e)
-				toast.error('Failed to import GeoJSON')
+				console.error('Failed to import file:', e)
+				toast.error(e instanceof Error ? e.message : 'Failed to import file.')
 			}
 		},
 		[editor, setCollectionMeta],
@@ -1481,7 +1507,8 @@ export function GeoEditorView() {
 							<div className="w-full">
 								<Toolbar
 									datasetActions={{
-										onExport: exportGeoJSON,
+										onExportGeoJSON: exportGeoJSON,
+										onExportSHP: exportSHP,
 										canExport: stats.total > 0,
 										onImport: handleImport,
 										onClear: handleClear,

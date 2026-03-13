@@ -10,7 +10,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 
 export interface FileDropdownProps {
 	onImportClick: () => void
-	onExport: () => void
+	onExportGeoJSON: () => void
+	onExportSHP: () => void
 	canExport?: boolean
 	disabled?: boolean
 	small?: boolean
@@ -18,7 +19,8 @@ export interface FileDropdownProps {
 
 export function FileDropdown({
 	onImportClick,
-	onExport,
+	onExportGeoJSON,
+	onExportSHP,
 	canExport,
 	disabled,
 	small,
@@ -44,17 +46,21 @@ export function FileDropdown({
 						</DropdownMenuTrigger>
 					</TooltipTrigger>
 					<TooltipContent side="bottom" sideOffset={8}>
-						<p>Import / Export GeoJSON</p>
+						<p>Import / Export GeoJSON / SHP</p>
 					</TooltipContent>
 				</Tooltip>
 				<DropdownMenuContent align="start">
 					<DropdownMenuItem onClick={onImportClick}>
 						<Upload className="h-4 w-4" />
-						Import GeoJSON
+						Import GeoJSON / SHP
 					</DropdownMenuItem>
-					<DropdownMenuItem onClick={onExport} disabled={!canExport}>
+					<DropdownMenuItem onClick={onExportGeoJSON} disabled={!canExport}>
 						<Download className="h-4 w-4" />
 						Export GeoJSON
+					</DropdownMenuItem>
+					<DropdownMenuItem onClick={onExportSHP} disabled={!canExport}>
+						<Download className="h-4 w-4" />
+						Export SHP
 					</DropdownMenuItem>
 				</DropdownMenuContent>
 			</DropdownMenu>
