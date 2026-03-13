@@ -33,6 +33,10 @@ import {
 	isDatasetAllowedByContextFilter,
 	validateDatasetForContext,
 } from '@/lib/context/validation'
+import {
+	getDefaultContextMapScopeMode,
+	resolveContextMapScope,
+} from '@/lib/context/scope'
 import { getContextReferencedDatasets } from '@/lib/context/references'
 import { Editor } from './components/Editor'
 import { ImportOsmDialog } from './components/ImportOsmDialog'
@@ -153,6 +157,8 @@ export function GeoEditorView() {
 	const setViewContext = useEditorStore((state) => state.setViewContext)
 	const setViewContextDatasets = useEditorStore((state) => state.setViewContextDatasets)
 	const contextFilterMode = useEditorStore((state) => state.contextFilterMode)
+	const contextMapScopeMode = useEditorStore((state) => state.contextMapScopeMode)
+	const setContextMapScopeMode = useEditorStore((state) => state.setContextMapScopeMode)
 	const setContextFilterMode = useEditorStore((state) => state.setContextFilterMode)
 	const activeDataset = useEditorStore((state) => state.activeDataset)
 	const activeDatasetContextRefs = useEditorStore((state) => state.activeDatasetContextRefs)
@@ -467,29 +473,13 @@ export function GeoEditorView() {
 		return getContextCoordinate(activeContext)
 	}, [activeContext, activeContextScope, contextCoordinate])
 
-	const activeContextStickyDatasets = useMemo(() => {
-		if (!activeContext) return []
-		return getContextReferencedDatasets(activeContext, geoEvents)
-	}, [activeContext, geoEvents])
-
-	const activeContextForeignAttachedDatasets = useMemo(() => {
-		if (!activeContextCoordinate || !activeContext?.context.allowForeignAttachments) return []
-		if (!activeContextCoordinate) return []
-		return geoEvents.filter((event) => event.contextReferences.includes(activeContextCoordinate))
-	}, [activeContext?.context.allowForeignAttachments, geoEvents, activeContextCoordinate])
-
-	const activeContextDatasetSet = useMemo(() => {
-		const datasets = new Map<string, NDKGeoEvent>()
-		;[...activeContextStickyDatasets, ...activeContextForeignAttachedDatasets].forEach((event) => {
-			const key = getDatasetKey(event)
-			datasets.set(key, event)
-		})
-		return datasets
-	}, [activeContextForeignAttachedDatasets, activeContextStickyDatasets, getDatasetKey])
-
+	const resolvedActiveContextScope = useMemo(
+		() => resolveContextMapScope(activeContext, geoEvents, mapContextEvents, contextMapScopeMode),
+		[activeContext, geoEvents, mapContextEvents, contextMapScopeMode],
+	)
 	const activeContextDatasets = useMemo(
-		() => Array.from(activeContextDatasetSet.values()),
-		[activeContextDatasetSet],
+		() => resolvedActiveContextScope.datasets.map((entry) => entry.dataset),
+		[resolvedActiveContextScope],
 	)
 
 	const validationModeForActiveContext = contextFilterMode === 'off' ? 'warn' : contextFilterMode
@@ -636,6 +626,7 @@ export function GeoEditorView() {
 		if (coordinate && lastContextCoordinateRef.current !== coordinate) {
 			lastContextCoordinateRef.current = coordinate
 			setContextFilterMode(defaultContextFilterMode(activeContext))
+			setContextMapScopeMode(getDefaultContextMapScopeMode(activeContext))
 		}
 	}, [
 		activeContext,
@@ -643,6 +634,7 @@ export function GeoEditorView() {
 		setViewContext,
 		setViewContextDatasets,
 		setContextFilterMode,
+		setContextMapScopeMode,
 	])
 
 	// Auto-attach scope context for fresh geometry creation only.

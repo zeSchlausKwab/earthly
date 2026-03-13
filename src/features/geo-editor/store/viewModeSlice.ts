@@ -8,6 +8,7 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 	viewContext: null,
 	viewContextDatasets: [],
 	contextFilterMode: 'strict',
+	contextMapScopeMode: 'children',
 	activeContextScopeNaddr: null,
 	activeContextScopeCoordinate: null,
 
@@ -20,6 +21,7 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 	setViewContext: (viewContext) => set({ viewContext }),
 	setViewContextDatasets: (viewContextDatasets) => set({ viewContextDatasets }),
 	setContextFilterMode: (contextFilterMode) => set({ contextFilterMode }),
+	setContextMapScopeMode: (contextMapScopeMode) => set({ contextMapScopeMode }),
 	setActiveContextScope: (activeContextScopeNaddr, activeContextScopeCoordinate) =>
 		set({ activeContextScopeNaddr, activeContextScopeCoordinate }),
 	clearActiveContextScope: () =>

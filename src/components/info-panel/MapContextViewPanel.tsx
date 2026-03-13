@@ -5,6 +5,11 @@ import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { encodeContextNaddr, resolveContextReferences } from '@/lib/context/references'
 import {
+	getDefaultContextMapScopeMode,
+	resolveContextMapScope,
+	type ContextMapScopeMode,
+} from '@/lib/context/scope'
+import {
 	getEffectiveContextUse,
 	getEffectiveContextValidationMode,
 	validateDatasetForContext,
@@ -63,7 +68,9 @@ export function MapContextViewPanel({
 	const viewContext = useEditorStore((state) => state.viewContext)
 	const viewContextDatasets = useEditorStore((state) => state.viewContextDatasets)
 	const contextFilterMode = useEditorStore((state) => state.contextFilterMode)
+	const contextMapScopeMode = useEditorStore((state) => state.contextMapScopeMode)
 	const setContextFilterMode = useEditorStore((state) => state.setContextFilterMode)
+	const setContextMapScopeMode = useEditorStore((state) => state.setContextMapScopeMode)
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 	const features = useEditorStore((state) => state.features)
 
@@ -129,17 +136,11 @@ export function MapContextViewPanel({
 		if (selectedFeatureIds.length === 0) return []
 		return features.filter((feature) => selectedFeatureIds.includes(feature.id))
 	}, [features, selectedFeatureIds])
-	const attachedContexts = useMemo(() => {
-		if (!viewContext?.context.allowForeignAttachments) return []
-		const coordinate = viewContext.contextCoordinate
-		if (!coordinate) return []
-		return mapContextEvents.filter(
-			(context) =>
-				context.id !== viewContext.id &&
-				context.contextCoordinate !== coordinate &&
-				context.contextReferences.includes(coordinate),
-		)
-	}, [mapContextEvents, viewContext])
+	const scope = useMemo(
+		() => resolveContextMapScope(viewContext, viewContextDatasets, mapContextEvents, contextMapScopeMode),
+		[viewContext, viewContextDatasets, mapContextEvents, contextMapScopeMode],
+	)
+	const attachedContexts = scope.childContexts
 
 	const openContextRoute = useCallback((context: NDKMapContextEvent) => {
 		const naddr = encodeContextNaddr(context)
@@ -218,6 +219,14 @@ export function MapContextViewPanel({
 	const allowedGeometryTypes = contextContent.geometryConstraints?.allowedTypes ?? []
 	const referencedDatasetCount = referencedDatasetKeySet.size
 	const foreignDatasetCount = Math.max(0, viewContextDatasets.length - referencedDatasetCount)
+	const datasetSourceContextByKey = useMemo(() => {
+		const map = new Map<string, NDKMapContextEvent>()
+		scope.datasets.forEach((entry) => {
+			map.set(getDatasetKey(entry.dataset), entry.sourceContext)
+		})
+		return map
+	}, [scope, getDatasetKey])
+	const rolledUpDatasetCount = Math.max(0, scope.datasets.length - scope.directDatasets.length)
 	const commentsSection = (
 		<EntityPanelSurface tone="discussion" className="space-y-4">
 			<EntityPanelSectionHeader
@@ -316,6 +325,31 @@ export function MapContextViewPanel({
 
 				<EntityPanelSurface tone="neutral" className="space-y-3">
 					<EntityPanelSectionHeader
+						eyebrow="Map Scope"
+						title="Context map scope"
+						description={
+							contextMapScopeMode === 'children'
+								? `Showing direct content plus ${scope.includedContexts.length - 1} child context${scope.includedContexts.length - 1 === 1 ? '' : 's'}.`
+								: 'Showing only content attached directly to this context.'
+						}
+					/>
+					<Label className="sr-only">Context map scope</Label>
+					<Select
+						value={contextMapScopeMode}
+						onValueChange={(mode) => setContextMapScopeMode(mode as ContextMapScopeMode)}
+					>
+						<SelectTrigger className="max-w-[14rem] rounded-none text-xs">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="direct">Direct only</SelectItem>
+							<SelectItem value="children">Include child contexts</SelectItem>
+						</SelectContent>
+					</Select>
+				</EntityPanelSurface>
+
+				<EntityPanelSurface tone="neutral" className="space-y-3">
+					<EntityPanelSectionHeader
 						eyebrow="Filter"
 						title="Context filter mode"
 						description={`Valid ${counters.valid} · Invalid ${counters.invalid} · Unresolved ${counters.unresolved}`}
@@ -340,7 +374,7 @@ export function MapContextViewPanel({
 					<EntityPanelSectionHeader
 						eyebrow="Map Lane"
 						title={`Map lane datasets (${mapLaneDatasets.length})`}
-						description={`curated ${referencedDatasetCount} · foreign ${foreignDatasetCount}`}
+						description={`curated ${referencedDatasetCount} · foreign ${foreignDatasetCount} · rolled up ${rolledUpDatasetCount}`}
 					/>
 
 					{mapLaneDatasets.length === 0 ? (
@@ -370,6 +404,15 @@ export function MapContextViewPanel({
 												<span className={`border px-2 py-0.5 text-[10px] ${statusClass}`}>
 													{status}
 												</span>
+												{(() => {
+													const sourceContext = datasetSourceContextByKey.get(key)
+													if (!sourceContext || sourceContext.id === viewContext.id) return null
+													return (
+														<span className="text-[10px] text-slate-500">
+															from {sourceContext.context.name || sourceContext.contextId || 'child context'}
+														</span>
+													)
+												})()}
 												{result && result.featureErrorCount > 0 && (
 													<span className="text-[10px] text-red-600">
 														{result.featureErrorCount} invalid feature(s)
@@ -455,7 +498,9 @@ export function MapContextViewPanel({
 						title={`Child contexts (${attachedContexts.length})`}
 						description={
 							contextContent.allowForeignAttachments
-								? 'Contexts attached via c are discoverable here.'
+								? contextMapScopeMode === 'children'
+									? 'Contexts attached via c are discoverable here and currently contribute to the map scope.'
+									: 'Contexts attached via c are discoverable here but are currently excluded from the map scope.'
 								: 'Closed contexts ignore inbound context attachments.'
 						}
 					/>

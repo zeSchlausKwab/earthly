@@ -2,6 +2,7 @@ import type { FeatureCollection } from 'geojson'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import type { ContextFilterMode } from '@/lib/context/validation'
+import type { ContextMapScopeMode } from '@/lib/context/scope'
 import type { EditorFeature, EditorMode, GeoEditor } from '../core'
 import type { CollectionMeta, EditorBlobReference, GeoSearchResult } from '../types'
 
@@ -216,6 +217,7 @@ export interface ViewModeSlice {
 	viewContext: NDKMapContextEvent | null
 	viewContextDatasets: NDKGeoEvent[]
 	contextFilterMode: ContextFilterMode
+	contextMapScopeMode: ContextMapScopeMode
 	activeContextScopeNaddr: string | null
 	activeContextScopeCoordinate: string | null
 
@@ -233,6 +235,7 @@ export interface ViewModeSlice {
 	setViewContext: (context: NDKMapContextEvent | null) => void
 	setViewContextDatasets: (events: NDKGeoEvent[]) => void
 	setContextFilterMode: (mode: ContextFilterMode) => void
+	setContextMapScopeMode: (mode: ContextMapScopeMode) => void
 	setActiveContextScope: (naddr: string | null, coordinate: string | null) => void
 	clearActiveContextScope: () => void
 	setEditIsolationEnabled: (enabled: boolean) => void
