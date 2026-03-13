@@ -8,6 +8,24 @@ export interface NostrAddressReference {
 
 const NADDR_REFERENCE_PATTERN = /nostr:(naddr1[a-z0-9]+)(#([a-zA-Z0-9_-]+))?/gi
 
+export function stringifyNostrAddressReference(reference: NostrAddressReference): string {
+	return `nostr:${reference.address}${reference.featureId ? `#${reference.featureId}` : ''}`
+}
+
+export function parseNostrAddressReference(
+	value: string | null | undefined,
+): NostrAddressReference | null {
+	if (!value) return null
+	const trimmed = value.trim()
+	if (!trimmed) return null
+	const match = trimmed.match(/^nostr:(naddr1[a-z0-9]+)(?:#([a-zA-Z0-9_-]+))?$/i)
+	if (!match?.[1]) return null
+	return {
+		address: match[1],
+		featureId: match[2] || undefined,
+	}
+}
+
 export function extractNostrAddressReferences(text: string | null | undefined): NostrAddressReference[] {
 	if (!text) return []
 
@@ -26,6 +44,15 @@ export function extractNostrAddressReferences(text: string | null | undefined): 
 	}
 
 	return references
+}
+
+export function extractNostrAddressReferencesFromList(
+	values: Array<string | null | undefined>,
+): NostrAddressReference[] {
+	return values.flatMap((value) => {
+		const parsed = parseNostrAddressReference(value)
+		return parsed ? [parsed] : []
+	})
 }
 
 export function dedupeNostrAddressReferences(
@@ -58,6 +85,22 @@ export function extractReferencedCoordinates(text: string | null | undefined): s
 	const coordinates: string[] = []
 
 	extractNostrAddressReferences(text).forEach((reference) => {
+		const coordinate = naddrToCoordinate(reference.address)
+		if (!coordinate || seen.has(coordinate)) return
+		seen.add(coordinate)
+		coordinates.push(coordinate)
+	})
+
+	return coordinates
+}
+
+export function extractReferencedCoordinatesFromList(
+	values: Array<string | null | undefined>,
+): string[] {
+	const seen = new Set<string>()
+	const coordinates: string[] = []
+
+	extractNostrAddressReferencesFromList(values).forEach((reference) => {
 		const coordinate = naddrToCoordinate(reference.address)
 		if (!coordinate || seen.has(coordinate)) return
 		seen.add(coordinate)

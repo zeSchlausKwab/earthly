@@ -24,6 +24,7 @@ export interface MapContextContent {
 	name: string
 	description?: string
 	descriptionFormat?: 'markdown'
+	references?: string[]
 	image?: string
 	contextUse: MapContextUse
 	validationMode: MapContextValidationMode

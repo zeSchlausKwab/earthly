@@ -9,7 +9,12 @@ import {
 	type MapContextGeometryType,
 } from '@/lib/ndk/NDKMapContextEvent'
 import {
+	dedupeNostrAddressReferences,
+	extractNostrAddressReferences,
 	extractReferencedCoordinates,
+	extractReferencedCoordinatesFromList,
+	extractNostrAddressReferencesFromList,
+	stringifyNostrAddressReference,
 	syncAddressReferenceTags,
 } from '@/lib/ndk/nostrReferences'
 import {
@@ -246,6 +251,7 @@ export function MapContextEditorPanel({
 
 	const [name, setName] = useState(initial?.name ?? '')
 	const [description, setDescription] = useState(initial?.description ?? '')
+	const [curatedReferences, setCuratedReferences] = useState<string[]>(initial?.references ?? [])
 	const [image, setImage] = useState(initial?.image ?? '')
 	const [contextUse, setContextUse] = useState<MapContextContent['contextUse']>(
 		initial?.contextUse ?? 'taxonomy',
@@ -280,6 +286,69 @@ export function MapContextEditorPanel({
 	const suggestedBuilderSampleJson = useMemo(() => sampleJsonFromBuilder(fields), [fields])
 	const effectiveSchemaJson =
 		schemaMode === 'builder' ? JSON.stringify(builderSchema, null, 2) : schemaJson
+	const referencedEntities = useMemo(() => {
+		const availableFeatureMap = new Map<string, GeoFeatureItem>()
+		availableFeatures.forEach((item) => {
+			availableFeatureMap.set(`${item.address}#${item.featureId ?? ''}`, item)
+			if (!item.featureId) {
+				availableFeatureMap.set(item.address, item)
+			}
+		})
+
+		return dedupeNostrAddressReferences(extractNostrAddressReferences(description)).map(
+			(reference) => {
+				const exactKey = `${reference.address}#${reference.featureId ?? ''}`
+				const matched =
+					availableFeatureMap.get(exactKey) ??
+					(!reference.featureId ? availableFeatureMap.get(reference.address) : undefined)
+
+				return {
+					key: exactKey,
+					address: reference.address,
+					featureId: reference.featureId,
+					name:
+						matched?.name ??
+						(reference.featureId ? `${reference.address}#${reference.featureId}` : reference.address),
+					entityType: matched?.entityType ?? 'feature',
+					datasetName: matched?.datasetName,
+				}
+			},
+		)
+	}, [availableFeatures, description])
+	const curatedReferenceEntities = useMemo(() => {
+		const availableFeatureMap = new Map<string, GeoFeatureItem>()
+		availableFeatures.forEach((item) => {
+			availableFeatureMap.set(`${item.address}#${item.featureId ?? ''}`, item)
+			if (!item.featureId) {
+				availableFeatureMap.set(item.address, item)
+			}
+		})
+
+		return dedupeNostrAddressReferences(extractNostrAddressReferencesFromList(curatedReferences)).map(
+			(reference) => {
+				const exactKey = `${reference.address}#${reference.featureId ?? ''}`
+				const matched =
+					availableFeatureMap.get(exactKey) ??
+					(!reference.featureId ? availableFeatureMap.get(reference.address) : undefined)
+
+				return {
+					key: exactKey,
+					raw: stringifyNostrAddressReference(reference),
+					address: reference.address,
+					featureId: reference.featureId,
+					name:
+						matched?.name ??
+						(reference.featureId ? `${reference.address}#${reference.featureId}` : reference.address),
+					entityType: matched?.entityType ?? 'feature',
+					datasetName: matched?.datasetName,
+				}
+			},
+		)
+	}, [availableFeatures, curatedReferences])
+	const availableCuratedReferenceFeatures = useMemo(
+		() => availableFeatures.filter((item) => item.entityType !== 'context'),
+		[availableFeatures],
+	)
 
 	useEffect(() => {
 		const nextInitial = initialContext?.context
@@ -287,6 +356,7 @@ export function MapContextEditorPanel({
 		setName(nextInitial?.name ?? '')
 		setDescription(nextInitial?.description ?? '')
 		descriptionEditorRef.current?.setContent(nextInitial?.description ?? '')
+		setCuratedReferences(nextInitial?.references ?? [])
 		setImage(nextInitial?.image ?? '')
 		setContextUse(nextInitial?.contextUse ?? 'taxonomy')
 		setValidationMode(nextInitial?.validationMode ?? 'none')
@@ -402,6 +472,18 @@ export function MapContextEditorPanel({
 		setAttachedContextRefs((prev) => (prev.includes(coordinate) ? prev : [...prev, coordinate]))
 	}
 
+	const handleCuratedReferenceSelect = (result: EntitySearchResult) => {
+		const selected = result.entity as GeoFeatureItem
+		const selectedKey = `${selected.address}#${selected.featureId ?? ''}`
+		const inlineReferenceSet = new Set(referencedEntities.map((reference) => reference.key))
+		if (inlineReferenceSet.has(selectedKey)) return
+		const nextReference = stringifyNostrAddressReference({
+			address: selected.address,
+			featureId: selected.featureId,
+		})
+		setCuratedReferences((prev) => (prev.includes(nextReference) ? prev : [...prev, nextReference]))
+	}
+
 	const handleSave = async () => {
 		if (!ndk || !currentUser) return
 		setSaveError(null)
@@ -445,6 +527,7 @@ export function MapContextEditorPanel({
 				name: name.trim(),
 				description: description.length > 0 ? description : undefined,
 				descriptionFormat: 'markdown',
+				references: curatedReferences.length > 0 ? curatedReferences : undefined,
 				image: image.trim() || undefined,
 				contextUse: effectiveContextUse,
 				validationMode: effectiveValidationMode,
@@ -463,7 +546,10 @@ export function MapContextEditorPanel({
 						: undefined,
 			}
 			event.contextReferences = attachedContextRefs
-			syncAddressReferenceTags(event, extractReferencedCoordinates(description))
+			syncAddressReferenceTags(event, [
+				...extractReferencedCoordinates(description),
+				...extractReferencedCoordinatesFromList(curatedReferences),
+			])
 
 			await event.publishNew()
 			onSave(event)
@@ -536,6 +622,102 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 								rows={8}
 								className="min-h-[280px] w-full"
 							/>
+						</div>
+						<div className="space-y-2">
+							<div className="flex items-center justify-between gap-2">
+								<Label>Referenced entities</Label>
+								<span className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
+									{referencedEntities.length}
+								</span>
+							</div>
+							{referencedEntities.length === 0 ? (
+								<p className="border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
+									No inline nostr references yet.
+								</p>
+							) : (
+								<div className="border border-slate-200">
+									{referencedEntities.map((reference, index) => (
+										<div
+											key={reference.key}
+											className={`flex items-start justify-between gap-3 px-3 py-2 ${
+												index > 0 ? 'border-t border-slate-200' : ''
+											}`}
+										>
+											<div className="min-w-0 space-y-0.5">
+												<p className="truncate text-xs font-medium text-slate-900">
+													{reference.name}
+												</p>
+												<p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">
+													{reference.entityType}
+													{reference.datasetName ? ` · ${reference.datasetName}` : ''}
+												</p>
+												<p className="truncate text-[10px] text-slate-500">
+													nostr:{reference.address}
+													{reference.featureId ? `#${reference.featureId}` : ''}
+												</p>
+											</div>
+										</div>
+									))}
+								</div>
+							)}
+						</div>
+						<div className="space-y-2">
+							<div className="flex items-center justify-between gap-2">
+								<Label>Curated references</Label>
+								<span className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
+									{curatedReferenceEntities.length}
+								</span>
+							</div>
+							<EntitySearchPopover
+								sources={{ features: availableCuratedReferenceFeatures }}
+								entityTypes={['feature']}
+								onSelect={handleCuratedReferenceSelect}
+								placeholder="Search geometries and datasets to reference…"
+								searchMode="local"
+								inputClassName="rounded-none"
+							/>
+							{curatedReferenceEntities.length === 0 ? (
+								<p className="border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
+									No extra curated references. Add items here when they belong to the context but do not need to appear in the narrative text.
+								</p>
+							) : (
+								<div className="border border-slate-200">
+									{curatedReferenceEntities.map((reference, index) => (
+										<div
+											key={reference.key}
+											className={`flex items-start justify-between gap-3 px-3 py-2 ${
+												index > 0 ? 'border-t border-slate-200' : ''
+											}`}
+										>
+											<div className="min-w-0 space-y-0.5">
+												<p className="truncate text-xs font-medium text-slate-900">
+													{reference.name}
+												</p>
+												<p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">
+													{reference.entityType}
+													{reference.datasetName ? ` · ${reference.datasetName}` : ''}
+												</p>
+												<p className="truncate text-[10px] text-slate-500">
+													{reference.raw}
+												</p>
+											</div>
+											<Button
+												type="button"
+												variant="ghost"
+												size="sm"
+												className="h-6 rounded-none px-2 text-[11px]"
+												onClick={() =>
+													setCuratedReferences((prev) =>
+														prev.filter((value) => value !== reference.raw),
+													)
+												}
+											>
+												Remove
+											</Button>
+										</div>
+									))}
+								</div>
+							)}
 						</div>
 						<div className="space-y-2">
 							<Label>Image URL</Label>

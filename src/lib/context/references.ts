@@ -5,6 +5,7 @@ import type { NDKMapContextEvent } from '../ndk/NDKMapContextEvent'
 import {
 	dedupeNostrAddressReferences,
 	extractNostrAddressReferences,
+	extractNostrAddressReferencesFromList,
 	naddrToCoordinate,
 } from '../ndk/nostrReferences'
 
@@ -56,7 +57,10 @@ export function encodeContextNaddr(context: NDKMapContextEvent): string | null {
 export function getContextReferencedMentions(
 	context: NDKMapContextEvent | null | undefined,
 ) {
-	return dedupeNostrAddressReferences(extractNostrAddressReferences(context?.context.description))
+	return dedupeNostrAddressReferences([
+		...extractNostrAddressReferences(context?.context.description),
+		...extractNostrAddressReferencesFromList(context?.context.references ?? []),
+	])
 }
 
 export function resolveContextReferences(
