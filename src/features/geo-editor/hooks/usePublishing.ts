@@ -37,6 +37,7 @@ export function usePublishing({
 	const editor = useEditorStore((state) => state.editor)
 	const features = useEditorStore((state) => state.features)
 	const activeDataset = useEditorStore((state) => state.activeDataset)
+	const isDirty = useEditorStore((state) => state.isDirty)
 	const activeDatasetContextRefs = useEditorStore((state) => state.activeDatasetContextRefs)
 	const collectionMeta = useEditorStore((state) => state.collectionMeta)
 	const blobReferences = useEditorStore((state) => state.blobReferences)
@@ -44,6 +45,7 @@ export function usePublishing({
 	// Store actions
 	const setIsPublishing = useEditorStore((state) => state.setIsPublishing)
 	const setPublishMessage = useEditorStore((state) => state.setPublishMessage)
+	const setIsDirty = useEditorStore((state) => state.setIsDirty)
 	const setPublishError = useEditorStore((state) => state.setPublishError)
 	const setActiveDataset = useEditorStore((state) => state.setActiveDataset)
 	const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta)
@@ -534,6 +536,8 @@ export function usePublishing({
 			}
 
 			setPublishMessage('Dataset update published successfully.')
+			toast.success('Dataset updated.')
+			setIsDirty(false)
 			setActiveDataset(event)
 			setActiveDatasetContextRefs(event.contextReferences)
 			setCollectionMeta(extractCollectionMeta(collection))
@@ -562,6 +566,7 @@ export function usePublishing({
 		setActiveDatasetContextRefs,
 		setCollectionMeta,
 		setSelectedFeatureIds,
+		setIsDirty,
 		switchToDatasetViewMode,
 	])
 
@@ -727,7 +732,7 @@ export function usePublishing({
 		!activeDataset &&
 		(hasCollectionBlob || (collection ? !isOverSizeLimit(collection) : true))
 	const canPublishUpdate =
-		!!activeDataset && currentUserPubkey === activeDataset?.pubkey && features.length > 0
+		!!activeDataset && currentUserPubkey === activeDataset?.pubkey && features.length > 0 && isDirty
 	const canPublishCopy =
 		!!activeDataset && currentUserPubkey !== activeDataset?.pubkey && features.length > 0
 	const canProposeEdit =

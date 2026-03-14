@@ -5,6 +5,7 @@ import { useGeoComments } from '../hooks/useGeoComments'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { GeoComment } from './GeoComment'
 import { GeoCommentForm } from './GeoCommentForm'
@@ -66,6 +67,7 @@ export function CommentsPanel({
 	const [activeComposerId, setActiveComposerId] = useState<string>(ROOT_COMPOSER_ID)
 	const [entityAnnotationsVisible, setEntityAnnotationsVisible] = useState(true)
 	const initializedCommentIdsRef = useRef<Set<string>>(new Set())
+	const commentsListRef = useRef<HTMLDivElement>(null)
 
 	useEffect(() => {
 		setActiveComposerId(ROOT_COMPOSER_ID)
@@ -81,6 +83,12 @@ export function CommentsPanel({
 	const handlePostComment = useCallback(
 		async (text: string, geojson?: FeatureCollection) => {
 			await postComment(text, geojson)
+			toast.success('Comment posted!')
+			window.requestAnimationFrame(() => {
+				if (commentsListRef.current) {
+					commentsListRef.current.scrollTop = commentsListRef.current.scrollHeight
+				}
+			})
 		},
 		[postComment],
 	)
@@ -184,7 +192,7 @@ export function CommentsPanel({
 			)}
 
 			{/* Comments list */}
-			<div className="min-h-0 flex-1 overflow-y-auto">
+			<div ref={commentsListRef} className="min-h-0 flex-1 overflow-y-auto">
 				{isLoading && comments.length === 0 ? (
 					<div className="flex items-center justify-center py-8 text-sm text-stone-500">
 						<RefreshCw className="mr-2 h-4 w-4 animate-spin" />

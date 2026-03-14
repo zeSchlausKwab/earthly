@@ -472,15 +472,17 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 
 						<Tooltip>
 							<TooltipTrigger asChild>
-								<Button
-									type="submit"
-									size="sm"
-									disabled={!canSubmit}
-									className="gap-1 rounded-none bg-emerald-600 px-2 text-xs text-white hover:bg-emerald-700"
-								>
-									<Send className="h-3 w-3" />
-									{isReply ? 'Reply' : 'Post'}
-								</Button>
+								<span tabIndex={!canSubmit ? 0 : undefined} className="inline-flex">
+									<Button
+										type="submit"
+										size="sm"
+										disabled={!canSubmit}
+										className={`gap-1 rounded-none px-2 text-xs ${canSubmit ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-stone-100 text-stone-400 border border-stone-200"}`}
+									>
+										<Send className="h-3 w-3" />
+										{isReply ? 'Reply' : 'Post'}
+									</Button>
+								</span>
 							</TooltipTrigger>
 							<TooltipContent>
 								{!currentUser

@@ -36,6 +36,7 @@ export const createEditorCoreSlice: StateCreator<EditorState, [], [], EditorCore
 			writePersistedGeoCollectionDraftState(nextDrafts, activeGeoEditDraftId)
 			return {
 				features,
+				isDirty: true,
 				geoEditDrafts: nextDrafts,
 			}
 		})

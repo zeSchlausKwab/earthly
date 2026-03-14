@@ -151,6 +151,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	const setViewDataset = useEditorStore((state) => state.setViewDataset)
 	const blobReferences = useEditorStore((state) => state.blobReferences)
 	const viewContext = useEditorStore((state) => state.viewContext)
+	const setViewContext = useEditorStore((state) => state.setViewContext)
 	const activeDatasetContextRefs = useEditorStore((state) => state.activeDatasetContextRefs)
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
 	const setFeatures = useEditorStore((state) => state.setFeatures)
@@ -209,6 +210,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	const handleSwitchToView = () => {
 		if (activeDataset) {
 			setViewDataset(activeDataset)
+			setViewContext(null)
 			setViewMode('view')
 		}
 	}
@@ -663,7 +665,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					Dataset info
 				</CollapsibleTrigger>
 				<CollapsibleContent>
-					<DatasetMetadataSection availableFeatures={availableFeatures} />
+					<DatasetMetadataSection key={activeDataset?.id ?? 'new'} availableFeatures={availableFeatures} />
 				</CollapsibleContent>
 			</Collapsible>
 

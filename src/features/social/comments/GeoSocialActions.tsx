@@ -182,6 +182,7 @@ export function GeoSocialActions({
 						size={buttonSize}
 						onClick={handleReaction}
 						disabled={isLoading}
+						aria-label={userHasReacted ? 'Unlike' : 'Like'}
 						className={`gap-1 ${
 							userHasReacted
 								? 'text-rose-500 hover:text-rose-600'
@@ -232,10 +233,11 @@ export function GeoSocialActions({
 							variant="ghost"
 							size={buttonSize}
 							onClick={handleShare}
+							aria-label="Share"
 							className="gap-1 rounded-none px-2 text-xs text-gray-500 hover:text-sky-600"
 						>
 							<Share2 className={iconSize} />
-							{!compact && <span className="text-xs font-medium">Share</span>}
+							<span className="text-xs font-medium">Share</span>
 						</Button>
 					</TooltipTrigger>
 					<TooltipContent>Copy share link</TooltipContent>
@@ -267,11 +269,14 @@ export function GeoSocialActions({
 							variant="ghost"
 							size={buttonSize}
 							onClick={onReplyClick}
+							aria-label="Reply"
 							className="gap-1 rounded-none px-2 text-xs text-gray-500 hover:text-emerald-500"
 						>
 							<MessageCircle className={iconSize} />
-							{commentCount > 0 && (
+							{commentCount > 0 ? (
 								<span className="text-xs font-medium">{formatCount(commentCount)}</span>
+							) : (
+								<span className="text-xs font-medium">Reply</span>
 							)}
 						</Button>
 					</TooltipTrigger>

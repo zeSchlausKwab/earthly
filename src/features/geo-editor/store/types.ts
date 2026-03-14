@@ -165,9 +165,11 @@ export interface MetadataSlice {
 	datasetVisibility: Record<string, boolean>
 	resolvingDatasets: Set<string>
 	resolvingProgress: Map<string, { loaded: number; total: number }>
+	isDirty: boolean
 
 	setCollectionMeta: (meta: CollectionMeta) => void
 	setActiveDataset: (dataset: NDKGeoEvent | null) => void
+	setIsDirty: (isDirty: boolean) => void
 	setActiveDatasetContextRefs: (refs: string[]) => void
 	setDatasetVisibility: (
 		visibility:

@@ -13,6 +13,7 @@ export const createMetadataSlice: StateCreator<EditorState, [], [], MetadataSlic
 		customProperties: {},
 	},
 	activeDataset: null,
+	isDirty: false,
 	activeDatasetContextRefs: [],
 	datasetVisibility: {},
 	resolvingDatasets: new Set<string>(),
@@ -38,12 +39,14 @@ export const createMetadataSlice: StateCreator<EditorState, [], [], MetadataSlic
 			writePersistedGeoCollectionDraftState(nextDrafts, activeGeoEditDraftId)
 			return {
 				collectionMeta,
+				isDirty: true,
 				geoEditDrafts: nextDrafts,
 			}
 		})
 	},
 
-	setActiveDataset: (activeDataset) => set({ activeDataset }),
+	setActiveDataset: (activeDataset) => set({ activeDataset, isDirty: false }),
+	setIsDirty: (isDirty) => set({ isDirty }),
 	setActiveDatasetContextRefs: (activeDatasetContextRefs) => set({ activeDatasetContextRefs }),
 	setDatasetVisibility: (update) =>
 		set((state) => ({
