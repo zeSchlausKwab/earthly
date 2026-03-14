@@ -2,7 +2,7 @@ import { faker } from "@faker-js/faker";
 import type NDK from "@nostr-dev-kit/ndk";
 import type { NDKPrivateKeySigner, NDKUserProfile } from "@nostr-dev-kit/ndk";
 
-const WALLETED_USER_LUD16 = "plebeianuser@coinos.io";
+const WALLETED_USER_LUD16 = "schlauskwab@minibits.cash";
 
 /**
  * Generates random user profile data, optionally with user index for consistent profiles
@@ -10,43 +10,43 @@ const WALLETED_USER_LUD16 = "plebeianuser@coinos.io";
  * @returns A randomly generated user profile
  */
 export function generateUserProfileData(userIndex?: number): NDKUserProfile {
-	// Use seed if user index is provided to generate consistent profiles
-	if (userIndex !== undefined) {
-		faker.seed(userIndex + 1000); // Add offset to avoid potential seed conflicts
-	}
+  // Use seed if user index is provided to generate consistent profiles
+  if (userIndex !== undefined) {
+    faker.seed(userIndex + 1000); // Add offset to avoid potential seed conflicts
+  }
 
-	// Create a base username that will be used for multiple fields
-	const baseUsername = faker.internet.username().toLowerCase();
+  // Create a base username that will be used for multiple fields
+  const baseUsername = faker.internet.username().toLowerCase();
 
-	// Categories for different banner images
-	const bannerCategories = [
-		"abstract",
-		"nature",
-		"technology",
-		"business",
-		"city",
-	];
-	const selectedCategory =
-		userIndex !== undefined
-			? bannerCategories[userIndex % bannerCategories.length]
-			: faker.helpers.arrayElement(bannerCategories);
+  // Categories for different banner images
+  const bannerCategories = [
+    "abstract",
+    "nature",
+    "technology",
+    "business",
+    "city",
+  ];
+  const selectedCategory =
+    userIndex !== undefined
+      ? bannerCategories[userIndex % bannerCategories.length]
+      : faker.helpers.arrayElement(bannerCategories);
 
-	// Generate a profile with more consistent usernames across fields
-	return {
-		name: baseUsername,
-		displayName: faker.person.fullName(),
-		image: faker.image.avatarGitHub(), // GitHub avatars are good placeholders
-		banner: faker.image.urlLoremFlickr({
-			category: selectedCategory,
-			width: 1200,
-			height: 400,
-		}),
-		about: faker.lorem.paragraph(3),
-		nip05: `${baseUsername}@example.com`,
-		website: `https://${baseUsername}.com`,
-		lud06: faker.finance.bitcoinAddress(),
-		lud16: WALLETED_USER_LUD16,
-	};
+  // Generate a profile with more consistent usernames across fields
+  return {
+    name: baseUsername,
+    displayName: faker.person.fullName(),
+    image: faker.image.avatarGitHub(), // GitHub avatars are good placeholders
+    banner: faker.image.urlLoremFlickr({
+      category: selectedCategory,
+      width: 1200,
+      height: 400,
+    }),
+    about: faker.lorem.paragraph(3),
+    nip05: `${baseUsername}@example.com`,
+    website: `https://${baseUsername}.com`,
+    lud06: faker.finance.bitcoinAddress(),
+    lud16: WALLETED_USER_LUD16,
+  };
 }
 
 /**
@@ -57,26 +57,26 @@ export function generateUserProfileData(userIndex?: number): NDKUserProfile {
  * @returns Boolean indicating success or failure
  */
 export async function createUserProfileEvent(
-	signer: NDKPrivateKeySigner,
-	ndk: NDK,
-	profileData: NDKUserProfile,
+  signer: NDKPrivateKeySigner,
+  ndk: NDK,
+  profileData: NDKUserProfile,
 ): Promise<boolean> {
-	try {
-		// Get the user from the signer
-		const user = await signer.user();
-		ndk.signer = signer;
-		user.ndk = ndk;
+  try {
+    // Get the user from the signer
+    const user = await signer.user();
+    ndk.signer = signer;
+    user.ndk = ndk;
 
-		// Set profile data
-		user.profile = profileData;
+    // Set profile data
+    user.profile = profileData;
 
-		// Publish the profile
-		await user.publish();
+    // Publish the profile
+    await user.publish();
 
-		console.log(`Published profile for ${profileData.name}`);
-		return true;
-	} catch (error) {
-		console.error("Failed to publish user profile", error);
-		return false;
-	}
+    console.log(`Published profile for ${profileData.name}`);
+    return true;
+  } catch (error) {
+    console.error("Failed to publish user profile", error);
+    return false;
+  }
 }
