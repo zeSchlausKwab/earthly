@@ -318,7 +318,11 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 				</div>
 
 				<div className="border-t border-stone-200 pt-2">
-					{!isGeometryDraftActive && currentUser && (
+					{!currentUser ? (
+						<p className="text-[10px] text-stone-400">Log in to comment &amp; annotate</p>
+					) : (
+					<>
+					{!isGeometryDraftActive && (
 						<p className="mb-1 text-[10px] text-stone-400">
 							Draw a point, line, or polygon on the map to attach it to your comment.
 						</p>
@@ -424,6 +428,8 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 							)}
 						</div>
 					)}
+				</>
+				)}
 				</div>
 
 				{hasAttachedGeometry && (

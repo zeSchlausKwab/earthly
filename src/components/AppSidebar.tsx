@@ -229,9 +229,15 @@ export function AppSidebar({
 	const [activeWorkMode, setActiveWorkMode] = useState<WorkViewMode>('datasets')
 	const [showEntityAsFullPanel, setShowEntityAsFullPanel] = useState(viewMode === 'edit')
 	const [entityIntent, setEntityIntent] = useState<Record<EntityWorkspace, 'inspect' | 'edit'>>({
-		geometry: 'edit',
-		context: 'edit',
+		geometry: 'inspect',
+		context: 'inspect',
 	})
+
+	useEffect(() => {
+		if (!currentUserPubkey) {
+			setEntityIntent({ geometry: 'inspect', context: 'inspect' })
+		}
+	}, [currentUserPubkey])
 
 	const activeContextScope = useMemo(() => {
 		if (!contextNaddr) return null
@@ -834,12 +840,14 @@ export function AppSidebar({
 							<LoginSessionButtons />
 						</div>
 					</div>
-					<WorkspaceDraftNavigator
-						onStartNewDataset={onStartNewDataset}
-						onSwitchWorkspace={onSwitchWorkspace}
-						onDeleteWorkspace={onDeleteWorkspace}
-						onAddDraftToWorkspace={onAddDraftToWorkspace}
-					/>
+					{currentUserPubkey && (
+						<WorkspaceDraftNavigator
+							onStartNewDataset={onStartNewDataset}
+							onSwitchWorkspace={onSwitchWorkspace}
+							onDeleteWorkspace={onDeleteWorkspace}
+							onAddDraftToWorkspace={onAddDraftToWorkspace}
+						/>
+					)}
 				</SidebarHeader>
 
 				<SidebarContent className="p-2">

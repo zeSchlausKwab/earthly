@@ -325,8 +325,8 @@ export function MapContextViewPanel({
 
 				<EntityPanelSurface tone="neutral" className="space-y-3">
 					<EntityPanelSectionHeader
-						eyebrow="Map Scope"
-						title="Context map scope"
+						eyebrow="Dataset scope"
+						title="Context dataset scope"
 						description={
 							contextMapScopeMode === 'children'
 								? `Showing direct content plus ${scope.includedContexts.length - 1} child context${scope.includedContexts.length - 1 === 1 ? '' : 's'}.`
@@ -352,7 +352,7 @@ export function MapContextViewPanel({
 					<EntityPanelSectionHeader
 						eyebrow="Filter"
 						title="Context filter mode"
-						description={`Valid ${counters.valid} · Invalid ${counters.invalid} · Unresolved ${counters.unresolved}`}
+						description={`Valid ${counters.valid} · Invalid ${counters.invalid} · Not checked ${counters.unresolved}`}
 					/>
 					<Label className="sr-only">Context filter mode</Label>
 					<Select
@@ -372,9 +372,9 @@ export function MapContextViewPanel({
 
 				<EntityPanelSurface tone="neutral" className="space-y-3">
 					<EntityPanelSectionHeader
-						eyebrow="Map Lane"
-						title={`Map lane datasets (${mapLaneDatasets.length})`}
-						description={`curated ${referencedDatasetCount} · foreign ${foreignDatasetCount} · rolled up ${rolledUpDatasetCount}`}
+						eyebrow="Datasets"
+						title={`Datasets (${mapLaneDatasets.length})`}
+						description={`own ${referencedDatasetCount} · attached ${foreignDatasetCount} · inherited ${rolledUpDatasetCount}`}
 					/>
 
 					{mapLaneDatasets.length === 0 ? (
@@ -402,7 +402,7 @@ export function MapContextViewPanel({
 											</p>
 											<div className="flex items-center gap-2">
 												<span className={`border px-2 py-0.5 text-[10px] ${statusClass}`}>
-													{status}
+													{status === 'unresolved' ? 'Not checked' : status}
 												</span>
 												{(() => {
 													const sourceContext = datasetSourceContextByKey.get(key)
