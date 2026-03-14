@@ -16,6 +16,13 @@ export interface ProposalStatusInfo {
 	reason?: string
 }
 
+const STATUS_EVENT_PRECEDENCE: Record<ProposalStatus, number> = {
+	applied: 4,
+	closed: 3,
+	open: 2,
+	draft: 1,
+}
+
 const STATUS_KIND_MAP: Record<number, ProposalStatus> = {
 	[PROPOSAL_STATUS_OPEN_KIND]: 'open',
 	[PROPOSAL_STATUS_APPLIED_KIND]: 'applied',
@@ -80,9 +87,23 @@ export function getLatestProposalStatus(
 
 	if (matching.length === 0) return undefined
 
-	const latest = matching.reduce((newest, event) =>
-		(event.created_at ?? 0) > (newest.created_at ?? 0) ? event : newest,
-	)
+	const latest = matching.reduce((newest, event) => {
+		const newestCreatedAt = newest.created_at ?? 0
+		const eventCreatedAt = event.created_at ?? 0
+		if (eventCreatedAt !== newestCreatedAt) {
+			return eventCreatedAt > newestCreatedAt ? event : newest
+		}
+
+		const newestStatus = STATUS_KIND_MAP[newest.kind as number]
+		const eventStatus = STATUS_KIND_MAP[event.kind as number]
+		const newestRank = newestStatus ? STATUS_EVENT_PRECEDENCE[newestStatus] : 0
+		const eventRank = eventStatus ? STATUS_EVENT_PRECEDENCE[eventStatus] : 0
+		if (eventRank !== newestRank) {
+			return eventRank > newestRank ? event : newest
+		}
+
+		return event.id && newest.id ? (event.id > newest.id ? event : newest) : newest
+	})
 
 	const status = STATUS_KIND_MAP[latest.kind as number]
 	if (!status) return undefined

@@ -451,12 +451,26 @@ export function ShareExportPopover() {
 			setCopiedUrl(false)
 			setSharePreviewError(null)
 			setShareCaptureMode(canUseEntityBounds ? 'entity-bounds' : 'viewport')
+			return
 		}
+
+		sharePreviewRequestRef.current += 1
+		setSharePreviewLoading(false)
+		setSharePreviewError(null)
+		setSharePreviewDataUrl(null)
 	}
 
 	const handleExitFocus = () => {
-		clearFocus()
 		setSharePopoverOpen(false)
+		sharePreviewRequestRef.current += 1
+		setSharePreviewLoading(false)
+		setSharePreviewError(null)
+		setSharePreviewDataUrl(null)
+		if (typeof window !== 'undefined') {
+			window.requestAnimationFrame(() => clearFocus())
+			return
+		}
+		clearFocus()
 	}
 
 	return (

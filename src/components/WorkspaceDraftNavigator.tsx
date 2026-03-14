@@ -12,7 +12,11 @@ import {
 	X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useEditorStore, type GeoCollectionEditDraft } from '@/features/geo-editor/store'
+import {
+	useEditorStore,
+	type GeoCollectionEditDraft,
+	type GeoEditorWorkspace,
+} from '@/features/geo-editor/store'
 import { Button } from './ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible'
 import { Input } from './ui/input'
@@ -23,6 +27,33 @@ interface WorkspaceDraftNavigatorProps {
 	onDeleteWorkspace?: (workspaceId: string) => void | Promise<void>
 	onAddDraftToWorkspace?: (workspaceId: string) => void | Promise<void>
 	className?: string
+}
+
+function isBlankDraft(draft: GeoCollectionEditDraft | null | undefined): boolean {
+	if (!draft) return true
+	if (draft.features.length > 0) return false
+	if (draft.name.trim()) return false
+	if (draft.description.trim()) return false
+	if (draft.collectionMeta.name.trim()) return false
+	if (draft.collectionMeta.description.trim()) return false
+	if (Object.keys(draft.collectionMeta.customProperties).length > 0) return false
+	return true
+}
+
+function isBlankScratchWorkspace(
+	workspace: GeoEditorWorkspace,
+	drafts: GeoCollectionEditDraft[],
+): boolean {
+	if (workspace.kind !== 'scratch') return false
+	const normalizedLabel = workspace.label.trim().toLowerCase()
+	if (
+		normalizedLabel &&
+		normalizedLabel !== 'untitled workspace' &&
+		normalizedLabel !== 'untitled'
+	) {
+		return false
+	}
+	return drafts.every((draft) => isBlankDraft(draft))
 }
 
 export function WorkspaceDraftNavigator({
@@ -53,15 +84,36 @@ export function WorkspaceDraftNavigator({
 		() => (activeGeoEditDraftId ? (geoEditDrafts[activeGeoEditDraftId] ?? null) : null),
 		[activeGeoEditDraftId, geoEditDrafts],
 	)
+	const workspaceDrafts = useMemo(() => {
+		const draftsBySourceId = new Map<string, GeoCollectionEditDraft[]>()
+		for (const draft of Object.values(geoEditDrafts)) {
+			const existing = draftsBySourceId.get(draft.sourceId) ?? []
+			existing.push(draft)
+			draftsBySourceId.set(draft.sourceId, existing)
+		}
+		draftsBySourceId.forEach((drafts) => {
+			drafts.sort((a, b) => b.updatedAt - a.updatedAt)
+		})
+		return draftsBySourceId
+	}, [geoEditDrafts])
 	const sortedWorkspaces = useMemo(
 		() => Object.values(workspaces).sort((a, b) => b.updatedAt - a.updatedAt),
 		[workspaces],
 	)
+	const visibleWorkspaces = useMemo(
+		() =>
+			sortedWorkspaces.filter((workspace) => {
+				if (workspace.id === activeWorkspaceId) return true
+				const drafts = workspaceDrafts.get(workspace.sourceId) ?? []
+				return !isBlankScratchWorkspace(workspace, drafts)
+			}),
+		[sortedWorkspaces, workspaceDrafts, activeWorkspaceId],
+	)
 	const currentPubkey = currentUser?.pubkey ?? null
-	const proposalWorkspaces = sortedWorkspaces.filter((workspace) =>
+	const proposalWorkspaces = visibleWorkspaces.filter((workspace) =>
 		isProposalWorkspace(workspace, currentPubkey),
 	)
-	const regularWorkspaces = sortedWorkspaces.filter(
+	const regularWorkspaces = visibleWorkspaces.filter(
 		(workspace) => !isProposalWorkspace(workspace, currentPubkey),
 	)
 	const selectedDraftId = activeDraft?.id
@@ -150,9 +202,9 @@ export function WorkspaceDraftNavigator({
 						</span>
 						<span
 							className="shrink-0 text-xs text-slate-400"
-							title={`${sortedWorkspaces.length} workspace${sortedWorkspaces.length === 1 ? '' : 's'}`}
+							title={`${visibleWorkspaces.length} workspace${visibleWorkspaces.length === 1 ? '' : 's'}`}
 						>
-							{sortedWorkspaces.length}
+							{visibleWorkspaces.length}
 						</span>
 						{open ? (
 							<ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
@@ -184,9 +236,7 @@ export function WorkspaceDraftNavigator({
 									Edits to datasets owned by another account stay grouped here.
 								</div>
 								{proposalWorkspaces.map((workspace) => {
-									const drafts = Object.values(geoEditDrafts)
-										.filter((draft) => draft.sourceId === workspace.sourceId)
-										.sort((a, b) => b.updatedAt - a.updatedAt)
+									const drafts = workspaceDrafts.get(workspace.sourceId) ?? []
 									const isActiveWorkspace = workspace.id === activeWorkspaceId
 									const isExpanded = expandedWorkspaceIds[workspace.id] ?? isActiveWorkspace
 									const isRenamingWorkspace = renamingWorkspaceId === workspace.id
@@ -225,9 +275,7 @@ export function WorkspaceDraftNavigator({
 									</div>
 								) : null}
 								{regularWorkspaces.map((workspace) => {
-									const drafts = Object.values(geoEditDrafts)
-										.filter((draft) => draft.sourceId === workspace.sourceId)
-										.sort((a, b) => b.updatedAt - a.updatedAt)
+									const drafts = workspaceDrafts.get(workspace.sourceId) ?? []
 									const isActiveWorkspace = workspace.id === activeWorkspaceId
 									const isExpanded = expandedWorkspaceIds[workspace.id] ?? isActiveWorkspace
 									const isRenamingWorkspace = renamingWorkspaceId === workspace.id
@@ -258,7 +306,7 @@ export function WorkspaceDraftNavigator({
 							</div>
 						) : null}
 
-						{sortedWorkspaces.length === 0 ? (
+						{visibleWorkspaces.length === 0 ? (
 							<div className="rounded-md border border-dashed border-slate-200 px-3 py-2 text-[11px] text-slate-500">
 								No local workspaces yet.
 							</div>

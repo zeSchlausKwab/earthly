@@ -431,7 +431,9 @@ export function ViewModePanel({
 							</div>
 						) : (
 							<p className="text-xs text-slate-500">
-								No dataset-level properties were published with this version yet.
+								{featureProperties.length > 0
+									? 'No collection-level properties were published with this version. Published properties are attached to features below.'
+									: 'No dataset-level properties were published with this version yet.'}
 							</p>
 						)}
 					</EntityPanelSurface>

@@ -13,6 +13,7 @@ import {
 import {
 	type ProposalStatus,
 	type ProposalStatusInfo,
+	getProposalReviewState,
 	getLatestProposalStatus,
 	createProposalStatusEvent,
 } from '@/lib/ndk/proposalStatus'
@@ -39,6 +40,38 @@ export interface UseGeoProposalsResult {
 	acceptProposal: (proposal: NDKGeoEditProposalEvent) => Promise<NDKGeoEvent>
 	/** Reject a proposal with optional reason */
 	rejectProposal: (proposal: NDKGeoEditProposalEvent, reason?: string) => Promise<void>
+}
+
+function getSemanticProposalKey(proposal: NDKGeoEditProposalEvent): string {
+	return [
+		proposal.targetAddress ?? '',
+		proposal.pubkey ?? '',
+		proposal.baseVersion ?? '',
+		proposal.description?.trim().toLowerCase() ?? '',
+		proposal.content,
+	].join('|')
+}
+
+function getProposalSortTimestamp(proposal: ProposalWithStatus): number {
+	return proposal.statusInfo?.event.created_at ?? proposal.proposal.created_at ?? 0
+}
+
+function getProposalDisplayPriority(proposal: ProposalWithStatus): number {
+	const reviewState = getProposalReviewState(proposal.status, proposal.statusInfo?.reason)
+	switch (reviewState) {
+		case 'accepted':
+			return 5
+		case 'open':
+			return 4
+		case 'needs_changes':
+			return 3
+		case 'rejected':
+			return 2
+		case 'draft':
+			return 1
+		default:
+			return 0
+	}
 }
 
 /**
@@ -122,7 +155,7 @@ export function useGeoProposals({ target }: UseGeoProposalsOptions): UseGeoPropo
 
 	// Merge proposals with their latest status
 	const proposals = useMemo<ProposalWithStatus[]>(() => {
-		return typedProposals.map((proposal) => {
+		const proposalsWithStatus = typedProposals.map((proposal) => {
 			const address = proposal.proposalCoordinate
 			const statusInfo = address ? getLatestProposalStatus(statusEvents, address) : undefined
 
@@ -132,6 +165,33 @@ export function useGeoProposals({ target }: UseGeoProposalsOptions): UseGeoPropo
 				statusInfo,
 			}
 		})
+		const deduped = new Map<string, ProposalWithStatus>()
+
+		for (const proposal of proposalsWithStatus) {
+			const key = getSemanticProposalKey(proposal.proposal)
+			const existing = deduped.get(key)
+			if (!existing) {
+				deduped.set(key, proposal)
+				continue
+			}
+
+			const proposalTimestamp = getProposalSortTimestamp(proposal)
+			const existingTimestamp = getProposalSortTimestamp(existing)
+			if (proposalTimestamp !== existingTimestamp) {
+				if (proposalTimestamp > existingTimestamp) {
+					deduped.set(key, proposal)
+				}
+				continue
+			}
+
+			if (getProposalDisplayPriority(proposal) > getProposalDisplayPriority(existing)) {
+				deduped.set(key, proposal)
+			}
+		}
+
+		return Array.from(deduped.values()).sort(
+			(a, b) => getProposalSortTimestamp(b) - getProposalSortTimestamp(a),
+		)
 	}, [typedProposals, statusEvents])
 
 	const openCount = useMemo(() => proposals.filter((p) => p.status === 'open').length, [proposals])
