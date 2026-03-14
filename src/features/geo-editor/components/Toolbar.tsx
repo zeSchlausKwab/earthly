@@ -440,10 +440,10 @@ export function Toolbar({
 												</PopoverTrigger>
 											</TooltipTrigger>
 											<TooltipContent side="bottom" sideOffset={8}>
-												<p>Map settings</p>
+												<p>Settings</p>
 											</TooltipContent>
 										</Tooltip>
-										<PopoverContent className="w-72" side="bottom" align="center">
+										<PopoverContent className="w-[28rem]" side="bottom" align="center">
 											<MapSettingsPanel />
 										</PopoverContent>
 									</Popover>

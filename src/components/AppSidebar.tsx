@@ -3,6 +3,7 @@ import {
 	Database,
 	Globe,
 	HelpCircle,
+	Layers,
 	MessageCircle,
 	Newspaper,
 	PanelLeftClose,
@@ -10,7 +11,6 @@ import {
 	PanelTop,
 	Pencil,
 	Settings2,
-	User,
 	Wallet,
 	X,
 } from 'lucide-react'
@@ -73,7 +73,7 @@ const workNavItems: {
 	{ mode: 'datasets', title: 'Datasets', icon: Database },
 	{ mode: 'contexts', title: 'Contexts', icon: Globe },
 	{ mode: 'chat', title: 'AI Chat', icon: MessageCircle },
-	{ mode: 'user', title: 'My Entities', icon: User },
+	{ mode: 'user', title: 'My Entities', icon: Layers },
 ]
 
 const metaNavItems: {
