@@ -1,4 +1,4 @@
-import { MapPin, Pentagon, Route } from 'lucide-react'
+import { MapPin, Pentagon, Route, Type } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ButtonGroup } from '@/components/ui/button-group'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -15,6 +15,7 @@ const drawModes = [
 	{ key: 'draw_point', icon: MapPin, label: 'Draw point' },
 	{ key: 'draw_linestring', icon: Route, label: 'Draw line' },
 	{ key: 'draw_polygon', icon: Pentagon, label: 'Draw polygon' },
+	{ key: 'draw_annotation', icon: Type, label: 'Draw label' },
 ] as const
 
 export function DrawButtonGroup({ mode, onModeChange, disabled, small }: DrawButtonGroupProps) {

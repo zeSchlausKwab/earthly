@@ -45,38 +45,6 @@ export interface ViewModePanelProps {
 
 type ViewTab = 'details' | 'proposals'
 
-function deriveFeatureCustomProperties(properties: Record<string, unknown> | undefined) {
-	if (!properties || typeof properties !== 'object') return {}
-	const explicitCustom =
-		properties.customProperties &&
-		typeof properties.customProperties === 'object' &&
-		!Array.isArray(properties.customProperties)
-			? (properties.customProperties as Record<string, unknown>)
-			: {}
-
-	const mirrored: Record<string, unknown> = {}
-	for (const [key, value] of Object.entries(properties)) {
-		if (
-			key === 'customProperties' ||
-			key === 'name' ||
-			key === 'description' ||
-			key === 'meta' ||
-			key === 'featureId' ||
-			key === 'datasetId' ||
-			key === 'sourceEventId' ||
-			key === 'hashtags'
-		) {
-			continue
-		}
-		mirrored[key] = value
-	}
-
-	return {
-		...mirrored,
-		...explicitCustom,
-	}
-}
-
 function getDatasetDescription(dataset: NDKGeoEvent): string | null {
 	const collection = dataset.featureCollection as Record<string, unknown>
 	const properties =
@@ -170,29 +138,6 @@ export function ViewModePanel({
 			([, value]) =>
 				value !== undefined && value !== null && formatDatasetPropertyValue(value).trim(),
 		)
-	}, [viewDataset])
-	const featureProperties = useMemo(() => {
-		if (!viewDataset?.featureCollection?.features?.length) return []
-		return viewDataset.featureCollection.features
-			.map((feature, index) => {
-				const properties = deriveFeatureCustomProperties(
-					(feature.properties as Record<string, unknown> | undefined) ?? undefined,
-				)
-				const entries = Object.entries(properties).filter(
-					([, value]) =>
-						value !== undefined && value !== null && formatDatasetPropertyValue(value).trim(),
-				)
-				if (entries.length === 0) return null
-
-				const label =
-					(typeof feature.properties?.name === 'string' && feature.properties.name.trim()) ||
-					(typeof feature.id === 'string' || typeof feature.id === 'number'
-						? `${feature.geometry?.type ?? 'Feature'} ${String(feature.id)}`
-						: `${feature.geometry?.type ?? 'Feature'} ${index + 1}`)
-
-				return { label, entries }
-			})
-			.filter((item): item is { label: string; entries: [string, unknown][] } => item !== null)
 	}, [viewDataset])
 
 	const canAttachGeometry = selectedFeatures.length > 0 && !attachedGeojson
@@ -431,60 +376,10 @@ export function ViewModePanel({
 							</div>
 						) : (
 							<p className="text-xs text-slate-500">
-								{featureProperties.length > 0
-									? 'No collection-level properties were published with this version. Published properties are attached to features below.'
-									: 'No dataset-level properties were published with this version yet.'}
+								No dataset-level properties were published with this version yet.
 							</p>
 						)}
 					</EntityPanelSurface>
-
-					{featureProperties.length > 0 ? (
-						<EntityPanelSurface tone="neutral" className="space-y-3">
-							<EntityPanelSectionHeader
-								eyebrow="Feature metadata"
-								title={`Feature properties (${featureProperties.length})`}
-							/>
-							<div className="space-y-3">
-								{featureProperties.map((feature) => (
-									<div
-										key={feature.label}
-										className="space-y-2 border-b border-slate-200 pb-3 last:border-b-0 last:pb-0"
-									>
-										<p className="text-xs font-medium text-slate-900">{feature.label}</p>
-										<div className="space-y-2">
-											{feature.entries.map(([key, value]) => {
-												const displayValue = formatDatasetPropertyValue(value)
-												const isLink =
-													typeof value === 'string' && /^https?:\/\//i.test(value.trim())
-												return (
-													<div
-														key={`${feature.label}:${key}`}
-														className="flex flex-col gap-1 text-sm"
-													>
-														<span className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">
-															{key}
-														</span>
-														{isLink ? (
-															<a
-																href={String(value)}
-																target="_blank"
-																rel="noreferrer"
-																className="break-all text-blue-700 underline decoration-blue-300 underline-offset-2"
-															>
-																{displayValue}
-															</a>
-														) : (
-															<span className="break-words text-slate-800">{displayValue}</span>
-														)}
-													</div>
-												)
-											})}
-										</div>
-									</div>
-								))}
-							</div>
-						</EntityPanelSurface>
-					) : null}
 
 					<EntityPanelSurface tone="neutral">
 						<div className="flex items-center justify-between gap-2">
