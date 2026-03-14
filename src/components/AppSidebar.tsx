@@ -705,7 +705,7 @@ export function AppSidebar({
 												contentMode === item.mode &&
 												(!showEntityAsFullPanel || splitWithEditor)
 											}
-											className="px-2.5 md:px-2"
+											className="px-2.5 md:px-2 data-[active=true]:border-l-2 data-[active=true]:border-sidebar-primary data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground data-[active=true]:font-medium"
 										>
 											<item.icon />
 											<span>{item.title}</span>
@@ -763,17 +763,17 @@ export function AppSidebar({
 					<div className="flex w-full items-center gap-2">
 						<div className="shrink-0">
 							<div
-								className={`inline-flex items-center rounded-md border border-border bg-background p-0.5 ${
-									entityToggleEnabled ? '' : 'opacity-45'
+								className={`inline-flex items-center rounded-lg border border-border bg-muted p-0.5 ${
+									entityToggleEnabled ? '' : 'pointer-events-none opacity-40'
 								}`}
 							>
 								<button
 									type="button"
 									disabled={!entityToggleEnabled}
-									className={`rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+									className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
 										currentEntityIntent === 'inspect'
-											? 'bg-muted text-foreground'
-											: 'text-muted-foreground'
+											? 'bg-background text-foreground shadow-sm'
+											: 'text-muted-foreground hover:text-foreground'
 									}`}
 									onClick={() => handleEntityIntentChange('inspect')}
 								>
@@ -782,10 +782,10 @@ export function AppSidebar({
 								<button
 									type="button"
 									disabled={!entityToggleEnabled}
-									className={`rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+									className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
 										currentEntityIntent === 'edit'
-											? 'bg-muted text-foreground'
-											: 'text-muted-foreground'
+											? 'bg-background text-foreground shadow-sm'
+											: 'text-muted-foreground hover:text-foreground'
 									}`}
 									onClick={() => handleEntityIntentChange('edit')}
 								>
@@ -800,7 +800,7 @@ export function AppSidebar({
 								entityTypes={['context']}
 								onSelect={handleContextScopeSelect}
 								placeholder={
-									activeContextScopeLabel ? activeContextScopeLabel : 'No context filter'
+									activeContextScopeLabel ? activeContextScopeLabel : 'Filter by context…'
 								}
 								searchMode="local"
 								compact

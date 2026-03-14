@@ -120,24 +120,27 @@ export function WorkspaceDraftNavigator({
 					<button
 						type="button"
 						className="flex h-9 w-full items-center gap-2 px-3 text-left transition-colors hover:bg-slate-50"
+						title="Workspaces & drafts"
 					>
-						<Layers className="h-3.5 w-3.5 shrink-0 text-slate-500" />
-						<span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.16em] text-slate-500">
-							Sessions
-						</span>
-						<span className="min-w-0 truncate text-sm font-medium text-slate-900">
+						<Layers className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+						<span className="min-w-0 truncate text-sm font-semibold text-slate-800">
 							{activeWorkspaceLabel}
 						</span>
 						<span className="shrink-0 text-slate-300">/</span>
-						<span className="inline-flex min-w-0 flex-1 items-center gap-1 truncate text-sm text-slate-600">
+						<span className="inline-flex min-w-0 flex-1 items-center gap-1 truncate text-sm text-slate-500">
 							<FileText className="h-3.5 w-3.5 shrink-0" />
 							<span className="truncate">{activeDraftLabel}</span>
 						</span>
-						<span className="shrink-0 text-xs text-slate-500">{sortedWorkspaces.length}</span>
+						<span
+							className="shrink-0 text-xs text-slate-400"
+							title={`${sortedWorkspaces.length} workspace${sortedWorkspaces.length === 1 ? '' : 's'}`}
+						>
+							{sortedWorkspaces.length}
+						</span>
 						{open ? (
-							<ChevronDown className="h-4 w-4 shrink-0 text-slate-500" />
+							<ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
 						) : (
-							<ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />
+							<ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
 						)}
 					</button>
 				</CollapsibleTrigger>
