@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand'
 import { readPersistedGeoCollectionDraftState } from './draftSlice'
+import { readScopedStorage, writeScopedStorage } from './persistence'
 import type { EditorState, GeoEditorWorkspace, WorkspaceSlice } from './types'
 
 interface PersistedWorkspaceState {
@@ -31,8 +32,8 @@ function inferDatasetKeyFromSourceId(sourceId: string): string | null {
 	return datasetKey || null
 }
 
-function buildWorkspaceMigrationState(): PersistedWorkspaceState {
-	const persistedDrafts = readPersistedGeoCollectionDraftState()
+function buildWorkspaceMigrationState(pubkey?: string | null): PersistedWorkspaceState {
+	const persistedDrafts = readPersistedGeoCollectionDraftState(pubkey)
 	const draftsBySource = new Map<string, import('./types').GeoCollectionEditDraft[]>()
 
 	Object.values(persistedDrafts.drafts).forEach((draft) => {
@@ -77,16 +78,14 @@ function buildWorkspaceMigrationState(): PersistedWorkspaceState {
 	return { workspaces, activeWorkspaceId }
 }
 
-function readPersistedWorkspaceState(): PersistedWorkspaceState {
-	if (typeof window === 'undefined') {
-		return { workspaces: {}, activeWorkspaceId: null }
-	}
-
+export function readPersistedWorkspaceState(pubkey?: string | null): PersistedWorkspaceState {
 	try {
-		const raw = window.localStorage.getItem(GEO_EDITOR_WORKSPACES_STORAGE_KEY)
-		if (!raw) return buildWorkspaceMigrationState()
-		const parsed = JSON.parse(raw) as Partial<PersistedWorkspaceState>
-		if (!parsed || typeof parsed !== 'object') return buildWorkspaceMigrationState()
+		const parsed = readScopedStorage<Partial<PersistedWorkspaceState> | null>(
+			GEO_EDITOR_WORKSPACES_STORAGE_KEY,
+			null,
+			pubkey,
+		)
+		if (!parsed || typeof parsed !== 'object') return buildWorkspaceMigrationState(pubkey)
 
 		const rawWorkspaces =
 			parsed.workspaces &&
@@ -121,8 +120,8 @@ function readPersistedWorkspaceState(): PersistedWorkspaceState {
 
 		return { workspaces, activeWorkspaceId }
 	} catch (error) {
-		console.warn('Failed to read geo editor workspaces from localStorage', error)
-		return buildWorkspaceMigrationState()
+		console.warn('Failed to read geo editor workspaces from scoped storage', error)
+		return buildWorkspaceMigrationState(pubkey)
 	}
 }
 
@@ -130,15 +129,7 @@ function writePersistedWorkspaceState(
 	workspaces: Record<string, GeoEditorWorkspace>,
 	activeWorkspaceId: string | null,
 ) {
-	if (typeof window === 'undefined') return
-	try {
-		window.localStorage.setItem(
-			GEO_EDITOR_WORKSPACES_STORAGE_KEY,
-			JSON.stringify({ workspaces, activeWorkspaceId }),
-		)
-	} catch (error) {
-		console.warn('Failed to persist geo editor workspaces to localStorage', error)
-	}
+	writeScopedStorage(GEO_EDITOR_WORKSPACES_STORAGE_KEY, { workspaces, activeWorkspaceId })
 }
 
 export const createWorkspaceSlice: StateCreator<EditorState, [], [], WorkspaceSlice> = (

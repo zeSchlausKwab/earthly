@@ -164,6 +164,9 @@ export function GeoEditorView() {
 	const editIsolationEnabled = useEditorStore((state) => state.editIsolationEnabled)
 	const setDatasetVisibility = useEditorStore((state) => state.setDatasetVisibility)
 	const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta)
+	const hydrateEditorSessionForPubkey = useEditorStore(
+		(state) => state.hydrateEditorSessionForPubkey,
+	)
 	const isPublishing = useEditorStore((state) => state.isPublishing)
 	const setShowDatasetsPanel = useEditorStore((state) => state.setShowDatasetsPanel)
 	const setShowInfoPanel = useEditorStore((state) => state.setShowInfoPanel)
@@ -201,6 +204,7 @@ export function GeoEditorView() {
 	const { events: mapContextEvents } = useMapContexts([{ limit: 100 }])
 	const { ndk } = useNDK()
 	const currentUser = useNDKCurrentUser()
+	const currentUserPubkey = currentUser?.pubkey ?? null
 	const isMobile = useIsMobile()
 	const mapPopupToolbarOffset = mounted && editor ? 72 : 16
 
@@ -288,6 +292,10 @@ export function GeoEditorView() {
 		setDisplayedAnnotationPopupData(null)
 	}, [clearAnnotationPopupHideTimeout, setAnnotationPopupData])
 
+	useEffect(() => {
+		hydrateEditorSessionForPubkey(currentUserPubkey)
+	}, [currentUserPubkey, hydrateEditorSessionForPubkey])
+
 	// Callback for ensuring info panel is visible
 	const openMobilePanel = useEditorStore((state) => state.openMobilePanel)
 	const ensureInfoPanelVisible = useCallback(() => {
@@ -340,7 +348,7 @@ export function GeoEditorView() {
 		canProposeEdit,
 	} = usePublishing({
 		ndk: ndk ?? undefined,
-		currentUserPubkey: currentUser?.pubkey,
+		currentUserPubkey,
 		getDatasetName,
 		getDatasetKey,
 		mapContexts: mapContextEvents,
@@ -1290,7 +1298,7 @@ export function GeoEditorView() {
 					geoEvents={scopedGeoEvents}
 					mapContextEvents={mapContextEvents}
 					activeDataset={activeDataset}
-					currentUserPubkey={currentUser?.pubkey}
+					currentUserPubkey={currentUserPubkey}
 					datasetVisibility={effectiveVisibility}
 					isPublishing={isPublishing}
 					deletingKey={deletingKey}

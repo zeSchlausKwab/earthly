@@ -354,6 +354,10 @@ export interface MapSourceSlice {
 	setIsDrawingMapArea: (drawing: boolean) => void
 }
 
+export interface SessionSyncSlice {
+	hydrateEditorSessionForPubkey: (pubkey: string | null) => void
+}
+
 /** Combined state — intersection of all slices */
 export type EditorState = EditorCoreSlice &
 	DraftSlice &
@@ -363,4 +367,5 @@ export type EditorState = EditorCoreSlice &
 	ViewModeSlice &
 	UISlice &
 	SearchSlice &
-	MapSourceSlice
+	MapSourceSlice &
+	SessionSyncSlice
