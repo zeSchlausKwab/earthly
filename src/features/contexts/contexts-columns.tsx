@@ -1,7 +1,8 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { Bug, Eye, Pencil } from 'lucide-react'
+import { Bug, Eye } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { UserProfile } from '@/components/user-profile'
+import { cn } from '@/lib/utils'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 
 export interface ContextRowData {
@@ -23,6 +24,9 @@ export interface ContextColumnsContext {
 	onOpenDebug?: (event: NDKMapContextEvent) => void
 }
 
+const actionButtonClass =
+	'rounded-none px-2 text-xs text-gray-500 shadow-none hover:bg-transparent hover:text-sky-600'
+
 export const createContextColumns = (
 	context: ContextColumnsContext,
 ): ColumnDef<ContextRowData>[] => [
@@ -31,17 +35,17 @@ export const createContextColumns = (
 		header: 'Context',
 		cell: ({ row }) => {
 			const {
-				context,
+				context: contextEvent,
 				contextName,
 				displayDepth,
 				displayParentName,
 				isCuratedChild,
 				attachmentCount,
 			} = row.original
-			const content = context.context
+			const content = contextEvent.context
 			return (
 				<div
-					className="max-w-[180px] space-y-0.5"
+					className="max-w-[240px] space-y-1"
 					style={displayDepth > 0 ? { paddingLeft: `${displayDepth}rem` } : undefined}
 				>
 					<div className="flex items-center gap-1.5">
@@ -51,10 +55,11 @@ export const createContextColumns = (
 						</div>
 					</div>
 					<UserProfile
-						pubkey={context.pubkey}
+						pubkey={contextEvent.pubkey}
 						mode="avatar-name"
 						size="sm"
 						showNip05Badge={false}
+						interactive={false}
 					/>
 					{isCuratedChild && (
 						<div className="text-[10px] text-slate-400">
@@ -64,7 +69,7 @@ export const createContextColumns = (
 						</div>
 					)}
 					{content.description && (
-						<div className="text-[10px] text-gray-500 line-clamp-2">{content.description}</div>
+						<div className="line-clamp-2 text-[10px] text-gray-500">{content.description}</div>
 					)}
 				</div>
 			)
@@ -109,9 +114,7 @@ export const createContextColumns = (
 			return (
 				<span
 					className={`rounded px-1.5 py-0.5 text-[10px] ${
-						state === 'open'
-							? 'bg-emerald-100 text-emerald-700'
-							: 'bg-stone-100 text-stone-700'
+						state === 'open' ? 'bg-emerald-100 text-emerald-700' : 'bg-stone-100 text-stone-700'
 					}`}
 				>
 					{state}
@@ -120,47 +123,47 @@ export const createContextColumns = (
 		},
 	},
 	{
-		id: 'actions',
+		id: 'inspect',
 		header: '',
-		size: 120,
+		size: 44,
 		cell: ({ row }) => {
 			const { context: contextEvent } = row.original
-			const isOwner = context.currentUserPubkey === contextEvent.pubkey
 			return (
-				<div className="flex items-center gap-0.5">
+				<div className="flex w-full justify-center">
 					<Button
 						size="icon-sm"
-						variant="outline"
+						variant="ghost"
+						className={cn(actionButtonClass, 'hover:text-emerald-600')}
 						onClick={() => context.onInspectContext?.(contextEvent)}
 						aria-label="Inspect context"
 						title="Inspect context"
 					>
-						<Eye className="h-3 w-3" />
+						<Eye className="h-4 w-4" />
 					</Button>
-					{isOwner && context.onEditContext && (
-						<Button
-							size="icon-sm"
-							variant="outline"
-							onClick={() => context.onEditContext?.(contextEvent)}
-							aria-label="Edit context"
-							title="Edit context"
-						>
-							<Pencil className="h-3 w-3" />
-						</Button>
-					)}
-					{context.onOpenDebug && (
-						<Button
-							size="icon-sm"
-							variant="ghost"
-							aria-label="Open debug dialog"
-							title="Open debug dialog"
-							onClick={() => context.onOpenDebug?.(contextEvent)}
-						>
-							<Bug className="h-3 w-3" />
-						</Button>
-					)}
 				</div>
 			)
+		},
+	},
+	{
+		id: 'debug',
+		header: '',
+		size: 44,
+		cell: ({ row }) => {
+			const { context: contextEvent } = row.original
+			return context.onOpenDebug ? (
+				<div className="flex w-full justify-center">
+					<Button
+						size="icon-sm"
+						variant="ghost"
+						className={cn(actionButtonClass, 'hover:text-amber-600')}
+						aria-label="Open debug dialog"
+						title="Open debug dialog"
+						onClick={() => context.onOpenDebug?.(contextEvent)}
+					>
+						<Bug className="h-4 w-4" />
+					</Button>
+				</div>
+			) : null
 		},
 	},
 ]
