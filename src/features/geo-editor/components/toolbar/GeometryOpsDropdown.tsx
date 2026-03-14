@@ -4,6 +4,7 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuLabel,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -71,6 +72,9 @@ export function GeometryOpsDropdown({
 					</TooltipContent>
 				</Tooltip>
 				<DropdownMenuContent align="start">
+					<DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+						Multi / Structure
+					</DropdownMenuLabel>
 					<DropdownMenuItem onClick={onMerge} disabled={!canMerge}>
 						<Merge className="h-4 w-4" />
 						Merge to Multi
@@ -79,19 +83,30 @@ export function GeometryOpsDropdown({
 						<SplitIcon className="h-4 w-4" />
 						Split Multi
 					</DropdownMenuItem>
-					<DropdownMenuItem onClick={onConnect} disabled={!canConnect}>
-						<Link2 className="h-4 w-4" />
-						Connect Lines
-					</DropdownMenuItem>
-					<DropdownMenuItem onClick={onDissolve} disabled={!canDissolve}>
-						<Combine className="h-4 w-4" />
-						Dissolve Lines
-					</DropdownMenuItem>
 					<DropdownMenuItem onClick={onSimplify} disabled={!canSimplify}>
 						<Route className="h-4 w-4" />
 						Simplify Selection
 					</DropdownMenuItem>
+					{(canConnect || canDissolve) && (
+						<>
+							<DropdownMenuSeparator />
+							<DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+								Lines
+							</DropdownMenuLabel>
+							<DropdownMenuItem onClick={onConnect} disabled={!canConnect}>
+								<Link2 className="h-4 w-4" />
+								Connect Lines
+							</DropdownMenuItem>
+							<DropdownMenuItem onClick={onDissolve} disabled={!canDissolve}>
+								<Combine className="h-4 w-4" />
+								Dissolve Lines
+							</DropdownMenuItem>
+						</>
+					)}
 					<DropdownMenuSeparator />
+					<DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+						Boolean
+					</DropdownMenuLabel>
 					<DropdownMenuItem onClick={onUnion} disabled={!canBooleanOps}>
 						<Combine className="h-4 w-4" />
 						Boolean Union

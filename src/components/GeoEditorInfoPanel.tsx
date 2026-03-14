@@ -725,8 +725,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 													)
 												})()}
 											{validation?.status === 'unresolved' && context.contextUse !== 'taxonomy' && (
-												<p className="px-2 text-[10px] text-gray-500">
-													Constraint check unresolved for this context.
+												<p className="px-2 text-[10px] text-amber-600">
+													Validation not run yet — save or re-open this dataset to trigger it.
 												</p>
 											)}
 										</div>
@@ -767,6 +767,12 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 							searchMode="local"
 							compact
 						/>
+						{attachableContexts.length === 0 && recentUnattachedContexts.length === 0 && (
+							<p className="text-[10px] text-gray-400 leading-snug">
+								Only open contexts appear here. If you don't see yours, open its settings and
+								enable "Allow foreign attachments".
+							</p>
+						)}
 					</div>
 				</CollapsibleContent>
 			</Collapsible>

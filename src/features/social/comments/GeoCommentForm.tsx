@@ -318,6 +318,11 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 				</div>
 
 				<div className="border-t border-stone-200 pt-2">
+					{!isGeometryDraftActive && currentUser && (
+						<p className="mb-1 text-[10px] text-stone-400">
+							Draw a point, line, or polygon on the map to attach it to your comment.
+						</p>
+					)}
 					<div className="flex flex-wrap items-center gap-1">
 							<DrawButtonGroup mode={mode} onModeChange={ensureDraftSession} />
 							<Button

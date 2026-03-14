@@ -260,7 +260,7 @@ export function MapContextEditorPanel({
 		initial?.validationMode ?? 'none',
 	)
 	const [allowForeignAttachments, setAllowForeignAttachments] = useState(
-		initial?.allowForeignAttachments ?? false,
+		initial?.allowForeignAttachments ?? true,
 	)
 	const [attachedContextRefs, setAttachedContextRefs] = useState<string[]>(
 		initialContext?.contextReferences ?? [],

@@ -26,7 +26,7 @@ export function ConfirmDeleteAction({
 	if (confirming || isDeleting) {
 		return (
 			<div
-				className={`flex items-center gap-0.5 rounded-md border border-rose-200 bg-rose-50 p-0.5 ${className}`}
+				className={`flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 p-0.5 ${className}`}
 			>
 				<Button
 					type="button"
@@ -39,22 +39,22 @@ export function ConfirmDeleteAction({
 				>
 					<X className="h-3 w-3" />
 				</Button>
+				<span className="text-[10px] text-rose-700 leading-tight px-0.5">Cannot be undone</span>
 				<Button
 					type="button"
-					size="icon-sm"
+					size="sm"
 					variant="destructive"
 					onClick={onConfirm}
 					disabled={isDeleting}
 					aria-label={`Confirm ${label.toLowerCase()} deletion`}
-					title={
-						isDeleting ? `Deleting ${label.toLowerCase()}...` : `Delete ${label.toLowerCase()}`
-					}
+					className="h-6 gap-1 px-2 text-xs"
 				>
 					{isDeleting ? (
 						<Loader2 className="h-3 w-3 animate-spin" />
 					) : (
 						<Trash2 className="h-3 w-3" />
 					)}
+					{isDeleting ? 'Deleting…' : 'Delete'}
 				</Button>
 			</div>
 		)

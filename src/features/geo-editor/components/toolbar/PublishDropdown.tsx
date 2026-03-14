@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronDown, CopyPlus, GitPullRequest, RefreshCw, UploadCloud } from 'lucide-react'
+import { ChevronDown, CopyPlus, GitPullRequest, Info, RefreshCw, UploadCloud } from 'lucide-react'
 import { GeoRichTextEditor } from '@/components/editor/GeoRichTextEditor'
 import { Button } from '@/components/ui/button'
 import {
@@ -72,12 +72,15 @@ export function PublishDropdown({
 						</Button>
 					</TooltipTrigger>
 					<TooltipContent side="bottom" sideOffset={8}>
-						<p>Publish dataset</p>
+						<p>No publish actions available</p>
 					</TooltipContent>
 				</Tooltip>
 			</TooltipProvider>
 		)
 	}
+
+	// User can only fork/propose — they're editing someone else's dataset
+	const viewingOnly = !hasPrimaryAction && (canPublishCopy || canProposeEdit)
 
 	// Show dropdown if fork is also available
 	const showDropdown = canPublishCopy || canProposeEdit || (canPublishUpdate && canPublishNew)
@@ -121,22 +124,40 @@ export function PublishDropdown({
 					<TooltipTrigger asChild>
 						<DropdownMenuTrigger asChild>
 							<Button
-								variant="default"
+								variant={viewingOnly ? 'outline' : 'default'}
 								size="sm"
 								disabled={isPublishing}
-								className={`${buttonSize} gap-1 px-2 bg-emerald-600 hover:bg-emerald-700`}
+								className={`${buttonSize} gap-1 px-2 ${viewingOnly ? '' : 'bg-emerald-600 hover:bg-emerald-700'}`}
 							>
-								<PrimaryIcon className={iconSize} />
-								{!small && <span className="text-xs">{primaryLabel}</span>}
+								{viewingOnly ? (
+									<GitPullRequest className={iconSize} />
+								) : (
+									<PrimaryIcon className={iconSize} />
+								)}
+								{!small && (
+									<span className="text-xs">{viewingOnly ? 'Fork / Propose' : primaryLabel}</span>
+								)}
 								<ChevronDown className="h-3 w-3" />
 							</Button>
 						</DropdownMenuTrigger>
 					</TooltipTrigger>
 					<TooltipContent side="bottom" sideOffset={8}>
-						<p>Publish options</p>
+						<p>{viewingOnly ? "You're editing someone else's dataset" : 'Publish options'}</p>
 					</TooltipContent>
 				</Tooltip>
-				<DropdownMenuContent align="end">
+				<DropdownMenuContent align="end" className="max-w-[280px]">
+					{viewingOnly && (
+						<>
+							<div className="flex items-start gap-2 px-3 py-2 text-xs text-muted-foreground">
+								<Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+								<span>
+									You're editing someone else's dataset. You can fork it as your own or propose
+									changes to the owner.
+								</span>
+							</div>
+							<DropdownMenuSeparator />
+						</>
+					)}
 					{canPublishNew && (
 						<DropdownMenuItem onClick={onPublishNew}>
 							<UploadCloud className="h-4 w-4" />

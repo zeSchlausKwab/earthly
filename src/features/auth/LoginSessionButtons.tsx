@@ -8,12 +8,21 @@ import {
 	useNDKSessionLogin,
 	useNDKSessionLogout,
 } from '@nostr-dev-kit/react'
-import { AppWindowIcon, KeyRoundIcon, LogOutIcon, QrCodeIcon } from 'lucide-react'
+import { AppWindowIcon, ChevronDown, ClipboardCopy, KeyRoundIcon, LogOutIcon, QrCodeIcon } from 'lucide-react'
 import { useState, useRef } from 'react'
+import { nip19 } from 'nostr-tools'
+import { toast } from 'sonner'
 import { Nip46LoginDialog } from './Nip46LoginDialog'
 import { SignupDialog } from './SignupDialog'
 import { Button } from '@/components/ui/button'
 import { ButtonGroup } from '@/components/ui/button-group'
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { UserProfile } from '@/components/user-profile'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -74,30 +83,41 @@ export function LoginSessionButtons() {
 		}
 	}
 
+	const handleCopyNpub = async () => {
+		if (!currentUser) return
+		const npub = nip19.npubEncode(currentUser.pubkey)
+		await navigator.clipboard.writeText(npub)
+		toast.success('npub copied to clipboard')
+	}
+
 	return (
 		<div className="flex items-center gap-2">
 			{currentUser ? (
-				<ButtonGroup>
-					<div className="rounded-md border bg-background px-2 py-1">
-						<UserProfile
-							pubkey={currentUser.pubkey}
-							mode="avatar-name"
-							size="sm"
-							showNip05Badge={false}
-							interactive={false}
-						/>
-					</div>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button variant="outline" size="icon" onClick={() => logout()}>
-								<LogOutIcon className="w-4 h-4" />
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>
-							<p>Log out</p>
-						</TooltipContent>
-					</Tooltip>
-				</ButtonGroup>
+				<DropdownMenu>
+					<DropdownMenuTrigger asChild>
+						<Button variant="outline" className="gap-2 px-2">
+							<UserProfile
+								pubkey={currentUser.pubkey}
+								mode="avatar-name"
+								size="sm"
+								showNip05Badge={false}
+								interactive={false}
+							/>
+							<ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+						</Button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align="end">
+						<DropdownMenuItem onClick={handleCopyNpub}>
+							<ClipboardCopy className="h-4 w-4" />
+							Copy npub
+						</DropdownMenuItem>
+						<DropdownMenuSeparator />
+						<DropdownMenuItem onClick={() => logout()} className="text-destructive focus:text-destructive">
+							<LogOutIcon className="h-4 w-4" />
+							Log out
+						</DropdownMenuItem>
+					</DropdownMenuContent>
+				</DropdownMenu>
 			) : (
 				<ButtonGroup>
 					<Tooltip>

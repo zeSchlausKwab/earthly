@@ -1,6 +1,6 @@
 import { NDKPrivateKeySigner } from '@nostr-dev-kit/ndk'
 import { Scanner } from '@yudiel/react-qr-scanner'
-import { AlertTriangle, CheckCircle2, ChevronDown, Copy, QrCode } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronDown, Copy, QrCode, RefreshCw } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -28,7 +28,7 @@ type Mode = 'create' | 'import'
 
 export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProps) {
 	const [mode, setMode] = useState<Mode>('create')
-	const [signer] = useState(() => NDKPrivateKeySigner.generate())
+	const [signer, setSigner] = useState<NDKPrivateKeySigner | null>(null)
 	const [nsecCopied, setNsecCopied] = useState(false)
 	const [npubCopied, setNpubCopied] = useState(false)
 	const [loading, setLoading] = useState(false)
@@ -41,27 +41,31 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 	const [scanError, setScanError] = useState<string | null>(null)
 	const [rememberMe, setRememberMe] = useState(true)
 
-	// Generate nsec and npub when dialog opens
-	useEffect(() => {
-		if (open && signer) {
-			// Get the hex private key
-			const privateKeyHex = signer.privateKey
-			if (privateKeyHex) {
-				// Convert hex to Uint8Array for encoding
-				const privateKeyBytes = new Uint8Array(
-					privateKeyHex.match(/.{1,2}/g)?.map((byte) => parseInt(byte, 16)) || [],
-				)
-				setNsec(nip19.nsecEncode(privateKeyBytes))
-			}
-
-			// Get public key
-			signer.user().then((user) => {
-				if (user.pubkey) {
-					setNpub(nip19.npubEncode(user.pubkey))
-				}
-			})
+	const generateNewKey = useCallback(() => {
+		const newSigner = NDKPrivateKeySigner.generate()
+		setSigner(newSigner)
+		setNsecCopied(false)
+		setNpubCopied(false)
+		const privateKeyHex = newSigner.privateKey
+		if (privateKeyHex) {
+			const privateKeyBytes = new Uint8Array(
+				privateKeyHex.match(/.{1,2}/g)?.map((byte) => parseInt(byte, 16)) || [],
+			)
+			setNsec(nip19.nsecEncode(privateKeyBytes))
 		}
-	}, [open, signer])
+		newSigner.user().then((user) => {
+			if (user.pubkey) {
+				setNpub(nip19.npubEncode(user.pubkey))
+			}
+		})
+	}, [])
+
+	// Generate a fresh key every time the dialog opens in create mode
+	useEffect(() => {
+		if (open && mode === 'create') {
+			generateNewKey()
+		}
+	}, [open, mode, generateNewKey])
 
 	const handleCopyNsec = async () => {
 		await navigator.clipboard.writeText(nsec)
@@ -118,6 +122,11 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 			setLoading(true)
 
 			let signerToUse = signer
+
+			if (mode === 'create' && !signerToUse) {
+				setLoading(false)
+				return
+			}
 
 			if (mode === 'import') {
 				const privateKeyHex = parsePrivateKey(importKey)
@@ -224,7 +233,19 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 
 							{/* Private Key (nsec) */}
 							<div className="space-y-2">
-								<Label htmlFor="nsec">Private Key (nsec)</Label>
+								<div className="flex items-center justify-between">
+									<Label htmlFor="nsec">Private Key (nsec)</Label>
+									<Button
+										variant="ghost"
+										size="sm"
+										onClick={generateNewKey}
+										disabled={loading}
+										className="h-6 gap-1 px-2 text-xs text-muted-foreground"
+									>
+										<RefreshCw className="h-3 w-3" />
+										Generate new
+									</Button>
+								</div>
 								<div className="flex gap-2">
 									<div className="flex-1 p-3 bg-destructive/10 border border-destructive/30 rounded-md font-mono text-sm break-all">
 										{nsec}
