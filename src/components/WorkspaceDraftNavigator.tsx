@@ -1,3 +1,4 @@
+import { useNDKCurrentUser } from '@nostr-dev-kit/react'
 import { useEffect, useMemo, useState } from 'react'
 import {
 	Check,
@@ -38,6 +39,7 @@ export function WorkspaceDraftNavigator({
 	const deleteGeoEditDraft = useEditorStore((state) => state.deleteGeoEditDraft)
 	const loadGeoEditDraft = useEditorStore((state) => state.loadGeoEditDraft)
 	const updateWorkspace = useEditorStore((state) => state.updateWorkspace)
+	const currentUser = useNDKCurrentUser()
 
 	const [open, setOpen] = useState(false)
 	const [expandedWorkspaceIds, setExpandedWorkspaceIds] = useState<Record<string, boolean>>({})
@@ -54,6 +56,13 @@ export function WorkspaceDraftNavigator({
 	const sortedWorkspaces = useMemo(
 		() => Object.values(workspaces).sort((a, b) => b.updatedAt - a.updatedAt),
 		[workspaces],
+	)
+	const currentPubkey = currentUser?.pubkey ?? null
+	const proposalWorkspaces = sortedWorkspaces.filter((workspace) =>
+		isProposalWorkspace(workspace, currentPubkey),
+	)
+	const regularWorkspaces = sortedWorkspaces.filter(
+		(workspace) => !isProposalWorkspace(workspace, currentPubkey),
 	)
 	const selectedDraftId = activeDraft?.id
 
@@ -110,6 +119,9 @@ export function WorkspaceDraftNavigator({
 		? (sortedWorkspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null)
 		: null
 	const activeWorkspaceLabel = activeWorkspace?.label ?? 'No active workspace'
+	const isActiveProposalWorkspace = activeWorkspace
+		? isProposalWorkspace(activeWorkspace, currentUser?.pubkey ?? null)
+		: false
 	const activeDraftLabel = activeDraft
 		? getDraftLabel(activeDraft, 0, activeWorkspace?.kind === 'dataset')
 		: 'No draft selected'
@@ -126,6 +138,11 @@ export function WorkspaceDraftNavigator({
 						<span className="min-w-0 truncate text-sm font-semibold text-slate-800">
 							{activeWorkspaceLabel}
 						</span>
+						{isActiveProposalWorkspace ? (
+							<span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-amber-800">
+								Proposal
+							</span>
+						) : null}
 						<span className="shrink-0 text-slate-300">/</span>
 						<span className="inline-flex min-w-0 flex-1 items-center gap-1 truncate text-sm text-slate-500">
 							<FileText className="h-3.5 w-3.5 shrink-0" />
@@ -157,243 +174,344 @@ export function WorkspaceDraftNavigator({
 						</Button>
 					</div>
 
-					<div className="space-y-1.5">
-						{sortedWorkspaces.map((workspace) => {
-							const drafts = Object.values(geoEditDrafts)
-								.filter((draft) => draft.sourceId === workspace.sourceId)
-								.sort((a, b) => b.updatedAt - a.updatedAt)
-							const isActiveWorkspace = workspace.id === activeWorkspaceId
-							const isExpanded = expandedWorkspaceIds[workspace.id] ?? isActiveWorkspace
-							const isRenamingWorkspace = renamingWorkspaceId === workspace.id
-							const isConfirmingWorkspaceDelete = confirmingWorkspaceDeleteId === workspace.id
-
-							return (
-								<div
-									key={workspace.id}
-									className={cn(
-										'overflow-hidden rounded-md border',
-										isActiveWorkspace
-											? 'border-emerald-200 bg-emerald-50/60'
-											: 'border-slate-200 bg-white',
-									)}
-								>
-									<div className="flex items-center gap-1 px-1.5 py-1.5">
-										<button
-											type="button"
-											onClick={() =>
-												setExpandedWorkspaceIds((current) => ({
-													...current,
-													[workspace.id]: !current[workspace.id],
-												}))
-											}
-											className="rounded p-1 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
-											aria-label={
-												isExpanded ? 'Collapse workspace drafts' : 'Expand workspace drafts'
-											}
-										>
-											{isExpanded ? (
-												<ChevronDown className="h-3.5 w-3.5" />
-											) : (
-												<ChevronRight className="h-3.5 w-3.5" />
-											)}
-										</button>
-										{isRenamingWorkspace ? (
-											<form
-												className="flex min-w-0 flex-1 items-center gap-1"
-												onSubmit={(event) => {
-													event.preventDefault()
-													handleRenameWorkspace(workspace.id, workspace.label)
-												}}
-											>
-												<Input
-													value={workspaceLabelDraft}
-													onChange={(event) => setWorkspaceLabelDraft(event.target.value)}
-													className="h-8 text-xs"
-													autoFocus
-													maxLength={120}
-												/>
-												<Button
-													type="submit"
-													size="icon-sm"
-													variant="outline"
-													className="h-7 w-7"
-													title="Save workspace name"
-												>
-													<Check className="h-3.5 w-3.5" />
-												</Button>
-												<Button
-													type="button"
-													size="icon-sm"
-													variant="ghost"
-													className="h-7 w-7"
-													onClick={handleCancelWorkspaceRename}
-													title="Cancel rename"
-												>
-													<X className="h-3.5 w-3.5" />
-												</Button>
-											</form>
-										) : (
-											<>
-												<button
-													type="button"
-													onClick={() => onSwitchWorkspace?.(workspace.id)}
-													className="min-w-0 flex-1 rounded px-1 py-1 text-left transition-colors hover:bg-black/5"
-												>
-													<div className="flex min-w-0 items-center gap-2">
-														<span className="truncate text-xs font-medium text-slate-900">
-															{workspace.label}
-														</span>
-														<span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-slate-500">
-															{workspace.kind === 'scratch' ? 'draft' : 'dataset'}
-														</span>
-														{isActiveWorkspace ? (
-															<span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-emerald-700">
-																Active
-															</span>
-														) : null}
-													</div>
-													<div className="mt-0.5 text-[10px] text-slate-500">
-														{drafts.length} draft{drafts.length === 1 ? '' : 's'}
-													</div>
-												</button>
-												<div className="flex shrink-0 items-center gap-1">
-													<Button
-														type="button"
-														size="icon-sm"
-														variant="ghost"
-														className="h-7 w-7"
-														onClick={(event) => {
-															event.stopPropagation()
-															void onAddDraftToWorkspace?.(workspace.id)
-														}}
-														title="Add new draft to this workspace"
-													>
-														<Plus className="h-3.5 w-3.5" />
-													</Button>
-													<Button
-														type="button"
-														size="icon-sm"
-														variant="ghost"
-														className="h-7 w-7"
-														onClick={(event) => {
-															event.stopPropagation()
-															handleBeginWorkspaceRename(workspace.id, workspace.label)
-														}}
-														title="Rename workspace"
-													>
-														<FilePenLine className="h-3.5 w-3.5" />
-													</Button>
-													<Button
-														type="button"
-														size="icon-sm"
-														variant="ghost"
-														className="h-7 w-7 text-destructive hover:text-destructive"
-														onClick={(event) => {
-															event.stopPropagation()
-															handleRequestWorkspaceDelete(workspace.id)
-														}}
-														title="Delete workspace"
-													>
-														<Trash2 className="h-3.5 w-3.5" />
-													</Button>
-												</div>
-											</>
-										)}
-									</div>
-
-									{isConfirmingWorkspaceDelete ? (
-										<div className="flex items-center justify-between gap-3 border-t border-rose-200 bg-rose-50/90 px-3 py-2 text-[11px] text-rose-900">
-											<span className="min-w-0 flex-1 truncate">
-												Delete workspace "{workspace.label}" and its linked session state?
-											</span>
-											<div className="flex shrink-0 items-center gap-1.5">
-												<Button
-													type="button"
-													size="sm"
-													variant="ghost"
-													className="h-7 px-2 text-[11px]"
-													onClick={handleCancelWorkspaceDelete}
-												>
-													Cancel
-												</Button>
-												<Button
-													type="button"
-													size="sm"
-													variant="destructive"
-													className="h-7 px-2 text-[11px]"
-													onClick={() => handleConfirmWorkspaceDelete(workspace.id)}
-												>
-													Delete
-												</Button>
-											</div>
-										</div>
-									) : null}
-
-									{isExpanded ? (
-										<div className="space-y-1 border-t border-slate-200/80 bg-white/60 px-2 py-1.5">
-											{drafts.length > 0 ? (
-												drafts.map((draft, index) => {
-													const isActiveDraft = isActiveWorkspace && selectedDraftId === draft.id
-													return (
-														<button
-															key={draft.id}
-															type="button"
-															onClick={() => {
-																if (!isActiveWorkspace) {
-																	onSwitchWorkspace?.(workspace.id)
-																	return
-																}
-																loadGeoEditDraft(draft.id)
-															}}
-															className={cn(
-																'flex w-full items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left transition-colors',
-																isActiveDraft
-																	? 'bg-emerald-100/80 text-emerald-900'
-																	: 'hover:bg-slate-100 text-slate-700',
-															)}
-														>
-															<span className="min-w-0 truncate text-[11px]">
-																{getDraftLabel(draft, index, workspace.kind === 'dataset')}
-															</span>
-															<div className="flex shrink-0 items-center gap-1">
-																<span className="text-[10px] text-slate-500">
-																	{draft.id.slice(0, 8)}
-																</span>
-																<Button
-																	type="button"
-																	size="icon-sm"
-																	variant="ghost"
-																	className="h-6 w-6 text-destructive hover:text-destructive"
-																	onClick={(event) => {
-																		event.stopPropagation()
-																		deleteGeoEditDraft(draft.id)
-																		if (isActiveDraft) {
-																			void onSwitchWorkspace?.(workspace.id)
-																		}
-																	}}
-																	title="Delete draft"
-																>
-																	<Trash2 className="h-3 w-3" />
-																</Button>
-															</div>
-														</button>
-													)
-												})
-											) : (
-												<div className="px-2 py-1 text-[11px] text-slate-500">
-													No local drafts for this workspace yet.
-												</div>
-											)}
-										</div>
-									) : null}
+					<div className="space-y-2">
+						{proposalWorkspaces.length > 0 ? (
+							<div className="space-y-1.5">
+								<div className="px-1 text-[10px] font-medium uppercase tracking-[0.16em] text-amber-700">
+									Proposal drafts
 								</div>
-							)
-						})}
+								<div className="px-1 text-[11px] text-slate-500">
+									Edits to datasets owned by another account stay grouped here.
+								</div>
+								{proposalWorkspaces.map((workspace) => {
+									const drafts = Object.values(geoEditDrafts)
+										.filter((draft) => draft.sourceId === workspace.sourceId)
+										.sort((a, b) => b.updatedAt - a.updatedAt)
+									const isActiveWorkspace = workspace.id === activeWorkspaceId
+									const isExpanded = expandedWorkspaceIds[workspace.id] ?? isActiveWorkspace
+									const isRenamingWorkspace = renamingWorkspaceId === workspace.id
+									const isConfirmingWorkspaceDelete = confirmingWorkspaceDeleteId === workspace.id
+
+									return (
+										<div
+											key={workspace.id}
+											className={cn(
+												'overflow-hidden rounded-md border',
+												isActiveWorkspace
+													? 'border-amber-200 bg-amber-50/60'
+													: 'border-amber-200/70 bg-white',
+											)}
+										>
+											{renderWorkspaceRow({
+												workspace,
+												drafts,
+												isActiveWorkspace,
+												isExpanded,
+												isRenamingWorkspace,
+												isConfirmingWorkspaceDelete,
+												workspaceTone: 'proposal',
+											})}
+										</div>
+									)
+								})}
+							</div>
+						) : null}
+
+						{regularWorkspaces.length > 0 ? (
+							<div className="space-y-1.5">
+								{proposalWorkspaces.length > 0 ? (
+									<div className="px-1 text-[10px] font-medium uppercase tracking-[0.16em] text-slate-500">
+										Other workspaces
+									</div>
+								) : null}
+								{regularWorkspaces.map((workspace) => {
+									const drafts = Object.values(geoEditDrafts)
+										.filter((draft) => draft.sourceId === workspace.sourceId)
+										.sort((a, b) => b.updatedAt - a.updatedAt)
+									const isActiveWorkspace = workspace.id === activeWorkspaceId
+									const isExpanded = expandedWorkspaceIds[workspace.id] ?? isActiveWorkspace
+									const isRenamingWorkspace = renamingWorkspaceId === workspace.id
+									const isConfirmingWorkspaceDelete = confirmingWorkspaceDeleteId === workspace.id
+
+									return (
+										<div
+											key={workspace.id}
+											className={cn(
+												'overflow-hidden rounded-md border',
+												isActiveWorkspace
+													? 'border-emerald-200 bg-emerald-50/60'
+													: 'border-slate-200 bg-white',
+											)}
+										>
+											{renderWorkspaceRow({
+												workspace,
+												drafts,
+												isActiveWorkspace,
+												isExpanded,
+												isRenamingWorkspace,
+												isConfirmingWorkspaceDelete,
+												workspaceTone: 'default',
+											})}
+										</div>
+									)
+								})}
+							</div>
+						) : null}
+
+						{sortedWorkspaces.length === 0 ? (
+							<div className="rounded-md border border-dashed border-slate-200 px-3 py-2 text-[11px] text-slate-500">
+								No local workspaces yet.
+							</div>
+						) : null}
 					</div>
 				</CollapsibleContent>
 			</div>
 		</Collapsible>
 	)
+
+	function renderWorkspaceRow({
+		workspace,
+		drafts,
+		isActiveWorkspace,
+		isExpanded,
+		isRenamingWorkspace,
+		isConfirmingWorkspaceDelete,
+		workspaceTone,
+	}: {
+		workspace: (typeof sortedWorkspaces)[number]
+		drafts: GeoCollectionEditDraft[]
+		isActiveWorkspace: boolean
+		isExpanded: boolean
+		isRenamingWorkspace: boolean
+		isConfirmingWorkspaceDelete: boolean
+		workspaceTone: 'default' | 'proposal'
+	}) {
+		const badgeClassName =
+			workspaceTone === 'proposal' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'
+		const activeClassName =
+			workspaceTone === 'proposal'
+				? 'bg-amber-100 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-amber-800'
+				: 'bg-emerald-100 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-emerald-700'
+		const activeDraftClassName =
+			workspaceTone === 'proposal'
+				? 'bg-amber-100/80 text-amber-900'
+				: 'bg-emerald-100/80 text-emerald-900'
+
+		return (
+			<>
+				<div className="flex items-center gap-1 px-1.5 py-1.5">
+					<button
+						type="button"
+						onClick={() =>
+							setExpandedWorkspaceIds((current) => ({
+								...current,
+								[workspace.id]: !current[workspace.id],
+							}))
+						}
+						className="rounded p-1 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+						aria-label={isExpanded ? 'Collapse workspace drafts' : 'Expand workspace drafts'}
+					>
+						{isExpanded ? (
+							<ChevronDown className="h-3.5 w-3.5" />
+						) : (
+							<ChevronRight className="h-3.5 w-3.5" />
+						)}
+					</button>
+					{isRenamingWorkspace ? (
+						<form
+							className="flex min-w-0 flex-1 items-center gap-1"
+							onSubmit={(event) => {
+								event.preventDefault()
+								handleRenameWorkspace(workspace.id, workspace.label)
+							}}
+						>
+							<Input
+								value={workspaceLabelDraft}
+								onChange={(event) => setWorkspaceLabelDraft(event.target.value)}
+								className="h-8 text-xs"
+								autoFocus
+								maxLength={120}
+							/>
+							<Button
+								type="submit"
+								size="icon-sm"
+								variant="outline"
+								className="h-7 w-7"
+								title="Save workspace name"
+							>
+								<Check className="h-3.5 w-3.5" />
+							</Button>
+							<Button
+								type="button"
+								size="icon-sm"
+								variant="ghost"
+								className="h-7 w-7"
+								onClick={handleCancelWorkspaceRename}
+								title="Cancel rename"
+							>
+								<X className="h-3.5 w-3.5" />
+							</Button>
+						</form>
+					) : (
+						<>
+							<button
+								type="button"
+								onClick={() => onSwitchWorkspace?.(workspace.id)}
+								className="min-w-0 flex-1 rounded px-1 py-1 text-left transition-colors hover:bg-black/5"
+							>
+								<div className="flex min-w-0 items-center gap-2">
+									<span className="truncate text-xs font-medium text-slate-900">
+										{workspace.label}
+									</span>
+									<span
+										className={cn(
+											'rounded-full px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em]',
+											badgeClassName,
+										)}
+									>
+										{workspaceTone === 'proposal'
+											? 'proposal'
+											: workspace.kind === 'scratch'
+												? 'draft'
+												: 'dataset'}
+									</span>
+									{isActiveWorkspace ? (
+										<span className={cn('rounded-full', activeClassName)}>Active</span>
+									) : null}
+								</div>
+								<div className="mt-0.5 text-[10px] text-slate-500">
+									{drafts.length} draft{drafts.length === 1 ? '' : 's'}
+								</div>
+							</button>
+							<div className="flex shrink-0 items-center gap-1">
+								<Button
+									type="button"
+									size="icon-sm"
+									variant="ghost"
+									className="h-7 w-7"
+									onClick={(event) => {
+										event.stopPropagation()
+										void onAddDraftToWorkspace?.(workspace.id)
+									}}
+									title="Add new draft to this workspace"
+								>
+									<Plus className="h-3.5 w-3.5" />
+								</Button>
+								<Button
+									type="button"
+									size="icon-sm"
+									variant="ghost"
+									className="h-7 w-7"
+									onClick={(event) => {
+										event.stopPropagation()
+										handleBeginWorkspaceRename(workspace.id, workspace.label)
+									}}
+									title="Rename workspace"
+								>
+									<FilePenLine className="h-3.5 w-3.5" />
+								</Button>
+								<Button
+									type="button"
+									size="icon-sm"
+									variant="ghost"
+									className="h-7 w-7 text-destructive hover:text-destructive"
+									onClick={(event) => {
+										event.stopPropagation()
+										handleRequestWorkspaceDelete(workspace.id)
+									}}
+									title="Delete workspace"
+								>
+									<Trash2 className="h-3.5 w-3.5" />
+								</Button>
+							</div>
+						</>
+					)}
+				</div>
+
+				{isConfirmingWorkspaceDelete ? (
+					<div className="flex items-center justify-between gap-3 border-t border-rose-200 bg-rose-50/90 px-3 py-2 text-[11px] text-rose-900">
+						<span className="min-w-0 flex-1 truncate">
+							Delete workspace "{workspace.label}" and its linked session state?
+						</span>
+						<div className="flex shrink-0 items-center gap-1.5">
+							<Button
+								type="button"
+								size="sm"
+								variant="ghost"
+								className="h-7 px-2 text-[11px]"
+								onClick={handleCancelWorkspaceDelete}
+							>
+								Cancel
+							</Button>
+							<Button
+								type="button"
+								size="sm"
+								variant="destructive"
+								className="h-7 px-2 text-[11px]"
+								onClick={() => handleConfirmWorkspaceDelete(workspace.id)}
+							>
+								Delete
+							</Button>
+						</div>
+					</div>
+				) : null}
+
+				{isExpanded ? (
+					<div className="space-y-1 border-t border-slate-200/80 bg-white/60 px-2 py-1.5">
+						{drafts.length > 0 ? (
+							drafts.map((draft, index) => {
+								const isActiveDraft = isActiveWorkspace && selectedDraftId === draft.id
+								return (
+									<button
+										key={draft.id}
+										type="button"
+										onClick={() => {
+											if (!isActiveWorkspace) {
+												onSwitchWorkspace?.(workspace.id)
+												return
+											}
+											loadGeoEditDraft(draft.id)
+										}}
+										className={cn(
+											'flex w-full items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left transition-colors',
+											isActiveDraft ? activeDraftClassName : 'hover:bg-slate-100 text-slate-700',
+										)}
+									>
+										<span className="min-w-0 truncate text-[11px]">
+											{getDraftLabel(draft, index, workspace.kind === 'dataset')}
+										</span>
+										<div className="flex shrink-0 items-center gap-1">
+											<span className="text-[10px] text-slate-500">{draft.id.slice(0, 8)}</span>
+											<Button
+												type="button"
+												size="icon-sm"
+												variant="ghost"
+												className="h-6 w-6 text-destructive hover:text-destructive"
+												onClick={(event) => {
+													event.stopPropagation()
+													deleteGeoEditDraft(draft.id)
+													if (isActiveDraft) {
+														void onSwitchWorkspace?.(workspace.id)
+													}
+												}}
+												title="Delete draft"
+											>
+												<Trash2 className="h-3 w-3" />
+											</Button>
+										</div>
+									</button>
+								)
+							})
+						) : (
+							<div className="px-2 py-1 text-[11px] text-slate-500">
+								No local drafts for this workspace yet.
+							</div>
+						)}
+					</div>
+				) : null}
+			</>
+		)
+	}
 }
 
 function getDraftLabel(
@@ -406,4 +524,13 @@ function getDraftLabel(
 		draft.name ||
 		(isDatasetWorkspace ? `Draft ${index + 1}` : `Untitled ${index + 1}`)
 	).trim()
+}
+
+function isProposalWorkspace(
+	workspace: { kind: 'dataset' | 'scratch'; datasetKey: string | null },
+	currentPubkey: string | null,
+) {
+	if (!currentPubkey || workspace.kind !== 'dataset' || !workspace.datasetKey) return false
+	const ownerPubkey = workspace.datasetKey.split(':')[0] ?? null
+	return !!ownerPubkey && ownerPubkey !== currentPubkey
 }

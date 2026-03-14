@@ -151,6 +151,8 @@ export function GeoEditorView() {
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 	const selectionCount = selectedFeatureIds.length
 	const setSelectedFeatureIds = useEditorStore((state) => state.setSelectedFeatureIds)
+	const setViewModeState = useEditorStore((state) => state.setViewMode)
+	const setViewDatasetState = useEditorStore((state) => state.setViewDataset)
 	const setViewContext = useEditorStore((state) => state.setViewContext)
 	const setViewContextDatasets = useEditorStore((state) => state.setViewContextDatasets)
 	const contextFilterMode = useEditorStore((state) => state.contextFilterMode)
@@ -963,6 +965,14 @@ export function GeoEditorView() {
 		handleLoadDatasetForEditing(event)
 	}
 
+	const handleProposalAccepted = useCallback(
+		(dataset: NDKGeoEvent) => {
+			setViewModeState('view')
+			setViewDatasetState(dataset)
+		},
+		[setViewModeState, setViewDatasetState],
+	)
+
 	const getContextKey = useCallback((context: NDKMapContextEvent): string => {
 		return context.contextId ?? context.dTag ?? context.id ?? ''
 	}, [])
@@ -1346,6 +1356,7 @@ export function GeoEditorView() {
 					// Filter visibility sync
 					onFilteredDatasetKeysChange={handleFilteredDatasetKeysChange}
 					onToggleProposalOverlay={handleToggleProposalOverlay}
+					onProposalAccepted={handleProposalAccepted}
 					visibleProposalIds={visibleProposalIds}
 				/>
 			)}
@@ -1615,6 +1626,7 @@ export function GeoEditorView() {
 							focusCommentId={focusCommentId}
 							onFilteredDatasetKeysChange={handleFilteredDatasetKeysChange}
 							onToggleProposalOverlay={handleToggleProposalOverlay}
+							onProposalAccepted={handleProposalAccepted}
 							visibleProposalIds={visibleProposalIds}
 						/>
 					)}

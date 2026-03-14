@@ -158,7 +158,7 @@ interface AppSidebarProps {
 	focusCommentId?: string
 	onFilteredDatasetKeysChange?: (keys: Set<string>) => void
 	onToggleProposalOverlay?: (proposal: NDKGeoEditProposalEvent, visible: boolean) => void
-	onProposalAccepted?: () => void
+	onProposalAccepted?: (dataset: NDKGeoEvent) => void
 	visibleProposalIds?: Set<string>
 }
 
@@ -515,6 +515,7 @@ export function AppSidebar({
 	const editorPanelProps = {
 		currentUserPubkey,
 		onLoadDataset: handleLoadDataset,
+		onInspectDataset: handleInspectDataset,
 		onStartNewDataset,
 		onOpenGeometryEditor,
 		onSwitchWorkspace,

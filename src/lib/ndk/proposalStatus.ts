@@ -8,6 +8,7 @@ import {
 import type { NDKGeoEditProposalEvent } from './NDKGeoEditProposalEvent'
 
 export type ProposalStatus = 'open' | 'applied' | 'closed' | 'draft'
+export type ProposalReviewState = 'open' | 'accepted' | 'needs_changes' | 'rejected' | 'draft'
 
 export interface ProposalStatusInfo {
 	status: ProposalStatus
@@ -91,6 +92,18 @@ export function getLatestProposalStatus(
 		event: latest,
 		reason: latest.content || undefined,
 	}
+}
+
+export function getProposalReviewState(
+	status: ProposalStatus,
+	reason?: string | null,
+): ProposalReviewState {
+	if (status === 'applied') return 'accepted'
+	if (status === 'draft') return 'draft'
+	if (status === 'closed') {
+		return reason?.trim() ? 'needs_changes' : 'rejected'
+	}
+	return 'open'
 }
 
 /**

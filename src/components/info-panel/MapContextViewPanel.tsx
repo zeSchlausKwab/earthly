@@ -4,11 +4,7 @@ import type { FeatureCollection } from 'geojson'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { encodeContextNaddr, resolveContextReferences } from '@/lib/context/references'
-import {
-	getDefaultContextMapScopeMode,
-	resolveContextMapScope,
-	type ContextMapScopeMode,
-} from '@/lib/context/scope'
+import { resolveContextMapScope } from '@/lib/context/scope'
 import {
 	getEffectiveContextUse,
 	getEffectiveContextValidationMode,
@@ -32,7 +28,7 @@ interface MapContextViewPanelProps {
 	currentUserPubkey?: string
 	getDatasetKey: (event: NDKGeoEvent) => string
 	getDatasetName: (event: NDKGeoEvent) => string
-	onLoadDataset: (event: NDKGeoEvent) => void
+	onInspectDataset: (event: NDKGeoEvent) => void
 	onZoomToDataset: (event: NDKGeoEvent) => void
 	onDeleteContext?: (context: NDKMapContextEvent) => void
 	deletingKey?: string | null
@@ -53,7 +49,7 @@ export function MapContextViewPanel({
 	currentUserPubkey,
 	getDatasetKey,
 	getDatasetName,
-	onLoadDataset,
+	onInspectDataset,
 	onZoomToDataset,
 	onDeleteContext,
 	deletingKey,
@@ -92,7 +88,13 @@ export function MapContextViewPanel({
 		return map
 	}, [viewContext, viewContextDatasets, getDatasetKey, validationModeForDisplay])
 	const referencedEntities = useMemo(
-		() => resolveContextReferences(viewContext, viewContextDatasets, mapContextEvents, availableFeatures),
+		() =>
+			resolveContextReferences(
+				viewContext,
+				viewContextDatasets,
+				mapContextEvents,
+				availableFeatures,
+			),
 		[availableFeatures, mapContextEvents, viewContext, viewContextDatasets],
 	)
 	const referencedDatasets = useMemo(
@@ -137,7 +139,13 @@ export function MapContextViewPanel({
 		return features.filter((feature) => selectedFeatureIds.includes(feature.id))
 	}, [features, selectedFeatureIds])
 	const scope = useMemo(
-		() => resolveContextMapScope(viewContext, viewContextDatasets, mapContextEvents, contextMapScopeMode),
+		() =>
+			resolveContextMapScope(
+				viewContext,
+				viewContextDatasets,
+				mapContextEvents,
+				contextMapScopeMode,
+			),
 		[viewContext, viewContextDatasets, mapContextEvents, contextMapScopeMode],
 	)
 	const attachedContexts = scope.childContexts
@@ -206,6 +214,13 @@ export function MapContextViewPanel({
 		},
 		[onZoomToBounds],
 	)
+	const datasetSourceContextByKey = useMemo(() => {
+		const map = new Map<string, NDKMapContextEvent>()
+		scope.datasets.forEach((entry) => {
+			map.set(getDatasetKey(entry.dataset), entry.sourceContext)
+		})
+		return map
+	}, [scope, getDatasetKey])
 
 	if (!viewContext) {
 		return <div className="text-sm text-gray-500">No context selected.</div>
@@ -219,13 +234,6 @@ export function MapContextViewPanel({
 	const allowedGeometryTypes = contextContent.geometryConstraints?.allowedTypes ?? []
 	const referencedDatasetCount = referencedDatasetKeySet.size
 	const foreignDatasetCount = Math.max(0, viewContextDatasets.length - referencedDatasetCount)
-	const datasetSourceContextByKey = useMemo(() => {
-		const map = new Map<string, NDKMapContextEvent>()
-		scope.datasets.forEach((entry) => {
-			map.set(getDatasetKey(entry.dataset), entry.sourceContext)
-		})
-		return map
-	}, [scope, getDatasetKey])
 	const rolledUpDatasetCount = Math.max(0, scope.datasets.length - scope.directDatasets.length)
 	const commentsSection = (
 		<EntityPanelSurface tone="discussion" className="space-y-4">
@@ -409,7 +417,10 @@ export function MapContextViewPanel({
 													if (!sourceContext || sourceContext.id === viewContext.id) return null
 													return (
 														<span className="text-[10px] text-slate-500">
-															from {sourceContext.context.name || sourceContext.contextId || 'child context'}
+															from{' '}
+															{sourceContext.context.name ||
+																sourceContext.contextId ||
+																'child context'}
 														</span>
 													)
 												})()}
@@ -425,7 +436,7 @@ export function MapContextViewPanel({
 												{
 													icon: <Eye className="h-3.5 w-3.5" />,
 													label: 'Inspect dataset',
-													onClick: () => onLoadDataset(dataset),
+													onClick: () => onInspectDataset(dataset),
 												},
 												{
 													icon: <Maximize2 className="h-3.5 w-3.5" />,
@@ -466,7 +477,7 @@ export function MapContextViewPanel({
 											<Button
 												size="sm"
 												variant="outline"
-												onClick={() => onLoadDataset(reference.dataset)}
+												onClick={() => onInspectDataset(reference.dataset)}
 												className="rounded-none border-stone-200 bg-white px-2 text-xs"
 											>
 												Inspect
@@ -475,12 +486,7 @@ export function MapContextViewPanel({
 										<Button
 											size="sm"
 											variant="outline"
-											onClick={() =>
-												onMentionZoomTo?.(
-													reference.address,
-													reference.featureId,
-												)
-											}
+											onClick={() => onMentionZoomTo?.(reference.address, reference.featureId)}
 											className="rounded-none border-stone-200 bg-white px-2 text-xs"
 										>
 											Zoom

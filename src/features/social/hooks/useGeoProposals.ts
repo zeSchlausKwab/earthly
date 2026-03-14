@@ -36,7 +36,7 @@ export interface UseGeoProposalsResult {
 	/** Loading state */
 	isLoading: boolean
 	/** Accept a proposal — republishes the target dataset with proposed content */
-	acceptProposal: (proposal: NDKGeoEditProposalEvent) => Promise<void>
+	acceptProposal: (proposal: NDKGeoEditProposalEvent) => Promise<NDKGeoEvent>
 	/** Reject a proposal with optional reason */
 	rejectProposal: (proposal: NDKGeoEditProposalEvent, reason?: string) => Promise<void>
 }
@@ -73,13 +73,26 @@ export function useGeoProposals({ target }: UseGeoProposalsOptions): UseGeoPropo
 
 	// Convert to typed proposal events
 	const typedProposals = useMemo(() => {
-		return proposalEvents
+		const deduped = new Map<string, NDKGeoEditProposalEvent>()
+
+		proposalEvents
 			.filter((e: NDKEvent) => e.kind === GEO_EDIT_PROPOSAL_KIND)
 			.map((e: NDKEvent) => NDKGeoEditProposalEvent.from(e))
-			.sort(
-				(a: NDKGeoEditProposalEvent, b: NDKGeoEditProposalEvent) =>
-					(b.created_at ?? 0) - (a.created_at ?? 0),
-			)
+			.forEach((proposal) => {
+				const stableKey =
+					proposal.proposalCoordinate ??
+					proposal.id ??
+					`${proposal.pubkey}:${proposal.proposalId ?? proposal.created_at ?? 0}`
+				const existing = deduped.get(stableKey)
+				if (!existing || (proposal.created_at ?? 0) > (existing.created_at ?? 0)) {
+					deduped.set(stableKey, proposal)
+				}
+			})
+
+		return Array.from(deduped.values()).sort(
+			(a: NDKGeoEditProposalEvent, b: NDKGeoEditProposalEvent) =>
+				(b.created_at ?? 0) - (a.created_at ?? 0),
+		)
 	}, [proposalEvents])
 
 	// Stage 2: Subscribe to status events for all proposals
@@ -146,6 +159,7 @@ export function useGeoProposals({ target }: UseGeoProposalsOptions): UseGeoPropo
 
 				// Publish "applied" status
 				await createProposalStatusEvent(ndk, proposal, 'applied')
+				return updatedDataset
 			} finally {
 				setIsActing(false)
 			}

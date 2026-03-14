@@ -21,10 +21,11 @@ import { Label } from '@/components/ui/label'
 interface SignupDialogProps {
 	open: boolean
 	onOpenChange: (open: boolean) => void
-	onConfirm: (signer: any, rememberMe: boolean) => Promise<void>
+	onConfirm: (signer: NDKPrivateKeySigner, rememberMe: boolean) => Promise<void>
 }
 
 type Mode = 'create' | 'import'
+type ScannedCode = { rawValue?: string }
 
 export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProps) {
 	const [mode, setMode] = useState<Mode>('create')
@@ -36,10 +37,20 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 	const [npub, setNpub] = useState('')
 	const [importKey, setImportKey] = useState('')
 	const [importError, setImportError] = useState('')
-	const [isImportCollapsed, setIsImportCollapsed] = useState(false)
+	const [isImportExpanded, setIsImportExpanded] = useState(true)
 	const [showScanner, setShowScanner] = useState(false)
 	const [scanError, setScanError] = useState<string | null>(null)
 	const [rememberMe, setRememberMe] = useState(true)
+
+	const resetDialogState = useCallback(() => {
+		setMode('create')
+		setImportKey('')
+		setImportError('')
+		setIsImportExpanded(true)
+		setShowScanner(false)
+		setScanError(null)
+		setRememberMe(true)
+	}, [])
 
 	const generateNewKey = useCallback(() => {
 		const newSigner = NDKPrivateKeySigner.generate()
@@ -67,6 +78,12 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 		}
 	}, [open, mode, generateNewKey])
 
+	useEffect(() => {
+		if (!open) {
+			resetDialogState()
+		}
+	}, [open, resetDialogState])
+
 	const handleCopyNsec = async () => {
 		await navigator.clipboard.writeText(nsec)
 		setNsecCopied(true)
@@ -79,7 +96,7 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 		setTimeout(() => setNpubCopied(false), 2000)
 	}
 
-	const parsePrivateKey = (input: string): string | null => {
+	const parsePrivateKey = useCallback((input: string): string | null => {
 		const trimmed = input.trim()
 
 		// Try to decode nsec
@@ -92,7 +109,7 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 						.map((b) => b.toString(16).padStart(2, '0'))
 						.join('')
 				}
-			} catch (e) {
+			} catch (_e) {
 				return null
 			}
 		}
@@ -103,7 +120,7 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 		}
 
 		return null
-	}
+	}, [])
 
 	const handleImportKeyChange = (value: string) => {
 		setImportKey(value)
@@ -121,13 +138,7 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 		try {
 			setLoading(true)
 
-			let signerToUse = signer
-
-			if (mode === 'create' && !signerToUse) {
-				setLoading(false)
-				return
-			}
-
+			let signerToUse: NDKPrivateKeySigner
 			if (mode === 'import') {
 				const privateKeyHex = parsePrivateKey(importKey)
 				if (!privateKeyHex) {
@@ -136,16 +147,16 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 					return
 				}
 				signerToUse = new NDKPrivateKeySigner(privateKeyHex)
+			} else {
+				if (!signer) {
+					setLoading(false)
+					return
+				}
+				signerToUse = signer
 			}
 
 			await onConfirm(signerToUse, rememberMe)
 			onOpenChange(false)
-
-			// Reset state
-			setMode('create')
-			setImportKey('')
-			setImportError('')
-			setRememberMe(true)
 		} catch (error) {
 			console.error('Signup/Login failed:', error)
 		} finally {
@@ -158,29 +169,32 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 		setScanError(null)
 	}
 
-	const handleScan = useCallback((detectedCodes: any[]) => {
-		if (detectedCodes && detectedCodes.length > 0) {
-			const result = detectedCodes[0].rawValue
-			if (result) {
-				// Try to parse the scanned result
-				const parsed = parsePrivateKey(result)
-				if (parsed) {
-					setImportKey(result)
-					setImportError('')
-					setShowScanner(false)
-					setScanError(null)
-				} else {
-					setScanError(
-						'The scanned QR code does not contain a valid private key (nsec or hex format)',
-					)
+	const handleScan = useCallback(
+		(detectedCodes: ScannedCode[]) => {
+			if (detectedCodes && detectedCodes.length > 0) {
+				const result = detectedCodes[0].rawValue
+				if (result) {
+					// Try to parse the scanned result
+					const parsed = parsePrivateKey(result)
+					if (parsed) {
+						setImportKey(result)
+						setImportError('')
+						setShowScanner(false)
+						setScanError(null)
+					} else {
+						setScanError(
+							'The scanned QR code does not contain a valid private key (nsec or hex format)',
+						)
+					}
 				}
 			}
-		}
-	}, [])
+		},
+		[parsePrivateKey],
+	)
 
-	const handleScanError = useCallback((err: any) => {
+	const handleScanError = useCallback((err: { message?: string }) => {
 		console.error(err)
-		setScanError('Error accessing camera: ' + (err.message || 'Unknown error'))
+		setScanError(`Error accessing camera: ${err.message || 'Unknown error'}`)
 	}, [])
 
 	return (
@@ -188,12 +202,12 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 			<DialogContent className="max-w-2xl">
 				<DialogHeader>
 					<DialogTitle>
-						{mode === 'create' ? 'Create Your Nostr Account' : 'Login with Private Key'}
+						{mode === 'create' ? 'Create Your Nostr Account' : 'Import an Existing Key'}
 					</DialogTitle>
 					<DialogDescription>
 						{mode === 'create'
 							? 'Your account has been generated. Please save your private key (nsec) securely.'
-							: 'Enter your existing private key (nsec or hex) to login.'}
+							: 'Enter your existing private key (nsec or hex) to log in. Imports do not require a separate saved-key confirmation step.'}
 					</DialogDescription>
 				</DialogHeader>
 
@@ -206,12 +220,15 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 							onClick={() => setMode('create')}
 							disabled={loading}
 						>
-							Create New Account
+							Create New Key
 						</Button>
 						<Button
 							variant={mode === 'import' ? 'default' : 'ghost'}
 							className="flex-1"
-							onClick={() => setMode('import')}
+							onClick={() => {
+								setMode('import')
+								setIsImportExpanded(true)
+							}}
 							disabled={loading}
 						>
 							Import Existing Key
@@ -308,8 +325,8 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 						<>
 							{/* Import Warning with Collapsible */}
 							<Collapsible
-								open={isImportCollapsed}
-								onOpenChange={setIsImportCollapsed}
+								open={isImportExpanded}
+								onOpenChange={setIsImportExpanded}
 								className="border-2 border-destructive rounded-lg p-4 bg-destructive/5"
 							>
 								<div className="flex items-start justify-between gap-4">
@@ -331,7 +348,7 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 											className="h-8 w-8 p-0 shrink-0 hover:bg-destructive/20"
 										>
 											<ChevronDown
-												className={`h-4 w-4 transition-transform ${isImportCollapsed ? 'rotate-180' : ''}`}
+												className={`h-4 w-4 transition-transform ${isImportExpanded ? 'rotate-180' : ''}`}
 											/>
 											<span className="sr-only">Toggle input</span>
 										</Button>
@@ -369,18 +386,23 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 										<p className="text-xs text-muted-foreground">
 											Your key is never sent to any server and stays on your device.
 										</p>
+										<p className="text-xs text-muted-foreground">
+											After you click <span className="font-medium text-foreground">Login</span>,
+											you are signed in immediately. The save-confirmation button only applies when
+											you generate a brand new key in this dialog.
+										</p>
 									</div>
 								</CollapsibleContent>
 							</Collapsible>
 
 							{/* Info about import */}
-							{!isImportCollapsed && (
+							{!isImportExpanded && (
 								<div className="rounded-lg bg-muted p-4 space-y-2">
 									<h4 className="font-semibold text-sm">How to import your key:</h4>
 									<ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
-										<li>Click the chevron icon in the red warning box above</li>
+										<li>Expand the red security panel above</li>
 										<li>Enter your private key (starts with "nsec1" or 64-character hex)</li>
-										<li>Click "Login" to access your account</li>
+										<li>Click "Login" to access your account immediately</li>
 									</ul>
 								</div>
 							)}

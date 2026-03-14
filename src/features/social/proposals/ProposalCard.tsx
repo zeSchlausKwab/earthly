@@ -15,7 +15,7 @@ import { RichContentRenderer } from '@/components/editor'
 import { UserProfile } from '@/components/user-profile'
 import { GeoCommentForm } from '../comments'
 import type { ProposalWithStatus } from '../hooks/useGeoProposals'
-import type { ProposalStatus } from '@/lib/ndk/proposalStatus'
+import { getProposalReviewState, type ProposalReviewState } from '@/lib/ndk/proposalStatus'
 
 interface ProposalCardProps {
 	proposalWithStatus: ProposalWithStatus
@@ -29,10 +29,11 @@ interface ProposalCardProps {
 	onReject: () => Promise<void>
 }
 
-const STATUS_STYLES: Record<ProposalStatus, { label: string; className: string }> = {
+const STATUS_STYLES: Record<ProposalReviewState, { label: string; className: string }> = {
 	open: { label: 'Open', className: 'bg-green-100 text-green-700' },
-	applied: { label: 'Applied', className: 'bg-blue-100 text-blue-700' },
-	closed: { label: 'Rejected', className: 'bg-red-100 text-red-700' },
+	accepted: { label: 'Accepted', className: 'bg-blue-100 text-blue-700' },
+	needs_changes: { label: 'Needs changes', className: 'bg-amber-100 text-amber-800' },
+	rejected: { label: 'Rejected', className: 'bg-red-100 text-red-700' },
 	draft: { label: 'Draft', className: 'bg-gray-100 text-gray-600' },
 }
 
@@ -48,12 +49,13 @@ export function ProposalCard({
 	onReject,
 }: ProposalCardProps) {
 	const { proposal, status, statusInfo } = proposalWithStatus
-	const statusStyle = STATUS_STYLES[status]
 	const [showChangesNeededForm, setShowChangesNeededForm] = useState(false)
 
 	const featureCount = proposal.featureCollection.features.length
 	const description = proposal.description
 	const statusReason = statusInfo?.reason?.trim()
+	const reviewState = getProposalReviewState(status, statusReason)
+	const statusStyle = STATUS_STYLES[reviewState]
 
 	const timestamp = useMemo(() => {
 		if (!proposal.created_at) return 'Unknown time'
@@ -141,18 +143,24 @@ export function ProposalCard({
 						)}
 
 						{/* Action row */}
-						<div className="flex items-center gap-1.5 pt-1">
+						<div className="flex flex-wrap items-center gap-1.5 pt-1">
 							{/* Preview toggle */}
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<Button
 										variant="ghost"
-										size="icon-xs"
+										size="sm"
+										type="button"
 										onClick={(e) => {
 											e.stopPropagation()
 											onToggleOverlay()
 										}}
-										className={`h-6 w-6 ${
+										aria-label={
+											isOverlayVisible ? 'Hide proposal preview' : 'Preview proposal change'
+										}
+										title={isOverlayVisible ? 'Hide preview' : 'Preview change'}
+										aria-pressed={isOverlayVisible}
+										className={`h-7 gap-1.5 px-2 text-[11px] ${
 											isOverlayVisible
 												? 'text-blue-600 bg-blue-50'
 												: 'text-gray-400 hover:text-blue-600'
@@ -163,6 +171,7 @@ export function ProposalCard({
 										) : (
 											<EyeOff className="h-3.5 w-3.5" />
 										)}
+										<span>{isOverlayVisible ? 'Hide preview' : 'Preview change'}</span>
 									</Button>
 								</TooltipTrigger>
 								<TooltipContent>
@@ -172,19 +181,23 @@ export function ProposalCard({
 
 							{/* Accept / Reject — only for owner on open proposals */}
 							{isOwner && status === 'open' && (
-								<div className="flex items-center gap-1 ml-auto">
+								<div className="ml-auto flex flex-wrap items-center gap-1">
 									<Tooltip>
 										<TooltipTrigger asChild>
 											<Button
 												variant="ghost"
-												size="icon-xs"
+												size="sm"
+												type="button"
 												onClick={(e) => {
 													e.stopPropagation()
 													onAccept()
 												}}
-												className="h-6 w-6 text-green-600 hover:text-green-700 hover:bg-green-50"
+												aria-label="Accept proposal"
+												title="Accept proposal"
+												className="h-7 gap-1.5 px-2 text-[11px] text-green-600 hover:text-green-700 hover:bg-green-50"
 											>
 												<Check className="h-3.5 w-3.5" />
+												<span>Accept</span>
 											</Button>
 										</TooltipTrigger>
 										<TooltipContent>Accept proposal</TooltipContent>
@@ -194,14 +207,18 @@ export function ProposalCard({
 										<TooltipTrigger asChild>
 											<Button
 												variant={showChangesNeededForm ? 'default' : 'outline'}
-												size="icon-xs"
+												size="sm"
+												type="button"
 												onClick={(e) => {
 													e.stopPropagation()
 													setShowChangesNeededForm((prev) => !prev)
 												}}
-												className="h-6 w-6"
+												aria-label="Request changes"
+												title="Request changes"
+												className="h-7 gap-1.5 px-2 text-[11px]"
 											>
 												<MessageSquareWarning className="h-3.5 w-3.5" />
+												<span>Request changes</span>
 											</Button>
 										</TooltipTrigger>
 										<TooltipContent>Changes needed</TooltipContent>
@@ -211,14 +228,18 @@ export function ProposalCard({
 										<TooltipTrigger asChild>
 											<Button
 												variant="outline"
-												size="icon-xs"
+												size="sm"
+												type="button"
 												onClick={(e) => {
 													e.stopPropagation()
 													void onReject()
 												}}
-												className="h-6 w-6 text-red-500 hover:text-red-600 border-red-200 hover:bg-red-50"
+												aria-label="Reject proposal"
+												title="Reject proposal"
+												className="h-7 gap-1.5 px-2 text-[11px] text-red-500 hover:text-red-600 border-red-200 hover:bg-red-50"
 											>
 												<X className="h-3.5 w-3.5" />
+												<span>Reject</span>
 											</Button>
 										</TooltipTrigger>
 										<TooltipContent>Reject proposal</TooltipContent>

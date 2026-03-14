@@ -1,8 +1,10 @@
 import { GitPullRequest, RefreshCw } from 'lucide-react'
 import { useState, useCallback } from 'react'
+import { toast } from 'sonner'
 import { useGeoProposals } from '../hooks/useGeoProposals'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKGeoEditProposalEvent } from '@/lib/ndk/NDKGeoEditProposalEvent'
+import { getProposalReviewState } from '@/lib/ndk/proposalStatus'
 import { ProposalCard } from './ProposalCard'
 
 interface ProposalsPanelProps {
@@ -13,7 +15,7 @@ interface ProposalsPanelProps {
 	/** Callback when a proposal overlay visibility is toggled */
 	onToggleProposalOverlay?: (proposal: NDKGeoEditProposalEvent, visible: boolean) => void
 	/** Callback when a proposal is accepted (dataset republished) */
-	onProposalAccepted?: () => void
+	onProposalAccepted?: (dataset: NDKGeoEvent) => void
 	/** Set of proposal IDs whose overlay is visible */
 	visibleProposalIds?: Set<string>
 	className?: string
@@ -49,22 +51,40 @@ export function ProposalsPanel({
 
 	const handleAccept = useCallback(
 		async (proposal: NDKGeoEditProposalEvent) => {
-			await acceptProposal(proposal)
-			onProposalAccepted?.()
+			try {
+				const updatedDataset = await acceptProposal(proposal)
+				toast.success('Proposal accepted')
+				onProposalAccepted?.(updatedDataset)
+			} catch (error) {
+				console.error('Failed to accept proposal', error)
+				toast.error(error instanceof Error ? error.message : 'Failed to accept proposal')
+			}
 		},
 		[acceptProposal, onProposalAccepted],
 	)
 
 	const handleReject = useCallback(
 		async (proposal: NDKGeoEditProposalEvent, reason: string) => {
-			await rejectProposal(proposal, reason.trim() || undefined)
+			try {
+				await rejectProposal(proposal, reason.trim() || undefined)
+				toast.success('Change request sent')
+			} catch (error) {
+				console.error('Failed to request changes', error)
+				toast.error(error instanceof Error ? error.message : 'Failed to request changes')
+			}
 		},
 		[rejectProposal],
 	)
 
 	const handleRejectWithoutReason = useCallback(
 		async (proposal: NDKGeoEditProposalEvent) => {
-			await rejectProposal(proposal)
+			try {
+				await rejectProposal(proposal)
+				toast.success('Proposal rejected')
+			} catch (error) {
+				console.error('Failed to reject proposal', error)
+				toast.error(error instanceof Error ? error.message : 'Failed to reject proposal')
+			}
 		},
 		[rejectProposal],
 	)
@@ -78,7 +98,13 @@ export function ProposalsPanel({
 	}
 
 	const openProposals = proposals.filter((p) => p.status === 'open')
-	const resolvedProposals = proposals.filter((p) => p.status !== 'open')
+	const needsChangesProposals = proposals.filter(
+		(p) => getProposalReviewState(p.status, p.statusInfo?.reason) === 'needs_changes',
+	)
+	const resolvedProposals = proposals.filter((p) => {
+		const reviewState = getProposalReviewState(p.status, p.statusInfo?.reason)
+		return reviewState !== 'open' && reviewState !== 'needs_changes'
+	})
 
 	return (
 		<div className={`flex flex-col h-full ${className}`}>
@@ -133,10 +159,42 @@ export function ProposalsPanel({
 							)
 						})}
 
+						{/* Proposals with requested changes */}
+						{needsChangesProposals.length > 0 && (
+							<>
+								{openProposals.length > 0 && (
+									<div className="border-t border-gray-100 pt-2 mt-2">
+										<span className="text-[10px] font-medium text-amber-700 uppercase tracking-wider">
+											Changes requested
+										</span>
+									</div>
+								)}
+								{needsChangesProposals.map((pw) => {
+									const id = pw.proposal.id ?? pw.proposal.proposalId ?? ''
+									return (
+										<ProposalCard
+											key={id}
+											proposalWithStatus={pw}
+											isOwner={isOwner}
+											isExpanded={expandedIds.has(id)}
+											isOverlayVisible={visibleProposalIds.has(id)}
+											onToggleExpanded={() => toggleExpanded(id)}
+											onToggleOverlay={() =>
+												onToggleProposalOverlay?.(pw.proposal, !visibleProposalIds.has(id))
+											}
+											onAccept={() => handleAccept(pw.proposal)}
+											onRequestChanges={(reason) => handleReject(pw.proposal, reason)}
+											onReject={() => handleRejectWithoutReason(pw.proposal)}
+										/>
+									)
+								})}
+							</>
+						)}
+
 						{/* Resolved proposals */}
 						{resolvedProposals.length > 0 && (
 							<>
-								{openProposals.length > 0 && (
+								{(openProposals.length > 0 || needsChangesProposals.length > 0) && (
 									<div className="border-t border-gray-100 pt-2 mt-2">
 										<span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">
 											Resolved

@@ -1,10 +1,11 @@
 import { CopyPlus, Eye, EyeOff, FileText, GitPullRequest, Maximize2, Pencil } from 'lucide-react'
-import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { useEditorStore } from '@/features/geo-editor/store'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
 import { validateDatasetForContext } from '@/lib/context/validation'
+import { extractCollectionMeta } from '@/features/geo-editor/utils'
 import { Button } from '../ui/button'
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
 import { CommentsPanel } from '@/features/social/comments'
@@ -37,12 +38,44 @@ export interface ViewModePanelProps {
 	) => void
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
 	onToggleProposalOverlay?: (proposal: NDKGeoEditProposalEvent, visible: boolean) => void
-	onProposalAccepted?: () => void
+	onProposalAccepted?: (dataset: NDKGeoEvent) => void
 	visibleProposalIds?: Set<string>
 	focusCommentId?: string
 }
 
 type ViewTab = 'details' | 'proposals'
+
+function deriveFeatureCustomProperties(properties: Record<string, unknown> | undefined) {
+	if (!properties || typeof properties !== 'object') return {}
+	const explicitCustom =
+		properties.customProperties &&
+		typeof properties.customProperties === 'object' &&
+		!Array.isArray(properties.customProperties)
+			? (properties.customProperties as Record<string, unknown>)
+			: {}
+
+	const mirrored: Record<string, unknown> = {}
+	for (const [key, value] of Object.entries(properties)) {
+		if (
+			key === 'customProperties' ||
+			key === 'name' ||
+			key === 'description' ||
+			key === 'meta' ||
+			key === 'featureId' ||
+			key === 'datasetId' ||
+			key === 'sourceEventId' ||
+			key === 'hashtags'
+		) {
+			continue
+		}
+		mirrored[key] = value
+	}
+
+	return {
+		...mirrored,
+		...explicitCustom,
+	}
+}
 
 function getDatasetDescription(dataset: NDKGeoEvent): string | null {
 	const collection = dataset.featureCollection as Record<string, unknown>
@@ -67,6 +100,16 @@ function getDatasetDescription(dataset: NDKGeoEvent): string | null {
 	return null
 }
 
+function formatDatasetPropertyValue(value: unknown): string {
+	if (typeof value === 'string') return value
+	if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+	try {
+		return JSON.stringify(value)
+	} catch {
+		return String(value)
+	}
+}
+
 export function ViewModePanel({
 	currentUserPubkey,
 	onLoadDataset,
@@ -89,6 +132,7 @@ export function ViewModePanel({
 	const [activeTab, setActiveTab] = useState<ViewTab>('details')
 	const [visibleGeojsonCommentIds, setVisibleGeojsonCommentIds] = useState<Set<string>>(new Set())
 	const [attachedGeojson, setAttachedGeojson] = useState<FeatureCollection | null>(null)
+	const lastViewedDatasetKeyRef = useRef<string | null>(null)
 
 	const isPublishing = useEditorStore((state) => state.isPublishing)
 	const datasetVisibility = useEditorStore((state) => state.datasetVisibility)
@@ -102,9 +146,11 @@ export function ViewModePanel({
 	const isDeletingDataset = viewedDatasetKey ? deletingKey === viewedDatasetKey : false
 
 	useEffect(() => {
+		if (lastViewedDatasetKeyRef.current === viewedDatasetKey) return
+		lastViewedDatasetKeyRef.current = viewedDatasetKey
 		setVisibleGeojsonCommentIds(new Set())
 		setAttachedGeojson(null)
-	}, [viewDataset])
+	}, [viewedDatasetKey])
 
 	useEffect(() => {
 		if (!viewDataset && activeTab === 'proposals') {
@@ -116,6 +162,38 @@ export function ViewModePanel({
 		if (selectedFeatureIds.length === 0) return []
 		return features.filter((f) => selectedFeatureIds.includes(f.id))
 	}, [features, selectedFeatureIds])
+	const datasetProperties = useMemo(() => {
+		if (!viewDataset) return []
+		return Object.entries(
+			extractCollectionMeta(viewDataset.featureCollection).customProperties,
+		).filter(
+			([, value]) =>
+				value !== undefined && value !== null && formatDatasetPropertyValue(value).trim(),
+		)
+	}, [viewDataset])
+	const featureProperties = useMemo(() => {
+		if (!viewDataset?.featureCollection?.features?.length) return []
+		return viewDataset.featureCollection.features
+			.map((feature, index) => {
+				const properties = deriveFeatureCustomProperties(
+					(feature.properties as Record<string, unknown> | undefined) ?? undefined,
+				)
+				const entries = Object.entries(properties).filter(
+					([, value]) =>
+						value !== undefined && value !== null && formatDatasetPropertyValue(value).trim(),
+				)
+				if (entries.length === 0) return null
+
+				const label =
+					(typeof feature.properties?.name === 'string' && feature.properties.name.trim()) ||
+					(typeof feature.id === 'string' || typeof feature.id === 'number'
+						? `${feature.geometry?.type ?? 'Feature'} ${String(feature.id)}`
+						: `${feature.geometry?.type ?? 'Feature'} ${index + 1}`)
+
+				return { label, entries }
+			})
+			.filter((item): item is { label: string; entries: [string, unknown][] } => item !== null)
+	}, [viewDataset])
 
 	const canAttachGeometry = selectedFeatures.length > 0 && !attachedGeojson
 
@@ -311,9 +389,100 @@ export function ViewModePanel({
 								Bounding box:{' '}
 								{viewDataset.boundingBox ? viewDataset.boundingBox.join(', ') : 'Not provided'}
 							</div>
-							<div className="border-l border-slate-200 pl-2">Geohash: {viewDataset.geohash ?? '—'}</div>
+							<div className="border-l border-slate-200 pl-2">
+								Geohash: {viewDataset.geohash ?? '—'}
+							</div>
 						</div>
 					</EntityPanelSurface>
+
+					<EntityPanelSurface tone="neutral" className="space-y-3">
+						<EntityPanelSectionHeader
+							eyebrow="Metadata"
+							title={`Properties${datasetProperties.length > 0 ? ` (${datasetProperties.length})` : ''}`}
+						/>
+						{datasetProperties.length > 0 ? (
+							<div className="space-y-2">
+								{datasetProperties.map(([key, value]) => {
+									const displayValue = formatDatasetPropertyValue(value)
+									const isLink = typeof value === 'string' && /^https?:\/\//i.test(value.trim())
+									return (
+										<div
+											key={key}
+											className="flex flex-col gap-1 border-b border-slate-200 pb-2 text-sm last:border-b-0 last:pb-0"
+										>
+											<span className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">
+												{key}
+											</span>
+											{isLink ? (
+												<a
+													href={String(value)}
+													target="_blank"
+													rel="noreferrer"
+													className="break-all text-blue-700 underline decoration-blue-300 underline-offset-2"
+												>
+													{displayValue}
+												</a>
+											) : (
+												<span className="break-words text-slate-800">{displayValue}</span>
+											)}
+										</div>
+									)
+								})}
+							</div>
+						) : (
+							<p className="text-xs text-slate-500">
+								No dataset-level properties were published with this version yet.
+							</p>
+						)}
+					</EntityPanelSurface>
+
+					{featureProperties.length > 0 ? (
+						<EntityPanelSurface tone="neutral" className="space-y-3">
+							<EntityPanelSectionHeader
+								eyebrow="Feature metadata"
+								title={`Feature properties (${featureProperties.length})`}
+							/>
+							<div className="space-y-3">
+								{featureProperties.map((feature) => (
+									<div
+										key={feature.label}
+										className="space-y-2 border-b border-slate-200 pb-3 last:border-b-0 last:pb-0"
+									>
+										<p className="text-xs font-medium text-slate-900">{feature.label}</p>
+										<div className="space-y-2">
+											{feature.entries.map(([key, value]) => {
+												const displayValue = formatDatasetPropertyValue(value)
+												const isLink =
+													typeof value === 'string' && /^https?:\/\//i.test(value.trim())
+												return (
+													<div
+														key={`${feature.label}:${key}`}
+														className="flex flex-col gap-1 text-sm"
+													>
+														<span className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">
+															{key}
+														</span>
+														{isLink ? (
+															<a
+																href={String(value)}
+																target="_blank"
+																rel="noreferrer"
+																className="break-all text-blue-700 underline decoration-blue-300 underline-offset-2"
+															>
+																{displayValue}
+															</a>
+														) : (
+															<span className="break-words text-slate-800">{displayValue}</span>
+														)}
+													</div>
+												)
+											})}
+										</div>
+									</div>
+								))}
+							</div>
+						</EntityPanelSurface>
+					) : null}
 
 					<EntityPanelSurface tone="neutral">
 						<div className="flex items-center justify-between gap-2">

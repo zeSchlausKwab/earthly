@@ -42,6 +42,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 export interface GeoEditorInfoPanelProps {
 	currentUserPubkey?: string
 	onLoadDataset: (event: NDKGeoEvent) => void
+	onInspectDataset?: (event: NDKGeoEvent) => void
 	onStartNewDataset?: () => void
 	onOpenGeometryEditor?: () => void
 	onSwitchWorkspace?: (workspaceId: string) => void
@@ -87,7 +88,7 @@ export interface GeoEditorInfoPanelProps {
 		visible: boolean,
 	) => void
 	/** Callback when a proposal is accepted */
-	onProposalAccepted?: () => void
+	onProposalAccepted?: (dataset: NDKGeoEvent) => void
 	/** Set of proposal IDs whose overlay is visible */
 	visibleProposalIds?: Set<string>
 	/** Callback when a feature is zoomed to from the geometries list */
@@ -107,6 +108,7 @@ export interface GeoEditorInfoPanelProps {
 export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	const {
 		onLoadDataset,
+		onInspectDataset,
 		onToggleVisibility,
 		onZoomToDataset,
 		onDeleteDataset,
@@ -199,13 +201,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 			features: store.features,
 			selectedFeatureIds: store.selectedFeatureIds,
 		})
-	}, [
-		contextEditorMode,
-		viewMode,
-		currentDraftSourceId,
-		activeDraft?.sourceId,
-		createGeoEditDraft,
-	])
+	}, [contextEditorMode, viewMode, currentDraftSourceId, activeDraft?.sourceId, createGeoEditDraft])
 	// Toggle to view mode - show the active dataset in view mode
 	const handleSwitchToView = () => {
 		if (activeDataset) {
@@ -536,7 +532,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					currentUserPubkey={currentUserPubkey}
 					getDatasetKey={getDatasetKey}
 					getDatasetName={getDatasetName}
-					onLoadDataset={onLoadDataset}
+					onInspectDataset={onInspectDataset ?? onLoadDataset}
 					onZoomToDataset={onZoomToDataset}
 					onDeleteContext={onDeleteContext}
 					deletingKey={deletingKey}
@@ -665,7 +661,10 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					Dataset info
 				</CollapsibleTrigger>
 				<CollapsibleContent>
-					<DatasetMetadataSection key={activeDataset?.id ?? 'new'} availableFeatures={availableFeatures} />
+					<DatasetMetadataSection
+						key={activeDataset?.id ?? 'new'}
+						availableFeatures={availableFeatures}
+					/>
 				</CollapsibleContent>
 			</Collapsible>
 
@@ -771,8 +770,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						/>
 						{attachableContexts.length === 0 && recentUnattachedContexts.length === 0 && (
 							<p className="text-[10px] text-gray-400 leading-snug">
-								Only open contexts appear here. If you don't see yours, open its settings and
-								enable "Allow foreign attachments".
+								Only open contexts appear here. If you don't see yours, open its settings and enable
+								"Allow foreign attachments".
 							</p>
 						)}
 					</div>

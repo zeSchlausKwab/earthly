@@ -99,7 +99,7 @@ export interface MobilePanelProps {
 		proposal: import('@/lib/ndk/NDKGeoEditProposalEvent').NDKGeoEditProposalEvent,
 		visible: boolean,
 	) => void
-	onProposalAccepted?: () => void
+	onProposalAccepted?: (dataset: NDKGeoEvent) => void
 	visibleProposalIds?: Set<string>
 	focusCommentId?: string
 }

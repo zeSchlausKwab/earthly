@@ -78,6 +78,66 @@ function buildWorkspaceMigrationState(pubkey?: string | null): PersistedWorkspac
 	return { workspaces, activeWorkspaceId }
 }
 
+function dedupeWorkspacesBySourceId(
+	workspaces: Record<string, GeoEditorWorkspace>,
+	activeWorkspaceId: string | null,
+): PersistedWorkspaceState {
+	const groupedBySourceId = new Map<string, GeoEditorWorkspace[]>()
+
+	Object.values(workspaces).forEach((workspace) => {
+		const existing = groupedBySourceId.get(workspace.sourceId) ?? []
+		existing.push(workspace)
+		groupedBySourceId.set(workspace.sourceId, existing)
+	})
+
+	const deduped: Record<string, GeoEditorWorkspace> = {}
+	let nextActiveWorkspaceId: string | null = null
+
+	groupedBySourceId.forEach((group) => {
+		const sorted = [...group].sort((a, b) => b.updatedAt - a.updatedAt)
+		const preferred = sorted.find((workspace) => workspace.id === activeWorkspaceId) ?? sorted[0]
+		if (!preferred) return
+
+		const mergedWorkspace: GeoEditorWorkspace = {
+			...preferred,
+			label: normalizeWorkspaceLabel(preferred.label, preferred.kind),
+			datasetKey:
+				preferred.datasetKey ??
+				sorted.find((workspace) => workspace.datasetKey)?.datasetKey ??
+				inferDatasetKeyFromSourceId(preferred.sourceId),
+			activeDraftId:
+				preferred.activeDraftId ??
+				sorted.find((workspace) => workspace.activeDraftId)?.activeDraftId ??
+				null,
+			chatSessionId:
+				preferred.chatSessionId ??
+				sorted.find((workspace) => workspace.chatSessionId)?.chatSessionId ??
+				null,
+			createdAt: Math.min(...sorted.map((workspace) => workspace.createdAt)),
+			updatedAt: Math.max(...sorted.map((workspace) => workspace.updatedAt)),
+		}
+
+		deduped[mergedWorkspace.id] = mergedWorkspace
+
+		if (
+			preferred.id === activeWorkspaceId ||
+			sorted.some((workspace) => workspace.id === activeWorkspaceId)
+		) {
+			nextActiveWorkspaceId = mergedWorkspace.id
+		}
+	})
+
+	if (!nextActiveWorkspaceId) {
+		nextActiveWorkspaceId =
+			Object.values(deduped).sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id ?? null
+	}
+
+	return {
+		workspaces: deduped,
+		activeWorkspaceId: nextActiveWorkspaceId,
+	}
+}
+
 export function readPersistedWorkspaceState(pubkey?: string | null): PersistedWorkspaceState {
 	try {
 		const parsed = readScopedStorage<Partial<PersistedWorkspaceState> | null>(
@@ -118,7 +178,7 @@ export function readPersistedWorkspaceState(pubkey?: string | null): PersistedWo
 				? parsed.activeWorkspaceId
 				: (Object.values(workspaces).sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id ?? null)
 
-		return { workspaces, activeWorkspaceId }
+		return dedupeWorkspacesBySourceId(workspaces, activeWorkspaceId)
 	} catch (error) {
 		console.warn('Failed to read geo editor workspaces from scoped storage', error)
 		return buildWorkspaceMigrationState(pubkey)
@@ -143,8 +203,35 @@ export const createWorkspaceSlice: StateCreator<EditorState, [], [], WorkspaceSl
 		activeWorkspaceId: persisted.activeWorkspaceId,
 
 		createWorkspace: (input) => {
+			const existingWorkspace = Object.values(get().workspaces).find(
+				(workspace) => workspace.sourceId === input.sourceId,
+			)
 			const workspaceId = createWorkspaceId()
 			const now = Date.now()
+			if (existingWorkspace) {
+				const nextWorkspace: GeoEditorWorkspace = {
+					...existingWorkspace,
+					label: normalizeWorkspaceLabel(input.label || existingWorkspace.label, input.kind),
+					kind: input.kind,
+					datasetKey:
+						input.datasetKey ??
+						existingWorkspace.datasetKey ??
+						inferDatasetKeyFromSourceId(input.sourceId),
+					activeDraftId: input.activeDraftId ?? existingWorkspace.activeDraftId,
+					chatSessionId: input.chatSessionId ?? existingWorkspace.chatSessionId,
+					updatedAt: now,
+				}
+				const nextWorkspaces = {
+					...get().workspaces,
+					[existingWorkspace.id]: nextWorkspace,
+				}
+				set({
+					workspaces: nextWorkspaces,
+					activeWorkspaceId: existingWorkspace.id,
+				})
+				writePersistedWorkspaceState(nextWorkspaces, existingWorkspace.id)
+				return existingWorkspace.id
+			}
 			const workspace: GeoEditorWorkspace = {
 				id: workspaceId,
 				sourceId: input.sourceId,

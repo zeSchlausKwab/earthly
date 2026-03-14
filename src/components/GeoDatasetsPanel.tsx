@@ -2,10 +2,7 @@ import { Eye } from 'lucide-react'
 import { useEffect, useMemo, useRef } from 'react'
 import type { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
-import {
-	getEffectiveContextUse,
-	getEffectiveContextValidationMode,
-} from '@/lib/context/validation'
+import { getEffectiveContextUse, getEffectiveContextValidationMode } from '@/lib/context/validation'
 import { orderContextsForDisplay } from '@/lib/context/displayOrdering'
 import { cn } from '@/lib/utils'
 import { useFilterState, useSortedFilteredItems, type FilterConfig } from './data-filter'
@@ -201,10 +198,12 @@ export function GeoDatasetsPanelContent({
 				attachmentPolicy: context.context.allowForeignAttachments ? 'open' : 'closed',
 				displayDepth: depth,
 				displayParentName: displayParentCoordinate
-					? nameByCoordinate.get(displayParentCoordinate) ?? null
+					? (nameByCoordinate.get(displayParentCoordinate) ?? null)
 					: null,
 				isCuratedChild:
-					depth > 0 && !context.context.allowForeignAttachments && context.contextReferences.length > 0,
+					depth > 0 &&
+					!context.context.allowForeignAttachments &&
+					context.contextReferences.length > 0,
 				attachmentCount: context.contextReferences.length,
 			}),
 		)
@@ -265,7 +264,13 @@ export function GeoDatasetsPanelContent({
 			<div className="flex items-center justify-between gap-2">
 				<div>
 					{isFocused ? (
-						<p className="text-xs text-amber-600">Focused view - others hidden</p>
+						<div className="space-y-1">
+							<p className="text-xs text-amber-700">Focused map view</p>
+							<p className="text-[11px] text-amber-600">
+								Only the focused dataset is currently visible on the map. Visibility checkboxes
+								below control map visibility only, and “Show all” restores the normal map view.
+							</p>
+						</div>
 					) : (
 						<p className="text-xs text-gray-500">
 							{mode === 'datasets'
@@ -276,7 +281,13 @@ export function GeoDatasetsPanelContent({
 				</div>
 				<div className="flex items-center gap-1">
 					{isFocused && onExitFocus ? (
-						<Button size="sm" variant="outline" onClick={onExitFocus} className="text-xs">
+						<Button
+							size="sm"
+							variant="outline"
+							onClick={onExitFocus}
+							className="text-xs"
+							title="Restore normal map visibility for all datasets"
+						>
 							<Eye className="mr-1 h-3.5 w-3.5" />
 							Show all
 						</Button>
