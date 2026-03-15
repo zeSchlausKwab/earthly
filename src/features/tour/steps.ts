@@ -1,13 +1,13 @@
-import type { DriveStep } from 'driver.js'
+import type { DriveStep } from "driver.js";
 
 function mediaBlock(opts: {
-	screenshot?: string
-	video?: string
-	alt?: string
+  screenshot?: string;
+  video?: string;
+  alt?: string;
 }): string {
-	if (opts.video) {
-		// Hidden by default; shown only when video can play (i.e. file exists)
-		return `
+  if (opts.video) {
+    // Hidden by default; shown only when video can play (i.e. file exists)
+    return `
 			<div class="tour-media" style="display:none" data-tour-media>
 				<video
 					src="${opts.video}"
@@ -18,81 +18,85 @@ function mediaBlock(opts: {
 					oncanplay="this.closest('[data-tour-media]').style.display='block'"
 					onerror="this.closest('[data-tour-media]').style.display='none'"
 				></video>
-			</div>`
-	}
-	if (opts.screenshot) {
-		return `
+			</div>`;
+  }
+  if (opts.screenshot) {
+    return `
 			<div class="tour-media" data-tour-media>
 				<img
 					src="${opts.screenshot}"
-					alt="${opts.alt ?? 'Screenshot'}"
+					alt="${opts.alt ?? "Screenshot"}"
 					style="width:100%;border-radius:8px;margin-top:10px;border:1px solid rgba(0,0,0,.1)"
 					onerror="this.closest('[data-tour-media]').style.display='none'"
 				/>
-			</div>`
-	}
-	return ''
+			</div>`;
+  }
+  return "";
 }
 
 export const tourSteps: DriveStep[] = [
-	// ── 1. Welcome ──────────────────────────────────────────────────────────
-	{
-		popover: {
-			title: '🌍 Welcome to Earthly',
-			description: `
+  // ── 1. Welcome ──────────────────────────────────────────────────────────
+  {
+    popover: {
+      title: "🌍 Welcome to Earthly",
+      description: `
 				<p style="margin:0 0 10px">
 					<strong>Earthly</strong> is a decentralized collaborative mapping app built on
 					<a href="https://nostr.com" target="_blank" rel="noreferrer">Nostr</a>.
 					Create, publish, and explore geographic datasets without any central server.
 				</p>
 				<ul style="margin:0 0 10px;padding-left:1.2em;line-height:1.8">
-					<li>Draw points, lines, and polygons on the map</li>
-					<li>Publish datasets as Nostr events — censorship-resistant by design</li>
-					<li>Comment, react, and collaborate with others</li>
-					<li>Organize data into <em>Map Contexts</em> — curated views of your region</li>
+					<li>✏️ Draw points, lines, and polygons on the map</li>
+					<li>📡 Publish datasets as Nostr events — censorship-resistant by design</li>
+					<li>💬 Comment, react, and collaborate with others</li>
+					<li>🗂️ Organize data into <em>Map Contexts</em> — curated views of your region</li>
 				</ul>
+				<p style="margin:12px 0 8px;padding:10px 14px;background:rgba(0,0,0,.06);border-left:3px solid currentColor;border-radius:4px;font-size:.9em;line-height:1.6">
+					<strong>Always remember:</strong><br/>
+					<em>Datasets carry geometry. Contexts organize and validate it. Comments discuss it. Proposals change it.</em>
+				</p>
 				<p style="margin:0;font-size:.85em;opacity:.7">
 					This short tour takes about 2 minutes. Press <strong>Next</strong> to begin, or
 					<strong>Done</strong> to skip.
 				</p>
-				${mediaBlock({ video: '/tour/videos/intro.mp4' })}
+				${mediaBlock({ video: "/tour/videos/intro.mp4" })}
 			`,
-			side: 'over',
-			align: 'center',
-		},
-	},
+      side: "over",
+      align: "center",
+    },
+  },
 
-	// ── 2. Nostr Identity (first interactive step) ───────────────────────────
-	{
-		element: '[data-tour="sidebar-login"]',
-		popover: {
-			title: '🔑 Your Nostr Identity',
-			description: `
+  // ── 2. Nostr Identity (first interactive step) ───────────────────────────
+  {
+    element: '[data-tour="sidebar-login"]',
+    popover: {
+      title: "🔑 Your Nostr Identity",
+      description: `
 				<p style="margin:0 0 8px">
 					Earthly uses <strong>Nostr</strong> for identity — no email, no password, no sign-up form.
 					Your identity is a cryptographic key pair you control entirely.
 				</p>
 				<ul style="margin:0 0 8px;padding-left:1.2em;line-height:1.8">
-					<li><strong>New user?</strong> Use the guided wizard to generate a key and save a printable backup PDF</li>
-					<li><strong>Have a Nostr key?</strong> Import your <code style="font-size:.8em;background:rgba(0,0,0,.08);padding:1px 4px;border-radius:3px">nsec</code> or use a browser extension (NIP-07)</li>
-					<li><strong>Advanced:</strong> Connect via NIP-46 remote signing from another device</li>
+					<li>🆕 <strong>New user?</strong> Use the guided wizard to generate a key and save a printable backup PDF</li>
+					<li>🗝️ <strong>Have a Nostr key?</strong> Import your <code style="font-size:.8em;background:rgba(0,0,0,.08);padding:1px 4px;border-radius:3px">nsec</code> or use a browser extension (NIP-07)</li>
+					<li>⚡ <strong>Advanced:</strong> Connect via NIP-46 remote signing from another device</li>
 				</ul>
 				<p style="margin:0;font-size:.85em;opacity:.7">
 					Your key is never sent to any server. You are your own account.
 				</p>
-				${mediaBlock({ video: '/tour/videos/login.mp4' })}
+				${mediaBlock({ video: "/tour/videos/login.mp4" })}
 			`,
-			side: 'right',
-			align: 'center',
-		},
-	},
+      side: "right",
+      align: "center",
+    },
+  },
 
-	// ── 3. The Map ────────────────────────────────────────────────────────────
-	{
-		element: '[data-tour="map-canvas"]',
-		popover: {
-			title: '🗺️ The Interactive Map',
-			description: `
+  // ── 3. The Map ────────────────────────────────────────────────────────────
+  {
+    element: '[data-tour="map-canvas"]',
+    popover: {
+      title: "🗺️ The Interactive Map",
+      description: `
 				<p style="margin:0 0 8px">
 					The map is powered by <strong>MapLibre GL</strong> with
 					<a href="https://openfreemap.org" target="_blank" rel="noreferrer"><strong>OpenFreeMap</strong></a>
@@ -109,19 +113,19 @@ export const tourSteps: DriveStep[] = [
 				<p style="margin:0;font-size:.85em;opacity:.7">
 					All geographic data is stored as GeoJSON inside Nostr events (kind 37515) — you own your data.
 				</p>
-				${mediaBlock({ screenshot: '/tour/screenshots/map.png', alt: 'Map canvas overview' })}
+				${mediaBlock({ screenshot: "/tour/screenshots/map.png", alt: "Map canvas overview" })}
 			`,
-			side: 'right',
-			align: 'start',
-		},
-	},
+      side: "right",
+      align: "start",
+    },
+  },
 
-	// ── 4. Drawing & Editing Tools ────────────────────────────────────────────
-	{
-		element: '[data-tour="toolbar"]',
-		popover: {
-			title: '✏️ Drawing & Editing Tools',
-			description: `
+  // ── 4. Drawing & Editing Tools ────────────────────────────────────────────
+  {
+    element: '[data-tour="toolbar"]',
+    popover: {
+      title: "✏️ Drawing & Editing Tools",
+      description: `
 				<p style="margin:0 0 8px">
 					The toolbar holds all editing and data tools.
 				</p>
@@ -137,19 +141,19 @@ export const tourSteps: DriveStep[] = [
 				<p style="margin:0;font-size:.85em;opacity:.7">
 					All edits are local until you press <strong>Publish</strong> — nothing is sent to the network until you're ready.
 				</p>
-				${mediaBlock({ video: '/tour/videos/drawing.mp4' })}
+				${mediaBlock({ video: "/tour/videos/drawing.mp4" })}
 			`,
-			side: 'bottom',
-			align: 'start',
-		},
-	},
+      side: "bottom",
+      align: "start",
+    },
+  },
 
-	// ── 5. Sidebar Navigation ─────────────────────────────────────────────────
-	{
-		element: '[data-tour="sidebar-nav"]',
-		popover: {
-			title: '📋 Sidebar Navigation',
-			description: `
+  // ── 5. Sidebar Navigation ─────────────────────────────────────────────────
+  {
+    element: '[data-tour="sidebar-nav"]',
+    popover: {
+      title: "📋 Sidebar Navigation",
+      description: `
 				<p style="margin:0 0 8px">
 					The icon strip on the left opens different workspaces inside the sidebar panel.
 				</p>
@@ -163,19 +167,19 @@ export const tourSteps: DriveStep[] = [
 				<p style="margin:0;font-size:.85em;opacity:.7">
 					The sidebar can be collapsed to give you more map space.
 				</p>
-				${mediaBlock({ screenshot: '/tour/screenshots/sidebar.png', alt: 'Sidebar navigation' })}
+				${mediaBlock({ screenshot: "/tour/screenshots/sidebar.png", alt: "Sidebar navigation" })}
 			`,
-			side: 'right',
-			align: 'start',
-		},
-	},
+      side: "right",
+      align: "start",
+    },
+  },
 
-	// ── 6. Datasets ───────────────────────────────────────────────────────────
-	{
-		element: '[data-tour="sidebar-datasets"]',
-		popover: {
-			title: '🗄️ Datasets',
-			description: `
+  // ── 6. Datasets ───────────────────────────────────────────────────────────
+  {
+    element: '[data-tour="sidebar-datasets"]',
+    popover: {
+      title: "🗄️ Datasets",
+      description: `
 				<p style="margin:0 0 8px">
 					A <strong>Dataset</strong> is a GeoJSON FeatureCollection published as a Nostr event
 					(kind 37515). Anyone can browse and load datasets from the relay.
@@ -188,19 +192,19 @@ export const tourSteps: DriveStep[] = [
 				<p style="margin:0;font-size:.85em;opacity:.7">
 					All datasets are signed by the author's Nostr key — you can always verify who created them.
 				</p>
-				${mediaBlock({ screenshot: '/tour/screenshots/datasets.png', alt: 'Datasets panel' })}
+				${mediaBlock({ screenshot: "/tour/screenshots/datasets.png", alt: "Datasets panel" })}
 			`,
-			side: 'right',
-			align: 'start',
-		},
-	},
+      side: "right",
+      align: "start",
+    },
+  },
 
-	// ── 7. Map Contexts ───────────────────────────────────────────────────────
-	{
-		element: '[data-tour="sidebar-contexts"]',
-		popover: {
-			title: '🌐 Map Contexts',
-			description: `
+  // ── 7. Map Contexts ───────────────────────────────────────────────────────
+  {
+    element: '[data-tour="sidebar-contexts"]',
+    popover: {
+      title: "🌐 Map Contexts",
+      description: `
 				<p style="margin:0 0 8px">
 					A <strong>Map Context</strong> (kind 37518) is a curated lens over a region — like
 					"bicycle routes in Berlin" or "public art in Tokyo."
@@ -214,19 +218,19 @@ export const tourSteps: DriveStep[] = [
 				<p style="margin:0;font-size:.85em;opacity:.7">
 					Think of contexts as community-curated map layers that anyone can contribute to.
 				</p>
-				${mediaBlock({ screenshot: '/tour/screenshots/contexts.png', alt: 'Map contexts panel' })}
+				${mediaBlock({ screenshot: "/tour/screenshots/contexts.png", alt: "Map contexts panel" })}
 			`,
-			side: 'right',
-			align: 'start',
-		},
-	},
+      side: "right",
+      align: "start",
+    },
+  },
 
-	// ── 8. AI Chat ────────────────────────────────────────────────────────────
-	{
-		element: '[data-tour="sidebar-chat"]',
-		popover: {
-			title: '🤖 AI Chat',
-			description: `
+  // ── 8. AI Chat ────────────────────────────────────────────────────────────
+  {
+    element: '[data-tour="sidebar-chat"]',
+    popover: {
+      title: "🤖 AI Chat",
+      description: `
 				<p style="margin:0 0 8px">
 					The built-in AI assistant can answer questions about your data
 					<em>and directly manipulate the map</em> — no copy-pasting coordinates.
@@ -240,19 +244,19 @@ export const tourSteps: DriveStep[] = [
 				<p style="margin:0;font-size:.85em;opacity:.7">
 					Configure your AI provider and API key in the chat settings panel.
 				</p>
-				${mediaBlock({ video: '/tour/videos/chat.mp4' })}
+				${mediaBlock({ video: "/tour/videos/chat.mp4" })}
 			`,
-			side: 'right',
-			align: 'start',
-		},
-	},
+      side: "right",
+      align: "start",
+    },
+  },
 
-	// ── 9. My Entities ────────────────────────────────────────────────────────
-	{
-		element: '[data-tour="sidebar-my-entities"]',
-		popover: {
-			title: '🏷️ My Entities',
-			description: `
+  // ── 9. My Entities ────────────────────────────────────────────────────────
+  {
+    element: '[data-tour="sidebar-my-entities"]',
+    popover: {
+      title: "🏷️ My Entities",
+      description: `
 				<p style="margin:0 0 8px">
 					<strong>My Entities</strong> is your personal workspace — everything you've published to the network in one place.
 				</p>
@@ -265,19 +269,19 @@ export const tourSteps: DriveStep[] = [
 				<p style="margin:0;font-size:.85em;opacity:.7">
 					Only events signed with your Nostr key appear here.
 				</p>
-				${mediaBlock({ screenshot: '/tour/screenshots/my-entities.png', alt: 'My Entities panel' })}
+				${mediaBlock({ screenshot: "/tour/screenshots/my-entities.png", alt: "My Entities panel" })}
 			`,
-			side: 'right',
-			align: 'start',
-		},
-	},
+      side: "right",
+      align: "start",
+    },
+  },
 
-	// ── 10. Comments & Social ─────────────────────────────────────────────────
-	{
-		element: '[data-tour="sidebar-help"]',
-		popover: {
-			title: '💬 Comments & Collaboration',
-			description: `
+  // ── 10. Comments & Social ─────────────────────────────────────────────────
+  {
+    element: '[data-tour="sidebar-help"]',
+    popover: {
+      title: "💬 Comments & Collaboration",
+      description: `
 				<p style="margin:0 0 8px">
 					Earthly is social. Every dataset supports threaded discussion and engagement.
 				</p>
@@ -290,18 +294,18 @@ export const tourSteps: DriveStep[] = [
 				<p style="margin:0;font-size:.85em;opacity:.7">
 					All social data is stored as Nostr events — portable across any compatible client.
 				</p>
-				${mediaBlock({ screenshot: '/tour/screenshots/social.png', alt: 'Social features' })}
+				${mediaBlock({ screenshot: "/tour/screenshots/social.png", alt: "Social features" })}
 			`,
-			side: 'right',
-			align: 'start',
-		},
-	},
+      side: "right",
+      align: "start",
+    },
+  },
 
-	// ── 11. Done ──────────────────────────────────────────────────────────────
-	{
-		popover: {
-			title: "🚀 You're ready!",
-			description: `
+  // ── 11. Done ──────────────────────────────────────────────────────────────
+  {
+    popover: {
+      title: "🚀 You're ready!",
+      description: `
 				<p style="margin:0 0 10px">
 					Here's how to get started:
 				</p>
@@ -318,8 +322,8 @@ export const tourSteps: DriveStep[] = [
 					You can restart this tour anytime from the <strong>Help</strong> panel in the sidebar.
 				</p>
 			`,
-			side: 'over',
-			align: 'center',
-		},
-	},
-]
+      side: "over",
+      align: "center",
+    },
+  },
+];
