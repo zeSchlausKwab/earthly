@@ -1,16 +1,15 @@
-import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import type { FilterConfig } from '@/components/data-filter/types'
+import { getEffectiveContextUse, getEffectiveContextValidationMode } from '@/lib/context/validation'
 
 // ── Entity types ──────────────────────────────────────────────────────
 
-export type EntityType = 'dataset' | 'collection' | 'context' | 'feature'
+export type EntityType = 'dataset' | 'context' | 'feature'
 
 export const ENTITY_TYPE_LABELS: Record<EntityType, string> = {
 	dataset: 'Datasets',
-	collection: 'Collections',
 	context: 'Contexts',
 	feature: 'Features',
 }
@@ -26,7 +25,7 @@ export interface EntitySearchResult {
 	pubkey?: string
 	createdAt?: number
 	/** Original entity reference for callbacks */
-	entity: NDKGeoEvent | NDKGeoCollectionEvent | NDKMapContextEvent | GeoFeatureItem
+	entity: NDKGeoEvent | NDKMapContextEvent | GeoFeatureItem
 }
 
 export interface EntitySearchResultGroup {
@@ -41,7 +40,6 @@ export interface EntitySearchResultGroup {
 
 export interface EntitySearchSources {
 	datasets?: NDKGeoEvent[]
-	collections?: NDKGeoCollectionEvent[]
 	contexts?: NDKMapContextEvent[]
 	features?: GeoFeatureItem[]
 }
@@ -92,26 +90,16 @@ export function datasetToSearchResult(
 	}
 }
 
-export function collectionToSearchResult(collection: NDKGeoCollectionEvent): EntitySearchResult {
-	const metadata = collection.metadata
-	return {
-		id: collection.id ?? collection.dTag ?? '',
-		name: metadata.name ?? collection.collectionId ?? collection.id ?? 'Untitled',
-		type: 'collection',
-		subtitle: metadata.description,
-		pubkey: collection.pubkey,
-		createdAt: collection.created_at,
-		entity: collection,
-	}
-}
-
 export function contextToSearchResult(context: NDKMapContextEvent): EntitySearchResult {
 	const content = context.context
+	const effectiveUse = getEffectiveContextUse(context)
 	return {
 		id: context.id ?? context.dTag ?? '',
 		name: content.name || context.contextId || context.id || 'Untitled',
 		type: 'context',
-		subtitle: content.description ?? content.contextUse,
+		subtitle:
+			content.description ??
+			`${effectiveUse} · ${content.allowForeignAttachments ? 'open' : 'closed'}`,
 		pubkey: context.pubkey,
 		createdAt: context.created_at,
 		entity: context,
@@ -140,23 +128,15 @@ export function createDatasetFilterConfig(
 	}
 }
 
-export const collectionFilterConfig: FilterConfig<NDKGeoCollectionEvent> = {
-	getSearchableText: (collection) => {
-		const metadata = collection.metadata
-		return [metadata.name, metadata.description, collection.collectionId, collection.id]
-	},
-	getName: (collection) =>
-		collection.metadata.name ?? collection.collectionId ?? collection.id ?? 'Untitled',
-}
-
 export const contextFilterConfig: FilterConfig<NDKMapContextEvent> = {
 	getSearchableText: (context) => {
 		const content = context.context
 		return [
 			content.name,
 			content.description,
-			content.contextUse,
-			content.validationMode,
+			getEffectiveContextUse(context),
+			getEffectiveContextValidationMode(context),
+			content.allowForeignAttachments ? 'open' : 'closed',
 			context.contextId,
 			context.id,
 		]

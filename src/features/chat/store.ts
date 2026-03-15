@@ -1,9 +1,11 @@
 /**
  * Chat Store - Zustand store for Routstr AI chat
  */
+import type { FeatureCollection } from 'geojson'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { ChatMessage, RoutstrModel, ToolCall, ProviderType, ProviderConfig } from './routstr'
+import type { EntityType } from '@/components/entity-search'
 import {
 	fetchModels,
 	streamChatCompletion,
@@ -16,6 +18,7 @@ import {
 	geoTools,
 	executeToolCall,
 	consumeMapSnapshot,
+	compactToolMessageContentForPrompt,
 } from './tools'
 import { nip60Actions, useNip60Store } from '@/lib/stores/nip60'
 import { toast } from 'sonner'
@@ -41,6 +44,7 @@ const MIN_CONTEXT_TOKENS_FOR_INLINE_IMAGE = 16000
 const STREAM_STALL_WARNING_MS = 15000
 const STREAM_STALL_TIMEOUT_MS = 45000
 const MIN_TOOL_ENABLED_MAX_TOKENS = 1024
+const OVERLOAD_RETRY_DELAYS_MS = [1500, 4000]
 
 type StreamProgressKind =
 	| 'request_start'
@@ -101,8 +105,35 @@ export interface ChatSession {
 	id: string
 	title: string
 	messages: ChatMessage[]
+	references: ChatReference[]
 	createdAt: number
 	updatedAt: number
+}
+
+export interface ChatReference {
+	id: string
+	name: string
+	type: EntityType
+	subtitle?: string
+	address?: string
+	pubkey?: string
+	createdAt?: number
+}
+
+export interface ChatSettingsSnapshot {
+	provider: ProviderType
+	customEndpoint: string
+	customApiKey: string
+	selectedModel: string | null
+	toolsEnabled: boolean
+}
+
+export const DEFAULT_CHAT_SETTINGS: ChatSettingsSnapshot = {
+	provider: 'routstr',
+	customEndpoint: '',
+	customApiKey: '',
+	selectedModel: null,
+	toolsEnabled: true,
 }
 
 function createChatId(): string {
@@ -132,6 +163,7 @@ function createEmptyChatSession(): ChatSession {
 		id: createChatId(),
 		title: DEFAULT_CHAT_TITLE,
 		messages: [],
+		references: [],
 		createdAt: now,
 		updatedAt: now,
 	}
@@ -147,6 +179,7 @@ function applyMessagesToActiveChat(
 		return {
 			...chat,
 			messages,
+			references: chat.references ?? [],
 			title: buildChatTitle(messages),
 			updatedAt: Date.now(),
 		}
@@ -161,6 +194,38 @@ function applyMessagesToActiveChat(
 			id: activeChatId ?? fallback.id,
 			messages,
 			title: buildChatTitle(messages),
+			references: [],
+		},
+	]
+}
+
+function hasChatSession(chatSessions: ChatSession[], chatId: string | null): boolean {
+	if (!chatId) return false
+	return chatSessions.some((chat) => chat.id === chatId)
+}
+
+function applyReferencesToActiveChat(
+	chatSessions: ChatSession[],
+	activeChatId: string | null,
+	references: ChatReference[],
+): ChatSession[] {
+	const nextSessions = chatSessions.map((chat) => {
+		if (chat.id !== activeChatId) return chat
+		return {
+			...chat,
+			references,
+			updatedAt: Date.now(),
+		}
+	})
+	if (nextSessions.some((chat) => chat.id === activeChatId)) return nextSessions
+
+	const fallback = createEmptyChatSession()
+	return [
+		...nextSessions,
+		{
+			...fallback,
+			id: activeChatId ?? fallback.id,
+			references,
 		},
 	]
 }
@@ -213,9 +278,11 @@ function sanitizeMessageForPrompt(message: ChatMessage): ChatMessage {
 			: message.reasoning_content
 
 	if (typeof content === 'string') {
+		const normalizedContent =
+			message.role === 'tool' ? compactToolMessageContentForPrompt(content) : content
 		return {
 			...message,
-			content: truncateTextForPrompt(content, maxChars),
+			content: truncateTextForPrompt(normalizedContent, maxChars),
 			reasoning_content,
 		}
 	}
@@ -265,9 +332,11 @@ function truncateMessageToTokenBudget(message: ChatMessage, budgetTokens: number
 			: message.reasoning_content
 
 	if (typeof content === 'string') {
+		const normalizedContent =
+			message.role === 'tool' ? compactToolMessageContentForPrompt(content) : content
 		return {
 			...message,
-			content: truncateTextForPrompt(content, maxChars),
+			content: truncateTextForPrompt(normalizedContent, maxChars),
 			reasoning_content,
 		}
 	}
@@ -449,6 +518,23 @@ function isContextOverflowError(error: unknown): boolean {
 	)
 }
 
+function isTransientProviderOverloadError(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error)
+	const lower = message.toLowerCase()
+	return (
+		lower.includes('currently overloaded') ||
+		lower.includes('server is busy') ||
+		lower.includes('rate limit') ||
+		lower.includes('too many requests') ||
+		lower.includes('503') ||
+		lower.includes('429')
+	)
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
 function buildEmergencyRetryMessages(conversationMessages: ChatMessage[]): ChatMessage[] {
 	const sanitized = conversationMessages.map(sanitizeMessageForPrompt)
 	const recentUserMessages = sanitized
@@ -534,6 +620,7 @@ interface ChatState {
 	lastProgressKind: StreamProgressKind | null
 	error: string | null
 	diagnostics: ChatDiagnostics
+	references: ChatReference[]
 	// Stats
 	totalSpent: number // Total sats spent in this session
 	totalRefunded: number // Total sats refunded
@@ -549,12 +636,14 @@ interface ChatActions {
 	setSelectedModel: (modelId: string) => void
 	// Settings
 	setToolsEnabled: (enabled: boolean) => void
+	hydrateSettings: (settings: Partial<ChatSettingsSnapshot>) => void
 	// Message management
 	addMessage: (message: ChatMessage) => void
 	clearMessages: () => void
 	createChat: () => void
 	switchChat: (chatId: string) => void
 	deleteChat: (chatId: string) => void
+	setReferences: (references: ChatReference[]) => void
 	// Chat actions
 	sendMessage: (content: string, options?: SendMessageOptions) => Promise<void>
 	cancelStream: () => void
@@ -564,6 +653,9 @@ interface ChatActions {
 
 interface SendMessageOptions {
 	referenceContextMessage?: string
+	selectionContextMessage?: string
+	geometryContextMessage?: string
+	geometryAttachment?: FeatureCollection | null
 }
 
 type ChatStore = ChatState & ChatActions
@@ -571,9 +663,7 @@ type ChatStore = ChatState & ChatActions
 function createInitialState(): ChatState {
 	const initialChat = createEmptyChatSession()
 	return {
-		provider: 'routstr',
-		customEndpoint: '',
-		customApiKey: '',
+		...DEFAULT_CHAT_SETTINGS,
 		chatSessions: [initialChat],
 		activeChatId: initialChat.id,
 		messages: [],
@@ -593,6 +683,7 @@ function createInitialState(): ChatState {
 		lastProgressKind: null,
 		error: null,
 		diagnostics: EMPTY_CHAT_DIAGNOSTICS,
+		references: initialChat.references,
 		totalSpent: 0,
 		totalRefunded: 0,
 	}
@@ -602,6 +693,9 @@ const initialState: ChatState = createInitialState()
 
 // AbortController for canceling streams
 let streamAbortController: AbortController | null = null
+let currentStreamRunId = 0
+let currentStreamingChatId: string | null = null
+const DETACHED_STREAM_ERROR = 'Chat stream was canceled or detached from its session.'
 
 export const useChatStore = create<ChatStore>()(
 	persist(
@@ -656,6 +750,19 @@ export const useChatStore = create<ChatStore>()(
 				set({ toolsEnabled: enabled })
 			},
 
+			hydrateSettings: (settings: Partial<ChatSettingsSnapshot>) => {
+				set({
+					provider: settings.provider ?? DEFAULT_CHAT_SETTINGS.provider,
+					customEndpoint: settings.customEndpoint ?? DEFAULT_CHAT_SETTINGS.customEndpoint,
+					customApiKey: settings.customApiKey ?? DEFAULT_CHAT_SETTINGS.customApiKey,
+					selectedModel: settings.selectedModel ?? DEFAULT_CHAT_SETTINGS.selectedModel,
+					toolsEnabled: settings.toolsEnabled ?? DEFAULT_CHAT_SETTINGS.toolsEnabled,
+					models: [],
+					modelsLoading: false,
+					modelsError: null,
+				})
+			},
+
 			addMessage: (message: ChatMessage) => {
 				set((state) => ({
 					messages: [...state.messages, message],
@@ -707,6 +814,7 @@ export const useChatStore = create<ChatStore>()(
 					return {
 						activeChatId: target.id,
 						messages: target.messages,
+						references: target.references ?? [],
 						error: null,
 						streamWarning: null,
 						streamPhase: 'idle',
@@ -718,7 +826,14 @@ export const useChatStore = create<ChatStore>()(
 			},
 
 			deleteChat: (chatId: string) => {
-				if (get().isStreaming) return
+				if (currentStreamingChatId === chatId && streamAbortController) {
+					currentStreamRunId += 1
+					streamAbortController.abort()
+					streamAbortController = null
+					currentStreamingChatId = null
+				} else if (get().isStreaming) {
+					return
+				}
 				set((state) => {
 					const remaining = state.chatSessions.filter((chat) => chat.id !== chatId)
 					const ensured = remaining.length > 0 ? remaining : [createEmptyChatSession()]
@@ -730,6 +845,7 @@ export const useChatStore = create<ChatStore>()(
 						chatSessions: sortChatSessionsByRecent(ensured),
 						activeChatId: nextActiveId,
 						messages: activeChat?.messages ?? [],
+						references: activeChat?.references ?? [],
 						error: null,
 						streamWarning: null,
 						streamPhase: 'idle',
@@ -740,7 +856,19 @@ export const useChatStore = create<ChatStore>()(
 				})
 			},
 
+			setReferences: (references: ChatReference[]) => {
+				set((state) => ({
+					references,
+					chatSessions: applyReferencesToActiveChat(
+						state.chatSessions,
+						state.activeChatId,
+						references,
+					),
+				}))
+			},
+
 			sendMessage: async (content: string, options?: SendMessageOptions) => {
+				const targetChatId = get().activeChatId
 				const {
 					selectedModel,
 					models,
@@ -755,6 +883,9 @@ export const useChatStore = create<ChatStore>()(
 					? Math.max(maxTokens, MIN_TOOL_ENABLED_MAX_TOKENS)
 					: maxTokens
 				const referenceContextMessage = options?.referenceContextMessage?.trim()
+				const selectionContextMessage = options?.selectionContextMessage?.trim()
+				const geometryContextMessage = options?.geometryContextMessage?.trim()
+				const geometryAttachment = options?.geometryAttachment ?? null
 
 				if (!selectedModel) {
 					toast.error('Please select a model first')
@@ -779,9 +910,12 @@ export const useChatStore = create<ChatStore>()(
 
 				// Add user message immediately
 				const userMessage: ChatMessage = { role: 'user', content }
+				const streamRunId = currentStreamRunId + 1
+				currentStreamRunId = streamRunId
+				currentStreamingChatId = targetChatId
 				set((state) => ({
 					messages: [...state.messages, userMessage],
-					chatSessions: applyMessagesToActiveChat(state.chatSessions, state.activeChatId, [
+					chatSessions: applyMessagesToActiveChat(state.chatSessions, targetChatId, [
 						...state.messages,
 						userMessage,
 					]),
@@ -794,6 +928,15 @@ export const useChatStore = create<ChatStore>()(
 					lastProgressAt: Date.now(),
 					lastProgressKind: 'request_start',
 				}))
+
+				const isStreamRunActive = () => {
+					const state = get()
+					return (
+						currentStreamRunId === streamRunId &&
+						currentStreamingChatId === targetChatId &&
+						hasChatSession(state.chatSessions, targetChatId)
+					)
+				}
 
 				// Helper to process refund (no-ops when refundToken is null)
 				const processRefund = async (refundToken: string | null) => {
@@ -892,6 +1035,7 @@ export const useChatStore = create<ChatStore>()(
 								streamAbortController.abort()
 							}
 							if (settled) return
+							if (!isStreamRunActive()) return
 							settled = true
 							clearTimers()
 							set({
@@ -905,6 +1049,7 @@ export const useChatStore = create<ChatStore>()(
 						}
 
 						const refreshActivity = (kind: StreamProgressKind) => {
+							if (!isStreamRunActive()) return
 							const now = Date.now()
 							set({
 								lastProgressAt: now,
@@ -939,18 +1084,18 @@ export const useChatStore = create<ChatStore>()(
 							},
 							{
 								onToken: (token: string) => {
-									if (settled) return
+									if (settled || !isStreamRunActive()) return
 									accumulatedContent += token
 									set({ streamingContent: accumulatedContent })
 									refreshActivity('token')
 								},
 								onReasoningToken: (token: string) => {
-									if (settled) return
+									if (settled || !isStreamRunActive()) return
 									accumulatedReasoningContent += token
 									refreshActivity('reasoning')
 								},
 								onToolCall: (toolCalls: ToolCall[]) => {
-									if (settled) return
+									if (settled || !isStreamRunActive()) return
 									console.log(
 										'[Chat] Received tool calls:',
 										toolCalls.map((t) => t.function.name),
@@ -960,6 +1105,12 @@ export const useChatStore = create<ChatStore>()(
 								},
 								onComplete: async (refundToken: string | null, finishReason?: string) => {
 									if (settled) return
+									if (!isStreamRunActive()) {
+										settled = true
+										clearTimers()
+										reject(new Error(DETACHED_STREAM_ERROR))
+										return
+									}
 									settled = true
 									resultFinishReason = finishReason
 									clearTimers()
@@ -981,6 +1132,12 @@ export const useChatStore = create<ChatStore>()(
 								},
 								onError: async (error: Error, refundToken?: string | null) => {
 									if (settled) return
+									if (!isStreamRunActive()) {
+										settled = true
+										clearTimers()
+										reject(new Error(DETACHED_STREAM_ERROR))
+										return
+									}
 									settled = true
 									clearTimers()
 									if (refundToken) {
@@ -1006,6 +1163,7 @@ export const useChatStore = create<ChatStore>()(
 					streamAbortController = new AbortController()
 					let conversationMessages = [...get().messages]
 					let oneShotVisionMessages: ChatMessage[] = []
+					let oneShotGeometryContextMessage = geometryContextMessage
 					let totalToolCalls = 0
 					let round = 0
 					const effectiveContextTokens = getEffectiveContextTokens(model, providerConfig)
@@ -1045,6 +1203,9 @@ export const useChatStore = create<ChatStore>()(
 
 					// Loop to handle tool calls until the model returns a final answer.
 					while (true) {
+						if (!isStreamRunActive()) {
+							throw new Error(DETACHED_STREAM_ERROR)
+						}
 						round += 1
 						const roundNumber = round
 						let requestMessages: ChatMessage[] = [...conversationMessages]
@@ -1053,39 +1214,39 @@ export const useChatStore = create<ChatStore>()(
 							oneShotVisionMessages = []
 						}
 
-						let mapContextMessage: ChatMessage | null = null
-						if (toolsEnabled) {
-							mapContextMessage = createMapContextSystemMessage()
-						}
-						const referenceContextSystemMessage: ChatMessage | null = referenceContextMessage
-							? {
-									role: 'system',
-									content: referenceContextMessage,
-								}
-							: null
+						const systemSections = [
+							toolsEnabled ? createMapContextSystemMessage()?.content : null,
+							referenceContextMessage || null,
+							selectionContextMessage || null,
+							oneShotGeometryContextMessage || null,
+						]
+							.map((section) =>
+								typeof section === 'string' ? section.trim() : messageContentToText(section),
+							)
+							.filter((section): section is string => Boolean(section))
+						const combinedSystemMessage: ChatMessage | null =
+							systemSections.length > 0
+								? {
+										role: 'system',
+										content: systemSections.join('\n\n'),
+									}
+								: null
 
-						const mapContextTokens = mapContextMessage
-							? estimateMessageTokensForBudget(sanitizeMessageForPrompt(mapContextMessage))
-							: 0
-						const referenceContextTokens = referenceContextSystemMessage
-							? estimateMessageTokensForBudget(
-									sanitizeMessageForPrompt(referenceContextSystemMessage),
-								)
+						const combinedSystemTokens = combinedSystemMessage
+							? estimateMessageTokensForBudget(sanitizeMessageForPrompt(combinedSystemMessage))
 							: 0
 						const conversationBudget = Math.max(
 							MIN_PROMPT_BUDGET_TOKENS,
-							promptBudgetTokens - mapContextTokens - referenceContextTokens,
+							promptBudgetTokens - combinedSystemTokens,
 						)
 						requestMessages = trimMessagesToPromptBudget(requestMessages, conversationBudget)
 
-						if (mapContextMessage) {
-							requestMessages = [sanitizeMessageForPrompt(mapContextMessage), ...requestMessages]
-						}
-						if (referenceContextSystemMessage) {
+						if (combinedSystemMessage) {
 							requestMessages = [
-								sanitizeMessageForPrompt(referenceContextSystemMessage),
+								sanitizeMessageForPrompt(combinedSystemMessage),
 								...requestMessages,
 							]
+							oneShotGeometryContextMessage = undefined
 						}
 						requestMessages = ensureReasoningContentForToolMessages(
 							requestMessages,
@@ -1106,7 +1267,7 @@ export const useChatStore = create<ChatStore>()(
 							lastProgressKind: 'request_start',
 							diagnostics: {
 								...state.diagnostics,
-								mapContextTokens,
+								mapContextTokens: combinedSystemTokens,
 								requestMessageCount: requestMessages.length,
 								estimatedPromptTokens,
 								round: roundNumber,
@@ -1119,10 +1280,39 @@ export const useChatStore = create<ChatStore>()(
 							toolCalls: ToolCall[]
 							finishReason?: string
 							estimatedCompletionTokens: number
-						}
+						} | null = null
 
 						try {
-							result = await makeRequest(requestMessages)
+							let lastError: unknown
+							for (let attempt = 0; attempt <= OVERLOAD_RETRY_DELAYS_MS.length; attempt += 1) {
+								try {
+									result = await makeRequest(requestMessages)
+									lastError = null
+									break
+								} catch (error) {
+									lastError = error
+									if (
+										!isTransientProviderOverloadError(error) ||
+										attempt >= OVERLOAD_RETRY_DELAYS_MS.length
+									) {
+										throw error
+									}
+
+									const retryDelayMs = OVERLOAD_RETRY_DELAYS_MS[attempt]
+									set({
+										streamPhase: 'requesting',
+										streamWarning: `Provider overloaded. Retrying in ${Math.ceil(
+											retryDelayMs / 1000,
+										)}s...`,
+										lastProgressAt: Date.now(),
+										lastProgressKind: 'request_start',
+									})
+									await sleep(retryDelayMs)
+								}
+							}
+							if (!result && lastError) {
+								throw lastError
+							}
 						} catch (error) {
 							if (!isContextOverflowError(error)) {
 								throw error
@@ -1137,9 +1327,15 @@ export const useChatStore = create<ChatStore>()(
 							const emergencyMessages = buildEmergencyRetryMessages(conversationMessages)
 							result = await makeRequest(emergencyMessages)
 						}
+						if (!result) {
+							throw new Error('Chat request finished without a result.')
+						}
 
 						// If we got tool calls, execute them and continue
 						if (result.toolCalls.length > 0) {
+							if (!isStreamRunActive()) {
+								throw new Error(DETACHED_STREAM_ERROR)
+							}
 							totalToolCalls += result.toolCalls.length
 							set((state) => ({
 								executingTools: true,
@@ -1171,7 +1367,7 @@ export const useChatStore = create<ChatStore>()(
 								messages: conversationMessages,
 								chatSessions: applyMessagesToActiveChat(
 									state.chatSessions,
-									state.activeChatId,
+									targetChatId,
 									conversationMessages,
 								),
 							}))
@@ -1179,7 +1375,9 @@ export const useChatStore = create<ChatStore>()(
 							// Execute each tool call
 							for (const toolCall of result.toolCalls) {
 								console.log(`[Chat] Executing tool: ${toolCall.function.name}`)
-								const toolResult = await executeToolCall(toolCall)
+								const toolResult = await executeToolCall(toolCall, {
+									attachedGeometry: geometryAttachment,
+								})
 
 								// Add tool result message
 								const toolMessage: ChatMessage = {
@@ -1192,7 +1390,7 @@ export const useChatStore = create<ChatStore>()(
 									messages: conversationMessages,
 									chatSessions: applyMessagesToActiveChat(
 										state.chatSessions,
-										state.activeChatId,
+										targetChatId,
 										conversationMessages,
 									),
 								}))
@@ -1233,6 +1431,9 @@ export const useChatStore = create<ChatStore>()(
 
 						// No tool calls - we're done
 						if (result.content) {
+							if (!isStreamRunActive()) {
+								throw new Error(DETACHED_STREAM_ERROR)
+							}
 							const normalizedReasoningContent = result.reasoningContent.trim()
 							const assistantMessage: ChatMessage = {
 								role: 'assistant',
@@ -1244,7 +1445,7 @@ export const useChatStore = create<ChatStore>()(
 								messages: conversationMessages,
 								chatSessions: applyMessagesToActiveChat(
 									state.chatSessions,
-									state.activeChatId,
+									targetChatId,
 									conversationMessages,
 								),
 								isStreaming: false,
@@ -1282,6 +1483,9 @@ export const useChatStore = create<ChatStore>()(
 					}
 				} catch (err) {
 					const message = err instanceof Error ? err.message : 'Failed to send message'
+					if (message === DETACHED_STREAM_ERROR) {
+						return
+					}
 					set((state) => ({
 						isStreaming: false,
 						streamingContent: '',
@@ -1298,14 +1502,19 @@ export const useChatStore = create<ChatStore>()(
 					}))
 					toast.error(message)
 				} finally {
-					streamAbortController = null
+					if (currentStreamRunId === streamRunId) {
+						streamAbortController = null
+						currentStreamingChatId = null
+					}
 				}
 			},
 
 			cancelStream: () => {
 				if (streamAbortController) {
+					currentStreamRunId += 1
 					streamAbortController.abort()
 					streamAbortController = null
+					currentStreamingChatId = null
 				}
 				set((state) => ({
 					isStreaming: false,
@@ -1321,8 +1530,10 @@ export const useChatStore = create<ChatStore>()(
 
 			reset: () => {
 				if (streamAbortController) {
+					currentStreamRunId += 1
 					streamAbortController.abort()
 					streamAbortController = null
+					currentStreamingChatId = null
 				}
 				set(createInitialState())
 			},
@@ -1332,34 +1543,28 @@ export const useChatStore = create<ChatStore>()(
 			partialize: (state) => ({
 				chatSessions: state.chatSessions,
 				activeChatId: state.activeChatId,
-				selectedModel: state.selectedModel,
-				toolsEnabled: state.toolsEnabled,
-				provider: state.provider,
-				customEndpoint: state.customEndpoint,
-				customApiKey: state.customApiKey,
 			}),
 			merge: (persistedState, currentState) => {
 				const persisted = (persistedState as Partial<ChatState> | undefined) ?? {}
-				const merged = {
-					...currentState,
-					...persisted,
-				}
 				const persistedSessions = Array.isArray(persisted.chatSessions)
 					? persisted.chatSessions.filter((session) => typeof session?.id === 'string')
 					: []
 				const chatSessions =
 					persistedSessions.length > 0
 						? persistedSessions
-						: (merged.chatSessions ?? [createEmptyChatSession()])
-				const activeChatId = chatSessions.some((session) => session.id === merged.activeChatId)
-					? (merged.activeChatId ?? chatSessions[0]?.id ?? null)
+						: (currentState.chatSessions ?? [createEmptyChatSession()])
+				const persistedActiveChatId =
+					typeof persisted.activeChatId === 'string' ? persisted.activeChatId : null
+				const activeChatId = chatSessions.some((session) => session.id === persistedActiveChatId)
+					? persistedActiveChatId
 					: (chatSessions[0]?.id ?? null)
 				const activeChat = chatSessions.find((session) => session.id === activeChatId)
 				return {
-					...merged,
+					...currentState,
 					chatSessions: sortChatSessionsByRecent(chatSessions),
 					activeChatId,
 					messages: activeChat?.messages ?? [],
+					references: activeChat?.references ?? [],
 				}
 			},
 		},
@@ -1374,12 +1579,15 @@ export const chatActions = {
 	loadModels: () => useChatStore.getState().loadModels(),
 	setSelectedModel: (modelId: string) => useChatStore.getState().setSelectedModel(modelId),
 	setToolsEnabled: (enabled: boolean) => useChatStore.getState().setToolsEnabled(enabled),
+	hydrateSettings: (settings: Partial<ChatSettingsSnapshot>) =>
+		useChatStore.getState().hydrateSettings(settings),
 	sendMessage: (content: string, options?: SendMessageOptions) =>
 		useChatStore.getState().sendMessage(content, options),
 	clearMessages: () => useChatStore.getState().clearMessages(),
 	createChat: () => useChatStore.getState().createChat(),
 	switchChat: (chatId: string) => useChatStore.getState().switchChat(chatId),
 	deleteChat: (chatId: string) => useChatStore.getState().deleteChat(chatId),
+	setReferences: (references: ChatReference[]) => useChatStore.getState().setReferences(references),
 	cancelStream: () => useChatStore.getState().cancelStream(),
 	reset: () => useChatStore.getState().reset(),
 }

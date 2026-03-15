@@ -3,7 +3,7 @@
  */
 
 import { useEditorStore } from '@/features/geo-editor/store'
-import type { ToolCall, ToolResult } from './types'
+import type { ToolCall, ToolExecutionContext, ToolResult } from './types'
 import {
 	DEFAULT_QUERY_LIMIT,
 	DEFAULT_IMPORT_LIMIT,
@@ -22,10 +22,16 @@ import {
 	clampPositiveInt,
 	clampRadiusMeters,
 	normalizeFilters,
+	normalizeFilterSets,
+	expandOsmSemanticQuery,
 	asFeatureObject,
 	ensureBbox,
 	getEditorViewportBbox,
+	getFeatureCollectionBbox,
+	getSelectedAreaFeatures,
 	featureMatchesName,
+	filterFeaturesToArea,
+	extractPolygonAreaFeatures,
 	normalizeGeoJsonToFeatures,
 	parseGeoJsonArg,
 	parseSingleFeatureArg,
@@ -42,7 +48,121 @@ import {
 } from './context'
 import { executeEditorAiTool } from './definitions'
 
-export async function executeToolCall(toolCall: ToolCall): Promise<ToolResult> {
+type OsmFilterObject = Record<string, string | string[]>
+
+function shouldAvoidRelationQueriesForConcept(appliedConcept: string | null): boolean {
+	return (
+		appliedConcept === 'military_installation' ||
+		appliedConcept === 'bench' ||
+		appliedConcept === 'river'
+	)
+}
+
+function getFeatureDedupeKey(feature: GeoJSON.Feature): string {
+	if (feature.id != null) return String(feature.id)
+	const osmId = feature.properties?.['@id']
+	if (typeof osmId === 'string' && osmId) return osmId
+	return JSON.stringify({
+		type: feature.geometry?.type ?? 'Unknown',
+		coordinates:
+			feature.geometry && 'coordinates' in feature.geometry ? feature.geometry.coordinates : null,
+	})
+}
+
+function dedupeGeoFeatures(features: GeoJSON.Feature[]): GeoJSON.Feature[] {
+	const seen = new Set<string>()
+	const deduped: GeoJSON.Feature[] = []
+	for (const feature of features) {
+		const key = getFeatureDedupeKey(feature)
+		if (seen.has(key)) continue
+		seen.add(key)
+		deduped.push(feature)
+	}
+	return deduped
+}
+
+function splitBboxIntoTiles(
+	bbox: [number, number, number, number],
+	maxLonSpan = 6,
+	maxLatSpan = 6,
+): Array<[number, number, number, number]> {
+	const [west, south, east, north] = bbox
+	const lonSpan = Math.max(0, east - west)
+	const latSpan = Math.max(0, north - south)
+	const xTiles = Math.max(1, Math.ceil(lonSpan / maxLonSpan))
+	const yTiles = Math.max(1, Math.ceil(latSpan / maxLatSpan))
+	const lonStep = lonSpan / xTiles
+	const latStep = latSpan / yTiles
+	const tiles: Array<[number, number, number, number]> = []
+
+	for (let y = 0; y < yTiles; y += 1) {
+		for (let x = 0; x < xTiles; x += 1) {
+			const tileWest = west + lonStep * x
+			const tileEast = x === xTiles - 1 ? east : west + lonStep * (x + 1)
+			const tileSouth = south + latStep * y
+			const tileNorth = y === yTiles - 1 ? north : south + latStep * (y + 1)
+			tiles.push([tileWest, tileSouth, tileEast, tileNorth])
+		}
+	}
+
+	return tiles
+}
+
+async function queryOsmBboxWithFallback(
+	client: ReturnType<typeof getGeoClient>,
+	params: {
+		bbox: [number, number, number, number]
+		filters?: OsmFilterObject
+		filterSets?: OsmFilterObject[]
+		limit: number
+		includeRelations: boolean
+	},
+): Promise<{
+	features: GeoJSON.Feature[]
+	usedTileCount: number
+	usedTiledStrategy: boolean
+	includeRelationsApplied: boolean
+}> {
+	const includeRelationsApplied = params.includeRelations
+	const [west, south, east, north] = params.bbox
+	const lonSpan = Math.abs(east - west)
+	const latSpan = Math.abs(north - south)
+	const shouldTile = lonSpan > 8 || latSpan > 8
+	const tiles = shouldTile ? splitBboxIntoTiles(params.bbox) : [params.bbox]
+	const collected: GeoJSON.Feature[] = []
+
+	for (const tile of tiles) {
+		const response = await client.QueryOsmBbox(
+			tile[0],
+			tile[1],
+			tile[2],
+			tile[3],
+			params.filters,
+			params.filterSets,
+			params.limit,
+			includeRelationsApplied,
+		)
+		const queryResult = extractMcpToolResult('query_osm_bbox', response)
+		const validFeatures = Array.isArray(queryResult.features)
+			? queryResult.features
+					.map(asFeatureObject)
+					.filter((feature): feature is GeoJSON.Feature => feature !== null)
+			: []
+		collected.push(...validFeatures)
+	}
+
+	return {
+		features: dedupeGeoFeatures(collected),
+		usedTileCount: tiles.length,
+		usedTiledStrategy: shouldTile,
+		includeRelationsApplied,
+	}
+}
+
+export async function executeToolCall(
+	toolCall: ToolCall,
+	context?: ToolExecutionContext,
+): Promise<ToolResult> {
 	const client = getGeoClient()
 
 	try {
@@ -174,6 +294,11 @@ export async function executeToolCall(toolCall: ToolCall): Promise<ToolResult> {
 				const lat = toFiniteNumber(args.lat)
 				const lon = toFiniteNumber(args.lon)
 				const radius = clampRadiusMeters(args.radius)
+				const semanticQuery = expandOsmSemanticQuery({
+					concept: typeof args.concept === 'string' ? args.concept : undefined,
+					filters: normalizeFilters(args.filters),
+					filterSets: normalizeFilterSets(args.filterSets),
+				})
 				if (lat === undefined || lon === undefined) {
 					throw new Error('lat and lon must be valid numbers')
 				}
@@ -181,14 +306,23 @@ export async function executeToolCall(toolCall: ToolCall): Promise<ToolResult> {
 					lat,
 					lon,
 					radius,
-					normalizeFilters(args.filters) ?? undefined,
+					semanticQuery.filters,
+					semanticQuery.filterSets,
 					clampLimit(args.limit, DEFAULT_QUERY_LIMIT),
 					Boolean(args.includeRelations),
 				)
-				result = extractMcpToolResult('query_osm_nearby', response)
+				result = {
+					...extractMcpToolResult('query_osm_nearby', response),
+					appliedConcept: semanticQuery.appliedConcept,
+				}
 				break
 			}
 			case 'query_osm_bbox': {
+				const semanticQuery = expandOsmSemanticQuery({
+					concept: typeof args.concept === 'string' ? args.concept : undefined,
+					filters: normalizeFilters(args.filters),
+					filterSets: normalizeFilterSets(args.filterSets),
+				})
 				if (!hasExplicitBbox(args)) {
 					throw new Error('west, south, east, and north are required and must be numbers')
 				}
@@ -196,16 +330,149 @@ export async function executeToolCall(toolCall: ToolCall): Promise<ToolResult> {
 				const south = toFiniteNumber(args.south) as number
 				const east = toFiniteNumber(args.east) as number
 				const north = toFiniteNumber(args.north) as number
-				const response = await client.QueryOsmBbox(
-					west,
-					south,
-					east,
-					north,
-					normalizeFilters(args.filters) ?? undefined,
-					clampLimit(args.limit, DEFAULT_QUERY_LIMIT),
-					Boolean(args.includeRelations),
-				)
-				result = extractMcpToolResult('query_osm_bbox', response)
+				const includeRelations =
+					Boolean(args.includeRelations) &&
+					!shouldAvoidRelationQueriesForConcept(semanticQuery.appliedConcept)
+				const queryResult = await queryOsmBboxWithFallback(client, {
+					bbox: [west, south, east, north],
+					filters: semanticQuery.filters,
+					filterSets: semanticQuery.filterSets,
+					limit: clampLimit(args.limit, DEFAULT_QUERY_LIMIT),
+					includeRelations,
+				})
+				result = {
+					features: queryResult.features.slice(0, clampLimit(args.limit, DEFAULT_QUERY_LIMIT)),
+					count: Math.min(queryResult.features.length, clampLimit(args.limit, DEFAULT_QUERY_LIMIT)),
+					appliedConcept: semanticQuery.appliedConcept,
+					queryStrategy: queryResult.usedTiledStrategy ? 'tiled_bbox' : 'single_bbox',
+					tileCount: queryResult.usedTileCount,
+					includeRelationsApplied: includeRelations,
+				}
+				break
+			}
+			case 'query_osm_area': {
+				const name = typeof args.name === 'string' ? args.name.trim() : ''
+				const semanticQuery = expandOsmSemanticQuery({
+					concept: typeof args.concept === 'string' ? args.concept : undefined,
+					name,
+					filters: normalizeFilters(args.filters),
+					filterSets: normalizeFilterSets(args.filterSets),
+				})
+				const relationId = toFiniteNumber(args.relationId)
+				const countryCode =
+					typeof args.countryCode === 'string' ? args.countryCode.trim().toUpperCase() : undefined
+				const countryName =
+					typeof args.countryName === 'string' ? args.countryName.trim() : undefined
+				const spatialFilter = args.spatialFilter === 'point_within' ? 'point_within' : 'intersects'
+				const outputGeometry =
+					args.outputGeometry === 'centroid'
+						? 'centroid'
+						: args.outputGeometry === 'point_on_feature'
+							? 'point_on_feature'
+							: 'native'
+				const clipLines = typeof args.clipLines === 'boolean' ? args.clipLines : true
+				const includeRelations =
+					(Boolean(args.includeRelations) || relationId !== undefined) &&
+					!shouldAvoidRelationQueriesForConcept(semanticQuery.appliedConcept)
+
+				let areaSource = 'selected'
+				let areaFeatures: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>[] = []
+
+				if (args.selectedOnly) {
+					areaFeatures = getSelectedAreaFeatures()
+					if (areaFeatures.length === 0 && context?.attachedGeometry) {
+						areaSource = 'attached_geometry'
+						areaFeatures = extractPolygonAreaFeatures(context.attachedGeometry)
+					}
+				} else if (args.areaGeojson && typeof args.areaGeojson === 'object') {
+					areaSource = 'geojson'
+					areaFeatures = extractPolygonAreaFeatures(args.areaGeojson)
+				} else if (context?.attachedGeometry) {
+					areaSource = 'attached_geometry'
+					areaFeatures = extractPolygonAreaFeatures(context.attachedGeometry)
+				} else if (relationId !== undefined) {
+					areaSource = 'relation'
+					const relationResponse = await client.GetOsmRelationGeometry(Math.floor(relationId))
+					const relationResult = extractMcpToolResult('get_osm_relation_geometry', relationResponse)
+					areaFeatures = extractPolygonAreaFeatures(relationResult.feature)
+				} else if (countryCode || countryName) {
+					areaSource = 'country_boundary'
+					const boundaryResponse = await client.GetCountryBoundary(
+						countryCode,
+						countryName,
+						2,
+						undefined,
+						undefined,
+					)
+					const boundaryResult = extractMcpToolResult('get_country_boundary', boundaryResponse)
+					areaFeatures = extractPolygonAreaFeatures(boundaryResult.feature)
+				}
+
+				if (areaFeatures.length === 0) {
+					throw new Error(
+						'query_osm_area requires polygon area input via selectedOnly, areaGeojson, relationId, countryCode, or countryName.',
+					)
+				}
+
+				const areaBbox = getFeatureCollectionBbox(areaFeatures)
+				if (!areaBbox) {
+					throw new Error('Failed to compute a bounding box for the requested area.')
+				}
+				if (!semanticQuery.filters && !semanticQuery.filterSets?.length) {
+					throw new Error(
+						'query_osm_area requires filters, filterSets, or a semantic concept. Unfiltered area scans are too large for Overpass. Example: concept="military installation" or filters={"amenity":"bench"}.',
+					)
+				}
+
+				const queryResult = await queryOsmBboxWithFallback(client, {
+					bbox: areaBbox,
+					filters: semanticQuery.filters,
+					filterSets: semanticQuery.filterSets,
+					limit: clampLimit(args.limit, DEFAULT_IMPORT_LIMIT),
+					includeRelations,
+				})
+				const validFeatures = queryResult.features
+
+				if (validFeatures.length === 0) {
+					throw new Error('No OSM features matched the raw area query.')
+				}
+
+				const nameMatched = name
+					? validFeatures.filter((feature) => featureMatchesName(feature, name))
+					: validFeatures
+				if (name && nameMatched.length === 0) {
+					throw new Error(`No OSM features named "${name}" matched within the requested area.`)
+				}
+
+				const processedFeatures = filterFeaturesToArea(nameMatched, areaFeatures, {
+					spatialFilter,
+					outputGeometry,
+					clipLines,
+				})
+
+				if (processedFeatures.length === 0) {
+					throw new Error('No OSM features remained after polygon area filtering.')
+				}
+
+				result = {
+					areaSource,
+					areaFeatureCount: areaFeatures.length,
+					areaBbox,
+					appliedConcept: semanticQuery.appliedConcept,
+					name: name || null,
+					filters: semanticQuery.filters ?? null,
+					filterSets: semanticQuery.filterSets ?? null,
+					rawQueryCount: validFeatures.length,
+					nameMatchedCount: name ? nameMatched.length : null,
+					returnedFeatureCount: processedFeatures.length,
+					queryStrategy: queryResult.usedTiledStrategy ? 'tiled_bbox' : 'single_bbox',
+					tileCount: queryResult.usedTileCount,
+					includeRelationsApplied: includeRelations,
+					spatialFilter,
+					outputGeometry,
+					clipLines,
+					features: processedFeatures,
+				}
 				break
 			}
 			case 'resolve_osm_entity': {
@@ -324,8 +591,15 @@ export async function executeToolCall(toolCall: ToolCall): Promise<ToolResult> {
 
 				const limit = clampLimit(args.limit, DEFAULT_IMPORT_LIMIT)
 				const replaceExisting = Boolean(args.replaceExisting)
-				const filters = normalizeFilters(args.filters)
-				const includeRelations = Boolean(args.includeRelations) || relationId !== undefined
+				const semanticQuery = expandOsmSemanticQuery({
+					concept: typeof args.concept === 'string' ? args.concept : undefined,
+					name,
+					filters: normalizeFilters(args.filters),
+					filterSets: normalizeFilterSets(args.filterSets),
+				})
+				const includeRelations =
+					(Boolean(args.includeRelations) || relationId !== undefined) &&
+					!shouldAvoidRelationQueriesForConcept(semanticQuery.appliedConcept)
 
 				let source = 'viewport'
 				let usedBbox: [number, number, number, number] | null = null
@@ -333,17 +607,14 @@ export async function executeToolCall(toolCall: ToolCall): Promise<ToolResult> {
 				let usedSearchFallback = false
 
 				const queryBbox = async (bbox: [number, number, number, number]) => {
-					const response = await client.QueryOsmBbox(
-						bbox[0],
-						bbox[1],
-						bbox[2],
-						bbox[3],
-						filters ?? undefined,
+					const queryResult = await queryOsmBboxWithFallback(client, {
+						bbox,
+						filters: semanticQuery.filters,
+						filterSets: semanticQuery.filterSets,
 						limit,
 						includeRelations,
-					)
-					const queryResult = extractMcpToolResult('query_osm_bbox', response)
-					return Array.isArray(queryResult.features) ? (queryResult.features as unknown[]) : []
+					})
+					return queryResult.features
 				}
 
 				if (relationId !== undefined) {
@@ -359,7 +630,8 @@ export async function executeToolCall(toolCall: ToolCall): Promise<ToolResult> {
 						lat,
 						lon,
 						clampRadiusMeters(args.radius),
-						filters ?? undefined,
+						semanticQuery.filters,
+						semanticQuery.filterSets,
 						limit,
 						includeRelations,
 					)
@@ -445,8 +717,10 @@ export async function executeToolCall(toolCall: ToolCall): Promise<ToolResult> {
 
 				result = {
 					source,
+					appliedConcept: semanticQuery.appliedConcept,
 					name: name || null,
-					filters: filters ?? null,
+					filters: semanticQuery.filters ?? null,
+					filterSets: semanticQuery.filterSets ?? null,
 					usedBbox,
 					queryResultCount: validFeatures.length,
 					nameMatchedCount: name ? matchedByName.length : null,

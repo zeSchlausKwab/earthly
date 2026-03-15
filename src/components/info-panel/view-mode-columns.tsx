@@ -3,6 +3,7 @@ import { Download, Eye, EyeOff, Maximize2, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import { Button } from '../ui/button'
+import { UserProfile } from '../user-profile'
 
 export interface ViewModeRowData {
 	event: NDKGeoEvent
@@ -33,9 +34,13 @@ export const createViewModeColumns = (
 					<div className="text-xs font-semibold text-gray-900 truncate" title={datasetName}>
 						{datasetName}
 					</div>
-					<div className="text-[10px] text-gray-500 truncate">
-						{event.pubkey.slice(0, 8)}…{event.pubkey.slice(-4)}
-					</div>
+					<UserProfile
+						pubkey={event.pubkey}
+						mode="avatar-name"
+						size="xs"
+						showNip05Badge={false}
+						interactive={false}
+					/>
 					{event.hashtags.length > 0 && (
 						<div className="flex flex-wrap gap-0.5">
 							{event.hashtags.slice(0, 2).map((tag) => (

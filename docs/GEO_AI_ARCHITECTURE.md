@@ -195,6 +195,34 @@ New tools needed:
 | `union_geometries` | Merge multiple polygons |
 | `clip_to_boundary` | Clip features to area |
 
+### Practical Retrieval Lessons
+
+The current chat + geo stack works best when geo retrieval follows a few rules:
+
+- Prefer semantic expansion over prompt-specific presets.
+  - Example: `military installation` should expand into multiple OSM tagging patterns instead of relying on one guessed tag.
+
+- Treat borders and drawn polygons as hard constraints.
+  - If the user asks for features inside Saudi Arabia or inside an attached polygon, fallback behavior must not silently widen to an unconstrained bbox import.
+
+- Tile large bbox queries before hitting Overpass.
+  - Country-scale scans are more reliable when split into smaller tiles and merged client-side/server-side.
+
+- Make transient attachments directly callable by tools.
+  - Attached scratch geometry should be available to tool execution for the current request, not only embedded in prompt prose.
+
+- Keep canonical geometry and presentation separate.
+  - Retrieval may preserve polygons/lines, while the map or import step can render representative points when the user explicitly asks for points.
+
+- Compact tool feedback for the LLM, not for the UI protocol.
+  - Models need counts, subtype summaries, and a few samples more than giant raw GeoJSON dumps.
+
+- Map user phrasing to concrete spatial predicates.
+  - "Inside" should resolve to a strict containment mode like `point_within`, not a looser `intersects` fallback.
+
+- Treat Nostr transport size as a backend contract.
+  - Large geometry payloads must be simplified or dropped on the MCP server side before transport, because client-side compaction happens too late.
+
 ### 2. Web Server (new: `contextvm/web-server.ts`)
 
 Tools for internet research:

@@ -148,7 +148,7 @@ function resolveFeatureCollectionMeta(collection: FeatureCollection | null | und
 	return { name, description }
 }
 
-function mergeBboxes(
+function _mergeBboxes(
 	input: Array<[number, number, number, number] | undefined>,
 ): [number, number, number, number] | null {
 	const boxes = input.filter(
@@ -267,16 +267,32 @@ export function ShareExportPopover() {
 	const editor = useEditorStore((state) => state.editor)
 	const focusedMapGeometry = useEditorStore((state) => state.focusedMapGeometry)
 	const viewDataset = useEditorStore((state) => state.viewDataset)
-	const viewCollection = useEditorStore((state) => state.viewCollection)
-	const viewCollectionEvents = useEditorStore((state) => state.viewCollectionEvents)
 	const viewContext = useEditorStore((state) => state.viewContext)
 	const focusedNaddr = useEditorStore((state) => state.focusedNaddr)
 	const focusedType = useEditorStore((state) => state.focusedType)
 	const { clearFocus, route } = useRouting()
 
 	const isFocused = Boolean(focusedNaddr && focusedType)
-	const shareRouteUrl =
-		typeof window !== 'undefined' ? window.location.href : 'https://earthly.context'
+	// Build a clean server-side URL (no #/) so OG crawlers can resolve it properly.
+	// /context/:naddr and /geoevent/:naddr serve OG HTML to crawlers and redirect
+	// regular users to the hash-based SPA route.
+	const shareRouteUrl = useMemo(() => {
+		if (typeof window === 'undefined') return 'https://earthly.city'
+		const origin = window.location.origin
+		if (focusedType === 'mapcontext' && (focusedNaddr || route.contextNaddr)) {
+			return `${origin}/context/${focusedNaddr ?? route.contextNaddr}`
+		}
+		if (focusedType === 'geoevent' && focusedNaddr) {
+			return `${origin}/geoevent/${focusedNaddr}`
+		}
+		if (route.contextNaddr) {
+			return `${origin}/context/${route.contextNaddr}`
+		}
+		if (route.naddr) {
+			return `${origin}/geoevent/${route.naddr}`
+		}
+		return window.location.href
+	}, [focusedType, focusedNaddr, route.contextNaddr, route.naddr])
 
 	const [sharePopoverOpen, setSharePopoverOpen] = useState(false)
 	const [copiedUrl, setCopiedUrl] = useState(false)
@@ -305,13 +321,6 @@ export function ShareExportPopover() {
 				subjectLabel: 'feature collection',
 			}
 		}
-		if (focusedType === 'collection') {
-			return {
-				title: viewCollection?.metadata.name || focusedIdentifier || 'Collection',
-				description: viewCollection?.metadata.description,
-				subjectLabel: 'collection',
-			}
-		}
 		if (focusedType === 'mapcontext') {
 			return {
 				title: viewContext?.context.name || focusedIdentifier || 'Context',
@@ -331,7 +340,7 @@ export function ShareExportPopover() {
 			description: undefined,
 			subjectLabel: 'map view',
 		}
-	}, [focusedType, focusedNaddr, viewDataset, viewCollection, viewContext, route])
+	}, [focusedType, focusedNaddr, viewDataset, viewContext, route])
 
 	const focusedEntityBounds = useMemo(() => {
 		if (focusedMapGeometry?.bbox) {
@@ -340,24 +349,11 @@ export function ShareExportPopover() {
 		if (focusedType === 'geoevent') {
 			return viewDataset?.boundingBox ?? null
 		}
-		if (focusedType === 'collection') {
-			return mergeBboxes([
-				viewCollection?.boundingBox,
-				...viewCollectionEvents.map((event) => event.boundingBox),
-			])
-		}
 		if (focusedType === 'mapcontext') {
 			return viewContext?.boundingBox ?? null
 		}
 		return null
-	}, [
-		focusedMapGeometry,
-		focusedType,
-		viewDataset,
-		viewCollection,
-		viewCollectionEvents,
-		viewContext,
-	])
+	}, [focusedMapGeometry, focusedType, viewDataset, viewContext])
 
 	const selectedAspect = useMemo(
 		() => SHARE_ASPECTS.find((aspect) => aspect.id === shareAspect) ?? SHARE_ASPECTS[0],
@@ -473,12 +469,26 @@ export function ShareExportPopover() {
 			setCopiedUrl(false)
 			setSharePreviewError(null)
 			setShareCaptureMode(canUseEntityBounds ? 'entity-bounds' : 'viewport')
+			return
 		}
+
+		sharePreviewRequestRef.current += 1
+		setSharePreviewLoading(false)
+		setSharePreviewError(null)
+		setSharePreviewDataUrl(null)
 	}
 
 	const handleExitFocus = () => {
-		clearFocus()
 		setSharePopoverOpen(false)
+		sharePreviewRequestRef.current += 1
+		setSharePreviewLoading(false)
+		setSharePreviewError(null)
+		setSharePreviewDataUrl(null)
+		if (typeof window !== 'undefined') {
+			window.requestAnimationFrame(() => clearFocus())
+			return
+		}
+		clearFocus()
 	}
 
 	return (

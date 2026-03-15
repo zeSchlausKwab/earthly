@@ -188,6 +188,66 @@ interface TipTapNode {
 	attrs?: Record<string, unknown>
 }
 
+function resolveMentionDisplayName(
+	address: string,
+	featureId: string | null,
+	nameResolver?: (address: string) => string | undefined,
+): string {
+	if (featureId) {
+		return `Feature: ${featureId}`
+	}
+	if (nameResolver) {
+		return nameResolver(address) ?? 'Dataset'
+	}
+	return 'Dataset'
+}
+
+function parseInlineContent(
+	text: string,
+	nameResolver?: (address: string) => string | undefined,
+): TipTapNode[] | undefined {
+	if (!text) return undefined
+
+	const pattern = /nostr:(naddr1[a-z0-9]+)(#([a-zA-Z0-9_-]+))?/g
+	const content: TipTapNode[] = []
+	let lastIndex = 0
+	let match = pattern.exec(text)
+
+	while (match !== null) {
+		const matchIndex = match.index
+		const address = match[1]
+		const featureId = match[3] || null
+
+		if (matchIndex > lastIndex) {
+			content.push({
+				type: 'text',
+				text: text.slice(lastIndex, matchIndex),
+			})
+		}
+
+		content.push({
+			type: 'geoMention',
+			attrs: {
+				address,
+				featureId,
+				displayName: resolveMentionDisplayName(address, featureId, nameResolver),
+			},
+		})
+
+		lastIndex = matchIndex + match[0].length
+		match = pattern.exec(text)
+	}
+
+	if (lastIndex < text.length) {
+		content.push({
+			type: 'text',
+			text: text.slice(lastIndex),
+		})
+	}
+
+	return content.length > 0 ? content : undefined
+}
+
 /**
  * Converts editor content to plain text with nostr: mentions.
  * Following NIP-27 format: nostr:naddr1...#featureId
@@ -238,63 +298,13 @@ export function parseFromText(
 	text: string,
 	nameResolver?: (address: string) => string | undefined,
 ): TipTapNode {
-	const pattern = /nostr:(naddr1[a-z0-9]+)(#([a-zA-Z0-9_-]+))?/g
-	const content: TipTapNode[] = []
-	let lastIndex = 0
-	let match = pattern.exec(text)
-
-	while (match !== null) {
-		const matchIndex = match.index
-		const address = match[1]
-		const featureId = match[3] || null
-
-		// Add text before the match
-		if (matchIndex > lastIndex) {
-			content.push({
-				type: 'text',
-				text: text.slice(lastIndex, matchIndex),
-			})
-		}
-
-		// Try to resolve the name, fall back to generic label
-		let displayName: string
-		if (featureId) {
-			displayName = `Feature: ${featureId}`
-		} else if (nameResolver) {
-			displayName = nameResolver(address) ?? 'Dataset'
-		} else {
-			displayName = 'Dataset'
-		}
-
-		// Add the geo mention node
-		content.push({
-			type: 'geoMention',
-			attrs: {
-				address,
-				featureId,
-				displayName,
-			},
-		})
-
-		lastIndex = matchIndex + match[0].length
-		match = pattern.exec(text)
-	}
-
-	// Add remaining text
-	if (lastIndex < text.length) {
-		content.push({
-			type: 'text',
-			text: text.slice(lastIndex),
-		})
-	}
+	const paragraphs = text.length > 0 ? text.split('\n') : ['']
 
 	return {
 		type: 'doc',
-		content: [
-			{
-				type: 'paragraph',
-				content: content.length > 0 ? content : undefined,
-			},
-		],
+		content: paragraphs.map((paragraph) => ({
+			type: 'paragraph',
+			content: parseInlineContent(paragraph, nameResolver),
+		})),
 	}
 }

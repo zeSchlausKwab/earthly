@@ -7,6 +7,7 @@ export type {
 	Tool,
 	ToolCall,
 	ToolResult,
+	ToolExecutionContext,
 	GeometryBakeAnalysis,
 	GeometryBakeResult,
 	CachedMapSnapshot,
@@ -32,4 +33,5 @@ export {
 export {
 	analyzeToolResultGeometryContent,
 	bakeToolResultContentToEditor,
+	compactToolMessageContentForPrompt,
 } from './helpers'

@@ -4,6 +4,7 @@ import type { EditorFeature } from '@/features/geo-editor/core'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { parseCustomValue } from '@/features/geo-editor/utils'
 import { cn } from '@/lib/utils'
+import { GeoRichTextEditor, type GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { GeometryBadge, GeometryDisplay } from './GeometryDisplay'
@@ -70,6 +71,7 @@ interface FeatureRowProps {
 	isExpanded: boolean
 	validationIssues?: string[]
 	propertyTypeHints?: Map<string, ContextPropertyTypeHint>
+	availableFeatures?: GeoFeatureItem[]
 	onToggleExpand: () => void
 	onSelect: (event: React.MouseEvent) => void
 	onDelete: () => void
@@ -83,6 +85,7 @@ function FeatureRow({
 	isExpanded,
 	validationIssues,
 	propertyTypeHints,
+	availableFeatures = [],
 	onToggleExpand,
 	onSelect,
 	onDelete,
@@ -188,23 +191,20 @@ function FeatureRow({
 		>
 			{/* Row header */}
 			<div className="flex items-center gap-1 px-1.5 py-1">
-				<button
-					type="button"
-					onClick={onToggleExpand}
-					className="text-gray-400 hover:text-gray-600"
-				>
+				<Button type="button" variant="ghost" size="icon-sm" onClick={onToggleExpand}>
 					{isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-				</button>
+				</Button>
 
 				<GeometryBadge geometry={feature.geometry} isAnnotation={isAnnotation} />
 
-				<button
+				<Button
 					type="button"
+					variant="ghost"
 					onClick={(e) => onSelect(e)}
-					className="flex-1 text-left truncate text-gray-700 hover:text-gray-900"
+					className="flex-1 h-auto text-left justify-start truncate px-0"
 				>
 					{name}
-				</button>
+				</Button>
 
 				{hasValidationIssues && (
 					<div className="flex items-center gap-1 text-amber-600" title={validationSummary}>
@@ -314,11 +314,13 @@ function FeatureRow({
 					{!isAnnotation && <StylePropertiesSection feature={feature} />}
 
 					{/* Description */}
-					<textarea
-						className="w-full h-8 rounded border border-gray-200 px-1.5 py-1 text-[11px] resize-none"
+					<GeoRichTextEditor
+						initialValue={(feature.properties?.description as string) ?? ''}
 						placeholder="Description"
-						value={(feature.properties?.description as string) ?? ''}
-						onChange={(e) => onFieldChange('description', e.target.value)}
+						availableFeatures={availableFeatures}
+						onChange={(value) => onFieldChange('description', value)}
+						rows={2}
+						className="min-h-[92px]"
 					/>
 
 					{/* Custom properties - compact */}
@@ -392,6 +394,7 @@ interface GeometriesTableProps {
 	onZoomToFeature?: (feature: EditorFeature) => void
 	contextValidationIssuesByFeatureId?: Map<string, string[]>
 	contextPropertyTypeHints?: Map<string, ContextPropertyTypeHint>
+	availableFeatures?: GeoFeatureItem[]
 }
 
 export function GeometriesTable({
@@ -399,6 +402,7 @@ export function GeometriesTable({
 	onZoomToFeature,
 	contextValidationIssuesByFeatureId,
 	contextPropertyTypeHints,
+	availableFeatures = [],
 }: GeometriesTableProps) {
 	const features = useEditorStore((state) => state.features)
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
@@ -485,6 +489,7 @@ export function GeometriesTable({
 					isExpanded={expandedIds.has(row.feature.id)}
 					validationIssues={row.validationIssues}
 					propertyTypeHints={row.propertyTypeHints}
+					availableFeatures={availableFeatures}
 					onToggleExpand={() => toggleExpand(row.feature.id)}
 					onSelect={(e) => handleSelect(row.feature.id, e)}
 					onDelete={() => handleDelete(row.feature.id)}

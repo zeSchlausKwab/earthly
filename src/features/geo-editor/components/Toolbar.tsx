@@ -2,6 +2,7 @@ import {
 	Copy,
 	Crosshair,
 	Edit3,
+	EyeOff,
 	Magnet,
 	MousePointer2,
 	Settings2,
@@ -38,9 +39,11 @@ import {
 	SimplifyDialog,
 	type ToolbarButton,
 } from './toolbar/index'
+import { Input } from '@/components/ui/input'
 
 interface DatasetActionsProps {
-	onExport?: () => void
+	onExportGeoJSON?: () => void
+	onExportSHP?: () => void
 	canExport?: boolean
 	onImport?: (file: File) => void
 	onClear?: () => void
@@ -51,6 +54,8 @@ interface DatasetActionsProps {
 	canPublishUpdate?: boolean
 	onPublishCopy?: () => void
 	canPublishCopy?: boolean
+	onProposeEdit?: (description: string) => void
+	canProposeEdit?: boolean
 	isPublishing?: boolean
 }
 
@@ -83,6 +88,8 @@ export function Toolbar({
 	const mode = useEditorStore((state) => state.mode)
 	const snappingEnabled = useEditorStore((state) => state.snappingEnabled)
 	const viewMode = useEditorStore((state) => state.viewMode)
+	const editIsolationEnabled = useEditorStore((state) => state.editIsolationEnabled)
+	const toggleEditIsolation = useEditorStore((state) => state.toggleEditIsolation)
 	const history = useEditorStore((state) => state.history)
 
 	// UI State
@@ -129,6 +136,7 @@ export function Toolbar({
 	}
 
 	const handleToggleSnapping = () => runEditorCommand('toggle_snapping')
+	const handleToggleEditIsolation = () => toggleEditIsolation()
 	const handleToggleInspector = () => {
 		if (inspectorActive) {
 			setInspectorActive(false)
@@ -241,6 +249,15 @@ export function Toolbar({
 			description: 'Edit vertices of selected feature',
 		},
 		{
+			key: 'edit-isolation',
+			icon: EyeOff,
+			onClick: handleToggleEditIsolation,
+			variant: editIsolationEnabled ? 'default' : 'outline',
+			disabled: isEditingDisabled,
+			ariaLabel: 'Toggle edit isolation',
+			description: 'Show only geometry in the current edit state',
+		},
+		{
 			key: 'delete',
 			icon: Trash2,
 			onClick: () => runEditorCommand('delete_selected_features'),
@@ -288,11 +305,11 @@ export function Toolbar({
 	}
 
 	const fileInput = (
-		<input
+		<Input
 			type="file"
 			ref={fileInputRef}
 			className="hidden"
-			accept=".geojson,.json"
+			accept=".geojson,.json,.zip,.shp"
 			onChange={handleFileImport}
 		/>
 	)
@@ -351,20 +368,21 @@ export function Toolbar({
 								<IconButtonRow buttons={lookupButtons} small />
 							</div>
 							{searchResults && searchResults.length > 0 && (
-								<div className="max-h-48 overflow-y-auto space-y-1 bg-white rounded-lg border border-gray-100">
+								<div className="max-h-48 overflow-y-auto space-y-1 bg-popover rounded-lg border border-border">
 									{searchResults.map((result) => (
-										<button
+										<Button
 											type="button"
 											key={result.placeId}
-											className="w-full text-left text-sm p-2 hover:bg-gray-50 border-b border-gray-50 last:border-0 truncate"
+											variant="ghost"
+											className="w-full text-left text-sm p-2 hover:bg-muted/50 border-b border-border last:border-0 truncate"
 											onClick={() => onSearchResultSelect?.(result)}
 										>
 											{result.displayName}
-										</button>
+										</Button>
 									))}
 								</div>
 							)}
-							{searchError && <div className="text-xs text-red-600 px-1">{searchError}</div>}
+							{searchError && <div className="text-xs text-destructive px-1">{searchError}</div>}
 						</div>
 					)}
 
@@ -373,7 +391,8 @@ export function Toolbar({
 							<div className="flex items-center justify-center gap-1 flex-wrap">
 								<FileDropdown
 									onImportClick={() => fileInputRef.current?.click()}
-									onExport={datasetActions.onExport ?? (() => {})}
+									onExportGeoJSON={datasetActions.onExportGeoJSON ?? (() => {})}
+									onExportSHP={datasetActions.onExportSHP ?? (() => {})}
 									canExport={datasetActions.canExport}
 									disabled={isEditingDisabled}
 									small
@@ -395,10 +414,12 @@ export function Toolbar({
 									canPublishNew={datasetActions.canPublishNew}
 									canPublishUpdate={datasetActions.canPublishUpdate}
 									canPublishCopy={datasetActions.canPublishCopy}
+									canProposeEdit={datasetActions.canProposeEdit}
 									isPublishing={datasetActions.isPublishing}
 									onPublishNew={datasetActions.onPublishNew}
 									onPublishUpdate={datasetActions.onPublishUpdate}
 									onPublishCopy={datasetActions.onPublishCopy}
+									onProposeEdit={datasetActions.onProposeEdit}
 									small
 								/>
 								<Divider />
@@ -421,10 +442,10 @@ export function Toolbar({
 												</PopoverTrigger>
 											</TooltipTrigger>
 											<TooltipContent side="bottom" sideOffset={8}>
-												<p>Map settings</p>
+												<p>Settings</p>
 											</TooltipContent>
 										</Tooltip>
-										<PopoverContent className="w-72" side="bottom" align="center">
+										<PopoverContent className="w-[28rem]" side="bottom" align="center">
 											<MapSettingsPanel />
 										</PopoverContent>
 									</Popover>
@@ -445,7 +466,7 @@ export function Toolbar({
 	// ============================================
 	return (
 		<>
-			<div className="flex flex-col gap-2 pointer-events-auto">
+			<div className="flex flex-col gap-2 pointer-events-auto" data-tour="toolbar">
 				<div className="glass-panel flex flex-wrap items-center gap-1 rounded-lg p-1.5">
 					{/* Row 1: Core editing tools */}
 					<div className="flex items-center gap-1">
@@ -499,9 +520,9 @@ export function Toolbar({
 								className="w-48"
 							/>
 							{searchResults && searchResults.length > 0 && (
-								<div className="absolute top-full left-0 mt-2 w-64 rounded-lg bg-white p-2 shadow-lg z-50 border border-gray-100">
-									<div className="flex items-center justify-between border-b border-gray-100 pb-2 mb-2">
-										<span className="text-xs font-medium text-gray-500">Results</span>
+								<div className="absolute top-full left-0 mt-2 w-64 rounded-lg bg-popover p-2 shadow-lg z-50 border border-border">
+									<div className="flex items-center justify-between border-b border-border pb-2 mb-2">
+										<span className="text-xs font-medium text-muted-foreground">Results</span>
 										<Button
 											variant="ghost"
 											size="sm"
@@ -516,7 +537,7 @@ export function Toolbar({
 											<button
 												type="button"
 												key={result.placeId}
-												className="w-full text-left text-sm p-1.5 hover:bg-gray-50 rounded truncate"
+												className="w-full text-left text-sm p-1.5 hover:bg-muted/50 rounded truncate"
 												onClick={() => onSearchResultSelect?.(result)}
 											>
 												{result.displayName}
@@ -534,7 +555,8 @@ export function Toolbar({
 						{/* File, OSM, Map & Publish */}
 						<FileDropdown
 							onImportClick={() => fileInputRef.current?.click()}
-							onExport={datasetActions?.onExport ?? (() => {})}
+							onExportGeoJSON={datasetActions?.onExportGeoJSON ?? (() => {})}
+							onExportSHP={datasetActions?.onExportSHP ?? (() => {})}
 							canExport={datasetActions?.canExport}
 							disabled={isEditingDisabled}
 						/>
@@ -553,10 +575,12 @@ export function Toolbar({
 							canPublishNew={datasetActions?.canPublishNew}
 							canPublishUpdate={datasetActions?.canPublishUpdate}
 							canPublishCopy={datasetActions?.canPublishCopy}
+							canProposeEdit={datasetActions?.canProposeEdit}
 							isPublishing={datasetActions?.isPublishing}
 							onPublishNew={datasetActions?.onPublishNew}
 							onPublishUpdate={datasetActions?.onPublishUpdate}
 							onPublishCopy={datasetActions?.onPublishCopy}
+							onProposeEdit={datasetActions?.onProposeEdit}
 						/>
 
 						<Divider />
@@ -567,7 +591,7 @@ export function Toolbar({
 				</div>
 
 				{searchError && (
-					<div className="rounded-lg bg-red-50 p-2 text-xs text-red-600 shadow-sm self-start">
+					<div className="rounded-lg bg-destructive/10 p-2 text-xs text-destructive shadow-sm self-start">
 						{searchError}
 					</div>
 				)}

@@ -3,70 +3,35 @@ import {
 	NDKSessionLocalStorage,
 	type NDKNip46Signer,
 	type NDKPrivateKeySigner,
-	type NDKUser,
 	removeStoredSession,
 	useNDKCurrentUser,
 	useNDKSessionLogin,
 	useNDKSessionLogout,
-	useProfileValue,
-	type Hexpubkey,
 } from '@nostr-dev-kit/react'
-import { AppWindowIcon, KeyRoundIcon, LogOutIcon, QrCodeIcon, User2Icon } from 'lucide-react'
+import {
+	AppWindowIcon,
+	ChevronDown,
+	ClipboardCopy,
+	KeyRoundIcon,
+	LogOutIcon,
+	QrCodeIcon,
+} from 'lucide-react'
 import { useState, useRef } from 'react'
+import { nip19 } from 'nostr-tools'
+import { toast } from 'sonner'
 import { Nip46LoginDialog } from './Nip46LoginDialog'
 import { SignupDialog } from './SignupDialog'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { ButtonGroup } from '@/components/ui/button-group'
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { UserProfile } from '@/components/user-profile'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-
-/**
- * Display a mini profile with avatar and optional name
- */
-function MiniProfile({ userOrPubkey }: { userOrPubkey?: Hexpubkey | NDKUser | null | undefined }) {
-	const profile = useProfileValue(userOrPubkey)
-	const pubkey =
-		userOrPubkey instanceof Object && 'pubkey' in userOrPubkey ? userOrPubkey.pubkey : userOrPubkey
-
-	// Get first 2 characters of name or pubkey for fallback
-	const getFallbackText = () => {
-		if (profile?.name) {
-			return profile.name.substring(0, 2).toUpperCase()
-		}
-		if (profile?.displayName) {
-			return profile.displayName.substring(0, 2).toUpperCase()
-		}
-		if (pubkey) {
-			return pubkey.substring(0, 2).toUpperCase()
-		}
-		return '?'
-	}
-
-	return (
-		<Tooltip>
-			<TooltipTrigger asChild>
-				<Button variant="outline" className="p-1 h-auto">
-					<Avatar className="w-7 h-7">
-						<AvatarImage
-							src={profile?.image || profile?.picture}
-							alt={profile?.name || 'Profile'}
-						/>
-						<AvatarFallback className="text-xs">
-							{profile ? getFallbackText() : <User2Icon className="w-4 h-4" />}
-						</AvatarFallback>
-					</Avatar>
-				</Button>
-			</TooltipTrigger>
-			<TooltipContent>
-				<p>
-					{profile?.name ||
-						profile?.displayName ||
-						(pubkey ? `${pubkey.substring(0, 8)}...` : 'Profile')}
-				</p>
-			</TooltipContent>
-		</Tooltip>
-	)
-}
 
 export function LoginSessionButtons() {
 	const login = useNDKSessionLogin()
@@ -125,44 +90,77 @@ export function LoginSessionButtons() {
 		}
 	}
 
+	const handleCopyNpub = async () => {
+		if (!currentUser) return
+		const npub = nip19.npubEncode(currentUser.pubkey)
+		await navigator.clipboard.writeText(npub)
+		toast.success('npub copied to clipboard')
+	}
+
 	return (
 		<div className="flex items-center gap-2">
 			{currentUser ? (
-				<ButtonGroup>
-					<MiniProfile userOrPubkey={currentUser} />
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button variant="outline" size="icon" onClick={() => logout()}>
-								<LogOutIcon className="w-4 h-4" />
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>
-							<p>Log out</p>
-						</TooltipContent>
-					</Tooltip>
-				</ButtonGroup>
+				<DropdownMenu>
+					<DropdownMenuTrigger asChild>
+						<Button variant="outline" className="gap-2 px-2">
+							<UserProfile
+								pubkey={currentUser.pubkey}
+								mode="avatar-name"
+								size="sm"
+								showNip05Badge={false}
+								interactive={false}
+							/>
+							<ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+						</Button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align="end">
+						<DropdownMenuItem onClick={handleCopyNpub}>
+							<ClipboardCopy className="h-4 w-4" />
+							Copy npub
+						</DropdownMenuItem>
+						<DropdownMenuSeparator />
+						<DropdownMenuItem
+							onClick={() => logout()}
+							className="text-destructive focus:text-destructive"
+						>
+							<LogOutIcon className="h-4 w-4" />
+							Log out
+						</DropdownMenuItem>
+					</DropdownMenuContent>
+				</DropdownMenu>
 			) : (
 				<ButtonGroup>
 					<Tooltip>
 						<TooltipTrigger asChild>
-							<Button variant={'secondary'} onClick={() => setShowSignupDialog(true)}>
+							<Button
+								variant={'default'}
+								size="icon"
+								className="h-10 w-10"
+								onClick={() => setShowSignupDialog(true)}
+							>
 								<KeyRoundIcon className="w-5 h-5" />
-								signup
 							</Button>
 						</TooltipTrigger>
 						<TooltipContent>
-							<p>Create a new nsec.</p>
+							<p className="font-medium">Get a Nostr identity</p>
+							<p className="text-xs text-muted-foreground">Create or import a private key</p>
 						</TooltipContent>
 					</Tooltip>
 					<Tooltip>
 						<TooltipTrigger asChild>
-							<Button variant={'secondary'} onClick={handleNip07Login} disabled={loading}>
+							<Button
+								variant={'default'}
+								size="icon"
+								className="h-10 w-10"
+								onClick={handleNip07Login}
+								disabled={loading}
+							>
 								<AppWindowIcon className="w-5 h-5" />
-								{loading ? 'Logging in...' : 'extension'}
 							</Button>
 						</TooltipTrigger>
 						<TooltipContent>
-							<p>Use your nostr extension.</p>
+							<p className="font-medium">Browser extension</p>
+							<p className="text-xs text-muted-foreground">Sign in with Alby, nos2x, etc.</p>
 						</TooltipContent>
 					</Tooltip>
 					<Tooltip>
@@ -170,15 +168,15 @@ export function LoginSessionButtons() {
 							onLogin={handleNip46Login}
 							trigger={
 								<TooltipTrigger asChild>
-									<Button variant={'secondary'} disabled={loading}>
+									<Button variant={'default'} size="icon" className="h-10 w-10" disabled={loading}>
 										<QrCodeIcon className="w-5 h-5" />
-										{loading ? 'Logging in...' : 'signer'}
 									</Button>
 								</TooltipTrigger>
 							}
 						/>
 						<TooltipContent>
-							<p>Use an external signer.</p>
+							<p className="font-medium">Remote signer</p>
+							<p className="text-xs text-muted-foreground">Use Amber, nsec.app, or a bunker URL</p>
 						</TooltipContent>
 					</Tooltip>
 				</ButtonGroup>

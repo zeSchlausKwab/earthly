@@ -1,24 +1,25 @@
 import {
+	AlertTriangle,
 	Database,
-	FolderOpen,
 	Globe,
 	HelpCircle,
+	Layers,
 	MessageCircle,
 	Newspaper,
-	PanelTop,
 	PanelLeftClose,
 	PanelLeftOpen,
+	PanelTop,
 	Pencil,
 	Settings2,
-	User,
 	Wallet,
 	X,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
-import type { NDKGeoCollectionEvent } from '../lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
+import type { NDKGeoEditProposalEvent } from '../lib/ndk/NDKGeoEditProposalEvent'
 import type { NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
+import squareLogoRose from '../assets/square_logo_rose.svg'
 import { ShoutboxPanel } from '../features/social/shoutbox'
 import { GeoDatasetsPanelContent } from './GeoDatasetsPanel'
 import { UserProfilePanel } from './UserProfilePanel'
@@ -37,7 +38,7 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from './ui/sidebar'
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from './ui/resizable'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './ui/resizable'
 import { MapSettingsPanel } from '../features/geo-editor/components/MapSettingsPanel'
 import { Nip60Wallet } from '../features/wallet/components/Nip60Wallet'
 import { ChatPanel } from '../features/chat'
@@ -46,13 +47,15 @@ import { useRouting, type SidebarViewMode } from '../features/geo-editor/hooks/u
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
 import type { EditorFeature } from '../features/geo-editor/core'
 import { EntitySearchPopover, type EntitySearchResult } from './entity-search'
+import { WorkspaceDraftNavigator } from './WorkspaceDraftNavigator'
+import { Button } from './ui/button'
 
 type SidebarContentMode = Exclude<SidebarViewMode, 'combined'>
-type EntityWorkspace = 'geometry' | 'collection' | 'context'
-type WorkViewMode = 'datasets' | 'collections' | 'contexts' | 'chat' | 'user'
+type EntityWorkspace = 'geometry' | 'context'
+type WorkViewMode = 'datasets' | 'contexts' | 'chat' | 'user'
 type MetaViewMode = 'posts' | 'wallet' | 'settings' | 'help'
 
-const WORK_VIEW_MODES: WorkViewMode[] = ['datasets', 'collections', 'contexts', 'chat', 'user']
+const WORK_VIEW_MODES: WorkViewMode[] = ['datasets', 'contexts', 'chat', 'user']
 const META_VIEW_MODES: MetaViewMode[] = ['posts', 'wallet', 'settings', 'help']
 
 const entityNavItems: {
@@ -61,7 +64,6 @@ const entityNavItems: {
 	icon: typeof Database
 }[] = [
 	{ entity: 'geometry', title: 'Geometry', icon: Pencil },
-	{ entity: 'collection', title: 'Collection', icon: FolderOpen },
 	{ entity: 'context', title: 'Context', icon: Globe },
 ]
 
@@ -71,13 +73,11 @@ const workNavItems: {
 	icon: typeof Database
 }[] = [
 	{ mode: 'datasets', title: 'Datasets', icon: Database },
-	{ mode: 'collections', title: 'Collections', icon: FolderOpen },
 	{ mode: 'contexts', title: 'Contexts', icon: Globe },
 	{ mode: 'chat', title: 'AI Chat', icon: MessageCircle },
-	{ mode: 'user', title: 'My Entities', icon: User },
+	{ mode: 'user', title: 'My Entities', icon: Layers },
 ]
 
-/** Navigation items for utility/meta modes (footer icon list) */
 const metaNavItems: {
 	mode: MetaViewMode
 	title: string
@@ -89,6 +89,14 @@ const metaNavItems: {
 	{ mode: 'help', title: 'Help', icon: HelpCircle },
 ]
 
+function SidebarDangerMarker() {
+	return (
+		<span className="inline-flex shrink-0 items-center justify-center text-orange-500">
+			<AlertTriangle className="h-3.5 w-3.5" />
+		</span>
+	)
+}
+
 function isWorkMode(mode: SidebarContentMode): mode is WorkViewMode {
 	return (WORK_VIEW_MODES as SidebarContentMode[]).includes(mode)
 }
@@ -99,39 +107,38 @@ function isMetaMode(mode: SidebarContentMode): mode is MetaViewMode {
 
 interface AppSidebarProps {
 	geoEvents: NDKGeoEvent[]
-	collectionEvents: NDKGeoCollectionEvent[]
 	mapContextEvents: NDKMapContextEvent[]
 	activeDataset: NDKGeoEvent | null
 	currentUserPubkey?: string
 	datasetVisibility: Record<string, boolean>
-	collectionVisibility: Record<string, boolean>
 	isPublishing: boolean
 	deletingKey: string | null
-	onClearEditing: () => void
 	onLoadDataset: (event: NDKGeoEvent) => void
+	onStartNewDataset?: () => void
+	onSwitchWorkspace?: (workspaceId: string) => void
+	onDeleteWorkspace?: (workspaceId: string) => void
+	onAddDraftToWorkspace?: (workspaceId: string) => void | Promise<void>
 	onToggleVisibility: (event: NDKGeoEvent) => void
 	onToggleAllVisibility: (visible: boolean) => void
-	onToggleCollectionVisibility: (collection: NDKGeoCollectionEvent) => void
-	onToggleAllCollectionVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: NDKGeoEvent) => void
 	onDeleteDataset: (event: NDKGeoEvent) => void
+	onDeleteContext?: (context: NDKMapContextEvent) => void
 	getDatasetKey: (event: NDKGeoEvent) => string
 	getDatasetName: (event: NDKGeoEvent) => string
 	onOpenGeometryEditor?: () => void
-	onZoomToCollection: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
+	onClearEntityEditors?: () => void
 	onInspectDataset: (event: NDKGeoEvent) => void
-	onInspectCollection: (collection: NDKGeoCollectionEvent, datasets: NDKGeoEvent[]) => void
 	onInspectContext: (context: NDKMapContextEvent) => void
-	onOpenDebug: (event: NDKGeoEvent | NDKGeoCollectionEvent | NDKMapContextEvent) => void
-	onCreateCollection: () => void
+	onOpenDebug: (event: NDKGeoEvent | NDKMapContextEvent) => void
 	onCreateContext: () => void
-	onEditCollection: (collection: NDKGeoCollectionEvent) => void
 	onEditContext: (context: NDKMapContextEvent) => void
 	isFocused: boolean
 	onExitFocus: () => void
 	multiSelectModifier?: string
-	// Editor panel props
-	onCommentGeometryVisibility?: (commentId: string, geojson: FeatureCollection | null) => void
+	onCommentGeometryVisibility?: (
+		comment: import('../lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent,
+		visible: boolean,
+	) => void
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
 	availableFeatures?: GeoFeatureItem[]
 	onMentionVisibilityToggle?: (
@@ -140,117 +147,103 @@ interface AppSidebarProps {
 		visible: boolean,
 	) => void
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
-	collectionEditorMode?: 'none' | 'create' | 'edit'
-	editingCollection?: NDKGeoCollectionEvent | null
-	onSaveCollection?: (collection: NDKGeoCollectionEvent) => void
-	onCloseCollectionEditor?: () => void
 	contextEditorMode?: 'none' | 'create' | 'edit'
 	editingContext?: NDKMapContextEvent | null
 	onSaveContext?: (context: NDKMapContextEvent) => void
 	onCloseContextEditor?: () => void
 	onZoomToFeature?: (feature: EditorFeature) => void
 	onExitViewMode?: () => void
-	// Blossom upload props
 	featureCollectionForUpload?: FeatureCollection | null
 	onBlossomUploadComplete?: (result: { sha256: string; url: string; size: number }) => void
-	/** NDK instance for authenticated uploads */
 	ndk?: import('@nostr-dev-kit/ndk').default | null
-	/** User pubkey from route (for user profile pages) */
 	userPubkey?: string
-	/** Callback when filtered dataset keys change (for map visibility sync) */
+	focusCommentId?: string
 	onFilteredDatasetKeysChange?: (keys: Set<string>) => void
+	onToggleProposalOverlay?: (proposal: NDKGeoEditProposalEvent, visible: boolean) => void
+	onProposalAccepted?: (dataset: NDKGeoEvent) => void
+	visibleProposalIds?: Set<string>
 }
 
 export function AppSidebar({
 	geoEvents,
-	collectionEvents,
 	mapContextEvents,
 	activeDataset,
 	currentUserPubkey,
 	datasetVisibility,
-	collectionVisibility,
 	isPublishing,
 	deletingKey,
-	onClearEditing,
 	onLoadDataset,
+	onStartNewDataset,
+	onSwitchWorkspace,
+	onDeleteWorkspace,
+	onAddDraftToWorkspace,
 	onToggleVisibility,
 	onToggleAllVisibility,
-	onToggleCollectionVisibility,
-	onToggleAllCollectionVisibility,
 	onZoomToDataset,
 	onDeleteDataset,
+	onDeleteContext,
 	getDatasetKey,
 	getDatasetName,
 	onOpenGeometryEditor,
-	onZoomToCollection,
+	onClearEntityEditors,
 	onInspectDataset,
-	onInspectCollection,
 	onInspectContext,
 	onOpenDebug,
-	onCreateCollection,
 	onCreateContext,
-	onEditCollection,
 	onEditContext,
 	isFocused,
 	onExitFocus,
 	multiSelectModifier = 'Shift',
-	// Editor panel props
 	onCommentGeometryVisibility,
 	onZoomToBounds,
 	availableFeatures = [],
 	onMentionVisibilityToggle,
 	onMentionZoomTo,
-	collectionEditorMode = 'none',
-	editingCollection,
-	onSaveCollection,
-	onCloseCollectionEditor,
 	contextEditorMode = 'none',
 	editingContext,
 	onSaveContext,
 	onCloseContextEditor,
 	onZoomToFeature,
 	onExitViewMode,
-	// Blossom upload props
 	featureCollectionForUpload,
 	onBlossomUploadComplete,
 	ndk,
-	// User profile props
 	userPubkey,
-	// Filter sync
+	focusCommentId,
 	onFilteredDatasetKeysChange,
+	onToggleProposalOverlay,
+	onProposalAccepted,
+	visibleProposalIds,
 }: AppSidebarProps) {
 	const { setOpen, sidebarExpanded, setSidebarExpanded } = useSidebar()
 	const viewMode = useEditorStore((state) => state.sidebarViewMode)
 	const viewDataset = useEditorStore((state) => state.viewDataset)
-	const viewCollection = useEditorStore((state) => state.viewCollection)
 	const viewContext = useEditorStore((state) => state.viewContext)
 	const setEditorViewMode = useEditorStore((state) => state.setViewMode)
 	const setViewDatasetState = useEditorStore((state) => state.setViewDataset)
-	const setViewCollectionState = useEditorStore((state) => state.setViewCollection)
-	const setViewCollectionEventsState = useEditorStore((state) => state.setViewCollectionEvents)
 	const setViewContextState = useEditorStore((state) => state.setViewContext)
 	const setViewContextDatasetsState = useEditorStore((state) => state.setViewContextDatasets)
-	const setViewContextCollectionsState = useEditorStore((state) => state.setViewContextCollections)
 	const { navigateToView, navigateToContext, clearContextScope, contextNaddr, encodeContextNaddr } =
 		useRouting()
+
 	const [splitWithEditor, setSplitWithEditor] = useState(viewMode === 'combined')
 	const [activeEntity, setActiveEntity] = useState<EntityWorkspace>('geometry')
 	const [activeWorkMode, setActiveWorkMode] = useState<WorkViewMode>('datasets')
 	const [showEntityAsFullPanel, setShowEntityAsFullPanel] = useState(viewMode === 'edit')
 	const [entityIntent, setEntityIntent] = useState<Record<EntityWorkspace, 'inspect' | 'edit'>>({
-		geometry: 'edit',
-		collection: 'edit',
-		context: 'edit',
+		geometry: 'inspect',
+		context: 'inspect',
 	})
+
+	useEffect(() => {
+		if (!currentUserPubkey) {
+			setEntityIntent({ geometry: 'inspect', context: 'inspect' })
+		}
+	}, [currentUserPubkey])
 
 	const activeContextScope = useMemo(() => {
 		if (!contextNaddr) return null
-		return (
-			mapContextEvents.find((context) => {
-				const contextRouteNaddr = encodeContextNaddr(context)
-				return contextRouteNaddr === contextNaddr
-			}) ?? null
-		)
+		return mapContextEvents.find((context) => encodeContextNaddr(context) === contextNaddr) ?? null
 	}, [contextNaddr, mapContextEvents, encodeContextNaddr])
 
 	const activeContextScopeLabel =
@@ -299,47 +292,25 @@ export function AppSidebar({
 			}
 			return
 		}
-
-		if (collectionEditorMode !== 'none' || viewCollection) {
-			setActiveEntity('collection')
-			if (!splitWithEditor) {
-				setShowEntityAsFullPanel(true)
-			}
-			return
-		}
-
 		if (viewDataset) {
 			setActiveEntity('geometry')
 			if (!splitWithEditor) {
 				setShowEntityAsFullPanel(true)
 			}
 		}
-	}, [
-		collectionEditorMode,
-		contextEditorMode,
-		splitWithEditor,
-		viewCollection,
-		viewContext,
-		viewDataset,
-	])
+	}, [contextEditorMode, splitWithEditor, viewContext, viewDataset])
 
 	useEffect(() => {
-		if (collectionEditorMode !== 'none') {
-			setEntityIntent((prev) => ({ ...prev, collection: 'edit' }))
-		}
 		if (contextEditorMode !== 'none') {
 			setEntityIntent((prev) => ({ ...prev, context: 'edit' }))
 		}
 		if (viewDataset) {
 			setEntityIntent((prev) => ({ ...prev, geometry: 'inspect' }))
 		}
-		if (viewCollection) {
-			setEntityIntent((prev) => ({ ...prev, collection: 'inspect' }))
-		}
 		if (viewContext) {
 			setEntityIntent((prev) => ({ ...prev, context: 'inspect' }))
 		}
-	}, [collectionEditorMode, contextEditorMode, viewCollection, viewContext, viewDataset])
+	}, [contextEditorMode, viewContext, viewDataset])
 
 	const leaveMetaOverrideIfNeeded = () => {
 		if (metaModeActive) {
@@ -349,26 +320,11 @@ export function AppSidebar({
 
 	const openGeometryWorkspace = () => {
 		leaveMetaOverrideIfNeeded()
+		onClearEntityEditors?.()
 		setActiveEntity('geometry')
 		setEntityIntent((prev) => ({ ...prev, geometry: 'edit' }))
 		setShowEntityAsFullPanel(true)
 		onOpenGeometryEditor?.()
-	}
-
-	const openCollectionWorkspace = () => {
-		leaveMetaOverrideIfNeeded()
-		setActiveEntity('collection')
-		setEntityIntent((prev) => ({ ...prev, collection: 'edit' }))
-		setShowEntityAsFullPanel(true)
-		if (editingCollection) {
-			onEditCollection(editingCollection)
-			return
-		}
-		if (viewCollection) {
-			onEditCollection(viewCollection)
-			return
-		}
-		onCreateCollection()
 	}
 
 	const openContextWorkspace = () => {
@@ -400,16 +356,16 @@ export function AppSidebar({
 
 	const openEmptyInspectWorkspace = (entity: EntityWorkspace) => {
 		leaveMetaOverrideIfNeeded()
+		if (entity === 'geometry') {
+			onClearEntityEditors?.()
+		}
 		setActiveEntity(entity)
 		setEntityIntent((prev) => ({ ...prev, [entity]: 'inspect' }))
 		setShowEntityAsFullPanel(true)
 		setEditorViewMode('view')
 		setViewDatasetState(null)
-		setViewCollectionState(null)
-		setViewCollectionEventsState([])
 		setViewContextState(null)
 		setViewContextDatasetsState([])
-		setViewContextCollectionsState([])
 	}
 
 	const handleLoadDataset = (event: NDKGeoEvent) => {
@@ -428,26 +384,11 @@ export function AppSidebar({
 		setShowEntityAsFullPanel(true)
 	}
 
-	const handleInspectCollection = (collection: NDKGeoCollectionEvent, datasets: NDKGeoEvent[]) => {
-		onInspectCollection(collection, datasets)
-		leaveMetaOverrideIfNeeded()
-		setActiveEntity('collection')
-		setEntityIntent((prev) => ({ ...prev, collection: 'inspect' }))
-		setShowEntityAsFullPanel(true)
-	}
-
 	const handleInspectContext = (context: NDKMapContextEvent) => {
 		onInspectContext(context)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('context')
 		setEntityIntent((prev) => ({ ...prev, context: 'inspect' }))
-		setShowEntityAsFullPanel(true)
-	}
-
-	const handleCreateCollection = () => {
-		onCreateCollection()
-		leaveMetaOverrideIfNeeded()
-		setActiveEntity('collection')
 		setShowEntityAsFullPanel(true)
 	}
 
@@ -458,34 +399,12 @@ export function AppSidebar({
 		setShowEntityAsFullPanel(true)
 	}
 
-	const handleEditCollection = (collection: NDKGeoCollectionEvent) => {
-		onEditCollection(collection)
-		leaveMetaOverrideIfNeeded()
-		setActiveEntity('collection')
-		setEntityIntent((prev) => ({ ...prev, collection: 'edit' }))
-		setShowEntityAsFullPanel(true)
-	}
-
 	const handleEditContext = (context: NDKMapContextEvent) => {
 		onEditContext(context)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('context')
 		setEntityIntent((prev) => ({ ...prev, context: 'edit' }))
 		setShowEntityAsFullPanel(true)
-	}
-
-	const handleSaveCollection = (collection: NDKGeoCollectionEvent) => {
-		onSaveCollection?.(collection)
-		setShowEntityAsFullPanel(false)
-		setActiveWorkMode('collections')
-		navigateToView('collections')
-	}
-
-	const handleCloseCollectionEditor = () => {
-		onCloseCollectionEditor?.()
-		setShowEntityAsFullPanel(false)
-		setActiveWorkMode('collections')
-		navigateToView('collections')
 	}
 
 	const handleSaveContext = (context: NDKMapContextEvent) => {
@@ -513,8 +432,7 @@ export function AppSidebar({
 			: 'Edit'
 
 	const handleEntityIntentChange = (intent: 'inspect' | 'edit') => {
-		if (!entityToggleEnabled) return
-		if (intent === currentEntityIntent) return
+		if (!entityToggleEnabled || intent === currentEntityIntent) return
 		setEntityIntent((prev) => ({ ...prev, [activeEntity]: intent }))
 
 		if (activeEntity === 'geometry') {
@@ -528,25 +446,6 @@ export function AppSidebar({
 				handleInspectDataset(activeDataset)
 			} else {
 				openEmptyInspectWorkspace('geometry')
-			}
-			return
-		}
-
-		if (activeEntity === 'collection') {
-			if (intent === 'edit') {
-				const target = editingCollection ?? viewCollection
-				if (target) {
-					handleEditCollection(target)
-				} else {
-					openCollectionWorkspace()
-				}
-			} else {
-				const target = viewCollection ?? editingCollection
-				if (target) {
-					handleInspectCollection(target, [])
-				} else {
-					openEmptyInspectWorkspace('collection')
-				}
 			}
 			return
 		}
@@ -568,48 +467,36 @@ export function AppSidebar({
 		}
 	}
 
-	/** Common props for GeoDatasetsPanelContent */
 	const datasetsPanelProps = {
 		geoEvents,
-		collectionEvents,
 		mapContextEvents,
 		activeDataset,
 		currentUserPubkey,
 		datasetVisibility,
-		collectionVisibility,
 		isPublishing,
 		deletingKey,
-		onClearEditing,
 		onLoadDataset: handleLoadDataset,
 		onToggleVisibility,
 		onToggleAllVisibility,
-		onToggleCollectionVisibility,
-		onToggleAllCollectionVisibility,
 		onZoomToDataset,
 		onDeleteDataset,
 		getDatasetKey,
 		getDatasetName,
-		onZoomToCollection,
 		onInspectDataset: handleInspectDataset,
-		onInspectCollection: handleInspectCollection,
 		onInspectContext: handleInspectContext,
 		onOpenDebug,
-		onCreateCollection: handleCreateCollection,
 		onCreateContext: handleCreateContext,
-		onEditCollection: handleEditCollection,
 		onEditContext: handleEditContext,
 		isFocused,
 		onExitFocus,
 		onFilteredDatasetKeysChange,
 	}
 
-	/** Common props for UserProfilePanel */
 	const userProfilePanelProps = {
 		geoEvents,
-		collectionEvents,
+		mapContextEvents,
 		currentUserPubkey,
 		datasetVisibility,
-		collectionVisibility,
 		isPublishing,
 		deletingKey,
 		onLoadDataset: handleLoadDataset,
@@ -620,38 +507,37 @@ export function AppSidebar({
 		getDatasetKey,
 		getDatasetName,
 		onInspectDataset: handleInspectDataset,
-		onToggleCollectionVisibility,
-		onToggleAllCollectionVisibility,
-		onZoomToCollection,
-		onInspectCollection: handleInspectCollection,
-		onEditCollection: handleEditCollection,
+		onSwitchWorkspace,
+		onDeleteWorkspace,
+		onInspectContext: handleInspectContext,
+		onEditContext: handleEditContext,
 		onOpenDebug,
 	}
 
-	/** Common props for GeoEditorInfoPanelContent */
 	const editorPanelProps = {
 		currentUserPubkey,
 		onLoadDataset: handleLoadDataset,
+		onInspectDataset: handleInspectDataset,
+		onStartNewDataset,
+		onOpenGeometryEditor,
+		onSwitchWorkspace,
 		onToggleVisibility,
 		onZoomToDataset,
 		onDeleteDataset,
-		onZoomToCollection,
+		onDeleteContext,
 		deletingKey,
 		onExitViewMode,
 		onClose: () => {},
 		getDatasetKey,
 		getDatasetName,
-		onInspectCollection: handleInspectCollection,
 		onCommentGeometryVisibility,
 		onZoomToBounds,
 		availableFeatures,
 		onMentionVisibilityToggle,
 		onMentionZoomTo,
-		onEditCollection: handleEditCollection,
-		collectionEditorMode,
-		editingCollection,
-		onSaveCollection: handleSaveCollection,
-		onCloseCollectionEditor: handleCloseCollectionEditor,
+		onToggleProposalOverlay,
+		onProposalAccepted,
+		visibleProposalIds,
 		contextEditorMode,
 		editingContext,
 		onSaveContext: handleSaveContext,
@@ -661,24 +547,27 @@ export function AppSidebar({
 		featureCollectionForUpload,
 		onBlossomUploadComplete,
 		ndk,
+		focusCommentId,
+		entityWorkspace: activeEntity,
+		entityIntent: currentEntityIntent,
 	}
 
 	const renderWorkContent = (mode: WorkViewMode) => {
 		switch (mode) {
 			case 'datasets':
 				return <GeoDatasetsPanelContent mode="datasets" {...datasetsPanelProps} />
-			case 'collections':
-				return <GeoDatasetsPanelContent mode="collections" {...datasetsPanelProps} />
 			case 'contexts':
 				return <GeoDatasetsPanelContent mode="contexts" {...datasetsPanelProps} />
 			case 'chat':
 				return (
 					<ChatPanel
 						geoEvents={geoEvents}
-						collectionEvents={collectionEvents}
 						mapContextEvents={mapContextEvents}
 						availableFeatures={availableFeatures}
 						getDatasetName={getDatasetName}
+						onStartNewDataset={onStartNewDataset}
+						onSwitchWorkspace={onSwitchWorkspace}
+						onOpenSettings={() => navigateToView('settings')}
 					/>
 				)
 			case 'user': {
@@ -692,8 +581,6 @@ export function AppSidebar({
 				}
 				return <UserProfilePanel pubkey={profilePubkey} {...userProfilePanelProps} />
 			}
-			default:
-				return null
 		}
 	}
 
@@ -715,24 +602,25 @@ export function AppSidebar({
 				)
 			case 'help':
 				return <HelpPanel multiSelectModifier={multiSelectModifier} />
-			default:
-				return null
 		}
 	}
 
 	const renderEntityContent = () => <GeoEditorInfoPanelContent {...editorPanelProps} />
 
-	/** Render full content area according to split + workspace rules */
 	const renderContent = () => {
 		if (splitWithEditor && !metaModeActive) {
 			return (
 				<ResizablePanelGroup direction="vertical" className="h-full">
 					<ResizablePanel id={`${activeEntity}-editor`} defaultSize={52} minSize={20}>
-						<div className="h-full overflow-y-auto">{renderEntityContent()}</div>
+						<div className="h-full min-w-0 overflow-x-hidden overflow-y-auto">
+							{renderEntityContent()}
+						</div>
 					</ResizablePanel>
 					<ResizableHandle withHandle />
 					<ResizablePanel id={`${activeWorkMode}-panel`} defaultSize={48} minSize={20}>
-						<div className="h-full overflow-y-auto">{renderWorkContent(activeWorkMode)}</div>
+						<div className="h-full min-w-0 overflow-x-hidden overflow-y-auto">
+							{renderWorkContent(activeWorkMode)}
+						</div>
 					</ResizablePanel>
 				</ResizablePanelGroup>
 			)
@@ -755,15 +643,14 @@ export function AppSidebar({
 
 	return (
 		<Sidebar collapsible="icon" className="overflow-hidden *:data-[sidebar=sidebar]:flex-row">
-			{/* Icon sidebar (first nested sidebar) */}
-			<Sidebar collapsible="none" className="w-[calc(var(--sidebar-width-icon)+1px)]! border-r">
+			<Sidebar collapsible="none" className="w-[calc(var(--sidebar-width-icon)+1px)]! border-r" data-tour="sidebar-nav">
 				<SidebarHeader>
 					<SidebarMenu>
 						<SidebarMenuItem>
 							<SidebarMenuButton size="lg" asChild className="md:h-8 md:p-0">
 								<a href="/">
-									<div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
-										<Globe className="size-4" />
+									<div className="flex aspect-square size-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-white">
+										<img src={squareLogoRose} alt="" className="size-6 object-contain" />
 									</div>
 									<div className="grid flex-1 text-left text-sm leading-tight">
 										<span className="truncate font-medium">Earthly</span>
@@ -785,9 +672,7 @@ export function AppSidebar({
 											tooltip={{ children: item.title, hidden: false }}
 											onClick={() => {
 												if (item.entity === 'geometry') {
-													openGeometryWorkspace()
-												} else if (item.entity === 'collection') {
-													openCollectionWorkspace()
+													openEmptyInspectWorkspace('geometry')
 												} else {
 													openContextWorkspace()
 												}
@@ -796,7 +681,7 @@ export function AppSidebar({
 											isActive={
 												activeEntity === item.entity && (splitWithEditor || showEntityAsFullPanel)
 											}
-											className="px-2.5 md:px-2 border border-red-300 bg-red-50 text-red-900 hover:bg-red-100 data-[active=true]:bg-red-600 data-[active=true]:text-white data-[active=true]:border-red-600 font-semibold shadow-sm"
+											className="border border-sidebar-border/70 bg-sidebar-accent/30 px-2.5 text-sidebar-foreground hover:bg-sidebar-accent data-[active=true]:border-sidebar-primary data-[active=true]:bg-sidebar-primary data-[active=true]:text-sidebar-primary-foreground md:px-2"
 										>
 											<item.icon />
 											<span>{item.title}</span>
@@ -806,13 +691,10 @@ export function AppSidebar({
 
 								<SidebarMenuItem key="editor-split-toggle">
 									<SidebarMenuButton
-										tooltip={{
-											children: 'Toggle entity/work split layout.',
-											hidden: false,
-										}}
+										tooltip={{ children: 'Toggle entity/work split layout.', hidden: false }}
 										onClick={() => setSplitWithEditor((prev) => !prev)}
 										isActive={splitWithEditor}
-										className="px-2.5 md:px-2 border border-orange-200 bg-orange-50/70 text-orange-800 hover:bg-orange-100 data-[active=true]:bg-orange-600 data-[active=true]:text-white data-[active=true]:border-orange-600"
+										className="border border-dashed border-sidebar-border px-2.5 text-sidebar-foreground/80 hover:bg-sidebar-accent data-[active=true]:border-sidebar-primary data-[active=true]:bg-sidebar-primary/10 data-[active=true]:text-sidebar-primary md:px-2"
 									>
 										<PanelTop />
 										<span>{splitWithEditor ? 'Split On' : 'Split Off'}</span>
@@ -820,7 +702,10 @@ export function AppSidebar({
 								</SidebarMenuItem>
 
 								{workNavItems.map((item) => (
-									<SidebarMenuItem key={item.mode}>
+									<SidebarMenuItem
+								key={item.mode}
+								data-tour={item.mode === 'datasets' ? 'sidebar-datasets' : item.mode === 'contexts' ? 'sidebar-contexts' : item.mode === 'chat' ? 'sidebar-chat' : item.mode === 'user' ? 'sidebar-my-entities' : undefined}
+							>
 										<SidebarMenuButton
 											tooltip={{ children: item.title, hidden: false }}
 											onClick={() => {
@@ -832,7 +717,7 @@ export function AppSidebar({
 												contentMode === item.mode &&
 												(!showEntityAsFullPanel || splitWithEditor)
 											}
-											className="px-2.5 md:px-2"
+											className="px-2.5 md:px-2 data-[active=true]:border-l-2 data-[active=true]:border-sidebar-primary data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground data-[active=true]:font-medium"
 										>
 											<item.icon />
 											<span>{item.title}</span>
@@ -847,17 +732,36 @@ export function AppSidebar({
 				<SidebarFooter className="border-t border-sidebar-border">
 					<SidebarMenu>
 						{metaNavItems.map((item) => (
-							<SidebarMenuItem key={item.mode}>
+							<SidebarMenuItem
+								key={item.mode}
+								data-tour={item.mode === 'help' ? 'sidebar-help' : undefined}
+							>
 								<SidebarMenuButton
-									tooltip={{ children: item.title, hidden: false }}
+									tooltip={{
+										children:
+											item.mode === 'wallet' ? (
+												<span className="inline-flex items-center gap-1.5">
+													<span>{item.title}</span>
+													<span className="text-orange-400">danger</span>
+												</span>
+											) : (
+												item.title
+											),
+										hidden: false,
+									}}
 									onClick={() => {
 										handleSelectMetaMode(item.mode)
 										setOpen(true)
 									}}
 									isActive={isMetaMode(contentMode) && contentMode === item.mode}
-									className="px-2.5 md:px-2"
+									className="relative px-2.5 md:px-2"
 								>
 									<item.icon />
+									{item.mode === 'wallet' ? (
+										<span className="pointer-events-none absolute left-5 top-1">
+											<SidebarDangerMarker />
+										</span>
+									) : null}
 									<span>{item.title}</span>
 								</SidebarMenuButton>
 							</SidebarMenuItem>
@@ -866,40 +770,44 @@ export function AppSidebar({
 				</SidebarFooter>
 			</Sidebar>
 
-			{/* Content sidebar (second nested sidebar) */}
-			<Sidebar collapsible="none" className="hidden flex-1 md:flex">
+			<Sidebar
+				collapsible="none"
+				className="hidden w-[calc(var(--sidebar-width)-var(--sidebar-width-icon)-1px)]! min-w-0 flex-1 md:flex"
+			>
 				<SidebarHeader className="gap-3.5 border-b p-4">
 					<div className="flex w-full items-center gap-2">
 						<div className="shrink-0">
 							<div
-								className={`inline-flex items-center rounded-md border border-border bg-background p-0.5 ${
-									entityToggleEnabled ? '' : 'opacity-45'
+								className={`inline-flex items-center rounded-lg border border-border bg-muted p-0.5 ${
+									entityToggleEnabled ? '' : 'pointer-events-none opacity-40'
 								}`}
 							>
-								<button
+								<Button
 									type="button"
+									variant="ghost"
 									disabled={!entityToggleEnabled}
-									className={`px-2 py-1 text-[10px] font-semibold uppercase tracking-wide rounded ${
+									className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
 										currentEntityIntent === 'inspect'
-											? 'bg-muted text-foreground'
-											: 'text-muted-foreground'
+											? 'bg-background text-foreground shadow-sm'
+											: 'text-muted-foreground hover:text-foreground'
 									}`}
 									onClick={() => handleEntityIntentChange('inspect')}
 								>
 									Inspect
-								</button>
-								<button
+								</Button>
+								<Button
 									type="button"
+									variant="ghost"
 									disabled={!entityToggleEnabled}
-									className={`px-2 py-1 text-[10px] font-semibold uppercase tracking-wide rounded ${
+									className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
 										currentEntityIntent === 'edit'
-											? 'bg-muted text-foreground'
-											: 'text-muted-foreground'
+											? 'bg-background text-foreground shadow-sm'
+											: 'text-muted-foreground hover:text-foreground'
 									}`}
 									onClick={() => handleEntityIntentChange('edit')}
 								>
 									{geometryEditLabel}
-								</button>
+								</Button>
 							</div>
 						</div>
 
@@ -909,44 +817,56 @@ export function AppSidebar({
 								entityTypes={['context']}
 								onSelect={handleContextScopeSelect}
 								placeholder={
-									activeContextScopeLabel ? activeContextScopeLabel : 'No context filter'
+									activeContextScopeLabel ? activeContextScopeLabel : 'Filter by context…'
 								}
 								searchMode="local"
 								compact
 							/>
 						</div>
 
-						<div className="flex items-center gap-1 shrink-0">
-							{contextNaddr && (
-								<button
+						<div className="flex shrink-0 items-center gap-1">
+							{contextNaddr ? (
+								<Button
 									type="button"
+									variant="ghost"
+									size="icon-sm"
 									onClick={clearContextScope}
 									title="Leave context scope"
 									aria-label="Leave context scope"
-									className="inline-flex items-center justify-center h-7 w-7 rounded-md border text-muted-foreground hover:bg-muted hover:text-foreground"
+									className="h-7 w-7"
 								>
 									<X className="h-3.5 w-3.5" />
-								</button>
-							)}
-							<button
+								</Button>
+							) : null}
+							<Button
 								type="button"
+								variant="ghost"
+								size="icon-sm"
 								onClick={() => setSidebarExpanded(!sidebarExpanded)}
 								title={sidebarExpanded ? 'Shrink sidebar' : 'Expand sidebar'}
-								className="inline-flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
+								className="h-7 w-7"
 							>
 								{sidebarExpanded ? (
 									<PanelLeftClose className="h-4 w-4" />
 								) : (
 									<PanelLeftOpen className="h-4 w-4" />
 								)}
-							</button>
-							<LoginSessionButtons />
+							</Button>
+							<span data-tour="sidebar-login"><LoginSessionButtons /></span>
 						</div>
 					</div>
+					{currentUserPubkey && (
+						<WorkspaceDraftNavigator
+							onStartNewDataset={onStartNewDataset}
+							onSwitchWorkspace={onSwitchWorkspace}
+							onDeleteWorkspace={onDeleteWorkspace}
+							onAddDraftToWorkspace={onAddDraftToWorkspace}
+						/>
+					)}
 				</SidebarHeader>
 
 				<SidebarContent className="p-2">
-					<SidebarGroup className="p-0 h-full">
+					<SidebarGroup className="h-full p-0">
 						<SidebarGroupContent className="h-full">{renderContent()}</SidebarGroupContent>
 					</SidebarGroup>
 				</SidebarContent>

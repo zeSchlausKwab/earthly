@@ -1,7 +1,8 @@
 import type { FeatureCollection } from 'geojson'
 import type { GeoJSONSource } from 'maplibre-gl'
 import type maplibregl from 'maplibre-gl'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { bbox as turfBbox, pointOnFeature } from '@turf/turf'
 import { isGeoJsonGeometry } from '@/lib/geo/normalizeGeoJSON'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import { useEditorStore } from '../store'
@@ -60,12 +61,17 @@ const REMOTE_ANNOTATION_LAYER = 'geo-editor-remote-annotation'
 const BLOB_PREVIEW_SOURCE_ID = 'geo-editor-blob-preview'
 const BLOB_PREVIEW_FILL_LAYER = 'geo-editor-blob-preview-fill'
 const BLOB_PREVIEW_LINE_LAYER = 'geo-editor-blob-preview-line'
+const REMOTE_POLYGON_PROXY_SOURCE_ID = 'geo-editor-remote-polygon-proxies'
+const REMOTE_POLYGON_PROXY_LAYER = 'geo-editor-remote-polygon-proxy'
 
 // Clustering source/layer IDs
 const CLUSTERED_SOURCE_ID = 'geo-editor-clustered-points'
 const CLUSTER_CIRCLE_LAYER = 'geo-editor-cluster-circles'
 const CLUSTER_COUNT_LAYER = 'geo-editor-cluster-count'
 const UNCLUSTERED_POINT_LAYER = 'geo-editor-unclustered-point'
+const GEOMETRY_PROXY_MAX_DIMENSION_PX = 48
+const GEOMETRY_PROXY_MAX_AREA_PX = 1600
+const LINE_PROXY_MAX_LENGTH_PX = 36
 
 export {
 	REMOTE_FILL_LAYER,
@@ -74,8 +80,134 @@ export {
 	REMOTE_LABEL_LAYER,
 	REMOTE_ANNOTATION_ANCHOR_LAYER,
 	REMOTE_ANNOTATION_LAYER,
+	REMOTE_POLYGON_PROXY_LAYER,
 	CLUSTER_CIRCLE_LAYER,
 	UNCLUSTERED_POINT_LAYER,
+}
+
+function isPointGeometryType(type: string | undefined): boolean {
+	return type === 'Point' || type === 'MultiPoint'
+}
+
+function isAnnotationFeature(feature: GeoJSON.Feature): boolean {
+	return (feature.properties as Record<string, unknown> | undefined)?.featureType === 'annotation'
+}
+
+function shouldRenderGeometryAsPointProxy(feature: GeoJSON.Feature): boolean {
+	return !isPointGeometryType(feature.geometry?.type) && !isAnnotationFeature(feature)
+}
+
+function getProjectedLineLengthPx(map: maplibregl.Map, coordinates: GeoJSON.Position[]): number {
+	let total = 0
+	for (let index = 1; index < coordinates.length; index += 1) {
+		const previous = coordinates[index - 1]
+		const current = coordinates[index]
+		if (!previous || !current) continue
+
+		const previousPoint = map.project([previous[0], previous[1]])
+		const currentPoint = map.project([current[0], current[1]])
+		total += Math.hypot(currentPoint.x - previousPoint.x, currentPoint.y - previousPoint.y)
+	}
+	return total
+}
+
+function getGeometryProjectedLengthPx(
+	map: maplibregl.Map,
+	geometry: GeoJSON.Geometry,
+): number | null {
+	if (geometry.type === 'LineString') {
+		return getProjectedLineLengthPx(map, geometry.coordinates)
+	}
+	if (geometry.type === 'MultiLineString') {
+		return geometry.coordinates.reduce(
+			(total, line) => total + getProjectedLineLengthPx(map, line),
+			0,
+		)
+	}
+	return null
+}
+
+function shouldCollapseGeometryToPointProxy(
+	map: maplibregl.Map,
+	feature: GeoJSON.Feature,
+): boolean {
+	if (!shouldRenderGeometryAsPointProxy(feature)) return false
+
+	try {
+		const [west, south, east, north] = turfBbox(feature)
+		if (
+			![west, south, east, north].every((value) => Number.isFinite(value)) ||
+			east < west ||
+			north < south
+		) {
+			return false
+		}
+
+		const northWest = map.project([west, north])
+		const southEast = map.project([east, south])
+		const width = Math.abs(southEast.x - northWest.x)
+		const height = Math.abs(southEast.y - northWest.y)
+		const area = width * height
+		const maxDimension = Math.max(width, height)
+		const projectedLength = feature.geometry
+			? getGeometryProjectedLengthPx(map, feature.geometry)
+			: null
+
+		if (projectedLength !== null) {
+			return (
+				Number.isFinite(projectedLength) &&
+				projectedLength <= LINE_PROXY_MAX_LENGTH_PX &&
+				maxDimension <= GEOMETRY_PROXY_MAX_DIMENSION_PX
+			)
+		}
+
+		return (
+			Number.isFinite(maxDimension) &&
+			Number.isFinite(area) &&
+			maxDimension <= GEOMETRY_PROXY_MAX_DIMENSION_PX &&
+			area <= GEOMETRY_PROXY_MAX_AREA_PX
+		)
+	} catch {
+		return false
+	}
+}
+
+function buildGeometryProxyFeature(
+	feature: GeoJSON.Feature,
+): GeoJSON.Feature<GeoJSON.Point> | null {
+	if (!shouldRenderGeometryAsPointProxy(feature)) return null
+
+	try {
+		const representative = pointOnFeature(feature)
+		const sourceBbox = turfBbox(feature)
+		const properties = (feature.properties ?? {}) as Record<string, unknown>
+		const color =
+			typeof properties.color === 'string'
+				? properties.color
+				: typeof properties.fillColor === 'string'
+					? properties.fillColor
+					: typeof properties.strokeColor === 'string'
+						? properties.strokeColor
+						: undefined
+		const strokeColor =
+			typeof properties.strokeColor === 'string' ? properties.strokeColor : '#ffffff'
+		return {
+			type: 'Feature',
+			id: `${feature.id ?? properties.featureId ?? 'feature'}:geometry-proxy`,
+			geometry: representative.geometry,
+			properties: {
+				...properties,
+				...(color ? { color } : {}),
+				proxyFeature: true,
+				sourceGeometryType: feature.geometry?.type ?? 'Unknown',
+				proxySourceBbox: sourceBbox,
+				strokeColor,
+				radius: typeof properties.radius === 'number' ? properties.radius : 5,
+			},
+		}
+	} catch {
+		return null
+	}
 }
 
 interface UseMapLayersOptions {
@@ -97,6 +229,36 @@ export function useMapLayers({
 	const [remoteLayersReady, setRemoteLayersReady] = useState(false)
 	const [styleInitVersion, setStyleInitVersion] = useState(0)
 	const blobPreviewCollection = useEditorStore((state) => state.blobPreviewCollection)
+	const syncRemoteDatasetsRef = useRef<(() => void) | null>(null)
+	const zoomSyncFrameRef = useRef<number | null>(null)
+
+	useEffect(() => {
+		if (!mapRef.current || !mounted) return
+		const mapInstance = mapRef.current
+
+		const scheduleDatasetSync = () => {
+			if (zoomSyncFrameRef.current != null) return
+			zoomSyncFrameRef.current = window.requestAnimationFrame(() => {
+				zoomSyncFrameRef.current = null
+				syncRemoteDatasetsRef.current?.()
+			})
+		}
+
+		scheduleDatasetSync()
+		mapInstance.on('zoom', scheduleDatasetSync)
+
+		return () => {
+			if (zoomSyncFrameRef.current != null) {
+				window.cancelAnimationFrame(zoomSyncFrameRef.current)
+				zoomSyncFrameRef.current = null
+			}
+			try {
+				mapInstance.off('zoom', scheduleDatasetSync)
+			} catch {
+				// Map may have been removed
+			}
+		}
+	}, [mounted, mapRef])
 
 	// Initialize extra layers when map is ready
 	useEffect(() => {
@@ -140,7 +302,12 @@ export function useMapLayers({
 						],
 						paint: {
 							'fill-color': ['coalesce', ['get', 'fillColor'], ['get', 'color'], '#1d4ed8'],
-							'fill-opacity': ['coalesce', ['get', 'fillOpacity'], 0.15],
+							'fill-opacity': [
+								'case',
+								['boolean', ['get', 'collapseToPointProxy'], false],
+								0,
+								['coalesce', ['get', 'fillOpacity'], 0.15],
+							],
 						},
 					})
 				}
@@ -165,6 +332,7 @@ export function useMapLayers({
 								'#1d4ed8',
 							],
 							'line-width': ['coalesce', ['get', 'strokeWidth'], 2],
+							'line-opacity': ['case', ['boolean', ['get', 'collapseToPointProxy'], false], 0, 1],
 						},
 					})
 				}
@@ -181,7 +349,12 @@ export function useMapLayers({
 						paint: {
 							'line-color': ['coalesce', ['get', 'strokeColor'], ['get', 'color'], '#1d4ed8'],
 							'line-width': ['coalesce', ['get', 'strokeWidth'], 2],
-							'line-opacity': ['coalesce', ['get', 'strokeOpacity'], 1],
+							'line-opacity': [
+								'case',
+								['boolean', ['get', 'collapseToPointProxy'], false],
+								0,
+								['coalesce', ['get', 'strokeOpacity'], 1],
+							],
 						},
 					})
 				}
@@ -198,7 +371,7 @@ export function useMapLayers({
 						],
 						paint: {
 							'circle-radius': ['coalesce', ['get', 'radius'], 6],
-							'circle-color': ['coalesce', ['get', 'color'], '#1d4ed8'],
+							'circle-color': ['coalesce', ['get', 'color'], ['get', 'fillColor'], '#1d4ed8'],
 							'circle-stroke-width': ['coalesce', ['get', 'strokeWidth'], 2],
 							'circle-stroke-color': ['coalesce', ['get', 'strokeColor'], '#fff'],
 						},
@@ -276,6 +449,7 @@ export function useMapLayers({
 							'text-color': '#374151',
 							'text-halo-color': '#ffffff',
 							'text-halo-width': 1.5,
+							'text-opacity': ['case', ['boolean', ['get', 'collapseToPointProxy'], false], 0, 1],
 						},
 					})
 				}
@@ -311,6 +485,27 @@ export function useMapLayers({
 						paint: {
 							'line-color': '#f97316',
 							'line-width': 2,
+						},
+					})
+				}
+
+				if (!mapInstance.getSource(REMOTE_POLYGON_PROXY_SOURCE_ID)) {
+					mapInstance.addSource(REMOTE_POLYGON_PROXY_SOURCE_ID, {
+						type: 'geojson',
+						data: { type: 'FeatureCollection', features: [] },
+					})
+				}
+				if (!mapInstance.getLayer(REMOTE_POLYGON_PROXY_LAYER)) {
+					mapInstance.addLayer({
+						id: REMOTE_POLYGON_PROXY_LAYER,
+						type: 'circle',
+						source: REMOTE_POLYGON_PROXY_SOURCE_ID,
+						paint: {
+							'circle-radius': ['coalesce', ['get', 'radius'], 5],
+							'circle-color': ['coalesce', ['get', 'color'], ['get', 'fillColor'], '#1d4ed8'],
+							'circle-stroke-width': 2,
+							'circle-stroke-color': ['coalesce', ['get', 'strokeColor'], '#ffffff'],
+							'circle-opacity': 0.95,
 						},
 					})
 				}
@@ -396,7 +591,7 @@ export function useMapLayers({
 						],
 						paint: {
 							'circle-radius': ['coalesce', ['get', 'radius'], 6],
-							'circle-color': ['coalesce', ['get', 'color'], '#1d4ed8'],
+							'circle-color': ['coalesce', ['get', 'color'], ['get', 'fillColor'], '#1d4ed8'],
 							'circle-stroke-width': ['coalesce', ['get', 'strokeWidth'], 2],
 							'circle-stroke-color': ['coalesce', ['get', 'strokeColor'], '#fff'],
 						},
@@ -445,66 +640,114 @@ export function useMapLayers({
 		}
 	}, [mounted, mapRef])
 
-	// Update remote datasets layer
+	// Keep zoom-driven geometry proxy updates inside MapLibre instead of React renders.
 	useEffect(() => {
-		const map = mapRef.current
-		if (!map) return
-		if (!remoteLayersReady) return
-		void resolvedCollectionsVersion
-		void styleInitVersion
+		syncRemoteDatasetsRef.current = () => {
+			const map = mapRef.current
+			if (!map) return
+			if (!remoteLayersReady) return
+			void resolvedCollectionsVersion
+			void styleInitVersion
 
-		try {
-			const source = map.getSource(REMOTE_SOURCE_ID) as GeoJSONSource | undefined
-			const clusteredSource = map.getSource(CLUSTERED_SOURCE_ID) as GeoJSONSource | undefined
-			if (!source) return
+			try {
+				const source = map.getSource(REMOTE_SOURCE_ID) as GeoJSONSource | undefined
+				const proxySource = map.getSource(REMOTE_POLYGON_PROXY_SOURCE_ID) as
+					| GeoJSONSource
+					| undefined
+				const clusteredSource = map.getSource(CLUSTERED_SOURCE_ID) as GeoJSONSource | undefined
+				if (!source) return
 
-			const collection = convertGeoEventsToFeatureCollection(
-				visibleGeoEvents,
-				resolvedCollectionResolver,
-			)
+				const collection = convertGeoEventsToFeatureCollection(
+					visibleGeoEvents,
+					resolvedCollectionResolver,
+				)
 
-			// Filter out placeholder features and features with null geometry
-			// to prevent MapLibre expression evaluation errors
-			const filteredCollection = {
-				...collection,
-				features: collection.features.filter(
-					(f) => f.geometry !== null && !isExternalPlaceholder(f.properties),
-				),
+				// Filter out placeholder features and features with null geometry
+				// to prevent MapLibre expression evaluation errors
+				const filteredCollection = {
+					...collection,
+					features: collection.features.filter(
+						(f) => f.geometry !== null && !isExternalPlaceholder(f.properties),
+					),
+				}
+
+				// Ensure MapLibre only receives valid GeoJSON Features with valid Geometry
+				const safeFeatures = filteredCollection.features.filter(
+					(f) => f.type === 'Feature' && f.geometry !== null && isGeoJsonGeometry(f.geometry),
+				)
+
+				// Keep annotations out of clustering so they retain their label/popup behavior.
+				const pointFeatures = safeFeatures.filter((f) => {
+					if (!isPointGeometryType(f.geometry?.type)) return false
+					return !isAnnotationFeature(f)
+				})
+				const annotationFeatures = safeFeatures.filter(
+					(f) => isPointGeometryType(f.geometry?.type) && isAnnotationFeature(f),
+				)
+				const nonPointFeatures = safeFeatures.filter((f) => !isPointGeometryType(f.geometry?.type))
+				const collapseToProxyById = new Set<string>()
+
+				const geometryProxyFeatures = nonPointFeatures
+					.map((feature, index) => {
+						if (!shouldCollapseGeometryToPointProxy(map, feature)) return null
+						const featureKey = String(feature.id ?? feature.properties?.featureId ?? index)
+						collapseToProxyById.add(featureKey)
+						return buildGeometryProxyFeature(feature)
+					})
+					.filter((feature): feature is NonNullable<typeof feature> => feature !== null)
+
+				const nonPointCollection = {
+					type: 'FeatureCollection' as const,
+					features: [
+						...nonPointFeatures.map((feature, index) =>
+							collapseToProxyById.has(String(feature.id ?? feature.properties?.featureId ?? index))
+								? {
+										...feature,
+										properties: {
+											...(feature.properties ?? {}),
+											collapseToPointProxy: true,
+										},
+									}
+								: feature,
+						),
+						...annotationFeatures,
+					],
+				}
+
+				const pointCollection = {
+					type: 'FeatureCollection' as const,
+					features: [...pointFeatures, ...geometryProxyFeatures],
+				}
+
+				// Set non-point features to regular source (lines, polygons)
+				source.setData(nonPointCollection)
+
+				// Set point features to clustered source
+				if (clusteredSource) {
+					clusteredSource.setData(pointCollection)
+				}
+				if (proxySource) {
+					proxySource.setData({
+						type: 'FeatureCollection',
+						features: [],
+					})
+				}
+			} catch {
+				// Map may have been removed during source switch
 			}
-
-			// Ensure MapLibre only receives valid GeoJSON Features with valid Geometry
-			const safeFeatures = filteredCollection.features.filter(
-				(f) => f.type === 'Feature' && f.geometry !== null && isGeoJsonGeometry(f.geometry),
-			)
-
-			// Separate points from other geometries for clustering
-			const pointFeatures = safeFeatures.filter(
-				(f) => f.geometry?.type === 'Point' || f.geometry?.type === 'MultiPoint',
-			)
-			const nonPointFeatures = safeFeatures.filter(
-				(f) => f.geometry?.type !== 'Point' && f.geometry?.type !== 'MultiPoint',
-			)
-
-			const nonPointCollection = {
-				type: 'FeatureCollection' as const,
-				features: nonPointFeatures,
-			}
-
-			const pointCollection = {
-				type: 'FeatureCollection' as const,
-				features: pointFeatures,
-			}
-
-			// Set non-point features to regular source (lines, polygons)
-			source.setData(nonPointCollection)
-
-			// Set point features to clustered source
-			if (clusteredSource) {
-				clusteredSource.setData(pointCollection)
-			}
-		} catch {
-			// Map may have been removed during source switch
 		}
+	}, [
+		visibleGeoEvents,
+		resolvedCollectionResolver,
+		resolvedCollectionsVersion,
+		remoteLayersReady,
+		mapRef,
+		styleInitVersion,
+	])
+
+	// Update remote datasets layer when source data or style changes.
+	useEffect(() => {
+		syncRemoteDatasetsRef.current?.()
 	}, [
 		visibleGeoEvents,
 		resolvedCollectionResolver,

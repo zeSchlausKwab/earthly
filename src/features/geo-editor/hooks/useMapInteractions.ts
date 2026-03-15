@@ -11,6 +11,7 @@ import {
 	REMOTE_ANNOTATION_LAYER,
 	REMOTE_FILL_LAYER,
 	REMOTE_LINE_LAYER,
+	REMOTE_POLYGON_PROXY_LAYER,
 	REMOTE_POINT_LAYER,
 	UNCLUSTERED_POINT_LAYER,
 } from './useMapLayers'
@@ -50,6 +51,7 @@ export function useMapInteractions({
 			REMOTE_FILL_LAYER,
 			REMOTE_LINE_LAYER,
 			REMOTE_POINT_LAYER,
+			REMOTE_POLYGON_PROXY_LAYER,
 			REMOTE_ANNOTATION_ANCHOR_LAYER,
 			REMOTE_ANNOTATION_LAYER,
 			UNCLUSTERED_POINT_LAYER,
@@ -86,10 +88,24 @@ export function useMapInteractions({
 		}
 
 		const handleMapDatasetClick = (event: maplibregl.MapLayerMouseEvent) => {
+			if (isInDrawingMode) {
+				hoveredFeatureKeyRef.current = null
+				setFeaturePopupData(null)
+				return
+			}
+
 			const feature = event.features?.[0]
 			if (!feature) return
 
-			const bbox = bboxFromGeometry(feature.geometry)
+			const proxySourceBbox = Array.isArray(feature.properties?.proxySourceBbox)
+				? feature.properties.proxySourceBbox
+				: null
+			const bbox =
+				proxySourceBbox &&
+				proxySourceBbox.length === 4 &&
+				proxySourceBbox.every((value) => typeof value === 'number')
+					? (proxySourceBbox as [number, number, number, number])
+					: bboxFromGeometry(feature.geometry)
 			if (bbox) {
 				const props = (feature.properties ?? {}) as Record<string, unknown>
 				const featureId = props.featureId ?? props.id ?? feature.id
@@ -122,7 +138,7 @@ export function useMapInteractions({
 
 		const handleMapDatasetHover = (event: maplibregl.MapLayerMouseEvent) => {
 			const feature = event.features?.[0]
-			if (!feature || viewMode === 'edit') {
+			if (!feature || viewMode === 'edit' || isInDrawingMode) {
 				hoveredFeatureKeyRef.current = null
 				setFeaturePopupData(null)
 				return

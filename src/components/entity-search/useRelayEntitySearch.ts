@@ -1,25 +1,22 @@
 import { useNDK } from '@nostr-dev-kit/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { GEO_COLLECTION_KIND, GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/ndk/kinds'
-import { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
+import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/ndk/kinds'
 import { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import {
 	type EntitySearchResult,
 	type EntityType,
-	collectionToSearchResult,
 	contextToSearchResult,
 	datasetToSearchResult,
 } from './types'
 
 const KIND_TO_TYPE: Record<number, EntityType> = {
 	[GEO_EVENT_KIND]: 'dataset',
-	[GEO_COLLECTION_KIND]: 'collection',
 	[MAP_CONTEXT_KIND]: 'context',
 }
 
 const DEBOUNCE_MS = 300
-const DEFAULT_RELAY_ENTITY_TYPES: EntityType[] = ['dataset', 'collection', 'context']
+const DEFAULT_RELAY_ENTITY_TYPES: EntityType[] = ['dataset', 'context']
 
 interface UseRelayEntitySearchOptions {
 	query: string
@@ -48,7 +45,6 @@ export function useRelayEntitySearch({
 	const kinds = useMemo(() => {
 		const k: number[] = []
 		if (activeTypes.includes('dataset')) k.push(GEO_EVENT_KIND)
-		if (activeTypes.includes('collection')) k.push(GEO_COLLECTION_KIND)
 		if (activeTypes.includes('context')) k.push(MAP_CONTEXT_KIND)
 		return k
 	}, [activeTypes])
@@ -91,9 +87,6 @@ export function useRelayEntitySearch({
 				if (entityType === 'dataset') {
 					const wrapped = NDKGeoEvent.from(event)
 					result = datasetToSearchResult(wrapped, getDatasetName)
-				} else if (entityType === 'collection') {
-					const wrapped = NDKGeoCollectionEvent.from(event)
-					result = collectionToSearchResult(wrapped)
 				} else if (entityType === 'context') {
 					const wrapped = NDKMapContextEvent.from(event)
 					result = contextToSearchResult(wrapped)

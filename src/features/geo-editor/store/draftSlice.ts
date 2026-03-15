@@ -2,6 +2,7 @@ import type { StateCreator } from 'zustand'
 import type { CollectionMeta } from '../types'
 import { createDefaultCollectionMeta } from '../utils'
 import { writePersistedGeoCollectionDraftState } from './editorCoreSlice'
+import { readScopedStorage } from './persistence'
 import type { DraftSlice, EditorState, GeoCollectionEditDraft } from './types'
 import type { EditorFeature } from '../core'
 
@@ -32,18 +33,16 @@ const normalizeDraftCollectionMeta = (value: unknown): CollectionMeta => {
 	}
 }
 
-export const readPersistedGeoCollectionDraftState = (): PersistedGeoCollectionDraftState => {
-	if (typeof window === 'undefined') {
-		return { drafts: {}, activeDraftId: null }
-	}
-
+export const readPersistedGeoCollectionDraftState = (
+	pubkey?: string | null,
+): PersistedGeoCollectionDraftState => {
 	try {
-		const raw = window.localStorage.getItem(GEO_COLLECTION_DRAFTS_STORAGE_KEY)
-		if (!raw) return { drafts: {}, activeDraftId: null }
-		const parsed = JSON.parse(raw) as Partial<PersistedGeoCollectionDraftState>
-		if (!parsed || typeof parsed !== 'object') {
-			return { drafts: {}, activeDraftId: null }
-		}
+		const parsed = readScopedStorage<Partial<PersistedGeoCollectionDraftState> | null>(
+			GEO_COLLECTION_DRAFTS_STORAGE_KEY,
+			null,
+			pubkey,
+		)
+		if (!parsed || typeof parsed !== 'object') return { drafts: {}, activeDraftId: null }
 		const rawDrafts =
 			parsed.drafts && typeof parsed.drafts === 'object' && !Array.isArray(parsed.drafts)
 				? (parsed.drafts as Record<string, unknown>)
@@ -74,7 +73,7 @@ export const readPersistedGeoCollectionDraftState = (): PersistedGeoCollectionDr
 		const activeDraftId = typeof parsed.activeDraftId === 'string' ? parsed.activeDraftId : null
 		return { drafts, activeDraftId }
 	} catch (error) {
-		console.warn('Failed to read geo collection drafts from localStorage', error)
+		console.warn('Failed to read geo collection drafts from scoped storage', error)
 		return { drafts: {}, activeDraftId: null }
 	}
 }
@@ -116,6 +115,15 @@ export const createDraftSlice: StateCreator<EditorState, [], [], DraftSlice> = (
 				activeGeoEditDraftId: id,
 			})
 			writePersistedGeoCollectionDraftState(nextDrafts, id)
+			const workspaceState = get()
+			const activeWorkspace = workspaceState.activeWorkspaceId
+				? workspaceState.workspaces[workspaceState.activeWorkspaceId]
+				: null
+			if (activeWorkspace?.sourceId === sourceId) {
+				get().touchActiveWorkspace({
+					activeDraftId: id,
+				})
+			}
 			return id
 		},
 
@@ -171,6 +179,15 @@ export const createDraftSlice: StateCreator<EditorState, [], [], DraftSlice> = (
 				geoEditDrafts: nextDrafts,
 			})
 			writePersistedGeoCollectionDraftState(nextDrafts, id)
+			const workspaceState = get()
+			const activeWorkspace = workspaceState.activeWorkspaceId
+				? workspaceState.workspaces[workspaceState.activeWorkspaceId]
+				: null
+			if (activeWorkspace?.sourceId === updatedDraft.sourceId) {
+				get().touchActiveWorkspace({
+					activeDraftId: id,
+				})
+			}
 			get().updateStats()
 		},
 
@@ -189,6 +206,14 @@ export const createDraftSlice: StateCreator<EditorState, [], [], DraftSlice> = (
 				}
 
 				writePersistedGeoCollectionDraftState(nextDrafts, nextActiveId)
+				const activeWorkspace = state.activeWorkspaceId
+					? state.workspaces[state.activeWorkspaceId]
+					: null
+				if (activeWorkspace?.activeDraftId === id) {
+					queueMicrotask(() => {
+						get().touchActiveWorkspace({ activeDraftId: null })
+					})
+				}
 				return {
 					geoEditDrafts: nextDrafts,
 					activeGeoEditDraftId: nextActiveId,

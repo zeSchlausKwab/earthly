@@ -2,7 +2,41 @@ import { ChevronDown, ChevronRight, Cloud } from 'lucide-react'
 import { useState } from 'react'
 import type { Feature, FeatureCollection, Geometry, GeoJsonProperties } from 'geojson'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import { GeometryBadge, GeometryDisplay } from './geometry/GeometryDisplay'
+
+function deriveFeatureCustomProperties(properties: GeoJsonProperties | null | undefined) {
+	if (!properties || typeof properties !== 'object') return {}
+
+	const explicitCustom =
+		properties.customProperties &&
+		typeof properties.customProperties === 'object' &&
+		!Array.isArray(properties.customProperties)
+			? (properties.customProperties as Record<string, unknown>)
+			: {}
+
+	const mirrored: Record<string, unknown> = {}
+	for (const [key, value] of Object.entries(properties)) {
+		if (
+			key === 'customProperties' ||
+			key === 'name' ||
+			key === 'description' ||
+			key === 'meta' ||
+			key === 'featureId' ||
+			key === 'datasetId' ||
+			key === 'sourceEventId' ||
+			key === 'hashtags'
+		) {
+			continue
+		}
+		mirrored[key] = value
+	}
+
+	return {
+		...mirrored,
+		...explicitCustom,
+	}
+}
 
 interface ReadOnlyFeatureRowProps {
 	feature: Feature<Geometry | null, GeoJsonProperties>
@@ -22,6 +56,7 @@ function ReadOnlyFeatureRow({
 	const isAnnotation = feature.properties?.featureType === 'annotation'
 	const isExternalPlaceholder = feature.properties?.externalPlaceholder === true
 	const hasGeometry = feature.geometry !== null
+	const customProperties = deriveFeatureCustomProperties(feature.properties)
 
 	return (
 		<div
@@ -32,10 +67,11 @@ function ReadOnlyFeatureRow({
 		>
 			{/* Row header */}
 			<div className="flex items-center gap-1 px-1.5 py-1">
-				<button
+				<Button
 					type="button"
+					variant="ghost"
+					size="icon-sm"
 					onClick={onToggleExpand}
-					className="text-gray-400 hover:text-gray-600"
 					disabled={!hasGeometry}
 				>
 					{hasGeometry ? (
@@ -47,7 +83,7 @@ function ReadOnlyFeatureRow({
 					) : (
 						<Cloud className="h-3 w-3 text-sky-400" />
 					)}
-				</button>
+				</Button>
 
 				<GeometryBadge
 					geometry={feature.geometry}
@@ -92,6 +128,19 @@ function ReadOnlyFeatureRow({
 					{feature.properties?.description && (
 						<div className="text-[11px] text-gray-600">
 							<span className="text-gray-400">Description:</span> {feature.properties.description}
+						</div>
+					)}
+
+					{Object.keys(customProperties).length > 0 && (
+						<div className="space-y-1">
+							<div className="text-[10px] uppercase tracking-wide text-gray-400">Properties</div>
+							<div className="space-y-1">
+								{Object.entries(customProperties).map(([key, value]) => (
+									<div key={key} className="text-[11px] text-gray-600">
+										<span className="text-gray-400">{key}:</span> {String(value)}
+									</div>
+								))}
+							</div>
 						</div>
 					)}
 

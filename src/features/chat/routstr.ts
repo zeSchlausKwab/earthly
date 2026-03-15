@@ -10,6 +10,7 @@ export interface RoutstrModel {
 	name: string
 	description?: string
 	contextLength?: number
+	supportsTools?: boolean
 	pricing: {
 		input: number // cost per 1M input tokens in sats
 		output: number // cost per 1M output tokens in sats
@@ -159,6 +160,9 @@ interface ApiModel {
 	name?: string
 	description?: string
 	context_length?: number
+	supports_tools?: boolean
+	supports_tool_calling?: boolean
+	tool_calling?: boolean
 	sats_pricing?: {
 		prompt?: number
 		completion?: number
@@ -189,6 +193,14 @@ export async function fetchModels(provider: ProviderConfig): Promise<RoutstrMode
 		name: model.name || model.id,
 		description: model.description,
 		contextLength: model.context_length,
+		supportsTools:
+			typeof model.supports_tools === 'boolean'
+				? model.supports_tools
+				: typeof model.supports_tool_calling === 'boolean'
+					? model.supports_tool_calling
+					: typeof model.tool_calling === 'boolean'
+						? model.tool_calling
+						: undefined,
 		pricing: {
 			// sats_pricing is per-token, multiply by 1M for display
 			input: Math.round((model.sats_pricing?.prompt || 0) * 1_000_000),

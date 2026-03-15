@@ -3,13 +3,12 @@ import type { EditorState, ViewModeSlice } from './types'
 
 export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlice> = (set) => ({
 	viewMode: 'view',
+	editIsolationEnabled: false,
 	viewDataset: null,
-	viewCollection: null,
-	viewCollectionEvents: [],
 	viewContext: null,
 	viewContextDatasets: [],
-	viewContextCollections: [],
 	contextFilterMode: 'strict',
+	contextMapScopeMode: 'children',
 	activeContextScopeNaddr: null,
 	activeContextScopeCoordinate: null,
 
@@ -19,12 +18,10 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 
 	setViewMode: (viewMode) => set({ viewMode }),
 	setViewDataset: (viewDataset) => set({ viewDataset }),
-	setViewCollection: (viewCollection) => set({ viewCollection }),
-	setViewCollectionEvents: (viewCollectionEvents) => set({ viewCollectionEvents }),
 	setViewContext: (viewContext) => set({ viewContext }),
 	setViewContextDatasets: (viewContextDatasets) => set({ viewContextDatasets }),
-	setViewContextCollections: (viewContextCollections) => set({ viewContextCollections }),
 	setContextFilterMode: (contextFilterMode) => set({ contextFilterMode }),
+	setContextMapScopeMode: (contextMapScopeMode) => set({ contextMapScopeMode }),
 	setActiveContextScope: (activeContextScopeNaddr, activeContextScopeCoordinate) =>
 		set({ activeContextScopeNaddr, activeContextScopeCoordinate }),
 	clearActiveContextScope: () =>
@@ -32,6 +29,9 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 			activeContextScopeNaddr: null,
 			activeContextScopeCoordinate: null,
 		}),
+	setEditIsolationEnabled: (editIsolationEnabled) => set({ editIsolationEnabled }),
+	toggleEditIsolation: () =>
+		set((state) => ({ editIsolationEnabled: !state.editIsolationEnabled })),
 
 	setFocused: (type, naddr) => set({ focusedType: type, focusedNaddr: naddr }),
 	clearFocused: () => set({ focusedType: null, focusedNaddr: null }),

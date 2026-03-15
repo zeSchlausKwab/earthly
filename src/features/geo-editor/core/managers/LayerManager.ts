@@ -1,6 +1,8 @@
 import type { FeatureCollection } from 'geojson'
 import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl'
 
+const FALLBACK_TEXT_FONT_STACK = ['Open Sans Regular', 'Arial Unicode MS Regular']
+
 /**
  * LayerManager handles all MapLibre layer and source setup for the GeoEditor.
  * This includes creating sources, adding layers with appropriate styling,
@@ -56,7 +58,7 @@ export class LayerManager {
 		}
 	}
 
-	private getDefaultTextFontStack(): string[] | null {
+	private getDefaultTextFontStack(): string[] {
 		const isStringArray = (value: unknown): value is string[] =>
 			Array.isArray(value) && value.every((v) => typeof v === 'string')
 
@@ -86,10 +88,10 @@ export class LayerManager {
 				if (extracted) return extracted
 			}
 		} catch {
-			// ignore
+			return FALLBACK_TEXT_FONT_STACK
 		}
 
-		return null
+		return FALLBACK_TEXT_FONT_STACK
 	}
 
 	/**
@@ -349,11 +351,7 @@ export class LayerManager {
 
 			// 5c. Annotation text layer (symbol layer for text annotations)
 			const annotationTextFont = this.getDefaultTextFontStack()
-			if (
-				annotationTextFont &&
-				(this.map.isStyleLoaded() ?? false) &&
-				!this.map.getLayer(this.LAYER_ANNOTATION)
-			) {
+			if (!this.map.getLayer(this.LAYER_ANNOTATION)) {
 				this.map.addLayer({
 					id: this.LAYER_ANNOTATION,
 					type: 'symbol',
@@ -392,11 +390,7 @@ export class LayerManager {
 			}
 
 			// 5d. Feature label layer (for non-annotation features with labels)
-			if (
-				annotationTextFont &&
-				(this.map.isStyleLoaded() ?? false) &&
-				!this.map.getLayer(this.LAYER_LABEL)
-			) {
+			if (!this.map.getLayer(this.LAYER_LABEL)) {
 				this.map.addLayer({
 					id: this.LAYER_LABEL,
 					type: 'symbol',

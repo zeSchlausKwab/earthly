@@ -3,6 +3,7 @@ import type { EditorFeature } from '@/features/geo-editor/core'
 import { NON_CUSTOM_EDITOR_PROPERTY_KEYS } from '@/features/geo-editor/constants'
 import { isStyleProperty } from '@/features/geo-editor/types/styleProperties'
 import { useEditorStore } from '@/features/geo-editor/store'
+import { GeoRichTextEditor, type GeoFeatureItem } from '../editor/GeoRichTextEditor'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { StylePropertiesSection } from './StylePropertiesSection'
@@ -27,12 +28,16 @@ function deriveCustomProperties(properties: EditorFeature['properties'] | undefi
 
 export interface FeaturePropertiesSectionProps {
 	feature: EditorFeature
+	availableFeatures?: GeoFeatureItem[]
 }
 
 /**
  * Compact section for editing properties of a selected feature.
  */
-export function FeaturePropertiesSection({ feature }: FeaturePropertiesSectionProps) {
+export function FeaturePropertiesSection({
+	feature,
+	availableFeatures = [],
+}: FeaturePropertiesSectionProps) {
 	const editor = useEditorStore((state) => state.editor)
 	const newFeatureProp = useEditorStore((state) => state.newFeatureProp)
 	const setNewFeatureProp = useEditorStore((state) => state.setNewFeatureProp)
@@ -185,11 +190,13 @@ export function FeaturePropertiesSection({ feature }: FeaturePropertiesSectionPr
 			{!isAnnotation && <StylePropertiesSection feature={feature} />}
 
 			{/* Description */}
-			<textarea
-				className="w-full h-10 rounded border border-gray-200 px-2 py-1 text-xs resize-none"
+			<GeoRichTextEditor
+				initialValue={(feature.properties?.description as string) ?? ''}
 				placeholder="Description"
-				value={(feature.properties?.description as string) ?? ''}
-				onChange={(e) => onFieldChange('description', e.target.value)}
+				availableFeatures={availableFeatures}
+				onChange={(value) => onFieldChange('description', value)}
+				rows={3}
+				className="min-h-[104px]"
 			/>
 
 			{/* Custom properties - compact */}

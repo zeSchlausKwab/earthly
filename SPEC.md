@@ -1,6 +1,6 @@
 Nostr GeoJSON Event Specification
 
-Goal – Define a minimal, interoperable way to publish, catalogue and consume GeoJSON datasets over Nostr relays, together with collection/index events that reference them.
+Goal – Define a minimal, interoperable way to publish, catalogue and consume GeoJSON datasets over Nostr relays, together with context events that curate and validate them.
 
 ⸻
 
@@ -114,50 +114,24 @@ Tags for this event would include `["blob","feature:canada_provinces_blob","http
 
 2 GeoJSON Collection Event (kind 37516)
 
-A lightweight catalogue pointing to multiple GeoJSON datasets.
+Removed from the active model.
 
-Field Purpose
-kind 37516 identifies a collection.
-content JSON with human-readable metadata: { name, description, picture?, ownerPk?, license?, tags? }.
-tags One a tag per dataset plus structural metadata.
+Collections are superseded by richer map contexts that can:
+1. carry Markdown narrative directly,
+2. pin fixed geo references authored by the context creator, and
+3. opt in or out of foreign `c` attachments.
 
-2.1 Tags
-
-Tag Example Notes
-d ["d", "city_parks_2025"] Random UUID for this collection event.
-a ["a", "37515:npub1pubkey…:a9d5ea20…"] Coordinate of a GeoJSON Data Event using publisher’s npub. Multiple.
-bbox Combined extent of all members (optional).
-g ["g", "u2yh7"] Geohash of collection centroid.
-t Hashtags categorising the collection.
-r Recommended relay.
-c ["c", "37518:npub1contextauthor…:thirty_year_war"] (Optional) Attach collection as context reference.
-
-2.2 Example Collection Event
-
-{
-"id": "…",
-"pubkey": "npub1maintainer…",
-"kind": 37516,
-"content": "{\"name\":\"City Parks Dataset\",\"description\":\"Boundaries and amenities for Vienna parks\",\"picture\":\"https://…/parks.png\",\"license\":\"CC-BY-4.0\"}",
-"tags": [
-["d","city_parks_2025"],
-["bbox","16.1,48.1,16.7,48.4"],
-["g","u2yh7"],
-["a","37515:npub1pubkey…:a9d5ea20…"],
-["a","37515:npub1otherpubkey…:bb17c530…"],
-["t","parks"]
-]
-}
+Clients in the current app model SHOULD NOT surface kind `37516` as a first-class entity.
 
 ⸻
 
 2.3 Map Context Event (kind 37518)
 
-Map contexts provide shared taxonomy and optional schema validation envelopes for attached datasets/collections.
+Map contexts provide shared taxonomy, optional schema validation, Markdown narrative with inline NIP-27 references, and a binary policy for foreign attachments.
 
 Field Purpose
 kind 37518 identifies a map context definition.
-content JSON with { version?, name, description?, image?, contextUse, validationMode, geometryConstraints?, schemaDialect?, schema? }.
+content JSON with { name, description?, descriptionFormat?, image?, contextUse, validationMode, allowForeignAttachments?, geometryConstraints?, schemaDialect?, schema? }.
 tags Addressing and optional metadata.
 
 Tag Example Notes
@@ -165,29 +139,33 @@ d ["d", "hiking_trails"] Stable context identifier (parameterized replaceable ke
 bbox ["bbox", "16.1,48.1,16.7,48.4"] Optional geographic scope.
 t ["t", "history"] Optional hashtags.
 r ["r", "wss://geo.relay.org"] Optional relay hint.
-v ["v", "2"] Optional context version marker.
 schema-hash ["schema-hash", "sha256:..."] Optional schema integrity hint.
-parent ["parent", "37518:<pubkey>:<d>"] Optional hierarchy edge.
+a ["a", "37515:<pubkey>:<d>"] Queryable mirrored reference extracted from inline `nostr:naddr...` mentions in Markdown.
+c ["c", "37518:<pubkey>:<d>"] Optional attachment to an open parent / taxonomy context.
 
 Content fields:
 1. contextUse: taxonomy | validation | hybrid
 2. validationMode: none | optional | required
-3. geometryConstraints: optional object with `allowedTypes: GeoJSONGeometryType[]`
-4. schemaDialect: optional JSON Schema dialect URI (recommended 2020-12)
-5. schema: optional self-contained JSON Schema object (no external $ref in v1)
+3. descriptionFormat: currently `markdown`
+4. allowForeignAttachments: boolean. If false, clients SHOULD ignore foreign dataset and context attachments discovered via `c`, and the context is interpreted as `taxonomy` with `validationMode=none`.
+5. geometryConstraints: optional object with `allowedTypes: GeoJSONGeometryType[]`
+6. schemaDialect: optional JSON Schema dialect URI (recommended 2020-12)
+7. schema: optional self-contained JSON Schema object (no external $ref in v1)
+8. Inline `nostr:naddr...` mentions inside Markdown SHOULD be mirrored into `a` tags for queryability.
 
 Supported geometry types in v1:
 `Point | MultiPoint | LineString | MultiLineString | Polygon | MultiPolygon | GeometryCollection`
 
-Deterministic v1 interpretation (no attachment role field):
-1. Dataset + taxonomy context: taxonomy only, no schema validation.
-2. Dataset + validation/hybrid context: schema validation target.
-3. Collection attachment: reference/taxonomy lane only, never direct validation target.
-4. Collection attachment does not inherit to member datasets in v1.
+Deterministic v2 interpretation:
+1. Curated dataset references come from inline Markdown mentions mirrored into `a` tags.
+2. Foreign dataset and context attachments are considered only when `allowForeignAttachments=true`.
+3. Dataset + taxonomy context: taxonomy only, no schema validation.
+4. Dataset + validation/hybrid context: schema validation target.
 
 Context attachment tag semantics (`c`):
 1. `["c", "<context-coordinate>"]` where `<context-coordinate>` is `<kind>:<pubkey>:<d>`.
-2. Publishers may include multiple `c` tags to attach one event to multiple contexts.
+2. Publishers may include multiple `c` tags to attach one dataset or one child context to multiple contexts.
+3. Clients SHOULD NOT query or render foreign `c` attachments for a context whose content sets `allowForeignAttachments=false`.
 
 Validation behavior:
 1. `none`: no schema enforcement.
@@ -197,8 +175,9 @@ Validation behavior:
 5. A validation/hybrid context SHOULD define at least one effective constraint (schema rule or allowed geometry type).
 
 Two-lane context view behavior:
-1. Map lane: dataset candidates attached by `c`; strict mode includes only constraint-valid entries.
-2. Reference lane: attached collections (and similar references) shown for navigation/isolation, not for direct map-lane validation.
+1. Curated lane: datasets/contexts referenced inline in the Markdown body.
+2. Foreign lane: datasets and child contexts discovered via `c` when `allowForeignAttachments=true`.
+3. Map lane: the union of curated dataset refs and allowed foreign dataset attachments; strict mode includes only constraint-valid datasets.
 
 ⸻
 
@@ -220,7 +199,7 @@ Kind Purpose
 
 ⸻
 
-5 Versioning & Updates 1. Kinds 37515/37516/37518 are parameterized replaceable in this app model and SHOULD reuse the same d tag for updates. 2. Use the v tag to communicate a logical version sequence within a lineage. 3. Publish a new d only when intentionally creating a new lineage/breaking fork. 4. Reference predecessors via ["p", "<old-event-id>"] if history is desirable.
+5 Updates 1. Kinds 37515/37518 are parameterized replaceable in this app model and SHOULD reuse the same d tag for updates. 2. Publish a new d only when intentionally creating a new lineage/breaking fork. 3. Reference predecessors via ["p", "<old-event-id>"] if history is desirable.
 
 ⸻
 
@@ -231,7 +210,7 @@ Kind Purpose
 7 Interoperability Notes
 • Follows NIP-89 naming conventions where possible.
 • Uses only standard Nostr tag primitives – easy to extend.
-• Collection coordinates in the form <kind>:<pubkey>:<d> match NIP-51 list style.
+• Context coordinates in the form <kind>:<pubkey>:<d> remain the canonical attachment target.
 
 ⸻
 
@@ -353,7 +332,88 @@ Example reaction to a dataset:
 
 ⸻
 
-10 Open Questions / TODO
+10 Geo Edit Proposal Event (kind 37519)
+
+Edit proposals allow users to suggest changes to another user's GeoJSON dataset. The proposal contains the full replacement FeatureCollection — not a diff. The dataset owner can preview the proposed geometry on the map, then accept or reject.
+
+10.1 Event Structure
+
+Field Purpose
+kind 37519 identifies an edit proposal (parameterized replaceable).
+content JSON.stringify(...) of the proposed RFC 7946 FeatureCollection. Full replacement content.
+tags Target reference, metadata, and discovery (see below).
+
+10.2 Tags
+
+Tag Example Purpose
+d ["d", "pr8k2m1n"] Unique proposal identifier.
+a ["a", "37515:<owner-pubkey>:<dataset-d-tag>"] Address of the target dataset.
+p ["p", "<owner-pubkey>"] Dataset owner's pubkey (enables relay filtering and notifications).
+base-version ["base-version", "<event-id>"] Event ID of the dataset version this proposal is based on.
+description ["description", "Refined eastern boundary"] Human-readable summary of changes.
+bbox ["bbox", "16.1,48.1,16.7,48.4"] Bounding box of proposed content.
+g ["g", "u2yh7"] Geohash of proposed content centroid.
+t ["t", "parks"] Hashtags (typically carried from target).
+
+10.3 Status Tracking
+
+Proposal lifecycle is tracked with NIP-34 status event kinds (regular events, not replaceable):
+
+Kind Status Meaning
+1630 open Proposal is open for review (implicit default — no status event needed).
+1631 applied Owner accepted and republished the dataset with proposed content.
+1632 closed Owner rejected the proposal.
+1633 draft Proposer marked as work-in-progress.
+
+Status events reference the proposal via `a` tag (`37519:<proposer-pubkey>:<proposal-d-tag>`) and optionally `e` tag (proposal event ID). The `content` field may contain a reason string. A `p` tag SHOULD reference the proposal author for notifications.
+
+The latest status event by `created_at` determines the current proposal state. If no status events exist, the proposal is implicitly "open".
+
+10.4 Accept Flow
+
+1. Owner reviews proposal content (shown as map overlay).
+2. Owner clicks "Accept".
+3. Client creates a new NDKGeoEvent with the proposal's FeatureCollection.
+4. Client calls `publishUpdate(originalDataset)` — preserves d-tag lineage, increments version.
+5. Client carries forward the target's hashtags, collection references, context references, and relay hints.
+6. Client publishes a kind 1631 (applied) status event referencing the proposal.
+
+10.5 Example Proposal Event
+
+```json
+{
+  "kind": 37519,
+  "content": "{\"type\":\"FeatureCollection\",\"features\":[...]}",
+  "tags": [
+    ["d", "pr8k2m1n"],
+    ["a", "37515:npub1owner...:dataset-uuid"],
+    ["p", "npub1owner..."],
+    ["base-version", "abc123eventid..."],
+    ["description", "Refined southeastern border alignment"],
+    ["bbox", "12.0,50.0,15.0,51.5"],
+    ["g", "u2cb5"],
+    ["t", "boundaries"]
+  ]
+}
+```
+
+10.6 Example Status Event (Applied)
+
+```json
+{
+  "kind": 1631,
+  "content": "",
+  "tags": [
+    ["a", "37519:npub1proposer...:pr8k2m1n"],
+    ["e", "proposal-event-id"],
+    ["p", "npub1proposer..."]
+  ]
+}
+```
+
+⸻
+
+11 Open Questions / TODO
 • Should we reserve a separate kind for single Feature objects?
 • Add optional time tag for temporal datasets?
 • Handling tiled GeoJSON (e.g. RFC-8462 GeoJSON seq)?

@@ -2,10 +2,9 @@ import { coordAll } from '@turf/turf'
 import type { FeatureCollection } from 'geojson'
 import maplibregl from 'maplibre-gl'
 import { useCallback, useRef } from 'react'
+import { useChatStore } from '@/features/chat'
 import { resolveGeoEventFeatureCollection } from '@/lib/geo/resolveBlobReferences'
-import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoEvent, GeoBlobReference } from '@/lib/ndk/NDKGeoEvent'
-import { GEO_EVENT_KIND } from '@/lib/ndk/kinds'
 import { useEditorStore } from '../store'
 import type { EditorBlobReference } from '../types'
 import {
@@ -18,6 +17,13 @@ import {
 interface ResolvedCache {
 	eventId?: string | null
 	featureCollection: FeatureCollection
+}
+
+function createBlankDraftSourceId() {
+	if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+		return `session:${crypto.randomUUID()}`
+	}
+	return `session:${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 function getCollectionName(collection: FeatureCollection): string | undefined {
@@ -74,9 +80,16 @@ export function useDatasetManagement(
 	const setBlobDraftError = useEditorStore((state) => state.setBlobDraftError)
 	const setViewMode = useEditorStore((state) => state.setViewMode)
 	const setViewDataset = useEditorStore((state) => state.setViewDataset)
-	const setViewCollection = useEditorStore((state) => state.setViewCollection)
 	const setDatasetResolving = useEditorStore((state) => state.setDatasetResolving)
 	const setDatasetResolvingProgress = useEditorStore((state) => state.setDatasetResolvingProgress)
+	const setActiveGeoEditDraftId = useEditorStore((state) => state.setActiveGeoEditDraftId)
+	const createGeoEditDraft = useEditorStore((state) => state.createGeoEditDraft)
+	const loadGeoEditDraft = useEditorStore((state) => state.loadGeoEditDraft)
+	const deleteGeoEditDraft = useEditorStore((state) => state.deleteGeoEditDraft)
+	const createWorkspace = useEditorStore((state) => state.createWorkspace)
+	const updateWorkspace = useEditorStore((state) => state.updateWorkspace)
+	const deleteWorkspaceState = useEditorStore((state) => state.deleteWorkspace)
+	const setActiveWorkspaceId = useEditorStore((state) => state.setActiveWorkspaceId)
 	const activeContextScopeCoordinate = useEditorStore((state) => state.activeContextScopeCoordinate)
 
 	const getDatasetKey = useCallback(
@@ -166,6 +179,188 @@ export function useDatasetManagement(
 		setBlobDraftError,
 	])
 
+	const activateWorkspaceChat = useCallback((chatSessionId: string | null) => {
+		if (!chatSessionId) return
+		useChatStore.getState().switchChat(chatSessionId)
+	}, [])
+
+	const createWorkspaceChat = useCallback(() => {
+		const chatStore = useChatStore.getState()
+		chatStore.createChat()
+		return useChatStore.getState().activeChatId
+	}, [])
+
+	const applyEditingState = useCallback(
+		({
+			features,
+			activeDataset,
+			contextRefs,
+			collectionMeta,
+			blobReferences,
+		}: {
+			features: ReturnType<typeof convertGeoEventsToEditorFeatures>
+			activeDataset: NDKGeoEvent | null
+			contextRefs: string[]
+			collectionMeta: ReturnType<typeof extractCollectionMeta>
+			blobReferences: GeoBlobReference[]
+		}) => {
+			if (!editor) return
+			setActiveGeoEditDraftId(null)
+			editor.setFeatures(features)
+			setFeatures(features)
+			setActiveDataset(activeDataset)
+			setActiveDatasetContextRefs(contextRefs)
+			setPublishMessage(null)
+			setPublishError(null)
+			setSelectedFeatureIds([])
+			setCollectionMeta(collectionMeta)
+			setNewCollectionProp({ key: '', value: '' })
+			setNewFeatureProp({ key: '', value: '' })
+			setBlobReferences(convertGeoBlobReferencesToEditor(blobReferences))
+			setBlobPreviewCollection(null)
+			setPreviewingBlobReferenceId(null)
+			setBlobDraftUrl('')
+			setBlobDraftStatus('idle')
+			setBlobDraftError(null)
+			setViewMode('edit')
+			setViewDataset(null)
+		},
+		[
+			editor,
+			setActiveGeoEditDraftId,
+			setFeatures,
+			setActiveDataset,
+			setActiveDatasetContextRefs,
+			setPublishMessage,
+			setPublishError,
+			setSelectedFeatureIds,
+			setCollectionMeta,
+			setNewCollectionProp,
+			setNewFeatureProp,
+			setBlobReferences,
+			convertGeoBlobReferencesToEditor,
+			setBlobPreviewCollection,
+			setPreviewingBlobReferenceId,
+			setBlobDraftUrl,
+			setBlobDraftStatus,
+			setBlobDraftError,
+			setViewMode,
+			setViewDataset,
+		],
+	)
+
+	const switchToWorkspace = useCallback(
+		async (workspaceId: string) => {
+			if (!editor) return
+			const store = useEditorStore.getState()
+			const workspace = store.workspaces[workspaceId]
+			if (!workspace) return
+
+			setActiveWorkspaceId(workspaceId)
+			const chatSessionId = workspace.chatSessionId ?? createWorkspaceChat()
+			if (!workspace.chatSessionId) {
+				updateWorkspace(workspaceId, { chatSessionId })
+			}
+			activateWorkspaceChat(chatSessionId)
+
+			const event = workspace.datasetKey
+				? (geoEventsRef.current.find(
+						(geoEvent) => getDatasetKey(geoEvent) === workspace.datasetKey,
+					) ?? null)
+				: null
+
+			if (event) {
+				try {
+					await ensureResolvedFeatureCollection(event)
+				} catch (error) {
+					console.error('Failed to resolve external blobs for workspace dataset', error)
+					setPublishError('Failed to restore dataset blobs for this workspace.')
+					return
+				}
+			}
+
+			const draft = workspace.activeDraftId ? store.geoEditDrafts[workspace.activeDraftId] : null
+			if (draft) {
+				applyEditingState({
+					features: draft.features,
+					activeDataset: event,
+					contextRefs:
+						event?.contextReferences ??
+						(workspace.kind === 'scratch' && activeContextScopeCoordinate
+							? [activeContextScopeCoordinate]
+							: []),
+					collectionMeta: draft.collectionMeta,
+					blobReferences: event?.blobReferences ?? [],
+				})
+				loadGeoEditDraft(draft.id)
+				return
+			}
+
+			if (event) {
+				const datasetFeatures = convertGeoEventsToEditorFeatures(
+					[event],
+					resolvedCollectionResolver,
+				)
+				const collection = resolvedCollectionResolver(event) ?? event.featureCollection
+				const collectionMeta = extractCollectionMeta(collection)
+				applyEditingState({
+					features: datasetFeatures,
+					activeDataset: event,
+					contextRefs: event.contextReferences,
+					collectionMeta,
+					blobReferences: event.blobReferences,
+				})
+				const draftId = createGeoEditDraft(workspace.sourceId, {
+					name: collectionMeta.name,
+					description: collectionMeta.description,
+					collectionMeta,
+					features: datasetFeatures,
+					selectedFeatureIds: [],
+				})
+				updateWorkspace(workspaceId, {
+					activeDraftId: draftId,
+					datasetKey: workspace.datasetKey ?? getDatasetKey(event),
+				})
+				return
+			}
+
+			const collectionMeta = createDefaultCollectionMeta()
+			const contextRefs = activeContextScopeCoordinate ? [activeContextScopeCoordinate] : []
+			applyEditingState({
+				features: [],
+				activeDataset: null,
+				contextRefs,
+				collectionMeta,
+				blobReferences: [],
+			})
+			const draftId = createGeoEditDraft(workspace.sourceId, {
+				name: '',
+				description: '',
+				collectionMeta,
+				features: [],
+				selectedFeatureIds: [],
+			})
+			updateWorkspace(workspaceId, {
+				activeDraftId: draftId,
+			})
+		},
+		[
+			editor,
+			setActiveWorkspaceId,
+			activateWorkspaceChat,
+			createWorkspaceChat,
+			getDatasetKey,
+			ensureResolvedFeatureCollection,
+			setPublishError,
+			applyEditingState,
+			activeContextScopeCoordinate,
+			loadGeoEditDraft,
+			resolvedCollectionResolver,
+			createGeoEditDraft,
+			updateWorkspace,
+		],
+	)
+
 	const zoomToDataset = useCallback(
 		(event: NDKGeoEvent) => {
 			if (!mapRef.current) return
@@ -187,64 +382,6 @@ export function useDatasetManagement(
 
 			const collection = convertGeoEventsToFeatureCollection([event], resolvedCollectionResolver)
 			const coords = coordAll(collection)
-			// Filter out invalid coordinates (NaN, undefined, or out of valid lng/lat range)
-			const validCoords = coords.filter(
-				(coord): coord is [number, number] =>
-					Array.isArray(coord) &&
-					coord.length >= 2 &&
-					typeof coord[0] === 'number' &&
-					typeof coord[1] === 'number' &&
-					!Number.isNaN(coord[0]) &&
-					!Number.isNaN(coord[1]) &&
-					coord[0] >= -180 &&
-					coord[0] <= 180 &&
-					coord[1] >= -90 &&
-					coord[1] <= 90,
-			)
-			if (validCoords.length === 0) return
-			// Slice to [lng, lat] as MapLibre requires exactly 2-element arrays
-			const lngLatCoords = validCoords.map((c) => [c[0], c[1]] as [number, number])
-			const bounds = lngLatCoords.reduce(
-				(acc, coord) => acc.extend(coord),
-				new maplibregl.LngLatBounds(lngLatCoords[0], lngLatCoords[0]),
-			)
-			mapRef.current.fitBounds(bounds, { padding: 40, duration: 500 })
-		},
-		[mapRef, resolvedCollectionResolver],
-	)
-
-	const zoomToCollection = useCallback(
-		(collection: NDKGeoCollectionEvent, eventsInCollection: NDKGeoEvent[]) => {
-			if (!mapRef.current) return
-			const bbox = collection.boundingBox
-			if (bbox && bbox.length === 4) {
-				mapRef.current.fitBounds(
-					[
-						[bbox[0], bbox[1]],
-						[bbox[2], bbox[3]],
-					],
-					{ padding: 40, duration: 500 },
-				)
-				return
-			}
-
-			const eventsToUse =
-				eventsInCollection.length > 0
-					? eventsInCollection
-					: geoEventsRef.current.filter((event) => {
-							const datasetId = event.datasetId ?? event.dTag ?? event.id
-							if (!datasetId) return false
-							const coordinate = `${event.kind ?? GEO_EVENT_KIND}:${event.pubkey}:${datasetId}`
-							return collection.datasetReferences.includes(coordinate)
-						})
-
-			if (eventsToUse.length === 0) return
-
-			const collectionFc = convertGeoEventsToFeatureCollection(
-				eventsToUse,
-				resolvedCollectionResolver,
-			)
-			const coords = coordAll(collectionFc)
 			// Filter out invalid coordinates (NaN, undefined, or out of valid lng/lat range)
 			const validCoords = coords.filter(
 				(coord): coord is [number, number] =>
@@ -299,6 +436,15 @@ export function useDatasetManagement(
 	const loadDatasetForEditing = useCallback(
 		async (event: NDKGeoEvent) => {
 			if (!editor) return
+			const datasetKey = getDatasetKey(event)
+			const draftSourceId = `dataset:${datasetKey}`
+			const existingWorkspace = Object.values(useEditorStore.getState().workspaces).find(
+				(workspace) => workspace.sourceId === draftSourceId,
+			)
+			if (existingWorkspace?.activeDraftId) {
+				await switchToWorkspace(existingWorkspace.id)
+				return
+			}
 			try {
 				await ensureResolvedFeatureCollection(event)
 			} catch (error) {
@@ -307,56 +453,67 @@ export function useDatasetManagement(
 				return
 			}
 			const datasetFeatures = convertGeoEventsToEditorFeatures([event], resolvedCollectionResolver)
-			editor.setFeatures(datasetFeatures)
-			setFeatures(datasetFeatures)
-			setActiveDataset(event)
-			setActiveDatasetContextRefs(event.contextReferences)
-			setPublishMessage(null)
-			setPublishError(null)
-			setSelectedFeatureIds([])
 			const collection = resolvedCollectionResolver(event) ?? event.featureCollection
-			setCollectionMeta(extractCollectionMeta(collection))
-			setNewCollectionProp({ key: '', value: '' })
-			setNewFeatureProp({ key: '', value: '' })
-			setBlobReferences(convertGeoBlobReferencesToEditor(event.blobReferences))
-			setBlobPreviewCollection(null)
-			setPreviewingBlobReferenceId(null)
-			setBlobDraftUrl('')
-			setBlobDraftStatus('idle')
-			setBlobDraftError(null)
-			// Switch to edit mode and clear view state
-			setViewMode('edit')
-			setViewDataset(null)
-			setViewCollection(null)
+			const collectionMeta = extractCollectionMeta(collection)
+			const workspaceId =
+				existingWorkspace?.id ??
+				createWorkspace({
+					sourceId: draftSourceId,
+					label: collectionMeta.name || getDatasetName(event),
+					kind: 'dataset',
+					datasetKey,
+					chatSessionId: existingWorkspace?.chatSessionId ?? createWorkspaceChat(),
+				})
+			if (existingWorkspace) {
+				const chatSessionId = existingWorkspace.chatSessionId ?? createWorkspaceChat()
+				setActiveWorkspaceId(existingWorkspace.id)
+				activateWorkspaceChat(chatSessionId)
+				updateWorkspace(existingWorkspace.id, {
+					datasetKey,
+					chatSessionId,
+				})
+			}
+			applyEditingState({
+				features: datasetFeatures,
+				activeDataset: event,
+				contextRefs: event.contextReferences,
+				collectionMeta,
+				blobReferences: event.blobReferences,
+			})
+			const draftId = createGeoEditDraft(draftSourceId, {
+				name: collectionMeta.name,
+				description: collectionMeta.description,
+				collectionMeta,
+				features: datasetFeatures,
+				selectedFeatureIds: [],
+			})
+			updateWorkspace(workspaceId, {
+				activeDraftId: draftId,
+				datasetKey,
+			})
 		},
 		[
 			editor,
+			getDatasetName,
 			ensureResolvedFeatureCollection,
-			setPublishError,
+			getDatasetKey,
+			switchToWorkspace,
 			resolvedCollectionResolver,
-			setFeatures,
-			setActiveDataset,
-			setActiveDatasetContextRefs,
-			setPublishMessage,
-			setSelectedFeatureIds,
-			setCollectionMeta,
-			setNewCollectionProp,
-			setNewFeatureProp,
-			setBlobReferences,
-			convertGeoBlobReferencesToEditor,
-			setBlobPreviewCollection,
-			setPreviewingBlobReferenceId,
-			setBlobDraftUrl,
-			setBlobDraftStatus,
-			setBlobDraftError,
-			setViewMode,
-			setViewDataset,
-			setViewCollection,
+			createWorkspace,
+			createWorkspaceChat,
+			setActiveWorkspaceId,
+			activateWorkspaceChat,
+			updateWorkspace,
+			applyEditingState,
+			createGeoEditDraft,
+			setPublishError,
 		],
 	)
 
 	const clearEditingSession = useCallback(() => {
 		if (!editor) return
+		setActiveGeoEditDraftId(null)
+		setActiveWorkspaceId(null)
 		editor.setFeatures([])
 		setFeatures([])
 		setActiveDataset(null)
@@ -380,7 +537,136 @@ export function useDatasetManagement(
 		setNewCollectionProp,
 		setNewFeatureProp,
 		resetBlobReferenceState,
+		setActiveGeoEditDraftId,
+		setActiveWorkspaceId,
 	])
+
+	const deleteWorkspace = useCallback(
+		async (workspaceId: string) => {
+			const store = useEditorStore.getState()
+			const workspace = store.workspaces[workspaceId]
+			if (!workspace) return
+
+			const isActiveWorkspace = store.activeWorkspaceId === workspaceId
+			const nextWorkspaceId = isActiveWorkspace
+				? (Object.values(store.workspaces)
+						.filter((candidate) => candidate.id !== workspaceId)
+						.sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id ?? null)
+				: store.activeWorkspaceId
+
+			if (workspace.chatSessionId) {
+				useChatStore.getState().deleteChat(workspace.chatSessionId)
+			}
+			if (workspace.activeDraftId) {
+				deleteGeoEditDraft(workspace.activeDraftId)
+			}
+
+			deleteWorkspaceState(workspaceId)
+
+			if (!isActiveWorkspace) return
+			if (nextWorkspaceId && editor) {
+				await switchToWorkspace(nextWorkspaceId)
+				return
+			}
+			if (editor) {
+				clearEditingSession()
+				return
+			}
+
+			useEditorStore.getState().setActiveGeoEditDraftId(null)
+		},
+		[clearEditingSession, deleteGeoEditDraft, deleteWorkspaceState, editor, switchToWorkspace],
+	)
+
+	const createDraftInWorkspace = useCallback(
+		async (workspaceId: string) => {
+			if (!editor) return
+			const beforeSwitch = useEditorStore.getState()
+			if (!beforeSwitch.workspaces[workspaceId]) return
+			if (beforeSwitch.activeWorkspaceId !== workspaceId) {
+				await switchToWorkspace(workspaceId)
+			}
+
+			const store = useEditorStore.getState()
+			const workspace = store.workspaces[workspaceId]
+			if (!workspace) return
+
+			if (workspace.datasetKey) {
+				const event =
+					geoEventsRef.current.find(
+						(geoEvent) => getDatasetKey(geoEvent) === workspace.datasetKey,
+					) ?? null
+				if (event) {
+					try {
+						await ensureResolvedFeatureCollection(event)
+					} catch (error) {
+						console.error('Failed to resolve external blobs for fresh workspace draft', error)
+						setPublishError('Failed to load dataset blobs. Check console for details.')
+						return
+					}
+
+					const datasetFeatures = convertGeoEventsToEditorFeatures(
+						[event],
+						resolvedCollectionResolver,
+					)
+					const collection = resolvedCollectionResolver(event) ?? event.featureCollection
+					const collectionMeta = extractCollectionMeta(collection)
+
+					applyEditingState({
+						features: datasetFeatures,
+						activeDataset: event,
+						contextRefs: event.contextReferences,
+						collectionMeta,
+						blobReferences: event.blobReferences,
+					})
+
+					const draftId = createGeoEditDraft(workspace.sourceId, {
+						name: collectionMeta.name,
+						description: collectionMeta.description,
+						collectionMeta,
+						features: datasetFeatures,
+						selectedFeatureIds: [],
+					})
+					updateWorkspace(workspaceId, {
+						activeDraftId: draftId,
+					})
+					return
+				}
+			}
+
+			const collectionMeta = createDefaultCollectionMeta()
+			const contextRefs = activeContextScopeCoordinate ? [activeContextScopeCoordinate] : []
+			applyEditingState({
+				features: [],
+				activeDataset: null,
+				contextRefs,
+				collectionMeta,
+				blobReferences: [],
+			})
+			const draftId = createGeoEditDraft(workspace.sourceId, {
+				name: '',
+				description: '',
+				collectionMeta,
+				features: [],
+				selectedFeatureIds: [],
+			})
+			updateWorkspace(workspaceId, {
+				activeDraftId: draftId,
+			})
+		},
+		[
+			editor,
+			switchToWorkspace,
+			getDatasetKey,
+			ensureResolvedFeatureCollection,
+			setPublishError,
+			resolvedCollectionResolver,
+			applyEditingState,
+			createGeoEditDraft,
+			updateWorkspace,
+			activeContextScopeCoordinate,
+		],
+	)
 
 	/**
 	 * Start a new dataset editing session.
@@ -388,37 +674,40 @@ export function useDatasetManagement(
 	 */
 	const startNewDataset = useCallback(() => {
 		if (!editor) return
-		editor.setFeatures([])
-		setFeatures([])
-		setActiveDataset(null)
-		setActiveDatasetContextRefs(activeContextScopeCoordinate ? [activeContextScopeCoordinate] : [])
-		setPublishMessage(null)
-		setPublishError(null)
-		setSelectedFeatureIds([])
-		setCollectionMeta(createDefaultCollectionMeta())
-		setNewCollectionProp({ key: '', value: '' })
-		setNewFeatureProp({ key: '', value: '' })
-		resetBlobReferenceState()
-		// Switch to edit mode
-		setViewMode('edit')
-		setViewDataset(null)
-		setViewCollection(null)
+		const collectionMeta = createDefaultCollectionMeta()
+		const contextRefs = activeContextScopeCoordinate ? [activeContextScopeCoordinate] : []
+		const draftSourceId = createBlankDraftSourceId()
+		const workspaceId = createWorkspace({
+			sourceId: draftSourceId,
+			label: 'Untitled workspace',
+			kind: 'scratch',
+			chatSessionId: createWorkspaceChat(),
+		})
+		applyEditingState({
+			features: [],
+			activeDataset: null,
+			contextRefs,
+			collectionMeta,
+			blobReferences: [],
+		})
+		const draftId = createGeoEditDraft(draftSourceId, {
+			name: '',
+			description: '',
+			collectionMeta,
+			features: [],
+			selectedFeatureIds: [],
+		})
+		updateWorkspace(workspaceId, {
+			activeDraftId: draftId,
+		})
 	}, [
 		editor,
-		setFeatures,
-		setActiveDataset,
 		activeContextScopeCoordinate,
-		setActiveDatasetContextRefs,
-		setPublishMessage,
-		setPublishError,
-		setSelectedFeatureIds,
-		setCollectionMeta,
-		setNewCollectionProp,
-		setNewFeatureProp,
-		resetBlobReferenceState,
-		setViewMode,
-		setViewDataset,
-		setViewCollection,
+		createWorkspace,
+		createWorkspaceChat,
+		applyEditingState,
+		createGeoEditDraft,
+		updateWorkspace,
 	])
 
 	/**
@@ -427,6 +716,7 @@ export function useDatasetManagement(
 	 */
 	const cancelEditing = useCallback(() => {
 		if (!editor) return
+		setActiveGeoEditDraftId(null)
 		editor.setFeatures([])
 		setFeatures([])
 		setActiveDataset(null)
@@ -441,7 +731,6 @@ export function useDatasetManagement(
 		// Return to view mode
 		setViewMode('view')
 		setViewDataset(null)
-		setViewCollection(null)
 	}, [
 		editor,
 		setFeatures,
@@ -456,22 +745,8 @@ export function useDatasetManagement(
 		resetBlobReferenceState,
 		setViewMode,
 		setViewDataset,
-		setViewCollection,
+		setActiveGeoEditDraftId,
 	])
-
-	const resolveEventsForCollection = useCallback(
-		(collection: NDKGeoCollectionEvent): NDKGeoEvent[] => {
-			const references = new Set(collection.datasetReferences)
-			if (references.size === 0) return []
-			return geoEventsRef.current.filter((event) => {
-				const datasetId = event.datasetId ?? event.dTag ?? event.id
-				if (!datasetId) return false
-				const coordinate = `${event.kind ?? GEO_EVENT_KIND}:${event.pubkey}:${datasetId}`
-				return references.has(coordinate)
-			})
-		},
-		[],
-	)
 
 	return {
 		// Refs
@@ -485,13 +760,14 @@ export function useDatasetManagement(
 		ensureResolvedFeatureCollection,
 		convertGeoBlobReferencesToEditor,
 		resetBlobReferenceState,
-		resolveEventsForCollection,
 		// Actions
 		zoomToDataset,
-		zoomToCollection,
 		toggleDatasetVisibility,
 		toggleAllDatasetVisibility,
 		loadDatasetForEditing,
+		switchToWorkspace,
+		deleteWorkspace,
+		createDraftInWorkspace,
 		clearEditingSession,
 		startNewDataset,
 		cancelEditing,

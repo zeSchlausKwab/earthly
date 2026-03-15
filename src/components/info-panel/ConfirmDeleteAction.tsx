@@ -1,0 +1,76 @@
+import { Loader2, Trash2, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Button } from '../ui/button'
+
+interface ConfirmDeleteActionProps {
+	label: string
+	isDeleting?: boolean
+	onConfirm: () => void
+	className?: string
+}
+
+export function ConfirmDeleteAction({
+	label,
+	isDeleting = false,
+	onConfirm,
+	className = '',
+}: ConfirmDeleteActionProps) {
+	const [confirming, setConfirming] = useState(false)
+
+	useEffect(() => {
+		if (!isDeleting) {
+			setConfirming(false)
+		}
+	}, [isDeleting])
+
+	if (confirming || isDeleting) {
+		return (
+			<div
+				className={`flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 p-0.5 ${className}`}
+			>
+				<Button
+					type="button"
+					size="icon-sm"
+					variant="ghost"
+					onClick={() => setConfirming(false)}
+					disabled={isDeleting}
+					aria-label={`Cancel ${label.toLowerCase()} deletion`}
+					title={`Keep ${label.toLowerCase()}`}
+				>
+					<X className="h-3 w-3" />
+				</Button>
+				<span className="text-[10px] text-rose-700 leading-tight px-0.5">Cannot be undone</span>
+				<Button
+					type="button"
+					size="sm"
+					variant="destructive"
+					onClick={onConfirm}
+					disabled={isDeleting}
+					aria-label={`Confirm ${label.toLowerCase()} deletion`}
+					className="h-6 gap-1 px-2 text-xs"
+				>
+					{isDeleting ? (
+						<Loader2 className="h-3 w-3 animate-spin" />
+					) : (
+						<Trash2 className="h-3 w-3" />
+					)}
+					{isDeleting ? 'Deleting…' : 'Delete'}
+				</Button>
+			</div>
+		)
+	}
+
+	return (
+		<Button
+			type="button"
+			size="icon-sm"
+			variant="destructive"
+			onClick={() => setConfirming(true)}
+			aria-label={`Delete ${label.toLowerCase()}`}
+			title={`Delete ${label.toLowerCase()}`}
+			className={className}
+		>
+			<Trash2 className="h-3 w-3" />
+		</Button>
+	)
+}

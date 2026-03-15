@@ -1,4 +1,5 @@
 import type { StateCreator } from 'zustand'
+import { writeScopedStorage } from './persistence'
 import type { EditorCoreSlice, EditorState } from './types'
 
 export const createEditorCoreSlice: StateCreator<EditorState, [], [], EditorCoreSlice> = (
@@ -35,6 +36,7 @@ export const createEditorCoreSlice: StateCreator<EditorState, [], [], EditorCore
 			writePersistedGeoCollectionDraftState(nextDrafts, activeGeoEditDraftId)
 			return {
 				features,
+				isDirty: true,
 				geoEditDrafts: nextDrafts,
 			}
 		})
@@ -106,13 +108,5 @@ export const writePersistedGeoCollectionDraftState = (
 	drafts: Record<string, GeoCollectionEditDraft>,
 	activeDraftId: string | null,
 ) => {
-	if (typeof window === 'undefined') return
-	try {
-		window.localStorage.setItem(
-			GEO_COLLECTION_DRAFTS_STORAGE_KEY,
-			JSON.stringify({ drafts, activeDraftId }),
-		)
-	} catch (error) {
-		console.warn('Failed to persist geo collection drafts to localStorage', error)
-	}
+	writeScopedStorage(GEO_COLLECTION_DRAFTS_STORAGE_KEY, { drafts, activeDraftId })
 }

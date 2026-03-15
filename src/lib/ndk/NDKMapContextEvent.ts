@@ -1,4 +1,4 @@
-import { NDKEvent, type NDKSigner, registerEventClass } from '@nostr-dev-kit/react'
+import NDK, { NDKEvent, NDKKind, type NDKSigner, registerEventClass } from '@nostr-dev-kit/react'
 import { MAP_CONTEXT_KIND } from './kinds'
 import type { GeoBoundingBox } from './NDKGeoEvent'
 import { generateShortDTag } from './dTag'
@@ -21,22 +21,25 @@ export interface MapContextGeometryConstraints {
 }
 
 export interface MapContextContent {
-	version?: 1
 	name: string
 	description?: string
+	descriptionFormat?: 'markdown'
+	references?: string[]
 	image?: string
 	contextUse: MapContextUse
 	validationMode: MapContextValidationMode
+	allowForeignAttachments?: boolean
 	geometryConstraints?: MapContextGeometryConstraints
 	schemaDialect?: string
 	schema?: Record<string, unknown>
 }
 
 const DEFAULT_CONTENT: MapContextContent = {
-	version: 1,
 	name: '',
+	descriptionFormat: 'markdown',
 	contextUse: 'taxonomy',
 	validationMode: 'none',
+	allowForeignAttachments: false,
 }
 
 export class NDKMapContextEvent extends NDKEvent {
@@ -125,6 +128,27 @@ export class NDKMapContextEvent extends NDKEvent {
 		this.replaceOptionalTag('v', value)
 	}
 
+	get contextReferences(): string[] {
+		return this.tags
+			.filter((tag) => tag[0] === 'c')
+			.flatMap((tag) => (typeof tag[1] === 'string' && tag[1] ? [tag[1]] : []))
+	}
+
+	set contextReferences(contexts: string[] | undefined) {
+		this.removeTag('c')
+		contexts?.forEach((value) => {
+			if (value) {
+				this.tags.push(['c', value])
+			}
+		})
+	}
+
+	get referencedAddresses(): string[] {
+		return this.tags
+			.filter((tag) => tag[0] === 'a')
+			.flatMap((tag) => (typeof tag[1] === 'string' && tag[1] ? [tag[1]] : []))
+	}
+
 	get schemaHash(): string | undefined {
 		return this.tagValue('schema-hash')
 	}
@@ -166,6 +190,33 @@ export class NDKMapContextEvent extends NDKEvent {
 		await this.prepareForPublish(signer)
 		await this.publish()
 		return this
+	}
+
+	static async deleteContext(
+		ndk: NDK,
+		context: NDKMapContextEvent,
+		reason?: string,
+		signer?: NDKSigner,
+	): Promise<void> {
+		const contextId = context.contextId ?? context.dTag
+		if (!contextId) {
+			throw new Error('Context is missing a d tag and cannot be deleted.')
+		}
+		if (!context.pubkey) {
+			throw new Error('Context is missing a pubkey and cannot be deleted.')
+		}
+
+		const contextKind = context.kind ?? MAP_CONTEXT_KIND
+		const deletion = new NDKEvent(ndk)
+		deletion.kind = NDKKind.EventDeletion
+		deletion.content = reason ?? ''
+		deletion.tags.push(['a', `${contextKind}:${context.pubkey}:${contextId}`])
+		if (context.id) {
+			deletion.tags.push(['e', context.id])
+		}
+
+		await deletion.sign(signer)
+		await deletion.publish()
 	}
 }
 

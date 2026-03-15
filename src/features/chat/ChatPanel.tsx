@@ -1,26 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { FeatureCollection } from 'geojson'
 import { useChatStore } from './store'
 import { useNip60Store } from '@/lib/stores/nip60'
+import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useEditorStore } from '@/features/geo-editor/store'
-import { createDefaultCollectionMeta } from '@/features/geo-editor/utils'
-import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
+import {
+	EntityReferenceToolbar,
+	getEntityReferenceKey,
+	type EntitySearchResult,
+} from '@/components/entity-search'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import type { EditorFeature } from '@/features/geo-editor/core'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from '@/components/ui/select'
-import {
+	AlertTriangle,
 	Loader2,
 	Send,
 	Trash2,
-	Plus,
+	Settings2,
 	Wallet,
 	Bot,
 	User,
@@ -33,18 +34,20 @@ import {
 	Check,
 	Copy,
 	ArrowDownToLine,
-	ChevronDown,
 } from 'lucide-react'
 import { estimateTokens, type ChatMessage, type ToolCall, type ProviderType } from './routstr'
 import { analyzeToolResultGeometryContent, bakeToolResultContentToEditor } from './tools'
+import { ChatGeometryAttachment } from './ChatGeometryAttachment'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import type { ChatReference } from './store'
 
 const EMPTY_STATE_PROMPTS = [
 	'Get me the route from Linz to Vienna and bring it to the editor.',
 	'Generate a 20-minute bicycle isochrone from the current map center and add it to the editor.',
-	'Find military bases in the current viewport and add them as points with useful metadata in properties.',
+	'Give me all military installations as points in Saudi Arabia. Keep only features within Saudi borders and preserve useful metadata.',
+	'Give me the River Elbe within German borders only. Keep it as line geometry clipped to Germany.',
+	'Use the currently selected polygon as the search area and add all parking benches inside it.',
 	'Resolve Vienna as an OSM relation, fetch clean boundary geometry, and import it into the editor.',
 	'Import all rivers in my current viewport and label the major ones.',
 	'Capture a map snapshot and tell me what notable places are visible right now.',
@@ -61,56 +64,47 @@ const PROVIDER_LABELS: Record<ProviderType, string> = {
 
 interface ChatPanelProps {
 	geoEvents?: NDKGeoEvent[]
-	collectionEvents?: NDKGeoCollectionEvent[]
 	mapContextEvents?: NDKMapContextEvent[]
 	availableFeatures?: GeoFeatureItem[]
 	getDatasetName?: (event: NDKGeoEvent) => string
+	onStartNewDataset?: () => void
+	onSwitchWorkspace?: (workspaceId: string) => void
+	onOpenSettings?: () => void
 }
 
 const defaultGetDatasetName = (event: NDKGeoEvent): string =>
 	event.datasetId ?? event.dTag ?? event.id ?? 'Untitled'
 
-function ensureChatEditSession(): void {
-	const store = useEditorStore.getState()
-	if (store.viewMode === 'edit') return
-
-	// Mirror `startNewDataset` behavior so chat tools always have a clean edit session.
-	store.editor?.setFeatures([])
-	store.setFeatures([])
-	store.setActiveDataset(null)
-	store.setActiveDatasetContextRefs(
-		store.activeContextScopeCoordinate ? [store.activeContextScopeCoordinate] : [],
+function DangerIndicator() {
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<span className="inline-flex shrink-0 items-center justify-center text-orange-500 dark:text-orange-400">
+					<AlertTriangle className="h-3.5 w-3.5" />
+				</span>
+			</TooltipTrigger>
+			<TooltipContent side="top" sideOffset={6}>
+				danger
+			</TooltipContent>
+		</Tooltip>
 	)
-	store.setPublishMessage(null)
-	store.setPublishError(null)
-	store.setSelectedFeatureIds([])
-	store.setCollectionMeta(createDefaultCollectionMeta())
-	store.setNewCollectionProp({ key: '', value: '' })
-	store.setNewFeatureProp({ key: '', value: '' })
-	store.setBlobReferences([])
-	store.setBlobPreviewCollection(null)
-	store.setPreviewingBlobReferenceId(null)
-	store.setBlobDraftUrl('')
-	store.setBlobDraftStatus('idle')
-	store.setBlobDraftError(null)
-	store.setViewMode('edit')
-	store.setViewDataset(null)
-	store.setViewCollection(null)
 }
 
 export function ChatPanel({
-	geoEvents: _geoEvents = [],
-	collectionEvents: _collectionEvents = [],
-	mapContextEvents: _mapContextEvents = [],
-	availableFeatures: _availableFeatures = [],
-	getDatasetName: _getDatasetName = defaultGetDatasetName,
+	geoEvents = [],
+	mapContextEvents = [],
+	availableFeatures = [],
+	getDatasetName = defaultGetDatasetName,
+	onStartNewDataset,
+	onSwitchWorkspace,
+	onOpenSettings,
 }: ChatPanelProps) {
 	const {
 		messages,
-		models,
-		selectedModel,
 		chatSessions,
 		activeChatId,
+		models,
+		selectedModel,
 		modelsLoading,
 		modelsError,
 		isStreaming,
@@ -125,34 +119,39 @@ export function ChatPanel({
 		diagnostics,
 		provider,
 		customEndpoint,
-		customApiKey,
-		setProvider,
-		setCustomEndpoint,
-		setCustomApiKey,
 		loadModels,
-		setSelectedModel,
-		setToolsEnabled,
 		sendMessage,
 		createChat,
 		switchChat,
 		deleteChat,
+		references,
+		setReferences,
 		cancelStream,
 	} = useChatStore()
+	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
+	const updateWorkspace = useEditorStore((state) => state.updateWorkspace)
+	const setMobilePanelTab = useEditorStore((state) => state.setMobilePanelTab)
+	const setMobilePanelOpen = useEditorStore((state) => state.setMobilePanelOpen)
+	const editorFeatures = useEditorStore((state) => state.features)
+	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 
 	const { status: walletStatus, balance: walletBalance } = useNip60Store()
+	const isMobile = useIsMobile()
 
 	const [input, setInput] = useState('')
-	const [settingsOpen, setSettingsOpen] = useState(false)
+	const [selectionContextEnabled, setSelectionContextEnabled] = useState(false)
+	const [attachedGeometry, setAttachedGeometry] = useState<FeatureCollection | null>(null)
 	const [nowMs, setNowMs] = useState(Date.now())
 	const messagesEndRef = useRef<HTMLDivElement>(null)
 	const textareaRef = useRef<HTMLTextAreaElement>(null)
 
 	// Load models on mount
 	useEffect(() => {
+		if (provider === 'custom' && !customEndpoint.trim()) return
 		if (models.length === 0 && !modelsLoading && !modelsError) {
-			loadModels()
+			void loadModels()
 		}
-	}, [models.length, modelsLoading, modelsError, loadModels])
+	}, [customEndpoint, loadModels, models.length, modelsError, modelsLoading, provider])
 
 	// Auto-scroll to bottom when messages change
 	const scrollTrigger = `${messages.length}:${streamingContent.length}:${executingTools ? 1 : 0}:${streamWarning ? 1 : 0}`
@@ -177,28 +176,86 @@ export function ChatPanel({
 		return () => window.clearInterval(interval)
 	}, [isStreaming])
 
+	const selectedEditorFeatures = useMemo(() => {
+		if (selectedFeatureIds.length === 0) return []
+		const selectedIds = new Set(selectedFeatureIds)
+		return editorFeatures.filter((feature) => selectedIds.has(feature.id))
+	}, [editorFeatures, selectedFeatureIds])
+	const selectedPolygonCount = useMemo(
+		() =>
+			selectedEditorFeatures.filter(
+				(feature) =>
+					feature.geometry?.type === 'Polygon' || feature.geometry?.type === 'MultiPolygon',
+			).length,
+		[selectedEditorFeatures],
+	)
+
+	useEffect(() => {
+		if (selectedEditorFeatures.length > 0) return
+		setSelectionContextEnabled(false)
+	}, [selectedEditorFeatures.length])
+
+	useEffect(() => {
+		void activeChatId
+		setAttachedGeometry(null)
+		setSelectionContextEnabled(false)
+	}, [activeChatId])
+
+	const ensureChatWorkspace = () => {
+		const store = useEditorStore.getState()
+		if (store.activeWorkspaceId) {
+			onSwitchWorkspace?.(store.activeWorkspaceId)
+			return true
+		}
+		onStartNewDataset?.()
+		return Boolean(useEditorStore.getState().activeWorkspaceId)
+	}
+
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault()
 		if (!input.trim() || isStreaming) return
 
 		const message = input.trim()
+		const geometryContextMessage = attachedGeometry
+			? buildAttachedGeometryContextMessage(attachedGeometry)
+			: undefined
 		setInput('')
-		ensureChatEditSession()
-		await sendMessage(message)
+		if (!ensureChatWorkspace()) return
+		await sendMessage(message, {
+			referenceContextMessage: buildReferenceContextMessage(references),
+			selectionContextMessage: selectionContextEnabled
+				? buildSelectedGeometryContextMessage(selectedEditorFeatures)
+				: undefined,
+			geometryContextMessage,
+			geometryAttachment: attachedGeometry,
+		})
+		if (geometryContextMessage) {
+			setAttachedGeometry(null)
+		}
+	}
+
+	const bindActiveWorkspaceChat = (chatId: string | null) => {
+		if (!activeWorkspaceId || !chatId) return
+		updateWorkspace(activeWorkspaceId, { chatSessionId: chatId })
 	}
 
 	const handleCreateChat = () => {
-		ensureChatEditSession()
+		if (isStreaming) return
 		createChat()
+		const nextChatId = useChatStore.getState().activeChatId
+		bindActiveWorkspaceChat(nextChatId)
 	}
 
 	const handleSwitchChat = (chatId: string) => {
+		if (isStreaming) return
 		switchChat(chatId)
+		bindActiveWorkspaceChat(chatId)
 	}
 
 	const handleDeleteChat = () => {
-		if (!activeChatId) return
+		if (!activeChatId || isStreaming) return
 		deleteChat(activeChatId)
+		bindActiveWorkspaceChat(useChatStore.getState().activeChatId)
 	}
 
 	const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -215,15 +272,54 @@ export function ChatPanel({
 		})
 	}
 
+	const handleAddReference = (result: EntitySearchResult) => {
+		const key = getEntityReferenceKey(result)
+		const nextReference: ChatReference = {
+			id: result.id,
+			name: result.name,
+			type: result.type,
+			subtitle: result.subtitle,
+			address: result.address,
+			pubkey: result.pubkey,
+			createdAt: result.createdAt,
+		}
+		if (references.some((reference) => getChatReferenceKey(reference) === key)) return
+		setReferences([...references, nextReference])
+	}
+
+	const handleRemoveReference = (referenceKey: string) => {
+		setReferences(references.filter((reference) => getChatReferenceKey(reference) !== referenceKey))
+	}
+
+	const handleClearReferences = () => {
+		setReferences([])
+	}
+
 	const selectedModelData = models.find((m) => m.id === selectedModel)
 	const sortedChatSessions = useMemo(
 		() => [...chatSessions].sort((a, b) => b.updatedAt - a.updatedAt),
 		[chatSessions],
 	)
+	const activeChatSession = useMemo(
+		() => sortedChatSessions.find((chat) => chat.id === activeChatId) ?? null,
+		[activeChatId, sortedChatSessions],
+	)
 	const selectedModelLabel = selectedModelData?.name ?? 'No model selected'
 	const providerLabel = PROVIDER_LABELS[provider]
 	const isWalletRequired = provider === 'routstr'
 	const canSend = !!selectedModel && (!isWalletRequired || walletStatus === 'ready')
+	const handleOpenSettings = () => {
+		if (onOpenSettings) {
+			onOpenSettings()
+			return
+		}
+		if (isMobile) {
+			setMobilePanelTab('settings')
+			setMobilePanelOpen(true)
+			return
+		}
+		window.location.hash = '#/settings'
+	}
 	const stalledSeconds =
 		isStreaming && lastProgressAt ? Math.max(0, Math.floor((nowMs - lastProgressAt) / 1000)) : 0
 	const phaseLabel = useMemo(() => {
@@ -272,26 +368,34 @@ export function ChatPanel({
 						onClick={handleCreateChat}
 						disabled={isStreaming}
 					>
-						<Plus className="h-3.5 w-3.5 mr-1" />
 						New chat
 					</Button>
 					<Select
 						value={activeChatId ?? ''}
 						onValueChange={handleSwitchChat}
-						disabled={isStreaming || sortedChatSessions.length === 0}
+						disabled={isStreaming}
 					>
-						<SelectTrigger className="h-auto min-h-8 flex-1 min-w-0 items-start text-xs whitespace-normal *:data-[slot=select-value]:line-clamp-none *:data-[slot=select-value]:whitespace-normal *:data-[slot=select-value]:break-all *:data-[slot=select-value]:text-left">
-							<SelectValue placeholder="Select chat" />
+						<SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
+							{activeChatSession ? (
+								<div className="flex min-w-0 items-center gap-2">
+									<span className="min-w-0 flex-1 truncate text-left">
+										{activeChatSession.title}
+									</span>
+									<span className="shrink-0 text-[10px] text-muted-foreground">
+										{new Date(activeChatSession.updatedAt).toLocaleTimeString()}
+									</span>
+								</div>
+							) : (
+								<span className="truncate text-muted-foreground">Select chat</span>
+							)}
 						</SelectTrigger>
 						<SelectContent>
 							{sortedChatSessions.map((chat) => (
 								<SelectItem key={chat.id} value={chat.id}>
-									<div className="flex min-w-0 items-start gap-2">
-										<span className="min-w-0 break-all whitespace-normal">
-											{chat.title || 'New chat'}
-										</span>
+									<div className="flex min-w-0 items-center gap-2">
+										<span className="truncate">{chat.title}</span>
 										<span className="shrink-0 text-[10px] text-muted-foreground">
-											{new Date(chat.updatedAt).toLocaleDateString()}
+											{new Date(chat.updatedAt).toLocaleTimeString()}
 										</span>
 									</div>
 								</SelectItem>
@@ -311,97 +415,30 @@ export function ChatPanel({
 				</div>
 
 				<div className="flex items-center gap-2">
-					<Collapsible
-						open={settingsOpen}
-						onOpenChange={setSettingsOpen}
-						className="flex-1 min-w-0"
+					<div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border bg-muted/20 px-2.5 py-2">
+						<Bot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+						<div className="min-w-0">
+							<p className="flex items-center gap-1.5 truncate text-xs font-medium">
+								<span className="truncate">{providerLabel}</span>
+								{provider === 'routstr' ? <DangerIndicator /> : null}
+								<span className="shrink-0">·</span>
+								<span className="truncate">{selectedModelLabel}</span>
+							</p>
+							<p className="truncate text-[11px] text-muted-foreground">
+								Configure provider, model, tools, and credentials in Settings
+							</p>
+						</div>
+					</div>
+					<Button
+						type="button"
+						variant="outline"
+						size="icon"
+						onClick={handleOpenSettings}
+						title="Open chat settings"
+						aria-label="Open chat settings"
 					>
-						<CollapsibleTrigger asChild>
-							<Button
-								type="button"
-								variant="outline"
-								className="w-full h-8 justify-between px-2 text-xs font-normal"
-							>
-								<span className="truncate">
-									{providerLabel} · {selectedModelLabel}
-								</span>
-								<ChevronDown
-									className={cn('h-3.5 w-3.5 transition-transform', settingsOpen && 'rotate-180')}
-								/>
-							</Button>
-						</CollapsibleTrigger>
-						<CollapsibleContent className="space-y-1.5 pt-2">
-							<Select
-								value={provider}
-								onValueChange={(v) => setProvider(v as ProviderType)}
-								disabled={isStreaming}
-							>
-								<SelectTrigger className="h-8 text-xs">
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="routstr">Routstr (paid)</SelectItem>
-									<SelectItem value="lmstudio">LM Studio</SelectItem>
-									<SelectItem value="ollama">Ollama</SelectItem>
-									<SelectItem value="custom">Custom endpoint</SelectItem>
-								</SelectContent>
-							</Select>
-
-							{provider === 'custom' && (
-								<div className="space-y-1.5">
-									<Input
-										placeholder="http://localhost:8080/v1"
-										value={customEndpoint}
-										onChange={(e) => setCustomEndpoint(e.target.value)}
-										disabled={isStreaming}
-										className="text-xs h-7"
-									/>
-									<Input
-										placeholder="API key (optional)"
-										type="password"
-										value={customApiKey}
-										onChange={(e) => setCustomApiKey(e.target.value)}
-										disabled={isStreaming}
-										className="text-xs h-7"
-									/>
-									<Button
-										variant="outline"
-										size="sm"
-										className="h-7 text-xs w-full"
-										onClick={loadModels}
-										disabled={!customEndpoint || isStreaming}
-									>
-										Connect
-									</Button>
-								</div>
-							)}
-
-							<Select
-								value={selectedModel || ''}
-								onValueChange={setSelectedModel}
-								disabled={modelsLoading || isStreaming}
-							>
-								<SelectTrigger className="h-8 text-xs">
-									<SelectValue placeholder={modelsLoading ? 'Loading models...' : 'Select model'} />
-								</SelectTrigger>
-								<SelectContent>
-									{models.map((model) => (
-										<SelectItem key={model.id} value={model.id}>
-											<div className="flex flex-col">
-												<span>{model.name}</span>
-												{isWalletRequired &&
-													(model.pricing.input > 0 || model.pricing.output > 0) && (
-														<span className="text-xs text-muted-foreground">
-															{model.pricing.input}/{model.pricing.output} sats/M tokens
-														</span>
-													)}
-											</div>
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</CollapsibleContent>
-					</Collapsible>
+						<Settings2 className="h-4 w-4" />
+					</Button>
 				</div>
 
 				{/* Wallet status / provider info and tools toggle */}
@@ -426,34 +463,14 @@ export function ChatPanel({
 							<span>Local - free</span>
 						</div>
 					)}
-					<div className="flex items-center gap-2">
-						{totalSpent > 0 && (
-							<span className="text-xs text-muted-foreground">Spent: {totalSpent} sats</span>
-						)}
-						<button
-							type="button"
-							onClick={() => setToolsEnabled(!toolsEnabled)}
-							className={cn(
-								'flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors',
-								toolsEnabled
-									? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400'
-									: 'bg-muted text-muted-foreground',
-							)}
-							title={
-								toolsEnabled
-									? 'Geo, map editor, and web tools enabled (GPT/Claude models recommended)'
-									: 'Tools disabled - click to enable'
-							}
-						>
+					{totalSpent > 0 ? (
+						<span className="text-xs text-muted-foreground">Spent: {totalSpent} sats</span>
+					) : (
+						<div className="flex items-center gap-1.5 text-muted-foreground text-xs">
 							<MapPin className="h-3 w-3" />
-							<span>Tools</span>
-							{toolsEnabled ? (
-								<ToggleRight className="h-3.5 w-3.5" />
-							) : (
-								<ToggleLeft className="h-3.5 w-3.5" />
-							)}
-						</button>
-					</div>
+							<span>Tools {toolsEnabled ? 'enabled' : 'disabled'}</span>
+						</div>
+					)}
 				</div>
 
 				{/* Diagnostics */}
@@ -619,42 +636,214 @@ export function ChatPanel({
 
 			{/* Input */}
 			<form onSubmit={handleSubmit} className="shrink-0 border-t p-3">
-				<div className="flex gap-2">
-					<textarea
-						ref={textareaRef}
-						value={input}
-						onChange={(e) => setInput(e.target.value)}
-						onKeyDown={handleKeyDown}
-						placeholder={
-							!selectedModel
-								? 'Select a model...'
-								: isWalletRequired && walletStatus !== 'ready'
-									? 'Connect wallet to chat...'
-									: 'Type a message...'
-						}
-						disabled={isStreaming || !canSend}
-						className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[38px] max-h-[150px]"
-						rows={1}
-					/>
-					{isStreaming ? (
+				<div className="space-y-2">
+					<div className="flex flex-wrap items-start gap-2">
+						<EntityReferenceToolbar
+							sources={{
+								datasets: geoEvents,
+								contexts: mapContextEvents,
+								features: availableFeatures,
+							}}
+							references={references.map(chatReferenceToSearchResult)}
+							onAddReference={handleAddReference}
+							onRemoveReference={handleRemoveReference}
+							onClearReferences={handleClearReferences}
+							searchMode="both"
+							getDatasetName={getDatasetName}
+							placeholder="Add geometry, dataset, or context references..."
+							className="min-w-0 flex-1"
+						/>
 						<Button
 							type="button"
-							variant="destructive"
-							size="icon"
-							onClick={cancelStream}
-							title="Stop"
+							variant={selectionContextEnabled ? 'default' : 'outline'}
+							size="sm"
+							className="h-8 shrink-0 gap-1.5 text-xs"
+							onClick={() => setSelectionContextEnabled((prev) => !prev)}
+							disabled={selectedEditorFeatures.length === 0}
+							title={
+								selectedEditorFeatures.length === 0
+									? 'Select one or more map features first'
+									: 'Attach current selection as spatial chat context'
+							}
 						>
-							<span className="h-3 w-3 bg-current" />
+							{selectionContextEnabled ? (
+								<ToggleRight className="h-3.5 w-3.5" />
+							) : (
+								<ToggleLeft className="h-3.5 w-3.5" />
+							)}
+							Select
 						</Button>
-					) : (
-						<Button type="submit" size="icon" disabled={!input.trim() || !canSend} title="Send">
-							<Send className="h-4 w-4" />
-						</Button>
-					)}
+						<ChatGeometryAttachment
+							key={activeChatId ?? 'chat-geometry'}
+							value={attachedGeometry}
+							onChange={setAttachedGeometry}
+							layout="detached"
+							panelClassName="w-full"
+						/>
+						{(selectedEditorFeatures.length > 0 || attachedGeometry) && (
+							<div className="basis-full text-[11px] text-muted-foreground">
+								{selectedEditorFeatures.length > 0 && (
+									<span>
+										{selectedEditorFeatures.length} selected
+										{selectedPolygonCount > 0
+											? ` · ${selectedPolygonCount} polygon${selectedPolygonCount === 1 ? '' : 's'}`
+											: ''}
+									</span>
+								)}
+								{selectedEditorFeatures.length > 0 && attachedGeometry ? <span> · </span> : null}
+								{attachedGeometry ? (
+									<span>{attachedGeometry.features.length} drawn attached</span>
+								) : null}
+							</div>
+						)}
+					</div>
+					<div className="flex gap-2">
+						<textarea
+							ref={textareaRef}
+							value={input}
+							onChange={(e) => setInput(e.target.value)}
+							onKeyDown={handleKeyDown}
+							placeholder={
+								!selectedModel
+									? 'Select a model...'
+									: isWalletRequired && walletStatus !== 'ready'
+										? 'Connect wallet to chat...'
+										: 'Type a message...'
+							}
+							disabled={isStreaming || !canSend}
+							className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[38px] max-h-[150px]"
+							rows={1}
+						/>
+						{isStreaming ? (
+							<Button
+								type="button"
+								variant="destructive"
+								size="icon"
+								onClick={cancelStream}
+								title="Stop"
+							>
+								<span className="h-3 w-3 bg-current" />
+							</Button>
+						) : (
+							<Button type="submit" size="icon" disabled={!input.trim() || !canSend} title="Send">
+								<Send className="h-4 w-4" />
+							</Button>
+						)}
+					</div>
 				</div>
 			</form>
 		</div>
 	)
+}
+
+function getChatReferenceKey(reference: ChatReference): string {
+	const stableId = reference.id || reference.name || 'unknown'
+	return `${reference.type}:${stableId}:${reference.pubkey ?? ''}`
+}
+
+function chatReferenceToSearchResult(reference: ChatReference): EntitySearchResult {
+	return {
+		id: reference.id,
+		name: reference.name,
+		type: reference.type,
+		subtitle: reference.subtitle,
+		address: reference.address,
+		pubkey: reference.pubkey,
+		createdAt: reference.createdAt,
+		entity: reference as unknown as GeoFeatureItem,
+	}
+}
+
+function buildReferenceContextMessage(references: ChatReference[]): string | undefined {
+	if (references.length === 0) return undefined
+	const lines = references.map((reference, index) => {
+		const parts = [
+			`${index + 1}. type=${reference.type}`,
+			`name="${reference.name}"`,
+			reference.subtitle ? `subtitle="${reference.subtitle}"` : null,
+			reference.address ? `address="${reference.address}"` : null,
+			reference.pubkey ? `pubkey="${reference.pubkey}"` : null,
+			reference.createdAt ? `createdAt=${reference.createdAt}` : null,
+		].filter(Boolean)
+		return parts.join(' | ')
+	})
+	return [
+		'The user attached the following entity references for this request.',
+		'Use them as high-priority context and as likely targets for inspection, comparison, or editing.',
+		'If a reference needs verification or expansion, use tools to inspect it before making destructive changes.',
+		...lines,
+	].join('\n')
+}
+
+function buildSelectedGeometryContextMessage(
+	selectedFeatures: EditorFeature[],
+): string | undefined {
+	if (selectedFeatures.length === 0) return undefined
+
+	const polygonCount = selectedFeatures.filter(
+		(feature) => feature.geometry?.type === 'Polygon' || feature.geometry?.type === 'MultiPolygon',
+	).length
+	const lines = selectedFeatures.slice(0, 8).map((feature, index) => {
+		const properties = feature.properties as Record<string, unknown> | undefined
+		const featureName = typeof properties?.name === 'string' ? properties.name : null
+		const featureType = typeof properties?.featureType === 'string' ? properties.featureType : null
+		return [
+			`${index + 1}. id=${feature.id}`,
+			`geometry=${feature.geometry?.type ?? 'Unknown'}`,
+			featureName ? `name="${featureName}"` : null,
+			featureType ? `featureType="${featureType}"` : null,
+		]
+			.filter(Boolean)
+			.join(' | ')
+	})
+
+	return [
+		'The user explicitly attached the current editor selection as context for this request.',
+		polygonCount > 0
+			? 'Treat the selected polygon or multipolygon features as the active area of interest. For area-constrained OSM lookup, prefer query_osm_area with selectedOnly=true.'
+			: 'Treat the selected features as high-priority context for inspection or follow-up tool calls.',
+		'Do not ask the user to redraw or re-describe the selection unless no selected geometry remains.',
+		`Selected feature count: ${selectedFeatures.length}. Polygon area count: ${polygonCount}.`,
+		'Selection summary:',
+		...lines,
+	].join('\n')
+}
+
+function buildAttachedGeometryContextMessage(geojson: FeatureCollection): string | undefined {
+	if (geojson.features.length === 0) return undefined
+
+	const featureSummary = geojson.features.slice(0, 8).map((feature, index) => {
+		const properties = feature.properties as Record<string, unknown> | undefined
+		const featureType = typeof properties?.featureType === 'string' ? properties.featureType : null
+		const featureName =
+			typeof properties?.name === 'string'
+				? properties.name
+				: typeof properties?.text === 'string'
+					? properties.text
+					: null
+		return [
+			`${index + 1}. geometry=${feature.geometry?.type ?? 'Unknown'}`,
+			featureType ? `featureType="${featureType}"` : null,
+			featureName ? `label="${featureName}"` : null,
+		]
+			.filter(Boolean)
+			.join(' | ')
+	})
+
+	const geojsonText = JSON.stringify(geojson)
+	const truncatedGeojsonText =
+		geojsonText.length > 4000 ? `${geojsonText.slice(0, 4000)}...[truncated]` : geojsonText
+
+	return [
+		'The user attached transient chat geometry for this request.',
+		'This geometry is scratch context only. It is not canonical map data and was intentionally kept out of the editor dataset.',
+		'If the geometry is a polygon area, prefer query_osm_area. The tool executor can use the attached geometry directly for this request even if no editor feature is selected.',
+		'If the geometry is points, lines, or annotations, use it as spatial guidance and explain any assumptions.',
+		`Attached feature count: ${geojson.features.length}.`,
+		'Attachment summary:',
+		...featureSummary,
+		`Attached GeoJSON JSON:\n${truncatedGeojsonText}`,
+	].join('\n')
 }
 
 interface MessageBubbleProps {
@@ -666,6 +855,76 @@ interface ParsedAssistantContent {
 	answerText: string
 	reasoningBlocks: string[]
 }
+
+interface ChatMarkdownTextToken {
+	type: 'text'
+	value: string
+}
+
+interface ChatMarkdownStrongToken {
+	type: 'strong'
+	value: string
+}
+
+interface ChatMarkdownEmphasisToken {
+	type: 'emphasis'
+	value: string
+}
+
+interface ChatMarkdownCodeToken {
+	type: 'code'
+	value: string
+}
+
+interface ChatMarkdownLinkToken {
+	type: 'link'
+	value: string
+	url: string
+}
+
+type ChatMarkdownInlineToken =
+	| ChatMarkdownTextToken
+	| ChatMarkdownStrongToken
+	| ChatMarkdownEmphasisToken
+	| ChatMarkdownCodeToken
+	| ChatMarkdownLinkToken
+
+interface ChatMarkdownParagraphBlock {
+	type: 'paragraph'
+	tokens: ChatMarkdownInlineToken[]
+}
+
+interface ChatMarkdownHeadingBlock {
+	type: 'heading'
+	level: number
+	tokens: ChatMarkdownInlineToken[]
+}
+
+interface ChatMarkdownQuoteBlock {
+	type: 'quote'
+	tokens: ChatMarkdownInlineToken[]
+}
+
+interface ChatMarkdownListBlock {
+	type: 'list'
+	ordered: boolean
+	items: ChatMarkdownInlineToken[][]
+}
+
+interface ChatMarkdownCodeBlock {
+	type: 'codeblock'
+	code: string
+}
+
+type ChatMarkdownBlock =
+	| ChatMarkdownParagraphBlock
+	| ChatMarkdownHeadingBlock
+	| ChatMarkdownQuoteBlock
+	| ChatMarkdownListBlock
+	| ChatMarkdownCodeBlock
+
+const CHAT_MARKDOWN_TOKEN_PATTERN =
+	/(\[[^\]]+\]\((https?:\/\/[^\s)]+)\))|(https?:\/\/[^\s<>"{}|\\^`[\]]+)|(`[^`]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)/gi
 
 function contentToDisplayText(content: ChatMessage['content']): string {
 	if (typeof content === 'string') return content
@@ -679,6 +938,392 @@ function contentToDisplayText(content: ChatMessage['content']): string {
 		})
 		.filter((part) => part.length > 0)
 		.join('\n')
+}
+
+function parseChatMarkdownInlineTokens(text: string): ChatMarkdownInlineToken[] {
+	if (!text) return []
+
+	const tokens: ChatMarkdownInlineToken[] = []
+	let cursor = 0
+	const matches = Array.from(text.matchAll(CHAT_MARKDOWN_TOKEN_PATTERN))
+
+	for (const match of matches) {
+		const matchedValue = match[0]
+		if (!matchedValue) continue
+
+		if (match.index > cursor) {
+			tokens.push({
+				type: 'text',
+				value: text.slice(cursor, match.index),
+			})
+		}
+
+		if (match[1] && match[2]) {
+			const linkLabel = matchedValue.slice(1, matchedValue.indexOf(']('))
+			tokens.push({
+				type: 'link',
+				value: linkLabel,
+				url: match[2],
+			})
+		} else if (match[3]) {
+			const cleanUrl = match[3].replace(/[.,;:!?)]+$/, '')
+			tokens.push({
+				type: 'link',
+				value: cleanUrl,
+				url: cleanUrl,
+			})
+		} else if (match[4]) {
+			tokens.push({
+				type: 'code',
+				value: match[4].slice(1, -1),
+			})
+		} else if (match[5]) {
+			tokens.push({
+				type: 'strong',
+				value: match[5].slice(2, -2),
+			})
+		} else if (match[6]) {
+			tokens.push({
+				type: 'emphasis',
+				value: match[6].slice(1, -1),
+			})
+		}
+
+		cursor = match.index + matchedValue.length
+	}
+
+	if (cursor < text.length) {
+		tokens.push({
+			type: 'text',
+			value: text.slice(cursor),
+		})
+	}
+
+	return tokens
+}
+
+function pushChatMarkdownParagraph(lines: string[], blocks: ChatMarkdownBlock[]) {
+	if (lines.length === 0) return
+	blocks.push({
+		type: 'paragraph',
+		tokens: parseChatMarkdownInlineTokens(lines.join(' ')),
+	})
+	lines.length = 0
+}
+
+function parseChatMarkdown(text: string): ChatMarkdownBlock[] {
+	const trimmed = text.trim()
+	if (!trimmed) return []
+
+	const lines = text.split('\n')
+	const blocks: ChatMarkdownBlock[] = []
+	const paragraphLines: string[] = []
+	let activeList: ChatMarkdownListBlock | null = null
+	let inCodeBlock = false
+	const codeLines: string[] = []
+
+	const flushList = () => {
+		if (!activeList) return
+		blocks.push(activeList)
+		activeList = null
+	}
+
+	const flushCodeBlock = () => {
+		if (!inCodeBlock) return
+		blocks.push({
+			type: 'codeblock',
+			code: codeLines.join('\n'),
+		})
+		inCodeBlock = false
+		codeLines.length = 0
+	}
+
+	for (const rawLine of lines) {
+		const line = rawLine.trimEnd()
+		const trimmedLine = line.trim()
+
+		if (trimmedLine.startsWith('```')) {
+			pushChatMarkdownParagraph(paragraphLines, blocks)
+			flushList()
+			if (inCodeBlock) {
+				flushCodeBlock()
+			} else {
+				inCodeBlock = true
+			}
+			continue
+		}
+
+		if (inCodeBlock) {
+			codeLines.push(line)
+			continue
+		}
+
+		if (!trimmedLine) {
+			pushChatMarkdownParagraph(paragraphLines, blocks)
+			flushList()
+			continue
+		}
+
+		const headingMatch = trimmedLine.match(/^(#{1,6})\s+(.+)$/)
+		if (headingMatch?.[1] && headingMatch[2]) {
+			pushChatMarkdownParagraph(paragraphLines, blocks)
+			flushList()
+			blocks.push({
+				type: 'heading',
+				level: headingMatch[1].length,
+				tokens: parseChatMarkdownInlineTokens(headingMatch[2]),
+			})
+			continue
+		}
+
+		const quoteMatch = trimmedLine.match(/^>\s?(.*)$/)
+		if (quoteMatch) {
+			pushChatMarkdownParagraph(paragraphLines, blocks)
+			flushList()
+			blocks.push({
+				type: 'quote',
+				tokens: parseChatMarkdownInlineTokens(quoteMatch[1]),
+			})
+			continue
+		}
+
+		const orderedListMatch = trimmedLine.match(/^\d+\.\s+(.+)$/)
+		const unorderedListMatch = trimmedLine.match(/^[-*]\s+(.+)$/)
+		const listItemText = orderedListMatch?.[1] ?? unorderedListMatch?.[1]
+		if (listItemText) {
+			pushChatMarkdownParagraph(paragraphLines, blocks)
+			const ordered = Boolean(orderedListMatch)
+			if (!activeList || activeList.ordered !== ordered) {
+				flushList()
+				activeList = {
+					type: 'list',
+					ordered,
+					items: [],
+				}
+			}
+			activeList.items.push(parseChatMarkdownInlineTokens(listItemText))
+			continue
+		}
+
+		flushList()
+		paragraphLines.push(trimmedLine)
+	}
+
+	pushChatMarkdownParagraph(paragraphLines, blocks)
+	flushList()
+	flushCodeBlock()
+
+	return blocks
+}
+
+function getChatMarkdownInlineTokenSignature(token: ChatMarkdownInlineToken): string {
+	if (token.type === 'link') {
+		return `${token.type}:${token.value}:${token.url}`
+	}
+	return `${token.type}:${token.value}`
+}
+
+function getChatMarkdownBlockSignature(block: ChatMarkdownBlock): string {
+	if (block.type === 'paragraph' || block.type === 'quote') {
+		return `${block.type}:${block.tokens
+			.map((token) => getChatMarkdownInlineTokenSignature(token))
+			.join('|')}`
+	}
+	if (block.type === 'heading') {
+		return `heading:${block.level}:${block.tokens
+			.map((token) => getChatMarkdownInlineTokenSignature(token))
+			.join('|')}`
+	}
+	if (block.type === 'list') {
+		return `list:${block.ordered}:${block.items
+			.map((item) => item.map((token) => getChatMarkdownInlineTokenSignature(token)).join('|'))
+			.join('||')}`
+	}
+	return `codeblock:${block.code}`
+}
+
+function renderChatMarkdownInlineToken(
+	token: ChatMarkdownInlineToken,
+	variant: 'assistant' | 'user',
+	key: string,
+) {
+	if (token.type === 'text') {
+		return (
+			<span key={key} className="whitespace-pre-wrap break-words">
+				{token.value}
+			</span>
+		)
+	}
+
+	if (token.type === 'strong') {
+		return (
+			<strong key={key} className="font-semibold">
+				{token.value}
+			</strong>
+		)
+	}
+
+	if (token.type === 'emphasis') {
+		return (
+			<em key={key} className="italic">
+				{token.value}
+			</em>
+		)
+	}
+
+	if (token.type === 'code') {
+		return (
+			<code
+				key={key}
+				className={cn(
+					'rounded px-1.5 py-0.5 font-mono text-[0.9em]',
+					variant === 'assistant'
+						? 'bg-background/90 text-foreground'
+						: 'bg-primary-foreground/15 text-primary-foreground',
+				)}
+			>
+				{token.value}
+			</code>
+		)
+	}
+
+	return (
+		<a
+			key={key}
+			href={token.url}
+			target="_blank"
+			rel="noopener noreferrer"
+			className={cn(
+				'break-all underline underline-offset-2',
+				variant === 'assistant'
+					? 'text-blue-700 hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200'
+					: 'text-primary-foreground hover:text-primary-foreground/85',
+			)}
+		>
+			{token.value}
+		</a>
+	)
+}
+
+function renderChatMarkdownInlineTokens(
+	tokens: ChatMarkdownInlineToken[],
+	variant: 'assistant' | 'user',
+) {
+	const seen = new Map<string, number>()
+	return tokens.map((token) => {
+		const signature = getChatMarkdownInlineTokenSignature(token)
+		const nextCount = (seen.get(signature) ?? 0) + 1
+		seen.set(signature, nextCount)
+		return renderChatMarkdownInlineToken(token, variant, `${signature}:${nextCount}`)
+	})
+}
+
+function ChatMarkdownContent({
+	content,
+	variant,
+}: {
+	content: string
+	variant: 'assistant' | 'user'
+}) {
+	const blocks = useMemo(() => parseChatMarkdown(content), [content])
+	const keyedBlocks = useMemo(() => {
+		const seen = new Map<string, number>()
+		return blocks.map((block) => {
+			const signature = getChatMarkdownBlockSignature(block)
+			const nextCount = (seen.get(signature) ?? 0) + 1
+			seen.set(signature, nextCount)
+			return {
+				block,
+				key: `${signature}:${nextCount}`,
+			}
+		})
+	}, [blocks])
+
+	if (keyedBlocks.length === 0) return null
+
+	return (
+		<div className="space-y-3 leading-relaxed">
+			{keyedBlocks.map(({ block, key }) => {
+				if (block.type === 'paragraph') {
+					return (
+						<p key={key} className="break-words [overflow-wrap:anywhere]">
+							{renderChatMarkdownInlineTokens(block.tokens, variant)}
+						</p>
+					)
+				}
+
+				if (block.type === 'heading') {
+					const content = renderChatMarkdownInlineTokens(block.tokens, variant)
+					if (block.level <= 2) {
+						return (
+							<h2 key={key} className="text-base font-semibold tracking-tight">
+								{content}
+							</h2>
+						)
+					}
+					return (
+						<h3 key={key} className="text-sm font-semibold tracking-tight">
+							{content}
+						</h3>
+					)
+				}
+
+				if (block.type === 'quote') {
+					return (
+						<blockquote
+							key={key}
+							className={cn(
+								'border-l-2 pl-3 italic',
+								variant === 'assistant'
+									? 'border-border/80 text-muted-foreground'
+									: 'border-primary-foreground/40 text-primary-foreground/85',
+							)}
+						>
+							{renderChatMarkdownInlineTokens(block.tokens, variant)}
+						</blockquote>
+					)
+				}
+
+				if (block.type === 'list') {
+					const ListTag = block.ordered ? 'ol' : 'ul'
+					const seenItems = new Map<string, number>()
+					return (
+						<ListTag
+							key={key}
+							className={cn('space-y-1 pl-5', block.ordered ? 'list-decimal' : 'list-disc')}
+						>
+							{block.items.map((item) => {
+								const signature = item
+									.map((token) => getChatMarkdownInlineTokenSignature(token))
+									.join('|')
+								const nextCount = (seenItems.get(signature) ?? 0) + 1
+								seenItems.set(signature, nextCount)
+								return (
+									<li key={`${signature}:${nextCount}`} className="pl-1 break-words">
+										{renderChatMarkdownInlineTokens(item, variant)}
+									</li>
+								)
+							})}
+						</ListTag>
+					)
+				}
+
+				return (
+					<pre
+						key={key}
+						className={cn(
+							'overflow-x-auto rounded-md border p-3 font-mono text-[11px] leading-relaxed',
+							variant === 'assistant'
+								? 'border-border/80 bg-background/80 text-foreground'
+								: 'border-primary-foreground/20 bg-primary-foreground/10 text-primary-foreground',
+						)}
+					>
+						<code>{block.code}</code>
+					</pre>
+				)
+			})}
+		</div>
+	)
 }
 
 function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
@@ -738,9 +1383,12 @@ function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
 										className="absolute right-1.5 top-1.5"
 										title="Copy assistant message"
 									/>
-									<p className="whitespace-pre-wrap break-all [overflow-wrap:anywhere]">
-										{parsedAssistantContent.answerText}
-									</p>
+									<div className="pr-6">
+										<ChatMarkdownContent
+											content={parsedAssistantContent.answerText}
+											variant="assistant"
+										/>
+									</div>
 									<div className="mt-2 text-[10px] text-muted-foreground">
 										~{tokenEstimate.toLocaleString()} tok
 									</div>
@@ -798,7 +1446,9 @@ function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
 						className="absolute right-1.5 top-1.5"
 						title="Copy user message"
 					/>
-					<p className="whitespace-pre-wrap break-all [overflow-wrap:anywhere]">{contentText}</p>
+					<div className="pr-6">
+						<ChatMarkdownContent content={contentText} variant="user" />
+					</div>
 					<div className="mt-2 text-[10px] text-primary-foreground/80">
 						~{tokenEstimate.toLocaleString()} tok
 					</div>
@@ -826,9 +1476,12 @@ function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
 							className="absolute right-1.5 top-1.5"
 							title="Copy assistant message"
 						/>
-						<p className="whitespace-pre-wrap break-all [overflow-wrap:anywhere]">
-							{parsedAssistantContent.answerText}
-						</p>
+						<div className="pr-6">
+							<ChatMarkdownContent
+								content={parsedAssistantContent.answerText}
+								variant="assistant"
+							/>
+						</div>
 						<div className="mt-2 text-[10px] text-muted-foreground">
 							~{tokenEstimate.toLocaleString()} tok
 						</div>
@@ -886,24 +1539,27 @@ function ReasoningDisclosure({ blocks }: { blocks: string[] }) {
 		<div className="rounded-md border border-orange-200/80 dark:border-orange-900/60 bg-orange-50/50 dark:bg-orange-950/20">
 			<div className="flex items-center justify-between gap-2 px-2 py-1.5">
 				<div className="flex items-center gap-2">
-					<button
+					<Button
 						type="button"
+						variant="ghost"
 						onClick={() => setIsOpen((prev) => !prev)}
-						className="cursor-pointer select-none text-xs font-medium text-orange-700 dark:text-orange-300"
+						className="h-auto p-0 text-xs font-medium text-orange-700 dark:text-orange-300 cursor-pointer select-none"
 						aria-expanded={isOpen}
 					>
 						<span className="mr-1">{isOpen ? '▾' : '▸'}</span>
 						Reasoning ({lines.length} lines)
-					</button>
+					</Button>
 					<CopyBubbleButton text={blocks.join('\n\n')} title="Copy reasoning" compact />
 				</div>
 				<div className="flex items-center gap-1.5">
 					{isOpen && (
-						<button
+						<Button
 							type="button"
+							variant="outline"
+							size="sm"
 							onClick={toggleAutoScroll}
 							className={cn(
-								'text-[10px] px-2 py-0.5 rounded border',
+								'text-[10px] px-2 py-0.5',
 								autoScrollEnabled
 									? 'border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300 bg-orange-100/70 dark:bg-orange-900/30'
 									: 'border-muted-foreground/30 text-muted-foreground bg-background/70',
@@ -911,7 +1567,7 @@ function ReasoningDisclosure({ blocks }: { blocks: string[] }) {
 							title="Keep view pinned to the latest reasoning line"
 						>
 							Auto-scroll: {autoScrollEnabled ? 'On' : 'Off'}
-						</button>
+						</Button>
 					)}
 				</div>
 			</div>
@@ -1000,33 +1656,33 @@ function ToolResultDisclosure({
 	return (
 		<div className="rounded-lg px-3 py-2 text-xs bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800">
 			<div className="flex items-center justify-between gap-2 mb-1">
-				<button
+				<Button
 					type="button"
+					variant="ghost"
 					onClick={() => setIsOpen((prev) => !prev)}
-					className="text-left font-medium text-blue-700 dark:text-blue-300"
+					className="h-auto p-0 text-left font-medium text-blue-700 dark:text-blue-300"
 					aria-expanded={isOpen}
 				>
 					<span className="mr-1">{isOpen ? '▾' : '▸'}</span>
 					Tool Result ({lines.length} lines)
-				</button>
+				</Button>
 				<div className="flex items-center gap-1.5">
 					{geometryAnalysis.canBake && (
-						<button
+						<Button
 							type="button"
+							variant="outline"
+							size="icon-xs"
 							onClick={handleBakeToEditor}
 							disabled={!canBake}
 							title={`Bake ${geometryAnalysis.featureCount} geometry feature(s) to editor`}
-							className={cn(
-								'inline-flex h-5 w-5 items-center justify-center rounded border border-border/70 bg-background/80 text-[10px] transition-colors',
-								canBake ? 'hover:bg-muted' : 'opacity-60 cursor-not-allowed',
-							)}
+							className={cn('h-5 w-5 text-[10px]', !canBake && 'opacity-60 cursor-not-allowed')}
 						>
 							{isBaking ? (
 								<Loader2 className="h-3 w-3 animate-spin" />
 							) : (
 								<ArrowDownToLine className="h-3 w-3" />
 							)}
-						</button>
+						</Button>
 					)}
 					<span className="text-[10px] text-blue-700/80 dark:text-blue-300/80">
 						~{tokenEstimate.toLocaleString()} tok
@@ -1078,19 +1734,21 @@ function CopyBubbleButton({
 	}
 
 	return (
-		<button
+		<Button
 			type="button"
+			variant="ghost"
+			size="icon-sm"
 			onClick={onCopy}
 			title={title}
 			className={cn(
-				'inline-flex items-center justify-center rounded border text-[10px] transition-colors',
-				compact ? 'h-5 w-5' : 'h-5 w-5 bg-background/80',
-				'border-border/70 hover:bg-muted',
+				'h-5 w-5 rounded border text-[10px]',
+				compact ? '' : 'bg-background/80',
+				'border-border/70',
 				className,
 			)}
 		>
 			{copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-		</button>
+		</Button>
 	)
 }
 

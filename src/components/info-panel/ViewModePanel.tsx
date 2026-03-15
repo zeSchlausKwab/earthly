@@ -1,23 +1,23 @@
-import { Maximize2, FileText, MessageCircle, MapPin } from 'lucide-react'
-import { useState, useCallback, useMemo, useEffect } from 'react'
+import { CopyPlus, Eye, EyeOff, FileText, GitPullRequest, Maximize2, Pencil } from 'lucide-react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { useEditorStore } from '@/features/geo-editor/store'
-import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
-import { cn } from '@/lib/utils'
 import { validateDatasetForContext } from '@/lib/context/validation'
+import { extractCollectionMeta } from '@/features/geo-editor/utils'
 import { Button } from '../ui/button'
-import { DataTable } from '../ui/data-table'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
+import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
 import { CommentsPanel } from '@/features/social/comments'
-import { GeoRichTextEditor, type GeoFeatureItem } from '../editor/GeoRichTextEditor'
-import {
-	createViewModeColumns,
-	type ViewModeColumnsContext,
-	type ViewModeRowData,
-} from './view-mode-columns'
+import { ProposalsPanel } from '@/features/social/proposals'
+import type { NDKGeoEditProposalEvent } from '@/lib/ndk/NDKGeoEditProposalEvent'
+import { RichContentRenderer } from '../editor'
+import type { GeoFeatureItem } from '../editor/GeoRichTextEditor'
 import { DatasetFeaturesList } from './DatasetFeaturesList'
+import { ConfirmDeleteAction } from './ConfirmDeleteAction'
+import { EntityActionBar } from './EntityActionBar'
+import { EntityPanelSectionHeader, EntityPanelShell, EntityPanelSurface } from './EntityPanelShell'
+import { UserProfile } from '../user-profile'
 
 export interface ViewModePanelProps {
 	currentUserPubkey?: string
@@ -25,53 +25,66 @@ export interface ViewModePanelProps {
 	onToggleVisibility: (event: NDKGeoEvent) => void
 	onZoomToDataset: (event: NDKGeoEvent) => void
 	onDeleteDataset: (event: NDKGeoEvent) => void
-	onZoomToCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
 	deletingKey: string | null
-	onExitViewMode?: () => void
 	getDatasetKey: (event: NDKGeoEvent) => string
 	getDatasetName: (event: NDKGeoEvent) => string
-	/** Callback to add/remove comment GeoJSON overlay on map */
-	onCommentGeometryVisibility?: (commentId: string, geojson: FeatureCollection | null) => void
-	/** Callback to zoom to a bounding box */
+	onCommentGeometryVisibility?: (comment: NDKGeoCommentEvent, visible: boolean) => void
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
-	/** Available features for $ mentions in comments */
 	availableFeatures?: GeoFeatureItem[]
-	/** Callback when a geo mention's visibility is toggled */
-	onMentionVisibilityToggle?: (
-		address: string,
-		featureId: string | undefined,
-		visible: boolean,
-	) => void
-	/** Callback to zoom to a mentioned geometry */
-	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
-}
-
-type ViewTab = 'details' | 'comments'
-
-export interface ViewModePanelCallbacks {
-	onCommentGeojsonVisibilityChange?: (comment: NDKGeoCommentEvent, visible: boolean) => void
-	onZoomToCommentGeojson?: (comment: NDKGeoCommentEvent) => void
 	onMentionVisibilityToggle?: (
 		address: string,
 		featureId: string | undefined,
 		visible: boolean,
 	) => void
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
+	onToggleProposalOverlay?: (proposal: NDKGeoEditProposalEvent, visible: boolean) => void
+	onProposalAccepted?: (dataset: NDKGeoEvent) => void
+	visibleProposalIds?: Set<string>
+	focusCommentId?: string
 }
 
-/**
- * Panel displayed when viewing a dataset or collection (not editing).
- * Shows metadata and actions for the viewed item with tabs for Details and Comments.
- */
+type ViewTab = 'details' | 'proposals'
+
+function getDatasetDescription(dataset: NDKGeoEvent): string | null {
+	const collection = dataset.featureCollection as Record<string, unknown>
+	const properties =
+		typeof collection?.properties === 'object' && collection.properties
+			? (collection.properties as Record<string, unknown>)
+			: {}
+
+	const candidates = [
+		collection?.description,
+		collection?.summary,
+		properties.description,
+		properties.summary,
+	]
+
+	for (const value of candidates) {
+		if (typeof value === 'string' && value.trim()) {
+			return value.trim()
+		}
+	}
+
+	return null
+}
+
+function formatDatasetPropertyValue(value: unknown): string {
+	if (typeof value === 'string') return value
+	if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+	try {
+		return JSON.stringify(value)
+	} catch {
+		return String(value)
+	}
+}
+
 export function ViewModePanel({
 	currentUserPubkey,
 	onLoadDataset,
 	onToggleVisibility,
 	onZoomToDataset,
-	onDeleteDataset: _onDeleteDataset,
-	onZoomToCollection,
-	deletingKey: _deletingKey,
-	onExitViewMode: _onExitViewMode,
+	onDeleteDataset,
+	deletingKey,
 	getDatasetKey,
 	getDatasetName,
 	onCommentGeometryVisibility,
@@ -79,44 +92,59 @@ export function ViewModePanel({
 	availableFeatures = [],
 	onMentionVisibilityToggle,
 	onMentionZoomTo,
+	onToggleProposalOverlay,
+	onProposalAccepted,
+	visibleProposalIds = new Set(),
+	focusCommentId,
 }: ViewModePanelProps) {
 	const [activeTab, setActiveTab] = useState<ViewTab>('details')
 	const [visibleGeojsonCommentIds, setVisibleGeojsonCommentIds] = useState<Set<string>>(new Set())
 	const [attachedGeojson, setAttachedGeojson] = useState<FeatureCollection | null>(null)
+	const lastViewedDatasetKeyRef = useRef<string | null>(null)
 
 	const isPublishing = useEditorStore((state) => state.isPublishing)
 	const datasetVisibility = useEditorStore((state) => state.datasetVisibility)
-	const viewCollection = useEditorStore((state) => state.viewCollection)
 	const viewDataset = useEditorStore((state) => state.viewDataset)
-	const viewCollectionEvents = useEditorStore((state) => state.viewCollectionEvents)
 	const viewContext = useEditorStore((state) => state.viewContext)
 	const contextFilterMode = useEditorStore((state) => state.contextFilterMode)
 	const features = useEditorStore((state) => state.features)
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 
-	const headerTitle = viewCollection ? 'Collection overview' : 'Dataset overview'
+	const viewedDatasetKey = viewDataset ? getDatasetKey(viewDataset) : null
+	const isDeletingDataset = viewedDatasetKey ? deletingKey === viewedDatasetKey : false
 
-	// Get the target for comments (either dataset or collection)
-	const commentTarget = viewDataset ?? viewCollection
-
-	// Reset comment-related state when target changes
-	// biome-ignore lint/correctness/useExhaustiveDependencies: intentional reset on target change
 	useEffect(() => {
+		if (lastViewedDatasetKeyRef.current === viewedDatasetKey) return
+		lastViewedDatasetKeyRef.current = viewedDatasetKey
 		setVisibleGeojsonCommentIds(new Set())
 		setAttachedGeojson(null)
-	}, [viewDataset, viewCollection])
+	}, [viewedDatasetKey])
 
-	// Get selected features for attachment
+	useEffect(() => {
+		if (!viewDataset && activeTab === 'proposals') {
+			setActiveTab('details')
+		}
+	}, [activeTab, viewDataset])
+
 	const selectedFeatures = useMemo(() => {
 		if (selectedFeatureIds.length === 0) return []
 		return features.filter((f) => selectedFeatureIds.includes(f.id))
 	}, [features, selectedFeatureIds])
+	const datasetProperties = useMemo(() => {
+		if (!viewDataset) return []
+		return Object.entries(
+			extractCollectionMeta(viewDataset.featureCollection).customProperties,
+		).filter(
+			([, value]) =>
+				value !== undefined && value !== null && formatDatasetPropertyValue(value).trim(),
+		)
+	}, [viewDataset])
 
 	const canAttachGeometry = selectedFeatures.length > 0 && !attachedGeojson
 
 	const handleAttachGeometry = useCallback(() => {
 		if (selectedFeatures.length === 0) return
-		const collection: FeatureCollection = {
+		setAttachedGeojson({
 			type: 'FeatureCollection',
 			features: selectedFeatures.map((f) => ({
 				type: 'Feature' as const,
@@ -124,8 +152,7 @@ export function ViewModePanel({
 				geometry: f.geometry,
 				properties: f.properties ?? {},
 			})),
-		}
-		setAttachedGeojson(collection)
+		})
 	}, [selectedFeatures])
 
 	const handleClearAttachment = useCallback(() => {
@@ -134,20 +161,14 @@ export function ViewModePanel({
 
 	const handleCommentGeojsonVisibilityChange = useCallback(
 		(comment: NDKGeoCommentEvent, visible: boolean) => {
-			const id = comment.id ?? comment.commentId ?? ''
+			const id = comment.commentId ?? comment.id ?? ''
 			setVisibleGeojsonCommentIds((prev) => {
 				const next = new Set(prev)
-				if (visible) {
-					next.add(id)
-				} else {
-					next.delete(id)
-				}
+				if (visible) next.add(id)
+				else next.delete(id)
 				return next
 			})
-			// Add/remove comment's GeoJSON from map layers
-			if (onCommentGeometryVisibility) {
-				onCommentGeometryVisibility(id, visible ? (comment.geojson ?? null) : null)
-			}
+			onCommentGeometryVisibility?.(comment, visible)
 		},
 		[onCommentGeometryVisibility],
 	)
@@ -157,11 +178,9 @@ export function ViewModePanel({
 			if (comment.boundingBox && onZoomToBounds) {
 				onZoomToBounds(comment.boundingBox)
 			} else if (comment.geojson && onZoomToBounds) {
-				// Calculate bounds from GeoJSON if no bbox tag
-				const geojsonData = comment.geojson
 				import('@turf/turf')
 					.then((turf) => {
-						const bbox = turf.bbox(geojsonData) as [number, number, number, number]
+						const bbox = turf.bbox(comment.geojson) as [number, number, number, number]
 						if (bbox.every((v) => Number.isFinite(v))) {
 							onZoomToBounds(bbox)
 						}
@@ -172,34 +191,6 @@ export function ViewModePanel({
 			}
 		},
 		[onZoomToBounds],
-	)
-
-	// Prepare linked events table data for collection view
-	const linkedEventsTableData: ViewModeRowData[] = useMemo(() => {
-		return viewCollectionEvents.map((event) => {
-			const datasetKey = getDatasetKey(event)
-			const datasetName = getDatasetName(event)
-			const isVisible = datasetVisibility[datasetKey] !== false
-			const isOwned = currentUserPubkey === event.pubkey
-			return { event, datasetKey, datasetName, isVisible, isOwned }
-		})
-	}, [viewCollectionEvents, getDatasetKey, getDatasetName, datasetVisibility, currentUserPubkey])
-
-	// Columns context for linked events table
-	const linkedEventsColumnsContext: ViewModeColumnsContext = useMemo(
-		() => ({
-			onLoadDataset,
-			onToggleVisibility,
-			onZoomToDataset,
-			isPublishing,
-			datasetVisibility,
-		}),
-		[onLoadDataset, onToggleVisibility, onZoomToDataset, isPublishing, datasetVisibility],
-	)
-
-	const linkedEventsColumns = useMemo(
-		() => createViewModeColumns(linkedEventsColumnsContext),
-		[linkedEventsColumnsContext],
 	)
 
 	const hiddenFeatureIds = useMemo(() => {
@@ -227,230 +218,241 @@ export function ViewModePanel({
 		return hidden.size > 0 ? hidden : undefined
 	}, [viewDataset, viewContext, contextFilterMode])
 
-	return (
-		<div className="flex flex-col h-full text-sm">
-			{/* Header */}
-			<div className="flex-shrink-0 flex items-center justify-between gap-2 mb-3">
-				<div className="flex items-center gap-2">
-					<h2 className="text-lg font-bold text-gray-900">{headerTitle}</h2>
-				</div>
-			</div>
+	if (!viewDataset) {
+		return (
+			<EntityPanelShell title="Dataset overview">
+				<div className="text-sm text-gray-500">No dataset selected.</div>
+			</EntityPanelShell>
+		)
+	}
 
-			{/* Tab buttons */}
-			<div className="flex-shrink-0 flex items-center gap-1 mb-3 border-b border-gray-100 pb-2">
-				<Button
-					variant={activeTab === 'details' ? 'default' : 'ghost'}
-					size="sm"
-					onClick={() => setActiveTab('details')}
-					className="gap-1.5"
-				>
-					<FileText className="h-3.5 w-3.5" />
-					Details
-				</Button>
-				<Button
-					variant={activeTab === 'comments' ? 'default' : 'ghost'}
-					size="sm"
-					onClick={() => setActiveTab('comments')}
-					className="gap-1.5"
-				>
-					<MessageCircle className="h-3.5 w-3.5" />
-					Comments
-				</Button>
-
-				{/* Attach geometry button - only show when on comments tab */}
-				{activeTab === 'comments' && (
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								variant={attachedGeojson ? 'default' : 'outline'}
-								size="sm"
-								onClick={attachedGeojson ? handleClearAttachment : handleAttachGeometry}
-								disabled={!canAttachGeometry && !attachedGeojson}
-								className="ml-auto gap-1.5"
-							>
-								<MapPin className="h-3.5 w-3.5" />
-								{attachedGeojson
-									? `${attachedGeojson.features.length} attached`
-									: selectedFeatures.length > 0
-										? `Attach ${selectedFeatures.length}`
-										: 'Select geometry'}
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>
+	const commentsSection = (
+		<EntityPanelSurface tone="discussion" className="space-y-4">
+			<EntityPanelSectionHeader
+				eyebrow="Discussion"
+				title="Comments"
+				action={
+					canAttachGeometry || attachedGeojson ? (
+						<Button
+							type="button"
+							variant={attachedGeojson ? 'default' : 'outline'}
+							size="sm"
+							onClick={attachedGeojson ? handleClearAttachment : handleAttachGeometry}
+							className="gap-1.5 rounded-none border-stone-200 bg-white px-2 text-[11px] text-stone-700 hover:bg-stone-100"
+						>
 							{attachedGeojson
-								? 'Click to clear attachment'
-								: selectedFeatures.length > 0
-									? 'Attach selected geometry to your comment'
-									: 'Select geometry in the editor first, then attach it here'}
-						</TooltipContent>
-					</Tooltip>
-				)}
-			</div>
+								? `Clear ${attachedGeojson.features.length} attachment${
+										attachedGeojson.features.length === 1 ? '' : 's'
+									}`
+								: `Attach ${selectedFeatures.length} selected`}
+						</Button>
+					) : null
+				}
+			/>
+			<CommentsPanel
+				key={viewDataset.id ?? viewDataset.dTag ?? 'no-target'}
+				target={viewDataset}
+				onCommentGeojsonVisibilityChange={handleCommentGeojsonVisibilityChange}
+				onZoomToCommentGeojson={handleZoomToCommentGeojson}
+				visibleGeojsonCommentIds={visibleGeojsonCommentIds}
+				attachedGeojson={attachedGeojson}
+				onClearAttachment={handleClearAttachment}
+				availableFeatures={availableFeatures}
+				onMentionVisibilityToggle={onMentionVisibilityToggle}
+				onMentionZoomTo={onMentionZoomTo}
+				focusCommentId={focusCommentId}
+			/>
+		</EntityPanelSurface>
+	)
 
-			{/* Tab content */}
-			<div className="flex-1 overflow-y-auto min-h-0">
-				{activeTab === 'details' ? (
-					<div className="space-y-4">
-						{/* Collection View */}
-						{viewCollection && (
-							<>
-								<section className="rounded-lg border border-gray-200 p-3 space-y-2">
-									<div className="flex items-center justify-between gap-2">
-										<h3 className="text-base font-semibold text-gray-900">
-											{viewCollection.metadata.name ?? viewCollection.collectionId}
-										</h3>
-										{onZoomToCollection && (
-											<Button
-												size="sm"
-												variant="outline"
-												onClick={() => onZoomToCollection(viewCollection, viewCollectionEvents)}
-											>
-												<Maximize2 className="h-3 w-3" />
-												Zoom bounds
-											</Button>
-										)}
-									</div>
-									{viewCollection.metadata.description && (
-										<div className="text-sm text-gray-600">
-											<GeoRichTextEditor
-												initialValue={viewCollection.metadata.description}
-												readOnly
-												availableFeatures={availableFeatures}
-												onMentionVisibilityToggle={onMentionVisibilityToggle}
-												onMentionZoomTo={onMentionZoomTo}
-											/>
-										</div>
-									)}
-									<div className="text-[11px] text-gray-500">
-										Maintainer: {viewCollection.pubkey.slice(0, 8)}…
-										{viewCollection.pubkey.slice(-4)}
-									</div>
-									<div className="text-[11px] text-gray-500">
-										{viewCollection.datasetReferences.length} linked dataset
-										{viewCollection.datasetReferences.length === 1 ? '' : 's'}
-									</div>
-									{viewCollection.metadata.tags && viewCollection.metadata.tags.length > 0 && (
-										<div className="flex flex-wrap gap-1">
-											{viewCollection.metadata.tags.slice(0, 5).map((tag) => (
-												<span
-													key={tag}
-													className="rounded bg-purple-100 px-1.5 py-0.5 text-[10px] text-purple-700"
-												>
-													#{tag}
-												</span>
-											))}
-										</div>
-									)}
-								</section>
-
-								<section className="space-y-2">
-									<h4 className="text-sm font-semibold text-gray-800">Linked geo events</h4>
-									{viewCollectionEvents.length === 0 ? (
-										<p className="text-xs text-gray-500">
-											No linked geo events are currently loaded. Listen for their coordinates or
-											load datasets first.
-										</p>
-									) : (
-										<DataTable
-											columns={linkedEventsColumns}
-											data={linkedEventsTableData}
-											getRowId={(row) => row.datasetKey}
-											getRowClassName={(row) => (!row.isVisible ? 'opacity-60' : undefined)}
-										/>
-									)}
-								</section>
-							</>
+	return (
+		<EntityPanelShell
+			title="Dataset overview"
+			tabs={
+				<Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as ViewTab)}>
+					<TabsList className="h-8 rounded-none border-b border-slate-200 bg-transparent p-0">
+						<TabsTrigger
+							value="details"
+							className="h-8 rounded-none border-b-2 border-transparent px-3 text-xs data-[state=active]:border-slate-950 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+						>
+							<FileText className="h-3.5 w-3.5" />
+							Details
+						</TabsTrigger>
+						<TabsTrigger
+							value="proposals"
+							className="h-8 rounded-none border-b-2 border-transparent px-3 text-xs data-[state=active]:border-slate-950 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+						>
+							<GitPullRequest className="h-3.5 w-3.5" />
+							Proposals
+						</TabsTrigger>
+					</TabsList>
+				</Tabs>
+			}
+		>
+			{activeTab === 'details' ? (
+				<div className="space-y-4">
+					<EntityPanelSurface tone="dataset" className="space-y-3">
+						<EntityPanelSectionHeader eyebrow="Dataset" title={getDatasetName(viewDataset)} />
+						{getDatasetDescription(viewDataset) && (
+							<RichContentRenderer
+								content={getDatasetDescription(viewDataset) ?? ''}
+								availableFeatures={availableFeatures}
+								onMentionVisibilityToggle={onMentionVisibilityToggle}
+								onMentionZoomTo={onMentionZoomTo}
+								className="text-sm text-gray-600"
+							/>
 						)}
-
-						{/* Dataset View (without collection) */}
-						{viewDataset && !viewCollection && (
-							<>
-								<section className="rounded-lg border border-gray-200 p-3 space-y-2">
-									<div className="text-base font-semibold text-gray-900">
-										{getDatasetName(viewDataset)}
-									</div>
-									<div className="text-[11px] text-gray-500">
-										Owner: {viewDataset.pubkey.slice(0, 8)}…{viewDataset.pubkey.slice(-4)}
-									</div>
-									{viewDataset.hashtags.length > 0 && (
-										<div className="flex flex-wrap gap-1">
-											{viewDataset.hashtags.slice(0, 5).map((tag) => (
-												<span
-													key={tag}
-													className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700"
-												>
-													#{tag}
-												</span>
-											))}
-										</div>
-									)}
-									<div className="text-xs text-gray-600 space-y-1">
-										<div>
-											Bounding box:{' '}
-											{viewDataset.boundingBox
-												? viewDataset.boundingBox.join(', ')
-												: 'Not provided'}
-										</div>
-										<div>Geohash: {viewDataset.geohash ?? '—'}</div>
-										<div>Collections referenced: {viewDataset.collectionReferences.length}</div>
-									</div>
-								</section>
-
-								{/* Inline action buttons */}
-								<div className="flex items-center gap-2">
-									<Button
-										size="sm"
-										className={cn(
-											currentUserPubkey === viewDataset.pubkey
-												? 'bg-green-600 text-white hover:bg-green-700'
-												: 'bg-blue-600 text-white hover:bg-blue-700',
-										)}
-										onClick={() => onLoadDataset(viewDataset)}
-										disabled={isPublishing}
+						<div className="flex flex-wrap gap-2 text-[11px] text-gray-600">
+							<div className="flex items-center gap-1.5 px-2 py-0.5">
+								<span className="shrink-0">Owner:</span>
+								<UserProfile
+									pubkey={viewDataset.pubkey}
+									mode="avatar-name"
+									size="xs"
+									showNip05Badge={false}
+									interactive={false}
+								/>
+							</div>
+							<span className="px-2 py-0.5">
+								Contexts attached: {viewDataset.contextReferences.length}
+							</span>
+						</div>
+						{viewDataset.hashtags.length > 0 && (
+							<div className="flex flex-wrap gap-1.5">
+								{viewDataset.hashtags.slice(0, 5).map((tag) => (
+									<span
+										key={tag}
+										className="border border-slate-200 px-2 py-0.5 text-[10px] text-blue-700"
 									>
-										{currentUserPubkey === viewDataset.pubkey ? 'Edit' : 'Load copy'}
-									</Button>
-									<Button
-										size="sm"
-										variant="outline"
-										onClick={() => onToggleVisibility(viewDataset)}
-									>
-										{datasetVisibility[getDatasetKey(viewDataset)] !== false ? 'Hide' : 'Show'}
-									</Button>
-									<Button size="sm" variant="outline" onClick={() => onZoomToDataset(viewDataset)}>
-										Zoom
-									</Button>
-								</div>
-
-								{/* Features list */}
-								<section className="space-y-2">
-									<h4 className="text-sm font-semibold text-gray-800">
-										Features ({viewDataset.featureCollection?.features?.length ?? 0})
-									</h4>
-									<DatasetFeaturesList
-										featureCollection={viewDataset.featureCollection}
-										hiddenFeatureIds={hiddenFeatureIds}
-										className="max-h-[40vh] overflow-y-auto"
-									/>
-								</section>
-							</>
+										#{tag}
+									</span>
+								))}
+							</div>
 						)}
-					</div>
-				) : (
-					<CommentsPanel
-						key={commentTarget?.id ?? commentTarget?.dTag ?? 'no-target'}
-						target={commentTarget}
-						onCommentGeojsonVisibilityChange={handleCommentGeojsonVisibilityChange}
-						onZoomToCommentGeojson={handleZoomToCommentGeojson}
-						visibleGeojsonCommentIds={visibleGeojsonCommentIds}
-						attachedGeojson={attachedGeojson}
-						onClearAttachment={handleClearAttachment}
-						availableFeatures={availableFeatures}
-						onMentionVisibilityToggle={onMentionVisibilityToggle}
-						onMentionZoomTo={onMentionZoomTo}
+						<div className="grid gap-1 text-[11px] text-gray-600 sm:grid-cols-2">
+							<div className="border-l border-slate-200 pl-2">
+								Bounding box:{' '}
+								{viewDataset.boundingBox ? viewDataset.boundingBox.join(', ') : 'Not provided'}
+							</div>
+							<div className="border-l border-slate-200 pl-2">
+								Geohash: {viewDataset.geohash ?? '—'}
+							</div>
+						</div>
+					</EntityPanelSurface>
+
+					<EntityPanelSurface tone="neutral" className="space-y-3">
+						<EntityPanelSectionHeader
+							eyebrow="Metadata"
+							title={`Properties${datasetProperties.length > 0 ? ` (${datasetProperties.length})` : ''}`}
+						/>
+						{datasetProperties.length > 0 ? (
+							<div className="space-y-2">
+								{datasetProperties.map(([key, value]) => {
+									const displayValue = formatDatasetPropertyValue(value)
+									const isLink = typeof value === 'string' && /^https?:\/\//i.test(value.trim())
+									return (
+										<div
+											key={key}
+											className="flex flex-col gap-1 border-b border-slate-200 pb-2 text-sm last:border-b-0 last:pb-0"
+										>
+											<span className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">
+												{key}
+											</span>
+											{isLink ? (
+												<a
+													href={String(value)}
+													target="_blank"
+													rel="noreferrer"
+													className="break-all text-blue-700 underline decoration-blue-300 underline-offset-2"
+												>
+													{displayValue}
+												</a>
+											) : (
+												<span className="break-words text-slate-800">{displayValue}</span>
+											)}
+										</div>
+									)
+								})}
+							</div>
+						) : (
+							<p className="text-xs text-slate-500">
+								No dataset-level properties were published with this version yet.
+							</p>
+						)}
+					</EntityPanelSurface>
+
+					<EntityPanelSurface tone="neutral">
+						<div className="flex items-center justify-between gap-2">
+							<EntityActionBar
+								actions={[
+									{
+										icon:
+											currentUserPubkey === viewDataset.pubkey ? (
+												<Pencil className="h-3.5 w-3.5" />
+											) : (
+												<CopyPlus className="h-3.5 w-3.5" />
+											),
+										label: currentUserPubkey === viewDataset.pubkey ? 'Edit dataset' : 'Load copy',
+										onClick: () => onLoadDataset(viewDataset),
+										variant: 'outline',
+										disabled: isPublishing,
+									},
+									{
+										icon:
+											datasetVisibility[getDatasetKey(viewDataset)] !== false ? (
+												<EyeOff className="h-3.5 w-3.5" />
+											) : (
+												<Eye className="h-3.5 w-3.5" />
+											),
+										label:
+											datasetVisibility[getDatasetKey(viewDataset)] !== false
+												? 'Hide dataset'
+												: 'Show dataset',
+										onClick: () => onToggleVisibility(viewDataset),
+									},
+									{
+										icon: <Maximize2 className="h-3.5 w-3.5" />,
+										label: 'Zoom to dataset',
+										onClick: () => onZoomToDataset(viewDataset),
+									},
+								]}
+							/>
+							{currentUserPubkey === viewDataset.pubkey ? (
+								<ConfirmDeleteAction
+									label="Dataset"
+									isDeleting={isDeletingDataset}
+									onConfirm={() => onDeleteDataset(viewDataset)}
+								/>
+							) : null}
+						</div>
+					</EntityPanelSurface>
+
+					<EntityPanelSurface tone="neutral" className="space-y-3">
+						<EntityPanelSectionHeader
+							eyebrow="Geometry"
+							title={`Features (${viewDataset.featureCollection?.features?.length ?? 0})`}
+						/>
+						<DatasetFeaturesList
+							featureCollection={viewDataset.featureCollection}
+							hiddenFeatureIds={hiddenFeatureIds}
+							className="max-h-[40vh] overflow-y-auto"
+						/>
+					</EntityPanelSurface>
+
+					{commentsSection}
+				</div>
+			) : (
+				<EntityPanelSurface tone="neutral">
+					<ProposalsPanel
+						key={viewDataset.id ?? viewDataset.dTag ?? 'no-target'}
+						target={viewDataset}
+						currentUserPubkey={currentUserPubkey}
+						onToggleProposalOverlay={onToggleProposalOverlay}
+						onProposalAccepted={onProposalAccepted}
+						visibleProposalIds={visibleProposalIds}
 					/>
-				)}
-			</div>
-		</div>
+				</EntityPanelSurface>
+			)}
+		</EntityPanelShell>
 	)
 }

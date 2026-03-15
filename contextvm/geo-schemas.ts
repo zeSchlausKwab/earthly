@@ -92,9 +92,23 @@ export type ReverseLookupOutput = {
 
 export const osmElementTypeSchema = z.enum(["node", "way", "relation"]);
 
-export const osmFiltersSchema = z.record(z.string(), z.string()).describe(
-	'OSM tag filters. Use "*" for any value, e.g. { highway: "*" } or { highway: "primary" }'
-);
+export const osmFilterValueSchema = z.union([
+	z.string(),
+	z.array(z.string()).min(1),
+]);
+
+export const osmFiltersSchema = z
+	.record(z.string(), osmFilterValueSchema)
+	.describe(
+		'OSM tag filters. Values can be a string or string array for OR matching. Use "*" for any value, e.g. { highway: "*" } or { military: ["base", "air_base"] }.'
+	);
+
+export const osmFilterSetsSchema = z
+	.array(osmFiltersSchema)
+	.min(1)
+	.describe(
+		'Alternative filter groups combined with OR semantics. Each object is an AND group; the array is matched as OR.'
+	);
 
 export const queryByIdInputSchema = {
 	osmType: osmElementTypeSchema.describe("OSM element type"),
@@ -127,6 +141,7 @@ export const queryNearbyInputSchema = {
 	lon: z.number().min(-180).max(180).describe("Longitude coordinate"),
 	radius: z.number().min(1).max(5000).default(100).describe("Search radius in meters (1-5000)"),
 	filters: osmFiltersSchema.optional().describe("OSM tag filters"),
+	filterSets: osmFilterSetsSchema.optional(),
 	limit: z.number().min(1).max(100).optional().describe("Maximum results to return"),
 	includeRelations: z
 		.boolean()
@@ -145,7 +160,8 @@ export type QueryNearbyInput = {
 	lat: number;
 	lon: number;
 	radius?: number;
-	filters?: Record<string, string>;
+	filters?: Record<string, string | string[]>;
+	filterSets?: Array<Record<string, string | string[]>>;
 	limit?: number;
 	includeRelations?: boolean;
 };
@@ -163,6 +179,7 @@ export const queryBboxInputSchema = {
 	east: z.number().min(-180).max(180).describe("Eastern longitude"),
 	north: z.number().min(-90).max(90).describe("Northern latitude"),
 	filters: osmFiltersSchema.optional().describe("OSM tag filters"),
+	filterSets: osmFilterSetsSchema.optional(),
 	limit: z.number().min(1).max(100).optional().describe("Maximum results to return"),
 	includeRelations: z
 		.boolean()
@@ -175,7 +192,8 @@ export type QueryBboxInput = {
 	south: number;
 	east: number;
 	north: number;
-	filters?: Record<string, string>;
+	filters?: Record<string, string | string[]>;
+	filterSets?: Array<Record<string, string | string[]>>;
 	limit?: number;
 	includeRelations?: boolean;
 };

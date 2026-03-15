@@ -1,28 +1,24 @@
 import type React from 'react'
 import JsonView from 'react18-json-view'
 import 'react18-json-view/src/style.css'
-import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog'
 
 interface DebugDialogProps {
-	event: NDKGeoEvent | NDKGeoCollectionEvent | NDKMapContextEvent
+	event: NDKGeoEvent | NDKMapContextEvent
 	open: boolean
 	onOpenChange: (open: boolean) => void
 }
 
 export const DebugDialog: React.FC<DebugDialogProps> = ({ event, open, onOpenChange }) => {
 	const rawEvent = event.rawEvent()
-	const isCollection = 'metadata' in event && 'datasetReferences' in event
 	const isContext = 'context' in event && 'contextId' in event
-	const displayName = isCollection
-		? (event.metadata?.name ?? event.collectionId ?? event.id)
-		: isContext
-			? (event.context?.name ?? event.contextId ?? event.id)
-			: (((event.featureCollection as any)?.name as string | undefined) ??
-				event.datasetId ??
-				event.id)
+	const displayName = isContext
+		? (event.context?.name ?? event.contextId ?? event.id)
+		: (((event.featureCollection as any)?.name as string | undefined) ??
+			event.datasetId ??
+			event.id)
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>

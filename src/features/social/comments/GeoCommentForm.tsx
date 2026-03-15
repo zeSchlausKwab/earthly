@@ -1,14 +1,31 @@
-import { MapPin, Send, X } from 'lucide-react'
-import { forwardRef, useState, useRef, useCallback } from 'react'
+import { Check, Edit3, MapPin, MousePointer2, Send, Trash2, Type, X } from 'lucide-react'
+import { forwardRef, useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useNDKCurrentUser } from '@nostr-dev-kit/react'
 import type { FeatureCollection } from 'geojson'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
 	GeoRichTextEditor,
 	type GeoRichTextEditorRef,
 	type GeoFeatureItem,
 } from '@/components/editor/GeoRichTextEditor'
+import { DrawButtonGroup } from '@/features/geo-editor/components/toolbar/DrawButtonGroup'
+import type { EditorFeature, EditorMode } from '@/features/geo-editor/core'
+import { useEditorStore } from '@/features/geo-editor/store'
+
+interface EditorSnapshot {
+	features: EditorFeature[]
+	selectedFeatureIds: string[]
+	mode: EditorMode
+}
+
+const DRAW_MODES: EditorMode[] = [
+	'draw_point',
+	'draw_linestring',
+	'draw_polygon',
+	'draw_annotation',
+]
 
 interface GeoCommentFormProps {
 	onSubmit: (text: string, geojson?: FeatureCollection) => Promise<void>
@@ -44,16 +61,169 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 		_ref,
 	) => {
 		const currentUser = useNDKCurrentUser()
+		const editor = useEditorStore((state) => state.editor)
+		const features = useEditorStore((state) => state.features)
+		const mode = useEditorStore((state) => state.mode)
+		const canFinishDrawing = useEditorStore((state) => state.canFinishDrawing)
+		const setFeatures = useEditorStore((state) => state.setFeatures)
+		const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
+		const setSelectedFeatureIds = useEditorStore((state) => state.setSelectedFeatureIds)
+		const setMode = useEditorStore((state) => state.setMode)
+		const setHistoryState = useEditorStore((state) => state.setHistoryState)
+
 		const [text, setText] = useState('')
 		const [isSubmitting, setIsSubmitting] = useState(false)
+		const [isGeometryDraftActive, setIsGeometryDraftActive] = useState(false)
 		const richEditorRef = useRef<GeoRichTextEditorRef>(null)
+		const annotationInputRef = useRef<HTMLInputElement>(null)
+		const snapshotRef = useRef<EditorSnapshot | null>(null)
+		const restoredRef = useRef(false)
+		const previousDraftAnnotationCountRef = useRef(0)
 
 		// Always use the rich editor so `$` mentions can work in comments.
 		// If there are no available features yet, the editor will still open the menu (showing "No matches").
 		const useRichEditor = true
 
-		const hasAttachment = attachedGeojson && attachedGeojson.features.length > 0
-		const featureCount = attachedGeojson?.features.length ?? 0
+		const attachedFeatures = attachedGeojson?.features ?? []
+		const hasAttachedGeometry = attachedFeatures.length > 0
+		const draftFeatures = isGeometryDraftActive
+			? features.filter((feature) => feature.geometry !== null)
+			: []
+		const draftAnnotationFeatures = useMemo(
+			() => draftFeatures.filter((feature) => feature.properties?.featureType === 'annotation'),
+			[draftFeatures],
+		)
+		const draftFeatureCount = draftFeatures.length
+		const totalFeatureCount = attachedFeatures.length + draftFeatureCount
+		const hasAnyGeometry = totalFeatureCount > 0
+		const isDrawingComplexGeometry = mode === 'draw_linestring' || mode === 'draw_polygon'
+		const activeDraftAnnotation = useMemo(() => {
+			const selectedAnnotation = draftAnnotationFeatures.find((feature) =>
+				selectedFeatureIds.includes(feature.id),
+			)
+			return (
+				selectedAnnotation ?? draftAnnotationFeatures[draftAnnotationFeatures.length - 1] ?? null
+			)
+		}, [draftAnnotationFeatures, selectedFeatureIds])
+		const activeDraftAnnotationText =
+			typeof activeDraftAnnotation?.properties?.text === 'string'
+				? activeDraftAnnotation.properties.text
+				: ''
+
+		useEffect(() => {
+			const currentCount = draftAnnotationFeatures.length
+			const previousCount = previousDraftAnnotationCountRef.current
+			previousDraftAnnotationCountRef.current = currentCount
+
+			if (currentCount <= previousCount || mode !== 'draw_annotation') return
+
+			const latestAnnotation = draftAnnotationFeatures[draftAnnotationFeatures.length - 1]
+			if (!latestAnnotation) return
+
+			setSelectedFeatureIds([latestAnnotation.id])
+			setMode('select')
+
+			window.requestAnimationFrame(() => {
+				annotationInputRef.current?.focus()
+				annotationInputRef.current?.select()
+			})
+		}, [draftAnnotationFeatures, mode, setMode, setSelectedFeatureIds])
+
+		const geometrySummary = useMemo(() => {
+			const counts = {
+				labels: 0,
+				points: attachedFeatures.filter((feature) => feature.geometry?.type === 'Point').length,
+				lines: attachedFeatures.filter(
+					(feature) =>
+						feature.geometry?.type === 'LineString' || feature.geometry?.type === 'MultiLineString',
+				).length,
+				polygons: attachedFeatures.filter(
+					(feature) =>
+						feature.geometry?.type === 'Polygon' || feature.geometry?.type === 'MultiPolygon',
+				).length,
+			}
+
+			for (const feature of draftFeatures) {
+				if (feature.properties?.featureType === 'annotation') {
+					counts.labels += 1
+					continue
+				}
+				switch (feature.geometry?.type) {
+					case 'Point':
+					case 'MultiPoint':
+						counts.points += 1
+						break
+					case 'LineString':
+					case 'MultiLineString':
+						counts.lines += 1
+						break
+					case 'Polygon':
+					case 'MultiPolygon':
+						counts.polygons += 1
+						break
+					default:
+						break
+				}
+			}
+
+			return counts
+		}, [attachedFeatures, draftFeatures])
+
+		const restoreEditorState = useCallback(
+			(updateDraftFlag = true) => {
+				if (restoredRef.current) return
+				const snapshot = snapshotRef.current
+				if (!snapshot) return
+
+				editor?.setFeatures(snapshot.features)
+				editor?.clearHistory()
+				setFeatures(snapshot.features)
+				setSelectedFeatureIds(snapshot.selectedFeatureIds)
+				setMode(snapshot.mode)
+				setHistoryState(false, false)
+				restoredRef.current = true
+				snapshotRef.current = null
+				if (updateDraftFlag) {
+					setIsGeometryDraftActive(false)
+				}
+			},
+			[editor, setFeatures, setHistoryState, setMode, setSelectedFeatureIds],
+		)
+
+		const ensureDraftSession = useCallback(
+			(nextMode: EditorMode) => {
+				if (!DRAW_MODES.includes(nextMode) || !editor || !currentUser) return
+
+				if (!snapshotRef.current) {
+					const store = useEditorStore.getState()
+					snapshotRef.current = {
+						features: editor.getAllFeatures(),
+						selectedFeatureIds: store.selectedFeatureIds,
+						mode: store.mode,
+					}
+					restoredRef.current = false
+
+					editor.setFeatures([])
+					editor.clearHistory()
+					setFeatures([])
+					setSelectedFeatureIds([])
+					setHistoryState(false, false)
+					setIsGeometryDraftActive(true)
+				}
+
+				setMode(nextMode)
+			},
+			[currentUser, editor, setFeatures, setHistoryState, setMode, setSelectedFeatureIds],
+		)
+
+		useEffect(
+			() => () => {
+				if (snapshotRef.current) {
+					restoreEditorState(false)
+				}
+			},
+			[restoreEditorState],
+		)
 
 		const handleSubmit = async (e: React.FormEvent) => {
 			e.preventDefault()
@@ -61,16 +231,34 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 			// Get text from rich editor or plain textarea
 			const submitText = useRichEditor ? (richEditorRef.current?.getText() ?? '') : text
 
-			if (!submitText.trim() && !hasAttachment) return
+			const mergedFeatures = [
+				...attachedFeatures,
+				...draftFeatures.map((feature) => ({
+					type: 'Feature' as const,
+					id: feature.id,
+					geometry: feature.geometry,
+					properties: feature.properties ?? {},
+				})),
+			]
+			const submissionGeojson =
+				mergedFeatures.length > 0
+					? ({
+							type: 'FeatureCollection',
+							features: mergedFeatures,
+						} satisfies FeatureCollection)
+					: undefined
+
+			if (!submitText.trim() && !submissionGeojson) return
 
 			setIsSubmitting(true)
 			try {
-				await onSubmit(submitText, hasAttachment ? attachedGeojson : undefined)
+				await onSubmit(submitText, submissionGeojson)
 				if (useRichEditor) {
 					richEditorRef.current?.clear()
 				} else {
 					setText('')
 				}
+				restoreEditorState()
 				onClearAttachment?.()
 				onCancel?.()
 			} catch (error) {
@@ -84,11 +272,44 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 			setText(newText)
 		}, [])
 
-		const canSubmit = (text.trim().length > 0 || hasAttachment) && !isSubmitting && !!currentUser
+		const handleClearDraftGeometry = useCallback(() => {
+			if (!isGeometryDraftActive) return
+			const allIds = editor?.getAllFeatures().map((feature) => feature.id) ?? []
+			if (allIds.length > 0) {
+				editor?.deleteFeatures(allIds)
+			}
+			editor?.setFeatures([])
+			editor?.clearHistory()
+			setFeatures([])
+			setSelectedFeatureIds([])
+			setHistoryState(false, false)
+		}, [editor, isGeometryDraftActive, setFeatures, setHistoryState, setSelectedFeatureIds])
+
+		const handleAnnotationTextChange = useCallback(
+			(value: string) => {
+				if (!editor || !activeDraftAnnotation) return
+				editor.updateFeature(activeDraftAnnotation.id, {
+					...activeDraftAnnotation,
+					properties: {
+						...activeDraftAnnotation.properties,
+						text: value,
+						name: value.trim() || undefined,
+					},
+				})
+			},
+			[activeDraftAnnotation, editor],
+		)
+
+		const handleCancel = () => {
+			restoreEditorState()
+			onCancel?.()
+		}
+
+		const canSubmit = (text.trim().length > 0 || hasAnyGeometry) && !isSubmitting && !!currentUser
 
 		const effectivePlaceholder = currentUser
 			? useRichEditor
-				? 'Type here... Use $ to reference features'
+				? placeholder
 				: placeholder
 			: 'Log in to comment...'
 
@@ -106,20 +327,133 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 					/>
 				</div>
 
-				{/* Attachment indicator */}
-				{hasAttachment && (
-					<div className="flex items-center gap-2 rounded-md bg-emerald-50 border border-emerald-200 px-2 py-1.5 text-xs text-emerald-700">
+				<div className="border-t border-stone-200 pt-2">
+					{!currentUser ? (
+						<p className="text-[10px] text-stone-400">Log in to comment &amp; annotate</p>
+					) : (
+						<>
+							{!isGeometryDraftActive && (
+								<p className="mb-1 text-[10px] text-stone-400">
+									Draw a point, line, or polygon on the map to attach it to your comment.
+								</p>
+							)}
+							<div className="flex flex-wrap items-center gap-1">
+								<DrawButtonGroup mode={mode} onModeChange={ensureDraftSession} />
+								<Button
+									type="button"
+									size="icon-sm"
+									variant={mode === 'draw_annotation' ? 'default' : 'outline'}
+									onClick={() => ensureDraftSession('draw_annotation')}
+									disabled={!currentUser || !editor}
+									className={`rounded-none ${
+										mode === 'draw_annotation'
+											? 'border-amber-500 bg-amber-500 text-white hover:bg-amber-600'
+											: 'border-stone-200 bg-white text-amber-700 hover:bg-amber-50 hover:text-amber-800'
+									}`}
+									title="Attach label annotation"
+								>
+									<Type className="h-4 w-4" />
+								</Button>
+								<Button
+									type="button"
+									size="icon-sm"
+									variant={mode === 'select' ? 'default' : 'outline'}
+									onClick={() => isGeometryDraftActive && setMode('select')}
+									disabled={!isGeometryDraftActive}
+									className="rounded-none border-stone-200"
+								>
+									<MousePointer2 className="h-4 w-4" />
+								</Button>
+								<Button
+									type="button"
+									size="icon-sm"
+									variant={mode === 'edit' ? 'default' : 'outline'}
+									onClick={() => isGeometryDraftActive && setMode('edit')}
+									disabled={!isGeometryDraftActive || draftFeatureCount === 0}
+									className="rounded-none border-stone-200"
+								>
+									<Edit3 className="h-4 w-4" />
+								</Button>
+								{isDrawingComplexGeometry && (
+									<Button
+										type="button"
+										size="sm"
+										variant="outline"
+										onClick={() => editor?.finishDrawing()}
+										disabled={!canFinishDrawing}
+										className="gap-1 rounded-none border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50"
+									>
+										<Check className="h-3.5 w-3.5" />
+										Finish
+									</Button>
+								)}
+								<Button
+									type="button"
+									size="sm"
+									variant="outline"
+									onClick={handleClearDraftGeometry}
+									disabled={!isGeometryDraftActive || draftFeatureCount === 0}
+									className="gap-1 rounded-none border-stone-200 bg-white text-stone-600 hover:bg-stone-100"
+								>
+									<Trash2 className="h-3.5 w-3.5" />
+									Clear draft
+								</Button>
+							</div>
+							{mode === 'draw_annotation' && draftAnnotationFeatures.length === 0 && (
+								<p className="mt-2 text-[11px] text-amber-700">
+									Click on the map to place a label, then type its text here.
+								</p>
+							)}
+							{activeDraftAnnotation && (
+								<div className="mt-2 space-y-1">
+									<div className="flex items-center justify-between gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-amber-700">
+										<span>Label text</span>
+										{draftAnnotationFeatures.length > 1 && (
+											<span className="text-[10px] normal-case tracking-normal text-stone-500">
+												Editing selected/latest label
+											</span>
+										)}
+									</div>
+									<Input
+										ref={annotationInputRef}
+										value={activeDraftAnnotationText}
+										onChange={(event) => handleAnnotationTextChange(event.target.value)}
+										placeholder="Type label text..."
+										className="h-8 rounded-none border-amber-200 bg-white px-2 text-sm"
+										disabled={isSubmitting || !currentUser}
+										autoFocus
+									/>
+								</div>
+							)}
+							{hasAnyGeometry && (
+								<div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-stone-700">
+									<span className="border border-stone-200 px-2 py-0.5 font-medium text-stone-900">
+										{totalFeatureCount} geometry attached
+									</span>
+									{geometrySummary.labels > 0 && <span>{geometrySummary.labels} labels</span>}
+									{geometrySummary.points > 0 && <span>{geometrySummary.points} points</span>}
+									{geometrySummary.lines > 0 && <span>{geometrySummary.lines} lines</span>}
+									{geometrySummary.polygons > 0 && <span>{geometrySummary.polygons} polygons</span>}
+								</div>
+							)}
+						</>
+					)}
+				</div>
+
+				{hasAttachedGeometry && (
+					<div className="flex items-center gap-2 border border-emerald-200 px-2 py-1 text-[11px] text-emerald-700">
 						<MapPin className="h-3.5 w-3.5" />
 						<span>
-							{featureCount} geometry{featureCount === 1 ? '' : 'ies'} attached
+							{attachedFeatures.length} geometry{attachedFeatures.length === 1 ? '' : 'ies'} from
+							selection
 						</span>
 						{onClearAttachment && (
 							<Button
 								type="button"
 								variant="ghost"
-								size="icon-xs"
+								size="icon-sm"
 								onClick={onClearAttachment}
-								className="ml-auto h-4 w-4 p-0 text-emerald-600 hover:text-emerald-800"
+								className="ml-auto h-6 w-6 rounded-none p-0 text-emerald-600 hover:text-emerald-800"
 							>
 								<X className="h-3 w-3" />
 							</Button>
@@ -131,14 +465,15 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 				<div className="flex items-center justify-between gap-2">
 					{!currentUser && <p className="text-[10px] text-gray-500">Log in to comment</p>}
 
-					<div className="flex items-center gap-2 ml-auto">
+					<div className="ml-auto flex items-center gap-2">
 						{onCancel && (
 							<Button
 								type="button"
 								variant="ghost"
-								size="xs"
-								onClick={onCancel}
+								size="sm"
+								onClick={handleCancel}
 								disabled={isSubmitting}
+								className="rounded-none px-2 text-xs"
 							>
 								Cancel
 							</Button>
@@ -146,20 +481,22 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 
 						<Tooltip>
 							<TooltipTrigger asChild>
-								<Button
-									type="submit"
-									size="xs"
-									disabled={!canSubmit}
-									className="gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-								>
-									<Send className="h-3 w-3" />
-									{isReply ? 'Reply' : 'Post'}
-								</Button>
+								<span tabIndex={!canSubmit ? 0 : undefined} className="inline-flex">
+									<Button
+										type="submit"
+										size="sm"
+										disabled={!canSubmit}
+										className={`gap-1 rounded-none px-2 text-xs ${canSubmit ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-stone-100 text-stone-400 border border-stone-200'}`}
+									>
+										<Send className="h-3 w-3" />
+										{isReply ? 'Reply' : 'Post'}
+									</Button>
+								</span>
 							</TooltipTrigger>
 							<TooltipContent>
 								{!currentUser
 									? 'Log in to comment'
-									: !text.trim() && !hasAttachment
+									: !text.trim() && !hasAnyGeometry
 										? 'Write something or attach geometry'
 										: isReply
 											? 'Post reply'

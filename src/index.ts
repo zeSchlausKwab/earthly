@@ -7,9 +7,10 @@ import {
 	isCrawler,
 	generateHomeOGHtml,
 	generateGeoEventOGHtml,
-	generateCollectionOGHtml,
+	generateContextOGHtml,
 	fetchGeoEventOGData,
-	fetchCollectionOGData,
+	fetchContextEventOGData,
+	generateOGImagePNG,
 } from './lib/og'
 
 const isProduction = process.env.NODE_ENV === 'production'
@@ -69,7 +70,10 @@ async function handleGeoEventRoute(req: BunRouteRequest): Promise<Response> {
 	return Response.redirect(`${baseUrl}/#/geoevent/${naddr}`, 302)
 }
 
-async function handleCollectionRoute(req: BunRouteRequest): Promise<Response> {
+/**
+ * Handle /context/:naddr — OG HTML for crawlers, redirect for users
+ */
+async function handleContextRoute(req: BunRouteRequest): Promise<Response> {
 	const naddr = req.params.naddr ?? ''
 	const baseUrl = getBaseUrl(req)
 
@@ -78,22 +82,71 @@ async function handleCollectionRoute(req: BunRouteRequest): Promise<Response> {
 	}
 
 	if (isCrawler(req)) {
-		// Fetch collection data and return OG HTML
-		const data = await fetchCollectionOGData(naddr, serverConfig.relayUrl)
-		const html = generateCollectionOGHtml(
+		const data = await fetchContextEventOGData(naddr, serverConfig.relayUrl)
+		const html = generateContextOGHtml(
 			baseUrl,
 			naddr,
-			data?.name ?? 'Map Collection',
-			data?.description ?? 'View this collection on Earthly',
-			data?.picture,
+			data?.title ?? 'Map Context',
+			data?.description ?? 'Explore this geographic context on Earthly',
+			data?.image,
 		)
 		return new Response(html, {
 			headers: { 'Content-Type': 'text/html; charset=utf-8' },
 		})
 	}
 
-	// For regular users, redirect to hash-based route
-	return Response.redirect(`${baseUrl}/#/collection/${naddr}`, 302)
+	return Response.redirect(`${baseUrl}/#/context/${naddr}`, 302)
+}
+
+/**
+ * Handle /og/image/:type/:naddr — generate and serve a PNG OG image
+ */
+async function handleOGImageRoute(req: BunRouteRequest): Promise<Response> {
+	const { type, naddr } = req.params
+	if (!naddr || !type) {
+		return new Response('Not found', { status: 404 })
+	}
+
+	// 5-minute cache
+	const cacheHeaders = {
+		'Content-Type': 'image/png',
+		'Cache-Control': 'public, max-age=300, s-maxage=300',
+	}
+
+	try {
+		if (type === 'context') {
+			const data = await fetchContextEventOGData(naddr, serverConfig.relayUrl)
+			if (!data) return new Response('Not found', { status: 404 })
+
+			const png = await generateOGImagePNG({
+				title: data.title,
+				description: data.description,
+				bbox: data.bbox,
+				backgroundImageUrl: data.image,
+			})
+
+			if (!png) return new Response('Image generation failed', { status: 500 })
+			return new Response(png, { headers: cacheHeaders })
+		}
+
+		if (type === 'geoevent') {
+			const data = await fetchGeoEventOGData(naddr, serverConfig.relayUrl)
+			if (!data) return new Response('Not found', { status: 404 })
+
+			const png = await generateOGImagePNG({
+				title: data.title,
+				description: data.description,
+			})
+
+			if (!png) return new Response('Image generation failed', { status: 500 })
+			return new Response(png, { headers: cacheHeaders })
+		}
+
+		return new Response('Not found', { status: 404 })
+	} catch (err) {
+		console.error('[OG image route] Error:', err)
+		return new Response('Internal server error', { status: 500 })
+	}
 }
 
 // Define route handlers that work in both modes
@@ -150,7 +203,8 @@ if (!isProduction) {
 		// OG routes for social media crawlers (production only)
 		const ogRoutes: Record<string, BunRoute> = {
 			'/geoevent/:naddr': handleGeoEventRoute,
-			'/collection/:naddr': handleCollectionRoute,
+			'/context/:naddr': handleContextRoute,
+			'/og/image/:type/:naddr': handleOGImageRoute,
 		}
 
 		// Production: Serve static files from dist/ and public/

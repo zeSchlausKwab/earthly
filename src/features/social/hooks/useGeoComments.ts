@@ -4,7 +4,8 @@ import { useMemo, useState, useCallback } from 'react'
 import { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
 import { GEO_COMMENT_KIND } from '@/lib/ndk/kinds'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
-import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
+import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import { extractReferencedCoordinates, syncAddressReferenceTags } from '@/lib/ndk/nostrReferences'
 import type { FeatureCollection } from 'geojson'
 
 export interface CommentNode {
@@ -14,8 +15,8 @@ export interface CommentNode {
 }
 
 export interface UseGeoCommentsOptions {
-	/** The dataset or collection to fetch comments for */
-	target: NDKGeoEvent | NDKGeoCollectionEvent | null
+	/** The dataset or context to fetch comments for */
+	target: NDKGeoEvent | NDKMapContextEvent | null
 	/** Maximum depth for nested replies */
 	maxDepth?: number
 }
@@ -40,11 +41,11 @@ export interface UseGeoCommentsResult {
 	/** Delete a comment */
 	deleteComment: (comment: NDKGeoCommentEvent) => Promise<void>
 	/** React to a comment or the target */
-	react: (target: NDKGeoEvent | NDKGeoCollectionEvent | NDKGeoCommentEvent) => Promise<void>
+	react: (target: NDKGeoEvent | NDKMapContextEvent | NDKGeoCommentEvent) => Promise<void>
 }
 
 /**
- * Hook for fetching and managing comments on geo datasets and collections.
+ * Hook for fetching and managing comments on geo datasets and contexts.
  */
 export function useGeoComments({
 	target,
@@ -159,6 +160,11 @@ export function useGeoComments({
 
 				const address = `${targetKind}:${targetPubkey}:${targetDTag}`
 				comment.setRootScope(targetKind, address, targetPubkey)
+				syncAddressReferenceTags(
+					comment,
+					extractReferencedCoordinates(text),
+					comment.parentAddress ? [comment.parentAddress] : [],
+				)
 
 				await comment.publishComment()
 			} finally {
@@ -189,6 +195,11 @@ export function useGeoComments({
 
 				const rootAddress = `${targetKind}:${targetPubkey}:${targetDTag}`
 				reply.setReplyScope(targetKind, rootAddress, targetPubkey, parentComment)
+				syncAddressReferenceTags(
+					reply,
+					extractReferencedCoordinates(text),
+					reply.parentAddress ? [reply.parentAddress] : [],
+				)
 
 				await reply.publishComment()
 			} finally {
@@ -209,7 +220,7 @@ export function useGeoComments({
 	)
 
 	const react = useCallback(
-		async (reactTarget: NDKGeoEvent | NDKGeoCollectionEvent | NDKGeoCommentEvent) => {
+		async (reactTarget: NDKGeoEvent | NDKMapContextEvent | NDKGeoCommentEvent) => {
 			if (!ndk) {
 				throw new Error('NDK not available')
 			}

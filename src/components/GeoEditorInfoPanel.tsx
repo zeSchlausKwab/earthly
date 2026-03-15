@@ -1,34 +1,37 @@
-import { Eye, Plus, Trash2 } from 'lucide-react'
+import { Eye, MapPin, Pencil } from 'lucide-react'
 import type { FeatureCollection, Geometry } from 'geojson'
 import { cn } from '@/lib/utils'
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+	getEffectiveContextUse,
+	getEffectiveContextValidationMode,
 	getContextRequiredPropertyDefaults,
 	validateDatasetForContext,
 	type ContextValidationResult,
 } from '../lib/context/validation'
 import { useEditorStore } from '../features/geo-editor/store'
 import { sanitizeEditorProperties } from '../features/geo-editor/utils'
-import type { NDKGeoCollectionEvent } from '../lib/ndk/NDKGeoCollectionEvent'
 import { NDKGeoEvent as NDKGeoEventClass, type NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
 import type { MapContextValidationMode, NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
 import {
 	BlobReferencesSection,
 	DatasetMetadataSection,
+	EntityPanelSectionHeader,
+	EntityPanelSurface,
 	GeometriesTable,
 	MapContextViewPanel,
 	ViewModePanel,
 } from './info-panel'
 import { DatasetSizeIndicator } from './info-panel/DatasetSizeIndicator'
-import { GeoCollectionEditorPanel } from '../features/collections/GeoCollectionEditorPanel'
 import { MapContextEditorPanel } from '../features/contexts/MapContextEditorPanel'
+import { CommentsPanel } from '../features/social/comments'
 import { Button } from './ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
 import { EntitySearchPopover, type EntitySearchResult } from './entity-search'
 import type { EditorFeature } from '../features/geo-editor/core'
 import type { BlossomUploadResult } from '../lib/blossom/blossomUpload'
+import { Input } from './ui/input'
 
 type ContextPropertyTypeHint = 'string' | 'number' | 'integer' | 'boolean'
 
@@ -40,18 +43,24 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 export interface GeoEditorInfoPanelProps {
 	currentUserPubkey?: string
 	onLoadDataset: (event: NDKGeoEvent) => void
+	onInspectDataset?: (event: NDKGeoEvent) => void
+	onStartNewDataset?: () => void
+	onOpenGeometryEditor?: () => void
+	onSwitchWorkspace?: (workspaceId: string) => void
 	onToggleVisibility: (event: NDKGeoEvent) => void
 	onZoomToDataset: (event: NDKGeoEvent) => void
 	onDeleteDataset: (event: NDKGeoEvent) => void
-	onZoomToCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
-	onInspectCollection?: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
+	onDeleteContext?: (context: NDKMapContextEvent) => void
 	deletingKey: string | null
 	onExitViewMode?: () => void
 	onClose?: () => void
 	getDatasetKey: (event: NDKGeoEvent) => string
 	getDatasetName: (event: NDKGeoEvent) => string
 	/** Callback to add/remove comment GeoJSON overlay on map */
-	onCommentGeometryVisibility?: (commentId: string, geojson: FeatureCollection | null) => void
+	onCommentGeometryVisibility?: (
+		comment: import('../lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent,
+		visible: boolean,
+	) => void
 	/** Callback to zoom to a bounding box */
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
 	/** Available features for $ mentions in comments */
@@ -64,15 +73,6 @@ export interface GeoEditorInfoPanelProps {
 	) => void
 	/** Callback to zoom to a mentioned geometry */
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
-	onEditCollection?: (collection: NDKGeoCollectionEvent) => void
-	/** Collection editor mode */
-	collectionEditorMode?: 'none' | 'create' | 'edit'
-	/** Collection being edited */
-	editingCollection?: NDKGeoCollectionEvent | null
-	/** Callback when collection is saved */
-	onSaveCollection?: (collection: NDKGeoCollectionEvent) => void
-	/** Callback to close collection editor */
-	onCloseCollectionEditor?: () => void
 	/** Context editor mode */
 	contextEditorMode?: 'none' | 'create' | 'edit'
 	/** Context being edited */
@@ -83,6 +83,15 @@ export interface GeoEditorInfoPanelProps {
 	onCloseContextEditor?: () => void
 	/** Available contexts for dataset attachment */
 	mapContextEvents?: NDKMapContextEvent[]
+	/** Callback when a proposal overlay visibility is toggled */
+	onToggleProposalOverlay?: (
+		proposal: import('@/lib/ndk/NDKGeoEditProposalEvent').NDKGeoEditProposalEvent,
+		visible: boolean,
+	) => void
+	/** Callback when a proposal is accepted */
+	onProposalAccepted?: (dataset: NDKGeoEvent) => void
+	/** Set of proposal IDs whose overlay is visible */
+	visibleProposalIds?: Set<string>
 	/** Callback when a feature is zoomed to from the geometries list */
 	onZoomToFeature?: (feature: EditorFeature) => void
 	/** Current feature collection for size checking */
@@ -91,17 +100,22 @@ export interface GeoEditorInfoPanelProps {
 	onBlossomUploadComplete?: (result: BlossomUploadResult) => void
 	/** NDK instance for authenticated uploads */
 	ndk?: import('@nostr-dev-kit/ndk').default | null
+	/** Optional comment d-tag from the route to reveal in the thread */
+	focusCommentId?: string
+	entityWorkspace?: 'geometry' | 'context'
+	entityIntent?: 'inspect' | 'edit'
 }
 
 export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	const {
 		onLoadDataset,
+		onInspectDataset,
 		onToggleVisibility,
 		onZoomToDataset,
 		onDeleteDataset,
-		onZoomToCollection,
-		onInspectCollection,
+		onDeleteContext,
 		currentUserPubkey,
+		onOpenGeometryEditor,
 		deletingKey,
 		onExitViewMode,
 		getDatasetKey,
@@ -111,46 +125,45 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		availableFeatures = [],
 		onMentionVisibilityToggle,
 		onMentionZoomTo,
-		onEditCollection: _onEditCollection,
-		collectionEditorMode = 'none',
-		editingCollection,
-		onSaveCollection,
-		onCloseCollectionEditor,
 		contextEditorMode = 'none',
 		editingContext,
 		onSaveContext,
 		onCloseContextEditor,
 		mapContextEvents = [],
+		onToggleProposalOverlay,
+		onProposalAccepted,
+		visibleProposalIds,
 		onZoomToFeature,
 		featureCollectionForUpload,
 		onBlossomUploadComplete,
 		ndk,
+		focusCommentId,
+		entityWorkspace,
+		entityIntent,
 	} = props
 
 	// Store state
 	const stats = useEditorStore((state) => state.stats)
 	const features = useEditorStore((state) => state.features)
-	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 	const activeDataset = useEditorStore((state) => state.activeDataset)
-	const collectionMeta = useEditorStore((state) => state.collectionMeta)
 	const publishMessage = useEditorStore((state) => state.publishMessage)
 	const publishError = useEditorStore((state) => state.publishError)
 	const viewMode = useEditorStore((state) => state.viewMode)
 	const viewDataset = useEditorStore((state) => state.viewDataset)
-	const viewCollection = useEditorStore((state) => state.viewCollection)
 	const setViewMode = useEditorStore((state) => state.setViewMode)
 	const setViewDataset = useEditorStore((state) => state.setViewDataset)
-	const setViewCollection = useEditorStore((state) => state.setViewCollection)
 	const blobReferences = useEditorStore((state) => state.blobReferences)
 	const viewContext = useEditorStore((state) => state.viewContext)
+	const setViewContext = useEditorStore((state) => state.setViewContext)
 	const activeDatasetContextRefs = useEditorStore((state) => state.activeDatasetContextRefs)
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
 	const setFeatures = useEditorStore((state) => state.setFeatures)
+	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 	const geoEditDrafts = useEditorStore((state) => state.geoEditDrafts)
 	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
 	const createGeoEditDraft = useEditorStore((state) => state.createGeoEditDraft)
-	const loadGeoEditDraft = useEditorStore((state) => state.loadGeoEditDraft)
-	const deleteGeoEditDraft = useEditorStore((state) => state.deleteGeoEditDraft)
+	const [visibleGeojsonCommentIds, setVisibleGeojsonCommentIds] = useState<Set<string>>(new Set())
+	const [attachedGeojson, setAttachedGeojson] = useState<FeatureCollection | null>(null)
 
 	const existingCollectionBlob = blobReferences.find(
 		(ref) => ref.scope === 'collection' && Boolean(ref.url),
@@ -163,109 +176,38 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 			}
 		: null
 
-	const draftSourceId = activeDataset ? `dataset:${getDatasetKey(activeDataset)}` : '__editor__'
-	const draftsForSource = useMemo(
-		() =>
-			Object.values(geoEditDrafts)
-				.filter((draft) => draft.sourceId === draftSourceId)
-				.sort((a, b) => b.updatedAt - a.updatedAt),
-		[draftSourceId, geoEditDrafts],
-	)
 	const activeDraft = useMemo(
 		() => (activeGeoEditDraftId ? (geoEditDrafts[activeGeoEditDraftId] ?? null) : null),
 		[activeGeoEditDraftId, geoEditDrafts],
 	)
-	const selectedDraftId =
-		activeDraft && activeDraft.sourceId === draftSourceId ? activeDraft.id : draftsForSource[0]?.id
-
-	const applyDraft = useCallback(
-		(draftId: string) => {
-			loadGeoEditDraft(draftId)
-		},
-		[loadGeoEditDraft],
-	)
+	const selectedFeatures = useMemo(() => {
+		if (selectedFeatureIds.length === 0) return []
+		return features.filter((feature) => selectedFeatureIds.includes(feature.id))
+	}, [features, selectedFeatureIds])
+	const canAttachCommentGeometry = selectedFeatures.length > 0 && !attachedGeojson
+	const currentDraftSourceId = activeDataset
+		? `dataset:${getDatasetKey(activeDataset)}`
+		: (activeDraft?.sourceId ?? null)
 
 	useEffect(() => {
-		if (collectionEditorMode !== 'none' || contextEditorMode !== 'none' || viewMode === 'view')
-			return
+		if (contextEditorMode !== 'none' || viewMode === 'view') return
+		if (!currentDraftSourceId) return
+		if (activeDraft?.sourceId === currentDraftSourceId) return
 
 		const store = useEditorStore.getState()
-		const existingDrafts = Object.values(store.geoEditDrafts)
-			.filter((draft) => draft.sourceId === draftSourceId)
-			.sort((a, b) => b.updatedAt - a.updatedAt)
-
-		if (existingDrafts.length > 0) {
-			const preferredDraft =
-				existingDrafts.find((draft) => draft.id === store.activeGeoEditDraftId) ?? existingDrafts[0]
-			if (!preferredDraft) return
-			applyDraft(preferredDraft.id)
-			return
-		}
-
-		const createdDraftId = createGeoEditDraft(draftSourceId, {
+		createGeoEditDraft(currentDraftSourceId, {
 			name: store.collectionMeta.name,
 			description: store.collectionMeta.description,
 			collectionMeta: store.collectionMeta,
 			features: store.features,
 			selectedFeatureIds: store.selectedFeatureIds,
 		})
-		applyDraft(createdDraftId)
-	}, [
-		collectionEditorMode,
-		contextEditorMode,
-		viewMode,
-		draftSourceId,
-		createGeoEditDraft,
-		applyDraft,
-	])
-
-	const handleDraftChange = useCallback(
-		(draftId: string) => {
-			applyDraft(draftId)
-		},
-		[applyDraft],
-	)
-
-	const handleCreateDraft = useCallback(() => {
-		const createdDraftId = createGeoEditDraft(draftSourceId, {
-			name: collectionMeta.name,
-			description: collectionMeta.description,
-			collectionMeta,
-			features,
-			selectedFeatureIds,
-		})
-		applyDraft(createdDraftId)
-	}, [createGeoEditDraft, draftSourceId, collectionMeta, features, selectedFeatureIds, applyDraft])
-
-	const handleDeleteDraft = useCallback(() => {
-		if (!activeDraft) return
-		deleteGeoEditDraft(activeDraft.id)
-		const store = useEditorStore.getState()
-		const remainingDrafts = Object.values(store.geoEditDrafts)
-			.filter((draft) => draft.sourceId === draftSourceId)
-			.sort((a, b) => b.updatedAt - a.updatedAt)
-
-		if (remainingDrafts.length > 0) {
-			const nextDraft = remainingDrafts[0]
-			if (!nextDraft) return
-			applyDraft(nextDraft.id)
-			return
-		}
-
-		const createdDraftId = createGeoEditDraft(draftSourceId, {
-			name: store.collectionMeta.name,
-			description: store.collectionMeta.description,
-			collectionMeta: store.collectionMeta,
-			features: store.features,
-			selectedFeatureIds: store.selectedFeatureIds,
-		})
-		applyDraft(createdDraftId)
-	}, [activeDraft, deleteGeoEditDraft, draftSourceId, applyDraft, createGeoEditDraft])
-
+	}, [contextEditorMode, viewMode, currentDraftSourceId, activeDraft?.sourceId, createGeoEditDraft])
 	// Toggle to view mode - show the active dataset in view mode
 	const handleSwitchToView = () => {
 		if (activeDataset) {
 			setViewDataset(activeDataset)
+			setViewContext(null)
 			setViewMode('view')
 		}
 	}
@@ -276,11 +218,15 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				.map((context) => {
 					const coordinate = context.contextCoordinate
 					if (!coordinate) return null
+					const isAttached = activeDatasetContextRefs.includes(coordinate)
+					if (!context.context.allowForeignAttachments && !isAttached) {
+						return null
+					}
 					return {
 						coordinate,
 						name: context.context.name || context.contextId || context.id || 'Untitled context',
-						validationMode: context.context.validationMode,
-						contextUse: context.context.contextUse,
+						validationMode: getEffectiveContextValidationMode(context),
+						contextUse: getEffectiveContextUse(context),
 						contextEvent: context,
 					}
 				})
@@ -295,7 +241,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						contextEvent: NDKMapContextEvent
 					} => entry !== null,
 				),
-		[mapContextEvents],
+		[mapContextEvents, activeDatasetContextRefs],
 	)
 
 	// Split into: already attached (always shown) + recent unattached (top 5)
@@ -508,22 +454,63 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		}
 	}
 
-	// Collection Editor mode takes precedence
-	if (collectionEditorMode !== 'none' && onSaveCollection && onCloseCollectionEditor) {
-		return (
-			<GeoCollectionEditorPanel
-				initialCollection={editingCollection}
-				onClose={onCloseCollectionEditor}
-				onSave={onSaveCollection}
-				availableFeatures={availableFeatures}
-				mapContextEvents={mapContextEvents}
-				onCommentGeometryVisibility={onCommentGeometryVisibility}
-				onZoomToBounds={onZoomToBounds}
-				onMentionVisibilityToggle={onMentionVisibilityToggle}
-				onMentionZoomTo={onMentionZoomTo}
-			/>
-		)
-	}
+	// biome-ignore lint/correctness/useExhaustiveDependencies: intentional reset on active dataset change
+	useEffect(() => {
+		setVisibleGeojsonCommentIds(new Set())
+		setAttachedGeojson(null)
+	}, [activeDataset])
+
+	const handleAttachCommentGeometry = useCallback(() => {
+		if (selectedFeatures.length === 0) return
+		setAttachedGeojson({
+			type: 'FeatureCollection',
+			features: selectedFeatures.map((feature) => ({
+				type: 'Feature' as const,
+				id: feature.id,
+				geometry: feature.geometry,
+				properties: feature.properties ?? {},
+			})),
+		})
+	}, [selectedFeatures])
+
+	const handleCommentGeojsonVisibilityChange = useCallback(
+		(comment: import('../lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent, visible: boolean) => {
+			const id = comment.commentId ?? comment.id ?? ''
+			setVisibleGeojsonCommentIds((prev) => {
+				const next = new Set(prev)
+				if (visible) next.add(id)
+				else next.delete(id)
+				return next
+			})
+			onCommentGeometryVisibility?.(comment, visible)
+		},
+		[onCommentGeometryVisibility],
+	)
+
+	const handleZoomToCommentGeojson = useCallback(
+		(comment: import('../lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent) => {
+			if (comment.boundingBox && onZoomToBounds) {
+				onZoomToBounds(comment.boundingBox)
+				return
+			}
+			if (comment.geojson && onZoomToBounds) {
+				import('@turf/turf')
+					.then((turf) => {
+						const bounds = turf.bbox(comment.geojson as FeatureCollection) as [
+							number,
+							number,
+							number,
+							number,
+						]
+						if (bounds.every((value) => Number.isFinite(value))) {
+							onZoomToBounds(bounds)
+						}
+					})
+					.catch(() => undefined)
+			}
+		},
+		[onZoomToBounds],
+	)
 
 	// Context Editor mode
 	if (contextEditorMode !== 'none' && onSaveContext && onCloseContextEditor) {
@@ -532,6 +519,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				initialContext={editingContext}
 				onClose={onCloseContextEditor}
 				onSave={onSaveContext}
+				availableFeatures={availableFeatures}
+				mapContextEvents={mapContextEvents}
 			/>
 		)
 	}
@@ -541,30 +530,52 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		if (viewContext) {
 			return (
 				<MapContextViewPanel
+					currentUserPubkey={currentUserPubkey}
 					getDatasetKey={getDatasetKey}
 					getDatasetName={getDatasetName}
-					onLoadDataset={onLoadDataset}
+					onInspectDataset={onInspectDataset ?? onLoadDataset}
 					onZoomToDataset={onZoomToDataset}
-					onOpenReferenceCollection={
-						onInspectCollection
-							? (collection) => {
-									setViewCollection(collection)
-									onInspectCollection(collection, [])
-								}
-							: undefined
-					}
+					onDeleteContext={onDeleteContext}
+					deletingKey={deletingKey}
+					onCommentGeometryVisibility={onCommentGeometryVisibility}
+					onZoomToBounds={onZoomToBounds}
+					availableFeatures={availableFeatures}
+					mapContextEvents={mapContextEvents}
+					onMentionVisibilityToggle={onMentionVisibilityToggle}
+					onMentionZoomTo={onMentionZoomTo}
+					focusCommentId={focusCommentId}
 				/>
 			)
 		}
 
-		if (!viewDataset && !viewCollection) {
+		if (!viewDataset) {
+			const isEmptyGeometryInspect =
+				entityWorkspace === 'geometry' && entityIntent === 'inspect' && !viewContext
 			return (
 				<div className="h-full flex items-center justify-center p-6">
-					<div className="max-w-sm text-center space-y-2">
-						<p className="text-sm font-medium text-gray-900">Nothing selected</p>
-						<p className="text-xs text-gray-500">
-							Choose a geometry, collection, or context to inspect.
+					<div className="max-w-sm text-center space-y-3">
+						<p className="text-sm font-medium text-gray-900">
+							{isEmptyGeometryInspect ? 'No geometry selected' : 'Nothing selected'}
 						</p>
+						<p className="text-xs text-gray-500">
+							{isEmptyGeometryInspect
+								? 'Click on the map to inspect a geometry.'
+								: 'Choose a geometry or context to inspect.'}
+						</p>
+						{isEmptyGeometryInspect && onOpenGeometryEditor ? (
+							<div className="flex justify-center">
+								<Button
+									type="button"
+									size="sm"
+									variant="outline"
+									className="gap-1.5"
+									onClick={onOpenGeometryEditor}
+								>
+									<Pencil className="h-3.5 w-3.5" />
+									Start editing
+								</Button>
+							</div>
+						) : null}
 					</div>
 				</div>
 			)
@@ -577,7 +588,6 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				onToggleVisibility={onToggleVisibility}
 				onZoomToDataset={onZoomToDataset}
 				onDeleteDataset={onDeleteDataset}
-				onZoomToCollection={onZoomToCollection}
 				deletingKey={deletingKey}
 				onExitViewMode={onExitViewMode}
 				getDatasetKey={getDatasetKey}
@@ -587,6 +597,10 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				availableFeatures={availableFeatures}
 				onMentionVisibilityToggle={onMentionVisibilityToggle}
 				onMentionZoomTo={onMentionZoomTo}
+				onToggleProposalOverlay={onToggleProposalOverlay}
+				onProposalAccepted={onProposalAccepted}
+				visibleProposalIds={visibleProposalIds}
+				focusCommentId={focusCommentId}
 			/>
 		)
 	}
@@ -624,52 +638,6 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				<span>{stats.polygons} polys</span>
 			</div>
 
-			<div className="space-y-1 rounded-md border border-emerald-200 bg-emerald-50/40 p-2">
-				<div className="flex items-center justify-between">
-					<div className="text-[10px] font-medium text-emerald-900 uppercase tracking-wide">
-						Drafts
-					</div>
-					<div className="text-[10px] text-emerald-800">
-						{activeDraft
-							? `Saved ${new Date(activeDraft.updatedAt).toLocaleTimeString()}`
-							: 'Auto-save'}
-					</div>
-				</div>
-				<div className="flex items-center gap-1">
-					<Select value={selectedDraftId} onValueChange={handleDraftChange}>
-						<SelectTrigger className="w-full h-7 bg-white text-xs">
-							<SelectValue placeholder="Select draft" />
-						</SelectTrigger>
-						<SelectContent>
-							{draftsForSource.map((draft, index) => (
-								<SelectItem key={draft.id} value={draft.id}>
-									{(draft.name || `Draft ${index + 1}`).trim()} ({draft.id.slice(0, 8)})
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-					<Button
-						type="button"
-						size="icon-sm"
-						variant="outline"
-						onClick={handleCreateDraft}
-						title="Create draft"
-					>
-						<Plus className="h-3 w-3" />
-					</Button>
-					<Button
-						type="button"
-						size="icon-sm"
-						variant="outline"
-						onClick={handleDeleteDraft}
-						disabled={draftsForSource.length <= 1}
-						title="Delete draft"
-					>
-						<Trash2 className="h-3 w-3" />
-					</Button>
-				</div>
-			</div>
-
 			{/* Dataset size indicator - shows warning when over limit */}
 			{featureCollectionForUpload && (
 				<DatasetSizeIndicator
@@ -694,7 +662,10 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					Dataset info
 				</CollapsibleTrigger>
 				<CollapsibleContent>
-					<DatasetMetadataSection />
+					<DatasetMetadataSection
+						key={activeDataset?.id ?? 'new'}
+						availableFeatures={availableFeatures}
+					/>
 				</CollapsibleContent>
 			</Collapsible>
 
@@ -738,7 +709,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 															{validation.featureErrorCount} invalid
 														</span>
 													)}
-													<input
+													<Input
 														type="checkbox"
 														checked
 														onChange={() => toggleContextAttachment(context.coordinate, false)}
@@ -756,8 +727,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 													)
 												})()}
 											{validation?.status === 'unresolved' && context.contextUse !== 'taxonomy' && (
-												<p className="px-2 text-[10px] text-gray-500">
-													Constraint check unresolved for this context.
+												<p className="px-2 text-[10px] text-amber-600">
+													Validation not run yet — save or re-open this dataset to trigger it.
 												</p>
 											)}
 										</div>
@@ -778,7 +749,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 										<span className="truncate text-xs text-gray-700">{context.name}</span>
 										<div className="flex items-center gap-2 shrink-0">
 											<span className="text-[10px] text-gray-500">{context.validationMode}</span>
-											<input
+											<Input
 												type="checkbox"
 												checked={false}
 												onChange={() => toggleContextAttachment(context.coordinate, true)}
@@ -791,13 +762,19 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 
 						{/* Search for more contexts */}
 						<EntitySearchPopover
-							sources={{ contexts: mapContextEvents }}
+							sources={{ contexts: attachableContexts.map((context) => context.contextEvent) }}
 							entityTypes={['context']}
 							onSelect={handleContextSearchSelect}
-							placeholder="Search contexts…"
-							searchMode="both"
+							placeholder="Search open contexts…"
+							searchMode="local"
 							compact
 						/>
+						{attachableContexts.length === 0 && recentUnattachedContexts.length === 0 && (
+							<p className="text-[10px] text-gray-400 leading-snug">
+								Only open contexts appear here. If you don't see yours, open its settings and enable
+								"Allow foreign attachments".
+							</p>
+						)}
 					</div>
 				</CollapsibleContent>
 			</Collapsible>
@@ -820,8 +797,51 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					onZoomToFeature={onZoomToFeature}
 					contextValidationIssuesByFeatureId={contextValidationIssuesByFeatureId}
 					contextPropertyTypeHints={contextPropertyTypeHints}
+					availableFeatures={availableFeatures}
 				/>
 			</div>
+
+			{activeDataset && (
+				<EntityPanelSurface tone="discussion" className="space-y-4">
+					<EntityPanelSectionHeader
+						eyebrow="Discussion"
+						title="Comments"
+						action={
+							canAttachCommentGeometry || attachedGeojson ? (
+								<Button
+									type="button"
+									size="sm"
+									variant={attachedGeojson ? 'default' : 'outline'}
+									onClick={
+										attachedGeojson ? () => setAttachedGeojson(null) : handleAttachCommentGeometry
+									}
+									className="gap-1.5 rounded-none border-stone-200 bg-white px-2 text-[11px] text-stone-700 hover:bg-stone-100"
+								>
+									<MapPin className="h-3.5 w-3.5" />
+									{attachedGeojson
+										? `Clear ${attachedGeojson.features.length} attachment${
+												attachedGeojson.features.length === 1 ? '' : 's'
+											}`
+										: `Attach ${selectedFeatures.length} selected`}
+								</Button>
+							) : null
+						}
+					/>
+					<CommentsPanel
+						key={activeDataset.id ?? activeDataset.dTag ?? 'edit-dataset'}
+						target={activeDataset}
+						onCommentGeojsonVisibilityChange={handleCommentGeojsonVisibilityChange}
+						onZoomToCommentGeojson={handleZoomToCommentGeojson}
+						visibleGeojsonCommentIds={visibleGeojsonCommentIds}
+						attachedGeojson={attachedGeojson}
+						onClearAttachment={() => setAttachedGeojson(null)}
+						availableFeatures={availableFeatures}
+						onMentionVisibilityToggle={onMentionVisibilityToggle}
+						onMentionZoomTo={onMentionZoomTo}
+						focusCommentId={focusCommentId}
+					/>
+				</EntityPanelSurface>
+			)}
 
 			{/* Publishing Status */}
 			{(publishMessage || publishError) && (

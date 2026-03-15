@@ -168,6 +168,12 @@ If parsing still fails, it returns a structured error with raw argument prefix f
 Tool results are serialized as full JSON strings (no model-side truncation wrapper in chat layer).  
 UI handles readability via collapsible previews instead of truncating payload text in the protocol message.
 
+For prompt construction, `store.ts` now applies a chat-only compaction pass for tool results:
+
+- large `features` arrays are replaced with counts + subtype/geometry summaries + small samples
+- raw tool payloads remain intact in chat history/UI and for bake-to-editor flows
+- this keeps model context smaller without changing non-chat tool consumers
+
 ## MCP and Transport
 
 Chat tools call `EarthlyGeoServerClient`, which talks to `contextvm/server.ts` over Nostr transport.
@@ -222,6 +228,46 @@ Transport constraints still apply (Nostr plaintext and payload budgets), so serv
 - Tool loops are bounded at 10 rounds.
 - Large geometry/tool payloads can still hit model context or transport limits depending on provider/model.
 - Some providers require assistant tool-call messages to include `reasoning_content`; store contains provider-specific compatibility handling for this.
+
+## OSM Retrieval Lessons
+
+Recent evaluation runs surfaced a few stable rules for geo retrieval:
+
+1. Use semantic concept expansion before raw OSM tag guessing.
+   - `concept="military installation"` expands to multiple military-related tag families.
+   - This is more robust than expecting the model to rediscover OSM ontology on each turn.
+
+2. Keep area-constrained queries area-constrained.
+   - If the user says "within Saudi Arabia" or "within this polygon", the recovery path must not degrade into a plain bbox import.
+   - Failed constrained queries should retry with the same area constraint or report failure explicitly.
+
+3. Large country-scale bbox queries need tiling.
+   - `query_osm_area` and large `query_osm_bbox` requests now split big bboxes into smaller tiles, merge results, and dedupe features locally.
+   - This materially reduces Overpass timeouts for country-level prompts.
+
+4. Overpass query syntax matters.
+   - Array-valued tag filters generate regex filters.
+   - Invalid regex grouping caused hard 400 failures; the query builder must stay within Overpass-compatible regex syntax.
+
+5. Limit/radius caps must match the server schema.
+   - The chat-side limit clamp now matches the MCP schema (`<=100`) to avoid pointless validation failures.
+   - Nearby radius is still capped tightly to avoid pathological broad-area scans.
+
+6. Presentation and storage should diverge when useful.
+   - For "points only" prompts, retrieval can preserve canonical geometry semantics while presenting/importing representative points.
+   - On the map, small polygons can collapse to proxy points at low zoom without losing the original polygon geometry.
+
+7. Attached chat geometry must be executor-readable.
+   - Transient polygon attachments cannot live only as prompt text.
+   - `query_osm_area` now reads attached geometry directly for the current request, even when no editor feature is selected.
+
+8. Spatial wording should map to explicit spatial filters.
+   - When the user says "actually inside", use `spatialFilter="point_within"` instead of `intersects`.
+   - This is the correct default for point imports inside an attached polygon.
+
+9. Nostr transport size is a hard systems constraint.
+   - Large geometry responses can fail before the chat client can compact or bake them.
+   - Geometry-producing MCP tools need aggressive server-side fitting, truncation, or omission to stay below encrypted Nostr payload limits.
 
 ## Prompt Cookbook (AI + Chat + Map)
 

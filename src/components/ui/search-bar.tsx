@@ -46,14 +46,16 @@ export function SearchBar({
 					className="pr-9"
 				/>
 				{query && (
-					<button
+					<Button
 						type="button"
+						variant="ghost"
+						size="icon-xs"
 						aria-label="Clear search"
-						className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-gray-500 hover:text-gray-800"
+						className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full"
 						onClick={() => onClear?.()}
 					>
 						<X className="h-3.5 w-3.5" />
-					</button>
+					</Button>
 				)}
 			</div>
 			{showSubmitButton && (

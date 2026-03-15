@@ -13,6 +13,16 @@ import { EarthlyGeoServerClient } from '@/ctxcn/EarthlyGeoServerClient'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { toEditorFeature } from '@/features/geo-editor/utils'
 import type { EditorFeature } from '@/features/geo-editor/core'
+import {
+	bbox as turfBbox,
+	booleanIntersects,
+	booleanPointInPolygon,
+	centroid as turfCentroid,
+	featureCollection as turfFeatureCollection,
+	lineSplit,
+	pointOnFeature,
+	polygonToLine,
+} from '@turf/turf'
 import type { GeometryBakeResult } from './types'
 import {
 	MAX_QUERY_LIMIT,
@@ -108,21 +118,255 @@ export function clampRadiusMeters(value: unknown): number {
 	return Math.max(1, Math.min(MAX_NEARBY_RADIUS_METERS, numeric))
 }
 
-export function normalizeFilters(value: unknown): Record<string, string> | undefined {
+export function normalizeFilters(value: unknown): Record<string, string | string[]> | undefined {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) {
 		return undefined
 	}
 
 	const entries = Object.entries(value as Record<string, unknown>)
-	const normalized: Record<string, string> = {}
+	const normalized: Record<string, string | string[]> = {}
 
 	for (const [key, raw] of entries) {
 		if (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean') {
 			normalized[key] = String(raw)
+			continue
+		}
+		if (Array.isArray(raw)) {
+			const values = raw
+				.filter(
+					(entry): entry is string | number | boolean =>
+						typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean',
+				)
+				.map((entry) => String(entry))
+			if (values.length > 0) {
+				normalized[key] = values
+			}
 		}
 	}
 
 	return Object.keys(normalized).length > 0 ? normalized : undefined
+}
+
+export function normalizeFilterSets(
+	value: unknown,
+): Array<Record<string, string | string[]>> | undefined {
+	if (!Array.isArray(value)) {
+		return undefined
+	}
+
+	const normalized = value
+		.map((entry) => normalizeFilters(entry))
+		.filter((entry): entry is Record<string, string | string[]> => entry !== undefined)
+
+	return normalized.length > 0 ? normalized : undefined
+}
+
+type OsmFilterObject = Record<string, string | string[]>
+
+interface OsmSemanticExpansionInput {
+	concept?: string
+	name?: string
+	filters?: OsmFilterObject
+	filterSets?: OsmFilterObject[]
+}
+
+interface OsmSemanticExpansionResult {
+	appliedConcept: string | null
+	filters?: OsmFilterObject
+	filterSets?: OsmFilterObject[]
+}
+
+interface OsmConceptExpansionDefinition {
+	id: string
+	aliases: string[]
+	filterSets: OsmFilterObject[]
+}
+
+const OSM_CONCEPT_EXPANSIONS: OsmConceptExpansionDefinition[] = [
+	{
+		id: 'military_installation',
+		aliases: [
+			'military',
+			'military installation',
+			'military installations',
+			'military base',
+			'military bases',
+			'air base',
+			'air bases',
+			'airbase',
+			'airbases',
+			'air force base',
+			'air force bases',
+			'airfield',
+			'airfields',
+			'barracks',
+			'garrison',
+			'naval base',
+			'checkpoint',
+		],
+		filterSets: [
+			{
+				military: [
+					'base',
+					'airfield',
+					'air_base',
+					'barracks',
+					'checkpoint',
+					'check_point',
+					'naval_base',
+					'training_area',
+					'range',
+					'bunker',
+					'office',
+					'storage',
+				],
+			},
+			{ landuse: 'military' },
+			{ building: 'bunker' },
+		],
+	},
+	{
+		id: 'river',
+		aliases: ['river', 'rivers', 'waterway', 'waterways', 'watercourse'],
+		filterSets: [{ waterway: 'river' }],
+	},
+	{
+		id: 'bench',
+		aliases: ['bench', 'benches', 'seat', 'seating'],
+		filterSets: [{ amenity: 'bench' }],
+	},
+]
+
+function uniqueStrings(values: string[]): string[] {
+	return [...new Set(values.filter(Boolean))]
+}
+
+function cloneFilterObject(filter: OsmFilterObject): OsmFilterObject {
+	return Object.fromEntries(
+		Object.entries(filter).map(([key, value]) => [key, Array.isArray(value) ? [...value] : value]),
+	)
+}
+
+function dedupeFilterSets(filterSets: OsmFilterObject[]): OsmFilterObject[] {
+	const seen = new Set<string>()
+	const deduped: OsmFilterObject[] = []
+
+	for (const filterSet of filterSets) {
+		const key = JSON.stringify(
+			Object.entries(filterSet)
+				.sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+				.map(([entryKey, entryValue]) => [
+					entryKey,
+					Array.isArray(entryValue) ? [...entryValue].sort() : entryValue,
+				]),
+		)
+		if (seen.has(key)) continue
+		seen.add(key)
+		deduped.push(filterSet)
+	}
+
+	return deduped
+}
+
+function normalizeLooseSearchText(value: string): string {
+	return value
+		.normalize('NFKD')
+		.replace(/\p{Diacritic}/gu, '')
+		.toLowerCase()
+		.replace(/&/g, ' and ')
+		.replace(/\bairbase\b/g, 'air base')
+		.replace(/\bairforce\b/g, 'air force')
+		.replace(/\bcheckpoint\b/g, 'check point')
+		.replace(/\babdulaziz\b/g, 'abdul aziz')
+		.replace(/[^a-z0-9]+/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim()
+}
+
+function getLooseSearchVariants(value: string): string[] {
+	const normalized = normalizeLooseSearchText(value)
+	if (!normalized) return []
+	return uniqueStrings([
+		normalized,
+		normalized.replace(/\s+/g, ''),
+		normalized.replace(/\bair base\b/g, 'airbase'),
+		normalized.replace(/\bcheck point\b/g, 'checkpoint'),
+		normalized.replace(/\babdul aziz\b/g, 'abdulaziz'),
+	])
+}
+
+function splitNameCandidates(value: string): string[] {
+	return value
+		.split(/[;|/]/)
+		.map((entry) => entry.trim())
+		.filter(Boolean)
+}
+
+function inferOsmConceptFromText(value: string): string | null {
+	const normalized = normalizeLooseSearchText(value)
+	if (!normalized) return null
+
+	for (const definition of OSM_CONCEPT_EXPANSIONS) {
+		if (
+			definition.aliases.some((alias) => {
+				const normalizedAlias = normalizeLooseSearchText(alias)
+				return (
+					normalized === normalizedAlias ||
+					normalized.includes(normalizedAlias) ||
+					normalized.replace(/\s+/g, '').includes(normalizedAlias.replace(/\s+/g, ''))
+				)
+			})
+		) {
+			return definition.id
+		}
+	}
+
+	return null
+}
+
+function resolveOsmConceptDefinition(
+	concept: string | undefined,
+	name: string | undefined,
+): OsmConceptExpansionDefinition | null {
+	const explicitConcept = concept?.trim() ? inferOsmConceptFromText(concept) : null
+	const inferredFromName = !explicitConcept && name?.trim() ? inferOsmConceptFromText(name) : null
+	const conceptId = explicitConcept ?? inferredFromName
+	if (!conceptId) return null
+	return OSM_CONCEPT_EXPANSIONS.find((definition) => definition.id === conceptId) ?? null
+}
+
+export function expandOsmSemanticQuery({
+	concept,
+	name,
+	filters,
+	filterSets,
+}: OsmSemanticExpansionInput): OsmSemanticExpansionResult {
+	const definition = resolveOsmConceptDefinition(concept, name)
+	let mergedFilters = filters ? cloneFilterObject(filters) : undefined
+	let mergedFilterSets = filterSets ? filterSets.map(cloneFilterObject) : undefined
+
+	if (definition) {
+		mergedFilterSets = [
+			...(mergedFilterSets ?? []),
+			...definition.filterSets.map(cloneFilterObject),
+		]
+	}
+
+	if (mergedFilters && mergedFilterSets?.length) {
+		mergedFilterSets = [mergedFilters, ...mergedFilterSets]
+		mergedFilters = undefined
+	}
+
+	if (!mergedFilters && mergedFilterSets?.length === 1) {
+		mergedFilters = cloneFilterObject(mergedFilterSets[0] as OsmFilterObject)
+		mergedFilterSets = undefined
+	}
+
+	return {
+		appliedConcept: definition?.id ?? null,
+		filters: mergedFilters,
+		filterSets: mergedFilterSets ? dedupeFilterSets(mergedFilterSets) : undefined,
+	}
 }
 
 // --- GeoJSON Type Guards ---
@@ -177,17 +421,68 @@ export function getEditorViewportBbox(): [number, number, number, number] | null
 	return editor?.getMapBounds() ?? null
 }
 
+export function getSelectedEditorFeatures(): EditorFeature[] {
+	const { features, selectedFeatureIds } = useEditorStore.getState()
+	if (selectedFeatureIds.length === 0) return []
+	const selectedIds = new Set(selectedFeatureIds)
+	return features.filter((feature) => selectedIds.has(feature.id))
+}
+
+function isPolygonAreaFeature(
+	feature: GeoJSON.Feature,
+): feature is GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> {
+	return feature.geometry?.type === 'Polygon' || feature.geometry?.type === 'MultiPolygon'
+}
+
+export function getSelectedAreaFeatures(): GeoJSON.Feature<
+	GeoJSON.Polygon | GeoJSON.MultiPolygon
+>[] {
+	return getSelectedEditorFeatures().filter(isPolygonAreaFeature)
+}
+
+export function extractPolygonAreaFeatures(
+	value: unknown,
+): GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>[] {
+	return extractGeoJsonFeaturesFromUnknown(value).filter(isPolygonAreaFeature)
+}
+
+export function getFeatureCollectionBbox(
+	features: GeoJSON.Feature[],
+): [number, number, number, number] | null {
+	if (features.length === 0) return null
+	try {
+		const bbox = turfBbox(turfFeatureCollection(features)) as [number, number, number, number]
+		if (bbox.some((value) => !Number.isFinite(value))) return null
+		return bbox
+	} catch {
+		return null
+	}
+}
+
 // --- Feature Name Matching ---
 
 export function featureMatchesName(feature: GeoJSON.Feature, targetName: string): boolean {
-	const lowerTarget = targetName.toLowerCase()
+	const targetVariants = getLooseSearchVariants(targetName)
+	if (targetVariants.length === 0) return false
 	const props = feature.properties
 	if (!props || typeof props !== 'object') return false
 
 	for (const key of NAME_MATCH_KEYS) {
 		const rawValue = (props as Record<string, unknown>)[key]
-		if (typeof rawValue === 'string' && rawValue.toLowerCase().includes(lowerTarget)) {
-			return true
+		if (typeof rawValue !== 'string') continue
+
+		for (const candidate of splitNameCandidates(rawValue)) {
+			const candidateVariants = getLooseSearchVariants(candidate)
+			if (
+				candidateVariants.some((candidateVariant) =>
+					targetVariants.some(
+						(targetVariant) =>
+							candidateVariant.includes(targetVariant) || targetVariant.includes(candidateVariant),
+					),
+				)
+			) {
+				return true
+			}
 		}
 	}
 
@@ -550,6 +845,264 @@ export function extractGeoJsonFeaturesFromUnknown(value: unknown): GeoJSON.Featu
 	return features
 }
 
+type AreaSpatialFilter = 'intersects' | 'point_within'
+type AreaOutputGeometry = 'native' | 'point_on_feature' | 'centroid'
+
+function pointFeatureWithinAreas(
+	pointFeature: GeoJSON.Feature<GeoJSON.Point>,
+	areaFeatures: Array<GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>>,
+): boolean {
+	return areaFeatures.some((area) => {
+		try {
+			return booleanPointInPolygon(pointFeature, area)
+		} catch {
+			return false
+		}
+	})
+}
+
+function featureIntersectsAreas(
+	feature: GeoJSON.Feature,
+	areaFeatures: Array<GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>>,
+): boolean {
+	return areaFeatures.some((area) => {
+		try {
+			return booleanIntersects(feature, area)
+		} catch {
+			return false
+		}
+	})
+}
+
+function getRepresentativePointFeature(
+	feature: GeoJSON.Feature,
+	outputGeometry: Exclude<AreaOutputGeometry, 'native'>,
+): GeoJSON.Feature<GeoJSON.Point> | null {
+	try {
+		const pointFeature =
+			outputGeometry === 'centroid' ? turfCentroid(feature) : pointOnFeature(feature)
+		return {
+			type: 'Feature',
+			id: feature.id,
+			geometry: pointFeature.geometry,
+			properties: {
+				...(feature.properties ?? {}),
+				sourceGeometryType: feature.geometry?.type ?? 'Unknown',
+			},
+		}
+	} catch {
+		return null
+	}
+}
+
+function lineFeatureParts(feature: GeoJSON.Feature): GeoJSON.Feature<GeoJSON.LineString>[] {
+	if (feature.geometry?.type === 'LineString') {
+		return [
+			{
+				type: 'Feature',
+				id: feature.id,
+				geometry: feature.geometry,
+				properties: feature.properties ?? {},
+			},
+		]
+	}
+
+	if (feature.geometry?.type === 'MultiLineString') {
+		return feature.geometry.coordinates.map((coordinates, index) => ({
+			type: 'Feature',
+			id: `${feature.id ?? 'line'}:${index}`,
+			geometry: {
+				type: 'LineString',
+				coordinates,
+			},
+			properties: feature.properties ?? {},
+		}))
+	}
+
+	return []
+}
+
+function clipLineFeatureToAreas(
+	feature: GeoJSON.Feature,
+	areaFeatures: Array<GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>>,
+): GeoJSON.Feature<GeoJSON.LineString | GeoJSON.MultiLineString> | null {
+	const parts = lineFeatureParts(feature)
+	if (parts.length === 0) return null
+
+	const keptSegments: GeoJSON.Feature<GeoJSON.LineString>[] = []
+	const seen = new Set<string>()
+
+	for (const part of parts) {
+		for (const area of areaFeatures) {
+			try {
+				const boundary = polygonToLine(area)
+				const split = lineSplit(part, boundary)
+				const candidates =
+					split.features.length > 0
+						? (split.features as GeoJSON.Feature<GeoJSON.LineString>[])
+						: [part]
+
+				for (const candidate of candidates) {
+					const representative = pointOnFeature(candidate)
+					if (!pointFeatureWithinAreas(representative, [area])) continue
+					const key = JSON.stringify(candidate.geometry.coordinates)
+					if (seen.has(key)) continue
+					seen.add(key)
+					keptSegments.push({
+						type: 'Feature',
+						geometry: candidate.geometry,
+						properties: feature.properties ?? {},
+					})
+				}
+			} catch {
+				if (!featureIntersectsAreas(part, [area])) continue
+				const key = JSON.stringify(part.geometry.coordinates)
+				if (seen.has(key)) continue
+				seen.add(key)
+				keptSegments.push({
+					type: 'Feature',
+					geometry: part.geometry,
+					properties: feature.properties ?? {},
+				})
+			}
+		}
+	}
+
+	if (keptSegments.length === 0) return null
+	if (keptSegments.length === 1) {
+		return {
+			type: 'Feature',
+			id: feature.id,
+			geometry: keptSegments[0].geometry,
+			properties: feature.properties ?? {},
+		}
+	}
+
+	return {
+		type: 'Feature',
+		id: feature.id,
+		geometry: {
+			type: 'MultiLineString',
+			coordinates: keptSegments.map((segment) => segment.geometry.coordinates),
+		},
+		properties: feature.properties ?? {},
+	}
+}
+
+function filterMultiPointFeatureToAreas(
+	feature: GeoJSON.Feature<GeoJSON.MultiPoint>,
+	areaFeatures: Array<GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>>,
+): GeoJSON.Feature<GeoJSON.Point | GeoJSON.MultiPoint> | null {
+	const kept = feature.geometry.coordinates.filter((coordinates) =>
+		pointFeatureWithinAreas(
+			{
+				type: 'Feature',
+				geometry: { type: 'Point', coordinates },
+				properties: feature.properties ?? {},
+			},
+			areaFeatures,
+		),
+	)
+
+	if (kept.length === 0) return null
+	if (kept.length === 1) {
+		return {
+			type: 'Feature',
+			id: feature.id,
+			geometry: { type: 'Point', coordinates: kept[0] },
+			properties: feature.properties ?? {},
+		}
+	}
+
+	return {
+		type: 'Feature',
+		id: feature.id,
+		geometry: { type: 'MultiPoint', coordinates: kept },
+		properties: feature.properties ?? {},
+	}
+}
+
+export function filterFeaturesToArea(
+	features: GeoJSON.Feature[],
+	areaFeatures: Array<GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>>,
+	options?: {
+		spatialFilter?: AreaSpatialFilter
+		outputGeometry?: AreaOutputGeometry
+		clipLines?: boolean
+	},
+): GeoJSON.Feature[] {
+	const spatialFilter = options?.spatialFilter ?? 'intersects'
+	const outputGeometry = options?.outputGeometry ?? 'native'
+	const clipLines = options?.clipLines ?? true
+
+	if (areaFeatures.length === 0) return []
+
+	const processed: GeoJSON.Feature[] = []
+
+	for (const feature of features) {
+		if (!feature.geometry) continue
+
+		if (outputGeometry !== 'native') {
+			const representative = getRepresentativePointFeature(feature, outputGeometry)
+			if (!representative) continue
+			if (!pointFeatureWithinAreas(representative, areaFeatures)) continue
+			processed.push(representative)
+			continue
+		}
+
+		if (feature.geometry.type === 'Point') {
+			if (pointFeatureWithinAreas(feature as GeoJSON.Feature<GeoJSON.Point>, areaFeatures)) {
+				processed.push(feature)
+			}
+			continue
+		}
+
+		if (feature.geometry.type === 'MultiPoint') {
+			const filtered = filterMultiPointFeatureToAreas(
+				feature as GeoJSON.Feature<GeoJSON.MultiPoint>,
+				areaFeatures,
+			)
+			if (filtered) processed.push(filtered)
+			continue
+		}
+
+		if (feature.geometry.type === 'LineString' || feature.geometry.type === 'MultiLineString') {
+			if (spatialFilter === 'point_within') {
+				const representative = getRepresentativePointFeature(feature, 'point_on_feature')
+				if (representative && pointFeatureWithinAreas(representative, areaFeatures)) {
+					processed.push(feature)
+				}
+				continue
+			}
+
+			if (!clipLines) {
+				if (featureIntersectsAreas(feature, areaFeatures)) {
+					processed.push(feature)
+				}
+				continue
+			}
+
+			const clipped = clipLineFeatureToAreas(feature, areaFeatures)
+			if (clipped) processed.push(clipped)
+			continue
+		}
+
+		if (spatialFilter === 'point_within') {
+			const representative = getRepresentativePointFeature(feature, 'point_on_feature')
+			if (representative && pointFeatureWithinAreas(representative, areaFeatures)) {
+				processed.push(feature)
+			}
+			continue
+		}
+
+		if (featureIntersectsAreas(feature, areaFeatures)) {
+			processed.push(feature)
+		}
+	}
+
+	return processed
+}
+
 function parseToolResultContent(content: string): unknown {
 	const trimmed = content.trim()
 	if (!trimmed) return null
@@ -627,4 +1180,143 @@ export function compactToolResultAfterBake(resultValue: unknown): Record<string,
 	}
 
 	return base
+}
+
+function simplifyObjectForPrompt(value: unknown): unknown {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+	const objectValue = value as Record<string, unknown>
+	const preferredKeys = [
+		'id',
+		'@id',
+		'name',
+		'displayName',
+		'title',
+		'osmType',
+		'osmId',
+		'type',
+		'class',
+		'geometryType',
+		'military',
+		'amenity',
+		'waterway',
+		'landuse',
+		'building',
+	]
+	const simplifiedEntries = preferredKeys
+		.filter((key) => key in objectValue)
+		.map((key) => [key, objectValue[key]])
+	return simplifiedEntries.length > 0 ? Object.fromEntries(simplifiedEntries) : objectValue
+}
+
+function getFeatureDisplayName(feature: GeoJSON.Feature): string | null {
+	const props = feature.properties
+	if (!props || typeof props !== 'object') return null
+	for (const key of NAME_MATCH_KEYS) {
+		const value = (props as Record<string, unknown>)[key]
+		if (typeof value === 'string' && value.trim()) {
+			return splitNameCandidates(value)[0] ?? value.trim()
+		}
+	}
+	return null
+}
+
+function getFeatureSubtype(feature: GeoJSON.Feature): string | null {
+	const props = feature.properties
+	if (!props || typeof props !== 'object') return null
+	const typedProps = props as Record<string, unknown>
+	for (const key of [
+		'military',
+		'amenity',
+		'waterway',
+		'landuse',
+		'building',
+		'natural',
+		'aeroway',
+	]) {
+		const value = typedProps[key]
+		if (typeof value === 'string' && value.trim()) {
+			return `${key}=${value}`
+		}
+	}
+	return null
+}
+
+function summarizeFeaturesForPrompt(features: GeoJSON.Feature[]): Record<string, unknown> {
+	const geometryTypes = countGeometryTypes(features)
+	const subtypeCounts: Record<string, number> = {}
+	const sampleNames: string[] = []
+	const sampleIds: string[] = []
+
+	for (const feature of features) {
+		const subtype = getFeatureSubtype(feature)
+		if (subtype) {
+			subtypeCounts[subtype] = (subtypeCounts[subtype] ?? 0) + 1
+		}
+
+		const name = getFeatureDisplayName(feature)
+		if (name && sampleNames.length < 8 && !sampleNames.includes(name)) {
+			sampleNames.push(name)
+		}
+
+		const featureId =
+			feature.id != null
+				? String(feature.id)
+				: typeof feature.properties?.['@id'] === 'string'
+					? feature.properties['@id']
+					: null
+		if (featureId && sampleIds.length < 6 && !sampleIds.includes(featureId)) {
+			sampleIds.push(featureId)
+		}
+	}
+
+	return {
+		featureCount: features.length,
+		geometryTypes,
+		subtypeCounts,
+		sampleNames,
+		sampleIds,
+	}
+}
+
+function summarizeLargeArraysForPrompt(base: Record<string, unknown>): Record<string, unknown> {
+	const next = { ...base }
+	for (const key of ['results', 'candidates', 'pages', 'hits']) {
+		const value = next[key]
+		if (!Array.isArray(value)) continue
+		next[`${key}Count`] = value.length
+		next[`sample${key[0].toUpperCase()}${key.slice(1)}`] = value
+			.slice(0, 5)
+			.map(simplifyObjectForPrompt)
+		delete next[key]
+	}
+	return next
+}
+
+function summarizeToolResultForPromptValue(resultValue: unknown): unknown {
+	if (!resultValue || typeof resultValue !== 'object') return resultValue
+
+	const features = extractGeoJsonFeaturesFromUnknown(resultValue)
+	if (features.length > 0) {
+		const compacted = compactToolResultAfterBake(resultValue)
+		return summarizeLargeArraysForPrompt({
+			...compacted,
+			featureSummary: summarizeFeaturesForPrompt(features),
+			featuresOmittedForPrompt: features.length,
+		})
+	}
+
+	return summarizeLargeArraysForPrompt(
+		resultValue && typeof resultValue === 'object'
+			? { ...(resultValue as Record<string, unknown>) }
+			: { value: resultValue },
+	)
+}
+
+export function compactToolMessageContentForPrompt(content: string): string {
+	const parsed = parseToolResultContent(content)
+	if (parsed === null) {
+		return content
+	}
+
+	return serializeToolResult(summarizeToolResultForPromptValue(parsed))
 }

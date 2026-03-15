@@ -2,7 +2,10 @@ import type { StateCreator } from 'zustand'
 import { writePersistedGeoCollectionDraftState } from './editorCoreSlice'
 import type { EditorState, MetadataSlice } from './types'
 
-export const createMetadataSlice: StateCreator<EditorState, [], [], MetadataSlice> = (set) => ({
+export const createMetadataSlice: StateCreator<EditorState, [], [], MetadataSlice> = (
+	set,
+	_get,
+) => ({
 	collectionMeta: {
 		name: '',
 		description: '',
@@ -10,12 +13,13 @@ export const createMetadataSlice: StateCreator<EditorState, [], [], MetadataSlic
 		customProperties: {},
 	},
 	activeDataset: null,
+	isDirty: false,
 	activeDatasetContextRefs: [],
 	datasetVisibility: {},
 	resolvingDatasets: new Set<string>(),
 	resolvingProgress: new Map<string, { loaded: number; total: number }>(),
 
-	setCollectionMeta: (collectionMeta) =>
+	setCollectionMeta: (collectionMeta) => {
 		set((state) => {
 			const { activeGeoEditDraftId, geoEditDrafts } = state
 			if (!activeGeoEditDraftId || !geoEditDrafts[activeGeoEditDraftId]) {
@@ -23,6 +27,8 @@ export const createMetadataSlice: StateCreator<EditorState, [], [], MetadataSlic
 			}
 			const updatedDraft = {
 				...geoEditDrafts[activeGeoEditDraftId],
+				name: collectionMeta.name,
+				description: collectionMeta.description,
 				collectionMeta,
 				updatedAt: Date.now(),
 			}
@@ -33,11 +39,14 @@ export const createMetadataSlice: StateCreator<EditorState, [], [], MetadataSlic
 			writePersistedGeoCollectionDraftState(nextDrafts, activeGeoEditDraftId)
 			return {
 				collectionMeta,
+				isDirty: true,
 				geoEditDrafts: nextDrafts,
 			}
-		}),
+		})
+	},
 
-	setActiveDataset: (activeDataset) => set({ activeDataset }),
+	setActiveDataset: (activeDataset) => set({ activeDataset, isDirty: false }),
+	setIsDirty: (isDirty) => set({ isDirty }),
 	setActiveDatasetContextRefs: (activeDatasetContextRefs) => set({ activeDatasetContextRefs }),
 	setDatasetVisibility: (update) =>
 		set((state) => ({

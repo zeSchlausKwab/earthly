@@ -3,13 +3,16 @@ export {
 	generateOGHtml,
 	generateHomeOGHtml,
 	generateGeoEventOGHtml,
-	generateCollectionOGHtml,
+	generateContextOGHtml,
 	type OGMeta,
 } from './template'
 export {
 	decodeNaddr,
 	fetchGeoEventOGData,
-	fetchCollectionOGData,
 	type GeoEventOGData,
-	type CollectionOGData,
 } from './fetchEvent'
+export {
+	fetchContextEventOGData,
+	type ContextEventOGData,
+} from './fetchContextEvent'
+export { generateOGImagePNG, type OGImageOptions } from './renderImage'

@@ -11,8 +11,9 @@ const USER_AGENT = "EarthlyCity/1.0 Map MCP Server (https://earthly.city)";
 // OSM element types
 export type OsmElementType = "node" | "way" | "relation";
 
-// Filter format: { highway: "*" } means any highway, { highway: "primary" } means specific value
-export type OsmFilters = Record<string, string>;
+// Filter format: { highway: "*" } means any highway, { military: ["base", "air_base"] } means OR
+export type OsmFilterValue = string | string[];
+export type OsmFilters = Record<string, OsmFilterValue>;
 
 // Raw Overpass API response shapes
 interface OverpassNode {
@@ -122,17 +123,75 @@ async function executeQuery(query: string): Promise<OverpassResponse> {
  * Build filter string from OsmFilters object
  * { highway: "*" } -> ["highway"]
  * { highway: "primary" } -> ["highway"="primary"]
- * { highway: "primary", surface: "asphalt" } -> ["highway"="primary"]["surface"="asphalt"]
+ * { military: ["base", "air_base"] } -> ["military"~"^(?:base|air_base)$"]
  */
+function escapeOverpassString(input: string): string {
+	return input.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 function buildFilterString(filters: OsmFilters): string {
 	return Object.entries(filters)
 		.map(([key, value]) => {
-			if (value === "*") {
-				return `["${key}"]`;
+			const escapedKey = escapeOverpassString(key);
+			if (Array.isArray(value)) {
+				const normalizedValues = Array.from(
+					new Set(
+						value
+							.filter((entry): entry is string => typeof entry === "string")
+							.map((entry) => entry.trim())
+							.filter((entry) => entry.length > 0),
+					),
+				);
+				if (normalizedValues.length === 0) {
+					return "";
+				}
+				if (normalizedValues.includes("*")) {
+					return `["${escapedKey}"]`;
+				}
+				return `["${escapedKey}"~"^(${normalizedValues.map(escapeOverpassRegex).join("|")})$"]`;
 			}
-			return `["${key}"="${value}"]`;
+			if (value === "*") {
+				return `["${escapedKey}"]`;
+			}
+			return `["${escapedKey}"="${escapeOverpassString(value)}"]`;
 		})
 		.join("");
+}
+
+function mergeFilters(base?: OsmFilters, overrides?: OsmFilters): OsmFilters | undefined {
+	if (!base && !overrides) return undefined;
+	return {
+		...(base ?? {}),
+		...(overrides ?? {}),
+	};
+}
+
+function normalizeFilterGroups(
+	filters?: OsmFilters,
+	filterSets?: OsmFilters[],
+): OsmFilters[] {
+	if (!filterSets || filterSets.length === 0) {
+		return [filters ?? {}];
+	}
+
+	return filterSets.map((filterSet) => mergeFilters(filterSet, filters) ?? {});
+}
+
+function buildQueryBody(
+	areaSelector: string,
+	filterGroups: OsmFilters[],
+	includeRelations: boolean,
+): string {
+	const elementTypes: OsmElementType[] = includeRelations
+		? ["node", "way", "relation"]
+		: ["node", "way"];
+
+	return filterGroups
+		.flatMap((filters) => {
+			const filterStr = buildFilterString(filters);
+			return elementTypes.map((elementType) => `  ${elementType}${filterStr}${areaSelector};`);
+		})
+		.join("\n");
 }
 
 /**
@@ -468,6 +527,7 @@ export async function queryNearby(
 	lon: number,
 	radius: number = 100,
 	filters?: OsmFilters,
+	filterSets?: OsmFilters[],
 	limit?: number,
 	includeRelations: boolean = false,
 ): Promise<QueryFeaturesResult> {
@@ -481,19 +541,9 @@ export async function queryNearby(
 		throw new Error("Radius must be between 1 and 5000 meters");
 	}
 
-	const filterStr = filters ? buildFilterString(filters) : "";
 	const around = `(around:${radius},${lat},${lon})`;
-
-	const queryBody = includeRelations
-		? `
-  node${filterStr}${around};
-  way${filterStr}${around};
-  relation${filterStr}${around};
-`
-		: `
-  node${filterStr}${around};
-  way${filterStr}${around};
-`;
+	const filterGroups = normalizeFilterGroups(filters, filterSets);
+	const queryBody = buildQueryBody(around, filterGroups, includeRelations);
 
 	// Use shorter timeout to fail fast and allow retry
 	const query = `[out:json][timeout:15];
@@ -542,6 +592,7 @@ export async function queryBbox(
 	east: number,
 	north: number,
 	filters?: OsmFilters,
+	filterSets?: OsmFilters[],
 	limit?: number,
 	includeRelations: boolean = false,
 ): Promise<QueryFeaturesResult> {
@@ -555,19 +606,9 @@ export async function queryBbox(
 		throw new Error("South must be less than north");
 	}
 
-	const filterStr = filters ? buildFilterString(filters) : "";
 	const bbox = `(${south},${west},${north},${east})`;
-
-	const queryBody = includeRelations
-		? `
-  node${filterStr}${bbox};
-  way${filterStr}${bbox};
-  relation${filterStr}${bbox};
-`
-		: `
-  node${filterStr}${bbox};
-  way${filterStr}${bbox};
-`;
+	const filterGroups = normalizeFilterGroups(filters, filterSets);
+	const queryBody = buildQueryBody(bbox, filterGroups, includeRelations);
 
 	const query = `[out:json][timeout:15];
 (

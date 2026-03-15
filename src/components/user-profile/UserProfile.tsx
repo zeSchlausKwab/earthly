@@ -5,6 +5,7 @@ import { nip19 } from 'nostr-tools'
 import { Avatar, AvatarImage, AvatarFallback } from '../ui/avatar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 
 type ProfileData = {
 	name?: string
@@ -72,6 +73,8 @@ export interface UserProfileProps {
 	onClick?: () => void
 	/** Custom fallback text (defaults to initials or pubkey prefix) */
 	fallbackText?: string
+	/** Disable click-to-profile navigation and render as static content */
+	interactive?: boolean
 }
 
 /**
@@ -91,6 +94,7 @@ function UserProfileComponent({
 	showBio = true,
 	onClick,
 	fallbackText,
+	interactive = true,
 }: UserProfileProps) {
 	const ndk = useNDK()
 	// useUser handles npub, nprofile, nip05, and hex pubkey resolution
@@ -296,15 +300,23 @@ function UserProfileComponent({
 
 	// Wrapper for click handling - always clickable, uses onClick or default navigation
 	const Wrapper = ({ children }: { children: React.ReactNode }) => {
+		if (!interactive) {
+			return <div className={cn('text-left', className)}>{children}</div>
+		}
+
 		const clickHandler = onClick ?? handleDefaultClick
 		return (
-			<button
+			<Button
 				type="button"
+				variant="ghost"
 				onClick={clickHandler}
-				className={cn('cursor-pointer hover:opacity-80 transition-opacity text-left', className)}
+				className={cn(
+					'cursor-pointer hover:opacity-80 transition-opacity text-left h-auto p-0 justify-start',
+					className,
+				)}
 			>
 				{children}
-			</button>
+			</Button>
 		)
 	}
 

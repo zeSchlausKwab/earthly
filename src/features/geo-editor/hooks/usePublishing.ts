@@ -1,10 +1,14 @@
 import type NDK from '@nostr-dev-kit/ndk'
 import type { FeatureCollection } from 'geojson'
 import { useCallback, useMemo } from 'react'
+import { toast } from 'sonner'
 import { validateDatasetForContext } from '@/lib/context/validation'
 import type { GeoBlobReference, NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import { NDKGeoEvent as NDKGeoEventClass } from '@/lib/ndk/NDKGeoEvent'
+import { NDKGeoEditProposalEvent } from '@/lib/ndk/NDKGeoEditProposalEvent'
+import { GEO_EVENT_KIND } from '@/lib/ndk/kinds'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import { extractReferencedCoordinates, syncAddressReferenceTags } from '@/lib/ndk/nostrReferences'
 import type { EditorFeature } from '../core'
 import { useEditorStore } from '../store'
 import type { EditorBlobReference } from '../types'
@@ -33,6 +37,7 @@ export function usePublishing({
 	const editor = useEditorStore((state) => state.editor)
 	const features = useEditorStore((state) => state.features)
 	const activeDataset = useEditorStore((state) => state.activeDataset)
+	const isDirty = useEditorStore((state) => state.isDirty)
 	const activeDatasetContextRefs = useEditorStore((state) => state.activeDatasetContextRefs)
 	const collectionMeta = useEditorStore((state) => state.collectionMeta)
 	const blobReferences = useEditorStore((state) => state.blobReferences)
@@ -40,11 +45,16 @@ export function usePublishing({
 	// Store actions
 	const setIsPublishing = useEditorStore((state) => state.setIsPublishing)
 	const setPublishMessage = useEditorStore((state) => state.setPublishMessage)
+	const setIsDirty = useEditorStore((state) => state.setIsDirty)
 	const setPublishError = useEditorStore((state) => state.setPublishError)
 	const setActiveDataset = useEditorStore((state) => state.setActiveDataset)
 	const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta)
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
 	const setSelectedFeatureIds = useEditorStore((state) => state.setSelectedFeatureIds)
+	const setMode = useEditorStore((state) => state.setMode)
+	const setViewMode = useEditorStore((state) => state.setViewMode)
+	const setViewDataset = useEditorStore((state) => state.setViewDataset)
+	const setViewCollection = useEditorStore((state) => state.setViewCollection)
 
 	// Blossom dialog state
 	const setBlossomUploadDialogOpen = useEditorStore((state) => state.setBlossomUploadDialogOpen)
@@ -61,6 +71,28 @@ export function usePublishing({
 			...(sanitized ? { properties: sanitized } : {}),
 		}
 	}, [])
+
+	const getCollectionDescription = useCallback((collection: FeatureCollection): string => {
+		const maybeCollection = collection as FeatureCollection & {
+			description?: string
+			properties?: Record<string, unknown>
+		}
+		const direct = maybeCollection.description
+		if (typeof direct === 'string' && direct.trim().length > 0) return direct
+		const propertyDescription = maybeCollection.properties?.description
+		return typeof propertyDescription === 'string' ? propertyDescription : ''
+	}, [])
+
+	const syncRichTextReferenceTags = useCallback(
+		(
+			event: NDKGeoEvent | NDKGeoEditProposalEvent,
+			text: string | undefined,
+			preservedCoordinates: string[] = [],
+		) => {
+			syncAddressReferenceTags(event, extractReferencedCoordinates(text), preservedCoordinates)
+		},
+		[],
+	)
 
 	const serializeBlobReferences = useCallback(
 		(): GeoBlobReference[] =>
@@ -272,6 +304,16 @@ export function usePublishing({
 		[activeDatasetContextRefs, mapContexts, ndk],
 	)
 
+	const switchToDatasetViewMode = useCallback(
+		(dataset: NDKGeoEvent) => {
+			setMode('select')
+			setViewMode('view')
+			setViewDataset(dataset)
+			setViewCollection(null)
+		},
+		[setMode, setViewMode, setViewDataset, setViewCollection],
+	)
+
 	const handlePublishNew = useCallback(async () => {
 		if (!editor) return
 		setIsPublishing(true)
@@ -297,6 +339,7 @@ export function usePublishing({
 
 			const event = new NDKGeoEventClass(ndk)
 			event.contextReferences = activeDatasetContextRefs
+			syncRichTextReferenceTags(event, getCollectionDescription(collection))
 
 			if (collectionBlobRef) {
 				// Publish as STUB with external reference (per SPEC.md section 1.5)
@@ -323,6 +366,7 @@ export function usePublishing({
 			setActiveDatasetContextRefs(event.contextReferences)
 			setCollectionMeta(extractCollectionMeta(collection))
 			setSelectedFeatureIds([])
+			switchToDatasetViewMode(event)
 		} catch (error) {
 			console.error('Failed to publish dataset', error)
 			setPublishError('Failed to publish dataset. Check console for details.')
@@ -344,6 +388,7 @@ export function usePublishing({
 		setActiveDatasetContextRefs,
 		setCollectionMeta,
 		setSelectedFeatureIds,
+		switchToDatasetViewMode,
 	])
 
 	/**
@@ -372,6 +417,7 @@ export function usePublishing({
 
 				const event = new NDKGeoEventClass(ndk)
 				event.contextReferences = activeDatasetContextRefs
+				syncRichTextReferenceTags(event, getCollectionDescription(collection))
 				// Compute discovery metadata (bbox/geohash) from the full geometry first.
 				event.featureCollection = collection
 				event.updateDerivedMetadata()
@@ -399,6 +445,7 @@ export function usePublishing({
 				setActiveDatasetContextRefs(event.contextReferences)
 				setCollectionMeta(extractCollectionMeta(collection))
 				setSelectedFeatureIds([])
+				switchToDatasetViewMode(event)
 
 				// Clean up dialog state
 				setPendingPublishCollection(null)
@@ -424,6 +471,7 @@ export function usePublishing({
 			setActiveDatasetContextRefs,
 			setCollectionMeta,
 			setSelectedFeatureIds,
+			switchToDatasetViewMode,
 			setPendingPublishCollection,
 			setBlossomUploadDialogOpen,
 		],
@@ -465,6 +513,7 @@ export function usePublishing({
 			event.contextReferences = activeDatasetContextRefs
 			event.relayHints = activeDataset.relayHints
 			event.blobReferences = refs
+			syncRichTextReferenceTags(event, getCollectionDescription(collection))
 
 			if (collectionBlobRef) {
 				// Publish as STUB with external reference (per SPEC.md section 1.5)
@@ -487,10 +536,13 @@ export function usePublishing({
 			}
 
 			setPublishMessage('Dataset update published successfully.')
+			toast.success('Dataset updated.')
+			setIsDirty(false)
 			setActiveDataset(event)
 			setActiveDatasetContextRefs(event.contextReferences)
 			setCollectionMeta(extractCollectionMeta(collection))
 			setSelectedFeatureIds([])
+			switchToDatasetViewMode(event)
 		} catch (error) {
 			console.error('Failed to publish dataset update', error)
 			setPublishError('Failed to publish dataset update. Check console for details.')
@@ -514,6 +566,8 @@ export function usePublishing({
 		setActiveDatasetContextRefs,
 		setCollectionMeta,
 		setSelectedFeatureIds,
+		setIsDirty,
+		switchToDatasetViewMode,
 	])
 
 	const handlePublishCopy = useCallback(async () => {
@@ -542,6 +596,7 @@ export function usePublishing({
 			const event = new NDKGeoEventClass(ndk)
 			event.contextReferences = activeDatasetContextRefs
 			event.blobReferences = refs
+			syncRichTextReferenceTags(event, getCollectionDescription(collection))
 
 			if (collectionBlobRef) {
 				event.featureCollection = collection
@@ -560,6 +615,7 @@ export function usePublishing({
 			setActiveDatasetContextRefs(event.contextReferences)
 			setCollectionMeta(extractCollectionMeta(collection))
 			setSelectedFeatureIds([])
+			switchToDatasetViewMode(event)
 		} catch (error) {
 			console.error('Failed to publish dataset copy', error)
 			setPublishError('Failed to publish dataset copy. Check console for details.')
@@ -581,19 +637,72 @@ export function usePublishing({
 		setActiveDatasetContextRefs,
 		setCollectionMeta,
 		setSelectedFeatureIds,
+		switchToDatasetViewMode,
 	])
+
+	const handleProposeEdit = useCallback(
+		async (description: string) => {
+			if (!editor || !activeDataset) return
+			setIsPublishing(true)
+			setPublishMessage('Creating edit proposal...')
+			setPublishError(null)
+
+			try {
+				const collection = buildCollectionFromEditor()
+				if (!collection) throw new Error('No features to publish')
+
+				if (!ndk) {
+					setPublishError('NDK is not ready.')
+					return
+				}
+
+				const proposal = new NDKGeoEditProposalEvent(ndk)
+				proposal.featureCollection = collection
+				proposal.targetAddress = `${GEO_EVENT_KIND}:${activeDataset.pubkey}:${activeDataset.dTag}`
+				proposal.ownerPubkey = activeDataset.pubkey
+				if (activeDataset.id) {
+					proposal.baseVersion = activeDataset.id
+				}
+				proposal.description = description
+				proposal.hashtags = activeDataset.hashtags
+				syncRichTextReferenceTags(
+					proposal,
+					description,
+					proposal.targetAddress ? [proposal.targetAddress] : [],
+				)
+
+				await proposal.publishProposal()
+				setPublishMessage('Edit proposal published successfully.')
+				switchToDatasetViewMode(activeDataset)
+				setSelectedFeatureIds([])
+			} catch (error) {
+				console.error('Failed to publish edit proposal', error)
+				setPublishError('Failed to publish edit proposal. Check console for details.')
+			} finally {
+				setIsPublishing(false)
+			}
+		},
+		[
+			editor,
+			activeDataset,
+			setIsPublishing,
+			setPublishMessage,
+			setPublishError,
+			buildCollectionFromEditor,
+			ndk,
+			switchToDatasetViewMode,
+			setSelectedFeatureIds,
+		],
+	)
 
 	const handleDeleteDataset = useCallback(
 		async (event: NDKGeoEvent, onClear: () => void) => {
 			if (!ndk) {
-				alert('NDK is not ready.')
+				toast.error('NDK is not ready.')
 				return
 			}
-			if (!event.datasetId) {
-				alert('Dataset is missing a d tag and cannot be deleted.')
-				return
-			}
-			if (!confirm(`Delete dataset "${getDatasetName(event)}"? This action cannot be undone.`)) {
+			if (!(event.datasetId ?? event.dTag)) {
+				toast.error('Dataset is missing a d tag and cannot be deleted.')
 				return
 			}
 
@@ -603,9 +712,10 @@ export function usePublishing({
 				if (activeDataset && getDatasetKey(activeDataset) === key) {
 					onClear()
 				}
+				toast.success(`Deleted "${getDatasetName(event)}".`)
 			} catch (error) {
 				console.error('Failed to delete dataset', error)
-				alert('Failed to delete dataset. Check console for details.')
+				toast.error('Failed to delete dataset. Check console for details.')
 			}
 		},
 		[ndk, activeDataset, getDatasetKey, getDatasetName],
@@ -622,8 +732,10 @@ export function usePublishing({
 		!activeDataset &&
 		(hasCollectionBlob || (collection ? !isOverSizeLimit(collection) : true))
 	const canPublishUpdate =
-		!!activeDataset && currentUserPubkey === activeDataset?.pubkey && features.length > 0
+		!!activeDataset && currentUserPubkey === activeDataset?.pubkey && features.length > 0 && isDirty
 	const canPublishCopy =
+		!!activeDataset && currentUserPubkey !== activeDataset?.pubkey && features.length > 0
+	const canProposeEdit =
 		!!activeDataset && currentUserPubkey !== activeDataset?.pubkey && features.length > 0
 
 	return {
@@ -631,6 +743,7 @@ export function usePublishing({
 		handlePublishNew,
 		handlePublishUpdate,
 		handlePublishCopy,
+		handleProposeEdit,
 		handleDeleteDataset,
 		handlePublishWithBlossomUpload,
 		buildCollectionFromEditor,
@@ -644,5 +757,6 @@ export function usePublishing({
 		canPublishNew,
 		canPublishUpdate,
 		canPublishCopy,
+		canProposeEdit,
 	}
 }

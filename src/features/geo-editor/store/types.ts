@@ -1,14 +1,13 @@
 import type { FeatureCollection } from 'geojson'
-import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import type { ContextFilterMode } from '@/lib/context/validation'
+import type { ContextMapScopeMode } from '@/lib/context/scope'
 import type { EditorFeature, EditorMode, GeoEditor } from '../core'
 import type { CollectionMeta, EditorBlobReference, GeoSearchResult } from '../types'
 
 export type SidebarViewMode =
 	| 'datasets'
-	| 'collections'
 	| 'contexts'
 	| 'context-editor'
 	| 'combined'
@@ -47,7 +46,6 @@ export interface MapLayerState {
 
 export type MobilePanelTab =
 	| 'datasets'
-	| 'collections'
 	| 'contexts'
 	| 'context-editor'
 	| 'edit'
@@ -68,6 +66,18 @@ export interface GeoCollectionEditDraft {
 	collectionMeta: CollectionMeta
 	features: EditorFeature[]
 	selectedFeatureIds: string[]
+	createdAt: number
+	updatedAt: number
+}
+
+export interface GeoEditorWorkspace {
+	id: string
+	sourceId: string
+	label: string
+	kind: 'dataset' | 'scratch'
+	datasetKey: string | null
+	activeDraftId: string | null
+	chatSessionId: string | null
 	createdAt: number
 	updatedAt: number
 }
@@ -123,6 +133,31 @@ export interface DraftSlice {
 	deleteGeoEditDraft: (id: string) => void
 }
 
+export interface WorkspaceSlice {
+	workspaces: Record<string, GeoEditorWorkspace>
+	activeWorkspaceId: string | null
+
+	createWorkspace: (input: {
+		sourceId: string
+		label: string
+		kind: GeoEditorWorkspace['kind']
+		datasetKey?: string | null
+		activeDraftId?: string | null
+		chatSessionId?: string | null
+	}) => string
+	updateWorkspace: (
+		id: string,
+		updates: Partial<Omit<GeoEditorWorkspace, 'id' | 'createdAt'>>,
+	) => void
+	deleteWorkspace: (id: string) => void
+	setActiveWorkspaceId: (id: string | null) => void
+	touchActiveWorkspace: (
+		updates?: Partial<
+			Pick<GeoEditorWorkspace, 'label' | 'activeDraftId' | 'chatSessionId' | 'datasetKey'>
+		>,
+	) => void
+}
+
 export interface MetadataSlice {
 	collectionMeta: CollectionMeta
 	activeDataset: NDKGeoEvent | null
@@ -130,9 +165,11 @@ export interface MetadataSlice {
 	datasetVisibility: Record<string, boolean>
 	resolvingDatasets: Set<string>
 	resolvingProgress: Map<string, { loaded: number; total: number }>
+	isDirty: boolean
 
 	setCollectionMeta: (meta: CollectionMeta) => void
 	setActiveDataset: (dataset: NDKGeoEvent | null) => void
+	setIsDirty: (isDirty: boolean) => void
 	setActiveDatasetContextRefs: (refs: string[]) => void
 	setDatasetVisibility: (
 		visibility:
@@ -177,18 +214,17 @@ export interface PublishingSlice {
 
 export interface ViewModeSlice {
 	viewMode: 'edit' | 'view'
+	editIsolationEnabled: boolean
 	viewDataset: NDKGeoEvent | null
-	viewCollection: NDKGeoCollectionEvent | null
-	viewCollectionEvents: NDKGeoEvent[]
 	viewContext: NDKMapContextEvent | null
 	viewContextDatasets: NDKGeoEvent[]
-	viewContextCollections: NDKGeoCollectionEvent[]
 	contextFilterMode: ContextFilterMode
+	contextMapScopeMode: ContextMapScopeMode
 	activeContextScopeNaddr: string | null
 	activeContextScopeCoordinate: string | null
 
 	focusedNaddr: string | null
-	focusedType: 'geoevent' | 'collection' | 'mapcontext' | null
+	focusedType: 'geoevent' | 'mapcontext' | null
 	focusedMapGeometry: {
 		bbox: [number, number, number, number]
 		datasetId?: string
@@ -198,16 +234,16 @@ export interface ViewModeSlice {
 
 	setViewMode: (mode: 'edit' | 'view') => void
 	setViewDataset: (dataset: NDKGeoEvent | null) => void
-	setViewCollection: (collection: NDKGeoCollectionEvent | null) => void
-	setViewCollectionEvents: (events: NDKGeoEvent[]) => void
 	setViewContext: (context: NDKMapContextEvent | null) => void
 	setViewContextDatasets: (events: NDKGeoEvent[]) => void
-	setViewContextCollections: (collections: NDKGeoCollectionEvent[]) => void
 	setContextFilterMode: (mode: ContextFilterMode) => void
+	setContextMapScopeMode: (mode: ContextMapScopeMode) => void
 	setActiveContextScope: (naddr: string | null, coordinate: string | null) => void
 	clearActiveContextScope: () => void
+	setEditIsolationEnabled: (enabled: boolean) => void
+	toggleEditIsolation: () => void
 
-	setFocused: (type: 'geoevent' | 'collection' | 'mapcontext', naddr: string) => void
+	setFocused: (type: 'geoevent' | 'mapcontext', naddr: string) => void
 	clearFocused: () => void
 	setFocusedMapGeometry: (focused: ViewModeSlice['focusedMapGeometry']) => void
 	clearFocusedMapGeometry: () => void
@@ -320,12 +356,18 @@ export interface MapSourceSlice {
 	setIsDrawingMapArea: (drawing: boolean) => void
 }
 
+export interface SessionSyncSlice {
+	hydrateEditorSessionForPubkey: (pubkey: string | null) => void
+}
+
 /** Combined state — intersection of all slices */
 export type EditorState = EditorCoreSlice &
 	DraftSlice &
+	WorkspaceSlice &
 	MetadataSlice &
 	PublishingSlice &
 	ViewModeSlice &
 	UISlice &
 	SearchSlice &
-	MapSourceSlice
+	MapSourceSlice &
+	SessionSyncSlice

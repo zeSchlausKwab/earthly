@@ -15,7 +15,7 @@ const drawModes = [
 	{ key: 'draw_point', icon: MapPin, label: 'Draw point' },
 	{ key: 'draw_linestring', icon: Route, label: 'Draw line' },
 	{ key: 'draw_polygon', icon: Pentagon, label: 'Draw polygon' },
-	{ key: 'draw_annotation', icon: Type, label: 'Add annotation' },
+	{ key: 'draw_annotation', icon: Type, label: 'Draw label' },
 ] as const
 
 export function DrawButtonGroup({ mode, onModeChange, disabled, small }: DrawButtonGroupProps) {
@@ -29,11 +29,12 @@ export function DrawButtonGroup({ mode, onModeChange, disabled, small }: DrawBut
 					<Tooltip key={key}>
 						<TooltipTrigger asChild>
 							<Button
+								type="button"
 								size="icon"
 								variant={mode === key ? 'default' : 'outline'}
 								disabled={disabled}
 								onClick={() => onModeChange(key)}
-								className={buttonSize}
+								className={`${buttonSize} rounded-none`}
 								aria-label={label}
 							>
 								<Icon className={iconSize} />

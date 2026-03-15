@@ -1,10 +1,9 @@
 import { useCallback, useState } from 'react'
-import type { NDKGeoCollectionEvent } from '@/lib/ndk/NDKGeoCollectionEvent'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import { useEditorStore, type SidebarViewMode } from '../store'
 
-interface UseCollectionContextEditorParams {
+interface UseContextEditorParams {
 	isMobile: boolean
 	ensureInfoPanelVisible: () => void
 	encodeContextNaddr: (context: NDKMapContextEvent) => string | null
@@ -12,11 +11,12 @@ interface UseCollectionContextEditorParams {
 	navigateToView: (view: SidebarViewMode) => void
 	clearFocus: () => void
 	handleInspectDataset: (event: NDKGeoEvent) => void
-	handleInspectCollection: (collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => void
 	loadDatasetForEditing: (event: NDKGeoEvent) => void
+	startNewDataset: () => void
+	switchToWorkspace: (workspaceId: string) => void | Promise<void>
 }
 
-export function useCollectionContextEditor({
+export function useContextEditor({
 	isMobile,
 	ensureInfoPanelVisible,
 	encodeContextNaddr,
@@ -24,85 +24,34 @@ export function useCollectionContextEditor({
 	navigateToView,
 	clearFocus,
 	loadDatasetForEditing,
+	startNewDataset,
+	switchToWorkspace,
 	handleInspectDataset,
-	handleInspectCollection,
-}: UseCollectionContextEditorParams) {
+}: UseContextEditorParams) {
 	const setShowInfoPanel = useEditorStore((state) => state.setShowInfoPanel)
 	const setViewModeState = useEditorStore((state) => state.setViewMode)
 	const setViewDatasetState = useEditorStore((state) => state.setViewDataset)
-	const setViewCollectionState = useEditorStore((state) => state.setViewCollection)
 	const setViewContext = useEditorStore((state) => state.setViewContext)
 	const setViewContextDatasets = useEditorStore((state) => state.setViewContextDatasets)
-	const setViewContextCollections = useEditorStore((state) => state.setViewContextCollections)
+	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
+	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
 
-	// Collection Editor state
-	const [collectionEditorMode, setCollectionEditorMode] = useState<'none' | 'create' | 'edit'>(
-		'none',
-	)
-	const [editingCollection, setEditingCollection] = useState<NDKGeoCollectionEvent | null>(null)
 	const [contextEditorMode, setContextEditorMode] = useState<'none' | 'create' | 'edit'>('none')
 	const [editingContext, setEditingContext] = useState<NDKMapContextEvent | null>(null)
 
 	const prepareNonGeometryEditorWorkspace = useCallback(() => {
-		// Keep global view mode out of geometry edit so toolbar stays disabled.
 		setViewModeState('view')
 		setViewDatasetState(null)
-		setViewCollectionState(null)
 		setViewContext(null)
 		setViewContextDatasets([])
-		setViewContextCollections([])
 		clearFocus()
-	}, [
-		setViewModeState,
-		setViewDatasetState,
-		setViewCollectionState,
-		setViewContext,
-		setViewContextDatasets,
-		setViewContextCollections,
-		clearFocus,
-	])
+	}, [setViewModeState, setViewDatasetState, setViewContext, setViewContextDatasets, clearFocus])
 
-	/** Reset both editor modes */
 	const clearEditorModes = useCallback(() => {
-		setCollectionEditorMode('none')
-		setEditingCollection(null)
 		setContextEditorMode('none')
 		setEditingContext(null)
 	}, [])
 
-	// Collection handlers
-	const handleCreateCollectionFull = useCallback(() => {
-		setCollectionEditorMode('create')
-		setEditingCollection(null)
-		setContextEditorMode('none')
-		setEditingContext(null)
-		prepareNonGeometryEditorWorkspace()
-		if (!isMobile) setShowInfoPanel(true)
-	}, [isMobile, setShowInfoPanel, prepareNonGeometryEditorWorkspace])
-
-	const handleEditCollection = useCallback(
-		(collection: NDKGeoCollectionEvent) => {
-			setCollectionEditorMode('edit')
-			setEditingCollection(collection)
-			setContextEditorMode('none')
-			setEditingContext(null)
-			prepareNonGeometryEditorWorkspace()
-			if (!isMobile) setShowInfoPanel(true)
-		},
-		[isMobile, setShowInfoPanel, prepareNonGeometryEditorWorkspace],
-	)
-
-	const handleSaveCollection = useCallback((_collection: NDKGeoCollectionEvent) => {
-		setCollectionEditorMode('none')
-		setEditingCollection(null)
-	}, [])
-
-	const handleCloseCollectionEditor = useCallback(() => {
-		setCollectionEditorMode('none')
-		setEditingCollection(null)
-	}, [])
-
-	// Dataset loading wrapper that clears editor modes
 	const handleLoadDatasetForEditing = useCallback(
 		(event: NDKGeoEvent) => {
 			clearEditorModes()
@@ -111,13 +60,11 @@ export function useCollectionContextEditor({
 		[loadDatasetForEditing, clearEditorModes],
 	)
 
-	// Context handlers
 	const handleInspectContext = useCallback(
 		(context: NDKMapContextEvent) => {
 			clearEditorModes()
 			setViewModeState('view')
 			setViewDatasetState(null)
-			setViewCollectionState(null)
 			setViewContext(context)
 			ensureInfoPanelVisible()
 
@@ -127,14 +74,13 @@ export function useCollectionContextEditor({
 			}
 		},
 		[
+			clearEditorModes,
 			setViewModeState,
 			setViewDatasetState,
-			setViewCollectionState,
 			setViewContext,
 			ensureInfoPanelVisible,
 			encodeContextNaddr,
 			navigateToContext,
-			clearEditorModes,
 		],
 	)
 
@@ -145,11 +91,11 @@ export function useCollectionContextEditor({
 		navigateToView('context-editor')
 		if (!isMobile) setShowInfoPanel(true)
 	}, [
-		isMobile,
-		setShowInfoPanel,
-		navigateToView,
 		clearEditorModes,
 		prepareNonGeometryEditorWorkspace,
+		navigateToView,
+		isMobile,
+		setShowInfoPanel,
 	])
 
 	const handleEditContext = useCallback(
@@ -162,11 +108,11 @@ export function useCollectionContextEditor({
 			if (!isMobile) setShowInfoPanel(true)
 		},
 		[
-			isMobile,
-			setShowInfoPanel,
-			navigateToView,
 			clearEditorModes,
 			prepareNonGeometryEditorWorkspace,
+			navigateToView,
+			isMobile,
+			setShowInfoPanel,
 		],
 	)
 
@@ -187,51 +133,31 @@ export function useCollectionContextEditor({
 
 	const handleOpenGeometryEditor = useCallback(() => {
 		clearEditorModes()
-		setViewModeState('edit')
-		setViewDatasetState(null)
-		setViewCollectionState(null)
-		setViewContext(null)
-		setViewContextDatasets([])
-		setViewContextCollections([])
-		clearFocus()
+		if (!activeWorkspaceId || !activeGeoEditDraftId) {
+			startNewDataset()
+			return
+		}
+		void switchToWorkspace(activeWorkspaceId)
 	}, [
-		setViewModeState,
-		setViewDatasetState,
-		setViewCollectionState,
-		setViewContext,
-		setViewContextDatasets,
-		setViewContextCollections,
-		clearFocus,
 		clearEditorModes,
+		activeWorkspaceId,
+		activeGeoEditDraftId,
+		startNewDataset,
+		switchToWorkspace,
 	])
 
-	// Inspect wrappers that clear editor modes
 	const handleInspectDatasetWithModeSwitch = useCallback(
 		(event: NDKGeoEvent) => {
 			clearEditorModes()
 			handleInspectDataset(event)
 		},
-		[handleInspectDataset, clearEditorModes],
-	)
-
-	const handleInspectCollectionWithModeSwitch = useCallback(
-		(collection: NDKGeoCollectionEvent, events: NDKGeoEvent[]) => {
-			clearEditorModes()
-			handleInspectCollection(collection, events)
-		},
-		[handleInspectCollection, clearEditorModes],
+		[clearEditorModes, handleInspectDataset],
 	)
 
 	return {
-		collectionEditorMode,
-		editingCollection,
 		contextEditorMode,
 		editingContext,
 		clearEditorModes,
-		handleCreateCollection: handleCreateCollectionFull,
-		handleEditCollection,
-		handleSaveCollection,
-		handleCloseCollectionEditor,
 		handleLoadDatasetForEditing,
 		handleInspectContext,
 		handleCreateContext,
@@ -240,6 +166,5 @@ export function useCollectionContextEditor({
 		handleCloseContextEditor,
 		handleOpenGeometryEditor,
 		handleInspectDatasetWithModeSwitch,
-		handleInspectCollectionWithModeSwitch,
 	}
 }

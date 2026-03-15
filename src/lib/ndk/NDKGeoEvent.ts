@@ -353,19 +353,25 @@ export class NDKGeoEvent extends NDKEvent {
 		ndk: NDK,
 		dataset: NDKGeoEvent,
 		reason?: string,
-		_signer?: NDKSigner,
+		signer?: NDKSigner,
 	): Promise<void> {
 		const datasetId = dataset.datasetId ?? dataset.dTag
 		if (!datasetId) throw new Error('Dataset is missing a d tag and cannot be deleted.')
+		if (!dataset.pubkey) {
+			throw new Error('Dataset is missing a pubkey and cannot be deleted.')
+		}
+
+		const datasetKind = dataset.kind ?? GEO_EVENT_KIND
 
 		const deletion = new NDKEvent(ndk)
 		deletion.kind = NDKKind.EventDeletion
 		deletion.content = reason ?? ''
-		deletion.tags.push(['a', `${dataset.kind}:${dataset.pubkey}:${datasetId}`])
+		deletion.tags.push(['a', `${datasetKind}:${dataset.pubkey}:${datasetId}`])
 		if (dataset.id) {
 			deletion.tags.push(['e', dataset.id])
 		}
 
+		await deletion.sign(signer)
 		await deletion.publish()
 	}
 }

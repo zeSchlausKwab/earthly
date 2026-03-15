@@ -1522,6 +1522,11 @@ export class GeoEditor {
 		this.emit('redo', { type: 'redo' })
 	}
 
+	clearHistory(): void {
+		this.history.clear()
+		this.emit('undo', { type: 'undo' })
+	}
+
 	on(eventType: EditorEventType, handler: EditorEventHandler): void {
 		if (!this.eventHandlers.has(eventType)) {
 			this.eventHandlers.set(eventType, new Set())
