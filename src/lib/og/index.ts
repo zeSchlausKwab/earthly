@@ -13,8 +13,6 @@ export {
 } from './fetchEvent'
 export {
 	fetchContextEventOGData,
-	fetchGeoEventOGDataFull,
 	type ContextEventOGData,
-	type GeoEventOGDataFull,
 } from './fetchContextEvent'
 export { generateOGImagePNG, type OGImageOptions } from './renderImage'

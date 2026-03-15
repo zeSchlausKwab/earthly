@@ -52,11 +52,18 @@ export const createContextColumns = (
 				isCuratedChild,
 				attachmentCount,
 			} = row.original
+			const image = contextEvent.context.image
 			return (
 				<div
-					className="min-w-0 whitespace-normal py-1"
+					className="flex min-w-0 items-center whitespace-normal"
 					style={displayDepth > 0 ? { paddingLeft: `${displayDepth}rem` } : undefined}
 				>
+					{image && (
+						<div className="mr-2 h-16 w-16 shrink-0 overflow-hidden rounded-sm">
+							<img src={image} alt={contextName} className="h-full w-full object-cover object-center" />
+						</div>
+					)}
+					<div className="min-w-0 flex-1 py-1">
 					<div className="flex min-w-0 items-start gap-1.5">
 						{displayDepth > 0 && <span className="text-[10px] text-slate-400">└</span>}
 						<div className="min-w-0 flex-1">
@@ -143,6 +150,7 @@ export const createContextColumns = (
 								</div>
 							</div>
 						</div>
+					</div>
 					</div>
 				</div>
 			)

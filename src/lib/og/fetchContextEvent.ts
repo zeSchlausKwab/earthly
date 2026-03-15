@@ -1,5 +1,5 @@
 import { nip19 } from 'nostr-tools'
-import { MAP_CONTEXT_KIND, GEO_EVENT_KIND } from '../ndk/kinds'
+import { MAP_CONTEXT_KIND } from '../ndk/kinds'
 
 export interface ContextEventOGData {
 	title: string
@@ -8,13 +8,6 @@ export interface ContextEventOGData {
 	bbox?: [number, number, number, number] // west, south, east, north
 }
 
-export interface GeoEventOGDataFull {
-	title: string
-	description: string
-	image?: string
-	bbox?: [number, number, number, number]
-	featureCollection?: string // raw JSON string
-}
 
 interface NostrEvent {
 	id: string
@@ -137,69 +130,3 @@ export async function fetchContextEventOGData(
 	}
 }
 
-/**
- * Fetch geo event (kind 37515) data including geometry for OG image rendering
- */
-export async function fetchGeoEventOGDataFull(
-	naddr: string,
-	relayUrl: string,
-): Promise<GeoEventOGDataFull | null> {
-	try {
-		const decoded = nip19.decode(naddr)
-		if (decoded.type !== 'naddr') return null
-		if (decoded.data.kind !== GEO_EVENT_KIND) return null
-
-		const event = await fetchEventFromRelay(
-			relayUrl,
-			{
-				kinds: [decoded.data.kind],
-				authors: [decoded.data.pubkey],
-				'#d': [decoded.data.identifier],
-			},
-		)
-
-		if (!event) return null
-
-		let title = ''
-		let description = ''
-		let featureCollection: string | undefined
-
-		const titleTag = event.tags.find((t) => t[0] === 'title')
-		if (titleTag?.[1]) title = titleTag[1]
-
-		const summaryTag = event.tags.find((t) => t[0] === 'summary' || t[0] === 'description')
-		if (summaryTag?.[1]) description = summaryTag[1]
-
-		if (!title) {
-			const dTag = event.tags.find((t) => t[0] === 'd')
-			if (dTag?.[1]) title = dTag[1]
-		}
-
-		if (event.content) {
-			try {
-				const fc = JSON.parse(event.content)
-				if (fc?.type === 'FeatureCollection') {
-					featureCollection = event.content
-					if (!description && Array.isArray(fc.features)) {
-						const count = fc.features.length
-						description = `Geographic dataset with ${count} feature${count !== 1 ? 's' : ''}`
-					}
-				}
-			} catch {
-				// Invalid JSON
-			}
-		}
-
-		const bboxTag = event.tags.find((t) => t[0] === 'bbox')
-		const bbox = parseBbox(bboxTag?.[1])
-
-		return {
-			title: title || 'Geographic Dataset',
-			description: description || 'A geographic dataset on Earthly',
-			bbox,
-			featureCollection,
-		}
-	} catch {
-		return null
-	}
-}

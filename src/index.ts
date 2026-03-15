@@ -10,7 +10,6 @@ import {
 	generateContextOGHtml,
 	fetchGeoEventOGData,
 	fetchContextEventOGData,
-	fetchGeoEventOGDataFull,
 	generateOGImagePNG,
 } from './lib/og'
 
@@ -123,6 +122,7 @@ async function handleOGImageRoute(req: BunRouteRequest): Promise<Response> {
 				title: data.title,
 				description: data.description,
 				bbox: data.bbox,
+				backgroundImageUrl: data.image,
 			})
 
 			if (!png) return new Response('Image generation failed', { status: 500 })
@@ -130,14 +130,12 @@ async function handleOGImageRoute(req: BunRouteRequest): Promise<Response> {
 		}
 
 		if (type === 'geoevent') {
-			const data = await fetchGeoEventOGDataFull(naddr, serverConfig.relayUrl)
+			const data = await fetchGeoEventOGData(naddr, serverConfig.relayUrl)
 			if (!data) return new Response('Not found', { status: 404 })
 
 			const png = await generateOGImagePNG({
 				title: data.title,
 				description: data.description,
-				bbox: data.bbox,
-				featureCollectionJson: data.featureCollection,
 			})
 
 			if (!png) return new Response('Image generation failed', { status: 500 })
