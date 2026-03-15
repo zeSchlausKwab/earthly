@@ -1,7 +1,7 @@
 import type { FeatureCollection } from 'geojson'
 import type { GeoJSONSource } from 'maplibre-gl'
 import type maplibregl from 'maplibre-gl'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { bbox as turfBbox, pointOnFeature } from '@turf/turf'
 import { isGeoJsonGeometry } from '@/lib/geo/normalizeGeoJSON'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
@@ -228,23 +228,32 @@ export function useMapLayers({
 }: UseMapLayersOptions) {
 	const [remoteLayersReady, setRemoteLayersReady] = useState(false)
 	const [styleInitVersion, setStyleInitVersion] = useState(0)
-	const [viewTransformVersion, setViewTransformVersion] = useState(0)
 	const blobPreviewCollection = useEditorStore((state) => state.blobPreviewCollection)
+	const syncRemoteDatasetsRef = useRef<(() => void) | null>(null)
+	const zoomSyncFrameRef = useRef<number | null>(null)
 
 	useEffect(() => {
 		if (!mapRef.current || !mounted) return
 		const mapInstance = mapRef.current
 
-		const syncViewTransform = () => {
-			setViewTransformVersion((current) => current + 1)
+		const scheduleDatasetSync = () => {
+			if (zoomSyncFrameRef.current != null) return
+			zoomSyncFrameRef.current = window.requestAnimationFrame(() => {
+				zoomSyncFrameRef.current = null
+				syncRemoteDatasetsRef.current?.()
+			})
 		}
 
-		syncViewTransform()
-		mapInstance.on('zoom', syncViewTransform)
+		scheduleDatasetSync()
+		mapInstance.on('zoom', scheduleDatasetSync)
 
 		return () => {
+			if (zoomSyncFrameRef.current != null) {
+				window.cancelAnimationFrame(zoomSyncFrameRef.current)
+				zoomSyncFrameRef.current = null
+			}
 			try {
-				mapInstance.off('zoom', syncViewTransform)
+				mapInstance.off('zoom', scheduleDatasetSync)
 			} catch {
 				// Map may have been removed
 			}
@@ -631,98 +640,99 @@ export function useMapLayers({
 		}
 	}, [mounted, mapRef])
 
-	// Update remote datasets layer
+	// Keep zoom-driven geometry proxy updates inside MapLibre instead of React renders.
 	useEffect(() => {
-		const map = mapRef.current
-		if (!map) return
-		if (!remoteLayersReady) return
-		void resolvedCollectionsVersion
-		void styleInitVersion
-		void viewTransformVersion
+		syncRemoteDatasetsRef.current = () => {
+			const map = mapRef.current
+			if (!map) return
+			if (!remoteLayersReady) return
+			void resolvedCollectionsVersion
+			void styleInitVersion
 
-		try {
-			const source = map.getSource(REMOTE_SOURCE_ID) as GeoJSONSource | undefined
-			const proxySource = map.getSource(REMOTE_POLYGON_PROXY_SOURCE_ID) as GeoJSONSource | undefined
-			const clusteredSource = map.getSource(CLUSTERED_SOURCE_ID) as GeoJSONSource | undefined
-			if (!source) return
+			try {
+				const source = map.getSource(REMOTE_SOURCE_ID) as GeoJSONSource | undefined
+				const proxySource = map.getSource(REMOTE_POLYGON_PROXY_SOURCE_ID) as GeoJSONSource | undefined
+				const clusteredSource = map.getSource(CLUSTERED_SOURCE_ID) as GeoJSONSource | undefined
+				if (!source) return
 
-			const collection = convertGeoEventsToFeatureCollection(
-				visibleGeoEvents,
-				resolvedCollectionResolver,
-			)
+				const collection = convertGeoEventsToFeatureCollection(
+					visibleGeoEvents,
+					resolvedCollectionResolver,
+				)
 
-			// Filter out placeholder features and features with null geometry
-			// to prevent MapLibre expression evaluation errors
-			const filteredCollection = {
-				...collection,
-				features: collection.features.filter(
-					(f) => f.geometry !== null && !isExternalPlaceholder(f.properties),
-				),
-			}
-
-			// Ensure MapLibre only receives valid GeoJSON Features with valid Geometry
-			const safeFeatures = filteredCollection.features.filter(
-				(f) => f.type === 'Feature' && f.geometry !== null && isGeoJsonGeometry(f.geometry),
-			)
-
-			// Keep annotations out of clustering so they retain their label/popup behavior.
-			const pointFeatures = safeFeatures.filter((f) => {
-				if (!isPointGeometryType(f.geometry?.type)) return false
-				return !isAnnotationFeature(f)
-			})
-			const annotationFeatures = safeFeatures.filter(
-				(f) => isPointGeometryType(f.geometry?.type) && isAnnotationFeature(f),
-			)
-			const nonPointFeatures = safeFeatures.filter((f) => !isPointGeometryType(f.geometry?.type))
-			const collapseToProxyById = new Set<string>()
-
-			const geometryProxyFeatures = nonPointFeatures
-				.map((feature, index) => {
-					if (!shouldCollapseGeometryToPointProxy(map, feature)) return null
-					const featureKey = String(feature.id ?? feature.properties?.featureId ?? index)
-					collapseToProxyById.add(featureKey)
-					return buildGeometryProxyFeature(feature)
-				})
-				.filter((feature): feature is NonNullable<typeof feature> => feature !== null)
-
-			const nonPointCollection = {
-				type: 'FeatureCollection' as const,
-				features: [
-					...nonPointFeatures.map((feature, index) =>
-						collapseToProxyById.has(String(feature.id ?? feature.properties?.featureId ?? index))
-							? {
-									...feature,
-									properties: {
-										...(feature.properties ?? {}),
-										collapseToPointProxy: true,
-									},
-								}
-							: feature,
+				// Filter out placeholder features and features with null geometry
+				// to prevent MapLibre expression evaluation errors
+				const filteredCollection = {
+					...collection,
+					features: collection.features.filter(
+						(f) => f.geometry !== null && !isExternalPlaceholder(f.properties),
 					),
-					...annotationFeatures,
-				],
-			}
+				}
 
-			const pointCollection = {
-				type: 'FeatureCollection' as const,
-				features: [...pointFeatures, ...geometryProxyFeatures],
-			}
+				// Ensure MapLibre only receives valid GeoJSON Features with valid Geometry
+				const safeFeatures = filteredCollection.features.filter(
+					(f) => f.type === 'Feature' && f.geometry !== null && isGeoJsonGeometry(f.geometry),
+				)
 
-			// Set non-point features to regular source (lines, polygons)
-			source.setData(nonPointCollection)
-
-			// Set point features to clustered source
-			if (clusteredSource) {
-				clusteredSource.setData(pointCollection)
-			}
-			if (proxySource) {
-				proxySource.setData({
-					type: 'FeatureCollection',
-					features: [],
+				// Keep annotations out of clustering so they retain their label/popup behavior.
+				const pointFeatures = safeFeatures.filter((f) => {
+					if (!isPointGeometryType(f.geometry?.type)) return false
+					return !isAnnotationFeature(f)
 				})
+				const annotationFeatures = safeFeatures.filter(
+					(f) => isPointGeometryType(f.geometry?.type) && isAnnotationFeature(f),
+				)
+				const nonPointFeatures = safeFeatures.filter((f) => !isPointGeometryType(f.geometry?.type))
+				const collapseToProxyById = new Set<string>()
+
+				const geometryProxyFeatures = nonPointFeatures
+					.map((feature, index) => {
+						if (!shouldCollapseGeometryToPointProxy(map, feature)) return null
+						const featureKey = String(feature.id ?? feature.properties?.featureId ?? index)
+						collapseToProxyById.add(featureKey)
+						return buildGeometryProxyFeature(feature)
+					})
+					.filter((feature): feature is NonNullable<typeof feature> => feature !== null)
+
+				const nonPointCollection = {
+					type: 'FeatureCollection' as const,
+					features: [
+						...nonPointFeatures.map((feature, index) =>
+							collapseToProxyById.has(String(feature.id ?? feature.properties?.featureId ?? index))
+								? {
+										...feature,
+										properties: {
+											...(feature.properties ?? {}),
+											collapseToPointProxy: true,
+										},
+									}
+								: feature,
+						),
+						...annotationFeatures,
+					],
+				}
+
+				const pointCollection = {
+					type: 'FeatureCollection' as const,
+					features: [...pointFeatures, ...geometryProxyFeatures],
+				}
+
+				// Set non-point features to regular source (lines, polygons)
+				source.setData(nonPointCollection)
+
+				// Set point features to clustered source
+				if (clusteredSource) {
+					clusteredSource.setData(pointCollection)
+				}
+				if (proxySource) {
+					proxySource.setData({
+						type: 'FeatureCollection',
+						features: [],
+					})
+				}
+			} catch {
+				// Map may have been removed during source switch
 			}
-		} catch {
-			// Map may have been removed during source switch
 		}
 	}, [
 		visibleGeoEvents,
@@ -731,7 +741,18 @@ export function useMapLayers({
 		remoteLayersReady,
 		mapRef,
 		styleInitVersion,
-		viewTransformVersion,
+	])
+
+	// Update remote datasets layer when source data or style changes.
+	useEffect(() => {
+		syncRemoteDatasetsRef.current?.()
+	}, [
+		visibleGeoEvents,
+		resolvedCollectionResolver,
+		resolvedCollectionsVersion,
+		remoteLayersReady,
+		mapRef,
+		styleInitVersion,
 	])
 
 	// Update blob preview layer
