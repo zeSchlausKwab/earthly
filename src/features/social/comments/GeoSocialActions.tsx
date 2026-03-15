@@ -29,6 +29,7 @@ interface GeoSocialActionsProps {
 	onAnnotateClick?: () => void
 	/** Whether to show the zap button (default: true for geo events) */
 	showZapButton?: boolean
+	showShareButton?: boolean
 	className?: string
 	compact?: boolean
 }
@@ -467,6 +468,7 @@ export function GeoSocialActions({
 	showAnnotateButton = false,
 	onAnnotateClick,
 	showZapButton = true,
+	showShareButton = true,
 	className = '',
 	compact = false,
 }: GeoSocialActionsProps) {
@@ -588,7 +590,7 @@ export function GeoSocialActions({
 					</Tooltip>
 				)}
 
-				{shareHash && (
+				{showShareButton && shareHash && (
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<Button
@@ -600,7 +602,7 @@ export function GeoSocialActions({
 								className="gap-1 rounded-none px-2 text-xs text-gray-500 hover:text-sky-600"
 							>
 								<Share2 className={iconSize} />
-								<span className="text-xs font-medium">Share</span>
+								{!compact ? <span className="text-xs font-medium">Share</span> : null}
 							</Button>
 						</TooltipTrigger>
 						<TooltipContent>Copy share link</TooltipContent>
@@ -638,9 +640,9 @@ export function GeoSocialActions({
 								<MessageCircle className={iconSize} />
 								{commentCount > 0 ? (
 									<span className="text-xs font-medium">{formatCount(commentCount)}</span>
-								) : (
+								) : !compact ? (
 									<span className="text-xs font-medium">Reply</span>
-								)}
+								) : null}
 							</Button>
 						</TooltipTrigger>
 						<TooltipContent>Reply</TooltipContent>

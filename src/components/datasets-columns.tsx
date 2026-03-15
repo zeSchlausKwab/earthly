@@ -6,6 +6,7 @@ import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
 import { Button } from './ui/button'
 import { UserProfile } from './user-profile'
 import { useEditorStore } from '../features/geo-editor/store'
+import { GeoSocialActions } from '../features/social/comments/GeoSocialActions'
 import type { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
 import { cn } from '@/lib/utils'
 
@@ -191,18 +192,18 @@ export const createDatasetColumns = (
 			}
 
 			return (
-				<button
-					type="button"
-					className="max-w-[220px] cursor-grab space-y-1 text-left active:cursor-grabbing"
-					draggable
-					onDragStart={handleDragStart}
-					onClick={() => context.onZoomToDataset(event)}
-					aria-label={`Zoom to dataset ${datasetName}`}
-					title="Zoom to dataset"
-				>
-					<div className="truncate text-xs font-semibold text-gray-900 transition-colors hover:text-sky-700">
+				<div className="w-full min-w-0 max-w-[260px] space-y-1 text-left">
+					<button
+						type="button"
+						className="block w-full cursor-grab truncate text-xs font-semibold text-gray-900 transition-colors hover:text-sky-700 active:cursor-grabbing"
+						draggable
+						onDragStart={handleDragStart}
+						onClick={() => context.onZoomToDataset(event)}
+						aria-label={`Zoom to dataset ${datasetName}`}
+						title="Zoom to dataset"
+					>
 						{datasetName}
-					</div>
+					</button>
 					<UserProfile
 						pubkey={event.pubkey}
 						mode="avatar-name"
@@ -210,19 +211,17 @@ export const createDatasetColumns = (
 						showNip05Badge={false}
 						interactive={false}
 					/>
-					{event.hashtags.length > 0 && (
-						<div className="flex flex-wrap gap-0.5">
-							{event.hashtags.slice(0, 2).map((tag) => (
-								<span
-									key={tag}
-									className="rounded bg-blue-100 px-1 py-0.5 text-[9px] text-blue-700"
-								>
-									#{tag}
-								</span>
-							))}
-						</div>
-					)}
-				</button>
+					<div className="overflow-visible pt-1">
+						<GeoSocialActions
+							target={event}
+							onReplyClick={() => context.onInspectDataset?.(event)}
+							showCommentButton={Boolean(context.onInspectDataset)}
+							showAnnotateButton={false}
+							compact
+							className="w-full gap-0"
+						/>
+					</div>
+				</div>
 			)
 		},
 	},

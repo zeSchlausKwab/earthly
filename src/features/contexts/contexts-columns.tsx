@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { UserProfile } from '@/components/user-profile'
 import { cn } from '@/lib/utils'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import { GeoSocialActions } from '../social/comments/GeoSocialActions'
 
 export interface ContextRowData {
 	context: NDKMapContextEvent
@@ -42,10 +43,9 @@ export const createContextColumns = (
 				isCuratedChild,
 				attachmentCount,
 			} = row.original
-			const content = contextEvent.context
 			return (
 				<div
-					className="max-w-[240px] space-y-1"
+					className="max-w-[260px] space-y-1"
 					style={displayDepth > 0 ? { paddingLeft: `${displayDepth}rem` } : undefined}
 				>
 					<div className="flex items-center gap-1.5">
@@ -68,9 +68,14 @@ export const createContextColumns = (
 							{attachmentCount > 1 ? ` · ${attachmentCount} contexts` : ''}
 						</div>
 					)}
-					{content.description && (
-						<div className="line-clamp-2 text-[10px] text-gray-500">{content.description}</div>
-					)}
+					<GeoSocialActions
+						target={contextEvent}
+						onReplyClick={() => context.onInspectContext?.(contextEvent)}
+						showCommentButton={Boolean(context.onInspectContext)}
+						showAnnotateButton={false}
+						compact
+						className="gap-0 pt-1"
+					/>
 				</div>
 			)
 		},
