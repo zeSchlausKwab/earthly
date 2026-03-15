@@ -273,8 +273,26 @@ export function ShareExportPopover() {
 	const { clearFocus, route } = useRouting()
 
 	const isFocused = Boolean(focusedNaddr && focusedType)
-	const shareRouteUrl =
-		typeof window !== 'undefined' ? window.location.href : 'https://earthly.context'
+	// Build a clean server-side URL (no #/) so OG crawlers can resolve it properly.
+	// /context/:naddr and /geoevent/:naddr serve OG HTML to crawlers and redirect
+	// regular users to the hash-based SPA route.
+	const shareRouteUrl = useMemo(() => {
+		if (typeof window === 'undefined') return 'https://earthly.city'
+		const origin = window.location.origin
+		if (focusedType === 'mapcontext' && (focusedNaddr || route.contextNaddr)) {
+			return `${origin}/context/${focusedNaddr ?? route.contextNaddr}`
+		}
+		if (focusedType === 'geoevent' && focusedNaddr) {
+			return `${origin}/geoevent/${focusedNaddr}`
+		}
+		if (route.contextNaddr) {
+			return `${origin}/context/${route.contextNaddr}`
+		}
+		if (route.naddr) {
+			return `${origin}/geoevent/${route.naddr}`
+		}
+		return window.location.href
+	}, [focusedType, focusedNaddr, route.contextNaddr, route.naddr])
 
 	const [sharePopoverOpen, setSharePopoverOpen] = useState(false)
 	const [copiedUrl, setCopiedUrl] = useState(false)

@@ -97,7 +97,28 @@ export function generateGeoEventOGHtml(
 			description ||
 			'View this geographic dataset on Earthly, a collaborative mapping platform on Nostr.',
 		url: `${baseUrl}/#/geoevent/${naddr}`,
-		image: image || `${baseUrl}/static/og-default.png`,
+		image: image || `${baseUrl}/og/image/geoevent/${naddr}`,
+		type: 'article',
+	})
+}
+
+/**
+ * Generate OG HTML for a map context (kind 37518)
+ */
+export function generateContextOGHtml(
+	baseUrl: string,
+	naddr: string,
+	title: string,
+	description: string,
+	image?: string,
+): string {
+	return generateOGHtml({
+		title: title || 'Map Context',
+		description:
+			description ||
+			'Explore this geographic context on Earthly, a collaborative mapping platform on Nostr.',
+		url: `${baseUrl}/#/context/${naddr}`,
+		image: image || `${baseUrl}/og/image/context/${naddr}`,
 		type: 'article',
 	})
 }
