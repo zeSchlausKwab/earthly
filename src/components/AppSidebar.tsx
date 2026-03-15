@@ -19,6 +19,7 @@ import type { FeatureCollection } from 'geojson'
 import type { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
 import type { NDKGeoEditProposalEvent } from '../lib/ndk/NDKGeoEditProposalEvent'
 import type { NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
+import squareLogoRose from '../assets/square_logo_rose.svg'
 import { ShoutboxPanel } from '../features/social/shoutbox'
 import { GeoDatasetsPanelContent } from './GeoDatasetsPanel'
 import { UserProfilePanel } from './UserProfilePanel'
@@ -647,8 +648,8 @@ export function AppSidebar({
 						<SidebarMenuItem>
 							<SidebarMenuButton size="lg" asChild className="md:h-8 md:p-0">
 								<a href="/">
-									<div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-										<Globe className="size-4" />
+									<div className="flex aspect-square size-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-white">
+										<img src={squareLogoRose} alt="" className="size-6 object-contain" />
 									</div>
 									<div className="grid flex-1 text-left text-sm leading-tight">
 										<span className="truncate font-medium">Earthly</span>

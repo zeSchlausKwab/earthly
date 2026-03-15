@@ -1,4 +1,5 @@
 import { ExternalLink, Github } from 'lucide-react'
+import textLogoRose from '../assets/text_logo_rose.svg'
 import { Kbd } from './ui/kbd'
 import { ScrollArea } from './ui/scroll-area'
 
@@ -13,7 +14,13 @@ export function HelpPanel({ multiSelectModifier = 'Shift' }: HelpPanelProps) {
 				{/* Branding Header */}
 				<div className="rounded-lg border border-border bg-gradient-to-r from-sky-50 via-white to-emerald-50 dark:from-sky-950/30 dark:via-background dark:to-emerald-950/30 p-3">
 					<div className="flex items-center justify-between gap-3">
-						<span className="font-semibold text-foreground">🌍 Earthly</span>
+						<div className="min-w-0">
+							<img
+								src={textLogoRose}
+								alt="Earthly.city"
+								className="h-7 w-auto max-w-[12rem] object-contain"
+							/>
+						</div>
 						<div className="flex items-center gap-3">
 							<a
 								href="https://github.com/zeSchlausKwab/earthly"
