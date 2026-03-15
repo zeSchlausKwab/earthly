@@ -6,8 +6,16 @@ import { tourSteps } from './steps'
 import './tour.css'
 
 export function TourManager() {
-	const { isActive, endTour, markAsSeen } = useTourStore()
+	const { isActive, hasSeenTour, startTour, endTour, markAsSeen } = useTourStore()
 	const driverRef = useRef<ReturnType<typeof driver> | null>(null)
+
+	// Auto-start on first visit (small delay so the map has time to render)
+	useEffect(() => {
+		if (!hasSeenTour) {
+			const t = setTimeout(startTour, 800)
+			return () => clearTimeout(t)
+		}
+	}, [hasSeenTour, startTour])
 
 	useEffect(() => {
 		if (!isActive) {

@@ -31,6 +31,7 @@ export const EntitySearchInput = forwardRef<HTMLInputElement, EntitySearchInputP
 					value={value}
 					onChange={(e) => onChange(e.target.value)}
 					placeholder={placeholder}
+					className={cn(compact ? 'pl-6' : 'pl-7', inputClassName)}
 					{...props}
 				/>
 				{value && (
