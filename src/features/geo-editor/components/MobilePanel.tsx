@@ -19,6 +19,7 @@ import { HelpPanel } from '@/components/HelpPanel'
 import { UserProfilePanel } from '@/components/UserProfilePanel'
 import { ShoutboxPanel } from '@/features/social/shoutbox'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
@@ -276,15 +277,16 @@ export function MobilePanel(props: MobilePanelProps) {
 				onInteractOutside={(e) => e.preventDefault()}
 			>
 				<div className="shrink-0 border-b border-gray-200 bg-white/95 px-0 py-1 backdrop-blur">
-					<button
+					<Button
 						type="button"
+						variant="ghost"
 						onPointerDown={handleDragStart}
 						onClick={handleGrabberClick}
 						className="flex w-full touch-none items-center justify-center py-1"
 						aria-label="Resize panel"
 					>
 						<span className="h-1.5 w-12 rounded-full bg-gray-300" />
-					</button>
+					</Button>
 				</div>
 
 				<div className="shrink-0 border-b border-gray-200 bg-white px-3 py-1.5">
@@ -300,14 +302,15 @@ export function MobilePanel(props: MobilePanelProps) {
 							/>
 						</div>
 						{contextNaddr ? (
-							<button
+							<Button
 								type="button"
+								variant="outline"
+								size="icon-sm"
 								onClick={clearContextScope}
 								aria-label="Leave context scope"
-								className="inline-flex h-7 w-7 items-center justify-center rounded-md border text-gray-600"
 							>
 								<X className="h-3.5 w-3.5" />
-							</button>
+							</Button>
 						) : null}
 					</div>
 				</div>

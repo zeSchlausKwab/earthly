@@ -35,9 +35,8 @@ export function MapFeatureHoverOverlay({
 	suppressed = false,
 }: MapFeatureHoverOverlayProps) {
 	const [featurePopupData, setFeaturePopupData] = useState<FeaturePopupData | null>(null)
-	const [displayedFeaturePopupData, setDisplayedFeaturePopupData] = useState<FeaturePopupData | null>(
-		null,
-	)
+	const [displayedFeaturePopupData, setDisplayedFeaturePopupData] =
+		useState<FeaturePopupData | null>(null)
 	const popupHoverRef = useRef(false)
 	const hideTimeoutRef = useRef<number | null>(null)
 

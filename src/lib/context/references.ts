@@ -29,7 +29,9 @@ export type ResolvedContextReference =
 	| ResolvedContextDatasetReference
 	| ResolvedContextContextReference
 
-function decodeCoordinate(address: string): { kind: number; pubkey: string; identifier: string } | null {
+function decodeCoordinate(
+	address: string,
+): { kind: number; pubkey: string; identifier: string } | null {
 	const parts = address.split(':')
 	if (parts.length !== 3) return null
 	const kind = Number.parseInt(parts[0] ?? '', 10)
@@ -54,9 +56,7 @@ export function encodeContextNaddr(context: NDKMapContextEvent): string | null {
 	}
 }
 
-export function getContextReferencedMentions(
-	context: NDKMapContextEvent | null | undefined,
-) {
+export function getContextReferencedMentions(context: NDKMapContextEvent | null | undefined) {
 	return dedupeNostrAddressReferences([
 		...extractNostrAddressReferences(context?.context.description),
 		...extractNostrAddressReferencesFromList(context?.context.references ?? []),
@@ -83,9 +83,7 @@ export function resolveContextReferences(
 
 		const dataset = geoEvents.find((event) => {
 			const identifier = event.datasetId ?? event.dTag ?? event.id
-			return identifier
-				? coordinate === `${event.kind}:${event.pubkey}:${identifier}`
-				: false
+			return identifier ? coordinate === `${event.kind}:${event.pubkey}:${identifier}` : false
 		})
 		if (dataset) {
 			return [
@@ -105,9 +103,7 @@ export function resolveContextReferences(
 
 		const childContext = mapContexts.find((event) => {
 			const identifier = event.contextId ?? event.dTag ?? event.id
-			return identifier
-				? coordinate === `${event.kind}:${event.pubkey}:${identifier}`
-				: false
+			return identifier ? coordinate === `${event.kind}:${event.pubkey}:${identifier}` : false
 		})
 		if (childContext) {
 			return [

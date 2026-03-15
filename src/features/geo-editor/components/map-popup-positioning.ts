@@ -35,8 +35,16 @@ export function resolveMapPopupPosition({
 	offset = 14,
 }: ResolveMapPopupPositionOptions): MapPopupPosition {
 	if (placement === 'dock' || !anchorPoint) {
-		const left = clamp(containerWidth - popupWidth - margin, margin, containerWidth - popupWidth - margin)
-		const top = clamp(toolbarOffset, margin, Math.max(margin, containerHeight - popupHeight - margin))
+		const left = clamp(
+			containerWidth - popupWidth - margin,
+			margin,
+			containerWidth - popupWidth - margin,
+		)
+		const top = clamp(
+			toolbarOffset,
+			margin,
+			Math.max(margin, containerHeight - popupHeight - margin),
+		)
 		return {
 			left,
 			top,

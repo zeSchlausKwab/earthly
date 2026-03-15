@@ -2,10 +2,7 @@ import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import type { FilterConfig } from '@/components/data-filter/types'
-import {
-	getEffectiveContextUse,
-	getEffectiveContextValidationMode,
-} from '@/lib/context/validation'
+import { getEffectiveContextUse, getEffectiveContextValidationMode } from '@/lib/context/validation'
 
 // ── Entity types ──────────────────────────────────────────────────────
 

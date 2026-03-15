@@ -1242,7 +1242,10 @@ export const useChatStore = create<ChatStore>()(
 						requestMessages = trimMessagesToPromptBudget(requestMessages, conversationBudget)
 
 						if (combinedSystemMessage) {
-							requestMessages = [sanitizeMessageForPrompt(combinedSystemMessage), ...requestMessages]
+							requestMessages = [
+								sanitizeMessageForPrompt(combinedSystemMessage),
+								...requestMessages,
+							]
 							oneShotGeometryContextMessage = undefined
 						}
 						requestMessages = ensureReasoningContentForToolMessages(

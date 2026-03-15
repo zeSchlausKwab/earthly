@@ -254,10 +254,7 @@ export function useCommentGeometry(
 				mapInstance.getCanvas().style.cursor = 'pointer'
 				if (!feature) return
 				setAnnotationPopupData((current) => {
-					if (
-						current?.pinned &&
-						(current.comment.commentId ?? current.comment.id) === commentId
-					) {
+					if (current?.pinned && (current.comment.commentId ?? current.comment.id) === commentId) {
 						return current
 					}
 					return {

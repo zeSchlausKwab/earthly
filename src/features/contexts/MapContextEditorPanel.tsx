@@ -26,7 +26,13 @@ import { EntitySearchPopover, type EntitySearchResult } from '@/components/entit
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
@@ -308,7 +314,9 @@ export function MapContextEditorPanel({
 					featureId: reference.featureId,
 					name:
 						matched?.name ??
-						(reference.featureId ? `${reference.address}#${reference.featureId}` : reference.address),
+						(reference.featureId
+							? `${reference.address}#${reference.featureId}`
+							: reference.address),
 					entityType: matched?.entityType ?? 'feature',
 					datasetName: matched?.datasetName,
 				}
@@ -324,26 +332,26 @@ export function MapContextEditorPanel({
 			}
 		})
 
-		return dedupeNostrAddressReferences(extractNostrAddressReferencesFromList(curatedReferences)).map(
-			(reference) => {
-				const exactKey = `${reference.address}#${reference.featureId ?? ''}`
-				const matched =
-					availableFeatureMap.get(exactKey) ??
-					(!reference.featureId ? availableFeatureMap.get(reference.address) : undefined)
+		return dedupeNostrAddressReferences(
+			extractNostrAddressReferencesFromList(curatedReferences),
+		).map((reference) => {
+			const exactKey = `${reference.address}#${reference.featureId ?? ''}`
+			const matched =
+				availableFeatureMap.get(exactKey) ??
+				(!reference.featureId ? availableFeatureMap.get(reference.address) : undefined)
 
-				return {
-					key: exactKey,
-					raw: stringifyNostrAddressReference(reference),
-					address: reference.address,
-					featureId: reference.featureId,
-					name:
-						matched?.name ??
-						(reference.featureId ? `${reference.address}#${reference.featureId}` : reference.address),
-					entityType: matched?.entityType ?? 'feature',
-					datasetName: matched?.datasetName,
-				}
-			},
-		)
+			return {
+				key: exactKey,
+				raw: stringifyNostrAddressReference(reference),
+				address: reference.address,
+				featureId: reference.featureId,
+				name:
+					matched?.name ??
+					(reference.featureId ? `${reference.address}#${reference.featureId}` : reference.address),
+				entityType: matched?.entityType ?? 'feature',
+				datasetName: matched?.datasetName,
+			}
+		})
 	}, [availableFeatures, curatedReferences])
 	const availableCuratedReferenceFeatures = useMemo(
 		() => availableFeatures.filter((item) => item.entityType !== 'context'),
@@ -457,8 +465,9 @@ export function MapContextEditorPanel({
 	const attachedContexts = useMemo(
 		() =>
 			attachedContextRefs
-				.map((coordinate) =>
-					mapContextEvents.find((context) => context.contextCoordinate === coordinate) ?? null,
+				.map(
+					(coordinate) =>
+						mapContextEvents.find((context) => context.contextCoordinate === coordinate) ?? null,
 				)
 				.filter((context): context is NDKMapContextEvent => Boolean(context)),
 		[attachedContextRefs, mapContextEvents],
@@ -678,7 +687,8 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 							/>
 							{curatedReferenceEntities.length === 0 ? (
 								<p className="border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
-									No extra curated references. Add items here when they belong to the context but do not need to appear in the narrative text.
+									No extra curated references. Add items here when they belong to the context but do
+									not need to appear in the narrative text.
 								</p>
 							) : (
 								<div className="border border-slate-200">
@@ -697,9 +707,7 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 													{reference.entityType}
 													{reference.datasetName ? ` · ${reference.datasetName}` : ''}
 												</p>
-												<p className="truncate text-[10px] text-slate-500">
-													{reference.raw}
-												</p>
+												<p className="truncate text-[10px] text-slate-500">{reference.raw}</p>
 											</div>
 											<Button
 												type="button"
@@ -884,10 +892,7 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 												checked={allowedGeometryTypes.includes(geometryType)}
 												disabled={!validationEnabled}
 												onChange={(event) =>
-													toggleAllowedGeometryType(
-														geometryType,
-														event.target.checked,
-													)
+													toggleAllowedGeometryType(geometryType, event.target.checked)
 												}
 											/>
 											<span>{geometryType}</span>
@@ -901,181 +906,185 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 
 				{allowForeignAttachments && (
 					<TabsContent value="schema" className="mt-0 space-y-3">
-					<EntityPanelSurface tone="neutral" className="space-y-3">
-						<EntityPanelSectionHeader
-							eyebrow="Schema"
-							title="Property constraints"
-							description="Use the builder for common cases or switch to raw JSON."
-							action={
-								<div className="flex items-center gap-1">
-									<Button
-										size="sm"
-										variant={schemaMode === 'builder' ? 'default' : 'outline'}
-										onClick={() => setSchemaMode('builder')}
-										className="h-7 rounded-none px-2 text-[11px]"
-									>
-										Builder
-									</Button>
-									<Button
-										size="sm"
-										variant={schemaMode === 'json' ? 'default' : 'outline'}
-										onClick={() => {
-											setSchemaMode('json')
-											setSchemaJson(JSON.stringify(builderSchema, null, 2))
-										}}
-										className="h-7 rounded-none px-2 text-[11px]"
-									>
-										JSON
-									</Button>
-								</div>
-							}
-						/>
+						<EntityPanelSurface tone="neutral" className="space-y-3">
+							<EntityPanelSectionHeader
+								eyebrow="Schema"
+								title="Property constraints"
+								description="Use the builder for common cases or switch to raw JSON."
+								action={
+									<div className="flex items-center gap-1">
+										<Button
+											size="sm"
+											variant={schemaMode === 'builder' ? 'default' : 'outline'}
+											onClick={() => setSchemaMode('builder')}
+											className="h-7 rounded-none px-2 text-[11px]"
+										>
+											Builder
+										</Button>
+										<Button
+											size="sm"
+											variant={schemaMode === 'json' ? 'default' : 'outline'}
+											onClick={() => {
+												setSchemaMode('json')
+												setSchemaJson(JSON.stringify(builderSchema, null, 2))
+											}}
+											className="h-7 rounded-none px-2 text-[11px]"
+										>
+											JSON
+										</Button>
+									</div>
+								}
+							/>
 
-						{schemaMode === 'builder' ? (
-							<div className="space-y-2">
-								{fields.map((field, index) => (
-									<div key={field.id} className="space-y-2 border border-slate-200 px-3 py-2">
-										<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-											<Input
-												value={field.key}
-												onChange={(event) => {
-													const next = [...fields]
-													next[index] = { ...field, key: event.target.value }
-													setFields(next)
-												}}
-												placeholder="property key"
-												className="rounded-none"
-											/>
-											<Select
-												value={field.type}
-												onValueChange={(value) => {
-													const next = [...fields]
-													next[index] = { ...field, type: value as SchemaFieldType }
-													setFields(next)
-												}}
-											>
-												<SelectTrigger className="rounded-none">
-													<SelectValue />
-												</SelectTrigger>
-												<SelectContent>
-													<SelectItem value="string">string</SelectItem>
-													<SelectItem value="number">number</SelectItem>
-													<SelectItem value="integer">integer</SelectItem>
-													<SelectItem value="boolean">boolean</SelectItem>
-												</SelectContent>
-											</Select>
-										</div>
-										<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-											<Input
-												type="number"
-												value={field.type === 'string' ? (field.minLength ?? '') : (field.min ?? '')}
-												onChange={(event) => {
-													const next = [...fields]
-													const numeric =
-														event.target.value === '' ? undefined : Number(event.target.value)
-													next[index] =
-														field.type === 'string'
-															? { ...field, minLength: numeric }
-															: { ...field, min: numeric }
-													setFields(next)
-												}}
-												placeholder={field.type === 'string' ? 'minLength' : 'minimum'}
-												disabled={field.type === 'boolean'}
-												className="rounded-none"
-											/>
-											<Input
-												type="number"
-												value={field.type === 'string' ? (field.maxLength ?? '') : (field.max ?? '')}
-												onChange={(event) => {
-													const next = [...fields]
-													const numeric =
-														event.target.value === '' ? undefined : Number(event.target.value)
-													next[index] =
-														field.type === 'string'
-															? { ...field, maxLength: numeric }
-															: { ...field, max: numeric }
-													setFields(next)
-												}}
-												placeholder={field.type === 'string' ? 'maxLength' : 'maximum'}
-												disabled={field.type === 'boolean'}
-												className="rounded-none"
-											/>
-										</div>
-										<div className="flex items-center justify-between">
-											<label className="flex items-center gap-1 text-[11px] text-slate-600">
-												<input
-													type="checkbox"
-													checked={field.required}
+							{schemaMode === 'builder' ? (
+								<div className="space-y-2">
+									{fields.map((field, index) => (
+										<div key={field.id} className="space-y-2 border border-slate-200 px-3 py-2">
+											<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+												<Input
+													value={field.key}
 													onChange={(event) => {
 														const next = [...fields]
-														next[index] = { ...field, required: event.target.checked }
+														next[index] = { ...field, key: event.target.value }
 														setFields(next)
 													}}
+													placeholder="property key"
+													className="rounded-none"
 												/>
-												required
-											</label>
-											<Button
-												size="sm"
-												variant="ghost"
-												onClick={() => {
-													setFields(fields.filter((_, fieldIndex) => fieldIndex !== index))
-												}}
-												className="h-6 rounded-none px-2 text-[11px]"
-											>
-												Remove
-											</Button>
+												<Select
+													value={field.type}
+													onValueChange={(value) => {
+														const next = [...fields]
+														next[index] = { ...field, type: value as SchemaFieldType }
+														setFields(next)
+													}}
+												>
+													<SelectTrigger className="rounded-none">
+														<SelectValue />
+													</SelectTrigger>
+													<SelectContent>
+														<SelectItem value="string">string</SelectItem>
+														<SelectItem value="number">number</SelectItem>
+														<SelectItem value="integer">integer</SelectItem>
+														<SelectItem value="boolean">boolean</SelectItem>
+													</SelectContent>
+												</Select>
+											</div>
+											<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+												<Input
+													type="number"
+													value={
+														field.type === 'string' ? (field.minLength ?? '') : (field.min ?? '')
+													}
+													onChange={(event) => {
+														const next = [...fields]
+														const numeric =
+															event.target.value === '' ? undefined : Number(event.target.value)
+														next[index] =
+															field.type === 'string'
+																? { ...field, minLength: numeric }
+																: { ...field, min: numeric }
+														setFields(next)
+													}}
+													placeholder={field.type === 'string' ? 'minLength' : 'minimum'}
+													disabled={field.type === 'boolean'}
+													className="rounded-none"
+												/>
+												<Input
+													type="number"
+													value={
+														field.type === 'string' ? (field.maxLength ?? '') : (field.max ?? '')
+													}
+													onChange={(event) => {
+														const next = [...fields]
+														const numeric =
+															event.target.value === '' ? undefined : Number(event.target.value)
+														next[index] =
+															field.type === 'string'
+																? { ...field, maxLength: numeric }
+																: { ...field, max: numeric }
+														setFields(next)
+													}}
+													placeholder={field.type === 'string' ? 'maxLength' : 'maximum'}
+													disabled={field.type === 'boolean'}
+													className="rounded-none"
+												/>
+											</div>
+											<div className="flex items-center justify-between">
+												<label className="flex items-center gap-1 text-[11px] text-slate-600">
+													<input
+														type="checkbox"
+														checked={field.required}
+														onChange={(event) => {
+															const next = [...fields]
+															next[index] = { ...field, required: event.target.checked }
+															setFields(next)
+														}}
+													/>
+													required
+												</label>
+												<Button
+													size="sm"
+													variant="ghost"
+													onClick={() => {
+														setFields(fields.filter((_, fieldIndex) => fieldIndex !== index))
+													}}
+													className="h-6 rounded-none px-2 text-[11px]"
+												>
+													Remove
+												</Button>
+											</div>
 										</div>
-									</div>
-								))}
-								<Button
-									size="sm"
-									variant="outline"
-									onClick={() => {
-										setFields([
-											...fields,
-											{
-												id: createSchemaFieldId(),
-												key: '',
-												type: 'string',
-												required: false,
-											},
-										])
-									}}
-									className="rounded-none"
-								>
-									Add property
-								</Button>
-							</div>
-						) : (
-							<Textarea
-								value={schemaJson}
-								onChange={(event) => setSchemaJson(event.target.value)}
-								rows={12}
-								className="rounded-none font-mono text-xs"
-							/>
-						)}
+									))}
+									<Button
+										size="sm"
+										variant="outline"
+										onClick={() => {
+											setFields([
+												...fields,
+												{
+													id: createSchemaFieldId(),
+													key: '',
+													type: 'string',
+													required: false,
+												},
+											])
+										}}
+										className="rounded-none"
+									>
+										Add property
+									</Button>
+								</div>
+							) : (
+								<Textarea
+									value={schemaJson}
+									onChange={(event) => setSchemaJson(event.target.value)}
+									rows={12}
+									className="rounded-none font-mono text-xs"
+								/>
+							)}
 
-						<div className="space-y-1">
-							<Label>Sample properties JSON</Label>
-							<Textarea
-								value={samplePropertiesJson}
-								onChange={(event) => setSamplePropertiesJson(event.target.value)}
-								rows={4}
-								className="rounded-none font-mono text-xs"
-							/>
-							<p
-								className={`text-xs ${
-									sampleValidation.status === 'valid'
-										? 'text-emerald-600'
-										: sampleValidation.status === 'invalid'
-											? 'text-amber-600'
-											: 'text-red-600'
-								}`}
-							>
-								{sampleValidation.message}
-							</p>
-						</div>
-					</EntityPanelSurface>
+							<div className="space-y-1">
+								<Label>Sample properties JSON</Label>
+								<Textarea
+									value={samplePropertiesJson}
+									onChange={(event) => setSamplePropertiesJson(event.target.value)}
+									rows={4}
+									className="rounded-none font-mono text-xs"
+								/>
+								<p
+									className={`text-xs ${
+										sampleValidation.status === 'valid'
+											? 'text-emerald-600'
+											: sampleValidation.status === 'invalid'
+												? 'text-amber-600'
+												: 'text-red-600'
+									}`}
+								>
+									{sampleValidation.message}
+								</p>
+							</div>
+						</EntityPanelSurface>
 					</TabsContent>
 				)}
 

@@ -48,6 +48,7 @@ import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
 import type { EditorFeature } from '../features/geo-editor/core'
 import { EntitySearchPopover, type EntitySearchResult } from './entity-search'
 import { WorkspaceDraftNavigator } from './WorkspaceDraftNavigator'
+import { Button } from './ui/button'
 
 type SidebarContentMode = Exclude<SidebarViewMode, 'combined'>
 type EntityWorkspace = 'geometry' | 'context'
@@ -775,8 +776,9 @@ export function AppSidebar({
 									entityToggleEnabled ? '' : 'pointer-events-none opacity-40'
 								}`}
 							>
-								<button
+								<Button
 									type="button"
+									variant="ghost"
 									disabled={!entityToggleEnabled}
 									className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
 										currentEntityIntent === 'inspect'
@@ -786,9 +788,10 @@ export function AppSidebar({
 									onClick={() => handleEntityIntentChange('inspect')}
 								>
 									Inspect
-								</button>
-								<button
+								</Button>
+								<Button
 									type="button"
+									variant="ghost"
 									disabled={!entityToggleEnabled}
 									className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
 										currentEntityIntent === 'edit'
@@ -798,7 +801,7 @@ export function AppSidebar({
 									onClick={() => handleEntityIntentChange('edit')}
 								>
 									{geometryEditLabel}
-								</button>
+								</Button>
 							</div>
 						</div>
 
@@ -817,28 +820,32 @@ export function AppSidebar({
 
 						<div className="flex shrink-0 items-center gap-1">
 							{contextNaddr ? (
-								<button
+								<Button
 									type="button"
+									variant="ghost"
+									size="icon-sm"
 									onClick={clearContextScope}
 									title="Leave context scope"
 									aria-label="Leave context scope"
-									className="inline-flex h-7 w-7 items-center justify-center rounded-md border text-muted-foreground hover:bg-muted hover:text-foreground"
+									className="h-7 w-7"
 								>
 									<X className="h-3.5 w-3.5" />
-								</button>
+								</Button>
 							) : null}
-							<button
+							<Button
 								type="button"
+								variant="ghost"
+								size="icon-sm"
 								onClick={() => setSidebarExpanded(!sidebarExpanded)}
 								title={sidebarExpanded ? 'Shrink sidebar' : 'Expand sidebar'}
-								className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+								className="h-7 w-7"
 							>
 								{sidebarExpanded ? (
 									<PanelLeftClose className="h-4 w-4" />
 								) : (
 									<PanelLeftOpen className="h-4 w-4" />
 								)}
-							</button>
+							</Button>
 							<LoginSessionButtons />
 						</div>
 					</div>

@@ -29,7 +29,7 @@ export function EntityActionBar({ actions, className = '' }: EntityActionBarProp
 							variant={action.variant ?? 'outline'}
 							onClick={action.onClick}
 							disabled={action.disabled}
-							className="rounded-none border-slate-200"
+							className="border-slate-200"
 							aria-label={action.label}
 						>
 							{action.icon}

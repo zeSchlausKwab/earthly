@@ -86,11 +86,9 @@ const YOUTUBE_PATTERNS = [
 	/(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/[a-zA-Z0-9_-]{11}/i,
 ]
 const MEDIA_LINE_PATTERN = /^(https?:\/\/[^\s<>"{}|\\^`[\]]+)$/i
-const LABELED_MEDIA_PATTERN =
-	/^(image|video|media)\s*:\s*(https?:\/\/[^\s<>"{}|\\^`[\]]+)\s*$/i
+const LABELED_MEDIA_PATTERN = /^(image|video|media)\s*:\s*(https?:\/\/[^\s<>"{}|\\^`[\]]+)\s*$/i
 const MEDIA_LABEL_ONLY_PATTERN = /^(image|video|media)\s*:\s*$/i
-const MARKDOWN_IMAGE_PATTERN =
-	/^!\[([^\]]*)\]\((https?:\/\/[^\s<>"{}|\\^`()[\]]+)\)\s*$/i
+const MARKDOWN_IMAGE_PATTERN = /^!\[([^\]]*)\]\((https?:\/\/[^\s<>"{}|\\^`()[\]]+)\)\s*$/i
 const TOKEN_PATTERN =
 	/(\[[^\]]+\]\((https?:\/\/[^\s)]+)\))|(nostr:(naddr1[a-z0-9]+)(#([a-zA-Z0-9_-]+))?)|(https?:\/\/[^\s<>"{}|\\^`[\]]+)|(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\n]+\*)/gi
 
@@ -214,7 +212,11 @@ function parseInlineTokens(text: string, availableFeatures: GeoFeatureItem[]): I
 	return tokens
 }
 
-function pushParagraph(lines: string[], blocks: ContentBlock[], availableFeatures: GeoFeatureItem[]) {
+function pushParagraph(
+	lines: string[],
+	blocks: ContentBlock[],
+	availableFeatures: GeoFeatureItem[],
+) {
 	if (lines.length === 0) return
 	blocks.push({
 		type: 'paragraph',
@@ -511,11 +513,7 @@ function GeoMentionChip({ token }: { token: MentionInlineToken }) {
 	)
 }
 
-function renderMediaBlock(
-	block: MediaBlock,
-	index: number,
-	onImageOpen?: (url: string) => void,
-) {
+function renderMediaBlock(block: MediaBlock, index: number, onImageOpen?: (url: string) => void) {
 	const label = block.label ? `${block.label[0].toUpperCase()}${block.label.slice(1)}` : null
 
 	if (block.type === 'image') {
@@ -601,10 +599,7 @@ function renderMediaBlock(
 
 function renderInlineTokens(
 	tokens: InlineToken[],
-	callbacks: Pick<
-		RichContentRendererProps,
-		'onMentionVisibilityToggle' | 'onMentionZoomTo'
-	>,
+	callbacks: Pick<RichContentRendererProps, 'onMentionVisibilityToggle' | 'onMentionZoomTo'>,
 ) {
 	return tokens.map((token) => {
 		if (token.type !== 'mention') {
@@ -736,14 +731,16 @@ export function RichContentRenderer({
 						className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm"
 						onClick={() => setLightboxUrl(null)}
 					>
-						<button
+						<Button
 							type="button"
-							className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
+							variant="ghost"
+							size="icon-lg"
+							className="absolute right-4 top-4 rounded-full bg-white/10 text-white hover:bg-white/20 hover:text-white"
 							onClick={() => setLightboxUrl(null)}
 							aria-label="Close image preview"
 						>
 							<X className="h-5 w-5" />
-						</button>
+						</Button>
 						<img
 							src={lightboxUrl}
 							alt=""

@@ -5,6 +5,7 @@ import { nip19 } from 'nostr-tools'
 import { Avatar, AvatarImage, AvatarFallback } from '../ui/avatar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 
 type ProfileData = {
 	name?: string
@@ -305,13 +306,17 @@ function UserProfileComponent({
 
 		const clickHandler = onClick ?? handleDefaultClick
 		return (
-			<button
+			<Button
 				type="button"
+				variant="ghost"
 				onClick={clickHandler}
-				className={cn('cursor-pointer hover:opacity-80 transition-opacity text-left', className)}
+				className={cn(
+					'cursor-pointer hover:opacity-80 transition-opacity text-left h-auto p-0 justify-start',
+					className,
+				)}
 			>
 				{children}
-			</button>
+			</Button>
 		)
 	}
 

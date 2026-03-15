@@ -90,7 +90,13 @@ export function useContextEditor({
 		prepareNonGeometryEditorWorkspace()
 		navigateToView('context-editor')
 		if (!isMobile) setShowInfoPanel(true)
-	}, [clearEditorModes, prepareNonGeometryEditorWorkspace, navigateToView, isMobile, setShowInfoPanel])
+	}, [
+		clearEditorModes,
+		prepareNonGeometryEditorWorkspace,
+		navigateToView,
+		isMobile,
+		setShowInfoPanel,
+	])
 
 	const handleEditContext = useCallback(
 		(context: NDKMapContextEvent) => {
@@ -101,7 +107,13 @@ export function useContextEditor({
 			navigateToView('context-editor')
 			if (!isMobile) setShowInfoPanel(true)
 		},
-		[clearEditorModes, prepareNonGeometryEditorWorkspace, navigateToView, isMobile, setShowInfoPanel],
+		[
+			clearEditorModes,
+			prepareNonGeometryEditorWorkspace,
+			navigateToView,
+			isMobile,
+			setShowInfoPanel,
+		],
 	)
 
 	const handleSaveContext = useCallback(
@@ -126,7 +138,13 @@ export function useContextEditor({
 			return
 		}
 		void switchToWorkspace(activeWorkspaceId)
-	}, [clearEditorModes, activeWorkspaceId, activeGeoEditDraftId, startNewDataset, switchToWorkspace])
+	}, [
+		clearEditorModes,
+		activeWorkspaceId,
+		activeGeoEditDraftId,
+		startNewDataset,
+		switchToWorkspace,
+	])
 
 	const handleInspectDatasetWithModeSwitch = useCallback(
 		(event: NDKGeoEvent) => {

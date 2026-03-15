@@ -378,7 +378,7 @@ export async function executeToolCall(
 				let areaSource = 'selected'
 				let areaFeatures: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>[] = []
 
-				if (Boolean(args.selectedOnly)) {
+				if (args.selectedOnly) {
 					areaFeatures = getSelectedAreaFeatures()
 					if (areaFeatures.length === 0 && context?.attachedGeometry) {
 						areaSource = 'attached_geometry'

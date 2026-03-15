@@ -1566,14 +1566,16 @@ export function GeoEditorView() {
 								<span className="truncate text-xs font-medium text-sky-900">
 									{activeContextScopeLabel}
 								</span>
-								<button
+								<Button
 									type="button"
+									variant="ghost"
+									size="icon-xs"
 									onClick={clearContextScope}
 									aria-label="Leave context scope"
-									className="inline-flex h-5 w-5 items-center justify-center rounded-full text-sky-700 hover:bg-sky-100"
+									className="rounded-full text-sky-700 hover:bg-sky-100"
 								>
 									<X className="h-3.5 w-3.5" />
-								</button>
+								</Button>
 							</div>
 						</div>
 					)}
@@ -1678,16 +1680,18 @@ export function GeoEditorView() {
 											>
 												<div className="mb-3 text-xs font-medium text-gray-600">Magnifier zoom</div>
 												<div className="flex items-center gap-3">
-													<button
+													<Button
 														type="button"
-														className="h-8 w-8 rounded-md border border-gray-200 text-sm text-gray-700"
+														variant="outline"
+														size="icon"
+														className="h-8 w-8 text-sm"
 														onClick={() =>
 															setMagnifierZoomOffset((value) => Math.max(1, value - 0.5))
 														}
 														aria-label="Decrease magnifier zoom"
 													>
 														-
-													</button>
+													</Button>
 													<input
 														type="range"
 														min={1}
@@ -1698,16 +1702,18 @@ export function GeoEditorView() {
 														className="h-2 w-full"
 														aria-label="Magnifier zoom level"
 													/>
-													<button
+													<Button
 														type="button"
-														className="h-8 w-8 rounded-md border border-gray-200 text-sm text-gray-700"
+														variant="outline"
+														size="icon"
+														className="h-8 w-8 text-sm"
 														onClick={() =>
 															setMagnifierZoomOffset((value) => Math.min(6, value + 0.5))
 														}
 														aria-label="Increase magnifier zoom"
 													>
 														+
-													</button>
+													</Button>
 												</div>
 												<div className="mt-2 text-xs text-gray-500">
 													Zoom +{magnifierZoomOffset}

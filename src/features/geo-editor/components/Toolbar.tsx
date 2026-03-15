@@ -367,20 +367,21 @@ export function Toolbar({
 								<IconButtonRow buttons={lookupButtons} small />
 							</div>
 							{searchResults && searchResults.length > 0 && (
-								<div className="max-h-48 overflow-y-auto space-y-1 bg-white rounded-lg border border-gray-100">
+								<div className="max-h-48 overflow-y-auto space-y-1 bg-popover rounded-lg border border-border">
 									{searchResults.map((result) => (
-										<button
+										<Button
 											type="button"
 											key={result.placeId}
-											className="w-full text-left text-sm p-2 hover:bg-gray-50 border-b border-gray-50 last:border-0 truncate"
+											variant="ghost"
+											className="w-full text-left text-sm p-2 hover:bg-muted/50 border-b border-border last:border-0 truncate"
 											onClick={() => onSearchResultSelect?.(result)}
 										>
 											{result.displayName}
-										</button>
+										</Button>
 									))}
 								</div>
 							)}
-							{searchError && <div className="text-xs text-red-600 px-1">{searchError}</div>}
+							{searchError && <div className="text-xs text-destructive px-1">{searchError}</div>}
 						</div>
 					)}
 
@@ -518,9 +519,9 @@ export function Toolbar({
 								className="w-48"
 							/>
 							{searchResults && searchResults.length > 0 && (
-								<div className="absolute top-full left-0 mt-2 w-64 rounded-lg bg-white p-2 shadow-lg z-50 border border-gray-100">
-									<div className="flex items-center justify-between border-b border-gray-100 pb-2 mb-2">
-										<span className="text-xs font-medium text-gray-500">Results</span>
+								<div className="absolute top-full left-0 mt-2 w-64 rounded-lg bg-popover p-2 shadow-lg z-50 border border-border">
+									<div className="flex items-center justify-between border-b border-border pb-2 mb-2">
+										<span className="text-xs font-medium text-muted-foreground">Results</span>
 										<Button
 											variant="ghost"
 											size="sm"
@@ -535,7 +536,7 @@ export function Toolbar({
 											<button
 												type="button"
 												key={result.placeId}
-												className="w-full text-left text-sm p-1.5 hover:bg-gray-50 rounded truncate"
+												className="w-full text-left text-sm p-1.5 hover:bg-muted/50 rounded truncate"
 												onClick={() => onSearchResultSelect?.(result)}
 											>
 												{result.displayName}
@@ -589,7 +590,7 @@ export function Toolbar({
 				</div>
 
 				{searchError && (
-					<div className="rounded-lg bg-red-50 p-2 text-xs text-red-600 shadow-sm self-start">
+					<div className="rounded-lg bg-destructive/10 p-2 text-xs text-destructive shadow-sm self-start">
 						{searchError}
 					</div>
 				)}

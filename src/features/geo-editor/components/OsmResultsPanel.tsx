@@ -111,9 +111,9 @@ export function OsmResultsPanel({ onImport, onClose }: OsmResultsPanelProps) {
 			{/* Header */}
 			<div className="flex items-center justify-between px-3 py-2 border-b bg-muted/50">
 				<span className="text-sm font-medium">OSM Features</span>
-				<button type="button" onClick={handleClose} className="p-1 hover:bg-muted rounded">
+				<Button variant="ghost" size="icon-sm" onClick={handleClose} aria-label="Close">
 					<X className="h-4 w-4" />
-				</button>
+				</Button>
 			</div>
 
 			{/* Content */}
@@ -136,21 +136,13 @@ export function OsmResultsPanel({ onImport, onClose }: OsmResultsPanelProps) {
 								{results.length} found, {selectedCount} selected
 							</span>
 							<div className="flex gap-1">
-								<button
-									type="button"
-									onClick={selectAll}
-									className="text-xs text-primary hover:underline"
-								>
+								<Button variant="link" className="h-auto p-0 text-xs" onClick={selectAll}>
 									All
-								</button>
+								</Button>
 								<span className="text-xs text-muted-foreground">/</span>
-								<button
-									type="button"
-									onClick={selectNone}
-									className="text-xs text-primary hover:underline"
-								>
+								<Button variant="link" className="h-auto p-0 text-xs" onClick={selectNone}>
 									None
-								</button>
+								</Button>
 							</div>
 						</div>
 

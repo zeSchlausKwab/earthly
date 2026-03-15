@@ -1,6 +1,7 @@
 import { Database, FolderOpen, Globe, MapPin } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { EntitySearchResult, EntityType } from './types'
+import { Button } from '@/components/ui/button'
 
 const TYPE_ICONS: Record<EntityType, typeof Database> = {
 	dataset: Database,
@@ -33,11 +34,11 @@ export function EntityResultItem({
 	const colorClass = TYPE_COLORS[result.type]
 
 	return (
-		<button
+		<Button
 			type="button"
+			variant="ghost"
 			className={cn(
-				'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm',
-				'hover:bg-accent hover:text-accent-foreground',
+				'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm h-auto justify-start',
 				isSelected && 'bg-accent text-accent-foreground',
 			)}
 			onClick={() => onSelect?.(result)}
@@ -49,6 +50,6 @@ export function EntityResultItem({
 					<div className="truncate text-[11px] text-muted-foreground">{result.subtitle}</div>
 				)}
 			</div>
-		</button>
+		</Button>
 	)
 }

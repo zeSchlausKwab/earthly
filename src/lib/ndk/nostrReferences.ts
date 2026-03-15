@@ -26,7 +26,9 @@ export function parseNostrAddressReference(
 	}
 }
 
-export function extractNostrAddressReferences(text: string | null | undefined): NostrAddressReference[] {
+export function extractNostrAddressReferences(
+	text: string | null | undefined,
+): NostrAddressReference[] {
 	if (!text) return []
 
 	const references: NostrAddressReference[] = []

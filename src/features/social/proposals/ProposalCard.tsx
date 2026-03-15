@@ -88,9 +88,10 @@ export function ProposalCard({
 			<div className="rounded-lg border border-gray-100 bg-white hover:border-gray-200 transition-colors">
 				{/* Header — always visible */}
 				<CollapsibleTrigger asChild>
-					<button
+					<Button
 						type="button"
-						className="flex items-center gap-2 w-full px-2.5 py-2 text-left cursor-pointer"
+						variant="ghost"
+						className="flex items-center gap-2 w-full px-2.5 py-2 text-left justify-start h-auto"
 					>
 						{isExpanded ? (
 							<ChevronDown className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
@@ -114,7 +115,7 @@ export function ProposalCard({
 						>
 							{statusStyle.label}
 						</span>
-					</button>
+					</Button>
 				</CollapsibleTrigger>
 
 				{/* Expanded content */}

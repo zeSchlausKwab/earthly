@@ -20,7 +20,12 @@ interface EditorSnapshot {
 	mode: EditorMode
 }
 
-const DRAW_MODES: EditorMode[] = ['draw_point', 'draw_linestring', 'draw_polygon', 'draw_annotation']
+const DRAW_MODES: EditorMode[] = [
+	'draw_point',
+	'draw_linestring',
+	'draw_polygon',
+	'draw_annotation',
+]
 
 interface GeoCommentFormProps {
 	onSubmit: (text: string, geojson?: FeatureCollection) => Promise<void>
@@ -81,7 +86,9 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 
 		const attachedFeatures = attachedGeojson?.features ?? []
 		const hasAttachedGeometry = attachedFeatures.length > 0
-		const draftFeatures = isGeometryDraftActive ? features.filter((feature) => feature.geometry !== null) : []
+		const draftFeatures = isGeometryDraftActive
+			? features.filter((feature) => feature.geometry !== null)
+			: []
 		const draftAnnotationFeatures = useMemo(
 			() => draftFeatures.filter((feature) => feature.properties?.featureType === 'annotation'),
 			[draftFeatures],
@@ -94,7 +101,9 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 			const selectedAnnotation = draftAnnotationFeatures.find((feature) =>
 				selectedFeatureIds.includes(feature.id),
 			)
-			return selectedAnnotation ?? draftAnnotationFeatures[draftAnnotationFeatures.length - 1] ?? null
+			return (
+				selectedAnnotation ?? draftAnnotationFeatures[draftAnnotationFeatures.length - 1] ?? null
+			)
 		}, [draftAnnotationFeatures, selectedFeatureIds])
 		const activeDraftAnnotationText =
 			typeof activeDraftAnnotation?.properties?.text === 'string'
@@ -129,7 +138,8 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 						feature.geometry?.type === 'LineString' || feature.geometry?.type === 'MultiLineString',
 				).length,
 				polygons: attachedFeatures.filter(
-					(feature) => feature.geometry?.type === 'Polygon' || feature.geometry?.type === 'MultiPolygon',
+					(feature) =>
+						feature.geometry?.type === 'Polygon' || feature.geometry?.type === 'MultiPolygon',
 				).length,
 			}
 
@@ -321,122 +331,121 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 					{!currentUser ? (
 						<p className="text-[10px] text-stone-400">Log in to comment &amp; annotate</p>
 					) : (
-					<>
-					{!isGeometryDraftActive && (
-						<p className="mb-1 text-[10px] text-stone-400">
-							Draw a point, line, or polygon on the map to attach it to your comment.
-						</p>
-					)}
-					<div className="flex flex-wrap items-center gap-1">
-							<DrawButtonGroup mode={mode} onModeChange={ensureDraftSession} />
-							<Button
-								type="button"
-								size="icon-sm"
-								variant={mode === 'draw_annotation' ? 'default' : 'outline'}
-								onClick={() => ensureDraftSession('draw_annotation')}
-								disabled={!currentUser || !editor}
-								className={`rounded-none ${
-									mode === 'draw_annotation'
-										? 'border-amber-500 bg-amber-500 text-white hover:bg-amber-600'
-										: 'border-stone-200 bg-white text-amber-700 hover:bg-amber-50 hover:text-amber-800'
-								}`}
-								title="Attach label annotation"
-							>
-								<Type className="h-4 w-4" />
-							</Button>
-							<Button
-								type="button"
-								size="icon-sm"
-								variant={mode === 'select' ? 'default' : 'outline'}
-								onClick={() => isGeometryDraftActive && setMode('select')}
-								disabled={!isGeometryDraftActive}
-								className="rounded-none border-stone-200"
-							>
-								<MousePointer2 className="h-4 w-4" />
-							</Button>
-							<Button
-								type="button"
-								size="icon-sm"
-								variant={mode === 'edit' ? 'default' : 'outline'}
-								onClick={() => isGeometryDraftActive && setMode('edit')}
-								disabled={!isGeometryDraftActive || draftFeatureCount === 0}
-								className="rounded-none border-stone-200"
-							>
-								<Edit3 className="h-4 w-4" />
-							</Button>
-							{isDrawingComplexGeometry && (
+						<>
+							{!isGeometryDraftActive && (
+								<p className="mb-1 text-[10px] text-stone-400">
+									Draw a point, line, or polygon on the map to attach it to your comment.
+								</p>
+							)}
+							<div className="flex flex-wrap items-center gap-1">
+								<DrawButtonGroup mode={mode} onModeChange={ensureDraftSession} />
+								<Button
+									type="button"
+									size="icon-sm"
+									variant={mode === 'draw_annotation' ? 'default' : 'outline'}
+									onClick={() => ensureDraftSession('draw_annotation')}
+									disabled={!currentUser || !editor}
+									className={`rounded-none ${
+										mode === 'draw_annotation'
+											? 'border-amber-500 bg-amber-500 text-white hover:bg-amber-600'
+											: 'border-stone-200 bg-white text-amber-700 hover:bg-amber-50 hover:text-amber-800'
+									}`}
+									title="Attach label annotation"
+								>
+									<Type className="h-4 w-4" />
+								</Button>
+								<Button
+									type="button"
+									size="icon-sm"
+									variant={mode === 'select' ? 'default' : 'outline'}
+									onClick={() => isGeometryDraftActive && setMode('select')}
+									disabled={!isGeometryDraftActive}
+									className="rounded-none border-stone-200"
+								>
+									<MousePointer2 className="h-4 w-4" />
+								</Button>
+								<Button
+									type="button"
+									size="icon-sm"
+									variant={mode === 'edit' ? 'default' : 'outline'}
+									onClick={() => isGeometryDraftActive && setMode('edit')}
+									disabled={!isGeometryDraftActive || draftFeatureCount === 0}
+									className="rounded-none border-stone-200"
+								>
+									<Edit3 className="h-4 w-4" />
+								</Button>
+								{isDrawingComplexGeometry && (
+									<Button
+										type="button"
+										size="sm"
+										variant="outline"
+										onClick={() => editor?.finishDrawing()}
+										disabled={!canFinishDrawing}
+										className="gap-1 rounded-none border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50"
+									>
+										<Check className="h-3.5 w-3.5" />
+										Finish
+									</Button>
+								)}
 								<Button
 									type="button"
 									size="sm"
 									variant="outline"
-									onClick={() => editor?.finishDrawing()}
-									disabled={!canFinishDrawing}
-									className="gap-1 rounded-none border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50"
+									onClick={handleClearDraftGeometry}
+									disabled={!isGeometryDraftActive || draftFeatureCount === 0}
+									className="gap-1 rounded-none border-stone-200 bg-white text-stone-600 hover:bg-stone-100"
 								>
-									<Check className="h-3.5 w-3.5" />
-									Finish
+									<Trash2 className="h-3.5 w-3.5" />
+									Clear draft
 								</Button>
-							)}
-							<Button
-								type="button"
-								size="sm"
-								variant="outline"
-								onClick={handleClearDraftGeometry}
-								disabled={!isGeometryDraftActive || draftFeatureCount === 0}
-								className="gap-1 rounded-none border-stone-200 bg-white text-stone-600 hover:bg-stone-100"
-							>
-								<Trash2 className="h-3.5 w-3.5" />
-								Clear draft
-							</Button>
-					</div>
-					{mode === 'draw_annotation' && draftAnnotationFeatures.length === 0 && (
-						<p className="mt-2 text-[11px] text-amber-700">
-							Click on the map to place a label, then type its text here.
-						</p>
-					)}
-					{activeDraftAnnotation && (
-						<div className="mt-2 space-y-1">
-							<div className="flex items-center justify-between gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-amber-700">
-								<span>Label text</span>
-								{draftAnnotationFeatures.length > 1 && (
-									<span className="text-[10px] normal-case tracking-normal text-stone-500">
-										Editing selected/latest label
-									</span>
-								)}
 							</div>
-							<Input
-								ref={annotationInputRef}
-								value={activeDraftAnnotationText}
-								onChange={(event) => handleAnnotationTextChange(event.target.value)}
-								placeholder="Type label text..."
-								className="h-8 rounded-none border-amber-200 bg-white px-2 text-sm"
-								disabled={isSubmitting || !currentUser}
-								autoFocus
-							/>
-						</div>
-					)}
-					{hasAnyGeometry && (
-						<div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-stone-700">
-							<span className="border border-stone-200 px-2 py-0.5 font-medium text-stone-900">
-								{totalFeatureCount} geometry attached
-							</span>
-							{geometrySummary.labels > 0 && <span>{geometrySummary.labels} labels</span>}
-							{geometrySummary.points > 0 && <span>{geometrySummary.points} points</span>}
-							{geometrySummary.lines > 0 && <span>{geometrySummary.lines} lines</span>}
-							{geometrySummary.polygons > 0 && (
-								<span>{geometrySummary.polygons} polygons</span>
+							{mode === 'draw_annotation' && draftAnnotationFeatures.length === 0 && (
+								<p className="mt-2 text-[11px] text-amber-700">
+									Click on the map to place a label, then type its text here.
+								</p>
 							)}
-						</div>
+							{activeDraftAnnotation && (
+								<div className="mt-2 space-y-1">
+									<div className="flex items-center justify-between gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-amber-700">
+										<span>Label text</span>
+										{draftAnnotationFeatures.length > 1 && (
+											<span className="text-[10px] normal-case tracking-normal text-stone-500">
+												Editing selected/latest label
+											</span>
+										)}
+									</div>
+									<Input
+										ref={annotationInputRef}
+										value={activeDraftAnnotationText}
+										onChange={(event) => handleAnnotationTextChange(event.target.value)}
+										placeholder="Type label text..."
+										className="h-8 rounded-none border-amber-200 bg-white px-2 text-sm"
+										disabled={isSubmitting || !currentUser}
+										autoFocus
+									/>
+								</div>
+							)}
+							{hasAnyGeometry && (
+								<div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-stone-700">
+									<span className="border border-stone-200 px-2 py-0.5 font-medium text-stone-900">
+										{totalFeatureCount} geometry attached
+									</span>
+									{geometrySummary.labels > 0 && <span>{geometrySummary.labels} labels</span>}
+									{geometrySummary.points > 0 && <span>{geometrySummary.points} points</span>}
+									{geometrySummary.lines > 0 && <span>{geometrySummary.lines} lines</span>}
+									{geometrySummary.polygons > 0 && <span>{geometrySummary.polygons} polygons</span>}
+								</div>
+							)}
+						</>
 					)}
-				</>
-				)}
 				</div>
 
 				{hasAttachedGeometry && (
 					<div className="flex items-center gap-2 border border-emerald-200 px-2 py-1 text-[11px] text-emerald-700">
 						<MapPin className="h-3.5 w-3.5" />
 						<span>
-							{attachedFeatures.length} geometry{attachedFeatures.length === 1 ? '' : 'ies'} from selection
+							{attachedFeatures.length} geometry{attachedFeatures.length === 1 ? '' : 'ies'} from
+							selection
 						</span>
 						{onClearAttachment && (
 							<Button
@@ -477,7 +486,7 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 										type="submit"
 										size="sm"
 										disabled={!canSubmit}
-										className={`gap-1 rounded-none px-2 text-xs ${canSubmit ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-stone-100 text-stone-400 border border-stone-200"}`}
+										className={`gap-1 rounded-none px-2 text-xs ${canSubmit ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-stone-100 text-stone-400 border border-stone-200'}`}
 									>
 										<Send className="h-3 w-3" />
 										{isReply ? 'Reply' : 'Post'}

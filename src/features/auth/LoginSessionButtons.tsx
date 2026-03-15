@@ -8,7 +8,14 @@ import {
 	useNDKSessionLogin,
 	useNDKSessionLogout,
 } from '@nostr-dev-kit/react'
-import { AppWindowIcon, ChevronDown, ClipboardCopy, KeyRoundIcon, LogOutIcon, QrCodeIcon } from 'lucide-react'
+import {
+	AppWindowIcon,
+	ChevronDown,
+	ClipboardCopy,
+	KeyRoundIcon,
+	LogOutIcon,
+	QrCodeIcon,
+} from 'lucide-react'
 import { useState, useRef } from 'react'
 import { nip19 } from 'nostr-tools'
 import { toast } from 'sonner'
@@ -112,7 +119,10 @@ export function LoginSessionButtons() {
 							Copy npub
 						</DropdownMenuItem>
 						<DropdownMenuSeparator />
-						<DropdownMenuItem onClick={() => logout()} className="text-destructive focus:text-destructive">
+						<DropdownMenuItem
+							onClick={() => logout()}
+							className="text-destructive focus:text-destructive"
+						>
 							<LogOutIcon className="h-4 w-4" />
 							Log out
 						</DropdownMenuItem>
@@ -122,7 +132,12 @@ export function LoginSessionButtons() {
 				<ButtonGroup>
 					<Tooltip>
 						<TooltipTrigger asChild>
-							<Button variant={'default'} size="icon" className="h-10 w-10" onClick={() => setShowSignupDialog(true)}>
+							<Button
+								variant={'default'}
+								size="icon"
+								className="h-10 w-10"
+								onClick={() => setShowSignupDialog(true)}
+							>
 								<KeyRoundIcon className="w-5 h-5" />
 							</Button>
 						</TooltipTrigger>
@@ -133,7 +148,13 @@ export function LoginSessionButtons() {
 					</Tooltip>
 					<Tooltip>
 						<TooltipTrigger asChild>
-							<Button variant={'default'} size="icon" className="h-10 w-10" onClick={handleNip07Login} disabled={loading}>
+							<Button
+								variant={'default'}
+								size="icon"
+								className="h-10 w-10"
+								onClick={handleNip07Login}
+								disabled={loading}
+							>
 								<AppWindowIcon className="w-5 h-5" />
 							</Button>
 						</TooltipTrigger>

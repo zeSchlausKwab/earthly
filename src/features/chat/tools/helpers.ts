@@ -346,7 +346,10 @@ export function expandOsmSemanticQuery({
 	let mergedFilterSets = filterSets ? filterSets.map(cloneFilterObject) : undefined
 
 	if (definition) {
-		mergedFilterSets = [...(mergedFilterSets ?? []), ...definition.filterSets.map(cloneFilterObject)]
+		mergedFilterSets = [
+			...(mergedFilterSets ?? []),
+			...definition.filterSets.map(cloneFilterObject),
+		]
 	}
 
 	if (mergedFilters && mergedFilterSets?.length) {
@@ -448,12 +451,7 @@ export function getFeatureCollectionBbox(
 ): [number, number, number, number] | null {
 	if (features.length === 0) return null
 	try {
-		const bbox = turfBbox(turfFeatureCollection(features)) as [
-			number,
-			number,
-			number,
-			number,
-		]
+		const bbox = turfBbox(turfFeatureCollection(features)) as [number, number, number, number]
 		if (bbox.some((value) => !Number.isFinite(value))) return null
 		return bbox
 	} catch {
@@ -1226,7 +1224,15 @@ function getFeatureSubtype(feature: GeoJSON.Feature): string | null {
 	const props = feature.properties
 	if (!props || typeof props !== 'object') return null
 	const typedProps = props as Record<string, unknown>
-	for (const key of ['military', 'amenity', 'waterway', 'landuse', 'building', 'natural', 'aeroway']) {
+	for (const key of [
+		'military',
+		'amenity',
+		'waterway',
+		'landuse',
+		'building',
+		'natural',
+		'aeroway',
+	]) {
 		const value = typedProps[key]
 		if (typeof value === 'string' && value.trim()) {
 			return `${key}=${value}`
@@ -1278,7 +1284,9 @@ function summarizeLargeArraysForPrompt(base: Record<string, unknown>): Record<st
 		const value = next[key]
 		if (!Array.isArray(value)) continue
 		next[`${key}Count`] = value.length
-		next[`sample${key[0].toUpperCase()}${key.slice(1)}`] = value.slice(0, 5).map(simplifyObjectForPrompt)
+		next[`sample${key[0].toUpperCase()}${key.slice(1)}`] = value
+			.slice(0, 5)
+			.map(simplifyObjectForPrompt)
 		delete next[key]
 	}
 	return next

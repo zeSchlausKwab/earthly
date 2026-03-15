@@ -32,12 +32,7 @@ interface EntityPanelSectionHeaderProps {
 	className?: string
 }
 
-export function EntityPanelShell({
-	title,
-	tabs,
-	children,
-	className,
-}: EntityPanelShellProps) {
+export function EntityPanelShell({ title, tabs, children, className }: EntityPanelShellProps) {
 	return (
 		<div className={cn('flex h-full flex-col text-sm', className)}>
 			<div className="flex-shrink-0 space-y-2 pb-1">

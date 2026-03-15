@@ -20,7 +20,12 @@ interface ChatGeometryAttachmentProps {
 	panelClassName?: string
 }
 
-const DRAW_MODES: EditorMode[] = ['draw_point', 'draw_linestring', 'draw_polygon', 'draw_annotation']
+const DRAW_MODES: EditorMode[] = [
+	'draw_point',
+	'draw_linestring',
+	'draw_polygon',
+	'draw_annotation',
+]
 
 export function ChatGeometryAttachment({
 	value,
@@ -236,7 +241,9 @@ export function ChatGeometryAttachment({
 
 		if (value) {
 			for (const feature of value.features) {
-				if ((feature.properties as Record<string, unknown> | undefined)?.featureType === 'annotation') {
+				if (
+					(feature.properties as Record<string, unknown> | undefined)?.featureType === 'annotation'
+				) {
 					counts.labels += 1
 					continue
 				}

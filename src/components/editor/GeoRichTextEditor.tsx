@@ -137,9 +137,7 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 			range: null,
 		})
 		const [isDragOver, setIsDragOver] = useState(false)
-		const [isToolbarExpanded, setIsToolbarExpanded] = useState(
-			defaultToolbarExpanded ?? rows >= 4,
-		)
+		const [isToolbarExpanded, setIsToolbarExpanded] = useState(defaultToolbarExpanded ?? rows >= 4)
 		const suggestionRef = useRef<HTMLDivElement>(null)
 		const rootRef = useRef<HTMLDivElement>(null)
 		const editorContainerRef = useRef<HTMLDivElement>(null)

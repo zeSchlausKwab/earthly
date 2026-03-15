@@ -38,7 +38,13 @@ interface SignupDialogProps {
 	onConfirm: (signer: NDKPrivateKeySigner, rememberMe: boolean) => Promise<void>
 }
 
-type WizardView = 'choose' | 'beginner-keys' | 'beginner-profile' | 'beginner-done' | 'expert-create' | 'expert-import'
+type WizardView =
+	| 'choose'
+	| 'beginner-keys'
+	| 'beginner-profile'
+	| 'beginner-done'
+	| 'expert-create'
+	| 'expert-import'
 
 type ScannedCode = { rawValue?: string }
 
@@ -59,7 +65,11 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 	const [keySaved, setKeySaved] = useState(false)
 	const [rememberMe, setRememberMe] = useState(true)
 	const [loading, setLoading] = useState(false)
-	const [profileDraft, setProfileDraft] = useState<ProfileDraft>({ name: '', about: '', picture: '' })
+	const [profileDraft, setProfileDraft] = useState<ProfileDraft>({
+		name: '',
+		about: '',
+		picture: '',
+	})
 	const [profileLoading, setProfileLoading] = useState(false)
 	// Import mode state
 	const [importKey, setImportKey] = useState('')
@@ -177,11 +187,15 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
     <div class="warning-title">\u26a0\ufe0f Keep this document private</div>
     <p>Your private key gives full access to your account. Anyone who has it can post as you. Store this in a secure place \u2014 a safe, password manager, or encrypted drive. Do not photograph or share it.</p>
   </div>
-  ${qrDataUrl ? `
+  ${
+		qrDataUrl
+			? `
   <div class="qr-section">
     <img src="${qrDataUrl}" width="170" height="170" alt="QR code of private key" />
     <div class="qr-caption">Scan with a Nostr client to import your private key</div>
-  </div>` : ''}
+  </div>`
+			: ''
+	}
   <div class="key-section">
     <div class="key-label">\ud83d\udd12 Private Key (nsec) \u2014 Keep secret, never share</div>
     <div class="key-value">${nsec}</div>
@@ -271,7 +285,12 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 	const handlePublishProfile = async (skip = false) => {
 		setProfileLoading(true)
 		try {
-			if (!skip && ndk && signer && (profileDraft.name || profileDraft.about || profileDraft.picture)) {
+			if (
+				!skip &&
+				ndk &&
+				signer &&
+				(profileDraft.name || profileDraft.about || profileDraft.picture)
+			) {
 				const user = await signer.user()
 				const ndkUser = ndk.getUser({ pubkey: user.pubkey })
 				ndkUser.ndk = ndk
@@ -374,12 +393,13 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 					{/* ---- CHOOSE ---- */}
 					{view === 'choose' && (
 						<div className="space-y-3 py-2">
-							<button
+							<Button
 								type="button"
-								className="w-full text-left p-5 rounded-xl border-2 border-primary bg-primary/5 hover:bg-primary/10 transition-colors cursor-pointer group"
+								variant="outline"
+								className="w-full text-left p-5 rounded-xl border-2 border-primary bg-primary/5 hover:bg-primary/10 transition-colors cursor-pointer group h-auto items-center justify-start"
 								onClick={() => setView('beginner-keys')}
 							>
-								<div className="flex items-center gap-3 mb-2">
+								<div className="flex items-center gap-3 w-full">
 									<div className="p-2 bg-primary rounded-lg shrink-0">
 										<Sparkles className="h-4 w-4 text-primary-foreground" />
 									</div>
@@ -391,7 +411,7 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 									</div>
 									<ArrowRight className="h-5 w-5 ml-auto text-primary shrink-0 group-hover:translate-x-0.5 transition-transform" />
 								</div>
-							</button>
+							</Button>
 
 							<div className="relative">
 								<div className="absolute inset-0 flex items-center">
@@ -405,24 +425,30 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 							</div>
 
 							<div className="grid grid-cols-2 gap-2">
-								<button
+								<Button
 									type="button"
-									className="p-4 rounded-lg border hover:bg-muted/80 text-left transition-colors cursor-pointer"
+									variant="outline"
+									className="w-full text-left p-4 rounded-lg h-auto flex-col items-start justify-start hover:bg-muted/80 transition-colors cursor-pointer"
 									onClick={() => setView('expert-create')}
 								>
 									<Key className="h-5 w-5 mb-2 text-muted-foreground" />
 									<div className="font-medium text-sm">Generate new key</div>
-									<div className="text-xs text-muted-foreground mt-0.5">Create a fresh private key</div>
-								</button>
-								<button
+									<div className="text-xs text-muted-foreground mt-0.5">
+										Create a fresh private key
+									</div>
+								</Button>
+								<Button
 									type="button"
-									className="p-4 rounded-lg border hover:bg-muted/80 text-left transition-colors cursor-pointer"
+									variant="outline"
+									className="w-full text-left p-4 rounded-lg h-auto flex-col items-start justify-start hover:bg-muted/80 transition-colors cursor-pointer"
 									onClick={() => setView('expert-import')}
 								>
 									<ArrowRight className="h-5 w-5 mb-2 text-muted-foreground" />
 									<div className="font-medium text-sm">Import existing key</div>
-									<div className="text-xs text-muted-foreground mt-0.5">Use your nsec or hex key</div>
-								</button>
+									<div className="text-xs text-muted-foreground mt-0.5">
+										Use your nsec or hex key
+									</div>
+								</Button>
 							</div>
 						</div>
 					)}
@@ -433,8 +459,8 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 							<div className="rounded-lg bg-muted/60 p-4 text-sm space-y-1">
 								<p className="font-medium">What is Nostr?</p>
 								<p className="text-muted-foreground">
-									A decentralized protocol where your identity is two cryptographic keys — no company
-									controls your account, and no one can delete you.
+									A decentralized protocol where your identity is two cryptographic keys — no
+									company controls your account, and no one can delete you.
 								</p>
 							</div>
 
@@ -527,7 +553,10 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 									checked={rememberMe}
 									onCheckedChange={(c) => setRememberMe(c === true)}
 								/>
-								<label htmlFor="remember-beginner" className="text-sm cursor-pointer text-muted-foreground">
+								<label
+									htmlFor="remember-beginner"
+									className="text-sm cursor-pointer text-muted-foreground"
+								>
 									Stay logged in on this device
 								</label>
 							</div>
@@ -687,8 +716,8 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 										<div className="space-y-1">
 											<h3 className="font-semibold text-destructive">Security Warning</h3>
 											<p className="text-sm text-muted-foreground">
-												Only enter your private key on trusted devices. Anyone with your private
-												key controls your account.
+												Only enter your private key on trusted devices. Anyone with your private key
+												controls your account.
 											</p>
 										</div>
 									</div>
@@ -757,7 +786,10 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 						{(view === 'beginner-keys' || view === 'expert-create' || view === 'expert-import') && (
 							<Button
 								variant="ghost"
-								onClick={() => { setSigner(null); setView('choose') }}
+								onClick={() => {
+									setSigner(null)
+									setView('choose')
+								}}
 								disabled={loading}
 								className="mr-auto gap-1"
 							>

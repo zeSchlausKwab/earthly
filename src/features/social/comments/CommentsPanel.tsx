@@ -62,7 +62,9 @@ export function CommentsPanel({
 	focusCommentId,
 	className = '',
 }: CommentsPanelProps) {
-	const { comments, allComments, count, isLoading, postComment, postReply } = useGeoComments({ target })
+	const { comments, allComments, count, isLoading, postComment, postReply } = useGeoComments({
+		target,
+	})
 
 	const [activeComposerId, setActiveComposerId] = useState<string>(ROOT_COMPOSER_ID)
 	const [entityAnnotationsVisible, setEntityAnnotationsVisible] = useState(true)

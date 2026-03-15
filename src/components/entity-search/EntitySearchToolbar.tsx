@@ -7,6 +7,7 @@ import {
 	type SortField,
 } from '@/components/data-filter/types'
 import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import { Button } from '@/components/ui/button'
 import {
 	Select,
 	SelectContent,
@@ -161,26 +162,28 @@ export function EntityReferenceToolbar({
 							>
 								<Icon className="h-3 w-3 text-muted-foreground" />
 								<span className="max-w-[180px] truncate">{reference.name}</span>
-								<button
-									type="button"
+								<Button
+									variant="ghost"
+									size="icon-xs"
+									className="rounded-sm"
 									onClick={() => onRemoveReference(referenceKey)}
-									className="rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
 									title={`Remove ${reference.name}`}
 									aria-label={`Remove ${reference.name}`}
 								>
 									<X className="h-3 w-3" />
-								</button>
+								</Button>
 							</div>
 						)
 					})}
 					{onClearReferences && references.length > 1 && (
-						<button
-							type="button"
+						<Button
+							variant="outline"
+							size="sm"
+							className="h-6 px-1.5 text-[11px]"
 							onClick={onClearReferences}
-							className="inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted"
 						>
 							Clear all
-						</button>
+						</Button>
 					)}
 				</div>
 			)}

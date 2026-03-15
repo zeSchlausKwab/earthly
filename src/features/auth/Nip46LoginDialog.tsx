@@ -345,7 +345,8 @@ export function Nip46LoginDialog({ trigger, onLogin }: Nip46LoginDialogProps) {
 
 					{/* Tab Buttons */}
 					<div className="flex gap-2 border-b border-brutal">
-						<button
+						<Button
+							variant="ghost"
 							onClick={() => setActiveTab('scan')}
 							className={`px-4 py-2 text-sm font-medium transition-colors ${
 								activeTab === 'scan'
@@ -354,8 +355,9 @@ export function Nip46LoginDialog({ trigger, onLogin }: Nip46LoginDialogProps) {
 							}`}
 						>
 							Scan QR Code
-						</button>
-						<button
+						</Button>
+						<Button
+							variant="ghost"
 							onClick={() => setActiveTab('paste')}
 							className={`px-4 py-2 text-sm font-medium transition-colors ${
 								activeTab === 'paste'
@@ -364,7 +366,7 @@ export function Nip46LoginDialog({ trigger, onLogin }: Nip46LoginDialogProps) {
 							}`}
 						>
 							Paste Bunker URL
-						</button>
+						</Button>
 					</div>
 
 					{/* Tab Content */}

@@ -388,7 +388,8 @@ export const geoTools: Tool[] = [
 					},
 					limit: {
 						type: 'number',
-						description: 'Maximum raw OSM features to fetch before area filtering (default 100, max 100).',
+						description:
+							'Maximum raw OSM features to fetch before area filtering (default 100, max 100).',
 					},
 					includeRelations: {
 						type: 'boolean',

@@ -49,11 +49,12 @@ function SessionItem({
 					: 'bg-card hover:bg-muted/50 border-border cursor-pointer'
 			}`}
 		>
-			<button
+			<Button
 				type="button"
+				variant="ghost"
 				onClick={handleClick}
 				disabled={isActive}
-				className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-default"
+				className="flex min-w-0 flex-1 items-center gap-2 justify-start text-left disabled:cursor-default h-auto px-0"
 			>
 				<div className="min-w-0 flex-1">
 					<UserProfile
@@ -67,7 +68,7 @@ function SessionItem({
 				{isActive && (
 					<span className="text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded">Active</span>
 				)}
-			</button>
+			</Button>
 
 			<div className="flex items-center gap-1">
 				<Tooltip>

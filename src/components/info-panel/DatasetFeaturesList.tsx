@@ -2,6 +2,7 @@ import { ChevronDown, ChevronRight, Cloud } from 'lucide-react'
 import { useState } from 'react'
 import type { Feature, FeatureCollection, Geometry, GeoJsonProperties } from 'geojson'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import { GeometryBadge, GeometryDisplay } from './geometry/GeometryDisplay'
 
 function deriveFeatureCustomProperties(properties: GeoJsonProperties | null | undefined) {
@@ -66,10 +67,11 @@ function ReadOnlyFeatureRow({
 		>
 			{/* Row header */}
 			<div className="flex items-center gap-1 px-1.5 py-1">
-				<button
+				<Button
 					type="button"
+					variant="ghost"
+					size="icon-sm"
 					onClick={onToggleExpand}
-					className="text-gray-400 hover:text-gray-600"
 					disabled={!hasGeometry}
 				>
 					{hasGeometry ? (
@@ -81,7 +83,7 @@ function ReadOnlyFeatureRow({
 					) : (
 						<Cloud className="h-3 w-3 text-sky-400" />
 					)}
-				</button>
+				</Button>
 
 				<GeometryBadge
 					geometry={feature.geometry}

@@ -1,6 +1,7 @@
 import { Search, X } from 'lucide-react'
 import { forwardRef, type InputHTMLAttributes } from 'react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 
 interface EntitySearchInputProps
 	extends Omit<InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'> {
@@ -38,16 +39,15 @@ export const EntitySearchInput = forwardRef<HTMLInputElement, EntitySearchInputP
 					{...props}
 				/>
 				{value && (
-					<button
+					<Button
 						type="button"
+						variant="ghost"
+						size="icon-xs"
 						onClick={() => onChange('')}
-						className={cn(
-							'absolute right-1.5 text-muted-foreground hover:text-foreground',
-							compact ? 'h-3.5 w-3.5' : 'h-4 w-4',
-						)}
+						className={cn('absolute right-1.5', compact ? 'size-3.5' : 'size-4')}
 					>
 						<X className="h-full w-full" />
-					</button>
+					</Button>
 				)}
 			</div>
 		)

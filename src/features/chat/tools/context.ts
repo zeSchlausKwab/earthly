@@ -16,14 +16,14 @@ export function getMapContextSnapshot() {
 	const center = store.editor?.getMapCenter() ?? null
 	const zoom = store.editor?.getMapZoom() ?? null
 	const selectedFeatures = new Set(store.selectedFeatureIds)
-	const selectedEditorFeatures = store.features.filter((feature) => selectedFeatures.has(feature.id))
-	const selectedSummary = selectedEditorFeatures
-		.slice(0, 20)
-		.map((feature) => ({
-			id: feature.id,
-			geometryType: feature.geometry?.type ?? 'Unknown',
-			name: typeof feature.properties?.name === 'string' ? feature.properties?.name : undefined,
-		}))
+	const selectedEditorFeatures = store.features.filter((feature) =>
+		selectedFeatures.has(feature.id),
+	)
+	const selectedSummary = selectedEditorFeatures.slice(0, 20).map((feature) => ({
+		id: feature.id,
+		geometryType: feature.geometry?.type ?? 'Unknown',
+		name: typeof feature.properties?.name === 'string' ? feature.properties?.name : undefined,
+	}))
 	const visibleMapLayers = store.mapLayers
 		.filter((layer) => layer.enabled)
 		.map((layer) => ({

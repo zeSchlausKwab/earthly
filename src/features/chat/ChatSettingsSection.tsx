@@ -326,11 +326,12 @@ export function ChatSettingsSection() {
 			</div>
 
 			<div className="rounded-lg border bg-card p-3">
-				<button
+				<Button
 					type="button"
+					variant="ghost"
 					onClick={() => setToolsEnabled(!toolsEnabled)}
 					className={cn(
-						'flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left transition-colors',
+						'flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left transition-colors h-auto',
 						toolsEnabled
 							? 'border-orange-300 bg-orange-50 text-orange-900 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-200'
 							: 'border-border bg-muted/40 text-muted-foreground',
@@ -350,7 +351,7 @@ export function ChatSettingsSection() {
 					) : (
 						<ToggleLeft className="h-5 w-5 shrink-0" />
 					)}
-				</button>
+				</Button>
 			</div>
 
 			<div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">

@@ -567,7 +567,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 									type="button"
 									size="sm"
 									variant="outline"
-									className="gap-1.5 rounded-none"
+									className="gap-1.5"
 									onClick={onOpenGeometryEditor}
 								>
 									<Pencil className="h-3.5 w-3.5" />

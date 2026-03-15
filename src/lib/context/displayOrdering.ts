@@ -7,7 +7,9 @@ export interface OrderedContextDisplayItem {
 }
 
 function getContextKey(context: NDKMapContextEvent, index: number): string {
-	return context.contextCoordinate ?? context.id ?? `${context.pubkey}:${context.contextId ?? index}`
+	return (
+		context.contextCoordinate ?? context.id ?? `${context.pubkey}:${context.contextId ?? index}`
+	)
 }
 
 export function orderContextsForDisplay(
@@ -38,7 +40,7 @@ export function orderContextsForDisplay(
 			const candidateKey = coordinateToKey.get(coordinate)
 			return Boolean(candidateKey && candidateKey !== key)
 		})
-		parentByKey.set(key, visibleParent ? coordinateToKey.get(visibleParent) ?? null : null)
+		parentByKey.set(key, visibleParent ? (coordinateToKey.get(visibleParent) ?? null) : null)
 	})
 
 	const childrenByKey = new Map<string, typeof keyedContexts>()
@@ -69,10 +71,10 @@ export function orderContextsForDisplay(
 			depth,
 			displayParentCoordinate:
 				depth > 0
-					? entry.context.contextReferences.find((coordinate) => {
+					? (entry.context.contextReferences.find((coordinate) => {
 							const candidateKey = coordinateToKey.get(coordinate)
 							return Boolean(candidateKey && parentByKey.get(entry.key) === candidateKey)
-						}) ?? null
+						}) ?? null)
 					: null,
 		})
 		for (const child of childrenByKey.get(entry.key) ?? []) {

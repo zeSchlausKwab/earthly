@@ -1,7 +1,11 @@
 import { Check, Edit3, Info, MousePointer2, Send, Trash2, Type, X } from 'lucide-react'
 import type { FeatureCollection } from 'geojson'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { GeoRichTextEditor, type GeoRichTextEditorRef, type GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
+import {
+	GeoRichTextEditor,
+	type GeoRichTextEditorRef,
+	type GeoFeatureItem,
+} from '@/components/editor/GeoRichTextEditor'
 import { Button } from '@/components/ui/button'
 import { useEditorStore } from '@/features/geo-editor/store'
 import type { EditorFeature, EditorMode } from '@/features/geo-editor/core'
@@ -19,7 +23,12 @@ interface EditorSnapshot {
 	mode: EditorMode
 }
 
-const DRAW_MODES: EditorMode[] = ['draw_point', 'draw_linestring', 'draw_polygon', 'draw_annotation']
+const DRAW_MODES: EditorMode[] = [
+	'draw_point',
+	'draw_linestring',
+	'draw_polygon',
+	'draw_annotation',
+]
 
 export function CommentAnnotationComposer({
 	onSubmit,
@@ -118,7 +127,8 @@ export function CommentAnnotationComposer({
 	}
 
 	const handleClearGeometry = () => {
-		const allIds = editor?.getAllFeatures().map((feature) => feature.id) ?? features.map((feature) => feature.id)
+		const allIds =
+			editor?.getAllFeatures().map((feature) => feature.id) ?? features.map((feature) => feature.id)
 		if (allIds.length > 0) {
 			editor?.deleteFeatures(allIds)
 		}
@@ -235,7 +245,9 @@ export function CommentAnnotationComposer({
 
 				<div className="rounded-xl border border-amber-200 bg-white/80 px-3 py-2 text-xs text-amber-900">
 					<div className="flex flex-wrap items-center gap-3">
-						<span>{geometryCount} feature{geometryCount === 1 ? '' : 's'} drafted</span>
+						<span>
+							{geometryCount} feature{geometryCount === 1 ? '' : 's'} drafted
+						</span>
 						<span>{geometrySummary.points} pts</span>
 						<span>{geometrySummary.lines} lines</span>
 						<span>{geometrySummary.polygons} polys</span>
@@ -257,8 +269,8 @@ export function CommentAnnotationComposer({
 				<div className="flex items-start gap-2 rounded-xl border border-transparent bg-white/50 px-3 py-2 text-xs text-gray-600">
 					<Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-700" />
 					<p>
-						This publishes a geo comment per the spec: comment text plus an attached GeoJSON FeatureCollection.
-						It does not modify the underlying dataset.
+						This publishes a geo comment per the spec: comment text plus an attached GeoJSON
+						FeatureCollection. It does not modify the underlying dataset.
 					</p>
 				</div>
 

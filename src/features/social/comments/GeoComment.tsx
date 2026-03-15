@@ -205,9 +205,7 @@ export function GeoComment({
 				<div className="mt-2 flex items-center justify-between">
 					<GeoSocialActions
 						target={comment}
-						onReplyClick={() =>
-							onComposerTargetChange(showReplyForm ? 'root' : commentId)
-						}
+						onReplyClick={() => onComposerTargetChange(showReplyForm ? 'root' : commentId)}
 						commentCount={children.length}
 						compact
 					/>

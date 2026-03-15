@@ -651,7 +651,9 @@ export function useMapLayers({
 
 			try {
 				const source = map.getSource(REMOTE_SOURCE_ID) as GeoJSONSource | undefined
-				const proxySource = map.getSource(REMOTE_POLYGON_PROXY_SOURCE_ID) as GeoJSONSource | undefined
+				const proxySource = map.getSource(REMOTE_POLYGON_PROXY_SOURCE_ID) as
+					| GeoJSONSource
+					| undefined
 				const clusteredSource = map.getSource(CLUSTERED_SOURCE_ID) as GeoJSONSource | undefined
 				if (!source) return
 

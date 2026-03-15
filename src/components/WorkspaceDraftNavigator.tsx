@@ -181,9 +181,10 @@ export function WorkspaceDraftNavigator({
 		<Collapsible open={open} onOpenChange={setOpen} className={className}>
 			<div className="overflow-hidden rounded-lg border border-slate-200 bg-white/90">
 				<CollapsibleTrigger asChild>
-					<button
+					<Button
 						type="button"
-						className="flex h-9 w-full items-center gap-2 px-3 text-left transition-colors hover:bg-slate-50"
+						variant="ghost"
+						className="flex h-9 w-full items-center gap-2 px-3 text-left justify-start"
 						title="Workspaces & drafts"
 					>
 						<Layers className="h-3.5 w-3.5 shrink-0 text-slate-400" />
@@ -211,7 +212,7 @@ export function WorkspaceDraftNavigator({
 						) : (
 							<ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
 						)}
-					</button>
+					</Button>
 				</CollapsibleTrigger>
 				<CollapsibleContent className="border-t border-slate-200 px-2.5 py-2">
 					<div className="mb-2 flex items-center justify-end gap-1.5">
@@ -348,8 +349,9 @@ export function WorkspaceDraftNavigator({
 		return (
 			<>
 				<div className="flex items-center gap-1 px-1.5 py-1.5">
-					<button
+					<Button
 						type="button"
+						variant="ghost"
 						onClick={() =>
 							setExpandedWorkspaceIds((current) => ({
 								...current,
@@ -364,7 +366,7 @@ export function WorkspaceDraftNavigator({
 						) : (
 							<ChevronRight className="h-3.5 w-3.5" />
 						)}
-					</button>
+					</Button>
 					{isRenamingWorkspace ? (
 						<form
 							className="flex min-w-0 flex-1 items-center gap-1"
@@ -402,10 +404,11 @@ export function WorkspaceDraftNavigator({
 						</form>
 					) : (
 						<>
-							<button
+							<Button
 								type="button"
+								variant="ghost"
 								onClick={() => onSwitchWorkspace?.(workspace.id)}
-								className="min-w-0 flex-1 rounded px-1 py-1 text-left transition-colors hover:bg-black/5"
+								className="min-w-0 flex-1 h-auto px-1 py-1 text-left justify-start"
 							>
 								<div className="flex min-w-0 items-center gap-2">
 									<span className="truncate text-xs font-medium text-slate-900">
@@ -430,7 +433,7 @@ export function WorkspaceDraftNavigator({
 								<div className="mt-0.5 text-[10px] text-slate-500">
 									{drafts.length} draft{drafts.length === 1 ? '' : 's'}
 								</div>
-							</button>
+							</Button>
 							<div className="flex shrink-0 items-center gap-1">
 								<Button
 									type="button"

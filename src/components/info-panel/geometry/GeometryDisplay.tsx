@@ -10,6 +10,7 @@ import type {
 import { ChevronDown, ChevronRight, Cloud } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 
 interface CoordinateDisplayProps {
 	coordinates: number[]
@@ -49,17 +50,18 @@ interface GeometryHeaderProps {
 
 function GeometryHeader({ type, count, unit, expanded, onToggle }: GeometryHeaderProps) {
 	return (
-		<button
+		<Button
 			type="button"
+			variant="ghost"
 			onClick={onToggle}
-			className="flex items-center gap-1 text-xs text-gray-700 hover:text-gray-900 w-full"
+			className="flex items-center gap-1 text-xs w-full h-auto px-0 justify-start"
 		>
 			{expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
 			<span className="font-medium">{type}</span>
 			<span className="text-gray-400">
 				({count} {unit})
 			</span>
-		</button>
+		</Button>
 	)
 }
 

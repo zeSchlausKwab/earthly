@@ -191,23 +191,20 @@ function FeatureRow({
 		>
 			{/* Row header */}
 			<div className="flex items-center gap-1 px-1.5 py-1">
-				<button
-					type="button"
-					onClick={onToggleExpand}
-					className="text-gray-400 hover:text-gray-600"
-				>
+				<Button type="button" variant="ghost" size="icon-sm" onClick={onToggleExpand}>
 					{isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-				</button>
+				</Button>
 
 				<GeometryBadge geometry={feature.geometry} isAnnotation={isAnnotation} />
 
-				<button
+				<Button
 					type="button"
+					variant="ghost"
 					onClick={(e) => onSelect(e)}
-					className="flex-1 text-left truncate text-gray-700 hover:text-gray-900"
+					className="flex-1 h-auto text-left justify-start truncate px-0"
 				>
 					{name}
-				</button>
+				</Button>
 
 				{hasValidationIssues && (
 					<div className="flex items-center gap-1 text-amber-600" title={validationSummary}>

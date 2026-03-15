@@ -1539,24 +1539,27 @@ function ReasoningDisclosure({ blocks }: { blocks: string[] }) {
 		<div className="rounded-md border border-orange-200/80 dark:border-orange-900/60 bg-orange-50/50 dark:bg-orange-950/20">
 			<div className="flex items-center justify-between gap-2 px-2 py-1.5">
 				<div className="flex items-center gap-2">
-					<button
+					<Button
 						type="button"
+						variant="ghost"
 						onClick={() => setIsOpen((prev) => !prev)}
-						className="cursor-pointer select-none text-xs font-medium text-orange-700 dark:text-orange-300"
+						className="h-auto p-0 text-xs font-medium text-orange-700 dark:text-orange-300 cursor-pointer select-none"
 						aria-expanded={isOpen}
 					>
 						<span className="mr-1">{isOpen ? '▾' : '▸'}</span>
 						Reasoning ({lines.length} lines)
-					</button>
+					</Button>
 					<CopyBubbleButton text={blocks.join('\n\n')} title="Copy reasoning" compact />
 				</div>
 				<div className="flex items-center gap-1.5">
 					{isOpen && (
-						<button
+						<Button
 							type="button"
+							variant="outline"
+							size="sm"
 							onClick={toggleAutoScroll}
 							className={cn(
-								'text-[10px] px-2 py-0.5 rounded border',
+								'text-[10px] px-2 py-0.5',
 								autoScrollEnabled
 									? 'border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300 bg-orange-100/70 dark:bg-orange-900/30'
 									: 'border-muted-foreground/30 text-muted-foreground bg-background/70',
@@ -1564,7 +1567,7 @@ function ReasoningDisclosure({ blocks }: { blocks: string[] }) {
 							title="Keep view pinned to the latest reasoning line"
 						>
 							Auto-scroll: {autoScrollEnabled ? 'On' : 'Off'}
-						</button>
+						</Button>
 					)}
 				</div>
 			</div>
@@ -1653,33 +1656,33 @@ function ToolResultDisclosure({
 	return (
 		<div className="rounded-lg px-3 py-2 text-xs bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800">
 			<div className="flex items-center justify-between gap-2 mb-1">
-				<button
+				<Button
 					type="button"
+					variant="ghost"
 					onClick={() => setIsOpen((prev) => !prev)}
-					className="text-left font-medium text-blue-700 dark:text-blue-300"
+					className="h-auto p-0 text-left font-medium text-blue-700 dark:text-blue-300"
 					aria-expanded={isOpen}
 				>
 					<span className="mr-1">{isOpen ? '▾' : '▸'}</span>
 					Tool Result ({lines.length} lines)
-				</button>
+				</Button>
 				<div className="flex items-center gap-1.5">
 					{geometryAnalysis.canBake && (
-						<button
+						<Button
 							type="button"
+							variant="outline"
+							size="icon-xs"
 							onClick={handleBakeToEditor}
 							disabled={!canBake}
 							title={`Bake ${geometryAnalysis.featureCount} geometry feature(s) to editor`}
-							className={cn(
-								'inline-flex h-5 w-5 items-center justify-center rounded border border-border/70 bg-background/80 text-[10px] transition-colors',
-								canBake ? 'hover:bg-muted' : 'opacity-60 cursor-not-allowed',
-							)}
+							className={cn('h-5 w-5 text-[10px]', !canBake && 'opacity-60 cursor-not-allowed')}
 						>
 							{isBaking ? (
 								<Loader2 className="h-3 w-3 animate-spin" />
 							) : (
 								<ArrowDownToLine className="h-3 w-3" />
 							)}
-						</button>
+						</Button>
 					)}
 					<span className="text-[10px] text-blue-700/80 dark:text-blue-300/80">
 						~{tokenEstimate.toLocaleString()} tok
@@ -1731,19 +1734,21 @@ function CopyBubbleButton({
 	}
 
 	return (
-		<button
+		<Button
 			type="button"
+			variant="ghost"
+			size="icon-sm"
 			onClick={onCopy}
 			title={title}
 			className={cn(
-				'inline-flex items-center justify-center rounded border text-[10px] transition-colors',
-				compact ? 'h-5 w-5' : 'h-5 w-5 bg-background/80',
-				'border-border/70 hover:bg-muted',
+				'h-5 w-5 rounded border text-[10px]',
+				compact ? '' : 'bg-background/80',
+				'border-border/70',
 				className,
 			)}
 		>
 			{copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-		</button>
+		</Button>
 	)
 }
 

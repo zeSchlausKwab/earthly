@@ -100,7 +100,9 @@ export function resolveContextMapScope(
 	while (queue.length > 0) {
 		const current = queue.shift()
 		if (!current) continue
-		const coordinate = current.contextCoordinate ?? `${current.kind}:${current.pubkey}:${current.contextId ?? current.id}`
+		const coordinate =
+			current.contextCoordinate ??
+			`${current.kind}:${current.pubkey}:${current.contextId ?? current.id}`
 		if (seenContextCoordinates.has(coordinate)) continue
 		seenContextCoordinates.add(coordinate)
 		includedContexts.push(current)

@@ -391,10 +391,12 @@ export function UserProfilePanel({
 				attachmentPolicy: context.context.allowForeignAttachments ? 'open' : 'closed',
 				displayDepth: depth,
 				displayParentName: displayParentCoordinate
-					? nameByCoordinate.get(displayParentCoordinate) ?? null
+					? (nameByCoordinate.get(displayParentCoordinate) ?? null)
 					: null,
 				isCuratedChild:
-					depth > 0 && !context.context.allowForeignAttachments && context.contextReferences.length > 0,
+					depth > 0 &&
+					!context.context.allowForeignAttachments &&
+					context.contextReferences.length > 0,
 				attachmentCount: context.contextReferences.length,
 			}),
 		)
