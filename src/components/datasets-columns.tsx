@@ -1,5 +1,5 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { Bug, Download, Loader2, Search } from 'lucide-react'
+import { Bug, Download, Eye, EyeOff, Loader2, Search } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
 import { memo } from 'react'
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
@@ -68,56 +68,52 @@ const DatasetLoadButton = memo(function DatasetLoadButton({
 
 	if (isResolving && progress && progress.total > 0) {
 		return (
-			<div className="flex w-full justify-center" title={label}>
-				<div className="relative flex h-8 w-8 items-center justify-center">
-					<svg className="h-5 w-5 -rotate-90" viewBox="0 0 20 20" aria-hidden="true">
-						<circle
-							cx="10"
-							cy="10"
-							r="8"
-							fill="none"
-							stroke="currentColor"
-							strokeWidth="2"
-							className="text-gray-200"
-						/>
-						<circle
-							cx="10"
-							cy="10"
-							r="8"
-							fill="none"
-							stroke="currentColor"
-							strokeWidth="2"
-							strokeDasharray={`${progressPercent * 0.5} 50`}
-							className="text-sky-600 transition-all duration-150"
-						/>
-					</svg>
-					<span className="absolute text-[8px] font-medium text-sky-600">{progressPercent}</span>
-				</div>
+			<div className="relative flex h-8 w-8 items-center justify-center" title={label}>
+				<svg className="h-5 w-5 -rotate-90" viewBox="0 0 20 20" aria-hidden="true">
+					<circle
+						cx="10"
+						cy="10"
+						r="8"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="2"
+						className="text-gray-200"
+					/>
+					<circle
+						cx="10"
+						cy="10"
+						r="8"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="2"
+						strokeDasharray={`${progressPercent * 0.5} 50`}
+						className="text-sky-600 transition-all duration-150"
+					/>
+				</svg>
+				<span className="absolute text-[8px] font-medium text-sky-600">{progressPercent}</span>
 			</div>
 		)
 	}
 
 	return (
-		<div className="flex w-full justify-center">
-			<Button
-				size="icon-sm"
-				variant="ghost"
-				className={cn(
-					actionButtonClass,
-					isActive ? 'text-emerald-600 hover:text-emerald-700' : 'text-gray-500 hover:text-sky-600',
-				)}
-				onClick={() => onLoadDataset(event)}
-				disabled={isPublishing || isResolving}
-				aria-label={label}
-				title={label}
-			>
-				{isResolving ? (
-					<Loader2 className="h-4 w-4 animate-spin" />
-				) : (
-					<Download className="h-4 w-4" />
-				)}
-			</Button>
-		</div>
+		<Button
+			size="icon-sm"
+			variant="ghost"
+			className={cn(
+				actionButtonClass,
+				isActive ? 'text-emerald-600 hover:text-emerald-700' : 'text-gray-500 hover:text-sky-600',
+			)}
+			onClick={() => onLoadDataset(event)}
+			disabled={isPublishing || isResolving}
+			aria-label={label}
+			title={label}
+		>
+			{isResolving ? (
+				<Loader2 className="h-4 w-4 animate-spin" />
+			) : (
+				<Download className="h-4 w-4" />
+			)}
+		</Button>
 	)
 })
 
@@ -125,44 +121,36 @@ export const createDatasetColumns = (
 	context: DatasetColumnsContext,
 ): ColumnDef<DatasetRowData>[] => [
 	{
-		id: 'visibility',
-		header: () => {
-			const isAllVisible = context.allVisibleState === 'all'
-			const isIndeterminate = context.allVisibleState === 'some'
-			return (
-				<input
-					type="checkbox"
-					checked={isAllVisible}
-					ref={(el) => {
-						if (el) el.indeterminate = isIndeterminate
-					}}
-					onChange={() => context.onToggleAllVisibility(!isAllVisible)}
-					className="h-3.5 w-3.5 cursor-pointer rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-					aria-label={isAllVisible ? 'Hide all datasets' : 'Show all datasets'}
-					title={isAllVisible ? 'Hide all datasets' : 'Show all datasets'}
-				/>
-			)
-		},
-		size: 32,
-		cell: ({ row }) => {
-			const { event, isVisible } = row.original
-			return (
-				<input
-					type="checkbox"
-					checked={isVisible}
-					onChange={() => context.onToggleVisibility(event)}
-					className="h-3.5 w-3.5 cursor-pointer rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-					aria-label={isVisible ? 'Hide dataset' : 'Show dataset'}
-					title={isVisible ? 'Hide dataset' : 'Show dataset'}
-				/>
-			)
-		},
-	},
-	{
 		accessorKey: 'datasetName',
-		header: 'Dataset',
+		header: () => {
+			const areAllVisible = context.allVisibleState === 'all'
+			const hasVisibleDatasets = context.allVisibleState !== 'none'
+			const label = areAllVisible ? 'Hide all datasets' : 'Show all datasets'
+
+			return (
+				<div className="flex items-center gap-2">
+					<span>Dataset</span>
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-sm"
+						className={cn(
+							actionButtonClass,
+							hasVisibleDatasets
+								? 'text-sky-600 hover:text-sky-700'
+								: 'text-gray-400 hover:text-sky-600',
+						)}
+						onClick={() => context.onToggleAllVisibility(!areAllVisible)}
+						aria-label={label}
+						title={label}
+					>
+						{hasVisibleDatasets ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+					</Button>
+				</div>
+			)
+		},
 		cell: ({ row }) => {
-			const { event, datasetName } = row.original
+			const { event, datasetName, isVisible } = row.original
 
 			const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
 				const datasetId = event.datasetId ?? event.dTag
@@ -192,98 +180,85 @@ export const createDatasetColumns = (
 			}
 
 			return (
-				<div className="w-full min-w-0 max-w-[260px] space-y-1 text-left">
+				<div className="min-w-0 whitespace-normal py-1 text-left">
 					<button
 						type="button"
-						className="block w-full cursor-grab truncate text-xs font-semibold text-gray-900 transition-colors hover:text-sky-700 active:cursor-grabbing"
+						className="block w-full cursor-grab text-left text-sm font-semibold leading-snug text-gray-900 transition-colors hover:text-sky-700 active:cursor-grabbing"
 						draggable
 						onDragStart={handleDragStart}
 						onClick={() => context.onZoomToDataset(event)}
 						aria-label={`Zoom to dataset ${datasetName}`}
 						title="Zoom to dataset"
 					>
-						{datasetName}
+						<span className="line-clamp-2 break-words">{datasetName}</span>
 					</button>
-					<UserProfile
-						pubkey={event.pubkey}
-						mode="avatar-name"
-						size="xs"
-						showNip05Badge={false}
-						interactive={false}
-					/>
-					<div className="overflow-visible pt-1">
+					<div className="mt-1 min-w-0">
+						<UserProfile
+							pubkey={event.pubkey}
+							mode="avatar-name"
+							size="xs"
+							showNip05Badge={false}
+							interactive={false}
+						/>
+					</div>
+					<div className="mt-1 flex min-w-0 items-end justify-between gap-3">
 						<GeoSocialActions
 							target={event}
 							onReplyClick={() => context.onInspectDataset?.(event)}
 							showCommentButton={Boolean(context.onInspectDataset)}
 							showAnnotateButton={false}
 							compact
-							className="w-full gap-0"
+							className="-ml-2 shrink-0 gap-0"
 						/>
+						<div className="flex shrink-0 items-center gap-0.5">
+							<Button
+								size="icon-sm"
+								variant="ghost"
+								className={cn(
+									actionButtonClass,
+									isVisible
+										? 'text-sky-600 hover:text-sky-700'
+										: 'text-gray-400 hover:text-sky-600',
+								)}
+								onClick={() => context.onToggleVisibility(event)}
+								aria-label={isVisible ? 'Hide dataset' : 'Show dataset'}
+								title={isVisible ? 'Hide dataset' : 'Show dataset'}
+							>
+								{isVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+							</Button>
+							<DatasetLoadButton
+								datasetKey={row.original.datasetKey}
+								event={event}
+								isActive={row.original.isActive}
+								isPublishing={context.isPublishing}
+								onLoadDataset={context.onLoadDataset}
+							/>
+							<Button
+								size="icon-sm"
+								variant="ghost"
+								className={cn(actionButtonClass, 'hover:text-emerald-600')}
+								onClick={() => context.onInspectDataset?.(event)}
+								aria-label="Inspect dataset"
+								title="Inspect dataset"
+							>
+								<Search className="h-4 w-4" />
+							</Button>
+							{context.onOpenDebug ? (
+								<Button
+									size="icon-sm"
+									variant="ghost"
+									className={cn(actionButtonClass, 'hover:text-amber-600')}
+									aria-label="Open debug"
+									title="Open debug"
+									onClick={() => context.onOpenDebug?.(event)}
+								>
+									<Bug className="h-4 w-4" />
+								</Button>
+							) : null}
+						</div>
 					</div>
 				</div>
 			)
-		},
-	},
-	{
-		id: 'load',
-		header: '',
-		size: 44,
-		cell: ({ row }) => {
-			const { event, isActive, datasetKey } = row.original
-			return (
-				<DatasetLoadButton
-					datasetKey={datasetKey}
-					event={event}
-					isActive={isActive}
-					isPublishing={context.isPublishing}
-					onLoadDataset={context.onLoadDataset}
-				/>
-			)
-		},
-	},
-	{
-		id: 'inspect',
-		header: '',
-		size: 44,
-		cell: ({ row }) => {
-			const { event } = row.original
-			return (
-				<div className="flex w-full justify-center">
-					<Button
-						size="icon-sm"
-						variant="ghost"
-						className={cn(actionButtonClass, 'hover:text-emerald-600')}
-						onClick={() => context.onInspectDataset?.(event)}
-						aria-label="Inspect dataset"
-						title="Inspect dataset"
-					>
-						<Search className="h-4 w-4" />
-					</Button>
-				</div>
-			)
-		},
-	},
-	{
-		id: 'debug',
-		header: '',
-		size: 44,
-		cell: ({ row }) => {
-			const { event } = row.original
-			return context.onOpenDebug ? (
-				<div className="flex w-full justify-center">
-					<Button
-						size="icon-sm"
-						variant="ghost"
-						className={cn(actionButtonClass, 'hover:text-amber-600')}
-						aria-label="Open debug"
-						title="Open debug"
-						onClick={() => context.onOpenDebug?.(event)}
-					>
-						<Bug className="h-4 w-4" />
-					</Button>
-				</div>
-			) : null
 		},
 	},
 ]

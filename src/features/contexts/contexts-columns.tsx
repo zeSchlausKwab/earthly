@@ -28,6 +28,12 @@ export interface ContextColumnsContext {
 const actionButtonClass =
 	'rounded-none px-2 text-xs text-gray-500 shadow-none hover:bg-transparent hover:text-sky-600'
 
+function ContextBadge({ label, className }: { label: string; className: string }) {
+	return (
+		<span className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium', className)}>{label}</span>
+	)
+}
+
 export const createContextColumns = (
 	context: ContextColumnsContext,
 ): ColumnDef<ContextRowData>[] => [
@@ -38,6 +44,9 @@ export const createContextColumns = (
 			const {
 				context: contextEvent,
 				contextName,
+				contextUse,
+				validationMode,
+				attachmentPolicy,
 				displayDepth,
 				displayParentName,
 				isCuratedChild,
@@ -45,130 +54,98 @@ export const createContextColumns = (
 			} = row.original
 			return (
 				<div
-					className="max-w-[260px] space-y-1"
+					className="min-w-0 whitespace-normal py-1"
 					style={displayDepth > 0 ? { paddingLeft: `${displayDepth}rem` } : undefined}
 				>
-					<div className="flex items-center gap-1.5">
+					<div className="flex min-w-0 items-start gap-1.5">
 						{displayDepth > 0 && <span className="text-[10px] text-slate-400">└</span>}
-						<div className="truncate text-xs font-semibold text-gray-900" title={contextName}>
-							{contextName}
+						<div className="min-w-0 flex-1">
+							<div className="flex min-w-0 items-start justify-between gap-3">
+								<div className="min-w-0 flex-1">
+									<div className="line-clamp-2 break-words text-sm font-semibold leading-snug text-gray-900">
+										{contextName}
+									</div>
+									<div className="mt-1 min-w-0">
+										<UserProfile
+											pubkey={contextEvent.pubkey}
+											mode="avatar-name"
+											size="xs"
+											showNip05Badge={false}
+											interactive={false}
+										/>
+									</div>
+								</div>
+								<div className="flex max-w-[9rem] shrink-0 flex-wrap justify-end gap-1 pt-0.5">
+									<ContextBadge label={contextUse} className="bg-blue-100 text-blue-700" />
+									{validationMode ? (
+										<ContextBadge
+											label={validationMode}
+											className={
+												validationMode === 'required'
+													? 'bg-red-100 text-red-700'
+													: validationMode === 'optional'
+														? 'bg-amber-100 text-amber-700'
+														: 'bg-gray-100 text-gray-700'
+											}
+										/>
+									) : (
+										<ContextBadge label="none" className="bg-gray-100 text-gray-600" />
+									)}
+									<ContextBadge
+										label={attachmentPolicy}
+										className={
+											attachmentPolicy === 'open'
+												? 'bg-emerald-100 text-emerald-700'
+												: 'bg-stone-100 text-stone-700'
+										}
+									/>
+								</div>
+							</div>
+							{isCuratedChild && (
+								<div className="mt-1 text-[10px] text-slate-400">
+									curated child
+									{displayParentName ? ` in ${displayParentName}` : ''}
+									{attachmentCount > 1 ? ` · ${attachmentCount} contexts` : ''}
+								</div>
+							)}
+							<div className="mt-1 flex min-w-0 items-end justify-between gap-3">
+								<GeoSocialActions
+									target={contextEvent}
+									onReplyClick={() => context.onInspectContext?.(contextEvent)}
+									showCommentButton={Boolean(context.onInspectContext)}
+									showAnnotateButton={false}
+									compact
+									className="-ml-2 shrink-0 gap-0"
+								/>
+								<div className="flex shrink-0 items-center gap-0.5">
+									<Button
+										size="icon-sm"
+										variant="ghost"
+										className={cn(actionButtonClass, 'hover:text-emerald-600')}
+										onClick={() => context.onInspectContext?.(contextEvent)}
+										aria-label="Inspect context"
+										title="Inspect context"
+									>
+										<Eye className="h-4 w-4" />
+									</Button>
+									{context.onOpenDebug ? (
+										<Button
+											size="icon-sm"
+											variant="ghost"
+											className={cn(actionButtonClass, 'hover:text-amber-600')}
+											aria-label="Open debug dialog"
+											title="Open debug dialog"
+											onClick={() => context.onOpenDebug?.(contextEvent)}
+										>
+											<Bug className="h-4 w-4" />
+										</Button>
+									) : null}
+								</div>
+							</div>
 						</div>
 					</div>
-					<UserProfile
-						pubkey={contextEvent.pubkey}
-						mode="avatar-name"
-						size="sm"
-						showNip05Badge={false}
-						interactive={false}
-					/>
-					{isCuratedChild && (
-						<div className="text-[10px] text-slate-400">
-							curated child
-							{displayParentName ? ` · in ${displayParentName}` : ''}
-							{attachmentCount > 1 ? ` · ${attachmentCount} contexts` : ''}
-						</div>
-					)}
-					<GeoSocialActions
-						target={contextEvent}
-						onReplyClick={() => context.onInspectContext?.(contextEvent)}
-						showCommentButton={Boolean(context.onInspectContext)}
-						showAnnotateButton={false}
-						compact
-						className="gap-0 pt-1"
-					/>
 				</div>
 			)
-		},
-	},
-	{
-		accessorKey: 'contextUse',
-		header: 'Use',
-		size: 100,
-		cell: ({ row }) => {
-			return (
-				<span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">
-					{row.original.contextUse}
-				</span>
-			)
-		},
-	},
-	{
-		accessorKey: 'validationMode',
-		header: 'Validation',
-		size: 120,
-		cell: ({ row }) => {
-			const mode = row.original.validationMode
-			if (!mode) {
-				return <span className="text-[10px] text-slate-300">-</span>
-			}
-			const className =
-				mode === 'required'
-					? 'bg-red-100 text-red-700'
-					: mode === 'optional'
-						? 'bg-amber-100 text-amber-700'
-						: 'bg-gray-100 text-gray-700'
-			return <span className={`rounded px-1.5 py-0.5 text-[10px] ${className}`}>{mode}</span>
-		},
-	},
-	{
-		accessorKey: 'attachmentPolicy',
-		header: 'Policy',
-		size: 120,
-		cell: ({ row }) => {
-			const state = row.original.attachmentPolicy
-			return (
-				<span
-					className={`rounded px-1.5 py-0.5 text-[10px] ${
-						state === 'open' ? 'bg-emerald-100 text-emerald-700' : 'bg-stone-100 text-stone-700'
-					}`}
-				>
-					{state}
-				</span>
-			)
-		},
-	},
-	{
-		id: 'inspect',
-		header: '',
-		size: 44,
-		cell: ({ row }) => {
-			const { context: contextEvent } = row.original
-			return (
-				<div className="flex w-full justify-center">
-					<Button
-						size="icon-sm"
-						variant="ghost"
-						className={cn(actionButtonClass, 'hover:text-emerald-600')}
-						onClick={() => context.onInspectContext?.(contextEvent)}
-						aria-label="Inspect context"
-						title="Inspect context"
-					>
-						<Eye className="h-4 w-4" />
-					</Button>
-				</div>
-			)
-		},
-	},
-	{
-		id: 'debug',
-		header: '',
-		size: 44,
-		cell: ({ row }) => {
-			const { context: contextEvent } = row.original
-			return context.onOpenDebug ? (
-				<div className="flex w-full justify-center">
-					<Button
-						size="icon-sm"
-						variant="ghost"
-						className={cn(actionButtonClass, 'hover:text-amber-600')}
-						aria-label="Open debug dialog"
-						title="Open debug dialog"
-						onClick={() => context.onOpenDebug?.(contextEvent)}
-					>
-						<Bug className="h-4 w-4" />
-					</Button>
-				</div>
-			) : null
 		},
 	},
 ]
