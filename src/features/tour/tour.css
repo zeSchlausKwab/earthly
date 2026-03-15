@@ -1,0 +1,136 @@
+/* Earthly Tour — Driver.js custom theme
+   NOTE: CSS variables here are full oklch() values (Tailwind v4), use var() directly */
+
+/* ─── Popover shell ──────────────────────────────────────────────────────── */
+.earthly-tour-popover.driver-popover {
+	background: var(--popover) !important;
+	border: 1px solid var(--border) !important;
+	border-radius: 12px !important;
+	box-shadow:
+		0 24px 64px rgba(0, 0, 0, 0.35),
+		0 4px 16px rgba(0, 0, 0, 0.2) !important;
+	color: var(--popover-foreground) !important;
+	font-family: inherit !important;
+	max-width: 420px !important;
+	min-width: 320px !important;
+	padding: 20px !important;
+}
+
+/* ─── Title ──────────────────────────────────────────────────────────────── */
+.earthly-tour-popover .driver-popover-title {
+	color: var(--foreground) !important;
+	font-size: 1.05rem !important;
+	font-weight: 600 !important;
+	margin-bottom: 10px !important;
+	display: block !important;
+}
+
+/* ─── Description ────────────────────────────────────────────────────────── */
+.earthly-tour-popover .driver-popover-description {
+	color: var(--muted-foreground) !important;
+	font-size: 0.875rem !important;
+	line-height: 1.6 !important;
+}
+
+.earthly-tour-popover .driver-popover-description p,
+.earthly-tour-popover .driver-popover-description ul,
+.earthly-tour-popover .driver-popover-description ol {
+	margin-bottom: 8px;
+}
+
+.earthly-tour-popover .driver-popover-description strong {
+	color: var(--foreground) !important;
+	font-weight: 600;
+}
+
+.earthly-tour-popover .driver-popover-description a {
+	color: oklch(0.527 0.154 150.069);
+	text-decoration: underline;
+}
+
+/* ─── Media (video / screenshot) ─────────────────────────────────────────── */
+.earthly-tour-popover .driver-popover-description .tour-media {
+	margin-top: 12px;
+}
+
+.earthly-tour-popover .driver-popover-description .tour-video {
+	width: 100%;
+	max-height: 200px;
+	border-radius: 8px;
+	border: 1px solid var(--border);
+	background: var(--muted);
+	display: block;
+}
+
+/* Hide video container entirely when video fails to load */
+.earthly-tour-popover .driver-popover-description .tour-media:has(.tour-video-empty) {
+	display: none;
+}
+
+/* ─── Progress bar ───────────────────────────────────────────────────────── */
+.earthly-tour-popover .driver-popover-progress-text {
+	color: var(--muted-foreground) !important;
+	font-size: 0.75rem !important;
+}
+
+/* ─── Footer ─────────────────────────────────────────────────────────────── */
+.earthly-tour-popover .driver-popover-footer {
+	margin-top: 16px !important;
+	display: flex !important;
+	align-items: center !important;
+	gap: 8px !important;
+}
+
+/* ─── Buttons ────────────────────────────────────────────────────────────── */
+.earthly-tour-popover .driver-popover-prev-btn,
+.earthly-tour-popover .driver-popover-next-btn,
+.earthly-tour-popover .driver-popover-close-btn {
+	border-radius: 6px !important;
+	font-size: 0.8rem !important;
+	font-weight: 500 !important;
+	padding: 6px 14px !important;
+	cursor: pointer !important;
+	transition: opacity 0.15s !important;
+	border: none !important;
+	text-shadow: none !important;
+}
+
+.earthly-tour-popover .driver-popover-prev-btn {
+	background: var(--muted) !important;
+	color: var(--muted-foreground) !important;
+}
+
+.earthly-tour-popover .driver-popover-next-btn {
+	background: oklch(0.527 0.154 150.069) !important;
+	color: #fff !important;
+	margin-left: auto !important;
+}
+
+.earthly-tour-popover .driver-popover-next-btn:hover,
+.earthly-tour-popover .driver-popover-prev-btn:hover {
+	opacity: 0.85 !important;
+}
+
+.earthly-tour-popover .driver-popover-close-btn {
+	background: transparent !important;
+	color: var(--muted-foreground) !important;
+	padding: 4px 8px !important;
+	position: absolute !important;
+	top: 12px !important;
+	right: 12px !important;
+	font-size: 1rem !important;
+}
+
+/* ─── Arrow ──────────────────────────────────────────────────────────────── */
+.earthly-tour-popover .driver-popover-arrow-side-left.driver-popover-arrow {
+	border-right-color: var(--popover) !important;
+}
+.earthly-tour-popover .driver-popover-arrow-side-right.driver-popover-arrow {
+	border-left-color: var(--popover) !important;
+}
+.earthly-tour-popover .driver-popover-arrow-side-top.driver-popover-arrow {
+	border-bottom-color: var(--popover) !important;
+}
+.earthly-tour-popover .driver-popover-arrow-side-bottom.driver-popover-arrow {
+	border-top-color: var(--popover) !important;
+}

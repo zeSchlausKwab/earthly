@@ -71,6 +71,7 @@
     "coco-cashu-indexeddb": "^1.0.0-rc11",
     "coco-cashu-react": "^1.1.1",
     "date-fns": "^4.1.0",
+    "driver.js": "^1.4.0",
     "geojson": "^0.5.0",
     "linkedom": "^0.18.12",
     "lucide-react": "^0.577.0",

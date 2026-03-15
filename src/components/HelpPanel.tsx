@@ -1,13 +1,17 @@
-import { ExternalLink, Github } from 'lucide-react'
+import { ExternalLink, Github, MapPin } from 'lucide-react'
 import textLogoRose from '../assets/text_logo_rose.svg'
 import { Kbd } from './ui/kbd'
 import { ScrollArea } from './ui/scroll-area'
+import { Button } from './ui/button'
+import { useTourStore } from '../features/tour'
 
 interface HelpPanelProps {
 	multiSelectModifier?: string
 }
 
 export function HelpPanel({ multiSelectModifier = 'Shift' }: HelpPanelProps) {
+	const { startTour, hasSeenTour } = useTourStore()
+
 	return (
 		<ScrollArea className="h-full">
 			<div className="p-4 space-y-4">
@@ -41,6 +45,27 @@ export function HelpPanel({ multiSelectModifier = 'Shift' }: HelpPanelProps) {
 								<ExternalLink className="h-4 w-4" />
 							</a>
 						</div>
+					</div>
+				</div>
+
+				{/* Interactive Tour */}
+				<div className="rounded-lg border border-border p-3 space-y-2">
+					<div className="flex items-center justify-between gap-3">
+						<div>
+							<p className="text-sm font-medium text-foreground">Interactive Tour</p>
+							<p className="text-xs text-muted-foreground">
+								{hasSeenTour ? 'Replay the guided walkthrough' : 'New here? Take a 2-minute tour'}
+							</p>
+						</div>
+						<Button
+							size="sm"
+							variant={hasSeenTour ? 'outline' : 'default'}
+							onClick={startTour}
+							className="shrink-0 gap-1.5"
+						>
+							<MapPin className="h-3.5 w-3.5" />
+							{hasSeenTour ? 'Replay tour' : 'Start tour'}
+						</Button>
 					</div>
 				</div>
 

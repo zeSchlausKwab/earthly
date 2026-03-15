@@ -643,7 +643,7 @@ export function AppSidebar({
 
 	return (
 		<Sidebar collapsible="icon" className="overflow-hidden *:data-[sidebar=sidebar]:flex-row">
-			<Sidebar collapsible="none" className="w-[calc(var(--sidebar-width-icon)+1px)]! border-r">
+			<Sidebar collapsible="none" className="w-[calc(var(--sidebar-width-icon)+1px)]! border-r" data-tour="sidebar-nav">
 				<SidebarHeader>
 					<SidebarMenu>
 						<SidebarMenuItem>
@@ -702,7 +702,10 @@ export function AppSidebar({
 								</SidebarMenuItem>
 
 								{workNavItems.map((item) => (
-									<SidebarMenuItem key={item.mode}>
+									<SidebarMenuItem
+								key={item.mode}
+								data-tour={item.mode === 'datasets' ? 'sidebar-datasets' : item.mode === 'contexts' ? 'sidebar-contexts' : item.mode === 'chat' ? 'sidebar-chat' : item.mode === 'user' ? 'sidebar-my-entities' : undefined}
+							>
 										<SidebarMenuButton
 											tooltip={{ children: item.title, hidden: false }}
 											onClick={() => {
@@ -729,7 +732,10 @@ export function AppSidebar({
 				<SidebarFooter className="border-t border-sidebar-border">
 					<SidebarMenu>
 						{metaNavItems.map((item) => (
-							<SidebarMenuItem key={item.mode}>
+							<SidebarMenuItem
+								key={item.mode}
+								data-tour={item.mode === 'help' ? 'sidebar-help' : undefined}
+							>
 								<SidebarMenuButton
 									tooltip={{
 										children:
@@ -846,7 +852,7 @@ export function AppSidebar({
 									<PanelLeftOpen className="h-4 w-4" />
 								)}
 							</Button>
-							<LoginSessionButtons />
+							<span data-tour="sidebar-login"><LoginSessionButtons /></span>
 						</div>
 					</div>
 					{currentUserPubkey && (

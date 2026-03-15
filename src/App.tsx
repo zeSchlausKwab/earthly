@@ -1,6 +1,7 @@
 import { GeoEditorView } from './features/geo-editor/GeoEditorView'
 import { useChatSettingsSync } from './features/chat'
 import { Toaster } from './components/ui/sonner'
+import { TourManager } from './features/tour'
 import './index.css'
 
 export function App() {
@@ -10,6 +11,7 @@ export function App() {
 		<>
 			<GeoEditorView />
 			<Toaster position="bottom-right" />
+			<TourManager />
 		</>
 	)
 }

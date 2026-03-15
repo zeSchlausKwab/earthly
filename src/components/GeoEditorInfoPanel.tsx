@@ -31,6 +31,7 @@ import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
 import { EntitySearchPopover, type EntitySearchResult } from './entity-search'
 import type { EditorFeature } from '../features/geo-editor/core'
 import type { BlossomUploadResult } from '../lib/blossom/blossomUpload'
+import { Input } from './ui/input'
 
 type ContextPropertyTypeHint = 'string' | 'number' | 'integer' | 'boolean'
 
@@ -708,7 +709,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 															{validation.featureErrorCount} invalid
 														</span>
 													)}
-													<input
+													<Input
 														type="checkbox"
 														checked
 														onChange={() => toggleContextAttachment(context.coordinate, false)}
@@ -748,7 +749,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 										<span className="truncate text-xs text-gray-700">{context.name}</span>
 										<div className="flex items-center gap-2 shrink-0">
 											<span className="text-[10px] text-gray-500">{context.validationMode}</span>
-											<input
+											<Input
 												type="checkbox"
 												checked={false}
 												onChange={() => toggleContextAttachment(context.coordinate, true)}

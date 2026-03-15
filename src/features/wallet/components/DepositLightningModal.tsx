@@ -11,6 +11,8 @@ import { useNip60Store, nip60Actions } from '@/lib/stores/nip60'
 import { Loader2, Copy, Check, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { QRCodeSVG } from 'qrcode.react'
+import { Input } from '@/components/ui/input'
+import { Label } from '@radix-ui/react-label'
 
 interface DepositLightningModalProps {
 	open: boolean
@@ -104,7 +106,7 @@ export function DepositLightningModal({ open, onClose }: DepositLightningModalPr
 						<div className="space-y-2">
 							<p className="text-sm font-medium">Lightning Invoice</p>
 							<div className="flex gap-2">
-								<input
+								<Input
 									type="text"
 									value={depositInvoice}
 									readOnly
@@ -128,8 +130,8 @@ export function DepositLightningModal({ open, onClose }: DepositLightningModalPr
 				) : (
 					<div className="space-y-4">
 						<div className="space-y-2">
-							<label className="text-sm font-medium">Amount (sats)</label>
-							<input
+							<Label className="text-sm font-medium">Amount (sats)</Label>
+							<Input
 								type="number"
 								value={amount}
 								onChange={(e) => setAmount(e.target.value)}
@@ -140,8 +142,9 @@ export function DepositLightningModal({ open, onClose }: DepositLightningModalPr
 						</div>
 
 						<div className="space-y-2">
-							<label className="text-sm font-medium">Mint</label>
-							<select
+							<Label className="text-sm font-medium">Mint</Label>
+							<Input
+								as="select"
 								value={selectedMint}
 								onChange={(e) => setSelectedMint(e.target.value)}
 								className="w-full px-3 py-2 text-sm border rounded-md bg-background"
@@ -151,7 +154,7 @@ export function DepositLightningModal({ open, onClose }: DepositLightningModalPr
 										{new URL(mint).hostname}
 									</option>
 								))}
-							</select>
+							</Input>
 						</div>
 
 						{depositStatus === 'error' && (

@@ -1364,6 +1364,7 @@ export function GeoEditorView() {
 			<SidebarInset>
 				<div
 					ref={mapContainerRef}
+					data-tour="map-canvas"
 					className="relative h-screen w-full"
 					style={{ height: '100dvh', minHeight: '100svh' }}
 				>
@@ -1692,7 +1693,7 @@ export function GeoEditorView() {
 													>
 														-
 													</Button>
-													<input
+													<Input
 														type="range"
 														min={1}
 														max={6}

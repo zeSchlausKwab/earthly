@@ -39,6 +39,7 @@ import {
 	SimplifyDialog,
 	type ToolbarButton,
 } from './toolbar/index'
+import { Input } from '@/components/ui/input'
 
 interface DatasetActionsProps {
 	onExportGeoJSON?: () => void
@@ -304,7 +305,7 @@ export function Toolbar({
 	}
 
 	const fileInput = (
-		<input
+		<Input
 			type="file"
 			ref={fileInputRef}
 			className="hidden"
@@ -465,7 +466,7 @@ export function Toolbar({
 	// ============================================
 	return (
 		<>
-			<div className="flex flex-col gap-2 pointer-events-auto">
+			<div className="flex flex-col gap-2 pointer-events-auto" data-tour="toolbar">
 				<div className="glass-panel flex flex-wrap items-center gap-1 rounded-lg p-1.5">
 					{/* Row 1: Core editing tools */}
 					<div className="flex items-center gap-1">

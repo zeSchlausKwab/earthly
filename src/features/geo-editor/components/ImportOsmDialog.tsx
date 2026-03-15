@@ -489,7 +489,7 @@ export function ImportOsmDialog({
 							</div>
 							<div className="flex-1 overflow-y-auto border rounded-lg max-h-48">
 								{results.map((r) => (
-									<button
+									<Button
 										key={r.id}
 										type="button"
 										onClick={() => toggleResult(r.id)}
@@ -498,7 +498,7 @@ export function ImportOsmDialog({
 										}`}
 									>
 										<div className="flex items-center gap-2">
-											<input
+											<Input
 												type="checkbox"
 												checked={r.selected}
 												onChange={() => {}}
@@ -509,7 +509,7 @@ export function ImportOsmDialog({
 												<div className="text-xs text-muted-foreground truncate">{r.type}</div>
 											</div>
 										</div>
-									</button>
+									</Button>
 								))}
 							</div>
 						</div>

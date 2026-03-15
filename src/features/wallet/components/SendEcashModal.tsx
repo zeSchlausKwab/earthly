@@ -13,6 +13,8 @@ import { Loader2, Copy, Check, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { QRCodeSVG } from 'qrcode.react'
 import { getMintHostname } from '@/lib/wallet'
+import { Label } from '@radix-ui/react-label'
+import { Input } from '@/components/ui/input'
 
 interface SendEcashModalProps {
 	open: boolean
@@ -172,8 +174,8 @@ export function SendEcashModal({ open, onClose }: SendEcashModalProps) {
 				) : (
 					<div className="space-y-4">
 						<div className="space-y-2">
-							<label className="text-sm font-medium">Amount (sats)</label>
-							<input
+							<Label className="text-sm font-medium">Amount (sats)</Label>
+							<Input
 								type="number"
 								value={amount}
 								onChange={(e) => setAmount(e.target.value)}

@@ -6,6 +6,7 @@ import { DrawButtonGroup } from '@/features/geo-editor/components/toolbar/DrawBu
 import type { EditorFeature, EditorMode } from '@/features/geo-editor/core'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { cn } from '@/lib/utils'
+import { Input } from '@/components/ui/input'
 
 interface EditorSnapshot {
 	features: EditorFeature[]
@@ -383,12 +384,11 @@ export function ChatGeometryAttachment({
 
 				{activeDraftAnnotation && (
 					<div className="mt-2">
-						<input
+						<Input
 							ref={annotationInputRef}
 							value={activeDraftAnnotationText}
 							onChange={(event) => handleAnnotationTextChange(event.target.value)}
 							placeholder="Type label text..."
-							className="border-input bg-background placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 h-8 w-full rounded-md border px-3 text-sm outline-none focus-visible:ring-[3px]"
 						/>
 					</div>
 				)}

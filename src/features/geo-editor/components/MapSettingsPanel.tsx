@@ -548,7 +548,7 @@ export function MapSettingsPanel() {
 											>
 												{mapSource.file ? mapSource.file.name : 'Select File'}
 											</Button>
-											<input
+											<Input
 												type="file"
 												ref={fileInputRef}
 												className="hidden"

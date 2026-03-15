@@ -41,6 +41,7 @@ import {
 	EntityPanelShell,
 	EntityPanelSurface,
 } from '@/components/info-panel/EntityPanelShell'
+import { Checkbox } from '@radix-ui/react-checkbox'
 
 type SchemaFieldType = 'string' | 'number' | 'integer' | 'boolean'
 type ContextEditorTab = 'content' | 'policy' | 'schema'
@@ -879,16 +880,9 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 								<Label>Allowed geometry types</Label>
 								<div className="grid grid-cols-2 gap-2">
 									{MAP_CONTEXT_GEOMETRY_TYPES.map((geometryType) => (
-										<label
-											key={geometryType}
-											className={`flex items-center gap-2 border px-2 py-2 text-[11px] ${
-												validationEnabled
-													? 'border-slate-200 text-slate-700'
-													: 'border-slate-100 bg-slate-50 text-slate-400'
-											}`}
-										>
-											<input
-												type="checkbox"
+										<div key={geometryType}>
+											<Label key={geometryType} />
+											<Checkbox
 												checked={allowedGeometryTypes.includes(geometryType)}
 												disabled={!validationEnabled}
 												onChange={(event) =>
@@ -896,7 +890,7 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 												}
 											/>
 											<span>{geometryType}</span>
-										</label>
+										</div>
 									))}
 								</div>
 							</div>
@@ -1011,8 +1005,8 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 												/>
 											</div>
 											<div className="flex items-center justify-between">
-												<label className="flex items-center gap-1 text-[11px] text-slate-600">
-													<input
+												<Label className="flex items-center gap-1 text-[11px] text-slate-600">
+													<Input
 														type="checkbox"
 														checked={field.required}
 														onChange={(event) => {
@@ -1022,7 +1016,7 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 														}}
 													/>
 													required
-												</label>
+												</Label>
 												<Button
 													size="sm"
 													variant="ghost"
