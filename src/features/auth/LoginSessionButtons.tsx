@@ -122,24 +122,24 @@ export function LoginSessionButtons() {
 				<ButtonGroup>
 					<Tooltip>
 						<TooltipTrigger asChild>
-							<Button variant={'secondary'} onClick={() => setShowSignupDialog(true)}>
+							<Button variant={'default'} size="icon" className="h-10 w-10" onClick={() => setShowSignupDialog(true)}>
 								<KeyRoundIcon className="w-5 h-5" />
-								signup
 							</Button>
 						</TooltipTrigger>
 						<TooltipContent>
-							<p>Create a new nsec.</p>
+							<p className="font-medium">Get a Nostr identity</p>
+							<p className="text-xs text-muted-foreground">Create or import a private key</p>
 						</TooltipContent>
 					</Tooltip>
 					<Tooltip>
 						<TooltipTrigger asChild>
-							<Button variant={'secondary'} onClick={handleNip07Login} disabled={loading}>
+							<Button variant={'default'} size="icon" className="h-10 w-10" onClick={handleNip07Login} disabled={loading}>
 								<AppWindowIcon className="w-5 h-5" />
-								{loading ? 'Logging in...' : 'extension'}
 							</Button>
 						</TooltipTrigger>
 						<TooltipContent>
-							<p>Use your nostr extension.</p>
+							<p className="font-medium">Browser extension</p>
+							<p className="text-xs text-muted-foreground">Sign in with Alby, nos2x, etc.</p>
 						</TooltipContent>
 					</Tooltip>
 					<Tooltip>
@@ -147,15 +147,15 @@ export function LoginSessionButtons() {
 							onLogin={handleNip46Login}
 							trigger={
 								<TooltipTrigger asChild>
-									<Button variant={'secondary'} disabled={loading}>
+									<Button variant={'default'} size="icon" className="h-10 w-10" disabled={loading}>
 										<QrCodeIcon className="w-5 h-5" />
-										{loading ? 'Logging in...' : 'signer'}
 									</Button>
 								</TooltipTrigger>
 							}
 						/>
 						<TooltipContent>
-							<p>Use an external signer.</p>
+							<p className="font-medium">Remote signer</p>
+							<p className="text-xs text-muted-foreground">Use Amber, nsec.app, or a bunker URL</p>
 						</TooltipContent>
 					</Tooltip>
 				</ButtonGroup>
