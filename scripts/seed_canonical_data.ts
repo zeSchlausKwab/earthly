@@ -1389,6 +1389,448 @@ async function seedLiquidPipelines(signer: NDKPrivateKeySigner, pubkey: string) 
   }
 }
 
+// ── Nuclear Power ─────────────────────────────────────────────────────────────
+
+function nuclearStatusColor(status: string): string {
+  switch (status) {
+    case "operating":        return "#22c55e"; // green
+    case "construction":     return "#eab308"; // yellow
+    case "pre-construction": return "#f97316"; // orange
+    case "announced":        return "#60a5fa"; // blue
+    case "retired":          return "#6b7280"; // gray
+    case "cancelled":        return "#ef4444"; // red
+    case "mothballed":       return "#94a3b8"; // slate
+    case "shelved":          return "#a8a29e"; // warm gray
+    default:                 return "#9ca3af";
+  }
+}
+
+function normalizeNuclearProps(p: Record<string, unknown>): Record<string, unknown> {
+  const status = String(p.status ?? "unknown");
+  return {
+    name:        p.name,
+    unit:        p["unit-name"],
+    status,
+    reactorType: p["reactor-type"],
+    capacity:    p.capacity != null ? Number(p.capacity) : undefined,
+    startYear:   p["start-year"],
+    operator:    p.operator,
+    owner:       p.owner,
+    country:     typeof p.areas === "string" ? p.areas.replace(/;$/, "") : undefined,
+    subnat:      p.subnat,
+    region:      p.region,
+    url:         p.url,
+    color:       nuclearStatusColor(status),
+    strokeColor: nuclearStatusColor(status),
+  };
+}
+
+const NUCLEAR_REGION_META: Record<string, { name: string; description: string }> = {
+  Americas: {
+    name: "Nuclear Power — Americas",
+    description:
+      "The United States operates 93 commercial reactors — more than any country on Earth — yet its fleet is aging " +
+      "and no new plant has been completed since the 1990s. Three Mile Island's 1979 partial meltdown defined a " +
+      "generation of policy paralysis. Meanwhile the 'nuclear renaissance' of the 2000s collapsed under cost overruns " +
+      "(Vogtle Units 3&4 came in $17 billion over budget). Brazil's Angra complex and Argentina's CANDU program " +
+      "represent Latin America's small but durable nuclear ambitions. Small modular reactors (SMRs) are the new bet — " +
+      "dozens announced across the hemisphere, none yet operating.",
+  },
+  Asia: {
+    name: "Nuclear Power — Asia",
+    description:
+      "Asia is the center of gravity for nuclear expansion. China is building faster than any country in history — " +
+      "over 20 reactors under construction, with plans for 150 by 2035. Japan shut down nearly its entire fleet after " +
+      "Fukushima Daiichi's 2011 meltdown; restarts remain politically contested. South Korea reversed a phase-out policy " +
+      "after a change of government. India pursues a unique thorium fuel cycle and refuses to sign the NPT. Pakistan's " +
+      "growing fleet — all Chinese-built — mirrors its nuclear weapons program. North Korea's parallel civilian and " +
+      "military programs remain opaque to international inspectors.",
+  },
+  Europe: {
+    name: "Nuclear Power — Europe",
+    description:
+      "Europe is fracturing over nuclear. France generates 70% of its electricity from nuclear — the highest share in " +
+      "the world — but its aging fleet required emergency repairs in 2022, contributing to an energy crisis. Germany " +
+      "permanently shut its last three reactors in 2023, a decision driven by ideology as much as economics. Ukraine's " +
+      "Zaporizhzhia plant — Europe's largest — was seized by Russian forces in March 2022 and remains under military " +
+      "occupation, an unprecedented nuclear safety crisis. Russia's state company ROSATOM is building or operating " +
+      "reactors in 30+ countries, using nuclear contracts as geopolitical leverage. The UK is building Hinkley Point C " +
+      "at record cost, after decades of inaction.",
+  },
+  Africa: {
+    name: "Nuclear Power — Africa",
+    description:
+      "Africa has one operating nuclear power plant: South Africa's Koeberg, commissioned 1984. But the continent " +
+      "contains much of the world's uranium — Niger, Namibia, and South Africa are major producers. France's nuclear " +
+      "sector historically sourced much of its uranium from Niger; the 2023 coup by the junta has upended that supply " +
+      "chain. Egypt, Ghana, Kenya, and Morocco have all signed agreements with ROSATOM or the IAEA to build their " +
+      "first reactors. Africa's electricity deficit — 600 million without grid power — is the argument for nuclear " +
+      "advocates; the capital costs and waste risks are the argument against.",
+  },
+};
+
+async function seedNuclearPower(signer: NDKPrivateKeySigner, pubkey: string) {
+  const filepath = join(BASE_RIPS, "nuclear_power/nuclear-power.geojson");
+  console.log("\n[seed_canonical] === Nuclear Power Plants ===");
+
+  let raw: Feature[];
+  try {
+    raw = JSON.parse(readFileSync(filepath, "utf8")) as Feature[];
+  } catch (err) {
+    console.error("  Failed to load nuclear-power.geojson:", err);
+    return;
+  }
+
+  const contextCoord = await publishContext(
+    signer, pubkey, "nuclear-power",
+    {
+      name: "Nuclear Power Plants — Global Infrastructure",
+      descriptionFormat: "markdown",
+      description: [
+        "## Atoms and Power: The Global Nuclear Fleet",
+        "There are ~440 operating nuclear reactors worldwide, producing about 10% of global electricity. " +
+          "No energy source is more politically charged: it is simultaneously a climate solution, a proliferation risk, " +
+          "a cold war legacy, and a geopolitical tool.",
+        "### Status legend",
+        "- 🟢 **Operating** — currently generating power\n" +
+          "- 🟡 **Construction** — under active construction\n" +
+          "- 🟠 **Pre-construction** — approved, site prep or engineering underway\n" +
+          "- 🔵 **Announced** — publicly committed but not yet approved\n" +
+          "- ⚫ **Retired** — permanently shut down\n" +
+          "- 🔴 **Cancelled** — project abandoned\n" +
+          "- 🩶 **Mothballed / Shelved** — suspended indefinitely",
+        "### The geopolitics",
+        "ROSATOM (Russia) is the world's largest exporter of nuclear technology, building plants in Hungary, Turkey, " +
+          "Egypt, India, Bangladesh, and more. Nuclear contracts create 60-year dependencies — fuel, maintenance, waste — " +
+          "that are as binding as any pipeline. Ukraine's Zaporizhzhia plant, occupied by Russian forces since March 2022, " +
+          "is the first nuclear facility in history to become a war zone.",
+        "### Data source",
+        "Global Nuclear Power Tracker (GNPT) by [Global Energy Monitor](https://globalenergymonitor.org/projects/global-nuclear-power-tracker/). " +
+          "CC-BY 4.0.",
+      ].join("\n\n"),
+      contextUse: "taxonomy",
+      validationMode: "none",
+      allowForeignAttachments: true,
+    },
+    ["nuclear", "energy", "power-plants", "geopolitics", "climate", "nonproliferation"],
+    [-180, -60, 180, 80],
+  );
+
+  const buckets = new Map<string, Feature[]>([
+    ["Americas", []],
+    ["Asia", []],
+    ["Europe", []],
+    ["Africa", []],
+  ]);
+
+  let total = 0;
+  for (const feat of raw) {
+    const props = feat.properties as Record<string, unknown> | null;
+    const region = String(props?.region ?? "");
+    const bucket = buckets.get(region);
+    if (!bucket) continue; // skip unknown regions
+
+    const normalized: Feature = {
+      type: "Feature",
+      geometry: feat.geometry,
+      properties: normalizeNuclearProps(props ?? {}),
+    };
+    bucket.push(normalized);
+    total++;
+  }
+
+  console.log(`  Total: ${total} features`);
+  for (const [region, features] of buckets.entries()) {
+    console.log(`  ${region.padEnd(20)} ${features.length} features`);
+  }
+
+  const MAX_DATASET_KB = 700;
+
+  for (const [region, features] of buckets.entries()) {
+    if (features.length === 0) continue;
+    const meta = NUCLEAR_REGION_META[region]!;
+    const chunks = chunkBySize(features, MAX_DATASET_KB);
+
+    if (chunks.length === 1) {
+      await publishDataset(
+        signer, `nuclear-power-${region.toLowerCase()}`,
+        { type: "FeatureCollection", name: meta.name, description: meta.description, features: chunks[0]! },
+        ["nuclear", "energy", "power-plants", region.toLowerCase()],
+        contextCoord,
+      );
+    } else {
+      console.log(`  ${region}: splitting into ${chunks.length} chunks`);
+      for (let i = 0; i < chunks.length; i++) {
+        const part = i + 1;
+        await publishDataset(
+          signer, `nuclear-power-${region.toLowerCase()}-${part}`,
+          {
+            type: "FeatureCollection",
+            name: `${meta.name} (Part ${part}/${chunks.length})`,
+            description: meta.description,
+            features: chunks[i]!,
+          },
+          ["nuclear", "energy", "power-plants", region.toLowerCase()],
+          contextCoord,
+        );
+      }
+    }
+  }
+}
+
+// ── Airports & Ports ──────────────────────────────────────────────────────────
+
+function airportCategory(type: string): "civil-major" | "civil-regional" | "military" | "spaceport" {
+  if (type === "spaceport") return "spaceport";
+  if (type.includes("military")) return "military";
+  if (type === "major") return "civil-major";
+  return "civil-regional";
+}
+
+function airportColor(cat: string): string {
+  switch (cat) {
+    case "civil-major":    return "#3b82f6";
+    case "civil-regional": return "#38bdf8";
+    case "military":       return "#ef4444";
+    case "spaceport":      return "#8b5cf6";
+    default:               return "#9ca3af";
+  }
+}
+
+function portTier(scalerank: number): "major" | "regional" | "local" {
+  if (scalerank <= 4) return "major";
+  if (scalerank <= 6) return "regional";
+  return "local";
+}
+
+function portColor(tier: string): string {
+  switch (tier) {
+    case "major":    return "#1d4ed8";
+    case "regional": return "#0d9488";
+    case "local":    return "#6b7280";
+    default:         return "#9ca3af";
+  }
+}
+
+async function seedAirports(signer: NDKPrivateKeySigner, pubkey: string) {
+  const filepath = join(BASE_RIPS, "airports/airports.geojson");
+  console.log("\n[seed_canonical] === Airports ===");
+
+  const fc = JSON.parse(readFileSync(filepath, "utf8")) as FeatureCollection;
+
+  const contextCoord = await publishContext(
+    signer, pubkey, "airports",
+    {
+      name: "Airports — Global Air Infrastructure",
+      descriptionFormat: "markdown",
+      description: [
+        "## Runways of Power: Global Airport Infrastructure",
+        "There are roughly 41,000 airports on Earth. This map covers ~900 of the most significant — " +
+          "from megahubs like Dubai DXB and Atlanta ATL that process 90 million passengers a year, " +
+          "to remote military airstrips and the handful of facilities launching humans to space.",
+        "### Types",
+        "- ✈️ **Major civil** — international hubs and high-traffic airports\n" +
+          "- 🛩️ **Regional civil** — mid-size and smaller civilian airports\n" +
+          "- 🪖 **Military** — dedicated military airfields and dual-use civil/military facilities\n" +
+          "- 🚀 **Spaceports** — licensed launch facilities (Kennedy, Baikonur, Guiana Space Centre)",
+        "### The geopolitics",
+        "Airports are forward operating bases, sanctions checkpoints, and power projection tools. " +
+          "US military bases with runways encircle potential adversaries in a strategy of forward presence. " +
+          "China's Belt and Road has funded airport construction from Pakistan to Kenya, generating debate " +
+          "about 'debt trap' infrastructure. The race to build hub airports in the Gulf — Dubai, Doha, Abu Dhabi — " +
+          "is as much about national prestige and regional influence as it is about aviation.",
+        "### Data source",
+        "Natural Earth 10m airports dataset. Public domain.",
+      ].join("\n\n"),
+      contextUse: "taxonomy",
+      validationMode: "none",
+      allowForeignAttachments: true,
+    },
+    ["airports", "aviation", "infrastructure", "military", "transport"],
+    [-180, -80, 180, 80],
+  );
+
+  const AIRPORT_META: Record<string, { name: string; description: string }> = {
+    "civil-major": {
+      name: "Airports — Major International Hubs",
+      description:
+        "The world's major international airports: the Heathrows, Changi's, O'Hares, and Dubai DXBs. " +
+        "These hubs are chokepoints for global mobility — their closures during COVID (2020) revealed " +
+        "how few nodes carry the bulk of world aviation. Many also serve as cargo hubs for the global supply chain.",
+    },
+    "civil-regional": {
+      name: "Airports — Regional & Domestic",
+      description:
+        "Mid-size and regional airports providing domestic and short-haul connectivity. " +
+        "In large countries like the US, Brazil, Russia, and Australia, regional airports are critical " +
+        "for economic access to remote communities — often the only alternative to multi-day road travel.",
+    },
+    military: {
+      name: "Airports — Military & Dual-Use",
+      description:
+        "Military airfields and dual-use civil/military airports. US overseas bases — Ramstein, Yokota, " +
+        "Al Udeid, Diego Garcia — define the geography of American power projection. " +
+        "Russia's bases in Syria (Hmeimim) and its expanding presence in Africa reflect Moscow's own " +
+        "global ambitions. Many 'civilian' airports in China are built to military specifications, " +
+        "capable of rapid conversion to military use.",
+    },
+    spaceport: {
+      name: "Airports — Spaceports",
+      description:
+        "Licensed launch facilities for crewed and uncrewed spaceflight: Kennedy Space Center/Cape Canaveral (US), " +
+        "Baikonur Cosmodrome (Kazakhstan — leased by Russia), and Guiana Space Centre (France). " +
+        "The new commercial spaceport era is expanding this list — Vandenberg, Mahia (New Zealand), and others.",
+    },
+  };
+
+  const buckets = new Map<string, Feature[]>([
+    ["civil-major", []],
+    ["civil-regional", []],
+    ["military", []],
+    ["spaceport", []],
+  ]);
+
+  for (const feat of fc.features) {
+    const p = feat.properties as Record<string, unknown> | null ?? {};
+    const rawType = String(p.type ?? "");
+    const cat = airportCategory(rawType);
+    const color = airportColor(cat);
+
+    buckets.get(cat)!.push({
+      type: "Feature",
+      geometry: feat.geometry,
+      properties: {
+        name:        p.name,
+        iata:        p.iata_code,
+        icao:        p.gps_code,
+        type:        rawType,
+        category:    cat,
+        scalerank:   p.scalerank,
+        wikipedia:   p.wikipedia,
+        color,
+        strokeColor: color,
+      },
+    });
+  }
+
+  for (const [cat, features] of buckets.entries()) {
+    if (features.length === 0) continue;
+    const meta = AIRPORT_META[cat]!;
+    console.log(`  ${cat.padEnd(20)} ${features.length} features`);
+    await publishDataset(
+      signer, `airports-${cat}`,
+      { type: "FeatureCollection", name: meta.name, description: meta.description, features },
+      ["airports", "aviation", cat],
+      contextCoord,
+    );
+  }
+}
+
+async function seedPorts(signer: NDKPrivateKeySigner, pubkey: string) {
+  const filepath = join(BASE_RIPS, "ports/ports.geojson");
+  console.log("\n[seed_canonical] === Ports ===");
+
+  const fc = JSON.parse(readFileSync(filepath, "utf8")) as FeatureCollection;
+
+  const contextCoord = await publishContext(
+    signer, pubkey, "ports",
+    {
+      name: "Seaports — Global Maritime Infrastructure",
+      descriptionFormat: "markdown",
+      description: [
+        "## The Arteries of World Trade: Global Seaports",
+        "Roughly 90% of world trade by volume moves by sea. The ~1,000 ports on this map range from " +
+          "megalith container terminals handling 50 million TEU per year to small regional harbors " +
+          "that are the lifeline of island nations.",
+        "### Size tiers",
+        "- 🔵 **Major** — world's largest container/bulk/energy terminals (Rotterdam, Shanghai, Singapore, Houston)\n" +
+          "- 🩵 **Regional** — significant national and regional ports handling substantial cargo volumes\n" +
+          "- ⚫ **Local** — smaller ports serving coastal and island communities",
+        "### Chokepoints and leverage",
+        "The world's maritime trade routes converge on a handful of narrow straits and canals: " +
+          "Strait of Hormuz (20% of global oil), Strait of Malacca (1/3 of world trade), " +
+          "Suez Canal, Bosphorus, Panama Canal, Bab el-Mandab. " +
+          "Control of or access to these straits — and the ports that anchor them — " +
+          "is a recurring theme in great-power rivalry.",
+        "### China's port strategy",
+        "Through the Maritime Silk Road component of Belt and Road, China has invested in or built " +
+          "port infrastructure in Gwadar (Pakistan), Hambantota (Sri Lanka), Djibouti, Piraeus (Greece), " +
+          "and dozens of other locations. Critics call this 'port as leverage'; China calls it commerce.",
+        "### Data source",
+        "Natural Earth 10m ports dataset. Public domain.",
+      ].join("\n\n"),
+      contextUse: "taxonomy",
+      validationMode: "none",
+      allowForeignAttachments: true,
+    },
+    ["ports", "maritime", "shipping", "trade", "infrastructure", "geopolitics"],
+    [-180, -80, 180, 80],
+  );
+
+  const PORT_META: Record<string, { name: string; description: string }> = {
+    major: {
+      name: "Seaports — Major Global Terminals",
+      description:
+        "The world's largest and busiest seaports — container giants like Shanghai Yangshan, Singapore, " +
+        "Rotterdam, and Long Beach, plus major bulk and energy terminals. These facilities are the nodes " +
+        "where supply chains begin and end. The COVID-era congestion at Los Angeles/Long Beach (2021–22) " +
+        "demonstrated how a single bottlenecked port can reverberate across global manufacturing.",
+    },
+    regional: {
+      name: "Seaports — Regional Hubs",
+      description:
+        "Significant national and regional ports that anchor sub-continental trade flows. " +
+        "These facilities handle commodity exports (grain, coal, iron ore), energy imports (LNG, crude), " +
+        "and provide the secondary distribution layer that feeds major hubs.",
+    },
+    local: {
+      name: "Seaports — Local & Coastal Ports",
+      description:
+        "Smaller ports serving coastal communities, islands, and regional markets. " +
+        "For many island nations and remote coastal communities, these facilities are the only link " +
+        "to external supply chains — making them disproportionately important during disasters and blockades.",
+    },
+  };
+
+  const buckets = new Map<string, Feature[]>([
+    ["major", []],
+    ["regional", []],
+    ["local", []],
+  ]);
+
+  for (const feat of fc.features) {
+    const p = feat.properties as Record<string, unknown> | null ?? {};
+    const scalerank = Number(p.scalerank ?? 8);
+    const tier = portTier(scalerank);
+    const color = portColor(tier);
+
+    buckets.get(tier)!.push({
+      type: "Feature",
+      geometry: feat.geometry,
+      properties: {
+        name:        p.name,
+        website:     p.website,
+        scalerank,
+        tier,
+        color,
+        strokeColor: color,
+      },
+    });
+  }
+
+  for (const [tier, features] of buckets.entries()) {
+    if (features.length === 0) continue;
+    const meta = PORT_META[tier]!;
+    console.log(`  ${tier.padEnd(20)} ${features.length} features`);
+    await publishDataset(
+      signer, `ports-${tier}`,
+      { type: "FeatureCollection", name: meta.name, description: meta.description, features },
+      ["ports", "maritime", "shipping", tier],
+      contextCoord,
+    );
+  }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -1412,6 +1854,9 @@ async function main() {
   if (!onlyArg || onlyArg === "meteorites") await seedMeteoriteLandings(signer, pubkey);
   if (!onlyArg || onlyArg === "gas-pipelines") await seedGasPipelines(signer, pubkey);
   if (!onlyArg || onlyArg === "liquid-pipelines") await seedLiquidPipelines(signer, pubkey);
+  if (!onlyArg || onlyArg === "nuclear-power") await seedNuclearPower(signer, pubkey);
+  if (!onlyArg || onlyArg === "airports") await seedAirports(signer, pubkey);
+  if (!onlyArg || onlyArg === "ports") await seedPorts(signer, pubkey);
 
   console.log("\n[seed_canonical] All done.");
   process.exit(0);
