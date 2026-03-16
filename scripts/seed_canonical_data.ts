@@ -9,11 +9,20 @@
  *   bun scripts/seed_canonical_data.ts ws://localhost:3334
  */
 
-import NDK, { NDKEvent, NDKPrivateKeySigner, type NDKTag } from "@nostr-dev-kit/ndk";
+import NDK, {
+  NDKEvent,
+  NDKPrivateKeySigner,
+  type NDKTag,
+} from "@nostr-dev-kit/ndk";
 import { config } from "dotenv";
 import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
-import type { Feature, FeatureCollection, LineString, MultiLineString } from "geojson";
+import type {
+  Feature,
+  FeatureCollection,
+  LineString,
+  MultiLineString,
+} from "geojson";
 import simplify from "@turf/simplify";
 import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from "@/lib/ndk/kinds";
 import type { MapContextContent } from "@/lib/ndk/NDKMapContextEvent";
@@ -53,12 +62,16 @@ function generateGeohash(lat: number, lon: number, precision = 5): string {
     for (let bit = 0; bit < 5; bit++) {
       if (even) {
         const mid = (lonRange[0] + lonRange[1]) / 2;
-        if (lon >= mid) { ch |= 1 << (4 - bit); lonRange[0] = mid; }
-        else lonRange[1] = mid;
+        if (lon >= mid) {
+          ch |= 1 << (4 - bit);
+          lonRange[0] = mid;
+        } else lonRange[1] = mid;
       } else {
         const mid = (latRange[0] + latRange[1]) / 2;
-        if (lat >= mid) { ch |= 1 << (4 - bit); latRange[0] = mid; }
-        else latRange[1] = mid;
+        if (lat >= mid) {
+          ch |= 1 << (4 - bit);
+          latRange[0] = mid;
+        } else latRange[1] = mid;
       }
       even = !even;
     }
@@ -68,7 +81,10 @@ function generateGeohash(lat: number, lon: number, precision = 5): string {
 }
 
 function bboxFromFeatures(features: Feature[]): BoundingBox {
-  let west = 180, east = -180, south = 90, north = -90;
+  let west = 180,
+    east = -180,
+    south = 90,
+    north = -90;
   for (const f of features) {
     const coords = flatCoords(f.geometry);
     for (const [lon, lat] of coords) {
@@ -85,15 +101,23 @@ function bboxFromFeatures(features: Feature[]): BoundingBox {
 function flatCoords(geometry: any): [number, number][] {
   if (!geometry) return [];
   const valid = (c: unknown): c is [number, number] =>
-    Array.isArray(c) && c.length >= 2 && typeof c[0] === "number" && typeof c[1] === "number";
+    Array.isArray(c) &&
+    c.length >= 2 &&
+    typeof c[0] === "number" &&
+    typeof c[1] === "number";
   switch (geometry.type) {
-    case "Point": return valid(geometry.coordinates) ? [geometry.coordinates] : [];
+    case "Point":
+      return valid(geometry.coordinates) ? [geometry.coordinates] : [];
     case "MultiPoint":
-    case "LineString": return (geometry.coordinates ?? []).filter(valid);
+    case "LineString":
+      return (geometry.coordinates ?? []).filter(valid);
     case "MultiLineString":
-    case "Polygon": return (geometry.coordinates ?? []).flat(1).filter(valid);
-    case "MultiPolygon": return (geometry.coordinates ?? []).flat(2).filter(valid);
-    default: return [];
+    case "Polygon":
+      return (geometry.coordinates ?? []).flat(1).filter(valid);
+    case "MultiPolygon":
+      return (geometry.coordinates ?? []).flat(2).filter(valid);
+    default:
+      return [];
   }
 }
 
@@ -168,7 +192,9 @@ async function publishDataset(
 
   await event.sign(signer);
   await event.publish();
-  console.log(`  [dataset] ${datasetId} — ${fc.features.length} features, ~${sizeKB}KB`);
+  console.log(
+    `  [dataset] ${datasetId} — ${fc.features.length} features, ~${sizeKB}KB`,
+  );
 }
 
 // ── Sea Cables ────────────────────────────────────────────────────────────────
@@ -176,7 +202,8 @@ async function publishDataset(
 function classifyCable(lon: number, lat: number): string {
   if (lat >= 54 && lon >= 5 && lon <= 35) return "north-europe";
   if (lat >= 65) return "north-europe";
-  if (lon >= -15 && lon <= 45 && lat >= 28 && lat <= 65) return "europe-mediterranean";
+  if (lon >= -15 && lon <= 45 && lat >= 28 && lat <= 65)
+    return "europe-mediterranean";
   if (lon >= 30 && lon <= 115 && lat >= -55 && lat <= 30) return "indian-ocean";
   if (lon > 115 && lat >= -15) return "asia-pacific";
   if (lon > 115 && lat < -15) return "south-pacific";
@@ -185,67 +212,76 @@ function classifyCable(lon: number, lat: number): string {
   return "atlantic";
 }
 
-const CABLE_REGION_META: Record<string, { name: string; description: string }> = {
-  atlantic: {
-    name: "Submarine Cables — Atlantic Ocean",
-    description:
-      "Transatlantic submarine cables connecting North America, Europe, South America, and West Africa. " +
-      "Includes major trunk routes such as TAT-14, FLAG Atlantic-1, AEConnect, and the Google/Meta-owned private cable systems.",
-  },
-  "europe-mediterranean": {
-    name: "Submarine Cables — Europe & Mediterranean",
-    description:
-      "Submarine cables within and surrounding the European seas: the Mediterranean, Adriatic, Black Sea, " +
-      "English Channel, and North Sea. Includes cross-Mediterranean links, intra-EU island connections, and the Middle East gateway cables.",
-  },
-  "north-europe": {
-    name: "Submarine Cables — Northern Europe",
-    description:
-      "Short-range cables in the Baltic Sea, Norwegian Sea, and surrounding Nordic waters. " +
-      "Connects Denmark, Sweden, Finland, Estonia, Latvia, Lithuania, and the UK across narrow straits.",
-  },
-  "indian-ocean": {
-    name: "Submarine Cables — Indian Ocean",
-    description:
-      "Cables spanning the Indian Ocean, Red Sea, Persian Gulf, and Arabian Sea. " +
-      "Critical routes for South Asia, East Africa, and the Middle East, including SEA-ME-WE systems and SEACOM.",
-  },
-  "asia-pacific": {
-    name: "Submarine Cables — Asia-Pacific",
-    description:
-      "Cables in East and Southeast Asia — connecting China, Japan, South Korea, the Philippines, " +
-      "Singapore, and broader Pacific island nations. Includes the densely cabled South China Sea region.",
-  },
-  "south-pacific": {
-    name: "Submarine Cables — South Pacific & Oceania",
-    description:
-      "Cables serving Australia, New Zealand, and the Pacific island nations. " +
-      "Includes the Southern Cross, Hawaiki, and NEXT systems as well as smaller inter-island links.",
-  },
-  pacific: {
-    name: "Submarine Cables — Transpacific",
-    description:
-      "Long-haul transpacific cables connecting the US West Coast to Asia and Oceania. " +
-      "Includes Pacific Light Cable Network, Faster, JUPITER, and other major US–Asia routes via Hawaii and Guam.",
-  },
-  americas: {
-    name: "Submarine Cables — Americas",
-    description:
-      "Regional cables within the Americas: the Caribbean island network, Gulf of Mexico links, " +
-      "and the South American coastal festoon cables. Includes the dense Caribbean inter-island topology.",
-  },
-};
+const CABLE_REGION_META: Record<string, { name: string; description: string }> =
+  {
+    atlantic: {
+      name: "Submarine Cables — Atlantic Ocean",
+      description:
+        "Transatlantic submarine cables connecting North America, Europe, South America, and West Africa. " +
+        "Includes major trunk routes such as TAT-14, FLAG Atlantic-1, AEConnect, and the Google/Meta-owned private cable systems.",
+    },
+    "europe-mediterranean": {
+      name: "Submarine Cables — Europe & Mediterranean",
+      description:
+        "Submarine cables within and surrounding the European seas: the Mediterranean, Adriatic, Black Sea, " +
+        "English Channel, and North Sea. Includes cross-Mediterranean links, intra-EU island connections, and the Middle East gateway cables.",
+    },
+    "north-europe": {
+      name: "Submarine Cables — Northern Europe",
+      description:
+        "Short-range cables in the Baltic Sea, Norwegian Sea, and surrounding Nordic waters. " +
+        "Connects Denmark, Sweden, Finland, Estonia, Latvia, Lithuania, and the UK across narrow straits.",
+    },
+    "indian-ocean": {
+      name: "Submarine Cables — Indian Ocean",
+      description:
+        "Cables spanning the Indian Ocean, Red Sea, Persian Gulf, and Arabian Sea. " +
+        "Critical routes for South Asia, East Africa, and the Middle East, including SEA-ME-WE systems and SEACOM.",
+    },
+    "asia-pacific": {
+      name: "Submarine Cables — Asia-Pacific",
+      description:
+        "Cables in East and Southeast Asia — connecting China, Japan, South Korea, the Philippines, " +
+        "Singapore, and broader Pacific island nations. Includes the densely cabled South China Sea region.",
+    },
+    "south-pacific": {
+      name: "Submarine Cables — South Pacific & Oceania",
+      description:
+        "Cables serving Australia, New Zealand, and the Pacific island nations. " +
+        "Includes the Southern Cross, Hawaiki, and NEXT systems as well as smaller inter-island links.",
+    },
+    pacific: {
+      name: "Submarine Cables — Transpacific",
+      description:
+        "Long-haul transpacific cables connecting the US West Coast to Asia and Oceania. " +
+        "Includes Pacific Light Cable Network, Faster, JUPITER, and other major US–Asia routes via Hawaii and Guam.",
+    },
+    americas: {
+      name: "Submarine Cables — Americas",
+      description:
+        "Regional cables within the Americas: the Caribbean island network, Gulf of Mexico links, " +
+        "and the South American coastal festoon cables. Includes the dense Caribbean inter-island topology.",
+    },
+  };
 
 async function seedSeaCables(signer: NDKPrivateKeySigner, pubkey: string) {
   const dir = join(BASE_RIPS, "sea_cables");
   console.log("\n[seed_canonical] === Sea Cables ===");
 
-  const cablesGeo = JSON.parse(readFileSync(join(dir, "cables.geojson"), "utf8")) as FeatureCollection;
-  const landingGeo = JSON.parse(readFileSync(join(dir, "landing_points.geojson"), "utf8")) as FeatureCollection;
-  console.log(`  Loaded: ${cablesGeo.features.length} cables, ${landingGeo.features.length} landing points`);
+  const cablesGeo = JSON.parse(
+    readFileSync(join(dir, "cables.geojson"), "utf8"),
+  ) as FeatureCollection;
+  const landingGeo = JSON.parse(
+    readFileSync(join(dir, "landing_points.geojson"), "utf8"),
+  ) as FeatureCollection;
+  console.log(
+    `  Loaded: ${cablesGeo.features.length} cables, ${landingGeo.features.length} landing points`,
+  );
 
   const contextCoord = await publishContext(
-    signer, pubkey, "sea-cables",
+    signer,
+    pubkey,
+    "sea-cables",
     {
       name: "Submarine Cable Map",
       descriptionFormat: "markdown",
@@ -262,7 +298,13 @@ async function seedSeaCables(signer: NDKPrivateKeySigner, pubkey: string) {
       validationMode: "none",
       allowForeignAttachments: true,
     },
-    ["submarine-cables", "internet-infrastructure", "telecommunications", "geojson", "global"],
+    [
+      "submarine-cables",
+      "internet-infrastructure",
+      "telecommunications",
+      "geojson",
+      "global",
+    ],
     [-180, -55, 180, 79],
   );
 
@@ -280,14 +322,23 @@ async function seedSeaCables(signer: NDKPrivateKeySigner, pubkey: string) {
       name: `Submarine Cables — ${region}`,
       description: `Submarine cable systems in the ${region} region.`,
     };
-    await publishDataset(signer, `cables-${region}`,
-      { type: "FeatureCollection", name: meta.name, description: meta.description, features },
+    await publishDataset(
+      signer,
+      `cables-${region}`,
+      {
+        type: "FeatureCollection",
+        name: meta.name,
+        description: meta.description,
+        features,
+      },
       ["submarine-cables", "internet-infrastructure", region],
       contextCoord,
     );
   }
 
-  await publishDataset(signer, "cable-landing-points",
+  await publishDataset(
+    signer,
+    "cable-landing-points",
     {
       type: "FeatureCollection",
       name: "Submarine Cable Landing Stations",
@@ -299,7 +350,12 @@ async function seedSeaCables(signer: NDKPrivateKeySigner, pubkey: string) {
       ].join("\n\n"),
       features: landingGeo.features,
     },
-    ["submarine-cables", "landing-stations", "internet-infrastructure", "global"],
+    [
+      "submarine-cables",
+      "landing-stations",
+      "internet-infrastructure",
+      "global",
+    ],
     contextCoord,
   );
 }
@@ -326,8 +382,10 @@ function parseMeteorites(csvPath: string): MeteoriteRecord[] {
     let inQuotes = false;
     for (const ch of line) {
       if (ch === '"') inQuotes = !inQuotes;
-      else if (ch === "," && !inQuotes) { result.push(cur); cur = ""; }
-      else cur += ch;
+      else if (ch === "," && !inQuotes) {
+        result.push(cur);
+        cur = "";
+      } else cur += ch;
     }
     result.push(cur);
     return result;
@@ -396,7 +454,11 @@ function classifyMeteorite(lon: number, lat: number): string | null {
  * Uses the standard 3-letter site prefix from the meteorite name.
  */
 function classifyAntarctic(name: string): string {
-  const prefix = name.match(/^([A-Za-z]+)/)?.[1]?.toUpperCase().slice(0, 3) ?? "";
+  const prefix =
+    name
+      .match(/^([A-Za-z]+)/)?.[1]
+      ?.toUpperCase()
+      .slice(0, 3) ?? "";
   if (prefix === "YAM") return "yamato";
   if (prefix === "QUE") return "queen-alexandra";
   if (prefix === "GRO") return "grosvenor";
@@ -407,7 +469,10 @@ function classifyAntarctic(name: string): string {
 }
 
 // biome-ignore lint/suspicious/noUnusedVars: used via index
-const METEORITE_DATASET_META: Record<string, { name: string; description: string; hashtags: string[] }> = {
+const METEORITE_DATASET_META: Record<
+  string,
+  { name: string; description: string; hashtags: string[] }
+> = {
   // Thematic
   "witnessed-falls": {
     name: "Meteorite Witnessed Falls — Global",
@@ -559,17 +624,24 @@ const METEORITE_DATASET_META: Record<string, { name: string; description: string
   },
 };
 
-async function seedMeteoriteLandings(signer: NDKPrivateKeySigner, pubkey: string) {
+async function seedMeteoriteLandings(
+  signer: NDKPrivateKeySigner,
+  pubkey: string,
+) {
   console.log("\n[seed_canonical] === Meteorite Landings ===");
 
   const csvPath = join(BASE_RIPS, "meteorite_landings/Meteorite_Landings.csv");
   const records = parseMeteorites(csvPath);
-  console.log(`  Loaded: ${records.length} valid records (after filtering null coords)`);
+  console.log(
+    `  Loaded: ${records.length} valid records (after filtering null coords)`,
+  );
 
   // ── Publish context ──────────────────────────────────────────────────────
 
   const contextCoord = await publishContext(
-    signer, pubkey, "meteorite-landings",
+    signer,
+    pubkey,
+    "meteorite-landings",
     {
       name: "Meteorite Landings",
       descriptionFormat: "markdown",
@@ -626,11 +698,16 @@ async function seedMeteoriteLandings(signer: NDKPrivateKeySigner, pubkey: string
     if (r.lat < -60) {
       // Antarctic
       const site = classifyAntarctic(r.name);
-      worldBuckets.get(`ant-${site}`)?.push(r) ?? worldBuckets.get("ant-other-sites")!.push(r);
+      worldBuckets.get(`ant-${site}`)?.push(r) ??
+        worldBuckets.get("ant-other-sites")!.push(r);
     } else {
       // World region
       const region = classifyMeteorite(r.lon, r.lat);
-      if (region === "europe" || region === "subsahara" || region === "asia-pacific") {
+      if (
+        region === "europe" ||
+        region === "subsahara" ||
+        region === "asia-pacific"
+      ) {
         worldBuckets.get("world-rest")!.push(r);
       } else if (region) {
         worldBuckets.get(`world-${region}`)!.push(r);
@@ -646,7 +723,9 @@ async function seedMeteoriteLandings(signer: NDKPrivateKeySigner, pubkey: string
 
   // ── Split Yamato in half (too large as one dataset) ──────────────────────
 
-  const yamato = worldBuckets.get("ant-yamato")!.sort((a, b) => a.name.localeCompare(b.name));
+  const yamato = worldBuckets
+    .get("ant-yamato")!
+    .sort((a, b) => a.name.localeCompare(b.name));
   const midpoint = Math.ceil(yamato.length / 2);
   const yamatoI = yamato.slice(0, midpoint);
   const yamatoII = yamato.slice(midpoint);
@@ -655,10 +734,20 @@ async function seedMeteoriteLandings(signer: NDKPrivateKeySigner, pubkey: string
   // ── Publish all datasets ──────────────────────────────────────────────────
 
   // Yamato split first
-  for (const [suffix, recs] of [["ant-yamato-i", yamatoI], ["ant-yamato-ii", yamatoII]] as const) {
+  for (const [suffix, recs] of [
+    ["ant-yamato-i", yamatoI],
+    ["ant-yamato-ii", yamatoII],
+  ] as const) {
     const meta = METEORITE_DATASET_META[suffix]!;
-    await publishDataset(signer, `meteorites-${suffix}`,
-      { type: "FeatureCollection", name: meta.name, description: meta.description, features: recs.map(meteoriteToFeature) },
+    await publishDataset(
+      signer,
+      `meteorites-${suffix}`,
+      {
+        type: "FeatureCollection",
+        name: meta.name,
+        description: meta.description,
+        features: recs.map(meteoriteToFeature),
+      },
       meta.hashtags,
       contextCoord,
     );
@@ -672,8 +761,15 @@ async function seedMeteoriteLandings(signer: NDKPrivateKeySigner, pubkey: string
       console.warn(`  [warn] No meta for bucket: ${key}`);
       continue;
     }
-    await publishDataset(signer, `meteorites-${key}`,
-      { type: "FeatureCollection", name: meta.name, description: meta.description, features: recs.map(meteoriteToFeature) },
+    await publishDataset(
+      signer,
+      `meteorites-${key}`,
+      {
+        type: "FeatureCollection",
+        name: meta.name,
+        description: meta.description,
+        features: recs.map(meteoriteToFeature),
+      },
       meta.hashtags,
       contextCoord,
     );
@@ -692,13 +788,22 @@ async function seedMeteoriteLandings(signer: NDKPrivateKeySigner, pubkey: string
  * Stroke follows the simplestyle-spec for MapLibre compatibility.
  */
 // biome-ignore lint/suspicious/noExplicitAny: raw geojson props
-function inferPipelineSource(raw: Record<string, any> | null): { source: string; stroke: string } {
-  if (!raw || Object.keys(raw).length === 0) return { source: "unknown", stroke: "#9ca3af" };
+function inferPipelineSource(raw: Record<string, any> | null): {
+  source: string;
+  stroke: string;
+} {
+  if (!raw || Object.keys(raw).length === 0)
+    return { source: "unknown", stroke: "#9ca3af" };
   if (raw.ProjectID || raw.Product || raw.PrjType || raw.Res || raw.Capacity)
     return { source: "GOIT", stroke: "#3b82f6" }; // blue — Global Energy Monitor GOIT
   if (raw.COMP_NAME || raw.LICENCE_NO || raw.SEG_LENGTH || raw.PIPE_GRADE)
     return { source: "Canada-NEB", stroke: "#14b8a6" }; // teal — Canada NEB
-  if (raw.PIPE_NAME || raw.FEATUREID || raw.ACTUALINTE || raw.ACTUALINTERNALDIAMETER)
+  if (
+    raw.PIPE_NAME ||
+    raw.FEATUREID ||
+    raw.ACTUALINTE ||
+    raw.ACTUALINTERNALDIAMETER
+  )
     return { source: "UK-NTS", stroke: "#8b5cf6" }; // violet — UK National Transmission System
   if (raw.OPERATOR || raw.Shape__Length || raw.COUNTY || raw.TYPEPIPE)
     return { source: "US-FERC-EIA", stroke: "#22c55e" }; // green — US FERC/EIA
@@ -712,30 +817,52 @@ function inferPipelineSource(raw: Record<string, any> | null): { source: string;
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: raw geojson props
-function normalizePipelineProps(raw: Record<string, any> | null): Record<string, unknown> {
+function normalizePipelineProps(
+  raw: Record<string, any> | null,
+): Record<string, unknown> {
   if (!raw) return { stroke: "#9ca3af", source: "unknown" };
   const p: Record<string, unknown> = {};
 
   // source registry + color (LayerManager uses ['get', 'color'] for line-color)
   const { source, stroke } = inferPipelineSource(raw);
   p.source = source;
-  p.color = stroke;       // primary: LayerManager coalesces strokeColor → color
+  p.color = stroke; // primary: LayerManager coalesces strokeColor → color
   p.strokeColor = stroke; // fallback
 
   // source_id
-  const srcId = raw.id ?? raw.ProjectID ?? raw.LICENCE_NO ?? raw.osm_id ?? raw.geo_point_2d ?? null;
+  const srcId =
+    raw.id ??
+    raw.ProjectID ??
+    raw.LICENCE_NO ??
+    raw.osm_id ??
+    raw.geo_point_2d ??
+    null;
   if (srcId != null) p.source_id = String(srcId);
 
   // name
-  const name = raw.name ?? raw.NAME ?? raw.PIPE_NAME ?? raw.nombre ?? raw.COMP_NAME ?? raw.Gasoducto ?? null;
+  const name =
+    raw.name ??
+    raw.NAME ??
+    raw.PIPE_NAME ??
+    raw.nombre ??
+    raw.COMP_NAME ??
+    raw.Gasoducto ??
+    null;
   if (name && typeof name === "string" && name.trim()) p.name = name.trim();
 
   // operator
-  const op = raw.operator ?? raw.OPERATOR ?? raw.OWNER ?? raw.COMP_NAME ?? raw.Operator ?? null;
+  const op =
+    raw.operator ??
+    raw.OPERATOR ??
+    raw.OWNER ??
+    raw.COMP_NAME ??
+    raw.Operator ??
+    null;
   if (op && typeof op === "string" && op.trim()) p.operator = op.trim();
 
   // status
-  const status = raw.STATUS ?? raw.SEG_STATUS ?? raw.State ?? raw.status ?? null;
+  const status =
+    raw.STATUS ?? raw.SEG_STATUS ?? raw.State ?? raw.status ?? null;
   if (status != null) p.status = String(status).trim();
 
   // substance
@@ -747,7 +874,8 @@ function normalizePipelineProps(raw: Record<string, any> | null): Record<string,
   if (typeof raw.Length === "number" && raw.Units) {
     const units = String(raw.Units).toLowerCase();
     if (units === "km") lengthKm = raw.Length;
-    else if (units === "miles" || units === "mi") lengthKm = raw.Length * 1.60934;
+    else if (units === "miles" || units === "mi")
+      lengthKm = raw.Length * 1.60934;
     else if (units === "m") lengthKm = raw.Length / 1000;
     else lengthKm = raw.Length; // assume km
   } else if (typeof raw.SEG_LENGTH === "number") {
@@ -756,14 +884,16 @@ function normalizePipelineProps(raw: Record<string, any> | null): Record<string,
   } else if (typeof raw.Shape__Length === "number") {
     // US FERC/EIA is in degrees (approx), skip — not reliable
   }
-  if (lengthKm !== null && lengthKm > 0) p.length_km = Math.round(lengthKm * 10) / 10;
+  if (lengthKm !== null && lengthKm > 0)
+    p.length_km = Math.round(lengthKm * 10) / 10;
 
   // diameter_mm — various units
   let diamMm: number | null = null;
   if (typeof raw.Diameter === "number") {
     const units = String(raw.Units ?? "").toLowerCase();
     // GOIT: sometimes inches, sometimes mm — check magnitude
-    if (raw.Diameter < 100) diamMm = raw.Diameter * 25.4; // assume inches
+    if (raw.Diameter < 100)
+      diamMm = raw.Diameter * 25.4; // assume inches
     else diamMm = raw.Diameter; // assume mm
   } else if (typeof raw.OUT_DIAMET === "number") {
     // Canada NEB: mm
@@ -773,7 +903,8 @@ function normalizePipelineProps(raw: Record<string, any> | null): Record<string,
 
   // country / admin
   const country = raw.country ?? raw.STATE ?? raw.COUNTY ?? null;
-  if (country && typeof country === "string" && country.trim()) p.country = country.trim();
+  if (country && typeof country === "string" && country.trim())
+    p.country = country.trim();
 
   return p;
 }
@@ -783,7 +914,10 @@ function normalizePipelineProps(raw: Record<string, any> | null): Record<string,
  * OSM data captures local distribution in fine detail (especially France, UK) — apply stricter
  * thresholds there. GOIT/NEB/FERC are curated transmission datasets; keep them with looser rules.
  */
-function isPipelineSignificant(props: Record<string, unknown>, n: number): boolean {
+function isPipelineSignificant(
+  props: Record<string, unknown>,
+  n: number,
+): boolean {
   if (n < 3) return false;
 
   if (props.source === "OpenStreetMap") {
@@ -813,7 +947,8 @@ function isPipelineSignificant(props: Record<string, unknown>, n: number): boole
 function simplifyPipeline(feature: Feature): Feature {
   const geom = feature.geometry as LineString | MultiLineString | null;
   if (!geom) return feature;
-  if (geom.type !== "LineString" && geom.type !== "MultiLineString") return feature;
+  if (geom.type !== "LineString" && geom.type !== "MultiLineString")
+    return feature;
 
   // Count coordinates
   let coordCount = 0;
@@ -830,7 +965,10 @@ function simplifyPipeline(feature: Feature): Feature {
   else tolerance = 0.0001; // minimal simplification for small pipelines
 
   try {
-    return simplify(feature as Feature<LineString | MultiLineString>, { tolerance, highQuality: false }) as Feature;
+    return simplify(feature as Feature<LineString | MultiLineString>, {
+      tolerance,
+      highQuality: false,
+    }) as Feature;
   } catch {
     return feature;
   }
@@ -842,8 +980,10 @@ function simplifyPipeline(feature: Feature): Feature {
 function classifyPipelineRegion(lon: number, lat: number): string {
   if (lon >= -170 && lon <= -30 && lat >= -60 && lat <= 75) return "americas";
   if (lon >= -15 && lon <= 40 && lat >= 35 && lat <= 72) return "europe";
-  if (lon >= 40 && lon <= 180 && lat >= 45 && lat <= 80) return "russia-central-asia";
-  if (lon >= -20 && lon <= 60 && lat >= -40 && lat <= 45) return "middle-east-africa";
+  if (lon >= 40 && lon <= 180 && lat >= 45 && lat <= 80)
+    return "russia-central-asia";
+  if (lon >= -20 && lon <= 60 && lat >= -40 && lat <= 45)
+    return "middle-east-africa";
   if (lon >= 60 && lon <= 180 && lat >= -50 && lat <= 45) return "asia-pacific";
   // Fallback: use longitude quadrant
   if (lon < 0) return "americas";
@@ -851,7 +991,10 @@ function classifyPipelineRegion(lon: number, lat: number): string {
   return "asia-pacific";
 }
 
-const GAS_PIPELINE_REGION_META: Record<string, { name: string; description: string }> = {
+const GAS_PIPELINE_REGION_META: Record<
+  string,
+  { name: string; description: string }
+> = {
   americas: {
     name: "Gas Pipelines — Americas",
     description: [
@@ -937,7 +1080,9 @@ async function seedGasPipelines(signer: NDKPrivateKeySigner, pubkey: string) {
   console.log(`  Loading ${allFiles.length} files...`);
 
   const contextCoord = await publishContext(
-    signer, pubkey, "gas-pipelines",
+    signer,
+    pubkey,
+    "gas-pipelines",
     {
       name: "Gas Pipelines — Geopolitical Infrastructure",
       descriptionFormat: "markdown",
@@ -972,7 +1117,15 @@ async function seedGasPipelines(signer: NDKPrivateKeySigner, pubkey: string) {
       validationMode: "none",
       allowForeignAttachments: true,
     },
-    ["gas-pipelines", "energy-security", "geopolitics", "russia", "lng", "fossil-fuels", "climate"],
+    [
+      "gas-pipelines",
+      "energy-security",
+      "geopolitics",
+      "russia",
+      "lng",
+      "fossil-fuels",
+      "climate",
+    ],
     [-180, -60, 180, 80],
   );
 
@@ -1044,7 +1197,9 @@ async function seedGasPipelines(signer: NDKPrivateKeySigner, pubkey: string) {
     for (const feat of geo.features) {
       if (!feat.geometry) continue;
       const simplified = simplifyPipeline(feat);
-      const normalizedProps = normalizePipelineProps(feat.properties as Record<string, unknown> | null);
+      const normalizedProps = normalizePipelineProps(
+        feat.properties as Record<string, unknown> | null,
+      );
 
       // Count coords in simplified geometry for significance check
       const geom = simplified.geometry as LineString | MultiLineString | null;
@@ -1066,12 +1221,16 @@ async function seedGasPipelines(signer: NDKPrivateKeySigner, pubkey: string) {
     }
   }
 
-  console.log(`  Loaded: ${loadedFiles} files, ${totalFeatures} features (skipped: ${skippedFiles})`);
+  console.log(
+    `  Loaded: ${loadedFiles} files, ${totalFeatures} features (skipped: ${skippedFiles})`,
+  );
 
   // Log bucket sizes
   for (const [region, features] of buckets.entries()) {
     const rawKB = Math.round(JSON.stringify(features).length / 1024);
-    console.log(`  ${region.padEnd(28)} ${features.length} features ~${rawKB}KB`);
+    console.log(
+      `  ${region.padEnd(28)} ${features.length} features ~${rawKB}KB`,
+    );
   }
 
   // ── Publish each region (chunked if needed) ──────────────────────────────
@@ -1087,7 +1246,12 @@ async function seedGasPipelines(signer: NDKPrivateKeySigner, pubkey: string) {
       await publishDataset(
         signer,
         `gas-pipelines-${region}`,
-        { type: "FeatureCollection", name: meta.name, description: meta.description, features: chunks[0]! },
+        {
+          type: "FeatureCollection",
+          name: meta.name,
+          description: meta.description,
+          features: chunks[0]!,
+        },
         ["gas-pipelines", "energy-infrastructure", region],
         contextCoord,
       );
@@ -1115,9 +1279,19 @@ async function seedGasPipelines(signer: NDKPrivateKeySigner, pubkey: string) {
 // ── Liquid Pipelines ──────────────────────────────────────────────────────────
 
 // biome-ignore lint/suspicious/noExplicitAny: raw geojson props
-function inferLiquidSource(raw: Record<string, any> | null): { source: string; color: string } {
-  if (!raw || Object.keys(raw).length === 0) return { source: "unknown", color: "#9ca3af" };
-  if (raw.NPMS_SYS_I || raw.CMDTY_DESC || raw.OPER_NM || raw.SYSTYPE || raw.STATUS_CD)
+function inferLiquidSource(raw: Record<string, any> | null): {
+  source: string;
+  color: string;
+} {
+  if (!raw || Object.keys(raw).length === 0)
+    return { source: "unknown", color: "#9ca3af" };
+  if (
+    raw.NPMS_SYS_I ||
+    raw.CMDTY_DESC ||
+    raw.OPER_NM ||
+    raw.SYSTYPE ||
+    raw.STATUS_CD
+  )
     return { source: "US-NPMS", color: "#22c55e" }; // green — US NPMS/FERC federal registry
   if (raw.CompanyCode || raw.BusinessUnitCL)
     return { source: "US-NGL", color: "#3b82f6" }; // blue — US/Canada NGL corporate GIS
@@ -1137,8 +1311,11 @@ function inferLiquidSource(raw: Record<string, any> | null): { source: string; c
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: raw geojson props
-function normalizeLiquidProps(raw: Record<string, any> | null): Record<string, unknown> {
-  if (!raw) return { color: "#9ca3af", strokeColor: "#9ca3af", source: "unknown" };
+function normalizeLiquidProps(
+  raw: Record<string, any> | null,
+): Record<string, unknown> {
+  if (!raw)
+    return { color: "#9ca3af", strokeColor: "#9ca3af", source: "unknown" };
   const p: Record<string, unknown> = {};
 
   const { source, color } = inferLiquidSource(raw);
@@ -1147,19 +1324,40 @@ function normalizeLiquidProps(raw: Record<string, any> | null): Record<string, u
   p.strokeColor = color;
 
   // name
-  const name = raw.name ?? raw.PIPE_NAME ?? raw.Pipel_Name ?? raw.DUCTO ?? raw.SYS_NM ?? raw.SUBSYS_NM ?? null;
+  const name =
+    raw.name ??
+    raw.PIPE_NAME ??
+    raw.Pipel_Name ??
+    raw.DUCTO ??
+    raw.SYS_NM ??
+    raw.SUBSYS_NM ??
+    null;
   if (name && typeof name === "string" && name.trim()) p.name = name.trim();
 
   // operator
-  const op = raw.operator ?? raw.CompanyCode ?? raw.OPER_NM ?? raw.EMPRESA ?? raw.OWNER ?? raw.OPERATOR ?? null;
+  const op =
+    raw.operator ??
+    raw.CompanyCode ??
+    raw.OPER_NM ??
+    raw.EMPRESA ??
+    raw.OWNER ??
+    raw.OPERATOR ??
+    null;
   if (op && typeof op === "string" && op.trim()) p.operator = op.trim();
 
   // substance / product
-  const sub = raw.substance ?? raw.CMDTY_DESC ?? raw.COMMODITY1 ?? raw.CONTENT ?? raw.TIPO_DUCTO ?? null;
+  const sub =
+    raw.substance ??
+    raw.CMDTY_DESC ??
+    raw.COMMODITY1 ??
+    raw.CONTENT ??
+    raw.TIPO_DUCTO ??
+    null;
   if (sub && typeof sub === "string" && sub.trim()) p.substance = sub.trim();
 
   // status
-  const status = raw.STATUS_CD ?? raw.STATUS ?? raw.ESTADO ?? raw.status ?? null;
+  const status =
+    raw.STATUS_CD ?? raw.STATUS ?? raw.ESTADO ?? raw.status ?? null;
   if (status != null) p.status = String(status).trim();
 
   // length_km
@@ -1167,12 +1365,14 @@ function normalizeLiquidProps(raw: Record<string, any> | null): Record<string, u
   if (typeof raw.LENGTH_km === "number") lengthKm = raw.LENGTH_km;
   else if (typeof raw.LGTH_KM === "number") lengthKm = raw.LGTH_KM;
   else if (typeof raw.LENGTH === "number") lengthKm = raw.LENGTH;
-  if (lengthKm !== null && lengthKm > 0) p.length_km = Math.round(lengthKm * 10) / 10;
+  if (lengthKm !== null && lengthKm > 0)
+    p.length_km = Math.round(lengthKm * 10) / 10;
 
   // diameter
   const rawDiam = raw.OUTER_DIA_INCH ?? raw.Diameter ?? raw.diameter ?? null;
   if (rawDiam != null) {
-    const d = typeof rawDiam === "number" ? rawDiam : parseFloat(String(rawDiam));
+    const d =
+      typeof rawDiam === "number" ? rawDiam : parseFloat(String(rawDiam));
     if (!isNaN(d) && d > 0) {
       // Convert inches to mm if < 100 (heuristic: inches), else assume mm
       p.diameter_mm = d < 100 ? Math.round(d * 25.4) : Math.round(d);
@@ -1182,7 +1382,10 @@ function normalizeLiquidProps(raw: Record<string, any> | null): Record<string, u
   return p;
 }
 
-function isLiquidPipelineSignificant(props: Record<string, unknown>, n: number): boolean {
+function isLiquidPipelineSignificant(
+  props: Record<string, unknown>,
+  n: number,
+): boolean {
   if (n < 3) return false;
   // With only ~8K features total, be lenient — keep anything with a name, operator, or substance
   if (props.name || props.operator || props.substance) return true;
@@ -1191,7 +1394,10 @@ function isLiquidPipelineSignificant(props: Record<string, unknown>, n: number):
   return n >= 15;
 }
 
-const LIQUID_PIPELINE_REGION_META: Record<string, { name: string; description: string }> = {
+const LIQUID_PIPELINE_REGION_META: Record<
+  string,
+  { name: string; description: string }
+> = {
   americas: {
     name: "Liquid Pipelines — Americas",
     description: [
@@ -1246,15 +1452,22 @@ const LIQUID_PIPELINE_REGION_META: Record<string, { name: string; description: s
   },
 };
 
-async function seedLiquidPipelines(signer: NDKPrivateKeySigner, pubkey: string) {
+async function seedLiquidPipelines(
+  signer: NDKPrivateKeySigner,
+  pubkey: string,
+) {
   const dir = join(BASE_RIPS, "liquid-pipelines");
   console.log("\n[seed_canonical] === Liquid Pipelines ===");
 
-  const allFiles = readdirSync(dir).filter((f) => f.endsWith(".geojson")).sort();
+  const allFiles = readdirSync(dir)
+    .filter((f) => f.endsWith(".geojson"))
+    .sort();
   console.log(`  Loading ${allFiles.length} files...`);
 
   const contextCoord = await publishContext(
-    signer, pubkey, "liquid-pipelines",
+    signer,
+    pubkey,
+    "liquid-pipelines",
     {
       name: "Liquid Pipelines — Oil & NGL Infrastructure",
       descriptionFormat: "markdown",
@@ -1285,7 +1498,15 @@ async function seedLiquidPipelines(signer: NDKPrivateKeySigner, pubkey: string) 
       validationMode: "none",
       allowForeignAttachments: true,
     },
-    ["liquid-pipelines", "oil", "ngl", "energy-security", "geopolitics", "fossil-fuels", "climate"],
+    [
+      "liquid-pipelines",
+      "oil",
+      "ngl",
+      "energy-security",
+      "geopolitics",
+      "fossil-fuels",
+      "climate",
+    ],
     [-180, -60, 180, 80],
   );
 
@@ -1304,12 +1525,28 @@ async function seedLiquidPipelines(signer: NDKPrivateKeySigner, pubkey: string) 
   for (const filename of allFiles) {
     const filepath = join(dir, filename);
     let text: string;
-    try { text = readFileSync(filepath, "utf8"); } catch { skippedFiles++; continue; }
-    if (text.startsWith("<")) { skippedFiles++; continue; }
+    try {
+      text = readFileSync(filepath, "utf8");
+    } catch {
+      skippedFiles++;
+      continue;
+    }
+    if (text.startsWith("<")) {
+      skippedFiles++;
+      continue;
+    }
 
     let geo: FeatureCollection;
-    try { geo = JSON.parse(text) as FeatureCollection; } catch { skippedFiles++; continue; }
-    if (!geo.features || geo.features.length === 0) { skippedFiles++; continue; }
+    try {
+      geo = JSON.parse(text) as FeatureCollection;
+    } catch {
+      skippedFiles++;
+      continue;
+    }
+    if (!geo.features || geo.features.length === 0) {
+      skippedFiles++;
+      continue;
+    }
 
     // Classify file by first valid coordinate
     let regionKey: string | null = null;
@@ -1324,12 +1561,17 @@ async function seedLiquidPipelines(signer: NDKPrivateKeySigner, pubkey: string) 
         break;
       }
     }
-    if (!regionKey) { skippedFiles++; continue; }
+    if (!regionKey) {
+      skippedFiles++;
+      continue;
+    }
 
     for (const feat of geo.features) {
       if (!feat.geometry) continue;
       const simplified = simplifyPipeline(feat);
-      const normalizedProps = normalizeLiquidProps(feat.properties as Record<string, unknown> | null);
+      const normalizedProps = normalizeLiquidProps(
+        feat.properties as Record<string, unknown> | null,
+      );
 
       const geom = simplified.geometry as LineString | MultiLineString | null;
       let coordCount = 0;
@@ -1345,14 +1587,19 @@ async function seedLiquidPipelines(signer: NDKPrivateKeySigner, pubkey: string) 
     }
 
     loadedFiles++;
-    if (loadedFiles % 500 === 0) console.log(`  ... processed ${loadedFiles} files`);
+    if (loadedFiles % 500 === 0)
+      console.log(`  ... processed ${loadedFiles} files`);
   }
 
-  console.log(`  Loaded: ${loadedFiles} files, ${totalFeatures} features (skipped: ${skippedFiles})`);
+  console.log(
+    `  Loaded: ${loadedFiles} files, ${totalFeatures} features (skipped: ${skippedFiles})`,
+  );
 
   for (const [region, features] of buckets.entries()) {
     const rawKB = Math.round(JSON.stringify(features).length / 1024);
-    console.log(`  ${region.padEnd(28)} ${features.length} features ~${rawKB}KB`);
+    console.log(
+      `  ${region.padEnd(28)} ${features.length} features ~${rawKB}KB`,
+    );
   }
 
   const MAX_DATASET_KB = 700;
@@ -1364,8 +1611,14 @@ async function seedLiquidPipelines(signer: NDKPrivateKeySigner, pubkey: string) 
 
     if (chunks.length === 1) {
       await publishDataset(
-        signer, `liquid-pipelines-${region}`,
-        { type: "FeatureCollection", name: meta.name, description: meta.description, features: chunks[0]! },
+        signer,
+        `liquid-pipelines-${region}`,
+        {
+          type: "FeatureCollection",
+          name: meta.name,
+          description: meta.description,
+          features: chunks[0]!,
+        },
         ["liquid-pipelines", "oil", "ngl", region],
         contextCoord,
       );
@@ -1374,7 +1627,8 @@ async function seedLiquidPipelines(signer: NDKPrivateKeySigner, pubkey: string) 
       for (let i = 0; i < chunks.length; i++) {
         const part = i + 1;
         await publishDataset(
-          signer, `liquid-pipelines-${region}-${part}`,
+          signer,
+          `liquid-pipelines-${region}-${part}`,
           {
             type: "FeatureCollection",
             name: `${meta.name} (Part ${part}/${chunks.length})`,
@@ -1393,39 +1647,54 @@ async function seedLiquidPipelines(signer: NDKPrivateKeySigner, pubkey: string) 
 
 function nuclearStatusColor(status: string): string {
   switch (status) {
-    case "operating":        return "#22c55e"; // green
-    case "construction":     return "#eab308"; // yellow
-    case "pre-construction": return "#f97316"; // orange
-    case "announced":        return "#60a5fa"; // blue
-    case "retired":          return "#6b7280"; // gray
-    case "cancelled":        return "#ef4444"; // red
-    case "mothballed":       return "#94a3b8"; // slate
-    case "shelved":          return "#a8a29e"; // warm gray
-    default:                 return "#9ca3af";
+    case "operating":
+      return "#22c55e"; // green
+    case "construction":
+      return "#eab308"; // yellow
+    case "pre-construction":
+      return "#f97316"; // orange
+    case "announced":
+      return "#60a5fa"; // blue
+    case "retired":
+      return "#6b7280"; // gray
+    case "cancelled":
+      return "#ef4444"; // red
+    case "mothballed":
+      return "#94a3b8"; // slate
+    case "shelved":
+      return "#a8a29e"; // warm gray
+    default:
+      return "#9ca3af";
   }
 }
 
-function normalizeNuclearProps(p: Record<string, unknown>): Record<string, unknown> {
+function normalizeNuclearProps(
+  p: Record<string, unknown>,
+): Record<string, unknown> {
   const status = String(p.status ?? "unknown");
   return {
-    name:        p.name,
-    unit:        p["unit-name"],
+    name: p.name,
+    unit: p["unit-name"],
     status,
     reactorType: p["reactor-type"],
-    capacity:    p.capacity != null ? Number(p.capacity) : undefined,
-    startYear:   p["start-year"],
-    operator:    p.operator,
-    owner:       p.owner,
-    country:     typeof p.areas === "string" ? p.areas.replace(/;$/, "") : undefined,
-    subnat:      p.subnat,
-    region:      p.region,
-    url:         p.url,
-    color:       nuclearStatusColor(status),
+    capacity: p.capacity != null ? Number(p.capacity) : undefined,
+    startYear: p["start-year"],
+    operator: p.operator,
+    owner: p.owner,
+    country:
+      typeof p.areas === "string" ? p.areas.replace(/;$/, "") : undefined,
+    subnat: p.subnat,
+    region: p.region,
+    url: p.url,
+    color: nuclearStatusColor(status),
     strokeColor: nuclearStatusColor(status),
   };
 }
 
-const NUCLEAR_REGION_META: Record<string, { name: string; description: string }> = {
+const NUCLEAR_REGION_META: Record<
+  string,
+  { name: string; description: string }
+> = {
   Americas: {
     name: "Nuclear Power — Americas",
     description:
@@ -1482,7 +1751,9 @@ async function seedNuclearPower(signer: NDKPrivateKeySigner, pubkey: string) {
   }
 
   const contextCoord = await publishContext(
-    signer, pubkey, "nuclear-power",
+    signer,
+    pubkey,
+    "nuclear-power",
     {
       name: "Nuclear Power Plants — Global Infrastructure",
       descriptionFormat: "markdown",
@@ -1512,7 +1783,14 @@ async function seedNuclearPower(signer: NDKPrivateKeySigner, pubkey: string) {
       validationMode: "none",
       allowForeignAttachments: true,
     },
-    ["nuclear", "energy", "power-plants", "geopolitics", "climate", "nonproliferation"],
+    [
+      "nuclear",
+      "energy",
+      "power-plants",
+      "geopolitics",
+      "climate",
+      "nonproliferation",
+    ],
     [-180, -60, 180, 80],
   );
 
@@ -1553,8 +1831,14 @@ async function seedNuclearPower(signer: NDKPrivateKeySigner, pubkey: string) {
 
     if (chunks.length === 1) {
       await publishDataset(
-        signer, `nuclear-power-${region.toLowerCase()}`,
-        { type: "FeatureCollection", name: meta.name, description: meta.description, features: chunks[0]! },
+        signer,
+        `nuclear-power-${region.toLowerCase()}`,
+        {
+          type: "FeatureCollection",
+          name: meta.name,
+          description: meta.description,
+          features: chunks[0]!,
+        },
         ["nuclear", "energy", "power-plants", region.toLowerCase()],
         contextCoord,
       );
@@ -1563,7 +1847,8 @@ async function seedNuclearPower(signer: NDKPrivateKeySigner, pubkey: string) {
       for (let i = 0; i < chunks.length; i++) {
         const part = i + 1;
         await publishDataset(
-          signer, `nuclear-power-${region.toLowerCase()}-${part}`,
+          signer,
+          `nuclear-power-${region.toLowerCase()}-${part}`,
           {
             type: "FeatureCollection",
             name: `${meta.name} (Part ${part}/${chunks.length})`,
@@ -1580,7 +1865,9 @@ async function seedNuclearPower(signer: NDKPrivateKeySigner, pubkey: string) {
 
 // ── Airports & Ports ──────────────────────────────────────────────────────────
 
-function airportCategory(type: string): "civil-major" | "civil-regional" | "military" | "spaceport" {
+function airportCategory(
+  type: string,
+): "civil-major" | "civil-regional" | "military" | "spaceport" {
   if (type === "spaceport") return "spaceport";
   if (type.includes("military")) return "military";
   if (type === "major") return "civil-major";
@@ -1589,11 +1876,16 @@ function airportCategory(type: string): "civil-major" | "civil-regional" | "mili
 
 function airportColor(cat: string): string {
   switch (cat) {
-    case "civil-major":    return "#3b82f6";
-    case "civil-regional": return "#38bdf8";
-    case "military":       return "#ef4444";
-    case "spaceport":      return "#8b5cf6";
-    default:               return "#9ca3af";
+    case "civil-major":
+      return "#3b82f6";
+    case "civil-regional":
+      return "#38bdf8";
+    case "military":
+      return "#ef4444";
+    case "spaceport":
+      return "#8b5cf6";
+    default:
+      return "#9ca3af";
   }
 }
 
@@ -1605,10 +1897,14 @@ function portTier(scalerank: number): "major" | "regional" | "local" {
 
 function portColor(tier: string): string {
   switch (tier) {
-    case "major":    return "#1d4ed8";
-    case "regional": return "#0d9488";
-    case "local":    return "#6b7280";
-    default:         return "#9ca3af";
+    case "major":
+      return "#1d4ed8";
+    case "regional":
+      return "#0d9488";
+    case "local":
+      return "#6b7280";
+    default:
+      return "#9ca3af";
   }
 }
 
@@ -1619,7 +1915,9 @@ async function seedAirports(signer: NDKPrivateKeySigner, pubkey: string) {
   const fc = JSON.parse(readFileSync(filepath, "utf8")) as FeatureCollection;
 
   const contextCoord = await publishContext(
-    signer, pubkey, "airports",
+    signer,
+    pubkey,
+    "airports",
     {
       name: "Airports — Global Air Infrastructure",
       descriptionFormat: "markdown",
@@ -1691,7 +1989,7 @@ async function seedAirports(signer: NDKPrivateKeySigner, pubkey: string) {
   ]);
 
   for (const feat of fc.features) {
-    const p = feat.properties as Record<string, unknown> | null ?? {};
+    const p = (feat.properties as Record<string, unknown> | null) ?? {};
     const rawType = String(p.type ?? "");
     const cat = airportCategory(rawType);
     const color = airportColor(cat);
@@ -1700,13 +1998,13 @@ async function seedAirports(signer: NDKPrivateKeySigner, pubkey: string) {
       type: "Feature",
       geometry: feat.geometry,
       properties: {
-        name:        p.name,
-        iata:        p.iata_code,
-        icao:        p.gps_code,
-        type:        rawType,
-        category:    cat,
-        scalerank:   p.scalerank,
-        wikipedia:   p.wikipedia,
+        name: p.name,
+        iata: p.iata_code,
+        icao: p.gps_code,
+        type: rawType,
+        category: cat,
+        scalerank: p.scalerank,
+        wikipedia: p.wikipedia,
         color,
         strokeColor: color,
       },
@@ -1718,8 +2016,14 @@ async function seedAirports(signer: NDKPrivateKeySigner, pubkey: string) {
     const meta = AIRPORT_META[cat]!;
     console.log(`  ${cat.padEnd(20)} ${features.length} features`);
     await publishDataset(
-      signer, `airports-${cat}`,
-      { type: "FeatureCollection", name: meta.name, description: meta.description, features },
+      signer,
+      `airports-${cat}`,
+      {
+        type: "FeatureCollection",
+        name: meta.name,
+        description: meta.description,
+        features,
+      },
       ["airports", "aviation", cat],
       contextCoord,
     );
@@ -1733,7 +2037,9 @@ async function seedPorts(signer: NDKPrivateKeySigner, pubkey: string) {
   const fc = JSON.parse(readFileSync(filepath, "utf8")) as FeatureCollection;
 
   const contextCoord = await publishContext(
-    signer, pubkey, "ports",
+    signer,
+    pubkey,
+    "ports",
     {
       name: "Seaports — Global Maritime Infrastructure",
       descriptionFormat: "markdown",
@@ -1799,7 +2105,7 @@ async function seedPorts(signer: NDKPrivateKeySigner, pubkey: string) {
   ]);
 
   for (const feat of fc.features) {
-    const p = feat.properties as Record<string, unknown> | null ?? {};
+    const p = (feat.properties as Record<string, unknown> | null) ?? {};
     const scalerank = Number(p.scalerank ?? 8);
     const tier = portTier(scalerank);
     const color = portColor(tier);
@@ -1808,8 +2114,8 @@ async function seedPorts(signer: NDKPrivateKeySigner, pubkey: string) {
       type: "Feature",
       geometry: feat.geometry,
       properties: {
-        name:        p.name,
-        website:     p.website,
+        name: p.name,
+        website: p.website,
         scalerank,
         tier,
         color,
@@ -1823,8 +2129,14 @@ async function seedPorts(signer: NDKPrivateKeySigner, pubkey: string) {
     const meta = PORT_META[tier]!;
     console.log(`  ${tier.padEnd(20)} ${features.length} features`);
     await publishDataset(
-      signer, `ports-${tier}`,
-      { type: "FeatureCollection", name: meta.name, description: meta.description, features },
+      signer,
+      `ports-${tier}`,
+      {
+        type: "FeatureCollection",
+        name: meta.name,
+        description: meta.description,
+        features,
+      },
       ["ports", "maritime", "shipping", tier],
       contextCoord,
     );
@@ -1851,10 +2163,14 @@ async function main() {
   })();
 
   if (!onlyArg || onlyArg === "sea-cables") await seedSeaCables(signer, pubkey);
-  if (!onlyArg || onlyArg === "meteorites") await seedMeteoriteLandings(signer, pubkey);
-  if (!onlyArg || onlyArg === "gas-pipelines") await seedGasPipelines(signer, pubkey);
-  if (!onlyArg || onlyArg === "liquid-pipelines") await seedLiquidPipelines(signer, pubkey);
-  if (!onlyArg || onlyArg === "nuclear-power") await seedNuclearPower(signer, pubkey);
+  if (!onlyArg || onlyArg === "meteorites")
+    await seedMeteoriteLandings(signer, pubkey);
+  if (!onlyArg || onlyArg === "gas-pipelines")
+    await seedGasPipelines(signer, pubkey);
+  if (!onlyArg || onlyArg === "liquid-pipelines")
+    await seedLiquidPipelines(signer, pubkey);
+  if (!onlyArg || onlyArg === "nuclear-power")
+    await seedNuclearPower(signer, pubkey);
   if (!onlyArg || onlyArg === "airports") await seedAirports(signer, pubkey);
   if (!onlyArg || onlyArg === "ports") await seedPorts(signer, pubkey);
 

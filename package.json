@@ -8,6 +8,7 @@
     "dev": "./scripts/dev-clean.sh",
     "seed": "bun run scripts/seed.ts",
     "seed:canonical": "bun run scripts/seed_canonical_data.ts",
+    "purge:canonical": "bun run scripts/purge_canonical_data.ts",
     "relay": "cd relay && go run . --port 3334",
     "relay:reset": "./scripts/kill-relay.sh && cd relay && go run . --reset-all",
     "relay:kill": "./scripts/kill-relay.sh",
