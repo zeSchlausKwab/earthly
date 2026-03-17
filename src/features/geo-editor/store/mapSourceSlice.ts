@@ -8,7 +8,7 @@ export const createMapSourceSlice: StateCreator<EditorState, [], [], MapSourceSl
 		url: 'https://build.protomaps.com/20251202.pmtiles',
 	},
 	showMapSettings: false,
-	pointClusteringEnabled: true,
+	pointClusteringEnabled: false,
 
 	mapLayers: [],
 	announcementSource: null,

@@ -1242,6 +1242,8 @@ async function seedGasPipelines(signer: NDKPrivateKeySigner, pubkey: string) {
     // Simplify + normalize + filter all features in the file
     for (const feat of geo.features) {
       if (!feat.geometry) continue;
+      // Skip point features — pipelines are lines only
+      if (feat.geometry.type === "Point" || feat.geometry.type === "MultiPoint") continue;
       const simplified = simplifyPipeline(feat);
       const normalizedProps = normalizePipelineProps(
         feat.properties as Record<string, unknown> | null,

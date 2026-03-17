@@ -76,20 +76,46 @@ function matchesFilter(dTag: string): boolean {
 
 async function confirm(message: string): Promise<boolean> {
   process.stdout.write(`${message} [y/N] `);
-  const buf = Buffer.alloc(1);
+  const buf = Buffer.alloc(64);
   const fd = process.stdin.fd;
   try {
-    const n = require("fs").readSync(fd, buf, 0, 1, null);
+    const n = require("fs").readSync(fd, buf, 0, buf.length, null);
     if (n === 0) return false;
-    const ch = buf[0]?.toString().toLowerCase();
+    const ch = buf.toString("utf8", 0, n).trim().toLowerCase();
     process.stdout.write("\n");
-    return ch === "y";
+    return ch === "y" || ch === "yes";
   } catch {
     return false;
   }
 }
 
 // ── Publish deletion events ───────────────────────────────────────────────────
+
+const PUBLISH_TIMEOUT_MS = 20_000;
+
+async function publishWithRetry(event: NDKEvent, maxAttempts = 5): Promise<void> {
+  const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await event.publish(undefined, PUBLISH_TIMEOUT_MS);
+      return;
+    } catch (err) {
+      const isLast = attempt === maxAttempts;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (isLast) throw err;
+      const wait = 4000 * attempt;
+      console.warn(`\n  [retry] attempt ${attempt} failed: ${msg.slice(0, 80)}`);
+      console.warn(`  [retry] reconnecting in ${wait}ms...`);
+      await delay(wait);
+      for (const relay of ndk.pool.relays.values()) {
+        try { relay.disconnect(); } catch { /* ignore */ }
+      }
+      await delay(1000);
+      await ndk.connect();
+      await delay(2000);
+    }
+  }
+}
 
 /**
  * NIP-09: publish kind 5 deletion events.
@@ -115,7 +141,7 @@ async function publishDeletions(
     ]);
 
     await event.sign(signer);
-    await event.publish();
+    await publishWithRetry(event);
     deleted += batch.length;
     process.stdout.write(`  Deleted ${deleted}/${targets.length} events...\r`);
   }
