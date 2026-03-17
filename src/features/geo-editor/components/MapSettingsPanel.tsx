@@ -30,12 +30,14 @@ import {
 	SelectValue,
 } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
+import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { useEditorStore, type MapLayerState } from '../store'
 
 type MapSourceType = 'default' | 'pmtiles' | 'blossom'
-type SettingsTab = 'profile' | 'chat' | 'map' | 'sessions'
+type SettingsTab = 'profile' | 'chat' | 'sessions'
+type MapSettingsPanelMode = 'full' | 'map-only'
 
 interface ProfileDraft {
 	name: string
@@ -311,15 +313,16 @@ function ProfileSettingsSection() {
 	)
 }
 
-export function MapSettingsPanel() {
+export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMode }) {
 	const currentUser = useNDKCurrentUser()
 	const mapSource = useEditorStore((state) => state.mapSource)
 	const setMapSource = useEditorStore((state) => state.setMapSource)
+	const pointClusteringEnabled = useEditorStore((state) => state.pointClusteringEnabled)
+	const setPointClusteringEnabled = useEditorStore((state) => state.setPointClusteringEnabled)
 	const mapLayers = useEditorStore((state) => state.mapLayers)
 	const announcementSource = useEditorStore((state) => state.announcementSource)
 	const updateMapLayerState = useEditorStore((state) => state.updateMapLayerState)
 	const reorderMapLayers = useEditorStore((state) => state.reorderMapLayers)
-
 	const fileInputRef = useRef<HTMLInputElement>(null)
 
 	const [dragIndex, setDragIndex] = useState<number | null>(null)
@@ -436,19 +439,287 @@ export function MapSettingsPanel() {
 		setDropIndex(null)
 	}
 
-	const defaultTab: SettingsTab = currentUser ? 'profile' : 'map'
+	const defaultTab: SettingsTab = currentUser ? 'profile' : 'chat'
+	const mapSettingsContent = (
+		<div className="space-y-4">
+			<div className="rounded-lg border bg-card p-3">
+				<div className="flex items-start justify-between gap-4">
+					<div className="space-y-1">
+						<Label htmlFor="point-clustering" className="text-sm font-medium">
+							Point clustering
+						</Label>
+						<p className="text-xs text-muted-foreground">
+							Group nearby points into clusters while zoomed out.
+						</p>
+					</div>
+					<Switch
+						id="point-clustering"
+						checked={pointClusteringEnabled}
+						onCheckedChange={setPointClusteringEnabled}
+						aria-label="Toggle point clustering"
+					/>
+				</div>
+			</div>
+
+			{mode === 'map-only' && (
+				<>
+					<div className="space-y-2">
+						<Label>Map Source</Label>
+						<Select value={mapSource.type} onValueChange={handleSourceTypeChange}>
+							<SelectTrigger>
+								<SelectValue placeholder="Select source" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="default">Default (OpenFreeMap)</SelectItem>
+								<SelectItem value="pmtiles">Protomaps (PMTiles)</SelectItem>
+								<SelectItem value="blossom">Blossom Map Discovery</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+
+					{mapSource.type === 'pmtiles' && (
+						<>
+							<div className="space-y-2">
+								<Label>Location</Label>
+								<Select value={mapSource.location} onValueChange={handleLocationChange}>
+									<SelectTrigger>
+										<SelectValue placeholder="Select location" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="remote">Remote URL</SelectItem>
+										<SelectItem value="local">Local File</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+
+							{mapSource.location === 'remote' ? (
+								<div className="space-y-2">
+									<Label>URL</Label>
+									<div className="flex gap-2">
+										<Input
+											value={mapSource.url || ''}
+											onChange={handleUrlChange}
+											placeholder="https://example.com/map.pmtiles"
+											className="flex-1"
+										/>
+										{mapSource.url && (
+											<Button
+												variant="outline"
+												size="icon"
+												onClick={() => {
+													if (!mapSource.url) return
+													const url = mapSource.url
+													const filename = url.split('/').pop() || 'map.pmtiles'
+													const a = document.createElement('a')
+													a.href = url
+													a.download = filename
+													a.target = '_blank'
+													document.body.appendChild(a)
+													a.click()
+													document.body.removeChild(a)
+												}}
+												title="Download for offline use"
+											>
+												<Download className="h-4 w-4" />
+											</Button>
+										)}
+									</div>
+									<p className="text-xs text-gray-500">Enter the URL to a remote PMTiles file.</p>
+								</div>
+							) : (
+								<div className="space-y-2">
+									<Label>File</Label>
+									<div className="flex gap-2">
+										<Button
+											variant="outline"
+											className="w-full"
+											onClick={() => fileInputRef.current?.click()}
+										>
+											{mapSource.file ? mapSource.file.name : 'Select File'}
+										</Button>
+										<Input
+											type="file"
+											ref={fileInputRef}
+											className="hidden"
+											accept=".pmtiles"
+											onChange={handleFileChange}
+										/>
+									</div>
+									<p className="text-xs text-gray-500">
+										Select a local `.pmtiles` file from your device.
+									</p>
+								</div>
+							)}
+
+							<div className="flex items-center gap-2 pt-2">
+								<Checkbox
+									id="bounds-lock"
+									checked={mapSource.boundsLocked ?? true}
+									onCheckedChange={(checked: boolean | 'indeterminate') =>
+										setMapSource({
+											...mapSource,
+											boundsLocked: checked === true,
+										})
+									}
+								/>
+								<label htmlFor="bounds-lock" className="text-sm cursor-pointer">
+									Lock to map bounds
+								</label>
+							</div>
+							<p className="text-xs text-gray-500">
+								Prevents zooming and panning beyond the PMTiles extent.
+							</p>
+						</>
+					)}
+				</>
+			)}
+
+			{mapSource.type === 'blossom' && (
+				<>
+					{announcementSource && (
+						<div className="space-y-2 border bg-card p-3">
+							<div className="flex items-center gap-2">
+								<Radio className="h-4 w-4 text-muted-foreground" />
+								<span className="text-sm font-medium">
+									{announcementSource.name || 'Announcement Source'}
+								</span>
+							</div>
+							{announcementSource.about && (
+								<p className="pl-6 text-xs text-muted-foreground">{announcementSource.about}</p>
+							)}
+							{announcementSource.pubkey && (
+								<div className="flex items-center gap-1.5 pl-6">
+									<Globe className="h-3 w-3 text-muted-foreground" />
+									<UserProfile
+										pubkey={announcementSource.pubkey}
+										mode="avatar-name"
+										size="xs"
+										showNip05Badge={false}
+										interactive={false}
+									/>
+								</div>
+							)}
+						</div>
+					)}
+
+					{layersByServer.length > 0 && (
+						<div className="space-y-3">
+							{layersByServer.map((group) => (
+								<Collapsible key={group.server} defaultOpen className="border-t pt-2">
+									<CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-2">
+										<ChevronDown className="h-3.5 w-3.5 text-muted-foreground transition-transform group-data-[state=closed]:-rotate-90" />
+										<Server className="h-3.5 w-3.5 text-muted-foreground" />
+										<span className="truncate font-mono text-xs text-muted-foreground">
+											{group.server}
+										</span>
+										<span className="ml-auto text-xs text-muted-foreground">
+											{group.layers.length} {group.layers.length === 1 ? 'layer' : 'layers'}
+										</span>
+									</CollapsibleTrigger>
+									<CollapsibleContent className="space-y-1 pt-2">
+										{group.layers.map((layer) => (
+											<div key={layer.id}>
+												{dropIndex === layer.globalIndex &&
+												dragIndex !== null &&
+												dragIndex > layer.globalIndex ? (
+													<div className="mx-2 mb-1 h-0.5 bg-primary" />
+												) : null}
+												<li
+													draggable
+													aria-label={`Reorder layer ${layer.title}`}
+													onDragStart={handleDragStart(layer.globalIndex)}
+													onDragOver={handleDragOver(layer.globalIndex)}
+													onDragLeave={handleDragLeave}
+													onDrop={handleDrop(layer.globalIndex)}
+													onDragEnd={handleDragEnd}
+													className={`list-none space-y-2 border bg-card p-3 transition-opacity ${
+														dragIndex === layer.globalIndex ? 'opacity-50' : ''
+													}`}
+												>
+													<div className="flex items-center justify-between">
+														<div className="flex items-center gap-2">
+															<GripVertical className="h-4 w-4 cursor-grab text-muted-foreground active:cursor-grabbing" />
+															<Checkbox
+																id={`layer-${layer.id}`}
+																checked={layer.enabled}
+																onCheckedChange={(checked: boolean | 'indeterminate') =>
+																	handleLayerToggle(layer.id, checked === true)
+																}
+															/>
+															<label
+																htmlFor={`layer-${layer.id}`}
+																className="cursor-pointer text-sm font-medium"
+															>
+																{layer.title}
+															</label>
+														</div>
+														<div className="flex items-center gap-1">
+															{layer.enabled ? (
+																<Eye className="h-3.5 w-3.5 text-muted-foreground" />
+															) : (
+																<EyeOff className="h-3.5 w-3.5 text-muted-foreground" />
+															)}
+															<span className="bg-muted px-1.5 py-0.5 text-xs capitalize text-muted-foreground">
+																{layer.kind === 'chunked-vector'
+																	? 'vector'
+																	: layer.pmtilesType || 'raster'}
+															</span>
+														</div>
+													</div>
+													<div className="flex items-center gap-3 pl-6">
+														<span className="w-14 text-xs text-muted-foreground">Opacity</span>
+														<Slider
+															value={[layer.opacity]}
+															onValueChange={(values: number[]) =>
+																handleLayerOpacity(layer.id, values[0] ?? layer.opacity)
+															}
+															min={0}
+															max={1}
+															step={0.05}
+															disabled={!layer.enabled}
+															className="flex-1"
+														/>
+														<span className="w-10 text-right text-xs text-muted-foreground">
+															{Math.round(layer.opacity * 100)}%
+														</span>
+													</div>
+												</li>
+												{dropIndex === layer.globalIndex &&
+												dragIndex !== null &&
+												dragIndex < layer.globalIndex ? (
+													<div className="mx-2 mt-1 h-0.5 bg-primary" />
+												) : null}
+											</div>
+										))}
+									</CollapsibleContent>
+								</Collapsible>
+							))}
+						</div>
+					)}
+
+					{!announcementSource && mapLayers.length === 0 ? (
+						<div className="flex items-center gap-2 border-t pt-2 text-xs italic text-muted-foreground">
+							<Radio className="h-4 w-4" />
+							<span>Waiting for layer announcements...</span>
+						</div>
+					) : null}
+				</>
+			)}
+		</div>
+	)
+
+	if (mode === 'map-only') {
+		return mapSettingsContent
+	}
 
 	return (
 		<Tabs defaultValue={defaultTab} className="space-y-4">
-			<TabsList className="grid h-auto w-full grid-cols-4 rounded-none bg-slate-100 p-1">
+			<TabsList className="grid h-auto w-full grid-cols-3 rounded-none bg-slate-100 p-1">
 				<TabsTrigger value="profile" className="rounded-none px-3 py-2 text-xs sm:text-sm">
 					Profile
 				</TabsTrigger>
 				<TabsTrigger value="chat" className="rounded-none px-3 py-2 text-xs sm:text-sm">
 					Chat settings
-				</TabsTrigger>
-				<TabsTrigger value="map" className="rounded-none px-3 py-2 text-xs sm:text-sm">
-					Map
 				</TabsTrigger>
 				<TabsTrigger value="sessions" className="rounded-none px-3 py-2 text-xs sm:text-sm">
 					Sessions
@@ -465,260 +736,6 @@ export function MapSettingsPanel() {
 					description="Choose providers, models, tools, and local chat behavior."
 				>
 					<ChatSettingsSection />
-				</SettingsShell>
-			</TabsContent>
-
-			<TabsContent value="map" className="mt-0">
-				<SettingsShell
-					title="Map"
-					description="Control the base map source, discovery layers, and layer visibility."
-				>
-					<div className="space-y-4">
-						<div className="space-y-2">
-							<Label>Map Source</Label>
-							<Select value={mapSource.type} onValueChange={handleSourceTypeChange}>
-								<SelectTrigger>
-									<SelectValue placeholder="Select source" />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="default">Default (OpenFreeMap)</SelectItem>
-									<SelectItem value="pmtiles">Protomaps (PMTiles)</SelectItem>
-									<SelectItem value="blossom">Blossom Map Discovery</SelectItem>
-								</SelectContent>
-							</Select>
-						</div>
-
-						{mapSource.type === 'pmtiles' && (
-							<>
-								<div className="space-y-2">
-									<Label>Location</Label>
-									<Select value={mapSource.location} onValueChange={handleLocationChange}>
-										<SelectTrigger>
-											<SelectValue placeholder="Select location" />
-										</SelectTrigger>
-										<SelectContent>
-											<SelectItem value="remote">Remote URL</SelectItem>
-											<SelectItem value="local">Local File</SelectItem>
-										</SelectContent>
-									</Select>
-								</div>
-
-								{mapSource.location === 'remote' ? (
-									<div className="space-y-2">
-										<Label>URL</Label>
-										<div className="flex gap-2">
-											<Input
-												value={mapSource.url || ''}
-												onChange={handleUrlChange}
-												placeholder="https://example.com/map.pmtiles"
-												className="flex-1"
-											/>
-											{mapSource.url && (
-												<Button
-													variant="outline"
-													size="icon"
-													onClick={() => {
-														if (!mapSource.url) return
-														const url = mapSource.url
-														const filename = url.split('/').pop() || 'map.pmtiles'
-														const a = document.createElement('a')
-														a.href = url
-														a.download = filename
-														a.target = '_blank'
-														document.body.appendChild(a)
-														a.click()
-														document.body.removeChild(a)
-													}}
-													title="Download for offline use"
-												>
-													<Download className="h-4 w-4" />
-												</Button>
-											)}
-										</div>
-										<p className="text-xs text-gray-500">Enter the URL to a remote PMTiles file.</p>
-									</div>
-								) : (
-									<div className="space-y-2">
-										<Label>File</Label>
-										<div className="flex gap-2">
-											<Button
-												variant="outline"
-												className="w-full"
-												onClick={() => fileInputRef.current?.click()}
-											>
-												{mapSource.file ? mapSource.file.name : 'Select File'}
-											</Button>
-											<Input
-												type="file"
-												ref={fileInputRef}
-												className="hidden"
-												accept=".pmtiles"
-												onChange={handleFileChange}
-											/>
-										</div>
-										<p className="text-xs text-gray-500">
-											Select a local `.pmtiles` file from your device.
-										</p>
-									</div>
-								)}
-
-								<div className="flex items-center gap-2 pt-2">
-									<Checkbox
-										id="bounds-lock"
-										checked={mapSource.boundsLocked ?? true}
-										onCheckedChange={(checked: boolean | 'indeterminate') =>
-											setMapSource({
-												...mapSource,
-												boundsLocked: checked === true,
-											})
-										}
-									/>
-									<label htmlFor="bounds-lock" className="text-sm cursor-pointer">
-										Lock to map bounds
-									</label>
-								</div>
-								<p className="text-xs text-gray-500">
-									Prevents zooming and panning beyond the PMTiles extent.
-								</p>
-							</>
-						)}
-
-						{mapSource.type === 'blossom' && (
-							<>
-								{announcementSource && (
-									<div className="space-y-2 border bg-card p-3">
-										<div className="flex items-center gap-2">
-											<Radio className="h-4 w-4 text-muted-foreground" />
-											<span className="text-sm font-medium">
-												{announcementSource.name || 'Announcement Source'}
-											</span>
-										</div>
-										{announcementSource.about && (
-											<p className="pl-6 text-xs text-muted-foreground">
-												{announcementSource.about}
-											</p>
-										)}
-										{announcementSource.pubkey && (
-											<div className="flex items-center gap-1.5 pl-6">
-												<Globe className="h-3 w-3 text-muted-foreground" />
-												<UserProfile
-													pubkey={announcementSource.pubkey}
-													mode="avatar-name"
-													size="xs"
-													showNip05Badge={false}
-													interactive={false}
-												/>
-											</div>
-										)}
-									</div>
-								)}
-
-								{layersByServer.length > 0 && (
-									<div className="space-y-3">
-										{layersByServer.map((group) => (
-											<Collapsible key={group.server} defaultOpen className="border-t pt-2">
-												<CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-2">
-													<ChevronDown className="h-3.5 w-3.5 text-muted-foreground transition-transform group-data-[state=closed]:-rotate-90" />
-													<Server className="h-3.5 w-3.5 text-muted-foreground" />
-													<span className="truncate font-mono text-xs text-muted-foreground">
-														{group.server}
-													</span>
-													<span className="ml-auto text-xs text-muted-foreground">
-														{group.layers.length} {group.layers.length === 1 ? 'layer' : 'layers'}
-													</span>
-												</CollapsibleTrigger>
-												<CollapsibleContent className="space-y-1 pt-2">
-													{group.layers.map((layer) => (
-														<div key={layer.id}>
-															{dropIndex === layer.globalIndex &&
-															dragIndex !== null &&
-															dragIndex > layer.globalIndex ? (
-																<div className="mx-2 mb-1 h-0.5 bg-primary" />
-															) : null}
-															<li
-																draggable
-																aria-label={`Reorder layer ${layer.title}`}
-																onDragStart={handleDragStart(layer.globalIndex)}
-																onDragOver={handleDragOver(layer.globalIndex)}
-																onDragLeave={handleDragLeave}
-																onDrop={handleDrop(layer.globalIndex)}
-																onDragEnd={handleDragEnd}
-																className={`list-none space-y-2 border bg-card p-3 transition-opacity ${
-																	dragIndex === layer.globalIndex ? 'opacity-50' : ''
-																}`}
-															>
-																<div className="flex items-center justify-between">
-																	<div className="flex items-center gap-2">
-																		<GripVertical className="h-4 w-4 cursor-grab text-muted-foreground active:cursor-grabbing" />
-																		<Checkbox
-																			id={`layer-${layer.id}`}
-																			checked={layer.enabled}
-																			onCheckedChange={(checked: boolean | 'indeterminate') =>
-																				handleLayerToggle(layer.id, checked === true)
-																			}
-																		/>
-																		<label
-																			htmlFor={`layer-${layer.id}`}
-																			className="cursor-pointer text-sm font-medium"
-																		>
-																			{layer.title}
-																		</label>
-																	</div>
-																	<div className="flex items-center gap-1">
-																		{layer.enabled ? (
-																			<Eye className="h-3.5 w-3.5 text-muted-foreground" />
-																		) : (
-																			<EyeOff className="h-3.5 w-3.5 text-muted-foreground" />
-																		)}
-																		<span className="bg-muted px-1.5 py-0.5 text-xs capitalize text-muted-foreground">
-																			{layer.kind === 'chunked-vector'
-																				? 'vector'
-																				: layer.pmtilesType || 'raster'}
-																		</span>
-																	</div>
-																</div>
-																<div className="flex items-center gap-3 pl-6">
-																	<span className="w-14 text-xs text-muted-foreground">
-																		Opacity
-																	</span>
-																	<Slider
-																		value={[layer.opacity]}
-																		onValueChange={(values: number[]) =>
-																			handleLayerOpacity(layer.id, values[0] ?? layer.opacity)
-																		}
-																		min={0}
-																		max={1}
-																		step={0.05}
-																		disabled={!layer.enabled}
-																		className="flex-1"
-																	/>
-																	<span className="w-10 text-right text-xs text-muted-foreground">
-																		{Math.round(layer.opacity * 100)}%
-																	</span>
-																</div>
-															</li>
-															{dropIndex === layer.globalIndex &&
-															dragIndex !== null &&
-															dragIndex < layer.globalIndex ? (
-																<div className="mx-2 mt-1 h-0.5 bg-primary" />
-															) : null}
-														</div>
-													))}
-												</CollapsibleContent>
-											</Collapsible>
-										))}
-									</div>
-								)}
-
-								{!announcementSource && mapLayers.length === 0 ? (
-									<div className="flex items-center gap-2 border-t pt-2 text-xs italic text-muted-foreground">
-										<Radio className="h-4 w-4" />
-										<span>Waiting for layer announcements...</span>
-									</div>
-								) : null}
-							</>
-						)}
-					</div>
 				</SettingsShell>
 			</TabsContent>
 

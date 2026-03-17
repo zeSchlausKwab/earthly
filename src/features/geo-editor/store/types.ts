@@ -330,6 +330,7 @@ export interface MapSourceSlice {
 		boundsLocked?: boolean
 	}
 	showMapSettings: boolean
+	pointClusteringEnabled: boolean
 
 	mapLayers: MapLayerState[]
 	announcementSource: AnnouncementSourceMeta | null
@@ -343,6 +344,7 @@ export interface MapSourceSlice {
 
 	setMapSource: (source: MapSourceSlice['mapSource']) => void
 	setShowMapSettings: (show: boolean) => void
+	setPointClusteringEnabled: (enabled: boolean) => void
 	setMapLayers: (layers: MapLayerState[]) => void
 	updateMapLayerState: (
 		id: string,

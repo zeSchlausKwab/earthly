@@ -435,18 +435,18 @@ export function Toolbar({
 														variant={showMapSettings ? 'default' : 'outline'}
 														size="icon"
 														className="h-8 w-8"
-														aria-label="Settings"
+														aria-label="Map settings"
 													>
 														<Settings2 className="h-3.5 w-3.5" />
 													</Button>
 												</PopoverTrigger>
 											</TooltipTrigger>
 											<TooltipContent side="bottom" sideOffset={8}>
-												<p>Settings</p>
+												<p>Map settings</p>
 											</TooltipContent>
 										</Tooltip>
 										<PopoverContent className="w-[28rem]" side="bottom" align="center">
-											<MapSettingsPanel />
+											<MapSettingsPanel mode="map-only" />
 										</PopoverContent>
 									</Popover>
 								</TooltipProvider>
@@ -585,6 +585,20 @@ export function Toolbar({
 
 						<Divider />
 						<ShareExportPopover />
+						<Popover open={showMapSettings} onOpenChange={setShowMapSettings}>
+							<PopoverTrigger asChild>
+								<Button
+									variant={showMapSettings ? 'default' : 'outline'}
+									size="icon"
+									aria-label="Map settings"
+								>
+									<Settings2 className="h-4 w-4" />
+								</Button>
+							</PopoverTrigger>
+							<PopoverContent className="w-[28rem]" side="bottom" align="end">
+								<MapSettingsPanel mode="map-only" />
+							</PopoverContent>
+						</Popover>
 					</div>
 
 					{fileInput}

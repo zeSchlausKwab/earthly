@@ -229,6 +229,7 @@ export function useMapLayers({
 	const [remoteLayersReady, setRemoteLayersReady] = useState(false)
 	const [styleInitVersion, setStyleInitVersion] = useState(0)
 	const blobPreviewCollection = useEditorStore((state) => state.blobPreviewCollection)
+	const pointClusteringEnabled = useEditorStore((state) => state.pointClusteringEnabled)
 	const syncRemoteDatasetsRef = useRef<(() => void) | null>(null)
 	const zoomSyncFrameRef = useRef<number | null>(null)
 
@@ -719,12 +720,19 @@ export function useMapLayers({
 					features: [...pointFeatures, ...geometryProxyFeatures],
 				}
 
-				// Set non-point features to regular source (lines, polygons)
-				source.setData(nonPointCollection)
+				const sourceCollection = pointClusteringEnabled
+					? nonPointCollection
+					: {
+							type: 'FeatureCollection' as const,
+							features: [...nonPointCollection.features, ...pointCollection.features],
+						}
 
-				// Set point features to clustered source
+				source.setData(sourceCollection)
+
 				if (clusteredSource) {
-					clusteredSource.setData(pointCollection)
+					clusteredSource.setData(
+						pointClusteringEnabled ? pointCollection : { type: 'FeatureCollection', features: [] },
+					)
 				}
 				if (proxySource) {
 					proxySource.setData({
@@ -736,17 +744,7 @@ export function useMapLayers({
 				// Map may have been removed during source switch
 			}
 		}
-	}, [
-		visibleGeoEvents,
-		resolvedCollectionResolver,
-		resolvedCollectionsVersion,
-		remoteLayersReady,
-		mapRef,
-		styleInitVersion,
-	])
 
-	// Update remote datasets layer when source data or style changes.
-	useEffect(() => {
 		syncRemoteDatasetsRef.current?.()
 	}, [
 		visibleGeoEvents,
@@ -754,6 +752,7 @@ export function useMapLayers({
 		resolvedCollectionsVersion,
 		remoteLayersReady,
 		mapRef,
+		pointClusteringEnabled,
 		styleInitVersion,
 	])
 
