@@ -8,9 +8,12 @@ import {
 	generateHomeOGHtml,
 	generateGeoEventOGHtml,
 	generateContextOGHtml,
-	fetchGeoEventOGData,
-	fetchContextEventOGData,
+	fetchCachedGeoEventOGData,
+	fetchCachedContextEventOGData,
+	getOGImageHeaders,
+	getOGRouteHeaders,
 	generateOGImagePNG,
+	warmOGCache,
 } from './lib/og'
 
 const isProduction = process.env.NODE_ENV === 'production'
@@ -54,8 +57,7 @@ async function handleGeoEventRoute(req: BunRouteRequest): Promise<Response> {
 	}
 
 	if (isCrawler(req)) {
-		// Fetch event data and return OG HTML
-		const data = await fetchGeoEventOGData(naddr, serverConfig.relayUrl)
+		const { data, cacheStatus } = await fetchCachedGeoEventOGData(naddr, serverConfig.relayUrl)
 		const html = generateGeoEventOGHtml(
 			baseUrl,
 			naddr,
@@ -63,9 +65,11 @@ async function handleGeoEventRoute(req: BunRouteRequest): Promise<Response> {
 			data?.description ?? 'View this geographic dataset on Earthly',
 		)
 		return new Response(html, {
-			headers: { 'Content-Type': 'text/html; charset=utf-8' },
+			headers: getOGRouteHeaders(cacheStatus),
 		})
 	}
+
+	warmOGCache('geoevent', naddr, serverConfig.relayUrl)
 
 	// For regular users, redirect to hash-based route
 	if (commentId) {
@@ -87,7 +91,7 @@ async function handleContextRoute(req: BunRouteRequest): Promise<Response> {
 	}
 
 	if (isCrawler(req)) {
-		const data = await fetchContextEventOGData(naddr, serverConfig.relayUrl)
+		const { data, cacheStatus } = await fetchCachedContextEventOGData(naddr, serverConfig.relayUrl)
 		const html = generateContextOGHtml(
 			baseUrl,
 			naddr,
@@ -96,9 +100,11 @@ async function handleContextRoute(req: BunRouteRequest): Promise<Response> {
 			data?.image,
 		)
 		return new Response(html, {
-			headers: { 'Content-Type': 'text/html; charset=utf-8' },
+			headers: getOGRouteHeaders(cacheStatus),
 		})
 	}
+
+	warmOGCache('context', naddr, serverConfig.relayUrl)
 
 	if (commentId) {
 		return Response.redirect(`${baseUrl}/#/contexts/mapcontext/${naddr}/comment/${commentId}`, 302)
@@ -116,39 +122,38 @@ async function handleOGImageRoute(req: BunRouteRequest): Promise<Response> {
 		return new Response('Not found', { status: 404 })
 	}
 
-	// 5-minute cache
-	const cacheHeaders = {
-		'Content-Type': 'image/png',
-		'Cache-Control': 'public, max-age=300, s-maxage=300',
-	}
-
 	try {
 		if (type === 'context') {
-			const data = await fetchContextEventOGData(naddr, serverConfig.relayUrl)
-			if (!data) return new Response('Not found', { status: 404 })
+			const { data, cacheStatus } = await fetchCachedContextEventOGData(
+				naddr,
+				serverConfig.relayUrl,
+				{ waitForFreshMs: 1500 },
+			)
 
 			const png = await generateOGImagePNG({
-				title: data.title,
-				description: data.description,
-				bbox: data.bbox,
-				backgroundImageUrl: data.image,
+				title: data?.title ?? 'Map Context',
+				description: data?.description ?? 'Explore this geographic context on Earthly',
+				backgroundImageUrl: data?.image,
 			})
 
 			if (!png) return new Response('Image generation failed', { status: 500 })
-			return new Response(png, { headers: cacheHeaders })
+			const body = new Uint8Array(png).buffer
+			return new Response(body, { headers: getOGImageHeaders(cacheStatus) })
 		}
 
 		if (type === 'geoevent') {
-			const data = await fetchGeoEventOGData(naddr, serverConfig.relayUrl)
-			if (!data) return new Response('Not found', { status: 404 })
+			const { data, cacheStatus } = await fetchCachedGeoEventOGData(naddr, serverConfig.relayUrl, {
+				waitForFreshMs: 1500,
+			})
 
 			const png = await generateOGImagePNG({
-				title: data.title,
-				description: data.description,
+				title: data?.title ?? 'Geographic Dataset',
+				description: data?.description ?? 'View this geographic dataset on Earthly',
 			})
 
 			if (!png) return new Response('Image generation failed', { status: 500 })
-			return new Response(png, { headers: cacheHeaders })
+			const body = new Uint8Array(png).buffer
+			return new Response(body, { headers: getOGImageHeaders(cacheStatus) })
 		}
 
 		return new Response('Not found', { status: 404 })

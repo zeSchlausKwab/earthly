@@ -1,5 +1,14 @@
 export { isCrawler } from './crawler'
 export {
+	fetchCachedContextEventOGData,
+	fetchCachedGeoEventOGData,
+	getOGImageHeaders,
+	getOGRouteHeaders,
+	type OGCacheStatus,
+	type OGCacheType,
+	warmOGCache,
+} from './cache'
+export {
 	generateOGHtml,
 	generateHomeOGHtml,
 	generateGeoEventOGHtml,
