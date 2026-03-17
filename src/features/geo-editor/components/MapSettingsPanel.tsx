@@ -12,8 +12,9 @@ import {
 	Server,
 } from 'lucide-react'
 import type React from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { BlossomUploaderButton } from '@/components/blossom/BlossomUploaderButton'
 import { UserProfile } from '@/components/user-profile'
 import { SessionsManager } from '@/features/auth/SessionsManager'
 import { ChatSettingsSection } from '@/features/chat'
@@ -144,6 +145,13 @@ function ProfileSettingsSection() {
 			setHasLocalEdits(true)
 		}
 
+	const handleUploadedField = useCallback((field: keyof Pick<ProfileDraft, 'image' | 'banner'>) => {
+		return ({ url }: { url: string }) => {
+			setDraft((current) => ({ ...current, [field]: url }))
+			setHasLocalEdits(true)
+		}
+	}, [])
+
 	const handleReset = () => {
 		setDraft(loadedDraft)
 		setHasLocalEdits(false)
@@ -264,21 +272,35 @@ function ProfileSettingsSection() {
 				</div>
 				<div className="space-y-2">
 					<Label htmlFor="profile-image">Avatar URL</Label>
-					<Input
-						id="profile-image"
-						value={draft.image}
-						onChange={updateField('image')}
-						placeholder="https://..."
-					/>
+					<div className="flex items-center gap-2">
+						<Input
+							id="profile-image"
+							value={draft.image}
+							onChange={updateField('image')}
+							placeholder="https://..."
+						/>
+						<BlossomUploaderButton
+							currentUrl={draft.image}
+							onUploaded={handleUploadedField('image')}
+							buttonLabel="Blossom"
+						/>
+					</div>
 				</div>
 				<div className="space-y-2">
 					<Label htmlFor="profile-banner">Banner URL</Label>
-					<Input
-						id="profile-banner"
-						value={draft.banner}
-						onChange={updateField('banner')}
-						placeholder="https://..."
-					/>
+					<div className="flex items-center gap-2">
+						<Input
+							id="profile-banner"
+							value={draft.banner}
+							onChange={updateField('banner')}
+							placeholder="https://..."
+						/>
+						<BlossomUploaderButton
+							currentUrl={draft.banner}
+							onUploaded={handleUploadedField('banner')}
+							buttonLabel="Blossom"
+						/>
+					</div>
 				</div>
 				<div className="space-y-2 md:col-span-2">
 					<Label htmlFor="profile-lud16">Lightning address</Label>

@@ -16,6 +16,7 @@ import {
 import { nip19 } from 'nostr-tools'
 import { QRCodeCanvas } from 'qrcode.react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { BlossomUploaderButton } from '@/components/blossom/BlossomUploaderButton'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -594,12 +595,22 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 									Profile picture URL{' '}
 									<span className="text-muted-foreground font-normal text-xs">(optional)</span>
 								</Label>
-								<Input
-									id="profile-picture"
-									placeholder="https://..."
-									value={profileDraft.picture}
-									onChange={(e) => setProfileDraft((d) => ({ ...d, picture: e.target.value }))}
-								/>
+								<div className="flex items-center gap-2">
+									<Input
+										id="profile-picture"
+										placeholder="https://..."
+										value={profileDraft.picture}
+										onChange={(e) => setProfileDraft((d) => ({ ...d, picture: e.target.value }))}
+									/>
+									<BlossomUploaderButton
+										signer={signer}
+										currentUrl={profileDraft.picture}
+										onUploaded={({ url }) =>
+											setProfileDraft((draft) => ({ ...draft, picture: url }))
+										}
+										buttonLabel="Blossom"
+									/>
+								</div>
 							</div>
 							<p className="text-xs text-muted-foreground">
 								You can always update your profile later in the settings.

@@ -22,6 +22,7 @@ import {
 	type GeoFeatureItem,
 	type GeoRichTextEditorRef,
 } from '@/components/editor'
+import { BlossomUploaderButton } from '@/components/blossom/BlossomUploaderButton'
 import { EntitySearchPopover, type EntitySearchResult } from '@/components/entity-search'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -730,12 +731,20 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 						</div>
 						<div className="space-y-2">
 							<Label>Image URL</Label>
-							<Input
-								value={image}
-								onChange={(event) => setImage(event.target.value)}
-								placeholder="https://..."
-								className="rounded-none"
-							/>
+							<div className="flex items-center gap-2">
+								<Input
+									value={image}
+									onChange={(event) => setImage(event.target.value)}
+									placeholder="https://..."
+									className="rounded-none"
+								/>
+								<BlossomUploaderButton
+									currentUrl={image}
+									onUploaded={({ url }) => setImage(url)}
+									buttonLabel="Blossom"
+									className="rounded-none"
+								/>
+							</div>
 						</div>
 					</EntityPanelSurface>
 				</TabsContent>
@@ -885,8 +894,8 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 											<Checkbox
 												checked={allowedGeometryTypes.includes(geometryType)}
 												disabled={!validationEnabled}
-												onChange={(event) =>
-													toggleAllowedGeometryType(geometryType, event.target.checked)
+												onCheckedChange={(checked) =>
+													toggleAllowedGeometryType(geometryType, checked === true)
 												}
 											/>
 											<span>{geometryType}</span>
