@@ -125,6 +125,52 @@ function bboxTag(bbox: BoundingBox): string {
   return `${bbox[0]},${bbox[1]},${bbox[2]},${bbox[3]}`;
 }
 
+const PUBLISH_TIMEOUT_MS = 20_000; // generous for slow production relays
+
+/**
+ * Wait until at least one relay in the pool is in CONNECTED state,
+ * or throw after timeoutMs.
+ */
+async function waitForRelay(timeoutMs = 15_000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const connected = [...ndk.pool.relays.values()].some((r) => r.connectivity.connectionStats.attempts > 0 || (r as any).status === 2);
+    if (connected) return;
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  // Best effort — continue anyway; publish will fail fast if truly disconnected
+}
+
+/**
+ * Publish a signed NDKEvent with retry + full reconnect on failure.
+ * Production relays can drop connections mid-seed or be slow to acknowledge.
+ */
+async function publishWithRetry(event: NDKEvent, maxAttempts = 5): Promise<void> {
+  const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      // Pass a longer timeout than NDK's default 2500ms
+      await event.publish(undefined, PUBLISH_TIMEOUT_MS);
+      return;
+    } catch (err) {
+      const isLast = attempt === maxAttempts;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (isLast) throw err;
+      const wait = 4000 * attempt; // 4s, 8s, 12s, 16s
+      console.warn(`  [retry] attempt ${attempt} failed: ${msg.slice(0, 80)}`);
+      console.warn(`  [retry] reconnecting in ${wait}ms...`);
+      await delay(wait);
+      // Disconnect all relays and force a fresh connection
+      for (const relay of ndk.pool.relays.values()) {
+        try { relay.disconnect(); } catch { /* ignore */ }
+      }
+      await delay(1000);
+      await ndk.connect();
+      await waitForRelay(10_000);
+    }
+  }
+}
+
 function geohashFromBbox(bbox: BoundingBox): string {
   const lat = (bbox[1] + bbox[3]) / 2;
   const lon = (bbox[0] + bbox[2]) / 2;
@@ -157,7 +203,7 @@ async function publishContext(
   event.created_at = Math.floor(Date.now() / 1000);
 
   await event.sign(signer);
-  await event.publish();
+  await publishWithRetry(event);
 
   const coord = `${MAP_CONTEXT_KIND}:${pubkey}:${contextId}`;
   console.log(`  [context] ${coord}`);
@@ -191,7 +237,7 @@ async function publishDataset(
   event.created_at = Math.floor(Date.now() / 1000);
 
   await event.sign(signer);
-  await event.publish();
+  await publishWithRetry(event);
   console.log(
     `  [dataset] ${datasetId} — ${fc.features.length} features, ~${sizeKB}KB`,
   );
