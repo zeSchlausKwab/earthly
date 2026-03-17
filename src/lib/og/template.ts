@@ -96,7 +96,7 @@ export function generateGeoEventOGHtml(
 		description:
 			description ||
 			'View this geographic dataset on Earthly, a collaborative mapping platform on Nostr.',
-		url: `${baseUrl}/#/geoevent/${naddr}`,
+		url: `${baseUrl}/#/datasets/geoevent/${naddr}`,
 		image: image || `${baseUrl}/og/image/geoevent/${naddr}`,
 		type: 'article',
 	})
@@ -117,7 +117,7 @@ export function generateContextOGHtml(
 		description:
 			description ||
 			'Explore this geographic context on Earthly, a collaborative mapping platform on Nostr.',
-		url: `${baseUrl}/#/context/${naddr}`,
+		url: `${baseUrl}/#/contexts/mapcontext/${naddr}`,
 		image: image || `${baseUrl}/og/image/context/${naddr}`,
 		type: 'article',
 	})

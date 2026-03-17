@@ -2,9 +2,14 @@ import { Eye } from 'lucide-react'
 import { useEffect, useMemo, useRef } from 'react'
 import type { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
 import type { NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
-import { getEffectiveContextUse, getEffectiveContextValidationMode } from '@/lib/context/validation'
+import {
+	getContextCoordinate,
+	getEffectiveContextUse,
+	getEffectiveContextValidationMode,
+} from '@/lib/context/validation'
 import { orderContextsForDisplay } from '@/lib/context/displayOrdering'
 import { cn } from '@/lib/utils'
+import { useEditorStore } from '@/features/geo-editor/store'
 import { useFilterState, useSortedFilteredItems, type FilterConfig } from './data-filter'
 import {
 	createContextColumns,
@@ -115,6 +120,16 @@ export function GeoDatasetsPanelContent({
 }: GeoDatasetsPanelProps) {
 	const filterState = useFilterState()
 	const prevFilteredKeysRef = useRef<Set<string> | null>(null)
+	const viewContext = useEditorStore((state) => state.viewContext)
+	const focusedType = useEditorStore((state) => state.focusedType)
+	const activeContextScopeCoordinate = useEditorStore((state) => state.activeContextScopeCoordinate)
+	const landingContextScopeCoordinate = useEditorStore(
+		(state) => state.landingContextScopeCoordinate,
+	)
+	const effectiveContextCoordinate =
+		viewContext?.contextCoordinate ??
+		activeContextScopeCoordinate ??
+		(focusedType === null ? landingContextScopeCoordinate : null)
 
 	const datasetFilterConfig = useMemo(
 		() => createDatasetFilterConfig(getDatasetName),
@@ -205,9 +220,10 @@ export function GeoDatasetsPanelContent({
 					!context.context.allowForeignAttachments &&
 					context.contextReferences.length > 0,
 				attachmentCount: context.contextReferences.length,
+				isMapActive: getContextCoordinate(context) === effectiveContextCoordinate,
 			}),
 		)
-	}, [filteredContexts])
+	}, [filteredContexts, effectiveContextCoordinate])
 
 	const datasetColumnsContext: DatasetColumnsContext = useMemo(
 		() => ({

@@ -46,6 +46,7 @@ function getBaseUrl(req: Request): string {
  */
 async function handleGeoEventRoute(req: BunRouteRequest): Promise<Response> {
 	const naddr = req.params.naddr ?? ''
+	const commentId = req.params.commentId ?? ''
 	const baseUrl = getBaseUrl(req)
 
 	if (!naddr) {
@@ -67,7 +68,10 @@ async function handleGeoEventRoute(req: BunRouteRequest): Promise<Response> {
 	}
 
 	// For regular users, redirect to hash-based route
-	return Response.redirect(`${baseUrl}/#/geoevent/${naddr}`, 302)
+	if (commentId) {
+		return Response.redirect(`${baseUrl}/#/datasets/geoevent/${naddr}/comment/${commentId}`, 302)
+	}
+	return Response.redirect(`${baseUrl}/#/datasets/geoevent/${naddr}`, 302)
 }
 
 /**
@@ -75,6 +79,7 @@ async function handleGeoEventRoute(req: BunRouteRequest): Promise<Response> {
  */
 async function handleContextRoute(req: BunRouteRequest): Promise<Response> {
 	const naddr = req.params.naddr ?? ''
+	const commentId = req.params.commentId ?? ''
 	const baseUrl = getBaseUrl(req)
 
 	if (!naddr) {
@@ -95,7 +100,11 @@ async function handleContextRoute(req: BunRouteRequest): Promise<Response> {
 		})
 	}
 
-	return Response.redirect(`${baseUrl}/#/context/${naddr}`, 302)
+	if (commentId) {
+		return Response.redirect(`${baseUrl}/#/contexts/mapcontext/${naddr}/comment/${commentId}`, 302)
+	}
+
+	return Response.redirect(`${baseUrl}/#/contexts/mapcontext/${naddr}`, 302)
 }
 
 /**
@@ -203,7 +212,9 @@ if (!isProduction) {
 		// OG routes for social media crawlers (production only)
 		const ogRoutes: Record<string, BunRoute> = {
 			'/geoevent/:naddr': handleGeoEventRoute,
+			'/geoevent/:naddr/comment/:commentId': handleGeoEventRoute,
 			'/context/:naddr': handleContextRoute,
+			'/context/:naddr/comment/:commentId': handleContextRoute,
 			'/og/image/:type/:naddr': handleOGImageRoute,
 		}
 

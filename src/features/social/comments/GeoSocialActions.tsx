@@ -14,7 +14,6 @@ import {
 	DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { buildRouteHash } from '@/features/geo-editor/hooks/useRouting'
 import { GEO_COMMENT_KIND, GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/ndk/kinds'
 import { useGeoReactions, type ReactableEvent } from '../hooks/useGeoReactions'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -34,15 +33,12 @@ interface GeoSocialActionsProps {
 	compact?: boolean
 }
 
-function getEntityRouteParts(kind: number): {
-	sidebarView: 'datasets' | 'contexts'
-	focusType: 'geoevent' | 'mapcontext'
-} | null {
+function getEntitySharePath(kind: number): 'geoevent' | 'context' | null {
 	switch (kind) {
 		case GEO_EVENT_KIND:
-			return { sidebarView: 'datasets', focusType: 'geoevent' }
+			return 'geoevent'
 		case MAP_CONTEXT_KIND:
-			return { sidebarView: 'contexts', focusType: 'mapcontext' }
+			return 'context'
 		default:
 			return null
 	}
@@ -400,7 +396,7 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 	)
 }
 
-function buildShareHash(target: ReactableEvent): string | null {
+function buildSharePath(target: ReactableEvent): string | null {
 	if (!target.kind) return null
 
 	if (target.kind === GEO_COMMENT_KIND) {
@@ -418,19 +414,15 @@ function buildShareHash(target: ReactableEvent): string | null {
 		const identifier = identifierParts.join(':')
 		if (!Number.isFinite(rootKind) || !pubkey || !identifier) return null
 
-		const route = getEntityRouteParts(rootKind)
-		if (!route) return null
+		const sharePath = getEntitySharePath(rootKind)
+		if (!sharePath) return null
 
-		return buildRouteHash({
-			sidebarView: route.sidebarView,
-			focusType: route.focusType,
-			naddr: nip19.naddrEncode({
-				kind: rootKind,
-				pubkey,
-				identifier,
-			}),
-			commentId,
+		const naddr = nip19.naddrEncode({
+			kind: rootKind,
+			pubkey,
+			identifier,
 		})
+		return `/${sharePath}/${naddr}/comment/${encodeURIComponent(commentId)}`
 	}
 
 	const targetWithDTag = target as {
@@ -442,18 +434,15 @@ function buildShareHash(target: ReactableEvent): string | null {
 	const identifier = targetWithDTag.dTag ?? targetWithDTag.datasetId ?? targetWithDTag.contextId
 	if (!identifier) return null
 
-	const route = getEntityRouteParts(target.kind)
-	if (!route) return null
+	const sharePath = getEntitySharePath(target.kind)
+	if (!sharePath) return null
 
-	return buildRouteHash({
-		sidebarView: route.sidebarView,
-		focusType: route.focusType,
-		naddr: nip19.naddrEncode({
-			kind: target.kind,
-			pubkey: target.pubkey,
-			identifier,
-		}),
+	const naddr = nip19.naddrEncode({
+		kind: target.kind,
+		pubkey: target.pubkey,
+		identifier,
 	})
+	return `/${sharePath}/${naddr}`
 }
 
 /**
@@ -484,7 +473,7 @@ export function GeoSocialActions({
 		zapDialogOpen,
 		closeZapDialog,
 	} = useGeoReactions({ target })
-	const shareHash = useMemo(() => buildShareHash(target), [target])
+	const sharePath = useMemo(() => buildSharePath(target), [target])
 
 	const formatCount = (count: number): string => {
 		if (count === 0) return ''
@@ -514,13 +503,12 @@ export function GeoSocialActions({
 	}
 
 	const handleShare = async () => {
-		if (!shareHash) {
+		if (!sharePath) {
 			toast.error('No share route available for this item')
 			return
 		}
 
-		const shareUrl = new URL(window.location.href)
-		shareUrl.hash = shareHash
+		const shareUrl = new URL(sharePath, window.location.origin)
 
 		try {
 			await navigator.clipboard.writeText(shareUrl.toString())
@@ -590,7 +578,7 @@ export function GeoSocialActions({
 					</Tooltip>
 				)}
 
-				{showShareButton && shareHash && (
+				{showShareButton && sharePath && (
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<Button

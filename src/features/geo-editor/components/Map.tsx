@@ -13,8 +13,8 @@ import {
 } from '@/lib/ndk/NDKMapLayerSetEvent'
 import { useEditorStore, type MapLayerState } from '../store'
 
-const DEFAULT_CENTER: [number, number] = [-74.006, 40.7128]
-const DEFAULT_ZOOM = 12
+const DEFAULT_CENTER: [number, number] = [0, 0]
+const DEFAULT_ZOOM = 2
 
 interface MapContextType {
 	map: maplibregl.Map | null

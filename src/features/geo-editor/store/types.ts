@@ -222,6 +222,9 @@ export interface ViewModeSlice {
 	contextMapScopeMode: ContextMapScopeMode
 	activeContextScopeNaddr: string | null
 	activeContextScopeCoordinate: string | null
+	landingContextScopeNaddr: string | null
+	landingContextScopeCoordinate: string | null
+	landingContextSelectionInitialized: boolean
 
 	focusedNaddr: string | null
 	focusedType: 'geoevent' | 'mapcontext' | null
@@ -240,6 +243,9 @@ export interface ViewModeSlice {
 	setContextMapScopeMode: (mode: ContextMapScopeMode) => void
 	setActiveContextScope: (naddr: string | null, coordinate: string | null) => void
 	clearActiveContextScope: () => void
+	setLandingContextScope: (naddr: string | null, coordinate: string | null) => void
+	clearLandingContextScope: () => void
+	setLandingContextSelectionInitialized: (initialized: boolean) => void
 	setEditIsolationEnabled: (enabled: boolean) => void
 	toggleEditIsolation: () => void
 

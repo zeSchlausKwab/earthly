@@ -15,6 +15,7 @@ import {
 } from '../lib/ndk/kinds'
 import { getLatestProposalStatus, type ProposalStatus } from '../lib/ndk/proposalStatus'
 import {
+	getContextCoordinate,
 	getEffectiveContextUse,
 	getEffectiveContextValidationMode,
 } from '../lib/context/validation'
@@ -155,6 +156,16 @@ export function UserProfilePanel({
 	const isOwnProfile = currentUserPubkey === pubkey
 	const workspaces = useEditorStore((state) => state.workspaces)
 	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
+	const viewContext = useEditorStore((state) => state.viewContext)
+	const focusedType = useEditorStore((state) => state.focusedType)
+	const activeContextScopeCoordinate = useEditorStore((state) => state.activeContextScopeCoordinate)
+	const landingContextScopeCoordinate = useEditorStore(
+		(state) => state.landingContextScopeCoordinate,
+	)
+	const effectiveContextCoordinate =
+		viewContext?.contextCoordinate ??
+		activeContextScopeCoordinate ??
+		(focusedType === null ? landingContextScopeCoordinate : null)
 
 	const userGeoEvents = useMemo(
 		() => geoEvents.filter((event) => event.pubkey === pubkey),
@@ -398,9 +409,10 @@ export function UserProfilePanel({
 					!context.context.allowForeignAttachments &&
 					context.contextReferences.length > 0,
 				attachmentCount: context.contextReferences.length,
+				isMapActive: getContextCoordinate(context) === effectiveContextCoordinate,
 			}),
 		)
-	}, [filteredContexts])
+	}, [filteredContexts, effectiveContextCoordinate])
 
 	const proposalColumns = useMemo<ColumnDef<UserProposalRow>[]>(
 		() => [

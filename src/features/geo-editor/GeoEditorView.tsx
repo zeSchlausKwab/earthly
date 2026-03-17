@@ -159,6 +159,18 @@ export function GeoEditorView() {
 	const contextMapScopeMode = useEditorStore((state) => state.contextMapScopeMode)
 	const setContextMapScopeMode = useEditorStore((state) => state.setContextMapScopeMode)
 	const setContextFilterMode = useEditorStore((state) => state.setContextFilterMode)
+	const landingContextScopeNaddr = useEditorStore((state) => state.landingContextScopeNaddr)
+	const landingContextScopeCoordinate = useEditorStore(
+		(state) => state.landingContextScopeCoordinate,
+	)
+	const landingContextSelectionInitialized = useEditorStore(
+		(state) => state.landingContextSelectionInitialized,
+	)
+	const setLandingContextScope = useEditorStore((state) => state.setLandingContextScope)
+	const clearLandingContextScope = useEditorStore((state) => state.clearLandingContextScope)
+	const setLandingContextSelectionInitialized = useEditorStore(
+		(state) => state.setLandingContextSelectionInitialized,
+	)
 	const activeDataset = useEditorStore((state) => state.activeDataset)
 	const activeDatasetContextRefs = useEditorStore((state) => state.activeDatasetContextRefs)
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
@@ -202,8 +214,8 @@ export function GeoEditorView() {
 	}, [mapSource.type, mapSource.location, mapSource.url, mapSource.blossomServer, mapSource.file])
 
 	// External data
-	const { events: geoEvents } = useStations([{ limit: 50 }])
-	const { events: mapContextEvents } = useMapContexts([{ limit: 100 }])
+	const { events: geoEvents, eose: geoEventsEose } = useStations([{ limit: 50 }])
+	const { events: mapContextEvents, eose: mapContextEventsEose } = useMapContexts([{ limit: 100 }])
 	const { ndk } = useNDK()
 	const currentUser = useNDKCurrentUser()
 	const currentUserPubkey = currentUser?.pubkey ?? null
@@ -463,6 +475,38 @@ export function GeoEditorView() {
 		return `Context ${contextNaddr.slice(0, 12)}…`
 	}, [activeContextScope, contextNaddr])
 
+	const shouldUseLandingContext = !contextNaddr && route.focusType === 'none'
+
+	const landingContextScope = useMemo(() => {
+		if (!shouldUseLandingContext || !landingContextScopeCoordinate) return null
+		return (
+			mapContextEvents.find(
+				(context) => getContextCoordinate(context) === landingContextScopeCoordinate,
+			) ?? null
+		)
+	}, [shouldUseLandingContext, landingContextScopeCoordinate, mapContextEvents])
+
+	const landingContextScopeLabel = useMemo(() => {
+		if (!shouldUseLandingContext || !landingContextScopeCoordinate) return null
+		if (landingContextScope) {
+			return (
+				landingContextScope.context.name ||
+				landingContextScope.contextId ||
+				landingContextScope.id ||
+				'Recommended context'
+			)
+		}
+		if (landingContextScopeNaddr) {
+			return `Context ${landingContextScopeNaddr.slice(0, 12)}…`
+		}
+		return null
+	}, [
+		shouldUseLandingContext,
+		landingContextScope,
+		landingContextScopeCoordinate,
+		landingContextScopeNaddr,
+	])
+
 	const focusedContext = useMemo(() => {
 		if (focusedType !== 'mapcontext' || !focusedNaddr) return null
 		return (
@@ -473,16 +517,86 @@ export function GeoEditorView() {
 		)
 	}, [focusedType, focusedNaddr, mapContextEvents, encodeContextNaddr])
 
-	const activeContext = activeContextScope ?? focusedContext
-	const activeContextCoordinate = useMemo(() => {
+	const explicitContext = activeContextScope ?? focusedContext
+	const landingMapFilterContext = shouldUseLandingContext ? landingContextScope : null
+	const mapFilterContext = explicitContext ?? landingMapFilterContext
+	const mapFilterContextCoordinate = useMemo(() => {
 		if (activeContextScope && contextCoordinate) return contextCoordinate
-		if (!activeContext) return null
-		return getContextCoordinate(activeContext)
-	}, [activeContext, activeContextScope, contextCoordinate])
+		if (!explicitContext && landingMapFilterContext && landingContextScopeCoordinate) {
+			return landingContextScopeCoordinate
+		}
+		if (!mapFilterContext) return null
+		return getContextCoordinate(mapFilterContext)
+	}, [
+		activeContextScope,
+		contextCoordinate,
+		explicitContext,
+		landingMapFilterContext,
+		landingContextScopeCoordinate,
+		mapFilterContext,
+	])
+
+	const recommendedLandingContext = useMemo(() => {
+		if (geoEvents.length === 0 || mapContextEvents.length === 0) return null
+
+		const ranked = mapContextEvents
+			.map((context) => ({
+				context,
+				datasetCount: resolveContextMapScope(
+					context,
+					geoEvents,
+					mapContextEvents,
+					getDefaultContextMapScopeMode(context),
+				).datasets.length,
+			}))
+			.filter((entry) => entry.datasetCount > 0)
+			.sort((a, b) => {
+				if (b.datasetCount !== a.datasetCount) return b.datasetCount - a.datasetCount
+				const createdAtDiff = (b.context.created_at ?? 0) - (a.context.created_at ?? 0)
+				if (createdAtDiff !== 0) return createdAtDiff
+				return (b.context.id ?? '').localeCompare(a.context.id ?? '')
+			})
+
+		return ranked[0]?.context ?? null
+	}, [geoEvents, mapContextEvents])
+
+	useEffect(() => {
+		if (!shouldUseLandingContext) {
+			return
+		}
+
+		if (landingContextSelectionInitialized) return
+
+		if (recommendedLandingContext) {
+			const coordinate = getContextCoordinate(recommendedLandingContext)
+			if (!coordinate) return
+
+			setLandingContextScope(encodeContextNaddr(recommendedLandingContext), coordinate)
+			setLandingContextSelectionInitialized(true)
+			return
+		}
+
+		if (geoEventsEose && mapContextEventsEose) {
+			setLandingContextSelectionInitialized(true)
+		}
+	}, [
+		shouldUseLandingContext,
+		landingContextSelectionInitialized,
+		geoEventsEose,
+		mapContextEventsEose,
+		recommendedLandingContext,
+		setLandingContextScope,
+		setLandingContextSelectionInitialized,
+		encodeContextNaddr,
+	])
+
+	const shouldDeferInitialUnscopedMapRender =
+		shouldUseLandingContext && !landingContextSelectionInitialized
 
 	const resolvedActiveContextScope = useMemo(
-		() => resolveContextMapScope(activeContext, geoEvents, mapContextEvents, contextMapScopeMode),
-		[activeContext, geoEvents, mapContextEvents, contextMapScopeMode],
+		() =>
+			resolveContextMapScope(mapFilterContext, geoEvents, mapContextEvents, contextMapScopeMode),
+		[mapFilterContext, geoEvents, mapContextEvents, contextMapScopeMode],
 	)
 	const activeContextDatasets = useMemo(
 		() => resolvedActiveContextScope.datasets.map((entry) => entry.dataset),
@@ -493,21 +607,26 @@ export function GeoEditorView() {
 
 	const activeContextValidationByDatasetKey = useMemo(() => {
 		const map = new Map<string, ReturnType<typeof validateDatasetForContext>>()
-		if (!activeContext || !activeContextCoordinate) return map
-		if (activeContext.context.contextUse === 'taxonomy') return map
+		if (!mapFilterContext || !mapFilterContextCoordinate) return map
+		if (mapFilterContext.context.contextUse === 'taxonomy') return map
 
 		activeContextDatasets.forEach((event) => {
 			const collection = resolvedCollectionResolver(event) ?? event.featureCollection
 			map.set(
 				getDatasetKey(event),
-				validateDatasetForContext(event, activeContext, collection, validationModeForActiveContext),
+				validateDatasetForContext(
+					event,
+					mapFilterContext,
+					collection,
+					validationModeForActiveContext,
+				),
 			)
 		})
 
 		return map
 	}, [
-		activeContext,
-		activeContextCoordinate,
+		mapFilterContext,
+		mapFilterContextCoordinate,
 		activeContextDatasets,
 		resolvedCollectionResolver,
 		getDatasetKey,
@@ -515,8 +634,9 @@ export function GeoEditorView() {
 	])
 
 	const scopedGeoEvents = useMemo(() => {
-		if (!activeContext || !activeContextCoordinate) return geoEvents
-		if (activeContext.context.contextUse === 'taxonomy') {
+		if (shouldDeferInitialUnscopedMapRender) return []
+		if (!mapFilterContext || !mapFilterContextCoordinate) return geoEvents
+		if (mapFilterContext.context.contextUse === 'taxonomy') {
 			return activeContextDatasets
 		}
 		return activeContextDatasets.filter((event) => {
@@ -528,17 +648,22 @@ export function GeoEditorView() {
 			return isDatasetAllowedByContextFilter(validation, contextFilterMode)
 		})
 	}, [
-		activeContext,
-		activeContextCoordinate,
+		mapFilterContext,
+		mapFilterContextCoordinate,
 		activeContextDatasets,
 		activeContextValidationByDatasetKey,
 		getDatasetKey,
 		contextFilterMode,
 		geoEvents,
+		shouldDeferInitialUnscopedMapRender,
 	])
 
 	// Visible geo events based on visibility toggle, focus mode, AND filter state
 	const visibleGeoEvents = useMemo(() => {
+		if (shouldDeferInitialUnscopedMapRender) {
+			return []
+		}
+
 		if (viewMode === 'edit' && editIsolationEnabled) {
 			return []
 		}
@@ -548,9 +673,9 @@ export function GeoEditorView() {
 		)
 
 		const isAllowedByContextScope = (event: NDKGeoEvent) => {
-			if (!activeContextCoordinate || !activeContext) return true
+			if (!mapFilterContextCoordinate || !mapFilterContext) return true
 			if (!activeContextDatasetKeys.has(getDatasetKey(event))) return false
-			if (activeContext.context.contextUse === 'taxonomy') return true
+			if (mapFilterContext.context.contextUse === 'taxonomy') return true
 			const validation = activeContextValidationByDatasetKey.get(getDatasetKey(event))
 			if (!validation) {
 				return contextFilterMode !== 'strict'
@@ -581,11 +706,11 @@ export function GeoEditorView() {
 					return eventNaddr === focusedNaddr
 				})
 				return dataset && isEventVisible(dataset, false) ? [dataset] : []
-			} else if (focusedType === 'mapcontext' && activeContext) {
+			} else if (focusedType === 'mapcontext' && mapFilterContext) {
 				const attachedVisible = activeContextDatasets.filter((event) =>
 					isEventVisible(event, false),
 				)
-				if (activeContext.context.contextUse === 'taxonomy') {
+				if (mapFilterContext.context.contextUse === 'taxonomy') {
 					return attachedVisible
 				}
 
@@ -607,36 +732,37 @@ export function GeoEditorView() {
 		focusedNaddr,
 		focusedType,
 		encodeGeoEventNaddr,
-		activeContext,
+		mapFilterContext,
 		activeContextDatasets,
-		activeContextCoordinate,
+		mapFilterContextCoordinate,
 		activeContextValidationByDatasetKey,
 		contextFilterMode,
 		filteredDatasetKeys,
 		viewMode,
 		editIsolationEnabled,
+		shouldDeferInitialUnscopedMapRender,
 	])
 
 	const lastContextCoordinateRef = useRef<string | null>(null)
 	useEffect(() => {
-		if (!activeContext) {
+		if (!explicitContext) {
 			lastContextCoordinateRef.current = null
 			setViewContext(null)
 			setViewContextDatasets([])
 			return
 		}
 
-		const coordinate = getContextCoordinate(activeContext)
-		setViewContext(activeContext)
+		const coordinate = getContextCoordinate(explicitContext)
+		setViewContext(explicitContext)
 		setViewContextDatasets(activeContextDatasets)
 
 		if (coordinate && lastContextCoordinateRef.current !== coordinate) {
 			lastContextCoordinateRef.current = coordinate
-			setContextFilterMode(defaultContextFilterMode(activeContext))
-			setContextMapScopeMode(getDefaultContextMapScopeMode(activeContext))
+			setContextFilterMode(defaultContextFilterMode(explicitContext))
+			setContextMapScopeMode(getDefaultContextMapScopeMode(explicitContext))
 		}
 	}, [
-		activeContext,
+		explicitContext,
 		activeContextDatasets,
 		setViewContext,
 		setViewContextDatasets,
@@ -649,16 +775,16 @@ export function GeoEditorView() {
 		if (activeDataset) return
 		if (features.length > 0) return
 
-		const canAutoAttachToContext = activeContext?.context.allowForeignAttachments ?? false
+		const canAutoAttachToContext = explicitContext?.context.allowForeignAttachments ?? false
 
-		if (activeContextCoordinate && canAutoAttachToContext) {
+		if (mapFilterContextCoordinate && canAutoAttachToContext) {
 			if (
 				activeDatasetContextRefs.length === 1 &&
-				activeDatasetContextRefs[0] === activeContextCoordinate
+				activeDatasetContextRefs[0] === mapFilterContextCoordinate
 			) {
 				return
 			}
-			setActiveDatasetContextRefs([activeContextCoordinate])
+			setActiveDatasetContextRefs([mapFilterContextCoordinate])
 			return
 		}
 
@@ -668,8 +794,8 @@ export function GeoEditorView() {
 	}, [
 		activeDataset,
 		features.length,
-		activeContextCoordinate,
-		activeContext?.context.allowForeignAttachments,
+		mapFilterContextCoordinate,
+		explicitContext?.context.allowForeignAttachments,
 		activeDatasetContextRefs,
 		setActiveDatasetContextRefs,
 	])
@@ -1576,6 +1702,30 @@ export function GeoEditorView() {
 									className="rounded-full text-sky-700 hover:bg-sky-100"
 								>
 									<X className="h-3.5 w-3.5" />
+								</Button>
+							</div>
+						</div>
+					)}
+
+					{!contextNaddr && landingContextScopeLabel && (
+						<div
+							className={`absolute left-2 right-2 z-20 pointer-events-none flex justify-center ${
+								mounted && editor ? 'top-16' : 'top-3'
+							}`}
+						>
+							<div className="pointer-events-auto inline-flex max-w-[min(92vw,640px)] items-center gap-2 rounded-full border border-emerald-200 bg-white/95 px-3 py-1.5 shadow-lg backdrop-blur">
+								<Globe className="h-3.5 w-3.5 shrink-0 text-emerald-700" />
+								<span className="truncate text-xs font-medium text-emerald-900">
+									Showing {landingContextScopeLabel}
+								</span>
+								<Button
+									type="button"
+									variant="ghost"
+									size="sm"
+									onClick={clearLandingContextScope}
+									className="h-6 rounded-full px-2 text-emerald-700 hover:bg-emerald-100"
+								>
+									Show all
 								</Button>
 							</div>
 						</div>

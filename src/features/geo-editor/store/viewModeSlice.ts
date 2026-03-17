@@ -11,6 +11,9 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 	contextMapScopeMode: 'children',
 	activeContextScopeNaddr: null,
 	activeContextScopeCoordinate: null,
+	landingContextScopeNaddr: null,
+	landingContextScopeCoordinate: null,
+	landingContextSelectionInitialized: false,
 
 	focusedNaddr: null,
 	focusedType: null,
@@ -29,6 +32,15 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 			activeContextScopeNaddr: null,
 			activeContextScopeCoordinate: null,
 		}),
+	setLandingContextScope: (landingContextScopeNaddr, landingContextScopeCoordinate) =>
+		set({ landingContextScopeNaddr, landingContextScopeCoordinate }),
+	clearLandingContextScope: () =>
+		set({
+			landingContextScopeNaddr: null,
+			landingContextScopeCoordinate: null,
+		}),
+	setLandingContextSelectionInitialized: (landingContextSelectionInitialized) =>
+		set({ landingContextSelectionInitialized }),
 	setEditIsolationEnabled: (editIsolationEnabled) => set({ editIsolationEnabled }),
 	toggleEditIsolation: () =>
 		set((state) => ({ editIsolationEnabled: !state.editIsolationEnabled })),
