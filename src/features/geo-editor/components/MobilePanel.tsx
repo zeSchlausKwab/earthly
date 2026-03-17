@@ -95,7 +95,7 @@ export interface MobilePanelProps {
 	featureCollectionForUpload?: FeatureCollection | null
 	onBlossomUploadComplete?: (result: BlossomUploadResult) => void
 	ndk?: import('@nostr-dev-kit/ndk').default | null
-	onFilteredDatasetKeysChange?: (keys: Set<string>) => void
+	onFilteredDatasetKeysChange?: (keys: Set<string> | null) => void
 	onToggleProposalOverlay?: (
 		proposal: import('@/lib/ndk/NDKGeoEditProposalEvent').NDKGeoEditProposalEvent,
 		visible: boolean,

@@ -158,7 +158,7 @@ interface AppSidebarProps {
 	ndk?: import('@nostr-dev-kit/ndk').default | null
 	userPubkey?: string
 	focusCommentId?: string
-	onFilteredDatasetKeysChange?: (keys: Set<string>) => void
+	onFilteredDatasetKeysChange?: (keys: Set<string> | null) => void
 	onToggleProposalOverlay?: (proposal: NDKGeoEditProposalEvent, visible: boolean) => void
 	onProposalAccepted?: (dataset: NDKGeoEvent) => void
 	visibleProposalIds?: Set<string>
@@ -643,7 +643,11 @@ export function AppSidebar({
 
 	return (
 		<Sidebar collapsible="icon" className="overflow-hidden *:data-[sidebar=sidebar]:flex-row">
-			<Sidebar collapsible="none" className="w-[calc(var(--sidebar-width-icon)+1px)]! border-r" data-tour="sidebar-nav">
+			<Sidebar
+				collapsible="none"
+				className="w-[calc(var(--sidebar-width-icon)+1px)]! border-r"
+				data-tour="sidebar-nav"
+			>
 				<SidebarHeader>
 					<SidebarMenu>
 						<SidebarMenuItem>
@@ -703,9 +707,19 @@ export function AppSidebar({
 
 								{workNavItems.map((item) => (
 									<SidebarMenuItem
-								key={item.mode}
-								data-tour={item.mode === 'datasets' ? 'sidebar-datasets' : item.mode === 'contexts' ? 'sidebar-contexts' : item.mode === 'chat' ? 'sidebar-chat' : item.mode === 'user' ? 'sidebar-my-entities' : undefined}
-							>
+										key={item.mode}
+										data-tour={
+											item.mode === 'datasets'
+												? 'sidebar-datasets'
+												: item.mode === 'contexts'
+													? 'sidebar-contexts'
+													: item.mode === 'chat'
+														? 'sidebar-chat'
+														: item.mode === 'user'
+															? 'sidebar-my-entities'
+															: undefined
+										}
+									>
 										<SidebarMenuButton
 											tooltip={{ children: item.title, hidden: false }}
 											onClick={() => {
@@ -852,7 +866,9 @@ export function AppSidebar({
 									<PanelLeftOpen className="h-4 w-4" />
 								)}
 							</Button>
-							<span data-tour="sidebar-login"><LoginSessionButtons /></span>
+							<span data-tour="sidebar-login">
+								<LoginSessionButtons />
+							</span>
 						</div>
 					</div>
 					{currentUserPubkey && (

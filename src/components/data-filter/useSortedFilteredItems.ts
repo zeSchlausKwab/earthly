@@ -42,6 +42,7 @@ export function useSortedFilteredItems<T extends FilterableItem>(
 
 		return {
 			items: limited,
+			filteredItems: filtered,
 			totalCount,
 			filteredCount,
 			displayedCount: limited.length,

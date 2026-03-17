@@ -214,8 +214,8 @@ export function GeoEditorView() {
 	}, [mapSource.type, mapSource.location, mapSource.url, mapSource.blossomServer, mapSource.file])
 
 	// External data
-	const { events: geoEvents, eose: geoEventsEose } = useStations([{ limit: 50 }])
-	const { events: mapContextEvents, eose: mapContextEventsEose } = useMapContexts([{ limit: 100 }])
+	const { events: geoEvents, eose: geoEventsEose } = useStations()
+	const { events: mapContextEvents, eose: mapContextEventsEose } = useMapContexts()
 	const { ndk } = useNDK()
 	const currentUser = useNDKCurrentUser()
 	const currentUserPubkey = currentUser?.pubkey ?? null
@@ -440,8 +440,8 @@ export function GeoEditorView() {
 
 	// Track filtered dataset keys from sidebar filter (for map visibility sync)
 	const [filteredDatasetKeys, setFilteredDatasetKeys] = useState<Set<string> | null>(null)
-	const handleFilteredDatasetKeysChange = useCallback((keys: Set<string>) => {
-		setFilteredDatasetKeys(new Set(keys))
+	const handleFilteredDatasetKeysChange = useCallback((keys: Set<string> | null) => {
+		setFilteredDatasetKeys(keys ? new Set(keys) : null)
 	}, [])
 
 	// Mobile does not always render the datasets panel immediately; avoid getting stuck with stale/empty

@@ -48,7 +48,7 @@ export interface GeoDatasetsPanelProps {
 	onEditContext?: (context: NDKMapContextEvent) => void
 	isFocused?: boolean
 	onExitFocus?: () => void
-	onFilteredDatasetKeysChange?: (keys: Set<string>) => void
+	onFilteredDatasetKeysChange?: (keys: Set<string> | null) => void
 }
 
 const getDatasetDescriptionText = (event: NDKGeoEvent): string | undefined => {
@@ -143,8 +143,22 @@ export function GeoDatasetsPanelContent({
 	const filteredContexts = contextResult.items
 
 	useEffect(() => {
-		if (!onFilteredDatasetKeysChange || mode !== 'datasets') return
-		const keys = new Set(filteredGeoEvents.map((event) => getDatasetKey(event)))
+		if (!onFilteredDatasetKeysChange) return
+		return () => {
+			prevFilteredKeysRef.current = null
+			onFilteredDatasetKeysChange(null)
+		}
+	}, [onFilteredDatasetKeysChange])
+
+	useEffect(() => {
+		if (!onFilteredDatasetKeysChange) return
+		if (mode !== 'datasets') {
+			prevFilteredKeysRef.current = null
+			onFilteredDatasetKeysChange(null)
+			return
+		}
+
+		const keys = new Set(datasetResult.filteredItems.map((event) => getDatasetKey(event)))
 		const previous = prevFilteredKeysRef.current
 		if (previous && previous.size === keys.size) {
 			let same = true
@@ -158,7 +172,7 @@ export function GeoDatasetsPanelContent({
 		}
 		prevFilteredKeysRef.current = keys
 		onFilteredDatasetKeysChange(keys)
-	}, [filteredGeoEvents, getDatasetKey, mode, onFilteredDatasetKeysChange])
+	}, [datasetResult.filteredItems, getDatasetKey, mode, onFilteredDatasetKeysChange])
 
 	const datasetTableData: DatasetRowData[] = useMemo(
 		() =>
