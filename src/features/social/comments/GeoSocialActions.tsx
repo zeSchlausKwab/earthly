@@ -1,8 +1,11 @@
 import { Check, Copy, Heart, Loader2, MessageCircle, PencilLine, Share2, Zap } from 'lucide-react'
-import { getNip57ZapSpecFromLud, NDKZapper, type NDKLnLudData } from '@nostr-dev-kit/ndk'
-import { useNDK, NDKEvent } from '@nostr-dev-kit/react'
-import { useActiveAccount } from 'applesauce-react/hooks'
-import { useTimeline } from '@/lib/nostr/hooks'
+import { use$, useActiveAccount } from 'applesauce-react/hooks'
+import { ZapRequestFactory } from 'applesauce-common/factories'
+import {
+	getInvoice,
+	parseLNURLOrAddress,
+} from 'applesauce-common/helpers'
+import type { NostrEvent } from 'nostr-tools'
 import { nip19 } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
@@ -17,6 +20,8 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { GEO_COMMENT_KIND, GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/ndk/kinds'
+import { accounts, eventStore } from '@/lib/nostr'
+import { useTimeline } from '@/lib/nostr/hooks'
 import { useGeoReactions, type ReactableEvent } from '../hooks/useGeoReactions'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -76,34 +81,35 @@ function buildZapFilters(target: ReactableEvent | null) {
 	return []
 }
 
-function sanitizeTag(tag: Array<string | number | null | undefined>): string[] {
-	return tag
-		.filter((value): value is string | number => value !== null && value !== undefined)
-		.map((value) => String(value))
+/** Get the underlying raw NostrEvent regardless of whether we got a Cast/wrapper. */
+function rawNostrEvent(target: ReactableEvent): NostrEvent {
+	if ('event' in target && (target as { event?: NostrEvent }).event) {
+		return (target as { event: NostrEvent }).event
+	}
+	return target as NostrEvent
 }
 
-function normalizeTargetEvent(
-	ndk: NonNullable<ReturnType<typeof useNDK>['ndk']>,
-	target: ReactableEvent,
-): NDKEvent {
-	if (target instanceof NDKEvent) {
-		return target
+/** LNURL pay-endpoint payload (NIP-57 §3). */
+interface NostrLnurlSpec {
+	callback: string
+	minSendable?: number
+	maxSendable?: number
+	allowsNostr?: boolean
+	nostrPubkey?: string
+}
+
+/** Extract a Lightning address (lud16) or LNURLp (lud06) from a kind 0 event. */
+function getLightningEndpointFromProfile(profileEvent: NostrEvent | undefined): URL | undefined {
+	if (!profileEvent) return undefined
+	let parsed: { lud16?: string; lud06?: string }
+	try {
+		parsed = JSON.parse(profileEvent.content) as typeof parsed
+	} catch {
+		return undefined
 	}
-
-	const tags = Array.isArray(target.tags)
-		? target.tags.map((tag) =>
-				Array.isArray(tag) ? tag.map((value) => String(value)) : [String(tag)],
-			)
-		: []
-
-	return new NDKEvent(ndk, {
-		kind: target.kind ?? 1,
-		pubkey: target.pubkey,
-		id: target.id ?? '',
-		created_at: target.created_at ?? Math.floor(Date.now() / 1000),
-		content: typeof target.content === 'string' ? target.content : '',
-		tags,
-	})
+	const candidate = parsed.lud16 ?? parsed.lud06
+	if (!candidate) return undefined
+	return parseLNURLOrAddress(candidate)
 }
 
 interface ZapDialogProps {
@@ -113,7 +119,6 @@ interface ZapDialogProps {
 }
 
 function ZapDialog({ target, open, onClose }: ZapDialogProps) {
-	const { ndk } = useNDK()
 	const currentUser = useActiveAccount()
 	const [selectedAmount, setSelectedAmount] = useState<number | 'custom' | null>(null)
 	const [customAmount, setCustomAmount] = useState('')
@@ -129,6 +134,12 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 		return filters.length ? filters : null
 	}, [target])
 	const zapReceiptEvents = useTimeline(zapFilters)
+
+	// Read recipient's profile (kind 0) to extract their Lightning endpoint.
+	const recipientProfileEvent = use$(
+		() => (target?.pubkey ? eventStore.replaceable(0, target.pubkey) : undefined),
+		[target?.pubkey],
+	)
 
 	const resetDialogState = useCallback(() => {
 		setSelectedAmount(null)
@@ -155,7 +166,9 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 	useEffect(() => {
 		if (!open || !invoice) return
 
-		const matchingReceipt = zapReceiptEvents.find((event) => event.tagValue('bolt11') === invoice)
+		const matchingReceipt = zapReceiptEvents.find(
+			(event) => event.tags.find((t) => t[0] === 'bolt11')?.[1] === invoice,
+		)
 		if (!matchingReceipt) return
 
 		const receiptId = matchingReceipt.id ?? invoice
@@ -167,8 +180,9 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 
 	const generateInvoice = useCallback(
 		async (amountSats: number) => {
-			if (!ndk) {
-				toast.error('NDK is not ready yet')
+			const signer = accounts.signer
+			if (!signer) {
+				toast.error('Sign in to send zaps')
 				return
 			}
 			if (!Number.isFinite(amountSats) || amountSats <= 0) {
@@ -182,60 +196,46 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 			receiptEventIdRef.current = null
 
 			try {
-				const senderPubkey = currentUser?.pubkey ?? ndk.activeUser?.pubkey
-				if (!senderPubkey) {
-					throw new Error('No active signer pubkey available for zaps.')
-				}
+				const senderPubkey = currentUser?.pubkey
+				if (!senderPubkey) throw new Error('No active signer.')
 
-				const targetEvent = normalizeTargetEvent(ndk, target)
-				const amountMsats = amountSats * 1000
-				const zapper = new NDKZapper(targetEvent, amountMsats, 'msat', { ndk })
-				const splits = zapper.getZapSplits()
-				if (splits.length !== 1) {
-					throw new Error('Split zaps are not supported in this dialog yet.')
-				}
-
-				const split = splits[0]
-				const recipientMethods = (await zapper.getRecipientZapMethods()).get(split.pubkey)
-				const nip57Data = recipientMethods?.get('nip57') as NDKLnLudData | undefined
-				if (!nip57Data) {
+				const lnurlEndpoint = getLightningEndpointFromProfile(recipientProfileEvent)
+				if (!lnurlEndpoint) {
 					throw new Error('This recipient does not expose a Lightning zap endpoint.')
 				}
-				const zapSpec = await getNip57ZapSpecFromLud(nip57Data, ndk)
-				if (!zapSpec?.callback) {
-					throw new Error('This recipient does not expose a valid Lightning zap callback.')
+
+				// Step 1: Fetch the LNURL-pay metadata.
+				const spec: NostrLnurlSpec = await fetch(lnurlEndpoint).then((r) => r.json())
+				if (!spec.callback) {
+					throw new Error('Recipient LNURL endpoint did not return a callback.')
+				}
+				if (!spec.allowsNostr) {
+					throw new Error('Recipient endpoint does not support Nostr zaps.')
 				}
 
-				const relays = await zapper.relays(split.pubkey)
-				const zapRequest = new NDKEvent(ndk)
-				zapRequest.kind = 9734
-				zapRequest.created_at = Math.floor(Date.now() / 1000)
-				zapRequest.pubkey = senderPubkey
-				zapRequest.content = ''
-				zapRequest.tags = [
-					sanitizeTag(['relays', ...relays.slice(0, 4)]),
-					sanitizeTag(['amount', amountMsats]),
-					sanitizeTag(['lnurl', zapSpec.callback]),
-					sanitizeTag(['p', split.pubkey]),
-				]
-
-				const targetAddress = buildTargetAddress(target)
-				if (targetAddress) {
-					zapRequest.tags.push(sanitizeTag(['a', targetAddress]))
+				const amountMsats = amountSats * 1000
+				if (spec.minSendable && amountMsats < spec.minSendable) {
+					throw new Error(`Minimum zap is ${Math.ceil(spec.minSendable / 1000)} sats.`)
 				}
-				if (target.id) {
-					zapRequest.tags.push(sanitizeTag(['e', target.id, '', target.pubkey]))
-				}
-				if (target.kind !== undefined) {
-					zapRequest.tags.push(sanitizeTag(['k', target.kind]))
+				if (spec.maxSendable && amountMsats > spec.maxSendable) {
+					throw new Error(`Maximum zap is ${Math.floor(spec.maxSendable / 1000)} sats.`)
 				}
 
-				await zapRequest.sign(ndk.signer)
+				// Step 2: Build the zap request (kind 9734). ZapRequestFactory wires up
+				// the e/a/k/p/relays/amount tags for us; we only need to choose relays.
+				const targetEvent = rawNostrEvent(target)
+				const relays = ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.nostr.band']
+				const zapRequest = await ZapRequestFactory.event(targetEvent, amountMsats, relays).sign(
+					signer,
+				)
 
-				const pr = await zapper.getLnInvoice(zapRequest, amountMsats, zapSpec)
-				if (!pr) {
-					throw new Error('Unable to fetch a Lightning invoice.')
-				}
+				// Step 3: Call the LNURL callback with the zap request and amount.
+				const callbackUrl = new URL(spec.callback)
+				callbackUrl.searchParams.set('amount', String(amountMsats))
+				callbackUrl.searchParams.set('nostr', encodeURIComponent(JSON.stringify(zapRequest)))
+
+				const pr = await getInvoice(callbackUrl)
+				if (!pr) throw new Error('Unable to fetch a Lightning invoice.')
 
 				setInvoice(pr)
 				setInvoiceAmount(amountSats)
@@ -248,7 +248,7 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 				setIsGenerating(false)
 			}
 		},
-		[currentUser?.pubkey, ndk, target],
+		[currentUser?.pubkey, recipientProfileEvent, target],
 	)
 
 	const handleCopyInvoice = useCallback(async () => {

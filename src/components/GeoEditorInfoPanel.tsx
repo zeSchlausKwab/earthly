@@ -98,8 +98,6 @@ export interface GeoEditorInfoPanelProps {
 	featureCollectionForUpload?: FeatureCollection | null
 	/** Callback when blossom upload completes */
 	onBlossomUploadComplete?: (result: BlossomUploadResult) => void
-	/** NDK instance for authenticated uploads */
-	ndk?: import('@nostr-dev-kit/ndk').default | null
 	/** Optional comment d-tag from the route to reveal in the thread */
 	focusCommentId?: string
 	entityWorkspace?: 'geometry' | 'context'
@@ -136,7 +134,6 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onZoomToFeature,
 		featureCollectionForUpload,
 		onBlossomUploadComplete,
-		ndk,
 		focusCommentId,
 		entityWorkspace,
 		entityIntent,

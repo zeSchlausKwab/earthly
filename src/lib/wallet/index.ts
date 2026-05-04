@@ -7,13 +7,20 @@
  */
 
 // React hooks
-export { useWallet, useWalletHistory, useWalletTokens, type WalletState } from './hooks'
+export {
+	useDefaultMint,
+	useWallet,
+	useWalletHistory,
+	useWalletTokens,
+	type WalletState,
+} from './hooks'
 
 // Action wrappers
 export {
 	addNutzapMint,
 	consolidateTokens,
 	createWallet,
+	payLightningInvoice,
 	receiveCashuToken,
 	receiveNutzaps,
 	recoverFromCouch,
@@ -21,8 +28,10 @@ export {
 	sendCashuToken,
 	setMints,
 	setWalletRelays,
+	startLightningDeposit,
 	unlockWallet,
 	type CreateWalletOptions,
+	type DepositSession,
 } from './actions'
 
 // Runtime singletons (rare direct use; most code should go via hooks/actions)
@@ -39,6 +48,3 @@ export { getCurrentPubkey, setCurrentPubkey } from './currentUser'
 export { getMintHostname, formatSats } from './display'
 export { loadUserData, removeUserData, saveUserData } from './storage'
 export type { PendingToken, ProofEntry, ProofInfo } from './types'
-
-// Migration shims — see ./proofs.ts. Removed once Nip60Wallet.tsx is rewritten.
-export { extractProofsByMint, getProofsForMint } from './proofs'

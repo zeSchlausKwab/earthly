@@ -14,9 +14,16 @@
  */
 
 import { generateSecretKey } from 'nostr-tools'
-import { getDecodedToken, getEncodedToken } from '@cashu/cashu-ts'
+import {
+	getDecodedToken,
+	getEncodedToken,
+	type MintQuoteBolt11Response,
+	type Proof,
+	Wallet as CashuWallet,
+} from '@cashu/cashu-ts'
 import {
 	AddNutzapInfoMint,
+	AddToken,
 	ConsolidateTokens,
 	CreateWallet,
 	ReceiveNutzaps,
@@ -31,17 +38,6 @@ import {
 import type { NostrEvent } from 'nostr-tools'
 import { config } from '@/config'
 import { couch, walletActions } from './runtime'
-
-/**
- * applesauce-wallet bundles its own copy of `@cashu/cashu-ts` (currently 3.6.4),
- * while the legacy NDK wallet expects 4.x. The runtime shapes are compatible
- * enough for our purposes; this cast bridges the nominal type gap.
- *
- * Once the NDK wallet is gone (Step 6), we align on whichever cashu-ts
- * version applesauce-wallet ships with and drop these casts.
- */
-// biome-ignore lint/suspicious/noExplicitAny: see comment above
-type AnyToken = any
 
 export interface CreateWalletOptions {
 	/** Mints to use. Required. */
@@ -115,7 +111,7 @@ export async function receiveCashuToken(
 	const token =
 		typeof tokenOrString === 'string' ? getDecodedToken(tokenOrString) : tokenOrString
 	if (!token) throw new Error('Failed to decode token')
-	await walletActions.run(ReceiveToken, token as AnyToken, { couch })
+	await walletActions.run(ReceiveToken, token, { couch })
 }
 
 /**
@@ -136,8 +132,7 @@ export async function sendCashuToken(
 		amountSats,
 		async ({ selectedProofs, mint, cashuWallet }) => {
 			const { keep, send } = await cashuWallet.ops.send(amountSats, selectedProofs).run()
-			const sendToken = { mint, proofs: send, unit: 'sat' as const }
-			encoded = getEncodedToken(sendToken as AnyToken)
+			encoded = getEncodedToken({ mint, proofs: send, unit: 'sat' })
 			return { change: keep.length > 0 ? keep : undefined }
 		},
 		{ mint: options?.mint, couch },
@@ -145,6 +140,112 @@ export async function sendCashuToken(
 
 	if (!encoded) throw new Error('Failed to create token')
 	return encoded
+}
+
+/**
+ * Pay a Lightning invoice from this wallet's eCash. Throws if no mint has
+ * enough balance to cover the invoice amount + fee reserve.
+ *
+ * `mint` constrains which mint pays. If omitted, applesauce-wallet picks a
+ * mint with sufficient balance.
+ */
+export async function payLightningInvoice(
+	invoice: string,
+	options?: { mint?: string },
+): Promise<{ paid: boolean; preimage?: string }> {
+	let result: { paid: boolean; preimage?: string } = { paid: false }
+
+	await walletActions.run(
+		TokensOperation,
+		// We don't know the exact min until we fetch the quote, but TokensOperation
+		// needs a min to pre-select proofs. We pass 1 — the operation re-checks
+		// inside, and `selectedProofs` covers the bound at that time.
+		1,
+		async ({ selectedProofs, cashuWallet }) => {
+			const meltQuote = await cashuWallet.createMeltQuoteBolt11(invoice)
+			const required = meltQuote.amount + meltQuote.fee_reserve
+			if (selectedProofs.reduce((s, p) => s + p.amount, 0) < required) {
+				throw new Error(
+					`Insufficient balance: need ${required} sat, have ${selectedProofs.reduce(
+						(s, p) => s + p.amount,
+						0,
+					)}`,
+				)
+			}
+			const { keep, send } = await cashuWallet.ops
+				.send(required, selectedProofs)
+				.includeFees(true)
+				.run()
+			const meltResponse = await cashuWallet.meltProofsBolt11(meltQuote, send)
+			result = { paid: true, preimage: meltResponse.quote.payment_preimage ?? undefined }
+			const change = [...keep, ...(meltResponse.change ?? [])]
+			return { change: change.length > 0 ? change : undefined }
+		},
+		{ mint: options?.mint, couch },
+	)
+
+	return result
+}
+
+export interface DepositSession {
+	/** Lightning bolt11 invoice to pay. */
+	invoice: string
+	/** Mint quote id — opaque, store it if you want to retry later. */
+	quoteId: string
+	/** Sat amount the user is depositing. */
+	amount: number
+	/** Mint URL the proofs will come from. */
+	mint: string
+	/** Polls the mint until the quote is paid. Resolves when paid; rejects if expired/failed. */
+	waitForPayment: (opts?: { intervalMs?: number; signal?: AbortSignal }) => Promise<void>
+	/** After waitForPayment resolves, mint proofs and add them to the wallet. */
+	claim: () => Promise<{ amount: number }>
+}
+
+/**
+ * Start a Lightning → eCash deposit. Returns the bolt11 invoice plus helpers
+ * to wait for payment and claim the resulting proofs into the wallet.
+ *
+ * Caller flow:
+ *   const session = await startLightningDeposit({ mint, amount: 1000 })
+ *   showInvoice(session.invoice)
+ *   await session.waitForPayment()
+ *   await session.claim()
+ */
+export async function startLightningDeposit(opts: {
+	mint: string
+	amount: number
+}): Promise<DepositSession> {
+	const { mint, amount } = opts
+	if (!mint) throw new Error('Mint is required')
+	if (!amount || amount <= 0) throw new Error('Amount must be positive')
+
+	const cashuWallet = new CashuWallet(mint, { unit: 'sat' })
+	await cashuWallet.loadMint()
+	const quote = await cashuWallet.createMintQuoteBolt11(amount)
+
+	let latestQuote: MintQuoteBolt11Response = quote
+
+	return {
+		invoice: quote.request,
+		quoteId: quote.quote,
+		amount,
+		mint,
+		async waitForPayment({ intervalMs = 2000, signal } = {}) {
+			while (true) {
+				if (signal?.aborted) throw new Error('Cancelled')
+				const refreshed = await cashuWallet.checkMintQuoteBolt11(quote.quote)
+				latestQuote = refreshed
+				if (refreshed.state === 'PAID' || refreshed.state === 'ISSUED') return
+				await new Promise((r) => setTimeout(r, intervalMs))
+			}
+		},
+		async claim() {
+			const proofs: Proof[] = await cashuWallet.mintProofsBolt11(amount, latestQuote)
+			await walletActions.run(AddToken, { mint, proofs, unit: 'sat' as const })
+			return { amount: proofs.reduce((s, p) => s + p.amount, 0) }
+		},
+	}
 }
 
 /** Pull P2PK-locked tokens out of one or more nutzap events into the wallet. */

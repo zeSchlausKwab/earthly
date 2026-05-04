@@ -1,64 +1,102 @@
-import { useState, useEffect } from 'react'
+/**
+ * Lightning → eCash deposit flow.
+ *
+ * Talks directly to a chosen mint via cashu-ts: requests a bolt11 mint quote,
+ * shows the invoice (qr + copy), polls until paid, then runs `AddToken` to
+ * record the new proofs in the wallet.
+ */
+
+import { Label } from '@radix-ui/react-label'
+import { Check, Copy, Loader2, Zap } from 'lucide-react'
+import { QRCodeSVG } from 'qrcode.react'
+import { useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
 import {
 	Dialog,
 	DialogContent,
-	DialogTitle,
-	DialogHeader,
 	DialogDescription,
+	DialogHeader,
+	DialogTitle,
 } from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
-import { useNip60Store, nip60Actions } from '@/lib/stores/nip60'
-import { Loader2, Copy, Check, Zap } from 'lucide-react'
-import { toast } from 'sonner'
-import { QRCodeSVG } from 'qrcode.react'
 import { Input } from '@/components/ui/input'
-import { Label } from '@radix-ui/react-label'
+import { type DepositSession, getMintHostname, startLightningDeposit } from '@/lib/wallet'
 
 interface DepositLightningModalProps {
 	open: boolean
 	onClose: () => void
+	mints: string[]
+	defaultMint: string | null
 }
 
-export function DepositLightningModal({ open, onClose }: DepositLightningModalProps) {
-	const { mints, defaultMint, depositInvoice, depositStatus } = useNip60Store()
+export function DepositLightningModal({
+	open,
+	onClose,
+	mints,
+	defaultMint,
+}: DepositLightningModalProps) {
 	const [amount, setAmount] = useState('')
-	const [selectedMint, setSelectedMint] = useState<string>('')
-	const [isGenerating, setIsGenerating] = useState(false)
+	const [selectedMint, setSelectedMint] = useState('')
+	const [session, setSession] = useState<DepositSession | null>(null)
+	const [phase, setPhase] = useState<'idle' | 'awaitingPayment' | 'claiming' | 'success' | 'error'>(
+		'idle',
+	)
+	const [errorMsg, setErrorMsg] = useState<string | null>(null)
 	const [copied, setCopied] = useState(false)
+	const abortRef = useRef<AbortController | null>(null)
 
-	// Sync selectedMint with defaultMint when modal opens or defaultMint changes
 	useEffect(() => {
 		if (open) {
 			setSelectedMint(defaultMint ?? mints[0] ?? '')
 		}
 	}, [open, defaultMint, mints])
 
-	const handleGenerateInvoice = async () => {
-		const amountNum = parseInt(amount, 10)
-		if (isNaN(amountNum) || amountNum <= 0) {
+	useEffect(() => {
+		return () => {
+			abortRef.current?.abort()
+		}
+	}, [])
+
+	const handleStart = async () => {
+		const amountNum = Number.parseInt(amount, 10)
+		if (Number.isNaN(amountNum) || amountNum <= 0) {
 			toast.error('Please enter a valid amount')
 			return
 		}
-
 		if (!selectedMint) {
 			toast.error('Please select a mint')
 			return
 		}
 
-		setIsGenerating(true)
+		setErrorMsg(null)
+		setPhase('awaitingPayment')
+
 		try {
-			await nip60Actions.startDeposit(amountNum, selectedMint)
-		} finally {
-			setIsGenerating(false)
+			const next = await startLightningDeposit({ mint: selectedMint, amount: amountNum })
+			setSession(next)
+
+			const controller = new AbortController()
+			abortRef.current = controller
+
+			await next.waitForPayment({ signal: controller.signal })
+			setPhase('claiming')
+			await next.claim()
+			setPhase('success')
+			toast.success('Deposit complete')
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'Deposit failed'
+			setErrorMsg(message)
+			setPhase('error')
+			if (message !== 'Cancelled') toast.error(message)
 		}
 	}
 
 	const handleCopyInvoice = async () => {
-		if (!depositInvoice) return
+		if (!session) return
 		try {
-			await navigator.clipboard.writeText(depositInvoice)
+			await navigator.clipboard.writeText(session.invoice)
 			setCopied(true)
-			toast.success('Invoice copied to clipboard')
+			toast.success('Invoice copied')
 			setTimeout(() => setCopied(false), 2000)
 		} catch {
 			toast.error('Failed to copy invoice')
@@ -66,10 +104,12 @@ export function DepositLightningModal({ open, onClose }: DepositLightningModalPr
 	}
 
 	const handleClose = () => {
-		if (depositStatus === 'pending') {
-			nip60Actions.cancelDeposit()
-		}
+		abortRef.current?.abort()
+		abortRef.current = null
 		setAmount('')
+		setSession(null)
+		setPhase('idle')
+		setErrorMsg(null)
 		setCopied(false)
 		onClose()
 	}
@@ -85,7 +125,7 @@ export function DepositLightningModal({ open, onClose }: DepositLightningModalPr
 					<DialogDescription>Generate a Lightning invoice to mint eCash</DialogDescription>
 				</DialogHeader>
 
-				{depositStatus === 'success' ? (
+				{phase === 'success' ? (
 					<div className="py-6 text-center">
 						<div className="w-12 h-12 mx-auto mb-4 rounded-full bg-green-100 flex items-center justify-center">
 							<Check className="w-6 h-6 text-green-600" />
@@ -96,11 +136,11 @@ export function DepositLightningModal({ open, onClose }: DepositLightningModalPr
 							Done
 						</Button>
 					</div>
-				) : depositInvoice ? (
+				) : session ? (
 					<div className="space-y-4">
 						<div className="flex justify-center">
 							<div className="p-4 bg-white rounded-lg">
-								<QRCodeSVG value={depositInvoice} size={200} />
+								<QRCodeSVG value={session.invoice} size={200} />
 							</div>
 						</div>
 						<div className="space-y-2">
@@ -108,7 +148,7 @@ export function DepositLightningModal({ open, onClose }: DepositLightningModalPr
 							<div className="flex gap-2">
 								<Input
 									type="text"
-									value={depositInvoice}
+									value={session.invoice}
 									readOnly
 									className="flex-1 px-3 py-2 text-sm bg-muted rounded-md font-mono truncate"
 								/>
@@ -117,10 +157,13 @@ export function DepositLightningModal({ open, onClose }: DepositLightningModalPr
 								</Button>
 							</div>
 						</div>
-						<p className="text-sm text-muted-foreground text-center">Waiting for payment...</p>
+						<p className="text-sm text-muted-foreground text-center">
+							{phase === 'claiming' ? 'Minting proofs…' : 'Waiting for payment…'}
+						</p>
 						<div className="flex justify-center">
 							<Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
 						</div>
+						{errorMsg && <p className="text-sm text-destructive text-center">{errorMsg}</p>}
 						<div className="flex justify-end gap-2">
 							<Button variant="outline" onClick={handleClose}>
 								Cancel
@@ -136,42 +179,35 @@ export function DepositLightningModal({ open, onClose }: DepositLightningModalPr
 								value={amount}
 								onChange={(e) => setAmount(e.target.value)}
 								placeholder="Enter amount in sats"
-								className="w-full px-3 py-2 text-sm border rounded-md bg-background"
 								min="1"
 							/>
 						</div>
 
 						<div className="space-y-2">
 							<Label className="text-sm font-medium">Mint</Label>
-							<Input
-								as="select"
+							<select
 								value={selectedMint}
 								onChange={(e) => setSelectedMint(e.target.value)}
 								className="w-full px-3 py-2 text-sm border rounded-md bg-background"
 							>
 								{mints.map((mint) => (
 									<option key={mint} value={mint}>
-										{new URL(mint).hostname}
+										{getMintHostname(mint)}
 									</option>
 								))}
-							</Input>
+							</select>
 						</div>
 
-						{depositStatus === 'error' && (
-							<p className="text-sm text-destructive">
-								Failed to generate invoice. Please try again.
-							</p>
-						)}
+						{errorMsg && <p className="text-sm text-destructive">{errorMsg}</p>}
 
 						<div className="flex justify-end gap-2">
 							<Button variant="outline" onClick={handleClose}>
 								Cancel
 							</Button>
 							<Button
-								onClick={handleGenerateInvoice}
-								disabled={isGenerating || !amount || !selectedMint}
+								onClick={handleStart}
+								disabled={phase === 'awaitingPayment' || !amount || !selectedMint}
 							>
-								{isGenerating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
 								Generate Invoice
 							</Button>
 						</div>

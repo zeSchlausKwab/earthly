@@ -155,7 +155,6 @@ interface AppSidebarProps {
 	onExitViewMode?: () => void
 	featureCollectionForUpload?: FeatureCollection | null
 	onBlossomUploadComplete?: (result: { sha256: string; url: string; size: number }) => void
-	ndk?: import('@nostr-dev-kit/ndk').default | null
 	userPubkey?: string
 	focusCommentId?: string
 	onFilteredDatasetKeysChange?: (keys: Set<string> | null) => void
@@ -207,7 +206,6 @@ export function AppSidebar({
 	onExitViewMode,
 	featureCollectionForUpload,
 	onBlossomUploadComplete,
-	ndk,
 	userPubkey,
 	focusCommentId,
 	onFilteredDatasetKeysChange,
@@ -546,7 +544,6 @@ export function AppSidebar({
 		onZoomToFeature,
 		featureCollectionForUpload,
 		onBlossomUploadComplete,
-		ndk,
 		focusCommentId,
 		entityWorkspace: activeEntity,
 		entityIntent: currentEntityIntent,

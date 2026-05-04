@@ -1,17 +1,23 @@
+/**
+ * Redeem an incoming Cashu token into this wallet.
+ *
+ * Routes through `receiveCashuToken`, which decodes, swaps the proofs at the
+ * mint, and adds them as a new wallet token event with a history entry.
+ */
+
+import { Scanner } from '@yudiel/react-qr-scanner'
+import { Check, Loader2, QrCode, ScanLine } from 'lucide-react'
 import { useState } from 'react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
 import {
 	Dialog,
 	DialogContent,
-	DialogTitle,
-	DialogHeader,
 	DialogDescription,
+	DialogHeader,
+	DialogTitle,
 } from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
-import { useCashuStore } from '@/lib/stores/cashu'
-import { nip60Actions } from '@/lib/stores/nip60'
-import { Loader2, Check, QrCode, ScanLine } from 'lucide-react'
-import { toast } from 'sonner'
-import { Scanner } from '@yudiel/react-qr-scanner'
+import { receiveCashuToken } from '@/lib/wallet'
 
 interface ReceiveEcashModalProps {
 	open: boolean
@@ -19,7 +25,6 @@ interface ReceiveEcashModalProps {
 }
 
 export function ReceiveEcashModal({ open, onClose }: ReceiveEcashModalProps) {
-	const { status: cashuStatus } = useCashuStore()
 	const [token, setToken] = useState('')
 	const [isReceiving, setIsReceiving] = useState(false)
 	const [isSuccess, setIsSuccess] = useState(false)
@@ -27,14 +32,12 @@ export function ReceiveEcashModal({ open, onClose }: ReceiveEcashModalProps) {
 	const [error, setError] = useState<string | null>(null)
 
 	const handleReceive = async () => {
-		if (!token.trim()) {
+		const trimmed = token.trim()
+		if (!trimmed) {
 			toast.error('Please enter a Cashu token')
 			return
 		}
-
-		// Basic validation for Cashu token
-		const normalizedToken = token.trim()
-		if (!normalizedToken.startsWith('cashuA') && !normalizedToken.startsWith('cashuB')) {
+		if (!trimmed.startsWith('cashuA') && !trimmed.startsWith('cashuB')) {
 			toast.error('Invalid Cashu token format')
 			return
 		}
@@ -42,12 +45,9 @@ export function ReceiveEcashModal({ open, onClose }: ReceiveEcashModalProps) {
 		setIsReceiving(true)
 		setError(null)
 		try {
-			// Always use nip60 for receiving since that's where the wallet proofs are stored
-			// This ensures the proofs are synced to Nostr events for cross-device access
-			console.log('[Receive] Using nip60 for receive')
-			await nip60Actions.receiveEcash(normalizedToken)
+			await receiveCashuToken(trimmed)
 			setIsSuccess(true)
-			toast.success('eCash received successfully!')
+			toast.success('eCash received')
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'Failed to receive eCash'
 			setError(message)
@@ -57,16 +57,16 @@ export function ReceiveEcashModal({ open, onClose }: ReceiveEcashModalProps) {
 		}
 	}
 
-	const handleScan = (detectedCodes: any[]) => {
-		if (detectedCodes && detectedCodes.length > 0) {
-			const result = detectedCodes[0].rawValue
-			if (result && (result.startsWith('cashuA') || result.startsWith('cashuB'))) {
-				setToken(result)
-				setShowScanner(false)
-				toast.success('Token scanned')
-			} else if (result) {
-				toast.error('Invalid Cashu token')
-			}
+	const handleScan = (detectedCodes: { rawValue?: string }[]) => {
+		if (!detectedCodes.length) return
+		const result = detectedCodes[0]?.rawValue
+		if (!result) return
+		if (result.startsWith('cashuA') || result.startsWith('cashuB')) {
+			setToken(result)
+			setShowScanner(false)
+			toast.success('Token scanned')
+		} else {
+			toast.error('Invalid Cashu token')
 		}
 	}
 
@@ -143,23 +143,13 @@ export function ReceiveEcashModal({ open, onClose }: ReceiveEcashModalProps) {
 							</div>
 						</div>
 
-						{cashuStatus === 'initializing' && (
-							<p className="text-sm text-muted-foreground flex items-center gap-2">
-								<Loader2 className="w-4 h-4 animate-spin" />
-								Initializing wallet...
-							</p>
-						)}
-
 						{error && <p className="text-sm text-destructive">{error}</p>}
 
 						<div className="flex justify-end gap-2">
 							<Button variant="outline" onClick={handleClose}>
 								Cancel
 							</Button>
-							<Button
-								onClick={handleReceive}
-								disabled={isReceiving || !token.trim() || cashuStatus === 'initializing'}
-							>
+							<Button onClick={handleReceive} disabled={isReceiving || !token.trim()}>
 								{isReceiving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
 								Receive
 							</Button>

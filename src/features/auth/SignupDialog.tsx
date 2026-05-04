@@ -588,11 +588,6 @@ export function SignupDialog({ open, onOpenChange, onSuccess }: SignupDialogProp
 										value={profileDraft.picture}
 										onChange={(e) => setProfileDraft((d) => ({ ...d, picture: e.target.value }))}
 									/>
-									{/*
-									 * No `signer` prop — the user is now logged in (handleBeginnerNext ran),
-									 * so BlossomUploaderButton picks up the signer from the NDK context that
-									 * the bridge mirrors from accounts.active.
-									 */}
 									<BlossomUploaderButton
 										currentUrl={profileDraft.picture}
 										onUploaded={({ url }) =>

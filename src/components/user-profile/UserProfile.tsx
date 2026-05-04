@@ -1,14 +1,16 @@
-import { useNDK, useProfileValue, useUser } from '@nostr-dev-kit/react'
-import { memo, useEffect, useState, useMemo, useCallback, useRef } from 'react'
-import { User, BadgeCheck, BadgeX, Globe, Loader2 } from 'lucide-react'
+import { use$ } from 'applesauce-react/hooks'
+import { BadgeCheck, Globe, User } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
-import { Avatar, AvatarImage, AvatarFallback } from '../ui/avatar'
+import { memo, useCallback, useMemo, useRef } from 'react'
+import { eventStore } from '@/lib/nostr'
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
-import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 type ProfileData = {
 	name?: string
+	display_name?: string
 	displayName?: string
 	image?: string
 	picture?: string
@@ -19,12 +21,12 @@ type ProfileData = {
 
 const profileCache = new Map<string, ProfileData>()
 
-// Calculate how "complete" a profile is (used to prevent flickering)
+/** Score a profile so we don't flicker to a less-complete version mid-stream. */
 function getProfileScore(p: ProfileData | null | undefined): number {
 	if (!p) return 0
 	let score = 0
 	if (p.name) score += 2
-	if (p.displayName) score += 1
+	if (p.displayName || p.display_name) score += 1
 	if (p.image || p.picture) score += 2
 	if (p.about) score += 1
 	if (p.nip05) score += 1
@@ -33,56 +35,55 @@ function getProfileScore(p: ProfileData | null | undefined): number {
 }
 
 /**
- * Display modes for UserProfile:
- * - name-only: Just the display name with optional NIP-05 badge
- * - avatar-name: Avatar next to name (compact one-liner)
- * - avatar-name-bio: Larger avatar with name and bio
- * - full-profile: Full card with avatar, name, bio, website, NIP-05
+ * Resolve a hex pubkey from any of: hex, npub, nprofile.
+ *
+ * Note: NIP-05 input (`name@host`) is no longer supported here. The few legacy
+ * call sites all pass hex pubkeys; if you need NIP-05 → pubkey resolution,
+ * decode separately and pass the hex result in.
  */
-export type UserProfileMode = 'name-only' | 'avatar-name' | 'avatar-name-bio' | 'full-profile'
+function resolveHexPubkey(input: string): string | null {
+	if (!input) return null
+	if (/^[0-9a-f]{64}$/i.test(input)) return input.toLowerCase()
+	if (input.startsWith('npub') || input.startsWith('nprofile')) {
+		try {
+			const decoded = nip19.decode(input)
+			if (decoded.type === 'npub') return decoded.data as string
+			if (decoded.type === 'nprofile') return (decoded.data as { pubkey: string }).pubkey
+		} catch {
+			return null
+		}
+	}
+	return null
+}
 
-/**
- * Size variants for the component
- */
+export type UserProfileMode = 'name-only' | 'avatar-name' | 'avatar-name-bio' | 'full-profile'
 export type UserProfileSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 
 export interface UserProfileProps {
-	/**
-	 * User identifier - can be:
-	 * - Hex pubkey (64 chars)
-	 * - npub (bech32 encoded pubkey)
-	 * - nprofile (bech32 encoded profile)
-	 * - NIP-05 identifier (user@domain.com)
-	 *
-	 * Note: Never pass nsec (private key) - use npub for public identifiers
-	 */
+	/** Hex pubkey, npub, or nprofile. Hex preferred. */
 	pubkey: string
-	/** Display mode */
 	mode?: UserProfileMode
-	/** Size variant */
 	size?: UserProfileSize
-	/** Additional CSS classes */
 	className?: string
-	/** Whether to show and validate NIP-05 badge */
+	/**
+	 * Whether to show a NIP-05 verified badge when the profile claims one.
+	 * The badge is currently advisory — DNS verification is not performed.
+	 */
 	showNip05Badge?: boolean
-	/** Whether to show website link (only in full-profile mode) */
 	showWebsite?: boolean
-	/** Whether to show bio (only in avatar-name-bio and full-profile modes) */
 	showBio?: boolean
-	/** Callback when profile is clicked */
 	onClick?: () => void
-	/** Custom fallback text (defaults to initials or pubkey prefix) */
 	fallbackText?: string
-	/** Disable click-to-profile navigation and render as static content */
 	interactive?: boolean
 }
 
 /**
- * UserProfile displays a Nostr user's profile in various modes.
+ * Display a Nostr user's profile (kind 0 metadata) in one of four modes.
  *
- * Supports hex pubkeys, npub, nprofile, and NIP-05 identifiers.
- * Automatically fetches and displays profile data including avatar,
- * name, bio, and validates NIP-05 verification.
+ * Reads from the EventStore via `eventStore.profile(pubkey)`, which the
+ * configured event-loader auto-fetches on first subscribe. The component
+ * caches the best-scoring profile snapshot per pubkey to prevent flicker
+ * when relays trickle in over multiple seconds.
  */
 function UserProfileComponent({
 	pubkey,
@@ -96,176 +97,81 @@ function UserProfileComponent({
 	fallbackText,
 	interactive = true,
 }: UserProfileProps) {
-	const ndk = useNDK()
-	// useUser handles npub, nprofile, nip05, and hex pubkey resolution
-	const user = useUser(pubkey)
-	const rawProfile = useProfileValue(user)
-	const [nip05Valid, setNip05Valid] = useState<boolean | null>(null)
-	const [isValidating, setIsValidating] = useState(false)
+	const hexPubkey = useMemo(() => resolveHexPubkey(pubkey), [pubkey])
 
-	// Track the best profile data we've received to prevent flickering
-	// Only update when we get "better" data (more fields filled)
+	// Subscribe to the kind 0 profile content for this pubkey. The event-loader
+	// in `lib/nostr` auto-fetches if we don't have it cached.
+	const rawProfile = use$(
+		() => (hexPubkey ? eventStore.profile(hexPubkey) : undefined),
+		[hexPubkey],
+	)
+
+	// Anti-flicker: keep the best-scoring version we've seen.
 	const committedProfileRef = useRef<ProfileData | null>(null)
-	const profileCacheKey = user?.pubkey || pubkey
+	const profileCacheKey = hexPubkey ?? pubkey
 
-	// Commit new profile data only if it's better than what we have
-	const profile = useMemo(() => {
-		const cachedProfile = profileCache.get(profileCacheKey) ?? null
-		const baselineProfile = committedProfileRef.current ?? cachedProfile
-		const newScore = getProfileScore(rawProfile)
-		const oldScore = getProfileScore(baselineProfile)
+	const profile = useMemo<ProfileData | null>(() => {
+		const cached = profileCache.get(profileCacheKey) ?? null
+		const baseline = committedProfileRef.current ?? cached
+		const next = (rawProfile ?? null) as ProfileData | null
+		const newScore = getProfileScore(next)
+		const oldScore = getProfileScore(baseline)
 
-		// Always accept new data if it's at least as good
-		if (rawProfile && newScore >= oldScore) {
-			committedProfileRef.current = rawProfile
-			profileCache.set(profileCacheKey, rawProfile)
-		} else if (!committedProfileRef.current && cachedProfile) {
-			committedProfileRef.current = cachedProfile
+		if (next && newScore >= oldScore) {
+			committedProfileRef.current = next
+			profileCache.set(profileCacheKey, next)
+			return next
 		}
-
-		return committedProfileRef.current ?? cachedProfile ?? rawProfile
+		if (!committedProfileRef.current && cached) {
+			committedProfileRef.current = cached
+		}
+		return committedProfileRef.current ?? cached ?? next
 	}, [rawProfile, profileCacheKey])
 
-	// Validate NIP-05 if present
-	useEffect(() => {
-		if (!profile?.nip05 || !ndk?.ndk || !showNip05Badge) {
-			setNip05Valid(null)
-			return
-		}
-
-		let cancelled = false
-		setIsValidating(true)
-
-		const validateNip05 = async () => {
-			try {
-				if (!user) return
-				if (!profile.nip05) return
-				const isValid = await user.validateNip05(profile.nip05)
-				if (!cancelled) {
-					setNip05Valid(isValid)
-				}
-			} catch (error) {
-				console.error('Error validating NIP-05:', error)
-				if (!cancelled) {
-					setNip05Valid(false)
-				}
-			} finally {
-				if (!cancelled) {
-					setIsValidating(false)
-				}
-			}
-		}
-
-		validateNip05()
-
-		return () => {
-			cancelled = true
-		}
-	}, [profile?.nip05, user, ndk, showNip05Badge])
-
-	// Get display name: profile name, displayName, or truncated pubkey
 	const displayName = useMemo(() => {
 		if (profile?.name) return profile.name
-		if (profile?.displayName) return profile.displayName
-		const resolvedPubkey = user?.pubkey || pubkey
-		// Handle both hex and bech32 formats
-		if (resolvedPubkey.startsWith('npub') || resolvedPubkey.startsWith('nprofile')) {
-			return `${resolvedPubkey.slice(0, 8)}…`
+		const display = profile?.display_name ?? profile?.displayName
+		if (display) return display
+		const resolved = hexPubkey ?? pubkey
+		if (resolved.startsWith('npub') || resolved.startsWith('nprofile')) {
+			return `${resolved.slice(0, 8)}…`
 		}
-		return `${resolvedPubkey.slice(0, 8)}…${resolvedPubkey.slice(-4)}`
-	}, [profile?.name, profile?.displayName, user?.pubkey, pubkey])
+		return `${resolved.slice(0, 8)}…${resolved.slice(-4)}`
+	}, [profile?.name, profile?.display_name, profile?.displayName, hexPubkey, pubkey])
 
-	// Get fallback text for avatar
 	const getFallbackText = (): string => {
 		if (fallbackText) return fallbackText
 		if (profile?.name) return profile.name.substring(0, 2).toUpperCase()
-		if (profile?.displayName) return profile.displayName.substring(0, 2).toUpperCase()
-		const resolvedPubkey = user?.pubkey || pubkey
-		return resolvedPubkey.substring(0, 2).toUpperCase()
+		const display = profile?.display_name ?? profile?.displayName
+		if (display) return display.substring(0, 2).toUpperCase()
+		const resolved = hexPubkey ?? pubkey
+		return resolved.substring(0, 2).toUpperCase()
 	}
 
-	// Size configurations
 	const sizeConfig = {
-		xs: {
-			avatar: 'size-4',
-			icon: 'size-2.5',
-			text: 'text-[10px]',
-			badge: 'size-3',
-			gap: 'gap-1',
-		},
-		sm: {
-			avatar: 'size-5',
-			icon: 'size-3',
-			text: 'text-xs',
-			badge: 'size-3.5',
-			gap: 'gap-1.5',
-		},
-		md: {
-			avatar: 'size-7',
-			icon: 'size-4',
-			text: 'text-sm',
-			badge: 'size-4',
-			gap: 'gap-2',
-		},
-		lg: {
-			avatar: 'size-10',
-			icon: 'size-5',
-			text: 'text-base',
-			badge: 'size-4',
-			gap: 'gap-2.5',
-		},
-		xl: {
-			avatar: 'size-16',
-			icon: 'size-8',
-			text: 'text-lg',
-			badge: 'size-5',
-			gap: 'gap-3',
-		},
+		xs: { avatar: 'size-4', icon: 'size-2.5', text: 'text-[10px]', badge: 'size-3', gap: 'gap-1' },
+		sm: { avatar: 'size-5', icon: 'size-3', text: 'text-xs', badge: 'size-3.5', gap: 'gap-1.5' },
+		md: { avatar: 'size-7', icon: 'size-4', text: 'text-sm', badge: 'size-4', gap: 'gap-2' },
+		lg: { avatar: 'size-10', icon: 'size-5', text: 'text-base', badge: 'size-4', gap: 'gap-2.5' },
+		xl: { avatar: 'size-16', icon: 'size-8', text: 'text-lg', badge: 'size-5', gap: 'gap-3' },
 	}
 
 	const config = sizeConfig[size]
 
-	// NIP-05 Badge Component
 	const Nip05Badge = ({ className: badgeClass }: { className?: string }) => {
 		if (!showNip05Badge || !profile?.nip05) return null
-
-		if (isValidating) {
-			return (
-				<Tooltip>
-					<TooltipTrigger asChild>
-						<span className={cn('text-gray-400', badgeClass)}>
-							<Loader2 className={cn(config.badge, 'animate-spin')} />
-						</span>
-					</TooltipTrigger>
-					<TooltipContent>Validating NIP-05...</TooltipContent>
-				</Tooltip>
-			)
-		}
-
-		if (nip05Valid === null) return null
-
-		return nip05Valid ? (
+		return (
 			<Tooltip>
 				<TooltipTrigger asChild>
 					<span className={badgeClass}>
 						<BadgeCheck className={cn(config.badge, 'text-emerald-500 flex-shrink-0')} />
 					</span>
 				</TooltipTrigger>
-				<TooltipContent>Verified: {profile.nip05}</TooltipContent>
-			</Tooltip>
-		) : (
-			<Tooltip>
-				<TooltipTrigger asChild>
-					<span className={badgeClass}>
-						<BadgeX className={cn(config.badge, 'text-red-400 flex-shrink-0')} />
-					</span>
-				</TooltipTrigger>
-				<TooltipContent>Invalid NIP-05: {profile.nip05}</TooltipContent>
+				<TooltipContent>{profile.nip05}</TooltipContent>
 			</Tooltip>
 		)
 	}
 
-	// Avatar Component
 	const ProfileAvatar = ({ sizeClass }: { sizeClass: string }) => (
 		<Avatar className={cn(sizeClass, 'flex-shrink-0')}>
 			<AvatarImage
@@ -281,29 +187,24 @@ function UserProfileComponent({
 		</Avatar>
 	)
 
-	// Default click handler navigates to user profile
 	const handleDefaultClick = useCallback(() => {
-		const resolvedPubkey = user?.pubkey || pubkey
-		// Only navigate if we have a valid hex pubkey
+		const resolved = hexPubkey ?? pubkey
 		if (
-			resolvedPubkey &&
-			!resolvedPubkey.startsWith('npub') &&
-			!resolvedPubkey.startsWith('nprofile')
+			resolved &&
+			!resolved.startsWith('npub') &&
+			!resolved.startsWith('nprofile')
 		) {
-			const npub = nip19.npubEncode(resolvedPubkey)
+			const npub = nip19.npubEncode(resolved)
 			window.location.hash = `/user/${npub}`
-		} else if (resolvedPubkey) {
-			// Already encoded, use directly
-			window.location.hash = `/user/${resolvedPubkey}`
+		} else if (resolved) {
+			window.location.hash = `/user/${resolved}`
 		}
-	}, [user?.pubkey, pubkey])
+	}, [hexPubkey, pubkey])
 
-	// Wrapper for click handling - always clickable, uses onClick or default navigation
 	const Wrapper = ({ children }: { children: React.ReactNode }) => {
 		if (!interactive) {
 			return <div className={cn('text-left', className)}>{children}</div>
 		}
-
 		const clickHandler = onClick ?? handleDefaultClick
 		return (
 			<Button
@@ -320,7 +221,6 @@ function UserProfileComponent({
 		)
 	}
 
-	// Render based on mode
 	switch (mode) {
 		case 'name-only':
 			return (

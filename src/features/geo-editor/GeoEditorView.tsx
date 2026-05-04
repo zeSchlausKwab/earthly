@@ -1,4 +1,3 @@
-import { useNDK } from '@nostr-dev-kit/react'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import {
 	Edit3,
@@ -25,7 +24,7 @@ import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAvailableGeoFeatures } from '@/lib/hooks/useAvailableGeoFeatures'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
-import { useMapContexts, useStations } from '@/lib/hooks/useStations'
+import { useGeoDatasets, useMapContexts } from '@/lib/hooks/useGeoDatasets'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { MapContext, deleteMapContext } from '@/lib/nostr/map-context'
 import { accounts } from '@/lib/nostr'
@@ -216,9 +215,8 @@ export function GeoEditorView() {
 	}, [mapSource.type, mapSource.location, mapSource.url, mapSource.blossomServer, mapSource.file])
 
 	// External data
-	const { events: geoEvents, eose: geoEventsEose } = useStations()
+	const { events: geoEvents, eose: geoEventsEose } = useGeoDatasets()
 	const { events: mapContextEvents, eose: mapContextEventsEose } = useMapContexts()
-	const { ndk } = useNDK()
 	const currentUser = useActiveAccount()
 	const currentUserPubkey = currentUser?.pubkey ?? null
 	const isMobile = useIsMobile()
@@ -1478,7 +1476,6 @@ export function GeoEditorView() {
 					// Blossom upload props - callback adds blob ref to store, does NOT publish
 					featureCollectionForUpload={memoizedFeatureCollection}
 					onBlossomUploadComplete={handleBlobUploadComplete}
-					ndk={ndk}
 					// User profile props
 					userPubkey={userPubkey}
 					focusCommentId={focusCommentId}
@@ -1778,7 +1775,6 @@ export function GeoEditorView() {
 							onZoomToFeature={handleZoomToFeature}
 							featureCollectionForUpload={memoizedFeatureCollection}
 							onBlossomUploadComplete={handleBlobUploadComplete}
-							ndk={ndk}
 							focusCommentId={focusCommentId}
 							onFilteredDatasetKeysChange={handleFilteredDatasetKeysChange}
 							onToggleProposalOverlay={handleToggleProposalOverlay}

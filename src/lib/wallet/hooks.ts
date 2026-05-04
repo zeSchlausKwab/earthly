@@ -9,7 +9,7 @@
 import { castUser } from 'applesauce-common/casts'
 import { use$, useActiveAccount } from 'applesauce-react/hooks'
 import type { Wallet } from 'applesauce-wallet/casts'
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { eventStore } from '@/lib/nostr'
 
 /**
@@ -78,4 +78,39 @@ export function useWalletHistory() {
 export function useWalletTokens() {
 	const wallet = useWallet().wallet
 	return use$(() => wallet?.tokens$, [wallet])
+}
+
+const DEFAULT_MINT_KEY = 'nip60_default_mint'
+
+/**
+ * Persisted "default mint" preference (per browser, not per account).
+ *
+ * The wallet event itself doesn't have a notion of a default — it just lists
+ * mints. This hook backs the user's preferred mint to localStorage so the
+ * Send/Deposit/Withdraw modals open pre-selected.
+ */
+export function useDefaultMint(): [string | null, (mint: string | null) => void] {
+	const [value, setValue] = useState<string | null>(() => {
+		if (typeof localStorage === 'undefined') return null
+		return localStorage.getItem(DEFAULT_MINT_KEY)
+	})
+
+	useEffect(() => {
+		if (typeof localStorage === 'undefined') return
+		const onStorage = (e: StorageEvent) => {
+			if (e.key === DEFAULT_MINT_KEY) setValue(e.newValue)
+		}
+		window.addEventListener('storage', onStorage)
+		return () => window.removeEventListener('storage', onStorage)
+	}, [])
+
+	const setMint = useCallback((mint: string | null) => {
+		if (typeof localStorage !== 'undefined') {
+			if (mint) localStorage.setItem(DEFAULT_MINT_KEY, mint)
+			else localStorage.removeItem(DEFAULT_MINT_KEY)
+		}
+		setValue(mint)
+	}, [])
+
+	return [value, setMint]
 }

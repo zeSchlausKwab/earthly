@@ -94,7 +94,6 @@ export interface MobilePanelProps {
 	onZoomToFeature?: (feature: EditorFeature) => void
 	featureCollectionForUpload?: FeatureCollection | null
 	onBlossomUploadComplete?: (result: BlossomUploadResult) => void
-	ndk?: import('@nostr-dev-kit/ndk').default | null
 	onFilteredDatasetKeysChange?: (keys: Set<string> | null) => void
 	onToggleProposalOverlay?: (
 		proposal: import('@/lib/nostr/geo-proposal').GeoProposal,
@@ -172,7 +171,6 @@ export function MobilePanel(props: MobilePanelProps) {
 		onZoomToFeature,
 		featureCollectionForUpload,
 		onBlossomUploadComplete,
-		ndk,
 		onFilteredDatasetKeysChange,
 		onToggleProposalOverlay,
 		onProposalAccepted,
@@ -433,7 +431,6 @@ export function MobilePanel(props: MobilePanelProps) {
 							onZoomToFeature={onZoomToFeature}
 							featureCollectionForUpload={featureCollectionForUpload}
 							onBlossomUploadComplete={onBlossomUploadComplete}
-							ndk={ndk}
 							focusCommentId={focusCommentId}
 						/>
 					) : null}
@@ -470,7 +467,6 @@ export function MobilePanel(props: MobilePanelProps) {
 							onZoomToFeature={onZoomToFeature}
 							featureCollectionForUpload={featureCollectionForUpload}
 							onBlossomUploadComplete={onBlossomUploadComplete}
-							ndk={ndk}
 							focusCommentId={focusCommentId}
 						/>
 					) : null}

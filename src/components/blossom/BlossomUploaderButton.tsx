@@ -1,8 +1,28 @@
-import NDKBlossom from '@nostr-dev-kit/blossom'
-import type { NDKSigner as BlossomSigner, NDKUser as BlossomUser } from '@nostr-dev-kit/ndk'
-import type NDKType from '@nostr-dev-kit/ndk'
-import { useNDK, type NDKImetaTag, type NDKSigner } from '@nostr-dev-kit/react'
-import { useActiveAccount } from 'applesauce-react/hooks'
+/**
+ * Blossom uploader UI built on `blossom-client-sdk` + the active applesauce signer.
+ *
+ * Capabilities:
+ *   - Upload to a "recommended" server (try each kind 10063 announced server in
+ *     order, then fall back to `defaultServer`) or to a user-supplied custom URL.
+ *   - List the user's existing blobs across announced servers, plus delete + reuse.
+ *   - Repair (heal) a stale Blossom URL by re-resolving its sha256 across the
+ *     user's announced servers and the default fallback.
+ *
+ * No NDK dependency — signing flows through `accounts.signer`.
+ */
+
+import {
+	createDeleteAuth,
+	createListAuth,
+	createUploadAuth,
+	type BlobDescriptor,
+	type SignedEvent,
+	type Signer,
+} from 'blossom-client-sdk'
+import { deleteBlob } from 'blossom-client-sdk/actions/delete'
+import { listBlobs } from 'blossom-client-sdk/actions/list'
+import { uploadBlob } from 'blossom-client-sdk/actions/upload'
+import { use$, useActiveAccount } from 'applesauce-react/hooks'
 import {
 	Check,
 	CloudUpload,
@@ -15,10 +35,17 @@ import {
 	Trash2,
 	Wrench,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
+import type { EventTemplate } from 'nostr-tools'
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	type ComponentProps,
+} from 'react'
 import { toast } from 'sonner'
 import { config } from '@/config'
-import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
 	Dialog,
@@ -32,15 +59,23 @@ import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { accounts, eventStore } from '@/lib/nostr'
+import { cn } from '@/lib/utils'
 
 type ServerMode = 'recommended' | 'custom'
 
+const BLOSSOM_SERVER_LIST_KIND = 10063
+
+/**
+ * Public result type. Kept stable across the NDK→applesauce rewrite — callers
+ * generally only read `url`, but `sha256`/`size`/`mimeType` are still emitted
+ * so things like the chat-image flow can reference the blob descriptor.
+ */
 export interface BlossomUploaderResult {
 	url: string
 	sha256?: string
 	mimeType?: string
 	size?: number
-	imeta: NDKImetaTag
 	fileName?: string
 	source: 'upload' | 'library' | 'healed'
 }
@@ -52,7 +87,6 @@ interface BlossomUploaderButtonProps {
 	title?: string
 	description?: string
 	defaultServer?: string
-	signer?: NDKSigner | null
 	buttonLabel?: string
 	buttonVariant?: ComponentProps<typeof Button>['variant']
 	buttonSize?: ComponentProps<typeof Button>['size']
@@ -63,12 +97,6 @@ interface BlossomUploaderButtonProps {
 
 function normalizeServerUrl(value: string): string {
 	return value.trim().replace(/\/+$/, '')
-}
-
-function parseBytes(value?: string): number | undefined {
-	if (!value) return undefined
-	const numeric = Number(value)
-	return Number.isFinite(numeric) ? numeric : undefined
 }
 
 function formatBytes(bytes?: number): string {
@@ -82,27 +110,54 @@ function isImageAccept(accept: string): boolean {
 	return accept.split(',').some((part) => part.trim().startsWith('image/'))
 }
 
-function isAcceptedBlob(imeta: NDKImetaTag, accept: string): boolean {
-	const mimeType = imeta.m ?? ''
+function isAcceptedBlob(blob: BlobDescriptor, accept: string): boolean {
+	const mimeType = blob.type ?? ''
 	if (!accept.trim()) return true
 	if (isImageAccept(accept)) return mimeType.startsWith('image/')
 	return true
 }
 
-function toUploaderResult(
-	imeta: NDKImetaTag,
+function descriptorToResult(
+	blob: Pick<BlobDescriptor, 'url' | 'sha256' | 'type' | 'size'>,
 	source: BlossomUploaderResult['source'],
 	fileName?: string,
 ): BlossomUploaderResult {
 	return {
-		url: imeta.url ?? '',
-		sha256: imeta.x,
-		mimeType: imeta.m,
-		size: parseBytes(imeta.size),
-		imeta,
+		url: blob.url ?? '',
+		sha256: blob.sha256,
+		mimeType: blob.type,
+		size: blob.size,
 		fileName,
 		source,
 	}
+}
+
+/** Adapt the active applesauce signer to a blossom-client-sdk Signer. */
+function makeBlossomSigner(): Signer {
+	const signer = accounts.signer
+	if (!signer) throw new Error('No active account — sign in first')
+	return async (draft: EventTemplate) => signer.signEvent(draft) as Promise<SignedEvent>
+}
+
+/** Read the active account's announced Blossom servers from kind 10063. */
+function useAnnouncedBlossomServers(pubkey: string | undefined): {
+	servers: string[]
+	loading: boolean
+} {
+	const event = use$(
+		() => (pubkey ? eventStore.replaceable(BLOSSOM_SERVER_LIST_KIND, pubkey) : undefined),
+		[pubkey],
+	)
+
+	const servers = useMemo(() => {
+		if (!event) return []
+		return event.tags
+			.filter((tag) => tag[0] === 'server' && tag[1])
+			.map((tag) => normalizeServerUrl(tag[1] as string))
+			.filter(Boolean)
+	}, [event])
+
+	return { servers, loading: !event && Boolean(pubkey) }
 }
 
 export function BlossomUploaderButton({
@@ -112,7 +167,6 @@ export function BlossomUploaderButton({
 	title = 'Upload To Blossom',
 	description = 'Upload an image, reuse an existing blob, or repair a broken Blossom URL.',
 	defaultServer = config.blossomServer,
-	signer = null,
 	buttonLabel = 'Upload',
 	buttonVariant = 'outline',
 	buttonSize = 'sm',
@@ -120,19 +174,8 @@ export function BlossomUploaderButton({
 	disabled = false,
 	iconOnly = false,
 }: BlossomUploaderButtonProps) {
-	const { ndk } = useNDK()
-	const currentUser = useActiveAccount()
-	const activeUser = currentUser ?? ndk?.activeUser ?? null
-	const blossom = useMemo(
-		() =>
-			ndk
-				? new NDKBlossom(
-						ndk as unknown as NDKType,
-						(signer ?? undefined) as BlossomSigner | undefined,
-					)
-				: null,
-		[ndk, signer],
-	)
+	const activeAccount = useActiveAccount()
+	const userPubkey = activeAccount?.pubkey
 
 	const [open, setOpen] = useState(false)
 	const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -142,15 +185,15 @@ export function BlossomUploaderButton({
 	const [uploading, setUploading] = useState(false)
 	const [uploadProgress, setUploadProgress] = useState(0)
 	const [uploadError, setUploadError] = useState<string | null>(null)
-	const [discoveredServers, setDiscoveredServers] = useState<string[]>([])
-	const [loadingDiscovery, setLoadingDiscovery] = useState(false)
-	const [discoveryError, setDiscoveryError] = useState<string | null>(null)
-	const [libraryItems, setLibraryItems] = useState<NDKImetaTag[]>([])
+	const [libraryItems, setLibraryItems] = useState<BlobDescriptor[]>([])
 	const [loadingLibrary, setLoadingLibrary] = useState(false)
 	const [libraryError, setLibraryError] = useState<string | null>(null)
 	const [deletingHash, setDeletingHash] = useState<string | null>(null)
 	const [healing, setHealing] = useState(false)
 	const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+	const { servers: announcedServers, loading: loadingDiscovery } =
+		useAnnouncedBlossomServers(userPubkey)
 
 	useEffect(() => {
 		setCustomServer(defaultServer)
@@ -171,7 +214,7 @@ export function BlossomUploaderButton({
 		[libraryItems, accept],
 	)
 
-	const canHealCurrentUrl = Boolean(currentUrl?.trim() && activeUser && blossom)
+	const canHealCurrentUrl = Boolean(currentUrl?.trim() && userPubkey)
 	const hasCustomServer = normalizeServerUrl(customServer).length > 0
 
 	const resetTransientState = useCallback(() => {
@@ -188,29 +231,8 @@ export function BlossomUploaderButton({
 		resetTransientState()
 	}, [resetTransientState])
 
-	const loadDiscovery = useCallback(async () => {
-		if (!open || !blossom || !activeUser) {
-			setDiscoveredServers([])
-			setDiscoveryError(null)
-			return
-		}
-
-		setLoadingDiscovery(true)
-		setDiscoveryError(null)
-		try {
-			const serverList = await blossom.getServerList(activeUser as unknown as BlossomUser)
-			setDiscoveredServers(serverList?.servers ?? [])
-		} catch (error) {
-			console.error('Failed to load blossom server list:', error)
-			setDiscoveryError(error instanceof Error ? error.message : 'Failed to load Blossom servers')
-			setDiscoveredServers([])
-		} finally {
-			setLoadingDiscovery(false)
-		}
-	}, [open, blossom, activeUser])
-
 	const loadLibrary = useCallback(async () => {
-		if (!open || !blossom || !activeUser) {
+		if (!open || !userPubkey) {
 			setLibraryItems([])
 			setLibraryError(null)
 			return
@@ -219,8 +241,27 @@ export function BlossomUploaderButton({
 		setLoadingLibrary(true)
 		setLibraryError(null)
 		try {
-			const blobs = await blossom.listBlobs(activeUser as unknown as BlossomUser)
-			setLibraryItems(blobs)
+			const targets = announcedServers.length > 0 ? announcedServers : [defaultServer]
+			const seen = new Map<string, BlobDescriptor>()
+			const errors: string[] = []
+			await Promise.all(
+				targets.map(async (server) => {
+					try {
+						const blobs = await listBlobs(server, userPubkey, {
+							onAuth: async () => createListAuth(makeBlossomSigner()),
+						})
+						for (const blob of blobs) {
+							if (!seen.has(blob.sha256)) seen.set(blob.sha256, blob)
+						}
+					} catch (err) {
+						errors.push(`${server}: ${err instanceof Error ? err.message : String(err)}`)
+					}
+				}),
+			)
+			setLibraryItems(Array.from(seen.values()).sort((a, b) => b.uploaded - a.uploaded))
+			if (seen.size === 0 && errors.length > 0) {
+				setLibraryError(errors.join('\n'))
+			}
 		} catch (error) {
 			console.error('Failed to load blossom library:', error)
 			setLibraryError(error instanceof Error ? error.message : 'Failed to load your blobs')
@@ -228,18 +269,16 @@ export function BlossomUploaderButton({
 		} finally {
 			setLoadingLibrary(false)
 		}
-	}, [open, blossom, activeUser])
+	}, [open, userPubkey, announcedServers, defaultServer])
 
 	useEffect(() => {
 		if (!open) return
-		void loadDiscovery()
 		void loadLibrary()
-	}, [open, loadDiscovery, loadLibrary])
+	}, [open, loadLibrary])
 
 	const handleSelectExisting = useCallback(
-		(imeta: NDKImetaTag) => {
-			const result = toUploaderResult(imeta, 'library')
-			onUploaded(result)
+		(blob: BlobDescriptor) => {
+			onUploaded(descriptorToResult(blob, 'library'))
 			toast.success('Blossom URL inserted')
 			closeDialog()
 		},
@@ -247,15 +286,25 @@ export function BlossomUploaderButton({
 	)
 
 	const handleDeleteExisting = useCallback(
-		async (imeta: NDKImetaTag) => {
-			if (!blossom || !imeta.x) return
-			setDeletingHash(imeta.x)
+		async (blob: BlobDescriptor) => {
+			if (!blob.sha256) return
+			setDeletingHash(blob.sha256)
 			try {
-				const deleted = await blossom.deleteBlob(imeta.x)
-				if (!deleted) {
-					throw new Error('The server rejected the delete request.')
+				const targets = announcedServers.length > 0 ? announcedServers : [defaultServer]
+				let deleted = false
+				for (const server of targets) {
+					try {
+						const ok = await deleteBlob(server, blob.sha256, {
+							onAuth: async () =>
+								createDeleteAuth(makeBlossomSigner(), blob.sha256),
+						})
+						if (ok) deleted = true
+					} catch {
+						/* try next server */
+					}
 				}
-				setLibraryItems((current) => current.filter((item) => item.x !== imeta.x))
+				if (!deleted) throw new Error('No server accepted the delete request.')
+				setLibraryItems((current) => current.filter((item) => item.sha256 !== blob.sha256))
 				toast.success('Blob deleted')
 			} catch (error) {
 				console.error('Failed to delete blossom blob:', error)
@@ -264,22 +313,51 @@ export function BlossomUploaderButton({
 				setDeletingHash(null)
 			}
 		},
-		[blossom],
+		[announcedServers, defaultServer],
 	)
 
 	const handleRepairCurrentUrl = useCallback(async () => {
-		if (!blossom || !activeUser || !currentUrl?.trim()) return
+		const original = currentUrl?.trim()
+		if (!original || !userPubkey) return
 		setHealing(true)
 		setUploadError(null)
 		try {
-			const healedUrl = await blossom.fixUrl(
-				activeUser as unknown as BlossomUser,
-				currentUrl.trim(),
-			)
-			const result = toUploaderResult({ url: healedUrl }, 'healed')
-			onUploaded(result)
-			toast.success(healedUrl === currentUrl.trim() ? 'URL is already healthy' : 'URL repaired')
-			closeDialog()
+			// Extract sha256 from the URL: Blossom URLs are <server>/<sha256>[.<ext>].
+			const filename = original.split('/').pop() ?? ''
+			const sha256 = filename.split('.')[0] ?? ''
+			if (!/^[0-9a-f]{64}$/i.test(sha256)) {
+				throw new Error('Could not parse a sha256 from the current URL.')
+			}
+
+			const candidates = [
+				...announcedServers,
+				defaultServer,
+				new URL(original).origin,
+			].map(normalizeServerUrl)
+			const tried = new Set<string>()
+
+			for (const server of candidates) {
+				if (!server || tried.has(server)) continue
+				tried.add(server)
+				const probe = `${server}/${sha256}`
+				try {
+					const res = await fetch(probe, { method: 'HEAD' })
+					if (res.ok) {
+						const result = descriptorToResult(
+							{ url: probe, sha256, size: 0 },
+							'healed',
+						)
+						onUploaded(result)
+						toast.success(probe === original ? 'URL is already healthy' : 'URL repaired')
+						closeDialog()
+						return
+					}
+				} catch {
+					/* try next */
+				}
+			}
+
+			throw new Error('No server we know of has this blob.')
 		} catch (error) {
 			console.error('Failed to repair blossom URL:', error)
 			setUploadError(error instanceof Error ? error.message : 'Failed to repair URL')
@@ -287,10 +365,10 @@ export function BlossomUploaderButton({
 		} finally {
 			setHealing(false)
 		}
-	}, [blossom, activeUser, currentUrl, onUploaded, closeDialog])
+	}, [currentUrl, userPubkey, announcedServers, defaultServer, onUploaded, closeDialog])
 
 	const handleUpload = useCallback(async () => {
-		if (!blossom || !selectedFile) return
+		if (!selectedFile || !userPubkey) return
 
 		const normalizedCustomServer = normalizeServerUrl(customServer)
 		if (serverMode === 'custom' && !normalizedCustomServer) {
@@ -303,23 +381,45 @@ export function BlossomUploaderButton({
 		setUploadProgress(0)
 
 		try {
-			const imeta = await blossom.upload(selectedFile, {
-				server: serverMode === 'custom' ? normalizedCustomServer : undefined,
-				fallbackServer: serverMode === 'recommended' ? defaultServer : undefined,
-				signer: (signer ?? undefined) as BlossomSigner | undefined,
-				onProgress: (progress) => {
-					if (progress.total > 0) {
-						setUploadProgress(Math.round((progress.loaded / progress.total) * 100))
-					}
-					return 'continue'
-				},
-			})
+			const targets =
+				serverMode === 'custom'
+					? [normalizedCustomServer]
+					: [
+							...announcedServers,
+							...(announcedServers.includes(normalizeServerUrl(defaultServer))
+								? []
+								: [defaultServer]),
+						]
 
-			const result = toUploaderResult(imeta, 'upload', selectedFile.name)
-			onUploaded(result)
-			toast.success('Uploaded to Blossom', {
-				description: result.url,
+			if (targets.length === 0) {
+				throw new Error('No Blossom server available.')
+			}
+
+			setUploadProgress(20)
+			const auth = await createUploadAuth(makeBlossomSigner(), selectedFile, {
+				message: `Upload ${selectedFile.name}`,
+				expiration: Math.floor(Date.now() / 1000) + 5 * 60,
 			})
+			setUploadProgress(40)
+
+			let lastError: unknown = null
+			let descriptor: BlobDescriptor | null = null
+			for (const server of targets) {
+				try {
+					descriptor = await uploadBlob(server, selectedFile, { auth })
+					break
+				} catch (err) {
+					lastError = err
+				}
+			}
+			if (!descriptor) {
+				throw lastError instanceof Error ? lastError : new Error('All servers rejected the upload.')
+			}
+			setUploadProgress(100)
+
+			const result = descriptorToResult(descriptor, 'upload', selectedFile.name)
+			onUploaded(result)
+			toast.success('Uploaded to Blossom', { description: result.url })
 			closeDialog()
 		} catch (error) {
 			console.error('Failed to upload to blossom:', error)
@@ -330,12 +430,12 @@ export function BlossomUploaderButton({
 			setUploading(false)
 		}
 	}, [
-		blossom,
 		selectedFile,
+		userPubkey,
 		customServer,
 		serverMode,
+		announcedServers,
 		defaultServer,
-		signer,
 		onUploaded,
 		closeDialog,
 	])
@@ -347,12 +447,12 @@ export function BlossomUploaderButton({
 				: 'Choose a custom Blossom server for this upload.'
 		}
 
-		if (!activeUser) {
+		if (!userPubkey) {
 			return `Upload will use the fallback server ${defaultServer}.`
 		}
 
-		if (discoveredServers.length > 0) {
-			return `Uploads try your ${discoveredServers.length} announced Blossom server${discoveredServers.length === 1 ? '' : 's'} first, then fall back to ${defaultServer}.`
+		if (announcedServers.length > 0) {
+			return `Uploads try your ${announcedServers.length} announced Blossom server${announcedServers.length === 1 ? '' : 's'} first, then fall back to ${defaultServer}.`
 		}
 
 		return `No announced Blossom servers were found. Upload will use the fallback server ${defaultServer}.`
@@ -360,12 +460,12 @@ export function BlossomUploaderButton({
 		serverMode,
 		hasCustomServer,
 		customServer,
-		activeUser,
-		discoveredServers.length,
+		userPubkey,
+		announcedServers.length,
 		defaultServer,
 	])
 
-	const triggerDisabled = disabled || !ndk
+	const triggerDisabled = disabled
 	const serverModeButtonClass = (mode: ServerMode) =>
 		cn(
 			'h-10 flex-1 justify-center rounded-lg border px-3 text-sm shadow-none transition-colors',
@@ -407,7 +507,7 @@ export function BlossomUploaderButton({
 								</TabsTrigger>
 								<TabsTrigger
 									value="library"
-									disabled={!activeUser}
+									disabled={!userPubkey}
 									className="rounded-lg px-4 py-2.5 text-sm data-[state=active]:bg-white data-[state=active]:shadow-none"
 								>
 									My Blobs
@@ -560,11 +660,9 @@ export function BlossomUploaderButton({
 													<Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
 												) : null}
 											</div>
-											{discoveryError ? (
-												<p className="text-xs leading-5 text-amber-600">{discoveryError}</p>
-											) : discoveredServers.length > 0 ? (
+											{announcedServers.length > 0 ? (
 												<div className="space-y-1">
-													{discoveredServers.map((server) => (
+													{announcedServers.map((server) => (
 														<p
 															key={server}
 															className="break-all rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] leading-4 text-slate-600"
@@ -631,20 +729,19 @@ export function BlossomUploaderButton({
 												Loading blobs…
 											</div>
 										) : filteredLibraryItems.length > 0 ? (
-											filteredLibraryItems.map((imeta) => {
-												const hash = imeta.x ?? imeta.url ?? 'blob'
-												const isDeleting = deletingHash === imeta.x
-												const isImage = (imeta.m ?? '').startsWith('image/')
+											filteredLibraryItems.map((blob) => {
+												const isDeleting = deletingHash === blob.sha256
+												const isImage = (blob.type ?? '').startsWith('image/')
 												return (
 													<div
-														key={hash}
+														key={blob.sha256}
 														className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3"
 													>
 														<div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-100">
 															{isImage ? (
 																<img
-																	src={imeta.url}
-																	alt={imeta.alt ?? 'Blossom upload'}
+																	src={blob.url}
+																	alt="Blossom upload"
 																	className="h-full w-full object-cover"
 																/>
 															) : (
@@ -653,19 +750,21 @@ export function BlossomUploaderButton({
 														</div>
 														<div className="min-w-0 flex-1 space-y-1">
 															<p className="truncate text-sm font-medium text-slate-900">
-																{imeta.alt || imeta.url}
+																{blob.url}
 															</p>
 															<p className="text-xs text-slate-500">
-																{imeta.m || 'unknown type'} • {formatBytes(parseBytes(imeta.size))}
+																{blob.type || 'unknown type'} • {formatBytes(blob.size)}
 															</p>
-															<p className="truncate text-[11px] text-slate-400">{imeta.url}</p>
+															<p className="truncate text-[11px] text-slate-400">
+																{blob.sha256.slice(0, 16)}…
+															</p>
 														</div>
 														<div className="flex shrink-0 items-center gap-1">
 															<Button
 																type="button"
 																size="icon-sm"
 																variant="outline"
-																onClick={() => handleSelectExisting(imeta)}
+																onClick={() => handleSelectExisting(blob)}
 																aria-label="Use this upload"
 																className="shadow-none"
 															>
@@ -679,7 +778,7 @@ export function BlossomUploaderButton({
 																aria-label="Open upload"
 																className="shadow-none"
 															>
-																<a href={imeta.url} target="_blank" rel="noopener noreferrer">
+																<a href={blob.url} target="_blank" rel="noopener noreferrer">
 																	<ExternalLink className="h-4 w-4" />
 																</a>
 															</Button>
@@ -687,8 +786,8 @@ export function BlossomUploaderButton({
 																type="button"
 																size="icon-sm"
 																variant="outline"
-																onClick={() => void handleDeleteExisting(imeta)}
-																disabled={!imeta.x || isDeleting}
+																onClick={() => void handleDeleteExisting(blob)}
+																disabled={!blob.sha256 || isDeleting}
 																aria-label="Delete upload"
 																className="shadow-none"
 															>

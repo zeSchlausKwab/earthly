@@ -1,4 +1,3 @@
-import type { NDKEvent } from '@nostr-dev-kit/react'
 import { nip19 } from 'nostr-tools'
 
 export interface NostrAddressReference {
@@ -112,8 +111,13 @@ export function extractReferencedCoordinatesFromList(
 	return coordinates
 }
 
+/**
+ * Mutates an NDK-event-shaped object's `tags` field with the reconciled `a` tags.
+ * Used only by the seed scripts during the migration; app code uses
+ * `setAddressReferenceTags` via factory.modifyPublicTags instead.
+ */
 export function syncAddressReferenceTags(
-	event: NDKEvent,
+	event: { tags: string[][] },
 	referencedCoordinates: string[],
 	preservedCoordinates: string[] = [],
 ): void {
@@ -125,13 +129,14 @@ export function syncAddressReferenceTags(
 }
 
 /**
- * Pure version of `syncAddressReferenceTags` — takes the current tag array
- * and returns the new one. Use this with `factory.modifyPublicTags(...)`.
+ * Reconcile `a` (replaceable-event) tags on an event template.
  *
  *   - Existing `a` tags are dropped UNLESS their coordinate is in
  *     `preservedCoordinates`.
  *   - Then the dedup'd `referencedCoordinates` are appended (also keeping
- *     `preservedCoordinates` first so order matches the legacy behavior).
+ *     `preservedCoordinates` first so order matches the prior behavior).
+ *
+ * Use this with `factory.modifyPublicTags(setAddressReferenceTags(...))`.
  */
 export function computeAddressReferenceTags(
 	currentTags: string[][],

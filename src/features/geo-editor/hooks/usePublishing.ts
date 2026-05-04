@@ -16,7 +16,6 @@ import type { MapContext } from '@/lib/nostr/map-context'
 import {
 	extractReferencedCoordinates,
 	setAddressReferenceTags,
-	syncAddressReferenceTags,
 } from '@/lib/ndk/nostrReferences'
 import type { EditorFeature } from '../core'
 import { useEditorStore } from '../store'
