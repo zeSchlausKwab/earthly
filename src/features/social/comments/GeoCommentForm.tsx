@@ -1,6 +1,5 @@
 import { Check, Edit3, MapPin, MousePointer2, Send, Trash2, Type, X } from 'lucide-react'
 import { forwardRef, useState, useRef, useCallback, useEffect, useMemo } from 'react'
-import {  } from '@nostr-dev-kit/react'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import type { FeatureCollection } from 'geojson'
 import { Button } from '@/components/ui/button'

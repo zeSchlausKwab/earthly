@@ -1,4 +1,3 @@
-import {  } from '@nostr-dev-kit/react'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import { EventFactory } from 'applesauce-core/factories'
 import type { NostrEvent } from 'nostr-tools'

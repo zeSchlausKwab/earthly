@@ -1,6 +1,5 @@
 import type { NostrEvent } from 'nostr-tools'
 import { useState, useCallback, useRef, useEffect } from 'react'
-import {  } from '@nostr-dev-kit/react'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import { formatDistanceToNow } from 'date-fns'
 import { nip19 } from 'nostr-tools'

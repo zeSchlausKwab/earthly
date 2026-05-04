@@ -12,7 +12,6 @@ import {
 	ToggleLeft,
 	ToggleRight,
 } from 'lucide-react'
-import {  } from '@nostr-dev-kit/react'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'

@@ -1,4 +1,3 @@
-import {  } from '@nostr-dev-kit/react'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import type { NostrEvent } from 'nostr-tools'
 import { useState, useCallback, useRef } from 'react'

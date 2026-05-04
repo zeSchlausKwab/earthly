@@ -1,4 +1,3 @@
-import {  } from '@nostr-dev-kit/react'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import { useEffect, useMemo, useState } from 'react'
 import {
