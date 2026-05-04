@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { useChatStore } from './store'
-import { useNip60Store } from '@/lib/stores/nip60'
+import { useWallet } from '@/lib/wallet'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useEditorStore } from '@/features/geo-editor/store'
 import {
@@ -135,7 +135,8 @@ export function ChatPanel({
 	const editorFeatures = useEditorStore((state) => state.features)
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 
-	const { status: walletStatus, balance: walletBalance } = useNip60Store()
+	const { exists: walletExists, totalBalance: walletBalance } = useWallet()
+	const walletStatus: 'ready' | 'no_wallet' = walletExists ? 'ready' : 'no_wallet'
 	const isMobile = useIsMobile()
 
 	const [input, setInput] = useState('')
@@ -448,11 +449,6 @@ export function ChatPanel({
 							<Wallet className="h-3.5 w-3.5" />
 							{walletStatus === 'ready' ? (
 								<span>{walletBalance.toLocaleString()} sats</span>
-							) : walletStatus === 'initializing' ? (
-								<span className="flex items-center gap-1">
-									<Loader2 className="h-3 w-3 animate-spin" />
-									Loading...
-								</span>
 							) : (
 								<span className="text-destructive">Wallet not connected</span>
 							)}

@@ -1779,11 +1779,6 @@ async function seedData() {
       description: `## Regional baseline
 Shared open taxonomy context for regional datasets and sub-contexts used during local development.
 
-Featured boundaries:
-- nostr:${datasetAddress(planner.pubkey, BRANDENBURG_DATASET_ID)}
-- nostr:${datasetAddress(planner.pubkey, SAXONY_DATASET_ID)}
-- nostr:${datasetAddress(planner.pubkey, THUERINGEN_DATASET_ID)}
-
 Featured child contexts:
 - nostr:${contextAddress(planner.pubkey, ADMIN_CONTEXT_ID)}
 - nostr:${contextAddress(mobility.pubkey, RAIL_CONTEXT_ID)}
@@ -1807,13 +1802,6 @@ Other publishers may attach their own geometry or contexts via c.`,
       name: "East German Administrative Boundaries",
       description: `## Authoritative border set
 Closed taxonomy context grouping Bundesländer boundaries and related administrative layers.
-
-Curated boundary list:
-- nostr:${datasetAddress(planner.pubkey, BRANDENBURG_DATASET_ID)}
-- nostr:${datasetAddress(planner.pubkey, MECKPOM_DATASET_ID)}
-- nostr:${datasetAddress(planner.pubkey, SAXONY_DATASET_ID)}
-- nostr:${datasetAddress(planner.pubkey, SAXONY_ANHALT_DATASET_ID)}
-- nostr:${datasetAddress(planner.pubkey, THUERINGEN_DATASET_ID)}
 
 Foreign attachments are intentionally disabled.`,
       descriptionFormat: "markdown",

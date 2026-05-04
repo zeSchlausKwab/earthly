@@ -1,22 +1,22 @@
-import type { NDKFilter } from '@nostr-dev-kit/ndk'
-import { useNDK } from '@nostr-dev-kit/react'
+import type { Filter } from 'nostr-tools'
 import { castEvent } from 'applesauce-core/casts'
 import { useEffect, useMemo, useState } from 'react'
-import { eventStore } from '@/lib/nostr'
+import { config } from '@/config'
+import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/ndk/kinds'
+import { eventStore, pool } from '@/lib/nostr'
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import { GeoDataset } from '@/lib/nostr/geo-event'
-import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/ndk/kinds'
 import { MapContext } from '@/lib/nostr/map-context'
 
-function castGeoDataset(event: { id: string; kind: number; tags: string[][]; pubkey: string; content: string; created_at: number; sig: string }) {
-	return castEvent(event as Parameters<typeof castEvent>[0], GeoDataset, eventStore)
+function castGeoDataset(event: Parameters<typeof castEvent>[0]) {
+	return castEvent(event, GeoDataset, eventStore)
 }
 
 /**
  * Subscribe to GeoJSON dataset events (kind 37515) and surface them as
  * `GeoDataset` casts.
  */
-export function useStations(additionalFilters: Omit<NDKFilter, 'kinds'>[] = [{}]) {
+export function useStations(additionalFilters: Omit<Filter, 'kinds'>[] = [{}]) {
 	const filters = additionalFilters.map((filter) => ({
 		...filter,
 		kinds: [GEO_EVENT_KIND],
@@ -36,7 +36,7 @@ export function useStations(additionalFilters: Omit<NDKFilter, 'kinds'>[] = [{}]
 	}
 }
 
-export function useMapContexts(additionalFilters: Omit<NDKFilter, 'kinds'>[] = [{}]) {
+export function useMapContexts(additionalFilters: Omit<Filter, 'kinds'>[] = [{}]) {
 	const filters = additionalFilters.map((filter) => ({
 		...filter,
 		kinds: [MAP_CONTEXT_KIND],
@@ -55,71 +55,56 @@ export function useMapContexts(additionalFilters: Omit<NDKFilter, 'kinds'>[] = [
 }
 
 /**
- * A hook for searching geo events with proper subscription management.
- * Handles dynamic search queries by restarting subscriptions when the search
- * changes. Still uses the legacy NDK pool because NIP-50 search via applesauce
- * relays is layered on the same protocol; that migration happens in Step 3.3.
+ * Search-enabled stations hook. NIP-50: relays with `search` capability filter
+ * server-side. Subscriptions go to `config.readRelays` (broader than write).
  */
-export function useSearchStations(filter: NDKFilter, searchQuery: string) {
-	const { ndk } = useNDK()
+export function useSearchStations(filter: Filter & { search?: string }, searchQuery: string) {
 	const [events, setEvents] = useState<GeoDataset[]>([])
 	const [eose, setEose] = useState(false)
 
 	useEffect(() => {
-		if (!ndk) return
-
 		setEvents([])
 		setEose(false)
 
-		// biome-ignore lint/suspicious/noExplicitAny: legacy NDK subscription path; will be replaced in Step 3.3
-		const sub = ndk.subscribe(filter as any, { closeOnEose: false })
 		const eventMap = new Map<string, GeoDataset>()
+		const sub = pool
+			.request(config.readRelays, filter)
+			.subscribe({
+				next: (event) => {
+					const cast = castGeoDataset(event)
+					if (!eventMap.has(cast.id)) {
+						eventMap.set(cast.id, cast)
+						setEvents(Array.from(eventMap.values()))
+					}
+				},
+				complete: () => setEose(true),
+				error: (err) => console.error('[useSearchStations] error', err),
+			})
 
-		// biome-ignore lint/suspicious/noExplicitAny: NDK provides untyped event payloads
-		sub.on('event', (event: any) => {
-			const cast = castGeoDataset(event.rawEvent ? event.rawEvent() : event)
-			if (!eventMap.has(cast.id)) {
-				eventMap.set(cast.id, cast)
-				setEvents(Array.from(eventMap.values()))
-			}
-		})
-
-		sub.on('eose', () => {
-			console.log('✅ EOSE - Total datasets:', eventMap.size)
-			setEose(true)
-		})
-
-		return () => {
-			sub.stop()
-		}
+		return () => sub.unsubscribe()
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ndk, searchQuery])
+	}, [searchQuery])
 
-	return {
-		events,
-		eose,
-	}
+	return { events, eose }
 }
 
 /**
  * Unified observer for geo dataset events with flexible client-side filtering.
- * Same caveat as `useSearchStations` regarding the NDK pool — Step 3.3 swap.
+ * Reads from `config.readRelays`; writes (if any) still go through `publish()`
+ * with dev-safety routing.
  */
 export function useStationsObserver(
-	filterWithoutKinds: Omit<NDKFilter, 'kinds'> = { limit: 50 },
+	filterWithoutKinds: Omit<Filter, 'kinds'> = { limit: 50 },
 	clientSideFilters?: {
 		hashtags?: string[]
 		relayHints?: string[]
 		collectionIds?: string[]
 	},
 ) {
-	const { ndk } = useNDK()
 	const [allEvents, setAllEvents] = useState<GeoDataset[]>([])
 	const [eose, setEose] = useState(false)
 
 	useEffect(() => {
-		if (!ndk) return
-
 		const filter = {
 			...filterWithoutKinds,
 			kinds: [GEO_EVENT_KIND],
@@ -128,29 +113,24 @@ export function useStationsObserver(
 		setAllEvents([])
 		setEose(false)
 
-		// biome-ignore lint/suspicious/noExplicitAny: legacy NDK subscription path; will be replaced in Step 3.3
-		const sub = ndk.subscribe(filter as any, { closeOnEose: false })
 		const eventMap = new Map<string, GeoDataset>()
+		const sub = pool
+			.request(config.readRelays, filter)
+			.subscribe({
+				next: (event) => {
+					const cast = castGeoDataset(event)
+					if (!eventMap.has(cast.id)) {
+						eventMap.set(cast.id, cast)
+						setAllEvents(Array.from(eventMap.values()))
+					}
+				},
+				complete: () => setEose(true),
+				error: (err) => console.error('[useStationsObserver] error', err),
+			})
 
-		// biome-ignore lint/suspicious/noExplicitAny: NDK provides untyped event payloads
-		sub.on('event', (event: any) => {
-			const cast = castGeoDataset(event.rawEvent ? event.rawEvent() : event)
-			if (!eventMap.has(cast.id)) {
-				eventMap.set(cast.id, cast)
-				setAllEvents(Array.from(eventMap.values()))
-			}
-		})
-
-		sub.on('eose', () => {
-			console.log('✅ EOSE - Total:', eventMap.size)
-			setEose(true)
-		})
-
-		return () => {
-			sub.stop()
-		}
+		return () => sub.unsubscribe()
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ndk, JSON.stringify(filterWithoutKinds)])
+	}, [JSON.stringify(filterWithoutKinds)])
 
 	const filteredEvents = useMemo(() => {
 		if (!clientSideFilters) return allEvents

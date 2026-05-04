@@ -1,8 +1,10 @@
-import { useNDK } from '@nostr-dev-kit/react'
 import { castEvent } from 'applesauce-core/casts'
+import type { Filter } from 'nostr-tools'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { Subscription } from 'rxjs'
+import { config } from '@/config'
 import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/ndk/kinds'
-import { eventStore } from '@/lib/nostr'
+import { eventStore, pool } from '@/lib/nostr'
 import { GeoDataset } from '@/lib/nostr/geo-event'
 import { MapContext } from '@/lib/nostr/map-context'
 import {
@@ -28,6 +30,13 @@ interface UseRelayEntitySearchOptions {
 	getDatasetName?: (event: GeoDataset) => string
 }
 
+/**
+ * NIP-50 (relay-side search) for datasets and contexts. Uses `pool.req` so
+ * the subscription completes on EOSE (one-shot search, no live updates).
+ *
+ * Searches happen against `config.readRelays` so dev with EXTRA_READ_RELAYS
+ * set can search public relays without ever publishing there.
+ */
 export function useRelayEntitySearch({
 	query,
 	entityTypes,
@@ -35,12 +44,11 @@ export function useRelayEntitySearch({
 	enabled = true,
 	getDatasetName,
 }: UseRelayEntitySearchOptions) {
-	const { ndk } = useNDK()
 	const [results, setResults] = useState<EntitySearchResult[]>([])
 	const [loading, setLoading] = useState(false)
 	const [eose, setEose] = useState(false)
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-	const subscriptionRef = useRef<{ stop: () => void } | null>(null)
+	const subRef = useRef<Subscription | null>(null)
 
 	const activeTypes = useMemo(() => entityTypes ?? DEFAULT_RELAY_ENTITY_TYPES, [entityTypes])
 
@@ -53,13 +61,11 @@ export function useRelayEntitySearch({
 
 	useEffect(() => {
 		if (debounceRef.current) clearTimeout(debounceRef.current)
-		if (subscriptionRef.current) {
-			subscriptionRef.current.stop()
-			subscriptionRef.current = null
-		}
+		subRef.current?.unsubscribe()
+		subRef.current = null
 
 		const trimmed = query.trim()
-		if (!trimmed || !ndk || !enabled || kinds.length === 0) {
+		if (!trimmed || !enabled || kinds.length === 0) {
 			setResults([])
 			setLoading(false)
 			setEose(false)
@@ -71,53 +77,55 @@ export function useRelayEntitySearch({
 
 		debounceRef.current = setTimeout(() => {
 			const resultMap = new Map<string, EntitySearchResult>()
+			// NIP-50: relays with `search` capability filter server-side.
+			const filter: Filter & { search: string } = {
+				kinds,
+				search: trimmed,
+				limit,
+			}
 
-			// biome-ignore lint/suspicious/noExplicitAny: NDK types don't include NIP-50 `search` field
-			const sub = ndk.subscribe({ kinds, search: trimmed, limit } as any, { closeOnEose: true })
-			subscriptionRef.current = sub
+			subRef.current = pool
+				.request(config.readRelays, filter)
+				.subscribe({
+					next: (event) => {
+						const kind = event.kind as number
+						const eventId = event.id as string
+						if (resultMap.has(eventId)) return
 
-			// biome-ignore lint/suspicious/noExplicitAny: NDK subscription event type is loosely typed
-			sub.on('event', (event: any) => {
-				const kind = event.kind as number
-				const eventId = event.id as string
-				if (resultMap.has(eventId)) return
+						const entityType = KIND_TO_TYPE[kind]
+						if (!entityType) return
 
-				const entityType = KIND_TO_TYPE[kind]
-				if (!entityType) return
+						let result: EntitySearchResult | null = null
+						if (entityType === 'dataset') {
+							const wrapped = castEvent(event, GeoDataset, eventStore)
+							result = datasetToSearchResult(wrapped, getDatasetName)
+						} else if (entityType === 'context') {
+							const wrapped = castEvent(event, MapContext, eventStore)
+							result = contextToSearchResult(wrapped)
+						}
 
-				let result: EntitySearchResult | null = null
-				if (entityType === 'dataset') {
-					const raw = (event as { rawEvent?: () => unknown }).rawEvent?.() ?? event
-					// biome-ignore lint/suspicious/noExplicitAny: NDK event shape varies; cast accepts the standard NostrEvent fields
-					const wrapped = castEvent(raw as any, GeoDataset, eventStore)
-					result = datasetToSearchResult(wrapped, getDatasetName)
-				} else if (entityType === 'context') {
-					const raw = (event as { rawEvent?: () => unknown }).rawEvent?.() ?? event
-					// biome-ignore lint/suspicious/noExplicitAny: NDK event shape varies; cast accepts the standard NostrEvent fields
-					const wrapped = castEvent(raw as any, MapContext, eventStore)
-					result = contextToSearchResult(wrapped)
-				}
-
-				if (result) {
-					resultMap.set(eventId, result)
-					setResults(Array.from(resultMap.values()))
-				}
-			})
-
-			sub.on('eose', () => {
-				setLoading(false)
-				setEose(true)
-			})
+						if (result) {
+							resultMap.set(eventId, result)
+							setResults(Array.from(resultMap.values()))
+						}
+					},
+					complete: () => {
+						setLoading(false)
+						setEose(true)
+					},
+					error: (err) => {
+						console.error('[entity-search] subscription error', err)
+						setLoading(false)
+					},
+				})
 		}, DEBOUNCE_MS)
 
 		return () => {
 			if (debounceRef.current) clearTimeout(debounceRef.current)
-			if (subscriptionRef.current) {
-				subscriptionRef.current.stop()
-				subscriptionRef.current = null
-			}
+			subRef.current?.unsubscribe()
+			subRef.current = null
 		}
-	}, [ndk, query, kinds, limit, enabled, getDatasetName])
+	}, [query, kinds, limit, enabled, getDatasetName])
 
 	return { results, loading, eose }
 }

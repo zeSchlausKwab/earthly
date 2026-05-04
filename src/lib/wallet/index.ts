@@ -26,7 +26,13 @@ export {
 } from './actions'
 
 // Runtime singletons (rare direct use; most code should go via hooks/actions)
-export { couch, walletActions } from './runtime'
+export {
+	couch,
+	getWalletSnapshot,
+	walletActions,
+	walletSnapshot$,
+	type WalletSnapshot,
+} from './runtime'
 
 // Pre-existing utilities (kept)
 export { getCurrentPubkey, setCurrentPubkey } from './currentUser'

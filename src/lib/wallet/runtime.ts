@@ -15,9 +15,14 @@ import { ActionRunner } from 'applesauce-actions'
 import { ProxySigner } from 'applesauce-accounts'
 import { persistEncryptedContent } from 'applesauce-common/helpers'
 import type { ISigner } from 'applesauce-signers'
-import { IndexedDBCouch } from 'applesauce-wallet/helpers'
+import {
+	getWalletMints,
+	IndexedDBCouch,
+	WALLET_KIND,
+} from 'applesauce-wallet/helpers'
+import { WalletBalanceModel } from 'applesauce-wallet/models'
 import type { NostrEvent } from 'nostr-tools'
-import { map, of } from 'rxjs'
+import { BehaviorSubject, map, of, switchMap } from 'rxjs'
 import { config } from '@/config'
 import { accounts, eventStore, pool } from '@/lib/nostr'
 
@@ -91,3 +96,64 @@ export const walletActions = new ActionRunner(
 		// biome-ignore lint/suspicious/noExplicitAny: ActionRunner's publish-method type is overloaded and overly strict
 	} as any,
 )
+
+// =====================================================================
+// Synchronous snapshot for non-React callers (e.g. the chat zustand store).
+// Updated reactively from EventStore + WalletBalanceModel.
+// =====================================================================
+
+export interface WalletSnapshot {
+	pubkey: string | null
+	exists: boolean
+	mints: string[]
+	balance: Record<string, number>
+	totalBalance: number
+}
+
+const EMPTY_SNAPSHOT: WalletSnapshot = {
+	pubkey: null,
+	exists: false,
+	mints: [],
+	balance: {},
+	totalBalance: 0,
+}
+
+const snapshot$ = new BehaviorSubject<WalletSnapshot>(EMPTY_SNAPSHOT)
+
+// Track the active pubkey + its wallet event + balance and rebuild the snapshot
+// whenever any of them change. Resubscribes to the balance model when pubkey flips.
+accounts.active$
+	.pipe(
+		switchMap((account) => {
+			const pubkey = account?.pubkey ?? null
+			if (!pubkey) return of(EMPTY_SNAPSHOT)
+			return eventStore.model(WalletBalanceModel, pubkey).pipe(
+				map((balance) => {
+					const event = eventStore.getReplaceable(WALLET_KIND, pubkey)
+					let mints: string[] = []
+					try {
+						mints = event ? getWalletMints(event) : []
+					} catch {
+						/* locked or invalid */
+					}
+					const totalBalance = Object.values(balance ?? {}).reduce((a, b) => a + b, 0)
+					return {
+						pubkey,
+						exists: Boolean(event),
+						mints,
+						balance: balance ?? {},
+						totalBalance,
+					}
+				}),
+			)
+		}),
+	)
+	.subscribe((snap) => snapshot$.next(snap))
+
+/** Read the latest wallet snapshot synchronously. */
+export function getWalletSnapshot(): WalletSnapshot {
+	return snapshot$.value
+}
+
+/** Subscribe to wallet snapshot changes (rxjs Observable). */
+export const walletSnapshot$ = snapshot$.asObservable()

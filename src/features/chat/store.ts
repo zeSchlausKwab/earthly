@@ -20,7 +20,12 @@ import {
 	consumeMapSnapshot,
 	compactToolMessageContentForPrompt,
 } from './tools'
-import { nip60Actions, useNip60Store } from '@/lib/stores/nip60'
+import {
+	getWalletSnapshot,
+	receiveCashuToken,
+	sendCashuToken,
+} from '@/lib/wallet'
+const DEFAULT_MINT_KEY = 'nip60_default_mint'
 import { toast } from 'sonner'
 
 // Default max tokens to limit cost - can be adjusted
@@ -901,8 +906,8 @@ export const useChatStore = create<ChatStore>()(
 
 				// Check wallet status (only for paid providers)
 				if (providerConfig.requiresPayment) {
-					const walletState = useNip60Store.getState()
-					if (walletState.status !== 'ready') {
+					const snap = getWalletSnapshot()
+					if (!snap.exists || snap.mints.length === 0) {
 						toast.error('Wallet not ready. Please initialize your wallet first.')
 						return
 					}
@@ -943,7 +948,7 @@ export const useChatStore = create<ChatStore>()(
 					if (refundToken) {
 						console.log('[Chat] Received refund token, redeeming...')
 						try {
-							await nip60Actions.receiveEcash(refundToken)
+							await receiveCashuToken(refundToken)
 						} catch (err) {
 							console.error('[Chat] Failed to process refund:', err)
 						}
@@ -980,22 +985,27 @@ export const useChatStore = create<ChatStore>()(
 							modelPricing: model.pricing,
 						})
 
-						const currentWalletState = useNip60Store.getState()
-						if (currentWalletState.balance < estimatedCost) {
+						const snap = getWalletSnapshot()
+						if (snap.totalBalance < estimatedCost) {
 							throw new Error(
-								`Insufficient balance. Need ~${estimatedCost} sats, have ${currentWalletState.balance}`,
+								`Insufficient balance. Need ~${estimatedCost} sats, have ${snap.totalBalance}`,
 							)
 						}
 
-						const mint = currentWalletState.defaultMint || currentWalletState.mints[0]
+						const defaultMint =
+							typeof localStorage !== 'undefined' ? localStorage.getItem(DEFAULT_MINT_KEY) : null
+						const mint = defaultMint || snap.mints[0]
 						if (!mint) {
 							throw new Error('No mint available for payment')
 						}
 
 						console.log(`[Chat] Generating ${estimatedCost} sat token for inference`)
-						cashuToken = await nip60Actions.sendEcash(estimatedCost, mint)
-						if (!cashuToken) {
-							throw new Error('Failed to generate payment token')
+						try {
+							cashuToken = await sendCashuToken(estimatedCost, { mint })
+						} catch (err) {
+							throw new Error(
+								`Failed to generate payment token: ${err instanceof Error ? err.message : String(err)}`,
+							)
 						}
 
 						set((state) => ({ totalSpent: state.totalSpent + estimatedCost }))
