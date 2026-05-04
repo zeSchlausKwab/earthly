@@ -11,9 +11,9 @@ import {
 	GeoDatasetFactory,
 	type GeoBlobReference,
 } from '@/lib/nostr/geo-event'
-import { NDKGeoEditProposalEvent } from '@/lib/ndk/NDKGeoEditProposalEvent'
+import { GeoProposal, GeoProposalFactory } from '@/lib/nostr/geo-proposal'
 import { GEO_EVENT_KIND } from '@/lib/ndk/kinds'
-import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import type { MapContext } from '@/lib/nostr/map-context'
 import {
 	extractReferencedCoordinates,
 	setAddressReferenceTags,
@@ -30,7 +30,7 @@ interface UsePublishingOptions {
 	currentUserPubkey: string | undefined
 	getDatasetName: (event: GeoDataset) => string
 	getDatasetKey: (event: GeoDataset) => string
-	mapContexts: NDKMapContextEvent[]
+	mapContexts: MapContext[]
 	resolvedCollectionResolver?: (event: GeoDataset) => FeatureCollection | undefined
 }
 
@@ -92,21 +92,6 @@ export function usePublishing({
 		const propertyDescription = maybeCollection.properties?.description
 		return typeof propertyDescription === 'string' ? propertyDescription : ''
 	}, [])
-
-	// Used only by `handleProposeEdit` while NDKGeoEditProposalEvent still
-	// runs on the legacy NDK class. Once Step 4d lands, this drops out and
-	// proposals migrate to the factory + `setAddressReferenceTags` pattern
-	// the rest of the file already uses.
-	const syncRichTextReferenceTags = useCallback(
-		(
-			event: NDKGeoEditProposalEvent,
-			text: string | undefined,
-			preservedCoordinates: string[] = [],
-		) => {
-			syncAddressReferenceTags(event, extractReferencedCoordinates(text), preservedCoordinates)
-		},
-		[],
-	)
 
 	const serializeBlobReferences = useCallback(
 		(): GeoBlobReference[] =>
@@ -275,7 +260,7 @@ export function usePublishing({
 				return { ok: true }
 			}
 
-			const contextByCoordinate = new Map<string, NDKMapContextEvent>()
+			const contextByCoordinate = new Map<string, MapContext>()
 			mapContexts.forEach((context) => {
 				const coordinate = context.contextCoordinate
 				if (coordinate) {
@@ -285,7 +270,7 @@ export function usePublishing({
 
 			const requiredContexts = activeDatasetContextRefs
 				.map((ref) => contextByCoordinate.get(ref))
-				.filter((context): context is NDKMapContextEvent => Boolean(context))
+				.filter((context): context is MapContext => Boolean(context))
 				.filter(
 					(context) =>
 						(context.context.contextUse === 'validation' ||
@@ -670,27 +655,33 @@ export function usePublishing({
 				const collection = buildCollectionFromEditor()
 				if (!collection) throw new Error('No features to publish')
 
-				if (!ndk) {
-					setPublishError('NDK is not ready.')
+				const signer = accounts.signer
+				if (!signer) {
+					setPublishError('No active account.')
 					return
 				}
 
-				const proposal = new NDKGeoEditProposalEvent(ndk)
-				proposal.featureCollection = collection
-				proposal.targetAddress = `${GEO_EVENT_KIND}:${activeDataset.pubkey}:${activeDataset.dTag}`
-				proposal.ownerPubkey = activeDataset.pubkey
-				if (activeDataset.id) {
-					proposal.baseVersion = activeDataset.id
-				}
-				proposal.description = description
-				proposal.hashtags = activeDataset.hashtags
-				syncRichTextReferenceTags(
-					proposal,
-					description,
-					proposal.targetAddress ? [proposal.targetAddress] : [],
+				const targetAddress = `${GEO_EVENT_KIND}:${activeDataset.pubkey}:${activeDataset.dTag}`
+				const referencedCoords = extractReferencedCoordinates(description)
+				const signedEvent = await GeoProposalFactory.create(
+					{
+						address: targetAddress,
+						ownerPubkey: activeDataset.pubkey,
+						baseVersion: activeDataset.id,
+					},
+					collection,
 				)
+					.description(description)
+					.hashtags(activeDataset.hashtags)
+					// Preserve the target's `a` tag so the rich-text sync can't strip it.
+					.modifyPublicTags(setAddressReferenceTags(referencedCoords, [targetAddress]))
+					.withSpatialMetadata()
+					.sign(signer)
 
-				await proposal.publishProposal()
+				// Route to the dataset owner's inbox so they're notified, with a
+				// safe dev-mode fallback to `config.relayUrls`.
+				await publish(signedEvent, { routing: 'inbox', target: activeDataset.pubkey })
+
 				setPublishMessage('Edit proposal published successfully.')
 				switchToDatasetViewMode(activeDataset)
 				setSelectedFeatureIds([])

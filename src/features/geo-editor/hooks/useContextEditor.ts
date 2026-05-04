@@ -1,12 +1,12 @@
 import { useCallback, useState } from 'react'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
-import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import type { MapContext } from '@/lib/nostr/map-context'
 import { useEditorStore, type SidebarViewMode } from '../store'
 
 interface UseContextEditorParams {
 	isMobile: boolean
 	ensureInfoPanelVisible: () => void
-	encodeContextNaddr: (context: NDKMapContextEvent) => string | null
+	encodeContextNaddr: (context: MapContext) => string | null
 	navigateToContext: (contextNaddr: string, sidebarView?: SidebarViewMode) => void
 	navigateToView: (view: SidebarViewMode) => void
 	clearFocus: () => void
@@ -37,7 +37,7 @@ export function useContextEditor({
 	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
 
 	const [contextEditorMode, setContextEditorMode] = useState<'none' | 'create' | 'edit'>('none')
-	const [editingContext, setEditingContext] = useState<NDKMapContextEvent | null>(null)
+	const [editingContext, setEditingContext] = useState<MapContext | null>(null)
 
 	const prepareNonGeometryEditorWorkspace = useCallback(() => {
 		setViewModeState('view')
@@ -61,7 +61,7 @@ export function useContextEditor({
 	)
 
 	const handleInspectContext = useCallback(
-		(context: NDKMapContextEvent) => {
+		(context: MapContext) => {
 			clearEditorModes()
 			setViewModeState('view')
 			setViewDatasetState(null)
@@ -99,7 +99,7 @@ export function useContextEditor({
 	])
 
 	const handleEditContext = useCallback(
-		(context: NDKMapContextEvent) => {
+		(context: MapContext) => {
 			clearEditorModes()
 			setContextEditorMode('edit')
 			setEditingContext(context)
@@ -117,7 +117,7 @@ export function useContextEditor({
 	)
 
 	const handleSaveContext = useCallback(
-		(_context: NDKMapContextEvent) => {
+		(_context: MapContext) => {
 			setContextEditorMode('none')
 			setEditingContext(null)
 			navigateToView('contexts')

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/ndk/kinds'
 import { eventStore } from '@/lib/nostr'
 import { GeoDataset } from '@/lib/nostr/geo-event'
-import { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import { MapContext } from '@/lib/nostr/map-context'
 import {
 	type EntitySearchResult,
 	type EntityType,
@@ -92,7 +92,9 @@ export function useRelayEntitySearch({
 					const wrapped = castEvent(raw as any, GeoDataset, eventStore)
 					result = datasetToSearchResult(wrapped, getDatasetName)
 				} else if (entityType === 'context') {
-					const wrapped = NDKMapContextEvent.from(event)
+					const raw = (event as { rawEvent?: () => unknown }).rawEvent?.() ?? event
+					// biome-ignore lint/suspicious/noExplicitAny: NDK event shape varies; cast accepts the standard NostrEvent fields
+					const wrapped = castEvent(raw as any, MapContext, eventStore)
 					result = contextToSearchResult(wrapped)
 				}
 

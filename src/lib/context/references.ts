@@ -1,7 +1,7 @@
 import { nip19 } from 'nostr-tools'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
-import type { NDKMapContextEvent } from '../ndk/NDKMapContextEvent'
+import type { MapContext } from '@/lib/nostr/map-context'
 import {
 	dedupeNostrAddressReferences,
 	extractNostrAddressReferences,
@@ -22,7 +22,7 @@ export interface ResolvedContextDatasetReference extends ResolvedBaseReference {
 
 export interface ResolvedContextContextReference extends ResolvedBaseReference {
 	type: 'context'
-	context: NDKMapContextEvent
+	context: MapContext
 }
 
 export type ResolvedContextReference =
@@ -41,7 +41,7 @@ function decodeCoordinate(
 	return { kind, pubkey, identifier }
 }
 
-export function encodeContextNaddr(context: NDKMapContextEvent): string | null {
+export function encodeContextNaddr(context: MapContext): string | null {
 	const identifier = context.contextId ?? context.dTag ?? context.id
 	if (!identifier || !context.pubkey || !context.kind) return null
 
@@ -56,7 +56,7 @@ export function encodeContextNaddr(context: NDKMapContextEvent): string | null {
 	}
 }
 
-export function getContextReferencedMentions(context: NDKMapContextEvent | null | undefined) {
+export function getContextReferencedMentions(context: MapContext | null | undefined) {
 	return dedupeNostrAddressReferences([
 		...extractNostrAddressReferences(context?.context.description),
 		...extractNostrAddressReferencesFromList(context?.context.references ?? []),
@@ -64,9 +64,9 @@ export function getContextReferencedMentions(context: NDKMapContextEvent | null 
 }
 
 export function resolveContextReferences(
-	context: NDKMapContextEvent | null | undefined,
+	context: MapContext | null | undefined,
 	geoEvents: GeoDataset[],
-	mapContexts: NDKMapContextEvent[],
+	mapContexts: MapContext[],
 	availableFeatures: GeoFeatureItem[] = [],
 ): ResolvedContextReference[] {
 	const mentions = getContextReferencedMentions(context)
@@ -126,7 +126,7 @@ export function resolveContextReferences(
 }
 
 export function getContextReferencedDatasets(
-	context: NDKMapContextEvent | null | undefined,
+	context: MapContext | null | undefined,
 	geoEvents: GeoDataset[],
 ): GeoDataset[] {
 	const seen = new Set<string>()

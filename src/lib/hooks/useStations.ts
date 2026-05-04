@@ -5,8 +5,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { eventStore } from '@/lib/nostr'
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import { GeoDataset } from '@/lib/nostr/geo-event'
-import { GEO_EVENT_KIND } from '@/lib/ndk/kinds'
-import { NDKMapContextEvent } from '../ndk/NDKMapContextEvent'
+import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/ndk/kinds'
+import { MapContext } from '@/lib/nostr/map-context'
 
 function castGeoDataset(event: { id: string; kind: number; tags: string[][]; pubkey: string; content: string; created_at: number; sig: string }) {
 	return castEvent(event as Parameters<typeof castEvent>[0], GeoDataset, eventStore)
@@ -39,21 +39,13 @@ export function useStations(additionalFilters: Omit<NDKFilter, 'kinds'>[] = [{}]
 export function useMapContexts(additionalFilters: Omit<NDKFilter, 'kinds'>[] = [{}]) {
 	const filters = additionalFilters.map((filter) => ({
 		...filter,
-		kinds: NDKMapContextEvent.kinds,
+		kinds: [MAP_CONTEXT_KIND],
 	}))
 
 	const { events, eose } = useTimelineWithEose(filters)
 
 	const contexts = useMemo(() => {
-		const result: NDKMapContextEvent[] = []
-		for (const event of events) {
-			// Until kind 37518 is migrated to applesauce, wrap the raw event
-			// in the legacy NDKMapContextEvent class. The class methods that
-			// touch NDK (publish, sign) still work via the ndk-bridge.
-			const wrapped = NDKMapContextEvent.from(event as never)
-			result.push(wrapped)
-		}
-		return result
+		return events.map((event) => castEvent(event, MapContext, eventStore))
 	}, [events])
 
 	return {

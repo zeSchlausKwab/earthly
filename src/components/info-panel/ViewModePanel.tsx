@@ -3,14 +3,14 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { useEditorStore } from '@/features/geo-editor/store'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
-import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
+import type { GeoComment } from '@/lib/nostr/geo-comment'
 import { validateDatasetForContext } from '@/lib/context/validation'
 import { extractCollectionMeta } from '@/features/geo-editor/utils'
 import { Button } from '../ui/button'
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
 import { CommentsPanel } from '@/features/social/comments'
 import { ProposalsPanel } from '@/features/social/proposals'
-import type { NDKGeoEditProposalEvent } from '@/lib/ndk/NDKGeoEditProposalEvent'
+import type { GeoProposal } from '@/lib/nostr/geo-proposal'
 import { RichContentRenderer } from '../editor'
 import type { GeoFeatureItem } from '../editor/GeoRichTextEditor'
 import { DatasetFeaturesList } from './DatasetFeaturesList'
@@ -28,7 +28,7 @@ export interface ViewModePanelProps {
 	deletingKey: string | null
 	getDatasetKey: (event: GeoDataset) => string
 	getDatasetName: (event: GeoDataset) => string
-	onCommentGeometryVisibility?: (comment: NDKGeoCommentEvent, visible: boolean) => void
+	onCommentGeometryVisibility?: (comment: GeoComment, visible: boolean) => void
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
 	availableFeatures?: GeoFeatureItem[]
 	onMentionVisibilityToggle?: (
@@ -37,7 +37,7 @@ export interface ViewModePanelProps {
 		visible: boolean,
 	) => void
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
-	onToggleProposalOverlay?: (proposal: NDKGeoEditProposalEvent, visible: boolean) => void
+	onToggleProposalOverlay?: (proposal: GeoProposal, visible: boolean) => void
 	onProposalAccepted?: (dataset: GeoDataset) => void
 	visibleProposalIds?: Set<string>
 	focusCommentId?: string
@@ -162,7 +162,7 @@ export function ViewModePanel({
 	}, [])
 
 	const handleCommentGeojsonVisibilityChange = useCallback(
-		(comment: NDKGeoCommentEvent, visible: boolean) => {
+		(comment: GeoComment, visible: boolean) => {
 			const id = comment.commentId ?? comment.id ?? ''
 			setVisibleGeojsonCommentIds((prev) => {
 				const next = new Set(prev)
@@ -176,7 +176,7 @@ export function ViewModePanel({
 	)
 
 	const handleZoomToCommentGeojson = useCallback(
-		(comment: NDKGeoCommentEvent) => {
+		(comment: GeoComment) => {
 			if (comment.boundingBox && onZoomToBounds) {
 				onZoomToBounds(comment.boundingBox)
 			} else if (comment.geojson && onZoomToBounds) {

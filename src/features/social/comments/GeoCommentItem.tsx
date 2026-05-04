@@ -2,7 +2,7 @@ import { ChevronDown, ChevronRight, Eye, EyeOff, MapPin } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import type { CommentNode } from '../hooks/useGeoComments'
-import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
+import type { GeoComment } from '@/lib/nostr/geo-comment'
 import { Button } from '@/components/ui/button'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -11,15 +11,15 @@ import { GeoSocialActions } from './GeoSocialActions'
 import { RichContentRenderer } from '@/components/editor'
 import { UserProfile } from '@/components/user-profile'
 
-interface GeoCommentProps {
+interface GeoCommentItemProps {
 	commentNode: CommentNode
 	onReply: (
-		parentComment: NDKGeoCommentEvent,
+		parentComment: GeoComment,
 		text: string,
 		geojson?: FeatureCollection,
 	) => Promise<void>
-	onToggleGeojsonVisibility?: (comment: NDKGeoCommentEvent, visible: boolean) => void
-	onZoomToGeojson?: (comment: NDKGeoCommentEvent) => void
+	onToggleGeojsonVisibility?: (comment: GeoComment, visible: boolean) => void
+	onZoomToGeojson?: (comment: GeoComment) => void
 	onMentionVisibilityToggle?: (
 		address: string,
 		featureId: string | undefined,
@@ -38,7 +38,7 @@ interface GeoCommentProps {
 /**
  * Single comment with author, content, actions, and nested replies.
  */
-export function GeoComment({
+export function GeoCommentItem({
 	commentNode,
 	onReply,
 	onToggleGeojsonVisibility,
@@ -52,7 +52,7 @@ export function GeoComment({
 	focusCommentId,
 	maxDepth = 5,
 	className = '',
-}: GeoCommentProps) {
+}: GeoCommentItemProps) {
 	const { event: comment, children, depth } = commentNode
 	const [isExpanded, setIsExpanded] = useState(true)
 	const commentRef = useRef<HTMLDivElement | null>(null)
@@ -230,7 +230,7 @@ export function GeoComment({
 			{isExpanded && children.length > 0 && (
 				<div className="space-y-1">
 					{children.map((childNode) => (
-						<GeoComment
+						<GeoCommentItem
 							key={childNode.event.id ?? childNode.event.commentId}
 							commentNode={childNode}
 							onReply={onReply}

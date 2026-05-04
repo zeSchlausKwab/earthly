@@ -3,11 +3,11 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { useGeoComments } from '../hooks/useGeoComments'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
-import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
-import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import type { GeoComment } from '@/lib/nostr/geo-comment'
+import type { MapContext } from '@/lib/nostr/map-context'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { GeoComment } from './GeoComment'
+import { GeoCommentItem } from './GeoCommentItem'
 import { GeoCommentForm } from './GeoCommentForm'
 import { GeoSocialActions } from './GeoSocialActions'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
@@ -16,11 +16,11 @@ const ROOT_COMPOSER_ID = 'root'
 
 interface CommentsPanelProps {
 	/** The dataset or context to show comments for */
-	target: GeoDataset | NDKMapContextEvent | null
+	target: GeoDataset | MapContext | null
 	/** Callback when a comment's GeoJSON visibility is toggled */
-	onCommentGeojsonVisibilityChange?: (comment: NDKGeoCommentEvent, visible: boolean) => void
+	onCommentGeojsonVisibilityChange?: (comment: GeoComment, visible: boolean) => void
 	/** Callback to zoom to a comment's GeoJSON */
-	onZoomToCommentGeojson?: (comment: NDKGeoCommentEvent) => void
+	onZoomToCommentGeojson?: (comment: GeoComment) => void
 	/** Callback when a mention's visibility is toggled */
 	onMentionVisibilityToggle?: (
 		address: string,
@@ -96,7 +96,7 @@ export function CommentsPanel({
 	)
 
 	const handlePostReply = useCallback(
-		async (parentComment: NDKGeoCommentEvent, text: string, geojson?: FeatureCollection) => {
+		async (parentComment: GeoComment, text: string, geojson?: FeatureCollection) => {
 			await postReply(parentComment, text, geojson)
 		},
 		[postReply],
@@ -208,7 +208,7 @@ export function CommentsPanel({
 				) : (
 					<div className="space-y-2">
 						{comments.map((commentNode) => (
-							<GeoComment
+							<GeoCommentItem
 								key={commentNode.event.id ?? commentNode.event.commentId}
 								commentNode={commentNode}
 								onReply={handlePostReply}

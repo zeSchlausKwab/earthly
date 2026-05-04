@@ -1,6 +1,6 @@
 export { CommentsPanel } from './CommentsPanel'
 export { CommentAnnotationComposer } from './CommentAnnotationComposer'
-export { GeoComment } from './GeoComment'
+export { GeoCommentItem } from './GeoCommentItem'
 export { GeoCommentForm } from './GeoCommentForm'
 export { GeoMention, parseGeoMentions, type TextSegment } from './GeoMention'
 export { GeoSocialActions } from './GeoSocialActions'

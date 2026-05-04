@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { nip19 } from 'nostr-tools'
 import type { FeatureCollection } from 'geojson'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
-import type { NDKMapContextEvent } from '../ndk/NDKMapContextEvent'
+import type { MapContext } from '@/lib/nostr/map-context'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 
 interface NamedFeatureCollection extends FeatureCollection {
@@ -17,7 +17,7 @@ interface NamedFeatureCollection extends FeatureCollection {
 export function useAvailableGeoFeatures(
 	geoEvents: GeoDataset[],
 	resolvedCollectionResolver?: (event: GeoDataset) => FeatureCollection | undefined,
-	mapContexts: NDKMapContextEvent[] = [],
+	mapContexts: MapContext[] = [],
 ): GeoFeatureItem[] {
 	return useMemo(() => {
 		const items: GeoFeatureItem[] = []

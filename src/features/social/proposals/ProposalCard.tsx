@@ -15,7 +15,7 @@ import { RichContentRenderer } from '@/components/editor'
 import { UserProfile } from '@/components/user-profile'
 import { GeoCommentForm } from '../comments'
 import type { ProposalWithStatus } from '../hooks/useGeoProposals'
-import { getProposalReviewState, type ProposalReviewState } from '@/lib/ndk/proposalStatus'
+import { getProposalReviewState, type ProposalReviewState } from '@/lib/nostr/geo-proposal'
 
 interface ProposalCardProps {
 	proposalWithStatus: ProposalWithStatus

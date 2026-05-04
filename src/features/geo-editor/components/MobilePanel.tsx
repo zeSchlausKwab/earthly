@@ -22,7 +22,7 @@ import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
-import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import type { MapContext } from '@/lib/nostr/map-context'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { EntitySearchPopover, type EntitySearchResult } from '@/components/entity-search'
 import type { EditorFeature } from '../core'
@@ -47,7 +47,7 @@ export type MobilePanelTab =
 
 export interface MobilePanelProps {
 	geoEvents: GeoDataset[]
-	mapContextEvents: NDKMapContextEvent[]
+	mapContextEvents: MapContext[]
 	activeDataset: GeoDataset | null
 	currentUserPubkey?: string
 	userPubkey?: string | null
@@ -64,19 +64,19 @@ export interface MobilePanelProps {
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: GeoDataset) => void
 	onDeleteDataset: (event: GeoDataset) => void
-	onDeleteContext?: (context: NDKMapContextEvent) => void
+	onDeleteContext?: (context: MapContext) => void
 	getDatasetKey: (event: GeoDataset) => string
 	getDatasetName: (event: GeoDataset) => string
 	onOpenGeometryEditor?: () => void
 	onInspectDataset?: (event: GeoDataset) => void
 	onExitFocus?: () => void
-	onInspectContext?: (context: NDKMapContextEvent) => void
+	onInspectContext?: (context: MapContext) => void
 	onCreateContext?: () => void
-	onEditContext?: (context: NDKMapContextEvent) => void
-	onOpenDebug?: (event: GeoDataset | NDKMapContextEvent) => void
+	onEditContext?: (context: MapContext) => void
+	onOpenDebug?: (event: GeoDataset | MapContext) => void
 	onExitViewMode?: () => void
 	onCommentGeometryVisibility?: (
-		comment: import('@/lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent,
+		comment: import('@/lib/nostr/geo-comment').GeoComment,
 		visible: boolean,
 	) => void
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
@@ -88,8 +88,8 @@ export interface MobilePanelProps {
 	) => void
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
 	contextEditorMode?: 'none' | 'create' | 'edit'
-	editingContext?: NDKMapContextEvent | null
-	onSaveContext?: (context: NDKMapContextEvent) => void
+	editingContext?: MapContext | null
+	onSaveContext?: (context: MapContext) => void
 	onCloseContextEditor?: () => void
 	onZoomToFeature?: (feature: EditorFeature) => void
 	featureCollectionForUpload?: FeatureCollection | null
@@ -97,7 +97,7 @@ export interface MobilePanelProps {
 	ndk?: import('@nostr-dev-kit/ndk').default | null
 	onFilteredDatasetKeysChange?: (keys: Set<string> | null) => void
 	onToggleProposalOverlay?: (
-		proposal: import('@/lib/ndk/NDKGeoEditProposalEvent').NDKGeoEditProposalEvent,
+		proposal: import('@/lib/nostr/geo-proposal').GeoProposal,
 		visible: boolean,
 	) => void
 	onProposalAccepted?: (dataset: GeoDataset) => void
@@ -190,7 +190,7 @@ export function MobilePanel(props: MobilePanelProps) {
 
 	const handleContextScopeSelect = (result: EntitySearchResult) => {
 		if (result.type !== 'context') return
-		const context = result.entity as NDKMapContextEvent
+		const context = result.entity as MapContext
 		const naddr = encodeContextNaddr(context)
 		if (!naddr) return
 		navigateToContext(naddr)
@@ -546,7 +546,7 @@ export function MobilePanel(props: MobilePanelProps) {
 interface MobileProfileContentProps {
 	pubkey?: string | null
 	geoEvents: GeoDataset[]
-	mapContextEvents: NDKMapContextEvent[]
+	mapContextEvents: MapContext[]
 	currentUserPubkey?: string
 	datasetVisibility: Record<string, boolean>
 	isPublishing: boolean
@@ -561,9 +561,9 @@ interface MobileProfileContentProps {
 	getDatasetKey: (event: GeoDataset) => string
 	getDatasetName: (event: GeoDataset) => string
 	onInspectDataset?: (event: GeoDataset) => void
-	onInspectContext?: (context: NDKMapContextEvent) => void
-	onEditContext?: (context: NDKMapContextEvent) => void
-	onOpenDebug?: (event: GeoDataset | NDKMapContextEvent) => void
+	onInspectContext?: (context: MapContext) => void
+	onEditContext?: (context: MapContext) => void
+	onOpenDebug?: (event: GeoDataset | MapContext) => void
 }
 
 function MobileProfileContent(props: MobileProfileContentProps) {

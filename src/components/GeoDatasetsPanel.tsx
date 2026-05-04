@@ -1,7 +1,7 @@
 import { Eye } from 'lucide-react'
 import { useEffect, useMemo, useRef } from 'react'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
-import type { NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
+import type { MapContext } from '@/lib/nostr/map-context'
 import {
 	getContextCoordinate,
 	getEffectiveContextUse,
@@ -28,7 +28,7 @@ import { DataTable } from './ui/data-table'
 export interface GeoDatasetsPanelProps {
 	mode: 'datasets' | 'contexts'
 	geoEvents: GeoDataset[]
-	mapContextEvents: NDKMapContextEvent[]
+	mapContextEvents: MapContext[]
 	activeDataset: GeoDataset | null
 	currentUserPubkey?: string
 	datasetVisibility: Record<string, boolean>
@@ -42,10 +42,10 @@ export interface GeoDatasetsPanelProps {
 	getDatasetKey: (event: GeoDataset) => string
 	getDatasetName: (event: GeoDataset) => string
 	onInspectDataset?: (event: GeoDataset) => void
-	onInspectContext?: (context: NDKMapContextEvent) => void
-	onOpenDebug?: (event: GeoDataset | NDKMapContextEvent) => void
+	onInspectContext?: (context: MapContext) => void
+	onOpenDebug?: (event: GeoDataset | MapContext) => void
 	onCreateContext?: () => void
-	onEditContext?: (context: NDKMapContextEvent) => void
+	onEditContext?: (context: MapContext) => void
 	isFocused?: boolean
 	onExitFocus?: () => void
 	onFilteredDatasetKeysChange?: (keys: Set<string> | null) => void
@@ -75,10 +75,10 @@ const createDatasetFilterConfig = (
 	getName: (event) => getDatasetName(event),
 })
 
-const getContextDisplayName = (context: NDKMapContextEvent): string =>
+const getContextDisplayName = (context: MapContext): string =>
 	context.context.name || context.contextId || context.id || 'Untitled'
 
-const contextFilterConfig: FilterConfig<NDKMapContextEvent> = {
+const contextFilterConfig: FilterConfig<MapContext> = {
 	getSearchableText: (context) => {
 		const content = context.context
 		return [

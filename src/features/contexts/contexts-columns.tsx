@@ -3,11 +3,11 @@ import { Bug, Eye } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { UserProfile } from '@/components/user-profile'
 import { cn } from '@/lib/utils'
-import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import type { MapContext } from '@/lib/nostr/map-context'
 import { GeoSocialActions } from '../social/comments/GeoSocialActions'
 
 export interface ContextRowData {
-	context: NDKMapContextEvent
+	context: MapContext
 	contextName: string
 	contextUse: string
 	validationMode: string | null
@@ -21,9 +21,9 @@ export interface ContextRowData {
 
 export interface ContextColumnsContext {
 	currentUserPubkey?: string
-	onInspectContext?: (context: NDKMapContextEvent) => void
-	onEditContext?: (context: NDKMapContextEvent) => void
-	onOpenDebug?: (event: NDKMapContextEvent) => void
+	onInspectContext?: (context: MapContext) => void
+	onEditContext?: (context: MapContext) => void
+	onOpenDebug?: (event: MapContext) => void
 }
 
 const actionButtonClass =

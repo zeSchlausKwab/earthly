@@ -1,5 +1,5 @@
 import type { GeoDataset } from '@/lib/nostr/geo-event'
-import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import type { MapContext } from '@/lib/nostr/map-context'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import type { FilterConfig } from '@/components/data-filter/types'
 import { getEffectiveContextUse, getEffectiveContextValidationMode } from '@/lib/context/validation'
@@ -25,7 +25,7 @@ export interface EntitySearchResult {
 	pubkey?: string
 	createdAt?: number
 	/** Original entity reference for callbacks */
-	entity: GeoDataset | NDKMapContextEvent | GeoFeatureItem
+	entity: GeoDataset | MapContext | GeoFeatureItem
 }
 
 export interface EntitySearchResultGroup {
@@ -40,7 +40,7 @@ export interface EntitySearchResultGroup {
 
 export interface EntitySearchSources {
 	datasets?: GeoDataset[]
-	contexts?: NDKMapContextEvent[]
+	contexts?: MapContext[]
 	features?: GeoFeatureItem[]
 }
 
@@ -90,7 +90,7 @@ export function datasetToSearchResult(
 	}
 }
 
-export function contextToSearchResult(context: NDKMapContextEvent): EntitySearchResult {
+export function contextToSearchResult(context: MapContext): EntitySearchResult {
 	const content = context.context
 	const effectiveUse = getEffectiveContextUse(context)
 	return {
@@ -128,7 +128,7 @@ export function createDatasetFilterConfig(
 	}
 }
 
-export const contextFilterConfig: FilterConfig<NDKMapContextEvent> = {
+export const contextFilterConfig: FilterConfig<MapContext> = {
 	getSearchableText: (context) => {
 		const content = context.context
 		return [

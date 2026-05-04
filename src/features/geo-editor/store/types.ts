@@ -1,6 +1,6 @@
 import type { FeatureCollection } from 'geojson'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
-import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import type { MapContext } from '@/lib/nostr/map-context'
 import type { ContextFilterMode } from '@/lib/context/validation'
 import type { ContextMapScopeMode } from '@/lib/context/scope'
 import type { EditorFeature, EditorMode, GeoEditor } from '../core'
@@ -216,7 +216,7 @@ export interface ViewModeSlice {
 	viewMode: 'edit' | 'view'
 	editIsolationEnabled: boolean
 	viewDataset: GeoDataset | null
-	viewContext: NDKMapContextEvent | null
+	viewContext: MapContext | null
 	viewContextDatasets: GeoDataset[]
 	contextFilterMode: ContextFilterMode
 	contextMapScopeMode: ContextMapScopeMode
@@ -237,7 +237,7 @@ export interface ViewModeSlice {
 
 	setViewMode: (mode: 'edit' | 'view') => void
 	setViewDataset: (dataset: GeoDataset | null) => void
-	setViewContext: (context: NDKMapContextEvent | null) => void
+	setViewContext: (context: MapContext | null) => void
 	setViewContextDatasets: (events: GeoDataset[]) => void
 	setContextFilterMode: (mode: ContextFilterMode) => void
 	setContextMapScopeMode: (mode: ContextMapScopeMode) => void

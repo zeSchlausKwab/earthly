@@ -10,7 +10,7 @@ import {
 	type EntitySearchResult,
 } from '@/components/entity-search'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
-import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import type { MapContext } from '@/lib/nostr/map-context'
 import type { EditorFeature } from '@/features/geo-editor/core'
 import { Button } from '@/components/ui/button'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
@@ -64,7 +64,7 @@ const PROVIDER_LABELS: Record<ProviderType, string> = {
 
 interface ChatPanelProps {
 	geoEvents?: GeoDataset[]
-	mapContextEvents?: NDKMapContextEvent[]
+	mapContextEvents?: MapContext[]
 	availableFeatures?: GeoFeatureItem[]
 	getDatasetName?: (event: GeoDataset) => string
 	onStartNewDataset?: () => void

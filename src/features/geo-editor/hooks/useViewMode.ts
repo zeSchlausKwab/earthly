@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { nip19 } from 'nostr-tools'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
-import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import type { MapContext } from '@/lib/nostr/map-context'
 import { useEditorStore } from '../store'
 
 interface UseViewModeOptions {
@@ -46,7 +46,7 @@ export function useViewMode({
 	const [sidebarMode, setSidebarMode] = useState<
 		'datasets' | 'info' | 'editor' | 'dataset' | 'inspector'
 	>('datasets')
-	const [debugEvent, setDebugEvent] = useState<GeoDataset | NDKMapContextEvent | null>(null)
+	const [debugEvent, setDebugEvent] = useState<GeoDataset | MapContext | null>(null)
 	const [debugDialogOpen, setDebugDialogOpen] = useState(false)
 
 	// Store state
@@ -132,7 +132,7 @@ export function useViewMode({
 		],
 	)
 
-	const handleOpenDebug = useCallback((event: GeoDataset | NDKMapContextEvent) => {
+	const handleOpenDebug = useCallback((event: GeoDataset | MapContext) => {
 		setDebugEvent(event)
 		setDebugDialogOpen(true)
 	}, [])

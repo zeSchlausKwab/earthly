@@ -1,9 +1,10 @@
 import { useNDK, useSubscribe } from '@nostr-dev-kit/react'
 import type { NDKEvent } from '@nostr-dev-kit/react'
 import { castEvent } from 'applesauce-core/casts'
+import type { NostrEvent } from 'nostr-tools'
 import { useMemo, useState, useCallback } from 'react'
 import { accounts, eventStore, publish } from '@/lib/nostr'
-import { NDKGeoEditProposalEvent } from '@/lib/ndk/NDKGeoEditProposalEvent'
+import { GeoProposal } from '@/lib/nostr/geo-proposal'
 import { GeoDataset, GeoDatasetFactory } from '@/lib/nostr/geo-event'
 import {
 	GEO_EDIT_PROPOSAL_KIND,
@@ -18,10 +19,10 @@ import {
 	getProposalReviewState,
 	getLatestProposalStatus,
 	createProposalStatusEvent,
-} from '@/lib/ndk/proposalStatus'
+} from '@/lib/nostr/geo-proposal'
 
 export interface ProposalWithStatus {
-	proposal: NDKGeoEditProposalEvent
+	proposal: GeoProposal
 	status: ProposalStatus
 	statusInfo?: ProposalStatusInfo
 }
@@ -39,12 +40,12 @@ export interface UseGeoProposalsResult {
 	/** Loading state */
 	isLoading: boolean
 	/** Accept a proposal — republishes the target dataset with proposed content */
-	acceptProposal: (proposal: NDKGeoEditProposalEvent) => Promise<GeoDataset>
+	acceptProposal: (proposal: GeoProposal) => Promise<GeoDataset>
 	/** Reject a proposal with optional reason */
-	rejectProposal: (proposal: NDKGeoEditProposalEvent, reason?: string) => Promise<void>
+	rejectProposal: (proposal: GeoProposal, reason?: string) => Promise<void>
 }
 
-function getSemanticProposalKey(proposal: NDKGeoEditProposalEvent): string {
+function getSemanticProposalKey(proposal: GeoProposal): string {
 	return [
 		proposal.targetAddress ?? '',
 		proposal.pubkey ?? '',
@@ -108,11 +109,15 @@ export function useGeoProposals({ target }: UseGeoProposalsOptions): UseGeoPropo
 
 	// Convert to typed proposal events
 	const typedProposals = useMemo(() => {
-		const deduped = new Map<string, NDKGeoEditProposalEvent>()
+		const deduped = new Map<string, GeoProposal>()
 
 		proposalEvents
 			.filter((e: NDKEvent) => e.kind === GEO_EDIT_PROPOSAL_KIND)
-			.map((e: NDKEvent) => NDKGeoEditProposalEvent.from(e))
+			.map((e: NDKEvent) => {
+				const raw = (e as { rawEvent?: () => unknown }).rawEvent?.() ?? e
+				// biome-ignore lint/suspicious/noExplicitAny: NDK event shape varies; cast accepts the standard NostrEvent fields
+				return castEvent(raw as any, GeoProposal, eventStore)
+			})
 			.forEach((proposal) => {
 				const stableKey =
 					proposal.proposalCoordinate ??
@@ -125,7 +130,7 @@ export function useGeoProposals({ target }: UseGeoProposalsOptions): UseGeoPropo
 			})
 
 		return Array.from(deduped.values()).sort(
-			(a: NDKGeoEditProposalEvent, b: NDKGeoEditProposalEvent) =>
+			(a: GeoProposal, b: GeoProposal) =>
 				(b.created_at ?? 0) - (a.created_at ?? 0),
 		)
 	}, [proposalEvents])
@@ -159,7 +164,11 @@ export function useGeoProposals({ target }: UseGeoProposalsOptions): UseGeoPropo
 	const proposals = useMemo<ProposalWithStatus[]>(() => {
 		const proposalsWithStatus = typedProposals.map((proposal) => {
 			const address = proposal.proposalCoordinate
-			const statusInfo = address ? getLatestProposalStatus(statusEvents, address) : undefined
+			// statusEvents are NDKEvent[]; convert to raw NostrEvent[] before passing.
+			const rawStatusEvents = statusEvents.map((e: NDKEvent) =>
+				(e.rawEvent ? e.rawEvent() : e) as NostrEvent,
+			)
+			const statusInfo = address ? getLatestProposalStatus(rawStatusEvents, address) : undefined
 
 			return {
 				proposal,
@@ -199,7 +208,7 @@ export function useGeoProposals({ target }: UseGeoProposalsOptions): UseGeoPropo
 	const openCount = useMemo(() => proposals.filter((p) => p.status === 'open').length, [proposals])
 
 	const acceptProposal = useCallback(
-		async (proposal: NDKGeoEditProposalEvent) => {
+		async (proposal: GeoProposal) => {
 			if (!ndk || !target) {
 				throw new Error('NDK or target not available')
 			}
@@ -221,8 +230,8 @@ export function useGeoProposals({ target }: UseGeoProposalsOptions): UseGeoPropo
 				await publish(signedEvent, { routing: 'outbox' })
 				const updatedDataset = castEvent(signedEvent, GeoDataset, eventStore)
 
-				// Publish "applied" status (still on legacy NDK class — Step 4d).
-				await createProposalStatusEvent(ndk, proposal, 'applied')
+				// Publish the "applied" status event for the proposal.
+				await createProposalStatusEvent(proposal, 'applied', signer)
 				return updatedDataset
 			} finally {
 				setIsActing(false)
@@ -232,19 +241,18 @@ export function useGeoProposals({ target }: UseGeoProposalsOptions): UseGeoPropo
 	)
 
 	const rejectProposal = useCallback(
-		async (proposal: NDKGeoEditProposalEvent, reason?: string) => {
-			if (!ndk) {
-				throw new Error('NDK not available')
-			}
+		async (proposal: GeoProposal, reason?: string) => {
+			const signer = accounts.signer
+			if (!signer) throw new Error('No active account')
 
 			setIsActing(true)
 			try {
-				await createProposalStatusEvent(ndk, proposal, 'closed', reason)
+				await createProposalStatusEvent(proposal, 'closed', signer, reason)
 			} finally {
 				setIsActing(false)
 			}
 		},
-		[ndk],
+		[],
 	)
 
 	const isLoading =

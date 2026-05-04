@@ -17,8 +17,8 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
-import type { NDKGeoEditProposalEvent } from '../lib/ndk/NDKGeoEditProposalEvent'
-import type { NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
+import type { GeoProposal } from '@/lib/nostr/geo-proposal'
+import type { MapContext } from '@/lib/nostr/map-context'
 import squareLogoRose from '../assets/square_logo_rose.svg'
 import { ShoutboxPanel } from '../features/social/shoutbox'
 import { GeoDatasetsPanelContent } from './GeoDatasetsPanel'
@@ -107,7 +107,7 @@ function isMetaMode(mode: SidebarContentMode): mode is MetaViewMode {
 
 interface AppSidebarProps {
 	geoEvents: GeoDataset[]
-	mapContextEvents: NDKMapContextEvent[]
+	mapContextEvents: MapContext[]
 	activeDataset: GeoDataset | null
 	currentUserPubkey?: string
 	datasetVisibility: Record<string, boolean>
@@ -122,21 +122,21 @@ interface AppSidebarProps {
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: GeoDataset) => void
 	onDeleteDataset: (event: GeoDataset) => void
-	onDeleteContext?: (context: NDKMapContextEvent) => void
+	onDeleteContext?: (context: MapContext) => void
 	getDatasetKey: (event: GeoDataset) => string
 	getDatasetName: (event: GeoDataset) => string
 	onOpenGeometryEditor?: () => void
 	onClearEntityEditors?: () => void
 	onInspectDataset: (event: GeoDataset) => void
-	onInspectContext: (context: NDKMapContextEvent) => void
-	onOpenDebug: (event: GeoDataset | NDKMapContextEvent) => void
+	onInspectContext: (context: MapContext) => void
+	onOpenDebug: (event: GeoDataset | MapContext) => void
 	onCreateContext: () => void
-	onEditContext: (context: NDKMapContextEvent) => void
+	onEditContext: (context: MapContext) => void
 	isFocused: boolean
 	onExitFocus: () => void
 	multiSelectModifier?: string
 	onCommentGeometryVisibility?: (
-		comment: import('../lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent,
+		comment: import('@/lib/nostr/geo-comment').GeoComment,
 		visible: boolean,
 	) => void
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
@@ -148,8 +148,8 @@ interface AppSidebarProps {
 	) => void
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
 	contextEditorMode?: 'none' | 'create' | 'edit'
-	editingContext?: NDKMapContextEvent | null
-	onSaveContext?: (context: NDKMapContextEvent) => void
+	editingContext?: MapContext | null
+	onSaveContext?: (context: MapContext) => void
 	onCloseContextEditor?: () => void
 	onZoomToFeature?: (feature: EditorFeature) => void
 	onExitViewMode?: () => void
@@ -159,7 +159,7 @@ interface AppSidebarProps {
 	userPubkey?: string
 	focusCommentId?: string
 	onFilteredDatasetKeysChange?: (keys: Set<string> | null) => void
-	onToggleProposalOverlay?: (proposal: NDKGeoEditProposalEvent, visible: boolean) => void
+	onToggleProposalOverlay?: (proposal: GeoProposal, visible: boolean) => void
 	onProposalAccepted?: (dataset: GeoDataset) => void
 	visibleProposalIds?: Set<string>
 }
@@ -254,7 +254,7 @@ export function AppSidebar({
 
 	const handleContextScopeSelect = (result: EntitySearchResult) => {
 		if (result.type !== 'context') return
-		const context = result.entity as NDKMapContextEvent
+		const context = result.entity as MapContext
 		const naddr = encodeContextNaddr(context)
 		if (!naddr) return
 		navigateToContext(naddr)
@@ -384,7 +384,7 @@ export function AppSidebar({
 		setShowEntityAsFullPanel(true)
 	}
 
-	const handleInspectContext = (context: NDKMapContextEvent) => {
+	const handleInspectContext = (context: MapContext) => {
 		onInspectContext(context)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('context')
@@ -399,7 +399,7 @@ export function AppSidebar({
 		setShowEntityAsFullPanel(true)
 	}
 
-	const handleEditContext = (context: NDKMapContextEvent) => {
+	const handleEditContext = (context: MapContext) => {
 		onEditContext(context)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('context')
@@ -407,7 +407,7 @@ export function AppSidebar({
 		setShowEntityAsFullPanel(true)
 	}
 
-	const handleSaveContext = (context: NDKMapContextEvent) => {
+	const handleSaveContext = (context: MapContext) => {
 		onSaveContext?.(context)
 		setShowEntityAsFullPanel(false)
 		setActiveWorkMode('contexts')

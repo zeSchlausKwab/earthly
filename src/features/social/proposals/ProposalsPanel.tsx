@@ -3,8 +3,8 @@ import { useState, useCallback } from 'react'
 import { toast } from 'sonner'
 import { useGeoProposals } from '../hooks/useGeoProposals'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
-import type { NDKGeoEditProposalEvent } from '@/lib/ndk/NDKGeoEditProposalEvent'
-import { getProposalReviewState } from '@/lib/ndk/proposalStatus'
+import type { GeoProposal } from '@/lib/nostr/geo-proposal'
+import { getProposalReviewState } from '@/lib/nostr/geo-proposal'
 import { ProposalCard } from './ProposalCard'
 
 interface ProposalsPanelProps {
@@ -13,7 +13,7 @@ interface ProposalsPanelProps {
 	/** Current user's pubkey */
 	currentUserPubkey?: string
 	/** Callback when a proposal overlay visibility is toggled */
-	onToggleProposalOverlay?: (proposal: NDKGeoEditProposalEvent, visible: boolean) => void
+	onToggleProposalOverlay?: (proposal: GeoProposal, visible: boolean) => void
 	/** Callback when a proposal is accepted (dataset republished) */
 	onProposalAccepted?: (dataset: GeoDataset) => void
 	/** Set of proposal IDs whose overlay is visible */
@@ -50,7 +50,7 @@ export function ProposalsPanel({
 	}, [])
 
 	const handleAccept = useCallback(
-		async (proposal: NDKGeoEditProposalEvent) => {
+		async (proposal: GeoProposal) => {
 			try {
 				const updatedDataset = await acceptProposal(proposal)
 				toast.success('Proposal accepted')
@@ -64,7 +64,7 @@ export function ProposalsPanel({
 	)
 
 	const handleReject = useCallback(
-		async (proposal: NDKGeoEditProposalEvent, reason: string) => {
+		async (proposal: GeoProposal, reason: string) => {
 			try {
 				await rejectProposal(proposal, reason.trim() || undefined)
 				toast.success('Change request sent')
@@ -77,7 +77,7 @@ export function ProposalsPanel({
 	)
 
 	const handleRejectWithoutReason = useCallback(
-		async (proposal: NDKGeoEditProposalEvent) => {
+		async (proposal: GeoProposal) => {
 			try {
 				await rejectProposal(proposal)
 				toast.success('Proposal rejected')

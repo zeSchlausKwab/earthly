@@ -7,10 +7,8 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { useSubscribe } from '@nostr-dev-kit/react'
 import { config } from '@/config/env.client'
 import { type BBox, lonLatToWorldGeohash, tileCenterLonLat } from '@/lib/worldGeohash'
-import {
-	NDKMapLayerSetEvent,
-	type MapLayerSetAnnouncementPayload,
-} from '@/lib/ndk/NDKMapLayerSetEvent'
+import { type MapLayerSetAnnouncementPayload } from '@/lib/nostr/map-layer-set'
+import { MAP_LAYER_SET_KIND } from '@/lib/ndk/kinds'
 import { useEditorStore, type MapLayerState } from '../store'
 
 const DEFAULT_CENTER: [number, number] = [0, 0]
@@ -286,10 +284,8 @@ export const GeoEditorMap: React.FC<MapProps> = ({
 	// We always subscribe and only *use* the result when mapSource.type === 'blossom'.
 	// No authors filter - discover announcements from any source on the relay.
 	const { events: mapLayerSetEvents } = useSubscribe([
-		{
-			kinds: NDKMapLayerSetEvent.kinds,
-			limit: 50,
-		},
+		// biome-ignore lint/suspicious/noExplicitAny: NDK's NDKKind enum doesn't include our custom 34444; cast to bypass nominal check
+		{ kinds: [MAP_LAYER_SET_KIND] as any, limit: 50 },
 	])
 
 	// Derive a stable "latest event" so our effect doesn't re-trigger on every render.

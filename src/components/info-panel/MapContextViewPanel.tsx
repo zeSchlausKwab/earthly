@@ -1,7 +1,7 @@
 import { Eye, Maximize2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
-import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
+import type { GeoComment } from '@/lib/nostr/geo-comment'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { encodeContextNaddr, resolveContextReferences } from '@/lib/context/references'
 import { resolveContextMapScope } from '@/lib/context/scope'
@@ -12,7 +12,7 @@ import {
 	type ContextFilterMode,
 } from '@/lib/context/validation'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
-import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import type { MapContext } from '@/lib/nostr/map-context'
 import { CommentsPanel } from '@/features/social/comments'
 import { buildRouteHash } from '@/features/geo-editor/hooks/useRouting'
 import { Button } from '../ui/button'
@@ -30,12 +30,12 @@ interface MapContextViewPanelProps {
 	getDatasetName: (event: GeoDataset) => string
 	onInspectDataset: (event: GeoDataset) => void
 	onZoomToDataset: (event: GeoDataset) => void
-	onDeleteContext?: (context: NDKMapContextEvent) => void
+	onDeleteContext?: (context: MapContext) => void
 	deletingKey?: string | null
-	onCommentGeometryVisibility?: (comment: NDKGeoCommentEvent, visible: boolean) => void
+	onCommentGeometryVisibility?: (comment: GeoComment, visible: boolean) => void
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
 	availableFeatures?: GeoFeatureItem[]
-	mapContextEvents?: NDKMapContextEvent[]
+	mapContextEvents?: MapContext[]
 	onMentionVisibilityToggle?: (
 		address: string,
 		featureId: string | undefined,
@@ -150,7 +150,7 @@ export function MapContextViewPanel({
 	)
 	const attachedContexts = scope.childContexts
 
-	const openContextRoute = useCallback((context: NDKMapContextEvent) => {
+	const openContextRoute = useCallback((context: MapContext) => {
 		const naddr = encodeContextNaddr(context)
 		if (!naddr) return
 		window.location.hash = buildRouteHash({
@@ -176,7 +176,7 @@ export function MapContextViewPanel({
 	}, [selectedFeatures])
 
 	const handleCommentGeojsonVisibilityChange = useCallback(
-		(comment: NDKGeoCommentEvent, visible: boolean) => {
+		(comment: GeoComment, visible: boolean) => {
 			const id = comment.commentId ?? comment.id ?? ''
 			setVisibleGeojsonCommentIds((prev) => {
 				const next = new Set(prev)
@@ -190,7 +190,7 @@ export function MapContextViewPanel({
 	)
 
 	const handleZoomToCommentGeojson = useCallback(
-		(comment: NDKGeoCommentEvent) => {
+		(comment: GeoComment) => {
 			if (comment.boundingBox && onZoomToBounds) {
 				onZoomToBounds(comment.boundingBox)
 				return
@@ -215,7 +215,7 @@ export function MapContextViewPanel({
 		[onZoomToBounds],
 	)
 	const datasetSourceContextByKey = useMemo(() => {
-		const map = new Map<string, NDKMapContextEvent>()
+		const map = new Map<string, MapContext>()
 		scope.datasets.forEach((entry) => {
 			map.set(getDatasetKey(entry.dataset), entry.sourceContext)
 		})

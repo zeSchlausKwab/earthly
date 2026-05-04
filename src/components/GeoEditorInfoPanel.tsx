@@ -12,7 +12,7 @@ import {
 import { useEditorStore } from '../features/geo-editor/store'
 import { sanitizeEditorProperties } from '../features/geo-editor/utils'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
-import type { MapContextValidationMode, NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
+import type { MapContextValidationMode, MapContext } from '@/lib/nostr/map-context'
 import {
 	BlobReferencesSection,
 	DatasetMetadataSection,
@@ -50,7 +50,7 @@ export interface GeoEditorInfoPanelProps {
 	onToggleVisibility: (event: GeoDataset) => void
 	onZoomToDataset: (event: GeoDataset) => void
 	onDeleteDataset: (event: GeoDataset) => void
-	onDeleteContext?: (context: NDKMapContextEvent) => void
+	onDeleteContext?: (context: MapContext) => void
 	deletingKey: string | null
 	onExitViewMode?: () => void
 	onClose?: () => void
@@ -58,7 +58,7 @@ export interface GeoEditorInfoPanelProps {
 	getDatasetName: (event: GeoDataset) => string
 	/** Callback to add/remove comment GeoJSON overlay on map */
 	onCommentGeometryVisibility?: (
-		comment: import('../lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent,
+		comment: import('@/lib/nostr/geo-comment').GeoComment,
 		visible: boolean,
 	) => void
 	/** Callback to zoom to a bounding box */
@@ -76,16 +76,16 @@ export interface GeoEditorInfoPanelProps {
 	/** Context editor mode */
 	contextEditorMode?: 'none' | 'create' | 'edit'
 	/** Context being edited */
-	editingContext?: NDKMapContextEvent | null
+	editingContext?: MapContext | null
 	/** Callback when context is saved */
-	onSaveContext?: (context: NDKMapContextEvent) => void
+	onSaveContext?: (context: MapContext) => void
 	/** Callback to close context editor */
 	onCloseContextEditor?: () => void
 	/** Available contexts for dataset attachment */
-	mapContextEvents?: NDKMapContextEvent[]
+	mapContextEvents?: MapContext[]
 	/** Callback when a proposal overlay visibility is toggled */
 	onToggleProposalOverlay?: (
-		proposal: import('@/lib/ndk/NDKGeoEditProposalEvent').NDKGeoEditProposalEvent,
+		proposal: import('@/lib/nostr/geo-proposal').GeoProposal,
 		visible: boolean,
 	) => void
 	/** Callback when a proposal is accepted */
@@ -238,7 +238,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						name: string
 						validationMode: MapContextValidationMode
 						contextUse: 'taxonomy' | 'validation' | 'hybrid'
-						contextEvent: NDKMapContextEvent
+						contextEvent: MapContext
 					} => entry !== null,
 				),
 		[mapContextEvents, activeDatasetContextRefs],
@@ -284,7 +284,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				name: string
 				validationMode: MapContextValidationMode
 				contextUse: 'taxonomy' | 'validation' | 'hybrid'
-				contextEvent: NDKMapContextEvent
+				contextEvent: MapContext
 			}
 		>()
 		attachableContexts.forEach((context) => {
@@ -446,7 +446,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 
 	const handleContextSearchSelect = (result: EntitySearchResult) => {
 		if (result.type !== 'context') return
-		const contextEvent = result.entity as NDKMapContextEvent
+		const contextEvent = result.entity as MapContext
 		const coordinate = contextEvent.contextCoordinate
 		if (coordinate) {
 			toggleContextAttachment(coordinate, true)
@@ -473,7 +473,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	}, [selectedFeatures])
 
 	const handleCommentGeojsonVisibilityChange = useCallback(
-		(comment: import('../lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent, visible: boolean) => {
+		(comment: import('@/lib/nostr/geo-comment').GeoComment, visible: boolean) => {
 			const id = comment.commentId ?? comment.id ?? ''
 			setVisibleGeojsonCommentIds((prev) => {
 				const next = new Set(prev)
@@ -487,7 +487,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	)
 
 	const handleZoomToCommentGeojson = useCallback(
-		(comment: import('../lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent) => {
+		(comment: import('@/lib/nostr/geo-comment').GeoComment) => {
 			if (comment.boundingBox && onZoomToBounds) {
 				onZoomToBounds(comment.boundingBox)
 				return

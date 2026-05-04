@@ -26,7 +26,8 @@ import { useAvailableGeoFeatures } from '@/lib/hooks/useAvailableGeoFeatures'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useMapContexts, useStations } from '@/lib/hooks/useStations'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
-import { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import { MapContext, deleteMapContext } from '@/lib/nostr/map-context'
+import { accounts } from '@/lib/nostr'
 import {
 	defaultContextFilterMode,
 	getContextCoordinate,
@@ -1099,7 +1100,7 @@ export function GeoEditorView() {
 		[setViewModeState, setViewDatasetState],
 	)
 
-	const getContextKey = useCallback((context: NDKMapContextEvent): string => {
+	const getContextKey = useCallback((context: MapContext): string => {
 		return context.contextId ?? context.dTag ?? context.id ?? ''
 	}, [])
 
@@ -1124,7 +1125,7 @@ export function GeoEditorView() {
 	)
 
 	const onDeleteContext = useCallback(
-		async (context: NDKMapContextEvent) => {
+		async (context: MapContext) => {
 			if (!ndk) {
 				toast.error('NDK is not ready.')
 				return
@@ -1139,7 +1140,9 @@ export function GeoEditorView() {
 			const targetCoordinate = context.contextCoordinate
 			setDeletingKey(`context:${contextId}`)
 			try {
-				await NDKMapContextEvent.deleteContext(ndk, context)
+				const signer = accounts.signer
+				if (!signer) throw new Error('No active account')
+				await deleteMapContext(context.event, signer)
 
 				const viewedContext = useEditorStore.getState().viewContext
 				const viewedContextId = viewedContext ? getContextKey(viewedContext) : null

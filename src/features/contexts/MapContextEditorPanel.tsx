@@ -1,21 +1,24 @@
 import { useNDK, useNDKCurrentUser } from '@nostr-dev-kit/react'
+import { castEvent } from 'applesauce-core/casts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Ajv2020 from 'ajv/dist/2020'
 import addFormats from 'ajv-formats'
+import { accounts, eventStore, publish } from '@/lib/nostr'
 import {
 	MAP_CONTEXT_GEOMETRY_TYPES,
-	NDKMapContextEvent,
+	MapContext,
+	MapContextFactory,
 	type MapContextContent,
 	type MapContextGeometryType,
-} from '@/lib/ndk/NDKMapContextEvent'
+} from '@/lib/nostr/map-context'
 import {
 	dedupeNostrAddressReferences,
 	extractNostrAddressReferences,
 	extractReferencedCoordinates,
 	extractReferencedCoordinatesFromList,
 	extractNostrAddressReferencesFromList,
+	setAddressReferenceTags,
 	stringifyNostrAddressReference,
-	syncAddressReferenceTags,
 } from '@/lib/ndk/nostrReferences'
 import {
 	GeoRichTextEditor,
@@ -59,11 +62,11 @@ interface SchemaBuilderField {
 }
 
 interface MapContextEditorPanelProps {
-	initialContext?: NDKMapContextEvent | null
+	initialContext?: MapContext | null
 	onClose: () => void
-	onSave: (context: NDKMapContextEvent) => void
+	onSave: (context: MapContext) => void
 	availableFeatures?: GeoFeatureItem[]
-	mapContextEvents?: NDKMapContextEvent[]
+	mapContextEvents?: MapContext[]
 }
 
 const ajv = new Ajv2020({
@@ -471,13 +474,13 @@ export function MapContextEditorPanel({
 					(coordinate) =>
 						mapContextEvents.find((context) => context.contextCoordinate === coordinate) ?? null,
 				)
-				.filter((context): context is NDKMapContextEvent => Boolean(context)),
+				.filter((context): context is MapContext => Boolean(context)),
 		[attachedContextRefs, mapContextEvents],
 	)
 
 	const handleAttachmentSearchSelect = (result: EntitySearchResult) => {
 		if (result.type !== 'context') return
-		const selectedContext = result.entity as NDKMapContextEvent
+		const selectedContext = result.entity as MapContext
 		const coordinate = selectedContext.contextCoordinate
 		if (!coordinate) return
 		setAttachedContextRefs((prev) => (prev.includes(coordinate) ? prev : [...prev, coordinate]))
@@ -524,9 +527,8 @@ export function MapContextEditorPanel({
 
 		setIsSaving(true)
 		try {
-			const event = initialContext
-				? NDKMapContextEvent.from(initialContext)
-				: new NDKMapContextEvent(ndk)
+			const signer = accounts.signer
+			if (!signer) throw new Error('No active account')
 
 			const effectiveContextUse = !allowForeignAttachments ? 'taxonomy' : contextUse
 			const effectiveValidationMode =
@@ -534,7 +536,7 @@ export function MapContextEditorPanel({
 					? 'none'
 					: validationMode || 'optional'
 
-			event.context = {
+			const contextContent: MapContextContent = {
 				name: name.trim(),
 				description: description.length > 0 ? description : undefined,
 				descriptionFormat: 'markdown',
@@ -556,14 +558,23 @@ export function MapContextEditorPanel({
 						? (parsedSchema.schema as Record<string, unknown>)
 						: undefined,
 			}
-			event.contextReferences = attachedContextRefs
-			syncAddressReferenceTags(event, [
+			const referencedCoords = [
 				...extractReferencedCoordinates(description),
 				...extractReferencedCoordinatesFromList(curatedReferences),
-			])
+			]
 
-			await event.publishNew()
-			onSave(event)
+			const factory = initialContext
+				? MapContextFactory.modify(initialContext.event).context(contextContent)
+				: MapContextFactory.create(contextContent)
+
+			const signedEvent = await factory
+				.contextReferences(attachedContextRefs)
+				.modifyPublicTags(setAddressReferenceTags(referencedCoords))
+				.sign(signer)
+
+			await publish(signedEvent, { routing: 'outbox' })
+			const cast = castEvent(signedEvent, MapContext, eventStore)
+			onSave(cast)
 			onClose()
 		} catch (error) {
 			setSaveError(error instanceof Error ? error.message : 'Failed to save context')

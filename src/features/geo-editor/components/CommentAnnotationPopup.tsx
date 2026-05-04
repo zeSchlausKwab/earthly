@@ -5,11 +5,11 @@ import { RichContentRenderer } from '@/components/editor'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { Button } from '@/components/ui/button'
 import { UserProfile } from '@/components/user-profile'
-import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
+import type { GeoComment } from '@/lib/nostr/geo-comment'
 import { resolveMapPopupPosition, type MapPopupPlacement } from './map-popup-positioning'
 
 export interface CommentAnnotationPopupData {
-	comment: NDKGeoCommentEvent
+	comment: GeoComment
 	feature: Feature<Geometry>
 	screenPosition: { x: number; y: number }
 	pinned?: boolean

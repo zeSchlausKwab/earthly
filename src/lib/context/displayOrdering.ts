@@ -1,19 +1,19 @@
-import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import type { MapContext } from '@/lib/nostr/map-context'
 
 export interface OrderedContextDisplayItem {
-	context: NDKMapContextEvent
+	context: MapContext
 	depth: number
 	displayParentCoordinate: string | null
 }
 
-function getContextKey(context: NDKMapContextEvent, index: number): string {
+function getContextKey(context: MapContext, index: number): string {
 	return (
 		context.contextCoordinate ?? context.id ?? `${context.pubkey}:${context.contextId ?? index}`
 	)
 }
 
 export function orderContextsForDisplay(
-	contexts: NDKMapContextEvent[],
+	contexts: MapContext[],
 ): OrderedContextDisplayItem[] {
 	if (contexts.length <= 1) {
 		return contexts.map((context) => ({

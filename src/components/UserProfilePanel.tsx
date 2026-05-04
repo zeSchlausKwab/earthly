@@ -3,9 +3,11 @@ import type { NDKEvent } from '@nostr-dev-kit/react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Database, Eye, Globe, Layers, MessageCircle, MessageSquare, Trash2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
-import { NDKGeoEditProposalEvent } from '../lib/ndk/NDKGeoEditProposalEvent'
+import { GeoProposal } from '@/lib/nostr/geo-proposal'
+import { castEvent } from 'applesauce-core/casts'
+import { eventStore } from '@/lib/nostr'
 import { GeoDataset } from '@/lib/nostr/geo-event'
-import type { NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
+import type { MapContext } from '@/lib/nostr/map-context'
 import {
 	GEO_EDIT_PROPOSAL_KIND,
 	GEO_EVENT_KIND,
@@ -14,7 +16,7 @@ import {
 	PROPOSAL_STATUS_DRAFT_KIND,
 	PROPOSAL_STATUS_OPEN_KIND,
 } from '../lib/ndk/kinds'
-import { getLatestProposalStatus, type ProposalStatus } from '../lib/ndk/proposalStatus'
+import { getLatestProposalStatus, type ProposalStatus } from '@/lib/nostr/geo-proposal'
 import {
 	getContextCoordinate,
 	getEffectiveContextUse,
@@ -45,7 +47,7 @@ import { UserProfile } from './user-profile/UserProfile'
 export interface UserProfilePanelProps {
 	pubkey: string
 	geoEvents: GeoDataset[]
-	mapContextEvents: NDKMapContextEvent[]
+	mapContextEvents: MapContext[]
 	currentUserPubkey?: string
 	datasetVisibility: Record<string, boolean>
 	isPublishing: boolean
@@ -60,15 +62,15 @@ export interface UserProfilePanelProps {
 	onInspectDataset?: (event: GeoDataset) => void
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void | Promise<void>
-	onInspectContext?: (context: NDKMapContextEvent) => void
-	onEditContext?: (context: NDKMapContextEvent) => void
-	onOpenDebug?: (event: GeoDataset | NDKMapContextEvent) => void
+	onInspectContext?: (context: MapContext) => void
+	onEditContext?: (context: MapContext) => void
+	onOpenDebug?: (event: GeoDataset | MapContext) => void
 }
 
 type TabMode = 'datasets' | 'contexts' | 'proposals' | 'workspaces'
 
 interface UserProposalRow {
-	proposal: NDKGeoEditProposalEvent
+	proposal: GeoProposal
 	description: string
 	targetName: string
 	targetAddress: string
@@ -102,10 +104,10 @@ const createDatasetFilterConfig = (
 	getName: (event) => getDatasetName(event),
 })
 
-const getContextDisplayName = (context: NDKMapContextEvent): string =>
+const getContextDisplayName = (context: MapContext): string =>
 	context.context.name || context.contextId || context.id || 'Untitled'
 
-const contextFilterConfig: FilterConfig<NDKMapContextEvent> = {
+const contextFilterConfig: FilterConfig<MapContext> = {
 	getSearchableText: (context) => {
 		const content = context.context
 		return [
@@ -221,7 +223,11 @@ export function UserProfilePanel({
 	const userProposalEvents = useMemo(() => {
 		return proposalEvents
 			.filter((event: NDKEvent) => event.kind === GEO_EDIT_PROPOSAL_KIND)
-			.map((event: NDKEvent) => NDKGeoEditProposalEvent.from(event))
+			.map((event: NDKEvent) => {
+				const raw = (event as { rawEvent?: () => unknown }).rawEvent?.() ?? event
+				// biome-ignore lint/suspicious/noExplicitAny: NDK event shape varies
+				return castEvent(raw as any, GeoProposal, eventStore)
+			})
 			.sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
 	}, [proposalEvents])
 
