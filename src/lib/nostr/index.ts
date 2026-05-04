@@ -19,8 +19,15 @@ import { NostrConnectSigner } from 'applesauce-signers'
 import { NostrIDB } from 'nostr-idb'
 import type { Filter, NostrEvent } from 'nostr-tools'
 import type { IAccount } from 'applesauce-accounts'
-import type { ISigner } from 'applesauce-signers'
-import { firstValueFrom, race, timer, of, filter } from 'rxjs'
+import { EMPTY, filter, firstValueFrom, of, race, timeout, TimeoutError, timer } from 'rxjs'
+
+// Bun HMR bundler tree-shaking bug: rxjs/index.js re-exports some values via
+// source files that Bun's HMR runtime can stub without populating. Referencing
+// them at module scope forces Bun to track the real bindings used inside
+// applesauce packages.
+void EMPTY
+void timeout
+void TimeoutError
 import { config } from '@/config'
 
 /** Reactive event database. Single instance for the whole app. */
@@ -86,31 +93,41 @@ accounts.active$.subscribe((account) => {
 	else localStorage.removeItem(ACTIVE_ACCOUNT_STORAGE_KEY)
 })
 
-/** IndexedDB-backed event cache. Replaces the Dexie adapter. */
-const cache = new NostrIDB(undefined, {
-	cacheIndexes: 2000,
-	maxEvents: 20_000,
-})
+/**
+ * IndexedDB-backed event cache. Only instantiated in browsers — seed scripts
+ * (which import this module via NDK class wrappers) run in Bun where
+ * `indexedDB` doesn't exist.
+ */
+const hasIndexedDB = typeof indexedDB !== 'undefined'
+const cache = hasIndexedDB
+	? new NostrIDB(undefined, { cacheIndexes: 2000, maxEvents: 20_000 })
+	: null
 
 /**
  * Resolves once the cache has finished its async startup.
- * Loaders defer their first read until this resolves.
+ * Loaders defer their first read until this resolves. In non-browser
+ * environments this is a resolved no-op.
  */
-export const cacheReady = cache.start().catch((err) => {
-	console.error('[nostr] NostrIDB failed to start, continuing without persistent cache', err)
-})
+export const cacheReady = cache
+	? cache.start().catch((err) => {
+			console.error('[nostr] NostrIDB failed to start, continuing without persistent cache', err)
+		})
+	: Promise.resolve()
 
 /** Pipe newly-added events into the cache in batches. Cleanup on HMR. */
-const stopPersist = persistEventsToCache(eventStore, async (events: NostrEvent[]) => {
-	await cacheReady
-	await Promise.allSettled(events.map((event) => cache.add(event)))
-})
+const stopPersist = cache
+	? persistEventsToCache(eventStore, async (events: NostrEvent[]) => {
+			await cacheReady
+			await Promise.allSettled(events.map((event) => cache.add(event)))
+		})
+	: () => {}
 
 /**
  * Cache request used by event loaders. Returns events that match the filters.
  * Awaits cache start so callers don't race the initial open.
  */
 async function cacheRequest(filters: Filter[]): Promise<NostrEvent[]> {
+	if (!cache) return []
 	await cacheReady
 	return cache.query(filters)
 }
@@ -174,7 +191,12 @@ async function resolveRoutedRelays(
 	const mailboxes$ = eventStore
 		.model(MailboxesModel, pubkey)
 		.pipe(filter((m): m is { inboxes: string[]; outboxes: string[] } => Boolean(m)))
-	const result = await firstValueFrom(race(mailboxes$, timer(timeoutMs).pipe(() => of(undefined))))
+	const result = await firstValueFrom(
+		race(
+			mailboxes$,
+			timer(timeoutMs).pipe(() => of(undefined)),
+		),
+	)
 	const list = result?.[which]
 	if (list && list.length > 0) return list
 	return config.writeRelays
@@ -234,10 +256,7 @@ export async function publish(event: NostrEvent, options: PublishOptions = {}) {
 // biome-ignore lint/suspicious/noExplicitAny: see comment above
 type AnyAccount = IAccount<any, any, any>
 
-export function loginWithAccount(
-	account: AnyAccount,
-	options: { remember?: boolean } = {},
-) {
+export function loginWithAccount(account: AnyAccount, options: { remember?: boolean } = {}) {
 	const { remember = true } = options
 
 	// Replace any prior account for the same pubkey to avoid duplicates.
