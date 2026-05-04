@@ -11,7 +11,7 @@ import {
 } from '../lib/context/validation'
 import { useEditorStore } from '../features/geo-editor/store'
 import { sanitizeEditorProperties } from '../features/geo-editor/utils'
-import { NDKGeoEvent as NDKGeoEventClass, type NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContextValidationMode, NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
 import {
 	BlobReferencesSection,
@@ -42,20 +42,20 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 export interface GeoEditorInfoPanelProps {
 	currentUserPubkey?: string
-	onLoadDataset: (event: NDKGeoEvent) => void
-	onInspectDataset?: (event: NDKGeoEvent) => void
+	onLoadDataset: (event: GeoDataset) => void
+	onInspectDataset?: (event: GeoDataset) => void
 	onStartNewDataset?: () => void
 	onOpenGeometryEditor?: () => void
 	onSwitchWorkspace?: (workspaceId: string) => void
-	onToggleVisibility: (event: NDKGeoEvent) => void
-	onZoomToDataset: (event: NDKGeoEvent) => void
-	onDeleteDataset: (event: NDKGeoEvent) => void
+	onToggleVisibility: (event: GeoDataset) => void
+	onZoomToDataset: (event: GeoDataset) => void
+	onDeleteDataset: (event: GeoDataset) => void
 	onDeleteContext?: (context: NDKMapContextEvent) => void
 	deletingKey: string | null
 	onExitViewMode?: () => void
 	onClose?: () => void
-	getDatasetKey: (event: NDKGeoEvent) => string
-	getDatasetName: (event: NDKGeoEvent) => string
+	getDatasetKey: (event: GeoDataset) => string
+	getDatasetName: (event: GeoDataset) => string
 	/** Callback to add/remove comment GeoJSON overlay on map */
 	onCommentGeometryVisibility?: (
 		comment: import('../lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent,
@@ -89,7 +89,7 @@ export interface GeoEditorInfoPanelProps {
 		visible: boolean,
 	) => void
 	/** Callback when a proposal is accepted */
-	onProposalAccepted?: (dataset: NDKGeoEvent) => void
+	onProposalAccepted?: (dataset: GeoDataset) => void
 	/** Set of proposal IDs whose overlay is visible */
 	visibleProposalIds?: Set<string>
 	/** Callback when a feature is zoomed to from the geometries list */
@@ -256,10 +256,9 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		return { attachedContexts: attached, recentUnattachedContexts: unattached }
 	}, [attachableContexts, activeDatasetContextRefs])
 
-	const datasetForValidation = useMemo(
-		() => activeDataset ?? new NDKGeoEventClass(undefined),
-		[activeDataset],
-	)
+	// Pass the dataset (or null) directly; validation accepts a nullable dataset
+	// when an explicit FeatureCollection is provided.
+	const datasetForValidation = activeDataset ?? null
 	const editorFeatureCollection = useMemo<FeatureCollection>(
 		() => ({
 			type: 'FeatureCollection',

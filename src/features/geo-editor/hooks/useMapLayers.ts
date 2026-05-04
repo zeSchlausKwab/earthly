@@ -4,7 +4,7 @@ import type maplibregl from 'maplibre-gl'
 import { useEffect, useRef, useState } from 'react'
 import { bbox as turfBbox, pointOnFeature } from '@turf/turf'
 import { isGeoJsonGeometry } from '@/lib/geo/normalizeGeoJSON'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { useEditorStore } from '../store'
 import { convertGeoEventsToFeatureCollection } from '../utils'
 
@@ -213,8 +213,8 @@ function buildGeometryProxyFeature(
 interface UseMapLayersOptions {
 	mapRef: React.MutableRefObject<maplibregl.Map | null>
 	mounted: boolean
-	visibleGeoEvents: NDKGeoEvent[]
-	resolvedCollectionResolver: (event: NDKGeoEvent) => FeatureCollection | undefined
+	visibleGeoEvents: GeoDataset[]
+	resolvedCollectionResolver: (event: GeoDataset) => FeatureCollection | undefined
 	/** Version counter that increments when resolved blob data changes, triggers re-render */
 	resolvedCollectionsVersion: number
 }

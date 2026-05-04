@@ -1,5 +1,5 @@
 import type { FeatureCollection } from 'geojson'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import type { ContextFilterMode } from '@/lib/context/validation'
 import type { ContextMapScopeMode } from '@/lib/context/scope'
@@ -160,7 +160,7 @@ export interface WorkspaceSlice {
 
 export interface MetadataSlice {
 	collectionMeta: CollectionMeta
-	activeDataset: NDKGeoEvent | null
+	activeDataset: GeoDataset | null
 	activeDatasetContextRefs: string[]
 	datasetVisibility: Record<string, boolean>
 	resolvingDatasets: Set<string>
@@ -168,7 +168,7 @@ export interface MetadataSlice {
 	isDirty: boolean
 
 	setCollectionMeta: (meta: CollectionMeta) => void
-	setActiveDataset: (dataset: NDKGeoEvent | null) => void
+	setActiveDataset: (dataset: GeoDataset | null) => void
 	setIsDirty: (isDirty: boolean) => void
 	setActiveDatasetContextRefs: (refs: string[]) => void
 	setDatasetVisibility: (
@@ -215,9 +215,9 @@ export interface PublishingSlice {
 export interface ViewModeSlice {
 	viewMode: 'edit' | 'view'
 	editIsolationEnabled: boolean
-	viewDataset: NDKGeoEvent | null
+	viewDataset: GeoDataset | null
 	viewContext: NDKMapContextEvent | null
-	viewContextDatasets: NDKGeoEvent[]
+	viewContextDatasets: GeoDataset[]
 	contextFilterMode: ContextFilterMode
 	contextMapScopeMode: ContextMapScopeMode
 	activeContextScopeNaddr: string | null
@@ -236,9 +236,9 @@ export interface ViewModeSlice {
 	} | null
 
 	setViewMode: (mode: 'edit' | 'view') => void
-	setViewDataset: (dataset: NDKGeoEvent | null) => void
+	setViewDataset: (dataset: GeoDataset | null) => void
 	setViewContext: (context: NDKMapContextEvent | null) => void
-	setViewContextDatasets: (events: NDKGeoEvent[]) => void
+	setViewContextDatasets: (events: GeoDataset[]) => void
 	setContextFilterMode: (mode: ContextFilterMode) => void
 	setContextMapScopeMode: (mode: ContextMapScopeMode) => void
 	setActiveContextScope: (naddr: string | null, coordinate: string | null) => void

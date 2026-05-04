@@ -6,7 +6,7 @@ import {
 	type SortDirection,
 	type SortField,
 } from '@/components/data-filter/types'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { Button } from '@/components/ui/button'
 import {
 	Select,
@@ -110,7 +110,7 @@ interface EntityReferenceToolbarProps {
 	entityTypes?: EntityType[]
 	placeholder?: string
 	searchMode?: SearchMode
-	getDatasetName?: (event: NDKGeoEvent) => string
+	getDatasetName?: (event: GeoDataset) => string
 	className?: string
 }
 

@@ -1,12 +1,12 @@
 import type React from 'react'
 import JsonView from 'react18-json-view'
 import 'react18-json-view/src/style.css'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog'
 
 interface DebugDialogProps {
-	event: NDKGeoEvent | NDKMapContextEvent
+	event: GeoDataset | NDKMapContextEvent
 	open: boolean
 	onOpenChange: (open: boolean) => void
 }

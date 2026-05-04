@@ -2,7 +2,7 @@ import { CopyPlus, Eye, EyeOff, FileText, GitPullRequest, Maximize2, Pencil } fr
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { useEditorStore } from '@/features/geo-editor/store'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
 import { validateDatasetForContext } from '@/lib/context/validation'
 import { extractCollectionMeta } from '@/features/geo-editor/utils'
@@ -21,13 +21,13 @@ import { UserProfile } from '../user-profile'
 
 export interface ViewModePanelProps {
 	currentUserPubkey?: string
-	onLoadDataset: (event: NDKGeoEvent) => void
-	onToggleVisibility: (event: NDKGeoEvent) => void
-	onZoomToDataset: (event: NDKGeoEvent) => void
-	onDeleteDataset: (event: NDKGeoEvent) => void
+	onLoadDataset: (event: GeoDataset) => void
+	onToggleVisibility: (event: GeoDataset) => void
+	onZoomToDataset: (event: GeoDataset) => void
+	onDeleteDataset: (event: GeoDataset) => void
 	deletingKey: string | null
-	getDatasetKey: (event: NDKGeoEvent) => string
-	getDatasetName: (event: NDKGeoEvent) => string
+	getDatasetKey: (event: GeoDataset) => string
+	getDatasetName: (event: GeoDataset) => string
 	onCommentGeometryVisibility?: (comment: NDKGeoCommentEvent, visible: boolean) => void
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
 	availableFeatures?: GeoFeatureItem[]
@@ -38,14 +38,16 @@ export interface ViewModePanelProps {
 	) => void
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
 	onToggleProposalOverlay?: (proposal: NDKGeoEditProposalEvent, visible: boolean) => void
-	onProposalAccepted?: (dataset: NDKGeoEvent) => void
+	onProposalAccepted?: (dataset: GeoDataset) => void
 	visibleProposalIds?: Set<string>
 	focusCommentId?: string
+	/** Callback to exit view mode (panel close). Optional — not all hosts support this. */
+	onExitViewMode?: () => void
 }
 
 type ViewTab = 'details' | 'proposals'
 
-function getDatasetDescription(dataset: NDKGeoEvent): string | null {
+function getDatasetDescription(dataset: GeoDataset): string | null {
 	const collection = dataset.featureCollection as Record<string, unknown>
 	const properties =
 		typeof collection?.properties === 'object' && collection.properties

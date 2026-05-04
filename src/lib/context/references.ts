@@ -1,6 +1,6 @@
 import { nip19 } from 'nostr-tools'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
-import type { NDKGeoEvent } from '../ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { NDKMapContextEvent } from '../ndk/NDKMapContextEvent'
 import {
 	dedupeNostrAddressReferences,
@@ -17,7 +17,7 @@ interface ResolvedBaseReference {
 
 export interface ResolvedContextDatasetReference extends ResolvedBaseReference {
 	type: 'dataset'
-	dataset: NDKGeoEvent
+	dataset: GeoDataset
 }
 
 export interface ResolvedContextContextReference extends ResolvedBaseReference {
@@ -65,13 +65,13 @@ export function getContextReferencedMentions(context: NDKMapContextEvent | null 
 
 export function resolveContextReferences(
 	context: NDKMapContextEvent | null | undefined,
-	geoEvents: NDKGeoEvent[],
+	geoEvents: GeoDataset[],
 	mapContexts: NDKMapContextEvent[],
 	availableFeatures: GeoFeatureItem[] = [],
 ): ResolvedContextReference[] {
 	const mentions = getContextReferencedMentions(context)
 
-	return mentions.flatMap((reference) => {
+	return mentions.flatMap((reference): ResolvedContextReference[] => {
 		const coordinate = naddrToCoordinate(reference.address)
 		if (!coordinate) return []
 
@@ -94,7 +94,7 @@ export function resolveContextReferences(
 					dataset,
 					label:
 						featureMatch?.name ??
-						dataset.featureCollection?.name ??
+						(dataset.featureCollection as { name?: string } | undefined)?.name ??
 						dataset.datasetId ??
 						'Referenced dataset',
 				},
@@ -127,10 +127,10 @@ export function resolveContextReferences(
 
 export function getContextReferencedDatasets(
 	context: NDKMapContextEvent | null | undefined,
-	geoEvents: NDKGeoEvent[],
-): NDKGeoEvent[] {
+	geoEvents: GeoDataset[],
+): GeoDataset[] {
 	const seen = new Set<string>()
-	const datasets: NDKGeoEvent[] = []
+	const datasets: GeoDataset[] = []
 
 	context?.referencedAddresses.forEach((coordinate) => {
 		const match = decodeCoordinate(coordinate)

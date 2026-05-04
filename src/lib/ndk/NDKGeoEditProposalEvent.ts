@@ -4,7 +4,7 @@ import type { FeatureCollection, Position } from 'geojson'
 import { GEO_EDIT_PROPOSAL_KIND } from './kinds'
 import { normalizeGeoJsonToFeatureCollection } from '../geo/normalizeGeoJSON'
 import { generateShortDTag } from './dTag'
-import type { GeoBoundingBox } from './NDKGeoEvent'
+import type { GeoBoundingBox } from '@/lib/nostr/geo-event'
 import { publish } from '../nostr'
 
 const DEFAULT_COLLECTION: FeatureCollection = {

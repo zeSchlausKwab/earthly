@@ -2,20 +2,20 @@ import { GitPullRequest, RefreshCw } from 'lucide-react'
 import { useState, useCallback } from 'react'
 import { toast } from 'sonner'
 import { useGeoProposals } from '../hooks/useGeoProposals'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { NDKGeoEditProposalEvent } from '@/lib/ndk/NDKGeoEditProposalEvent'
 import { getProposalReviewState } from '@/lib/ndk/proposalStatus'
 import { ProposalCard } from './ProposalCard'
 
 interface ProposalsPanelProps {
 	/** The dataset to show proposals for */
-	target: NDKGeoEvent | null
+	target: GeoDataset | null
 	/** Current user's pubkey */
 	currentUserPubkey?: string
 	/** Callback when a proposal overlay visibility is toggled */
 	onToggleProposalOverlay?: (proposal: NDKGeoEditProposalEvent, visible: boolean) => void
 	/** Callback when a proposal is accepted (dataset republished) */
-	onProposalAccepted?: (dataset: NDKGeoEvent) => void
+	onProposalAccepted?: (dataset: GeoDataset) => void
 	/** Set of proposal IDs whose overlay is visible */
 	visibleProposalIds?: Set<string>
 	className?: string

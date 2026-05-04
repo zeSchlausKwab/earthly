@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type maplibregl from 'maplibre-gl'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { useMapInteractions } from '../hooks/useMapInteractions'
 import { FeaturePopup, type FeaturePopupData } from './FeaturePopup'
 import type { MapPopupPlacement } from './map-popup-positioning'
@@ -10,10 +10,10 @@ interface MapFeatureHoverOverlayProps {
 	containerRef: React.RefObject<HTMLDivElement | null>
 	remoteLayersReady: boolean
 	clusteredSourceId: string
-	geoEventsRef: React.RefObject<NDKGeoEvent[]>
+	geoEventsRef: React.RefObject<GeoDataset[]>
 	currentUserPubkey?: string
-	getDatasetName: (event: NDKGeoEvent) => string
-	handleInspectDatasetWithoutFocus: (event: NDKGeoEvent) => void
+	getDatasetName: (event: GeoDataset) => string
+	handleInspectDatasetWithoutFocus: (event: GeoDataset) => void
 	popupsEnabled?: boolean
 	placementMode?: MapPopupPlacement
 	toolbarOffset?: number

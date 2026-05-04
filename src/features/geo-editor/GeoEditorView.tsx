@@ -25,7 +25,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useAvailableGeoFeatures } from '@/lib/hooks/useAvailableGeoFeatures'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useMapContexts, useStations } from '@/lib/hooks/useStations'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import {
 	defaultContextFilterMode,
@@ -672,7 +672,7 @@ export function GeoEditorView() {
 			activeContextDatasets.map((event) => getDatasetKey(event)),
 		)
 
-		const isAllowedByContextScope = (event: NDKGeoEvent) => {
+		const isAllowedByContextScope = (event: GeoDataset) => {
 			if (!mapFilterContextCoordinate || !mapFilterContext) return true
 			if (!activeContextDatasetKeys.has(getDatasetKey(event))) return false
 			if (mapFilterContext.context.contextUse === 'taxonomy') return true
@@ -684,7 +684,7 @@ export function GeoEditorView() {
 		}
 
 		// Helper: check if event passes visibility + filter criteria
-		const isEventVisible = (event: NDKGeoEvent, includeSidebarFilter = true) => {
+		const isEventVisible = (event: GeoDataset, includeSidebarFilter = true) => {
 			const key = getDatasetKey(event)
 			// Must be marked visible
 			if (datasetVisibility[key] === false) return false
@@ -1087,12 +1087,12 @@ export function GeoEditorView() {
 	}, [handlePaste])
 
 	// Dataset actions
-	const handleDatasetSelect = (event: NDKGeoEvent) => {
+	const handleDatasetSelect = (event: GeoDataset) => {
 		handleLoadDatasetForEditing(event)
 	}
 
 	const handleProposalAccepted = useCallback(
-		(dataset: NDKGeoEvent) => {
+		(dataset: GeoDataset) => {
 			setViewModeState('view')
 			setViewDatasetState(dataset)
 		},
@@ -1111,7 +1111,7 @@ export function GeoEditorView() {
 	}, [editor, setSelectedFeatureIds])
 
 	const onDeleteDataset = useCallback(
-		async (event: NDKGeoEvent) => {
+		async (event: GeoDataset) => {
 			const key = getDatasetKey(event)
 			setDeletingKey(key)
 			try {

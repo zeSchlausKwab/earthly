@@ -4,10 +4,11 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { Database, Eye, Globe, Layers, MessageCircle, MessageSquare, Trash2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { NDKGeoEditProposalEvent } from '../lib/ndk/NDKGeoEditProposalEvent'
-import { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
+import { GeoDataset } from '@/lib/nostr/geo-event'
 import type { NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
 import {
 	GEO_EDIT_PROPOSAL_KIND,
+	GEO_EVENT_KIND,
 	PROPOSAL_STATUS_APPLIED_KIND,
 	PROPOSAL_STATUS_CLOSED_KIND,
 	PROPOSAL_STATUS_DRAFT_KIND,
@@ -43,25 +44,25 @@ import { UserProfile } from './user-profile/UserProfile'
 
 export interface UserProfilePanelProps {
 	pubkey: string
-	geoEvents: NDKGeoEvent[]
+	geoEvents: GeoDataset[]
 	mapContextEvents: NDKMapContextEvent[]
 	currentUserPubkey?: string
 	datasetVisibility: Record<string, boolean>
 	isPublishing: boolean
 	deletingKey: string | null
-	onLoadDataset: (event: NDKGeoEvent) => void
-	onToggleVisibility: (event: NDKGeoEvent) => void
+	onLoadDataset: (event: GeoDataset) => void
+	onToggleVisibility: (event: GeoDataset) => void
 	onToggleAllVisibility: (visible: boolean) => void
-	onZoomToDataset: (event: NDKGeoEvent) => void
-	onDeleteDataset: (event: NDKGeoEvent) => void
-	getDatasetKey: (event: NDKGeoEvent) => string
-	getDatasetName: (event: NDKGeoEvent) => string
-	onInspectDataset?: (event: NDKGeoEvent) => void
+	onZoomToDataset: (event: GeoDataset) => void
+	onDeleteDataset: (event: GeoDataset) => void
+	getDatasetKey: (event: GeoDataset) => string
+	getDatasetName: (event: GeoDataset) => string
+	onInspectDataset?: (event: GeoDataset) => void
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void | Promise<void>
 	onInspectContext?: (context: NDKMapContextEvent) => void
 	onEditContext?: (context: NDKMapContextEvent) => void
-	onOpenDebug?: (event: NDKGeoEvent | NDKMapContextEvent) => void
+	onOpenDebug?: (event: GeoDataset | NDKMapContextEvent) => void
 }
 
 type TabMode = 'datasets' | 'contexts' | 'proposals' | 'workspaces'
@@ -71,13 +72,13 @@ interface UserProposalRow {
 	description: string
 	targetName: string
 	targetAddress: string
-	targetDataset: NDKGeoEvent | null
+	targetDataset: GeoDataset | null
 	status: ProposalStatus
 	created_at?: number
 	pubkey: string
 }
 
-const getDatasetDescriptionText = (event: NDKGeoEvent): string | undefined => {
+const getDatasetDescriptionText = (event: GeoDataset): string | undefined => {
 	const featureCollection = event.featureCollection as unknown as Record<string, unknown>
 	if (!featureCollection) return undefined
 	const candidates = [
@@ -95,8 +96,8 @@ const getDatasetDescriptionText = (event: NDKGeoEvent): string | undefined => {
 }
 
 const createDatasetFilterConfig = (
-	getDatasetName: (event: NDKGeoEvent) => string,
-): FilterConfig<NDKGeoEvent> => ({
+	getDatasetName: (event: GeoDataset) => string,
+): FilterConfig<GeoDataset> => ({
 	getSearchableText: (event) => [getDatasetName(event), getDatasetDescriptionText(event)],
 	getName: (event) => getDatasetName(event),
 })
@@ -195,11 +196,11 @@ export function UserProfilePanel({
 	)
 
 	const datasetReferenceMap = useMemo(() => {
-		const map = new Map<string, NDKGeoEvent>()
+		const map = new Map<string, GeoDataset>()
 		geoEvents.forEach((event) => {
 			const datasetId = event.datasetId ?? event.dTag ?? event.id
 			if (!datasetId) return
-			const kind = event.kind ?? NDKGeoEvent.kinds[0]
+			const kind = event.kind ?? GEO_EVENT_KIND
 			map.set(`${kind}:${event.pubkey}:${datasetId}`, event)
 		})
 		return map

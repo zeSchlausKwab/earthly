@@ -447,7 +447,7 @@ function buildSharePath(target: ReactableEvent): string | null {
 
 /**
  * Social actions bar for any Nostr event: reactions, zaps, and comments.
- * Works with geo events (NDKGeoEvent, etc.) and regular events (NDKEvent).
+ * Works with geo events (GeoDataset, etc.) and regular events (NDKEvent).
  */
 export function GeoSocialActions({
 	target,

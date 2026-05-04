@@ -1,12 +1,12 @@
 import type { ColumnDef } from '@tanstack/react-table'
 import { Download, Eye, EyeOff, Maximize2, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { Button } from '../ui/button'
 import { UserProfile } from '../user-profile'
 
 export interface ViewModeRowData {
-	event: NDKGeoEvent
+	event: GeoDataset
 	datasetKey: string
 	datasetName: string
 	isVisible: boolean
@@ -14,9 +14,9 @@ export interface ViewModeRowData {
 }
 
 export interface ViewModeColumnsContext {
-	onLoadDataset: (event: NDKGeoEvent) => void
-	onToggleVisibility: (event: NDKGeoEvent) => void
-	onZoomToDataset: (event: NDKGeoEvent) => void
+	onLoadDataset: (event: GeoDataset) => void
+	onToggleVisibility: (event: GeoDataset) => void
+	onZoomToDataset: (event: GeoDataset) => void
 	isPublishing: boolean
 	datasetVisibility: Record<string, boolean>
 }

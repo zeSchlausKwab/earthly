@@ -1,11 +1,11 @@
 import { useCallback, useState } from 'react'
 import { nip19 } from 'nostr-tools'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import { useEditorStore } from '../store'
 
 interface UseViewModeOptions {
-	geoEvents: NDKGeoEvent[]
+	geoEvents: GeoDataset[]
 	onEnsureInfoPanelVisible: () => void
 	onNavigateToFocus?: (
 		focusType: 'geoevent' | 'mapcontext',
@@ -14,13 +14,13 @@ interface UseViewModeOptions {
 	) => void
 	onClearRouteFocus?: () => void
 	/** Callback to zoom/fly to a dataset's bounds */
-	onZoomToDataset?: (event: NDKGeoEvent) => void
+	onZoomToDataset?: (event: GeoDataset) => void
 }
 
 /**
  * Generate naddr for a geo event
  */
-function encodeGeoEventNaddr(event: NDKGeoEvent): string | null {
+function encodeGeoEventNaddr(event: GeoDataset): string | null {
 	const identifier = event.datasetId ?? event.dTag
 	if (!identifier || !event.kind) return null
 
@@ -46,7 +46,7 @@ export function useViewMode({
 	const [sidebarMode, setSidebarMode] = useState<
 		'datasets' | 'info' | 'editor' | 'dataset' | 'inspector'
 	>('datasets')
-	const [debugEvent, setDebugEvent] = useState<NDKGeoEvent | NDKMapContextEvent | null>(null)
+	const [debugEvent, setDebugEvent] = useState<GeoDataset | NDKMapContextEvent | null>(null)
 	const [debugDialogOpen, setDebugDialogOpen] = useState(false)
 
 	// Store state
@@ -79,7 +79,7 @@ export function useViewMode({
 	])
 
 	const handleInspectDataset = useCallback(
-		(event: NDKGeoEvent) => {
+		(event: GeoDataset) => {
 			setViewingDataset(event)
 			setViewingContext(null)
 			setViewingContextDatasets([])
@@ -113,7 +113,7 @@ export function useViewMode({
 	 * Used when clicking on a geometry on the map.
 	 */
 	const handleInspectDatasetWithoutFocus = useCallback(
-		(event: NDKGeoEvent) => {
+		(event: GeoDataset) => {
 			setViewingDataset(event)
 			setViewingContext(null)
 			setViewingContextDatasets([])
@@ -132,7 +132,7 @@ export function useViewMode({
 		],
 	)
 
-	const handleOpenDebug = useCallback((event: NDKGeoEvent | NDKMapContextEvent) => {
+	const handleOpenDebug = useCallback((event: GeoDataset | NDKMapContextEvent) => {
 		setDebugEvent(event)
 		setDebugDialogOpen(true)
 	}, [])

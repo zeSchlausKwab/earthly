@@ -1,6 +1,6 @@
 import { Loader2 } from 'lucide-react'
 import { useCallback, useMemo, useRef, useState } from 'react'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { DEFAULT_FILTER_STATE, type FilterState } from '@/components/data-filter/types'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { EntityResultGroup } from './EntityResultGroup'
@@ -25,7 +25,7 @@ interface EntitySearchPopoverProps {
 	searchMode?: SearchMode
 	compact?: boolean
 	inputClassName?: string
-	getDatasetName?: (event: NDKGeoEvent) => string
+	getDatasetName?: (event: GeoDataset) => string
 }
 
 export function EntitySearchPopover({

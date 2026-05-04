@@ -1,12 +1,12 @@
 import { useNDK, useNDKCurrentUser, useSubscribe, NDKEvent } from '@nostr-dev-kit/react'
 import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk'
 import { useMemo, useCallback, useState } from 'react'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 
 /** Any Nostr event that can receive reactions */
-export type ReactableEvent = NDKGeoEvent | NDKMapContextEvent | NDKGeoCommentEvent | NDKEventType
+export type ReactableEvent = GeoDataset | NDKMapContextEvent | NDKGeoCommentEvent | NDKEventType
 
 export interface UseGeoReactionsOptions {
 	/** The event to fetch reactions for */

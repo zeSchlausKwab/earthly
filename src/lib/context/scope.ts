@@ -1,11 +1,11 @@
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import { getContextReferencedDatasets } from './references'
 
 export type ContextMapScopeMode = 'direct' | 'children'
 
 export interface ScopedContextDataset {
-	dataset: NDKGeoEvent
+	dataset: GeoDataset
 	sourceContext: NDKMapContextEvent
 }
 
@@ -17,13 +17,13 @@ export interface ResolvedContextMapScope {
 	childContexts: NDKMapContextEvent[]
 }
 
-function getDatasetScopeKey(event: NDKGeoEvent): string {
+function getDatasetScopeKey(event: GeoDataset): string {
 	return `${event.kind}:${event.pubkey}:${event.datasetId ?? event.dTag ?? event.id ?? 'dataset'}`
 }
 
 function getDirectContextDatasets(
 	context: NDKMapContextEvent,
-	geoEvents: NDKGeoEvent[],
+	geoEvents: GeoDataset[],
 ): ScopedContextDataset[] {
 	const coordinate = context.contextCoordinate
 	const byKey = new Map<string, ScopedContextDataset>()
@@ -64,7 +64,7 @@ export function getAttachedChildContexts(
 
 export function resolveContextMapScope(
 	context: NDKMapContextEvent | null | undefined,
-	geoEvents: NDKGeoEvent[],
+	geoEvents: GeoDataset[],
 	mapContexts: NDKMapContextEvent[],
 	mode: ContextMapScopeMode,
 ): ResolvedContextMapScope {

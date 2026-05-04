@@ -1,5 +1,5 @@
 import type { Feature, FeatureCollection, Geometry } from 'geojson'
-import type { GeoBlobReference, NDKGeoEvent } from '../ndk/NDKGeoEvent'
+import type { GeoBlobReference, GeoDataset } from '@/lib/nostr/geo-event'
 import {
 	isGeoJsonFeature,
 	isGeoJsonFeatureCollection,
@@ -151,7 +151,7 @@ export interface ResolveOptions {
 }
 
 export async function resolveGeoEventFeatureCollection(
-	event: NDKGeoEvent,
+	event: GeoDataset,
 	options?: ResolveOptions,
 ): Promise<FeatureCollection> {
 	const baseCollection = event.featureCollection

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type maplibregl from 'maplibre-gl'
 import type { Feature, Geometry } from 'geojson'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { bboxFromGeometry } from '@/lib/geo/bbox'
 import { useEditorStore } from '../store'
 import type { FeaturePopupData } from '../components/FeaturePopup'
@@ -20,10 +20,10 @@ interface UseMapInteractionsParams {
 	mapRef: React.RefObject<maplibregl.Map | null>
 	remoteLayersReady: boolean
 	CLUSTERED_SOURCE_ID: string
-	geoEventsRef: React.RefObject<NDKGeoEvent[]>
+	geoEventsRef: React.RefObject<GeoDataset[]>
 	currentUserPubkey: string | undefined
-	getDatasetName: (event: NDKGeoEvent) => string
-	handleInspectDatasetWithoutFocus: (event: NDKGeoEvent) => void
+	getDatasetName: (event: GeoDataset) => string
+	handleInspectDatasetWithoutFocus: (event: GeoDataset) => void
 	setFeaturePopupData: (data: FeaturePopupData | null) => void
 }
 

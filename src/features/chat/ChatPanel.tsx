@@ -9,7 +9,7 @@ import {
 	getEntityReferenceKey,
 	type EntitySearchResult,
 } from '@/components/entity-search'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import type { EditorFeature } from '@/features/geo-editor/core'
 import { Button } from '@/components/ui/button'
@@ -63,16 +63,16 @@ const PROVIDER_LABELS: Record<ProviderType, string> = {
 }
 
 interface ChatPanelProps {
-	geoEvents?: NDKGeoEvent[]
+	geoEvents?: GeoDataset[]
 	mapContextEvents?: NDKMapContextEvent[]
 	availableFeatures?: GeoFeatureItem[]
-	getDatasetName?: (event: NDKGeoEvent) => string
+	getDatasetName?: (event: GeoDataset) => string
 	onStartNewDataset?: () => void
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onOpenSettings?: () => void
 }
 
-const defaultGetDatasetName = (event: NDKGeoEvent): string =>
+const defaultGetDatasetName = (event: GeoDataset): string =>
 	event.datasetId ?? event.dTag ?? event.id ?? 'Untitled'
 
 function DangerIndicator() {

@@ -1,7 +1,7 @@
 import Ajv2020 from 'ajv/dist/2020'
 import addFormats from 'ajv-formats'
 import type { FeatureCollection, Feature } from 'geojson'
-import type { NDKGeoEvent } from '../ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import {
 	MAP_CONTEXT_GEOMETRY_TYPES,
 	type MapContextGeometryType,
@@ -200,7 +200,7 @@ function toFeatureId(feature: Feature, index: number): string | undefined {
 }
 
 export function validateDatasetForContext(
-	dataset: NDKGeoEvent,
+	dataset: GeoDataset | null | undefined,
 	context: NDKMapContextEvent,
 	featureCollection?: FeatureCollection,
 	mode: ContextFilterMode = 'strict',
@@ -253,7 +253,7 @@ export function validateDatasetForContext(
 			errors: [{ path: '$', message: 'Context has no validation constraints.' }],
 		}
 	}
-	const collection = featureCollection ?? dataset.featureCollection
+	const collection = featureCollection ?? dataset?.featureCollection
 	const features = collection?.features ?? []
 
 	if (features.length === 0) {

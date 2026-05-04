@@ -117,6 +117,27 @@ export function syncAddressReferenceTags(
 	referencedCoordinates: string[],
 	preservedCoordinates: string[] = [],
 ): void {
+	event.tags = computeAddressReferenceTags(
+		event.tags,
+		referencedCoordinates,
+		preservedCoordinates,
+	)
+}
+
+/**
+ * Pure version of `syncAddressReferenceTags` — takes the current tag array
+ * and returns the new one. Use this with `factory.modifyPublicTags(...)`.
+ *
+ *   - Existing `a` tags are dropped UNLESS their coordinate is in
+ *     `preservedCoordinates`.
+ *   - Then the dedup'd `referencedCoordinates` are appended (also keeping
+ *     `preservedCoordinates` first so order matches the legacy behavior).
+ */
+export function computeAddressReferenceTags(
+	currentTags: string[][],
+	referencedCoordinates: string[],
+	preservedCoordinates: string[] = [],
+): string[][] {
 	const preserved = new Set(preservedCoordinates.filter(Boolean))
 	const nextCoordinates: string[] = []
 	const seen = new Set<string>()
@@ -127,15 +148,29 @@ export function syncAddressReferenceTags(
 		nextCoordinates.push(coordinate)
 	})
 
-	event.tags = event.tags.filter((tag) => tag[0] !== 'a' || preserved.has(tag[1] ?? ''))
+	const filtered = currentTags.filter(
+		(tag) => tag[0] !== 'a' || preserved.has(tag[1] ?? ''),
+	)
 	const existingAValues = new Set(
-		event.tags
+		filtered
 			.filter((tag) => tag[0] === 'a' && typeof tag[1] === 'string' && tag[1])
 			.map((tag) => tag[1] as string),
 	)
-
+	const additions: string[][] = []
 	nextCoordinates.forEach((coordinate) => {
 		if (existingAValues.has(coordinate)) return
-		event.tags.push(['a', coordinate])
+		additions.push(['a', coordinate])
 	})
+	return [...filtered, ...additions]
+}
+
+/**
+ * Tag operation suitable for `factory.modifyPublicTags(setAddressReferenceTags(...))`.
+ */
+export function setAddressReferenceTags(
+	referencedCoordinates: string[],
+	preservedCoordinates: string[] = [],
+) {
+	return (tags: string[][]) =>
+		computeAddressReferenceTags(tags, referencedCoordinates, preservedCoordinates)
 }

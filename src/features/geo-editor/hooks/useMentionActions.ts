@@ -1,16 +1,16 @@
 import { useCallback } from 'react'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { useEditorStore } from '../store'
 
 interface UseMentionActionsParams {
-	geoEvents: NDKGeoEvent[]
-	resolvedCollectionResolver: (event: NDKGeoEvent) => GeoJSON.FeatureCollection | null | undefined
+	geoEvents: GeoDataset[]
+	resolvedCollectionResolver: (event: GeoDataset) => GeoJSON.FeatureCollection | null | undefined
 	handleZoomToBounds: (bounds: [number, number, number, number]) => void
-	zoomToDataset: (event: NDKGeoEvent) => void
-	getDatasetKey: (event: NDKGeoEvent) => string
+	zoomToDataset: (event: GeoDataset) => void
+	getDatasetKey: (event: GeoDataset) => string
 	isFocused: boolean
 	clearFocus: () => void
-	toggleDatasetVisibility: (event: NDKGeoEvent) => void
+	toggleDatasetVisibility: (event: GeoDataset) => void
 	toggleAllDatasetVisibility: (visible: boolean) => void
 }
 
@@ -28,7 +28,7 @@ export function useMentionActions({
 	const setDatasetVisibility = useEditorStore((state) => state.setDatasetVisibility)
 
 	const resolveNaddrToDataset = useCallback(
-		(address: string): NDKGeoEvent | null => {
+		(address: string): GeoDataset | null => {
 			if (!address || !address.startsWith('naddr1')) {
 				return null
 			}
@@ -107,7 +107,7 @@ export function useMentionActions({
 	)
 
 	const handleToggleVisibilityWithExitFocus = useCallback(
-		(event: NDKGeoEvent) => {
+		(event: GeoDataset) => {
 			if (isFocused) {
 				clearFocus()
 			}

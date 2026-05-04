@@ -4,7 +4,7 @@ import maplibregl from 'maplibre-gl'
 import { useCallback, useRef } from 'react'
 import { useChatStore } from '@/features/chat'
 import { resolveGeoEventFeatureCollection } from '@/lib/geo/resolveBlobReferences'
-import type { NDKGeoEvent, GeoBlobReference } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset, GeoBlobReference } from '@/lib/nostr/geo-event'
 import { useEditorStore } from '../store'
 import type { EditorBlobReference } from '../types'
 import {
@@ -51,11 +51,11 @@ function getCollectionBbox(
 
 export function useDatasetManagement(
 	mapRef: React.MutableRefObject<maplibregl.Map | null>,
-	geoEvents: NDKGeoEvent[],
+	geoEvents: GeoDataset[],
 ) {
 	const resolvedCollectionsRef = useRef<Map<string, ResolvedCache>>(new Map())
 	const isMountedRef = useRef(true)
-	const geoEventsRef = useRef<NDKGeoEvent[]>([])
+	const geoEventsRef = useRef<GeoDataset[]>([])
 
 	// Keep ref in sync
 	geoEventsRef.current = geoEvents
@@ -93,18 +93,18 @@ export function useDatasetManagement(
 	const activeContextScopeCoordinate = useEditorStore((state) => state.activeContextScopeCoordinate)
 
 	const getDatasetKey = useCallback(
-		(event: NDKGeoEvent) => `${event.pubkey}:${event.datasetId ?? event.id}`,
+		(event: GeoDataset) => `${event.pubkey}:${event.datasetId ?? event.id}`,
 		[],
 	)
 
 	const getDatasetName = useCallback(
-		(event: NDKGeoEvent) =>
+		(event: GeoDataset) =>
 			getCollectionName(event.featureCollection) ?? event.datasetId ?? event.id,
 		[],
 	)
 
 	const resolvedCollectionResolver = useCallback(
-		(event: NDKGeoEvent) => {
+		(event: GeoDataset) => {
 			const datasetKey = getDatasetKey(event)
 			return resolvedCollectionsRef.current.get(datasetKey)?.featureCollection
 		},
@@ -112,7 +112,7 @@ export function useDatasetManagement(
 	)
 
 	const ensureResolvedFeatureCollection = useCallback(
-		async (event: NDKGeoEvent) => {
+		async (event: GeoDataset) => {
 			if (event.blobReferences.length === 0) {
 				return event.featureCollection
 			}
@@ -199,7 +199,7 @@ export function useDatasetManagement(
 			blobReferences,
 		}: {
 			features: ReturnType<typeof convertGeoEventsToEditorFeatures>
-			activeDataset: NDKGeoEvent | null
+			activeDataset: GeoDataset | null
 			contextRefs: string[]
 			collectionMeta: ReturnType<typeof extractCollectionMeta>
 			blobReferences: GeoBlobReference[]
@@ -362,7 +362,7 @@ export function useDatasetManagement(
 	)
 
 	const zoomToDataset = useCallback(
-		(event: NDKGeoEvent) => {
+		(event: GeoDataset) => {
 			if (!mapRef.current) return
 			const resolvedCollection = resolvedCollectionResolver(event)
 			const bbox =
@@ -409,7 +409,7 @@ export function useDatasetManagement(
 	)
 
 	const toggleDatasetVisibility = useCallback(
-		(event: NDKGeoEvent) => {
+		(event: GeoDataset) => {
 			const key = getDatasetKey(event)
 			setDatasetVisibility((prev) => ({
 				...prev,
@@ -434,7 +434,7 @@ export function useDatasetManagement(
 	)
 
 	const loadDatasetForEditing = useCallback(
-		async (event: NDKGeoEvent) => {
+		async (event: GeoDataset) => {
 			if (!editor) return
 			const datasetKey = getDatasetKey(event)
 			const draftSourceId = `dataset:${datasetKey}`

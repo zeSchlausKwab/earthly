@@ -1,14 +1,24 @@
 import type NDK from '@nostr-dev-kit/ndk'
+import { castEvent } from 'applesauce-core/casts'
 import type { FeatureCollection } from 'geojson'
 import { useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
 import { validateDatasetForContext } from '@/lib/context/validation'
-import type { GeoBlobReference, NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
-import { NDKGeoEvent as NDKGeoEventClass } from '@/lib/ndk/NDKGeoEvent'
+import { accounts, eventStore, publish } from '@/lib/nostr'
+import {
+	deleteDataset,
+	GeoDataset,
+	GeoDatasetFactory,
+	type GeoBlobReference,
+} from '@/lib/nostr/geo-event'
 import { NDKGeoEditProposalEvent } from '@/lib/ndk/NDKGeoEditProposalEvent'
 import { GEO_EVENT_KIND } from '@/lib/ndk/kinds'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
-import { extractReferencedCoordinates, syncAddressReferenceTags } from '@/lib/ndk/nostrReferences'
+import {
+	extractReferencedCoordinates,
+	setAddressReferenceTags,
+	syncAddressReferenceTags,
+} from '@/lib/ndk/nostrReferences'
 import type { EditorFeature } from '../core'
 import { useEditorStore } from '../store'
 import type { EditorBlobReference } from '../types'
@@ -18,10 +28,10 @@ import { BLOSSOM_UPLOAD_THRESHOLD_BYTES } from '../constants'
 interface UsePublishingOptions {
 	ndk: NDK | undefined
 	currentUserPubkey: string | undefined
-	getDatasetName: (event: NDKGeoEvent) => string
-	getDatasetKey: (event: NDKGeoEvent) => string
+	getDatasetName: (event: GeoDataset) => string
+	getDatasetKey: (event: GeoDataset) => string
 	mapContexts: NDKMapContextEvent[]
-	resolvedCollectionResolver?: (event: NDKGeoEvent) => FeatureCollection | undefined
+	resolvedCollectionResolver?: (event: GeoDataset) => FeatureCollection | undefined
 }
 
 export function usePublishing({
@@ -83,9 +93,13 @@ export function usePublishing({
 		return typeof propertyDescription === 'string' ? propertyDescription : ''
 	}, [])
 
+	// Used only by `handleProposeEdit` while NDKGeoEditProposalEvent still
+	// runs on the legacy NDK class. Once Step 4d lands, this drops out and
+	// proposals migrate to the factory + `setAddressReferenceTags` pattern
+	// the rest of the file already uses.
 	const syncRichTextReferenceTags = useCallback(
 		(
-			event: NDKGeoEvent | NDKGeoEditProposalEvent,
+			event: NDKGeoEditProposalEvent,
 			text: string | undefined,
 			preservedCoordinates: string[] = [],
 		) => {
@@ -283,12 +297,11 @@ export function usePublishing({
 				return { ok: true }
 			}
 
-			const candidate = new NDKGeoEventClass(ndk || undefined)
-			candidate.featureCollection = collection
-			candidate.contextReferences = activeDatasetContextRefs
-
+			// Validation only consults the dataset for its featureCollection when
+			// none is provided explicitly. We always pass the collection here, so
+			// passing `null` for the dataset is fine.
 			for (const context of requiredContexts) {
-				const result = validateDatasetForContext(candidate, context, collection, 'strict')
+				const result = validateDatasetForContext(null, context, collection, 'strict')
 				if (result.status !== 'valid') {
 					const contextName =
 						context.context.name || context.contextId || context.id || 'Unknown context'
@@ -301,11 +314,11 @@ export function usePublishing({
 
 			return { ok: true }
 		},
-		[activeDatasetContextRefs, mapContexts, ndk],
+		[activeDatasetContextRefs, mapContexts],
 	)
 
 	const switchToDatasetViewMode = useCallback(
-		(dataset: NDKGeoEvent) => {
+		(dataset: GeoDataset) => {
 			setMode('select')
 			setViewMode('view')
 			setViewDataset(dataset)
@@ -329,44 +342,44 @@ export function usePublishing({
 				return
 			}
 
-			if (!ndk) {
-				setPublishError('NDK is not ready.')
+			const signer = accounts.signer
+			if (!signer) {
+				setPublishError('No active account.')
 				return
 			}
 
 			const refs = serializeBlobReferences()
 			const collectionBlobRef = refs.find((ref) => ref.scope === 'collection')
+			const referencedCoords = extractReferencedCoordinates(getCollectionDescription(collection))
 
-			const event = new NDKGeoEventClass(ndk)
-			event.contextReferences = activeDatasetContextRefs
-			syncRichTextReferenceTags(event, getCollectionDescription(collection))
+			let factory = GeoDatasetFactory.create(collection)
+				.contextReferences(activeDatasetContextRefs)
+				.blobReferences(refs)
+				.modifyPublicTags(setAddressReferenceTags(referencedCoords))
 
 			if (collectionBlobRef) {
-				// Publish as STUB with external reference (per SPEC.md section 1.5)
-				// Compute metadata from FULL collection first, then set stub content
-				event.featureCollection = collection
-				event.updateDerivedMetadata() // Computes bbox, geohash from full geometry
-
-				// Now replace content with stub - keeping the computed metadata tags
+				// Stub publish (SPEC.md §1.5): compute spatial discovery tags from
+				// the full collection, swap the content for a stub, then update
+				// content-derived tags (size, checksum) so they match the stub.
 				const stubCollection = buildCollectionStub(collection, collectionBlobRef.url)
-
-				// Set stub as content (metadata tags already computed above)
-				event.content = JSON.stringify(stubCollection)
-				event.blobReferences = refs
-				// Skip metadata update since we pre-computed from full collection
-				await event.publishNew(undefined, { skipMetadataUpdate: true })
+				factory = factory
+					.withSpatialMetadata()
+					.content(JSON.stringify(stubCollection))
+					.withContentMetadata()
 			} else {
-				// Publish with full geometry inline (standard case)
-				event.featureCollection = collection
-				event.blobReferences = refs
-				await event.publishNew()
+				factory = factory.withDerivedMetadata()
 			}
+
+			const signedEvent = await factory.sign(signer)
+			await publish(signedEvent, { routing: 'outbox' })
+			const cast = castEvent(signedEvent, GeoDataset, eventStore)
+
 			setPublishMessage('Dataset published successfully.')
-			setActiveDataset(event)
-			setActiveDatasetContextRefs(event.contextReferences)
+			setActiveDataset(cast)
+			setActiveDatasetContextRefs(cast.contextReferences)
 			setCollectionMeta(extractCollectionMeta(collection))
 			setSelectedFeatureIds([])
-			switchToDatasetViewMode(event)
+			switchToDatasetViewMode(cast)
 		} catch (error) {
 			console.error('Failed to publish dataset', error)
 			setPublishError('Failed to publish dataset. Check console for details.')
@@ -380,10 +393,10 @@ export function usePublishing({
 		setPublishError,
 		buildCollectionFromEditor,
 		validateRequiredContextAttachments,
-		ndk,
 		serializeBlobReferences,
 		activeDatasetContextRefs,
 		buildCollectionStub,
+		getCollectionDescription,
 		setActiveDataset,
 		setActiveDatasetContextRefs,
 		setCollectionMeta,
@@ -397,8 +410,9 @@ export function usePublishing({
 	 */
 	const handlePublishWithBlossomUpload = useCallback(
 		async (blobResult: { sha256: string; url: string; size: number }) => {
-			if (!ndk) {
-				setPublishError('NDK is not ready.')
+			const signer = accounts.signer
+			if (!signer) {
+				setPublishError('No active account.')
 				return
 			}
 
@@ -415,20 +429,8 @@ export function usePublishing({
 					return
 				}
 
-				const event = new NDKGeoEventClass(ndk)
-				event.contextReferences = activeDatasetContextRefs
-				syncRichTextReferenceTags(event, getCollectionDescription(collection))
-				// Compute discovery metadata (bbox/geohash) from the full geometry first.
-				event.featureCollection = collection
-				event.updateDerivedMetadata()
-
-				// Then publish stub content referencing Blossom.
-				const stubCollection = buildCollectionStub(collection, blobResult.url)
-				event.content = JSON.stringify(stubCollection)
-
-				// Add the blob reference for the full collection
 				const existingRefs = serializeBlobReferences()
-				event.blobReferences = [
+				const blobRefs: GeoBlobReference[] = [
 					...existingRefs.filter((ref) => ref.scope !== 'collection'),
 					{
 						scope: 'collection',
@@ -438,16 +440,28 @@ export function usePublishing({
 						mimeType: 'application/geo+json',
 					},
 				]
+				const referencedCoords = extractReferencedCoordinates(getCollectionDescription(collection))
+				const stubCollection = buildCollectionStub(collection, blobResult.url)
 
-				await event.publishNew(undefined, { skipMetadataUpdate: true })
+				const signedEvent = await GeoDatasetFactory.create(collection)
+					.contextReferences(activeDatasetContextRefs)
+					.blobReferences(blobRefs)
+					.modifyPublicTags(setAddressReferenceTags(referencedCoords))
+					.withSpatialMetadata()
+					.content(JSON.stringify(stubCollection))
+					.withContentMetadata()
+					.sign(signer)
+
+				await publish(signedEvent, { routing: 'outbox' })
+				const cast = castEvent(signedEvent, GeoDataset, eventStore)
+
 				setPublishMessage('Dataset published with external reference.')
-				setActiveDataset(event)
-				setActiveDatasetContextRefs(event.contextReferences)
+				setActiveDataset(cast)
+				setActiveDatasetContextRefs(cast.contextReferences)
 				setCollectionMeta(extractCollectionMeta(collection))
 				setSelectedFeatureIds([])
-				switchToDatasetViewMode(event)
+				switchToDatasetViewMode(cast)
 
-				// Clean up dialog state
 				setPendingPublishCollection(null)
 				setBlossomUploadDialogOpen(false)
 			} catch (error) {
@@ -458,7 +472,6 @@ export function usePublishing({
 			}
 		},
 		[
-			ndk,
 			setIsPublishing,
 			setPublishMessage,
 			setPublishError,
@@ -467,6 +480,7 @@ export function usePublishing({
 			activeDatasetContextRefs,
 			serializeBlobReferences,
 			buildCollectionStub,
+			getCollectionDescription,
 			setActiveDataset,
 			setActiveDatasetContextRefs,
 			setCollectionMeta,
@@ -502,47 +516,48 @@ export function usePublishing({
 			return
 		}
 
+		const signer = accounts.signer
+		if (!signer) {
+			setPublishError('No active account.')
+			setIsPublishing(false)
+			return
+		}
+
 		try {
 			const refs = serializeBlobReferences()
 			const collectionBlobRef = refs.find((ref) => ref.scope === 'collection')
+			const referencedCoords = extractReferencedCoordinates(getCollectionDescription(collection))
 
-			const event = new NDKGeoEventClass(ndk || undefined)
-			event.datasetId = activeDataset.datasetId ?? activeDataset.id
-			event.hashtags = activeDataset.hashtags
-			event.collectionReferences = activeDataset.collectionReferences
-			event.contextReferences = activeDatasetContextRefs
-			event.relayHints = activeDataset.relayHints
-			event.blobReferences = refs
-			syncRichTextReferenceTags(event, getCollectionDescription(collection))
+			let factory = GeoDatasetFactory.update(activeDataset.event, collection)
+				.hashtags(activeDataset.hashtags)
+				.collectionReferences(activeDataset.collectionReferences)
+				.contextReferences(activeDatasetContextRefs)
+				.relayHints(activeDataset.relayHints)
+				.blobReferences(refs)
+				.modifyPublicTags(setAddressReferenceTags(referencedCoords))
 
 			if (collectionBlobRef) {
-				// Publish as STUB with external reference (per SPEC.md section 1.5)
-				// Preserve discovery metadata if we can't compute it (e.g. geometry not loaded)
-				event.boundingBox = activeDataset.boundingBox
-				event.geohash = activeDataset.geohash
-
-				// Compute bbox/geohash from FULL collection first, then set stub content.
-				event.featureCollection = collection
-				event.updateDerivedMetadata()
-
 				const stubCollection = buildCollectionStub(collection, collectionBlobRef.url)
-				event.content = JSON.stringify(stubCollection)
-
-				await event.publishUpdate(activeDataset, undefined, { skipMetadataUpdate: true })
+				factory = factory
+					.withSpatialMetadata()
+					.content(JSON.stringify(stubCollection))
+					.withContentMetadata()
 			} else {
-				// Publish with full geometry inline (standard case)
-				event.featureCollection = collection
-				await event.publishUpdate(activeDataset)
+				factory = factory.withDerivedMetadata()
 			}
+
+			const signedEvent = await factory.sign(signer)
+			await publish(signedEvent, { routing: 'outbox' })
+			const cast = castEvent(signedEvent, GeoDataset, eventStore)
 
 			setPublishMessage('Dataset update published successfully.')
 			toast.success('Dataset updated.')
 			setIsDirty(false)
-			setActiveDataset(event)
-			setActiveDatasetContextRefs(event.contextReferences)
+			setActiveDataset(cast)
+			setActiveDatasetContextRefs(cast.contextReferences)
 			setCollectionMeta(extractCollectionMeta(collection))
 			setSelectedFeatureIds([])
-			switchToDatasetViewMode(event)
+			switchToDatasetViewMode(cast)
 		} catch (error) {
 			console.error('Failed to publish dataset update', error)
 			setPublishError('Failed to publish dataset update. Check console for details.')
@@ -558,10 +573,10 @@ export function usePublishing({
 		currentUserPubkey,
 		buildCollectionFromEditor,
 		validateRequiredContextAttachments,
-		ndk,
 		serializeBlobReferences,
 		activeDatasetContextRefs,
 		buildCollectionStub,
+		getCollectionDescription,
 		setActiveDataset,
 		setActiveDatasetContextRefs,
 		setCollectionMeta,
@@ -585,37 +600,41 @@ export function usePublishing({
 				return
 			}
 
-			if (!ndk) {
-				setPublishError('NDK is not ready.')
+			const signer = accounts.signer
+			if (!signer) {
+				setPublishError('No active account.')
 				return
 			}
 
 			const refs = serializeBlobReferences()
 			const collectionBlobRef = refs.find((ref) => ref.scope === 'collection')
+			const referencedCoords = extractReferencedCoordinates(getCollectionDescription(collection))
 
-			const event = new NDKGeoEventClass(ndk)
-			event.contextReferences = activeDatasetContextRefs
-			event.blobReferences = refs
-			syncRichTextReferenceTags(event, getCollectionDescription(collection))
+			let factory = GeoDatasetFactory.create(collection)
+				.contextReferences(activeDatasetContextRefs)
+				.blobReferences(refs)
+				.modifyPublicTags(setAddressReferenceTags(referencedCoords))
 
 			if (collectionBlobRef) {
-				event.featureCollection = collection
-				event.updateDerivedMetadata()
-
 				const stubCollection = buildCollectionStub(collection, collectionBlobRef.url)
-				event.content = JSON.stringify(stubCollection)
-				await event.publishNew(undefined, { skipMetadataUpdate: true })
+				factory = factory
+					.withSpatialMetadata()
+					.content(JSON.stringify(stubCollection))
+					.withContentMetadata()
 			} else {
-				event.featureCollection = collection
-				await event.publishNew()
+				factory = factory.withDerivedMetadata()
 			}
 
+			const signedEvent = await factory.sign(signer)
+			await publish(signedEvent, { routing: 'outbox' })
+			const cast = castEvent(signedEvent, GeoDataset, eventStore)
+
 			setPublishMessage('Dataset copy published successfully.')
-			setActiveDataset(event)
-			setActiveDatasetContextRefs(event.contextReferences)
+			setActiveDataset(cast)
+			setActiveDatasetContextRefs(cast.contextReferences)
 			setCollectionMeta(extractCollectionMeta(collection))
 			setSelectedFeatureIds([])
-			switchToDatasetViewMode(event)
+			switchToDatasetViewMode(cast)
 		} catch (error) {
 			console.error('Failed to publish dataset copy', error)
 			setPublishError('Failed to publish dataset copy. Check console for details.')
@@ -629,10 +648,10 @@ export function usePublishing({
 		setPublishError,
 		buildCollectionFromEditor,
 		validateRequiredContextAttachments,
-		ndk,
 		serializeBlobReferences,
 		activeDatasetContextRefs,
 		buildCollectionStub,
+		getCollectionDescription,
 		setActiveDataset,
 		setActiveDatasetContextRefs,
 		setCollectionMeta,
@@ -696,9 +715,10 @@ export function usePublishing({
 	)
 
 	const handleDeleteDataset = useCallback(
-		async (event: NDKGeoEvent, onClear: () => void) => {
-			if (!ndk) {
-				toast.error('NDK is not ready.')
+		async (event: GeoDataset, onClear: () => void) => {
+			const signer = accounts.signer
+			if (!signer) {
+				toast.error('No active account.')
 				return
 			}
 			if (!(event.datasetId ?? event.dTag)) {
@@ -708,7 +728,7 @@ export function usePublishing({
 
 			const key = getDatasetKey(event)
 			try {
-				await NDKGeoEventClass.deleteDataset(ndk, event)
+				await deleteDataset(event.event, signer)
 				if (activeDataset && getDatasetKey(activeDataset) === key) {
 					onClear()
 				}
@@ -718,7 +738,7 @@ export function usePublishing({
 				toast.error('Failed to delete dataset. Check console for details.')
 			}
 		},
-		[ndk, activeDataset, getDatasetKey, getDatasetName],
+		[activeDataset, getDatasetKey, getDatasetName],
 	)
 
 	// Check if there's a collection blob reference (uploaded to Blossom)

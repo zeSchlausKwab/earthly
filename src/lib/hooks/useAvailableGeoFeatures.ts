@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { nip19 } from 'nostr-tools'
 import type { FeatureCollection } from 'geojson'
-import type { NDKGeoEvent } from '../ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { NDKMapContextEvent } from '../ndk/NDKMapContextEvent'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 
@@ -15,8 +15,8 @@ interface NamedFeatureCollection extends FeatureCollection {
  * Each feature gets a proper naddr1 address for NIP-27 compliant references.
  */
 export function useAvailableGeoFeatures(
-	geoEvents: NDKGeoEvent[],
-	resolvedCollectionResolver?: (event: NDKGeoEvent) => FeatureCollection | undefined,
+	geoEvents: GeoDataset[],
+	resolvedCollectionResolver?: (event: GeoDataset) => FeatureCollection | undefined,
 	mapContexts: NDKMapContextEvent[] = [],
 ): GeoFeatureItem[] {
 	return useMemo(() => {

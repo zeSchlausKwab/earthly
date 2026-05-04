@@ -7,11 +7,11 @@ import { Button } from './ui/button'
 import { UserProfile } from './user-profile'
 import { useEditorStore } from '../features/geo-editor/store'
 import { GeoSocialActions } from '../features/social/comments/GeoSocialActions'
-import type { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { cn } from '@/lib/utils'
 
 export interface DatasetRowData {
-	event: NDKGeoEvent
+	event: GeoDataset
 	datasetKey: string
 	datasetName: string
 	isActive: boolean
@@ -21,13 +21,13 @@ export interface DatasetRowData {
 }
 
 export interface DatasetColumnsContext {
-	onLoadDataset: (event: NDKGeoEvent) => void
-	onDeleteDataset: (event: NDKGeoEvent) => void
-	onToggleVisibility: (event: NDKGeoEvent) => void
+	onLoadDataset: (event: GeoDataset) => void
+	onDeleteDataset: (event: GeoDataset) => void
+	onToggleVisibility: (event: GeoDataset) => void
 	onToggleAllVisibility: (visible: boolean) => void
-	onZoomToDataset: (event: NDKGeoEvent) => void
-	onInspectDataset?: (event: NDKGeoEvent) => void
-	onOpenDebug?: (event: NDKGeoEvent) => void
+	onZoomToDataset: (event: GeoDataset) => void
+	onInspectDataset?: (event: GeoDataset) => void
+	onOpenDebug?: (event: GeoDataset) => void
 	isPublishing: boolean
 	deletingKey: string | null
 	allVisibleState: 'all' | 'none' | 'some'
@@ -44,10 +44,10 @@ const DatasetLoadButton = memo(function DatasetLoadButton({
 	onLoadDataset,
 }: {
 	datasetKey: string
-	event: NDKGeoEvent
+	event: GeoDataset
 	isActive: boolean
 	isPublishing: boolean
-	onLoadDataset: (event: NDKGeoEvent) => void
+	onLoadDataset: (event: GeoDataset) => void
 }) {
 	const isResolving = useEditorStore((state) => state.resolvingDatasets.has(datasetKey))
 	const progress = useEditorStore((state) => state.resolvingProgress.get(datasetKey))

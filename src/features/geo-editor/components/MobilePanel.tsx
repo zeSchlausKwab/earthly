@@ -21,7 +21,7 @@ import { ShoutboxPanel } from '@/features/social/shoutbox'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { EntitySearchPopover, type EntitySearchResult } from '@/components/entity-search'
@@ -46,9 +46,9 @@ export type MobilePanelTab =
 	| 'help'
 
 export interface MobilePanelProps {
-	geoEvents: NDKGeoEvent[]
+	geoEvents: GeoDataset[]
 	mapContextEvents: NDKMapContextEvent[]
-	activeDataset: NDKGeoEvent | null
+	activeDataset: GeoDataset | null
 	currentUserPubkey?: string
 	userPubkey?: string | null
 	datasetVisibility: Record<string, boolean>
@@ -56,24 +56,24 @@ export interface MobilePanelProps {
 	deletingKey: string | null
 	isFocused: boolean
 	multiSelectModifier?: string
-	onLoadDataset: (event: NDKGeoEvent) => void
+	onLoadDataset: (event: GeoDataset) => void
 	onStartNewDataset?: () => void
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void
-	onToggleVisibility: (event: NDKGeoEvent) => void
+	onToggleVisibility: (event: GeoDataset) => void
 	onToggleAllVisibility: (visible: boolean) => void
-	onZoomToDataset: (event: NDKGeoEvent) => void
-	onDeleteDataset: (event: NDKGeoEvent) => void
+	onZoomToDataset: (event: GeoDataset) => void
+	onDeleteDataset: (event: GeoDataset) => void
 	onDeleteContext?: (context: NDKMapContextEvent) => void
-	getDatasetKey: (event: NDKGeoEvent) => string
-	getDatasetName: (event: NDKGeoEvent) => string
+	getDatasetKey: (event: GeoDataset) => string
+	getDatasetName: (event: GeoDataset) => string
 	onOpenGeometryEditor?: () => void
-	onInspectDataset?: (event: NDKGeoEvent) => void
+	onInspectDataset?: (event: GeoDataset) => void
 	onExitFocus?: () => void
 	onInspectContext?: (context: NDKMapContextEvent) => void
 	onCreateContext?: () => void
 	onEditContext?: (context: NDKMapContextEvent) => void
-	onOpenDebug?: (event: NDKGeoEvent | NDKMapContextEvent) => void
+	onOpenDebug?: (event: GeoDataset | NDKMapContextEvent) => void
 	onExitViewMode?: () => void
 	onCommentGeometryVisibility?: (
 		comment: import('@/lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent,
@@ -100,7 +100,7 @@ export interface MobilePanelProps {
 		proposal: import('@/lib/ndk/NDKGeoEditProposalEvent').NDKGeoEditProposalEvent,
 		visible: boolean,
 	) => void
-	onProposalAccepted?: (dataset: NDKGeoEvent) => void
+	onProposalAccepted?: (dataset: GeoDataset) => void
 	visibleProposalIds?: Set<string>
 	focusCommentId?: string
 }
@@ -545,25 +545,25 @@ export function MobilePanel(props: MobilePanelProps) {
 
 interface MobileProfileContentProps {
 	pubkey?: string | null
-	geoEvents: NDKGeoEvent[]
+	geoEvents: GeoDataset[]
 	mapContextEvents: NDKMapContextEvent[]
 	currentUserPubkey?: string
 	datasetVisibility: Record<string, boolean>
 	isPublishing: boolean
 	deletingKey: string | null
-	onLoadDataset: (event: NDKGeoEvent) => void
+	onLoadDataset: (event: GeoDataset) => void
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void
-	onToggleVisibility: (event: NDKGeoEvent) => void
+	onToggleVisibility: (event: GeoDataset) => void
 	onToggleAllVisibility: (visible: boolean) => void
-	onZoomToDataset: (event: NDKGeoEvent) => void
-	onDeleteDataset: (event: NDKGeoEvent) => void
-	getDatasetKey: (event: NDKGeoEvent) => string
-	getDatasetName: (event: NDKGeoEvent) => string
-	onInspectDataset?: (event: NDKGeoEvent) => void
+	onZoomToDataset: (event: GeoDataset) => void
+	onDeleteDataset: (event: GeoDataset) => void
+	getDatasetKey: (event: GeoDataset) => string
+	getDatasetName: (event: GeoDataset) => string
+	onInspectDataset?: (event: GeoDataset) => void
 	onInspectContext?: (context: NDKMapContextEvent) => void
 	onEditContext?: (context: NDKMapContextEvent) => void
-	onOpenDebug?: (event: NDKGeoEvent | NDKMapContextEvent) => void
+	onOpenDebug?: (event: GeoDataset | NDKMapContextEvent) => void
 }
 
 function MobileProfileContent(props: MobileProfileContentProps) {

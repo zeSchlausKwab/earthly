@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
-import type { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { NDKGeoEditProposalEvent } from '../lib/ndk/NDKGeoEditProposalEvent'
 import type { NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
 import squareLogoRose from '../assets/square_logo_rose.svg'
@@ -106,30 +106,30 @@ function isMetaMode(mode: SidebarContentMode): mode is MetaViewMode {
 }
 
 interface AppSidebarProps {
-	geoEvents: NDKGeoEvent[]
+	geoEvents: GeoDataset[]
 	mapContextEvents: NDKMapContextEvent[]
-	activeDataset: NDKGeoEvent | null
+	activeDataset: GeoDataset | null
 	currentUserPubkey?: string
 	datasetVisibility: Record<string, boolean>
 	isPublishing: boolean
 	deletingKey: string | null
-	onLoadDataset: (event: NDKGeoEvent) => void
+	onLoadDataset: (event: GeoDataset) => void
 	onStartNewDataset?: () => void
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void
 	onAddDraftToWorkspace?: (workspaceId: string) => void | Promise<void>
-	onToggleVisibility: (event: NDKGeoEvent) => void
+	onToggleVisibility: (event: GeoDataset) => void
 	onToggleAllVisibility: (visible: boolean) => void
-	onZoomToDataset: (event: NDKGeoEvent) => void
-	onDeleteDataset: (event: NDKGeoEvent) => void
+	onZoomToDataset: (event: GeoDataset) => void
+	onDeleteDataset: (event: GeoDataset) => void
 	onDeleteContext?: (context: NDKMapContextEvent) => void
-	getDatasetKey: (event: NDKGeoEvent) => string
-	getDatasetName: (event: NDKGeoEvent) => string
+	getDatasetKey: (event: GeoDataset) => string
+	getDatasetName: (event: GeoDataset) => string
 	onOpenGeometryEditor?: () => void
 	onClearEntityEditors?: () => void
-	onInspectDataset: (event: NDKGeoEvent) => void
+	onInspectDataset: (event: GeoDataset) => void
 	onInspectContext: (context: NDKMapContextEvent) => void
-	onOpenDebug: (event: NDKGeoEvent | NDKMapContextEvent) => void
+	onOpenDebug: (event: GeoDataset | NDKMapContextEvent) => void
 	onCreateContext: () => void
 	onEditContext: (context: NDKMapContextEvent) => void
 	isFocused: boolean
@@ -160,7 +160,7 @@ interface AppSidebarProps {
 	focusCommentId?: string
 	onFilteredDatasetKeysChange?: (keys: Set<string> | null) => void
 	onToggleProposalOverlay?: (proposal: NDKGeoEditProposalEvent, visible: boolean) => void
-	onProposalAccepted?: (dataset: NDKGeoEvent) => void
+	onProposalAccepted?: (dataset: GeoDataset) => void
 	visibleProposalIds?: Set<string>
 }
 
@@ -368,7 +368,7 @@ export function AppSidebar({
 		setViewContextDatasetsState([])
 	}
 
-	const handleLoadDataset = (event: NDKGeoEvent) => {
+	const handleLoadDataset = (event: GeoDataset) => {
 		onLoadDataset(event)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('geometry')
@@ -376,7 +376,7 @@ export function AppSidebar({
 		setShowEntityAsFullPanel(true)
 	}
 
-	const handleInspectDataset = (event: NDKGeoEvent) => {
+	const handleInspectDataset = (event: GeoDataset) => {
 		onInspectDataset(event)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('geometry')

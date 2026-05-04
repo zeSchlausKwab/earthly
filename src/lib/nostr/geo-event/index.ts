@@ -1,7 +1,7 @@
 /**
  * GeoJSON Data Event (kind 37515) — applesauce migration target.
  *
- * Use these in place of `NDKGeoEvent`:
+ * Use these in place of the legacy NDK subclass:
  *   - Reading: `castEvent(event, GeoDataset, eventStore)` or
  *     `castTimelineStream(GeoDataset, eventStore)` in observable pipelines
  *   - Writing: `GeoDatasetFactory.create(fc).hashtags(['t1']).withDerivedMetadata().sign(signer)`
@@ -10,4 +10,5 @@
 
 export * from './cast'
 export * from './factory'
+export * from './helpers'
 export * from './helpers'

@@ -1,66 +1,33 @@
 import type { NDKFilter } from '@nostr-dev-kit/ndk'
-import { useNDK, useSubscribe, wrapEvent } from '@nostr-dev-kit/react'
+import { useNDK } from '@nostr-dev-kit/react'
+import { castEvent } from 'applesauce-core/casts'
 import { useEffect, useMemo, useState } from 'react'
-import { NDKGeoEvent } from '../ndk/NDKGeoEvent'
+import { eventStore } from '@/lib/nostr'
+import { useTimelineWithEose } from '@/lib/nostr/hooks'
+import { GeoDataset } from '@/lib/nostr/geo-event'
+import { GEO_EVENT_KIND } from '@/lib/ndk/kinds'
 import { NDKMapContextEvent } from '../ndk/NDKMapContextEvent'
 
+function castGeoDataset(event: { id: string; kind: number; tags: string[][]; pubkey: string; content: string; created_at: number; sig: string }) {
+	return castEvent(event as Parameters<typeof castEvent>[0], GeoDataset, eventStore)
+}
+
 /**
- * Subscribe to GeoJSON dataset events (kind 37515) and wrap them into our custom NDKGeoEvent class.
- *
- * @param additionalFilters - Optional additional NDK filters to apply (limit, authors, etc.)
- * @returns Object containing the geo events array and end-of-stream status
+ * Subscribe to GeoJSON dataset events (kind 37515) and surface them as
+ * `GeoDataset` casts.
  */
 export function useStations(additionalFilters: Omit<NDKFilter, 'kinds'>[] = [{}]) {
 	const filters = additionalFilters.map((filter) => ({
 		...filter,
-		kinds: NDKGeoEvent.kinds,
+		kinds: [GEO_EVENT_KIND],
 	}))
 
-	const { events, eose } = useSubscribe(filters)
+	const { events, eose } = useTimelineWithEose(filters)
+
 	const geoEvents = useMemo(() => {
-		const latestByCoordinate = new Map<string, NDKGeoEvent>()
-
-		for (const event of events) {
-			const maybeWrapped = wrapEvent(event)
-			if (maybeWrapped instanceof Promise) continue
-			const wrapped =
-				maybeWrapped instanceof NDKGeoEvent ? maybeWrapped : NDKGeoEvent.from(maybeWrapped)
-
-			const datasetId = wrapped.datasetId ?? wrapped.dTag
-			const coordinate =
-				datasetId && wrapped.pubkey
-					? `${wrapped.kind ?? NDKGeoEvent.kinds[0]}:${wrapped.pubkey}:${datasetId}`
-					: `${wrapped.kind ?? NDKGeoEvent.kinds[0]}:${wrapped.pubkey ?? ''}:${
-							wrapped.id ?? wrapped.created_at ?? ''
-						}`
-
-			const existing = latestByCoordinate.get(coordinate)
-			if (!existing) {
-				latestByCoordinate.set(coordinate, wrapped)
-				continue
-			}
-
-			const existingCreatedAt = existing.created_at ?? 0
-			const wrappedCreatedAt = wrapped.created_at ?? 0
-			if (wrappedCreatedAt > existingCreatedAt) {
-				latestByCoordinate.set(coordinate, wrapped)
-				continue
-			}
-
-			if (wrappedCreatedAt === existingCreatedAt) {
-				const existingId = existing.id ?? ''
-				const wrappedId = wrapped.id ?? ''
-				if (wrappedId > existingId) {
-					latestByCoordinate.set(coordinate, wrapped)
-				}
-			}
-		}
-
-		return Array.from(latestByCoordinate.values()).sort((a, b) => {
-			const createdDiff = (b.created_at ?? 0) - (a.created_at ?? 0)
-			if (createdDiff !== 0) return createdDiff
-			return (b.id ?? '').localeCompare(a.id ?? '')
-		})
+		// EventStore already deduplicates and applies replaceable-event semantics,
+		// so the timeline only contains the latest version per (kind:pubkey:d).
+		return events.map((event) => castGeoDataset(event))
 	}, [events])
 
 	return {
@@ -75,49 +42,18 @@ export function useMapContexts(additionalFilters: Omit<NDKFilter, 'kinds'>[] = [
 		kinds: NDKMapContextEvent.kinds,
 	}))
 
-	const { events, eose } = useSubscribe(filters)
+	const { events, eose } = useTimelineWithEose(filters)
+
 	const contexts = useMemo(() => {
-		const latestByCoordinate = new Map<string, NDKMapContextEvent>()
-
+		const result: NDKMapContextEvent[] = []
 		for (const event of events) {
-			const maybeWrapped = wrapEvent(event)
-			if (maybeWrapped instanceof Promise) continue
-			const wrapped =
-				maybeWrapped instanceof NDKMapContextEvent
-					? maybeWrapped
-					: NDKMapContextEvent.from(maybeWrapped)
-
-			const contextId = wrapped.contextId ?? wrapped.dTag
-			const coordinate =
-				contextId && wrapped.pubkey
-					? `${wrapped.kind ?? NDKMapContextEvent.kinds[0]}:${wrapped.pubkey}:${contextId}`
-					: `${wrapped.kind ?? NDKMapContextEvent.kinds[0]}:${wrapped.pubkey ?? ''}:${
-							wrapped.id ?? wrapped.created_at ?? ''
-						}`
-
-			const existing = latestByCoordinate.get(coordinate)
-			if (!existing) {
-				latestByCoordinate.set(coordinate, wrapped)
-				continue
-			}
-
-			const existingCreatedAt = existing.created_at ?? 0
-			const wrappedCreatedAt = wrapped.created_at ?? 0
-			if (wrappedCreatedAt > existingCreatedAt) {
-				latestByCoordinate.set(coordinate, wrapped)
-				continue
-			}
-
-			if (wrappedCreatedAt === existingCreatedAt) {
-				const existingId = existing.id ?? ''
-				const wrappedId = wrapped.id ?? ''
-				if (wrappedId > existingId) {
-					latestByCoordinate.set(coordinate, wrapped)
-				}
-			}
+			// Until kind 37518 is migrated to applesauce, wrap the raw event
+			// in the legacy NDKMapContextEvent class. The class methods that
+			// touch NDK (publish, sign) still work via the ndk-bridge.
+			const wrapped = NDKMapContextEvent.from(event as never)
+			result.push(wrapped)
 		}
-
-		return Array.from(latestByCoordinate.values())
+		return result
 	}, [events])
 
 	return {
@@ -128,15 +64,13 @@ export function useMapContexts(additionalFilters: Omit<NDKFilter, 'kinds'>[] = [
 
 /**
  * A hook for searching geo events with proper subscription management.
- * Handles dynamic search queries by restarting subscriptions when the search changes.
- *
- * @param filter - NDK filter (should include kinds, limit, and optional search)
- * @param searchQuery - The search query string to track for re-subscription
- * @returns Object containing the NDKGeoEvent array and end-of-stream status
+ * Handles dynamic search queries by restarting subscriptions when the search
+ * changes. Still uses the legacy NDK pool because NIP-50 search via applesauce
+ * relays is layered on the same protocol; that migration happens in Step 3.3.
  */
 export function useSearchStations(filter: NDKFilter, searchQuery: string) {
 	const { ndk } = useNDK()
-	const [events, setEvents] = useState<NDKGeoEvent[]>([])
+	const [events, setEvents] = useState<GeoDataset[]>([])
 	const [eose, setEose] = useState(false)
 
 	useEffect(() => {
@@ -145,13 +79,15 @@ export function useSearchStations(filter: NDKFilter, searchQuery: string) {
 		setEvents([])
 		setEose(false)
 
+		// biome-ignore lint/suspicious/noExplicitAny: legacy NDK subscription path; will be replaced in Step 3.3
 		const sub = ndk.subscribe(filter as any, { closeOnEose: false })
-		const eventMap = new Map<string, NDKGeoEvent>()
+		const eventMap = new Map<string, GeoDataset>()
 
+		// biome-ignore lint/suspicious/noExplicitAny: NDK provides untyped event payloads
 		sub.on('event', (event: any) => {
-			const station = NDKGeoEvent.from(event)
-			if (!eventMap.has(station.id)) {
-				eventMap.set(station.id, station)
+			const cast = castGeoDataset(event.rawEvent ? event.rawEvent() : event)
+			if (!eventMap.has(cast.id)) {
+				eventMap.set(cast.id, cast)
 				setEvents(Array.from(eventMap.values()))
 			}
 		})
@@ -164,6 +100,7 @@ export function useSearchStations(filter: NDKFilter, searchQuery: string) {
 		return () => {
 			sub.stop()
 		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ndk, searchQuery])
 
 	return {
@@ -173,15 +110,8 @@ export function useSearchStations(filter: NDKFilter, searchQuery: string) {
 }
 
 /**
- * A unified hook for geo events with flexible filtering.
- * Uses manual subscription management for reliable NIP-50 search support.
- * Automatically restarts subscription when the filter changes.
- *
- * This is the recommended hook for search-enabled station views.
- *
- * @param filterWithoutKinds - NDK filter without kinds (kinds is hardcoded to station kind 31237)
- * @param clientSideFilters - Optional client-side filters for hashtags, relay hints and collections
- * @returns Object containing the NDKGeoEvent array and EOSE status
+ * Unified observer for geo dataset events with flexible client-side filtering.
+ * Same caveat as `useSearchStations` regarding the NDK pool — Step 3.3 swap.
  */
 export function useStationsObserver(
 	filterWithoutKinds: Omit<NDKFilter, 'kinds'> = { limit: 50 },
@@ -192,29 +122,29 @@ export function useStationsObserver(
 	},
 ) {
 	const { ndk } = useNDK()
-	const [allEvents, setAllEvents] = useState<NDKGeoEvent[]>([])
+	const [allEvents, setAllEvents] = useState<GeoDataset[]>([])
 	const [eose, setEose] = useState(false)
 
 	useEffect(() => {
 		if (!ndk) return
 
-		// Build complete filter with hardcoded geo dataset kinds
-		const filter: NDKFilter = {
+		const filter = {
 			...filterWithoutKinds,
-			kinds: NDKGeoEvent.kinds,
+			kinds: [GEO_EVENT_KIND],
 		}
 
-		// Reset state
 		setAllEvents([])
 		setEose(false)
 
-		const sub = ndk.subscribe(filter, { closeOnEose: false })
-		const eventMap = new Map<string, NDKGeoEvent>()
+		// biome-ignore lint/suspicious/noExplicitAny: legacy NDK subscription path; will be replaced in Step 3.3
+		const sub = ndk.subscribe(filter as any, { closeOnEose: false })
+		const eventMap = new Map<string, GeoDataset>()
 
+		// biome-ignore lint/suspicious/noExplicitAny: NDK provides untyped event payloads
 		sub.on('event', (event: any) => {
-			const station = NDKGeoEvent.from(event)
-			if (!eventMap.has(station.id)) {
-				eventMap.set(station.id, station)
+			const cast = castGeoDataset(event.rawEvent ? event.rawEvent() : event)
+			if (!eventMap.has(cast.id)) {
+				eventMap.set(cast.id, cast)
 				setAllEvents(Array.from(eventMap.values()))
 			}
 		})
@@ -227,27 +157,23 @@ export function useStationsObserver(
 		return () => {
 			sub.stop()
 		}
-	}, [ndk, JSON.stringify(filterWithoutKinds)]) // Stringify to detect deep changes
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ndk, JSON.stringify(filterWithoutKinds)])
 
-	// Apply client-side filters
 	const filteredEvents = useMemo(() => {
 		if (!clientSideFilters) return allEvents
-
 		const { hashtags, relayHints, collectionIds } = clientSideFilters
-
 		return allEvents.filter((event) => {
 			if (hashtags && hashtags.length > 0) {
 				const eventTags = event.hashtags.map((tag) => tag.toLowerCase())
 				const matchesHashtag = hashtags.some((needle) => eventTags.includes(needle.toLowerCase()))
 				if (!matchesHashtag) return false
 			}
-
 			if (relayHints && relayHints.length > 0) {
 				const eventRelays = event.relayHints.map((relay) => relay.toLowerCase())
 				const matchesRelay = relayHints.some((needle) => eventRelays.includes(needle.toLowerCase()))
 				if (!matchesRelay) return false
 			}
-
 			if (collectionIds && collectionIds.length > 0) {
 				const references = event.collectionReferences.map((ref) => ref.toLowerCase())
 				const matchesCollection = collectionIds.some((needle) =>
@@ -255,9 +181,9 @@ export function useStationsObserver(
 				)
 				if (!matchesCollection) return false
 			}
-
 			return true
 		})
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [allEvents, JSON.stringify(clientSideFilters)])
 
 	return {

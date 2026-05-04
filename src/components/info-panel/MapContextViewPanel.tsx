@@ -11,7 +11,7 @@ import {
 	validateDatasetForContext,
 	type ContextFilterMode,
 } from '@/lib/context/validation'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import { CommentsPanel } from '@/features/social/comments'
 import { buildRouteHash } from '@/features/geo-editor/hooks/useRouting'
@@ -26,10 +26,10 @@ import { EntityPanelSectionHeader, EntityPanelShell, EntityPanelSurface } from '
 
 interface MapContextViewPanelProps {
 	currentUserPubkey?: string
-	getDatasetKey: (event: NDKGeoEvent) => string
-	getDatasetName: (event: NDKGeoEvent) => string
-	onInspectDataset: (event: NDKGeoEvent) => void
-	onZoomToDataset: (event: NDKGeoEvent) => void
+	getDatasetKey: (event: GeoDataset) => string
+	getDatasetName: (event: GeoDataset) => string
+	onInspectDataset: (event: GeoDataset) => void
+	onZoomToDataset: (event: GeoDataset) => void
 	onDeleteContext?: (context: NDKMapContextEvent) => void
 	deletingKey?: string | null
 	onCommentGeometryVisibility?: (comment: NDKGeoCommentEvent, visible: boolean) => void

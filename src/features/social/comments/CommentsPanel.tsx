@@ -2,7 +2,7 @@ import { Eye, EyeOff, RefreshCw } from 'lucide-react'
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { useGeoComments } from '../hooks/useGeoComments'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import { toast } from 'sonner'
@@ -16,7 +16,7 @@ const ROOT_COMPOSER_ID = 'root'
 
 interface CommentsPanelProps {
 	/** The dataset or context to show comments for */
-	target: NDKGeoEvent | NDKMapContextEvent | null
+	target: GeoDataset | NDKMapContextEvent | null
 	/** Callback when a comment's GeoJSON visibility is toggled */
 	onCommentGeojsonVisibilityChange?: (comment: NDKGeoCommentEvent, visible: boolean) => void
 	/** Callback to zoom to a comment's GeoJSON */

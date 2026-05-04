@@ -1,9 +1,12 @@
 import { useNDK, useSubscribe } from '@nostr-dev-kit/react'
 import type { NDKEvent } from '@nostr-dev-kit/react'
+import { ReactionFactory } from 'applesauce-common/factories'
+import type { NostrEvent } from 'nostr-tools'
 import { useMemo, useState, useCallback } from 'react'
+import { accounts, publish } from '@/lib/nostr'
 import { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
 import { GEO_COMMENT_KIND } from '@/lib/ndk/kinds'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import { extractReferencedCoordinates, syncAddressReferenceTags } from '@/lib/ndk/nostrReferences'
 import type { FeatureCollection } from 'geojson'
@@ -16,7 +19,7 @@ export interface CommentNode {
 
 export interface UseGeoCommentsOptions {
 	/** The dataset or context to fetch comments for */
-	target: NDKGeoEvent | NDKMapContextEvent | null
+	target: GeoDataset | NDKMapContextEvent | null
 	/** Maximum depth for nested replies */
 	maxDepth?: number
 }
@@ -41,7 +44,7 @@ export interface UseGeoCommentsResult {
 	/** Delete a comment */
 	deleteComment: (comment: NDKGeoCommentEvent) => Promise<void>
 	/** React to a comment or the target */
-	react: (target: NDKGeoEvent | NDKMapContextEvent | NDKGeoCommentEvent) => Promise<void>
+	react: (target: GeoDataset | NDKMapContextEvent | NDKGeoCommentEvent) => Promise<void>
 }
 
 /**
@@ -220,15 +223,20 @@ export function useGeoComments({
 	)
 
 	const react = useCallback(
-		async (reactTarget: NDKGeoEvent | NDKMapContextEvent | NDKGeoCommentEvent) => {
-			if (!ndk) {
-				throw new Error('NDK not available')
-			}
+		async (reactTarget: GeoDataset | NDKMapContextEvent | NDKGeoCommentEvent) => {
+			const signer = accounts.signer
+			if (!signer) throw new Error('No active account')
 
-			// Use NDK's built-in react method if available
-			await reactTarget.react('❤️', true)
+			// Pull the raw NostrEvent shape from either an applesauce Cast (`.event`)
+			// or a legacy NDK subclass (`.rawEvent()`).
+			const raw =
+				'event' in reactTarget
+					? reactTarget.event
+					: (reactTarget as { rawEvent: () => NostrEvent }).rawEvent()
+			const signed = await ReactionFactory.create(raw, '❤️').sign(signer)
+			await publish(signed, { routing: 'outbox' })
 		},
-		[ndk],
+		[],
 	)
 
 	return {

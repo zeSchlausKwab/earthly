@@ -1,8 +1,10 @@
 import { useNDK, useSubscribe } from '@nostr-dev-kit/react'
 import type { NDKEvent } from '@nostr-dev-kit/react'
+import { castEvent } from 'applesauce-core/casts'
 import { useMemo, useState, useCallback } from 'react'
+import { accounts, eventStore, publish } from '@/lib/nostr'
 import { NDKGeoEditProposalEvent } from '@/lib/ndk/NDKGeoEditProposalEvent'
-import { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import { GeoDataset, GeoDatasetFactory } from '@/lib/nostr/geo-event'
 import {
 	GEO_EDIT_PROPOSAL_KIND,
 	PROPOSAL_STATUS_OPEN_KIND,
@@ -26,7 +28,7 @@ export interface ProposalWithStatus {
 
 export interface UseGeoProposalsOptions {
 	/** The dataset to fetch edit proposals for */
-	target: NDKGeoEvent | null
+	target: GeoDataset | null
 }
 
 export interface UseGeoProposalsResult {
@@ -37,7 +39,7 @@ export interface UseGeoProposalsResult {
 	/** Loading state */
 	isLoading: boolean
 	/** Accept a proposal — republishes the target dataset with proposed content */
-	acceptProposal: (proposal: NDKGeoEditProposalEvent) => Promise<NDKGeoEvent>
+	acceptProposal: (proposal: NDKGeoEditProposalEvent) => Promise<GeoDataset>
 	/** Reject a proposal with optional reason */
 	rejectProposal: (proposal: NDKGeoEditProposalEvent, reason?: string) => Promise<void>
 }
@@ -201,23 +203,25 @@ export function useGeoProposals({ target }: UseGeoProposalsOptions): UseGeoPropo
 			if (!ndk || !target) {
 				throw new Error('NDK or target not available')
 			}
+			const signer = accounts.signer
+			if (!signer) throw new Error('No active account')
 
 			setIsActing(true)
 			try {
-				// Create new NDKGeoEvent with proposal's content
-				const updatedDataset = new NDKGeoEvent(ndk)
-				updatedDataset.featureCollection = proposal.featureCollection
+				// Build a new dataset version that adopts the proposal's content
+				// while preserving the target's metadata + d-tag lineage.
+				const signedEvent = await GeoDatasetFactory.update(target.event, proposal.featureCollection)
+					.hashtags(target.hashtags)
+					.collectionReferences(target.collectionReferences)
+					.contextReferences(target.contextReferences)
+					.relayHints(target.relayHints)
+					.withDerivedMetadata()
+					.sign(signer)
 
-				// Carry forward target's metadata
-				updatedDataset.hashtags = target.hashtags
-				updatedDataset.collectionReferences = target.collectionReferences
-				updatedDataset.contextReferences = target.contextReferences
-				updatedDataset.relayHints = target.relayHints
+				await publish(signedEvent, { routing: 'outbox' })
+				const updatedDataset = castEvent(signedEvent, GeoDataset, eventStore)
 
-				// Publish as update to existing dataset (preserves d-tag lineage)
-				await updatedDataset.publishUpdate(target)
-
-				// Publish "applied" status
+				// Publish "applied" status (still on legacy NDK class — Step 4d).
 				await createProposalStatusEvent(ndk, proposal, 'applied')
 				return updatedDataset
 			} finally {

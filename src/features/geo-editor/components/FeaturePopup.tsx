@@ -1,13 +1,13 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { Feature, Geometry } from 'geojson'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { RichContentRenderer } from '@/components/editor'
 import { UserProfile } from '@/components/user-profile'
 import { resolveMapPopupPosition, type MapPopupPlacement } from './map-popup-positioning'
 
 export interface FeaturePopupData {
 	/** The dataset containing the hovered feature */
-	dataset: NDKGeoEvent
+	dataset: GeoDataset
 	/** The hovered feature */
 	feature: Feature<Geometry>
 	/** Screen position where user hovered */
@@ -31,7 +31,7 @@ interface FeaturePopupProps {
 const POPUP_WIDTH = 320
 const POPUP_HEIGHT_ESTIMATE = 240
 
-function getDatasetDescription(dataset: NDKGeoEvent): string | null {
+function getDatasetDescription(dataset: GeoDataset): string | null {
 	const featureCollection = dataset.featureCollection as Record<string, unknown> | undefined
 	if (!featureCollection) return null
 

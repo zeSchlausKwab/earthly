@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import type { FilterState } from '@/components/data-filter/types'
 import { useSortedFilteredItems } from '@/components/data-filter/useSortedFilteredItems'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import {
 	type EntitySearchOutput,
 	type EntitySearchResultGroup,
@@ -19,10 +19,10 @@ interface UseEntitySearchOptions {
 	sources: EntitySearchSources
 	entityTypes?: EntityType[]
 	filterState: FilterState
-	getDatasetName?: (event: NDKGeoEvent) => string
+	getDatasetName?: (event: GeoDataset) => string
 }
 
-const defaultGetDatasetName = (event: NDKGeoEvent): string =>
+const defaultGetDatasetName = (event: GeoDataset): string =>
 	event.datasetId ?? event.dTag ?? event.id ?? 'Untitled'
 const DEFAULT_ENTITY_TYPES: EntityType[] = ['dataset', 'context', 'feature']
 

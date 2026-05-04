@@ -1,5 +1,5 @@
 import type { FeatureCollection } from 'geojson'
-import type { GeoBlobReference } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoBlobReference } from '@/lib/nostr/geo-event'
 
 export type CollectionMeta = {
 	name: string

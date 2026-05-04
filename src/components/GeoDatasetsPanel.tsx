@@ -1,6 +1,6 @@
 import { Eye } from 'lucide-react'
 import { useEffect, useMemo, useRef } from 'react'
-import type { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
 import {
 	getContextCoordinate,
@@ -27,23 +27,23 @@ import { DataTable } from './ui/data-table'
 
 export interface GeoDatasetsPanelProps {
 	mode: 'datasets' | 'contexts'
-	geoEvents: NDKGeoEvent[]
+	geoEvents: GeoDataset[]
 	mapContextEvents: NDKMapContextEvent[]
-	activeDataset: NDKGeoEvent | null
+	activeDataset: GeoDataset | null
 	currentUserPubkey?: string
 	datasetVisibility: Record<string, boolean>
 	isPublishing: boolean
 	deletingKey: string | null
-	onLoadDataset: (event: NDKGeoEvent) => void
-	onToggleVisibility: (event: NDKGeoEvent) => void
+	onLoadDataset: (event: GeoDataset) => void
+	onToggleVisibility: (event: GeoDataset) => void
 	onToggleAllVisibility: (visible: boolean) => void
-	onZoomToDataset: (event: NDKGeoEvent) => void
-	onDeleteDataset: (event: NDKGeoEvent) => void
-	getDatasetKey: (event: NDKGeoEvent) => string
-	getDatasetName: (event: NDKGeoEvent) => string
-	onInspectDataset?: (event: NDKGeoEvent) => void
+	onZoomToDataset: (event: GeoDataset) => void
+	onDeleteDataset: (event: GeoDataset) => void
+	getDatasetKey: (event: GeoDataset) => string
+	getDatasetName: (event: GeoDataset) => string
+	onInspectDataset?: (event: GeoDataset) => void
 	onInspectContext?: (context: NDKMapContextEvent) => void
-	onOpenDebug?: (event: NDKGeoEvent | NDKMapContextEvent) => void
+	onOpenDebug?: (event: GeoDataset | NDKMapContextEvent) => void
 	onCreateContext?: () => void
 	onEditContext?: (context: NDKMapContextEvent) => void
 	isFocused?: boolean
@@ -51,8 +51,8 @@ export interface GeoDatasetsPanelProps {
 	onFilteredDatasetKeysChange?: (keys: Set<string> | null) => void
 }
 
-const getDatasetDescriptionText = (event: NDKGeoEvent): string | undefined => {
-	const featureCollection = event.featureCollection as Record<string, unknown>
+const getDatasetDescriptionText = (event: GeoDataset): string | undefined => {
+	const featureCollection = event.featureCollection as unknown as Record<string, unknown>
 	if (!featureCollection) return undefined
 	const candidates = [
 		featureCollection.description,
@@ -69,8 +69,8 @@ const getDatasetDescriptionText = (event: NDKGeoEvent): string | undefined => {
 }
 
 const createDatasetFilterConfig = (
-	getDatasetName: (event: NDKGeoEvent) => string,
-): FilterConfig<NDKGeoEvent> => ({
+	getDatasetName: (event: GeoDataset) => string,
+): FilterConfig<GeoDataset> => ({
 	getSearchableText: (event) => [getDatasetName(event), getDatasetDescriptionText(event)],
 	getName: (event) => getDatasetName(event),
 })

@@ -1,4 +1,4 @@
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import type { FilterConfig } from '@/components/data-filter/types'
@@ -25,7 +25,7 @@ export interface EntitySearchResult {
 	pubkey?: string
 	createdAt?: number
 	/** Original entity reference for callbacks */
-	entity: NDKGeoEvent | NDKMapContextEvent | GeoFeatureItem
+	entity: GeoDataset | NDKMapContextEvent | GeoFeatureItem
 }
 
 export interface EntitySearchResultGroup {
@@ -39,7 +39,7 @@ export interface EntitySearchResultGroup {
 // ── Hook input / output ───────────────────────────────────────────────
 
 export interface EntitySearchSources {
-	datasets?: NDKGeoEvent[]
+	datasets?: GeoDataset[]
 	contexts?: NDKMapContextEvent[]
 	features?: GeoFeatureItem[]
 }
@@ -54,7 +54,7 @@ export interface EntitySearchOutput {
 
 // ── Adapter functions ─────────────────────────────────────────────────
 
-const getDatasetDescriptionText = (event: NDKGeoEvent): string | undefined => {
+const getDatasetDescriptionText = (event: GeoDataset): string | undefined => {
 	// biome-ignore lint/suspicious/noExplicitAny: GeoJSON properties are dynamically typed
 	const featureCollection = event.featureCollection as Record<string, any>
 	if (!featureCollection) return undefined
@@ -73,8 +73,8 @@ const getDatasetDescriptionText = (event: NDKGeoEvent): string | undefined => {
 }
 
 export function datasetToSearchResult(
-	event: NDKGeoEvent,
-	getDatasetName?: (event: NDKGeoEvent) => string,
+	event: GeoDataset,
+	getDatasetName?: (event: GeoDataset) => string,
 ): EntitySearchResult {
 	const name = getDatasetName
 		? getDatasetName(event)
@@ -120,8 +120,8 @@ export function featureToSearchResult(feature: GeoFeatureItem): EntitySearchResu
 // ── Filter configs (shared, extracted from GeoDatasetsPanel) ──────────
 
 export function createDatasetFilterConfig(
-	getDatasetName: (event: NDKGeoEvent) => string,
-): FilterConfig<NDKGeoEvent> {
+	getDatasetName: (event: GeoDataset) => string,
+): FilterConfig<GeoDataset> {
 	return {
 		getSearchableText: (event) => [getDatasetName(event), getDatasetDescriptionText(event)],
 		getName: (event) => getDatasetName(event),

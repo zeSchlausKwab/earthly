@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import { useEditorStore, type SidebarViewMode } from '../store'
 
@@ -10,8 +10,8 @@ interface UseContextEditorParams {
 	navigateToContext: (contextNaddr: string, sidebarView?: SidebarViewMode) => void
 	navigateToView: (view: SidebarViewMode) => void
 	clearFocus: () => void
-	handleInspectDataset: (event: NDKGeoEvent) => void
-	loadDatasetForEditing: (event: NDKGeoEvent) => void
+	handleInspectDataset: (event: GeoDataset) => void
+	loadDatasetForEditing: (event: GeoDataset) => void
 	startNewDataset: () => void
 	switchToWorkspace: (workspaceId: string) => void | Promise<void>
 }
@@ -53,7 +53,7 @@ export function useContextEditor({
 	}, [])
 
 	const handleLoadDatasetForEditing = useCallback(
-		(event: NDKGeoEvent) => {
+		(event: GeoDataset) => {
 			clearEditorModes()
 			loadDatasetForEditing(event)
 		},
@@ -147,7 +147,7 @@ export function useContextEditor({
 	])
 
 	const handleInspectDatasetWithModeSwitch = useCallback(
-		(event: NDKGeoEvent) => {
+		(event: GeoDataset) => {
 			clearEditorModes()
 			handleInspectDataset(event)
 		},

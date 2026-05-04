@@ -1,6 +1,6 @@
 import NDK, { NDKEvent, NDKKind, type NDKSigner, registerEventClass } from '@nostr-dev-kit/react'
 import { MAP_CONTEXT_KIND } from './kinds'
-import type { GeoBoundingBox } from './NDKGeoEvent'
+import type { GeoBoundingBox } from '@/lib/nostr/geo-event'
 import { generateShortDTag } from './dTag'
 import { publish } from '../nostr'
 

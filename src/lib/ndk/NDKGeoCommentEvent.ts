@@ -2,7 +2,7 @@ import NDK, { NDKEvent, NDKKind, type NDKSigner, registerEventClass } from '@nos
 import { bbox, centroid } from '@turf/turf'
 import type { FeatureCollection, Position } from 'geojson'
 import { GEO_COMMENT_KIND } from './kinds'
-import type { GeoBoundingBox } from './NDKGeoEvent'
+import type { GeoBoundingBox } from '@/lib/nostr/geo-event'
 import { generateShortDTag } from './dTag'
 import { publish } from '../nostr'
 

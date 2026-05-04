@@ -32,12 +32,9 @@ import {
 	getDatasetId,
 	getVersion,
 	isGeoDataset,
-	withoutTags,
 	type GeoBlobReference,
 	type GeoDatasetEvent,
 } from './helpers'
-
-const DERIVED_TAG_NAMES = ['bbox', 'g', 'checksum', 'size']
 
 export interface BuildOptions {
 	/** Skip recomputing bbox/geohash/size/checksum from content. Use when
@@ -167,11 +164,12 @@ export class GeoDatasetFactory extends EventFactory<typeof GEO_EVENT_KIND> {
 	}
 
 	/**
-	 * Recompute bbox, geohash, size, and checksum from the current content.
-	 * Call this LAST in the chain (or just before .sign()) so that any other
-	 * tag mutations don't get clobbered. Replaces existing derived tags.
+	 * Recompute the spatial discovery tags (`bbox`, `g`) from the current content
+	 * parsed as a FeatureCollection. Use this when you want discovery metadata
+	 * to reflect the FULL geometry — e.g. just before swapping the content for
+	 * a Blossom stub via `.content(stub)`.
 	 */
-	withDerivedMetadata(precision = 6): this {
+	withSpatialMetadata(precision = 6): this {
 		return this.chain(async (tpl) => {
 			let fc: FeatureCollection
 			try {
@@ -181,17 +179,43 @@ export class GeoDatasetFactory extends EventFactory<typeof GEO_EVENT_KIND> {
 			}
 			const computedBbox = computeBboxFor(fc)
 			const computedGeohash = computeGeohashFor(fc, precision)
+
+			const newTags: string[][] = tpl.tags.filter(
+				(tag) => tag[0] !== 'bbox' && tag[0] !== 'g',
+			)
+			if (computedBbox) newTags.push(['bbox', computedBbox.join(',')])
+			if (computedGeohash) newTags.push(['g', computedGeohash])
+
+			return { ...tpl, tags: newTags }
+		})
+	}
+
+	/**
+	 * Recompute `size` and `checksum` tags from the raw content string. Use
+	 * this AFTER any final `.content()` override so the integrity tags match
+	 * what is actually being signed.
+	 */
+	withContentMetadata(): this {
+		return this.chain(async (tpl) => {
 			const checksum = await computeChecksum(tpl.content)
 			const size = new TextEncoder().encode(tpl.content).length
 
-			const newTags: string[][] = withoutTags(DERIVED_TAG_NAMES)(tpl.tags)
-			if (computedBbox) newTags.push(['bbox', computedBbox.join(',')])
-			if (computedGeohash) newTags.push(['g', computedGeohash])
+			const newTags: string[][] = tpl.tags.filter(
+				(tag) => tag[0] !== 'checksum' && tag[0] !== 'size',
+			)
 			if (checksum) newTags.push(['checksum', checksum])
 			newTags.push(['size', String(size)])
 
 			return { ...tpl, tags: newTags }
 		})
+	}
+
+	/**
+	 * Convenience: recompute all derived tags (`bbox`, `g`, `checksum`, `size`)
+	 * from the current content. Equivalent to `.withSpatialMetadata().withContentMetadata()`.
+	 */
+	withDerivedMetadata(precision = 6): this {
+		return this.withSpatialMetadata(precision).withContentMetadata()
 	}
 }
 

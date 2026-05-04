@@ -1,7 +1,9 @@
 import { useNDK } from '@nostr-dev-kit/react'
+import { castEvent } from 'applesauce-core/casts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/ndk/kinds'
-import { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import { eventStore } from '@/lib/nostr'
+import { GeoDataset } from '@/lib/nostr/geo-event'
 import { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
 import {
 	type EntitySearchResult,
@@ -23,7 +25,7 @@ interface UseRelayEntitySearchOptions {
 	entityTypes?: EntityType[]
 	limit?: number
 	enabled?: boolean
-	getDatasetName?: (event: NDKGeoEvent) => string
+	getDatasetName?: (event: GeoDataset) => string
 }
 
 export function useRelayEntitySearch({
@@ -85,7 +87,9 @@ export function useRelayEntitySearch({
 
 				let result: EntitySearchResult | null = null
 				if (entityType === 'dataset') {
-					const wrapped = NDKGeoEvent.from(event)
+					const raw = (event as { rawEvent?: () => unknown }).rawEvent?.() ?? event
+					// biome-ignore lint/suspicious/noExplicitAny: NDK event shape varies; cast accepts the standard NostrEvent fields
+					const wrapped = castEvent(raw as any, GeoDataset, eventStore)
 					result = datasetToSearchResult(wrapped, getDatasetName)
 				} else if (entityType === 'context') {
 					const wrapped = NDKMapContextEvent.from(event)

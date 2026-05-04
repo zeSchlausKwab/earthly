@@ -1,22 +1,22 @@
 import { Eye, EyeOff, Maximize2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { Button } from '../ui/button'
 import { UserProfile } from '../user-profile'
 
 export interface DatasetActionCardProps {
-	event: NDKGeoEvent
+	event: GeoDataset
 	datasetKey: string
 	datasetName: string
 	isVisible: boolean
 	isOwned: boolean
 	isPublishing?: boolean
 	deletingKey: string | null
-	onLoadDataset: (event: NDKGeoEvent) => void
-	onToggleVisibility: (event: NDKGeoEvent) => void
-	onZoomToDataset: (event: NDKGeoEvent) => void
-	onDeleteDataset: (event: NDKGeoEvent) => void
+	onLoadDataset: (event: GeoDataset) => void
+	onToggleVisibility: (event: GeoDataset) => void
+	onZoomToDataset: (event: GeoDataset) => void
+	onDeleteDataset: (event: GeoDataset) => void
 }
 
 /**

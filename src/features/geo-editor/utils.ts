@@ -1,5 +1,5 @@
 import type { FeatureCollection } from 'geojson'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import {
 	isGeoJsonFeature,
 	isGeoJsonFeatureCollection,
@@ -12,8 +12,8 @@ import { isStyleProperty } from './types/styleProperties'
 import type { CollectionMeta } from './types'
 
 export function convertGeoEventsToEditorFeatures(
-	events: NDKGeoEvent[],
-	collectionResolver?: (event: NDKGeoEvent) => FeatureCollection | undefined,
+	events: GeoDataset[],
+	collectionResolver?: (event: GeoDataset) => FeatureCollection | undefined,
 ): EditorFeature[] {
 	const aggregated: EditorFeature[] = []
 
@@ -66,8 +66,8 @@ function getCollectionColor(collection: FeatureCollection): string | undefined {
 }
 
 export function convertGeoEventsToFeatureCollection(
-	events: NDKGeoEvent[],
-	collectionResolver?: (event: NDKGeoEvent) => FeatureCollection | undefined,
+	events: GeoDataset[],
+	collectionResolver?: (event: GeoDataset) => FeatureCollection | undefined,
 ): FeatureCollection {
 	const features = events.flatMap((event) => {
 		const datasetId = event.datasetId ?? event.id

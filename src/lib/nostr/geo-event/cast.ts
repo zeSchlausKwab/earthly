@@ -39,8 +39,35 @@ export class GeoDataset extends EventCast<GeoDatasetEvent> {
 		super(event, store)
 	}
 
+	// Proxies to the raw event so existing read-side consumers don't need to
+	// chase `cast.event.X` everywhere. These are read-only by definition;
+	// to mutate, build a new event with `GeoDatasetFactory`.
+	get kind() {
+		return this.event.kind
+	}
+	get pubkey() {
+		return this.event.pubkey
+	}
+	get tags() {
+		return this.event.tags
+	}
+	get content() {
+		return this.event.content
+	}
+	get created_at() {
+		return this.event.created_at
+	}
+
 	get datasetId() {
 		return getDatasetId(this.event)!
+	}
+	/** Alias for `datasetId` — the addressable d-tag value. */
+	get dTag() {
+		return getDatasetId(this.event)
+	}
+	/** NDK-compat shim: returns the raw NostrEvent. Prefer `cast.event` directly. */
+	rawEvent() {
+		return this.event
 	}
 	get featureCollection() {
 		return getFeatureCollection(this.event)
