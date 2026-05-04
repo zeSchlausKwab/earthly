@@ -21,7 +21,6 @@ import {
 } from '@/lib/blossom/blossomUpload'
 import type { FeatureCollection } from 'geojson'
 import { cn } from '@/lib/utils'
-import type NDK from '@nostr-dev-kit/react'
 
 interface DatasetSizeIndicatorProps {
 	/** The current feature collection to measure */
@@ -33,8 +32,6 @@ interface DatasetSizeIndicatorProps {
 	/** Show compact version */
 	compact?: boolean
 	className?: string
-	/** NDK instance for authenticated uploads */
-	ndk?: NDK
 }
 
 export function DatasetSizeIndicator({
@@ -43,7 +40,6 @@ export function DatasetSizeIndicator({
 	existingBlob = null,
 	compact = false,
 	className,
-	ndk,
 }: DatasetSizeIndicatorProps) {
 	const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle')
 	const [uploadError, setUploadError] = useState<string | null>(null)
@@ -104,7 +100,7 @@ export function DatasetSizeIndicator({
 		setUploadResult(null)
 
 		try {
-			const result = await uploadGeoJsonToBlossom(featureCollection, { ndk })
+			const result = await uploadGeoJsonToBlossom(featureCollection)
 			setUploadState('success')
 			setUploadResult(result)
 			// Notify parent - should add blob reference to store, NOT publish

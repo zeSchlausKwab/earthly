@@ -1,4 +1,3 @@
-import { useNDK } from '@nostr-dev-kit/react'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import { castEvent } from 'applesauce-core/casts'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -256,7 +255,6 @@ export function MapContextEditorPanel({
 	availableFeatures = [],
 	mapContextEvents = [],
 }: MapContextEditorPanelProps) {
-	const { ndk } = useNDK()
 	const currentUser = useActiveAccount()
 	const initial = initialContext?.context
 	const descriptionEditorRef = useRef<GeoRichTextEditorRef>(null)
@@ -500,7 +498,7 @@ export function MapContextEditorPanel({
 	}
 
 	const handleSave = async () => {
-		if (!ndk || !currentUser) return
+		if (!currentUser) return
 		setSaveError(null)
 
 		if (!name.trim()) {
@@ -1111,7 +1109,7 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 						</Button>
 						<Button
 							onClick={handleSave}
-							disabled={isSaving || !ndk || !currentUser}
+							disabled={isSaving || !currentUser}
 							className="rounded-none"
 						>
 							{isSaving ? 'Saving…' : 'Save context'}

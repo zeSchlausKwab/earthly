@@ -651,7 +651,6 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 								}
 							: null
 					}
-					ndk={ndk ?? undefined}
 				/>
 			)}
 

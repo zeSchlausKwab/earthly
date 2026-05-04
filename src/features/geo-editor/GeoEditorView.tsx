@@ -363,7 +363,6 @@ export function GeoEditorView() {
 		canPublishCopy,
 		canProposeEdit,
 	} = usePublishing({
-		ndk: ndk ?? undefined,
 		currentUserPubkey,
 		getDatasetName,
 		getDatasetKey,
@@ -1127,8 +1126,8 @@ export function GeoEditorView() {
 
 	const onDeleteContext = useCallback(
 		async (context: MapContext) => {
-			if (!ndk) {
-				toast.error('NDK is not ready.')
+			if (!accounts.signer) {
+				toast.error('No active account.')
 				return
 			}
 
@@ -1162,7 +1161,7 @@ export function GeoEditorView() {
 				setDeletingKey(null)
 			}
 		},
-		[getContextKey, ndk, exitViewMode, clearContextScope, contextCoordinate],
+		[getContextKey, exitViewMode, clearContextScope, contextCoordinate],
 	)
 
 	// Export/Import
@@ -1962,7 +1961,6 @@ export function GeoEditorView() {
 						onSkip={handlePublishNew}
 						allowSkip={false}
 						title="Dataset Size Warning"
-						ndk={ndk}
 					/>
 
 					{/* Import OSM Dialog */}

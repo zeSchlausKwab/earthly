@@ -1,4 +1,3 @@
-import type NDK from '@nostr-dev-kit/ndk'
 import { castEvent } from 'applesauce-core/casts'
 import type { FeatureCollection } from 'geojson'
 import { useCallback, useMemo } from 'react'
@@ -26,7 +25,6 @@ import { extractCollectionMeta, sanitizeEditorProperties } from '../utils'
 import { BLOSSOM_UPLOAD_THRESHOLD_BYTES } from '../constants'
 
 interface UsePublishingOptions {
-	ndk: NDK | undefined
 	currentUserPubkey: string | undefined
 	getDatasetName: (event: GeoDataset) => string
 	getDatasetKey: (event: GeoDataset) => string
@@ -35,7 +33,6 @@ interface UsePublishingOptions {
 }
 
 export function usePublishing({
-	ndk,
 	currentUserPubkey,
 	getDatasetName,
 	getDatasetKey,
@@ -699,7 +696,6 @@ export function usePublishing({
 			setPublishMessage,
 			setPublishError,
 			buildCollectionFromEditor,
-			ndk,
 			switchToDatasetViewMode,
 			setSelectedFeatureIds,
 		],

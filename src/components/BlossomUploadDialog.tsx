@@ -52,8 +52,6 @@ export interface BlossomUploadDialogProps {
 	allowSkip?: boolean
 	/** Title override */
 	title?: string
-	/** NDK instance for authenticated uploads */
-	ndk?: import('@nostr-dev-kit/ndk').default | null
 }
 
 type UploadState = 'idle' | 'uploading' | 'success' | 'error'
@@ -67,7 +65,6 @@ export function BlossomUploadDialog({
 	onSkip,
 	allowSkip = false,
 	title = 'Upload to Blossom',
-	ndk,
 }: BlossomUploadDialogProps) {
 	const [uploadState, setUploadState] = useState<UploadState>('idle')
 	const [uploadProgress, setUploadProgress] = useState(0)
@@ -101,7 +98,6 @@ export function BlossomUploadDialog({
 		try {
 			const result = await uploadGeoJsonToBlossom(geojson, {
 				onProgress: setUploadProgress,
-				ndk,
 			})
 			setUploadResult(result)
 			setUploadState('success')
