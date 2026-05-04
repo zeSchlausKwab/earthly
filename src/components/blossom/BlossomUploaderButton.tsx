@@ -1,7 +1,8 @@
 import NDKBlossom from '@nostr-dev-kit/blossom'
 import type { NDKSigner as BlossomSigner, NDKUser as BlossomUser } from '@nostr-dev-kit/ndk'
 import type NDKType from '@nostr-dev-kit/ndk'
-import { useNDK, useNDKCurrentUser, type NDKImetaTag, type NDKSigner } from '@nostr-dev-kit/react'
+import { useNDK, type NDKImetaTag, type NDKSigner } from '@nostr-dev-kit/react'
+import { useActiveAccount } from 'applesauce-react/hooks'
 import {
 	Check,
 	CloudUpload,
@@ -120,7 +121,7 @@ export function BlossomUploaderButton({
 	iconOnly = false,
 }: BlossomUploaderButtonProps) {
 	const { ndk } = useNDK()
-	const currentUser = useNDKCurrentUser()
+	const currentUser = useActiveAccount()
 	const activeUser = currentUser ?? ndk?.activeUser ?? null
 	const blossom = useMemo(
 		() =>

@@ -1,4 +1,5 @@
-import { useNDK, useNDKCurrentUser } from '@nostr-dev-kit/react'
+import { useNDK } from '@nostr-dev-kit/react'
+import { useActiveAccount } from 'applesauce-react/hooks'
 import type { default as NDKType } from '@nostr-dev-kit/ndk'
 import { useNip60Store, nip60Actions, type PendingNip60Token } from '@/lib/stores/nip60'
 import { useCashuStore, cashuActions, type PendingToken } from '@/lib/stores/cashu'
@@ -65,7 +66,7 @@ type ModalType = 'deposit' | 'withdraw' | 'send' | 'receive' | null
 
 export function Nip60Wallet() {
 	const { ndk } = useNDK()
-	const currentUser = useNDKCurrentUser()
+	const currentUser = useActiveAccount()
 	const isAuthenticated = !!currentUser
 	const userPubkey = currentUser?.pubkey
 

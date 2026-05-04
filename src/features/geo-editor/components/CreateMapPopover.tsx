@@ -27,7 +27,8 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { useEditorStore } from '../store'
-import { useNDK, useNDKCurrentUser } from '@nostr-dev-kit/react'
+import { accounts } from '@/lib/nostr'
+import { useActiveAccount } from 'applesauce-react/hooks'
 import { EarthlyGeoServerClient } from '@/ctxcn/EarthlyGeoServerClient'
 import { config } from '@/config'
 
@@ -105,8 +106,7 @@ export function CreateMapPopover() {
 	const [copiedUrl, setCopiedUrl] = useState(false)
 	const [includeRoute, setIncludeRoute] = useState(true)
 
-	const { ndk } = useNDK()
-	const currentUser = useNDKCurrentUser()
+	const currentUser = useActiveAccount()
 	const editor = useEditorStore((state) => state.editor)
 	const currentBbox = useEditorStore((state) => state.currentBbox)
 	const mode = useEditorStore((state) => state.mode)
@@ -264,7 +264,7 @@ export function CreateMapPopover() {
 
 	// Handle create map flow
 	const handleCreate = async () => {
-		if (!bbox || !ndk?.signer) return
+		if (!bbox || !accounts.signer) return
 
 		setError(null)
 		setResultUrl(null)
@@ -294,20 +294,19 @@ export function CreateMapPopover() {
 
 			const { requestId, unsignedEvent } = extractResult.result
 
-			// Step 2: Sign the event using NDK
+			// Step 2: Sign the event with the active applesauce signer
 			setFlowState('signing')
 
-			// Create an NDKEvent from the unsigned event template
-			const { NDKEvent } = await import('@nostr-dev-kit/ndk')
-			const event = new NDKEvent(ndk)
-			event.kind = unsignedEvent.kind
-			event.content = unsignedEvent.content
-			event.created_at = unsignedEvent.created_at
-			event.tags = unsignedEvent.tags
+			const signer = accounts.signer
+			if (!signer) throw new Error('No active account')
+			const signed = await signer.signEvent({
+				kind: unsignedEvent.kind,
+				content: unsignedEvent.content,
+				created_at: unsignedEvent.created_at,
+				tags: unsignedEvent.tags,
+			})
 
-			await event.sign()
-
-			if (!event.sig) {
+			if (!signed.sig) {
 				throw new Error('User cancelled signing')
 			}
 
@@ -316,13 +315,13 @@ export function CreateMapPopover() {
 
 			// Note: CreateMapUpload method will be available after client regeneration
 			const uploadResult = await (client as any).CreateMapUpload(requestId, {
-				id: event.id,
-				pubkey: event.pubkey,
-				kind: event.kind,
-				created_at: event.created_at,
-				tags: event.tags,
-				content: event.content,
-				sig: event.sig,
+				id: signed.id,
+				pubkey: signed.pubkey,
+				kind: signed.kind,
+				created_at: signed.created_at,
+				tags: signed.tags,
+				content: signed.content,
+				sig: signed.sig,
 			})
 
 			if (!uploadResult?.result?.blobUrl) {

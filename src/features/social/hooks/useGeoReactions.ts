@@ -1,4 +1,5 @@
-import { useNDKCurrentUser } from '@nostr-dev-kit/react'
+import {  } from '@nostr-dev-kit/react'
+import { useActiveAccount } from 'applesauce-react/hooks'
 import { ReactionFactory } from 'applesauce-common/factories'
 import type { NostrEvent } from 'nostr-tools'
 import { useCallback, useMemo, useState } from 'react'
@@ -43,7 +44,7 @@ export interface UseGeoReactionsResult {
  * Hook for fetching and managing reactions and zaps on geo events.
  */
 export function useGeoReactions({ target }: UseGeoReactionsOptions): UseGeoReactionsResult {
-	const currentUser = useNDKCurrentUser()
+	const currentUser = useActiveAccount()
 	const [zapDialogOpen, setZapDialogOpen] = useState(false)
 	const [isReacting, setIsReacting] = useState(false)
 

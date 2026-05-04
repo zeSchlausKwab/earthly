@@ -1,4 +1,5 @@
-import { useNDKCurrentUser } from '@nostr-dev-kit/react'
+import {  } from '@nostr-dev-kit/react'
+import { useActiveAccount } from 'applesauce-react/hooks'
 import type { NostrEvent } from 'nostr-tools'
 import { useState, useCallback, useRef } from 'react'
 import { formatDistanceToNow } from 'date-fns'
@@ -23,7 +24,7 @@ interface CommentThreadProps {
  * Recursive component for rendering threaded comments.
  */
 export function CommentThread({ node, onReply, collapseDepth = 3 }: CommentThreadProps) {
-	const currentUser = useNDKCurrentUser()
+	const currentUser = useActiveAccount()
 	const [showReplyForm, setShowReplyForm] = useState(false)
 	const [isReplying, setIsReplying] = useState(false)
 	const [replyContent, setReplyContent] = useState('')

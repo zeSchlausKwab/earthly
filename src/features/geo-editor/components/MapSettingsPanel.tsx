@@ -1,5 +1,20 @@
-import type { NDKUserProfile } from '@nostr-dev-kit/ndk'
-import { useNDK, useNDKCurrentUser } from '@nostr-dev-kit/react'
+import { EventFactory } from 'applesauce-core/factories'
+import { useActiveAccount } from 'applesauce-react/hooks'
+import { accounts, eventStore, publish } from '@/lib/nostr'
+
+interface ProfileMetadata {
+	name?: string
+	displayName?: string
+	display_name?: string
+	about?: string
+	website?: string
+	nip05?: string
+	image?: string
+	picture?: string
+	banner?: string
+	lud16?: string
+	[key: string]: unknown
+}
 import {
 	ChevronDown,
 	Download,
@@ -51,10 +66,10 @@ interface ProfileDraft {
 	lud16: string
 }
 
-function createProfileDraft(profile?: NDKUserProfile | null): ProfileDraft {
+function createProfileDraft(profile?: ProfileMetadata | null): ProfileDraft {
 	return {
 		name: profile?.name ?? '',
-		displayName: profile?.displayName ?? '',
+		displayName: profile?.displayName ?? profile?.display_name ?? '',
 		about: profile?.about ?? '',
 		website: profile?.website ?? '',
 		nip05: profile?.nip05 ?? '',
@@ -85,9 +100,8 @@ function SettingsShell({
 }
 
 function ProfileSettingsSection() {
-	const { ndk } = useNDK()
-	const currentUser = useNDKCurrentUser()
-	const [loadedProfile, setLoadedProfile] = useState<NDKUserProfile | null>(null)
+	const currentUser = useActiveAccount()
+	const [loadedProfile, setLoadedProfile] = useState<ProfileMetadata | null>(null)
 	const [draft, setDraft] = useState<ProfileDraft>(() => createProfileDraft())
 	const [hasLocalEdits, setHasLocalEdits] = useState(false)
 	const [isLoadingProfile, setIsLoadingProfile] = useState(false)
@@ -97,39 +111,25 @@ function ProfileSettingsSection() {
 	const isDirty = JSON.stringify(draft) !== JSON.stringify(loadedDraft)
 
 	useEffect(() => {
-		if (!ndk || !currentUser?.pubkey) {
+		if (!currentUser?.pubkey) {
 			setLoadedProfile(null)
 			setDraft(createProfileDraft())
 			setHasLocalEdits(false)
 			return
 		}
 
-		let cancelled = false
 		setIsLoadingProfile(true)
 
-		const loadProfile = async () => {
-			try {
-				const user = ndk.getUser({ pubkey: currentUser.pubkey })
-				user.ndk = ndk
-				const profile = await user.fetchProfile()
-				if (!cancelled) {
-					setLoadedProfile(profile)
-				}
-			} catch (error) {
-				console.error('Failed to load profile settings:', error)
-			} finally {
-				if (!cancelled) {
-					setIsLoadingProfile(false)
-				}
-			}
-		}
+		// Subscribe to the active user's profile event in the EventStore. The
+		// store auto-loads via the configured event-loader, so this fires once
+		// the kind 0 lands (cached or freshly fetched).
+		const sub = eventStore.profile(currentUser.pubkey).subscribe((profile) => {
+			setLoadedProfile((profile ?? null) as ProfileMetadata | null)
+			setIsLoadingProfile(false)
+		})
 
-		void loadProfile()
-
-		return () => {
-			cancelled = true
-		}
-	}, [currentUser?.pubkey, ndk])
+		return () => sub.unsubscribe()
+	}, [currentUser?.pubkey])
 
 	useEffect(() => {
 		if (!hasLocalEdits) {
@@ -158,19 +158,19 @@ function ProfileSettingsSection() {
 	}
 
 	const handleSave = async () => {
-		if (!ndk || !currentUser?.pubkey) {
+		const signer = accounts.signer
+		if (!signer || !currentUser?.pubkey) {
 			toast.error('Sign in to edit your profile')
 			return
 		}
 
 		setIsSaving(true)
 		try {
-			const user = ndk.getUser({ pubkey: currentUser.pubkey })
-			user.ndk = ndk
-			user.profile = {
+			const nextProfile: ProfileMetadata = {
 				...(loadedProfile ?? {}),
 				name: draft.name || undefined,
 				displayName: draft.displayName || undefined,
+				display_name: draft.displayName || undefined,
 				about: draft.about || undefined,
 				website: draft.website || undefined,
 				nip05: draft.nip05 || undefined,
@@ -179,9 +179,12 @@ function ProfileSettingsSection() {
 				banner: draft.banner || undefined,
 				lud16: draft.lud16 || undefined,
 			}
-			await user.publish()
 
-			const nextProfile = { ...user.profile }
+			const signed = await EventFactory.fromKind(0)
+				.content(JSON.stringify(nextProfile))
+				.sign(signer)
+			await publish(signed, { routing: 'outbox' })
+
 			setLoadedProfile(nextProfile)
 			setDraft(createProfileDraft(nextProfile))
 			setHasLocalEdits(false)
@@ -336,7 +339,7 @@ function ProfileSettingsSection() {
 }
 
 export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMode }) {
-	const currentUser = useNDKCurrentUser()
+	const currentUser = useActiveAccount()
 	const mapSource = useEditorStore((state) => state.mapSource)
 	const setMapSource = useEditorStore((state) => state.setMapSource)
 	const pointClusteringEnabled = useEditorStore((state) => state.pointClusteringEnabled)

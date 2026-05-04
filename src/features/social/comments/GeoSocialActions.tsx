@@ -1,6 +1,7 @@
 import { Check, Copy, Heart, Loader2, MessageCircle, PencilLine, Share2, Zap } from 'lucide-react'
 import { getNip57ZapSpecFromLud, NDKZapper, type NDKLnLudData } from '@nostr-dev-kit/ndk'
-import { useNDK, useNDKCurrentUser, NDKEvent } from '@nostr-dev-kit/react'
+import { useNDK, NDKEvent } from '@nostr-dev-kit/react'
+import { useActiveAccount } from 'applesauce-react/hooks'
 import { useTimeline } from '@/lib/nostr/hooks'
 import { nip19 } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -113,7 +114,7 @@ interface ZapDialogProps {
 
 function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 	const { ndk } = useNDK()
-	const currentUser = useNDKCurrentUser()
+	const currentUser = useActiveAccount()
 	const [selectedAmount, setSelectedAmount] = useState<number | 'custom' | null>(null)
 	const [customAmount, setCustomAmount] = useState('')
 	const [invoice, setInvoice] = useState('')
@@ -465,7 +466,7 @@ export function GeoSocialActions({
 	className = '',
 	compact = false,
 }: GeoSocialActionsProps) {
-	const currentUser = useNDKCurrentUser()
+	const currentUser = useActiveAccount()
 	const {
 		reactionCount,
 		zapCount,

@@ -1,11 +1,13 @@
-import type { NDKEncryptionScheme, NDKSigner, NDKUser } from '@nostr-dev-kit/ndk'
+import type { ISigner } from 'applesauce-signers'
 import type { ChatSettingsSnapshot } from './store'
 
 const CHAT_SETTINGS_STORAGE_PREFIX = 'earthly.chat-settings.v1'
 
+type Scheme = 'nip04' | 'nip44'
+
 interface StoredChatSettingsEnvelope {
 	version: 1
-	scheme: NDKEncryptionScheme
+	scheme: Scheme
 	ciphertext: string
 	updatedAt: number
 }
@@ -14,37 +16,43 @@ function getChatSettingsStorageKey(pubkey: string): string {
 	return `${CHAT_SETTINGS_STORAGE_PREFIX}.${pubkey}`
 }
 
-async function resolveEncryptionScheme(signer: NDKSigner): Promise<NDKEncryptionScheme> {
-	const supportedSchemes = await signer.encryptionEnabled?.()
-	if (supportedSchemes?.includes('nip44')) return 'nip44'
+/** Pick nip44 if the signer supports it, fall back to nip04. */
+function resolveEncryptionScheme(signer: ISigner): Scheme {
+	if (signer.nip44) return 'nip44'
 	return 'nip04'
 }
 
 export async function loadEncryptedChatSettings(
-	signer: NDKSigner,
-	user: NDKUser,
+	signer: ISigner,
+	pubkey: string,
 ): Promise<ChatSettingsSnapshot | null> {
 	if (typeof window === 'undefined') return null
 
-	const raw = window.localStorage.getItem(getChatSettingsStorageKey(user.pubkey))
+	const raw = window.localStorage.getItem(getChatSettingsStorageKey(pubkey))
 	if (!raw) return null
 
 	const envelope = JSON.parse(raw) as StoredChatSettingsEnvelope
 	if (!envelope?.ciphertext || !envelope?.scheme) return null
 
-	const decrypted = await signer.decrypt(user, envelope.ciphertext, envelope.scheme)
+	const provider = envelope.scheme === 'nip44' ? signer.nip44 : signer.nip04
+	if (!provider) {
+		throw new Error(`Active signer does not support ${envelope.scheme} decryption`)
+	}
+	const decrypted = await provider.decrypt(pubkey, envelope.ciphertext)
 	return JSON.parse(decrypted) as ChatSettingsSnapshot
 }
 
 export async function saveEncryptedChatSettings(
-	signer: NDKSigner,
-	user: NDKUser,
+	signer: ISigner,
+	pubkey: string,
 	settings: ChatSettingsSnapshot,
 ): Promise<void> {
 	if (typeof window === 'undefined') return
 
-	const scheme = await resolveEncryptionScheme(signer)
-	const ciphertext = await signer.encrypt(user, JSON.stringify(settings), scheme)
+	const scheme = resolveEncryptionScheme(signer)
+	const provider = scheme === 'nip44' ? signer.nip44 : signer.nip04
+	if (!provider) throw new Error(`Active signer does not support ${scheme} encryption`)
+	const ciphertext = await provider.encrypt(pubkey, JSON.stringify(settings))
 	const envelope: StoredChatSettingsEnvelope = {
 		version: 1,
 		scheme,
@@ -52,5 +60,5 @@ export async function saveEncryptedChatSettings(
 		updatedAt: Date.now(),
 	}
 
-	window.localStorage.setItem(getChatSettingsStorageKey(user.pubkey), JSON.stringify(envelope))
+	window.localStorage.setItem(getChatSettingsStorageKey(pubkey), JSON.stringify(envelope))
 }

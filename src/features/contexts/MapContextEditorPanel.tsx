@@ -1,4 +1,5 @@
-import { useNDK, useNDKCurrentUser } from '@nostr-dev-kit/react'
+import { useNDK } from '@nostr-dev-kit/react'
+import { useActiveAccount } from 'applesauce-react/hooks'
 import { castEvent } from 'applesauce-core/casts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Ajv2020 from 'ajv/dist/2020'
@@ -256,7 +257,7 @@ export function MapContextEditorPanel({
 	mapContextEvents = [],
 }: MapContextEditorPanelProps) {
 	const { ndk } = useNDK()
-	const currentUser = useNDKCurrentUser()
+	const currentUser = useActiveAccount()
 	const initial = initialContext?.context
 	const descriptionEditorRef = useRef<GeoRichTextEditorRef>(null)
 

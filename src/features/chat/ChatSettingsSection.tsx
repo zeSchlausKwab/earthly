@@ -12,7 +12,8 @@ import {
 	ToggleLeft,
 	ToggleRight,
 } from 'lucide-react'
-import { useNDKCurrentUser } from '@nostr-dev-kit/react'
+import {  } from '@nostr-dev-kit/react'
+import { useActiveAccount } from 'applesauce-react/hooks'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -48,7 +49,7 @@ function DangerIndicator() {
 }
 
 export function ChatSettingsSection() {
-	const currentUser = useNDKCurrentUser()
+	const currentUser = useActiveAccount()
 	const {
 		provider,
 		customEndpoint,

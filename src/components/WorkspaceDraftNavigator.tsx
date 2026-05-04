@@ -1,4 +1,5 @@
-import { useNDKCurrentUser } from '@nostr-dev-kit/react'
+import {  } from '@nostr-dev-kit/react'
+import { useActiveAccount } from 'applesauce-react/hooks'
 import { useEffect, useMemo, useState } from 'react'
 import {
 	Check,
@@ -70,7 +71,7 @@ export function WorkspaceDraftNavigator({
 	const deleteGeoEditDraft = useEditorStore((state) => state.deleteGeoEditDraft)
 	const loadGeoEditDraft = useEditorStore((state) => state.loadGeoEditDraft)
 	const updateWorkspace = useEditorStore((state) => state.updateWorkspace)
-	const currentUser = useNDKCurrentUser()
+	const currentUser = useActiveAccount()
 
 	const [open, setOpen] = useState(false)
 	const [expandedWorkspaceIds, setExpandedWorkspaceIds] = useState<Record<string, boolean>>({})

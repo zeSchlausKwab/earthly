@@ -1,6 +1,7 @@
 import { Check, Edit3, MapPin, MousePointer2, Send, Trash2, Type, X } from 'lucide-react'
 import { forwardRef, useState, useRef, useCallback, useEffect, useMemo } from 'react'
-import { useNDKCurrentUser } from '@nostr-dev-kit/react'
+import {  } from '@nostr-dev-kit/react'
+import { useActiveAccount } from 'applesauce-react/hooks'
 import type { FeatureCollection } from 'geojson'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -60,7 +61,7 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 		},
 		_ref,
 	) => {
-		const currentUser = useNDKCurrentUser()
+		const currentUser = useActiveAccount()
 		const editor = useEditorStore((state) => state.editor)
 		const features = useEditorStore((state) => state.features)
 		const mode = useEditorStore((state) => state.mode)

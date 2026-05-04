@@ -1,4 +1,4 @@
-import { useNDK, useNDKCurrentUser } from '@nostr-dev-kit/react'
+import { useActiveAccount } from 'applesauce-react/hooks'
 import { useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import { loadEncryptedChatSettings, saveEncryptedChatSettings } from './settingsStorage'
@@ -26,9 +26,9 @@ function buildSnapshot(
 }
 
 export function useChatSettingsSync(): void {
-	const { ndk } = useNDK()
-	const currentUser = useNDKCurrentUser()
-	const signer = ndk?.signer ?? null
+	const currentUser = useActiveAccount()
+	const signer = currentUser?.signer ?? null
+	const userPubkey = currentUser?.pubkey ?? null
 	const provider = useChatStore((state) => state.provider)
 	const customEndpoint = useChatStore((state) => state.customEndpoint)
 	const customApiKey = useChatStore((state) => state.customApiKey)
@@ -106,7 +106,8 @@ export function useChatSettingsSync(): void {
 
 		void (async () => {
 			try {
-				const settings = await loadEncryptedChatSettings(signer, currentUser)
+				if (!userPubkey) return
+				const settings = await loadEncryptedChatSettings(signer, userPubkey)
 				if (hydrateGenerationRef.current !== generation) return
 
 				chatActions.hydrateSettings(settings ?? DEFAULT_CHAT_SETTINGS)
@@ -146,7 +147,7 @@ export function useChatSettingsSync(): void {
 		saveTimeoutRef.current = window.setTimeout(() => {
 			void (async () => {
 				try {
-					await saveEncryptedChatSettings(signer, currentUser, snapshot)
+					await saveEncryptedChatSettings(signer, userPubkey ?? currentUser.pubkey, snapshot)
 					lastSavedSnapshotRef.current = serializedSnapshot
 					saveErrorRef.current = false
 				} catch (error) {

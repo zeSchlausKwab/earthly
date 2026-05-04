@@ -1,4 +1,5 @@
-import { useNDK, useNDKCurrentUser } from '@nostr-dev-kit/react'
+import { useNDK } from '@nostr-dev-kit/react'
+import { useActiveAccount } from 'applesauce-react/hooks'
 import {
 	Edit3,
 	Globe,
@@ -218,7 +219,7 @@ export function GeoEditorView() {
 	const { events: geoEvents, eose: geoEventsEose } = useStations()
 	const { events: mapContextEvents, eose: mapContextEventsEose } = useMapContexts()
 	const { ndk } = useNDK()
-	const currentUser = useNDKCurrentUser()
+	const currentUser = useActiveAccount()
 	const currentUserPubkey = currentUser?.pubkey ?? null
 	const isMobile = useIsMobile()
 	const mapPopupToolbarOffset = mounted && editor ? 72 : 16

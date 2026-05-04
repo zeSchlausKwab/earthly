@@ -1,4 +1,5 @@
-import { useNDKCurrentUser } from '@nostr-dev-kit/react'
+import {  } from '@nostr-dev-kit/react'
+import { useActiveAccount } from 'applesauce-react/hooks'
 import { EventFactory } from 'applesauce-core/factories'
 import type { NostrEvent } from 'nostr-tools'
 import { useState, useRef, useCallback } from 'react'
@@ -27,7 +28,7 @@ export function PostForm({
 	isReply = false,
 	onCancel,
 }: PostFormProps) {
-	const currentUser = useNDKCurrentUser()
+	const currentUser = useActiveAccount()
 	const [isPosting, setIsPosting] = useState(false)
 	const [content, setContent] = useState('')
 	const editorRef = useRef<GeoRichTextEditorRef>(null)
