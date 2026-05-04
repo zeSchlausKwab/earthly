@@ -6,6 +6,7 @@ import {
 	PROPOSAL_STATUS_DRAFT_KIND,
 } from './kinds'
 import type { NDKGeoEditProposalEvent } from './NDKGeoEditProposalEvent'
+import { publish } from '../nostr'
 
 export type ProposalStatus = 'open' | 'applied' | 'closed' | 'draft'
 export type ProposalReviewState = 'open' | 'accepted' | 'needs_changes' | 'rejected' | 'draft'
@@ -68,7 +69,7 @@ export async function createProposalStatusEvent(
 	}
 
 	await event.sign(signer)
-	await event.publish()
+	await publish(event.rawEvent(), { routing: 'outbox' })
 	return event
 }
 

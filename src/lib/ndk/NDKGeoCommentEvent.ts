@@ -4,6 +4,7 @@ import type { FeatureCollection, Position } from 'geojson'
 import { GEO_COMMENT_KIND } from './kinds'
 import type { GeoBoundingBox } from './NDKGeoEvent'
 import { generateShortDTag } from './dTag'
+import { publish } from '../nostr'
 
 export interface GeoCommentContent {
 	text: string
@@ -278,7 +279,7 @@ export class NDKGeoCommentEvent extends NDKEvent {
 
 	async publishComment(signer?: NDKSigner): Promise<NDKGeoCommentEvent> {
 		await this.prepareForPublish(signer)
-		await this.publish()
+		await publish(this.rawEvent(), { routing: 'outbox' })
 		return this
 	}
 
@@ -303,7 +304,7 @@ export class NDKGeoCommentEvent extends NDKEvent {
 		}
 
 		await deletion.sign(signer)
-		await deletion.publish()
+		await publish(deletion.rawEvent(), { routing: 'outbox' })
 	}
 
 	/**

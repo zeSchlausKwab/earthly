@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { GeoRichTextEditor, type GeoRichTextEditorRef } from '@/components/editor/GeoRichTextEditor'
 import type { ShoutboxCategory } from './types'
 import { SHOUTBOX_CATEGORIES } from './types'
+import { publish } from '@/lib/nostr'
 
 interface PostFormProps {
 	/** The category to post to */
@@ -58,7 +59,8 @@ export function PostForm({
 				event.tags.push(['t', tag])
 			}
 
-			await event.publish()
+			await event.sign()
+			await publish(event.rawEvent(), { routing: 'outbox' })
 
 			// Clear form
 			setContent('')

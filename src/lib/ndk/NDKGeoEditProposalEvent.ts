@@ -5,6 +5,7 @@ import { GEO_EDIT_PROPOSAL_KIND } from './kinds'
 import { normalizeGeoJsonToFeatureCollection } from '../geo/normalizeGeoJSON'
 import { generateShortDTag } from './dTag'
 import type { GeoBoundingBox } from './NDKGeoEvent'
+import { publish } from '../nostr'
 
 const DEFAULT_COLLECTION: FeatureCollection = {
 	type: 'FeatureCollection',
@@ -220,7 +221,7 @@ export class NDKGeoEditProposalEvent extends NDKEvent {
 
 	async publishProposal(signer?: NDKSigner): Promise<NDKGeoEditProposalEvent> {
 		await this.prepareForPublish(signer)
-		await this.publish()
+		await publish(this.rawEvent(), { routing: 'outbox' })
 		return this
 	}
 
@@ -242,7 +243,7 @@ export class NDKGeoEditProposalEvent extends NDKEvent {
 		}
 
 		await deletion.sign(signer)
-		await deletion.publish()
+		await publish(deletion.rawEvent(), { routing: 'outbox' })
 	}
 }
 

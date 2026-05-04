@@ -4,6 +4,7 @@ import type { FeatureCollection, Position } from 'geojson'
 import { GEO_EVENT_KIND } from './kinds'
 import { normalizeGeoJsonToFeatureCollection } from '../geo/normalizeGeoJSON'
 import { generateShortDTag } from './dTag'
+import { publish, type PublishOptions } from '../nostr'
 
 export type GeoBoundingBox = [number, number, number, number]
 
@@ -319,17 +320,17 @@ export class NDKGeoEvent extends NDKEvent {
 
 	async publishNew(
 		signer?: NDKSigner,
-		options?: { skipMetadataUpdate?: boolean },
+		options?: { skipMetadataUpdate?: boolean; publish?: PublishOptions },
 	): Promise<NDKGeoEvent> {
 		await this.prepareForPublish(signer, options)
-		await this.publish()
+		await publish(this.rawEvent(), options?.publish ?? { routing: 'outbox' })
 		return this
 	}
 
 	async publishUpdate(
 		previous: NDKGeoEvent,
 		signer?: NDKSigner,
-		options?: { skipMetadataUpdate?: boolean },
+		options?: { skipMetadataUpdate?: boolean; publish?: PublishOptions },
 	): Promise<NDKGeoEvent> {
 		this.datasetId = previous.datasetId ?? previous.id
 		if (!this.datasetId) {
@@ -345,7 +346,7 @@ export class NDKGeoEvent extends NDKEvent {
 		this.tags.push(['p', previous.id])
 
 		await this.prepareForPublish(signer, options)
-		await this.publish()
+		await publish(this.rawEvent(), options?.publish ?? { routing: 'outbox' })
 		return this
 	}
 
@@ -372,7 +373,7 @@ export class NDKGeoEvent extends NDKEvent {
 		}
 
 		await deletion.sign(signer)
-		await deletion.publish()
+		await publish(deletion.rawEvent(), { routing: 'outbox' })
 	}
 }
 

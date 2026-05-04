@@ -2,6 +2,7 @@ import NDK, { NDKEvent, NDKKind, type NDKSigner, registerEventClass } from '@nos
 import { MAP_CONTEXT_KIND } from './kinds'
 import type { GeoBoundingBox } from './NDKGeoEvent'
 import { generateShortDTag } from './dTag'
+import { publish } from '../nostr'
 
 export type MapContextUse = 'taxonomy' | 'validation' | 'hybrid'
 export type MapContextValidationMode = 'none' | 'optional' | 'required'
@@ -188,7 +189,7 @@ export class NDKMapContextEvent extends NDKEvent {
 
 	async publishNew(signer?: NDKSigner): Promise<NDKMapContextEvent> {
 		await this.prepareForPublish(signer)
-		await this.publish()
+		await publish(this.rawEvent(), { routing: 'outbox' })
 		return this
 	}
 
@@ -216,7 +217,7 @@ export class NDKMapContextEvent extends NDKEvent {
 		}
 
 		await deletion.sign(signer)
-		await deletion.publish()
+		await publish(deletion.rawEvent(), { routing: 'outbox' })
 	}
 }
 
