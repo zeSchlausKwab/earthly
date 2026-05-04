@@ -1,10 +1,7 @@
 import { Check, Copy, Heart, Loader2, MessageCircle, PencilLine, Share2, Zap } from 'lucide-react'
 import { use$, useActiveAccount } from 'applesauce-react/hooks'
 import { ZapRequestFactory } from 'applesauce-common/factories'
-import {
-	getInvoice,
-	parseLNURLOrAddress,
-} from 'applesauce-common/helpers'
+import { getInvoice, parseLNURLOrAddress } from 'applesauce-common/helpers'
 import type { NostrEvent } from 'nostr-tools'
 import { nip19 } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -38,6 +35,7 @@ interface GeoSocialActionsProps {
 	showShareButton?: boolean
 	className?: string
 	compact?: boolean
+	loadCounts?: boolean
 }
 
 function getEntitySharePath(kind: number): 'geoevent' | 'context' | null {
@@ -133,7 +131,7 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 		const filters = buildZapFilters(target)
 		return filters.length ? filters : null
 	}, [target])
-	const zapReceiptEvents = useTimeline(zapFilters)
+	const zapReceiptEvents = useTimeline(open ? zapFilters : null)
 
 	// Read recipient's profile (kind 0) to extract their Lightning endpoint.
 	const recipientProfileEvent = use$(
@@ -465,6 +463,7 @@ export function GeoSocialActions({
 	showShareButton = true,
 	className = '',
 	compact = false,
+	loadCounts = true,
 }: GeoSocialActionsProps) {
 	const currentUser = useActiveAccount()
 	const {
@@ -477,7 +476,7 @@ export function GeoSocialActions({
 		openZapDialog,
 		zapDialogOpen,
 		closeZapDialog,
-	} = useGeoReactions({ target })
+	} = useGeoReactions({ target, loadCounts })
 	const sharePath = useMemo(() => buildSharePath(target), [target])
 
 	const formatCount = (count: number): string => {

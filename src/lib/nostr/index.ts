@@ -19,13 +19,14 @@ import { NostrConnectSigner } from 'applesauce-signers'
 import { NostrIDB, openDB } from 'nostr-idb'
 import type { Filter, NostrEvent } from 'nostr-tools'
 import type { IAccount } from 'applesauce-accounts'
-import { EMPTY, filter, firstValueFrom, of, race, timeout, TimeoutError, timer } from 'rxjs'
+import { EMPTY, filter, firstValueFrom, NEVER, of, race, timeout, TimeoutError, timer } from 'rxjs'
 
 // Bun HMR bundler tree-shaking bug: rxjs/index.js re-exports some values via
 // source files that Bun's HMR runtime can stub without populating. Referencing
 // them at module scope forces Bun to track the real bindings used inside
 // applesauce packages.
 void EMPTY
+void NEVER
 void timeout
 void TimeoutError
 import { config } from '@/config'

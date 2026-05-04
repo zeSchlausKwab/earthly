@@ -207,6 +207,7 @@ export const createDatasetColumns = (
 							onReplyClick={() => context.onInspectDataset?.(event)}
 							showCommentButton={Boolean(context.onInspectDataset)}
 							showAnnotateButton={false}
+							loadCounts={false}
 							compact
 							className="-ml-2 shrink-0 gap-0"
 						/>

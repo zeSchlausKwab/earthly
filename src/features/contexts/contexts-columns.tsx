@@ -131,6 +131,7 @@ export const createContextColumns = (
 										onReplyClick={() => context.onInspectContext?.(contextEvent)}
 										showCommentButton={Boolean(context.onInspectContext)}
 										showAnnotateButton={false}
+										loadCounts={false}
 										compact
 										className="-ml-2 shrink-0 gap-0"
 									/>

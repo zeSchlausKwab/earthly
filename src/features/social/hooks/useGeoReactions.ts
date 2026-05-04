@@ -14,6 +14,8 @@ export type ReactableEvent = GeoDataset | MapContext | GeoComment | NostrEvent
 export interface UseGeoReactionsOptions {
 	/** The event to fetch reactions for */
 	target: ReactableEvent | null
+	/** Whether to subscribe to reaction/zap counts. Disable in dense lists. */
+	loadCounts?: boolean
 }
 
 export interface UseGeoReactionsResult {
@@ -42,7 +44,10 @@ export interface UseGeoReactionsResult {
 /**
  * Hook for fetching and managing reactions and zaps on geo events.
  */
-export function useGeoReactions({ target }: UseGeoReactionsOptions): UseGeoReactionsResult {
+export function useGeoReactions({
+	target,
+	loadCounts = true,
+}: UseGeoReactionsOptions): UseGeoReactionsResult {
 	const currentUser = useActiveAccount()
 	const [zapDialogOpen, setZapDialogOpen] = useState(false)
 	const [isReacting, setIsReacting] = useState(false)
@@ -69,6 +74,7 @@ export function useGeoReactions({ target }: UseGeoReactionsOptions): UseGeoReact
 	// Build filter for reactions (kind 7)
 	// Use #a tag for addressable events, #e tag for regular events
 	const reactionFilters = useMemo(() => {
+		if (!loadCounts) return []
 		if (!target?.id && !targetAddress) return []
 
 		if (isAddressable && targetAddress) {
@@ -91,10 +97,11 @@ export function useGeoReactions({ target }: UseGeoReactionsOptions): UseGeoReact
 		}
 
 		return []
-	}, [target?.id, targetAddress, isAddressable])
+	}, [target?.id, targetAddress, isAddressable, loadCounts])
 
 	// Build filter for zaps (kind 9735)
 	const zapFilters = useMemo(() => {
+		if (!loadCounts) return []
 		if (!target?.id && !targetAddress) return []
 
 		if (isAddressable && targetAddress) {
@@ -117,7 +124,7 @@ export function useGeoReactions({ target }: UseGeoReactionsOptions): UseGeoReact
 		}
 
 		return []
-	}, [target?.id, targetAddress, isAddressable])
+	}, [target?.id, targetAddress, isAddressable, loadCounts])
 
 	const { events: reactionEvents, eose: reactionsEose } = useTimelineWithEose(
 		reactionFilters.length ? reactionFilters : null,
@@ -125,8 +132,8 @@ export function useGeoReactions({ target }: UseGeoReactionsOptions): UseGeoReact
 	const { events: zapEvents, eose: zapsEose } = useTimelineWithEose(
 		zapFilters.length ? zapFilters : null,
 	)
-	const reactionsLoading = !reactionsEose
-	const zapsLoading = !zapsEose
+	const reactionsLoading = loadCounts && !reactionsEose
+	const zapsLoading = loadCounts && !zapsEose
 
 	const reactionCount = reactionEvents.length
 
