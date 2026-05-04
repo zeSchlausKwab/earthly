@@ -1,5 +1,5 @@
 import { useNDKCurrentUser } from '@nostr-dev-kit/react'
-import type { NDKEvent } from '@nostr-dev-kit/ndk'
+import type { NostrEvent } from 'nostr-tools'
 import { useState, useCallback, useRef } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { ChevronDown, ChevronUp } from 'lucide-react'
@@ -14,7 +14,7 @@ interface CommentThreadProps {
 	/** The comment node to render */
 	node: CommentNode
 	/** Callback to post a reply */
-	onReply: (parentComment: NDKEvent, content: string) => Promise<void>
+	onReply: (parentComment: NostrEvent, content: string) => Promise<void>
 	/** Maximum depth to show inline (deeper comments are collapsed) */
 	collapseDepth?: number
 }
@@ -152,7 +152,7 @@ interface CommentsListProps {
 	/** Array of root comment nodes */
 	comments: CommentNode[]
 	/** Callback to post a reply */
-	onReply: (parentComment: NDKEvent, content: string) => Promise<void>
+	onReply: (parentComment: NostrEvent, content: string) => Promise<void>
 	/** Whether comments are loading */
 	isLoading?: boolean
 }

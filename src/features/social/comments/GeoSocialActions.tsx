@@ -1,6 +1,7 @@
 import { Check, Copy, Heart, Loader2, MessageCircle, PencilLine, Share2, Zap } from 'lucide-react'
 import { getNip57ZapSpecFromLud, NDKZapper, type NDKLnLudData } from '@nostr-dev-kit/ndk'
-import { useNDK, useNDKCurrentUser, useSubscribe, NDKEvent } from '@nostr-dev-kit/react'
+import { useNDK, useNDKCurrentUser, NDKEvent } from '@nostr-dev-kit/react'
+import { useTimeline } from '@/lib/nostr/hooks'
 import { nip19 } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
@@ -122,8 +123,11 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 	const [copied, setCopied] = useState(false)
 	const receiptEventIdRef = useRef<string | null>(null)
 
-	const zapFilters = useMemo(() => buildZapFilters(target), [target])
-	const { events: zapReceiptEvents } = useSubscribe(zapFilters)
+	const zapFilters = useMemo(() => {
+		const filters = buildZapFilters(target)
+		return filters.length ? filters : null
+	}, [target])
+	const zapReceiptEvents = useTimeline(zapFilters)
 
 	const resetDialogState = useCallback(() => {
 		setSelectedAmount(null)

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { useSubscribe } from '@nostr-dev-kit/react'
-import type { NDKFilter } from '@nostr-dev-kit/ndk'
+import type { Filter } from 'nostr-tools'
 import { nip19 } from 'nostr-tools'
+import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import { Loader2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -58,37 +58,29 @@ function CategoryTab({ config, developerPubkey }: CategoryTabProps) {
 	)
 
 	// Build filters based on category
-	const filters = useMemo<NDKFilter[]>(() => {
+	const filters = useMemo<Filter[]>(() => {
 		void filterVersion // Trigger re-subscription on refresh
 
-		const result: NDKFilter[] = []
+		const result: Filter[] = []
 
-		// Main filter - use the category-specific filterTag (not all tags, as that uses OR logic)
-		const mainFilter: NDKFilter = {
+		// Main filter — category-specific filterTag (not all tags, since that's OR)
+		const mainFilter: Filter = {
 			kinds: [1],
 			'#t': [config.filterTag],
 			limit: 50,
 		}
-
-		// For announcements, filter by developer pubkey
 		if (config.developerOnly && developerPubkey) {
 			mainFilter.authors = [developerPubkey]
 		}
-
 		result.push(mainFilter)
 
-		// Add pinned events filter
 		if (pinnedEventIds.length > 0) {
-			result.push({
-				kinds: [1],
-				ids: pinnedEventIds,
-			})
+			result.push({ kinds: [1], ids: pinnedEventIds })
 		}
-
 		return result
 	}, [config, developerPubkey, pinnedEventIds, filterVersion])
 
-	const { events, eose } = useSubscribe(filters)
+	const { events, eose } = useTimelineWithEose(filters)
 
 	// Deduplicate and sort posts
 	const sortedPosts = useMemo(() => {

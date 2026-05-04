@@ -1,5 +1,4 @@
-import { useSubscribe } from '@nostr-dev-kit/react'
-import type { NDKEvent } from '@nostr-dev-kit/react'
+import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Database, Eye, Globe, Layers, MessageCircle, MessageSquare, Trash2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
@@ -214,29 +213,25 @@ export function UserProfilePanel({
 	)
 
 	const proposalFilters = useMemo(() => {
-		if (!pubkey) return false
+		if (!pubkey) return null
 		return [{ kinds: [GEO_EDIT_PROPOSAL_KIND], authors: [pubkey] }]
 	}, [pubkey])
 
-	const { events: proposalEvents, eose: proposalEose } = useSubscribe(proposalFilters)
+	const { events: proposalEvents, eose: proposalEose } = useTimelineWithEose(proposalFilters)
 
 	const userProposalEvents = useMemo(() => {
 		return proposalEvents
-			.filter((event: NDKEvent) => event.kind === GEO_EDIT_PROPOSAL_KIND)
-			.map((event: NDKEvent) => {
-				const raw = (event as { rawEvent?: () => unknown }).rawEvent?.() ?? event
-				// biome-ignore lint/suspicious/noExplicitAny: NDK event shape varies
-				return castEvent(raw as any, GeoProposal, eventStore)
-			})
+			.filter((event) => event.kind === GEO_EDIT_PROPOSAL_KIND)
+			.map((event) => castEvent(event, GeoProposal, eventStore))
 			.sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
 	}, [proposalEvents])
 
 	const proposalStatusFilters = useMemo(() => {
-		if (userProposalEvents.length === 0) return false
+		if (userProposalEvents.length === 0) return null
 		const addresses = userProposalEvents
 			.map((proposal) => proposal.proposalCoordinate)
 			.filter((value): value is string => Boolean(value))
-		if (addresses.length === 0) return false
+		if (addresses.length === 0) return null
 		return [
 			{
 				kinds: [
@@ -251,7 +246,7 @@ export function UserProfilePanel({
 	}, [userProposalEvents])
 
 	const { events: proposalStatusEvents, eose: proposalStatusEose } =
-		useSubscribe(proposalStatusFilters)
+		useTimelineWithEose(proposalStatusFilters)
 
 	const datasetResult = useSortedFilteredItems(userGeoEvents, datasetFilterConfig, filterState)
 	const contextResult = useSortedFilteredItems(userContextEvents, contextFilterConfig, filterState)
@@ -487,7 +482,7 @@ export function UserProfilePanel({
 
 	const isProposalsLoading =
 		!proposalEose ||
-		(userProposalEvents.length > 0 && proposalStatusFilters !== false && !proposalStatusEose)
+		(userProposalEvents.length > 0 && proposalStatusFilters !== null && !proposalStatusEose)
 
 	const activeResult =
 		activeTab === 'datasets'

@@ -1,9 +1,8 @@
-import { useNDK, useSubscribe } from '@nostr-dev-kit/react'
-import type { NDKEvent } from '@nostr-dev-kit/react'
 import { castEvent } from 'applesauce-core/casts'
 import type { NostrEvent } from 'nostr-tools'
 import { useMemo, useState, useCallback } from 'react'
 import { accounts, eventStore, publish } from '@/lib/nostr'
+import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import { GeoProposal } from '@/lib/nostr/geo-proposal'
 import { GeoDataset, GeoDatasetFactory } from '@/lib/nostr/geo-event'
 import {
@@ -82,18 +81,17 @@ function getProposalDisplayPriority(proposal: ProposalWithStatus): number {
  * Two-stage subscription: proposals first, then status events.
  */
 export function useGeoProposals({ target }: UseGeoProposalsOptions): UseGeoProposalsResult {
-	const { ndk } = useNDK()
 	const [isActing, setIsActing] = useState(false)
 
 	// Stage 1: Subscribe to proposals targeting this dataset
 	const proposalFilters = useMemo(() => {
-		if (!target) return false
+		if (!target) return null
 
 		const targetKind = target.kind
 		const targetPubkey = target.pubkey
 		const targetDTag = target.dTag
 
-		if (!targetKind || !targetPubkey || !targetDTag) return false
+		if (!targetKind || !targetPubkey || !targetDTag) return null
 
 		const address = `${targetKind}:${targetPubkey}:${targetDTag}`
 
@@ -105,19 +103,15 @@ export function useGeoProposals({ target }: UseGeoProposalsOptions): UseGeoPropo
 		]
 	}, [target])
 
-	const { events: proposalEvents, eose: proposalEose } = useSubscribe(proposalFilters)
+	const { events: proposalEvents, eose: proposalEose } = useTimelineWithEose(proposalFilters)
 
 	// Convert to typed proposal events
 	const typedProposals = useMemo(() => {
 		const deduped = new Map<string, GeoProposal>()
 
 		proposalEvents
-			.filter((e: NDKEvent) => e.kind === GEO_EDIT_PROPOSAL_KIND)
-			.map((e: NDKEvent) => {
-				const raw = (e as { rawEvent?: () => unknown }).rawEvent?.() ?? e
-				// biome-ignore lint/suspicious/noExplicitAny: NDK event shape varies; cast accepts the standard NostrEvent fields
-				return castEvent(raw as any, GeoProposal, eventStore)
-			})
+			.filter((e) => e.kind === GEO_EDIT_PROPOSAL_KIND)
+			.map((e) => castEvent(e, GeoProposal, eventStore))
 			.forEach((proposal) => {
 				const stableKey =
 					proposal.proposalCoordinate ??
@@ -137,13 +131,13 @@ export function useGeoProposals({ target }: UseGeoProposalsOptions): UseGeoPropo
 
 	// Stage 2: Subscribe to status events for all proposals
 	const statusFilters = useMemo(() => {
-		if (typedProposals.length === 0) return false
+		if (typedProposals.length === 0) return null
 
 		const proposalAddresses = typedProposals
 			.map((p) => p.proposalCoordinate)
 			.filter((addr): addr is string => !!addr)
 
-		if (proposalAddresses.length === 0) return false
+		if (proposalAddresses.length === 0) return null
 
 		return [
 			{
@@ -158,17 +152,13 @@ export function useGeoProposals({ target }: UseGeoProposalsOptions): UseGeoPropo
 		]
 	}, [typedProposals])
 
-	const { events: statusEvents, eose: statusEose } = useSubscribe(statusFilters)
+	const { events: statusEvents, eose: statusEose } = useTimelineWithEose(statusFilters)
 
 	// Merge proposals with their latest status
 	const proposals = useMemo<ProposalWithStatus[]>(() => {
 		const proposalsWithStatus = typedProposals.map((proposal) => {
 			const address = proposal.proposalCoordinate
-			// statusEvents are NDKEvent[]; convert to raw NostrEvent[] before passing.
-			const rawStatusEvents = statusEvents.map((e: NDKEvent) =>
-				(e.rawEvent ? e.rawEvent() : e) as NostrEvent,
-			)
-			const statusInfo = address ? getLatestProposalStatus(rawStatusEvents, address) : undefined
+			const statusInfo = address ? getLatestProposalStatus(statusEvents, address) : undefined
 
 			return {
 				proposal,
@@ -209,9 +199,7 @@ export function useGeoProposals({ target }: UseGeoProposalsOptions): UseGeoPropo
 
 	const acceptProposal = useCallback(
 		async (proposal: GeoProposal) => {
-			if (!ndk || !target) {
-				throw new Error('NDK or target not available')
-			}
+			if (!target) throw new Error('No target')
 			const signer = accounts.signer
 			if (!signer) throw new Error('No active account')
 
@@ -237,7 +225,7 @@ export function useGeoProposals({ target }: UseGeoProposalsOptions): UseGeoPropo
 				setIsActing(false)
 			}
 		},
-		[ndk, target],
+		[target],
 	)
 
 	const rejectProposal = useCallback(
@@ -257,7 +245,7 @@ export function useGeoProposals({ target }: UseGeoProposalsOptions): UseGeoPropo
 
 	const isLoading =
 		!proposalEose ||
-		(typedProposals.length > 0 && statusFilters !== false && !statusEose) ||
+		(typedProposals.length > 0 && statusFilters !== null && !statusEose) ||
 		isActing
 
 	return {

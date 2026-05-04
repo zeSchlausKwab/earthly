@@ -4,7 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { PMTiles, Protocol, TileType } from 'pmtiles'
 import type React from 'react'
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { useSubscribe } from '@nostr-dev-kit/react'
+import { useTimeline } from '@/lib/nostr/hooks'
 import { config } from '@/config/env.client'
 import { type BBox, lonLatToWorldGeohash, tileCenterLonLat } from '@/lib/worldGeohash'
 import { type MapLayerSetAnnouncementPayload } from '@/lib/nostr/map-layer-set'
@@ -283,9 +283,8 @@ export const GeoEditorMap: React.FC<MapProps> = ({
 	// IMPORTANT: NDK requires at least one filter; passing [] will throw.
 	// We always subscribe and only *use* the result when mapSource.type === 'blossom'.
 	// No authors filter - discover announcements from any source on the relay.
-	const { events: mapLayerSetEvents } = useSubscribe([
-		// biome-ignore lint/suspicious/noExplicitAny: NDK's NDKKind enum doesn't include our custom 34444; cast to bypass nominal check
-		{ kinds: [MAP_LAYER_SET_KIND] as any, limit: 50 },
+	const mapLayerSetEvents = useTimeline([
+		{ kinds: [MAP_LAYER_SET_KIND], limit: 50 },
 	])
 
 	// Derive a stable "latest event" so our effect doesn't re-trigger on every render.

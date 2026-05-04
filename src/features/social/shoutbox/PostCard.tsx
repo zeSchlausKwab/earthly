@@ -1,4 +1,4 @@
-import type { NDKEvent } from '@nostr-dev-kit/ndk'
+import type { NostrEvent } from 'nostr-tools'
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useNDKCurrentUser } from '@nostr-dev-kit/react'
 import { formatDistanceToNow } from 'date-fns'
@@ -14,7 +14,7 @@ import { UserProfile } from '@/components/user-profile'
 
 interface PostCardProps {
 	/** The post event */
-	event: NDKEvent
+	event: NostrEvent
 	/** Whether this is from the developer */
 	isDeveloperPost?: boolean
 }
