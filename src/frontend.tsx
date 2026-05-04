@@ -6,12 +6,15 @@
  */
 
 import NDKCacheAdapterDexie from '@nostr-dev-kit/ndk-cache-dexie'
-import { NDKHeadless, NDKSessionLocalStorage } from '@nostr-dev-kit/react'
+import { NDKHeadless } from '@nostr-dev-kit/react'
+import { AccountsProvider, EventStoreProvider } from 'applesauce-react/providers'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import { config } from './config'
-import { DEFAULT_PUBLIC_RELAYS } from './features/geo-editor/constants'
+// Import for side-effects: instantiates eventStore, pool, accounts, cache, etc.
+import { accounts, eventStore } from './lib/nostr'
+import { NdkBridgeWatcher } from './lib/nostr/NdkBridgeWatcher'
 
 const elem = document.getElementById('root')!
 
@@ -27,17 +30,27 @@ const dexieAdapter = new NDKCacheAdapterDexie({
 // App renders synchronously - config values are baked in at build time
 const app = (
 	<StrictMode>
+		{/*
+		 * NDKHeadless is still mounted because legacy code paths (NDKEvent subclasses,
+		 * useSubscribe, Blossom) still depend on its NDK instance. The bridge in
+		 * NdkBridgeWatcher mirrors the active applesauce account into NDK's
+		 * session state, so the session={false} disables NDK's own persistence
+		 * to avoid double-writing localStorage. NDKHeadless is removed entirely
+		 * in Step 3 once relay I/O is on applesauce.
+		 */}
 		<NDKHeadless
 			ndk={{
-				explicitRelayUrls: config.relayUrls, //.concat(DEFAULT_PUBLIC_RELAYS),
+				explicitRelayUrls: config.relayUrls,
 				cacheAdapter: dexieAdapter,
 			}}
-			session={{
-				storage: new NDKSessionLocalStorage(),
-				opts: { follows: true, profile: true },
-			}}
+			session={false}
 		/>
-		<App />
+		<NdkBridgeWatcher />
+		<EventStoreProvider eventStore={eventStore}>
+			<AccountsProvider manager={accounts}>
+				<App />
+			</AccountsProvider>
+		</EventStoreProvider>
 	</StrictMode>
 )
 

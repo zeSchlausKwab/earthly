@@ -1,18 +1,8 @@
-import {
-	NDKNip07Signer,
-	NDKSessionLocalStorage,
-	type NDKNip46Signer,
-	type NDKPrivateKeySigner,
-	removeStoredSession,
-	useNDKCurrentPubkey,
-	useNDKSessionLogin,
-	useNDKSessionLogout,
-	useNDKSessionSessions,
-	useNDKSessionSwitch,
-	type Hexpubkey,
-} from '@nostr-dev-kit/react'
+import { ExtensionAccount } from 'applesauce-accounts/accounts'
+import { useAccountManager, useAccounts, useActiveAccount } from 'applesauce-react/hooks'
 import { AppWindowIcon, KeyRoundIcon, LogOut, QrCodeIcon, Users } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
+import { toast } from 'sonner'
 import { Nip46LoginDialog } from './Nip46LoginDialog'
 import { SignupDialog } from './SignupDialog'
 import { Button } from '@/components/ui/button'
@@ -20,27 +10,16 @@ import { ButtonGroup } from '@/components/ui/button-group'
 import { Label } from '@/components/ui/label'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { UserProfile } from '@/components/user-profile'
+import { loginWithAccount } from '@/lib/nostr'
 
-/**
- * Display a session item with profile info and actions
- */
-function SessionItem({
-	pubkey,
-	isActive,
-	onSwitch,
-	onLogout,
-}: {
-	pubkey: Hexpubkey
+interface SessionItemProps {
+	pubkey: string
 	isActive: boolean
 	onSwitch: () => void
-	onLogout: () => void
-}) {
-	const handleClick = () => {
-		if (!isActive) {
-			onSwitch()
-		}
-	}
+	onRemove: () => void
+}
 
+function SessionItem({ pubkey, isActive, onSwitch, onRemove }: SessionItemProps) {
 	return (
 		<div
 			className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
@@ -52,7 +31,7 @@ function SessionItem({
 			<Button
 				type="button"
 				variant="ghost"
-				onClick={handleClick}
+				onClick={isActive ? undefined : onSwitch}
 				disabled={isActive}
 				className="flex min-w-0 flex-1 items-center gap-2 justify-start text-left disabled:cursor-default h-auto px-0"
 			>
@@ -79,7 +58,7 @@ function SessionItem({
 							className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
 							onClick={(e) => {
 								e.stopPropagation()
-								onLogout()
+								onRemove()
 							}}
 						>
 							<LogOut className="h-4 w-4" />
@@ -93,61 +72,27 @@ function SessionItem({
 }
 
 /**
- * Sessions manager component for managing multiple Nostr accounts
+ * Sessions manager — list saved accounts, switch between them, add new ones.
+ *
+ * "Sessions" in the old NDK code = "accounts" here. Renaming the UI strings
+ * later if you prefer; the functionality is identical.
  */
 export function SessionsManager() {
-	const sessions = useNDKSessionSessions()
-	const activePubkey = useNDKCurrentPubkey()
-	const switchSession = useNDKSessionSwitch()
-	const logout = useNDKSessionLogout()
-	const login = useNDKSessionLogin()
-	const storageRef = useRef(new NDKSessionLocalStorage())
+	const manager = useAccountManager()
+	const accounts = useAccounts()
+	const active = useActiveAccount()
 
 	const [loading, setLoading] = useState(false)
 	const [showSignupDialog, setShowSignupDialog] = useState(false)
 
-	const sessionList = Array.from(sessions.entries())
-
-	const handleSignup = async (signer: NDKPrivateKeySigner, rememberMe: boolean) => {
-		try {
-			await login(signer)
-			if (!rememberMe) {
-				const user = await signer.user()
-				if (user?.pubkey) {
-					await removeStoredSession(storageRef.current, user.pubkey)
-				}
-			}
-		} catch (error) {
-			console.error('Login failed:', error)
-			throw error
-		}
-	}
-
 	const handleNip07Login = async () => {
 		try {
 			setLoading(true)
-			const signer = new NDKNip07Signer()
-			await login(signer)
+			const account = await ExtensionAccount.fromExtension()
+			loginWithAccount(account, { remember: true })
 		} catch (error) {
 			console.error('Extension login failed:', error)
-		} finally {
-			setLoading(false)
-		}
-	}
-
-	const handleNip46Login = async (signer: NDKNip46Signer, rememberMe: boolean) => {
-		try {
-			setLoading(true)
-			await login(signer)
-			if (!rememberMe) {
-				const user = await signer.user()
-				if (user?.pubkey) {
-					await removeStoredSession(storageRef.current, user.pubkey)
-				}
-			}
-		} catch (error) {
-			console.error('NIP-46 login failed:', error)
-			throw error
+			toast.error('Could not connect to a browser extension. Is one installed?')
 		} finally {
 			setLoading(false)
 		}
@@ -158,34 +103,33 @@ export function SessionsManager() {
 			<div className="flex items-center justify-between">
 				<div className="flex items-center gap-2">
 					<Users className="h-4 w-4 text-muted-foreground" />
-					<Label className="text-sm font-medium">Sessions</Label>
-					{sessionList.length > 0 && (
+					<Label className="text-sm font-medium">Accounts</Label>
+					{accounts.length > 0 && (
 						<span className="text-xs text-muted-foreground">
-							({sessionList.length} account{sessionList.length !== 1 ? 's' : ''})
+							({accounts.length} account{accounts.length !== 1 ? 's' : ''})
 						</span>
 					)}
 				</div>
 			</div>
 
-			{sessionList.length === 0 ? (
+			{accounts.length === 0 ? (
 				<div className="text-sm text-muted-foreground italic p-4 border border-dashed rounded-lg text-center">
-					No active sessions. Add an account below.
+					No saved accounts. Add one below.
 				</div>
 			) : (
 				<div className="space-y-2">
-					{sessionList.map(([pubkey]) => (
+					{accounts.map((account) => (
 						<SessionItem
-							key={pubkey}
-							pubkey={pubkey}
-							isActive={pubkey === activePubkey}
-							onSwitch={() => switchSession(pubkey)}
-							onLogout={() => logout(pubkey)}
+							key={account.id}
+							pubkey={account.pubkey}
+							isActive={account.id === active?.id}
+							onSwitch={() => manager.setActive(account)}
+							onRemove={() => manager.removeAccount(account)}
 						/>
 					))}
 				</div>
 			)}
 
-			{/* Add Account Section */}
 			<div className="pt-2 border-t">
 				<Label className="text-xs text-muted-foreground mb-2 block">Add Account</Label>
 				<ButtonGroup className="w-full">
@@ -219,7 +163,6 @@ export function SessionsManager() {
 						<TooltipContent>Use browser extension (NIP-07)</TooltipContent>
 					</Tooltip>
 					<Nip46LoginDialog
-						onLogin={handleNip46Login}
 						trigger={
 							<Button
 								variant="outline"
@@ -237,15 +180,10 @@ export function SessionsManager() {
 			</div>
 
 			<p className="text-xs text-muted-foreground">
-				Sessions are saved unless you uncheck "Stay logged in" when adding an account.
+				Accounts are saved unless you uncheck "Stay logged in" when adding one.
 			</p>
 
-			{/* Signup Dialog */}
-			<SignupDialog
-				open={showSignupDialog}
-				onOpenChange={setShowSignupDialog}
-				onConfirm={handleSignup}
-			/>
+			<SignupDialog open={showSignupDialog} onOpenChange={setShowSignupDialog} />
 		</div>
 	)
 }

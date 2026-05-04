@@ -18,6 +18,8 @@ import { createEventLoaderForStore } from 'applesauce-loaders/loaders'
 import { NostrConnectSigner } from 'applesauce-signers'
 import { NostrIDB } from 'nostr-idb'
 import type { Filter, NostrEvent } from 'nostr-tools'
+import type { IAccount } from 'applesauce-accounts'
+import type { ISigner } from 'applesauce-signers'
 import { firstValueFrom, race, timer, of, filter } from 'rxjs'
 import { config } from '@/config'
 
@@ -27,9 +29,62 @@ export const eventStore = new EventStore()
 /** Connection pool — owns websocket lifecycles per relay URL. */
 export const pool = new RelayPool()
 
+/**
+ * Earthly-specific account metadata stored alongside each saved account.
+ *
+ *   - `ephemeral: true` means "don't persist this account across reloads".
+ *     Used when the user unchecks "Stay logged in".
+ */
+export interface EarthlyAccountMetadata {
+	ephemeral?: boolean
+}
+
 /** Multi-account signer manager. Common account types are registered eagerly. */
-export const accounts = new AccountManager()
+export const accounts = new AccountManager<EarthlyAccountMetadata>()
 registerCommonAccountTypes(accounts)
+
+const ACCOUNTS_STORAGE_KEY = 'earthly:accounts'
+const ACTIVE_ACCOUNT_STORAGE_KEY = 'earthly:active-account'
+
+/**
+ * Restore saved accounts on boot. Failures are logged but don't block boot —
+ * a corrupted entry shouldn't prevent the rest of the app from loading.
+ */
+function restoreAccounts() {
+	if (typeof localStorage === 'undefined') return
+	try {
+		const raw = localStorage.getItem(ACCOUNTS_STORAGE_KEY)
+		if (raw) accounts.fromJSON(JSON.parse(raw), true)
+		const activeId = localStorage.getItem(ACTIVE_ACCOUNT_STORAGE_KEY)
+		if (activeId) {
+			const found = accounts.getAccount(activeId)
+			if (found) accounts.setActive(found)
+		}
+	} catch (err) {
+		console.error('[nostr] failed to restore accounts from localStorage', err)
+	}
+}
+
+restoreAccounts()
+
+// Persist on every change. BehaviorSubjects emit immediately so the first save
+// is essentially a no-op when storage is already in sync. Ephemeral accounts
+// (rememberMe=false) are filtered out so they only live in memory.
+accounts.accounts$.subscribe(() => {
+	if (typeof localStorage === 'undefined') return
+	try {
+		const persisted = accounts.toJSON(true).filter((acc) => !acc.metadata?.ephemeral)
+		localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(persisted))
+	} catch (err) {
+		console.error('[nostr] failed to persist accounts', err)
+	}
+})
+
+accounts.active$.subscribe((account) => {
+	if (typeof localStorage === 'undefined') return
+	if (account) localStorage.setItem(ACTIVE_ACCOUNT_STORAGE_KEY, account.id)
+	else localStorage.removeItem(ACTIVE_ACCOUNT_STORAGE_KEY)
+})
 
 /** IndexedDB-backed event cache. Replaces the Dexie adapter. */
 const cache = new NostrIDB(undefined, {
@@ -154,6 +209,43 @@ export async function publish(event: NostrEvent, options: PublishOptions = {}) {
 	const responses = await pool.publish(targetRelays, event)
 	eventStore.add(event)
 	return responses
+}
+
+/**
+ * Add an account to the manager, set it active, and configure persistence.
+ *
+ * If an account with the same pubkey already exists it is replaced — this
+ * keeps "log in again with the same key" idempotent rather than producing
+ * duplicate sidebar entries.
+ */
+// IAccount uses three generics that don't unify cleanly across the various
+// concrete account classes (NostrConnectAccount, ExtensionAccount, etc.).
+// We only care that it walks and quacks like an account, so accept the loose
+// shape and let the manager validate at runtime.
+// biome-ignore lint/suspicious/noExplicitAny: see comment above
+type AnyAccount = IAccount<any, any, any>
+
+export function loginWithAccount(
+	account: AnyAccount,
+	options: { remember?: boolean } = {},
+) {
+	const { remember = true } = options
+
+	// Replace any prior account for the same pubkey to avoid duplicates.
+	for (const existing of accounts.getAccountsForPubkey(account.pubkey)) {
+		accounts.removeAccount(existing)
+	}
+
+	account.metadata = { ...(account.metadata ?? {}), ephemeral: !remember }
+	accounts.addAccount(account)
+	accounts.setActive(account)
+}
+
+/** Log out the active account. Removes it entirely (forgets persisted data). */
+export function logoutActive() {
+	const active = accounts.active
+	if (!active) return
+	accounts.removeAccount(active)
 }
 
 if (import.meta.hot) {
