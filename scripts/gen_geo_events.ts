@@ -3,7 +3,7 @@ import NDK, {
 	NDKEvent,
 	type NDKPrivateKeySigner,
 	type NDKTag,
-} from "@nostr-dev-kit/ndk";
+} from "@/lib/ndk-shim";
 import { GEO_EVENT_KIND } from "../src/lib/ndk/kinds";
 import { simplify, truncate } from "@turf/turf";
 import { createHash } from "crypto";
@@ -1073,7 +1073,7 @@ export async function generateGeoEventData(
 export async function createGeoEventEvent(
 	signer: NDKPrivateKeySigner,
 	ndk: NDK,
-	geoEventData: ReturnType<typeof generateGeoEventData>,
+	geoEventData: Awaited<ReturnType<typeof generateGeoEventData>>,
 ) {
 	const event = new NDKEvent(ndk);
 	event.kind = geoEventData.kind;

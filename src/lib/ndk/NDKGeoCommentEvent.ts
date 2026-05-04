@@ -1,4 +1,4 @@
-import NDK, { NDKEvent, NDKKind, type NDKSigner, registerEventClass } from '@nostr-dev-kit/react'
+import NDK, { NDKEvent, NDKKind, type NDKSigner, registerEventClass } from '@/lib/ndk-shim'
 import { bbox, centroid } from '@turf/turf'
 import type { FeatureCollection, Position } from 'geojson'
 import { GEO_COMMENT_KIND } from './kinds'
@@ -155,7 +155,7 @@ export class NDKGeoCommentEvent extends NDKEvent {
 			this.tags.push(['e', parentComment.id])
 		}
 		this.tags.push(['P', rootPubkey])
-		this.tags.push(['p', parentComment.pubkey])
+		if (parentComment.pubkey) this.tags.push(['p', parentComment.pubkey])
 	}
 
 	/**

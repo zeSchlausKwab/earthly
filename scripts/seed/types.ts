@@ -1,4 +1,4 @@
-import type { NDKPrivateKeySigner } from "@nostr-dev-kit/ndk";
+import type { NDKPrivateKeySigner } from "@/lib/ndk-shim";
 
 export type BoundingBox = [number, number, number, number];
 

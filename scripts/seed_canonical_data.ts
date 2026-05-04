@@ -13,7 +13,7 @@ import NDK, {
   NDKEvent,
   NDKPrivateKeySigner,
   type NDKTag,
-} from "@nostr-dev-kit/ndk";
+} from "@/lib/ndk-shim";
 import { config } from "dotenv";
 import { readFileSync, readdirSync } from "fs";
 import { join } from "path";

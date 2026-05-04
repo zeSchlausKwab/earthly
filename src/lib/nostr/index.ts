@@ -16,7 +16,7 @@ import { AccountManager } from 'applesauce-accounts'
 import { registerCommonAccountTypes } from 'applesauce-accounts/accounts'
 import { createEventLoaderForStore } from 'applesauce-loaders/loaders'
 import { NostrConnectSigner } from 'applesauce-signers'
-import { NostrIDB } from 'nostr-idb'
+import { NostrIDB, openDB } from 'nostr-idb'
 import type { Filter, NostrEvent } from 'nostr-tools'
 import type { IAccount } from 'applesauce-accounts'
 import { EMPTY, filter, firstValueFrom, of, race, timeout, TimeoutError, timer } from 'rxjs'
@@ -99,26 +99,92 @@ accounts.active$.subscribe((account) => {
  * `indexedDB` doesn't exist.
  */
 const hasIndexedDB = typeof indexedDB !== 'undefined'
-const cache = hasIndexedDB
-	? new NostrIDB(undefined, { cacheIndexes: 2000, maxEvents: 20_000 })
-	: null
+let cache: NostrIDB | null = null
+
+function getErrorName(error: unknown) {
+	return typeof error === 'object' && error !== null && 'name' in error ? String(error.name) : ''
+}
+
+function getErrorMessage(error: unknown) {
+	return typeof error === 'object' && error !== null && 'message' in error
+		? String(error.message)
+		: String(error)
+}
+
+function isClosingDatabaseError(error: unknown) {
+	return getErrorName(error) === 'InvalidStateError' && /closing/i.test(getErrorMessage(error))
+}
+
+function logCacheError(action: string, error: unknown) {
+	if (isClosingDatabaseError(error)) {
+		console.warn(
+			`[nostr] IndexedDB cache ${action} skipped because the database connection is closing`,
+		)
+		return
+	}
+	console.error(`[nostr] NostrIDB ${action} failed`, error)
+}
+
+function closeCacheDb(idb: NostrIDB) {
+	const db = (idb as unknown as { db?: { close?: () => void } | null }).db
+	try {
+		db?.close?.()
+	} catch (err) {
+		logCacheError('close', err)
+	}
+}
+
+function disableCache(idb: NostrIDB) {
+	if (cache === idb) cache = null
+	void idb
+		.stop()
+		.catch((err) => logCacheError('stop', err))
+		.finally(() => closeCacheDb(idb))
+}
+
+function createCache(db: ConstructorParameters<typeof NostrIDB>[0]) {
+	const idb = new NostrIDB(db, { cacheIndexes: 2000, maxEvents: 20_000 })
+	const flushable = idb as unknown as { flush: () => Promise<void> }
+	const flush = flushable.flush.bind(idb)
+
+	flushable.flush = async () => {
+		try {
+			await flush()
+		} catch (err) {
+			logCacheError('flush', err)
+			disableCache(idb)
+		}
+	}
+
+	return idb
+}
 
 /**
  * Resolves once the cache has finished its async startup.
  * Loaders defer their first read until this resolves. In non-browser
  * environments this is a resolved no-op.
  */
-export const cacheReady = cache
-	? cache.start().catch((err) => {
-			console.error('[nostr] NostrIDB failed to start, continuing without persistent cache', err)
-		})
+export const cacheReady = hasIndexedDB
+	? openDB()
+			.then((db) => {
+				cache = createCache(db)
+			})
+			.catch((err) => {
+				cache = null
+				logCacheError('startup', err)
+			})
 	: Promise.resolve()
 
 /** Pipe newly-added events into the cache in batches. Cleanup on HMR. */
-const stopPersist = cache
+const stopPersist = hasIndexedDB
 	? persistEventsToCache(eventStore, async (events: NostrEvent[]) => {
 			await cacheReady
-			await Promise.allSettled(events.map((event) => cache.add(event)))
+			if (!cache) return
+
+			const results = await Promise.allSettled(events.map((event) => cache?.add(event)))
+			for (const result of results) {
+				if (result.status === 'rejected') logCacheError('write', result.reason)
+			}
 		})
 	: () => {}
 
@@ -127,9 +193,15 @@ const stopPersist = cache
  * Awaits cache start so callers don't race the initial open.
  */
 async function cacheRequest(filters: Filter[]): Promise<NostrEvent[]> {
-	if (!cache) return []
 	await cacheReady
-	return cache.query(filters)
+	if (!cache) return []
+
+	try {
+		return await cache.query(filters)
+	} catch (err) {
+		logCacheError('query', err)
+		return []
+	}
 }
 
 /**
@@ -279,5 +351,8 @@ export function logoutActive() {
 if (import.meta.hot) {
 	import.meta.hot.dispose(() => {
 		stopPersist()
+		const activeCache = cache
+		cache = null
+		if (activeCache) disableCache(activeCache)
 	})
 }

@@ -1,4 +1,4 @@
-import NDK, { NDKEvent, NDKKind, type NDKSigner, registerEventClass } from '@nostr-dev-kit/react'
+import NDK, { NDKEvent, NDKKind, type NDKSigner, registerEventClass } from '@/lib/ndk-shim'
 import { MAP_CONTEXT_KIND } from './kinds'
 import type { GeoBoundingBox } from '@/lib/nostr/geo-event'
 import { generateShortDTag } from './dTag'

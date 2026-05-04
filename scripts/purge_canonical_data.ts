@@ -17,7 +17,7 @@
  *               nuclear-power, airports, ports
  */
 
-import NDK, { NDKEvent, NDKPrivateKeySigner } from "@nostr-dev-kit/ndk";
+import NDK, { NDKEvent, NDKPrivateKeySigner } from "@/lib/ndk-shim";
 import { config } from "dotenv";
 import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from "@/lib/ndk/kinds";
 
@@ -194,7 +194,7 @@ async function main() {
     targets.push({
       id: ev.id!,
       kind: ev.kind!,
-      pubkey: ev.pubkey,
+      pubkey: ev.pubkey!,
       dTag,
       label: `${ev.kind === MAP_CONTEXT_KIND ? "context" : "dataset"}  ${dTag}`,
     });

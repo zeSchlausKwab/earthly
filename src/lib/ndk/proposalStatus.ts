@@ -1,4 +1,4 @@
-import NDK, { NDKEvent, type NDKSigner } from '@nostr-dev-kit/react'
+import NDK, { NDKEvent, type NDKSigner } from '@/lib/ndk-shim'
 import {
 	PROPOSAL_STATUS_OPEN_KIND,
 	PROPOSAL_STATUS_APPLIED_KIND,

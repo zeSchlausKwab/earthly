@@ -9,8 +9,9 @@
  *
  *   - `writeRelays`  is where every `publish()` lands. In dev this is locked
  *      to the local relay so seed scripts and test posts can never leak.
- *   - `readRelays`   is what subscriptions/lookups query. = writeRelays + any
- *      `EXTRA_READ_RELAYS`. In dev you opt-in to public reads explicitly.
+ *   - `readRelays`   is what subscriptions/lookups query. = writeRelays +
+ *      configured `RELAY_URL` + any `EXTRA_READ_RELAYS`. In local dev this
+ *      keeps writes local while still allowing public reads.
  *   - `seedRelays`   is what seed scripts target. Identical to writeRelays so
  *      seeds always stay local.
  *
@@ -116,30 +117,36 @@ function buildWriteRelays({
 /**
  * Build the READ relay set. Always a superset of writeRelays.
  *
- *   - In dev, `EXTRA_READ_RELAYS` is the only way to fetch from anywhere
- *     beyond local — useful for public profiles and NIP-65 mailbox discovery.
+ *   - In dev, writes stay local but reads also include the configured
+ *     `RELAY_URL` and `EXTRA_READ_RELAYS`. This lets the app cold-start from a
+ *     public relay even when the local seed relay is not running.
  *   - In prod, `EXTRA_READ_RELAYS` extends the configured `RELAY_URL` set.
  *
  * Loopback URLs are filtered out unless we're on a local origin.
  */
 function buildReadRelays({
 	writeRelays,
+	relayUrl,
 	extraReadRelays,
 }: {
 	writeRelays: string[]
+	relayUrl: string
 	extraReadRelays: string
 }): string[] {
 	const locationInfo = getBrowserLocation()
 	const isLocalOrigin = locationInfo ? isLoopbackHostname(locationInfo.hostname) : false
 	const isHttps = locationInfo ? locationInfo.protocol === 'https:' : false
 
-	const extras = parseRelayList(extraReadRelays).filter((url) => {
+	const canReadRelay = (url: string) => {
 		if (isHttps && url.startsWith('ws://')) return false
 		if (!isLocalOrigin && isLoopbackRelayUrl(url)) return false
 		return true
-	})
+	}
 
-	return dedupe([...writeRelays, ...extras])
+	const configuredReads = parseRelayList(relayUrl).filter(canReadRelay)
+	const extras = parseRelayList(extraReadRelays).filter(canReadRelay)
+
+	return dedupe([...writeRelays, ...configuredReads, ...extras])
 }
 
 function buildBlossomServer({
@@ -167,7 +174,7 @@ const isProduction = safeEnv(() => process.env.NODE_ENV === 'production', false)
 const isDevelopment = safeEnv(() => process.env.NODE_ENV !== 'production', true)
 
 const writeRelays = buildWriteRelays({ relayUrl, isDevelopment })
-const readRelays = buildReadRelays({ writeRelays, extraReadRelays })
+const readRelays = buildReadRelays({ writeRelays, relayUrl, extraReadRelays })
 // Seed scripts always target the write set — never the broader reads.
 const seedRelays = writeRelays
 

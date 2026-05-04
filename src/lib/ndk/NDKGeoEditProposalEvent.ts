@@ -1,4 +1,4 @@
-import NDK, { NDKEvent, NDKKind, type NDKSigner, registerEventClass } from '@nostr-dev-kit/react'
+import NDK, { NDKEvent, NDKKind, type NDKSigner, registerEventClass } from '@/lib/ndk-shim'
 import { bbox, centroid } from '@turf/turf'
 import type { FeatureCollection, Position } from 'geojson'
 import { GEO_EDIT_PROPOSAL_KIND } from './kinds'

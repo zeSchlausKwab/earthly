@@ -34,27 +34,18 @@ export function useTimeline(
 	filters: Filter | Filter[] | null,
 	relays: string[] = config.readRelays,
 ): NostrEvent[] {
-	const filterKey = useMemo(
-		() => (filters ? JSON.stringify(filters) : null),
-		[filters],
-	)
+	const filterKey = useMemo(() => (filters ? JSON.stringify(filters) : null), [filters])
 	const relayKey = useMemo(() => relays.join(','), [relays])
 
-	use$(
-		() => {
-			if (!filters) return undefined
-			return pool.subscription(relays, filters).pipe(mapEventsToStore(eventStore))
-		},
-		[filterKey, relayKey],
-	)
+	use$(() => {
+		if (!filters) return undefined
+		return pool.subscription(relays, filters).pipe(mapEventsToStore(eventStore))
+	}, [filterKey, relayKey])
 
-	const events = use$(
-		() => {
-			if (!filters) return undefined
-			return eventStore.timeline(filters).pipe(map((events) => [...events]))
-		},
-		[filterKey],
-	)
+	const events = use$(() => {
+		if (!filters) return undefined
+		return eventStore.timeline(filters).pipe(map((events) => [...events]))
+	}, [filterKey])
 
 	return events ?? []
 }
@@ -73,14 +64,11 @@ export function useTimelineWithEose(
 	filters: Filter | Filter[] | null,
 	relays: string[] = config.readRelays,
 ): { events: NostrEvent[]; eose: boolean } {
-	const filterKey = useMemo(
-		() => (filters ? JSON.stringify(filters) : null),
-		[filters],
-	)
+	const filterKey = useMemo(() => (filters ? JSON.stringify(filters) : null), [filters])
 	const relayKey = useMemo(() => relays.join(','), [relays])
 
-	const eose = use$(
-		() => {
+	const eose =
+		use$(() => {
 			if (!filters) return undefined
 			const relayCount = relays.length
 			// Count how many distinct relays have sent EOSE; emit true once all have.
@@ -93,25 +81,17 @@ export function useTimelineWithEose(
 				map((seen) => seen.size >= relayCount),
 				rxFilter(Boolean),
 			)
-		},
-		[filterKey, relayKey],
-	) ?? false
+		}, [filterKey, relayKey]) ?? false
 
-	use$(
-		() => {
-			if (!filters) return undefined
-			return pool.subscription(relays, filters).pipe(mapEventsToStore(eventStore))
-		},
-		[filterKey, relayKey],
-	)
+	use$(() => {
+		if (!filters) return undefined
+		return pool.subscription(relays, filters).pipe(mapEventsToStore(eventStore))
+	}, [filterKey, relayKey])
 
-	const events = use$(
-		() => {
-			if (!filters) return undefined
-			return eventStore.timeline(filters).pipe(map((evts) => [...evts]))
-		},
-		[filterKey],
-	)
+	const events = use$(() => {
+		if (!filters) return undefined
+		return eventStore.timeline(filters).pipe(map((evts) => [...evts]))
+	}, [filterKey])
 
 	return { events: events ?? [], eose }
 }

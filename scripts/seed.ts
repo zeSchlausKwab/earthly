@@ -3,7 +3,7 @@ import NDK, {
   NDKPrivateKeySigner,
   type NDKTag,
   type NDKUserProfile,
-} from "@nostr-dev-kit/ndk";
+} from "@/lib/ndk-shim";
 import { nip19 } from "nostr-tools";
 import { config } from "dotenv";
 import { devUser1, devUser2, devUser3 } from "@/lib/fixtures";

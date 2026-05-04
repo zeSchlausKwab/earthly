@@ -1,8 +1,0 @@
-{
-  "name": "@nostr-dev-kit/wallet",
-  "version": "0.0.0-stub",
-  "description": "Local stub. Replaces @nostr-dev-kit/wallet during the applesauce-wallet migration so the unused @nostr-dev-kit/react bundled import doesn't pull in cashu-ts CashuMint/CashuWallet (renamed in cashu-ts ≥3). Removed when @nostr-dev-kit/react is dropped.",
-  "type": "module",
-  "main": "./index.js",
-  "types": "./index.d.ts"
-}

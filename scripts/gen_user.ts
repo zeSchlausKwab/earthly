@@ -1,6 +1,6 @@
 import { faker } from "@faker-js/faker";
-import type NDK from "@nostr-dev-kit/ndk";
-import type { NDKPrivateKeySigner, NDKUserProfile } from "@nostr-dev-kit/ndk";
+import type NDK from "@/lib/ndk-shim";
+import { NDKEvent, type NDKPrivateKeySigner, type NDKUserProfile } from "@/lib/ndk-shim";
 
 const WALLETED_USER_LUD16 = "schlauskwab@minibits.cash";
 
@@ -50,11 +50,12 @@ export function generateUserProfileData(userIndex?: number): NDKUserProfile {
 }
 
 /**
- * Creates and publishes a user profile event
- * @param signer NDK signer with the user's private key
- * @param ndk NDK instance connected to a relay
- * @param profileData Profile data to publish
- * @returns Boolean indicating success or failure
+ * Creates and publishes a user profile (kind 0) event for the given signer.
+ *
+ * @param signer Private-key signer that owns the profile.
+ * @param ndk NDK shim instance whose `explicitRelayUrls` we publish to.
+ * @param profileData Plain object that will be JSON-encoded into the event content.
+ * @returns Boolean indicating success or failure.
  */
 export async function createUserProfileEvent(
   signer: NDKPrivateKeySigner,
@@ -62,16 +63,12 @@ export async function createUserProfileEvent(
   profileData: NDKUserProfile,
 ): Promise<boolean> {
   try {
-    // Get the user from the signer
-    const user = await signer.user();
-    ndk.signer = signer;
-    user.ndk = ndk;
-
-    // Set profile data
-    user.profile = profileData;
-
-    // Publish the profile
-    await user.publish();
+    const event = new NDKEvent(ndk);
+    event.kind = 0;
+    event.content = JSON.stringify(profileData);
+    event.tags = [];
+    await event.sign(signer);
+    await event.publish();
 
     console.log(`Published profile for ${profileData.name}`);
     return true;
