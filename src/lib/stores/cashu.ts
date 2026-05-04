@@ -9,7 +9,21 @@
 import { create } from 'zustand'
 import { initializeCoco, type Manager, getEncodedToken } from 'coco-cashu-core'
 import { IndexedDbRepositories } from 'coco-cashu-indexeddb'
-import { useNip60Store } from './nip60'
+import { getWalletMints, WALLET_KIND } from 'applesauce-wallet/helpers'
+import { accounts, eventStore } from '@/lib/nostr'
+
+/** Read the active account's wallet mints from the EventStore (sync). */
+function getActiveWalletMints(): string[] {
+	const pubkey = accounts.active?.pubkey
+	if (!pubkey) return []
+	const event = eventStore.getReplaceable(WALLET_KIND, pubkey)
+	if (!event) return []
+	try {
+		return getWalletMints(event)
+	} catch {
+		return []
+	}
+}
 import { loadUserData, saveUserData, type PendingToken } from '@/lib/wallet'
 
 const CASHU_SEED_KEY = 'cashu_wallet_seed'
@@ -177,7 +191,7 @@ export const useCashuStore = create<CashuState & CashuActions>()((set, get) => (
 		const manager = get().manager
 		if (!manager) return
 
-		const nip60Mints = useNip60Store.getState().mints
+		const nip60Mints = getActiveWalletMints()
 		console.log('[cashu] Syncing mints from NIP-60:', nip60Mints)
 
 		for (const mintUrl of nip60Mints) {

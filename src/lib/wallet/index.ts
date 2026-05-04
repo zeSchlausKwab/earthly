@@ -1,14 +1,38 @@
-// Types
-export type { ProofInfo, PendingToken, ProofEntry } from './types'
+/**
+ * Wallet module — applesauce-wallet–powered NIP-60 implementation for Earthly.
+ *
+ * UI hook surface lives in `./hooks`; high-level actions in `./actions`.
+ * Lower-level applesauce-wallet primitives are reachable via the singletons
+ * in `./runtime` (`walletActions`, `couch`).
+ */
 
-// Proof utilities
-export { extractProofsByMint, getProofsForMint } from './proofs'
+// React hooks
+export { useWallet, useWalletHistory, useWalletTokens, type WalletState } from './hooks'
 
-// Storage utilities
-export { loadUserData, saveUserData, removeUserData } from './storage'
+// Action wrappers
+export {
+	addNutzapMint,
+	consolidateTokens,
+	createWallet,
+	receiveCashuToken,
+	receiveNutzaps,
+	recoverFromCouch,
+	removeNutzapMint,
+	sendCashuToken,
+	setMints,
+	setWalletRelays,
+	unlockWallet,
+	type CreateWalletOptions,
+} from './actions'
 
-// Current user utilities (for storage scoping)
+// Runtime singletons (rare direct use; most code should go via hooks/actions)
+export { couch, walletActions } from './runtime'
+
+// Pre-existing utilities (kept)
 export { getCurrentPubkey, setCurrentPubkey } from './currentUser'
-
-// Display utilities
 export { getMintHostname, formatSats } from './display'
+export { loadUserData, removeUserData, saveUserData } from './storage'
+export type { PendingToken, ProofEntry, ProofInfo } from './types'
+
+// Migration shims — see ./proofs.ts. Removed once Nip60Wallet.tsx is rewritten.
+export { extractProofsByMint, getProofsForMint } from './proofs'

@@ -40,7 +40,11 @@ const app = (
 		 */}
 		<NDKHeadless
 			ndk={{
-				explicitRelayUrls: config.relayUrls,
+				// NDK is the legacy read/write pool used by the few remaining NDK
+				// callers (Blossom auth, NIP-60 wallet, GeoSocialActions zaps).
+				// Use the broader read set so it can fetch profiles/mailboxes.
+				// Outbox safety in dev still relies on our `publish()` helper.
+				explicitRelayUrls: config.readRelays,
 				cacheAdapter: dexieAdapter,
 			}}
 			session={false}

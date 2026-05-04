@@ -119,11 +119,15 @@ async function cacheRequest(filters: Filter[]): Promise<NostrEvent[]> {
  * Wires up on-demand event loading: when something subscribes to an event/address
  * that isn't in the store, we pull from cache then from relays. The result is
  * added to the store automatically and stored back into the cache via persistEventsToCache.
+ *
+ * Loaders read broadly (`config.readRelays`) so profile and metadata lookups
+ * can hit public relays in dev when EXTRA_READ_RELAYS is set, without ever
+ * publishing there.
  */
 createEventLoaderForStore(eventStore, pool, {
 	cacheRequest,
-	lookupRelays: config.relayUrls,
-	extraRelays: config.relayUrls,
+	lookupRelays: config.readRelays,
+	extraRelays: config.readRelays,
 })
 
 /**
@@ -135,12 +139,13 @@ NostrConnectSigner.pool = pool
 /**
  * Routing strategy for `publish()`.
  *
- *   - 'configured' (default): publish to `config.relayUrls`.
+ *   - 'configured' (default): publish to `config.writeRelays`.
  *   - 'outbox':    publish to the author's NIP-65 outbox relays (own events).
  *   - 'inbox':     publish to the recipient's NIP-65 inbox relays (replies, reactions).
  *
- * In development the outbox/inbox strategies are forced back to 'configured'
- * so seed scripts and local testing never broadcast to public relays.
+ * In development, outbox/inbox routing is silently downgraded to
+ * `config.writeRelays` (= local relay) so we never broadcast to public relays
+ * even if the user's NIP-65 record points to public ones.
  */
 export type PublishRouting = 'configured' | 'outbox' | 'inbox'
 
@@ -172,7 +177,7 @@ async function resolveRoutedRelays(
 	const result = await firstValueFrom(race(mailboxes$, timer(timeoutMs).pipe(() => of(undefined))))
 	const list = result?.[which]
 	if (list && list.length > 0) return list
-	return config.relayUrls
+	return config.writeRelays
 }
 
 /**
@@ -180,7 +185,8 @@ async function resolveRoutedRelays(
  * relay responses. Use this in place of `event.publish()` from NDK.
  *
  * Dev safety: in development mode, outbox/inbox routing is silently downgraded
- * to `config.relayUrls` so we never leak local work to public relays.
+ * to `config.writeRelays` (= the local relay) so we never leak local work to
+ * public relays — even when `EXTRA_READ_RELAYS` opens up read-side discovery.
  */
 export async function publish(event: NostrEvent, options: PublishOptions = {}) {
 	const { relays, routing = 'configured', target, mailboxTimeoutMs } = options
@@ -189,7 +195,10 @@ export async function publish(event: NostrEvent, options: PublishOptions = {}) {
 	if (relays) {
 		targetRelays = relays
 	} else if (config.isDevelopment || routing === 'configured') {
-		targetRelays = config.relayUrls
+		// In dev, ALL routing modes collapse to writeRelays. This is the dev-leak
+		// safety net: even if a user's NIP-65 mailboxes point at public relays,
+		// we never write to them in dev.
+		targetRelays = config.writeRelays
 	} else if (routing === 'outbox') {
 		targetRelays = await resolveRoutedRelays(
 			event.pubkey,

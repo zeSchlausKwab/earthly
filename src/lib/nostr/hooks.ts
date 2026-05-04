@@ -25,10 +25,14 @@ import { eventStore, pool } from './index'
  *
  * Pass `null` filters to skip the subscription entirely (useful for guards
  * like "wait for an address before subscribing").
+ *
+ * `relays` defaults to `config.readRelays` — broader than write relays, so dev
+ * can fetch public profiles via EXTRA_READ_RELAYS without ever publishing
+ * to those relays.
  */
 export function useTimeline(
 	filters: Filter | Filter[] | null,
-	relays: string[] = config.relayUrls,
+	relays: string[] = config.readRelays,
 ): NostrEvent[] {
 	const filterKey = useMemo(
 		() => (filters ? JSON.stringify(filters) : null),
@@ -62,10 +66,12 @@ export function useTimeline(
  * Internally uses `pool.req` to receive typed REQ messages so we can count
  * EOSE per relay; this is more involved than `subscription` which only emits
  * NostrEvents.
+ *
+ * `relays` defaults to `config.readRelays`.
  */
 export function useTimelineWithEose(
 	filters: Filter | Filter[] | null,
-	relays: string[] = config.relayUrls,
+	relays: string[] = config.readRelays,
 ): { events: NostrEvent[]; eose: boolean } {
 	const filterKey = useMemo(
 		() => (filters ? JSON.stringify(filters) : null),

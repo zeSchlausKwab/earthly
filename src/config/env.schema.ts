@@ -19,12 +19,23 @@ export const envSchema = z.object({
 	// Relay Configuration
 	// ─────────────────────────────────────────────────────────────────────────
 
-	/** Primary relay WebSocket URL */
+	/** Primary relay WebSocket URL(s). Comma-separated for multiple. */
 	RELAY_URL: z
 		.string()
 		.default(
 			process.env.NODE_ENV === 'production' ? 'wss://relay.earthly.city' : 'ws://localhost:3334',
 		),
+
+	/**
+	 * Optional comma-separated list of read-only relays.
+	 *
+	 *   - In dev these are the ONLY way to subscribe to anything beyond
+	 *     `localhost:3334`. Useful for fetching public profiles, NIP-65 mailboxes,
+	 *     etc. without ever publishing to public relays.
+	 *   - Outbox/inbox routing in `publish()` is unaffected — writes always go
+	 *     to RELAY_URL only in dev.
+	 */
+	EXTRA_READ_RELAYS: z.string().default(''),
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// ContextVM / MCP Configuration
@@ -82,7 +93,13 @@ export type Env = z.infer<typeof envSchema>
  * List of environment variables that should be injected into the frontend bundle.
  * Backend-only variables (like private keys) are excluded.
  */
-export const FRONTEND_ENV_KEYS = ['RELAY_URL', 'SERVER_PUBKEY', 'CLIENT_KEY', 'NODE_ENV'] as const
+export const FRONTEND_ENV_KEYS = [
+	'RELAY_URL',
+	'EXTRA_READ_RELAYS',
+	'SERVER_PUBKEY',
+	'CLIENT_KEY',
+	'NODE_ENV',
+] as const
 
 export type FrontendEnvKey = (typeof FRONTEND_ENV_KEYS)[number]
 
