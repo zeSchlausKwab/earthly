@@ -14,7 +14,7 @@ import {
 	type NostrEvent,
 } from 'applesauce-core/helpers/event'
 import type { FeatureCollection, Position } from 'geojson'
-import { GEO_EVENT_KIND } from '@/lib/ndk/kinds'
+import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import { normalizeGeoJsonToFeatureCollection } from '@/lib/geo/normalizeGeoJSON'
 
 export type GeoDatasetEvent = KnownEvent<typeof GEO_EVENT_KIND>

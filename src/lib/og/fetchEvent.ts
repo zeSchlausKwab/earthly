@@ -1,5 +1,5 @@
 import { nip19 } from 'nostr-tools'
-import { GEO_EVENT_KIND } from '../ndk/kinds'
+import { GEO_EVENT_KIND } from '../nostr/kinds'
 
 export interface GeoEventOGData {
 	title: string

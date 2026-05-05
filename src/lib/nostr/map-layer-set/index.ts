@@ -9,7 +9,7 @@
 import { EventCast, type CastRefEventStore } from 'applesauce-core/casts'
 import { getOrComputeCachedValue } from 'applesauce-core/helpers/cache'
 import { type KnownEvent, type NostrEvent } from 'applesauce-core/helpers/event'
-import { MAP_LAYER_SET_KIND } from '@/lib/ndk/kinds'
+import { MAP_LAYER_SET_KIND } from '@/lib/nostr/kinds'
 import type { BBox } from '@/lib/worldGeohash'
 
 export type MapLayerSetEvent = KnownEvent<typeof MAP_LAYER_SET_KIND>

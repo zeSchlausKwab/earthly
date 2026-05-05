@@ -1,9 +1,12 @@
 /**
- * Drop-in shim for the small slice of the `@nostr-dev-kit/ndk` API the seed
- * scripts (and the script-only `src/lib/ndk/NDK*Event.ts` subclasses) still
- * rely on. Everything else in the app has been migrated to applesauce; once
- * the seed scripts get rewritten on top of applesauce primitives this module
- * disappears too.
+ * Seed-script relay/signer compat layer.
+ *
+ * Provides the small slice of the legacy `@nostr-dev-kit/ndk` API the seed
+ * scripts still rely on (`NDK`, `NDKEvent`, `NDKPrivateKeySigner`, etc.) but
+ * implemented entirely on top of `applesauce-relay` and `nostr-tools`. The app
+ * itself doesn't import from this module — it's exclusively for the
+ * `scripts/seed*.ts` pipeline. Once the seed scripts are rewritten on
+ * applesauce primitives directly, this whole directory disappears.
  *
  * Behavior:
  *   - `NDK` carries an explicit relay-url list and a lazy `RelayPool` from
@@ -118,7 +121,13 @@ export interface NDKSigner {
 	rawSign?(event: EventTemplate): Promise<NostrEvent>
 }
 
-/** Nostr-tools-backed implementation of NDK's private-key signer interface. */
+/**
+ * Nostr-tools-backed implementation of NDK's private-key signer interface.
+ *
+ * Also satisfies applesauce's `EventSigner` shape (`getPublicKey()` /
+ * `signEvent(template)`) so it can be passed straight to applesauce factories'
+ * `.sign(signer)` calls in seed scripts.
+ */
 export class NDKPrivateKeySigner implements NDKSigner {
 	readonly secretKey: Uint8Array
 	readonly pubkey: string
@@ -128,6 +137,8 @@ export class NDKPrivateKeySigner implements NDKSigner {
 		this.pubkey = getPublicKey(this.secretKey)
 	}
 
+	// ── NDK API ────────────────────────────────────────────────────────────
+
 	async blockUntilReady(): Promise<void> {
 		return
 	}
@@ -136,7 +147,7 @@ export class NDKPrivateKeySigner implements NDKSigner {
 		return { pubkey: this.pubkey }
 	}
 
-	/** Sign an event template, returning the resulting `sig`. */
+	/** NDK shape: sign and return only the resulting `sig`. */
 	async sign(event: EventTemplate): Promise<string> {
 		const signed = finalizeEvent(event, this.secretKey)
 		return signed.sig
@@ -144,6 +155,16 @@ export class NDKPrivateKeySigner implements NDKSigner {
 
 	async rawSign(event: EventTemplate): Promise<NostrEvent> {
 		return finalizeEvent(event, this.secretKey)
+	}
+
+	// ── applesauce `EventSigner` API ───────────────────────────────────────
+
+	getPublicKey(): string {
+		return this.pubkey
+	}
+
+	signEvent(draft: EventTemplate): NostrEvent {
+		return finalizeEvent(draft, this.secretKey)
 	}
 }
 

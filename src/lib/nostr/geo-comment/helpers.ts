@@ -13,7 +13,7 @@ import {
 	type NostrEvent,
 } from 'applesauce-core/helpers/event'
 import type { FeatureCollection, Position } from 'geojson'
-import { GEO_COMMENT_KIND } from '@/lib/ndk/kinds'
+import { GEO_COMMENT_KIND } from '@/lib/nostr/kinds'
 import type { GeoBoundingBox } from '@/lib/nostr/geo-event'
 
 export type GeoCommentEvent = KnownEvent<typeof GEO_COMMENT_KIND>

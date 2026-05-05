@@ -14,8 +14,8 @@ import {
 import type { EventSigner } from 'applesauce-core/factories/types'
 import type { FeatureCollection } from 'geojson'
 import type { NostrEvent } from 'nostr-tools'
-import { generateShortDTag } from '@/lib/ndk/dTag'
-import { GEO_EDIT_PROPOSAL_KIND } from '@/lib/ndk/kinds'
+import { generateShortDTag } from '@/lib/nostr/dTag'
+import { GEO_EDIT_PROPOSAL_KIND } from '@/lib/nostr/kinds'
 import { publish } from '..'
 import {
 	computeBboxFor,

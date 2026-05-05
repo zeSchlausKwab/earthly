@@ -9,7 +9,7 @@
 import { castEvent } from 'applesauce-core/casts'
 import type { Filter } from 'nostr-tools'
 import { useMemo } from 'react'
-import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/ndk/kinds'
+import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
 import { eventStore } from '@/lib/nostr'
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import { GeoDataset } from '@/lib/nostr/geo-event'

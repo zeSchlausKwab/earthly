@@ -12,7 +12,7 @@ import {
 	type KnownEvent,
 	type NostrEvent,
 } from 'applesauce-core/helpers/event'
-import { MAP_CONTEXT_KIND } from '@/lib/ndk/kinds'
+import { MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
 import type { GeoBoundingBox } from '@/lib/nostr/geo-event'
 
 export type MapContextEvent = KnownEvent<typeof MAP_CONTEXT_KIND>

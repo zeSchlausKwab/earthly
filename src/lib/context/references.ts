@@ -7,7 +7,7 @@ import {
 	extractNostrAddressReferences,
 	extractNostrAddressReferencesFromList,
 	naddrToCoordinate,
-} from '../ndk/nostrReferences'
+} from '../nostr/references'
 
 interface ResolvedBaseReference {
 	address: string

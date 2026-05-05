@@ -1,4 +1,4 @@
-import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from "@/lib/ndk/kinds";
+import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from "@/lib/nostr/kinds";
 import type { CommentTarget } from "../types";
 import { buildContextCommentThreads } from "./contexts";
 import { buildDatasetCommentThreads } from "./datasets";

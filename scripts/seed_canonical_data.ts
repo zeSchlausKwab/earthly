@@ -13,7 +13,7 @@ import NDK, {
   NDKEvent,
   NDKPrivateKeySigner,
   type NDKTag,
-} from "@/lib/ndk-shim";
+} from "@/lib/seed-relay";
 import { config } from "dotenv";
 import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
@@ -24,8 +24,8 @@ import type {
   MultiLineString,
 } from "geojson";
 import simplify from "@turf/simplify";
-import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from "@/lib/ndk/kinds";
-import type { MapContextContent } from "@/lib/ndk/NDKMapContextEvent";
+import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from "@/lib/nostr/kinds";
+import type { MapContextContent } from "@/lib/nostr/map-context";
 
 config();
 

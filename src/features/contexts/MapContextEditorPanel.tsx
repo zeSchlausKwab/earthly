@@ -19,7 +19,7 @@ import {
 	extractNostrAddressReferencesFromList,
 	setAddressReferenceTags,
 	stringifyNostrAddressReference,
-} from '@/lib/ndk/nostrReferences'
+} from '@/lib/nostr/references'
 import {
 	GeoRichTextEditor,
 	type GeoFeatureItem,

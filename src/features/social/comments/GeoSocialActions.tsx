@@ -16,7 +16,7 @@ import {
 	DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { GEO_COMMENT_KIND, GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/ndk/kinds'
+import { GEO_COMMENT_KIND, GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
 import { accounts, eventStore } from '@/lib/nostr'
 import { useTimeline } from '@/lib/nostr/hooks'
 import { useGeoReactions, type ReactableEvent } from '../hooks/useGeoReactions'

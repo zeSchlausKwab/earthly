@@ -1,6 +1,6 @@
 import { faker } from "@faker-js/faker";
-import type NDK from "@/lib/ndk-shim";
-import { NDKEvent, type NDKPrivateKeySigner, type NDKUserProfile } from "@/lib/ndk-shim";
+import type NDK from "@/lib/seed-relay";
+import { NDKEvent, type NDKPrivateKeySigner, type NDKUserProfile } from "@/lib/seed-relay";
 
 const WALLETED_USER_LUD16 = "schlauskwab@minibits.cash";
 

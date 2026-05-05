@@ -14,8 +14,8 @@ import {
 } from 'applesauce-core/factories'
 import type { EventSigner } from 'applesauce-core/factories/types'
 import type { NostrEvent } from 'nostr-tools'
-import { generateShortDTag } from '@/lib/ndk/dTag'
-import { MAP_CONTEXT_KIND } from '@/lib/ndk/kinds'
+import { generateShortDTag } from '@/lib/nostr/dTag'
+import { MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
 import { publish } from '..'
 import {
 	DEFAULT_CONTEXT_CONTENT,

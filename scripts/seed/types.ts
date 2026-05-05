@@ -1,4 +1,4 @@
-import type { NDKPrivateKeySigner } from "@/lib/ndk-shim";
+import type { NDKPrivateKeySigner } from "@/lib/seed-relay";
 
 export type BoundingBox = [number, number, number, number];
 

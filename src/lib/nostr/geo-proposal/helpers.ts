@@ -13,7 +13,7 @@ import {
 	type NostrEvent,
 } from 'applesauce-core/helpers/event'
 import type { FeatureCollection } from 'geojson'
-import { GEO_EDIT_PROPOSAL_KIND } from '@/lib/ndk/kinds'
+import { GEO_EDIT_PROPOSAL_KIND } from '@/lib/nostr/kinds'
 import {
 	computeBboxFor,
 	computeGeohashFor,

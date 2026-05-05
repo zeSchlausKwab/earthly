@@ -1,5 +1,5 @@
 import { nip19 } from 'nostr-tools'
-import { MAP_CONTEXT_KIND } from '../ndk/kinds'
+import { MAP_CONTEXT_KIND } from '../nostr/kinds'
 
 export interface ContextEventOGData {
 	title: string

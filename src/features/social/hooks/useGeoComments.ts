@@ -11,13 +11,13 @@ import {
 	type GeoCommentEvent,
 } from '@/lib/nostr/geo-comment'
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
-import { GEO_COMMENT_KIND } from '@/lib/ndk/kinds'
+import { GEO_COMMENT_KIND } from '@/lib/nostr/kinds'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import {
 	extractReferencedCoordinates,
 	setAddressReferenceTags,
-} from '@/lib/ndk/nostrReferences'
+} from '@/lib/nostr/references'
 
 export interface CommentNode {
 	event: GeoComment

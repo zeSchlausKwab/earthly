@@ -3,24 +3,26 @@ import NDK, {
   NDKPrivateKeySigner,
   type NDKTag,
   type NDKUserProfile,
-} from "@/lib/ndk-shim";
-import { nip19 } from "nostr-tools";
+} from "@/lib/seed-relay";
+import { nip19, type NostrEvent } from "nostr-tools";
 import { config } from "dotenv";
 import { devUser1, devUser2, devUser3 } from "@/lib/fixtures";
 import {
   GEO_EVENT_KIND,
   GEO_EDIT_PROPOSAL_KIND,
   MAP_CONTEXT_KIND,
-} from "@/lib/ndk/kinds";
-import type { MapContextContent } from "@/lib/ndk/NDKMapContextEvent";
+} from "@/lib/nostr/kinds";
+import type { MapContextContent } from "@/lib/nostr/map-context";
 import {
   extractReferencedCoordinates,
-  syncAddressReferenceTags,
-} from "@/lib/ndk/nostrReferences";
+  setAddressReferenceTags,
+} from "@/lib/nostr/references";
 import { createUserProfileEvent } from "./gen_user";
 import { generateGeoEventData } from "./gen_geo_events";
 import type { Feature, FeatureCollection } from "geojson";
-import { NDKGeoCommentEvent } from "@/lib/ndk/NDKGeoCommentEvent";
+import { GeoCommentFactory } from "@/lib/nostr/geo-comment";
+import { GEO_COMMENT_KIND } from "@/lib/nostr/kinds";
+import { pool } from "@/lib/nostr";
 import { buildSeedCommentThreads } from "./seed/comments";
 import type { BoundingBox, CommentTarget, SeedIdentity } from "./seed/types";
 
@@ -515,20 +517,22 @@ async function publishSeedCommentThread(
       identities[0];
     if (!author) continue;
 
-    const comment = new NDKGeoCommentEvent(ndk);
-    comment.commentContent = {
-      text: threadSpec.text,
-      geojson: threadSpec.geojson,
-    };
-    comment.setRootScope(target.kind, rootAddress, target.ownerPubkey);
-    syncAddressReferenceTags(
-      comment,
-      extractReferencedCoordinates(threadSpec.text),
-      comment.parentAddress ? [comment.parentAddress] : [],
-    );
-    comment.created_at = baseTimestamp + threadIndex * 180;
-    await comment.publishComment(author.signer);
+    const rootCreatedAt = baseTimestamp + threadIndex * 180;
+    const rootEvent = await GeoCommentFactory.root(
+      { text: threadSpec.text, geojson: threadSpec.geojson },
+      { kind: target.kind, address: rootAddress, authorPubkey: target.ownerPubkey },
+    )
+      .modifyPublicTags(
+        setAddressReferenceTags(extractReferencedCoordinates(threadSpec.text)),
+      )
+      .withDerivedMetadata()
+      .created(rootCreatedAt)
+      .sign(author.signer);
+    await pool.publish([RELAY_URL], rootEvent as NostrEvent);
     publishedCount += 1;
+
+    const rootCommentId = rootEvent.tags.find((t) => t[0] === "d")?.[1];
+    if (!rootCommentId) continue;
 
     for (const [replyIndex, replySpec] of threadSpec.replies.entries()) {
       let replyAuthor =
@@ -543,25 +547,31 @@ async function publishSeedCommentThread(
           ] ?? replyAuthor;
       }
 
-      const reply = new NDKGeoCommentEvent(ndk);
-      reply.commentContent = {
-        text: replySpec.text,
-        geojson: replySpec.geojson,
-      };
-      reply.setReplyScope(
-        target.kind,
-        rootAddress,
-        target.ownerPubkey,
-        comment,
-      );
-      syncAddressReferenceTags(
-        reply,
-        extractReferencedCoordinates(replySpec.text),
-        reply.parentAddress ? [reply.parentAddress] : [],
-      );
-      reply.created_at =
-        (comment.created_at ?? baseTimestamp) + (replyIndex + 1) * 45;
-      await reply.publishComment(replyAuthor.signer);
+      const replyCreatedAt = rootCreatedAt + (replyIndex + 1) * 45;
+      const parentAddress = `${GEO_COMMENT_KIND}:${rootEvent.pubkey}:${rootCommentId}`;
+      const replyEvent = await GeoCommentFactory.reply(
+        { text: replySpec.text, geojson: replySpec.geojson },
+        {
+          rootKind: target.kind,
+          rootAddress,
+          rootPubkey: target.ownerPubkey,
+          parent: {
+            id: rootEvent.id,
+            pubkey: rootEvent.pubkey,
+            commentId: rootCommentId,
+          },
+        },
+      )
+        .modifyPublicTags(
+          setAddressReferenceTags(
+            extractReferencedCoordinates(replySpec.text),
+            [parentAddress],
+          ),
+        )
+        .withDerivedMetadata()
+        .created(replyCreatedAt)
+        .sign(replyAuthor.signer);
+      await pool.publish([RELAY_URL], replyEvent as NostrEvent);
       publishedCount += 1;
     }
   }

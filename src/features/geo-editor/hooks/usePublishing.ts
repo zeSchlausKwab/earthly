@@ -11,12 +11,12 @@ import {
 	type GeoBlobReference,
 } from '@/lib/nostr/geo-event'
 import { GeoProposal, GeoProposalFactory } from '@/lib/nostr/geo-proposal'
-import { GEO_EVENT_KIND } from '@/lib/ndk/kinds'
+import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import type { MapContext } from '@/lib/nostr/map-context'
 import {
 	extractReferencedCoordinates,
 	setAddressReferenceTags,
-} from '@/lib/ndk/nostrReferences'
+} from '@/lib/nostr/references'
 import type { EditorFeature } from '../core'
 import { useEditorStore } from '../store'
 import type { EditorBlobReference } from '../types'

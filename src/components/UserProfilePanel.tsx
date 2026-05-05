@@ -14,7 +14,7 @@ import {
 	PROPOSAL_STATUS_CLOSED_KIND,
 	PROPOSAL_STATUS_DRAFT_KIND,
 	PROPOSAL_STATUS_OPEN_KIND,
-} from '../lib/ndk/kinds'
+} from '../lib/nostr/kinds'
 import { getLatestProposalStatus, type ProposalStatus } from '@/lib/nostr/geo-proposal'
 import {
 	getContextCoordinate,

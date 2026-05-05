@@ -21,8 +21,8 @@ import {
 import type { EventSigner } from 'applesauce-core/factories/types'
 import type { NostrEvent } from 'nostr-tools'
 import type { FeatureCollection } from 'geojson'
-import { generateShortDTag } from '@/lib/ndk/dTag'
-import { GEO_EVENT_KIND } from '@/lib/ndk/kinds'
+import { generateShortDTag } from '@/lib/nostr/dTag'
+import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import { publish } from '..'
 import {
 	blobReferenceToTag,

@@ -17,9 +17,9 @@
  *               nuclear-power, airports, ports
  */
 
-import NDK, { NDKEvent, NDKPrivateKeySigner } from "@/lib/ndk-shim";
+import NDK, { NDKEvent, NDKPrivateKeySigner } from "@/lib/seed-relay";
 import { config } from "dotenv";
-import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from "@/lib/ndk/kinds";
+import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from "@/lib/nostr/kinds";
 
 config();
 

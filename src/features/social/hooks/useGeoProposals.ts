@@ -11,7 +11,7 @@ import {
 	PROPOSAL_STATUS_APPLIED_KIND,
 	PROPOSAL_STATUS_CLOSED_KIND,
 	PROPOSAL_STATUS_DRAFT_KIND,
-} from '@/lib/ndk/kinds'
+} from '@/lib/nostr/kinds'
 import {
 	type ProposalStatus,
 	type ProposalStatusInfo,

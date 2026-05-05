@@ -8,7 +8,7 @@ import { useTimeline } from '@/lib/nostr/hooks'
 import { config } from '@/config/env.client'
 import { type BBox, lonLatToWorldGeohash, tileCenterLonLat } from '@/lib/worldGeohash'
 import { type MapLayerSetAnnouncementPayload } from '@/lib/nostr/map-layer-set'
-import { MAP_LAYER_SET_KIND } from '@/lib/ndk/kinds'
+import { MAP_LAYER_SET_KIND } from '@/lib/nostr/kinds'
 import { useEditorStore, type MapLayerState } from '../store'
 
 const DEFAULT_CENTER: [number, number] = [0, 0]

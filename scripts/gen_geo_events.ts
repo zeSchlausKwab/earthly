@@ -3,8 +3,8 @@ import NDK, {
 	NDKEvent,
 	type NDKPrivateKeySigner,
 	type NDKTag,
-} from "@/lib/ndk-shim";
-import { GEO_EVENT_KIND } from "../src/lib/ndk/kinds";
+} from "@/lib/seed-relay";
+import { GEO_EVENT_KIND } from "@/lib/nostr/kinds";
 import { simplify, truncate } from "@turf/turf";
 import { createHash } from "crypto";
 import type {
