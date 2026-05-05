@@ -246,7 +246,9 @@ if (!isProduction) {
     };
 
     // Production: Serve static files from dist/ and public/
+    const port = Number.parseInt(process.env.PORT ?? "3000", 10);
     const server = serve({
+      port: Number.isFinite(port) ? port : 3000,
       routes: {
         ...apiRoutes,
         ...ogRoutes,
@@ -294,7 +296,9 @@ if (!isProduction) {
     // Assets in src/assets/ are bundled automatically by Bun
     const index = (await import("./index.html")).default;
 
+    const port = Number.parseInt(process.env.PORT ?? "3000", 10);
     const server = serve({
+      port: Number.isFinite(port) ? port : 3000,
       routes: {
         ...apiRoutes,
         // Serve static files from public/static/ (stable URLs for OG images, etc.)

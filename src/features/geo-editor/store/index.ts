@@ -5,6 +5,7 @@ import { createWorkspaceSlice } from './workspaceSlice'
 import { createMetadataSlice } from './metadataSlice'
 import { createPublishingSlice } from './publishingSlice'
 import { createViewModeSlice } from './viewModeSlice'
+import { createMapStackSlice } from './mapStackSlice'
 import { createUISlice } from './uiSlice'
 import { createSearchSlice } from './searchSlice'
 import { createMapSourceSlice } from './mapSourceSlice'
@@ -18,6 +19,7 @@ export const useEditorStore = create<EditorState>((...a) => ({
 	...createMetadataSlice(...a),
 	...createPublishingSlice(...a),
 	...createViewModeSlice(...a),
+	...createMapStackSlice(...a),
 	...createUISlice(...a),
 	...createSearchSlice(...a),
 	...createMapSourceSlice(...a),
@@ -30,6 +32,9 @@ export type {
 	EditorStats,
 	AnnouncementSourceMeta,
 	MapLayerState,
+	MapStackEntry,
+	MapStackEntrySource,
+	MapStackEntryType,
 	MobilePanelTab,
 	MobilePanelSnap,
 	GeoCollectionEditDraft,

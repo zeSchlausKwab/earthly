@@ -1,5 +1,5 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { Bug, Download, Eye, EyeOff, Loader2, Search } from 'lucide-react'
+import { Bug, Download, Eye, EyeOff, Layers, Loader2, Search } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
 import { memo } from 'react'
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
@@ -17,6 +17,7 @@ export interface DatasetRowData {
 	isActive: boolean
 	isOwned: boolean
 	isVisible: boolean
+	isInMapStack: boolean
 	primaryLabel: string
 }
 
@@ -27,6 +28,7 @@ export interface DatasetColumnsContext {
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: GeoDataset) => void
 	onInspectDataset?: (event: GeoDataset) => void
+	onAddDatasetToMap?: (event: GeoDataset) => void
 	onOpenDebug?: (event: GeoDataset) => void
 	isPublishing: boolean
 	deletingKey: string | null
@@ -227,6 +229,27 @@ export const createDatasetColumns = (
 							>
 								{isVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
 							</Button>
+							{context.onAddDatasetToMap ? (
+								<Button
+									size="icon-sm"
+									variant="ghost"
+									className={cn(
+										actionButtonClass,
+										row.original.isInMapStack
+											? 'text-emerald-600 hover:text-emerald-700'
+											: 'hover:text-emerald-600',
+									)}
+									onClick={() => context.onAddDatasetToMap?.(event)}
+									aria-label={
+										row.original.isInMapStack ? 'Show dataset in map stack' : 'Add dataset to map'
+									}
+									title={
+										row.original.isInMapStack ? 'Show dataset in map stack' : 'Add dataset to map'
+									}
+								>
+									<Layers className="h-4 w-4" />
+								</Button>
+							) : null}
 							<DatasetLoadButton
 								datasetKey={row.original.datasetKey}
 								event={event}

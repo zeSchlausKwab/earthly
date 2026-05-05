@@ -5,7 +5,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { GeoProposal } from '@/lib/nostr/geo-proposal'
 import { castEvent } from 'applesauce-core/casts'
 import { eventStore } from '@/lib/nostr'
-import { GeoDataset } from '@/lib/nostr/geo-event'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import {
 	GEO_EDIT_PROPOSAL_KIND,
@@ -59,6 +59,7 @@ export interface UserProfilePanelProps {
 	getDatasetKey: (event: GeoDataset) => string
 	getDatasetName: (event: GeoDataset) => string
 	onInspectDataset?: (event: GeoDataset) => void
+	onAddDatasetToMap?: (event: GeoDataset) => void
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void | Promise<void>
 	onInspectContext?: (context: MapContext) => void
@@ -144,6 +145,7 @@ export function UserProfilePanel({
 	getDatasetKey,
 	getDatasetName,
 	onInspectDataset,
+	onAddDatasetToMap,
 	onSwitchWorkspace,
 	onDeleteWorkspace,
 	onInspectContext,
@@ -159,15 +161,9 @@ export function UserProfilePanel({
 	const workspaces = useEditorStore((state) => state.workspaces)
 	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
 	const viewContext = useEditorStore((state) => state.viewContext)
-	const focusedType = useEditorStore((state) => state.focusedType)
 	const activeContextScopeCoordinate = useEditorStore((state) => state.activeContextScopeCoordinate)
-	const landingContextScopeCoordinate = useEditorStore(
-		(state) => state.landingContextScopeCoordinate,
-	)
-	const effectiveContextCoordinate =
-		viewContext?.contextCoordinate ??
-		activeContextScopeCoordinate ??
-		(focusedType === null ? landingContextScopeCoordinate : null)
+	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
+	const effectiveContextCoordinate = viewContext?.contextCoordinate ?? activeContextScopeCoordinate
 
 	const userGeoEvents = useMemo(
 		() => geoEvents.filter((event) => event.pubkey === pubkey),
@@ -326,10 +322,18 @@ export function UserProfilePanel({
 					isActive: false,
 					isOwned: true,
 					isVisible: datasetVisibility[datasetKey] !== false,
+					isInMapStack: Boolean(mapStackEntries[`dataset:${datasetKey}`]),
 					primaryLabel: isOwnProfile ? 'Edit dataset' : 'Load copy',
 				}
 			}),
-		[filteredGeoEvents, getDatasetKey, getDatasetName, datasetVisibility, isOwnProfile],
+		[
+			filteredGeoEvents,
+			getDatasetKey,
+			getDatasetName,
+			datasetVisibility,
+			isOwnProfile,
+			mapStackEntries,
+		],
 	)
 
 	const allVisibleState = useMemo((): 'all' | 'none' | 'some' => {
@@ -348,6 +352,7 @@ export function UserProfilePanel({
 			onToggleAllVisibility,
 			onZoomToDataset,
 			onInspectDataset,
+			onAddDatasetToMap,
 			onOpenDebug,
 			isPublishing,
 			deletingKey,
@@ -360,6 +365,7 @@ export function UserProfilePanel({
 			onToggleAllVisibility,
 			onZoomToDataset,
 			onInspectDataset,
+			onAddDatasetToMap,
 			onOpenDebug,
 			isPublishing,
 			deletingKey,

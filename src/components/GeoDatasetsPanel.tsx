@@ -42,6 +42,7 @@ export interface GeoDatasetsPanelProps {
 	getDatasetKey: (event: GeoDataset) => string
 	getDatasetName: (event: GeoDataset) => string
 	onInspectDataset?: (event: GeoDataset) => void
+	onAddDatasetToMap?: (event: GeoDataset) => void
 	onInspectContext?: (context: MapContext) => void
 	onOpenDebug?: (event: GeoDataset | MapContext) => void
 	onCreateContext?: () => void
@@ -110,6 +111,7 @@ export function GeoDatasetsPanelContent({
 	getDatasetKey,
 	getDatasetName,
 	onInspectDataset,
+	onAddDatasetToMap,
 	onInspectContext,
 	onOpenDebug,
 	onCreateContext,
@@ -121,15 +123,9 @@ export function GeoDatasetsPanelContent({
 	const filterState = useFilterState()
 	const prevFilteredKeysRef = useRef<Set<string> | null>(null)
 	const viewContext = useEditorStore((state) => state.viewContext)
-	const focusedType = useEditorStore((state) => state.focusedType)
 	const activeContextScopeCoordinate = useEditorStore((state) => state.activeContextScopeCoordinate)
-	const landingContextScopeCoordinate = useEditorStore(
-		(state) => state.landingContextScopeCoordinate,
-	)
-	const effectiveContextCoordinate =
-		viewContext?.contextCoordinate ??
-		activeContextScopeCoordinate ??
-		(focusedType === null ? landingContextScopeCoordinate : null)
+	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
+	const effectiveContextCoordinate = viewContext?.contextCoordinate ?? activeContextScopeCoordinate
 
 	const datasetFilterConfig = useMemo(
 		() => createDatasetFilterConfig(getDatasetName),
@@ -187,6 +183,7 @@ export function GeoDatasetsPanelContent({
 					isActive,
 					isOwned,
 					isVisible: datasetVisibility[datasetKey] !== false,
+					isInMapStack: Boolean(mapStackEntries[`dataset:${datasetKey}`]),
 					primaryLabel: isActive ? 'Loaded in editor' : isOwned ? 'Edit dataset' : 'Load copy',
 				}
 			}),
@@ -197,6 +194,7 @@ export function GeoDatasetsPanelContent({
 			datasetVisibility,
 			getDatasetKey,
 			getDatasetName,
+			mapStackEntries,
 		],
 	)
 
@@ -247,6 +245,7 @@ export function GeoDatasetsPanelContent({
 			onToggleAllVisibility,
 			onZoomToDataset,
 			onInspectDataset,
+			onAddDatasetToMap,
 			onOpenDebug,
 			isPublishing,
 			deletingKey,
@@ -259,6 +258,7 @@ export function GeoDatasetsPanelContent({
 			onToggleAllVisibility,
 			onZoomToDataset,
 			onInspectDataset,
+			onAddDatasetToMap,
 			onOpenDebug,
 			isPublishing,
 			deletingKey,

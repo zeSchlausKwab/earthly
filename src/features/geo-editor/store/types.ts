@@ -44,6 +44,29 @@ export interface MapLayerState {
 	pmtilesType?: string
 }
 
+export type MapStackEntryType = 'dataset' | 'context' | 'comment' | 'proposal' | 'draft' | 'ai-result'
+export type MapStackEntrySource =
+	| 'manual'
+	| 'route'
+	| 'context-curated'
+	| 'context-foreign'
+	| 'child-context'
+	| 'chat'
+	| 'comment'
+	| 'proposal'
+	| 'workspace'
+
+export interface MapStackEntry {
+	id: string
+	entityType: MapStackEntryType
+	entityKey: string
+	title: string
+	source: MapStackEntrySource
+	visible: boolean
+	pinned: boolean
+	addedAt: number
+}
+
 export type MobilePanelTab =
 	| 'datasets'
 	| 'contexts'
@@ -222,9 +245,6 @@ export interface ViewModeSlice {
 	contextMapScopeMode: ContextMapScopeMode
 	activeContextScopeNaddr: string | null
 	activeContextScopeCoordinate: string | null
-	landingContextScopeNaddr: string | null
-	landingContextScopeCoordinate: string | null
-	landingContextSelectionInitialized: boolean
 
 	focusedNaddr: string | null
 	focusedType: 'geoevent' | 'mapcontext' | null
@@ -243,9 +263,6 @@ export interface ViewModeSlice {
 	setContextMapScopeMode: (mode: ContextMapScopeMode) => void
 	setActiveContextScope: (naddr: string | null, coordinate: string | null) => void
 	clearActiveContextScope: () => void
-	setLandingContextScope: (naddr: string | null, coordinate: string | null) => void
-	clearLandingContextScope: () => void
-	setLandingContextSelectionInitialized: (initialized: boolean) => void
 	setEditIsolationEnabled: (enabled: boolean) => void
 	toggleEditIsolation: () => void
 
@@ -253,6 +270,22 @@ export interface ViewModeSlice {
 	clearFocused: () => void
 	setFocusedMapGeometry: (focused: ViewModeSlice['focusedMapGeometry']) => void
 	clearFocusedMapGeometry: () => void
+}
+
+export interface MapStackSlice {
+	mapStackEntries: Record<string, MapStackEntry>
+	mapStackOrder: string[]
+
+	addMapStackEntry: (
+		entry: Omit<MapStackEntry, 'id' | 'addedAt'> & {
+			id?: string
+			addedAt?: number
+		},
+	) => string
+	removeMapStackEntry: (id: string) => void
+	setMapStackEntryVisible: (id: string, visible: boolean) => void
+	toggleMapStackEntryVisible: (id: string) => void
+	clearMapStack: () => void
 }
 
 export interface UISlice {
@@ -375,6 +408,7 @@ export type EditorState = EditorCoreSlice &
 	MetadataSlice &
 	PublishingSlice &
 	ViewModeSlice &
+	MapStackSlice &
 	UISlice &
 	SearchSlice &
 	MapSourceSlice &

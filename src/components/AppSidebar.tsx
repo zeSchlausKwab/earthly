@@ -121,6 +121,7 @@ interface AppSidebarProps {
 	onToggleVisibility: (event: GeoDataset) => void
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: GeoDataset) => void
+	onAddDatasetToMap?: (event: GeoDataset) => void
 	onDeleteDataset: (event: GeoDataset) => void
 	onDeleteContext?: (context: MapContext) => void
 	getDatasetKey: (event: GeoDataset) => string
@@ -179,6 +180,7 @@ export function AppSidebar({
 	onToggleVisibility,
 	onToggleAllVisibility,
 	onZoomToDataset,
+	onAddDatasetToMap,
 	onDeleteDataset,
 	onDeleteContext,
 	getDatasetKey,
@@ -477,6 +479,7 @@ export function AppSidebar({
 		onToggleVisibility,
 		onToggleAllVisibility,
 		onZoomToDataset,
+		onAddDatasetToMap,
 		onDeleteDataset,
 		getDatasetKey,
 		getDatasetName,
@@ -501,6 +504,7 @@ export function AppSidebar({
 		onToggleVisibility,
 		onToggleAllVisibility,
 		onZoomToDataset,
+		onAddDatasetToMap,
 		onDeleteDataset,
 		getDatasetKey,
 		getDatasetName,
