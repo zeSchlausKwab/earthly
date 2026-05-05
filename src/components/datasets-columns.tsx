@@ -154,7 +154,7 @@ export const createDatasetColumns = (
 		cell: ({ row }) => {
 			const { event, datasetName, isVisible } = row.original
 
-			const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
+			const handleDragStart = (e: React.DragEvent<HTMLButtonElement>) => {
 				const datasetId = event.datasetId ?? event.dTag
 				if (!datasetId || !event.pubkey || !event.kind) return
 

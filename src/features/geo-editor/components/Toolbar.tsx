@@ -3,7 +3,9 @@ import {
 	Crosshair,
 	Edit3,
 	EyeOff,
+	Layers,
 	Magnet,
+	MessageCircle,
 	MousePointer2,
 	Settings2,
 	SquareDashedMousePointer,
@@ -70,6 +72,10 @@ interface ToolbarProps {
 	onOsmQueryClick?: () => void
 	onOsmQueryView?: () => void
 	onOsmAdvanced?: () => void
+	mapStackOpen?: boolean
+	chatOpen?: boolean
+	onToggleMapStack?: () => void
+	onToggleChat?: () => void
 }
 
 export function Toolbar({
@@ -83,6 +89,10 @@ export function Toolbar({
 	onOsmQueryClick,
 	onOsmQueryView,
 	onOsmAdvanced,
+	mapStackOpen = false,
+	chatOpen = false,
+	onToggleMapStack,
+	onToggleChat,
 }: ToolbarProps) {
 	const editor = useEditorStore((state) => state.editor)
 	const mode = useEditorStore((state) => state.mode)
@@ -122,6 +132,7 @@ export function Toolbar({
 
 	// Computed: Is editing disabled (view mode active)?
 	const isEditingDisabled = viewMode !== 'edit'
+	const isEditing = viewMode === 'edit'
 
 	const runEditorCommand = (commandId: EditorCommandId, args?: Record<string, unknown>) => {
 		executeEditorCommand(commandId, args)
@@ -466,93 +477,113 @@ export function Toolbar({
 	// ============================================
 	return (
 		<>
-			<div className="flex flex-col gap-2 pointer-events-auto" data-tour="toolbar">
-				<div className="glass-panel flex flex-wrap items-center gap-1 rounded-lg p-1.5">
-					{/* Row 1: Core editing tools */}
-					<div className="flex items-center gap-1">
-						{/* Sidebar toggle */}
-						<SidebarTrigger className="h-9 w-9" />
-						<Divider />
+			<div className="pointer-events-auto flex flex-col items-start gap-2" data-tour="toolbar">
+				<div className="glass-panel flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-1 rounded-lg p-1.5">
+					<SidebarTrigger className="h-9 w-9" />
+					<Divider />
 
-						{/* Session control (New Dataset / Cancel) */}
+					{!isEditing ? (
+						<>
+							<SessionButton
+								viewMode={viewMode}
+								onStartNew={onStartNewDataset}
+								onCancel={onCancelEditing}
+							/>
+							<Divider />
+						</>
+					) : null}
+
+					<div className="relative">
+						<SearchBar
+							query={searchQuery}
+							loading={searchLoading}
+							placeholder="Search location..."
+							onSubmit={handleSearchSubmit}
+							onQueryChange={setSearchQuery}
+							onClear={clearSearch}
+							className="w-56"
+						/>
+						{searchResults && searchResults.length > 0 && (
+							<div className="absolute left-0 top-full z-50 mt-2 w-72 rounded-lg border border-border bg-popover p-2 shadow-lg">
+								<div className="mb-2 flex items-center justify-between border-b border-border pb-2">
+									<span className="text-xs font-medium text-muted-foreground">Results</span>
+									<Button
+										variant="ghost"
+										size="sm"
+										className="h-auto p-0 text-xs"
+										onClick={clearSearch}
+									>
+										Close
+									</Button>
+								</div>
+								<div className="max-h-60 space-y-1 overflow-y-auto">
+									{searchResults.map((result) => (
+										<button
+											type="button"
+											key={result.placeId}
+											className="w-full truncate rounded p-1.5 text-left text-sm hover:bg-muted/50"
+											onClick={() => onSearchResultSelect?.(result)}
+										>
+											{result.displayName}
+										</button>
+									))}
+								</div>
+							</div>
+						)}
+					</div>
+
+					<IconButtonRow buttons={lookupButtons} />
+					<Divider />
+
+					<Button
+						type="button"
+						variant={mapStackOpen ? 'default' : 'outline'}
+						size="icon"
+						onClick={onToggleMapStack}
+						aria-label={mapStackOpen ? 'Hide map stack' : 'Show map stack'}
+						title={mapStackOpen ? 'Hide map stack' : 'Show map stack'}
+					>
+						<Layers className="h-4 w-4" />
+					</Button>
+					<Button
+						type="button"
+						variant={chatOpen ? 'default' : 'outline'}
+						size="icon"
+						onClick={onToggleChat}
+						aria-label={chatOpen ? 'Hide AI chat' : 'Show AI chat'}
+						title={chatOpen ? 'Hide AI chat' : 'Show AI chat'}
+					>
+						<MessageCircle className="h-4 w-4" />
+					</Button>
+					<Divider />
+
+					<CreateMapPopover />
+					<ShareExportPopover />
+					<Popover open={showMapSettings} onOpenChange={setShowMapSettings}>
+						<PopoverTrigger asChild>
+							<Button
+								variant={showMapSettings ? 'default' : 'outline'}
+								size="icon"
+								aria-label="Map settings"
+								title="Map settings"
+							>
+								<Settings2 className="h-4 w-4" />
+							</Button>
+						</PopoverTrigger>
+						<PopoverContent className="w-[28rem]" side="bottom" align="start">
+							<MapSettingsPanel mode="map-only" />
+						</PopoverContent>
+					</Popover>
+				</div>
+
+				{isEditing ? (
+					<div className="glass-panel flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-1 rounded-lg border border-emerald-200/80 p-1.5 shadow-lg">
 						<SessionButton
 							viewMode={viewMode}
 							onStartNew={onStartNewDataset}
 							onCancel={onCancelEditing}
 						/>
 						<Divider />
-
-						{/* Select */}
-						<IconButtonRow buttons={selectButtons} />
-						<Divider />
-
-						{/* Draw */}
-						<DrawButtonGroup
-							mode={mode}
-							onModeChange={handleModeChange}
-							disabled={isEditingDisabled}
-						/>
-						<Divider />
-
-						{/* History */}
-						<IconButtonRow buttons={historyButtons} />
-						<Divider />
-
-						{/* Edit */}
-						<IconButtonRow buttons={editButtons} />
-						<GeometryOpsDropdown {...geometryOpsProps} />
-					</div>
-
-					{/* Flexible spacer - grows on wide screens, shrinks/wraps on narrow */}
-					<div className="flex-1 min-w-4" />
-
-					{/* Row 2: Search, data & publish tools */}
-					<div className="flex items-center gap-1">
-						{/* Search */}
-						<div className="relative">
-							<SearchBar
-								query={searchQuery}
-								loading={searchLoading}
-								placeholder="Search location..."
-								onSubmit={handleSearchSubmit}
-								onQueryChange={setSearchQuery}
-								onClear={clearSearch}
-								className="w-48"
-							/>
-							{searchResults && searchResults.length > 0 && (
-								<div className="absolute top-full left-0 mt-2 w-64 rounded-lg bg-popover p-2 shadow-lg z-50 border border-border">
-									<div className="flex items-center justify-between border-b border-border pb-2 mb-2">
-										<span className="text-xs font-medium text-muted-foreground">Results</span>
-										<Button
-											variant="ghost"
-											size="sm"
-											className="h-auto p-0 text-xs"
-											onClick={clearSearch}
-										>
-											Close
-										</Button>
-									</div>
-									<div className="max-h-60 overflow-y-auto space-y-1">
-										{searchResults.map((result) => (
-											<button
-												type="button"
-												key={result.placeId}
-												className="w-full text-left text-sm p-1.5 hover:bg-muted/50 rounded truncate"
-												onClick={() => onSearchResultSelect?.(result)}
-											>
-												{result.displayName}
-											</button>
-										))}
-									</div>
-								</div>
-							)}
-						</div>
-
-						{/* Lookup */}
-						<IconButtonRow buttons={lookupButtons} />
-						<Divider />
-
-						{/* File, OSM, Map & Publish */}
 						<FileDropdown
 							onImportClick={() => fileInputRef.current?.click()}
 							onExportGeoJSON={datasetActions?.onExportGeoJSON ?? (() => {})}
@@ -570,7 +601,16 @@ export function Toolbar({
 							onOsmAdvanced={onOsmAdvanced}
 							isClickMode={osmQueryMode === 'click'}
 						/>
-						<CreateMapPopover />
+						<Divider />
+						<IconButtonRow buttons={selectButtons} />
+						<Divider />
+						<DrawButtonGroup mode={mode} onModeChange={handleModeChange} disabled={false} />
+						<Divider />
+						<IconButtonRow buttons={historyButtons} />
+						<Divider />
+						<IconButtonRow buttons={editButtons} />
+						<GeometryOpsDropdown {...geometryOpsProps} />
+						<Divider />
 						<PublishDropdown
 							canPublishNew={datasetActions?.canPublishNew}
 							canPublishUpdate={datasetActions?.canPublishUpdate}
@@ -582,27 +622,10 @@ export function Toolbar({
 							onPublishCopy={datasetActions?.onPublishCopy}
 							onProposeEdit={datasetActions?.onProposeEdit}
 						/>
-
-						<Divider />
-						<ShareExportPopover />
-						<Popover open={showMapSettings} onOpenChange={setShowMapSettings}>
-							<PopoverTrigger asChild>
-								<Button
-									variant={showMapSettings ? 'default' : 'outline'}
-									size="icon"
-									aria-label="Map settings"
-								>
-									<Settings2 className="h-4 w-4" />
-								</Button>
-							</PopoverTrigger>
-							<PopoverContent className="w-[28rem]" side="bottom" align="end">
-								<MapSettingsPanel mode="map-only" />
-							</PopoverContent>
-						</Popover>
 					</div>
+				) : null}
 
-					{fileInput}
-				</div>
+				{fileInput}
 
 				{searchError && (
 					<div className="rounded-lg bg-destructive/10 p-2 text-xs text-destructive shadow-sm self-start">

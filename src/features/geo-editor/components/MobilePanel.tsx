@@ -412,7 +412,6 @@ export function MobilePanel(props: MobilePanelProps) {
 							onSwitchWorkspace={onSwitchWorkspace}
 							onToggleVisibility={onToggleVisibility}
 							onZoomToDataset={onZoomToDataset}
-							onAddDatasetToMap={onAddDatasetToMap}
 							onDeleteDataset={onDeleteDataset}
 							onDeleteContext={onDeleteContext}
 							deletingKey={deletingKey}

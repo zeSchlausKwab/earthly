@@ -1,4 +1,5 @@
 import { Database, Eye, EyeOff, Layers, LocateFixed, Search, Trash2, X } from 'lucide-react'
+import type { DragEvent } from 'react'
 import { useMemo, useState } from 'react'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
@@ -19,6 +20,7 @@ interface MapStackPanelProps {
 	onSetEntryVisible: (entry: MapStackEntry, visible: boolean) => void
 	onRemoveEntry: (entry: MapStackEntry) => void
 	onClear: () => void
+	onClose?: () => void
 }
 
 const sourceLabel: Record<MapStackEntry['source'], string> = {
@@ -31,6 +33,10 @@ const sourceLabel: Record<MapStackEntry['source'], string> = {
 	comment: 'comment',
 	proposal: 'proposal',
 	workspace: 'workspace',
+}
+
+function hasDatasetDragData(event: DragEvent<HTMLElement>) {
+	return Array.from(event.dataTransfer.types).includes('application/earthly-dataset-key')
 }
 
 export function MapStackPanel({
@@ -46,6 +52,7 @@ export function MapStackPanel({
 	onSetEntryVisible,
 	onRemoveEntry,
 	onClear,
+	onClose,
 }: MapStackPanelProps) {
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const mapStackOrder = useEditorStore((state) => state.mapStackOrder)
@@ -62,19 +69,22 @@ export function MapStackPanel({
 	const contextByKey = useMemo(() => {
 		const map = new Map<string, MapContext>()
 		mapContextEvents.forEach((context) => {
-			const key = context.coordinate ?? context.id ?? context.contextId ?? context.dTag
+			const key = context.contextCoordinate ?? context.id ?? context.contextId ?? context.dTag
 			if (key) map.set(key, context)
 		})
 		return map
 	}, [mapContextEvents])
 
 	const entries = useMemo(
-		() => mapStackOrder.map((id) => mapStackEntries[id]).filter(Boolean),
+		(): MapStackEntry[] =>
+			mapStackOrder
+				.map((id) => mapStackEntries[id])
+				.filter((entry): entry is MapStackEntry => Boolean(entry)),
 		[mapStackEntries, mapStackOrder],
 	)
 	const visibleCount = entries.filter((entry) => entry.visible).length
 
-	const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+	const handleDrop = (event: DragEvent<HTMLElement>) => {
 		event.preventDefault()
 		setIsDragOver(false)
 		const datasetKey = event.dataTransfer.getData('application/earthly-dataset-key')
@@ -84,18 +94,19 @@ export function MapStackPanel({
 	}
 
 	return (
-		<div
+		<section
+			aria-label="Map stack"
 			className={cn(
 				'flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-border bg-background',
 				isDragOver && 'border-emerald-500 bg-emerald-50/60',
 			)}
 			onDragEnter={(event) => {
-				if (event.dataTransfer.types.includes('application/earthly-dataset-key')) {
+				if (hasDatasetDragData(event)) {
 					setIsDragOver(true)
 				}
 			}}
 			onDragOver={(event) => {
-				if (event.dataTransfer.types.includes('application/earthly-dataset-key')) {
+				if (hasDatasetDragData(event)) {
 					event.preventDefault()
 					event.dataTransfer.dropEffect = 'copy'
 				}
@@ -117,16 +128,31 @@ export function MapStackPanel({
 						</div>
 					</div>
 				</div>
-				<Button
-					type="button"
-					variant="ghost"
-					size="sm"
-					className="h-7 px-2 text-xs text-muted-foreground"
-					onClick={onClear}
-					disabled={entries.length === 0}
-				>
-					Clear
-				</Button>
+				<div className="flex shrink-0 items-center gap-1">
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						className="h-7 px-2 text-xs text-muted-foreground"
+						onClick={onClear}
+						disabled={entries.length === 0}
+					>
+						Clear
+					</Button>
+					{onClose ? (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-sm"
+							className="h-7 w-7 text-muted-foreground"
+							onClick={onClose}
+							aria-label="Close map stack"
+							title="Close map stack"
+						>
+							<X className="h-4 w-4" />
+						</Button>
+					) : null}
+				</div>
 			</div>
 
 			{entries.length === 0 ? (
@@ -248,6 +274,6 @@ export function MapStackPanel({
 					</div>
 				</div>
 			)}
-		</div>
+		</section>
 	)
 }

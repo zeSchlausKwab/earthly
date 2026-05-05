@@ -3,12 +3,9 @@ import {
 	Database,
 	Globe,
 	HelpCircle,
-	Layers,
-	MessageCircle,
 	Newspaper,
 	PanelLeftClose,
 	PanelLeftOpen,
-	PanelTop,
 	Pencil,
 	Settings2,
 	UserCircle,
@@ -42,7 +39,6 @@ import {
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './ui/resizable'
 import { MapSettingsPanel } from '../features/geo-editor/components/MapSettingsPanel'
 import { Nip60Wallet } from '../features/wallet/components/Nip60Wallet'
-import { ChatPanel } from '../features/chat'
 import { useEditorStore } from '../features/geo-editor/store'
 import { useRouting, type SidebarViewMode } from '../features/geo-editor/hooks/useRouting'
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
@@ -50,15 +46,13 @@ import type { EditorFeature } from '../features/geo-editor/core'
 import { EntitySearchPopover, type EntitySearchResult } from './entity-search'
 import { WorkspaceDraftNavigator } from './WorkspaceDraftNavigator'
 import { Button } from './ui/button'
-import { MapStackPanel } from './MapStackPanel'
-import type { MapStackEntry } from '../features/geo-editor/store'
 
 type SidebarContentMode = Exclude<SidebarViewMode, 'combined'>
 type EntityWorkspace = 'geometry' | 'context'
-type WorkViewMode = 'datasets' | 'map-stack' | 'contexts' | 'chat' | 'user'
+type WorkViewMode = 'datasets' | 'contexts' | 'user'
 type MetaViewMode = 'posts' | 'wallet' | 'settings' | 'help'
 
-const WORK_VIEW_MODES: WorkViewMode[] = ['datasets', 'map-stack', 'contexts', 'chat', 'user']
+const WORK_VIEW_MODES: WorkViewMode[] = ['datasets', 'contexts', 'user']
 const META_VIEW_MODES: MetaViewMode[] = ['posts', 'wallet', 'settings', 'help']
 
 const entityNavItems: {
@@ -76,9 +70,7 @@ const workNavItems: {
 	icon: typeof Database
 }[] = [
 	{ mode: 'datasets', title: 'Datasets', icon: Database },
-	{ mode: 'map-stack', title: 'Map Stack', icon: Layers },
 	{ mode: 'contexts', title: 'Contexts', icon: Globe },
-	{ mode: 'chat', title: 'AI Chat', icon: MessageCircle },
 	{ mode: 'user', title: 'My Entities', icon: UserCircle },
 ]
 
@@ -126,9 +118,6 @@ interface AppSidebarProps {
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: GeoDataset) => void
 	onAddDatasetToMap?: (event: GeoDataset) => void
-	onSetMapStackEntryVisible?: (entry: MapStackEntry, visible: boolean) => void
-	onRemoveMapStackEntry?: (entry: MapStackEntry) => void
-	onClearMapStack?: () => void
 	onDeleteDataset: (event: GeoDataset) => void
 	onDeleteContext?: (context: MapContext) => void
 	getDatasetKey: (event: GeoDataset) => string
@@ -188,9 +177,6 @@ export function AppSidebar({
 	onToggleAllVisibility,
 	onZoomToDataset,
 	onAddDatasetToMap,
-	onSetMapStackEntryVisible,
-	onRemoveMapStackEntry,
-	onClearMapStack,
 	onDeleteDataset,
 	onDeleteContext,
 	getDatasetKey,
@@ -567,37 +553,8 @@ export function AppSidebar({
 		switch (mode) {
 			case 'datasets':
 				return <GeoDatasetsPanelContent mode="datasets" {...datasetsPanelProps} />
-			case 'map-stack':
-				return (
-					<MapStackPanel
-						geoEvents={geoEvents}
-						mapContextEvents={mapContextEvents}
-						getDatasetKey={getDatasetKey}
-						getDatasetName={getDatasetName}
-						onAddDatasetToMap={onAddDatasetToMap}
-						onInspectDataset={handleInspectDataset}
-						onZoomToDataset={onZoomToDataset}
-						onLoadDataset={handleLoadDataset}
-						onInspectContext={handleInspectContext}
-						onSetEntryVisible={(entry, visible) => onSetMapStackEntryVisible?.(entry, visible)}
-						onRemoveEntry={(entry) => onRemoveMapStackEntry?.(entry)}
-						onClear={() => onClearMapStack?.()}
-					/>
-				)
 			case 'contexts':
 				return <GeoDatasetsPanelContent mode="contexts" {...datasetsPanelProps} />
-			case 'chat':
-				return (
-					<ChatPanel
-						geoEvents={geoEvents}
-						mapContextEvents={mapContextEvents}
-						availableFeatures={availableFeatures}
-						getDatasetName={getDatasetName}
-						onStartNewDataset={onStartNewDataset}
-						onSwitchWorkspace={onSwitchWorkspace}
-						onOpenSettings={() => navigateToView('settings')}
-					/>
-				)
 			case 'user': {
 				const profilePubkey = userPubkey ?? currentUserPubkey
 				if (!profilePubkey) {
@@ -721,33 +678,17 @@ export function AppSidebar({
 									</SidebarMenuItem>
 								))}
 
-								<SidebarMenuItem key="editor-split-toggle">
-									<SidebarMenuButton
-										tooltip={{ children: 'Toggle entity/work split layout.', hidden: false }}
-										onClick={() => setSplitWithEditor((prev) => !prev)}
-										isActive={splitWithEditor}
-										className="border border-dashed border-sidebar-border px-2.5 text-sidebar-foreground/80 hover:bg-sidebar-accent data-[active=true]:border-sidebar-primary data-[active=true]:bg-sidebar-primary/10 data-[active=true]:text-sidebar-primary md:px-2"
-									>
-										<PanelTop />
-										<span>{splitWithEditor ? 'Split On' : 'Split Off'}</span>
-									</SidebarMenuButton>
-								</SidebarMenuItem>
-
 								{workNavItems.map((item) => (
 									<SidebarMenuItem
 										key={item.mode}
 										data-tour={
 											item.mode === 'datasets'
 												? 'sidebar-datasets'
-												: item.mode === 'map-stack'
-													? 'sidebar-map-stack'
 												: item.mode === 'contexts'
 													? 'sidebar-contexts'
-													: item.mode === 'chat'
-														? 'sidebar-chat'
-														: item.mode === 'user'
-															? 'sidebar-my-entities'
-															: undefined
+													: item.mode === 'user'
+														? 'sidebar-my-entities'
+														: undefined
 										}
 									>
 										<SidebarMenuButton
