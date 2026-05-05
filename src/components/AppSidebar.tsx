@@ -11,6 +11,7 @@ import {
 	PanelTop,
 	Pencil,
 	Settings2,
+	UserCircle,
 	Wallet,
 	X,
 } from 'lucide-react'
@@ -49,13 +50,15 @@ import type { EditorFeature } from '../features/geo-editor/core'
 import { EntitySearchPopover, type EntitySearchResult } from './entity-search'
 import { WorkspaceDraftNavigator } from './WorkspaceDraftNavigator'
 import { Button } from './ui/button'
+import { MapStackPanel } from './MapStackPanel'
+import type { MapStackEntry } from '../features/geo-editor/store'
 
 type SidebarContentMode = Exclude<SidebarViewMode, 'combined'>
 type EntityWorkspace = 'geometry' | 'context'
-type WorkViewMode = 'datasets' | 'contexts' | 'chat' | 'user'
+type WorkViewMode = 'datasets' | 'map-stack' | 'contexts' | 'chat' | 'user'
 type MetaViewMode = 'posts' | 'wallet' | 'settings' | 'help'
 
-const WORK_VIEW_MODES: WorkViewMode[] = ['datasets', 'contexts', 'chat', 'user']
+const WORK_VIEW_MODES: WorkViewMode[] = ['datasets', 'map-stack', 'contexts', 'chat', 'user']
 const META_VIEW_MODES: MetaViewMode[] = ['posts', 'wallet', 'settings', 'help']
 
 const entityNavItems: {
@@ -73,9 +76,10 @@ const workNavItems: {
 	icon: typeof Database
 }[] = [
 	{ mode: 'datasets', title: 'Datasets', icon: Database },
+	{ mode: 'map-stack', title: 'Map Stack', icon: Layers },
 	{ mode: 'contexts', title: 'Contexts', icon: Globe },
 	{ mode: 'chat', title: 'AI Chat', icon: MessageCircle },
-	{ mode: 'user', title: 'My Entities', icon: Layers },
+	{ mode: 'user', title: 'My Entities', icon: UserCircle },
 ]
 
 const metaNavItems: {
@@ -122,6 +126,9 @@ interface AppSidebarProps {
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: GeoDataset) => void
 	onAddDatasetToMap?: (event: GeoDataset) => void
+	onSetMapStackEntryVisible?: (entry: MapStackEntry, visible: boolean) => void
+	onRemoveMapStackEntry?: (entry: MapStackEntry) => void
+	onClearMapStack?: () => void
 	onDeleteDataset: (event: GeoDataset) => void
 	onDeleteContext?: (context: MapContext) => void
 	getDatasetKey: (event: GeoDataset) => string
@@ -181,6 +188,9 @@ export function AppSidebar({
 	onToggleAllVisibility,
 	onZoomToDataset,
 	onAddDatasetToMap,
+	onSetMapStackEntryVisible,
+	onRemoveMapStackEntry,
+	onClearMapStack,
 	onDeleteDataset,
 	onDeleteContext,
 	getDatasetKey,
@@ -557,6 +567,23 @@ export function AppSidebar({
 		switch (mode) {
 			case 'datasets':
 				return <GeoDatasetsPanelContent mode="datasets" {...datasetsPanelProps} />
+			case 'map-stack':
+				return (
+					<MapStackPanel
+						geoEvents={geoEvents}
+						mapContextEvents={mapContextEvents}
+						getDatasetKey={getDatasetKey}
+						getDatasetName={getDatasetName}
+						onAddDatasetToMap={onAddDatasetToMap}
+						onInspectDataset={handleInspectDataset}
+						onZoomToDataset={onZoomToDataset}
+						onLoadDataset={handleLoadDataset}
+						onInspectContext={handleInspectContext}
+						onSetEntryVisible={(entry, visible) => onSetMapStackEntryVisible?.(entry, visible)}
+						onRemoveEntry={(entry) => onRemoveMapStackEntry?.(entry)}
+						onClear={() => onClearMapStack?.()}
+					/>
+				)
 			case 'contexts':
 				return <GeoDatasetsPanelContent mode="contexts" {...datasetsPanelProps} />
 			case 'chat':
@@ -712,6 +739,8 @@ export function AppSidebar({
 										data-tour={
 											item.mode === 'datasets'
 												? 'sidebar-datasets'
+												: item.mode === 'map-stack'
+													? 'sidebar-map-stack'
 												: item.mode === 'contexts'
 													? 'sidebar-contexts'
 													: item.mode === 'chat'

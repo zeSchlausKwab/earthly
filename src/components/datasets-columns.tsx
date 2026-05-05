@@ -178,6 +178,7 @@ export const createDatasetColumns = (
 				}
 
 				e.dataTransfer.setData('application/geo-feature', JSON.stringify(item))
+				e.dataTransfer.setData('application/earthly-dataset-key', row.original.datasetKey)
 				e.dataTransfer.effectAllowed = 'copy'
 			}
 

@@ -63,6 +63,7 @@ export interface MobilePanelProps {
 	onToggleVisibility: (event: GeoDataset) => void
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: GeoDataset) => void
+	onAddDatasetToMap?: (event: GeoDataset) => void
 	onDeleteDataset: (event: GeoDataset) => void
 	onDeleteContext?: (context: MapContext) => void
 	getDatasetKey: (event: GeoDataset) => string
@@ -147,6 +148,7 @@ export function MobilePanel(props: MobilePanelProps) {
 		onToggleVisibility,
 		onToggleAllVisibility,
 		onZoomToDataset,
+		onAddDatasetToMap,
 		onDeleteDataset,
 		onDeleteContext,
 		getDatasetKey,
@@ -358,6 +360,7 @@ export function MobilePanel(props: MobilePanelProps) {
 							onToggleVisibility={onToggleVisibility}
 							onToggleAllVisibility={onToggleAllVisibility}
 							onZoomToDataset={onZoomToDataset}
+							onAddDatasetToMap={onAddDatasetToMap}
 							onDeleteDataset={onDeleteDataset}
 							getDatasetKey={getDatasetKey}
 							getDatasetName={getDatasetName}
@@ -386,6 +389,7 @@ export function MobilePanel(props: MobilePanelProps) {
 							onToggleVisibility={onToggleVisibility}
 							onToggleAllVisibility={onToggleAllVisibility}
 							onZoomToDataset={onZoomToDataset}
+							onAddDatasetToMap={onAddDatasetToMap}
 							onDeleteDataset={onDeleteDataset}
 							getDatasetKey={getDatasetKey}
 							getDatasetName={getDatasetName}
@@ -408,6 +412,7 @@ export function MobilePanel(props: MobilePanelProps) {
 							onSwitchWorkspace={onSwitchWorkspace}
 							onToggleVisibility={onToggleVisibility}
 							onZoomToDataset={onZoomToDataset}
+							onAddDatasetToMap={onAddDatasetToMap}
 							onDeleteDataset={onDeleteDataset}
 							onDeleteContext={onDeleteContext}
 							deletingKey={deletingKey}
@@ -553,6 +558,7 @@ interface MobileProfileContentProps {
 	onToggleVisibility: (event: GeoDataset) => void
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: GeoDataset) => void
+	onAddDatasetToMap?: (event: GeoDataset) => void
 	onDeleteDataset: (event: GeoDataset) => void
 	getDatasetKey: (event: GeoDataset) => string
 	getDatasetName: (event: GeoDataset) => string

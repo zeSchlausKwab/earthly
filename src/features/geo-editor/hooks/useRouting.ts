@@ -7,6 +7,7 @@ export type { SidebarViewMode }
 /** All valid sidebar view mode values */
 const SIDEBAR_VIEW_MODES: SidebarViewMode[] = [
 	'datasets',
+	'map-stack',
 	'contexts',
 	'context-editor',
 	'combined',

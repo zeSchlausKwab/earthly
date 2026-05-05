@@ -67,7 +67,7 @@ import {
 	useViewMode,
 } from './hooks'
 import { exportShapefile, importShapefile } from './shapefile'
-import { useEditorStore } from './store'
+import { useEditorStore, type MapStackEntry } from './store'
 import type { GeoSearchResult } from './types'
 import { ensureFeatureCollection, extractCollectionMeta, toEditorFeature } from './utils'
 
@@ -165,6 +165,12 @@ export function GeoEditorView() {
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
 	const datasetVisibility = useEditorStore((state) => state.datasetVisibility)
 	const editIsolationEnabled = useEditorStore((state) => state.editIsolationEnabled)
+	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
+	const mapStackOrder = useEditorStore((state) => state.mapStackOrder)
+	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
+	const setMapStackEntryVisible = useEditorStore((state) => state.setMapStackEntryVisible)
+	const removeMapStackEntry = useEditorStore((state) => state.removeMapStackEntry)
+	const clearMapStack = useEditorStore((state) => state.clearMapStack)
 	const setDatasetVisibility = useEditorStore((state) => state.setDatasetVisibility)
 	const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta)
 	const hydrateEditorSessionForPubkey = useEditorStore(
@@ -328,6 +334,72 @@ export function GeoEditorView() {
 		cancelEditing,
 	} = useDatasetManagement(map, geoEvents)
 
+	const addDatasetToMapStack = useCallback(
+		(event: GeoDataset, source: 'manual' | 'route' = 'manual') => {
+			const datasetKey = getDatasetKey(event)
+			addMapStackEntry({
+				entityType: 'dataset',
+				entityKey: datasetKey,
+				title: getDatasetName(event),
+				source,
+				visible: true,
+				pinned: false,
+			})
+			setDatasetVisibility((prev) => ({
+				...prev,
+				[datasetKey]: true,
+			}))
+			if (source === 'manual') {
+				toast.success(`Added "${getDatasetName(event)}" to the map.`)
+			}
+		},
+		[addMapStackEntry, getDatasetKey, getDatasetName, setDatasetVisibility],
+	)
+
+	const setMapStackVisibility = useCallback(
+		(entry: MapStackEntry, visible: boolean) => {
+			setMapStackEntryVisible(entry.id, visible)
+			if (entry.entityType === 'dataset') {
+				setDatasetVisibility((prev) => ({
+					...prev,
+					[entry.entityKey]: visible,
+				}))
+			}
+		},
+		[setDatasetVisibility, setMapStackEntryVisible],
+	)
+
+	const removeFromMapStack = useCallback(
+		(entry: MapStackEntry) => {
+			removeMapStackEntry(entry.id)
+			if (entry.entityType === 'dataset') {
+				setDatasetVisibility((prev) => ({
+					...prev,
+					[entry.entityKey]: false,
+				}))
+			}
+		},
+		[removeMapStackEntry, setDatasetVisibility],
+	)
+
+	const clearMapStackAndVisibility = useCallback(() => {
+		const datasetKeys = mapStackOrder
+			.map((entryId) => mapStackEntries[entryId])
+			.filter((entry): entry is MapStackEntry => Boolean(entry))
+			.filter((entry) => entry.entityType === 'dataset')
+			.map((entry) => entry.entityKey)
+		clearMapStack()
+		if (datasetKeys.length > 0) {
+			setDatasetVisibility((prev) => {
+				const next = { ...prev }
+				datasetKeys.forEach((key) => {
+					next[key] = false
+				})
+				return next
+			})
+		}
+	}, [clearMapStack, mapStackEntries, mapStackOrder, setDatasetVisibility])
+
 	// Store state for viewMode
 	const viewMode = useEditorStore((state) => state.viewMode)
 
@@ -489,6 +561,20 @@ export function GeoEditorView() {
 		() => resolvedActiveContextScope.datasets.map((entry) => entry.dataset),
 		[resolvedActiveContextScope],
 	)
+	const visibleMapStackDatasetKeys = useMemo(() => {
+		const keys = new Set<string>()
+		mapStackOrder.forEach((entryId) => {
+			const entry = mapStackEntries[entryId]
+			if (entry?.entityType === 'dataset' && entry.visible) {
+				keys.add(entry.entityKey)
+			}
+		})
+		return keys
+	}, [mapStackEntries, mapStackOrder])
+	const mapStackHasDatasetEntries = useMemo(
+		() => mapStackOrder.some((entryId) => mapStackEntries[entryId]?.entityType === 'dataset'),
+		[mapStackEntries, mapStackOrder],
+	)
 
 	const validationModeForActiveContext = contextFilterMode === 'off' ? 'warn' : contextFilterMode
 
@@ -567,6 +653,7 @@ export function GeoEditorView() {
 		// Helper: check if event passes visibility + filter criteria
 		const isEventVisible = (event: GeoDataset, includeSidebarFilter = true) => {
 			const key = getDatasetKey(event)
+			if (mapStackHasDatasetEntries && !visibleMapStackDatasetKeys.has(key)) return false
 			// Must be marked visible
 			if (datasetVisibility[key] === false) return false
 			// Must pass active context scope (if one is set)
@@ -621,6 +708,8 @@ export function GeoEditorView() {
 		filteredDatasetKeys,
 		viewMode,
 		editIsolationEnabled,
+		mapStackHasDatasetEntries,
+		visibleMapStackDatasetKeys,
 	])
 
 	const lastContextCoordinateRef = useRef<string | null>(null)
@@ -692,9 +781,26 @@ export function GeoEditorView() {
 			})
 			return effectiveMap
 		}
+		if (mapStackHasDatasetEntries) {
+			const effectiveMap: Record<string, boolean> = {}
+			geoEvents.forEach((event) => {
+				const key = getDatasetKey(event)
+				effectiveMap[key] = visibleMapStackDatasetKeys.has(key) && datasetVisibility[key] !== false
+			})
+			return effectiveMap
+		}
 		// Default: use actual visibility state
 		return datasetVisibility
-	}, [geoEvents, visibleGeoEvents, datasetVisibility, getDatasetKey, focusedNaddr, focusedType])
+	}, [
+		geoEvents,
+		visibleGeoEvents,
+		datasetVisibility,
+		getDatasetKey,
+		focusedNaddr,
+		focusedType,
+		mapStackHasDatasetEntries,
+		visibleMapStackDatasetKeys,
+	])
 
 	useEffect(() => {
 		featuresRef.current = features
@@ -1143,6 +1249,7 @@ export function GeoEditorView() {
 				return eventNaddr === route.naddr
 			})
 			if (dataset) {
+				addDatasetToMapStack(dataset, 'route')
 				handleInspectDataset(dataset)
 				focusHandledRef.current = routeKey
 			}
@@ -1160,6 +1267,7 @@ export function GeoEditorView() {
 		mapContextEvents,
 		encodeGeoEventNaddr,
 		encodeContextNaddr,
+		addDatasetToMapStack,
 		handleInspectDataset,
 		handleInspectContext,
 	])
@@ -1284,6 +1392,10 @@ export function GeoEditorView() {
 					onToggleVisibility={handleToggleVisibilityWithExitFocus}
 					onToggleAllVisibility={handleToggleAllVisibilityWithExitFocus}
 					onZoomToDataset={zoomToDataset}
+					onAddDatasetToMap={addDatasetToMapStack}
+					onSetMapStackEntryVisible={setMapStackVisibility}
+					onRemoveMapStackEntry={removeFromMapStack}
+					onClearMapStack={clearMapStackAndVisibility}
 					onDeleteDataset={onDeleteDataset}
 					onDeleteContext={onDeleteContext}
 					getDatasetKey={getDatasetKey}
@@ -1564,6 +1676,7 @@ export function GeoEditorView() {
 							onToggleVisibility={handleToggleVisibilityWithExitFocus}
 							onToggleAllVisibility={handleToggleAllVisibilityWithExitFocus}
 							onZoomToDataset={zoomToDataset}
+							onAddDatasetToMap={addDatasetToMapStack}
 							onDeleteDataset={onDeleteDataset}
 							onDeleteContext={onDeleteContext}
 							getDatasetKey={getDatasetKey}

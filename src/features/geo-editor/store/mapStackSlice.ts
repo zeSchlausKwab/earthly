@@ -5,9 +5,7 @@ function createMapStackEntryId(entityType: string, entityKey: string) {
 	return `${entityType}:${entityKey}`
 }
 
-export const createMapStackSlice: StateCreator<EditorState, [], [], MapStackSlice> = (
-	set,
-) => ({
+export const createMapStackSlice: StateCreator<EditorState, [], [], MapStackSlice> = (set) => ({
 	mapStackEntries: {},
 	mapStackOrder: [],
 

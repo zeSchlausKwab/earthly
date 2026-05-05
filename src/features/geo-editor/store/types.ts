@@ -8,6 +8,7 @@ import type { CollectionMeta, EditorBlobReference, GeoSearchResult } from '../ty
 
 export type SidebarViewMode =
 	| 'datasets'
+	| 'map-stack'
 	| 'contexts'
 	| 'context-editor'
 	| 'combined'
@@ -44,7 +45,13 @@ export interface MapLayerState {
 	pmtilesType?: string
 }
 
-export type MapStackEntryType = 'dataset' | 'context' | 'comment' | 'proposal' | 'draft' | 'ai-result'
+export type MapStackEntryType =
+	| 'dataset'
+	| 'context'
+	| 'comment'
+	| 'proposal'
+	| 'draft'
+	| 'ai-result'
 export type MapStackEntrySource =
 	| 'manual'
 	| 'route'
