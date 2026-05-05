@@ -478,7 +478,7 @@ export function Toolbar({
 	return (
 		<>
 			<div className="pointer-events-auto flex flex-col items-start gap-2" data-tour="toolbar">
-				<div className="glass-panel flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-1 rounded-lg p-1.5">
+				<div className="glass-panel flex max-w-[calc(100vw-2rem)] items-center gap-1 overflow-x-auto rounded-lg p-1.5">
 					<SidebarTrigger className="h-9 w-9" />
 					<Divider />
 
@@ -574,56 +574,63 @@ export function Toolbar({
 							<MapSettingsPanel mode="map-only" />
 						</PopoverContent>
 					</Popover>
-				</div>
-
-				{isEditing ? (
-					<div className="glass-panel flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-1 rounded-lg border border-emerald-200/80 p-1.5 shadow-lg">
-						<SessionButton
-							viewMode={viewMode}
-							onStartNew={onStartNewDataset}
-							onCancel={onCancelEditing}
-						/>
+					<div
+						className={`flex items-center gap-1 overflow-hidden transition-[max-width,opacity,transform] duration-300 ease-out ${
+							isEditing
+								? 'max-w-[72rem] translate-x-0 opacity-100'
+								: 'pointer-events-none max-w-0 -translate-x-2 opacity-0'
+						}`}
+						aria-hidden={!isEditing}
+					>
 						<Divider />
-						<FileDropdown
-							onImportClick={() => fileInputRef.current?.click()}
-							onExportGeoJSON={datasetActions?.onExportGeoJSON ?? (() => {})}
-							onExportSHP={datasetActions?.onExportSHP ?? (() => {})}
-							canExport={datasetActions?.canExport}
-							disabled={isEditingDisabled}
-						/>
-						<OsmImportPopover
-							open={magicPopoverOpen}
-							onOpenChange={setMagicPopoverOpen}
-							osmQueryFilter={osmQueryFilter}
-							onOsmFilterChange={setOsmQueryFilter}
-							onOsmClickMode={handleOsmClickMode}
-							onOsmQueryView={handleOsmQueryView}
-							onOsmAdvanced={onOsmAdvanced}
-							isClickMode={osmQueryMode === 'click'}
-						/>
-						<Divider />
-						<IconButtonRow buttons={selectButtons} />
-						<Divider />
-						<DrawButtonGroup mode={mode} onModeChange={handleModeChange} disabled={false} />
-						<Divider />
-						<IconButtonRow buttons={historyButtons} />
-						<Divider />
-						<IconButtonRow buttons={editButtons} />
-						<GeometryOpsDropdown {...geometryOpsProps} />
-						<Divider />
-						<PublishDropdown
-							canPublishNew={datasetActions?.canPublishNew}
-							canPublishUpdate={datasetActions?.canPublishUpdate}
-							canPublishCopy={datasetActions?.canPublishCopy}
-							canProposeEdit={datasetActions?.canProposeEdit}
-							isPublishing={datasetActions?.isPublishing}
-							onPublishNew={datasetActions?.onPublishNew}
-							onPublishUpdate={datasetActions?.onPublishUpdate}
-							onPublishCopy={datasetActions?.onPublishCopy}
-							onProposeEdit={datasetActions?.onProposeEdit}
-						/>
+						<div className="flex items-center gap-1 rounded-md border border-emerald-200/80 bg-emerald-50/60 p-1 shadow-sm">
+							<SessionButton
+								viewMode={viewMode}
+								onStartNew={onStartNewDataset}
+								onCancel={onCancelEditing}
+							/>
+							<Divider />
+							<FileDropdown
+								onImportClick={() => fileInputRef.current?.click()}
+								onExportGeoJSON={datasetActions?.onExportGeoJSON ?? (() => {})}
+								onExportSHP={datasetActions?.onExportSHP ?? (() => {})}
+								canExport={datasetActions?.canExport}
+								disabled={isEditingDisabled}
+							/>
+							<OsmImportPopover
+								open={magicPopoverOpen}
+								onOpenChange={setMagicPopoverOpen}
+								osmQueryFilter={osmQueryFilter}
+								onOsmFilterChange={setOsmQueryFilter}
+								onOsmClickMode={handleOsmClickMode}
+								onOsmQueryView={handleOsmQueryView}
+								onOsmAdvanced={onOsmAdvanced}
+								isClickMode={osmQueryMode === 'click'}
+							/>
+							<Divider />
+							<IconButtonRow buttons={selectButtons} />
+							<Divider />
+							<DrawButtonGroup mode={mode} onModeChange={handleModeChange} disabled={false} />
+							<Divider />
+							<IconButtonRow buttons={historyButtons} />
+							<Divider />
+							<IconButtonRow buttons={editButtons} />
+							<GeometryOpsDropdown {...geometryOpsProps} />
+							<Divider />
+							<PublishDropdown
+								canPublishNew={datasetActions?.canPublishNew}
+								canPublishUpdate={datasetActions?.canPublishUpdate}
+								canPublishCopy={datasetActions?.canPublishCopy}
+								canProposeEdit={datasetActions?.canProposeEdit}
+								isPublishing={datasetActions?.isPublishing}
+								onPublishNew={datasetActions?.onPublishNew}
+								onPublishUpdate={datasetActions?.onPublishUpdate}
+								onPublishCopy={datasetActions?.onPublishCopy}
+								onProposeEdit={datasetActions?.onProposeEdit}
+							/>
+						</div>
 					</div>
-				) : null}
+				</div>
 
 				{fileInput}
 
