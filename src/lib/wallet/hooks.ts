@@ -1,16 +1,21 @@
 /**
  * React hooks for the NIP-60 wallet.
  *
- * Built on `applesauce-wallet/casts` (which extend `User` with `wallet$` and
- * `nutzap$`). The active applesauce account drives everything — switching
- * accounts switches wallets automatically.
+ * Built on the Applesauce wallet cast and EventStore models. The active
+ * applesauce account drives everything — switching accounts switches wallets
+ * automatically.
  */
 
-import { castUser } from 'applesauce-common/casts'
+import { castEvent } from 'applesauce-core/casts'
+import { kinds, relaySet } from 'applesauce-core/helpers'
 import { use$, useActiveAccount } from 'applesauce-react/hooks'
-import type { Wallet } from 'applesauce-wallet/casts'
+import { Wallet } from 'applesauce-wallet/casts'
+import { WALLET_HISTORY_KIND, WALLET_KIND, WALLET_TOKEN_KIND } from 'applesauce-wallet/helpers'
+import type { Filter } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { config } from '@/config'
 import { eventStore } from '@/lib/nostr'
+import { useTimelineWithEose } from '@/lib/nostr/hooks'
 
 /**
  * Reactive view of the active account's wallet state.
@@ -20,6 +25,10 @@ import { eventStore } from '@/lib/nostr'
  * `ready` is the conjunction — almost every UI gate should use it.
  */
 export interface WalletState {
+	/** `true` while the wallet event lookup is still waiting on relay responses. */
+	loading: boolean
+	/** `true` while wallet token/history/delete events are still syncing. */
+	syncing: boolean
 	/** `true` once a kind 17375 event for the active pubkey is in the store. */
 	exists: boolean
 	/** `true` once content has been decrypted (UnlockWallet action). */
@@ -39,12 +48,47 @@ export interface WalletState {
 /** Subscribe to the active account's wallet. Re-renders on state changes. */
 export function useWallet(): WalletState {
 	const active = useActiveAccount()
-	const user = useMemo(
-		() => (active?.pubkey ? castUser(active.pubkey, eventStore) : null),
+
+	const walletFilter = useMemo<Filter | null>(
+		() => (active?.pubkey ? { kinds: [WALLET_KIND], authors: [active.pubkey], limit: 1 } : null),
 		[active?.pubkey],
 	)
-	const wallet = use$(() => user?.wallet$, [user])
+	const { eose: walletEose } = useTimelineWithEose(walletFilter)
+
+	const walletEvent = use$(
+		() => (active?.pubkey ? eventStore.replaceable(WALLET_KIND, active.pubkey) : undefined),
+		[active?.pubkey],
+	)
+	const wallet = useMemo(() => {
+		if (!walletEvent || walletEvent.pubkey !== active?.pubkey) return undefined
+		try {
+			return castEvent(walletEvent, Wallet, eventStore)
+		} catch {
+			return undefined
+		}
+	}, [walletEvent, active?.pubkey])
 	const balance = use$(() => wallet?.balance$, [wallet])
+
+	const walletRelays = wallet?.relays
+	const walletDataRelays = useMemo(() => relaySet(config.readRelays, walletRelays), [walletRelays])
+	const walletDataFilters = useMemo<Filter[] | null>(
+		() =>
+			active?.pubkey && wallet
+				? [
+						{
+							kinds: [WALLET_TOKEN_KIND, WALLET_HISTORY_KIND],
+							authors: [active.pubkey],
+						},
+						{
+							kinds: [kinds.EventDeletion],
+							authors: [active.pubkey],
+							'#k': [String(WALLET_TOKEN_KIND)],
+						},
+					]
+				: null,
+		[active?.pubkey, wallet],
+	)
+	const { eose: walletDataEose } = useTimelineWithEose(walletDataFilters, walletDataRelays)
 
 	const totalBalance = useMemo(
 		() => (balance ? Object.values(balance).reduce((a, b) => a + b, 0) : 0),
@@ -53,9 +97,11 @@ export function useWallet(): WalletState {
 	const mints = wallet?.unlocked ? wallet.mints : []
 
 	return {
+		loading: Boolean(active?.pubkey && !wallet && !walletEose),
+		syncing: Boolean(wallet && !walletDataEose),
 		exists: Boolean(wallet),
 		unlocked: Boolean(wallet?.unlocked),
-		ready: Boolean(wallet && wallet.unlocked),
+		ready: Boolean(wallet?.unlocked && walletDataEose),
 		balance,
 		totalBalance,
 		mints,

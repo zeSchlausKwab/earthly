@@ -31,11 +31,7 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import {
-	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-} from '@/components/ui/collapsible'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import {
 	Select,
@@ -52,8 +48,6 @@ import {
 	unlockWallet,
 	useDefaultMint,
 	useWallet,
-	useWalletHistory,
-	useWalletTokens,
 } from '@/lib/wallet'
 import { DepositLightningModal } from './DepositLightningModal'
 import { ReceiveEcashModal } from './ReceiveEcashModal'
@@ -71,9 +65,10 @@ type Section = 'mints' | 'transactions' | 'proofs' | null
 
 export function Nip60Wallet() {
 	const account = useActiveAccount()
-	const { exists, unlocked, ready, balance, totalBalance, mints, wallet } = useWallet()
-	const tokens = useWalletTokens()
-	const history = useWalletHistory()
+	const { loading, syncing, exists, unlocked, ready, balance, totalBalance, mints, wallet } =
+		useWallet()
+	const tokens = use$(() => wallet?.tokens$, [wallet])
+	const history = use$(() => wallet?.history$, [wallet])
 	const [defaultMint, setDefaultMint] = useDefaultMint()
 
 	const [isCreating, setIsCreating] = useState(false)
@@ -86,16 +81,23 @@ export function Nip60Wallet() {
 	const [openSection, setOpenSection] = useState<Section>(null)
 	const [expandedMints, setExpandedMints] = useState<Set<string>>(new Set())
 
-	// Auto-unlock when the wallet event becomes available
+	const lockedTokenCount = tokens?.filter((token) => !token.unlocked).length ?? 0
+	const lockedHistoryCount = history?.filter((entry) => !entry.unlocked).length ?? 0
+
+	// Auto-unlock when the wallet event or locked wallet data becomes available.
 	useEffect(() => {
-		if (!exists || unlocked || isUnlocking) return
+		if (!exists || isUnlocking) return
+		if (unlocked && lockedTokenCount === 0 && lockedHistoryCount === 0) return
 		setIsUnlocking(true)
-		unlockWallet().catch((err) => {
-			console.warn('[wallet] auto-unlock failed', err)
-		}).finally(() => setIsUnlocking(false))
-	}, [exists, unlocked, isUnlocking])
+		unlockWallet()
+			.catch((err) => {
+				console.warn('[wallet] auto-unlock failed', err)
+			})
+			.finally(() => setIsUnlocking(false))
+	}, [exists, unlocked, lockedTokenCount, lockedHistoryCount, isUnlocking])
 
 	// Reset edited mint draft whenever the source list changes (e.g. after save)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: mints is the reset signal.
 	useEffect(() => {
 		setEditedMints(null)
 	}, [mints])
@@ -103,10 +105,7 @@ export function Nip60Wallet() {
 	const workingMints = editedMints ?? mints
 
 	const proofsByMint = useMemo(() => {
-		const map = new Map<
-			string,
-			Array<{ id: string; secret: string; amount: number; C: string }>
-		>()
+		const map = new Map<string, Array<{ id: string; secret: string; amount: number; C: string }>>()
 		if (!tokens) return map
 		for (const token of tokens) {
 			const mint = token.mint
@@ -118,15 +117,16 @@ export function Nip60Wallet() {
 		}
 		return map
 	}, [tokens])
+	const proofCount = useMemo(
+		() => Array.from(proofsByMint.values()).reduce((sum, proofs) => sum + proofs.length, 0),
+		[proofsByMint],
+	)
 
 	// Subscribe to history meta so direction/amount populate as decryption settles
-	const historyEntries = use$(
-		() => {
-			if (!history) return undefined
-			return undefined // we don't need a derived stream; use the `history` array directly below
-		},
-		[history],
-	)
+	const historyEntries = use$(() => {
+		if (!history) return undefined
+		return undefined // we don't need a derived stream; use the `history` array directly below
+	}, [history])
 	void historyEntries
 
 	const toggleMintExpanded = (mint: string) => {
@@ -214,8 +214,10 @@ export function Nip60Wallet() {
 	if (!exists) {
 		return (
 			<div className="p-4 text-center bg-muted rounded-lg">
-				<p className="text-muted-foreground mb-4">No Cashu wallet found</p>
-				<Button onClick={handleCreateWallet} disabled={isCreating} variant="secondary">
+				<p className="text-muted-foreground mb-4">
+					{loading ? 'Checking Cashu wallet…' : 'No Cashu wallet found'}
+				</p>
+				<Button onClick={handleCreateWallet} disabled={isCreating || loading} variant="secondary">
 					{isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
 					Create Wallet
 				</Button>
@@ -251,14 +253,22 @@ export function Nip60Wallet() {
 						variant="ghost"
 						size="icon"
 						onClick={handleRefresh}
-						disabled={isRefreshing}
+						disabled={!ready || isRefreshing}
 						title="Consolidate & refresh"
 					>
 						<RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
 					</Button>
 				</div>
-				<p className="text-sm text-muted-foreground mb-1">Balance</p>
-				<p className="text-2xl font-bold">{totalBalance.toLocaleString()} sats</p>
+				<p className="text-sm text-muted-foreground mb-1">
+					{syncing ? 'Syncing wallet…' : 'Balance'}
+				</p>
+				<p className="text-2xl font-bold">
+					{syncing ? (
+						<Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
+					) : (
+						`${totalBalance.toLocaleString()} sats`
+					)}
+				</p>
 			</div>
 
 			<div className="grid grid-cols-2 gap-2 mb-4">
@@ -273,7 +283,7 @@ export function Nip60Wallet() {
 				<Button
 					size="sm"
 					onClick={() => setOpenModal('withdraw')}
-					disabled={totalBalance === 0}
+					disabled={!ready || totalBalance === 0}
 					className="bg-amber-600 hover:bg-amber-700 text-white"
 				>
 					<Zap className="w-4 h-4" />
@@ -287,7 +297,7 @@ export function Nip60Wallet() {
 					variant="secondary"
 					size="sm"
 					onClick={() => setOpenModal('send')}
-					disabled={totalBalance === 0}
+					disabled={!ready || totalBalance === 0}
 				>
 					<Send className="w-4 h-4" />
 					Send eCash
@@ -354,14 +364,12 @@ export function Nip60Wallet() {
 					<Button
 						variant={openSection === 'transactions' ? 'default' : 'ghost'}
 						size="sm"
-						onClick={() =>
-							setOpenSection(openSection === 'transactions' ? null : 'transactions')
-						}
+						onClick={() => setOpenSection(openSection === 'transactions' ? null : 'transactions')}
 						className="flex-1 gap-1.5 px-2"
 						title="Transactions"
 					>
 						<ArrowUpDown className="w-4 h-4 shrink-0" />
-						<span className="text-xs">{history?.length ?? 0}</span>
+						<span className="text-xs">{syncing ? '…' : (history?.length ?? 0)}</span>
 					</Button>
 					<Button
 						variant={openSection === 'proofs' ? 'default' : 'ghost'}
@@ -371,9 +379,7 @@ export function Nip60Wallet() {
 						title="Proofs"
 					>
 						<Coins className="w-4 h-4 shrink-0" />
-						<span className="text-xs">
-							{Array.from(proofsByMint.values()).reduce((s, p) => s + p.length, 0)}
-						</span>
+						<span className="text-xs">{syncing ? '…' : proofCount}</span>
 					</Button>
 				</div>
 
@@ -455,7 +461,9 @@ export function Nip60Wallet() {
 
 				{openSection === 'proofs' && (
 					<div className="space-y-2 max-h-48 overflow-y-auto overflow-x-hidden pt-2 border-t">
-						{proofsByMint.size === 0 ? (
+						{syncing ? (
+							<p className="text-sm text-muted-foreground">Syncing proofs…</p>
+						) : proofsByMint.size === 0 ? (
 							<p className="text-sm text-muted-foreground">No proofs in wallet</p>
 						) : (
 							Array.from(proofsByMint.entries()).map(([mint, proofs]) => (
@@ -483,9 +491,9 @@ export function Nip60Wallet() {
 										</CollapsibleTrigger>
 										<CollapsibleContent>
 											<div className="mt-2 space-y-1 pl-5 overflow-hidden">
-												{proofs.map((proof, idx) => (
+												{proofs.map((proof) => (
 													<div
-														key={`${proof.id}-${proof.secret.slice(0, 8)}-${idx}`}
+														key={`${proof.id}-${proof.secret}`}
 														className="flex items-center justify-between text-xs bg-background rounded px-2 py-1 gap-2"
 													>
 														<span
@@ -537,11 +545,7 @@ export function Nip60Wallet() {
 	)
 }
 
-function HistoryRow({
-	entry,
-}: {
-	entry: import('applesauce-wallet/casts').WalletHistory
-}) {
+function HistoryRow({ entry }: { entry: import('applesauce-wallet/casts').WalletHistory }) {
 	const meta = use$(() => entry.meta$, [entry])
 	const direction = meta?.direction
 	const amount = meta?.amount ?? 0
