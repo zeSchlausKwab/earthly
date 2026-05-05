@@ -5,32 +5,41 @@
  * "subscribe-then-read-from-store" pattern that applesauce uses.
  */
 
-import { mapEventsToStore } from 'applesauce-core'
-import { use$ } from 'applesauce-react/hooks'
-import type { GroupReqMessage } from 'applesauce-relay'
-import type { Filter, NostrEvent } from 'nostr-tools'
-import { useEffect, useMemo, useState } from 'react'
-import { filter as rxFilter, map, tap } from 'rxjs'
-import { config } from '@/config'
-import { eventStore, pool } from './index'
+import { mapEventsToStore } from "applesauce-core";
+import { use$ } from "applesauce-react/hooks";
+import type { GroupReqMessage } from "applesauce-relay";
+import type { Filter, NostrEvent } from "nostr-tools";
+import { useEffect, useMemo, useState } from "react";
+import { filter as rxFilter, map, tap } from "rxjs";
+import { config } from "@/config";
+import { eventStore, pool } from "./index";
 
-type EventMessage = Extract<GroupReqMessage, { type: 'EVENT' }>
-type RelayDoneMessage = Extract<GroupReqMessage, { type: 'EOSE' | 'ERROR' | 'CLOSED' }>
+type EventMessage = Extract<GroupReqMessage, { type: "EVENT" }>;
+type RelayDoneMessage = Extract<
+  GroupReqMessage,
+  { type: "EOSE" | "ERROR" | "CLOSED" }
+>;
 
 function isEventMessage(message: GroupReqMessage): message is EventMessage {
-	return message.type === 'EVENT'
+  return message.type === "EVENT";
 }
 
-function isRelayDoneMessage(message: GroupReqMessage): message is RelayDoneMessage {
-	return message.type === 'EOSE' || message.type === 'ERROR' || message.type === 'CLOSED'
+function isRelayDoneMessage(
+  message: GroupReqMessage,
+): message is RelayDoneMessage {
+  return (
+    message.type === "EOSE" ||
+    message.type === "ERROR" ||
+    message.type === "CLOSED"
+  );
 }
 
 function filtersFromKey(filterKey: string | null): Filter | Filter[] | null {
-	return filterKey ? (JSON.parse(filterKey) as Filter | Filter[]) : null
+  return filterKey ? (JSON.parse(filterKey) as Filter | Filter[]) : null;
 }
 
 function relaysFromKey(relayKey: string): string[] {
-	return relayKey ? relayKey.split(',').filter(Boolean) : []
+  return relayKey ? relayKey.split(",").filter(Boolean) : [];
 }
 
 /**
@@ -51,35 +60,38 @@ function relaysFromKey(relayKey: string): string[] {
  * to those relays.
  */
 export function useTimeline(
-	filters: Filter | Filter[] | null,
-	relays: string[] = config.readRelays,
+  filters: Filter | Filter[] | null,
+  relays: string[] = config.readRelays,
 ): NostrEvent[] {
-	const filterKey = useMemo(() => (filters ? JSON.stringify(filters) : null), [filters])
-	const relayKey = useMemo(() => relays.join(','), [relays])
+  const filterKey = useMemo(
+    () => (filters ? JSON.stringify(filters) : null),
+    [filters],
+  );
+  const relayKey = useMemo(() => relays.join(","), [relays]);
 
-	useEffect(() => {
-		const activeFilters = filtersFromKey(filterKey)
-		if (!activeFilters) return undefined
+  useEffect(() => {
+    const activeFilters = filtersFromKey(filterKey);
+    if (!activeFilters) return undefined;
 
-		const activeRelays = relaysFromKey(relayKey)
-		const subscription = pool
-			.req(activeRelays, activeFilters)
-			.pipe(
-				rxFilter(isEventMessage),
-				map((message) => message.event),
-				mapEventsToStore(eventStore),
-			)
-			.subscribe()
+    const activeRelays = relaysFromKey(relayKey);
+    const subscription = pool
+      .req(activeRelays, activeFilters)
+      .pipe(
+        rxFilter(isEventMessage),
+        map((message) => message.event),
+        mapEventsToStore(eventStore),
+      )
+      .subscribe();
 
-		return () => subscription.unsubscribe()
-	}, [filterKey, relayKey])
+    return () => subscription.unsubscribe();
+  }, [filterKey, relayKey]);
 
-	const events = use$(() => {
-		if (!filters) return undefined
-		return eventStore.timeline(filters).pipe(map((events) => [...events]))
-	}, [filterKey])
+  const events = use$(() => {
+    if (!filters) return undefined;
+    return eventStore.timeline(filters).pipe(map((events) => [...events]));
+  }, [filterKey]);
 
-	return events ?? []
+  return events ?? [];
 }
 
 /**
@@ -93,50 +105,53 @@ export function useTimeline(
  * `relays` defaults to `config.readRelays`.
  */
 export function useTimelineWithEose(
-	filters: Filter | Filter[] | null,
-	relays: string[] = config.readRelays,
+  filters: Filter | Filter[] | null,
+  relays: string[] = config.readRelays,
 ): { events: NostrEvent[]; eose: boolean } {
-	const filterKey = useMemo(() => (filters ? JSON.stringify(filters) : null), [filters])
-	const relayKey = useMemo(() => relays.join(','), [relays])
-	const [eose, setEose] = useState(false)
+  const filterKey = useMemo(
+    () => (filters ? JSON.stringify(filters) : null),
+    [filters],
+  );
+  const relayKey = useMemo(() => relays.join(","), [relays]);
+  const [eose, setEose] = useState(false);
 
-	useEffect(() => {
-		const activeFilters = filtersFromKey(filterKey)
-		if (!activeFilters) {
-			setEose(false)
-			return undefined
-		}
+  useEffect(() => {
+    const activeFilters = filtersFromKey(filterKey);
+    if (!activeFilters) {
+      setEose(false);
+      return undefined;
+    }
 
-		const activeRelays = relaysFromKey(relayKey)
-		if (activeRelays.length === 0) {
-			setEose(true)
-			return undefined
-		}
+    const activeRelays = relaysFromKey(relayKey);
+    if (activeRelays.length === 0) {
+      setEose(true);
+      return undefined;
+    }
 
-		setEose(false)
+    setEose(false);
 
-		const doneRelays = new Set<string>()
-		const subscription = pool
-			.req(activeRelays, activeFilters)
-			.pipe(
-				tap((message) => {
-					if (!isRelayDoneMessage(message)) return
-					doneRelays.add(message.from)
-					if (doneRelays.size >= activeRelays.length) setEose(true)
-				}),
-				rxFilter(isEventMessage),
-				map((message) => message.event),
-				mapEventsToStore(eventStore),
-			)
-			.subscribe()
+    const doneRelays = new Set<string>();
+    const subscription = pool
+      .req(activeRelays, activeFilters)
+      .pipe(
+        tap((message) => {
+          if (!isRelayDoneMessage(message)) return;
+          doneRelays.add(message.from);
+          if (doneRelays.size >= activeRelays.length) setEose(true);
+        }),
+        rxFilter(isEventMessage),
+        map((message) => message.event),
+        mapEventsToStore(eventStore),
+      )
+      .subscribe();
 
-		return () => subscription.unsubscribe()
-	}, [filterKey, relayKey])
+    return () => subscription.unsubscribe();
+  }, [filterKey, relayKey]);
 
-	const events = use$(() => {
-		if (!filters) return undefined
-		return eventStore.timeline(filters).pipe(map((evts) => [...evts]))
-	}, [filterKey])
+  const events = use$(() => {
+    if (!filters) return undefined;
+    return eventStore.timeline(filters).pipe(map((evts) => [...evts]));
+  }, [filterKey]);
 
-	return { events: events ?? [], eose }
+  return { events: events ?? [], eose };
 }

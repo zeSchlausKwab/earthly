@@ -98,6 +98,7 @@ export const FRONTEND_ENV_KEYS = [
 	'EXTRA_READ_RELAYS',
 	'SERVER_PUBKEY',
 	'CLIENT_KEY',
+	'BLOSSOM_SERVER',
 	'NODE_ENV',
 ] as const
 
