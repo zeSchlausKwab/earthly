@@ -33,6 +33,7 @@ import { BlossomUploaderButton } from '@/components/blossom/BlossomUploaderButto
 import { UserProfile } from '@/components/user-profile'
 import { SessionsManager } from '@/features/auth/SessionsManager'
 import { ChatSettingsSection } from '@/features/chat'
+import { UserRelayManager } from '@/features/settings/UserRelayManager'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -52,7 +53,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useEditorStore, type MapLayerState } from '../store'
 
 type MapSourceType = 'default' | 'pmtiles' | 'blossom'
-type SettingsTab = 'profile' | 'chat' | 'sessions'
+type SettingsTab = 'profile' | 'relays' | 'chat' | 'sessions'
 type MapSettingsPanelMode = 'full' | 'map-only'
 
 interface ProfileDraft {
@@ -739,9 +740,12 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 
 	return (
 		<Tabs defaultValue={defaultTab} className="space-y-4">
-			<TabsList className="grid h-auto w-full grid-cols-3 rounded-none bg-slate-100 p-1">
+			<TabsList className="grid h-auto w-full grid-cols-2 rounded-none bg-slate-100 p-1 sm:grid-cols-4">
 				<TabsTrigger value="profile" className="rounded-none px-3 py-2 text-xs sm:text-sm">
 					Profile
+				</TabsTrigger>
+				<TabsTrigger value="relays" className="rounded-none px-3 py-2 text-xs sm:text-sm">
+					Relays
 				</TabsTrigger>
 				<TabsTrigger value="chat" className="rounded-none px-3 py-2 text-xs sm:text-sm">
 					Chat settings
@@ -753,6 +757,15 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 
 			<TabsContent value="profile" className="mt-0">
 				<ProfileSettingsSection />
+			</TabsContent>
+
+			<TabsContent value="relays" className="mt-0">
+				<SettingsShell
+					title="Relays"
+					description="Manage the NIP-65 relay list used for account reads, writes, and discovery."
+				>
+					<UserRelayManager />
+				</SettingsShell>
 			</TabsContent>
 
 			<TabsContent value="chat" className="mt-0">
