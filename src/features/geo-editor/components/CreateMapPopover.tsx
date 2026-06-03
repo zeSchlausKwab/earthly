@@ -10,15 +10,16 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import {
-	Map,
-	Loader2,
+	AlertTriangle,
 	Check,
 	Copy,
-	AlertTriangle,
+	Loader2,
+	Map as MapIcon,
 	Maximize,
 	MousePointer2,
 	PenTool,
 } from 'lucide-react'
+import type { Geometry, Position } from 'geojson'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -93,7 +94,47 @@ interface BBox {
 type SourceType = 'viewport' | 'dataset' | 'selection'
 type FlowState = 'idle' | 'extracting' | 'signing' | 'uploading' | 'done' | 'error'
 
-export function CreateMapPopover() {
+interface CreateMapPopoverProps {
+	small?: boolean
+}
+
+interface MapExtractUnsignedEvent {
+	kind: number
+	content: string
+	created_at: number
+	tags: string[][]
+}
+
+interface MapExtractClient {
+	CreateMapExtract: (
+		west: number,
+		south: number,
+		east: number,
+		north: number,
+		maxZoom: number,
+		blossomUrl: string,
+		routeNaddr?: string,
+	) => Promise<{
+		result?: {
+			requestId: string
+			unsignedEvent: MapExtractUnsignedEvent
+		}
+	}>
+	CreateMapUpload: (
+		requestId: string,
+		event: MapExtractUnsignedEvent & {
+			id: string
+			pubkey: string
+			sig: string
+		},
+	) => Promise<{
+		result?: {
+			blobUrl?: string
+		}
+	}>
+}
+
+export function CreateMapPopover({ small = false }: CreateMapPopoverProps) {
 	const [open, setOpen] = useState(false)
 	const [sourceType, setSourceType] = useState<SourceType>('viewport')
 	const [blossomUrl, setBlossomUrl] = useState(
@@ -108,8 +149,6 @@ export function CreateMapPopover() {
 
 	const currentUser = useActiveAccount()
 	const editor = useEditorStore((state) => state.editor)
-	const currentBbox = useEditorStore((state) => state.currentBbox)
-	const mode = useEditorStore((state) => state.mode)
 	const setMode = useEditorStore((state) => state.setMode)
 	const setMapSource = useEditorStore((state) => state.setMapSource)
 	const mapAreaRect = useEditorStore((state) => state.mapAreaRect)
@@ -125,6 +164,7 @@ export function CreateMapPopover() {
 	const canIncludeRoute = sourceType === 'dataset' && focusedNaddr && focusedType === 'geoevent'
 
 	// Compute bbox based on source type (used for extraction)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: selection and open refresh bbox reads from imperative editor/map state.
 	const bbox = useMemo((): BBox | null => {
 		if (sourceType === 'viewport') {
 			// Use current map viewport from editor
@@ -169,7 +209,7 @@ export function CreateMapPopover() {
 					}
 				}
 
-				if (isFinite(west)) {
+				if (Number.isFinite(west)) {
 					return padBBoxMeters({ west, south, east, north }, DATASET_EXCERPT_PADDING_METERS)
 				}
 			}
@@ -236,7 +276,7 @@ export function CreateMapPopover() {
 			setSourceType('selection')
 			setOpen(true)
 		}
-	}, [mapAreaRect])
+	}, [mapAreaRect, open])
 
 	// Auto-reopen popover when geometry is selected in 'dataset' mode
 	useEffect(() => {
@@ -272,13 +312,13 @@ export function CreateMapPopover() {
 
 		try {
 			// Create client
-			const client = new EarthlyGeoServerClient()
+			const client = new EarthlyGeoServerClient() as unknown as MapExtractClient
 
 			// Step 1: Extract PMTiles
 			// Note: CreateMapExtract method will be available after client regeneration
 			// If includeRoute is checked and we have a focused dataset, pass its naddr
 			const routeNaddr = canIncludeRoute && includeRoute ? focusedNaddr : undefined
-			const extractResult = await (client as any).CreateMapExtract(
+			const extractResult = await client.CreateMapExtract(
 				bbox.west,
 				bbox.south,
 				bbox.east,
@@ -314,7 +354,7 @@ export function CreateMapPopover() {
 			setFlowState('uploading')
 
 			// Note: CreateMapUpload method will be available after client regeneration
-			const uploadResult = await (client as any).CreateMapUpload(requestId, {
+			const uploadResult = await client.CreateMapUpload(requestId, {
 				id: signed.id,
 				pubkey: signed.pubkey,
 				kind: signed.kind,
@@ -330,9 +370,9 @@ export function CreateMapPopover() {
 
 			setResultUrl(uploadResult.result.blobUrl)
 			setFlowState('done')
-		} catch (err: any) {
+		} catch (err) {
 			console.error('Create map failed:', err)
-			setError(err.message || 'Unknown error')
+			setError(err instanceof Error ? err.message : 'Unknown error')
 			setFlowState('error')
 		}
 	}
@@ -377,8 +417,15 @@ export function CreateMapPopover() {
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<PopoverTrigger asChild>
-							<Button variant="outline" size="icon" aria-label="Create Map">
-								<Map className="h-4 w-4" />
+							<Button
+								variant={small ? 'ghost' : 'outline'}
+								size={small ? 'icon-sm' : 'icon'}
+								className={
+									small ? 'h-8 w-8 rounded-md border border-transparent shadow-none' : undefined
+								}
+								aria-label="Create Map"
+							>
+								<MapIcon className="h-4 w-4" />
 							</Button>
 						</PopoverTrigger>
 					</TooltipTrigger>
@@ -590,27 +637,34 @@ export function CreateMapPopover() {
 }
 
 // Helper to extract all coordinates from a geometry
-function getAllCoordinates(geometry: any): [number, number][] {
+function getAllCoordinates(geometry: Geometry | null | undefined): [number, number][] {
 	const coords: [number, number][] = []
 
-	function extract(g: any) {
+	function pushPosition(position: Position) {
+		const [lon, lat] = position
+		if (typeof lon === 'number' && typeof lat === 'number') {
+			coords.push([lon, lat])
+		}
+	}
+
+	function extract(g: Geometry | null | undefined) {
 		if (!g) return
 
 		switch (g.type) {
 			case 'Point':
-				coords.push(g.coordinates as [number, number])
+				pushPosition(g.coordinates)
 				break
 			case 'MultiPoint':
 			case 'LineString':
 				for (const c of g.coordinates) {
-					coords.push(c as [number, number])
+					pushPosition(c)
 				}
 				break
 			case 'MultiLineString':
 			case 'Polygon':
 				for (const ring of g.coordinates) {
 					for (const c of ring) {
-						coords.push(c as [number, number])
+						pushPosition(c)
 					}
 				}
 				break
@@ -618,7 +672,7 @@ function getAllCoordinates(geometry: any): [number, number][] {
 				for (const poly of g.coordinates) {
 					for (const ring of poly) {
 						for (const c of ring) {
-							coords.push(c as [number, number])
+							pushPosition(c)
 						}
 					}
 				}

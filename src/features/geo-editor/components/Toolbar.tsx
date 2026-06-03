@@ -1,27 +1,67 @@
 import {
+	Combine,
 	Copy,
+	CopyPlus,
 	Crosshair,
+	Download,
 	Edit3,
 	EyeOff,
+	FileText,
+	Globe,
 	Layers,
+	Link2,
+	MapPin,
 	Magnet,
 	MessageCircle,
+	Merge,
+	Minus,
+	MousePointerClick,
 	MousePointer2,
+	Pentagon,
+	PlusCircle,
+	RefreshCw,
+	Route,
+	Scan,
+	Search,
 	Settings2,
+	Sparkles,
+	Split as SplitIcon,
 	SquareDashedMousePointer,
+	Type,
 	Trash2,
 	Undo2,
+	Upload,
+	UploadCloud,
 	Redo2,
+	X,
+	XCircle,
 } from 'lucide-react'
 import type React from 'react'
 import { useRef, useState } from 'react'
 import { HelpPopover } from '@/components/HelpPopover'
 import { LoginSessionButtons } from '@/features/auth/LoginSessionButtons'
 import { Button } from '@/components/ui/button'
+import {
+	Menubar,
+	MenubarCheckboxItem,
+	MenubarContent,
+	MenubarGroup,
+	MenubarItem,
+	MenubarLabel,
+	MenubarMenu,
+	MenubarRadioGroup,
+	MenubarRadioItem,
+	MenubarSeparator,
+	MenubarSub,
+	MenubarSubContent,
+	MenubarSubTrigger,
+	MenubarTrigger,
+} from '@/components/ui/menubar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { SearchBar } from '@/components/ui/search-bar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 import { canExecuteEditorCommand, executeEditorCommand, type EditorCommandId } from '../commands'
 import type { EditorMode } from '../core'
 import { useEditorStore } from '../store'
@@ -41,6 +81,7 @@ import {
 	SimplifyDialog,
 	type ToolbarButton,
 } from './toolbar/index'
+import { OSM_FILTER_PRESETS } from './toolbar/OsmImportPopover'
 import { Input } from '@/components/ui/input'
 
 interface DatasetActionsProps {
@@ -73,9 +114,259 @@ interface ToolbarProps {
 	onOsmQueryView?: () => void
 	onOsmAdvanced?: () => void
 	mapStackOpen?: boolean
+	mapStackEntryCount?: number
+	mapStackVisibleCount?: number
 	chatOpen?: boolean
 	onToggleMapStack?: () => void
 	onToggleChat?: () => void
+	contextScopeLabel?: string | null
+	focusLabel?: string | null
+	focusKind?: 'dataset' | 'context' | null
+	onClearContextScope?: () => void
+	onClearFocus?: () => void
+}
+
+interface MapStateClusterProps {
+	viewMode: 'edit' | 'view'
+	mapStackOpen: boolean
+	mapStackEntryCount: number
+	mapStackVisibleCount: number
+	contextScopeLabel?: string | null
+	focusLabel?: string | null
+	focusKind?: 'dataset' | 'context' | null
+	onToggleMapStack?: () => void
+	onClearContextScope?: () => void
+	onClearFocus?: () => void
+	compact?: boolean
+	flat?: boolean
+}
+
+function MapStateCluster({
+	viewMode,
+	mapStackOpen,
+	mapStackEntryCount,
+	mapStackVisibleCount,
+	contextScopeLabel,
+	focusLabel,
+	focusKind,
+	onToggleMapStack,
+	onClearContextScope,
+	onClearFocus,
+	compact = false,
+	flat = false,
+}: MapStateClusterProps) {
+	const stanceLabel = viewMode === 'edit' ? 'Edit' : focusLabel ? 'Inspect' : 'Browse'
+	const stanceClass = flat
+		? viewMode === 'edit'
+			? 'text-emerald-700'
+			: focusLabel
+				? 'text-amber-700'
+				: 'text-muted-foreground'
+		: viewMode === 'edit'
+			? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+			: focusLabel
+				? 'border-amber-200 bg-amber-50 text-amber-800'
+				: 'border-slate-200 bg-slate-50 text-slate-700'
+	const mapCountLabel =
+		mapStackEntryCount > 0 ? `${mapStackVisibleCount}/${mapStackEntryCount}` : '0'
+	const hasContextScope = Boolean(contextScopeLabel)
+	const hasFocus = Boolean(focusLabel)
+	const focusIcon = focusKind === 'context' ? Globe : Crosshair
+	const FocusIcon = focusIcon
+	const clusterClass = flat
+		? 'flex min-w-0 shrink-0 items-center gap-1'
+		: `flex min-w-0 items-center gap-1 rounded-md border border-border/80 bg-background/85 p-1 shadow-sm backdrop-blur ${
+				compact ? 'max-w-full overflow-x-auto' : ''
+			}`
+	const flatItemClass =
+		'h-8 shrink-0 gap-1.5 rounded-md border border-transparent px-2 text-sm font-medium shadow-none hover:bg-accent hover:text-accent-foreground'
+	const flatActiveClass = 'bg-accent text-accent-foreground'
+
+	return (
+		<div className={clusterClass}>
+			<Button
+				type="button"
+				variant={flat ? 'ghost' : mapStackOpen ? 'default' : 'ghost'}
+				size={compact ? 'sm' : 'default'}
+				className={
+					flat
+						? cn(flatItemClass, mapStackOpen && flatActiveClass)
+						: `h-7 shrink-0 gap-1.5 rounded-md px-2 text-xs ${
+								mapStackOpen ? '' : 'text-muted-foreground hover:text-foreground'
+							}`
+				}
+				onClick={onToggleMapStack}
+				aria-label={mapStackOpen ? 'Hide map stack' : 'Show map stack'}
+				title={mapStackOpen ? 'Hide map stack' : 'Show map stack'}
+			>
+				<Layers className="h-3.5 w-3.5" />
+				<span className={compact ? 'sr-only' : ''}>Map</span>
+				<span
+					className={
+						flat
+							? 'font-mono text-xs tabular-nums'
+							: 'rounded bg-black/5 px-1.5 py-0.5 font-mono text-[10px] tabular-nums'
+					}
+				>
+					{mapCountLabel}
+				</span>
+			</Button>
+			<span
+				className={
+					flat
+						? `inline-flex h-8 shrink-0 items-center rounded-md border border-transparent px-2 text-sm font-medium ${stanceClass}`
+						: `inline-flex h-7 shrink-0 items-center rounded-md border px-2 text-[11px] font-semibold uppercase ${stanceClass}`
+				}
+				title={`Current stance: ${stanceLabel}`}
+			>
+				{stanceLabel}
+			</span>
+			{hasContextScope ? (
+				<span
+					className={
+						flat
+							? 'inline-flex h-8 min-w-0 max-w-[8rem] items-center gap-1 rounded-md border border-transparent px-2 text-sm font-medium text-muted-foreground'
+							: `inline-flex h-7 min-w-0 items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 text-xs text-sky-900 ${
+									compact ? 'max-w-[8rem]' : 'max-w-[14rem]'
+								}`
+					}
+				>
+					<Globe className={flat ? 'h-3.5 w-3.5 shrink-0' : 'h-3.5 w-3.5 shrink-0 text-sky-700'} />
+					<span className="truncate">{contextScopeLabel}</span>
+					{onClearContextScope ? (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-xs"
+							className={
+								flat
+									? '-mr-1 h-5 w-5 shrink-0 rounded-full'
+									: '-mr-1 h-5 w-5 shrink-0 rounded-full text-sky-700 hover:bg-sky-100'
+							}
+							onClick={onClearContextScope}
+							aria-label="Leave context scope"
+							title="Leave context scope"
+						>
+							<X className="h-3 w-3" />
+						</Button>
+					) : null}
+				</span>
+			) : null}
+			{hasFocus ? (
+				<span
+					className={
+						flat
+							? 'inline-flex h-8 min-w-0 max-w-[8rem] items-center gap-1 rounded-md border border-transparent px-2 text-sm font-medium text-muted-foreground'
+							: `inline-flex h-7 min-w-0 items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 text-xs text-amber-900 ${
+									compact ? 'max-w-[8rem]' : 'max-w-[14rem]'
+								}`
+					}
+				>
+					<FocusIcon
+						className={flat ? 'h-3.5 w-3.5 shrink-0' : 'h-3.5 w-3.5 shrink-0 text-amber-700'}
+					/>
+					<span className="truncate">{focusLabel}</span>
+					{onClearFocus ? (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-xs"
+							className={
+								flat
+									? '-mr-1 h-5 w-5 shrink-0 rounded-full'
+									: '-mr-1 h-5 w-5 shrink-0 rounded-full text-amber-700 hover:bg-amber-100'
+							}
+							onClick={onClearFocus}
+							aria-label="Clear focused item"
+							title="Clear focused item"
+						>
+							<X className="h-3 w-3" />
+						</Button>
+					) : null}
+				</span>
+			) : null}
+		</div>
+	)
+}
+
+type MenuIcon = React.ComponentType<React.SVGProps<SVGSVGElement>>
+
+interface ToolbarMenuTriggerProps {
+	icon: MenuIcon
+	label: string
+	active?: boolean
+}
+
+function ToolbarMenuTrigger({ icon: Icon, label, active }: ToolbarMenuTriggerProps) {
+	return (
+		<MenubarTrigger
+			className={cn(
+				'h-8 gap-1.5 px-2 text-sm font-medium',
+				active && 'bg-accent text-accent-foreground',
+			)}
+		>
+			<Icon className="h-3.5 w-3.5" />
+			<span>{label}</span>
+		</MenubarTrigger>
+	)
+}
+
+interface ToolbarMenuItemProps {
+	icon: MenuIcon
+	label: string
+	onSelect?: () => void
+	disabled?: boolean
+	variant?: 'default' | 'destructive'
+}
+
+function ToolbarMenuItem({
+	icon: Icon,
+	label,
+	onSelect,
+	disabled,
+	variant = 'default',
+}: ToolbarMenuItemProps) {
+	return (
+		<MenubarItem
+			disabled={disabled}
+			variant={variant}
+			onSelect={() => {
+				if (!disabled) onSelect?.()
+			}}
+		>
+			<Icon className="h-4 w-4" />
+			<span>{label}</span>
+		</MenubarItem>
+	)
+}
+
+interface ToolbarMenuCheckboxProps {
+	icon: MenuIcon
+	label: string
+	checked: boolean
+	onCheckedChange: () => void
+	disabled?: boolean
+}
+
+function ToolbarMenuCheckbox({
+	icon: Icon,
+	label,
+	checked,
+	onCheckedChange,
+	disabled,
+}: ToolbarMenuCheckboxProps) {
+	return (
+		<MenubarCheckboxItem
+			checked={checked}
+			disabled={disabled}
+			onCheckedChange={() => {
+				if (!disabled) onCheckedChange()
+			}}
+		>
+			<Icon className="h-4 w-4" />
+			<span>{label}</span>
+		</MenubarCheckboxItem>
+	)
 }
 
 export function Toolbar({
@@ -90,9 +381,16 @@ export function Toolbar({
 	onOsmQueryView,
 	onOsmAdvanced,
 	mapStackOpen = false,
+	mapStackEntryCount = 0,
+	mapStackVisibleCount = 0,
 	chatOpen = false,
 	onToggleMapStack,
 	onToggleChat,
+	contextScopeLabel,
+	focusLabel,
+	focusKind,
+	onClearContextScope,
+	onClearFocus,
 }: ToolbarProps) {
 	const editor = useEditorStore((state) => state.editor)
 	const mode = useEditorStore((state) => state.mode)
@@ -315,6 +613,337 @@ export function Toolbar({
 		booleanOpActive,
 	}
 
+	const canPublishFromMenu = Boolean(
+		datasetActions?.canPublishNew ||
+			datasetActions?.canPublishUpdate ||
+			datasetActions?.canPublishCopy,
+	)
+	const showProposalPublishControl = isEditing && Boolean(datasetActions?.canProposeEdit)
+	const publishMenuDisabled = Boolean(datasetActions?.isPublishing)
+
+	const desktopCommandMenubar = (
+		<Menubar className="h-8 shrink-0 gap-0.5 border-0 bg-transparent p-0 shadow-none">
+			<MenubarMenu>
+				<ToolbarMenuTrigger icon={isEditing ? XCircle : FileText} label="File" active={isEditing} />
+				<MenubarContent align="start" className="min-w-56">
+					<MenubarGroup>
+						<ToolbarMenuItem
+							icon={isEditing ? XCircle : PlusCircle}
+							label={isEditing ? 'Cancel editing' : 'New dataset'}
+							onSelect={isEditing ? onCancelEditing : onStartNewDataset}
+							variant={isEditing ? 'destructive' : 'default'}
+						/>
+					</MenubarGroup>
+					<MenubarSeparator />
+					<MenubarGroup>
+						<ToolbarMenuItem
+							icon={Upload}
+							label="Import GeoJSON / SHP"
+							onSelect={() => fileInputRef.current?.click()}
+							disabled={isEditingDisabled}
+						/>
+						<ToolbarMenuItem
+							icon={Download}
+							label="Export GeoJSON"
+							onSelect={datasetActions?.onExportGeoJSON}
+							disabled={isEditingDisabled || !datasetActions?.canExport}
+						/>
+						<ToolbarMenuItem
+							icon={Download}
+							label="Export SHP"
+							onSelect={datasetActions?.onExportSHP}
+							disabled={isEditingDisabled || !datasetActions?.canExport}
+						/>
+					</MenubarGroup>
+					{canPublishFromMenu ? (
+						<>
+							<MenubarSeparator />
+							<MenubarLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
+								Publish
+							</MenubarLabel>
+							<ToolbarMenuItem
+								icon={UploadCloud}
+								label="Publish new dataset"
+								onSelect={datasetActions?.onPublishNew}
+								disabled={publishMenuDisabled || !datasetActions?.canPublishNew}
+							/>
+							<ToolbarMenuItem
+								icon={RefreshCw}
+								label="Update existing"
+								onSelect={datasetActions?.onPublishUpdate}
+								disabled={publishMenuDisabled || !datasetActions?.canPublishUpdate}
+							/>
+							<ToolbarMenuItem
+								icon={CopyPlus}
+								label="Fork as new dataset"
+								onSelect={datasetActions?.onPublishCopy}
+								disabled={publishMenuDisabled || !datasetActions?.canPublishCopy}
+							/>
+						</>
+					) : null}
+				</MenubarContent>
+			</MenubarMenu>
+
+			<MenubarMenu>
+				<ToolbarMenuTrigger icon={MousePointer2} label="Draw" active={mode.startsWith('draw_')} />
+				<MenubarContent align="start" className="min-w-56">
+					<MenubarRadioGroup value={mode}>
+						<MenubarRadioItem
+							value="select"
+							disabled={isEditingDisabled}
+							onSelect={() => handleModeChange('select')}
+						>
+							<MousePointer2 className="h-4 w-4" />
+							<span>Select</span>
+						</MenubarRadioItem>
+						<MenubarRadioItem
+							value="box_select"
+							disabled={isEditingDisabled}
+							onSelect={() => handleModeChange('box_select')}
+						>
+							<SquareDashedMousePointer className="h-4 w-4" />
+							<span>Box select</span>
+						</MenubarRadioItem>
+						<MenubarSeparator />
+						<MenubarRadioItem
+							value="draw_point"
+							disabled={isEditingDisabled}
+							onSelect={() => handleModeChange('draw_point')}
+						>
+							<MapPin className="h-4 w-4" />
+							<span>Point</span>
+						</MenubarRadioItem>
+						<MenubarRadioItem
+							value="draw_linestring"
+							disabled={isEditingDisabled}
+							onSelect={() => handleModeChange('draw_linestring')}
+						>
+							<Route className="h-4 w-4" />
+							<span>Line</span>
+						</MenubarRadioItem>
+						<MenubarRadioItem
+							value="draw_polygon"
+							disabled={isEditingDisabled}
+							onSelect={() => handleModeChange('draw_polygon')}
+						>
+							<Pentagon className="h-4 w-4" />
+							<span>Polygon</span>
+						</MenubarRadioItem>
+						<MenubarRadioItem
+							value="draw_annotation"
+							disabled={isEditingDisabled}
+							onSelect={() => handleModeChange('draw_annotation')}
+						>
+							<Type className="h-4 w-4" />
+							<span>Label</span>
+						</MenubarRadioItem>
+					</MenubarRadioGroup>
+					<MenubarSeparator />
+					<MenubarSub>
+						<MenubarSubTrigger className="gap-2">
+							<Sparkles className="h-4 w-4 text-muted-foreground" />
+							<span>OpenStreetMap</span>
+						</MenubarSubTrigger>
+						<MenubarSubContent className="min-w-56">
+							<MenubarLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
+								Feature type
+							</MenubarLabel>
+							<MenubarRadioGroup value={osmQueryFilter}>
+								{OSM_FILTER_PRESETS.map((preset) => (
+									<MenubarRadioItem
+										key={preset.value}
+										value={preset.value}
+										onSelect={() => setOsmQueryFilter(preset.value)}
+									>
+										<span>{preset.label}</span>
+									</MenubarRadioItem>
+								))}
+							</MenubarRadioGroup>
+							<MenubarSeparator />
+							<ToolbarMenuItem
+								icon={MousePointerClick}
+								label="Click on map"
+								onSelect={handleOsmClickMode}
+								disabled={isEditingDisabled}
+							/>
+							<ToolbarMenuItem
+								icon={Scan}
+								label="Query current view"
+								onSelect={handleOsmQueryView}
+								disabled={isEditingDisabled}
+							/>
+							<ToolbarMenuItem
+								icon={Settings2}
+								label="Advanced..."
+								onSelect={onOsmAdvanced}
+								disabled={isEditingDisabled || !onOsmAdvanced}
+							/>
+						</MenubarSubContent>
+					</MenubarSub>
+				</MenubarContent>
+			</MenubarMenu>
+
+			<MenubarMenu>
+				<ToolbarMenuTrigger
+					icon={Edit3}
+					label="Edit"
+					active={isEditing || editIsolationEnabled || Boolean(booleanOpActive)}
+				/>
+				<MenubarContent align="start" className="min-w-60">
+					<MenubarGroup>
+						<ToolbarMenuItem
+							icon={Undo2}
+							label="Undo"
+							onSelect={() => runEditorCommand('undo')}
+							disabled={!history.canUndo || !canUndo || isEditingDisabled}
+						/>
+						<ToolbarMenuItem
+							icon={Redo2}
+							label="Redo"
+							onSelect={() => runEditorCommand('redo')}
+							disabled={!history.canRedo || !canRedo || isEditingDisabled}
+						/>
+					</MenubarGroup>
+					<MenubarSeparator />
+					<MenubarGroup>
+						<ToolbarMenuItem
+							icon={Edit3}
+							label="Edit vertices"
+							onSelect={() => handleModeChange('edit')}
+							disabled={isEditingDisabled}
+						/>
+						<ToolbarMenuCheckbox
+							icon={Magnet}
+							label="Snapping"
+							checked={snappingEnabled}
+							onCheckedChange={handleToggleSnapping}
+							disabled={isEditingDisabled}
+						/>
+						<ToolbarMenuCheckbox
+							icon={EyeOff}
+							label="Edit isolation"
+							checked={editIsolationEnabled}
+							onCheckedChange={handleToggleEditIsolation}
+							disabled={isEditingDisabled}
+						/>
+					</MenubarGroup>
+					<MenubarSeparator />
+					<MenubarGroup>
+						<ToolbarMenuItem
+							icon={Trash2}
+							label="Delete selected"
+							onSelect={() => runEditorCommand('delete_selected_features')}
+							disabled={isEditingDisabled || !canDeleteSelected}
+							variant="destructive"
+						/>
+						<ToolbarMenuItem
+							icon={Copy}
+							label="Duplicate selected"
+							onSelect={() => runEditorCommand('duplicate_selected_features')}
+							disabled={isEditingDisabled || !canDuplicateSelected}
+						/>
+					</MenubarGroup>
+					<MenubarSeparator />
+					<MenubarSub>
+						<MenubarSubTrigger className="gap-2">
+							<Combine className="h-4 w-4 text-muted-foreground" />
+							<span>Geometry operations</span>
+						</MenubarSubTrigger>
+						<MenubarSubContent className="min-w-60">
+							<MenubarLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
+								Multi / Structure
+							</MenubarLabel>
+							<ToolbarMenuItem
+								icon={Merge}
+								label="Merge to Multi"
+								onSelect={() => runEditorCommand('merge_selected_features')}
+								disabled={!canMergeSelected}
+							/>
+							<ToolbarMenuItem
+								icon={SplitIcon}
+								label="Split Multi"
+								onSelect={() => runEditorCommand('split_selected_features')}
+								disabled={!canSplitSelected}
+							/>
+							<ToolbarMenuItem
+								icon={Route}
+								label="Simplify Selection"
+								onSelect={() => setSimplifyDialogOpen(true)}
+								disabled={!canSimplifySelected}
+							/>
+							<MenubarSeparator />
+							<MenubarLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
+								Lines
+							</MenubarLabel>
+							<ToolbarMenuItem
+								icon={Link2}
+								label="Connect Lines"
+								onSelect={() => runEditorCommand('connect_selected_lines')}
+								disabled={!canConnectLines}
+							/>
+							<ToolbarMenuItem
+								icon={Combine}
+								label="Dissolve Lines"
+								onSelect={() => runEditorCommand('dissolve_selected_lines')}
+								disabled={!canDissolveLines}
+							/>
+							<MenubarSeparator />
+							<MenubarLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
+								Boolean
+							</MenubarLabel>
+							<ToolbarMenuItem
+								icon={Combine}
+								label="Boolean Union"
+								onSelect={() => runEditorCommand('start_boolean_union')}
+								disabled={!canStartBooleanOps}
+							/>
+							<ToolbarMenuItem
+								icon={Minus}
+								label="Boolean Difference"
+								onSelect={() => runEditorCommand('start_boolean_difference')}
+								disabled={!canStartBooleanOps}
+							/>
+						</MenubarSubContent>
+					</MenubarSub>
+				</MenubarContent>
+			</MenubarMenu>
+
+			<MenubarMenu>
+				<ToolbarMenuTrigger
+					icon={Layers}
+					label="View"
+					active={mapStackOpen || inspectorActive || chatOpen || showMapSettings}
+				/>
+				<MenubarContent align="start" className="min-w-56">
+					<ToolbarMenuCheckbox
+						icon={Layers}
+						label="Map stack"
+						checked={mapStackOpen}
+						onCheckedChange={() => onToggleMapStack?.()}
+					/>
+					<ToolbarMenuCheckbox
+						icon={Crosshair}
+						label="Location lookup"
+						checked={inspectorActive}
+						onCheckedChange={handleToggleInspector}
+					/>
+					<ToolbarMenuCheckbox
+						icon={MessageCircle}
+						label="AI chat"
+						checked={chatOpen}
+						onCheckedChange={() => onToggleChat?.()}
+					/>
+					<MenubarSeparator />
+					<ToolbarMenuItem
+						icon={Settings2}
+						label="Map settings"
+						onSelect={() => setShowMapSettings(true)}
+					/>
+				</MenubarContent>
+			</MenubarMenu>
+		</Menubar>
+	)
+
 	const fileInput = (
 		<Input
 			type="file"
@@ -332,6 +961,22 @@ export function Toolbar({
 		return (
 			<>
 				<div className="pointer-events-auto w-full max-w-md px-2 mx-auto">
+					<div className="mb-2 flex justify-center">
+						<MapStateCluster
+							viewMode={viewMode}
+							mapStackOpen={mapStackOpen}
+							mapStackEntryCount={mapStackEntryCount}
+							mapStackVisibleCount={mapStackVisibleCount}
+							contextScopeLabel={contextScopeLabel}
+							focusLabel={focusLabel}
+							focusKind={focusKind}
+							onToggleMapStack={onToggleMapStack}
+							onClearContextScope={onClearContextScope}
+							onClearFocus={onClearFocus}
+							compact
+						/>
+					</div>
+
 					{mobileToolsOpen && (
 						<div className="glass-panel rounded-lg p-1.5">
 							{/* Row 1: Session + Select + Draw */}
@@ -478,31 +1123,53 @@ export function Toolbar({
 	return (
 		<>
 			<div className="pointer-events-auto flex flex-col items-start gap-2" data-tour="toolbar">
-				<div className="glass-panel flex max-w-[calc(100vw-2rem)] items-center gap-1 overflow-x-auto rounded-lg p-1.5">
-					<SidebarTrigger className="h-9 w-9" />
+				<div className="glass-panel flex max-w-full items-center gap-1 overflow-x-auto rounded-lg p-1">
+					<SidebarTrigger className="h-8 w-8" />
 					<Divider />
 
-					{!isEditing ? (
-						<>
-							<SessionButton
-								viewMode={viewMode}
-								onStartNew={onStartNewDataset}
-								onCancel={onCancelEditing}
-							/>
-							<Divider />
-						</>
-					) : null}
+					{desktopCommandMenubar}
+					<Divider />
 
-					<div className="relative">
-						<SearchBar
-							query={searchQuery}
-							loading={searchLoading}
-							placeholder="Search location..."
+					<div className="relative shrink-0">
+						<form
 							onSubmit={handleSearchSubmit}
-							onQueryChange={setSearchQuery}
-							onClear={clearSearch}
-							className="w-56"
-						/>
+							className="group relative flex h-8 w-36 shrink-0 items-center rounded-md border border-transparent transition-colors hover:bg-accent/70 focus-within:border-ring/40 focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/20 2xl:w-48"
+						>
+							<Input
+								value={searchQuery}
+								onChange={(event) => setSearchQuery(event.target.value)}
+								placeholder="Search..."
+								className="h-8 border-0 bg-transparent px-2 pr-8 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0"
+								aria-label="Search location"
+							/>
+							{searchQuery ? (
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon-xs"
+									aria-label="Clear search"
+									className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 rounded-md text-muted-foreground hover:text-foreground"
+									onClick={clearSearch}
+								>
+									<X className="h-3.5 w-3.5" />
+								</Button>
+							) : (
+								<Button
+									type="submit"
+									variant="ghost"
+									size="icon-xs"
+									aria-label="Search"
+									disabled={searchLoading}
+									className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 rounded-md text-muted-foreground hover:text-foreground"
+								>
+									{searchLoading ? (
+										<RefreshCw className="h-3.5 w-3.5 animate-spin" />
+									) : (
+										<Search className="h-3.5 w-3.5" />
+									)}
+								</Button>
+							)}
+						</form>
 						{searchResults && searchResults.length > 0 && (
 							<div className="absolute left-0 top-full z-50 mt-2 w-72 rounded-lg border border-border bg-popover p-2 shadow-lg">
 								<div className="mb-2 flex items-center justify-between border-b border-border pb-2">
@@ -532,40 +1199,49 @@ export function Toolbar({
 						)}
 					</div>
 
-					<IconButtonRow buttons={lookupButtons} />
-					<Divider />
-
+					<MapStateCluster
+						viewMode={viewMode}
+						mapStackOpen={mapStackOpen}
+						mapStackEntryCount={mapStackEntryCount}
+						mapStackVisibleCount={mapStackVisibleCount}
+						contextScopeLabel={contextScopeLabel}
+						focusLabel={focusLabel}
+						focusKind={focusKind}
+						onToggleMapStack={onToggleMapStack}
+						onClearContextScope={onClearContextScope}
+						onClearFocus={onClearFocus}
+						compact
+						flat
+					/>
 					<Button
 						type="button"
-						variant={mapStackOpen ? 'default' : 'outline'}
-						size="icon"
-						onClick={onToggleMapStack}
-						aria-label={mapStackOpen ? 'Hide map stack' : 'Show map stack'}
-						title={mapStackOpen ? 'Hide map stack' : 'Show map stack'}
-					>
-						<Layers className="h-4 w-4" />
-					</Button>
-					<Button
-						type="button"
-						variant={chatOpen ? 'default' : 'outline'}
-						size="icon"
+						variant="ghost"
+						size="icon-sm"
 						onClick={onToggleChat}
 						aria-label={chatOpen ? 'Hide AI chat' : 'Show AI chat'}
 						title={chatOpen ? 'Hide AI chat' : 'Show AI chat'}
+						className={cn(
+							'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none',
+							chatOpen && 'bg-accent text-accent-foreground',
+						)}
 					>
 						<MessageCircle className="h-4 w-4" />
 					</Button>
 					<Divider />
 
-					<CreateMapPopover />
-					<ShareExportPopover />
+					<CreateMapPopover small />
+					<ShareExportPopover small />
 					<Popover open={showMapSettings} onOpenChange={setShowMapSettings}>
 						<PopoverTrigger asChild>
 							<Button
-								variant={showMapSettings ? 'default' : 'outline'}
-								size="icon"
+								variant="ghost"
+								size="icon-sm"
 								aria-label="Map settings"
 								title="Map settings"
+								className={cn(
+									'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none',
+									showMapSettings && 'bg-accent text-accent-foreground',
+								)}
 							>
 								<Settings2 className="h-4 w-4" />
 							</Button>
@@ -574,48 +1250,8 @@ export function Toolbar({
 							<MapSettingsPanel mode="map-only" />
 						</PopoverContent>
 					</Popover>
-					<div
-						className={`flex items-center gap-1 overflow-hidden transition-[max-width,opacity,transform] duration-300 ease-out ${
-							isEditing
-								? 'max-w-[72rem] translate-x-0 opacity-100'
-								: 'pointer-events-none max-w-0 -translate-x-2 opacity-0'
-						}`}
-						aria-hidden={!isEditing}
-					>
-						<Divider />
-						<div className="flex items-center gap-1 rounded-md border border-emerald-200/80 bg-emerald-50/60 p-1 shadow-sm">
-							<SessionButton
-								viewMode={viewMode}
-								onStartNew={onStartNewDataset}
-								onCancel={onCancelEditing}
-							/>
-							<Divider />
-							<FileDropdown
-								onImportClick={() => fileInputRef.current?.click()}
-								onExportGeoJSON={datasetActions?.onExportGeoJSON ?? (() => {})}
-								onExportSHP={datasetActions?.onExportSHP ?? (() => {})}
-								canExport={datasetActions?.canExport}
-								disabled={isEditingDisabled}
-							/>
-							<OsmImportPopover
-								open={magicPopoverOpen}
-								onOpenChange={setMagicPopoverOpen}
-								osmQueryFilter={osmQueryFilter}
-								onOsmFilterChange={setOsmQueryFilter}
-								onOsmClickMode={handleOsmClickMode}
-								onOsmQueryView={handleOsmQueryView}
-								onOsmAdvanced={onOsmAdvanced}
-								isClickMode={osmQueryMode === 'click'}
-							/>
-							<Divider />
-							<IconButtonRow buttons={selectButtons} />
-							<Divider />
-							<DrawButtonGroup mode={mode} onModeChange={handleModeChange} disabled={false} />
-							<Divider />
-							<IconButtonRow buttons={historyButtons} />
-							<Divider />
-							<IconButtonRow buttons={editButtons} />
-							<GeometryOpsDropdown {...geometryOpsProps} />
+					{showProposalPublishControl ? (
+						<>
 							<Divider />
 							<PublishDropdown
 								canPublishNew={datasetActions?.canPublishNew}
@@ -627,9 +1263,10 @@ export function Toolbar({
 								onPublishUpdate={datasetActions?.onPublishUpdate}
 								onPublishCopy={datasetActions?.onPublishCopy}
 								onProposeEdit={datasetActions?.onProposeEdit}
+								small
 							/>
-						</div>
-					</div>
+						</>
+					) : null}
 				</div>
 
 				{fileInput}

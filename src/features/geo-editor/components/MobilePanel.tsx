@@ -5,6 +5,7 @@ import {
 	FilePenLine,
 	Globe,
 	HelpCircle,
+	Layers,
 	MessageCircle,
 	MessageSquare,
 	Pencil,
@@ -16,6 +17,7 @@ import {
 import { GeoDatasetsPanelContent } from '@/components/GeoDatasetsPanel'
 import { GeoEditorInfoPanelContent } from '@/components/GeoEditorInfoPanel'
 import { HelpPanel } from '@/components/HelpPanel'
+import { MapStackPanel } from '@/components/MapStackPanel'
 import { UserProfilePanel } from '@/components/UserProfilePanel'
 import { ShoutboxPanel } from '@/features/social/shoutbox'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
@@ -27,7 +29,7 @@ import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { EntitySearchPopover, type EntitySearchResult } from '@/components/entity-search'
 import type { EditorFeature } from '../core'
 import type { BlossomUploadResult } from '@/lib/blossom/blossomUpload'
-import { useEditorStore } from '../store'
+import { useEditorStore, type MapStackEntry } from '../store'
 import { MapSettingsPanel } from './MapSettingsPanel'
 import { ChatPanel } from '@/features/chat'
 import { Nip60Wallet } from '@/features/wallet/components/Nip60Wallet'
@@ -35,6 +37,7 @@ import { useRouting } from '../hooks/useRouting'
 
 export type MobilePanelTab =
 	| 'datasets'
+	| 'map-stack'
 	| 'contexts'
 	| 'context-editor'
 	| 'edit'
@@ -64,6 +67,9 @@ export interface MobilePanelProps {
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: GeoDataset) => void
 	onAddDatasetToMap?: (event: GeoDataset) => void
+	onSetMapStackEntryVisible: (entry: MapStackEntry, visible: boolean) => void
+	onRemoveMapStackEntry: (entry: MapStackEntry) => void
+	onClearMapStack: () => void
 	onDeleteDataset: (event: GeoDataset) => void
 	onDeleteContext?: (context: MapContext) => void
 	getDatasetKey: (event: GeoDataset) => string
@@ -107,6 +113,7 @@ export interface MobilePanelProps {
 
 const TAB_CONFIG: { id: MobilePanelTab; label: string; icon: typeof Database }[] = [
 	{ id: 'datasets', label: 'Datasets', icon: Database },
+	{ id: 'map-stack', label: 'Map', icon: Layers },
 	{ id: 'contexts', label: 'Contexts', icon: Globe },
 	{ id: 'context-editor', label: 'Ctx Editor', icon: FilePenLine },
 	{ id: 'edit', label: 'Editor', icon: Pencil },
@@ -149,6 +156,9 @@ export function MobilePanel(props: MobilePanelProps) {
 		onToggleAllVisibility,
 		onZoomToDataset,
 		onAddDatasetToMap,
+		onSetMapStackEntryVisible,
+		onRemoveMapStackEntry,
+		onClearMapStack,
 		onDeleteDataset,
 		onDeleteContext,
 		getDatasetKey,
@@ -373,6 +383,26 @@ export function MobilePanel(props: MobilePanelProps) {
 							onExitFocus={onExitFocus}
 							onFilteredDatasetKeysChange={onFilteredDatasetKeysChange}
 						/>
+					) : null}
+
+					{mobilePanelTab === 'map-stack' ? (
+						<div className="-mx-1 -mb-2 h-full min-h-[18rem]">
+							<MapStackPanel
+								geoEvents={geoEvents}
+								mapContextEvents={mapContextEvents}
+								getDatasetKey={getDatasetKey}
+								getDatasetName={getDatasetName}
+								onAddDatasetToMap={onAddDatasetToMap}
+								onInspectDataset={onInspectDataset ?? (() => {})}
+								onZoomToDataset={onZoomToDataset}
+								onLoadDataset={onLoadDataset}
+								onInspectContext={onInspectContext ?? (() => {})}
+								onSetEntryVisible={onSetMapStackEntryVisible}
+								onRemoveEntry={onRemoveMapStackEntry}
+								onClear={onClearMapStack}
+								onClose={handleClose}
+							/>
+						</div>
 					) : null}
 
 					{mobilePanelTab === 'contexts' ? (

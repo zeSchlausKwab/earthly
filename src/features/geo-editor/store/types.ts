@@ -76,6 +76,7 @@ export interface MapStackEntry {
 
 export type MobilePanelTab =
 	| 'datasets'
+	| 'map-stack'
 	| 'contexts'
 	| 'context-editor'
 	| 'edit'

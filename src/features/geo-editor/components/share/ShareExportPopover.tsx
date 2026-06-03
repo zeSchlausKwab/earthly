@@ -13,6 +13,10 @@ type ShareAspect = '16:9' | '4:3' | '1:1' | '3:4'
 type ShareCaptureMode = 'viewport' | 'entity-bounds'
 type ShareResolution = 1 | 2 | 3
 
+interface ShareExportPopoverProps {
+	small?: boolean
+}
+
 const SHARE_ASPECTS: Array<{ id: ShareAspect; label: string; ratio: number }> = [
 	{ id: '16:9', label: '16:9', ratio: 16 / 9 },
 	{ id: '4:3', label: '4:3', ratio: 4 / 3 },
@@ -263,7 +267,7 @@ async function buildShareImage(options: {
 	}
 }
 
-export function ShareExportPopover() {
+export function ShareExportPopover({ small = false }: ShareExportPopoverProps) {
 	const editor = useEditorStore((state) => state.editor)
 	const focusedMapGeometry = useEditorStore((state) => state.focusedMapGeometry)
 	const viewDataset = useEditorStore((state) => state.viewDataset)
@@ -497,7 +501,14 @@ export function ShareExportPopover() {
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<PopoverTrigger asChild>
-							<Button variant="default" size="icon" aria-label="Share">
+							<Button
+								variant={small ? 'ghost' : 'default'}
+								size={small ? 'icon-sm' : 'icon'}
+								className={
+									small ? 'h-8 w-8 rounded-md border border-transparent shadow-none' : undefined
+								}
+								aria-label="Share"
+							>
 								<Share2 className="h-4 w-4" />
 							</Button>
 						</PopoverTrigger>

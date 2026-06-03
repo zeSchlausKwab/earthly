@@ -1,7 +1,6 @@
 import { useActiveAccount } from 'applesauce-react/hooks'
 import {
 	Edit3,
-	Globe,
 	Layers,
 	Lock,
 	LockOpen,
@@ -11,10 +10,9 @@ import {
 	PanelTopOpen,
 	Search,
 	UploadCloud,
-	X,
 } from 'lucide-react'
 import type maplibregl from 'maplibre-gl'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { AppSidebar } from '@/components/AppSidebar'
 import { BlossomUploadDialog } from '@/components/BlossomUploadDialog'
@@ -23,7 +21,6 @@ import { MapStackPanel } from '@/components/MapStackPanel'
 import { Button } from '@/components/ui/button'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { ChatPanel } from '@/features/chat'
 import { useAvailableGeoFeatures } from '@/lib/hooks/useAvailableGeoFeatures'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useGeoDatasets, useMapContexts } from '@/lib/hooks/useGeoDatasets'
@@ -37,6 +34,7 @@ import {
 	validateDatasetForContext,
 } from '@/lib/context/validation'
 import { getDefaultContextMapScopeMode, resolveContextMapScope } from '@/lib/context/scope'
+import { AssistantSidebar } from './components/AssistantSidebar'
 import { Editor } from './components/Editor'
 import { ImportOsmDialog } from './components/ImportOsmDialog'
 import { LocateButton } from './components/LocateButton'
@@ -186,6 +184,7 @@ export function GeoEditorView() {
 	const setShowTips = useEditorStore((state) => state.setShowTips)
 	// Unified mobile panel state
 	const mobilePanelOpen = useEditorStore((state) => state.mobilePanelOpen)
+	const mobilePanelTab = useEditorStore((state) => state.mobilePanelTab)
 	const mobilePanelSnap = useEditorStore((state) => state.mobilePanelSnap)
 	const setMobilePanelOpen = useEditorStore((state) => state.setMobilePanelOpen)
 	// Mobile toolbar state (for upper toolbar sections)
@@ -218,7 +217,7 @@ export function GeoEditorView() {
 	const currentUser = useActiveAccount()
 	const currentUserPubkey = currentUser?.pubkey ?? null
 	const isMobile = useIsMobile()
-	const mapPopupToolbarOffset = mounted && editor ? 112 : 16
+	const mapPopupToolbarOffset = 112
 
 	const clearAnnotationPopupHideTimeout = useCallback(() => {
 		if (annotationPopupHideTimeoutRef.current !== null) {
@@ -548,6 +547,35 @@ export function GeoEditorView() {
 		)
 	}, [focusedType, focusedNaddr, mapContextEvents, encodeContextNaddr])
 
+	const focusedDataset = useMemo(() => {
+		if (focusedType !== 'geoevent' || !focusedNaddr) return null
+		return (
+			geoEvents.find((event) => {
+				const eventNaddr = encodeGeoEventNaddr(event)
+				return eventNaddr === focusedNaddr
+			}) ?? null
+		)
+	}, [focusedType, focusedNaddr, geoEvents, encodeGeoEventNaddr])
+
+	const toolbarFocusLabel = useMemo(() => {
+		if (!focusedNaddr || !focusedType) return null
+		if (focusedType === 'mapcontext') {
+			if (contextNaddr && focusedNaddr === contextNaddr) return null
+			return focusedContext
+				? focusedContext.context.name ||
+						focusedContext.contextId ||
+						focusedContext.id ||
+						'Focused context'
+				: `Context ${focusedNaddr.slice(0, 12)}...`
+		}
+		return focusedDataset
+			? getDatasetName(focusedDataset)
+			: `Dataset ${focusedNaddr.slice(0, 12)}...`
+	}, [focusedNaddr, focusedType, contextNaddr, focusedContext, focusedDataset, getDatasetName])
+
+	const toolbarFocusKind =
+		focusedType === 'geoevent' ? 'dataset' : focusedType === 'mapcontext' ? 'context' : null
+
 	const explicitContext = activeContextScope ?? focusedContext
 	const mapFilterContext = explicitContext
 	const mapFilterContextCoordinate = useMemo(() => {
@@ -579,6 +607,15 @@ export function GeoEditorView() {
 		() => mapStackOrder.some((entryId) => mapStackEntries[entryId]?.entityType === 'dataset'),
 		[mapStackEntries, mapStackOrder],
 	)
+	const mapStackStats = useMemo(() => {
+		const entries = mapStackOrder
+			.map((entryId) => mapStackEntries[entryId])
+			.filter((entry): entry is MapStackEntry => Boolean(entry))
+		return {
+			total: entries.length,
+			visible: entries.filter((entry) => entry.visible).length,
+		}
+	}, [mapStackEntries, mapStackOrder])
 
 	const validationModeForActiveContext = contextFilterMode === 'off' ? 'warn' : contextFilterMode
 
@@ -715,6 +752,21 @@ export function GeoEditorView() {
 		mapStackHasDatasetEntries,
 		visibleMapStackDatasetKeys,
 	])
+
+	const toolbarMapStackOpen = isMobile
+		? mobilePanelOpen && mobilePanelTab === 'map-stack'
+		: desktopMapStackOpen
+	const toggleToolbarMapStack = useCallback(() => {
+		if (isMobile) {
+			if (mobilePanelOpen && mobilePanelTab === 'map-stack') {
+				setMobilePanelOpen(false)
+				return
+			}
+			openMobilePanel('map-stack')
+			return
+		}
+		setDesktopMapStackOpen((open) => !open)
+	}, [isMobile, mobilePanelOpen, mobilePanelTab, openMobilePanel, setMobilePanelOpen])
 
 	const lastContextCoordinateRef = useRef<string | null>(null)
 	useEffect(() => {
@@ -1375,9 +1427,19 @@ export function GeoEditorView() {
 	const multiSelectModifierLabel = editor?.getMultiSelectModifierLabel() ?? 'Shift'
 	const sidebarExpanded = useEditorStore((state) => state.sidebarExpanded)
 	const setSidebarExpanded = useEditorStore((state) => state.setSidebarExpanded)
+	const desktopShellStyle = useMemo<CSSProperties | undefined>(() => {
+		if (isMobile || !desktopChatOpen) return undefined
+		return {
+			'--sidebar-width': sidebarExpanded ? '32vw' : '25vw',
+		} as CSSProperties
+	}, [desktopChatOpen, isMobile, sidebarExpanded])
 
 	return (
-		<SidebarProvider sidebarExpanded={sidebarExpanded} onExpandedChange={setSidebarExpanded}>
+		<SidebarProvider
+			sidebarExpanded={sidebarExpanded}
+			onExpandedChange={setSidebarExpanded}
+			style={desktopShellStyle}
+		>
 			{/* Sidebar - desktop only */}
 			{!isMobile && (
 				<AppSidebar
@@ -1598,46 +1660,51 @@ export function GeoEditorView() {
 						</div>
 					)}
 
-					{mounted && editor && (
-						<div className="absolute top-2 left-2 right-2 z-10 pointer-events-none flex">
-							<div className="w-full">
-								<Toolbar
-									datasetActions={{
-										onExportGeoJSON: exportGeoJSON,
-										onExportSHP: exportSHP,
-										canExport: stats.total > 0,
-										onImport: handleImport,
-										onClear: handleClear,
-										onPublishNew: handlePublishNew,
-										canPublishNew,
-										onPublishUpdate: handlePublishUpdate,
-										canPublishUpdate,
-										onPublishCopy: handlePublishCopy,
-										canPublishCopy,
-										onProposeEdit: handleProposeEdit,
-										canProposeEdit,
-										isPublishing,
-									}}
-									isMobile={isMobile}
-									showLogin={true}
-									onSearchResultSelect={handleSearchResultSelect}
-									onInspectorDeactivate={disableInspector}
-									onStartNewDataset={startNewDataset}
-									onCancelEditing={cancelEditing}
-									onOsmQueryClick={handleOsmQueryClick}
-									onOsmQueryView={handleOsmQueryView}
-									onOsmAdvanced={() => setImportOsmDialogOpen(true)}
-									mapStackOpen={desktopMapStackOpen}
-									chatOpen={desktopChatOpen}
-									onToggleMapStack={() => setDesktopMapStackOpen((open) => !open)}
-									onToggleChat={() => setDesktopChatOpen((open) => !open)}
-								/>
-							</div>
+					<div className="absolute top-2 left-2 right-2 z-10 pointer-events-none flex">
+						<div className="w-full">
+							<Toolbar
+								datasetActions={{
+									onExportGeoJSON: exportGeoJSON,
+									onExportSHP: exportSHP,
+									canExport: stats.total > 0,
+									onImport: handleImport,
+									onClear: handleClear,
+									onPublishNew: handlePublishNew,
+									canPublishNew,
+									onPublishUpdate: handlePublishUpdate,
+									canPublishUpdate,
+									onPublishCopy: handlePublishCopy,
+									canPublishCopy,
+									onProposeEdit: handleProposeEdit,
+									canProposeEdit,
+									isPublishing,
+								}}
+								isMobile={isMobile}
+								showLogin={true}
+								onSearchResultSelect={handleSearchResultSelect}
+								onInspectorDeactivate={disableInspector}
+								onStartNewDataset={startNewDataset}
+								onCancelEditing={cancelEditing}
+								onOsmQueryClick={handleOsmQueryClick}
+								onOsmQueryView={handleOsmQueryView}
+								onOsmAdvanced={() => setImportOsmDialogOpen(true)}
+								mapStackOpen={toolbarMapStackOpen}
+								mapStackEntryCount={mapStackStats.total}
+								mapStackVisibleCount={mapStackStats.visible}
+								chatOpen={desktopChatOpen}
+								contextScopeLabel={activeContextScopeLabel}
+								focusLabel={toolbarFocusLabel}
+								focusKind={toolbarFocusKind}
+								onToggleMapStack={toggleToolbarMapStack}
+								onToggleChat={() => setDesktopChatOpen((open) => !open)}
+								onClearContextScope={contextNaddr ? clearContextScope : undefined}
+								onClearFocus={focusedNaddr ? clearFocus : undefined}
+							/>
 						</div>
-					)}
+					</div>
 
 					{!isMobile && desktopMapStackOpen && (
-						<div className="pointer-events-auto absolute bottom-24 left-4 z-20 h-[min(34rem,calc(100vh-12rem))] w-[22rem] max-w-[calc(100vw-2rem)] shadow-2xl">
+						<div className="pointer-events-auto absolute top-14 left-2 z-20 w-80 max-w-[calc(100vw-1rem)] shadow-lg">
 							<MapStackPanel
 								geoEvents={scopedGeoEvents}
 								mapContextEvents={mapContextEvents}
@@ -1652,62 +1719,8 @@ export function GeoEditorView() {
 								onRemoveEntry={removeFromMapStack}
 								onClear={clearMapStackAndVisibility}
 								onClose={() => setDesktopMapStackOpen(false)}
+								compact
 							/>
-						</div>
-					)}
-
-					{!isMobile && desktopChatOpen && (
-						<div className="pointer-events-auto absolute bottom-20 right-4 top-24 z-20 flex w-[min(28rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl">
-							<div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
-								<div className="text-sm font-semibold text-foreground">AI Chat</div>
-								<Button
-									type="button"
-									variant="ghost"
-									size="icon-sm"
-									className="h-7 w-7 text-muted-foreground"
-									onClick={() => setDesktopChatOpen(false)}
-									aria-label="Close AI chat"
-									title="Close AI chat"
-								>
-									<X className="h-4 w-4" />
-								</Button>
-							</div>
-							<div className="min-h-0 flex-1">
-								<ChatPanel
-									geoEvents={geoEvents}
-									mapContextEvents={mapContextEvents}
-									availableFeatures={availableFeatures}
-									getDatasetName={getDatasetName}
-									onStartNewDataset={startNewDataset}
-									onSwitchWorkspace={switchToWorkspace}
-									onOpenSettings={() => navigateToView('settings')}
-								/>
-							</div>
-						</div>
-					)}
-
-					{contextNaddr && activeContextScopeLabel && (
-						<div
-							className={`absolute left-2 right-2 z-20 pointer-events-none flex justify-center ${
-								mounted && editor ? (viewMode === 'edit' ? 'top-28' : 'top-16') : 'top-3'
-							}`}
-						>
-							<div className="pointer-events-auto inline-flex max-w-[min(90vw,520px)] items-center gap-2 rounded-full border border-sky-200 bg-white/95 px-3 py-1.5 shadow-lg backdrop-blur">
-								<Globe className="h-3.5 w-3.5 text-sky-700 shrink-0" />
-								<span className="truncate text-xs font-medium text-sky-900">
-									{activeContextScopeLabel}
-								</span>
-								<Button
-									type="button"
-									variant="ghost"
-									size="icon-xs"
-									onClick={clearContextScope}
-									aria-label="Leave context scope"
-									className="rounded-full text-sky-700 hover:bg-sky-100"
-								>
-									<X className="h-3.5 w-3.5" />
-								</Button>
-							</div>
 						</div>
 					)}
 
@@ -1732,6 +1745,9 @@ export function GeoEditorView() {
 							onToggleAllVisibility={handleToggleAllVisibilityWithExitFocus}
 							onZoomToDataset={zoomToDataset}
 							onAddDatasetToMap={addDatasetToMapStack}
+							onSetMapStackEntryVisible={setMapStackVisibility}
+							onRemoveMapStackEntry={removeFromMapStack}
+							onClearMapStack={clearMapStackAndVisibility}
 							onDeleteDataset={onDeleteDataset}
 							onDeleteContext={onDeleteContext}
 							getDatasetKey={getDatasetKey}
@@ -1977,6 +1993,18 @@ export function GeoEditorView() {
 					<OsmResultsPanel onImport={handleOsmImport} onClose={clearOsmQuery} />
 				</div>
 			</SidebarInset>
+			{!isMobile && desktopChatOpen && (
+				<AssistantSidebar
+					geoEvents={geoEvents}
+					mapContextEvents={mapContextEvents}
+					availableFeatures={availableFeatures}
+					getDatasetName={getDatasetName}
+					onStartNewDataset={startNewDataset}
+					onSwitchWorkspace={switchToWorkspace}
+					onOpenSettings={() => navigateToView('settings')}
+					onClose={() => setDesktopChatOpen(false)}
+				/>
+			)}
 		</SidebarProvider>
 	)
 }
