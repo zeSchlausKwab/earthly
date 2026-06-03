@@ -25,6 +25,9 @@ import {
   LocateOff,
   Maximize,
   Loader2,
+  Box,
+  Map as MapIcon,
+  Globe,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -741,6 +744,16 @@ type MapControlsProps = {
   showLocate?: boolean;
   /** Show fullscreen toggle button (default: false) */
   showFullscreen?: boolean;
+  /**
+   * Show pitch toggle button. Click to tilt to 60° pitch (3D view); click
+   * again to reset to 0° (top-down view). Default: false.
+   */
+  showPitch?: boolean;
+  /**
+   * Show projection toggle button. Click to switch between mercator (flat)
+   * and globe (3D sphere) projections. Default: false.
+   */
+  showProjection?: boolean;
   /** Additional CSS classes for the controls container */
   className?: string;
   /**
@@ -757,6 +770,12 @@ type MapControlsProps = {
    * or an error occurs (so the caller can clear any rendered marker).
    */
   onLocate?: (coords: LocateCoords | null) => void;
+  /**
+   * Custom controls rendered as additional groups after all the built-in
+   * ones. Compose with the exported `ControlGroup` + `ControlButton` to
+   * match the visual style of the built-ins.
+   */
+  children?: ReactNode;
 };
 
 const positionClasses = {
@@ -812,9 +831,12 @@ function MapControls({
   showCompass = false,
   showLocate = false,
   showFullscreen = false,
+  showPitch = false,
+  showProjection = false,
   className,
   enableLocateTracking = false,
   onLocate,
+  children,
 }: MapControlsProps) {
   const { map } = useMap();
 
@@ -944,6 +966,48 @@ function MapControls({
     }
   }, [map]);
 
+  // Pitch toggle (3D view). Tracks current pitch via map events so the icon
+  // reflects external pitch changes (drag-to-tilt, programmatic, etc.).
+  const [pitchActive, setPitchActive] = useState(false);
+  useEffect(() => {
+    if (!map) return;
+    const sync = () => setPitchActive(map.getPitch() > 1);
+    sync();
+    map.on("pitch", sync);
+    return () => {
+      try {
+        map.off("pitch", sync);
+      } catch {
+        // ignore
+      }
+    };
+  }, [map]);
+  const handleTogglePitch = useCallback(() => {
+    if (!map) return;
+    if (map.getPitch() > 1) {
+      map.easeTo({ pitch: 0, duration: 600 });
+    } else {
+      map.easeTo({ pitch: 60, duration: 600 });
+    }
+  }, [map]);
+
+  // Projection toggle (mercator ↔ globe). We track the user-selected
+  // projection locally because MapLibre's projection state isn't a public
+  // queryable property; we just remember what we set last.
+  const [projectionMode, setProjectionMode] = useState<"mercator" | "globe">(
+    "mercator",
+  );
+  const handleToggleProjection = useCallback(() => {
+    if (!map) return;
+    const next = projectionMode === "globe" ? "mercator" : "globe";
+    try {
+      map.setProjection({ type: next });
+      setProjectionMode(next);
+    } catch (err) {
+      console.warn("Failed to switch projection:", err);
+    }
+  }, [map, projectionMode]);
+
   // Resolve the locate button presentation based on the active mode.
   const locateButton = (() => {
     if (!showLocate) return null;
@@ -1010,6 +1074,39 @@ function MapControls({
         </ControlGroup>
       )}
       {locateButton && <ControlGroup>{locateButton}</ControlGroup>}
+      {showPitch && (
+        <ControlGroup>
+          <ControlButton
+            onClick={handleTogglePitch}
+            label={pitchActive ? "Reset to top-down view" : "Switch to 3D view"}
+          >
+            {pitchActive ? (
+              <MapIcon className="size-4" />
+            ) : (
+              <Box className="size-4" />
+            )}
+          </ControlButton>
+        </ControlGroup>
+      )}
+      {showProjection && (
+        <ControlGroup>
+          <ControlButton
+            onClick={handleToggleProjection}
+            label={
+              projectionMode === "globe"
+                ? "Switch to flat (mercator) projection"
+                : "Switch to globe projection"
+            }
+          >
+            <Globe
+              className={cn(
+                "size-4",
+                projectionMode === "globe" && "text-sky-600",
+              )}
+            />
+          </ControlButton>
+        </ControlGroup>
+      )}
       {showFullscreen && (
         <ControlGroup>
           <ControlButton onClick={handleFullscreen} label="Toggle fullscreen">
@@ -1017,6 +1114,7 @@ function MapControls({
           </ControlButton>
         </ControlGroup>
       )}
+      {children}
     </div>
   );
 }
@@ -1982,6 +2080,10 @@ export {
   MarkerLabel,
   MapPopup,
   MapControls,
+  // Exposed so consumers can compose their own buttons that visually match
+  // the built-in MapControls groups (used via the `children` slot).
+  ControlGroup,
+  ControlButton,
   MapRoute,
   MapArc,
   MapClusterLayer,

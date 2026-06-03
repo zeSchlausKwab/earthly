@@ -39,12 +39,22 @@ export interface GeoEditorMapProps {
 	mapSource?: MapSource
 	/**
 	 * Whether to render mapcn's built-in MapControls (zoom + compass + locate +
-	 * fullscreen). Default: true. Set false to render your own controls inside
-	 * `children`.
+	 * fullscreen + pitch + globe). Default: true. Set false to render your own
+	 * controls inside `children`.
 	 */
 	showControls?: boolean
 	/** Position of the controls group. Default: 'bottom-right'. */
 	controlsPosition?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+	/** Include the pitch (3D) toggle. Default: true when showControls is true. */
+	showPitch?: boolean
+	/** Include the mercator/globe projection toggle. Default: true when showControls is true. */
+	showGlobe?: boolean
+	/**
+	 * Extra controls rendered inside the MapControls column, after the built-in
+	 * groups. Use `ControlGroup` + `ControlButton` from `@/components/ui/map`
+	 * to match the visual style.
+	 */
+	controlsChildren?: ReactNode
 	/**
 	 * Fired by the locate control with the user's tracked position, or `null`
 	 * when tracking stops. Continuous tracking + accuracy preserved from the
@@ -83,6 +93,9 @@ export function GeoEditorMap({
 	mapSource = { type: 'default', location: 'remote' },
 	showControls = true,
 	controlsPosition = 'bottom-right',
+	showPitch = true,
+	showGlobe = true,
+	controlsChildren,
 	onLocate,
 }: GeoEditorMapProps) {
 	const center = centerProp ?? DEFAULT_CENTER
@@ -158,11 +171,15 @@ export function GeoEditorMap({
 					showCompass
 					showLocate
 					showFullscreen
+					showPitch={showPitch}
+					showProjection={showGlobe}
 					// Preserves the pre-swap LocateButton behavior: continuous
 					// watchPosition, accuracy surfaced, click-again-to-stop.
 					enableLocateTracking
 					onLocate={handleLocate}
-				/>
+				>
+					{controlsChildren}
+				</MapControls>
 			) : null}
 			{children}
 		</McnMap>

@@ -15,12 +15,12 @@ import type maplibregl from 'maplibre-gl'
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { AppSidebar } from '@/components/AppSidebar'
+import { ControlButton, ControlGroup } from '@/components/ui/map'
 import { BlossomUploadDialog } from '@/components/BlossomUploadDialog'
 import { DebugDialog } from '@/components/DebugDialog'
 import { MapStackPanel } from '@/components/MapStackPanel'
 import { Button } from '@/components/ui/button'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAvailableGeoFeatures } from '@/lib/hooks/useAvailableGeoFeatures'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useGeoDatasets, useMapContexts } from '@/lib/hooks/useGeoDatasets'
@@ -1513,6 +1513,41 @@ export function GeoEditorView() {
 						}}
 						mapSource={mapSource}
 						onLocate={handleLocate}
+						controlsChildren={
+							!isMobile ? (
+								<ControlGroup>
+									<ControlButton
+										onClick={() => setMapPopupsEnabled((current) => !current)}
+										label={mapPopupsEnabled ? 'Disable map popups' : 'Enable map popups'}
+									>
+										{mapPopupsEnabled ? (
+											<MessageSquare className="h-4 w-4" />
+										) : (
+											<MessageSquareOff className="h-4 w-4" />
+										)}
+									</ControlButton>
+									<ControlButton
+										onClick={() =>
+											setMapPopupPlacement((current) =>
+												current === 'geometry' ? 'dock' : 'geometry',
+											)
+										}
+										label={
+											mapPopupPlacement === 'geometry'
+												? 'Dock popups in the top-right corner'
+												: 'Show popups above geometry'
+										}
+										disabled={!mapPopupsEnabled}
+									>
+										{mapPopupPlacement === 'geometry' ? (
+											<MapPinned className="h-4 w-4" />
+										) : (
+											<PanelTopOpen className="h-4 w-4" />
+										)}
+									</ControlButton>
+								</ControlGroup>
+							) : null
+						}
 					>
 						<Editor />
 					</MapComponent>
@@ -1586,70 +1621,9 @@ export function GeoEditorView() {
 						</div>
 					)}
 
-					{/* Desktop: Floating locate button */}
-					{!isMobile && (
-						<div className="absolute bottom-12 right-4 z-10 flex flex-col items-end gap-2">
-							<TooltipProvider delayDuration={250}>
-								<Tooltip>
-									<TooltipTrigger asChild>
-										<Button
-											type="button"
-											variant={mapPopupsEnabled ? 'default' : 'outline'}
-											size="icon"
-											className="h-10 w-10 rounded-full bg-white/95 text-slate-700 shadow-lg backdrop-blur hover:bg-white"
-											onClick={() => setMapPopupsEnabled((current) => !current)}
-											aria-label={mapPopupsEnabled ? 'Disable map popups' : 'Enable map popups'}
-										>
-											{mapPopupsEnabled ? (
-												<MessageSquare className="h-4 w-4" />
-											) : (
-												<MessageSquareOff className="h-4 w-4" />
-											)}
-										</Button>
-									</TooltipTrigger>
-									<TooltipContent side="left" sideOffset={8}>
-										<p>{mapPopupsEnabled ? 'Disable map popups' : 'Enable map popups'}</p>
-									</TooltipContent>
-								</Tooltip>
-
-								<Tooltip>
-									<TooltipTrigger asChild>
-										<Button
-											type="button"
-											variant="outline"
-											size="icon"
-											className="h-10 w-10 rounded-full bg-white/95 text-slate-700 shadow-lg backdrop-blur hover:bg-white"
-											onClick={() =>
-												setMapPopupPlacement((current) =>
-													current === 'geometry' ? 'dock' : 'geometry',
-												)
-											}
-											aria-label={
-												mapPopupPlacement === 'geometry'
-													? 'Dock popups in the top-right corner'
-													: 'Show popups above geometry'
-											}
-											disabled={!mapPopupsEnabled}
-										>
-											{mapPopupPlacement === 'geometry' ? (
-												<MapPinned className="h-4 w-4" />
-											) : (
-												<PanelTopOpen className="h-4 w-4" />
-											)}
-										</Button>
-									</TooltipTrigger>
-									<TooltipContent side="left" sideOffset={8}>
-										<p>
-											{mapPopupPlacement === 'geometry'
-												? 'Dock popups in the top-right corner'
-												: 'Show popups above geometry'}
-										</p>
-									</TooltipContent>
-								</Tooltip>
-							</TooltipProvider>
-							{/* Locate moved into mapcn's MapControls (see GeoEditorMap.tsx). */}
-						</div>
-					)}
+					{/* Desktop: map controls (zoom/compass/locate/pitch/globe/fullscreen
+					    + the popup toggles via controlsChildren) live inside mapcn's
+					    MapControls — see <MapComponent> above. */}
 
 					{!isMobile && (
 						<div className="absolute bottom-0 left-0 right-0 z-10 pointer-events-none">
