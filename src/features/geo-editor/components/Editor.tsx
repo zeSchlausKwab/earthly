@@ -2,7 +2,7 @@ import type React from 'react'
 import { useEffect, useRef } from 'react'
 import { GeoEditor } from '../core'
 import { useEditorStore } from '../store'
-import { useMap } from './Map'
+import { useMap } from './map'
 
 interface EditorProps {
 	snapping?: boolean

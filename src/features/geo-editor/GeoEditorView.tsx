@@ -37,7 +37,6 @@ import { getDefaultContextMapScopeMode, resolveContextMapScope } from '@/lib/con
 import { AssistantSidebar } from './components/AssistantSidebar'
 import { Editor } from './components/Editor'
 import { ImportOsmDialog } from './components/ImportOsmDialog'
-import { LocateButton } from './components/LocateButton'
 import { LocationInspectorPopup } from './components/LocationInspectorPopup'
 import { Magnifier } from './components/Magnifier'
 import { MapFeatureHoverOverlay } from './components/MapFeatureHoverOverlay'
@@ -46,7 +45,7 @@ import { CommentAnnotationPopup } from './components/CommentAnnotationPopup'
 import type { CommentAnnotationPopupData } from './components/CommentAnnotationPopup'
 import type { MapPopupPlacement } from './components/map-popup-positioning'
 import { UserLocationMarker } from './components/UserLocationMarker'
-import { GeoEditorMap as MapComponent } from './components/Map'
+import { GeoEditorMap as MapComponent } from './components/map'
 import { OsmResultsPanel } from './components/OsmResultsPanel'
 import { Toolbar } from './components/Toolbar'
 import type { EditorFeature } from './core'
@@ -1513,6 +1512,7 @@ export function GeoEditorView() {
 							setMounted(true)
 						}}
 						mapSource={mapSource}
+						onLocate={handleLocate}
 					>
 						<Editor />
 					</MapComponent>
@@ -1647,7 +1647,7 @@ export function GeoEditorView() {
 									</TooltipContent>
 								</Tooltip>
 							</TooltipProvider>
-							<LocateButton onLocate={handleLocate} />
+							{/* Locate moved into mapcn's MapControls (see GeoEditorMap.tsx). */}
 						</div>
 					)}
 
@@ -1784,7 +1784,7 @@ export function GeoEditorView() {
 						<>
 							<div className="fixed bottom-2 left-2 z-50 md:hidden">
 								<div className="flex gap-2">
-									<LocateButton onLocate={handleLocate} />
+									{/* Locate now lives in mapcn's MapControls (top-level of the map). */}
 									<Button
 										variant={panLocked ? 'default' : 'outline'}
 										className="shadow-lg h-10 w-10 p-0 rounded-full bg-white/95 backdrop-blur hover:bg-white"
