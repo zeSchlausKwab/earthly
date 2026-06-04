@@ -82,6 +82,7 @@ import {
 	type ToolbarButton,
 } from './toolbar/index'
 import { OSM_FILTER_PRESETS } from './toolbar/OsmImportPopover'
+import { useResponsiveToolbar } from './toolbar/useResponsiveToolbar'
 import { Input } from '@/components/ui/input'
 
 interface DatasetActionsProps {
@@ -428,6 +429,10 @@ export function Toolbar({
 	const [magicPopoverOpen, setMagicPopoverOpen] = useState(false)
 	const [simplifyDialogOpen, setSimplifyDialogOpen] = useState(false)
 
+	// Responsive toolbar — measures available width and decides which priority
+	// menus (Draw → Edit → View) expand inline vs stay as MenubarMenu dropdowns.
+	const { containerRef: toolbarContainerRef, expanded: expandedMenus } = useResponsiveToolbar()
+
 	// Computed: Is editing disabled (view mode active)?
 	const isEditingDisabled = viewMode !== 'edit'
 	const isEditing = viewMode === 'edit'
@@ -621,6 +626,32 @@ export function Toolbar({
 	const showProposalPublishControl = isEditing && Boolean(datasetActions?.canProposeEdit)
 	const publishMenuDisabled = Boolean(datasetActions?.isPublishing)
 
+	// Desktop menus — Draw, Edit, View each render in one of two forms depending
+	// on `expandedMenus`: inline button row (when the toolbar has horizontal
+	// room) or a collapsed MenubarMenu dropdown. File never expands inline
+	// (too many items) so it stays as a dropdown always.
+	const drawExpandedInline = (
+		<div className="flex items-center gap-0.5">
+			<IconButtonRow buttons={selectButtons} small />
+			<DrawButtonGroup
+				mode={mode}
+				onModeChange={handleModeChange}
+				disabled={isEditingDisabled}
+				small
+			/>
+			{/* OsmImportPopover moved out of Draw — rendered as a standalone
+			    button next to the File menu so it's always reachable. */}
+		</div>
+	)
+
+	const editExpandedInline = (
+		<div className="flex items-center gap-0.5">
+			<IconButtonRow buttons={historyButtons} small />
+			<IconButtonRow buttons={editButtons} small />
+			<GeometryOpsDropdown {...geometryOpsProps} small />
+		</div>
+	)
+
 	const desktopCommandMenubar = (
 		<Menubar className="h-8 shrink-0 gap-0.5 border-0 bg-transparent p-0 shadow-none">
 			<MenubarMenu>
@@ -684,263 +715,240 @@ export function Toolbar({
 				</MenubarContent>
 			</MenubarMenu>
 
-			<MenubarMenu>
-				<ToolbarMenuTrigger icon={MousePointer2} label="Draw" active={mode.startsWith('draw_')} />
-				<MenubarContent align="start" className="min-w-56">
-					<MenubarRadioGroup value={mode}>
-						<MenubarRadioItem
-							value="select"
-							disabled={isEditingDisabled}
-							onSelect={() => handleModeChange('select')}
-						>
-							<MousePointer2 className="h-4 w-4" />
-							<span>Select</span>
-						</MenubarRadioItem>
-						<MenubarRadioItem
-							value="box_select"
-							disabled={isEditingDisabled}
-							onSelect={() => handleModeChange('box_select')}
-						>
-							<SquareDashedMousePointer className="h-4 w-4" />
-							<span>Box select</span>
-						</MenubarRadioItem>
+			{expandedMenus.has('draw') ? (
+				drawExpandedInline
+			) : (
+				<MenubarMenu>
+					<ToolbarMenuTrigger icon={MousePointer2} label="Draw" active={mode.startsWith('draw_')} />
+					<MenubarContent align="start" className="min-w-56">
+						<MenubarRadioGroup value={mode}>
+							<MenubarRadioItem
+								value="select"
+								disabled={isEditingDisabled}
+								onSelect={() => handleModeChange('select')}
+							>
+								<MousePointer2 className="h-4 w-4" />
+								<span>Select</span>
+							</MenubarRadioItem>
+							<MenubarRadioItem
+								value="box_select"
+								disabled={isEditingDisabled}
+								onSelect={() => handleModeChange('box_select')}
+							>
+								<SquareDashedMousePointer className="h-4 w-4" />
+								<span>Box select</span>
+							</MenubarRadioItem>
+							<MenubarSeparator />
+							<MenubarRadioItem
+								value="draw_point"
+								disabled={isEditingDisabled}
+								onSelect={() => handleModeChange('draw_point')}
+							>
+								<MapPin className="h-4 w-4" />
+								<span>Point</span>
+							</MenubarRadioItem>
+							<MenubarRadioItem
+								value="draw_linestring"
+								disabled={isEditingDisabled}
+								onSelect={() => handleModeChange('draw_linestring')}
+							>
+								<Route className="h-4 w-4" />
+								<span>Line</span>
+							</MenubarRadioItem>
+							<MenubarRadioItem
+								value="draw_polygon"
+								disabled={isEditingDisabled}
+								onSelect={() => handleModeChange('draw_polygon')}
+							>
+								<Pentagon className="h-4 w-4" />
+								<span>Polygon</span>
+							</MenubarRadioItem>
+							<MenubarRadioItem
+								value="draw_annotation"
+								disabled={isEditingDisabled}
+								onSelect={() => handleModeChange('draw_annotation')}
+							>
+								<Type className="h-4 w-4" />
+								<span>Label</span>
+							</MenubarRadioItem>
+						</MenubarRadioGroup>
 						<MenubarSeparator />
-						<MenubarRadioItem
-							value="draw_point"
-							disabled={isEditingDisabled}
-							onSelect={() => handleModeChange('draw_point')}
-						>
-							<MapPin className="h-4 w-4" />
-							<span>Point</span>
-						</MenubarRadioItem>
-						<MenubarRadioItem
-							value="draw_linestring"
-							disabled={isEditingDisabled}
-							onSelect={() => handleModeChange('draw_linestring')}
-						>
-							<Route className="h-4 w-4" />
-							<span>Line</span>
-						</MenubarRadioItem>
-						<MenubarRadioItem
-							value="draw_polygon"
-							disabled={isEditingDisabled}
-							onSelect={() => handleModeChange('draw_polygon')}
-						>
-							<Pentagon className="h-4 w-4" />
-							<span>Polygon</span>
-						</MenubarRadioItem>
-						<MenubarRadioItem
-							value="draw_annotation"
-							disabled={isEditingDisabled}
-							onSelect={() => handleModeChange('draw_annotation')}
-						>
-							<Type className="h-4 w-4" />
-							<span>Label</span>
-						</MenubarRadioItem>
-					</MenubarRadioGroup>
-					<MenubarSeparator />
-					<MenubarSub>
-						<MenubarSubTrigger className="gap-2">
-							<Sparkles className="h-4 w-4 text-muted-foreground" />
-							<span>OpenStreetMap</span>
-						</MenubarSubTrigger>
-						<MenubarSubContent className="min-w-56">
-							<MenubarLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
-								Feature type
-							</MenubarLabel>
-							<MenubarRadioGroup value={osmQueryFilter}>
-								{OSM_FILTER_PRESETS.map((preset) => (
-									<MenubarRadioItem
-										key={preset.value}
-										value={preset.value}
-										onSelect={() => setOsmQueryFilter(preset.value)}
-									>
-										<span>{preset.label}</span>
-									</MenubarRadioItem>
-								))}
-							</MenubarRadioGroup>
-							<MenubarSeparator />
+						<MenubarSub>
+							<MenubarSubTrigger className="gap-2">
+								<Sparkles className="h-4 w-4 text-muted-foreground" />
+								<span>OpenStreetMap</span>
+							</MenubarSubTrigger>
+							<MenubarSubContent className="min-w-56">
+								<MenubarLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
+									Feature type
+								</MenubarLabel>
+								<MenubarRadioGroup value={osmQueryFilter}>
+									{OSM_FILTER_PRESETS.map((preset) => (
+										<MenubarRadioItem
+											key={preset.value}
+											value={preset.value}
+											onSelect={() => setOsmQueryFilter(preset.value)}
+										>
+											<span>{preset.label}</span>
+										</MenubarRadioItem>
+									))}
+								</MenubarRadioGroup>
+								<MenubarSeparator />
+								<ToolbarMenuItem
+									icon={MousePointerClick}
+									label="Click on map"
+									onSelect={handleOsmClickMode}
+									disabled={isEditingDisabled}
+								/>
+								<ToolbarMenuItem
+									icon={Scan}
+									label="Query current view"
+									onSelect={handleOsmQueryView}
+									disabled={isEditingDisabled}
+								/>
+								<ToolbarMenuItem
+									icon={Settings2}
+									label="Advanced..."
+									onSelect={onOsmAdvanced}
+									disabled={isEditingDisabled || !onOsmAdvanced}
+								/>
+							</MenubarSubContent>
+						</MenubarSub>
+					</MenubarContent>
+				</MenubarMenu>
+			)}
+
+			{expandedMenus.has('edit') ? (
+				editExpandedInline
+			) : (
+				<MenubarMenu>
+					<ToolbarMenuTrigger
+						icon={Edit3}
+						label="Edit"
+						active={isEditing || editIsolationEnabled || Boolean(booleanOpActive)}
+					/>
+					<MenubarContent align="start" className="min-w-60">
+						<MenubarGroup>
 							<ToolbarMenuItem
-								icon={MousePointerClick}
-								label="Click on map"
-								onSelect={handleOsmClickMode}
+								icon={Undo2}
+								label="Undo"
+								onSelect={() => runEditorCommand('undo')}
+								disabled={!history.canUndo || !canUndo || isEditingDisabled}
+							/>
+							<ToolbarMenuItem
+								icon={Redo2}
+								label="Redo"
+								onSelect={() => runEditorCommand('redo')}
+								disabled={!history.canRedo || !canRedo || isEditingDisabled}
+							/>
+						</MenubarGroup>
+						<MenubarSeparator />
+						<MenubarGroup>
+							<ToolbarMenuItem
+								icon={Edit3}
+								label="Edit vertices"
+								onSelect={() => handleModeChange('edit')}
 								disabled={isEditingDisabled}
 							/>
-							<ToolbarMenuItem
-								icon={Scan}
-								label="Query current view"
-								onSelect={handleOsmQueryView}
+							<ToolbarMenuCheckbox
+								icon={Magnet}
+								label="Snapping"
+								checked={snappingEnabled}
+								onCheckedChange={handleToggleSnapping}
 								disabled={isEditingDisabled}
 							/>
-							<ToolbarMenuItem
-								icon={Settings2}
-								label="Advanced..."
-								onSelect={onOsmAdvanced}
-								disabled={isEditingDisabled || !onOsmAdvanced}
+							<ToolbarMenuCheckbox
+								icon={EyeOff}
+								label="Edit isolation"
+								checked={editIsolationEnabled}
+								onCheckedChange={handleToggleEditIsolation}
+								disabled={isEditingDisabled}
 							/>
-						</MenubarSubContent>
-					</MenubarSub>
-				</MenubarContent>
-			</MenubarMenu>
+						</MenubarGroup>
+						<MenubarSeparator />
+						<MenubarGroup>
+							<ToolbarMenuItem
+								icon={Trash2}
+								label="Delete selected"
+								onSelect={() => runEditorCommand('delete_selected_features')}
+								disabled={isEditingDisabled || !canDeleteSelected}
+								variant="destructive"
+							/>
+							<ToolbarMenuItem
+								icon={Copy}
+								label="Duplicate selected"
+								onSelect={() => runEditorCommand('duplicate_selected_features')}
+								disabled={isEditingDisabled || !canDuplicateSelected}
+							/>
+						</MenubarGroup>
+						<MenubarSeparator />
+						<MenubarSub>
+							<MenubarSubTrigger className="gap-2">
+								<Combine className="h-4 w-4 text-muted-foreground" />
+								<span>Geometry operations</span>
+							</MenubarSubTrigger>
+							<MenubarSubContent className="min-w-60">
+								<MenubarLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
+									Multi / Structure
+								</MenubarLabel>
+								<ToolbarMenuItem
+									icon={Merge}
+									label="Merge to Multi"
+									onSelect={() => runEditorCommand('merge_selected_features')}
+									disabled={!canMergeSelected}
+								/>
+								<ToolbarMenuItem
+									icon={SplitIcon}
+									label="Split Multi"
+									onSelect={() => runEditorCommand('split_selected_features')}
+									disabled={!canSplitSelected}
+								/>
+								<ToolbarMenuItem
+									icon={Route}
+									label="Simplify Selection"
+									onSelect={() => setSimplifyDialogOpen(true)}
+									disabled={!canSimplifySelected}
+								/>
+								<MenubarSeparator />
+								<MenubarLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
+									Lines
+								</MenubarLabel>
+								<ToolbarMenuItem
+									icon={Link2}
+									label="Connect Lines"
+									onSelect={() => runEditorCommand('connect_selected_lines')}
+									disabled={!canConnectLines}
+								/>
+								<ToolbarMenuItem
+									icon={Combine}
+									label="Dissolve Lines"
+									onSelect={() => runEditorCommand('dissolve_selected_lines')}
+									disabled={!canDissolveLines}
+								/>
+								<MenubarSeparator />
+								<MenubarLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
+									Boolean
+								</MenubarLabel>
+								<ToolbarMenuItem
+									icon={Combine}
+									label="Boolean Union"
+									onSelect={() => runEditorCommand('start_boolean_union')}
+									disabled={!canStartBooleanOps}
+								/>
+								<ToolbarMenuItem
+									icon={Minus}
+									label="Boolean Difference"
+									onSelect={() => runEditorCommand('start_boolean_difference')}
+									disabled={!canStartBooleanOps}
+								/>
+							</MenubarSubContent>
+						</MenubarSub>
+					</MenubarContent>
+				</MenubarMenu>
+			)}
 
-			<MenubarMenu>
-				<ToolbarMenuTrigger
-					icon={Edit3}
-					label="Edit"
-					active={isEditing || editIsolationEnabled || Boolean(booleanOpActive)}
-				/>
-				<MenubarContent align="start" className="min-w-60">
-					<MenubarGroup>
-						<ToolbarMenuItem
-							icon={Undo2}
-							label="Undo"
-							onSelect={() => runEditorCommand('undo')}
-							disabled={!history.canUndo || !canUndo || isEditingDisabled}
-						/>
-						<ToolbarMenuItem
-							icon={Redo2}
-							label="Redo"
-							onSelect={() => runEditorCommand('redo')}
-							disabled={!history.canRedo || !canRedo || isEditingDisabled}
-						/>
-					</MenubarGroup>
-					<MenubarSeparator />
-					<MenubarGroup>
-						<ToolbarMenuItem
-							icon={Edit3}
-							label="Edit vertices"
-							onSelect={() => handleModeChange('edit')}
-							disabled={isEditingDisabled}
-						/>
-						<ToolbarMenuCheckbox
-							icon={Magnet}
-							label="Snapping"
-							checked={snappingEnabled}
-							onCheckedChange={handleToggleSnapping}
-							disabled={isEditingDisabled}
-						/>
-						<ToolbarMenuCheckbox
-							icon={EyeOff}
-							label="Edit isolation"
-							checked={editIsolationEnabled}
-							onCheckedChange={handleToggleEditIsolation}
-							disabled={isEditingDisabled}
-						/>
-					</MenubarGroup>
-					<MenubarSeparator />
-					<MenubarGroup>
-						<ToolbarMenuItem
-							icon={Trash2}
-							label="Delete selected"
-							onSelect={() => runEditorCommand('delete_selected_features')}
-							disabled={isEditingDisabled || !canDeleteSelected}
-							variant="destructive"
-						/>
-						<ToolbarMenuItem
-							icon={Copy}
-							label="Duplicate selected"
-							onSelect={() => runEditorCommand('duplicate_selected_features')}
-							disabled={isEditingDisabled || !canDuplicateSelected}
-						/>
-					</MenubarGroup>
-					<MenubarSeparator />
-					<MenubarSub>
-						<MenubarSubTrigger className="gap-2">
-							<Combine className="h-4 w-4 text-muted-foreground" />
-							<span>Geometry operations</span>
-						</MenubarSubTrigger>
-						<MenubarSubContent className="min-w-60">
-							<MenubarLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
-								Multi / Structure
-							</MenubarLabel>
-							<ToolbarMenuItem
-								icon={Merge}
-								label="Merge to Multi"
-								onSelect={() => runEditorCommand('merge_selected_features')}
-								disabled={!canMergeSelected}
-							/>
-							<ToolbarMenuItem
-								icon={SplitIcon}
-								label="Split Multi"
-								onSelect={() => runEditorCommand('split_selected_features')}
-								disabled={!canSplitSelected}
-							/>
-							<ToolbarMenuItem
-								icon={Route}
-								label="Simplify Selection"
-								onSelect={() => setSimplifyDialogOpen(true)}
-								disabled={!canSimplifySelected}
-							/>
-							<MenubarSeparator />
-							<MenubarLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
-								Lines
-							</MenubarLabel>
-							<ToolbarMenuItem
-								icon={Link2}
-								label="Connect Lines"
-								onSelect={() => runEditorCommand('connect_selected_lines')}
-								disabled={!canConnectLines}
-							/>
-							<ToolbarMenuItem
-								icon={Combine}
-								label="Dissolve Lines"
-								onSelect={() => runEditorCommand('dissolve_selected_lines')}
-								disabled={!canDissolveLines}
-							/>
-							<MenubarSeparator />
-							<MenubarLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
-								Boolean
-							</MenubarLabel>
-							<ToolbarMenuItem
-								icon={Combine}
-								label="Boolean Union"
-								onSelect={() => runEditorCommand('start_boolean_union')}
-								disabled={!canStartBooleanOps}
-							/>
-							<ToolbarMenuItem
-								icon={Minus}
-								label="Boolean Difference"
-								onSelect={() => runEditorCommand('start_boolean_difference')}
-								disabled={!canStartBooleanOps}
-							/>
-						</MenubarSubContent>
-					</MenubarSub>
-				</MenubarContent>
-			</MenubarMenu>
-
-			<MenubarMenu>
-				<ToolbarMenuTrigger
-					icon={Layers}
-					label="View"
-					active={mapStackOpen || inspectorActive || chatOpen || showMapSettings}
-				/>
-				<MenubarContent align="start" className="min-w-56">
-					<ToolbarMenuCheckbox
-						icon={Layers}
-						label="Map stack"
-						checked={mapStackOpen}
-						onCheckedChange={() => onToggleMapStack?.()}
-					/>
-					<ToolbarMenuCheckbox
-						icon={Crosshair}
-						label="Location lookup"
-						checked={inspectorActive}
-						onCheckedChange={handleToggleInspector}
-					/>
-					<ToolbarMenuCheckbox
-						icon={MessageCircle}
-						label="AI chat"
-						checked={chatOpen}
-						onCheckedChange={() => onToggleChat?.()}
-					/>
-					<MenubarSeparator />
-					<ToolbarMenuItem
-						icon={Settings2}
-						label="Map settings"
-						onSelect={() => setShowMapSettings(true)}
-					/>
-				</MenubarContent>
-			</MenubarMenu>
+			{/* View menu dropped — Location lookup is now a standalone
+			    Crosshair button rendered next to the search box (below). */}
 		</Menubar>
 	)
 
@@ -955,9 +963,12 @@ export function Toolbar({
 	)
 
 	// ============================================
-	// MOBILE TOOLBAR
+	// MOBILE TOOLBAR (legacy — kept until we're sure the responsive unified
+	// toolbar handles every viewport. To re-enable, change `MOBILE_TOOLBAR_ENABLED`
+	// to use `isMobile`.)
 	// ============================================
-	if (isMobile) {
+	const MOBILE_TOOLBAR_ENABLED = false
+	if (isMobile && MOBILE_TOOLBAR_ENABLED) {
 		return (
 			<>
 				<div className="pointer-events-auto w-full max-w-md px-2 mx-auto">
@@ -1122,14 +1133,23 @@ export function Toolbar({
 	// ============================================
 	return (
 		<>
-			<div className="pointer-events-auto flex flex-col items-start gap-2" data-tour="toolbar">
-				<div className="glass-panel flex max-w-full items-center gap-1 overflow-x-auto rounded-lg p-1">
+			<div
+				className="pointer-events-auto flex w-full flex-col items-stretch gap-2"
+				data-tour="toolbar"
+			>
+				<div
+					ref={toolbarContainerRef}
+					className="glass-panel flex w-full items-center gap-1 overflow-x-auto rounded-lg p-1"
+				>
+					{/* Topic 1: navigation chrome */}
 					<SidebarTrigger className="h-8 w-8" />
 					<Divider />
 
+					{/* Topic 2: file / draw / edit menus (priority-expanding) */}
 					{desktopCommandMenubar}
 					<Divider />
 
+					{/* Topic 3: search + location lookup */}
 					<div className="relative shrink-0">
 						<form
 							onSubmit={handleSearchSubmit}
@@ -1198,7 +1218,26 @@ export function Toolbar({
 							</div>
 						)}
 					</div>
+					{/* Location lookup (formerly the only View menu item) sits next
+					    to the search box's looking-glass icon so it forms a single
+					    "find / inspect" group. */}
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-sm"
+						onClick={handleToggleInspector}
+						aria-label={inspectorActive ? 'Disable location lookup' : 'Enable location lookup'}
+						title="Click map to look up location"
+						className={cn(
+							'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none',
+							inspectorActive && 'bg-accent text-accent-foreground',
+						)}
+					>
+						<Crosshair className="h-4 w-4" />
+					</Button>
+					<Divider />
 
+					{/* Topic 4: map state cluster */}
 					<MapStateCluster
 						viewMode={viewMode}
 						mapStackOpen={mapStackOpen}
@@ -1213,6 +1252,9 @@ export function Toolbar({
 						compact
 						flat
 					/>
+					<Divider />
+
+					{/* Topic 5: communication */}
 					<Button
 						type="button"
 						variant="ghost"
@@ -1229,6 +1271,20 @@ export function Toolbar({
 					</Button>
 					<Divider />
 
+					{/* Topic 6: data sources + share / settings. OsmImportPopover
+					    moved here from inside the Draw menu — it's an import
+					    operation, not a draw mode. */}
+					<OsmImportPopover
+						open={magicPopoverOpen}
+						onOpenChange={setMagicPopoverOpen}
+						osmQueryFilter={osmQueryFilter}
+						onOsmFilterChange={setOsmQueryFilter}
+						onOsmClickMode={handleOsmClickMode}
+						onOsmQueryView={handleOsmQueryView}
+						onOsmAdvanced={onOsmAdvanced}
+						isClickMode={osmQueryMode === 'click'}
+						small
+					/>
 					<CreateMapPopover small />
 					<ShareExportPopover small />
 					<Popover open={showMapSettings} onOpenChange={setShowMapSettings}>

@@ -1,6 +1,5 @@
 import { useActiveAccount } from 'applesauce-react/hooks'
 import {
-	Edit3,
 	Layers,
 	Lock,
 	LockOpen,
@@ -9,7 +8,6 @@ import {
 	MessageSquareOff,
 	PanelTopOpen,
 	Search,
-	UploadCloud,
 } from 'lucide-react'
 import type maplibregl from 'maplibre-gl'
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -186,13 +184,8 @@ export function GeoEditorView() {
 	const mobilePanelTab = useEditorStore((state) => state.mobilePanelTab)
 	const mobilePanelSnap = useEditorStore((state) => state.mobilePanelSnap)
 	const setMobilePanelOpen = useEditorStore((state) => state.setMobilePanelOpen)
-	// Mobile toolbar state (for upper toolbar sections)
-	const mobileToolsOpen = useEditorStore((state) => state.mobileToolsOpen)
-	const setMobileToolsOpen = useEditorStore((state) => state.setMobileToolsOpen)
-	const mobileSearchOpen = useEditorStore((state) => state.mobileSearchOpen)
-	const setMobileSearchOpen = useEditorStore((state) => state.setMobileSearchOpen)
-	const mobileActionsOpen = useEditorStore((state) => state.mobileActionsOpen)
-	const setMobileActionsOpen = useEditorStore((state) => state.setMobileActionsOpen)
+	// Mobile Tools/Search/Actions toggles are no longer used — the responsive
+	// toolbar replaces them. Store fields stay for backward compat.
 	const panLocked = useEditorStore((state) => state.panLocked)
 	const setPanLocked = useEditorStore((state) => state.setPanLocked)
 	const canFinishDrawing = useEditorStore((state) => state.canFinishDrawing)
@@ -1844,7 +1837,10 @@ export function GeoEditorView() {
 									</div>
 								</div>
 							</div>
-							{/* Mobile buttons - positioned to move up when drawer is open */}
+							{/* Mobile drawer toggle (MobilePanel bottom-sheet). The old
+							    Draw/Search/Actions toggles are gone — the unified responsive
+							    toolbar (with overflow-x-auto on narrow screens) replaces
+							    them. */}
 							<div
 								className={`fixed bottom-2 right-2 z-50 flex flex-col gap-2 md:hidden transition-all duration-300 ${
 									mobilePanelOpen
@@ -1854,49 +1850,6 @@ export function GeoEditorView() {
 										: ''
 								}`}
 							>
-								{/* Draw tools toggle */}
-								<Button
-									size="icon"
-									className="shadow-lg h-10 w-10 rounded-full"
-									variant={mobileToolsOpen ? 'default' : 'outline'}
-									onClick={() => {
-										setMobileSearchOpen(false)
-										setMobileActionsOpen(false)
-										setMobileToolsOpen(!mobileToolsOpen)
-									}}
-									aria-label="Toggle draw tools"
-								>
-									<Edit3 className="h-5 w-5" />
-								</Button>
-								{/* Search tools toggle */}
-								<Button
-									size="icon"
-									className="shadow-lg h-10 w-10 rounded-full"
-									variant={mobileSearchOpen ? 'default' : 'outline'}
-									onClick={() => {
-										setMobileToolsOpen(false)
-										setMobileActionsOpen(false)
-										setMobileSearchOpen(!mobileSearchOpen)
-									}}
-									aria-label="Toggle search"
-								>
-									<Search className="h-5 w-5" />
-								</Button>
-								{/* Actions toggle */}
-								<Button
-									size="icon"
-									className="shadow-lg h-10 w-10 rounded-full"
-									variant={mobileActionsOpen ? 'default' : 'outline'}
-									onClick={() => {
-										setMobileToolsOpen(false)
-										setMobileSearchOpen(false)
-										setMobileActionsOpen(!mobileActionsOpen)
-									}}
-									aria-label="Toggle actions"
-								>
-									<UploadCloud className="h-5 w-5" />
-								</Button>
-								{/* Panel toggle */}
 								<Button
 									size="icon"
 									className="shadow-lg h-10 w-10 rounded-full"
