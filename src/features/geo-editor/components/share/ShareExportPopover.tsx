@@ -505,7 +505,9 @@ export function ShareExportPopover({ small = false }: ShareExportPopoverProps) {
 								variant={small ? 'ghost' : 'default'}
 								size={small ? 'icon-sm' : 'icon'}
 								className={
-									small ? 'h-8 w-8 rounded-md border border-transparent shadow-none' : undefined
+									small
+										? 'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none'
+										: undefined
 								}
 								aria-label="Share"
 							>

@@ -37,7 +37,8 @@ import {
 	XCircle,
 } from 'lucide-react'
 import type React from 'react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { HelpPopover } from '@/components/HelpPopover'
 import { LoginSessionButtons } from '@/features/auth/LoginSessionButtons'
 import { Button } from '@/components/ui/button'
@@ -140,6 +141,14 @@ interface MapStateClusterProps {
 	onClearFocus?: () => void
 	compact?: boolean
 	flat?: boolean
+	/**
+	 * Which part(s) of the cluster to render. The desktop toolbar uses this to
+	 * place the map-stack toggle and the stance pill in different positions:
+	 *   - 'toggle'  → just the map-stack Layers button + count
+	 *   - 'stance'  → just the stance pill + context-scope + focus chips
+	 *   - 'all'     → full cluster (default, used by mobile)
+	 */
+	parts?: 'all' | 'toggle' | 'stance'
 }
 
 function MapStateCluster({
@@ -155,7 +164,10 @@ function MapStateCluster({
 	onClearFocus,
 	compact = false,
 	flat = false,
+	parts = 'all',
 }: MapStateClusterProps) {
+	const renderToggle = parts === 'all' || parts === 'toggle'
+	const renderStance = parts === 'all' || parts === 'stance'
 	const stanceLabel = viewMode === 'edit' ? 'Edit' : focusLabel ? 'Inspect' : 'Browse'
 	const stanceClass = flat
 		? viewMode === 'edit'
@@ -179,50 +191,62 @@ function MapStateCluster({
 		: `flex min-w-0 items-center gap-1 rounded-md border border-border/80 bg-background/85 p-1 shadow-sm backdrop-blur ${
 				compact ? 'max-w-full overflow-x-auto' : ''
 			}`
-	const flatItemClass =
-		'h-8 shrink-0 gap-1.5 rounded-md border border-transparent px-2 text-sm font-medium shadow-none hover:bg-accent hover:text-accent-foreground'
-	const flatActiveClass = 'bg-accent text-accent-foreground'
+	// Uniform toolbar icon-button style — matches Chat / Lookup / Settings.
+	// Active state uses `bg-primary text-primary-foreground` (solid fill, high
+	// contrast) so users can clearly tell at a glance which toggles are on.
+	// `bg-accent` was too subtle against the glass-panel background.
+	const flatToggleClass =
+		'h-8 shrink-0 gap-1 rounded-md border border-transparent px-1.5 text-xs font-medium shadow-none hover:bg-accent hover:text-accent-foreground'
+	const flatActiveClass =
+		'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground'
 
 	return (
 		<div className={clusterClass}>
-			<Button
-				type="button"
-				variant={flat ? 'ghost' : mapStackOpen ? 'default' : 'ghost'}
-				size={compact ? 'sm' : 'default'}
-				className={
-					flat
-						? cn(flatItemClass, mapStackOpen && flatActiveClass)
-						: `h-7 shrink-0 gap-1.5 rounded-md px-2 text-xs ${
-								mapStackOpen ? '' : 'text-muted-foreground hover:text-foreground'
-							}`
-				}
-				onClick={onToggleMapStack}
-				aria-label={mapStackOpen ? 'Hide map stack' : 'Show map stack'}
-				title={mapStackOpen ? 'Hide map stack' : 'Show map stack'}
-			>
-				<Layers className="h-3.5 w-3.5" />
-				<span className={compact ? 'sr-only' : ''}>Map</span>
+			{renderToggle ? (
+				<Button
+					type="button"
+					variant={flat ? 'ghost' : mapStackOpen ? 'default' : 'ghost'}
+					size={compact ? 'sm' : 'default'}
+					className={
+						flat
+							? cn(flatToggleClass, mapStackOpen && flatActiveClass)
+							: `h-7 shrink-0 gap-1.5 rounded-md px-2 text-xs ${
+									mapStackOpen ? '' : 'text-muted-foreground hover:text-foreground'
+								}`
+					}
+					onClick={onToggleMapStack}
+					aria-label={mapStackOpen ? 'Hide map stack' : 'Show map stack'}
+					title={mapStackOpen ? 'Hide map stack' : 'Show map stack'}
+				>
+					<Layers className="h-3.5 w-3.5" />
+					<span className="sr-only">Map stack</span>
+					{mapStackEntryCount > 0 ? (
+						<span
+							className={
+								flat
+									? 'font-mono text-[10px] tabular-nums'
+									: 'rounded bg-black/5 px-1.5 py-0.5 font-mono text-[10px] tabular-nums'
+							}
+						>
+							{mapCountLabel}
+						</span>
+					) : null}
+				</Button>
+			) : null}
+			{/* Stance pill — compact in flat mode: tight padding + extra-small text. */}
+			{renderStance ? (
 				<span
 					className={
 						flat
-							? 'font-mono text-xs tabular-nums'
-							: 'rounded bg-black/5 px-1.5 py-0.5 font-mono text-[10px] tabular-nums'
+							? `inline-flex h-8 shrink-0 items-center rounded-md border border-transparent px-1.5 text-[11px] font-semibold uppercase tracking-wide ${stanceClass}`
+							: `inline-flex h-7 shrink-0 items-center rounded-md border px-2 text-[11px] font-semibold uppercase ${stanceClass}`
 					}
+					title={`Current stance: ${stanceLabel}`}
 				>
-					{mapCountLabel}
+					{stanceLabel}
 				</span>
-			</Button>
-			<span
-				className={
-					flat
-						? `inline-flex h-8 shrink-0 items-center rounded-md border border-transparent px-2 text-sm font-medium ${stanceClass}`
-						: `inline-flex h-7 shrink-0 items-center rounded-md border px-2 text-[11px] font-semibold uppercase ${stanceClass}`
-				}
-				title={`Current stance: ${stanceLabel}`}
-			>
-				{stanceLabel}
-			</span>
-			{hasContextScope ? (
+			) : null}
+			{renderStance && hasContextScope ? (
 				<span
 					className={
 						flat
@@ -253,7 +277,7 @@ function MapStateCluster({
 					) : null}
 				</span>
 			) : null}
-			{hasFocus ? (
+			{renderStance && hasFocus ? (
 				<span
 					className={
 						flat
@@ -303,7 +327,8 @@ function ToolbarMenuTrigger({ icon: Icon, label, active }: ToolbarMenuTriggerPro
 		<MenubarTrigger
 			className={cn(
 				'h-8 gap-1.5 px-2 text-sm font-medium',
-				active && 'bg-accent text-accent-foreground',
+				active &&
+					'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
 			)}
 		>
 			<Icon className="h-3.5 w-3.5" />
@@ -429,9 +454,37 @@ export function Toolbar({
 	const [magicPopoverOpen, setMagicPopoverOpen] = useState(false)
 	const [simplifyDialogOpen, setSimplifyDialogOpen] = useState(false)
 
+	// Search results dropdown needs to escape the toolbar's `overflow-x-auto`
+	// wrapper (CSS forces overflow-y: auto whenever overflow-x: auto, which
+	// otherwise clips the dropdown below the bar). We portal to body and
+	// position via the form's bounding rect.
+	const searchFormRef = useRef<HTMLFormElement | null>(null)
+	const [searchAnchorRect, setSearchAnchorRect] = useState<DOMRect | null>(null)
+
 	// Responsive toolbar — measures available width and decides which priority
 	// menus (Draw → Edit → View) expand inline vs stay as MenubarMenu dropdowns.
 	const { containerRef: toolbarContainerRef, expanded: expandedMenus } = useResponsiveToolbar()
+
+	// Refresh the dropdown's anchor rect when results appear and on resize so
+	// the portal stays aligned with the form even as the layout shifts.
+	const searchResultsState = useEditorStore((state) => state.searchResults)
+	useEffect(() => {
+		if (!searchResultsState || searchResultsState.length === 0) {
+			setSearchAnchorRect(null)
+			return
+		}
+		const update = () => {
+			const node = searchFormRef.current
+			if (node) setSearchAnchorRect(node.getBoundingClientRect())
+		}
+		update()
+		window.addEventListener('resize', update)
+		window.addEventListener('scroll', update, true)
+		return () => {
+			window.removeEventListener('resize', update)
+			window.removeEventListener('scroll', update, true)
+		}
+	}, [searchResultsState])
 
 	// Computed: Is editing disabled (view mode active)?
 	const isEditingDisabled = viewMode !== 'edit'
@@ -1141,17 +1194,66 @@ export function Toolbar({
 					ref={toolbarContainerRef}
 					className="glass-panel flex w-full items-center gap-1 overflow-x-auto rounded-lg p-1"
 				>
-					{/* Topic 1: navigation chrome */}
+					{/* Topic 1: sidebar trigger (left-most chrome). */}
 					<SidebarTrigger className="h-8 w-8" />
 					<Divider />
 
-					{/* Topic 2: file / draw / edit menus (priority-expanding) */}
+					{/* Topic 2: view toggles — chat + map stack. Moved from the
+					    middle/right of the bar to live alongside the sidebar
+					    trigger so all "what's visible right now" controls cluster
+					    in one spot. */}
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-sm"
+						onClick={onToggleChat}
+						aria-label={chatOpen ? 'Hide AI chat' : 'Show AI chat'}
+						title={chatOpen ? 'Hide AI chat' : 'Show AI chat'}
+						className={cn(
+							'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none',
+							chatOpen &&
+								'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
+						)}
+					>
+						<MessageCircle className="h-4 w-4" />
+					</Button>
+					<MapStateCluster
+						viewMode={viewMode}
+						mapStackOpen={mapStackOpen}
+						mapStackEntryCount={mapStackEntryCount}
+						mapStackVisibleCount={mapStackVisibleCount}
+						onToggleMapStack={onToggleMapStack}
+						compact
+						flat
+						parts="toggle"
+					/>
+					<Divider />
+
+					{/* Topic 3: stance indicator + context-scope + focus chips. */}
+					<MapStateCluster
+						viewMode={viewMode}
+						mapStackOpen={mapStackOpen}
+						mapStackEntryCount={mapStackEntryCount}
+						mapStackVisibleCount={mapStackVisibleCount}
+						contextScopeLabel={contextScopeLabel}
+						focusLabel={focusLabel}
+						focusKind={focusKind}
+						onClearContextScope={onClearContextScope}
+						onClearFocus={onClearFocus}
+						compact
+						flat
+						parts="stance"
+					/>
+					<Divider />
+
+					{/* Topic 4: file / draw / edit menus (priority-expanding) */}
 					{desktopCommandMenubar}
 					<Divider />
 
-					{/* Topic 3: search + location lookup */}
+					{/* Topic 5: search + location lookup */}
 					<div className="relative shrink-0">
 						<form
+							ref={searchFormRef}
 							onSubmit={handleSearchSubmit}
 							className="group relative flex h-8 w-36 shrink-0 items-center rounded-md border border-transparent transition-colors hover:bg-accent/70 focus-within:border-ring/40 focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/20 2xl:w-48"
 						>
@@ -1190,33 +1292,46 @@ export function Toolbar({
 								</Button>
 							)}
 						</form>
-						{searchResults && searchResults.length > 0 && (
-							<div className="absolute left-0 top-full z-50 mt-2 w-72 rounded-lg border border-border bg-popover p-2 shadow-lg">
-								<div className="mb-2 flex items-center justify-between border-b border-border pb-2">
-									<span className="text-xs font-medium text-muted-foreground">Results</span>
-									<Button
-										variant="ghost"
-										size="sm"
-										className="h-auto p-0 text-xs"
-										onClick={clearSearch}
-									>
-										Close
-									</Button>
-								</div>
-								<div className="max-h-60 space-y-1 overflow-y-auto">
-									{searchResults.map((result) => (
-										<button
-											type="button"
-											key={result.placeId}
-											className="w-full truncate rounded p-1.5 text-left text-sm hover:bg-muted/50"
-											onClick={() => onSearchResultSelect?.(result)}
+						{/* Search results — portaled to body so the toolbar's
+						    `overflow-x-auto` wrapper can't clip the dropdown. */}
+						{searchResults &&
+							searchResults.length > 0 &&
+							searchAnchorRect &&
+							typeof document !== 'undefined' &&
+							createPortal(
+								<div
+									className="fixed z-50 w-72 rounded-lg border border-border bg-popover p-2 shadow-lg"
+									style={{
+										top: searchAnchorRect.bottom + 8,
+										left: searchAnchorRect.left,
+									}}
+								>
+									<div className="mb-2 flex items-center justify-between border-b border-border pb-2">
+										<span className="text-xs font-medium text-muted-foreground">Results</span>
+										<Button
+											variant="ghost"
+											size="sm"
+											className="h-auto p-0 text-xs"
+											onClick={clearSearch}
 										>
-											{result.displayName}
-										</button>
-									))}
-								</div>
-							</div>
-						)}
+											Close
+										</Button>
+									</div>
+									<div className="max-h-60 space-y-1 overflow-y-auto">
+										{searchResults.map((result) => (
+											<button
+												type="button"
+												key={result.placeId}
+												className="w-full truncate rounded p-1.5 text-left text-sm hover:bg-muted/50"
+												onClick={() => onSearchResultSelect?.(result)}
+											>
+												{result.displayName}
+											</button>
+										))}
+									</div>
+								</div>,
+								document.body,
+							)}
 					</div>
 					{/* Location lookup (formerly the only View menu item) sits next
 					    to the search box's looking-glass icon so it forms a single
@@ -1230,44 +1345,11 @@ export function Toolbar({
 						title="Click map to look up location"
 						className={cn(
 							'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none',
-							inspectorActive && 'bg-accent text-accent-foreground',
+							inspectorActive &&
+								'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
 						)}
 					>
 						<Crosshair className="h-4 w-4" />
-					</Button>
-					<Divider />
-
-					{/* Topic 4: map state cluster */}
-					<MapStateCluster
-						viewMode={viewMode}
-						mapStackOpen={mapStackOpen}
-						mapStackEntryCount={mapStackEntryCount}
-						mapStackVisibleCount={mapStackVisibleCount}
-						contextScopeLabel={contextScopeLabel}
-						focusLabel={focusLabel}
-						focusKind={focusKind}
-						onToggleMapStack={onToggleMapStack}
-						onClearContextScope={onClearContextScope}
-						onClearFocus={onClearFocus}
-						compact
-						flat
-					/>
-					<Divider />
-
-					{/* Topic 5: communication */}
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						onClick={onToggleChat}
-						aria-label={chatOpen ? 'Hide AI chat' : 'Show AI chat'}
-						title={chatOpen ? 'Hide AI chat' : 'Show AI chat'}
-						className={cn(
-							'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none',
-							chatOpen && 'bg-accent text-accent-foreground',
-						)}
-					>
-						<MessageCircle className="h-4 w-4" />
 					</Button>
 					<Divider />
 
@@ -1296,7 +1378,8 @@ export function Toolbar({
 								title="Map settings"
 								className={cn(
 									'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none',
-									showMapSettings && 'bg-accent text-accent-foreground',
+									showMapSettings &&
+										'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
 								)}
 							>
 								<Settings2 className="h-4 w-4" />

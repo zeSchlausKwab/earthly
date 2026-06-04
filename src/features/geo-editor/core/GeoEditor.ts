@@ -599,6 +599,18 @@ export class GeoEditor {
 	}
 
 	private onKeyDown(e: KeyboardEvent): void {
+		// Don't hijack keys while the user is typing in an input / textarea /
+		// contenteditable. Without this guard, Backspace clears selected
+		// features while the user types in the search box, Ctrl+Z conflicts
+		// with browser undo in form fields, etc.
+		const target = e.target as HTMLElement | null
+		if (target) {
+			const tag = target.tagName
+			if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) {
+				return
+			}
+		}
+
 		if (e.key === 'Escape' && this.transformDragState) {
 			e.preventDefault()
 			this.finishTransformDrag(false)
