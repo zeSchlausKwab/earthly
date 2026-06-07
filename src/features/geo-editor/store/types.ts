@@ -71,6 +71,12 @@ export interface MapStackEntry {
 	source: MapStackEntrySource
 	visible: boolean
 	pinned: boolean
+	/**
+	 * When true, ONLY this entry renders on the map — all other map-stack
+	 * entries + context-scope filters are bypassed. Mutually exclusive: setting
+	 * one entry's `isolated=true` clears it on all others.
+	 */
+	isolated: boolean
 	addedAt: number
 }
 
@@ -285,14 +291,22 @@ export interface MapStackSlice {
 	mapStackOrder: string[]
 
 	addMapStackEntry: (
-		entry: Omit<MapStackEntry, 'id' | 'addedAt'> & {
+		entry: Omit<MapStackEntry, 'id' | 'addedAt' | 'isolated'> & {
 			id?: string
 			addedAt?: number
+			isolated?: boolean
 		},
 	) => string
 	removeMapStackEntry: (id: string) => void
 	setMapStackEntryVisible: (id: string, visible: boolean) => void
 	toggleMapStackEntryVisible: (id: string) => void
+	/**
+	 * Mutually exclusive: setting `isolated=true` on one entry clears it on
+	 * all others. Setting `isolated=false` clears just that entry.
+	 */
+	setMapStackEntryIsolated: (id: string, isolated: boolean) => void
+	/** Clears the `isolated` flag on every entry. */
+	clearMapStackIsolation: () => void
 	clearMapStack: () => void
 }
 
@@ -409,6 +423,14 @@ export interface SessionSyncSlice {
 	hydrateEditorSessionForPubkey: (pubkey: string | null) => void
 }
 
+/** The user's explicit top-level intent — drives UI affordances + transitions. */
+export type Stance = 'browse' | 'focus' | 'author'
+
+export interface StanceSlice {
+	stance: Stance
+	setStance: (stance: Stance) => void
+}
+
 /** Combined state — intersection of all slices */
 export type EditorState = EditorCoreSlice &
 	DraftSlice &
@@ -420,4 +442,5 @@ export type EditorState = EditorCoreSlice &
 	UISlice &
 	SearchSlice &
 	MapSourceSlice &
-	SessionSyncSlice
+	SessionSyncSlice &
+	StanceSlice

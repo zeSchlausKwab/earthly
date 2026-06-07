@@ -168,16 +168,21 @@ function MapStateCluster({
 }: MapStateClusterProps) {
 	const renderToggle = parts === 'all' || parts === 'toggle'
 	const renderStance = parts === 'all' || parts === 'stance'
-	const stanceLabel = viewMode === 'edit' ? 'Edit' : focusLabel ? 'Inspect' : 'Browse'
+	// Stance is the source of truth (replaces the previously-derived label
+	// that combined viewMode + focusLabel). Transitions live at the explicit
+	// trigger sites — see stanceSlice for the model.
+	const stance = useEditorStore((state) => state.stance)
+	const stanceLabel =
+		stance === 'author' ? 'Edit' : stance === 'focus' ? 'Inspect' : 'Browse'
 	const stanceClass = flat
-		? viewMode === 'edit'
+		? stance === 'author'
 			? 'text-emerald-700'
-			: focusLabel
+			: stance === 'focus'
 				? 'text-amber-700'
 				: 'text-muted-foreground'
-		: viewMode === 'edit'
+		: stance === 'author'
 			? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-			: focusLabel
+			: stance === 'focus'
 				? 'border-amber-200 bg-amber-50 text-amber-800'
 				: 'border-slate-200 bg-slate-50 text-slate-700'
 	const mapCountLabel =

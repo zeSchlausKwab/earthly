@@ -60,6 +60,7 @@ export interface UserProfilePanelProps {
 	getDatasetName: (event: GeoDataset) => string
 	onInspectDataset?: (event: GeoDataset) => void
 	onAddDatasetToMap?: (event: GeoDataset) => void
+	onRemoveDatasetFromMap?: (event: GeoDataset) => void
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void | Promise<void>
 	onInspectContext?: (context: MapContext) => void
@@ -146,6 +147,7 @@ export function UserProfilePanel({
 	getDatasetName,
 	onInspectDataset,
 	onAddDatasetToMap,
+	onRemoveDatasetFromMap,
 	onSwitchWorkspace,
 	onDeleteWorkspace,
 	onInspectContext,
@@ -353,6 +355,7 @@ export function UserProfilePanel({
 			onZoomToDataset,
 			onInspectDataset,
 			onAddDatasetToMap,
+			onRemoveDatasetFromMap,
 			onOpenDebug,
 			isPublishing,
 			deletingKey,
@@ -366,6 +369,7 @@ export function UserProfilePanel({
 			onZoomToDataset,
 			onInspectDataset,
 			onAddDatasetToMap,
+			onRemoveDatasetFromMap,
 			onOpenDebug,
 			isPublishing,
 			deletingKey,

@@ -19,6 +19,7 @@ export const createMapStackSlice: StateCreator<EditorState, [], [], MapStackSlic
 				addedAt: existing?.addedAt ?? input.addedAt ?? Date.now(),
 				visible: input.visible,
 				pinned: input.pinned,
+				isolated: input.isolated ?? existing?.isolated ?? false,
 			}
 			return {
 				mapStackEntries: {
@@ -66,6 +67,41 @@ export const createMapStackSlice: StateCreator<EditorState, [], [], MapStackSlic
 					[id]: { ...entry, visible: !entry.visible },
 				},
 			}
+		}),
+
+	setMapStackEntryIsolated: (id, isolated) =>
+		set((state) => {
+			const entry = state.mapStackEntries[id]
+			if (!entry) return {}
+			// Mutually exclusive: turning isolation ON clears it on all others.
+			const nextEntries: Record<string, typeof entry> = {}
+			for (const [key, value] of Object.entries(state.mapStackEntries)) {
+				if (key === id) {
+					nextEntries[key] = { ...value, isolated }
+				} else if (isolated && value.isolated) {
+					nextEntries[key] = { ...value, isolated: false }
+				} else {
+					nextEntries[key] = value
+				}
+			}
+			return { mapStackEntries: nextEntries }
+		}),
+
+	clearMapStackIsolation: () =>
+		set((state) => {
+			let anyIsolated = false
+			for (const entry of Object.values(state.mapStackEntries)) {
+				if (entry.isolated) {
+					anyIsolated = true
+					break
+				}
+			}
+			if (!anyIsolated) return {}
+			const nextEntries: Record<string, (typeof state.mapStackEntries)[string]> = {}
+			for (const [key, value] of Object.entries(state.mapStackEntries)) {
+				nextEntries[key] = value.isolated ? { ...value, isolated: false } : value
+			}
+			return { mapStackEntries: nextEntries }
 		}),
 
 	clearMapStack: () => set({ mapStackEntries: {}, mapStackOrder: [] }),

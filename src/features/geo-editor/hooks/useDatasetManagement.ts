@@ -79,6 +79,7 @@ export function useDatasetManagement(
 	const setBlobDraftStatus = useEditorStore((state) => state.setBlobDraftStatus)
 	const setBlobDraftError = useEditorStore((state) => state.setBlobDraftError)
 	const setViewMode = useEditorStore((state) => state.setViewMode)
+	const setStance = useEditorStore((state) => state.setStance)
 	const setViewDataset = useEditorStore((state) => state.setViewDataset)
 	const setDatasetResolving = useEditorStore((state) => state.setDatasetResolving)
 	const setDatasetResolvingProgress = useEditorStore((state) => state.setDatasetResolvingProgress)
@@ -224,6 +225,9 @@ export function useDatasetManagement(
 			setBlobDraftError(null)
 			setViewMode('edit')
 			setViewDataset(null)
+			// Stance transition: loading a dataset for editing means the user
+			// has committed to authoring it.
+			setStance('author')
 		},
 		[
 			editor,
@@ -246,6 +250,7 @@ export function useDatasetManagement(
 			setBlobDraftError,
 			setViewMode,
 			setViewDataset,
+			setStance,
 		],
 	)
 
@@ -525,6 +530,9 @@ export function useDatasetManagement(
 		setNewCollectionProp({ key: '', value: '' })
 		setNewFeatureProp({ key: '', value: '' })
 		resetBlobReferenceState()
+		// Stance transition: stopping editing returns to browse (the entry-
+		// point default). Inspect → focus is handled by the inspect handlers.
+		setStance('browse')
 	}, [
 		editor,
 		setFeatures,
@@ -539,6 +547,7 @@ export function useDatasetManagement(
 		resetBlobReferenceState,
 		setActiveGeoEditDraftId,
 		setActiveWorkspaceId,
+		setStance,
 	])
 
 	const deleteWorkspace = useCallback(

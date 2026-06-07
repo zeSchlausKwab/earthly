@@ -28,7 +28,10 @@ export interface DatasetColumnsContext {
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: GeoDataset) => void
 	onInspectDataset?: (event: GeoDataset) => void
+	/** Add to map stack. Idempotent — calling on an already-stacked entity is a no-op. */
 	onAddDatasetToMap?: (event: GeoDataset) => void
+	/** Round C: remove from map stack. Paired with onAddDatasetToMap to make the Layers button a toggle. */
+	onRemoveDatasetFromMap?: (event: GeoDataset) => void
 	onOpenDebug?: (event: GeoDataset) => void
 	isPublishing: boolean
 	deletingKey: string | null
@@ -152,7 +155,7 @@ export const createDatasetColumns = (
 			)
 		},
 		cell: ({ row }) => {
-			const { event, datasetName, isVisible } = row.original
+			const { event, datasetName } = row.original
 
 			const handleDragStart = (e: React.DragEvent<HTMLButtonElement>) => {
 				const datasetId = event.datasetId ?? event.dTag
@@ -189,9 +192,20 @@ export const createDatasetColumns = (
 						className="block w-full cursor-grab text-left text-sm font-semibold leading-snug text-gray-900 transition-colors hover:text-sky-700 active:cursor-grabbing"
 						draggable
 						onDragStart={handleDragStart}
-						onClick={() => context.onZoomToDataset(event)}
-						aria-label={`Zoom to dataset ${datasetName}`}
-						title="Zoom to dataset"
+						onClick={() => {
+							// Round C: stack = visibility. Clicking the dataset name shows it on
+							// the map (additive append). Zoom-to follows so the user lands on it.
+							if (!row.original.isInMapStack) {
+								context.onAddDatasetToMap?.(event)
+							}
+							context.onZoomToDataset(event)
+						}}
+						aria-label={
+							row.original.isInMapStack
+								? `Zoom to dataset ${datasetName}`
+								: `Show and zoom to dataset ${datasetName}`
+						}
+						title={row.original.isInMapStack ? 'Zoom to dataset' : 'Show on map and zoom'}
 					>
 						<span className="line-clamp-2 break-words">{datasetName}</span>
 					</button>
@@ -215,21 +229,6 @@ export const createDatasetColumns = (
 							className="-ml-2 shrink-0 gap-0"
 						/>
 						<div className="flex shrink-0 items-center gap-0.5">
-							<Button
-								size="icon-sm"
-								variant="ghost"
-								className={cn(
-									actionButtonClass,
-									isVisible
-										? 'text-sky-600 hover:text-sky-700'
-										: 'text-gray-400 hover:text-sky-600',
-								)}
-								onClick={() => context.onToggleVisibility(event)}
-								aria-label={isVisible ? 'Hide dataset' : 'Show dataset'}
-								title={isVisible ? 'Hide dataset' : 'Show dataset'}
-							>
-								{isVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-							</Button>
 							{context.onAddDatasetToMap ? (
 								<Button
 									size="icon-sm"
@@ -240,13 +239,17 @@ export const createDatasetColumns = (
 											? 'text-emerald-600 hover:text-emerald-700'
 											: 'hover:text-emerald-600',
 									)}
-									onClick={() => context.onAddDatasetToMap?.(event)}
+									onClick={() => {
+										if (row.original.isInMapStack && context.onRemoveDatasetFromMap) {
+											context.onRemoveDatasetFromMap(event)
+										} else {
+											context.onAddDatasetToMap?.(event)
+										}
+									}}
 									aria-label={
-										row.original.isInMapStack ? 'Show dataset in map stack' : 'Add dataset to map'
+										row.original.isInMapStack ? 'Remove from map stack' : 'Add to map stack'
 									}
-									title={
-										row.original.isInMapStack ? 'Show dataset in map stack' : 'Add dataset to map'
-									}
+									title={row.original.isInMapStack ? 'Remove from map stack' : 'Add to map stack'}
 								>
 									<Layers className="h-4 w-4" />
 								</Button>

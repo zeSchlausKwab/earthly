@@ -67,7 +67,9 @@ export interface MobilePanelProps {
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: GeoDataset) => void
 	onAddDatasetToMap?: (event: GeoDataset) => void
+	onRemoveDatasetFromMap?: (event: GeoDataset) => void
 	onSetMapStackEntryVisible: (entry: MapStackEntry, visible: boolean) => void
+	onSetMapStackEntryIsolated?: (entry: MapStackEntry, isolated: boolean) => void
 	onRemoveMapStackEntry: (entry: MapStackEntry) => void
 	onClearMapStack: () => void
 	onDeleteDataset: (event: GeoDataset) => void
@@ -156,7 +158,9 @@ export function MobilePanel(props: MobilePanelProps) {
 		onToggleAllVisibility,
 		onZoomToDataset,
 		onAddDatasetToMap,
+		onRemoveDatasetFromMap,
 		onSetMapStackEntryVisible,
+		onSetMapStackEntryIsolated,
 		onRemoveMapStackEntry,
 		onClearMapStack,
 		onDeleteDataset,
@@ -371,6 +375,7 @@ export function MobilePanel(props: MobilePanelProps) {
 							onToggleAllVisibility={onToggleAllVisibility}
 							onZoomToDataset={onZoomToDataset}
 							onAddDatasetToMap={onAddDatasetToMap}
+							onRemoveDatasetFromMap={onRemoveDatasetFromMap}
 							onDeleteDataset={onDeleteDataset}
 							getDatasetKey={getDatasetKey}
 							getDatasetName={getDatasetName}
@@ -398,6 +403,7 @@ export function MobilePanel(props: MobilePanelProps) {
 								onLoadDataset={onLoadDataset}
 								onInspectContext={onInspectContext ?? (() => {})}
 								onSetEntryVisible={onSetMapStackEntryVisible}
+								onSetEntryIsolated={onSetMapStackEntryIsolated}
 								onRemoveEntry={onRemoveMapStackEntry}
 								onClear={onClearMapStack}
 								onClose={handleClose}
@@ -420,6 +426,7 @@ export function MobilePanel(props: MobilePanelProps) {
 							onToggleAllVisibility={onToggleAllVisibility}
 							onZoomToDataset={onZoomToDataset}
 							onAddDatasetToMap={onAddDatasetToMap}
+							onRemoveDatasetFromMap={onRemoveDatasetFromMap}
 							onDeleteDataset={onDeleteDataset}
 							getDatasetKey={getDatasetKey}
 							getDatasetName={getDatasetName}
@@ -588,6 +595,7 @@ interface MobileProfileContentProps {
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: GeoDataset) => void
 	onAddDatasetToMap?: (event: GeoDataset) => void
+	onRemoveDatasetFromMap?: (event: GeoDataset) => void
 	onDeleteDataset: (event: GeoDataset) => void
 	getDatasetKey: (event: GeoDataset) => string
 	getDatasetName: (event: GeoDataset) => string

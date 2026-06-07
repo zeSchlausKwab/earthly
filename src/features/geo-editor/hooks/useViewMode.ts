@@ -58,6 +58,8 @@ export function useViewMode({
 	const setViewingContextDatasets = useEditorStore((state) => state.setViewContextDatasets)
 	const setViewMode = useEditorStore((state) => state.setViewMode)
 	const clearFocused = useEditorStore((state) => state.clearFocused)
+	const setStance = useEditorStore((state) => state.setStance)
+	const activeDataset = useEditorStore((state) => state.activeDataset)
 
 	const exitViewMode = useCallback(() => {
 		setInfoMode('edit')
@@ -69,6 +71,10 @@ export function useViewMode({
 		// Clear URL and focus state
 		clearFocused()
 		onClearRouteFocus?.()
+		// Stance transition: leaving inspect returns to 'author' if the user
+		// still has an active draft, otherwise 'browse'. Never lands in 'focus'
+		// since focus is what we just exited.
+		setStance(activeDataset ? 'author' : 'browse')
 	}, [
 		setViewingDataset,
 		setViewingContext,
@@ -76,6 +82,8 @@ export function useViewMode({
 		setViewMode,
 		clearFocused,
 		onClearRouteFocus,
+		setStance,
+		activeDataset,
 	])
 
 	const handleInspectDataset = useCallback(
@@ -87,6 +95,7 @@ export function useViewMode({
 			setViewMode('view')
 			setSidebarMode('dataset')
 			onEnsureInfoPanelVisible()
+			setStance('focus')
 
 			// Update URL with naddr
 			const naddr = encodeGeoEventNaddr(event)
@@ -105,6 +114,7 @@ export function useViewMode({
 			onEnsureInfoPanelVisible,
 			onNavigateToFocus,
 			onZoomToDataset,
+			setStance,
 		],
 	)
 
@@ -121,6 +131,7 @@ export function useViewMode({
 			setViewMode('view')
 			setSidebarMode('dataset')
 			onEnsureInfoPanelVisible()
+			setStance('focus')
 			// Do NOT update URL - this prevents focus mode from being triggered
 		},
 		[
@@ -129,6 +140,7 @@ export function useViewMode({
 			setViewingContextDatasets,
 			setViewMode,
 			onEnsureInfoPanelVisible,
+			setStance,
 		],
 	)
 

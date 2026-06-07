@@ -2,8 +2,7 @@ import {
 	ChevronDown,
 	ChevronUp,
 	Database,
-	Eye,
-	EyeOff,
+	Focus,
 	Layers,
 	LocateFixed,
 	Search,
@@ -28,7 +27,13 @@ interface MapStackPanelProps {
 	onZoomToDataset: (event: GeoDataset) => void
 	onLoadDataset: (event: GeoDataset) => void
 	onInspectContext: (context: MapContext) => void
-	onSetEntryVisible: (entry: MapStackEntry, visible: boolean) => void
+	/**
+	 * Retained for backward compatibility — under the Round C invariant
+	 * (stack = map visibility), the eye toggle is dropped and visibility is
+	 * implicit. This callback is no longer wired to a UI control.
+	 */
+	onSetEntryVisible?: (entry: MapStackEntry, visible: boolean) => void
+	onSetEntryIsolated?: (entry: MapStackEntry, isolated: boolean) => void
 	onRemoveEntry: (entry: MapStackEntry) => void
 	onClear: () => void
 	onClose?: () => void
@@ -61,7 +66,8 @@ export function MapStackPanel({
 	onZoomToDataset,
 	onLoadDataset,
 	onInspectContext,
-	onSetEntryVisible,
+	onSetEntryVisible: _onSetEntryVisible,
+	onSetEntryIsolated,
 	onRemoveEntry,
 	onClear,
 	onClose,
@@ -97,6 +103,16 @@ export function MapStackPanel({
 		[mapStackEntries, mapStackOrder],
 	)
 	const visibleCount = entries.filter((entry) => entry.visible).length
+	const isolatedEntry = entries.find((entry) => entry.isolated) ?? null
+	const isolatedDataset =
+		isolatedEntry && isolatedEntry.entityType === 'dataset'
+			? (datasetByKey.get(isolatedEntry.entityKey) ?? null)
+			: null
+	const isolatedLabel = isolatedEntry
+		? isolatedDataset
+			? getDatasetName(isolatedDataset)
+			: isolatedEntry.entityKey
+		: null
 	const actionButtonClassName = cn(compact ? 'h-6 w-6' : 'h-7 w-7', 'text-muted-foreground')
 	const actionIconClassName = compact ? 'h-3.5 w-3.5' : 'h-4 w-4'
 	const isPanelCollapsed = compact && isCollapsed
@@ -158,9 +174,35 @@ export function MapStackPanel({
 						<div className={cn('text-muted-foreground', compact ? 'text-[11px]' : 'text-xs')}>
 							{visibleCount}/{entries.length} visible
 						</div>
+						{isolatedEntry && isolatedLabel ? (
+							<div
+								className={cn(
+									'mt-0.5 flex items-center gap-1 text-amber-600',
+									compact ? 'text-[11px]' : 'text-xs',
+								)}
+							>
+								<Focus className={cn(compact ? 'h-3 w-3' : 'h-3.5 w-3.5')} />
+								<span className="truncate">Isolating: {isolatedLabel}</span>
+							</div>
+						) : null}
 					</div>
 				</div>
 				<div className="flex shrink-0 items-center gap-1">
+					{isolatedEntry && onSetEntryIsolated ? (
+						<Button
+							type="button"
+							variant="ghost"
+							size="sm"
+							className={cn(
+								compact ? 'h-6 px-1.5 text-[11px]' : 'h-7 px-2 text-xs',
+								'text-amber-700 hover:bg-amber-100 hover:text-amber-800',
+							)}
+							onClick={() => onSetEntryIsolated(isolatedEntry, false)}
+							title="Stop isolating — show all again"
+						>
+							Show all
+						</Button>
+					) : null}
 					<Button
 						type="button"
 						variant="ghost"
@@ -275,21 +317,29 @@ export function MapStackPanel({
 											</div>
 										</div>
 										<div className="flex shrink-0 items-center gap-0.5">
-											<Button
-												type="button"
-												variant="ghost"
-												size="icon-sm"
-												className={cn(actionButtonClassName, 'hover:text-sky-700')}
-												onClick={() => onSetEntryVisible(entry, !entry.visible)}
-												title={entry.visible ? 'Hide from map' : 'Show on map'}
-												aria-label={entry.visible ? 'Hide from map' : 'Show on map'}
-											>
-												{entry.visible ? (
-													<Eye className={actionIconClassName} />
-												) : (
-													<EyeOff className={actionIconClassName} />
-												)}
-											</Button>
+											{onSetEntryIsolated && entry.entityType === 'dataset' ? (
+												<Button
+													type="button"
+													variant="ghost"
+													size="icon-sm"
+													className={cn(
+														actionButtonClassName,
+														entry.isolated
+															? 'text-amber-600 hover:text-amber-700'
+															: 'hover:text-amber-700',
+													)}
+													onClick={() => onSetEntryIsolated(entry, !entry.isolated)}
+													title={
+														entry.isolated
+															? 'Show all (stop isolating)'
+															: 'Show only this on the map'
+													}
+													aria-label={entry.isolated ? 'Stop isolating' : 'Isolate on the map'}
+													aria-pressed={entry.isolated}
+												>
+													<Focus className={actionIconClassName} />
+												</Button>
+											) : null}
 											{dataset ? (
 												<>
 													<Button

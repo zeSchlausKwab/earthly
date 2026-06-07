@@ -33,6 +33,8 @@ export function useContextEditor({
 	const setViewDatasetState = useEditorStore((state) => state.setViewDataset)
 	const setViewContext = useEditorStore((state) => state.setViewContext)
 	const setViewContextDatasets = useEditorStore((state) => state.setViewContextDatasets)
+	const setStance = useEditorStore((state) => state.setStance)
+	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
 	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
 	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
 
@@ -67,6 +69,25 @@ export function useContextEditor({
 			setViewDatasetState(null)
 			setViewContext(context)
 			ensureInfoPanelVisible()
+			setStance('focus')
+
+			// Round C: stack = visibility. Add the context as a stack entry so its
+			// curated datasets render (C.1 has a transitional rule that catches
+			// this; C.2 will turn the entry itself into an expandable macro that
+			// renders the curated datasets).
+			const contextKey =
+				context.contextCoordinate ?? context.id ?? context.contextId ?? context.dTag
+			if (contextKey) {
+				const title = context.context?.name || `Context ${contextKey.slice(0, 12)}`
+				addMapStackEntry({
+					entityType: 'context',
+					entityKey: contextKey,
+					title,
+					source: 'manual',
+					visible: true,
+					pinned: false,
+				})
+			}
 
 			const naddr = encodeContextNaddr(context)
 			if (naddr) {
@@ -81,6 +102,8 @@ export function useContextEditor({
 			ensureInfoPanelVisible,
 			encodeContextNaddr,
 			navigateToContext,
+			setStance,
+			addMapStackEntry,
 		],
 	)
 

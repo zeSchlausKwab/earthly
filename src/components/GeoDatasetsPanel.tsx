@@ -43,6 +43,7 @@ export interface GeoDatasetsPanelProps {
 	getDatasetName: (event: GeoDataset) => string
 	onInspectDataset?: (event: GeoDataset) => void
 	onAddDatasetToMap?: (event: GeoDataset) => void
+	onRemoveDatasetFromMap?: (event: GeoDataset) => void
 	onInspectContext?: (context: MapContext) => void
 	onOpenDebug?: (event: GeoDataset | MapContext) => void
 	onCreateContext?: () => void
@@ -112,6 +113,7 @@ export function GeoDatasetsPanelContent({
 	getDatasetName,
 	onInspectDataset,
 	onAddDatasetToMap,
+	onRemoveDatasetFromMap,
 	onInspectContext,
 	onOpenDebug,
 	onCreateContext,
@@ -246,6 +248,7 @@ export function GeoDatasetsPanelContent({
 			onZoomToDataset,
 			onInspectDataset,
 			onAddDatasetToMap,
+			onRemoveDatasetFromMap,
 			onOpenDebug,
 			isPublishing,
 			deletingKey,
@@ -259,6 +262,7 @@ export function GeoDatasetsPanelContent({
 			onZoomToDataset,
 			onInspectDataset,
 			onAddDatasetToMap,
+			onRemoveDatasetFromMap,
 			onOpenDebug,
 			isPublishing,
 			deletingKey,
