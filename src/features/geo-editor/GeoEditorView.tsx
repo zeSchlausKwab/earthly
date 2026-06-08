@@ -207,6 +207,24 @@ export function GeoEditorView() {
 	// External data
 	const { events: geoEvents } = useGeoDatasets()
 	const { events: mapContextEvents } = useMapContexts()
+	// Round C.2 reliability: also fire a targeted subscription for every
+	// context entry on the stack. The global subscription above is best-effort
+	// — if a read relay was slow or 502 at open time, foreign attachments
+	// (datasets with `["c", "37518:…:dTag"]` pointing at the context) might
+	// never have streamed in. This explicit `#c` filter guarantees they're
+	// fetched whenever a context lands on the stack, and applesauce's shared
+	// EventStore deduplicates them straight into the same `geoEvents` array.
+	const stackedContextCoordinates = useMemo(() => {
+		const coords: string[] = []
+		for (const id of mapStackOrder) {
+			const entry = mapStackEntries[id]
+			if (entry?.entityType === 'context') coords.push(entry.entityKey)
+		}
+		return coords
+	}, [mapStackEntries, mapStackOrder])
+	useGeoDatasets(
+		stackedContextCoordinates.length > 0 ? [{ '#c': stackedContextCoordinates }] : null,
+	)
 	const currentUser = useActiveAccount()
 	const currentUserPubkey = currentUser?.pubkey ?? null
 	const isMobile = useIsMobile()
@@ -331,7 +349,7 @@ export function GeoEditorView() {
 	} = useDatasetManagement(map, geoEvents)
 
 	const addDatasetToMapStack = useCallback(
-		(event: GeoDataset, source: 'manual' | 'route' = 'manual') => {
+		(event: GeoDataset, source: 'manual' | 'route' | 'browse-default' = 'manual') => {
 			const datasetKey = getDatasetKey(event)
 			addMapStackEntry({
 				entityType: 'dataset',
@@ -382,6 +400,13 @@ export function GeoEditorView() {
 
 	const removeFromMapStack = useCallback(
 		(entry: MapStackEntry) => {
+			// Round C.3: removing the draft entry equals "stop editing." cancelEditing
+			// triggers clearEditingSession, which removes the entry itself — so we
+			// don't need a separate removeMapStackEntry call in this branch.
+			if (entry.entityType === 'draft') {
+				cancelEditing()
+				return
+			}
 			removeMapStackEntry(entry.id)
 			if (entry.entityType === 'dataset') {
 				setDatasetVisibility((prev) => ({
@@ -390,7 +415,7 @@ export function GeoEditorView() {
 				}))
 			}
 		},
-		[removeMapStackEntry, setDatasetVisibility],
+		[removeMapStackEntry, setDatasetVisibility, cancelEditing],
 	)
 
 	/**
@@ -428,6 +453,136 @@ export function GeoEditorView() {
 			})
 		}
 	}, [clearMapStack, mapStackEntries, mapStackOrder, setDatasetVisibility])
+
+	// Round C.4: cold-start auto-populate. On Browse with an empty stack, drop
+	// in the most recent N datasets so the user doesn't land on a blank map.
+	// One-shot per page load (guarded by ref) so a manual Clear stays cleared.
+	const stance = useEditorStore((state) => state.stance)
+	const browseDefaultsSeededRef = useRef(false)
+	// Round C.5: stack ⇄ URL serialization. Read URL params on mount once data
+	// is loaded; afterwards push stack mutations back to the URL (debounced via
+	// rAF). The URL is the canonical shareable representation of a map view.
+	const stackUrlHydratedRef = useRef(false)
+	useEffect(() => {
+		if (stackUrlHydratedRef.current) return
+		if (geoEvents.length === 0 && mapContextEvents.length === 0) return
+		const params = new URLSearchParams(window.location.search)
+		const msParam = params.get('ms')
+		const isoParam = params.get('iso')
+		if (!msParam) {
+			stackUrlHydratedRef.current = true
+			return
+		}
+		const tokens = msParam
+			.split(',')
+			.map((token) => token.trim())
+			.filter(Boolean)
+		const datasetByKey = new Map<string, GeoDataset>()
+		for (const event of geoEvents) datasetByKey.set(getDatasetKey(event), event)
+		const contextByKey = new Map<string, MapContext>()
+		for (const ctx of mapContextEvents) {
+			const key = ctx.contextCoordinate ?? ctx.id ?? ctx.contextId ?? ctx.dTag
+			if (key) contextByKey.set(key, ctx)
+		}
+		for (const token of tokens) {
+			const sep = token.indexOf(':')
+			if (sep <= 0) continue
+			const entityType = token.slice(0, sep)
+			const entityKey = token.slice(sep + 1)
+			if (!entityKey) continue
+			if (entityType === 'dataset') {
+				const event = datasetByKey.get(entityKey)
+				if (!event) continue
+				addDatasetToMapStack(event, 'route')
+			} else if (entityType === 'context') {
+				const ctx = contextByKey.get(entityKey)
+				if (!ctx) continue
+				const title = ctx.context?.name || `Context ${entityKey.slice(0, 12)}`
+				addMapStackEntry({
+					entityType: 'context',
+					entityKey,
+					title,
+					source: 'route',
+					visible: true,
+					pinned: false,
+				})
+			}
+		}
+		if (isoParam) {
+			const sep = isoParam.indexOf(':')
+			if (sep > 0) {
+				const isoType = isoParam.slice(0, sep)
+				const isoKey = isoParam.slice(sep + 1)
+				const isoId = `${isoType}:${isoKey}`
+				setMapStackEntryIsolated(isoId, true)
+			}
+		}
+		// URL had entries → suppress the cold-start auto-populate.
+		browseDefaultsSeededRef.current = true
+		stackUrlHydratedRef.current = true
+	}, [
+		geoEvents,
+		mapContextEvents,
+		getDatasetKey,
+		addDatasetToMapStack,
+		addMapStackEntry,
+		setMapStackEntryIsolated,
+	])
+	// Push stack mutations back to the URL (debounced via rAF) once we've
+	// finished initial hydration. Drafts are stripped — they're session state,
+	// not shareable.
+	useEffect(() => {
+		if (!stackUrlHydratedRef.current) return
+		let cancelled = false
+		const handle = window.requestAnimationFrame(() => {
+			if (cancelled) return
+			const params = new URLSearchParams(window.location.search)
+			const shareableEntries = mapStackOrder
+				.map((id) => mapStackEntries[id])
+				.filter((entry): entry is MapStackEntry => Boolean(entry))
+				.filter((entry) => entry.entityType !== 'draft')
+			const tokens = shareableEntries.map((entry) => `${entry.entityType}:${entry.entityKey}`)
+			if (tokens.length > 0) {
+				params.set('ms', tokens.join(','))
+			} else {
+				params.delete('ms')
+			}
+			const isolated = shareableEntries.find((entry) => entry.isolated)
+			if (isolated) {
+				params.set('iso', `${isolated.entityType}:${isolated.entityKey}`)
+			} else {
+				params.delete('iso')
+			}
+			const next = params.toString()
+			const nextSearch = next ? `?${next}` : ''
+			if (nextSearch === window.location.search) return
+			window.history.replaceState(
+				null,
+				'',
+				`${window.location.pathname}${nextSearch}${window.location.hash}`,
+			)
+		})
+		return () => {
+			cancelled = true
+			window.cancelAnimationFrame(handle)
+		}
+	}, [mapStackEntries, mapStackOrder])
+	useEffect(() => {
+		if (browseDefaultsSeededRef.current) return
+		if (stance !== 'browse') return
+		if (mapStackOrder.length > 0) return
+		if (geoEvents.length === 0) return
+		// Wait until data has stabilised — pick the 5 most recent datasets
+		// across the loaded set as a sensible default discovery layer.
+		const SEED_COUNT = 5
+		const seeded = [...geoEvents]
+			.sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
+			.slice(0, SEED_COUNT)
+		for (const event of seeded) {
+			addDatasetToMapStack(event, 'browse-default')
+		}
+		browseDefaultsSeededRef.current = true
+	}, [stance, mapStackOrder.length, geoEvents, addDatasetToMapStack])
 
 	// Store state for viewMode
 	const viewMode = useEditorStore((state) => state.viewMode)
@@ -553,18 +708,12 @@ export function GeoEditorView() {
 		)
 	}, [contextNaddr, mapContextEvents, encodeContextNaddr])
 
-	const activeContextScopeLabel = useMemo(() => {
-		if (!contextNaddr) return null
-		if (activeContextScope) {
-			return (
-				activeContextScope.context.name ||
-				activeContextScope.contextId ||
-				activeContextScope.id ||
-				'Context scope'
-			)
-		}
-		return `Context ${contextNaddr.slice(0, 12)}…`
-	}, [activeContextScope, contextNaddr])
+	// Round C: activeContextScopeLabel and toolbarFocusLabel were used by the
+	// removed toolbar chips. The MapStackPanel surface now carries the same
+	// information via per-row "Isolated" indicators + the header subtitle.
+	// Keep the upstream context-scope and focus state as-is — they still
+	// drive sidebar/info-panel and routing behaviour — just stop computing
+	// the toolbar-specific labels.
 
 	const focusedContext = useMemo(() => {
 		if (focusedType !== 'mapcontext' || !focusedNaddr) return null
@@ -576,34 +725,10 @@ export function GeoEditorView() {
 		)
 	}, [focusedType, focusedNaddr, mapContextEvents, encodeContextNaddr])
 
-	const focusedDataset = useMemo(() => {
-		if (focusedType !== 'geoevent' || !focusedNaddr) return null
-		return (
-			geoEvents.find((event) => {
-				const eventNaddr = encodeGeoEventNaddr(event)
-				return eventNaddr === focusedNaddr
-			}) ?? null
-		)
-	}, [focusedType, focusedNaddr, geoEvents, encodeGeoEventNaddr])
-
-	const toolbarFocusLabel = useMemo(() => {
-		if (!focusedNaddr || !focusedType) return null
-		if (focusedType === 'mapcontext') {
-			if (contextNaddr && focusedNaddr === contextNaddr) return null
-			return focusedContext
-				? focusedContext.context.name ||
-						focusedContext.contextId ||
-						focusedContext.id ||
-						'Focused context'
-				: `Context ${focusedNaddr.slice(0, 12)}...`
-		}
-		return focusedDataset
-			? getDatasetName(focusedDataset)
-			: `Dataset ${focusedNaddr.slice(0, 12)}...`
-	}, [focusedNaddr, focusedType, contextNaddr, focusedContext, focusedDataset, getDatasetName])
-
-	const toolbarFocusKind =
-		focusedType === 'geoevent' ? 'dataset' : focusedType === 'mapcontext' ? 'context' : null
+	// Note: `focusedDataset` was only ever read by the now-removed toolbar focus
+	// label. The focus state itself still drives routing + sidebar — see
+	// `focusedNaddr` / `focusedType` reads below — but the dataset resolution
+	// is no longer needed in this scope.
 
 	const explicitContext = activeContextScope ?? focusedContext
 	const mapFilterContext = explicitContext
@@ -703,43 +828,68 @@ export function GeoEditorView() {
 	// what's on the map stack — no scope filters, no focus filter, no per-entry
 	// eye toggle. The only overrides are:
 	//   1) edit-isolation (handed off to C.3 as draft-entry isolation), and
-	//   2) map-stack isolation (Round B), which short-circuits to a single entry.
-	// Context entries don't yet expand to their curated datasets — that's C.2.
+	//   2) map-stack isolation (Round B), which short-circuits to a single entry
+	//      (or the curated set of a single isolated context entry).
+	// Context entries (C.2) expand to their curated datasets, minus any keys
+	// the user has unchecked in the inline expand panel (`entry.exclusions`).
 	const visibleGeoEvents = useMemo(() => {
 		if (viewMode === 'edit' && editIsolationEnabled) {
 			return []
 		}
 
-		const isolatedDatasetKey = (() => {
+		const contextByKey = new Map<string, MapContext>()
+		for (const ctx of mapContextEvents) {
+			const key = ctx.contextCoordinate ?? ctx.id ?? ctx.contextId ?? ctx.dTag
+			if (key) contextByKey.set(key, ctx)
+		}
+
+		// Compute the curated dataset keys for a context entry, honouring its
+		// exclusions. Cheap because the stack is typically a handful of entries.
+		const curatedKeysFor = (entry: MapStackEntry): Set<string> => {
+			const out = new Set<string>()
+			const ctx = contextByKey.get(entry.entityKey)
+			if (!ctx) return out
+			const scope = resolveContextMapScope(
+				ctx,
+				geoEvents,
+				mapContextEvents,
+				getDefaultContextMapScopeMode(ctx),
+			)
+			const exclusionSet = new Set(entry.exclusions ?? [])
+			for (const { dataset } of scope.datasets) {
+				const key = getDatasetKey(dataset)
+				if (!exclusionSet.has(key)) out.add(key)
+			}
+			return out
+		}
+
+		// Isolation: when one entry is isolated, only its keys render. Dataset
+		// entries → the single key; context entries → the curated set minus
+		// exclusions.
+		const isolatedEntry = (() => {
 			for (const entryId of mapStackOrder) {
 				const entry = mapStackEntries[entryId]
-				if (entry?.isolated && entry.entityType === 'dataset') return entry.entityKey
+				if (entry?.isolated) return entry
 			}
 			return null
 		})()
-		if (isolatedDatasetKey) {
-			const match = geoEvents.find((event) => getDatasetKey(event) === isolatedDatasetKey)
-			return match ? [match] : []
+		if (isolatedEntry) {
+			const isolatedKeys =
+				isolatedEntry.entityType === 'dataset'
+					? new Set([isolatedEntry.entityKey])
+					: curatedKeysFor(isolatedEntry)
+			if (isolatedKeys.size === 0) return []
+			return geoEvents.filter((event) => isolatedKeys.has(getDatasetKey(event)))
 		}
 
 		const stackedDatasetKeys = new Set<string>()
 		for (const entryId of mapStackOrder) {
 			const entry = mapStackEntries[entryId]
-			if (entry?.entityType === 'dataset' && entry.visible !== false) {
+			if (!entry || entry.visible === false) continue
+			if (entry.entityType === 'dataset') {
 				stackedDatasetKeys.add(entry.entityKey)
-			}
-		}
-		// C.2 transitional: if a context entry is on the stack, also render its
-		// curated datasets. This keeps context routes functional until C.2 lands
-		// the proper expandable-context entry rendering.
-		if (mapFilterContextCoordinate && activeContextDatasets.length > 0) {
-			const hasContextEntryOnStack = mapStackOrder.some(
-				(id) => mapStackEntries[id]?.entityType === 'context',
-			)
-			if (hasContextEntryOnStack) {
-				for (const event of activeContextDatasets) {
-					stackedDatasetKeys.add(getDatasetKey(event))
-				}
+			} else if (entry.entityType === 'context') {
+				for (const key of curatedKeysFor(entry)) stackedDatasetKeys.add(key)
 			}
 		}
 		if (stackedDatasetKeys.size === 0) return []
@@ -751,8 +901,7 @@ export function GeoEditorView() {
 		mapStackOrder,
 		viewMode,
 		editIsolationEnabled,
-		mapFilterContextCoordinate,
-		activeContextDatasets,
+		mapContextEvents,
 	])
 
 	const toolbarMapStackOpen = isMobile
@@ -1670,13 +1819,8 @@ export function GeoEditorView() {
 								mapStackEntryCount={mapStackStats.total}
 								mapStackVisibleCount={mapStackStats.visible}
 								chatOpen={desktopChatOpen}
-								contextScopeLabel={activeContextScopeLabel}
-								focusLabel={toolbarFocusLabel}
-								focusKind={toolbarFocusKind}
 								onToggleMapStack={toggleToolbarMapStack}
 								onToggleChat={() => setDesktopChatOpen((open) => !open)}
-								onClearContextScope={contextNaddr ? clearContextScope : undefined}
-								onClearFocus={focusedNaddr ? clearFocus : undefined}
 							/>
 						</div>
 					</div>

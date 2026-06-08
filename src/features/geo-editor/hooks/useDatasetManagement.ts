@@ -64,6 +64,8 @@ export function useDatasetManagement(
 	const editor = useEditorStore((state) => state.editor)
 	const setFeatures = useEditorStore((state) => state.setFeatures)
 	const setActiveDataset = useEditorStore((state) => state.setActiveDataset)
+	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
+	const removeMapStackEntry = useEditorStore((state) => state.removeMapStackEntry)
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
 	const setDatasetVisibility = useEditorStore((state) => state.setDatasetVisibility)
 	const setSelectedFeatureIds = useEditorStore((state) => state.setSelectedFeatureIds)
@@ -228,6 +230,22 @@ export function useDatasetManagement(
 			// Stance transition: loading a dataset for editing means the user
 			// has committed to authoring it.
 			setStance('author')
+			// Round C.3: surface the in-edit state as a map-stack entry. It's
+			// rendered by the editor's draft layer (not via `visibleGeoEvents`)
+			// so the stack entry is informational — but it lets the panel
+			// honestly reflect what's contributing to the map and lets the
+			// user end the session from the same surface.
+			const draftTitle =
+				collectionMeta?.name || (activeDataset ? getDatasetName(activeDataset) : 'Untitled draft')
+			addMapStackEntry({
+				id: 'draft:active',
+				entityType: 'draft',
+				entityKey: 'draft:active',
+				title: draftTitle,
+				source: 'workspace',
+				visible: true,
+				pinned: false,
+			})
 		},
 		[
 			editor,
@@ -251,6 +269,8 @@ export function useDatasetManagement(
 			setViewMode,
 			setViewDataset,
 			setStance,
+			addMapStackEntry,
+			getDatasetName,
 		],
 	)
 
@@ -533,6 +553,8 @@ export function useDatasetManagement(
 		// Stance transition: stopping editing returns to browse (the entry-
 		// point default). Inspect → focus is handled by the inspect handlers.
 		setStance('browse')
+		// Round C.3: remove the in-edit stack entry on session end.
+		removeMapStackEntry('draft:active')
 	}, [
 		editor,
 		setFeatures,
@@ -548,6 +570,7 @@ export function useDatasetManagement(
 		setActiveGeoEditDraftId,
 		setActiveWorkspaceId,
 		setStance,
+		removeMapStackEntry,
 	])
 
 	const deleteWorkspace = useCallback(

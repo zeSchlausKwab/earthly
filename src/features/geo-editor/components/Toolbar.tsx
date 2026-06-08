@@ -7,7 +7,6 @@ import {
 	Edit3,
 	EyeOff,
 	FileText,
-	Globe,
 	Layers,
 	Link2,
 	MapPin,
@@ -121,11 +120,6 @@ interface ToolbarProps {
 	chatOpen?: boolean
 	onToggleMapStack?: () => void
 	onToggleChat?: () => void
-	contextScopeLabel?: string | null
-	focusLabel?: string | null
-	focusKind?: 'dataset' | 'context' | null
-	onClearContextScope?: () => void
-	onClearFocus?: () => void
 }
 
 interface MapStateClusterProps {
@@ -133,35 +127,31 @@ interface MapStateClusterProps {
 	mapStackOpen: boolean
 	mapStackEntryCount: number
 	mapStackVisibleCount: number
-	contextScopeLabel?: string | null
-	focusLabel?: string | null
-	focusKind?: 'dataset' | 'context' | null
 	onToggleMapStack?: () => void
-	onClearContextScope?: () => void
-	onClearFocus?: () => void
 	compact?: boolean
 	flat?: boolean
 	/**
 	 * Which part(s) of the cluster to render. The desktop toolbar uses this to
 	 * place the map-stack toggle and the stance pill in different positions:
 	 *   - 'toggle'  → just the map-stack Layers button + count
-	 *   - 'stance'  → just the stance pill + context-scope + focus chips
+	 *   - 'stance'  → just the stance pill
 	 *   - 'all'     → full cluster (default, used by mobile)
+	 *
+	 * Round C: the focused-entity and context-scope chips that used to live
+	 * here are removed — the MapStackPanel's per-row "Isolated" indicator and
+	 * its "Isolating: <name>" header subtitle now play that role, and they
+	 * stay coherent with the stack/visibility model. The toolbar surface is
+	 * lighter as a result.
 	 */
 	parts?: 'all' | 'toggle' | 'stance'
 }
 
 function MapStateCluster({
-	viewMode,
+	viewMode: _viewMode,
 	mapStackOpen,
 	mapStackEntryCount,
 	mapStackVisibleCount,
-	contextScopeLabel,
-	focusLabel,
-	focusKind,
 	onToggleMapStack,
-	onClearContextScope,
-	onClearFocus,
 	compact = false,
 	flat = false,
 	parts = 'all',
@@ -172,8 +162,7 @@ function MapStateCluster({
 	// that combined viewMode + focusLabel). Transitions live at the explicit
 	// trigger sites — see stanceSlice for the model.
 	const stance = useEditorStore((state) => state.stance)
-	const stanceLabel =
-		stance === 'author' ? 'Edit' : stance === 'focus' ? 'Inspect' : 'Browse'
+	const stanceLabel = stance === 'author' ? 'Edit' : stance === 'focus' ? 'Inspect' : 'Browse'
 	const stanceClass = flat
 		? stance === 'author'
 			? 'text-emerald-700'
@@ -187,10 +176,6 @@ function MapStateCluster({
 				: 'border-slate-200 bg-slate-50 text-slate-700'
 	const mapCountLabel =
 		mapStackEntryCount > 0 ? `${mapStackVisibleCount}/${mapStackEntryCount}` : '0'
-	const hasContextScope = Boolean(contextScopeLabel)
-	const hasFocus = Boolean(focusLabel)
-	const focusIcon = focusKind === 'context' ? Globe : Crosshair
-	const FocusIcon = focusIcon
 	const clusterClass = flat
 		? 'flex min-w-0 shrink-0 items-center gap-1'
 		: `flex min-w-0 items-center gap-1 rounded-md border border-border/80 bg-background/85 p-1 shadow-sm backdrop-blur ${
@@ -249,70 +234,6 @@ function MapStateCluster({
 					title={`Current stance: ${stanceLabel}`}
 				>
 					{stanceLabel}
-				</span>
-			) : null}
-			{renderStance && hasContextScope ? (
-				<span
-					className={
-						flat
-							? 'inline-flex h-8 min-w-0 max-w-[8rem] items-center gap-1 rounded-md border border-transparent px-2 text-sm font-medium text-muted-foreground'
-							: `inline-flex h-7 min-w-0 items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 text-xs text-sky-900 ${
-									compact ? 'max-w-[8rem]' : 'max-w-[14rem]'
-								}`
-					}
-				>
-					<Globe className={flat ? 'h-3.5 w-3.5 shrink-0' : 'h-3.5 w-3.5 shrink-0 text-sky-700'} />
-					<span className="truncate">{contextScopeLabel}</span>
-					{onClearContextScope ? (
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-xs"
-							className={
-								flat
-									? '-mr-1 h-5 w-5 shrink-0 rounded-full'
-									: '-mr-1 h-5 w-5 shrink-0 rounded-full text-sky-700 hover:bg-sky-100'
-							}
-							onClick={onClearContextScope}
-							aria-label="Leave context scope"
-							title="Leave context scope"
-						>
-							<X className="h-3 w-3" />
-						</Button>
-					) : null}
-				</span>
-			) : null}
-			{renderStance && hasFocus ? (
-				<span
-					className={
-						flat
-							? 'inline-flex h-8 min-w-0 max-w-[8rem] items-center gap-1 rounded-md border border-transparent px-2 text-sm font-medium text-muted-foreground'
-							: `inline-flex h-7 min-w-0 items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 text-xs text-amber-900 ${
-									compact ? 'max-w-[8rem]' : 'max-w-[14rem]'
-								}`
-					}
-				>
-					<FocusIcon
-						className={flat ? 'h-3.5 w-3.5 shrink-0' : 'h-3.5 w-3.5 shrink-0 text-amber-700'}
-					/>
-					<span className="truncate">{focusLabel}</span>
-					{onClearFocus ? (
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-xs"
-							className={
-								flat
-									? '-mr-1 h-5 w-5 shrink-0 rounded-full'
-									: '-mr-1 h-5 w-5 shrink-0 rounded-full text-amber-700 hover:bg-amber-100'
-							}
-							onClick={onClearFocus}
-							aria-label="Clear focused item"
-							title="Clear focused item"
-						>
-							<X className="h-3 w-3" />
-						</Button>
-					) : null}
 				</span>
 			) : null}
 		</div>
@@ -417,11 +338,6 @@ export function Toolbar({
 	chatOpen = false,
 	onToggleMapStack,
 	onToggleChat,
-	contextScopeLabel,
-	focusLabel,
-	focusKind,
-	onClearContextScope,
-	onClearFocus,
 }: ToolbarProps) {
 	const editor = useEditorStore((state) => state.editor)
 	const mode = useEditorStore((state) => state.mode)
@@ -1036,12 +952,7 @@ export function Toolbar({
 							mapStackOpen={mapStackOpen}
 							mapStackEntryCount={mapStackEntryCount}
 							mapStackVisibleCount={mapStackVisibleCount}
-							contextScopeLabel={contextScopeLabel}
-							focusLabel={focusLabel}
-							focusKind={focusKind}
 							onToggleMapStack={onToggleMapStack}
-							onClearContextScope={onClearContextScope}
-							onClearFocus={onClearFocus}
 							compact
 						/>
 					</div>
@@ -1234,17 +1145,15 @@ export function Toolbar({
 					/>
 					<Divider />
 
-					{/* Topic 3: stance indicator + context-scope + focus chips. */}
+					{/* Topic 3: stance indicator. The previously-shown context-scope and
+					    focus chips were removed in Round C: the MapStackPanel's per-row
+					    "Isolated" pill + header "Isolating: <name>" subtitle now play
+					    that role and stay coherent with the stack/visibility model. */}
 					<MapStateCluster
 						viewMode={viewMode}
 						mapStackOpen={mapStackOpen}
 						mapStackEntryCount={mapStackEntryCount}
 						mapStackVisibleCount={mapStackVisibleCount}
-						contextScopeLabel={contextScopeLabel}
-						focusLabel={focusLabel}
-						focusKind={focusKind}
-						onClearContextScope={onClearContextScope}
-						onClearFocus={onClearFocus}
 						compact
 						flat
 						parts="stance"

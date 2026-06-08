@@ -20,6 +20,7 @@ export const createMapStackSlice: StateCreator<EditorState, [], [], MapStackSlic
 				visible: input.visible,
 				pinned: input.pinned,
 				isolated: input.isolated ?? existing?.isolated ?? false,
+				exclusions: input.exclusions ?? existing?.exclusions ?? [],
 			}
 			return {
 				mapStackEntries: {
@@ -102,6 +103,34 @@ export const createMapStackSlice: StateCreator<EditorState, [], [], MapStackSlic
 				nextEntries[key] = value.isolated ? { ...value, isolated: false } : value
 			}
 			return { mapStackEntries: nextEntries }
+		}),
+
+	toggleMapStackEntryExclusion: (id, datasetKey) =>
+		set((state) => {
+			const entry = state.mapStackEntries[id]
+			if (!entry) return {}
+			const exclusions = entry.exclusions ?? []
+			const nextExclusions = exclusions.includes(datasetKey)
+				? exclusions.filter((key) => key !== datasetKey)
+				: [...exclusions, datasetKey]
+			return {
+				mapStackEntries: {
+					...state.mapStackEntries,
+					[id]: { ...entry, exclusions: nextExclusions },
+				},
+			}
+		}),
+
+	setMapStackEntryExclusions: (id, exclusions) =>
+		set((state) => {
+			const entry = state.mapStackEntries[id]
+			if (!entry) return {}
+			return {
+				mapStackEntries: {
+					...state.mapStackEntries,
+					[id]: { ...entry, exclusions: [...exclusions] },
+				},
+			}
 		}),
 
 	clearMapStack: () => set({ mapStackEntries: {}, mapStackOrder: [] }),

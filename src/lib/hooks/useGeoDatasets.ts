@@ -20,12 +20,17 @@ import { MapContext } from '@/lib/nostr/map-context'
  *
  * The EventStore handles deduplication and replaceable-event semantics, so
  * the returned timeline contains the latest version per `(kind, pubkey, d)`.
+ *
+ * Pass `null` to skip the subscription (useful for "fire only when there are
+ * matching context coordinates" patterns without violating rules-of-hooks).
  */
-export function useGeoDatasets(additionalFilters: Omit<Filter, 'kinds'>[] = [{}]) {
-	const filters = additionalFilters.map((filter) => ({
-		...filter,
-		kinds: [GEO_EVENT_KIND],
-	}))
+export function useGeoDatasets(additionalFilters: Omit<Filter, 'kinds'>[] | null = [{}]) {
+	const filters = additionalFilters
+		? additionalFilters.map((filter) => ({
+				...filter,
+				kinds: [GEO_EVENT_KIND],
+			}))
+		: null
 
 	const { events, eose } = useTimelineWithEose(filters)
 

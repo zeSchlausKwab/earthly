@@ -1,20 +1,24 @@
 import {
 	ChevronDown,
+	ChevronRight,
 	ChevronUp,
 	Database,
 	Focus,
 	Layers,
 	LocateFixed,
+	PencilLine,
 	Search,
 	Trash2,
 	X,
 } from 'lucide-react'
-import type { DragEvent } from 'react'
+import type { DragEvent, ReactNode } from 'react'
 import { useMemo, useState } from 'react'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import { useEditorStore, type MapStackEntry } from '../features/geo-editor/store'
+import { getDefaultContextMapScopeMode, resolveContextMapScope } from '@/lib/context/scope'
 import { Button } from './ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { cn } from '@/lib/utils'
 
 interface MapStackPanelProps {
@@ -50,10 +54,506 @@ const sourceLabel: Record<MapStackEntry['source'], string> = {
 	comment: 'comment',
 	proposal: 'proposal',
 	workspace: 'workspace',
+	'browse-default': 'suggested',
 }
 
 function hasDatasetDragData(event: DragEvent<HTMLElement>) {
 	return Array.from(event.dataTransfer.types).includes('application/earthly-dataset-key')
+}
+
+interface RowActionProps {
+	icon: ReactNode
+	label: string
+	onClick: () => void
+	tooltip?: ReactNode
+	hoverClassName?: string
+	className?: string
+	active?: boolean
+	pressed?: boolean
+}
+
+/**
+ * Single per-row action button with Radix tooltip. Keeps the row JSX flat —
+ * each call site is one tag rather than five layers of Tooltip/Trigger/Button.
+ */
+function RowAction({
+	icon,
+	label,
+	onClick,
+	tooltip,
+	hoverClassName,
+	className,
+	active = false,
+	pressed,
+}: RowActionProps) {
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon-sm"
+					className={cn(className, hoverClassName, active && 'bg-amber-100 text-amber-700')}
+					onClick={onClick}
+					aria-label={label}
+					aria-pressed={pressed}
+				>
+					{icon}
+				</Button>
+			</TooltipTrigger>
+			<TooltipContent side="top" sideOffset={4} className="max-w-xs text-xs">
+				{tooltip ?? label}
+			</TooltipContent>
+		</Tooltip>
+	)
+}
+
+interface EntryRowProps {
+	entry: MapStackEntry
+	dataset: GeoDataset | undefined
+	context: MapContext | undefined
+	title: string
+	compact: boolean
+	actionIconClassName: string
+	actionButtonClassName: string
+	sourceLabel: Record<MapStackEntry['source'], string>
+	geoEvents: GeoDataset[]
+	mapContextEvents: MapContext[]
+	getDatasetKey: (event: GeoDataset) => string
+	getDatasetName: (event: GeoDataset) => string
+	onSetEntryIsolated?: (entry: MapStackEntry, isolated: boolean) => void
+	onZoomToDataset: (dataset: GeoDataset) => void
+	onInspectDataset: (dataset: GeoDataset) => void
+	onLoadDataset: (dataset: GeoDataset) => void
+	onInspectContext: (context: MapContext) => void
+	onRemoveEntry: (entry: MapStackEntry) => void
+	onToggleEntryExclusion: (entryId: string, datasetKey: string) => void
+}
+
+function EntryRow({
+	entry,
+	dataset,
+	context,
+	title,
+	compact,
+	actionIconClassName,
+	actionButtonClassName,
+	sourceLabel,
+	geoEvents,
+	mapContextEvents,
+	getDatasetKey,
+	getDatasetName,
+	onSetEntryIsolated,
+	onZoomToDataset,
+	onInspectDataset,
+	onLoadDataset,
+	onInspectContext,
+	onRemoveEntry,
+	onToggleEntryExclusion,
+}: EntryRowProps) {
+	const isolated = entry.isolated === true
+	const [expanded, setExpanded] = useState(false)
+	// Resolve curated datasets only when this is a context entry. We compute
+	// regardless of `expanded` (cheap; usually a handful) so the row can show
+	// an accurate counter — but only render the checklist when expanded.
+	const curatedDatasets = useMemo(() => {
+		if (entry.entityType !== 'context' || !context) return [] as GeoDataset[]
+		const scope = resolveContextMapScope(
+			context,
+			geoEvents,
+			mapContextEvents,
+			getDefaultContextMapScopeMode(context),
+		)
+		return scope.datasets.map((scoped) => scoped.dataset)
+	}, [entry.entityType, context, geoEvents, mapContextEvents])
+	const exclusionSet = useMemo(() => new Set(entry.exclusions ?? []), [entry.exclusions])
+	const includedCuratedCount = curatedDatasets.reduce(
+		(acc, d) => (exclusionSet.has(getDatasetKey(d)) ? acc : acc + 1),
+		0,
+	)
+	// Context entries always show a count + expand affordance, even when the
+	// curated set is empty. That makes "this context loaded but resolved to 0
+	// datasets" legible instead of looking like the entry does nothing.
+	const isContextEntry = entry.entityType === 'context'
+	const canExpand = isContextEntry
+	return (
+		<div
+			className={cn(
+				'group relative flex flex-col rounded-md border bg-card transition-colors',
+				isolated
+					? 'border-amber-300 bg-amber-50/50 shadow-[inset_3px_0_0_0] shadow-amber-500'
+					: 'border-border',
+				!entry.visible && !isolated && 'opacity-60',
+			)}
+			data-isolated={isolated ? 'true' : undefined}
+		>
+			<div className={cn('flex items-start', compact ? 'gap-1.5 p-1.5 pl-2' : 'gap-2 p-2 pl-2.5')}>
+				<div
+					className={cn(
+						'flex shrink-0 items-center justify-center rounded-md',
+						entry.entityType === 'draft'
+							? 'bg-emerald-100 text-emerald-700'
+							: isolated
+								? 'bg-amber-100 text-amber-700'
+								: 'bg-muted text-muted-foreground',
+						compact ? 'mt-0.5 h-6 w-6' : 'mt-1 h-7 w-7',
+					)}
+				>
+					{entry.entityType === 'dataset' ? (
+						<Database className={actionIconClassName} />
+					) : entry.entityType === 'context' ? (
+						<Layers className={actionIconClassName} />
+					) : entry.entityType === 'draft' ? (
+						<PencilLine className={actionIconClassName} />
+					) : (
+						<Layers className={actionIconClassName} />
+					)}
+				</div>
+				<div className="min-w-0 flex-1">
+					<div className="flex min-w-0 items-center gap-1.5">
+						<div
+							className={cn(
+								'line-clamp-2 min-w-0 break-words font-medium text-foreground',
+								compact ? 'text-xs leading-tight' : 'text-sm leading-snug',
+							)}
+						>
+							{title}
+						</div>
+						{isolated ? (
+							<span
+								className={cn(
+									'shrink-0 rounded-full bg-amber-200/70 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-amber-800',
+									compact ? 'text-[9px]' : 'text-[10px]',
+								)}
+							>
+								Isolated
+							</span>
+						) : null}
+					</div>
+					<div
+						className={cn(
+							'flex items-center text-muted-foreground',
+							compact ? 'mt-0.5 gap-1 text-[11px]' : 'mt-1 gap-1.5 text-xs',
+						)}
+					>
+						<span>{entry.entityType}</span>
+						<span className="h-1 w-1 rounded-full bg-muted-foreground/40" />
+						<span>{sourceLabel[entry.source]}</span>
+						{isContextEntry ? (
+							<>
+								<span className="h-1 w-1 rounded-full bg-muted-foreground/40" />
+								<span className={curatedDatasets.length === 0 ? 'italic' : undefined}>
+									{curatedDatasets.length === 0
+										? 'no curated data'
+										: `${includedCuratedCount}/${curatedDatasets.length} curated`}
+								</span>
+							</>
+						) : null}
+					</div>
+				</div>
+				<div className="flex shrink-0 items-center gap-0.5">
+					{canExpand ? (
+						<RowAction
+							icon={
+								expanded ? (
+									<ChevronDown className={actionIconClassName} />
+								) : (
+									<ChevronRight className={actionIconClassName} />
+								)
+							}
+							className={cn(actionButtonClassName, 'hover:text-foreground')}
+							onClick={() => setExpanded((open) => !open)}
+							label={expanded ? 'Collapse curated datasets' : 'Expand curated datasets'}
+							tooltip={
+								expanded
+									? 'Hide the curated dataset checklist'
+									: 'Show the curated dataset checklist — uncheck to exclude per-context'
+							}
+							pressed={expanded}
+						/>
+					) : null}
+					{onSetEntryIsolated && entry.entityType !== 'draft' ? (
+						<RowAction
+							icon={<Focus className={actionIconClassName} />}
+							className={cn(
+								actionButtonClassName,
+								isolated ? 'text-amber-600 hover:text-amber-700' : 'hover:text-amber-700',
+							)}
+							onClick={() => onSetEntryIsolated(entry, !isolated)}
+							label={isolated ? 'Stop isolating' : 'Isolate on the map'}
+							tooltip={
+								isolated
+									? 'Show all (stop isolating)'
+									: entry.entityType === 'context'
+										? 'Show only this context on the map'
+										: 'Show only this dataset on the map'
+							}
+							pressed={isolated}
+							active={isolated}
+						/>
+					) : null}
+					{dataset ? (
+						<>
+							<RowAction
+								icon={<LocateFixed className={actionIconClassName} />}
+								className={cn(actionButtonClassName, 'hover:text-sky-700')}
+								onClick={() => onZoomToDataset(dataset)}
+								label="Zoom to dataset"
+								tooltip="Zoom the map to this dataset's bounds"
+							/>
+							<RowAction
+								icon={<Search className={actionIconClassName} />}
+								className={cn(actionButtonClassName, 'hover:text-emerald-700')}
+								onClick={() => onInspectDataset(dataset)}
+								label="Inspect dataset"
+								tooltip="Open the dataset details panel"
+							/>
+							<RowAction
+								icon={<Database className={actionIconClassName} />}
+								className={cn(actionButtonClassName, 'hover:text-emerald-700')}
+								onClick={() => onLoadDataset(dataset)}
+								label="Load dataset into editor"
+								tooltip="Load this dataset into the editor for changes"
+							/>
+						</>
+					) : null}
+					{context ? (
+						<RowAction
+							icon={<Search className={actionIconClassName} />}
+							className={cn(actionButtonClassName, 'hover:text-emerald-700')}
+							onClick={() => onInspectContext(context)}
+							label="Inspect context"
+							tooltip="Open the context details panel"
+						/>
+					) : null}
+					<RowAction
+						icon={
+							entry.pinned ? (
+								<Trash2 className={actionIconClassName} />
+							) : (
+								<X className={actionIconClassName} />
+							)
+						}
+						className={cn(actionButtonClassName, 'hover:text-destructive')}
+						onClick={() => onRemoveEntry(entry)}
+						label={
+							entry.entityType === 'draft'
+								? 'Stop editing'
+								: entry.pinned
+									? 'Remove pinned entry'
+									: 'Remove from map stack'
+						}
+						tooltip={
+							entry.entityType === 'draft'
+								? 'Stop editing and remove the draft from the map'
+								: entry.pinned
+									? 'Remove this pinned entry from the map stack'
+									: 'Remove this entry from the map stack'
+						}
+					/>
+				</div>
+			</div>
+			{canExpand && expanded ? (
+				<div
+					className={cn(
+						'border-border border-t bg-muted/30 px-2 py-1.5',
+						compact ? 'space-y-0.5' : 'space-y-1',
+					)}
+				>
+					{curatedDatasets.length === 0 ? (
+						<div
+							className={cn(
+								'rounded px-1.5 py-2 text-center text-muted-foreground italic',
+								compact ? 'text-[11px]' : 'text-xs',
+							)}
+						>
+							No curated datasets resolved for this context yet.
+							{context?.context?.allowForeignAttachments ? (
+								<>
+									{' '}
+									Datasets with an{' '}
+									<code className="rounded bg-muted px-1 font-mono text-[10px]">a</code> tag
+									pointing here will appear automatically.
+								</>
+							) : null}
+						</div>
+					) : null}
+					{curatedDatasets.map((curated) => {
+						const datasetKey = getDatasetKey(curated)
+						const isExcluded = exclusionSet.has(datasetKey)
+						const name = getDatasetName(curated)
+						return (
+							<label
+								key={datasetKey}
+								className={cn(
+									'flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 transition-colors hover:bg-muted/60',
+									compact ? 'text-[11px]' : 'text-xs',
+								)}
+							>
+								<input
+									type="checkbox"
+									className="size-3.5 shrink-0 cursor-pointer rounded border-border accent-emerald-600"
+									checked={!isExcluded}
+									onChange={() => onToggleEntryExclusion(entry.id, datasetKey)}
+									aria-label={
+										isExcluded
+											? `Include ${name} in this context`
+											: `Exclude ${name} from this context`
+									}
+								/>
+								<span
+									className={cn(
+										'min-w-0 flex-1 truncate',
+										isExcluded ? 'text-muted-foreground line-through' : 'text-foreground',
+									)}
+								>
+									{name}
+								</span>
+								<button
+									type="button"
+									className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-sky-700"
+									onClick={(event) => {
+										event.preventDefault()
+										onZoomToDataset(curated)
+									}}
+									aria-label={`Zoom to ${name}`}
+									title="Zoom to dataset"
+								>
+									<LocateFixed className="h-3 w-3" />
+								</button>
+							</label>
+						)
+					})}
+				</div>
+			) : null}
+		</div>
+	)
+}
+
+interface EntryGroupListProps {
+	compact: boolean
+	draftEntries: MapStackEntry[]
+	contextEntries: MapStackEntry[]
+	datasetEntries: MapStackEntry[]
+	otherEntries: MapStackEntry[]
+	datasetByKey: Map<string, GeoDataset>
+	contextByKey: Map<string, MapContext>
+	getDatasetKey: (event: GeoDataset) => string
+	getDatasetName: (event: GeoDataset) => string
+	sourceLabel: Record<MapStackEntry['source'], string>
+	actionIconClassName: string
+	actionButtonClassName: string
+	geoEvents: GeoDataset[]
+	mapContextEvents: MapContext[]
+	onSetEntryIsolated?: (entry: MapStackEntry, isolated: boolean) => void
+	onZoomToDataset: (dataset: GeoDataset) => void
+	onInspectDataset: (dataset: GeoDataset) => void
+	onLoadDataset: (dataset: GeoDataset) => void
+	onInspectContext: (context: MapContext) => void
+	onRemoveEntry: (entry: MapStackEntry) => void
+	onToggleEntryExclusion: (entryId: string, datasetKey: string) => void
+}
+
+function EntryGroupList({
+	compact,
+	draftEntries,
+	contextEntries,
+	datasetEntries,
+	otherEntries,
+	datasetByKey,
+	contextByKey,
+	getDatasetKey,
+	getDatasetName,
+	sourceLabel,
+	actionIconClassName,
+	actionButtonClassName,
+	geoEvents,
+	mapContextEvents,
+	onSetEntryIsolated,
+	onZoomToDataset,
+	onInspectDataset,
+	onLoadDataset,
+	onInspectContext,
+	onRemoveEntry,
+	onToggleEntryExclusion,
+}: EntryGroupListProps) {
+	const renderEntry = (entry: MapStackEntry) => {
+		const dataset = entry.entityType === 'dataset' ? datasetByKey.get(entry.entityKey) : undefined
+		const context = entry.entityType === 'context' ? contextByKey.get(entry.entityKey) : undefined
+		const title = dataset ? getDatasetName(dataset) : entry.title
+		return (
+			<EntryRow
+				key={entry.id}
+				entry={entry}
+				dataset={dataset}
+				context={context}
+				title={title}
+				compact={compact}
+				actionIconClassName={actionIconClassName}
+				actionButtonClassName={actionButtonClassName}
+				sourceLabel={sourceLabel}
+				geoEvents={geoEvents}
+				mapContextEvents={mapContextEvents}
+				getDatasetKey={getDatasetKey}
+				getDatasetName={getDatasetName}
+				onSetEntryIsolated={onSetEntryIsolated}
+				onZoomToDataset={onZoomToDataset}
+				onInspectDataset={onInspectDataset}
+				onLoadDataset={onLoadDataset}
+				onInspectContext={onInspectContext}
+				onRemoveEntry={onRemoveEntry}
+				onToggleEntryExclusion={onToggleEntryExclusion}
+			/>
+		)
+	}
+	const groupLabelClass = cn(
+		'flex items-center gap-1.5 px-1 pt-1 pb-0.5 font-semibold uppercase tracking-wide text-muted-foreground',
+		compact ? 'text-[10px]' : 'text-[11px]',
+	)
+	const groupGap = compact ? 'space-y-1' : 'space-y-1.5'
+	return (
+		<div className={cn('flex flex-col', compact ? 'gap-2' : 'gap-3')}>
+			{draftEntries.length > 0 ? (
+				<div className={cn(groupGap)}>
+					<div className={cn(groupLabelClass, 'text-emerald-700')}>
+						<PencilLine className="h-3 w-3" />
+						<span>Editing</span>
+						<span className="font-normal text-muted-foreground/70">({draftEntries.length})</span>
+					</div>
+					{draftEntries.map(renderEntry)}
+				</div>
+			) : null}
+			{contextEntries.length > 0 ? (
+				<div className={cn(groupGap)}>
+					<div className={groupLabelClass}>
+						<Layers className="h-3 w-3" />
+						<span>Contexts</span>
+						<span className="font-normal text-muted-foreground/70">({contextEntries.length})</span>
+					</div>
+					{contextEntries.map(renderEntry)}
+				</div>
+			) : null}
+			{datasetEntries.length > 0 ? (
+				<div className={cn(groupGap)}>
+					<div className={groupLabelClass}>
+						<Database className="h-3 w-3" />
+						<span>Datasets</span>
+						<span className="font-normal text-muted-foreground/70">({datasetEntries.length})</span>
+					</div>
+					{datasetEntries.map(renderEntry)}
+				</div>
+			) : null}
+			{otherEntries.length > 0 ? (
+				<div className={cn(groupGap)}>
+					<div className={groupLabelClass}>
+						<span>Other</span>
+						<span className="font-normal text-muted-foreground/70">({otherEntries.length})</span>
+					</div>
+					{otherEntries.map(renderEntry)}
+				</div>
+			) : null}
+		</div>
+	)
 }
 
 export function MapStackPanel({
@@ -75,6 +575,7 @@ export function MapStackPanel({
 }: MapStackPanelProps) {
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const mapStackOrder = useEditorStore((state) => state.mapStackOrder)
+	const toggleEntryExclusion = useEditorStore((state) => state.toggleMapStackEntryExclusion)
 	const [isDragOver, setIsDragOver] = useState(false)
 	const [isCollapsed, setIsCollapsed] = useState(false)
 
@@ -102,17 +603,45 @@ export function MapStackPanel({
 				.filter((entry): entry is MapStackEntry => Boolean(entry)),
 		[mapStackEntries, mapStackOrder],
 	)
+	// Group by entity type so the panel visually separates contexts (broader
+	// scope), individual datasets, and the in-edit draft. Within a group,
+	// insertion order is kept.
+	const draftEntries = useMemo(
+		() => entries.filter((entry) => entry.entityType === 'draft'),
+		[entries],
+	)
+	const contextEntries = useMemo(
+		() => entries.filter((entry) => entry.entityType === 'context'),
+		[entries],
+	)
+	const datasetEntries = useMemo(
+		() => entries.filter((entry) => entry.entityType === 'dataset'),
+		[entries],
+	)
+	const otherEntries = useMemo(
+		() =>
+			entries.filter(
+				(entry) =>
+					entry.entityType !== 'context' &&
+					entry.entityType !== 'dataset' &&
+					entry.entityType !== 'draft',
+			),
+		[entries],
+	)
 	const visibleCount = entries.filter((entry) => entry.visible).length
 	const isolatedEntry = entries.find((entry) => entry.isolated) ?? null
-	const isolatedDataset =
-		isolatedEntry && isolatedEntry.entityType === 'dataset'
-			? (datasetByKey.get(isolatedEntry.entityKey) ?? null)
-			: null
-	const isolatedLabel = isolatedEntry
-		? isolatedDataset
-			? getDatasetName(isolatedDataset)
-			: isolatedEntry.entityKey
-		: null
+	const isolatedLabel = (() => {
+		if (!isolatedEntry) return null
+		if (isolatedEntry.entityType === 'dataset') {
+			const dataset = datasetByKey.get(isolatedEntry.entityKey)
+			return dataset ? getDatasetName(dataset) : isolatedEntry.title || isolatedEntry.entityKey
+		}
+		if (isolatedEntry.entityType === 'context') {
+			const context = contextByKey.get(isolatedEntry.entityKey)
+			return context?.context?.name || isolatedEntry.title || isolatedEntry.entityKey
+		}
+		return isolatedEntry.title || isolatedEntry.entityKey
+	})()
 	const actionButtonClassName = cn(compact ? 'h-6 w-6' : 'h-7 w-7', 'text-muted-foreground')
 	const actionIconClassName = compact ? 'h-3.5 w-3.5' : 'h-4 w-4'
 	const isPanelCollapsed = compact && isCollapsed
@@ -267,149 +796,29 @@ export function MapStackPanel({
 							compact ? 'max-h-[min(20rem,calc(100vh-8rem))] p-1.5' : 'min-h-0 flex-1 p-2',
 						)}
 					>
-						<div className={cn(compact ? 'space-y-1' : 'space-y-1.5')}>
-							{entries.map((entry) => {
-								const dataset =
-									entry.entityType === 'dataset' ? datasetByKey.get(entry.entityKey) : undefined
-								const context =
-									entry.entityType === 'context' ? contextByKey.get(entry.entityKey) : undefined
-								const title = dataset ? getDatasetName(dataset) : entry.title
-
-								return (
-									<div
-										key={entry.id}
-										className={cn(
-											'group flex items-start rounded-md border border-border bg-card',
-											compact ? 'gap-1.5 p-1.5' : 'gap-2 p-2',
-											!entry.visible && 'opacity-60',
-										)}
-									>
-										<div
-											className={cn(
-												'flex shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground',
-												compact ? 'mt-0.5 h-6 w-6' : 'mt-1 h-7 w-7',
-											)}
-										>
-											{entry.entityType === 'dataset' ? (
-												<Database className={actionIconClassName} />
-											) : (
-												<Layers className={actionIconClassName} />
-											)}
-										</div>
-										<div className="min-w-0 flex-1">
-											<div
-												className={cn(
-													'line-clamp-2 break-words font-medium text-foreground',
-													compact ? 'text-xs leading-tight' : 'text-sm leading-snug',
-												)}
-											>
-												{title}
-											</div>
-											<div
-												className={cn(
-													'flex items-center text-muted-foreground',
-													compact ? 'mt-0.5 gap-1 text-[11px]' : 'mt-1 gap-1.5 text-xs',
-												)}
-											>
-												<span>{entry.entityType}</span>
-												<span className="h-1 w-1 rounded-full bg-muted-foreground/40" />
-												<span>{sourceLabel[entry.source]}</span>
-											</div>
-										</div>
-										<div className="flex shrink-0 items-center gap-0.5">
-											{onSetEntryIsolated && entry.entityType === 'dataset' ? (
-												<Button
-													type="button"
-													variant="ghost"
-													size="icon-sm"
-													className={cn(
-														actionButtonClassName,
-														entry.isolated
-															? 'text-amber-600 hover:text-amber-700'
-															: 'hover:text-amber-700',
-													)}
-													onClick={() => onSetEntryIsolated(entry, !entry.isolated)}
-													title={
-														entry.isolated
-															? 'Show all (stop isolating)'
-															: 'Show only this on the map'
-													}
-													aria-label={entry.isolated ? 'Stop isolating' : 'Isolate on the map'}
-													aria-pressed={entry.isolated}
-												>
-													<Focus className={actionIconClassName} />
-												</Button>
-											) : null}
-											{dataset ? (
-												<>
-													<Button
-														type="button"
-														variant="ghost"
-														size="icon-sm"
-														className={cn(actionButtonClassName, 'hover:text-sky-700')}
-														onClick={() => onZoomToDataset(dataset)}
-														title="Zoom to dataset"
-														aria-label="Zoom to dataset"
-													>
-														<LocateFixed className={actionIconClassName} />
-													</Button>
-													<Button
-														type="button"
-														variant="ghost"
-														size="icon-sm"
-														className={cn(actionButtonClassName, 'hover:text-emerald-700')}
-														onClick={() => onInspectDataset(dataset)}
-														title="Inspect dataset"
-														aria-label="Inspect dataset"
-													>
-														<Search className={actionIconClassName} />
-													</Button>
-													<Button
-														type="button"
-														variant="ghost"
-														size="icon-sm"
-														className={cn(actionButtonClassName, 'hover:text-emerald-700')}
-														onClick={() => onLoadDataset(dataset)}
-														title="Load dataset into editor"
-														aria-label="Load dataset into editor"
-													>
-														<Database className={actionIconClassName} />
-													</Button>
-												</>
-											) : null}
-											{context ? (
-												<Button
-													type="button"
-													variant="ghost"
-													size="icon-sm"
-													className={cn(actionButtonClassName, 'hover:text-emerald-700')}
-													onClick={() => onInspectContext(context)}
-													title="Inspect context"
-													aria-label="Inspect context"
-												>
-													<Search className={actionIconClassName} />
-												</Button>
-											) : null}
-											<Button
-												type="button"
-												variant="ghost"
-												size="icon-sm"
-												className={cn(actionButtonClassName, 'hover:text-destructive')}
-												onClick={() => onRemoveEntry(entry)}
-												title="Remove from map stack"
-												aria-label="Remove from map stack"
-											>
-												{entry.pinned ? (
-													<Trash2 className={actionIconClassName} />
-												) : (
-													<X className={actionIconClassName} />
-												)}
-											</Button>
-										</div>
-									</div>
-								)
-							})}
-						</div>
+						<EntryGroupList
+							compact={compact}
+							draftEntries={draftEntries}
+							contextEntries={contextEntries}
+							datasetEntries={datasetEntries}
+							otherEntries={otherEntries}
+							datasetByKey={datasetByKey}
+							contextByKey={contextByKey}
+							getDatasetKey={getDatasetKey}
+							getDatasetName={getDatasetName}
+							sourceLabel={sourceLabel}
+							actionIconClassName={actionIconClassName}
+							actionButtonClassName={actionButtonClassName}
+							geoEvents={geoEvents}
+							mapContextEvents={mapContextEvents}
+							onSetEntryIsolated={onSetEntryIsolated}
+							onZoomToDataset={onZoomToDataset}
+							onInspectDataset={onInspectDataset}
+							onLoadDataset={onLoadDataset}
+							onInspectContext={onInspectContext}
+							onRemoveEntry={onRemoveEntry}
+							onToggleEntryExclusion={toggleEntryExclusion}
+						/>
 					</div>
 				)
 			) : null}

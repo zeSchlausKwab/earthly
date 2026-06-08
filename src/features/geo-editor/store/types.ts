@@ -45,6 +45,13 @@ export interface MapLayerState {
 	pmtilesType?: string
 }
 
+/**
+ * Round C.3: the in-edit draft is also represented as a map-stack entry so the
+ * panel honestly reflects what's contributing to the map render. The draft is
+ * rendered by the editor's draft layer, not by `visibleGeoEvents`, so the
+ * stack entry is cosmetic — but it lets the user see, isolate, and end the
+ * edit session from the same surface.
+ */
 export type MapStackEntryType =
 	| 'dataset'
 	| 'context'
@@ -62,6 +69,11 @@ export type MapStackEntrySource =
 	| 'comment'
 	| 'proposal'
 	| 'workspace'
+	/** Round C.4: auto-populated on cold-start Browse so the user lands on
+	 * something instead of a blank map. Distinguishable from `manual` so we
+	 * can avoid re-triggering after a clear and so future Clear UX can opt
+	 * to wipe only these. */
+	| 'browse-default'
 
 export interface MapStackEntry {
 	id: string
@@ -77,6 +89,13 @@ export interface MapStackEntry {
 	 * one entry's `isolated=true` clears it on all others.
 	 */
 	isolated: boolean
+	/**
+	 * For context entries (Round C.2): dataset keys the user has unchecked in
+	 * the inline expand panel. The map skips these when rendering the context's
+	 * curated set. Unused for dataset entries (kept on every entry to avoid a
+	 * second optional discriminant).
+	 */
+	exclusions: string[]
 	addedAt: number
 }
 
@@ -291,10 +310,11 @@ export interface MapStackSlice {
 	mapStackOrder: string[]
 
 	addMapStackEntry: (
-		entry: Omit<MapStackEntry, 'id' | 'addedAt' | 'isolated'> & {
+		entry: Omit<MapStackEntry, 'id' | 'addedAt' | 'isolated' | 'exclusions'> & {
 			id?: string
 			addedAt?: number
 			isolated?: boolean
+			exclusions?: string[]
 		},
 	) => string
 	removeMapStackEntry: (id: string) => void
@@ -307,6 +327,13 @@ export interface MapStackSlice {
 	setMapStackEntryIsolated: (id: string, isolated: boolean) => void
 	/** Clears the `isolated` flag on every entry. */
 	clearMapStackIsolation: () => void
+	/**
+	 * Round C.2: toggle whether a curated dataset (by its dataset key) is
+	 * excluded from a context entry's render. No-op for non-context entries.
+	 */
+	toggleMapStackEntryExclusion: (id: string, datasetKey: string) => void
+	/** Replace the full exclusions list for a context entry. */
+	setMapStackEntryExclusions: (id: string, exclusions: string[]) => void
 	clearMapStack: () => void
 }
 
