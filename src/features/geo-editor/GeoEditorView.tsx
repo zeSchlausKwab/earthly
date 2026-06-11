@@ -162,16 +162,14 @@ export function GeoEditorView() {
 	const activeDataset = useEditorStore((state) => state.activeDataset)
 	const activeDatasetContextRefs = useEditorStore((state) => state.activeDatasetContextRefs)
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
-	const datasetVisibility = useEditorStore((state) => state.datasetVisibility)
-	const editIsolationEnabled = useEditorStore((state) => state.editIsolationEnabled)
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const mapStackOrder = useEditorStore((state) => state.mapStackOrder)
 	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
 	const setMapStackEntryVisible = useEditorStore((state) => state.setMapStackEntryVisible)
 	const setMapStackEntryIsolated = useEditorStore((state) => state.setMapStackEntryIsolated)
+	const setMapStackEntryExclusions = useEditorStore((state) => state.setMapStackEntryExclusions)
 	const removeMapStackEntry = useEditorStore((state) => state.removeMapStackEntry)
 	const clearMapStack = useEditorStore((state) => state.clearMapStack)
-	const setDatasetVisibility = useEditorStore((state) => state.setDatasetVisibility)
 	const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta)
 	const hydrateEditorSessionForPubkey = useEditorStore(
 		(state) => state.hydrateEditorSessionForPubkey,
@@ -359,28 +357,18 @@ export function GeoEditorView() {
 				visible: true,
 				pinned: false,
 			})
-			setDatasetVisibility((prev) => ({
-				...prev,
-				[datasetKey]: true,
-			}))
 			if (source === 'manual') {
 				toast.success(`Added "${getDatasetName(event)}" to the map.`)
 			}
 		},
-		[addMapStackEntry, getDatasetKey, getDatasetName, setDatasetVisibility],
+		[addMapStackEntry, getDatasetKey, getDatasetName],
 	)
 
 	const setMapStackVisibility = useCallback(
 		(entry: MapStackEntry, visible: boolean) => {
 			setMapStackEntryVisible(entry.id, visible)
-			if (entry.entityType === 'dataset') {
-				setDatasetVisibility((prev) => ({
-					...prev,
-					[entry.entityKey]: visible,
-				}))
-			}
 		},
-		[setDatasetVisibility, setMapStackEntryVisible],
+		[setMapStackEntryVisible],
 	)
 
 	const setMapStackIsolation = useCallback(
@@ -389,13 +377,9 @@ export function GeoEditorView() {
 			if (isolated && entry.entityType === 'dataset') {
 				// Make sure the isolated dataset is visible so the user actually sees it.
 				setMapStackEntryVisible(entry.id, true)
-				setDatasetVisibility((prev) => ({
-					...prev,
-					[entry.entityKey]: true,
-				}))
 			}
 		},
-		[setDatasetVisibility, setMapStackEntryIsolated, setMapStackEntryVisible],
+		[setMapStackEntryIsolated, setMapStackEntryVisible],
 	)
 
 	const removeFromMapStack = useCallback(
@@ -408,14 +392,8 @@ export function GeoEditorView() {
 				return
 			}
 			removeMapStackEntry(entry.id)
-			if (entry.entityType === 'dataset') {
-				setDatasetVisibility((prev) => ({
-					...prev,
-					[entry.entityKey]: false,
-				}))
-			}
 		},
-		[removeMapStackEntry, setDatasetVisibility, cancelEditing],
+		[removeMapStackEntry, cancelEditing],
 	)
 
 	/**
@@ -437,22 +415,8 @@ export function GeoEditorView() {
 	)
 
 	const clearMapStackAndVisibility = useCallback(() => {
-		const datasetKeys = mapStackOrder
-			.map((entryId) => mapStackEntries[entryId])
-			.filter((entry): entry is MapStackEntry => Boolean(entry))
-			.filter((entry) => entry.entityType === 'dataset')
-			.map((entry) => entry.entityKey)
 		clearMapStack()
-		if (datasetKeys.length > 0) {
-			setDatasetVisibility((prev) => {
-				const next = { ...prev }
-				datasetKeys.forEach((key) => {
-					next[key] = false
-				})
-				return next
-			})
-		}
-	}, [clearMapStack, mapStackEntries, mapStackOrder, setDatasetVisibility])
+	}, [clearMapStack])
 
 	// Round C.4: cold-start auto-populate. On Browse with an empty stack, drop
 	// in the most recent N datasets so the user doesn't land on a blank map.
@@ -517,6 +481,22 @@ export function GeoEditorView() {
 				setMapStackEntryIsolated(isoId, true)
 			}
 		}
+		// D.2: hydrate per-context exclusions. Format per `ex` param:
+		// `<contextCoord>|<datasetKey1>;<datasetKey2>;…`. Multiple `ex`
+		// params allowed (one per context with exclusions).
+		const exParams = params.getAll('ex')
+		for (const exParam of exParams) {
+			const pipeIdx = exParam.indexOf('|')
+			if (pipeIdx <= 0) continue
+			const contextCoord = exParam.slice(0, pipeIdx)
+			const exclusionKeys = exParam
+				.slice(pipeIdx + 1)
+				.split(';')
+				.map((k) => k.trim())
+				.filter(Boolean)
+			if (exclusionKeys.length === 0) continue
+			setMapStackEntryExclusions(`context:${contextCoord}`, exclusionKeys)
+		}
 		// URL had entries → suppress the cold-start auto-populate.
 		browseDefaultsSeededRef.current = true
 		stackUrlHydratedRef.current = true
@@ -527,6 +507,7 @@ export function GeoEditorView() {
 		addDatasetToMapStack,
 		addMapStackEntry,
 		setMapStackEntryIsolated,
+		setMapStackEntryExclusions,
 	])
 	// Push stack mutations back to the URL (debounced via rAF) once we've
 	// finished initial hydration. Drafts are stripped — they're session state,
@@ -552,6 +533,15 @@ export function GeoEditorView() {
 				params.set('iso', `${isolated.entityType}:${isolated.entityKey}`)
 			} else {
 				params.delete('iso')
+			}
+			// D.2: serialize per-context exclusions. One `ex` param per context
+			// that has at least one excluded curated dataset.
+			params.delete('ex')
+			for (const entry of shareableEntries) {
+				if (entry.entityType !== 'context') continue
+				const exclusions = entry.exclusions ?? []
+				if (exclusions.length === 0) continue
+				params.append('ex', `${entry.entityKey}|${exclusions.join(';')}`)
 			}
 			const next = params.toString()
 			const nextSearch = next ? `?${next}` : ''
@@ -747,20 +737,6 @@ export function GeoEditorView() {
 		() => resolvedActiveContextScope.datasets.map((entry) => entry.dataset),
 		[resolvedActiveContextScope],
 	)
-	const visibleMapStackDatasetKeys = useMemo(() => {
-		const keys = new Set<string>()
-		mapStackOrder.forEach((entryId) => {
-			const entry = mapStackEntries[entryId]
-			if (entry?.entityType === 'dataset' && entry.visible) {
-				keys.add(entry.entityKey)
-			}
-		})
-		return keys
-	}, [mapStackEntries, mapStackOrder])
-	const mapStackHasDatasetEntries = useMemo(
-		() => mapStackOrder.some((entryId) => mapStackEntries[entryId]?.entityType === 'dataset'),
-		[mapStackEntries, mapStackOrder],
-	)
 	const mapStackStats = useMemo(() => {
 		const entries = mapStackOrder
 			.map((entryId) => mapStackEntries[entryId])
@@ -824,19 +800,14 @@ export function GeoEditorView() {
 		geoEvents,
 	])
 
-	// Stack = visibility. Under the Round C invariant, the map renders exactly
-	// what's on the map stack — no scope filters, no focus filter, no per-entry
-	// eye toggle. The only overrides are:
-	//   1) edit-isolation (handed off to C.3 as draft-entry isolation), and
-	//   2) map-stack isolation (Round B), which short-circuits to a single entry
-	//      (or the curated set of a single isolated context entry).
-	// Context entries (C.2) expand to their curated datasets, minus any keys
-	// the user has unchecked in the inline expand panel (`entry.exclusions`).
+	// Stack = visibility. Under the Round C/D invariant, the map renders exactly
+	// what's on the map stack — no scope filters, no focus filter, no separate
+	// edit-isolation toggle. The only override is map-stack isolation (Round B):
+	// when one entry is isolated only its keys render. Draft entries don't
+	// contribute keys, so an isolated draft naturally produces []. Context
+	// entries (C.2) expand to their curated datasets, minus any keys the user
+	// has unchecked in the inline expand panel (`entry.exclusions`).
 	const visibleGeoEvents = useMemo(() => {
-		if (viewMode === 'edit' && editIsolationEnabled) {
-			return []
-		}
-
 		const contextByKey = new Map<string, MapContext>()
 		for (const ctx of mapContextEvents) {
 			const key = ctx.contextCoordinate ?? ctx.id ?? ctx.contextId ?? ctx.dTag
@@ -894,15 +865,7 @@ export function GeoEditorView() {
 		}
 		if (stackedDatasetKeys.size === 0) return []
 		return geoEvents.filter((event) => stackedDatasetKeys.has(getDatasetKey(event)))
-	}, [
-		geoEvents,
-		getDatasetKey,
-		mapStackEntries,
-		mapStackOrder,
-		viewMode,
-		editIsolationEnabled,
-		mapContextEvents,
-	])
+	}, [geoEvents, getDatasetKey, mapStackEntries, mapStackOrder, mapContextEvents])
 
 	const toolbarMapStackOpen = isMobile
 		? mobilePanelOpen && mobilePanelTab === 'map-stack'
@@ -976,38 +939,18 @@ export function GeoEditorView() {
 		setActiveDatasetContextRefs,
 	])
 
-	// Effective visibility for sidebar - shows actual visibility state including focus mode
+	// Round D.3: visibility derives purely from stack membership. The sidebar
+	// uses this map to highlight which catalog rows are "currently on the map"
+	// — the answer is exactly "is this dataset in visibleGeoEvents?".
 	const effectiveVisibility = useMemo(() => {
-		// When focused, only focused items are visible
-		if (focusedNaddr && focusedType) {
-			const effectiveMap: Record<string, boolean> = {}
-			const visibleKeys = new Set(visibleGeoEvents.map((e) => getDatasetKey(e)))
-			geoEvents.forEach((event) => {
-				const key = getDatasetKey(event)
-				effectiveMap[key] = visibleKeys.has(key)
-			})
-			return effectiveMap
-		}
-		if (mapStackHasDatasetEntries) {
-			const effectiveMap: Record<string, boolean> = {}
-			geoEvents.forEach((event) => {
-				const key = getDatasetKey(event)
-				effectiveMap[key] = visibleMapStackDatasetKeys.has(key) && datasetVisibility[key] !== false
-			})
-			return effectiveMap
-		}
-		// Default: use actual visibility state
-		return datasetVisibility
-	}, [
-		geoEvents,
-		visibleGeoEvents,
-		datasetVisibility,
-		getDatasetKey,
-		focusedNaddr,
-		focusedType,
-		mapStackHasDatasetEntries,
-		visibleMapStackDatasetKeys,
-	])
+		const effectiveMap: Record<string, boolean> = {}
+		const visibleKeys = new Set(visibleGeoEvents.map((e) => getDatasetKey(e)))
+		geoEvents.forEach((event) => {
+			const key = getDatasetKey(event)
+			effectiveMap[key] = visibleKeys.has(key)
+		})
+		return effectiveMap
+	}, [geoEvents, visibleGeoEvents, getDatasetKey])
 
 	useEffect(() => {
 		featuresRef.current = features
@@ -1109,23 +1052,11 @@ export function GeoEditorView() {
 		}
 	}, [isDrawingMode, editor, setPanLocked])
 
-	// Sync default dataset visibility
-	useEffect(() => {
-		setDatasetVisibility((prev) => {
-			const next: Record<string, boolean> = {}
-			let changed = false
-
-			geoEvents.forEach((event) => {
-				const key = getDatasetKey(event)
-				const value = prev[key] === undefined ? true : prev[key]
-				next[key] = value
-				if (prev[key] !== value) changed = true
-			})
-
-			if (Object.keys(prev).length !== Object.keys(next).length) changed = true
-			return changed ? next : prev
-		})
-	}, [geoEvents, getDatasetKey, setDatasetVisibility])
+	// Round D.3: the "sync default visibility on geoEvents change" effect
+	// is gone — visibility is no longer a separate sticky map. Stack
+	// membership is the canonical signal; events that aren't on the stack
+	// simply aren't rendered, regardless of how many datasets land in the
+	// subscription. This drops O(geoEvents) work on every relay update too.
 
 	// Initialize mobile/desktop UI
 	const closeMobilePanel = useEditorStore((state) => state.closeMobilePanel)

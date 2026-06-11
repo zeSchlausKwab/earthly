@@ -25,11 +25,16 @@ export function useMentionActions({
 	toggleDatasetVisibility,
 	toggleAllDatasetVisibility,
 }: UseMentionActionsParams) {
-	const setDatasetVisibility = useEditorStore((state) => state.setDatasetVisibility)
+	// Round D.3: mention visibility now toggles stack membership instead of
+	// the deprecated `datasetVisibility` slice. Adding for visibility, removing
+	// for hide — the eye toggle in mention UIs maps cleanly to add/remove.
+	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
+	const removeMapStackEntry = useEditorStore((state) => state.removeMapStackEntry)
+	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 
 	const resolveNaddrToDataset = useCallback(
 		(address: string): GeoDataset | null => {
-			if (!address || !address.startsWith('naddr1')) {
+			if (!address?.startsWith('naddr1')) {
 				return null
 			}
 			try {
@@ -98,12 +103,25 @@ export function useMentionActions({
 				return
 			}
 			const key = getDatasetKey(dataset)
-			setDatasetVisibility((prev) => ({
-				...prev,
-				[key]: visible,
-			}))
+			const entryId = `dataset:${key}`
+			if (visible) {
+				addMapStackEntry({
+					entityType: 'dataset',
+					entityKey: key,
+					title:
+						(typeof dataset.featureCollection?.name === 'string' &&
+							dataset.featureCollection.name) ||
+						dataset.dTag ||
+						dataset.id,
+					source: 'comment',
+					visible: true,
+					pinned: false,
+				})
+			} else if (mapStackEntries[entryId]) {
+				removeMapStackEntry(entryId)
+			}
 		},
-		[resolveNaddrToDataset, getDatasetKey, setDatasetVisibility],
+		[resolveNaddrToDataset, getDatasetKey, addMapStackEntry, removeMapStackEntry, mapStackEntries],
 	)
 
 	const handleToggleVisibilityWithExitFocus = useCallback(

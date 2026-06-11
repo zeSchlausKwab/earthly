@@ -36,7 +36,7 @@ import {
 	XCircle,
 } from 'lucide-react'
 import type React from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { HelpPopover } from '@/components/HelpPopover'
 import { LoginSessionButtons } from '@/features/auth/LoginSessionButtons'
@@ -343,8 +343,17 @@ export function Toolbar({
 	const mode = useEditorStore((state) => state.mode)
 	const snappingEnabled = useEditorStore((state) => state.snappingEnabled)
 	const viewMode = useEditorStore((state) => state.viewMode)
-	const editIsolationEnabled = useEditorStore((state) => state.editIsolationEnabled)
-	const toggleEditIsolation = useEditorStore((state) => state.toggleEditIsolation)
+	// Round D.4: edit-isolation is no longer a separate slice — it's the draft
+	// stack entry's `isolated` flag. Reads + toggles route through the same
+	// MapStackPanel.Focus button mechanism; the checkbox here stays as a
+	// familiar surface.
+	const editIsolationEnabled = useEditorStore(
+		(state) => state.mapStackEntries['draft:active']?.isolated === true,
+	)
+	const setMapStackEntryIsolated = useEditorStore((state) => state.setMapStackEntryIsolated)
+	const toggleEditIsolation = useCallback(() => {
+		setMapStackEntryIsolated('draft:active', !editIsolationEnabled)
+	}, [setMapStackEntryIsolated, editIsolationEnabled])
 	const history = useEditorStore((state) => state.history)
 
 	// UI State

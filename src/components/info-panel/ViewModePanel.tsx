@@ -105,7 +105,9 @@ export function ViewModePanel({
 	const lastViewedDatasetKeyRef = useRef<string | null>(null)
 
 	const isPublishing = useEditorStore((state) => state.isPublishing)
-	const datasetVisibility = useEditorStore((state) => state.datasetVisibility)
+	// Round D.3: visibility derives from stack membership. Same semantic
+	// the user would get from the catalog Layers toggle or MapStackPanel rows.
+	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const viewDataset = useEditorStore((state) => state.viewDataset)
 	const viewContext = useEditorStore((state) => state.viewContext)
 	const contextFilterMode = useEditorStore((state) => state.contextFilterMode)
@@ -399,19 +401,22 @@ export function ViewModePanel({
 										variant: 'outline',
 										disabled: isPublishing,
 									},
-									{
-										icon:
-											datasetVisibility[getDatasetKey(viewDataset)] !== false ? (
+									(() => {
+										const isOnStack = Boolean(
+											mapStackEntries[`dataset:${getDatasetKey(viewDataset)}`],
+										)
+										return {
+											icon: isOnStack ? (
 												<EyeOff className="h-3.5 w-3.5" />
 											) : (
 												<Eye className="h-3.5 w-3.5" />
 											),
-										label:
-											datasetVisibility[getDatasetKey(viewDataset)] !== false
-												? 'Hide dataset'
-												: 'Show dataset',
-										onClick: () => onToggleVisibility(viewDataset),
-									},
+											label: isOnStack ? 'Remove from map stack' : 'Add to map stack',
+											// `onToggleVisibility` is now a stack-aware toggle wired in
+											// GeoEditorView — adds when not on stack, removes when on.
+											onClick: () => onToggleVisibility(viewDataset),
+										}
+									})(),
 									{
 										icon: <Maximize2 className="h-3.5 w-3.5" />,
 										label: 'Zoom to dataset',

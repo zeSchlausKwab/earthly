@@ -32,9 +32,16 @@ export function getMapContextSnapshot() {
 			kind: layer.kind,
 			opacity: layer.opacity,
 		}))
-	const visibleDatasetIds = Object.entries(store.datasetVisibility)
-		.filter(([, visible]) => visible)
-		.map(([datasetId]) => datasetId)
+	// Round D.3: visibility is no longer a separate slice — the map stack is
+	// the single source of truth. A dataset is "visible" iff it has an entry
+	// on the stack (including curated datasets surfaced via context entries).
+	const visibleDatasetIds = store.mapStackOrder
+		.map((entryId) => store.mapStackEntries[entryId])
+		.filter(
+			(entry): entry is NonNullable<typeof entry> =>
+				Boolean(entry) && entry.entityType === 'dataset' && entry.visible !== false,
+		)
+		.map((entry) => entry.entityKey)
 
 	return {
 		editorReady: Boolean(store.editor),

@@ -218,7 +218,6 @@ export interface MetadataSlice {
 	collectionMeta: CollectionMeta
 	activeDataset: GeoDataset | null
 	activeDatasetContextRefs: string[]
-	datasetVisibility: Record<string, boolean>
 	resolvingDatasets: Set<string>
 	resolvingProgress: Map<string, { loaded: number; total: number }>
 	isDirty: boolean
@@ -227,11 +226,6 @@ export interface MetadataSlice {
 	setActiveDataset: (dataset: GeoDataset | null) => void
 	setIsDirty: (isDirty: boolean) => void
 	setActiveDatasetContextRefs: (refs: string[]) => void
-	setDatasetVisibility: (
-		visibility:
-			| Record<string, boolean>
-			| ((prev: Record<string, boolean>) => Record<string, boolean>),
-	) => void
 	setDatasetResolving: (datasetKey: string, resolving: boolean) => void
 	setDatasetResolvingProgress: (datasetKey: string, loaded: number, total: number) => void
 }
@@ -270,7 +264,6 @@ export interface PublishingSlice {
 
 export interface ViewModeSlice {
 	viewMode: 'edit' | 'view'
-	editIsolationEnabled: boolean
 	viewDataset: GeoDataset | null
 	viewContext: MapContext | null
 	viewContextDatasets: GeoDataset[]
@@ -296,8 +289,6 @@ export interface ViewModeSlice {
 	setContextMapScopeMode: (mode: ContextMapScopeMode) => void
 	setActiveContextScope: (naddr: string | null, coordinate: string | null) => void
 	clearActiveContextScope: () => void
-	setEditIsolationEnabled: (enabled: boolean) => void
-	toggleEditIsolation: () => void
 
 	setFocused: (type: 'geoevent' | 'mapcontext', naddr: string) => void
 	clearFocused: () => void

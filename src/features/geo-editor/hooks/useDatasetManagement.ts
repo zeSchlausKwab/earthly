@@ -67,7 +67,6 @@ export function useDatasetManagement(
 	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
 	const removeMapStackEntry = useEditorStore((state) => state.removeMapStackEntry)
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
-	const setDatasetVisibility = useEditorStore((state) => state.setDatasetVisibility)
 	const setSelectedFeatureIds = useEditorStore((state) => state.setSelectedFeatureIds)
 	const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta)
 	const setNewCollectionProp = useEditorStore((state) => state.setNewCollectionProp)
@@ -435,27 +434,59 @@ export function useDatasetManagement(
 
 	const toggleDatasetVisibility = useCallback(
 		(event: GeoDataset) => {
+			// Round D.3: "visibility" == stack membership. Toggle by id.
 			const key = getDatasetKey(event)
-			setDatasetVisibility((prev) => ({
-				...prev,
-				[key]: !(prev[key] !== false),
-			}))
+			const entryId = `dataset:${key}`
+			const store = useEditorStore.getState()
+			if (store.mapStackEntries[entryId]) {
+				store.removeMapStackEntry(entryId)
+			} else {
+				store.addMapStackEntry({
+					entityType: 'dataset',
+					entityKey: key,
+					title:
+						(typeof event.featureCollection?.name === 'string' && event.featureCollection.name) ||
+						event.dTag ||
+						event.id,
+					source: 'manual',
+					visible: true,
+					pinned: false,
+				})
+			}
 		},
-		[getDatasetKey, setDatasetVisibility],
+		[getDatasetKey],
 	)
 
 	const toggleAllDatasetVisibility = useCallback(
 		(visible: boolean) => {
-			setDatasetVisibility((prev) => {
-				const next = { ...prev }
+			// Round D.3: "show all" pushes every loaded dataset onto the stack;
+			// "hide all" removes every dataset entry. Context/draft entries are
+			// untouched. This is the bulk-toggle from the catalog column header.
+			const store = useEditorStore.getState()
+			if (visible) {
 				for (const event of geoEventsRef.current) {
 					const key = getDatasetKey(event)
-					next[key] = visible
+					store.addMapStackEntry({
+						entityType: 'dataset',
+						entityKey: key,
+						title:
+							(typeof event.featureCollection?.name === 'string' && event.featureCollection.name) ||
+							event.dTag ||
+							event.id,
+						source: 'manual',
+						visible: true,
+						pinned: false,
+					})
 				}
-				return next
-			})
+			} else {
+				for (const id of [...store.mapStackOrder]) {
+					if (store.mapStackEntries[id]?.entityType === 'dataset') {
+						store.removeMapStackEntry(id)
+					}
+				}
+			}
 		},
-		[getDatasetKey, setDatasetVisibility],
+		[getDatasetKey],
 	)
 
 	const loadDatasetForEditing = useCallback(

@@ -72,13 +72,18 @@ export function useContextEditor({
 			setStance('focus')
 
 			// Round C: stack = visibility. Add the context as a stack entry so its
-			// curated datasets render (C.1 has a transitional rule that catches
-			// this; C.2 will turn the entry itself into an expandable macro that
-			// renders the curated datasets).
+			// curated datasets render (C.2 expands the entry inline).
 			const contextKey =
 				context.contextCoordinate ?? context.id ?? context.contextId ?? context.dTag
 			if (contextKey) {
 				const title = context.context?.name || `Context ${contextKey.slice(0, 12)}`
+				// D.1: heuristic for "exclusive on add". Validation-mode contexts
+				// exist to enforce a strict authoritative scope (think: "only the
+				// canonical wheelchair-toilet dataset counts"), so isolating on
+				// add matches the author's intent. Taxonomy/hybrid stay additive
+				// — they're meant to compose with other map content. The user can
+				// always un-isolate via the row's Focus button.
+				const isExclusiveByDefault = context.context?.contextUse === 'validation'
 				addMapStackEntry({
 					entityType: 'context',
 					entityKey: contextKey,
@@ -86,6 +91,7 @@ export function useContextEditor({
 					source: 'manual',
 					visible: true,
 					pinned: false,
+					isolated: isExclusiveByDefault,
 				})
 			}
 
