@@ -291,7 +291,7 @@ export function useCommentGeometry(
 				handleMouseLeave,
 			})
 		},
-		[mapReady, mapRef, removeCommentLayers],
+		[mapReady, mapRef],
 	)
 
 	const handleCommentGeometryVisibility = useCallback(
@@ -310,6 +310,23 @@ export function useCommentGeometry(
 			removeCommentLayers(commentId)
 		},
 		[mapReady, removeCommentLayers, showCommentLayers],
+	)
+
+	/**
+	 * Round F: comment overlays follow the stack. Drops every visible comment
+	 * overlay whose `isAnchored(comment)` returns false — called by the view
+	 * whenever the map stack changes, so removing a context/dataset also
+	 * removes its annotations from the map.
+	 */
+	const pruneCommentGeometry = useCallback(
+		(isAnchored: (comment: GeoComment) => boolean) => {
+			for (const [commentId, comment] of [...desiredVisibleComments.current]) {
+				if (isAnchored(comment)) continue
+				desiredVisibleComments.current.delete(commentId)
+				removeCommentLayers(commentId)
+			}
+		},
+		[removeCommentLayers],
 	)
 
 	useEffect(() => {
@@ -344,5 +361,6 @@ export function useCommentGeometry(
 		annotationPopupData,
 		setAnnotationPopupData,
 		handleCommentGeometryVisibility,
+		pruneCommentGeometry,
 	}
 }

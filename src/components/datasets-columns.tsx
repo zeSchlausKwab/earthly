@@ -1,9 +1,15 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { Bug, Download, Eye, EyeOff, Layers, Loader2, Search } from 'lucide-react'
+import { Bug, Download, Eye, EyeOff, Layers, Loader2, MoreVertical, Search } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
 import { memo } from 'react'
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
 import { Button } from './ui/button'
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from './ui/dropdown-menu'
 import { UserProfile } from './user-profile'
 import { useEditorStore } from '../features/geo-editor/store'
 import { GeoSocialActions } from '../features/social/comments/GeoSocialActions'
@@ -41,37 +47,27 @@ export interface DatasetColumnsContext {
 const actionButtonClass =
 	'rounded-none px-2 text-xs text-gray-500 shadow-none hover:bg-transparent hover:text-sky-600'
 
-const DatasetLoadButton = memo(function DatasetLoadButton({
+/**
+ * Round F.1: the load verb moved into the row's overflow menu; this indicator
+ * only surfaces blob-resolution progress (ring with percent, or a spinner
+ * when the total is unknown). Renders nothing when idle.
+ */
+const DatasetResolvingIndicator = memo(function DatasetResolvingIndicator({
 	datasetKey,
-	event,
-	isActive,
-	isPublishing,
-	onLoadDataset,
 }: {
 	datasetKey: string
-	event: GeoDataset
-	isActive: boolean
-	isPublishing: boolean
-	onLoadDataset: (event: GeoDataset) => void
 }) {
 	const isResolving = useEditorStore((state) => state.resolvingDatasets.has(datasetKey))
 	const progress = useEditorStore((state) => state.resolvingProgress.get(datasetKey))
 
+	if (!isResolving) return null
+
 	const progressPercent =
 		progress && progress.total > 0 ? Math.round((progress.loaded / progress.total) * 100) : 0
 
-	const label = (() => {
-		if (!isResolving) {
-			return isActive ? 'Dataset loaded in editor' : 'Load dataset into editor'
-		}
-		if (progress && progress.total > 0) {
-			const sizeMB = (progress.total / 1024 / 1024).toFixed(1)
-			return `Loading ${progressPercent}% of ${sizeMB}MB...`
-		}
-		return 'Loading blob data...'
-	})()
-
-	if (isResolving && progress && progress.total > 0) {
+	if (progress && progress.total > 0) {
+		const sizeMB = (progress.total / 1024 / 1024).toFixed(1)
+		const label = `Loading ${progressPercent}% of ${sizeMB}MB...`
 		return (
 			<div className="relative flex h-8 w-8 items-center justify-center" title={label}>
 				<svg className="h-5 w-5 -rotate-90" viewBox="0 0 20 20" aria-hidden="true">
@@ -101,24 +97,9 @@ const DatasetLoadButton = memo(function DatasetLoadButton({
 	}
 
 	return (
-		<Button
-			size="icon-sm"
-			variant="ghost"
-			className={cn(
-				actionButtonClass,
-				isActive ? 'text-emerald-600 hover:text-emerald-700' : 'text-gray-500 hover:text-sky-600',
-			)}
-			onClick={() => onLoadDataset(event)}
-			disabled={isPublishing || isResolving}
-			aria-label={label}
-			title={label}
-		>
-			{isResolving ? (
-				<Loader2 className="h-4 w-4 animate-spin" />
-			) : (
-				<Download className="h-4 w-4" />
-			)}
-		</Button>
+		<div className="flex h-8 w-8 items-center justify-center" title="Loading blob data...">
+			<Loader2 className="h-4 w-4 animate-spin text-sky-600" />
+		</div>
 	)
 })
 
@@ -229,6 +210,9 @@ export const createDatasetColumns = (
 							className="-ml-2 shrink-0 gap-0"
 						/>
 						<div className="flex shrink-0 items-center gap-0.5">
+							{/* Round F.1: one primary verb per row. The stack toggle is the
+							    primary action (it IS visibility under the Round C model);
+							    Inspect / Load / Debug live in the overflow menu. */}
 							{context.onAddDatasetToMap ? (
 								<Button
 									size="icon-sm"
@@ -254,35 +238,39 @@ export const createDatasetColumns = (
 									<Layers className="h-4 w-4" />
 								</Button>
 							) : null}
-							<DatasetLoadButton
-								datasetKey={row.original.datasetKey}
-								event={event}
-								isActive={row.original.isActive}
-								isPublishing={context.isPublishing}
-								onLoadDataset={context.onLoadDataset}
-							/>
-							<Button
-								size="icon-sm"
-								variant="ghost"
-								className={cn(actionButtonClass, 'hover:text-emerald-600')}
-								onClick={() => context.onInspectDataset?.(event)}
-								aria-label="Inspect dataset"
-								title="Inspect dataset"
-							>
-								<Search className="h-4 w-4" />
-							</Button>
-							{context.onOpenDebug ? (
-								<Button
-									size="icon-sm"
-									variant="ghost"
-									className={cn(actionButtonClass, 'hover:text-amber-600')}
-									aria-label="Open debug"
-									title="Open debug"
-									onClick={() => context.onOpenDebug?.(event)}
-								>
-									<Bug className="h-4 w-4" />
-								</Button>
-							) : null}
+							<DatasetResolvingIndicator datasetKey={row.original.datasetKey} />
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<Button
+										size="icon-sm"
+										variant="ghost"
+										className={cn(actionButtonClass, 'hover:text-foreground')}
+										aria-label="More actions"
+										title="More actions"
+									>
+										<MoreVertical className="h-4 w-4" />
+									</Button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="end" className="min-w-44">
+									<DropdownMenuItem onSelect={() => context.onInspectDataset?.(event)}>
+										<Search className="h-4 w-4" />
+										Inspect
+									</DropdownMenuItem>
+									<DropdownMenuItem
+										disabled={context.isPublishing}
+										onSelect={() => context.onLoadDataset(event)}
+									>
+										<Download className="h-4 w-4" />
+										{row.original.isActive ? 'Loaded in editor' : 'Load into editor'}
+									</DropdownMenuItem>
+									{context.onOpenDebug ? (
+										<DropdownMenuItem onSelect={() => context.onOpenDebug?.(event)}>
+											<Bug className="h-4 w-4" />
+											Debug event
+										</DropdownMenuItem>
+									) : null}
+								</DropdownMenuContent>
+							</DropdownMenu>
 						</div>
 					</div>
 				</div>

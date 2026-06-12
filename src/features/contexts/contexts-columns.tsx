@@ -1,5 +1,5 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { Bug, Eye } from 'lucide-react'
+import { Bug, Eye, Layers } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { UserProfile } from '@/components/user-profile'
 import { cn } from '@/lib/utils'
@@ -17,12 +17,16 @@ export interface ContextRowData {
 	isCuratedChild: boolean
 	attachmentCount: number
 	isMapActive: boolean
+	/** Round F.3: whether a `context:<coordinate>` entry is on the map stack. */
+	isInMapStack: boolean
 }
 
 export interface ContextColumnsContext {
 	currentUserPubkey?: string
 	onInspectContext?: (context: MapContext) => void
 	onEditContext?: (context: MapContext) => void
+	/** Round F.3: add/remove the context's stack entry (the primary row verb). */
+	onToggleContextOnMap?: (context: MapContext) => void
 	onOpenDebug?: (event: MapContext) => void
 }
 
@@ -136,6 +140,27 @@ export const createContextColumns = (
 										className="-ml-2 shrink-0 gap-0"
 									/>
 									<div className="flex shrink-0 items-center gap-0.5">
+										{context.onToggleContextOnMap ? (
+											<Button
+												size="icon-sm"
+												variant="ghost"
+												className={cn(
+													actionButtonClass,
+													row.original.isInMapStack
+														? 'text-emerald-600 hover:text-emerald-700'
+														: 'hover:text-emerald-600',
+												)}
+												onClick={() => context.onToggleContextOnMap?.(contextEvent)}
+												aria-label={
+													row.original.isInMapStack ? 'Remove from map stack' : 'Add to map stack'
+												}
+												title={
+													row.original.isInMapStack ? 'Remove from map stack' : 'Add to map stack'
+												}
+											>
+												<Layers className="h-4 w-4" />
+											</Button>
+										) : null}
 										<Button
 											size="icon-sm"
 											variant="ghost"

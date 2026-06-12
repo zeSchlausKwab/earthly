@@ -1,5 +1,5 @@
 import { Eye } from 'lucide-react'
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import {
@@ -217,27 +217,31 @@ export function GeoDatasetsPanelContent({
 			}
 		})
 		return orderContextsForDisplay(filteredContexts).map(
-			({ context, depth, displayParentCoordinate }) => ({
-				context,
-				contextName: getContextDisplayName(context),
-				contextUse: getEffectiveContextUse(context),
-				validationMode: context.context.allowForeignAttachments
-					? getEffectiveContextValidationMode(context)
-					: null,
-				attachmentPolicy: context.context.allowForeignAttachments ? 'open' : 'closed',
-				displayDepth: depth,
-				displayParentName: displayParentCoordinate
-					? (nameByCoordinate.get(displayParentCoordinate) ?? null)
-					: null,
-				isCuratedChild:
-					depth > 0 &&
-					!context.context.allowForeignAttachments &&
-					context.contextReferences.length > 0,
-				attachmentCount: context.contextReferences.length,
-				isMapActive: getContextCoordinate(context) === effectiveContextCoordinate,
-			}),
+			({ context, depth, displayParentCoordinate }) => {
+				const coordinate = getContextCoordinate(context)
+				return {
+					context,
+					contextName: getContextDisplayName(context),
+					contextUse: getEffectiveContextUse(context),
+					validationMode: context.context.allowForeignAttachments
+						? getEffectiveContextValidationMode(context)
+						: null,
+					attachmentPolicy: context.context.allowForeignAttachments ? 'open' : 'closed',
+					displayDepth: depth,
+					displayParentName: displayParentCoordinate
+						? (nameByCoordinate.get(displayParentCoordinate) ?? null)
+						: null,
+					isCuratedChild:
+						depth > 0 &&
+						!context.context.allowForeignAttachments &&
+						context.contextReferences.length > 0,
+					attachmentCount: context.contextReferences.length,
+					isMapActive: coordinate === effectiveContextCoordinate,
+					isInMapStack: Boolean(coordinate && mapStackEntries[`context:${coordinate}`]),
+				}
+			},
 		)
-	}, [filteredContexts, effectiveContextCoordinate])
+	}, [filteredContexts, effectiveContextCoordinate, mapStackEntries])
 
 	const datasetColumnsContext: DatasetColumnsContext = useMemo(
 		() => ({
@@ -270,18 +274,41 @@ export function GeoDatasetsPanelContent({
 		],
 	)
 
+	// Round F.3: context rows get the same stack-toggle primary verb as dataset
+	// rows. Reads/writes the store directly (like MapStackPanel does) so the
+	// verb works in every surface that renders this panel without prop drift.
+	const toggleContextOnMap = useCallback((context: MapContext) => {
+		const coordinate = getContextCoordinate(context)
+		if (!coordinate) return
+		const store = useEditorStore.getState()
+		const entryId = `context:${coordinate}`
+		if (store.mapStackEntries[entryId]) {
+			store.removeMapStackEntry(entryId)
+			return
+		}
+		store.addMapStackEntry({
+			entityType: 'context',
+			entityKey: coordinate,
+			title: getContextDisplayName(context),
+			source: 'manual',
+			visible: true,
+			pinned: false,
+		})
+	}, [])
+
 	const contextColumnsContext: ContextColumnsContext = useMemo(
 		() => ({
 			currentUserPubkey,
 			onInspectContext,
 			onEditContext,
+			onToggleContextOnMap: toggleContextOnMap,
 			onOpenDebug: onOpenDebug
 				? (event) => {
 						onOpenDebug(event)
 					}
 				: undefined,
 		}),
-		[currentUserPubkey, onInspectContext, onEditContext, onOpenDebug],
+		[currentUserPubkey, onInspectContext, onEditContext, onOpenDebug, toggleContextOnMap],
 	)
 
 	const datasetColumns = useMemo(

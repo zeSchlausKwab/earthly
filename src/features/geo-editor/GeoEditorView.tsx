@@ -38,6 +38,7 @@ import { ImportOsmDialog } from './components/ImportOsmDialog'
 import { LocationInspectorPopup } from './components/LocationInspectorPopup'
 import { Magnifier } from './components/Magnifier'
 import { MapFeatureHoverOverlay } from './components/MapFeatureHoverOverlay'
+import { BrowseLandingPrompt } from './components/BrowseLandingPrompt'
 import { MobilePanel } from './components/MobilePanel'
 import { CommentAnnotationPopup } from './components/CommentAnnotationPopup'
 import type { CommentAnnotationPopupData } from './components/CommentAnnotationPopup'
@@ -111,8 +112,12 @@ export function GeoEditorView() {
 		disableInspector,
 	} = useInspector(map)
 
-	const { handleCommentGeometryVisibility, annotationPopupData, setAnnotationPopupData } =
-		useCommentGeometry(map, mounted)
+	const {
+		handleCommentGeometryVisibility,
+		annotationPopupData,
+		setAnnotationPopupData,
+		pruneCommentGeometry,
+	} = useCommentGeometry(map, mounted)
 	const { visibleProposalIds, handleToggleProposalOverlay } = useProposalGeometry(map)
 	const [displayedAnnotationPopupData, setDisplayedAnnotationPopupData] =
 		useState<CommentAnnotationPopupData | null>(null)
@@ -422,11 +427,17 @@ export function GeoEditorView() {
 	// in the most recent N datasets so the user doesn't land on a blank map.
 	// One-shot per page load (guarded by ref) so a manual Clear stays cleared.
 	const stance = useEditorStore((state) => state.stance)
-	const browseDefaultsSeededRef = useRef(false)
+	// Round E.2: the cold-start auto-seed became an explicit landing prompt.
+	// Dismissal is session-local; the prompt re-appears after a manual Clear
+	// (empty stack again) unless dismissed.
+	const [browseLandingDismissed, setBrowseLandingDismissed] = useState(false)
 	// Round C.5: stack ⇄ URL serialization. Read URL params on mount once data
 	// is loaded; afterwards push stack mutations back to the URL (debounced via
 	// rAF). The URL is the canonical shareable representation of a map view.
+	// The state mirror exists so the landing prompt's show-condition can wait
+	// for hydration without flashing before URL entries land.
 	const stackUrlHydratedRef = useRef(false)
+	const [stackUrlHydrated, setStackUrlHydrated] = useState(false)
 	useEffect(() => {
 		if (stackUrlHydratedRef.current) return
 		if (geoEvents.length === 0 && mapContextEvents.length === 0) return
@@ -435,6 +446,7 @@ export function GeoEditorView() {
 		const isoParam = params.get('iso')
 		if (!msParam) {
 			stackUrlHydratedRef.current = true
+			setStackUrlHydrated(true)
 			return
 		}
 		const tokens = msParam
@@ -497,9 +509,8 @@ export function GeoEditorView() {
 			if (exclusionKeys.length === 0) continue
 			setMapStackEntryExclusions(`context:${contextCoord}`, exclusionKeys)
 		}
-		// URL had entries → suppress the cold-start auto-populate.
-		browseDefaultsSeededRef.current = true
 		stackUrlHydratedRef.current = true
+		setStackUrlHydrated(true)
 	}, [
 		geoEvents,
 		mapContextEvents,
@@ -557,13 +568,9 @@ export function GeoEditorView() {
 			window.cancelAnimationFrame(handle)
 		}
 	}, [mapStackEntries, mapStackOrder])
-	useEffect(() => {
-		if (browseDefaultsSeededRef.current) return
-		if (stance !== 'browse') return
-		if (mapStackOrder.length > 0) return
-		if (geoEvents.length === 0) return
-		// Wait until data has stabilised — pick the 5 most recent datasets
-		// across the loaded set as a sensible default discovery layer.
+	// Round E.2: the former auto-seed, now triggered by the landing prompt's
+	// "Show recent datasets" button — the 5 most recent datasets by created_at.
+	const seedRecentDatasets = useCallback(() => {
 		const SEED_COUNT = 5
 		const seeded = [...geoEvents]
 			.sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
@@ -571,8 +578,13 @@ export function GeoEditorView() {
 		for (const event of seeded) {
 			addDatasetToMapStack(event, 'browse-default')
 		}
-		browseDefaultsSeededRef.current = true
-	}, [stance, mapStackOrder.length, geoEvents, addDatasetToMapStack])
+	}, [geoEvents, addDatasetToMapStack])
+	const showBrowseLandingPrompt =
+		stance === 'browse' &&
+		stackUrlHydrated &&
+		!browseLandingDismissed &&
+		mapStackOrder.length === 0 &&
+		geoEvents.length > 0
 
 	// Store state for viewMode
 	const viewMode = useEditorStore((state) => state.viewMode)
@@ -866,6 +878,30 @@ export function GeoEditorView() {
 		if (stackedDatasetKeys.size === 0) return []
 		return geoEvents.filter((event) => stackedDatasetKeys.has(getDatasetKey(event)))
 	}, [geoEvents, getDatasetKey, mapStackEntries, mapStackOrder, mapContextEvents])
+
+	// Round F.2: comment/annotation overlays follow the stack. A visible
+	// comment overlay stays only while its root entity is still anchored —
+	// either a context entry with the same coordinate, or a dataset that is
+	// currently rendered (directly stacked or curated by a stacked context).
+	// Without this, removing a context left its observations on the map.
+	useEffect(() => {
+		const stackedContextCoords = new Set<string>()
+		for (const id of mapStackOrder) {
+			const entry = mapStackEntries[id]
+			if (entry?.entityType === 'context') stackedContextCoords.add(entry.entityKey)
+		}
+		const visibleDatasetKeys = new Set(visibleGeoEvents.map((event) => getDatasetKey(event)))
+		pruneCommentGeometry((comment) => {
+			const root = comment.rootAddress
+			// Overlays without a parent coordinate aren't stack-managed — keep.
+			if (!root) return true
+			if (stackedContextCoords.has(root)) return true
+			// rootAddress is `kind:pubkey:d`; dataset keys are `pubkey:d`.
+			const parts = root.split(':')
+			const datasetKey = parts.length >= 3 ? parts.slice(1).join(':') : root
+			return visibleDatasetKeys.has(datasetKey)
+		})
+	}, [mapStackEntries, mapStackOrder, visibleGeoEvents, getDatasetKey, pruneCommentGeometry])
 
 	const toolbarMapStackOpen = isMobile
 		? mobilePanelOpen && mobilePanelTab === 'map-stack'
@@ -1752,9 +1788,28 @@ export function GeoEditorView() {
 								chatOpen={desktopChatOpen}
 								onToggleMapStack={toggleToolbarMapStack}
 								onToggleChat={() => setDesktopChatOpen((open) => !open)}
+								onExitFocus={exitViewMode}
 							/>
 						</div>
 					</div>
+
+					{showBrowseLandingPrompt ? (
+						<BrowseLandingPrompt
+							onShowNewest={seedRecentDatasets}
+							onBrowseDatasets={() => {
+								// Browsing is a choice too — dismiss so the prompt doesn't
+								// linger behind the opened catalog.
+								setBrowseLandingDismissed(true)
+								navigateToView('datasets')
+							}}
+							onBrowseContexts={() => {
+								setBrowseLandingDismissed(true)
+								navigateToView('contexts')
+							}}
+							onStartDrawing={startNewDataset}
+							onDismiss={() => setBrowseLandingDismissed(true)}
+						/>
+					) : null}
 
 					{!isMobile && desktopMapStackOpen && (
 						<div className="pointer-events-auto absolute top-14 left-2 z-20 w-80 max-w-[calc(100vw-1rem)] shadow-lg">

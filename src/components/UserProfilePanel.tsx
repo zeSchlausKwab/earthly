@@ -381,14 +381,36 @@ export function UserProfilePanel({
 		[datasetColumnsContext],
 	)
 
+	// Round F.3: same stack-toggle verb as the main catalog — store-direct so
+	// the profile view stays consistent without extra prop drilling.
+	const toggleContextOnMap = useCallback((context: MapContext) => {
+		const coordinate = getContextCoordinate(context)
+		if (!coordinate) return
+		const store = useEditorStore.getState()
+		const entryId = `context:${coordinate}`
+		if (store.mapStackEntries[entryId]) {
+			store.removeMapStackEntry(entryId)
+			return
+		}
+		store.addMapStackEntry({
+			entityType: 'context',
+			entityKey: coordinate,
+			title: getContextDisplayName(context),
+			source: 'manual',
+			visible: true,
+			pinned: false,
+		})
+	}, [])
+
 	const contextColumnsContext: ContextColumnsContext = useMemo(
 		() => ({
 			currentUserPubkey,
 			onInspectContext,
 			onEditContext,
+			onToggleContextOnMap: toggleContextOnMap,
 			onOpenDebug,
 		}),
-		[currentUserPubkey, onInspectContext, onEditContext, onOpenDebug],
+		[currentUserPubkey, onInspectContext, onEditContext, onOpenDebug, toggleContextOnMap],
 	)
 	const contextColumns = useMemo(
 		() => createContextColumns(contextColumnsContext),
@@ -421,10 +443,14 @@ export function UserProfilePanel({
 					!context.context.allowForeignAttachments &&
 					context.contextReferences.length > 0,
 				attachmentCount: context.contextReferences.length,
+				isInMapStack: Boolean(
+					getContextCoordinate(context) &&
+						mapStackEntries[`context:${getContextCoordinate(context)}`],
+				),
 				isMapActive: getContextCoordinate(context) === effectiveContextCoordinate,
 			}),
 		)
-	}, [filteredContexts, effectiveContextCoordinate])
+	}, [filteredContexts, effectiveContextCoordinate, mapStackEntries])
 
 	const proposalColumns = useMemo<ColumnDef<UserProposalRow>[]>(
 		() => [

@@ -7,6 +7,7 @@ import {
 	PanelLeftClose,
 	PanelLeftOpen,
 	Pencil,
+	Search,
 	Settings2,
 	UserCircle,
 	Wallet,
@@ -55,13 +56,20 @@ type MetaViewMode = 'posts' | 'wallet' | 'settings' | 'help'
 const WORK_VIEW_MODES: WorkViewMode[] = ['datasets', 'contexts', 'user']
 const META_VIEW_MODES: MetaViewMode[] = ['posts', 'wallet', 'settings', 'help']
 
-const entityNavItems: {
-	entity: EntityWorkspace
+/**
+ * Round F.4: the rail's entity items (Geometry/Context) and the panel-header
+ * Inspect/Edit toggle collapsed into two honest surfaces. "Inspector" shows
+ * whatever entity is currently being viewed; "Editor" shows whatever is being
+ * edited (geometry draft or context editor). Their active state derives from
+ * app state (stance / contextEditorMode) — no sidebar-local mode to desync.
+ */
+const surfaceNavItems: {
+	surface: 'inspector' | 'editor'
 	title: string
 	icon: typeof Database
 }[] = [
-	{ entity: 'geometry', title: 'Geometry', icon: Pencil },
-	{ entity: 'context', title: 'Context', icon: Globe },
+	{ surface: 'inspector', title: 'Inspector', icon: Search },
+	{ surface: 'editor', title: 'Editor', icon: Pencil },
 ]
 
 const workNavItems: {
@@ -228,16 +236,12 @@ export function AppSidebar({
 	const [activeEntity, setActiveEntity] = useState<EntityWorkspace>('geometry')
 	const [activeWorkMode, setActiveWorkMode] = useState<WorkViewMode>('datasets')
 	const [showEntityAsFullPanel, setShowEntityAsFullPanel] = useState(viewMode === 'edit')
-	const [entityIntent, setEntityIntent] = useState<Record<EntityWorkspace, 'inspect' | 'edit'>>({
-		geometry: 'inspect',
-		context: 'inspect',
-	})
-
-	useEffect(() => {
-		if (!currentUserPubkey) {
-			setEntityIntent({ geometry: 'inspect', context: 'inspect' })
-		}
-	}, [currentUserPubkey])
+	// Round E.4: the Inspect/Edit toggle's displayed side derives from actual
+	// app state instead of a locally-synced mirror. The old `entityIntent`
+	// state chronically desynced (starting a draft left the toggle on
+	// Inspect). Geometry follows the stance — Author means the editor owns a
+	// draft; the context entity follows whether the context editor is open.
+	const editorStance = useEditorStore((state) => state.stance)
 
 	const activeContextScope = useMemo(() => {
 		if (!contextNaddr) return null
@@ -298,18 +302,6 @@ export function AppSidebar({
 		}
 	}, [contextEditorMode, splitWithEditor, viewContext, viewDataset])
 
-	useEffect(() => {
-		if (contextEditorMode !== 'none') {
-			setEntityIntent((prev) => ({ ...prev, context: 'edit' }))
-		}
-		if (viewDataset) {
-			setEntityIntent((prev) => ({ ...prev, geometry: 'inspect' }))
-		}
-		if (viewContext) {
-			setEntityIntent((prev) => ({ ...prev, context: 'inspect' }))
-		}
-	}, [contextEditorMode, viewContext, viewDataset])
-
 	const leaveMetaOverrideIfNeeded = () => {
 		if (metaModeActive) {
 			navigateToView(activeWorkMode)
@@ -320,25 +312,8 @@ export function AppSidebar({
 		leaveMetaOverrideIfNeeded()
 		onClearEntityEditors?.()
 		setActiveEntity('geometry')
-		setEntityIntent((prev) => ({ ...prev, geometry: 'edit' }))
 		setShowEntityAsFullPanel(true)
 		onOpenGeometryEditor?.()
-	}
-
-	const openContextWorkspace = () => {
-		leaveMetaOverrideIfNeeded()
-		setActiveEntity('context')
-		setEntityIntent((prev) => ({ ...prev, context: 'edit' }))
-		setShowEntityAsFullPanel(true)
-		if (editingContext) {
-			onEditContext(editingContext)
-			return
-		}
-		if (viewContext) {
-			onEditContext(viewContext)
-			return
-		}
-		onCreateContext()
 	}
 
 	const handleSelectWorkMode = (mode: WorkViewMode) => {
@@ -358,7 +333,6 @@ export function AppSidebar({
 			onClearEntityEditors?.()
 		}
 		setActiveEntity(entity)
-		setEntityIntent((prev) => ({ ...prev, [entity]: 'inspect' }))
 		setShowEntityAsFullPanel(true)
 		setEditorViewMode('view')
 		setViewDatasetState(null)
@@ -370,7 +344,6 @@ export function AppSidebar({
 		onLoadDataset(event)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('geometry')
-		setEntityIntent((prev) => ({ ...prev, geometry: 'edit' }))
 		setShowEntityAsFullPanel(true)
 	}
 
@@ -378,7 +351,6 @@ export function AppSidebar({
 		onInspectDataset(event)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('geometry')
-		setEntityIntent((prev) => ({ ...prev, geometry: 'inspect' }))
 		setShowEntityAsFullPanel(true)
 	}
 
@@ -386,7 +358,6 @@ export function AppSidebar({
 		onInspectContext(context)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('context')
-		setEntityIntent((prev) => ({ ...prev, context: 'inspect' }))
 		setShowEntityAsFullPanel(true)
 	}
 
@@ -401,7 +372,6 @@ export function AppSidebar({
 		onEditContext(context)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('context')
-		setEntityIntent((prev) => ({ ...prev, context: 'edit' }))
 		setShowEntityAsFullPanel(true)
 	}
 
@@ -419,50 +389,51 @@ export function AppSidebar({
 		navigateToView('contexts')
 	}
 
-	const currentEntityIntent = entityIntent[activeEntity]
-	const entityToggleEnabled = !metaModeActive && (splitWithEditor || showEntityAsFullPanel)
-	const geometryEditLabel =
-		activeEntity === 'geometry' &&
-		viewDataset &&
-		currentUserPubkey &&
-		viewDataset.pubkey !== currentUserPubkey
-			? 'Load copy'
-			: 'Edit'
+	// Round E.4/F.4: derived, not stored. Geometry mirrors the stance; the
+	// context entity mirrors whether the context editor is open. Used by the
+	// info panel (empty-state copy) and the rail surface highlighting.
+	const currentEntityIntent: 'inspect' | 'edit' =
+		activeEntity === 'geometry'
+			? editorStance === 'author'
+				? 'edit'
+				: 'inspect'
+			: contextEditorMode !== 'none'
+				? 'edit'
+				: 'inspect'
 
-	const handleEntityIntentChange = (intent: 'inspect' | 'edit') => {
-		if (!entityToggleEnabled || intent === currentEntityIntent) return
-		setEntityIntent((prev) => ({ ...prev, [activeEntity]: intent }))
+	// Round F.4: which rail surface is active — Editor whenever something is
+	// being edited (geometry draft via Author stance, or an open context
+	// editor), Inspector otherwise. The panel-visible gate keeps the rail
+	// quiet while a catalog/meta view is showing instead.
+	const entityPanelVisible = !metaModeActive && (splitWithEditor || showEntityAsFullPanel)
+	const activeSurface: 'inspector' | 'editor' =
+		editorStance === 'author' || contextEditorMode !== 'none' ? 'editor' : 'inspector'
 
-		if (activeEntity === 'geometry') {
-			if (intent === 'edit') {
-				if (viewDataset) {
-					handleLoadDataset(viewDataset)
-				} else {
-					openGeometryWorkspace()
-				}
-			} else if (activeDataset) {
-				handleInspectDataset(activeDataset)
-			} else {
-				openEmptyInspectWorkspace('geometry')
-			}
+	const openInspectorSurface = () => {
+		leaveMetaOverrideIfNeeded()
+		setShowEntityAsFullPanel(true)
+		// Show whatever is currently inspected; fall back to an empty inspect
+		// workspace when nothing is viewed yet.
+		if (viewContext) {
+			setActiveEntity('context')
 			return
 		}
-
-		if (intent === 'edit') {
-			const target = editingContext ?? viewContext
-			if (target) {
-				handleEditContext(target)
-			} else {
-				openContextWorkspace()
-			}
-		} else {
-			const target = viewContext ?? editingContext
-			if (target) {
-				handleInspectContext(target)
-			} else {
-				openEmptyInspectWorkspace('context')
-			}
+		if (viewDataset) {
+			setActiveEntity('geometry')
+			return
 		}
+		openEmptyInspectWorkspace(activeEntity)
+	}
+
+	const openEditorSurface = () => {
+		if (contextEditorMode !== 'none') {
+			leaveMetaOverrideIfNeeded()
+			setActiveEntity('context')
+			setShowEntityAsFullPanel(true)
+			return
+		}
+		// Geometry: switch to the active draft workspace (or start a new one).
+		openGeometryWorkspace()
 	}
 
 	const datasetsPanelProps = {
@@ -659,21 +630,19 @@ export function AppSidebar({
 					<SidebarGroup>
 						<SidebarGroupContent className="px-1.5 md:px-0">
 							<SidebarMenu>
-								{entityNavItems.map((item) => (
-									<SidebarMenuItem key={item.entity}>
+								{surfaceNavItems.map((item) => (
+									<SidebarMenuItem key={item.surface}>
 										<SidebarMenuButton
 											tooltip={{ children: item.title, hidden: false }}
 											onClick={() => {
-												if (item.entity === 'geometry') {
-													openEmptyInspectWorkspace('geometry')
+												if (item.surface === 'inspector') {
+													openInspectorSurface()
 												} else {
-													openContextWorkspace()
+													openEditorSurface()
 												}
 												setOpen(true)
 											}}
-											isActive={
-												activeEntity === item.entity && (splitWithEditor || showEntityAsFullPanel)
-											}
+											isActive={entityPanelVisible && activeSurface === item.surface}
 											className="border border-sidebar-border/70 bg-sidebar-accent/30 px-2.5 text-sidebar-foreground hover:bg-sidebar-accent data-[active=true]:border-sidebar-primary data-[active=true]:bg-sidebar-primary data-[active=true]:text-sidebar-primary-foreground md:px-2"
 										>
 											<item.icon />
@@ -764,42 +733,11 @@ export function AppSidebar({
 				className="hidden w-[calc(var(--sidebar-width)-var(--sidebar-width-icon)-1px)]! min-w-0 flex-1 md:flex"
 			>
 				<SidebarHeader className="gap-3.5 border-b p-4">
+					{/* Round F.4: the Inspect/Edit segmented toggle that lived here was
+					    removed — it duplicated app state (stance / contextEditorMode)
+					    and chronically desynced. The rail's Inspector/Editor surface
+					    items carry that role now, with derived active state. */}
 					<div className="flex w-full items-center gap-2">
-						<div className="shrink-0">
-							<div
-								className={`inline-flex items-center rounded-lg border border-border bg-muted p-0.5 ${
-									entityToggleEnabled ? '' : 'pointer-events-none opacity-40'
-								}`}
-							>
-								<Button
-									type="button"
-									variant="ghost"
-									disabled={!entityToggleEnabled}
-									className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-										currentEntityIntent === 'inspect'
-											? 'bg-background text-foreground shadow-sm'
-											: 'text-muted-foreground hover:text-foreground'
-									}`}
-									onClick={() => handleEntityIntentChange('inspect')}
-								>
-									Inspect
-								</Button>
-								<Button
-									type="button"
-									variant="ghost"
-									disabled={!entityToggleEnabled}
-									className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-										currentEntityIntent === 'edit'
-											? 'bg-background text-foreground shadow-sm'
-											: 'text-muted-foreground hover:text-foreground'
-									}`}
-									onClick={() => handleEntityIntentChange('edit')}
-								>
-									{geometryEditLabel}
-								</Button>
-							</div>
-						</div>
-
 						<div className="min-w-0 flex-1">
 							<EntitySearchPopover
 								sources={{ contexts: mapContextEvents }}

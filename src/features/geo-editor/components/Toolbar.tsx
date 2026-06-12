@@ -120,6 +120,8 @@ interface ToolbarProps {
 	chatOpen?: boolean
 	onToggleMapStack?: () => void
 	onToggleChat?: () => void
+	/** E.3: exits the Focus stance — wired to the interactive stance pill. */
+	onExitFocus?: () => void
 }
 
 interface MapStateClusterProps {
@@ -128,6 +130,12 @@ interface MapStateClusterProps {
 	mapStackEntryCount: number
 	mapStackVisibleCount: number
 	onToggleMapStack?: () => void
+	/**
+	 * Round E.3: when provided and the stance is `focus`, the stance pill
+	 * becomes a button that exits back to Browse (or Author when a draft is
+	 * active — `exitViewMode` decides).
+	 */
+	onExitFocus?: () => void
 	compact?: boolean
 	flat?: boolean
 	/**
@@ -152,6 +160,7 @@ function MapStateCluster({
 	mapStackEntryCount,
 	mapStackVisibleCount,
 	onToggleMapStack,
+	onExitFocus,
 	compact = false,
 	flat = false,
 	parts = 'all',
@@ -223,18 +232,37 @@ function MapStateCluster({
 					) : null}
 				</Button>
 			) : null}
-			{/* Stance pill — compact in flat mode: tight padding + extra-small text. */}
+			{/* Stance pill — compact in flat mode: tight padding + extra-small text.
+			    In the Focus stance the pill is interactive (E.3): clicking it exits
+			    inspection back to Browse/Author. */}
 			{renderStance ? (
-				<span
-					className={
-						flat
-							? `inline-flex h-8 shrink-0 items-center rounded-md border border-transparent px-1.5 text-[11px] font-semibold uppercase tracking-wide ${stanceClass}`
-							: `inline-flex h-7 shrink-0 items-center rounded-md border px-2 text-[11px] font-semibold uppercase ${stanceClass}`
-					}
-					title={`Current stance: ${stanceLabel}`}
-				>
-					{stanceLabel}
-				</span>
+				stance === 'focus' && onExitFocus ? (
+					<button
+						type="button"
+						onClick={onExitFocus}
+						className={
+							flat
+								? `inline-flex h-8 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-transparent px-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors hover:bg-amber-100 ${stanceClass}`
+								: `inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md border px-2 text-[11px] font-semibold uppercase transition-colors hover:bg-amber-100 ${stanceClass}`
+						}
+						title="Exit inspection"
+						aria-label="Exit inspection"
+					>
+						{stanceLabel}
+						<X className="h-3 w-3" />
+					</button>
+				) : (
+					<span
+						className={
+							flat
+								? `inline-flex h-8 shrink-0 items-center rounded-md border border-transparent px-1.5 text-[11px] font-semibold uppercase tracking-wide ${stanceClass}`
+								: `inline-flex h-7 shrink-0 items-center rounded-md border px-2 text-[11px] font-semibold uppercase ${stanceClass}`
+						}
+						title={`Current stance: ${stanceLabel}`}
+					>
+						{stanceLabel}
+					</span>
+				)
 			) : null}
 		</div>
 	)
@@ -338,11 +366,19 @@ export function Toolbar({
 	chatOpen = false,
 	onToggleMapStack,
 	onToggleChat,
+	onExitFocus,
 }: ToolbarProps) {
 	const editor = useEditorStore((state) => state.editor)
 	const mode = useEditorStore((state) => state.mode)
 	const snappingEnabled = useEditorStore((state) => state.snappingEnabled)
 	const viewMode = useEditorStore((state) => state.viewMode)
+	// Round E.1: stance gates which toolbar clusters render at all. Browse and
+	// Focus show the lean discovery surface (File / search / view toggles);
+	// the Draw + Edit clusters and import tools only exist while authoring.
+	// File's "New dataset" and the mobile SessionButton remain the entry
+	// points into the Author stance.
+	const stance = useEditorStore((state) => state.stance)
+	const isAuthoring = stance === 'author'
 	// Round D.4: edit-isolation is no longer a separate slice — it's the draft
 	// stack entry's `isolated` flag. Reads + toggles route through the same
 	// MapStackPanel.Focus button mechanism; the checkbox here stays as a
@@ -698,7 +734,7 @@ export function Toolbar({
 				</MenubarContent>
 			</MenubarMenu>
 
-			{expandedMenus.has('draw') ? (
+			{!isAuthoring ? null : expandedMenus.has('draw') ? (
 				drawExpandedInline
 			) : (
 				<MenubarMenu>
@@ -801,7 +837,7 @@ export function Toolbar({
 				</MenubarMenu>
 			)}
 
-			{expandedMenus.has('edit') ? (
+			{!isAuthoring ? null : expandedMenus.has('edit') ? (
 				editExpandedInline
 			) : (
 				<MenubarMenu>
@@ -962,13 +998,16 @@ export function Toolbar({
 							mapStackEntryCount={mapStackEntryCount}
 							mapStackVisibleCount={mapStackVisibleCount}
 							onToggleMapStack={onToggleMapStack}
+							onExitFocus={onExitFocus}
 							compact
 						/>
 					</div>
 
 					{mobileToolsOpen && (
 						<div className="glass-panel rounded-lg p-1.5">
-							{/* Row 1: Session + Select + Draw */}
+							{/* Row 1: Session + (when authoring) Select + Draw.
+							    E.1: SessionButton is the stance entry point and always
+							    renders; the draw/edit tools only exist in Author. */}
 							<div className="flex items-center justify-center gap-1 flex-wrap mb-1">
 								<SessionButton
 									viewMode={viewMode}
@@ -976,23 +1015,29 @@ export function Toolbar({
 									onCancel={onCancelEditing}
 									small
 								/>
-								<Divider />
-								<IconButtonRow buttons={selectButtons} small />
-								<Divider />
-								<DrawButtonGroup
-									mode={mode}
-									onModeChange={handleModeChange}
-									disabled={isEditingDisabled}
-									small
-								/>
+								{isAuthoring ? (
+									<>
+										<Divider />
+										<IconButtonRow buttons={selectButtons} small />
+										<Divider />
+										<DrawButtonGroup
+											mode={mode}
+											onModeChange={handleModeChange}
+											disabled={isEditingDisabled}
+											small
+										/>
+									</>
+								) : null}
 							</div>
-							{/* Row 2: History + Edit tools + Geometry ops */}
-							<div className="flex items-center justify-center gap-1 flex-wrap">
-								<IconButtonRow buttons={historyButtons} small />
-								<Divider />
-								<IconButtonRow buttons={editButtons} small />
-								<GeometryOpsDropdown {...geometryOpsProps} small />
-							</div>
+							{/* Row 2: History + Edit tools + Geometry ops — Author only. */}
+							{isAuthoring ? (
+								<div className="flex items-center justify-center gap-1 flex-wrap">
+									<IconButtonRow buttons={historyButtons} small />
+									<Divider />
+									<IconButtonRow buttons={editButtons} small />
+									<GeometryOpsDropdown {...geometryOpsProps} small />
+								</div>
+							) : null}
 						</div>
 					)}
 
@@ -1042,17 +1087,19 @@ export function Toolbar({
 									disabled={isEditingDisabled}
 									small
 								/>
-								<OsmImportPopover
-									open={magicPopoverOpen}
-									onOpenChange={setMagicPopoverOpen}
-									osmQueryFilter={osmQueryFilter}
-									onOsmFilterChange={setOsmQueryFilter}
-									onOsmClickMode={handleOsmClickMode}
-									onOsmQueryView={handleOsmQueryView}
-									onOsmAdvanced={onOsmAdvanced}
-									isClickMode={osmQueryMode === 'click'}
-									small
-								/>
+								{isAuthoring ? (
+									<OsmImportPopover
+										open={magicPopoverOpen}
+										onOpenChange={setMagicPopoverOpen}
+										osmQueryFilter={osmQueryFilter}
+										onOsmFilterChange={setOsmQueryFilter}
+										onOsmClickMode={handleOsmClickMode}
+										onOsmQueryView={handleOsmQueryView}
+										onOsmAdvanced={onOsmAdvanced}
+										isClickMode={osmQueryMode === 'click'}
+										small
+									/>
+								) : null}
 								<CreateMapPopover />
 								<Divider />
 								<PublishDropdown
@@ -1163,6 +1210,7 @@ export function Toolbar({
 						mapStackOpen={mapStackOpen}
 						mapStackEntryCount={mapStackEntryCount}
 						mapStackVisibleCount={mapStackVisibleCount}
+						onExitFocus={onExitFocus}
 						compact
 						flat
 						parts="stance"
@@ -1278,18 +1326,21 @@ export function Toolbar({
 
 					{/* Topic 6: data sources + share / settings. OsmImportPopover
 					    moved here from inside the Draw menu — it's an import
-					    operation, not a draw mode. */}
-					<OsmImportPopover
-						open={magicPopoverOpen}
-						onOpenChange={setMagicPopoverOpen}
-						osmQueryFilter={osmQueryFilter}
-						onOsmFilterChange={setOsmQueryFilter}
-						onOsmClickMode={handleOsmClickMode}
-						onOsmQueryView={handleOsmQueryView}
-						onOsmAdvanced={onOsmAdvanced}
-						isClickMode={osmQueryMode === 'click'}
-						small
-					/>
+					    operation, not a draw mode. E.1: import only exists while
+					    authoring (it pulls features into the active draft). */}
+					{isAuthoring ? (
+						<OsmImportPopover
+							open={magicPopoverOpen}
+							onOpenChange={setMagicPopoverOpen}
+							osmQueryFilter={osmQueryFilter}
+							onOsmFilterChange={setOsmQueryFilter}
+							onOsmClickMode={handleOsmClickMode}
+							onOsmQueryView={handleOsmQueryView}
+							onOsmAdvanced={onOsmAdvanced}
+							isClickMode={osmQueryMode === 'click'}
+							small
+						/>
+					) : null}
 					<CreateMapPopover small />
 					<ShareExportPopover small />
 					<Popover open={showMapSettings} onOpenChange={setShowMapSettings}>
