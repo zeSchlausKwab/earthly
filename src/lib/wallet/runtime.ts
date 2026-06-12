@@ -5,24 +5,30 @@
  *     All NIP-60 mutations go through this — see `applesauce-wallet/actions`.
  *   - `couch`:        an `IndexedDBCouch` where in-flight tokens are parked
  *     during operations so they can be recovered if a swap or melt fails.
+ *   - `getCashuWallet`: cached cashu-ts Wallet factory shared by every wallet
+ *     action so each mint keeps a single info-cache + WebSocket connection.
  *
  * Side-effect: imports `applesauce-wallet/casts` so `user.wallet$` and
  * `user.nutzap$` are available on every `User` cast in the app.
  */
 
 import 'applesauce-wallet/casts'
+import { Mint, Wallet as CashuWallet } from '@cashu/cashu-ts'
 import { ActionRunner } from 'applesauce-actions'
 import { ProxySigner } from 'applesauce-accounts'
 import { persistEncryptedContent } from 'applesauce-common/helpers'
+import { defined } from 'applesauce-core'
+import { normalizeURL, relaySet } from 'applesauce-core/helpers'
 import type { ISigner } from 'applesauce-signers'
 import {
 	getWalletMints,
+	getWalletRelays,
 	IndexedDBCouch,
 	WALLET_KIND,
 } from 'applesauce-wallet/helpers'
 import { WalletBalanceModel } from 'applesauce-wallet/models'
 import type { NostrEvent } from 'nostr-tools'
-import { BehaviorSubject, map, of, switchMap } from 'rxjs'
+import { BehaviorSubject, firstValueFrom, map, of, switchMap, timeout } from 'rxjs'
 import { config } from '@/config'
 import { accounts, eventStore, pool } from '@/lib/nostr'
 
@@ -31,6 +37,33 @@ import { accounts, eventStore, pool } from '@/lib/nostr'
  * so that if a mint operation fails partway, the proofs aren't lost.
  */
 export const couch = new IndexedDBCouch()
+
+/**
+ * Cache of cashu-ts Mint instances reused across mint/melt operations.
+ * A Mint caches the mint's info and owns a single WebSocket connection, so
+ * reusing instances avoids re-fetching info and keeps one socket per mint.
+ */
+const mints = new Map<string, Mint>()
+
+export function getMint(url: string): Mint {
+	const key = normalizeURL(url)
+	let mint = mints.get(key)
+	if (!mint) {
+		mint = new Mint(key)
+		mints.set(key, mint)
+	}
+	return mint
+}
+
+/**
+ * Builds a loaded cashu Wallet from a cached Mint. Passed as the
+ * `getCashuWallet` option to wallet actions and used directly for quotes.
+ */
+export async function getCashuWallet(mint: string): Promise<CashuWallet> {
+	const wallet = new CashuWallet(getMint(mint))
+	await wallet.loadMint()
+	return wallet
+}
 
 /**
  * Reactive view of the active account's signer. Wallet actions sign through
@@ -75,26 +108,42 @@ function makeEncryptedContentStorage(): {
 persistEncryptedContent(eventStore, of(makeEncryptedContentStorage()))
 
 /**
+ * Resolve publish relays for a wallet event when the action didn't pick any:
+ * the wallet's own relay list merged with the author's NIP-65 outboxes,
+ * mirroring the applesauce wallet example.
+ */
+async function resolveWalletPublishRelays(pubkey: string): Promise<string[]> {
+	const mailboxes = await firstValueFrom(
+		eventStore
+			.mailboxes(pubkey)
+			.pipe(defined(), timeout({ first: 5_000, with: () => of(undefined) })),
+	)
+	const wallet = await firstValueFrom(
+		eventStore
+			.replaceable(WALLET_KIND, pubkey)
+			.pipe(defined(), timeout({ first: 5_000, with: () => of(undefined) })),
+	)
+	return relaySet(wallet && getWalletRelays(wallet), mailboxes?.outboxes)
+}
+
+/**
  * Action runner used by every wallet operation.
  *
- * The publish method is dev-safety-aware: in dev we ignore action-supplied
- * relay hints and force everything to `config.writeRelays` (= local). In prod
- * the action's chosen relays (typically wallet relays + outboxes) are used.
+ * Wallet events are exempt from the dev write-lock that governs `publish()`:
+ * NIP-60 events are NIP-44-encrypted personal state, and writing them only to
+ * the local relay forks the user's real wallet across relay sets (other NIP-60
+ * clients would keep operating on stale token events). Action-chosen relays
+ * win; otherwise wallet relays + outboxes; configured relays as last resort.
  */
 export const walletActions = new ActionRunner(
 	eventStore,
 	new ProxySigner<ISigner>(activeSigner$),
-	{
-		publish: async (event: NostrEvent, relays?: string[]) => {
-			const targetRelays =
-				config.isDevelopment || !relays || relays.length === 0
-					? config.writeRelays
-					: relays
-			await pool.publish(targetRelays, event)
-			eventStore.add(event)
-		},
-		// biome-ignore lint/suspicious/noExplicitAny: ActionRunner's publish-method type is overloaded and overly strict
-	} as any,
+	async (event: NostrEvent, relays?: string[]) => {
+		let targetRelays = relays?.length ? relays : await resolveWalletPublishRelays(event.pubkey)
+		if (targetRelays.length === 0) targetRelays = config.writeRelays
+		await pool.publish(targetRelays, event)
+		eventStore.add(event)
+	},
 )
 
 // =====================================================================

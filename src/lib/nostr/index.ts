@@ -206,6 +206,15 @@ async function cacheRequest(filters: Filter[]): Promise<NostrEvent[]> {
 }
 
 /**
+ * Query the IndexedDB event cache directly. Returns matching cached events
+ * (empty array when the cache is unavailable). Use to hydrate the EventStore
+ * instantly on mount while relay subscriptions catch up in the background.
+ */
+export async function queryCache(filters: Filter[]): Promise<NostrEvent[]> {
+	return cacheRequest(filters)
+}
+
+/**
  * Wires up on-demand event loading: when something subscribes to an event/address
  * that isn't in the store, we pull from cache then from relays. The result is
  * added to the store automatically and stored back into the cache via persistEventsToCache.

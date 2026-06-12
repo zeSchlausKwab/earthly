@@ -7,25 +7,19 @@
  *   - The shared `walletActions` ActionRunner (active applesauce signer +
  *     dev-safety publishing).
  *   - The shared `couch` for safe token operations.
+ *   - The shared `getCashuWallet` factory (one cached Mint + socket per mint).
  *
  * Lower-level actions (e.g. `TokensOperation`, `RolloverTokens`) are still
  * available via `walletActions.run(...)` — these wrappers cover the common
  * happy paths.
  */
 
-import { generateSecretKey } from 'nostr-tools'
-import {
-	getDecodedToken,
-	getEncodedToken,
-	type MintQuoteBolt11Response,
-	type Proof,
-	Wallet as CashuWallet,
-} from '@cashu/cashu-ts'
+import { getEncodedToken, getTokenMetadata, MintQuoteState, type Token } from '@cashu/cashu-ts'
 import {
 	AddNutzapInfoMint,
-	AddToken,
 	ConsolidateTokens,
 	CreateWallet,
+	MintTokens,
 	ReceiveNutzaps,
 	ReceiveToken,
 	RecoverFromCouch,
@@ -35,9 +29,21 @@ import {
 	TokensOperation,
 	UnlockWallet,
 } from 'applesauce-wallet/actions'
+import { generateSecretKey } from 'nostr-tools'
 import type { NostrEvent } from 'nostr-tools'
-import { config } from '@/config'
-import { couch, walletActions } from './runtime'
+import { couch, getCashuWallet, getWalletSnapshot, walletActions } from './runtime'
+
+/**
+ * Default relays for newly created wallets. Wallet events are encrypted
+ * personal state that other NIP-60 clients must be able to find, so they go
+ * to well-known public relays — never the local dev relay.
+ */
+const DEFAULT_WALLET_RELAYS = [
+	'wss://relay.damus.io',
+	'wss://nos.lol',
+	'wss://relay.snort.social',
+	'wss://relay.primal.net',
+]
 
 export interface CreateWalletOptions {
 	/** Mints to use. Required. */
@@ -48,7 +54,7 @@ export interface CreateWalletOptions {
 	 */
 	receiveNutzaps?: boolean
 	/**
-	 * Wallet relays. Defaults to `config.writeRelays` (always local in dev).
+	 * Wallet relays. Defaults to {@link DEFAULT_WALLET_RELAYS}.
 	 */
 	relays?: string[]
 }
@@ -61,7 +67,7 @@ export interface CreateWalletOptions {
  * starts returning the populated state.
  */
 export async function createWallet(options: CreateWalletOptions): Promise<void> {
-	const { mints, receiveNutzaps = false, relays = config.writeRelays } = options
+	const { mints, receiveNutzaps = false, relays = DEFAULT_WALLET_RELAYS } = options
 	if (!mints || mints.length === 0) throw new Error('At least one mint is required')
 
 	await walletActions.run(CreateWallet, {
@@ -72,10 +78,7 @@ export async function createWallet(options: CreateWalletOptions): Promise<void> 
 }
 
 /** Unlock the wallet (and optionally tokens + history) for the active account. */
-export async function unlockWallet(opts?: {
-	tokens?: boolean
-	history?: boolean
-}): Promise<void> {
+export async function unlockWallet(opts?: { tokens?: boolean; history?: boolean }): Promise<void> {
 	await walletActions.run(UnlockWallet, opts ?? { tokens: true, history: true })
 }
 
@@ -100,24 +103,29 @@ export async function removeNutzapMint(url: string): Promise<void> {
 }
 
 /**
- * Receive a Cashu token (decoded). Swaps it at the mint and adds the new
- * proofs to the wallet, plus a history entry.
+ * Receive a Cashu token. Swaps it at the mint and adds the new proofs to the
+ * wallet, plus a history entry.
  *
- * Pass either an encoded `cashuA…` string or a pre-decoded token.
+ * Pass either an encoded `cashuA…`/`cashuB…` string or a pre-decoded token.
+ * Strings are decoded via the mint's keyset (cashu-ts v4 requires keyset ids
+ * to hydrate short-id tokens, so decoding goes through a loaded wallet).
  */
-export async function receiveCashuToken(
-	tokenOrString: string | ReturnType<typeof getDecodedToken>,
-): Promise<void> {
-	const token =
-		typeof tokenOrString === 'string' ? getDecodedToken(tokenOrString) : tokenOrString
-	if (!token) throw new Error('Failed to decode token')
-	await walletActions.run(ReceiveToken, token, { couch })
+export async function receiveCashuToken(tokenOrString: string | Token): Promise<void> {
+	let token: Token
+	if (typeof tokenOrString === 'string') {
+		const meta = getTokenMetadata(tokenOrString.trim())
+		const cashuWallet = await getCashuWallet(meta.mint)
+		token = cashuWallet.decodeToken(tokenOrString.trim())
+	} else {
+		token = tokenOrString
+	}
+	await walletActions.run(ReceiveToken, token, { couch, getCashuWallet })
 }
 
 /**
  * Send a Cashu token of the given amount.
  *
- * Returns the encoded `cashuA…` string ready to share with the recipient.
+ * Returns the encoded `cashuB…` string ready to share with the recipient.
  * Optionally constrains the source mint; when omitted, applesauce-wallet
  * picks a mint with sufficient balance.
  */
@@ -135,7 +143,7 @@ export async function sendCashuToken(
 			encoded = getEncodedToken({ mint, proofs: send, unit: 'sat' })
 			return { change: keep.length > 0 ? keep : undefined }
 		},
-		{ mint: options?.mint, couch },
+		{ mint: options?.mint, couch, getCashuWallet },
 	)
 
 	if (!encoded) throw new Error('Failed to create token')
@@ -143,45 +151,52 @@ export async function sendCashuToken(
 }
 
 /**
- * Pay a Lightning invoice from this wallet's eCash. Throws if no mint has
- * enough balance to cover the invoice amount + fee reserve.
+ * Pay a Lightning invoice from this wallet's eCash. Throws if the paying mint
+ * doesn't have enough balance to cover the invoice amount + fee reserve.
  *
- * `mint` constrains which mint pays. If omitted, applesauce-wallet picks a
- * mint with sufficient balance.
+ * `mint` constrains which mint pays. If omitted, the mint with the highest
+ * balance is used (the melt quote must be created against a specific mint
+ * before proofs can be selected).
  */
 export async function payLightningInvoice(
 	invoice: string,
 	options?: { mint?: string },
 ): Promise<{ paid: boolean; preimage?: string }> {
+	const snapshot = getWalletSnapshot()
+	const mint = options?.mint ?? Object.entries(snapshot.balance).sort((a, b) => b[1] - a[1])[0]?.[0]
+	if (!mint) throw new Error('No mint with a balance to pay from')
+
+	// Create the melt quote first so the exact amount + fee reserve is known
+	// before proofs are selected.
+	const cashuWallet = await getCashuWallet(mint)
+	const meltQuote = await cashuWallet.createMeltQuoteBolt11(invoice)
+	const amount = meltQuote.amount.toNumber()
+	const fee = meltQuote.fee_reserve.toNumber()
+
+	const mintBalance = snapshot.balance[mint] ?? 0
+	if (mintBalance < amount + fee) {
+		throw new Error(`Insufficient balance: need ${amount + fee} sat, have ${mintBalance}`)
+	}
+
 	let result: { paid: boolean; preimage?: string } = { paid: false }
 
 	await walletActions.run(
 		TokensOperation,
-		// We don't know the exact min until we fetch the quote, but TokensOperation
-		// needs a min to pre-select proofs. We pass 1 — the operation re-checks
-		// inside, and `selectedProofs` covers the bound at that time.
-		1,
-		async ({ selectedProofs, cashuWallet }) => {
-			const meltQuote = await cashuWallet.createMeltQuoteBolt11(invoice)
-			const required = meltQuote.amount + meltQuote.fee_reserve
-			if (selectedProofs.reduce((s, p) => s + p.amount, 0) < required) {
-				throw new Error(
-					`Insufficient balance: need ${required} sat, have ${selectedProofs.reduce(
-						(s, p) => s + p.amount,
-						0,
-					)}`,
-				)
-			}
-			const { keep, send } = await cashuWallet.ops
-				.send(required, selectedProofs)
+		amount + fee,
+		async ({ selectedProofs, cashuWallet: opWallet }) => {
+			// Set aside amount + fee reserve to melt; keep any remainder as change.
+			const { keep, send } = await opWallet.ops
+				.send(amount + fee, selectedProofs)
 				.includeFees(true)
 				.run()
-			const meltResponse = await cashuWallet.meltProofsBolt11(meltQuote, send)
-			result = { paid: true, preimage: meltResponse.quote.payment_preimage ?? undefined }
-			const change = [...keep, ...(meltResponse.change ?? [])]
-			return { change: change.length > 0 ? change : undefined }
+			const response = await opWallet.meltProofsBolt11(meltQuote, send)
+			result = {
+				paid: true,
+				preimage: response.quote.payment_preimage ?? undefined,
+			}
+			return { change: [...keep, ...response.change] }
 		},
-		{ mint: options?.mint, couch },
+		{ mint, couch, getCashuWallet },
 	)
 
 	return result
@@ -196,7 +211,7 @@ export interface DepositSession {
 	amount: number
 	/** Mint URL the proofs will come from. */
 	mint: string
-	/** Polls the mint until the quote is paid. Resolves when paid; rejects if expired/failed. */
+	/** Waits until the invoice is paid (NUT-17 websocket when supported, else poll). */
 	waitForPayment: (opts?: { intervalMs?: number; signal?: AbortSignal }) => Promise<void>
 	/** After waitForPayment resolves, mint proofs and add them to the wallet. */
 	claim: () => Promise<{ amount: number }>
@@ -220,37 +235,43 @@ export async function startLightningDeposit(opts: {
 	if (!mint) throw new Error('Mint is required')
 	if (!amount || amount <= 0) throw new Error('Amount must be positive')
 
-	const cashuWallet = new CashuWallet(mint, { unit: 'sat' })
-	await cashuWallet.loadMint()
+	const cashuWallet = await getCashuWallet(mint)
 	const quote = await cashuWallet.createMintQuoteBolt11(amount)
-
-	let latestQuote: MintQuoteBolt11Response = quote
 
 	return {
 		invoice: quote.request,
 		quoteId: quote.quote,
 		amount,
 		mint,
-		async waitForPayment({ intervalMs = 2000, signal } = {}) {
+		async waitForPayment({ intervalMs = 3000, signal } = {}) {
+			// NUT-17 websocket notification when the mint supports it, else poll.
+			if (cashuWallet.getMintInfo().isSupported(17).supported) {
+				try {
+					await cashuWallet.on.onceMintPaid(quote.quote, { signal })
+				} catch (err) {
+					if (signal?.aborted) throw new Error('Cancelled')
+					throw err
+				}
+				return
+			}
 			while (true) {
 				if (signal?.aborted) throw new Error('Cancelled')
-				const refreshed = await cashuWallet.checkMintQuoteBolt11(quote.quote)
-				latestQuote = refreshed
-				if (refreshed.state === 'PAID' || refreshed.state === 'ISSUED') return
+				const check = await cashuWallet.checkMintQuoteBolt11(quote.quote)
+				if (check.state === MintQuoteState.PAID || check.state === MintQuoteState.ISSUED) return
 				await new Promise((r) => setTimeout(r, intervalMs))
 			}
 		},
 		async claim() {
-			const proofs: Proof[] = await cashuWallet.mintProofsBolt11(amount, latestQuote)
-			await walletActions.run(AddToken, { mint, proofs, unit: 'sat' as const })
-			return { amount: proofs.reduce((s, p) => s + p.amount, 0) }
+			// Mints the paid quote into proofs and records token + history events.
+			await walletActions.run(MintTokens, mint, amount, quote, { couch, getCashuWallet })
+			return { amount }
 		},
 	}
 }
 
 /** Pull P2PK-locked tokens out of one or more nutzap events into the wallet. */
 export async function receiveNutzaps(events: NostrEvent | NostrEvent[]): Promise<void> {
-	await walletActions.run(ReceiveNutzaps, events, couch)
+	await walletActions.run(ReceiveNutzaps, events, couch, getCashuWallet)
 }
 
 /**
@@ -259,10 +280,10 @@ export async function receiveNutzaps(events: NostrEvent | NostrEvent[]): Promise
  * reduce token-event count.
  */
 export async function consolidateTokens(): Promise<void> {
-	await walletActions.run(ConsolidateTokens, { unlockTokens: true, couch })
+	await walletActions.run(ConsolidateTokens, { unlockTokens: true, getCashuWallet })
 }
 
 /** Sweep tokens stranded in the couch back into the wallet (after a crash). */
 export async function recoverFromCouch(): Promise<void> {
-	await walletActions.run(RecoverFromCouch, couch)
+	await walletActions.run(RecoverFromCouch, couch, { getCashuWallet })
 }

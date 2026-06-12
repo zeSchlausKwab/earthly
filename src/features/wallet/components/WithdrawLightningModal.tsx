@@ -143,8 +143,11 @@ export function WithdrawLightningModal({
 					<div className="space-y-4">
 						{mintsWithBalance.length > 0 && (
 							<div className="space-y-2">
-								<label className="text-sm font-medium">From Mint</label>
+								<label className="text-sm font-medium" htmlFor="withdraw-mint">
+									From Mint
+								</label>
 								<select
+									id="withdraw-mint"
 									value={selectedMint}
 									onChange={(e) => setSelectedMint(e.target.value)}
 									className="w-full px-3 py-2 text-sm border rounded-md bg-background"
@@ -159,8 +162,11 @@ export function WithdrawLightningModal({
 						)}
 
 						<div className="space-y-2">
-							<label className="text-sm font-medium">Lightning Invoice</label>
+							<label className="text-sm font-medium" htmlFor="withdraw-invoice">
+								Lightning Invoice
+							</label>
 							<textarea
+								id="withdraw-invoice"
 								value={invoice}
 								onChange={(e) => setInvoice(e.target.value)}
 								placeholder="lnbc..."

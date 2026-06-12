@@ -10,28 +10,30 @@
  * `useDefaultMint`) and is independent from the wallet event itself.
  */
 
+import type { WalletHistory, WalletToken } from 'applesauce-wallet/casts'
 import { use$, useActiveAccount } from 'applesauce-react/hooks'
 import {
 	ArrowDownLeft,
 	ArrowUpDown,
 	ArrowUpRight,
-	ChevronRight,
+	Check,
 	Coins,
+	Copy,
 	Landmark,
 	Loader2,
+	Lock,
 	Plus,
 	QrCode,
-	RefreshCw,
 	Send,
 	Star,
 	Unlock,
+	Wrench,
 	X,
 	Zap,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import {
 	Select,
@@ -41,17 +43,20 @@ import {
 	SelectValue,
 } from '@/components/ui/select'
 import {
-	consolidateTokens,
 	createWallet,
+	encodeWalletToken,
 	getMintHostname,
 	setMints as setWalletMints,
 	unlockWallet,
 	useDefaultMint,
+	useNutzaps,
 	useWallet,
 } from '@/lib/wallet'
 import { DepositLightningModal } from './DepositLightningModal'
+import { NutzapsSection } from './NutzapsSection'
 import { ReceiveEcashModal } from './ReceiveEcashModal'
 import { SendEcashModal } from './SendEcashModal'
+import { WalletToolsSection } from './WalletToolsSection'
 import { WithdrawLightningModal } from './WithdrawLightningModal'
 
 const DEFAULT_MINTS = [
@@ -61,7 +66,7 @@ const DEFAULT_MINTS = [
 ]
 
 type ModalType = 'deposit' | 'withdraw' | 'send' | 'receive' | null
-type Section = 'mints' | 'transactions' | 'proofs' | null
+type Section = 'mints' | 'transactions' | 'tokens' | 'nutzaps' | 'tools' | null
 
 export function Nip60Wallet() {
 	const account = useActiveAccount()
@@ -69,17 +74,16 @@ export function Nip60Wallet() {
 		useWallet()
 	const tokens = use$(() => wallet?.tokens$, [wallet])
 	const history = use$(() => wallet?.history$, [wallet])
+	const { unclaimed: unclaimedNutzaps } = useNutzaps()
 	const [defaultMint, setDefaultMint] = useDefaultMint()
 
 	const [isCreating, setIsCreating] = useState(false)
 	const [isUnlocking, setIsUnlocking] = useState(false)
-	const [isRefreshing, setIsRefreshing] = useState(false)
 	const [isSavingMints, setIsSavingMints] = useState(false)
 	const [newMintUrl, setNewMintUrl] = useState('')
 	const [editedMints, setEditedMints] = useState<string[] | null>(null)
 	const [openModal, setOpenModal] = useState<ModalType>(null)
 	const [openSection, setOpenSection] = useState<Section>(null)
-	const [expandedMints, setExpandedMints] = useState<Set<string>>(new Set())
 
 	const lockedTokenCount = tokens?.filter((token) => !token.unlocked).length ?? 0
 	const lockedHistoryCount = history?.filter((entry) => !entry.unlocked).length ?? 0
@@ -104,40 +108,6 @@ export function Nip60Wallet() {
 
 	const workingMints = editedMints ?? mints
 
-	const proofsByMint = useMemo(() => {
-		const map = new Map<string, Array<{ id: string; secret: string; amount: number; C: string }>>()
-		if (!tokens) return map
-		for (const token of tokens) {
-			const mint = token.mint
-			const proofs = token.proofs
-			if (!mint || !proofs) continue
-			const list = map.get(mint) ?? []
-			list.push(...proofs)
-			map.set(mint, list)
-		}
-		return map
-	}, [tokens])
-	const proofCount = useMemo(
-		() => Array.from(proofsByMint.values()).reduce((sum, proofs) => sum + proofs.length, 0),
-		[proofsByMint],
-	)
-
-	// Subscribe to history meta so direction/amount populate as decryption settles
-	const historyEntries = use$(() => {
-		if (!history) return undefined
-		return undefined // we don't need a derived stream; use the `history` array directly below
-	}, [history])
-	void historyEntries
-
-	const toggleMintExpanded = (mint: string) => {
-		setExpandedMints((prev) => {
-			const next = new Set(prev)
-			if (next.has(mint)) next.delete(mint)
-			else next.add(mint)
-			return next
-		})
-	}
-
 	const handleCreateWallet = async () => {
 		setIsCreating(true)
 		try {
@@ -158,19 +128,6 @@ export function Nip60Wallet() {
 			toast.error(err instanceof Error ? err.message : 'Failed to unlock wallet')
 		} finally {
 			setIsUnlocking(false)
-		}
-	}
-
-	const handleRefresh = async () => {
-		if (!ready) return
-		setIsRefreshing(true)
-		try {
-			await consolidateTokens()
-			toast.success('Wallet refreshed')
-		} catch (err) {
-			toast.error(err instanceof Error ? err.message : 'Refresh failed')
-		} finally {
-			setIsRefreshing(false)
 		}
 	}
 
@@ -247,18 +204,7 @@ export function Nip60Wallet() {
 
 	return (
 		<div className="p-4 max-w-full overflow-hidden bg-card rounded-lg border">
-			<div className="text-center mb-4 relative">
-				<div className="absolute right-0 top-0 flex gap-1">
-					<Button
-						variant="ghost"
-						size="icon"
-						onClick={handleRefresh}
-						disabled={!ready || isRefreshing}
-						title="Consolidate & refresh"
-					>
-						<RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-					</Button>
-				</div>
+			<div className="text-center mb-4">
 				<p className="text-sm text-muted-foreground mb-1">
 					{syncing ? 'Syncing wallet…' : 'Balance'}
 				</p>
@@ -372,14 +318,33 @@ export function Nip60Wallet() {
 						<span className="text-xs">{syncing ? '…' : (history?.length ?? 0)}</span>
 					</Button>
 					<Button
-						variant={openSection === 'proofs' ? 'default' : 'ghost'}
+						variant={openSection === 'tokens' ? 'default' : 'ghost'}
 						size="sm"
-						onClick={() => setOpenSection(openSection === 'proofs' ? null : 'proofs')}
+						onClick={() => setOpenSection(openSection === 'tokens' ? null : 'tokens')}
 						className="flex-1 gap-1.5 px-2"
-						title="Proofs"
+						title="Tokens"
 					>
 						<Coins className="w-4 h-4 shrink-0" />
-						<span className="text-xs">{syncing ? '…' : proofCount}</span>
+						<span className="text-xs">{syncing ? '…' : (tokens?.length ?? 0)}</span>
+					</Button>
+					<Button
+						variant={openSection === 'nutzaps' ? 'default' : 'ghost'}
+						size="sm"
+						onClick={() => setOpenSection(openSection === 'nutzaps' ? null : 'nutzaps')}
+						className="flex-1 gap-1.5 px-2"
+						title="Nutzaps"
+					>
+						<Zap className="w-4 h-4 shrink-0" />
+						<span className="text-xs">{unclaimedNutzaps.length}</span>
+					</Button>
+					<Button
+						variant={openSection === 'tools' ? 'default' : 'ghost'}
+						size="sm"
+						onClick={() => setOpenSection(openSection === 'tools' ? null : 'tools')}
+						className="flex-1 gap-1.5 px-2"
+						title="Wallet tools"
+					>
+						<Wrench className="w-4 h-4 shrink-0" />
 					</Button>
 				</div>
 
@@ -459,58 +424,25 @@ export function Nip60Wallet() {
 					</div>
 				)}
 
-				{openSection === 'proofs' && (
+				{openSection === 'tokens' && (
 					<div className="space-y-2 max-h-48 overflow-y-auto overflow-x-hidden pt-2 border-t">
-						{syncing ? (
-							<p className="text-sm text-muted-foreground">Syncing proofs…</p>
-						) : proofsByMint.size === 0 ? (
-							<p className="text-sm text-muted-foreground">No proofs in wallet</p>
+						{!tokens || tokens.length === 0 ? (
+							<p className="text-sm text-muted-foreground">No tokens in wallet</p>
 						) : (
-							Array.from(proofsByMint.entries()).map(([mint, proofs]) => (
-								<Collapsible
-									key={mint}
-									open={expandedMints.has(mint)}
-									onOpenChange={() => toggleMintExpanded(mint)}
-								>
-									<div className="bg-muted rounded-md p-2 overflow-hidden">
-										<CollapsibleTrigger asChild>
-											<Button
-												variant="ghost"
-												size="sm"
-												className="w-full justify-start gap-2 px-1 h-auto py-1 overflow-hidden"
-											>
-												<ChevronRight className="w-3 h-3 shrink-0 transition-transform [[data-state=open]>&]:rotate-90" />
-												<span className="font-medium truncate flex-1 text-left min-w-0">
-													{getMintHostname(mint)}
-												</span>
-												<span className="text-muted-foreground text-xs shrink-0 whitespace-nowrap">
-													{proofs.length} •{' '}
-													{proofs.reduce((s, p) => s + p.amount, 0).toLocaleString()}
-												</span>
-											</Button>
-										</CollapsibleTrigger>
-										<CollapsibleContent>
-											<div className="mt-2 space-y-1 pl-5 overflow-hidden">
-												{proofs.map((proof) => (
-													<div
-														key={`${proof.id}-${proof.secret}`}
-														className="flex items-center justify-between text-xs bg-background rounded px-2 py-1 gap-2"
-													>
-														<span
-															className="font-mono text-muted-foreground truncate min-w-0"
-															title={`Keyset: ${proof.id}`}
-														>
-															{proof.id.slice(0, 8)}...
-														</span>
-														<span className="font-medium shrink-0">{proof.amount}</span>
-													</div>
-												))}
-											</div>
-										</CollapsibleContent>
-									</div>
-								</Collapsible>
-							))
+							tokens.map((token) => <TokenRow key={token.event.id} token={token} />)
 						)}
+					</div>
+				)}
+
+				{openSection === 'nutzaps' && (
+					<div className="pt-2 overflow-hidden border-t">
+						<NutzapsSection />
+					</div>
+				)}
+
+				{openSection === 'tools' && wallet && (
+					<div className="pt-2 overflow-hidden border-t">
+						<WalletToolsSection wallet={wallet} />
 					</div>
 				)}
 			</div>
@@ -538,14 +470,65 @@ export function Nip60Wallet() {
 				defaultMint={defaultMint}
 			/>
 			<ReceiveEcashModal open={openModal === 'receive'} onClose={() => setOpenModal(null)} />
-
-			{/* unused but reserved — wallet cast is exposed if subviews need it */}
-			{wallet ? null : null}
 		</div>
 	)
 }
 
-function HistoryRow({ entry }: { entry: import('applesauce-wallet/casts').WalletHistory }) {
+/** A single NIP-60 token event: amount, mint, and a copy-as-cashu-token shortcut. */
+function TokenRow({ token }: { token: WalletToken }) {
+	const amount = use$(() => token.amount$, [token])
+	const mint = use$(() => token.mint$, [token])
+	const [copied, setCopied] = useState(false)
+
+	// Cheap enough to compute per render; recomputes naturally once the token unlocks.
+	const encoded = encodeWalletToken({ mint: token.mint, proofs: token.proofs })
+
+	const handleCopy = async () => {
+		if (!encoded) return
+		try {
+			await navigator.clipboard.writeText(encoded)
+			setCopied(true)
+			setTimeout(() => setCopied(false), 2000)
+		} catch {
+			toast.error('Failed to copy token')
+		}
+	}
+
+	if (!token.unlocked) {
+		return (
+			<div className="flex items-center gap-2 text-sm text-muted-foreground">
+				<Lock className="w-3 h-3 shrink-0" />
+				Locked
+			</div>
+		)
+	}
+
+	return (
+		<div className="flex items-center justify-between text-sm gap-2">
+			<div className="flex items-center gap-2 min-w-0">
+				<span className="font-medium shrink-0">{(amount ?? 0).toLocaleString()}</span>
+				{mint && (
+					<span className="text-xs text-muted-foreground truncate min-w-0" title={mint}>
+						{getMintHostname(mint)}
+					</span>
+				)}
+			</div>
+			{encoded && (
+				<Button
+					variant="ghost"
+					size="icon"
+					className="h-6 w-6 shrink-0"
+					onClick={handleCopy}
+					title="Copy cashu token"
+				>
+					{copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+				</Button>
+			)}
+		</div>
+	)
+}
+
+function HistoryRow({ entry }: { entry: WalletHistory }) {
 	const meta = use$(() => entry.meta$, [entry])
 	const direction = meta?.direction
 	const amount = meta?.amount ?? 0

@@ -8,7 +8,10 @@
 
 // React hooks
 export {
+	type NutzapsState,
 	useDefaultMint,
+	useNutzapInfo,
+	useNutzaps,
 	useWallet,
 	useWalletHistory,
 	useWalletTokens,
@@ -45,6 +48,6 @@ export {
 
 // Pre-existing utilities (kept)
 export { getCurrentPubkey, setCurrentPubkey } from './currentUser'
-export { getMintHostname, formatSats } from './display'
+export { encodeWalletToken, formatSats, getMintHostname } from './display'
 export { loadUserData, removeUserData, saveUserData } from './storage'
 export type { PendingToken, ProofEntry, ProofInfo } from './types'

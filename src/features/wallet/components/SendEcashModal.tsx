@@ -168,8 +168,11 @@ export function SendEcashModal({
 
 						{mintsWithBalance.length > 0 && (
 							<div className="space-y-2">
-								<label className="text-sm font-medium">From Mint</label>
+								<label className="text-sm font-medium" htmlFor="send-ecash-mint">
+									From Mint
+								</label>
 								<select
+									id="send-ecash-mint"
 									value={selectedMint}
 									onChange={(e) => setSelectedMint(e.target.value)}
 									className="w-full px-3 py-2 text-sm border rounded-md bg-background"

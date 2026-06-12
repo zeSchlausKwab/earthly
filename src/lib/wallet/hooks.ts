@@ -6,11 +6,18 @@
  * automatically.
  */
 
+import { castTimelineStream } from 'applesauce-common/observable'
 import { castEvent } from 'applesauce-core/casts'
 import { kinds, relaySet } from 'applesauce-core/helpers'
 import { use$, useActiveAccount } from 'applesauce-react/hooks'
-import { Wallet } from 'applesauce-wallet/casts'
-import { WALLET_HISTORY_KIND, WALLET_KIND, WALLET_TOKEN_KIND } from 'applesauce-wallet/helpers'
+import { Nutzap, NutzapInfo, Wallet } from 'applesauce-wallet/casts'
+import {
+	NUTZAP_KIND,
+	WALLET_HISTORY_KIND,
+	WALLET_KIND,
+	WALLET_TOKEN_KIND,
+} from 'applesauce-wallet/helpers'
+import { NUTZAP_INFO_KIND } from 'applesauce-wallet/helpers/nutzap-info'
 import type { Filter } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { config } from '@/config'
@@ -124,6 +131,88 @@ export function useWalletHistory() {
 export function useWalletTokens() {
 	const wallet = useWallet().wallet
 	return use$(() => wallet?.tokens$, [wallet])
+}
+
+export interface NutzapsState {
+	/** All incoming nutzap events for the active pubkey (newest first). */
+	nutzaps: Nutzap[] | undefined
+	/** Nutzap event ids already redeemed into the wallet. */
+	received: string[] | undefined
+	/** Nutzaps not yet redeemed. */
+	unclaimed: Nutzap[]
+	/** `true` while the nutzap lookup is waiting on relay responses. */
+	loading: boolean
+}
+
+/**
+ * Subscribe to incoming NIP-61 nutzaps for the active account.
+ *
+ * Redeemed ids come from the wallet's history events (`wallet.received$`), so
+ * `unclaimed` only shrinks once a ReceiveNutzaps action lands.
+ */
+export function useNutzaps(): NutzapsState {
+	const active = useActiveAccount()
+	const { wallet } = useWallet()
+	const received = use$(() => wallet?.received$, [wallet])
+
+	const nutzapFilter = useMemo<Filter | null>(
+		() => (active?.pubkey ? { kinds: [NUTZAP_KIND], '#p': [active.pubkey] } : null),
+		[active?.pubkey],
+	)
+	const { eose } = useTimelineWithEose(nutzapFilter)
+
+	const nutzaps = use$(
+		() =>
+			active?.pubkey
+				? eventStore
+						.timeline({ kinds: [NUTZAP_KIND], '#p': [active.pubkey] })
+						.pipe(castTimelineStream(Nutzap, eventStore))
+				: undefined,
+		[active?.pubkey],
+	)
+
+	const unclaimed = useMemo(() => {
+		if (!nutzaps) return []
+		if (!received) return nutzaps
+		const receivedSet = new Set(received)
+		return nutzaps.filter((nutzap) => !receivedSet.has(nutzap.id))
+	}, [nutzaps, received])
+
+	return {
+		nutzaps,
+		received,
+		unclaimed,
+		loading: Boolean(active?.pubkey && !nutzaps?.length && !eose),
+	}
+}
+
+/**
+ * Subscribe to the active account's NIP-61 nutzap info event (kind 10019).
+ * Holds the mints + relays where others should send nutzaps.
+ */
+export function useNutzapInfo(): NutzapInfo | undefined {
+	const active = useActiveAccount()
+
+	const infoFilter = useMemo<Filter | null>(
+		() =>
+			active?.pubkey ? { kinds: [NUTZAP_INFO_KIND], authors: [active.pubkey], limit: 1 } : null,
+		[active?.pubkey],
+	)
+	useTimelineWithEose(infoFilter)
+
+	const infoEvent = use$(
+		() => (active?.pubkey ? eventStore.replaceable(NUTZAP_INFO_KIND, active.pubkey) : undefined),
+		[active?.pubkey],
+	)
+
+	return useMemo(() => {
+		if (!infoEvent || infoEvent.pubkey !== active?.pubkey) return undefined
+		try {
+			return castEvent(infoEvent, NutzapInfo, eventStore)
+		} catch {
+			return undefined
+		}
+	}, [infoEvent, active?.pubkey])
 }
 
 const DEFAULT_MINT_KEY = 'nip60_default_mint'

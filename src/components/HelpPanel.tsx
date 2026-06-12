@@ -1,4 +1,5 @@
-import { ExternalLink, Github, MapPin } from 'lucide-react'
+import { ExternalLink, MapPin } from 'lucide-react'
+import { GithubIcon } from '@/components/icons/GithubIcon'
 import textLogoRose from '../assets/text_logo_rose.svg'
 import { Kbd } from './ui/kbd'
 import { ScrollArea } from './ui/scroll-area'
@@ -32,7 +33,7 @@ export function HelpPanel({ multiSelectModifier = 'Shift' }: HelpPanelProps) {
 								rel="noreferrer"
 								className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
 							>
-								<Github className="h-4 w-4" />
+								<GithubIcon className="h-4 w-4" />
 								<span className="text-xs font-medium">GitHub</span>
 							</a>
 							<a

@@ -1,4 +1,5 @@
-import { ExternalLink, Github, HelpCircle } from 'lucide-react'
+import { ExternalLink, HelpCircle } from 'lucide-react'
+import { GithubIcon } from '@/components/icons/GithubIcon'
 import { Button } from './ui/button'
 import { Kbd } from './ui/kbd'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
@@ -27,7 +28,7 @@ export function HelpPopover({ multiSelectModifier = 'Shift' }: HelpPopoverProps)
 									rel="noreferrer"
 									className="inline-flex items-center gap-1 text-gray-700 hover:text-gray-900"
 								>
-									<Github className="h-4 w-4" />
+									<GithubIcon className="h-4 w-4" />
 									<span className="text-xs font-medium">GitHub</span>
 								</a>
 								<a

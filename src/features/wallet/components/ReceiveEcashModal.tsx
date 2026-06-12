@@ -123,8 +123,11 @@ export function ReceiveEcashModal({ open, onClose }: ReceiveEcashModalProps) {
 				) : (
 					<div className="space-y-4">
 						<div className="space-y-2">
-							<label className="text-sm font-medium">Cashu Token</label>
+							<label className="text-sm font-medium" htmlFor="receive-ecash-token">
+								Cashu Token
+							</label>
 							<textarea
+								id="receive-ecash-token"
 								value={token}
 								onChange={(e) => setToken(e.target.value)}
 								placeholder="cashuA..."
