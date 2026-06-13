@@ -1,5 +1,15 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { Bug, Download, Eye, EyeOff, Layers, Loader2, MoreVertical, Search } from 'lucide-react'
+import {
+	Bug,
+	Download,
+	Eye,
+	EyeOff,
+	Layers,
+	Loader2,
+	MoreVertical,
+	Search,
+	Star,
+} from 'lucide-react'
 import { nip19 } from 'nostr-tools'
 import { memo } from 'react'
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
@@ -24,6 +34,8 @@ export interface DatasetRowData {
 	isOwned: boolean
 	isVisible: boolean
 	isInMapStack: boolean
+	/** Round G.2: starred in the catalog Favorites tab. Optional — profile view doesn't wire it. */
+	isCatalogPinned?: boolean
 	primaryLabel: string
 }
 
@@ -38,6 +50,8 @@ export interface DatasetColumnsContext {
 	onAddDatasetToMap?: (event: GeoDataset) => void
 	/** Round C: remove from map stack. Paired with onAddDatasetToMap to make the Layers button a toggle. */
 	onRemoveDatasetFromMap?: (event: GeoDataset) => void
+	/** Round G.2: toggle catalog favorite (Star). */
+	onToggleCatalogPin?: (event: GeoDataset) => void
 	onOpenDebug?: (event: GeoDataset) => void
 	isPublishing: boolean
 	deletingKey: string | null
@@ -256,6 +270,17 @@ export const createDatasetColumns = (
 										<Search className="h-4 w-4" />
 										Inspect
 									</DropdownMenuItem>
+									{context.onToggleCatalogPin ? (
+										<DropdownMenuItem onSelect={() => context.onToggleCatalogPin?.(event)}>
+											<Star
+												className={cn(
+													'h-4 w-4',
+													row.original.isCatalogPinned && 'fill-amber-400 text-amber-500',
+												)}
+											/>
+											{row.original.isCatalogPinned ? 'Remove from favorites' : 'Add to favorites'}
+										</DropdownMenuItem>
+									) : null}
 									<DropdownMenuItem
 										disabled={context.isPublishing}
 										onSelect={() => context.onLoadDataset(event)}

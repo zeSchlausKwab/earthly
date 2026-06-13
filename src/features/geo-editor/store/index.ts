@@ -11,6 +11,7 @@ import { createSearchSlice } from './searchSlice'
 import { createMapSourceSlice } from './mapSourceSlice'
 import { createSessionSyncSlice } from './sessionSyncSlice'
 import { createStanceSlice } from './stanceSlice'
+import { createCatalogSlice } from './catalogSlice'
 import type { EditorState } from './types'
 
 export const useEditorStore = create<EditorState>((...a) => ({
@@ -26,6 +27,7 @@ export const useEditorStore = create<EditorState>((...a) => ({
 	...createMapSourceSlice(...a),
 	...createSessionSyncSlice(...a),
 	...createStanceSlice(...a),
+	...createCatalogSlice(...a),
 }))
 
 // Re-export all types for backwards compatibility
@@ -43,4 +45,5 @@ export type {
 	GeoEditorWorkspace,
 	SidebarViewMode,
 	Stance,
+	RecentEntity,
 } from './types'

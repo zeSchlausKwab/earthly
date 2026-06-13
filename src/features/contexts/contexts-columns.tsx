@@ -1,5 +1,5 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { Bug, Eye, Layers } from 'lucide-react'
+import { Bug, Eye, Layers, Star } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { UserProfile } from '@/components/user-profile'
 import { cn } from '@/lib/utils'
@@ -19,6 +19,8 @@ export interface ContextRowData {
 	isMapActive: boolean
 	/** Round F.3: whether a `context:<coordinate>` entry is on the map stack. */
 	isInMapStack: boolean
+	/** Round G.2: starred in the catalog Favorites tab. Optional — profile view doesn't wire it. */
+	isCatalogPinned?: boolean
 }
 
 export interface ContextColumnsContext {
@@ -27,6 +29,8 @@ export interface ContextColumnsContext {
 	onEditContext?: (context: MapContext) => void
 	/** Round F.3: add/remove the context's stack entry (the primary row verb). */
 	onToggleContextOnMap?: (context: MapContext) => void
+	/** Round G.2: toggle catalog favorite (Star). */
+	onToggleCatalogPin?: (context: MapContext) => void
 	onOpenDebug?: (event: MapContext) => void
 }
 
@@ -159,6 +163,36 @@ export const createContextColumns = (
 												}
 											>
 												<Layers className="h-4 w-4" />
+											</Button>
+										) : null}
+										{context.onToggleCatalogPin ? (
+											<Button
+												size="icon-sm"
+												variant="ghost"
+												className={cn(
+													actionButtonClass,
+													row.original.isCatalogPinned
+														? 'text-amber-500 hover:text-amber-600'
+														: 'hover:text-amber-600',
+												)}
+												onClick={() => context.onToggleCatalogPin?.(contextEvent)}
+												aria-label={
+													row.original.isCatalogPinned
+														? 'Remove from favorites'
+														: 'Add to favorites'
+												}
+												title={
+													row.original.isCatalogPinned
+														? 'Remove from favorites'
+														: 'Add to favorites'
+												}
+											>
+												<Star
+													className={cn(
+														'h-4 w-4',
+														row.original.isCatalogPinned && 'fill-amber-400',
+													)}
+												/>
 											</Button>
 										) : null}
 										<Button

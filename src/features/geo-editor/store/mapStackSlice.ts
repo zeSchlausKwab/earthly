@@ -133,5 +133,44 @@ export const createMapStackSlice: StateCreator<EditorState, [], [], MapStackSlic
 			}
 		}),
 
-	clearMapStack: () => set({ mapStackEntries: {}, mapStackOrder: [] }),
+	toggleMapStackEntryPinned: (id) =>
+		set((state) => {
+			const entry = state.mapStackEntries[id]
+			if (!entry) return {}
+			return {
+				mapStackEntries: {
+					...state.mapStackEntries,
+					[id]: { ...entry, pinned: !entry.pinned },
+				},
+			}
+		}),
+
+	setMapStackOrder: (order) =>
+		set((state) => {
+			// Reordering only — membership must be identical to the current stack.
+			if (order.length !== state.mapStackOrder.length) return {}
+			const incoming = new Set(order)
+			if (incoming.size !== order.length) return {}
+			for (const id of state.mapStackOrder) {
+				if (!incoming.has(id)) return {}
+			}
+			return { mapStackOrder: order }
+		}),
+
+	clearMapStack: () =>
+		set((state) => {
+			// Pinned entries and the active draft survive — pin is the contract
+			// for "keep this through a Clear", and the draft's lifecycle belongs
+			// to the editing session, not the stack panel.
+			const keptIds = state.mapStackOrder.filter((id) => {
+				const entry = state.mapStackEntries[id]
+				return entry && (entry.pinned || entry.entityType === 'draft')
+			})
+			const nextEntries: typeof state.mapStackEntries = {}
+			for (const id of keptIds) {
+				const entry = state.mapStackEntries[id]
+				if (entry) nextEntries[id] = entry
+			}
+			return { mapStackEntries: nextEntries, mapStackOrder: keptIds }
+		}),
 })

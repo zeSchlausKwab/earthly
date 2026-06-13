@@ -66,6 +66,7 @@ export function useDatasetManagement(
 	const setActiveDataset = useEditorStore((state) => state.setActiveDataset)
 	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
 	const removeMapStackEntry = useEditorStore((state) => state.removeMapStackEntry)
+	const recordRecentEntity = useEditorStore((state) => state.recordRecentEntity)
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
 	const setSelectedFeatureIds = useEditorStore((state) => state.setSelectedFeatureIds)
 	const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta)
@@ -444,17 +445,14 @@ export function useDatasetManagement(
 				store.addMapStackEntry({
 					entityType: 'dataset',
 					entityKey: key,
-					title:
-						(typeof event.featureCollection?.name === 'string' && event.featureCollection.name) ||
-						event.dTag ||
-						event.id,
+					title: getDatasetName(event),
 					source: 'manual',
 					visible: true,
 					pinned: false,
 				})
 			}
 		},
-		[getDatasetKey],
+		[getDatasetKey, getDatasetName],
 	)
 
 	const toggleAllDatasetVisibility = useCallback(
@@ -469,10 +467,7 @@ export function useDatasetManagement(
 					store.addMapStackEntry({
 						entityType: 'dataset',
 						entityKey: key,
-						title:
-							(typeof event.featureCollection?.name === 'string' && event.featureCollection.name) ||
-							event.dTag ||
-							event.id,
+						title: getDatasetName(event),
 						source: 'manual',
 						visible: true,
 						pinned: false,
@@ -486,13 +481,15 @@ export function useDatasetManagement(
 				}
 			}
 		},
-		[getDatasetKey],
+		[getDatasetKey, getDatasetName],
 	)
 
 	const loadDatasetForEditing = useCallback(
 		async (event: GeoDataset) => {
 			if (!editor) return
 			const datasetKey = getDatasetKey(event)
+			// Round G.2: loading for edit counts as a recent interaction too.
+			recordRecentEntity(`dataset:${datasetKey}`)
 			const draftSourceId = `dataset:${datasetKey}`
 			const existingWorkspace = Object.values(useEditorStore.getState().workspaces).find(
 				(workspace) => workspace.sourceId === draftSourceId,
@@ -563,6 +560,7 @@ export function useDatasetManagement(
 			applyEditingState,
 			createGeoEditDraft,
 			setPublishError,
+			recordRecentEntity,
 		],
 	)
 

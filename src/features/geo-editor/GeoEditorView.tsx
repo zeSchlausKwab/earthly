@@ -321,6 +321,12 @@ export function GeoEditorView() {
 		hydrateEditorSessionForPubkey(currentUserPubkey)
 	}, [currentUserPubkey, hydrateEditorSessionForPubkey])
 
+	// Round G.2: catalog favorites/recents are scoped per pubkey too.
+	const hydrateCatalogPrefsForPubkey = useEditorStore((state) => state.hydrateCatalogPrefsForPubkey)
+	useEffect(() => {
+		hydrateCatalogPrefsForPubkey(currentUserPubkey)
+	}, [currentUserPubkey, hydrateCatalogPrefsForPubkey])
+
 	// Callback for ensuring info panel is visible
 	const openMobilePanel = useEditorStore((state) => state.openMobilePanel)
 	const ensureInfoPanelVisible = useCallback(() => {
@@ -865,18 +871,28 @@ export function GeoEditorView() {
 			return geoEvents.filter((event) => isolatedKeys.has(getDatasetKey(event)))
 		}
 
-		const stackedDatasetKeys = new Set<string>()
+		// Round G.1: stack order is render order. Each dataset key gets the rank
+		// of the first stack entry that contributes it; the filtered result is
+		// sorted by rank so entries later in the panel render later (on top).
+		const rankByKey = new Map<string, number>()
+		let nextRank = 0
 		for (const entryId of mapStackOrder) {
 			const entry = mapStackEntries[entryId]
 			if (!entry || entry.visible === false) continue
 			if (entry.entityType === 'dataset') {
-				stackedDatasetKeys.add(entry.entityKey)
+				if (!rankByKey.has(entry.entityKey)) rankByKey.set(entry.entityKey, nextRank++)
 			} else if (entry.entityType === 'context') {
-				for (const key of curatedKeysFor(entry)) stackedDatasetKeys.add(key)
+				for (const key of curatedKeysFor(entry)) {
+					if (!rankByKey.has(key)) rankByKey.set(key, nextRank++)
+				}
 			}
 		}
-		if (stackedDatasetKeys.size === 0) return []
-		return geoEvents.filter((event) => stackedDatasetKeys.has(getDatasetKey(event)))
+		if (rankByKey.size === 0) return []
+		return geoEvents
+			.filter((event) => rankByKey.has(getDatasetKey(event)))
+			.sort(
+				(a, b) => (rankByKey.get(getDatasetKey(a)) ?? 0) - (rankByKey.get(getDatasetKey(b)) ?? 0),
+			)
 	}, [geoEvents, getDatasetKey, mapStackEntries, mapStackOrder, mapContextEvents])
 
 	// Round F.2: comment/annotation overlays follow the stack. A visible

@@ -325,6 +325,17 @@ export interface MapStackSlice {
 	toggleMapStackEntryExclusion: (id: string, datasetKey: string) => void
 	/** Replace the full exclusions list for a context entry. */
 	setMapStackEntryExclusions: (id: string, exclusions: string[]) => void
+	/** Round G.1: pinned entries survive Clear. */
+	toggleMapStackEntryPinned: (id: string) => void
+	/**
+	 * Round G.1: replace the stack order (drag-to-reorder). Must contain
+	 * exactly the current ids — otherwise the call is ignored.
+	 */
+	setMapStackOrder: (order: string[]) => void
+	/**
+	 * Removes all entries except pinned ones and the active draft. Pinning is
+	 * the contract for "keep this through a Clear".
+	 */
 	clearMapStack: () => void
 }
 
@@ -449,6 +460,22 @@ export interface StanceSlice {
 	setStance: (stance: Stance) => void
 }
 
+/** Round G.2: a recently inspected/loaded catalog entity. */
+export interface RecentEntity {
+	/** `dataset:<pubkey>:<d>` or `context:<coordinate>` — stack-entry id convention. */
+	id: string
+	at: number
+}
+
+export interface CatalogSlice {
+	/** Catalog-level pins (favorites) — distinct from map-stack entry pins. */
+	pinnedEntityIds: string[]
+	recentEntities: RecentEntity[]
+	togglePinnedEntity: (entityId: string) => void
+	recordRecentEntity: (entityId: string) => void
+	hydrateCatalogPrefsForPubkey: (pubkey: string | null) => void
+}
+
 /** Combined state — intersection of all slices */
 export type EditorState = EditorCoreSlice &
 	DraftSlice &
@@ -461,4 +488,5 @@ export type EditorState = EditorCoreSlice &
 	SearchSlice &
 	MapSourceSlice &
 	SessionSyncSlice &
-	StanceSlice
+	StanceSlice &
+	CatalogSlice

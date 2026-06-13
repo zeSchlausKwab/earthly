@@ -60,6 +60,7 @@ export function useViewMode({
 	const clearFocused = useEditorStore((state) => state.clearFocused)
 	const setStance = useEditorStore((state) => state.setStance)
 	const activeDataset = useEditorStore((state) => state.activeDataset)
+	const recordRecentEntity = useEditorStore((state) => state.recordRecentEntity)
 
 	const exitViewMode = useCallback(() => {
 		setInfoMode('edit')
@@ -96,6 +97,8 @@ export function useViewMode({
 			setSidebarMode('dataset')
 			onEnsureInfoPanelVisible()
 			setStance('focus')
+			// Round G.2: feed the catalog's Recent tab.
+			recordRecentEntity(`dataset:${event.pubkey}:${event.datasetId ?? event.id}`)
 
 			// Update URL with naddr
 			const naddr = encodeGeoEventNaddr(event)
@@ -115,6 +118,7 @@ export function useViewMode({
 			onNavigateToFocus,
 			onZoomToDataset,
 			setStance,
+			recordRecentEntity,
 		],
 	)
 
@@ -132,6 +136,7 @@ export function useViewMode({
 			setSidebarMode('dataset')
 			onEnsureInfoPanelVisible()
 			setStance('focus')
+			recordRecentEntity(`dataset:${event.pubkey}:${event.datasetId ?? event.id}`)
 			// Do NOT update URL - this prevents focus mode from being triggered
 		},
 		[
@@ -141,6 +146,7 @@ export function useViewMode({
 			setViewMode,
 			onEnsureInfoPanelVisible,
 			setStance,
+			recordRecentEntity,
 		],
 	)
 

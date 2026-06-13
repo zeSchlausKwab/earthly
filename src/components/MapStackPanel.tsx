@@ -7,6 +7,7 @@ import {
 	Layers,
 	LocateFixed,
 	PencilLine,
+	Pin,
 	Search,
 	Trash2,
 	X,
@@ -59,6 +60,13 @@ const sourceLabel: Record<MapStackEntry['source'], string> = {
 
 function hasDatasetDragData(event: DragEvent<HTMLElement>) {
 	return Array.from(event.dataTransfer.types).includes('application/earthly-dataset-key')
+}
+
+/** Round G.1: mime used for intra-panel drag-to-reorder of stack rows. */
+const STACK_REORDER_MIME = 'application/earthly-stack-entry'
+
+function hasStackReorderData(event: DragEvent<HTMLElement>) {
+	return Array.from(event.dataTransfer.types).includes(STACK_REORDER_MIME)
 }
 
 interface RowActionProps {
@@ -128,6 +136,8 @@ interface EntryRowProps {
 	onInspectContext: (context: MapContext) => void
 	onRemoveEntry: (entry: MapStackEntry) => void
 	onToggleEntryExclusion: (entryId: string, datasetKey: string) => void
+	onTogglePinned: (entryId: string) => void
+	onReorderEntry: (draggedId: string, targetId: string) => void
 }
 
 function EntryRow({
@@ -150,6 +160,8 @@ function EntryRow({
 	onInspectContext,
 	onRemoveEntry,
 	onToggleEntryExclusion,
+	onTogglePinned,
+	onReorderEntry,
 }: EntryRowProps) {
 	const isolated = entry.isolated === true
 	const [expanded, setExpanded] = useState(false)
@@ -176,16 +188,42 @@ function EntryRow({
 	// datasets" legible instead of looking like the entry does nothing.
 	const isContextEntry = entry.entityType === 'context'
 	const canExpand = isContextEntry
+	const [isReorderTarget, setIsReorderTarget] = useState(false)
 	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: drag-to-reorder container; all click targets inside are real buttons, and reordering stays reachable via the row action buttons for keyboard users.
 		<div
 			className={cn(
-				'group relative flex flex-col rounded-md border bg-card transition-colors',
+				'group relative flex cursor-grab flex-col rounded-md border bg-card transition-colors active:cursor-grabbing',
 				isolated
 					? 'border-amber-300 bg-amber-50/50 shadow-[inset_3px_0_0_0] shadow-amber-500'
 					: 'border-border',
 				!entry.visible && !isolated && 'opacity-60',
+				isReorderTarget && 'border-sky-400 shadow-[0_-2px_0_0] shadow-sky-400',
 			)}
 			data-isolated={isolated ? 'true' : undefined}
+			draggable
+			onDragStart={(event) => {
+				event.dataTransfer.setData(STACK_REORDER_MIME, entry.id)
+				event.dataTransfer.effectAllowed = 'move'
+			}}
+			onDragOver={(event) => {
+				if (!hasStackReorderData(event)) return
+				event.preventDefault()
+				event.stopPropagation()
+				event.dataTransfer.dropEffect = 'move'
+				setIsReorderTarget(true)
+			}}
+			onDragLeave={() => setIsReorderTarget(false)}
+			onDrop={(event) => {
+				if (!hasStackReorderData(event)) return
+				event.preventDefault()
+				event.stopPropagation()
+				setIsReorderTarget(false)
+				const draggedId = event.dataTransfer.getData(STACK_REORDER_MIME)
+				if (draggedId && draggedId !== entry.id) {
+					onReorderEntry(draggedId, entry.id)
+				}
+			}}
 		>
 			<div className={cn('flex items-start', compact ? 'gap-1.5 p-1.5 pl-2' : 'gap-2 p-2 pl-2.5')}>
 				<div
@@ -290,6 +328,21 @@ function EntryRow({
 							}
 							pressed={isolated}
 							active={isolated}
+						/>
+					) : null}
+					{entry.entityType !== 'draft' ? (
+						<RowAction
+							icon={<Pin className={cn(actionIconClassName, entry.pinned && 'fill-current')} />}
+							className={cn(
+								actionButtonClassName,
+								entry.pinned ? 'text-sky-600 hover:text-sky-700' : 'hover:text-sky-700',
+							)}
+							onClick={() => onTogglePinned(entry.id)}
+							label={entry.pinned ? 'Unpin' : 'Pin'}
+							tooltip={
+								entry.pinned ? 'Unpin — Clear will remove this entry again' : 'Pin — survives Clear'
+							}
+							pressed={entry.pinned}
 						/>
 					) : null}
 					{dataset ? (
@@ -452,6 +505,8 @@ interface EntryGroupListProps {
 	onInspectContext: (context: MapContext) => void
 	onRemoveEntry: (entry: MapStackEntry) => void
 	onToggleEntryExclusion: (entryId: string, datasetKey: string) => void
+	onTogglePinned: (entryId: string) => void
+	onReorderEntry: (draggedId: string, targetId: string) => void
 }
 
 function EntryGroupList({
@@ -476,6 +531,8 @@ function EntryGroupList({
 	onInspectContext,
 	onRemoveEntry,
 	onToggleEntryExclusion,
+	onTogglePinned,
+	onReorderEntry,
 }: EntryGroupListProps) {
 	const renderEntry = (entry: MapStackEntry) => {
 		const dataset = entry.entityType === 'dataset' ? datasetByKey.get(entry.entityKey) : undefined
@@ -503,6 +560,8 @@ function EntryGroupList({
 				onInspectContext={onInspectContext}
 				onRemoveEntry={onRemoveEntry}
 				onToggleEntryExclusion={onToggleEntryExclusion}
+				onTogglePinned={onTogglePinned}
+				onReorderEntry={onReorderEntry}
 			/>
 		)
 	}
@@ -576,6 +635,20 @@ export function MapStackPanel({
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const mapStackOrder = useEditorStore((state) => state.mapStackOrder)
 	const toggleEntryExclusion = useEditorStore((state) => state.toggleMapStackEntryExclusion)
+	const toggleEntryPinned = useEditorStore((state) => state.toggleMapStackEntryPinned)
+	const setMapStackOrder = useEditorStore((state) => state.setMapStackOrder)
+
+	// Round G.1: drag-to-reorder. Dropping row A on row B inserts A before B
+	// in the global stack order. Visual grouping (contexts/datasets) is
+	// unaffected — only relative order within each group changes, which also
+	// drives dataset render order on the map.
+	const reorderEntry = (draggedId: string, targetId: string) => {
+		const order = mapStackOrder.filter((id) => id !== draggedId)
+		const targetIndex = order.indexOf(targetId)
+		if (targetIndex < 0) return
+		order.splice(targetIndex, 0, draggedId)
+		setMapStackOrder(order)
+	}
 	const [isDragOver, setIsDragOver] = useState(false)
 	const [isCollapsed, setIsCollapsed] = useState(false)
 
@@ -741,7 +814,8 @@ export function MapStackPanel({
 							'text-muted-foreground',
 						)}
 						onClick={onClear}
-						disabled={entries.length === 0}
+						disabled={!entries.some((entry) => !entry.pinned && entry.entityType !== 'draft')}
+						title="Remove all unpinned entries (pinned and the active draft stay)"
 					>
 						Clear
 					</Button>
@@ -818,6 +892,8 @@ export function MapStackPanel({
 							onInspectContext={onInspectContext}
 							onRemoveEntry={onRemoveEntry}
 							onToggleEntryExclusion={toggleEntryExclusion}
+							onTogglePinned={toggleEntryPinned}
+							onReorderEntry={reorderEntry}
 						/>
 					</div>
 				)

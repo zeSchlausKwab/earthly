@@ -105,14 +105,14 @@ export function useMentionActions({
 			const key = getDatasetKey(dataset)
 			const entryId = `dataset:${key}`
 			if (visible) {
+				const collectionName = (
+					dataset.featureCollection as GeoJSON.FeatureCollection & { name?: unknown }
+				).name
 				addMapStackEntry({
 					entityType: 'dataset',
 					entityKey: key,
 					title:
-						(typeof dataset.featureCollection?.name === 'string' &&
-							dataset.featureCollection.name) ||
-						dataset.dTag ||
-						dataset.id,
+						(typeof collectionName === 'string' && collectionName) || dataset.dTag || dataset.id,
 					source: 'comment',
 					visible: true,
 					pinned: false,

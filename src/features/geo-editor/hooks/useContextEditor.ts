@@ -35,6 +35,7 @@ export function useContextEditor({
 	const setViewContextDatasets = useEditorStore((state) => state.setViewContextDatasets)
 	const setStance = useEditorStore((state) => state.setStance)
 	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
+	const recordRecentEntity = useEditorStore((state) => state.recordRecentEntity)
 	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
 	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
 
@@ -93,6 +94,8 @@ export function useContextEditor({
 					pinned: false,
 					isolated: isExclusiveByDefault,
 				})
+				// Round G.2: feed the catalog's Recent tab.
+				recordRecentEntity(`context:${contextKey}`)
 			}
 
 			const naddr = encodeContextNaddr(context)
@@ -110,6 +113,7 @@ export function useContextEditor({
 			navigateToContext,
 			setStance,
 			addMapStackEntry,
+			recordRecentEntity,
 		],
 	)
 
