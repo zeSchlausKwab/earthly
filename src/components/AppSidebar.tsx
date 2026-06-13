@@ -6,6 +6,7 @@ import {
 	Newspaper,
 	PanelLeftClose,
 	PanelLeftOpen,
+	ArrowLeft,
 	Pencil,
 	Search,
 	Settings2,
@@ -565,6 +566,22 @@ export function AppSidebar({
 		}
 	}
 
+	// Round H.1: when a catalog drill-in takes over the whole sidebar, give the
+	// user an explicit way back to the list they came from. Previously the only
+	// route back was hunting for the rail nav item.
+	const activeWorkModeLabel =
+		workNavItems.find((item) => item.mode === activeWorkMode)?.title ?? 'list'
+	const renderBackToCatalogBar = () => (
+		<button
+			type="button"
+			onClick={() => handleSelectWorkMode(activeWorkMode)}
+			className="flex w-full shrink-0 items-center gap-1.5 border-b border-border px-3 py-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+		>
+			<ArrowLeft className="h-3.5 w-3.5 shrink-0" />
+			<span className="truncate">Back to {activeWorkModeLabel}</span>
+		</button>
+	)
+
 	const renderEntityContent = () => <GeoEditorInfoPanelContent {...editorPanelProps} />
 
 	const renderContent = () => {
@@ -591,7 +608,17 @@ export function AppSidebar({
 		}
 
 		if (showEntityAsFullPanel || contentMode === 'edit' || contentMode === 'context-editor') {
-			return renderEntityContent()
+			// Show the back bar only when the panel drilled in over a catalog
+			// (showEntityAsFullPanel). The dedicated edit/context-editor routes
+			// have their own save/cancel exits, so no back bar there.
+			return (
+				<div className="flex h-full min-h-0 flex-col">
+					{showEntityAsFullPanel ? renderBackToCatalogBar() : null}
+					<div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+						{renderEntityContent()}
+					</div>
+				</div>
+			)
 		}
 
 		if (isWorkMode(contentMode)) {

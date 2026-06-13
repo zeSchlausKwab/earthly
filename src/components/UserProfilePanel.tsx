@@ -165,6 +165,24 @@ export function UserProfilePanel({
 	const viewContext = useEditorStore((state) => state.viewContext)
 	const activeContextScopeCoordinate = useEditorStore((state) => state.activeContextScopeCoordinate)
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
+	// Round H.2: catalog favorites are global — starring here writes the same
+	// scoped-localStorage set the main catalog reads, so state stays in sync.
+	const pinnedEntityIds = useEditorStore((state) => state.pinnedEntityIds)
+	const togglePinnedEntity = useEditorStore((state) => state.togglePinnedEntity)
+	const pinnedEntitySet = useMemo(() => new Set(pinnedEntityIds), [pinnedEntityIds])
+	const toggleDatasetFavorite = useCallback(
+		(event: GeoDataset) => {
+			togglePinnedEntity(`dataset:${getDatasetKey(event)}`)
+		},
+		[togglePinnedEntity, getDatasetKey],
+	)
+	const toggleContextFavorite = useCallback(
+		(context: MapContext) => {
+			const coordinate = getContextCoordinate(context)
+			if (coordinate) togglePinnedEntity(`context:${coordinate}`)
+		},
+		[togglePinnedEntity],
+	)
 	const effectiveContextCoordinate = viewContext?.contextCoordinate ?? activeContextScopeCoordinate
 
 	const userGeoEvents = useMemo(
@@ -325,6 +343,7 @@ export function UserProfilePanel({
 					isOwned: true,
 					isVisible: datasetVisibility[datasetKey] !== false,
 					isInMapStack: Boolean(mapStackEntries[`dataset:${datasetKey}`]),
+					isCatalogPinned: pinnedEntitySet.has(`dataset:${datasetKey}`),
 					primaryLabel: isOwnProfile ? 'Edit dataset' : 'Load copy',
 				}
 			}),
@@ -335,6 +354,7 @@ export function UserProfilePanel({
 			datasetVisibility,
 			isOwnProfile,
 			mapStackEntries,
+			pinnedEntitySet,
 		],
 	)
 
@@ -356,6 +376,7 @@ export function UserProfilePanel({
 			onInspectDataset,
 			onAddDatasetToMap,
 			onRemoveDatasetFromMap,
+			onToggleCatalogPin: toggleDatasetFavorite,
 			onOpenDebug,
 			isPublishing,
 			deletingKey,
@@ -370,6 +391,7 @@ export function UserProfilePanel({
 			onInspectDataset,
 			onAddDatasetToMap,
 			onRemoveDatasetFromMap,
+			toggleDatasetFavorite,
 			onOpenDebug,
 			isPublishing,
 			deletingKey,
@@ -408,9 +430,17 @@ export function UserProfilePanel({
 			onInspectContext,
 			onEditContext,
 			onToggleContextOnMap: toggleContextOnMap,
+			onToggleCatalogPin: toggleContextFavorite,
 			onOpenDebug,
 		}),
-		[currentUserPubkey, onInspectContext, onEditContext, onOpenDebug, toggleContextOnMap],
+		[
+			currentUserPubkey,
+			onInspectContext,
+			onEditContext,
+			onOpenDebug,
+			toggleContextOnMap,
+			toggleContextFavorite,
+		],
 	)
 	const contextColumns = useMemo(
 		() => createContextColumns(contextColumnsContext),
@@ -447,10 +477,14 @@ export function UserProfilePanel({
 					getContextCoordinate(context) &&
 						mapStackEntries[`context:${getContextCoordinate(context)}`],
 				),
+				isCatalogPinned: Boolean(
+					getContextCoordinate(context) &&
+						pinnedEntitySet.has(`context:${getContextCoordinate(context)}`),
+				),
 				isMapActive: getContextCoordinate(context) === effectiveContextCoordinate,
 			}),
 		)
-	}, [filteredContexts, effectiveContextCoordinate, mapStackEntries])
+	}, [filteredContexts, effectiveContextCoordinate, mapStackEntries, pinnedEntitySet])
 
 	const proposalColumns = useMemo<ColumnDef<UserProposalRow>[]>(
 		() => [
