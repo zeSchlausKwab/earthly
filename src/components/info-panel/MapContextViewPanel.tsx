@@ -14,7 +14,7 @@ import {
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import { CommentsPanel } from '@/features/social/comments'
-import { buildRouteHash } from '@/features/geo-editor/hooks/useRouting'
+import { buildRoutePath, navigateToRoute } from '@/features/geo-editor/hooks/useRouting'
 import { Button } from '../ui/button'
 import { Label } from '../ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
@@ -153,11 +153,13 @@ export function MapContextViewPanel({
 	const openContextRoute = useCallback((context: MapContext) => {
 		const naddr = encodeContextNaddr(context)
 		if (!naddr) return
-		window.location.hash = buildRouteHash({
-			sidebarView: 'contexts',
-			focusType: 'mapcontext',
-			naddr,
-		})
+		navigateToRoute(
+			buildRoutePath({
+				sidebarView: 'contexts',
+				focusType: 'mapcontext',
+				naddr,
+			}),
+		)
 	}, [])
 
 	const canAttachGeometry = selectedFeatures.length > 0 && !attachedGeojson

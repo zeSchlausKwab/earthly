@@ -3,6 +3,7 @@ import { BadgeCheck, Globe, User } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
 import { memo, useCallback, useMemo, useRef } from 'react'
 import { eventStore } from '@/lib/nostr'
+import { navigateToRoute } from '@/features/geo-editor/hooks/useRouting'
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { Button } from '@/components/ui/button'
@@ -189,15 +190,11 @@ function UserProfileComponent({
 
 	const handleDefaultClick = useCallback(() => {
 		const resolved = hexPubkey ?? pubkey
-		if (
-			resolved &&
-			!resolved.startsWith('npub') &&
-			!resolved.startsWith('nprofile')
-		) {
+		if (resolved && !resolved.startsWith('npub') && !resolved.startsWith('nprofile')) {
 			const npub = nip19.npubEncode(resolved)
-			window.location.hash = `/user/${npub}`
+			navigateToRoute(`/user/${npub}`)
 		} else if (resolved) {
-			window.location.hash = `/user/${resolved}`
+			navigateToRoute(`/user/${resolved}`)
 		}
 	}, [hexPubkey, pubkey])
 

@@ -4,6 +4,7 @@ import { useChatStore } from './store'
 import { useWallet } from '@/lib/wallet'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useEditorStore } from '@/features/geo-editor/store'
+import { navigateToRoute } from '@/features/geo-editor/hooks/useRouting'
 import {
 	EntityReferenceToolbar,
 	getEntityReferenceKey,
@@ -319,7 +320,7 @@ export function ChatPanel({
 			setMobilePanelOpen(true)
 			return
 		}
-		window.location.hash = '#/settings'
+		navigateToRoute('/settings')
 	}
 	const stalledSeconds =
 		isStreaming && lastProgressAt ? Math.max(0, Math.floor((nowMs - lastProgressAt) / 1000)) : 0

@@ -57,21 +57,14 @@ type MetaViewMode = 'posts' | 'wallet' | 'settings' | 'help'
 const WORK_VIEW_MODES: WorkViewMode[] = ['datasets', 'contexts', 'user']
 const META_VIEW_MODES: MetaViewMode[] = ['posts', 'wallet', 'settings', 'help']
 
-/**
- * Round F.4: the rail's entity items (Geometry/Context) and the panel-header
- * Inspect/Edit toggle collapsed into two honest surfaces. "Inspector" shows
- * whatever entity is currently being viewed; "Editor" shows whatever is being
- * edited (geometry draft or context editor). Their active state derives from
- * app state (stance / contextEditorMode) — no sidebar-local mode to desync.
- */
-const surfaceNavItems: {
-	surface: 'inspector' | 'editor'
-	title: string
-	icon: typeof Database
-}[] = [
-	{ surface: 'inspector', title: 'Inspector', icon: Search },
-	{ surface: 'editor', title: 'Editor', icon: Pencil },
-]
+// Round H.3/H.4: the rail's browse destinations (Datasets / Contexts / My
+// Entities + footer meta) are the always-present list. The Round-F.4
+// Inspector/Editor "surface" buttons that used to sit as their peers caused
+// confusion (always present, identical styling, empty-void when nothing was
+// being edited). H.4 reinstates a single CONTEXTUAL surface entry above the
+// catalogs — it appears only while you're editing or inspecting (derived from
+// stance), separated by its own group + divider, and is the return path to the
+// editor/inspector panel after you navigate off to a catalog.
 
 const workNavItems: {
 	mode: WorkViewMode
@@ -133,7 +126,6 @@ interface AppSidebarProps {
 	getDatasetKey: (event: GeoDataset) => string
 	getDatasetName: (event: GeoDataset) => string
 	onOpenGeometryEditor?: () => void
-	onClearEntityEditors?: () => void
 	onInspectDataset: (event: GeoDataset) => void
 	onInspectContext: (context: MapContext) => void
 	onOpenDebug: (event: GeoDataset | MapContext) => void
@@ -193,7 +185,6 @@ export function AppSidebar({
 	getDatasetKey,
 	getDatasetName,
 	onOpenGeometryEditor,
-	onClearEntityEditors,
 	onInspectDataset,
 	onInspectContext,
 	onOpenDebug,
@@ -226,10 +217,8 @@ export function AppSidebar({
 	const viewMode = useEditorStore((state) => state.sidebarViewMode)
 	const viewDataset = useEditorStore((state) => state.viewDataset)
 	const viewContext = useEditorStore((state) => state.viewContext)
-	const setEditorViewMode = useEditorStore((state) => state.setViewMode)
 	const setViewDatasetState = useEditorStore((state) => state.setViewDataset)
 	const setViewContextState = useEditorStore((state) => state.setViewContext)
-	const setViewContextDatasetsState = useEditorStore((state) => state.setViewContextDatasets)
 	const { navigateToView, navigateToContext, clearContextScope, contextNaddr, encodeContextNaddr } =
 		useRouting()
 
@@ -282,10 +271,22 @@ export function AppSidebar({
 	}, [contentMode])
 
 	useEffect(() => {
-		if (!splitWithEditor && (isWorkMode(contentMode) || isMetaMode(contentMode))) {
+		// Round H.6: only force the catalog/meta view to take over when there's no
+		// active inspect/edit subject. Otherwise this raced the "subject → show
+		// panel" effect below: inspecting a context navigates to the `contexts`
+		// route (a work mode), and on the delayed route update this used to win
+		// and snap back to the list. Browsing a catalog explicitly clears the
+		// subject (handleSelectWorkMode), so the guard still lets you browse.
+		const hasInspectSubject =
+			Boolean(viewContext) || Boolean(viewDataset) || contextEditorMode !== 'none'
+		if (
+			!splitWithEditor &&
+			!hasInspectSubject &&
+			(isWorkMode(contentMode) || isMetaMode(contentMode))
+		) {
 			setShowEntityAsFullPanel(false)
 		}
-	}, [contentMode, splitWithEditor])
+	}, [contentMode, splitWithEditor, viewContext, viewDataset, contextEditorMode])
 
 	useEffect(() => {
 		if (contextEditorMode !== 'none' || viewContext) {
@@ -309,36 +310,23 @@ export function AppSidebar({
 		}
 	}
 
-	const openGeometryWorkspace = () => {
-		leaveMetaOverrideIfNeeded()
-		onClearEntityEditors?.()
-		setActiveEntity('geometry')
-		setShowEntityAsFullPanel(true)
-		onOpenGeometryEditor?.()
-	}
-
 	const handleSelectWorkMode = (mode: WorkViewMode) => {
+		// Round H.6: browsing a catalog is a deliberate "leave the inspect
+		// subject" — clear it so the show-panel guard lets the list through.
+		// (The active edit draft is separate store state and is untouched, so
+		// browse-while-editing still works and the Editor return path stays.)
+		setViewContextState(null)
+		setViewDatasetState(null)
 		setActiveWorkMode(mode)
 		setShowEntityAsFullPanel(false)
 		navigateToView(mode)
 	}
 
 	const handleSelectMetaMode = (mode: MetaViewMode) => {
+		setViewContextState(null)
+		setViewDatasetState(null)
 		setShowEntityAsFullPanel(false)
 		navigateToView(mode)
-	}
-
-	const openEmptyInspectWorkspace = (entity: EntityWorkspace) => {
-		leaveMetaOverrideIfNeeded()
-		if (entity === 'geometry') {
-			onClearEntityEditors?.()
-		}
-		setActiveEntity(entity)
-		setShowEntityAsFullPanel(true)
-		setEditorViewMode('view')
-		setViewDatasetState(null)
-		setViewContextState(null)
-		setViewContextDatasetsState([])
 	}
 
 	const handleLoadDataset = (event: GeoDataset) => {
@@ -402,39 +390,22 @@ export function AppSidebar({
 				? 'edit'
 				: 'inspect'
 
-	// Round F.4: which rail surface is active — Editor whenever something is
-	// being edited (geometry draft via Author stance, or an open context
-	// editor), Inspector otherwise. The panel-visible gate keeps the rail
-	// quiet while a catalog/meta view is showing instead.
-	const entityPanelVisible = !metaModeActive && (splitWithEditor || showEntityAsFullPanel)
-	const activeSurface: 'inspector' | 'editor' =
-		editorStance === 'author' || contextEditorMode !== 'none' ? 'editor' : 'inspector'
+	// Round H.4: a single CONTEXTUAL "current work" rail entry, derived from
+	// stance. It only exists while you're actually editing (author) or
+	// inspecting (focus) — so it never reads as an always-on peer of the
+	// browse catalogs, and there's no empty-void state. It's the way back to
+	// your editor/inspector panel after you've wandered off to a catalog.
+	const currentSurface: 'editor' | 'inspector' | null =
+		editorStance === 'author' || contextEditorMode !== 'none'
+			? 'editor'
+			: editorStance === 'focus' || viewDataset || viewContext
+				? 'inspector'
+				: null
 
-	const openInspectorSurface = () => {
+	const returnToCurrentSurface = () => {
 		leaveMetaOverrideIfNeeded()
 		setShowEntityAsFullPanel(true)
-		// Show whatever is currently inspected; fall back to an empty inspect
-		// workspace when nothing is viewed yet.
-		if (viewContext) {
-			setActiveEntity('context')
-			return
-		}
-		if (viewDataset) {
-			setActiveEntity('geometry')
-			return
-		}
-		openEmptyInspectWorkspace(activeEntity)
-	}
-
-	const openEditorSurface = () => {
-		if (contextEditorMode !== 'none') {
-			leaveMetaOverrideIfNeeded()
-			setActiveEntity('context')
-			setShowEntityAsFullPanel(true)
-			return
-		}
-		// Geometry: switch to the active draft workspace (or start a new one).
-		openGeometryWorkspace()
+		setActiveEntity(contextEditorMode !== 'none' || viewContext ? 'context' : 'geometry')
 	}
 
 	const datasetsPanelProps = {
@@ -654,30 +625,39 @@ export function AppSidebar({
 				</SidebarHeader>
 
 				<SidebarContent>
+					{/* Round H.4: contextual "current work" surface — only present
+					    while editing/inspecting, separated from the browse catalogs
+					    by its own group + divider. This is the return path to the
+					    editor/inspector panel after navigating to a catalog. */}
+					{currentSurface ? (
+						<SidebarGroup className="border-sidebar-border border-b pb-1">
+							<SidebarGroupContent className="px-1.5 md:px-0">
+								<SidebarMenu>
+									<SidebarMenuItem>
+										<SidebarMenuButton
+											tooltip={{
+												children: currentSurface === 'editor' ? 'Editor' : 'Inspector',
+												hidden: false,
+											}}
+											onClick={() => {
+												returnToCurrentSurface()
+												setOpen(true)
+											}}
+											isActive={!metaModeActive && (showEntityAsFullPanel || splitWithEditor)}
+											className="border border-sidebar-border/70 bg-sidebar-accent/30 px-2.5 text-sidebar-foreground hover:bg-sidebar-accent data-[active=true]:border-sidebar-primary data-[active=true]:bg-sidebar-primary data-[active=true]:text-sidebar-primary-foreground md:px-2"
+										>
+											{currentSurface === 'editor' ? <Pencil /> : <Search />}
+											<span>{currentSurface === 'editor' ? 'Editor' : 'Inspector'}</span>
+										</SidebarMenuButton>
+									</SidebarMenuItem>
+								</SidebarMenu>
+							</SidebarGroupContent>
+						</SidebarGroup>
+					) : null}
+
 					<SidebarGroup>
 						<SidebarGroupContent className="px-1.5 md:px-0">
 							<SidebarMenu>
-								{surfaceNavItems.map((item) => (
-									<SidebarMenuItem key={item.surface}>
-										<SidebarMenuButton
-											tooltip={{ children: item.title, hidden: false }}
-											onClick={() => {
-												if (item.surface === 'inspector') {
-													openInspectorSurface()
-												} else {
-													openEditorSurface()
-												}
-												setOpen(true)
-											}}
-											isActive={entityPanelVisible && activeSurface === item.surface}
-											className="border border-sidebar-border/70 bg-sidebar-accent/30 px-2.5 text-sidebar-foreground hover:bg-sidebar-accent data-[active=true]:border-sidebar-primary data-[active=true]:bg-sidebar-primary data-[active=true]:text-sidebar-primary-foreground md:px-2"
-										>
-											<item.icon />
-											<span>{item.title}</span>
-										</SidebarMenuButton>
-									</SidebarMenuItem>
-								))}
-
 								{workNavItems.map((item) => (
 									<SidebarMenuItem
 										key={item.mode}

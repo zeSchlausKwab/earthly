@@ -71,6 +71,8 @@ export interface MobilePanelProps {
 	onSetMapStackEntryVisible: (entry: MapStackEntry, visible: boolean) => void
 	onSetMapStackEntryIsolated?: (entry: MapStackEntry, isolated: boolean) => void
 	onRemoveMapStackEntry: (entry: MapStackEntry) => void
+	onOpenDraftEditor?: () => void
+	onZoomToDraft?: () => void
 	onClearMapStack: () => void
 	onDeleteDataset: (event: GeoDataset) => void
 	onDeleteContext?: (context: MapContext) => void
@@ -162,6 +164,8 @@ export function MobilePanel(props: MobilePanelProps) {
 		onSetMapStackEntryVisible,
 		onSetMapStackEntryIsolated,
 		onRemoveMapStackEntry,
+		onOpenDraftEditor,
+		onZoomToDraft,
 		onClearMapStack,
 		onDeleteDataset,
 		onDeleteContext,
@@ -405,6 +409,8 @@ export function MobilePanel(props: MobilePanelProps) {
 								onSetEntryVisible={onSetMapStackEntryVisible}
 								onSetEntryIsolated={onSetMapStackEntryIsolated}
 								onRemoveEntry={onRemoveMapStackEntry}
+								onOpenDraftEditor={onOpenDraftEditor}
+								onZoomToDraft={onZoomToDraft}
 								onClear={onClearMapStack}
 								onClose={handleClose}
 							/>

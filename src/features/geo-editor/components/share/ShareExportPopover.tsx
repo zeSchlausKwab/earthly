@@ -277,9 +277,9 @@ export function ShareExportPopover({ small = false }: ShareExportPopoverProps) {
 	const { clearFocus, route } = useRouting()
 
 	const isFocused = Boolean(focusedNaddr && focusedType)
-	// Build a clean server-side URL (no #/) so OG crawlers can resolve it properly.
-	// /context/:naddr and /geoevent/:naddr serve OG HTML to crawlers and redirect
-	// regular users to the hash-based SPA route.
+	// Build a clean server-side URL so OG crawlers can resolve it properly.
+	// /context/:naddr and /geoevent/:naddr serve OG HTML to crawlers and the
+	// SPA renders the same clean path for regular users (Round I — no more #/).
 	const shareRouteUrl = useMemo(() => {
 		if (typeof window === 'undefined') return 'https://earthly.city'
 		const origin = window.location.origin

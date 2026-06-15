@@ -64,7 +64,7 @@ function decodeContextCoordinateFromNaddr(naddr: string): string | undefined {
 	}
 }
 
-function parsePathSegments(segments: string[], source: 'hash' | 'pathname'): RouteState {
+function parsePathSegments(segments: string[]): RouteState {
 	if (segments.length === 0) {
 		return { focusType: 'none', sidebarView: 'contexts' }
 	}
@@ -74,7 +74,7 @@ function parsePathSegments(segments: string[], source: 'hash' | 'pathname'): Rou
 		return { focusType: 'none', sidebarView: 'contexts' }
 	}
 
-	// Handle user profile route: #/user/{npub_or_pubkey}
+	// User profile route: /user/{npub_or_pubkey}
 	if (first === 'user' && segments[1]) {
 		let userPubkey = segments[1]
 		if (userPubkey.startsWith('npub')) {
@@ -94,7 +94,8 @@ function parsePathSegments(segments: string[], source: 'hash' | 'pathname'): Rou
 		}
 	}
 
-	// Focus aliases used by clean server-side share routes after redirect.
+	// Share forms (also what the OG crawler matches): /geoevent/:naddr and
+	// /mapcontext/:naddr, each with an optional /comment/:id suffix.
 	if (first === 'geoevent' && segments[1]) {
 		return {
 			focusType: 'geoevent',
@@ -112,25 +113,27 @@ function parsePathSegments(segments: string[], source: 'hash' | 'pathname'): Rou
 		}
 	}
 
-	// Clean share path: /context/:naddr should behave like a focused context route.
-	if (source === 'pathname' && first === 'context' && segments[1]) {
-		return {
-			focusType: 'mapcontext',
-			naddr: segments[1],
-			commentId: segments[2] === 'comment' && segments[3] ? segments[3] : undefined,
-			sidebarView: 'contexts',
-		}
-	}
-
-	// Scoped context route:
-	// #/context/{contextNaddr}/{sidebarView?}/{focusType?}/{focusNaddr?}
+	// Context routes disambiguate structurally (no longer by hash-vs-pathname):
+	//   /context/:naddr               → focused-context share form (2 segments)
+	//   /context/:naddr/comment/:id   → focused-context share form + comment
+	//   /context/:naddr/:view[/...]   → context SCOPE + sidebar view (+ focus)
+	// The OG crawler matches only the 2-segment share form, so in-app scoped
+	// routes (always 3+ segments) never collide with it.
 	if (first === 'context' && segments[1]) {
 		const contextNaddr = segments[1]
+		const second = segments[2]
+		const isShareForm = !second || second === 'comment'
+		if (isShareForm) {
+			return {
+				focusType: 'mapcontext',
+				naddr: contextNaddr,
+				commentId: second === 'comment' && segments[3] ? segments[3] : undefined,
+				sidebarView: 'contexts',
+			}
+		}
+
 		const contextCoordinate = decodeContextCoordinateFromNaddr(contextNaddr)
-		const scopedViewCandidate = segments[2]
-		const resolvedScopedView = scopedViewCandidate
-			? (VIEW_ALIASES[scopedViewCandidate] ?? scopedViewCandidate)
-			: 'datasets'
+		const resolvedScopedView = VIEW_ALIASES[second] ?? second
 		const sidebarView = isSidebarViewMode(resolvedScopedView) ? resolvedScopedView : 'datasets'
 		const focusTypeCandidate = isSidebarViewMode(resolvedScopedView) ? segments[3] : segments[2]
 		const focusNaddr = isSidebarViewMode(resolvedScopedView) ? segments[4] : segments[3]
@@ -155,9 +158,6 @@ function parsePathSegments(segments: string[], source: 'hash' | 'pathname'): Rou
 			sidebarView,
 		}
 	}
-	if (first === 'context') {
-		return { focusType: 'none', sidebarView: 'contexts' }
-	}
 
 	const resolvedFirst = VIEW_ALIASES[first] ?? first
 	if (isSidebarViewMode(resolvedFirst)) {
@@ -177,29 +177,35 @@ function parsePathSegments(segments: string[], source: 'hash' | 'pathname'): Rou
 }
 
 /**
- * Parse the current location into a RouteState.
- *
- * Hash routes remain canonical inside the SPA. When no hash route is present,
- * we also accept clean pathname share routes like /geoevent/:naddr and /context/:naddr.
+ * Round I: clean paths are canonical. Parse the pathname; a legacy `#/…` hash
+ * route is accepted as a fallback (and upgraded to a clean path by the shim in
+ * `useRouting`). The C.5/D.2 map-stack query params live in `location.search`
+ * and are untouched here.
  */
 function parseLocation(): RouteState {
-	const hash = window.location.hash.slice(1)
-	if (hash && hash !== '/') {
-		return parsePathSegments(hash.split('/').filter(Boolean), 'hash')
-	}
-
 	const pathname = window.location.pathname
 	if (pathname && pathname !== '/') {
-		return parsePathSegments(pathname.split('/').filter(Boolean), 'pathname')
+		return parsePathSegments(pathname.split('/').filter(Boolean))
+	}
+
+	// Legacy hash route fallback (pre-Round-I links). The redirect shim rewrites
+	// these to clean paths on load; this keeps them working in the meantime.
+	const hash = window.location.hash.slice(1)
+	if (hash && hash !== '/') {
+		return parsePathSegments(hash.split('/').filter(Boolean))
 	}
 
 	return { focusType: 'none', sidebarView: 'contexts' }
 }
 
+/** Custom event so in-app `pushState` navigations sync the route (popstate only fires on back/forward). */
+const LOCATION_CHANGE_EVENT = 'earthly:locationchange'
+
 /**
- * Build a hash string from route components
+ * Build a clean route path from route components. The returned string is an
+ * absolute path (no leading `#`) suitable for `history.pushState`.
  */
-export function buildRouteHash({
+export function buildRoutePath({
 	sidebarView,
 	contextNaddr,
 	focusType,
@@ -222,6 +228,28 @@ export function buildRouteHash({
 	return root
 }
 
+/** @deprecated Round I renamed this to {@link buildRoutePath}; kept as an alias for callers. */
+export const buildRouteHash = buildRoutePath
+
+/**
+ * Navigate to a clean route path. Preserves `location.search` (the map-stack
+ * `?ms=`/`?ex=`/`?iso=` params owned by C.5/D.2) and notifies listeners via a
+ * synthetic event, since `pushState` doesn't fire `popstate`.
+ */
+export function navigateToRoute(routePath: string, options?: { replace?: boolean }): void {
+	if (typeof window === 'undefined') return
+	const search = window.location.search
+	const url = `${routePath}${search}`
+	const current = `${window.location.pathname}${window.location.search}`
+	if (url === current) return
+	if (options?.replace) {
+		window.history.replaceState(null, '', url)
+	} else {
+		window.history.pushState(null, '', url)
+	}
+	window.dispatchEvent(new Event(LOCATION_CHANGE_EVENT))
+}
+
 /**
  * Hook for managing hash-based routing for sidebar views, focused content, and context scope.
  *
@@ -240,7 +268,7 @@ export function useRouting() {
 	const setSidebarViewMode = useEditorStore((state) => state.setSidebarViewMode)
 	const setActiveContextScope = useEditorStore((state) => state.setActiveContextScope)
 
-	// Sync route state on hash change
+	// Sync route state on navigation.
 	useEffect(() => {
 		const syncRoute = () => {
 			const newRoute = parseLocation()
@@ -258,10 +286,20 @@ export function useRouting() {
 			setActiveContextScope(newRoute.contextNaddr ?? null, newRoute.contextCoordinate ?? null)
 		}
 
+		// Round I: one-time legacy redirect — upgrade a `#/…` hash route to the
+		// equivalent clean path so the rest of the app (and crawlers) see the
+		// canonical form. Preserves the map-stack query string.
+		const legacyHash = window.location.hash.slice(1)
+		if (legacyHash && legacyHash !== '/' && window.location.pathname === '/') {
+			const cleanPath = legacyHash.startsWith('/') ? legacyHash : `/${legacyHash}`
+			window.history.replaceState(null, '', `${cleanPath}${window.location.search}`)
+		}
+
 		window.addEventListener('hashchange', syncRoute)
 		window.addEventListener('popstate', syncRoute)
+		window.addEventListener(LOCATION_CHANGE_EVENT, syncRoute)
 
-		// Initial sync on mount
+		// Initial sync on mount (after any redirect above)
 		const initialRoute = parseLocation()
 		setSidebarViewMode(initialRoute.sidebarView)
 		if (initialRoute.focusType !== 'none' && initialRoute.naddr) {
@@ -272,6 +310,7 @@ export function useRouting() {
 		return () => {
 			window.removeEventListener('hashchange', syncRoute)
 			window.removeEventListener('popstate', syncRoute)
+			window.removeEventListener(LOCATION_CHANGE_EVENT, syncRoute)
 		}
 	}, [setFocused, clearFocused, setSidebarViewMode, setActiveContextScope])
 
@@ -280,10 +319,12 @@ export function useRouting() {
 	 */
 	const navigateToView = useCallback((view: SidebarViewMode) => {
 		const currentRoute = parseLocation()
-		window.location.hash = buildRouteHash({
-			sidebarView: view,
-			contextNaddr: currentRoute.contextNaddr,
-		})
+		navigateToRoute(
+			buildRoutePath({
+				sidebarView: view,
+				contextNaddr: currentRoute.contextNaddr,
+			}),
+		)
 	}, [])
 
 	/**
@@ -293,12 +334,14 @@ export function useRouting() {
 		(focusType: 'geoevent' | 'mapcontext', naddr: string, sidebarView?: SidebarViewMode) => {
 			const currentRoute = parseLocation()
 			const view = sidebarView ?? currentRoute.sidebarView
-			window.location.hash = buildRouteHash({
-				sidebarView: view,
-				contextNaddr: currentRoute.contextNaddr,
-				focusType,
-				naddr,
-			})
+			navigateToRoute(
+				buildRoutePath({
+					sidebarView: view,
+					contextNaddr: currentRoute.contextNaddr,
+					focusType,
+					naddr,
+				}),
+			)
 		},
 		[],
 	)
@@ -309,13 +352,15 @@ export function useRouting() {
 	const navigateToContext = useCallback((contextNaddr: string, sidebarView?: SidebarViewMode) => {
 		const currentRoute = parseLocation()
 		const view = sidebarView ?? currentRoute.sidebarView
-		window.location.hash = buildRouteHash({
-			sidebarView: view,
-			contextNaddr,
-			focusType: currentRoute.focusType !== 'none' ? currentRoute.focusType : undefined,
-			naddr: currentRoute.naddr,
-			commentId: currentRoute.commentId,
-		})
+		navigateToRoute(
+			buildRoutePath({
+				sidebarView: view,
+				contextNaddr,
+				focusType: currentRoute.focusType !== 'none' ? currentRoute.focusType : undefined,
+				naddr: currentRoute.naddr,
+				commentId: currentRoute.commentId,
+			}),
+		)
 	}, [])
 
 	/**
@@ -323,10 +368,12 @@ export function useRouting() {
 	 */
 	const clearFocus = useCallback(() => {
 		const currentRoute = parseLocation()
-		window.location.hash = buildRouteHash({
-			sidebarView: currentRoute.sidebarView,
-			contextNaddr: currentRoute.contextNaddr,
-		})
+		navigateToRoute(
+			buildRoutePath({
+				sidebarView: currentRoute.sidebarView,
+				contextNaddr: currentRoute.contextNaddr,
+			}),
+		)
 	}, [])
 
 	/**
@@ -334,19 +381,21 @@ export function useRouting() {
 	 */
 	const clearContextScope = useCallback(() => {
 		const currentRoute = parseLocation()
-		window.location.hash = buildRouteHash({
-			sidebarView: currentRoute.sidebarView,
-			focusType: currentRoute.focusType !== 'none' ? currentRoute.focusType : undefined,
-			naddr: currentRoute.naddr,
-			commentId: currentRoute.commentId,
-		})
+		navigateToRoute(
+			buildRoutePath({
+				sidebarView: currentRoute.sidebarView,
+				focusType: currentRoute.focusType !== 'none' ? currentRoute.focusType : undefined,
+				naddr: currentRoute.naddr,
+				commentId: currentRoute.commentId,
+			}),
+		)
 	}, [])
 
 	/**
 	 * Navigate to datasets view with no focus (home)
 	 */
 	const navigateHome = useCallback(() => {
-		window.location.hash = buildRouteHash({ sidebarView: 'datasets' })
+		navigateToRoute(buildRoutePath({ sidebarView: 'datasets' }))
 	}, [])
 
 	const navigateToComment = useCallback(
@@ -358,13 +407,15 @@ export function useRouting() {
 		) => {
 			const currentRoute = parseLocation()
 			const view = sidebarView ?? currentRoute.sidebarView
-			window.location.hash = buildRouteHash({
-				sidebarView: view,
-				contextNaddr: currentRoute.contextNaddr,
-				focusType,
-				naddr,
-				commentId,
-			})
+			navigateToRoute(
+				buildRoutePath({
+					sidebarView: view,
+					contextNaddr: currentRoute.contextNaddr,
+					focusType,
+					naddr,
+					commentId,
+				}),
+			)
 		},
 		[],
 	)
@@ -374,7 +425,7 @@ export function useRouting() {
 	 */
 	const navigateToUser = useCallback((pubkey: string) => {
 		const npub = nip19.npubEncode(pubkey)
-		window.location.hash = `/user/${npub}`
+		navigateToRoute(`/user/${npub}`)
 	}, [])
 
 	/**

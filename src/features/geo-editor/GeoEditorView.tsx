@@ -159,6 +159,7 @@ export function GeoEditorView() {
 	const setViewModeState = useEditorStore((state) => state.setViewMode)
 	const setViewDatasetState = useEditorStore((state) => state.setViewDataset)
 	const setViewContext = useEditorStore((state) => state.setViewContext)
+	const setStance = useEditorStore((state) => state.setStance)
 	const setViewContextDatasets = useEditorStore((state) => state.setViewContextDatasets)
 	const contextFilterMode = useEditorStore((state) => state.contextFilterMode)
 	const contextMapScopeMode = useEditorStore((state) => state.contextMapScopeMode)
@@ -563,11 +564,9 @@ export function GeoEditorView() {
 			const next = params.toString()
 			const nextSearch = next ? `?${next}` : ''
 			if (nextSearch === window.location.search) return
-			window.history.replaceState(
-				null,
-				'',
-				`${window.location.pathname}${nextSearch}${window.location.hash}`,
-			)
+			// Round I: routing now lives in the pathname (no hash). Preserve the
+			// pathname while updating the map-stack query params.
+			window.history.replaceState(null, '', `${window.location.pathname}${nextSearch}`)
 		})
 		return () => {
 			cancelled = true
@@ -667,6 +666,42 @@ export function GeoEditorView() {
 		userPubkey,
 		commentId: focusCommentId,
 	} = useRouting()
+
+	// Round H.5: the in-edit draft row in the Map Stack gets the usual row
+	// actions' analogues. "Open editor panel" routes to the editor view so the
+	// sidebar shows the edit state; "Zoom to edit" fits the map to the draft's
+	// geometry (falling back to the active dataset's bounds when empty).
+	// Edit-isolation reuses the row's Focus button (draft.isolated). Declared
+	// after useRouting so `navigateToView` is in scope.
+	const openDraftEditor = useCallback(() => {
+		// The entity panel is multiplexed on viewDataset/viewContext — clear those
+		// so it shows the editor (not whatever was being inspected), put the store
+		// in edit mode, restore the author stance (the toolbar pill + rail surface
+		// read stance directly — without this they'd stay on INSPECT), and route
+		// to the editor view so the sidebar surfaces it.
+		setViewContext(null)
+		setViewDatasetState(null)
+		setViewModeState('edit')
+		setStance('author')
+		navigateToView('edit')
+	}, [navigateToView, setViewContext, setViewDatasetState, setViewModeState, setStance])
+
+	const zoomToDraft = useCallback(async () => {
+		const drawn = (features ?? []).filter((feature) => feature.geometry !== null)
+		if (drawn.length === 0) {
+			if (activeDataset) zoomToDataset(activeDataset)
+			return
+		}
+		try {
+			const turf = await import('@turf/turf')
+			const bbox = turf.bbox({ type: 'FeatureCollection', features: drawn })
+			if (Array.isArray(bbox) && bbox.length === 4 && bbox.every((v) => Number.isFinite(v))) {
+				handleZoomToBounds(bbox as [number, number, number, number])
+			}
+		} catch {
+			// bbox calc failed — keep the current camera.
+		}
+	}, [features, activeDataset, zoomToDataset, handleZoomToBounds])
 
 	const {
 		debugEvent,
@@ -1393,7 +1428,6 @@ export function GeoEditorView() {
 	const {
 		contextEditorMode,
 		editingContext,
-		clearEditorModes,
 		handleLoadDatasetForEditing,
 		handleInspectContext,
 		handleCreateContext,
@@ -1599,7 +1633,6 @@ export function GeoEditorView() {
 					getDatasetKey={getDatasetKey}
 					getDatasetName={getDatasetName}
 					onOpenGeometryEditor={handleOpenGeometryEditor}
-					onClearEntityEditors={clearEditorModes}
 					onInspectDataset={handleInspectDatasetWithModeSwitch}
 					onInspectContext={handleInspectContext}
 					onOpenDebug={handleOpenDebug}
@@ -1842,6 +1875,8 @@ export function GeoEditorView() {
 								onSetEntryVisible={setMapStackVisibility}
 								onSetEntryIsolated={setMapStackIsolation}
 								onRemoveEntry={removeFromMapStack}
+								onOpenDraftEditor={openDraftEditor}
+								onZoomToDraft={zoomToDraft}
 								onClear={clearMapStackAndVisibility}
 								onClose={() => setDesktopMapStackOpen(false)}
 								compact
@@ -1874,6 +1909,8 @@ export function GeoEditorView() {
 							onSetMapStackEntryVisible={setMapStackVisibility}
 							onSetMapStackEntryIsolated={setMapStackIsolation}
 							onRemoveMapStackEntry={removeFromMapStack}
+							onOpenDraftEditor={openDraftEditor}
+							onZoomToDraft={zoomToDraft}
 							onClearMapStack={clearMapStackAndVisibility}
 							onDeleteDataset={onDeleteDataset}
 							onDeleteContext={onDeleteContext}

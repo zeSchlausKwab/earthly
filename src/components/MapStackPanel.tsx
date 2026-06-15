@@ -6,6 +6,7 @@ import {
 	Focus,
 	Layers,
 	LocateFixed,
+	PanelLeft,
 	PencilLine,
 	Pin,
 	Search,
@@ -40,6 +41,10 @@ interface MapStackPanelProps {
 	onSetEntryVisible?: (entry: MapStackEntry, visible: boolean) => void
 	onSetEntryIsolated?: (entry: MapStackEntry, isolated: boolean) => void
 	onRemoveEntry: (entry: MapStackEntry) => void
+	/** Round H.5: open the editor panel in the sidebar for the in-edit draft row. */
+	onOpenDraftEditor?: () => void
+	/** Round H.5: zoom the map to the in-edit draft's geometry. */
+	onZoomToDraft?: () => void
 	onClear: () => void
 	onClose?: () => void
 	compact?: boolean
@@ -138,6 +143,8 @@ interface EntryRowProps {
 	onToggleEntryExclusion: (entryId: string, datasetKey: string) => void
 	onTogglePinned: (entryId: string) => void
 	onReorderEntry: (draggedId: string, targetId: string) => void
+	onOpenDraftEditor?: () => void
+	onZoomToDraft?: () => void
 }
 
 function EntryRow({
@@ -161,6 +168,8 @@ function EntryRow({
 	onRemoveEntry,
 	onToggleEntryExclusion,
 	onTogglePinned,
+	onOpenDraftEditor,
+	onZoomToDraft,
 	onReorderEntry,
 }: EntryRowProps) {
 	const isolated = entry.isolated === true
@@ -310,7 +319,7 @@ function EntryRow({
 							pressed={expanded}
 						/>
 					) : null}
-					{onSetEntryIsolated && entry.entityType !== 'draft' ? (
+					{onSetEntryIsolated ? (
 						<RowAction
 							icon={<Focus className={actionIconClassName} />}
 							className={cn(
@@ -324,11 +333,35 @@ function EntryRow({
 									? 'Show all (stop isolating)'
 									: entry.entityType === 'context'
 										? 'Show only this context on the map'
-										: 'Show only this dataset on the map'
+										: entry.entityType === 'draft'
+											? 'Isolate the edit — hide other layers while drawing'
+											: 'Show only this dataset on the map'
 							}
 							pressed={isolated}
 							active={isolated}
 						/>
+					) : null}
+					{entry.entityType === 'draft' ? (
+						<>
+							{onZoomToDraft ? (
+								<RowAction
+									icon={<LocateFixed className={actionIconClassName} />}
+									className={cn(actionButtonClassName, 'hover:text-sky-700')}
+									onClick={onZoomToDraft}
+									label="Zoom to edit"
+									tooltip="Zoom the map to the geometry being edited"
+								/>
+							) : null}
+							{onOpenDraftEditor ? (
+								<RowAction
+									icon={<PanelLeft className={actionIconClassName} />}
+									className={cn(actionButtonClassName, 'hover:text-emerald-700')}
+									onClick={onOpenDraftEditor}
+									label="Open editor panel"
+									tooltip="Show the edit state in the side panel"
+								/>
+							) : null}
+						</>
 					) : null}
 					{entry.entityType !== 'draft' ? (
 						<RowAction
@@ -507,6 +540,8 @@ interface EntryGroupListProps {
 	onToggleEntryExclusion: (entryId: string, datasetKey: string) => void
 	onTogglePinned: (entryId: string) => void
 	onReorderEntry: (draggedId: string, targetId: string) => void
+	onOpenDraftEditor?: () => void
+	onZoomToDraft?: () => void
 }
 
 function EntryGroupList({
@@ -533,6 +568,8 @@ function EntryGroupList({
 	onToggleEntryExclusion,
 	onTogglePinned,
 	onReorderEntry,
+	onOpenDraftEditor,
+	onZoomToDraft,
 }: EntryGroupListProps) {
 	const renderEntry = (entry: MapStackEntry) => {
 		const dataset = entry.entityType === 'dataset' ? datasetByKey.get(entry.entityKey) : undefined
@@ -562,6 +599,8 @@ function EntryGroupList({
 				onToggleEntryExclusion={onToggleEntryExclusion}
 				onTogglePinned={onTogglePinned}
 				onReorderEntry={onReorderEntry}
+				onOpenDraftEditor={onOpenDraftEditor}
+				onZoomToDraft={onZoomToDraft}
 			/>
 		)
 	}
@@ -628,6 +667,8 @@ export function MapStackPanel({
 	onSetEntryVisible: _onSetEntryVisible,
 	onSetEntryIsolated,
 	onRemoveEntry,
+	onOpenDraftEditor,
+	onZoomToDraft,
 	onClear,
 	onClose,
 	compact = false,
@@ -894,6 +935,8 @@ export function MapStackPanel({
 							onToggleEntryExclusion={toggleEntryExclusion}
 							onTogglePinned={toggleEntryPinned}
 							onReorderEntry={reorderEntry}
+							onOpenDraftEditor={onOpenDraftEditor}
+							onZoomToDraft={onZoomToDraft}
 						/>
 					</div>
 				)
