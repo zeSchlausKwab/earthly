@@ -18,7 +18,8 @@
     "setup:vps": "./scripts/setup-vps.sh",
     "deploy": "./scripts/deploy.sh",
     "lint": "biome check .",
-    "lint:fix": "biome check --write ."
+    "lint:fix": "biome check --write .",
+    "test": "bun test"
   },
   "dependencies": {
     "@cashu/cashu-ts": "^4.5.1",
