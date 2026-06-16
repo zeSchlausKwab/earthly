@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-05-PLAN.md (TOOLS-01 parametric circle + buffer primitives)
-last_updated: "2026-06-16T19:25:00.000Z"
-last_activity: 2026-06-16 -- Phase 02 Plan 05 complete (TOOLS-01 circle/buffer as Authoring API methods + draw_circle/buffer_feature AI tools)
+stopped_at: Completed 02-06-PLAN.md (D-05 live MCP hot-reload — A1 supported) — Phase 02 complete (6/6)
+last_updated: "2026-06-16T19:40:00.000Z"
+last_activity: 2026-06-16 -- Phase 02 Plan 06 complete (D-05 poll-based MCP hot-reload; A1 SUPPORTED — live server returned 15 tools incl. create_map_upload drift) — Phase 02 COMPLETE
 progress:
   total_phases: 7
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 9
-  completed_plans: 8
-  percent: 29
+  completed_plans: 9
+  percent: 32
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 ## Current Position
 
-Phase: 02 (tool-registry-authoring-api) — EXECUTING
-Plan: 6 of 6
-Status: Executing Phase 02 (Plans 01-05 complete)
-Last activity: 2026-06-16 -- Phase 02 Plan 05 complete (TOOLS-01 circle/buffer as Authoring API methods + draw_circle/buffer_feature AI tools)
+Phase: 02 (tool-registry-authoring-api) — COMPLETE (6/6 plans)
+Plan: 6 of 6 — complete
+Status: Phase 02 COMPLETE (Plans 01-06 done); next is Phase 03 (File Ingest & Multimodal)
+Last activity: 2026-06-16 -- Phase 02 Plan 06 complete (D-05 poll-based MCP hot-reload; A1 SUPPORTED — live server returned 15 tools incl. create_map_upload drift)
 
-Progress: [███░░░░░░░] 29%
+Progress: [███░░░░░░░] 32%
 
 ## Performance Metrics
 
@@ -60,6 +60,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 02 P03 | 9min | 2 tasks | 9 files |
 | Phase 02 P04 | 8min | 2 tasks | 9 files |
 | Phase 02 P05 | 12min | 2 tasks | 8 files |
+| Phase 02 P06 | 11min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -96,6 +97,9 @@ Recent decisions affecting current work:
 - [Phase 2]: [02-05]: TOOLS-01 — circle/buffer are Authoring API methods FIRST (authoring.circle/buffer in api/, primitives.ts wraps turf) then AI tools (draw_circle/buffer_feature, kind:'authoring-primitive'); both draw + return MutationResult. Meters canonical (D-14, no magic default radius); V5 DoS cap MAX_DISTANCE_METERS=40,075,000 (unit-normalized) rejects NaN/Inf/≤0/absurd BEFORE turf runs.
 - [Phase 2]: [02-05]: authoring.buffer(featureId) returns featureIds=[sourceId,newId] (source first) for D-11/D-15 composition (Phase 4 chains 'buffer the circle I just drew'); raw-geojson buffer returns [newId]. Degenerate buffer (turf undefined) + unknown id → {ok:false} → tool throws → ToolError(handler_error) (D-16/T-02-15/T-02-16), never a crash.
 - [Phase 2]: [02-05]: Primitive tools supply schema INLINE (like editor_* commands), so definitions.ts (geoTools=advertise()) picks them up with ZERO edits (D-04) — file left untouched for clean Plan 06 merge.
+- [Phase 2]: [02-06]: A1 RESOLVED=SUPPORTED — live ContextVM geo server returned 15 tools via listTools() (the 14 hardcoded + a new create_map_upload absent from definitions.ts). tools/list works AND the static list was already stale by one tool. Built the success branch (poll-based mcp-sync), did NOT take the fallback/defer branch.
+- [Phase 2]: [02-06]: D-05 mcp-sync is POLL-not-push (Pitfall 3, stateless transport) — syncMcpTools() diff-converges the registry's remote-mcp entries (register new/unregister removed, kind:'remote-mcp'+origin=SERVER_PUBKEY); optional cancelable startMcpToolPolling/stopMcpToolPolling; NO setNotificationHandler. On listTools() failure it degrades gracefully (warn + keep last-known/hardcoded set, never throws/wipes).
+- [Phase 2]: [02-06]: Synced handlers route through new EarthlyGeoServerClient.callRemoteTool(name,args) (wraps private call()). definitions.ts adds getGeoTools() (live advertise() + hardcoded fallback); store.ts reads it at REQUEST time so sync changes reach the model. Push refresh deferred as a future optimization (needs a stateful transport).
 
 ### Pending Todos
 
@@ -120,6 +124,6 @@ Items acknowledged and carried forward / out of scope for this milestone:
 
 ## Session Continuity
 
-Last session: 2026-06-16T19:25:00.000Z
-Stopped at: Completed 02-05-PLAN.md (TOOLS-01 parametric circle + buffer primitives)
-Resume file: .planning/phases/02-tool-registry-authoring-api/02-06-PLAN.md
+Last session: 2026-06-16T19:40:00.000Z
+Stopped at: Completed 02-06-PLAN.md (D-05 live MCP hot-reload — A1 supported) — Phase 02 COMPLETE (6/6)
+Resume file: None (Phase 02 complete; next is Phase 03 — File Ingest & Multimodal)

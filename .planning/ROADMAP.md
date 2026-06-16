@@ -14,7 +14,7 @@ v1.1 turns Earthly's AI chat from a map-drawing assistant into a data-ingest-and
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Encrypted Settings Persistence** - Provider config, API keys, and LM Studio/Ollama addresses persist encrypted-to-self, survive reloads (including NIP-46 signers), and export/import as a recovery escape hatch — sequenced first so later phases never re-enter keys. (completed 2026-06-16 — verified 15/15, UAT 5/5, threat-secure)
-- [ ] **Phase 2: Tool Registry & Authoring API** - Typed tool registry plus the single mutation seam (Authoring API) with parametric primitives — the prerequisite foundation everything else routes through.
+- [x] **Phase 2: Tool Registry & Authoring API** - Typed tool registry plus the single mutation seam (Authoring API) with parametric primitives — the prerequisite foundation everything else routes through. (completed 2026-06-16 — 6/6 plans; one typed registry + Authoring API seam, parametric circle/buffer, live MCP hot-reload (D-05); 109/109 tests, build+lint green)
 - [ ] **Phase 3: File Ingest & Multimodal** - Attach and parse CSV/Excel/JSON/GeoJSON/text/images off-thread, summarize for the model, and gate image-send on real vision capability detection.
 - [ ] **Phase 4: Code Interpreter Sandbox** - AI authors and runs JS in an isolated sandbox whose only host surface is the Authoring API, with timeouts, output caps, and error-feedback self-correction.
 - [ ] **Phase 5: Dataset-Aware Safe Editing** - Visible binding chip, add/modify/delete intent, diff/preview, configurable safety levels, and dataset-level undo — the gate that must precede any destructive bulk tool.
@@ -82,7 +82,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 6** *(blocked on Wave 4; ISOLABLE/DEFERRABLE)*
 
-  - [ ] 02-06-PLAN.md — D-05 live MCP hot-reload: opens with a live-server listTools() spike (checkpoint:human-verify, A1); poll-based discovery if supported, clean fallback to hardcoded list + defer if not (INFRA-01)
+  - [x] 02-06-PLAN.md — D-05 live MCP hot-reload: opens with a live-server listTools() spike (checkpoint:human-verify, A1); poll-based discovery if supported, clean fallback to hardcoded list + defer if not (INFRA-01) (completed 2026-06-16 — A1 SUPPORTED: live server returned 15 tools incl. create_map_upload drift; built poll-based syncMcpTools() converging the registry's remote-mcp entries, graceful fallback on failure, NO push (Pitfall 3); 109/109 tests, build+lint green)
 
 ### Phase 3: File Ingest & Multimodal
 
