@@ -1498,6 +1498,13 @@ export class GeoEditor {
 		})
 		this.render()
 		if (this.mode === 'edit') this.renderVertices()
+		// Emit a bulk-replace event so the Zustand read-mirror (Editor.tsx) catches
+		// the new feature set — without this, bulk replace left a stale sidebar (D-09,
+		// Plan 03 Task 1). `addFeature`/`updateFeature` already emit; this closes the gap.
+		this.emit('features.replace', {
+			type: 'features.replace',
+			features: [...this.features.values()],
+		})
 	}
 
 	undo(): void {

@@ -11,6 +11,11 @@ interface EditorProps {
 export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 	const { map, isLoaded } = useMap()
 	const editorRef = useRef<GeoEditor | null>(null)
+	// Pitfall 2 guard: set true while applying an editor-originated mirror update so
+	// the reverse store→editor sync effect skips its push. Without this, the one-way
+	// read-mirror (D-09) round-trips: editor event → store.setFeatures → reverse effect
+	// → editor.setFeatures → 'features.replace' event → … (render churn / duplicate work).
+	const suppressReverseSyncRef = useRef(false)
 
 	const setEditor = useEditorStore((state) => state.setEditor)
 	const setFeatures = useEditorStore((state) => state.setFeatures)
@@ -39,8 +44,10 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 		editorRef.current = editor
 		setEditor(editor)
 
-		// Bind events to update store
+		// Bind events to update store (the D-09 one-way read-mirror sink). Mark the
+		// update editor-originated so the reverse store→editor effect skips its push.
 		const updateFeatures = () => {
+			suppressReverseSyncRef.current = true
 			setFeatures(editor.getAllFeatures())
 		}
 
@@ -65,6 +72,9 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 		editor.on('create', updateFeatures)
 		editor.on('update', updateFeatures)
 		editor.on('delete', updateFeatures)
+		// Bulk replace (editor.setFeatures) now emits 'features.replace' so the mirror
+		// catches it too — no more stale sidebar after an Authoring-API replace write.
+		editor.on('features.replace', updateFeatures)
 
 		editor.on('mode.change', handleModeChange)
 		editor.on('selection.change', updateSelection)
@@ -147,6 +157,13 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 	// We should compare.
 	useEffect(() => {
 		if (!editorRef.current) return
+		// If this store change originated from an editor event (the one-way mirror),
+		// skip the reverse push — pushing it back would round-trip (Pitfall 2). Consume
+		// the flag so genuine external store writes (e.g. dataset loads) still sync.
+		if (suppressReverseSyncRef.current) {
+			suppressReverseSyncRef.current = false
+			return
+		}
 		const current = editorRef.current.getAllFeatures()
 		if (JSON.stringify(current) !== JSON.stringify(storeFeatures)) {
 			editorRef.current.setFeatures(storeFeatures)
