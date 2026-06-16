@@ -70,7 +70,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 3** *(blocked on Wave 2)*
 
-  - [ ] 02-03-PLAN.md — D-09 one-way store read-mirror (emit-on-bulk-replace) + reroute chat dual-write & 3 UI sites through authoring + binding behavior-preservation golden gate (INFRA-02, INFRA-03)
+  - [x] 02-03-PLAN.md — D-09 one-way store read-mirror (emit-on-bulk-replace) + reroute chat dual-write & 3 UI sites through authoring + binding behavior-preservation golden gate (INFRA-02, INFRA-03) (completed 2026-06-16 — 61/61 tests, build+lint green; golden gate + A3 boundary green)
 
 **Wave 4** *(blocked on Waves 2+3)*
 

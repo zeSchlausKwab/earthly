@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-02-PLAN.md (authoring-api facade)
-last_updated: "2026-06-16T18:50:00.000Z"
-last_activity: 2026-06-16 -- Phase 02 Plan 02 complete (authoring-api facade)
+stopped_at: Completed 02-03-PLAN.md (one-way read-mirror + authoring reroute)
+last_updated: "2026-06-16T19:01:00.000Z"
+last_activity: 2026-06-16 -- Phase 02 Plan 03 complete (D-09 read-mirror + INFRA-02 reroute + golden gate)
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 9
-  completed_plans: 5
-  percent: 19
+  completed_plans: 6
+  percent: 22
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 02 (tool-registry-authoring-api) — EXECUTING
-Plan: 3 of 6
-Status: Executing Phase 02 (Plans 01-02 complete)
-Last activity: 2026-06-16 -- Phase 02 Plan 02 complete (authoring-api facade)
+Plan: 4 of 6
+Status: Executing Phase 02 (Plans 01-03 complete)
+Last activity: 2026-06-16 -- Phase 02 Plan 03 complete (D-09 read-mirror + INFRA-02 reroute + golden gate)
 
-Progress: [██░░░░░░░░] 19%
+Progress: [██░░░░░░░░] 22%
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Progress: [██░░░░░░░░] 19%
 | Phase 01 P03 | 4min | 2 tasks | 3 files |
 | Phase 02 P01 | 6min | 2 tasks | 4 files |
 | Phase 02 P02 | continuation | 2 tasks | 5 files |
+| Phase 02 P03 | 9min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,11 @@ Recent decisions affecting current work:
 - [Phase 2]: [02-02]: createAuthoring(editor) captures the GeoEditor in a closure and exposes ONLY geometry methods (addFeature/writeGeoJSON/editorCommand) — no signer/wallet/store/getState re-export; boundary.test.ts fs-scans api/*.ts for zero chat/registry/Nostr/NDK/applesauce imports (D-07/T-02-03).
 - [Phase 2]: [02-02]: Authoring facade reuses toEditorFeature + dedup-by-id VERBATIM from importFeaturesToEditor (no normalization reimplementation — T-02-04); every mutating method returns a structured MutationResult, never void (D-11).
 - [Phase 2]: [02-02]: editor.setFeatures (replace path) does NOT emit create/update today, so the replace path does not yet drive the store mirror — Plan 03 must add the emit-on-bulk-replace (D-09) before the replace path's store sync works.
+- [Phase 2]: [02-03]: Bulk-replace emit = NEW typed 'features.replace' event (not 'update' reuse); Editor.tsx mirror subscribes to it. editorCoreSlice.setFeatures kept as the event-driven sink with draft-persist/isDirty/updateStats side-effects preserved (D-09 one-way read-mirror).
+- [Phase 2]: [02-03]: Reverse store→editor loop guarded by suppressReverseSyncRef — editor-originated mirror writes skip the reverse push; external dataset loads still sync (Open Question 2 resolved: KEEP reverse push, narrow via flag).
+- [Phase 2]: [02-03]: chat dual-write (importFeaturesToEditor) + 4 UI/hook import sites (GeoEditorView 1249/1413/2120 + useOsmQuery handleOsmImport) rerouted through createAuthoring(editor).writeGeoJSON; store dual-write DELETED. authoring.* is now the only caller of editor.addFeature (INFRA-02); A3 boundary test enforces it.
+- [Phase 2]: [02-03]: A3 boundary scoped to editor.addFeature (create seam) — updateFeature/deleteFeatures NOT yet rerouted (facade has no modify/delete surface). Deferred to a facade-expansion plan that adds modifyFeature/deleteFeatures + tightens A3 to all 4 verbs.
+- [Phase 2]: [02-03]: criterion #2 golden gate (authoring.golden.test.ts) green — OLD importFeaturesToEditor body reproduced verbatim as oracle vs NEW writeGeoJSON, feature sets byte-identical (ids/geometry/importSource/customProperties/skippedDuplicates).
 
 ### Pending Todos
 
@@ -102,9 +108,10 @@ Items acknowledged and carried forward / out of scope for this milestone:
 |----------|------|--------|-------------|
 | Feature | Nostr-scrolls / WASM (SCROLL-01/02/03, NIP-5C) | Deferred to next milestone | 2026-06-16 |
 | Feature | Compound routing (COMPOUND-01) | Deferred to v2 | 2026-06-16 |
+| Refactor | Reroute editor.updateFeature + deleteFeatures + dataset-load setFeatures through Authoring API (facade needs modifyFeature/deleteFeatures surface; then tighten A3 boundary to all 4 verbs) | Deferred to a Phase 2 facade-expansion follow-up | 2026-06-16 (02-03) |
 
 ## Session Continuity
 
-Last session: 2026-06-16T18:50:00.000Z
-Stopped at: Completed 02-02-PLAN.md (authoring-api facade)
-Resume file: .planning/phases/02-tool-registry-authoring-api/02-03-PLAN.md
+Last session: 2026-06-16T19:01:00.000Z
+Stopped at: Completed 02-03-PLAN.md (one-way read-mirror + authoring reroute)
+Resume file: .planning/phases/02-tool-registry-authoring-api/02-04-PLAN.md
