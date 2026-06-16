@@ -32,6 +32,7 @@ export function useChatSettingsSync(): void {
 	const providerOverrides = useChatStore((state) => state.providerOverrides)
 	const selectedModel = useChatStore((state) => state.selectedModel)
 	const toolsEnabled = useChatStore((state) => state.toolsEnabled)
+	const settingsLoadNonce = useChatStore((state) => state.settingsLoadNonce)
 
 	const hydrateGenerationRef = useRef(0)
 	const loadedPubkeyRef = useRef<string | null>(null)
@@ -83,6 +84,7 @@ export function useChatSettingsSync(): void {
 		}
 	}, [])
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: settingsLoadNonce is an intentional Retry re-run trigger, not read in the body (Pitfall 2)
 	useEffect(() => {
 		if (saveTimeoutRef.current !== null) {
 			window.clearTimeout(saveTimeoutRef.current)
@@ -90,14 +92,19 @@ export function useChatSettingsSync(): void {
 		}
 
 		if (!signer || !currentUser) {
+			// No signer/account: settings stay in-memory only (D-12). Reset to defaults but
+			// surface a distinct 'no-signer' state so the UI shows a sign-in hint, not a failure.
 			loadedPubkeyRef.current = null
 			lastSavedSnapshotRef.current = JSON.stringify(DEFAULT_CHAT_SETTINGS)
 			chatActions.hydrateSettings(DEFAULT_CHAT_SETTINGS)
+			chatActions.setSettingsStatus('no-signer')
 			return
 		}
 
 		const generation = hydrateGenerationRef.current + 1
 		hydrateGenerationRef.current = generation
+
+		chatActions.setSettingsStatus('loading')
 
 		void (async () => {
 			try {
@@ -105,18 +112,27 @@ export function useChatSettingsSync(): void {
 				const settings = await loadEncryptedChatSettings(signer, userPubkey)
 				if (hydrateGenerationRef.current !== generation) return
 
+				// A null result is a valid "loaded / no settings saved yet" — NOT a failure.
+				// Distinguish it from a decrypt failure by reporting 'loaded' with no error (D-11).
 				chatActions.hydrateSettings(settings ?? DEFAULT_CHAT_SETTINGS)
 				loadedPubkeyRef.current = currentUser.pubkey
 				lastSavedSnapshotRef.current = JSON.stringify(settings ?? DEFAULT_CHAT_SETTINGS)
 				loadErrorRef.current = false
+				chatActions.setSettingsStatus('loaded')
 			} catch (error) {
 				console.warn('Failed to load encrypted chat settings', error)
 				if (hydrateGenerationRef.current !== generation) return
-				chatActions.hydrateSettings(DEFAULT_CHAT_SETTINGS)
+				// Do NOT masquerade a decrypt failure as the user's data with silent DEFAULT
+				// hydration (D-11). Surface a visible 'failed' state with the error message; the
+				// status banner (ChatSettingsSection) is now the primary surface. Keep the
+				// loadErrorRef one-time toast guard as a secondary signal.
 				loadedPubkeyRef.current = currentUser.pubkey
-				lastSavedSnapshotRef.current = JSON.stringify(DEFAULT_CHAT_SETTINGS)
+				chatActions.setSettingsStatus(
+					'failed',
+					error instanceof Error ? error.message : 'Failed to decrypt saved chat settings',
+				)
 				if (!loadErrorRef.current) {
-					toast.error('Failed to decrypt saved chat settings. Using defaults instead.')
+					toast.error('Failed to decrypt saved chat settings.')
 					loadErrorRef.current = true
 				}
 			}
@@ -128,7 +144,11 @@ export function useChatSettingsSync(): void {
 				saveTimeoutRef.current = null
 			}
 		}
-	}, [currentUser, signer])
+		// settingsLoadNonce drives Retry (D-11): bumping it (via requestSettingsReload) re-enters
+		// this effect, which increments `generation` so any in-flight prior load fails its guard
+		// and cannot clobber the retry result (Pitfall 2). It is intentionally in the deps as a
+		// re-run trigger even though it is not read in the body. userPubkey IS read inside.
+	}, [currentUser, signer, settingsLoadNonce, userPubkey])
 
 	useEffect(() => {
 		if (!signer || !currentUser) return
