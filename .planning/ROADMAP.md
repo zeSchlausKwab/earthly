@@ -30,7 +30,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   1. The user's chat provider config, API keys, and LM Studio/Ollama addresses persist across reloads, encrypted at rest with the user's Nostr key (encrypt-to-self), and decrypted secrets never appear in any persisted or devtools-serialized state.
   2. Encrypted settings load works with NIP-46 remote signers via an async/fallible path that shows a real loading/failed state and fails visibly rather than silently appearing as data loss.
   3. The user can export their settings and re-import them, recovering provider config after a signer rotation or loss.
-**Plans**: TBD
+**Plans**: 3 plans
+  - [ ] 01-01-PLAN.md — v2 per-type providerOverrides shape, envelope v2 + migrateV1ToV2, resolveProvider fallback, Wave-0 tests (SET-01)
+  - [ ] 01-02-PLAN.md — visible loading/failed(+Retry)/loaded/no-signer state for the async NIP-46 load (SET-02)
+  - [ ] 01-03-PLAN.md — clipboard export (plaintext + warning) and paste-import (validate → replace → re-encrypt) escape hatch (SET-03)
 
 ### Phase 2: Tool Registry & Authoring API
 **Goal**: The codebase has one typed tool-dispatch seam and one map-mutation seam, both proven behavior-preserving against today's chat, with parametric shape primitives available as the first new tools.
@@ -109,7 +112,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Encrypted Settings Persistence | 0/TBD | Not started | - |
+| 1. Encrypted Settings Persistence | 0/3 | Planned | - |
 | 2. Tool Registry & Authoring API | 0/TBD | Not started | - |
 | 3. File Ingest & Multimodal | 0/TBD | Not started | - |
 | 4. Code Interpreter Sandbox | 0/TBD | Not started | - |
