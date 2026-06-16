@@ -128,7 +128,9 @@ describe('Authoring surface is geometry-only (V4 access-control / T-02-03)', () 
 		const authoring = createAuthoring(editor)
 		const keys = Object.keys(authoring).sort()
 
-		expect(keys).toEqual(['addFeature', 'editorCommand', 'writeGeoJSON'])
+		// circle/buffer are geometry-mutation methods (Plan 05 / TOOLS-01) — part of
+		// the geometry-only surface, no signer/wallet/store leak.
+		expect(keys).toEqual(['addFeature', 'buffer', 'circle', 'editorCommand', 'writeGeoJSON'])
 
 		const forbidden = ['signer', 'wallet', 'store', 'getState', 'editor', 'eventStore', 'accounts']
 		for (const key of forbidden) {

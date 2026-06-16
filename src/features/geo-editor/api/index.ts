@@ -14,3 +14,15 @@ export type { Interceptor, InterceptorContext } from './interceptor'
 export { runInterceptors } from './interceptor'
 export type { Authoring } from './authoring'
 export { createAuthoring } from './authoring'
+export type {
+	MakeBufferOptions,
+	MakeCircleOptions,
+	PrimitiveUnits,
+} from './primitives'
+export {
+	DEFAULT_UNITS,
+	InvalidPrimitiveArgError,
+	MAX_DISTANCE_METERS,
+	makeBuffer,
+	makeCircle,
+} from './primitives'

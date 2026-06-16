@@ -22,12 +22,18 @@
  * mirror before the replace path's store sync works.
  */
 
-import type { Feature } from 'geojson'
+import type { Feature, Geometry } from 'geojson'
 import type { EditorCommandArgs, EditorCommandExecutionResult, EditorCommandId } from '../commands'
 import { executeEditorCommand } from '../commands'
 import type { GeoEditor } from '../core/GeoEditor'
 import type { EditorFeature } from '../core/types'
 import { toEditorFeature } from '../utils'
+import {
+	type MakeBufferOptions,
+	type MakeCircleOptions,
+	makeBuffer,
+	makeCircle,
+} from './primitives'
 import type { MutationCounts, MutationResult } from './results'
 import { runInterceptors } from './interceptor'
 
@@ -71,6 +77,27 @@ export interface Authoring {
 	 * geometry-write method.
 	 */
 	editorCommand(id: EditorCommandId, args?: EditorCommandArgs): EditorCommandExecutionResult
+	/**
+	 * Draw a parametric circle (TOOLS-01 / D-13/D-14). `center` is `[lon,lat]`,
+	 * `radius` is numeric with an explicit `units` (default `'meters'`, D-14; no
+	 * magic default radius). Validates radius (V5) — throws on
+	 * non-finite/negative/zero/absurd — then draws the polygon AND returns a
+	 * `MutationResult` carrying the created id.
+	 */
+	circle(center: [number, number], radius: number, options?: MakeCircleOptions): MutationResult
+	/**
+	 * Buffer a feature by id (primary, D-15) or a raw GeoJSON Feature/Geometry,
+	 * by `distance` (explicit `units`, default `'meters'`). Returns a
+	 * `MutationResult` carrying BOTH the source id (when by-id) and the new id
+	 * (D-11/D-15 composition). Returns `{ ok:false }` — never throws — for an
+	 * unknown feature id OR a degenerate input where turf yields `undefined`
+	 * (T-02-15/T-02-16). Throws only on an invalid distance (V5).
+	 */
+	buffer(
+		target: string | Feature | Geometry,
+		distance: number,
+		options?: MakeBufferOptions,
+	): MutationResult
 }
 
 /**
@@ -150,5 +177,53 @@ export function createAuthoring(editor: GeoEditor): Authoring {
 		return executeEditorCommand(id, args)
 	}
 
-	return { addFeature, writeGeoJSON, editorCommand }
+	function circle(
+		center: [number, number],
+		radius: number,
+		options: MakeCircleOptions = {},
+	): MutationResult {
+		// makeCircle validates radius (V5) and throws InvalidPrimitiveArgError on a
+		// bad value — callers/tools surface that as a structured error.
+		const feature = makeCircle(center, radius, options)
+		// Reuse the canonical add path so normalization/intent/result stay consistent.
+		return addFeature(feature)
+	}
+
+	function buffer(
+		target: string | Feature | Geometry,
+		distance: number,
+		options: MakeBufferOptions = {},
+	): MutationResult {
+		// Resolve the buffer SOURCE: a feature id (primary, D-15) or raw geometry.
+		let sourceId: string | undefined
+		let geom: Feature | Geometry
+		if (typeof target === 'string') {
+			const existing = editor.getFeature(target)
+			if (!existing) {
+				// Unknown feature id → structured no-op (T-02-16), not a crash.
+				return { ok: false, intent: 'add', featureIds: [], counts: emptyCounts() }
+			}
+			sourceId = existing.id
+			geom = existing
+		} else {
+			geom = target
+		}
+
+		// makeBuffer validates distance (V5, throws on bad value) and returns
+		// `undefined` for degenerate input (T-02-15) — null-check, never coerce.
+		const buffered = makeBuffer(geom, distance, options)
+		if (!buffered) {
+			return { ok: false, intent: 'add', featureIds: [], counts: emptyCounts() }
+		}
+
+		const result = addFeature(buffered)
+		if (!result.ok) return result
+
+		// D-11/D-15 composition: surface BOTH the source id (when by-id) and the
+		// new id so Phase 4 can chain ("buffer the circle I just drew").
+		const featureIds = sourceId ? [sourceId, ...result.featureIds] : result.featureIds
+		return { ...result, featureIds }
+	}
+
+	return { addFeature, writeGeoJSON, editorCommand, circle, buffer }
 }
