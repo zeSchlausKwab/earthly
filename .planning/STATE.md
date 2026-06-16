@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: executing
-stopped_at: Phase 2 context gathered
-last_updated: "2026-06-16T18:18:00.000Z"
-last_activity: 2026-06-16 -- Phase 02 Plan 01 complete (test infra)
+stopped_at: Completed 02-02-PLAN.md (authoring-api facade)
+last_updated: "2026-06-16T18:50:00.000Z"
+last_activity: 2026-06-16 -- Phase 02 Plan 02 complete (authoring-api facade)
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 9
-  completed_plans: 4
-  percent: 17
+  completed_plans: 5
+  percent: 19
 ---
 
 # Project State
@@ -26,17 +26,17 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 02 (tool-registry-authoring-api) — EXECUTING
-Plan: 2 of 6
-Status: Executing Phase 02 (Plan 01 complete)
-Last activity: 2026-06-16 -- Phase 02 Plan 01 complete (test infra)
+Plan: 3 of 6
+Status: Executing Phase 02 (Plans 01-02 complete)
+Last activity: 2026-06-16 -- Phase 02 Plan 02 complete (authoring-api facade)
 
-Progress: [██░░░░░░░░] 17%
+Progress: [██░░░░░░░░] 19%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 3
+- Total plans completed: 5
 - Average duration: —
 - Total execution time: —
 
@@ -56,6 +56,7 @@ Progress: [██░░░░░░░░] 17%
 | Phase 01 P02 | 5min | 3 tasks | 3 files |
 | Phase 01 P03 | 4min | 2 tasks | 3 files |
 | Phase 02 P01 | 6min | 2 tasks | 4 files |
+| Phase 02 P02 | continuation | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [01-03]: Export reads the live store snapshot (not the encrypted envelope) and is never gated on settingsStatus, so the SET-03 recovery hatch works even when load/save is failing (D-08).
 - [Phase 2]: [02-01]: Headless GeoEditor harness keeps the mock map's getStyle() returning undefined so LayerManager.isStyleReady() is false — render/layer paths become safe no-ops, letting later tests use the REAL GeoEditor class without mocking layer internals.
 - [Phase 2]: [02-01]: Mock map cast `as unknown as MapLibreMap` only at the harness boundary (T-02-01); production map types never loosened. Harness is test-only — no production module imports core/test-harness (T-02-02 boundary grep clean).
+- [Phase 2]: [02-02]: createAuthoring(editor) captures the GeoEditor in a closure and exposes ONLY geometry methods (addFeature/writeGeoJSON/editorCommand) — no signer/wallet/store/getState re-export; boundary.test.ts fs-scans api/*.ts for zero chat/registry/Nostr/NDK/applesauce imports (D-07/T-02-03).
+- [Phase 2]: [02-02]: Authoring facade reuses toEditorFeature + dedup-by-id VERBATIM from importFeaturesToEditor (no normalization reimplementation — T-02-04); every mutating method returns a structured MutationResult, never void (D-11).
+- [Phase 2]: [02-02]: editor.setFeatures (replace path) does NOT emit create/update today, so the replace path does not yet drive the store mirror — Plan 03 must add the emit-on-bulk-replace (D-09) before the replace path's store sync works.
 
 ### Pending Todos
 
@@ -101,6 +105,6 @@ Items acknowledged and carried forward / out of scope for this milestone:
 
 ## Session Continuity
 
-Last session: 2026-06-16T18:18:00.000Z
-Stopped at: Completed 02-01-PLAN.md (test infrastructure)
-Resume file: .planning/phases/02-tool-registry-authoring-api/02-02-PLAN.md
+Last session: 2026-06-16T18:50:00.000Z
+Stopped at: Completed 02-02-PLAN.md (authoring-api facade)
+Resume file: .planning/phases/02-tool-registry-authoring-api/02-03-PLAN.md

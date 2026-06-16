@@ -66,7 +66,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 2** *(blocked on Wave 1)*
 
-  - [ ] 02-02-PLAN.md — Authoring API pure facade: addFeature/writeGeoJSON + MutationResult (D-11) + interceptor/intent scaffold (D-12), zero AI/Nostr imports (D-07 boundary test) (INFRA-02, INFRA-03)
+  - [x] 02-02-PLAN.md — Authoring API pure facade: addFeature/writeGeoJSON + MutationResult (D-11) + interceptor/intent scaffold (D-12), zero AI/Nostr imports (D-07 boundary test) (INFRA-02, INFRA-03)
 
 **Wave 3** *(blocked on Wave 2)*
 
