@@ -16,3 +16,13 @@
     the debounced save effect"), and `userPubkey` is already read inside the save effect
     (`userPubkey ?? currentUser.pubkey`), so the remaining warning is cosmetic and behavior-neutral.
     Clear in a future maintenance pass.
+
+## Pre-existing formatter nit (out of scope for Plan 01-03)
+
+- **`src/features/chat/ChatSettingsSection.tsx`** — 1 Biome `format` diff on the unrelated
+  "Changes are saved for the active Nostr account…" paragraph (the loaded-status banner copy,
+  not touched by Plan 01-03). Biome wants the line-wrap re-flowed (`…when the app` / `starts.`).
+  - Confirmed pre-existing: `git stash` + `biome check` at HEAD (`8aacf68`) reproduces the same
+    single error before any Plan 01-03 edit.
+  - Out of scope per the executor scope boundary (only auto-fix issues the current task caused).
+    The Export/Import code added by Plan 01-03 lints clean. Clear in a future maintenance pass.
