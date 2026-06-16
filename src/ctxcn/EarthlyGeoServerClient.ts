@@ -802,6 +802,17 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 		return this.client.listTools()
 	}
 
+	/**
+	 * Generic passthrough for invoking a remote MCP tool by name (D-05). Used by
+	 * the poll-based `mcp-sync` registrations: tools discovered via `listTools()`
+	 * get a thin handler that routes the call through the SAME stateless transport
+	 * + error-unwrapping path (`call`) the hand-written handlers use. Returns the
+	 * unwrapped structured result (or parsed text content); throws on `isError`.
+	 */
+	async callRemoteTool<T = unknown>(name: string, args: Record<string, unknown>): Promise<T> {
+		return this.call<T>(name, args)
+	}
+
 	private async call<T = unknown>(name: string, args: Record<string, unknown>): Promise<T> {
 		const result = await this.client.callTool({
 			name,

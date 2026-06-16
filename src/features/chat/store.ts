@@ -15,7 +15,7 @@ import {
 } from './routstr'
 import {
 	createMapContextSystemMessage,
-	geoTools,
+	getGeoTools,
 	executeToolCall,
 	consumeMapSnapshot,
 	compactToolMessageContentForPrompt,
@@ -1101,7 +1101,10 @@ export const useChatStore = create<ChatStore>()(
 						let warningTimer: ReturnType<typeof setTimeout> | null = null
 						let timeoutTimer: ReturnType<typeof setTimeout> | null = null
 
-						const requestTools = toolsEnabled ? geoTools : undefined
+						// D-05: read live registry state at request time so MCP-sync
+						// register/unregister changes propagate (falls back to the
+						// hardcoded bootstrapped entries when sync is inactive/failed).
+						const requestTools = toolsEnabled ? getGeoTools() : undefined
 						console.log('[Chat] Request config:', {
 							provider: providerConfig.type,
 							model: selectedModelId,
