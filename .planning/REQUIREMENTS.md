@@ -61,7 +61,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase. Story t
 
 ### Settings Persistence
 
-- [ ] **SET-01**: The user's chat provider config, API keys, and LM Studio/Ollama addresses persist across reloads, encrypted at rest with the user's Nostr key (encrypt-to-self).
+- [x] **SET-01**: The user's chat provider config, API keys, and LM Studio/Ollama addresses persist across reloads, encrypted at rest with the user's Nostr key (encrypt-to-self).
 - [ ] **SET-02**: Encrypted settings load works with NIP-46 remote signers (async/fallible), failing visibly rather than silently appearing as data loss.
 - [ ] **SET-03**: The user can export and re-import their settings as an escape hatch against signer rotation/loss.
 
@@ -99,7 +99,7 @@ Each requirement maps to exactly one phase.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SET-01 | Phase 1 — Encrypted Settings Persistence | Pending |
+| SET-01 | Phase 1 — Encrypted Settings Persistence | Complete |
 | SET-02 | Phase 1 — Encrypted Settings Persistence | Pending |
 | SET-03 | Phase 1 — Encrypted Settings Persistence | Pending |
 | INFRA-01 | Phase 2 — Tool Registry & Authoring API | Pending |
@@ -135,6 +135,7 @@ Each requirement maps to exactly one phase.
 | GEO-03 | Phase 7 — Geometry Optimization | Pending |
 
 **Coverage:**
+
 - v1.1 requirements: 29 total
 - Mapped to phases: 29 (SET ×3, INFRA ×3, INGEST ×7, CODE ×6, SAFE ×6, TOOLS ×4, STYLE ×2, GEO ×3 — note TOOLS spans Phase 2 [TOOLS-01] and Phase 6 [TOOLS-02/03/04])
 - Unmapped: 0 ✓

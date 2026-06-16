@@ -36,7 +36,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 1**
 
-  - [ ] 01-01-PLAN.md — v2 per-type providerOverrides shape, envelope v2 + migrateV1ToV2, resolveProvider fallback, Wave-0 tests (SET-01)
+  - [x] 01-01-PLAN.md — v2 per-type providerOverrides shape, envelope v2 + migrateV1ToV2, resolveProvider fallback, Wave-0 tests (SET-01)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -141,7 +141,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Encrypted Settings Persistence | 0/3 | Planned | - |
+| 1. Encrypted Settings Persistence | 1/3 | In Progress|  |
 | 2. Tool Registry & Authoring API | 0/TBD | Not started | - |
 | 3. File Ingest & Multimodal | 0/TBD | Not started | - |
 | 4. Code Interpreter Sandbox | 0/TBD | Not started | - |

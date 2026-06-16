@@ -4,13 +4,13 @@ milestone: v1.1
 milestone_name: milestone
 status: executing
 stopped_at: Phase 1 context gathered
-last_updated: "2026-06-16T13:49:55.826Z"
-last_activity: 2026-06-16 — Roadmap revised; Encrypted Settings Persistence moved to Phase 1 so later phases test without re-entering keys
+last_updated: "2026-06-16T14:28:39.741Z"
+last_activity: 2026-06-16 -- Phase 01 execution started
 progress:
   total_phases: 7
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 3
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** The maintainer (and any user) can open the app for fun, not duty — extended this milestone so analysts, curators, and power users can ingest real-world data, transform it with sandboxed code, and safely author maps via chat.
-**Current focus:** Phase 1 — Encrypted Settings Persistence
+**Current focus:** Phase 01 — encrypted-settings-persistence
 
 ## Current Position
 
-Phase: 1 of 7 (Encrypted Settings Persistence)
-Plan: — (not yet planned)
+Phase: 01 (encrypted-settings-persistence) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-06-16 — Roadmap revised; Encrypted Settings Persistence moved to Phase 1 so later phases test without re-entering keys
+Last activity: 2026-06-16 -- Phase 01 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -52,6 +52,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: —
 
 *Updated after each plan completion*
+| Phase 01 P01 | 8min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -66,6 +67,8 @@ Recent decisions affecting current work:
 - [Roadmap]: Safe-editing gate (Phase 5) MUST precede every destructive bulk tool (Phases 6 + 7), or those tools ship destructive.
 - [v1.1]: Edit safety is a user config (1 preview / 2 confirm-destructive default / 3 trust+undo).
 - [v1.1]: Code interpreter runs client-side; sandbox boundary is message-only RPC over the Authoring API.
+- [Phase ?]: [01-01]: Kept localStorage key prefix earthly.chat-settings.v1 stable; bumped only in-envelope version to 2 and migrate on read (avoids orphaning v1 envelopes).
+- [Phase ?]: [01-01]: Exported resolveProvider, chatStorePartialize, and migrateV1ToV2 as pure functions for headless bun:test (SC-1 secret-exclusion + migration directly testable).
 
 ### Pending Todos
 
@@ -89,6 +92,6 @@ Items acknowledged and carried forward / out of scope for this milestone:
 
 ## Session Continuity
 
-Last session: 2026-06-16T13:12:11.809Z
+Last session: 2026-06-16T14:28:17.794Z
 Stopped at: Phase 1 context gathered
 Resume file: .planning/phases/01-encrypted-settings-persistence/01-CONTEXT.md
