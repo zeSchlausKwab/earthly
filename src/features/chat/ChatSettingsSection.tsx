@@ -3,8 +3,10 @@ import {
 	AlertTriangle,
 	Bot,
 	Check,
+	ClipboardCopy,
 	SlidersHorizontal,
 	ChevronsUpDown,
+	Download,
 	KeyRound,
 	Loader2,
 	Lock,
@@ -12,17 +14,21 @@ import {
 	Server,
 	ToggleLeft,
 	ToggleRight,
+	Upload,
 } from 'lucide-react'
 import { useActiveAccount } from 'applesauce-react/hooks'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { ProviderType } from './routstr'
-import { useChatStore } from './store'
+import { serializeSnapshot, validateImportedSnapshot } from './settingsExport'
+import { chatActions, useChatStore } from './store'
 
 const PROVIDER_OPTIONS: { value: ProviderType; label: string }[] = [
 	{ value: 'routstr', label: 'Routstr (paid)' },
@@ -73,6 +79,46 @@ export function ChatSettingsSection() {
 	const [modelQuery, setModelQuery] = useState('')
 	const [modelSortMode, setModelSortMode] = useState<ModelSortMode>('relevance')
 	const [toolCallingOnly, setToolCallingOnly] = useState(false)
+	// SET-03 export/import escape hatch (D-08/D-09/D-10).
+	const [exported, setExported] = useState(false)
+	const [importText, setImportText] = useState('')
+
+	// Export reads the LIVE store snapshot (not the encrypted envelope), so it works even when
+	// load/save is failing — the whole point of the recovery hatch (D-08). It deliberately emits
+	// plaintext secrets to the clipboard, so it sets a persistent warning (D-10 / T-01-11).
+	const handleExport = () => {
+		void (async () => {
+			try {
+				const json = serializeSnapshot({
+					provider,
+					providerOverrides,
+					selectedModel,
+					toolsEnabled,
+					version: 2,
+				})
+				await navigator.clipboard.writeText(json)
+				setExported(true)
+				toast.success('Settings copied to clipboard')
+			} catch (error) {
+				toast.error(error instanceof Error ? error.message : 'Failed to copy settings')
+			}
+		})()
+	}
+
+	// Import REPLACES (not merges) the current settings via hydrateSettings; the existing debounced
+	// save effect then re-encrypts to the CURRENT signer automatically (D-07/D-09 — no explicit
+	// re-encrypt call). Pasted JSON is parsed + validated before it reaches the store (T-01-10/V5).
+	const handleImport = () => {
+		try {
+			const parsed: unknown = JSON.parse(importText)
+			const validated = validateImportedSnapshot(parsed)
+			chatActions.hydrateSettings(validated)
+			setImportText('')
+			toast.success('Settings imported')
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : 'Invalid settings JSON')
+		}
+	}
 	const selectedModelData = useMemo(
 		() => models.find((model) => model.id === selectedModel) ?? null,
 		[models, selectedModel],
@@ -467,6 +513,63 @@ export function ChatSettingsSection() {
 					</div>
 				</div>
 			)}
+
+			<div className="space-y-3 rounded-lg border bg-card p-3">
+				<div className="space-y-1">
+					<div className="flex items-center gap-2">
+						<Download className="h-4 w-4 text-muted-foreground" />
+						<Label className="text-sm font-medium">Backup &amp; restore</Label>
+					</div>
+					<p className="text-xs text-muted-foreground">
+						Export your settings as plaintext JSON to recover them if your signer changes and the
+						encrypted copy can no longer be decrypted. Import re-encrypts to the current account.
+					</p>
+				</div>
+
+				<div className="space-y-2">
+					<Button
+						type="button"
+						variant="outline"
+						onClick={handleExport}
+						className="w-full justify-center gap-2"
+					>
+						<ClipboardCopy className="h-4 w-4" />
+						Export settings
+					</Button>
+					{exported ? (
+						<div className="rounded-md border border-orange-300 bg-orange-50 p-2.5 text-xs text-orange-900 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-200">
+							<div className="flex items-start gap-2">
+								<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+								<p>
+									The clipboard now holds your plaintext API keys — paste it somewhere safe and
+									clear your clipboard afterward.
+								</p>
+							</div>
+						</div>
+					) : null}
+				</div>
+
+				<div className="space-y-2">
+					<Label className="text-xs text-muted-foreground">Paste exported settings JSON</Label>
+					<Textarea
+						value={importText}
+						onChange={(event) => setImportText(event.target.value)}
+						placeholder='{ "provider": "lmstudio", ... }'
+						rows={4}
+						className="font-mono text-xs"
+					/>
+					<Button
+						type="button"
+						variant="outline"
+						onClick={handleImport}
+						disabled={!importText.trim()}
+						className="w-full justify-center gap-2"
+					>
+						<Upload className="h-4 w-4" />
+						Import settings
+					</Button>
+				</div>
+			</div>
 		</div>
 	)
 }
