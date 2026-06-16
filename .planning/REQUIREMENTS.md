@@ -95,17 +95,50 @@ Explicitly excluded. Anti-features from research belong here with warnings.
 
 ## Traceability
 
-Populated during roadmap creation. Each requirement maps to exactly one phase.
+Each requirement maps to exactly one phase.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (filled by roadmapper) | — | Pending |
+| SET-01 | Phase 1 — Encrypted Settings Persistence | Pending |
+| SET-02 | Phase 1 — Encrypted Settings Persistence | Pending |
+| SET-03 | Phase 1 — Encrypted Settings Persistence | Pending |
+| INFRA-01 | Phase 2 — Tool Registry & Authoring API | Pending |
+| INFRA-02 | Phase 2 — Tool Registry & Authoring API | Pending |
+| INFRA-03 | Phase 2 — Tool Registry & Authoring API | Pending |
+| TOOLS-01 | Phase 2 — Tool Registry & Authoring API | Pending |
+| INGEST-01 | Phase 3 — File Ingest & Multimodal | Pending |
+| INGEST-02 | Phase 3 — File Ingest & Multimodal | Pending |
+| INGEST-03 | Phase 3 — File Ingest & Multimodal | Pending |
+| INGEST-04 | Phase 3 — File Ingest & Multimodal | Pending |
+| INGEST-05 | Phase 3 — File Ingest & Multimodal | Pending |
+| INGEST-06 | Phase 3 — File Ingest & Multimodal | Pending |
+| INGEST-07 | Phase 3 — File Ingest & Multimodal | Pending |
+| CODE-01 | Phase 4 — Code Interpreter Sandbox | Pending |
+| CODE-02 | Phase 4 — Code Interpreter Sandbox | Pending |
+| CODE-03 | Phase 4 — Code Interpreter Sandbox | Pending |
+| CODE-04 | Phase 4 — Code Interpreter Sandbox | Pending |
+| CODE-05 | Phase 4 — Code Interpreter Sandbox | Pending |
+| CODE-06 | Phase 4 — Code Interpreter Sandbox | Pending |
+| SAFE-01 | Phase 5 — Dataset-Aware Safe Editing | Pending |
+| SAFE-02 | Phase 5 — Dataset-Aware Safe Editing | Pending |
+| SAFE-03 | Phase 5 — Dataset-Aware Safe Editing | Pending |
+| SAFE-04 | Phase 5 — Dataset-Aware Safe Editing | Pending |
+| SAFE-05 | Phase 5 — Dataset-Aware Safe Editing | Pending |
+| SAFE-06 | Phase 5 — Dataset-Aware Safe Editing | Pending |
+| TOOLS-02 | Phase 6 — AI Bulk Transform & Data-Driven Styling | Pending |
+| TOOLS-03 | Phase 6 — AI Bulk Transform & Data-Driven Styling | Pending |
+| TOOLS-04 | Phase 6 — AI Bulk Transform & Data-Driven Styling | Pending |
+| STYLE-01 | Phase 6 — AI Bulk Transform & Data-Driven Styling | Pending |
+| STYLE-02 | Phase 6 — AI Bulk Transform & Data-Driven Styling | Pending |
+| GEO-01 | Phase 7 — Geometry Optimization | Pending |
+| GEO-02 | Phase 7 — Geometry Optimization | Pending |
+| GEO-03 | Phase 7 — Geometry Optimization | Pending |
 
 **Coverage:**
 - v1.1 requirements: 29 total
-- Mapped to phases: (filled by roadmapper)
-- Unmapped: (filled by roadmapper)
+- Mapped to phases: 29 (SET ×3, INFRA ×3, INGEST ×7, CODE ×6, SAFE ×6, TOOLS ×4, STYLE ×2, GEO ×3 — note TOOLS spans Phase 2 [TOOLS-01] and Phase 6 [TOOLS-02/03/04])
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-16*
-*Last updated: 2026-06-16 after initial definition*
+*Last updated: 2026-06-16 — traceability renumbered (Encrypted Settings Persistence moved to Phase 1)*
