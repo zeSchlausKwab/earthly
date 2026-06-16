@@ -62,7 +62,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 1**
 
-  - [ ] 02-01-PLAN.md — Wave 0 test infrastructure: headless GeoEditor harness (mock MapLibre) + shared geo fixtures (the binding-golden-test prerequisite)
+  - [x] 02-01-PLAN.md — Wave 0 test infrastructure: headless GeoEditor harness (mock MapLibre) + shared geo fixtures (the binding-golden-test prerequisite)
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -166,7 +166,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Encrypted Settings Persistence | 3/3 | Complete    | 2026-06-16 |
-| 2. Tool Registry & Authoring API | 0/6 | In progress | - |
+| 2. Tool Registry & Authoring API | 1/6 | In progress | - |
 | 3. File Ingest & Multimodal | 0/TBD | Not started | - |
 | 4. Code Interpreter Sandbox | 0/TBD | Not started | - |
 | 5. Dataset-Aware Safe Editing | 0/TBD | Not started | - |

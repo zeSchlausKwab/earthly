@@ -4,14 +4,14 @@ milestone: v1.1
 milestone_name: milestone
 status: executing
 stopped_at: Phase 2 context gathered
-last_updated: "2026-06-16T18:01:46.220Z"
-last_activity: "2026-06-16 -- Phase 1 completed: executed, reviewed+fixed, verified, UAT passed, secured"
+last_updated: "2026-06-16T18:18:00.000Z"
+last_activity: 2026-06-16 -- Phase 02 Plan 01 complete (test infra)
 progress:
   total_phases: 7
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
-  percent: 14
+  total_plans: 9
+  completed_plans: 4
+  percent: 17
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** The maintainer (and any user) can open the app for fun, not duty — extended this milestone so analysts, curators, and power users can ingest real-world data, transform it with sandboxed code, and safely author maps via chat.
-**Current focus:** Phase 01 — encrypted-settings-persistence
+**Current focus:** Phase 02 — tool-registry-authoring-api
 
 ## Current Position
 
-Phase: 2
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-16 -- Phase 1 completed: executed, reviewed+fixed, verified, UAT passed, secured
+Phase: 02 (tool-registry-authoring-api) — EXECUTING
+Plan: 2 of 6
+Status: Executing Phase 02 (Plan 01 complete)
+Last activity: 2026-06-16 -- Phase 02 Plan 01 complete (test infra)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░] 17%
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P01 | 8min | 3 tasks | 8 files |
 | Phase 01 P02 | 5min | 3 tasks | 3 files |
 | Phase 01 P03 | 4min | 2 tasks | 3 files |
+| Phase 02 P01 | 6min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [01-02]: Retry is nonce-driven — requestSettingsReload bumps settingsLoadNonce in the load-effect deps to re-enter the generation guard, never calling the loader directly (Pitfall 2).
 - [Phase ?]: [01-03]: Import REPLACES via hydrateSettings and delegates re-encryption to the existing debounced save (D-07/D-09); v1+v2 accepted by reusing migrateV1ToV2; malformed/unknown/oversized rejected via hand-written type guards (T-01-10/V5).
 - [Phase ?]: [01-03]: Export reads the live store snapshot (not the encrypted envelope) and is never gated on settingsStatus, so the SET-03 recovery hatch works even when load/save is failing (D-08).
+- [Phase 2]: [02-01]: Headless GeoEditor harness keeps the mock map's getStyle() returning undefined so LayerManager.isStyleReady() is false — render/layer paths become safe no-ops, letting later tests use the REAL GeoEditor class without mocking layer internals.
+- [Phase 2]: [02-01]: Mock map cast `as unknown as MapLibreMap` only at the harness boundary (T-02-01); production map types never loosened. Harness is test-only — no production module imports core/test-harness (T-02-02 boundary grep clean).
 
 ### Pending Todos
 
@@ -98,6 +101,6 @@ Items acknowledged and carried forward / out of scope for this milestone:
 
 ## Session Continuity
 
-Last session: 2026-06-16T17:17:04.376Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-tool-registry-authoring-api/02-CONTEXT.md
+Last session: 2026-06-16T18:18:00.000Z
+Stopped at: Completed 02-01-PLAN.md (test infrastructure)
+Resume file: .planning/phases/02-tool-registry-authoring-api/02-02-PLAN.md
