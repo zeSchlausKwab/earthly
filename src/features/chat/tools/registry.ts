@@ -18,6 +18,7 @@ import { executeEditorAiTool, getEditorAiToolDefinitions } from '@/features/geo-
 import { useEditorStore } from '@/features/geo-editor/store'
 import { getMapContextSnapshot, getCompactMapContextForTool, mapSnapshotCache, pruneSnapshotCache } from './context'
 import { isToolError, type ToolError } from './errors'
+import { registerPrimitiveTools } from './primitives-tools'
 import { geoStaticToolSchemas } from './schemas'
 import {
 	asFeatureObject,
@@ -995,6 +996,7 @@ function bootstrapRegistry(): void {
 	registerEditorWriters()
 	registerRemoteMcpTools()
 	registerEditorCommands()
+	registerPrimitiveTools()
 }
 
 bootstrapRegistry()

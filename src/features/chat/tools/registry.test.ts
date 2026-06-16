@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { createHeadlessEditor } from '@/features/geo-editor/core/test-harness'
+import { useEditorStore } from '@/features/geo-editor/store'
 import { isToolError } from './errors'
 import {
 	advertise,
@@ -114,5 +116,97 @@ describe('tool registry', () => {
 			expect(entry).toBeDefined()
 			expect(entry?.kind).toBeTruthy()
 		}
+	})
+})
+
+describe('authoring-primitive tools: draw_circle + buffer_feature (TOOLS-01 / D-14)', () => {
+	afterEach(() => {
+		useEditorStore.getState().setEditor(null)
+	})
+
+	it('registers both tools with kind:authoring-primitive and advertises them', () => {
+		expect(registry.get('draw_circle')?.kind).toBe('authoring-primitive')
+		expect(registry.get('buffer_feature')?.kind).toBe('authoring-primitive')
+		const names = advertise().map((tool) => tool.function.name)
+		expect(names).toContain('draw_circle')
+		expect(names).toContain('buffer_feature')
+	})
+
+	it('schemas require radius/distance and expose an explicit units enum (D-14, no magic default)', () => {
+		const circle = registry.get('draw_circle')?.schema.function
+		expect(circle?.parameters.required).toContain('radius')
+		expect(circle?.parameters.properties.units?.enum).toEqual(['meters', 'kilometers', 'miles'])
+
+		const buffer = registry.get('buffer_feature')?.schema.function
+		expect(buffer?.parameters.required).toContain('distance')
+		expect(buffer?.parameters.properties.units?.enum).toEqual(['meters', 'kilometers', 'miles'])
+	})
+
+	it('dispatch(draw_circle) reaches authoring and draws a feature (criterion #4)', async () => {
+		const editor = createHeadlessEditor()
+		useEditorStore.getState().setEditor(editor)
+
+		const result = await dispatch('draw_circle', {
+			center: [13.4, 52.5],
+			radius: 500,
+			units: 'meters',
+		})
+		expect(isToolError(result)).toBe(false)
+		expect((result as { ok: boolean }).ok).toBe(true)
+		expect((result as { featureId: string }).featureId).toBeTruthy()
+		expect(editor.getAllFeatures()).toHaveLength(1)
+		expect(editor.getAllFeatures()[0]?.geometry.type).toBe('Polygon')
+	})
+
+	it('dispatch(buffer_feature) buffers an existing feature via authoring (criterion #4)', async () => {
+		const editor = createHeadlessEditor()
+		useEditorStore.getState().setEditor(editor)
+		const drawn = (await dispatch('draw_circle', {
+			center: [13.4, 52.5],
+			radius: 300,
+			units: 'meters',
+		})) as { featureId: string }
+
+		const result = await dispatch('buffer_feature', {
+			featureId: drawn.featureId,
+			distance: 100,
+			units: 'meters',
+		})
+		expect(isToolError(result)).toBe(false)
+		const typed = result as { ok: boolean; sourceFeatureId: string; bufferedFeatureId: string }
+		expect(typed.ok).toBe(true)
+		expect(typed.sourceFeatureId).toBe(drawn.featureId)
+		expect(typed.bufferedFeatureId).toBeTruthy()
+		expect(typed.bufferedFeatureId).not.toBe(drawn.featureId)
+		expect(editor.getAllFeatures()).toHaveLength(2)
+	})
+
+	it('dispatch(buffer_feature) on a missing id → structured ToolError, not a crash (D-16/T-02-16)', async () => {
+		const editor = createHeadlessEditor()
+		useEditorStore.getState().setEditor(editor)
+
+		const result = await dispatch('buffer_feature', {
+			featureId: 'does-not-exist',
+			distance: 100,
+			units: 'meters',
+		})
+		expect(isToolError(result)).toBe(true)
+		if (!isToolError(result)) throw new Error('expected ToolError')
+		expect(result.kind).toBe('handler_error')
+		expect(result.toolName).toBe('buffer_feature')
+		expect(editor.getAllFeatures()).toHaveLength(0)
+	})
+
+	it('dispatch(draw_circle) with a non-finite radius → structured ToolError (D-14/V5)', async () => {
+		const editor = createHeadlessEditor()
+		useEditorStore.getState().setEditor(editor)
+
+		const result = await dispatch('draw_circle', {
+			center: [13.4, 52.5],
+			radius: Number.NaN,
+			units: 'meters',
+		})
+		expect(isToolError(result)).toBe(true)
+		expect(editor.getAllFeatures()).toHaveLength(0)
 	})
 })
