@@ -1,4 +1,5 @@
 import type { ISigner } from 'applesauce-signers'
+import { isProviderType } from './routstr'
 import { DEFAULT_CHAT_SETTINGS } from './store'
 import type { ChatSettingsSnapshot, ProviderOverride } from './store'
 
@@ -15,6 +16,11 @@ interface StoredChatSettingsEnvelope {
 	ciphertext: string
 	updatedAt: number
 }
+
+// Envelope schema versions this client knows how to decrypt + migrate (WR-02). An unknown
+// version (future schema, garbage, wrong type) must NOT be decrypted-and-mis-migrated; it is
+// treated as "no usable settings" so a forward-incompatible payload cannot be silently mangled.
+const SUPPORTED_ENVELOPE_VERSIONS: ReadonlySet<number> = new Set([1, 2])
 
 /** Legacy v1 flat snapshot shape — only used for migration typing. */
 interface V1ChatSettingsSnapshot {
@@ -68,7 +74,10 @@ export function migrateV1ToV2(parsed: unknown): ChatSettingsSnapshot {
 		}
 	}
 
-	const provider = (parsed.provider as ChatSettingsSnapshot['provider']) ?? defaults.provider
+	// Membership-check the provider (WR-03): an unvalidated cast lets a tampered/future payload
+	// (e.g. provider: "openai") flow into the store, where resolveProvider mis-handles it as a
+	// builtin and produces a malformed ProviderConfig. Fall back to the default instead.
+	const provider = isProviderType(parsed.provider) ? parsed.provider : defaults.provider
 	const selectedModel =
 		typeof parsed.selectedModel === 'string' ? parsed.selectedModel : defaults.selectedModel
 	const toolsEnabled =
@@ -117,15 +126,36 @@ export async function loadEncryptedChatSettings(
 	const raw = window.localStorage.getItem(getChatSettingsStorageKey(pubkey))
 	if (!raw) return null
 
-	const envelope = JSON.parse(raw) as StoredChatSettingsEnvelope
+	// A corrupted/truncated/tampered envelope (quota-aborted write, manual edit) must NOT
+	// surface as a decrypt failure (WR-01): treat an unparseable envelope as "no usable
+	// settings" and return null so the load lifecycle reports loaded/default, not failed.
+	let envelope: StoredChatSettingsEnvelope
+	try {
+		envelope = JSON.parse(raw) as StoredChatSettingsEnvelope
+	} catch {
+		return null
+	}
 	if (!envelope?.ciphertext || !envelope?.scheme) return null
+
+	// Honor the version field (WR-02): an unsupported/garbage version is forward-incompatible —
+	// decrypting it would risk mis-migrating an unknown inner shape. Bail to "no usable settings".
+	if (!SUPPORTED_ENVELOPE_VERSIONS.has(envelope.version)) return null
 
 	const provider = envelope.scheme === 'nip44' ? signer.nip44 : signer.nip04
 	if (!provider) {
 		throw new Error(`Active signer does not support ${envelope.scheme} decryption`)
 	}
 	const decrypted = await provider.decrypt(pubkey, envelope.ciphertext)
-	const parsed = JSON.parse(decrypted)
+	// The payload decrypted successfully but may be structurally garbage (future schema, manual
+	// tamper). migrateV1ToV2 is documented to never throw on garbage, but it is only reached if
+	// the parse succeeds — route an unparseable payload through it (as undefined) for safe
+	// defaults rather than letting a raw SyntaxError masquerade as a decryption failure (WR-01).
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(decrypted)
+	} catch {
+		parsed = undefined
+	}
 	return migrateV1ToV2(parsed)
 }
 
@@ -139,7 +169,11 @@ export async function saveEncryptedChatSettings(
 	const scheme = resolveEncryptionScheme(signer)
 	const provider = scheme === 'nip44' ? signer.nip44 : signer.nip04
 	if (!provider) throw new Error(`Active signer does not support ${scheme} encryption`)
-	const ciphertext = await provider.encrypt(pubkey, JSON.stringify(settings))
+	// Normalize the snapshot through the v2 migration before stamping version: 2 (WR-06) so the
+	// persisted envelope's version claim is always truthful — a malformed in-memory snapshot
+	// (e.g. unknown provider, missing override) cannot be laundered into storage as "v2".
+	const normalized = migrateV1ToV2(settings)
+	const ciphertext = await provider.encrypt(pubkey, JSON.stringify(normalized))
 	const envelope: StoredChatSettingsEnvelope = {
 		version: 2,
 		scheme,

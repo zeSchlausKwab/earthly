@@ -1,7 +1,7 @@
+import { isProviderType } from './routstr'
 import { migrateV1ToV2 } from './settingsStorage'
 import { DEFAULT_CHAT_SETTINGS } from './store'
 import type { ChatSettingsSnapshot, ProviderOverride } from './store'
-import type { ProviderType } from './routstr'
 
 // SET-03 export/import escape hatch (D-08/D-09). These helpers are pure and DOM-free:
 // the UI owns clipboard/textarea I/O, error narrowing, and re-encrypt-via-save.
@@ -11,14 +11,8 @@ import type { ProviderType } from './routstr'
 // anything larger is malformed/hostile and is rejected before it reaches the store.
 export const MAX_IMPORT_BYTES = 65536
 
-const PROVIDER_TYPES: readonly ProviderType[] = ['routstr', 'lmstudio', 'ollama', 'custom']
-
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function isProviderType(value: unknown): value is ProviderType {
-	return typeof value === 'string' && PROVIDER_TYPES.includes(value as ProviderType)
 }
 
 function coerceOverride(value: unknown, fallback: ProviderOverride): ProviderOverride {

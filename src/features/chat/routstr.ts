@@ -126,6 +126,14 @@ const DEFAULT_CONFIG: RoutstrConfig = {
 
 export type ProviderType = 'routstr' | 'lmstudio' | 'ollama' | 'custom'
 
+/** The canonical, exhaustive list of provider types. */
+export const PROVIDER_TYPES: readonly ProviderType[] = ['routstr', 'lmstudio', 'ollama', 'custom']
+
+/** Shared membership guard so corrupt/tampered payloads cannot launder an unknown provider. */
+export function isProviderType(value: unknown): value is ProviderType {
+	return typeof value === 'string' && PROVIDER_TYPES.includes(value as ProviderType)
+}
+
 export interface ProviderConfig {
 	type: ProviderType
 	baseUrl: string
