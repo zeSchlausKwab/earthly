@@ -12,3 +12,5 @@
 export type { MutationIntent, MutationResult, MutationCounts } from './results'
 export type { Interceptor, InterceptorContext } from './interceptor'
 export { runInterceptors } from './interceptor'
+export type { Authoring } from './authoring'
+export { createAuthoring } from './authoring'
