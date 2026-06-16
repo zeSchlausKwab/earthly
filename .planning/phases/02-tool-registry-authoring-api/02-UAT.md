@@ -1,41 +1,36 @@
 ---
-status: testing
+status: complete
 phase: 02-tool-registry-authoring-api
 source: [02-VERIFICATION.md]
 started: 2026-06-16T19:58:36Z
-updated: 2026-06-16T20:14:00Z
+updated: 2026-06-16T20:20:00Z
 ---
 
 ## Current Test
 
-number: 1
-name: Unknown tool call renders a red error bubble in chat
-expected: |
-  Chat UI renders a visually distinct red error bubble showing
-  "Unknown tool: <tool_name>" and the error message — not a blank
-  message or a silent failure.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
 ### 1. Unknown tool call renders a red error bubble in chat
 expected: Trigger an unknown tool call from chat (e.g. ask the AI to call a tool that does not exist). The chat UI renders a visually distinct red error bubble showing "Unknown tool: <tool_name>" and the error message (not a blank message or silent failure).
-result: [pending]
+result: pass
+note: "App loads cleanly after the circular-import fix (startup blocker resolved). Tool dispatch confirmed live — the model has its advertised tool list and correctly identified that 'frobnicate_widget' is not available, declining the call and explaining rather than producing a silent no-op (Success Criterion #1 satisfied at the dispatch level). The unknown_tool/handler_error red-bubble RENDER path could not be visually triggered because the model (correctly) won't emit a tool call for a non-advertised tool, and gracefully handled the deliberate failing call too. Accepted by user as pass; the ToolError render branch is covered by registry.test.ts/errors.test.ts unit tests."
 
 ### 2. AI draws a parametric circle on the map
 expected: Open the editor and ask a chat tool to draw on the map (e.g. "draw a circle of radius 500m around Paris"). A Polygon feature appears on the map with no behavior regression from the old flow.
-result: [pending]
+result: pass
 
 ### 3. Sidebar stays in sync after a bulk replace
 expected: Use a chat tool that bulk-replaces features (e.g. write_geojson_to_editor with replaceExisting:true). The sidebar/feature list updates to show ONLY the newly imported features — no stale previous features remain.
-result: [pending]
+result: pass
 
 ## Summary
 
 total: 3
-passed: 0
+passed: 3
 issues: 0
-pending: 3
+pending: 0
 skipped: 0
 blocked: 0
 
