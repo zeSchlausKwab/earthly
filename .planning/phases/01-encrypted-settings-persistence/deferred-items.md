@@ -10,3 +10,9 @@
     "Do NOT change the generation-counter guard, debounced save, or effect deps in this task
     (Plan 02 owns the load-state amendments)."
   - Defer to Plan 01-02, which owns the load-state amendments to this hook.
+  - **Update (Plan 01-02):** the LOAD-effect half is now RESOLVED — `userPubkey` was added to the
+    load-effect deps as part of publishing the load lifecycle (commit `32da25f`). The SAVE-effect
+    warning remains: Plan 01-02 Task 2 was explicitly scoped to the load effect only ("do NOT touch
+    the debounced save effect"), and `userPubkey` is already read inside the save effect
+    (`userPubkey ?? currentUser.pubkey`), so the remaining warning is cosmetic and behavior-neutral.
+    Clear in a future maintenance pass.

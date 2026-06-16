@@ -4,13 +4,13 @@ milestone: v1.1
 milestone_name: milestone
 status: executing
 stopped_at: Phase 1 context gathered
-last_updated: "2026-06-16T14:28:39.741Z"
+last_updated: "2026-06-16T14:36:51.549Z"
 last_activity: 2026-06-16 -- Phase 01 execution started
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 01 (encrypted-settings-persistence) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-06-16 -- Phase 01 execution started
 
@@ -53,6 +53,7 @@ Progress: [░░░░░░░░░░] 0%
 
 *Updated after each plan completion*
 | Phase 01 P01 | 8min | 3 tasks | 8 files |
+| Phase 01 P02 | 5min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,8 @@ Recent decisions affecting current work:
 - [v1.1]: Code interpreter runs client-side; sandbox boundary is message-only RPC over the Authoring API.
 - [Phase ?]: [01-01]: Kept localStorage key prefix earthly.chat-settings.v1 stable; bumped only in-envelope version to 2 and migrate on read (avoids orphaning v1 envelopes).
 - [Phase ?]: [01-01]: Exported resolveProvider, chatStorePartialize, and migrateV1ToV2 as pure functions for headless bun:test (SC-1 secret-exclusion + migration directly testable).
+- [Phase ?]: [01-02]: On decrypt failure the load lifecycle sets a visible 'failed' status + message instead of hydrating DEFAULT settings (D-11/SET-02).
+- [Phase ?]: [01-02]: Retry is nonce-driven — requestSettingsReload bumps settingsLoadNonce in the load-effect deps to re-enter the generation guard, never calling the loader directly (Pitfall 2).
 
 ### Pending Todos
 
@@ -92,6 +95,6 @@ Items acknowledged and carried forward / out of scope for this milestone:
 
 ## Session Continuity
 
-Last session: 2026-06-16T14:28:17.794Z
+Last session: 2026-06-16T14:36:37.588Z
 Stopped at: Phase 1 context gathered
 Resume file: .planning/phases/01-encrypted-settings-persistence/01-CONTEXT.md

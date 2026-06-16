@@ -40,7 +40,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-  - [ ] 01-02-PLAN.md — visible loading/failed(+Retry)/loaded/no-signer state for the async NIP-46 load (SET-02)
+  - [x] 01-02-PLAN.md — visible loading/failed(+Retry)/loaded/no-signer state for the async NIP-46 load (SET-02)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -141,7 +141,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Encrypted Settings Persistence | 1/3 | In Progress|  |
+| 1. Encrypted Settings Persistence | 2/3 | In Progress|  |
 | 2. Tool Registry & Authoring API | 0/TBD | Not started | - |
 | 3. File Ingest & Multimodal | 0/TBD | Not started | - |
 | 4. Code Interpreter Sandbox | 0/TBD | Not started | - |

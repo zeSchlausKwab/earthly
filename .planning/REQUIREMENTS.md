@@ -62,7 +62,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase. Story t
 ### Settings Persistence
 
 - [x] **SET-01**: The user's chat provider config, API keys, and LM Studio/Ollama addresses persist across reloads, encrypted at rest with the user's Nostr key (encrypt-to-self).
-- [ ] **SET-02**: Encrypted settings load works with NIP-46 remote signers (async/fallible), failing visibly rather than silently appearing as data loss.
+- [x] **SET-02**: Encrypted settings load works with NIP-46 remote signers (async/fallible), failing visibly rather than silently appearing as data loss.
 - [ ] **SET-03**: The user can export and re-import their settings as an escape hatch against signer rotation/loss.
 
 ## Future Requirements
@@ -100,7 +100,7 @@ Each requirement maps to exactly one phase.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | SET-01 | Phase 1 — Encrypted Settings Persistence | Complete |
-| SET-02 | Phase 1 — Encrypted Settings Persistence | Pending |
+| SET-02 | Phase 1 — Encrypted Settings Persistence | Complete |
 | SET-03 | Phase 1 — Encrypted Settings Persistence | Pending |
 | INFRA-01 | Phase 2 — Tool Registry & Authoring API | Pending |
 | INFRA-02 | Phase 2 — Tool Registry & Authoring API | Pending |
