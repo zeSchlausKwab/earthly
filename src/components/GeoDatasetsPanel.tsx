@@ -318,6 +318,7 @@ export function GeoDatasetsPanelContent({
 			onAddDatasetToMap,
 			onRemoveDatasetFromMap,
 			onToggleCatalogPin: toggleDatasetFavorite,
+			canFavorite: Boolean(currentUserPubkey),
 			onOpenDebug,
 			isPublishing,
 			deletingKey,
@@ -333,6 +334,7 @@ export function GeoDatasetsPanelContent({
 			onAddDatasetToMap,
 			onRemoveDatasetFromMap,
 			toggleDatasetFavorite,
+			currentUserPubkey,
 			onOpenDebug,
 			isPublishing,
 			deletingKey,
@@ -415,6 +417,33 @@ export function GeoDatasetsPanelContent({
 					)}
 				</div>
 				<div className="flex items-center gap-1">
+					{/* Round G.2 / U.5: All | Favorites | Recent tab strip — moved up
+					    onto the header row to save a row. Favorites and recents are
+					    per-user (scoped localStorage) and apply on top of the filter
+					    toolbar below. */}
+					<div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-muted p-0.5">
+						{(
+							[
+								{ key: 'all', label: 'All' },
+								{ key: 'favorites', label: 'Favorites' },
+								{ key: 'recent', label: 'Recent' },
+							] as const
+						).map((tab) => (
+							<button
+								key={tab.key}
+								type="button"
+								onClick={() => setCatalogTab(tab.key)}
+								className={cn(
+									'rounded-md px-2 py-1 text-xs font-medium transition-colors',
+									catalogTab === tab.key
+										? 'bg-background text-foreground shadow-sm'
+										: 'text-muted-foreground hover:text-foreground',
+								)}
+							>
+								{tab.label}
+							</button>
+						))}
+					</div>
 					{isFocused && onExitFocus ? (
 						<Button
 							size="sm"
@@ -435,33 +464,6 @@ export function GeoDatasetsPanelContent({
 				</div>
 			</div>
 
-			{/* Round G.2: All | Favorites | Recent tab strip. Favorites and recents
-			    are per-user (scoped localStorage) and apply on top of the filter
-			    toolbar below. */}
-			<div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-muted p-0.5">
-				{(
-					[
-						{ key: 'all', label: 'All' },
-						{ key: 'favorites', label: 'Favorites' },
-						{ key: 'recent', label: 'Recent' },
-					] as const
-				).map((tab) => (
-					<button
-						key={tab.key}
-						type="button"
-						onClick={() => setCatalogTab(tab.key)}
-						className={cn(
-							'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
-							catalogTab === tab.key
-								? 'bg-background text-foreground shadow-sm'
-								: 'text-muted-foreground hover:text-foreground',
-						)}
-					>
-						{tab.label}
-					</button>
-				))}
-			</div>
-
 			<EntitySearchToolbar
 				{...filterState}
 				totalCount={mode === 'datasets' ? datasetResult.totalCount : contextResult.totalCount}
@@ -480,7 +482,7 @@ export function GeoDatasetsPanelContent({
 				) : displayedDatasetRows.length === 0 ? (
 					<p className="text-xs text-gray-500">
 						{catalogTab === 'favorites'
-							? 'No favorite datasets yet — star one via the row menu.'
+							? 'No favorite datasets yet — tap the star on a row.'
 							: catalogTab === 'recent'
 								? 'No recently viewed datasets yet.'
 								: 'No datasets match your filters.'}

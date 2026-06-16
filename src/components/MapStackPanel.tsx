@@ -1,24 +1,20 @@
-import {
-	ChevronDown,
-	ChevronRight,
-	ChevronUp,
-	Database,
-	Focus,
-	Layers,
-	LocateFixed,
-	PanelLeft,
-	PencilLine,
-	Pin,
-	Search,
-	Trash2,
-	X,
-} from 'lucide-react'
+import { ChevronDown, ChevronRight, ChevronUp, Database, Layers, PencilLine, X } from 'lucide-react'
 import type { DragEvent, ReactNode } from 'react'
 import { useMemo, useState } from 'react'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import { useEditorStore, type MapStackEntry } from '../features/geo-editor/store'
 import { getDefaultContextMapScopeMode, resolveContextMapScope } from '@/lib/context/scope'
+import {
+	DeleteActionIcon,
+	InspectActionIcon,
+	IsolateActionIcon,
+	LoadEditorActionIcon,
+	OpenPanelActionIcon,
+	PinActionIcon,
+	RemoveActionIcon,
+	ZoomActionIcon,
+} from './entity-action-icons'
 import { Button } from './ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -321,7 +317,7 @@ function EntryRow({
 					) : null}
 					{onSetEntryIsolated ? (
 						<RowAction
-							icon={<Focus className={actionIconClassName} />}
+							icon={<IsolateActionIcon className={actionIconClassName} />}
 							className={cn(
 								actionButtonClassName,
 								isolated ? 'text-amber-600 hover:text-amber-700' : 'hover:text-amber-700',
@@ -341,11 +337,48 @@ function EntryRow({
 							active={isolated}
 						/>
 					) : null}
+					{/* U.4: actions inline (no overflow), in the canonical order
+					    zoom → inspect → load, then Pin, then Remove — shared icons keep
+					    them matching the catalog rows. */}
+					{dataset ? (
+						<>
+							<RowAction
+								icon={<ZoomActionIcon className={actionIconClassName} />}
+								className={cn(actionButtonClassName, 'hover:text-sky-700')}
+								onClick={() => onZoomToDataset(dataset)}
+								label="Zoom to dataset"
+								tooltip="Zoom the map to this dataset's bounds"
+							/>
+							<RowAction
+								icon={<InspectActionIcon className={actionIconClassName} />}
+								className={cn(actionButtonClassName, 'hover:text-emerald-700')}
+								onClick={() => onInspectDataset(dataset)}
+								label="Inspect dataset"
+								tooltip="Open the dataset details panel"
+							/>
+							<RowAction
+								icon={<LoadEditorActionIcon className={actionIconClassName} />}
+								className={cn(actionButtonClassName, 'hover:text-emerald-700')}
+								onClick={() => onLoadDataset(dataset)}
+								label="Load dataset into editor"
+								tooltip="Load this dataset into the editor for changes"
+							/>
+						</>
+					) : null}
+					{context ? (
+						<RowAction
+							icon={<InspectActionIcon className={actionIconClassName} />}
+							className={cn(actionButtonClassName, 'hover:text-emerald-700')}
+							onClick={() => onInspectContext(context)}
+							label="Inspect context"
+							tooltip="Open the context details panel"
+						/>
+					) : null}
 					{entry.entityType === 'draft' ? (
 						<>
 							{onZoomToDraft ? (
 								<RowAction
-									icon={<LocateFixed className={actionIconClassName} />}
+									icon={<ZoomActionIcon className={actionIconClassName} />}
 									className={cn(actionButtonClassName, 'hover:text-sky-700')}
 									onClick={onZoomToDraft}
 									label="Zoom to edit"
@@ -354,7 +387,7 @@ function EntryRow({
 							) : null}
 							{onOpenDraftEditor ? (
 								<RowAction
-									icon={<PanelLeft className={actionIconClassName} />}
+									icon={<OpenPanelActionIcon className={actionIconClassName} />}
 									className={cn(actionButtonClassName, 'hover:text-emerald-700')}
 									onClick={onOpenDraftEditor}
 									label="Open editor panel"
@@ -365,7 +398,11 @@ function EntryRow({
 					) : null}
 					{entry.entityType !== 'draft' ? (
 						<RowAction
-							icon={<Pin className={cn(actionIconClassName, entry.pinned && 'fill-current')} />}
+							icon={
+								<PinActionIcon
+									className={cn(actionIconClassName, entry.pinned && 'fill-current')}
+								/>
+							}
 							className={cn(
 								actionButtonClassName,
 								entry.pinned ? 'text-sky-600 hover:text-sky-700' : 'hover:text-sky-700',
@@ -378,46 +415,12 @@ function EntryRow({
 							pressed={entry.pinned}
 						/>
 					) : null}
-					{dataset ? (
-						<>
-							<RowAction
-								icon={<LocateFixed className={actionIconClassName} />}
-								className={cn(actionButtonClassName, 'hover:text-sky-700')}
-								onClick={() => onZoomToDataset(dataset)}
-								label="Zoom to dataset"
-								tooltip="Zoom the map to this dataset's bounds"
-							/>
-							<RowAction
-								icon={<Search className={actionIconClassName} />}
-								className={cn(actionButtonClassName, 'hover:text-emerald-700')}
-								onClick={() => onInspectDataset(dataset)}
-								label="Inspect dataset"
-								tooltip="Open the dataset details panel"
-							/>
-							<RowAction
-								icon={<Database className={actionIconClassName} />}
-								className={cn(actionButtonClassName, 'hover:text-emerald-700')}
-								onClick={() => onLoadDataset(dataset)}
-								label="Load dataset into editor"
-								tooltip="Load this dataset into the editor for changes"
-							/>
-						</>
-					) : null}
-					{context ? (
-						<RowAction
-							icon={<Search className={actionIconClassName} />}
-							className={cn(actionButtonClassName, 'hover:text-emerald-700')}
-							onClick={() => onInspectContext(context)}
-							label="Inspect context"
-							tooltip="Open the context details panel"
-						/>
-					) : null}
 					<RowAction
 						icon={
 							entry.pinned ? (
-								<Trash2 className={actionIconClassName} />
+								<DeleteActionIcon className={actionIconClassName} />
 							) : (
-								<X className={actionIconClassName} />
+								<RemoveActionIcon className={actionIconClassName} />
 							)
 						}
 						className={cn(actionButtonClassName, 'hover:text-destructive')}
@@ -505,7 +508,7 @@ function EntryRow({
 									aria-label={`Zoom to ${name}`}
 									title="Zoom to dataset"
 								>
-									<LocateFixed className="h-3 w-3" />
+									<ZoomActionIcon className="h-3 w-3" />
 								</button>
 							</label>
 						)
@@ -824,7 +827,7 @@ export function MapStackPanel({
 									compact ? 'text-[11px]' : 'text-xs',
 								)}
 							>
-								<Focus className={cn(compact ? 'h-3 w-3' : 'h-3.5 w-3.5')} />
+								<IsolateActionIcon className={cn(compact ? 'h-3 w-3' : 'h-3.5 w-3.5')} />
 								<span className="truncate">Isolating: {isolatedLabel}</span>
 							</div>
 						) : null}

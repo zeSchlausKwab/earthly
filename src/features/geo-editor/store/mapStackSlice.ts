@@ -35,6 +35,15 @@ export const createMapStackSlice: StateCreator<EditorState, [], [], MapStackSlic
 		return id
 	},
 
+	// Phase 1.4 — the DRAFT INVARIANT. The `draft:active` entry represents a live
+	// geometry edit session, not an ordinary stack item. It is added in exactly
+	// one place (applyEditingState) and removed in exactly one place
+	// (tearDownEditSession). No navigation, inspect, or catalog handler may remove
+	// it through this method — removing the draft IS "stop editing", so route such
+	// requests through tearDownEditSession instead (see GeoEditorView's
+	// removeFromMapStack draft branch). Keeping the draft on the stack regardless
+	// of navigation is what lets an in-progress (even anonymous) draft survive
+	// inspecting a context and be reopened afterwards (report 1.5 / 3.2 / 3.3).
 	removeMapStackEntry: (id) =>
 		set((state) => {
 			if (!state.mapStackEntries[id]) return {}
@@ -161,7 +170,8 @@ export const createMapStackSlice: StateCreator<EditorState, [], [], MapStackSlic
 		set((state) => {
 			// Pinned entries and the active draft survive — pin is the contract
 			// for "keep this through a Clear", and the draft's lifecycle belongs
-			// to the editing session, not the stack panel.
+			// to the editing session, not the stack panel (the Phase 1.4 draft
+			// invariant: only tearDownEditSession ends a draft, never a Clear).
 			const keptIds = state.mapStackOrder.filter((id) => {
 				const entry = state.mapStackEntries[id]
 				return entry && (entry.pinned || entry.entityType === 'draft')

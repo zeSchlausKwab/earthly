@@ -198,6 +198,27 @@ function parseLocation(): RouteState {
 	return { focusType: 'none', sidebarView: 'contexts' }
 }
 
+/**
+ * Phase 1.2: one-time legacy redirect — upgrade a `#/…` hash route to the
+ * equivalent clean path so the rest of the app (and crawlers) see the canonical
+ * form. Preserves the map-stack query string.
+ *
+ * Must run synchronously *before* `createRoot().render` (called from
+ * `frontend.tsx`), not inside a React effect: running it outside React means
+ * StrictMode can't double-fire it, and the very first `parseLocation()` the app
+ * performs already observes the clean path — so a `#/datasets` deep-link boots
+ * straight into the datasets view instead of flashing the default contexts view
+ * (report 7.5).
+ */
+export function upgradeLegacyHashRoute(): void {
+	if (typeof window === 'undefined') return
+	const legacyHash = window.location.hash.slice(1)
+	if (legacyHash && legacyHash !== '/' && window.location.pathname === '/') {
+		const cleanPath = legacyHash.startsWith('/') ? legacyHash : `/${legacyHash}`
+		window.history.replaceState(null, '', `${cleanPath}${window.location.search}`)
+	}
+}
+
 /** Custom event so in-app `pushState` navigations sync the route (popstate only fires on back/forward). */
 const LOCATION_CHANGE_EVENT = 'earthly:locationchange'
 
@@ -262,70 +283,60 @@ export function navigateToRoute(routePath: string, options?: { replace?: boolean
 export function useRouting() {
 	const [route, setRoute] = useState<RouteState>(parseLocation)
 
-	// Store actions
-	const setFocused = useEditorStore((state) => state.setFocused)
-	const clearFocused = useEditorStore((state) => state.clearFocused)
-	const setSidebarViewMode = useEditorStore((state) => state.setSidebarViewMode)
-	const setActiveContextScope = useEditorStore((state) => state.setActiveContextScope)
+	// Phase 1.3: the single atomic reducer that reconciles every piece of
+	// navigation-derived store state from a parsed route.
+	const applyRouteState = useEditorStore((state) => state.applyRouteState)
 
 	// Sync route state on navigation.
 	useEffect(() => {
 		const syncRoute = () => {
 			const newRoute = parseLocation()
 			setRoute(newRoute)
-
-			// Update store sidebar view mode
-			setSidebarViewMode(newRoute.sidebarView)
-
-			// Update store focus state
-			if (newRoute.focusType === 'none') {
-				clearFocused()
-			} else if (newRoute.naddr) {
-				setFocused(newRoute.focusType, newRoute.naddr)
-			}
-			setActiveContextScope(newRoute.contextNaddr ?? null, newRoute.contextCoordinate ?? null)
+			// Phase 1.3: in-app pushState, Back/Forward (popstate), and hashchange
+			// all funnel through one reducer so they share a single reconstruction
+			// path. This is what stops Back/Forward from leaving a stale inspector
+			// open (report 7.4) — applyRouteState clears the subject when the route
+			// it lands on carries no focus.
+			applyRouteState(newRoute)
 		}
 
-		// Round I: one-time legacy redirect — upgrade a `#/…` hash route to the
-		// equivalent clean path so the rest of the app (and crawlers) see the
-		// canonical form. Preserves the map-stack query string.
-		const legacyHash = window.location.hash.slice(1)
-		if (legacyHash && legacyHash !== '/' && window.location.pathname === '/') {
-			const cleanPath = legacyHash.startsWith('/') ? legacyHash : `/${legacyHash}`
-			window.history.replaceState(null, '', `${cleanPath}${window.location.search}`)
-		}
-
+		// Phase 1.2: the legacy `#/…`→clean-path redirect now runs synchronously in
+		// `frontend.tsx` via upgradeLegacyHashRoute() before render, so by the time
+		// this effect mounts the URL is already canonical.
 		window.addEventListener('hashchange', syncRoute)
 		window.addEventListener('popstate', syncRoute)
 		window.addEventListener(LOCATION_CHANGE_EVENT, syncRoute)
 
-		// Initial sync on mount (after any redirect above)
-		const initialRoute = parseLocation()
-		setSidebarViewMode(initialRoute.sidebarView)
-		if (initialRoute.focusType !== 'none' && initialRoute.naddr) {
-			setFocused(initialRoute.focusType, initialRoute.naddr)
-		}
-		setActiveContextScope(initialRoute.contextNaddr ?? null, initialRoute.contextCoordinate ?? null)
+		// Initial sync on mount (the legacy hash redirect already ran in frontend.tsx).
+		syncRoute()
 
 		return () => {
 			window.removeEventListener('hashchange', syncRoute)
 			window.removeEventListener('popstate', syncRoute)
 			window.removeEventListener(LOCATION_CHANGE_EVENT, syncRoute)
 		}
-	}, [setFocused, clearFocused, setSidebarViewMode, setActiveContextScope])
+	}, [applyRouteState])
+
+	/**
+	 * Phase 1.3: the single navigation primitive. Every navigate* wrapper builds
+	 * its intended route fields and funnels through here, so the path is built and
+	 * pushed in exactly one place. The wrappers stay thin and the
+	 * preserve-vs-replace decisions live where each verb expresses them.
+	 */
+	const commit = useCallback((params: Parameters<typeof buildRoutePath>[0]) => {
+		navigateToRoute(buildRoutePath(params))
+	}, [])
 
 	/**
 	 * Navigate to a sidebar view (without focus)
 	 */
-	const navigateToView = useCallback((view: SidebarViewMode) => {
-		const currentRoute = parseLocation()
-		navigateToRoute(
-			buildRoutePath({
-				sidebarView: view,
-				contextNaddr: currentRoute.contextNaddr,
-			}),
-		)
-	}, [])
+	const navigateToView = useCallback(
+		(view: SidebarViewMode) => {
+			const currentRoute = parseLocation()
+			commit({ sidebarView: view, contextNaddr: currentRoute.contextNaddr })
+		},
+		[commit],
+	)
 
 	/**
 	 * Navigate to a focused route, preserving or setting sidebar view
@@ -333,70 +344,60 @@ export function useRouting() {
 	const navigateTo = useCallback(
 		(focusType: 'geoevent' | 'mapcontext', naddr: string, sidebarView?: SidebarViewMode) => {
 			const currentRoute = parseLocation()
-			const view = sidebarView ?? currentRoute.sidebarView
-			navigateToRoute(
-				buildRoutePath({
-					sidebarView: view,
-					contextNaddr: currentRoute.contextNaddr,
-					focusType,
-					naddr,
-				}),
-			)
+			commit({
+				sidebarView: sidebarView ?? currentRoute.sidebarView,
+				contextNaddr: currentRoute.contextNaddr,
+				focusType,
+				naddr,
+			})
 		},
-		[],
+		[commit],
 	)
 
 	/**
 	 * Set or change active context scope while preserving current sidebar/focus.
 	 */
-	const navigateToContext = useCallback((contextNaddr: string, sidebarView?: SidebarViewMode) => {
-		const currentRoute = parseLocation()
-		const view = sidebarView ?? currentRoute.sidebarView
-		navigateToRoute(
-			buildRoutePath({
-				sidebarView: view,
+	const navigateToContext = useCallback(
+		(contextNaddr: string, sidebarView?: SidebarViewMode) => {
+			const currentRoute = parseLocation()
+			commit({
+				sidebarView: sidebarView ?? currentRoute.sidebarView,
 				contextNaddr,
 				focusType: currentRoute.focusType !== 'none' ? currentRoute.focusType : undefined,
 				naddr: currentRoute.naddr,
 				commentId: currentRoute.commentId,
-			}),
-		)
-	}, [])
+			})
+		},
+		[commit],
+	)
 
 	/**
 	 * Clear focus but stay on current sidebar view
 	 */
 	const clearFocus = useCallback(() => {
 		const currentRoute = parseLocation()
-		navigateToRoute(
-			buildRoutePath({
-				sidebarView: currentRoute.sidebarView,
-				contextNaddr: currentRoute.contextNaddr,
-			}),
-		)
-	}, [])
+		commit({ sidebarView: currentRoute.sidebarView, contextNaddr: currentRoute.contextNaddr })
+	}, [commit])
 
 	/**
 	 * Leave context scope while preserving sidebar view and focus.
 	 */
 	const clearContextScope = useCallback(() => {
 		const currentRoute = parseLocation()
-		navigateToRoute(
-			buildRoutePath({
-				sidebarView: currentRoute.sidebarView,
-				focusType: currentRoute.focusType !== 'none' ? currentRoute.focusType : undefined,
-				naddr: currentRoute.naddr,
-				commentId: currentRoute.commentId,
-			}),
-		)
-	}, [])
+		commit({
+			sidebarView: currentRoute.sidebarView,
+			focusType: currentRoute.focusType !== 'none' ? currentRoute.focusType : undefined,
+			naddr: currentRoute.naddr,
+			commentId: currentRoute.commentId,
+		})
+	}, [commit])
 
 	/**
 	 * Navigate to datasets view with no focus (home)
 	 */
 	const navigateHome = useCallback(() => {
-		navigateToRoute(buildRoutePath({ sidebarView: 'datasets' }))
-	}, [])
+		commit({ sidebarView: 'datasets' })
+	}, [commit])
 
 	const navigateToComment = useCallback(
 		(
@@ -406,18 +407,15 @@ export function useRouting() {
 			sidebarView?: SidebarViewMode,
 		) => {
 			const currentRoute = parseLocation()
-			const view = sidebarView ?? currentRoute.sidebarView
-			navigateToRoute(
-				buildRoutePath({
-					sidebarView: view,
-					contextNaddr: currentRoute.contextNaddr,
-					focusType,
-					naddr,
-					commentId,
-				}),
-			)
+			commit({
+				sidebarView: sidebarView ?? currentRoute.sidebarView,
+				contextNaddr: currentRoute.contextNaddr,
+				focusType,
+				naddr,
+				commentId,
+			})
 		},
-		[],
+		[commit],
 	)
 
 	/**

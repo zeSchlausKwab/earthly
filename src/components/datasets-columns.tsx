@@ -1,25 +1,17 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import {
-	Bug,
-	Download,
-	Eye,
-	EyeOff,
-	Layers,
-	Loader2,
-	MoreVertical,
-	Search,
-	Star,
-} from 'lucide-react'
+import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
 import { memo } from 'react'
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
-import { Button } from './ui/button'
 import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from './ui/dropdown-menu'
+	DebugActionIcon,
+	FavoriteActionIcon,
+	InspectActionIcon,
+	LoadEditorActionIcon,
+	MapStackActionIcon,
+	ZoomActionIcon,
+} from './entity-action-icons'
+import { Button } from './ui/button'
 import { UserProfile } from './user-profile'
 import { useEditorStore } from '../features/geo-editor/store'
 import { GeoSocialActions } from '../features/social/comments/GeoSocialActions'
@@ -52,14 +44,25 @@ export interface DatasetColumnsContext {
 	onRemoveDatasetFromMap?: (event: GeoDataset) => void
 	/** Round G.2: toggle catalog favorite (Star). */
 	onToggleCatalogPin?: (event: GeoDataset) => void
+	/**
+	 * P2.2 (report 6.x): favorites are persisted per-pubkey, so they're
+	 * meaningless while logged out. When false, the favorite action is shown
+	 * disabled with a sign-in hint instead of silently writing guest-scoped
+	 * state. Defaults to allowed when omitted (callers that don't know auth).
+	 */
+	canFavorite?: boolean
 	onOpenDebug?: (event: GeoDataset) => void
 	isPublishing: boolean
 	deletingKey: string | null
 	allVisibleState: 'all' | 'none' | 'some'
 }
 
+// Shared resting style for entity row-action icons. Muted-but-present at rest
+// (so the cluster doesn't read as disabled) with a subtle rounded hover chip so
+// each icon clearly behaves like a button. Per-button hover tints
+// (emerald/amber/…) are layered on at the call site.
 const actionButtonClass =
-	'rounded-none px-2 text-xs text-gray-500 shadow-none hover:bg-transparent hover:text-sky-600'
+	'rounded-md px-2 text-xs text-gray-600 shadow-none hover:bg-muted hover:text-sky-600'
 
 /**
  * Round F.1: the load verb moved into the row's overflow menu; this indicator
@@ -223,10 +226,10 @@ export const createDatasetColumns = (
 							compact
 							className="-ml-2 shrink-0 gap-0"
 						/>
+						{/* U.2: actions inline (no overflow menu), in the canonical order
+						    map-stack → zoom → inspect → load → favorite → debug, using the
+						    shared action icons so every entity surface matches. */}
 						<div className="flex shrink-0 items-center gap-0.5">
-							{/* Round F.1: one primary verb per row. The stack toggle is the
-							    primary action (it IS visibility under the Round C model);
-							    Inspect / Load / Debug live in the overflow menu. */}
 							{context.onAddDatasetToMap ? (
 								<Button
 									size="icon-sm"
@@ -249,53 +252,87 @@ export const createDatasetColumns = (
 									}
 									title={row.original.isInMapStack ? 'Remove from map stack' : 'Add to map stack'}
 								>
-									<Layers className="h-4 w-4" />
+									<MapStackActionIcon className="h-4 w-4" />
+								</Button>
+							) : null}
+							<Button
+								size="icon-sm"
+								variant="ghost"
+								className={cn(actionButtonClass, 'hover:text-sky-600')}
+								onClick={() => context.onZoomToDataset(event)}
+								aria-label="Zoom to dataset"
+								title="Zoom to dataset"
+							>
+								<ZoomActionIcon className="h-4 w-4" />
+							</Button>
+							{context.onInspectDataset ? (
+								<Button
+									size="icon-sm"
+									variant="ghost"
+									className={cn(actionButtonClass, 'hover:text-emerald-600')}
+									onClick={() => context.onInspectDataset?.(event)}
+									aria-label="Inspect dataset"
+									title="Inspect dataset"
+								>
+									<InspectActionIcon className="h-4 w-4" />
+								</Button>
+							) : null}
+							<Button
+								size="icon-sm"
+								variant="ghost"
+								disabled={context.isPublishing}
+								className={cn(actionButtonClass, 'hover:text-emerald-600')}
+								onClick={() => context.onLoadDataset(event)}
+								aria-label={row.original.isActive ? 'Loaded in editor' : 'Load into editor'}
+								title={row.original.isActive ? 'Loaded in editor' : 'Load into editor'}
+							>
+								<LoadEditorActionIcon className="h-4 w-4" />
+							</Button>
+							{context.onToggleCatalogPin ? (
+								<Button
+									size="icon-sm"
+									variant="ghost"
+									disabled={context.canFavorite === false}
+									className={cn(
+										actionButtonClass,
+										row.original.isCatalogPinned
+											? 'text-amber-500 hover:text-amber-600'
+											: 'hover:text-amber-600',
+									)}
+									onClick={() => context.onToggleCatalogPin?.(event)}
+									aria-label={
+										context.canFavorite === false
+											? 'Sign in to save favorites'
+											: row.original.isCatalogPinned
+												? 'Remove from favorites'
+												: 'Add to favorites'
+									}
+									title={
+										context.canFavorite === false
+											? 'Sign in to save favorites'
+											: row.original.isCatalogPinned
+												? 'Remove from favorites'
+												: 'Add to favorites'
+									}
+								>
+									<FavoriteActionIcon
+										className={cn('h-4 w-4', row.original.isCatalogPinned && 'fill-amber-400')}
+									/>
+								</Button>
+							) : null}
+							{context.onOpenDebug ? (
+								<Button
+									size="icon-sm"
+									variant="ghost"
+									className={cn(actionButtonClass, 'hover:text-amber-600')}
+									onClick={() => context.onOpenDebug?.(event)}
+									aria-label="Debug event"
+									title="Debug event"
+								>
+									<DebugActionIcon className="h-4 w-4" />
 								</Button>
 							) : null}
 							<DatasetResolvingIndicator datasetKey={row.original.datasetKey} />
-							<DropdownMenu>
-								<DropdownMenuTrigger asChild>
-									<Button
-										size="icon-sm"
-										variant="ghost"
-										className={cn(actionButtonClass, 'hover:text-foreground')}
-										aria-label="More actions"
-										title="More actions"
-									>
-										<MoreVertical className="h-4 w-4" />
-									</Button>
-								</DropdownMenuTrigger>
-								<DropdownMenuContent align="end" className="min-w-44">
-									<DropdownMenuItem onSelect={() => context.onInspectDataset?.(event)}>
-										<Search className="h-4 w-4" />
-										Inspect
-									</DropdownMenuItem>
-									{context.onToggleCatalogPin ? (
-										<DropdownMenuItem onSelect={() => context.onToggleCatalogPin?.(event)}>
-											<Star
-												className={cn(
-													'h-4 w-4',
-													row.original.isCatalogPinned && 'fill-amber-400 text-amber-500',
-												)}
-											/>
-											{row.original.isCatalogPinned ? 'Remove from favorites' : 'Add to favorites'}
-										</DropdownMenuItem>
-									) : null}
-									<DropdownMenuItem
-										disabled={context.isPublishing}
-										onSelect={() => context.onLoadDataset(event)}
-									>
-										<Download className="h-4 w-4" />
-										{row.original.isActive ? 'Loaded in editor' : 'Load into editor'}
-									</DropdownMenuItem>
-									{context.onOpenDebug ? (
-										<DropdownMenuItem onSelect={() => context.onOpenDebug?.(event)}>
-											<Bug className="h-4 w-4" />
-											Debug event
-										</DropdownMenuItem>
-									) : null}
-								</DropdownMenuContent>
-							</DropdownMenu>
 						</div>
 					</div>
 				</div>

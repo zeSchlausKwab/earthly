@@ -11,7 +11,7 @@ import type { EditorState, StanceSlice } from './types'
  * Transitions are explicit, triggered at known sites:
  *   - applyEditingState (Edit / Fork verb)    → 'author'
  *   - handleInspectDataset / handleInspectContext → 'focus'
- *   - exitViewMode, clearEditingSession, clearFocus → 'browse'
+ *   - exitViewMode, tearDownEditSession, clearFocus → 'browse'
  *
  * Replaces the previously-derived stance label that combined `viewMode` and
  * `focusLabel`.

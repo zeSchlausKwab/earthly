@@ -7,6 +7,7 @@ import {
 	Edit3,
 	EyeOff,
 	FileText,
+	GitPullRequest,
 	Layers,
 	Link2,
 	MapPin,
@@ -76,6 +77,7 @@ import {
 	GeometryOpsDropdown,
 	IconButtonRow,
 	OsmImportPopover,
+	ProposalDialog,
 	PublishDropdown,
 	SessionButton,
 	SimplifyDialog,
@@ -412,9 +414,23 @@ export function Toolbar({
 	const searchResults = useEditorStore((state) => state.searchResults)
 	const searchLoading = useEditorStore((state) => state.searchLoading)
 	const searchError = useEditorStore((state) => state.searchError)
+	const searchPerformed = useEditorStore((state) => state.searchPerformed)
 	const setSearchQuery = useEditorStore((state) => state.setSearchQuery)
 	const performSearch = useEditorStore((state) => state.performSearch)
 	const clearSearch = useEditorStore((state) => state.clearSearch)
+
+	// P2.1 (report 8.1): the dropdown is shown for every post-submit state, not
+	// only when results exist — so a slow, empty, or failed geocode gives
+	// feedback instead of silently rendering nothing.
+	const showSearchDropdown =
+		searchLoading ||
+		searchResults.length > 0 ||
+		Boolean(searchError) ||
+		(searchPerformed && searchResults.length === 0)
+	const searchHasNoResults =
+		searchPerformed && !searchLoading && !searchError && searchResults.length === 0
+	// Keyboard navigation over the results list (ArrowUp/Down + Enter).
+	const [activeResultIndex, setActiveResultIndex] = useState(-1)
 
 	const fileInputRef = useRef<HTMLInputElement>(null)
 	const [magicPopoverOpen, setMagicPopoverOpen] = useState(false)
@@ -431,11 +447,11 @@ export function Toolbar({
 	// menus (Draw → Edit → View) expand inline vs stay as MenubarMenu dropdowns.
 	const { containerRef: toolbarContainerRef, expanded: expandedMenus } = useResponsiveToolbar()
 
-	// Refresh the dropdown's anchor rect when results appear and on resize so
-	// the portal stays aligned with the form even as the layout shifts.
-	const searchResultsState = useEditorStore((state) => state.searchResults)
+	// Refresh the dropdown's anchor rect whenever the dropdown should be visible
+	// (any post-submit state, not just results) and on resize/scroll so the
+	// portal stays aligned with the form even as the layout shifts.
 	useEffect(() => {
-		if (!searchResultsState || searchResultsState.length === 0) {
+		if (!showSearchDropdown) {
 			setSearchAnchorRect(null)
 			return
 		}
@@ -450,7 +466,33 @@ export function Toolbar({
 			window.removeEventListener('resize', update)
 			window.removeEventListener('scroll', update, true)
 		}
-	}, [searchResultsState])
+	}, [showSearchDropdown])
+
+	// Reset the keyboard highlight whenever the result set changes.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reset on result-set identity change
+	useEffect(() => {
+		setActiveResultIndex(-1)
+	}, [searchResults])
+
+	const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+		if (event.key === 'Escape') {
+			clearSearch()
+			return
+		}
+		if (!searchResults.length) return
+		if (event.key === 'ArrowDown') {
+			event.preventDefault()
+			setActiveResultIndex((index) => Math.min(index + 1, searchResults.length - 1))
+		} else if (event.key === 'ArrowUp') {
+			event.preventDefault()
+			setActiveResultIndex((index) => Math.max(index - 1, 0))
+		} else if (event.key === 'Enter' && activeResultIndex >= 0) {
+			// A result is highlighted → select it instead of re-running the search.
+			event.preventDefault()
+			const result = searchResults[activeResultIndex]
+			if (result) onSearchResultSelect?.(result)
+		}
+	}
 
 	// Computed: Is editing disabled (view mode active)?
 	const isEditingDisabled = viewMode !== 'edit'
@@ -640,10 +682,14 @@ export function Toolbar({
 	const canPublishFromMenu = Boolean(
 		datasetActions?.canPublishNew ||
 			datasetActions?.canPublishUpdate ||
-			datasetActions?.canPublishCopy,
+			datasetActions?.canPublishCopy ||
+			datasetActions?.canProposeEdit,
 	)
-	const showProposalPublishControl = isEditing && Boolean(datasetActions?.canProposeEdit)
 	const publishMenuDisabled = Boolean(datasetActions?.isPublishing)
+	// PR.1: the proposal composer is a dialog opened from the File menu's Publish
+	// section (next to Fork), so the propose verb lives where the other publish
+	// verbs do instead of in a separate toolbar control.
+	const [proposalDialogOpen, setProposalDialogOpen] = useState(false)
 
 	// Desktop menus — Draw, Edit, View each render in one of two forms depending
 	// on `expandedMenus`: inline button row (when the toolbar has horizontal
@@ -729,6 +775,14 @@ export function Toolbar({
 								onSelect={datasetActions?.onPublishCopy}
 								disabled={publishMenuDisabled || !datasetActions?.canPublishCopy}
 							/>
+							{datasetActions?.canProposeEdit ? (
+								<ToolbarMenuItem
+									icon={GitPullRequest}
+									label="Propose edit to owner…"
+									onSelect={() => setProposalDialogOpen(true)}
+									disabled={publishMenuDisabled}
+								/>
+							) : null}
 						</>
 					) : null}
 				</MenubarContent>
@@ -1059,10 +1113,10 @@ export function Toolbar({
 							</div>
 							{searchResults && searchResults.length > 0 && (
 								<div className="max-h-48 overflow-y-auto space-y-1 bg-popover rounded-lg border border-border">
-									{searchResults.map((result) => (
+									{searchResults.map((result, index) => (
 										<Button
 											type="button"
-											key={result.placeId}
+											key={result.placeId ?? `result-${index}`}
 											variant="ghost"
 											className="w-full text-left text-sm p-2 hover:bg-muted/50 border-b border-border last:border-0 truncate"
 											onClick={() => onSearchResultSelect?.(result)}
@@ -1070,6 +1124,19 @@ export function Toolbar({
 											{result.displayName}
 										</Button>
 									))}
+								</div>
+							)}
+							{/* P2.1: explicit non-result states so a slow/empty/failed
+							    geocode gives feedback on mobile too (report 8.1). */}
+							{searchLoading && (
+								<div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+									<RefreshCw className="h-3 w-3 animate-spin" />
+									<span>Searching…</span>
+								</div>
+							)}
+							{searchHasNoResults && (
+								<div className="px-1 text-xs text-muted-foreground">
+									No places match “{searchQuery.trim()}”.
 								</div>
 							)}
 							{searchError && <div className="text-xs text-destructive px-1">{searchError}</div>}
@@ -1231,6 +1298,7 @@ export function Toolbar({
 							<Input
 								value={searchQuery}
 								onChange={(event) => setSearchQuery(event.target.value)}
+								onKeyDown={handleSearchKeyDown}
 								placeholder="Search..."
 								className="h-8 border-0 bg-transparent px-2 pr-8 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0"
 								aria-label="Search location"
@@ -1264,9 +1332,10 @@ export function Toolbar({
 							)}
 						</form>
 						{/* Search results — portaled to body so the toolbar's
-						    `overflow-x-auto` wrapper can't clip the dropdown. */}
-						{searchResults &&
-							searchResults.length > 0 &&
+						    `overflow-x-auto` wrapper can't clip the dropdown. P2.1:
+						    shown for every post-submit state (loading / results /
+						    no-results / error) so the geocode never fails silently. */}
+						{showSearchDropdown &&
 							searchAnchorRect &&
 							typeof document !== 'undefined' &&
 							createPortal(
@@ -1278,7 +1347,15 @@ export function Toolbar({
 									}}
 								>
 									<div className="mb-2 flex items-center justify-between border-b border-border pb-2">
-										<span className="text-xs font-medium text-muted-foreground">Results</span>
+										<span className="text-xs font-medium text-muted-foreground">
+											{searchLoading
+												? 'Searching…'
+												: searchError
+													? 'Search error'
+													: searchHasNoResults
+														? 'No results'
+														: 'Results'}
+										</span>
 										<Button
 											variant="ghost"
 											size="sm"
@@ -1288,18 +1365,34 @@ export function Toolbar({
 											Close
 										</Button>
 									</div>
-									<div className="max-h-60 space-y-1 overflow-y-auto">
-										{searchResults.map((result) => (
-											<button
-												type="button"
-												key={result.placeId}
-												className="w-full truncate rounded p-1.5 text-left text-sm hover:bg-muted/50"
-												onClick={() => onSearchResultSelect?.(result)}
-											>
-												{result.displayName}
-											</button>
-										))}
-									</div>
+									{searchLoading ? (
+										<div className="flex items-center gap-2 px-1 py-2 text-sm text-muted-foreground">
+											<RefreshCw className="h-3.5 w-3.5 animate-spin" />
+											<span>Searching for “{searchQuery.trim()}”…</span>
+										</div>
+									) : searchError ? (
+										<div className="px-1 py-2 text-sm text-destructive">{searchError}</div>
+									) : searchHasNoResults ? (
+										<div className="px-1 py-2 text-sm text-muted-foreground">
+											No places match “{searchQuery.trim()}”.
+										</div>
+									) : (
+										<div className="max-h-60 space-y-1 overflow-y-auto">
+											{searchResults.map((result, index) => (
+												<button
+													type="button"
+													key={result.placeId ?? `result-${index}`}
+													className={cn(
+														'w-full truncate rounded p-1.5 text-left text-sm hover:bg-muted/50',
+														index === activeResultIndex && 'bg-muted',
+													)}
+													onClick={() => onSearchResultSelect?.(result)}
+												>
+													{result.displayName}
+												</button>
+											))}
+										</div>
+									)}
 								</div>,
 								document.body,
 							)}
@@ -1363,34 +1456,23 @@ export function Toolbar({
 							<MapSettingsPanel mode="map-only" />
 						</PopoverContent>
 					</Popover>
-					{showProposalPublishControl ? (
-						<>
-							<Divider />
-							<PublishDropdown
-								canPublishNew={datasetActions?.canPublishNew}
-								canPublishUpdate={datasetActions?.canPublishUpdate}
-								canPublishCopy={datasetActions?.canPublishCopy}
-								canProposeEdit={datasetActions?.canProposeEdit}
-								isPublishing={datasetActions?.isPublishing}
-								onPublishNew={datasetActions?.onPublishNew}
-								onPublishUpdate={datasetActions?.onPublishUpdate}
-								onPublishCopy={datasetActions?.onPublishCopy}
-								onProposeEdit={datasetActions?.onProposeEdit}
-								small
-							/>
-						</>
-					) : null}
+					{/* PR.1: the former standalone "Fork / Propose" publish control was
+					    removed — Publish-new / Update / Fork / Propose all live in the
+					    File menu now (Propose opens ProposalDialog). */}
 				</div>
 
 				{fileInput}
-
-				{searchError && (
-					<div className="rounded-lg bg-destructive/10 p-2 text-xs text-destructive shadow-sm self-start">
-						{searchError}
-					</div>
-				)}
+				{/* P2.1: search errors now surface in the portaled dropdown (desktop)
+				    and the mobile search panel, so the old toolbar-level error banner
+				    here was removed to avoid a duplicate message. */}
 			</div>
 			<SimplifyDialog open={simplifyDialogOpen} onOpenChange={setSimplifyDialogOpen} />
+			<ProposalDialog
+				open={proposalDialogOpen}
+				onOpenChange={setProposalDialogOpen}
+				isPublishing={datasetActions?.isPublishing}
+				onSubmit={(description) => datasetActions?.onProposeEdit?.(description)}
+			/>
 		</>
 	)
 }

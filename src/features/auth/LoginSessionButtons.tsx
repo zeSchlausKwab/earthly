@@ -63,7 +63,7 @@ export function LoginSessionButtons() {
 			{active ? (
 				<DropdownMenu>
 					<DropdownMenuTrigger asChild>
-						<Button variant="outline" className="gap-2 px-2">
+						<Button variant="outline" className="gap-2 px-2" aria-label="Account menu">
 							<UserProfile
 								pubkey={active.pubkey}
 								mode="avatar-name"
@@ -119,6 +119,7 @@ export function LoginSessionButtons() {
 								variant={'default'}
 								size="icon"
 								className="h-10 w-10"
+								aria-label="Get a Nostr identity"
 								onClick={() => setShowSignupDialog(true)}
 							>
 								<KeyRoundIcon className="w-5 h-5" />
@@ -135,6 +136,7 @@ export function LoginSessionButtons() {
 								variant={'default'}
 								size="icon"
 								className="h-10 w-10"
+								aria-label="Sign in with browser extension"
 								onClick={handleNip07Login}
 								disabled={loading}
 							>
@@ -150,7 +152,13 @@ export function LoginSessionButtons() {
 						<Nip46LoginDialog
 							trigger={
 								<TooltipTrigger asChild>
-									<Button variant={'default'} size="icon" className="h-10 w-10" disabled={loading}>
+									<Button
+										variant={'default'}
+										size="icon"
+										className="h-10 w-10"
+										aria-label="Sign in with remote signer"
+										disabled={loading}
+									>
 										<QrCodeIcon className="w-5 h-5" />
 									</Button>
 								</TooltipTrigger>

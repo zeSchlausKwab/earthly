@@ -353,9 +353,8 @@ export function GeoEditorView() {
 		switchToWorkspace,
 		deleteWorkspace,
 		createDraftInWorkspace,
-		clearEditingSession,
+		tearDownEditSession,
 		startNewDataset,
-		cancelEditing,
 	} = useDatasetManagement(map, geoEvents)
 
 	const addDatasetToMapStack = useCallback(
@@ -396,16 +395,17 @@ export function GeoEditorView() {
 
 	const removeFromMapStack = useCallback(
 		(entry: MapStackEntry) => {
-			// Round C.3: removing the draft entry equals "stop editing." cancelEditing
-			// triggers clearEditingSession, which removes the entry itself — so we
-			// don't need a separate removeMapStackEntry call in this branch.
+			// Phase 1.1: removing the draft entry equals "stop editing." A single
+			// tearDownEditSession() clears the editor AND removes `draft:active`
+			// AND resets stance/viewMode — the unified teardown that fixes the
+			// stop-editing desync (report 3.6).
 			if (entry.entityType === 'draft') {
-				cancelEditing()
+				tearDownEditSession()
 				return
 			}
 			removeMapStackEntry(entry.id)
 		},
-		[removeMapStackEntry, cancelEditing],
+		[removeMapStackEntry, tearDownEditSession],
 	)
 
 	/**
@@ -443,8 +443,17 @@ export function GeoEditorView() {
 	// rAF). The URL is the canonical shareable representation of a map view.
 	// The state mirror exists so the landing prompt's show-condition can wait
 	// for hydration without flashing before URL entries land.
-	const stackUrlHydratedRef = useRef(false)
-	const [stackUrlHydrated, setStackUrlHydrated] = useState(false)
+	//
+	// Phase 1.2 (fixes 7.2/7.3): a cold load with no `?ms=` has nothing to
+	// reconstruct, so it is "hydrated" immediately. This matters because the
+	// write-back effect below bails while unhydrated — if we waited for the
+	// events-gated hydration effect to flip the flag, the landing seed could
+	// mutate the stack first and its `?ms=` would never be written. Only an
+	// `?ms=`-bearing URL starts unhydrated and waits for events to resolve.
+	const stackUrlHydratedRef = useRef(!new URLSearchParams(window.location.search).has('ms'))
+	const [stackUrlHydrated, setStackUrlHydrated] = useState(
+		() => !new URLSearchParams(window.location.search).has('ms'),
+	)
 	useEffect(() => {
 		if (stackUrlHydratedRef.current) return
 		if (geoEvents.length === 0 && mapContextEvents.length === 0) return
@@ -1282,12 +1291,12 @@ export function GeoEditorView() {
 			const key = getDatasetKey(event)
 			setDeletingKey(key)
 			try {
-				await handleDeleteDataset(event, clearEditingSession)
+				await handleDeleteDataset(event, tearDownEditSession)
 			} finally {
 				setDeletingKey(null)
 			}
 		},
-		[getDatasetKey, handleDeleteDataset, clearEditingSession],
+		[getDatasetKey, handleDeleteDataset, tearDownEditSession],
 	)
 
 	const onDeleteContext = useCallback(
@@ -1827,7 +1836,7 @@ export function GeoEditorView() {
 								onSearchResultSelect={handleSearchResultSelect}
 								onInspectorDeactivate={disableInspector}
 								onStartNewDataset={startNewDataset}
-								onCancelEditing={cancelEditing}
+								onCancelEditing={tearDownEditSession}
 								onOsmQueryClick={handleOsmQueryClick}
 								onOsmQueryView={handleOsmQueryView}
 								onOsmAdvanced={() => setImportOsmDialogOpen(true)}

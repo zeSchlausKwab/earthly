@@ -1,5 +1,10 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { Bug, Eye, Layers, Star } from 'lucide-react'
+import {
+	DebugActionIcon,
+	FavoriteActionIcon,
+	InspectActionIcon,
+	MapStackActionIcon,
+} from '@/components/entity-action-icons'
 import { Button } from '@/components/ui/button'
 import { UserProfile } from '@/components/user-profile'
 import { cn } from '@/lib/utils'
@@ -34,8 +39,11 @@ export interface ContextColumnsContext {
 	onOpenDebug?: (event: MapContext) => void
 }
 
+// Shared resting style for entity row-action icons — kept identical to the
+// dataset catalog so the two surfaces stay uniform. Muted-but-present at rest
+// with a subtle rounded hover chip so each icon clearly behaves like a button.
 const actionButtonClass =
-	'rounded-none px-2 text-xs text-gray-500 shadow-none hover:bg-transparent hover:text-sky-600'
+	'rounded-md px-2 text-xs text-gray-600 shadow-none hover:bg-muted hover:text-sky-600'
 
 function ContextBadge({ label, className }: { label: string; className: string }) {
 	return (
@@ -162,37 +170,7 @@ export const createContextColumns = (
 													row.original.isInMapStack ? 'Remove from map stack' : 'Add to map stack'
 												}
 											>
-												<Layers className="h-4 w-4" />
-											</Button>
-										) : null}
-										{context.onToggleCatalogPin ? (
-											<Button
-												size="icon-sm"
-												variant="ghost"
-												className={cn(
-													actionButtonClass,
-													row.original.isCatalogPinned
-														? 'text-amber-500 hover:text-amber-600'
-														: 'hover:text-amber-600',
-												)}
-												onClick={() => context.onToggleCatalogPin?.(contextEvent)}
-												aria-label={
-													row.original.isCatalogPinned
-														? 'Remove from favorites'
-														: 'Add to favorites'
-												}
-												title={
-													row.original.isCatalogPinned
-														? 'Remove from favorites'
-														: 'Add to favorites'
-												}
-											>
-												<Star
-													className={cn(
-														'h-4 w-4',
-														row.original.isCatalogPinned && 'fill-amber-400',
-													)}
-												/>
+												<MapStackActionIcon className="h-4 w-4" />
 											</Button>
 										) : null}
 										<Button
@@ -203,8 +181,46 @@ export const createContextColumns = (
 											aria-label="Inspect context"
 											title="Inspect context"
 										>
-											<Eye className="h-4 w-4" />
+											<InspectActionIcon className="h-4 w-4" />
 										</Button>
+										{context.onToggleCatalogPin ? (
+											// P2.2 (report 6.x): favorites persist per-pubkey, so they're
+											// meaningless while logged out. Disable with a sign-in hint
+											// rather than silently writing guest-scoped state.
+											<Button
+												size="icon-sm"
+												variant="ghost"
+												disabled={!context.currentUserPubkey}
+												className={cn(
+													actionButtonClass,
+													row.original.isCatalogPinned
+														? 'text-amber-500 hover:text-amber-600'
+														: 'hover:text-amber-600',
+												)}
+												onClick={() => context.onToggleCatalogPin?.(contextEvent)}
+												aria-label={
+													!context.currentUserPubkey
+														? 'Sign in to save favorites'
+														: row.original.isCatalogPinned
+															? 'Remove from favorites'
+															: 'Add to favorites'
+												}
+												title={
+													!context.currentUserPubkey
+														? 'Sign in to save favorites'
+														: row.original.isCatalogPinned
+															? 'Remove from favorites'
+															: 'Add to favorites'
+												}
+											>
+												<FavoriteActionIcon
+													className={cn(
+														'h-4 w-4',
+														row.original.isCatalogPinned && 'fill-amber-400',
+													)}
+												/>
+											</Button>
+										) : null}
 										{context.onOpenDebug ? (
 											<Button
 												size="icon-sm"
@@ -214,7 +230,7 @@ export const createContextColumns = (
 												title="Open debug dialog"
 												onClick={() => context.onOpenDebug?.(contextEvent)}
 											>
-												<Bug className="h-4 w-4" />
+												<DebugActionIcon className="h-4 w-4" />
 											</Button>
 										) : null}
 									</div>

@@ -20,6 +20,19 @@ export type SidebarViewMode =
 	| 'wallet'
 	| 'chat'
 
+/**
+ * Phase 1.3: the minimal parsed-route shape consumed by `applyRouteState`. A
+ * structural subset of useRouting's `RouteState`, declared here so the store
+ * slice doesn't import the routing hook (which imports the store → cycle).
+ */
+export interface RouteSnapshot {
+	sidebarView: SidebarViewMode
+	focusType: 'none' | 'geoevent' | 'mapcontext'
+	naddr?: string
+	contextNaddr?: string
+	contextCoordinate?: string
+}
+
 export interface EditorStats {
 	points: number
 	lines: number
@@ -294,6 +307,24 @@ export interface ViewModeSlice {
 	clearFocused: () => void
 	setFocusedMapGeometry: (focused: ViewModeSlice['focusedMapGeometry']) => void
 	clearFocusedMapGeometry: () => void
+
+	/**
+	 * Phase 1.3: the single atomic writer of navigation-derived state. Given a
+	 * parsed route it reconciles `sidebarViewMode`, focus, context scope,
+	 * `viewMode`, and `stance` in one `set()` so they can never drift into the
+	 * contradictory combinations the verification report flagged (rec #1).
+	 *
+	 * Subjects (`viewDataset`/`viewContext`) are cleared here when the route has
+	 * no focus — that is the Back/Forward stale-inspector fix (report 7.4). When
+	 * focus IS present they are left untouched: the resolver effect in
+	 * GeoEditorView fills them once the matching event has streamed in (so this
+	 * reducer stays free of event-data lookups).
+	 *
+	 * It never touches the active draft, the `draft:active` stack entry, or the
+	 * workspace — those are edit-session state, owned by applyEditingState /
+	 * tearDownEditSession (the draft invariant, Phase 1.4).
+	 */
+	applyRouteState: (route: RouteSnapshot) => void
 }
 
 export interface MapStackSlice {
@@ -386,6 +417,13 @@ export interface SearchSlice {
 	searchResults: GeoSearchResult[]
 	searchLoading: boolean
 	searchError: string | null
+	/**
+	 * True once a search has completed for the current query (P2.1). Lets the
+	 * dropdown distinguish "no results found" from "haven't searched yet" so an
+	 * empty/failed geocode shows feedback instead of silently rendering nothing
+	 * (report 8.1). Reset on every query edit and on clear.
+	 */
+	searchPerformed: boolean
 
 	osmQueryMode: 'idle' | 'click' | 'loading'
 	osmQueryFilter: string

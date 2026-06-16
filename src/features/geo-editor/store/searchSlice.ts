@@ -7,6 +7,7 @@ export const createSearchSlice: StateCreator<EditorState, [], [], SearchSlice> =
 	searchResults: [],
 	searchLoading: false,
 	searchError: null,
+	searchPerformed: false,
 
 	osmQueryMode: 'idle',
 	osmQueryFilter: 'highway',
@@ -15,7 +16,9 @@ export const createSearchSlice: StateCreator<EditorState, [], [], SearchSlice> =
 	osmQueryError: null,
 	osmQuerySelectedIds: new Set(),
 
-	setSearchQuery: (searchQuery) => set({ searchQuery }),
+	// Editing the query invalidates the "we already searched" state so a stale
+	// "no results" message clears as the user types (P2.1).
+	setSearchQuery: (searchQuery) => set({ searchQuery, searchPerformed: false }),
 	setSearchResults: (searchResults) => set({ searchResults }),
 	setSearchLoading: (searchLoading) => set({ searchLoading }),
 	setSearchError: (searchError) => set({ searchError }),
@@ -24,7 +27,7 @@ export const createSearchSlice: StateCreator<EditorState, [], [], SearchSlice> =
 		const { searchQuery } = get()
 		const trimmed = searchQuery.trim()
 		if (!trimmed) {
-			set({ searchError: 'Enter a search query', searchResults: [] })
+			set({ searchError: 'Enter a search query', searchResults: [], searchPerformed: false })
 			return
 		}
 
@@ -33,29 +36,38 @@ export const createSearchSlice: StateCreator<EditorState, [], [], SearchSlice> =
 		try {
 			const response = await earthlyGeoServer.SearchLocation(trimmed, 8)
 			const rawResults = response.result?.results ?? []
-			const normalizedResults = rawResults.map((result) => {
-				const bbox = Array.isArray(result.boundingbox) ? result.boundingbox : null
-				const normalizedBbox =
-					bbox && bbox.length === 4 && bbox.every((value) => typeof value === 'number')
-						? (bbox as [number, number, number, number])
-						: null
-				return {
-					...result,
-					boundingbox: normalizedBbox,
-				}
-			})
-			set({ searchResults: normalizedResults })
+			const normalizedResults = rawResults
+				// Defend against malformed backend rows before the UI keys on placeId
+				// / renders displayName (report 8.1: validate result shape).
+				.filter(
+					(result): result is typeof result =>
+						Boolean(result) && typeof result.displayName === 'string',
+				)
+				.map((result) => {
+					const bbox = Array.isArray(result.boundingbox) ? result.boundingbox : null
+					const normalizedBbox =
+						bbox && bbox.length === 4 && bbox.every((value) => typeof value === 'number')
+							? (bbox as [number, number, number, number])
+							: null
+					return {
+						...result,
+						boundingbox: normalizedBbox,
+					}
+				})
+			set({ searchResults: normalizedResults, searchPerformed: true })
 		} catch (error) {
 			set({
 				searchError: error instanceof Error ? error.message : 'Search failed',
 				searchResults: [],
+				searchPerformed: true,
 			})
 		} finally {
 			set({ searchLoading: false })
 		}
 	},
 
-	clearSearch: () => set({ searchQuery: '', searchResults: [], searchError: null }),
+	clearSearch: () =>
+		set({ searchQuery: '', searchResults: [], searchError: null, searchPerformed: false }),
 
 	setOsmQueryMode: (mode) => set({ osmQueryMode: mode }),
 	setOsmQueryFilter: (filter) => set({ osmQueryFilter: filter }),

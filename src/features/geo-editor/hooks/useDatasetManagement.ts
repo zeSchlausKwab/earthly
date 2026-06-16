@@ -564,7 +564,12 @@ export function useDatasetManagement(
 		],
 	)
 
-	const clearEditingSession = useCallback(() => {
+	// Phase 1.1: the single, complete edit-session teardown. Previously split
+	// across `clearEditingSession` (full teardown, but no viewMode reset) and
+	// `cancelEditing` (reset viewMode/viewDataset, but left `draft:active` on
+	// the stack AND stance on author — bug 3.6). This unifies both: it is the
+	// ONLY place `draft:active` is removed (the draft invariant, Phase 1.4).
+	const tearDownEditSession = useCallback(() => {
 		if (!editor) return
 		setActiveGeoEditDraftId(null)
 		setActiveWorkspaceId(null)
@@ -579,8 +584,10 @@ export function useDatasetManagement(
 		setNewCollectionProp({ key: '', value: '' })
 		setNewFeatureProp({ key: '', value: '' })
 		resetBlobReferenceState()
-		// Stance transition: stopping editing returns to browse (the entry-
-		// point default). Inspect → focus is handled by the inspect handlers.
+		setViewMode('view')
+		setViewDataset(null)
+		// Stance transition: stopping editing returns to browse. (Phase 1.3 will
+		// make stance derived from the route + edit-session and drop this line.)
 		setStance('browse')
 		// Round C.3: remove the in-edit stack entry on session end.
 		removeMapStackEntry('draft:active')
@@ -598,6 +605,8 @@ export function useDatasetManagement(
 		resetBlobReferenceState,
 		setActiveGeoEditDraftId,
 		setActiveWorkspaceId,
+		setViewMode,
+		setViewDataset,
 		setStance,
 		removeMapStackEntry,
 	])
@@ -630,13 +639,13 @@ export function useDatasetManagement(
 				return
 			}
 			if (editor) {
-				clearEditingSession()
+				tearDownEditSession()
 				return
 			}
 
 			useEditorStore.getState().setActiveGeoEditDraftId(null)
 		},
-		[clearEditingSession, deleteGeoEditDraft, deleteWorkspaceState, editor, switchToWorkspace],
+		[tearDownEditSession, deleteGeoEditDraft, deleteWorkspaceState, editor, switchToWorkspace],
 	)
 
 	const createDraftInWorkspace = useCallback(
@@ -775,40 +784,6 @@ export function useDatasetManagement(
 	 * Cancel editing and return to view mode.
 	 * Clears the editor and any unsaved changes.
 	 */
-	const cancelEditing = useCallback(() => {
-		if (!editor) return
-		setActiveGeoEditDraftId(null)
-		editor.setFeatures([])
-		setFeatures([])
-		setActiveDataset(null)
-		setActiveDatasetContextRefs([])
-		setPublishMessage(null)
-		setPublishError(null)
-		setSelectedFeatureIds([])
-		setCollectionMeta(createDefaultCollectionMeta())
-		setNewCollectionProp({ key: '', value: '' })
-		setNewFeatureProp({ key: '', value: '' })
-		resetBlobReferenceState()
-		// Return to view mode
-		setViewMode('view')
-		setViewDataset(null)
-	}, [
-		editor,
-		setFeatures,
-		setActiveDataset,
-		setActiveDatasetContextRefs,
-		setPublishMessage,
-		setPublishError,
-		setSelectedFeatureIds,
-		setCollectionMeta,
-		setNewCollectionProp,
-		setNewFeatureProp,
-		resetBlobReferenceState,
-		setViewMode,
-		setViewDataset,
-		setActiveGeoEditDraftId,
-	])
-
 	return {
 		// Refs
 		resolvedCollectionsRef,
@@ -829,8 +804,7 @@ export function useDatasetManagement(
 		switchToWorkspace,
 		deleteWorkspace,
 		createDraftInWorkspace,
-		clearEditingSession,
+		tearDownEditSession,
 		startNewDataset,
-		cancelEditing,
 	}
 }
