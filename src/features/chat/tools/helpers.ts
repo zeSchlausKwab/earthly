@@ -10,8 +10,8 @@
  */
 
 import { EarthlyGeoServerClient } from '@/ctxcn/EarthlyGeoServerClient'
+import { createAuthoring } from '@/features/geo-editor/api'
 import { useEditorStore } from '@/features/geo-editor/store'
-import { toEditorFeature } from '@/features/geo-editor/utils'
 import type { EditorFeature } from '@/features/geo-editor/core'
 import {
 	bbox as turfBbox,
@@ -733,44 +733,28 @@ export function parseToolCallArguments(rawArguments: string | undefined): Record
 // --- Editor Import ---
 
 export function importFeaturesToEditor(features: GeoJSON.Feature[], replaceExisting: boolean) {
-	const { editor, setFeatures } = useEditorStore.getState()
+	// D-09: the store is now a one-way read-mirror — do NOT write it here. Geometry
+	// goes through the Authoring API (INFRA-02), which is the only caller of
+	// editor.addFeature/setFeatures; the Editor.tsx mirror catches the resulting
+	// events (incl. bulk 'features.replace') and updates the store downstream.
+	const { editor } = useEditorStore.getState()
 	if (!editor) {
 		throw new Error('Map editor is not ready. Open the map editor first, then try again.')
 	}
 
-	const normalized = features.map((f) => toEditorFeature(f, 'chat_tool'))
-	if (normalized.length === 0) {
+	// Pre-validate count so the chat tool still surfaces a clear "no features" error.
+	// `writeGeoJSON` reuses `toEditorFeature` + dedup-by-id verbatim (criterion #2).
+	const usable = features.filter((f) => f && f.type === 'Feature' && f.geometry != null)
+	if (usable.length === 0) {
 		throw new Error('No valid GeoJSON features available to import.')
 	}
 
-	if (replaceExisting) {
-		editor.setFeatures(normalized)
-		setFeatures(normalized)
-		return {
-			importedCount: normalized.length,
-			skippedDuplicates: 0,
-			totalFeaturesInEditor: normalized.length,
-		}
-	}
-
-	const existingIds = new Set(editor.getAllFeatures().map((feature) => feature.id))
-	let importedCount = 0
-	let skippedDuplicates = 0
-
-	for (const feature of normalized) {
-		if (existingIds.has(feature.id)) {
-			skippedDuplicates += 1
-			continue
-		}
-
-		editor.addFeature(feature)
-		existingIds.add(feature.id)
-		importedCount += 1
-	}
+	const authoring = createAuthoring(editor)
+	const result = authoring.writeGeoJSON(usable, { replace: replaceExisting })
 
 	return {
-		importedCount,
-		skippedDuplicates,
+		importedCount: result.counts.created,
+		skippedDuplicates: result.counts.skippedDuplicates,
 		totalFeaturesInEditor: editor.getAllFeatures().length,
 	}
 }

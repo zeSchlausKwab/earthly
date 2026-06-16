@@ -32,6 +32,7 @@ import {
 	validateDatasetForContext,
 } from '@/lib/context/validation'
 import { getDefaultContextMapScopeMode, resolveContextMapScope } from '@/lib/context/scope'
+import { createAuthoring } from './api'
 import { AssistantSidebar } from './components/AssistantSidebar'
 import { Editor } from './components/Editor'
 import { ImportOsmDialog } from './components/ImportOsmDialog'
@@ -1245,9 +1246,9 @@ export function GeoEditorView() {
 						},
 					}
 				})
-				newFeatures.forEach((f) => {
-					editor.addFeature(f as EditorFeature)
-				})
+				// INFRA-02 / D-08: route geometry writes through the Authoring API — the
+				// only caller of editor.addFeature/setFeatures. Append (dedup-by-id).
+				createAuthoring(editor).writeGeoJSON(newFeatures as EditorFeature[], { replace: false })
 			} catch (error) {
 				console.error('Failed to paste GeoJSON:', error)
 			}
@@ -1409,9 +1410,9 @@ export function GeoEditorView() {
 					toEditorFeature(feature, importSource),
 				)
 
-				newFeatures.forEach((f) => {
-					editor.addFeature(f as EditorFeature)
-				})
+				// INFRA-02 / D-08: route through the Authoring API (preserves importSource
+				// already on the normalized features; append with dedup-by-id).
+				createAuthoring(editor).writeGeoJSON(newFeatures as EditorFeature[], { replace: false })
 
 				const meta = extractCollectionMeta(collection)
 				if (!meta.name) {
@@ -2116,9 +2117,9 @@ export function GeoEditorView() {
 						}
 						onImport={(features) => {
 							if (!editor) return
-							features.forEach((feature) => {
-								editor.addFeature(toEditorFeature(feature))
-							})
+							// INFRA-02 / D-08: route through the Authoring API (normalizes raw
+							// features internally via toEditorFeature; append with dedup-by-id).
+							createAuthoring(editor).writeGeoJSON(features, { replace: false })
 						}}
 					/>
 
