@@ -140,6 +140,13 @@ export interface ChatSettingsSnapshot {
 	version?: 2
 }
 
+/**
+ * Observable lifecycle of the encrypted-settings load (D-11/D-12). Promoted from the sync
+ * hook's internal refs so the settings UI can render loading / failed(+Retry) / loaded /
+ * no-signer states distinctly instead of silently masquerading a decrypt failure as defaults.
+ */
+export type SettingsStatus = 'idle' | 'loading' | 'loaded' | 'failed' | 'no-signer'
+
 export const DEFAULT_CHAT_SETTINGS: ChatSettingsSnapshot = {
 	provider: 'routstr',
 	providerOverrides: {
@@ -631,6 +638,10 @@ interface ChatState {
 	selectedModel: string | null
 	modelsLoading: boolean
 	modelsError: string | null
+	// Encrypted-settings load lifecycle (observable surface for the settings UI; D-11/D-12)
+	settingsStatus: SettingsStatus
+	settingsError: string | null
+	settingsLoadNonce: number
 	// Settings
 	maxTokens: number // Max output tokens per request
 	toolsEnabled: boolean // Whether to send tools with requests
@@ -661,6 +672,8 @@ interface ChatActions {
 	// Settings
 	setToolsEnabled: (enabled: boolean) => void
 	hydrateSettings: (settings: Partial<ChatSettingsSnapshot>) => void
+	setSettingsStatus: (status: SettingsStatus, error?: string | null) => void
+	requestSettingsReload: () => void
 	// Message management
 	addMessage: (message: ChatMessage) => void
 	clearMessages: () => void
@@ -695,6 +708,9 @@ function createInitialState(): ChatState {
 		selectedModel: null,
 		modelsLoading: false,
 		modelsError: null,
+		settingsStatus: 'idle',
+		settingsError: null,
+		settingsLoadNonce: 0,
 		maxTokens: DEFAULT_MAX_TOKENS,
 		toolsEnabled: true,
 		isStreaming: false,
@@ -807,6 +823,17 @@ export const useChatStore = create<ChatStore>()(
 					modelsLoading: false,
 					modelsError: null,
 				})
+			},
+
+			setSettingsStatus: (status: SettingsStatus, error?: string | null) => {
+				set({ settingsStatus: status, settingsError: error ?? null })
+			},
+
+			// Retry trigger (D-11). Only bumps the nonce the load effect depends on; it must
+			// NOT call the loader directly so Retry re-enters the generation-counter guard
+			// (Pitfall 2) and an in-flight stale load cannot clobber the retry result.
+			requestSettingsReload: () => {
+				set((state) => ({ settingsLoadNonce: state.settingsLoadNonce + 1 }))
 			},
 
 			addMessage: (message: ChatMessage) => {
@@ -1622,6 +1649,9 @@ export const chatActions = {
 	setToolsEnabled: (enabled: boolean) => useChatStore.getState().setToolsEnabled(enabled),
 	hydrateSettings: (settings: Partial<ChatSettingsSnapshot>) =>
 		useChatStore.getState().hydrateSettings(settings),
+	setSettingsStatus: (status: SettingsStatus, error?: string | null) =>
+		useChatStore.getState().setSettingsStatus(status, error),
+	requestSettingsReload: () => useChatStore.getState().requestSettingsReload(),
 	sendMessage: (content: string, options?: SendMessageOptions) =>
 		useChatStore.getState().sendMessage(content, options),
 	clearMessages: () => useChatStore.getState().clearMessages(),
