@@ -6,6 +6,7 @@ import {
 	SlidersHorizontal,
 	ChevronsUpDown,
 	KeyRound,
+	Loader2,
 	Lock,
 	Search,
 	Server,
@@ -58,11 +59,14 @@ export function ChatSettingsSection() {
 		modelsError,
 		toolsEnabled,
 		isStreaming,
+		settingsStatus,
+		settingsError,
 		setProvider,
 		setProviderOverride,
 		loadModels,
 		setSelectedModel,
 		setToolsEnabled,
+		requestSettingsReload,
 	} = useChatStore()
 	const selectedProviderOption = PROVIDER_OPTIONS.find((option) => option.value === provider)
 	const [modelPickerOpen, setModelPickerOpen] = useState(false)
@@ -415,20 +419,54 @@ export function ChatSettingsSection() {
 				</Button>
 			</div>
 
-			<div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-				<div className="flex items-start gap-2">
-					{currentUser ? (
-						<Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-					) : (
-						<KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-					)}
-					<p>
-						{currentUser
-							? 'Changes are saved for the active Nostr account and restored automatically when the app starts.'
-							: 'Sign in with a Nostr account to persist chat settings in encrypted local storage.'}
-					</p>
+			{settingsStatus === 'loading' ? (
+				<div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+					<div className="flex items-start gap-2">
+						<Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />
+						<p>Loading your saved settings…</p>
+					</div>
 				</div>
-			</div>
+			) : settingsStatus === 'failed' ? (
+				<div className="rounded-lg border border-destructive/50 bg-destructive/5 p-3 text-xs">
+					<div className="flex items-start gap-2">
+						<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+						<div className="min-w-0 flex-1">
+							<p className="font-medium text-destructive">
+								Decryption failed — your saved settings could not be loaded.
+							</p>
+							{settingsError ? (
+								<p className="mt-1 text-destructive/90">{settingsError}</p>
+							) : null}
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								onClick={() => requestSettingsReload()}
+								className="mt-2 h-7 text-xs"
+							>
+								Retry
+							</Button>
+						</div>
+					</div>
+				</div>
+			) : settingsStatus === 'no-signer' || !currentUser ? (
+				<div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+					<div className="flex items-start gap-2">
+						<KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+						<p>Sign in with a Nostr account to persist chat settings in encrypted local storage.</p>
+					</div>
+				</div>
+			) : (
+				<div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+					<div className="flex items-start gap-2">
+						<Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+						<p>
+							Changes are saved for the active Nostr account and restored automatically when the
+							app starts.
+						</p>
+					</div>
+				</div>
+			)}
 		</div>
 	)
 }
