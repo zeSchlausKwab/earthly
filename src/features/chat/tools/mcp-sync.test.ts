@@ -6,11 +6,14 @@
  *  - a changed manifest converges via register/unregister (D-05 hot-reload),
  *  - `advertise()` reflects the live manifest (D-04),
  *  - a `listTools()` failure degrades gracefully to the last-known set (T-02-18),
+ *  - sync PRESERVES bootstrapped/local rich handlers and only adds genuinely-new
+ *    remote tools (CR-01) — never clobbering a hand-written handler by name,
  *  - NO push handler is wired (Pitfall 3) — asserted by source grep.
  */
 import { afterEach, describe, expect, it } from 'bun:test'
 import { EarthlyGeoServerClient } from '@/ctxcn/EarthlyGeoServerClient'
-import { advertise, registry } from './registry'
+import { advertise, register, registry, unregister } from './registry'
+import type { ToolEntry } from './registry'
 import {
 	__resetMcpSyncForTests,
 	getSyncedMcpToolNames,
@@ -41,8 +44,39 @@ function manifest(
 	} as unknown as ListToolsResult
 }
 
+/**
+ * Build a sentinel "local" (bootstrapped/non-synced) entry under `name`. Its
+ * identity (kind:'host-builtin' + a tagged handler) lets a test prove the sync
+ * left the handler untouched.
+ */
+function makeLocalEntry(name: string): ToolEntry {
+	const handler = (() => ({ sentinel: name })) as ToolEntry['handler']
+	;(handler as { __local?: true }).__local = true
+	return {
+		name,
+		kind: 'host-builtin',
+		schema: {
+			type: 'function',
+			function: { name, description: 'sentinel local handler', parameters: { type: 'object', properties: {} } },
+		},
+		handler,
+	}
+}
+
+/** Names this test seeds as local handlers — cleaned up after each case. */
+const seededLocalNames: string[] = []
+function seedLocalEntry(name: string): ToolEntry {
+	const entry = makeLocalEntry(name)
+	register(entry)
+	seededLocalNames.push(name)
+	return entry
+}
+
 afterEach(() => {
 	__resetMcpSyncForTests()
+	for (const name of seededLocalNames.splice(0)) {
+		unregister(name)
+	}
 })
 
 describe('mcp-sync (poll-based hot-reload)', () => {
@@ -73,6 +107,74 @@ describe('mcp-sync (poll-based hot-reload)', () => {
 		const advertised = advertise().map((t) => t.function.name)
 		expect(advertised).toContain('create_map_upload')
 		expect(advertised).toContain('spike_only_tool')
+	})
+
+	it('preserves a bootstrapped/local handler matching a manifest name — does NOT clobber it (CR-01)', async () => {
+		// A bootstrapped rich handler is registered locally under a name that the
+		// live manifest ALSO advertises (the real-world collision: query_osm_bbox etc.).
+		const local = seedLocalEntry('query_osm_bbox')
+		expect(registry.get('query_osm_bbox')).toBe(local)
+
+		const client = mockClient(() =>
+			manifest([
+				{ name: 'query_osm_bbox', description: 'live manifest version' },
+				{ name: 'spike_only_tool', description: 'genuinely new remote tool' },
+			]),
+		)
+		const result = await syncMcpTools(client)
+
+		expect(result.ok).toBe(true)
+		// The local handler was preserved (not registered), the new tool was registered.
+		expect(result.preserved).toBe(1)
+		expect(result.registered).toBe(1)
+
+		// The local entry's identity is unchanged — same object, host-builtin kind,
+		// tagged sentinel handler (NOT the bare remote-mcp passthrough).
+		const after = registry.get('query_osm_bbox')
+		expect(after).toBe(local)
+		expect(after?.kind).toBe('host-builtin')
+		expect((after?.handler as { __local?: true }).__local).toBe(true)
+
+		// This module never claims ownership of the preserved local name.
+		expect(getSyncedMcpToolNames()).not.toContain('query_osm_bbox')
+		expect(getSyncedMcpToolNames()).toContain('spike_only_tool')
+
+		// advertise() still reflects manifest membership for both.
+		const advertised = advertise().map((t) => t.function.name)
+		expect(advertised).toContain('query_osm_bbox')
+		expect(advertised).toContain('spike_only_tool')
+	})
+
+	it('registers a genuinely-new manifest tool as kind:remote-mcp (not previously in registry)', async () => {
+		expect(registry.has('brand_new_remote_tool')).toBe(false)
+		const client = mockClient(() => manifest([{ name: 'brand_new_remote_tool' }]))
+
+		const result = await syncMcpTools(client)
+
+		expect(result.registered).toBe(1)
+		expect(result.preserved).toBe(0)
+		const entry = registry.get('brand_new_remote_tool')
+		expect(entry?.kind).toBe('remote-mcp')
+		expect(entry?.origin).toBe(ORIGIN)
+		expect(getSyncedMcpToolNames()).toContain('brand_new_remote_tool')
+	})
+
+	it('never unregisters a local handler even when it is absent from a later manifest (CR-01)', async () => {
+		const local = seedLocalEntry('query_osm_area')
+		// First sync: manifest includes the local-name + a synced-only tool.
+		const first = mockClient(() => manifest([{ name: 'query_osm_area' }, { name: 'synced_only' }]))
+		await syncMcpTools(first)
+		expect(registry.get('query_osm_area')).toBe(local) // preserved
+		expect(registry.has('synced_only')).toBe(true)
+
+		// Later manifest drops BOTH names. Only the synced-only tool is unregistered.
+		const second = mockClient(() => manifest([{ name: 'something_else' }]))
+		const result = await syncMcpTools(second)
+
+		expect(result.unregistered).toBe(1) // synced_only only
+		expect(registry.get('query_osm_area')).toBe(local) // local handler untouched
+		expect(registry.has('synced_only')).toBe(false)
+		expect(registry.has('something_else')).toBe(true)
 	})
 
 	it('converges via register + unregister when the manifest changes (D-05)', async () => {

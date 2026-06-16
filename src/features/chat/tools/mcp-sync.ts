@@ -2,12 +2,33 @@
  * Poll-based MCP tool hot-reload (D-05 / D-04).
  *
  * The registry actively PULLS the connected ContextVM geo server's live tool
- * manifest via `EarthlyGeoServerClient.listTools()` and converges the registry's
- * `kind:'remote-mcp'` entries to match it: tools present in the manifest are
- * `register`ed (tagged `kind:'remote-mcp'`, `origin: SERVER_PUBKEY`), tools that
- * disappeared are `unregister`ed. `advertise()` then reflects the live manifest,
- * so what the model sees stays in sync with the server (replacing the
- * hand-transcribed MCP list in `definitions.ts`).
+ * manifest via `EarthlyGeoServerClient.listTools()` and converges its OWN
+ * synced `kind:'remote-mcp'` entries to match it — WITHOUT clobbering the
+ * bootstrap's hand-written rich handlers (CR-01).
+ *
+ * PRESERVE LOCAL HANDLERS; ONLY ADD GENUINELY-NEW REMOTE TOOLS: the bootstrap
+ * (`registry.ts` `bootstrapRegistry()`) registers rich handlers for the
+ * specially-handled remote tools (`search_location`, `query_osm_bbox`,
+ * `query_osm_area`, `import_osm_to_editor`, …) that do semantic-concept
+ * expansion, bbox tiling, name matching, polygon-area filtering, search
+ * fallback, `importFeaturesToEditor` baking, and `extractMcpToolResult`
+ * response shaping. Because `register()` is last-write-wins by name, this sync
+ * MUST NOT re-register those names with a bare passthrough. The rule, per live
+ * manifest tool `name`:
+ *   - If `registry` already has an entry for `name` AND `name` is NOT in
+ *     `syncedToolNames` → it is a bootstrapped/local handler. SKIP it (preserve
+ *     handler + schema), counting it as `preserved`.
+ *   - Otherwise (no existing entry, or one this module previously synced) →
+ *     register the synced passthrough (kind:'remote-mcp', origin:SERVER_PUBKEY)
+ *     and track it in `syncedToolNames`.
+ * The unregister/diff-converge side only ever touches names in
+ * `syncedToolNames`, so genuine drift (e.g. a new `create_map_upload` tool) is
+ * picked up while local handlers are never removed.
+ *
+ * `advertise()` then reflects the live manifest membership (bootstrapped tools
+ * are already advertised; synced-only drift tools are added; vanished
+ * synced-only tools are dropped), so what the model sees stays in sync with the
+ * server (replacing the hand-transcribed MCP list in `definitions.ts`).
  *
  * POLL-BASED, NOT PUSH (Pitfall 3): `EarthlyGeoServerClient` runs the Nostr
  * transport with `isStateless: true`, so server-initiated list-changed
@@ -120,16 +141,24 @@ function registerSyncedTool(tool: McpManifestTool): void {
 }
 
 /**
- * Pull the live MCP manifest and converge the registry's synced remote-mcp
- * entries to match it (register new, unregister removed). Poll-based; safe to
- * call repeatedly. On `listTools()` failure, degrades gracefully (keeps the
- * last-known/hardcoded set) and returns `{ ok: false }` — never throws.
+ * Pull the live MCP manifest and converge THIS MODULE'S synced remote-mcp
+ * entries to match it (register genuinely-new, unregister removed) while
+ * PRESERVING the bootstrap's hand-written rich handlers (CR-01). Poll-based;
+ * safe to call repeatedly. On `listTools()` failure, degrades gracefully (keeps
+ * the last-known/hardcoded set) and returns `{ ok: false }` — never throws.
  *
- * @returns the sync outcome (ok + counts) for callers/tests.
+ * @returns the sync outcome (ok + counts) for callers/tests. `preserved` counts
+ *   manifest tools that matched an existing local handler and were left intact.
  */
 export async function syncMcpTools(
 	client: Pick<EarthlyGeoServerClient, 'listTools'> = getGeoClient(),
-): Promise<{ ok: boolean; registered: number; unregistered: number; error?: string }> {
+): Promise<{
+	ok: boolean
+	registered: number
+	unregistered: number
+	preserved: number
+	error?: string
+}> {
 	let manifest: Awaited<ReturnType<EarthlyGeoServerClient['listTools']>>
 	try {
 		manifest = await client.listTools()
@@ -141,7 +170,7 @@ export async function syncMcpTools(
 			`[mcp-sync] listTools() failed (${REMOTE_MCP_ORIGIN.slice(0, 8)}…): ${message}. ` +
 				'Keeping last-known/hardcoded tool set.',
 		)
-		return { ok: false, registered: 0, unregistered: 0, error: message }
+		return { ok: false, registered: 0, unregistered: 0, preserved: 0, error: message }
 	}
 
 	const tools = Array.isArray(manifest?.tools) ? manifest.tools : []
@@ -158,16 +187,24 @@ export async function syncMcpTools(
 		}
 	}
 
-	// Register/refresh every tool in the live manifest.
+	// Converge the live manifest, but PRESERVE bootstrapped local handlers (CR-01).
+	// A name already in the registry that THIS module did not sync is a local
+	// rich handler — skip it so register()'s last-write-wins never clobbers it.
 	let registered = 0
+	let preserved = 0
 	for (const tool of validTools) {
+		const isLocalHandler = registry.has(tool.name) && !syncedToolNames.has(tool.name)
+		if (isLocalHandler) {
+			preserved += 1
+			continue
+		}
 		registerSyncedTool(tool)
 		syncedToolNames.add(tool.name)
 		registered += 1
 	}
 
 	lastSyncSucceeded = true
-	return { ok: true, registered, unregistered }
+	return { ok: true, registered, unregistered, preserved }
 }
 
 /** True once a `syncMcpTools()` call has successfully applied a live manifest. */
