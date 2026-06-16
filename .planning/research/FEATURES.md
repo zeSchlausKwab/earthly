@@ -1,336 +1,203 @@
 # Feature Research
 
-**Domain:** AI-augmented collaborative map editor (chat + toolbar + map in unison), layered on top of an existing Nostr GeoJSON publishing platform
-**Researched:** 2026-05-26
-**Confidence:** HIGH for the AI-mapping landscape (multiple confirmed sources for every major claim); MEDIUM for "what specifically works inside Earthly" (the answer "what would land here" is partly opinion shaped by the codebase).
+**Domain:** AI chat workbench for collaborative GeoJSON mapping (data ingest, sandboxed code, safe authoring) — Earthly milestone v1.1
+**Researched:** 2026-06-16
+**Confidence:** MEDIUM-HIGH (analogous-product behavior cross-corroborated across multiple sources; map-specific specifics extrapolated from existing Earthly chat/editor surface + GIS tooling norms)
 
-## Orientation
+> Scope note: This is a SUBSEQUENT milestone on a mature app. Earthly already ships multi-session chat, entity refs, streaming + 10-round tool loop, 19 tools (editor commands + OSM/Overpass + Valhalla routing/isochrones + map snapshot vision), Cashu wallet prepay/refund, cost estimation, diagnostics, encrypted (nip44/nip04) per-pubkey settings storage, a headless `editor_*` command registry, and a `simplify` command. Those are NOT re-proposed below. This file is about how the **seven NEW v1.1 capabilities should behave**, benchmarked against ChatGPT/Claude code interpreter + file upload, LM Studio js-code-sandbox, Felt/Atlas AI map tools, and data-cleaning assistants.
 
-In 2026 the AI-mapping space has split into four distinct lanes — each with its own table-stakes-vs-differentiator profile. Earthly's Pillar 3 demo touches three of them; Pillar 1/2 set the floor for all four.
+> Story key (PROJECT.md "Representative user stories"): **S1** ugly CSV → dataset + cutting route · **S2** Telegram paste → geolocated titled feature on a context · **S3** Austria→Bosnia cost-weighted flight path · **S4** clean a convoluted context (fill descriptions, translate names, recolor ports/airports/waterways, dataset-aware) · **S5** 12MB messy trail GeoJSON → ~900KB at same visual quality.
 
-| Lane | Canonical players | Earthly-relevant? |
-|---|---|---|
-| **A. Author-by-chat (geometry generation)** | Mapbox MCP DevKit (generates GeoJSON), MapStory (LLM agents produce editable animation scenes), GeoGPT/QGISGPT (natural-language → GIS operations), Felt AI extensions (NL → custom app code) | YES — this is the demo. |
-| **B. Analyze-the-map (read what's there)** | IMAIA quadkey grid grounding, Felt AI SQL queries ("find stores within 5mi of competitors"), ArcGIS Arcade assistant | YES — Pillar 3 secondary goal. |
-| **C. POI / utility query ("find me X")** | Google Maps "Ask Maps" (Gemini, multi-step contextual queries), Mapbox MapGPT (in-vehicle voice/text), ChatGPT Atlas (browser + map results), OSM-AI-Map (NL → Overpass QL) | YES — the "find me a cafe" use case, single-query non-compound. |
-| **D. Compound routing / itinerary** | Google Maps Ask Maps multi-stop ("Grand Canyon + Horseshoe Bend + stops along the way"), TrailGPT, MapMagic | **NO — explicitly out of scope per PROJECT.md.** |
-
-Critical context for Earthly: nobody mainstream is currently shipping "AI-authored geometry that you accept/reject and then **publish to a decentralized social network**." Felt publishes to its own SaaS, Mapbox MCP DevKit publishes to a Mapbox style, ArcGIS publishes to ArcGIS Online. The combination of "AI authoring + open social publishing surface" is the white space.
+---
 
 ## Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
-If these are missing the demo flops or the everyday-utility user bounces. Most are **classical** (work without AI/Nostr) — that's the discipline check.
+If these are missing, the v1.1 capability feels broken relative to ChatGPT/Felt/Claude.
 
-| Feature | Why Expected | Complexity | Pillar | Already in Earthly? | Notes |
-|---|---|---|---|---|---|
-| **Persistent search bar / address geocoder** | Every map app from Google Maps to Felt opens with "search a place." Without it the empty-shelf landing feels broken. | LOW | 2 (classical) | Partial — `MobileSearch`, ContextVM `SearchLocation`, but not a first-class always-visible affordance | Classical path: typed address → geocoder → map jumps to bbox. No chat needed. |
-| **"Search nearby" / POI query (single-hop)** | Google Maps Ask Maps, Mapbox MapGPT, Atlas all answer "find me X near here" as a baseline. Doesn't have to be conversational, but has to exist. | MEDIUM | 2/3 | Partial — ContextVM MCP `SearchLocation`, no UI surface | Classical path: form with category + radius. AI path: chat "cafes with outdoor seating." Both call the same MCP tool. |
-| **Drawing tools (point / line / polygon)** | Any user touching a map authoring tool expects to draw shapes by hand. Touch GIS, Felt, Mapbox Studio all ship this. | LOW | 1 (already shipped) | ✅ Existing | Already in `core/managers/`. The toolbar exposes these. |
-| **Save / draft / publish workflow with explicit states** | Felt's Drafts → Projects, Sanity-style drafts model, "auto-save then publish on action" is universal. Hidden persistence (current Earthly state) feels broken. | LOW | 1 (Workspaces surfacing) | Partial — `draftSlice`/`workspaceSlice` exist but unsurfaced | Per `UX_REWRITE.md` §5: "Save as workspace" on shelf, "Resume" in Browse landing. |
-| **Shareable URL = map state** | Every modern map (Google, Felt, Mapbox, Mappedin) treats URL as canonical. Hash-only routes feel pre-2015. | MEDIUM | 1 | Partial — hash routes exist; `UX_REWRITE.md` §9 mandates path-based | `/c/<naddr>`, `/d/<naddr>`, optional `?v=lng,lat,zoom`. One-way URL → state. |
-| **Layer / visibility toggle for what's on the map** | Felt's layers panel, ArcGIS contents pane, MapStack-equivalent. Without it users can't reason about what they're seeing. | LOW | 1 | ✅ Existing (`MapStackPanel`) + new Map Shelf per `UX_REWRITE.md` §3 | Map Shelf consolidates this into a top-strip chip view. |
-| **"What is this?" inspect on click** | Felt popups, Google Maps place cards, Mapbox feature popups. The map must be tappable. | LOW | 1 | ✅ Existing (`FeaturePopup`, `LocationInspectorPopup`) | Keep but route through explicit Inspect verb (no auto-stance-change). |
-| **Undo / redo for any editing action** | Cursor's edit history, Felt's history, every editor since Word. AI-generated geometry without undo is unacceptable. | LOW | 1 | ✅ Existing (`HistoryManager`) | Critical: AI-generated geometry must enter the same undo stack as hand-drawn. |
-| **Visible "AI is thinking" feedback** | Cursor inline diff stream, Claude/ChatGPT streaming tokens, Mapbox MapGPT spinner. Silent AI feels broken. | LOW | 3 | Partial — chat panel streams; toolbar/map doesn't show "AI is drawing now" | Streaming feedback during tool execution is non-negotiable for the demo. |
-| **Accept / Reject for AI-generated content** | Cursor's per-chunk accept/reject, Notion AI's accept/discard, Felt AI's "Save" on generated SQL/popups, Bezi's reviewable diffs. The Shape of AI catalogues this as a core pattern. | MEDIUM | 3 | Missing — no AI-suggestion-state in the editor | See "Accept-reject staging" differentiator below. The simplest table-stakes form is "preview then one button to commit." |
-| **Chat panel is dismissible/collapsible** | Cursor toggles AI sidebar with Cmd-L, Windows Copilot docks-but-collapses, ChatGPT Atlas sidebar hides. Users hate panels that won't go away. | LOW | 1/2 | Partial — exists but tangled to context scope | `UX_REWRITE.md` §6: detachable, dockable, with binding chip. |
-| **Empty state guidance / landing prompt** | Google Maps' "Recent places," Felt's "Recent maps," Atlas's "Ask anything." A blank app on first open is hostile. | LOW | 1 | Missing | `UX_REWRITE.md` §10 net-new: Browse landing prompt (pick city / open last workspace / browse popular). |
-| **Mobile-usable map without chrome overload** | Every map app since 2020. Earthly's current chrome eats the map on small screens (per PROJECT.md Active). | MEDIUM | 1 | Partial — `MobilePanel`, `MobileSearch` exist; chrome density acknowledged as problem | Shelf collapses to one-chip-with-count sheet on mobile (`UX_REWRITE.md` §3). |
-| **Login is optional for read** | Every modern map. Atlas works without OpenAI login for some queries. Felt allows public-link viewing without account. | LOW | 2 | ✅ Existing — anonymous read works | Reinforce in UI: Nostr lingo (pubkey, NIP-07) does not surface for anonymous browsing. |
-| **Plain-language labels for protocol concepts** | Felt never says "vector tile MVT schema" to a casual user. Google never says "Place ID." | LOW | 2 | Missing — "kind 37515," "naddr," "relay" leak | Per PROJECT.md Active: "plain language replaces protocol terms" in classical paths. |
+| Feature | Why Expected | Complexity | Notes / Dependencies |
+|---------|--------------|------------|----------------------|
+| **Attach via "+" button AND drag-drop onto chat** (1) | Every analogous tool offers both; drag-drop is the desktop default in ChatGPT. | LOW | Hooks into existing `ChatPanel.tsx`. Drag-drop desktop-only is an accepted norm. Story: **S1, S2(paste), S5**. |
+| **File chip/preview after attach** (1) | ChatGPT shows a card; users need confirmation the file landed before sending. | LOW | Reuse `ChatGeometryAttachment.tsx` pattern (transient attachment already exists). |
+| **Parse-on-ingest summary: "loaded N rows × M cols", detected headers/types** (1) | ChatGPT emits "I've loaded a file with 9,994 rows and 21 columns"; users expect the model to *acknowledge structure*, not silently swallow the file. | MEDIUM | Client-side parse (CSV/Excel/JSON/GeoJSON) → structured digest injected to model + shown to user. Decision in PROJECT: "parse-everything." Story: **S1, S4**. |
+| **Format coverage: CSV, Excel (xlsx), JSON, GeoJSON, plain text, images** (1) | These are the milestone's named formats and match ChatGPT's CSV/Excel/PDF/text baseline. | MEDIUM | Excel needs a parser (e.g. SheetJS-class). GeoJSON path already exists. |
+| **Capability-gated image send** (1) | Sending an image to a non-vision model produces silent failure or garbage; users expect the affordance to disappear/grey out. | MEDIUM | Decision in PROJECT. Depends on model capability detection (extend `routstr.ts` `/models` discovery). Story: **S1 (image links), S2**. |
+| **Code shown in a collapsible block, output shown beneath** (2) | Universal code-interpreter pattern; users want to *see* what ran. Earthly already has collapsible tool-result blocks — extend, don't reinvent. | LOW | Reuses `ChatPanel.tsx` disclosure pattern. Story: **S1, S3**. |
+| **Errors fed back into the loop so the AI self-corrects** (2) | ChatGPT keeps prior code + outputs in context and retries automatically; "it just fixes it" is the expectation. | MEDIUM | Earthly's tool-call loop (`MAX_TOOL_CALL_ROUNDS = 10`) already does this for tools; sandbox stdout/stderr becomes another tool result. Story: **S1, S3**. |
+| **Sandbox cannot touch the page / network by default** (2) | LM Studio's js-code-sandbox and browser-sandbox norm: locked-down Worker/iframe, no DOM, no `fetch`, terminable on runaway loop/timeout. | HIGH | Web Worker (preferred) or sandboxed iframe; whitelist a narrow `map`/`draw` API bridge via postMessage. Decision in PROJECT (client sandbox). |
+| **Visible binding: "editing → [dataset name]"** (5) | This is the carried-over binding chip; an AI silently editing the wrong dataset is the scariest failure. Users must always see the target. | MEDIUM | `bindActiveWorkspaceChat()` exists but binds silently. Surfacing the chip is the table-stakes half. Story: **S2, S4**. |
+| **Confirm before destructive change (default safety level)** (5) | "Human confirmation for high-impact/destructive actions (delete, publish)" is a near-universal agent-UX principle. PROJECT default = level 2 confirm-destructive. | MEDIUM | Needs add-vs-modify-vs-delete intent classification on editor mutations. Story: **S4, S1**. |
+| **Before/after metrics on optimization: size + vertex count** (6) | Every simplify tool (mapshaper, QuickMapTools) reports coordinate-count reduction, file-size savings, reduction %. Users won't trust "I simplified it" without numbers. | LOW-MEDIUM | `simplify` command exists; wrap with measurement + reporting. Story: **S5**. |
+| **Hit the size budget the city dialog complains about** (6) | The whole point of S5 is clearing the publish/relay size limit. Optimization must target a concrete byte budget, not a generic "simplify." | MEDIUM | Iterative: simplify → measure → tighten tolerance until under budget. Story: **S5**. |
+| **Keys persist across reload, scoped to identity** (7) | "Remember my provider/keys" is assumed; re-entering an API key every reload is broken UX. | LOW | Already shipped (`settingsStorage.ts`, nip44/nip04, per-pubkey). v1.1 mostly *extends payload* (provider config, LM Studio/Ollama addresses) + UX polish. Story: all. |
 
 ### Differentiators (Competitive Advantage)
 
-Where Earthly competes. These are the features that make people pick Earthly over Felt or Google "My Maps."
+Where Earthly does something ChatGPT/Felt do not — the v1.1 wow surface.
 
-| Feature | Value Proposition | Complexity | Pillar | Notes |
-|---|---|---|---|---|
-| **Map Shelf (working set above the map)** | Decoupling "what's selected in the sidebar" from "what's on the map" is rare. Felt has layers but they're rigidly tied to the map document. Earthly's Shelf treats every visible dataset as a peer chip with isolate/visibility/inspect/share/remove. | MEDIUM | 1 | Per `UX_REWRITE.md` §3. The shelf survives stance transitions, carries through into Author, and is the basis for share URLs. **This is the most distinctive UX bet in the rewrite.** |
-| **Single-stance enum + explicit verbs** | Most editors leak mode confusion (Figma's design-vs-prototype mode confusion is a textbook example). Earthly's `stance: browse \| focus \| author` with one button per transition — every action does one explicit thing — is a clarity bet. | HIGH | 1 | Per `UX_REWRITE.md` §2 + §8. Hardest engineering work; biggest user-perceived win when shipped. |
-| **Chat binding chip (explicit context for AI)** | Most chat-in-map products bind implicitly (Felt AI auto-uses the open map, MapGPT uses current location). Earthly shows what the chat is bound to — current shelf, single chip, selection, or no binding — and lets the user change it. | MEDIUM | 1/3 | Per `UX_REWRITE.md` §6. Resolves "why did the AI talk about the wrong dataset" confusion. Differentiator against Mapbox/Felt opaque scope. |
-| **Toolbar drawing API callable from chat AND direct UI on equivalent paths** | Most "AI draws on a map" products (Mapbox MCP DevKit, MapStory) generate JSON the user then *imports*. Earthly's chat invokes the **same** drawing function a button click invokes. Geometry appears in the **same** unsaved-edits state. | HIGH | 3 | Per PROJECT.md Constraints. "Designed as if it were a future package export." This is the structural bet that makes accept-reject natural — the AI is just another user of the drawing API. |
-| **Accept-reject staging for AI-generated geometry** | Cursor's per-chunk diff is the gold standard for code. No mapping tool has a strong equivalent — Felt AI's workflow is "generate code, click Save." Earthly can ship: AI-drawn features land in an **unconfirmed layer** (visual distinction — dashed stroke, "AI" badge), user accepts per-feature or all-at-once before they enter the publishable draft. | HIGH | 3 | Closest analog: Cursor's red/green inline diff. Mapping equivalent must be visual (ghost stroke / different color) since geometry is the artifact, not text. **Without this, AI authoring feels reckless.** |
-| **Classical-utility floor for every AI feature** | "Find a cafe with outdoor seating" via chat → MCP. Same query reachable via a non-AI search form with category + radius. The chat is a power layer, not the only path. Felt's AI features are Enterprise-only; Mapbox MapGPT is automotive-only. Earthly's universal availability + non-AI fallback is differentiator + risk mitigation. | MEDIUM | 2 | Per PROJECT.md Constraints — classical-utility-as-discipline. Every AI feature ships its non-AI twin. |
-| **Author-by-chat round-trip in one workflow** | "Draw a hiking trail from Hallstatt to Dachstein" → chat invokes drawing tools → geometry appears as AI-pending → user accepts → publish. End-to-end in 60 seconds. Mapbox MCP DevKit stops at "here's the GeoJSON." Felt AI doesn't draw geometry at all. ChatGPT Atlas shows map results but doesn't author. | HIGH | 3 | The signature demo. Reliability is the hard part — the demo must be 60-second-reliable, not "works 4/10 times." |
-| **Decentralized publish target** | The output of authoring is a Nostr kind 37515 event — federated, social, no-vendor-lock. Felt locks to Felt SaaS. Mapbox MCP DevKit locks to Mapbox styles. Google My Maps locks to Google. Earthly is the open one. | LOW (already exists) | 2 (classical visibility) | Plumbing exists. The differentiator is realizing it without leaking the protocol — "Publish" not "Sign and publish kind 37515 event to relays." |
-| **Inspect-in-place (no layout mutation)** | Per `UX_REWRITE.md` §4: clicking Inspect on a sidebar row replaces the list with detail **in the same panel**, with a Back affordance. Most apps push a new modal or shift layout. The in-place inspect is calmer. | MEDIUM | 1 | Implementation: panel state machine inside the existing sidebar shell. |
-| **Workspace = shelf + draft + chat as a resumable bundle** | Save current shelf + active draft + chat session as a named workspace. Felt has Workspaces (Felt 20 introduced this) but they're org-level (collaboration boundary). Earthly's workspace is a personal session bookmark. | MEDIUM | 1 | Per `UX_REWRITE.md` §5. Existing `workspaceSlice` — needs surfacing. |
-| **Path-based share URL with optional view-state** | `/c/<naddr>` → recipient lands on bbox-fit. Optional `?v=lng,lat,zoom` for "include current view." Default off (recipient usually wants bbox-fit). Most map share dialogs include zoom by default and ruin the recipient's view. | LOW | 1 | Per `UX_REWRITE.md` §9. Smart default = differentiator. |
-| **"AI is visible but ignorable"** | Two-tier UI (casual mode vs power mode) is explicitly rejected per PROJECT.md decisions. Instead one UI where chat is dismissible and never blocks the classical path. Mid-2026 most products fork (ChatGPT casual vs Atlas power). Earthly stays unified. | MEDIUM | 2 | Cross-cuts everything — design constraint, not a feature checkbox. |
+| Feature | Value Proposition | Complexity | Notes / Dependencies |
+|---------|-------------------|------------|----------------------|
+| **Sandboxed code that drives a clean map drawing API** (2,3) | "Draw 15 circles with fibonacci radii" or a cost-weighted flight path expressed as *code*, not 15 tool calls. ChatGPT plots matplotlib; Earthly plots **geometry onto a live collaborative map**. This is the milestone's signature. | HIGH | Sandbox + the toolbar drawing API (PROJECT constraint: designed as a package boundary, no store leakage). Bridge exposes `draw.point/line/polygon/circle/buffer`, `editor.*`. Story: **S1 (route), S3 (flight path)**. |
+| **AI-only parametric/batch primitives** (3) | Tools a human toolbar shouldn't carry but an AI loves: parametric circle/regular-polygon/star, geodesic buffer, batch attribute set, bulk transform, dedup, merge-to-multi, microgap stitch. | MEDIUM-HIGH | Add to `editor_*` command registry so they're callable from chat AND sandbox via one surface. (Enumerated in detail below.) Story: **S3, S4, S5**. |
+| **Data-driven styling by attribute, AI-applied** (4) | "Make ports blue, airports red, waterways thick teal" → a per-attribute style rule, not per-feature hand-coloring. Felt does this via UI; Earthly does it via *one sentence*. | MEDIUM-HIGH | Needs a per-dataset style spec (categorical/ramp rules keyed on a property) + an `apply_style` tool + persistence in/alongside the kind 37515 event. Story: **S4**. |
+| **Per-dataset style persistence** (4) | Recolor survives reload/publish and travels with the dataset (so a viewer sees ports-blue too). | MEDIUM | Where to store: style spec as event metadata or sidecar. Decision needed; depends on Nostr event surface. Story: **S4**. |
+| **Add-vs-modify-vs-delete intent surfaced per operation** (5) | The AI says "I will ADD 1, MODIFY 3 (fill description), DELETE 0" before acting — turning an opaque edit into a reviewable plan (agent-plans-as-PR pattern). | MEDIUM-HIGH | Needs the editor to classify each pending mutation; ties to diff/preview. Story: **S4**. |
+| **Diff/preview before destructive change** (5) | Show the changeset (counts + a visual highlight of affected features on the map) before commit; keep/undo decision. This is what makes users *trust* the AI on their data. | HIGH | Map-highlight of pending changes + a summary panel. Depends on intent classification. Story: **S1, S4**. |
+| **Three configurable safety levels** (5) | 1 = preview+confirm-all, 2 = confirm-destructive only (default), 3 = trust + undo. Most tools hardcode one model; making it a user dial respects power users without abandoning cautious ones. | MEDIUM | Decision locked in PROJECT. Level 3 leans on existing undo/redo (`HistoryManager`). Story: **S4**. |
+| **Geometry optimization as a guided, quality-preserving pipeline** (6) | Not raw Douglas-Peucker — simplify + merge-to-multi + microgap stitching tuned to a byte budget, with the AI choosing tolerance and explaining the tradeoff. Solves a real GIS pain (40-60% size cuts) inside chat. | HIGH | `simplify` exists; merge-to-multi + microgap stitch are new primitives. Story: **S5**. |
+| **Visual before/after diff for optimization** (6) | Overlay original vs simplified so the user *sees* quality is preserved, not just trusts a number. mapshaper-style real-time preview. | MEDIUM-HIGH | Needs a transient overlay layer in the editor. Nice-to-have above the metrics floor. Story: **S5**. |
+| **Free/local-model parity (LM Studio/Ollama) for the whole workbench** (1,2,7) | Felt/ChatGPT lock data analysis behind paid tiers + cloud. Earthly runs the same ingest+code+style flow against a local model with no data leaving the machine. | MEDIUM | Capability detection must degrade gracefully (no vision, smaller context). Reuses existing provider switch. |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
-These look tempting but conflict with Earthly's core value or known pitfalls.
-
 | Feature | Why Requested | Why Problematic | Alternative |
-|---|---|---|---|
-| **Auto-mode promotion on dataset load** | "Open dataset → edit it" feels efficient. Felt does it (clicking a layer goes to edit). | The root cause of Earthly's current state mess (`UX_REWRITE.md` §1, §8). Six implicit transitions today; every one is a bug source. | Explicit verbs (Open, Inspect, Fork, New) — `UX_REWRITE.md` §7. User chooses the stance. |
-| **AI "auto-publish" when it's confident** | "Draw and publish in one prompt!" sounds slick (some agentic browsers like Atlas go this direction for forms). | Publishing to Nostr is **permanent and signed**. AI shipping unconfirmed geometry to the relay is a reputational and integrity disaster. | Always require explicit user-acceptance + explicit Publish click. The accept-reject staging layer is the firewall. |
-| **Compound routing demos ("museum → cafe → park")** | Cool. Google Maps Ask Maps does this. Users will ask for it. | Compounds routing + POI filter + preference modeling + detour-cost. v2 per PROJECT.md Out of Scope. | Defer. Ship single-query POI well. Demo a single deliberate scenario (hiking trail). |
-| **Two-tier UI (casual mode vs power mode)** | "Beginners get a simple UI, experts get the full thing." Sounds user-friendly. | Explicitly rejected per PROJECT.md. Doubles maintenance, splits the product identity, and is what Atlas-vs-ChatGPT-classic devolved into. | "Visible but ignorable" — one UI, AI hideable. |
-| **Re-implementing the editor in a chat-first UI** | "If the AI is good enough, who needs the toolbar?" Some 2026 demos go full chat-only. | The maintainer cannot dogfood a chat-only map app. Power users need direct manipulation. AI is fragile in 2026 — chat-only is non-functional when the LLM hiccups. | Toolbar stays primary. Chat is a peer surface, not a replacement. |
-| **Real-time multi-user co-editing (Figma-style cursors)** | Hot 2026 feature. Felt has it. | Massive scope. Nostr doesn't natively support live cursor presence. PROJECT.md doesn't mention this. | Defer entirely. Edit proposals (kind 37519) are the async collaboration model. |
-| **Chat in the sidebar (always docked, no detach)** | Default in ChatGPT Atlas, Cursor, Felt AI. | Earthly's screen real estate is map-primary. Sidebar-locked chat steals horizontal space and undermines "ignorable." | Detachable floating panel per `UX_REWRITE.md` §6. User picks dock or float. |
-| **AI-curated Nostr corpus exploration as primary demo** | "Show me all medieval ruins published to Nostr." | Data-starved per PROJECT.md Out of Scope. The corpus isn't dense enough for results to be interesting. | Keep plumbing; don't demo. Focus the demo on authoring (where AI fills a real gap) not curation (where AI lacks data). |
-| **AI explains every kind/tag/pubkey** | "The AI can teach users what Nostr is!" | Surfaces protocol details in classical paths — violates the floor. Felt doesn't make you learn about vector tile schemas. | Plain language always. Help/docs surface for the curious; chat never volunteers protocol jargon. |
-| **Implicit chat scope ("activeContextScope")** | "Chat knows what you're looking at — magic!" Currently in Earthly. | The source of "why is the chat talking about the wrong dataset" confusion. Confirmed pattern problem per `UX_REWRITE.md` §6. | Explicit binding chip. User sees and can change what the chat is bound to. |
-| **AI-generated map style / theme** | Mapbox MCP DevKit does this ("Halloween-themed map"). Cool demo. | Visual design system overhaul is explicitly out of scope per PROJECT.md. The visual primitives stay (Radix + Tailwind). | Defer. If pursued in v2, scope to per-dataset visualization, not app-wide theming. |
-| **"AI fork" — AI proposes edits to someone else's dataset** | Natural extension once Propose Edit verb exists. | Conflates two hard problems: AI-authored edits + cross-author proposal review. The Propose Edit flow is already complex (kind 37519). | Ship human-authored proposals first (`UX_REWRITE.md` §7). AI-authored proposals are v2. |
-| **Voice input for chat** | Mapbox MapGPT is voice-first. Atlas supports voice. | Not a v1 demo requirement. Adds STT/TTS infra. Mobile-first input pattern but desktop demo is the priority. | Defer. The 60-second demo is screen-recordable typing. |
-| **Multi-item shelf URLs (`/shelf?i=a&i=b`)** | Natural for "share my working set." | Per `UX_REWRITE.md` §9, defer until single-chip sharing proves the need. | Single-chip URLs first. Multi-item URLs added when usage shows demand. |
-| **AI confidence scores surfaced as numbers** | "82% confident this trail goes through Hallstatt." Seems transparent. | Numerical confidence is mostly fiction — LLMs don't know what they don't know. Erodes trust when wrong. | Show **the actual artifact** for review (ghost geometry). User judges from the visual, not from a fake confidence number. |
+|---------|---------------|-----------------|-------------|
+| **Server-side / container code execution** | "Real" code interpreters (ChatGPT) run Python in a cloud VM with full libs. | Adds backend, breaks the no-middleware chat architecture, leaks user data, and contradicts the local-first/Nostr ethos. | Client-side Web Worker sandbox with a curated JS map API (PROJECT decision). Accept narrower capability. |
+| **Arbitrary network/`fetch` from sandboxed code** | "Let the code pull a live API." | Turns the sandbox into an exfiltration/SSRF vector; defeats isolation. | Route external data through the *existing vetted tools* (OSM, web_search, fetch_url); pass results INTO the sandbox as inputs. |
+| **Auto-publish AI edits to the relay** | "Just save it for me." | Publishing is irreversible and public (kind 37515); an AI mistake becomes a permanent broadcast. | Edits stay local until an explicit human Publish verb. Never let safety level 3 ("trust") imply auto-publish — trust = local apply + undo only. |
+| **Per-feature manual recoloring loop by AI** | "Color each port." | O(N) tool calls, blows the context/budget, fragile. | Attribute-driven style rule applied once (the differentiator above). |
+| **Streaming/auto-running code as the model types** | "Faster feedback." | Runs half-formed code, side effects on the map mid-stream, scary. | Run only on a complete, parsed code block; show code first, then execute (optionally with a run gate at safety level 1). |
+| **Lossy optimization that silently changes topology** | "Just make it small." | Over-simplification creates spikes/self-intersections and breaks routing/area semantics; user loses data without knowing. | Budget-targeted simplify with visual diff + a floor tolerance + validity check; report what was dropped. |
+| **Storing API keys in plaintext localStorage "for convenience"** | "Encryption is a hassle / no nsec when using a NIP-07 extension." | Plaintext secrets in localStorage are trivially stolen by any XSS. | Keep the nip44/nip04-via-signer envelope already shipped; for NIP-07/remote signers, derive encryption via the signer's encrypt API (already abstracted as `ISigner`). Degrade to session-only if no encryption available. |
+| **A second "power mode" UI for the workbench** | "Analysts need more controls." | PROJECT explicitly rejected two-tier UI; forking the UI re-introduces orchestration debt. | "Visible but ignorable" — workbench affordances live in the existing chat, gated by capability not by mode. |
+| **Generic "AI cleans your data" magic with no visibility** | Data-cleaning assistants market full autonomy. | On a *destructive, shared* dataset, opacity destroys trust — the core risk this milestone is built to manage. | Always-visible binding + intent breakdown + diff/preview. Trust is earned by showing work. |
+
+---
+
+## AI-Oriented Editor Tools — Candidate Enumeration (Q3)
+
+Tools that make sense for an AI/sandbox but would clutter a human toolbar. All should land on the **one `editor_*` command registry** (`src/features/geo-editor/commands.ts`) so chat tool-calls AND sandbox code share a surface, per the PROJECT "design as a package export" constraint.
+
+| Candidate primitive | Why AI-suited (not toolbar) | Complexity | Story |
+|---------------------|-----------------------------|------------|-------|
+| `draw_circle` / `draw_regular_polygon` / `draw_star` (parametric: center, radius, n) | Humans drag; AI parameterizes ("15 circles, fibonacci radii"). | LOW-MEDIUM | S3 |
+| `buffer` (geodesic, meters) around feature/selection | Already prompt-cookbooked ("2km buffer"); formalize as a primitive. | MEDIUM | S1, S3 |
+| `set_attributes_batch` (set property on N matched features) | "fill missing descriptions", "tag source=osm". Tedious by hand. | LOW-MEDIUM | S1, S4 |
+| `transform_features_batch` (translate/scale/rotate a set) | Bulk geometric ops; toolbar transforms one selection. | MEDIUM | — |
+| `dedup_features` (by geometry hash / proximity) | Cleaning imported messes. | MEDIUM | S5 |
+| `merge_to_multi` (collapse many singles → MultiLineString/MultiPolygon) | Core of S5 size reduction; topology-aware. | MEDIUM-HIGH | S5 |
+| `stitch_microgaps` (snap near-coincident endpoints, tolerance) | Fixes the "hundreds of polylines with microgaps" case. | HIGH | S5 |
+| `simplify` (tolerance / target budget) | EXISTS — extend to accept a byte budget + report metrics. | LOW (extend) | S5 |
+| `apply_style_rule` (attribute → color/stroke/width) | Data-driven styling primitive. | MEDIUM-HIGH | S4 |
+| `select_by_attribute` / `query_features` (filter loaded features) | Lets AI scope batch ops precisely ("all features where amenity=port"). | LOW-MEDIUM | S4 |
+| `translate_attribute` (e.g. Arabic names → English) via model, batched | S4 names-translation; pairs with `set_attributes_batch`. | LOW (orchestration) | S4 |
+| `validate_geometry` (self-intersection, winding, NaN coords) | Pre-publish safety; AI can auto-fix. | MEDIUM | S5 |
+
+---
 
 ## Feature Dependencies
 
 ```
-stance enum (1) [PILLAR 1]
-  └─ required by ─> Map Shelf (1)
-  └─ required by ─> Sidebar rework (1)
-  └─ required by ─> Path-based routing (1)
-  └─ required by ─> Chat binding chip (1)
+File Upload + Parse (1)
+    └──feeds──> Code Interpreter sandbox inputs (2)
+    └──feeds──> Geometry Optimization (6)  [the 12MB GeoJSON arrives via upload]
 
-Path-based routing (1) [PILLAR 1]
-  └─ enables ─> Single-chip share URLs (1)
-  └─ enables ─> Workspace deep links (1)
+Toolbar Drawing API (existing constraint, must be clean)
+    └──required-by──> Code Interpreter map bridge (2)
+    └──required-by──> AI-oriented editor primitives (3)
 
-Map Shelf (1) [PILLAR 1]
-  └─ required by ─> Chat default binding = current shelf (1/3)
-  └─ required by ─> "Save as workspace" (1)
-  └─ required by ─> Author against references (1)
+AI-oriented editor primitives (3)
+    └──required-by──> Data-driven styling (4)   [apply_style_rule]
+    └──required-by──> Geometry Optimization (6)  [merge_to_multi, stitch, simplify]
 
-Toolbar drawing API (3) [PILLAR 3]
-  └─ required by ─> Author-by-chat round-trip (3)
-  └─ required by ─> Accept-reject staging for AI geometry (3)
-  └─ required by ─> Chat tool surface for drawing (3)
+Add/modify/delete intent classification (5)
+    └──required-by──> Diff/preview (5)
+    └──required-by──> Safety levels (5)
+    └──enhanced-by──> Visible binding chip (5)
 
-Accept-reject staging (3) [PILLAR 3]
-  └─ required by ─> Demo reliability (3)
-  └─ required by ─> "Visible but ignorable" for author stance (2/3)
+Visible binding chip (5)  [carried-over UX-rewrite item]
+    └──required-by──> Dataset-aware safe editing as a whole (5)
 
-Classical-utility POI search (2) [PILLAR 2]
-  └─ enables ─> Chat POI query (3) — both call same MCP tool
-  └─ requires ─> ContextVM MCP SearchLocation already shipped ✓
+Capability detection (model /models)
+    └──required-by──> Capability-gated image send (1)
+    └──enhances──> Local-model parity (graceful degrade)
 
-Empty state landing prompt (1) [PILLAR 1]
-  └─ requires ─> Workspace persistence already shipped ✓
-  └─ enhances ─> Anonymous-friendly Browse stance
+Encrypted settings (7) [largely SHIPPED]
+    └──extended-by──> provider config + local addresses persistence
 
-Plain-language labels (2) [PILLAR 2]
-  └─ requires nothing structural — a sweep across the existing UI
-  └─ enhances ─> All classical flows
+Safety levels (5) ──conflicts──> Auto-publish (anti-feature)
+Sandbox network access (anti-feature) ──conflicts──> Sandbox isolation (2)
 ```
 
 ### Dependency Notes
 
-- **stance → everything in Pillar 1**: The enum collapse is the prerequisite for Map Shelf, sidebar rework, routing, and chat binding. Cannot ship any of those without it. This is why `UX_REWRITE.md` §11 puts stance collapse as Phase 1.
-- **Toolbar drawing API → AI authoring**: The API is the seam between chat and map. If chat calls a Zustand action directly, the package boundary leaks; the demo accidentally couples to the store; v2 packaging becomes harder. Design the API now even though packaging is deferred.
-- **Accept-reject staging → demo safety**: Without staging, AI-generated geometry can land directly in the publishable draft. One hallucinated polygon published to the relay is reputational damage. Staging is a firewall, not a nicety.
-- **Classical POI search and chat POI query share an MCP tool**: They are not redundant — the chat path adds query parsing ("cafes with outdoor seating that allow dogs"), the classical path is fast and deterministic. Both reach the same `SearchLocation`/`ReverseLookup` MCP.
-- **Chat detach has no Pillar 3 dependency**: Can ship in Pillar 1 with binding-chip-bound-to-shelf as default. AI-tool-execution features land later without needing UI rework.
-- **Path-based routing must ship before shelf URLs**: Otherwise the URLs the share dialog produces aren't shareable in the new scheme. Phases 2 and 3 in `UX_REWRITE.md` §11 are correct in this order.
+- **Code interpreter requires the clean toolbar drawing API.** The sandbox can only be useful if it has a stable, store-decoupled `draw/editor` surface to call across the postMessage bridge. This is already a PROJECT constraint — v1.1 makes it load-bearing.
+- **Data-driven styling and geometry optimization both require new primitives on the shared command registry.** Build the primitives once; expose to chat tools and sandbox alike.
+- **Safe editing is a stack, not a toggle:** binding chip (visibility) → intent classification (what kind of change) → diff/preview (show it) → safety levels (how much to gate). Each layer depends on the one below.
+- **Upload feeds three downstream features** (code inputs, optimization input, styling-by-attribute on tabular joins) — it is the earliest item that unblocks the most.
+- **Encrypted persistence is mostly done;** treat as a small extension + the NIP-07/remote-signer edge case, not a from-scratch build.
+
+---
 
 ## MVP Definition
 
-The MVP here is **"the project's success criteria"** per PROJECT.md: clean orchestration + classical-utility floor + reliable author-by-chat demo. Each pillar has its own MVP cut.
+### Launch With (v1.1 core)
 
-### Launch With (v1 = this project)
+- [ ] **File upload + parse + structured summary** (CSV/Excel/JSON/GeoJSON/text/image) — unblocks S1, S2, S5; earliest dependency.
+- [ ] **Capability-gated image send** — cheap, prevents a broken-feeling failure mode.
+- [ ] **Clean toolbar drawing API + Web Worker sandbox with map bridge** — the signature differentiator (S1 route, S3 flight path).
+- [ ] **Core AI-oriented primitives:** parametric shapes, buffer, set_attributes_batch, merge_to_multi, simplify-to-budget — minimum set for S3/S4/S5.
+- [ ] **Visible binding chip + add/modify/delete intent + confirm-destructive (level 2 default)** — the trust floor for editing shared data (S4).
+- [ ] **Geometry optimization to a byte budget with before/after size+vertex metrics** — clears S5's size-limit complaint.
+- [ ] **Encrypted settings extension** (provider config + local addresses) — small lift on shipped foundation.
 
-**Pillar 1 — Orchestration (must ship, demo flops without it):**
-- [ ] `stance` enum (`browse | focus | author`) replaces three overlapping mode systems
-- [ ] All six implicit-mode-promotion auto-transitions deleted (per `UX_REWRITE.md` §8)
-- [ ] Map Shelf (top strip) with chips for visibility / isolate / inspect / share / remove
-- [ ] Sidebar single-navigator role: Pinned → Recent → Search; inspect-in-place; no split panels
-- [ ] Path-based routing (`/`, `/c/<naddr>`, `/d/<naddr>`, `/author/<workspace-id>`) with hash redirect shim
-- [ ] Chat detachable + binding chip
-- [ ] Explicit verbs: Open, Pin, Inspect, New, Fork, Propose Edit, Curate, Share, Save as workspace
-- [ ] Browse landing prompt (empty-shelf overlay)
-- [ ] Fix structural bugs: form-doubling, dead state, sidebar's secondary mode system
+### Add After Validation (v1.1.x)
 
-**Pillar 2 — Classical utility floor (must ship as discipline across all work):**
-- [ ] Every flow works without engaging chat or revealing protocol
-- [ ] Plain-language labels replace kind/relay/pubkey/naddr in classical paths
-- [ ] Persistent address search affordance (geocoder via ContextVM `SearchLocation`)
-- [ ] Non-AI POI search form (category + radius) that hits the same MCP as the chat path
-- [ ] Sidebar pagination unbounded (20-item ceiling removed)
-- [ ] Mobile chrome doesn't eat the map; shelf collapses to sheet
-- [ ] Anonymous read path verified end-to-end with no auth prompts
-
-**Pillar 3 — Demo lands (must ship to validate the project as more than wonky-fix):**
-- [ ] Toolbar drawing API designed as future package export, callable from chat tool execution and direct UI on equivalent paths
-- [ ] Chat tool surface: invoke draw-point / draw-line / draw-polygon via tool calls
-- [ ] Chat tool surface: read what's on the map (bbox query, feature list)
-- [ ] Chat tool surface: POI query via MCP (single-hop only)
-- [ ] AI-pending visual state for AI-drawn geometry (distinct stroke, "AI" badge)
-- [ ] Accept-per-feature and Accept-all controls; reject removes from pending layer
-- [ ] Streaming feedback during tool execution ("AI is drawing now")
-- [ ] 60-second demo script runs end-to-end without manual intervention
-- [ ] Demo scenario chosen and rehearsed (recommended: "draw a hiking trail from Hallstatt to Dachstein" — concrete, well-known geography, single-hop)
-
-### Add After Validation (v1.x)
-
-- [ ] **Multi-item shelf URLs** (`/shelf?i=a&i=b`) — add when single-chip share proves shareable working sets are wanted
-- [ ] **OG previews for shared links** — needs SSR, separate effort
-- [ ] **Refine-by-chat for AI-drawn geometry** ("make the trail go through the saddle") — depends on accept-reject staging being solid
-- [ ] **Voice input for chat** — when mobile usage justifies STT cost
-- [ ] **AI commit-message-equivalent for publishes** ("Trail from Hallstatt to Dachstein, 14km, moderate") — small but improves social discoverability
-- [ ] **"Explain this dataset" AI summarization** — when inspect-in-place is stable, surface a "summarize" button that runs on the inspected dataset's content + comments
+- [ ] **Visual before/after overlay for optimization** — trigger: users distrust the metrics-only report.
+- [ ] **Full diff/preview with on-map highlight of pending changes** — trigger: confirm-destructive proves too coarse.
+- [ ] **Safety levels 1 and 3 (preview-all / trust+undo)** — trigger: power users find level 2 friction-y or cautious users want more gating.
+- [ ] **Per-dataset style persistence travelling with the published event** — trigger: viewers should see the AI's styling, not just the author.
+- [ ] **dedup / stitch_microgaps / validate_geometry** — trigger: real messy-import datasets beyond the West Pacific Trail demo.
 
 ### Future Consideration (v2+)
 
-- [ ] **Compound routing scenarios** — "museum → cafe → park" routing + POI filter + preference modeling. Cool but compounds three hard problems.
-- [ ] **AI-authored edit proposals** — AI generates a kind 37519 against someone else's dataset. Conflates AI-authoring + cross-author review.
-- [ ] **AI-curated discovery feeds** — "show me trending hiking datasets in Austria." Data-starved today.
-- [ ] **AI-generated map styling/themes** — out of design-scope per PROJECT.md.
-- [ ] **Real-time multi-user co-editing** — massive scope; Nostr doesn't natively support presence.
-- [ ] **Compound chat sessions per stance** — switching stance switches conversation. Defer until single-session binding is proven.
-- [ ] **Nostr-scrolls / WASM tool execution** — aspirational per PROJECT.md Out of Scope.
-- [ ] **Mapnolia consumer extraction** — defer per PROJECT.md.
+- [ ] **Nostr-scrolls / WASM authoring (NIP-5C)** — explicitly deferred in PROJECT; builds on the sandbox.
+- [ ] **Compound routing scenarios** — deferred in PROJECT.
+- [ ] **Tabular join → geocode → choropleth** (Felt-style geomatching) — natural extension of CSV ingest, but a milestone of its own.
 
 ## Feature Prioritization Matrix
 
-| Feature | User Value | Implementation Cost | Priority | Pillar | Rationale |
-|---|---|---|---|---|---|
-| stance enum collapse | HIGH | HIGH | **P1** | 1 | Prerequisite for everything in Pillar 1. Maintainer can't dogfood until this lands. |
-| Delete implicit mode promotions | HIGH | MEDIUM | **P1** | 1 | Source of most current bugs. Concrete, well-mapped (six call sites per `UX_REWRITE.md` §8). |
-| Map Shelf | HIGH | HIGH | **P1** | 1 | The signature structural change. Differentiator. |
-| Path-based routing | HIGH | MEDIUM | **P1** | 1 | Foundation for share URLs and deep-linking. Required for Pillar 3 demo to be shareable. |
-| Chat detach + binding chip | HIGH | MEDIUM | **P1** | 1 | Resolves "chat talks about wrong thing." Differentiator. |
-| Sidebar single-navigator role | MEDIUM | MEDIUM | **P1** | 1 | Resolves info density. Inspect-in-place. |
-| Explicit verbs | HIGH | LOW | **P1** | 1 | Mostly a labeling/wiring change once stance lands. |
-| Plain-language labels sweep | HIGH | LOW | **P1** | 2 | Cheap, high-impact for classical floor. Sweep, not refactor. |
-| Persistent search affordance | HIGH | LOW | **P1** | 2 | Table stakes. Already plumbed via `SearchLocation` MCP. |
-| Non-AI POI search form | HIGH | MEDIUM | **P1** | 2 | Classical floor for "find me X." Shares MCP with chat path. |
-| Browse landing prompt | MEDIUM | LOW | **P1** | 1 | Cheap. Required for first-open not to feel broken. |
-| Toolbar drawing API design | HIGH | HIGH | **P1** | 3 | The structural bet. Cannot retrofit without rework. Design now, package later. |
-| Chat → draw tool execution | HIGH | MEDIUM | **P1** | 3 | The demo verb. Requires toolbar API. |
-| AI-pending geometry layer | HIGH | MEDIUM | **P1** | 3 | The accept-reject substrate. Required for demo safety. |
-| Accept / reject controls | HIGH | LOW | **P1** | 3 | UI on top of pending layer. Cheap once the layer exists. |
-| Chat → map awareness (bbox, list) | MEDIUM | MEDIUM | **P1** | 3 | Second demo verb. Required for "what's in this bbox?" |
-| Chat → POI query (single-hop) | MEDIUM | LOW | **P1** | 3 | Already mostly plumbed via MCP. Wire into chat tool surface. |
-| Streaming "AI is doing X" feedback | HIGH | MEDIUM | **P1** | 3 | Without this the demo feels broken. |
-| 60-second demo rehearsal | HIGH | LOW | **P1** | 3 | Discipline, not engineering. Validates that the rest works together. |
-| Workspace "Save as" + "Resume" surfacing | MEDIUM | LOW | **P1** | 1 | Already plumbed. Surface in landing prompt + shelf header. |
-| Single-chip share URL with view-state option | MEDIUM | LOW | **P1** | 1 | Depends on path-based routing. Smart default (no `?v=`) is the differentiator. |
-| Mobile shelf sheet | HIGH | MEDIUM | **P1** | 1/2 | Required for mobile usability. |
-| AI commit message for publish | LOW | LOW | P2 | 3 | Nice-to-have. Add after demo proves stable. |
-| Refine-by-chat for AI geometry | MEDIUM | HIGH | P2 | 3 | Depends on stable accept-reject. Adds conversational depth post-MVP. |
-| "Explain this dataset" AI summary | MEDIUM | MEDIUM | P2 | 3 | Inspect-in-place enables it. Cheap once stance is clean. |
-| Multi-item shelf URLs | LOW | MEDIUM | P3 | 1 | Defer per `UX_REWRITE.md` §9. |
-| Voice input | LOW | HIGH | P3 | 3 | Defer. |
-| Compound routing | LOW | HIGH | P3 | — | Out of scope. |
-| AI-authored proposals | LOW | HIGH | P3 | — | v2. |
-| AI map styling | LOW | HIGH | P3 | — | Out of design scope. |
-| Real-time co-editing | LOW | HIGH | P3 | — | v2. |
+| Feature | User Value | Implementation Cost | Priority |
+|---------|------------|---------------------|----------|
+| File upload + parse + summary (1) | HIGH | MEDIUM | P1 |
+| Capability-gated image send (1) | MEDIUM | LOW | P1 |
+| Sandbox + clean drawing API bridge (2) | HIGH | HIGH | P1 |
+| Core AI-oriented primitives (3) | HIGH | MEDIUM | P1 |
+| Visible binding chip (5) | HIGH | MEDIUM | P1 |
+| Intent + confirm-destructive default (5) | HIGH | MEDIUM-HIGH | P1 |
+| Optimization-to-budget + metrics (6) | HIGH | MEDIUM-HIGH | P1 |
+| Encrypted settings extension (7) | MEDIUM | LOW | P1 |
+| Data-driven styling by attribute (4) | HIGH | MEDIUM-HIGH | P1/P2 |
+| Per-dataset style persistence (4) | MEDIUM | MEDIUM | P2 |
+| Full diff/preview on-map (5) | HIGH | HIGH | P2 |
+| Safety levels 1 & 3 (5) | MEDIUM | MEDIUM | P2 |
+| Visual before/after overlay (6) | MEDIUM | MEDIUM-HIGH | P2 |
+| dedup / stitch / validate (3,5) | MEDIUM | MEDIUM-HIGH | P2 |
 
-**Priority key:**
-- **P1**: Must have for this project (the v1 scope per PROJECT.md Active)
-- **P2**: Add after the demo lands cleanly (v1.x)
-- **P3**: Future consideration (v2+ or out of scope)
+**Priority key:** P1 must-have for the v1.1 demo/value; P2 should-have post-validation; P3 future.
 
 ## Competitor Feature Analysis
 
-For each major capability, what do the canonical players ship vs Earthly's approach. Specific products only; no vague "industry standards."
-
-| Capability | Felt (SaaS, Enterprise AI) | Mapbox (MapGPT + MCP DevKit) | Google Maps (Ask Maps, 2026) | ChatGPT Atlas | QGIS AI plugins (GeoGPT, QGISGPT) | Earthly's approach |
-|---|---|---|---|---|---|---|
-| **Author-by-chat (draw geometry)** | No — Felt AI generates SQL/popups/extension code, not geometry | Partial — MCP DevKit generates GeoJSON via LLM for the developer to import | No — purely query/discovery | No — search results only, no authoring | Partial — generates Python that calls QGIS APIs; geometry created as side effect | **Yes, first-class** — chat invokes same drawing API as the toolbar; geometry lands in AI-pending layer |
-| **Analyze-the-map** | Yes — AI SQL queries against layer data ("stores within 5mi of competitors") | Indirect via MapGPT conversations | Yes — Ask Maps with multi-step context | Yes via "browser memories" of viewed pages | Yes — LLM has read access to layer attributes | Yes — chat tool surface reads features in bbox, lists what's on the map (Pillar 3 secondary) |
-| **POI query ("find X")** | Yes via SQL — "show me hospitals near schools" | Yes — MapGPT is built around this | Yes — flagship feature ("phone is dying, where can I charge without coffee line") | Yes — sidebar gives map results | Yes — generates Overpass QL | **Yes — single-hop, via MCP `SearchLocation`. Classical form + chat path share the same tool.** |
-| **Compound routing** | No | Partial — MapGPT does in-vehicle multi-stop | Yes — "Grand Canyon + Horseshoe Bend + stops along the way" | Indirect | No | **Explicitly out of scope (v2)** |
-| **Accept/reject for AI output** | Implicit — review generated code, click Save | Implicit — DevKit shows preview link; developer imports manually | None — Ask Maps shows results immediately | None — search results are live | None — Python executes directly | **Yes, first-class** — AI-pending visual layer, per-feature accept/reject (Cursor-inspired) |
-| **Chat scope binding** | Implicit (current map) | Implicit (vehicle context, current location) | Implicit (current map view) | Implicit (current tab + memory) | Implicit (current QGIS project) | **Explicit binding chip** showing what chat is bound to; user can override (`UX_REWRITE.md` §6) |
-| **Chat detach / dismiss** | Enterprise UI sidebar | In-vehicle voice + screen; not detachable | Sidebar tab | Sidebar with toggle | Dockable panel | **Detachable floating or docked, user choice** |
-| **Publish target** | Felt SaaS | Mapbox styles / customer's app | Google ecosystem | Web (read-only browsing) | Local files + plugin-specific | **Decentralized Nostr (kind 37515)** — open, federated, no vendor lock |
-| **Non-AI fallback** | All Felt non-AI features available without AI subscription | MapGPT optional; classical Mapbox SDK is the default | "Classic" Maps search still works | Auto-mode switches to Google Search | Plain QGIS works | **First-class — classical-utility-as-discipline. Every AI flow has a non-AI twin.** |
-| **Empty / first-open** | Recent maps list | N/A (in-vehicle) | Recent + saved places + recommendations | "Ask anything" prompt | Plain QGIS canvas | **Browse landing prompt** — pick city / open last workspace / browse popular |
-| **Sharing model** | Workspace link / public-link with view-state | Per-customer integration | Public Maps URL with place ID | URL of search session | Local QGIS project file | **Path-based `/c/<naddr>` and `/d/<naddr>` with optional view-state. Defaults to bbox-fit.** |
-| **Mobile** | Web-responsive | Native automotive | Native mobile flagship | Desktop only (macOS) → mobile coming | QGIS desktop only | **Mobile-first responsive** — shelf collapses to sheet |
-| **Auth / login required** | For editing | Customer-side | Optional | Required (ChatGPT account) | None | **Optional for read; required for publish** |
-
-## Demo Scenario Recommendation
-
-PROJECT.md mandates a 60-second author-by-chat demo. Based on the research, the scenario should:
-
-1. **Be geographically concrete and verifiable** — pick a real place users can sanity-check (Hallstatt-to-Dachstein passes this; "a trail in the mountains" doesn't).
-2. **Be single-hop, not compound** — one geometry-generating intent, not a routing problem.
-3. **Surface accept-reject visibly** — the AI's geometry must land in a state the demo viewer can see is "pending."
-4. **End in a real Nostr publish** — the differentiator (decentralized publish) only lands if the demo shows it.
-
-**Recommended script:**
-1. (0–5s) Open Earthly. Land on Browse with the landing prompt visible. Click "New dataset" (or activate via "/").
-2. (5–10s) Author stance entered. Chat already shows in the floating panel with binding chip "this new draft."
-3. (10–25s) Type: "Draw a hiking trail from Hallstatt to the Dachstein cable car." Streaming feedback shows "thinking" → "drawing line" → "added 17 vertices." A dashed line with "AI" badge appears on the map.
-4. (25–40s) Click "Accept" on the AI-pending chip. Line becomes solid (committed to draft). Click an attribute field, type a name, hit Publish.
-5. (40–55s) Publish modal shows "Publishing to Nostr…" in plain language. Success state shows the URL `/d/<naddr>`.
-6. (55–60s) Copy link, paste in new tab — recipient lands on bbox-fit of the trail.
-
-This scenario exercises: stance transition (Browse → Author), classical drawing surface (toolbar present, just not actively used), chat tool execution (the draw call), AI-pending layer (visual distinction), accept-reject, decentralized publish, path-based share URL, recipient view.
-
-What it deliberately doesn't exercise: compound routing, POI query, edit proposals, Nostr discovery. Those have their own validation paths; the demo stays narrow.
+| Feature | ChatGPT / Claude (code interp + upload) | Felt / Atlas AI maps | LM Studio js-sandbox | Our Approach |
+|---------|------------------------------------------|----------------------|----------------------|--------------|
+| Code execution | Cloud Python VM, full libs, plots inline | n/a (UI-driven AI) | Client JS in sandbox, no network | **Client Web Worker JS + curated map API**, errors loop back |
+| File ingest | "+"/drag-drop, CSV/Excel/PDF/text, "loaded N rows × M cols", Pandas | "upload anything", auto-geocode tabular → points/polygons | n/a | Parse-everything client-side, structured summary to user+model; geocode via existing OSM tools |
+| Styling | n/a (charts) | Attribute-driven color/size, classification methods, UI | n/a | **One-sentence attribute styling**, AI-applied, persisted per dataset |
+| Destructive-edit safety | Sandbox is disposable; no shared-data risk | Manual UI edits (human-gated) | n/a | **Binding chip + intent + diff + 3 safety levels**; never auto-publish |
+| Optimization | n/a | n/a (handles big data server-side) | n/a | **Budget-targeted simplify+merge+stitch** with before/after metrics + visual diff |
+| Key persistence | Account-based, server-side | Account-based | Local app config | **nsec/signer-encrypted localStorage, per-pubkey** (shipped) |
 
 ## Sources
 
-**Felt:**
-- [Felt AI overview](https://felt.com/platform/felt-ai) — HIGH confidence (official)
-- [Felt AI extensions help](https://help.felt.com/felt-ai/ai-extensions) — HIGH
-- [Getting started with Felt AI](https://help.felt.com/felt-ai/getting-started-with-felt-ai) — HIGH
-- [Felt blog: build spatial applications with a prompt](https://felt.com/blog/felt-ai-build-spatial-applications-with-just-a-prompt) — HIGH
-- [Felt Workspaces blog](https://www.felt.com/blog/getting-the-most-out-of-workspaces) — HIGH
-- [Felt: editing layers](https://help.felt.com/layers/editing-layers) — HIGH
-- [Felt 20 announcement (Informed Infrastructure)](https://informedinfrastructure.com/post/introducing-felt-20-the-most-powerful-tool-for-professional-map-making) — MEDIUM (industry press)
-
-**Mapbox:**
-- [Mapbox MapGPT product page](https://www.mapbox.com/mapgpt) — HIGH
-- [Mapbox MCP DevKit blog](https://www.mapbox.com/blog/the-mapbox-mcp-devkit-equip-ai-coding-tools-with-geospatial-skills-for-mapbox-development) — HIGH
-- [Mapbox Location Agent (Conversational Maps blog)](https://www.mapbox.com/blog/maps-turn-conversational) — HIGH
-- [Mapbox Location AI](https://www.mapbox.com/location-ai) — HIGH
-- [Mapbox MapGPT debut press release](https://www.mapbox.com/press-releases/mapbox-debuts-mapgpt-allowing-automakers-to-take-control-of-their-voice-assistants) — HIGH
-
-**Google Maps (2026):**
-- [Google blog: Ask Maps and Immersive Navigation](https://blog.google/products-and-platforms/products/maps/ask-maps-immersive-navigation/) — HIGH (official)
-- [TechCrunch: Google Maps AI Ask Maps feature](https://techcrunch.com/2026/03/12/google-maps-is-getting-an-ai-ask-maps-feature-and-upgraded-immersive-navigation/) — MEDIUM (press)
-- [Search Engine Journal: Ask Maps conversational search](https://www.searchenginejournal.com/google-maps-launches-ai-conversational-search-with-ask-maps/569585/) — MEDIUM
-- [Google Maps Platform: agentic experiences](https://mapsplatform.google.com/resources/blog/powering-the-next-era-of-agentic-experiences-announcing-new-grounding-capabilities/) — HIGH
-
-**ChatGPT Atlas:**
-- [OpenAI: Introducing ChatGPT Atlas](https://openai.com/index/introducing-chatgpt-atlas/) — HIGH
-- [ChatGPT Atlas product page](https://chatgpt.com/atlas/) — HIGH
-- [ChatGPT Atlas Wikipedia](https://en.wikipedia.org/wiki/ChatGPT_Atlas) — MEDIUM
-- [ChatGPT Atlas release notes](https://help.openai.com/en/articles/12591856-chatgpt-atlas-release-notes) — HIGH
-
-**OSM / Overpass / natural-language POI:**
-- [OSM-AI-Map (GitHub, Steve Attewell)](https://github.com/steveattewell/osm-ai-map) — MEDIUM (community project)
-- [ispatialtec: generative-AI-driven spatial data extraction](https://ispatialtec.com/blogs/generative-ai-driven-spatial-data-extraction-in-openstreetmap-using-natural-language/) — MEDIUM
-- [OpenCage MCP tutorial](https://opencagedata.com/tutorials/geocode-inside-an-llm-via-mcp) — HIGH
-
-**QGIS / ArcGIS:**
-- [QGIS GeoGPT AI Agent](https://plugins.qgis.org/plugins/qgis_ai_agent/) — HIGH
-- [QGISGPT plugin](https://plugins.qgis.org/plugins/qgisgpt_plugin/) — HIGH
-- [Esri: what's new in AI Assistants (Oct 2025)](https://www.esri.com/arcgis-blog/products/arcgis-online/geoai/whats-new-in-ai-assistants-october-2025) — HIGH
-- [ArcGIS Online: configure AI assistants](https://doc.arcgis.com/en/arcgis-online/administer/configure-assistants.htm) — HIGH
-
-**Hiking / route planning:**
-- [TrailGPT (HiiKER)](https://hiiker.app/trailgpt) — MEDIUM
-- [Backpacker: I asked AI to plan a hike](https://www.backpacker.com/stories/ai-hike-planning/?scope=anon) — MEDIUM (journalism)
-
-**Accept/reject UX patterns:**
-- [Cursor forum: per-change accept inline diff thread](https://forum.cursor.com/t/bring-back-per-change-apply-inline-diff-review-you-re-throwing-away-your-best-ux-advantage/160856) — MEDIUM (community)
-- [The Shape of AI — UX patterns catalog](https://www.shapeof.ai/) — MEDIUM
-- [CMSWire: 10 UX patterns improving AI accuracy and trust](https://www.cmswire.com/digital-experience/10-ux-design-patterns-that-improve-ai-accuracy-and-customer-trust/) — MEDIUM
-- [Proxi: prompt-to-map review workflow](https://www.proxi.co/blog/creating-maps-with-ai-proxi-prompt-to-map) — MEDIUM
-
-**Research papers:**
-- [IMAIA: Interactive Maps AI Assistant (arXiv)](https://arxiv.org/html/2507.06993v4) — HIGH (peer-reviewed)
-- [MapStory: LLM-Powered Text-Driven Map Animation (arXiv)](https://arxiv.org/html/2505.21966v1) — HIGH
-- [Development Seed: Language Interfaces for Maps](https://developmentseed.org/blog/2025-01-29-llms/) — MEDIUM
-- [Sketch2Terrain (CHI 2025)](https://dl.acm.org/doi/10.1145/3706598.3713467) — HIGH
-
-**Deep linking / sharing:**
-- [Mappedin deep linking docs](https://developer.mappedin.com/docs/embed-a-map/deep-linking) — HIGH
-- [Google for Developers: app deep links 2025](https://developers.google.com/search/blog/2025/05/app-deep-links) — HIGH
+- ChatGPT Code Interpreter behavior (inline output, self-correct on errors, prior code+output retained in context): [Hatica](https://www.hatica.io/blog/chatgpt-code-interpreter-feature/), [DataCamp](https://www.datacamp.com/tutorial/how-to-use-chat-gpt-code-interpreter), [365 Data Science](https://365datascience.com/trending/chatgpt-code-interpreter-what-it-is-and-how-it-works/) — MEDIUM
+- ChatGPT file upload UX ("+"/drag-drop desktop-only, CSV/Excel/PDF/text, "loaded N rows × M cols", Pandas parse, 512MB limit, premium-gated): [datastudios.org](https://www.datastudios.org/post/chatgpt-spreadsheet-uploading-excel-and-csv-support-data-analysis-features-formula-interpretation), [Definite](https://www.definite.app/blog/analyzing-data-in-chatgpt), [systoolsgroup](https://www.systoolsgroup.com/how-to/use-chatgpt-for-csv-file-analysis/) — MEDIUM
+- Felt AI mapping (upload anything → auto-geocode, attribute-driven color/size, classification methods, AI extensions): [Felt AI](https://felt.com/platform/felt-ai), [Felt 2.0 launch](https://www.businesswire.com/news/home/20231110849445/en/Introducing-Felt-2.0-The-Most-Powerful-Tool-for-Professional-Map-Making), [geomatching/choropleths](https://www.felt.com/blog/geomatching-geocoding-choropleths), [Felt vector layer styling](https://help.felt.com/layers/styling/vector-layers) — MEDIUM
+- Agent edit-safety UX (diff preview for destructive actions, per-call→autopilot permission tiers, secondary confirm on delete/publish, undo window, agent-plans-as-PR): [AI Agent UX Principles](https://medium.com/techacc/ai-agent-ux-design-principles-223da9f4d7f2), [VS Code agent trust & safety](https://code.visualstudio.com/docs/agents/concepts/trust-and-safety), [Preview Mode First / plan diff](https://dev.to/crisiscoresystems/preview-mode-first-agent-plans-as-prs-plan-diff-invariants-4ikd) — MEDIUM-HIGH (cross-corroborated)
+- Geometry simplification (Douglas-Peucker, 40-60% size cut, tolerance tradeoff, spikes at high simplification, real-time preview + before/after coordinate/size metrics): [mapshaper REFERENCE](https://github.com/mbloch/mapshaper/blob/master/REFERENCE.md), [QuickMapTools simplify](https://www.quickmaptools.com/simplify-geojson), [Map Library optimization](https://www.maplibrary.org/10019/7-ways-to-optimize-map-file-sizes-for-web-use/) — MEDIUM-HIGH
+- Browser-based LLM-code sandboxing (sandboxed iframe locked-down, Web Worker with fresh terminable worker, no unauthorized network, CSP inheritance): [the browser is the sandbox](https://aifoc.us/the-browser-is-the-sandbox/), [Amir's code sandboxes for LLM](https://amirmalik.net/2025/03/07/code-sandboxes-for-llm-ai-agents) — MEDIUM
+- Earthly internal grounding (existing surface, NOT re-proposed): `src/features/chat/ARCHITECTURE.md`, `src/features/chat/tools/definitions.ts`, `src/features/chat/settingsStorage.ts`, `src/features/geo-editor/commands.ts`, `.planning/PROJECT.md` — HIGH
 
 ---
-*Feature research for: AI-augmented collaborative map editor on top of a Nostr GeoJSON publishing platform*
-*Researched: 2026-05-26*
+*Feature research for: AI chat data-ingest/transform/safe-authoring workbench (Earthly v1.1)*
+*Researched: 2026-06-16*

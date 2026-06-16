@@ -1,175 +1,142 @@
-# Stack Research — AI-Driven Collaborative Mapping (Pillar 3 demo)
+# Stack Research
 
-**Domain:** LLM-driven map authoring on top of an existing MapLibre + applesauce + ContextVM/MCP app
-**Researched:** 2026-05-26
-**Confidence:** HIGH (most recommendations are amendments to the existing stack, verified against the current codebase)
+**Domain:** AI chat data-ingest + sandboxed code interpreter + geometry optimization for a Bun/React 19/MapLibre browser app (Earthly v1.1)
+**Researched:** 2026-06-16
+**Confidence:** HIGH (versions verified against npm registry + official docs; capability-detection and signer constraints verified against Ollama API docs and NIP specs)
 
----
-
-## TL;DR
-
-**Earthly is not greenfield.** The Pillar 3 plumbing already exists and is more complete than a typical "AI mapping" research target:
-
-- `src/features/chat/routstr.ts` — OpenAI-compatible streaming + tool-call transport, payment-aware (Cashu/RIP-01)
-- `src/features/chat/tools/definitions.ts` (796 lines) — 20+ tools already defined in OpenAI function-calling shape, including `write_geojson_to_editor`, `add_feature_to_editor`, `query_osm_*`, `valhalla_route`, `valhalla_isochrone`, `capture_map_snapshot`, `search_location`, `reverse_lookup`
-- `contextvm/server.ts` — ContextVM MCP server running Nominatim + Overpass + Valhalla + Wikipedia + web search + PMTiles tools over Nostr transport
-- `src/features/chat/tools/context.ts` — `getMapContextSnapshot()` + `createMapContextSystemMessage()` already inject viewport, selection, feature counts, mode into every prompt
-- `src/features/chat/tools/helpers.ts` (1322 lines) — geometry baking, dedup, content compaction for prompts
-
-**The work for Pillar 3 is not "pick a stack." The work is:**
-
-1. **Tighten the tool surface** (Zod-validated schemas, error feedback loops, repair retries)
-2. **Add an explicit accept/reject preview layer** between tool-call → geometry-on-map → committed (the UX rewrite's "explicit verbs" applied to AI output)
-3. **Harden the system prompt** with locked spatial-reasoning rules (use map context, never invent coordinates from training data)
-4. **Decide whether to keep raw OpenAI-format tool schemas or upgrade to Zod-derived MCP-style schemas** to unify the editor's local tools and the remote ContextVM MCP tools
-
-This document is prescriptive about each of those decisions. **What NOT to use** sections call out the most tempting wrong turns (Vercel AI SDK swap-in, custom Anthropic SDK, abandoning Routstr).
+> Scope note: the existing stack (Bun, React 19, TS strict, MapLibre GL v5, Tailwind v4, Radix, applesauce-core, Zustand, the OpenAI-compatible chat client) is **fixed** and not re-evaluated. Everything below is **additive** for the six v1.1 capabilities. Two items below are **already partially present** in the repo — flagged inline so the roadmap amends rather than rebuilds.
 
 ---
 
 ## Recommended Stack
 
-### Core Technologies (keep + amend)
+### Core Technologies (new dependencies to add)
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| **Routstr (existing)** | `src/features/chat/routstr.ts` | OpenAI-compatible streaming chat completions over Nostr + Cashu | Drop-in OpenAI SDK shape, model-agnostic, micropayments-native, aligns with the "Nostr is plumbing" doctrine. Replacing this would discard the wallet/payment surface and the model selection UI. |
-| **`@modelcontextprotocol/sdk`** | `1.29.0` (current) | MCP server + client primitives used by `contextvm/server.ts` | Already wired. v1.29 is the current stable; v2 stable target is Q1 2026 but v1.x receives bug fixes for 6+ months after v2 ships. **Do not upgrade speculatively.** |
-| **`@contextvm/sdk`** | `^0.9.1` (current) | Nostr transport for MCP — server & client | This is the bridge that makes the MCP server reachable from the browser via a relay rather than HTTP. Switching to plain HTTP-MCP would lose the "decentralizable" property and require a CORS/proxy story. |
-| **`zod`** | `^3.23.x` (already transitive via `@contextvm/sdk`; pin it directly) | Schema definition + runtime validation for tool inputs *and* outputs | Promote zod from transitive to direct dependency. Use it to define editor-side tool argument schemas; auto-convert to OpenAI function-calling JSON via `zod-to-json-schema` or zod's built-in `.toJSONSchema()` (v4). Allows tool definitions and runtime validation to share a single source of truth. See § Tool-schema unification. |
-| **MapLibre GL** | `5.24.0` (current) | Map rendering + the editor's geometry layer | Already locked. Mention here only because the "preview layer" pattern uses MapLibre's source/layer system — not a fork or alt-renderer. |
-| **Turf.js** | `7.3.5` (current) | Geometry validation and repair on LLM-produced GeoJSON | Already present. Use `bbox`, `booleanValid`, `cleanCoords`, `simplify`, `nearestPointOnLine`, `truncate` for the post-tool-call validator. |
-| **AJV** | `^8.20.0` (current) | JSON Schema validation for full GeoJSON FeatureCollections returned by tools | Already present for map context validation. Reuse for GeoJSON RFC 7946 validation of LLM output. The `@yaga/geojson-schema` JSON Schema files plug straight into AJV. |
+| **papaparse** | `5.5.3` (MIT) | CSV / plain-delimited text parsing in browser | De-facto standard, zero-dep, streaming + worker support, robust type/delimiter/header inference. ~258 KB unpacked, ~20 KB min+gz. Handles the "ugly CSV" story (US-1) including quoted fields, BOM, and ragged rows. |
+| **xlsx (SheetJS CE)** | `0.20.3` via **SheetJS CDN tarball**, NOT npm | Excel `.xlsx`/`.xls`/`.ods` parsing | Only viable full-featured spreadsheet reader for browser. **The npm `xlsx` is stale at `0.18.5` (2022) and carries a known prototype-pollution advisory** — install the current `0.20.3` from `https://cdn.sheetjs.com` via a package.json dependency pin (see Installation). Use `read` + `sheet_to_json`. |
+| **quickjs-emscripten** | `0.32.0` (MIT) | Client-side JS sandbox for the code interpreter | WASM-compiled QuickJS (vendored bellard/quickjs 2025-09 build). True isolation: no DOM, no `fetch`, no prototype-chain escape into host realm. Host exposes a *curated* API by explicitly injecting functions — exactly the toolbar/drawing-API requirement. Memory + interrupt (cycle) limits prevent runaway generated code. |
+| **MapLibre GL JS** | `5.24.0` (already installed) | Data-driven styling | No new dep. Use style-spec **expressions** (`get`/`match`/`interpolate`/`step`/`case`) in paint properties. Fully supported in v5. |
+| **@turf/turf** | `7.3.5` (already installed) | Geometry simplify / merge / clean | Already a dependency. `simplify` (Douglas-Peucker, with `highQuality` Visvalingam-ish option), `combine` (LineString→MultiLineString), `cleanCoords`, `truncate`. Covers the 12 MB→900 KB story. |
 
-### Supporting Libraries (add)
+### Supporting Libraries
 
 | Library | Version | Purpose | When to Use |
 |---------|---------|---------|-------------|
-| **`zod-to-json-schema`** | `^3.23.x` | Convert Zod schemas to OpenAI `function.parameters` JSON Schema | Use to make Zod the **canonical** tool definition. Editor tools (`src/features/chat/tools/definitions.ts`) become Zod schemas; OpenAI-format is derived at module init. Replaces 800 lines of hand-written JSON Schema. |
-| **`@yaga/geojson-schema`** | `^1.x` (latest stable) | RFC 7946 JSON Schema for GeoJSON validation | Validate LLM-produced GeoJSON in `executeToolCall` before committing to editor. Surface failures back to the model as a tool error message (repair loop). |
-| **`best-effort-json-parser`** *or* **`partial-json`** | `^1.x` / latest | Parse partial JSON during tool-call argument streaming | Routstr streams `tool_calls[].function.arguments` as token deltas. Use this to render an in-flight preview ("Claude is drawing a polygon with 4/~6 vertices…") instead of waiting for the full argument string. Pick `partial-json` if the project wants more aggressive recovery; `best-effort-json-parser` for minimal surface. |
-| **`overpass-ts`** | `^1.x` (latest) | Typed Overpass QL client | Earthly's Overpass calls go through the MCP server today (`contextvm/server.ts:tools/overpass.ts`). If/when adding browser-side OSM queries that *don't* need the MCP server's chunking, `overpass-ts` gives a clean TS API. Not required for v1. |
+| **@turf/simplify** (scoped) | from turf `7.x` | Tree-shakeable simplify only | Already present transitively in `node_modules/@turf/`. Import the scoped package (`@turf/simplify`) in worker/sandbox code instead of `@turf/turf` to avoid pulling the whole 600+ KB turf barrel into a bundle. |
+| **simplify-js** | `1.2.4` (BSD-2) | Pure point-array Douglas-Peucker | Optional micro-dependency (~1 KB). Only if you need to simplify raw `[x,y]` arrays *outside* GeoJSON without turf overhead. Turf's `simplify` is preferred for consistency; do not add unless profiling shows turf is too heavy in the worker. |
+| **topojson-server / topojson-client** | `3.x` (already installed) | Topology-preserving simplification + shared-edge dedup | **Already in `node_modules`.** This is the right tool for the microgap-stitch / merge problem when polylines share endpoints: `topology()` → `presimplify()`/`simplify()` → `merge()` collapses shared arcs and removes near-duplicate vertices far better than per-feature Douglas-Peucker. Recommend topojson for the merge-to-multi + microgap step, turf `simplify` for per-line vertex reduction. |
+| **applesauce-signers `ISigner`** | `^6 / next` (already installed) | NIP-44 encrypt-to-self for settings at rest | **Already used** in `src/features/chat/settingsStorage.ts`. No new dep. `signer.nip44.encrypt(ownPubkey, plaintext)` works for NIP-07 *and* NIP-46 remote signers without exposing the raw nsec. |
+| **nostr-tools/nip49** | `2.23.5` (Unlicense) | `ncryptsec` password-encrypted key (fallback only) | Optional. Only relevant for the narrow case of encrypting a *locally-held* nsec with a user password (scrypt + XChaCha20-Poly1305). NOT the primary path — see "What NOT to Use". |
 
 ### Development Tools
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| Bun test runner | Tool schema → JSON Schema round-trip tests | Pin a test that asserts Zod-derived schemas produce identical OpenAI tool definitions to the current hand-written ones during the migration. |
-| Bun snapshot tests | System prompt content stability | The system prompt in `tools/context.ts:114-138` is load-bearing. Snapshot it so accidental edits are visible in PR review. |
-| Storybook? **No.** | UI development | Project already declines this kind of overhead. Build the preview affordance directly in the running app. |
-
----
-
-## What Already Exists — Don't Rebuild
-
-This block exists because the most common research failure mode here would be recommending a parallel stack (Vercel AI SDK, LangChain, an "agent framework") when the existing surface is more aligned with the project's constraints.
-
-| Concern | Existing implementation | Status |
-|---------|-------------------------|--------|
-| LLM transport | `src/features/chat/routstr.ts` — OpenAI Chat Completions shape, SSE streaming, tool calling | Production. Keep. |
-| Tool execution dispatcher | `src/features/chat/tools/execute.ts` (821 lines) | Keep. Add validation + repair layer. |
-| Editor tool bridge | `src/features/geo-editor/commands.ts` via `editorCommandTools` | Keep. Migrate schemas to Zod. |
-| Map context for prompt | `src/features/chat/tools/context.ts` | Keep. Add explicit "coordinates must come from tools, not memory" guard rule. |
-| MCP server | `contextvm/server.ts` running over Nostr | Keep. Adding more tools here is the lever for "find me a cafe with outdoor seating" — the Overpass tool there already supports the `concept` argument that maps semantic intent to OSM tag families. |
-| Nominatim / Overpass / Valhalla | All present in `contextvm/tools/` | Keep. v1 has `query_osm_nearby` with `filters: {"amenity":"cafe","outdoor_seating":"yes"}` shape — verified by reading the system prompt and tool definitions. |
-| Map snapshot for vision models | `capture_map_snapshot` tool + `CachedMapSnapshot` | Keep. Underused. Pillar 3 demo should exercise this for "what's on the map right now?". |
-| Streaming tool-call parsing | Partial in `ChatPanel.tsx` | Augment with `best-effort-json-parser` for richer in-flight UI. |
-
----
-
-## Net-New Additions for Pillar 3
-
-These are the actual additions the milestone needs.
-
-### 1. **Drawing preview layer + accept/reject affordance**
-
-The UX rewrite's "explicit verbs" rule applies to AI output too. Today, `write_geojson_to_editor` and `add_feature_to_editor` commit directly to the editor (`replaceExisting: false` by default — see `definitions.ts:91-97`). Under the UX rewrite, AI-produced geometry should land in a **proposal layer**, not the editor's main feature set, until the user explicitly accepts.
-
-**Implementation sketch:**
-- New MapLibre source `ai-proposal` rendered above editor layers with distinct styling (dashed stroke, accent color).
-- New store slice `aiProposalSlice` with `pendingFeatures`, `acceptProposal`, `rejectProposal`, `editProposalGeometry` actions.
-- The `write_geojson_to_editor` / `add_feature_to_editor` tools route to the proposal slice instead of `editor.setFeatures()` when `stance === 'author'` and the chat is bound to the active draft (per UX_REWRITE.md §6 binding chip).
-- Accept = move features from proposal to editor, fire normal change events. Reject = clear proposal slice. Edit = transfer to editor as a starting point.
-- The "binding chip" in the chat panel doubles as the affordance: when proposal features exist, the chip becomes "Pending — Accept / Edit / Reject".
-
-This is **the Pillar 3 UX**, and it's the single most important addition. Without it, the LLM is silently mutating the user's draft — which violates the "no implicit mode promotion" rule in UX_REWRITE.md §8 just as much as the deleted `setViewMode('edit')` calls did.
-
-**Confidence: HIGH.** Pattern is well-established in HITL agent literature ([LangChain HITL middleware](https://docs.langchain.com/oss/python/langchain/human-in-the-loop), [the "Permission Loop" specification](https://medium.com/@mbonsign/the-permission-loop-a-design-specification-for-tool-to-llm-confirmation-ff10f2b0cbce)). Application to MapLibre is straightforward — it's the same source/layer pattern Earthly already uses for comments and proposals.
-
-### 2. **Tool-schema unification: Zod as the source of truth**
-
-Today, `src/features/chat/tools/definitions.ts` hand-writes OpenAI function-calling JSON Schema for 20+ tools (796 lines, much of it boilerplate). The MCP server in `contextvm/server.ts` uses its own Zod schemas (`geo-schemas.ts`, `web-schemas.ts`). These two surfaces must agree on the *shape* of every tool, but they're independently maintained.
-
-**Recommendation:**
-- Define every editor tool with Zod (`z.object({ ... })`).
-- Auto-derive `function.parameters` via `zod-to-json-schema` (or zod v4's `.toJSONSchema()`).
-- At tool-execution time, `safeParse` the LLM-provided arguments. On failure, return a tool result with the Zod error and let the model retry — the standard repair-loop pattern documented in the AI SDK community ([Zod for LLM Agents](https://dev.to/ethan_thunderbit/designing-reliable-tool-schemas-with-zod-for-llm-agents-21ha)). Cap retries at 3.
-- Reuse the same Zod schemas in the MCP server: copy the editor-side schemas into a shared `src/features/chat/tools/schemas/` directory and import from both `definitions.ts` and `contextvm/server.ts` where they overlap.
-
-**Why not just leave hand-written JSON Schema?** Because every drift between editor-side and MCP-server-side definitions becomes a silent runtime failure — the model sends a payload that matches one shape but not the other. Zod-as-source-of-truth removes that class of bug.
-
-**Confidence: HIGH.** Standard pattern; Earthly's MCP server already does it for half the tools.
-
-### 3. **GeoJSON validation + repair layer**
-
-LLM output for coordinates is the canonical hallucination case ([GDELT analysis on LLM geocoders](https://blog.gdeltproject.org/generative-ai-experiments-the-surprisingly-poor-performance-of-llm-based-geocoders-geographic-bias-why-gpt-3-5-gemini-pro-outperform-gpt-4-0-in-underrepresented-geographies/); [GeoJSON Agents paper, accuracy 85.71% function-calling vs 48.57% baseline](https://arxiv.org/abs/2509.08863)). The model will:
-- Invent coordinates from training data when no map context is supplied
-- Produce polygons with non-closed rings, wrong winding order, antimeridian-crossing without splitting
-- Swap lat/lon order, especially under translation pressure
-- Emit `Position` arrays with 3+ values where 2 are expected (altitude leakage)
-- Truncate precision below the meter threshold
-
-**Recommendation: a 3-stage validation pipeline in `executeToolCall` for geometry-producing tools:**
-
-1. **Schema validation (Zod + AJV with GeoJSON JSON Schema).** Rejects structural failures. Repair attempt: send the Zod error back to the model as `role: 'tool', content: '<error>'`. Up to 3 retries.
-2. **Semantic validation (Turf.js).**
-   - `turf.cleanCoords` — remove duplicate vertices
-   - `turf.booleanValid` for polygons — reject self-intersecting or wrong-wound
-   - `turf.bbox` sanity check — reject features outside the viewport unless the user asked for global geometry
-   - Coordinate-order heuristic: if any `Position[0]` is in `[-90, 90]` and `Position[1]` is outside, flag a likely lat/lon swap
-   - `turf.truncate({ precision: 6, coordinates: 2 })` — strip altitude leakage and bound precision
-3. **Anchor-to-map-context.** If the LLM emits a feature without using a known landmark from `getMapContextSnapshot()`, log a warning. Prefer tools that *return* coordinates (`search_location`, `query_osm_nearby`) over tools that *accept* coordinates (`write_geojson_to_editor`) — the system prompt should bias toward the former.
-
-**Confidence: HIGH for schema validation, MEDIUM for the anchor rule** (it's a heuristic; tune by demo iteration).
-
-### 4. **System prompt hardening for spatial reasoning**
-
-`tools/context.ts:114-138` is the current system prompt. It's good — explicit, opinionated, lists tool selection rules. Pillar 3 needs to add coordinate-discipline rules:
-
-- "Never invent coordinates from training data. To draw at a place you haven't been given coordinates for, first call `search_location` or `reverse_lookup`."
-- "When the user references something visible on the map ('this lake', 'the selected polygon'), use `get_editor_state` or the attached selection — do not guess from the name."
-- "Coordinate order is `[lon, lat]` in GeoJSON. Confirm before producing any Position array."
-- "If a drawing request would produce more than 200 vertices, prefer importing from OSM (`query_osm_*` with `toEditor=true`) rather than generating coordinates."
-- "When user asks for a route, always use `valhalla_route`. Do not interpolate path coordinates."
-
-These rules are cheap (tokens are cheap, model fidelity is not) and worth their weight at the demo bar.
-
-**Confidence: HIGH.** Matches published guidance ([Coordinates from Context paper](https://arxiv.org/html/2510.08741v1); [On the Use of LLMs for GIS-Based Spatial Analysis](https://www.mdpi.com/2220-9964/14/10/401)).
-
-### 5. **Streaming tool-call argument preview**
-
-Routstr streams `function.arguments` as token deltas (see `StreamToolCall` type in `routstr.ts:90-98`). Today these are accumulated and parsed only at `content_block_stop`. With `best-effort-json-parser`, the chat panel can render mid-stream "Drawing a polygon with vertices… 3, 4, 5…" feedback, and — combined with the preview layer in (1) — render geometry on the map as it streams.
-
-**Why this matters for the demo:** "draw a hiking trail from Hallstatt to Dachstein" is a slow tool call (many coordinates). A static spinner is bad demo footage; an animated trail building vertex-by-vertex is good demo footage.
-
-**Confidence: MEDIUM.** The pattern is documented and library options exist, but Anthropic's docs warn that partial JSON from fine-grained tool streaming can be malformed mid-stream ([Anthropic Streaming Messages](https://docs.anthropic.com/en/api/messages-streaming?debug_url=1&debug=1&debug=true), [Handling invalid JSON in Anthropic's fine-grained tool streaming](https://andyjakubowski.com/engineering/handling-invalid-json-in-anthropic-fine-grained-tool-streaming)). Implementer must accept "preview may flicker" as a constraint.
+| Web Worker (Bun/browser native) | Host the QuickJS sandbox off the main thread | No library needed. Run `quickjs-emscripten` inside a `Worker`; the worker is the trust boundary's outer shell, QuickJS is the inner one. Use `structuredClone`-able messages only. |
+| Bun bundler `define` (existing `build.ts`) | Inject the SheetJS/quickjs WASM asset paths | quickjs ships a `.wasm` variant — ensure the bundler copies/serves it; quickjs-emscripten resolves variants via dynamic import. |
+| Biome (existing) | Lint the new code | No config change. |
 
 ---
 
 ## Installation
 
 ```bash
-# Promote zod from transitive to direct
-bun add zod zod-to-json-schema
+# CSV
+bun add papaparse@5.5.3
+bun add -D @types/papaparse
 
-# Add GeoJSON schema
-bun add @yaga/geojson-schema
+# Sandbox
+bun add quickjs-emscripten@0.32.0
 
-# Add partial JSON parsing (pick one — partial-json has wider download share)
-bun add partial-json
+# Geometry: @turf/turf 7.3.5 + topojson-* already present — no install needed.
+# If isolating in worker, optionally add scoped turf to make intent explicit:
+# bun add @turf/simplify @turf/combine @turf/clean-coords
+
+# Excel — DO NOT `bun add xlsx` (gets stale 0.18.5). Pin the CDN tarball:
 ```
 
-No other dependencies needed. Notably absent: no LLM SDK swap, no agent framework, no parallel MCP client.
+`package.json` for SheetJS (current `0.20.3`, Apache-2.0):
+
+```jsonc
+{
+  "dependencies": {
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  }
+}
+```
+
+Then `bun install`. (Bun supports remote-tarball deps. Verify the integrity hash from `https://cdn.sheetjs.com/` after install.)
+
+---
+
+## Capability detection (multimodal gating) — design, not a library
+
+There is **no standard field** for vision in an OpenAI-compatible `/v1/models` response (verified — OpenAI's own endpoint returns only `id/object/created/owned_by`). Detection must be layered, best-source-first:
+
+1. **Ollama (and Ollama-compatible):** call `POST /api/show` with `{ "model": "<id>" }`. The response includes a **`capabilities` array** containing strings such as `"completion"`, `"vision"`, `"tools"`, `"insert"`, `"embedding"`, `"thinking"`. Presence of `"vision"` is authoritative. (Confirmed against Ollama API docs: example shows `capabilities: ["completion", "vision"]`.) This is Ollama's native API, *not* the `/v1` OpenAI shim — call it directly when the provider is Ollama.
+2. **LM Studio:** its `/v1/models` is OpenAI-shaped and does **not** advertise vision; LM Studio's native `/api/v0/models` (REST) is richer but not guaranteed. Treat LM Studio like "custom" → fall to heuristics.
+3. **Routstr / OpenRouter-style aggregators:** some expose `architecture.input_modalities` / `modalities` containing `"image"`. Probe for it; trust it when present.
+4. **Heuristic fallback (name match):** lowercase model id contains any of: `vl`, `vision`, `-v`, `llava`, `bakllava`, `gpt-4o`, `gpt-4.1`, `gpt-5`, `gemini`, `claude-3`/`claude-4`, `qwen*-vl`, `llama*vision`/`mllama`, `pixtral`, `moondream`, `internvl`, `minicpm-v`, `gemma*` (3+). Conservative: unknown → assume **no** vision, disable the image affordance (fail safe).
+5. **Optional active probe:** for "custom" endpoints, a tiny image + `image_url` message; if the server 400s with an image-unsupported error, mark no-vision and cache per `(baseUrl, model)`.
+
+Cache the resolved verdict keyed by `(provider, baseUrl, modelId)` in the chat store. Gate the image-upload button on it.
+
+---
+
+## Code-interpreter sandbox — isolation vs host-API exposure (the load-bearing decision)
+
+**Recommendation: QuickJS-WASM (`quickjs-emscripten`) running inside a Web Worker.** This is the same family of approach as LM Studio's `js-code-sandbox` (which also runs untrusted model-authored JS in an isolated VM rather than the page realm).
+
+Why not the alternatives:
+
+| Approach | Isolation | Host-API exposure | Verdict |
+|----------|-----------|-------------------|---------|
+| **Web Worker alone** (run code via `eval`/Function in the worker) | Weak — code runs in the *worker's own realm*: it can access `fetch`, `WebSocket`, `importScripts`, timers, and any global the worker has. Untrusted model code escapes trivially. | Easy (just call functions) but unsafe | ❌ as the sandbox itself |
+| **`<iframe sandbox>`** (sandbox + no `allow-same-origin`) | Good origin isolation, but JS still runs in a *full browser realm* (has `fetch`, DOM of the iframe, `postMessage`, can spin its own workers). Curated-API calls require async `postMessage` round-trips for *every* host call. | Awkward: all host calls are async message round-trips | △ heavier, more attack surface |
+| **QuickJS-WASM in a Worker** | Strong — the VM has **no host globals at all** (no `fetch`, `DOM`, `setTimeout`, prototype-chain into host). You start from an empty realm and add only what you inject. Memory limit + interrupt handler kill runaway/`while(true)` code. | **Best for this use case** — host functions injected explicitly become the *entire* surface the model can touch. | ✅ recommended |
+
+**Host-API exposure pattern (QuickJS):**
+- The Worker holds the QuickJS `context`. It builds a frozen `earthly` global object and injects curated functions with `context.newFunction("drawCircle", (args) => …)`. Each injected function validates/whitelists its arguments, then forwards the *intent* to the main thread via `worker.postMessage` (because the actual toolbar/drawing API and MapLibre live on the main thread).
+- Round trip: sandbox JS calls `earthly.drawCircle(...)` → worker host-fn serializes a command → main thread executes against the **clean toolbar drawing API** (the package-boundary API the project is already designing) → result/handle posted back. Synchronous-looking calls can use QuickJS's async/`Asyncify` variant, or expose only fire-and-forget + a `commit()` barrier to keep it simple.
+- This gives the exact property the milestone needs: **the model can drive the map only through the same explicit verbs the UI uses, and through nothing else.** No DOM, no network, no Nostr keys reachable from sandboxed code.
+- `quickjs-emscripten-sync` (a wrapper) can auto-marshal host objects into the VM if you want richer object exposure; start without it (explicit `newFunction` injection is more auditable) and adopt only if marshalling tabular data structures becomes tedious.
+
+Feeding ingested data to the sandbox + the LLM:
+- Parsed CSV/Excel → a normalized `{ columns, rows }` JSON structure. Inject into the VM as a frozen global (or via a `getData()` host fn). Give the **same** structure to the LLM as a compact text/markdown table preview (truncate to N rows + schema) so the model can reason about it and write code against it.
+
+---
+
+## MapLibre data-driven styling (no new dependency)
+
+Apply attribute-driven paint via style-spec expressions (verified working in v5):
+
+```jsonc
+// categorical color (ports vs airports vs waterways) — US-4
+"circle-color": ["match", ["get", "category"],
+  "port", "#1f77b4", "airport", "#d62728", "waterway", "#2ca02c",
+  /* default */ "#888888"]
+
+// numeric width ramp
+"line-width": ["interpolate", ["linear"], ["get", "importance"], 0, 1, 100, 6]
+
+// stroke by boolean/condition
+"line-color": ["case", ["==", ["get", "verified"], true], "#0a0", "#aaa"]
+```
+The AI tool layer should emit these expression arrays as data and hand them to `LayerManager.setPaintProperty`. No runtime styling library is needed or wanted.
+
+---
+
+## Encrypted settings at rest (already shipped — extend, don't rebuild)
+
+`src/features/chat/settingsStorage.ts` **already implements** the correct pattern: encrypt the settings JSON with `signer.nip44.encrypt(ownPubkey, …)` (encrypt-to-self), fall back to `nip04`, store the ciphertext envelope in `localStorage` keyed by pubkey.
+
+This is the right design and resolves the NIP-07/NIP-46 constraint cleanly:
+- **NIP-07** (`window.nostr`) and **NIP-46** (remote bunker) expose `nip44.encrypt`/`nip44.decrypt` (and `signEvent`/`getPublicKey`) but **never the raw nsec**. Because we encrypt *to our own pubkey*, we never need the private key in the page — the signer does the ECDH internally. Works identically for extension and bunker signers.
+- v1.1 work = **broaden the payload** to include provider config / API keys / LM Studio + Ollama addresses, and harden envelope versioning. No new crypto dependency.
+
+**Do not** add a NIP-49/`ncryptsec` password flow as the primary mechanism — it requires a raw nsec to encrypt and a user-typed password, neither of which is available/desirable when the user signs via NIP-07/NIP-46. Keep nip49 only as an optional escape hatch for users who explicitly hold a local nsec and want a portable password-encrypted backup.
 
 ---
 
@@ -177,13 +144,11 @@ No other dependencies needed. Notably absent: no LLM SDK swap, no agent framewor
 
 | Recommended | Alternative | When to Use Alternative |
 |-------------|-------------|-------------------------|
-| **Routstr (existing)** | Vercel AI SDK 6 + direct provider keys | If Earthly were *not* Nostr-native and *not* using Cashu micropayments, AI SDK 6's `Agent` abstraction + first-class MCP tool support would be the obvious choice. Earthly's value prop is the opposite: payment-private, decentralizable, model-pluggable. Switching costs > value. |
-| **Routstr (existing)** | `@anthropic-ai/sdk` 0.98.0 directly | If the project committed to Claude exclusively and abandoned the model-marketplace doctrine. Same reasoning as above. |
-| **OpenAI function-calling format** | MCP-native tool surface for editor-side tools | MCP's `outputSchema` (added in spec 2025-11-25) is appealing because it'd let editor and remote tools share one shape. But Routstr's transport is OpenAI Chat Completions, and the LLM speaks function-calling, not MCP directly. Bridging MCP tool definitions back to OpenAI shape via `zod-to-json-schema` (as recommended) gets the benefit without restructuring the transport. |
-| **Preview-then-commit (recommended)** | Direct-commit with undo | Direct-commit is the current behavior. Undo works, but it puts the user in the "what did the AI just do?" loop. Preview-then-commit puts the user in the "this is what the AI proposes" loop, which is the right framing for the UX_REWRITE.md "no implicit transitions" rule. |
-| **Turf.js + AJV pipeline** | Just-trust-the-LLM + visual inspection | This is what Pillar 3 has today. It's why "60-second demo runs end-to-end without manual intervention" is in the Active list rather than Validated. |
-| **Add new tools to existing MCP server** | Spin up a second MCP server for new POI sources | Single MCP server keeps the transport story simple. The current server (`contextvm/server.ts`) already aggregates Nominatim, Overpass, Valhalla, Wikipedia, web search — adding more is additive. |
-| **`partial-json` for tool-call streaming** | `best-effort-json-parser` | Pick `best-effort-json-parser` if you want fewer LOC and tolerate slightly cruder recovery on malformed deltas. Both are ~1KB. Marginal choice. |
+| papaparse | `csv-parse`, `d3-dsv` | `d3-dsv` is lighter (~5 KB) if you only need clean, well-formed CSV and no worker/streaming. papaparse wins for messy real-world files and large-file streaming. |
+| SheetJS `xlsx` 0.20.3 (CDN) | `exceljs` 4.4.0, `read-excel-file` 9.2.0 | `read-excel-file` is smaller and fine if you *only* read simple `.xlsx`. `exceljs` if you also need to **write** styled workbooks. SheetJS wins on format breadth (xls/ods/csv/numbers) and read robustness. |
+| quickjs-emscripten | `<iframe sandbox>` + postMessage; ShadowRealm | ShadowRealm (TC39) is not yet shipping cross-browser — revisit later. iframe-sandbox is acceptable if you never need fine-grained host-fn injection and prefer a pure message protocol. |
+| turf `simplify` + topojson `merge` | `@mapbox/geojson-vt`, `mapshaper` (CLI) | mapshaper gives superior topology-aware simplification but is a CLI/heavy lib — not for in-browser per-ingest use. Use turf+topojson in-browser; if quality is insufficient at extreme scale, consider a server-side mapshaper pass (out of scope for v1.1). |
+| Ollama `/api/show` capabilities | name heuristics only | Heuristics are the *fallback* for non-Ollama/custom endpoints; prefer real metadata when the provider gives it. |
 
 ---
 
@@ -191,59 +156,32 @@ No other dependencies needed. Notably absent: no LLM SDK swap, no agent framewor
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| **Vercel AI SDK 6 (`ai` package)** as a Routstr replacement | Would orphan the Cashu payment surface, the model selection UI, and the "Nostr is plumbing" doctrine. AI SDK 6 is genuinely good, but its value (provider abstraction, agent abstraction, devtools) is value Routstr + the existing chat panel already provide in a domain-aligned way. | Keep Routstr. Borrow patterns from AI SDK 6 docs (especially streaming, tool-call partial inputs) without taking the dependency. |
-| **LangChain / LangGraph** | Same reason. Adds an agent framework on top of an app that already has explicit tool dispatch. Increases bundle size 2-3MB. Introduces a second mental model for tool definitions. | Existing dispatcher in `tools/execute.ts`. Add the HITL pattern manually (it's <100 LOC). |
-| **`@modelcontextprotocol/sdk` v2 betas** | v2 stable lands Q1 2026 per the project's roadmap. Beta APIs will churn. v1.29 is the current stable and is what `@contextvm/sdk` builds against. | Stay on `@modelcontextprotocol/sdk@1.29.0`. Revisit after v2 stable + ContextVM SDK update. |
-| **Nominatim public endpoint directly from the browser** | 1 req/sec rate limit, no CORS, [Nominatim Usage Policy](https://operations.osmfoundation.org/policies/nominatim/) prohibits high-volume browser use. | Earthly already routes through the MCP server — keep it that way. The MCP server can hit a self-hosted Nominatim or LocationIQ. |
-| **MCP Apps / mcp-ui for the proposal UI** | [MCP Apps](https://blog.modelcontextprotocol.io/posts/2026-01-26-mcp-apps/) is new (announced Jan 2026) and conceptually appealing — interactive iframes from MCP servers. But it's designed for *hosting* MCP UIs *inside* a chat client (Claude desktop, VS Code). Earthly *is* the host application. Rendering map geometry as an iframe inside the chat would lose all editor integration. | Render the proposal directly on the MapLibre map as a new layer source. The chat panel just shows the accept/reject affordance. |
-| **GeoJSON validators that "automatically fix" geometries (e.g. chrieke/geojson-validator)** | Auto-fix can silently change LLM intent (closing a ring the model intentionally left open, reversing a winding order that was correct for an interior hole). Better to validate and reject than mutate. | Use AJV for schema, Turf for booleanValid checks, repair via *the model* by sending the error back as a tool result. |
-| **Custom JSON Schema for tool parameters** | 800 LOC of hand-written, drift-prone schemas. | Zod + `zod-to-json-schema`. |
-| **Adding a separate vector tile or AI-tile service** for map context | The map context the LLM needs (viewport, visible layers, feature counts, selection) is already in `getMapContextSnapshot()`. Sending the model a vector tile would 100x the prompt token cost for no clarity gain. | Use the existing JSON snapshot. For visual reasoning, use `capture_map_snapshot` and a vision-capable model when available. |
-| **Single-shot prompts that ask the model to produce both intent and geometry** | This is the failure mode that drops accuracy to ~48% per the GeoJSON Agents paper. | Multi-step: intent → tool selection → tool call → validation → preview → user accept. The system prompt and tool surface already encode this. Resist any prompt-engineering temptation to "just ask the model to draw it." |
-
----
-
-## External POI / Geocoding — for "find me a cafe with outdoor seating"
-
-This is the everyday-utility use case. The existing surface is already correct:
-
-**Tool: `query_osm_nearby`** (in `tools/definitions.ts:217`)
-- Accepts `lat`, `lon`, `radius`, `filters: {"amenity":"cafe","outdoor_seating":"yes"}`, `concept` (semantic shortcut), `toEditor` (commit-on-fetch), `limit`, `includeRelations`.
-- Backed by Overpass via the MCP server (`contextvm/tools/overpass.ts`).
-- Returns features the model can read and the editor can display.
-
-**What's needed for the demo to be reliable:**
-1. **Geocode the user's reference point first.** "near me" → `geolocation.getCurrentPosition()` if granted, else fall back to viewport center. "in Vienna" → `search_location` then center.
-2. **Concept expansion is the gold path.** The `concept` argument in `query_osm_nearby` already maps semantic intent ("cafe with outdoor seating") to OSM tag families. Audit and extend the concept mappings in `contextvm/tools/overpass.ts`.
-3. **No need for a paid POI API for v1.** Overpass + Nominatim cover the use case if rate-limited via the MCP server. If the MCP server proves a bottleneck, [LocationIQ](https://locationiq.com/) (5k req/day free, CORS-friendly) or [MapTiler](https://www.maptiler.com/) (100k/month free) are CORS-friendly drop-ins, but neither replaces the *Overpass* (filtered POI) side, only Nominatim (geocode) — and they're behind the MCP server anyway.
-4. **For routing/isochrone answers** ("cafe within 10 minutes walk"): `valhalla_isochrone` + `query_osm_area` with the isochrone as the search polygon. The chain is already supported by the existing tools.
-
-**What's deferred (per PROJECT.md Out of Scope):**
-- Compound routing scenarios ("parliament → museum → cafe → ice cream → park")
-- Preference modeling beyond simple OSM tag filters
+| **`npm/bun add xlsx` (0.18.5)** | Stale 2022 build; carries a prototype-pollution advisory; missing 2 years of fixes. SheetJS stopped publishing to npm. | Pin `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz` in package.json. |
+| **Running model-authored JS in the Web Worker realm directly (`eval`/`new Function`)** | The worker has `fetch`, `WebSocket`, timers, `importScripts` — untrusted code escapes the intended sandbox immediately. | QuickJS-WASM VM *inside* the worker; inject only curated host fns. |
+| **`vm2`** | Deprecated/abandoned with known sandbox-escape CVEs; Node-only anyway. | quickjs-emscripten. |
+| **NIP-49 `ncryptsec` as the primary settings-encryption path** | Needs the raw private key (unavailable under NIP-07/NIP-46) and a user password. | `signer.nip44.encrypt(ownPubkey, …)` (already implemented). |
+| **NIP-04 as the new default scheme** | Legacy, weaker (no key-commitment/AAD), deprecated in favor of NIP-44. | nip44 with nip04 only as a compat fallback (as current code already does). |
+| **Importing the full `@turf/turf` barrel inside the sandbox worker** | Pulls 600+ KB and dozens of unused fns into the worker bundle. | Import scoped `@turf/simplify`, `@turf/combine`, `@turf/clean-coords`. |
+| **A client-side LLM "guess" to detect vision** | Wastes a round trip and is unreliable. | `/api/show` capabilities → modalities field → name heuristic → optional probe. |
 
 ---
 
 ## Stack Patterns by Variant
 
-**If the LLM produces a tool call we can validate cheaply (geometry < 200 vertices, single feature):**
-- Render directly to the proposal layer.
-- Show inline preview in the chat panel.
-- Accept/reject via binding chip.
+**If the provider is Ollama:**
+- Use native `POST /api/show` for authoritative `capabilities` (vision/tools/thinking). Best signal available.
 
-**If the LLM produces a tool call we can't validate cheaply (large FeatureCollection, complex MultiPolygon):**
-- Run the validation pipeline async.
-- Stream "validating geometry…" status in the chat panel.
-- On failure, return error to model, retry (max 3).
-- On success, commit to proposal layer.
+**If the provider is LM Studio / custom / Routstr:**
+- Try `modalities`/`input_modalities` on the models response; else name-heuristic; else optional image probe. Default to no-vision (fail safe).
 
-**If the LLM produces a query (read-only) tool call (`get_editor_state`, `query_osm_nearby` without `toEditor`):**
-- Execute, return result to model, no proposal layer involved.
-- This is the "find me a cafe" path. Result is rendered in chat (list of cafes), not on the map, unless the user clicks "Show on map" — explicit verb.
+**If the ingested GeoJSON is "many short lines with microgaps" (US-5):**
+- topojson `topology()` → `presimplify()` → `simplify(weightThreshold)` → `merge()`/`mergeArcs` to stitch shared edges and collapse near-duplicate vertices, then convert back. Apply turf `cleanCoords` + `simplify` per-feature only for residual vertex bloat.
 
-**If the LLM calls a tool with both query + side-effect semantics (`query_osm_*` with `toEditor=true`):**
-- Treat the side-effect as a proposal.
-- Default `toEditor=false` in the system prompt; require the model to set it explicitly only when the user asked to *add* features.
+**If the ingested GeoJSON is "one huge polygon with too many vertices":**
+- turf `simplify({ tolerance, highQuality: true })` is sufficient; topojson adds little for single features.
+
+**If sandboxed code needs synchronous host calls:**
+- Use the QuickJS **Asyncify** variant (lets injected host fns return promises that suspend the VM) — slightly larger WASM but enables `await earthly.route(...)` ergonomics. Otherwise expose fire-and-forget verbs + a final `commit()`.
 
 ---
 
@@ -251,67 +189,26 @@ This is the everyday-utility use case. The existing surface is already correct:
 
 | Package A | Compatible With | Notes |
 |-----------|-----------------|-------|
-| `@modelcontextprotocol/sdk@1.29.0` | `@contextvm/sdk@^0.9.1` | Verified — current pairing in `package.json`. Pin both; do not bump in this milestone. |
-| `zod@^3.23` | `zod-to-json-schema@^3.23` | zod-to-json-schema's major version tracks zod's. zod v4 has a built-in `.toJSONSchema()`, but v4 release is recent; staying on v3 avoids the migration. |
-| `@turf/turf@7.3.5` | GeoJSON `0.5.0` (already direct dep) | Compatible. |
-| `ajv@^8.20` + `ajv-formats@^3.0` | `@yaga/geojson-schema` | The GeoJSON schemas are JSON Schema draft-07; AJV 8 handles draft-07 + 2020-12 by default. |
-| `maplibre-gl@5.24` | All recommended additions | None of the additions touch MapLibre. The proposal layer uses the same MapLibre source/layer API the existing editor uses. |
-| `partial-json@^1.x` | Bun + browser | Pure JS, no Node-specific APIs. Verified browser-compatible. |
-
----
-
-## Confidence Assessment
-
-| Recommendation | Confidence | Reason |
-|----------------|------------|--------|
-| Keep Routstr | **HIGH** | Aligned with PROJECT.md constraints; replacement cost > value. |
-| Keep MCP + ContextVM + Nostr transport | **HIGH** | Working, documented, version-stable. |
-| Zod-as-source-of-truth for tool schemas | **HIGH** | Established pattern; project already does it for half the tools. |
-| Preview layer + accept/reject UX | **HIGH** | Aligned with UX_REWRITE.md §8 "no implicit transitions"; standard HITL pattern. |
-| 3-stage GeoJSON validation pipeline | **HIGH** for schema/semantic; **MEDIUM** for anchor heuristic | Schema validation is uncontroversial; anchor-to-map-context is a tuning lever. |
-| System prompt hardening | **HIGH** | Cheap to add, matches published spatial-LLM guidance. |
-| Streaming tool-call argument preview | **MEDIUM** | Adds polish but mid-stream partial JSON is known-fragile per Anthropic docs. Demo-quality, not foundation-quality. |
-| No SDK swap (no AI SDK, no LangChain) | **HIGH** | Cost/value analysis is clear; the existing surface is more aligned with the project than the replacements. |
-| Don't use MCP Apps / mcp-ui for proposal UI | **HIGH** | Architectural fit is wrong — Earthly is the host, not a chat-client embedder. |
-| `partial-json` vs `best-effort-json-parser` | **LOW** | Both work; marginal choice. Verify with a single integration spike. |
+| `papaparse@5.5.3` | Bun + React 19 | Pure JS, no native deps; Bun runs it directly. Use the worker option in-browser only. |
+| `xlsx@0.20.3` (CDN) | Bun | Pure JS; the `.tgz` install works under `bun install`. Avoid the npm `0.18.5`. |
+| `quickjs-emscripten@0.32.0` | Bun + browser Worker | Ships multiple WASM variants (sync, asyncify, debug); ensure the chosen variant's `.wasm` is served. ~2.4 MB unpacked total, but only the selected variant `.wasm` (a few hundred KB) loads at runtime. |
+| `@turf/turf@7.3.5` | already in tree | Scoped `@turf/*` 7.x packages present transitively — safe to import directly. |
+| `maplibre-gl@5.24.0` | already in tree | Expressions stable since pre-v1; no concerns. |
+| `applesauce-signers` (current) | already in tree | `ISigner.nip44` present on extension + remote signers; encrypt-to-self needs no raw key. |
 
 ---
 
 ## Sources
 
-- **Existing codebase (HIGH confidence — read directly):**
-  - `/Users/schlaus/workspace/earthly/src/features/chat/routstr.ts` — Routstr API client + types
-  - `/Users/schlaus/workspace/earthly/src/features/chat/tools/definitions.ts` — 20+ tool definitions in OpenAI function-calling shape
-  - `/Users/schlaus/workspace/earthly/src/features/chat/tools/context.ts` — `getMapContextSnapshot()` + system prompt
-  - `/Users/schlaus/workspace/earthly/src/features/chat/tools/types.ts` — tool, snapshot, bake types
-  - `/Users/schlaus/workspace/earthly/contextvm/server.ts` — MCP server hosting Nominatim/Overpass/Valhalla/web tools
-  - `/Users/schlaus/workspace/earthly/package.json` — pinned dependencies
-
-- **Official documentation (HIGH confidence):**
-  - [Model Context Protocol — Specification 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25) — structured output + outputSchema
-  - [MCP TypeScript SDK](https://ts.sdk.modelcontextprotocol.io/) — v1.29.0 current; v2 Q1 2026
-  - [Routstr Core Documentation](https://docs.routstr.com/) — OpenAI-compatible API, Cashu micropayments
-  - [Anthropic Streaming Messages](https://docs.anthropic.com/en/api/messages-streaming?debug_url=1&debug=1&debug=true) — `input_json_delta`, partial JSON warning
-  - [Turf.js docs](https://turfjs.org/docs/api/nearestPointOnLine) — geometry helpers
-  - [Valhalla Docs](https://valhalla.github.io/valhalla/api/) — routing + isochrone API
-  - [Nominatim Usage Policy](https://operations.osmfoundation.org/policies/nominatim/) — 1 req/sec rate limit
-  - [AI SDK Core: Tool Calling](https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling) — pattern reference, not a dependency recommendation
-  - [AI SDK 6 — Vercel](https://vercel.com/blog/ai-sdk-6) — pattern reference for partial input streaming
-  - [MCP Apps — modelcontextprotocol.io blog](https://blog.modelcontextprotocol.io/posts/2026-01-26-mcp-apps/) — verified as wrong fit for this project
-
-- **Research/practitioner sources (MEDIUM confidence; published 2024-2026):**
-  - [GeoJSON Agents: function calling vs code generation (arxiv 2509.08863)](https://arxiv.org/abs/2509.08863) — 85.7% accuracy for function-calling vs 48.6% baseline
-  - [Coordinates from Context (arxiv 2510.08741)](https://arxiv.org/html/2510.08741v1) — LLMs grounding location references
-  - [On the Use of LLMs for GIS-Based Spatial Analysis (MDPI)](https://www.mdpi.com/2220-9964/14/10/401) — system prompt patterns for spatial tasks
-  - [GDELT on LLM geocoders](https://blog.gdeltproject.org/generative-ai-experiments-the-surprisingly-poor-performance-of-llm-based-geocoders-geographic-bias-why-gpt-3-5-gemini-pro-outperform-gpt-4-0-in-underrepresented-geographies/) — coordinate hallucination evidence
-  - [Designing Reliable Tool Schemas with Zod for LLM Agents](https://dev.to/ethan_thunderbit/designing-reliable-tool-schemas-with-zod-for-llm-agents-21ha)
-  - [Handling invalid JSON in Anthropic's fine-grained tool streaming](https://andyjakubowski.com/engineering/handling-invalid-json-in-anthropic-fine-grained-tool-streaming)
-  - [LangChain HITL middleware docs](https://docs.langchain.com/oss/python/langchain/human-in-the-loop) — pattern reference for accept/edit/reject
-  - [The Permission Loop: A Design Specification for Tool-to-LLM Confirmation](https://medium.com/@mbonsign/the-permission-loop-a-design-specification-for-tool-to-llm-confirmation-ff10f2b0cbce)
-  - [OpenAI Structured Outputs vs Zod (DEV)](https://dev.to/whoffagents/openai-structured-outputs-vs-zod-which-to-use-for-llm-response-validation-in-2026-366m)
+- npm registry `latest` dist-tags (queried 2026-06-16): papaparse 5.5.3 (MIT), xlsx 0.18.5 *(stale)*, quickjs-emscripten 0.32.0 (MIT), simplify-js 1.2.4, topojson-client 3.1.0, @turf/turf 7.3.5, nostr-tools 2.23.5 — HIGH
+- SheetJS CDN + issue tracker (git.sheetjs.com #3225/#3111/#3098) — npm is out of date at 0.18.5; current is 0.20.3 via CDN tarball — HIGH
+- Ollama API docs (`github.com/ollama/ollama/blob/main/docs/api.md`) — `/api/show` returns `capabilities: ["completion","vision", …]` — HIGH
+- OpenAI API reference + community thread "Expose Model Capabilities in /v1/models" — confirms NO standard vision field in `/v1/models`, heuristics required — HIGH
+- justjake/quickjs-emscripten README (quickjs-emscripten-core, variants, host fn injection) + Simon Willison TIL — sandbox isolation + host fn exposure model — HIGH
+- MapLibre style-spec expressions docs (`maplibre.org/maplibre-style-spec/expressions/`) — get/match/interpolate/step/case, v5 supported — HIGH
+- NIP-49 (`github.com/nostr-protocol/nips/blob/master/49.md`) + NIP-46/NIP-07 docs — ncryptsec needs raw key; remote/extension signers expose nip44.encrypt but not nsec — HIGH
+- Repo: `src/features/chat/settingsStorage.ts` — encrypt-to-self via `signer.nip44` already shipped; `node_modules/@turf/*` + `topojson-*` already present — HIGH (direct code read)
 
 ---
-
-*Stack research for: AI-driven collaborative mapping (Pillar 3 demo, on top of existing Earthly stack)*
-*Researched: 2026-05-26*
-*Author: research agent (Opus 4.7 1M)*
+*Stack research for: Earthly v1.1 AI Chat — Data Ingest, Transform & Safe Authoring*
+*Researched: 2026-06-16*

@@ -1,599 +1,388 @@
 # Pitfalls Research
 
-**Domain:** Concurrent UX refactor + LLM-driven map authoring on an established mapping app
-**Researched:** 2026-05-26
-**Confidence:** HIGH for domain-specific pitfalls (grounded in PROJECT.md, UX_REWRITE.md, CONCERNS.md and verified industry sources); MEDIUM for Nostr-AI intersection (novel surface, less prior art).
+**Domain:** Browser code-interpreter sandbox + AI-driven destructive map authoring + file ingest/multimodal + geometry optimization, layered onto a mature React 19 / MapLibre / applesauce-Nostr app (Earthly v1.1)
+**Researched:** 2026-06-16
+**Confidence:** HIGH (codebase-grounded for integration/encryption/tool-dispatch; HIGH for sandbox + geometry from established web-security and turf/mapshaper behavior)
 
-## Reading order
-
-The pitfalls below are ordered by **how much damage they cause to v1**, not by domain. The previous attempt of this rewrite failed on **Pitfall 1** alone; the rest exist because two simultaneous risk surfaces (state-machine refactor + LLM agent surface) compound each other.
-
-Each pitfall is tagged with the **pillar it belongs to**:
-- **P1 (Wonky-fix)** — orchestration cleanup, state model, routing
-- **P2 (Classical utility as discipline)** — non-AI/non-Nostr path stays first-class
-- **P3 (Demo lands)** — author-by-chat round trip
-- **CROSS** — affects more than one pillar
+> Scope note: this is a SUBSEQUENT milestone on a working app. Most pitfalls below are about *adding* the v1.1 surface (sandbox, ingest, safe-edit, optimization, encrypted settings) without breaking the existing chat, editor, publish, and wallet/signer code. Generic web-security advice is omitted; everything here is specific to these features and to the code already in `src/features/chat/` and `src/features/geo-editor/`.
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Reimplementing stable leaves instead of amending orchestration (the previous-failure trap)
+### Pitfall 1: "Sandbox" that isn't — iframe `sandbox` attr or blob-URL Worker treated as a security boundary while same-origin / host objects leak in
 
-**Pillar:** P1 + CROSS
 **What goes wrong:**
-An agent (human or AI) is told "rewrite the UX." It opens `AppSidebar.tsx`, `GeoDatasetsPanel`, `Toolbar.tsx`, a few list rows, and starts replacing them. Each replacement looks tidier in isolation but loses small accumulated fixes (keyboard handling, focus management, mobile sheet animation, accessibility affordances). Meanwhile the *real* disease — the three overlapping mode systems and six auto-`setViewMode` calls — sits untouched, because rewriting leaves is more legible work than collapsing a state graph.
-
-This is exactly how the previous attempt of this rewrite died. The current branch (`feature/new-ux-applesauce`) carries some of that damage.
+The code interpreter is built as a Web Worker created from a `Blob`/`new Function`, or an `<iframe sandbox>`, and the host passes the *real* toolbar/drawing API object, the Zustand store, the NDK/applesauce signer, or `window` references into it. Generated JS then reads `signer`, `localStorage`, `EventStore`, or the Cashu wallet directly. A blob-URL Worker inherits the page's origin, so it can `fetch()` same-origin endpoints and read same-origin storage; `<iframe sandbox>` without `allow-same-origin` is better but is routinely defeated by re-adding `allow-same-origin allow-scripts` (which together void the sandbox) or by `Function('return this')()` escapes when the host messages structured-clonable-but-live references in.
 
 **Why it happens:**
-- Component-by-component is the default "refactor" mental model — it produces small visible PRs.
-- Orchestration code is harder to read, harder to test, and harder to PR-review; humans avoid it.
-- AI agents in particular over-rewrite when given vague scope, because rewriting whole files is "easier" than understanding what the file's existing seams already give you.
-- "Improving" a list component feels productive even when it isn't load-bearing on the goal.
+The fastest way to give generated code "map access" is to hand it the existing API object. The team already has a clean toolbar API mandated by PROJECT.md ("designed as if a future package export"), so it's tempting to expose it by reference. Worker/iframe isolation is assumed to be a security boundary when it's really only a *thread/DOM* boundary unless origin + CSP + message-only contract are all enforced.
 
 **How to avoid:**
-1. **Phase 1 must touch zero leaf components.** State collapse (stance enum, shelfSlice, delete six auto-transitions) ships with no visible UI change. If a phase 1 PR modifies `GeoDatasetsPanel.tsx` body content or any list-row JSX, it is wrong scope.
-2. **Make the constraint explicit in every prompt and roadmap doc.** "Amend, don't replace" goes in the phase header, not just PROJECT.md.
-3. **Diff budget gate.** For each P1 phase, set a budget: e.g. "no leaf component over 50 LOC changed unless it's removing dead orchestration logic." Review against this before merge.
-4. **Whitelist the orchestration surfaces.** `GeoEditorView.tsx`, `AppSidebar.tsx` (only the secondary mode block at lines 225-300), `useViewMode.ts`, `useRouting.ts`, `useDatasetManagement.ts`, `viewModeSlice`, `uiSlice`. These are the targets. Everything else is off-limits in P1 unless it carries a known bug from `CONCERNS.md`.
+- Treat the sandbox as **message-passing only**. The only thing crossing the boundary is structured-clone JSON (postMessage). No live object, no function, no signer, no store reference ever enters the sandbox.
+- Expose the toolbar/drawing API as an **async RPC proxy**: inside the sandbox, `map.addFeature(...)` serializes `{op, args}` and posts to the host; the host validates against an allow-list and executes against the real toolbar API. This reuses the clean API boundary PROJECT.md already demands.
+- Use a **cross-origin iframe** (separate origin / `srcdoc` with `sandbox="allow-scripts"` and NO `allow-same-origin`) OR a dedicated Worker with a strict `default-src 'none'; connect-src` CSP. Cross-origin iframe is the stronger primitive for this case because it denies same-origin storage access by construction.
+- The host RPC layer is the *real* security boundary — every op is allow-listed, argument-validated, and rate/time-bounded there, not inside the sandbox.
 
 **Warning signs:**
-- A PR titled "phase 1: state collapse" touches `GeoDatasetsPanelContent.tsx` body.
-- A list-row component is being rewritten "while we're in there."
-- File rename count > 0 in a state-collapse PR.
-- Snapshot of visible UI changes between branch and main is non-trivial after P1 ships.
+- Any `postMessage` payload, Comlink `expose()`, or Worker constructor that carries a function, the store, the signer, or `window`.
+- `allow-same-origin` together with `allow-scripts` on the iframe.
+- Generated code can call `fetch`, `import()`, or reach `localStorage` at all.
 
-**Phase to address:** Phase 1 (state collapse). Verification gate before phase 2 merges: open the app at main vs P1 head, compare screens — should be visually identical.
+**Phase to address:** The sandbox phase — this is the load-bearing decision. Get the boundary contract right before any tool is exposed; retrofitting isolation after the API surface is wired is a rewrite.
 
 ---
 
-### Pitfall 2: AI geometry that appears on the map without a clear "this is from chat, accept or reject" handoff
+### Pitfall 2: AI clobbers the wrong dataset — silent binding + no diff + bulk irreversible writes
 
-**Pillar:** P3
 **What goes wrong:**
-Chat invokes the drawing tool, geometry appears on the editor canvas. The user can't tell whether (a) they drew it, (b) the chat drew it, (c) it's a preview, or (d) it's already committed to the draft. They click somewhere; the geometry is now part of their dataset. Or worse: they don't notice the geometry at all (rendered the same as existing features) and publish without realising.
-
-This is the AI-UX equivalent of a silent state mutation, and it is the single biggest reason for distrust of LLM-assisted editors. Geometry without provenance is unrecoverable when the user has no idea what changed.
+Chat is bound to a target dataset via the existing `bindActiveWorkspaceChat()` which (per PROJECT.md) "binds silently." The AI runs a batch transform ("translate all names", "recolor by attribute") against whatever the editor currently holds, overwrites features in place, and the user discovers afterward that it edited the wrong context, dropped properties on features it didn't recognize, or replaced a 400-feature dataset with the 12 it could "see." Because writes go straight through `write_geojson_to_editor` / `add_feature_to_editor` (existing tools in `execute.ts`), there is no diff and the only undo is the editor's geometry-level history, which does not capture property/style mutations or dataset-binding mistakes.
 
 **Why it happens:**
-- The drawing API is the same surface the user calls directly, so the rendered output is indistinguishable.
-- Chat tool calls feel like API calls to the developer; they feel like magic to the user.
-- "Just commit it and let undo handle it" is the path of least resistance for the implementer.
+The current dispatcher (`src/features/chat/tools/execute.ts`) executes tools immediately with no add-vs-modify-vs-delete classification and no preview gate. Silent binding means the user never confirmed *which* dataset is the target. Bulk ops feel safe in testing on a small dataset and become destructive on a real one.
 
 **How to avoid:**
-1. **Two-stage commit.** AI-produced geometry lands in a **proposal layer**, visually distinct (e.g. dashed outline + colour shift + provenance badge), not in the draft features. Only an explicit user action ("Accept" / "Discard") promotes it into the draft. Reject = remove from map and from conversation history.
-2. **Provenance is non-optional.** Every feature in the draft carries a `provenance: 'user' | 'ai' | 'imported'` marker internally. Even after acceptance, the inspector shows "drafted by chat (accepted [time])" until publish.
-3. **The chat panel announces what it did.** A short, plain-English message ("I added a 4.2 km linestring from Hallstatt to Krippenstein. Review on the map.") with inline accept/reject buttons mirrors the on-map proposal. The user doesn't have to look in two places.
-4. **No silent geometry mutations after acceptance.** Once accepted, further chat actions on the same feature require explicit re-invocation by the user — chat cannot "improve" a geometry the user already approved without asking.
-5. **Undo includes AI actions atomically.** A chat tool call that draws a single linestring is one undo step, not 47 (one per vertex).
+- Make the **binding visible and explicit** first (the carried-over binding chip, now in v1.1). No edit tool fires unless a target is bound and shown. This is a prerequisite, not a nicety.
+- Classify every mutating tool call as **add / modify / delete** before execution and route through the **safety-level config** (1 preview+confirm / 2 confirm-destructive default / 3 trust+undo). Level 2 (default) must hard-gate `modify`+`delete`; `add` can pass.
+- Generate a **structured diff** (features added / properties changed / features removed) and render it *against the bound dataset* before applying — never apply-then-show.
+- Make bulk ops **transactional and reversible at the dataset level**, not just the geometry level: snapshot the bound FeatureCollection before a batch, apply, allow one-shot revert. The editor's existing undo stack is insufficient for property/style/translation edits.
+- **Match by stable feature id**, never by array index or by the subset currently visible to the model — a transform applied to "the features in context" silently drops everything outside the context window (see Pitfall 11).
 
 **Warning signs:**
-- Demo recording: viewer can't tell when AI did something vs the maintainer.
-- The implementer's pitch says "and the undo button is right there if they don't like it" — this is the failure mode in disguise.
-- Internal feature objects have no provenance field.
-- The chat panel doesn't echo the geometric outcome (only the textual one).
+- A mutating tool runs with no `safetyLevel` check in the dispatcher.
+- Diff is computed *after* `setFeatures`.
+- "Translate/recolor/clean up" tools operate on `getSelectedAreaFeatures()` or the context snapshot rather than the full bound dataset.
+- Undo can't revert a property/translation change.
 
-**Phase to address:** Phase 6 / 7 (chat-toolbar bridge + accept/reject UI). Verification: scripted demo where viewer watches over shoulder and is asked "did the AI just draw that, or did you?" — they should always know.
+**Phase to address:** The dataset-aware safe-editing phase — but the visible binding chip and the add/modify/delete classification gate must land *before* any new bulk/transform tool is exposed, or the new tools ship destructive.
 
 ---
 
-### Pitfall 3: LLM hallucinating coordinates or place names off by continents
+### Pitfall 3: nsec-encrypted settings that a NIP-46 remote signer cannot decrypt-at-rest
 
-**Pillar:** P3
 **What goes wrong:**
-User asks for "a hiking trail from Hallstatt to Dachstein." The LLM, without grounded place lookup, emits coordinates that put the trail somewhere off the coast of Africa, or swaps lat/lon and puts it in Antarctica, or invents place names that don't exist. Demo dies on camera.
-
-Industry research confirms this is a well-documented failure mode: LLMs have weak intrinsic spatial reasoning, regularly swap (lat, lon) vs (lon, lat) (EPSG:4326 axis-order confusion is rampant even in GIS libraries), and confabulate place names that sound plausible.
+`settingsStorage.ts` already encrypts chat settings with `signer.nip44`/`nip04` self-encryption (encrypt-to-self). For a local nsec this round-trips fine. For a **NIP-46 (bunker/remote) signer**, every decrypt is a network round-trip to the remote signer and requires it to be online and to permit nip44/nip04 decryption of arbitrary ciphertext — many bunkers gate or rate-limit this. On reload the app may hang, silently fail to load API keys (chat appears "logged out of its provider config"), or throw `Active signer does not support … decryption`. Key rotation or switching accounts orphans the localStorage envelope (keyed by pubkey) with no migration, so settings silently vanish.
 
 **Why it happens:**
-- The LLM is asked to act as a geocoder when it isn't one.
-- GeoJSON uses [lon, lat] order; humans say "lat/lon"; the LLM has seen both in training and picks unpredictably.
-- "Hallstatt" exists, "Dachstein" exists, but the model doesn't know the actual coordinates — it interpolates from text it has seen.
+encrypt-to-self via the signer is the obvious applesauce-idiomatic path and works perfectly for the maintainer's local key during development. NIP-46's latency, availability, and permission model only bite real remote-signer users; rotation isn't exercised in a solo-dev loop.
 
 **How to avoid:**
-1. **Never let the LLM produce raw coordinates as a primary output.** Every coordinate must come from a grounded source: the existing ContextVM `SearchLocation` MCP tool, the map's current bbox/selection, or a feature already on the shelf. The LLM's job is *routing the request through tools*, not generating spatial data.
-2. **Validate every coordinate at the tool boundary** before it reaches the editor:
-   - Within `[-180, 180]` × `[-90, 90]`.
-   - Optional bbox sanity check ("does this fall inside the current map view, or within N km of the user's last interaction?"). If not, surface a confirm rather than silently draw it on the other side of the planet.
-   - Reject malformed GeoJSON with a structured error the LLM can recover from ("invalid geometry — feature collection must contain Feature objects").
-3. **Force `[lon, lat]` at one specific schema point** and document it in the tool description. The tool description should say "GeoJSON RFC 7946 order: [longitude, latitude]. Latitude/longitude swaps will be rejected."
-4. **Round-trip through the geocoder for any human-named place** the LLM is asked to use. If the geocoder returns no result, the LLM tells the user "I couldn't find Krippensteinerhütte" — not "let me approximate."
-5. **For routing (Hallstatt → Dachstein), use a routing tool**, not LLM-generated waypoints. If no routing tool is available, the LLM should propose endpoints only and let the user draw between them.
+- Detect signer capability/latency up front. If the active signer is NIP-46, treat encrypted-settings load as **async, fallible, and possibly slow** — show a real loading/failed state, never block app boot on it, and don't silently drop provider config.
+- Provide an **export/import** path for settings so a user can recover when the signer changes or the bunker is unreachable. Don't make the encrypted localStorage envelope the only copy.
+- Handle the **rotation / account-switch** case explicitly: detect orphaned envelopes (pubkey mismatch) and prompt re-entry rather than appearing reset.
+- Never log decrypted settings, never put API keys in Zustand state that gets persisted by the devtools/redux-devtools middleware, and scrub them from any error/telemetry payloads (Pitfall 12).
 
 **Warning signs:**
-- A tool's input schema accepts `coordinates: number[][]` without any range or order check.
-- Tool description doesn't mention coordinate order.
-- The LLM is allowed to emit geometry without first calling `SearchLocation` or a similar grounded tool.
-- Test query: "draw a polygon around Atlantis" — anything other than "no such place" is a failure.
+- App boot awaits `loadEncryptedChatSettings` synchronously.
+- No test with a NIP-46 signer (only local-key path tested).
+- `catch` around decrypt swallows the error and returns `null` (looks like "no settings" → silent data loss).
+- No code path for "signer changed since these settings were written."
 
-**Phase to address:** Phase 5/6 (chat tool surface for map). Verification: a fuzz suite of 20 ambiguous place-name queries (real places, fake places, common-noun overlap like "Salt Lake City" the place vs "salt lake" the feature) — all must either ground to a real coordinate or refuse.
+**Phase to address:** The encrypted-settings-persistence phase. Add a NIP-46 path and an export/import escape hatch in the same phase, not later.
 
 ---
 
-### Pitfall 4: Runaway tool-call loops during demo
+### Pitfall 4: Over-simplification destroys topology — Douglas-Peucker on shared boundaries creates gaps/overlaps and breaks the dataset
 
-**Pillar:** P3
 **What goes wrong:**
-The LLM gets confused, calls `SearchLocation`, gets a result it doesn't like, calls it again with a slight reword, again, again — burns 8000 tokens and 30 seconds before producing anything. Or worse: the demo scenario triggers a chain — search → search → draw → search to verify → re-draw — and the 60-second window is gone before geometry appears. Cost spikes are a secondary symptom; the primary one is *the demo doesn't land in 60 seconds*.
-
-This is the documented "eager invocation" pattern: overly granular tools and unclear instructions cause LLMs to call tools more often than necessary.
+The 12MB-trail story uses `@turf/turf` `simplify` (already a dependency). Turf's `simplify` is **Douglas-Peucker, per-feature, NOT topology-aware**. Run it on a dataset with shared boundaries (adjacent polygons, a road network, the West-Pacific-Trail polylines) and adjacent features simplify independently → slivers, gaps, and overlaps appear along formerly-shared edges; high tolerance collapses thin polygons to self-intersecting or zero-area geometry; the "same visual quality" claim fails at the zoom levels the user cares about. `merge-to-multi` then unions features and **drops per-feature properties** (name/description/style), so the "preserved visual quality" dataset loses exactly the attributes Story 4's recolor-by-attribute depends on.
 
 **Why it happens:**
-- Tool descriptions are vague ("search for a location" instead of "search for a place by name; returns at most 5 candidates with coordinates and a confidence score").
-- Multiple tools have overlapping responsibilities (Functional Confusion Error — selecting the wrong tool among similar ones).
-- No tool-call budget; no early termination when the model is spinning.
-- The chat prompt doesn't tell the model "one search, one draw, then ask the user."
+Turf is already installed and `simplify` is a one-liner, so it's the path of least resistance. Topology-awareness (mapshaper/Visvalingam-style) is a different, heavier algorithm not in turf. The tolerance that hits the size target is chosen by file size, not by visual/topological validity.
 
 **How to avoid:**
-1. **Hard cap on tool calls per user turn.** Configure the chat loop with a maximum (e.g. 6 tool calls per user message). On hit: stop, surface "I'm taking too long — could you clarify?" rather than continuing to spin.
-2. **Time budget per tool call.** Each tool call has a p95 latency budget (search: 800 ms, draw: 100 ms, analyze: 2 s). Exceed → cancel that call, return a clear error to the model.
-3. **Small, single-purpose tools with sharp descriptions.** Each tool's description includes: when to use, when *not* to use, what it returns, examples. Avoid 12 lookup tools that all sound the same; have one geocode tool with a `kind` enum parameter.
-4. **Token budget per session.** Demo sessions should not exceed a known cost. Surface a "stop and restart" affordance to the maintainer.
-5. **Idempotency.** If the LLM calls the same tool with the same args twice in a row, second call returns cached result instantly — prevents tight loops from costing real time.
-6. **Streaming progress.** The chat UI shows "searching for Hallstatt…", "drawing trail…", "verifying…" — if the user sees the same status for 10 s they know to intervene.
+- For shared-boundary data, use a **topology-aware simplifier** (mapshaper's algorithm / TopoJSON arc quantization) rather than naive turf `simplify`. If staying within turf, at minimum **validate after**: run `@turf/kinks` / `unkink-polygon` and check for new self-intersections and area collapse, and reject/retry at lower tolerance.
+- Choose tolerance by **visual error budget at target zoom**, then check the size constraint — not the reverse. Binary-search tolerance to hit size *subject to* a topology-validity gate.
+- `merge-to-multi` must **carry a property-merge policy** (which props survive, how conflicts resolve) and must never be applied to features the user expects to remain individually styleable/selectable. Per-feature identity is required for Story 4's data-driven styling.
+- "Microgap stitch" must only join endpoints within a tight, explicit tolerance and must **never bridge distinct features** — see Pitfall 5.
 
 **Warning signs:**
-- Logs show >5 tool calls per turn on simple requests.
-- The same tool is called 3+ times with similar arguments.
-- Latency p95 climbs above 5 seconds.
-- Demo run-throughs sometimes complete in 30 s, sometimes in 2 min — high variance is the warning.
+- `turf.simplify` called with a tolerance derived solely from byte size.
+- No post-simplify topology validation (`kinks`/area check).
+- Merge step produces a single MultiX with one merged property bag.
+- Visual diff only checked at the zoom the dev happened to be on.
 
-**Phase to address:** Phase 6 (chat tool execution). Verification: scripted demo run 10 times with `--budget 6 --timeout 60s`; must succeed 9/10 to ship.
+**Phase to address:** The geometry-optimization phase. Bake the validate-after-simplify gate and the property-merge policy into the tool itself.
 
 ---
 
-### Pitfall 5: MCP timeout/error states surfacing as silent failures
+### Pitfall 5: Microgap-stitch joins things that shouldn't join
 
-**Pillar:** P3 + CROSS
 **What goes wrong:**
-ContextVM is slow or down. The MCP call to `SearchLocation` hangs. The chat just sits there. Or returns a partial result. Or times out and the LLM, not knowing why, retries — see Pitfall 4. Or the response shape changed (schema drift) and the parsing silently produces `[]`, and the chat says "I couldn't find that" when really the integration is broken.
-
-Already happening in this codebase in a different form: `failedUrls` in `resolveBlobReferences.ts` silently marks blobs as permanently failed for the session, and the dataset renders with missing features and no user-visible error (see `CONCERNS.md` "Fragile Areas").
+To clear microgaps in the messy trail, the optimizer snaps near-coincident endpoints together. Too-loose a tolerance welds two genuinely separate trails (or a trail and a road) into one MultiLineString; topology that *should* have a junction loses it, or two parallel features collapse. The result reads as "fixed" in the thumbnail but is wrong on inspection.
 
 **Why it happens:**
-- MCP servers may be remote, slow to start, behind external auth, or version-skewed (timeout coordination is an open SEP in the MCP spec).
-- Error handling is afterthought; happy path is what gets demoed.
-- "Failed once = failed forever" caches don't differentiate between schema mismatch, network blip, and genuine 404.
+A single global snap tolerance is tuned to close the visible gaps and inadvertently exceeds the spacing between distinct features. Stitching is run blindly over the whole collection.
 
 **How to avoid:**
-1. **Every MCP/tool boundary has explicit timeout, retry-budget, and error type.** Categorise: `timeout`, `network`, `schema`, `not-found`, `unauthorized`, `server-error`. The LLM gets a structured error it can reason about ("the geocoder is currently unavailable — try again in a moment, or proceed without it").
-2. **No silent caching of failures across the session.** Per-call failure surfaces to the user. Maybe per-request memoization (within one turn) is fine; across turns is not.
-3. **Schema validation at the boundary** using Zod or similar — incoming MCP responses are parsed against the expected shape, mismatches are loud not silent.
-4. **Surface degraded mode visibly.** If ContextVM is unreachable, the chat binding chip shows a small warning, and the chat refuses to attempt geocoding rather than producing hallucinated coordinates (links back to Pitfall 3).
-5. **Don't let the LLM retry transparently on tool failure.** The chat returns control to the user with a one-line summary.
+- Snap tolerance must be **conservative and explicit**, ideally derived from the data's own vertex spacing, and applied only to **endpoints flagged as gap candidates**, not all vertices.
+- Only stitch features that share an attribute/identity signal (same name/route) where available; never merge across distinct named features by geometry proximity alone.
+- Surface a **count of joins made** in the diff/preview (Pitfall 2) so the user can catch an over-eager stitch before publish.
 
-**Warning signs:**
-- Tool wrappers don't `await` with timeout.
-- No `.catch` differentiating error types.
-- Failure cache lives at module scope (anti-pattern already present in `resolveBlobReferences.ts:16`).
-- "It worked yesterday" complaints from the maintainer — symptom of schema drift.
+**Warning signs:** one global tolerance; join count not reported; features with different names merged.
 
-**Phase to address:** Phase 5 (chat tool surface). Verification: integration test that points each tool at a fixture server which returns timeout / malformed / partial / 4xx / 5xx; each error type surfaces a distinct UX state.
+**Phase to address:** Geometry-optimization phase, same tool as Pitfall 4.
 
 ---
 
-### Pitfall 6: Classical-utility floor decays as orchestration churns
+### Pitfall 6: 12MB GeoJSON parsed/simplified/serialized on the main thread → UI freeze
 
-**Pillar:** P2 + CROSS
 **What goes wrong:**
-Pillar 2 says "every flow has a non-AI/non-Nostr path." But while Pillar 1 churns the orchestration, classical paths break: anonymous browsing fails because a route depended on an account, a list filter breaks because the panel was restructured for the stance model. Without continuous verification, the classical floor erodes silently and the team only notices when the demo lands and someone says "this only works if you sign in."
-
-The PROJECT.md is explicit about this: "Classical utility is a discipline, not a phase." But disciplines erode under churn without measurable checks.
+File ingest reads a 12MB GeoJSON, `JSON.parse`s it, runs turf simplify, and `JSON.stringify`s the result — all on the main thread. The map and chat lock up for seconds; React 19 batching can't help a synchronous CPU-bound block. Excel/CSV parsing of large files has the same failure. Memory also blows up: parsed object + simplified copy + serialized string + editor feature array can be several multiples of 12MB live at once.
 
 **Why it happens:**
-- During refactor, all attention is on the new model. Non-AI paths aren't being exercised because they're not the focus.
-- Anonymous mode is rarely tested in a logged-in dev session.
-- "It works for me" — the maintainer is always logged in.
+Parsing/transform code is written inline in a tool handler or hook because that's where the data is. The freeze is invisible on small seed datasets.
 
 **How to avoid:**
-1. **Per-phase classical-utility smoke checklist** — a 10-item list run at the end of each phase, in private/incognito with no Nostr key, no chat:
-   - Can I land on `/`?
-   - Can I see a dataset list?
-   - Can I open a shared dataset link?
-   - Can I see the map fit to a dataset?
-   - Can I read a dataset's comments (read-only)?
-   - Can I switch between mobile and desktop?
-   - Is the chat panel collapsed/dismissable?
-   - Is no Nostr lingo (kind, relay, pubkey) visible in default UI?
-   - Can I filter/search a list?
-   - Can the back button move me through navigation?
-2. **Anonymous-first dev mode.** Add a quick toggle (debug-only) for "no account, no chat" so the maintainer can dogfood the classical floor every session.
-3. **Treat regressions as blockers, not "nice to fix later."** A phase that breaks the classical floor doesn't merge.
-4. **Routing tests** that don't require a session — confirm `/`, `/c/<naddr>`, `/d/<naddr>` render an empty-shelf or read-only shelf without auth.
+- Run **all ingest parsing, geometry simplification, and (de)serialization off the main thread** — reuse the same Worker infrastructure as the code interpreter (you're building it anyway). Stream results back.
+- Stream/iteratively parse large CSV/JSON where possible rather than holding three full copies; free intermediates.
+- Set explicit **size/feature-count thresholds** that switch to a chunked path and surface progress; cap pathological inputs with a clear error rather than OOM.
 
-**Warning signs:**
-- "We'll handle the anonymous case after Pillar 3" — wrong order, classical floor is the foundation.
-- Routes throw on missing account.
-- Chat panel can't be collapsed/closed.
-- "Sign in to view" appears anywhere except actual write actions.
+**Warning signs:** `JSON.parse`/`turf.*`/`XLSX.read` on a user file in a React event handler or tool handler; no progress UI; tab memory spikes on real files.
 
-**Phase to address:** Every phase. Verification gate at end of each phase: classical-utility smoke list passes.
+**Phase to address:** File-ingest phase and geometry-optimization phase — share one off-main-thread worker pipeline.
 
 ---
 
-### Pitfall 7: One-way routing rewrite ends up two-way again
+### Pitfall 7: Silently sending images to a non-vision model (the exact frustration to avoid) — substring vision detection is wrong
 
-**Pillar:** P1
 **What goes wrong:**
-`UX_REWRITE.md` §8 #6 mandates one-way URL → state. The new `useRouting.ts` is rewritten. Then a "small convenience" feature creeps in: state updates push back to the URL imperatively from a non-routing component. The two-way binding returns, and the bugs `useRouting.ts:243-256` had originally return with it.
+The existing `modelMaySupportVision()` in `store.ts` is a **substring heuristic** over a hardcoded hint list (`vision`, `vl`, `llava`, `gpt-4o`, `claude-3`, …). This both false-negatives (a vision model whose id lacks a magic word → image affordance disabled, user frustrated) and false-positives (a non-vision model whose id happens to match → image silently sent, model errors or hallucinates, tokens burned, Cashu spent). New model ids and providers drift past the list constantly. Large images also blow up the token/cost budget even on a real vision model.
 
 **Why it happens:**
-- One-way feels weird at first. "Why can't I just `history.pushState` from this handler?"
-- The instinct to add convenience helpers (`setStanceAndUpdateURL`) is strong.
-- Without a clear chokepoint, multiple call sites accumulate.
+There's no reliable cross-provider capability advertisement, so a name heuristic is the pragmatic stopgap — but it's exactly the thing PROJECT.md calls out ("auto-disable image send when the model lacks vision") and it's already shipped as a guess.
 
 **How to avoid:**
-1. **Single writer for the URL.** One module — typically the new `useRouting` — is the only thing in the app that calls `history.pushState`/`history.replaceState`. ESLint rule or grep gate: no other file may import history methods.
-2. **State → URL is *derived*, not pushed.** A subscription to relevant Zustand slices computes the canonical URL and replaces the browser URL when it diverges. Components never call URL-update functions directly.
-3. **URL → state is also derived,** parsed once on navigation events into a single `{ stance, shelf, view }` reducer-apply.
-4. **Tests for routing direction.** Set state → assert URL. Set URL → assert state. No test should mix the two.
+- Prefer **provider-advertised capability** (model metadata from Routstr/LM Studio/OpenAI-compatible `/models`) over name matching; fall back to the heuristic only when metadata is absent, and **mark vision support as "uncertain"** in that case rather than silently enabling.
+- When uncertain, the UI should let the user **explicitly opt in** to sending the image rather than auto-sending — converts a silent failure into a visible choice.
+- **Downscale/recompress images before send** and show the estimated added token cost (this provider is Cashu-paid — see Pitfall 13); strip to a sane max dimension.
+- On a model error that indicates "no image support," surface a clear "this model can't see images" message and disable the affordance — don't just show a generic failure.
 
-**Warning signs:**
-- Multiple files import `history` or call `pushState`.
-- A component has logic like "set state and then set URL."
-- The URL flickers (set then reset within ~100 ms — sign of competing writers).
+**Warning signs:** image attached but capability decided purely by `modelId.includes(...)`; no per-model metadata lookup; full-resolution image bytes in the request; vision toggle has no "unknown" state.
 
-**Phase to address:** Phase 2 (path-based routing rewrite). Verification: grep for `history.pushState`, `history.replaceState`, `window.location` outside `useRouting` — must be empty.
+**Phase to address:** The multimodal / file-ingest phase. Replace/augment the substring heuristic with metadata + explicit-opt-in-when-unknown.
 
 ---
 
-### Pitfall 8: Stance enum becomes the new dual-mode system
+### Pitfall 8: Untyped switch-case tool dispatcher rots under the larger tool count
 
-**Pillar:** P1
 **What goes wrong:**
-`stance: 'browse' | 'focus' | 'author'` ships, but `viewMode`, `sidebarViewMode`, `editIsolationEnabled`, `activeContextScope` aren't deleted — they're left for "phase 4 cleanup." Both systems coexist for weeks; code is written that reads from both; effectively the disease returns with a new symptom. The same auto-promotion bug surfaces in a new shape: somewhere, a `useEffect` sees `stance === 'focus'` and quietly sets `viewMode = 'view'`, and now four mode systems exist where there were three.
+`execute.ts` dispatches 19 tools today via a hand-written `switch (toolCall.function.name)` with per-case ad-hoc arg parsing (`parseToolCallArguments`, `toFiniteNumber`, etc.). v1.1 adds sandbox ops, parametric-shape tools, batch transforms, data-driven styling, and ingest tools — easily doubling the count. With no shared schema, the LLM hallucinates arg names/shapes, each new case re-implements validation slightly differently, and a missing `case`/typo silently no-ops (the model "thinks" it acted). Schema drift between the tool *definitions* (`definitions.ts`) and the *executor* (`execute.ts`) means the model is told one signature and the dispatcher expects another.
 
 **Why it happens:**
-- Big-bang deletion feels scary; "compatibility shim" feels safe.
-- Shipping the new model is celebrated; deleting the old model is a chore that gets deferred.
-- During the overlap window, lazy code reads from "whichever is convenient."
+The switch worked fine at 19 tools and grew organically. Adding the next 15 by the same pattern is the path of least resistance.
 
 **How to avoid:**
-1. **Stance lands with deletions, not in addition.** Phase 1 PR removes `viewMode`, `sidebarViewMode`, `editIsolationEnabled`, `activeContextScope` from the store types — TypeScript errors are the to-do list. There is no "compat property" that mirrors the old enum.
-2. **No new code may read the old props during the transition.** If phase 1 is split into multiple PRs, each PR must reduce the count of references to old props, never increase.
-3. **The legacy slice files (`viewModeSlice.ts`) are deleted, not emptied.** A file with a name that suggests the old model is a magnet for new dependencies.
-4. **Auto-promotion guard:** add a runtime assertion (dev-only) that no `useEffect` ever sets `stance` based on something other than an explicit user action. If a `useEffect` calls `setStance`, that's a smell.
+- Introduce a **single typed tool registry**: one source of truth pairing the JSON schema (sent to the model) with a validated handler (Zod/valibot parse of args → typed handler). Definition and execution can no longer drift.
+- **Validate args against the schema before dispatch**; on failure return a structured tool-error to the model so it can self-correct rather than crashing or no-opping.
+- Make an unknown tool name a **hard, surfaced error**, never a silent fallthrough.
+- Keep the registry the place where the **safety-level gate** (Pitfall 2) and the **sandbox-RPC allow-list** (Pitfall 1) are enforced — one choke point.
 
-**Warning signs:**
-- `viewMode` references exist after phase 1.
-- A "transition helper" file maps between old and new mode.
-- New `useEffect` calls in `GeoEditorView.tsx` that set stance based on data changes.
+**Warning signs:** new tool added as another `case` with bespoke parsing; definitions.ts and execute.ts edited separately; tool name typo produces no error; model retries a tool with different arg names each time.
 
-**Phase to address:** Phase 1 (state collapse). Verification: `grep -r 'viewMode\|sidebarViewMode\|editIsolationEnabled\|activeContextScope' src/ | wc -l` → 0 (excluding migration-shim file if temporarily kept).
+**Phase to address:** A tool-infrastructure phase that lands *before* the new tools — this is a prerequisite refactor, but it amends orchestration (PROJECT.md "amend, don't replace"), it doesn't rewrite the stable tool handlers.
 
 ---
 
-### Pitfall 9: Toolbar API leaks store internals (kills future package boundary)
+### Pitfall 9: Runaway tool loops and cost blowups on the Cashu-paid provider
 
-**Pillar:** P3 + CROSS
 **What goes wrong:**
-The chat tool execution path needs to draw on the map. Quickest path: import the Zustand store directly, call `useEditorStore.getState().addFeature(...)`. It works. But now the toolbar's "drawing API" is just "the entire store," and the constraint in PROJECT.md ("toolbar drawing API as if it were a package export") is silently violated. When v2 comes to extract the toolbar/chat/map packages, every chat tool has to be rewritten.
+With more tools and a sandbox the model can run, a confused model enters a loop (call tool → tool errors / returns ambiguous → call again), or the sandbox runs an infinite loop / generates millions of features. On Routstr (Cashu-prepaid, per the existing `estimateMaxCost`/`promptBudgetTokens` flow) every round-trip spends sats; a loop silently drains the wallet. The sandbox itself can `while(true)` and peg a worker, or `addFeature` in an unbounded loop and OOM the map.
 
 **Why it happens:**
-- The store is in scope, importing it is one line.
-- "It's the same repo for now" — true today, but the design constraint says otherwise.
-- The discipline is not enforced by any structural barrier.
+The existing budget logic bounds a *single* prompt's prepayment, not the *number of tool iterations* in an agentic turn. The sandbox has no execution-time or output-size cap.
 
 **How to avoid:**
-1. **The drawing API is a typed module with explicit functions.** `drawing.createLinestring(coords, options): FeatureId`, `drawing.commitProposal(id)`, `drawing.rejectProposal(id)`, etc. No `store` import allowed from chat tool implementations.
-2. **The chat tool layer imports only from `@/toolbar/api` (or equivalent path).** ESLint `no-restricted-imports` rule: chat tools cannot import from `@/features/geo-editor/store/*`.
-3. **Equivalent paths for chat and UI.** The on-screen "draw linestring" button and the chat tool must call the same `drawing.createLinestring`. If the UI does extra work the API doesn't, the API is incomplete — fix the API, don't bypass it.
-4. **Same enforcement for the chat's map-read tools.** A `mapState.getCurrentBbox()`, `mapState.getFeatures()` surface that doesn't expose the store.
+- Cap **tool-call iterations per turn** and **total spend per turn/session**; halt and ask the user when exceeded. Reuse `estimateMaxCost` but accumulate across the loop.
+- The sandbox needs a **wall-clock timeout** (terminate the Worker) and **output caps** (max features generated, max API ops, max bytes posted back). Worker termination is the only reliable way to kill an infinite loop — design for `worker.terminate()`.
+- Detect **repeated identical tool calls** (same name+args) and break the loop with a message to the model.
 
-**Warning signs:**
-- A file in `src/features/chat/tools/` imports `useEditorStore` or any `store` path.
-- The drawing API has fewer than ~6-10 functions (probably under-specified).
-- UI code does something the chat tool can't, or vice versa.
+**Warning signs:** no iteration cap in the chat turn loop; sandbox can't be force-killed; wallet balance drops during a single "stuck" interaction; map gains thousands of features from one prompt.
 
-**Phase to address:** Phase 5 / 6 (toolbar drawing API design + chat-toolbar bridge). Verification: ESLint clean + a script that lists the drawing API surface and reviews it for completeness; chat tools' import graph contains no store paths.
+**Phase to address:** Sandbox phase (timeouts/caps) + chat-loop phase (iteration/spend caps).
 
 ---
 
-### Pitfall 10: Implicit chat binding sneaks back
+### Pitfall 10: File parsing assumes clean input — coordinate-column ambiguity, encoding, EXIF orientation, untrusted content
 
-**Pillar:** P1 + P3
 **What goes wrong:**
-`UX_REWRITE.md` §6 says "Implicit binding via `activeContextScope` is removed." The chat panel now has an explicit binding chip. But: the default binding is "the current shelf," which is itself implicit — when the shelf changes, the chat's "current understanding" silently changes. The user asks "what's in here?" expecting their previous binding, and gets an answer about a dataset they don't have in mind.
-
-The previous bug was specifically that `activeContextScope` updated implicitly. A binding chip that *displays* an implicit default doesn't actually fix the bug.
+- **Coordinate detection**: CSV with `lat`/`lon` swapped, or columns named `x`/`y`/`POINT_X`/`Latitude`/`緯度`, or coordinates as `45.1,15.2` in one cell → points land in the ocean or are silently dropped. Lon/lat order is the classic GeoJSON footgun (RFC 7946 is `[lon, lat]`; humans write "lat, lon").
+- **Encoding**: non-UTF-8 CSV (Windows-1252 / UTF-16 from Excel) → mojibake in the Arabic/translated names Story 4 cares about.
+- **Excel**: dates as serial numbers, numeric-looking ids stripped of leading zeros, formula cells, multiple sheets.
+- **Images**: EXIF orientation ignored → rotated previews; EXIF GPS could be a *useful* coordinate source but is usually ignored; EXIF can also carry sensitive location/PII silently published.
+- **Untrusted content**: a malicious/garbage cell value flowing into a tool arg, a feature name, or (worst) into the code interpreter or a `fetch` URL.
 
 **Why it happens:**
-- "Default to the shelf" feels like a sensible UX default.
-- The chip displaying the binding feels like enough — but if the chip changes without the user clicking it, it's still implicit.
-- Convenience overrides discipline.
+Parsers are tested on the dev's own clean exports. Real "ugly CSVs" (Story 1) are the *point* of this milestone, so the messy path is the main path, not the edge case.
 
 **How to avoid:**
-1. **Binding is sticky once explicit, ephemeral while default.** If the user has never overridden the binding, it follows the shelf and the chip says "Bound to: current shelf (auto)." Once the user manually sets it, it stays put until they unset it — even if the shelf changes.
-2. **Visible state change when the implicit binding moves.** If the auto-binding follows the shelf, that's a state change the chat panel announces inline: "Binding updated to [new shelf contents]" with an "Undo" affordance.
-3. **The chip is interactive and the implicit path is clearly marked.** Not "Bound to: X" but "Bound to: X (auto)" so the user knows the binding is tracking.
-4. **Tool calls receive the binding as an explicit argument**, not by reading it from the store at call time. Easier to reason about, easier to test.
+- **Detect and confirm the coordinate columns + lon/lat order with the user** (or the AI proposes, user confirms) before importing; sanity-check that points fall within `[-180,180]/[-90,90]` and within a plausible bbox; flag swapped-looking data.
+- Detect encoding (BOM / heuristic) and decode explicitly; default UTF-8 but handle Windows-1252/UTF-16.
+- Use a real spreadsheet parser that preserves types; treat ids as strings; surface multi-sheet choice.
+- Respect EXIF orientation for previews; optionally offer EXIF-GPS as a coordinate source *with consent*; **strip EXIF on any image that gets published** to avoid leaking the uploader's location/PII.
+- Never let raw file content reach the sandbox, a `fetch` URL, or an unescaped tool arg without validation — file content is untrusted input.
 
-**Warning signs:**
-- Chat panel reads `currentBinding` directly from the store inside tool execution.
-- Binding chip changes without an inline announcement.
-- User can't tell which binding their question is being answered against.
+**Warning signs:** import "just works" only on the dev's exports; no column-mapping confirmation step; points in the Atlantic at (0,0); garbled non-Latin names; published images carrying GPS EXIF.
 
-**Phase to address:** Phase 6 (chat detach + binding chip). Verification: scripted test — change the shelf, then ask the chat a question; the chat's answer must clearly indicate which binding it used.
+**Phase to address:** File-ingest phase. The column-mapping/lon-lat confirmation UI is core to Story 1, not optional.
 
 ---
 
-### Pitfall 11: Mobile shelf collapse hides the working set entirely
+### Pitfall 11: AI edits/transforms only the features in its context window, silently dropping the rest
 
-**Pillar:** P1 + P2
 **What goes wrong:**
-`UX_REWRITE.md` §3 says "on mobile, the shelf collapses to one chip with a count." Implementation ships, the chip is small, the user doesn't notice it; they tap a dataset, it goes "into the shelf" (invisible), they tap another, same thing. The map shows whatever was last opened, the user has no idea what else is in the shelf, and on a small phone there's no obvious way to see.
-
-The shelf is the working set. Hiding the working set is worse than not having one.
+The bound dataset has 400 features; the context snapshot or `get_editor_state` returns a compacted subset (the codebase already has `compactToolResultAfterBake`, `getCompactMapContextForTool`, `[image omitted for context window]` logic). The AI "translate all names" / "recolor everything" transform operates on what it can see and writes back only those, effectively deleting the unseen features or leaving them inconsistent. The user asked for "all" and got a partial, lossy result.
 
 **Why it happens:**
-- "Save space on mobile" instinct overrides "the user needs to see what they're working with."
-- Desktop-first design — mobile gets the leftover space.
-- "It opens as a sheet on tap" — true, but does the user know to tap?
+Context-window economy (and the Cashu cost incentive) compacts the data sent to the model. A transform tool that takes the model's view of the data as input inherits that truncation.
 
 **How to avoid:**
-1. **The collapsed shelf chip is loud.** Count badge, label ("3 layers"), pulse animation when items are added.
-2. **First add to shelf opens the sheet briefly** (peek behavior) so the user sees what just happened, then auto-collapses.
-3. **The chip is on the main map view's permanent toolbar**, not hidden behind a hamburger.
-4. **Empty shelf shows a different chip** ("Add layers from sidebar") with discovery affordance — not just absent.
+- Bulk transforms must run **over the full bound dataset by id**, executed host-side, with the AI specifying the *rule* (e.g. "for every feature where category=port set color=blue") rather than emitting the transformed features themselves. The model authors the transform; the host applies it to all features.
+- The code interpreter is the right vehicle here — generated code iterates the *full* collection inside the sandbox/host, not the model's truncated view.
+- The diff/preview (Pitfall 2) shows N affected of M total so partial coverage is visible.
 
-**Warning signs:**
-- Mobile testing skipped during a phase.
-- "It works on desktop" reviews — the maintainer is on a 27" screen.
-- The chip is tiny, monochrome, no badge.
+**Warning signs:** transform tool input is the context snapshot; affected-count < dataset-count for an "all" request; features outside context unchanged or missing after a "fix all" op.
 
-**Phase to address:** Phase 3 (Map Shelf) — mobile behaviour is in-scope from day one, not a polish task in phase 6.
+**Phase to address:** Safe-editing + sandbox phases — transforms-as-rules over full data, not model-emitted feature lists.
 
 ---
 
-### Pitfall 12: Privacy hole — chat content with map context published or leaked
+### Pitfall 12: nsec / wallet / API-key leak into memory, devtools, logs, or persisted state
 
-**Pillar:** P3 + CROSS
 **What goes wrong:**
-The user asks the chat "draw a trail to my friend's cabin at [private coordinates]." The chat reasons through it, calls tools, draws. Somewhere in the implementation, the chat's transcript ends up persisted to Nostr (as a draft, as part of a workspace, as comment metadata, as a debug event), and now private location data is on a public relay forever — Nostr events are immutable and rebroadcast freely.
-
-The current chat is described as "monolithic" with no test coverage (`CONCERNS.md`); risk of accidental publication is meaningful.
+API keys and provider config live in the Zustand chat store; if the store uses `persist` or redux-devtools, secrets serialize to localStorage/devtools in plaintext (defeating the nsec encryption). The signer's private key or Cashu proofs end up in an error boundary's logged state, a Sentry-style payload, or a console.log left in. The sandbox, if mis-bounded (Pitfall 1), reads any of these.
 
 **Why it happens:**
-- "Workspaces" persistence (PROJECT.md mentions resumable workspaces with chat session) is a candidate for sync-everywhere instinct.
-- Nostr-everywhere is the platform's default mental model — easy to forget chat isn't a public artifact.
-- Debug/telemetry events can leak conversational context.
+Zustand devtools/persist middleware is convenient and serializes everything by default. Error logging dumps state. The decrypted-settings object is the same shape as the encrypted one and easy to accidentally persist decrypted.
 
 **How to avoid:**
-1. **Chat sessions are local-only by default.** Workspaces store chat history in `localStorage` (scoped per-pubkey via the existing `persistence.ts` pattern, with the known caveat about the `currentUser` singleton — see `CONCERNS.md`). No event, no relay.
-2. **Explicit "share this chat" verb if cross-device sync is ever wanted** — but v1 should not have it.
-3. **Workspaces published to Nostr (if ever) exclude chat transcript** and only include the metadata (pinned shelf set, draft pointer).
-4. **AI-generated geometry, when published as kind 37515, is signed by the user.** This is correct — the user vouches for what they publish. But the *event content* should not embed the chat transcript; a tag like `["ai-assisted", "true"]` is enough provenance for relay-side; the conversation that produced it stays local.
-5. **Audit every Nostr event-emit path for what's in `content` and `tags`** before P3 ships.
+- Keep decrypted secrets out of any persisted/devtools-serialized slice; store the **encrypted envelope** only, decrypt into a transient (non-persisted) field.
+- Scrub secrets from error/telemetry payloads and never `console.log` provider config or proofs.
+- Confirm the sandbox boundary (Pitfall 1) denies access to these by construction.
 
-**Warning signs:**
-- A workspace event payload includes `messages: [...]`.
-- Debug logs include chat content and a debug-relay endpoint is wired up.
-- "Persist chat across devices" is being added without a privacy review.
+**Warning signs:** `persist`/`devtools` middleware wrapping the slice that holds API keys; secrets visible in Application→Local Storage as plaintext; provider config appearing in error logs.
 
-**Phase to address:** Phase 6 (chat detach + workspaces). Verification: audit pass — `grep` chat store for any path that sends data to `RelayPool` or `pool.publish`; must be empty.
-
----
-
-### Pitfall 13: Scope creep into visual / typographic design system
-
-**Pillar:** CROSS
-**What goes wrong:**
-While "improving the UX," the maintainer or an agent starts swapping Radix primitives, normalising spacing, introducing a new font scale, building a button variant taxonomy. PROJECT.md is explicit ("No design system overhaul"), but it's easy to drift, especially because design work feels productive and is visually rewarding.
-
-**Why it happens:**
-- Visual polish is dopaminergic.
-- Components being touched anyway "could use a refresh."
-- AI agents in particular love to "improve" styling because it produces visible diffs.
-
-**How to avoid:**
-1. **Visual changes require explicit justification** in every PR description: "this style change is needed because X structural reason." If the answer is "looked better," reject.
-2. **Lock the design tokens** — don't introduce new Tailwind tokens, don't change existing component variants outside structural fixes.
-3. **Diff review focus on Tailwind class changes** — a PR adding many new utility classes is a smell.
-4. **The maintainer-dogfood metric is "I open the app for fun,"** not "the app looks pretty." Coherence > polish.
-
-**Warning signs:**
-- New colour values, font sizes, shadow tokens introduced.
-- A "design pass" PR shows up in the queue.
-- Radix component swaps.
-
-**Phase to address:** Every phase — a PR-template line: "No design-system changes? ☐ confirmed".
-
----
-
-### Pitfall 14: Long-running AI session drifts because the model's context fills with stale state
-
-**Pillar:** P3
-**What goes wrong:**
-The chat session lasts 20 minutes. Earlier turns include geometry the user has since rejected, places they've abandoned, tools called and never used. The model's context is now polluted with stale signal; it starts referencing rejected features, calls tools redundantly, gives answers based on the wrong shelf.
-
-This is the documented "context rot" pattern in AI coding agents — applies equally to AI map editors.
-
-**Why it happens:**
-- Default chat impls keep full transcript in context.
-- Tool results accumulate as messages.
-- No mechanism to "forget" rejected proposals or stale tool outputs.
-
-**How to avoid:**
-1. **Trim tool result context aggressively.** Once a proposal is accepted or rejected, the tool result message in the LLM's context can be summarised ("created linestring X, accepted") rather than kept verbatim.
-2. **System prompt restates current state on each turn** — current binding, current shelf contents, current draft summary. The model doesn't have to remember; it's reminded.
-3. **"New session" verb in the chat panel** — easy reset to fresh context, preserving only the map state.
-4. **Bounded session length warnings** — at 15 minutes / 50 turns, suggest starting fresh.
-
-**Warning signs:**
-- Chat answers reference features the user can't see on the map.
-- Cost-per-turn rises monotonically over the session.
-- Demo run 1 succeeds; demo run 5 (same chat session) fails.
-
-**Phase to address:** Phase 6 (chat). Verification: stress test — run 30 turns of mixed accept/reject in a single session; final state should still be coherent.
+**Phase to address:** Encrypted-settings phase + sandbox phase.
 
 ---
 
 ## Technical Debt Patterns
 
-Shortcuts that seem reasonable but create long-term problems.
-
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
-|---|---|---|---|
-| Keep `viewMode` as a "compat alias" of `stance` during transition | No big-bang refactor of every reader | Two sources of truth re-emerge; the original disease returns | Never. Delete and let TypeScript errors guide the rewrite. |
-| AI geometry committed straight to draft, "undo handles it" | One fewer UI surface to build | Users lose trust in the AI surface; can't tell what the AI did; demo feels janky | Never. Two-stage commit is non-negotiable. |
-| Chat tool imports the editor store directly | Fastest path to working tool calls | Future toolbar/chat/map package split becomes a rewrite | Never. Build the API even if it's in the same repo. |
-| Skip mobile shelf testing until phase 6 | Phase 3 ships faster | Mobile users have no idea what's in their working set; classical-utility floor cracks | Never. Mobile is in-scope from phase 3. |
-| Cache MCP failures at module scope ("`failedUrls`") | Avoid duplicate failed requests | Transient failures become permanent for the session; users see missing data with no explanation | Only as per-turn memoization, not per-session. |
-| Hash routing kept "for backwards compat" indefinitely | No URL breakage | Two routing systems run in parallel; sharing/linking is ambiguous | Acceptable as a one-time redirect shim (§9), not as ongoing support. |
-| Mocked / stubbed Blossom in the relay (`relay/main.go:150-158`) | Local dev "works" | Tests pass against fake data; subtle bugs in real Blossom hide until production | Acceptable for local dev. Must be gated behind dev-only flag and documented. |
-| AI-generated coordinates committed without grounding tool call | Demo "runs" faster | Geometry lands in wrong continent on a different prompt; demo is a fluke | Never. Grounded geocoding is the only acceptable path. |
-| Persist chat transcript to a Nostr event "for sync" | Cross-device chat | Permanent public record of private location queries | Never in v1. Defer to a deliberate v2 with explicit consent UI. |
-| Patch the existing `useViewMode.ts` instead of deleting | Keep some callers working during transition | The "useViewMode" name becomes the new attractor for auto-promotion logic | Acceptable only if the file's exports shrink monotonically per PR. |
+|----------|-------------------|----------------|-----------------|
+| Pass live toolbar API / store into the sandbox | Instant "map access" for generated code | Sandbox escape; full access to signer/wallet; security rewrite | **Never** |
+| Keep adding `case`s to the `execute.ts` switch | No refactor, ship the next tool fast | Schema drift, silent no-ops, hallucinated args at 30+ tools | Only for 1–2 trivial read-only tools; not for the v1.1 wave |
+| `turf.simplify` tolerance chosen by byte size | Hits relay size limit in one call | Topology breakage, sliver gaps, property loss | Single-feature, non-shared-boundary data only |
+| Substring vision detection (current `modelMaySupportVision`) | Works for known models today | Silent image-to-blind-model sends; model drift | As *fallback* under "uncertain" flag, not as the decision |
+| Apply AI edit then show result | Simpler code path | Destructive, no recovery, edits wrong dataset | Only at safety level 3 (trust+undo) with a real dataset-level snapshot |
+| Decrypt settings synchronously at boot | Simple load | Hangs/fails on NIP-46; silent provider-config loss | Local-nsec-only, never for remote signers |
+| Parse/transform big files on main thread | Less plumbing | Multi-second freeze, OOM on real datasets | Files under a small, enforced threshold only |
 
 ## Integration Gotchas
 
 | Integration | Common Mistake | Correct Approach |
-|---|---|---|
-| ContextVM MCP (`SearchLocation`, `ReverseLookup`) | Treat as in-process function calls; ignore timeout, retry, schema versioning | Wrap with explicit timeout, structured error types, schema validation on response; surface degraded mode in UI |
-| MapLibre GL (`@types/maplibre-gl` v1 against runtime v5 — see `CONCERNS.md`) | Trust the v1 types; cast to `any` when reality disagrees | Delete `@types/maplibre-gl` (MapLibre v5 ships its own types); fix the `as any` sites in `GeoEditor.ts:455,1723-1729` |
-| Blossom blob upload | Assume large datasets always succeed; no automatic enforcement of the 2 MB relay cap | Detect-and-uplift via existing `BlossomUploadDialog`, but also add a *pre-publish size check* with a clear "this dataset is too large for inline; uploading to Blossom" message |
-| Nostr event signing for AI-authored geometry | Sign without attribution metadata | User signs (they're vouching for the publish), but tag the event with provenance (`["ai-assisted", "true"]` or similar) so consumers can filter |
-| Applesauce EventStore + RelayPool | Assume events fire immediately and synchronously | All publish flows treat as async with possible failure; UI surfaces "publishing…" / "published" / "failed — retry" states |
-| LLM tool schemas (e.g. via Vercel AI SDK or similar) | Tool descriptions written quickly, model picks wrong tool | Each tool has: precise "when to use" / "when not to use" / examples; tool names diverge clearly (no two tools share noun prefixes) |
-| Mapnolia (PMTiles + Blossom binary) | Run client and mapnolia on different config; client assumes mapnolia is always up | Health-check at startup; surface mapnolia availability in dev UI; explicit fallback to no-tiles mode |
+|-------------|----------------|------------------|
+| applesauce NIP-46 signer (encrypted settings) | Treat decrypt as instant/infallible like a local key | Async, fallible, possibly-offline; loading/error UI; export/import escape hatch |
+| Routstr / Cashu provider | Bound only single-prompt prepayment | Cap iterations + cumulative spend per agentic turn; halt on overrun |
+| `@turf/turf` simplify/union | Use as topology-aware optimizer | It's per-feature Douglas-Peucker + property-dropping union; add topology validation + property-merge policy, or use a topology-aware simplifier |
+| MapLibre GeoEditor (`setFeatures`) | AI writes straight through with no diff | Diff against bound dataset, gate by safety level, dataset-level snapshot for undo |
+| Existing tool dispatcher (`execute.ts`) | Add tools as more switch cases | Typed registry: schema↔handler single source, validate-before-dispatch |
+| LM Studio / custom OpenAI-compatible providers | Assume vision/`reasoning_content` behavior uniform | Per-provider capability detection (code already special-cases LM Studio context + Kimi reasoning — extend, don't assume) |
+| Web Worker / iframe sandbox | Assume isolation == security boundary | Cross-origin + CSP + message-only RPC; isolation is thread/DOM, not trust |
 
 ## Performance Traps
 
 | Trap | Symptoms | Prevention | When It Breaks |
-|---|---|---|---|
-| Module-scoped blob cache with no eviction (`resolveBlobReferences.ts:16` — `CONCERNS.md`) | Memory grows monotonically with each dataset load; long sessions slow down | LRU bound (max N entries or max bytes) | Sessions where the user loads ≥10 large datasets |
-| `JSON.parse(JSON.stringify(feature))` in hot path (`GeoEditor.ts:1612` — `CONCERNS.md`) | Frame drops during edit of complex polygons | Use `structuredClone` or a targeted property clone | Polygons with ≥1000 vertices |
-| Each chat tool call holds a full feature collection in LLM context | Token cost balloons with each call on large datasets | Summarise: pass feature counts + bbox + sample features, not full geometry | Datasets >100 features |
-| Unbounded chat session length | Cost grows linearly with session length; context rot (Pitfall 14) | Bounded session + summarisation between turns | Sessions >20 turns |
-| All datasets fetched in one subscription (`GeoDatasetsPanel` — `CONCERNS.md`) | Initial load slow on populated relay | Cursor pagination using `limit` + `until` | Relay with >1000 events of kind 37515 |
-| Re-running AI tool calls without idempotency | Latency multiplies, cost compounds | Memoize within a turn | Models with retry behaviour or eager invocation |
+|------|----------|------------|----------------|
+| Main-thread parse/simplify/stringify | Multi-second UI freeze on import | Off-main-thread worker pipeline; stream; free intermediates | ~1–5MB+ real files |
+| Triple-copy memory (parsed + simplified + serialized + editor array) | Tab memory spike, OOM tab | Stream, transfer, release intermediates | 10MB+ inputs (the 12MB story) |
+| Unbounded sandbox generation | Map gains thousands of features, render stalls | Output caps (max features/ops), wall-clock timeout | Any `for`/`while` in generated code |
+| Full-res images in chat requests | Token/cost blowup, slow turns, wallet drain | Downscale/recompress before send; show cost estimate | Any phone-photo upload (multi-MB) |
+| Runaway tool loop | Wallet drains while "thinking"; turn never ends | Iteration + spend caps; detect repeated calls | Ambiguous tool results, confused model |
 
 ## Security Mistakes
 
 | Mistake | Risk | Prevention |
-|---|---|---|
-| Persisting chat transcript with location queries to Nostr | Public, immutable record of private location data | Chat is local-only by default; explicit consent to share (deferred to v2) |
-| `CLIENT_KEY` hardcoded in frontend bundle (`CONCERNS.md` — pre-existing) | Anyone can impersonate the MCP client identity | Move signing server-side; proxy ContextVM calls through Bun server. Not strictly in scope for this project but interacts with P3 (chat ↔ MCP) — flag if AI work expands the MCP surface |
-| Private key in `localStorage` unencrypted (`CONCERNS.md` — pre-existing) | Browser XSS exfiltrates user keys | NIP-49 encryption with passphrase, or prompt user about risk |
-| LLM-generated geometry published to relay with no user review | An attacker prompts the chat with crafted text that produces a poisoned dataset published under the user's pubkey | Two-stage accept/reject (Pitfall 2) makes this user-driven, not LLM-driven |
-| AI-published events with no provenance tag | Cannot filter/audit AI-authored datasets in the future | Standard provenance tag from day one |
-| Open relay without auth/rate-limiting (`CONCERNS.md` — pre-existing) | DoS, spam | NIP-42 for writes; rate limit for reads. Not strictly in scope but relevant if v1 demo widens public access |
+|---------|------|------------|
+| Live host objects (signer/wallet/store) reachable from sandbox | nsec / Cashu proof exfiltration, arbitrary publish | Message-only RPC; cross-origin iframe + CSP; allow-listed host ops |
+| `<iframe sandbox>` with `allow-same-origin allow-scripts` | Sandbox voided; same-origin storage/network access | No `allow-same-origin`; separate origin |
+| Blob-URL Worker assumed origin-isolated | Same-origin `fetch`/storage from generated code | CSP `default-src 'none'`; treat as untrusted; no secrets in scope |
+| Prototype pollution / `Function('return this')` escape | Break out of naive freezing-based sandbox | Don't rely on freezing host globals; rely on origin+process isolation + message contract |
+| Secrets in persisted/devtools Zustand slice | Plaintext API keys/proofs in localStorage/devtools | Persist encrypted envelope only; decrypt to transient field |
+| EXIF GPS/PII in published images | Leak uploader location | Strip EXIF before publish; consent before using EXIF-GPS |
+| Untrusted file content into tool args / fetch URL / sandbox | Injection, SSRF-ish fetch, poisoned features | Validate/escape all file-derived values; never pass raw into eval or URL |
 
 ## UX Pitfalls
 
 | Pitfall | User Impact | Better Approach |
-|---|---|---|
-| AI changes the map without announcing it | User loses trust, doesn't know what to undo | Two-stage commit + chat panel announces the geometric outcome |
-| Mode (stance) changes without user action | User feels the app "did something" without consent | All stance changes via explicit verbs (`UX_REWRITE.md` §8 — all six implicit transitions deleted) |
-| Shelf items added silently | User doesn't know what's currently in the working set | Visual confirmation (peek animation, badge) on add |
-| Chat panel can't be ignored | User doing classical browsing feels harassed by AI affordances | Detachable, collapsible, dismissible |
-| Tool execution looks like "thinking" with no progress signal | User wonders if the app froze | Streaming progress: "searching for Hallstatt…" / "drawing trail…" |
-| Geocoding ambiguity not surfaced ("there are 5 Springfields") | User gets a feature in the wrong Springfield, doesn't notice for a while | Tool returns top N with confidence; chat asks user to disambiguate when confidence is low |
-| Nostr lingo bleeds into classical paths (kind, relay, pubkey, naddr) | New user thinks they're using a developer tool | Plain language wrappers ("dataset" not "kind 37515 event"); protocol terms only in advanced settings |
-| Mobile shelf hidden behind a small chip | User doesn't realise the shelf exists | Loud chip + peek-on-add (Pitfall 11) |
-| "Auto-save" with no visible confirmation | User unsure whether their draft persisted | Explicit save confirmation; draftSlice already has the plumbing — surface it |
-| Undo doesn't include AI actions atomically | One AI draw = 47 undo steps (one per vertex) | Each chat tool call is one undo step |
+|---------|-------------|-----------------|
+| Silent chat→dataset binding | AI edits a dataset the user didn't realize was the target | Always-visible binding chip; no edit tool fires without a shown target |
+| Apply-then-reveal AI edits | User can't catch a wrong/lossy transform before damage | Diff/preview gated by safety level *before* apply |
+| Auto-send image to unknown-vision model | Confusing model error, wasted sats, the exact frustration named in PROJECT.md | Explicit opt-in when vision support is uncertain |
+| "Fix all" silently fixes only the visible subset | User trusts a partial/lossy result | Transform-as-rule over full dataset; show N-of-M affected |
+| Optimizer reports success by file size only | "Optimized" dataset is visually/topologically broken | Show topology-validity + join count + before/after visual diff |
+| Settings vanish after signer change | User re-enters all provider config, distrusts persistence | Detect orphaned envelope, prompt; export/import |
 
 ## "Looks Done But Isn't" Checklist
 
-Things that appear complete but are missing critical pieces.
-
-- [ ] **Stance enum:** Often missing — old props (`viewMode`, `sidebarViewMode`, `editIsolationEnabled`, `activeContextScope`) still in store types. Verify: `grep -r 'viewMode' src/` returns zero hits outside transition shim.
-- [ ] **Implicit transition deletion:** Often missing — at least one of the six auto-`setViewMode` calls left behind. Verify each line from `UX_REWRITE.md` §8 is actually gone.
-- [ ] **Map Shelf:** Often missing — mobile collapse UX. Verify: load 3 datasets on a phone-width viewport, can the user see and manage all 3?
-- [ ] **One-way routing:** Often missing — a stray `history.pushState` outside `useRouting`. Verify: `grep -r 'pushState\|replaceState' src/ | grep -v useRouting` is empty.
-- [ ] **Chat binding chip:** Often missing — chip shows binding but binding still changes implicitly. Verify: change the shelf; chip should either stay (if user set it explicitly) or visibly announce the change.
-- [ ] **Toolbar drawing API:** Often missing — chat tools still import the store. Verify: ESLint `no-restricted-imports` blocks it; CI fails if a chat tool imports `useEditorStore`.
-- [ ] **AI provenance:** Often missing — feature objects have no `provenance` field; or the field exists but is never set by the AI path.
-- [ ] **Accept/reject UI:** Often missing — proposal layer renders the same as committed features. Verify: visually distinct rendering; a non-developer can tell at a glance.
-- [ ] **Coordinate validation:** Often missing — chat tool accepts coordinates without lat/lon range or order check. Verify: fuzz test with bad coordinates returns clean error.
-- [ ] **Classical-utility floor:** Often missing — incognito + no Nostr signin + chat collapsed; some path breaks. Verify with the per-phase smoke checklist.
-- [ ] **Demo reliability:** Often missing — works once, fails the second time. Verify: 10 cold-start demo runs must succeed at least 9 times.
-- [ ] **MCP timeout/error states:** Often missing — `await` without timeout. Verify: kill the ContextVM server during a chat tool call; UX should surface a clean error.
-- [ ] **Chat privacy:** Often missing — workspace event payload accidentally includes chat transcript. Verify: audit any Nostr publish path that touches workspace data.
-- [ ] **Bounded tool calls:** Often missing — chat loop has no max-iterations guard. Verify: a deliberately confusing prompt doesn't burn 50 tool calls.
+- [ ] **Sandbox:** runs generated JS and draws on the map — verify it CANNOT reach the signer, wallet, store, `localStorage`, or `fetch`; verify `worker.terminate()` kills an infinite loop; verify cross-origin/CSP, not just `sandbox` attr.
+- [ ] **Safe edit:** diff shows before apply — verify it diffs against the *bound* dataset, classifies add/modify/delete, respects all three safety levels, and matches features by id; verify undo reverts property/style/translation edits, not just geometry.
+- [ ] **Binding chip:** present — verify no mutating tool executes when nothing is bound, and the shown target is the one actually written to.
+- [ ] **Vision gating:** image affordance toggles — verify it uses provider metadata, has an "unknown" state with explicit opt-in, and downscales images.
+- [ ] **Geometry optimization:** hits the size target — verify post-simplify topology validity (no new kinks/zero-area), per-feature properties survive merge, microgap stitch reports join count, and it ran off-main-thread.
+- [ ] **File ingest:** parses the happy-path CSV — verify lon/lat-order confirmation, encoding handling, Excel type preservation, EXIF orientation+GPS handling, and large-file off-thread + progress.
+- [ ] **Tool registry:** new tools callable — verify schema↔handler single source, arg validation before dispatch, unknown-tool hard error (no silent no-op).
+- [ ] **Encrypted settings:** persists across reload — verify NIP-46 signer path, async/fallible load, orphaned-envelope handling, export/import, and that secrets are NOT in any persisted/devtools slice.
+- [ ] **Cost safety:** single prompt prepayment works — verify per-turn iteration cap and cumulative spend cap stop a runaway loop.
 
 ## Recovery Strategies
 
-When pitfalls occur despite prevention, how to recover.
-
 | Pitfall | Recovery Cost | Recovery Steps |
-|---|---|---|
-| Reimplemented leaves (Pitfall 1) | HIGH | Audit each rewritten component for lost behaviour; revert to main's version, port only the strictly necessary changes; lesson: re-state the constraint in the next prompt header |
-| AI geometry silently committed (Pitfall 2) | MEDIUM | Add the proposal layer post-hoc; mark all features from the last N hours with synthetic `provenance: 'unknown'`; surface them in inspector for retroactive review |
-| LLM hallucinated coordinates ship to demo (Pitfall 3) | HIGH | Pull demo; add grounded-geocoder requirement to the prompt and tool schema; fuzz suite; re-record |
-| Runaway tool calls in production (Pitfall 4) | LOW | Add tool-call budget and time budget; ship as a hotfix; monitor for one week |
-| MCP silent failure (Pitfall 5) | MEDIUM | Add structured error types at the boundary; surface degraded mode UI; clear `failedUrls`-style caches on a timer |
-| Classical floor regression (Pitfall 6) | MEDIUM | Add smoke checklist to CI; block phase merges that fail it |
-| Two-way routing returns (Pitfall 7) | LOW (if caught early) / HIGH (if entrenched) | ESLint rule + single-writer refactor; if multiple writers exist, refactor to one chokepoint |
-| Dual mode system (Pitfall 8) | HIGH (this is the previous-failure mode) | Delete old slices fully; let TypeScript errors guide the cleanup; treat as a phase 1 redo |
-| Toolbar API leaks store (Pitfall 9) | MEDIUM | Add ESLint rule; refactor tool implementations to use the API; takes a few days |
-| Implicit chat binding (Pitfall 10) | LOW | Make binding sticky-once-explicit; add inline announcement when auto-binding moves |
-| Mobile shelf hidden (Pitfall 11) | LOW | Add loud chip + peek animation |
-| Chat-content privacy hole (Pitfall 12) | VERY HIGH (events are immutable, broadcast widely) | Cannot un-publish; mitigate by changing pubkey if necessary; for v1, prevent rather than recover |
-| Design-system scope creep (Pitfall 13) | LOW-MEDIUM | Revert the design changes; reaffirm constraint |
-| Context rot in AI session (Pitfall 14) | LOW | Add "new session" verb; summarise tool results in context |
+|---------|---------------|----------------|
+| Sandbox passed live objects | HIGH | Rip out object passing; rebuild as message-only RPC + cross-origin; re-audit every exposed op |
+| AI clobbered a dataset (no snapshot) | HIGH | If unpublished, only the editor geometry stack may help (props lost); if published, fork/restore from a prior kind-37515 revision if one exists |
+| AI clobbered a dataset (with dataset snapshot) | LOW | One-shot revert from pre-batch snapshot |
+| Topology broken by over-simplify | MEDIUM | Re-run from original at lower tolerance with topology gate; original must be retained until publish |
+| Secrets leaked to localStorage/devtools | MEDIUM | Rotate API keys/wallet, purge persisted slice, move to transient field |
+| Settings lost on signer change | LOW/MEDIUM | Import from export if available; else re-enter (argues for export/import up front) |
+| Image sent to blind model | LOW | Surface error, disable affordance, refund-aware (Cashu unused balance refunds) |
 
 ## Pitfall-to-Phase Mapping
 
-How roadmap phases should address these pitfalls. Phase numbers reference the phased rollout in `UX_REWRITE.md` §11.
+| Pitfall | Prevention Phase | Verification |
+|---------|------------------|--------------|
+| 1 Sandbox escape | Sandbox phase (boundary contract first) | Generated code provably can't reach signer/wallet/store/fetch; terminate kills loops |
+| 2 AI clobbers wrong dataset | Safe-editing phase (binding chip + classify + diff first) | No mutating tool without bound+shown target; diff before apply; dataset-level undo |
+| 3 NIP-46 can't decrypt settings | Encrypted-settings phase | NIP-46 signer round-trips; orphaned-envelope handled; export/import exists |
+| 4 Over-simplify topology | Geometry-optimization phase | Post-simplify kink/area gate; properties survive merge |
+| 5 Microgap over-stitch | Geometry-optimization phase | Conservative tolerance; join count reported |
+| 6 Main-thread freeze/OOM | File-ingest + optimization phases | Off-main-thread; progress UI; memory bounded on 12MB input |
+| 7 Image to non-vision model | Multimodal phase | Metadata-based gating + unknown opt-in + downscale |
+| 8 Untyped dispatcher rot | Tool-infra phase (prereq to new tools) | Typed registry; validate-before-dispatch; unknown-tool error |
+| 9 Runaway loop / cost blowup | Sandbox + chat-loop phases | Iteration + spend caps; sandbox timeout/output caps |
+| 10 Dirty file parsing | File-ingest phase | Lon/lat confirm; encoding; Excel types; EXIF; untrusted-input validation |
+| 11 Transform drops out-of-context features | Safe-editing + sandbox phases | Transform-as-rule over full dataset by id; N-of-M shown |
+| 12 Secret leak | Encrypted-settings + sandbox phases | No secrets in persisted/devtools slice or logs |
 
-| Pitfall | Pillar | Prevention Phase | Verification |
-|---|---|---|---|
-| 1. Reimplementing leaves | P1, CROSS | Phase 1 (state collapse) | Visual diff main vs P1 head shows ~zero leaf changes; only orchestration files in diff |
-| 2. AI geometry without accept/reject | P3 | Phase 6 (chat-toolbar bridge + accept/reject UI) | Scripted demo: viewer can always tell when AI acted |
-| 3. Hallucinated coordinates | P3 | Phase 5 (chat tool surface) | 20-prompt fuzz suite returns either grounded coords or clean refusal |
-| 4. Runaway tool calls | P3 | Phase 5/6 | 60-second demo succeeds 9/10 with hard budget caps |
-| 5. MCP silent failures | P3, CROSS | Phase 5 | Integration test against fixture server returning each error type |
-| 6. Classical floor decay | P2, CROSS | Every phase | Per-phase incognito smoke checklist passes |
-| 7. Two-way routing | P1 | Phase 2 (routing rewrite) | Grep clean for `pushState` outside `useRouting` |
-| 8. Stance becomes dual-mode | P1 | Phase 1 (state collapse) | Old prop grep returns 0 |
-| 9. Toolbar API leaks store | P3, CROSS | Phase 5 (toolbar API design) | ESLint `no-restricted-imports` clean in chat tools |
-| 10. Implicit chat binding | P1, P3 | Phase 6 (chat detach + binding chip) | Manual test: shelf change preserves explicit binding |
-| 11. Mobile shelf hidden | P1, P2 | Phase 3 (Map Shelf) — mobile in scope | Mobile viewport test: shelf chip is loud, peek-on-add works |
-| 12. Chat privacy leak | P3, CROSS | Phase 6 (chat detach + workspaces) | Audit: no Nostr publish path touches chat transcript |
-| 13. Design-system scope creep | CROSS | Every phase | PR template: "No design-system changes? confirmed" line |
-| 14. Context rot in AI session | P3 | Phase 6 (chat) | 30-turn stress test; session stays coherent |
+## Scope / Integration Coupling Note (PROJECT.md "amend, don't replace")
 
-### Phase-level guards (what to verify before merging each phase)
+This milestone touches editor + rendering + publish dialog + wallet/signer simultaneously. Two coupling risks specific to Earthly:
 
-- **Before phase 2 merges:** Phase 1 (Pitfall 1, 8) verified. Visual diff is near-empty. Grep for old mode props returns 0.
-- **Before phase 3 merges:** Phase 2 (Pitfall 7) verified. Routing is one-way. Single writer for URL.
-- **Before phase 4 merges:** Phase 3 (Pitfall 11) verified. Mobile shelf usable. Classical smoke checklist passes.
-- **Before phase 5 merges:** Phase 4 verified. Sidebar consolidated, no split branch. Classical smoke checklist passes.
-- **Before phase 6 merges:** Phase 5 (Pitfalls 3, 4, 5, 9) verified. Tool boundary clean. Coordinate validation in place. Tool-call budget enforced. MCP errors structured.
-- **Before declaring v1 done:** Phase 6 (Pitfalls 2, 10, 12, 14) verified. Demo runs 9/10 in 60 s. Privacy audit clean. Classical smoke passes one last time.
+- **The toolbar/drawing API is the seam everything routes through** (sandbox RPC, AI tools, direct UI). PROJECT.md mandates it be designed "as if a future package export, no internal store coupling." If the sandbox or new AI tools reach into the Zustand store directly (as `execute.ts` does today via `useEditorStore`), this constraint is violated at exactly the moment it matters most. Route new map mutations through the clean API, not the store.
+- **Amend the dispatcher and store slices; don't reimplement the GeoEditor managers or stable panels.** The prior UX rewrite failed by reimplementing stable leaves. The typed-tool-registry refactor (Pitfall 8) and the safety/diff gate (Pitfall 2) are *orchestration* changes (the right target). Resist rewriting `LayerManager`/`RenderingManager`/publish dialog internals to accommodate AI — adapt at the orchestration boundary.
 
 ## Sources
 
-- [LLM Function-Calling Pitfalls — Codastra (Medium)](https://medium.com/@2nick2patel2/llm-function-calling-pitfalls-nobody-mentions-a0a0575888b1) — runaway tool calls, eager invocation, schema misalignment
-- [Why Bad Tool Calling Makes LLMs Slow and Expensive — Codeant](https://www.codeant.ai/blogs/poor-tool-calling-llm-cost-latency) — tool-call budgets, latency caps, p95 targets
-- [Production Pitfalls of LangChain — Medium](https://medium.com/codetodeploy/production-pitfalls-of-langchain-nobody-warns-you-about-44a86e2df29e) — runaway agents, cost blowouts, human-in-the-loop
-- [Six Fatal Flaws of MCP — Scalifi](https://www.scalifiai.com/blog/model-context-protocol-flaws-2025) — MCP timeout, schema drift, error handling
-- [SEP-1539 Timeout Coordination — MCP GitHub](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1539) — open spec gap on MCP timeouts
-- [Tool Drift Hides in the Gaps — Medium](https://medium.com/@duckweave/tool-drift-hides-in-the-gaps-75a68d8198d3) — schema drift, integration tests
-- [MCP Tool Design — AWS Heroes (dev.to)](https://dev.to/aws-heroes/mcp-tool-design-why-your-ai-agent-is-failing-and-how-to-fix-it-40fc) — Schema Misalignment / Functional Confusion / Context Understanding errors
-- [Mitigating Geospatial Knowledge Hallucination in LLMs — arXiv](https://arxiv.org/html/2507.19586v1) — LLM geospatial hallucination benchmarking
-- [Mitigating spatial hallucination via prompt engineering — Nature Sci Reports](https://www.nature.com/articles/s41598-025-93601-5) — spatial reasoning failure modes in LLMs
-- [Geospatial Reasoning Capabilities of LLMs — arXiv](https://arxiv.org/html/2510.01639v1) — trajectory recovery, coordinate hallucination
-- [GeoPandas Projections — coordinate axis order](https://geopandas.org/en/stable/docs/user_guide/projections.html) — EPSG:4326 lat/lon vs lon/lat confusion
-- [I Hate Coordinate Systems](https://ihatecoordinatesystems.com/) — the canonical rant on CRS pitfalls
-- [The Strangler Fig Pattern — AWS Prescriptive Guidance](https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/strangler-fig.html) — incremental migration common failures
-- [Strangler Fig Pattern — Steve Kinney (Enterprise UI)](https://stevekinney.com/courses/enterprise-ui/strangler-fig-introduction) — UI orchestration specific
-- [Incremental Migration: Evolving Without Breaking Production — Medium](https://medium.com/@navidbarsalari/incremental-migration-evolving-without-breaking-production-edf679769918) — pitfalls of dual-state during refactor
-- [Context Rot in AI Coding Agents — MindStudio](https://www.mindstudio.ai/blog/context-rot-ai-coding-agents-explained) — long-session degradation in LLM-driven workflows
-- [Context Rot is Slowing Down Your AI Agent — LogRocket](https://blog.logrocket.com/context-rot-slowing-down-your-ai-agent-how-fix/) — mitigation strategies
-- [Scope Creep as Discovery — Medium](https://medium.com/design-bootcamp/scope-creep-as-discovery-25e766327cff) — solo developer scope-management with AI
-- [The Exit Criteria Pattern — dev.to](https://dev.to/novaelvaris/the-exit-criteria-pattern-know-when-to-stop-iterating-with-ai-lb0) — bounded-session discipline
-- [AI UX Patterns — The Design System Guide](https://thedesignsystem.guide/blog/ai-ux-patterns-for-design-systems-(part-1)) — Accept/Reject/Undo UX patterns
-- [Shape of AI — UX Patterns for AI](https://www.shapeof.ai/) — preview-before-commit, visual provenance
-- [10 UX Design Patterns That Improve AI Accuracy and Customer Trust — CMSWire](https://www.cmswire.com/digital-experience/10-ux-design-patterns-that-improve-ai-accuracy-and-customer-trust/) — staged apply, visual distinction of AI content
-- [UX Patterns for Trustworthy AI Features — DesignKey](https://www.designkey.studio/post/designing-for-trust-ai-features) — control, partnership, reversibility
-- `UX_REWRITE.md` (repo root) — §8 implicit-transition deletion list; §6 chat binding; §3 shelf design
-- `.planning/codebase/CONCERNS.md` — existing tech debt, known fragile areas, performance bottlenecks (especially blob-cache, deep clone, `failedUrls` patterns)
-- `.planning/PROJECT.md` — pillar definitions, "amend don't replace" constraint, classical-utility discipline, key decisions
+- Codebase grounding: `src/features/chat/tools/execute.ts` (19-tool switch dispatcher), `src/features/chat/store.ts` (`modelMaySupportVision` substring heuristic, Routstr/Cashu prepayment, context compaction), `src/features/chat/settingsStorage.ts` (nip04/nip44 encrypt-to-self), `.planning/PROJECT.md` (v1.1 scope, decisions, "amend don't replace")
+- [Running untrusted code safely in browsers — formsort](https://formsort.com/article/sandboxed-code-in-browsers/)
+- [A Deep Dive into JavaScript Sandboxing — Leapcell](https://leapcell.medium.com/a-deep-dive-into-javascript-sandboxing-bbb0773a8633)
+- [jailed — execute untrusted code with custom permissions](https://github.com/asvd/jailed)
+- [Service Worker bypasses iframe[sandbox] — Chromium bug 486308](https://bugs.chromium.org/p/chromium/issues/detail?id=486308)
+- [mapshaper Topology Issues wiki](https://github.com/mbloch/mapshaper/wiki/Topology-Issues)
+- [Self Intersections — topojson/topojson #121](https://github.com/topojson/topojson/issues/121)
+- [@turf/intersect MultiPolygon returns null — Turfjs/turf #2069](https://github.com/Turfjs/turf/issues/2069)
+- RFC 7946 (GeoJSON) coordinate order `[lon, lat]` — known authoring footgun
 
 ---
-*Pitfalls research for: Earthly UX refactor + AI map authoring (v1)*
-*Researched: 2026-05-26*
+*Pitfalls research for: browser code-interpreter + AI destructive-edit + file-ingest/multimodal + geometry-optimization on a mature MapLibre/Nostr app (Earthly v1.1)*
+*Researched: 2026-06-16*
