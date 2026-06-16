@@ -17,7 +17,7 @@
 
 import { createAuthoring, type PrimitiveUnits } from '@/features/geo-editor/api'
 import { useEditorStore } from '@/features/geo-editor/store'
-import { register } from './registry'
+import type { ToolEntry } from './registry'
 import type { Tool } from './types'
 
 const UNITS_ENUM: PrimitiveUnits[] = ['meters', 'kilometers', 'miles']
@@ -103,8 +103,18 @@ const bufferFeatureSchema: Tool = {
 	},
 }
 
-/** Register `draw_circle` + `buffer_feature` (kind:'authoring-primitive'). */
-export function registerPrimitiveTools(): void {
+/**
+ * Register `draw_circle` + `buffer_feature` (kind:'authoring-primitive').
+ *
+ * `register` is INJECTED by the caller rather than imported from `./registry`.
+ * registry.ts imports this module (for the bootstrap), so importing `register`
+ * back here at runtime forms a circular import. Under Bun's dev HMR bundler that
+ * cycle leaves the `./registry` module reference null at bootstrap time, crashing
+ * with "Cannot read properties of null (reading 'register')". Passing `register`
+ * in keeps the edge one-way (registry → primitives-tools) and only a type import
+ * remains here (erased at runtime).
+ */
+export function registerPrimitiveTools(register: (entry: ToolEntry) => void): void {
 	register({
 		name: 'draw_circle',
 		kind: 'authoring-primitive',

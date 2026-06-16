@@ -996,7 +996,10 @@ function bootstrapRegistry(): void {
 	registerEditorWriters()
 	registerRemoteMcpTools()
 	registerEditorCommands()
-	registerPrimitiveTools()
+	// `register` is injected (not imported by primitives-tools) to keep the
+	// registry ↔ primitives-tools edge one-way and avoid a dev-bundler circular
+	// init crash (null `./registry` at bootstrap). See primitives-tools.ts.
+	registerPrimitiveTools(register)
 }
 
 bootstrapRegistry()
