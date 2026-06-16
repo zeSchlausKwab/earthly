@@ -113,6 +113,9 @@ export function ChatSettingsSection() {
 			const parsed: unknown = JSON.parse(importText)
 			const validated = validateImportedSnapshot(parsed)
 			chatActions.hydrateSettings(validated)
+			// Signal the sync hook that this is a deliberate user overwrite so it clears any
+			// load-failed save guard and re-encrypts the imported snapshot (CR-01 recovery path).
+			chatActions.notifySettingsImported()
 			setImportText('')
 			toast.success('Settings imported')
 		} catch (error) {

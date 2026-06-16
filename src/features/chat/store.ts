@@ -642,6 +642,9 @@ interface ChatState {
 	settingsStatus: SettingsStatus
 	settingsError: string | null
 	settingsLoadNonce: number
+	// Bumped by an explicit user-initiated import (D-09); clears the sync hook's
+	// "load failed / not safe to save" guard so the recovery write is allowed (CR-01).
+	settingsImportNonce: number
 	// Settings
 	maxTokens: number // Max output tokens per request
 	toolsEnabled: boolean // Whether to send tools with requests
@@ -674,6 +677,7 @@ interface ChatActions {
 	hydrateSettings: (settings: Partial<ChatSettingsSnapshot>) => void
 	setSettingsStatus: (status: SettingsStatus, error?: string | null) => void
 	requestSettingsReload: () => void
+	notifySettingsImported: () => void
 	// Message management
 	addMessage: (message: ChatMessage) => void
 	clearMessages: () => void
@@ -711,6 +715,7 @@ function createInitialState(): ChatState {
 		settingsStatus: 'idle',
 		settingsError: null,
 		settingsLoadNonce: 0,
+		settingsImportNonce: 0,
 		maxTokens: DEFAULT_MAX_TOKENS,
 		toolsEnabled: true,
 		isStreaming: false,
@@ -834,6 +839,13 @@ export const useChatStore = create<ChatStore>()(
 			// (Pitfall 2) and an in-flight stale load cannot clobber the retry result.
 			requestSettingsReload: () => {
 				set((state) => ({ settingsLoadNonce: state.settingsLoadNonce + 1 }))
+			},
+
+			// Signals the sync hook that the user explicitly replaced settings via import (D-09).
+			// Bumping this nonce clears the hook's load-failed guard so the debounced save effect
+			// is allowed to re-encrypt the imported snapshot — the recovery path CR-01 protects.
+			notifySettingsImported: () => {
+				set((state) => ({ settingsImportNonce: state.settingsImportNonce + 1 }))
 			},
 
 			addMessage: (message: ChatMessage) => {
@@ -1652,6 +1664,7 @@ export const chatActions = {
 	setSettingsStatus: (status: SettingsStatus, error?: string | null) =>
 		useChatStore.getState().setSettingsStatus(status, error),
 	requestSettingsReload: () => useChatStore.getState().requestSettingsReload(),
+	notifySettingsImported: () => useChatStore.getState().notifySettingsImported(),
 	sendMessage: (content: string, options?: SendMessageOptions) =>
 		useChatStore.getState().sendMessage(content, options),
 	clearMessages: () => useChatStore.getState().clearMessages(),
