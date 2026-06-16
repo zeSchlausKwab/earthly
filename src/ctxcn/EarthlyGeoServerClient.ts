@@ -786,6 +786,22 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 		await this.transport.close()
 	}
 
+	/**
+	 * Passthrough to the MCP SDK `client.listTools()` — fetches the connected server's
+	 * live tool manifest (the `tools/list` MCP method). Poll-based (NOT push): over the
+	 * stateless Nostr transport (`isStateless: true`) server-initiated
+	 * `notifications/tools/list_changed` is not guaranteed, so callers must poll
+	 * (Pitfall 3, D-05). Returns the raw SDK result whose `tools` array each carries
+	 * `{ name, description?, inputSchema }`.
+	 *
+	 * Whether the live Earthly geo server actually implements `tools/list` is the
+	 * UNVERIFIED assumption A1 — this method exists to network-spike that gate before
+	 * any mcp-sync build is committed.
+	 */
+	async listTools(): Promise<Awaited<ReturnType<Client['listTools']>>> {
+		return this.client.listTools()
+	}
+
 	private async call<T = unknown>(name: string, args: Record<string, unknown>): Promise<T> {
 		const result = await this.client.callTool({
 			name,
