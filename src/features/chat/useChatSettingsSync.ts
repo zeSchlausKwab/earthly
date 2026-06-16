@@ -11,17 +11,16 @@ import {
 
 function buildSnapshot(
 	provider: ChatSettingsSnapshot['provider'],
-	customEndpoint: string,
-	customApiKey: string,
+	providerOverrides: ChatSettingsSnapshot['providerOverrides'],
 	selectedModel: string | null,
 	toolsEnabled: boolean,
 ): ChatSettingsSnapshot {
 	return {
 		provider,
-		customEndpoint,
-		customApiKey,
+		providerOverrides,
 		selectedModel,
 		toolsEnabled,
+		version: 2,
 	}
 }
 
@@ -30,8 +29,7 @@ export function useChatSettingsSync(): void {
 	const signer = currentUser?.signer ?? null
 	const userPubkey = currentUser?.pubkey ?? null
 	const provider = useChatStore((state) => state.provider)
-	const customEndpoint = useChatStore((state) => state.customEndpoint)
-	const customApiKey = useChatStore((state) => state.customApiKey)
+	const providerOverrides = useChatStore((state) => state.providerOverrides)
 	const selectedModel = useChatStore((state) => state.selectedModel)
 	const toolsEnabled = useChatStore((state) => state.toolsEnabled)
 
@@ -43,13 +41,7 @@ export function useChatSettingsSync(): void {
 	const loadErrorRef = useRef(false)
 	const scrubbedLegacyStorageRef = useRef(false)
 
-	const snapshot = buildSnapshot(
-		provider,
-		customEndpoint,
-		customApiKey,
-		selectedModel,
-		toolsEnabled,
-	)
+	const snapshot = buildSnapshot(provider, providerOverrides, selectedModel, toolsEnabled)
 	const serializedSnapshot = JSON.stringify(snapshot)
 
 	useEffect(() => {
@@ -69,8 +61,11 @@ export function useChatSettingsSync(): void {
 			let changed = false
 			for (const key of [
 				'provider',
+				// Legacy v1 flat keys — may still exist in stale chat-store blobs.
 				'customEndpoint',
 				'customApiKey',
+				// v2 secret-bearing key — partialize already prevents new writes; scrub defensively.
+				'providerOverrides',
 				'selectedModel',
 				'toolsEnabled',
 			] as const) {

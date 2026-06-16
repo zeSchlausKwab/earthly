@@ -119,7 +119,7 @@ export function ChatPanel({
 		totalSpent,
 		diagnostics,
 		provider,
-		customEndpoint,
+		providerOverrides,
 		loadModels,
 		sendMessage,
 		createChat,
@@ -149,11 +149,18 @@ export function ChatPanel({
 
 	// Load models on mount
 	useEffect(() => {
-		if (provider === 'custom' && !customEndpoint.trim()) return
+		if (provider === 'custom' && !providerOverrides.custom.baseUrl.trim()) return
 		if (models.length === 0 && !modelsLoading && !modelsError) {
 			void loadModels()
 		}
-	}, [customEndpoint, loadModels, models.length, modelsError, modelsLoading, provider])
+	}, [
+		providerOverrides.custom.baseUrl,
+		loadModels,
+		models.length,
+		modelsError,
+		modelsLoading,
+		provider,
+	])
 
 	// Auto-scroll to bottom when messages change
 	const scrollTrigger = `${messages.length}:${streamingContent.length}:${executingTools ? 1 : 0}:${streamWarning ? 1 : 0}`

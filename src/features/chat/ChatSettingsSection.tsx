@@ -51,8 +51,7 @@ export function ChatSettingsSection() {
 	const currentUser = useActiveAccount()
 	const {
 		provider,
-		customEndpoint,
-		customApiKey,
+		providerOverrides,
 		models,
 		selectedModel,
 		modelsLoading,
@@ -60,8 +59,7 @@ export function ChatSettingsSection() {
 		toolsEnabled,
 		isStreaming,
 		setProvider,
-		setCustomEndpoint,
-		setCustomApiKey,
+		setProviderOverride,
 		loadModels,
 		setSelectedModel,
 		setToolsEnabled,
@@ -112,11 +110,18 @@ export function ChatSettingsSection() {
 	}, [models, modelQuery, modelSortMode, toolCallingOnly])
 
 	useEffect(() => {
-		if (provider === 'custom' && !customEndpoint.trim()) return
+		if (provider === 'custom' && !providerOverrides.custom.baseUrl.trim()) return
 		if (models.length === 0 && !modelsLoading && !modelsError) {
 			void loadModels()
 		}
-	}, [customEndpoint, loadModels, models.length, modelsError, modelsLoading, provider])
+	}, [
+		providerOverrides.custom.baseUrl,
+		loadModels,
+		models.length,
+		modelsError,
+		modelsLoading,
+		provider,
+	])
 
 	useEffect(() => {
 		if (!hasToolCallingMetadata && toolCallingOnly) {
@@ -163,14 +168,70 @@ export function ChatSettingsSection() {
 				</Select>
 			</div>
 
+			{provider === 'lmstudio' && (
+				<div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+					<div className="space-y-2">
+						<Label>LM Studio endpoint</Label>
+						<Input
+							placeholder="http://localhost:1234/v1"
+							value={providerOverrides.lmstudio.baseUrl}
+							onChange={(event) => setProviderOverride('lmstudio', { baseUrl: event.target.value })}
+							disabled={isStreaming}
+						/>
+						<p className="text-xs text-muted-foreground">
+							Leave empty to use the default http://localhost:1234/v1.
+						</p>
+					</div>
+
+					<div className="space-y-2">
+						<Label>API Key</Label>
+						<Input
+							placeholder="Optional bearer token"
+							type="password"
+							value={providerOverrides.lmstudio.apiKey}
+							onChange={(event) => setProviderOverride('lmstudio', { apiKey: event.target.value })}
+							disabled={isStreaming}
+						/>
+					</div>
+				</div>
+			)}
+
+			{provider === 'ollama' && (
+				<div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+					<div className="space-y-2">
+						<Label>Ollama endpoint</Label>
+						<Input
+							placeholder="http://localhost:11434/v1"
+							value={providerOverrides.ollama.baseUrl}
+							onChange={(event) => setProviderOverride('ollama', { baseUrl: event.target.value })}
+							disabled={isStreaming}
+						/>
+						<p className="text-xs text-muted-foreground">
+							Leave empty to use the default http://localhost:11434/v1.
+						</p>
+					</div>
+
+					<div className="space-y-2">
+						<Label>API Key</Label>
+						<Input
+							placeholder="Optional bearer token"
+							type="password"
+							value={providerOverrides.ollama.apiKey}
+							onChange={(event) => setProviderOverride('ollama', { apiKey: event.target.value })}
+							disabled={isStreaming}
+						/>
+					</div>
+				</div>
+			)}
+
 			{provider === 'custom' && (
 				<div className="space-y-3 rounded-lg border bg-muted/20 p-3">
 					<div className="space-y-2">
 						<Label>Endpoint</Label>
 						<Input
 							placeholder="http://localhost:8080/v1"
-							value={customEndpoint}
-							onChange={(event) => setCustomEndpoint(event.target.value)}
+							value={providerOverrides.custom.baseUrl}
+							onChange={(event) => setProviderOverride('custom', { baseUrl: event.target.value })}
 							disabled={isStreaming}
 						/>
 					</div>
@@ -180,8 +241,8 @@ export function ChatSettingsSection() {
 						<Input
 							placeholder="Optional bearer token"
 							type="password"
-							value={customApiKey}
-							onChange={(event) => setCustomApiKey(event.target.value)}
+							value={providerOverrides.custom.apiKey}
+							onChange={(event) => setProviderOverride('custom', { apiKey: event.target.value })}
 							disabled={isStreaming}
 						/>
 					</div>
@@ -189,7 +250,7 @@ export function ChatSettingsSection() {
 					<Button
 						variant="outline"
 						onClick={() => void loadModels()}
-						disabled={!customEndpoint || isStreaming || modelsLoading}
+						disabled={!providerOverrides.custom.baseUrl || isStreaming || modelsLoading}
 						className="w-full"
 					>
 						{modelsLoading ? 'Connecting...' : 'Connect custom endpoint'}
