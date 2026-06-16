@@ -174,7 +174,6 @@ export function useChatSettingsSync(): void {
 	// An explicit user-initiated import (settingsImportNonce bump) is a deliberate overwrite of the
 	// undecryptable ciphertext (D-09). Clear the load-failed guard so the save effect below is
 	// allowed to re-encrypt the imported snapshot — the recovery write CR-01 must still permit.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: settingsImportNonce is the sole intentional trigger; the body only flips a ref.
 	useEffect(() => {
 		if (settingsImportNonce === 0) return
 		loadFailedRef.current = false
@@ -195,7 +194,11 @@ export function useChatSettingsSync(): void {
 		saveTimeoutRef.current = window.setTimeout(() => {
 			void (async () => {
 				try {
-					await saveEncryptedChatSettings(signer, userPubkey ?? currentUser.pubkey, snapshot)
+					// Reconstruct the snapshot from serializedSnapshot (the already-listed dep) instead
+					// of closing over the unstable per-render `snapshot` object (WR-05); the two are
+					// identical by construction (serializedSnapshot = JSON.stringify(snapshot)).
+					const toSave = JSON.parse(serializedSnapshot) as ChatSettingsSnapshot
+					await saveEncryptedChatSettings(signer, userPubkey ?? currentUser.pubkey, toSave)
 					lastSavedSnapshotRef.current = serializedSnapshot
 					saveErrorRef.current = false
 				} catch (error) {
@@ -214,5 +217,5 @@ export function useChatSettingsSync(): void {
 				saveTimeoutRef.current = null
 			}
 		}
-	}, [currentUser, serializedSnapshot, signer, snapshot])
+	}, [currentUser, serializedSnapshot, signer, userPubkey])
 }
