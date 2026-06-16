@@ -58,7 +58,31 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Direct UI buttons, chat tools, and (future) sandboxed code all reach editor geometry only through the Authoring API; nothing reaches across into the Zustand store.
   4. The AI can draw a parametric circle and a buffer around a feature, and the same primitives are callable as direct API methods.
 
-**Plans**: TBD
+**Plans**: 6 plans
+
+**Wave 1**
+
+  - [ ] 02-01-PLAN.md — Wave 0 test infrastructure: headless GeoEditor harness (mock MapLibre) + shared geo fixtures (the binding-golden-test prerequisite)
+
+**Wave 2** *(blocked on Wave 1)*
+
+  - [ ] 02-02-PLAN.md — Authoring API pure facade: addFeature/writeGeoJSON + MutationResult (D-11) + interceptor/intent scaffold (D-12), zero AI/Nostr imports (D-07 boundary test) (INFRA-02, INFRA-03)
+
+**Wave 3** *(blocked on Wave 2)*
+
+  - [ ] 02-03-PLAN.md — D-09 one-way store read-mirror (emit-on-bulk-replace) + reroute chat dual-write & 3 UI sites through authoring + binding behavior-preservation golden gate (INFRA-02, INFRA-03)
+
+**Wave 4** *(blocked on Waves 2+3)*
+
+  - [ ] 02-04-PLAN.md — Unified typed registry (D-01/02/03/04/06) folding the execute.ts switch + commands.ts; ToolError contract fed to model loop AND chat UI (D-16); unknown tool = hard error (INFRA-01)
+
+**Wave 5** *(blocked on Waves 2+4)*
+
+  - [ ] 02-05-PLAN.md — TOOLS-01 parametric circle + buffer as Authoring API methods (D-13/14/15) then registered AI tools; bounded radii (TOOLS-01)
+
+**Wave 6** *(blocked on Wave 4; ISOLABLE/DEFERRABLE)*
+
+  - [ ] 02-06-PLAN.md — D-05 live MCP hot-reload: opens with a live-server listTools() spike (checkpoint:human-verify, A1); poll-based discovery if supported, clean fallback to hardcoded list + defer if not (INFRA-01)
 
 ### Phase 3: File Ingest & Multimodal
 
@@ -142,7 +166,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Encrypted Settings Persistence | 3/3 | Complete    | 2026-06-16 |
-| 2. Tool Registry & Authoring API | 0/TBD | Not started | - |
+| 2. Tool Registry & Authoring API | 0/6 | In progress | - |
 | 3. File Ingest & Multimodal | 0/TBD | Not started | - |
 | 4. Code Interpreter Sandbox | 0/TBD | Not started | - |
 | 5. Dataset-Aware Safe Editing | 0/TBD | Not started | - |
