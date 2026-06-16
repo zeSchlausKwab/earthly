@@ -20,11 +20,7 @@ import {
 	consumeMapSnapshot,
 	compactToolMessageContentForPrompt,
 } from './tools'
-import {
-	getWalletSnapshot,
-	receiveCashuToken,
-	sendCashuToken,
-} from '@/lib/wallet'
+import { getWalletSnapshot, receiveCashuToken, sendCashuToken } from '@/lib/wallet'
 const DEFAULT_MINT_KEY = 'nip60_default_mint'
 import { toast } from 'sonner'
 
@@ -125,20 +121,35 @@ export interface ChatReference {
 	createdAt?: number
 }
 
+export interface ProviderOverride {
+	baseUrl: string
+	apiKey: string
+}
+
+export interface ProviderOverrideMap {
+	lmstudio: ProviderOverride
+	ollama: ProviderOverride
+	custom: ProviderOverride
+}
+
 export interface ChatSettingsSnapshot {
 	provider: ProviderType
-	customEndpoint: string
-	customApiKey: string
+	providerOverrides: ProviderOverrideMap
 	selectedModel: string | null
 	toolsEnabled: boolean
+	version?: 2
 }
 
 export const DEFAULT_CHAT_SETTINGS: ChatSettingsSnapshot = {
 	provider: 'routstr',
-	customEndpoint: '',
-	customApiKey: '',
+	providerOverrides: {
+		lmstudio: { baseUrl: '', apiKey: '' },
+		ollama: { baseUrl: '', apiKey: '' },
+		custom: { baseUrl: '', apiKey: '' },
+	},
 	selectedModel: null,
 	toolsEnabled: true,
+	version: 2,
 }
 
 function createChatId(): string {
@@ -579,28 +590,37 @@ function buildEmergencyRetryMessages(conversationMessages: ChatMessage[]): ChatM
 	return messages
 }
 
-function resolveProvider(
+export function resolveProvider(
 	type: ProviderType,
-	customEndpoint: string,
-	customApiKey: string,
+	providerOverrides: ProviderOverrideMap,
 ): ProviderConfig {
 	if (type === 'custom') {
+		const override = providerOverrides.custom
 		return {
 			type: 'custom',
-			baseUrl: customEndpoint,
-			apiKey: customApiKey || undefined,
+			baseUrl: override.baseUrl,
+			apiKey: override.apiKey || undefined,
 			name: 'Custom',
 			requiresPayment: false,
 		}
 	}
-	return BUILTIN_PROVIDERS[type]
+	if (type === 'routstr') {
+		return BUILTIN_PROVIDERS.routstr
+	}
+	// lmstudio / ollama: use override baseUrl when non-empty, else BUILTIN localhost default
+	const override = providerOverrides[type]
+	const builtin = BUILTIN_PROVIDERS[type]
+	return {
+		...builtin,
+		baseUrl: override.baseUrl || builtin.baseUrl,
+		apiKey: override.apiKey || undefined,
+	}
 }
 
 interface ChatState {
 	// Provider
 	provider: ProviderType
-	customEndpoint: string
-	customApiKey: string
+	providerOverrides: ProviderOverrideMap
 	// Sessions
 	chatSessions: ChatSession[]
 	activeChatId: string | null
@@ -634,8 +654,7 @@ interface ChatState {
 interface ChatActions {
 	// Provider
 	setProvider: (provider: ProviderType) => void
-	setCustomEndpoint: (url: string) => void
-	setCustomApiKey: (key: string) => void
+	setProviderOverride: (type: ProviderType, patch: Partial<ProviderOverride>) => void
 	// Model management
 	loadModels: () => Promise<void>
 	setSelectedModel: (modelId: string) => void
@@ -696,6 +715,21 @@ function createInitialState(): ChatState {
 
 const initialState: ChatState = createInitialState()
 
+/**
+ * persist `partialize` allow-list. ONLY `chatSessions` + `activeChatId` may cross into the
+ * `chat-store` localStorage blob — secret-bearing settings (`providerOverrides[*].apiKey`)
+ * must NEVER persist here (SC-1 / T-01-01). Settings flow exclusively through the encrypted
+ * envelope in `settingsStorage.ts`. Exported so unit tests can assert the serialized shape.
+ */
+export function chatStorePartialize(
+	state: ChatState,
+): Pick<ChatState, 'chatSessions' | 'activeChatId'> {
+	return {
+		chatSessions: state.chatSessions,
+		activeChatId: state.activeChatId,
+	}
+}
+
 // AbortController for canceling streams
 let streamAbortController: AbortController | null = null
 let currentStreamRunId = 0
@@ -712,19 +746,21 @@ export const useChatStore = create<ChatStore>()(
 				get().loadModels()
 			},
 
-			setCustomEndpoint: (url: string) => {
-				set({ customEndpoint: url })
-			},
-
-			setCustomApiKey: (key: string) => {
-				set({ customApiKey: key })
+			setProviderOverride: (type: ProviderType, patch: Partial<ProviderOverride>) => {
+				if (type === 'routstr') return
+				set((state) => ({
+					providerOverrides: {
+						...state.providerOverrides,
+						[type]: { ...state.providerOverrides[type], ...patch },
+					},
+				}))
 			},
 
 			loadModels: async () => {
-				const { provider, customEndpoint, customApiKey } = get()
-				const providerConfig = resolveProvider(provider, customEndpoint, customApiKey)
+				const { provider, providerOverrides } = get()
+				const providerConfig = resolveProvider(provider, providerOverrides)
 
-				if (provider === 'custom' && !customEndpoint) {
+				if (provider === 'custom' && !providerOverrides.custom.baseUrl) {
 					set({ modelsError: 'Enter an endpoint URL first' })
 					return
 				}
@@ -756,10 +792,15 @@ export const useChatStore = create<ChatStore>()(
 			},
 
 			hydrateSettings: (settings: Partial<ChatSettingsSnapshot>) => {
+				const incomingOverrides = settings.providerOverrides
 				set({
 					provider: settings.provider ?? DEFAULT_CHAT_SETTINGS.provider,
-					customEndpoint: settings.customEndpoint ?? DEFAULT_CHAT_SETTINGS.customEndpoint,
-					customApiKey: settings.customApiKey ?? DEFAULT_CHAT_SETTINGS.customApiKey,
+					providerOverrides: {
+						lmstudio:
+							incomingOverrides?.lmstudio ?? DEFAULT_CHAT_SETTINGS.providerOverrides.lmstudio,
+						ollama: incomingOverrides?.ollama ?? DEFAULT_CHAT_SETTINGS.providerOverrides.ollama,
+						custom: incomingOverrides?.custom ?? DEFAULT_CHAT_SETTINGS.providerOverrides.custom,
+					},
 					selectedModel: settings.selectedModel ?? DEFAULT_CHAT_SETTINGS.selectedModel,
 					toolsEnabled: settings.toolsEnabled ?? DEFAULT_CHAT_SETTINGS.toolsEnabled,
 					models: [],
@@ -874,16 +915,9 @@ export const useChatStore = create<ChatStore>()(
 
 			sendMessage: async (content: string, options?: SendMessageOptions) => {
 				const targetChatId = get().activeChatId
-				const {
-					selectedModel,
-					models,
-					maxTokens,
-					toolsEnabled,
-					provider,
-					customEndpoint,
-					customApiKey,
-				} = get()
-				const providerConfig = resolveProvider(provider, customEndpoint, customApiKey)
+				const { selectedModel, models, maxTokens, toolsEnabled, provider, providerOverrides } =
+					get()
+				const providerConfig = resolveProvider(provider, providerOverrides)
 				const requestMaxTokens = toolsEnabled
 					? Math.max(maxTokens, MIN_TOOL_ENABLED_MAX_TOKENS)
 					: maxTokens
@@ -1550,10 +1584,7 @@ export const useChatStore = create<ChatStore>()(
 		}),
 		{
 			name: 'chat-store',
-			partialize: (state) => ({
-				chatSessions: state.chatSessions,
-				activeChatId: state.activeChatId,
-			}),
+			partialize: chatStorePartialize,
 			merge: (persistedState, currentState) => {
 				const persisted = (persistedState as Partial<ChatState> | undefined) ?? {}
 				const persistedSessions = Array.isArray(persisted.chatSessions)
@@ -1584,8 +1615,8 @@ export const useChatStore = create<ChatStore>()(
 // Action helpers for non-hook usage
 export const chatActions = {
 	setProvider: (provider: ProviderType) => useChatStore.getState().setProvider(provider),
-	setCustomEndpoint: (url: string) => useChatStore.getState().setCustomEndpoint(url),
-	setCustomApiKey: (key: string) => useChatStore.getState().setCustomApiKey(key),
+	setProviderOverride: (type: ProviderType, patch: Partial<ProviderOverride>) =>
+		useChatStore.getState().setProviderOverride(type, patch),
 	loadModels: () => useChatStore.getState().loadModels(),
 	setSelectedModel: (modelId: string) => useChatStore.getState().setSelectedModel(modelId),
 	setToolsEnabled: (enabled: boolean) => useChatStore.getState().setToolsEnabled(enabled),
