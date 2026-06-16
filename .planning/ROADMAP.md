@@ -13,7 +13,7 @@ v1.1 turns Earthly's AI chat from a map-drawing assistant into a data-ingest-and
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Encrypted Settings Persistence** - Provider config, API keys, and LM Studio/Ollama addresses persist encrypted-to-self, survive reloads (including NIP-46 signers), and export/import as a recovery escape hatch — sequenced first so later phases never re-enter keys. (implemented 2026-06-16 — awaiting human verification via 01-UAT.md)
+- [x] **Phase 1: Encrypted Settings Persistence** - Provider config, API keys, and LM Studio/Ollama addresses persist encrypted-to-self, survive reloads (including NIP-46 signers), and export/import as a recovery escape hatch — sequenced first so later phases never re-enter keys. (implemented 2026-06-16 — awaiting human verification via 01-UAT.md) (completed 2026-06-16)
 - [ ] **Phase 2: Tool Registry & Authoring API** - Typed tool registry plus the single mutation seam (Authoring API) with parametric primitives — the prerequisite foundation everything else routes through.
 - [ ] **Phase 3: File Ingest & Multimodal** - Attach and parse CSV/Excel/JSON/GeoJSON/text/images off-thread, summarize for the model, and gate image-send on real vision capability detection.
 - [ ] **Phase 4: Code Interpreter Sandbox** - AI authors and runs JS in an isolated sandbox whose only host surface is the Authoring API, with timeouts, output caps, and error-feedback self-correction.
@@ -141,7 +141,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Encrypted Settings Persistence | 3/3 | Verifying | - |
+| 1. Encrypted Settings Persistence | 3/3 | Complete    | 2026-06-16 |
 | 2. Tool Registry & Authoring API | 0/TBD | Not started | - |
 | 3. File Ingest & Multimodal | 0/TBD | Not started | - |
 | 4. Code Interpreter Sandbox | 0/TBD | Not started | - |
