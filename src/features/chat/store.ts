@@ -614,13 +614,21 @@ export function resolveProvider(
 	if (type === 'routstr') {
 		return BUILTIN_PROVIDERS.routstr
 	}
-	// lmstudio / ollama: use override baseUrl when non-empty, else BUILTIN localhost default
-	const override = providerOverrides[type]
+	// lmstudio / ollama: use override baseUrl when non-empty, else BUILTIN localhost default.
+	// Guard against an unexpected `type` or a missing override map key (WR-03/WR-04): indexing
+	// BUILTIN_PROVIDERS / providerOverrides with an unvalidated key can yield undefined, and the
+	// subsequent spread/`.baseUrl` access would throw or produce a malformed ProviderConfig.
 	const builtin = BUILTIN_PROVIDERS[type]
+	if (!builtin) {
+		// Unknown provider type slipped past validation — fall back to a known-good builtin
+		// rather than crash downstream model loading.
+		return BUILTIN_PROVIDERS.lmstudio
+	}
+	const override = providerOverrides[type]
 	return {
 		...builtin,
-		baseUrl: override.baseUrl || builtin.baseUrl,
-		apiKey: override.apiKey || undefined,
+		baseUrl: override?.baseUrl || builtin.baseUrl,
+		apiKey: override?.apiKey || undefined,
 	}
 }
 
