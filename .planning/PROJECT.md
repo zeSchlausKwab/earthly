@@ -12,6 +12,28 @@ This project is the **overhaul** that comes after the applesauce migration: it u
 
 If we ship clean orchestration + classical utility but no AI demo, this project is still a success. If we ship a flashy AI demo on top of the current wonky foundation, this project failed.
 
+## Current Milestone: v1.1 AI Chat — Data Ingest, Transform & Safe Authoring
+
+**Goal:** Expand the AI chat from a map-drawing assistant into a data-ingest-and-transformation workbench — upload and parse real-world files, run sandboxed code that drives the map programmatically, give the AI more authoring tools, and let it safely edit datasets it is explicitly bound to — broadening Earthly's audience to analysts, curators, and power users.
+
+**Target features:**
+- File ingest & multimodal — upload CSV/Excel/JSON/GeoJSON/images/text; parse tabular & text into structured data the chat tools and code interpreter can read; route images to vision-capable models via capability detection (auto-disable image send when the model lacks vision).
+- Code interpreter (client sandbox) — AI authors & runs JS in a Web Worker/iframe sandbox with access to a clean toolbar/drawing API: programmatic generation ("15 circles, fibonacci radii"), batch transforms, custom cost-weighted routing.
+- AI-oriented editor tools — new tools/primitives that make sense for AI: parametric shapes (circles/buffers), programmatic batch ops, plus whatever the sandbox needs.
+- Data-driven styling — color/stroke/width by attribute (ports vs airports vs waterways), AI-applied.
+- Dataset-aware safe editing — chat explicitly bound to a target dataset/context, always visibly shown; add-vs-modify-vs-delete awareness; configurable safety level (1 preview+confirm / 2 confirm-destructive [default] / 3 trust+undo).
+- Geometry optimization at ingest — AI uses simplify + merge-to-multi (+ microgap stitching) to bring oversized GeoJSON under publish/relay size limits with preserved visual quality.
+- Encrypted settings persistence — provider config, API keys, LM Studio/Ollama addresses persisted to localStorage, encrypted with the user's nsec, surviving reloads.
+
+**Deferred to a later milestone:** Nostr-scrolls / WASM (NIP-5C) authoring/persist/share — builds naturally on the code interpreter.
+
+**Representative user stories:**
+1. A logging team lead feeds an ugly CSV (names, coordinates, image links); after a chat interaction the result is a dataset/collection with an ideal cutting route.
+2. A news curator pastes a Telegram message ("soccer star spotted at hotel XYZ in Lyon"); the AI geolocates the observation and adds a titled, described feature to the topic's context.
+3. A pilot computes an ideal Austria→Bosnia flight path that weighs distance against exorbitant overfly fees (crossing Slovenia may be shorter but costlier).
+4. A curator cleans up a convoluted context: fill missing descriptions, translate Arabic names, recolor ports/airports/waterways distinctly — with the AI precisely aware of which dataset it edits and what already exists, and the user able to see that awareness.
+5. A hiking enthusiast imports a 12MB messy "West Pacific Trail" GeoJSON (hundreds of polylines, microgaps, superfluous vertices); the AI applies simplify + merge-to-multi to reduce it to ~900KB at the same visual quality, clearing the city dialog's size-limit complaints.
+
 ## Requirements
 
 ### Validated
@@ -52,18 +74,27 @@ If we ship clean orchestration + classical utility but no AI demo, this project 
 - ✓ Bun.serve() HTTP/WebSocket server — existing
 - ✓ Mapnolia integration for PMTiles chunking (server-side complete, client consumption partial) — existing
 
+**UX orchestration (v1.0 cleanup, shipped 2026-06 outside the GSD framework):**
+- ✓ Map Shelf / Map Stack — working-set strip listing datasets/contexts with chip actions (isolate, pin, inspect, zoom, load-to-editor, remove, clear) — `MapStackPanel.tsx` + `mapStackSlice.ts`
+- ✓ Path-based routing — one-way URL→state with legacy hash-redirect shim for backwards compat — `useRouting.ts`
+- ✓ Catalog (Pinned/Recent) — `catalogSlice.ts` with persistence
+- ◐ Stance enum (`browse|focus|author`) — slice created and integrated, but old `viewMode`/`splitWithEditor`/`activeEntity`/`editIsolationEnabled` system still coexists (state-collapse incomplete)
+- ◐ Chat workspace binding — `bindActiveWorkspaceChat()` binds silently; visible binding chip not yet surfaced (folded into v1.1 below)
+
 ### Active
 
-<!-- v1 scope. Hypotheses until shipped and validated. -->
+<!-- The active milestone is **v1.1 AI Chat** — detailed, scoped requirements live in REQUIREMENTS.md.
+     The Pillar items below are carried-over v1.0 UX debt: some shipped (now in Validated), the rest
+     remain real but are not the focus of v1.1 unless a story needs them (e.g. the chat binding chip). -->
 
-**Pillar 1 — Wonky-fix (the prerequisite for everything):**
+**Pillar 1 — Wonky-fix (carried over; partially shipped):**
 
 - [ ] **State collapse**: Replace `viewMode` + `editIsolationEnabled` + `splitWithEditor` + `activeEntity`/`entityIntent` with a single `stance: 'browse' | 'focus' | 'author'` enum. Per `UX_REWRITE.md` §2 + §8.
 - [ ] **Delete implicit mode promotions**: Six named auto-transitions (per `UX_REWRITE.md` §8) become explicit user actions. No more "load dataset → setViewMode('edit')."
-- [ ] **Map Shelf**: Top strip above the map listing every dataset/context in the working set. Chip actions: toggle visibility, isolate, inspect, share, remove. Per `UX_REWRITE.md` §3.
-- [ ] **Sidebar rework**: Single navigator role — no split panels, no inline edit/inspect dual-intent. Pinned → Recent → Search/Discover. Inspect replaces list in-place. Per `UX_REWRITE.md` §4.
-- [ ] **Path-based routing**: One-way URL → state. Hash redirect shim for backwards compat. Per `UX_REWRITE.md` §9.
-- [ ] **Chat detach + binding chip**: ChatPanel becomes detachable/dockable. Explicit binding chip at the top shows what the chat is bound to. Implicit `activeContextScope` binding deleted. Per `UX_REWRITE.md` §6.
+- ✓ **Map Shelf**: Shipped — see Validated (`MapStackPanel`). Per `UX_REWRITE.md` §3.
+- [ ] **Sidebar rework**: Catalog (Pinned → Recent) shipped; split-panel/dual-intent removal still pending. Per `UX_REWRITE.md` §4.
+- ✓ **Path-based routing**: Shipped — see Validated (`useRouting`). Per `UX_REWRITE.md` §9.
+- [ ] **Chat detach + binding chip**: Detach/dock + silent workspace binding shipped; the **visible binding chip** is now pulled into v1.1 AI Chat (dataset-aware safe editing needs it). Per `UX_REWRITE.md` §6.
 - [ ] **Explicit verbs**: Open, Pin, Inspect, New, Fork, Propose Edit, Curate, Share, Save as workspace. Per `UX_REWRITE.md` §7.
 - [ ] **Fix specific structural bugs** surfaced in the codebase map: form-doubling (Create context rendering in two panels), dead `isDrawingMode` state, unreachable `_setMapError`, AppSidebar's secondary mode system.
 - [ ] **Reduce info density problems**: Sidebar overload, mobile chrome eating the map, shelf collapse on small screens.
@@ -135,6 +166,11 @@ If we ship clean orchestration + classical utility but no AI demo, this project 
 | **Demo target: "author by chat"** | The single 60-second wow moment. Compound scenarios are v2. | — Pending |
 | **Maintainer-dogfood as success signal** | "I open the app for fun" is the lived test alongside automated/UAT checks. | — Pending |
 | **"Curate from Nostr corpus" deprioritized** | Data-starved. Keep plumbing; don't demo it. | — Pending |
+| **v1.1 — Code interpreter runs client-side with map-API access** | Generated JS executes in a browser Web Worker/iframe sandbox and can drive a clean toolbar/drawing API. Most powerful path for programmatic authoring; demands sandbox isolation + a clean exposed API. | — Pending (v1.1) |
+| **v1.1 — Edit safety is a user config, default "confirm destructive only"** | Hardcoding one safety model frustrates someone. Config: 1 preview+confirm / 2 confirm-destructive (default) / 3 trust+undo. | — Pending (v1.1) |
+| **v1.1 — File ingest = parse-everything + capability-gated vision** | Always extract maximum structured info from any file; route images to vision only when the model advertises it, else disable the image affordance. | — Pending (v1.1) |
+| **v1.1 — Nostr-scrolls / WASM deferred** | NIP-5C authoring/persist/share builds on the code interpreter; sequence it after the sandbox lands. | — Pending (v1.1) |
+| **v1.1 — Chat must be explicitly bound to its edit target, visibly** | The AI editing a dataset is destructive; the user must see what it is working on and add-vs-modify-vs-delete intent. Completes the carried-over binding-chip work. | — Pending (v1.1) |
 
 ## Evolution
 
@@ -154,4 +190,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-26 after initialization*
+*Last updated: 2026-06-16 — reconciled shipped v1.0 UX work; started milestone v1.1 AI Chat*
