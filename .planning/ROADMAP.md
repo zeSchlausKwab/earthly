@@ -78,7 +78,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 5** *(blocked on Waves 2+4)*
 
-  - [ ] 02-05-PLAN.md — TOOLS-01 parametric circle + buffer as Authoring API methods (D-13/14/15) then registered AI tools; bounded radii (TOOLS-01)
+  - [x] 02-05-PLAN.md — TOOLS-01 parametric circle + buffer as Authoring API methods (D-13/14/15) then registered AI tools; bounded radii (TOOLS-01) (completed 2026-06-16 — 104/104 tests, build+lint green; authoring.circle/buffer draw+return MutationResult, draw_circle/buffer_feature registered kind:'authoring-primitive', meters canonical, V5 DoS cap, degenerate-buffer/unknown-id → ToolError)
 
 **Wave 6** *(blocked on Wave 4; ISOLABLE/DEFERRABLE)*
 

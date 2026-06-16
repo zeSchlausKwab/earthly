@@ -34,7 +34,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase. Story t
 
 ### AI-Oriented Editor Tools
 
-- [ ] **TOOLS-01**: Parametric shape primitives (circle, buffer) are available as both Authoring API methods and registered AI tools.
+- [x] **TOOLS-01**: Parametric shape primitives (circle, buffer) are available as both Authoring API methods and registered AI tools.
 - [ ] **TOOLS-02**: A batch attribute-edit tool lets the AI set/modify properties across many features by rule (fill missing descriptions, rewrite/translate names). `[D]`
 - [ ] **TOOLS-03**: Select-by-attribute and dedup tools support programmatic selection and cleanup.
 - [ ] **TOOLS-04**: A geometry-validation tool reports topology problems (self-intersections, gaps, slivers).
@@ -105,7 +105,7 @@ Each requirement maps to exactly one phase.
 | INFRA-01 | Phase 2 — Tool Registry & Authoring API | Complete (02-04: unified typed registry dispatches all 34 tools; unknown tool → ToolError hard error) |
 | INFRA-02 | Phase 2 — Tool Registry & Authoring API | Partial (02-03: create seam closed — authoring.* sole caller of editor.addFeature, A3 boundary enforced; updateFeature/deleteFeatures reroute deferred to facade-expansion) |
 | INFRA-03 | Phase 2 — Tool Registry & Authoring API | Complete (02-03) |
-| TOOLS-01 | Phase 2 — Tool Registry & Authoring API | Pending |
+| TOOLS-01 | Phase 2 — Tool Registry & Authoring API | Complete (02-05) |
 | INGEST-01 | Phase 3 — File Ingest & Multimodal | Pending |
 | INGEST-02 | Phase 3 — File Ingest & Multimodal | Pending |
 | INGEST-03 | Phase 3 — File Ingest & Multimodal | Pending |

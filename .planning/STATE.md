@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-04-PLAN.md (unified tool registry + ToolError contract)
-last_updated: "2026-06-16T19:12:00.000Z"
-last_activity: 2026-06-16 -- Phase 02 Plan 04 complete (D-01 unified registry + INFRA-01 ToolError hard error + D-16 UI surface)
+stopped_at: Completed 02-05-PLAN.md (TOOLS-01 parametric circle + buffer primitives)
+last_updated: "2026-06-16T19:25:00.000Z"
+last_activity: 2026-06-16 -- Phase 02 Plan 05 complete (TOOLS-01 circle/buffer as Authoring API methods + draw_circle/buffer_feature AI tools)
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 9
-  completed_plans: 7
-  percent: 26
+  completed_plans: 8
+  percent: 29
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 02 (tool-registry-authoring-api) — EXECUTING
-Plan: 5 of 6
-Status: Executing Phase 02 (Plans 01-04 complete)
-Last activity: 2026-06-16 -- Phase 02 Plan 04 complete (D-01 unified registry + INFRA-01 ToolError hard error + D-16 UI surface)
+Plan: 6 of 6
+Status: Executing Phase 02 (Plans 01-05 complete)
+Last activity: 2026-06-16 -- Phase 02 Plan 05 complete (TOOLS-01 circle/buffer as Authoring API methods + draw_circle/buffer_feature AI tools)
 
-Progress: [███░░░░░░░] 26%
+Progress: [███░░░░░░░] 29%
 
 ## Performance Metrics
 
@@ -59,6 +59,7 @@ Progress: [███░░░░░░░] 26%
 | Phase 02 P02 | continuation | 2 tasks | 5 files |
 | Phase 02 P03 | 9min | 2 tasks | 9 files |
 | Phase 02 P04 | 8min | 2 tasks | 9 files |
+| Phase 02 P05 | 12min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,9 @@ Recent decisions affecting current work:
 - [Phase 2]: [02-04]: ONE typed registry (registry.ts) dispatches all 34 advertised tools via register/unregister/dispatch/advertise; execute.ts switch + default throw DELETED. Unknown tool / handler failure → structured ToolError (INFRA-01/D-16), fed to model loop AND rendered distinctly in ChatPanel. kind mandatory on every entry (D-03); advertised list derived from live registry (D-04/D-06).
 - [Phase 2]: [02-04]: Extracted schemas.ts (dependency-free static OpenAI schemas) to break a registry↔definitions import cycle — registry imports schemas; definitions collapses to geoTools = advertise().
 - [Phase 2]: [02-04]: kind map — write/add_feature_to_editor=editor (dispatch into authoring); get_editor_state/capture_map_snapshot=host-builtin; all OSM/valhalla/web/wiki/fetch=remote-mcp (origin=SERVER_PUBKEY); editor_*=editor (self-registered). V5 arg validation (parseToolCallArguments + clamps + MAX_GEOJSON_TEXT_CHARS) preserved at dispatch boundary; no zod added.
+- [Phase 2]: [02-05]: TOOLS-01 — circle/buffer are Authoring API methods FIRST (authoring.circle/buffer in api/, primitives.ts wraps turf) then AI tools (draw_circle/buffer_feature, kind:'authoring-primitive'); both draw + return MutationResult. Meters canonical (D-14, no magic default radius); V5 DoS cap MAX_DISTANCE_METERS=40,075,000 (unit-normalized) rejects NaN/Inf/≤0/absurd BEFORE turf runs.
+- [Phase 2]: [02-05]: authoring.buffer(featureId) returns featureIds=[sourceId,newId] (source first) for D-11/D-15 composition (Phase 4 chains 'buffer the circle I just drew'); raw-geojson buffer returns [newId]. Degenerate buffer (turf undefined) + unknown id → {ok:false} → tool throws → ToolError(handler_error) (D-16/T-02-15/T-02-16), never a crash.
+- [Phase 2]: [02-05]: Primitive tools supply schema INLINE (like editor_* commands), so definitions.ts (geoTools=advertise()) picks them up with ZERO edits (D-04) — file left untouched for clean Plan 06 merge.
 
 ### Pending Todos
 
@@ -116,6 +120,6 @@ Items acknowledged and carried forward / out of scope for this milestone:
 
 ## Session Continuity
 
-Last session: 2026-06-16T19:12:00.000Z
-Stopped at: Completed 02-04-PLAN.md (unified tool registry + ToolError contract)
-Resume file: .planning/phases/02-tool-registry-authoring-api/02-05-PLAN.md
+Last session: 2026-06-16T19:25:00.000Z
+Stopped at: Completed 02-05-PLAN.md (TOOLS-01 parametric circle + buffer primitives)
+Resume file: .planning/phases/02-tool-registry-authoring-api/02-06-PLAN.md
