@@ -38,6 +38,7 @@ import {
 } from 'lucide-react'
 import { estimateTokens, type ChatMessage, type ToolCall, type ProviderType } from './routstr'
 import { analyzeToolResultGeometryContent, bakeToolResultContentToEditor } from './tools'
+import { isToolError, type ToolError } from './tools/errors'
 import { ChatGeometryAttachment } from './ChatGeometryAttachment'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -944,6 +945,22 @@ function contentToDisplayText(content: ChatMessage['content']): string {
 		.join('\n')
 }
 
+/**
+ * D-16: the tool registry serializes a `ToolError` into the role:'tool' content
+ * envelope. Try to recover it so the chat UI can render failures distinctly.
+ * Returns null for normal (non-error) tool output.
+ */
+function parseToolErrorContent(content: string): ToolError | null {
+	const trimmed = content.trim()
+	if (!trimmed.startsWith('{')) return null
+	try {
+		const parsed = JSON.parse(trimmed)
+		return isToolError(parsed) ? parsed : null
+	} catch {
+		return null
+	}
+}
+
 function parseChatMarkdownInlineTokens(text: string): ChatMarkdownInlineToken[] {
 	if (!text) return []
 
@@ -1357,6 +1374,37 @@ function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
 
 	// Tool result message
 	if (isTool) {
+		// D-16: a serialized ToolError (unknown tool or handler failure) renders
+		// distinctly from normal tool output so failures are visible, not buried.
+		const toolError = parseToolErrorContent(contentText)
+		if (toolError) {
+			return (
+				<div className="ml-8 flex min-w-0 gap-2">
+					<div className="flex-shrink-0 h-5 w-5 rounded flex items-center justify-center bg-red-100 dark:bg-red-900">
+						<AlertTriangle className="h-3 w-3 text-red-600 dark:text-red-400" />
+					</div>
+					<div className="relative min-w-0 max-w-[85%] overflow-hidden rounded-lg border border-red-300/80 bg-red-50/80 px-3 py-2 text-xs dark:border-red-800/70 dark:bg-red-950/40">
+						<div className="flex items-center gap-1.5 font-medium text-red-700 dark:text-red-300">
+							<span>
+								{toolError.kind === 'unknown_tool' ? 'Unknown tool' : 'Tool error'}:
+							</span>
+							<code className="rounded bg-red-100 px-1 py-0.5 text-[11px] dark:bg-red-900/60">
+								{toolError.toolName}
+							</code>
+						</div>
+						<div className="mt-1 break-words text-red-800 dark:text-red-200">
+							{toolError.message}
+						</div>
+						{toolError.origin && (
+							<div className="mt-1 text-[10px] text-red-600/80 dark:text-red-400/80">
+								origin: {toolError.origin}
+							</div>
+						)}
+					</div>
+				</div>
+			)
+		}
+
 		return (
 			<div className="ml-8 flex min-w-0 gap-2">
 				<div className="flex-shrink-0 h-5 w-5 rounded flex items-center justify-center bg-blue-100 dark:bg-blue-900">
