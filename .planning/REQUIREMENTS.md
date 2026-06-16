@@ -9,7 +9,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase. Story t
 
 ### Tool Infrastructure (prerequisites)
 
-- [ ] **INFRA-01**: All chat tools dispatch through a typed registry (schema + handler co-located); an unknown tool name is a hard error, never a silent no-op.
+- [x] **INFRA-01**: All chat tools dispatch through a typed registry (schema + handler co-located); an unknown tool name is a hard error, never a silent no-op.
 - [ ] **INFRA-02**: A single Authoring API (`src/features/geo-editor/api/`) is the only path that mutates editor geometry; direct UI, chat tools, and sandboxed code all call it — no reaching across into the Zustand store.
 - [x] **INFRA-03**: Existing editor write paths (`add_feature_to_editor`, `write_geojson_to_editor`, editor commands) are reimplemented on the Authoring API with no behavior change. (02-03: chat import + UI import sites rerouted through writeGeoJSON; binding OLD-vs-NEW golden gate byte-identical)
 
@@ -102,7 +102,7 @@ Each requirement maps to exactly one phase.
 | SET-01 | Phase 1 — Encrypted Settings Persistence | Complete |
 | SET-02 | Phase 1 — Encrypted Settings Persistence | Complete |
 | SET-03 | Phase 1 — Encrypted Settings Persistence | Complete |
-| INFRA-01 | Phase 2 — Tool Registry & Authoring API | Pending |
+| INFRA-01 | Phase 2 — Tool Registry & Authoring API | Complete (02-04: unified typed registry dispatches all 34 tools; unknown tool → ToolError hard error) |
 | INFRA-02 | Phase 2 — Tool Registry & Authoring API | Partial (02-03: create seam closed — authoring.* sole caller of editor.addFeature, A3 boundary enforced; updateFeature/deleteFeatures reroute deferred to facade-expansion) |
 | INFRA-03 | Phase 2 — Tool Registry & Authoring API | Complete (02-03) |
 | TOOLS-01 | Phase 2 — Tool Registry & Authoring API | Pending |

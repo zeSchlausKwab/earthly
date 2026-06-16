@@ -74,7 +74,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 4** *(blocked on Waves 2+3)*
 
-  - [ ] 02-04-PLAN.md — Unified typed registry (D-01/02/03/04/06) folding the execute.ts switch + commands.ts; ToolError contract fed to model loop AND chat UI (D-16); unknown tool = hard error (INFRA-01)
+  - [x] 02-04-PLAN.md — Unified typed registry (D-01/02/03/04/06) folding the execute.ts switch + commands.ts; ToolError contract fed to model loop AND chat UI (D-16); unknown tool = hard error (INFRA-01) (completed 2026-06-16 — 76/76 tests, build+lint green; switch+default-throw deleted, 34 tools advertised via registry, A3 boundary still green)
 
 **Wave 5** *(blocked on Waves 2+4)*
 
@@ -166,7 +166,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Encrypted Settings Persistence | 3/3 | Complete    | 2026-06-16 |
-| 2. Tool Registry & Authoring API | 1/6 | In progress | - |
+| 2. Tool Registry & Authoring API | 4/6 | In progress | - |
 | 3. File Ingest & Multimodal | 0/TBD | Not started | - |
 | 4. Code Interpreter Sandbox | 0/TBD | Not started | - |
 | 5. Dataset-Aware Safe Editing | 0/TBD | Not started | - |

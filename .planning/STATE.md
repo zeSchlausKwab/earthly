@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-03-PLAN.md (one-way read-mirror + authoring reroute)
-last_updated: "2026-06-16T19:01:00.000Z"
-last_activity: 2026-06-16 -- Phase 02 Plan 03 complete (D-09 read-mirror + INFRA-02 reroute + golden gate)
+stopped_at: Completed 02-04-PLAN.md (unified tool registry + ToolError contract)
+last_updated: "2026-06-16T19:12:00.000Z"
+last_activity: 2026-06-16 -- Phase 02 Plan 04 complete (D-01 unified registry + INFRA-01 ToolError hard error + D-16 UI surface)
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 9
-  completed_plans: 6
-  percent: 22
+  completed_plans: 7
+  percent: 26
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 02 (tool-registry-authoring-api) — EXECUTING
-Plan: 4 of 6
-Status: Executing Phase 02 (Plans 01-03 complete)
-Last activity: 2026-06-16 -- Phase 02 Plan 03 complete (D-09 read-mirror + INFRA-02 reroute + golden gate)
+Plan: 5 of 6
+Status: Executing Phase 02 (Plans 01-04 complete)
+Last activity: 2026-06-16 -- Phase 02 Plan 04 complete (D-01 unified registry + INFRA-01 ToolError hard error + D-16 UI surface)
 
-Progress: [██░░░░░░░░] 22%
+Progress: [███░░░░░░░] 26%
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Progress: [██░░░░░░░░] 22%
 | Phase 02 P01 | 6min | 2 tasks | 4 files |
 | Phase 02 P02 | continuation | 2 tasks | 5 files |
 | Phase 02 P03 | 9min | 2 tasks | 9 files |
+| Phase 02 P04 | 8min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -88,6 +89,9 @@ Recent decisions affecting current work:
 - [Phase 2]: [02-03]: chat dual-write (importFeaturesToEditor) + 4 UI/hook import sites (GeoEditorView 1249/1413/2120 + useOsmQuery handleOsmImport) rerouted through createAuthoring(editor).writeGeoJSON; store dual-write DELETED. authoring.* is now the only caller of editor.addFeature (INFRA-02); A3 boundary test enforces it.
 - [Phase 2]: [02-03]: A3 boundary scoped to editor.addFeature (create seam) — updateFeature/deleteFeatures NOT yet rerouted (facade has no modify/delete surface). Deferred to a facade-expansion plan that adds modifyFeature/deleteFeatures + tightens A3 to all 4 verbs.
 - [Phase 2]: [02-03]: criterion #2 golden gate (authoring.golden.test.ts) green — OLD importFeaturesToEditor body reproduced verbatim as oracle vs NEW writeGeoJSON, feature sets byte-identical (ids/geometry/importSource/customProperties/skippedDuplicates).
+- [Phase 2]: [02-04]: ONE typed registry (registry.ts) dispatches all 34 advertised tools via register/unregister/dispatch/advertise; execute.ts switch + default throw DELETED. Unknown tool / handler failure → structured ToolError (INFRA-01/D-16), fed to model loop AND rendered distinctly in ChatPanel. kind mandatory on every entry (D-03); advertised list derived from live registry (D-04/D-06).
+- [Phase 2]: [02-04]: Extracted schemas.ts (dependency-free static OpenAI schemas) to break a registry↔definitions import cycle — registry imports schemas; definitions collapses to geoTools = advertise().
+- [Phase 2]: [02-04]: kind map — write/add_feature_to_editor=editor (dispatch into authoring); get_editor_state/capture_map_snapshot=host-builtin; all OSM/valhalla/web/wiki/fetch=remote-mcp (origin=SERVER_PUBKEY); editor_*=editor (self-registered). V5 arg validation (parseToolCallArguments + clamps + MAX_GEOJSON_TEXT_CHARS) preserved at dispatch boundary; no zod added.
 
 ### Pending Todos
 
@@ -112,6 +116,6 @@ Items acknowledged and carried forward / out of scope for this milestone:
 
 ## Session Continuity
 
-Last session: 2026-06-16T19:01:00.000Z
-Stopped at: Completed 02-03-PLAN.md (one-way read-mirror + authoring reroute)
-Resume file: .planning/phases/02-tool-registry-authoring-api/02-04-PLAN.md
+Last session: 2026-06-16T19:12:00.000Z
+Stopped at: Completed 02-04-PLAN.md (unified tool registry + ToolError contract)
+Resume file: .planning/phases/02-tool-registry-authoring-api/02-05-PLAN.md
