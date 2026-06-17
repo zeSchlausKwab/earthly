@@ -4,14 +4,14 @@ milestone: v1.1
 milestone_name: milestone
 status: executing
 stopped_at: Phase 3 UI-SPEC approved
-last_updated: "2026-06-17T07:26:21.768Z"
-last_activity: 2026-06-17 -- Phase 03 execution started
+last_updated: "2026-06-17T07:32:00.000Z"
+last_activity: 2026-06-17 -- Phase 03 Plan 04 (vision-detection ladder) complete
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 15
-  completed_plans: 10
-  percent: 29
+  completed_plans: 11
+  percent: 31
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 03 (file-ingest-multimodal) — EXECUTING
-Plan: 2 of 6
-Status: Ready to execute
-Last activity: 2026-06-17 -- Phase 03 execution started
+Plan: 04 of 6 complete (2/6 plans done)
+Status: Plan 04 complete
+Last activity: 2026-06-17 -- Phase 03 Plan 04 (vision-detection ladder) complete
 
-Progress: [███░░░░░░░] 32%
+Progress: [███░░░░░░░] 31%
 
 ## Performance Metrics
 
@@ -62,6 +62,7 @@ Progress: [███░░░░░░░] 32%
 | Phase 02 P05 | 12min | 2 tasks | 8 files |
 | Phase 02 P06 | 11min | 2 tasks | 6 files |
 | Phase 03 P01 | 12min | 4 tasks | 10 files |
+| Phase 03 P04 | 4min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,8 @@ Recent decisions affecting current work:
 - [Phase 2]: [02-06]: Synced handlers route through new EarthlyGeoServerClient.callRemoteTool(name,args) (wraps private call()). definitions.ts adds getGeoTools() (live advertise() + hardcoded fallback); store.ts reads it at REQUEST time so sync changes reach the model. Push refresh deferred as a future optimization (needs a stateful transport).
 - [Phase ?]: Phase 03 Plan 01: ExcelJS-in-worker spike PASSED (exceljs ^4.4.0 bundles for browser worker under Bun); read-excel-file fallback not needed
 - [Phase ?]: Phase 03 Plan 01: extracted pure parse helpers (parse.ts) from ingest.worker.ts so parse correctness is bun:test-able without driving a real Worker
+- [Phase 3]: [03-04]: detectVisionSupport(provider,modelId)→'vision'|'no-vision'|'uncertain' is the D-07/D-09 single capability source; Ollama reads native POST /api/show capabilities[] (/v1 stripped; its /v1/models omits them), others read /v1/models capabilities/input_modalities/architecture.input_modalities; cached per (type,baseUrl,modelId); fail-safe to 'no-vision', never throws (degrades to name heuristic → 'uncertain').
+- [Phase 3]: [03-04]: Autonomous capture_map_snapshot one-shot sends an image_url ONLY on confirmed 'vision' (acceptance criterion #4); 'uncertain' is opt-in via the Plan 06 VisionGateControl UI, never the silent snapshot loop. Both image paths now gate on canUseVision derived from the one awaited ladder result (D-09); name-only modelMaySupportVision removed.
 
 ### Pending Todos
 
@@ -127,6 +130,6 @@ Items acknowledged and carried forward / out of scope for this milestone:
 
 ## Session Continuity
 
-Last session: 2026-06-17T07:25:50.217Z
-Stopped at: Phase 3 UI-SPEC approved
-Resume file: .planning/phases/03-file-ingest-multimodal/03-UI-SPEC.md
+Last session: 2026-06-17T07:32:00.000Z
+Stopped at: Completed 03-04-PLAN.md (vision-detection ladder)
+Resume file: None

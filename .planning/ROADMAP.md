@@ -107,7 +107,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
   - [ ] 03-02-PLAN.md — ingest worker client: off-thread CSV/xlsx/json/text parse via the in-repo Worker pattern with sync fallback + 30s timeout + broken-worker latch; xlsx transferable (INGEST-02, INGEST-03)
   - [ ] 03-03-PLAN.md — D-11 handle-keyed ingest store (model sees summary+handle, never fullRows) + head/tail/random summary with column cap (D-01/D-02/D-03) + coordinate-column heuristic (D-04) + file-size DoS guards (D-12) (INGEST-05, INGEST-06)
-  - [ ] 03-04-PLAN.md — D-07 layered vision-detection ladder (Ollama /api/show → /v1/models → name heuristic → fail-safe), cached; rewire both image paths (attached + capture_map_snapshot) through one source (D-09) (INGEST-07)
+  - [x] 03-04-PLAN.md — D-07 layered vision-detection ladder (Ollama /api/show → /v1/models → name heuristic → fail-safe), cached; rewire both image paths (attached + capture_map_snapshot) through one source (D-09) (INGEST-07) (completed 2026-06-17 — 20 ladder tests + 8 store tests green, build+lint clean; both image paths gated by detectVisionSupport, snapshot fail-safe to confirmed-vision-only)
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -182,7 +182,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Encrypted Settings Persistence | 3/3 | Complete    | 2026-06-16 |
 | 2. Tool Registry & Authoring API | 4/6 | In progress | - |
-| 3. File Ingest & Multimodal | 1/6 | In Progress|  |
+| 3. File Ingest & Multimodal | 2/6 | In Progress|  |
 | 4. Code Interpreter Sandbox | 0/TBD | Not started | - |
 | 5. Dataset-Aware Safe Editing | 0/TBD | Not started | - |
 | 6. AI Bulk Transform & Data-Driven Styling | 0/TBD | Not started | - |
