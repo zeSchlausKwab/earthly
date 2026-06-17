@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-02-PLAN.md (ingest worker RPC client)
-last_updated: "2026-06-17T07:37:48.340Z"
-last_activity: 2026-06-17 -- Phase 03 Plan 02 (ingest worker RPC client) complete
+stopped_at: Completed 03-03-PLAN.md (ingest store & summary seam)
+last_updated: "2026-06-17T07:46:25.959Z"
+last_activity: 2026-06-17 -- Phase 03 Plan 03 (ingest store & summary seam, D-11) complete
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 15
-  completed_plans: 12
-  percent: 29
+  completed_plans: 13
+  percent: 87
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 03 (file-ingest-multimodal) — EXECUTING
-Plan: 02 complete (3/6 plans done: 01, 02, 04)
-Status: Plan 02 complete
-Last activity: 2026-06-17 -- Phase 03 Plan 02 (ingest worker RPC client) complete
+Plan: 03 complete (4/6 plans done: 01, 02, 03, 04; plans executed out of numeric order)
+Status: Plan 03 complete — remaining: 05 (placement), 06 (UI)
+Last activity: 2026-06-17 -- Phase 03 Plan 03 (ingest store & summary seam, D-11) complete
 
-Progress: [███░░░░░░░] 29%
+Progress: [████████░░] 87%
 
 ## Performance Metrics
 
@@ -64,6 +64,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 03 P01 | 12min | 4 tasks | 10 files |
 | Phase 03 P04 | 4min | 2 tasks | 3 files |
 | Phase 03 P02 | 8min | 1 tasks | 2 files |
+| Phase 03 P03 | ~5min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,9 @@ Recent decisions affecting current work:
 - [Phase 3]: [03-04]: Autonomous capture_map_snapshot one-shot sends an image_url ONLY on confirmed 'vision' (acceptance criterion #4); 'uncertain' is opt-in via the Plan 06 VisionGateControl UI, never the silent snapshot loop. Both image paths now gate on canUseVision derived from the one awaited ladder result (D-09); name-only modelMaySupportVision removed.
 - [Phase ?]: [03-02]: parseFileInWorker(kind, payload, {timeoutMs}) is the host-side no-freeze client; a shared parseSync powers the no-worker / onerror-latch / 30s-timeout fallbacks so the worker and its sync fallback never diverge
 - [Phase ?]: [03-02]: xlsx posted as a transferable ArrayBuffer (postMessage(req,[buffer])) avoids a main<->worker copy (T-03-05); per-request timeout is injectable for deterministic stuck-worker test coverage
+- [Phase 3]: [03-03]: D-11 enforced STRUCTURALLY — handle-keyed ingestStore: toModelSummary(handleId)→{handleId,summary} is the ONLY model path (no fullRows field); getDataset(handleId) is the sole fullRows accessor (tools/sandbox). Proven by a serialized-payload no-leak invariant test (T-03-06).
+- [Phase 3]: [03-03]: deriveIngestSummary caps schema to MAX_SUMMARY_COLS=30 (+moreColumns, T-03-09) and samples head5+tail5+random5 (INGEST_SAMPLE); compactToolMessageContentForPrompt strips fullRows on {ingestHandle,ingestSummary} tool results (prompt-path defence-in-depth).
+- [Phase 3]: [03-03]: Pre-parse size caps INGEST_SIZE_CAPS tabular 50MB (≥A4 12MB) / image 25MB via assertFileWithinCaps run BEFORE parseFileInWorker/putDataset (T-03-07 DoS); detectCoordinateColumns name-heuristic (lat/lon/lng/x/y/wkt/geometry, ambiguous→{}, D-04).
 
 ### Pending Todos
 

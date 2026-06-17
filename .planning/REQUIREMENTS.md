@@ -19,8 +19,8 @@ Requirements for this milestone. Each maps to exactly one roadmap phase. Story t
 - [x] **INGEST-02**: User can ingest CSV and Excel (`.xlsx`) files; parsing runs off the main thread so large files do not freeze the app.
 - [x] **INGEST-03**: User can ingest JSON, GeoJSON, and plain-text files.
 - [ ] **INGEST-04**: User can ingest image files.
-- [ ] **INGEST-05**: After ingest, the user sees a parse summary (e.g. rows × columns, detected coordinate/geometry columns); the model receives a compact summary, not the raw rows.
-- [ ] **INGEST-06**: The chat can place rows of tabular/text data onto the map as features, geolocating where needed (ugly logging CSV → mapped points; pasted Telegram message → located feature). `[A][B]`
+- [x] **INGEST-05**: After ingest, the user sees a parse summary (e.g. rows × columns, detected coordinate/geometry columns); the model receives a compact summary, not the raw rows.
+- [x] **INGEST-06**: The chat can place rows of tabular/text data onto the map as features, geolocating where needed (ugly logging CSV → mapped points; pasted Telegram message → located feature). `[A][B]`
 - [x] **INGEST-07**: The app detects whether the selected model supports vision via layered detection (Ollama capabilities → modalities field → name heuristic → fail-safe to no-vision); the image-send affordance is disabled or marked uncertain when vision is unconfirmed, never silently sending images to a blind model. _(Detection ladder + fail-safe gating delivered in 03-04; user-facing VisionGateControl affordance mounts in 03-06.)_
 
 ### Code Interpreter
@@ -110,8 +110,8 @@ Each requirement maps to exactly one phase.
 | INGEST-02 | Phase 3 — File Ingest & Multimodal | Complete |
 | INGEST-03 | Phase 3 — File Ingest & Multimodal | Complete |
 | INGEST-04 | Phase 3 — File Ingest & Multimodal | Pending |
-| INGEST-05 | Phase 3 — File Ingest & Multimodal | Pending |
-| INGEST-06 | Phase 3 — File Ingest & Multimodal | Pending |
+| INGEST-05 | Phase 3 — File Ingest & Multimodal | Complete |
+| INGEST-06 | Phase 3 — File Ingest & Multimodal | Complete |
 | INGEST-07 | Phase 3 — File Ingest & Multimodal | Complete (03-04) |
 | CODE-01 | Phase 4 — Code Interpreter Sandbox | Pending |
 | CODE-02 | Phase 4 — Code Interpreter Sandbox | Pending |
