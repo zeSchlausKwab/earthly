@@ -2,6 +2,7 @@ import { Paperclip } from 'lucide-react'
 import { useCallback, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { evictDataset } from '../ingest/ingestStore'
 import { type AttachDeps, handleAttachedFile } from './fileAttachHandler'
 import { type AttachedFileView, FileChip, type ImageVisionTier } from './FileChip'
 
@@ -99,9 +100,14 @@ export function FileChipStrip({
 
 	const handleRemove = useCallback(
 		(id: string) => {
+			const removed = filesRef.current.find((f) => f.id === id)
 			const next = filesRef.current.filter((f) => f.id !== id)
 			filesRef.current = next
 			onChange(next)
+			// WR-02: free the parsed dataset's `fullRows` from the session-only ingest
+			// store when its chip is removed, so attach/remove cycles don't leak memory.
+			const handleId = removed?.summary?.handleId
+			if (handleId) evictDataset(handleId)
 		},
 		[onChange],
 	)

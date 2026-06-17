@@ -20,6 +20,15 @@
 import type { IngestSummary, ParsedDataset } from './datasetTypes'
 import { deriveIngestSummary } from './parseSummary'
 
+/**
+ * Defense-in-depth size cap (WR-02). The store is freed explicitly when a file
+ * chip is removed or a chat is switched/cleared, but a long attach/remove
+ * workflow (or a forgotten handle) must never let it grow without bound. Once
+ * the store exceeds this many datasets, `putDataset` evicts the
+ * least-recently-used handles (see `getDataset` for the LRU refresh).
+ */
+export const MAX_INGEST_DATASETS = 32
+
 /** The live store. Module-level so any host module can put/get by handle. */
 const ingestStore = new Map<string, ParsedDataset>()
 
@@ -44,6 +53,16 @@ export function putDataset(parsed: Omit<ParsedDataset, 'handleId' | 'createdAt'>
 	}
 	ingestStore.set(handleId, record)
 	summaryCache.set(handleId, deriveIngestSummary(record))
+
+	// WR-02: bound the session-only store. Evict the least-recently-used handles
+	// (oldest in Map insertion order, refreshed on `getDataset`) once over the cap.
+	while (ingestStore.size > MAX_INGEST_DATASETS) {
+		const oldest = ingestStore.keys().next().value
+		if (oldest === undefined) break
+		ingestStore.delete(oldest)
+		summaryCache.delete(oldest)
+	}
+
 	return handleId
 }
 
@@ -53,7 +72,13 @@ export function putDataset(parsed: Omit<ParsedDataset, 'handleId' | 'createdAt'>
  * (already evicted / never existed).
  */
 export function getDataset(handleId: string): ParsedDataset | undefined {
-	return ingestStore.get(handleId)
+	const record = ingestStore.get(handleId)
+	if (record === undefined) return undefined
+	// LRU refresh (WR-02): re-insert so a handle actively used by the placement
+	// tools is "most recently used" and the size cap evicts only truly cold ones.
+	ingestStore.delete(handleId)
+	ingestStore.set(handleId, record)
+	return record
 }
 
 /** Remove a dataset (and its cached summary) by handle. */

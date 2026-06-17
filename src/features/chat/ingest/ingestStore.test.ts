@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'bun:test'
 import type { ParsedDataset } from './datasetTypes'
-import { evictDataset, getDataset, putDataset, toModelSummary } from './ingestStore'
+import {
+	evictDataset,
+	getDataset,
+	MAX_INGEST_DATASETS,
+	putDataset,
+	toModelSummary,
+} from './ingestStore'
 
 function makeParsed(
 	rowCount: number,
@@ -79,6 +85,38 @@ describe('ingestStore', () => {
 		evictDataset(handle)
 		expect(getDataset(handle)).toBeUndefined()
 		expect(toModelSummary(handle)).toBeUndefined()
+	})
+
+	it('caps the store size (WR-02): exceeding MAX_INGEST_DATASETS evicts the oldest handles', () => {
+		const overflow = 5
+		const handles: string[] = []
+		for (let i = 0; i < MAX_INGEST_DATASETS + overflow; i++) {
+			handles.push(putDataset(makeParsed(1)))
+		}
+		// The first `overflow` (least-recently-used) handles were evicted.
+		for (let i = 0; i < overflow; i++) {
+			expect(getDataset(handles[i])).toBeUndefined()
+			expect(toModelSummary(handles[i])).toBeUndefined()
+		}
+		// The most-recent MAX_INGEST_DATASETS handles survive.
+		for (let i = overflow; i < handles.length; i++) {
+			expect(getDataset(handles[i])).toBeDefined()
+		}
+		for (const h of handles) evictDataset(h)
+	})
+
+	it('LRU refresh (WR-02): a recently-read handle survives eviction over a cold one', () => {
+		const handles: string[] = []
+		for (let i = 0; i < MAX_INGEST_DATASETS; i++) handles.push(putDataset(makeParsed(1)))
+		// Touch the oldest handle so it becomes most-recently-used.
+		expect(getDataset(handles[0])).toBeDefined()
+		// One more insert pushes over the cap — the now-coldest (handles[1]) is evicted,
+		// not the freshly-touched handles[0].
+		const extra = putDataset(makeParsed(1))
+		handles.push(extra)
+		expect(getDataset(handles[0])).toBeDefined()
+		expect(getDataset(handles[1])).toBeUndefined()
+		for (const h of handles) evictDataset(h)
 	})
 
 	it('holds nothing in localStorage / IndexedDB (session-only, D-12) — no persistence call', () => {

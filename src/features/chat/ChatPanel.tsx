@@ -3,6 +3,7 @@ import type { FeatureCollection } from 'geojson'
 import { resolveProvider, useChatStore } from './store'
 import { composeOutboundContent } from './composeOutboundContent'
 import { FileChipStrip } from './components/FileChipStrip'
+import { evictDataset } from './ingest/ingestStore'
 import type { AttachedFileView, ImageVisionTier } from './components/FileChip'
 import { VisionGateControl } from './components/VisionGateControl'
 import { detectVisionSupport, type VisionSupport } from './vision/detectVisionSupport'
@@ -216,7 +217,16 @@ export function ChatPanel({
 	useEffect(() => {
 		void activeChatId
 		setAttachedGeometry(null)
-		setAttachedFiles([])
+		// WR-02: evict any not-yet-sent attached datasets before dropping the list,
+		// so switching/clearing chats doesn't leave their `fullRows` resident in the
+		// session-only ingest store. (Sent datasets are cleared without eviction in
+		// `handleSubmit` because the placement tools still need their handles.)
+		setAttachedFiles((prev) => {
+			for (const file of prev) {
+				if (file.summary?.handleId) evictDataset(file.summary.handleId)
+			}
+			return []
+		})
 		setSendAnyway(false)
 		setSelectionContextEnabled(false)
 	}, [activeChatId])
