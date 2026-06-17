@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-03-PLAN.md (ingest store & summary seam)
-last_updated: "2026-06-17T07:46:25.959Z"
-last_activity: 2026-06-17 -- Phase 03 Plan 03 (ingest store & summary seam, D-11) complete
+stopped_at: Completed 03-05-PLAN.md (ingest placement & batch geocode tools)
+last_updated: "2026-06-17T07:56:00.000Z"
+last_activity: 2026-06-17 -- Phase 03 Plan 05 (place_dataset_features + batch_geocode, INGEST-06) complete
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 15
-  completed_plans: 13
-  percent: 87
+  completed_plans: 14
+  percent: 93
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 03 (file-ingest-multimodal) — EXECUTING
-Plan: 03 complete (4/6 plans done: 01, 02, 03, 04; plans executed out of numeric order)
-Status: Plan 03 complete — remaining: 05 (placement), 06 (UI)
-Last activity: 2026-06-17 -- Phase 03 Plan 03 (ingest store & summary seam, D-11) complete
+Plan: 05 complete (5/6 plans done: 01, 02, 03, 04, 05; plans executed out of numeric order)
+Status: Plan 05 complete — remaining: 06 (UI)
+Last activity: 2026-06-17 -- Phase 03 Plan 05 (place_dataset_features + batch_geocode, INGEST-06) complete
 
-Progress: [████████░░] 87%
+Progress: [█████████░] 93%
 
 ## Performance Metrics
 
@@ -65,6 +65,7 @@ Progress: [████████░░] 87%
 | Phase 03 P04 | 4min | 2 tasks | 3 files |
 | Phase 03 P02 | 8min | 1 tasks | 2 files |
 | Phase 03 P03 | ~5min | 3 tasks | 9 files |
+| Phase 03 P05 | ~12min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -113,6 +114,8 @@ Recent decisions affecting current work:
 - [Phase 3]: [03-03]: D-11 enforced STRUCTURALLY — handle-keyed ingestStore: toModelSummary(handleId)→{handleId,summary} is the ONLY model path (no fullRows field); getDataset(handleId) is the sole fullRows accessor (tools/sandbox). Proven by a serialized-payload no-leak invariant test (T-03-06).
 - [Phase 3]: [03-03]: deriveIngestSummary caps schema to MAX_SUMMARY_COLS=30 (+moreColumns, T-03-09) and samples head5+tail5+random5 (INGEST_SAMPLE); compactToolMessageContentForPrompt strips fullRows on {ingestHandle,ingestSummary} tool results (prompt-path defence-in-depth).
 - [Phase 3]: [03-03]: Pre-parse size caps INGEST_SIZE_CAPS tabular 50MB (≥A4 12MB) / image 25MB via assertFileWithinCaps run BEFORE parseFileInWorker/putDataset (T-03-07 DoS); detectCoordinateColumns name-heuristic (lat/lon/lng/x/y/wkt/geometry, ambiguous→{}, D-04).
+- [Phase 3]: [03-05]: place_dataset_features (host-builtin) iterates getDataset(handleId).fullRows (D-05, NOT the sample → anticipates SAFE-05), builds features from lat/lon | WKT | GeoJSON-geometry, V5-range-validates coords (skippedInvalid), writes via importFeaturesToEditor (Authoring API, never the store), returns counts only (T-03-18). registerIngestTools(register) wired via the injected-register idiom; schemaFor() now exported from schemas.ts.
+- [Phase 3]: [03-05]: batch_geocode (remote-mcp) bounded BATCH_GEOCODE_MAX_ROWS=50 (unique names) + throttled BATCH_GEOCODE_MIN_INTERVAL_MS=1000 (~1 req/s) + de-duped + in-call cached, skip-and-report {located,total,failed,message} (T-03-15/T-03-16, D-06). throttle delay + geo client injectable so tests use a fake clock + mock SearchLocation (no sleep, no network). Single-row geocoding reuses the same batchGeocode primitive; Telegram one-shot still uses search_location. WKT parsed in-repo (no new dep).
 
 ### Pending Todos
 
@@ -137,6 +140,6 @@ Items acknowledged and carried forward / out of scope for this milestone:
 
 ## Session Continuity
 
-Last session: 2026-06-17T07:37:43.046Z
-Stopped at: Completed 03-02-PLAN.md (ingest worker RPC client)
+Last session: 2026-06-17T07:56:00.000Z
+Stopped at: Completed 03-05-PLAN.md (ingest placement & batch geocode tools, INGEST-06)
 Resume file: None
