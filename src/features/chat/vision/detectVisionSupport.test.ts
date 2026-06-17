@@ -144,16 +144,19 @@ describe('detectVisionSupport — other providers /v1/models (tier 2)', () => {
 })
 
 describe('detectVisionSupport — name heuristic (tier 3) → uncertain', () => {
-	test.each(['qwen2.5-vl', 'llava', 'gpt-4o', 'pixtral-12b', 'claude-3-opus'])(
-		'%s with no capability data → uncertain (NOT confirmed)',
-		async (modelId) => {
-			// /v1/models entry exists but exposes NO capability fields → fall through to heuristic.
-			const { fn } = jsonFetch({ data: [{ id: modelId }] })
-			globalThis.fetch = fn as unknown as typeof fetch
+	test.each([
+		'qwen2.5-vl',
+		'llava',
+		'gpt-4o',
+		'pixtral-12b',
+		'claude-3-opus',
+	])('%s with no capability data → uncertain (NOT confirmed)', async (modelId) => {
+		// /v1/models entry exists but exposes NO capability fields → fall through to heuristic.
+		const { fn } = jsonFetch({ data: [{ id: modelId }] })
+		globalThis.fetch = fn as unknown as typeof fetch
 
-			expect(await detectVisionSupport(routstr(), modelId)).toBe<VisionSupport>('uncertain')
-		},
-	)
+		expect(await detectVisionSupport(routstr(), modelId)).toBe<VisionSupport>('uncertain')
+	})
 })
 
 describe('detectVisionSupport — fail-safe (tier 4) → no-vision', () => {
@@ -187,7 +190,9 @@ describe('detectVisionSupport — network failure degrades, never throws (T-03-1
 			throw new Error('network down')
 		}) as unknown as typeof fetch
 
-		expect(await detectVisionSupport(routstr(), 'plain-text-model')).toBe<VisionSupport>('no-vision')
+		expect(await detectVisionSupport(routstr(), 'plain-text-model')).toBe<VisionSupport>(
+			'no-vision',
+		)
 	})
 
 	test('non-ok response degrades to heuristic without throwing', async () => {
