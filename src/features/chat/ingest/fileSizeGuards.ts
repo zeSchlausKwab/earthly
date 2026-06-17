@@ -15,8 +15,6 @@
  *   enough to bound a base64-inflated vision payload.
  */
 
-import { clampPositiveInt } from '../tools/helpers'
-
 export const INGEST_SIZE_CAPS = {
 	/** Max raw bytes for csv/xlsx/json/geojson/text (≥ 12MB per A4). */
 	tabularBytes: 50 * 1024 * 1024,
@@ -41,10 +39,13 @@ export function assertFileWithinCaps(file: {
 }): FileWithinCapsResult {
 	const cap = file.isImage ? INGEST_SIZE_CAPS.imageBytes : INGEST_SIZE_CAPS.tabularBytes
 
-	// Mirror the clamp idiom: normalize a (possibly absurd / non-finite) size to a
-	// bounded positive int before comparison, so a NaN/Infinity size can't slip
-	// past the cap.
-	const size = clampPositiveInt(file.size, 0, Number.MAX_SAFE_INTEGER)
+	// FAIL CLOSED (CR-02): a non-finite (NaN/Infinity) or negative/unparseable size
+	// must be treated as OVER-cap, not under it. Routing through clampPositiveInt
+	// with a fallback of 0 did the opposite — it returned 0 for non-finite input,
+	// which slipped past `0 > cap`. Normalize any non-finite/negative size to
+	// +Infinity so the comparison below rejects it.
+	const raw = file.size
+	const size = Number.isFinite(raw) && raw >= 0 ? raw : Number.POSITIVE_INFINITY
 
 	if (size > cap) {
 		return {

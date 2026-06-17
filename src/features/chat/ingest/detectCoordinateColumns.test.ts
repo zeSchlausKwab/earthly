@@ -58,4 +58,24 @@ describe('assertFileWithinCaps', () => {
 	it('tabular cap is at least 12MB (Phase 7 West Pacific Trail, A4)', () => {
 		expect(INGEST_SIZE_CAPS.tabularBytes).toBeGreaterThanOrEqual(12 * 1024 * 1024)
 	})
+
+	// CR-02: a non-finite / unparseable size must FAIL CLOSED (rejected), not slip
+	// past the cap via a clamp-fallback inversion.
+	it('FAILS CLOSED on an Infinity size (CR-02)', () => {
+		const result = assertFileWithinCaps({ size: Number.POSITIVE_INFINITY, isImage: false })
+		expect(result.ok).toBe(false)
+	})
+
+	it('FAILS CLOSED on a NaN size (CR-02)', () => {
+		expect(assertFileWithinCaps({ size: Number.NaN, isImage: false }).ok).toBe(false)
+		expect(assertFileWithinCaps({ size: Number.NaN, isImage: true }).ok).toBe(false)
+	})
+
+	it('FAILS CLOSED on a negative size (CR-02)', () => {
+		expect(assertFileWithinCaps({ size: -1, isImage: false }).ok).toBe(false)
+	})
+
+	it('accepts a zero-byte file (boundary, still ok)', () => {
+		expect(assertFileWithinCaps({ size: 0, isImage: false })).toEqual({ ok: true })
+	})
 })
