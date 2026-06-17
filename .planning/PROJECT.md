@@ -17,7 +17,7 @@ If we ship clean orchestration + classical utility but no AI demo, this project 
 **Goal:** Expand the AI chat from a map-drawing assistant into a data-ingest-and-transformation workbench — upload and parse real-world files, run sandboxed code that drives the map programmatically, give the AI more authoring tools, and let it safely edit datasets it is explicitly bound to — broadening Earthly's audience to analysts, curators, and power users.
 
 **Target features:**
-- File ingest & multimodal — upload CSV/Excel/JSON/GeoJSON/images/text; parse tabular & text into structured data the chat tools and code interpreter can read; route images to vision-capable models via capability detection (auto-disable image send when the model lacks vision).
+- ✓ File ingest & multimodal — upload CSV/Excel/JSON/GeoJSON/images/text; parse tabular & text into structured data the chat tools and code interpreter can read; route images to vision-capable models via capability detection (auto-disable image send when the model lacks vision). **Validated in Phase 3** (INGEST-01..07; off-thread parse, handle-keyed privacy seam, vision-detection ladder, place/geocode tools, file-chip UI).
 - Code interpreter (client sandbox) — AI authors & runs JS in a Web Worker/iframe sandbox with access to a clean toolbar/drawing API: programmatic generation ("15 circles, fibonacci radii"), batch transforms, custom cost-weighted routing.
 - AI-oriented editor tools — new tools/primitives that make sense for AI: parametric shapes (circles/buffers), programmatic batch ops, plus whatever the sandbox needs.
 - Data-driven styling — color/stroke/width by attribute (ports vs airports vs waterways), AI-applied.
@@ -190,4 +190,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-16 — reconciled shipped v1.0 UX work; started milestone v1.1 AI Chat*
+*Last updated: 2026-06-17 — Phase 3 (File Ingest & Multimodal) complete: ingest pipeline, privacy seam, vision-detection ladder, place/geocode tools shipped & verified.*
