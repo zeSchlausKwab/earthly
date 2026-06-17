@@ -27,6 +27,20 @@ export const INGEST_SAMPLE = { head: 5, tail: 5, random: 5 } as const
 export const MAX_SUMMARY_COLS = 30
 
 /**
+ * Max GeoJSON features whose `properties`/geometry-type are surfaced in the
+ * model-facing sample (D-11). The FULL FeatureCollection lives only host-side in
+ * `fullRows[0].__geojson`, reachable via `getDataset(handleId)` — it is NEVER
+ * embedded in the summary.
+ */
+export const MAX_GEOJSON_SAMPLE_FEATURES = 5
+
+/** Max top-level keys surfaced for a JSON dataset preview (D-11). */
+export const MAX_JSON_PREVIEW_KEYS = 30
+
+/** Max lines surfaced (first/last) for a text dataset preview (D-11). */
+export const TEXT_PREVIEW_LINES = { head: 3, tail: 3 } as const
+
+/**
  * Head + tail + random sample. If the table is already ≤ head+tail+random rows,
  * every row is returned (no padding, no duplication). Otherwise the result is
  * the first `head`, last `tail`, and `random` rows drawn from the middle.
@@ -109,9 +123,97 @@ function deriveTypeStats(parsed: ParsedDataset): IngestSummary['typeStats'] {
 }
 
 /**
- * Build the model-facing summary: column-capped schema + head/tail/random row
- * sample + detected coordinate columns + per-type stats. Reads only `schema`
- * and a sampled subset of rows — `fullRows` is never copied into the result.
+ * Build the model-facing `sampleRows` (D-11). For TABULAR kinds (csv/xlsx) this
+ * is the existing head/tail/random row draw. For STRUCTURED kinds (geojson/json/
+ * text) the raw payload sits in `fullRows[0]` and must NEVER be sampled verbatim
+ * (CR-01): sampling a length-1 `fullRows` would copy the entire FeatureCollection
+ * / JSON object / text body into the model-facing summary. Instead we emit a
+ * compact, size-capped preview:
+ *
+ * - geojson: at most MAX_GEOJSON_SAMPLE_FEATURES rows of `{ geometryType,
+ *   properties }` (feature properties only — never the geometry coordinates).
+ *   featureCount/geometryTypes/bbox come from `typeStats`.
+ * - json: a single preview row with the top-level keys (capped) — or, for a
+ *   top-level array, its length + the keys of its first element.
+ * - text: at most a few first/last lines, never the full line array.
+ *
+ * The full payload remains reachable host-side via `getDataset(handleId)
+ * .fullRows[0]` for the placement tool — that path is unchanged.
+ */
+function deriveSampleRows(parsed: ParsedDataset): Record<string, unknown>[] {
+	if (parsed.type === 'csv' || parsed.type === 'xlsx') {
+		return sampleRows(parsed.fullRows)
+	}
+
+	if (parsed.type === 'geojson') {
+		const collection = (parsed.fullRows[0]?.__geojson ?? parsed.fullRows[0]) as unknown
+		const features =
+			collection &&
+			typeof collection === 'object' &&
+			Array.isArray((collection as { features?: unknown }).features)
+				? ((collection as { features: unknown[] }).features as Array<{
+						geometry?: { type?: unknown }
+						properties?: unknown
+					}>)
+				: []
+		return features.slice(0, MAX_GEOJSON_SAMPLE_FEATURES).map((f) => ({
+			geometryType: typeof f.geometry?.type === 'string' ? f.geometry.type : null,
+			properties:
+				f.properties && typeof f.properties === 'object' && !Array.isArray(f.properties)
+					? (f.properties as Record<string, unknown>)
+					: {},
+		}))
+	}
+
+	if (parsed.type === 'json') {
+		// json stores the parsed value directly as fullRows[0]
+		// (fileAttachHandler.buildParsedDataset). A top-level array is wrapped by
+		// the spread into an object, so recover the array via `length`-keyed shape
+		// only when fullRows[0] is genuinely array-like; otherwise treat as object.
+		const data: unknown = parsed.fullRows[0]
+		if (Array.isArray(data)) {
+			const first = data[0]
+			const elementKeys =
+				first && typeof first === 'object' && !Array.isArray(first)
+					? Object.keys(first as Record<string, unknown>).slice(0, MAX_JSON_PREVIEW_KEYS)
+					: []
+			return [{ jsonShape: 'array', length: data.length, elementKeys }]
+		}
+		if (data && typeof data === 'object') {
+			const keys = Object.keys(data as Record<string, unknown>)
+			return [
+				{
+					jsonShape: 'object',
+					topLevelKeys: keys.slice(0, MAX_JSON_PREVIEW_KEYS),
+					...(keys.length > MAX_JSON_PREVIEW_KEYS
+						? { moreKeys: keys.length - MAX_JSON_PREVIEW_KEYS }
+						: {}),
+				},
+			]
+		}
+		return [{ jsonShape: typeof data }]
+	}
+
+	if (parsed.type === 'text') {
+		const first = parsed.fullRows[0] as { lines?: unknown } | undefined
+		const lines = Array.isArray(first?.lines) ? (first.lines as unknown[]) : []
+		const head = lines.slice(0, TEXT_PREVIEW_LINES.head)
+		const tail =
+			lines.length > TEXT_PREVIEW_LINES.head + TEXT_PREVIEW_LINES.tail
+				? lines.slice(lines.length - TEXT_PREVIEW_LINES.tail)
+				: lines.slice(TEXT_PREVIEW_LINES.head)
+		return [{ firstLines: head, lastLines: tail }]
+	}
+
+	return []
+}
+
+/**
+ * Build the model-facing summary: column-capped schema + bounded row sample
+ * (head/tail/random for tabular kinds; a compact preview for structured kinds —
+ * see `deriveSampleRows`) + detected coordinate columns + per-type stats. Reads
+ * only `schema` and a bounded subset/derivation of rows — the raw `fullRows`
+ * payload is NEVER copied into the result (D-11 / CR-01).
  */
 export function deriveIngestSummary(parsed: ParsedDataset): IngestSummary {
 	const cappedSchema = parsed.schema.slice(0, MAX_SUMMARY_COLS)
@@ -131,7 +233,7 @@ export function deriveIngestSummary(parsed: ParsedDataset): IngestSummary {
 		columnCount: parsed.columnCount,
 		schema: cappedSchema,
 		...(moreColumns > 0 ? { moreColumns } : {}),
-		sampleRows: sampleRows(parsed.fullRows),
+		sampleRows: deriveSampleRows(parsed),
 		detectedCoordinateColumns,
 		...(typeStats ? { typeStats } : {}),
 	}

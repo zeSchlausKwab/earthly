@@ -108,6 +108,72 @@ describe('deriveIngestSummary', () => {
 		expect(stats?.lineCount).toBe(12)
 		expect(stats?.charCount).toBe(345)
 	})
+
+	// CR-01: structured kinds (geojson/json/text) carry the FULL payload in
+	// fullRows[0] for tools only — the model-facing summary must NOT embed it.
+	it('CR-01 INVARIANT: a large GeoJSON summary does NOT embed the full FeatureCollection', () => {
+		const features = Array.from({ length: 5000 }, (_, i) => ({
+			type: 'Feature' as const,
+			geometry: { type: 'Point' as const, coordinates: [i * 0.001, i * 0.001] },
+			properties: { id: `feature-${String(i).padStart(5, '0')}-marker`, name: `n-${i}` },
+		}))
+		const fc = { type: 'FeatureCollection' as const, features }
+		const parsed = baseParsed({
+			type: 'geojson',
+			fileName: 'big.geojson',
+			rowCount: 1,
+			fullRows: [{ __geojson: fc }],
+		})
+		const summary = deriveIngestSummary(parsed)
+		const serialized = JSON.stringify(summary)
+
+		// typeStats still reports the true feature count.
+		expect(summary.typeStats?.featureCount).toBe(5000)
+		// sampleRows is bounded — at most MAX_GEOJSON_SAMPLE_FEATURES.
+		expect(summary.sampleRows.length).toBeLessThanOrEqual(5)
+		// No far-tail feature (id) leaks into the summary.
+		expect(serialized).not.toContain('feature-04999-marker')
+		expect(serialized).not.toContain('feature-02500-marker')
+		// And the serialized summary stays far under the raw payload size.
+		expect(serialized.length).toBeLessThan(JSON.stringify(fc).length / 10)
+	})
+
+	it('CR-01 INVARIANT: a large JSON object summary surfaces keys, not the full object', () => {
+		const big: Record<string, unknown> = {}
+		for (let i = 0; i < 50; i++) big[`key-${i}`] = `value-${String(i).padStart(5, '0')}-secret`
+		const parsed = baseParsed({
+			type: 'json',
+			fileName: 'big.json',
+			rowCount: 1,
+			fullRows: [big],
+		})
+		const summary = deriveIngestSummary(parsed)
+		const serialized = JSON.stringify(summary)
+		// A deep value must not leak.
+		expect(serialized).not.toContain('value-00049-secret')
+		// Keys ARE surfaced (bounded).
+		expect(serialized).toContain('key-0')
+		expect(serialized.length).toBeLessThan(JSON.stringify(big).length)
+	})
+
+	it('CR-01 INVARIANT: a large text summary does NOT embed the full line array', () => {
+		const lines = Array.from({ length: 10000 }, (_, i) => `line-${String(i).padStart(5, '0')}-body`)
+		const parsed = baseParsed({
+			type: 'text',
+			fileName: 'big.txt',
+			rowCount: 1,
+			fullRows: [{ lineCount: lines.length, charCount: 999999, lines }],
+		})
+		const summary = deriveIngestSummary(parsed)
+		const serialized = JSON.stringify(summary)
+		// A mid-body line must not leak (only first/last few lines are surfaced).
+		expect(serialized).not.toContain('line-05000-body')
+		expect(serialized).not.toContain('line-00100-body')
+		expect(serialized).not.toContain('line-09000-body')
+		// Counts surface via typeStats.
+		expect(summary.typeStats?.lineCount).toBe(10000)
+		expect(serialized.length).toBeLessThan(JSON.stringify(lines).length / 10)
+	})
 })
 
 describe('compactToolMessageContentForPrompt — ingest-handle compaction', () => {

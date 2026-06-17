@@ -70,6 +70,49 @@ describe('composeOutboundContent — D-11 send-path invariant', () => {
 		expect(serialized).not.toContain('fullRows')
 		expect(serialized).not.toContain('row-00150-marker') // a mid-table, non-sampled row
 	})
+
+	// CR-01: GeoJSON/json/text carry the full payload in fullRows[0]; the composed
+	// outbound content (the model-facing message) must stay bounded, never the
+	// full FeatureCollection.
+	it('keeps a large GeoJSON dataset BOUNDED in outbound content (no full FeatureCollection)', () => {
+		const features = Array.from({ length: 4000 }, (_, i) => ({
+			type: 'Feature' as const,
+			geometry: { type: 'Point' as const, coordinates: [i * 0.001, i * 0.001] },
+			properties: { id: `gj-${String(i).padStart(5, '0')}-marker` },
+		}))
+		const fc = { type: 'FeatureCollection' as const, features }
+		const handleId = putDataset({
+			fileName: 'big.geojson',
+			type: 'geojson',
+			schema: [],
+			rowCount: 1,
+			columnCount: 0,
+			fullRows: [{ __geojson: fc }],
+			coordinateColumns: {},
+			bytes: 1000,
+		})
+		const { toModelSummary } = require('./ingest/ingestStore')
+		const summary = toModelSummary(handleId)?.summary
+		const view: AttachedFileView = {
+			id: 'chip-gj',
+			fileName: 'big.geojson',
+			status: 'parsed',
+			summary,
+		}
+		const content = composeOutboundContent({
+			text: 'map this',
+			attachedFiles: [view],
+			visionSupport: 'no-vision',
+			sendAnyway: false,
+		})
+		const serialized = JSON.stringify(content)
+		expect(serialized).toContain(handleId)
+		// A far-tail feature must not reach the model.
+		expect(serialized).not.toContain('gj-03999-marker')
+		expect(serialized).not.toContain('gj-02000-marker')
+		// Outbound content stays far under the raw payload size.
+		expect(serialized.length).toBeLessThan(JSON.stringify(fc).length / 10)
+	})
 })
 
 describe('composeOutboundContent — three-tier image gate', () => {
