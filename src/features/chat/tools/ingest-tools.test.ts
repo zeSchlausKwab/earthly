@@ -10,6 +10,7 @@ import {
 	type BatchGeocodeOptions,
 	batchGeocode,
 	registerIngestTools,
+	resetGeocodeThrottle,
 } from './ingest-tools'
 import { advertise, dispatch, register, registry } from './registry'
 
@@ -235,14 +236,26 @@ function makeGeoHarness(resolver: (name: string) => [number, number] | null): {
 			}
 		},
 	}
-	// Fake delay: records the requested interval and resolves immediately (no sleep).
+	// Virtual clock: `delay` advances it (no real sleep) so the shared throttle
+	// (WR-03) is fully deterministic regardless of wall-clock jitter.
+	let clock = 0
 	const delay = async (ms: number) => {
 		delays.push(ms)
+		clock += ms
 	}
-	return { options: { client, delay, minIntervalMs: BATCH_GEOCODE_MIN_INTERVAL_MS }, calls, delays }
+	const now = () => clock
+	return {
+		options: { client, delay, now, minIntervalMs: BATCH_GEOCODE_MIN_INTERVAL_MS },
+		calls,
+		delays,
+	}
 }
 
 describe('batchGeocode (D-06 — bounded, throttled, de-duped, skip-and-report)', () => {
+	beforeEach(() => {
+		resetGeocodeThrottle()
+	})
+
 	it('de-dupes identical names before calling the geo client (call count == unique)', async () => {
 		const h = makeGeoHarness((n) => (n === 'Berlin' ? [13.4, 52.5] : [2.3, 48.8]))
 		const names = ['Berlin', 'Paris', 'Berlin', 'Berlin', 'Paris']
@@ -292,12 +305,25 @@ describe('batchGeocode (D-06 — bounded, throttled, de-duped, skip-and-report)'
 		expect(result.located).toBe(0)
 		expect(result.failed).toBe(1)
 	})
+
+	it('throttle holds ACROSS back-to-back calls (WR-03): the second call still spaces its first lookup', async () => {
+		const h = makeGeoHarness(() => [1, 1])
+		// First call: 1 lookup, no leading delay (fresh clock).
+		await batchGeocode(['a'], h.options)
+		expect(h.delays.length).toBe(0)
+		// Second call, immediately after: its first lookup must wait for the shared
+		// clock — without the module-level throttle this would fire with no delay.
+		await batchGeocode(['b'], h.options)
+		expect(h.delays.length).toBe(1)
+		expect(h.delays[0]).toBeGreaterThanOrEqual(BATCH_GEOCODE_MIN_INTERVAL_MS)
+	})
 })
 
 describe('batch_geocode tool (dispatch — places located rows via Authoring API)', () => {
 	const TOOL = 'batch_geocode'
 
 	beforeEach(() => {
+		resetGeocodeThrottle()
 		const editor = createHeadlessEditor()
 		useEditorStore.getState().setEditor(editor)
 	})

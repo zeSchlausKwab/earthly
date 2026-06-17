@@ -296,11 +296,27 @@ type GeoClient = { SearchLocation: (query: string, limit?: number) => Promise<un
 
 const realDelay: DelayFn = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/**
+ * WR-03: module-level throttle clock shared by ALL geocoder traffic, so the
+ * ~1 req/s Nominatim policy holds ACROSS calls — `place_dataset_features`'s
+ * geocode fallback, `batch_geocode`, and repeated/back-to-back calls — not just
+ * within a single `batchGeocode` run. Initialized to `-Infinity` so the very
+ * first lookup never waits. The clock source (`now`) is injectable for tests.
+ */
+let lastGeocodeRequestAt = Number.NEGATIVE_INFINITY
+
+/** Reset the shared geocode throttle clock (test seam — see WR-03). */
+export function resetGeocodeThrottle(): void {
+	lastGeocodeRequestAt = Number.NEGATIVE_INFINITY
+}
+
 export interface BatchGeocodeOptions {
 	maxRows?: number
 	minIntervalMs?: number
 	delay?: DelayFn
 	client?: GeoClient
+	/** Clock source for the shared throttle (default `Date.now`); injectable for tests. */
+	now?: () => number
 }
 
 export interface BatchGeocodeResult {
@@ -336,6 +352,7 @@ export async function batchGeocode(
 	const minInterval =
 		options.minIntervalMs === undefined ? BATCH_GEOCODE_MIN_INTERVAL_MS : options.minIntervalMs
 	const delay = options.delay ?? realDelay
+	const now = options.now ?? Date.now
 	const client = options.client ?? (getGeoClient() as unknown as GeoClient)
 
 	// De-dupe identical names (preserve first-seen order), then cap.
@@ -352,7 +369,13 @@ export async function batchGeocode(
 	const coordsByName = new Map<string, [number, number]>()
 	let failed = 0
 	for (let i = 0; i < unique.length; i += 1) {
-		if (i > 0 && minInterval > 0) await delay(minInterval)
+		// WR-03: throttle against the SHARED module clock, so spacing holds both
+		// within this call and across back-to-back calls/tools (not just `i > 0`).
+		if (minInterval > 0) {
+			const wait = minInterval - (now() - lastGeocodeRequestAt)
+			if (wait > 0) await delay(wait)
+		}
+		lastGeocodeRequestAt = now()
 		const name = unique[i]
 		try {
 			const response = await client.SearchLocation(name, 1)
