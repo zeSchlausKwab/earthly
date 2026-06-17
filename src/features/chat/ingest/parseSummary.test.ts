@@ -39,7 +39,10 @@ describe('sampleRows', () => {
 
 describe('deriveIngestSummary', () => {
 	it('caps a wide table to MAX_SUMMARY_COLS and reports moreColumns (D-02)', () => {
-		const schema = Array.from({ length: 80 }, (_, i) => ({ name: `c${i}`, type: 'string' as const }))
+		const schema = Array.from({ length: 80 }, (_, i) => ({
+			name: `c${i}`,
+			type: 'string' as const,
+		}))
 		const parsed = baseParsed({ schema, columnCount: 80, rowCount: 1, fullRows: [{ c0: 1 }] })
 		const summary = deriveIngestSummary(parsed)
 		expect(summary.schema).toHaveLength(MAX_SUMMARY_COLS)
@@ -66,7 +69,11 @@ describe('deriveIngestSummary', () => {
 	})
 
 	it('populates detectedCoordinateColumns from coordinateColumns', () => {
-		const parsed = baseParsed({ coordinateColumns: { lat: 'Lat', lon: 'Lon' }, fullRows: [{ a: 1 }], rowCount: 1 })
+		const parsed = baseParsed({
+			coordinateColumns: { lat: 'Lat', lon: 'Lon' },
+			fullRows: [{ a: 1 }],
+			rowCount: 1,
+		})
 		expect(deriveIngestSummary(parsed).detectedCoordinateColumns.sort()).toEqual(['Lat', 'Lon'])
 	})
 

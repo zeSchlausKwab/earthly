@@ -2,7 +2,10 @@ import { describe, expect, it } from 'bun:test'
 import type { ParsedDataset } from './datasetTypes'
 import { evictDataset, getDataset, putDataset, toModelSummary } from './ingestStore'
 
-function makeParsed(rowCount: number, overrides: Partial<ParsedDataset> = {}): Omit<ParsedDataset, 'handleId' | 'createdAt'> {
+function makeParsed(
+	rowCount: number,
+	overrides: Partial<ParsedDataset> = {},
+): Omit<ParsedDataset, 'handleId' | 'createdAt'> {
 	const fullRows = Array.from({ length: rowCount }, (_, i) => ({
 		id: i,
 		name: `row-${i}`,

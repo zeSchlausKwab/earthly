@@ -66,7 +66,9 @@ export function evictDataset(handleId: string): void {
  * The SINGLE model-facing accessor. Returns `{ handleId, summary }` only —
  * structurally NEVER `fullRows`. Returns `undefined` for an unknown handle.
  */
-export function toModelSummary(handleId: string): { handleId: string; summary: IngestSummary } | undefined {
+export function toModelSummary(
+	handleId: string,
+): { handleId: string; summary: IngestSummary } | undefined {
 	const summary = summaryCache.get(handleId)
 	if (!summary) return undefined
 	return { handleId, summary }

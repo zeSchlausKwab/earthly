@@ -35,7 +35,10 @@ function formatMb(bytes: number): string {
  * structured result (`{ ok: false, reason }` carrying UI-SPEC "file too large"
  * copy, or `{ ok: true }`). Pure — no throw, no side effects.
  */
-export function assertFileWithinCaps(file: { size: number; isImage: boolean }): FileWithinCapsResult {
+export function assertFileWithinCaps(file: {
+	size: number
+	isImage: boolean
+}): FileWithinCapsResult {
 	const cap = file.isImage ? INGEST_SIZE_CAPS.imageBytes : INGEST_SIZE_CAPS.tabularBytes
 
 	// Mirror the clamp idiom: normalize a (possibly absurd / non-finite) size to a

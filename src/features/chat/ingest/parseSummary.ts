@@ -63,12 +63,18 @@ function deriveTypeStats(parsed: ParsedDataset): IngestSummary['typeStats'] {
 
 		const collection = (parsed.fullRows[0]?.__geojson ?? parsed.fullRows[0]) as unknown
 		const features =
-			collection && typeof collection === 'object' && Array.isArray((collection as { features?: unknown }).features)
-				? ((collection as { features: unknown[] }).features as Array<{ geometry?: { type?: string } }>)
+			collection &&
+			typeof collection === 'object' &&
+			Array.isArray((collection as { features?: unknown }).features)
+				? ((collection as { features: unknown[] }).features as Array<{
+						geometry?: { type?: string }
+					}>)
 				: []
 
 		const geometryTypes = Array.from(
-			new Set(features.map((f) => f.geometry?.type).filter((t): t is string => typeof t === 'string')),
+			new Set(
+				features.map((f) => f.geometry?.type).filter((t): t is string => typeof t === 'string'),
+			),
 		)
 
 		let bbox: [number, number, number, number] | undefined
