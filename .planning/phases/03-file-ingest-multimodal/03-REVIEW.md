@@ -28,10 +28,13 @@ files_reviewed_list:
 findings:
   critical: 0
   critical_resolved: 3
-  warning: 8
-  info: 5
+  warning: 0
+  warning_resolved: 8
+  info: 1
+  info_resolved: 4
+  info_deferred: 1
   total: 16
-status: criticals_resolved
+status: resolved
 ---
 
 > **Resolution (2026-06-17):** All 3 CRITICAL findings were verified and fixed during execute-phase:
@@ -49,6 +52,14 @@ status: criticals_resolved
 > - **CR-03 secondary** — `parseGeometryCell` validates the `type` against RFC 7946 geometry types + requires an array payload; `parseWktGeometry` enforces polygon ring closure (≥3 positions, auto-close, reject degenerate). Tests added.
 >
 > Still OPEN: WR-04..WR-08 and IN-01..IN-05. Gates green post-fix: `bun test src/features/chat/` 150 pass / 0 fail, `bun run build` exits 0, biome clean on changed files.
+
+> **Final resolution (2026-06-17) — all remaining debt closed:**
+> - **WR-08** (`4963bf8`) — `compactIngestHandlePartForPrompt` in `store.ts` shrinks the `{ingestHandle, ingestSummary}` part field-wise (drop `sampleRows` → trim schema tail → handle-only floor) when it exceeds `MAX_USER_MESSAGE_CHARS`, so the JSON stays parseable and `ingestHandle` is never lost. Tests added.
+> - **WR-04/05/06/07** (`f3981fd`) — WR-04: `place_dataset_features` reports `geocodeNotAttempted` + re-run hint separately from `skippedInvalid`. WR-05: vision capability probe omits the API-key bearer for `custom` providers (user-controlled baseUrl → key-leak avoidance). WR-06: vision name-heuristic matches on token boundaries (`-vl`/`vl-`), no more `marvel`/`mistral-small` false-match. WR-07: `inferSchema` scans a 100-row per-column sample and emits `'mixed'` on >1 primitive type. Tests added.
+> - **IN-01/02/03/04** (`167d69f`) — phantom trailing-row filter in `parseCsv`; `firstCoordinate` envelope fallback + shape-drift warning; monotonic `makeId` counter; `sampleRows` middle draw without replacement.
+> - **IN-05 — DEFERRED (intentional):** marking single-letter `x`/`y` coordinate matches as "weak" would change the `CoordinateColumns` return shape and break the `detectCoordinateColumns(['x','y'])` exact-equality contract test, for marginal benefit (the AI confirms coordinates at placement time). Not worth the contract churn.
+>
+> **All 3 criticals + 8 warnings + CR-03 secondary + 4/5 info resolved; 1 info deferred with rationale.** Gates green: full `bun test` 244 pass / 0 fail, `bun run build` exits 0 (ingest worker chunk emits), biome clean.
 
 # Phase 3: Code Review Report
 
