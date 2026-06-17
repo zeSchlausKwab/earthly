@@ -21,6 +21,7 @@ import {
 	compactToolMessageContentForPrompt,
 } from './tools'
 import { getWalletSnapshot, receiveCashuToken, sendCashuToken } from '@/lib/wallet'
+import { detectVisionSupport } from './vision/detectVisionSupport'
 const DEFAULT_MINT_KEY = 'nip60_default_mint'
 import { toast } from 'sonner'
 
@@ -479,23 +480,6 @@ function trimMessagesToPromptBudget(messages: ChatMessage[], budgetTokens: numbe
 	const fallback = sanitized.at(-1)
 	if (!fallback) return []
 	return [truncateMessageToTokenBudget(fallback, budgetTokens)]
-}
-
-function modelMaySupportVision(provider: ProviderConfig, modelId: string): boolean {
-	const lower = modelId.toLowerCase()
-	const visionHints = [
-		'vision',
-		'vl',
-		'llava',
-		'qwen2.5-vl',
-		'gemma-vision',
-		'pixtral',
-		'gpt-4o',
-		'claude-3',
-	]
-	const providerSupportsVisionTransport =
-		provider.type === 'lmstudio' || provider.type === 'routstr' || provider.type === 'custom'
-	return providerSupportsVisionTransport && visionHints.some((hint) => lower.includes(hint))
 }
 
 function providerMayRequireReasoningContent(provider: ProviderConfig, modelId: string): boolean {
@@ -1265,8 +1249,16 @@ export const useChatStore = create<ChatStore>()(
 						providerConfig,
 						selectedModelId,
 					)
+					// D-07/D-09: one authoritative, cached, fail-safe vision verdict gates
+					// BOTH image paths (user-attached images AND the autonomous
+					// capture_map_snapshot one-shot below). Resolved once per request; the
+					// per-(type,baseUrl,modelId) cache makes the reuse free.
+					const visionSupport = await detectVisionSupport(providerConfig, selectedModelId)
+					// The autonomous snapshot path may only send on CONFIRMED 'vision'
+					// (acceptance criterion #4 fail-safe). 'uncertain' is opt-in via the
+					// Plan 06 UI, never the silent snapshot loop; 'no-vision' is hard-off.
 					const canUseVision =
-						modelMaySupportVision(providerConfig, selectedModelId) &&
+						visionSupport === 'vision' &&
 						effectiveContextTokens >= MIN_CONTEXT_TOKENS_FOR_INLINE_IMAGE
 					const promptBudgetTokens = getPromptBudgetTokens(model, providerConfig, requestMaxTokens)
 					const streamStartAt = Date.now()
