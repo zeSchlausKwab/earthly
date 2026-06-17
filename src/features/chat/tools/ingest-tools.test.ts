@@ -4,7 +4,14 @@ import type { ParsedDataset } from '@/features/chat/ingest/datasetTypes'
 import { createHeadlessEditor } from '@/features/geo-editor/core/test-harness'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { isToolError } from './errors'
-import { advertise, dispatch, registry } from './registry'
+import {
+	BATCH_GEOCODE_MAX_ROWS,
+	BATCH_GEOCODE_MIN_INTERVAL_MS,
+	type BatchGeocodeOptions,
+	batchGeocode,
+	registerIngestTools,
+} from './ingest-tools'
+import { advertise, dispatch, register, registry } from './registry'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -162,5 +169,158 @@ describe('place_dataset_features (INGEST-06 / D-05)', () => {
 		expect(serialized).not.toContain('fullRows')
 		expect(serialized).not.toContain('note-4')
 		expect(result).toHaveProperty('importedCount')
+	})
+})
+
+// ---------------------------------------------------------------------------
+// batch_geocode (D-06): bounded + throttled + de-duped + skip-and-report
+// ---------------------------------------------------------------------------
+
+/** A SearchLocation mock + a fake clock that records throttle delays. */
+function makeGeoHarness(resolver: (name: string) => [number, number] | null): {
+	options: BatchGeocodeOptions
+	calls: string[]
+	delays: number[]
+} {
+	const calls: string[] = []
+	const delays: number[] = []
+	const client = {
+		SearchLocation: async (query: string) => {
+			calls.push(query)
+			const coord = resolver(query)
+			if (!coord) return { result: { query, count: 0, results: [] } }
+			return {
+				result: {
+					query,
+					count: 1,
+					results: [{ coordinates: { lon: coord[0], lat: coord[1] } }],
+				},
+			}
+		},
+	}
+	// Fake delay: records the requested interval and resolves immediately (no sleep).
+	const delay = async (ms: number) => {
+		delays.push(ms)
+	}
+	return { options: { client, delay, minIntervalMs: BATCH_GEOCODE_MIN_INTERVAL_MS }, calls, delays }
+}
+
+describe('batchGeocode (D-06 — bounded, throttled, de-duped, skip-and-report)', () => {
+	it('de-dupes identical names before calling the geo client (call count == unique)', async () => {
+		const h = makeGeoHarness((n) => (n === 'Berlin' ? [13.4, 52.5] : [2.3, 48.8]))
+		const names = ['Berlin', 'Paris', 'Berlin', 'Berlin', 'Paris']
+		const result = await batchGeocode(names, h.options)
+		expect(h.calls.sort()).toEqual(['Berlin', 'Paris']) // 2 calls, not 5
+		expect(result.total).toBe(2)
+		expect(result.located).toBe(2)
+		expect(result.failed).toBe(0)
+	})
+
+	it('caps to BATCH_GEOCODE_MAX_ROWS — never fires more than the bound', async () => {
+		const h = makeGeoHarness(() => [0, 0])
+		const names = Array.from({ length: 120 }, (_, i) => `place-${i}`) // 120 unique
+		const result = await batchGeocode(names, h.options)
+		expect(h.calls.length).toBeLessThanOrEqual(BATCH_GEOCODE_MAX_ROWS)
+		expect(h.calls.length).toBe(BATCH_GEOCODE_MAX_ROWS)
+		expect(result.total).toBe(BATCH_GEOCODE_MAX_ROWS)
+	})
+
+	it('throttles successive lookups to >= BATCH_GEOCODE_MIN_INTERVAL_MS (fake clock)', async () => {
+		const h = makeGeoHarness(() => [1, 1])
+		await batchGeocode(['a', 'b', 'c'], h.options)
+		// 3 unique names → 2 inter-lookup delays, each >= the throttle interval.
+		expect(h.delays.length).toBe(2)
+		for (const d of h.delays) {
+			expect(d).toBeGreaterThanOrEqual(BATCH_GEOCODE_MIN_INTERVAL_MS)
+		}
+	})
+
+	it('skip-and-report: failed names are reported (located/total/failed), not invented', async () => {
+		const h = makeGeoHarness((n) => (n === 'RealCity' ? [10, 20] : null))
+		const result = await batchGeocode(['RealCity', 'NowhereLand', 'Atlantis'], h.options)
+		expect(result.total).toBe(3)
+		expect(result.located).toBe(1)
+		expect(result.failed).toBe(2)
+		expect(result.coordsByName.get('RealCity')).toEqual([10, 20])
+		expect(result.coordsByName.has('NowhereLand')).toBe(false)
+	})
+
+	it('a geo-client throw counts as a failure, not a crash', async () => {
+		const client = {
+			SearchLocation: async () => {
+				throw new Error('rate limited')
+			},
+		}
+		const result = await batchGeocode(['x'], { client, delay: async () => {}, minIntervalMs: 0 })
+		expect(result.located).toBe(0)
+		expect(result.failed).toBe(1)
+	})
+})
+
+describe('batch_geocode tool (dispatch — places located rows via Authoring API)', () => {
+	const TOOL = 'batch_geocode'
+
+	beforeEach(() => {
+		const editor = createHeadlessEditor()
+		useEditorStore.getState().setEditor(editor)
+	})
+
+	afterEach(() => {
+		for (const h of createdHandles) evictDataset(h)
+		createdHandles = []
+		useEditorStore.getState().setEditor(null)
+		// Restore the production registration (no injected mock).
+		registerIngestTools(register)
+	})
+
+	it('registers with kind remote-mcp and is advertised', () => {
+		expect(registry.get(TOOL)?.kind).toBe('remote-mcp')
+		expect(advertise().map((t) => t.function.name)).toContain(TOOL)
+	})
+
+	it('geocodes a place-name column over the FULL dataset and places located rows, skip-and-report', async () => {
+		const h = makeGeoHarness((n) =>
+			n === 'Berlin' ? [13.4, 52.5] : n === 'Paris' ? [2.3, 48.8] : null,
+		)
+		// Re-register the tool with the injected mock client + fake clock.
+		registerIngestTools(register, h.options)
+
+		const rows = [
+			{ city: 'Berlin', label: 'a' },
+			{ city: 'Paris', label: 'b' },
+			{ city: 'Berlin', label: 'c' }, // duplicate name, distinct row
+			{ city: 'Nowhereville', label: 'd' }, // fails to geocode
+		]
+		const handle = put(rows)
+		const result = await dispatch(TOOL, {
+			handleId: handle,
+			placeNameColumn: 'city',
+			mapping: { name: 'label' },
+		})
+		expect(isToolError(result)).toBe(false)
+		const typed = result as {
+			located: number
+			total: number
+			failed: number
+			importedCount: number
+			message: string
+		}
+		// 4 rows have a name; 3 geocode (two Berlin rows + one Paris), 1 fails.
+		expect(typed.total).toBe(4)
+		expect(typed.located).toBe(3)
+		expect(typed.failed).toBe(1)
+		// De-dupe: 3 UNIQUE names looked up (the two Berlin rows collapse to one call).
+		expect(h.calls.sort()).toEqual(['Berlin', 'Nowhereville', 'Paris'])
+		expect(h.calls.filter((n) => n === 'Berlin')).toHaveLength(1)
+		// Located rows actually written to the editor via the Authoring API.
+		expect(useEditorStore.getState().editor?.getAllFeatures()).toHaveLength(3)
+		expect(typed.message).toContain("couldn't be geocoded")
+	})
+
+	it('unknown handleId → handler_error ToolError (D-16)', async () => {
+		const result = await dispatch(TOOL, { handleId: 'nope', placeNameColumn: 'city' })
+		expect(isToolError(result)).toBe(true)
+		if (!isToolError(result)) throw new Error('expected ToolError')
+		expect(result.kind).toBe('handler_error')
 	})
 })
