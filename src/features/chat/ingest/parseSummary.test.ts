@@ -35,6 +35,19 @@ describe('sampleRows', () => {
 		const rows = Array.from({ length: 4 }, (_, i) => ({ i }))
 		expect(sampleRows(rows)).toEqual(rows)
 	})
+
+	// IN-04: the random middle draw must be WITHOUT replacement — no duplicate
+	// middle rows in a single sample when the middle is large enough.
+	it('draws the random middle sample without replacement (IN-04)', () => {
+		const rows = Array.from({ length: 100 }, (_, i) => ({ i }))
+		// Run many times so a with-replacement collision would almost surely show up.
+		for (let trial = 0; trial < 200; trial++) {
+			const out = sampleRows(rows) as { i: number }[]
+			const middle = out.slice(INGEST_SAMPLE.head, INGEST_SAMPLE.head + INGEST_SAMPLE.random)
+			const unique = new Set(middle.map((r) => r.i))
+			expect(unique.size).toBe(middle.length)
+		}
+	})
 })
 
 describe('deriveIngestSummary', () => {

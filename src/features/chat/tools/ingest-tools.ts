@@ -380,11 +380,41 @@ export interface BatchGeocodeResult {
 	failed: number
 }
 
-/** Pull the first {lat, lon} out of a search_location MCP response envelope. */
+/** One-time warning latch so a drifted MCP envelope shape is logged once, not per-row. */
+let warnedEnvelopeShape = false
+
+/** Reset the one-time envelope-shape warning latch (test seam — IN-02). */
+export function resetGeocodeEnvelopeWarning(): void {
+	warnedEnvelopeShape = false
+}
+
+/**
+ * Pull the first {lat, lon} out of a search_location MCP response envelope.
+ *
+ * IN-02: the envelope shape varies — some call sites yield `result.results`,
+ * others (post-`extractMcpToolResult` unwrap) yield a top-level `results`. Try
+ * both before giving up, and emit a ONE-TIME shape warning if neither matched on
+ * a non-empty-looking response, so a silent "0 located rows" regression from an
+ * envelope drift is diagnosable.
+ */
 function firstCoordinate(response: unknown): [number, number] | null {
-	const env = response as { result?: { results?: unknown[] } } | undefined
-	const results = env?.result?.results
-	if (!Array.isArray(results) || results.length === 0) return null
+	const env = response as { result?: { results?: unknown[] }; results?: unknown[] } | undefined
+	const results = Array.isArray(env?.result?.results)
+		? env?.result?.results
+		: Array.isArray(env?.results)
+			? env?.results
+			: undefined
+	if (!Array.isArray(results) || results.length === 0) {
+		// Only warn when the response is a non-null object that simply lacks the
+		// expected results array (i.e. a plausible shape drift), and only once.
+		if (!warnedEnvelopeShape && env && typeof env === 'object') {
+			warnedEnvelopeShape = true
+			console.warn(
+				'[ingest] search_location response had no `result.results` or `results` array — geocoding may silently locate 0 rows (envelope shape drift?).',
+			)
+		}
+		return null
+	}
 	const first = results[0] as { coordinates?: { lat?: unknown; lon?: unknown } }
 	const lat = toNumber(first?.coordinates?.lat)
 	const lon = toNumber(first?.coordinates?.lon)

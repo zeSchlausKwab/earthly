@@ -52,6 +52,23 @@ describe('ingest parse — csv (PapaParse, INGEST-02)', () => {
 		// place-name column present for Plan 05 geocode path.
 		expect(rows[2].place).toBe('Sydney, Australia')
 	})
+
+	// IN-01: a trailing all-null/undefined phantom row must not inflate rowCount.
+	it('filters a trailing all-null phantom row (IN-01)', () => {
+		// A trailing comma-only line can yield an all-empty record under
+		// dynamicTyping; assert no all-null row survives.
+		const text = 'a,b,c\n1,2,3\n4,5,6\n,,\n'
+		const { rows } = parseCsv(text)
+		expect(rows).toHaveLength(2)
+		expect(rows.every((r) => Object.values(r).some((v) => v != null))).toBe(true)
+	})
+
+	it('keeps a row that has at least one non-null value (IN-01 boundary)', () => {
+		const text = 'a,b,c\n1,,\n'
+		const { rows } = parseCsv(text)
+		expect(rows).toHaveLength(1)
+		expect(rows[0].a).toBe(1)
+	})
 })
 
 describe('ingest parse — xlsx (ExcelJS in-memory load, INGEST-03)', () => {

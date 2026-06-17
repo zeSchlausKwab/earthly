@@ -57,8 +57,23 @@ export function sampleRows<T>(
 
 	const out = [...rows.slice(0, head), ...rows.slice(rows.length - tail)]
 	const mid = rows.slice(head, rows.length - tail)
-	for (let i = 0; i < random && mid.length > 0; i++) {
-		out.push(mid[Math.floor(Math.random() * mid.length)])
+
+	// IN-04: draw the middle sample WITHOUT replacement when there are enough
+	// distinct middle rows (partial Fisher–Yates: shuffle the first `random`
+	// slots, then take them), so the same row can't appear twice while others
+	// never appear. When `mid.length < random` (can't happen given the length
+	// guard above, but kept for safety) fall back to with-replacement draws.
+	if (mid.length >= random) {
+		const pool = [...mid]
+		for (let i = 0; i < random; i++) {
+			const j = i + Math.floor(Math.random() * (pool.length - i))
+			;[pool[i], pool[j]] = [pool[j], pool[i]]
+			out.push(pool[i])
+		}
+	} else {
+		for (let i = 0; i < random && mid.length > 0; i++) {
+			out.push(mid[Math.floor(Math.random() * mid.length)])
+		}
 	}
 	return out
 }

@@ -36,8 +36,12 @@ export function parseCsv(text: string): TabularParseResult {
 		dynamicTyping: true,
 		skipEmptyLines: true,
 	})
+	// IN-01: PapaParse (header + dynamicTyping) can still emit a row of all
+	// null/undefined for a malformed trailing line, inflating rowCount with a
+	// phantom. Drop rows where EVERY value is null/undefined.
+	const rows = result.data.filter((row) => Object.values(row).some((v) => v != null))
 	return {
-		rows: result.data,
+		rows,
 		schemaFields: result.meta.fields ?? [],
 	}
 }

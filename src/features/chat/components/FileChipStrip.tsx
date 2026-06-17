@@ -17,10 +17,18 @@ interface FileChipStripProps {
 	className?: string
 }
 
+// IN-03: a module-level monotonic counter guarantees the non-crypto fallback id
+// is unique even when several files are seeded in the same tick (Date.now() +
+// Math.random() could collide and mis-route a parse result, since the id keys
+// both the React list and the update-by-id map).
+let fileIdCounter = 0
+
 function makeId(): string {
-	return typeof crypto !== 'undefined' && 'randomUUID' in crypto
-		? crypto.randomUUID()
-		: `file-${Date.now()}-${Math.random().toString(36).slice(2)}`
+	if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+		return crypto.randomUUID()
+	}
+	fileIdCounter += 1
+	return `file-${Date.now()}-${fileIdCounter}-${Math.random().toString(36).slice(2)}`
 }
 
 /**

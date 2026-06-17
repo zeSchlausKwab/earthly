@@ -416,6 +416,25 @@ describe('batchGeocode (D-06 — bounded, throttled, de-duped, skip-and-report)'
 		expect(h.delays.length).toBe(1)
 		expect(h.delays[0]).toBeGreaterThanOrEqual(BATCH_GEOCODE_MIN_INTERVAL_MS)
 	})
+
+	// IN-02: the envelope shape can drift to a top-level `results` (no nested
+	// `result`). firstCoordinate must read both shapes, not silently locate 0.
+	it('reads a top-level `results` envelope shape too (IN-02)', async () => {
+		const client = {
+			// Note: NO `result` wrapper — `results` is top-level.
+			SearchLocation: async (query: string) => ({
+				query,
+				results: [{ coordinates: { lon: 7.5, lat: 47.5 } }],
+			}),
+		}
+		const result = await batchGeocode(['Bern'], {
+			client,
+			delay: async () => {},
+			minIntervalMs: 0,
+		})
+		expect(result.located).toBe(1)
+		expect(result.coordsByName.get('Bern')).toEqual([7.5, 47.5])
+	})
 })
 
 describe('batch_geocode tool (dispatch — places located rows via Authoring API)', () => {
