@@ -96,8 +96,23 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. The AI can place ingested tabular/text rows onto the map as features, geolocating where needed (ugly logging CSV → mapped points; pasted Telegram message → located feature).
   4. When the selected model's vision support is unconfirmed, the image-send affordance is disabled or marked uncertain with explicit opt-in — an image is never silently sent to a non-vision model.
 
-**Plans**: TBD
+**Plans**: 6 plans
 **UI hint**: yes
+
+**Wave 0**
+
+  - [ ] 03-01-PLAN.md — Wave-0 spike + scaffold: install papaparse+exceljs (legitimacy-gated), prove ExcelJS-in-worker bundles under Bun + build emits the worker chunk, RED parse-test scaffold + fixtures (INGEST-02, INGEST-03)
+
+**Wave 1** *(blocked on Wave 0)*
+
+  - [ ] 03-02-PLAN.md — ingest worker client: off-thread CSV/xlsx/json/text parse via the in-repo Worker pattern with sync fallback + 30s timeout + broken-worker latch; xlsx transferable (INGEST-02, INGEST-03)
+  - [ ] 03-03-PLAN.md — D-11 handle-keyed ingest store (model sees summary+handle, never fullRows) + head/tail/random summary with column cap (D-01/D-02/D-03) + coordinate-column heuristic (D-04) + file-size DoS guards (D-12) (INGEST-05, INGEST-06)
+  - [ ] 03-04-PLAN.md — D-07 layered vision-detection ladder (Ollama /api/show → /v1/models → name heuristic → fail-safe), cached; rewire both image paths (attached + capture_map_snapshot) through one source (D-09) (INGEST-07)
+
+**Wave 2** *(blocked on Wave 1)*
+
+  - [ ] 03-05-PLAN.md — place_dataset_features (column-mapping rule over the FULL dataset by handle → Authoring API, D-05) + batch_geocode (bounded/throttled/de-duped/skip-and-report, D-06) registered with mandatory kind (INGEST-06)
+  - [ ] 03-06-PLAN.md — file-chip strip (button + drag-drop, one chip per file, expandable stat line, D-10) + user image-attach path (INGEST-04) + three-tier VisionGateControl (D-08) mounted in ChatPanel; UAT checkpoint (INGEST-01, INGEST-04, INGEST-05, INGEST-07)
 
 ### Phase 4: Code Interpreter Sandbox
 
@@ -167,8 +182,9 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Encrypted Settings Persistence | 3/3 | Complete    | 2026-06-16 |
 | 2. Tool Registry & Authoring API | 4/6 | In progress | - |
-| 3. File Ingest & Multimodal | 0/TBD | Not started | - |
+| 3. File Ingest & Multimodal | 0/6 | Planned | - |
 | 4. Code Interpreter Sandbox | 0/TBD | Not started | - |
 | 5. Dataset-Aware Safe Editing | 0/TBD | Not started | - |
 | 6. AI Bulk Transform & Data-Driven Styling | 0/TBD | Not started | - |
 | 7. Geometry Optimization | 0/TBD | Not started | - |
+</content>
