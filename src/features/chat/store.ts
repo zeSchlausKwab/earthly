@@ -287,6 +287,91 @@ function truncateTextForPrompt(text: string, maxChars: number): string {
 	return `${text.slice(0, maxChars)}\n...[truncated for context window]`
 }
 
+/**
+ * WR-08: a composed user message carries an attached dataset as a JSON text part
+ * `{"ingestHandle":...,"ingestSummary":{...}}` (composeOutboundContent). Blindly
+ * char-truncating that part to MAX_USER_MESSAGE_CHARS can cut the JSON mid-string
+ * → invalid JSON → the model loses `ingestHandle` and can't call
+ * `place_dataset_features`. Instead, if a text part IS the ingest-handle JSON and
+ * is over budget, shrink it FIELD-WISE (drop the bulky `sampleRows`, then the
+ * schema tail) so the result stays parseable JSON with `ingestHandle` ALWAYS
+ * intact. Returns the (possibly shrunk) JSON string, or `undefined` if the part
+ * is not an ingest-handle part (caller falls back to plain char-truncation).
+ */
+export function compactIngestHandlePartForPrompt(
+	text: string,
+	maxChars: number,
+): string | undefined {
+	if (text.length <= maxChars) {
+		// Only claim this part if it actually IS the ingest-handle shape; otherwise
+		// let the caller treat it as a normal text part.
+		return isIngestHandleJson(text) ? text : undefined
+	}
+
+	let parsed: { ingestHandle?: unknown; ingestSummary?: Record<string, unknown> }
+	try {
+		parsed = JSON.parse(text)
+	} catch {
+		return undefined
+	}
+	if (typeof parsed.ingestHandle !== 'string' || !parsed.ingestSummary) {
+		return undefined
+	}
+
+	const summary = { ...parsed.ingestSummary }
+	// 1. Drop the bulkiest field first: the row sample.
+	if ('sampleRows' in summary) {
+		summary.sampleRows = []
+		summary.sampleRowsOmittedForPrompt = true
+	}
+	let candidate = JSON.stringify({ ingestHandle: parsed.ingestHandle, ingestSummary: summary })
+
+	// 2. Still too big (very wide schema)? Trim the schema from the tail until it
+	//    fits, recording how many columns were dropped.
+	if (candidate.length > maxChars && Array.isArray(summary.schema)) {
+		const schema = summary.schema as unknown[]
+		let kept = schema.length
+		while (kept > 0 && candidate.length > maxChars) {
+			kept -= 1
+			summary.schema = schema.slice(0, kept)
+			summary.schemaTruncatedForPrompt = schema.length - kept
+			candidate = JSON.stringify({
+				ingestHandle: parsed.ingestHandle,
+				ingestSummary: summary,
+			})
+		}
+	}
+
+	// 3. Floor: a minimal handle-only object is tiny and ALWAYS parseable, so the
+	//    handle is never lost even if maxChars is pathologically small.
+	if (candidate.length > maxChars) {
+		candidate = JSON.stringify({
+			ingestHandle: parsed.ingestHandle,
+			ingestSummary: {
+				handleId: summary.handleId,
+				fileName: summary.fileName,
+				type: summary.type,
+				rowCount: summary.rowCount,
+				columnCount: summary.columnCount,
+				truncatedForPrompt: true,
+			},
+		})
+	}
+
+	return candidate
+}
+
+function isIngestHandleJson(text: string): boolean {
+	// Cheap prefix gate before a full parse.
+	if (!text.startsWith('{') || !text.includes('"ingestHandle"')) return false
+	try {
+		const parsed = JSON.parse(text) as { ingestHandle?: unknown; ingestSummary?: unknown }
+		return typeof parsed.ingestHandle === 'string' && !!parsed.ingestSummary
+	} catch {
+		return false
+	}
+}
+
 function getMessageCharLimit(role: ChatMessage['role']): number {
 	switch (role) {
 		case 'tool':
@@ -331,6 +416,15 @@ function sanitizeMessageForPrompt(message: ChatMessage): ChatMessage {
 			if (part.type !== 'text') return part
 			if (remainingChars <= 0) {
 				return null
+			}
+
+			// WR-08: never char-truncate the ingest-handle JSON part (it would cut
+			// the JSON mid-string and lose `ingestHandle`). Shrink it field-wise so
+			// it stays parseable with the handle intact.
+			const ingestCompacted = compactIngestHandlePartForPrompt(part.text, remainingChars)
+			if (ingestCompacted !== undefined) {
+				remainingChars -= ingestCompacted.length
+				return { ...part, text: ingestCompacted }
 			}
 
 			const truncated = truncateTextForPrompt(part.text, remainingChars)
