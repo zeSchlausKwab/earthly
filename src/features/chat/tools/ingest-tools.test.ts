@@ -183,6 +183,44 @@ describe('place_dataset_features (INGEST-06 / D-05)', () => {
 		expect(useEditorStore.getState().editor?.getAllFeatures()).toHaveLength(1)
 	})
 
+	it('rejects an invalid geometry type / malformed coordinates (CR-03 hardening)', async () => {
+		const rows = [
+			{ name: 'ok', geometry: { type: 'Point', coordinates: [13.4, 52.5] } },
+			{ name: 'bad-type', geometry: { type: 'Banana', coordinates: [13.4, 52.5] } },
+			{ name: 'bad-coords', geometry: { type: 'Point', coordinates: 'oops' } },
+		]
+		const handle = put(rows)
+		const result = await dispatch('place_dataset_features', {
+			handleId: handle,
+			mapping: { geometry: 'geometry', name: 'name' },
+		})
+		const typed = result as { importedCount: number; skippedInvalid: number }
+		expect(typed.importedCount).toBe(1)
+		expect(typed.skippedInvalid).toBe(2)
+		expect(useEditorStore.getState().editor?.getAllFeatures()).toHaveLength(1)
+	})
+
+	it('WKT POLYGON: closed ring placed, degenerate ring skipped (CR-03 ring closure)', async () => {
+		const rows = [
+			// Explicitly-closed triangle (first == last).
+			{ name: 'closed', geom: 'POLYGON((0 0, 1 0, 1 1, 0 0))' },
+			// Unclosed but ≥3 distinct positions → auto-closed and placed.
+			{ name: 'unclosed', geom: 'POLYGON((2 2, 3 2, 3 3))' },
+			// Degenerate single-point "ring" → rejected.
+			{ name: 'degenerate', geom: 'POLYGON((5 5))' },
+		]
+		const handle = put(rows)
+		const result = await dispatch('place_dataset_features', {
+			handleId: handle,
+			mapping: { wkt: 'geom', name: 'name' },
+		})
+		const typed = result as { importedCount: number; skippedInvalid: number }
+		expect(typed.importedCount).toBe(2)
+		expect(typed.skippedInvalid).toBe(1)
+		const features = useEditorStore.getState().editor?.getAllFeatures() ?? []
+		expect(features.every((f) => f.geometry.type === 'Polygon')).toBe(true)
+	})
+
 	it('builds geometry from a GeoJSON-geometry column (object or JSON string)', async () => {
 		const rows = [
 			{ name: 'obj', geometry: { type: 'Point', coordinates: [13.4, 52.5] } },

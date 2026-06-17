@@ -140,6 +140,21 @@ function parseWktGeometry(wkt: string): GeoJSON.Geometry | null {
 		return rings
 	}
 
+	/**
+	 * CR-03: enforce GeoJSON linear-ring validity — ≥4 positions and closed
+	 * (first == last). A degenerate ring (e.g. a 1-point "ring") is rejected;
+	 * an unclosed-but-otherwise-valid ring (≥3 positions) is auto-closed.
+	 * Returns null for an unsalvageable ring.
+	 */
+	const closeRing = (ring: number[][]): number[][] | null => {
+		if (ring.length < 3) return null
+		const first = ring[0]
+		const last = ring[ring.length - 1]
+		const closed =
+			first[0] === last[0] && first[1] === last[1] ? ring : [...ring, [first[0], first[1]]]
+		return closed.length >= 4 ? closed : null
+	}
+
 	try {
 		switch (type) {
 			case 'POINT': {
@@ -151,8 +166,10 @@ function parseWktGeometry(wkt: string): GeoJSON.Geometry | null {
 				return coords.length >= 2 ? { type: 'LineString', coordinates: coords } : null
 			}
 			case 'POLYGON': {
-				const rings = parseRings(body)
-				return rings.length > 0 ? { type: 'Polygon', coordinates: rings } : null
+				const rings = parseRings(body).map(closeRing)
+				// Reject the whole polygon if it has no rings or any invalid ring.
+				if (rings.length === 0 || rings.some((r) => r === null)) return null
+				return { type: 'Polygon', coordinates: rings as number[][][] }
 			}
 			case 'MULTIPOINT': {
 				const coords = parsePositions(body.replace(/[()]/g, ''))
@@ -170,7 +187,25 @@ function parseWktGeometry(wkt: string): GeoJSON.Geometry | null {
 	}
 }
 
-/** Parse a GeoJSON-geometry cell — an object or a JSON string. */
+/** The seven RFC 7946 geometry types — anything else is not a GeoJSON geometry. */
+const GEOJSON_GEOMETRY_TYPES = new Set([
+	'Point',
+	'MultiPoint',
+	'LineString',
+	'MultiLineString',
+	'Polygon',
+	'MultiPolygon',
+	'GeometryCollection',
+])
+
+/**
+ * Parse a GeoJSON-geometry cell — an object or a JSON string. CR-03: the `type`
+ * must be a real RFC 7946 geometry type, and the matching payload key must be
+ * present and an array (`coordinates` for simple geometries, `geometries` for a
+ * GeometryCollection). So `{type:"Banana",...}` or `{type:"Point",coordinates:"oops"}`
+ * is rejected here; out-of-range numeric coordinates are caught downstream by
+ * `geometryCoordsInRange`.
+ */
 function parseGeometryCell(value: unknown): GeoJSON.Geometry | null {
 	let candidate: unknown = value
 	if (typeof value === 'string' && value.trim()) {
@@ -180,15 +215,13 @@ function parseGeometryCell(value: unknown): GeoJSON.Geometry | null {
 			return null
 		}
 	}
-	if (
-		candidate &&
-		typeof candidate === 'object' &&
-		typeof (candidate as { type?: unknown }).type === 'string' &&
-		'coordinates' in (candidate as Record<string, unknown>)
-	) {
-		return candidate as GeoJSON.Geometry
+	if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
+	const obj = candidate as Record<string, unknown>
+	if (typeof obj.type !== 'string' || !GEOJSON_GEOMETRY_TYPES.has(obj.type)) return null
+	if (obj.type === 'GeometryCollection') {
+		return Array.isArray(obj.geometries) ? (candidate as GeoJSON.Geometry) : null
 	}
-	return null
+	return Array.isArray(obj.coordinates) ? (candidate as GeoJSON.Geometry) : null
 }
 
 // ---------------------------------------------------------------------------
