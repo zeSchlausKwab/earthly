@@ -46,6 +46,23 @@ interface PendingRequest {
 	kind: IngestKind
 	payload: IngestParsePayload
 	id: string
+	/**
+	 * True once the payload's ArrayBuffer was *transferred* (moved) to the worker
+	 * — xlsx only (T-03-05). A transferred buffer is detached/zero-length on the
+	 * main thread, so a sync re-parse would silently read empty bytes (WR-01).
+	 * Fallback paths therefore settle such a request with a failure response
+	 * instead of re-parsing the detached buffer.
+	 */
+	transferred: boolean
+}
+
+/** A failure response for a transferred-buffer request that can't be re-parsed (WR-01). */
+function detachedBufferFailure(id: string, why: string): IngestParseResponse {
+	return {
+		id,
+		success: false,
+		error: `Spreadsheet parsing ${why}. Try a smaller spreadsheet or reload the page.`,
+	}
 }
 
 let worker: Worker | null = null
@@ -103,6 +120,12 @@ async function parseSync(
 /** Settle a pending request via the synchronous fallback, then drop it. */
 function settleViaSync(pending: PendingRequest): void {
 	pendingRequests.delete(pending.id)
+	// WR-01: a transferred (detached) xlsx buffer can't be re-parsed synchronously
+	// — settle with a clear failure rather than parsing zero-length bytes.
+	if (pending.transferred) {
+		pending.resolve(detachedBufferFailure(pending.id, 'failed (worker error)'))
+		return
+	}
 	parseSync(pending.id, pending.kind, pending.payload).then(pending.resolve, pending.reject)
 }
 
@@ -174,12 +197,16 @@ export async function parseFileInWorker(
 	}
 
 	return new Promise<IngestParseResponse>((resolve, reject) => {
-		pendingRequests.set(id, { resolve, reject, kind, payload, id })
-
 		const request: IngestParseRequest = { id, kind, text: payload.text, buffer: payload.buffer }
 
 		// xlsx: transfer the ArrayBuffer (move, not copy) main↔worker (T-03-05).
-		if (kind === 'xlsx' && payload.buffer) {
+		// Once transferred, the main-thread buffer is detached, so this request can
+		// NOT be sync-re-parsed in a fallback (WR-01) — flag it so the timeout/error
+		// paths settle with a clear failure instead of reading empty bytes.
+		const transferred = kind === 'xlsx' && !!payload.buffer
+		pendingRequests.set(id, { resolve, reject, kind, payload, id, transferred })
+
+		if (transferred && payload.buffer) {
 			w.postMessage(request, [payload.buffer])
 		} else {
 			w.postMessage(request)
@@ -190,6 +217,12 @@ export async function parseFileInWorker(
 			const pending = pendingRequests.get(id)
 			if (!pending) return
 			pendingRequests.delete(id)
+			if (pending.transferred) {
+				// WR-01: detached xlsx buffer — fail closed instead of corrupting.
+				console.warn('Ingest worker xlsx parse timeout; buffer transferred, cannot sync-fallback')
+				resolve(detachedBufferFailure(id, 'timed out'))
+				return
+			}
 			console.warn('Ingest worker parse timeout, falling back to sync')
 			parseSync(id, kind, payload).then(resolve, reject)
 		}, timeoutMs)

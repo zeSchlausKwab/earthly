@@ -135,4 +135,18 @@ describe('ingestClient — timeout sync fallback (T-03-03)', () => {
 		const data = res.data as { lineCount: number }
 		expect(data.lineCount).toBe(4)
 	})
+
+	it('xlsx timeout fails closed instead of re-parsing the transferred (detached) buffer (WR-01)', async () => {
+		const buffer = await Bun.file(fixture('sample.xlsx')).arrayBuffer()
+
+		// The worker branch transfers (detaches) the buffer; a 0ms timeout fires
+		// before any reply. A sync re-parse would read a zero-length buffer, so the
+		// client must settle with a failure response — never silently empty data.
+		const res = await parseFileInWorker('xlsx', { buffer }, { timeoutMs: 0 })
+
+		expect(res.success).toBe(false)
+		expect(res.rows).toBeUndefined()
+		expect(typeof res.error).toBe('string')
+		expect(res.error).toContain('Spreadsheet')
+	})
 })
