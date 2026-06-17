@@ -101,7 +101,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 0**
 
-  - [ ] 03-01-PLAN.md — Wave-0 spike + scaffold: install papaparse+exceljs (legitimacy-gated), prove ExcelJS-in-worker bundles under Bun + build emits the worker chunk, RED parse-test scaffold + fixtures (INGEST-02, INGEST-03)
+  - [x] 03-01-PLAN.md — Wave-0 spike + scaffold: install papaparse+exceljs (legitimacy-gated), prove ExcelJS-in-worker bundles under Bun + build emits the worker chunk, RED parse-test scaffold + fixtures (INGEST-02, INGEST-03)
 
 **Wave 1** *(blocked on Wave 0)*
 
@@ -182,7 +182,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Encrypted Settings Persistence | 3/3 | Complete    | 2026-06-16 |
 | 2. Tool Registry & Authoring API | 4/6 | In progress | - |
-| 3. File Ingest & Multimodal | 0/6 | Planned | - |
+| 3. File Ingest & Multimodal | 1/6 | In Progress|  |
 | 4. Code Interpreter Sandbox | 0/TBD | Not started | - |
 | 5. Dataset-Aware Safe Editing | 0/TBD | Not started | - |
 | 6. AI Bulk Transform & Data-Driven Styling | 0/TBD | Not started | - |

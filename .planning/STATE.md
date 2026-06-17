@@ -4,13 +4,13 @@ milestone: v1.1
 milestone_name: milestone
 status: executing
 stopped_at: Phase 3 UI-SPEC approved
-last_updated: "2026-06-17T06:41:19.633Z"
-last_activity: 2026-06-16 -- Phase 02 Plan 06 complete (D-05 poll-based MCP hot-reload; A1 SUPPORTED — live server returned 15 tools incl. create_map_upload drift)
+last_updated: "2026-06-17T07:26:21.768Z"
+last_activity: 2026-06-17 -- Phase 03 execution started
 progress:
   total_phases: 7
   completed_phases: 2
-  total_plans: 9
-  completed_plans: 9
+  total_plans: 15
+  completed_plans: 10
   percent: 29
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** The maintainer (and any user) can open the app for fun, not duty — extended this milestone so analysts, curators, and power users can ingest real-world data, transform it with sandboxed code, and safely author maps via chat.
-**Current focus:** Phase 02 — tool-registry-authoring-api
+**Current focus:** Phase 03 — file-ingest-multimodal
 
 ## Current Position
 
-Phase: 02 (tool-registry-authoring-api) — COMPLETE (6/6 plans)
-Plan: 6 of 6 — complete
+Phase: 03 (file-ingest-multimodal) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
-Last activity: 2026-06-16 -- Phase 02 Plan 06 complete (D-05 poll-based MCP hot-reload; A1 SUPPORTED — live server returned 15 tools incl. create_map_upload drift)
+Last activity: 2026-06-17 -- Phase 03 execution started
 
 Progress: [███░░░░░░░] 32%
 
@@ -61,6 +61,7 @@ Progress: [███░░░░░░░] 32%
 | Phase 02 P04 | 8min | 2 tasks | 9 files |
 | Phase 02 P05 | 12min | 2 tasks | 8 files |
 | Phase 02 P06 | 11min | 2 tasks | 6 files |
+| Phase 03 P01 | 12min | 4 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -100,6 +101,8 @@ Recent decisions affecting current work:
 - [Phase 2]: [02-06]: A1 RESOLVED=SUPPORTED — live ContextVM geo server returned 15 tools via listTools() (the 14 hardcoded + a new create_map_upload absent from definitions.ts). tools/list works AND the static list was already stale by one tool. Built the success branch (poll-based mcp-sync), did NOT take the fallback/defer branch.
 - [Phase 2]: [02-06]: D-05 mcp-sync is POLL-not-push (Pitfall 3, stateless transport) — syncMcpTools() diff-converges the registry's remote-mcp entries (register new/unregister removed, kind:'remote-mcp'+origin=SERVER_PUBKEY); optional cancelable startMcpToolPolling/stopMcpToolPolling; NO setNotificationHandler. On listTools() failure it degrades gracefully (warn + keep last-known/hardcoded set, never throws/wipes).
 - [Phase 2]: [02-06]: Synced handlers route through new EarthlyGeoServerClient.callRemoteTool(name,args) (wraps private call()). definitions.ts adds getGeoTools() (live advertise() + hardcoded fallback); store.ts reads it at REQUEST time so sync changes reach the model. Push refresh deferred as a future optimization (needs a stateful transport).
+- [Phase ?]: Phase 03 Plan 01: ExcelJS-in-worker spike PASSED (exceljs ^4.4.0 bundles for browser worker under Bun); read-excel-file fallback not needed
+- [Phase ?]: Phase 03 Plan 01: extracted pure parse helpers (parse.ts) from ingest.worker.ts so parse correctness is bun:test-able without driving a real Worker
 
 ### Pending Todos
 
@@ -124,6 +127,6 @@ Items acknowledged and carried forward / out of scope for this milestone:
 
 ## Session Continuity
 
-Last session: 2026-06-17T05:59:09.756Z
+Last session: 2026-06-17T07:25:50.217Z
 Stopped at: Phase 3 UI-SPEC approved
 Resume file: .planning/phases/03-file-ingest-multimodal/03-UI-SPEC.md

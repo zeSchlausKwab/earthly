@@ -16,8 +16,8 @@ Requirements for this milestone. Each maps to exactly one roadmap phase. Story t
 ### File Ingest
 
 - [ ] **INGEST-01**: User can attach files to a chat message via a button and drag-and-drop, with a visible chip per attached file.
-- [ ] **INGEST-02**: User can ingest CSV and Excel (`.xlsx`) files; parsing runs off the main thread so large files do not freeze the app.
-- [ ] **INGEST-03**: User can ingest JSON, GeoJSON, and plain-text files.
+- [x] **INGEST-02**: User can ingest CSV and Excel (`.xlsx`) files; parsing runs off the main thread so large files do not freeze the app.
+- [x] **INGEST-03**: User can ingest JSON, GeoJSON, and plain-text files.
 - [ ] **INGEST-04**: User can ingest image files.
 - [ ] **INGEST-05**: After ingest, the user sees a parse summary (e.g. rows × columns, detected coordinate/geometry columns); the model receives a compact summary, not the raw rows.
 - [ ] **INGEST-06**: The chat can place rows of tabular/text data onto the map as features, geolocating where needed (ugly logging CSV → mapped points; pasted Telegram message → located feature). `[A][B]`
@@ -107,8 +107,8 @@ Each requirement maps to exactly one phase.
 | INFRA-03 | Phase 2 — Tool Registry & Authoring API | Complete (02-03) |
 | TOOLS-01 | Phase 2 — Tool Registry & Authoring API | Complete (02-05) |
 | INGEST-01 | Phase 3 — File Ingest & Multimodal | Pending |
-| INGEST-02 | Phase 3 — File Ingest & Multimodal | Pending |
-| INGEST-03 | Phase 3 — File Ingest & Multimodal | Pending |
+| INGEST-02 | Phase 3 — File Ingest & Multimodal | Complete |
+| INGEST-03 | Phase 3 — File Ingest & Multimodal | Complete |
 | INGEST-04 | Phase 3 — File Ingest & Multimodal | Pending |
 | INGEST-05 | Phase 3 — File Ingest & Multimodal | Pending |
 | INGEST-06 | Phase 3 — File Ingest & Multimodal | Pending |
