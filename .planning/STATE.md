@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: executing
-stopped_at: Phase 3 UI-SPEC approved
-last_updated: "2026-06-17T07:32:00.000Z"
-last_activity: 2026-06-17 -- Phase 03 Plan 04 (vision-detection ladder) complete
+stopped_at: Completed 03-02-PLAN.md (ingest worker RPC client)
+last_updated: "2026-06-17T07:37:48.340Z"
+last_activity: 2026-06-17 -- Phase 03 Plan 02 (ingest worker RPC client) complete
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 15
-  completed_plans: 11
-  percent: 31
+  completed_plans: 12
+  percent: 29
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 03 (file-ingest-multimodal) — EXECUTING
-Plan: 04 of 6 complete (2/6 plans done)
-Status: Plan 04 complete
-Last activity: 2026-06-17 -- Phase 03 Plan 04 (vision-detection ladder) complete
+Plan: 02 complete (3/6 plans done: 01, 02, 04)
+Status: Plan 02 complete
+Last activity: 2026-06-17 -- Phase 03 Plan 02 (ingest worker RPC client) complete
 
-Progress: [███░░░░░░░] 31%
+Progress: [███░░░░░░░] 29%
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ Progress: [███░░░░░░░] 31%
 | Phase 02 P06 | 11min | 2 tasks | 6 files |
 | Phase 03 P01 | 12min | 4 tasks | 10 files |
 | Phase 03 P04 | 4min | 2 tasks | 3 files |
+| Phase 03 P02 | 8min | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -106,6 +107,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 03 Plan 01: extracted pure parse helpers (parse.ts) from ingest.worker.ts so parse correctness is bun:test-able without driving a real Worker
 - [Phase 3]: [03-04]: detectVisionSupport(provider,modelId)→'vision'|'no-vision'|'uncertain' is the D-07/D-09 single capability source; Ollama reads native POST /api/show capabilities[] (/v1 stripped; its /v1/models omits them), others read /v1/models capabilities/input_modalities/architecture.input_modalities; cached per (type,baseUrl,modelId); fail-safe to 'no-vision', never throws (degrades to name heuristic → 'uncertain').
 - [Phase 3]: [03-04]: Autonomous capture_map_snapshot one-shot sends an image_url ONLY on confirmed 'vision' (acceptance criterion #4); 'uncertain' is opt-in via the Plan 06 VisionGateControl UI, never the silent snapshot loop. Both image paths now gate on canUseVision derived from the one awaited ladder result (D-09); name-only modelMaySupportVision removed.
+- [Phase ?]: [03-02]: parseFileInWorker(kind, payload, {timeoutMs}) is the host-side no-freeze client; a shared parseSync powers the no-worker / onerror-latch / 30s-timeout fallbacks so the worker and its sync fallback never diverge
+- [Phase ?]: [03-02]: xlsx posted as a transferable ArrayBuffer (postMessage(req,[buffer])) avoids a main<->worker copy (T-03-05); per-request timeout is injectable for deterministic stuck-worker test coverage
 
 ### Pending Todos
 
@@ -130,6 +133,6 @@ Items acknowledged and carried forward / out of scope for this milestone:
 
 ## Session Continuity
 
-Last session: 2026-06-17T07:32:00.000Z
-Stopped at: Completed 03-04-PLAN.md (vision-detection ladder)
+Last session: 2026-06-17T07:37:43.046Z
+Stopped at: Completed 03-02-PLAN.md (ingest worker RPC client)
 Resume file: None
