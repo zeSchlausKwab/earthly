@@ -26,12 +26,21 @@ files_reviewed_list:
   - src/features/chat/tools/schemas.ts
   - src/features/chat/vision/detectVisionSupport.ts
 findings:
-  critical: 3
+  critical: 0
+  critical_resolved: 3
   warning: 8
   info: 5
   total: 16
-status: issues_found
+status: criticals_resolved
 ---
+
+> **Resolution (2026-06-17):** All 3 CRITICAL findings were verified and fixed during execute-phase:
+> - **CR-01** — `fix(03): CR-01 bound non-tabular ingest summaries (D-11 seam)` (`6df7433`). `deriveSampleRows` now emits a bounded preview for geojson/json/text (≤5 features' `{geometryType, properties}`, top-level keys, first/last lines) instead of the verbatim full payload; full data stays host-side in `fullRows` for placement. Invariant tests added.
+> - **CR-02** — `fix(03): CR-02 fail-closed file-size DoS guard on non-finite size` (`fb85d7f`). `assertFileWithinCaps` now normalizes non-finite/negative size to `+Infinity` (fail-closed → rejected). Test added.
+> - **CR-03** — `fix(03): CR-03 range-validate WKT + geometry-cell placement (V5)` (`0994acc`). Recursive `geometryCoordsInRange` gates both the WKT and geometry-cell branches; out-of-range skipped. Tests added.
+>
+> Gates green post-fix: `bun test src/features/chat/` 145 pass / 0 fail, `bun run build` exits 0 (ingest worker chunk still emits), biome clean.
+> The **8 Warning** and **5 Info** findings below remain OPEN and tracked for a follow-up `/gsd-code-review 03 --fix` or gap-closure pass (notably WR-02 `evictDataset` never called → unbounded store growth, WR-01 detached-ArrayBuffer sync-fallback, WR-08 handle-JSON truncation, and CR-03 secondary hardening: polygon ring-closure + invalid geometry-type rejection in `parseGeometryCell`).
 
 # Phase 3: Code Review Report
 
