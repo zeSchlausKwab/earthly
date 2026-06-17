@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-05-PLAN.md (ingest placement & batch geocode tools)
-last_updated: "2026-06-17T07:56:00.000Z"
-last_activity: 2026-06-17 -- Phase 03 Plan 05 (place_dataset_features + batch_geocode, INGEST-06) complete
+stopped_at: Completed 03-06-PLAN.md (file-chip strip + image attach + three-tier vision gate, UAT approved)
+last_updated: "2026-06-17T08:12:00.000Z"
+last_activity: 2026-06-17 -- Phase 03 Plan 06 (FileChipStrip + VisionGateControl + D-11 send composition, INGEST-01/04/05/07) complete — UAT 6/6 approved; phase-level verification pending (orchestrator)
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 15
-  completed_plans: 14
-  percent: 93
+  completed_plans: 15
+  percent: 100
 ---
 
 # Project State
@@ -25,18 +25,18 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 ## Current Position
 
-Phase: 03 (file-ingest-multimodal) — EXECUTING
-Plan: 05 complete (5/6 plans done: 01, 02, 03, 04, 05; plans executed out of numeric order)
-Status: Plan 05 complete — remaining: 06 (UI)
-Last activity: 2026-06-17 -- Phase 03 Plan 05 (place_dataset_features + batch_geocode, INGEST-06) complete
+Phase: 03 (file-ingest-multimodal) — EXECUTING (all 6 plans done; phase-level verification + phase.complete owned by the orchestrator)
+Plan: 06 complete (6/6 plans done: 01, 04, 02, 03, 05, 06; plans executed out of numeric order)
+Status: Plan 06 complete — UAT 6/6 approved; phase 03 awaiting orchestrator phase-level verification
+Last activity: 2026-06-17 -- Phase 03 Plan 06 (FileChipStrip + VisionGateControl + D-11 send composition, INGEST-01/04/05/07) complete — UAT approved
 
-Progress: [█████████░] 93%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 5
+- Total plans completed: 6
 - Average duration: —
 - Total execution time: —
 
@@ -66,6 +66,7 @@ Progress: [█████████░] 93%
 | Phase 03 P02 | 8min | 1 tasks | 2 files |
 | Phase 03 P03 | ~5min | 3 tasks | 9 files |
 | Phase 03 P05 | ~12min | 2 tasks | 4 files |
+| Phase 03 P06 | continuation | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,8 @@ Recent decisions affecting current work:
 - [Phase 3]: [03-03]: Pre-parse size caps INGEST_SIZE_CAPS tabular 50MB (≥A4 12MB) / image 25MB via assertFileWithinCaps run BEFORE parseFileInWorker/putDataset (T-03-07 DoS); detectCoordinateColumns name-heuristic (lat/lon/lng/x/y/wkt/geometry, ambiguous→{}, D-04).
 - [Phase 3]: [03-05]: place_dataset_features (host-builtin) iterates getDataset(handleId).fullRows (D-05, NOT the sample → anticipates SAFE-05), builds features from lat/lon | WKT | GeoJSON-geometry, V5-range-validates coords (skippedInvalid), writes via importFeaturesToEditor (Authoring API, never the store), returns counts only (T-03-18). registerIngestTools(register) wired via the injected-register idiom; schemaFor() now exported from schemas.ts.
 - [Phase 3]: [03-05]: batch_geocode (remote-mcp) bounded BATCH_GEOCODE_MAX_ROWS=50 (unique names) + throttled BATCH_GEOCODE_MIN_INTERVAL_MS=1000 (~1 req/s) + de-duped + in-call cached, skip-and-report {located,total,failed,message} (T-03-15/T-03-16, D-06). throttle delay + geo client injectable so tests use a fake clock + mock SearchLocation (no sleep, no network). Single-row geocoding reuses the same batchGeocode primitive; Telegram one-shot still uses search_location. WKT parsed in-repo (no new dep).
+- [Phase 3]: [03-06]: FileChipStrip (D-10) mounts ALONGSIDE ChatGeometryAttachment (not folded in), mirroring its controlled {files,onChange} idiom — button + native drag-drop, one FileChip per file (compact deriveIngestSummary stat line, Collapsible/Popover expand, NO always-on grid, D-03). handleAttachedFile(file, deps) is a DOM-free dependency-injected pure orchestration (assertFileWithinCaps → parseFileInWorker → putDataset order pinned by fileAttachHandler.test.ts WARNING-5; image → readImageDataUrl → image_url, INGEST-04).
+- [Phase 3]: [03-06]: composeOutboundContent extracted to its OWN module (src/features/chat/composeOutboundContent.ts), not inlined in ChatPanel — so ingestSendPath.test.ts asserts the D-11 invariant headlessly (dataset → {handleId,summary} from toModelSummary, NEVER fullRows; deep-scan finds no non-sampled row, BLOCKER-3). VisionGateControl (D-08 three-tier: vision=enabled / no-vision=hard-disabled+Tooltip / uncertain=amber+Send-anyway opt-in) + composeOutboundContent share ONE detectVisionSupport result; image_url included only when 'vision' or ('uncertain' && sendAnyway), never silent on 'no-vision'. Same gate governs capture_map_snapshot (D-09). UAT 6/6 approved.
 
 ### Pending Todos
 
@@ -140,6 +143,6 @@ Items acknowledged and carried forward / out of scope for this milestone:
 
 ## Session Continuity
 
-Last session: 2026-06-17T07:56:00.000Z
-Stopped at: Completed 03-05-PLAN.md (ingest placement & batch geocode tools, INGEST-06)
+Last session: 2026-06-17T08:12:00.000Z
+Stopped at: Completed 03-06-PLAN.md (file-chip strip + image attach + three-tier vision gate, INGEST-01/04/05/07) — UAT approved; phase 03 awaiting orchestrator phase-level verification
 Resume file: None

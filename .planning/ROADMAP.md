@@ -112,7 +112,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Wave 2** *(blocked on Wave 1)*
 
   - [x] 03-05-PLAN.md — place_dataset_features (column-mapping rule over the FULL dataset by handle → Authoring API, D-05) + batch_geocode (bounded/throttled/de-duped/skip-and-report, D-06) registered with mandatory kind (INGEST-06)
-  - [ ] 03-06-PLAN.md — file-chip strip (button + drag-drop, one chip per file, expandable stat line, D-10) + user image-attach path (INGEST-04) + three-tier VisionGateControl (D-08) mounted in ChatPanel; UAT checkpoint (INGEST-01, INGEST-04, INGEST-05, INGEST-07)
+  - [x] 03-06-PLAN.md — file-chip strip (button + drag-drop, one chip per file, expandable stat line, D-10) + user image-attach path (INGEST-04) + three-tier VisionGateControl (D-08) mounted in ChatPanel; UAT checkpoint (INGEST-01, INGEST-04, INGEST-05, INGEST-07)
 
 ### Phase 4: Code Interpreter Sandbox
 
@@ -182,7 +182,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Encrypted Settings Persistence | 3/3 | Complete    | 2026-06-16 |
 | 2. Tool Registry & Authoring API | 4/6 | In progress | - |
-| 3. File Ingest & Multimodal | 5/6 | In Progress|  |
+| 3. File Ingest & Multimodal | 6/6 | In Progress | - |
 | 4. Code Interpreter Sandbox | 0/TBD | Not started | - |
 | 5. Dataset-Aware Safe Editing | 0/TBD | Not started | - |
 | 6. AI Bulk Transform & Data-Driven Styling | 0/TBD | Not started | - |
