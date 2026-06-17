@@ -4,17 +4,12 @@ import {
 	type AttachDeps,
 	detectIngestKind,
 	handleAttachedFile,
+	inferSchema,
 	isImageFile,
 } from './fileAttachHandler'
 
 /** A minimal File stand-in (bun:test has no DOM File). */
-function fakeFile(
-	name: string,
-	type: string,
-	size: number,
-	text = '',
-	buffer?: ArrayBuffer,
-): File {
+function fakeFile(name: string, type: string, size: number, text = '', buffer?: ArrayBuffer): File {
 	return {
 		name,
 		type,
@@ -135,5 +130,34 @@ describe('handleAttachedFile (WARNING 5: strict order)', () => {
 		})
 		const result = await handleAttachedFile(fakeFile('a.csv', 'text/csv', 100, 'broken'), deps)
 		expect(result.status).toBe('failed')
+	})
+})
+
+describe('inferSchema — bounded multi-value sampling (WR-07)', () => {
+	it('types a clean numeric column as number', () => {
+		const rows = [{ n: 1 }, { n: 2 }, { n: 3 }]
+		expect(inferSchema(rows, ['n'])).toEqual([{ name: 'n', type: 'number' }])
+	})
+
+	it("emits 'mixed' when a column has more than one primitive type", () => {
+		// First value is numeric, a later row is a string token — the old first-value
+		// heuristic would have mis-typed this as 'number'.
+		const rows = [{ v: 1 }, { v: 2 }, { v: 'N/A' }, { v: 4 }]
+		expect(inferSchema(rows, ['v'])).toEqual([{ name: 'v', type: 'mixed' }])
+	})
+
+	it('ignores null/undefined when deciding the type', () => {
+		const rows = [{ v: null }, { v: undefined }, { v: true }, { v: false }]
+		expect(inferSchema(rows, ['v'])).toEqual([{ name: 'v', type: 'boolean' }])
+	})
+
+	it("a string-first numeric column is correctly 'mixed', not 'string'", () => {
+		const rows = [{ v: 'header-echo' }, { v: 10 }, { v: 20 }]
+		expect(inferSchema(rows, ['v'])).toEqual([{ name: 'v', type: 'mixed' }])
+	})
+
+	it('defaults an all-null column to string', () => {
+		const rows = [{ v: null }, { v: null }]
+		expect(inferSchema(rows, ['v'])).toEqual([{ name: 'v', type: 'string' }])
 	})
 })

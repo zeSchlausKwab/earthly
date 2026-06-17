@@ -233,6 +233,16 @@ export interface BuildResult {
 	skippedInvalid: number
 	/** Rows that had no usable geometry but DO have a place name (geocoding candidates). */
 	geocodeCandidates: { row: Record<string, unknown>; placeName: string }[]
+	/**
+	 * WR-04: rows that had NO geometry columns mapped at all (no lat/lon, no wkt,
+	 * no geometry) AND no `placeNameColumn` to geocode against. These are not
+	 * "invalid data" — they were simply never given a placement strategy, so they
+	 * are counted SEPARATELY from `skippedInvalid` (which is reserved for rows that
+	 * had a mapped geometry source but a bad/out-of-range value). This lets the
+	 * model distinguish "re-run with a placeNameColumn / geometry mapping" from
+	 * "these rows are genuinely unplaceable".
+	 */
+	geocodeNotAttempted: number
 }
 
 function buildProperties(
@@ -259,6 +269,12 @@ export function buildFeaturesFromRows(
 	const features: GeoJSON.Feature[] = []
 	const geocodeCandidates: { row: Record<string, unknown>; placeName: string }[] = []
 	let skippedInvalid = 0
+	let geocodeNotAttempted = 0
+
+	// WR-04: did the mapping supply ANY geometry source? If not, a row without a
+	// place name was never given a way to be placed — count it as
+	// `geocodeNotAttempted`, not as invalid data.
+	const hasGeometrySource = Boolean((mapping.lat && mapping.lon) || mapping.wkt || mapping.geometry)
 
 	for (const row of fullRows) {
 		const props = buildProperties(row, mapping)
@@ -312,12 +328,17 @@ export function buildFeaturesFromRows(
 		const placeName = placeCol && typeof row[placeCol] === 'string' ? (row[placeCol] as string) : ''
 		if (placeName.trim()) {
 			geocodeCandidates.push({ row, placeName: placeName.trim() })
+		} else if (!hasGeometrySource && !placeCol) {
+			// WR-04: no geometry mapping AND no place column → never attempted, not
+			// invalid. (A row WITH a mapped geometry source that produced nothing was
+			// already counted as `skippedInvalid` in branches 1-3.)
+			geocodeNotAttempted += 1
 		} else {
 			skippedInvalid += 1
 		}
 	}
 
-	return { features, skippedInvalid, geocodeCandidates }
+	return { features, skippedInvalid, geocodeCandidates, geocodeNotAttempted }
 }
 
 // ---------------------------------------------------------------------------
@@ -482,14 +503,24 @@ export function registerIngestTools(
 				)
 			}
 
+			// WR-04: surface a one-line hint when rows were left unplaced for a
+			// recoverable reason (no geometry mapping / no place column), so the model
+			// can re-run with a better mapping rather than treating them as invalid.
+			const hint =
+				built.geocodeNotAttempted > 0
+					? `${built.geocodeNotAttempted} row(s) had no geometry columns and no placeNameColumn mapping — re-run with a placeNameColumn or lat/lon/wkt/geometry mapping to place them.`
+					: undefined
+
 			const result = importFeaturesToEditor(features, false)
 			return {
 				importedCount: result.importedCount,
 				skippedDuplicates: result.skippedDuplicates,
 				skippedInvalid: built.skippedInvalid,
+				geocodeNotAttempted: built.geocodeNotAttempted,
 				geocoded,
 				geocodeFailed,
 				totalFeaturesInEditor: result.totalFeaturesInEditor,
+				...(hint ? { hint } : {}),
 			}
 		},
 	})

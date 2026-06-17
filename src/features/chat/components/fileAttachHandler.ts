@@ -102,14 +102,44 @@ export const defaultAttachDeps: AttachDeps = {
 	readImageDataUrl,
 }
 
-/** Infer a SchemaField list from sampled rows (mirrors the parse pipeline shape). */
-function inferSchema(rows: Record<string, unknown>[], schemaFields?: string[]): SchemaField[] {
+/** Max rows scanned per column when inferring its type (WR-07). */
+export const SCHEMA_INFERENCE_SAMPLE_ROWS = 100
+
+/** Map a single primitive value to a concrete schema type (null/undefined ignored upstream). */
+function primitiveTypeOf(value: unknown): SchemaField['type'] | undefined {
+	if (typeof value === 'number') return 'number'
+	if (typeof value === 'boolean') return 'boolean'
+	if (typeof value === 'string') return 'string'
+	// Objects/arrays/etc. are surfaced as 'string' (their JSON-ish rendering).
+	return 'string'
+}
+
+/**
+ * Infer a SchemaField list from sampled rows (mirrors the parse pipeline shape).
+ *
+ * WR-07: scan a bounded sample (first SCHEMA_INFERENCE_SAMPLE_ROWS) of each
+ * column's non-null values rather than typing from the FIRST non-null value
+ * alone. When more than one primitive type appears, the column is `'mixed'`
+ * (which `datasetTypes.SchemaField` already supports) instead of being mistyped
+ * by a stray first value (e.g. a `"N/A"` token at the top of a numeric column).
+ */
+export function inferSchema(
+	rows: Record<string, unknown>[],
+	schemaFields?: string[],
+): SchemaField[] {
 	const names = schemaFields ?? (rows[0] ? Object.keys(rows[0]) : [])
+	const scanLimit = Math.min(rows.length, SCHEMA_INFERENCE_SAMPLE_ROWS)
 	return names.map((name) => {
-		let type: SchemaField['type'] = 'string'
-		const sample = rows.find((row) => row[name] !== undefined && row[name] !== null)?.[name]
-		if (typeof sample === 'number') type = 'number'
-		else if (typeof sample === 'boolean') type = 'boolean'
+		const seen = new Set<SchemaField['type']>()
+		for (let i = 0; i < scanLimit; i++) {
+			const value = rows[i]?.[name]
+			if (value === undefined || value === null) continue
+			const t = primitiveTypeOf(value)
+			if (t) seen.add(t)
+			if (seen.size > 1) break
+		}
+		const type: SchemaField['type'] =
+			seen.size === 0 ? 'string' : seen.size === 1 ? [...seen][0] : 'mixed'
 		return { name, type }
 	})
 }

@@ -34,6 +34,16 @@ function routstr(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
 	}
 }
 
+function custom(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
+	return {
+		type: 'custom',
+		baseUrl: 'https://user-controlled.example/v1',
+		name: 'Custom',
+		requiresPayment: false,
+		...overrides,
+	}
+}
+
 /** Build a mocked fetch that records calls and returns the given JSON body. */
 function jsonFetch(body: unknown, ok = true) {
 	const calls: string[] = []
@@ -140,6 +150,57 @@ describe('detectVisionSupport — other providers /v1/models (tier 2)', () => {
 
 		await detectVisionSupport(routstr({ apiKey: 'secret-key' }), 'm')
 		expect(authHeader).toBe('Bearer secret-key')
+	})
+
+	// WR-05: a `custom` provider's baseUrl is fully user-controlled, so the probe
+	// must NOT leak the API key to that origin.
+	test('does NOT send the API key to a custom provider /models probe (WR-05)', async () => {
+		let authHeader: string | undefined
+		globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+			const headers = (init?.headers ?? {}) as Record<string, string>
+			authHeader = headers.Authorization
+			return {
+				ok: true,
+				json: async () => ({ data: [{ id: 'm', capabilities: ['image'] }] }),
+			} as unknown as Response
+		}) as unknown as typeof fetch
+
+		const result = await detectVisionSupport(custom({ apiKey: 'leak-me-not' }), 'm')
+		expect(authHeader).toBeUndefined()
+		// The public list still resolves capabilities normally.
+		expect(result).toBe<VisionSupport>('vision')
+	})
+})
+
+describe('nameHeuristic token-boundary matching (WR-06)', () => {
+	// All these have an entry with NO capability fields, so detection falls through
+	// to the tier-3 name heuristic.
+	function fallThrough(modelId: string) {
+		const { fn } = jsonFetch({ data: [{ id: modelId }] })
+		globalThis.fetch = fn as unknown as typeof fetch
+		return detectVisionSupport(routstr(), modelId)
+	}
+
+	test.each([
+		'marvel',
+		'mistral-small',
+		'nouvelle-7b',
+		'some-vllm-host',
+		'plain-text-model',
+	])('non-vision id %s does NOT falsely match a vision hint → no-vision', async (modelId) => {
+		expect(await fallThrough(modelId)).toBe<VisionSupport>('no-vision')
+	})
+
+	test.each([
+		'qwen2.5-vl',
+		'vl-7b-instruct',
+		'gemma-vision',
+		'llava-1.6',
+		'pixtral-12b',
+		'gpt-4o-mini',
+		'claude-3-opus',
+	])('vision-named id %s matches on a token boundary → uncertain', async (modelId) => {
+		expect(await fallThrough(modelId)).toBe<VisionSupport>('uncertain')
 	})
 })
 

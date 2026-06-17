@@ -26,10 +26,18 @@ import type { ProviderConfig } from '../routstr'
 
 export type VisionSupport = 'vision' | 'no-vision' | 'uncertain'
 
-/** Tier-3 name hints (formerly `store.ts:modelMaySupportVision`'s `visionHints`). */
+/**
+ * Tier-3 name hints (formerly `store.ts:modelMaySupportVision`'s `visionHints`).
+ *
+ * WR-06: matched on TOKEN boundaries, not raw `includes`. The bare `'vl'`
+ * substring over-matched unrelated ids (`marvel`, `…vllm`, `nouvelle`), so it is
+ * replaced by the delimited token forms `'-vl'` / `'vl-'` (e.g. `qwen2.5-vl`,
+ * `vl-7b`). Multi-segment hints (`gpt-4o`, `claude-3`) match as a bounded phrase.
+ */
 const VISION_NAME_HINTS = [
 	'vision',
-	'vl',
+	'-vl',
+	'vl-',
 	'llava',
 	'qwen2.5-vl',
 	'gemma-vision',
@@ -38,10 +46,37 @@ const VISION_NAME_HINTS = [
 	'claude-3',
 ] as const
 
+/**
+ * WR-06: does `hint` occur in `id` on TOKEN boundaries? A match requires the hint
+ * to be preceded and followed by either a string boundary or a token delimiter
+ * (any non-`[a-z0-9.]` char — `.` is kept inside the token so `qwen2.5` stays one
+ * token). Hints that already START/END with `-` (e.g. `-vl`) carry their own
+ * delimiter, so only the OTHER side needs a boundary. This rejects `marvel`
+ * (no `-`/start before `vl`) while accepting `qwen2.5-vl` and `vl-7b`.
+ */
+function hintMatchesTokenBoundary(id: string, hint: string): boolean {
+	let from = 0
+	while (true) {
+		const idx = id.indexOf(hint, from)
+		if (idx < 0) return false
+		const before = idx === 0 ? '' : id[idx - 1]
+		const afterIdx = idx + hint.length
+		const after = afterIdx >= id.length ? '' : id[afterIdx]
+		const isTokenChar = (c: string) => c !== '' && /[a-z0-9.]/.test(c)
+		// The hint's own leading/trailing `-` already enforces that side's boundary.
+		const leftOk = hint.startsWith('-') || !isTokenChar(before)
+		const rightOk = hint.endsWith('-') || !isTokenChar(after)
+		if (leftOk && rightOk) return true
+		from = idx + 1
+	}
+}
+
 /** Tier 3: name heuristic → `'uncertain'` when a hint matches, else `'no-vision'`. */
 function nameHeuristic(modelId: string): VisionSupport {
 	const lower = modelId.toLowerCase()
-	return VISION_NAME_HINTS.some((hint) => lower.includes(hint)) ? 'uncertain' : 'no-vision'
+	return VISION_NAME_HINTS.some((hint) => hintMatchesTokenBoundary(lower, hint))
+		? 'uncertain'
+		: 'no-vision'
 }
 
 const visionCache = new Map<string, VisionSupport>()
@@ -109,7 +144,14 @@ async function detectOpenAiCompatible(
 	modelId: string,
 ): Promise<VisionSupport | undefined> {
 	const headers: Record<string, string> = {}
-	if (provider.apiKey) {
+	// WR-05: a `custom` provider's baseUrl is fully user-controlled (it can come
+	// from a shared/imported settings blob pointing at an attacker origin). The
+	// capability probe hits `{baseUrl}/models`, which is typically a PUBLIC list,
+	// so do NOT fan the provider API key out to that unvetted origin — omit the
+	// bearer for custom providers. Trusted built-in providers (routstr, lmstudio,
+	// ollama) still send it. On a real auth-gated custom /models the probe simply
+	// 401s → undefined → falls through to the name heuristic (never throws).
+	if (provider.apiKey && provider.type !== 'custom') {
 		headers.Authorization = `Bearer ${provider.apiKey}`
 	}
 	const res = await fetch(`${provider.baseUrl}/models`, { headers })

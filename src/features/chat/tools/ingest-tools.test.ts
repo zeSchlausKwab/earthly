@@ -235,6 +235,67 @@ describe('place_dataset_features (INGEST-06 / D-05)', () => {
 		expect(useEditorStore.getState().editor?.getAllFeatures()).toHaveLength(2)
 	})
 
+	it('WR-04: rows with no geometry mapping AND no placeNameColumn are geocodeNotAttempted, not skippedInvalid', async () => {
+		const rows = [
+			{ city: 'Berlin', lat: 52.5, lon: 13.4 },
+			{ city: 'Paris', lat: 48.8, lon: 2.3 },
+			// This row has a valid place name but the mapping below maps lat/lon only,
+			// so it is unplaceable for a benign reason (no name column mapped).
+			{ city: 'Rome' },
+		]
+		const handle = put(rows)
+		const result = await dispatch('place_dataset_features', {
+			handleId: handle,
+			// lat/lon IS a geometry source → the third row falls to skippedInvalid
+			// (it had a mapped geometry source that produced nothing), NOT
+			// geocodeNotAttempted. This documents the boundary.
+			mapping: { lat: 'lat', lon: 'lon', name: 'city' },
+		})
+		const typed = result as { importedCount: number; skippedInvalid: number }
+		expect(typed.importedCount).toBe(2)
+		expect(typed.skippedInvalid).toBe(1)
+	})
+
+	it('WR-04: with NO geometry mapping and NO placeNameColumn, unplaceable rows are geocodeNotAttempted + hinted', async () => {
+		const rows = [
+			{ city: 'Berlin', lat: 52.5, lon: 13.4 },
+			{ city: 'Paris', lat: 48.8, lon: 2.3 },
+			{ city: 'Rome', lat: 41.9, lon: 12.5 },
+		]
+		const handle = put(rows)
+		// Map ONLY a name property — no lat/lon/wkt/geometry, no placeNameColumn.
+		// Every row should be geocodeNotAttempted (recoverable), not invalid.
+		const result = await dispatch('place_dataset_features', {
+			handleId: handle,
+			mapping: { name: 'city' },
+		})
+		// No features can be produced → the tool throws (its existing contract).
+		expect(isToolError(result)).toBe(true)
+	})
+
+	it('WR-04: a partial dataset reports geocodeNotAttempted distinctly from skippedInvalid', async () => {
+		// Mix: a WKT geometry source IS mapped, but only some rows have wkt; the
+		// rows missing wkt are skippedInvalid (had a mapped source, no value), so
+		// geocodeNotAttempted stays 0 here — the counts don't conflate.
+		const rows = [
+			{ name: 'a', geom: 'POINT(13.4 52.5)' },
+			{ name: 'b', geom: '' },
+		]
+		const handle = put(rows)
+		const result = await dispatch('place_dataset_features', {
+			handleId: handle,
+			mapping: { wkt: 'geom', name: 'name' },
+		})
+		const typed = result as {
+			importedCount: number
+			skippedInvalid: number
+			geocodeNotAttempted: number
+		}
+		expect(typed.importedCount).toBe(1)
+		expect(typed.skippedInvalid).toBe(1)
+		expect(typed.geocodeNotAttempted).toBe(0)
+	})
+
 	it('returns counts only — never echoes fullRows back to the model (T-03-18)', async () => {
 		const handle = put(gridRows(5))
 		const result = await dispatch('place_dataset_features', {
