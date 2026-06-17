@@ -1276,8 +1276,28 @@ function summarizeLargeArraysForPrompt(base: Record<string, unknown>): Record<st
 	return next
 }
 
+/**
+ * If a tool result carries an ingest handle + pre-derived summary, compact it to
+ * `{ ingestHandle, ingestSummary }` ONLY — dropping `fullRows` (and any other
+ * bulk-row field) so the model never receives raw ingested rows even when a tool
+ * echoes the dataset (D-11 / T-03-06 structural seam, carried into the prompt
+ * path). The summary itself is already column-capped + head/tail/random sampled
+ * by `deriveIngestSummary`.
+ */
+function compactIngestHandleResult(value: Record<string, unknown>): unknown | undefined {
+	const handle = value.ingestHandle
+	const summary = value.ingestSummary
+	if (typeof handle !== 'string' || !summary || typeof summary !== 'object') {
+		return undefined
+	}
+	return { ingestHandle: handle, ingestSummary: summary }
+}
+
 function summarizeToolResultForPromptValue(resultValue: unknown): unknown {
 	if (!resultValue || typeof resultValue !== 'object') return resultValue
+
+	const ingestCompacted = compactIngestHandleResult(resultValue as Record<string, unknown>)
+	if (ingestCompacted !== undefined) return ingestCompacted
 
 	const features = extractGeoJsonFeaturesFromUnknown(resultValue)
 	if (features.length > 0) {
