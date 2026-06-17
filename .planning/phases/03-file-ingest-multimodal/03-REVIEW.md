@@ -42,6 +42,14 @@ status: criticals_resolved
 > Gates green post-fix: `bun test src/features/chat/` 145 pass / 0 fail, `bun run build` exits 0 (ingest worker chunk still emits), biome clean.
 > The **8 Warning** and **5 Info** findings below remain OPEN and tracked for a follow-up `/gsd-code-review 03 --fix` or gap-closure pass (notably WR-02 `evictDataset` never called → unbounded store growth, WR-01 detached-ArrayBuffer sync-fallback, WR-08 handle-JSON truncation, and CR-03 secondary hardening: polygon ring-closure + invalid geometry-type rejection in `parseGeometryCell`).
 
+> **Follow-up resolution (2026-06-17):** the four highest-value open findings were fixed (atomic commits):
+> - **WR-02** — eviction wired to file-chip removal (`FileChipStrip.handleRemove`) and chat switch/clear (`ChatPanel`), plus a defense-in-depth LRU size cap (`MAX_INGEST_DATASETS=32`) in `ingestStore`. Tests added.
+> - **WR-01** — transferred (detached) xlsx buffers are flagged; the timeout/`onerror` fallbacks now settle with a clear failure response instead of re-parsing zero-length bytes. Test added.
+> - **WR-03** — geocode throttle hoisted to a module-level clock shared by `place_dataset_features` + `batch_geocode` (injectable clock + `resetGeocodeThrottle()` seam). Cross-call throttle test added.
+> - **CR-03 secondary** — `parseGeometryCell` validates the `type` against RFC 7946 geometry types + requires an array payload; `parseWktGeometry` enforces polygon ring closure (≥3 positions, auto-close, reject degenerate). Tests added.
+>
+> Still OPEN: WR-04..WR-08 and IN-01..IN-05. Gates green post-fix: `bun test src/features/chat/` 150 pass / 0 fail, `bun run build` exits 0, biome clean on changed files.
+
 # Phase 3: Code Review Report
 
 **Reviewed:** 2026-06-17
