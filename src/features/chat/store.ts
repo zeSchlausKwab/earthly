@@ -4,7 +4,14 @@
 import type { FeatureCollection } from 'geojson'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { ChatMessage, RoutstrModel, ToolCall, ProviderType, ProviderConfig } from './routstr'
+import type {
+	ChatMessage,
+	ChatMessageContent,
+	RoutstrModel,
+	ToolCall,
+	ProviderType,
+	ProviderConfig,
+} from './routstr'
 import type { EntityType } from '@/components/entity-search'
 import {
 	fetchModels,
@@ -689,6 +696,13 @@ interface SendMessageOptions {
 	selectionContextMessage?: string
 	geometryContextMessage?: string
 	geometryAttachment?: FeatureCollection | null
+	/**
+	 * The D-11 composed outbound content (ChatPanel `composeOutboundContent`):
+	 * attached datasets as `{ ingestHandle, ingestSummary }` text parts + gated
+	 * `image_url` parts. When present it OVERRIDES the plain-string `content` as
+	 * the user message — carrying the handle+summary, never `fullRows`.
+	 */
+	composedContent?: ChatMessageContent
 }
 
 type ChatStore = ChatState & ChatActions
@@ -978,8 +992,13 @@ export const useChatStore = create<ChatStore>()(
 					}
 				}
 
-				// Add user message immediately
-				const userMessage: ChatMessage = { role: 'user', content }
+				// Add user message immediately. The D-11 composed content (datasets as
+				// handle+summary + gated image parts) overrides the plain string when
+				// attachments are present — fullRows never enter the message.
+				const userMessage: ChatMessage = {
+					role: 'user',
+					content: options?.composedContent ?? content,
+				}
 				const streamRunId = currentStreamRunId + 1
 				currentStreamRunId = streamRunId
 				currentStreamingChatId = targetChatId

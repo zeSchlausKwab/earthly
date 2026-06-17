@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
-import { useChatStore } from './store'
+import { resolveProvider, useChatStore } from './store'
+import { composeOutboundContent } from './composeOutboundContent'
+import { FileChipStrip } from './components/FileChipStrip'
+import type { AttachedFileView, ImageVisionTier } from './components/FileChip'
+import { VisionGateControl } from './components/VisionGateControl'
+import { detectVisionSupport, type VisionSupport } from './vision/detectVisionSupport'
 import { useWallet } from '@/lib/wallet'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useEditorStore } from '@/features/geo-editor/store'
@@ -144,6 +149,9 @@ export function ChatPanel({
 	const [input, setInput] = useState('')
 	const [selectionContextEnabled, setSelectionContextEnabled] = useState(false)
 	const [attachedGeometry, setAttachedGeometry] = useState<FeatureCollection | null>(null)
+	const [attachedFiles, setAttachedFiles] = useState<AttachedFileView[]>([])
+	const [sendAnyway, setSendAnyway] = useState(false)
+	const [visionSupport, setVisionSupport] = useState<VisionSupport>('no-vision')
 	const [nowMs, setNowMs] = useState(Date.now())
 	const messagesEndRef = useRef<HTMLDivElement>(null)
 	const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -208,8 +216,28 @@ export function ChatPanel({
 	useEffect(() => {
 		void activeChatId
 		setAttachedGeometry(null)
+		setAttachedFiles([])
+		setSendAnyway(false)
 		setSelectionContextEnabled(false)
 	}, [activeChatId])
+
+	// D-09: resolve the single vision verdict for the selected model. The same
+	// ladder result gates user-attached images here AND the autonomous
+	// capture_map_snapshot one-shot in the store (cached per model, so free).
+	useEffect(() => {
+		if (!selectedModel) {
+			setVisionSupport('no-vision')
+			return
+		}
+		let cancelled = false
+		const providerConfig = resolveProvider(provider, providerOverrides)
+		void detectVisionSupport(providerConfig, selectedModel).then((support) => {
+			if (!cancelled) setVisionSupport(support)
+		})
+		return () => {
+			cancelled = true
+		}
+	}, [provider, providerOverrides, selectedModel])
 
 	const ensureChatWorkspace = () => {
 		const store = useEditorStore.getState()
@@ -221,6 +249,18 @@ export function ChatPanel({
 		return Boolean(useEditorStore.getState().activeWorkspaceId)
 	}
 
+	const visionTier: ImageVisionTier = visionSupport
+	const hasAttachedImage = useMemo(
+		() => attachedFiles.some((file) => file.status === 'image'),
+		[attachedFiles],
+	)
+	// Stamp the resolved vision tier onto image chips so their visual language
+	// (amber-uncertain / dimmed-unsupported) tracks the gate (UI-SPEC Color).
+	const displayedFiles = useMemo(
+		() => attachedFiles.map((file) => (file.status === 'image' ? { ...file, visionTier } : file)),
+		[attachedFiles, visionTier],
+	)
+
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault()
 		if (!input.trim() || isStreaming) return
@@ -229,6 +269,17 @@ export function ChatPanel({
 		const geometryContextMessage = attachedGeometry
 			? buildAttachedGeometryContextMessage(attachedGeometry)
 			: undefined
+		// D-11/D-08/D-09: compose the outbound content — datasets as
+		// {ingestHandle, ingestSummary} (never fullRows) + gated image parts.
+		const composedContent =
+			attachedFiles.length > 0
+				? composeOutboundContent({
+						text: message,
+						attachedFiles,
+						visionSupport,
+						sendAnyway,
+					})
+				: undefined
 		setInput('')
 		if (!ensureChatWorkspace()) return
 		await sendMessage(message, {
@@ -238,9 +289,14 @@ export function ChatPanel({
 				: undefined,
 			geometryContextMessage,
 			geometryAttachment: attachedGeometry,
+			composedContent,
 		})
 		if (geometryContextMessage) {
 			setAttachedGeometry(null)
+		}
+		if (attachedFiles.length > 0) {
+			setAttachedFiles([])
+			setSendAnyway(false)
 		}
 	}
 
@@ -684,6 +740,18 @@ export function ChatPanel({
 							onChange={setAttachedGeometry}
 							layout="detached"
 							panelClassName="w-full"
+						/>
+						<FileChipStrip
+							files={displayedFiles}
+							onChange={setAttachedFiles}
+							visionTier={visionTier}
+						/>
+						<VisionGateControl
+							support={visionSupport}
+							modelLabel={selectedModelLabel}
+							hasImage={hasAttachedImage}
+							sendAnyway={sendAnyway}
+							onSendAnywayChange={setSendAnyway}
 						/>
 						{(selectedEditorFeatures.length > 0 || attachedGeometry) && (
 							<div className="basis-full text-[11px] text-muted-foreground">
@@ -1385,9 +1453,7 @@ function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
 					</div>
 					<div className="relative min-w-0 max-w-[85%] overflow-hidden rounded-lg border border-red-300/80 bg-red-50/80 px-3 py-2 text-xs dark:border-red-800/70 dark:bg-red-950/40">
 						<div className="flex items-center gap-1.5 font-medium text-red-700 dark:text-red-300">
-							<span>
-								{toolError.kind === 'unknown_tool' ? 'Unknown tool' : 'Tool error'}:
-							</span>
+							<span>{toolError.kind === 'unknown_tool' ? 'Unknown tool' : 'Tool error'}:</span>
 							<code className="rounded bg-red-100 px-1 py-0.5 text-[11px] dark:bg-red-900/60">
 								{toolError.toolName}
 							</code>
