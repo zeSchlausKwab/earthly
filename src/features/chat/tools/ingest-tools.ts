@@ -86,6 +86,31 @@ function isValidLngLat(lon: number, lat: number): boolean {
 }
 
 /**
+ * V5 (CR-03): recursively range-validate EVERY [lon,lat] position in a parsed
+ * geometry. The explicit lat/lon branch already calls `isValidLngLat`, but the
+ * WKT and GeoJSON-geometry-cell branches built features with no range check, so
+ * `POINT(9999 9999)` / `{"type":"Point","coordinates":[5000,5000]}` reached the
+ * editor. A position is a `[number, number(, …)]`; anything else (non-numeric,
+ * malformed) fails closed (out of range → skipped).
+ */
+function geometryCoordsInRange(geom: GeoJSON.Geometry): boolean {
+	const walk = (c: unknown): boolean => {
+		if (!Array.isArray(c)) return false
+		// A coordinate position: at least [lon, lat] both numeric.
+		if (typeof c[0] === 'number' && typeof c[1] === 'number') {
+			return isValidLngLat(c[0], c[1])
+		}
+		// Otherwise a nested array of positions / rings / parts.
+		return c.length > 0 && c.every(walk)
+	}
+	// GeometryCollection has no top-level `coordinates`; validate each member.
+	if (geom.type === 'GeometryCollection') {
+		return Array.isArray(geom.geometries) && geom.geometries.every(geometryCoordsInRange)
+	}
+	return 'coordinates' in geom ? walk((geom as { coordinates: unknown }).coordinates) : false
+}
+
+/**
  * Parse a minimal subset of WKT (POINT / LINESTRING / POLYGON, optionally with a
  * MULTI* prefix) into a GeoJSON geometry. WKT uses `lon lat` ordering. Returns
  * null on anything unrecognised so the row is skipped (not a crash).
@@ -228,7 +253,8 @@ export function buildFeaturesFromRows(
 		if (mapping.wkt) {
 			const raw = row[mapping.wkt]
 			const geom = typeof raw === 'string' ? parseWktGeometry(raw) : null
-			if (geom) {
+			// V5 (CR-03): range-validate every coordinate before placing.
+			if (geom && geometryCoordsInRange(geom)) {
 				features.push({ type: 'Feature', geometry: geom, properties: props })
 				continue
 			}
@@ -239,7 +265,8 @@ export function buildFeaturesFromRows(
 		// 3. GeoJSON-geometry column.
 		if (mapping.geometry) {
 			const geom = parseGeometryCell(row[mapping.geometry])
-			if (geom) {
+			// V5 (CR-03): range-validate every coordinate before placing.
+			if (geom && geometryCoordsInRange(geom)) {
 				features.push({ type: 'Feature', geometry: geom, properties: props })
 				continue
 			}

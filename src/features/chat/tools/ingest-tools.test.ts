@@ -145,6 +145,43 @@ describe('place_dataset_features (INGEST-06 / D-05)', () => {
 		expect(types).toEqual(['LineString', 'Point'])
 	})
 
+	it('range-validates WKT coordinates (V5 / CR-03): out-of-range WKT is skipped', async () => {
+		const rows = [
+			{ name: 'ok', geom: 'POINT(13.4 52.5)' },
+			{ name: 'bad-point', geom: 'POINT(9999 9999)' },
+			{ name: 'bad-line', geom: 'LINESTRING(0 0, 500 500)' },
+		]
+		const handle = put(rows)
+		const result = await dispatch('place_dataset_features', {
+			handleId: handle,
+			mapping: { wkt: 'geom', name: 'name' },
+		})
+		const typed = result as { importedCount: number; skippedInvalid: number }
+		expect(typed.importedCount).toBe(1)
+		expect(typed.skippedInvalid).toBe(2)
+		expect(useEditorStore.getState().editor?.getAllFeatures()).toHaveLength(1)
+	})
+
+	it('range-validates geometry-cell coordinates (V5 / CR-03): out-of-range geometry is skipped', async () => {
+		const rows = [
+			{ name: 'ok', geometry: { type: 'Point', coordinates: [13.4, 52.5] } },
+			{ name: 'bad', geometry: { type: 'Point', coordinates: [5000, 5000] } },
+			{
+				name: 'bad-str',
+				geometry: JSON.stringify({ type: 'Point', coordinates: [200, 95] }),
+			},
+		]
+		const handle = put(rows)
+		const result = await dispatch('place_dataset_features', {
+			handleId: handle,
+			mapping: { geometry: 'geometry', name: 'name' },
+		})
+		const typed = result as { importedCount: number; skippedInvalid: number }
+		expect(typed.importedCount).toBe(1)
+		expect(typed.skippedInvalid).toBe(2)
+		expect(useEditorStore.getState().editor?.getAllFeatures()).toHaveLength(1)
+	})
+
 	it('builds geometry from a GeoJSON-geometry column (object or JSON string)', async () => {
 		const rows = [
 			{ name: 'obj', geometry: { type: 'Point', coordinates: [13.4, 52.5] } },
