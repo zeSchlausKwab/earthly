@@ -18,6 +18,7 @@ import { executeEditorAiTool, getEditorAiToolDefinitions } from '@/features/geo-
 import { useEditorStore } from '@/features/geo-editor/store'
 import { getMapContextSnapshot, getCompactMapContextForTool, mapSnapshotCache, pruneSnapshotCache } from './context'
 import { isToolError, type ToolError } from './errors'
+import { registerIngestTools } from './ingest-tools'
 import { registerPrimitiveTools } from './primitives-tools'
 import { geoStaticToolSchemas } from './schemas'
 import {
@@ -1000,6 +1001,10 @@ function bootstrapRegistry(): void {
 	// registry ↔ primitives-tools edge one-way and avoid a dev-bundler circular
 	// init crash (null `./registry` at bootstrap). See primitives-tools.ts.
 	registerPrimitiveTools(register)
+	// Same injected-`register` idiom: ingest-tools registers place_dataset_features
+	// (host-builtin) + batch_geocode (remote-mcp) without importing `./registry`
+	// back (one-way edge; avoids the dev-bundler circular-init crash).
+	registerIngestTools(register)
 }
 
 bootstrapRegistry()

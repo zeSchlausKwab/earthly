@@ -9,6 +9,19 @@
 
 import type { Tool } from './types'
 
+/**
+ * Look up a hand-authored OpenAI function schema by tool name. Shared by the
+ * registry bootstrap and the injected tool modules (e.g. ingest-tools) so every
+ * registered tool resolves its schema from this single dependency-free module.
+ */
+export function schemaFor(name: string): Tool {
+	const schema = geoStaticToolSchemas.find((tool) => tool.function.name === name)
+	if (!schema) {
+		throw new Error(`Missing schema for registered tool '${name}'`)
+	}
+	return schema
+}
+
 export const geoStaticToolSchemas: Tool[] = [
 	{
 		type: 'function',
@@ -780,6 +793,81 @@ export const geoStaticToolSchemas: Tool[] = [
 						description: 'Wikipedia language code (default: "en")',
 					},
 				},
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'place_dataset_features',
+			description:
+				'Place ALL rows of an ingested dataset (referenced by its handle) onto the map as features, using a column-mapping rule. The host applies the mapping to every parsed row (not just the sampled rows you saw) and writes through the editor. Provide exactly one geometry source per row: lat+lon, a wkt column, or a geometry (GeoJSON) column. Rows whose coordinates are missing can be geocoded from a placeNameColumn. Coordinates are range-validated (lat -90..90, lon -180..180); out-of-range rows are skipped. Returns counts only.',
+			parameters: {
+				type: 'object',
+				properties: {
+					handleId: {
+						type: 'string',
+						description: 'The ingest handle id of the dataset to place (from the file summary).',
+					},
+					mapping: {
+						type: 'object',
+						description:
+							'Which columns supply geometry and properties. Pick ONE geometry source: (lat AND lon) | wkt | geometry. name/description map to feature properties. placeNameColumn enables geocoding for rows lacking coordinates.',
+						properties: {
+							lat: { type: 'string', description: 'Column holding the latitude value.' },
+							lon: { type: 'string', description: 'Column holding the longitude value.' },
+							wkt: { type: 'string', description: 'Column holding a WKT geometry string.' },
+							geometry: {
+								type: 'string',
+								description: 'Column holding a GeoJSON geometry (object or JSON string).',
+							},
+							name: { type: 'string', description: 'Column to map to the feature name property.' },
+							description: {
+								type: 'string',
+								description: 'Column to map to the feature description property.',
+							},
+							placeNameColumn: {
+								type: 'string',
+								description:
+									'Column with a place name to geocode when a row has no coordinates (single-row fallback uses search_location; for many rows prefer batch_geocode).',
+							},
+						},
+					},
+				},
+				required: ['handleId', 'mapping'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'batch_geocode',
+			description:
+				'Geocode a place-name column of an ingested dataset in bulk, then place the located rows on the map. Bounded (max 50 rows per call), throttled to ~1 request/second to respect the geocoder usage policy, and de-duped (identical names are looked up once). Uses skip-and-report: rows that cannot be geocoded are reported, not placed. For a single pasted location, use search_location instead.',
+			parameters: {
+				type: 'object',
+				properties: {
+					handleId: {
+						type: 'string',
+						description: 'The ingest handle id of the dataset to geocode + place.',
+					},
+					placeNameColumn: {
+						type: 'string',
+						description: 'Column holding the place name to geocode for each row.',
+					},
+					mapping: {
+						type: 'object',
+						description: 'Optional name/description column mapping for the placed features.',
+						properties: {
+							name: { type: 'string', description: 'Column to map to the feature name property.' },
+							description: {
+								type: 'string',
+								description: 'Column to map to the feature description property.',
+							},
+						},
+					},
+				},
+				required: ['handleId', 'placeNameColumn'],
 			},
 		},
 	},
