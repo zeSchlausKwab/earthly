@@ -26,8 +26,7 @@ const fixture = (name: string) => path.resolve(import.meta.dir, '__fixtures__', 
 /** Run `fn` with `globalThis.Worker` removed so the client takes the sync path. */
 async function withoutWorker<T>(fn: () => Promise<T>): Promise<T> {
 	const saved = (globalThis as { Worker?: unknown }).Worker
-	// biome-ignore lint/performance/noDelete: must remove the binding so `typeof Worker === 'undefined'`.
-	delete (globalThis as { Worker?: unknown }).Worker
+	;(globalThis as { Worker?: unknown }).Worker = undefined
 	try {
 		return await fn()
 	} finally {
