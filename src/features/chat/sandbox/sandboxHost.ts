@@ -15,7 +15,31 @@
  */
 
 import { runInQuickjsWorker } from './transport/quickjsWorker'
-import type { RecordedCall } from './transport/types'
+import { runSandboxCode } from './transport/sandbox.worker'
+import type { RecordedCall, SandboxWorkerResponse } from './transport/types'
+
+/**
+ * Pluggable transport runner (test seam). Defaults to the fresh-spawn QuickJS
+ * worker. The proof suite injects the PURE engine (`runSandboxCode`) directly —
+ * Bun's test runner can spawn Workers but QuickJS-WASM-inside-a-spawned-Worker
+ * segfaults under `bun test` specifically, so the deterministic confinement /
+ * surface / timeout proofs drive the identical pure engine (the VM is pure given
+ * `{code, deadlineMs}`). Production never uses this override.
+ */
+export type SandboxTransport = (
+	code: string,
+	opts: { readSnapshot: unknown; deadlineMs: number },
+) => Promise<SandboxWorkerResponse>
+
+/** The in-process pure-engine transport (no Worker spawn). Used by the test suite. */
+export const directEngineTransport: SandboxTransport = async (code, opts) => {
+	const result = await runSandboxCode({
+		code,
+		readSnapshot: opts.readSnapshot,
+		deadlineMs: opts.deadlineMs,
+	})
+	return { id: 'direct', ...result }
+}
 
 /** Default wall-clock deadline for one run (D-14). */
 export const DEFAULT_SANDBOX_DEADLINE_MS = 3000
@@ -32,6 +56,11 @@ export interface SandboxRunOptions {
 	 * forward seam and is currently advisory only.
 	 */
 	outputCap?: number
+	/**
+	 * Transport override (test seam only). Defaults to the QuickJS worker. The
+	 * proof suite passes {@link directEngineTransport} to drive the pure engine.
+	 */
+	transport?: SandboxTransport
 }
 
 /** Normalized result of a sandbox run — the shape Wave 2 consumes. */
@@ -69,8 +98,9 @@ export async function runSandbox(
 	options: SandboxRunOptions = {},
 ): Promise<SandboxRunResult> {
 	const deadlineMs = options.deadlineMs ?? DEFAULT_SANDBOX_DEADLINE_MS
+	const transport: SandboxTransport = options.transport ?? ((c, o) => runInQuickjsWorker(c, o))
 
-	const raw = await runInQuickjsWorker(code, {
+	const raw = await transport(code, {
 		readSnapshot: options.readSnapshot ?? null,
 		deadlineMs,
 	})
