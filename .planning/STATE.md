@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: executing
-stopped_at: 04-02 complete (run_code wired; headline scripts proven; prod .wasm smoke is orchestrator gate)
-last_updated: "2026-06-18T08:27:00.000Z"
-last_activity: 2026-06-18 -- Phase 04 Plan 02 complete (run_code tool: D-01 read snapshot + replay through createAuthoring + fibonacci/overfly proofs)
+stopped_at: 04-02 complete; criterion (c) prod .wasm SERVING resolved (asset emits + serves 200 application/wasm); live in-browser execute still pending Wave 3 UAT
+last_updated: "2026-06-18T08:47:00.000Z"
+last_activity: 2026-06-18 -- Phase 04 criterion (c) prod .wasm-serving fix (build.ts emits emscripten-module.wasm; sandbox.worker.ts wasmLocation in browser/Worker only; dev+prod serve application/wasm)
 progress:
   total_phases: 7
   completed_phases: 3
@@ -140,7 +140,7 @@ None yet.
 
 - [Phase 1]: NIP-46 async decrypt path is untested against a remote signer; needs an explicit test + export/import escape hatch.
 - [Phase 3]: Optional active vision-probe step may consume Cashu budget; validate against Routstr prepayment before enabling by default.
-- [Phase 4]: RESOLVED (04-01) — sandbox isolation boundary = QuickJS-WASM-in-Worker (not cross-origin-iframe+CSP); spike proved confinement + timeout-kill + surface. Wave 2 (04-02) wired run_code so runSandbox is in the app graph and `bun run build` succeeds. REMAINING carry-forward: the prod `.wasm`-serving BROWSER smoke (criterion c) is the orchestrator's post-plan gate — `bun run build:production` + confirm the QuickJS `*.wasm` returns 200 and `runSandbox("typeof fetch") === 'undefined'`; fallback if it 404s is the human-gated `@jitl/quickjs-singlefile-mjs-release-sync` inlined variant.
+- [Phase 4]: RESOLVED (04-01) — sandbox isolation boundary = QuickJS-WASM-in-Worker (not cross-origin-iframe+CSP); spike proved confinement + timeout-kill + surface. Wave 2 (04-02) wired run_code so runSandbox is in the app graph and `bun run build` succeeds. Criterion (c) prod `.wasm`-SERVING now RESOLVED (focused fix a417ca5, NO new package): `build.ts` copies `@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.wasm` → `dist/emscripten-module.wasm` (fails build loudly if source missing); `sandbox.worker.ts` points the release-sync variant at the served `/emscripten-module.wasm` via `newVariant(RELEASE_SYNC,{wasmLocation})` ONLY when a real browser/Worker http(s) origin exists (Node/bun-test keeps `getQuickJS()` fs path — in-process tests stay green); `src/index.ts` serves `.wasm` as `application/wasm` in dev (from node_modules) and prod (from dist) and stops the SPA fallback swallowing it. PROVEN: `bun run build:production` emits `dist/emscripten-module.wasm` (503134 B); prod server returns HTTP 200 + `content-type: application/wasm`; `bun test` 290 pass / 0 fail; `bun run build` green. The singlefile fallback (`@jitl/quickjs-singlefile-mjs-release-sync`) is NO LONGER needed and stays uninstalled. REMAINING carry-forward (NOT a blocker): live IN-BROWSER wasm EXECUTION (instantiate + `runSandbox` round-trip in the deployed app) is validated by Wave 3's live-chat UAT — the asset now demonstrably emits + serves 200, so this is a UAT confirmation, not a build gap.
 - [Phase 6]: Style-rule persistence format (tag vs content) on kind 37515 must be decided before building; confirm against SPEC.md.
 
 ## Deferred Items
@@ -155,6 +155,6 @@ Items acknowledged and carried forward / out of scope for this milestone:
 
 ## Session Continuity
 
-Last session: 2026-06-18T08:27:00.000Z
-Stopped at: 04-02 complete (run_code wired; headline scripts proven; prod .wasm browser smoke is the orchestrator gate)
+Last session: 2026-06-18T08:47:00.000Z
+Stopped at: 04-02 complete; criterion (c) prod .wasm SERVING resolved (asset emits + serves 200 application/wasm, fix a417ca5); live in-browser execute deferred to Wave 3 UAT
 Resume file: .planning/phases/04-code-interpreter-sandbox/04-03-PLAN.md
