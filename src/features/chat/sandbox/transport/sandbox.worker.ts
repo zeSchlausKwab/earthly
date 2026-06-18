@@ -33,13 +33,54 @@
 
 import {
 	getQuickJS,
+	newQuickJSWASMModuleFromVariant,
+	newVariant,
 	type QuickJSContext,
 	type QuickJSHandle,
+	type QuickJSWASMModule,
+	RELEASE_SYNC,
 	shouldInterruptAfterDeadline,
 } from 'quickjs-emscripten'
 import { curatedTurf } from '../curatedTurf'
 import { createOutputCapture } from '../outputCapture'
 import type { RecordedCall, SandboxWorkerRequest, SandboxWorkerResponse } from './types'
+
+/**
+ * The served path of the QuickJS `.wasm` asset emitted by `build.ts` (Phase 4
+ * criterion c). The release-sync emscripten variant fetches its WebAssembly at
+ * RUNTIME from a separate file; under the html-driven production build the worker
+ * chunk lands hashed under a nested path, so the emscripten default of resolving
+ * the wasm RELATIVE to the chunk 404s. We pin it to this stable, root-served URL.
+ */
+const SERVED_WASM_FILENAME = 'emscripten-module.wasm'
+
+/**
+ * Whether we are running inside a REAL browser/Worker with an http(s) origin.
+ *
+ * Critical (Pitfall #1): in `bun test` the worker module is imported in-process
+ * under Node, where the emscripten glue loads the wasm from node_modules via the
+ * filesystem. We must NOT redirect `locateFile` to an HTTP URL there or the test
+ * path breaks. Only override when an actual http(s) origin exists (browser/Worker).
+ */
+function browserWasmLocation(): string | undefined {
+	const loc = (globalThis as { location?: { origin?: string; protocol?: string } }).location
+	if (!loc || typeof loc.origin !== 'string') return undefined
+	if (loc.protocol !== 'http:' && loc.protocol !== 'https:') return undefined
+	return new URL(`/${SERVED_WASM_FILENAME}`, loc.origin).href
+}
+
+/**
+ * Load the QuickJS WASM module, pointing the emscripten loader at the served
+ * `.wasm` asset when in a real browser/Worker, and falling back to the default
+ * filesystem resolution (via `getQuickJS()`) in Node / the bun-test harness.
+ */
+async function loadQuickJS(): Promise<QuickJSWASMModule> {
+	const wasmLocation = browserWasmLocation()
+	if (wasmLocation) {
+		return newQuickJSWASMModuleFromVariant(newVariant(RELEASE_SYNC, { wasmLocation }))
+	}
+	return getQuickJS()
+}
 
 /** Memory cap for one run (T-04-03). */
 const MEMORY_LIMIT_BYTES = 64 * 1024 * 1024
@@ -72,7 +113,7 @@ export async function runSandboxCode(
 	const recordedCalls: RecordedCall[] = []
 	const output = createOutputCapture()
 
-	const QuickJS = await getQuickJS()
+	const QuickJS = await loadQuickJS()
 	const runtime = QuickJS.newRuntime()
 	runtime.setMemoryLimit(MEMORY_LIMIT_BYTES)
 	runtime.setMaxStackSize(MAX_STACK_SIZE_BYTES)

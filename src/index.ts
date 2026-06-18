@@ -49,6 +49,20 @@ function getBaseUrl(req: Request): string {
 }
 
 /**
+ * Serve a built file with an explicit `Content-Type` for extensions that browsers
+ * are strict about. WebAssembly streaming compilation
+ * (`WebAssembly.instantiateStreaming`) REQUIRES `application/wasm` — without it the
+ * QuickJS code-interpreter sandbox (Phase 4) fails to instantiate in the browser.
+ */
+function serveBuiltFile(builtFile: ReturnType<typeof file>, pathname: string): Response {
+  const headers: Record<string, string> = {};
+  if (pathname.endsWith(".wasm")) {
+    headers["Content-Type"] = "application/wasm";
+  }
+  return new Response(builtFile, { headers });
+}
+
+/**
  * Handle OG routes for crawlers, serve SPA for regular users
  */
 async function handleGeoEventRoute(req: BunRouteRequest): Promise<Response> {
@@ -273,7 +287,7 @@ if (!isProduction) {
           const publicFile = file(publicPath);
 
           if (await publicFile.exists()) {
-            return new Response(publicFile);
+            return serveBuiltFile(publicFile, pathname);
           }
 
           // Try to serve from dist/ (built assets)
@@ -281,7 +295,14 @@ if (!isProduction) {
           const staticFile = file(filePath);
 
           if (await staticFile.exists()) {
-            return new Response(staticFile);
+            return serveBuiltFile(staticFile, pathname);
+          }
+
+          // Assets that must NEVER fall through to the SPA index.html. A `.wasm`
+          // served as text/html would break WebAssembly instantiation, so a
+          // genuine 404 is the correct (debuggable) outcome here.
+          if (pathname.endsWith(".wasm")) {
+            return new Response("Not found", { status: 404 });
           }
 
           // If file not found, serve index.html for client-side routing
@@ -296,6 +317,25 @@ if (!isProduction) {
     // Assets in src/assets/ are bundled automatically by Bun
     const index = (await import("./index.html")).default;
 
+    // The QuickJS code-interpreter sandbox (Phase 4) loads its `.wasm` from a
+    // stable root URL. In production `build.ts` emits it to `dist/`; in dev there
+    // is no build, so serve it straight from node_modules with the correct MIME.
+    const serveQuickjsWasm = (): Response => {
+      const wasmFile = file(
+        join(
+          process.cwd(),
+          "node_modules",
+          "@jitl",
+          "quickjs-wasmfile-release-sync",
+          "dist",
+          "emscripten-module.wasm",
+        ),
+      );
+      return new Response(wasmFile, {
+        headers: { "Content-Type": "application/wasm" },
+      });
+    };
+
     const port = Number.parseInt(process.env.PORT ?? "3000", 10);
     const server = serve({
       port: Number.isFinite(port) ? port : 3000,
@@ -303,6 +343,8 @@ if (!isProduction) {
         ...apiRoutes,
         // Serve static files from public/static/ (stable URLs for OG images, etc.)
         "/static/*": serveStaticFile,
+        // QuickJS sandbox WASM (served from node_modules in dev).
+        "/emscripten-module.wasm": serveQuickjsWasm,
         // Catch-all for SPA routing (Bun handles assets from src/assets/)
         "/*": index,
       },
