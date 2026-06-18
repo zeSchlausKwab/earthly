@@ -42,12 +42,18 @@ import {
 	Copy,
 	ArrowDownToLine,
 	Code2,
+	Bug,
 } from 'lucide-react'
 import { estimateTokens, type ChatMessage, type ToolCall, type ProviderType } from './routstr'
 import { analyzeToolResultGeometryContent, bakeToolResultContentToEditor } from './tools'
 import { isToolError, type ToolError } from './tools/errors'
 import { ChatGeometryAttachment } from './ChatGeometryAttachment'
 import { CodeRunDisclosure, parseRunCodeResult } from './CodeRunDisclosure'
+import {
+	buildConversationDump,
+	buildConversationDumpFilename,
+	serializeConversationDump,
+} from './conversationDump'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { ChatReference } from './store'
@@ -336,6 +342,56 @@ export function ChatPanel({
 		bindActiveWorkspaceChat(useChatStore.getState().activeChatId)
 	}
 
+	const handleExportConversation = async () => {
+		if (messages.length === 0) {
+			toast.error('Nothing to export yet')
+			return
+		}
+		const dump = buildConversationDump({
+			exportedAt: Date.now(),
+			activeChat: activeChatSession,
+			messages,
+			references,
+			provider,
+			providerOverrides,
+			selectedModel,
+			models,
+			toolsEnabled,
+			diagnostics: diagnostics as unknown as Record<string, unknown>,
+		})
+		const json = serializeConversationDump(dump)
+
+		// Default to copying the JSON to the clipboard...
+		let copied = false
+		try {
+			await navigator.clipboard.writeText(json)
+			copied = true
+		} catch (clipboardError) {
+			console.error('Failed to copy conversation dump', clipboardError)
+		}
+
+		// ...AND offer a .json download (Blob + object URL, dependency-free).
+		try {
+			const blob = new Blob([json], { type: 'application/json' })
+			const url = URL.createObjectURL(blob)
+			const anchor = document.createElement('a')
+			anchor.href = url
+			anchor.download = buildConversationDumpFilename(dump)
+			document.body.appendChild(anchor)
+			anchor.click()
+			anchor.remove()
+			URL.revokeObjectURL(url)
+		} catch (downloadError) {
+			console.error('Failed to download conversation dump', downloadError)
+			if (!copied) {
+				toast.error('Failed to export conversation')
+				return
+			}
+		}
+
+		toast.success(copied ? 'Conversation copied & downloaded' : 'Conversation downloaded')
+	}
+
 	const handleKeyDown = (e: React.KeyboardEvent) => {
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault()
@@ -502,6 +558,17 @@ export function ChatPanel({
 							))}
 						</SelectContent>
 					</Select>
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon"
+						onClick={handleExportConversation}
+						disabled={messages.length === 0}
+						title="Export conversation (copy JSON + download .json)"
+						aria-label="Export conversation"
+					>
+						<Bug className="h-4 w-4" />
+					</Button>
 					<Button
 						type="button"
 						variant="ghost"
