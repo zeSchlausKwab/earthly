@@ -85,6 +85,19 @@ describe('surface (CODE-02) — only the four injected globals are present', () 
 		expect(result.ok).toBe(true)
 		expect(result.returnValue).toBe('object,object,function')
 	})
+
+	it('CR-01: authoring exposes ONLY the four interceptor-routed write ops (no editorCommand)', async () => {
+		const result = await runSandbox(`Object.keys(authoring).sort().join(',')`)
+		expect(result.ok).toBe(true)
+		// editorCommand bypasses runInterceptors() so it must NOT be sandbox-reachable.
+		expect(result.returnValue).toBe('addFeature,buffer,circle,writeGeoJSON')
+	})
+
+	it('CR-01: authoring.editorCommand is undefined inside the boundary', async () => {
+		const result = await runSandbox(`typeof authoring.editorCommand`)
+		expect(result.ok).toBe(true)
+		expect(result.returnValue).toBe('undefined')
+	})
 })
 
 describe('timeout (CODE-04 b) — wall-clock kill, no host hang', () => {

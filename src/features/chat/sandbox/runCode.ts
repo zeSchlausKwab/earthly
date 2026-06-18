@@ -58,6 +58,20 @@ export const RUN_CODE_RETRY_CAP = 3
 const OUTPUT_CAP = 1000
 
 /**
+ * The ONLY authoring ops the host will replay from a sandbox run (CR-01).
+ *
+ * These are exactly the `createAuthoring` methods that route through
+ * `runInterceptors()` (addFeature / writeGeoJSON / circle / buffer). `editorCommand`
+ * is intentionally absent: it is a raw passthrough to `executeEditorCommand` with NO
+ * interceptor, so replaying it would let untrusted sandbox code dispatch arbitrary
+ * editor commands AROUND the Phase 5 safe-editing gate (D-03/D-08). The worker no
+ * longer exposes it (`AUTHORING_METHODS`), and this host-side allow-list is the
+ * defence-in-depth guarantee: even a hand-crafted recorded batch naming a
+ * non-intercepted op is rejected before it can mutate the editor.
+ */
+const REPLAYABLE_AUTHORING_OPS = new Set(['addFeature', 'writeGeoJSON', 'circle', 'buffer'])
+
+/**
  * Test-only transport override. Production leaves this `undefined` so `runSandbox`
  * uses the QuickJS worker. The proof suite injects `directEngineTransport` because
  * QuickJS-WASM-inside-a-spawned-Worker segfaults under `bun test` (Plan 01 note).
@@ -83,7 +97,7 @@ const runCodeSchema: Tool = {
 		name: 'run_code',
 		description:
 			'Run JavaScript inside an isolated sandbox to author map geometry programmatically or compute over ingested data. ' +
-			'The sandbox exposes exactly: `authoring` (the map-mutation API: addFeature, writeGeoJSON, editorCommand, circle, buffer), ' +
+			'The sandbox exposes exactly: `authoring` (the map-mutation API: addFeature, writeGeoJSON, circle, buffer), ' +
 			'`turf` (a curated @turf/turf subset: circle, distance, buffer, area, length, bearing, destination, point, lineString, along, nearestPointOnLine, booleanPointInPolygon, centroid), ' +
 			'`data` (read-only: `data.datasets[handleId]` = full ingested rows for handles you pass in `handles`; `data.features` = current map features as GeoJSON), ' +
 			"and `console`. There is NO fetch/network/DOM/storage. The script's final expression is returned as the result. " +
@@ -183,6 +197,15 @@ export function registerSandboxTools(register: (entry: ToolEntry) => void): void
 			>
 			const counts = emptyCounts()
 			for (const call of result.recordedCalls) {
+				// CR-01: reject any op that does NOT route through runInterceptors() before
+				// it can touch the editor. The worker only exposes the four intercepted ops,
+				// so this also catches an unknown/hand-crafted op (which would have meant the
+				// boundary surface drifted from the host allow-list).
+				if (!REPLAYABLE_AUTHORING_OPS.has(call.op)) {
+					throw new Error(
+						`run_code refused to replay a non-intercepted authoring op: '${call.op}' (CR-01).`,
+					)
+				}
 				const method = authoring[call.op]
 				if (typeof method !== 'function') {
 					// An unknown op recorded by the boundary should never happen (the worker

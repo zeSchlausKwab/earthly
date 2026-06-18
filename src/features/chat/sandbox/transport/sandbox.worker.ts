@@ -89,14 +89,18 @@ const MAX_STACK_SIZE_BYTES = 512 * 1024
 /** Default in-VM wall-clock deadline if the host omits one (D-14). */
 export const DEFAULT_DEADLINE_MS = 3000
 
-/** The authoring method names the boundary exposes (RECORDING only this phase). */
-const AUTHORING_METHODS = [
-	'addFeature',
-	'writeGeoJSON',
-	'editorCommand',
-	'circle',
-	'buffer',
-] as const
+/**
+ * The authoring method names the boundary exposes (RECORDING only this phase).
+ *
+ * CR-01: `editorCommand` is DELIBERATELY excluded. Every sandbox-reachable write
+ * MUST flow through `runInterceptors()` on host replay (D-03/D-08) so the Phase 5
+ * safe-editing gate at the interceptor seam catches it for free. `editorCommand`
+ * is a raw passthrough to `executeEditorCommand` (no interceptor, no allow-list),
+ * so exposing it to the sandbox would route arbitrary editor commands AROUND the
+ * gate the whole phase relies on. It stays available to TRUSTED (non-sandbox)
+ * callers of `createAuthoring`; only this sandbox-facing surface omits it.
+ */
+const AUTHORING_METHODS = ['addFeature', 'writeGeoJSON', 'circle', 'buffer'] as const
 
 /**
  * Run untrusted `code` inside a fresh QuickJS context and return a serializable

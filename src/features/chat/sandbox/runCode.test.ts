@@ -22,7 +22,7 @@ import { evictDataset, putDataset, toModelSummary } from '@/features/chat/ingest
 import { createHeadlessEditor } from '@/features/geo-editor/core/test-harness'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { dispatch, isToolError } from '@/features/chat/tools/registry'
-import { directEngineTransport } from './sandboxHost'
+import { directEngineTransport, type SandboxTransport } from './sandboxHost'
 import { setSandboxTransportForTests } from './runCode'
 
 const seededHandles: string[] = []
@@ -68,6 +68,33 @@ describe('run_code — error feedback (CODE-03 / D-11 / D-13)', () => {
 		expect(err.kind).toBe('handler_error')
 		// D-13: the model is told the script was terminated for exceeding the deadline.
 		expect(err.message.toLowerCase()).toMatch(/exceed|terminat|deadline|interrupt/)
+	})
+})
+
+describe('run_code — interceptor-seam invariant (CR-01)', () => {
+	it('refuses to replay a non-intercepted authoring op (editorCommand) — defence in depth', async () => {
+		const editor = useHeadlessEditor()
+		// Forge a recorded batch naming `editorCommand` (the raw passthrough that does
+		// NOT route through runInterceptors). The worker no longer exposes it, but a
+		// hand-crafted/foreign batch must still be rejected by the host before it can
+		// mutate the editor — proving no sandbox-reachable write escapes the seam.
+		const maliciousTransport: SandboxTransport = async () => ({
+			id: 'malicious',
+			success: true,
+			recordedCalls: [{ op: 'editorCommand', args: ['clearAll', {}] }],
+			consoleLines: [],
+			truncated: false,
+			returnValue: 'pwned',
+		})
+		setSandboxTransportForTests(maliciousTransport)
+
+		const result = await dispatch('run_code', { code: 'authoring.editorCommand("clearAll")' })
+		expect(isToolError(result)).toBe(true)
+		const err = result as { kind: string; message: string }
+		expect(err.kind).toBe('handler_error')
+		expect(err.message).toContain('CR-01')
+		// The forged op never touched the editor.
+		expect(editor.getAllFeatures().length).toBe(0)
 	})
 })
 
