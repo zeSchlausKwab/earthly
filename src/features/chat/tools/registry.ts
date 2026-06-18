@@ -18,6 +18,7 @@ import { executeEditorAiTool, getEditorAiToolDefinitions } from '@/features/geo-
 import { useEditorStore } from '@/features/geo-editor/store'
 import { getMapContextSnapshot, getCompactMapContextForTool, mapSnapshotCache, pruneSnapshotCache } from './context'
 import { isToolError, type ToolError } from './errors'
+import { registerSandboxTools } from '@/features/chat/sandbox/runCode'
 import { registerIngestTools } from './ingest-tools'
 import { registerPrimitiveTools } from './primitives-tools'
 import { geoStaticToolSchemas } from './schemas'
@@ -62,6 +63,7 @@ export type ToolKind =
 	| 'remote-mcp'
 	| 'authoring-primitive'
 	| 'nostr-scroll'
+	| 'code-interpreter'
 
 /** A tool handler. Receives parsed args + optional execution context. */
 export type ToolHandler = (
@@ -1005,6 +1007,10 @@ function bootstrapRegistry(): void {
 	// (host-builtin) + batch_geocode (remote-mcp) without importing `./registry`
 	// back (one-way edge; avoids the dev-bundler circular-init crash).
 	registerIngestTools(register)
+	// Same injected-`register` idiom: sandbox/runCode registers run_code
+	// (code-interpreter). Importing it here ALSO pulls the QuickJS sandbox
+	// transport into the app graph so the `.wasm` becomes reachable in the build.
+	registerSandboxTools(register)
 }
 
 bootstrapRegistry()
