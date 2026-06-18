@@ -126,24 +126,40 @@ describe('recording + return value (D-10) — buffer-then-apply', () => {
 })
 
 describe('import boundary (CODE-01 static) — no signer/wallet/Nostr/createAuthoring reach', () => {
-	// TUNED per PATTERNS.md: the sandbox legitimately lives under @/features/chat,
-	// so we do NOT forbid @/features/chat wholesale — only the host-secret reach
-	// (signer/wallet/Nostr/NDK/applesauce/MCP) and a direct createAuthoring import
-	// in the worker/transport files. Self-imports + @turf/turf + quickjs-emscripten
-	// are allowed.
-	const FORBIDDEN_IMPORT_PATTERNS: RegExp[] = [
-		/from\s+['"][^'"]*createAuthoring/,
-		/\bcreateAuthoring\b.*from/,
+	// TUNED per PATTERNS.md, then refined for Wave 2 (run_code).
+	//
+	// TWO tiers of prohibition:
+	//
+	// (A) SECRET reach — forbidden in EVERY sandbox source file, with no exception
+	//     (T-04-12): no signer / wallet / Nostr / NDK / applesauce / MCP import may
+	//     appear anywhere under sandbox/, including the new host modules.
+	//
+	// (B) CONFINEMENT-BOUNDARY reach — `createAuthoring` and `geo-editor/store` are
+	//     forbidden ONLY in the worker/transport + pure-engine files, which must
+	//     stay statically provable as a closed boundary (T-04-09: the worker RECORDS
+	//     calls, never applies them). `runCode.ts` is the HOST-SIDE replay seam — it
+	//     legitimately imports `createAuthoring` + the editor store on the MAIN
+	//     thread (that is the entire point of Wave 2, D-03/D-08), so it is exempt
+	//     from tier (B) but NOT from tier (A). `readSnapshot.ts` reads the editor
+	//     store via a TYPE-only import, also exempt from tier (B).
+	const SECRET_IMPORT_PATTERNS: RegExp[] = [
 		/@\/lib\/ndk/,
 		/@\/lib\/nostr/,
 		/['"]nostr/,
 		/applesauce/,
 		/@modelcontextprotocol/,
 		/@contextvm/,
-		/geo-editor\/store/,
 		/from\s+['"][^'"]*signer/,
 		/from\s+['"][^'"]*wallet/,
 	]
+	const CONFINEMENT_BOUNDARY_PATTERNS: RegExp[] = [
+		/from\s+['"][^'"]*createAuthoring/,
+		/\bcreateAuthoring\b.*from/,
+		/geo-editor\/store/,
+	]
+
+	/** Host-side modules exempt from tier (B) — they run on the main thread. */
+	const HOST_REPLAY_FILES = new Set(['runCode.ts', 'readSnapshot.ts'])
 
 	const SANDBOX_DIR = dirname(fileURLToPath(import.meta.url))
 
@@ -169,17 +185,35 @@ describe('import boundary (CODE-01 static) — no signer/wallet/Nostr/createAuth
 				'sandboxHost.ts',
 				'curatedTurf.ts',
 				'outputCapture.ts',
+				'runCode.ts',
+				'readSnapshot.ts',
 			]),
 		)
 	})
 
-	it.each(sandboxSourceFiles())('%s imports nothing forbidden', (file) => {
+	it.each(sandboxSourceFiles())('%s imports no host secret (tier A)', (file) => {
 		const source = readFileSync(file, 'utf8')
 		const importLines = source
 			.split('\n')
 			.filter((line) => /^\s*import\b/.test(line) || /\bfrom\s+['"]/.test(line))
 		for (const line of importLines) {
-			for (const pattern of FORBIDDEN_IMPORT_PATTERNS) {
+			for (const pattern of SECRET_IMPORT_PATTERNS) {
+				expect(line).not.toMatch(pattern)
+			}
+		}
+	})
+
+	it.each(
+		sandboxSourceFiles(),
+	)('%s keeps the confinement boundary closed (tier B, worker/transport only)', (file) => {
+		const base = file.split('/').pop() ?? ''
+		if (HOST_REPLAY_FILES.has(base)) return // host-side replay seam is exempt
+		const source = readFileSync(file, 'utf8')
+		const importLines = source
+			.split('\n')
+			.filter((line) => /^\s*import\b/.test(line) || /\bfrom\s+['"]/.test(line))
+		for (const line of importLines) {
+			for (const pattern of CONFINEMENT_BOUNDARY_PATTERNS) {
 				expect(line).not.toMatch(pattern)
 			}
 		}
