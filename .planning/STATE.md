@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: executing
-stopped_at: 04-02 complete; criterion (c) prod .wasm SERVING resolved (asset emits + serves 200 application/wasm); live in-browser execute still pending Wave 3 UAT
-last_updated: "2026-06-18T08:47:00.000Z"
-last_activity: 2026-06-18 -- Phase 04 criterion (c) prod .wasm-serving fix (build.ts emits emscripten-module.wasm; sandbox.worker.ts wasmLocation in browser/Worker only; dev+prod serve application/wasm)
+stopped_at: 04-03 implementation complete (CodeRunDisclosure + ChatPanel wiring); all 3 Phase-4 plans code-complete. Phase 4 VERIFICATION PENDING — live autonomous-demo UAT deferred to /gsd-verify-work 4 (do NOT mark phase complete)
+last_updated: "2026-06-18T09:27:21.000Z"
+last_activity: 2026-06-18 -- Phase 04 Plan 03 close-out (CodeRunDisclosure collapsible read-only code+output block D-09/D-10/D-11/D-12/D-07, wired into MessageBubble); Task 3 live UAT deferred to /gsd-verify-work 4
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 18
-  completed_plans: 17
-  percent: 50
+  completed_plans: 18
+  percent: 53
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 ## Current Position
 
-Phase: 04 (code-interpreter-sandbox) — EXECUTING
-Plan: 2 of 3 complete (next: 04-03)
-Status: Executing Phase 04 — run_code tool wired (Wave 2 done)
-Last activity: 2026-06-18 -- Phase 04 Plan 02 complete (run_code tool: D-01 read snapshot + replay through createAuthoring + fibonacci/overfly proofs)
+Phase: 04 (code-interpreter-sandbox) — IMPLEMENTATION COMPLETE, VERIFICATION PENDING
+Plan: 3 of 3 code-complete (live UAT deferred to /gsd-verify-work 4)
+Status: Phase 04 implementation done — run_code wired (Wave 2) + collapsible code/output UI (Wave 3); live autonomous-demo UAT PENDING via /gsd-verify-work 4. Phase is NOT yet verified/complete.
+Last activity: 2026-06-18 -- Phase 04 Plan 03 close-out (CodeRunDisclosure D-09/D-10/D-11/D-12/D-07 + MessageBubble reroute); Task 3 live UAT deferred to /gsd-verify-work 4
 
-Progress: [███████░░░] 67%
+Progress: [██████████] 100% (Phase 4 plans code-complete; live UAT pending)
 
 ## Performance Metrics
 
@@ -70,6 +70,7 @@ Progress: [███████░░░] 67%
 | Phase 03 P06 | continuation | 3 tasks | 9 files |
 | Phase 04 P01 | ~10min | 4/5 tasks (c deferred) | 10 files |
 | Phase 04 P02 | ~8min | 3 tasks | 6 files |
+| Phase 04 P03 | continuation | 2/3 tasks (UAT deferred) | 3 files |
 
 ## Accumulated Context
 
@@ -155,6 +156,6 @@ Items acknowledged and carried forward / out of scope for this milestone:
 
 ## Session Continuity
 
-Last session: 2026-06-18T08:47:00.000Z
-Stopped at: 04-02 complete; criterion (c) prod .wasm SERVING resolved (asset emits + serves 200 application/wasm, fix a417ca5); live in-browser execute deferred to Wave 3 UAT
-Resume file: .planning/phases/04-code-interpreter-sandbox/04-03-PLAN.md
+Last session: 2026-06-18T09:27:21.000Z
+Stopped at: 04-03 implementation complete (CodeRunDisclosure + ChatPanel reroute); all 3 Phase-4 plans code-complete. Phase 4 verification PENDING — live autonomous-demo UAT routed to /gsd-verify-work 4. Do NOT mark Phase 4 complete until that UAT signs off.
+Resume file: run `/gsd-verify-work 4` (live UAT for the 5 deferred items in 04-03-SUMMARY.md)

@@ -140,7 +140,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 3** *(blocked on Wave 2)*
 
-  - [ ] 04-03-PLAN.md — collapsible read-only code/output block (D-09/D-10/D-11/D-12/D-07) reusing `ToolResultDisclosure`, routed in `MessageBubble`; end-of-phase autonomous-demo UAT (CODE-03, CODE-05, CODE-06)
+  - [x] 04-03-PLAN.md — collapsible read-only code/output block (D-09/D-10/D-11/D-12/D-07) reusing `ToolResultDisclosure`, routed in `MessageBubble`; end-of-phase autonomous-demo UAT (CODE-03, CODE-05, CODE-06) (implementation complete 2026-06-18 — `CodeRunDisclosure` collapsed-by-default read-only source + console + authoring counts + JSON return value + truncation marker, concise error reuses the red `ToolError` bubble; `MessageBubble` special-cases `run_code`, all other tools unchanged; commits 4bfe7f9→00a44b3→26d878a; `bun test src/features/chat/` 233 pass / 0 fail, `bun run build` success, Biome clean on touched files). **Task 3 end-of-phase LIVE autonomous-demo UAT DEFERRED to `/gsd-verify-work 4` per human decision — the autonomous-loop mechanics are bun-test-proven; the live, human-observed acceptance of the 5 UAT items (CODE-05 fibonacci, CODE-06 overfly, CODE-03 self-correction, CODE-04 no-freeze, D-12 read-only) is the verify-work gate. Phase 4 is implementation-complete but NOT yet verified.**
 
 ### Phase 5: Dataset-Aware Safe Editing
 
@@ -195,7 +195,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 1. Encrypted Settings Persistence | 3/3 | Complete    | 2026-06-16 |
 | 2. Tool Registry & Authoring API | 4/6 | In progress | - |
 | 3. File Ingest & Multimodal | 6/6 | Complete    | 2026-06-17 |
-| 4. Code Interpreter Sandbox | 1/3 | In Progress|  |
+| 4. Code Interpreter Sandbox | 3/3 | Impl complete — UAT pending (/gsd-verify-work 4) |  |
 | 5. Dataset-Aware Safe Editing | 0/TBD | Not started | - |
 | 6. AI Bulk Transform & Data-Driven Styling | 0/TBD | Not started | - |
 | 7. Geometry Optimization | 0/TBD | Not started | - |
