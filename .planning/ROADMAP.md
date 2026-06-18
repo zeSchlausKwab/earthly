@@ -126,9 +126,21 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. A runaway or infinite-loop script is terminated by a wall-clock timeout and output-size caps without freezing the app.
   4. The AI can generate geometry programmatically (e.g. "15 circles with increasing fibonacci radii") and run a custom cost-weighted routing computation (e.g. distance vs. per-country overfly fees for an Austria→Bosnia flight path).
 
-**Plans**: TBD
+**Plans**: 3 plans
 **Risks / Notes**: This phase begins with a TIME-BOXED ISOLATION SPIKE to resolve the open design decision — QuickJS-WASM-inside-a-Worker vs. cross-origin-iframe-with-strict-CSP. Both share message-only RPC + the Authoring API as the sole surface; they differ on the transport primitive. The spike must verify, before any tool is wired: (a) generated code provably cannot reach `localStorage`/`fetch`/signer/wallet; (b) `worker.terminate()` (or iframe teardown) kills an infinite loop; (c) the chosen transport serves correctly in Bun.serve() dev and prod. Retrofitting isolation after the API is wired is a rewrite, so the boundary contract is locked first.
 **UI hint**: yes
+
+**Wave 1**
+
+  - [ ] 04-01-PLAN.md — Isolation spike: install quickjs-emscripten (legitimacy-gated), QuickJS-in-Worker transport-agnostic `runSandbox()`, curated turf + output cap, confinement/surface/timeout proofs (bun test) + prod `.wasm`-serving human-verify (CODE-01, CODE-02, CODE-04)
+
+**Wave 2** *(blocked on Wave 1)*
+
+  - [ ] 04-02-PLAN.md — D-01 read snapshot (rows-by-handle + current features, structuredClone fail-closed), `run_code` handler replaying through `createAuthoring`→`runInterceptors` (D-03/D-08, no gate) registered with kind:'code-interpreter', retry counter (D-06/D-13), headline-script proofs: fibonacci-15-circles + Austria→Bosnia overfly (CODE-01, CODE-02, CODE-03, CODE-05, CODE-06)
+
+**Wave 3** *(blocked on Wave 2)*
+
+  - [ ] 04-03-PLAN.md — collapsible read-only code/output block (D-09/D-10/D-11/D-12/D-07) reusing `ToolResultDisclosure`, routed in `MessageBubble`; end-of-phase autonomous-demo UAT (CODE-03, CODE-05, CODE-06)
 
 ### Phase 5: Dataset-Aware Safe Editing
 
