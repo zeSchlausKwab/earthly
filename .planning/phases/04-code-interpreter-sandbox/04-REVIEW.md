@@ -30,6 +30,12 @@ findings:
   info: 4
   total: 11
 status: issues_found
+resolved:
+  - CR-01  # fixed 2026-06-18, commit 59ceac3
+  - WR-01  # fixed 2026-06-18, commit 488cd96
+open_after_resolution:
+  warning: 5  # WR-02..WR-06
+  info: 4     # IN-01..IN-04
 ---
 
 # Phase 4: Code Review Report
@@ -73,6 +79,18 @@ was provided with this review.
 ## Critical Issues
 
 ### CR-01: `editorCommand` replay bypasses the interceptor seam and dispatches arbitrary editor commands
+
+**Status:** RESOLVED 2026-06-18 (commit 59ceac3). The sandbox does not need
+`editorCommand` (no headline script or sandbox test uses it), so it was removed
+from the sandbox-facing surface: the worker's `AUTHORING_METHODS` list no longer
+exposes it, and the `runCode.ts` advertised surface string was updated to match.
+`editorCommand` remains on `createAuthoring` for trusted (non-sandbox) callers
+(boundary.test still asserts it). Defence-in-depth: `runCode` now gates replay on a
+`REPLAYABLE_AUTHORING_OPS` allow-list (exactly the four interceptor-routed ops), so
+even a forged/foreign recorded batch naming a non-intercepted op is rejected before
+it can mutate the editor. New tests prove `authoring.editorCommand` is `undefined`
+inside the boundary and that a forged `editorCommand` replay is refused with the
+editor left untouched.
 
 **File:** `src/features/chat/sandbox/runCode.ts:179-196`, `src/features/geo-editor/api/authoring.ts:173-178`, `src/features/geo-editor/commands.ts:556-565`
 
@@ -120,6 +138,19 @@ function editorCommand(id: EditorCommandId, args: EditorCommandArgs = {}) {
 ## Warnings
 
 ### WR-01: Advertised DoS distance cap is never enforced
+
+**Status:** RESOLVED 2026-06-18 (commit 488cd96). The cap is now actually enforced.
+`curatedTurf.ts` exports `assertSandboxDistanceWithinCap(op, args)` which, for the
+distance-bearing ops (`circle`/`buffer`/`destination`/`along`), rejects NaN /
+Infinity / ≤ 0 and any distance whose meter-equivalent is at or above
+`SANDBOX_MAX_DISTANCE_METERS` (normalizing km/miles/etc to meters via the per-call
+`units`, turf default `kilometers`). The worker's turf wrapper calls it BEFORE
+invoking turf, so an absurd radius can't burn CPU on the worker thread; rejection
+surfaces as the catchable `__turf_error__:` marker. The misleading comment was
+corrected to point at the real enforcement. New tests cover the helper (in-bounds
+pass, no-op for non-distance ops, over-cap reject in m + km, NaN/Inf/0/negative)
+plus an end-to-end proof that an over-cap `turf.circle` inside the sandbox returns
+`__turf_error__`.
 
 **File:** `src/features/chat/sandbox/curatedTurf.ts:12-16,39-49`, `src/features/chat/sandbox/transport/sandbox.worker.ts:139-157`
 
