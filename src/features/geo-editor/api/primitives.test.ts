@@ -11,6 +11,7 @@ import {
 	makeBuffer,
 	makeCircle,
 } from './primitives'
+import { InvalidStyleOptionError } from './styleOptions'
 
 const BERLIN: [number, number] = [13.4, 52.5]
 
@@ -50,17 +51,46 @@ describe('makeCircle (D-13/D-14, V5 bound)', () => {
 		expect(span(kmRing)).toBeGreaterThan(span(metersRing) * 5)
 	})
 
-	it.each([Number.NaN, Number.POSITIVE_INFINITY, -5, 0])(
-		'rejects an invalid radius (%p) — no geometry produced (V5)',
-		(radius) => {
-			expect(() => makeCircle(BERLIN, radius as number)).toThrow(InvalidPrimitiveArgError)
-		},
-	)
+	it.each([
+		Number.NaN,
+		Number.POSITIVE_INFINITY,
+		-5,
+		0,
+	])('rejects an invalid radius (%p) — no geometry produced (V5)', (radius) => {
+		expect(() => makeCircle(BERLIN, radius as number)).toThrow(InvalidPrimitiveArgError)
+	})
 
 	it('rejects an absurdly large radius beyond the cap (V5 DoS bound)', () => {
 		expect(() => makeCircle(BERLIN, MAX_DISTANCE_METERS + 1, { units: 'meters' })).toThrow(
 			InvalidPrimitiveArgError,
 		)
+	})
+
+	it('applies per-feature style options to the polygon properties (UAT gap)', () => {
+		const feature = makeCircle(BERLIN, 100, {
+			units: 'meters',
+			color: '#ff0000',
+			fillOpacity: 0.4,
+		})
+		expect(feature.properties?.color).toBe('#ff0000')
+		expect(feature.properties?.fillOpacity).toBe(0.4)
+	})
+
+	it('normalizes style aliases (fill/stroke) to canonical renderer keys', () => {
+		const feature = makeCircle(BERLIN, 100, { fill: '#00ff00', stroke: '#0000ff' })
+		expect(feature.properties?.fillColor).toBe('#00ff00')
+		expect(feature.properties?.strokeColor).toBe('#0000ff')
+		expect(feature.properties?.fill).toBeUndefined()
+		expect(feature.properties?.stroke).toBeUndefined()
+	})
+
+	it('rejects an unknown style option (no silent drop)', () => {
+		expect(() => makeCircle(BERLIN, 100, { wobble: 'x' } as never)).toThrow(InvalidStyleOptionError)
+	})
+
+	it('rejects a bad style value', () => {
+		expect(() => makeCircle(BERLIN, 100, { fillOpacity: 5 })).toThrow(InvalidStyleOptionError)
+		expect(() => makeCircle(BERLIN, 100, { color: 123 as never })).toThrow(InvalidStyleOptionError)
 	})
 })
 
@@ -73,19 +103,37 @@ describe('makeBuffer (D-15 raw, T-02-15 undefined)', () => {
 		)
 	})
 
+	it('applies per-feature style options to the buffered polygon (UAT gap)', () => {
+		const result = makeBuffer(pointFeature(BERLIN), 500, {
+			units: 'meters',
+			fillColor: '#123456',
+			strokeWidth: 3,
+		})
+		expect(result?.properties?.fillColor).toBe('#123456')
+		expect(result?.properties?.strokeWidth).toBe(3)
+	})
+
+	it('rejects an unknown style option on buffer', () => {
+		expect(() => makeBuffer(pointFeature(BERLIN), 500, { glow: true } as never)).toThrow(
+			InvalidStyleOptionError,
+		)
+	})
+
 	it('accepts a bare Geometry (not just a Feature)', () => {
 		const result = makeBuffer({ type: 'Point', coordinates: BERLIN }, 500)
 		expect(result).toBeDefined()
 	})
 
-	it.each([Number.NaN, Number.POSITIVE_INFINITY, -5, 0])(
-		'rejects an invalid distance (%p) (V5)',
-		(distance) => {
-			expect(() => makeBuffer(pointFeature(BERLIN), distance as number)).toThrow(
-				InvalidPrimitiveArgError,
-			)
-		},
-	)
+	it.each([
+		Number.NaN,
+		Number.POSITIVE_INFINITY,
+		-5,
+		0,
+	])('rejects an invalid distance (%p) (V5)', (distance) => {
+		expect(() => makeBuffer(pointFeature(BERLIN), distance as number)).toThrow(
+			InvalidPrimitiveArgError,
+		)
+	})
 })
 
 describe('authoring.circle (TOOLS-01 / D-11)', () => {
@@ -113,6 +161,66 @@ describe('authoring.circle (TOOLS-01 / D-11)', () => {
 	it('rejects an invalid radius by throwing (no geometry drawn)', () => {
 		expect(() => authoring.circle(BERLIN, -1)).toThrow(InvalidPrimitiveArgError)
 		expect(editor.getAllFeatures()).toHaveLength(0)
+	})
+
+	it('persists per-feature color through addFeature → stored feature (UAT gap)', () => {
+		const result = authoring.circle(BERLIN, 500, { units: 'meters', color: '#ff0000' })
+		expect(result.ok).toBe(true)
+		const stored = editor.getFeature(result.featureIds[0])
+		expect(stored?.properties?.color).toBe('#ff0000')
+	})
+
+	it('persists fillColor/strokeColor through the add path', () => {
+		const result = authoring.circle(BERLIN, 500, {
+			units: 'meters',
+			fillColor: '#00ff00',
+			strokeColor: '#0000ff',
+		})
+		const stored = editor.getFeature(result.featureIds[0])
+		expect(stored?.properties?.fillColor).toBe('#00ff00')
+		expect(stored?.properties?.strokeColor).toBe('#0000ff')
+	})
+
+	it('rejects an unknown style option (model self-corrects, no unstyled output)', () => {
+		expect(() => authoring.circle(BERLIN, 500, { fontStyle: 'bold' } as never)).toThrow(
+			InvalidStyleOptionError,
+		)
+		expect(editor.getAllFeatures()).toHaveLength(0)
+	})
+
+	it('draws 15 fibonacci circles with DISTINCT colors (UAT repro)', () => {
+		const palette = [
+			'#e6194b',
+			'#3cb44b',
+			'#ffe119',
+			'#4363d8',
+			'#f58231',
+			'#911eb4',
+			'#46f0f0',
+			'#f032e6',
+			'#bcf60c',
+			'#fabebe',
+			'#008080',
+			'#e6beff',
+			'#9a6324',
+			'#fffac8',
+			'#800000',
+		]
+		const golden = 137.5 // golden-angle phyllotaxis layout
+		for (let i = 0; i < 15; i++) {
+			const angle = (i * golden * Math.PI) / 180
+			const r = 0.01 * Math.sqrt(i + 1)
+			const center: [number, number] = [
+				BERLIN[0] + r * Math.cos(angle),
+				BERLIN[1] + r * Math.sin(angle),
+			]
+			const result = authoring.circle(center, 100, { units: 'meters', color: palette[i] })
+			expect(result.ok).toBe(true)
+		}
+		const stored = editor.getAllFeatures()
+		expect(stored).toHaveLength(15)
+		const colors = new Set(stored.map((f) => f.properties?.color))
+		expect(colors.size).toBe(15)
 	})
 })
 
@@ -170,8 +278,6 @@ describe('authoring.buffer (D-15 by-id + raw, T-02-15/T-02-16)', () => {
 
 	it('rejects an invalid distance by throwing', () => {
 		const seed = authoring.addFeature(pointFeature(BERLIN, 'seed-point'))
-		expect(() => authoring.buffer(seed.featureIds[0], Number.NaN)).toThrow(
-			InvalidPrimitiveArgError,
-		)
+		expect(() => authoring.buffer(seed.featureIds[0], Number.NaN)).toThrow(InvalidPrimitiveArgError)
 	})
 })

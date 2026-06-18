@@ -26,3 +26,9 @@ export {
 	makeBuffer,
 	makeCircle,
 } from './primitives'
+export type { FeatureStyleOptions } from './styleOptions'
+export {
+	CANONICAL_STYLE_KEYS,
+	InvalidStyleOptionError,
+	normalizeStyleOptions,
+} from './styleOptions'

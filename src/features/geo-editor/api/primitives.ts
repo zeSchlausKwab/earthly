@@ -23,6 +23,7 @@
 
 import { buffer as turfBuffer, circle as turfCircle } from '@turf/turf'
 import type { Feature, Geometry, Polygon } from 'geojson'
+import { type FeatureStyleOptions, normalizeStyleOptions } from './styleOptions'
 
 /** Distance units exposed to callers + the AI tool schema (D-14). */
 export type PrimitiveUnits = 'meters' | 'kilometers' | 'miles'
@@ -63,9 +64,7 @@ export class InvalidPrimitiveArgError extends Error {
  */
 function validateDistance(value: number, units: PrimitiveUnits, label: string): number {
 	if (typeof value !== 'number' || !Number.isFinite(value)) {
-		throw new InvalidPrimitiveArgError(
-			`${label} must be a finite number (got ${String(value)}).`,
-		)
+		throw new InvalidPrimitiveArgError(`${label} must be a finite number (got ${String(value)}).`)
 	}
 	if (value <= 0) {
 		throw new InvalidPrimitiveArgError(`${label} must be greater than 0 (got ${value}).`)
@@ -79,8 +78,14 @@ function validateDistance(value: number, units: PrimitiveUnits, label: string): 
 	return value
 }
 
-/** Options accepted by {@link makeCircle}. */
-export interface MakeCircleOptions {
+/**
+ * Options accepted by {@link makeCircle}: the primitive params (`units`/`steps`)
+ * plus the per-feature style + metadata set (UAT gap-closure). Style options are
+ * normalized to the editor's canonical renderer property keys and attached to the
+ * resulting feature's `properties`; unknown options throw
+ * {@link InvalidStyleOptionError}.
+ */
+export interface MakeCircleOptions extends FeatureStyleOptions {
 	units?: PrimitiveUnits
 	/** turf step count (ring resolution); defaults to turf's own default (64). */
 	steps?: number
@@ -91,8 +96,11 @@ export interface MakeCircleOptions {
  *
  * `center` is `[lon, lat]`. `radius` is validated (finite, > 0, bounded) before
  * turf runs — there is NO default radius (D-14). The resulting ring has
- * `steps + 1` coordinates (turf closes the ring). Throws
- * {@link InvalidPrimitiveArgError} on an invalid radius.
+ * `steps + 1` coordinates (turf closes the ring). Any style/metadata options
+ * (`color`/`fillColor`/`strokeColor`/…) are normalized to the editor's canonical
+ * property keys and merged onto the feature's `properties` so it renders styled.
+ * Throws {@link InvalidPrimitiveArgError} on an invalid radius, or
+ * {@link InvalidStyleOptionError} on an unknown / invalid style option.
  */
 export function makeCircle(
 	center: [number, number],
@@ -101,17 +109,28 @@ export function makeCircle(
 ): Feature<Polygon> {
 	const units = options.units ?? DEFAULT_UNITS
 	const validRadius = validateDistance(radius, units, 'radius')
+	// Normalize/validate style BEFORE turf runs so a bad style option fails fast
+	// (and consistently) rather than after geometry is generated.
+	const styleProps = normalizeStyleOptions(options)
 	const steps = options.steps
-	return turfCircle(center, validRadius, {
+	const feature = turfCircle(center, validRadius, {
 		units,
 		...(typeof steps === 'number' && Number.isFinite(steps) && steps > 0
 			? { steps: Math.floor(steps) }
 			: {}),
 	})
+	feature.properties = { ...(feature.properties ?? {}), ...styleProps }
+	return feature
 }
 
-/** Options accepted by {@link makeBuffer}. */
-export interface MakeBufferOptions {
+/**
+ * Options accepted by {@link makeBuffer}: the primitive `units` plus the
+ * per-feature style + metadata set (UAT gap-closure). Style options are
+ * normalized to the editor's canonical renderer property keys and attached to the
+ * buffered feature's `properties`; unknown options throw
+ * {@link InvalidStyleOptionError}.
+ */
+export interface MakeBufferOptions extends FeatureStyleOptions {
 	units?: PrimitiveUnits
 }
 
@@ -121,8 +140,10 @@ export interface MakeBufferOptions {
  * `distance` is validated (finite, > 0, bounded) before turf runs. Returns the
  * buffered `Feature`, OR `undefined` when turf cannot produce geometry for the
  * input (degenerate / empty) — the value is NOT coerced (T-02-15); the caller
- * (`authoring.buffer`) null-checks it into a `{ ok:false }` MutationResult.
- * Throws {@link InvalidPrimitiveArgError} on an invalid distance.
+ * (`authoring.buffer`) null-checks it into a `{ ok:false }` MutationResult. Any
+ * style/metadata options are normalized and merged onto the buffered feature's
+ * `properties`. Throws {@link InvalidPrimitiveArgError} on an invalid distance,
+ * or {@link InvalidStyleOptionError} on an unknown / invalid style option.
  */
 export function makeBuffer(
 	geom: Feature | Geometry,
@@ -131,6 +152,8 @@ export function makeBuffer(
 ): Feature | undefined {
 	const units = options.units ?? DEFAULT_UNITS
 	const validDistance = validateDistance(distance, units, 'distance')
+	// Normalize/validate style BEFORE turf runs so a bad style option fails fast.
+	const styleProps = normalizeStyleOptions(options)
 	// turf `buffer` accepts a Feature or a bare Geometry; wrap a bare Geometry in
 	// a Feature so the single-feature overload is selected and the result is a
 	// Feature (not a FeatureCollection).
@@ -138,5 +161,8 @@ export function makeBuffer(
 		(geom as Feature).type === 'Feature'
 			? (geom as Feature)
 			: { type: 'Feature', geometry: geom as Geometry, properties: {} }
-	return turfBuffer(input, validDistance, { units })
+	const buffered = turfBuffer(input, validDistance, { units })
+	if (!buffered) return buffered
+	buffered.properties = { ...(buffered.properties ?? {}), ...styleProps }
+	return buffered
 }

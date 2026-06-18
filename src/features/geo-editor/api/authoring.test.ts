@@ -45,6 +45,20 @@ describe('createAuthoring — addFeature (D-10/D-11, T-02-04 reuse)', () => {
 		expect(result.counts.created).toBe(0)
 		expect(editor.getAllFeatures()).toHaveLength(0)
 	})
+
+	it('preserves raw style properties (fillColor/strokeColor/color) through the write path (UAT gap)', () => {
+		const result = authoring.addFeature({
+			type: 'Feature',
+			id: 'styled-raw',
+			geometry: { type: 'Point', coordinates: [13.4, 52.5] },
+			properties: { fillColor: '#ff0000', strokeColor: '#00ff00', color: '#0000ff' },
+		})
+		expect(result.ok).toBe(true)
+		const stored = editor.getFeature('styled-raw')
+		expect(stored?.properties?.fillColor).toBe('#ff0000')
+		expect(stored?.properties?.strokeColor).toBe('#00ff00')
+		expect(stored?.properties?.color).toBe('#0000ff')
+	})
 })
 
 describe('createAuthoring — writeGeoJSON replace (D-11 replace semantics)', () => {

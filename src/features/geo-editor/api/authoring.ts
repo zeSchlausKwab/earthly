@@ -83,6 +83,13 @@ export interface Authoring {
 	 * magic default radius). Validates radius (V5) — throws on
 	 * non-finite/negative/zero/absurd — then draws the polygon AND returns a
 	 * `MutationResult` carrying the created id.
+	 *
+	 * Per-feature STYLE + metadata is accepted in the same `options` bag and
+	 * applied to the drawn feature so it renders styled (UAT gap-closure):
+	 * `color` / `fillColor` / `strokeColor` / `fillOpacity` / `strokeOpacity` /
+	 * `strokeWidth` / `radius` / `label` / `name` / `description` (plus aliases
+	 * `fill`/`stroke`/`width`/`opacity`). UNKNOWN options throw
+	 * `InvalidStyleOptionError` (catchable) so callers self-correct.
 	 */
 	circle(center: [number, number], radius: number, options?: MakeCircleOptions): MutationResult
 	/**
@@ -91,7 +98,11 @@ export interface Authoring {
 	 * `MutationResult` carrying BOTH the source id (when by-id) and the new id
 	 * (D-11/D-15 composition). Returns `{ ok:false }` — never throws — for an
 	 * unknown feature id OR a degenerate input where turf yields `undefined`
-	 * (T-02-15/T-02-16). Throws only on an invalid distance (V5).
+	 * (T-02-15/T-02-16). Throws on an invalid distance (V5) or an unknown/invalid
+	 * style option (`InvalidStyleOptionError`).
+	 *
+	 * Per-feature STYLE + metadata is accepted in `options` and applied to the
+	 * buffered feature (same option set as `circle`).
 	 */
 	buffer(
 		target: string | Feature | Geometry,
