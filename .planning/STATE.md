@@ -160,3 +160,5 @@ Items acknowledged and carried forward / out of scope for this milestone:
 Last session: 2026-06-18T09:27:21.000Z
 Stopped at: 04-03 implementation complete (CodeRunDisclosure + ChatPanel reroute); all 3 Phase-4 plans code-complete. Phase 4 verification PENDING — live autonomous-demo UAT routed to /gsd-verify-work 4. Do NOT mark Phase 4 complete until that UAT signs off.
 Resume file: run `/gsd-verify-work 4` (live UAT for the 5 deferred items in 04-03-SUMMARY.md)
+
+UAT gap-closure (2026-06-18): styling gap resolved — authoring.circle/buffer now accept+apply per-feature style normalized to the editor's canonical renderer keys, reject unknown options, and run_code prompt advertises the convention; raw addFeature/writeGeoJSON style props preserved. Commits 5fe7f66 + 1e9448f; bun test 334/0 + dev/prod builds + biome green. 04-UAT.md styling gap marked resolved.
