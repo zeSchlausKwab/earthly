@@ -41,11 +41,13 @@ import {
 	Check,
 	Copy,
 	ArrowDownToLine,
+	Code2,
 } from 'lucide-react'
 import { estimateTokens, type ChatMessage, type ToolCall, type ProviderType } from './routstr'
 import { analyzeToolResultGeometryContent, bakeToolResultContentToEditor } from './tools'
 import { isToolError, type ToolError } from './tools/errors'
 import { ChatGeometryAttachment } from './ChatGeometryAttachment'
+import { CodeRunDisclosure, parseRunCodeResult } from './CodeRunDisclosure'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { ChatReference } from './store'
@@ -416,6 +418,28 @@ export function ChatPanel({
 	}, [streamPhase])
 	const contextTokenDisplay =
 		diagnostics.effectiveContextTokens ?? selectedModelData?.contextLength ?? null
+	// Pair each run_code tool call (which carries the source `code` argument) with
+	// its later role:'tool' result message by tool_call_id, so MessageBubble can
+	// render the source + output together as a single CodeRunDisclosure block
+	// (D-07: one block per result message keeps each self-correction retry distinct).
+	const runCodeSourceByCallId = useMemo(() => {
+		const map = new Map<string, string>()
+		for (const message of messages) {
+			if (message.role !== 'assistant' || !message.tool_calls) continue
+			for (const call of message.tool_calls) {
+				if (call.function.name !== 'run_code') continue
+				let source = ''
+				try {
+					const args = JSON.parse(call.function.arguments) as { code?: unknown }
+					if (typeof args.code === 'string') source = args.code
+				} catch {
+					source = ''
+				}
+				map.set(call.id, source)
+			}
+		}
+		return map
+	}, [messages])
 	const renderedMessages = useMemo(() => {
 		const seen = new Map<string, number>()
 		return messages.map((message) => {
@@ -638,7 +662,11 @@ export function ChatPanel({
 				) : (
 					<>
 						{renderedMessages.map(({ message, key }) => (
-							<MessageBubble key={key} message={message} />
+							<MessageBubble
+								key={key}
+								message={message}
+								runCodeSourceByCallId={runCodeSourceByCallId}
+							/>
 						))}
 
 						{/* Streaming message */}
@@ -932,6 +960,9 @@ function buildAttachedGeometryContextMessage(geojson: FeatureCollection): string
 interface MessageBubbleProps {
 	message: ChatMessage
 	isStreaming?: boolean
+	/** Maps a run_code tool_call_id → its source `code`, so the result bubble can
+	 * pair source + output into one CodeRunDisclosure block (D-07/D-09). */
+	runCodeSourceByCallId?: Map<string, string>
 }
 
 interface ParsedAssistantContent {
@@ -1425,7 +1456,7 @@ function ChatMarkdownContent({
 	)
 }
 
-function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
+function MessageBubble({ message, isStreaming, runCodeSourceByCallId }: MessageBubbleProps) {
 	const isUser = message.role === 'user'
 	const isTool = message.role === 'tool'
 	const isAssistant = message.role === 'assistant'
@@ -1481,6 +1512,32 @@ function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
 			)
 		}
 
+		// run_code special-case (D-09/D-10/D-12): a successful run_code result renders
+		// as the collapsible read-only code+output block. We pair the source (from the
+		// matching assistant tool-call, looked up by tool_call_id) with the output
+		// (this result message). Only run_code is rerouted; every other tool keeps the
+		// generic ToolResultDisclosure path below. A failed run_code is a serialized
+		// ToolError and was already handled by the red bubble above (D-11).
+		const runCodeSource =
+			message.tool_call_id !== undefined
+				? runCodeSourceByCallId?.get(message.tool_call_id)
+				: undefined
+		if (runCodeSource !== undefined) {
+			const runResult = parseRunCodeResult(contentText)
+			if (runResult) {
+				return (
+					<div className="ml-8 flex min-w-0 gap-2">
+						<div className="flex-shrink-0 h-5 w-5 rounded flex items-center justify-center bg-violet-100 dark:bg-violet-900">
+							<Code2 className="h-3 w-3 text-violet-600 dark:text-violet-400" />
+						</div>
+						<div className="min-w-0 max-w-[85%]">
+							<CodeRunDisclosure source={runCodeSource} result={runResult} />
+						</div>
+					</div>
+				)
+			}
+		}
+
 		return (
 			<div className="ml-8 flex min-w-0 gap-2">
 				<div className="flex-shrink-0 h-5 w-5 rounded flex items-center justify-center bg-blue-100 dark:bg-blue-900">
@@ -1495,6 +1552,10 @@ function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
 
 	// Assistant message with tool calls
 	if (hasToolCalls) {
+		// run_code calls render their source inside the paired result block
+		// (CodeRunDisclosure), so suppress them from the generic orange chip strip.
+		const nonRunCodeCalls =
+			message.tool_calls?.filter((tc) => tc.function.name !== 'run_code') ?? []
 		return (
 			<div className="min-w-0 space-y-2">
 				{(parsedAssistantContent.answerText ||
@@ -1528,30 +1589,32 @@ function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
 						</div>
 					</div>
 				)}
-				<div className="ml-8 flex min-w-0 gap-2">
-					<div className="flex-shrink-0 h-5 w-5 rounded flex items-center justify-center bg-orange-100 dark:bg-orange-900">
-						<Wrench className="h-3 w-3 text-orange-600 dark:text-orange-400" />
-					</div>
-					<div className="relative min-w-0 overflow-hidden rounded-lg border border-orange-200/80 bg-orange-50/70 px-2 py-1.5 text-xs text-muted-foreground dark:border-orange-800/70 dark:bg-orange-950/40">
-						<CopyBubbleButton
-							text={JSON.stringify(message.tool_calls, null, 2)}
-							className="absolute right-1 top-1"
-							title="Copy tool calls JSON"
-						/>
-						{message.tool_calls?.map((tc: ToolCall) => (
-							<span
-								key={tc.id}
-								className="mr-1 inline-flex max-w-full items-center gap-1 rounded bg-orange-50 px-2 py-1 dark:bg-orange-950"
-							>
-								<Wrench className="h-3 w-3" />
-								<span className="truncate">{tc.function.name}</span>
-							</span>
-						))}
-						<div className="mt-1 text-[10px] text-muted-foreground">
-							{message.tool_calls?.length ?? 0} tool call(s)
+				{nonRunCodeCalls.length > 0 && (
+					<div className="ml-8 flex min-w-0 gap-2">
+						<div className="flex-shrink-0 h-5 w-5 rounded flex items-center justify-center bg-orange-100 dark:bg-orange-900">
+							<Wrench className="h-3 w-3 text-orange-600 dark:text-orange-400" />
+						</div>
+						<div className="relative min-w-0 overflow-hidden rounded-lg border border-orange-200/80 bg-orange-50/70 px-2 py-1.5 text-xs text-muted-foreground dark:border-orange-800/70 dark:bg-orange-950/40">
+							<CopyBubbleButton
+								text={JSON.stringify(nonRunCodeCalls, null, 2)}
+								className="absolute right-1 top-1"
+								title="Copy tool calls JSON"
+							/>
+							{nonRunCodeCalls.map((tc: ToolCall) => (
+								<span
+									key={tc.id}
+									className="mr-1 inline-flex max-w-full items-center gap-1 rounded bg-orange-50 px-2 py-1 dark:bg-orange-950"
+								>
+									<Wrench className="h-3 w-3" />
+									<span className="truncate">{tc.function.name}</span>
+								</span>
+							))}
+							<div className="mt-1 text-[10px] text-muted-foreground">
+								{nonRunCodeCalls.length} tool call(s)
+							</div>
 						</div>
 					</div>
-				</div>
+				)}
 			</div>
 		)
 	}
