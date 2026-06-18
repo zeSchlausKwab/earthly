@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: executing
-stopped_at: Phase 4 context gathered
-last_updated: "2026-06-18T07:40:20.789Z"
-last_activity: 2026-06-17 -- Phase 03 complete (verification passed, code-review criticals resolved)
+stopped_at: 04-01 complete (isolation spike; criterion c deferred to Wave 2)
+last_updated: "2026-06-18T08:13:00.000Z"
+last_activity: 2026-06-18 -- Phase 04 Plan 01 complete (isolation spike; criterion c deferred to Wave 2)
 progress:
   total_phases: 7
   completed_phases: 3
-  total_plans: 15
-  completed_plans: 15
-  percent: 43
+  total_plans: 18
+  completed_plans: 16
+  percent: 47
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** The maintainer (and any user) can open the app for fun, not duty — extended this milestone so analysts, curators, and power users can ingest real-world data, transform it with sandboxed code, and safely author maps via chat.
-**Current focus:** Phase 04 — code-interpreter-sandbox (Phase 03 complete)
+**Current focus:** Phase 04 — code-interpreter-sandbox
 
 ## Current Position
 
-Phase: 4
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-17 -- Phase 03 complete (verification passed, code-review criticals resolved)
+Phase: 04 (code-interpreter-sandbox) — EXECUTING
+Plan: 1 of 3 complete (next: 04-02)
+Status: Executing Phase 04 — Wave 1 spike done
+Last activity: 2026-06-18 -- Phase 04 Plan 01 complete (isolation spike; criterion c deferred to Wave 2)
 
-Progress: [██████████] 100%
+Progress: [████░░░░░░] 33%
 
 ## Performance Metrics
 
@@ -68,6 +68,7 @@ Progress: [██████████] 100%
 | Phase 03 P03 | ~5min | 3 tasks | 9 files |
 | Phase 03 P05 | ~12min | 2 tasks | 4 files |
 | Phase 03 P06 | continuation | 3 tasks | 9 files |
+| Phase 04 P01 | ~10min | 4/5 tasks (c deferred) | 10 files |
 
 ## Accumulated Context
 
@@ -119,6 +120,10 @@ Recent decisions affecting current work:
 - [Phase 3]: [03-05]: place_dataset_features (host-builtin) iterates getDataset(handleId).fullRows (D-05, NOT the sample → anticipates SAFE-05), builds features from lat/lon | WKT | GeoJSON-geometry, V5-range-validates coords (skippedInvalid), writes via importFeaturesToEditor (Authoring API, never the store), returns counts only (T-03-18). registerIngestTools(register) wired via the injected-register idiom; schemaFor() now exported from schemas.ts.
 - [Phase 3]: [03-05]: batch_geocode (remote-mcp) bounded BATCH_GEOCODE_MAX_ROWS=50 (unique names) + throttled BATCH_GEOCODE_MIN_INTERVAL_MS=1000 (~1 req/s) + de-duped + in-call cached, skip-and-report {located,total,failed,message} (T-03-15/T-03-16, D-06). throttle delay + geo client injectable so tests use a fake clock + mock SearchLocation (no sleep, no network). Single-row geocoding reuses the same batchGeocode primitive; Telegram one-shot still uses search_location. WKT parsed in-repo (no new dep).
 - [Phase 3]: [03-06]: FileChipStrip (D-10) mounts ALONGSIDE ChatGeometryAttachment (not folded in), mirroring its controlled {files,onChange} idiom — button + native drag-drop, one FileChip per file (compact deriveIngestSummary stat line, Collapsible/Popover expand, NO always-on grid, D-03). handleAttachedFile(file, deps) is a DOM-free dependency-injected pure orchestration (assertFileWithinCaps → parseFileInWorker → putDataset order pinned by fileAttachHandler.test.ts WARNING-5; image → readImageDataUrl → image_url, INGEST-04).
+- [Phase 4]: [04-01]: Isolation spike RESOLVED the open design decision — QuickJS-WASM-in-a-Worker (not cross-origin-iframe+CSP). Transport LOCKED = quickjs-emscripten all-in-one .wasm-asset variant; SUS singlefile fallback (@jitl/quickjs-singlefile-mjs-release-sync) NOT installed, reserved for a separate human-action gate only if Wave 2's prod smoke 404s the .wasm.
+- [Phase 4]: [04-01]: runSandbox(code,{readSnapshot,deadlineMs,outputCap}) is the transport-agnostic surface Waves 2-3 consume → SandboxRunResult{ok,recordedCalls,consoleLines,returnValue,error,timedOut}; timedOut derived (retryable). Defaults: deadlineMs=3000, memory=64MB, stack=512KB, output caps 1000 lines/256KiB with '…(output truncated)' marker.
+- [Phase 4]: [04-01]: Worker RECORDS authoring calls ({op,args}) and returns serializable records — replay through createAuthoring is Wave 2's job — so the worker/transport hold NO editor/createAuthoring/signer/wallet import and confinement stays statically provable. Proven (28 tests): CODE-01 a confinement, CODE-02 surface=exactly authoring/turf/data/console, CODE-04 b timeout-kill, output cap, import-boundary scan.
+- [Phase 4]: [04-01]: Spike criterion (c) prod .wasm-serving DEFERRED to Wave 2 (04-02) per explicit human decision — transport not yet imported by any app-graph module, so no .wasm bundles today. Wave 2 MUST run `bun run build:production` + browser smoke confirming the QuickJS .wasm returns 200.
 - [Phase 3]: [03-06]: composeOutboundContent extracted to its OWN module (src/features/chat/composeOutboundContent.ts), not inlined in ChatPanel — so ingestSendPath.test.ts asserts the D-11 invariant headlessly (dataset → {handleId,summary} from toModelSummary, NEVER fullRows; deep-scan finds no non-sampled row, BLOCKER-3). VisionGateControl (D-08 three-tier: vision=enabled / no-vision=hard-disabled+Tooltip / uncertain=amber+Send-anyway opt-in) + composeOutboundContent share ONE detectVisionSupport result; image_url included only when 'vision' or ('uncertain' && sendAnyway), never silent on 'no-vision'. Same gate governs capture_map_snapshot (D-09). UAT 6/6 approved.
 
 ### Pending Todos
@@ -129,7 +134,7 @@ None yet.
 
 - [Phase 1]: NIP-46 async decrypt path is untested against a remote signer; needs an explicit test + export/import escape hatch.
 - [Phase 3]: Optional active vision-probe step may consume Cashu budget; validate against Routstr prepayment before enabling by default.
-- [Phase 4]: Open design decision — QuickJS-WASM-in-Worker vs cross-origin-iframe+CSP for the sandbox isolation boundary. Resolve via a time-boxed spike at phase start before wiring any tool.
+- [Phase 4]: RESOLVED (04-01) — sandbox isolation boundary = QuickJS-WASM-in-Worker (not cross-origin-iframe+CSP); spike proved confinement + timeout-kill + surface. Carry-forward to Wave 2 (04-02): the prod `.wasm`-serving smoke (spike criterion c) + the SUS singlefile-fallback contingency must run under `bun run build:production` before/at the run_code wiring.
 - [Phase 6]: Style-rule persistence format (tag vs content) on kind 37515 must be decided before building; confirm against SPEC.md.
 
 ## Deferred Items
@@ -144,6 +149,6 @@ Items acknowledged and carried forward / out of scope for this milestone:
 
 ## Session Continuity
 
-Last session: 2026-06-18T06:58:14.057Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-code-interpreter-sandbox/04-CONTEXT.md
+Last session: 2026-06-18T08:13:00.000Z
+Stopped at: 04-01 complete (isolation spike; criterion c deferred to Wave 2)
+Resume file: .planning/phases/04-code-interpreter-sandbox/04-02-PLAN.md

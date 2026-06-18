@@ -25,10 +25,10 @@ Requirements for this milestone. Each maps to exactly one roadmap phase. Story t
 
 ### Code Interpreter
 
-- [ ] **CODE-01**: The AI can author and run JavaScript in a sandbox that provably cannot access the DOM, network/`fetch`, `localStorage`, the Nostr signer, or the wallet.
-- [ ] **CODE-02**: Sandboxed code can call the curated Authoring API (draw shapes, add/transform features) and nothing else on the host.
+- [ ] **CODE-01**: The AI can author and run JavaScript in a sandbox that provably cannot access the DOM, network/`fetch`, `localStorage`, the Nostr signer, or the wallet. _(04-01: confinement facet PROVEN — every forbidden global `undefined` under `bun test` + static import-boundary scan clean. Prod `.wasm`-serving facet (spike criterion c) is Wave-2-verified; still Pending until 04-02 wires `run_code`→`runSandbox` and runs the prod build smoke.)_
+- [x] **CODE-02**: Sandboxed code can call the curated Authoring API (draw shapes, add/transform features) and nothing else on the host. _(04-01: surface enumeration proves the injected globals are exactly `authoring`/`turf`/`data`/`console` plus JS built-ins, no host name leaks.)_
 - [ ] **CODE-03**: Generated code and its output are shown to the user in a collapsible block; runtime errors are fed back into the tool loop for self-correction.
-- [ ] **CODE-04**: Sandbox execution is bounded by a wall-clock timeout and output-size caps; a runaway/infinite loop is terminated without freezing the app.
+- [ ] **CODE-04**: Sandbox execution is bounded by a wall-clock timeout and output-size caps; a runaway/infinite loop is terminated without freezing the app. _(04-01: timeout-kill + output-cap ENGINE proven — `while(true){}`→`timedOut:true` via in-VM interrupt + host watchdog, 1000-line/256KiB cap. Pending until 04-02 wires it into the `run_code` tool loop.)_
 - [ ] **CODE-05**: The AI can generate geometry programmatically (e.g. "draw 15 circles with increasing fibonacci radii around this point").
 - [ ] **CODE-06**: The AI can run custom cost-weighted computations over routing data (e.g. weigh distance against per-country overfly fees for an Austria→Bosnia flight path). `[C]`
 
@@ -113,10 +113,10 @@ Each requirement maps to exactly one phase.
 | INGEST-05 | Phase 3 — File Ingest & Multimodal | Complete |
 | INGEST-06 | Phase 3 — File Ingest & Multimodal | Complete |
 | INGEST-07 | Phase 3 — File Ingest & Multimodal | Complete (03-04) |
-| CODE-01 | Phase 4 — Code Interpreter Sandbox | Pending |
-| CODE-02 | Phase 4 — Code Interpreter Sandbox | Pending |
+| CODE-01 | Phase 4 — Code Interpreter Sandbox | Partial (04-01: confinement facet proven; prod `.wasm`-serving facet Wave-2-verified) |
+| CODE-02 | Phase 4 — Code Interpreter Sandbox | Complete (04-01: injected surface = exactly authoring/turf/data/console, no host leak) |
 | CODE-03 | Phase 4 — Code Interpreter Sandbox | Pending |
-| CODE-04 | Phase 4 — Code Interpreter Sandbox | Pending |
+| CODE-04 | Phase 4 — Code Interpreter Sandbox | Partial (04-01: timeout-kill + output-cap engine proven; tool-loop wiring in Wave 2) |
 | CODE-05 | Phase 4 — Code Interpreter Sandbox | Pending |
 | CODE-06 | Phase 4 — Code Interpreter Sandbox | Pending |
 | SAFE-01 | Phase 5 — Dataset-Aware Safe Editing | Pending |

@@ -132,11 +132,11 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 1**
 
-  - [ ] 04-01-PLAN.md — Isolation spike: install quickjs-emscripten (legitimacy-gated), QuickJS-in-Worker transport-agnostic `runSandbox()`, curated turf + output cap, confinement/surface/timeout proofs (bun test) + prod `.wasm`-serving human-verify (CODE-01, CODE-02, CODE-04)
+  - [x] 04-01-PLAN.md — Isolation spike: install quickjs-emscripten (legitimacy-gated), QuickJS-in-Worker transport-agnostic `runSandbox()`, curated turf + output cap, confinement/surface/timeout proofs (bun test) + prod `.wasm`-serving human-verify (CODE-01, CODE-02, CODE-04) (completed 2026-06-18 — transport LOCKED = quickjs-emscripten .wasm-asset; 28/28 tests green proving confinement+surface+timeout-kill+output-cap; **spike criterion (c) prod `.wasm`-serving DEFERRED to Wave 2 per human decision** — Wave 2 must run `bun run build:production` + browser smoke confirming the QuickJS `.wasm` returns 200)
 
 **Wave 2** *(blocked on Wave 1)*
 
-  - [ ] 04-02-PLAN.md — D-01 read snapshot (rows-by-handle + current features, structuredClone fail-closed), `run_code` handler replaying through `createAuthoring`→`runInterceptors` (D-03/D-08, no gate) registered with kind:'code-interpreter', retry counter (D-06/D-13), headline-script proofs: fibonacci-15-circles + Austria→Bosnia overfly (CODE-01, CODE-02, CODE-03, CODE-05, CODE-06)
+  - [ ] 04-02-PLAN.md — D-01 read snapshot (rows-by-handle + current features, structuredClone fail-closed), `run_code` handler replaying through `createAuthoring`→`runInterceptors` (D-03/D-08, no gate) registered with kind:'code-interpreter', retry counter (D-06/D-13), headline-script proofs: fibonacci-15-circles + Austria→Bosnia overfly (CODE-01, CODE-02, CODE-03, CODE-05, CODE-06). **CARRY-FORWARD from 04-01: run the deferred spike criterion (c) — `bun run build:production` + browser smoke confirming the QuickJS `.wasm` returns 200 (not 404) and `runSandbox("typeof fetch")` returns `'undefined'`; if it 404s, take the human-gated `@jitl/quickjs-singlefile-mjs-release-sync` inlined-variant fallback.**
 
 **Wave 3** *(blocked on Wave 2)*
 
@@ -195,7 +195,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 1. Encrypted Settings Persistence | 3/3 | Complete    | 2026-06-16 |
 | 2. Tool Registry & Authoring API | 4/6 | In progress | - |
 | 3. File Ingest & Multimodal | 6/6 | Complete    | 2026-06-17 |
-| 4. Code Interpreter Sandbox | 0/TBD | Not started | - |
+| 4. Code Interpreter Sandbox | 1/3 | In Progress|  |
 | 5. Dataset-Aware Safe Editing | 0/TBD | Not started | - |
 | 6. AI Bulk Transform & Data-Driven Styling | 0/TBD | Not started | - |
 | 7. Geometry Optimization | 0/TBD | Not started | - |
