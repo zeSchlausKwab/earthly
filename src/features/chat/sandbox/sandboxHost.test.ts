@@ -124,6 +124,26 @@ describe('output cap (CODE-04) — console flooding is bounded', () => {
 	})
 })
 
+describe('DoS distance cap (WR-01) — enforced before turf runs', () => {
+	it('an over-cap turf.circle is rejected with a __turf_error__ marker (no turf burn)', async () => {
+		// 50,000 km >> 40,075,000 m cap. The wrapper throws SandboxDistanceCapError,
+		// which the worker turns into a catchable __turf_error__: marker — turf never runs.
+		const result = await runSandbox(`turf.circle([14.5, 47.5], 50000, { units: 'kilometers' })`)
+		expect(result.ok).toBe(true)
+		expect(typeof result.returnValue).toBe('string')
+		expect(result.returnValue as string).toContain('__turf_error__:')
+		expect(result.returnValue as string).toMatch(/exceeds.*DoS cap/i)
+	})
+
+	it('a sane in-bounds turf.circle still computes a polygon', async () => {
+		const result = await runSandbox(
+			`turf.circle([14.5, 47.5], 1, { units: 'kilometers' }).geometry.type`,
+		)
+		expect(result.ok).toBe(true)
+		expect(result.returnValue).toBe('Polygon')
+	})
+})
+
 describe('recording + return value (D-10) — buffer-then-apply', () => {
 	it('records ordered authoring.* calls and returns the expression value', async () => {
 		const result = await runSandbox(`

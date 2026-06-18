@@ -41,7 +41,7 @@ import {
 	RELEASE_SYNC,
 	shouldInterruptAfterDeadline,
 } from 'quickjs-emscripten'
-import { curatedTurf } from '../curatedTurf'
+import { assertSandboxDistanceWithinCap, curatedTurf } from '../curatedTurf'
 import { createOutputCapture } from '../outputCapture'
 import type { RecordedCall, SandboxWorkerRequest, SandboxWorkerResponse } from './types'
 
@@ -147,6 +147,10 @@ export async function runSandboxCode(
 			const fn = vm.newFunction(key, (...argHandles) => {
 				const args = argHandles.map((h) => vm.dump(h))
 				try {
+					// WR-01: range-check distance-bearing ops against the DoS cap BEFORE
+					// invoking turf, so an absurd radius can't burn CPU on this (worker)
+					// thread — the in-VM interrupt cannot preempt a synchronous turf call.
+					assertSandboxDistanceWithinCap(key, args)
 					const result = (curatedTurf as Record<string, (...a: unknown[]) => unknown>)[key](...args)
 					return jsToHandle(vm, result)
 				} catch (error) {

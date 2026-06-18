@@ -9,7 +9,12 @@
 
 import { describe, expect, it } from 'bun:test'
 import { MAX_DISTANCE_METERS } from '@/features/geo-editor/api'
-import { curatedTurf, SANDBOX_MAX_DISTANCE_METERS } from './curatedTurf'
+import {
+	assertSandboxDistanceWithinCap,
+	curatedTurf,
+	SandboxDistanceCapError,
+	SANDBOX_MAX_DISTANCE_METERS,
+} from './curatedTurf'
 
 const EXPECTED_KEYS = [
 	'circle',
@@ -49,5 +54,57 @@ describe('curatedTurf surface (D-02)', () => {
 		expect(d).toBeGreaterThan(100)
 		const c = curatedTurf.circle([14.5, 47.5], 1, { units: 'kilometers' })
 		expect(c.geometry.type).toBe('Polygon')
+	})
+})
+
+describe('assertSandboxDistanceWithinCap (WR-01 — DoS distance cap is ENFORCED)', () => {
+	const center = [14.5, 47.5]
+
+	it('passes a sane in-bounds distance for every distance-bearing op', () => {
+		expect(() =>
+			assertSandboxDistanceWithinCap('circle', [center, 100, { units: 'meters' }]),
+		).not.toThrow()
+		expect(() =>
+			assertSandboxDistanceWithinCap('buffer', [center, 5, { units: 'kilometers' }]),
+		).not.toThrow()
+		expect(() =>
+			assertSandboxDistanceWithinCap('destination', [center, 10, 90, { units: 'kilometers' }]),
+		).not.toThrow()
+		expect(() => assertSandboxDistanceWithinCap('along', [center, 1])).not.toThrow()
+	})
+
+	it('is a no-op for ops that carry no distance arg', () => {
+		expect(() => assertSandboxDistanceWithinCap('area', [center])).not.toThrow()
+		expect(() => assertSandboxDistanceWithinCap('distance', [center, center])).not.toThrow()
+		expect(() => assertSandboxDistanceWithinCap('centroid', [{}])).not.toThrow()
+	})
+
+	it('rejects a distance over the cap (meters) — closes the "tested-for-existence-only" gap', () => {
+		expect(() =>
+			assertSandboxDistanceWithinCap('circle', [
+				center,
+				SANDBOX_MAX_DISTANCE_METERS + 1,
+				{ units: 'meters' },
+			]),
+		).toThrow(SandboxDistanceCapError)
+	})
+
+	it('rejects an over-cap distance after normalizing km/miles to meters', () => {
+		// 50,000 km == 50,000,000 m > 40,075,000 m cap.
+		expect(() =>
+			assertSandboxDistanceWithinCap('buffer', [center, 50_000, { units: 'kilometers' }]),
+		).toThrow(SandboxDistanceCapError)
+		// Default unit is kilometers (turf default) when no options object is supplied.
+		expect(() => assertSandboxDistanceWithinCap('circle', [center, 50_000])).toThrow(
+			SandboxDistanceCapError,
+		)
+	})
+
+	it('rejects NaN / Infinity / zero / negative distances', () => {
+		for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, 0, -100]) {
+			expect(() => assertSandboxDistanceWithinCap('circle', [center, bad])).toThrow(
+				SandboxDistanceCapError,
+			)
+		}
 	})
 })
