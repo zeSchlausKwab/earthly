@@ -9,14 +9,17 @@
  * Two boundary-safety properties matter here:
  *  - The object is `Object.freeze`d so code inside the boundary can't mutate or
  *    extend the curated surface to smuggle in extra capability.
- *  - The DoS distance cap (`MAX_DISTANCE_METERS`) is RE-EXPORTED from the
- *    Authoring API barrel (`@/features/geo-editor/api`), reusing the single
- *    source of truth in `primitives.ts` — it is NOT redefined as a literal here.
- *    A sandbox loop that asks for absurd geometry can be rejected against this
- *    cap before turf burns CPU (RESEARCH Security Domain / T-04-05).
+ *  - The DoS distance cap (`MAX_DISTANCE_METERS`) reuses the single source of
+ *    truth in `primitives.ts` — it is NOT redefined as a literal here. A sandbox
+ *    loop that asks for absurd geometry can be rejected against this cap before
+ *    turf burns CPU (RESEARCH Security Domain / T-04-05).
  *
  * This module is PURE: no DOM, no Worker, no editor import — so it bundles
- * cleanly INTO the worker boundary alongside the QuickJS engine.
+ * cleanly INTO the worker boundary alongside the QuickJS engine. CRITICAL: import
+ * the cap from the LEAF `primitives.ts`, NOT the `@/features/geo-editor/api`
+ * BARREL — the barrel re-exports `createAuthoring`, which transitively drags the
+ * whole GeoEditor + Nostr stack (and a Node `pino` logger that throws on load in a
+ * browser Worker) into this otherwise-tiny boundary bundle (~2MB → ~0.46MB).
  */
 
 import {
@@ -34,7 +37,7 @@ import {
 	nearestPointOnLine,
 	point,
 } from '@turf/turf'
-import { MAX_DISTANCE_METERS } from '@/features/geo-editor/api'
+import { MAX_DISTANCE_METERS } from '@/features/geo-editor/api/primitives'
 
 /**
  * Reused DoS distance cap (D-02 / T-04-05). Re-exported from the Authoring API

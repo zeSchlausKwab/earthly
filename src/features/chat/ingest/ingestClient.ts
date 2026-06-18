@@ -23,6 +23,7 @@
  * so the bytes are moved, not copied, main↔worker (T-03-05).
  */
 
+import { workerUrl } from '../../../lib/workers/workerAssets'
 import { parseCsv, parseJson, parseText, parseXlsx } from './parse'
 import type { IngestKind, IngestParseRequest, IngestParseResponse } from './types'
 
@@ -138,8 +139,11 @@ function getWorker(): Worker | null {
 	}
 
 	try {
-		// The exact `new Worker(new URL(...))` form Bun bundles with zero config.
-		worker = new Worker(new URL('./ingest.worker.ts', import.meta.url), { type: 'module' })
+		// Stable origin-rooted URL served by the dev route / prod build (see workerAssets.ts).
+		// The `new Worker(new URL('./x.worker.ts', import.meta.url))` form does NOT work in this
+		// app's dev OR prod serving (Bun #17705 / #7534) — it resolved to a file:// (dev) /
+		// non-existent .ts (prod) URL, which is why this worker silently sync-fell-back in dev.
+		worker = new Worker(workerUrl('ingest'), { type: 'module' })
 
 		worker.onmessage = (event: MessageEvent<IngestParseResponse>) => {
 			const res = event.data

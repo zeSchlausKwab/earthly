@@ -3,6 +3,8 @@ import { hexToBytes } from "@noble/hashes/utils.js";
 import { file, serve } from "bun";
 import { getPublicKey } from "nostr-tools/pure";
 import { serverConfig } from "./config/env.server";
+import { buildWorkerSource } from "./lib/workers/buildWorker";
+import { WORKER_ASSETS, type WorkerId } from "./lib/workers/workerAssets";
 import {
   isCrawler,
   generateHomeOGHtml,
@@ -58,6 +60,10 @@ function serveBuiltFile(builtFile: ReturnType<typeof file>, pathname: string): R
   const headers: Record<string, string> = {};
   if (pathname.endsWith(".wasm")) {
     headers["Content-Type"] = "application/wasm";
+  } else if (pathname.endsWith(".js") || pathname.endsWith(".mjs")) {
+    // Worker modules (and any served JS) MUST have a JS MIME — a module Worker
+    // refuses to load a script served as anything else.
+    headers["Content-Type"] = "text/javascript; charset=utf-8";
   }
   return new Response(builtFile, { headers });
 }
@@ -299,9 +305,10 @@ if (!isProduction) {
           }
 
           // Assets that must NEVER fall through to the SPA index.html. A `.wasm`
-          // served as text/html would break WebAssembly instantiation, so a
-          // genuine 404 is the correct (debuggable) outcome here.
-          if (pathname.endsWith(".wasm")) {
+          // served as text/html would break WebAssembly instantiation, and a
+          // worker module under /workers/ served as text/html would fail to
+          // construct, so a genuine 404 is the correct (debuggable) outcome here.
+          if (pathname.endsWith(".wasm") || pathname.startsWith("/workers/")) {
             return new Response("Not found", { status: 404 });
           }
 
@@ -316,6 +323,48 @@ if (!isProduction) {
     // Development: Use Bun's bundler with HMR
     // Assets in src/assets/ are bundled automatically by Bun
     const index = (await import("./index.html")).default;
+
+    // Web Workers (sandbox / ingest / geoJsonParse). Bun's HTML-import dev server
+    // does NOT bundle/serve workers spawned via `new Worker(new URL('./x.worker.ts',
+    // import.meta.url))` (Bun #17705): `import.meta.url` becomes a file:// source path
+    // the browser blocks cross-origin. Spawn sites instead request a stable URL
+    // (`/workers/<name>.js`, see workerAssets.ts); here we build that worker on demand
+    // and serve it as a JS module. Cached per served-name (the sandbox spawns a fresh
+    // Worker PER RUN, so an uncached rebuild-per-spawn would be far too slow).
+    const devWorkerCache = new Map<string, Promise<string>>();
+    const workerSourceByServedName = new Map<string, string>(
+      (Object.keys(WORKER_ASSETS) as WorkerId[]).map((id) => [
+        WORKER_ASSETS[id].servedName,
+        WORKER_ASSETS[id].sourcePath,
+      ]),
+    );
+
+    const serveDevWorker = async (req: BunRouteRequest): Promise<Response> => {
+      const servedName = req.params.name ?? "";
+      const sourcePath = workerSourceByServedName.get(servedName);
+      if (!sourcePath) {
+        return new Response("Unknown worker", { status: 404 });
+      }
+      try {
+        let pending = devWorkerCache.get(servedName);
+        if (!pending) {
+          // dev: unminified for readable stack traces.
+          pending = buildWorkerSource(sourcePath, false);
+          devWorkerCache.set(servedName, pending);
+        }
+        const js = await pending;
+        return new Response(js, {
+          headers: { "Content-Type": "text/javascript; charset=utf-8" },
+        });
+      } catch (err) {
+        devWorkerCache.delete(servedName);
+        console.error(`[dev worker] build failed for ${servedName}:`, err);
+        return new Response(`/* worker build failed: ${String(err)} */`, {
+          status: 500,
+          headers: { "Content-Type": "text/javascript; charset=utf-8" },
+        });
+      }
+    };
 
     // The QuickJS code-interpreter sandbox (Phase 4) loads its `.wasm` from a
     // stable root URL. In production `build.ts` emits it to `dist/`; in dev there
@@ -343,6 +392,8 @@ if (!isProduction) {
         ...apiRoutes,
         // Serve static files from public/static/ (stable URLs for OG images, etc.)
         "/static/*": serveStaticFile,
+        // Web Workers built on demand (Bun dev server doesn't bundle workers itself).
+        "/workers/:name": serveDevWorker,
         // QuickJS sandbox WASM (served from node_modules in dev).
         "/emscripten-module.wasm": serveQuickjsWasm,
         // Catch-all for SPA routing (Bun handles assets from src/assets/)

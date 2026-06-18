@@ -8,6 +8,11 @@ import {
 	type FrontendEnvKey,
 	safeParseEnv,
 } from "./src/config/env.schema";
+import { buildWorkerSource } from "./src/lib/workers/buildWorker";
+import {
+	WORKER_ASSETS,
+	type WorkerId,
+} from "./src/lib/workers/workerAssets";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
 	console.log(`
@@ -249,6 +254,26 @@ if (!(await quickjsWasmSource.exists())) {
 const quickjsWasmDest = path.join(outdir, QUICKJS_WASM_FILENAME);
 console.log(`\n📋 Copying QuickJS WASM asset to ${quickjsWasmDest}`);
 await Bun.write(quickjsWasmDest, quickjsWasmSource);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Emit Web Worker bundles (sandbox / ingest / geoJsonParse)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Bun's bundler does NOT auto-emit a worker chunk from the `new Worker(new URL(...))`
+// form (Bun #7534/#7901/#16869), so the main `Bun.build` above leaves the worker
+// sources referenced but unbuilt. We bundle each worker explicitly as its own
+// self-contained entrypoint and write it to a stable served path (`dist/workers/<name>`)
+// that spawn sites request via `workerUrl(...)`. Without this, `run_code` (and the
+// ingest/geo parse workers) fail to construct a Worker in production.
+const workersOutDir = path.join(outdir, "workers");
+await mkdir(workersOutDir, { recursive: true });
+for (const id of Object.keys(WORKER_ASSETS) as WorkerId[]) {
+	const { servedName, sourcePath } = WORKER_ASSETS[id];
+	const dest = path.join(workersOutDir, servedName);
+	console.log(`📋 Building worker ${id} → ${path.relative(process.cwd(), dest)}`);
+	const js = await buildWorkerSource(sourcePath, true);
+	await Bun.write(dest, js);
+}
 
 const buildTime = (end - start).toFixed(2);
 

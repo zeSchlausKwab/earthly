@@ -3,6 +3,7 @@
  * Falls back to synchronous parsing if workers aren't available.
  */
 
+import { workerUrl } from '../workers/workerAssets'
 import type { ParseRequest, ParseResponse } from './geoJsonParseWorker'
 
 let worker: Worker | null = null
@@ -22,8 +23,10 @@ function getWorker(): Worker | null {
 	}
 
 	try {
-		// Create worker using the URL pattern that works with bundlers
-		worker = new Worker(new URL('./geoJsonParseWorker.ts', import.meta.url), { type: 'module' })
+		// Stable origin-rooted URL served by the dev route / prod build (see workerAssets.ts).
+		// The `new Worker(new URL('./x.worker.ts', import.meta.url))` form does NOT resolve to a
+		// constructible URL in this app's dev OR prod serving (Bun #17705 / #7534).
+		worker = new Worker(workerUrl('geoJsonParse'), { type: 'module' })
 
 		worker.onmessage = (event: MessageEvent<ParseResponse>) => {
 			const { id, success, data, error } = event.data

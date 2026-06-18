@@ -21,6 +21,7 @@
  * confinement/surface/timeout proofs stay automated regardless of Worker support.
  */
 
+import { workerUrl } from '../../../../lib/workers/workerAssets'
 import { runSandboxCode } from './sandbox.worker'
 import type { SandboxWorkerRequest, SandboxWorkerResponse } from './types'
 
@@ -61,8 +62,11 @@ export async function runInQuickjsWorker(
 		return { id, ...result }
 	}
 
-	// The exact `new Worker(new URL(...))` form Bun bundles + emits under build.ts.
-	const worker = new Worker(new URL('./sandbox.worker.ts', import.meta.url), { type: 'module' })
+	// Stable origin-rooted URL served by the dev route / prod build (see workerAssets.ts).
+	// The `new Worker(new URL('./x.worker.ts', import.meta.url))` form does NOT work in
+	// this app's dev OR prod serving (Bun #17705 / #7534) — it resolves to a file:// (dev)
+	// or non-existent .ts (prod) URL the browser can't construct a Worker from.
+	const worker = new Worker(workerUrl('sandbox'), { type: 'module' })
 
 	return new Promise<SandboxWorkerResponse>((resolve) => {
 		let settled = false
