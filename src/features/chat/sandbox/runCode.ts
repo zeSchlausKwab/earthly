@@ -101,7 +101,13 @@ const runCodeSchema: Tool = {
 			'`turf` (a curated @turf/turf subset: circle, distance, buffer, area, length, bearing, destination, point, lineString, along, nearestPointOnLine, booleanPointInPolygon, centroid), ' +
 			'`data` (read-only: `data.datasets[handleId]` = full ingested rows for handles you pass in `handles`; `data.features` = current map features as GeoJSON), ' +
 			"and `console`. There is NO fetch/network/DOM/storage. The script's final expression is returned as the result. " +
-			'Drawing happens via `authoring.*` — its calls apply to the map after the run. Keep runs short; there is a wall-clock timeout.',
+			'Drawing happens via `authoring.*` — its calls apply to the map after the run. Keep runs short; there is a wall-clock timeout. ' +
+			'STYLING: to color/style what you draw, pass style keys in the options object (3rd arg): ' +
+			'`authoring.circle([lon,lat], radius, { units?, steps?, color?, fillColor?, strokeColor?, fillOpacity?, strokeOpacity?, strokeWidth?, radius?, label?, name?, description? })` ' +
+			'(same style keys in the options object on `authoring.buffer(target, distance, { units?, ...style })`). ' +
+			'`color` colors fill+stroke; `fillColor`/`strokeColor` override per layer. Opacities are 0..1; widths/radii are positive numbers. ' +
+			'For raw features passed to `authoring.writeGeoJSON` / `authoring.addFeature`, set style in `properties` (e.g. `properties.fillColor`, `properties.strokeColor`, `properties.color`). ' +
+			'Unknown style options are REJECTED with an error (so you can correct them) — they are not silently ignored.',
 		parameters: {
 			type: 'object',
 			properties: {
