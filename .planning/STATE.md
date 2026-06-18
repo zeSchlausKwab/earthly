@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
 status: executing
-stopped_at: 04-01 complete (isolation spike; criterion c deferred to Wave 2)
-last_updated: "2026-06-18T08:13:00.000Z"
-last_activity: 2026-06-18 -- Phase 04 Plan 01 complete (isolation spike; criterion c deferred to Wave 2)
+stopped_at: 04-02 complete (run_code wired; headline scripts proven; prod .wasm smoke is orchestrator gate)
+last_updated: "2026-06-18T08:27:00.000Z"
+last_activity: 2026-06-18 -- Phase 04 Plan 02 complete (run_code tool: D-01 read snapshot + replay through createAuthoring + fibonacci/overfly proofs)
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 18
-  completed_plans: 16
-  percent: 47
+  completed_plans: 17
+  percent: 50
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 04 (code-interpreter-sandbox) — EXECUTING
-Plan: 1 of 3 complete (next: 04-02)
-Status: Executing Phase 04 — Wave 1 spike done
-Last activity: 2026-06-18 -- Phase 04 Plan 01 complete (isolation spike; criterion c deferred to Wave 2)
+Plan: 2 of 3 complete (next: 04-03)
+Status: Executing Phase 04 — run_code tool wired (Wave 2 done)
+Last activity: 2026-06-18 -- Phase 04 Plan 02 complete (run_code tool: D-01 read snapshot + replay through createAuthoring + fibonacci/overfly proofs)
 
-Progress: [████░░░░░░] 33%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -69,6 +69,7 @@ Progress: [████░░░░░░] 33%
 | Phase 03 P05 | ~12min | 2 tasks | 4 files |
 | Phase 03 P06 | continuation | 3 tasks | 9 files |
 | Phase 04 P01 | ~10min | 4/5 tasks (c deferred) | 10 files |
+| Phase 04 P02 | ~8min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -124,6 +125,11 @@ Recent decisions affecting current work:
 - [Phase 4]: [04-01]: runSandbox(code,{readSnapshot,deadlineMs,outputCap}) is the transport-agnostic surface Waves 2-3 consume → SandboxRunResult{ok,recordedCalls,consoleLines,returnValue,error,timedOut}; timedOut derived (retryable). Defaults: deadlineMs=3000, memory=64MB, stack=512KB, output caps 1000 lines/256KiB with '…(output truncated)' marker.
 - [Phase 4]: [04-01]: Worker RECORDS authoring calls ({op,args}) and returns serializable records — replay through createAuthoring is Wave 2's job — so the worker/transport hold NO editor/createAuthoring/signer/wallet import and confinement stays statically provable. Proven (28 tests): CODE-01 a confinement, CODE-02 surface=exactly authoring/turf/data/console, CODE-04 b timeout-kill, output cap, import-boundary scan.
 - [Phase 4]: [04-01]: Spike criterion (c) prod .wasm-serving DEFERRED to Wave 2 (04-02) per explicit human decision — transport not yet imported by any app-graph module, so no .wasm bundles today. Wave 2 MUST run `bun run build:production` + browser smoke confirming the QuickJS .wasm returns 200.
+- [Phase 4]: [04-02]: run_code registered with kind:'code-interpreter' (mandatory kind added to ToolKind union); schema = required code:string + optional handles:string[]. Handler: resolve editor → buildReadSnapshot(handles,editor) → runSandbox → (error/timeout) THROW full error so registry.dispatch wraps ToolError(handler_error) for the model (CODE-03/D-11/D-13) → (success) replay recorded authoring.* through createAuthoring(editor)→runInterceptors() (D-03/D-08, NO Phase-4 gate), accumulate MutationCounts, return { ok, counts, consoleLines, truncated, returnValue } (D-10 shape Plan 03 renders).
+- [Phase 4]: [04-02]: buildReadSnapshot(handleIds,editor) = D-01 frozen view { datasets: rows-by-handle via getDataset.fullRows (NOT toModelSummary — Phase 3 D-11 seam intact, T-04-10), features: getAllFeatures().map(toPlainGeoJSON) }, run through structuredClone so it is decoupled (T-04-08) and fail-closed on a non-clonable leak (Pitfall 5).
+- [Phase 4]: [04-02]: RUN_CODE_RETRY_CAP=3 (D-06) as a module-level consecutiveFailures counter (reset on success, incremented on timeout too per D-13) — a counter LOCAL to run_code, NOT a store-loop change (RESEARCH A3). The 'attempt N/3' note rides the thrown error so the bound is observable to the model.
+- [Phase 4]: [04-02]: runSandbox is now reachable from the app graph (registry → runCode → sandboxHost → quickjs transport → quickjs-emscripten) so the .wasm bundles; `bun run build` succeeds. Headless headline proofs inject the editor via useEditorStore.setState({editor:createHeadlessEditor()}) + setSandboxTransportForTests(directEngineTransport). Both pass: fibonacci → counts.created===15 + 15 features (CODE-05); Austria→Bosnia → reads handle rows, returns chosen route+costs, draws 1 feature (CODE-06).
+- [Phase 4]: [04-02]: Plan 01's single-tier sandbox import-boundary scan refined into two tiers — tier A (secret reach: signer/wallet/Nostr/NDK/applesauce/MCP) covers ALL sandbox files incl. the new ones (T-04-12); tier B (createAuthoring + geo-editor/store) covers worker/transport ONLY, exempting the host replay seam (runCode.ts/readSnapshot.ts). T-04-09 confinement stays statically provable.
 - [Phase 3]: [03-06]: composeOutboundContent extracted to its OWN module (src/features/chat/composeOutboundContent.ts), not inlined in ChatPanel — so ingestSendPath.test.ts asserts the D-11 invariant headlessly (dataset → {handleId,summary} from toModelSummary, NEVER fullRows; deep-scan finds no non-sampled row, BLOCKER-3). VisionGateControl (D-08 three-tier: vision=enabled / no-vision=hard-disabled+Tooltip / uncertain=amber+Send-anyway opt-in) + composeOutboundContent share ONE detectVisionSupport result; image_url included only when 'vision' or ('uncertain' && sendAnyway), never silent on 'no-vision'. Same gate governs capture_map_snapshot (D-09). UAT 6/6 approved.
 
 ### Pending Todos
@@ -134,7 +140,7 @@ None yet.
 
 - [Phase 1]: NIP-46 async decrypt path is untested against a remote signer; needs an explicit test + export/import escape hatch.
 - [Phase 3]: Optional active vision-probe step may consume Cashu budget; validate against Routstr prepayment before enabling by default.
-- [Phase 4]: RESOLVED (04-01) — sandbox isolation boundary = QuickJS-WASM-in-Worker (not cross-origin-iframe+CSP); spike proved confinement + timeout-kill + surface. Carry-forward to Wave 2 (04-02): the prod `.wasm`-serving smoke (spike criterion c) + the SUS singlefile-fallback contingency must run under `bun run build:production` before/at the run_code wiring.
+- [Phase 4]: RESOLVED (04-01) — sandbox isolation boundary = QuickJS-WASM-in-Worker (not cross-origin-iframe+CSP); spike proved confinement + timeout-kill + surface. Wave 2 (04-02) wired run_code so runSandbox is in the app graph and `bun run build` succeeds. REMAINING carry-forward: the prod `.wasm`-serving BROWSER smoke (criterion c) is the orchestrator's post-plan gate — `bun run build:production` + confirm the QuickJS `*.wasm` returns 200 and `runSandbox("typeof fetch") === 'undefined'`; fallback if it 404s is the human-gated `@jitl/quickjs-singlefile-mjs-release-sync` inlined variant.
 - [Phase 6]: Style-rule persistence format (tag vs content) on kind 37515 must be decided before building; confirm against SPEC.md.
 
 ## Deferred Items
@@ -149,6 +155,6 @@ Items acknowledged and carried forward / out of scope for this milestone:
 
 ## Session Continuity
 
-Last session: 2026-06-18T08:13:00.000Z
-Stopped at: 04-01 complete (isolation spike; criterion c deferred to Wave 2)
-Resume file: .planning/phases/04-code-interpreter-sandbox/04-02-PLAN.md
+Last session: 2026-06-18T08:27:00.000Z
+Stopped at: 04-02 complete (run_code wired; headline scripts proven; prod .wasm browser smoke is the orchestrator gate)
+Resume file: .planning/phases/04-code-interpreter-sandbox/04-03-PLAN.md

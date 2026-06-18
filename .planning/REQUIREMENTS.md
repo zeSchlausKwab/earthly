@@ -25,12 +25,12 @@ Requirements for this milestone. Each maps to exactly one roadmap phase. Story t
 
 ### Code Interpreter
 
-- [ ] **CODE-01**: The AI can author and run JavaScript in a sandbox that provably cannot access the DOM, network/`fetch`, `localStorage`, the Nostr signer, or the wallet. _(04-01: confinement facet PROVEN — every forbidden global `undefined` under `bun test` + static import-boundary scan clean. Prod `.wasm`-serving facet (spike criterion c) is Wave-2-verified; still Pending until 04-02 wires `run_code`→`runSandbox` and runs the prod build smoke.)_
-- [x] **CODE-02**: Sandboxed code can call the curated Authoring API (draw shapes, add/transform features) and nothing else on the host. _(04-01: surface enumeration proves the injected globals are exactly `authoring`/`turf`/`data`/`console` plus JS built-ins, no host name leaks.)_
-- [ ] **CODE-03**: Generated code and its output are shown to the user in a collapsible block; runtime errors are fed back into the tool loop for self-correction.
-- [ ] **CODE-04**: Sandbox execution is bounded by a wall-clock timeout and output-size caps; a runaway/infinite loop is terminated without freezing the app. _(04-01: timeout-kill + output-cap ENGINE proven — `while(true){}`→`timedOut:true` via in-VM interrupt + host watchdog, 1000-line/256KiB cap. Pending until 04-02 wires it into the `run_code` tool loop.)_
-- [ ] **CODE-05**: The AI can generate geometry programmatically (e.g. "draw 15 circles with increasing fibonacci radii around this point").
-- [ ] **CODE-06**: The AI can run custom cost-weighted computations over routing data (e.g. weigh distance against per-country overfly fees for an Austria→Bosnia flight path). `[C]`
+- [ ] **CODE-01**: The AI can author and run JavaScript in a sandbox that provably cannot access the DOM, network/`fetch`, `localStorage`, the Nostr signer, or the wallet. _(04-01: confinement facet PROVEN — every forbidden global `undefined` under `bun test` + static import-boundary scan clean. 04-02: `run_code`→`runSandbox` wired so the sandbox is reachable from the app graph and `bun run build` succeeds; the new host modules pass the tier-A secret-reach scan. Prod `.wasm`-serving BROWSER smoke (spike criterion c) remains the orchestrator's post-plan gate — still Pending until that runs.)_
+- [x] **CODE-02**: Sandboxed code can call the curated Authoring API (draw shapes, add/transform features) and nothing else on the host. _(04-01: surface enumeration proves the injected globals are exactly `authoring`/`turf`/`data`/`console` plus JS built-ins, no host name leaks. 04-02: `run_code` replays only `authoring.*` through `createAuthoring`→`runInterceptors`, no bypass path.)_
+- [ ] **CODE-03**: Generated code and its output are shown to the user in a collapsible block; runtime errors are fed back into the tool loop for self-correction. _(04-02: the self-correction facet PROVEN — runtime errors AND wall-clock timeouts make `run_code` throw the full error, which `registry.dispatch` wraps into `ToolError(handler_error)` fed to the model loop; self-correction bounded at RUN_CODE_RETRY_CAP=3, timeouts counted. The collapsible read-only code/output block (display facet, D-09) is Plan 04-03 — still Pending until that lands.)_
+- [ ] **CODE-04**: Sandbox execution is bounded by a wall-clock timeout and output-size caps; a runaway/infinite loop is terminated without freezing the app. _(04-01: timeout-kill + output-cap ENGINE proven — `while(true){}`→`timedOut:true` via in-VM interrupt + host watchdog, 1000-line/256KiB cap. 04-02: the timeout now flows through the `run_code` tool loop as a retryable `ToolError` (D-13), proven by the error-feedback test. Left Pending pending the Plan 04-03 end-to-end demo UAT.)_
+- [x] **CODE-05**: The AI can generate geometry programmatically (e.g. "draw 15 circles with increasing fibonacci radii around this point"). _(04-02: the fibonacci-15-circles script runs end-to-end through `run_code` against a headless editor → `counts.created === 15` and 15 real features.)_
+- [x] **CODE-06**: The AI can run custom cost-weighted computations over routing data (e.g. weigh distance against per-country overfly fees for an Austria→Bosnia flight path). `[C]` _(04-02: the Austria→Bosnia script reads the seeded overfly-fee rows by handle from the ingest store, computes direct vs. via-Slovenia cost with turf, returns the chosen route + per-variant costs, and draws exactly one feature; the model-summary privacy seam stays intact.)_
 
 ### AI-Oriented Editor Tools
 
@@ -113,12 +113,12 @@ Each requirement maps to exactly one phase.
 | INGEST-05 | Phase 3 — File Ingest & Multimodal | Complete |
 | INGEST-06 | Phase 3 — File Ingest & Multimodal | Complete |
 | INGEST-07 | Phase 3 — File Ingest & Multimodal | Complete (03-04) |
-| CODE-01 | Phase 4 — Code Interpreter Sandbox | Partial (04-01: confinement facet proven; prod `.wasm`-serving facet Wave-2-verified) |
-| CODE-02 | Phase 4 — Code Interpreter Sandbox | Complete (04-01: injected surface = exactly authoring/turf/data/console, no host leak) |
-| CODE-03 | Phase 4 — Code Interpreter Sandbox | Pending |
-| CODE-04 | Phase 4 — Code Interpreter Sandbox | Partial (04-01: timeout-kill + output-cap engine proven; tool-loop wiring in Wave 2) |
-| CODE-05 | Phase 4 — Code Interpreter Sandbox | Pending |
-| CODE-06 | Phase 4 — Code Interpreter Sandbox | Pending |
+| CODE-01 | Phase 4 — Code Interpreter Sandbox | Partial (04-01: confinement proven; 04-02: run_code wired into the app graph, build succeeds; prod `.wasm` BROWSER smoke is the orchestrator gate) |
+| CODE-02 | Phase 4 — Code Interpreter Sandbox | Complete (04-01: injected surface = exactly authoring/turf/data/console, no host leak; 04-02: run_code replays only authoring.* through the facade) |
+| CODE-03 | Phase 4 — Code Interpreter Sandbox | Partial (04-02: error/timeout → ToolError fed to the model loop, bounded retry cap 3; collapsible display block is Plan 04-03) |
+| CODE-04 | Phase 4 — Code Interpreter Sandbox | Partial (04-01: timeout-kill + output-cap engine proven; 04-02: timeout flows through the run_code tool loop as a retryable ToolError; end-to-end demo UAT in 04-03) |
+| CODE-05 | Phase 4 — Code Interpreter Sandbox | Complete (04-02: fibonacci-15-circles end-to-end → counts.created===15, 15 features) |
+| CODE-06 | Phase 4 — Code Interpreter Sandbox | Complete (04-02: Austria→Bosnia reads handle rows, returns chosen route+costs, draws 1 feature; privacy seam intact) |
 | SAFE-01 | Phase 5 — Dataset-Aware Safe Editing | Pending |
 | SAFE-02 | Phase 5 — Dataset-Aware Safe Editing | Pending |
 | SAFE-03 | Phase 5 — Dataset-Aware Safe Editing | Pending |
