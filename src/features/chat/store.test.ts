@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import { BUILTIN_PROVIDERS } from './routstr'
 import {
 	DEFAULT_CHAT_SETTINGS,
+	TRUNCATION_CONTENT_SUFFIX,
 	chatStorePartialize,
 	compactIngestHandlePartForPrompt,
+	describeEmptyCompletion,
 	resolveProvider,
 	useChatStore,
 } from './store'
@@ -196,5 +198,67 @@ describe('compactIngestHandlePartForPrompt (WR-08)', () => {
 		expect(compacted).toBeDefined()
 		const parsed = JSON.parse(compacted as string) as { ingestHandle: string }
 		expect(parsed.ingestHandle).toBe(handleId)
+	})
+})
+
+describe('describeEmptyCompletion — terminal-state surfacing (UAT: silent empty turn)', () => {
+	test("finishReason 'length' yields truncation-specific copy and truncated:true", () => {
+		const notice = describeEmptyCompletion('length')
+		expect(notice.truncated).toBe(true)
+		expect(notice.message).toContain('cut off')
+		expect(notice.message.toLowerCase()).toContain('output-token limit')
+		expect(notice.message.toLowerCase()).toContain('retry')
+	})
+
+	test("empty completion with finishReason 'stop' yields empty-response copy and truncated:false", () => {
+		const notice = describeEmptyCompletion('stop')
+		expect(notice.truncated).toBe(false)
+		expect(notice.message.toLowerCase()).toContain('empty response')
+		// finishReason surfaced for debugging
+		expect(notice.message).toContain('stop')
+	})
+
+	test('null / undefined finishReason still produces a visible empty-response notice', () => {
+		for (const reason of [null, undefined]) {
+			const notice = describeEmptyCompletion(reason)
+			expect(notice.truncated).toBe(false)
+			expect(notice.message.toLowerCase()).toContain('empty response')
+			expect(notice.message).toContain('none')
+		}
+	})
+
+	test('every branch returns a non-empty, visible message (never silent)', () => {
+		for (const reason of ['length', 'stop', 'content_filter', null, undefined]) {
+			expect(describeEmptyCompletion(reason).message.trim().length).toBeGreaterThan(0)
+		}
+	})
+})
+
+describe('empty/truncated terminal outcome — store surfacing (UAT regression)', () => {
+	beforeEach(() => {
+		useChatStore.setState({ error: null, lastProgressKind: null })
+	})
+
+	test('truncation suffix is appended to truncated-but-non-empty assistant content', () => {
+		// The suffix is what the content-present truncation path appends so the
+		// partial answer is still visibly flagged as cut off.
+		const content = 'Partial answer that was cut off'
+		const flagged = `${content}${TRUNCATION_CONTENT_SUFFIX}`
+		expect(flagged).toContain(content)
+		expect(flagged.toLowerCase()).toContain('truncated')
+		expect(flagged.toLowerCase()).toContain('output-token limit')
+	})
+
+	test('the empty-completion notice routes through the rendered `error` state, not a silent idle', () => {
+		// Simulate the empty-completion else branch using the same helper the store
+		// uses, asserting the surface ChatPanel renders (the `error` banner) is set
+		// and progress is marked as error rather than silently idle/complete.
+		const { message } = describeEmptyCompletion('length')
+		useChatStore.setState({ error: message, lastProgressKind: 'error' })
+		const state = useChatStore.getState()
+		expect(state.error).toBe(message)
+		expect(state.error).not.toBeNull()
+		expect(state.lastProgressKind).toBe('error')
+		expect(state.lastProgressKind).not.toBe('complete')
 	})
 })

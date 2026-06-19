@@ -372,6 +372,45 @@ function isIngestHandleJson(text: string): boolean {
 	}
 }
 
+/**
+ * Describe a terminal model turn that produced NO content and NO tool calls.
+ *
+ * Without this the agent loop would end the turn silently (set idle, append no
+ * message, surface nothing) — the user sees the spinner stop with no outcome.
+ * This is observed live when a reasoning-heavy endpoint blows its completion-token
+ * budget (`finishReason: 'length'`) before emitting content, or when the model
+ * returns a genuinely empty completion. We turn that into a visible notice routed
+ * through the same `error` surface ChatPanel already renders for failures.
+ *
+ * Returns the user-facing copy plus a `truncated` flag (true only for the
+ * token-limit case) so callers / tests can distinguish the two outcomes.
+ */
+export function describeEmptyCompletion(finishReason: string | null | undefined): {
+	message: string
+	truncated: boolean
+} {
+	if (finishReason === 'length') {
+		return {
+			message:
+				'The response was cut off — the model hit its output-token limit. ' +
+				'Increase max output tokens (or shorten the prompt/context) and retry.',
+			truncated: true,
+		}
+	}
+	const reasonLabel = finishReason ?? 'none'
+	return {
+		message: `The model returned an empty response (finish reason: ${reasonLabel}).`,
+		truncated: false,
+	}
+}
+
+/**
+ * Suffix appended to a non-empty assistant message when the model still hit its
+ * output-token limit (`finishReason: 'length'`), so truncation stays visible even
+ * when partial content was produced.
+ */
+export const TRUNCATION_CONTENT_SUFFIX = '\n\n_(response truncated — hit output-token limit)_'
+
 function getMessageCharLimit(role: ChatMessage['role']): number {
 	switch (role) {
 		case 'tool':
@@ -1634,9 +1673,15 @@ export const useChatStore = create<ChatStore>()(
 								throw new Error(DETACHED_STREAM_ERROR)
 							}
 							const normalizedReasoningContent = result.reasoningContent.trim()
+							// Truncation visibility even when content WAS produced: append a
+							// subtle marker so the user knows the answer is incomplete.
+							const truncatedWithContent = result.finishReason === 'length'
+							const assistantContent = truncatedWithContent
+								? `${result.content}${TRUNCATION_CONTENT_SUFFIX}`
+								: result.content
 							const assistantMessage: ChatMessage = {
 								role: 'assistant',
-								content: result.content,
+								content: assistantContent,
 								reasoning_content: normalizedReasoningContent || undefined,
 							}
 							conversationMessages = [...conversationMessages, assistantMessage]
@@ -1662,13 +1707,19 @@ export const useChatStore = create<ChatStore>()(
 								},
 							}))
 						} else {
+							// Empty completion, no tool calls. Never end the turn silently:
+							// surface a visible notice through the same `error` channel
+							// ChatPanel renders for failures, with truncation-specific copy
+							// when the model hit its output-token limit.
+							const { message: emptyNotice } = describeEmptyCompletion(result.finishReason)
 							set((state) => ({
 								isStreaming: false,
 								streamingContent: '',
 								streamPhase: 'idle',
 								streamWarning: null,
 								lastProgressAt: Date.now(),
-								lastProgressKind: 'complete',
+								lastProgressKind: 'error',
+								error: emptyNotice,
 								diagnostics: {
 									...state.diagnostics,
 									estimatedCompletionTokens: result.estimatedCompletionTokens,
@@ -1677,6 +1728,7 @@ export const useChatStore = create<ChatStore>()(
 									completedAt: Date.now(),
 								},
 							}))
+							toast.error(emptyNotice)
 						}
 						break
 					}
