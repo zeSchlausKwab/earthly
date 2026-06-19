@@ -75,6 +75,34 @@ export const geoStaticToolSchemas: Tool[] = [
 	{
 		type: 'function',
 		function: {
+			name: 'set_dataset_metadata',
+			description:
+				'Set DATASET-level metadata for the current dataset: its name, description, and arbitrary collection-level properties. ' +
+				'Use this to NAME a dataset — do NOT stamp dataset_name/dataset_description onto every feature. ' +
+				'Only provided fields are changed; properties are MERGED into the existing collection properties. Read current values via get_editor_state.',
+			parameters: {
+				type: 'object',
+				properties: {
+					name: {
+						type: 'string',
+						description: 'Dataset name (the collection title shown in the dataset info panel).',
+					},
+					description: {
+						type: 'string',
+						description: 'Dataset description.',
+					},
+					properties: {
+						type: 'object',
+						description:
+							'Arbitrary FeatureCollection-level properties (string/number/boolean values). Merged into existing properties; provide only the keys you want to set.',
+					},
+				},
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
 			name: 'write_geojson_to_editor',
 			description:
 				'Create features in the editor from GeoJSON. Accepts FeatureCollection, Feature, or Geometry. Use this for custom shapes and direct map edits. Prefer geojson object arguments; avoid large escaped JSON strings in geojsonText.',

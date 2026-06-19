@@ -14,6 +14,7 @@
  */
 
 import { EarthlyGeoServerClient } from '@/ctxcn/EarthlyGeoServerClient'
+import { createAuthoring } from '@/features/geo-editor/api'
 import { executeEditorAiTool, getEditorAiToolDefinitions } from '@/features/geo-editor/commands'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { getMapContextSnapshot, getCompactMapContextForTool, mapSnapshotCache, pruneSnapshotCache } from './context'
@@ -287,6 +288,53 @@ function registerHostBuiltins(): void {
 			return detail === 'full'
 				? snapshot
 				: { ...getCompactMapContextForTool(snapshot), detail }
+		},
+	})
+
+	register({
+		name: 'set_dataset_metadata',
+		kind: 'host-builtin',
+		schema: schemaFor('set_dataset_metadata'),
+		handler: (args) => {
+			const editor = useEditorStore.getState().editor
+			if (!editor) {
+				throw new Error('Map editor is not ready. Open the map editor first, then try again.')
+			}
+			// Route through the Authoring facade's benign metadata op — the SAME
+			// setCollectionMeta path the dataset-info panel + run_code use. This is
+			// the discoverable, direct way to NAME a dataset (no run_code needed) and
+			// avoids the model stamping dataset_name onto every feature.
+			const meta: {
+				name?: string
+				description?: string
+				properties?: Record<string, string | number | boolean>
+			} = {}
+			if (typeof args.name === 'string') meta.name = args.name
+			if (typeof args.description === 'string') meta.description = args.description
+			if (
+				args.properties &&
+				typeof args.properties === 'object' &&
+				!Array.isArray(args.properties)
+			) {
+				const props: Record<string, string | number | boolean> = {}
+				for (const [key, value] of Object.entries(args.properties as Record<string, unknown>)) {
+					if (
+						typeof value === 'string' ||
+						typeof value === 'number' ||
+						typeof value === 'boolean'
+					) {
+						props[key] = value
+					}
+				}
+				meta.properties = props
+			}
+			const result = createAuthoring(editor).setDatasetMetadata(meta)
+			return {
+				ok: result.ok,
+				name: result.name,
+				description: result.description,
+				customPropertyCount: result.customPropertyCount,
+			}
 		},
 	})
 

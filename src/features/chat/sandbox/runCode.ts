@@ -60,16 +60,30 @@ const OUTPUT_CAP = 1000
 /**
  * The ONLY authoring ops the host will replay from a sandbox run (CR-01).
  *
- * These are exactly the `createAuthoring` methods that route through
- * `runInterceptors()` (addFeature / writeGeoJSON / circle / buffer). `editorCommand`
- * is intentionally absent: it is a raw passthrough to `executeEditorCommand` with NO
- * interceptor, so replaying it would let untrusted sandbox code dispatch arbitrary
- * editor commands AROUND the Phase 5 safe-editing gate (D-03/D-08). The worker no
- * longer exposes it (`AUTHORING_METHODS`), and this host-side allow-list is the
- * defence-in-depth guarantee: even a hand-crafted recorded batch naming a
- * non-intercepted op is rejected before it can mutate the editor.
+ * Two CLASSES of allow-listed op:
+ *  - interceptor-gated feature WRITES (addFeature / writeGeoJSON / circle / buffer):
+ *    each routes through `runInterceptors()`, so the Phase 5 safe-editing gate at the
+ *    interceptor seam catches every sandbox-reachable geometry mutation for free.
+ *  - a benign dataset-METADATA op (setDatasetMetadata): it sets only the
+ *    FeatureCollection-level name/description/color/customProperties — no geometry,
+ *    no secrets — so it is allow-listed WITHOUT an interceptor gate. It is distinct
+ *    from the feature-write ops on purpose; do NOT route it through runInterceptors.
+ *
+ * `editorCommand` is intentionally ABSENT: it is a raw passthrough to
+ * `executeEditorCommand` with NO interceptor, so replaying it would let untrusted
+ * sandbox code dispatch arbitrary editor commands AROUND the Phase 5 safe-editing
+ * gate (D-03/D-08). The worker no longer exposes it (`AUTHORING_METHODS`), and this
+ * host-side allow-list is the defence-in-depth guarantee: even a hand-crafted
+ * recorded batch naming a NON-allow-listed op is rejected before it can mutate the
+ * editor. CR-01 invariant preserved: nothing outside this set replays.
  */
-const REPLAYABLE_AUTHORING_OPS = new Set(['addFeature', 'writeGeoJSON', 'circle', 'buffer'])
+const REPLAYABLE_AUTHORING_OPS = new Set([
+	'addFeature',
+	'writeGeoJSON',
+	'circle',
+	'buffer',
+	'setDatasetMetadata',
+])
 
 /**
  * Test-only transport override. Production leaves this `undefined` so `runSandbox`
@@ -107,7 +121,7 @@ const runCodeSchema: Tool = {
 		name: 'run_code',
 		description:
 			'Run JavaScript inside an isolated sandbox to author map geometry programmatically or compute over ingested data. ' +
-			'The sandbox exposes EXACTLY four globals — `authoring` (the map-mutation API: addFeature, writeGeoJSON, circle, buffer), ' +
+			'The sandbox exposes EXACTLY four globals — `authoring` (the map-mutation API: addFeature, writeGeoJSON, circle, buffer, setDatasetMetadata), ' +
 			'`turf` (a curated @turf/turf subset: circle, distance, buffer, area, length, bearing, destination, point, lineString, along, nearestPointOnLine, booleanPointInPolygon, centroid), ' +
 			'`data` (read-only: `data.datasets[handleId]` = the ARRAY of ingested rows for that handle (only for handles you pass in `handles`); ' +
 			'`data.features` = an ARRAY of GeoJSON Features for the current map — iterate it directly, e.g. `data.features.find(...)` / `data.features.map(...)`, NOT `data.features.features` (it is a Feature[], not a FeatureCollection)), ' +
@@ -115,7 +129,10 @@ const runCodeSchema: Tool = {
 			'RETURN: either end with a bare expression (its value is the result) OR write a top-level `return <value>` — both work. ' +
 			'Drawing happens via `authoring.*` — pass a GeoJSON Feature (a bare Geometry is auto-wrapped). ' +
 			'`authoring.writeGeoJSON(input, { replace? })` accepts a Feature[], a FeatureCollection object, OR a single Feature; ' +
-			'`replace` defaults to false (append). After a successful run, TRUST the returned `counts` ' +
+			'`replace` defaults to false (append). ' +
+			'To set DATASET-level metadata (name/description/arbitrary collection properties), call ' +
+			'`authoring.setDatasetMetadata({ name?, description?, color?, properties? })` (or the `set_dataset_metadata` tool outside run_code) — ' +
+			'do NOT stamp `dataset_name`/`dataset_description` onto every feature. After a successful run, TRUST the returned `counts` ' +
 			'(created/updated/deleted): do NOT re-verify a write with capture_map_snapshot or get_editor_state. Keep runs short; there is a wall-clock timeout. ' +
 			'STYLING: to color/style what you draw, pass style keys in the options object (3rd arg): ' +
 			'`authoring.circle([lon,lat], radius, { units?, steps?, color?, fillColor?, strokeColor?, fillOpacity?, strokeOpacity?, strokeWidth?, radius?, label?, name?, description? })` ' +

@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { createHeadlessEditor } from '../core/test-harness'
 import type { GeoEditor } from '../core/GeoEditor'
+import { useEditorStore } from '../store'
+import { createDefaultCollectionMeta } from '../utils'
 import {
 	dupIdCollection,
 	emptyFeatureCollection,
@@ -230,5 +232,73 @@ describe('createAuthoring — writeGeoJSON polymorphic input (FeatureCollection 
 		// @ts-expect-error — a plain object with no GeoJSON type
 		expect(() => authoring.writeGeoJSON({ foo: 'bar' })).toThrow(/not a usable GeoJSON input/)
 		expect(editor.getAllFeatures()).toHaveLength(0)
+	})
+})
+
+describe('createAuthoring — setDatasetMetadata (dataset-level metadata, DATA-* ask)', () => {
+	beforeEach(() => {
+		// Reset collectionMeta + clear any active draft so setCollectionMeta writes
+		// the top-level collectionMeta (not a draft) and tests stay isolated.
+		useEditorStore.setState({
+			collectionMeta: createDefaultCollectionMeta(),
+			activeGeoEditDraftId: null,
+		})
+	})
+	afterEach(() => {
+		useEditorStore.setState({ collectionMeta: createDefaultCollectionMeta() })
+	})
+
+	it('sets name/description/color on the store collectionMeta', () => {
+		const authoring = createAuthoring(createHeadlessEditor())
+		const result = authoring.setDatasetMetadata({
+			name: 'Vienna Parks',
+			description: 'Green spaces',
+			color: '#22c55e',
+		})
+
+		expect(result.ok).toBe(true)
+		expect(result.name).toBe('Vienna Parks')
+		const meta = useEditorStore.getState().collectionMeta
+		expect(meta.name).toBe('Vienna Parks')
+		expect(meta.description).toBe('Green spaces')
+		expect(meta.color).toBe('#22c55e')
+	})
+
+	it('MERGES properties into customProperties (preserves unrelated keys)', () => {
+		const authoring = createAuthoring(createHeadlessEditor())
+		authoring.setDatasetMetadata({ properties: { source: 'osm', year: 2026 } })
+		authoring.setDatasetMetadata({ properties: { year: 2027, license: 'CC0' } })
+
+		const meta = useEditorStore.getState().collectionMeta
+		expect(meta.customProperties).toEqual({ source: 'osm', year: 2027, license: 'CC0' })
+		const result = authoring.getDatasetMetadata()
+		expect(result.customPropertyCount).toBe(3)
+	})
+
+	it('only updates fields the caller provides (partial merge)', () => {
+		const authoring = createAuthoring(createHeadlessEditor())
+		authoring.setDatasetMetadata({ name: 'First', description: 'Desc' })
+		authoring.setDatasetMetadata({ name: 'Second' })
+
+		const meta = useEditorStore.getState().collectionMeta
+		expect(meta.name).toBe('Second')
+		// description untouched by the second (name-only) call.
+		expect(meta.description).toBe('Desc')
+	})
+
+	it('getDatasetMetadata reflects the current store snapshot', () => {
+		const authoring = createAuthoring(createHeadlessEditor())
+		useEditorStore.setState({
+			collectionMeta: {
+				name: 'Existing',
+				description: 'From store',
+				color: '#000000',
+				customProperties: { a: '1' },
+			},
+		})
+		const result = authoring.getDatasetMetadata()
+		expect(result.name).toBe('Existing')
+		expect(result.description).toBe('From store')
+		expect(result.customPropertyCount).toBe(1)
 	})
 })

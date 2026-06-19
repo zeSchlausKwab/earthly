@@ -119,6 +119,73 @@ describe('tool registry', () => {
 	})
 })
 
+describe('set_dataset_metadata host-builtin + get_editor_state datasetMetadata (DATA-*)', () => {
+	afterEach(() => {
+		useEditorStore.getState().setEditor(null)
+		useEditorStore.setState({
+			collectionMeta: { name: '', description: '', color: '#1d4ed8', customProperties: {} },
+			activeGeoEditDraftId: null,
+		})
+	})
+
+	it('registers as a host-builtin and is advertised', () => {
+		expect(registry.get('set_dataset_metadata')?.kind).toBe('host-builtin')
+		expect(advertise().map((t) => t.function.name)).toContain('set_dataset_metadata')
+	})
+
+	it('dispatch sets dataset name/description and merges properties into collectionMeta', async () => {
+		useEditorStore.getState().setEditor(createHeadlessEditor())
+		useEditorStore.setState({
+			collectionMeta: { name: '', description: '', color: '#1d4ed8', customProperties: {} },
+			activeGeoEditDraftId: null,
+		})
+
+		const result = await dispatch('set_dataset_metadata', {
+			name: 'Tool Set',
+			description: 'desc',
+			properties: { source: 'osm', n: 3, bad: { nested: true } },
+		})
+		expect(isToolError(result)).toBe(false)
+		expect((result as { ok: boolean }).ok).toBe(true)
+
+		const meta = useEditorStore.getState().collectionMeta
+		expect(meta.name).toBe('Tool Set')
+		expect(meta.description).toBe('desc')
+		// Only primitive property values are kept; the nested object is dropped.
+		expect(meta.customProperties).toEqual({ source: 'osm', n: 3 })
+	})
+
+	it('errors (not a silent no-op) when the editor is not ready', async () => {
+		useEditorStore.getState().setEditor(null)
+		const result = await dispatch('set_dataset_metadata', { name: 'x' })
+		expect(isToolError(result)).toBe(true)
+	})
+
+	it('get_editor_state surfaces the current datasetMetadata (compact + full)', async () => {
+		useEditorStore.getState().setEditor(createHeadlessEditor())
+		useEditorStore.setState({
+			collectionMeta: {
+				name: 'Visible Name',
+				description: 'Visible Desc',
+				color: '#abcdef',
+				customProperties: { k: 'v' },
+			},
+		})
+
+		const compact = (await dispatch('get_editor_state', {})) as {
+			datasetMetadata?: { name: string; description: string }
+		}
+		expect(compact.datasetMetadata?.name).toBe('Visible Name')
+		expect(compact.datasetMetadata?.description).toBe('Visible Desc')
+
+		const full = (await dispatch('get_editor_state', { detail: 'full' })) as {
+			datasetMetadata?: { name: string; customProperties: Record<string, unknown> }
+		}
+		expect(full.datasetMetadata?.name).toBe('Visible Name')
+		expect(full.datasetMetadata?.customProperties).toEqual({ k: 'v' })
+	})
+})
+
 describe('authoring-primitive tools: draw_circle + buffer_feature (TOOLS-01 / D-14)', () => {
 	afterEach(() => {
 		useEditorStore.getState().setEditor(null)

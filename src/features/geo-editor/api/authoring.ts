@@ -27,6 +27,13 @@ import type { EditorCommandArgs, EditorCommandExecutionResult, EditorCommandId }
 import { executeEditorCommand } from '../commands'
 import type { GeoEditor } from '../core/GeoEditor'
 import type { EditorFeature } from '../core/types'
+// In-feature import (D-07 allows `@/features/geo-editor/*`): the dataset-level
+// metadata (collectionMeta) lives in the editor store, the SAME state the
+// "Dataset info" panel edits and that publishing reads. This is host-side only —
+// `setDatasetMetadata` runs during run_code REPLAY on the main thread, never in
+// the sandbox worker — and it carries NO signer/wallet/secret surface.
+import { useEditorStore } from '../store'
+import type { CollectionMeta } from '../types'
 import { toEditorFeature } from '../utils'
 import {
 	type MakeBufferOptions,
@@ -139,8 +146,33 @@ function toFeatureArray(input: unknown): Feature[] {
 }
 
 /**
- * The Authoring facade surface (D-10). Geometry-only — exported for sandbox/mock
- * use in Phase 4. Do NOT add signer/wallet/store/getState here (V4).
+ * Dataset-level (FeatureCollection-level) metadata an authoring caller may set:
+ * the dataset's `name` / `description` / `color` and arbitrary collection-level
+ * `properties`. This is METADATA only — it sets no geometry and exposes no
+ * secrets — so `setDatasetMetadata` is a benign op that does NOT route through
+ * `runInterceptors` (it is not a feature mutation). It is the correct place to
+ * name a dataset; the model should NOT stamp `dataset_name` onto every feature.
+ */
+export interface DatasetMetadataInput {
+	name?: string
+	description?: string
+	color?: string
+	/** Arbitrary FeatureCollection-level props, MERGED into `customProperties`. */
+	properties?: Record<string, string | number | boolean>
+}
+
+/** Structured outcome of a `setDatasetMetadata` call. */
+export interface DatasetMetadataResult {
+	ok: boolean
+	name: string
+	description: string
+	color: string
+	customPropertyCount: number
+}
+
+/**
+ * The Authoring facade surface (D-10). Geometry + dataset-metadata — exported for
+ * sandbox/mock use in Phase 4. Do NOT add signer/wallet/store/getState here (V4).
  */
 export interface Authoring {
 	/**
@@ -206,6 +238,20 @@ export interface Authoring {
 		distance: number,
 		options?: MakeBufferOptions,
 	): MutationResult
+	/**
+	 * Set DATASET-level (FeatureCollection-level) metadata: the dataset's name /
+	 * description / color and arbitrary collection-level properties. `name` /
+	 * `description` / `color` set the top-level fields; `properties` MERGE into
+	 * `collectionMeta.customProperties` (existing keys not named are preserved).
+	 *
+	 * This is the discoverable, correct way to NAME a dataset — the model must NOT
+	 * stamp `dataset_name` / `dataset_description` onto every feature. It is a
+	 * benign METADATA op: no geometry mutation, no interceptor gate, no secrets.
+	 * Returns the post-merge metadata snapshot.
+	 */
+	setDatasetMetadata(meta: DatasetMetadataInput): DatasetMetadataResult
+	/** Read the current dataset-level metadata snapshot (name/description/color/props). */
+	getDatasetMetadata(): DatasetMetadataResult
 }
 
 /**
@@ -354,5 +400,44 @@ export function createAuthoring(editor: GeoEditor): Authoring {
 		return { ...result, featureIds }
 	}
 
-	return { addFeature, writeGeoJSON, editorCommand, circle, buffer }
+	function snapshotMeta(meta: CollectionMeta): DatasetMetadataResult {
+		return {
+			ok: true,
+			name: meta.name,
+			description: meta.description,
+			color: meta.color,
+			customPropertyCount: Object.keys(meta.customProperties).length,
+		}
+	}
+
+	function getDatasetMetadata(): DatasetMetadataResult {
+		return snapshotMeta(useEditorStore.getState().collectionMeta)
+	}
+
+	function setDatasetMetadata(meta: DatasetMetadataInput): DatasetMetadataResult {
+		const store = useEditorStore.getState()
+		const current = store.collectionMeta
+		// MERGE: only set fields the caller provided; merge properties into the
+		// existing customProperties (do not clobber unrelated keys).
+		const next: CollectionMeta = {
+			name: typeof meta.name === 'string' ? meta.name : current.name,
+			description: typeof meta.description === 'string' ? meta.description : current.description,
+			color: typeof meta.color === 'string' ? meta.color : current.color,
+			customProperties: meta.properties
+				? { ...current.customProperties, ...meta.properties }
+				: current.customProperties,
+		}
+		store.setCollectionMeta(next)
+		return snapshotMeta(next)
+	}
+
+	return {
+		addFeature,
+		writeGeoJSON,
+		editorCommand,
+		circle,
+		buffer,
+		setDatasetMetadata,
+		getDatasetMetadata,
+	}
 }

@@ -118,6 +118,28 @@ describe('run_code — bounded self-correction is a HARD stop (D-06, runaway fix
 	})
 })
 
+describe('run_code — setDatasetMetadata replays (dataset-level metadata in sandbox)', () => {
+	it('authoring.setDatasetMetadata from a script sets the store collectionMeta', async () => {
+		useHeadlessEditor()
+		useEditorStore.setState({
+			collectionMeta: { name: '', description: '', color: '#1d4ed8', customProperties: {} },
+			activeGeoEditDraftId: null,
+		})
+
+		const code = `
+			authoring.setDatasetMetadata({ name: 'Sandbox Set', description: 'via run_code', properties: { source: 'osm' } })
+			'named'
+		`
+		const result = await dispatch('run_code', { code })
+		expect(isToolError(result)).toBe(false)
+
+		const meta = useEditorStore.getState().collectionMeta
+		expect(meta.name).toBe('Sandbox Set')
+		expect(meta.description).toBe('via run_code')
+		expect(meta.customProperties).toEqual({ source: 'osm' })
+	})
+})
+
 describe('run_code — interceptor-seam invariant (CR-01)', () => {
 	it('refuses to replay a non-intercepted authoring op (editorCommand) — defence in depth', async () => {
 		const editor = useHeadlessEditor()

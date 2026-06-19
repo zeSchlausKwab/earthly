@@ -129,8 +129,18 @@ describe('Authoring surface is geometry-only (V4 access-control / T-02-03)', () 
 		const keys = Object.keys(authoring).sort()
 
 		// circle/buffer are geometry-mutation methods (Plan 05 / TOOLS-01) — part of
-		// the geometry-only surface, no signer/wallet/store leak.
-		expect(keys).toEqual(['addFeature', 'buffer', 'circle', 'editorCommand', 'writeGeoJSON'])
+		// the geometry surface. set/getDatasetMetadata are dataset-level METADATA
+		// methods (FeatureCollection name/description/color/props) — still no
+		// signer/wallet/store-handle leak (they call setCollectionMeta internally).
+		expect(keys).toEqual([
+			'addFeature',
+			'buffer',
+			'circle',
+			'editorCommand',
+			'getDatasetMetadata',
+			'setDatasetMetadata',
+			'writeGeoJSON',
+		])
 
 		const forbidden = ['signer', 'wallet', 'store', 'getState', 'editor', 'eventStore', 'accounts']
 		for (const key of forbidden) {

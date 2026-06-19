@@ -117,15 +117,31 @@ export const DEFAULT_DEADLINE_MS = 3000
 /**
  * The authoring method names the boundary exposes (RECORDING only this phase).
  *
- * CR-01: `editorCommand` is DELIBERATELY excluded. Every sandbox-reachable write
- * MUST flow through `runInterceptors()` on host replay (D-03/D-08) so the Phase 5
- * safe-editing gate at the interceptor seam catches it for free. `editorCommand`
- * is a raw passthrough to `executeEditorCommand` (no interceptor, no allow-list),
- * so exposing it to the sandbox would route arbitrary editor commands AROUND the
- * gate the whole phase relies on. It stays available to TRUSTED (non-sandbox)
- * callers of `createAuthoring`; only this sandbox-facing surface omits it.
+ * Two CLASSES of sandbox-reachable op live here:
+ *  - the interceptor-gated feature WRITES (addFeature/writeGeoJSON/circle/buffer):
+ *    every one flows through `runInterceptors()` on host replay (D-03/D-08) so the
+ *    Phase 5 safe-editing gate catches it for free;
+ *  - the benign dataset-METADATA op (setDatasetMetadata): it sets only the
+ *    FeatureCollection-level name/description/color/props (no geometry, no
+ *    secrets), so it is allow-listed WITHOUT an interceptor gate. It is the
+ *    correct way for the model to NAME a dataset instead of stamping
+ *    `dataset_name` onto every feature.
+ *
+ * CR-01: `editorCommand` is DELIBERATELY excluded. It is a raw passthrough to
+ * `executeEditorCommand` (no interceptor, no allow-list), so exposing it to the
+ * sandbox would route arbitrary editor commands AROUND the gate the whole phase
+ * relies on. It stays available to TRUSTED (non-sandbox) callers of
+ * `createAuthoring`; only this sandbox-facing surface omits it. `getDatasetMetadata`
+ * is also omitted — reads happen via the host `get_editor_state` snapshot, not via
+ * the record/replay write channel.
  */
-const AUTHORING_METHODS = ['addFeature', 'writeGeoJSON', 'circle', 'buffer'] as const
+const AUTHORING_METHODS = [
+	'addFeature',
+	'writeGeoJSON',
+	'circle',
+	'buffer',
+	'setDatasetMetadata',
+] as const
 
 /**
  * Run untrusted `code` inside a fresh QuickJS context and return a serializable
