@@ -1175,6 +1175,13 @@ function simplifyObjectForPrompt(value: unknown): unknown {
 		'name',
 		'displayName',
 		'title',
+		// Coordinates + locating fields MUST survive geo-result sampling — without
+		// them the model cannot pick a search hit and detours via reverse_lookup.
+		'coordinates',
+		'boundingbox',
+		'address',
+		'placeId',
+		'importance',
 		'osmType',
 		'osmId',
 		'type',
@@ -1293,11 +1300,91 @@ function compactIngestHandleResult(value: Record<string, unknown>): unknown | un
 	return { ingestHandle: handle, ingestSummary: summary }
 }
 
+/**
+ * Keys worth keeping when compacting a geocode/reverse-lookup result item for the
+ * model. The essentials are coordinates (ALWAYS kept) + identity/typing so the
+ * model can pick a result and call follow-ups. The bulky `geojson` boundary
+ * polygon and verbose `extratags` (population / wikidata / admin levels /
+ * multilingual names) are dropped — in UAT they buried `coordinates` and sent the
+ * model on a 21-round OSM-boundary + reverse_lookup detour.
+ */
+const GEO_RESULT_KEEP_KEYS = [
+	'placeId',
+	'displayName',
+	'name',
+	'coordinates',
+	'osmType',
+	'osmId',
+	'type',
+	'class',
+	'importance',
+	'address',
+	'boundingbox',
+] as const
+
+function isLikelyGeoResultItem(value: unknown): value is Record<string, unknown> {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+	const item = value as Record<string, unknown>
+	// Only treat as a geo result if it carries the noise we want to trim and at
+	// least one identity field — avoids clobbering unrelated objects.
+	const hasNoise = 'geojson' in item || 'extratags' in item
+	const hasIdentity = 'coordinates' in item || 'displayName' in item || 'placeId' in item
+	return hasNoise && hasIdentity
+}
+
+/**
+ * Compact a single geocode/reverse-lookup result item: keep the essentials
+ * (coordinates ALWAYS), drop `geojson`/`extratags`. Coordinates are preserved
+ * verbatim even if the keep-list filter would otherwise miss an alias.
+ */
+function compactGeoResultItem(item: Record<string, unknown>): Record<string, unknown> {
+	const compacted: Record<string, unknown> = {}
+	for (const key of GEO_RESULT_KEEP_KEYS) {
+		if (key in item) compacted[key] = item[key]
+	}
+	// Guarantee coordinates survive even if the source used a different shape.
+	if (!('coordinates' in compacted) && 'coordinates' in item) {
+		compacted.coordinates = item.coordinates
+	}
+	return compacted
+}
+
+/**
+ * Recursively trim `geojson`/`extratags` from geocode/reverse-lookup result
+ * items wherever they appear in the result envelope (`search_location` exposes a
+ * top-level `results[]`; `reverse_lookup` nests a single `result`). Returns a
+ * structurally-similar value with the noise stripped and coordinates retained.
+ * Non-geo objects pass through unchanged.
+ */
+function trimGeoResultNoiseForPrompt(value: unknown): unknown {
+	if (Array.isArray(value)) {
+		return value.map(trimGeoResultNoiseForPrompt)
+	}
+	if (!value || typeof value !== 'object') return value
+
+	if (isLikelyGeoResultItem(value)) {
+		return compactGeoResultItem(value as Record<string, unknown>)
+	}
+
+	const objectValue = value as Record<string, unknown>
+	const next: Record<string, unknown> = {}
+	for (const [key, child] of Object.entries(objectValue)) {
+		next[key] = trimGeoResultNoiseForPrompt(child)
+	}
+	return next
+}
+
 function summarizeToolResultForPromptValue(resultValue: unknown): unknown {
 	if (!resultValue || typeof resultValue !== 'object') return resultValue
 
 	const ingestCompacted = compactIngestHandleResult(resultValue as Record<string, unknown>)
 	if (ingestCompacted !== undefined) return ingestCompacted
+
+	// Strip geocode/reverse-lookup noise (geojson boundary polygons + extratags)
+	// BEFORE any feature extraction / array summarization so the model always sees
+	// coordinates and never the bulky boundary geometry.
+	const deNoised = trimGeoResultNoiseForPrompt(resultValue)
+	resultValue = deNoised
 
 	const features = extractGeoJsonFeaturesFromUnknown(resultValue)
 	if (features.length > 0) {
