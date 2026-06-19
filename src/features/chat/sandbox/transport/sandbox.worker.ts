@@ -184,7 +184,21 @@ export async function runSandboxCode(
 		vm.setProp(vm.global, 'console', consoleObj)
 
 		// Execute the untrusted code.
-		const evalResult = vm.evalCode(req.code)
+		//
+		// DX (D-10): the model frequently writes a natural top-level `return <expr>`
+		// even though the contract is "the last expression is the value". A bare
+		// program rejects that with `SyntaxError: return not in a function`. We run
+		// the code as a PROGRAM first (so last-expression-as-value still holds), and
+		// only if it fails with that specific syntax error do we re-run it wrapped in
+		// a function body — which makes a top-level `return` valid while the wrapped
+		// function's return value becomes the result. Side effects (authoring.* /
+		// console) are not duplicated because the first attempt threw at PARSE time,
+		// before any statement ran.
+		let evalResult = vm.evalCode(req.code)
+		if (evalResult.error && isTopLevelReturnSyntaxError(vm, evalResult.error)) {
+			evalResult.error.dispose()
+			evalResult = vm.evalCode(`(function(){\n${req.code}\n})()`)
+		}
 		const drained = output.drain()
 
 		if (evalResult.error) {
@@ -262,6 +276,20 @@ function stringifyDump(value: unknown): string {
 	} catch {
 		return String(value)
 	}
+}
+
+/**
+ * Detect QuickJS's `SyntaxError: return not in a function` WITHOUT consuming the
+ * error handle (so the caller can dispose it / reuse the value). This is the ONE
+ * parse error we recover from by re-running the code wrapped in a function body,
+ * letting the model's natural top-level `return <expr>` work (DX, fix #2). Any
+ * other syntax error is a genuine bug surfaced to the model unchanged.
+ */
+function isTopLevelReturnSyntaxError(vm: QuickJSContext, errorHandle: QuickJSHandle): boolean {
+	const dumped = vm.dump(errorHandle) as { name?: string; message?: string } | undefined
+	if (!dumped || typeof dumped !== 'object') return false
+	const message = typeof dumped.message === 'string' ? dumped.message : ''
+	return /return\s+not\s+in\s+a\s+function/i.test(message)
 }
 
 /** Build a full error string for the model (D-11) from a dumped VM error value. */
