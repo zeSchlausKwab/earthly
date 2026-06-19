@@ -125,6 +125,47 @@ describe('run_code — fibonacci circles headline (CODE-05)', () => {
 	})
 })
 
+describe('run_code — looped addFeature reports accurate created count (count-fix)', () => {
+	it('a script calling authoring.addFeature N times returns counts.created === N (not 0)', async () => {
+		const editor = useHeadlessEditor()
+		const code = `
+			const N = 61
+			for (let i = 0; i < N; i++) {
+				authoring.addFeature(turf.point([14.5 + i * 0.01, 47.5]))
+			}
+			\`Added \${N} great-circle arc points\`
+		`
+		const result = await dispatch('run_code', { code })
+		expect(isToolError(result)).toBe(false)
+		const out = result as { ok: boolean; counts: { created: number } }
+		expect(out.ok).toBe(true)
+		expect(out.counts.created).toBe(61)
+		expect(editor.getAllFeatures().length).toBe(61)
+	})
+
+	it('a bare Geometry passed to addFeature is wrapped + counted (not a silent created:0)', async () => {
+		const editor = useHeadlessEditor()
+		// The model often passes a raw geometry instead of a Feature wrapper.
+		const code = `authoring.addFeature({ type: 'Point', coordinates: [16.37, 48.21] }); 'done'`
+		const result = await dispatch('run_code', { code })
+		expect(isToolError(result)).toBe(false)
+		const out = result as { ok: boolean; counts: { created: number } }
+		expect(out.ok).toBe(true)
+		expect(out.counts.created).toBe(1)
+		expect(editor.getAllFeatures().length).toBe(1)
+	})
+
+	it('circle still reports accurate counts (no regression on the circle path)', async () => {
+		const editor = useHeadlessEditor()
+		const code = `authoring.circle([14.5, 47.5], 500, { units: 'meters' }); 'c'`
+		const result = await dispatch('run_code', { code })
+		expect(isToolError(result)).toBe(false)
+		const out = result as { ok: boolean; counts: { created: number } }
+		expect(out.counts.created).toBe(1)
+		expect(editor.getAllFeatures().length).toBe(1)
+	})
+})
+
 describe('run_code — Austria→Bosnia cost-weighted overfly (CODE-06 [C])', () => {
 	function seedOverflyFees(): string {
 		const handle = putDataset({

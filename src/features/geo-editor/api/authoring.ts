@@ -54,6 +54,59 @@ function isUsableFeature(feature: unknown): feature is Feature {
 	)
 }
 
+/** The GeoJSON geometry `type` values we can wrap into a Feature (D-10 ergonomics). */
+const GEOMETRY_TYPES = new Set([
+	'Point',
+	'MultiPoint',
+	'LineString',
+	'MultiLineString',
+	'Polygon',
+	'MultiPolygon',
+	'GeometryCollection',
+])
+
+/** A bare GeoJSON Geometry (no `Feature` wrapper) the model commonly passes by mistake. */
+function isBareGeometry(value: unknown): value is Geometry {
+	return (
+		typeof value === 'object' &&
+		value !== null &&
+		typeof (value as { type?: unknown }).type === 'string' &&
+		GEOMETRY_TYPES.has((value as { type: string }).type)
+	)
+}
+
+/**
+ * Coerce sandbox/model input into a usable `Feature`, or return `null` if it is
+ * genuinely not geometry. A bare `Geometry` (a frequent model mistake — passing
+ * `turf.point(...).geometry` or a raw `{type:'Point',coordinates}`) is wrapped
+ * into a Feature so it draws and counts, rather than silently no-op'ing (the bug
+ * that made `run_code` report `created:0` despite the model intending a write).
+ */
+function coerceToFeature(input: unknown): Feature | null {
+	if (isUsableFeature(input)) return input
+	if (isBareGeometry(input)) {
+		return { type: 'Feature', properties: {}, geometry: input }
+	}
+	return null
+}
+
+/**
+ * Describe why an authoring input was rejected so the model can self-correct in
+ * ONE shot (instead of trusting a misleading `created:0`). Authoring writes THROW
+ * this rather than silently returning a zero-count result for non-geometry input.
+ */
+function describeUnusableFeature(input: unknown): string {
+	if (input == null) return 'received null/undefined'
+	if (typeof input !== 'object') return `received a ${typeof input}, expected a GeoJSON Feature`
+	const type = (input as { type?: unknown }).type
+	if (type === 'FeatureCollection') {
+		return 'received a FeatureCollection — pass its `.features` to `writeGeoJSON`, or add features one at a time'
+	}
+	if (typeof type === 'string')
+		return `received an object with type '${type}', expected a GeoJSON Feature or Geometry`
+	return 'received an object with no GeoJSON `type` — expected a Feature (`{type:"Feature",geometry,...}`) or a bare Geometry'
+}
+
 /**
  * The Authoring facade surface (D-10). Geometry-only — exported for sandbox/mock
  * use in Phase 4. Do NOT add signer/wallet/store/getState here (V4).
@@ -117,11 +170,21 @@ export interface Authoring {
  */
 export function createAuthoring(editor: GeoEditor): Authoring {
 	function addFeature(feature: Feature, source: string = DEFAULT_SOURCE): MutationResult {
-		if (!isUsableFeature(feature)) {
+		// Null/undefined stays a quiet { ok:false } no-op (existing boundary contract).
+		if (feature == null) {
 			return { ok: false, intent: 'add', featureIds: [], counts: emptyCounts() }
 		}
+		const usable = coerceToFeature(feature)
+		if (!usable) {
+			// Non-null but not geometry → fail LOUD (not a silent created:0) so a
+			// sandbox/model caller self-corrects in one shot instead of trusting a
+			// misleading zero-count result (the run_code `created:0` confusion).
+			throw new Error(
+				`authoring.addFeature: not a usable GeoJSON Feature — ${describeUnusableFeature(feature)}.`,
+			)
+		}
 
-		const normalized = toEditorFeature(feature, source)
+		const normalized = toEditorFeature(usable, source)
 		const { intent } = runInterceptors({ intent: 'add', featureIds: [normalized.id] })
 		editor.addFeature(normalized)
 
@@ -138,8 +201,12 @@ export function createAuthoring(editor: GeoEditor): Authoring {
 			return { ok: false, intent: 'add', featureIds: [], counts: emptyCounts() }
 		}
 
+		// Coerce bare geometries into Features (same ergonomics as addFeature), then
+		// drop anything that is genuinely not geometry. writeGeoJSON tolerates a mixed
+		// batch (it is the batch entrypoint) rather than throwing on the first bad item.
 		const normalized: EditorFeature[] = features
-			.filter(isUsableFeature)
+			.map((f) => coerceToFeature(f))
+			.filter((f): f is Feature => f !== null)
 			.map((f) => toEditorFeature(f, DEFAULT_SOURCE))
 
 		// Replace path: clear + set. `editor.setFeatures` does not emit yet (Plan 03).

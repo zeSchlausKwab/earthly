@@ -46,6 +46,38 @@ describe('createAuthoring — addFeature (D-10/D-11, T-02-04 reuse)', () => {
 		expect(editor.getAllFeatures()).toHaveLength(0)
 	})
 
+	it('wraps a bare Geometry into a Feature → created:1 (model ergonomics)', () => {
+		// A frequent model mistake: passing a raw Geometry (no Feature wrapper).
+		const result = authoring.addFeature({
+			type: 'Point',
+			coordinates: [13.4, 52.5],
+		} as never)
+		expect(result.ok).toBe(true)
+		expect(result.counts.created).toBe(1)
+		expect(editor.getAllFeatures()).toHaveLength(1)
+	})
+
+	it('throws a descriptive error for non-null, non-geometry input (no silent created:0)', () => {
+		expect(() => authoring.addFeature({ foo: 'bar' } as never)).toThrow(
+			/not a usable GeoJSON Feature/,
+		)
+		expect(() =>
+			authoring.addFeature({ type: 'FeatureCollection', features: [] } as never),
+		).toThrow(/FeatureCollection/)
+		expect(editor.getAllFeatures()).toHaveLength(0)
+	})
+
+	it('reports an accurate created count across a loop of addFeature calls (run_code count fix)', () => {
+		for (let i = 0; i < 61; i++) {
+			authoring.addFeature({
+				type: 'Feature',
+				properties: {},
+				geometry: { type: 'Point', coordinates: [14.5 + i * 0.01, 47.5] },
+			})
+		}
+		expect(editor.getAllFeatures()).toHaveLength(61)
+	})
+
 	it('preserves raw style properties (fillColor/strokeColor/color) through the write path (UAT gap)', () => {
 		const result = authoring.addFeature({
 			type: 'Feature',

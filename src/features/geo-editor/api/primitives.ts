@@ -162,7 +162,11 @@ export function makeBuffer(
 			? (geom as Feature)
 			: { type: 'Feature', geometry: geom as Geometry, properties: {} }
 	const buffered = turfBuffer(input, validDistance, { units })
-	if (!buffered) return buffered
+	// turf returns `undefined` OR a Feature with a null geometry for degenerate
+	// input (e.g. an empty GeometryCollection). Both are "no usable buffer" — treat
+	// them identically so the caller's null-check yields a structured no-op
+	// (T-02-15) instead of forwarding a geometry-less Feature into addFeature.
+	if (!buffered || buffered.geometry == null) return undefined
 	buffered.properties = { ...(buffered.properties ?? {}), ...styleProps }
 	return buffered
 }
