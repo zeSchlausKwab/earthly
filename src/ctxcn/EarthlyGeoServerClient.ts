@@ -773,6 +773,14 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 			signer,
 			relayHandler,
 			isStateless: true,
+			// CEP-22 oversized-payload transfer. Enabled is already the SDK default
+			// (threshold ~48 KB, receiver max 100 MiB, reassembly + digest automatic),
+			// but we set it explicitly to document intent and give a stable hook for
+			// tuning thresholds/policy later. This is what lets the client accept FULL
+			// (non-simplified) geometry once the geo server drops its 42 KB truncation
+			// cap — see .planning/backlog/cvm-osm-cache.md. Placed before `...rest` so
+			// callers can still override per-instance.
+			oversizedTransfer: { enabled: true },
 			...rest,
 		})
 
