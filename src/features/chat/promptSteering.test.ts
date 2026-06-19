@@ -78,6 +78,13 @@ describe('fix #4 — run_code description steering (advertised surface in sync)'
 		}
 	})
 
+	it('documents the data shape: data.features is a Feature[] (not a FeatureCollection)', () => {
+		// Guards against the UAT crash `data.features.features.find(...)` → TypeError.
+		expect(desc).toContain('data.features.find')
+		expect(desc).toMatch(/NOT `data\.features\.features`/)
+		expect(desc).toMatch(/data\.datasets\[handleId\][^.]*ARRAY/i)
+	})
+
 	it('tells the model to trust the returned counts (no re-verify)', () => {
 		expect(desc).toMatch(/TRUST the returned `counts`/i)
 		expect(desc).toMatch(/do NOT re-verify/i)

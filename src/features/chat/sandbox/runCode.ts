@@ -109,7 +109,8 @@ const runCodeSchema: Tool = {
 			'Run JavaScript inside an isolated sandbox to author map geometry programmatically or compute over ingested data. ' +
 			'The sandbox exposes EXACTLY four globals — `authoring` (the map-mutation API: addFeature, writeGeoJSON, circle, buffer), ' +
 			'`turf` (a curated @turf/turf subset: circle, distance, buffer, area, length, bearing, destination, point, lineString, along, nearestPointOnLine, booleanPointInPolygon, centroid), ' +
-			'`data` (read-only: `data.datasets[handleId]` = full ingested rows for handles you pass in `handles`; `data.features` = current map features as GeoJSON), ' +
+			'`data` (read-only: `data.datasets[handleId]` = the ARRAY of ingested rows for that handle (only for handles you pass in `handles`); ' +
+			'`data.features` = an ARRAY of GeoJSON Features for the current map — iterate it directly, e.g. `data.features.find(...)` / `data.features.map(...)`, NOT `data.features.features` (it is a Feature[], not a FeatureCollection)), ' +
 			'and `console` — and NOTHING else. Node/host globals are NOT available: no `fetch`, `Buffer`, `process`, `require`, `XMLHttpRequest`, `localStorage`, `window`, or `document`. ' +
 			'RETURN: either end with a bare expression (its value is the result) OR write a top-level `return <value>` — both work. ' +
 			'Drawing happens via `authoring.*` — pass a GeoJSON Feature (a bare Geometry is auto-wrapped). After a successful run, TRUST the returned `counts` ' +
