@@ -50,3 +50,50 @@ A cache + curated boundary/city library would:
   steering ("use known coords for well-known places; don't fetch OSM geometry unless asked")
   are the near-term hedges; this maintained-library cache is the durable fix.
 - Not scheduled into a phase yet — captured here to think through later.
+
+---
+
+# SERVER-SIDE BLOCKER: drop the ~42 KB geometry truncation, rely on CEP-22
+
+> **Scope:** this work lives in the **ContextVM geo server repo** (the remote MCP server),
+> NOT in this Earthly client repo. Captured here because it is the remaining server-side
+> piece of "scrap the artificial size limit." Phase 4 UAT, 2026-06-19.
+
+## What
+
+The geo MCP server currently SIMPLIFIES/truncates returned geometry to fit a Nostr
+transport size budget. Tool results carry, e.g.:
+
+```json
+"transport": {
+  "truncated": true,
+  "responseBudgetBytes": 42000,
+  "maxPointsPerPath": 1000,
+  "hint": "Geometry simplified to fit Nostr transport size limit"
+}
+```
+
+The server must **drop this truncation** (`responseBudgetBytes` / `maxPointsPerPath`) and
+return FULL geometry, relying on **CEP-22 oversized transfer** to chunk + reassemble large
+payloads over Nostr.
+
+## Why this is now unblocked on our side
+
+The client already accepts oversized payloads: `@contextvm/sdk` (0.9.1) enables
+`NostrTransportOptions.oversizedTransfer` by **default** (threshold ~48 KB, receiver max
+100 MiB, reassembly + digest automatic), and we now set it **explicitly** on the geo client
+(`src/ctxcn/EarthlyGeoServerClient.ts`, `oversizedTransfer: { enabled: true }`). So once the
+server stops truncating, full geometry will flow through end-to-end with no further client
+change.
+
+## Side benefit (accuracy, not just completeness)
+
+Full (non-simplified) route / boundary geometry → accurate `turf.length` distances. The
+simplified polylines caused a polyline-vs-engine distance discrepancy that sent the model on
+an undo/redo dance trying to reconcile the numbers. Full geometry fixes that at the source.
+
+## Done when
+
+- Server no longer emits `transport.truncated` / `responseBudgetBytes` / `maxPointsPerPath`
+  for geometry-bearing tools (`get_osm_relation_geometry`, `valhalla_route`, boundaries, …).
+- Large results arrive intact via CEP-22 chunking; client renders/measures full geometry.
