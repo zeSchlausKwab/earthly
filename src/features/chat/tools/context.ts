@@ -43,9 +43,20 @@ export function getMapContextSnapshot() {
 		)
 		.map((entry) => entry.entityKey)
 
+	// Dataset-level (FeatureCollection-level) metadata the model can READ before
+	// changing it via set_dataset_metadata / authoring.setDatasetMetadata. Lets the
+	// model see the existing dataset name/description instead of guessing.
+	const datasetMetadata = {
+		name: store.collectionMeta.name,
+		description: store.collectionMeta.description,
+		color: store.collectionMeta.color,
+		customProperties: store.collectionMeta.customProperties,
+	}
+
 	return {
 		editorReady: Boolean(store.editor),
 		mode: store.mode,
+		datasetMetadata,
 		featureCount: store.features.length,
 		selectedFeatureCount: store.selectedFeatureIds.length,
 		selectedFeatures: selectedSummary,
@@ -93,6 +104,7 @@ export function getCompactMapContextForTool(snapshot: ReturnType<typeof getMapCo
 	return {
 		editorReady: snapshot.editorReady,
 		mode: snapshot.mode,
+		datasetMetadata: snapshot.datasetMetadata,
 		featureCount: snapshot.featureCount,
 		selectedFeatureCount: snapshot.selectedFeatureCount,
 		featureGeometryCounts: snapshot.featureGeometryCounts,
@@ -122,6 +134,7 @@ export function createMapContextSystemMessage(): ChatMessage | null {
 			'You have map-editing tool access in this chat.',
 			'If the user asks to draw/create/edit map features, call tools instead of replying that you cannot edit the map.',
 			'For draw requests, generate GeoJSON yourself and call add_feature_to_editor or write_geojson_to_editor directly.',
+			'To name or describe the dataset (or set collection-level properties), call set_dataset_metadata — or authoring.setDatasetMetadata(...) inside run_code. Do NOT stamp dataset_name/dataset_description onto every feature. Read the current dataset name/description from get_editor_state (datasetMetadata) before changing it.',
 			'For many OSM features in an area (e.g. all military bases in viewport), prefer import_osm_to_editor with filters and bbox/point instead of embedding large GeoJSON argument strings.',
 			'For polygon-constrained searches (selected polygon, country border, custom area), prefer query_osm_area.',
 			'Do not call query_osm_area as an unfiltered scan. Always include filters, filterSets, or concept.',
