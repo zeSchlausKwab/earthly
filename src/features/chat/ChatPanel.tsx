@@ -5,6 +5,7 @@ import { composeOutboundContent } from './composeOutboundContent'
 import { FileChipStrip } from './components/FileChipStrip'
 import { evictDataset } from './ingest/ingestStore'
 import type { AttachedFileView, ImageVisionTier } from './components/FileChip'
+import type { IngestSummary } from './ingest/datasetTypes'
 import { VisionGateControl } from './components/VisionGateControl'
 import { detectVisionSupport, type VisionSupport } from './vision/detectVisionSupport'
 import { useWallet } from '@/lib/wallet'
@@ -49,6 +50,7 @@ import { analyzeToolResultGeometryContent, bakeToolResultContentToEditor } from 
 import { isToolError, type ToolError } from './tools/errors'
 import { ChatGeometryAttachment } from './ChatGeometryAttachment'
 import { CodeRunDisclosure, parseRunCodeResult } from './CodeRunDisclosure'
+import { AttachmentCard, parseIngestHandlePart } from './components/AttachmentCard'
 import {
 	buildConversationDump,
 	buildConversationDumpFilename,
@@ -1113,12 +1115,52 @@ function contentToDisplayText(content: ChatMessage['content']): string {
 
 	return content
 		.map((part) => {
-			if (part.type === 'text') return part.text
+			if (part.type === 'text') {
+				// Slice A: a dataset attachment part is the `{ ingestHandle, ingestSummary }`
+				// JSON; it renders as a file card, never as inline text. Surface a compact
+				// placeholder in plain-text contexts (copy, previews) instead of the blob.
+				const dataset = parseIngestHandlePart(part.text)
+				if (dataset) return `[Attached dataset: ${dataset.ingestSummary.fileName}]`
+				return part.text
+			}
 			if (part.type === 'image_url') return '[Image]'
 			return ''
 		})
 		.filter((part) => part.length > 0)
 		.join('\n')
+}
+
+/**
+ * Slice A (ingest + attachment rethink, Move 1): split a user message's content
+ * into the prose text (concatenated, markdown-rendered) and the attached-dataset
+ * summaries (rendered as collapsible `AttachmentCard`s — NOT as raw JSON text).
+ * A plain-string message has no attachments; a parts array may interleave both.
+ * The model payload is untouched — this is a pure display-side decoupling.
+ */
+function splitUserMessageContent(content: ChatMessage['content']): {
+	text: string
+	datasets: IngestSummary[]
+} {
+	if (typeof content === 'string') return { text: content, datasets: [] }
+	if (!content) return { text: '', datasets: [] }
+
+	const textParts: string[] = []
+	const datasets: IngestSummary[] = []
+	for (const part of content) {
+		if (part.type === 'text') {
+			const dataset = parseIngestHandlePart(part.text)
+			if (dataset) {
+				datasets.push(dataset.ingestSummary)
+				continue
+			}
+			if (part.text.length > 0) textParts.push(part.text)
+			continue
+		}
+		if (part.type === 'image_url') {
+			textParts.push('[Image]')
+		}
+	}
+	return { text: textParts.join('\n'), datasets }
 }
 
 /**
@@ -1688,6 +1730,11 @@ function MessageBubble({ message, isStreaming, runCodeSourceByCallId }: MessageB
 
 	// Regular user message
 	if (isUser) {
+		// Slice A: attached datasets render as collapsible file cards, NOT as the raw
+		// `{ ingestHandle, ingestSummary }` JSON blob. The model payload is unchanged
+		// (composeOutboundContent still sends the JSON part); this only decouples the
+		// transcript's display from that payload.
+		const { text: userText, datasets } = splitUserMessageContent(message.content)
 		return (
 			<div className="flex min-w-0 flex-row-reverse gap-2">
 				<div className="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center bg-primary text-primary-foreground">
@@ -1704,9 +1751,23 @@ function MessageBubble({ message, isStreaming, runCodeSourceByCallId }: MessageB
 						className="absolute right-1.5 top-1.5"
 						title="Copy user message"
 					/>
-					<div className="pr-6">
-						<ChatMarkdownContent content={contentText} variant="user" />
-					</div>
+					{userText.length > 0 && (
+						<div className="pr-6">
+							<ChatMarkdownContent content={userText} variant="user" />
+						</div>
+					)}
+					{datasets.length > 0 && (
+						<div
+							className={cn(
+								'flex flex-col gap-1.5 rounded-md bg-background/95 p-1.5 text-foreground',
+								userText.length > 0 && 'mt-2',
+							)}
+						>
+							{datasets.map((summary) => (
+								<AttachmentCard key={summary.handleId} summary={summary} />
+							))}
+						</div>
+					)}
 					<div className="mt-2 text-[10px] text-primary-foreground/80">
 						~{tokenEstimate.toLocaleString()} tok
 					</div>

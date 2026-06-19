@@ -48,24 +48,32 @@ interface FileChipProps {
 /** Pick the lucide type icon by dataset/image kind (UI-SPEC type-icon mapping). */
 function TypeIcon({ file, className }: { file: AttachedFileView; className?: string }) {
 	if (file.status === 'image') return <ImageIcon className={className} />
-	const type = file.summary?.type
+	return <DatasetTypeIcon type={file.summary?.type} className={className} />
+}
+
+/**
+ * Standalone dataset type-icon, keyed only by `DatasetType`. Shared so the
+ * transcript `AttachmentCard` (Slice A) renders the SAME icon language the
+ * composer chip does, without depending on the composer's `AttachedFileView`.
+ */
+export function DatasetTypeIcon({
+	type,
+	className,
+}: {
+	type?: IngestSummary['type']
+	className?: string
+}) {
 	if (type === 'csv' || type === 'xlsx') return <FileSpreadsheet className={className} />
 	if (type === 'json' || type === 'geojson') return <Braces className={className} />
 	return <FileText className={className} />
 }
 
-/** The compact, one-line parse stat (UI-SPEC Copywriting parse-summary copy). */
-function compactStatLine(file: AttachedFileView): string {
-	if (file.status === 'parsing') return 'Parsing…'
-	if (file.status === 'failed') {
-		return file.reason ?? `Couldn't parse ${file.fileName}.`
-	}
-	if (file.status === 'image') {
-		const dims = file.imageDimensions
-		return dims ? `${file.fileName} · ${dims.width}×${dims.height}` : file.fileName
-	}
-	const s = file.summary
-	if (!s) return ''
+/**
+ * The compact, one-line parse stat for a parsed dataset summary (UI-SPEC
+ * Copywriting parse-summary copy). Shared with the transcript `AttachmentCard`
+ * (Slice A) so the sent message shows the same stat line the composer chip did.
+ */
+export function summaryStatLine(s: IngestSummary): string {
 	if (s.type === 'geojson') {
 		const fc = s.typeStats?.featureCount ?? s.rowCount
 		const types = s.typeStats?.geometryTypes?.join(', ')
@@ -84,6 +92,21 @@ function compactStatLine(file: AttachedFileView): string {
 	const coords = s.detectedCoordinateColumns.length
 	const more = s.moreColumns ? ` · …${s.moreColumns} more columns` : ''
 	return `${s.rowCount} rows × ${s.columnCount} columns · ${coords} coordinate column(s) detected${more}`
+}
+
+/** The compact, one-line parse stat (UI-SPEC Copywriting parse-summary copy). */
+function compactStatLine(file: AttachedFileView): string {
+	if (file.status === 'parsing') return 'Parsing…'
+	if (file.status === 'failed') {
+		return file.reason ?? `Couldn't parse ${file.fileName}.`
+	}
+	if (file.status === 'image') {
+		const dims = file.imageDimensions
+		return dims ? `${file.fileName} · ${dims.width}×${dims.height}` : file.fileName
+	}
+	const s = file.summary
+	if (!s) return ''
+	return summaryStatLine(s)
 }
 
 /** Whether this chip has an expandable fuller summary (parsed data files only). */
@@ -174,10 +197,13 @@ export function FileChip({ file, onRemove }: FileChipProps) {
 	)
 }
 
-/** The fuller per-type summary shown when a parsed chip is expanded (no grid). */
-function ExpandedSummary({ file }: { file: AttachedFileView }) {
-	const s = file.summary
-	if (!s) return null
+/**
+ * The fuller per-type schema summary (counts + coord cols + schema chips),
+ * keyed only on the model-facing `IngestSummary`. Shared with the transcript
+ * `AttachmentCard` (Slice A) so the expanded detail looks identical to the
+ * composer chip's. Does NOT render the row sample — see `SummarySampleTable`.
+ */
+export function SummarySchemaDetail({ summary: s }: { summary: IngestSummary }) {
 	return (
 		<div className="mt-1 space-y-2 rounded border bg-muted/40 p-2 text-[11px]">
 			<p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -208,4 +234,11 @@ function ExpandedSummary({ file }: { file: AttachedFileView }) {
 			)}
 		</div>
 	)
+}
+
+/** The fuller per-type summary shown when a parsed chip is expanded (no grid). */
+function ExpandedSummary({ file }: { file: AttachedFileView }) {
+	const s = file.summary
+	if (!s) return null
+	return <SummarySchemaDetail summary={s} />
 }
