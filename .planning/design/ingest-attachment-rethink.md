@@ -90,6 +90,23 @@ Two plan-sized slices, sequenceable independently:
 
 Slice A can ship first (immediate UX win); Slice B is the deeper capability. Both respect D-01/D-11.
 
+## Progress
+
+- **Slice A — Attachment cards (Move 1): SHIPPED** (2026-06-19, commit `d477533`).
+  Display/payload decoupled: attached datasets now render in the transcript as
+  compact, collapsible `AttachmentCard`s (filename · kind badge · rows×cols ·
+  empty-safe ⚠ warning affordance; schema + sample table behind expand) instead
+  of the raw `{ingestHandle, ingestSummary}` JSON blob. The model payload
+  (`composeOutboundContent`) is **unchanged** — D-11 invariant test
+  (`ingestSendPath.test.ts`) still green. New `AttachmentCard` +
+  `parseIngestHandlePart`; reuses `FileChip` visual helpers and the
+  `CodeRunDisclosure` collapse idiom. No ingest-parsing behavior changed. Gates:
+  `bun test` 340/0, dev + prod builds, biome (changed files) clean.
+- **Slice B — AI-cleans ingest (Move 2): NOT started.** The ⚠ warning affordance
+  is wired empty-safe on the card now; Slice B populates `IngestSummary.warnings`
+  (lenient+honest parse, raw sandbox access, profile-first prompt, uncertainty
+  surfacing, cleaning summary).
+
 ## Risks
 
 - **Model-context bloat** if warnings/preview leak into the payload — enforce the chrome/payload split (test like `ingestSendPath.test.ts`).
