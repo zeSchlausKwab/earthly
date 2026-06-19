@@ -29,6 +29,7 @@ import {
 } from './tools'
 import { getWalletSnapshot, receiveCashuToken, sendCashuToken } from '@/lib/wallet'
 import { detectVisionSupport } from './vision/detectVisionSupport'
+import { gateToolsForVision } from './vision/gateToolsForVision'
 const DEFAULT_MINT_KEY = 'nip60_default_mint'
 import { toast } from 'sonner'
 
@@ -1300,7 +1301,15 @@ export const useChatStore = create<ChatStore>()(
 						// D-05: read live registry state at request time so MCP-sync
 						// register/unregister changes propagate (falls back to the
 						// hardcoded bootstrapped entries when sync is inactive/failed).
-						const requestTools = toolsEnabled ? getGeoTools() : undefined
+						//
+						// D-08/D-09: do NOT advertise `capture_map_snapshot` to a model that
+						// cannot consume the resulting image. Mirror the autonomous-snapshot
+						// vision gate (canUseVision) on the ADVERTISED surface so a no-vision
+						// (or merely 'uncertain') model never sees the tool, calls it, and
+						// then wastes a round reasoning that it cannot view the snapshot.
+						const requestTools = toolsEnabled
+							? gateToolsForVision(getGeoTools(), canUseVision)
+							: undefined
 						console.log('[Chat] Request config:', {
 							provider: providerConfig.type,
 							model: selectedModelId,
