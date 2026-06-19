@@ -1153,6 +1153,10 @@ export const useChatStore = create<ChatStore>()(
 				const targetChatId = get().activeChatId
 				const { selectedModel, models, toolsEnabled, provider, providerOverrides } = get()
 				const providerConfig = resolveProvider(provider, providerOverrides)
+				// Hoisted so the request-builder closure can gate capture_map_snapshot on
+				// it; assigned once vision support resolves below. Default false fails
+				// closed (gates the vision-only tool OFF if ever read before assignment).
+				let canUseVision = false
 				const referenceContextMessage = options?.referenceContextMessage?.trim()
 				const selectionContextMessage = options?.selectionContextMessage?.trim()
 				const geometryContextMessage = options?.geometryContextMessage?.trim()
@@ -1481,7 +1485,7 @@ export const useChatStore = create<ChatStore>()(
 					// The autonomous snapshot path may only send on CONFIRMED 'vision'
 					// (acceptance criterion #4 fail-safe). 'uncertain' is opt-in via the
 					// Plan 06 UI, never the silent snapshot loop; 'no-vision' is hard-off.
-					const canUseVision =
+					canUseVision =
 						visionSupport === 'vision' &&
 						effectiveContextTokens >= MIN_CONTEXT_TOKENS_FOR_INLINE_IMAGE
 					const promptBudgetTokens = getPromptBudgetTokens(model, providerConfig)
