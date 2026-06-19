@@ -97,11 +97,13 @@ const runCodeSchema: Tool = {
 		name: 'run_code',
 		description:
 			'Run JavaScript inside an isolated sandbox to author map geometry programmatically or compute over ingested data. ' +
-			'The sandbox exposes exactly: `authoring` (the map-mutation API: addFeature, writeGeoJSON, circle, buffer), ' +
+			'The sandbox exposes EXACTLY four globals — `authoring` (the map-mutation API: addFeature, writeGeoJSON, circle, buffer), ' +
 			'`turf` (a curated @turf/turf subset: circle, distance, buffer, area, length, bearing, destination, point, lineString, along, nearestPointOnLine, booleanPointInPolygon, centroid), ' +
 			'`data` (read-only: `data.datasets[handleId]` = full ingested rows for handles you pass in `handles`; `data.features` = current map features as GeoJSON), ' +
-			"and `console`. There is NO fetch/network/DOM/storage. The script's final expression is returned as the result. " +
-			'Drawing happens via `authoring.*` — its calls apply to the map after the run. Keep runs short; there is a wall-clock timeout. ' +
+			'and `console` — and NOTHING else. Node/host globals are NOT available: no `fetch`, `Buffer`, `process`, `require`, `XMLHttpRequest`, `localStorage`, `window`, or `document`. ' +
+			'RETURN: either end with a bare expression (its value is the result) OR write a top-level `return <value>` — both work. ' +
+			'Drawing happens via `authoring.*` — pass a GeoJSON Feature (a bare Geometry is auto-wrapped). After a successful run, TRUST the returned `counts` ' +
+			'(created/updated/deleted): do NOT re-verify a write with capture_map_snapshot or get_editor_state. Keep runs short; there is a wall-clock timeout. ' +
 			'STYLING: to color/style what you draw, pass style keys in the options object (3rd arg): ' +
 			'`authoring.circle([lon,lat], radius, { units?, steps?, color?, fillColor?, strokeColor?, fillOpacity?, strokeOpacity?, strokeWidth?, radius?, label?, name?, description? })` ' +
 			'(same style keys in the options object on `authoring.buffer(target, distance, { units?, ...style })`). ' +
@@ -114,7 +116,7 @@ const runCodeSchema: Tool = {
 				code: {
 					type: 'string',
 					description:
-						'The JavaScript source to run in the sandbox. The final expression is the return value (e.g. a summary string or a computed result object).',
+						'The JavaScript source to run in the sandbox. The result is the final bare expression OR a top-level `return <value>` (both supported) — e.g. a summary string or a computed result object.',
 				},
 				handles: {
 					type: 'array',

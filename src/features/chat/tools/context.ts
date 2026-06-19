@@ -141,6 +141,10 @@ export function createMapContextSystemMessage(): ChatMessage | null {
 			'When exact OSM tags are brittle, prefer filters with array values or filterSets to cover multiple tagging variants in one query.',
 			'Think in OSM tags and aliases: military often spans military=*, landuse=military, and building=bunker; rivers are usually waterway=river; benches are usually amenity=bench.',
 			'When calling a tool, output strict JSON arguments only.',
+			'For well-known places (capitals, countries, major cities), use their known coordinates directly instead of geocoding. Only call search_location for genuinely ambiguous or unknown places.',
+			'Do not fetch OSM relation geometry or query OSM unless the task explicitly needs real boundary or feature geometry. For a simple shape (arc, circle, line between known points), compute it yourself or with run_code+turf.',
+			'In run_code, the result is the final bare expression OR a top-level `return <value>` (both work). Only `data`, `turf`, `authoring`, and `console` exist — there is no fetch/Buffer/process/require/window/document.',
+			'Trust tool results: after a successful authoring write (a tool result with created/updated/deleted counts), do NOT re-verify with capture_map_snapshot or get_editor_state. The write result is authoritative.',
 			`Current map state JSON:\n${JSON.stringify(compact)}`,
 		].join('\n\n'),
 	}
