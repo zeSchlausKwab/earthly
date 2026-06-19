@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@cashu/cashu-ts": "^4.5.1",
-    "@contextvm/sdk": "^0.9.1",
+    "@contextvm/sdk": "^0.12.3",
     "@faker-js/faker": "^10.4.0",
     "@formkit/auto-animate": "^0.9.0",
     "@mapbox/shp-write": "^0.4.3",
