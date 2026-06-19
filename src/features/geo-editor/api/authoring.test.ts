@@ -157,3 +157,78 @@ describe('createAuthoring — writeGeoJSON append (dedup-by-id, T-02-04 verbatim
 		expect(editor.getAllFeatures().filter((f) => f.id === 'dup-id')).toHaveLength(1)
 	})
 })
+
+describe('createAuthoring — writeGeoJSON polymorphic input (FeatureCollection no-op fix)', () => {
+	const f1: import('geojson').Feature = {
+		type: 'Feature',
+		id: 'fc-1',
+		properties: {},
+		geometry: { type: 'Point', coordinates: [13.4, 52.5] },
+	}
+	const f2: import('geojson').Feature = {
+		type: 'Feature',
+		id: 'fc-2',
+		properties: {},
+		geometry: { type: 'Point', coordinates: [13.5, 52.6] },
+	}
+
+	it('accepts a FeatureCollection object → creates N (NOT a silent created:0)', () => {
+		const editor = createHeadlessEditor()
+		const authoring = createAuthoring(editor)
+
+		// The exact bug from the UAT dump: the model passed a FeatureCollection
+		// object (with no options bag) and got created:0 twice. It must create 2.
+		const result = authoring.writeGeoJSON({ type: 'FeatureCollection', features: [f1, f2] })
+
+		expect(result.ok).toBe(true)
+		expect(result.counts.created).toBe(2)
+		expect(editor.getAllFeatures()).toHaveLength(2)
+	})
+
+	it('FeatureCollection with replace:true clears + sets', () => {
+		const editor = createHeadlessEditor()
+		const authoring = createAuthoring(editor)
+		authoring.addFeature(singlePointCollection.features[0])
+
+		const result = authoring.writeGeoJSON(
+			{ type: 'FeatureCollection', features: [f1, f2] },
+			{ replace: true },
+		)
+		expect(result.counts.created).toBe(2)
+		const ids = editor.getAllFeatures().map((f) => f.id)
+		expect(ids.sort()).toEqual(['fc-1', 'fc-2'])
+		expect(ids).not.toContain('test-point-1')
+	})
+
+	it('accepts a single Feature → creates 1', () => {
+		const editor = createHeadlessEditor()
+		const authoring = createAuthoring(editor)
+
+		const result = authoring.writeGeoJSON(f1)
+		expect(result.counts.created).toBe(1)
+		expect(editor.getAllFeatures()).toHaveLength(1)
+	})
+
+	it('defaults replace to false (append) when options is omitted', () => {
+		const editor = createHeadlessEditor()
+		const authoring = createAuthoring(editor)
+		authoring.addFeature(singlePointCollection.features[0])
+
+		authoring.writeGeoJSON({ type: 'FeatureCollection', features: [f1] })
+		// test-point-1 survives because the default is append, not replace.
+		const ids = editor.getAllFeatures().map((f) => f.id)
+		expect(ids).toContain('test-point-1')
+		expect(ids).toContain('fc-1')
+	})
+
+	it('throws (not a silent no-op) on genuinely unusable input', () => {
+		const editor = createHeadlessEditor()
+		const authoring = createAuthoring(editor)
+
+		// @ts-expect-error — intentionally unusable input at the boundary
+		expect(() => authoring.writeGeoJSON(null)).toThrow(/not a usable GeoJSON input/)
+		// @ts-expect-error — a plain object with no GeoJSON type
+		expect(() => authoring.writeGeoJSON({ foo: 'bar' })).toThrow(/not a usable GeoJSON input/)
+		expect(editor.getAllFeatures()).toHaveLength(0)
+	})
+})

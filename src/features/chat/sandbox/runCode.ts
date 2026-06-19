@@ -113,7 +113,9 @@ const runCodeSchema: Tool = {
 			'`data.features` = an ARRAY of GeoJSON Features for the current map — iterate it directly, e.g. `data.features.find(...)` / `data.features.map(...)`, NOT `data.features.features` (it is a Feature[], not a FeatureCollection)), ' +
 			'and `console` — and NOTHING else. Node/host globals are NOT available: no `fetch`, `Buffer`, `process`, `require`, `XMLHttpRequest`, `localStorage`, `window`, or `document`. ' +
 			'RETURN: either end with a bare expression (its value is the result) OR write a top-level `return <value>` — both work. ' +
-			'Drawing happens via `authoring.*` — pass a GeoJSON Feature (a bare Geometry is auto-wrapped). After a successful run, TRUST the returned `counts` ' +
+			'Drawing happens via `authoring.*` — pass a GeoJSON Feature (a bare Geometry is auto-wrapped). ' +
+			'`authoring.writeGeoJSON(input, { replace? })` accepts a Feature[], a FeatureCollection object, OR a single Feature; ' +
+			'`replace` defaults to false (append). After a successful run, TRUST the returned `counts` ' +
 			'(created/updated/deleted): do NOT re-verify a write with capture_map_snapshot or get_editor_state. Keep runs short; there is a wall-clock timeout. ' +
 			'STYLING: to color/style what you draw, pass style keys in the options object (3rd arg): ' +
 			'`authoring.circle([lon,lat], radius, { units?, steps?, color?, fillColor?, strokeColor?, fillOpacity?, strokeOpacity?, strokeWidth?, radius?, label?, name?, description? })` ' +

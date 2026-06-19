@@ -22,7 +22,7 @@
  * mirror before the replace path's store sync works.
  */
 
-import type { Feature, Geometry } from 'geojson'
+import type { Feature, FeatureCollection, Geometry } from 'geojson'
 import type { EditorCommandArgs, EditorCommandExecutionResult, EditorCommandId } from '../commands'
 import { executeEditorCommand } from '../commands'
 import type { GeoEditor } from '../core/GeoEditor'
@@ -107,6 +107,37 @@ function describeUnusableFeature(input: unknown): string {
 	return 'received an object with no GeoJSON `type` — expected a Feature (`{type:"Feature",geometry,...}`) or a bare Geometry'
 }
 
+/** A GeoJSON FeatureCollection (the wrapper the model commonly passes to writeGeoJSON). */
+function isFeatureCollection(value: unknown): value is FeatureCollection {
+	return (
+		typeof value === 'object' &&
+		value !== null &&
+		(value as { type?: unknown }).type === 'FeatureCollection' &&
+		Array.isArray((value as { features?: unknown }).features)
+	)
+}
+
+/**
+ * Normalize the polymorphic `writeGeoJSON` input into a `Feature[]`, or THROW a
+ * descriptive error for genuinely unusable input (never a silent `created:0`).
+ *
+ * Accepts: a `Feature[]`, a single `Feature`, a bare `Geometry` (auto-wrapped),
+ * or a `FeatureCollection` (its `.features` are returned). The previous contract
+ * took ONLY a `Feature[]` and quietly no-op'd on anything else — most painfully a
+ * FeatureCollection object, which the model passes constantly (the run_code
+ * `created:0` bug). We now coerce the common shapes and fail LOUD on the rest.
+ */
+function toFeatureArray(input: unknown): Feature[] {
+	if (Array.isArray(input)) return input as Feature[]
+	if (isFeatureCollection(input)) return input.features
+	const single = coerceToFeature(input)
+	if (single) return [single]
+	throw new Error(
+		`authoring.writeGeoJSON: not a usable GeoJSON input — ${describeUnusableFeature(input)}. ` +
+			'Pass a Feature[], a FeatureCollection, or a single Feature.',
+	)
+}
+
 /**
  * The Authoring facade surface (D-10). Geometry-only — exported for sandbox/mock
  * use in Phase 4. Do NOT add signer/wallet/store/getState here (V4).
@@ -118,11 +149,24 @@ export interface Authoring {
 	 */
 	addFeature(feature: Feature, source?: string): MutationResult
 	/**
-	 * Write a batch of features. `replace:true` clears and sets the editor's
-	 * feature set (replace semantics); `replace:false` appends, skipping any id
-	 * already present (dedup-by-id, reused verbatim from `importFeaturesToEditor`).
+	 * Write a batch of features. Accepts a `Feature[]`, a single `Feature`, OR a
+	 * whole `FeatureCollection` (its `.features` are extracted) — the model
+	 * frequently passes a FeatureCollection object, which used to silently no-op
+	 * (`created:0`). A bare `Geometry` in the batch is auto-wrapped (same ergonomics
+	 * as `addFeature`). Genuinely unusable input (null/undefined, a non-GeoJSON
+	 * value, or an object that is neither a Feature/FeatureCollection nor an array)
+	 * THROWS a descriptive error rather than returning a misleading zero-count.
+	 *
+	 * `replace:true` clears and sets the editor's feature set (replace semantics);
+	 * `replace:false` appends, skipping any id already present (dedup-by-id, reused
+	 * verbatim from `importFeaturesToEditor`). `options` is OPTIONAL — when omitted
+	 * (e.g. a positional FeatureCollection with no options bag), `replace` defaults
+	 * to `false` (append), the safer non-destructive default.
 	 */
-	writeGeoJSON(features: Feature[], options: { replace: boolean }): MutationResult
+	writeGeoJSON(
+		input: Feature[] | FeatureCollection | Feature,
+		options?: { replace?: boolean },
+	): MutationResult
 	/**
 	 * Thin passthrough to the existing editor-command execution. Scaffold only —
 	 * Plan 04's registry wires real dispatch + validation. Returns the native
@@ -196,10 +240,17 @@ export function createAuthoring(editor: GeoEditor): Authoring {
 		}
 	}
 
-	function writeGeoJSON(features: Feature[], options: { replace: boolean }): MutationResult {
-		if (!Array.isArray(features)) {
-			return { ok: false, intent: 'add', featureIds: [], counts: emptyCounts() }
-		}
+	function writeGeoJSON(
+		input: Feature[] | FeatureCollection | Feature,
+		options: { replace?: boolean } = {},
+	): MutationResult {
+		// Coerce the polymorphic input (Feature[] | FeatureCollection | Feature |
+		// bare Geometry) into a Feature[]. Genuinely unusable input THROWS here
+		// (never a silent created:0 — the run_code FeatureCollection no-op bug).
+		const features = toFeatureArray(input)
+		// `replace` defaults to false (append) when options is omitted — the safe,
+		// non-destructive default for a positional FeatureCollection call.
+		const replace = options.replace === true
 
 		// Coerce bare geometries into Features (same ergonomics as addFeature), then
 		// drop anything that is genuinely not geometry. writeGeoJSON tolerates a mixed
@@ -210,7 +261,7 @@ export function createAuthoring(editor: GeoEditor): Authoring {
 			.map((f) => toEditorFeature(f, DEFAULT_SOURCE))
 
 		// Replace path: clear + set. `editor.setFeatures` does not emit yet (Plan 03).
-		if (options.replace) {
+		if (replace) {
 			const { intent } = runInterceptors({
 				intent: 'add',
 				featureIds: normalized.map((f) => f.id),
