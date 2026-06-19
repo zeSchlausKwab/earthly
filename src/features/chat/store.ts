@@ -32,12 +32,27 @@ import { detectVisionSupport } from './vision/detectVisionSupport'
 const DEFAULT_MINT_KEY = 'nip60_default_mint'
 import { toast } from 'sonner'
 
-// Default max tokens to limit cost - can be adjusted
-// Lower value = lower prepayment (unused balance is refunded)
-const DEFAULT_MAX_TOKENS = 512
+// Output is NOT artificially capped. We size the completion budget from the
+// room left in the context window (see deriveOutputBudget). The constants below
+// are floors/margins, never a fixed truncation cap.
+//
+// MIN_OUTPUT_BUDGET_TOKENS: a floor so every request — especially a tool call —
+//   always has room to emit something, even when the prompt is large.
+// OUTPUT_BUDGET_SAFETY_TOKENS: kept clear of the context window so prompt +
+//   completion never collides with the model's hard limit.
+const MIN_OUTPUT_BUDGET_TOKENS = 1024
+const OUTPUT_BUDGET_SAFETY_TOKENS = 512
 const CONTEXT_SAFETY_TOKENS = 256
 const LMSTUDIO_CONTEXT_SAFETY_TOKENS = 1536
 const MIN_PROMPT_BUDGET_TOKENS = 512
+// Fraction of the context window reserved for completion when trimming the
+// prompt. The prompt still gets the lion's share; this only guarantees the
+// completion is never starved down to a fixed sliver (old behavior reserved a
+// fixed `maxTokens` slice regardless of window size).
+const COMPLETION_RESERVE_FRACTION = 0.25
+// Cost-estimation fallback when the context window is unknown for a paid model.
+// Mirrors routstr.estimateMaxCost's own default so prepay/refund stay consistent.
+const PAID_OUTPUT_BUDGET_FALLBACK_TOKENS = 4096
 const DEFAULT_LMSTUDIO_CONTEXT_TOKENS = 4096
 const DEFAULT_OLLAMA_CONTEXT_TOKENS = 8192
 const DEFAULT_GENERIC_CONTEXT_TOKENS = 16384
@@ -52,7 +67,6 @@ const MESSAGE_TOKEN_OVERHEAD = 24
 const MIN_CONTEXT_TOKENS_FOR_INLINE_IMAGE = 16000
 const STREAM_STALL_WARNING_MS = 15000
 const STREAM_STALL_TIMEOUT_MS = 45000
-const MIN_TOOL_ENABLED_MAX_TOKENS = 1024
 const OVERLOAD_RETRY_DELAYS_MS = [1500, 4000]
 
 type StreamProgressKind =
@@ -377,10 +391,12 @@ function isIngestHandleJson(text: string): boolean {
  *
  * Without this the agent loop would end the turn silently (set idle, append no
  * message, surface nothing) — the user sees the spinner stop with no outcome.
- * This is observed live when a reasoning-heavy endpoint blows its completion-token
- * budget (`finishReason: 'length'`) before emitting content, or when the model
- * returns a genuinely empty completion. We turn that into a visible notice routed
- * through the same `error` surface ChatPanel already renders for failures.
+ * Output is no longer artificially capped (the budget is derived from the
+ * context window), so `finishReason: 'length'` now means the model genuinely
+ * exhausted the context-derived output room — e.g. a reasoning-heavy endpoint on
+ * a small window — or the model returned a genuinely empty completion. We turn
+ * that into a visible notice routed through the same `error` surface ChatPanel
+ * already renders for failures.
  *
  * Returns the user-facing copy plus a `truncated` flag (true only for the
  * token-limit case) so callers / tests can distinguish the two outcomes.
@@ -392,8 +408,9 @@ export function describeEmptyCompletion(finishReason: string | null | undefined)
 	if (finishReason === 'length') {
 		return {
 			message:
-				'The response was cut off — the model hit its output-token limit. ' +
-				'Increase max output tokens (or shorten the prompt/context) and retry.',
+				'The response was cut off — the model ran out of room in its context ' +
+				'window. Shorten the prompt/context (or use a model with a larger ' +
+				'context window) and retry.',
 			truncated: true,
 		}
 	}
@@ -567,16 +584,58 @@ function getEffectiveContextTokens(model: RoutstrModel, provider: ProviderConfig
 	}
 }
 
-function getPromptBudgetTokens(
-	model: RoutstrModel,
-	provider: ProviderConfig,
-	maxTokens: number,
-): number {
+export function getPromptBudgetTokens(model: RoutstrModel, provider: ProviderConfig): number {
 	const contextTokens = getEffectiveContextTokens(model, provider)
-	const completionReserve = Math.max(64, maxTokens)
+	// Reserve a proportional completion slice (not a fixed sliver) so a short
+	// prompt does NOT eat the whole window and starve the output. The prompt
+	// still gets the remainder, which on a large window is the vast majority.
+	const completionReserve = Math.max(
+		MIN_OUTPUT_BUDGET_TOKENS,
+		Math.floor(contextTokens * COMPLETION_RESERVE_FRACTION),
+	)
 	const safetyTokens =
 		provider.type === 'lmstudio' ? LMSTUDIO_CONTEXT_SAFETY_TOKENS : CONTEXT_SAFETY_TOKENS
 	return Math.max(MIN_PROMPT_BUDGET_TOKENS, contextTokens - completionReserve - safetyTokens)
+}
+
+/**
+ * Derive the output-token budget for a single request from the room left in the
+ * context window AFTER the prompt — the model is no longer artificially capped.
+ *
+ * Returns both:
+ *  - `maxTokens`: the value to send as `max_tokens`. `undefined` means OMIT the
+ *    field entirely (free/local providers run to their natural stop within the
+ *    context window — no truncation).
+ *  - `costTokens`: the same budget expressed as a concrete number, used for paid
+ *    prepay/refund cost estimation so prepayment NEVER underpays.
+ *
+ * The two values are derived from one number so cost estimation and the actual
+ * request stay consistent for paid providers.
+ */
+export function deriveOutputBudget(
+	model: RoutstrModel,
+	provider: ProviderConfig,
+	estimatedPromptTokens: number,
+): { maxTokens: number | undefined; costTokens: number } {
+	const contextTokens = getEffectiveContextTokens(model, provider)
+	// Room left after the prompt, kept clear of the window's hard edge. Floored
+	// so a tool call always has room even when the prompt is large.
+	const remaining = contextTokens - estimatedPromptTokens - OUTPUT_BUDGET_SAFETY_TOKENS
+	const derived =
+		contextTokens > 0
+			? Math.max(MIN_OUTPUT_BUDGET_TOKENS, remaining)
+			: PAID_OUTPUT_BUDGET_FALLBACK_TOKENS
+
+	if (!provider.requiresPayment) {
+		// Free/local (lmstudio, ollama, custom): omit max_tokens so the model is
+		// not truncated. costTokens is unused for these (no payment) but reported
+		// for diagnostics/consistency.
+		return { maxTokens: undefined, costTokens: derived }
+	}
+
+	// Paid (routstr/cashu): send the derived budget so prepay reserves against it
+	// and refunds the unused remainder. Same number drives estimateMaxCost.
+	return { maxTokens: derived, costTokens: derived }
 }
 
 function trimMessagesToPromptBudget(messages: ChatMessage[], budgetTokens: number): ChatMessage[] {
@@ -778,7 +837,6 @@ interface ChatState {
 	// "load failed / not safe to save" guard so the recovery write is allowed (CR-01).
 	settingsImportNonce: number
 	// Settings
-	maxTokens: number // Max output tokens per request
 	toolsEnabled: boolean // Whether to send tools with requests
 	// Chat state
 	isStreaming: boolean
@@ -855,7 +913,6 @@ function createInitialState(): ChatState {
 		settingsError: null,
 		settingsLoadNonce: 0,
 		settingsImportNonce: 0,
-		maxTokens: DEFAULT_MAX_TOKENS,
 		toolsEnabled: true,
 		isStreaming: false,
 		streamingContent: '',
@@ -1093,12 +1150,8 @@ export const useChatStore = create<ChatStore>()(
 
 			sendMessage: async (content: string, options?: SendMessageOptions) => {
 				const targetChatId = get().activeChatId
-				const { selectedModel, models, maxTokens, toolsEnabled, provider, providerOverrides } =
-					get()
+				const { selectedModel, models, toolsEnabled, provider, providerOverrides } = get()
 				const providerConfig = resolveProvider(provider, providerOverrides)
-				const requestMaxTokens = toolsEnabled
-					? Math.max(maxTokens, MIN_TOOL_ENABLED_MAX_TOKENS)
-					: maxTokens
 				const referenceContextMessage = options?.referenceContextMessage?.trim()
 				const selectionContextMessage = options?.selectionContextMessage?.trim()
 				const geometryContextMessage = options?.geometryContextMessage?.trim()
@@ -1172,9 +1225,14 @@ export const useChatStore = create<ChatStore>()(
 					}
 				}
 
-				// Helper to make a streaming request
+				// Helper to make a streaming request.
+				// `outputBudget` is derived per-round from the room left after the
+				// prompt: `.maxTokens` is what we send (undefined => omit, i.e. no cap),
+				// `.costTokens` is the concrete number used for paid cost estimation so
+				// prepay/refund stay consistent and never underpay.
 				const makeRequest = async (
 					requestMessages: ChatMessage[],
+					outputBudget: { maxTokens: number | undefined; costTokens: number },
 				): Promise<{
 					content: string
 					reasoningContent: string
@@ -1193,11 +1251,13 @@ export const useChatStore = create<ChatStore>()(
 							)
 							.join(' ')
 						const inputTokens = estimateTokens(totalText)
-						const estimatedCost = estimateMaxCost(model, inputTokens, requestMaxTokens)
+						// Use the SAME budget number we send as max_tokens so the server's
+						// reservation and our prepayment agree (refund returns the rest).
+						const estimatedCost = estimateMaxCost(model, inputTokens, outputBudget.costTokens)
 
 						console.log('[Chat] Cost estimate:', {
 							inputTokens,
-							maxOutputTokens: requestMaxTokens,
+							maxOutputTokens: outputBudget.costTokens,
 							estimatedCost,
 							modelPricing: model.pricing,
 						})
@@ -1309,7 +1369,10 @@ export const useChatStore = create<ChatStore>()(
 								model: selectedModelId,
 								messages: requestMessages,
 								stream: true,
-								max_tokens: requestMaxTokens,
+								// Omitted (undefined) for free/local providers so the model
+								// runs to its natural stop within the context window; the
+								// derived budget for paid providers.
+								max_tokens: outputBudget.maxTokens,
 								tools: requestTools,
 							},
 							{
@@ -1412,7 +1475,7 @@ export const useChatStore = create<ChatStore>()(
 					const canUseVision =
 						visionSupport === 'vision' &&
 						effectiveContextTokens >= MIN_CONTEXT_TOKENS_FOR_INLINE_IMAGE
-					const promptBudgetTokens = getPromptBudgetTokens(model, providerConfig, requestMaxTokens)
+					const promptBudgetTokens = getPromptBudgetTokens(model, providerConfig)
 					const streamStartAt = Date.now()
 
 					set({
@@ -1498,6 +1561,10 @@ export const useChatStore = create<ChatStore>()(
 								)
 								.join('\n'),
 						)
+						// Output budget is sized per-round from the room left after this
+						// round's prompt — no fixed cap. Free/local omit max_tokens; paid
+						// send the derived budget (cost estimate uses the same number).
+						const outputBudget = deriveOutputBudget(model, providerConfig, estimatedPromptTokens)
 
 						set((state) => ({
 							streamPhase: 'streaming',
@@ -1524,7 +1591,7 @@ export const useChatStore = create<ChatStore>()(
 							let lastError: unknown
 							for (let attempt = 0; attempt <= OVERLOAD_RETRY_DELAYS_MS.length; attempt += 1) {
 								try {
-									result = await makeRequest(requestMessages)
+									result = await makeRequest(requestMessages, outputBudget)
 									lastError = null
 									break
 								} catch (error) {
@@ -1563,7 +1630,23 @@ export const useChatStore = create<ChatStore>()(
 									'Context overflow detected. Retrying with a reduced prompt window...',
 							})
 							const emergencyMessages = buildEmergencyRetryMessages(conversationMessages)
-							result = await makeRequest(emergencyMessages)
+							// Re-derive the budget for the reduced prompt so a paid retry's
+							// cost estimate matches the smaller request (more room => budget
+							// floored, never starved).
+							const emergencyPromptTokens = estimateTokens(
+								emergencyMessages
+									.map(
+										(message) =>
+											`${messageContentToText(message.content)} ${messageReasoningToText(message.reasoning_content)}`,
+									)
+									.join('\n'),
+							)
+							const emergencyOutputBudget = deriveOutputBudget(
+								model,
+								providerConfig,
+								emergencyPromptTokens,
+							)
+							result = await makeRequest(emergencyMessages, emergencyOutputBudget)
 						}
 						if (!result) {
 							throw new Error('Chat request finished without a result.')

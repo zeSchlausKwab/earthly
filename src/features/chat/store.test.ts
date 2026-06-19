@@ -1,15 +1,35 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { BUILTIN_PROVIDERS } from './routstr'
+import { BUILTIN_PROVIDERS, estimateMaxCost } from './routstr'
+import type { ProviderConfig, RoutstrModel } from './routstr'
 import {
 	DEFAULT_CHAT_SETTINGS,
 	TRUNCATION_CONTENT_SUFFIX,
 	chatStorePartialize,
 	compactIngestHandlePartForPrompt,
+	deriveOutputBudget,
 	describeEmptyCompletion,
+	getPromptBudgetTokens,
 	resolveProvider,
 	useChatStore,
 } from './store'
 import type { ProviderOverrideMap } from './store'
+
+function makeModel(overrides: Partial<RoutstrModel> = {}): RoutstrModel {
+	return {
+		id: 'test-model',
+		name: 'Test Model',
+		contextLength: 262_144,
+		pricing: { input: 0, output: 0, request: 0 },
+		...overrides,
+	}
+}
+
+const PAID_PROVIDER: ProviderConfig = BUILTIN_PROVIDERS.routstr
+const FREE_PROVIDERS: ProviderConfig[] = [
+	BUILTIN_PROVIDERS.lmstudio,
+	BUILTIN_PROVIDERS.ollama,
+	{ type: 'custom', baseUrl: 'http://custom/v1', name: 'Custom', requiresPayment: false },
+]
 
 function emptyOverrides(): ProviderOverrideMap {
 	return {
@@ -206,7 +226,10 @@ describe('describeEmptyCompletion — terminal-state surfacing (UAT: silent empt
 		const notice = describeEmptyCompletion('length')
 		expect(notice.truncated).toBe(true)
 		expect(notice.message).toContain('cut off')
-		expect(notice.message.toLowerCase()).toContain('output-token limit')
+		// Output is no longer artificially capped — 'length' now means the model
+		// exhausted the context-derived output room, so the copy points at the
+		// context window rather than a tunable max-output setting.
+		expect(notice.message.toLowerCase()).toContain('context')
 		expect(notice.message.toLowerCase()).toContain('retry')
 	})
 
@@ -260,5 +283,98 @@ describe('empty/truncated terminal outcome — store surfacing (UAT regression)'
 		expect(state.error).not.toBeNull()
 		expect(state.lastProgressKind).toBe('error')
 		expect(state.lastProgressKind).not.toBe('complete')
+	})
+})
+
+describe('deriveOutputBudget — no artificial output cap (UAT: 512/1024 truncation removed)', () => {
+	test('budget SCALES with the context window, never the old fixed 512/1024 cap', () => {
+		const bigModel = makeModel({ contextLength: 262_144 })
+		const smallPrompt = 1000
+		const { costTokens } = deriveOutputBudget(bigModel, PAID_PROVIDER, smallPrompt)
+		// A 262k-context model must yield a large budget — emphatically NOT the old cap.
+		expect(costTokens).toBeGreaterThan(200_000)
+		expect(costTokens).not.toBe(512)
+		expect(costTokens).not.toBe(1024)
+
+		// Larger context => larger budget (monotonic with the window).
+		const biggerModel = makeModel({ contextLength: 1_000_000 })
+		const bigger = deriveOutputBudget(biggerModel, PAID_PROVIDER, smallPrompt)
+		expect(bigger.costTokens).toBeGreaterThan(costTokens)
+	})
+
+	test('free/local providers OMIT max_tokens (undefined => no cap sent)', () => {
+		const model = makeModel({ contextLength: 32_000 })
+		for (const provider of FREE_PROVIDERS) {
+			const { maxTokens } = deriveOutputBudget(model, provider, 500)
+			expect(maxTokens).toBeUndefined()
+		}
+	})
+
+	test('paid provider SENDS the derived budget (a concrete number, not undefined)', () => {
+		const model = makeModel({ contextLength: 128_000 })
+		const { maxTokens, costTokens } = deriveOutputBudget(model, PAID_PROVIDER, 2000)
+		expect(typeof maxTokens).toBe('number')
+		// The sent budget and the cost-estimation number are the SAME value, so
+		// prepay reserves exactly what the server may emit (refund returns the rest).
+		expect(maxTokens).toBe(costTokens)
+	})
+
+	test('paid cost estimate uses the SAME derived budget (prepay never underpays)', () => {
+		// Non-zero output pricing so the budget actually drives cost.
+		const model = makeModel({
+			contextLength: 64_000,
+			pricing: { input: 1_000_000, output: 1_000_000, request: 0 },
+		})
+		const inputTokens = 3000
+		const { costTokens } = deriveOutputBudget(model, PAID_PROVIDER, inputTokens)
+		const costFromDerived = estimateMaxCost(model, inputTokens, costTokens)
+		// The prepay must cover input + the FULL derived output budget. If we had
+		// underpaid (e.g. estimated against a smaller cap), this would be lower.
+		const minimumExpected = inputTokens * 1 + costTokens * 1
+		expect(costFromDerived).toBeGreaterThanOrEqual(minimumExpected)
+	})
+
+	test('tool-call floor: a huge prompt still leaves the minimum output budget', () => {
+		const model = makeModel({ contextLength: 8000 })
+		// Prompt larger than the whole window — remaining would go negative.
+		const { costTokens, maxTokens } = deriveOutputBudget(model, PAID_PROVIDER, 100_000)
+		expect(costTokens).toBeGreaterThanOrEqual(1024) // MIN_OUTPUT_BUDGET_TOKENS floor
+		expect(maxTokens).toBe(costTokens)
+	})
+
+	test('unknown context window falls back to a sane paid budget (no zero/NaN)', () => {
+		// lmstudio clamps to a hard cap, so use a paid provider with no contextLength.
+		const model = makeModel({ contextLength: undefined })
+		const { costTokens } = deriveOutputBudget(model, PAID_PROVIDER, 100)
+		expect(Number.isFinite(costTokens)).toBe(true)
+		expect(costTokens).toBeGreaterThanOrEqual(1024)
+	})
+})
+
+describe('getPromptBudgetTokens — prompt + completion fit the window (inverted budget)', () => {
+	test('prompt budget leaves real room for completion (not starved to a sliver)', () => {
+		const model = makeModel({ contextLength: 32_000 })
+		const promptBudget = getPromptBudgetTokens(model, PAID_PROVIDER)
+		// Completion gets the remainder; prompt + a derived completion fit the window.
+		const { costTokens } = deriveOutputBudget(model, PAID_PROVIDER, promptBudget)
+		expect(promptBudget + costTokens).toBeLessThanOrEqual(model.contextLength as number)
+		// Completion reserve is proportional, so it is meaningfully more than a sliver.
+		expect(costTokens).toBeGreaterThanOrEqual(1024)
+	})
+
+	test('a small-context model still leaves room for both prompt and completion', () => {
+		const model = makeModel({ contextLength: 8000 })
+		const promptBudget = getPromptBudgetTokens(model, PAID_PROVIDER)
+		expect(promptBudget).toBeGreaterThan(0)
+		// A realistic small prompt + its derived completion fit inside the window.
+		const prompt = Math.min(promptBudget, 2000)
+		const { costTokens } = deriveOutputBudget(model, PAID_PROVIDER, prompt)
+		expect(prompt + costTokens).toBeLessThanOrEqual(model.contextLength as number)
+	})
+
+	test('scales with the window: a bigger context yields a bigger prompt budget', () => {
+		const small = getPromptBudgetTokens(makeModel({ contextLength: 16_000 }), PAID_PROVIDER)
+		const big = getPromptBudgetTokens(makeModel({ contextLength: 262_144 }), PAID_PROVIDER)
+		expect(big).toBeGreaterThan(small)
 	})
 })
