@@ -70,16 +70,41 @@ function browserWasmLocation(): string | undefined {
 }
 
 /**
+ * Compile-the-wasm-ONCE memoization (OOM/runaway fix).
+ *
+ * `newQuickJSWASMModuleFromVariant(newVariant(...))` is NOT memoized by the library
+ * (only `getQuickJS()` is, via its internal singletonPromise). Calling it per run
+ * re-FETCHES + re-COMPILES the ~503KB QuickJS wasm and allocates a fresh wasm heap
+ * every time — which, multiplied across many runs, drives the worker toward OOM and
+ * pegs a CPU core on repeated compilation (Phase 4 UAT runaway). The COMPILED module
+ * is stateless and safe to reuse: all script state lives in the per-run `runtime` /
+ * `context` created and disposed inside {@link runSandboxCode}, so reusing the module
+ * does NOT bleed state between runs (confinement, CODE-01, is unaffected). We memoize
+ * the module promise so a long-lived (pooled) worker compiles the wasm exactly once.
+ */
+let quickJsModulePromise: Promise<QuickJSWASMModule> | undefined
+
+/**
  * Load the QuickJS WASM module, pointing the emscripten loader at the served
  * `.wasm` asset when in a real browser/Worker, and falling back to the default
  * filesystem resolution (via `getQuickJS()`) in Node / the bun-test harness.
+ *
+ * MEMOIZED: the first call compiles the wasm; every subsequent call (every run in
+ * the same worker) reuses the already-compiled module — no re-fetch, no re-compile.
  */
-async function loadQuickJS(): Promise<QuickJSWASMModule> {
+function loadQuickJS(): Promise<QuickJSWASMModule> {
+	if (quickJsModulePromise) return quickJsModulePromise
 	const wasmLocation = browserWasmLocation()
-	if (wasmLocation) {
-		return newQuickJSWASMModuleFromVariant(newVariant(RELEASE_SYNC, { wasmLocation }))
-	}
-	return getQuickJS()
+	const promise = wasmLocation
+		? newQuickJSWASMModuleFromVariant(newVariant(RELEASE_SYNC, { wasmLocation }))
+		: getQuickJS()
+	// On a failed compile, clear the cache so a later run can retry from scratch
+	// (a one-off failure must not permanently wedge the worker).
+	quickJsModulePromise = promise.catch((error) => {
+		quickJsModulePromise = undefined
+		throw error
+	})
+	return quickJsModulePromise
 }
 
 /** Memory cap for one run (T-04-03). */

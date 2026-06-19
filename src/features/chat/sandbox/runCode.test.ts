@@ -23,13 +23,21 @@ import { createHeadlessEditor } from '@/features/geo-editor/core/test-harness'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { dispatch, isToolError } from '@/features/chat/tools/registry'
 import { directEngineTransport, type SandboxTransport } from './sandboxHost'
-import { setSandboxTransportForTests } from './runCode'
+import {
+	RUN_CODE_RETRY_CAP,
+	resetRunCodeFailureCounterForTests,
+	setSandboxTransportForTests,
+} from './runCode'
 
 const seededHandles: string[] = []
 let prevEditor: unknown
 
 beforeEach(() => {
 	setSandboxTransportForTests(directEngineTransport)
+	// The HARD retry cap (D-06) uses a module-level consecutive-failure counter that
+	// persists across a session in production; reset it per test so the deliberate
+	// failures in one case don't trip the cap in the next.
+	resetRunCodeFailureCounterForTests()
 	prevEditor = useEditorStore.getState().editor
 })
 
@@ -68,6 +76,45 @@ describe('run_code — error feedback (CODE-03 / D-11 / D-13)', () => {
 		expect(err.kind).toBe('handler_error')
 		// D-13: the model is told the script was terminated for exceeding the deadline.
 		expect(err.message.toLowerCase()).toMatch(/exceed|terminat|deadline|interrupt/)
+	})
+})
+
+describe('run_code — bounded self-correction is a HARD stop (D-06, runaway fix)', () => {
+	it('stops INVOKING the sandbox after RUN_CODE_RETRY_CAP consecutive failures (no spawn storm)', async () => {
+		useHeadlessEditor()
+
+		// A transport that always fails AND counts how many times the boundary is actually
+		// invoked. Each invocation in production is a QuickJS sandbox run on the warm worker
+		// — the runaway is unbounded invocations. The breaker must bound them.
+		let invocations = 0
+		const alwaysFails: SandboxTransport = async () => {
+			invocations += 1
+			return { id: 'fail', success: false, error: 'deliberate failure', recordedCalls: [] }
+		}
+		setSandboxTransportForTests(alwaysFails)
+
+		// Drive run_code in a window of (cap + 1) calls: the first `cap` calls fail and
+		// invoke the boundary; the (cap+1)th MUST be refused before any sandbox run.
+		const window = RUN_CODE_RETRY_CAP + 1
+		const messages: string[] = []
+		for (let i = 0; i < window; i++) {
+			const r = await dispatch('run_code', { code: 'throw new Error("x")' })
+			expect(isToolError(r)).toBe(true)
+			messages.push((r as { message: string }).message)
+		}
+
+		// At most `cap` boundary invocations per (cap+1)-call window — the extra call was
+		// refused before any sandbox run, so an unbounded spawn storm is impossible.
+		expect(invocations).toBe(RUN_CODE_RETRY_CAP)
+		// The breaker call reports the explicit halt, not another sandbox failure.
+		expect(messages[window - 1]).toContain('halted')
+
+		// The breaker RESET on trip, so a later legitimate (succeeding) run proceeds again
+		// and clears the counter — the model is not permanently bricked.
+		setSandboxTransportForTests(directEngineTransport)
+		const ok = await dispatch('run_code', { code: '1 + 1' })
+		expect(isToolError(ok)).toBe(false)
+		expect((ok as { ok: boolean }).ok).toBe(true)
 	})
 })
 

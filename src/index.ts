@@ -60,6 +60,11 @@ function serveBuiltFile(builtFile: ReturnType<typeof file>, pathname: string): R
   const headers: Record<string, string> = {};
   if (pathname.endsWith(".wasm")) {
     headers["Content-Type"] = "application/wasm";
+    // The QuickJS sandbox wasm is a fixed, content-addressable asset. Let the browser
+    // cache it aggressively so a worker (re)spawn never re-downloads the ~503KB blob
+    // (defence-in-depth against the Phase 4 wasm re-fetch runaway, on top of the
+    // worker-side compile-once memoization).
+    headers["Cache-Control"] = "public, max-age=31536000, immutable";
   } else if (pathname.endsWith(".js") || pathname.endsWith(".mjs")) {
     // Worker modules (and any served JS) MUST have a JS MIME — a module Worker
     // refuses to load a script served as anything else.
@@ -381,7 +386,12 @@ if (!isProduction) {
         ),
       );
       return new Response(wasmFile, {
-        headers: { "Content-Type": "application/wasm" },
+        headers: {
+          "Content-Type": "application/wasm",
+          // Cache the fixed wasm blob so a worker (re)spawn never re-downloads it
+          // (defence-in-depth against the Phase 4 wasm re-fetch runaway).
+          "Cache-Control": "public, max-age=31536000, immutable",
+        },
       });
     };
 

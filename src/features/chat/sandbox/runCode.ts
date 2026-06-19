@@ -84,6 +84,16 @@ export function setSandboxTransportForTests(transport: SandboxTransport | undefi
 }
 
 /**
+ * TEST SEAM ONLY: reset the consecutive-failure counter between tests. In production
+ * the counter persists across a chat session on purpose (the HARD self-correction
+ * cap, D-06) and is reset by a successful run — but the module-level counter would
+ * otherwise leak across independent test cases, so the suite clears it per test.
+ */
+export function resetRunCodeFailureCounterForTests(): void {
+	consecutiveFailures = 0
+}
+
+/**
  * Per-run self-correction attempt counter (D-06). Incremented on every failed
  * `run_code` run, reset to 0 on success. Module-level because each dispatch is a
  * fresh sandbox (D-05) and the model retries by re-calling the tool — the counter
@@ -167,6 +177,27 @@ export function registerSandboxTools(register: (entry: ToolEntry) => void): void
 			const handles = Array.isArray(args.handles)
 				? args.handles.filter((h): h is string => typeof h === 'string')
 				: []
+
+			// (0) CIRCUIT BREAKER (D-06, runaway fix). The retry "cap" used to only APPEND a
+			// "please stop" string to the error — nothing prevented the model from calling
+			// run_code again, so a model that ignored it looped, and EACH loop spawned a full
+			// QuickJS sandbox (wasm fetch + compile + heap alloc) → the Phase 4 OOM/CPU
+			// runaway. Now the cap is enforced HERE, BEFORE the boundary is even constructed:
+			// once RUN_CODE_RETRY_CAP consecutive failures are hit, this call is REFUSED
+			// without spawning a sandbox. The breaker then RESETS so the model isn't
+			// permanently bricked — it gets one explicit halt per burst, capping spawns to at
+			// most RUN_CODE_RETRY_CAP per (cap+1) calls. Combined with the warm-pooled worker
+			// (the wasm is compiled once for the whole session) and the network round-trip
+			// between calls, an unbounded re-spawn/re-fetch storm is impossible.
+			if (consecutiveFailures >= RUN_CODE_RETRY_CAP) {
+				const halted = consecutiveFailures
+				consecutiveFailures = 0
+				throw new Error(
+					`run_code is halted: ${halted} consecutive failures reached the retry cap ` +
+						`(${RUN_CODE_RETRY_CAP}). Stop calling run_code and report the failure to the user; ` +
+						`do not retry unless you change approach.`,
+				)
+			}
 
 			// (1) resolve editor + build the D-01 read snapshot BEFORE the boundary runs.
 			const editor = getEditorOrThrow()
