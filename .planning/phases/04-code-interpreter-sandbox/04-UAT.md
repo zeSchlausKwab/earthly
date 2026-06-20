@@ -1,21 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 04-code-interpreter-sandbox
 source: [04-VERIFICATION.md]
 started: 2026-06-18T09:55:00Z
-updated: 2026-06-18T09:55:00Z
+updated: 2026-06-19T11:00:00Z
 ---
 
 ## Current Test
 
-number: 2
-name: Live overfly demo (CODE-06)
-expected: |
-  Ingest a small overfly-fees CSV dataset, then prompt the Austria→Bosnia cost-weighted
-  flight-path request. The AI reads the data by handle, runs the computation in the sandbox,
-  draws the chosen path, and the collapsed block's return value shows the chosen route +
-  per-variant costs.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -26,26 +19,30 @@ note: "Re-tested after worker fix 537cac2 — run_code now executes in the live 
 
 ### 2. Live overfly demo (CODE-06)
 expected: Ingest a small overfly-fees CSV dataset, then prompt the Austria→Bosnia cost-weighted flight-path request. The AI reads the data by handle, runs the computation in the sandbox, draws the chosen path, and the collapsed block's return value shows the chosen route + per-variant costs.
-result: [pending]
+result: pass
+note: "Passed after the max_tokens cap removal (d5e8368) gave the reasoning-heavy turn room to finish (finish stop, no truncation). The AI computed candidate routes weighted by per-country overfly fee and drew the chosen path (green) into Sarajevo with candidate lines. CAVEAT: the run finished but with 3 wasted retries on `ReferenceError: Buffer is not defined` (correct confinement — Buffer is a Node global absent from the QuickJS sandbox — but the model didn't know what's unavailable and burned its retry budget before pivoting). DX/prompt improvement opportunity: advertise unavailable Node globals (Buffer/process/require) in the run_code prompt and/or sharpen the error feedback. Tracked separately."
 
 ### 3. Live self-correction (CODE-03 — D-06/D-07/D-11)
 expected: Prompt something that makes the AI write throwing code. The user sees a CONCISE one-line red ToolError bubble (no giant stack — D-11). The AI self-corrects within ~3 attempts (D-06). Each retry is its own separate collapsed block (D-07).
-result: [pending]
+result: pass
+note: "Confirmed by user. Observed live across stress runs: SyntaxError 'return not in a function' (fibonacci) and ReferenceError Buffer (overfly) each surfaced as a concise red ToolError bubble, the model self-corrected within the 3-attempt cap, and each attempt rendered as its own collapsed block (D-06/D-07/D-11)."
 
 ### 4. Live no-freeze (CODE-04)
 expected: The UI stays responsive throughout all runs, including any runaway that triggers the timeout. No browser hang observed.
-result: [pending]
+result: pass
+note: "Confirmed by user — runaway killed by the wall-clock timeout, UI stayed responsive, no tab freeze. (The earlier OOM-class hot-CPU issue was a separate runaway-worker bug, fixed in 9dd9c52.)"
 
 ### 5. Read-only affordance (D-12)
 expected: In the expanded code block there is NO edit field, textarea, or "Run"/"Rerun"/"Edit" button visible. The code is shown for transparency only.
-result: [pending]
+result: pass
+note: "Confirmed by user — expanded block shows SOURCE (READ-ONLY); no edit field, no Run/Rerun/Edit control."
 
 ## Summary
 
 total: 5
-passed: 1
-issues: 1
-pending: 3
+passed: 5
+issues: 0
+pending: 0
 skipped: 0
 blocked: 0
 
