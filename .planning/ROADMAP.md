@@ -154,7 +154,21 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. The user can set a safety level — 1 (preview + confirm all) / 2 (confirm destructive only, default) / 3 (trust + undo) — and the choice persists and actually gates applies accordingly.
   4. "Fix all" operates as a rule over the full bound dataset by feature id (never only the model's compacted view), and dataset edits — including property, style, and translation changes — are reversible via a dataset-level snapshot/undo.
 
-**Plans**: TBD
+**Plans**: 5 plans
+**Wave 1**
+
+- [ ] 05-01-PLAN.md — Pure add/modify/delete diff classifier + Phase-2-deferred modify/delete facade verbs + tightened A3 boundary (SAFE-02 / INFRA-02)
+- [ ] 05-02-PLAN.md — Dataset-level snapshot/undo stack (geometry + metadata) hooked to Cmd+Z + WR-04 recorded-call cap (SAFE-06)
+- [ ] 05-03-PLAN.md — Persisted safetyLevel on encrypted settings + setSafetyLevel + pure binding resolver (SAFE-04 / SAFE-01)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 05-04-PLAN.md — Host-side async buffer-then-apply AuthoringGate + fixAll host-side rule runner (SAFE-03 / SAFE-04 / SAFE-05)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 05-05-PLAN.md — Visible binding chip + "Just accept" toggle + inline Apply/Cancel diff block + chat-loop gate wiring (SAFE-01 / SAFE-03 / SAFE-04)
+
 **UI hint**: yes
 
 ### Phase 6: AI Bulk Transform & Data-Driven Styling
@@ -196,7 +210,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 2. Tool Registry & Authoring API | 4/6 | In progress | - |
 | 3. File Ingest & Multimodal | 6/6 | Complete    | 2026-06-17 |
 | 4. Code Interpreter Sandbox | 3/3 | Complete    | 2026-06-20 |
-| 5. Dataset-Aware Safe Editing | 0/TBD | Not started | - |
+| 5. Dataset-Aware Safe Editing | 0/5 | Not started | - |
 | 6. AI Bulk Transform & Data-Driven Styling | 0/TBD | Not started | - |
 | 7. Geometry Optimization | 0/TBD | Not started | - |
 </content>
