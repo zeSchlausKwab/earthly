@@ -1,8 +1,8 @@
 ---
 phase: 04-code-interpreter-sandbox
 verified: 2026-06-18T09:50:00Z
-status: human_needed
-score: 4/4 automatable must-haves verified
+status: passed
+score: 4/4 automatable must-haves verified; 5/5 human UAT items passed (04-UAT.md, 2026-06-19)
 overrides_applied: 0
 human_verification:
   - test: "Live fibonacci demo (CODE-05)"
