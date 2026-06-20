@@ -66,6 +66,8 @@
 
 **User's choice:** Inline Apply/Cancel in the chat diff block.
 
+**Follow-up (post-discussion):** User requested a prominent "just accept" auto-accept toggle = a fast one-click path into Level 3 (trust + undo), opt-in, shipped default stays Level 2. Rationale: recent Phase-4 hardening (dataset snapshot/undo, sandbox confinement, safe Authoring API) lowered the severity of an unwanted edit, making auto-accept-with-undo an acceptable, encouraged mode. Captured as D-12 in CONTEXT.md.
+
 ---
 
 ## Undo / snapshot mechanism (SAFE-06)
