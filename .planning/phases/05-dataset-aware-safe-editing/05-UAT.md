@@ -24,7 +24,7 @@ expected: Open the chat panel and observe the binding chip in the header. Send a
 result: [pending]
 
 ### 2. Diff disclosure renders without render loop (CR-01 — code review critical)
-expected: With a dataset loaded, ask the AI to add new features AND modify/delete an existing one (e.g. "delete the first feature and add a point here"). At default Level 2 only the destructive changes require confirmation. An inline DatasetDiffDisclosure appears in the transcript showing classified counts (+N added · ~N changed · −N deleted), an expandable per-feature list, and Apply/Cancel buttons. Apply commits; Cancel leaves the editor unchanged. The block stays visible after resolution (Applied/Cancelled). **Watch the browser console for "The result of getSnapshot should be cached to avoid an infinite loop" — if it appears or the panel freezes, CR-01 has manifested and SAFE-03 is broken.**
+expected: With a dataset loaded, ask the AI to add new features AND modify/delete an existing one (e.g. "delete the first feature and add a point here"). At default Level 2 only the destructive changes require confirmation. An inline DatasetDiffDisclosure appears in the transcript showing classified counts (+N added · ~N changed · −N deleted), an expandable per-feature list, and Apply/Cancel buttons. Apply commits; Cancel leaves the editor unchanged. The block stays visible after resolution (Applied/Cancelled). **NOTE: CR-01 was fixed during execution (commit 9253578 — pendingDiffStore now caches its snapshot, invalidated in notify()). The diff panel should render without the "getSnapshot should be cached" loop. Still confirm in-browser that the panel renders and does not freeze.**
 result: [pending]
 
 ### 3. Level 3 auto-apply + "Undo last AI edit" affordance
