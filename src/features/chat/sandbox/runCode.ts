@@ -44,6 +44,8 @@ import type { ToolEntry } from '@/features/chat/tools/registry'
 import type { Tool } from '@/features/chat/tools/types'
 import { buildReadSnapshot } from './readSnapshot'
 import { DEFAULT_SANDBOX_DEADLINE_MS, type SandboxTransport, runSandbox } from './sandboxHost'
+import { gateRunCodeBatch } from '@/features/chat/safeEditing/gateRunCode'
+import { getSafetyLevel } from '@/features/chat/safeEditing/safetyAccess'
 
 /**
  * Bounded self-correction cap (D-06, planner discretion = 3). Timeouts count
@@ -278,30 +280,71 @@ export function registerSandboxTools(register: (entry: ToolEntry) => void): void
 			}
 
 			// (4) replay recorded authoring.* calls IN ORDER through the facade (D-03/D-08).
+			// Phase 5: the WHOLE batch is ONE safe-editing apply unit (D-11). It is
+			// gated through `gateRunCodeBatch` — one snapshot, one diff block, one undo
+			// — which awaits Apply/Cancel at Level 1 and rolls the batch back on Cancel
+			// (zero net mutation). The replay below is the real, interceptor-routed write
+			// the gate fronts.
 			const authoring = createAuthoring(editor) as unknown as Record<
 				string,
 				(...a: unknown[]) => { counts?: MutationCounts } | unknown
 			>
 			const counts = emptyCounts()
-			for (const call of result.recordedCalls) {
-				// CR-01: reject any op that does NOT route through runInterceptors() before
-				// it can touch the editor. The worker only exposes the four intercepted ops,
-				// so this also catches an unknown/hand-crafted op (which would have meant the
-				// boundary surface drifted from the host allow-list).
-				if (!REPLAYABLE_AUTHORING_OPS.has(call.op)) {
-					throw new Error(
-						`run_code refused to replay a non-intercepted authoring op: '${call.op}' (CR-01).`,
-					)
+			const replayBatch = () => {
+				for (const call of result.recordedCalls) {
+					// CR-01: reject any op that does NOT route through runInterceptors() before
+					// it can touch the editor. The worker only exposes the four intercepted ops,
+					// so this also catches an unknown/hand-crafted op (which would have meant the
+					// boundary surface drifted from the host allow-list).
+					if (!REPLAYABLE_AUTHORING_OPS.has(call.op)) {
+						throw new Error(
+							`run_code refused to replay a non-intercepted authoring op: '${call.op}' (CR-01).`,
+						)
+					}
+					const method = authoring[call.op]
+					if (typeof method !== 'function') {
+						// An unknown op recorded by the boundary should never happen (the worker
+						// only exposes the Authoring method names); fail loudly if it does.
+						throw new Error(`run_code recorded an unknown authoring op: '${call.op}'`)
+					}
+					const mutation = method(...call.args) as { counts?: MutationCounts } | undefined
+					if (mutation && typeof mutation === 'object' && mutation.counts) {
+						addCounts(counts, mutation.counts)
+					}
 				}
-				const method = authoring[call.op]
-				if (typeof method !== 'function') {
-					// An unknown op recorded by the boundary should never happen (the worker
-					// only exposes the Authoring method names); fail loudly if it does.
-					throw new Error(`run_code recorded an unknown authoring op: '${call.op}'`)
+			}
+
+			// Gate the batch (SAFE-03/04/D-11). Skip the gate entirely when the batch
+			// wrote nothing (a pure compute/read run) so a read-only run_code is ungated.
+			if (result.recordedCalls.length === 0) {
+				replayBatch()
+				return {
+					ok: true,
+					counts,
+					consoleLines: result.consoleLines,
+					truncated: result.truncated,
+					returnValue: result.returnValue,
 				}
-				const mutation = method(...call.args) as { counts?: MutationCounts } | undefined
-				if (mutation && typeof mutation === 'object' && mutation.counts) {
-					addCounts(counts, mutation.counts)
+			}
+
+			const gateResult = await gateRunCodeBatch(
+				editor,
+				{
+					getSafetyLevel,
+					label: 'AI run_code edit',
+				},
+				replayBatch,
+			)
+
+			// Cancel rolled the batch back (zero net mutation) — report empty counts so
+			// the model does not believe a write landed.
+			if (gateResult.status === 'cancelled') {
+				return {
+					ok: true,
+					counts: emptyCounts(),
+					consoleLines: result.consoleLines,
+					truncated: result.truncated,
+					returnValue: result.returnValue,
 				}
 			}
 

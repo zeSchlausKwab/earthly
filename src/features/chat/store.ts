@@ -30,6 +30,7 @@ import {
 import { getWalletSnapshot, receiveCashuToken, sendCashuToken } from '@/lib/wallet'
 import { detectVisionSupport } from './vision/detectVisionSupport'
 import { gateToolsForVision } from './vision/gateToolsForVision'
+import { setSafetyLevelProvider } from './safeEditing/safetyAccess'
 const DEFAULT_MINT_KEY = 'nip60_default_mint'
 import { toast } from 'sonner'
 
@@ -1928,6 +1929,11 @@ export const useChatStore = create<ChatStore>()(
 		},
 	),
 )
+
+// SAFE-04: expose the persisted safety level to the run_code gate without a
+// static import cycle (runCode is pulled into the registry bootstrap that this
+// store transitively imports). The gate reads through this injected getter.
+setSafetyLevelProvider(() => useChatStore.getState().safetyLevel)
 
 // Action helpers for non-hook usage
 export const chatActions = {

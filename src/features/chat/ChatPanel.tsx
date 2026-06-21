@@ -51,6 +51,7 @@ import { isToolError, type ToolError } from './tools/errors'
 import { ChatGeometryAttachment } from './ChatGeometryAttachment'
 import { CodeRunDisclosure, parseRunCodeResult } from './CodeRunDisclosure'
 import { BindingChipContainer } from './safeEditing/BindingChip'
+import { PendingDiffList } from './safeEditing/PendingDiffList'
 import { AttachmentCard, parseIngestHandlePart } from './components/AttachmentCard'
 import {
 	buildConversationDump,
@@ -795,6 +796,10 @@ export function ChatPanel({
 								</div>
 							</div>
 						)}
+
+						{/* Safe-editing diff blocks (SAFE-03 / SAFE-04 / D-12): pending Apply/Cancel
+						    + resolved/applied outcomes with the "Undo last AI edit" affordance. */}
+						<PendingDiffList />
 
 						<div ref={messagesEndRef} />
 					</>

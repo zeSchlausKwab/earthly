@@ -17,9 +17,15 @@ import { EarthlyGeoServerClient } from '@/ctxcn/EarthlyGeoServerClient'
 import { createAuthoring } from '@/features/geo-editor/api'
 import { executeEditorAiTool, getEditorAiToolDefinitions } from '@/features/geo-editor/commands'
 import { useEditorStore } from '@/features/geo-editor/store'
-import { getMapContextSnapshot, getCompactMapContextForTool, mapSnapshotCache, pruneSnapshotCache } from './context'
+import {
+	getMapContextSnapshot,
+	getCompactMapContextForTool,
+	mapSnapshotCache,
+	pruneSnapshotCache,
+} from './context'
 import { isToolError, type ToolError } from './errors'
 import { registerSandboxTools } from '@/features/chat/sandbox/runCode'
+import { gateEditorImport } from '@/features/chat/safeEditing/gateEditorImport'
 import { registerIngestTools } from './ingest-tools'
 import { registerPrimitiveTools } from './primitives-tools'
 import { geoStaticToolSchemas } from './schemas'
@@ -285,9 +291,7 @@ function registerHostBuiltins(): void {
 		handler: (args) => {
 			const detail = args.detail === 'full' ? 'full' : 'compact'
 			const snapshot = getMapContextSnapshot()
-			return detail === 'full'
-				? snapshot
-				: { ...getCompactMapContextForTool(snapshot), detail }
+			return detail === 'full' ? snapshot : { ...getCompactMapContextForTool(snapshot), detail }
 		},
 	})
 
@@ -384,16 +388,21 @@ function registerEditorWriters(): void {
 		name: 'write_geojson_to_editor',
 		kind: 'editor',
 		schema: schemaFor('write_geojson_to_editor'),
-		handler: (args) => {
+		handler: async (args) => {
 			const payload = parseGeoJsonArg(args)
 			const features = normalizeGeoJsonToFeatures(payload)
 			const replaceExisting = Boolean(args.replaceExisting)
-			const importResult = importFeaturesToEditor(features, replaceExisting)
+			// SAFE-03/04: route the AI write through the safe-editing gate (preview +
+			// confirm per safety level) before the real interceptor-routed apply.
+			const outcome = await gateEditorImport(features, replaceExisting, () =>
+				importFeaturesToEditor(features, replaceExisting),
+			)
 			return {
-				importedCount: importResult.importedCount,
-				skippedDuplicates: importResult.skippedDuplicates,
-				totalFeaturesInEditor: importResult.totalFeaturesInEditor,
+				importedCount: outcome.importedCount,
+				skippedDuplicates: outcome.skippedDuplicates,
+				totalFeaturesInEditor: outcome.totalFeaturesInEditor,
 				replaceExisting,
+				cancelled: outcome.status === 'cancelled',
 			}
 		},
 	})
@@ -402,20 +411,24 @@ function registerEditorWriters(): void {
 		name: 'add_feature_to_editor',
 		kind: 'editor',
 		schema: schemaFor('add_feature_to_editor'),
-		handler: (args) => {
+		handler: async (args) => {
 			const feature = parseSingleFeatureArg(args)
 			const replaceExisting = Boolean(args.replaceExisting)
-			const importResult = importFeaturesToEditor([feature], replaceExisting)
+			// SAFE-03/04: gate the single-feature AI write the same way.
+			const outcome = await gateEditorImport([feature], replaceExisting, () =>
+				importFeaturesToEditor([feature], replaceExisting),
+			)
 			return {
 				geometryType: feature.geometry.type,
 				providedFeatureId:
 					typeof feature.id === 'string' || typeof feature.id === 'number'
 						? String(feature.id)
 						: null,
-				importedCount: importResult.importedCount,
-				skippedDuplicates: importResult.skippedDuplicates,
-				totalFeaturesInEditor: importResult.totalFeaturesInEditor,
+				importedCount: outcome.importedCount,
+				skippedDuplicates: outcome.skippedDuplicates,
+				totalFeaturesInEditor: outcome.totalFeaturesInEditor,
 				replaceExisting,
+				cancelled: outcome.status === 'cancelled',
 			}
 		},
 	})
@@ -711,9 +724,16 @@ function registerRemoteMcpTools(): void {
 					: undefined
 			const maxPoints =
 				toFiniteNumber(args.maxPointsPerRing) !== undefined
-					? Math.max(50, Math.min(20000, Math.floor(toFiniteNumber(args.maxPointsPerRing) as number)))
+					? Math.max(
+							50,
+							Math.min(20000, Math.floor(toFiniteNumber(args.maxPointsPerRing) as number)),
+						)
 					: undefined
-			const response = await client.GetOsmRelationGeometry(Math.floor(relationId), precision, maxPoints)
+			const response = await client.GetOsmRelationGeometry(
+				Math.floor(relationId),
+				precision,
+				maxPoints,
+			)
 			return extractMcpToolResult('get_osm_relation_geometry', response)
 		},
 	})
@@ -861,7 +881,9 @@ function registerRemoteMcpTools(): void {
 					includeRelations,
 				)
 				const nearbyResult = extractMcpToolResult('query_osm_nearby', response)
-				rawFeatures = Array.isArray(nearbyResult.features) ? (nearbyResult.features as unknown[]) : []
+				rawFeatures = Array.isArray(nearbyResult.features)
+					? (nearbyResult.features as unknown[])
+					: []
 			} else {
 				if (hasExplicitBbox(args)) {
 					source = 'bbox'
