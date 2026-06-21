@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Tool Registry & Authoring API** - Typed tool registry plus the single mutation seam (Authoring API) with parametric primitives — the prerequisite foundation everything else routes through. (completed 2026-06-16 — 6/6 plans; one typed registry + Authoring API seam, parametric circle/buffer, live MCP hot-reload (D-05); 109/109 tests, build+lint green)
 - [x] **Phase 3: File Ingest & Multimodal** - Attach and parse CSV/Excel/JSON/GeoJSON/text/images off-thread, summarize for the model, and gate image-send on real vision capability detection. (completed 2026-06-17)
 - [x] **Phase 4: Code Interpreter Sandbox** - AI authors and runs JS in an isolated sandbox whose only host surface is the Authoring API, with timeouts, output caps, and error-feedback self-correction. (completed 2026-06-20)
-- [ ] **Phase 5: Dataset-Aware Safe Editing** - Visible binding chip, add/modify/delete intent, diff/preview, configurable safety levels, and dataset-level undo — the gate that must precede any destructive bulk tool.
+- [x] **Phase 5: Dataset-Aware Safe Editing** - Visible binding chip, add/modify/delete intent, diff/preview, configurable safety levels, and dataset-level undo — the gate that must precede any destructive bulk tool. (completed 2026-06-21)
 - [ ] **Phase 6: AI Bulk Transform & Data-Driven Styling** - Gated batch attribute edit, select-by-attribute/dedup, geometry validation, and attribute-rule styling that round-trips through the Nostr event.
 - [ ] **Phase 7: Geometry Optimization** - AI reduces oversized GeoJSON toward a byte budget via topology-aware simplify + merge-to-multi + microgap stitch, with before/after metrics, so it clears the publish size limit.
 
@@ -167,7 +167,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 05-05-PLAN.md — Visible binding chip + "Just accept" toggle + inline Apply/Cancel diff block + chat-loop gate wiring (SAFE-01 / SAFE-03 / SAFE-04)
+- [x] 05-05-PLAN.md — Visible binding chip + "Just accept" toggle + inline Apply/Cancel diff block + chat-loop gate wiring (SAFE-01 / SAFE-03 / SAFE-04)
 
 **UI hint**: yes
 
@@ -210,7 +210,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 2. Tool Registry & Authoring API | 4/6 | In progress | - |
 | 3. File Ingest & Multimodal | 6/6 | Complete    | 2026-06-17 |
 | 4. Code Interpreter Sandbox | 3/3 | Complete    | 2026-06-20 |
-| 5. Dataset-Aware Safe Editing | 3/5 | In Progress|  |
+| 5. Dataset-Aware Safe Editing | 5/5 | Complete   | 2026-06-21 |
 | 6. AI Bulk Transform & Data-Driven Styling | 0/TBD | Not started | - |
 | 7. Geometry Optimization | 0/TBD | Not started | - |
 </content>
