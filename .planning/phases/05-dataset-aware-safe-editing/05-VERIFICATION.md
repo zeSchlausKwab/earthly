@@ -1,8 +1,9 @@
 ---
 phase: 05-dataset-aware-safe-editing
 verified: 2026-06-21T08:00:00Z
-status: human_needed
+status: passed
 score: 4/4 must-haves verified
+human_verification_resolved: 2026-06-21T08:20:00Z via 05-UAT.md (4/4 passed)
 overrides_applied: 0
 human_verification:
   - test: "Open the chat panel and observe the binding chip in the header. Send a message that triggers an AI write (e.g. 'draw a circle here'). Verify the chip always shows the dataset name and feature count before the mutation fires — never a blank/missing chip."
