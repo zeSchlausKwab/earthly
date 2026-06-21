@@ -141,10 +141,6 @@ describe('DatasetSnapshotManager — bounded snapshot/undo stack (SAFE-06 / D-10
 	})
 
 	test('snapshot is decoupled from later selection-driven in-place property mutation (A1 defence)', () => {
-		// GeoEditor.updateActiveStates() reassigns `feature.properties` on the STORED
-		// feature objects when selection changes. If the snapshot held the bare stored
-		// reference, a later selection change would corrupt the captured `active` flag.
-		// `push` shallow-copies each feature so the snapshot stays decoupled.
 		const editor = createHeadlessEditor()
 		const mgr = new DatasetSnapshotManager()
 		editor.setFeatures([makePoint('f1')])
@@ -153,10 +149,111 @@ describe('DatasetSnapshotManager — bounded snapshot/undo stack (SAFE-06 / D-10
 		const snap = mgr.undo()
 		const snapped = snap?.features[0]
 		const stored = editor.getAllFeatures()[0]
-		// The snapshot must not be the SAME object reference as the live stored feature,
-		// otherwise an in-place `feature.properties = {...}` reassignment would leak in.
 		expect(snapped).not.toBe(stored)
-		// But coordinates are shared by reference (no deep clone — the memory ceiling).
 		expect(snapped?.geometry).toBe(stored?.geometry)
+	})
+})
+
+describe('GeoEditor.undo — snapshot-first dataset undo (SAFE-06 / D-10, Cmd+Z wiring)', () => {
+	/** Install an in-memory metadata bridge so the headless editor can capture + restore meta. */
+	function bridgeMeta(editor: ReturnType<typeof createHeadlessEditor>, initial: CollectionMeta) {
+		const box = { meta: initial }
+		editor.setMetadataBridge(
+			() => box.meta,
+			(m) => {
+				box.meta = m
+			},
+		)
+		return box
+	}
+
+	test('Cmd+Z (undo) reverts the most-recent AI apply as one step incl. metadata + style', () => {
+		const editor = createHeadlessEditor()
+		const box = bridgeMeta(editor, meta('Original', '#ff0000'))
+		editor.setFeatures([makePoint('f1', '#ff0000')])
+
+		// Gate captures the pre-apply state, then the apply mutates geometry + metadata.
+		editor.pushDatasetSnapshot('AI apply')
+		editor.setFeatures([makePoint('f1', '#00ff00'), makePoint('f2', '#00ff00')])
+		box.meta = meta('Renamed', '#00ff00')
+
+		// One undo reverts BOTH geometry (back to one red feature) AND metadata.
+		editor.undo()
+		expect(editor.getAllFeatures()).toHaveLength(1)
+		expect(editor.getAllFeatures()[0]?.properties?.color).toBe('#ff0000')
+		expect(box.meta.name).toBe('Original')
+		expect(box.meta.color).toBe('#ff0000')
+	})
+
+	test('chat-callable undoLastDatasetSnapshot shares the same mechanism as Cmd+Z', () => {
+		const editor = createHeadlessEditor()
+		const box = bridgeMeta(editor, meta('Before'))
+		editor.setFeatures([makePoint('a')])
+		editor.pushDatasetSnapshot('AI apply')
+		editor.setFeatures([makePoint('a'), makePoint('b')])
+		box.meta = meta('After')
+
+		const consumed = editor.undoLastDatasetSnapshot()
+		expect(consumed).toBe(true)
+		expect(editor.getAllFeatures()).toHaveLength(1)
+		expect(box.meta.name).toBe('Before')
+		// Stack now empty — a second call is a safe no-op.
+		expect(editor.undoLastDatasetSnapshot()).toBe(false)
+	})
+
+	test('interleave: manual geometry edit BETWEEN two AI applies undoes in timeline order', async () => {
+		const editor = createHeadlessEditor()
+		bridgeMeta(editor, meta('Start'))
+
+		// AI apply 1: snapshot pre-state (empty), then apply adds f1.
+		editor.pushDatasetSnapshot('AI apply 1')
+		editor.setFeatures([makePoint('f1')])
+
+		// Manual geometry edit BETWEEN applies: add f-manual via the geometry path
+		// (records a HistoryManager 'create' action). A small delay guarantees a
+		// strictly-later timestamp than apply 1's snapshot.
+		await new Promise((r) => setTimeout(r, 2))
+		editor.addFeature(makePoint('f-manual'))
+		expect(
+			editor
+				.getAllFeatures()
+				.map((f) => f.id)
+				.sort(),
+		).toEqual(['f-manual', 'f1'])
+
+		// AI apply 2: snapshot pre-state (f1 + f-manual), then apply adds f2.
+		await new Promise((r) => setTimeout(r, 2))
+		editor.pushDatasetSnapshot('AI apply 2')
+		editor.setFeatures([makePoint('f1'), makePoint('f-manual'), makePoint('f2')])
+
+		// Undo #1: most-recent event is AI apply 2 → snapshot restores to {f1, f-manual}.
+		editor.undo()
+		expect(
+			editor
+				.getAllFeatures()
+				.map((f) => f.id)
+				.sort(),
+		).toEqual(['f-manual', 'f1'])
+
+		// Undo #2: next-most-recent event is the MANUAL geometry edit → HistoryManager
+		// undo removes f-manual, leaving {f1}. Proves the two stacks compose on one
+		// timeline without corrupting each other.
+		editor.undo()
+		expect(
+			editor
+				.getAllFeatures()
+				.map((f) => f.id)
+				.sort(),
+		).toEqual(['f1'])
+
+		// Undo #3: the oldest event is AI apply 1 → snapshot restores the empty pre-state.
+		editor.undo()
+		expect(editor.getAllFeatures()).toHaveLength(0)
+	})
+
+	test('undo with neither stack populated is a safe no-op', () => {
+		const editor = createHeadlessEditor()
+		bridgeMeta(editor, meta('Empty'))
+		expect(() => editor.undo()).not.toThrow()
 	})
 })

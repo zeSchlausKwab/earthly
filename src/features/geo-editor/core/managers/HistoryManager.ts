@@ -67,6 +67,18 @@ export class HistoryManager implements IManager {
 		return this.currentIndex < this.history.length - 1
 	}
 
+	/**
+	 * Timestamp of the action the NEXT `undo()` would revert (the current index),
+	 * or `null` if nothing is undoable. Used by `GeoEditor.undo()` to order the
+	 * geometry-history timeline against the dataset-snapshot timeline (Open Q 2).
+	 */
+	peekUndoTimestamp(): number | null {
+		if (!this.canUndo()) {
+			return null
+		}
+		return this.history[this.currentIndex]?.timestamp ?? null
+	}
+
 	undo(): HistoryAction | null {
 		if (!this.canUndo()) {
 			return null

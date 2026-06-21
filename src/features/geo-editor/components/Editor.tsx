@@ -44,6 +44,17 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 		editorRef.current = editor
 		setEditor(editor)
 
+		// Install the dataset-snapshot metadata bridge (SAFE-06 / D-10). The editor
+		// core must NOT import the Zustand store (store↔core cycle), so we inject a
+		// provider/applier here: snapshot capture reads the current collectionMeta,
+		// and snapshot restore on Cmd+Z (or the chat "undo last AI edit" accessor)
+		// writes it back through setCollectionMeta — the same path the dataset-info
+		// panel + publishing use.
+		editor.setMetadataBridge(
+			() => useEditorStore.getState().collectionMeta,
+			(meta) => useEditorStore.getState().setCollectionMeta(meta),
+		)
+
 		// Bind events to update store (the D-09 one-way read-mirror sink). Mark the
 		// update editor-originated so the reverse store→editor effect skips its push.
 		const updateFeatures = () => {
