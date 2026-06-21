@@ -183,8 +183,28 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. The AI can apply data-driven styling — color/stroke/width by feature attribute (ports vs airports vs waterways) — as an attribute rule rather than per-feature edits, and the result is visible on the map.
   4. Applied styles persist with the dataset and round-trip through its kind 37515 Nostr event (publish, reload, styles preserved).
 
-**Plans**: TBD
+**Plans**: 5 plans
 **UI hint**: yes
+
+**Wave 1** *(Wave 0 — RED test scaffolds)*
+
+  - [ ] 06-01-PLAN.md — Wave-0 RED test scaffolds (predicate/dedup/geometryValidation/bulk-tools tests + diff.test.ts classifyModifyKind extension) per 06-VALIDATION.md (TOOLS-02, TOOLS-03, TOOLS-04, STYLE-01, STYLE-02)
+
+**Wave 2** *(blocked on Wave 1)*
+
+  - [ ] 06-02-PLAN.md — Shared AI-free predicate engine (D-06): matchesPredicate + selectByPredicate over properties.*, flat AND-list, A4 missing semantics; satisfies TOOLS-03 select half (TOOLS-02, TOOLS-03)
+
+**Wave 3** *(blocked on Wave 2)*
+
+  - [ ] 06-03-PLAN.md — Pure dedup grouping (dedup.ts, keep-first/by:geometry|attributes|both) + read-only geometry validation (geometryValidation.ts: kinks/zero-area/ring-validity) + classifyModifyKind + `~N restyled` style-aware diff headline (TOOLS-03, TOOLS-04, STYLE-01)
+
+**Wave 4** *(blocked on Wave 3)*
+
+  - [ ] 06-04-PLAN.md — bulk-tools.ts registrar + read-only tools select_features + validate_geometry (host-over-all-ids, no gate) wired via registerBulkTools(register) (TOOLS-03, TOOLS-04)
+
+**Wave 5** *(blocked on Wave 4)*
+
+  - [ ] 06-05-PLAN.md — Gated destructive tools: batch_edit_features (declarative+intelligence, cap 100) + dedup_features (gated delete) + style_by_attribute (materialize buckets, STYLE-02 round-trip) via gateBulkApply (TOOLS-02, TOOLS-03, STYLE-01, STYLE-02)
 
 ### Phase 7: Geometry Optimization
 
@@ -211,6 +231,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. File Ingest & Multimodal | 6/6 | Complete    | 2026-06-17 |
 | 4. Code Interpreter Sandbox | 3/3 | Complete    | 2026-06-20 |
 | 5. Dataset-Aware Safe Editing | 5/5 | Complete    | 2026-06-21 |
-| 6. AI Bulk Transform & Data-Driven Styling | 0/TBD | Not started | - |
+| 6. AI Bulk Transform & Data-Driven Styling | 0/5 | Planned     | - |
 | 7. Geometry Optimization | 0/TBD | Not started | - |
-</content>
