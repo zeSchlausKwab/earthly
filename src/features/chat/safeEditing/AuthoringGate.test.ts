@@ -1,9 +1,8 @@
 import { describe, expect, mock, test } from 'bun:test'
-import { createAuthoring } from '@/features/geo-editor/api/authoring'
 import type { DatasetDiff } from '@/features/geo-editor/api/diff'
+import type { GeoEditor } from '@/features/geo-editor/core/GeoEditor'
 import { createHeadlessEditor } from '@/features/geo-editor/core/test-harness'
 import type { EditorFeature } from '@/features/geo-editor/core/types'
-import type { GeoEditor } from '@/features/geo-editor/core/GeoEditor'
 import { type GateProposal, createAuthoringGate } from './AuthoringGate'
 
 /**
