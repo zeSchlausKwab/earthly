@@ -160,6 +160,10 @@ export interface ChatSettingsSnapshot {
 	providerOverrides: ProviderOverrideMap
 	selectedModel: string | null
 	toolsEnabled: boolean
+	// Edit-safety level (SAFE-04 / D-09 / D-12): 1 = preview + confirm all, 2 = confirm
+	// destructive only (default), 3 = trust + undo (the D-12 "just accept" toggle sets 3).
+	// Rides the same encrypt-to-self envelope as the rest of the snapshot; never a bespoke key.
+	safetyLevel: 1 | 2 | 3
 	version?: 2
 }
 
@@ -179,6 +183,7 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettingsSnapshot = {
 	},
 	selectedModel: null,
 	toolsEnabled: true,
+	safetyLevel: 2,
 	version: 2,
 }
 
@@ -839,6 +844,7 @@ interface ChatState {
 	settingsImportNonce: number
 	// Settings
 	toolsEnabled: boolean // Whether to send tools with requests
+	safetyLevel: 1 | 2 | 3 // Edit-safety level (SAFE-04): 1 preview-all / 2 confirm-destructive (default) / 3 trust+undo
 	// Chat state
 	isStreaming: boolean
 	streamingContent: string
@@ -865,6 +871,7 @@ interface ChatActions {
 	setSelectedModel: (modelId: string) => void
 	// Settings
 	setToolsEnabled: (enabled: boolean) => void
+	setSafetyLevel: (level: 1 | 2 | 3) => void
 	hydrateSettings: (settings: Partial<ChatSettingsSnapshot>) => void
 	setSettingsStatus: (status: SettingsStatus, error?: string | null) => void
 	requestSettingsReload: () => void
@@ -1009,6 +1016,12 @@ export const useChatStore = create<ChatStore>()(
 				set({ toolsEnabled: enabled })
 			},
 
+			// SAFE-04 / D-09 / D-12: set the level and let useChatSettingsSync's debounced
+			// encrypted save persist it. Never writes localStorage directly.
+			setSafetyLevel: (level: 1 | 2 | 3) => {
+				set({ safetyLevel: level })
+			},
+
 			hydrateSettings: (settings: Partial<ChatSettingsSnapshot>) => {
 				const incomingOverrides = settings.providerOverrides
 				set({
@@ -1021,6 +1034,7 @@ export const useChatStore = create<ChatStore>()(
 					},
 					selectedModel: settings.selectedModel ?? DEFAULT_CHAT_SETTINGS.selectedModel,
 					toolsEnabled: settings.toolsEnabled ?? DEFAULT_CHAT_SETTINGS.toolsEnabled,
+					safetyLevel: settings.safetyLevel ?? DEFAULT_CHAT_SETTINGS.safetyLevel,
 					models: [],
 					modelsLoading: false,
 					modelsError: null,
@@ -1923,6 +1937,7 @@ export const chatActions = {
 	loadModels: () => useChatStore.getState().loadModels(),
 	setSelectedModel: (modelId: string) => useChatStore.getState().setSelectedModel(modelId),
 	setToolsEnabled: (enabled: boolean) => useChatStore.getState().setToolsEnabled(enabled),
+	setSafetyLevel: (level: 1 | 2 | 3) => useChatStore.getState().setSafetyLevel(level),
 	hydrateSettings: (settings: Partial<ChatSettingsSnapshot>) =>
 		useChatStore.getState().hydrateSettings(settings),
 	setSettingsStatus: (status: SettingsStatus, error?: string | null) =>

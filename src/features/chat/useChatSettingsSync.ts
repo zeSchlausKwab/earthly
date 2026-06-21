@@ -15,12 +15,14 @@ function buildSnapshot(
 	providerOverrides: ChatSettingsSnapshot['providerOverrides'],
 	selectedModel: string | null,
 	toolsEnabled: boolean,
+	safetyLevel: ChatSettingsSnapshot['safetyLevel'],
 ): ChatSettingsSnapshot {
 	return {
 		provider,
 		providerOverrides,
 		selectedModel,
 		toolsEnabled,
+		safetyLevel,
 		version: 2,
 	}
 }
@@ -33,6 +35,7 @@ export function useChatSettingsSync(): void {
 	const providerOverrides = useChatStore((state) => state.providerOverrides)
 	const selectedModel = useChatStore((state) => state.selectedModel)
 	const toolsEnabled = useChatStore((state) => state.toolsEnabled)
+	const safetyLevel = useChatStore((state) => state.safetyLevel)
 	const settingsLoadNonce = useChatStore((state) => state.settingsLoadNonce)
 	const settingsImportNonce = useChatStore((state) => state.settingsImportNonce)
 
@@ -48,7 +51,13 @@ export function useChatSettingsSync(): void {
 	const loadFailedRef = useRef(false)
 	const scrubbedLegacyStorageRef = useRef(false)
 
-	const snapshot = buildSnapshot(provider, providerOverrides, selectedModel, toolsEnabled)
+	const snapshot = buildSnapshot(
+		provider,
+		providerOverrides,
+		selectedModel,
+		toolsEnabled,
+		safetyLevel,
+	)
 	const serializedSnapshot = JSON.stringify(snapshot)
 
 	useEffect(() => {

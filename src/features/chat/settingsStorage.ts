@@ -45,6 +45,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null
 }
 
+/**
+ * Membership-check the safety level (SAFE-04 / D-09 / T-05-11). A tampered/future/garbage
+ * value (0, 5, "high", null, 2.5) MUST fall back to the safe default 2 — never trust the
+ * decrypted shape, and never let an out-of-range value weaken gating.
+ */
+function normalizeSafetyLevel(value: unknown): 1 | 2 | 3 {
+	return value === 1 || value === 3 ? value : 2
+}
+
 function normalizeOverride(value: unknown, fallback: ProviderOverride): ProviderOverride {
 	if (!isRecord(value)) return { ...fallback }
 	const baseUrl = typeof value.baseUrl === 'string' ? value.baseUrl : fallback.baseUrl
@@ -70,6 +79,7 @@ export function migrateV1ToV2(parsed: unknown): ChatSettingsSnapshot {
 			},
 			selectedModel: defaults.selectedModel,
 			toolsEnabled: defaults.toolsEnabled,
+			safetyLevel: defaults.safetyLevel,
 			version: 2,
 		}
 	}
@@ -82,6 +92,7 @@ export function migrateV1ToV2(parsed: unknown): ChatSettingsSnapshot {
 		typeof parsed.selectedModel === 'string' ? parsed.selectedModel : defaults.selectedModel
 	const toolsEnabled =
 		typeof parsed.toolsEnabled === 'boolean' ? parsed.toolsEnabled : defaults.toolsEnabled
+	const safetyLevel = normalizeSafetyLevel(parsed.safetyLevel)
 
 	// Already v2: normalize each override field-by-field (idempotent).
 	if ('providerOverrides' in parsed) {
@@ -95,6 +106,7 @@ export function migrateV1ToV2(parsed: unknown): ChatSettingsSnapshot {
 			},
 			selectedModel,
 			toolsEnabled,
+			safetyLevel,
 			version: 2,
 		}
 	}
@@ -113,6 +125,7 @@ export function migrateV1ToV2(parsed: unknown): ChatSettingsSnapshot {
 		},
 		selectedModel,
 		toolsEnabled,
+		safetyLevel,
 		version: 2,
 	}
 }

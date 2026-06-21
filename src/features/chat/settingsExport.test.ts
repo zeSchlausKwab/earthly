@@ -16,6 +16,7 @@ function makeV2(): ChatSettingsSnapshot {
 		},
 		selectedModel: 'some-model',
 		toolsEnabled: false,
+		safetyLevel: 3,
 		version: 2,
 	}
 }
@@ -108,6 +109,21 @@ describe('validateImportedSnapshot — acceptance', () => {
 		})
 		expect(result.selectedModel).toBeNull()
 		expect(result.toolsEnabled).toBe(true)
+	})
+
+	test('preserves a valid imported safetyLevel and normalizes an invalid one to 2 (SAFE-04 / T-05-11)', () => {
+		for (const level of [1, 3] as const) {
+			expect(
+				validateImportedSnapshot({ provider: 'routstr', providerOverrides: {}, safetyLevel: level })
+					.safetyLevel,
+			).toBe(level)
+		}
+		for (const bad of [0, 5, '1', 'high', null, undefined]) {
+			expect(
+				validateImportedSnapshot({ provider: 'routstr', providerOverrides: {}, safetyLevel: bad })
+					.safetyLevel,
+			).toBe(2)
+		}
 	})
 })
 
