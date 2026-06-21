@@ -10,7 +10,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase. Story t
 ### Tool Infrastructure (prerequisites)
 
 - [x] **INFRA-01**: All chat tools dispatch through a typed registry (schema + handler co-located); an unknown tool name is a hard error, never a silent no-op.
-- [ ] **INFRA-02**: A single Authoring API (`src/features/geo-editor/api/`) is the only path that mutates editor geometry; direct UI, chat tools, and sandboxed code all call it — no reaching across into the Zustand store.
+- [x] **INFRA-02**: A single Authoring API (`src/features/geo-editor/api/`) is the only path that mutates editor geometry; direct UI, chat tools, and sandboxed code all call it — no reaching across into the Zustand store.
 - [x] **INFRA-03**: Existing editor write paths (`add_feature_to_editor`, `write_geojson_to_editor`, editor commands) are reimplemented on the Authoring API with no behavior change. (02-03: chat import + UI import sites rerouted through writeGeoJSON; binding OLD-vs-NEW golden gate byte-identical)
 
 ### File Ingest
@@ -42,7 +42,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase. Story t
 ### Dataset-Aware Safe Editing
 
 - [ ] **SAFE-01**: The chat is explicitly bound to a target dataset/context, and that binding is always visible (binding chip) so the user knows exactly what the AI is working on. `[D]`
-- [ ] **SAFE-02**: Each AI map operation is classified as add / modify / delete, and that intent is surfaced to the user.
+- [x] **SAFE-02**: Each AI map operation is classified as add / modify / delete, and that intent is surfaced to the user.
 - [ ] **SAFE-03**: Before applying a change to an existing dataset, the user can preview what will be added, changed, and deleted (diff/preview). `[D]`
 - [ ] **SAFE-04**: A configurable safety level controls gating — 1 = preview + confirm all, 2 = confirm destructive only (default), 3 = trust + undo — and the choice persists.
 - [ ] **SAFE-05**: Bulk transforms operate host-side as rules over the full bound dataset by feature id (never only over the model's compacted context view), so "fix all" does not silently skip out-of-context features. `[D]`
@@ -120,7 +120,7 @@ Each requirement maps to exactly one phase.
 | CODE-05 | Phase 4 — Code Interpreter Sandbox | Implemented (04-02: fibonacci-15-circles end-to-end → counts.created===15, 15 features) — live autonomous-emit confirmation pending /gsd-verify-work 4 |
 | CODE-06 | Phase 4 — Code Interpreter Sandbox | Implemented (04-02: Austria→Bosnia reads handle rows, returns chosen route+costs, draws 1 feature; privacy seam intact) — live autonomous-run confirmation pending /gsd-verify-work 4 |
 | SAFE-01 | Phase 5 — Dataset-Aware Safe Editing | Pending |
-| SAFE-02 | Phase 5 — Dataset-Aware Safe Editing | Pending |
+| SAFE-02 | Phase 5 — Dataset-Aware Safe Editing | Complete |
 | SAFE-03 | Phase 5 — Dataset-Aware Safe Editing | Pending |
 | SAFE-04 | Phase 5 — Dataset-Aware Safe Editing | Pending |
 | SAFE-05 | Phase 5 — Dataset-Aware Safe Editing | Pending |

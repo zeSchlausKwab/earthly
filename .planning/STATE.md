@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
-status: verifying
+status: executing
 stopped_at: Phase 5 context gathered
-last_updated: "2026-06-20T18:53:49.879Z"
-last_activity: 2026-06-20 -- Phase 05 planning complete
+last_updated: "2026-06-21T06:53:00.966Z"
+last_activity: 2026-06-20 -- Phase 05 execution started
 progress:
   total_phases: 7
   completed_phases: 4
-  total_plans: 18
-  completed_plans: 18
+  total_plans: 23
+  completed_plans: 19
   percent: 57
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** The maintainer (and any user) can open the app for fun, not duty — extended this milestone so analysts, curators, and power users can ingest real-world data, transform it with sandboxed code, and safely author maps via chat.
-**Current focus:** Phase 04 — code-interpreter-sandbox
+**Current focus:** Phase 05 — dataset-aware-safe-editing
 
 ## Current Position
 
-Phase: 5
-Plan: Not started
-Status: Phase 04 implementation done — run_code wired (Wave 2) + collapsible code/output UI (Wave 3); live autonomous-demo UAT PENDING via /gsd-verify-work 4. Phase is NOT yet verified/complete.
-Last activity: 2026-06-20 -- Phase 05 planning complete
+Phase: 05 (dataset-aware-safe-editing) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-06-20 -- Phase 05 execution started
 
 Progress: [██████████] 100% (Phase 4 plans code-complete; live UAT pending)
 
@@ -72,6 +72,7 @@ Progress: [██████████] 100% (Phase 4 plans code-complete; li
 | Phase 04 P01 | ~10min | 4/5 tasks (c deferred) | 10 files |
 | Phase 04 P02 | ~8min | 3 tasks | 6 files |
 | Phase 04 P03 | continuation | 2/3 tasks (UAT deferred) | 3 files |
+| Phase 05 P01 | 7min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -136,6 +137,7 @@ Recent decisions affecting current work:
 - [Phase 4]: CODE-REVIEW BLOCKER CLOSED (2026-06-18): CR-01 (editorCommand interceptor-seam bypass) fixed in 59ceac3 — removed from sandbox surface, host replay gated on an interceptor-routed allow-list; WR-01 (unenforced SANDBOX_MAX_DISTANCE_METERS DoS cap) fixed in 488cd96 — assertSandboxDistanceWithinCap now range-checks circle/buffer/destination/along before turf runs. Both with tests; bun test + build + biome green. 04-REVIEW.md updated. Remaining review items WR-02..WR-06 + IN-01..IN-04 still open (not in this fix's scope).
 - [Phase 4]: UAT-DUMP DATASET-METADATA FIX (2026-06-19): (1) authoring.writeGeoJSON now accepts Feature[] | FeatureCollection | Feature (extracts .features, wraps bare Geometry) and THROWS on unusable input instead of the silent created:0 the model hit twice; replace defaults to false. (2) New benign METADATA op authoring.setDatasetMetadata({name?,description?,color?,properties?}) merges into store collectionMeta via setCollectionMeta (same path as the dataset-info panel + publishing) — NOT interceptor-gated (no geometry/secrets); + getDatasetMetadata read helper. (3) Sandbox-reachable: added to worker AUTHORING_METHODS + host REPLAYABLE_AUTHORING_OPS allow-list (CR-01 invariant preserved, editorCommand still excluded); CR-01 surface test now expects addFeature,buffer,circle,setDatasetMetadata,writeGeoJSON. (4) New host-builtin tool set_dataset_metadata (direct discoverable path, no run_code needed). (5) get_editor_state now surfaces datasetMetadata (name/description/color/customProperties) compact+full. (6) run_code + map-context prompts advertise the capability and tell the model NOT to stamp dataset_name onto every feature. bun test 402/0, both builds + biome green (changed regions). Not a phase plan; no SUMMARY, no phase.complete.
 - [Phase 3]: [03-06]: composeOutboundContent extracted to its OWN module (src/features/chat/composeOutboundContent.ts), not inlined in ChatPanel — so ingestSendPath.test.ts asserts the D-11 invariant headlessly (dataset → {handleId,summary} from toModelSummary, NEVER fullRows; deep-scan finds no non-sampled row, BLOCKER-3). VisionGateControl (D-08 three-tier: vision=enabled / no-vision=hard-disabled+Tooltip / uncertain=amber+Send-anyway opt-in) + composeOutboundContent share ONE detectVisionSupport result; image_url included only when 'vision' or ('uncertain' && sendAnyway), never silent on 'no-vision'. Same gate governs capture_map_snapshot (D-09). UAT 6/6 approved.
+- [Phase ?]: Phase 5 Plan 01: A3 boundary scan scoped to AI trust boundary (chat + sandbox), not whole tree (D-12); manual-UI/draft/dataset-load sites out-of-scope, ChatGeometryAttachment.tsx allow-listed.
 
 ### Pending Todos
 
@@ -160,7 +162,7 @@ Items acknowledged and carried forward / out of scope for this milestone:
 
 ## Session Continuity
 
-Last session: 2026-06-20T18:09:24.236Z
+Last session: 2026-06-21T06:52:55.068Z
 Stopped at: Phase 5 context gathered
 
 UAT focused fix (2026-06-19): chat no longer ends a turn silently — empty completions (no content, no tool calls) now surface a visible notice via the existing `error` channel ChatPanel renders; `finishReason: 'length'` gets truncation-specific copy, and truncated-but-non-empty content gets a "(response truncated)" suffix. New pure helper describeEmptyCompletion() + 6 headless tests (now 346/0). Not a phase plan; no SUMMARY, no phase.complete.
