@@ -50,6 +50,7 @@ import { analyzeToolResultGeometryContent, bakeToolResultContentToEditor } from 
 import { isToolError, type ToolError } from './tools/errors'
 import { ChatGeometryAttachment } from './ChatGeometryAttachment'
 import { CodeRunDisclosure, parseRunCodeResult } from './CodeRunDisclosure'
+import { BindingChipContainer } from './safeEditing/BindingChip'
 import { AttachmentCard, parseIngestHandlePart } from './components/AttachmentCard'
 import {
 	buildConversationDump,
@@ -636,6 +637,9 @@ export function ChatPanel({
 						</div>
 					)}
 				</div>
+
+				{/* Bound-target chip + "Just accept" toggle — always visible (SAFE-01 / SAFE-04 / D-12) */}
+				<BindingChipContainer />
 
 				{/* Diagnostics */}
 				<div className="min-w-0">
