@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import type { Interceptor, InterceptorContext } from './interceptor'
-import { runInterceptors } from './interceptor'
+import type { Interceptor, InterceptorContext, MutationIntent } from './interceptor'
+import { classifyIntentInterceptor, runInterceptors } from './interceptor'
 
 describe('runInterceptors (D-12 scaffold)', () => {
 	const ctx: InterceptorContext = { intent: 'add', featureIds: ['a', 'b'] }
@@ -28,5 +28,24 @@ describe('runInterceptors (D-12 scaffold)', () => {
 		const result = runInterceptors(ctx, [escalate])
 		expect(result.intent).toBe('delete')
 		expect(result.featureIds).toEqual(ctx.featureIds)
+	})
+})
+
+describe('classifyIntentInterceptor (SAFE-02 intent-tag hook)', () => {
+	it('returns the context intent unchanged for add/modify/delete (tagging, not mutating)', () => {
+		const intents: MutationIntent[] = ['add', 'modify', 'delete']
+		for (const intent of intents) {
+			const ctx: InterceptorContext = { intent, featureIds: ['x'] }
+			// As a tag-only hook it echoes the observed intent — it never escalates.
+			expect(classifyIntentInterceptor(ctx)).toEqual({ intent })
+		}
+	})
+
+	it('stays synchronous (returns an object, not a Promise) and is chainable as a no-op', () => {
+		const ctx: InterceptorContext = { intent: 'modify', featureIds: ['a', 'b'] }
+		const out = classifyIntentInterceptor(ctx)
+		expect(out).not.toBeInstanceOf(Promise)
+		// Run through the fold: a tag-only interceptor must not change the result.
+		expect(runInterceptors(ctx, [classifyIntentInterceptor])).toEqual(ctx)
 	})
 })

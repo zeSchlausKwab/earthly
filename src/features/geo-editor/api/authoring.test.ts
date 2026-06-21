@@ -235,6 +235,91 @@ describe('createAuthoring — writeGeoJSON polymorphic input (FeatureCollection 
 	})
 })
 
+describe('createAuthoring — modifyFeature (INFRA-02, intent:modify)', () => {
+	let editor: GeoEditor
+	let authoring: Authoring
+
+	beforeEach(() => {
+		editor = createHeadlessEditor()
+		authoring = createAuthoring(editor)
+	})
+
+	it('updates an existing feature in place (preserving id), returns intent:modify + updated:1', () => {
+		authoring.addFeature(singlePointCollection.features[0])
+		expect(editor.getFeature('test-point-1')).toBeDefined()
+
+		const result = authoring.modifyFeature('test-point-1', {
+			type: 'Feature',
+			geometry: { type: 'Point', coordinates: [1, 2] },
+			properties: { name: 'Moved' },
+		})
+
+		expect(result.ok).toBe(true)
+		expect(result.intent).toBe('modify')
+		expect(result.featureIds).toEqual(['test-point-1'])
+		expect(result.counts.updated).toBe(1)
+
+		// id preserved + geometry updated in place (no second feature created).
+		expect(editor.getAllFeatures()).toHaveLength(1)
+		const stored = editor.getFeature('test-point-1')
+		expect(stored?.id).toBe('test-point-1')
+		expect(stored?.geometry).toEqual({ type: 'Point', coordinates: [1, 2] })
+	})
+
+	it('is a quiet no-op on an unknown id → { ok:false }, no throw, no crash', () => {
+		const result = authoring.modifyFeature('does-not-exist', {
+			type: 'Feature',
+			geometry: { type: 'Point', coordinates: [0, 0] },
+			properties: {},
+		})
+		expect(result.ok).toBe(false)
+		expect(result.counts.updated).toBe(0)
+		expect(editor.getAllFeatures()).toHaveLength(0)
+	})
+
+	it('throws a descriptive error for unusable (non-geometry) input', () => {
+		authoring.addFeature(singlePointCollection.features[0])
+		expect(() => authoring.modifyFeature('test-point-1', { foo: 'bar' } as never)).toThrow(
+			/authoring\.modifyFeature/,
+		)
+	})
+})
+
+describe('createAuthoring — deleteFeatures (INFRA-02, intent:delete)', () => {
+	let editor: GeoEditor
+	let authoring: Authoring
+
+	beforeEach(() => {
+		editor = createHeadlessEditor()
+		authoring = createAuthoring(editor)
+	})
+
+	it('removes only present ids, returns intent:delete + deleted:<present count>', () => {
+		authoring.addFeature(singlePointCollection.features[0])
+		authoring.addFeature(dupIdCollection.features[0])
+		expect(editor.getAllFeatures()).toHaveLength(2)
+
+		const result = authoring.deleteFeatures(['test-point-1', 'dup-id'])
+
+		expect(result.ok).toBe(true)
+		expect(result.intent).toBe('delete')
+		expect(result.counts.deleted).toBe(2)
+		expect(result.featureIds.sort()).toEqual(['dup-id', 'test-point-1'])
+		expect(editor.getAllFeatures()).toHaveLength(0)
+	})
+
+	it('filters unknown ids (no crash); deleted reflects only present ids', () => {
+		authoring.addFeature(singlePointCollection.features[0])
+
+		const result = authoring.deleteFeatures(['test-point-1', 'ghost'])
+
+		expect(result.ok).toBe(true)
+		expect(result.counts.deleted).toBe(1)
+		expect(result.featureIds).toEqual(['test-point-1'])
+		expect(editor.getAllFeatures()).toHaveLength(0)
+	})
+})
+
 describe('createAuthoring — setDatasetMetadata (dataset-level metadata, DATA-* ask)', () => {
 	beforeEach(() => {
 		// Reset collectionMeta + clear any active draft so setCollectionMeta writes
