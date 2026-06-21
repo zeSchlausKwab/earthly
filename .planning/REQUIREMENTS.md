@@ -46,7 +46,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase. Story t
 - [ ] **SAFE-03**: Before applying a change to an existing dataset, the user can preview what will be added, changed, and deleted (diff/preview). `[D]`
 - [ ] **SAFE-04**: A configurable safety level controls gating — 1 = preview + confirm all, 2 = confirm destructive only (default), 3 = trust + undo — and the choice persists.
 - [ ] **SAFE-05**: Bulk transforms operate host-side as rules over the full bound dataset by feature id (never only over the model's compacted context view), so "fix all" does not silently skip out-of-context features. `[D]`
-- [ ] **SAFE-06**: Dataset edits are reversible via a dataset-level snapshot/undo that covers property, style, and translation edits — not just geometry.
+- [x] **SAFE-06**: Dataset edits are reversible via a dataset-level snapshot/undo that covers property, style, and translation edits — not just geometry.
 
 ### Data-Driven Styling
 
@@ -124,7 +124,7 @@ Each requirement maps to exactly one phase.
 | SAFE-03 | Phase 5 — Dataset-Aware Safe Editing | Pending |
 | SAFE-04 | Phase 5 — Dataset-Aware Safe Editing | Pending |
 | SAFE-05 | Phase 5 — Dataset-Aware Safe Editing | Pending |
-| SAFE-06 | Phase 5 — Dataset-Aware Safe Editing | Pending |
+| SAFE-06 | Phase 5 — Dataset-Aware Safe Editing | Complete |
 | TOOLS-02 | Phase 6 — AI Bulk Transform & Data-Driven Styling | Pending |
 | TOOLS-03 | Phase 6 — AI Bulk Transform & Data-Driven Styling | Pending |
 | TOOLS-04 | Phase 6 — AI Bulk Transform & Data-Driven Styling | Pending |
