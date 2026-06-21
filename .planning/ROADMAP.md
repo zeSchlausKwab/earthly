@@ -163,7 +163,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 05-04-PLAN.md — Host-side async buffer-then-apply AuthoringGate + fixAll host-side rule runner (SAFE-03 / SAFE-04 / SAFE-05)
+- [x] 05-04-PLAN.md — Host-side async buffer-then-apply AuthoringGate + fixAll host-side rule runner (SAFE-03 / SAFE-04 / SAFE-05)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
