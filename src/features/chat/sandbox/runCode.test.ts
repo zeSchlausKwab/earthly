@@ -167,6 +167,100 @@ describe('run_code — interceptor-seam invariant (CR-01)', () => {
 	})
 })
 
+describe('run_code — WR-04 recorded-call write-channel cap (DoS)', () => {
+	it('rejects an over-budget recorded batch BEFORE replay — no editor mutation (count budget)', async () => {
+		const editor = useHeadlessEditor()
+		// A transport that reports the over-budget flag the worker would set once the
+		// recorded-call COUNT cap is hit. The host must refuse the WHOLE batch before
+		// replaying a single op (T-05-06 / T-05-08).
+		const overBudget: SandboxTransport = async () => ({
+			id: 'over-budget-count',
+			success: true,
+			recordedCalls: [
+				{ op: 'addFeature', args: [{ type: 'Point', coordinates: [0, 0] }] },
+				{ op: 'addFeature', args: [{ type: 'Point', coordinates: [1, 1] }] },
+			],
+			recordedCallsOverBudget: true,
+			consoleLines: [],
+			truncated: false,
+			returnValue: 'ignored',
+		})
+		setSandboxTransportForTests(overBudget)
+
+		const result = await dispatch('run_code', {
+			code: 'for (let i=0;i<1e6;i++) authoring.addFeature(0)',
+		})
+		expect(isToolError(result)).toBe(true)
+		const err = result as { kind: string; message: string }
+		expect(err.kind).toBe('handler_error')
+		// Descriptive, model-facing over-budget error (not a silent partial apply).
+		expect(err.message.toLowerCase()).toMatch(/budget|cap|too many|over-budget|exceed/)
+		// CRITICAL: zero features created — the batch was rejected before any replay.
+		expect(editor.getAllFeatures().length).toBe(0)
+	})
+
+	it('rejects an over-budget recorded batch BEFORE replay — no editor mutation (byte budget)', async () => {
+		const editor = useHeadlessEditor()
+		// The byte-budget path sets the SAME flag (the worker stops accumulating once
+		// total serialized arg bytes exceed the cap). The host rejection is identical.
+		const overBudget: SandboxTransport = async () => ({
+			id: 'over-budget-bytes',
+			success: true,
+			recordedCalls: [{ op: 'writeGeoJSON', args: [{ huge: 'x'.repeat(1024) }] }],
+			recordedCallsOverBudget: true,
+			consoleLines: [],
+			truncated: false,
+			returnValue: 'ignored',
+		})
+		setSandboxTransportForTests(overBudget)
+
+		const result = await dispatch('run_code', { code: 'authoring.writeGeoJSON(huge)' })
+		expect(isToolError(result)).toBe(true)
+		const err = result as { kind: string; message: string }
+		expect(err.kind).toBe('handler_error')
+		expect(err.message.toLowerCase()).toMatch(/budget|cap|too many|over-budget|exceed/)
+		expect(editor.getAllFeatures().length).toBe(0)
+	})
+
+	it('the worker sets the over-budget flag and stops appending once the call-count cap is hit (real engine)', async () => {
+		// Drive the REAL pure engine: a script that records far more authoring calls
+		// than MAX_RECORDED_CALLS. The worker must (a) stop appending past the cap and
+		// (b) flag the response so the host rejects it.
+		const { runSandboxCode, MAX_RECORDED_CALLS } = await import('./transport/sandbox.worker')
+		const overCount = MAX_RECORDED_CALLS + 50
+		const code = `for (let i = 0; i < ${overCount}; i++) { authoring.addFeature({ type: 'Point', coordinates: [0, 0] }) } 'done'`
+		const res = await runSandboxCode({ code, readSnapshot: null, deadlineMs: 3000 })
+		expect(res.success).toBe(true)
+		expect(res.recordedCallsOverBudget).toBe(true)
+		// Bounded: never accumulates the full overCount (bounded overshoot of <= 1).
+		expect((res.recordedCalls ?? []).length).toBeLessThanOrEqual(MAX_RECORDED_CALLS)
+	})
+
+	it('the worker sets the over-budget flag once the serialized-byte cap is hit (real engine)', async () => {
+		const { runSandboxCode, MAX_RECORDED_ARG_BYTES } = await import('./transport/sandbox.worker')
+		// One writeGeoJSON whose single serialized arg blows the byte budget on its own.
+		const bigStringLen = MAX_RECORDED_ARG_BYTES + 1024
+		const code = `authoring.writeGeoJSON({ blob: 'x'.repeat(${bigStringLen}) }); 'done'`
+		const res = await runSandboxCode({ code, readSnapshot: null, deadlineMs: 3000 })
+		expect(res.success).toBe(true)
+		expect(res.recordedCallsOverBudget).toBe(true)
+	})
+
+	it('a within-budget batch replays unchanged (no false positive)', async () => {
+		const editor = useHeadlessEditor()
+		const code = `
+			for (let i = 0; i < 5; i++) authoring.addFeature(turf.point([14.5 + i * 0.01, 47.5]))
+			'ok'
+		`
+		const result = await dispatch('run_code', { code })
+		expect(isToolError(result)).toBe(false)
+		const out = result as { ok: boolean; counts: { created: number } }
+		expect(out.ok).toBe(true)
+		expect(out.counts.created).toBe(5)
+		expect(editor.getAllFeatures().length).toBe(5)
+	})
+})
+
 describe('run_code — fibonacci circles headline (CODE-05)', () => {
 	it('draws exactly 15 circles and returns the final expression value', async () => {
 		const editor = useHeadlessEditor()

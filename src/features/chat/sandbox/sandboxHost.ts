@@ -73,6 +73,11 @@ export interface SandboxRunResult {
 	consoleLines: string[]
 	/** True iff console output hit a cap and was truncated. */
 	truncated: boolean
+	/**
+	 * True iff the recorded-call write channel hit its count/byte cap (WR-04). The
+	 * caller MUST reject the whole batch before replay — no silent partial apply.
+	 */
+	recordedCallsOverBudget: boolean
 	/** The script's final return / expression value, JSON-dumpable (D-10). */
 	returnValue?: unknown
 	/** Full error string on failure (fed to the model, D-11); undefined on success. */
@@ -111,6 +116,7 @@ export async function runSandbox(
 		recordedCalls: raw.recordedCalls ?? [],
 		consoleLines: raw.consoleLines ?? [],
 		truncated: raw.truncated ?? false,
+		recordedCallsOverBudget: raw.recordedCallsOverBudget ?? false,
 		returnValue: raw.returnValue,
 		error: raw.success ? undefined : (raw.error ?? 'Sandbox run failed'),
 		timedOut,

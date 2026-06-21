@@ -58,6 +58,16 @@ export const RUN_CODE_RETRY_CAP = 3
 const OUTPUT_CAP = 1000
 
 /**
+ * Host-side recorded-call ceiling (WR-04 defence-in-depth). The worker already
+ * caps the count + serialized bytes and flags `recordedCallsOverBudget`; this is a
+ * second, independent guard (mirroring the `REPLAYABLE_AUTHORING_OPS` allow-list)
+ * so a foreign/hand-crafted batch that arrives WITHOUT the flag is still rejected
+ * before the synchronous replay loop. Kept equal to the worker's `MAX_RECORDED_CALLS`
+ * so the two boundaries agree.
+ */
+const MAX_REPLAY_CALLS = 2000
+
+/**
  * The ONLY authoring ops the host will replay from a sandbox run (CR-01).
  *
  * Two CLASSES of allow-listed op:
@@ -248,6 +258,24 @@ export function registerSandboxTools(register: (entry: ToolEntry) => void): void
 
 			// Success — reset the self-correction counter (D-06).
 			consecutiveFailures = 0
+
+			// (3b) WR-04: reject an OVER-BUDGET recorded batch BEFORE replaying a single
+			// op (T-05-06 / T-05-08). The worker stops appending + flags the response once
+			// the recorded-call COUNT or total serialized-arg BYTES exceed the worker caps;
+			// replaying that batch synchronously on the host main thread is the write-path
+			// DoS the console cap does not cover. Rejecting the WHOLE batch (vs. a partial
+			// apply) avoids a silent half-applied dataset. Host-side count re-validation is
+			// defence-in-depth (mirrors the REPLAYABLE_AUTHORING_OPS allow-list) in case a
+			// foreign/hand-crafted batch arrives without the flag set. Count this against
+			// the circuit breaker so a runaway over-budget loop also hits the cap.
+			if (result.recordedCallsOverBudget || result.recordedCalls.length > MAX_REPLAY_CALLS) {
+				consecutiveFailures += 1
+				throw new Error(
+					`run_code exceeded the recorded-call write budget (WR-04): a batch of ${result.recordedCalls.length} ` +
+						`authoring call(s) is over the cap. The whole batch was rejected before any write — nothing was applied. ` +
+						`Author fewer/smaller features per run (e.g. one writeGeoJSON with a FeatureCollection instead of thousands of addFeature calls).`,
+				)
+			}
 
 			// (4) replay recorded authoring.* calls IN ORDER through the facade (D-03/D-08).
 			const authoring = createAuthoring(editor) as unknown as Record<

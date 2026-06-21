@@ -41,6 +41,12 @@ export interface SandboxWorkerResponse {
 	consoleLines?: string[]
 	/** True iff console output hit a cap and was truncated. */
 	truncated?: boolean
+	/**
+	 * True iff the recorded-call write channel hit its count OR serialized-byte cap
+	 * (WR-04 / T-05-06). When set, the host MUST reject the whole batch before replay
+	 * — an over-budget batch is a write-path DoS the console cap does not cover.
+	 */
+	recordedCallsOverBudget?: boolean
 	/** The script's final return / expression value, JSON-dumped (D-10). */
 	returnValue?: unknown
 	/** Full error string on failure (fed to the model for self-correction, D-11). */

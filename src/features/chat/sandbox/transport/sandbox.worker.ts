@@ -115,6 +115,27 @@ const MAX_STACK_SIZE_BYTES = 512 * 1024
 export const DEFAULT_DEADLINE_MS = 3000
 
 /**
+ * WR-04 recorded-call write-channel caps (T-05-06 / Pitfall 4).
+ *
+ * The console cap (`outputCapture`) bounds the READ-back channel; this bounds the
+ * WRITE channel. Untrusted sandbox code can call `authoring.*` arbitrarily — each
+ * call is recorded and later replayed SYNCHRONOUSLY on the host main thread, so an
+ * unbounded batch is a DoS even though every individual op is allow-listed. Mirror
+ * the console cap: stop appending once EITHER budget is exceeded and flag the
+ * response; the host (`runCode.ts`) rejects the whole over-budget batch before
+ * replaying a single op (T-05-08 — no silent partial apply).
+ *
+ * Values are planner discretion, on the order of the console caps:
+ *  - `MAX_RECORDED_CALLS = 2000` — a legitimate authoring run is well under this;
+ *    a million-iteration loop of recorded authoring calls (a write-path DoS) is not.
+ *  - `MAX_RECORDED_ARG_BYTES = 4 MiB` — total serialized arg bytes across the run
+ *    (above the 256 KiB console cap because a single legitimate `writeGeoJSON`
+ *    FeatureCollection can be large, but still bounded).
+ */
+export const MAX_RECORDED_CALLS = 2000
+export const MAX_RECORDED_ARG_BYTES = 4 * 1024 * 1024
+
+/**
  * The authoring method names the boundary exposes (RECORDING only this phase).
  *
  * Two CLASSES of sandbox-reachable op live here:
@@ -156,6 +177,10 @@ export async function runSandboxCode(
 ): Promise<Omit<SandboxWorkerResponse, 'id'>> {
 	const deadlineMs = req.deadlineMs > 0 ? req.deadlineMs : DEFAULT_DEADLINE_MS
 	const recordedCalls: RecordedCall[] = []
+	// WR-04 running accumulators (T-05-06). Once EITHER budget is exceeded we stop
+	// appending and latch `recordedCallsOverBudget` so the host rejects the batch.
+	let recordedArgBytes = 0
+	let recordedCallsOverBudget = false
 	const output = createOutputCapture()
 
 	const QuickJS = await loadQuickJS()
@@ -173,7 +198,22 @@ export async function runSandboxCode(
 		toDispose.push(authoringObj)
 		for (const op of AUTHORING_METHODS) {
 			const fn = vm.newFunction(op, (...argHandles) => {
-				recordedCalls.push({ op, args: argHandles.map((h) => vm.dump(h)) })
+				// WR-04: once either the call-count or the serialized-byte budget is hit,
+				// STOP appending and latch the over-budget flag (mirrors the console cap).
+				// We still return undefined so the script keeps running to completion — the
+				// host rejects the WHOLE batch on the flag, so nothing recorded gets applied.
+				if (recordedCallsOverBudget) return vm.undefined
+				const args = argHandles.map((h) => vm.dump(h))
+				// Accept this call, THEN check the caps (bounded overshoot of one call,
+				// matching the outputCapture idiom).
+				recordedCalls.push({ op, args })
+				recordedArgBytes += serializedByteLength(args)
+				if (
+					recordedCalls.length >= MAX_RECORDED_CALLS ||
+					recordedArgBytes >= MAX_RECORDED_ARG_BYTES
+				) {
+					recordedCallsOverBudget = true
+				}
 				return vm.undefined // A-sync: return immediately, no MutationResult marshalled.
 			})
 			vm.setProp(authoringObj, op, fn)
@@ -249,6 +289,7 @@ export async function runSandboxCode(
 				success: false,
 				error: formatVmError(errVal),
 				recordedCalls,
+				recordedCallsOverBudget,
 				consoleLines: drained.lines,
 				truncated: drained.truncated,
 			}
@@ -259,6 +300,7 @@ export async function runSandboxCode(
 		return {
 			success: true,
 			recordedCalls,
+			recordedCallsOverBudget,
 			consoleLines: drained.lines,
 			truncated: drained.truncated,
 			returnValue,
@@ -270,6 +312,7 @@ export async function runSandboxCode(
 			success: false,
 			error: error instanceof Error ? error.message : String(error),
 			recordedCalls,
+			recordedCallsOverBudget,
 			consoleLines: drained.lines,
 			truncated: drained.truncated,
 		}
@@ -317,6 +360,20 @@ function stringifyDump(value: unknown): string {
 	} catch {
 		return String(value)
 	}
+}
+
+/**
+ * Approximate the serialized UTF-8 byte size of a recorded call's args (WR-04).
+ * Used to bound the cumulative write-channel payload; JSON.stringify is the same
+ * serialization the host replays, so this is a faithful proxy. A non-serializable
+ * arg (cycle) falls back to its string length — still a positive bound.
+ */
+function serializedByteLength(args: unknown[]): number {
+	let total = 0
+	for (const arg of args) {
+		total += Buffer.byteLength(stringifyDump(arg), 'utf8')
+	}
+	return total
 }
 
 /**
