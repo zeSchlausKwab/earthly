@@ -67,11 +67,7 @@ describe('runFixAllRule — SAFE-05', () => {
 	// (b) Reports the count it touched over the FULL set.
 	test('reports matched/modified counts over the full set', () => {
 		const editor = createHeadlessEditor()
-		editor.setFeatures([
-			makePoint('a', 'x'),
-			makePoint('b', 'x'),
-			makePoint('c', 'y'),
-		])
+		editor.setFeatures([makePoint('a', 'x'), makePoint('b', 'x'), makePoint('c', 'y')])
 
 		const result = runFixAllRule(editor, {
 			predicate: (f) => f.properties?.category === 'x',
