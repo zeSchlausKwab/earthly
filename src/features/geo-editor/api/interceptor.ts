@@ -40,6 +40,19 @@ export interface InterceptorContext {
 export type Interceptor = (ctx: InterceptorContext) => void | { intent?: MutationIntent }
 
 /**
+ * Intent-classification interceptor (SAFE-02). A SYNCHRONOUS tag-only hook: it
+ * echoes the observed `ctx.intent` so the classified intent is observable to
+ * downstream interceptors and to the `runInterceptors` result. It NEVER escalates
+ * or mutates geometry.
+ *
+ * Critical (Pitfall 1): this is the classification point ONLY. The async confirm
+ * gate (SAFE-03/04) lives ABOVE the facade at the chat layer (Plan 04) — it does
+ * NOT live here, and this interceptor stays synchronous so `MutationResult` never
+ * becomes a `Promise`.
+ */
+export const classifyIntentInterceptor: Interceptor = (ctx) => ({ intent: ctx.intent })
+
+/**
  * Fold an interceptor chain over a context. With the default empty chain this
  * is a no-op pass-through returning `ctx` unchanged. An interceptor that returns
  * `{ intent }` replaces the intent for subsequent interceptors and the result.

@@ -239,6 +239,26 @@ export interface Authoring {
 		options?: MakeBufferOptions,
 	): MutationResult
 	/**
+	 * Modify an existing feature by id (INFRA-02, intent:'modify'). Normalizes the
+	 * replacement via `toEditorFeature` (PRESERVING the original id), classifies
+	 * `intent:'modify'` through `runInterceptors`, and updates the editor in place.
+	 *
+	 * Contract mirrors `addFeature` (V5): an unknown `featureId` is a QUIET no-op
+	 * (`{ ok:false }`, never a throw, never a crash — T-05-03); a non-geometry
+	 * `feature` THROWS a descriptive `authoring.modifyFeature:` error rather than
+	 * silently reporting `updated:0` (loud-not-silent — T-05-02). Returns a
+	 * synchronous `MutationResult` with `updated:1` on success.
+	 */
+	modifyFeature(featureId: string, feature: Feature, source?: string): MutationResult
+	/**
+	 * Delete features by id (INFRA-02, intent:'delete'). Filters to the ids
+	 * actually present in the editor (unknown ids are dropped, never a crash —
+	 * T-05-03), classifies `intent:'delete'` through `runInterceptors`, then
+	 * removes them. Returns a synchronous `MutationResult` whose `deleted` count
+	 * reflects ONLY the present ids.
+	 */
+	deleteFeatures(featureIds: string[]): MutationResult
+	/**
 	 * Set DATASET-level (FeatureCollection-level) metadata: the dataset's name /
 	 * description / color and arbitrary collection-level properties. `name` /
 	 * `description` / `color` set the top-level fields; `properties` MERGE into
@@ -400,6 +420,50 @@ export function createAuthoring(editor: GeoEditor): Authoring {
 		return { ...result, featureIds }
 	}
 
+	function modifyFeature(
+		featureId: string,
+		feature: Feature,
+		source: string = DEFAULT_SOURCE,
+	): MutationResult {
+		// Unknown id → quiet no-op (V5: validate, don't crash — T-05-03).
+		const existing = editor.getFeature(featureId)
+		if (!existing) {
+			return { ok: false, intent: 'modify', featureIds: [], counts: emptyCounts() }
+		}
+		// Non-geometry input → fail LOUD (never a silent updated:0 — T-05-02),
+		// mirroring addFeature's loud-not-silent contract.
+		const usable = coerceToFeature(feature)
+		if (!usable) {
+			throw new Error(
+				`authoring.modifyFeature: not a usable GeoJSON Feature — ${describeUnusableFeature(feature)}.`,
+			)
+		}
+
+		const { intent } = runInterceptors({ intent: 'modify', featureIds: [featureId] })
+		// PRESERVE the original id so the update lands on the same feature.
+		editor.updateFeature(featureId, { ...toEditorFeature(usable, source), id: featureId })
+
+		return {
+			ok: true,
+			intent,
+			featureIds: [featureId],
+			counts: { ...emptyCounts(), updated: 1 },
+		}
+	}
+
+	function deleteFeatures(featureIds: string[]): MutationResult {
+		// Filter to ids actually present — unknown ids are dropped (no crash, T-05-03).
+		const present = featureIds.filter((id) => editor.getFeature(id) !== undefined)
+		const { intent } = runInterceptors({ intent: 'delete', featureIds: present })
+		editor.deleteFeatures(present)
+		return {
+			ok: true,
+			intent,
+			featureIds: present,
+			counts: { ...emptyCounts(), deleted: present.length },
+		}
+	}
+
 	function snapshotMeta(meta: CollectionMeta): DatasetMetadataResult {
 		return {
 			ok: true,
@@ -437,6 +501,8 @@ export function createAuthoring(editor: GeoEditor): Authoring {
 		editorCommand,
 		circle,
 		buffer,
+		modifyFeature,
+		deleteFeatures,
 		setDatasetMetadata,
 		getDatasetMetadata,
 	}
