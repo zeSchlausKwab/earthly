@@ -2,6 +2,7 @@ import { test, expect, describe, beforeEach } from 'bun:test'
 import type { DatasetDiff } from '@/features/geo-editor/api/diff'
 import {
 	emitDiffBlock,
+	getAllPendingDiffs,
 	getPendingDiff,
 	requestConfirm,
 	resolvePendingDiff,
@@ -53,6 +54,30 @@ describe('requestConfirm / resolvePendingDiff', () => {
 		// a second resolve is a no-op — status does not change to cancelled
 		resolvePendingDiff(handle.id, 'cancelled')
 		expect(getPendingDiff(handle.id)?.status).toBe('applied')
+	})
+})
+
+describe('getAllPendingDiffs snapshot caching (CR-01)', () => {
+	test('returns the SAME reference across calls when nothing changes', () => {
+		emitDiffBlock(DIFF)
+		const a = getAllPendingDiffs()
+		const b = getAllPendingDiffs()
+		// useSyncExternalStore compares with Object.is — a fresh array every call
+		// would drive a React 19 render loop.
+		expect(b).toBe(a)
+	})
+
+	test('returns a NEW reference after a mutation invalidates the cache', () => {
+		const first = emitDiffBlock(DIFF)
+		const a = getAllPendingDiffs()
+		emitDiffBlock(DIFF)
+		const b = getAllPendingDiffs()
+		expect(b).not.toBe(a)
+		expect(b.length).toBe(2)
+		// resolving also invalidates
+		resolvePendingDiff(first.id, 'applied')
+		const c = getAllPendingDiffs()
+		expect(c).not.toBe(b)
 	})
 })
 

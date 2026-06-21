@@ -55,6 +55,14 @@ const pendingDiffs = new Map<string, PendingDiffEntry>()
 const resolvers = new Map<string, (decision: ConfirmDecision) => void>()
 const subscribers = new Set<() => void>()
 
+/**
+ * Cached `getAllPendingDiffs()` result. `useSyncExternalStore` compares snapshots
+ * with `Object.is`, so a fresh array on every call drives a render loop in React 19
+ * ("The result of getSnapshot should be cached…"). We hold a stable reference and
+ * invalidate it only when the entries actually change (CR-01).
+ */
+let snapshotCache: PendingDiffEntry[] | null = null
+
 let counter = 0
 function nextId(): string {
 	counter += 1
@@ -62,6 +70,8 @@ function nextId(): string {
 }
 
 function notify(): void {
+	// Entries changed — drop the cached snapshot so the next read rebuilds it once.
+	snapshotCache = null
 	for (const fn of subscribers) fn()
 }
 
@@ -82,9 +92,14 @@ export function getPendingDiff(id: string): PendingDiffEntry | null {
 	return pendingDiffs.get(id) ?? null
 }
 
-/** Snapshot of all current entries (for a transcript that maps over them). */
+/**
+ * Snapshot of all current entries (for a transcript that maps over them).
+ * Returns a STABLE reference between mutations so `useSyncExternalStore` does not
+ * see a new snapshot on every render (CR-01); `notify()` invalidates the cache.
+ */
 export function getAllPendingDiffs(): PendingDiffEntry[] {
-	return [...pendingDiffs.values()]
+	if (snapshotCache === null) snapshotCache = [...pendingDiffs.values()]
+	return snapshotCache
 }
 
 /**
