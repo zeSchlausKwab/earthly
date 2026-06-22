@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { GitCompare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import type { DatasetDiff } from '@/features/geo-editor/api/diff'
+import { classifyModifyKind, type DatasetDiff } from '@/features/geo-editor/api/diff'
 import type { EditorFeature } from '@/features/geo-editor/core'
 
 /**
@@ -29,11 +29,28 @@ export type DiffBlockStatus = 'pending' | 'applied' | 'cancelled'
 /**
  * The D-05 counts headline: `+N added · ~N changed · −N deleted`, computed from a
  * `DatasetDiff`. Pure (mirrors `buildRunCodeSummary`), includes the zero cases.
+ *
+ * STYLE-01 special-case (D-02 restyle-as-modify mitigation, 06-RESEARCH Pattern 5):
+ * when a diff is a PURE bulk restyle — no adds, no deletes, ≥1 modify, and EVERY
+ * modified pair is a visual style-only change (`classifyModifyKind === 'style'`) —
+ * the headline reads `~N restyled` instead of the generic "~N changed" geometry
+ * wall. Every other shape falls through to the verbatim counts string (additive,
+ * backward-compatible with the Phase 5 disclosure tests — Open Question 3).
  */
 export function buildDatasetDiffSummary(diff: DatasetDiff): string {
 	const added = diff.added.length
 	const changed = diff.modified.length
 	const deleted = diff.deleted.length
+
+	if (
+		added === 0 &&
+		deleted === 0 &&
+		changed > 0 &&
+		diff.modified.every((m) => classifyModifyKind(m.before, m.after) === 'style')
+	) {
+		return `~${changed} restyled`
+	}
+
 	return `+${added} added · ~${changed} changed · −${deleted} deleted`
 }
 

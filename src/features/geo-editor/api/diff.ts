@@ -90,6 +90,62 @@ function isModified(before: EditorFeature, after: EditorFeature): boolean {
 }
 
 /**
+ * Discriminated kind of a same-id `{ before, after }` MODIFY pair (STYLE-01 diff
+ * headline). `geometry` wins over any style/property change; otherwise `style` iff
+ * EVERY differing property key is a canonical style key; anything else is
+ * `properties`. Lets `buildDatasetDiffSummary` special-case an all-style-only bulk
+ * modify → headline `~N restyled` instead of a generic "~N changed" geometry wall
+ * (06-RESEARCH Pattern 5; D-02 restyle-as-modify mitigation).
+ */
+export type ModifyKind = 'style' | 'properties' | 'geometry'
+
+/**
+ * The VISUAL style keys that define a "restyle" — `CANONICAL_STYLE_KEYS` minus the
+ * non-rendered metadata keys (`name`, `description`). A pure color/opacity/width/
+ * radius/label change is a `style` modify; a `name`/`description` change is a
+ * `properties` modify even though those keys live in `CANONICAL_STYLE_KEYS` (the
+ * editor preserves them but never renders them — styleOptions.ts STRING_KEYS doc).
+ * Excluding them keeps the `~N restyled` headline truthful: it must mean a visual
+ * restyle, not a metadata rename (STYLE-01 / 06-RESEARCH Pattern 5).
+ */
+const METADATA_PROPERTY_KEYS: ReadonlySet<string> = new Set(['name', 'description'])
+const VISUAL_STYLE_KEY_SET: ReadonlySet<string> = new Set(
+	CANONICAL_STYLE_KEYS.filter((key) => !METADATA_PROPERTY_KEYS.has(key)),
+)
+
+/**
+ * The set of property keys whose value differs between two same-id features.
+ * Considers the union of both objects' keys so an added/removed key counts as a
+ * change. Reads `properties` only — geometry is classified separately.
+ */
+function changedPropertyKeys(before: EditorFeature, after: EditorFeature): string[] {
+	const beforeProps = (before.properties ?? {}) as Record<string, unknown>
+	const afterProps = (after.properties ?? {}) as Record<string, unknown>
+	const keys = new Set([...Object.keys(beforeProps), ...Object.keys(afterProps)])
+	const changed: string[] = []
+	for (const key of keys) {
+		if (!deepEqual(beforeProps[key], afterProps[key])) changed.push(key)
+	}
+	return changed
+}
+
+/**
+ * Classify a same-id modify pair as `geometry` | `style` | `properties` (additive,
+ * backward-compatible — `classifyMutation` is untouched, Open Q3). Geometry wins:
+ * any geometry difference → `geometry`. Otherwise `style` iff every changed property
+ * key is a VISUAL style key (`VISUAL_STYLE_KEY_SET` — canonical style keys minus the
+ * non-rendered `name`/`description` metadata); else `properties`. An identical pair
+ * (no changed keys) classifies as `style` (a vacuous all-style-only set), but the
+ * headline special-case only fires for real modify pairs from `classifyMutation`.
+ */
+export function classifyModifyKind(before: EditorFeature, after: EditorFeature): ModifyKind {
+	if (!deepEqual(before.geometry, after.geometry)) return 'geometry'
+
+	const changed = changedPropertyKeys(before, after)
+	return changed.every((key) => VISUAL_STYLE_KEY_SET.has(key)) ? 'style' : 'properties'
+}
+
+/**
  * Classify a proposed feature set against the current bound set by feature id.
  * Pure — no side effects, no editor reference, no forbidden imports.
  */
