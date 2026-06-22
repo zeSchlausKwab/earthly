@@ -55,6 +55,10 @@ export const WORKER_ASSETS = {
 		servedName: 'geoJsonParse.worker.js',
 		sourcePath: 'src/lib/geo/geoJsonParseWorker.ts',
 	},
+	optimize: {
+		servedName: 'optimize.worker.js',
+		sourcePath: 'src/features/chat/geometry/optimize.worker.ts',
+	},
 } as const satisfies Record<string, WorkerAsset>
 
 /** Logical worker ids (keys of {@link WORKER_ASSETS}). */
