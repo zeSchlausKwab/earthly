@@ -390,7 +390,7 @@ import { optimize } from './optimize' // SAME pure fn the worker uses → paths 
 | A4 | The geometric mid-point (`sqrt(lo*hi)`) bisection over the log-scaled tolerance converges in ≤12 iterations for the 12MB fixture. | Code Examples | LOW — iteration cap is a tuning constant; raise if needed. The budget is weakly monotonic so convergence is guaranteed. |
 | A5 | Stitch-before-merge ordering (D-02) is correct for the fixture: stitching microgaps first produces longer continuous lines that then merge-to-multi and simplify well. | Architecture | LOW — D-02 locks this order; if a dataset shape suffers, that's a deferred "AI/host-selected stages" concern, explicitly out of scope. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Per-row diff fidelity vs. metrics headline (Apply representation).**
    - What we know: `classifyMutation` is id-keyed; merge/stitch mint new ids; D-04b says the headline is the user-facing truth.
