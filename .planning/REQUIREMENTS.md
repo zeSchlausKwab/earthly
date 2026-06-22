@@ -55,9 +55,9 @@ Requirements for this milestone. Each maps to exactly one roadmap phase. Story t
 
 ### Geometry Optimization
 
-- [ ] **GEO-01**: The AI can reduce an oversized GeoJSON dataset toward a target byte budget using simplify + merge-to-multi (+ microgap stitching), executed off the main thread. `[E]`
-- [ ] **GEO-02**: Optimization reports before/after metrics (byte size, vertex/feature counts) and validates topology so visual quality is preserved. `[E]`
-- [ ] **GEO-03**: A dataset that previously exceeded the publish/city-dialog size limit can be brought under the limit and published. `[E]`
+- [x] **GEO-01**: The AI can reduce an oversized GeoJSON dataset toward a target byte budget using simplify + merge-to-multi (+ microgap stitching), executed off the main thread. `[E]`
+- [x] **GEO-02**: Optimization reports before/after metrics (byte size, vertex/feature counts) and validates topology so visual quality is preserved. `[E]`
+- [x] **GEO-03**: A dataset that previously exceeded the publish/city-dialog size limit can be brought under the limit and published. `[E]`
 
 ### Settings Persistence
 
@@ -130,9 +130,9 @@ Each requirement maps to exactly one phase.
 | TOOLS-04 | Phase 6 — AI Bulk Transform & Data-Driven Styling | Complete |
 | STYLE-01 | Phase 6 — AI Bulk Transform & Data-Driven Styling | Complete |
 | STYLE-02 | Phase 6 — AI Bulk Transform & Data-Driven Styling | Complete |
-| GEO-01 | Phase 7 — Geometry Optimization | Pending |
-| GEO-02 | Phase 7 — Geometry Optimization | Pending |
-| GEO-03 | Phase 7 — Geometry Optimization | Pending |
+| GEO-01 | Phase 7 — Geometry Optimization | Complete |
+| GEO-02 | Phase 7 — Geometry Optimization | Complete |
+| GEO-03 | Phase 7 — Geometry Optimization | Complete |
 
 **Coverage:**
 
