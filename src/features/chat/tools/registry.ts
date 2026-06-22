@@ -27,6 +27,7 @@ import { isToolError, type ToolError } from './errors'
 import { registerSandboxTools } from '@/features/chat/sandbox/runCode'
 import { gateEditorImport } from '@/features/chat/safeEditing/gateEditorImport'
 import { registerBulkTools } from './bulk-tools'
+import { registerGeometryTools } from './geometry-tools'
 import { registerIngestTools } from './ingest-tools'
 import { registerPrimitiveTools } from './primitives-tools'
 import { geoStaticToolSchemas } from './schemas'
@@ -1087,6 +1088,11 @@ function bootstrapRegistry(): void {
 	// ones). bulk-tools imports ONLY a type from `./registry` back, so this edge is
 	// one-way and does not form the Phase-2 circular-init cycle (Pitfall 4).
 	registerBulkTools(register)
+	// Same injected-`register` idiom: geometry-tools registers the gated
+	// optimize_geometry tool (Phase 7, GEO-01/02/03). It imports ONLY a type from
+	// `./registry` back, so this edge is one-way and does not form the Phase-2
+	// circular-init cycle (Pitfall 6).
+	registerGeometryTools(register)
 }
 
 bootstrapRegistry()

@@ -2,9 +2,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { createHeadlessEditor } from '@/features/geo-editor/core/test-harness'
 import { useEditorStore } from '@/features/geo-editor/store'
 import type { EditorFeature } from '@/features/geo-editor/core/types'
-import { clearPendingDiffs, getAllPendingDiffs } from '@/features/chat/safeEditing/pendingDiffStore'
+import {
+	clearPendingDiffs,
+	getAllPendingDiffs,
+	resolvePendingDiff,
+} from '@/features/chat/safeEditing/pendingDiffStore'
 import { setSafetyLevelProvider } from '@/features/chat/safeEditing/safetyAccess'
 import type { SafetyLevel } from '@/features/chat/safeEditing/AuthoringGate'
+import { terminateOptimizeWorker } from '@/features/chat/geometry/optimizeClient'
 import { isToolError } from './errors'
 import { advertise, dispatch, register, registry } from './registry'
 // RED (Wave 0): `./geometry-tools` lands in Wave 3. The import itself fails to resolve
@@ -40,7 +45,17 @@ function setLevel(level: SafetyLevel): void {
 	setSafetyLevelProvider(() => level)
 }
 
+// `bun:test` cannot drive a real `new Worker(workerUrl(...))` — there is no dev
+// `/workers/:name` route, so the worker fails to load ASYNCHRONOUSLY (well after a
+// single tick), and the optimize RPC would not settle within the one-tick window the
+// gate-emission assertion below allows. Remove `globalThis.Worker` for the suite so the
+// always-settling client takes its synchronous fallback through the SAME pure
+// `optimize()` (the established idiom from `ingestClient.test.ts`'s `withoutWorker`).
+let savedWorker: unknown
 beforeEach(() => {
+	savedWorker = (globalThis as { Worker?: unknown }).Worker
+	;(globalThis as { Worker?: unknown }).Worker = undefined
+	terminateOptimizeWorker()
 	const editor = createHeadlessEditor()
 	useEditorStore.getState().setEditor(editor)
 	registerGeometryTools(register)
@@ -49,6 +64,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+	;(globalThis as { Worker?: unknown }).Worker = savedWorker
+	terminateOptimizeWorker()
 	useEditorStore.getState().setEditor(null)
 	clearPendingDiffs()
 	setSafetyLevelProvider(() => 2)
@@ -103,6 +120,11 @@ describe('optimize_geometry — gates as modify (one snapshot)', () => {
 		const diffs = getAllPendingDiffs().filter((d) => d.status === 'pending')
 		expect(diffs.length).toBe(1)
 		expect(diffs[0]?.intent).toBe('modify')
+
+		// Simulate the user clicking Apply on the gated block so the awaited
+		// `requestConfirm` resolves and the handler promise settles (a Level-2
+		// confirm never resolves on its own — the disclosure's Apply button does).
+		resolvePendingDiff(diffs[0]?.id ?? '', 'applied')
 
 		await pending.catch(() => undefined)
 		expect(isToolError(await pending.catch((e) => e))).toBe(false)

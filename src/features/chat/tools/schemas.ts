@@ -1259,4 +1259,23 @@ export const geoStaticToolSchemas: Tool[] = [
 			},
 		},
 	},
+	{
+		type: 'function',
+		function: {
+			name: 'optimize_geometry',
+			description:
+				'Shrink the ENTIRE bound dataset toward a serialized byte budget so it can be published. Runs off-thread: stitches near-touching line endpoints, losslessly merges identical-property features, then simplifies geometry just enough to fit the budget WITHOUT introducing new topology problems. Reports before/after bytes, vertices, feature counts, microgap joins, and whether the budget was reached. The host reads the full dataset itself — you supply NO features or ids, ONLY an optional target byte budget. Does NOT publish: the user reviews the before/after diff and publishes via the normal flow.',
+			parameters: {
+				type: 'object',
+				properties: {
+					targetBytes: {
+						type: 'number',
+						description:
+							'OPTIONAL target serialized byte budget. Defaults to the 1MB publish limit when omitted. Non-finite, negative, zero, or absurdly large values are ignored and default to the publish limit.',
+					},
+				},
+				required: [],
+			},
+		},
+	},
 ]

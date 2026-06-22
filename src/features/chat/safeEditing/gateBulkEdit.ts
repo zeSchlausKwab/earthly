@@ -109,26 +109,42 @@ export async function gateBulkApply(
 	// "undo AI edit" step on the snapshot stack, and must NOT be reported as a
 	// confirmed apply. Drop the snapshot and return early with an empty, applied diff
 	// — the dataset is unchanged, so there is nothing to confirm or roll back.
-	const isNoop = diff.added.length === 0 && diff.modified.length === 0 && diff.deleted.length === 0
+	// A whole-collection replace whose apply mints NEW ids (e.g. the optimizer's
+	// stitch/merge, which collapses several features into a fresh Multi*) drops the
+	// old ids: they appear in `before` but not in `after`. `classifyMutation` only
+	// buckets those as `deleted` under `intent === 'delete'`, so under a `'modify'`
+	// intent the diff is a pure-add and the no-op/destructive checks below would miss
+	// the data that was removed. Detect dropped ids directly so the optimize apply
+	// (and any future id-minting modify) is neither mistaken for a no-op nor waved
+	// through without confirmation. Phase 5/6 callers keep ids on a modify, so this
+	// is a no-op for them (droppedIds is empty).
+	const afterIds = new Set(after.map((f) => f.id))
+	const droppedIds = before.filter((f) => !afterIds.has(f.id))
+
+	const isNoop =
+		diff.added.length === 0 &&
+		diff.modified.length === 0 &&
+		diff.deleted.length === 0 &&
+		droppedIds.length === 0
 	if (isNoop) {
 		editor.undoLastDatasetSnapshot()
-		const handle = emitDiffBlock(diff, { status: 'applied', headline: deps.headline })
+		const handle = emitDiffBlock(diff, { status: 'applied', headline: deps.headline, intent })
 		return { status: 'applied', diff, diffId: handle.id }
 	}
 
 	const level = deps.getSafetyLevel()
-	const destructive = diff.modified.length > 0 || diff.deleted.length > 0
+	const destructive = diff.modified.length > 0 || diff.deleted.length > 0 || droppedIds.length > 0
 	// Level 3 → never await; Level 1 → always await; Level 2 → await iff destructive.
 	const mustConfirm = level === 1 || (level === 2 && destructive)
 
 	if (!mustConfirm) {
 		// Immediate-apply path: emit the resolved diff (D-12 — still shown).
-		const handle = emitDiffBlock(diff, { status: 'applied', headline: deps.headline })
+		const handle = emitDiffBlock(diff, { status: 'applied', headline: deps.headline, intent })
 		return { status: 'applied', diff, diffId: handle.id }
 	}
 
 	// Confirm path: emit a pending diff and await the Apply/Cancel decision.
-	const handle = emitDiffBlock(diff, { headline: deps.headline })
+	const handle = emitDiffBlock(diff, { headline: deps.headline, intent })
 	const decision = await requestConfirm(handle.id)
 	if (decision === 'cancel') {
 		// Roll the batch back via the snapshot — zero net editor mutation (T-05-24).

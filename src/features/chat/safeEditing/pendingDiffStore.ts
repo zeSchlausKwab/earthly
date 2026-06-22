@@ -24,6 +24,7 @@
  */
 
 import type { DatasetDiff } from '@/features/geo-editor/api/diff'
+import type { MutationIntent } from '@/features/geo-editor/api/interceptor'
 import type { ConfirmDecision } from './AuthoringGate'
 
 /** Terminal render/resolution state of a pending-diff entry. */
@@ -43,6 +44,13 @@ export interface PendingDiffEntry {
 	 * Phase 5/6 caller — strictly additive, backward-compatible.
 	 */
 	headline?: string
+	/**
+	 * Optional originating mutation intent (`'add' | 'modify' | 'delete'`) of the
+	 * gated batch (GEO-01). Threaded through so a transcript/test can tell which
+	 * kind of apply produced this block (e.g. the optimizer's whole-collection
+	 * `'modify'`). Omitted by every Phase 5/6 caller — strictly additive.
+	 */
+	intent?: MutationIntent
 }
 
 export interface EmitDiffBlockHandle {
@@ -61,6 +69,11 @@ export interface EmitDiffBlockOptions {
 	 * Omitted by every existing caller — additive, backward-compatible.
 	 */
 	headline?: string
+	/**
+	 * Optional originating mutation intent stored on the entry (GEO-01). Omitted by
+	 * every existing caller — additive, backward-compatible.
+	 */
+	intent?: MutationIntent
 }
 
 const pendingDiffs = new Map<string, PendingDiffEntry>()
@@ -95,7 +108,13 @@ function notify(): void {
  */
 export function emitDiffBlock(diff: DatasetDiff, opts?: EmitDiffBlockOptions): EmitDiffBlockHandle {
 	const id = nextId()
-	pendingDiffs.set(id, { id, diff, status: opts?.status ?? 'pending', headline: opts?.headline })
+	pendingDiffs.set(id, {
+		id,
+		diff,
+		status: opts?.status ?? 'pending',
+		headline: opts?.headline,
+		intent: opts?.intent,
+	})
 	notify()
 	return { id }
 }
