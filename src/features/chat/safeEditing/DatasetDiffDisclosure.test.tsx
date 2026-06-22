@@ -21,6 +21,24 @@ const DIFF: DatasetDiff = {
 
 const EMPTY: DatasetDiff = { added: [], modified: [], deleted: [] }
 
+/** A pure-restyle diff: no adds/deletes, modifies that change only visual style keys. */
+function styleFeat(id: string, color: string): EditorFeature {
+	return {
+		type: 'Feature',
+		id,
+		geometry: { type: 'Point', coordinates: [0, 0] },
+		properties: { name: id, color },
+	} as EditorFeature
+}
+const RESTYLE_DIFF: DatasetDiff = {
+	added: [],
+	modified: [
+		{ before: styleFeat('s1', '#000'), after: styleFeat('s1', '#fff') },
+		{ before: styleFeat('s2', '#000'), after: styleFeat('s2', '#fff') },
+	],
+	deleted: [],
+}
+
 describe('buildDatasetDiffSummary (D-05 counts headline)', () => {
 	test('produces the +N added · ~N changed · −N deleted headline', () => {
 		const summary = buildDatasetDiffSummary(DIFF)
@@ -110,5 +128,41 @@ describe('DatasetDiffDisclosure render (SAFE-03 / D-04 / D-05 / D-08)', () => {
 		)
 		expect(html.toLowerCase()).toContain('cancelled')
 		expect(html).not.toContain('>Apply<')
+	})
+})
+
+describe('metrics-aware optimization headline (D-04b / GEO-02)', () => {
+	const HEADLINE = '12.0MB → 0.9MB · 41k→3.2k pts · 312→18 features · 47 joins'
+
+	test('renders the headline verbatim in place of the generic counts string', () => {
+		const html = renderToStaticMarkup(
+			<DatasetDiffDisclosure
+				diff={DIFF}
+				headline={HEADLINE}
+				onApply={() => {}}
+				onCancel={() => {}}
+			/>,
+		)
+		expect(html).toContain('312→18 features')
+		expect(html).toContain('47 joins')
+		// the generic counts headline is NOT shown when a headline is supplied
+		expect(html).not.toContain('+2 added')
+		expect(html).not.toContain('~1 changed')
+	})
+
+	test('no headline → mixed diff still renders the verbatim counts string (backward-compat)', () => {
+		const html = renderToStaticMarkup(
+			<DatasetDiffDisclosure diff={DIFF} onApply={() => {}} onCancel={() => {}} />,
+		)
+		expect(html).toContain('+2 added')
+		expect(html).toContain('~1 changed')
+		expect(html).toContain('−3 deleted')
+	})
+
+	test('no headline → pure-restyle diff still renders ~N restyled (backward-compat)', () => {
+		const html = renderToStaticMarkup(
+			<DatasetDiffDisclosure diff={RESTYLE_DIFF} onApply={() => {}} onCancel={() => {}} />,
+		)
+		expect(html).toContain('~2 restyled')
 	})
 })

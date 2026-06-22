@@ -106,6 +106,15 @@ interface DatasetDiffDisclosureProps {
 	 * `applied` — D-12).
 	 */
 	status?: DiffBlockStatus
+	/**
+	 * Optional metrics-aware optimization summary (D-04b / GEO-02) — e.g.
+	 * `12.0MB → 0.9MB · 41k→3.2k pts · 312→18 features · 47 joins`. When present it
+	 * REPLACES the collapsed counts headline (the per-row Added/Changed/Deleted
+	 * sections behind the toggle are unaffected). When omitted, the disclosure falls
+	 * through to the existing `~N restyled` / counts headline verbatim (the Phase 7
+	 * optimizer supplies this; Phase 5/6 callers pass nothing — backward-compatible).
+	 */
+	headline?: string
 }
 
 export function DatasetDiffDisclosure({
@@ -114,9 +123,14 @@ export function DatasetDiffDisclosure({
 	onCancel,
 	defaultOpen = false,
 	status = 'pending',
+	headline,
 }: DatasetDiffDisclosureProps) {
 	const [isOpen, setIsOpen] = useState(defaultOpen)
-	const summary = useMemo(() => buildDatasetDiffSummary(diff), [diff])
+	// Headline precedence (D-04b): when the optimizer supplies a metrics headline,
+	// render it verbatim in place of the generic counts string; otherwise fall back
+	// to the existing `~N restyled` / `+N · ~N · −N` headline (buildDatasetDiffSummary
+	// stays the no-headline pure function, so existing direct unit tests are unchanged).
+	const summary = useMemo(() => headline ?? buildDatasetDiffSummary(diff), [headline, diff])
 
 	const addedRows = useMemo(() => diff.added.map(featureLabel), [diff.added])
 	const modifiedRows = useMemo(

@@ -42,6 +42,7 @@ export function PendingDiffList() {
 					<DatasetDiffDisclosure
 						diff={entry.diff}
 						status={entry.status}
+						headline={entry.headline}
 						onApply={() => resolvePendingDiff(entry.id, 'applied')}
 						onCancel={() => resolvePendingDiff(entry.id, 'cancelled')}
 					/>
