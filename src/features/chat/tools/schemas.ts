@@ -1010,4 +1010,253 @@ export const geoStaticToolSchemas: Tool[] = [
 			},
 		},
 	},
+	{
+		type: 'function',
+		function: {
+			name: 'batch_edit_features',
+			description:
+				'Edit feature properties in BULK across the bound dataset (TOOLS-02). TWO modes. ' +
+				'DECLARATIVE mode (mode:"declarative") is the default and is UNBOUNDED — you supply ONLY a ' +
+				'predicate + a list of ops and the HOST applies them to EVERY matching feature in the full ' +
+				'dataset (including features you never saw); you NEVER pass a feature/id list. Use this for ' +
+				'rule-shaped edits ("set reviewed=true on all ports", "fill missing labels"). ' +
+				'INTELLIGENCE mode (mode:"intelligence") is for per-feature values only YOU can compute ' +
+				'(e.g. translating each name): supply `field` + a `valuesById` map of { featureId: value }. ' +
+				'It is CAPPED at 100 edits per call — extra ids are reported and you rerun with the rest; ' +
+				'unknown ids are skipped and counted. Every edit passes through the diff/preview safety gate.',
+			parameters: {
+				type: 'object',
+				properties: {
+					mode: {
+						type: 'string',
+						enum: ['declarative', 'intelligence'],
+						description:
+							'declarative = predicate + ops over ALL matching features (unbounded); intelligence = explicit id→value map (capped at 100).',
+					},
+					predicate: {
+						type: 'object',
+						description:
+							'DECLARATIVE only. Flat AND-list selecting which features to edit. Empty/omitted matches every feature.',
+						properties: {
+							all: {
+								type: 'array',
+								description: 'Every clause must match (logical AND).',
+								items: {
+									type: 'object',
+									properties: {
+										field: { type: 'string', description: 'The feature property key to test.' },
+										op: {
+											type: 'string',
+											description: 'Comparison operator.',
+											enum: [
+												'eq',
+												'neq',
+												'exists',
+												'missing',
+												'contains',
+												'in',
+												'lt',
+												'lte',
+												'gt',
+												'gte',
+											],
+										},
+										value: { description: 'The value to compare against (operator-dependent).' },
+									},
+									required: ['field', 'op'],
+								},
+							},
+						},
+						required: ['all'],
+					},
+					ops: {
+						type: 'array',
+						description:
+							'DECLARATIVE only. The edit operations applied to every matching feature, in order.',
+						items: {
+							type: 'object',
+							properties: {
+								kind: {
+									type: 'string',
+									enum: ['set', 'copy', 'template', 'fillIfMissing'],
+									description:
+										'set: write `value` to `field`. copy: copy property `source` into `field`. template: write `template` with {propKey} interpolated from properties (missing key → empty). fillIfMissing: write `value` to `field` only when the existing value is absent/null/blank.',
+								},
+								field: { type: 'string', description: 'The target property key to write.' },
+								value: { description: 'For set / fillIfMissing: the value to write.' },
+								source: { type: 'string', description: 'For copy: the property key to read from.' },
+								template: {
+									type: 'string',
+									description: 'For template: a string with {propKey} placeholders.',
+								},
+							},
+							required: ['kind', 'field'],
+						},
+					},
+					field: {
+						type: 'string',
+						description:
+							'INTELLIGENCE only. The single property key each value in `valuesById` is written to.',
+					},
+					valuesById: {
+						type: 'object',
+						description:
+							'INTELLIGENCE only. A map of { featureId: value }. Capped at 100 per call; unknown ids are skipped and counted; the remainder is reported so you can rerun.',
+						additionalProperties: true,
+					},
+				},
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'dedup_features',
+			description:
+				'Delete duplicate features, keeping the FIRST of each duplicate group (TOOLS-03 dedup). ' +
+				'Compare by `geometry` (default), by an attribute tuple (`attributes` + `keys`), or `both`. ' +
+				'An optional predicate pre-scopes which features are considered. Deletions go through the ' +
+				'diff/preview safety gate as a delete intent (you will be asked to confirm at the destructive level).',
+			parameters: {
+				type: 'object',
+				properties: {
+					by: {
+						type: 'string',
+						enum: ['geometry', 'attributes', 'both'],
+						description:
+							'How two features count as duplicates. Default geometry (identical shape). attributes/both require `keys`.',
+					},
+					keys: {
+						type: 'array',
+						items: { type: 'string' },
+						description:
+							'For by=attributes/both: the property keys whose tuple must match for two features to be duplicates.',
+					},
+					predicate: {
+						type: 'object',
+						description:
+							'Optional flat AND-list to pre-scope dedup to a subset. Omit to consider the whole dataset.',
+						properties: {
+							all: {
+								type: 'array',
+								description: 'Every clause must match (logical AND).',
+								items: {
+									type: 'object',
+									properties: {
+										field: { type: 'string', description: 'The feature property key to test.' },
+										op: {
+											type: 'string',
+											description: 'Comparison operator.',
+											enum: [
+												'eq',
+												'neq',
+												'exists',
+												'missing',
+												'contains',
+												'in',
+												'lt',
+												'lte',
+												'gt',
+												'gte',
+											],
+										},
+										value: { description: 'The value to compare against (operator-dependent).' },
+									},
+									required: ['field', 'op'],
+								},
+							},
+						},
+						required: ['all'],
+					},
+				},
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'style_by_attribute',
+			description:
+				'Apply data-driven styling to the bound dataset in ONE call (STYLE-01/STYLE-02). You supply ' +
+				'`buckets`: each is a predicate + a style bag, and the HOST applies the matching style to ' +
+				'every matching feature across the full dataset — this is ONE rule pass, NOT a per-feature ' +
+				'recolor loop. Features matching no bucket are LEFT UNTOUCHED unless you supply a `fallback`. ' +
+				'Style keys MUST be canonical: color, fillColor, strokeColor, fillOpacity, strokeOpacity, ' +
+				'strokeWidth, radius, label (aliases fill/stroke/width/opacity are accepted). An unknown key ' +
+				'is rejected so you can correct it. Styles persist as plain properties and survive save/reload. ' +
+				'Changes pass through the diff/preview safety gate.',
+			parameters: {
+				type: 'object',
+				properties: {
+					buckets: {
+						type: 'array',
+						description: 'Each bucket styles every feature its predicate matches.',
+						items: {
+							type: 'object',
+							properties: {
+								predicate: {
+									type: 'object',
+									description: 'Flat AND-list selecting this bucket’s features.',
+									properties: {
+										all: {
+											type: 'array',
+											items: {
+												type: 'object',
+												properties: {
+													field: {
+														type: 'string',
+														description: 'The feature property key to test.',
+													},
+													op: {
+														type: 'string',
+														description: 'Comparison operator.',
+														enum: [
+															'eq',
+															'neq',
+															'exists',
+															'missing',
+															'contains',
+															'in',
+															'lt',
+															'lte',
+															'gt',
+															'gte',
+														],
+													},
+													value: { description: 'The value to compare against.' },
+												},
+												required: ['field', 'op'],
+											},
+										},
+									},
+									required: ['all'],
+								},
+								style: {
+									type: 'object',
+									description:
+										'Canonical style keys: color, fillColor, strokeColor, fillOpacity, strokeOpacity, strokeWidth, radius, label.',
+									additionalProperties: true,
+								},
+							},
+							required: ['predicate', 'style'],
+						},
+					},
+					fallback: {
+						type: 'object',
+						description:
+							'OPTIONAL. Applied ONLY to features no bucket matched. Omit to leave unmatched features untouched.',
+						properties: {
+							style: {
+								type: 'object',
+								description: 'Canonical style keys (same set as a bucket style).',
+								additionalProperties: true,
+							},
+						},
+						required: ['style'],
+					},
+				},
+				required: ['buckets'],
+			},
+		},
+	},
 ]

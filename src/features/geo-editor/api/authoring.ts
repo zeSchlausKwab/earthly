@@ -507,3 +507,20 @@ export function createAuthoring(editor: GeoEditor): Authoring {
 		getDatasetMetadata,
 	}
 }
+
+/**
+ * Route a delete-by-id through the facade (intent:'delete' → runInterceptors) from
+ * the AI bulk-transform tools WITHOUT the chat layer naming a raw editor write verb.
+ *
+ * `dedup_features` (06-05) needs to delete non-survivor ids through the same
+ * interceptor seam the gate sits on. Calling `createAuthoring(editor).deleteFeatures`
+ * from inside `features/chat/**` would put the literal `.deleteFeatures(` token inside
+ * the A3 trust boundary, where `boundary.test.ts` (rightly) cannot distinguish the
+ * facade method from a raw `editor.deleteFeatures` bypass. Keeping the actual facade
+ * call HERE (the allowed `api/` home — the single intercept/classify seam, mirroring
+ * how `runFixAllRule` keeps its `authoring.modifyFeature` calls) preserves the A3
+ * guarantee while still routing every delete through the interceptor pipeline.
+ */
+export function deleteFeaturesById(editor: GeoEditor, featureIds: string[]): MutationResult {
+	return createAuthoring(editor).deleteFeatures(featureIds)
+}
