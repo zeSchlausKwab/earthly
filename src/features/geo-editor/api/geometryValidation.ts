@@ -144,6 +144,13 @@ export function validateGeometryFeatures(
 		// Zero-area only for a structurally-valid, non-self-intersecting areal ring —
 		// a self-intersecting OR malformed ring reports turf area 0 as an artifact of
 		// its defect (already flagged above), not as a genuine near-zero-area sliver.
+		//
+		// GRANULARITY (WR-05): `safeArea` measures the WHOLE feature. For a MultiPolygon
+		// this is the SUM across parts, so a feature with one large valid part and one
+		// degenerate sliver part is NOT flagged zero-area (the aggregate stays above the
+		// threshold). `withZeroArea` therefore counts features whose TOTAL area is
+		// near-zero, NOT per-part slivers. Per-part sliver detection is intentionally out
+		// of scope here (it would change the counter's meaning and the report shape).
 		if (isAreal && !ringInvalid && !selfIntersects && safeArea(feature) < ZERO_AREA_THRESHOLD_M2) {
 			withZeroArea++
 			featureIssues.push('zero-area')
