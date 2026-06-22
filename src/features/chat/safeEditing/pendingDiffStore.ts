@@ -36,6 +36,13 @@ export interface PendingDiffEntry {
 	diff: DatasetDiff
 	/** `pending` shows live Apply/Cancel; `applied`/`cancelled` shows the outcome. */
 	status: PendingDiffStatus
+	/**
+	 * Optional metrics-aware optimization summary (D-04b / GEO-02). When present,
+	 * the disclosure renders this verbatim in place of the generic
+	 * `+N added · ~N changed · −N deleted` counts headline. Omitted by every
+	 * Phase 5/6 caller — strictly additive, backward-compatible.
+	 */
+	headline?: string
 }
 
 export interface EmitDiffBlockHandle {
@@ -48,6 +55,12 @@ export interface EmitDiffBlockOptions {
 	 * the diff renders with this status and no confirm is awaited (D-12).
 	 */
 	status?: PendingDiffStatus
+	/**
+	 * Optional metrics-aware optimization summary (D-04b / GEO-02), stored on the
+	 * entry so the disclosure can render it instead of the generic counts headline.
+	 * Omitted by every existing caller — additive, backward-compatible.
+	 */
+	headline?: string
 }
 
 const pendingDiffs = new Map<string, PendingDiffEntry>()
@@ -82,7 +95,7 @@ function notify(): void {
  */
 export function emitDiffBlock(diff: DatasetDiff, opts?: EmitDiffBlockOptions): EmitDiffBlockHandle {
 	const id = nextId()
-	pendingDiffs.set(id, { id, diff, status: opts?.status ?? 'pending' })
+	pendingDiffs.set(id, { id, diff, status: opts?.status ?? 'pending', headline: opts?.headline })
 	notify()
 	return { id }
 }

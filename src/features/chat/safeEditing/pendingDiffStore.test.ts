@@ -90,3 +90,24 @@ describe('auto-apply registration (Level 3, D-12)', () => {
 		expect(entry?.diff).toBe(DIFF)
 	})
 })
+
+describe('optional metrics headline (D-04b / GEO-02)', () => {
+	test('emitDiffBlock(diff, { headline }) stores the headline on the entry', () => {
+		const handle = emitDiffBlock(DIFF, { headline: 'X' })
+		const entry = getPendingDiff(handle.id)
+		expect(entry?.headline).toBe('X')
+	})
+
+	test('emitDiffBlock(diff) leaves headline undefined (backward-compatible)', () => {
+		const handle = emitDiffBlock(DIFF)
+		const entry = getPendingDiff(handle.id)
+		expect(entry?.headline).toBeUndefined()
+	})
+
+	test('headline coexists with an applied status (auto-apply optimization path)', () => {
+		const handle = emitDiffBlock(DIFF, { status: 'applied', headline: 'opt' })
+		const entry = getPendingDiff(handle.id)
+		expect(entry?.status).toBe('applied')
+		expect(entry?.headline).toBe('opt')
+	})
+})

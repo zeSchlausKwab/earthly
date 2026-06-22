@@ -41,6 +41,14 @@ export interface GateBulkDeps {
 	getSafetyLevel(): SafetyLevel
 	/** Snapshot label for the undo step (one snapshot = one undo, D-11). */
 	label: string
+	/**
+	 * Optional metrics-aware optimization summary (D-04b / GEO-02) — e.g.
+	 * `12.0MB → 0.9MB · 41k→3.2k pts · 312→18 features · 47 joins`. When supplied
+	 * it is threaded into the emitted diff block so `DatasetDiffDisclosure` renders
+	 * this before/after summary instead of the generic `+N · ~N · −N` counts wall.
+	 * Omitted by every Phase 5/6 caller — strictly additive, backward-compatible.
+	 */
+	headline?: string
 }
 
 export interface GateBulkResult {
@@ -101,11 +109,10 @@ export async function gateBulkApply(
 	// "undo AI edit" step on the snapshot stack, and must NOT be reported as a
 	// confirmed apply. Drop the snapshot and return early with an empty, applied diff
 	// — the dataset is unchanged, so there is nothing to confirm or roll back.
-	const isNoop =
-		diff.added.length === 0 && diff.modified.length === 0 && diff.deleted.length === 0
+	const isNoop = diff.added.length === 0 && diff.modified.length === 0 && diff.deleted.length === 0
 	if (isNoop) {
 		editor.undoLastDatasetSnapshot()
-		const handle = emitDiffBlock(diff, { status: 'applied' })
+		const handle = emitDiffBlock(diff, { status: 'applied', headline: deps.headline })
 		return { status: 'applied', diff, diffId: handle.id }
 	}
 
@@ -116,12 +123,12 @@ export async function gateBulkApply(
 
 	if (!mustConfirm) {
 		// Immediate-apply path: emit the resolved diff (D-12 — still shown).
-		const handle = emitDiffBlock(diff, { status: 'applied' })
+		const handle = emitDiffBlock(diff, { status: 'applied', headline: deps.headline })
 		return { status: 'applied', diff, diffId: handle.id }
 	}
 
 	// Confirm path: emit a pending diff and await the Apply/Cancel decision.
-	const handle = emitDiffBlock(diff)
+	const handle = emitDiffBlock(diff, { headline: deps.headline })
 	const decision = await requestConfirm(handle.id)
 	if (decision === 'cancel') {
 		// Roll the batch back via the snapshot — zero net editor mutation (T-05-24).
