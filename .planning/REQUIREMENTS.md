@@ -37,7 +37,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase. Story t
 - [x] **TOOLS-01**: Parametric shape primitives (circle, buffer) are available as both Authoring API methods and registered AI tools.
 - [ ] **TOOLS-02**: A batch attribute-edit tool lets the AI set/modify properties across many features by rule (fill missing descriptions, rewrite/translate names). `[D]`
 - [ ] **TOOLS-03**: Select-by-attribute and dedup tools support programmatic selection and cleanup.
-- [ ] **TOOLS-04**: A geometry-validation tool reports topology problems (self-intersections, gaps, slivers).
+- [x] **TOOLS-04**: A geometry-validation tool reports topology problems (self-intersections, gaps, slivers).
 
 ### Dataset-Aware Safe Editing
 
@@ -127,7 +127,7 @@ Each requirement maps to exactly one phase.
 | SAFE-06 | Phase 5 — Dataset-Aware Safe Editing | Complete |
 | TOOLS-02 | Phase 6 — AI Bulk Transform & Data-Driven Styling | Pending |
 | TOOLS-03 | Phase 6 — AI Bulk Transform & Data-Driven Styling | Pending |
-| TOOLS-04 | Phase 6 — AI Bulk Transform & Data-Driven Styling | Pending |
+| TOOLS-04 | Phase 6 — AI Bulk Transform & Data-Driven Styling | Complete |
 | STYLE-01 | Phase 6 — AI Bulk Transform & Data-Driven Styling | Pending |
 | STYLE-02 | Phase 6 — AI Bulk Transform & Data-Driven Styling | Pending |
 | GEO-01 | Phase 7 — Geometry Optimization | Pending |

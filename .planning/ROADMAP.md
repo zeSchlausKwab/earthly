@@ -200,7 +200,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 4** *(blocked on Wave 3)*
 
-  - [ ] 06-04-PLAN.md — bulk-tools.ts registrar + read-only tools select_features + validate_geometry (host-over-all-ids, no gate) wired via registerBulkTools(register) (TOOLS-03, TOOLS-04)
+  - [x] 06-04-PLAN.md — bulk-tools.ts registrar + read-only tools select_features + validate_geometry (host-over-all-ids, no gate) wired via registerBulkTools(register) (TOOLS-03, TOOLS-04)
 
 **Wave 5** *(blocked on Wave 4)*
 
@@ -231,5 +231,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. File Ingest & Multimodal | 6/6 | Complete    | 2026-06-17 |
 | 4. Code Interpreter Sandbox | 3/3 | Complete    | 2026-06-20 |
 | 5. Dataset-Aware Safe Editing | 5/5 | Complete    | 2026-06-21 |
-| 6. AI Bulk Transform & Data-Driven Styling | 3/5 | In Progress|  |
+| 6. AI Bulk Transform & Data-Driven Styling | 4/5 | In Progress|  |
 | 7. Geometry Optimization | 0/TBD | Not started | - |
