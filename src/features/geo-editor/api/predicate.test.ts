@@ -127,6 +127,15 @@ describe('matchesPredicate — in (value-in-set)', () => {
 		expect(matchesPredicate(f, p({ field: 'rank', op: 'in', value: [1, 2, 3] }))).toBe(true)
 		expect(matchesPredicate(f, p({ field: 'rank', op: 'in', value: [4, 5] }))).toBe(false)
 	})
+
+	it('CR-02: a non-array `value` never throws — the matcher returns false (defensive layer)', () => {
+		const f = pointFeature('a', [0, 0], { category: 'port' })
+		// The tool layer rejects these up front, but the engine must NEVER throw on bad
+		// input. A non-array `value` (cast through unknown) yields no match, not a crash.
+		const bad = { field: 'category', op: 'in', value: undefined } as unknown as PredicateOp
+		expect(() => matchesPredicate(f, p(bad))).not.toThrow()
+		expect(matchesPredicate(f, p(bad))).toBe(false)
+	})
 })
 
 describe('matchesPredicate — numeric comparisons lt / lte / gt / gte', () => {

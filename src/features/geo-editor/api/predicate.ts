@@ -72,7 +72,10 @@ function matchesClause(properties: EditorFeature['properties'], clause: Predicat
 			// Case-sensitive substring on a string property; non-string → false (no throw).
 			return typeof value === 'string' && value.includes(clause.value)
 		case 'in':
-			return clause.value.includes(value as string | number | boolean)
+			// Defensive (CR-02): a non-array `value` (the tool layer rejects these up
+			// front, but the engine must NEVER throw on bad input) yields no match
+			// rather than crashing on `.includes`.
+			return Array.isArray(clause.value) && clause.value.includes(value as string | number | boolean)
 		case 'lt':
 		case 'lte':
 		case 'gt':
