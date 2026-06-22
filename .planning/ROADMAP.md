@@ -226,7 +226,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 2** *(blocked on Wave 1)*
 
-  - [ ] 07-03-PLAN.md — Pure `optimize(fc, targetBytes?)` core: fixed stitch→lossless-identical-props-merge→topology-guarded binary-search-simplify pipeline + off-thread worker shell + always-settling RPC client (GEO-01, GEO-02, GEO-03)
+  - [x] 07-03-PLAN.md — Pure `optimize(fc, targetBytes?)` core: fixed stitch→lossless-identical-props-merge→topology-guarded binary-search-simplify pipeline + off-thread worker shell + always-settling RPC client (GEO-01, GEO-02, GEO-03)
 
 **Wave 3** *(blocked on Wave 2)*
 
@@ -245,4 +245,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. Code Interpreter Sandbox | 3/3 | Complete    | 2026-06-20 |
 | 5. Dataset-Aware Safe Editing | 5/5 | Complete    | 2026-06-21 |
 | 6. AI Bulk Transform & Data-Driven Styling | 5/5 | Complete    | 2026-06-22 |
-| 7. Geometry Optimization | 2/4 | In Progress|  |
+| 7. Geometry Optimization | 3/4 | In Progress|  |
