@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'bun:test'
 import type { EditorFeature } from '../core/types'
 import { classifyMutation } from './diff'
+// RED (Wave 0): `classifyModifyKind` does not exist yet — it lands in Plan 04/05
+// (STYLE-01 diff headline). We reach it through a NAMESPACE import so the module
+// still LOADS (a missing named import would be a hard ESM load error that takes
+// the whole file down, including the green classifyMutation tests). With the
+// namespace, `diffModule.classifyModifyKind` is `undefined` and only the new
+// describe block below is red — the existing classifyMutation tests stay green.
+import * as diffModule from './diff'
+
+const classifyModifyKind = (before: EditorFeature, after: EditorFeature) =>
+	(
+		diffModule as { classifyModifyKind?: (b: EditorFeature, a: EditorFeature) => unknown }
+	).classifyModifyKind?.(before, after)
 
 /**
  * SAFE-02 classification proof: `classifyMutation(current, proposed, intent)`
@@ -110,5 +122,42 @@ describe('classifyMutation (SAFE-02 / D-06)', () => {
 		expect(diff.modified).toEqual([])
 		// 'b' is absent from proposed but intent is not 'delete' → not deleted.
 		expect(diff.deleted).toEqual([])
+	})
+})
+
+/**
+ * STYLE-01 (diff headline) acceptance contract, written FIRST (RED — Wave 0).
+ *
+ * `classifyModifyKind(before, after)` discriminates a `{before, after}` modified
+ * pair into 'geometry' | 'style' | 'properties' so `buildDatasetDiffSummary` can
+ * special-case a style-only bulk modify → headline `~N restyled` (06-RESEARCH
+ * Pattern 5). Geometry wins; otherwise style-only iff every differing property
+ * key is in CANONICAL_STYLE_KEYS; anything else is 'properties'.
+ *
+ * Additive — the classifyMutation describe block above is untouched (Open Q3).
+ */
+describe('classifyModifyKind (STYLE-01 diff headline)', () => {
+	it('a changed geometry → "geometry" (geometry wins over any style/property change)', () => {
+		const before = pointFeature('a', [0, 0], { fillColor: '#ff0000', name: 'X' })
+		const after = pointFeature('a', [9, 9], { fillColor: '#00ff00', name: 'Y' })
+		expect(classifyModifyKind(before, after)).toBe('geometry')
+	})
+
+	it('only-CANONICAL_STYLE_KEYS differ → "style"', () => {
+		const before = pointFeature('a', [0, 0], { fillColor: '#ff0000', fillOpacity: 1 })
+		const after = pointFeature('a', [0, 0], { fillColor: '#00ff00', fillOpacity: 0.5 })
+		expect(classifyModifyKind(before, after)).toBe('style')
+	})
+
+	it('a non-style property change → "properties"', () => {
+		const before = pointFeature('a', [0, 0], { name: 'Old' })
+		const after = pointFeature('a', [0, 0], { name: 'New' })
+		expect(classifyModifyKind(before, after)).toBe('properties')
+	})
+
+	it('a mix of a style key AND a non-style property change → "properties" (not style-only)', () => {
+		const before = pointFeature('a', [0, 0], { fillColor: '#ff0000', name: 'Old' })
+		const after = pointFeature('a', [0, 0], { fillColor: '#00ff00', name: 'New' })
+		expect(classifyModifyKind(before, after)).toBe('properties')
 	})
 })
