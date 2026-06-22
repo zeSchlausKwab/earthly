@@ -899,4 +899,115 @@ export const geoStaticToolSchemas: Tool[] = [
 			},
 		},
 	},
+	{
+		type: 'function',
+		function: {
+			name: 'select_features',
+			description:
+				'READ-ONLY targeting tool (TOOLS-03 select). Returns which features in the ENTIRE bound dataset match a predicate — matched count, total, the matched feature ids, and a small name/id sample. Does NOT change the map (no style, no edit, no delete). The host reads the full dataset itself: you supply ONLY a predicate, never a feature/id list. Use this to scope before a batch edit, style, or dedup.',
+			parameters: {
+				type: 'object',
+				properties: {
+					predicate: {
+						type: 'object',
+						description:
+							'A flat AND-list of clauses evaluated over each feature’s properties. Empty/omitted matches every feature.',
+						properties: {
+							all: {
+								type: 'array',
+								description:
+									'Every clause must match (logical AND). Omit or use [] to match all features.',
+								items: {
+									type: 'object',
+									properties: {
+										field: {
+											type: 'string',
+											description:
+												'The feature property key to test (read directly off properties; no nesting).',
+										},
+										op: {
+											type: 'string',
+											description:
+												'Comparison operator. exists/missing take no value; in takes an array value; lt/lte/gt/gte take a number.',
+											enum: [
+												'eq',
+												'neq',
+												'exists',
+												'missing',
+												'contains',
+												'in',
+												'lt',
+												'lte',
+												'gt',
+												'gte',
+											],
+										},
+										value: {
+											description:
+												'The value to compare against (omit for exists/missing; array for in; number for lt/lte/gt/gte).',
+										},
+									},
+									required: ['field', 'op'],
+								},
+							},
+						},
+						required: ['all'],
+					},
+				},
+				required: ['predicate'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'validate_geometry',
+			description:
+				'READ-ONLY geometry validator (TOOLS-04). Scans the ENTIRE bound dataset (or an optional predicate-scoped subset) and reports topology problems: self-intersections, near-zero-area slivers, and invalid rings. Returns a report only — it does NOT fix or change anything on the map.',
+			parameters: {
+				type: 'object',
+				properties: {
+					predicate: {
+						type: 'object',
+						description:
+							'Optional flat AND-list to limit the check to a subset. Omit to validate the whole dataset.',
+						properties: {
+							all: {
+								type: 'array',
+								description: 'Every clause must match (logical AND).',
+								items: {
+									type: 'object',
+									properties: {
+										field: {
+											type: 'string',
+											description: 'The feature property key to test.',
+										},
+										op: {
+											type: 'string',
+											description: 'Comparison operator.',
+											enum: [
+												'eq',
+												'neq',
+												'exists',
+												'missing',
+												'contains',
+												'in',
+												'lt',
+												'lte',
+												'gt',
+												'gte',
+											],
+										},
+										value: { description: 'The value to compare against (operator-dependent).' },
+									},
+									required: ['field', 'op'],
+								},
+							},
+						},
+						required: ['all'],
+					},
+				},
+			},
+		},
+	},
 ]
