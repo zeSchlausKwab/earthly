@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: File Ingest & Multimodal** - Attach and parse CSV/Excel/JSON/GeoJSON/text/images off-thread, summarize for the model, and gate image-send on real vision capability detection. (completed 2026-06-17)
 - [x] **Phase 4: Code Interpreter Sandbox** - AI authors and runs JS in an isolated sandbox whose only host surface is the Authoring API, with timeouts, output caps, and error-feedback self-correction. (completed 2026-06-20)
 - [x] **Phase 5: Dataset-Aware Safe Editing** - Visible binding chip, add/modify/delete intent, diff/preview, configurable safety levels, and dataset-level undo — the gate that must precede any destructive bulk tool. (completed 2026-06-21)
-- [ ] **Phase 6: AI Bulk Transform & Data-Driven Styling** - Gated batch attribute edit, select-by-attribute/dedup, geometry validation, and attribute-rule styling that round-trips through the Nostr event.
+- [x] **Phase 6: AI Bulk Transform & Data-Driven Styling** - Gated batch attribute edit, select-by-attribute/dedup, geometry validation, and attribute-rule styling that round-trips through the Nostr event. (completed 2026-06-22)
 - [ ] **Phase 7: Geometry Optimization** - AI reduces oversized GeoJSON toward a byte budget via topology-aware simplify + merge-to-multi + microgap stitch, with before/after metrics, so it clears the publish size limit.
 
 ## Phase Details
@@ -231,5 +231,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. File Ingest & Multimodal | 6/6 | Complete    | 2026-06-17 |
 | 4. Code Interpreter Sandbox | 3/3 | Complete    | 2026-06-20 |
 | 5. Dataset-Aware Safe Editing | 5/5 | Complete    | 2026-06-21 |
-| 6. AI Bulk Transform & Data-Driven Styling | 4/5 | In Progress|  |
+| 6. AI Bulk Transform & Data-Driven Styling | 5/5 | Complete    | 2026-06-22 |
 | 7. Geometry Optimization | 0/TBD | Not started | - |
