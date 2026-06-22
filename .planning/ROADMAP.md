@@ -217,7 +217,20 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Optimization reports before/after metrics (byte size, vertex and feature counts) and validates topology — no new self-intersections or zero-area collapse, per-feature properties preserved through merge, microgap join count shown.
   3. A dataset that previously exceeded the publish/city-dialog size limit (e.g. the 12MB "West Pacific Trail") can be brought under the limit at preserved visual quality and successfully published.
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+**Wave 1**
+
+  - [ ] 07-01-PLAN.md — Wave-0 deterministic oversized West Pacific Trail fixture + RED test scaffolds (optimize/client/acceptance/tool) + `optimize` WORKER_ASSETS entry (GEO-01, GEO-02, GEO-03)
+  - [ ] 07-02-PLAN.md — Additive metrics-aware diff headline plumbing: optional `headline` threaded gate → store → DatasetDiffDisclosure (D-04b), Phase 5/6 backward-compatible (GEO-02)
+
+**Wave 2** *(blocked on Wave 1)*
+
+  - [ ] 07-03-PLAN.md — Pure `optimize(fc, targetBytes?)` core: fixed stitch→lossless-identical-props-merge→topology-guarded binary-search-simplify pipeline + off-thread worker shell + always-settling RPC client (GEO-01, GEO-02, GEO-03)
+
+**Wave 3** *(blocked on Wave 2)*
+
+  - [ ] 07-04-PLAN.md — `optimize_geometry` tool (target-bytes-only surface, full-dataset SAFE-05) → off-thread optimize → one gated `modify` apply with metrics headline (D-04b) → no auto-publish; registry wiring + phase build/boundary gate (GEO-01, GEO-02, GEO-03)
 
 ## Progress
 
@@ -232,4 +245,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. Code Interpreter Sandbox | 3/3 | Complete    | 2026-06-20 |
 | 5. Dataset-Aware Safe Editing | 5/5 | Complete    | 2026-06-21 |
 | 6. AI Bulk Transform & Data-Driven Styling | 5/5 | Complete    | 2026-06-22 |
-| 7. Geometry Optimization | 0/TBD | Not started | - |
+| 7. Geometry Optimization | 0/4 | Not started | - |
