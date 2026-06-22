@@ -1,0 +1,109 @@
+/**
+ * gateBulkEdit — the safe-editing gate for fixAll-style REAL-APPLY bulk batches
+ * (TOOLS-02 / TOOLS-03 dedup / STYLE-01 — Phase 6).
+ *
+ * WHY a generalization of `gateRunCodeBatch` (and not `createAuthoringGate`):
+ * the bulk tools apply their mutation host-side via `runFixAllRule` /
+ * `authoring.deleteFeatures` — the geometry/property writes happen INSIDE the
+ * facade replay (interceptor-routed), exactly like a recorded `run_code` batch.
+ * A pure `computeProposed(current)` dry-run (what `createAuthoringGate` wants)
+ * would have to re-derive every per-feature transform outside the facade and risk
+ * drift. So we reuse the run_code pattern — snapshot BEFORE the real apply,
+ * classify from the real before/after, and on Cancel restore the snapshot so the
+ * net editor mutation is ZERO (Pitfall 5 / T-05-24).
+ *
+ * Two generalizations over `gateRunCodeBatch`:
+ *   1. the caller supplies the `intent` (`'modify'` for batch-edit / restyle,
+ *      `'delete'` for dedup) — threaded into `classifyMutation` so dedup's dropped
+ *      ids classify as DELETIONS and a Level-2 user is asked to confirm
+ *      (Pitfall 6), not silently dropped as an add-collision;
+ *   2. the caller supplies the real `apply()` (e.g. `runFixAllRule(editor, rule)`),
+ *      invoked exactly ONCE after the snapshot — the only writer.
+ *
+ * The style-aware headline (`~N restyled`) is rendered downstream by
+ * `DatasetDiffDisclosure` from the emitted diff (Plan 03's `classifyModifyKind`);
+ * this helper just emits the classified diff and never inspects style itself.
+ *
+ * Like `gateRunCodeBatch`, this helper NEVER calls `editor.*` mutation methods
+ * directly except the shared `pushDatasetSnapshot` / `undoLastDatasetSnapshot`
+ * (the snapshot stack the AuthoringGate also uses — one batch = one undo, D-11).
+ * The real writes live in the caller's `apply()`, so the A3 boundary stays clean.
+ */
+
+import { type DatasetDiff, classifyMutation } from '@/features/geo-editor/api/diff'
+import type { MutationIntent } from '@/features/geo-editor/api/interceptor'
+import type { GeoEditor } from '@/features/geo-editor/core/GeoEditor'
+import type { SafetyLevel } from './AuthoringGate'
+import { emitDiffBlock, requestConfirm } from './pendingDiffStore'
+
+export interface GateBulkDeps {
+	/** Read the user's current safety level (SAFE-04). Read fresh per review. */
+	getSafetyLevel(): SafetyLevel
+	/** Snapshot label for the undo step (one snapshot = one undo, D-11). */
+	label: string
+}
+
+export interface GateBulkResult {
+	/** 'applied' when the batch stays committed; 'cancelled' when rolled back. */
+	status: 'applied' | 'cancelled'
+	/** The classified diff for the batch (emitted to the transcript either way). */
+	diff: DatasetDiff
+	/** The pending-diff transcript entry id (so the caller can mark its message). */
+	diffId: string
+}
+
+/**
+ * Gate a fixAll-style REAL-APPLY bulk batch.
+ *
+ * `apply` performs the real, interceptor-routed mutation (e.g.
+ * `runFixAllRule(editor, rule)` or the gated `createAuthoring(editor).
+ * deleteFeatures(ids)`) and is invoked exactly ONCE, AFTER the snapshot is taken
+ * (so Cancel can restore it). The caller-supplied `intent` drives classification:
+ * `'modify'` for an attribute/style edit, `'delete'` for a dedup drop (so the
+ * dropped ids classify as deletions → Level-2 confirms, Pitfall 6).
+ *
+ * Decision (mirrors the AuthoringGate): Level 3 → never await (trust + undo);
+ * Level 1 → always await; Level 2 → await only when the batch is destructive
+ * (modify or delete present — a bulk modify/delete always is). On Cancel the
+ * snapshot is restored → ZERO net editor mutation (T-05-24).
+ */
+export async function gateBulkApply(
+	editor: GeoEditor,
+	deps: GateBulkDeps,
+	intent: MutationIntent,
+	apply: () => void,
+): Promise<GateBulkResult> {
+	const before = editor.getAllFeatures()
+
+	// One snapshot per batch (D-11) — taken BEFORE the apply so Cancel restores it.
+	editor.pushDatasetSnapshot(deps.label)
+
+	// Real, interceptor-routed mutation (the caller owns the writes).
+	apply()
+
+	const after = editor.getAllFeatures()
+	// Classify with the CALLER'S intent (not hardcoded 'add') so dedup's dropped
+	// ids bucket as deletions and an attribute/style edit buckets as modifies.
+	const diff = classifyMutation(before, after, intent)
+
+	const level = deps.getSafetyLevel()
+	const destructive = diff.modified.length > 0 || diff.deleted.length > 0
+	// Level 3 → never await; Level 1 → always await; Level 2 → await iff destructive.
+	const mustConfirm = level === 1 || (level === 2 && destructive)
+
+	if (!mustConfirm) {
+		// Immediate-apply path: emit the resolved diff (D-12 — still shown).
+		const handle = emitDiffBlock(diff, { status: 'applied' })
+		return { status: 'applied', diff, diffId: handle.id }
+	}
+
+	// Confirm path: emit a pending diff and await the Apply/Cancel decision.
+	const handle = emitDiffBlock(diff)
+	const decision = await requestConfirm(handle.id)
+	if (decision === 'cancel') {
+		// Roll the batch back via the snapshot — zero net editor mutation (T-05-24).
+		editor.undoLastDatasetSnapshot()
+		return { status: 'cancelled', diff, diffId: handle.id }
+	}
+	return { status: 'applied', diff, diffId: handle.id }
+}
