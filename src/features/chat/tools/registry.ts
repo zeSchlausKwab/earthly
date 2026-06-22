@@ -26,6 +26,7 @@ import {
 import { isToolError, type ToolError } from './errors'
 import { registerSandboxTools } from '@/features/chat/sandbox/runCode'
 import { gateEditorImport } from '@/features/chat/safeEditing/gateEditorImport'
+import { registerBulkTools } from './bulk-tools'
 import { registerIngestTools } from './ingest-tools'
 import { registerPrimitiveTools } from './primitives-tools'
 import { geoStaticToolSchemas } from './schemas'
@@ -1081,6 +1082,11 @@ function bootstrapRegistry(): void {
 	// (code-interpreter). Importing it here ALSO pulls the QuickJS sandbox
 	// transport into the app graph so the `.wasm` becomes reachable in the build.
 	registerSandboxTools(register)
+	// Same injected-`register` idiom: bulk-tools registers the read-only bulk tools
+	// (select_features + validate_geometry; Plan 06-05 extends with the destructive
+	// ones). bulk-tools imports ONLY a type from `./registry` back, so this edge is
+	// one-way and does not form the Phase-2 circular-init cycle (Pitfall 4).
+	registerBulkTools(register)
 }
 
 bootstrapRegistry()
