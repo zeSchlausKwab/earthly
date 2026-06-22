@@ -13,7 +13,7 @@ import { isToolError } from './errors'
 import { advertise, dispatch, register, registry } from './registry'
 // RED (Wave 0): these symbols do not exist yet — they land in Plans 02/04/05. The
 // import itself must fail to resolve so this file is red on landing (intended W0).
-import { BULK_EDIT_MAX_FEATURES, registerBulkTools } from './bulk-tools'
+import { BULK_EDIT_MAX_FEATURES, parsePredicate, registerBulkTools } from './bulk-tools'
 
 /**
  * TOOLS-02 / TOOLS-03 / TOOLS-04 / STYLE-01 / STYLE-02 behavior contract, FIRST.
@@ -174,6 +174,24 @@ describe('batch_edit_features declarative (D-04a / SAFE-05 host-over-all-ids)', 
 		expect(b?.properties?.label).toBe('auto')
 		expect(b?.properties?.title).toBe('Paris (FR)')
 	})
+
+	it('WR-01: copy / template read SOURCES from the original props, not earlier ops in the batch', async () => {
+		seedFeatures([pointFeature('a', [0, 0], { name: 'Berlin' })])
+		await dispatch('batch_edit_features', {
+			mode: 'declarative',
+			predicate: { all: [] },
+			ops: [
+				{ kind: 'set', field: 'name', value: 'Renamed' }, // overwrite name first
+				{ kind: 'copy', field: 'oldName', source: 'name' }, // must copy ORIGINAL name
+				{ kind: 'template', field: 'tag', template: 'was {name}' }, // ORIGINAL name
+			],
+		})
+		const a = allFeatures().find((f) => f.id === 'a')
+		expect(a?.properties?.name).toBe('Renamed')
+		// copy/template read the ORIGINAL 'Berlin', not the in-batch 'Renamed'.
+		expect(a?.properties?.oldName).toBe('Berlin')
+		expect(a?.properties?.tag).toBe('was Berlin')
+	})
 })
 
 // ---------------------------------------------------------------------------
@@ -258,6 +276,79 @@ describe('batch_edit_features gate flow (TOOLS-02 gate)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// parsePredicate — per-op `value` validation (CR-02 / T-06-04a)
+// ---------------------------------------------------------------------------
+
+describe('parsePredicate per-op value validation (CR-02)', () => {
+	it("op:'in' with a non-array (or missing) value throws a catchable validation error, NOT a TypeError", () => {
+		// Missing value entirely.
+		expect(() => parsePredicate({ all: [{ field: 'category', op: 'in' }] })).toThrow(
+			/op 'in' requires an array/,
+		)
+		// Non-array value (a string).
+		expect(() =>
+			parsePredicate({ all: [{ field: 'category', op: 'in', value: 'port' }] }),
+		).toThrow(/op 'in' requires an array/)
+	})
+
+	it("numeric ops require a numeric value; eq/neq/contains require a defined value", () => {
+		expect(() => parsePredicate({ all: [{ field: 'pop', op: 'gt', value: 'lots' }] })).toThrow(
+			/requires a numeric/,
+		)
+		expect(() => parsePredicate({ all: [{ field: 'name', op: 'eq' }] })).toThrow(/requires a/)
+	})
+
+	it('accepts a well-formed in clause and exists/missing (no value needed)', () => {
+		expect(parsePredicate({ all: [{ field: 'category', op: 'in', value: ['port'] }] })).toEqual({
+			all: [{ field: 'category', op: 'in', value: ['port'] }],
+		})
+		expect(parsePredicate({ all: [{ field: 'name', op: 'exists' }] })).toEqual({
+			all: [{ field: 'name', op: 'exists' }],
+		})
+	})
+
+	it("a malformed in clause routed through select_features surfaces a self-correctable ToolError, not a raw crash", async () => {
+		seedFeatures([pointFeature('a', [0, 0], { category: 'port' })])
+		const result = await dispatch('select_features', {
+			predicate: { all: [{ field: 'category', op: 'in' }] },
+		})
+		expect(isToolError(result)).toBe(true)
+		if (!isToolError(result)) throw new Error('expected ToolError')
+		expect(result.message).toMatch(/op 'in' requires an array/)
+	})
+})
+
+// ---------------------------------------------------------------------------
+// gate no-op guard (CR-03) — a zero-change batch leaves no phantom undo step
+// ---------------------------------------------------------------------------
+
+describe('batch_edit_features no-op (CR-03)', () => {
+	it('a batch that touches ZERO features reports edited 0 and leaves NO phantom undo step', async () => {
+		// A predicate matching nothing → runFixAllRule writes nothing → the post-apply
+		// diff is genuinely empty. The CR-03 guard must drop the snapshot it pushed so
+		// the user does not accrue an "undo AI edit" step that undoes nothing.
+		setLevel(3)
+		seedFeatures([pointFeature('a', [0, 0], { category: 'port' })])
+		const beforeSnapshot = JSON.stringify(allFeatures())
+		const result = await dispatch('batch_edit_features', {
+			mode: 'declarative',
+			predicate: { all: [{ field: 'category', op: 'eq', value: 'nonexistent' }] },
+			ops: [{ kind: 'set', field: 'reviewed', value: true }],
+		})
+		expect(isToolError(result)).toBe(false)
+		const typed = result as { edited: number; cancelled: boolean }
+		expect(typed.edited).toBe(0)
+		expect(typed.cancelled).toBe(false)
+		// Dataset unchanged.
+		expect(JSON.stringify(allFeatures())).toBe(beforeSnapshot)
+		// No phantom snapshot: undoLastDatasetSnapshot finds nothing to restore.
+		const editor = useEditorStore.getState().editor
+		if (!editor) throw new Error('no editor')
+		expect(editor.undoLastDatasetSnapshot()).toBe(false)
+	})
+})
+
+// ---------------------------------------------------------------------------
 // select_features (TOOLS-03 select) — read-only
 // ---------------------------------------------------------------------------
 
@@ -326,6 +417,30 @@ describe('dedup_features (TOOLS-03 dedup — keep-first, delete intent / Pitfall
 				.map((f) => f.id)
 				.sort(),
 		).toEqual(['a', 'b'])
+	})
+
+	it("WR-04: dedup by 'attributes' without keys is REJECTED (no catastrophic mass delete)", async () => {
+		setLevel(3)
+		seedFeatures([
+			pointFeature('a', [0, 0], { code: 'x' }),
+			pointFeature('b', [1, 1], { code: 'y' }),
+			pointFeature('c', [2, 2], { code: 'z' }),
+		])
+		const result = await dispatch('dedup_features', { by: 'attributes' })
+		expect(isToolError(result)).toBe(true)
+		if (!isToolError(result)) throw new Error('expected ToolError')
+		expect(result.message).toMatch(/requires a non-empty `keys`/)
+		// Nothing was deleted — all three features remain.
+		expect(allFeatures()).toHaveLength(3)
+	})
+
+	it('WR-03: a non-string `keys` entry is rejected, not silently dropped', async () => {
+		setLevel(3)
+		seedFeatures([pointFeature('a', [0, 0], { code: 'x' })])
+		const result = await dispatch('dedup_features', { by: 'attributes', keys: ['code', 123] })
+		expect(isToolError(result)).toBe(true)
+		if (!isToolError(result)) throw new Error('expected ToolError')
+		expect(result.message).toMatch(/`keys` must be an array of strings/)
 	})
 })
 
@@ -432,6 +547,36 @@ describe('style_by_attribute (STYLE-01 — materialize canonical style keys per 
 		expect(isToolError(result)).toBe(true)
 		if (!isToolError(result)) throw new Error('expected ToolError')
 		expect(result.kind).toBe('handler_error')
+	})
+
+	it('CR-01: an unknown style key with ≥2 matching features leaves ZERO partial mutation', async () => {
+		// ≥2 matching features is what exposes the partial-apply / dangling-snapshot bug:
+		// a per-feature throw mid-batch would restyle the first feature then abort. The
+		// fix validates style keys UP FRONT (no mutation) AND wraps the gated apply so a
+		// throw rolls the snapshot back to zero net mutation.
+		setLevel(3)
+		seedFeatures([
+			pointFeature('p1', [0, 0], { category: 'port' }),
+			pointFeature('p2', [1, 1], { category: 'port' }),
+		])
+		const beforeSnapshot = JSON.stringify(allFeatures())
+
+		const result = await dispatch('style_by_attribute', {
+			buckets: [
+				{
+					predicate: { all: [{ field: 'category', op: 'eq', value: 'port' }] },
+					style: { notARealStyleKey: 'boom' },
+				},
+			],
+		})
+		expect(isToolError(result)).toBe(true)
+		// Zero net mutation — neither feature was restyled (no partial apply).
+		expect(JSON.stringify(allFeatures())).toBe(beforeSnapshot)
+		// And the snapshot stack carries no phantom undo step: an undo restores nothing
+		// new (the dataset is already in its pre-call state).
+		const editor = useEditorStore.getState().editor
+		if (!editor) throw new Error('no editor')
+		expect(editor.undoLastDatasetSnapshot()).toBe(false)
 	})
 
 	it('STYLE-02: materialized style props survive JSON.stringify → re-parse round-trip', async () => {

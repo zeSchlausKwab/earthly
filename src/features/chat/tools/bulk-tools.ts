@@ -124,8 +124,25 @@ export function parsePredicate(raw: unknown): Predicate {
 				`unknown predicate op '${String(op)}'. Allowed: ${[...PREDICATE_OPS].join(', ')}`,
 			)
 		}
+		// Validate `value` PER-OP (CR-02 / T-06-04a). The schema marks only
+		// ['field','op'] required, so the model can legitimately omit `value`; without
+		// this check `op:'in'` with a non-array value reaches matchesClause and throws
+		// a raw, non-self-correctable TypeError. Reject malformed clauses here with the
+		// SAME catchable Error class parsePredicate already uses for unknown ops so the
+		// model self-corrects in one shot. `exists`/`missing` take no value.
+		const { value } = clause as { value?: unknown }
+		if (op === 'in' && !Array.isArray(value)) {
+			throw new Error("predicate op 'in' requires an array `value`")
+		}
+		if ((op === 'lt' || op === 'lte' || op === 'gt' || op === 'gte') && typeof value !== 'number') {
+			throw new Error(`predicate op '${op}' requires a numeric \`value\``)
+		}
+		if ((op === 'eq' || op === 'neq' || op === 'contains') && value === undefined) {
+			throw new Error(`predicate op '${op}' requires a \`value\``)
+		}
 	}
-	// Shape-validated; the engine's matchers are themselves never-throw on bad values.
+	// Shape-validated incl. per-op `value`. matchesClause stays defensive (never-throw)
+	// as a second layer (CR-02): `in` guards Array.isArray before .includes.
 	return { all: all as Predicate['all'] }
 }
 
@@ -220,16 +237,22 @@ function applyDeclarativeOps(
 	ops: DeclarativeOp[],
 ): Record<string, unknown> {
 	const next: Record<string, unknown> = { ...props }
+	// `copy` and `template` read SOURCES from the feature's ORIGINAL properties (a
+	// frozen snapshot), not the in-progress accumulator (WR-01). This makes the ops
+	// array order-independent for source reads: `set name=X` then `copy oldName from
+	// name` copies the ORIGINAL name, not X. `fillIfMissing` still tests the
+	// accumulator so an earlier `set` in the same batch is honoured.
+	const original: Record<string, unknown> = { ...props }
 	for (const op of ops) {
 		switch (op.kind) {
 			case 'set':
 				next[op.field] = op.value
 				break
 			case 'copy':
-				next[op.field] = next[op.source]
+				next[op.field] = original[op.source]
 				break
 			case 'template':
-				next[op.field] = renderTemplate(op.template, next)
+				next[op.field] = renderTemplate(op.template, original)
 				break
 			case 'fillIfMissing':
 				if (isMissingValue(next[op.field])) next[op.field] = op.value
@@ -245,7 +268,14 @@ interface StyleBucket {
 	style: Record<string, unknown>
 }
 
-/** Validate the untrusted `buckets` arg into typed `StyleBucket[]` (V5). */
+/**
+ * Validate the untrusted `buckets` arg into typed `StyleBucket[]` (V5). Each bucket's
+ * style bag is run through `normalizeStyleOptions` UP FRONT (CR-01) so an unknown
+ * style key is rejected BEFORE any feature is touched — without this, a bad key in a
+ * later bucket throws mid-batch inside the gated apply (after earlier features were
+ * already restyled), leaving a partial mutation. Validating here makes the whole tool
+ * fail-fast with a self-correctable error and no mutation.
+ */
 function parseStyleBuckets(raw: unknown): StyleBucket[] {
 	if (!Array.isArray(raw) || raw.length === 0) {
 		throw new Error('`buckets` must be a non-empty array of { predicate, style }')
@@ -259,6 +289,9 @@ function parseStyleBuckets(raw: unknown): StyleBucket[] {
 		if (typeof style !== 'object' || style === null || Array.isArray(style)) {
 			throw new Error('each bucket requires a `style` object')
 		}
+		// Fail-fast on unknown style keys before any mutation (CR-01). Throws
+		// InvalidStyleOptionError, surfaced to the loop as a self-correctable ToolError.
+		normalizeStyleOptions(style as Record<string, unknown>)
 		return {
 			predicate: parsePredicate(bucket.predicate),
 			style: style as Record<string, unknown>,
@@ -376,6 +409,12 @@ export function registerBulkTools(register: (entry: ToolEntry) => void): void {
 			const capped = knownEntries.slice(0, BULK_EDIT_MAX_FEATURES)
 			const skippedOverCap = knownEntries.length - capped.length
 			const capById = new Map(capped)
+			// The applied / remaining id LISTS make a rerun deterministic (WR-06): without
+			// them the model only sees counts and cannot tell WHICH ids it already edited
+			// (Object.entries order is not guaranteed for integer-like keys), risking
+			// double-application or skips across reruns.
+			const appliedIds = capped.map(([id]) => id)
+			const remainingIds = knownEntries.slice(BULK_EDIT_MAX_FEATURES).map(([id]) => id)
 
 			const outcome = await gateBulkApply(
 				editor,
@@ -397,13 +436,18 @@ export function registerBulkTools(register: (entry: ToolEntry) => void): void {
 
 			const edited = outcome.status === 'cancelled' ? 0 : outcome.diff.modified.length
 			const remainder = total - edited
+			const cancelled = outcome.status === 'cancelled'
 			return {
 				mode,
-				cancelled: outcome.status === 'cancelled',
+				cancelled,
 				edited,
 				total,
 				skippedUnknown,
 				skippedOverCap,
+				// Deterministic-rerun id lists (WR-06). On cancel nothing was applied, so
+				// the "applied" set is empty and the full known set remains.
+				appliedIds: cancelled ? [] : appliedIds,
+				remainingIds: cancelled ? appliedIds.concat(remainingIds) : remainingIds,
 				message:
 					remainder > 0
 						? `Edited ${edited} of ${total}; rerun with the remaining ${remainder} ids to continue.`
@@ -425,9 +469,24 @@ export function registerBulkTools(register: (entry: ToolEntry) => void): void {
 					? editor.getAllFeatures()
 					: selectByPredicate(editor.getAllFeatures(), parsePredicate(args.predicate))
 			const by = args.by === 'attributes' || args.by === 'both' ? args.by : ('geometry' as const)
-			const keys = Array.isArray(args.keys)
-				? (args.keys.filter((k) => typeof k === 'string') as string[])
-				: undefined
+			// Reject a non-string `keys` entry rather than silently dropping it (WR-03) —
+			// silent dropping would change the dedup tuple the user asked for and could
+			// delete features they never intended to treat as duplicates (a destructive
+			// op). Mirror the V5 "reject malformed input so the model self-corrects" rule.
+			let keys: string[] | undefined
+			if (args.keys !== undefined) {
+				if (!Array.isArray(args.keys) || args.keys.some((k) => typeof k !== 'string')) {
+					throw new Error('`keys` must be an array of strings')
+				}
+				keys = args.keys as string[]
+			}
+			// `by:'attributes'`/`by:'both'` REQUIRE a non-empty `keys` array (WR-04).
+			// Without it, dedup.ts makes every feature's attribute tuple equal — every
+			// feature compares duplicate and all-but-the-first are deleted (a catastrophic
+			// mass delete from an under-specified call). Enforce it here, not just in prose.
+			if (by !== 'geometry' && (!keys || keys.length === 0)) {
+				throw new Error("dedup by 'attributes'/'both' requires a non-empty `keys` array")
+			}
 			const groups = findDuplicateGroups(scoped, { by, keys })
 			const duplicateIds = groups.flatMap((g) => g.duplicateIds)
 
@@ -448,16 +507,20 @@ export function registerBulkTools(register: (entry: ToolEntry) => void): void {
 				},
 			)
 
-			const deleted = outcome.status === 'cancelled' ? 0 : outcome.diff.deleted.length
+			const cancelled = outcome.status === 'cancelled'
+			const deleted = cancelled ? 0 : outcome.diff.deleted.length
+			// On cancel NOTHING happened: zero out `survivors`/`groups` too (WR-02) so a
+			// model reading the result cannot mistake "groups detected" for "survivors
+			// kept as a result of dedup". `applied` makes the no-change contract explicit.
 			return {
-				groups: groups.length,
+				applied: !cancelled,
+				groups: cancelled ? 0 : groups.length,
 				deleted,
-				survivors: groups.length,
-				cancelled: outcome.status === 'cancelled',
-				message:
-					outcome.status === 'cancelled'
-						? 'Dedup cancelled — no features deleted.'
-						: `Deleted ${deleted} duplicate(s), kept ${groups.length} survivor(s).`,
+				survivors: cancelled ? 0 : groups.length,
+				cancelled,
+				message: cancelled
+					? 'Dedup cancelled — no features deleted.'
+					: `Deleted ${deleted} duplicate(s), kept ${groups.length} survivor(s).`,
 			}
 		},
 	})
@@ -481,6 +544,8 @@ export function registerBulkTools(register: (entry: ToolEntry) => void): void {
 				if (typeof style !== 'object' || style === null || Array.isArray(style)) {
 					throw new Error('`fallback.style` must be a style object')
 				}
+				// Fail-fast on an unknown fallback style key before any mutation (CR-01).
+				normalizeStyleOptions(style as Record<string, unknown>)
 				fallbackStyle = style as Record<string, unknown>
 			}
 
