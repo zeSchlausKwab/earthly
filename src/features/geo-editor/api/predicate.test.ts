@@ -63,7 +63,10 @@ describe('matchesPredicate — eq / neq (TOOLS-02 D-06)', () => {
 describe('matchesPredicate — exists / missing (A4 inclusive semantics)', () => {
 	it('exists is true only for a present, non-empty value', () => {
 		expect(
-			matchesPredicate(pointFeature('a', [0, 0], { name: 'Berlin' }), p({ field: 'name', op: 'exists' })),
+			matchesPredicate(
+				pointFeature('a', [0, 0], { name: 'Berlin' }),
+				p({ field: 'name', op: 'exists' }),
+			),
 		).toBe(true)
 	})
 
@@ -94,23 +97,29 @@ describe('matchesPredicate — contains (substring on string props)', () => {
 
 	it('contains is false for a non-string / absent property (no crash)', () => {
 		expect(
-			matchesPredicate(pointFeature('a', [0, 0], { rank: 5 }), p({ field: 'rank', op: 'contains', value: '5' })),
+			matchesPredicate(
+				pointFeature('a', [0, 0], { rank: 5 }),
+				p({ field: 'rank', op: 'contains', value: '5' }),
+			),
 		).toBe(false)
 		expect(
-			matchesPredicate(pointFeature('b', [0, 0], {}), p({ field: 'name', op: 'contains', value: 'x' })),
+			matchesPredicate(
+				pointFeature('b', [0, 0], {}),
+				p({ field: 'name', op: 'contains', value: 'x' }),
+			),
 		).toBe(false)
 	})
 })
 
-describe("matchesPredicate — in (value-in-set)", () => {
+describe('matchesPredicate — in (value-in-set)', () => {
 	it('in matches when the property value is one of the set', () => {
 		const f = pointFeature('a', [0, 0], { category: 'port' })
 		expect(
 			matchesPredicate(f, p({ field: 'category', op: 'in', value: ['port', 'airport'] })),
 		).toBe(true)
-		expect(matchesPredicate(f, p({ field: 'category', op: 'in', value: ['airport', 'rail'] }))).toBe(
-			false,
-		)
+		expect(
+			matchesPredicate(f, p({ field: 'category', op: 'in', value: ['airport', 'rail'] })),
+		).toBe(false)
 	})
 
 	it('in matches numeric set membership', () => {
@@ -145,7 +154,10 @@ describe('matchesPredicate — numeric comparisons lt / lte / gt / gte', () => {
 
 	it('a non-numeric / absent property never satisfies a numeric comparison', () => {
 		expect(
-			matchesPredicate(pointFeature('b', [0, 0], { pop: 'lots' }), p({ field: 'pop', op: 'gt', value: 0 })),
+			matchesPredicate(
+				pointFeature('b', [0, 0], { pop: 'lots' }),
+				p({ field: 'pop', op: 'gt', value: 0 }),
+			),
 		).toBe(false)
 		expect(
 			matchesPredicate(pointFeature('c', [0, 0], {}), p({ field: 'pop', op: 'lt', value: 1000 })),
@@ -198,7 +210,9 @@ describe('selectByPredicate (TOOLS-03 select — returns the FULL matching set)'
 
 	it('returns an empty array when nothing matches', () => {
 		const features = [pointFeature('a', [0, 0], { category: 'rail' })]
-		expect(selectByPredicate(features, p({ field: 'category', op: 'eq', value: 'port' }))).toEqual([])
+		expect(selectByPredicate(features, p({ field: 'category', op: 'eq', value: 'port' }))).toEqual(
+			[],
+		)
 	})
 
 	it('is pure — does not mutate the input list or features', () => {
