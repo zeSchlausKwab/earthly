@@ -78,13 +78,36 @@ export async function gateBulkApply(
 	// One snapshot per batch (D-11) — taken BEFORE the apply so Cancel restores it.
 	editor.pushDatasetSnapshot(deps.label)
 
-	// Real, interceptor-routed mutation (the caller owns the writes).
-	apply()
+	// Real, interceptor-routed mutation (the caller owns the writes). The apply runs
+	// the mutation feature-by-feature (un-buffered), so a throw mid-batch would leave
+	// a PARTIALLY-mutated dataset plus the snapshot above dangling on the bounded
+	// undo stack (CR-01 / T-06-05e). Wrap it: on throw, restore the snapshot (zero
+	// net mutation, mirroring the Cancel guarantee) and re-throw so dispatch() yields
+	// a ToolError the model can self-correct from.
+	try {
+		apply()
+	} catch (err) {
+		editor.undoLastDatasetSnapshot()
+		throw err
+	}
 
 	const after = editor.getAllFeatures()
 	// Classify with the CALLER'S intent (not hardcoded 'add') so dedup's dropped
 	// ids bucket as deletions and an attribute/style edit buckets as modifies.
 	const diff = classifyMutation(before, after, intent)
+
+	// No-op guard (CR-03): a batch that produces zero net change (e.g. a declarative
+	// `set` that writes a value a feature already had) must NOT leave a phantom
+	// "undo AI edit" step on the snapshot stack, and must NOT be reported as a
+	// confirmed apply. Drop the snapshot and return early with an empty, applied diff
+	// — the dataset is unchanged, so there is nothing to confirm or roll back.
+	const isNoop =
+		diff.added.length === 0 && diff.modified.length === 0 && diff.deleted.length === 0
+	if (isNoop) {
+		editor.undoLastDatasetSnapshot()
+		const handle = emitDiffBlock(diff, { status: 'applied' })
+		return { status: 'applied', diff, diffId: handle.id }
+	}
 
 	const level = deps.getSafetyLevel()
 	const destructive = diff.modified.length > 0 || diff.deleted.length > 0
