@@ -192,7 +192,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 2** *(blocked on Wave 1)*
 
-  - [ ] 06-02-PLAN.md — Shared AI-free predicate engine (D-06): matchesPredicate + selectByPredicate over properties.*, flat AND-list, A4 missing semantics; satisfies TOOLS-03 select half (TOOLS-02, TOOLS-03)
+  - [x] 06-02-PLAN.md — Shared AI-free predicate engine (D-06): matchesPredicate + selectByPredicate over properties.*, flat AND-list, A4 missing semantics; satisfies TOOLS-03 select half (TOOLS-02, TOOLS-03)
 
 **Wave 3** *(blocked on Wave 2)*
 
@@ -231,5 +231,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. File Ingest & Multimodal | 6/6 | Complete    | 2026-06-17 |
 | 4. Code Interpreter Sandbox | 3/3 | Complete    | 2026-06-20 |
 | 5. Dataset-Aware Safe Editing | 5/5 | Complete    | 2026-06-21 |
-| 6. AI Bulk Transform & Data-Driven Styling | 1/5 | In Progress|  |
+| 6. AI Bulk Transform & Data-Driven Styling | 2/5 | In Progress|  |
 | 7. Geometry Optimization | 0/TBD | Not started | - |
