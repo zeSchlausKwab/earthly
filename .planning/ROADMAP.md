@@ -204,7 +204,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 5** *(blocked on Wave 4)*
 
-  - [ ] 06-05-PLAN.md — Gated destructive tools: batch_edit_features (declarative+intelligence, cap 100) + dedup_features (gated delete) + style_by_attribute (materialize buckets, STYLE-02 round-trip) via gateBulkApply (TOOLS-02, TOOLS-03, STYLE-01, STYLE-02)
+  - [x] 06-05-PLAN.md — Gated destructive tools: batch_edit_features (declarative+intelligence, cap 100) + dedup_features (gated delete) + style_by_attribute (materialize buckets, STYLE-02 round-trip) via gateBulkApply (TOOLS-02, TOOLS-03, STYLE-01, STYLE-02) (completed 2026-06-22 — gateBulkApply real-apply gate + all three destructive tools in registerBulkTools; bulk-tools.test.ts 15/0, full suite 538/0, dev+prod builds green; added api/ deleteFeaturesById so dedup delete routes through the facade without tripping the A3 boundary scan; manual STYLE-02 live round-trip + restyle-render deferred to /gsd-verify-work)
 
 ### Phase 7: Geometry Optimization
 
