@@ -188,7 +188,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 1** *(Wave 0 — RED test scaffolds)*
 
-  - [ ] 06-01-PLAN.md — Wave-0 RED test scaffolds (predicate/dedup/geometryValidation/bulk-tools tests + diff.test.ts classifyModifyKind extension) per 06-VALIDATION.md (TOOLS-02, TOOLS-03, TOOLS-04, STYLE-01, STYLE-02)
+  - [x] 06-01-PLAN.md — Wave-0 RED test scaffolds (predicate/dedup/geometryValidation/bulk-tools tests + diff.test.ts classifyModifyKind extension) per 06-VALIDATION.md (TOOLS-02, TOOLS-03, TOOLS-04, STYLE-01, STYLE-02)
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -231,5 +231,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. File Ingest & Multimodal | 6/6 | Complete    | 2026-06-17 |
 | 4. Code Interpreter Sandbox | 3/3 | Complete    | 2026-06-20 |
 | 5. Dataset-Aware Safe Editing | 5/5 | Complete    | 2026-06-21 |
-| 6. AI Bulk Transform & Data-Driven Styling | 0/5 | Planned     | - |
+| 6. AI Bulk Transform & Data-Driven Styling | 1/5 | In Progress|  |
 | 7. Geometry Optimization | 0/TBD | Not started | - |
