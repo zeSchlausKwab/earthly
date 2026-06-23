@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
-status: verifying
-stopped_at: Phase 07 executed + auto-verified (3/3); awaiting human UAT
-last_updated: "2026-06-22T15:25:00.000Z"
-last_activity: 2026-06-22 -- Phase 07 executed (4/4 plans), code-reviewed (0 crit / 6 warn / 4 info), auto-verified 3/3; 1 human UAT item pending (live optimize→publish round-trip)
+status: executing
+stopped_at: Completed 07-05-PLAN.md
+last_updated: "2026-06-23T06:51:30.000Z"
+last_activity: 2026-06-23 -- 07-05 optimize crash fix complete (bounded + safe)
 progress:
   total_phases: 7
   completed_phases: 6
-  total_plans: 32
-  completed_plans: 32
-  percent: 86
+  total_plans: 33
+  completed_plans: 33
+  percent: 88
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 ## Current Position
 
-Phase: 07 (geometry-optimization) — AWAITING HUMAN UAT
-Plan: 4 of 4 (all executed + committed)
-Status: Automated verification passed (3/3 must-haves); 1 human UAT item pending (07-UAT.md) before phase completion. Run /gsd-verify-work 7.
-Last activity: 2026-06-22 -- Phase 07 executed (4/4 plans), code-reviewed, auto-verified 3/3; awaiting live optimize→publish UAT
+Phase: 07 (geometry-optimization) — EXECUTING
+Plan: 5 of 5 (gap-closure complete)
+Status: Phase 07 gap-closure complete; awaiting human UAT
+Last activity: 2026-06-23 -- 07-05 optimize crash fix complete (bounded + safe)
 
-Progress: [█████████████████░░░] 32/32 plans (6/7 phases, 86%)
+Progress: [██████████████████░░] 33/33 plans (6/7 phases, 88%)
 
 ## Performance Metrics
 
@@ -88,6 +88,7 @@ Progress: [█████████████████░░░] 32/32 p
 | Phase 07 P02 | 5min | 2 tasks | 6 files |
 | Phase 07-geometry-optimization P03 | 14 min | 2 tasks | 4 files |
 | Phase 07 P04 | 10 min | 2 tasks | 6 files |
+| Phase 07 P05 | 8 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -172,6 +173,8 @@ Recent decisions affecting current work:
 - [Phase 07]: [07-02]: optional headline threaded gate→store→disclosure as a strictly-additive optional field (Phase 5/6 callers omit it, render byte-identically); precedence applied at the useMemo layer so buildDatasetDiffSummary stays the pure no-headline fn — GEO-02 D-04b: optimizer surfaces a single before/after metrics summary in the inline diff block instead of the +N/~N/-N counts wall, without regressing Phase 5/6 diff tests
 - [Phase ?]: 07-03: microgap stitch runs across ALL line features (fixture has 0 within-props shared endpoints, 175 across-all); losslessness via endpoint-keyed property attribution + identical-props merge
 - [Phase ?]: 07-03: optimize.ts imports geometryValidation by deep path (not the api barrel) to keep the worker bundle secret-free (T-07-08)
+- [Phase 07]: [07-05]: UAT crash root cause was a COMPOUND defect — quadratic optimize() (per-iteration turf.kinks O(V^2) over high-vertex features + per-iteration highQuality:true simplify) AND an unsafe 30s timeout that sync-re-ran the SAME quadratic optimize on the MAIN THREAD without terminating the worker. Fixed both: optimize() uses Strategy-1 validate-once-at-end (binary search on bytes only, single final turf.kinks + one-step back-off), highQuality:false during search, and skips kinks on features above TOPOLOGY_VALIDATION_MAX_VERTICES=5000 (honest D-06 relaxation: SIMPLIFY_TOLERANCE_MAX is the remaining shred-guard there). Few-large-features (~160k verts) ~12.5s→<3s.
+- [Phase 07]: [07-05]: runOptimize() timeout is now SAFE — terminate the hung worker, then size-gate: <SYNC_FALLBACK_MAX_BYTES (256KiB) sync-fall-back, at/over → REJECT with a model-relayable 'timed out — too large' error (surfaced as a ToolError by geometry-tools.ts). Same gate in onerror. No-worker/workerBroken/SSR paths stay sync for all sizes (tests depend on it). WR-05 timer leak SUBSUMED (per-request timers captured + clearTimeout on settle/teardown); WR-01/WR-02 NOT reopened.
 
 ### Pending Todos
 
@@ -196,8 +199,8 @@ Items acknowledged and carried forward / out of scope for this milestone:
 
 ## Session Continuity
 
-Last session: 2026-06-22T14:50:17.353Z
-Stopped at: Completed 07-04-PLAN.md
+Last session: 2026-06-23T06:51:30.000Z
+Stopped at: Completed 07-05-PLAN.md
 
 UAT focused fix (2026-06-19): chat no longer ends a turn silently — empty completions (no content, no tool calls) now surface a visible notice via the existing `error` channel ChatPanel renders; `finishReason: 'length'` gets truncation-specific copy, and truncated-but-non-empty content gets a "(response truncated)" suffix. New pure helper describeEmptyCompletion() + 6 headless tests (now 346/0). Not a phase plan; no SUMMARY, no phase.complete.
 Resume file: None

@@ -234,7 +234,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Gap closure** *(UAT blocker: optimize_geometry crashes app on a real oversized dataset)*
 
-  - [ ] 07-05-PLAN.md — Fix the optimize crash: bound `optimize()` to near-linear cost (highQuality:false search + stop per-iteration O(V²) `turf.kinks` over high-vertex features) and make `runOptimize()`'s timeout SAFE (terminate worker + reject with a relayable error, no main-thread sync re-run for large inputs) + few-large-features regression test (GEO-01, GEO-03)
+  - [x] 07-05-PLAN.md — Fix the optimize crash: bound `optimize()` to near-linear cost (highQuality:false search + stop per-iteration O(V²) `turf.kinks` over high-vertex features) and make `runOptimize()`'s timeout SAFE (terminate worker + reject with a relayable error, no main-thread sync re-run for large inputs) + few-large-features regression test (GEO-01, GEO-03) (completed 2026-06-23 — Strategy-1 validate-once-at-end, TOPOLOGY_VALIDATION_MAX_VERTICES=5000, SYNC_FALLBACK_MAX_BYTES=256KiB; few-large-features ~12.5s→<3s; WR-05 subsumed, WR-01/WR-02 not reopened; bun test 570/0, build emits optimize.worker.js, biome clean, A3 greps 0)
 
 ## Progress
 
@@ -249,4 +249,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. Code Interpreter Sandbox | 3/3 | Complete    | 2026-06-20 |
 | 5. Dataset-Aware Safe Editing | 5/5 | Complete    | 2026-06-21 |
 | 6. AI Bulk Transform & Data-Driven Styling | 5/5 | Complete    | 2026-06-22 |
-| 7. Geometry Optimization | 4/5 | Verifying (UAT gap closure) | - |
+| 7. Geometry Optimization | 5/5 | Verifying (UAT gap closure complete; awaiting human UAT) | - |
