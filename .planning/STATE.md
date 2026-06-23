@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: milestone
-status: Awaiting next milestone
-stopped_at: Phase 07 complete — v1.1 milestone 100% (7/7 phases). Ready to complete the milestone (/gsd-complete-milestone).
-last_updated: "2026-06-23T08:19:20.875Z"
-last_activity: 2026-06-23 — Milestone v1.1 completed and archived
+milestone: v1.2
+milestone_name: Geo Entity Model Split
+status: planning
+last_updated: "2026-06-23T13:10:15.224Z"
+last_activity: 2026-06-23
 progress:
-  total_phases: 7
-  completed_phases: 7
-  total_plans: 33
-  completed_plans: 33
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 ## Current Position
 
-Phase: Milestone v1.1 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-23 — Milestone v1.1 completed and archived
+Status: Defining requirements
+Last activity: 2026-06-23 — Milestone v1.2 started
 
 ## Performance Metrics
 

@@ -12,6 +12,27 @@ This project is the **overhaul** that comes after the applesauce migration: it u
 
 If we ship clean orchestration + classical utility but no AI demo, this project is still a success. If we ship a flashy AI demo on top of the current wonky foundation, this project failed.
 
+## Current Milestone: v1.2 Geo Entity Model Split
+
+**Goal:** Un-bloat the kind-37518 "context" by splitting it into role-specific geo entity kinds — each with full create/edit/comment/react/attach authoring UI — so the schema expresses curated articles, community-attach groups, live position, and time-bound observations as distinct first-class entities instead of one overloaded discriminated union.
+
+**The defect being fixed:** kind 37518 varies along two orthogonal axes at once — *reference direction* (curate-pull vs attach-push) and *governance* (open→schema→closed). Splitting along reference direction (the axis that changes the create flow and default UI) is the clean cut; governance stays a policy object inside the attach-style Group.
+
+**Target entity model (spec v2):**
+- **Dataset** (37515, unchanged) — geometry + properties atom.
+- **Story / Article** (new, ~37520) — pull/curate, **closed**: Markdown narrative with inline `naddr` references mirrored to `a`, comment/react/propose-edit (reuses kind 37519 proposals). The "Roman ruins in Austria" essay.
+- **Group / Topic** (37518, slimmed to one kind) — push/attach: datasets attach via `c`; governance **ladder open · schema · closed**; optional narrative + pinned "canonical" refs. Absorbs "best surfing beaches" (open) and "hiking trails" (schema-enforced: client validates `geometryConstraints` + JSON Schema on create, filters invalid on fetch).
+- **Live Beacon** (new, ~37521) — real-time, shareable/public updating position point.
+- **Temporal Sighting** (new) — NIP-52-flavored time-bound observation (the "soccer star spotted at hotel" case).
+
+**Cross-cutting taxonomy:** NIP-32 `L`/`l` (controlled, schema-enforceable) + `t` (freeform discovery) + `c` (entity-backed attach). Principled split removes the `t`/taxonomy overlap.
+
+**Scope decisions:**
+- **Full v2** — spec + all event classes + full authoring UI for every kind, in one milestone.
+- **Clean break** — existing 37518 data is seed/test only; redefine the kinds freely, no migration or back-compat.
+- **Deferred to a later milestone:** NIP-72 human moderation/approval + role lists (spam handled by web-of-trust + muting); Saved Map/Scene; Collection-as-list; compound routing; and the carried-over v1.0 UX-orchestration debt (Pillar 1/2/3 below).
+- **Open for phase-level research:** Beacon lifecycle (replaceable vs ephemeral) + visibility model; Sighting representation (dedicated kind vs property + NIP-40 expiry).
+
 ## Last Shipped: v1.1 AI Chat — Data Ingest, Transform & Safe Authoring (2026-06-23)
 
 **Shipped:** Expanded the AI chat from a map-drawing assistant into a data-ingest-and-transformation workbench — upload and parse real-world files, run sandboxed code that drives the map programmatically, give the AI more authoring tools, and let it safely edit datasets it is explicitly bound to — broadening Earthly's audience to analysts, curators, and power users. All 29 v1.1 requirements delivered across 7 phases / 33 plans. Full record: [`milestones/v1.1-ROADMAP.md`](milestones/v1.1-ROADMAP.md), [`MILESTONES.md`](MILESTONES.md).
@@ -204,4 +225,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-23 after v1.1 AI Chat milestone — archived and closed (Phases 1–7, 33/33 plans): encrypted settings persistence, tool registry + Authoring API, file ingest & multimodal, QuickJS code-interpreter sandbox, dataset-aware safe-editing gate, AI bulk transform, and geometry optimization. Archives in `.planning/milestones/v1.1-*`. Next: `/gsd-new-milestone`.*
+*Last updated: 2026-06-23 — started milestone v1.2 Geo Entity Model Split: split the bloated kind-37518 context into role-specific geo entity kinds (Story/Article, slimmed Group, Live Beacon, Temporal Sighting), adopt NIP-32 `L`/`l` taxonomy, schema-only group governance, clean break on existing 37518 data, full authoring UI. NIP-72 moderation + WoT/mute deferred. Previous: v1.1 AI Chat archived in `.planning/milestones/v1.1-*`.*
