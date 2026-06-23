@@ -1,42 +1,32 @@
 ---
-status: testing
+status: complete
 phase: 07-geometry-optimization
 source: [07-VERIFICATION.md]
 started: 2026-06-22T15:20:00Z
-updated: 2026-06-23T07:20:00Z
+updated: 2026-06-23T07:40:00Z
 ---
 
 ## Current Test
 
-number: 1
-name: Live oversized-dataset optimize → review diff headline → publish round-trip
-expected: |
-  Load a real oversized dataset (e.g. the 12MB West Pacific Trail) into the editor, ask the AI to
-  optimize it, review the before/after diff headline + metrics, then publish. The optimize_geometry
-  tool runs off-thread WITHOUT freezing the UI; a pathological/oversized input returns a relayable
-  ToolError ("timed out — too large…") that the model can self-correct from, instead of crashing the
-  tab; the diff disclosure shows the metrics headline; the result clears the ~1MB publish limit;
-  topology is preserved visually; and the normal publish flow completes.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
 ### 1. Live oversized-dataset optimize → review diff headline → publish round-trip
 expected: Load a real oversized dataset (e.g. the 12MB West Pacific Trail) into the editor, ask the AI to optimize it, review the before/after diff headline and metrics, then publish successfully. The optimize_geometry tool runs off-thread (no UI freeze), an oversized/pathological input returns a relayable ToolError (not a crash), the diff disclosure shows the metrics headline (bytes/vertices/features/joins), the result is under the ~1MB publish limit, topology is preserved visually, and the normal publish flow completes.
-result: pending
+result: pass
 note: |
-  Crash BLOCKER recorded 2026-06-22 has been FIXED at the code level by gap-closure plan 07-05
-  + the code-review follow-up (commit c6ff708); auto-verification is 5/5 (07-VERIFICATION.md).
-  This live round-trip needs a human re-run to confirm: (a) no UI freeze on normal data, (b) a
-  pathological/oversized input surfaces a relayable ToolError instead of crashing the tab, and
-  (c) the optimize→publish flow completes. Prior failing report retained in the Gaps section below.
+  Crash BLOCKER (recorded 2026-06-22) confirmed RESOLVED on live human re-test 2026-06-23. The fix
+  (gap-closure plan 07-05 + code-review WR-01 follow-up, commit c6ff708) holds end-to-end: the
+  optimize→publish round-trip completes without freezing the tab. Auto-verification was 5/5
+  (07-VERIFICATION.md); this pass closes the last human UAT item for Phase 7.
 
 ## Summary
 
 total: 1
-passed: 0
+passed: 1
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
