@@ -55,6 +55,20 @@ function installNeverReplyingWorker(): { terminated: () => boolean } {
 	return { terminated: () => terminatedFlag }
 }
 
+/**
+ * A stub Worker whose CONSTRUCTOR throws — simulates a real browser whose worker asset
+ * fails to load (`new Worker(...)` raises). The client must latch `workerBroken` and then
+ * keep the size gate for subsequent calls (WR-01): large inputs reject, never sync-run.
+ */
+function installThrowingWorker(): void {
+	class ThrowingWorker {
+		constructor() {
+			throw new Error('worker asset failed to load')
+		}
+	}
+	;(globalThis as { Worker?: unknown }).Worker = ThrowingWorker as unknown
+}
+
 function uninstallWorker(saved: unknown): void {
 	if (saved !== undefined) {
 		;(globalThis as { Worker?: unknown }).Worker = saved
@@ -138,6 +152,52 @@ describe('optimizeClient — safe timeout on a hung worker (07-05, T-07-13)', ()
 			)
 			expect(result.result).toBeDefined()
 			expect(typeof result.report.bytesAfter).toBe('number')
+		} finally {
+			uninstallWorker(saved)
+			optimizeClient.terminateOptimizeWorker()
+		}
+	})
+})
+
+describe('optimizeClient — a broken worker keeps the size gate (07-05, WR-01)', () => {
+	it('once the worker is broken, a LARGE input REJECTS (size-gated) instead of sync-running on the main thread (Test D)', async () => {
+		const saved = (globalThis as { Worker?: unknown }).Worker
+		installThrowingWorker()
+		try {
+			// First call (small) trips the construction-failure latch via the sync fallback.
+			const first = await optimizeClient.runOptimize(
+				smallFixture(),
+				BLOSSOM_UPLOAD_THRESHOLD_BYTES,
+				{ timeoutMs: 20 },
+			)
+			expect(first.result).toBeDefined()
+
+			// The worker is now latched broken. A LARGE input must REJECT (NOT re-run optimize()
+			// synchronously on the main thread — that is the WR-01 hole / the UAT crash class).
+			let rejected = false
+			let message = ''
+			try {
+				await optimizeClient.runOptimize(
+					makeOversizedTrailFixture(),
+					BLOSSOM_UPLOAD_THRESHOLD_BYTES,
+					{
+						timeoutMs: 20,
+					},
+				)
+			} catch (error) {
+				rejected = true
+				message = error instanceof Error ? error.message : String(error)
+			}
+			expect(rejected).toBe(true)
+			expect(message).toMatch(/timed out|too large/i)
+
+			// A trivially-small input still settles via the sync fallback (the gate only blocks large).
+			const small2 = await optimizeClient.runOptimize(
+				smallFixture(),
+				BLOSSOM_UPLOAD_THRESHOLD_BYTES,
+				{ timeoutMs: 20 },
+			)
+			expect(small2.result).toBeDefined()
 		} finally {
 			uninstallWorker(saved)
 			optimizeClient.terminateOptimizeWorker()

@@ -121,9 +121,44 @@ function settleSizeGated(pending: PendingRequest): void {
 	}
 }
 
-/** Tear the worker down (broken latch + terminate) so future calls skip it. */
+/**
+ * Settle a pending when NO usable worker exists for it. Distinguishes two cases so a
+ * large input can never block the main thread (WR-01):
+ *  - genuine no-Worker environment (`typeof Worker === 'undefined'` — SSR / test runner):
+ *    there is no UI thread to freeze, so the synchronous `optimize()` runs at ALL sizes
+ *    (bun tests depend on this).
+ *  - a real browser whose worker FAILED to load (`workerBroken` latched, or a synchronous
+ *    `new Worker` construction failure): keep the SIZE GATE — only trivially-small inputs
+ *    sync-fall-back; over-threshold inputs REJECT with the relayable too-large error rather
+ *    than re-running an unbounded `optimize()` on the main thread (the UAT crash class).
+ */
+function settleWithoutWorker(pending: PendingRequest): void {
+	if (
+		typeof Worker === 'undefined' ||
+		collectionBytes(pending.featureCollection) < SYNC_FALLBACK_MAX_BYTES
+	) {
+		runSync(pending)
+	} else {
+		pending.reject(tooLargeError())
+	}
+}
+
+/** Tear the worker down (broken latch + terminate) so future calls skip it — used for a
+ *  genuine LOAD failure (`onerror` / `new Worker` throw), where the worker can never run. */
 function killWorker(): void {
 	workerBroken = true
+	worker?.terminate()
+	worker = null
+}
+
+/**
+ * Tear down a HUNG worker after a timeout WITHOUT latching `workerBroken`, so the NEXT call
+ * re-spawns a fresh worker (WR-01). A one-off hang on a large input must not permanently
+ * force every future call onto the main-thread sync path — that is exactly what the size
+ * gate forbids for large inputs. Each retry re-spawns, re-times-out, terminates, and rejects:
+ * bounded and safe, never a main-thread block.
+ */
+function recycleWorker(): void {
 	worker?.terminate()
 	worker = null
 }
@@ -166,6 +201,10 @@ function getWorker(): Worker | null {
 		return worker
 	} catch (error) {
 		console.warn('Failed to create optimize worker:', error)
+		// WR-05: a synchronous construction failure is permanent — latch broken so we don't
+		// re-attempt a failing `new Worker` on every request. `settleWithoutWorker` keeps the
+		// size gate for this real-browser-but-no-worker case (large inputs reject, not sync-run).
+		workerBroken = true
 		return null
 	}
 }
@@ -197,20 +236,22 @@ export function runOptimize(
 		targetBytes,
 	}
 
-	// Skip the worker entirely once it has previously failed to load → SYNC (all sizes:
-	// no worker was spawned, so there is no UI thread to crash and tests depend on it).
+	// Skip the worker entirely once it has previously failed to load. The SSR/test
+	// no-Worker env syncs at all sizes; a real browser whose worker broke keeps the size
+	// gate so a large input rejects instead of blocking the main thread (WR-01).
 	if (workerBroken) {
 		return new Promise<OptimizeResult>((resolve, reject) => {
-			runSync({ ...pendingBase, resolve, reject })
+			settleWithoutWorker({ ...pendingBase, resolve, reject })
 		})
 	}
 
 	const w = getWorker()
 
-	// No worker available (SSR / test runner / unsupported / creation failed) → SYNC (all sizes).
+	// No worker available (SSR / test runner / unsupported / creation failed) → size-gated
+	// (WR-01): SSR/test syncs at all sizes; a browser construction failure rejects large inputs.
 	if (!w) {
 		return new Promise<OptimizeResult>((resolve, reject) => {
-			runSync({ ...pendingBase, resolve, reject })
+			settleWithoutWorker({ ...pendingBase, resolve, reject })
 		})
 	}
 
@@ -228,8 +269,10 @@ export function runOptimize(
 			const stuck = pendingRequests.get(id)
 			if (!stuck) return // already settled by onmessage.
 			console.warn('Optimize worker timeout — terminating worker and applying the size gate')
-			// Terminate the still-running worker so it stops consuming CPU/memory.
-			killWorker()
+			// Terminate the still-running worker so it stops consuming CPU/memory, but do NOT
+			// latch `workerBroken` (WR-01) — a one-off hang must not force every future call onto
+			// the main-thread sync path; the next call re-spawns a fresh worker.
+			recycleWorker()
 			settleSizeGated(stuck)
 		}, timeoutMs)
 	})
@@ -241,8 +284,13 @@ export function terminateOptimizeWorker(): void {
 		worker.terminate()
 		worker = null
 	}
+	// Settle every in-flight request so its promise never hangs (the headline "always
+	// settles" invariant, IN-03). Clear the timer first so it can't double-settle, then
+	// reject with a cancelled signal — a caller awaiting an unmount-time optimize gets a
+	// rejection instead of a promise that never resolves.
 	for (const pending of pendingRequests.values()) {
 		if (pending.timer) clearTimeout(pending.timer)
+		pending.reject(new Error('Geometry optimization cancelled — worker terminated.'))
 	}
 	pendingRequests.clear()
 	workerBroken = false

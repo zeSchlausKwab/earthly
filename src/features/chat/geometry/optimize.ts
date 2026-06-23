@@ -454,6 +454,17 @@ export function optimize(
 		resultFeatures = merged
 	}
 
+	// NEVER INFLATE (WR-04): the STAGE 1 stitch re-emits parts with longer ids and the
+	// STAGE 2 merge can, on a degenerate no-op input, produce a serialized collection LARGER
+	// than the input. The caller asked to REDUCE bytes — if the pipeline did not actually
+	// shrink them, return the original input unchanged. This is honest (the report's
+	// `bytesAfter <= bytesBefore` invariant is GUARANTEED, not incidental) and lossless (the
+	// raw input is by definition lossless). This outer safety net is distinct from the D-07
+	// topology/budget fallback chain above (which never returns raw input mid-search).
+	if (bytesOf(resultFeatures) > bytesBefore) {
+		resultFeatures = inputFeatures
+	}
+
 	const report: OptimizeReport = {
 		bytesBefore,
 		bytesAfter: bytesOf(resultFeatures),
