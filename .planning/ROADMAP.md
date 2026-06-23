@@ -217,7 +217,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Optimization reports before/after metrics (byte size, vertex and feature counts) and validates topology — no new self-intersections or zero-area collapse, per-feature properties preserved through merge, microgap join count shown.
   3. A dataset that previously exceeded the publish/city-dialog size limit (e.g. the 12MB "West Pacific Trail") can be brought under the limit at preserved visual quality and successfully published.
 
-**Plans**: 4 plans
+**Plans**: 4 plans + 1 gap-closure plan
 
 **Wave 1**
 
@@ -232,6 +232,10 @@ Decimal phases appear between their surrounding integers in numeric order.
 
   - [x] 07-04-PLAN.md — `optimize_geometry` tool (target-bytes-only surface, full-dataset SAFE-05) → off-thread optimize → one gated `modify` apply with metrics headline (D-04b) → no auto-publish; registry wiring + phase build/boundary gate (GEO-01, GEO-02, GEO-03)
 
+**Gap closure** *(UAT blocker: optimize_geometry crashes app on a real oversized dataset)*
+
+  - [ ] 07-05-PLAN.md — Fix the optimize crash: bound `optimize()` to near-linear cost (highQuality:false search + stop per-iteration O(V²) `turf.kinks` over high-vertex features) and make `runOptimize()`'s timeout SAFE (terminate worker + reject with a relayable error, no main-thread sync re-run for large inputs) + few-large-features regression test (GEO-01, GEO-03)
+
 ## Progress
 
 **Execution Order:**
@@ -245,4 +249,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. Code Interpreter Sandbox | 3/3 | Complete    | 2026-06-20 |
 | 5. Dataset-Aware Safe Editing | 5/5 | Complete    | 2026-06-21 |
 | 6. AI Bulk Transform & Data-Driven Styling | 5/5 | Complete    | 2026-06-22 |
-| 7. Geometry Optimization | 4/4 | Verifying (UAT) | - |
+| 7. Geometry Optimization | 4/5 | Verifying (UAT gap closure) | - |
