@@ -105,7 +105,12 @@ describe('optimize.perf — few-large-features completes under a hard time bound
 	})
 
 	it('does not INTRODUCE new self-intersections vs input on a clean fixture (D-06 intent)', () => {
-		const input = makeFewLargeFeaturesFixture()
+		// Use a SMALLER few-large-features fixture here: this assertion calls the public
+		// `countSelfIntersections` (turf.kinks, O(V^2)) directly on the INPUT, which would
+		// itself be quadratic-slow on the full ~40k-vert fixture — the cost is in the test's
+		// own measurement, not in optimize(). A few features of ~3k verts each still exercises
+		// the high-per-feature-V path while keeping the test's own kinks call bounded.
+		const input = makeFewLargeFeaturesFixture({ pointsPerLine: 3_000 })
 		const { result } = optimizeMod.optimize(input, BLOSSOM_UPLOAD_THRESHOLD_BYTES)
 
 		const kinks = (geom: EditorFeature[]) => optimizeMod.countSelfIntersections(geom)
