@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 07-05-PLAN.md
-last_updated: "2026-06-23T08:12:38.474Z"
-last_activity: 2026-06-23
+status: Awaiting next milestone
+stopped_at: Phase 07 complete — v1.1 milestone 100% (7/7 phases). Ready to complete the milestone (/gsd-complete-milestone).
+last_updated: "2026-06-23T08:19:20.875Z"
+last_activity: 2026-06-23 — Milestone v1.1 completed and archived
 progress:
   total_phases: 7
   completed_phases: 7
@@ -18,19 +18,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-16)
+See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
-**Core value:** The maintainer (and any user) can open the app for fun, not duty — extended this milestone so analysts, curators, and power users can ingest real-world data, transform it with sandboxed code, and safely author maps via chat.
-**Current focus:** v1.1 AI Chat milestone COMPLETE — ready for /gsd-complete-milestone
+**Core value:** The maintainer (and any user) can open the app for fun, not duty.
+**Current focus:** Planning next milestone — run `/gsd-new-milestone`. v1.1 AI Chat shipped & archived 2026-06-23.
 
 ## Current Position
 
-Phase: 07 (geometry-optimization) — COMPLETE ✓ (final phase of v1.1)
-Plan: Not started
-Status: 🎉 Milestone v1.1 is 100% complete — all 7 phases finished, verified, and security-cleared. Phase 7 closed the optimize-crash UAT blocker (07-05 + code-review WR-01 fix), re-verified 5/5, UAT 1/1 passed, security threats_open:0. Next: /gsd-complete-milestone.
-Last activity: 2026-06-23 -- Phase 07 complete (UAT passed + security cleared); v1.1 milestone 100%
-
-Progress: [████████████████████] 33/33 plans (7/7 phases, 100%)
+Phase: Milestone v1.1 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-23 — Milestone v1.1 completed and archived
 
 ## Performance Metrics
 
@@ -198,6 +196,17 @@ Items acknowledged and carried forward / out of scope for this milestone:
 | Feature | Compound routing (COMPOUND-01) | Deferred to v2 | 2026-06-16 |
 | Refactor | Reroute editor.updateFeature + deleteFeatures + dataset-load setFeatures through Authoring API (facade needs modifyFeature/deleteFeatures surface; then tighten A3 boundary to all 4 verbs) | Deferred to a Phase 2 facade-expansion follow-up | 2026-06-16 (02-03) |
 
+### Acknowledged at v1.1 milestone close (2026-06-23)
+
+Open artifact-audit items acknowledged and deferred at milestone close. All are awaiting live in-browser human confirmation or are design questions already resolved in code — bookkeeping-open, not work-open.
+
+| Category | Item | Status |
+|----------|------|--------|
+| debug | sandbox-worker-file-url-dev | awaiting_human_verify (fix landed: dev `.wasm` served as application/wasm; regression-tested) |
+| debug | sandbox-worker-oom-runaway | awaiting_human_verify (fix landed: warm-pooled worker + circuit breaker; before/after reproduced, regression-tested) |
+| verification | Phase 06 — 06-VERIFICATION.md | human_needed (automated gates green 538/0; awaiting live UAT confirmation) |
+| context_questions | Phase 05 — 05-CONTEXT.md (3 questions) | Resolved during execution (modify/delete facade surface, interceptor gate placement, SAFE-05 host-side fix-all-by-id — all answered in 05-01/04/05) |
+
 ## Session Continuity
 
 Last session: 2026-06-23T08:15:00.000Z
@@ -221,3 +230,7 @@ Phase-4 sandbox OOM/CPU RUNAWAY fixed (2026-06-19): the code-interpreter worker 
 Regression hotfix (2026-06-19): fixed a `ReferenceError: canUseVision is not defined` thrown on EVERY chat send (introduced by vision-gate fix b723510). The request-builder closure read `canUseVision` (gating capture_map_snapshot advertisement) but it was only declared later inside the try block — out of scope. Hoisted `let canUseVision = false` to the sendMessage outer scope (fail-closed default); the later line became a plain assignment; all three uses now share one binding. Gating behavior unchanged. bun test 384/0, dev+prod builds + store.ts biome green. Not a phase plan; no SUMMARY, no phase.complete.
 
 UAT focused fixes (2026-06-19, 4 atomic commits): (1) trim geo tool results in the model-facing prompt seam — strip per-result geojson boundary polygons + extratags from search_location/reverse_lookup, ALWAYS keep coordinates (fixes UAT 21-round coords-buried detour) [551c7ea]; (2) document run_code data shape: data.features is a Feature[] (use data.features.find, NOT data.features.features), data.datasets[handle] is the rows array [6882eea]; (3) make CEP-22 oversizedTransfer.enabled explicit on the geo client (already SDK default, no bump; no stale truncation workaround found) [1a6ebbd]; (4) backlog note — geo MCP server must drop its 42KB geometry truncation + rely on CEP-22 (server-side, out of this repo) [c867665]. bun test 388/0, dev+prod builds + biome (changed files) green. Not a phase plan; no SUMMARY, no phase.complete.
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

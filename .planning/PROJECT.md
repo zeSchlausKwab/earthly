@@ -12,20 +12,21 @@ This project is the **overhaul** that comes after the applesauce migration: it u
 
 If we ship clean orchestration + classical utility but no AI demo, this project is still a success. If we ship a flashy AI demo on top of the current wonky foundation, this project failed.
 
-## Current Milestone: v1.1 AI Chat — Data Ingest, Transform & Safe Authoring
+## Last Shipped: v1.1 AI Chat — Data Ingest, Transform & Safe Authoring (2026-06-23)
 
-**Goal:** Expand the AI chat from a map-drawing assistant into a data-ingest-and-transformation workbench — upload and parse real-world files, run sandboxed code that drives the map programmatically, give the AI more authoring tools, and let it safely edit datasets it is explicitly bound to — broadening Earthly's audience to analysts, curators, and power users.
+**Shipped:** Expanded the AI chat from a map-drawing assistant into a data-ingest-and-transformation workbench — upload and parse real-world files, run sandboxed code that drives the map programmatically, give the AI more authoring tools, and let it safely edit datasets it is explicitly bound to — broadening Earthly's audience to analysts, curators, and power users. All 29 v1.1 requirements delivered across 7 phases / 33 plans. Full record: [`milestones/v1.1-ROADMAP.md`](milestones/v1.1-ROADMAP.md), [`MILESTONES.md`](MILESTONES.md).
 
-**Target features:**
-- ✓ File ingest & multimodal — upload CSV/Excel/JSON/GeoJSON/images/text; parse tabular & text into structured data the chat tools and code interpreter can read; route images to vision-capable models via capability detection (auto-disable image send when the model lacks vision). **Validated in Phase 3** (INGEST-01..07; off-thread parse, handle-keyed privacy seam, vision-detection ladder, place/geocode tools, file-chip UI).
-- Code interpreter (client sandbox) — AI authors & runs JS in a Web Worker/iframe sandbox with access to a clean toolbar/drawing API: programmatic generation ("15 circles, fibonacci radii"), batch transforms, custom cost-weighted routing.
-- AI-oriented editor tools — new tools/primitives that make sense for AI: parametric shapes (circles/buffers), programmatic batch ops, plus whatever the sandbox needs.
-- Data-driven styling — color/stroke/width by attribute (ports vs airports vs waterways), AI-applied.
-- Dataset-aware safe editing — chat explicitly bound to a target dataset/context, always visibly shown; add-vs-modify-vs-delete awareness; configurable safety level (1 preview+confirm / 2 confirm-destructive [default] / 3 trust+undo).
-- Geometry optimization at ingest — AI uses simplify + merge-to-multi (+ microgap stitching) to bring oversized GeoJSON under publish/relay size limits with preserved visual quality.
-- Encrypted settings persistence — provider config, API keys, LM Studio/Ollama addresses persisted to localStorage, encrypted with the user's nsec, surviving reloads.
+**Delivered (all ✓ — see Validated below for requirement-level detail):**
+- ✓ Encrypted settings persistence — provider config, API keys, LM Studio/Ollama addresses encrypted-to-self, surviving reloads incl. NIP-46 signers, with export/import recovery hatch.
+- ✓ Tool Registry & Authoring API — one typed tool-dispatch seam + one map-mutation seam (`createAuthoring`); parametric circle/buffer; live MCP tool sync.
+- ✓ File ingest & multimodal — off-thread CSV/Excel/JSON/GeoJSON/images/text parse; handle-keyed model-privacy seam; vision-capability detection ladder.
+- ✓ Code interpreter (client sandbox) — AI authors & runs JS in a QuickJS-WASM-in-Worker sandbox whose only host surface is the Authoring API; timeouts, output caps, error-feedback self-correction.
+- ✓ AI-oriented editor tools — parametric shapes, batch attribute edit, select/dedup, geometry validation.
+- ✓ Data-driven styling — color/stroke/width by attribute as a rule, round-tripping through kind 37515.
+- ✓ Dataset-aware safe editing — visible binding chip, add/modify/delete intent, diff/preview, configurable safety level (1/2/3), dataset-level snapshot/undo.
+- ✓ Geometry optimization — off-thread simplify + merge-to-multi + microgap stitch toward a byte budget, clearing the publish/relay size limit.
 
-**Deferred to a later milestone:** Nostr-scrolls / WASM (NIP-5C) authoring/persist/share — builds naturally on the code interpreter.
+**Next milestone:** not yet scoped — run `/gsd-new-milestone`. The carried-over v1.0 UX-orchestration debt (Pillar 1/2/3 below) remains the most likely focus. Nostr-scrolls / WASM (NIP-5C) authoring/persist/share is deferred and builds naturally on the now-shipped code interpreter.
 
 **Representative user stories:**
 1. A logging team lead feeds an ugly CSV (names, coordinates, image links); after a chat interaction the result is a dataset/collection with an ideal cutting route.
@@ -73,6 +74,17 @@ If we ship clean orchestration + classical utility but no AI demo, this project 
 - ✓ Go relay (Khatru) with SQLite event storage + Bluge full-text search — existing
 - ✓ Bun.serve() HTTP/WebSocket server — existing
 - ✓ Mapnolia integration for PMTiles chunking (server-side complete, client consumption partial) — existing
+
+**AI Chat workbench (v1.1, shipped 2026-06-23):**
+- ✓ Encrypted settings persistence (SET-01/02/03) — encrypt-to-self provider config + keys, NIP-46-safe async load, export/import recovery hatch
+- ✓ Typed tool registry + single Authoring API mutation seam (INFRA-01/02/03) — `createAuthoring`, hard error on unknown tool, live MCP tool sync
+- ✓ Parametric shape primitives — circle/buffer as API methods + AI tools (TOOLS-01)
+- ✓ File ingest & multimodal (INGEST-01..07) — off-thread CSV/Excel/JSON/GeoJSON/text/image parse, handle-keyed "model never sees raw rows" privacy seam, vision-capability detection ladder, place/geocode tools, file-chip + vision-gate UI
+- ✓ Code-interpreter sandbox (CODE-01..06) — QuickJS-WASM-in-Worker confined to the Authoring API, secret-denial proven, timeout + output caps + circuit breaker, error-feedback self-correction, collapsible code+output display
+- ✓ AI bulk transform tools (TOOLS-02/03/04) — batch attribute edit, select-by-attribute + dedup, geometry/topology validation
+- ✓ Dataset-aware safe-editing gate (SAFE-01..06) — visible binding chip, add/modify/delete classification, diff/preview, configurable safety levels (1/2/3, persisted), dataset-level snapshot/undo, host-side fix-all over full id-keyed dataset
+- ✓ Data-driven styling (STYLE-01/02) — attribute-rule color/stroke/width, round-trips through kind 37515
+- ✓ Geometry optimization (GEO-01/02/03) — off-thread simplify + merge-to-multi + microgap stitch toward a byte budget with before/after metrics, clears the publish size limit
 
 **UX orchestration (v1.0 cleanup, shipped 2026-06 outside the GSD framework):**
 - ✓ Map Shelf / Map Stack — working-set strip listing datasets/contexts with chip actions (isolate, pin, inspect, zoom, load-to-editor, remove, clear) — `MapStackPanel.tsx` + `mapStackSlice.ts`
@@ -134,6 +146,7 @@ If we ship clean orchestration + classical utility but no AI demo, this project 
 
 ## Context
 
+- **v1.1 AI Chat shipped 2026-06-23** (7 phases, 33 plans, 64 tasks). New runtime surface: a QuickJS-WASM-in-Worker code sandbox, off-thread ingest workers (papaparse + exceljs), turf-based geometry primitives/optimization, and the repo's first `bun:test` suite (grown alongside the milestone). Provider settings are now encrypted-to-self in localStorage. Two debug sessions and a Phase 06 verification flag remain open for live in-browser human confirmation only (see STATE.md → Deferred Items); the implementations carry regression tests.
 - **Established app, not greenfield**. Earthly has been running. The codebase is mapped in `.planning/codebase/` (refreshed 2026-05-24). Validated requirements above were inferred from that map.
 - **Applesauce migration is done** for the main app. Seed scripts still import NDK through a compat shim — tracked separately, not in this project.
 - **`UX_REWRITE.md` (repo root)** is the locked design spec for the orchestration cleanup. Design locked on 2026-05-08. It is the binding spec for Pillar 1.
@@ -166,11 +179,12 @@ If we ship clean orchestration + classical utility but no AI demo, this project 
 | **Demo target: "author by chat"** | The single 60-second wow moment. Compound scenarios are v2. | — Pending |
 | **Maintainer-dogfood as success signal** | "I open the app for fun" is the lived test alongside automated/UAT checks. | — Pending |
 | **"Curate from Nostr corpus" deprioritized** | Data-starved. Keep plumbing; don't demo it. | — Pending |
-| **v1.1 — Code interpreter runs client-side with map-API access** | Generated JS executes in a browser Web Worker/iframe sandbox and can drive a clean toolbar/drawing API. Most powerful path for programmatic authoring; demands sandbox isolation + a clean exposed API. | — Pending (v1.1) |
-| **v1.1 — Edit safety is a user config, default "confirm destructive only"** | Hardcoding one safety model frustrates someone. Config: 1 preview+confirm / 2 confirm-destructive (default) / 3 trust+undo. | — Pending (v1.1) |
-| **v1.1 — File ingest = parse-everything + capability-gated vision** | Always extract maximum structured info from any file; route images to vision only when the model advertises it, else disable the image affordance. | — Pending (v1.1) |
-| **v1.1 — Nostr-scrolls / WASM deferred** | NIP-5C authoring/persist/share builds on the code interpreter; sequence it after the sandbox lands. | — Pending (v1.1) |
-| **v1.1 — Chat must be explicitly bound to its edit target, visibly** | The AI editing a dataset is destructive; the user must see what it is working on and add-vs-modify-vs-delete intent. Completes the carried-over binding-chip work. | — Pending (v1.1) |
+| **v1.1 — Code interpreter runs client-side with map-API access** | Generated JS executes in a browser Web Worker/iframe sandbox and can drive a clean toolbar/drawing API. Most powerful path for programmatic authoring; demands sandbox isolation + a clean exposed API. | ✓ Good — Phase 4: QuickJS-WASM-in-Worker confined to the Authoring API; confinement + timeout-kill proven under test |
+| **v1.1 — Edit safety is a user config, default "confirm destructive only"** | Hardcoding one safety model frustrates someone. Config: 1 preview+confirm / 2 confirm-destructive (default) / 3 trust+undo. | ✓ Good — Phase 5: safety level 1/2/3 persisted in the encrypt-to-self envelope, gates every AI mutation |
+| **v1.1 — File ingest = parse-everything + capability-gated vision** | Always extract maximum structured info from any file; route images to vision only when the model advertises it, else disable the image affordance. | ✓ Good — Phase 3: off-thread parse for all types + fail-safe vision-detection ladder gating both image paths |
+| **v1.1 — Nostr-scrolls / WASM deferred** | NIP-5C authoring/persist/share builds on the code interpreter; sequence it after the sandbox lands. | ✓ Held — deferred to next milestone; sandbox now shipped so the prerequisite exists |
+| **v1.1 — Chat must be explicitly bound to its edit target, visibly** | The AI editing a dataset is destructive; the user must see what it is working on and add-vs-modify-vs-delete intent. Completes the carried-over binding-chip work. | ✓ Good — Phase 5: always-visible binding chip + add/modify/delete diff classification shipped |
+| **v1.1 — Single Authoring API is the only geometry-mutation seam** | One typed mutation seam (`createAuthoring`) for direct UI, chat tools, and sandboxed code; nothing reaches across into the Zustand store. Enables the safe-editing gate to have one choke point. | ✓ Good — Phase 2: INFRA-02 seam; A3 boundary scan enforces all four write verbs route through it from the AI trust boundary |
 
 ## Evolution
 
@@ -190,4 +204,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-23 — v1.1 AI Chat milestone COMPLETE (Phases 1–7, 33/33 plans): encrypted settings persistence, tool registry + Authoring API, file ingest & multimodal, QuickJS code-interpreter sandbox, dataset-aware safe-editing gate, AI bulk transform, and geometry optimization — all shipped, verified, and security-cleared. Ready for /gsd-complete-milestone.*
+*Last updated: 2026-06-23 after v1.1 AI Chat milestone — archived and closed (Phases 1–7, 33/33 plans): encrypted settings persistence, tool registry + Authoring API, file ingest & multimodal, QuickJS code-interpreter sandbox, dataset-aware safe-editing gate, AI bulk transform, and geometry optimization. Archives in `.planning/milestones/v1.1-*`. Next: `/gsd-new-milestone`.*
