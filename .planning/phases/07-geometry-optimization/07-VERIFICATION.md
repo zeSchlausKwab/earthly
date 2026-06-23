@@ -1,7 +1,8 @@
 ---
 phase: 07-geometry-optimization
 verified: 2026-06-23T10:00:00Z
-status: human_needed
+status: passed
+human_uat_resolved: 2026-06-23 (07-UAT.md Test 1 passed — live optimize→publish round-trip confirmed; crash blocker resolved end-to-end)
 score: 5/5 must-haves verified
 overrides_applied: 0
 re_verification:
