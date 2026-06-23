@@ -1,27 +1,10 @@
 # Architecture Research
 
-**Domain:** AI chat data-ingest, sandboxed code interpreter, and safe map authoring inside an existing React/MapLibre/Nostr app (Earthly v1.1)
-**Researched:** 2026-06-16
-**Confidence:** HIGH (grounded in the actual `src/` tree; integration patterns verified against real files)
+**Domain:** Nostr-based collaborative GeoJSON mapping — kind-37518 "context" split into role-specific geo entity kinds (Story/Article, slimmed Group, Live Beacon, Temporal Sighting)
+**Researched:** 2026-06-23
+**Confidence:** HIGH (grounded in the actual codebase; applesauce + MapLibre patterns read directly from `src/lib/nostr/` and `src/features/geo-editor/`)
 
-> Scope note: This is a **subsequent milestone on a mature app**. The architecture below is an *integration proposal* — it extends existing systems (`commands.ts` registry, GeoEditor managers, workspace binding, encrypted settings) rather than introducing parallel ones. Every "new" component is justified against what already exists, and the build order front-loads the prerequisites the rest depend on.
-
----
-
-## What already exists (verified)
-
-| Concern | Reality in the codebase | Implication for v1.1 |
-|---------|-------------------------|----------------------|
-| Editor command registry | `src/features/geo-editor/commands.ts` — `EditorCommandDefinition[]` with `id`, `canExecute`, `execute(state,args)`, `ai.{toolName,description,parameters}`, dispatched via `editorCommandByToolName` Map. `getEditorAiToolDefinitions()` + `executeEditorAiTool()` already generate and dispatch `editor_*` tools. | **This is the clean API pattern already.** The "toolbar/drawing API" should be an evolution of this registry, not a new abstraction. |
-| Chat tool dispatch | `src/features/chat/tools/execute.ts` — a single `switch(toolCall.function.name)` (~660 lines). `default:` falls through to `executeEditorAiTool`. | The switch is the **disorganized** half. `web_search`/`fetch_url`/`wikipedia_lookup` ARE actually dispatched here (lines 740–779) — but they are hand-wired, not registered. Refactor target. |
-| Tool schemas | `src/features/chat/tools/definitions.ts` — `geoTools: Tool[]` hand-authored array, splices in `editorCommandTools`. | Schemas live separately from executors → drift risk. Registry should co-locate schema + executor. |
-| Editor engine | `GeoEditor.ts` + managers (`Layer/Rendering/Selection/Transform/Snap/History/Combine/Simplify/Boolean/LineOperations`). Public methods: `addFeature`, `setFeatures`, `getAllFeatures`, `getMapBounds/Center/Zoom`, `captureMapSnapshot`, `simplifySelectedFeatures`, `combineSelectedFeatures`, etc. | The drawing API wraps these. No parametric-shape primitives (circle/buffer) yet — those are net-new. |
-| State slices | `editorCoreSlice`, `stanceSlice` (`browse\|focus\|author`), `mapStackSlice`, `catalogSlice`, `workspaceSlice` (has `sourceId`, `datasetKey`, `chatSessionId`, `activeDraftId`), `metadataSlice`, `publishingSlice`. | **Workspace already binds a chat session to a dataset** (`workspace.chatSessionId`, `datasetKey`). The "bound edit target" is mostly already modeled. |
-| Chat ↔ workspace binding | `useDatasetManagement.ts` calls `createWorkspaceChat()` and `updateWorkspace(id,{chatSessionId})`; binds silently. | The data is there; v1.1 adds the **visible chip** + add/modify/delete intent + safety level. |
-| Styling | Per-feature style props on `feature.properties` (`styleProperties.ts`: color/stroke/fill/radius/label) consumed by `RenderingManager`/`LayerManager` + `buildStyles.ts`. | No per-dataset / data-driven (attribute→style) layer exists. Net-new but slots above the existing per-feature layer. |
-| Encrypted settings | `settingsStorage.ts` — `loadEncryptedChatSettings/saveEncryptedChatSettings(signer,pubkey,settings)`, nip44-preferred/nip04-fallback via `ISigner`, localStorage envelope `earthly.chat-settings.v1.<pubkey>`. | **The encrypt/decrypt-with-nsec pattern already exists.** v1.1 extends the payload (API keys, provider addresses) — not the mechanism. |
-| Sandbox / worker infra | NONE for code execution. Only `src/lib/geo/workerJsonParse.ts` (blob parse) and TipTap iframes. No `xlsx`/`papaparse`/`comlink`/`quickjs` deps installed. | Code interpreter + file parsing are genuinely new infrastructure. |
-| MCP transport | `EarthlyGeoServerClient` over Nostr (ContextVM). Hard payload-size constraints. | Sandbox runs **client-side**, not over MCP. File parsing also client-side to avoid the Nostr payload ceiling. |
+> This file answers "how do the new entity kinds integrate with the existing applesauce Factory+Cast / EventStore architecture and the MapLibre editor?" It is opinionated and codebase-specific. Every pattern below mirrors an existing one in `src/lib/nostr/{geo-event,map-context,geo-comment,geo-proposal}/`.
 
 ---
 
@@ -30,344 +13,349 @@
 ### System Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                              CHAT FEATURE (src/features/chat)                   │
-│  ┌────────────┐   ┌──────────────────────────────────────────────────────┐    │
-│  │ ChatPanel  │   │ store.ts  (tool-call round loop, streaming, budgeting) │    │
-│  │   + file   │──▶│   executeToolCall(toolCall, ToolExecutionContext)      │    │
-│  │   dropzone │   └───────────────┬──────────────────────────────────────┘    │
-│  └────────────┘                   │ (NEW) dispatch via central ToolRegistry     │
-│        │ upload                    ▼                                             │
-│  ┌─────────────┐    ┌──────────────────────────────────────────────────────┐   │
-│  │ IngestStore │◀───│ Tool Registry  (tools/registry.ts) — schema+executor   │   │
-│  │ (parsed     │    │   • map/editor write tools   • OSM/Valhalla/web tools  │   │
-│  │  datasets,  │    │   • editor_* (from commands) • (NEW) parametric/batch  │   │
-│  │  by ref id) │    │   • (NEW) run_code / list_ingested / read_ingested     │   │
-│  └─────────────┘    └───────┬───────────────────────────┬──────────────────┘   │
-│        ▲                     │ run_code                   │ all editor mutations  │
-│        │ parsed refs         ▼                            ▼                       │
-│  ┌─────────────┐   ┌──────────────────────┐   ┌──────────────────────────────┐  │
-│  │ FileParsers │   │ SandboxHost          │   │  Drawing/Authoring API        │  │
-│  │ (csv/xlsx/  │   │ (Worker, postMessage │──▶│  (geo-editor/api/*)           │  │
-│  │  json/geo/  │   │  RPC bridge)         │   │  "as-if-package" facade over  │  │
-│  │  img/text)  │   │  generated JS runs   │   │  GeoEditor managers + commands │  │
-│  └─────────────┘   └──────────────────────┘   └───────────────┬──────────────┘  │
-└────────────────────────────────────────────────────────────────┼───────────────┘
-                                                                   ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                       GEO-EDITOR FEATURE (src/features/geo-editor)              │
-│  ┌──────────────────────────┐   ┌──────────────────────────────────────────┐   │
-│  │ commands.ts registry      │   │ store/ slices                            │   │
-│  │ (editor commands + ai)    │   │  stance · mapStack · workspace(BINDING)  │   │
-│  └────────────┬─────────────┘   │  (NEW) editTargetSlice · styleSlice       │   │
-│               ▼                  └───────────────┬──────────────────────────┘   │
-│  ┌──────────────────────────────────────────────┼─────────────────────────┐    │
-│  │ GeoEditor.ts  +  managers                     ▼                          │    │
-│  │  Layer · Rendering · Selection · Transform · Snap · History · Simplify   │    │
-│  │  (NEW) StyleManager (data-driven attribute→paint)  (NEW) ParametricOps   │    │
-│  └──────────────────────────────────────────────────────────────────────┘      │
-└──────────────────────────────────────────────────────────────────────────────┘
-        ▲ encrypt/decrypt (signer)                        ▲ round-trip
-        │                                                 │
-┌───────┴────────────────┐                    ┌───────────┴───────────────────┐
-│ Encrypted Settings      │                    │ Nostr (applesauce)            │
-│ settingsStorage.ts      │                    │ kind 37515/37516 events,      │
-│ (AccountManager signer) │                    │ style config in event tags    │
-└─────────────────────────┘                    └───────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│  AUTHORING UI (React 19)  — per-kind create/edit/comment/attach panels │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐     │
+│  │ Article  │ │  Group   │ │ Beacon   │ │ Sighting │ │ Dataset  │     │
+│  │ editor   │ │ editor   │ │ editor   │ │ editor   │ │ (37515)  │     │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘     │
+├───────┼────────────┼────────────┼────────────┼────────────┼──────────┤
+│  READ HOOKS  (src/lib/hooks, src/lib/nostr/hooks.ts)                  │
+│   useArticles · useGroups · useLiveBeacons · useSightings  (kind-typed │
+│   wrappers around useTimelineWithEose + castEvent)                     │
+├──────────────────────────────────────────────────────────────────────┤
+│  ENTITY MODULES  (src/lib/nostr/<entity>/)  — Factory + Cast + helpers │
+│   factory.ts (write) · cast.ts (read view) · helpers.ts (pure tag fns) │
+│   shared: src/lib/nostr/tags.ts (bbox/g/L/l/t/c/a) [NEW]               │
+├──────────────────────────────────────────────────────────────────────┤
+│  APPLESAUCE CORE SINGLETONS  (src/lib/nostr/index.ts)                  │
+│   EventStore (dedup + replaceable + #tag index) · RelayPool · accounts │
+│   · NostrIDB cache · createEventLoaderForStore · publish()             │
+├──────────────────────────────────────────────────────────────────────┤
+│  MAP RENDER  (src/features/geo-editor/)                                │
+│   GeoEditor + LayerManager (GeoJSONSource.setData) · Authoring API     │
+│   (createAuthoring) is the ONLY geometry-write seam                    │
+└──────────────────────────────────────────────────────────────────────┘
+        ↑ reads/writes                              ↑ relay traffic
+   Nostr relay (Khatru/Go)  ←  publish() / pool.req(filters)
 ```
 
 ### Component Responsibilities
 
-| Component | Responsibility | Where it lives |
-|-----------|----------------|----------------|
-| **Drawing/Authoring API** | Single "as-if-package" facade over editor mutations. Callable identically by UI, chat tools, and sandbox. No Zustand reach-across. | NEW: `src/features/geo-editor/api/` (e.g. `index.ts`, `authoringApi.ts`) |
-| **Tool Registry** | Central `Map<toolName, {schema, execute}>`. Replaces the switch in `execute.ts`. Composes map/OSM/web/editor/sandbox tools. | NEW: `src/features/chat/tools/registry.ts` (executors move out of `execute.ts`) |
-| **SandboxHost** | Owns the Worker, the postMessage RPC protocol, timeouts, error capture, and the API-call bridge. | NEW: `src/features/chat/sandbox/SandboxHost.ts` + `sandbox.worker.ts` |
-| **FileParsers** | Pure functions: `File → ParsedDataset` (tabular rows, detected geometry columns, text, image meta). | NEW: `src/features/chat/ingest/parsers/*` |
-| **IngestStore** | Holds parsed datasets keyed by `ref` id; exposes summaries to LLM context + full rows to tools/sandbox. | NEW: `src/features/chat/ingest/ingestStore.ts` (Zustand or chat-store slice) |
-| **editTargetSlice** | The "bound edit target": dataset/context the chat may modify, add/modify/delete intent, safety level. | NEW slice in `geo-editor/store/` (built on existing `workspace.chatSessionId`/`datasetKey`) |
-| **StyleManager** | Compiles attribute→style rules into MapLibre paint/layout; consumed by RenderingManager. | NEW manager in `geo-editor/core/managers/` |
-| **DiffPreview** | Computes add/modify/delete diff between current dataset and a proposed feature set; renders a preview layer; gates apply. | NEW: `geo-editor/core/` helper + a ghost render layer |
+| Component | Responsibility | Existing analogue to copy |
+|-----------|----------------|---------------------------|
+| `<entity>/helpers.ts` | Pure, cached tag/content getters + `is<Entity>()` type guard + `<Entity>Event` type | `map-context/helpers.ts` |
+| `<entity>/cast.ts` | Read-only `EventCast` view; raw-event proxies + typed getters | `map-context/cast.ts` |
+| `<entity>/factory.ts` | `EventFactory` write builder (`create`/`modify`/`update`) + `delete<Entity>()` | `geo-event/factory.ts`, `map-context/factory.ts` |
+| `<entity>/index.ts` | Barrel re-export of cast+factory+helpers | `map-context/index.ts` |
+| `use<Entity>()` hook | Kind-typed wrapper around `useTimelineWithEose` + `castEvent` | `useGeoDatasets` / `useMapContexts` |
+| `tags.ts` (NEW) | Shared tag read/write helpers (`bbox`, `g`, `L`/`l`, `t`, `c`, `a`) so every kind shares one implementation | extract from `geo-event/helpers.ts` + `map-context/helpers.ts` |
+| Authoring API (`createAuthoring`) | Sole geometry-mutation seam into the map | `src/features/geo-editor/api/authoring.ts` (unchanged) |
+| LayerManager | `addSource`/`setData` for live + static geometry | `core/managers/LayerManager.ts` |
 
 ---
 
 ## Recommended Project Structure
 
 ```
-src/
-├── features/
-│   ├── geo-editor/
-│   │   ├── api/                      # (NEW) the "as-if-package" authoring boundary
-│   │   │   ├── index.ts              #   public exports — the ONLY entrypoint others import
-│   │   │   ├── authoringApi.ts       #   createAuthoringApi(editor) → stable verbs
-│   │   │   └── types.ts              #   AuthoringApi interface, ApiResult<T>, intents
-│   │   ├── commands.ts               # extend: parametric/batch commands register here
-│   │   ├── core/
-│   │   │   └── managers/
-│   │   │       ├── StyleManager.ts   # (NEW) data-driven attribute→paint
-│   │   │       └── ParametricOps.ts  # (NEW) circle/buffer/grid generators (pure-ish)
-│   │   └── store/
-│   │       ├── editTargetSlice.ts    # (NEW) bound target + intent + safety level
-│   │       └── styleSlice.ts         # (NEW) per-dataset style configs
-│   └── chat/
-│       ├── tools/
-│       │   ├── registry.ts           # (NEW) central registry: name → {schema, execute}
-│       │   ├── definitions.ts        # becomes a thin "collect schemas from registry"
-│       │   ├── execute.ts            # shrinks to a registry lookup + dispatch
-│       │   └── executors/            # (NEW) one file per tool family (osm, web, editor, ingest, code)
-│       ├── ingest/
-│       │   ├── ingestStore.ts        # (NEW) parsed datasets by ref id
-│       │   ├── parsers/              # (NEW) csv.ts, xlsx.ts, json.ts, geojson.ts, image.ts, text.ts
-│       │   └── geometrize.ts         # (NEW) rows+columns → GeoJSON heuristics
-│       ├── sandbox/
-│       │   ├── SandboxHost.ts        # (NEW) Worker lifecycle + RPC + timeout
-│       │   ├── sandbox.worker.ts     # (NEW) worker entry; runs generated code
-│       │   └── protocol.ts           # (NEW) message types shared host↔worker
-│       └── settings/
-│           └── encryptedSettings.ts  # extend settingsStorage.ts payload (keys/addresses)
+src/lib/nostr/
+├── index.ts                # singletons (UNCHANGED)
+├── kinds.ts                # MODIFIED: add ARTICLE_KIND, LIVE_BEACON_KIND, TEMPORAL_SIGHTING_KIND; keep GROUP_KIND=37518
+├── tags.ts                 # NEW: shared bbox/g/L/l/t/c/a read+write helpers
+├── geo-event/              # 37515 dataset — UNCHANGED (source of `c`/`a` push attachment)
+├── article/                # NEW ~37520 — pull/curate/closed (Story/Article)
+│   ├── cast.ts  factory.ts  helpers.ts  index.ts
+├── group/                  # 37518 RENAMED from map-context/ — slimmed push/attach + governance
+│   ├── cast.ts  factory.ts  helpers.ts  index.ts
+├── live-beacon/            # NEW ~37521 — real-time position
+│   ├── cast.ts  factory.ts  helpers.ts  index.ts
+├── temporal-sighting/      # NEW — NIP-52-flavored time-bound observation
+│   ├── cast.ts  factory.ts  helpers.ts  index.ts
+├── geo-comment/            # 37517 — MODIFIED only to widen K/k root-scope kinds
+└── geo-proposal/           # 37519 — UNCHANGED (Article reuses it for propose-edit)
+
+src/lib/context/            # the two-lane + validation logic; minimally:
+├── validation.ts           # MODIFIED: schema/geometry validation moves to a shared off-thread validator
+├── references.ts           # REUSED: curated-lane (inline naddr → `a`) for Article + Group pinned refs
+└── scope.ts                # REUSED: foreign-lane (`c` attach discovery) for Group
+
+src/lib/validation/         # NEW
+└── schemaWorker.ts         # NEW: Ajv compile+validate off main thread (Web Worker)
+
+src/features/
+├── articles/               # NEW: ArticleEditorPanel, ArticleViewPanel (Markdown + inline naddr)
+├── groups/                 # RENAMED from features/contexts/: GroupEditorPanel, GroupViewPanel (two-lane)
+├── beacons/                # NEW: BeaconPublishControl, LiveBeaconLayer (moving point)
+├── sightings/              # NEW: SightingEditorPanel, SightingMarker
+└── geo-editor/             # MODIFIED: LayerManager gains a live-source; routing gains focusTypes
 ```
 
 ### Structure Rationale
 
-- **`geo-editor/api/` as a folder, not a file:** the PROJECT.md constraint ("designed as if it were a future package export") is satisfied by giving the API its own directory with a single `index.ts` barrel. Everything else (chat tools, sandbox, toolbar UI) imports only from `@/features/geo-editor/api`. This makes the future package extraction a `mv` + `package.json`, and an import-lint rule can forbid reaching past the barrel.
-- **`tools/executors/` by family:** the current 660-line `execute.ts` mixes OSM tiling logic, geometry baking, and editor passthrough. Splitting by family keeps each executor testable and lets the registry compose them.
-- **`chat/ingest` and `chat/sandbox` under chat, not geo-editor:** parsed files and generated code are chat concerns. They *call into* the geo-editor API but don't belong to the editor's domain.
+- **One folder per kind, same four files.** The repo already proves this shape four times (`geo-event`, `map-context`, `geo-comment`, `geo-proposal`). New kinds slot in identically; the solo maintainer gets zero new mental model. Matches "amend, don't replace" — leaves stay, you add siblings.
+- **`tags.ts` extraction is the only new abstraction.** Today `bbox`/`g`/`c`/`a` getters are copy-pasted between `geo-event/helpers.ts` and `map-context/helpers.ts`. Four more kinds would multiply that duplication; extract once now while touching all of them. Do NOT over-abstract beyond tag read/write — content shapes stay per-kind.
+- **`group/` is a rename of `map-context/`, not a rewrite.** The 37518 cast/factory/helpers are ~90% of what the slimmed Group needs. Renaming preserves git history and honors "amend." Strip the curate-lane responsibility (inline-naddr → `referencedAddresses`) out to `article/`; keep the `c`-attach + governance content fields.
 
 ---
 
 ## Architectural Patterns
 
-### Pattern 1: The Authoring API as the single mutation seam
+### Pattern 1: Factory + Cast per kind (the repo's universal Nostr seam)
 
-**What:** One factory `createAuthoringApi(editor: GeoEditor): AuthoringApi` returns a flat object of verbs. Three callers use the *same* object:
-1. Direct UI (Toolbar buttons) — call `api.addFeatures(...)`.
-2. Chat tool execution — registry executors call `api.*`.
-3. Sandbox — the worker RPC bridge resolves each call to `api.*` on the host.
+**What:** Every kind has (a) a `helpers.ts` of pure cached tag getters + a type guard, (b) a `cast.ts` `EventCast` subclass exposing typed getters over a raw `NostrEvent`, (c) a `factory.ts` `EventFactory` subclass with a fluent builder ending in `.sign(signer)`, then `publish()`. Reads cast; writes factory. Nothing else touches raw tags.
 
-**When to use:** Every map mutation. The rule: **nothing mutates the editor except through this API.** `importFeaturesToEditor` in `helpers.ts` (which currently reaches into `useEditorStore.getState()`) gets reimplemented on top of it.
+**When to use:** Always, for all four new kinds. Non-negotiable house style.
 
-**Trade-offs:** One more indirection layer; but it is the explicit deliverable in PROJECT.md and the prerequisite for the sandbox. The cost is paid once.
+**Trade-offs:** Boilerplate-heavy (four files × four kinds) but uniform and trivially reviewable. Cached-symbol getters (`getOrComputeCachedValue`) keep repeated reads cheap.
+
+**Example (Live Beacon, abbreviated — mirrors `map-context/cast.ts`):**
+```typescript
+// live-beacon/helpers.ts
+export type LiveBeaconEvent = KnownEvent<typeof LIVE_BEACON_KIND>
+export function isLiveBeacon(e: NostrEvent): e is LiveBeaconEvent {
+  return e.kind === LIVE_BEACON_KIND && getTagValue(e, 'd') !== undefined
+}
+export function getBeaconPosition(e: NostrEvent): [number, number] | undefined { /* parse `g`/content */ }
+
+// live-beacon/cast.ts
+export class LiveBeacon extends EventCast<LiveBeaconEvent> {
+  constructor(event: NostrEvent, store: CastRefEventStore) {
+    if (!isLiveBeacon(event)) throw new Error('not a LiveBeacon')
+    super(event, store)
+  }
+  get position() { return getBeaconPosition(this.event) }
+  get expiresAt() { return getExpiry(this.event) } // NIP-40
+}
+
+// live-beacon/factory.ts
+export class LiveBeaconFactory extends EventFactory<typeof LIVE_BEACON_KIND> {
+  static update(prev: LiveBeaconEvent, pos: [number, number]): LiveBeaconFactory { /* reuse d, set g + content */ }
+}
+```
+
+### Pattern 2: Reference DIRECTION as two distinct EventStore queries
+
+**What:** The whole milestone is "split the kind along reference direction." That axis maps cleanly onto two query shapes the EventStore already supports via tag-indexed filters (`#a`, `#c`).
+
+**Pull / curate (Article → datasets), the lane the Article OWNS:**
+- Author writes inline `nostr:naddr…` in Markdown; on publish, mirror each to an `a` tag (existing `referencedAddresses()` builder in `map-context/factory.ts` does exactly this).
+- Read = resolve the Article's OWN `a` tags to datasets. **No relay query for discovery** — the addresses are in-event. Resolution is `getArticleReferencedAddresses(event)` → `eventStore.getReplaceable(kind, pubkey, d)` per coordinate (or a single `useGeoDatasets` filter `{ '#d':[...], authors:[...] }`). This is `references.ts::resolveContextReferences` / `getContextReferencedDatasets` reused verbatim.
+- Subscription: load the Article (one replaceable), then a bounded batch-load of its referenced coordinates. Closed by construction — nobody else can add to it.
+
+**Push / attach (datasets → Group), the lane the Group DISCOVERS:**
+- Foreign datasets carry `["c","37518:<group-pubkey>:<d>"]` pointing AT the group (existing `geo-event/factory.ts::contextReferences()`).
+- Read = query the relay for everything pointing at the group: `pool.req(relays, { kinds:[37515], '#c':[groupCoordinate] })`. This is the **attach-discovery** subscription. The EventStore indexes `#c`, so `eventStore.timeline({ '#c':[coord], kinds:[37515] })` re-renders reactively. This is `scope.ts::getDirectContextDatasets` (the `allowForeignAttachments` branch) reused.
+- Gating: Group's `allowForeignAttachments` / governance flag decides whether the foreign lane is honored (already implemented).
+
+**When to use:** Article = pull only. Group = push only (+ optional pinned/"canonical" refs which are just a small pull lane reusing the same `a`-tag resolver). The clean split means each kind runs ONE lane, not both — that is the bloat being removed from 37518.
+
+**Trade-offs:** Pull is cheap/bounded/offline-resolvable but the curator must edit to add. Push is open/live/relay-dependent but needs the attach-discovery subscription and governance filtering. They are different subscription lifetimes — keep them in separate hooks.
 
 **Example:**
 ```typescript
-// geo-editor/api/types.ts
-export interface AuthoringApi {
-  // queries (read)
-  getFeatures(): GeoJSON.Feature[]
-  getSelection(): GeoJSON.Feature[]
-  getViewport(): { bbox: BBox; center: LngLat; zoom: number }
-  // mutations (write) — all return a structured ApiResult, never throw across the boundary
-  addFeatures(features: GeoJSON.Feature[], opts?: { replaceExisting?: boolean }): ApiResult<{ added: number }>
-  updateFeature(id: string, patch: Partial<GeoJSON.Feature>): ApiResult
-  deleteFeatures(ids: string[]): ApiResult<{ deleted: number }>
-  setStyleRule(rule: AttributeStyleRule): ApiResult
-  // parametric primitives (NEW)
-  circle(center: LngLat, radiusMeters: number, opts?: CircleOpts): GeoJSON.Feature
-  buffer(feature: GeoJSON.Feature, meters: number): GeoJSON.Feature
-}
+// Article curated lane — bounded, in-event, no discovery query
+const article = useArticle(naddr)                       // one replaceable
+const refs = article?.referencedAddresses ?? []         // mirrored `a` tags
+const { events: datasets } = useGeoDatasets(
+  refs.length ? [{ '#d': dTagsOf(refs), authors: authorsOf(refs) }] : null
+)
 
-// geo-editor/api/authoringApi.ts
-export function createAuthoringApi(editor: GeoEditor): AuthoringApi { /* wraps editor.* */ }
+// Group attach lane — open discovery, reactive on relay
+const groupCoord = group.contextCoordinate
+const { events: attached } = useGeoDatasets(
+  group.allowForeignAttachments ? [{ '#c': [groupCoord] }] : []
+)
 ```
-The API takes a `GeoEditor` instance (not the store) so it has **no Zustand coupling** — satisfying the PROJECT.md "no internal map-state coupling reaching across the boundary" constraint. The store-sync (e.g. `setFeatures`) happens via editor events the store already subscribes to, or a thin `onChange` callback passed at construction.
 
-### Pattern 2: Registry-of-definitions (extend the one in `commands.ts`)
+### Pattern 3: Validation as a pipeline filter at two seams (off-thread)
 
-**What:** `commands.ts` already proves the pattern: an array of definitions each carrying `{id, canExecute, execute, ai:{toolName, parameters}}`, plus `Map`-based lookup. Generalize the *same shape* to all chat tools.
+**What:** Group schema/geometry validation is the only heavy compute. It sits at exactly two seams:
+- **validate-on-fetch (read):** after the attach-discovery query returns foreign datasets, run each through the Group's schema before it enters the strict "map lane." This is `validation.ts::validateDatasetForContext` + `MapContextViewPanel`'s `mapLaneDatasets` filter — already implemented, currently synchronous on the main thread.
+- **validate-on-create (write):** when authoring/attaching into a `schema`-governed Group, validate before publish; surface errors in the editor; offer `getContextRequiredPropertyDefaults` (already exists) to pre-fill.
 
-**When to use:** Adding any new AI tool (parametric shapes, batch ops, ingest readers, `run_code`).
+**Keep it off the main thread / bounded:** Today Ajv compiles + validates synchronously in `validateDatasetForContext` (`src/lib/context/validation.ts`), fine for a handful of datasets but a jank risk under the open-attach lane (potentially many foreign datasets). Move the validator into a Web Worker (`src/lib/validation/schemaWorker.ts`), mirroring the v1.1 off-thread pattern (ingest workers + QuickJS sandbox). Bound it: compile the schema once per Group (cache by `schema-hash`), validate datasets in batches with an idle-yield, and cap eager validation (validate the visible/in-bbox lane first, lazy-validate the rest). Return `ContextValidationResult` unchanged so callers don't move. Keep a synchronous fast-path for ≤N datasets to avoid worker latency on the common small case.
 
-**Trade-offs:** Touching `execute.ts` is invasive (it has bespoke OSM tiling/fallback). Mitigation: registry entries can wrap existing executor functions verbatim — move code, don't rewrite it.
+**When to use:** Group only (Article is closed/no-schema; Beacon/Sighting carry no dataset schema). validate-on-fetch is required for `strict` filter mode; validate-on-create is a UX guardrail.
 
-**Example:**
+**Trade-offs:** Worker hop adds async + serialization; worth it once foreign-attach counts grow.
+
 ```typescript
-// chat/tools/registry.ts
-export interface ChatToolDefinition {
-  name: string
-  schema: Tool                                   // OpenAI function schema (was in definitions.ts)
-  execute: (args: Record<string, unknown>, ctx: ToolExecutionContext) => Promise<ToolResult> | ToolResult
-}
-const registry = new Map<string, ChatToolDefinition>()
-export function registerTool(def: ChatToolDefinition) { registry.set(def.name, def) }
-export function getToolSchemas(): Tool[] { return [...registry.values()].map(d => d.schema) }
-export function getToolExecutor(name: string) { return registry.get(name) }
-// editor commands fold in automatically:
-for (const def of getEditorAiToolDefinitions())
-  registerTool({ name: def.name, schema: toSchema(def), execute: (a) => wrapEditorResult(executeEditorAiTool(def.name, a)) })
+// read seam (strict map lane) — validation.ts behavior, now via worker
+const valid = await validateBatch(group.schema, foreignDatasets)  // worker, cached by schema-hash
+const mapLane = filterMode === 'strict' ? valid.filter(v => v.status==='valid') : foreignDatasets
+
+// write seam (attach into schema group)
+const result = await validateBatch(group.schema, [editorAsDataset])
+if (group.governance==='schema' && result[0].status!=='valid') blockPublishWithErrors(result[0].errors)
 ```
-`execute.ts::executeToolCall` collapses to: parse args → `getToolExecutor(name)` → run → serialize, keeping the existing arg-repair, `toEditor` baking, and error envelope.
 
-### Pattern 3: Worker RPC bridge for the sandbox
+### Pattern 4: Live Beacon transport — parameterized-replaceable updated in place (RECOMMENDED), NIP-40 expiry, ephemeral as an option
 
-**What:** Generated JS runs in a Web Worker (not the main thread, not an iframe). The worker has NO direct DOM/map access. It receives a *proxy* `geo` object whose methods serialize a call message to the host; the host executes `api.*` on the real editor and posts the result back. A correlation id matches request↔response.
+**What:** Three transports were on the table. Recommendation: **parameterized-replaceable (addressable) event updated in place, with a NIP-40 `expiration` tag** — a hybrid that leans replaceable.
 
-**When to use:** All code-interpreter execution.
+- **Replaceable-in-place (CHOSEN):** Beacon is `~37521`, parameterized-replaceable, fixed `d` per beacon lineage. Each position update republishes the same `(kind,pubkey,d)`; the EventStore's replaceable handling auto-collapses to the latest version — the exact mechanism `useGeoDatasets`/`useMapContexts` already rely on. Followers `pool.req({ kinds:[37521], '#d':[id] })` (or `authors`) and the store emits the newest position. A NIP-40 `expiration` tag makes a stale beacon self-expire (relays drop it; client treats expired as "offline"). Persistence across reload is free via NostrIDB cache.
+  - **Why over ephemeral (20000–29999):** ephemeral events are not stored by relays or the EventStore, so a follower who subscribes mid-stream sees nothing until the next tick, there is no "last known position" on reload, and the existing replaceable/cast/cache machinery does not apply — you'd build a parallel transient path.
+  - **Why a touch of hybrid:** for very high-frequency tracking you may emit *ephemeral* interpolation ticks between *replaceable* checkpoints (checkpoint every N seconds to the addressable event for durability/late-joiners; stream ephemerals in between for smoothness). Ship checkpoint-only first; add ephemeral interpolation only if motion looks choppy.
 
-**Trade-offs:** Worker (vs iframe): simpler same-origin messaging, no CSP/iframe sandbox attribute juggling, structured-clone for GeoJSON works out of the box. Downside: a Worker shares origin, so the protocol must be the security boundary — the host only exposes the curated API surface, never `eval`-reachable globals. Geometry crosses as plain objects (structured clone), which is fine for GeoJSON.
+- **Subscription model for live followers:** one `pool.req` per followed beacon, or one filter with `authors:[...]` / `'#d':[...]` for many. The reactive `eventStore.timeline` re-emits on every replace — no manual polling. Throttle publish rate client-side (e.g. ≥3–5 s between updates) to respect relay write limits; throttle render with `requestAnimationFrame`.
 
-> Iframe alternative: only needed if you must run untrusted *3rd-party* code with `sandbox` attribute isolation. For AI-authored code calling a curated API, a Worker is the lighter correct choice. (NIP-5C WASM scrolls — deferred — may later want the iframe; design the protocol so the transport is swappable.)
+- **How MapLibre renders a moving point:** a dedicated `GeoJSONSource` whose `setData()` is called with the new point on each store emit — exactly how LayerManager already drives `SOURCE_CURSOR`/selection sources (`safeGetGeoJSONSource(id).setData(fc)`). Add a `beacons` source + a `circle`/`symbol` layer (LayerManager already builds both layer types). For smooth motion, tween between the last and new coordinate over the update interval with `requestAnimationFrame` and `setData` each frame; MapLibre repaints the circle at the new lng/lat. No new map subsystem — one more source/layer pair in LayerManager.
 
-**Example (protocol):**
-```typescript
-// chat/sandbox/protocol.ts
-type HostBound = { type: 'api-call'; id: string; method: keyof AuthoringApi; args: unknown[] }
-                | { type: 'console'; level: 'log'|'error'; args: unknown[] }
-                | { type: 'done'; result?: unknown } | { type: 'error'; message: string }
-type WorkerBound = { type: 'run'; code: string; apiSurface: string[] }
-                 | { type: 'api-result'; id: string; ok: boolean; value?: unknown; error?: string }
-```
-Worker wraps generated code: `const geo = makeProxy(apiSurface, postCall); await (async () => { <generated code> })()`. The host enforces a hard timeout (`STREAM_STALL_*` constants in `store.ts` are the precedent) and `worker.terminate()` on overrun; every `api-call` is logged so drawn geometry is auditable and the safety layer can intercept destructive calls.
+**When to use:** Beacon kind only. Sightings are static (one observation), so they are plain replaceable points, no live transport.
 
-### Pattern 4: Bound edit target + diff-gated apply
-
-**What:** `editTargetSlice` records `{ targetSourceId, datasetKey, intent: 'add'|'modify'|'delete'|'mixed', safetyLevel: 1|2|3 }`. Builds on the existing `workspace.chatSessionId`/`datasetKey` link. Before any mutation that the safety level guards, the API computes a diff against the bound dataset and renders a ghost preview layer; apply requires confirm (level 1 always, level 2 destructive only, level 3 trust + rely on existing `HistoryManager` undo).
-
-**When to use:** All chat/sandbox-originated edits to a *bound* dataset (free drawing on an empty scratch workspace can stay unguarded).
-
-**Trade-offs:** Diff computation on large datasets costs CPU; key features by id and diff by id-set + geometry/property hash. Reuse `getFeatureDedupeKey` logic from `execute.ts`.
+**Trade-offs:** Replaceable churns event versions on the relay (mitigated by throttle + NIP-40 expiry GC). Ephemeral would avoid storage churn but loses durability/late-join/reload — net worse for this product.
 
 ---
 
 ## Data Flow
 
-### File ingest flow
+### Read flow (per kind — identical to existing dataset/context reads)
 
 ```
-User drops CSV/XLSX/JSON/GeoJSON/image/text in ChatPanel
-   ↓
-FileParsers.parse(file)  →  ParsedDataset { ref, kind, columns, rows, detectedGeometry?, textExcerpt?, imageMeta? }
-   ↓
-IngestStore.put(ref, parsedDataset)            (full rows held client-side, NOT sent inline)
-   ↓ (two consumers, never the raw blob to the model)
-   ├─▶ LLM context: a COMPACT summary message — ref id, column names, row count, 3 sample rows,
-   │     detected lat/lon columns. (Mirrors the existing compactToolMessageContentForPrompt pattern.)
-   └─▶ tools/sandbox: read_ingested(ref) / list_ingested() return rows on demand;
-         sandbox can pull rows by ref and geometrize them via the API.
-   ↓ images
-Capability gate (modelMaySupportVision in store.ts already exists) → attach as image_url part,
-   else disable the image affordance in ChatPanel.
-```
-**Where parsed data lives:** `IngestStore` (client memory, optionally persisted per chat session). Referenced by an opaque `ref` string the model passes to tools. This keeps large files out of the token budget and the Nostr transport — the same discipline the OSM tools already follow.
-
-### Code interpreter flow
-
-```
-Model emits run_code tool call  { code: "...", note: "15 fibonacci circles" }
-   ↓ registry → run_code executor
-SandboxHost.run(code, apiSurface)
-   ↓ postMessage {type:'run'}
-Worker executes generated JS; calls geo.circle(...), geo.addFeatures(...)
-   ↓ each geo.* → {type:'api-call'} → host
-Host: safety check (intent/level) → createAuthoringApi(editor).<method>(...) → ghost-preview or apply
-   ↓ {type:'api-result'} back to worker (e.g. created feature returned to code)
-Worker {type:'done', result} or {type:'error'} (or host timeout → terminate)
-   ↓
-run_code executor returns ToolResult { logs, apiCallCount, featuresAdded, error? }  → model
+component mounts
+   ↓  use<Entity>(filters)
+useTimelineWithEose(filters)               // src/lib/nostr/hooks.ts
+   ↓ queryCache(filters) → eventStore.add  // instant hydrate from IndexedDB
+   ↓ pool.req(relays, filters)             // relay subscription
+   ↓ mapEventsToStore(eventStore)          // dedup + replaceable collapse
+eventStore.timeline(filters)  (reactive)
+   ↓ .map(e => castEvent(e, <Entity>, eventStore))
+typed casts → panel render / map source.setData
 ```
 
-### Data-driven styling flow
+### Reference-direction flows (the milestone's core)
+
+1. **Article (pull):** load Article replaceable → read its `a` tags → batch-load referenced datasets by coordinate → render in curated lane + map. Self-contained, bounded, works offline from cache.
+2. **Group (push):** load Group replaceable → if `allowForeignAttachments`, open `{ kinds:[37515], '#c':[groupCoord] }` discovery sub → validate-on-fetch through worker → strict/warn/off filter → map lane. Plus optional pinned `a`-refs via the same pull resolver as Article.
+3. **Beacon (live):** publish replaceable position updates (throttled, `expiration` tag) → followers' `eventStore.timeline({kinds:[37521],…})` re-emits latest → LayerManager `beacons` source `setData()` per tick (tweened).
+4. **Sighting (temporal):** publish replaceable point with NIP-52 time fields (+ optional NIP-40 expiry) → render as a time-badged marker; filter by time window client-side.
+
+### State management
 
 ```
-Chat: "color ports blue, airports red, waterways teal"
-   ↓ set_style_rule tool → api.setStyleRule({ attribute:'type', map:{port:'#…',airport:'#…'} })
-styleSlice stores per-dataset rules  →  StyleManager compiles to MapLibre data-driven paint
-   ↓ RenderingManager applies (match/case expression on feature property)
-On publish: rules serialized into the kind 37515 event (tag, e.g. ["style", "<json>"]) →
-   on load, parsed back into styleSlice. (Round-trip; no schema break — additive tag.)
+EventStore (single instance, src/lib/nostr/index.ts)
+   ↑ pool.req → mapEventsToStore (subscriptions add)
+   ↑ publish() → eventStore.add (own writes)
+   ↓ timeline/getReplaceable (reactive reads via use$)
+Zustand editor store  ← geometry mirror only (features, viewContext→viewGroup, filter mode)
+   ↓ Authoring API (createAuthoring) is the ONLY geometry write into GeoEditor
 ```
-
-### Encrypted settings flow (extends existing)
-
-```
-ChatSettings (provider, apiKey, lmstudio/ollama addresses)
-   ↓ on change
-saveEncryptedChatSettings(signer, pubkey, settings)   ← signer from applesauce AccountManager
-   ↓ nip44 (preferred) / nip04 (fallback) encrypt to self
-localStorage  earthly.chat-settings.v1.<pubkey>  (envelope: {version,scheme,ciphertext,updatedAt})
-   ↓ on login/reload
-loadEncryptedChatSettings(signer, pubkey) → hydrateSettings()   (store.ts action exists)
-```
-The encrypt/decrypt sits **at the signer boundary** (AccountManager → `ISigner.nip44/nip04`), exactly as `settingsStorage.ts` already does. v1.1 only widens `ChatSettingsSnapshot` to include keys/addresses (today it holds `customApiKey` already — extend, don't rebuild).
 
 ---
 
-## Build Order (dependency-ordered)
+## Scaling Considerations
 
-> The hard dependency: **the sandbox cannot exist without the Authoring API, and a clean tool surface wants the registry.** Front-load both.
+| Scale | Architecture adjustments |
+|-------|--------------------------|
+| Single user / few entities | Synchronous Ajv validation fine; replaceable beacons trivially cheap; no worker needed |
+| Busy Group (many foreign `c` attachments) | Move validation to the worker (Pattern 3); bbox-bound the attach-discovery filter (`#c` + viewport); lazy-validate off-screen datasets |
+| Many concurrent beacons | One multiplexed filter (`authors`/`#d` arrays) instead of N subscriptions; throttle publish; NIP-40 GC; ephemeral interpolation only if needed |
 
-| Phase | Deliverable | Depends on | Why this order |
-|-------|-------------|------------|----------------|
-| **P1 — Tool Registry refactor** | `tools/registry.ts`; move switch-case executors into `tools/executors/*`; `definitions.ts` collects schemas from registry; `execute.ts` → registry dispatch. Fix the orphan-vs-wired audit (all defined tools register). | Nothing (pure refactor) | Prerequisite for cleanly adding parametric/batch/`run_code`/ingest tools. De-risks everything after by establishing the seam. Behavior-preserving → easy to verify against current chat. |
-| **P2 — Authoring API** | `geo-editor/api/` barrel + `createAuthoringApi(editor)`; reimplement `importFeaturesToEditor` and editor write tools on top; add parametric primitives (`circle`, `buffer`, grid) as both API methods and registered tools. | P1 (tools register against it) | The single mutation seam. Required by sandbox AND satisfies the PROJECT.md "drawing API as package export" pillar. Add parametric ops here so the sandbox has something worth calling. |
-| **P3 — File Ingest** | `ingest/parsers/*`, `ingestStore.ts`, `geometrize.ts`, ChatPanel dropzone, `list_ingested`/`read_ingested` tools, compact-summary context injection, vision capability gate (reuse `modelMaySupportVision`). | P1 (tools), P2 (geometrize → `api.addFeatures`) | Independent of sandbox; can land in parallel-ish after P2. Feeds both LLM context and the sandbox. |
-| **P4 — Code Interpreter** | `sandbox/SandboxHost.ts`, `sandbox.worker.ts`, `protocol.ts`, `run_code` tool, timeout/error handling, api-call audit log. | **P2 (API surface)**, P1 (registry), benefits from P3 (read ingested in code) | Hard-blocked on P2. This is the headline capability; everything it does flows through the API. |
-| **P5 — Dataset-aware Safe Editing** | `editTargetSlice` (intent + safety level), visible binding chip, DiffPreview ghost layer, safety-gated apply wired into the API. | P2 (intercept at API), existing `workspace.chatSessionId`/`mapStack`/`stance` | Wraps the API's mutating verbs. Needs P2 done so there's a single place to gate. Completes the carried-over binding-chip work. |
-| **P6 — Data-driven Styling** | `styleSlice`, `StyleManager`, `set_style_rule` tool, Nostr round-trip (additive event tag). | P2 (API method), RenderingManager/LayerManager | Independent feature; can follow P2. Round-trip touches publishing/loading (`usePublishing`, `useDatasetManagement`). |
-| **P7 — Geometry optimization at ingest** | AI-driven simplify + merge-to-multi + microgap stitch to hit size limits. | P2 (`simplifySelectedFeatures`/`dissolveSelectedLines` already exist as commands), P3 (ingest) | Mostly composes existing managers (`SimplifyManager`, `LineOperationsManager`) via the API + a sizing check; low new-infra, so it can land late. |
+### Scaling priorities
 
-**Critical path:** P1 → P2 → P4. P3, P5, P6, P7 hang off P2 and can be sequenced by demo value (P5 for the "safe editing" story, P3 for the "ugly CSV" story).
+1. **First bottleneck:** main-thread Ajv validation under the open-attach lane → off-thread worker + schema-hash compile cache.
+2. **Second bottleneck:** beacon publish/relay write churn → client-side throttle + NIP-40 expiry; multiplex follower subscriptions.
 
 ---
 
 ## Anti-Patterns
 
-### Anti-Pattern 1: Building a second tool system instead of extending the registry
-**What people do:** Add a new `aiToolsV2` array or a parallel dispatcher for "AI-oriented" tools.
-**Why it's wrong:** `commands.ts` already is the registry pattern; a parallel system re-creates the exact drift (`definitions.ts` vs `execute.ts`) this milestone is meant to fix.
-**Do this instead:** One registry; editor commands fold in via `getEditorAiToolDefinitions()`; new tools `registerTool(...)`.
+### Anti-Pattern 1: Keeping the discriminated-union "context" and adding a `type` field
+**What people do:** Add `entityType` inside 37518 content instead of separate kinds.
+**Why it's wrong:** That is precisely the two-orthogonal-axes bloat the milestone exists to delete; relay-level kind filters stop working; one cast/factory grows conditionals.
+**Do this instead:** One kind per reference-direction role; governance stays a content object inside Group only.
 
-### Anti-Pattern 2: Letting the sandbox (or chat tools) touch the Zustand store directly
-**What people do:** `useEditorStore.getState().setFeatures(...)` from the worker bridge or a new tool (today's `helpers.ts::importFeaturesToEditor` does exactly this).
-**Why it's wrong:** Violates the PROJECT.md "no internal map-state coupling across the boundary" constraint and makes the future package extraction impossible.
-**Do this instead:** All mutation through `createAuthoringApi(editor)`. The store learns of changes through editor events it already subscribes to.
+### Anti-Pattern 2: Reimplementing tag getters / casts per new kind
+**What people do:** Copy `getContextBoundingBox`, `getContextHashtags`, etc. into each new helpers file.
+**Why it's wrong:** Four kinds × duplicated `bbox/g/L/l/t/c/a` = drift and review burden, against "amend don't replace."
+**Do this instead:** Extract shared tag read/write into `src/lib/nostr/tags.ts`; per-kind helpers handle only content shape + type guard.
 
-### Anti-Pattern 3: Sending parsed files or full geometry into the model context
-**What people do:** Stuff CSV rows / full GeoJSON into the prompt or a tool result.
-**Why it's wrong:** Blows the token budget (`store.ts` already fights this) and, for tool results crossing MCP, the Nostr payload ceiling.
-**Do this instead:** IngestStore holds rows by `ref`; model gets a compact summary; tools/sandbox pull rows on demand. Reuse the `compactToolMessageContentForPrompt` discipline.
+### Anti-Pattern 3: Beacon via ephemeral-only events
+**What people do:** Use 20000-range ephemeral events for live position to "avoid relay churn."
+**Why it's wrong:** No durable last-known position, late-joiners see nothing, no reload persistence, bypasses the entire EventStore/cast/cache stack.
+**Do this instead:** Parameterized-replaceable updated in place + NIP-40 expiry; reuse the existing replaceable machinery.
 
-### Anti-Pattern 4: Running generated code on the main thread or via `new Function`/`eval`
-**What people do:** `eval(code)` in the page for speed.
-**Why it's wrong:** Blocks the UI, can crash MapLibre, gives the code the whole `window` (and the user's signer/wallet).
-**Do this instead:** Worker with a curated API proxy and a hard timeout; the postMessage protocol is the security boundary.
-
-### Anti-Pattern 5: Hardcoding one safety model
-**What people do:** Always preview-and-confirm, or always trust.
-**Why it's wrong:** PROJECT.md Key Decision: safety is user config (1/2/3, default 2). One model frustrates someone.
-**Do this instead:** `editTargetSlice.safetyLevel` gates at the single API mutation seam.
+### Anti-Pattern 4: Writing geometry to the map outside `createAuthoring`
+**What people do:** Have a beacon/sighting panel call `editor.setFeatures`/`map.addSource` directly.
+**Why it's wrong:** Breaks the single-mutation-seam invariant (`boundary.test.ts` enforces it) and the safe-editing gate.
+**Do this instead:** Live/transient render layers (beacon source) are LayerManager-owned *display* layers, not editor features; persistent geometry routes through the Authoring API.
 
 ---
 
 ## Integration Points
 
-### Internal Boundaries
+### Internal boundaries
 
 | Boundary | Communication | Notes |
 |----------|---------------|-------|
-| chat tools ↔ geo-editor | import `@/features/geo-editor/api` only | The barrel is the contract; lint-forbid deeper imports |
-| sandbox worker ↔ host | postMessage RPC (`protocol.ts`), correlation ids | Structured clone for GeoJSON; host runs `api.*`, worker never touches map |
-| API ↔ GeoEditor | direct method calls on the `GeoEditor` instance | No store reach-across; store syncs via editor events / onChange |
-| safety layer ↔ API | API mutating verbs consult `editTargetSlice` | Single gate point; diff/preview before apply |
-| styling ↔ Nostr | additive event tag on 37515 | Round-trips through `usePublishing`/`useDatasetManagement` |
-| settings ↔ signer | `ISigner.nip44/nip04` via AccountManager | Reuse `settingsStorage.ts` verbatim, widen payload |
+| Read hooks ↔ EventStore | `useTimelineWithEose` → `pool.req` → `mapEventsToStore` → `eventStore.timeline` | Reuse as-is; new hooks differ only in `kinds` + cast class |
+| Entity factory ↔ relay | `EntityFactory.create()…sign(signer)` → `publish(event, {routing})` | Same publish seam; Beacon updates use `routing:'outbox'` + throttle |
+| Curated lane ↔ EventStore | inline naddr → `a` tags → `getReplaceable` per coord | `references.ts` reused for Article + Group pinned refs |
+| Attach lane ↔ relay | `{ kinds:[37515], '#c':[groupCoord] }` discovery sub | `scope.ts` reused; gated by `allowForeignAttachments` |
+| Validation ↔ UI | `validateDatasetForContext` (→ worker) returns `ContextValidationResult` | Result type unchanged; only execution moves off-thread |
+| Beacon/Sighting ↔ map | LayerManager `source.setData()` per store emit | New `beacons` source/layer; mirrors `SOURCE_CURSOR` pattern |
+| Comments ↔ new kinds | 37517 `K`/`k` root-scope widened to new kinds | `geo-comment` minimal change; reactions (kind 7) need no change |
 
-### External Services
+### External services
 
-| Service | Integration Pattern | Notes |
+| Service | Integration pattern | Notes |
 |---------|---------------------|-------|
-| ContextVM MCP (OSM/web/Valhalla) | `EarthlyGeoServerClient` over Nostr | Unchanged; payload-size limits mean ingest/sandbox stay client-side |
-| Routstr/LM Studio/Ollama/custom | OpenAI-compatible streaming (`routstr.ts`) | Vision gate via `modelMaySupportVision`; addresses now in encrypted settings |
-| Nostr relays (applesauce) | EventStore/RelayPool; kind 37515/37516 | Style round-trip is an additive tag; no kind changes |
+| Khatru relay | `pool.req` (read) / `pool.publish` (write); must index `#c`,`#a`,`#L`,`#l`,`#d` | Verify relay honors NIP-40 expiration GC for beacons |
+| NostrIDB cache | `persistEventsToCache` + `queryCache` | Free durable last-known beacon position + offline curated lanes |
+| MapLibre GL | `GeoJSONSource.setData` via LayerManager | Moving-point = one source, tweened with rAF |
+
+---
+
+## Suggested Build Order (dependency-aware)
+
+Honors "spec → event classes → read/render → authoring UI per kind" and "amend don't replace."
+
+```
+0. SPEC v2  (SPEC.md rewrite)                    [blocks everything]
+   - assign kinds (37520 Article, 37521 Beacon, ~Sighting), define L/l/t/c/a usage,
+     Group governance ladder, Beacon transport (replaceable + NIP-40), Sighting time fields.
+
+1. FOUNDATION (parallel-safe, low risk)
+   1a. kinds.ts constants                                    [indep]
+   1b. tags.ts shared helper extraction (bbox/g/L/l/t/c/a)   [indep, refactor existing]
+   1c. validation worker (move Ajv off-thread)               [indep, refactor existing]
+
+2. GROUP (37518 slim)  — do FIRST among kinds: it is a rename/refactor of existing map-context,
+   lowest risk, and exercises the push/attach lane + governance + validation seams the others reuse.
+   group/{helpers,cast,factory,index} (renamed) → useGroups → GroupViewPanel two-lane → GroupEditorPanel
+
+3. ARTICLE (~37520)  — depends on tags.ts + references.ts (pull lane) + 37519 proposals (reuse).
+   Independent of Group. article/* → useArticles → ArticleViewPanel (Markdown+naddr) → ArticleEditorPanel.
+
+4. SIGHTING (~temporal)  — depends on tags.ts only. Simplest entity (static point + time fields).
+   Fully independent; can run parallel to Article. temporal-sighting/* → useSightings → SightingMarker/Panel.
+
+5. BEACON (~37521)  — depends on tags.ts + a NEW LayerManager live source. Most novel (live transport).
+   Independent of Article/Group/Sighting; sequence last so map-render work doesn't block schema work.
+   live-beacon/* → useLiveBeacons → LayerManager beacons source → BeaconPublishControl.
+
+6. CROSS-CUTTING (after kinds land)
+   - geo-comment K/k widening for all new kinds; reactions verified.
+   - routing focusTypes (article|group|beacon|sighting) in useRouting.
+   - taxonomy L/l authoring + t discovery surfaces.
+```
+
+**Independent vs sequential:**
+- **Sequential prereqs:** Spec (0) → Foundation (1) → everything. Group (2) is the recommended first kind because it is a refactor that validates the shared seams.
+- **Independent of each other:** Article (3), Sighting (4), Beacon (5) share no runtime dependency once Foundation lands — any order or parallel plans. Article additionally reuses 37519 (already shipped). Beacon alone needs new map-render work.
 
 ---
 
 ## Sources
 
-- Codebase (HIGH): `src/features/chat/tools/{execute,helpers,definitions,types,context}.ts`, `src/features/chat/{store,settingsStorage}.ts`, `src/features/chat/ARCHITECTURE.md`
-- Codebase (HIGH): `src/features/geo-editor/commands.ts`, `core/GeoEditor.ts` + `core/managers/*`, `store/{stanceSlice,mapStackSlice,workspaceSlice,types}.ts`, `types/styleProperties.ts`, `components/map/buildStyles.ts`
-- Codebase (HIGH): `src/features/geo-editor/hooks/useDatasetManagement.ts` (chat↔workspace binding)
-- `.planning/PROJECT.md` (v1.1 definition + constraints, esp. "API discipline — Toolbar drawing" and the v1.1 Key Decisions)
+- `src/lib/nostr/index.ts`, `hooks.ts`, `kinds.ts` — applesauce singletons, `useTimelineWithEose`, publish seam (codebase, HIGH)
+- `src/lib/nostr/{geo-event,map-context}/{cast,factory,helpers}.ts` — Factory+Cast house pattern (codebase, HIGH)
+- `src/lib/context/{validation,references,scope}.ts` + `src/components/info-panel/MapContextViewPanel.tsx` — two-lane (curate vs attach) + validation seams (codebase, HIGH)
+- `src/features/geo-editor/core/managers/LayerManager.ts`, `api/authoring.ts` — GeoJSONSource.setData render path + single mutation seam (codebase, HIGH)
+- `node_modules/applesauce-core/dist/event-store/event-store.d.ts` — `getReplaceable`/`getTimeline`/`getByFilters`/`removeByFilters` surface (library types, HIGH)
+- `.planning/PROJECT.md`, `SPEC.md` — target entity model, constraints, current 37518 two-lane spec (HIGH)
+- NIP-40 (expiration), NIP-52 (time-based), NIP-32 (L/l labeling) — protocol conventions for beacon expiry, sighting time, taxonomy (MEDIUM — confirm relay support in spec phase)
 
 ---
-*Architecture research for: Earthly v1.1 AI Chat integration*
-*Researched: 2026-06-16*
+*Architecture research for: Nostr geo entity model split (v1.2)*
+*Researched: 2026-06-23*

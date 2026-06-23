@@ -1,268 +1,256 @@
 # Pitfalls Research
 
-**Domain:** Browser code-interpreter sandbox + AI-driven destructive map authoring + file ingest/multimodal + geometry optimization, layered onto a mature React 19 / MapLibre / applesauce-Nostr app (Earthly v1.1)
-**Researched:** 2026-06-16
-**Confidence:** HIGH (codebase-grounded for integration/encryption/tool-dispatch; HIGH for sandbox + geometry from established web-security and turf/mapshaper behavior)
+**Domain:** Adding role-specific geo entity kinds (Story/Article ~37520, slimmed Group/Topic 37518, Live Beacon ~37521, Temporal Sighting) to a mature decentralized Nostr/applesauce + MapLibre app (Earthly v1.2 Geo Entity Model Split)
+**Researched:** 2026-06-23
+**Confidence:** HIGH for replaceable-event/NIP-40/NIP-32 semantics (verified against NIP-01/32/40 and ajv security docs) · HIGH for schema-DoS · MEDIUM-HIGH for live-location privacy and the "no-moderation" minimum (design-judgement grounded in decentralized-app norms)
 
-> Scope note: this is a SUBSEQUENT milestone on a working app. Most pitfalls below are about *adding* the v1.1 surface (sandbox, ingest, safe-edit, optimization, encrypted settings) without breaking the existing chat, editor, publish, and wallet/signer code. Generic web-security advice is omitted; everything here is specific to these features and to the code already in `src/features/chat/` and `src/features/geo-editor/`.
+> **Milestone framing that shapes every pitfall below:** NIP-72 human moderation/approval + role lists are **DEFERRED**. Spam/abuse mitigation is officially "web-of-trust + muting" — but those are also out of scope this milestone. So for v1.2 the open-attach Group ships with **no human moderator and no WoT filter**. Several pitfalls below are about what the *minimum client-side defenses* must be so the open Group is still usable on day one. Those are flagged **[NO-MOD MINIMUM]**.
+
+> **Phase note:** No v1.2 roadmap exists yet. Phase assignments below use the natural decomposition implied by PROJECT.md — a **Taxonomy & Clean-Break Foundation** phase, then one phase per entity kind (**Story/Article**, **Group/Topic + schema governance**, **Live Beacon**, **Temporal Sighting**), plus a cross-cutting **Reference-integrity / Authoring-UI** concern. Re-map if the roadmap groups differently.
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: "Sandbox" that isn't — iframe `sandbox` attr or blob-URL Worker treated as a security boundary while same-origin / host objects leak in
+### Pitfall 1: Live Beacon replaceable-event overwrite race (last-write-wins, clock skew, propagation lag)
 
 **What goes wrong:**
-The code interpreter is built as a Web Worker created from a `Blob`/`new Function`, or an `<iframe sandbox>`, and the host passes the *real* toolbar/drawing API object, the Zustand store, the NDK/applesauce signer, or `window` references into it. Generated JS then reads `signer`, `localStorage`, `EventStore`, or the Cashu wallet directly. A blob-URL Worker inherits the page's origin, so it can `fetch()` same-origin endpoints and read same-origin storage; `<iframe sandbox>` without `allow-same-origin` is better but is routinely defeated by re-adding `allow-same-origin allow-scripts` (which together void the sandbox) or by `Function('return this')()` escapes when the host messages structured-clonable-but-live references in.
+The Beacon (~37521) is a parameterized-replaceable event keyed by `kind:pubkey:d`. Every position update reuses the same `d` and the relay keeps only the newest by `created_at`. Three failure modes stack:
+1. **Clock skew makes a stale fix "win."** If the user's device clock is ahead, an *older* physical position can carry a *future* `created_at` and permanently shadow newer-but-lower-timestamped updates until the clock-ahead event itself is superseded. Verified relay rule (NIP-01): on equal `created_at`, the relay keeps the **lowest lexical event id** and discards the rest — so two updates emitted in the same second resolve by id, not by which is newer in reality.
+2. **Propagation lag across relays.** A beacon published to relays A+B may have update N on A and update N+1 on B; a reader unioning relays sees fl/flicker between positions. Replaceable-event de-dup is *per relay*, so the reader must de-dup again client-side by `created_at`.
+3. **Multi-device / multi-tab self-collision.** Same pubkey + same `d` from two tabs = two writers racing the same address; positions thrash.
 
 **Why it happens:**
-The fastest way to give generated code "map access" is to hand it the existing API object. The team already has a clean toolbar API mandated by PROJECT.md ("designed as if a future package export"), so it's tempting to expose it by reference. Worker/iframe isolation is assumed to be a security boundary when it's really only a *thread/DOM* boundary unless origin + CSP + message-only contract are all enforced.
+Developers treat a replaceable event like a mutable variable with strong consistency. It is eventually-consistent, per-relay, with a non-obvious tie-break and no server clock. Beacons make the race visible because updates are frequent (seconds), unlike datasets (rarely).
 
 **How to avoid:**
-- Treat the sandbox as **message-passing only**. The only thing crossing the boundary is structured-clone JSON (postMessage). No live object, no function, no signer, no store reference ever enters the sandbox.
-- Expose the toolbar/drawing API as an **async RPC proxy**: inside the sandbox, `map.addFeature(...)` serializes `{op, args}` and posts to the host; the host validates against an allow-list and executes against the real toolbar API. This reuses the clean API boundary PROJECT.md already demands.
-- Use a **cross-origin iframe** (separate origin / `srcdoc` with `sandbox="allow-scripts"` and NO `allow-same-origin`) OR a dedicated Worker with a strict `default-src 'none'; connect-src` CSP. Cross-origin iframe is the stronger primitive for this case because it denies same-origin storage access by construction.
-- The host RPC layer is the *real* security boundary — every op is allow-listed, argument-validated, and rate/time-bounded there, not inside the sandbox.
+- **Never trust `created_at` as truth-of-recency for display.** Carry an explicit monotonic `seq` tag and/or a position-fix timestamp *inside content*, and render the highest `seq` you've seen, not the latest relay copy.
+- **Clamp `created_at`** to `min(deviceNow, lastSeq+ε)`; refuse to publish if device clock is wildly off (sanity-check against relay `created_at` of an echoed event).
+- **De-dup across relays client-side** by `(pubkey,d)` keeping max `seq`; tolerate out-of-order arrival.
+- **Single-writer guard:** a leader-election lock (BroadcastChannel/localStorage) so only one tab publishes a given beacon `d`.
+- **Throttle** publish rate (e.g. ≥ N seconds) to bound relay churn and the size of the flicker window.
 
 **Warning signs:**
-- Any `postMessage` payload, Comlink `expose()`, or Worker constructor that carries a function, the store, the signer, or `window`.
-- `allow-same-origin` together with `allow-scripts` on the iframe.
-- Generated code can call `fetch`, `import()`, or reach `localStorage` at all.
+Position visibly jumps backward; "last seen" timestamp goes down; two relays disagree; beacon appears to teleport when a second tab is open; updates stop landing after a clock change.
 
-**Phase to address:** The sandbox phase — this is the load-bearing decision. Get the boundary contract right before any tool is exposed; retrofitting isolation after the API surface is wired is a rewrite.
+**Phase to address:** **Live Beacon phase** (lifecycle/visibility model is explicitly open for phase research per PROJECT.md — resolve replaceable-vs-ephemeral *and* the seq/clock model together).
 
 ---
 
-### Pitfall 2: AI clobbers the wrong dataset — silent binding + no diff + bulk irreversible writes
+### Pitfall 2: JSON-Schema validation as a client-side DoS vector (untrusted Group-owner schema)
 
 **What goes wrong:**
-Chat is bound to a target dataset via the existing `bindActiveWorkspaceChat()` which (per PROJECT.md) "binds silently." The AI runs a batch transform ("translate all names", "recolor by attribute") against whatever the editor currently holds, overwrites features in place, and the user discovers afterward that it edited the wrong context, dropped properties on features it didn't recognize, or replaced a 400-feature dataset with the 12 it could "see." Because writes go straight through `write_geojson_to_editor` / `add_feature_to_editor` (existing tools in `execute.ts`), there is no diff and the only undo is the editor's geometry-level history, which does not capture property/style mutations or dataset-binding mistakes.
+A Group/Topic owner authors `schema` (and `geometryConstraints`) in the 37518 content. Every *other* client that opens that Group fetches and runs that schema against attached datasets on the fetch path. An owner (or impersonator) can ship a schema that hangs or OOMs the validator:
+- **ReDoS `pattern`:** a `pattern` like `^(a+)+$` against a long string is exponential. Confirmed live class of bug: ajv < 8.18.0 ReDoS (CVE-2025-69873) — a 31-char payload ≈ 44s CPU, doubling per char. Even without that CVE, *any* `pattern` keyword is attacker-controlled regex run on attacker-or-victim data.
+- **Recursive `$ref` / huge schema:** deep/mutually-recursive `$ref` blows the resolver; a multi-megabyte schema or deeply nested `allOf`/`anyOf` explodes compile/validate time. (SPEC already says "no external $ref in v1" — but internal `$ref` and sheer size still bite.)
+- **Schema compiled per render** turns one bad schema into a per-frame hang.
 
 **Why it happens:**
-The current dispatcher (`src/features/chat/tools/execute.ts`) executes tools immediately with no add-vs-modify-vs-delete classification and no preview gate. Silent binding means the user never confirmed *which* dataset is the target. Bulk ops feel safe in testing on a small dataset and become destructive on a real one.
+JSON-Schema "just validates"; the schema is treated as data, not as **untrusted executable code authored by a stranger**. In a centralized app the schema author is you; here it is any pubkey.
 
 **How to avoid:**
-- Make the **binding visible and explicit** first (the carried-over binding chip, now in v1.1). No edit tool fires unless a target is bound and shown. This is a prerequisite, not a nicety.
-- Classify every mutating tool call as **add / modify / delete** before execution and route through the **safety-level config** (1 preview+confirm / 2 confirm-destructive default / 3 trust+undo). Level 2 (default) must hard-gate `modify`+`delete`; `add` can pass.
-- Generate a **structured diff** (features added / properties changed / features removed) and render it *against the bound dataset* before applying — never apply-then-show.
-- Make bulk ops **transactional and reversible at the dataset level**, not just the geometry level: snapshot the bound FeatureCollection before a batch, apply, allow one-shot revert. The editor's existing undo stack is insufficient for property/style/translation edits.
-- **Match by stable feature id**, never by array index or by the subset currently visible to the model — a transform applied to "the features in context" silently drops everything outside the context window (see Pitfall 11).
+- **Treat the schema as hostile input.** Run validation **off the main thread** (Web Worker) with a **hard timeout** (e.g. 50–100 ms) and **kill** the worker on overrun — fail closed to "could not validate" rather than freezing the tab. (Earthly already has the QuickJS-in-Worker + timeout/circuit-breaker pattern from v1.1 — reuse that harness shape.)
+- **Constrain the dialect to a safe subset:** disallow `pattern` entirely *or* run patterns through a linear-time RE engine / RE2-style guard; reject schemas containing `$ref` (matches the "no external $ref" intent — extend to internal), cap schema byte size, cap nesting depth, cap total keyword count before compiling.
+- **Compile once, cache by schema-hash**, never per render.
+- **Sandbox the validator from secrets** (same trust-boundary discipline as the code interpreter).
 
 **Warning signs:**
-- A mutating tool runs with no `safetyLevel` check in the dispatcher.
-- Diff is computed *after* `setFeatures`.
-- "Translate/recolor/clean up" tools operate on `getSelectedAreaFeatures()` or the context snapshot rather than the full bound dataset.
-- Undo can't revert a property/translation change.
+Opening a specific Group freezes the UI; CPU pegs on fetch; a schema with `pattern`/deeply nested `allOf`; validate time grows with dataset size superlinearly.
 
-**Phase to address:** The dataset-aware safe-editing phase — but the visible binding chip and the add/modify/delete classification gate must land *before* any new bulk/transform tool is exposed, or the new tools ship destructive.
+**Phase to address:** **Group/Topic + schema governance phase.** This is the single highest-severity new attack surface in the milestone — it must be threat-modeled there, not bolted on.
 
 ---
 
-### Pitfall 3: nsec-encrypted settings that a NIP-46 remote signer cannot decrypt-at-rest
+### Pitfall 3: Open Group is unusable without *any* moderation — the [NO-MOD MINIMUM] gap
 
 **What goes wrong:**
-`settingsStorage.ts` already encrypts chat settings with `signer.nip44`/`nip04` self-encryption (encrypt-to-self). For a local nsec this round-trips fine. For a **NIP-46 (bunker/remote) signer**, every decrypt is a network round-trip to the remote signer and requires it to be online and to permit nip44/nip04 decryption of arbitrary ciphertext — many bunkers gate or rate-limit this. On reload the app may hang, silently fail to load API keys (chat appears "logged out of its provider config"), or throw `Active signer does not support … decryption`. Key rotation or switching accounts orphans the localStorage envelope (keyed by pubkey) with no migration, so settings silently vanish.
+With `allowForeignAttachments=true` and **no human moderation, no approval, no role list, no WoT this milestone**, *anyone* can `c`-attach *anything* to a popular open Group. Day-one outcomes: a "Best surfing beaches" Group floods with spam datasets, off-topic geometry, or hostile content; the curated narrative drowns; the Group becomes worthless. Foreign-`c` attachment is also **spoofable** — the attaching dataset asserts the `c` link unilaterally; the Group owner did not consent, and there is no approval event to gate it.
 
 **Why it happens:**
-encrypt-to-self via the signer is the obvious applesauce-idiomatic path and works perfectly for the maintainer's local key during development. NIP-46's latency, availability, and permission model only bite real remote-signer users; rotation isn't exercised in a solo-dev loop.
+The clean entity split removes the *governance* discriminator from 37518's content but the team may assume "governance ladder = open|schema|closed" covers safety. It does not: `schema` constrains *shape*, not *spam*; `closed` disables foreign attach entirely; `open` has nothing between "anyone, unfiltered" and "off." With moderation deferred, `open` defaults to a free-for-all.
 
-**How to avoid:**
-- Detect signer capability/latency up front. If the active signer is NIP-46, treat encrypted-settings load as **async, fallible, and possibly slow** — show a real loading/failed state, never block app boot on it, and don't silently drop provider config.
-- Provide an **export/import** path for settings so a user can recover when the signer changes or the bunker is unreachable. Don't make the encrypted localStorage envelope the only copy.
-- Handle the **rotation / account-switch** case explicitly: detect orphaned envelopes (pubkey mismatch) and prompt re-entry rather than appearing reset.
-- Never log decrypted settings, never put API keys in Zustand state that gets persisted by the devtools/redux-devtools middleware, and scrub them from any error/telemetry payloads (Pitfall 12).
+**How to avoid — minimum client-side defenses that ship THIS milestone (no moderation required):**
+- **Self-curation is the floor, not foreign-attach.** Make the owner's **inline-Markdown / pinned `a` refs the default ("canonical") lane**; render the foreign-`c` lane as a clearly-separate, collapsed-by-default, opt-in "Attached by others" section. The Group is usable from curated refs alone even if the foreign lane is pure noise. (SPEC's two-lane model already supports this — make curated the privileged default.)
+- **Per-viewer mute is the deferred-WoT stand-in.** Even without protocol-level WoT, ship a **local mute/hide** (hide-this-pubkey, hide-this-attachment) that persists per viewer. This is the realistic minimum that keeps `open` survivable.
+- **Cap + sort the foreign lane:** bound how many foreign attachments render, sort by something cheap and non-gameable-by-volume (recency, or attacher's account age if available), paginate; never render unbounded.
+- **Verify the `c` coordinate resolves** to a real, signature-valid, on-topic-kind event before rendering; drop dangling/spoofed coordinates silently.
+- **Owner opt-out is one click:** flipping `allowForeignAttachments=false` (the `closed` rung) must instantly collapse the Group to curated-only — the always-available escape hatch when an open Group gets brigaded.
+- **Do NOT auto-promote foreign attachments into the map lane in strict-equivalent views** without the viewer asking.
 
 **Warning signs:**
-- App boot awaits `loadEncryptedChatSettings` synchronously.
-- No test with a NIP-46 signer (only local-key path tested).
-- `catch` around decrypt swallows the error and returns `null` (looks like "no settings" → silent data loss).
-- No code path for "signer changed since these settings were written."
+A Group's foreign lane dwarfs its curated lane; the same pubkey attaches to many Groups; attachments reference kinds that don't match; users report a Group is "full of junk."
 
-**Phase to address:** The encrypted-settings-persistence phase. Add a NIP-46 path and an export/import escape hatch in the same phase, not later.
+**Phase to address:** **Group/Topic phase** (must land the curated-default + local-mute minimum *in the same phase* that enables foreign `c` — never ship open-attach without it).
 
 ---
 
-### Pitfall 4: Over-simplification destroys topology — Douglas-Peucker on shared boundaries creates gaps/overlaps and breaks the dataset
+### Pitfall 4: Live-location privacy & safety failure modes (accidental always-on, stale-as-current, leakage, no stop)
 
 **What goes wrong:**
-The 12MB-trail story uses `@turf/turf` `simplify` (already a dependency). Turf's `simplify` is **Douglas-Peucker, per-feature, NOT topology-aware**. Run it on a dataset with shared boundaries (adjacent polygons, a road network, the West-Pacific-Trail polylines) and adjacent features simplify independently → slivers, gaps, and overlaps appear along formerly-shared edges; high tolerance collapses thin polygons to self-intersecting or zero-area geometry; the "same visual quality" claim fails at the zoom levels the user cares about. `merge-to-multi` then unions features and **drops per-feature properties** (name/description/style), so the "preserved visual quality" dataset loses exactly the attributes Story 4's recolor-by-attribute depends on.
+A public, continuously-updating position point is the most dangerous primitive in the app. Failure modes:
+- **Accidental always-on sharing:** user starts a beacon for a hike, closes the tab; the worker/timer keeps publishing (or a "share" toggle silently survives a reload) — location leaks for hours/days. With NIP-40 unreliable (see Pitfall 6), a beacon can outlive the user's intent.
+- **Stale position shown as current:** reader sees an old fix with no "as of" age; treats a 3-hour-old point as live → real-world safety risk (meetups, "they're here now").
+- **Irreversible publication:** Nostr has no true delete; a "stop sharing" that only stops *future* publishes still leaves the last position public on relays forever. Users assume "stop" = "gone."
+- **Coordinate-precision leakage:** publishing raw GPS (home, exact) when the user meant "near the trailhead."
+- **Pubkey correlation:** a public beacon ties a real-time location trail to a long-lived identity → de-anonymization / stalking.
 
 **Why it happens:**
-Turf is already installed and `simplify` is a one-liner, so it's the path of least resistance. Topology-awareness (mapshaper/Visvalingam-style) is a different, heavier algorithm not in turf. The tolerance that hits the size target is chosen by file size, not by visual/topological validity.
+Location is treated as just another point geometry. The decentralized substrate makes "undo" impossible, which inverts the usual privacy mental model (centralized apps can delete).
 
 **How to avoid:**
-- For shared-boundary data, use a **topology-aware simplifier** (mapshaper's algorithm / TopoJSON arc quantization) rather than naive turf `simplify`. If staying within turf, at minimum **validate after**: run `@turf/kinks` / `unkink-polygon` and check for new self-intersections and area collapse, and reject/retry at lower tolerance.
-- Choose tolerance by **visual error budget at target zoom**, then check the size constraint — not the reverse. Binary-search tolerance to hit size *subject to* a topology-validity gate.
-- `merge-to-multi` must **carry a property-merge policy** (which props survive, how conflicts resolve) and must never be applied to features the user expects to remain individually styleable/selectable. Per-feature identity is required for Story 4's data-driven styling.
-- "Microgap stitch" must only join endpoints within a tight, explicit tolerance and must **never bridge distinct features** — see Pitfall 5.
+- **Default OFF, explicit start, visible "LIVE" indicator, hard time-boxed sessions** (e.g. auto-expire after N minutes; require re-affirm to continue). Never a silent persistent toggle.
+- **Stop = stop publishing + publish a terminal "ended" state + visibly mark the beacon stale**; and tell the user plainly that the last point remains public (no false promise of deletion).
+- **Age-stamp every render:** "updated 2 min ago" with a staleness threshold past which the point greys out / is labeled "not live."
+- **Coarsen by default:** offer reduced precision / geohash-truncation; warn before publishing full GPS.
+- **Lifecycle decision:** prefer **ephemeral (NIP-16 20000-range) for live frames** so relays aren't obligated to persist the trail, with a separate explicit "share my current location" replaceable point only when persistence is intended. (This is the open lifecycle question in PROJECT.md — privacy should drive it toward ephemeral-by-default.)
+- **Kill on unload / visibilitychange:** stop publishing when the tab is hidden/closed unless the user explicitly opted into background sharing.
 
 **Warning signs:**
-- `turf.simplify` called with a tolerance derived solely from byte size.
-- No post-simplify topology validation (`kinks`/area check).
-- Merge step produces a single MultiX with one merged property bag.
-- Visual diff only checked at the zoom the dev happened to be on.
+A beacon with `created_at` older than the staleness window still labeled live; sharing toggle survives reload; no "ended" state ever emitted; full-precision coordinates in content; users surprised their location is still visible.
 
-**Phase to address:** The geometry-optimization phase. Bake the validate-after-simplify gate and the property-merge policy into the tool itself.
+**Phase to address:** **Live Beacon phase** — privacy/safety is a first-class success criterion, not a nice-to-have. Treat "no silent always-on" and "honest staleness" as acceptance gates.
 
 ---
 
-### Pitfall 5: Microgap-stitch joins things that shouldn't join
+### Pitfall 5: Inline `naddr` mentions in Article Markdown drift out of sync with mirrored `a` tags
 
 **What goes wrong:**
-To clear microgaps in the messy trail, the optimizer snaps near-coincident endpoints together. Too-loose a tolerance welds two genuinely separate trails (or a trail and a road) into one MultiLineString; topology that *should* have a junction loses it, or two parallel features collapse. The result reads as "fixed" in the thumbnail but is wrong on inspection.
+Story/Article (~37520) puts dataset references as inline `nostr:naddr…` mentions in Markdown **and** mirrors them into queryable `a` tags. These two representations can diverge:
+- User edits Markdown (removes/adds an naddr) but the `a` tags aren't re-derived → ghost `a` tags reference things no longer in the prose, or the map lane shows refs the article doesn't mention (and vice versa).
+- Hand-edited or AI-generated Markdown contains a malformed/typo'd naddr that silently isn't mirrored → reference invisible to queries.
+- Same naddr mentioned twice → duplicate `a` tags or double-rendered map features.
+- An `naddr` that points to a *different kind* than expected (a Group instead of a Dataset) → wrong entity rendered in the map lane.
 
 **Why it happens:**
-A single global snap tolerance is tuned to close the visible gaps and inadvertently exceeds the spacing between distinct features. Stitching is run blindly over the whole collection.
+Two sources of truth for the same fact (prose vs tags) with a manual mirroring step. Easy to update one and forget the other; easy for the parser and the renderer to disagree on what counts as a valid mention.
 
 **How to avoid:**
-- Snap tolerance must be **conservative and explicit**, ideally derived from the data's own vertex spacing, and applied only to **endpoints flagged as gap candidates**, not all vertices.
-- Only stitch features that share an attribute/identity signal (same name/route) where available; never merge across distinct named features by geometry proximity alone.
-- Surface a **count of joins made** in the diff/preview (Pitfall 2) so the user can catch an over-eager stitch before publish.
+- **Single source of truth + deterministic derivation:** treat the Markdown body as canonical and **re-derive all `a` tags from the parsed naddr set on every publish** — never hand-maintain `a` tags. Mirroring must be a pure function `markdown → a[]`, run at publish, idempotent.
+- **Validate each naddr at derivation:** decode it, check kind is an allowed reference target, dedupe, drop malformed ones with a visible authoring warning ("3 of 4 references linked; 1 could not be parsed").
+- **Round-trip test:** parse → derive → re-parse must be stable.
+- **Render the map lane from the derived set**, so prose and map can't disagree.
 
-**Warning signs:** one global tolerance; join count not reported; features with different names merged.
+**Warning signs:**
+Map shows a feature the article never mentions (or omits one it does); duplicate refs; `a`-tag count ≠ distinct-naddr count in body; a reference that renders as the wrong entity type.
 
-**Phase to address:** Geometry-optimization phase, same tool as Pitfall 4.
+**Phase to address:** **Story/Article phase** (reference-direction "curate-pull" is this entity's defining behavior; the mirror must be airtight) — with a shared naddr-parse/validate utility usable by the **Authoring-UI / reference-integrity** cross-cut.
 
 ---
 
-### Pitfall 6: 12MB GeoJSON parsed/simplified/serialized on the main thread → UI freeze
+### Pitfall 6: NIP-40 expiration is not enforced by relays — Temporal Sightings linger
 
 **What goes wrong:**
-File ingest reads a 12MB GeoJSON, `JSON.parse`s it, runs turf simplify, and `JSON.stringify`s the result — all on the main thread. The map and chat lock up for seconds; React 19 batching can't help a synchronous CPU-bound block. Excel/CSV parsing of large files has the same failure. Memory also blows up: parsed object + simplified copy + serialized string + editor feature array can be several multiples of 12MB live at once.
+Temporal Sighting relies on NIP-40 `expiration` to auto-disappear (the "soccer star spotted at hotel" case should evaporate). But verified NIP-40 semantics: relays **SHOULD** drop/withhold expired events but **MAY persist them indefinitely**, and **clients SHOULD ignore expired events**. So:
+- Some relays keep serving expired sightings; if the client doesn't filter, stale/expired observations show on the map indefinitely.
+- A relay that doesn't support NIP-40 stores it forever and never honors the tag.
+- Querying "current sightings" returns past ones unless the client checks `expiration` against *its own* clock.
 
 **Why it happens:**
-Parsing/transform code is written inline in a tool handler or hook because that's where the data is. The freeze is invisible on small seed datasets.
+Developers assume "expiration tag = relay deletes it." It is advisory. Enforcement is the **client's** job, and clock comparison is local.
 
 **How to avoid:**
-- Run **all ingest parsing, geometry simplification, and (de)serialization off the main thread** — reuse the same Worker infrastructure as the code interpreter (you're building it anyway). Stream results back.
-- Stream/iteratively parse large CSV/JSON where possible rather than holding three full copies; free intermediates.
-- Set explicit **size/feature-count thresholds** that switch to a chunked path and surface progress; cap pathological inputs with a clear error rather than OOM.
+- **Always client-filter on `expiration`** at read time: drop any event whose `expiration < now`, regardless of whether the relay returned it.
+- **Don't rely on relays for cleanup.** Treat NIP-40 as a hint to compliant relays, not a guarantee.
+- **Advertise/prefer NIP-40-supporting relays** for sightings, but still filter locally.
+- **Decide representation deliberately** (open question in PROJECT.md): dedicated kind vs property+NIP-40. If a *dedicated replaceable* kind is used, expiry + replaceable interact — an expired-but-newest replaceable still shadows the address; prefer **regular (non-replaceable) ephemeral or expiring events** for one-shot sightings so they simply age out rather than occupying an address.
+- **Handle timezone/clock for the `start`/`end` window** (NIP-52 flavor): store/compare in UTC epoch seconds only; never compare local-formatted times. Beware future-dated sightings (clock-ahead author) appearing "valid" prematurely.
 
-**Warning signs:** `JSON.parse`/`turf.*`/`XLSX.read` on a user file in a React event handler or tool handler; no progress UI; tab memory spikes on real files.
+**Warning signs:**
+Expired sightings still on the map; a sighting visible only via one relay; "current" query returns yesterday's; off-by-hours window bugs around DST; future-dated sightings showing early.
 
-**Phase to address:** File-ingest phase and geometry-optimization phase — share one off-main-thread worker pipeline.
+**Phase to address:** **Temporal Sighting phase** (and a shared read-time expiry filter usable app-wide).
 
 ---
 
-### Pitfall 7: Silently sending images to a non-vision model (the exact frustration to avoid) — substring vision detection is wrong
+### Pitfall 7: Clean-break orphans — old kind-37518 events still live in relays and other clients
 
 **What goes wrong:**
-The existing `modelMaySupportVision()` in `store.ts` is a **substring heuristic** over a hardcoded hint list (`vision`, `vl`, `llava`, `gpt-4o`, `claude-3`, …). This both false-negatives (a vision model whose id lacks a magic word → image affordance disabled, user frustrated) and false-positives (a non-vision model whose id happens to match → image silently sent, model errors or hallucinates, tokens burned, Cashu spent). New model ids and providers drift past the list constantly. Large images also blow up the token/cost budget even on a real vision model.
+PROJECT.md mandates a **clean break**: redefine 37518 (now the slimmed Group/Topic), no migration. But Nostr has no global delete:
+- Old-shape 37518 events (the overloaded discriminated-union form) persist on relays and in other clients' caches **forever**.
+- The *same kind number* 37518 now means two different schemas depending on `created_at` — a reader can't tell "old context" from "new Group" by kind alone.
+- Replaceable semantics partially help: a new 37518 with the same `pubkey:d` **overwrites** the old at the address — but only for addresses the owner re-publishes; abandoned old `d`s linger, and other relays may keep older copies.
+- `c` tags / `a` tags authored under the old model may reference 37518 coordinates that now resolve to a differently-shaped event → renderer crashes or mis-renders.
 
 **Why it happens:**
-There's no reliable cross-provider capability advertisement, so a name heuristic is the pragmatic stopgap — but it's exactly the thing PROJECT.md calls out ("auto-disable image send when the model lacks vision") and it's already shipped as a guess.
+"Clean break" is a *client-policy* decision, but the data substrate is append-only and federated. You can stop *writing* the old shape; you can't stop the old shape from *existing*.
 
 **How to avoid:**
-- Prefer **provider-advertised capability** (model metadata from Routstr/LM Studio/OpenAI-compatible `/models`) over name matching; fall back to the heuristic only when metadata is absent, and **mark vision support as "uncertain"** in that case rather than silently enabling.
-- When uncertain, the UI should let the user **explicitly opt in** to sending the image rather than auto-sending — converts a silent failure into a visible choice.
-- **Downscale/recompress images before send** and show the estimated added token cost (this provider is Cashu-paid — see Pitfall 13); strip to a sane max dimension.
-- On a model error that indicates "no image support," surface a clear "this model can't see images" message and disable the affordance — don't just show a generic failure.
+- **Version-discriminate inside content**, not by kind. Add an explicit `modelVersion` (or rely on a required new field) so the client can detect old-shape 37518 and **defensively ignore or down-rank** it rather than mis-parsing.
+- **Parse defensively:** every 37518 reader must tolerate the old shape without throwing — treat unrecognized/legacy as "skip" or "legacy, read-only," never crash.
+- **Seed/test data only** for old 37518 (PROJECT.md already says existing data is seed/test) — but write the guard anyway because *foreign* relays/clients aren't under your control.
+- **New `d`s where shape changes meaningfully** so you don't fight an old replaceable copy on a stale relay.
+- **Coordinate-resolution guard:** when following a `c`/`a` to a 37518, validate it matches the new shape before rendering; drop legacy silently.
 
-**Warning signs:** image attached but capability decided purely by `modelId.includes(...)`; no per-model metadata lookup; full-resolution image bytes in the request; vision toggle has no "unknown" state.
+**Warning signs:**
+A 37518 event renders with missing/extra fields; a `c` link points to a "context" that doesn't look like a Group; crashes parsing content from before the cutover; two clients show the same address differently.
 
-**Phase to address:** The multimodal / file-ingest phase. Replace/augment the substring heuristic with metadata + explicit-opt-in-when-unknown.
+**Phase to address:** **Taxonomy & Clean-Break Foundation phase** (define the version discriminator + defensive-parse contract *first*, so every later entity phase inherits it).
 
 ---
 
-### Pitfall 8: Untyped switch-case tool dispatcher rots under the larger tool count
+### Pitfall 8: NIP-32 `L`/`l` labeling mistakes — namespace collisions and unpaired marks
 
 **What goes wrong:**
-`execute.ts` dispatches 19 tools today via a hand-written `switch (toolCall.function.name)` with per-case ad-hoc arg parsing (`parseToolCallArguments`, `toFiniteNumber`, etc.). v1.1 adds sandbox ops, parametric-shape tools, batch transforms, data-driven styling, and ingest tools — easily doubling the count. With no shared schema, the LLM hallucinates arg names/shapes, each new case re-implements validation slightly differently, and a missing `case`/typo silently no-ops (the model "thinks" it acted). Schema drift between the tool *definitions* (`definitions.ts`) and the *executor* (`execute.ts`) means the model is told one signature and the dispatcher expects another.
+Cross-cutting taxonomy uses NIP-32 `L` (namespace) + `l` (label). Verified NIP-32 rules: every `l` **MUST** carry a mark matching an `L` namespace in the same event; absent any `L`, the `ugc` namespace is assumed; publishers SHOULD stay within a single namespace. Mistakes:
+- **Unpaired `l`** (label with no matching `L`) → silently lands in `ugc`, polluting the freeform namespace and breaking controlled-vocabulary queries.
+- **Namespace collision:** using a bare/ambiguous namespace (e.g. `place` instead of reverse-DNS `org.earthly.place`) collides with other apps' labels → query returns foreign-app data, controlled vocab is no longer controlled.
+- **`L`/`l`/`t`/`c` overlap re-introduced:** the milestone's whole point is removing the `t`/taxonomy overlap; if `t` freeform tags and `L`/`l` controlled labels encode the *same* concept, you've recreated the bloat in a new shape.
+- **Schema-enforced labels not actually enforced:** controlled `L`/`l` vocab that the Group schema claims to enforce but the client doesn't validate → uncontrolled values leak in.
 
 **Why it happens:**
-The switch worked fine at 19 tools and grew organically. Adding the next 15 by the same pattern is the path of least resistance.
+NIP-32's mark-pairing requirement is easy to miss; reverse-DNS namespacing feels like overkill until two apps collide; the conceptual boundary between `t` (discovery) and `L`/`l` (controlled) blurs under time pressure.
 
 **How to avoid:**
-- Introduce a **single typed tool registry**: one source of truth pairing the JSON schema (sent to the model) with a validated handler (Zod/valibot parse of args → typed handler). Definition and execution can no longer drift.
-- **Validate args against the schema before dispatch**; on failure return a structured tool-error to the model so it can self-correct rather than crashing or no-opping.
-- Make an unknown tool name a **hard, surfaced error**, never a silent fallthrough.
-- Keep the registry the place where the **safety-level gate** (Pitfall 2) and the **sandbox-RPC allow-list** (Pitfall 1) are enforced — one choke point.
+- **Own a reverse-DNS namespace** (e.g. `org.earthly.*`) for all controlled labels; never publish a bare-namespace `L`.
+- **Emit `L` and `l` as a validated pair** from one helper — reject/repair an `l` without its `L`; one namespace per labeling concern.
+- **Keep the axes disjoint by construction:** `L`/`l` = controlled/schema-enforceable taxonomy; `t` = freeform discovery; `c` = entity-backed attach. Document and lint that the same concept isn't double-encoded. (Directly realizes PROJECT.md's "principled split removes the `t`/taxonomy overlap.")
+- **Validate controlled vocab client-side** where a Group schema declares it (and apply the schema-DoS guards from Pitfall 2 to that path).
 
-**Warning signs:** new tool added as another `case` with bespoke parsing; definitions.ts and execute.ts edited separately; tool name typo produces no error; model retries a tool with different arg names each time.
+**Warning signs:**
+Labels showing up under `ugc`; taxonomy queries returning other apps' events; the same category expressed as both a `t` and an `l`; controlled-vocab values outside the declared set.
 
-**Phase to address:** A tool-infrastructure phase that lands *before* the new tools — this is a prerequisite refactor, but it amends orchestration (PROJECT.md "amend, don't replace"), it doesn't rewrite the stable tool handlers.
+**Phase to address:** **Taxonomy & Clean-Break Foundation phase** (define namespace + pairing helper once; all entity phases consume it).
 
 ---
 
-### Pitfall 9: Runaway tool loops and cost blowups on the Cashu-paid provider
+### Pitfall 9: `d`-tag instability breaks lineage / forks the entity
 
 **What goes wrong:**
-With more tools and a sandbox the model can run, a confused model enters a loop (call tool → tool errors / returns ambiguous → call again), or the sandbox runs an infinite loop / generates millions of features. On Routstr (Cashu-prepaid, per the existing `estimateMaxCost`/`promptBudgetTokens` flow) every round-trip spends sats; a loop silently drains the wallet. The sandbox itself can `while(true)` and peg a worker, or `addFeature` in an unbounded loop and OOM the map.
+All four new entity kinds (plus existing 37515/37518/37519) are parameterized-replaceable, keyed by `d`. If an edit re-generates the `d` instead of reusing it, the "edit" becomes a **new lineage** — a fork — and the original address keeps the old content forever. Comments/reactions/proposals (`a`-tagged to the old coordinate) detach. Conversely, **reusing a `d` across two genuinely different entities** silently overwrites one with the other.
 
 **Why it happens:**
-The existing budget logic bounds a *single* prompt's prepayment, not the *number of tool iterations* in an agentic turn. The sandbox has no execution-time or output-size cap.
+`d` generation is easy to wire into "create" and accidentally re-run on "edit"; or a refactor regenerates ids. The split multiplies the surface (four new create/edit flows), so the bug can recur per kind.
 
 **How to avoid:**
-- Cap **tool-call iterations per turn** and **total spend per turn/session**; halt and ask the user when exceeded. Reuse `estimateMaxCost` but accumulate across the loop.
-- The sandbox needs a **wall-clock timeout** (terminate the Worker) and **output caps** (max features generated, max API ops, max bytes posted back). Worker termination is the only reliable way to kill an infinite loop — design for `worker.terminate()`.
-- Detect **repeated identical tool calls** (same name+args) and break the loop with a message to the model.
+- **One rule, enforced in the shared factory:** edit = reuse `d` (+ bump `v`/version); new = fresh `d`; intentional fork = fresh `d` + `["p", oldEventId]` predecessor link (per SPEC §5). Reuse Earthly's existing `publishUpdate`/`publishNew` lineage discipline (already proven for 37515/37519) for every new kind.
+- **Test that edit preserves the address** for each kind; assert `a`-tagged children still resolve after an edit.
+- **Guard against accidental `d` reuse** across distinct entities created in the same session.
 
-**Warning signs:** no iteration cap in the chat turn loop; sandbox can't be force-killed; wallet balance drops during a single "stuck" interaction; map gains thousands of features from one prompt.
+**Warning signs:**
+Editing a Story/Group creates a duplicate instead of updating; comments vanish after an edit; a "new" entity overwrites an existing one; version doesn't increment.
 
-**Phase to address:** Sandbox phase (timeouts/caps) + chat-loop phase (iteration/spend caps).
+**Phase to address:** **Taxonomy & Clean-Break Foundation phase** (shared factory lineage contract), verified again in each entity phase's authoring UI.
 
 ---
 
-### Pitfall 10: File parsing assumes clean input — coordinate-column ambiguity, encoding, EXIF orientation, untrusted content
+### Pitfall 10: Schema-hash integrity ignored / divergent client interpretation
 
 **What goes wrong:**
-- **Coordinate detection**: CSV with `lat`/`lon` swapped, or columns named `x`/`y`/`POINT_X`/`Latitude`/`緯度`, or coordinates as `45.1,15.2` in one cell → points land in the ocean or are silently dropped. Lon/lat order is the classic GeoJSON footgun (RFC 7946 is `[lon, lat]`; humans write "lat, lon").
-- **Encoding**: non-UTF-8 CSV (Windows-1252 / UTF-16 from Excel) → mojibake in the Arabic/translated names Story 4 cares about.
-- **Excel**: dates as serial numbers, numeric-looking ids stripped of leading zeros, formula cells, multiple sheets.
-- **Images**: EXIF orientation ignored → rotated previews; EXIF GPS could be a *useful* coordinate source but is usually ignored; EXIF can also carry sensitive location/PII silently published.
-- **Untrusted content**: a malicious/garbage cell value flowing into a tool arg, a feature name, or (worst) into the code interpreter or a `fetch` URL.
+SPEC has an optional `schema-hash` tag. If clients don't verify `sha256(schema) == schema-hash`, a relay or MITM-ish actor could serve a *different* schema than the author signed-the-hash for (the schema lives in content, so it's signed — but if a client ever fetches schema out-of-band or caches loosely, integrity drifts). Worse: **divergent interpretation** — two clients validate the same dataset against the same schema and disagree (different JSON-Schema dialect defaults, different `format` handling, ajv vs another validator) → a dataset is "valid" in one client, "filtered" in another → inconsistent map lanes, user confusion about why their dataset vanished.
 
 **Why it happens:**
-Parsers are tested on the dev's own clean exports. Real "ugly CSVs" (Story 1) are the *point* of this milestone, so the messy path is the main path, not the edge case.
+JSON-Schema portability is assumed but not real: dialect defaults, `format` assertion vs annotation, unknown-keyword handling all vary by validator. Integrity checks are "optional" so they get skipped.
 
 **How to avoid:**
-- **Detect and confirm the coordinate columns + lon/lat order with the user** (or the AI proposes, user confirms) before importing; sanity-check that points fall within `[-180,180]/[-90,90]` and within a plausible bbox; flag swapped-looking data.
-- Detect encoding (BOM / heuristic) and decode explicitly; default UTF-8 but handle Windows-1252/UTF-16.
-- Use a real spreadsheet parser that preserves types; treat ids as strings; surface multi-sheet choice.
-- Respect EXIF orientation for previews; optionally offer EXIF-GPS as a coordinate source *with consent*; **strip EXIF on any image that gets published** to avoid leaking the uploader's location/PII.
-- Never let raw file content reach the sandbox, a `fetch` URL, or an unescaped tool arg without validation — file content is untrusted input.
+- **Pin the dialect explicitly** (SPEC recommends 2020-12) and **pin one validator + config** as the app's reference behavior; document it as the canonical interpretation.
+- **Verify `schema-hash`** when present; treat mismatch as "do not validate / show warning," never silently use a different schema.
+- **Make validation outcome legible:** when a dataset is filtered by a required-mode Group, tell the user *which rule* failed, so cross-client disagreement is debuggable rather than mysterious.
+- **Treat `format` as annotation, not assertion** by default (ajv's safer mode) unless the dialect/strictness is explicitly opted in.
 
-**Warning signs:** import "just works" only on the dev's exports; no column-mapping confirmation step; points in the Atlantic at (0,0); garbled non-Latin names; published images carrying GPS EXIF.
+**Warning signs:**
+A dataset valid in one client, filtered in another; schema-hash present but never checked; users asking "why did my dataset disappear from this Group?"
 
-**Phase to address:** File-ingest phase. The column-mapping/lon-lat confirmation UI is core to Story 1, not optional.
-
----
-
-### Pitfall 11: AI edits/transforms only the features in its context window, silently dropping the rest
-
-**What goes wrong:**
-The bound dataset has 400 features; the context snapshot or `get_editor_state` returns a compacted subset (the codebase already has `compactToolResultAfterBake`, `getCompactMapContextForTool`, `[image omitted for context window]` logic). The AI "translate all names" / "recolor everything" transform operates on what it can see and writes back only those, effectively deleting the unseen features or leaving them inconsistent. The user asked for "all" and got a partial, lossy result.
-
-**Why it happens:**
-Context-window economy (and the Cashu cost incentive) compacts the data sent to the model. A transform tool that takes the model's view of the data as input inherits that truncation.
-
-**How to avoid:**
-- Bulk transforms must run **over the full bound dataset by id**, executed host-side, with the AI specifying the *rule* (e.g. "for every feature where category=port set color=blue") rather than emitting the transformed features themselves. The model authors the transform; the host applies it to all features.
-- The code interpreter is the right vehicle here — generated code iterates the *full* collection inside the sandbox/host, not the model's truncated view.
-- The diff/preview (Pitfall 2) shows N affected of M total so partial coverage is visible.
-
-**Warning signs:** transform tool input is the context snapshot; affected-count < dataset-count for an "all" request; features outside context unchanged or missing after a "fix all" op.
-
-**Phase to address:** Safe-editing + sandbox phases — transforms-as-rules over full data, not model-emitted feature lists.
-
----
-
-### Pitfall 12: nsec / wallet / API-key leak into memory, devtools, logs, or persisted state
-
-**What goes wrong:**
-API keys and provider config live in the Zustand chat store; if the store uses `persist` or redux-devtools, secrets serialize to localStorage/devtools in plaintext (defeating the nsec encryption). The signer's private key or Cashu proofs end up in an error boundary's logged state, a Sentry-style payload, or a console.log left in. The sandbox, if mis-bounded (Pitfall 1), reads any of these.
-
-**Why it happens:**
-Zustand devtools/persist middleware is convenient and serializes everything by default. Error logging dumps state. The decrypted-settings object is the same shape as the encrypted one and easy to accidentally persist decrypted.
-
-**How to avoid:**
-- Keep decrypted secrets out of any persisted/devtools-serialized slice; store the **encrypted envelope** only, decrypt into a transient (non-persisted) field.
-- Scrub secrets from error/telemetry payloads and never `console.log` provider config or proofs.
-- Confirm the sandbox boundary (Pitfall 1) denies access to these by construction.
-
-**Warning signs:** `persist`/`devtools` middleware wrapping the slice that holds API keys; secrets visible in Application→Local Storage as plaintext; provider config appearing in error logs.
-
-**Phase to address:** Encrypted-settings phase + sandbox phase.
+**Phase to address:** **Group/Topic + schema governance phase.**
 
 ---
 
@@ -270,119 +258,110 @@ Zustand devtools/persist middleware is convenient and serializes everything by d
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Pass live toolbar API / store into the sandbox | Instant "map access" for generated code | Sandbox escape; full access to signer/wallet; security rewrite | **Never** |
-| Keep adding `case`s to the `execute.ts` switch | No refactor, ship the next tool fast | Schema drift, silent no-ops, hallucinated args at 30+ tools | Only for 1–2 trivial read-only tools; not for the v1.1 wave |
-| `turf.simplify` tolerance chosen by byte size | Hits relay size limit in one call | Topology breakage, sliver gaps, property loss | Single-feature, non-shared-boundary data only |
-| Substring vision detection (current `modelMaySupportVision`) | Works for known models today | Silent image-to-blind-model sends; model drift | As *fallback* under "uncertain" flag, not as the decision |
-| Apply AI edit then show result | Simpler code path | Destructive, no recovery, edits wrong dataset | Only at safety level 3 (trust+undo) with a real dataset-level snapshot |
-| Decrypt settings synchronously at boot | Simple load | Hangs/fails on NIP-46; silent provider-config loss | Local-nsec-only, never for remote signers |
-| Parse/transform big files on main thread | Less plumbing | Multi-second freeze, OOM on real datasets | Files under a small, enforced threshold only |
+| Validate Group schema on the main thread | Less plumbing than a worker | One hostile schema freezes/kills every viewer's tab (Pitfall 2) | **Never** — schema is untrusted-author code |
+| Hand-maintain `a` tags alongside Markdown naddrs | Fast to ship the editor | Prose/tag/map drift, ghost refs (Pitfall 5) | Never — always derive from body |
+| Trust relay `created_at` as recency-of-truth for beacons | No extra seq field | Stale fix shadows live one under clock skew (Pitfall 1) | Never for live position; OK for rarely-edited datasets |
+| Persistent "share location" toggle that survives reload | One-tap re-share | Silent always-on location leak (Pitfall 4) | Never default-on; only behind explicit, re-affirmed, time-boxed opt-in |
+| Rely on NIP-40 relays to delete expired sightings | No client filter code | Expired sightings linger via non-compliant relays (Pitfall 6) | Never — always client-filter too |
+| Reuse kind 37518 number with no in-content version flag | Honors "clean break" simply | Old + new shapes indistinguishable; mis-parse/crash (Pitfall 7) | Never — add a version discriminator |
+| Skip `schema-hash` verification (it's "optional") | Less work | Divergent/forged schema, silent filtering (Pitfall 10) | Only if schema is always inline + signed *and* dialect/validator pinned |
+| Bare namespace for `L` labels | Shorter tags | Cross-app collision, uncontrolled vocab (Pitfall 8) | Never — use reverse-DNS |
 
 ## Integration Gotchas
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| applesauce NIP-46 signer (encrypted settings) | Treat decrypt as instant/infallible like a local key | Async, fallible, possibly-offline; loading/error UI; export/import escape hatch |
-| Routstr / Cashu provider | Bound only single-prompt prepayment | Cap iterations + cumulative spend per agentic turn; halt on overrun |
-| `@turf/turf` simplify/union | Use as topology-aware optimizer | It's per-feature Douglas-Peucker + property-dropping union; add topology validation + property-merge policy, or use a topology-aware simplifier |
-| MapLibre GeoEditor (`setFeatures`) | AI writes straight through with no diff | Diff against bound dataset, gate by safety level, dataset-level snapshot for undo |
-| Existing tool dispatcher (`execute.ts`) | Add tools as more switch cases | Typed registry: schema↔handler single source, validate-before-dispatch |
-| LM Studio / custom OpenAI-compatible providers | Assume vision/`reasoning_content` behavior uniform | Per-provider capability detection (code already special-cases LM Studio context + Kimi reasoning — extend, don't assume) |
-| Web Worker / iframe sandbox | Assume isolation == security boundary | Cross-origin + CSP + message-only RPC; isolation is thread/DOM, not trust |
+| applesauce EventStore (replaceable de-dup) | Assuming the store gives one canonical beacon across relays | De-dup again by `(pubkey,d,max-seq)` in app code; per-relay replaceable de-dup is not global |
+| Relays + NIP-40 | Treating `expiration` as a delete guarantee | Client-filter expired on read; prefer but don't depend on NIP-40 relays |
+| JSON-Schema validator (ajv-class) | Running untrusted schema in-thread, `format` as assertion, `$data`/`pattern` enabled | Worker + timeout-kill; pin dialect; disable/guard `pattern`; reject `$ref`; cap size/depth; `format` as annotation |
+| naddr / NIP-19 decoding | Assuming every inline mention is a valid same-kind reference | Decode + kind-check + dedupe every naddr before mirroring to `a` and before map render |
+| NIP-32 labels | Emitting `l` without matching `L`; bare namespace | Paired `L`+`l` helper, single reverse-DNS namespace per concern |
+| `c` attachment coordinates | Rendering any `c` target a stranger asserts | Resolve + signature-validate + kind-check; curated lane default, foreign lane opt-in/capped (Pitfall 3) |
+| MapLibre rendering of live point | Re-adding/removing a source per beacon frame | Update an existing GeoJSON source's data in place; throttle to render budget |
 
 ## Performance Traps
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Main-thread parse/simplify/stringify | Multi-second UI freeze on import | Off-main-thread worker pipeline; stream; free intermediates | ~1–5MB+ real files |
-| Triple-copy memory (parsed + simplified + serialized + editor array) | Tab memory spike, OOM tab | Stream, transfer, release intermediates | 10MB+ inputs (the 12MB story) |
-| Unbounded sandbox generation | Map gains thousands of features, render stalls | Output caps (max features/ops), wall-clock timeout | Any `for`/`while` in generated code |
-| Full-res images in chat requests | Token/cost blowup, slow turns, wallet drain | Downscale/recompress before send; show cost estimate | Any phone-photo upload (multi-MB) |
-| Runaway tool loop | Wallet drains while "thinking"; turn never ends | Iteration + spend caps; detect repeated calls | Ambiguous tool results, confused model |
+| Compile JSON-Schema per render | UI jank on every Group view | Compile once, cache by schema-hash | Any Group with a non-trivial schema, immediately |
+| Validate every attached dataset on every fetch | Group open time grows with attachment count | Validate lazily/visible-set only; worker; memoize per (dataset-version, schema-hash) | Popular open Group, dozens+ of attachments |
+| Unbounded foreign-`c` lane render | Slow Group, memory growth | Cap + paginate + sort (Pitfall 3) | A Group that gets brigaded/spammed |
+| High-frequency beacon publish + render | Relay churn, map flicker, battery drain | Throttle publish; in-place source update; ephemeral frames | Active live session, esp. mobile |
+| Re-deriving/re-parsing all naddrs on every keystroke | Editor lag in long articles | Derive `a` tags at publish, not per keystroke; debounce preview | Long Markdown articles with many refs |
 
 ## Security Mistakes
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Live host objects (signer/wallet/store) reachable from sandbox | nsec / Cashu proof exfiltration, arbitrary publish | Message-only RPC; cross-origin iframe + CSP; allow-listed host ops |
-| `<iframe sandbox>` with `allow-same-origin allow-scripts` | Sandbox voided; same-origin storage/network access | No `allow-same-origin`; separate origin |
-| Blob-URL Worker assumed origin-isolated | Same-origin `fetch`/storage from generated code | CSP `default-src 'none'`; treat as untrusted; no secrets in scope |
-| Prototype pollution / `Function('return this')` escape | Break out of naive freezing-based sandbox | Don't rely on freezing host globals; rely on origin+process isolation + message contract |
-| Secrets in persisted/devtools Zustand slice | Plaintext API keys/proofs in localStorage/devtools | Persist encrypted envelope only; decrypt to transient field |
-| EXIF GPS/PII in published images | Leak uploader location | Strip EXIF before publish; consent before using EXIF-GPS |
-| Untrusted file content into tool args / fetch URL / sandbox | Injection, SSRF-ish fetch, poisoned features | Validate/escape all file-derived values; never pass raw into eval or URL |
+| Untrusted Group schema run in-thread | DoS — frozen/killed viewer tabs (ReDoS, recursive `$ref`, huge schema) | Worker + hard timeout-kill; subset dialect; reject `$ref`; cap size/depth (Pitfall 2) |
+| Rendering spoofed foreign `c` attachments unfiltered | Spam/abuse floods open Group with no moderation | Curated-default + opt-in capped foreign lane + per-viewer local mute (Pitfall 3) |
+| Public full-precision live location | Stalking / real-world harm / de-anon | Default-off, time-boxed, coarsen-by-default, honest staleness, ephemeral frames (Pitfall 4) |
+| Believing "stop sharing" deletes the position | User exposed after they think they're private | No-delete on Nostr — publish "ended" + warn last point stays public (Pitfall 4) |
+| Skipping schema-hash / dialect pinning | Forged or divergently-interpreted schema silently filters data | Verify hash; pin dialect+validator; legible filter reasons (Pitfall 10) |
+| Mis-parsing legacy 37518 as new Group | Crash / wrong render from foreign-relay old data | Version discriminator + defensive parse (Pitfall 7) |
 
 ## UX Pitfalls
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| Silent chat→dataset binding | AI edits a dataset the user didn't realize was the target | Always-visible binding chip; no edit tool fires without a shown target |
-| Apply-then-reveal AI edits | User can't catch a wrong/lossy transform before damage | Diff/preview gated by safety level *before* apply |
-| Auto-send image to unknown-vision model | Confusing model error, wasted sats, the exact frustration named in PROJECT.md | Explicit opt-in when vision support is uncertain |
-| "Fix all" silently fixes only the visible subset | User trusts a partial/lossy result | Transform-as-rule over full dataset; show N-of-M affected |
-| Optimizer reports success by file size only | "Optimized" dataset is visually/topologically broken | Show topology-validity + join count + before/after visual diff |
-| Settings vanish after signer change | User re-enters all provider config, distrusts persistence | Detect orphaned envelope, prompt; export/import |
+| Stale beacon shown identically to live | User acts on wrong "they're here now" info | Age stamp + grey-out past staleness threshold |
+| No visible "LIVE / sharing" indicator | User forgets location is broadcasting | Persistent prominent LIVE chip + time-box countdown |
+| Foreign-attach noise drowns curated content | Open Group feels broken/spammy | Curated lane is the default; foreign lane collapsed + opt-in |
+| Dataset silently vanishes from a required-schema Group | "Where did my map go?" confusion | Show "filtered by rule X" with the failing constraint |
+| naddr typo silently dropped from references | Author thinks a ref is linked; it isn't | "3 of 4 references linked; 1 unparseable" authoring warning |
+| Old 37518 context appears half-broken | Confusing legacy artifacts | Label as legacy/read-only or hide; don't render half-parsed |
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Sandbox:** runs generated JS and draws on the map — verify it CANNOT reach the signer, wallet, store, `localStorage`, or `fetch`; verify `worker.terminate()` kills an infinite loop; verify cross-origin/CSP, not just `sandbox` attr.
-- [ ] **Safe edit:** diff shows before apply — verify it diffs against the *bound* dataset, classifies add/modify/delete, respects all three safety levels, and matches features by id; verify undo reverts property/style/translation edits, not just geometry.
-- [ ] **Binding chip:** present — verify no mutating tool executes when nothing is bound, and the shown target is the one actually written to.
-- [ ] **Vision gating:** image affordance toggles — verify it uses provider metadata, has an "unknown" state with explicit opt-in, and downscales images.
-- [ ] **Geometry optimization:** hits the size target — verify post-simplify topology validity (no new kinks/zero-area), per-feature properties survive merge, microgap stitch reports join count, and it ran off-main-thread.
-- [ ] **File ingest:** parses the happy-path CSV — verify lon/lat-order confirmation, encoding handling, Excel type preservation, EXIF orientation+GPS handling, and large-file off-thread + progress.
-- [ ] **Tool registry:** new tools callable — verify schema↔handler single source, arg validation before dispatch, unknown-tool hard error (no silent no-op).
-- [ ] **Encrypted settings:** persists across reload — verify NIP-46 signer path, async/fallible load, orphaned-envelope handling, export/import, and that secrets are NOT in any persisted/devtools slice.
-- [ ] **Cost safety:** single prompt prepayment works — verify per-turn iteration cap and cumulative spend cap stop a runaway loop.
+- [ ] **Live Beacon "stop sharing":** Often missing the **terminal "ended" state + "last point stays public" warning + kill-on-tab-close** — verify publishing actually halts on unload and the UI stops claiming "live."
+- [ ] **Group schema validation:** Often missing the **off-thread timeout-kill + `pattern`/`$ref`/size guards** — verify a hostile schema (`^(a+)+$` pattern, deep `$ref`, 5 MB schema) cannot freeze the tab.
+- [ ] **Article reference mirror:** Often missing **publish-time re-derivation + per-naddr kind validation** — verify editing the Markdown updates the `a` tags and the map lane in lockstep, malformed naddrs are surfaced.
+- [ ] **Temporal Sighting expiry:** Often missing **client-side expired-filter** — verify an expired sighting served by a non-compliant relay does NOT render.
+- [ ] **Open Group with no moderation:** Often missing the **[NO-MOD MINIMUM]**: curated-default lane + per-viewer local mute + foreign-lane cap — verify a spammed Group is still usable and the owner can collapse to curated in one click.
+- [ ] **Clean break on 37518:** Often missing the **defensive legacy parse** — verify old-shape 37518 from a foreign relay neither crashes nor renders as a valid new Group.
+- [ ] **NIP-32 labels:** Often missing **`L`/`l` pairing + reverse-DNS namespace** — verify no `l` lands in `ugc` and taxonomy queries don't return foreign-app events.
+- [ ] **Beacon recency:** Often missing **seq/clock-skew handling** — verify a clock-ahead or out-of-order update doesn't shadow the truly-latest position.
+- [ ] **d-tag lineage:** Often missing per new kind — verify edit preserves the address and keeps comments/reactions attached.
 
 ## Recovery Strategies
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Sandbox passed live objects | HIGH | Rip out object passing; rebuild as message-only RPC + cross-origin; re-audit every exposed op |
-| AI clobbered a dataset (no snapshot) | HIGH | If unpublished, only the editor geometry stack may help (props lost); if published, fork/restore from a prior kind-37515 revision if one exists |
-| AI clobbered a dataset (with dataset snapshot) | LOW | One-shot revert from pre-batch snapshot |
-| Topology broken by over-simplify | MEDIUM | Re-run from original at lower tolerance with topology gate; original must be retained until publish |
-| Secrets leaked to localStorage/devtools | MEDIUM | Rotate API keys/wallet, purge persisted slice, move to transient field |
-| Settings lost on signer change | LOW/MEDIUM | Import from export if available; else re-enter (argues for export/import up front) |
-| Image sent to blind model | LOW | Surface error, disable affordance, refund-aware (Cashu unused balance refunds) |
+| Hostile schema freezing tabs | MEDIUM | Ship worker+timeout guard; blocklist/down-rank the offending schema-hash; cap size/depth retroactively |
+| Spammed open Group | LOW-MEDIUM | Owner sets `allowForeignAttachments=false` (collapse to curated); viewers local-mute attackers; tighten foreign-lane cap |
+| Leaked live location | HIGH (irreversible) | Cannot delete from relays. Publish "ended"; rotate to a fresh pubkey for future sharing if correlation matters; warn user the past trail is permanent |
+| naddr/`a` drift | LOW | Re-publish article (re-derives `a` from body); add round-trip test to prevent recurrence |
+| Lingering expired sightings | LOW | Ship client-side expiry filter; back-fill the read path; they age out of the UI immediately |
+| Beacon position thrash (clock/relay) | MEDIUM | Add seq tag + client de-dup + clock clamp; single-writer lock across tabs |
+| Legacy 37518 mis-parse | LOW-MEDIUM | Add version discriminator + defensive parse; treat unknown shape as skip/legacy |
+| Forked d-tag lineage | MEDIUM | New version under the *correct* (original) `d`; link the accidental fork with `p` predecessor; re-attach orphaned comments where feasible |
 
 ## Pitfall-to-Phase Mapping
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| 1 Sandbox escape | Sandbox phase (boundary contract first) | Generated code provably can't reach signer/wallet/store/fetch; terminate kills loops |
-| 2 AI clobbers wrong dataset | Safe-editing phase (binding chip + classify + diff first) | No mutating tool without bound+shown target; diff before apply; dataset-level undo |
-| 3 NIP-46 can't decrypt settings | Encrypted-settings phase | NIP-46 signer round-trips; orphaned-envelope handled; export/import exists |
-| 4 Over-simplify topology | Geometry-optimization phase | Post-simplify kink/area gate; properties survive merge |
-| 5 Microgap over-stitch | Geometry-optimization phase | Conservative tolerance; join count reported |
-| 6 Main-thread freeze/OOM | File-ingest + optimization phases | Off-main-thread; progress UI; memory bounded on 12MB input |
-| 7 Image to non-vision model | Multimodal phase | Metadata-based gating + unknown opt-in + downscale |
-| 8 Untyped dispatcher rot | Tool-infra phase (prereq to new tools) | Typed registry; validate-before-dispatch; unknown-tool error |
-| 9 Runaway loop / cost blowup | Sandbox + chat-loop phases | Iteration + spend caps; sandbox timeout/output caps |
-| 10 Dirty file parsing | File-ingest phase | Lon/lat confirm; encoding; Excel types; EXIF; untrusted-input validation |
-| 11 Transform drops out-of-context features | Safe-editing + sandbox phases | Transform-as-rule over full dataset by id; N-of-M shown |
-| 12 Secret leak | Encrypted-settings + sandbox phases | No secrets in persisted/devtools slice or logs |
-
-## Scope / Integration Coupling Note (PROJECT.md "amend, don't replace")
-
-This milestone touches editor + rendering + publish dialog + wallet/signer simultaneously. Two coupling risks specific to Earthly:
-
-- **The toolbar/drawing API is the seam everything routes through** (sandbox RPC, AI tools, direct UI). PROJECT.md mandates it be designed "as if a future package export, no internal store coupling." If the sandbox or new AI tools reach into the Zustand store directly (as `execute.ts` does today via `useEditorStore`), this constraint is violated at exactly the moment it matters most. Route new map mutations through the clean API, not the store.
-- **Amend the dispatcher and store slices; don't reimplement the GeoEditor managers or stable panels.** The prior UX rewrite failed by reimplementing stable leaves. The typed-tool-registry refactor (Pitfall 8) and the safety/diff gate (Pitfall 2) are *orchestration* changes (the right target). Resist rewriting `LayerManager`/`RenderingManager`/publish dialog internals to accommodate AI — adapt at the orchestration boundary.
+| 1. Beacon overwrite race / clock skew | Live Beacon | Clock-ahead + out-of-order + two-tab tests don't shadow latest position |
+| 2. JSON-Schema DoS | Group/Topic + schema governance | Hostile schemas (ReDoS pattern, deep `$ref`, huge size) cannot freeze tab; worker timeout-kills |
+| 3. Open Group unusable w/o moderation **[NO-MOD MINIMUM]** | Group/Topic | Curated-default + local-mute + foreign-cap ship in same phase as foreign `c`; spammed Group still usable |
+| 4. Live-location privacy/safety | Live Beacon | Default-off, LIVE indicator, time-box, honest staleness, "ended" + permanence warning, kill-on-unload |
+| 5. naddr ↔ `a`-tag drift | Story/Article (+ reference-integrity cross-cut) | Edit re-derives `a` + map lane; malformed naddr surfaced; round-trip stable |
+| 6. NIP-40 not enforced | Temporal Sighting | Expired event from non-compliant relay does not render; UTC-only window compare |
+| 7. Clean-break orphans (legacy 37518) | Taxonomy & Clean-Break Foundation | Legacy-shape 37518 neither crashes nor renders as valid Group |
+| 8. NIP-32 `L`/`l` mistakes | Taxonomy & Clean-Break Foundation | No `l` in `ugc`; reverse-DNS namespace; no `t`/`l` double-encode |
+| 9. d-tag instability / forks | Taxonomy & Clean-Break Foundation (+ each entity phase) | Edit preserves address per kind; children stay attached |
+| 10. Schema-hash / divergent interpretation | Group/Topic + schema governance | Hash verified; dialect+validator pinned; filter reasons legible |
 
 ## Sources
 
-- Codebase grounding: `src/features/chat/tools/execute.ts` (19-tool switch dispatcher), `src/features/chat/store.ts` (`modelMaySupportVision` substring heuristic, Routstr/Cashu prepayment, context compaction), `src/features/chat/settingsStorage.ts` (nip04/nip44 encrypt-to-self), `.planning/PROJECT.md` (v1.1 scope, decisions, "amend don't replace")
-- [Running untrusted code safely in browsers — formsort](https://formsort.com/article/sandboxed-code-in-browsers/)
-- [A Deep Dive into JavaScript Sandboxing — Leapcell](https://leapcell.medium.com/a-deep-dive-into-javascript-sandboxing-bbb0773a8633)
-- [jailed — execute untrusted code with custom permissions](https://github.com/asvd/jailed)
-- [Service Worker bypasses iframe[sandbox] — Chromium bug 486308](https://bugs.chromium.org/p/chromium/issues/detail?id=486308)
-- [mapshaper Topology Issues wiki](https://github.com/mbloch/mapshaper/wiki/Topology-Issues)
-- [Self Intersections — topojson/topojson #121](https://github.com/topojson/topojson/issues/121)
-- [@turf/intersect MultiPolygon returns null — Turfjs/turf #2069](https://github.com/Turfjs/turf/issues/2069)
-- RFC 7946 (GeoJSON) coordinate order `[lon, lat]` — known authoring footgun
+- [NIP-01 — Basic protocol flow / addressable (replaceable) events, tie-break = lowest lexical event id on equal `created_at`](https://github.com/nostr-protocol/nips/blob/master/01.md)
+- [NIP-40 — Expiration Timestamp: relays SHOULD drop expired but MAY persist indefinitely; clients SHOULD ignore expired](https://nips.nostr.com/40)
+- [NIP-32 — Labeling: `L` namespace + `l` label, mark-pairing requirement, `ugc` default, single-namespace + reverse-DNS guidance](https://github.com/nostr-protocol/nips/blob/master/32.md)
+- [Ajv security considerations — untrusted schemas, ReDoS via `pattern`/`$data`, `format` assertion risk](https://ajv.js.org/security.html)
+- [CVE-2025-69873 — ajv ReDoS via `$data` `pattern` (catastrophic backtracking, ~44s CPU from 31-char payload)](https://www.datacomm.com/feed-post/cve-2025-69873-ajv-another-json-schema-validator-before-8-18-0-is-vulnerable-to-regular-expression-denial-of-service-redos-when-the-data-option-is-enabled-the-pattern-keyword-accepts-runtime-dat/)
+- Earthly SPEC.md (kind 37515/37518/37519 semantics, two-lane context model, `schema-hash`, blob refs, lineage rules §5) — repo
+- Earthly .planning/PROJECT.md (v1.2 scope, clean-break, deferred moderation/WoT, open lifecycle questions) — repo
+- Earthly v1.1 prior art: QuickJS-WASM-in-Worker sandbox + timeout/circuit-breaker harness (reusable for schema validation isolation) — repo MEMORY
 
 ---
-*Pitfalls research for: browser code-interpreter + AI destructive-edit + file-ingest/multimodal + geometry-optimization on a mature MapLibre/Nostr app (Earthly v1.1)*
-*Researched: 2026-06-16*
+*Pitfalls research for: adding role-specific geo entity kinds to a decentralized Nostr/applesauce + MapLibre app (Earthly v1.2)*
+*Researched: 2026-06-23*

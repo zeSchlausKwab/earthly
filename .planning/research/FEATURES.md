@@ -1,203 +1,319 @@
 # Feature Research
 
-**Domain:** AI chat workbench for collaborative GeoJSON mapping (data ingest, sandboxed code, safe authoring) — Earthly milestone v1.1
-**Researched:** 2026-06-16
-**Confidence:** MEDIUM-HIGH (analogous-product behavior cross-corroborated across multiple sources; map-specific specifics extrapolated from existing Earthly chat/editor surface + GIS tooling norms)
+**Domain:** Role-specific geo entity types (curated article, community group, live beacon, temporal sighting) on a Nostr-backed collaborative mapping app — Earthly milestone v1.2
+**Researched:** 2026-06-23
+**Confidence:** HIGH (Nostr NIP prior art verified against spec sources; comparable-product behavior verified against vendor docs)
 
-> Scope note: This is a SUBSEQUENT milestone on a mature app. Earthly already ships multi-session chat, entity refs, streaming + 10-round tool loop, 19 tools (editor commands + OSM/Overpass + Valhalla routing/isochrones + map snapshot vision), Cashu wallet prepay/refund, cost estimation, diagnostics, encrypted (nip44/nip04) per-pubkey settings storage, a headless `editor_*` command registry, and a `simplify` command. Those are NOT re-proposed below. This file is about how the **seven NEW v1.1 capabilities should behave**, benchmarked against ChatGPT/Claude code interpreter + file upload, LM Studio js-code-sandbox, Felt/Atlas AI map tools, and data-cleaning assistants.
+## Scope Note
 
-> Story key (PROJECT.md "Representative user stories"): **S1** ugly CSV → dataset + cutting route · **S2** Telegram paste → geolocated titled feature on a context · **S3** Austria→Bosnia cost-weighted flight path · **S4** clean a convoluted context (fill descriptions, translate names, recolor ports/airports/waterways, dataset-aware) · **S5** 12MB messy trail GeoJSON → ~900KB at same visual quality.
+This research covers ONLY the NEW behavior introduced by the v1.2 Geo Entity Model Split. The four entity types are:
+
+1. **Story / Article** (new, ~37520) — pull/curate, closed Markdown narrative
+2. **Group / Topic** (37518, slimmed) — push/attach, governance ladder
+3. **Live Beacon** (new, ~37521) — real-time updating position
+4. **Temporal Sighting** (new) — time-bound observation
+
+The reusable substrate (kind 37515 datasets, 37517 comments, 37519 edit proposals, kind-7 reactions, MapLibre editor, Blossom blobs, AI chat) is treated as a **dependency**, not re-researched. Each entity-type section below marks complexity, table-stakes vs differentiator vs anti-feature, and which existing substrate it leans on.
+
+The **central organizing axis** (from PROJECT.md) is *reference direction*: entity→datasets (curate-pull, author owns the list) vs datasets→entity (attach-push, contributors add themselves via `c`). This single axis drives the create flow and the default UI for every entity below.
 
 ---
 
-## Feature Landscape
+## Cross-Cutting Findings
+
+### Reference direction is the UI-defining property
+
+| Direction | Who owns the list | Tag mechanics | UI shape | Nostr prior art |
+|-----------|-------------------|---------------|----------|-----------------|
+| **Curate-pull** (Story, Group's pinned refs) | The entity author | Inline `nostr:naddr…` in Markdown → mirrored to `a` tags on the entity | An ordered, authored reading list; refs render where the author placed them in the prose | NIP-23 long-form (`a`/`e`/`q` inline mentions) |
+| **Attach-push** (Group's foreign lane, Sighting→Group) | Any contributor | Contributor's dataset/feature carries `["c", "<group-coord>"]`; group does NOT list them | A community wall/feed of inbound attachments; author cannot reorder, only governance-filter | NIP-72 (post tags community `a`); spec's existing `c` semantics |
+
+This is already half-built in the current 37518 "two-lane" spec (SPEC.md §2.3) — the curated lane (inline `a`) and foreign lane (`c`). The v1.2 work is to **promote each lane to its own entity** so the create flow stops branching on a content discriminator. **Confidence: HIGH** (directly from SPEC.md + NIP-23/NIP-72 verified).
+
+### Schema-enforced contribution: validate-on-create + filter-on-fetch
+
+The spec's existing `geometryConstraints` + JSON Schema + `validationMode: none|optional|required` + viewer `filter mode off|warn|strict` (SPEC.md §2.3) is the right two-sided pattern and matches how comparable systems avoid frustrating contributors:
+
+- **Validate-on-create (client-side, non-blocking by default):** show schema violations as inline warnings in the contribution form *before* publish, the way iNaturalist collection projects surface "this observation doesn't meet project requirements." The contributor still publishes a valid kind-37515 dataset — the group just won't surface it. This is the key anti-frustration move: **the contributor's data is never rejected at the protocol layer; only the group's view filters it.** A decentralized relay cannot reject a valid event anyway, so enforcement MUST be view-side.
+- **Filter-on-fetch (viewer-side):** `required` groups default to `strict` (hide invalid), but the viewer can override to `warn` or `off`. This mirrors iNaturalist showing "needs ID" observations but letting you filter them out.
+
+**Confidence: HIGH** (validate/filter split is in the spec; comparable-product framing verified against iNaturalist + AllTrails).
+
+### Taxonomy: NIP-32 `L`/`l` vs `t` vs `c`
+
+Verified three-way split (resolves the `t`/taxonomy overlap PROJECT.md calls out):
+- `L`/`l` (NIP-32 namespace + label) — **controlled, schema-enforceable** vocabulary. Self-labeling by the author; the namespace (`L`) names the scheme, the label (`l`) is the value. Use for governed classification (e.g. `["L","earthly.surface"],["l","beach","earthly.surface"]`).
+- `t` — **freeform discovery** hashtags (existing). Keep for search, not governance.
+- `c` — **entity-backed attach** (existing). The only one that creates a reference edge to another entity.
+
+**Confidence: HIGH** (NIP-32 self-labeling semantics verified).
+
+---
+
+## Entity 1 — Story / Article (curate-pull, closed)
+
+The "Roman ruins in Austria" essay. Direct Nostr analog: **NIP-23 long-form (kind 30023)** plus inline geo references.
 
 ### Table Stakes (Users Expect These)
 
-If these are missing, the v1.1 capability feels broken relative to ChatGPT/Felt/Claude.
-
-| Feature | Why Expected | Complexity | Notes / Dependencies |
-|---------|--------------|------------|----------------------|
-| **Attach via "+" button AND drag-drop onto chat** (1) | Every analogous tool offers both; drag-drop is the desktop default in ChatGPT. | LOW | Hooks into existing `ChatPanel.tsx`. Drag-drop desktop-only is an accepted norm. Story: **S1, S2(paste), S5**. |
-| **File chip/preview after attach** (1) | ChatGPT shows a card; users need confirmation the file landed before sending. | LOW | Reuse `ChatGeometryAttachment.tsx` pattern (transient attachment already exists). |
-| **Parse-on-ingest summary: "loaded N rows × M cols", detected headers/types** (1) | ChatGPT emits "I've loaded a file with 9,994 rows and 21 columns"; users expect the model to *acknowledge structure*, not silently swallow the file. | MEDIUM | Client-side parse (CSV/Excel/JSON/GeoJSON) → structured digest injected to model + shown to user. Decision in PROJECT: "parse-everything." Story: **S1, S4**. |
-| **Format coverage: CSV, Excel (xlsx), JSON, GeoJSON, plain text, images** (1) | These are the milestone's named formats and match ChatGPT's CSV/Excel/PDF/text baseline. | MEDIUM | Excel needs a parser (e.g. SheetJS-class). GeoJSON path already exists. |
-| **Capability-gated image send** (1) | Sending an image to a non-vision model produces silent failure or garbage; users expect the affordance to disappear/grey out. | MEDIUM | Decision in PROJECT. Depends on model capability detection (extend `routstr.ts` `/models` discovery). Story: **S1 (image links), S2**. |
-| **Code shown in a collapsible block, output shown beneath** (2) | Universal code-interpreter pattern; users want to *see* what ran. Earthly already has collapsible tool-result blocks — extend, don't reinvent. | LOW | Reuses `ChatPanel.tsx` disclosure pattern. Story: **S1, S3**. |
-| **Errors fed back into the loop so the AI self-corrects** (2) | ChatGPT keeps prior code + outputs in context and retries automatically; "it just fixes it" is the expectation. | MEDIUM | Earthly's tool-call loop (`MAX_TOOL_CALL_ROUNDS = 10`) already does this for tools; sandbox stdout/stderr becomes another tool result. Story: **S1, S3**. |
-| **Sandbox cannot touch the page / network by default** (2) | LM Studio's js-code-sandbox and browser-sandbox norm: locked-down Worker/iframe, no DOM, no `fetch`, terminable on runaway loop/timeout. | HIGH | Web Worker (preferred) or sandboxed iframe; whitelist a narrow `map`/`draw` API bridge via postMessage. Decision in PROJECT (client sandbox). |
-| **Visible binding: "editing → [dataset name]"** (5) | This is the carried-over binding chip; an AI silently editing the wrong dataset is the scariest failure. Users must always see the target. | MEDIUM | `bindActiveWorkspaceChat()` exists but binds silently. Surfacing the chip is the table-stakes half. Story: **S2, S4**. |
-| **Confirm before destructive change (default safety level)** (5) | "Human confirmation for high-impact/destructive actions (delete, publish)" is a near-universal agent-UX principle. PROJECT default = level 2 confirm-destructive. | MEDIUM | Needs add-vs-modify-vs-delete intent classification on editor mutations. Story: **S4, S1**. |
-| **Before/after metrics on optimization: size + vertex count** (6) | Every simplify tool (mapshaper, QuickMapTools) reports coordinate-count reduction, file-size savings, reduction %. Users won't trust "I simplified it" without numbers. | LOW-MEDIUM | `simplify` command exists; wrap with measurement + reporting. Story: **S5**. |
-| **Hit the size budget the city dialog complains about** (6) | The whole point of S5 is clearing the publish/relay size limit. Optimization must target a concrete byte budget, not a generic "simplify." | MEDIUM | Iterative: simplify → measure → tighten tolerance until under budget. Story: **S5**. |
-| **Keys persist across reload, scoped to identity** (7) | "Remember my provider/keys" is assumed; re-entering an API key every reload is broken UX. | LOW | Already shipped (`settingsStorage.ts`, nip44/nip04, per-pubkey). v1.1 mostly *extends payload* (provider config, LM Studio/Ollama addresses) + UX polish. Story: all. |
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Markdown body with title / summary / image / `published_at` | NIP-23 articles set this baseline; any "article" missing a title feels broken | LOW | Adopt NIP-23 metadata tags verbatim (`title`, `summary`, `image`, `published_at`); body in `content` |
+| Inline geo references rendered in-place (`nostr:naddr…` → dataset/feature) | The whole point is prose interleaved with map objects; SPEC.md §8.5 already defines eye-toggle + zoom for inline refs in comments | MEDIUM | Reuse the existing inline-ref renderer (eye toggle / fly-to) from the comment system. Mirror inline refs to `a` tags for queryability (NIP-23 + existing 37518 pattern) |
+| Draft state before publish | NIP-23 reserves kind 30024 for drafts; authors expect to not publish half-written essays | LOW–MEDIUM | Either NIP-23-style separate draft kind or a `draft` flag; reuse existing workspace/draft persistence |
+| Comment + react on the article | Substrate exists (37517 comments, kind-7 reactions); readers expect to respond to an essay | LOW | Reuse 37517 + kind 7 with the new root kind in `K`/`A` |
+| Edit history / replaceable update | Articles are "meant to be editable" (NIP-23); same `d`-tag lineage as existing 37515 | LOW | Parameterized-replaceable; reuse the existing replaceable-update plumbing |
+| Propose-edit on the narrative | PROJECT.md explicitly says Story reuses kind 37519 proposals | MEDIUM | 37519 currently carries a *FeatureCollection* replacement; for a Story the proposal target is Markdown text, not GeoJSON — see Dependencies/anti-features |
 
 ### Differentiators (Competitive Advantage)
 
-Where Earthly does something ChatGPT/Felt do not — the v1.1 wow surface.
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| Map "reading order" — refs fly the map as the reader scrolls the prose | This is Atlas Obscura / Google My Maps "story map" magic on a decentralized stack; no Nostr client does interleaved prose+geometry well | MEDIUM–HIGH | Scroll-linked map camera; refs already carry bbox/geohash for fly-to |
+| Inline video / image refs alongside geometry | The "Roman ruins" essay wants photos of the ruins next to the polygon | MEDIUM | Reuse existing TipTap MediaExtensions + Blossom; treat media as just another inline ref type |
+| AI-assisted authoring of the essay (chat drafts narrative around selected map objects) | Aligns with the app's "author by chat" core value; "write me an essay about these 5 ruins" | MEDIUM | Leans on shipped v1.1 chat workbench; out-of-band but natural |
 
-| Feature | Value Proposition | Complexity | Notes / Dependencies |
-|---------|-------------------|------------|----------------------|
-| **Sandboxed code that drives a clean map drawing API** (2,3) | "Draw 15 circles with fibonacci radii" or a cost-weighted flight path expressed as *code*, not 15 tool calls. ChatGPT plots matplotlib; Earthly plots **geometry onto a live collaborative map**. This is the milestone's signature. | HIGH | Sandbox + the toolbar drawing API (PROJECT constraint: designed as a package boundary, no store leakage). Bridge exposes `draw.point/line/polygon/circle/buffer`, `editor.*`. Story: **S1 (route), S3 (flight path)**. |
-| **AI-only parametric/batch primitives** (3) | Tools a human toolbar shouldn't carry but an AI loves: parametric circle/regular-polygon/star, geodesic buffer, batch attribute set, bulk transform, dedup, merge-to-multi, microgap stitch. | MEDIUM-HIGH | Add to `editor_*` command registry so they're callable from chat AND sandbox via one surface. (Enumerated in detail below.) Story: **S3, S4, S5**. |
-| **Data-driven styling by attribute, AI-applied** (4) | "Make ports blue, airports red, waterways thick teal" → a per-attribute style rule, not per-feature hand-coloring. Felt does this via UI; Earthly does it via *one sentence*. | MEDIUM-HIGH | Needs a per-dataset style spec (categorical/ramp rules keyed on a property) + an `apply_style` tool + persistence in/alongside the kind 37515 event. Story: **S4**. |
-| **Per-dataset style persistence** (4) | Recolor survives reload/publish and travels with the dataset (so a viewer sees ports-blue too). | MEDIUM | Where to store: style spec as event metadata or sidecar. Decision needed; depends on Nostr event surface. Story: **S4**. |
-| **Add-vs-modify-vs-delete intent surfaced per operation** (5) | The AI says "I will ADD 1, MODIFY 3 (fill description), DELETE 0" before acting — turning an opaque edit into a reviewable plan (agent-plans-as-PR pattern). | MEDIUM-HIGH | Needs the editor to classify each pending mutation; ties to diff/preview. Story: **S4**. |
-| **Diff/preview before destructive change** (5) | Show the changeset (counts + a visual highlight of affected features on the map) before commit; keep/undo decision. This is what makes users *trust* the AI on their data. | HIGH | Map-highlight of pending changes + a summary panel. Depends on intent classification. Story: **S1, S4**. |
-| **Three configurable safety levels** (5) | 1 = preview+confirm-all, 2 = confirm-destructive only (default), 3 = trust + undo. Most tools hardcode one model; making it a user dial respects power users without abandoning cautious ones. | MEDIUM | Decision locked in PROJECT. Level 3 leans on existing undo/redo (`HistoryManager`). Story: **S4**. |
-| **Geometry optimization as a guided, quality-preserving pipeline** (6) | Not raw Douglas-Peucker — simplify + merge-to-multi + microgap stitching tuned to a byte budget, with the AI choosing tolerance and explaining the tradeoff. Solves a real GIS pain (40-60% size cuts) inside chat. | HIGH | `simplify` exists; merge-to-multi + microgap stitch are new primitives. Story: **S5**. |
-| **Visual before/after diff for optimization** (6) | Overlay original vs simplified so the user *sees* quality is preserved, not just trusts a number. mapshaper-style real-time preview. | MEDIUM-HIGH | Needs a transient overlay layer in the editor. Nice-to-have above the metrics floor. Story: **S5**. |
-| **Free/local-model parity (LM Studio/Ollama) for the whole workbench** (1,2,7) | Felt/ChatGPT lock data analysis behind paid tiers + cloud. Earthly runs the same ingest+code+style flow against a local model with no data leaving the machine. | MEDIUM | Capability detection must degrade gracefully (no vision, smaller context). Reuses existing provider switch. |
-
-### Anti-Features (Commonly Requested, Often Problematic)
+### Anti-Features
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
-| **Server-side / container code execution** | "Real" code interpreters (ChatGPT) run Python in a cloud VM with full libs. | Adds backend, breaks the no-middleware chat architecture, leaks user data, and contradicts the local-first/Nostr ethos. | Client-side Web Worker sandbox with a curated JS map API (PROJECT decision). Accept narrower capability. |
-| **Arbitrary network/`fetch` from sandboxed code** | "Let the code pull a live API." | Turns the sandbox into an exfiltration/SSRF vector; defeats isolation. | Route external data through the *existing vetted tools* (OSM, web_search, fetch_url); pass results INTO the sandbox as inputs. |
-| **Auto-publish AI edits to the relay** | "Just save it for me." | Publishing is irreversible and public (kind 37515); an AI mistake becomes a permanent broadcast. | Edits stay local until an explicit human Publish verb. Never let safety level 3 ("trust") imply auto-publish — trust = local apply + undo only. |
-| **Per-feature manual recoloring loop by AI** | "Color each port." | O(N) tool calls, blows the context/budget, fragile. | Attribute-driven style rule applied once (the differentiator above). |
-| **Streaming/auto-running code as the model types** | "Faster feedback." | Runs half-formed code, side effects on the map mid-stream, scary. | Run only on a complete, parsed code block; show code first, then execute (optionally with a run gate at safety level 1). |
-| **Lossy optimization that silently changes topology** | "Just make it small." | Over-simplification creates spikes/self-intersections and breaks routing/area semantics; user loses data without knowing. | Budget-targeted simplify with visual diff + a floor tolerance + validity check; report what was dropped. |
-| **Storing API keys in plaintext localStorage "for convenience"** | "Encryption is a hassle / no nsec when using a NIP-07 extension." | Plaintext secrets in localStorage are trivially stolen by any XSS. | Keep the nip44/nip04-via-signer envelope already shipped; for NIP-07/remote signers, derive encryption via the signer's encrypt API (already abstracted as `ISigner`). Degrade to session-only if no encryption available. |
-| **A second "power mode" UI for the workbench** | "Analysts need more controls." | PROJECT explicitly rejected two-tier UI; forking the UI re-introduces orchestration debt. | "Visible but ignorable" — workbench affordances live in the existing chat, gated by capability not by mode. |
-| **Generic "AI cleans your data" magic with no visibility** | Data-cleaning assistants market full autonomy. | On a *destructive, shared* dataset, opacity destroys trust — the core risk this milestone is built to manage. | Always-visible binding + intent breakdown + diff/preview. Trust is earned by showing work. |
+| Auto-attach foreign datasets into a Story | "Shouldn't my Story collect related datasets?" | Breaks the closed/curated contract — the Story is the *author's* argument; foreign attach is the Group's job. PROJECT.md: Story "does NOT auto-attach foreign datasets" | If you want community contribution, create a Group, not a Story |
+| Free-form WYSIWYG with arbitrary HTML | "Richer than Markdown" | NIP-23 is explicitly Markdown; HTML breaks interop + invites XSS | Markdown + a fixed set of inline ref/media extensions |
+| Threaded approval workflow for the narrative | "Let co-authors approve sections" | This is NIP-72 moderation territory, deferred this milestone | Use 37519 propose-edit (single owner accepts/rejects) |
 
 ---
 
-## AI-Oriented Editor Tools — Candidate Enumeration (Q3)
+## Entity 2 — Group / Topic (attach-push, governance ladder)
 
-Tools that make sense for an AI/sandbox but would clutter a human toolbar. All should land on the **one `editor_*` command registry** (`src/features/geo-editor/commands.ts`) so chat tool-calls AND sandbox code share a surface, per the PROJECT "design as a package export" constraint.
+Slimmed kind 37518. Absorbs "best surfing beaches" (open) and "hiking trails" (schema-enforced). Direct analogs: **NIP-72 moderated communities** (the `a`-tag attach pattern, NOT the approval machinery) + community POI collections (AllTrails curated / Wikiloc open / Surfline spots).
 
-| Candidate primitive | Why AI-suited (not toolbar) | Complexity | Story |
-|---------------------|-----------------------------|------------|-------|
-| `draw_circle` / `draw_regular_polygon` / `draw_star` (parametric: center, radius, n) | Humans drag; AI parameterizes ("15 circles, fibonacci radii"). | LOW-MEDIUM | S3 |
-| `buffer` (geodesic, meters) around feature/selection | Already prompt-cookbooked ("2km buffer"); formalize as a primitive. | MEDIUM | S1, S3 |
-| `set_attributes_batch` (set property on N matched features) | "fill missing descriptions", "tag source=osm". Tedious by hand. | LOW-MEDIUM | S1, S4 |
-| `transform_features_batch` (translate/scale/rotate a set) | Bulk geometric ops; toolbar transforms one selection. | MEDIUM | — |
-| `dedup_features` (by geometry hash / proximity) | Cleaning imported messes. | MEDIUM | S5 |
-| `merge_to_multi` (collapse many singles → MultiLineString/MultiPolygon) | Core of S5 size reduction; topology-aware. | MEDIUM-HIGH | S5 |
-| `stitch_microgaps` (snap near-coincident endpoints, tolerance) | Fixes the "hundreds of polylines with microgaps" case. | HIGH | S5 |
-| `simplify` (tolerance / target budget) | EXISTS — extend to accept a byte budget + report metrics. | LOW (extend) | S5 |
-| `apply_style_rule` (attribute → color/stroke/width) | Data-driven styling primitive. | MEDIUM-HIGH | S4 |
-| `select_by_attribute` / `query_features` (filter loaded features) | Lets AI scope batch ops precisely ("all features where amenity=port"). | LOW-MEDIUM | S4 |
-| `translate_attribute` (e.g. Arabic names → English) via model, batched | S4 names-translation; pairs with `set_attributes_batch`. | LOW (orchestration) | S4 |
-| `validate_geometry` (self-intersection, winding, NaN coords) | Pre-publish safety; AI can auto-fix. | MEDIUM | S5 |
+### Table Stakes (Users Expect These)
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Datasets attach via `c` and appear in a foreign lane | This is the core "community map" behavior; NIP-72 communities work exactly this way (event tags community, community lists nothing) | LOW–MEDIUM | Reuse existing `c`-tag attach + foreign-lane query from 37518 |
+| Governance ladder `open · schema · closed` | PROJECT.md's defining Group property; "best surfing beaches" = open, "hiking trails" = schema | MEDIUM | Map to existing `allowForeignAttachments` + `validationMode` content fields; collapse to one explicit `governance` enum |
+| Schema definition UI (geometry constraints + JSON Schema) | A "hiking trails" group needs to say "polylines with elevation" | MEDIUM–HIGH | Reuse existing `geometryConstraints` + self-contained JSON Schema (2020-12); needs an authoring UI for non-developers |
+| Validate-on-create warnings in the contribution form | Don't silently drop a contributor's work; tell them why it won't show | MEDIUM | Run schema/geometry check client-side at attach time, show inline warnings, still allow publish |
+| Filter-on-fetch with viewer override (`off/warn/strict`) | Viewers expect to see/hide non-conforming attachments | MEDIUM | Exists in spec; surface as a view toggle |
+| Optional narrative + pinned "canonical" refs (curate-pull *within* the Group) | A Group can also be a mini-Story: "here are the 3 reference trails" | MEDIUM | Same inline-`a` mechanism as Story; Group carries BOTH lanes (this is intentional, per PROJECT.md) |
+| Comment + react on the Group | Communities discuss; substrate exists | LOW | 37517 + kind 7 with Group as root |
+
+### Differentiators (Competitive Advantage)
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| Schema-as-contract without server moderation | AllTrails needs human moderators + days-to-months approval; a schema-gated open group gets "only conforming data shows" instantly, no moderator | MEDIUM | The decentralized win: validation replaces moderation for *structural* quality (not spam) |
+| Live, query-time membership (no approval lag) | Wikiloc-style instant contribution but with AllTrails-style structure | LOW | Inherent to attach-push + filter-on-fetch |
+| `L`/`l` controlled vocabulary enforced by schema | "surface=beach\|reef\|point-break" as a governed enum, discoverable + filterable | MEDIUM | NIP-32 namespace tied to the group's schema |
+
+### Anti-Features
+
+| Feature | Why Requested | Why Problematic | Alternative |
+|---------|---------------|-----------------|-------------|
+| NIP-72 human approval / moderator role lists (kind 4550, kind 34550 moderators, kind 30000 role lists) | "Reddit-style moderation feels safe" | **Explicitly deferred** (PROJECT.md): spam handled by web-of-trust + mute, not approval. Adds a kind, a UI, a notification surface | Schema validation for quality; WoT/mute for spam (next milestone) |
+| Relay-side rejection of invalid attachments | "Just make the relay enforce the schema" | Relays are generic; can't enforce app schemas; a valid Nostr event can't be rejected | View-side filter-on-fetch is the only enforceable layer |
+| Blocking the contributor's publish on schema fail | "Force them to fix it" | Frustrates contributors; their dataset is still a valid standalone 37515 | Warn-and-allow; the group just doesn't surface it until fixed |
+| Per-group private membership / invites | "Closed group should be invite-only" | Encryption/membership is a separate hard problem; `closed` here means "no foreign attach," not "private" | `closed` = author-curated refs only (= a Group acting like a Story) |
+
+---
+
+## Entity 3 — Live Beacon (real-time updating position)
+
+New (~37521). Direct analogs: **Glympse / Google Maps live location / Find My** (product) and Nostr **ephemeral events + geohash channels** + **NIP-40 expiration** (protocol). PROJECT.md flags lifecycle (replaceable vs ephemeral) + visibility model as **open for phase-level research** — this section frames the decision, doesn't pre-decide it.
+
+### Table Stakes (Users Expect These)
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| A single point that updates as the sharer moves | The definition of a live beacon; Glympse/Find My baseline | MEDIUM | Replaceable event (same `d`, new position) OR ephemeral stream (kind 2xxxx); see lifecycle decision |
+| Explicit start-sharing / stop-sharing | Every product (Glympse, Google Maps) makes "stop sharing" a first-class, always-available control | LOW–MEDIUM | Stop = publish a final "ended" state OR let it expire; never leave a beacon implicitly live |
+| Time-boxed expiry (auto-stop) | Glympse: minutes to 4 hours, auto-expires; users expect sharing to NOT be forever | LOW | **NIP-40 `expiration` tag** (unix seconds) — verified standard for this; relays drop after expiry |
+| Staleness indication ("last seen N min ago") | If updates stop (dead battery), viewers must see the position is stale, not current | LOW–MEDIUM | Compare `created_at` of latest update to now; show age; Glympse/Find My both surface this |
+| Public toggle / shareable link | PROJECT.md: "shareable/public real-time position." Glympse shares via link, no account needed for viewers | LOW–MEDIUM | A naddr/nevent share link; "public" = discoverable vs link-only |
+
+### Differentiators (Competitive Advantage)
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| Beacon driven by "another data source" (not just the sharer's GPS) | PROJECT.md: "updates with the sharer's position OR another data source" — e.g. a vehicle/asset feed, an AIS ship, the AI sandbox pushing positions | MEDIUM | The Authoring API / code sandbox (v1.1) can publish beacon updates; differentiator vs consumer apps |
+| Geohash-channel proximity discovery | Bitchat/Nymchat pattern: beacons discoverable by geohash region | MEDIUM | Reuse existing `g` geohash tag for proximity query |
+| Beacon trail / breadcrumb (optional history) | "Where have they been" vs just "where now" | MEDIUM | Only if ephemeral-stream lifecycle chosen; replaceable loses history |
+
+### Anti-Features
+
+| Feature | Why Requested | Why Problematic | Alternative |
+|---------|---------------|-----------------|-------------|
+| Always-on background tracking | "Track them continuously" | Privacy nightmare; relays accumulate position history; battery drain | Time-boxed (NIP-40), explicit-start, foreground-only by default |
+| Persistent permanent position history on relays | "Keep the whole trail forever" | Replaceable+expiry is the privacy-safe default; permanent trails are a surveillance footgun | Ephemeral (kind 2xxxx, relays don't store) for live; opt-in saved trail as a separate dataset |
+| Beacon as a comment/edit target | "Let people annotate the live position" | A moving point is a poor comment anchor; churns | Comment on a Sighting (snapshot) instead |
+| Encrypted per-viewer location (NIP-17 gift-wrap) | "Only my friends see it" | Real but heavy; PROJECT.md frames this milestone around *public* beacons | Public toggle now; private/encrypted beacons a later milestone |
+
+**Lifecycle decision frame (for phase research):**
+- **Replaceable (kind 3xxxx, e.g. 37521):** one current position, queryable by address, simple, no history, survives until overwritten/expired. Best for "where is this asset now." Pair with NIP-40 expiry.
+- **Ephemeral (kind 2xxxx):** relays don't persist; true real-time stream; gives a trail if clients buffer; vanishes naturally (privacy-good). Best for "follow me for the next hour."
+- **Recommendation lean:** replaceable + NIP-40 expiration for the v1.2 table-stakes "public updating point"; ephemeral stream is a differentiator to defer. **Confidence: MEDIUM** (lifecycle is explicitly open per PROJECT.md; NIP-40 + ephemeral semantics are HIGH-confidence inputs).
+
+---
+
+## Entity 4 — Temporal Sighting (time-bound observation)
+
+The "soccer star spotted at hotel XYZ in Lyon" case (also user story #2 — a news curator's Telegram-message geolocation). Direct analogs: **NIP-52 calendar events** (time-bound + location) + **iNaturalist observations** (a dated, placed, titled sighting) + incident maps. PROJECT.md flags representation (dedicated kind vs property + NIP-40 expiry) as **open for phase research**.
+
+### Table Stakes (Users Expect These)
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Title + description + a single placed feature | A sighting is "what, where, said-by-whom" — user story #2 produces "a titled, described feature" | LOW | Reuse the editor's point-drop + a small metadata form |
+| Start time (and optional end / window) | iNaturalist `observed_on`; NIP-52 `start`/`end`. A "spotted at 14:00" needs a timestamp distinct from `created_at` (when it was posted) | LOW–MEDIUM | **NIP-52 `start`/`end` tags** (ISO 8601 / unix) — verified standard for time-bound geo events. Distinguish observation-time from publish-time |
+| Geohash + bbox for discovery | Existing geo discovery substrate; "what was sighted near Lyon" | LOW | Reuse `g`/`bbox` |
+| Attach to a Group / Topic via `c` | User story #2: "adds a feature to the topic's context" — sightings feed a topic | LOW | Reuse `c` attach (attach-push) |
+| Comment + react | Sightings invite "I saw that too" / "that's wrong" | LOW | 37517 + kind 7 |
+
+### Differentiators (Competitive Advantage)
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| Expiry / auto-fade for ephemeral relevance | "Spotted now" loses value in hours; incident maps fade old reports | LOW | **NIP-40 `expiration`** OR a soft client-side fade by `end`/age. A sighting that auto-expires keeps the map current |
+| AI-geolocated ingest (paste a message → placed sighting) | This is user story #2 verbatim and a core-value demo moment | MEDIUM | Leans on shipped v1.1 chat + geocode tools; the Sighting is the *output type* of that flow |
+| Confidence / source field | News/observation context: "unconfirmed," "via Telegram" | LOW | Optional property; mirrors iNaturalist's research-grade vs needs-ID |
+| Geoprivacy obscuring (coarse location) | iNaturalist obscures sensitive locations to a ~0.2° cell | MEDIUM | Defer; relevant for sensitive sightings but adds complexity |
+
+### Anti-Features
+
+| Feature | Why Requested | Why Problematic | Alternative |
+|---------|---------------|-----------------|-------------|
+| Full NIP-52 calendar/RSVP machinery (participants, RSVP kind 31925, calendars kind 31924) | "It's a NIP-52 event, do all of it" | A sighting is an *observation*, not an *invitation*; RSVP/participants are noise | Borrow only NIP-52's `start`/`end`/location tags; skip RSVP/calendar grouping |
+| Editable/replaceable sighting with version lineage | "Let me correct the sighting" | An observation is a point-in-time claim; mutating it rewrites history. Corrections should be new sightings or comments | Regular event + comment-to-correct; or a fresh sighting that supersedes |
+| Permanent storage of every transient sighting | "Archive all sightings forever" | Stale "spotted" reports clutter the map and mislead | NIP-40 expiry default; opt-in promote a notable sighting into a dataset/Story |
+
+**Representation decision frame (for phase research):**
+- **Dedicated kind** (cleaner type, distinct query, own UI affordances) vs **kind-37515 feature + property + NIP-40 expiry** (reuses all dataset plumbing, less new code). PROJECT.md leaves this open. Lean: a dedicated lightweight kind borrowing NIP-52 `start`/`end` + NIP-40 `expiration`, because the *time-bound + auto-expire + single-feature* shape differs enough from a dataset that overloading 37515 reintroduces the discriminated-union problem this whole milestone is fixing. **Confidence: MEDIUM.**
 
 ---
 
 ## Feature Dependencies
 
 ```
-File Upload + Parse (1)
-    └──feeds──> Code Interpreter sandbox inputs (2)
-    └──feeds──> Geometry Optimization (6)  [the 12MB GeoJSON arrives via upload]
+Story/Article (37520)
+    └──reuses──> Inline geo-ref renderer (eye-toggle/fly-to)  [from 37517 comments, SPEC §8.5]
+    └──reuses──> 37517 comments + kind-7 reactions
+    └──reuses──> 37519 edit proposals  [BUT: target is Markdown, not FeatureCollection — see note]
+    └──reuses──> NIP-23 metadata tags (title/summary/image/published_at)
+    └──reuses──> TipTap editor + Blossom media (v1.1)
 
-Toolbar Drawing API (existing constraint, must be clean)
-    └──required-by──> Code Interpreter map bridge (2)
-    └──required-by──> AI-oriented editor primitives (3)
+Group/Topic (37518 slimmed)
+    └──reuses──> `c` attach-push + foreign-lane query  [existing 37518]
+    └──reuses──> geometryConstraints + JSON Schema validate/filter  [existing 37518]
+    └──reuses──> inline-`a` curate-pull  [shared with Story]
+    └──enables──> schema-enforced contribution (validate-on-create + filter-on-fetch)
+    └──conflicts──> NIP-72 human approval  [deferred — do NOT combine]
 
-AI-oriented editor primitives (3)
-    └──required-by──> Data-driven styling (4)   [apply_style_rule]
-    └──required-by──> Geometry Optimization (6)  [merge_to_multi, stitch, simplify]
+Live Beacon (37521)
+    └──requires──> NIP-40 expiration  [time-box / auto-stop]
+    └──requires──> lifecycle decision (replaceable vs ephemeral)  [phase research]
+    └──reuses──> `g` geohash proximity
+    └──enhanced-by──> Authoring API / code sandbox (v1.1)  ["another data source"]
 
-Add/modify/delete intent classification (5)
-    └──required-by──> Diff/preview (5)
-    └──required-by──> Safety levels (5)
-    └──enhanced-by──> Visible binding chip (5)
+Temporal Sighting
+    └──requires──> NIP-52 start/end tags  [observation-time vs publish-time]
+    └──requires──> representation decision (dedicated kind vs 37515+property)  [phase research]
+    └──reuses──> `c` attach-push (feeds a Group)
+    └──reuses──> editor point-drop + 37517/kind-7
+    └──enhanced-by──> v1.1 chat geocode ingest  [paste→sighting, user story #2]
+    └──enhanced-by──> NIP-40 expiration  [auto-fade]
 
-Visible binding chip (5)  [carried-over UX-rewrite item]
-    └──required-by──> Dataset-aware safe editing as a whole (5)
-
-Capability detection (model /models)
-    └──required-by──> Capability-gated image send (1)
-    └──enhances──> Local-model parity (graceful degrade)
-
-Encrypted settings (7) [largely SHIPPED]
-    └──extended-by──> provider config + local addresses persistence
-
-Safety levels (5) ──conflicts──> Auto-publish (anti-feature)
-Sandbox network access (anti-feature) ──conflicts──> Sandbox isolation (2)
+Cross-cutting:
+NIP-32 L/l taxonomy ──enables──> schema-enforced controlled vocab in Group
+NIP-32 L/l + t + c ──replaces──> overloaded `t`/taxonomy on old 37518
 ```
 
 ### Dependency Notes
 
-- **Code interpreter requires the clean toolbar drawing API.** The sandbox can only be useful if it has a stable, store-decoupled `draw/editor` surface to call across the postMessage bridge. This is already a PROJECT constraint — v1.1 makes it load-bearing.
-- **Data-driven styling and geometry optimization both require new primitives on the shared command registry.** Build the primitives once; expose to chat tools and sandbox alike.
-- **Safe editing is a stack, not a toggle:** binding chip (visibility) → intent classification (what kind of change) → diff/preview (show it) → safety levels (how much to gate). Each layer depends on the one below.
-- **Upload feeds three downstream features** (code inputs, optimization input, styling-by-attribute on tabular joins) — it is the earliest item that unblocks the most.
-- **Encrypted persistence is mostly done;** treat as a small extension + the NIP-07/remote-signer edge case, not a from-scratch build.
+- **Story propose-edit reuses 37519 but the payload differs:** existing 37519 carries a full *FeatureCollection* replacement (SPEC.md §10). A Story's editable body is Markdown. Either (a) generalize 37519's content to "full replacement of target content" regardless of type, or (b) accept that Story edit-proposals replace the Markdown `content`. Flag for requirements: this is a small but real extension, not pure reuse.
+- **Group carries BOTH reference directions intentionally:** curate-pull (pinned canonical inline refs) AND attach-push (foreign lane). This is the one entity that is not single-direction; the create flow defaults to attach-push, with curate-pull as an optional narrative add-on. (Story is pure curate-pull; Sighting is pure attach-push.)
+- **NIP-40 is shared infrastructure** across Beacon (auto-stop) and Sighting (auto-fade). Build the expiration handling once.
+- **Validate-on-create depends on the schema-authoring UI** existing first — you can't validate against a schema a non-developer couldn't author.
 
 ---
 
 ## MVP Definition
 
-### Launch With (v1.1 core)
+Per PROJECT.md this is a **Full v2 / clean-break** milestone: spec + all event classes + full authoring UI for every kind, in one milestone. So "MVP" here = the minimum coherent surface per entity, not a subset of entities.
 
-- [ ] **File upload + parse + structured summary** (CSV/Excel/JSON/GeoJSON/text/image) — unblocks S1, S2, S5; earliest dependency.
-- [ ] **Capability-gated image send** — cheap, prevents a broken-feeling failure mode.
-- [ ] **Clean toolbar drawing API + Web Worker sandbox with map bridge** — the signature differentiator (S1 route, S3 flight path).
-- [ ] **Core AI-oriented primitives:** parametric shapes, buffer, set_attributes_batch, merge_to_multi, simplify-to-budget — minimum set for S3/S4/S5.
-- [ ] **Visible binding chip + add/modify/delete intent + confirm-destructive (level 2 default)** — the trust floor for editing shared data (S4).
-- [ ] **Geometry optimization to a byte budget with before/after size+vertex metrics** — clears S5's size-limit complaint.
-- [ ] **Encrypted settings extension** (provider config + local addresses) — small lift on shipped foundation.
+### Launch With (v1.2)
 
-### Add After Validation (v1.1.x)
+- [ ] **Story create/edit/read** — NIP-23 metadata + Markdown + inline geo refs (eye-toggle/fly-to) — the curate-pull flagship
+- [ ] **Story comment/react/propose-edit** — reuse 37517 / kind-7 / 37519 (with Markdown-target extension)
+- [ ] **Group create/edit** with explicit `governance: open|schema|closed` enum
+- [ ] **Group attach-push** — datasets/sightings attach via `c`, foreign lane renders
+- [ ] **Group schema authoring + validate-on-create warnings + filter-on-fetch toggle** — the no-moderator quality gate
+- [ ] **Group optional narrative + pinned canonical refs** — curate-pull within the group
+- [ ] **Live Beacon publish/update/stop** with NIP-40 expiry + staleness display + public/share toggle
+- [ ] **Temporal Sighting create** — title/description/placed-feature + NIP-52 start/end + attach to Group + optional NIP-40 expiry
+- [ ] **NIP-32 `L`/`l` taxonomy** wired into Group schema + freeform `t` retained for discovery
 
-- [ ] **Visual before/after overlay for optimization** — trigger: users distrust the metrics-only report.
-- [ ] **Full diff/preview with on-map highlight of pending changes** — trigger: confirm-destructive proves too coarse.
-- [ ] **Safety levels 1 and 3 (preview-all / trust+undo)** — trigger: power users find level 2 friction-y or cautious users want more gating.
-- [ ] **Per-dataset style persistence travelling with the published event** — trigger: viewers should see the AI's styling, not just the author.
-- [ ] **dedup / stitch_microgaps / validate_geometry** — trigger: real messy-import datasets beyond the West Pacific Trail demo.
+### Add After Validation (v1.x)
+
+- [ ] **Scroll-linked map camera** for Story reading order — high-wow, can ship after the static version works
+- [ ] **Beacon driven by external data source / sandbox** — once basic GPS beacon proves out
+- [ ] **AI paste→Sighting ingest** as a polished flow — plumbing exists (v1.1); productize after the manual Sighting form works
+- [ ] **Beacon trail/breadcrumb history** — only if ephemeral lifecycle is chosen
 
 ### Future Consideration (v2+)
 
-- [ ] **Nostr-scrolls / WASM authoring (NIP-5C)** — explicitly deferred in PROJECT; builds on the sandbox.
-- [ ] **Compound routing scenarios** — deferred in PROJECT.
-- [ ] **Tabular join → geocode → choropleth** (Felt-style geomatching) — natural extension of CSV ingest, but a milestone of its own.
+- [ ] **NIP-72 human moderation / approval / role lists** — explicitly deferred this milestone
+- [ ] **Web-of-trust + mute for spam** — the deferred companion to deferred moderation
+- [ ] **Encrypted/private beacons (NIP-17 gift-wrap per-viewer)** — public-only this milestone
+- [ ] **Geoprivacy location obscuring for sensitive Sightings** — iNaturalist-style
+- [ ] **Promote Sighting → permanent dataset/Story** — lifecycle bridge
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| File upload + parse + summary (1) | HIGH | MEDIUM | P1 |
-| Capability-gated image send (1) | MEDIUM | LOW | P1 |
-| Sandbox + clean drawing API bridge (2) | HIGH | HIGH | P1 |
-| Core AI-oriented primitives (3) | HIGH | MEDIUM | P1 |
-| Visible binding chip (5) | HIGH | MEDIUM | P1 |
-| Intent + confirm-destructive default (5) | HIGH | MEDIUM-HIGH | P1 |
-| Optimization-to-budget + metrics (6) | HIGH | MEDIUM-HIGH | P1 |
-| Encrypted settings extension (7) | MEDIUM | LOW | P1 |
-| Data-driven styling by attribute (4) | HIGH | MEDIUM-HIGH | P1/P2 |
-| Per-dataset style persistence (4) | MEDIUM | MEDIUM | P2 |
-| Full diff/preview on-map (5) | HIGH | HIGH | P2 |
-| Safety levels 1 & 3 (5) | MEDIUM | MEDIUM | P2 |
-| Visual before/after overlay (6) | MEDIUM | MEDIUM-HIGH | P2 |
-| dedup / stitch / validate (3,5) | MEDIUM | MEDIUM-HIGH | P2 |
+| Story Markdown + inline geo refs | HIGH | MEDIUM | P1 |
+| Group governance ladder (open/schema/closed) | HIGH | MEDIUM | P1 |
+| Group attach-push foreign lane | HIGH | LOW | P1 |
+| Schema validate-on-create + filter-on-fetch | HIGH | MEDIUM | P1 |
+| Live Beacon publish/stop + NIP-40 expiry + staleness | HIGH | MEDIUM | P1 |
+| Temporal Sighting + NIP-52 start/end + attach | HIGH | LOW–MEDIUM | P1 |
+| NIP-32 L/l taxonomy | MEDIUM | MEDIUM | P1 |
+| Story comment/react/propose-edit reuse | MEDIUM | LOW | P1 |
+| Scroll-linked Story map camera | HIGH | HIGH | P2 |
+| Beacon external-data-source driver | MEDIUM | MEDIUM | P2 |
+| AI paste→Sighting ingest | HIGH | MEDIUM | P2 |
+| Beacon trail/history | LOW | MEDIUM | P3 |
+| NIP-72 moderation / WoT / mute | MEDIUM | HIGH | P3 (deferred) |
+| Encrypted private beacons | MEDIUM | HIGH | P3 (deferred) |
 
-**Priority key:** P1 must-have for the v1.1 demo/value; P2 should-have post-validation; P3 future.
+**Priority key:** P1 = must have for v1.2 launch · P2 = should have, add when possible · P3 = future / deferred
 
 ## Competitor Feature Analysis
 
-| Feature | ChatGPT / Claude (code interp + upload) | Felt / Atlas AI maps | LM Studio js-sandbox | Our Approach |
-|---------|------------------------------------------|----------------------|----------------------|--------------|
-| Code execution | Cloud Python VM, full libs, plots inline | n/a (UI-driven AI) | Client JS in sandbox, no network | **Client Web Worker JS + curated map API**, errors loop back |
-| File ingest | "+"/drag-drop, CSV/Excel/PDF/text, "loaded N rows × M cols", Pandas | "upload anything", auto-geocode tabular → points/polygons | n/a | Parse-everything client-side, structured summary to user+model; geocode via existing OSM tools |
-| Styling | n/a (charts) | Attribute-driven color/size, classification methods, UI | n/a | **One-sentence attribute styling**, AI-applied, persisted per dataset |
-| Destructive-edit safety | Sandbox is disposable; no shared-data risk | Manual UI edits (human-gated) | n/a | **Binding chip + intent + diff + 3 safety levels**; never auto-publish |
-| Optimization | n/a | n/a (handles big data server-side) | n/a | **Budget-targeted simplify+merge+stitch** with before/after metrics + visual diff |
-| Key persistence | Account-based, server-side | Account-based | Local app config | **nsec/signer-encrypted localStorage, per-pubkey** (shipped) |
+| Feature | Comparable A | Comparable B | Our Approach |
+|---------|--------------|--------------|--------------|
+| Curated map article | Atlas Obscura (editorial places) | Google My Maps (story + pins) | Story 37520: Markdown + inline naddr geo refs, decentralized, propose-edit |
+| Community POI collection | AllTrails (moderator-approved, days–months) | Wikiloc / Surfline (open, high volume) | Group: schema-gated open contribution — instant like Wikiloc, structured like AllTrails, no moderator |
+| Schema-enforced contribution | iNaturalist collection-project requirements (warn, don't reject) | AllTrails submission criteria (human review) | Validate-on-create warnings + filter-on-fetch; never reject the contributor's event |
+| Live location | Glympse (link, minutes–4h, auto-expire, 48h post-visibility) | Google Maps / Find My (duration, stop-sharing, staleness) | Beacon 37521: NIP-40 expiry, explicit stop, staleness age, public/share link |
+| Time-bound observation | iNaturalist (observed_on, geoprivacy, research-grade) | Incident/crisis maps (fade old reports) | Sighting: NIP-52 start/end + NIP-40 auto-fade + AI geolocation ingest |
+| Taxonomy / labeling | iNaturalist taxon + place hierarchy | OSM tags (free-form k=v) | NIP-32 L/l controlled vocab (governed) + t freeform (discovery) + c attach (edges) |
 
 ## Sources
 
-- ChatGPT Code Interpreter behavior (inline output, self-correct on errors, prior code+output retained in context): [Hatica](https://www.hatica.io/blog/chatgpt-code-interpreter-feature/), [DataCamp](https://www.datacamp.com/tutorial/how-to-use-chat-gpt-code-interpreter), [365 Data Science](https://365datascience.com/trending/chatgpt-code-interpreter-what-it-is-and-how-it-works/) — MEDIUM
-- ChatGPT file upload UX ("+"/drag-drop desktop-only, CSV/Excel/PDF/text, "loaded N rows × M cols", Pandas parse, 512MB limit, premium-gated): [datastudios.org](https://www.datastudios.org/post/chatgpt-spreadsheet-uploading-excel-and-csv-support-data-analysis-features-formula-interpretation), [Definite](https://www.definite.app/blog/analyzing-data-in-chatgpt), [systoolsgroup](https://www.systoolsgroup.com/how-to/use-chatgpt-for-csv-file-analysis/) — MEDIUM
-- Felt AI mapping (upload anything → auto-geocode, attribute-driven color/size, classification methods, AI extensions): [Felt AI](https://felt.com/platform/felt-ai), [Felt 2.0 launch](https://www.businesswire.com/news/home/20231110849445/en/Introducing-Felt-2.0-The-Most-Powerful-Tool-for-Professional-Map-Making), [geomatching/choropleths](https://www.felt.com/blog/geomatching-geocoding-choropleths), [Felt vector layer styling](https://help.felt.com/layers/styling/vector-layers) — MEDIUM
-- Agent edit-safety UX (diff preview for destructive actions, per-call→autopilot permission tiers, secondary confirm on delete/publish, undo window, agent-plans-as-PR): [AI Agent UX Principles](https://medium.com/techacc/ai-agent-ux-design-principles-223da9f4d7f2), [VS Code agent trust & safety](https://code.visualstudio.com/docs/agents/concepts/trust-and-safety), [Preview Mode First / plan diff](https://dev.to/crisiscoresystems/preview-mode-first-agent-plans-as-prs-plan-diff-invariants-4ikd) — MEDIUM-HIGH (cross-corroborated)
-- Geometry simplification (Douglas-Peucker, 40-60% size cut, tolerance tradeoff, spikes at high simplification, real-time preview + before/after coordinate/size metrics): [mapshaper REFERENCE](https://github.com/mbloch/mapshaper/blob/master/REFERENCE.md), [QuickMapTools simplify](https://www.quickmaptools.com/simplify-geojson), [Map Library optimization](https://www.maplibrary.org/10019/7-ways-to-optimize-map-file-sizes-for-web-use/) — MEDIUM-HIGH
-- Browser-based LLM-code sandboxing (sandboxed iframe locked-down, Web Worker with fresh terminable worker, no unauthorized network, CSP inheritance): [the browser is the sandbox](https://aifoc.us/the-browser-is-the-sandbox/), [Amir's code sandboxes for LLM](https://amirmalik.net/2025/03/07/code-sandboxes-for-llm-ai-agents) — MEDIUM
-- Earthly internal grounding (existing surface, NOT re-proposed): `src/features/chat/ARCHITECTURE.md`, `src/features/chat/tools/definitions.ts`, `src/features/chat/settingsStorage.ts`, `src/features/geo-editor/commands.ts`, `.planning/PROJECT.md` — HIGH
+- [NIP-23 Long-form Content (kind 30023/30024)](https://nips.nostr.com/23) — article metadata tags (title/summary/image/published_at), Markdown body, draft kind, replaceable editing — HIGH
+- [NIP-72 Moderated Communities (kind 34550 / 4550)](https://nips.nostr.com/72) — attach-by-`a`-tag pattern; approval/moderator machinery (the part we defer) — HIGH
+- [NIP-52 Calendar Events (kind 31922/31923)](https://nips.nostr.com/52) — `start`/`end` time tags, location + geohash, time-bound geo events — HIGH
+- [NIP-52 spec source](https://github.com/nostr-protocol/nips/blob/master/52.md) — ISO 8601 start<end semantics — HIGH
+- [Glympse FAQ — stop sharing](https://app.glympse.com/faq/how-can-i-stop-sharing-my-location-in-the-glympse-app/) — duration limits, auto-expire, manual stop, 48h post-expiry visibility — HIGH
+- [iNaturalist — geoprivacy](https://help.inaturalist.org/en/support/solutions/articles/151000169938-what-is-geoprivacy-what-does-it-mean-for-an-observation-to-be-obscured-) — location obscuring model — HIGH
+- [iNaturalist — collection project observation requirements](https://help.inaturalist.org/en/support/solutions/articles/151000176699-collection-project-observation-requirements-settings) — date/time-range requirements, validate-don't-reject framing — HIGH
+- [AllTrails — trail submission/approval](https://support.alltrails.com/hc/en-us/articles/360053460631-How-long-does-it-take-to-approve-a-submitted-trail) — human moderation latency (days–months) we avoid via schema — HIGH
+- [Bitchat geohash channel system](https://deepwiki.com/permissionlesstech/bitchat/6.1-geohash-channel-system) / [Nymchat](https://nymchat.app/) — Nostr ephemeral + geohash proximity prior art for beacons — MEDIUM
+- Earthly SPEC.md (existing 37515/37517/37518/37519 + two-lane context + `c`/`a` + geometryConstraints/validationMode) — HIGH (canonical)
+- Earthly .planning/PROJECT.md (v1.2 entity model, scope decisions, deferrals, open phase-research questions) — HIGH (canonical)
 
 ---
-*Feature research for: AI chat data-ingest/transform/safe-authoring workbench (Earthly v1.1)*
-*Researched: 2026-06-16*
+*Feature research for: v1.2 Geo Entity Model Split — role-specific geo entities*
+*Researched: 2026-06-23*

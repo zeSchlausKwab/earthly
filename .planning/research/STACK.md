@@ -1,214 +1,180 @@
 # Stack Research
 
-**Domain:** AI chat data-ingest + sandboxed code interpreter + geometry optimization for a Bun/React 19/MapLibre browser app (Earthly v1.1)
-**Researched:** 2026-06-16
-**Confidence:** HIGH (versions verified against npm registry + official docs; capability-detection and signer constraints verified against Ollama API docs and NIP specs)
+**Domain:** Nostr geo-entity event modeling (parameterized-replaceable kinds, JSON-Schema governance, live/temporal events, NIP-32/19/27 taxonomy & addressing) for the v1.2 Geo Entity Model Split
+**Researched:** 2026-06-23
+**Confidence:** HIGH
 
-> Scope note: the existing stack (Bun, React 19, TS strict, MapLibre GL v5, Tailwind v4, Radix, applesauce-core, Zustand, the OpenAI-compatible chat client) is **fixed** and not re-evaluated. Everything below is **additive** for the six v1.1 capabilities. Two items below are **already partially present** in the repo — flagged inline so the roadmap amends rather than rebuilds.
+## Headline Finding (read this first)
 
----
+**The v1.2 entity split needs essentially zero new runtime dependencies.** Every capability the milestone calls for is already covered by libraries that ship in `package.json` today and are already used in production code:
+
+| New capability | Already-installed library that covers it | Evidence in repo |
+|----------------|------------------------------------------|------------------|
+| Schema-enforced Group rung (JSON Schema draft 2020-12 in browser) | `ajv@8.20.0` via `ajv/dist/2020` + `ajv-formats@3.0.1` | `src/lib/context/validation.ts:1` already does exactly this |
+| naddr parse/encode, `a`-tag mirroring, NIP-19/21/27 | `applesauce-core@6.1.0` `helpers/pointers` (re-exports `nostr-tools/nip19`) | `getContentPointers`, `naddrEncode`, `getReplaceableAddressForEvent` present in dist |
+| Parameterized-replaceable events, EventFactory/Cast | `applesauce-core@6.1.0` factories + casts | already the read/write pattern for 37515/37517/37518/37519 |
+| NIP-40 expiration (Beacon/Sighting lifecycle) | `applesauce-core@6.1.0` `helpers/expiration` | `getExpirationTimestamp`, `isExpired` present in dist |
+| Tag construction (NIP-32 `L`/`l`, NIP-52 `start`/`end`, `c`) | `applesauce-core@6.1.0` `helpers/tags` + `helpers/time` | `processTags`, `ensureNamedValueTag`, `unixNow` present in dist |
+| Geohash encode/decode/bbox | hand-rolled `src/lib/worldGeohash.ts` (no dep) | full encoder + decoder + centroid already there |
+| Geometry constraint helpers (turf) | `@turf/turf@7.3.5` | already used for v1.1 geometry work |
+
+The work in v1.2 is **modeling and wiring**, not dependency selection. The most valuable output of this research is the **"What NOT to Add"** table — this is a scope-creep-prone milestone (four new entity kinds, a taxonomy system, real-time transport) where the obvious instinct is to reach for `ngeohash`, `nostr-tools` direct, a NIP-52 calendar lib, an rxjs live-query lib, etc. None are needed.
 
 ## Recommended Stack
 
-### Core Technologies (new dependencies to add)
+### Core Technologies (all already installed — do not re-add)
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| **papaparse** | `5.5.3` (MIT) | CSV / plain-delimited text parsing in browser | De-facto standard, zero-dep, streaming + worker support, robust type/delimiter/header inference. ~258 KB unpacked, ~20 KB min+gz. Handles the "ugly CSV" story (US-1) including quoted fields, BOM, and ragged rows. |
-| **xlsx (SheetJS CE)** | `0.20.3` via **SheetJS CDN tarball**, NOT npm | Excel `.xlsx`/`.xls`/`.ods` parsing | Only viable full-featured spreadsheet reader for browser. **The npm `xlsx` is stale at `0.18.5` (2022) and carries a known prototype-pollution advisory** — install the current `0.20.3` from `https://cdn.sheetjs.com` via a package.json dependency pin (see Installation). Use `read` + `sheet_to_json`. |
-| **quickjs-emscripten** | `0.32.0` (MIT) | Client-side JS sandbox for the code interpreter | WASM-compiled QuickJS (vendored bellard/quickjs 2025-09 build). True isolation: no DOM, no `fetch`, no prototype-chain escape into host realm. Host exposes a *curated* API by explicitly injecting functions — exactly the toolbar/drawing-API requirement. Memory + interrupt (cycle) limits prevent runaway generated code. |
-| **MapLibre GL JS** | `5.24.0` (already installed) | Data-driven styling | No new dep. Use style-spec **expressions** (`get`/`match`/`interpolate`/`step`/`case`) in paint properties. Fully supported in v5. |
-| **@turf/turf** | `7.3.5` (already installed) | Geometry simplify / merge / clean | Already a dependency. `simplify` (Douglas-Peucker, with `highQuality` Visvalingam-ish option), `combine` (LineString→MultiLineString), `cleanCoords`, `truncate`. Covers the 12 MB→900 KB story. |
+| `ajv` (`ajv/dist/2020` entry) | `8.20.0` (current latest 8.x) | Browser JSON Schema draft 2020-12 validation for the Group `schema` rung | Already in the tree and already used at `src/lib/context/validation.ts`. `8.20.0` is the latest 8.x and includes the ReDoS fix (8.18.0, CVE-2025-69873) and prototype-pollution fix (8.19.0). Ajv is the only mature validator with full 2020-12 keyword support (`prefixItems`, `$dynamicRef`) that compiles to fast functions and bundles cleanly under Bun. |
+| `ajv-formats` | `3.0.1` (current) | `date`, `email`, `uri`, etc. format keywords for schemas | Pairs with Ajv; already imported. Required so author-supplied schemas can use `format`. |
+| `applesauce-core` | `6.1.0` | Event factories/casts, addressing pointers, expiration, tag helpers | The established Nostr layer. Every helper the milestone needs (`pointers`, `expiration`, `tags`, `time`) is a subpath import already shipping in the installed dist. Reuse, do not hand-roll. |
+| `@turf/turf` | `7.3.5` | Geometry-type/validity checks for `geometryConstraints` | Already used in v1.1 geometry optimization. `turf.getType`, `turf.booleanValid`, `turf.bbox`, `turf.centroid` cover the geometry-constraint and bbox/geohash-centroid needs. |
+| `geojson` (types) | `0.5.0` | RFC 7946 TypeScript types | Already a dependency; used in `validation.ts`. |
 
-### Supporting Libraries
+### Supporting Libraries (all already installed)
 
 | Library | Version | Purpose | When to Use |
 |---------|---------|---------|-------------|
-| **@turf/simplify** (scoped) | from turf `7.x` | Tree-shakeable simplify only | Already present transitively in `node_modules/@turf/`. Import the scoped package (`@turf/simplify`) in worker/sandbox code instead of `@turf/turf` to avoid pulling the whole 600+ KB turf barrel into a bundle. |
-| **simplify-js** | `1.2.4` (BSD-2) | Pure point-array Douglas-Peucker | Optional micro-dependency (~1 KB). Only if you need to simplify raw `[x,y]` arrays *outside* GeoJSON without turf overhead. Turf's `simplify` is preferred for consistency; do not add unless profiling shows turf is too heavy in the worker. |
-| **topojson-server / topojson-client** | `3.x` (already installed) | Topology-preserving simplification + shared-edge dedup | **Already in `node_modules`.** This is the right tool for the microgap-stitch / merge problem when polylines share endpoints: `topology()` → `presimplify()`/`simplify()` → `merge()` collapses shared arcs and removes near-duplicate vertices far better than per-feature Douglas-Peucker. Recommend topojson for the merge-to-multi + microgap step, turf `simplify` for per-line vertex reduction. |
-| **applesauce-signers `ISigner`** | `^6 / next` (already installed) | NIP-44 encrypt-to-self for settings at rest | **Already used** in `src/features/chat/settingsStorage.ts`. No new dep. `signer.nip44.encrypt(ownPubkey, plaintext)` works for NIP-07 *and* NIP-46 remote signers without exposing the raw nsec. |
-| **nostr-tools/nip49** | `2.23.5` (Unlicense) | `ncryptsec` password-encrypted key (fallback only) | Optional. Only relevant for the narrow case of encrypting a *locally-held* nsec with a user password (scrypt + XChaCha20-Poly1305). NOT the primary path — see "What NOT to Use". |
+| `nostr-tools` (transitive, via applesauce) | `2.18.2` / `2.19.x` | `nip19` naddr encode/decode primitive | Prefer the `applesauce-core/helpers/pointers` re-exports over importing `nostr-tools/nip19` directly, so you stay on the version applesauce pins. Direct import already happens once at `src/lib/nostr/map-context.ts` (`require('nostr-tools')` for naddr decode) — fine, but `applesauce-core/helpers/pointers` is the cleaner seam going forward. |
+| `date-fns` | `4.4.0` | Human-facing relative/absolute time formatting for Sightings/Beacons | Display only. Temporal *tags* are unix seconds via `unixNow()`; `date-fns` is for the UI. |
+| `src/lib/worldGeohash.ts` | n/a (in-repo) | Geohash encode/decode/bbox/centroid | Already correct base32 geohash. Reuse for the `g` tag on new kinds. See judgment note below. |
 
-### Development Tools
+### Applesauce-core helpers to reuse (the integration map)
+
+These are the specific subpath imports to wire into the four new entity classes. They are present in `node_modules/applesauce-core/dist/helpers/` in the installed `6.1.0` build (verified by inspecting the `.d.ts` files):
+
+| Need | Import | Helper(s) |
+|------|--------|-----------|
+| Story Markdown → mirrored `a` tags | `applesauce-core/helpers/pointers` | `getContentPointers(content)` returns every `nostr:naddr/nevent/...` pointer in a string — feed it the Markdown body, keep the `naddr` ones, encode each to an `a` coordinate. |
+| naddr ↔ coordinate | `applesauce-core/helpers/pointers` | `naddrEncode`, `decodeAddressPointer`, `getAddressPointerFromATag`, `getReplaceableAddressForEvent`, `getReplaceableAddressFromPointer`, `normalizeToAddressPointer` |
+| `c` attach tag parse | `applesauce-core/helpers/pointers` | `parseReplaceableAddress` / `getAddressPointerFromATag` (a `c` value is the same `<kind>:<pubkey>:<d>` shape as an `a` value) |
+| NIP-40 Beacon/Sighting expiry | `applesauce-core/helpers/expiration` | `getExpirationTimestamp(event)`, `isExpired(event)` — filter expired Beacons/Sightings on fetch with these instead of hand-comparing timestamps. |
+| NIP-32 `L`/`l` and NIP-52 `start`/`end` tag writes | `applesauce-core/helpers/tags` + `helpers/time` | `ensureNamedValueTag`, `processTags`, `unixNow`. There is **no** dedicated NIP-32 or NIP-52 helper in applesauce — these tags are trivial (`["L", ns]`, `["l", value, ns]`, `["start", unix]`, `["end", unix]`); construct them by hand using these tag utilities. |
+| Pointer equality / dedup of refs | `applesauce-core/helpers/pointers` | `isAddressPointerSame`, `eventMatchesPointer`, `mergeAddressPointers` |
+
+### Development Tools (no change)
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| Web Worker (Bun/browser native) | Host the QuickJS sandbox off the main thread | No library needed. Run `quickjs-emscripten` inside a `Worker`; the worker is the trust boundary's outer shell, QuickJS is the inner one. Use `structuredClone`-able messages only. |
-| Bun bundler `define` (existing `build.ts`) | Inject the SheetJS/quickjs WASM asset paths | quickjs ships a `.wasm` variant — ensure the bundler copies/serves it; quickjs-emscripten resolves variants via dynamic import. |
-| Biome (existing) | Lint the new code | No config change. |
-
----
+| Biome `2.4.14` | lint/format | unchanged |
+| `bun test` | unit tests | new entity classes + schema validation + `getContentPointers` mirroring are prime unit-test targets (pure functions) |
+| Bun bundler (`build.ts`) | bundling | Ajv `8.x` bundles fine under Bun; `8.18.0+` added tree-shaking, so the 2020 entry won't drag the whole library. Already proven by the shipped `validation.ts`. |
 
 ## Installation
 
 ```bash
-# CSV
-bun add papaparse@5.5.3
-bun add -D @types/papaparse
-
-# Sandbox
-bun add quickjs-emscripten@0.32.0
-
-# Geometry: @turf/turf 7.3.5 + topojson-* already present — no install needed.
-# If isolating in worker, optionally add scoped turf to make intent explicit:
-# bun add @turf/simplify @turf/combine @turf/clean-coords
-
-# Excel — DO NOT `bun add xlsx` (gets stale 0.18.5). Pin the CDN tarball:
+# Nothing required. Every recommended library is already in package.json.
+# This milestone adds ZERO runtime dependencies.
 ```
 
-`package.json` for SheetJS (current `0.20.3`, Apache-2.0):
+Confirm-only (versions already satisfied):
+- `ajv@8.20.0`, `ajv-formats@3.0.1` — present.
+- `applesauce-core@6.1.0` — present; `helpers/pointers`, `helpers/expiration`, `helpers/tags`, `helpers/time` are subpaths of the same package, no new install.
+- `@turf/turf@7.3.5`, `geojson@0.5.0`, `date-fns@4.4.0` — present.
 
-```jsonc
-{
-  "dependencies": {
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
-  }
-}
-```
+## Topic-by-topic findings (answering the brief)
 
-Then `bun install`. (Bun supports remote-tarball deps. Verify the integrity hash from `https://cdn.sheetjs.com/` after install.)
+### 1. Client-side JSON Schema validator for the schema-enforced Group rung — SOLVED, already in use
 
----
+- **Library:** `ajv@8.20.0` imported as `ajv/dist/2020` (the draft 2020-12 build), plus `ajv-formats@3.0.1`. Exactly the pattern at `src/lib/context/validation.ts:26` (`new Ajv2020({ allErrors: true, strict: false, validateSchema: true })`).
+- **Draft 2020-12:** fully supported by the `/dist/2020` entry (all keywords incl. `prefixItems`, `$dynamicRef`). You cannot mix 2020-12 and older drafts in one instance — fine here, the spec mandates 2020-12.
+- **Bundle size / Bun:** Ajv `8.18.0+` added tree-shaking; the 2020 entry is the standard browser path and already ships in the production bundle. No Bun-specific issues.
+- **Version currency:** `8.20.0` is the **latest** 8.x (released alongside 8.19.0 on 2024-04-24). There is no newer major line in production use. No upgrade needed.
+- **Security / DoS (this matters — Group schemas are author-supplied, fetched from relays, i.e. untrusted):**
+  - **CVE-2025-69873 (ReDoS via `$data`):** affects ajv ≤8.17.1. Fixed in **8.18.0**. Installed `8.20.0` is patched. **Additionally, the app never enables `$data`** (default off, and `validation.ts` does not set it) — the attack surface is closed twice over. Do NOT enable `$data` for the Group rung.
+  - **Prototype pollution via `format` + `$data`:** fixed in 8.19.0; installed `8.20.0` is patched.
+  - **General untrusted-schema DoS:** `pattern`/`format` on large strings can still be slow even without `$data`. Mitigations to carry into v1.2 (these are spec/requirements decisions, flag for PITFALLS): (a) keep `strict:false` as today but rely on Ajv's `validateSchema:true` to validate author schemas against the 2020-12 meta-schema before compiling (already on in `validation.ts`); (b) cap input string sizes / expect `maxLength` in schemas; (c) compile each context schema once and cache the validator (the current code compiles per-validation — a perf note, not a correctness bug); (d) the spec already bans external `$ref` in v1 ("no external `$ref`"), which removes the SSRF/remote-fetch class entirely — keep that ban.
+  - **Geometry constraints** (`geometryConstraints.allowedTypes`) are NOT Ajv's job — they're a simple `allowedTypes.includes(feature.geometry.type)` check, exactly as `validation.ts:276` already does. Use `@turf/turf` `getType`/`booleanValid` if you want validity (self-intersection) checks beyond type.
 
-## Capability detection (multimodal gating) — design, not a library
+### 2. Applesauce-core helpers to reuse vs hand-roll
 
-There is **no standard field** for vision in an OpenAI-compatible `/v1/models` response (verified — OpenAI's own endpoint returns only `id/object/created/owned_by`). Detection must be layered, best-source-first:
+- **Parameterized-replaceable events:** reuse the existing EventFactory + Cast pattern (already how 37515/37518/37519 are modeled). New kinds 37520/37521/Sighting follow the same blueprint. `getReplaceableAddressForEvent` / `getAddressPointerForEvent` give you the `a`/coordinate for any addressable event.
+- **NIP-19/21/27 + naddr:** **reuse `applesauce-core/helpers/pointers`** — it re-exports `nostr-tools/nip19` (`naddrEncode`, `decode`) and adds higher-level helpers (`getContentPointers`, `decodeAddressPointer`, `getAddressPointerFromATag`, `normalizeToAddressPointer`). This is the single most reusable piece for the Story kind: `getContentPointers(markdown)` does the inline-`naddr`-extraction the spec calls for, so the Markdown→`a`-tag mirror is a library call, not a hand-rolled regex. (The current `map-context.ts` hand-rolls a regex `nostr:(naddr1[a-z0-9]+)` — v1.2 should migrate Story mirroring to `getContentPointers` for correctness on `nevent`/relay-hint cases.)
+- **NIP-32 labeling (`L`/`l`):** **hand-roll the tags** — no applesauce helper exists. They're `["L", "<namespace>"]` + `["l", "<value>", "<namespace>"]`. Build with `ensureNamedValueTag`/`processTags` from `helpers/tags`. Do NOT add a library for this.
+- **NIP-52 calendar (time-bound Sighting):** **hand-roll the tags** — no applesauce helper, and you do NOT need full NIP-52 calendar semantics. The Sighting is "NIP-52-flavored," meaning borrow `["start", "<unix>"]` / `["end", "<unix>"]` (and optionally `["g", geohash]`) conventions, not implement kind 31922/31923 calendar events. Use `unixNow()` from `helpers/time`.
+- **NIP-72-style addressing:** the `c`-tag attach model is already a `<kind>:<pubkey>:<d>` coordinate — same shape as NIP-72 community `a`/`c` references. Reuse `parseReplaceableAddress`/`getAddressPointerFromATag`. No NIP-72 library exists or is needed (the milestone explicitly defers NIP-72 *moderation*).
 
-1. **Ollama (and Ollama-compatible):** call `POST /api/show` with `{ "model": "<id>" }`. The response includes a **`capabilities` array** containing strings such as `"completion"`, `"vision"`, `"tools"`, `"insert"`, `"embedding"`, `"thinking"`. Presence of `"vision"` is authoritative. (Confirmed against Ollama API docs: example shows `capabilities: ["completion", "vision"]`.) This is Ollama's native API, *not* the `/v1` OpenAI shim — call it directly when the provider is Ollama.
-2. **LM Studio:** its `/v1/models` is OpenAI-shaped and does **not** advertise vision; LM Studio's native `/api/v0/models` (REST) is richer but not guaranteed. Treat LM Studio like "custom" → fall to heuristics.
-3. **Routstr / OpenRouter-style aggregators:** some expose `architecture.input_modalities` / `modalities` containing `"image"`. Probe for it; trust it when present.
-4. **Heuristic fallback (name match):** lowercase model id contains any of: `vl`, `vision`, `-v`, `llava`, `bakllava`, `gpt-4o`, `gpt-4.1`, `gpt-5`, `gemini`, `claude-3`/`claude-4`, `qwen*-vl`, `llama*vision`/`mllama`, `pixtral`, `moondream`, `internvl`, `minicpm-v`, `gemma*` (3+). Conservative: unknown → assume **no** vision, disable the image affordance (fail safe).
-5. **Optional active probe:** for "custom" endpoints, a tiny image + `image_url` message; if the server 400s with an image-unsupported error, mark no-vision and cache per `(baseUrl, model)`.
+### 3. Real-time / Live Beacon transport — decision input (a phase-research item per PROJECT.md)
 
-Cache the resolved verdict keyed by `(provider, baseUrl, modelId)` in the chat store. Gate the image-upload button on it.
+PROJECT.md marks "Beacon lifecycle (replaceable vs ephemeral)" as open for phase-level research. Library implication is small; the choice is a protocol/relay decision, not a dependency decision:
 
----
+| Option | Mechanism | Library impact | Tradeoff |
+|--------|-----------|----------------|----------|
+| **Parameterized-replaceable (recommended default)** | Re-publish kind ~37521 with the same `d`; relay keeps only latest | **None** — existing factory/cast + applesauce-relay handle it. `EventStore` already de-dupes replaceables to latest. | Simple, queryable, survives reconnect. Churn = one stored event per beacon (relay overwrites). Best fit for "shareable/public updating position point." |
+| **+ NIP-40 expiration** | Add `["expiration", unix]` so stale beacons self-clean | **None** — `helpers/expiration` (`isExpired`) already installed; filter on fetch. | Recommended to combine with replaceable: a beacon that stops updating expires instead of lingering. |
+| **Ephemeral (kind 2xxxx)** | Relay relays but does not store | **None** library-wise, but applesauce subscription/`EventStore` handling differs (not persisted, no replay) | Lowest storage, but no last-known-position on reconnect — bad UX for "where is X now." Avoid as the primary path. |
 
-## Code-interpreter sandbox — isolation vs host-API exposure (the load-bearing decision)
+**Recommendation for requirements/roadmap:** Live Beacon = **parameterized-replaceable kind + NIP-40 `expiration` tag**, both already fully supported by the installed applesauce stack. No new transport library, no websocket library, no rxjs add-on (applesauce already exposes rxjs observables). The "real-time" feel comes from the existing `applesauce-relay` subscription stream, not a new transport. Flag the replaceable-churn rate and the visibility model for phase research, but the **stack answer is "nothing to add."**
 
-**Recommendation: QuickJS-WASM (`quickjs-emscripten`) running inside a Web Worker.** This is the same family of approach as LM Studio's `js-code-sandbox` (which also runs untrusted model-authored JS in an isolated VM rather than the page realm).
+### 4. Geohash / temporal indexing helpers
 
-Why not the alternatives:
-
-| Approach | Isolation | Host-API exposure | Verdict |
-|----------|-----------|-------------------|---------|
-| **Web Worker alone** (run code via `eval`/Function in the worker) | Weak — code runs in the *worker's own realm*: it can access `fetch`, `WebSocket`, `importScripts`, timers, and any global the worker has. Untrusted model code escapes trivially. | Easy (just call functions) but unsafe | ❌ as the sandbox itself |
-| **`<iframe sandbox>`** (sandbox + no `allow-same-origin`) | Good origin isolation, but JS still runs in a *full browser realm* (has `fetch`, DOM of the iframe, `postMessage`, can spin its own workers). Curated-API calls require async `postMessage` round-trips for *every* host call. | Awkward: all host calls are async message round-trips | △ heavier, more attack surface |
-| **QuickJS-WASM in a Worker** | Strong — the VM has **no host globals at all** (no `fetch`, `DOM`, `setTimeout`, prototype-chain into host). You start from an empty realm and add only what you inject. Memory limit + interrupt handler kill runaway/`while(true)` code. | **Best for this use case** — host functions injected explicitly become the *entire* surface the model can touch. | ✅ recommended |
-
-**Host-API exposure pattern (QuickJS):**
-- The Worker holds the QuickJS `context`. It builds a frozen `earthly` global object and injects curated functions with `context.newFunction("drawCircle", (args) => …)`. Each injected function validates/whitelists its arguments, then forwards the *intent* to the main thread via `worker.postMessage` (because the actual toolbar/drawing API and MapLibre live on the main thread).
-- Round trip: sandbox JS calls `earthly.drawCircle(...)` → worker host-fn serializes a command → main thread executes against the **clean toolbar drawing API** (the package-boundary API the project is already designing) → result/handle posted back. Synchronous-looking calls can use QuickJS's async/`Asyncify` variant, or expose only fire-and-forget + a `commit()` barrier to keep it simple.
-- This gives the exact property the milestone needs: **the model can drive the map only through the same explicit verbs the UI uses, and through nothing else.** No DOM, no network, no Nostr keys reachable from sandboxed code.
-- `quickjs-emscripten-sync` (a wrapper) can auto-marshal host objects into the VM if you want richer object exposure; start without it (explicit `newFunction` injection is more auditable) and adopt only if marshalling tabular data structures becomes tedious.
-
-Feeding ingested data to the sandbox + the LLM:
-- Parsed CSV/Excel → a normalized `{ columns, rows }` JSON structure. Inject into the VM as a frozen global (or via a `getData()` host fn). Give the **same** structure to the LLM as a compact text/markdown table preview (truncate to N rows + schema) so the model can reason about it and write code against it.
-
----
-
-## MapLibre data-driven styling (no new dependency)
-
-Apply attribute-driven paint via style-spec expressions (verified working in v5):
-
-```jsonc
-// categorical color (ports vs airports vs waterways) — US-4
-"circle-color": ["match", ["get", "category"],
-  "port", "#1f77b4", "airport", "#d62728", "waterway", "#2ca02c",
-  /* default */ "#888888"]
-
-// numeric width ramp
-"line-width": ["interpolate", ["linear"], ["get", "importance"], 0, 1, 100, 6]
-
-// stroke by boolean/condition
-"line-color": ["case", ["==", ["get", "verified"], true], "#0a0", "#aaa"]
-```
-The AI tool layer should emit these expression arrays as data and hand them to `LayerManager.setPaintProperty`. No runtime styling library is needed or wanted.
-
----
-
-## Encrypted settings at rest (already shipped — extend, don't rebuild)
-
-`src/features/chat/settingsStorage.ts` **already implements** the correct pattern: encrypt the settings JSON with `signer.nip44.encrypt(ownPubkey, …)` (encrypt-to-self), fall back to `nip04`, store the ciphertext envelope in `localStorage` keyed by pubkey.
-
-This is the right design and resolves the NIP-07/NIP-46 constraint cleanly:
-- **NIP-07** (`window.nostr`) and **NIP-46** (remote bunker) expose `nip44.encrypt`/`nip44.decrypt` (and `signEvent`/`getPublicKey`) but **never the raw nsec**. Because we encrypt *to our own pubkey*, we never need the private key in the page — the signer does the ECDH internally. Works identically for extension and bunker signers.
-- v1.1 work = **broaden the payload** to include provider config / API keys / LM Studio + Ollama addresses, and harden envelope versioning. No new crypto dependency.
-
-**Do not** add a NIP-49/`ncryptsec` password flow as the primary mechanism — it requires a raw nsec to encrypt and a user-typed password, neither of which is available/desirable when the user signs via NIP-07/NIP-46. Keep nip49 only as an optional escape hatch for users who explicitly hold a local nsec and want a portable password-encrypted backup.
-
----
+- **Geohash:** **reuse `src/lib/worldGeohash.ts`** (in-repo, dependency-free, correct base32 encoder/decoder/bbox/centroid). It already powers PMTiles chunk lookup. The `g` tag on new kinds = `lonLatToWorldGeohash(precision, lon, lat)` on the entity centroid (compute centroid with `turf.centroid`).
+  - **Judgment note (flag for PITFALLS, low severity):** SPEC §1.2 recommends geohash precision **5–7**. `worldGeohash.ts` is parameterized by precision, so it covers this — but its function is named/used for *PMTiles world-chunk* lookup. For entity `g` tags, just call it with precision 5–7; do not add a second geohash library. If a future need arises for geohash *neighbor* queries (proximity search expanding to adjacent cells), `worldGeohash.ts` lacks neighbor computation — but the milestone does not require it, so do NOT add `ngeohash` now.
+- **Temporal:** unix-seconds tags (`start`/`end`/`expiration`) via `unixNow()` (applesauce `helpers/time`) for writes; `date-fns@4.4.0` (already installed) for human-facing display. No temporal-index library needed — relay-side filtering is by `since`/`until` on `created_at` and by tag, which the Go/Khatru relay already does.
 
 ## Alternatives Considered
 
 | Recommended | Alternative | When to Use Alternative |
 |-------------|-------------|-------------------------|
-| papaparse | `csv-parse`, `d3-dsv` | `d3-dsv` is lighter (~5 KB) if you only need clean, well-formed CSV and no worker/streaming. papaparse wins for messy real-world files and large-file streaming. |
-| SheetJS `xlsx` 0.20.3 (CDN) | `exceljs` 4.4.0, `read-excel-file` 9.2.0 | `read-excel-file` is smaller and fine if you *only* read simple `.xlsx`. `exceljs` if you also need to **write** styled workbooks. SheetJS wins on format breadth (xls/ods/csv/numbers) and read robustness. |
-| quickjs-emscripten | `<iframe sandbox>` + postMessage; ShadowRealm | ShadowRealm (TC39) is not yet shipping cross-browser — revisit later. iframe-sandbox is acceptable if you never need fine-grained host-fn injection and prefer a pure message protocol. |
-| turf `simplify` + topojson `merge` | `@mapbox/geojson-vt`, `mapshaper` (CLI) | mapshaper gives superior topology-aware simplification but is a CLI/heavy lib — not for in-browser per-ingest use. Use turf+topojson in-browser; if quality is insufficient at extreme scale, consider a server-side mapshaper pass (out of scope for v1.1). |
-| Ollama `/api/show` capabilities | name heuristics only | Heuristics are the *fallback* for non-Ollama/custom endpoints; prefer real metadata when the provider gives it. |
+| `ajv/dist/2020` (already installed) | `@cfworker/json-schema`, `djv`, `hyperjump-validator` | Only if you needed a smaller bundle and could drop draft-2020-12 keyword completeness. Not worth a swap — Ajv is already in the bundle and battle-tested for untrusted schemas. |
+| `applesauce-core/helpers/pointers` | direct `nostr-tools/nip19` import | If you ever drop applesauce. While on applesauce, the helper layer keeps you on the pinned `nostr-tools` version and adds `getContentPointers`/`a`-tag parsers you'd otherwise re-implement. |
+| in-repo `worldGeohash.ts` | `ngeohash` (`0.6.x`), `latlon-geohash` | Only if you need geohash **neighbors/adjacency** for proximity expansion (not in v1.2 scope). |
+| replaceable + NIP-40 for Beacon | ephemeral events; a custom WebSocket channel | Ephemeral only if you explicitly never want last-known-position persistence. Custom WS = never (re-implements the relay). |
+| hand-rolled `L`/`l`, `start`/`end` tags | a NIP-32 / NIP-52 helper library | Never — no such library is needed; the tags are 2–3 strings each. |
 
----
+## What NOT to Use (scope-creep guard — the most important table here)
 
-## What NOT to Use
-
-| Avoid | Why | Use Instead |
-|-------|-----|-------------|
-| **`npm/bun add xlsx` (0.18.5)** | Stale 2022 build; carries a prototype-pollution advisory; missing 2 years of fixes. SheetJS stopped publishing to npm. | Pin `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz` in package.json. |
-| **Running model-authored JS in the Web Worker realm directly (`eval`/`new Function`)** | The worker has `fetch`, `WebSocket`, timers, `importScripts` — untrusted code escapes the intended sandbox immediately. | QuickJS-WASM VM *inside* the worker; inject only curated host fns. |
-| **`vm2`** | Deprecated/abandoned with known sandbox-escape CVEs; Node-only anyway. | quickjs-emscripten. |
-| **NIP-49 `ncryptsec` as the primary settings-encryption path** | Needs the raw private key (unavailable under NIP-07/NIP-46) and a user password. | `signer.nip44.encrypt(ownPubkey, …)` (already implemented). |
-| **NIP-04 as the new default scheme** | Legacy, weaker (no key-commitment/AAD), deprecated in favor of NIP-44. | nip44 with nip04 only as a compat fallback (as current code already does). |
-| **Importing the full `@turf/turf` barrel inside the sandbox worker** | Pulls 600+ KB and dozens of unused fns into the worker bundle. | Import scoped `@turf/simplify`, `@turf/combine`, `@turf/clean-coords`. |
-| **A client-side LLM "guess" to detect vision** | Wastes a round trip and is unreliable. | `/api/show` capabilities → modalities field → name heuristic → optional probe. |
-
----
+| Avoid adding | Why | Use Instead |
+|--------------|-----|-------------|
+| `ngeohash` / `latlon-geohash` / any geohash npm package | `src/lib/worldGeohash.ts` already encodes/decodes/bboxes geohashes dependency-free and is precision-parameterized for the spec's 5–7 range. Adding one duplicates working code. | `src/lib/worldGeohash.ts` + `turf.centroid` |
+| A standalone `nostr-tools` direct dependency in `package.json` | It's already transitive via applesauce, and `applesauce-core/helpers/pointers` re-exports the nip19 surface plus higher-level helpers. A direct dep risks a version split from applesauce's pin. | `applesauce-core/helpers/pointers` |
+| Any NIP-52 "calendar events" library / full 31922/31923 modeling | Sighting is "NIP-52-*flavored*" — it borrows `start`/`end` tag conventions, not the calendar-event kinds. Full NIP-52 is out of scope. | `["start"/"end", unixNow()]` tags via `helpers/tags` |
+| Any NIP-72 community/moderation library | PROJECT.md explicitly **defers NIP-72 human moderation/approval + role lists** to a later milestone; the `c` attach coordinate is just a replaceable address. | `parseReplaceableAddress` / `getAddressPointerFromATag` |
+| A real-time/websocket/live-query transport lib (e.g. a bespoke WS client, an rxjs add-on) | `applesauce-relay` already streams subscriptions as rxjs observables and `EventStore` already collapses replaceables to latest. The Beacon's "live" behavior is replaceable-event re-publish, not a new channel. | existing `applesauce-relay` subscriptions |
+| A separate JSON Schema *meta-schema*/draft library | Ajv 2020 ships the 2020-12 meta-schema; `validateSchema:true` already validates author schemas against it. | existing Ajv config |
+| Enabling Ajv's `$data` option for Group schemas | Opens CVE-2025-69873 ReDoS class and prototype-pollution surface on untrusted, relay-fetched schemas; not needed for the Group rung's property/geometry constraints. | leave `$data` off (default); keep the spec's "no external `$ref`" ban |
+| A diff library for Story propose-edit | Story reuses **kind 37519** which carries a full-replacement FeatureCollection (not a diff) — per SPEC §10. No diff dependency. | existing 37519 proposal machinery |
+| A Markdown parser swap for Story narrative | TipTap (already installed) is the editor; `getContentPointers` extracts the refs. No new Markdown lib. | existing TipTap + `getContentPointers` |
+| `nostr-idb` / new cache layer for new kinds | New kinds slot into the existing `EventStore`/`persistEventsToCache` path. | existing applesauce cache |
 
 ## Stack Patterns by Variant
 
-**If the provider is Ollama:**
-- Use native `POST /api/show` for authoritative `capabilities` (vision/tools/thinking). Best signal available.
+**If the Group rung is `open` (no schema):**
+- No Ajv compile. Only `geometryConstraints.allowedTypes` check (a `.includes`) if present, else accept all.
+- Use `worldGeohash` + `turf.bbox` for discovery tags only.
 
-**If the provider is LM Studio / custom / Routstr:**
-- Try `modalities`/`input_modalities` on the models response; else name-heuristic; else optional image probe. Default to no-vision (fail safe).
+**If the Group rung is `schema` (validation/required):**
+- Compile the author schema once with the existing `Ajv2020` instance (`strict:false`, `validateSchema:true`, **no `$data`**) and **cache the compiled validator per context** (current `validation.ts` recompiles per call — make it cache in v1.2).
+- Filter-invalid-on-fetch by running each attached dataset's features through the validator + geometry-type gate, exactly as `validateDatasetForContext` already does.
 
-**If the ingested GeoJSON is "many short lines with microgaps" (US-5):**
-- topojson `topology()` → `presimplify()` → `simplify(weightThreshold)` → `merge()`/`mergeArcs` to stitch shared edges and collapse near-duplicate vertices, then convert back. Apply turf `cleanCoords` + `simplify` per-feature only for residual vertex bloat.
+**If the entity is a Live Beacon:**
+- Parameterized-replaceable kind ~37521, same `d` per beacon lineage, re-published on move.
+- Add `["expiration", unixNow()+ttl]`; filter with `isExpired` on read.
+- `g` tag = `lonLatToWorldGeohash(6, lon, lat)` of the point; `bbox` optional/degenerate.
 
-**If the ingested GeoJSON is "one huge polygon with too many vertices":**
-- turf `simplify({ tolerance, highQuality: true })` is sufficient; topojson adds little for single features.
-
-**If sandboxed code needs synchronous host calls:**
-- Use the QuickJS **Asyncify** variant (lets injected host fns return promises that suspend the VM) — slightly larger WASM but enables `await earthly.route(...)` ergonomics. Otherwise expose fire-and-forget verbs + a final `commit()`.
-
----
+**If the entity is a Temporal Sighting:**
+- Dedicated kind (recommended over a property-on-37518) with `["start", unix]` (+ optional `["end", unix]`) and optionally `["expiration", unix]` for auto-expiry (PROJECT.md flags "dedicated kind vs property + NIP-40" for phase research — the stack supports both with zero new deps).
+- `t`/`L`/`l` for taxonomy, `g`/`bbox` for location.
 
 ## Version Compatibility
 
 | Package A | Compatible With | Notes |
 |-----------|-----------------|-------|
-| `papaparse@5.5.3` | Bun + React 19 | Pure JS, no native deps; Bun runs it directly. Use the worker option in-browser only. |
-| `xlsx@0.20.3` (CDN) | Bun | Pure JS; the `.tgz` install works under `bun install`. Avoid the npm `0.18.5`. |
-| `quickjs-emscripten@0.32.0` | Bun + browser Worker | Ships multiple WASM variants (sync, asyncify, debug); ensure the chosen variant's `.wasm` is served. ~2.4 MB unpacked total, but only the selected variant `.wasm` (a few hundred KB) loads at runtime. |
-| `@turf/turf@7.3.5` | already in tree | Scoped `@turf/*` 7.x packages present transitively — safe to import directly. |
-| `maplibre-gl@5.24.0` | already in tree | Expressions stable since pre-v1; no concerns. |
-| `applesauce-signers` (current) | already in tree | `ISigner.nip44` present on extension + remote signers; encrypt-to-self needs no raw key. |
-
----
+| `ajv@8.20.0` | `ajv-formats@3.0.1` | Matched pair, already installed and working in `validation.ts`. `ajv-formats@3` targets ajv 8. |
+| `ajv@8.20.0` | Bun bundler | Tree-shaking since 8.18.0; `/dist/2020` browser entry bundles cleanly (proven in current production build). |
+| `applesauce-core@6.1.0` | `nostr-tools@2.18–2.19` | applesauce pins `nostr-tools ~2.19`; `helpers/pointers` re-exports from it. Importing nip19 via the helper avoids a version split. (Note: contextvm pins `nostr-tools ~2.18.2` — already coexisting; stay on the applesauce helper to avoid pinning a third copy.) |
+| `applesauce-core@6.1.0` | `applesauce-relay@6.0.3`, `applesauce-react@6.0.0`, `applesauce-loaders@6.1.0` | Already aligned on the 6.x line. New kinds add no version pressure. |
+| `@turf/turf@7.3.5` | `geojson@0.5.0` types | Already co-used in v1.1 geometry work. |
 
 ## Sources
 
-- npm registry `latest` dist-tags (queried 2026-06-16): papaparse 5.5.3 (MIT), xlsx 0.18.5 *(stale)*, quickjs-emscripten 0.32.0 (MIT), simplify-js 1.2.4, topojson-client 3.1.0, @turf/turf 7.3.5, nostr-tools 2.23.5 — HIGH
-- SheetJS CDN + issue tracker (git.sheetjs.com #3225/#3111/#3098) — npm is out of date at 0.18.5; current is 0.20.3 via CDN tarball — HIGH
-- Ollama API docs (`github.com/ollama/ollama/blob/main/docs/api.md`) — `/api/show` returns `capabilities: ["completion","vision", …]` — HIGH
-- OpenAI API reference + community thread "Expose Model Capabilities in /v1/models" — confirms NO standard vision field in `/v1/models`, heuristics required — HIGH
-- justjake/quickjs-emscripten README (quickjs-emscripten-core, variants, host fn injection) + Simon Willison TIL — sandbox isolation + host fn exposure model — HIGH
-- MapLibre style-spec expressions docs (`maplibre.org/maplibre-style-spec/expressions/`) — get/match/interpolate/step/case, v5 supported — HIGH
-- NIP-49 (`github.com/nostr-protocol/nips/blob/master/49.md`) + NIP-46/NIP-07 docs — ncryptsec needs raw key; remote/extension signers expose nip44.encrypt but not nsec — HIGH
-- Repo: `src/features/chat/settingsStorage.ts` — encrypt-to-self via `signer.nip44` already shipped; `node_modules/@turf/*` + `topojson-*` already present — HIGH (direct code read)
+- Repo inspection (HIGH) — `package.json`, `src/lib/context/validation.ts` (Ajv2020 already in use), `src/lib/worldGeohash.ts` (geohash already implemented), `bun.lock` (resolved versions), and the installed `node_modules/applesauce-core/dist/helpers/*.d.ts` (`pointers`, `expiration`, `tags`, `time`) — verified the helper surfaces directly from the installed build.
+- [ajv releases](https://github.com/ajv-validator/ajv/releases) (HIGH) — confirmed `8.20.0` is latest 8.x (2024-04-24), 8.18.0 ReDoS fix, 8.19.0 prototype-pollution fix.
+- [Ajv 2020-12 support](https://github.com/ajv-validator/ajv) + [ajv.js.org JSON Schema](https://ajv.js.org/json-schema.html) (HIGH) — full draft 2020-12 keyword support via the 2020 entry; cannot mix drafts in one instance.
+- [CVE-2025-69873 advisory](https://github.com/advisories/GHSA-2g4f-4pwh-qvx6) + [Ajv security considerations](https://ajv.js.org/security.html) (HIGH) — ReDoS requires `$data`; fixed 8.18.0; general untrusted-schema slow-validation guidance.
+- SPEC.md + .planning/PROJECT.md (HIGH) — entity model, governance ladder, no external `$ref` in v1, NIP-72 deferral, Beacon/Sighting open questions.
 
 ---
-*Stack research for: Earthly v1.1 AI Chat — Data Ingest, Transform & Safe Authoring*
-*Researched: 2026-06-16*
+*Stack research for: Nostr geo-entity event modeling (v1.2 Geo Entity Model Split)*
+*Researched: 2026-06-23*
