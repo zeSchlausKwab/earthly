@@ -184,6 +184,7 @@ If we ship clean orchestration + classical utility but no AI demo, this project 
 - **Compatibility — Share links**: Path-based routing must redirect existing hash routes once for backwards compat (per `UX_REWRITE.md` §9).
 - **People**: Solo maintainer + AI agents. Review velocity is the bottleneck; prefer fewer larger explicit decisions to many small ambiguous ones.
 - **API discipline — Toolbar drawing**: Must be designed as if it were a future package export. No internal coupling to the Zustand store reaching across the boundary. Chat tool execution and direct UI must call equivalent paths.
+- **API discipline — Applesauce casting (v1.2)**: The new entity event classes (Story, slimmed Group, Beacon, Sighting) MUST follow the official applesauce casting patterns, not hand-rolled wrappers. Read views extend `EventCast` and are obtained via `castEvent()` / `castEventStream()` / `castTimelineStream()` (per-class instance sync, `$`-suffixed reactive props consumed with `use$`); parameterized-replaceable reads go through `eventStore.replaceable(addressPointer)`; writes use `EventFactory` blueprints. Reference: https://applesauce.build/apps/casting/events.html. Mirror the existing `src/lib/nostr/` `{helpers,cast,factory}` modules and the `Article`/`Stream`/`CodeSnippet` cast examples. Binding for Phase 8 scaffolding.
 - **Classical-utility floor**: For every Active requirement, ask "does this still work if AI and Nostr UI are hidden?" If no, the requirement is wrong.
 
 ## Key Decisions
