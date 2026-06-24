@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
 status: planning
-last_updated: "2026-06-23T13:10:15.224Z"
-last_activity: 2026-06-23
+last_updated: "2026-06-24T00:00:00.000Z"
+last_activity: 2026-06-24
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,73 +20,49 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 **Core value:** The maintainer (and any user) can open the app for fun, not duty.
-**Current focus:** Planning next milestone — run `/gsd-new-milestone`. v1.1 AI Chat shipped & archived 2026-06-23.
+**Current focus:** v1.2 Geo Entity Model Split — roadmap created (Phases 8–13). Next: plan Phase 8 (Spec v2 + Foundation).
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-06-23 — Milestone v1.2 started
+Phase: 8 of 13 (Spec v2 + Foundation) — first v1.2 phase
+Plan: — (not yet planned)
+Status: Ready to plan
+Last activity: 2026-06-24 — v1.2 roadmap created; all 30 requirements mapped to Phases 8–13
+
+Progress: [░░░░░░░░░░] 0% (v1.2)
+
+## Roadmap (v1.2 — Phases 8–13)
+
+Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Foundation blocks everything → Group first → Story / Sighting / Beacon → Cross-cutting.
+
+| Phase | Name | Requirements | Research |
+|-------|------|--------------|----------|
+| 8 | Spec v2 + Foundation | SPEC-01..05, TAX-01 | SKIP |
+| 9 | Group / Topic (37518 slimmed) | GROUP-01..08 | NEEDS (governance shape, schema UI, lane cap, NO-MOD UX) |
+| 10 | Story / Article (~37520) | STORY-01..06 | SKIP |
+| 11 | Temporal Sighting | SIGHT-01..04 | NEEDS (dedicated kind vs 37515+property — LEFT OPEN) |
+| 12 | Live Beacon (~37521) | BEACON-01..04 | NEEDS (replaceable+NIP-40 vs ephemeral lifecycle — LEFT OPEN) |
+| 13 | Cross-Cutting | XCUT-01, XCUT-02 | SKIP |
 
 ## Performance Metrics
 
-**Velocity:**
+**Velocity (v1.1 — shipped):**
 
-- Total plans completed: 30
-- Average duration: —
-- Total execution time: —
+- Total plans completed (v1.1): 33
+- v1.2 plans completed: 0
 
-**By Phase:**
+**By Phase (v1.2):**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01 | 3 | - | - |
-| 03 | 6 | - | - |
-| 04 | 3 | - | - |
-| 05 | 5 | - | - |
-| 06 | 5 | - | - |
-| 07 | 5 | - | - |
-
-**Recent Trend:**
-
-- Last 5 plans: —
-- Trend: —
+| 8 | TBD | - | - |
+| 9 | TBD | - | - |
+| 10 | TBD | - | - |
+| 11 | TBD | - | - |
+| 12 | TBD | - | - |
+| 13 | TBD | - | - |
 
 *Updated after each plan completion*
-| Phase 01 P01 | 8min | 3 tasks | 8 files |
-| Phase 01 P02 | 5min | 3 tasks | 3 files |
-| Phase 01 P03 | 4min | 2 tasks | 3 files |
-| Phase 02 P01 | 6min | 2 tasks | 4 files |
-| Phase 02 P02 | continuation | 2 tasks | 5 files |
-| Phase 02 P03 | 9min | 2 tasks | 9 files |
-| Phase 02 P04 | 8min | 2 tasks | 9 files |
-| Phase 02 P05 | 12min | 2 tasks | 8 files |
-| Phase 02 P06 | 11min | 2 tasks | 6 files |
-| Phase 03 P01 | 12min | 4 tasks | 10 files |
-| Phase 03 P04 | 4min | 2 tasks | 3 files |
-| Phase 03 P02 | 8min | 1 tasks | 2 files |
-| Phase 03 P03 | ~5min | 3 tasks | 9 files |
-| Phase 03 P05 | ~12min | 2 tasks | 4 files |
-| Phase 03 P06 | continuation | 3 tasks | 9 files |
-| Phase 04 P01 | ~10min | 4/5 tasks (c deferred) | 10 files |
-| Phase 04 P02 | ~8min | 3 tasks | 6 files |
-| Phase 04 P03 | continuation | 2/3 tasks (UAT deferred) | 3 files |
-| Phase 05 P01 | 7min | 3 tasks | 7 files |
-| Phase 05 P02 | 35min | 3 tasks | 9 files |
-| Phase 05 P03 | 9min | 2 tasks | 8 files |
-| Phase 05 P04 | 4min | 2 tasks | 4 files |
-| Phase 05 P05 | ~13min | 3 tasks | 14 files |
-| Phase 6 P1 | ~16min | 2 tasks | 5 files |
-| Phase 6 P02 | 6min | 1 tasks | 1 files |
-| Phase 06 P03 | 25min | 2 tasks | 4 files |
-| Phase 06 P04 | ~12min | 2 tasks | 3 files |
-| Phase 06 P05 | ~22min | 2 tasks | 4 files |
-| Phase 07 P01 | 9 min | 3 tasks | 6 files |
-| Phase 07 P02 | 5min | 2 tasks | 6 files |
-| Phase 07-geometry-optimization P03 | 14 min | 2 tasks | 4 files |
-| Phase 07 P04 | 10 min | 2 tasks | 6 files |
-| Phase 07 P05 | 8 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -95,84 +71,12 @@ Last activity: 2026-06-23 — Milestone v1.2 started
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [Roadmap]: Encrypted Settings Persistence (Phase 1) sequenced first — structurally independent, and persisting provider config/keys early makes every later phase testable without re-entering keys on each reload.
-- [Roadmap]: Critical path is Phase 2 (registry + Authoring API) → Phase 4 (sandbox). Both are front-loaded as hard prerequisites after settings.
-- [Roadmap]: TOOLS-01 (parametric circle/buffer, non-destructive) lands in Phase 2 so the sandbox has something to call; TOOLS-02/03/04 (bulk/destructive) deferred to Phase 6, after the safe-editing gate.
-- [Roadmap]: Safe-editing gate (Phase 5) MUST precede every destructive bulk tool (Phases 6 + 7), or those tools ship destructive.
-- [v1.1]: Edit safety is a user config (1 preview / 2 confirm-destructive default / 3 trust+undo).
-- [v1.1]: Code interpreter runs client-side; sandbox boundary is message-only RPC over the Authoring API.
-- [Phase ?]: [01-01]: Kept localStorage key prefix earthly.chat-settings.v1 stable; bumped only in-envelope version to 2 and migrate on read (avoids orphaning v1 envelopes).
-- [Phase ?]: [01-01]: Exported resolveProvider, chatStorePartialize, and migrateV1ToV2 as pure functions for headless bun:test (SC-1 secret-exclusion + migration directly testable).
-- [Phase ?]: [01-02]: On decrypt failure the load lifecycle sets a visible 'failed' status + message instead of hydrating DEFAULT settings (D-11/SET-02).
-- [Phase ?]: [01-02]: Retry is nonce-driven — requestSettingsReload bumps settingsLoadNonce in the load-effect deps to re-enter the generation guard, never calling the loader directly (Pitfall 2).
-- [Phase ?]: [01-03]: Import REPLACES via hydrateSettings and delegates re-encryption to the existing debounced save (D-07/D-09); v1+v2 accepted by reusing migrateV1ToV2; malformed/unknown/oversized rejected via hand-written type guards (T-01-10/V5).
-- [Phase ?]: [01-03]: Export reads the live store snapshot (not the encrypted envelope) and is never gated on settingsStatus, so the SET-03 recovery hatch works even when load/save is failing (D-08).
-- [Phase 2]: [02-01]: Headless GeoEditor harness keeps the mock map's getStyle() returning undefined so LayerManager.isStyleReady() is false — render/layer paths become safe no-ops, letting later tests use the REAL GeoEditor class without mocking layer internals.
-- [Phase 2]: [02-01]: Mock map cast `as unknown as MapLibreMap` only at the harness boundary (T-02-01); production map types never loosened. Harness is test-only — no production module imports core/test-harness (T-02-02 boundary grep clean).
-- [Phase 2]: [02-02]: createAuthoring(editor) captures the GeoEditor in a closure and exposes ONLY geometry methods (addFeature/writeGeoJSON/editorCommand) — no signer/wallet/store/getState re-export; boundary.test.ts fs-scans api/*.ts for zero chat/registry/Nostr/NDK/applesauce imports (D-07/T-02-03).
-- [Phase 2]: [02-02]: Authoring facade reuses toEditorFeature + dedup-by-id VERBATIM from importFeaturesToEditor (no normalization reimplementation — T-02-04); every mutating method returns a structured MutationResult, never void (D-11).
-- [Phase 2]: [02-02]: editor.setFeatures (replace path) does NOT emit create/update today, so the replace path does not yet drive the store mirror — Plan 03 must add the emit-on-bulk-replace (D-09) before the replace path's store sync works.
-- [Phase 2]: [02-03]: Bulk-replace emit = NEW typed 'features.replace' event (not 'update' reuse); Editor.tsx mirror subscribes to it. editorCoreSlice.setFeatures kept as the event-driven sink with draft-persist/isDirty/updateStats side-effects preserved (D-09 one-way read-mirror).
-- [Phase 2]: [02-03]: Reverse store→editor loop guarded by suppressReverseSyncRef — editor-originated mirror writes skip the reverse push; external dataset loads still sync (Open Question 2 resolved: KEEP reverse push, narrow via flag).
-- [Phase 2]: [02-03]: chat dual-write (importFeaturesToEditor) + 4 UI/hook import sites (GeoEditorView 1249/1413/2120 + useOsmQuery handleOsmImport) rerouted through createAuthoring(editor).writeGeoJSON; store dual-write DELETED. authoring.* is now the only caller of editor.addFeature (INFRA-02); A3 boundary test enforces it.
-- [Phase 2]: [02-03]: A3 boundary scoped to editor.addFeature (create seam) — updateFeature/deleteFeatures NOT yet rerouted (facade has no modify/delete surface). Deferred to a facade-expansion plan that adds modifyFeature/deleteFeatures + tightens A3 to all 4 verbs.
-- [Phase 2]: [02-03]: criterion #2 golden gate (authoring.golden.test.ts) green — OLD importFeaturesToEditor body reproduced verbatim as oracle vs NEW writeGeoJSON, feature sets byte-identical (ids/geometry/importSource/customProperties/skippedDuplicates).
-- [Phase 2]: [02-04]: ONE typed registry (registry.ts) dispatches all 34 advertised tools via register/unregister/dispatch/advertise; execute.ts switch + default throw DELETED. Unknown tool / handler failure → structured ToolError (INFRA-01/D-16), fed to model loop AND rendered distinctly in ChatPanel. kind mandatory on every entry (D-03); advertised list derived from live registry (D-04/D-06).
-- [Phase 2]: [02-04]: Extracted schemas.ts (dependency-free static OpenAI schemas) to break a registry↔definitions import cycle — registry imports schemas; definitions collapses to geoTools = advertise().
-- [Phase 2]: [02-04]: kind map — write/add_feature_to_editor=editor (dispatch into authoring); get_editor_state/capture_map_snapshot=host-builtin; all OSM/valhalla/web/wiki/fetch=remote-mcp (origin=SERVER_PUBKEY); editor_*=editor (self-registered). V5 arg validation (parseToolCallArguments + clamps + MAX_GEOJSON_TEXT_CHARS) preserved at dispatch boundary; no zod added.
-- [Phase 2]: [02-05]: TOOLS-01 — circle/buffer are Authoring API methods FIRST (authoring.circle/buffer in api/, primitives.ts wraps turf) then AI tools (draw_circle/buffer_feature, kind:'authoring-primitive'); both draw + return MutationResult. Meters canonical (D-14, no magic default radius); V5 DoS cap MAX_DISTANCE_METERS=40,075,000 (unit-normalized) rejects NaN/Inf/≤0/absurd BEFORE turf runs.
-- [Phase 2]: [02-05]: authoring.buffer(featureId) returns featureIds=[sourceId,newId] (source first) for D-11/D-15 composition (Phase 4 chains 'buffer the circle I just drew'); raw-geojson buffer returns [newId]. Degenerate buffer (turf undefined) + unknown id → {ok:false} → tool throws → ToolError(handler_error) (D-16/T-02-15/T-02-16), never a crash.
-- [Phase 2]: [02-05]: Primitive tools supply schema INLINE (like editor_* commands), so definitions.ts (geoTools=advertise()) picks them up with ZERO edits (D-04) — file left untouched for clean Plan 06 merge.
-- [Phase 2]: [02-06]: A1 RESOLVED=SUPPORTED — live ContextVM geo server returned 15 tools via listTools() (the 14 hardcoded + a new create_map_upload absent from definitions.ts). tools/list works AND the static list was already stale by one tool. Built the success branch (poll-based mcp-sync), did NOT take the fallback/defer branch.
-- [Phase 2]: [02-06]: D-05 mcp-sync is POLL-not-push (Pitfall 3, stateless transport) — syncMcpTools() diff-converges the registry's remote-mcp entries (register new/unregister removed, kind:'remote-mcp'+origin=SERVER_PUBKEY); optional cancelable startMcpToolPolling/stopMcpToolPolling; NO setNotificationHandler. On listTools() failure it degrades gracefully (warn + keep last-known/hardcoded set, never throws/wipes).
-- [Phase 2]: [02-06]: Synced handlers route through new EarthlyGeoServerClient.callRemoteTool(name,args) (wraps private call()). definitions.ts adds getGeoTools() (live advertise() + hardcoded fallback); store.ts reads it at REQUEST time so sync changes reach the model. Push refresh deferred as a future optimization (needs a stateful transport).
-- [Phase ?]: Phase 03 Plan 01: ExcelJS-in-worker spike PASSED (exceljs ^4.4.0 bundles for browser worker under Bun); read-excel-file fallback not needed
-- [Phase ?]: Phase 03 Plan 01: extracted pure parse helpers (parse.ts) from ingest.worker.ts so parse correctness is bun:test-able without driving a real Worker
-- [Phase 3]: [03-04]: detectVisionSupport(provider,modelId)→'vision'|'no-vision'|'uncertain' is the D-07/D-09 single capability source; Ollama reads native POST /api/show capabilities[] (/v1 stripped; its /v1/models omits them), others read /v1/models capabilities/input_modalities/architecture.input_modalities; cached per (type,baseUrl,modelId); fail-safe to 'no-vision', never throws (degrades to name heuristic → 'uncertain').
-- [Phase 3]: [03-04]: Autonomous capture_map_snapshot one-shot sends an image_url ONLY on confirmed 'vision' (acceptance criterion #4); 'uncertain' is opt-in via the Plan 06 VisionGateControl UI, never the silent snapshot loop. Both image paths now gate on canUseVision derived from the one awaited ladder result (D-09); name-only modelMaySupportVision removed.
-- [Phase ?]: [03-02]: parseFileInWorker(kind, payload, {timeoutMs}) is the host-side no-freeze client; a shared parseSync powers the no-worker / onerror-latch / 30s-timeout fallbacks so the worker and its sync fallback never diverge
-- [Phase ?]: [03-02]: xlsx posted as a transferable ArrayBuffer (postMessage(req,[buffer])) avoids a main<->worker copy (T-03-05); per-request timeout is injectable for deterministic stuck-worker test coverage
-- [Phase 3]: [03-03]: D-11 enforced STRUCTURALLY — handle-keyed ingestStore: toModelSummary(handleId)→{handleId,summary} is the ONLY model path (no fullRows field); getDataset(handleId) is the sole fullRows accessor (tools/sandbox). Proven by a serialized-payload no-leak invariant test (T-03-06).
-- [Phase 3]: [03-03]: deriveIngestSummary caps schema to MAX_SUMMARY_COLS=30 (+moreColumns, T-03-09) and samples head5+tail5+random5 (INGEST_SAMPLE); compactToolMessageContentForPrompt strips fullRows on {ingestHandle,ingestSummary} tool results (prompt-path defence-in-depth).
-- [Phase 3]: [03-03]: Pre-parse size caps INGEST_SIZE_CAPS tabular 50MB (≥A4 12MB) / image 25MB via assertFileWithinCaps run BEFORE parseFileInWorker/putDataset (T-03-07 DoS); detectCoordinateColumns name-heuristic (lat/lon/lng/x/y/wkt/geometry, ambiguous→{}, D-04).
-- [Phase 3]: [03-05]: place_dataset_features (host-builtin) iterates getDataset(handleId).fullRows (D-05, NOT the sample → anticipates SAFE-05), builds features from lat/lon | WKT | GeoJSON-geometry, V5-range-validates coords (skippedInvalid), writes via importFeaturesToEditor (Authoring API, never the store), returns counts only (T-03-18). registerIngestTools(register) wired via the injected-register idiom; schemaFor() now exported from schemas.ts.
-- [Phase 3]: [03-05]: batch_geocode (remote-mcp) bounded BATCH_GEOCODE_MAX_ROWS=50 (unique names) + throttled BATCH_GEOCODE_MIN_INTERVAL_MS=1000 (~1 req/s) + de-duped + in-call cached, skip-and-report {located,total,failed,message} (T-03-15/T-03-16, D-06). throttle delay + geo client injectable so tests use a fake clock + mock SearchLocation (no sleep, no network). Single-row geocoding reuses the same batchGeocode primitive; Telegram one-shot still uses search_location. WKT parsed in-repo (no new dep).
-- [Phase 3]: [03-06]: FileChipStrip (D-10) mounts ALONGSIDE ChatGeometryAttachment (not folded in), mirroring its controlled {files,onChange} idiom — button + native drag-drop, one FileChip per file (compact deriveIngestSummary stat line, Collapsible/Popover expand, NO always-on grid, D-03). handleAttachedFile(file, deps) is a DOM-free dependency-injected pure orchestration (assertFileWithinCaps → parseFileInWorker → putDataset order pinned by fileAttachHandler.test.ts WARNING-5; image → readImageDataUrl → image_url, INGEST-04).
-- [Phase 4]: [04-01]: Isolation spike RESOLVED the open design decision — QuickJS-WASM-in-a-Worker (not cross-origin-iframe+CSP). Transport LOCKED = quickjs-emscripten all-in-one .wasm-asset variant; SUS singlefile fallback (@jitl/quickjs-singlefile-mjs-release-sync) NOT installed, reserved for a separate human-action gate only if Wave 2's prod smoke 404s the .wasm.
-- [Phase 4]: [04-01]: runSandbox(code,{readSnapshot,deadlineMs,outputCap}) is the transport-agnostic surface Waves 2-3 consume → SandboxRunResult{ok,recordedCalls,consoleLines,returnValue,error,timedOut}; timedOut derived (retryable). Defaults: deadlineMs=3000, memory=64MB, stack=512KB, output caps 1000 lines/256KiB with '…(output truncated)' marker.
-- [Phase 4]: [04-01]: Worker RECORDS authoring calls ({op,args}) and returns serializable records — replay through createAuthoring is Wave 2's job — so the worker/transport hold NO editor/createAuthoring/signer/wallet import and confinement stays statically provable. Proven (28 tests): CODE-01 a confinement, CODE-02 surface=exactly authoring/turf/data/console, CODE-04 b timeout-kill, output cap, import-boundary scan.
-- [Phase 4]: [04-01]: Spike criterion (c) prod .wasm-serving DEFERRED to Wave 2 (04-02) per explicit human decision — transport not yet imported by any app-graph module, so no .wasm bundles today. Wave 2 MUST run `bun run build:production` + browser smoke confirming the QuickJS .wasm returns 200.
-- [Phase 4]: [04-02]: run_code registered with kind:'code-interpreter' (mandatory kind added to ToolKind union); schema = required code:string + optional handles:string[]. Handler: resolve editor → buildReadSnapshot(handles,editor) → runSandbox → (error/timeout) THROW full error so registry.dispatch wraps ToolError(handler_error) for the model (CODE-03/D-11/D-13) → (success) replay recorded authoring.* through createAuthoring(editor)→runInterceptors() (D-03/D-08, NO Phase-4 gate), accumulate MutationCounts, return { ok, counts, consoleLines, truncated, returnValue } (D-10 shape Plan 03 renders).
-- [Phase 4]: [04-02]: buildReadSnapshot(handleIds,editor) = D-01 frozen view { datasets: rows-by-handle via getDataset.fullRows (NOT toModelSummary — Phase 3 D-11 seam intact, T-04-10), features: getAllFeatures().map(toPlainGeoJSON) }, run through structuredClone so it is decoupled (T-04-08) and fail-closed on a non-clonable leak (Pitfall 5).
-- [Phase 4]: [04-02]: RUN_CODE_RETRY_CAP=3 (D-06) as a module-level consecutiveFailures counter (reset on success, incremented on timeout too per D-13) — a counter LOCAL to run_code, NOT a store-loop change (RESEARCH A3). The 'attempt N/3' note rides the thrown error so the bound is observable to the model.
-- [Phase 4]: [04-02]: runSandbox is now reachable from the app graph (registry → runCode → sandboxHost → quickjs transport → quickjs-emscripten) so the .wasm bundles; `bun run build` succeeds. Headless headline proofs inject the editor via useEditorStore.setState({editor:createHeadlessEditor()}) + setSandboxTransportForTests(directEngineTransport). Both pass: fibonacci → counts.created===15 + 15 features (CODE-05); Austria→Bosnia → reads handle rows, returns chosen route+costs, draws 1 feature (CODE-06).
-- [Phase 4]: [04-02]: Plan 01's single-tier sandbox import-boundary scan refined into two tiers — tier A (secret reach: signer/wallet/Nostr/NDK/applesauce/MCP) covers ALL sandbox files incl. the new ones (T-04-12); tier B (createAuthoring + geo-editor/store) covers worker/transport ONLY, exempting the host replay seam (runCode.ts/readSnapshot.ts). T-04-09 confinement stays statically provable.
-- [Phase 4]: UAT-DUMP FOCUSED FIXES (2026-06-19, 4 atomic commits 8ee175c/bf0552a/b723510/4890114): #1 run_code authoring counts now accurate — addFeature/writeGeoJSON coerce a bare Geometry into a Feature (the silent created:0 trap) and addFeature throws a descriptive error for non-null non-geometry input (FeatureCollection etc.) instead of a misleading zero; makeBuffer treats a null-geometry turf result as degenerate so the buffer no-op contract survives. #2 top-level `return` works in run_code (program-first eval, function-wrap fallback ONLY on QuickJS 'return not in a function', parse-time so no duplicated side effects). #3 capture_map_snapshot gated OFF the advertised surface for non-'vision' models via gateToolsForVision() mirroring canUseVision. #4 prompt steering added to run_code description + map-context system message (return convention, no Node globals, known coords over geocoding, no gratuitous OSM, trust write counts/no re-verify); advertised run_code surface kept in sync. bun test 379/0, both builds + biome green. (search_location geocoder quality stays a remote-CVM concern → .planning/backlog/cvm-osm-cache.md.)
-- [Phase 4]: CODE-REVIEW BLOCKER CLOSED (2026-06-18): CR-01 (editorCommand interceptor-seam bypass) fixed in 59ceac3 — removed from sandbox surface, host replay gated on an interceptor-routed allow-list; WR-01 (unenforced SANDBOX_MAX_DISTANCE_METERS DoS cap) fixed in 488cd96 — assertSandboxDistanceWithinCap now range-checks circle/buffer/destination/along before turf runs. Both with tests; bun test + build + biome green. 04-REVIEW.md updated. Remaining review items WR-02..WR-06 + IN-01..IN-04 still open (not in this fix's scope).
-- [Phase 4]: UAT-DUMP DATASET-METADATA FIX (2026-06-19): (1) authoring.writeGeoJSON now accepts Feature[] | FeatureCollection | Feature (extracts .features, wraps bare Geometry) and THROWS on unusable input instead of the silent created:0 the model hit twice; replace defaults to false. (2) New benign METADATA op authoring.setDatasetMetadata({name?,description?,color?,properties?}) merges into store collectionMeta via setCollectionMeta (same path as the dataset-info panel + publishing) — NOT interceptor-gated (no geometry/secrets); + getDatasetMetadata read helper. (3) Sandbox-reachable: added to worker AUTHORING_METHODS + host REPLAYABLE_AUTHORING_OPS allow-list (CR-01 invariant preserved, editorCommand still excluded); CR-01 surface test now expects addFeature,buffer,circle,setDatasetMetadata,writeGeoJSON. (4) New host-builtin tool set_dataset_metadata (direct discoverable path, no run_code needed). (5) get_editor_state now surfaces datasetMetadata (name/description/color/customProperties) compact+full. (6) run_code + map-context prompts advertise the capability and tell the model NOT to stamp dataset_name onto every feature. bun test 402/0, both builds + biome green (changed regions). Not a phase plan; no SUMMARY, no phase.complete.
-- [Phase 3]: [03-06]: composeOutboundContent extracted to its OWN module (src/features/chat/composeOutboundContent.ts), not inlined in ChatPanel — so ingestSendPath.test.ts asserts the D-11 invariant headlessly (dataset → {handleId,summary} from toModelSummary, NEVER fullRows; deep-scan finds no non-sampled row, BLOCKER-3). VisionGateControl (D-08 three-tier: vision=enabled / no-vision=hard-disabled+Tooltip / uncertain=amber+Send-anyway opt-in) + composeOutboundContent share ONE detectVisionSupport result; image_url included only when 'vision' or ('uncertain' && sendAnyway), never silent on 'no-vision'. Same gate governs capture_map_snapshot (D-09). UAT 6/6 approved.
-- [Phase ?]: Phase 5 Plan 01: A3 boundary scan scoped to AI trust boundary (chat + sandbox), not whole tree (D-12); manual-UI/draft/dataset-load sites out-of-scope, ChatGeometryAttachment.tsx allow-listed.
-- [Phase 5]: [05-02]: DatasetSnapshotManager is a separate bounded (depth 20) snapshot/undo stack carrying features + collectionMeta per apply (SAFE-06/D-10); push shallow-copies features (no deep coordinate clone, Pitfall 3) and decouples from in-place property mutation (A1). PURE stack — GeoEditor.undo restores, the manager never touches the editor.
-- [Phase 5]: [05-02]: GeoEditor.undo() uses ordered-timeline precedence (snapshot-top timestamp vs HistoryManager.peekUndoTimestamp) so a manual edit between two AI applies undoes in order; Cmd+Z + chat undoLastDatasetSnapshot() share one mechanism. Metadata restore goes through an injected setMetadataBridge(provider,applier) installed in Editor.tsx — core never imports the store (avoids the Phase-2 store<->core cycle crash).
-- [Phase 5]: [05-02]: WR-04 closed — worker caps recorded-call count (MAX_RECORDED_CALLS=2000) + serialized arg bytes (MAX_RECORDED_ARG_BYTES=4MiB), latches recordedCallsOverBudget; runCode.ts rejects the WHOLE over-budget batch before replay (T-05-08 no partial apply), counts against the circuit breaker, with a host MAX_REPLAY_CALLS re-check as defence-in-depth.
-- [Phase ?]: [05-03]: safetyLevel (1|2|3, default 2) rides the existing encrypt-to-self envelope (D-09) — migrateV1ToV2 membership-checks it in all 3 branches (1|3-else-2, T-05-11) and never throws; setSafetyLevel drives the existing debounced save (no bespoke key); same guard added to settingsExport import round-trip.
-- [Phase ?]: [05-03]: resolveBinding(state) is a PURE store-free/React-free resolver returning {name,unsaved,featureCount,needsAutoCreate}; name falls back to 'Untitled draft', unsaved=open-draft||dirty, needsAutoCreate true ONLY when no draft AND no features (D-02 auto-create-and-bind, never refusal). BindingChip (Plan 05) feeds it the store fields.
-- [Phase 5]: [05-04]: createAuthoringGate(editor,{getSafetyLevel,emitDiffBlock,requestConfirm,ensureBinding?}) is the SAFE-03/04 async buffer-then-apply gate, living in features/chat/ ONE LAYER ABOVE the sync facade (Pitfall 1 — facade/MutationResult/interceptor untouched). review(proposal) dry-runs computeProposed(current) against a CLONE → classifyMutation → emit diff → pure-add OR Level 3 applies immediately (snapshot+diff, D-12) / Level 1 (all) OR Level 2 (destructive=modify+delete only, D-07) buffers + awaits requestConfirm; Apply snapshots+commits through createAuthoring→runInterceptors, Cancel = zero editor mutation. One tool call = one apply unit = one snapshot = one undo step (D-11).
-- [Phase 5]: [05-04]: runFixAllRule(editor,{predicate,transform}) is the SAFE-05 seam — iterates editor.getAllFeatures() (full id-keyed set, NEVER the ≤6-id compacted sampleIds view), routes each change through modifyFeature (interceptor-routed, A3 clean), takes NO features-array arg (model supplies the rule, host supplies the list — Pitfall 2). Proven to modify out-of-sample features. Model-facing bulk tool deferred to Phase 6 TOOLS-02.
-- [Phase ?]: 05-05: gated run_code recorded batch via snapshot-then-rollback; import tools routed through createAuthoringGate; safetyAccess injectable getter breaks the runCode->store->registry import cycle
-- [Phase ?]: [06-01]: Wave 0 RED scaffolds written first — predicate/dedup/geometryValidation/bulk-tools tests + classifyModifyKind diff extension import absent production symbols so bun test is the objective contract Plans 02-05 turn green.
-- [Phase ?]: [06-01]: diff.test.ts reaches classifyModifyKind via a NAMESPACE import (import * as diffModule) not a named import — a missing named ESM import is a hard module-load error that takes the 7 green classifyMutation tests down; namespace keeps the file loading so only the new block is red (7 pass/4 fail).
-- [Phase ?]: [06-02]: predicate.ts is the ONE shared AI-free targeting engine — matchesPredicate (flat-AND over feature.properties) + selectByPredicate (full-set, never capped); A4 missing=absent|null|empty|whitespace via shared isMissing; empty all=[] matches all (style fallback); consumer rules take no features array (host supplies list).
-- [Phase 06]: classifyModifyKind keys off VISUAL_STYLE_KEY_SET (canonical style keys minus name/description) so a metadata-only modify is 'properties' not 'style' — keeps the ~N restyled headline truthful
-- [Phase 06]: [06-05]: gateBulkApply(editor,deps,intent,apply) is the real-apply gate for fixAll-style batches — snapshot BEFORE the interceptor-routed apply, classify before/after with the CALLER's intent (modify for batch/restyle, delete for dedup so dropped ids confirm at Level-2), undoLastDatasetSnapshot on cancel → zero net mutation. Generalizes gateRunCodeBatch (was hardcoded intent:'add').
-- [Phase 06]: [06-05]: all three destructive tools land in registerBulkTools — batch_edit_features (declarative set/copy/template/fillIfMissing over ALL ids via runFixAllRule, unbounded; + intelligence id→value capped at 100 skip-and-report), dedup_features (gated delete intent), style_by_attribute (normalizeStyleOptions materialize via ONE runFixAllRule call, fallback only when supplied D-03, styles round-trip as properties.* STYLE-02, zero LayerManager/event change). bulk-tools.test.ts fully green (15/0), full suite 538/0.
-- [Phase 06]: [06-05]: BULK_EDIT_MAX_FEATURES reconciled 200→100 (Plan-04's early-landed provisional value → this plan's canonical D-04b/D-05 cap; tests are value-relative).
-- [Phase 06]: [06-05]: added api/ deleteFeaturesById(editor,ids) so the dedup tool routes its delete through createAuthoring→runInterceptors WITHOUT a literal `.deleteFeatures(` token in chat/** — boundary.test.ts's WRITE_VERB_RE can't tell facade from raw editor verb, so the call moved into the allowed api/ home (A3 preserved, mirrors how runFixAllRule keeps modify-routing).
-- [Phase 07]: [07-02]: optional headline threaded gate→store→disclosure as a strictly-additive optional field (Phase 5/6 callers omit it, render byte-identically); precedence applied at the useMemo layer so buildDatasetDiffSummary stays the pure no-headline fn — GEO-02 D-04b: optimizer surfaces a single before/after metrics summary in the inline diff block instead of the +N/~N/-N counts wall, without regressing Phase 5/6 diff tests
-- [Phase ?]: 07-03: microgap stitch runs across ALL line features (fixture has 0 within-props shared endpoints, 175 across-all); losslessness via endpoint-keyed property attribution + identical-props merge
-- [Phase ?]: 07-03: optimize.ts imports geometryValidation by deep path (not the api barrel) to keep the worker bundle secret-free (T-07-08)
-- [Phase 07]: [07-05]: UAT crash root cause was a COMPOUND defect — quadratic optimize() (per-iteration turf.kinks O(V^2) over high-vertex features + per-iteration highQuality:true simplify) AND an unsafe 30s timeout that sync-re-ran the SAME quadratic optimize on the MAIN THREAD without terminating the worker. Fixed both: optimize() uses Strategy-1 validate-once-at-end (binary search on bytes only, single final turf.kinks + one-step back-off), highQuality:false during search, and skips kinks on features above TOPOLOGY_VALIDATION_MAX_VERTICES=5000 (honest D-06 relaxation: SIMPLIFY_TOLERANCE_MAX is the remaining shred-guard there). Few-large-features (~160k verts) ~12.5s→<3s.
-- [Phase 07]: [07-05]: runOptimize() timeout is now SAFE — terminate the hung worker, then size-gate: <SYNC_FALLBACK_MAX_BYTES (256KiB) sync-fall-back, at/over → REJECT with a model-relayable 'timed out — too large' error (surfaced as a ToolError by geometry-tools.ts). Same gate in onerror. No-worker/workerBroken/SSR paths stay sync for all sizes (tests depend on it). WR-05 timer leak SUBSUMED (per-request timers captured + clearTimeout on settle/teardown); WR-01/WR-02 NOT reopened.
+- [Roadmap v1.2]: Foundation (Phase 8) is built first and blocks every entity phase — kind constants, shared `tags.ts`, the off-thread schema-validation worker, the in-content version discriminator + legacy-37518 defensive skip, the shared NIP-40 expiry filter, and the NIP-32 `L`/`l` helper. No per-kind phase ships with copy-paste or an unguarded validator.
+- [Roadmap v1.2]: TAX-01 lives in Foundation (Phase 8) — the NIP-32 `L`/`l` paired-emit helper is the canonical home; Phase 9 (Group) consumes it for schema-enforced allowed-`l`-value sets.
+- [Roadmap v1.2]: Group (Phase 9) is the first entity — ~90% rename of `map-context/`, exercises every shared seam and the two highest-severity pitfalls. NO-MOD MINIMUM (GROUP-08) + off-thread schema validation (SPEC-04, consumed) MUST ship in the same phase as foreign `c`-attach, never after.
+- [Roadmap v1.2]: Story / Sighting / Beacon are independent once Foundation lands; sequenced after Group. Beacon is last among kinds (only net-new live-map-render + most privacy surface).
+- [Roadmap v1.2]: Two phase-level decisions LEFT OPEN as research flags — Beacon lifecycle (parameterized-replaceable + NIP-40 vs ephemeral) in Phase 12; Sighting representation (dedicated kind vs 37515 + property + NIP-40) in Phase 11. Do NOT pre-decide; resolve in phase planning/research.
+- [Roadmap v1.2]: Amend, don't replace — `group/` refactors `map-context/`; dataset (37515) and proposal (37519) stay untouched; 37519 gets only a small Markdown-target extension for STORY-06. Clean break on legacy 37518 data (SPEC-03 = defensive skip, not migration).
 
 ### Pending Todos
 
@@ -180,56 +84,43 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 1]: NIP-46 async decrypt path is untested against a remote signer; needs an explicit test + export/import escape hatch.
-- [Phase 3]: Optional active vision-probe step may consume Cashu budget; validate against Routstr prepayment before enabling by default.
-- [Phase 4]: RESOLVED (04-01) — sandbox isolation boundary = QuickJS-WASM-in-Worker (not cross-origin-iframe+CSP); spike proved confinement + timeout-kill + surface. Wave 2 (04-02) wired run_code so runSandbox is in the app graph and `bun run build` succeeds. Criterion (c) prod `.wasm`-SERVING now RESOLVED (focused fix a417ca5, NO new package): `build.ts` copies `@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.wasm` → `dist/emscripten-module.wasm` (fails build loudly if source missing); `sandbox.worker.ts` points the release-sync variant at the served `/emscripten-module.wasm` via `newVariant(RELEASE_SYNC,{wasmLocation})` ONLY when a real browser/Worker http(s) origin exists (Node/bun-test keeps `getQuickJS()` fs path — in-process tests stay green); `src/index.ts` serves `.wasm` as `application/wasm` in dev (from node_modules) and prod (from dist) and stops the SPA fallback swallowing it. PROVEN: `bun run build:production` emits `dist/emscripten-module.wasm` (503134 B); prod server returns HTTP 200 + `content-type: application/wasm`; `bun test` 290 pass / 0 fail; `bun run build` green. The singlefile fallback (`@jitl/quickjs-singlefile-mjs-release-sync`) is NO LONGER needed and stays uninstalled. REMAINING carry-forward (NOT a blocker): live IN-BROWSER wasm EXECUTION (instantiate + `runSandbox` round-trip in the deployed app) is validated by Wave 3's live-chat UAT — the asset now demonstrably emits + serves 200, so this is a UAT confirmation, not a build gap.
-- [Phase 6]: Style-rule persistence format (tag vs content) on kind 37515 must be decided before building; confirm against SPEC.md.
+- [Phase 9 (Group)]: NEEDS deeper research at planning time — `governance` enum backward-compat shape with legacy content fields; non-developer schema-authoring UI; exact foreign-lane cap (suggested start: 50 visible, paginate, sort by recency); NO-MOD MINIMUM UX contract.
+- [Phase 11 (Sighting)]: OPEN decision — dedicated lightweight kind vs 37515 + property + NIP-40; confirm a new kind number needs no relay-side Khatru filter changes beyond existing `pool.req`.
+- [Phase 12 (Beacon)]: OPEN decision — replaceable + NIP-40 vs ephemeral lifecycle; confirm with a relay echo test (Khatru NIP-40 GC); `seq`-tag schema for clock-skew de-dup; staleness grey-out threshold; visibility/privacy model.
+- [v1.1 carry-forward]: Three live in-browser human-verify items remain bookkeeping-open (see Deferred Items) — not work-open, regression-tested.
 
 ## Deferred Items
 
-Items acknowledged and carried forward / out of scope for this milestone:
+Items acknowledged and carried forward / out of scope.
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Feature | Nostr-scrolls / WASM (SCROLL-01/02/03, NIP-5C) | Deferred to next milestone | 2026-06-16 |
-| Feature | Compound routing (COMPOUND-01) | Deferred to v2 | 2026-06-16 |
-| Refactor | Reroute editor.updateFeature + deleteFeatures + dataset-load setFeatures through Authoring API (facade needs modifyFeature/deleteFeatures surface; then tighten A3 boundary to all 4 verbs) | Deferred to a Phase 2 facade-expansion follow-up | 2026-06-16 (02-03) |
+| Feature | Nostr-scrolls / WASM (NIP-5C) | Deferred (builds on shipped code interpreter) | 2026-06-16 |
+| Feature | Compound routing | Deferred to v2 | 2026-06-16 |
+| Refactor | Reroute editor.updateFeature + deleteFeatures + dataset-load setFeatures through Authoring API (tighten A3 to all 4 verbs) | Deferred (facade-expansion follow-up) | 2026-06-16 (02-03) |
+| Feature (v1.2) | NIP-72 human moderation/approval + role lists (MOD-01) | Deferred to next milestone | 2026-06-23 |
+| Feature (v1.2) | Web-of-trust + mute lists for spam (MOD-02) | Deferred to next milestone | 2026-06-23 |
+| Feature (v1.2) | Scroll-linked Story map camera (STORY-07) | Deferred to v2 | 2026-06-23 |
+| Feature (v1.2) | External-source / sandbox-driven Beacon (BEACON-05), beacon trail (BEACON-06), encrypted beacons (BEACON-07) | Deferred to v2 | 2026-06-23 |
+| Feature (v1.2) | AI paste→Sighting ingest (SIGHT-05), geoprivacy obscuring (SIGHT-06) | Deferred to v2 | 2026-06-23 |
 
 ### Acknowledged at v1.1 milestone close (2026-06-23)
 
-Open artifact-audit items acknowledged and deferred at milestone close. All are awaiting live in-browser human confirmation or are design questions already resolved in code — bookkeeping-open, not work-open.
+Open artifact-audit items awaiting live in-browser human confirmation or design questions already resolved in code — bookkeeping-open, not work-open.
 
 | Category | Item | Status |
 |----------|------|--------|
 | debug | sandbox-worker-file-url-dev | awaiting_human_verify (fix landed: dev `.wasm` served as application/wasm; regression-tested) |
-| debug | sandbox-worker-oom-runaway | awaiting_human_verify (fix landed: warm-pooled worker + circuit breaker; before/after reproduced, regression-tested) |
+| debug | sandbox-worker-oom-runaway | awaiting_human_verify (fix landed: warm-pooled worker + circuit breaker; regression-tested) |
 | verification | Phase 06 — 06-VERIFICATION.md | human_needed (automated gates green 538/0; awaiting live UAT confirmation) |
-| context_questions | Phase 05 — 05-CONTEXT.md (3 questions) | Resolved during execution (modify/delete facade surface, interceptor gate placement, SAFE-05 host-side fix-all-by-id — all answered in 05-01/04/05) |
 
 ## Session Continuity
 
-Last session: 2026-06-23T08:15:00.000Z
-Stopped at: Phase 07 complete — v1.1 milestone 100% (7/7 phases). Ready to complete the milestone (/gsd-complete-milestone).
-
-UAT focused fix (2026-06-19): chat no longer ends a turn silently — empty completions (no content, no tool calls) now surface a visible notice via the existing `error` channel ChatPanel renders; `finishReason: 'length'` gets truncation-specific copy, and truncated-but-non-empty content gets a "(response truncated)" suffix. New pure helper describeEmptyCompletion() + 6 headless tests (now 346/0). Not a phase plan; no SUMMARY, no phase.complete.
+Last session: 2026-06-24
+Stopped at: v1.2 roadmap created — ROADMAP.md (Phases 8–13), REQUIREMENTS.md traceability (30/30 mapped), STATE.md updated. Ready to plan Phase 8.
 Resume file: None
-
-Dep bump (2026-06-19): `@contextvm/sdk` 0.9.1 → 0.12.3 (focused, atomic). New API is backward-compatible with our ctxcn usage — no source edits needed: NostrTransportOptions shape (serverPubkey/signer/relayHandler/isStateless/oversizedTransfer.enabled), PrivateKeySigner, ApplesauceRelayPool, and Client.callTool/listTools all unchanged. SDK now bundles `@contextvm/mcp-sdk` 1.29.2 (identical Transport interface to @modelcontextprotocol/sdk 1.29.0 — structurally compatible). Gates green: bun install clean, dev+prod builds, bun test 388/0, biome clean on changed files, no NEW tsc errors in src/ctxcn/* (pre-existing TS1016 + Osm* export errors are baseline). No SUMMARY, no phase.complete.
-
-UAT gap-closure (2026-06-18): styling gap resolved — authoring.circle/buffer now accept+apply per-feature style normalized to the editor's canonical renderer keys, reject unknown options, and run_code prompt advertises the convention; raw addFeature/writeGeoJSON style props preserved. Commits 5fe7f66 + 1e9448f; bun test 334/0 + dev/prod builds + biome green. 04-UAT.md styling gap marked resolved.
-
-UAT debugging aid (2026-06-18): added a "dump conversation" export button to the ChatPanel header — captures the full active chat as JSON (roles, raw content, reasoning, tool_call id/name/arguments, RAW tool results incl. run_code source/output/errors, endpoint+model label, diagnostics), copies to clipboard AND downloads a .json (Blob, dependency-free); empty-safe with toasts. Secrets excluded: pure buildConversationDump (conversationDump.ts) reads only baseUrl via resolveProvider, never providerOverrides[*].apiKey (mirrors chatStorePartialize); headless test plants a key and asserts absence (7 tests). Commit f0010d8; bun test 355/0 + dev/prod builds + biome green. Not a phase plan; no SUMMARY, no phase.complete.
-
-UAT focused fix (2026-06-19): removed the hardcoded output-token cap (was max_tokens=512, floored to 1024 with tools — artificially truncated 262k-context endpoints to ~1k output). Output budget is now derived per-request from the room left after the prompt (deriveOutputBudget): free/local providers (lmstudio/ollama/custom) OMIT max_tokens entirely (no truncation); paid (routstr) sends the derived budget so estimateMaxCost/prepay/refund use the same number and never underpay. getPromptBudgetTokens inverted to a proportional completion reserve (no fixed sliver). Removed DEFAULT_MAX_TOKENS/MIN_TOOL_ENABLED_MAX_TOKENS + the unused maxTokens store field; MIN_OUTPUT_BUDGET_TOKENS=1024 kept as a tool-call FLOOR (not a cap). Context-overflow recovery intact (emergency path re-derives budget). New exported deriveOutputBudget/getPromptBudgetTokens + 11 headless tests (now 355/0); dev+prod builds + biome green. Not a phase plan; no SUMMARY, no phase.complete.
-
-Ingest+attachment rethink — Slice A SHIPPED (2026-06-19): attached datasets now render in the chat transcript as compact, collapsible AttachmentCards (filename · kind badge · rows×cols · ⚠ warning affordance, empty-safe; schema + sample table behind expand) instead of the raw `{ingestHandle,ingestSummary}` JSON blob. Pure display/payload decouple — composeOutboundContent's model payload is UNCHANGED, D-11 invariant test still green. New AttachmentCard + parseIngestHandlePart, reuses FileChip visual helpers + CodeRunDisclosure collapse idiom. bun test 340/0 + dev/prod builds + biome (changed files) green. Slice B (AI-cleans ingest: lenient+honest parse, raw sandbox access, profile-first prompt, uncertainty surfacing) NOT started.
-
-Phase-4 sandbox OOM/CPU RUNAWAY fixed (2026-06-19): the code-interpreter worker was re-fetching+re-compiling the ~503KB QuickJS wasm and allocating a fresh heap on EVERY run (2,831 req / 1.38 GB toward an OOM crash, pegged CPU core). Root cause = (1) fresh-Worker-per-run × an UN-memoized newQuickJSWASMModuleFromVariant (only getQuickJS() memoizes) → full re-instantiate per run, and (2) RUN_CODE_RETRY_CAP was advisory-only (just appended a "stop" string) so a looping model spawned a sandbox per call with no programmatic stop. Fix: memoize the compiled module in sandbox.worker.ts (compile-once); switch quickjsWorker.ts to ONE warm-pooled worker reused across runs (fresh runtime+context per run keeps isolation — proven no state bleed) so wasm compiles ONCE per session; make the cap a real CIRCUIT BREAKER in runCode.ts (refuse-without-spawn at the cap, then reset so the model isn't bricked); add immutable Cache-Control to the wasm route (dev+prod). Reproduced before/after with the real bundle + a counting wasm server: 6 warm-worker runs → wasm fetched exactly 1×, RSS plateaued (was monotonic climb). bun test 384/0 (+5 new regression tests: module-reuse isolation + circuit-breaker), dev+prod builds green, changed files biome-clean. Live in-browser run_code UAT still pending (human-verify). Debug session: .planning/debug/sandbox-worker-oom-runaway.md. Not a phase plan; no SUMMARY, no phase.complete.
-
-Regression hotfix (2026-06-19): fixed a `ReferenceError: canUseVision is not defined` thrown on EVERY chat send (introduced by vision-gate fix b723510). The request-builder closure read `canUseVision` (gating capture_map_snapshot advertisement) but it was only declared later inside the try block — out of scope. Hoisted `let canUseVision = false` to the sendMessage outer scope (fail-closed default); the later line became a plain assignment; all three uses now share one binding. Gating behavior unchanged. bun test 384/0, dev+prod builds + store.ts biome green. Not a phase plan; no SUMMARY, no phase.complete.
-
-UAT focused fixes (2026-06-19, 4 atomic commits): (1) trim geo tool results in the model-facing prompt seam — strip per-result geojson boundary polygons + extratags from search_location/reverse_lookup, ALWAYS keep coordinates (fixes UAT 21-round coords-buried detour) [551c7ea]; (2) document run_code data shape: data.features is a Feature[] (use data.features.find, NOT data.features.features), data.datasets[handle] is the rows array [6882eea]; (3) make CEP-22 oversizedTransfer.enabled explicit on the geo client (already SDK default, no bump; no stale truncation workaround found) [1a6ebbd]; (4) backlog note — geo MCP server must drop its 42KB geometry truncation + rely on CEP-22 (server-side, out of this repo) [c867665]. bun test 388/0, dev+prod builds + biome (changed files) green. Not a phase plan; no SUMMARY, no phase.complete.
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan the first v1.2 phase with /gsd-plan-phase 8 (Spec v2 + Foundation)
+</content>

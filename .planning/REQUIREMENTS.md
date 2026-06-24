@@ -101,46 +101,58 @@ Explicitly excluded for v1.2. Documented to prevent scope creep.
 
 ## Traceability
 
-Populated during roadmap creation.
+Populated during roadmap creation. Phase numbering continues from v1.1 (which ended at Phase 07), so v1.2 spans Phases 08–13.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SPEC-01 | TBD | Pending |
-| SPEC-02 | TBD | Pending |
-| SPEC-03 | TBD | Pending |
-| SPEC-04 | TBD | Pending |
-| SPEC-05 | TBD | Pending |
-| STORY-01 | TBD | Pending |
-| STORY-02 | TBD | Pending |
-| STORY-03 | TBD | Pending |
-| STORY-04 | TBD | Pending |
-| STORY-05 | TBD | Pending |
-| STORY-06 | TBD | Pending |
-| GROUP-01 | TBD | Pending |
-| GROUP-02 | TBD | Pending |
-| GROUP-03 | TBD | Pending |
-| GROUP-04 | TBD | Pending |
-| GROUP-05 | TBD | Pending |
-| GROUP-06 | TBD | Pending |
-| GROUP-07 | TBD | Pending |
-| GROUP-08 | TBD | Pending |
-| BEACON-01 | TBD | Pending |
-| BEACON-02 | TBD | Pending |
-| BEACON-03 | TBD | Pending |
-| BEACON-04 | TBD | Pending |
-| SIGHT-01 | TBD | Pending |
-| SIGHT-02 | TBD | Pending |
-| SIGHT-03 | TBD | Pending |
-| SIGHT-04 | TBD | Pending |
-| TAX-01 | TBD | Pending |
-| XCUT-01 | TBD | Pending |
-| XCUT-02 | TBD | Pending |
+| SPEC-01 | Phase 8 | Pending |
+| SPEC-02 | Phase 8 | Pending |
+| SPEC-03 | Phase 8 | Pending |
+| SPEC-04 | Phase 8 | Pending |
+| SPEC-05 | Phase 8 | Pending |
+| TAX-01 | Phase 8 | Pending |
+| GROUP-01 | Phase 9 | Pending |
+| GROUP-02 | Phase 9 | Pending |
+| GROUP-03 | Phase 9 | Pending |
+| GROUP-04 | Phase 9 | Pending |
+| GROUP-05 | Phase 9 | Pending |
+| GROUP-06 | Phase 9 | Pending |
+| GROUP-07 | Phase 9 | Pending |
+| GROUP-08 | Phase 9 | Pending |
+| STORY-01 | Phase 10 | Pending |
+| STORY-02 | Phase 10 | Pending |
+| STORY-03 | Phase 10 | Pending |
+| STORY-04 | Phase 10 | Pending |
+| STORY-05 | Phase 10 | Pending |
+| STORY-06 | Phase 10 | Pending |
+| SIGHT-01 | Phase 11 | Pending |
+| SIGHT-02 | Phase 11 | Pending |
+| SIGHT-03 | Phase 11 | Pending |
+| SIGHT-04 | Phase 11 | Pending |
+| BEACON-01 | Phase 12 | Pending |
+| BEACON-02 | Phase 12 | Pending |
+| BEACON-03 | Phase 12 | Pending |
+| BEACON-04 | Phase 12 | Pending |
+| XCUT-01 | Phase 13 | Pending |
+| XCUT-02 | Phase 13 | Pending |
 
 **Coverage:**
 - v1 requirements: 30 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 30 ⚠️
+- Mapped to phases: 30 (Phases 8–13)
+- Unmapped: 0 ✓
+
+**Per-phase requirement counts:**
+
+| Phase | Requirements | Count |
+|-------|--------------|-------|
+| 8. Spec v2 + Foundation | SPEC-01..05, TAX-01 | 6 |
+| 9. Group / Topic | GROUP-01..08 | 8 |
+| 10. Story / Article | STORY-01..06 | 6 |
+| 11. Temporal Sighting | SIGHT-01..04 | 4 |
+| 12. Live Beacon | BEACON-01..04 | 4 |
+| 13. Cross-Cutting | XCUT-01, XCUT-02 | 2 |
 
 ---
 *Requirements defined: 2026-06-23*
-*Last updated: 2026-06-23 after initial v1.2 definition*
+*Last updated: 2026-06-24 after roadmap creation — all 30 requirements mapped to Phases 8–13*
+</content>
