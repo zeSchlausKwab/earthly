@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
 status: executing
-stopped_at: Completed 09-03-PLAN.md
-last_updated: "2026-06-25T12:40:00.000Z"
-last_activity: 2026-06-25 -- Completed 09-03-PLAN.md (validation trust core)
+stopped_at: Completed 09-04-PLAN.md
+last_updated: "2026-06-25T13:05:00.000Z"
+last_activity: 2026-06-25 -- Completed 09-04-PLAN.md (Group authoring panel; human-verify deferred to end-of-phase UAT)
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 11
-  completed_plans: 8
-  percent: 20
+  completed_plans: 9
+  percent: 22
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 ## Current Position
 
 Phase: 09 (group-topic-37518-slimmed) — EXECUTING
-Plan: 4 of 6
-Status: Ready to execute
-Last activity: 2026-06-25 -- Completed 09-03-PLAN.md (validation trust core)
+Plan: 5 of 6
+Status: Ready to execute (09-04 complete; 09-05 next)
+Last activity: 2026-06-25 -- Completed 09-04-PLAN.md (Group authoring panel; human-verify deferred to end-of-phase UAT)
 
-Progress: [██░░░░░░░░] 20% (v1.2)
+Progress: [██░░░░░░░░] 22% (v1.2)
 
 ## Roadmap (v1.2 — Phases 8–13)
 
@@ -71,6 +71,8 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 | Phase 08 P04 | 7min | 2 tasks | 14 files |
 | Phase 09 P01 | 12m | 2 tasks | 9 files |
 | Phase 09 P02 | 9m | 2 tasks | 7 files |
+| Phase 09 P03 | ~22m | 2 tasks | 7 files |
+| Phase 09 P04 | ~20m | 2 tasks (+1 deferred checkpoint) | 4 files |
 
 ## Accumulated Context
 
@@ -91,6 +93,7 @@ Recent decisions affecting current work:
 - [08-04]: Article (37520), Live Beacon (37521), Temporal Sighting (37522) Factory+Cast scaffolds landed (SPEC-02/03). Each is<Entity>() guard = kind + d + hasCurrentModelVersion (no-throw); create() injects MODEL_VERSION + generates d only if absent; modify() preserves d. Tag reads/writes delegate to tags.ts (no copy-paste). Introduced shared EntityFactory base (src/lib/nostr/entityFactory.ts) so create/modify d-lineage + a sign() that accepts a bare sign-function (the Wave-0 test contract, since applesauce sign() needs an EventSigner) are written once. LiveBeacon AND TemporalSighting casts expose NIP-40 expiresAt. Three barrels wired into src/lib/nostr/index.ts. Full Wave-0 baseline now GREEN: 607 pass / 0 fail.
 - [08-05]: SPEC.md rewritten IN PLACE to v2 (SPEC-01) — split entity model with final kind block (37515 Dataset / 37517 Comment / 37518 slimmed Group / 37519 Proposal / 37520 Story / 37521 Live Beacon / 37522 Temporal Sighting / 34444 Map Layer); modelVersion='earthly/2' clean break (absence/mismatch => legacy/inert/skipped); three-way disjoint L/l·t·c taxonomy split + flat earthly namespace (with reverse-DNS tradeoff note) + FEATURE_CATEGORY_VOCAB; schema governance dialect (draft-2020-12, no $data, no external $ref, 64KB/depth-12/4096 caps); NIP-40 advisory client-always-filters. spec.doc.test.ts pins those strings against the doc on disk (RED on v1, GREEN on v2, mitigates doc-drift T-08-01-DOC). Suite 615 pass / 0 fail; build green; biome clean. Phase 08 COMPLETE (5/5). NOTE: gsd-tools not on PATH — STATE/ROADMAP updated manually.
 - [Phase ?]: D-06 pinned to EXTEND-worker (option a): off-thread verdict carries structured errors[] (schemaErrors.test.ts is the contract)
+- [09-04]: Group authoring panel shipped — MapContextEditorPanel refactored in place into src/features/groups/GroupEditorPanel.tsx (D-01): the contextUse/validationMode/allowForeignAttachments triad replaced by a single-column RadioGroup of 3 governance Cards (open/schema/closed) with verbatim UI-SPEC copy + accent-reserved selected ring. schemaBuilder.ts extracted as a pure (React-free) compileBuilderSchema(rows, geometry)→draft-2020-12 module shared by the visual Builder tab and the Advanced raw-JSON tab — both feed the SAME Phase-8 off-thread validateSchema worker (no in-thread compile). Schema section governance-gated (governance==='schema'); leaving schema strips geometryConstraints/schema (O-02). Write path: compile→computeSchemaHash→GroupFactory.create/modify (d-tag preserved on edit). Legacy unlabeled-checkbox a11y bug fixed (shadcn Checkbox + Label htmlFor). groups-columns renamed/repointed to useGroups; GeoEditorInfoPanel edit-branch repointed to GroupEditorPanel (a deferred map-context consumer migration). schemaBuilder.test.ts GREEN (GROUP-03); build green; biome clean. Task-3 human-verify (authoring flow) DEFERRED to end-of-phase UAT per human_verify_mode:end-of-phase — user approved finalize; steps preserved in 09-04-SUMMARY. gsd-tools not on PATH — STATE/ROADMAP/REQUIREMENTS updated manually.
 - [09-02]: src/lib/nostr/group/ shipped — the per-kind Factory+Cast+helpers foundation Plans 03–06 import. GroupContent collapses the contextUse/validationMode/allowForeignAttachments triad to a single governance:'open'|'schema'|'closed' enum (clean break, fields absent not migrated). isGroup adds the SPEC-03 hasCurrentModelVersion gate (legacy 37518 silently drops). GroupFactory extends EntityFactory (bare-sign base); create strips+re-asserts modelVersion, modify preserves d. All tag I/O delegates to tags.ts; added setSchemaHash transformer there (resolved the flagged inline-vs-tags.ts decision toward delegation). useGroups + useGroupAttachments(#c) hooks added; group/ wired into the nostr barrel (map-context/ retained, importable from its own path, ~34 consumers migrate in Plans 03–06). group.test.ts GREEN (GROUP-01); 20 pass / build green. gsd-tools not on PATH — STATE/ROADMAP/REQUIREMENTS updated manually.
 
 ### Pending Todos
@@ -103,6 +106,7 @@ None yet.
 - [Phase 11 (Sighting)]: OPEN decision — dedicated lightweight kind vs 37515 + property + NIP-40; confirm a new kind number needs no relay-side Khatru filter changes beyond existing `pool.req`.
 - [Phase 12 (Beacon)]: OPEN decision — replaceable + NIP-40 vs ephemeral lifecycle; confirm with a relay echo test (Khatru NIP-40 GC); `seq`-tag schema for clock-skew de-dup; staleness grey-out threshold; visibility/privacy model.
 - [v1.1 carry-forward]: Three live in-browser human-verify items remain bookkeeping-open (see Deferred Items) — not work-open, regression-tested.
+- [09-04]: Group authoring-flow human-verify DEFERRED to consolidated end-of-phase UAT (human_verify_mode:end-of-phase) — automated gates green (schemaBuilder.test GREEN, build, biome); verification steps preserved in 09-04-SUMMARY. Bookkeeping-open, not work-open.
 
 ## Deferred Items
 
@@ -131,13 +135,13 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-06-25T10:16:23.981Z
-Stopped at: Completed 09-02-PLAN.md (group/ module foundation)
+Last session: 2026-06-25T13:05:00.000Z
+Stopped at: Completed 09-04-PLAN.md (Group authoring panel; human-verify deferred to end-of-phase UAT)
 Resume file: None
 
 ## Operator Next Steps
 
-- Phase 08 (spec-v2-foundation) is complete — all 5 plans landed, SPEC.md v2 is canonical, suite 615 pass / 0 fail.
-- Next: run /gsd-verify-work on Phase 08 (verifier + end-of-phase human-verify), then plan/execute Phase 09 (Group / Topic — slimmed 37518: governance ladder, NO-MOD MINIMUM, schema-authoring UI, validate-on-fetch wiring of the §9 worker).
+- Phase 09 (Group / Topic) — Wave 4 plan 09-04 (GroupEditorPanel authoring surface) complete; 9/11 v1.2 plans done.
+- Next: execute 09-05 (contributor attach UI — c-tag picker + inline per-rule warnings + Publish-anyway) then 09-06 (GroupViewPanel NO-MOD two-lane). Then run the consolidated end-of-phase UAT (includes the deferred 09-04 authoring-flow human-verify, steps in 09-04-SUMMARY).
 
 </content>

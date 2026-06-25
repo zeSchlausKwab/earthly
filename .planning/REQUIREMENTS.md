@@ -28,7 +28,7 @@ Requirements for the v1.2 milestone. Full v2 / clean-break scope: spec + all eve
 
 - [ ] **GROUP-01**: A user can create a Group with a name, description, and an explicit `governance` setting of open, schema, or closed.
 - [ ] **GROUP-02**: A user can attach their dataset (or sighting) to a Group via a `c` tag, and it appears in the Group's contribution (foreign) lane.
-- [ ] **GROUP-03**: A Group owner can define a contribution schema (allowed geometry types + JSON-Schema property rules) for a schema-governed Group through an authoring UI usable by non-developers.
+- [x] **GROUP-03**: A Group owner can define a contribution schema (allowed geometry types + JSON-Schema property rules) for a schema-governed Group through an authoring UI usable by non-developers.
 - [ ] **GROUP-04**: When attaching to a schema Group, the contributor sees inline validation warnings before publishing but is never blocked from publishing a valid standalone dataset.
 - [ ] **GROUP-05**: A viewer of a schema Group sees only conforming attachments by default, with a per-view override (off / warn / strict).
 - [ ] **GROUP-06**: A Group owner can add optional narrative and pin "canonical" curated references (curate-pull within the Group).
@@ -111,9 +111,9 @@ Populated during roadmap creation. Phase numbering continues from v1.1 (which en
 | SPEC-04 | Phase 8 | Complete |
 | SPEC-05 | Phase 8 | Complete |
 | TAX-01 | Phase 8 | Complete |
-| GROUP-01 | Phase 9 | In progress (09-02: factory/cast/governance contract GREEN; UI authoring panel pending) |
+| GROUP-01 | Phase 9 | In progress (09-02: factory/cast/governance contract GREEN; 09-04: GroupEditorPanel governance-ladder create/edit authoring surface + GroupFactory write path landed, build green; live publish/edit confirmation deferred to end-of-phase UAT) |
 | GROUP-02 | Phase 9 | In progress (09-03: #c attach-discovery filter + governance!==closed lane gate GREEN; contributor attach UI pending 09-05) |
-| GROUP-03 | Phase 9 | Pending |
+| GROUP-03 | Phase 9 | Complete (09-04: schemaBuilder.ts compileBuilderSchema → draft-2020-12 + GroupEditorPanel visual builder/advanced-JSON authoring, both feed the Phase-8 off-thread worker; schemaBuilder.test GREEN) |
 | GROUP-04 | Phase 9 | In progress (09-03: warn-not-block invariant — canPublishStandalone always true GREEN; inline-warning UI pending 09-05) |
 | GROUP-05 | Phase 9 | In progress (09-03: off/warn/strict filterModes off-thread, default-strict-for-schema GREEN; viewer override UI pending 09-06) |
 | GROUP-06 | Phase 9 | Pending |

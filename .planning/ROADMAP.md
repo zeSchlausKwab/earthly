@@ -95,7 +95,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 4** *(blocked on Wave 3; 04 + 05 run in parallel — disjoint files)*
 
-  - [ ] 09-04-PLAN.md — GroupEditorPanel: governance radio cards (D-01) + visual schema builder + raw-JSON advanced (D-04) + canonical schema-hash write [GROUP-01/03]
+  - [x] 09-04-PLAN.md — GroupEditorPanel: governance radio cards (D-01) + visual schema builder + raw-JSON advanced (D-04) + canonical schema-hash write [GROUP-01/03] (human-verify deferred to end-of-phase UAT)
   - [ ] 09-05-PLAN.md — contributor attach: c-tag picker + inline per-rule warnings + Publish-anyway (never blocks a standalone publish) [GROUP-02/04]
 
 **Wave 5** *(blocked on Waves 2–4)*
@@ -182,7 +182,7 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 6. AI Bulk Transform & Data-Driven Styling | v1.1 | 5/5 | Complete | 2026-06-22 |
 | 7. Geometry Optimization | v1.1 | 5/5 | Complete | 2026-06-23 |
 | 8. Spec v2 + Foundation | v1.2 | 5/5 | Complete    | 2026-06-25 |
-| 9. Group / Topic (37518 slimmed) | v1.2 | 3/6 | In Progress|  |
+| 9. Group / Topic (37518 slimmed) | v1.2 | 4/6 | In Progress|  |
 | 10. Story / Article (~37520) | v1.2 | 0/TBD | Not started | - |
 | 11. Temporal Sighting | v1.2 | 0/TBD | Not started | - |
 | 12. Live Beacon (~37521) | v1.2 | 0/TBD | Not started | - |
