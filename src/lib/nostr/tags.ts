@@ -129,6 +129,17 @@ export function setReferencedAddresses(tags: string[][], values: string[]): stri
 	]
 }
 
+/**
+ * Replace the `schema-hash` tag (the canonical hash of a Group's contribution
+ * schema). Undefined/empty removes it. Mirrors `setReferencedAddresses`'s
+ * filter-out-then-append shape so the Group factory delegates here instead of
+ * inlining the write (no per-kind drift).
+ */
+export function setSchemaHash(tags: string[][], value: string | undefined): string[][] {
+	const filtered = tags.filter((t) => t[0] !== 'schema-hash')
+	return value ? [...filtered, ['schema-hash', value]] : filtered
+}
+
 // =====================================================================
 // NIP-32 controlled-vocabulary labels (TAX-01)
 // =====================================================================
