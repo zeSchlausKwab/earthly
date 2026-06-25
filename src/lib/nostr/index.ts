@@ -36,6 +36,10 @@ export * from './tags'
 // In-content model-version discriminator (SPEC-03) + NIP-40 expiry filter (SPEC-05).
 export * from './modelVersion'
 export * from './expiry'
+// Phase 8 per-kind Factory+Cast scaffolds (37520/37521/37522). Each consumes the
+// shared tags.ts seam and gates its guard on modelVersion. Helper names are
+// uniquely prefixed per kind, so the wildcard re-exports never collide.
+export * from './article'
 
 /** Reactive event database. Single instance for the whole app. */
 export const eventStore = new EventStore()
