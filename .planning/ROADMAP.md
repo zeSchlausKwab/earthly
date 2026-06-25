@@ -91,7 +91,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 3** *(blocked on Wave 2)*
 
-  - [ ] 09-03-PLAN.md — validation pipeline: off-thread worker verdict + per-rule errors[] (D-06), canonical schema-hash (O-03), filterModes off/warn/strict, attach warn-not-block, device-local global mute store [GROUP-02/04/05]
+  - [x] 09-03-PLAN.md — validation pipeline: off-thread worker verdict + per-rule errors[] (D-06), canonical schema-hash (O-03), filterModes off/warn/strict, attach warn-not-block, device-local global mute store [GROUP-02/04/05]
 
 **Wave 4** *(blocked on Wave 3; 04 + 05 run in parallel — disjoint files)*
 
@@ -182,7 +182,7 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 6. AI Bulk Transform & Data-Driven Styling | v1.1 | 5/5 | Complete | 2026-06-22 |
 | 7. Geometry Optimization | v1.1 | 5/5 | Complete | 2026-06-23 |
 | 8. Spec v2 + Foundation | v1.2 | 5/5 | Complete    | 2026-06-25 |
-| 9. Group / Topic (37518 slimmed) | v1.2 | 1/6 | In Progress|  |
+| 9. Group / Topic (37518 slimmed) | v1.2 | 3/6 | In Progress|  |
 | 10. Story / Article (~37520) | v1.2 | 0/TBD | Not started | - |
 | 11. Temporal Sighting | v1.2 | 0/TBD | Not started | - |
 | 12. Live Beacon (~37521) | v1.2 | 0/TBD | Not started | - |

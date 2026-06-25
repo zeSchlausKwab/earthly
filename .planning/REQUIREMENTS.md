@@ -112,10 +112,10 @@ Populated during roadmap creation. Phase numbering continues from v1.1 (which en
 | SPEC-05 | Phase 8 | Complete |
 | TAX-01 | Phase 8 | Complete |
 | GROUP-01 | Phase 9 | In progress (09-02: factory/cast/governance contract GREEN; UI authoring panel pending) |
-| GROUP-02 | Phase 9 | Pending |
+| GROUP-02 | Phase 9 | In progress (09-03: #c attach-discovery filter + governance!==closed lane gate GREEN; contributor attach UI pending 09-05) |
 | GROUP-03 | Phase 9 | Pending |
-| GROUP-04 | Phase 9 | Pending |
-| GROUP-05 | Phase 9 | Pending |
+| GROUP-04 | Phase 9 | In progress (09-03: warn-not-block invariant — canPublishStandalone always true GREEN; inline-warning UI pending 09-05) |
+| GROUP-05 | Phase 9 | In progress (09-03: off/warn/strict filterModes off-thread, default-strict-for-schema GREEN; viewer override UI pending 09-06) |
 | GROUP-06 | Phase 9 | Pending |
 | GROUP-07 | Phase 9 | Pending |
 | GROUP-08 | Phase 9 | Pending |
