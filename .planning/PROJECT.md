@@ -27,6 +27,8 @@ If we ship clean orchestration + classical utility but no AI demo, this project 
 
 **Cross-cutting taxonomy:** NIP-32 `L`/`l` (controlled, schema-enforceable) + `t` (freeform discovery) + `c` (entity-backed attach). Principled split removes the `t`/taxonomy overlap.
 
+**Foundation shipped (Phase 8, 2026-06-25):** All shared seams the four entity kinds depend on now exist and are verified (5/5 success criteria, 615 tests pass): the three new kind constants (37520/37521/37522) + slimmed 37518, the extracted shared `tags.ts` module (both shipped kinds migrated to consume it), the in-content `modelVersion` discriminator with no-throw legacy skip (SPEC-03), the NIP-40 `isExpired`/`dropExpired` filter (SPEC-05), the NIP-32 `L`/`l` taxonomy helper + starter vocab (TAX-01), the off-thread hardened Ajv schema-validation worker (SPEC-04: ReDoS/`$ref`/size-depth defenses, fail-closed, timeout-kill, compile-once cache), Factory+Cast scaffolds for all three new kinds (SPEC-02), and SPEC.md rewritten to v2 (SPEC-01). Six advisory code-review WARNINGs (sync-fallback watchdog gap, `$recursiveRef`, d-tag format, t/l disjointness, malformed-expiration fail-open) are carried to a `/gsd-secure-phase 8` pass. Next: Phase 9 (Group / Topic).
+
 **Scope decisions:**
 - **Full v2** — spec + all event classes + full authoring UI for every kind, in one milestone.
 - **Clean break** — existing 37518 data is seed/test only; redefine the kinds freely, no migration or back-compat.
@@ -226,4 +228,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-23 — started milestone v1.2 Geo Entity Model Split: split the bloated kind-37518 context into role-specific geo entity kinds (Story/Article, slimmed Group, Live Beacon, Temporal Sighting), adopt NIP-32 `L`/`l` taxonomy, schema-only group governance, clean break on existing 37518 data, full authoring UI. NIP-72 moderation + WoT/mute deferred. Previous: v1.1 AI Chat archived in `.planning/milestones/v1.1-*`.*
+*Last updated: 2026-06-25 — Phase 8 (Spec v2 + Foundation) complete: all six shared seams the four entity kinds depend on ship verified (kind constants, shared `tags.ts`, `modelVersion` discriminator + legacy skip, off-thread hardened schema worker, NIP-40 expiry filter, NIP-32 `L`/`l` taxonomy helper) with SPEC.md rewritten to v2; 5/5 success criteria, 615 tests pass, 6 advisory WARNINGs deferred to secure-phase. Previously: 2026-06-23 — started milestone v1.2 Geo Entity Model Split (split bloated kind-37518 into Story/Article, slimmed Group, Live Beacon, Temporal Sighting; NIP-32 `L`/`l` taxonomy; schema-only group governance; clean break on 37518 data; full authoring UI; NIP-72 moderation + WoT/mute deferred). v1.1 AI Chat archived in `.planning/milestones/v1.1-*`.*
