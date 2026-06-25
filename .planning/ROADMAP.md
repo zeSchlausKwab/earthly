@@ -28,7 +28,7 @@ Data Ingest, Transform & Safe Authoring — turned the AI chat from a map-drawin
 
 The dependency spine: **Foundation blocks everything** → **Group first** (refactor-dominant, exercises the shared seams + the two highest-severity pitfalls) → **Story / Sighting / Beacon** (independent once Foundation lands; Beacon last for net-new live-render + privacy surface) → **Cross-cutting** (comment widening + routing).
 
-- [ ] **Phase 8: Spec v2 + Foundation** — Kind assignment, SPEC.md v2, Factory+Cast scaffolding, shared `tags.ts`, version discriminator + legacy skip, off-thread schema-validation worker, NIP-40 expiry filter, NIP-32 `L`/`l` taxonomy helper
+- [x] **Phase 8: Spec v2 + Foundation** — Kind assignment, SPEC.md v2, Factory+Cast scaffolding, shared `tags.ts`, version discriminator + legacy skip, off-thread schema-validation worker, NIP-40 expiry filter, NIP-32 `L`/`l` taxonomy helper
 - [ ] **Phase 9: Group / Topic (37518 slimmed)** — Attach-push `c`-lane, governance ladder (open · schema · closed), schema authoring + validate-on-fetch, NO-MOD MINIMUM, comment/react
 - [ ] **Phase 10: Story / Article (~37520)** — Curate-pull Markdown narrative, inline geo-ref render (eye-toggle/fly-to), naddr→`a` mirroring, draft + in-place edit, comment/react/propose-edit
 - [ ] **Phase 11: Temporal Sighting** — Time-bound placed observation (NIP-52 `start`/`end`), optional NIP-40 auto-fade, `c`-attach to Group, comment/react
@@ -62,7 +62,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-  - [ ] 08-05-PLAN.md — SPEC.md v2 in-place rewrite documenting the split entity model + doc-assertion test (SPEC-01)
+  - [x] 08-05-PLAN.md — SPEC.md v2 in-place rewrite documenting the split entity model + doc-assertion test (SPEC-01)
 
 **Research flag**: SKIP — all decisions documented in research files; kinds + tag helpers + worker harness are proven patterns (v1.1 QuickJS-in-Worker shape).
 

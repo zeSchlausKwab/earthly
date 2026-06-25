@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
 status: executing
-stopped_at: Completed 08-04-PLAN.md
-last_updated: "2026-06-25T09:27:00.000Z"
-last_activity: 2026-06-25 -- Phase 08 Plan 04 executed (Article/Live Beacon/Temporal Sighting Factory+Cast scaffolds, SPEC-02/03, full Wave-0 GREEN)
+stopped_at: Completed 08-05-PLAN.md (Phase 08 complete)
+last_updated: "2026-06-25T07:35:00.000Z"
+last_activity: 2026-06-25 -- Phase 08 Plan 05 executed (SPEC.md v2 in-place rewrite + spec.doc.test.ts doc-assertion, SPEC-01); Phase 08 COMPLETE (5/5 plans, suite 615 pass / 0 fail)
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 5
-  completed_plans: 4
-  percent: 0
+  completed_plans: 5
+  percent: 17
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 ## Current Position
 
-Phase: 08 (spec-v2-foundation) — EXECUTING
-Plan: 5 of 5
-Status: Ready to execute
-Last activity: 2026-06-25 -- Phase 08 Plan 04 executed (Article/Live Beacon/Temporal Sighting Factory+Cast scaffolds, SPEC-02/03, full Wave-0 GREEN)
+Phase: 08 (spec-v2-foundation) — COMPLETE
+Plan: 5 of 5 (all complete)
+Status: Phase 08 complete — ready for Phase 09 (Group / Topic)
+Last activity: 2026-06-25 -- Phase 08 Plan 05 executed (SPEC.md v2 in-place rewrite + spec.doc.test.ts doc-assertion, SPEC-01); Phase 08 COMPLETE
 
-Progress: [░░░░░░░░░░] 0% (v1.2)
+Progress: [██░░░░░░░░] 17% (v1.2)
 
 ## Roadmap (v1.2 — Phases 8–13)
 
@@ -86,6 +86,7 @@ Recent decisions affecting current work:
 - [08-02]: Shared tags.ts seam (bbox/g/t/c/a read+write) extracted; geo-event + map-context read getters now delegate (copy-paste removed). MODEL_VERSION='earthly/2' chosen. setLabels throws on t/l overlap (TAX-01); setHashtags strips l-governed values. Write setters live in tags.ts as pure transformers but shipped factories left on their inline setters (tight diff) — new kinds in Plan 04 consume the transformers.
 - [08-03]: Off-thread schema-validation worker (SPEC-04) shipped — rejectUnsafeSchema gate ($ref/$dynamicRef + 64KB/depth-12/4096-keyword caps) runs BEFORE ajv.compile; Ajv2020 with $data OFF; compile-once-per-schemaHash cache; fail-closed on every throw; host watchdog (100ms+500ms) terminate-on-overrun; sync pure-engine fallback. Fallback discriminator widened to hasSpawnableWorker() (Worker + http(s) origin) because bun test defines a Worker global it can't serve — typeof-Worker alone left the GREEN unreachable. Registered in workerAssets.ts; bun run build emits dist/workers/schema.worker.js (anti-fail-open). NO Group wiring (Phase 9 consumes validateSchema()).
 - [08-04]: Article (37520), Live Beacon (37521), Temporal Sighting (37522) Factory+Cast scaffolds landed (SPEC-02/03). Each is<Entity>() guard = kind + d + hasCurrentModelVersion (no-throw); create() injects MODEL_VERSION + generates d only if absent; modify() preserves d. Tag reads/writes delegate to tags.ts (no copy-paste). Introduced shared EntityFactory base (src/lib/nostr/entityFactory.ts) so create/modify d-lineage + a sign() that accepts a bare sign-function (the Wave-0 test contract, since applesauce sign() needs an EventSigner) are written once. LiveBeacon AND TemporalSighting casts expose NIP-40 expiresAt. Three barrels wired into src/lib/nostr/index.ts. Full Wave-0 baseline now GREEN: 607 pass / 0 fail.
+- [08-05]: SPEC.md rewritten IN PLACE to v2 (SPEC-01) — split entity model with final kind block (37515 Dataset / 37517 Comment / 37518 slimmed Group / 37519 Proposal / 37520 Story / 37521 Live Beacon / 37522 Temporal Sighting / 34444 Map Layer); modelVersion='earthly/2' clean break (absence/mismatch => legacy/inert/skipped); three-way disjoint L/l·t·c taxonomy split + flat earthly namespace (with reverse-DNS tradeoff note) + FEATURE_CATEGORY_VOCAB; schema governance dialect (draft-2020-12, no $data, no external $ref, 64KB/depth-12/4096 caps); NIP-40 advisory client-always-filters. spec.doc.test.ts pins those strings against the doc on disk (RED on v1, GREEN on v2, mitigates doc-drift T-08-01-DOC). Suite 615 pass / 0 fail; build green; biome clean. Phase 08 COMPLETE (5/5). NOTE: gsd-tools not on PATH — STATE/ROADMAP updated manually.
 
 ### Pending Todos
 
@@ -125,12 +126,13 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-06-25T09:27:00.000Z
-Stopped at: Completed 08-04-PLAN.md
+Last session: 2026-06-25T07:35:00.000Z
+Stopped at: Completed 08-05-PLAN.md — Phase 08 COMPLETE
 Resume file: None
 
 ## Operator Next Steps
 
-- Execute Plan 08-05 (SPEC.md v2 in-place rewrite documenting the split entity model + doc-assertion test, SPEC-01) — the final Phase 8 plan
+- Phase 08 (spec-v2-foundation) is complete — all 5 plans landed, SPEC.md v2 is canonical, suite 615 pass / 0 fail.
+- Next: run /gsd-verify-work on Phase 08 (verifier + end-of-phase human-verify), then plan/execute Phase 09 (Group / Topic — slimmed 37518: governance ladder, NO-MOD MINIMUM, schema-authoring UI, validate-on-fetch wiring of the §9 worker).
 
 </content>

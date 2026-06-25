@@ -9,7 +9,7 @@ Requirements for the v1.2 milestone. Full v2 / clean-break scope: spec + all eve
 
 ### Spec & Foundation (SPEC)
 
-- [ ] **SPEC-01**: SPEC.md v2 documents the split entity model — Story (~37520), slimmed Group (37518), Live Beacon (~37521), Temporal Sighting — replacing the overloaded kind-37518 "context", with final kind-number assignments.
+- [x] **SPEC-01**: SPEC.md v2 documents the split entity model — Story (~37520), slimmed Group (37518), Live Beacon (~37521), Temporal Sighting — replacing the overloaded kind-37518 "context", with final kind-number assignments.
 - [x] **SPEC-02**: Each new kind has an event class following the existing Factory + Cast pattern (`helpers.ts`/`cast.ts`/`factory.ts`), sharing one extracted tag-helper module for `bbox`/`g`/`L`/`l`/`t`/`c`/`a`.
 - [x] **SPEC-03**: Every new-model event carries an in-content version discriminator, and the client defensively parses so legacy kind-37518 events still present on relays are recognized and skipped rather than mis-rendered (clean-break safety on an append-only substrate).
 - [x] **SPEC-04**: Group schema + geometry validation runs off the main thread in a Web Worker with a hard timeout-kill, schema-hash–cached, restricted dialect (no `$data`, no external `$ref`, size/depth capped) — untrusted relay-authored schemas cannot freeze or crash a viewer's tab.
@@ -105,7 +105,7 @@ Populated during roadmap creation. Phase numbering continues from v1.1 (which en
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SPEC-01 | Phase 8 | Pending |
+| SPEC-01 | Phase 8 | Complete |
 | SPEC-02 | Phase 8 | Complete |
 | SPEC-03 | Phase 8 | Complete |
 | SPEC-04 | Phase 8 | Complete |
