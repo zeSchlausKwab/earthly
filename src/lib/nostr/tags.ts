@@ -100,9 +100,17 @@ export function setGeohash(
 	return [...filtered, ['g', lonLatToWorldGeohash(clamped, lon, lat)]]
 }
 
-/** Replace freeform `t` hashtags. */
+/**
+ * Replace freeform `t` hashtags.
+ *
+ * TAX-01 disjointness: a value already governed by a controlled `l` label MUST
+ * NOT also be encoded as a freeform `t` hashtag (no double-encoding). Such values
+ * are stripped from the incoming set so the two lanes never overlap.
+ */
 export function setHashtags(tags: string[][], values: string[]): string[][] {
-	return [...tags.filter((t) => t[0] !== 't'), ...values.map((value) => ['t', value])]
+	const governed = labelValuesIn(tags)
+	const allowed = values.filter((value) => !governed.has(value))
+	return [...tags.filter((t) => t[0] !== 't'), ...allowed.map((value) => ['t', value])]
 }
 
 /** Replace `c` context references. */
@@ -119,4 +127,66 @@ export function setReferencedAddresses(tags: string[][], values: string[]): stri
 		...tags.filter((t) => t[0] !== 'a'),
 		...values.filter(Boolean).map((value) => ['a', value]),
 	]
+}
+
+// =====================================================================
+// NIP-32 controlled-vocabulary labels (TAX-01)
+// =====================================================================
+
+/** Flat Earthly label namespace (D-06) for the `L`/`l` pair. */
+export const EARTHLY_LABEL_NAMESPACE = 'earthly'
+
+/** Starter controlled vocabulary for feature categories (D-07). */
+export const FEATURE_CATEGORY_VOCAB = [
+	'natural',
+	'infrastructure',
+	'amenity',
+	'route',
+	'boundary',
+] as const
+
+/** The `earthly`-namespaced `l` label values currently present on a tag array. */
+function labelValuesIn(tags: string[][]): Set<string> {
+	return new Set(
+		tags
+			.filter((t) => t[0] === 'l' && t[2] === EARTHLY_LABEL_NAMESPACE && typeof t[1] === 'string')
+			.map((t) => t[1] as string),
+	)
+}
+
+/**
+ * Replace the NIP-32 `L`/`l` label pair (TAX-01).
+ *
+ * Emits exactly one `['L','earthly']` namespace marker plus one
+ * `['l', value, 'earthly']` per value, after stripping any existing `L`/`l`. An
+ * empty set strips all labels. Enforces `t`/`l` disjointness: a value that already
+ * lives in the freeform `t` lane cannot be promoted to a controlled `l` label
+ * (the caller must drop it from `t` first) — this throws rather than silently
+ * double-encoding.
+ */
+export function setLabels(tags: string[][], values: string[]): string[][] {
+	const existingHashtags = new Set(
+		tags.filter((t) => t[0] === 't' && typeof t[1] === 'string').map((t) => t[1] as string),
+	)
+	for (const value of values) {
+		if (existingHashtags.has(value)) {
+			throw new Error(
+				`Label "${value}" is already a freeform t hashtag — t/l disjointness violated (TAX-01)`,
+			)
+		}
+	}
+	const cleaned = tags.filter((t) => t[0] !== 'L' && t[0] !== 'l')
+	if (values.length === 0) return cleaned
+	return [
+		...cleaned,
+		['L', EARTHLY_LABEL_NAMESPACE],
+		...values.map((value) => ['l', value, EARTHLY_LABEL_NAMESPACE]),
+	]
+}
+
+/** Read back only `earthly`-namespaced `l` label values. */
+export function getLabels(event: NostrEvent): string[] {
+	return event.tags
+		.filter((t) => t[0] === 'l' && t[2] === EARTHLY_LABEL_NAMESPACE && typeof t[1] === 'string')
+		.map((t) => t[1] as string)
 }

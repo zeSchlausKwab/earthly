@@ -33,6 +33,9 @@ import { config } from '@/config'
 
 // Shared tag read/write seam (SPEC-02) — re-exported for ergonomic access.
 export * from './tags'
+// In-content model-version discriminator (SPEC-03) + NIP-40 expiry filter (SPEC-05).
+export * from './modelVersion'
+export * from './expiry'
 
 /** Reactive event database. Single instance for the whole app. */
 export const eventStore = new EventStore()
