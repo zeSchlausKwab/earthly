@@ -30,6 +30,11 @@ const REDOS_SCHEMA = { type: 'string', pattern: '^(a+)+$' }
 const REDOS_INPUT = `${'a'.repeat(40)}!`
 const REF_SCHEMA = { $ref: 'https://evil.example/schema.json' }
 const DYNAMIC_REF_SCHEMA = { $dynamicRef: '#node' }
+const RECURSIVE_REF_SCHEMA = { $recursiveRef: '#' }
+const RECURSIVE_ANCHOR_SCHEMA = {
+	$recursiveAnchor: true,
+	properties: { self: { $recursiveRef: '#' } },
+}
 const OVERSIZED_SCHEMA = buildDeepSchema(2000)
 
 function buildDeepSchema(depth: number): Record<string, unknown> {
@@ -72,6 +77,26 @@ describe('schemaWorker.ts — SPEC-04 $ref rejected before compile', () => {
 	test('$ref is rejected BEFORE compile (compile counter stays zero)', async () => {
 		__resetCompileCount()
 		await validateSchema(REF_SCHEMA, {}, { schemaHash: 'ref-2' })
+		expect(__compileCount()).toBe(0)
+	})
+
+	// CR-01: the pinned Ajv2020 `dynamic` vocabulary also registers `$recursiveRef`/
+	// `$recursiveAnchor` (draft-2019-09) — a shallow, tiny `$recursiveRef` schema is just
+	// as compilable and resolver-blowing as a `$ref`. The DoS gate must reject it BEFORE
+	// compile, never reaching `ajv.compile`.
+	test('$recursiveRef schema fails closed', async () => {
+		const verdict = await validateSchema(RECURSIVE_REF_SCHEMA, {}, { schemaHash: 'recref-1' })
+		expect(verdict.ok).toBe(false)
+	})
+
+	test('$recursiveAnchor schema fails closed', async () => {
+		const verdict = await validateSchema(RECURSIVE_ANCHOR_SCHEMA, {}, { schemaHash: 'recanchor-1' })
+		expect(verdict.ok).toBe(false)
+	})
+
+	test('$recursiveRef is rejected BEFORE compile (compile counter stays zero)', async () => {
+		__resetCompileCount()
+		await validateSchema(RECURSIVE_REF_SCHEMA, {}, { schemaHash: 'recref-2' })
 		expect(__compileCount()).toBe(0)
 	})
 })

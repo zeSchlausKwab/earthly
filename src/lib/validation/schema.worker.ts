@@ -8,9 +8,11 @@
  * oversized/deeply-nested schema can OOM. This module hardens the validator:
  *
  *   - `rejectUnsafeSchema(schema)` runs BEFORE `ajv.compile`: it throws on an
- *     oversized serialized schema (`MAX_SCHEMA_BYTES`), on any `$ref`/`$dynamicRef`
- *     (external resolution is never attempted), and on excessive structural depth
- *     (`MAX_DEPTH`) or keyword/property count (`MAX_KEYWORDS`).
+ *     oversized serialized schema (`MAX_SCHEMA_BYTES`), on any reference/anchor
+ *     keyword the pinned Ajv2020 `dynamic` vocabulary registers — `$ref`,
+ *     `$dynamicRef`, `$recursiveRef`, `$recursiveAnchor`, `$dynamicAnchor`
+ *     (external/recursive resolution is never attempted), and on excessive
+ *     structural depth (`MAX_DEPTH`) or keyword/property count (`MAX_KEYWORDS`).
  *   - One module-scope `Ajv2020` instance configured exactly as
  *     `src/lib/context/validation.ts:26-31` (`allErrors:true, strict:false,
  *     validateSchema:true`). `$data` is OFF (the default — we never pass
@@ -121,7 +123,9 @@ export function __resetCompileCount(): void {
 /**
  * Reject an untrusted schema BEFORE it ever reaches `ajv.compile`. Throws on the
  * mitigated DoS shapes (T-08-04-REF / T-08-04-OOM): oversized serialized schema,
- * any `$ref`/`$dynamicRef`, excessive depth, or excessive keyword count.
+ * any reference/anchor keyword the registered `dynamic` vocabulary supports
+ * (`$ref`/`$dynamicRef`/`$recursiveRef`/`$recursiveAnchor`/`$dynamicAnchor`),
+ * excessive depth, or excessive keyword count.
  */
 function rejectUnsafeSchema(schema: unknown): void {
 	const json = JSON.stringify(schema)
@@ -131,9 +135,14 @@ function rejectUnsafeSchema(schema: unknown): void {
 	if (json.length > MAX_SCHEMA_BYTES) {
 		throw new Error(`schema exceeds ${MAX_SCHEMA_BYTES} bytes`)
 	}
-	// `$ref`/`$dynamicRef` are rejected outright — external resolution is never attempted.
-	if (/"\$ref"|"\$dynamicRef"/.test(json)) {
-		throw new Error('schema uses $ref/$dynamicRef')
+	// Every reference/anchor keyword the pinned Ajv2020 `dynamic` vocabulary registers
+	// (`$ref`, `$dynamicRef`, `$recursiveRef`, `$recursiveAnchor`, `$dynamicAnchor` — see
+	// node_modules/ajv/dist/vocabularies/dynamic/index.js) is rejected outright. The ref
+	// keywords are load-bearing (a draft-2019-09 `$recursiveRef` is just as compilable and
+	// resolver-blowing as a `$ref`); the anchor keywords are defense-in-depth. External /
+	// recursive resolution is never attempted (T-08-04-REF).
+	if (/"\$ref"|"\$dynamicRef"|"\$recursiveRef"|"\$recursiveAnchor"|"\$dynamicAnchor"/.test(json)) {
+		throw new Error('schema uses a reference/anchor keyword')
 	}
 
 	// Bounded structural walk: enforce depth + total keyword/property caps.
