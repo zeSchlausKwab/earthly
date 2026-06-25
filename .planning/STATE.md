@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
-status: executing
-stopped_at: Completed 08-05-PLAN.md (Phase 08 complete)
-last_updated: "2026-06-25T07:35:00.000Z"
-last_activity: 2026-06-25 -- Phase 08 Plan 05 executed (SPEC.md v2 in-place rewrite + spec.doc.test.ts doc-assertion, SPEC-01); Phase 08 COMPLETE (5/5 plans, suite 615 pass / 0 fail)
+status: completed
+stopped_at: Completed 08-05-PLAN.md — Phase 08 COMPLETE
+last_updated: "2026-06-25T07:55:28.769Z"
+last_activity: 2026-06-25
 progress:
   total_phases: 6
   completed_phases: 1
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 ## Current Position
 
-Phase: 08 (spec-v2-foundation) — COMPLETE
-Plan: 5 of 5 (all complete)
+Phase: 9
+Plan: Not started
 Status: Phase 08 complete — ready for Phase 09 (Group / Topic)
-Last activity: 2026-06-25 -- Phase 08 Plan 05 executed (SPEC.md v2 in-place rewrite + spec.doc.test.ts doc-assertion, SPEC-01); Phase 08 COMPLETE
+Last activity: 2026-06-25
 
 Progress: [██░░░░░░░░] 17% (v1.2)
 
@@ -62,6 +62,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 | 11 | TBD | - | - |
 | 12 | TBD | - | - |
 | 13 | TBD | - | - |
+| 08 | 5 | - | - |
 
 *Updated after each plan completion*
 | Phase 08 P01 | 9min | 2 tasks | 7 files |
