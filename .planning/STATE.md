@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
 status: executing
-stopped_at: Phase 8 context gathered
-last_updated: "2026-06-25T07:02:24.823Z"
-last_activity: 2026-06-25 -- Phase 08 execution started
+stopped_at: Completed 08-02-PLAN.md
+last_updated: "2026-06-25T07:20:00.000Z"
+last_activity: 2026-06-25 -- Phase 08 Plan 02 executed (shared foundation seams GREEN)
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 5
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 ## Current Position
 
 Phase: 08 (spec-v2-foundation) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
-Last activity: 2026-06-25 -- Phase 08 execution started
+Last activity: 2026-06-25 -- Phase 08 Plan 02 executed (shared foundation seams GREEN)
 
 Progress: [░░░░░░░░░░] 0% (v1.2)
 
@@ -65,6 +65,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 
 *Updated after each plan completion*
 | Phase 08 P01 | 9min | 2 tasks | 7 files |
+| Phase 08 P02 | 11min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -80,6 +81,7 @@ Recent decisions affecting current work:
 - [Roadmap v1.2]: Two phase-level decisions LEFT OPEN as research flags — Beacon lifecycle (parameterized-replaceable + NIP-40 vs ephemeral) in Phase 12; Sighting representation (dedicated kind vs 37515 + property + NIP-40) in Phase 11. Do NOT pre-decide; resolve in phase planning/research.
 - [Roadmap v1.2]: Amend, don't replace — `group/` refactors `map-context/`; dataset (37515) and proposal (37519) stay untouched; 37519 gets only a small Markdown-target extension for STORY-06. Clean break on legacy 37518 data (SPEC-03 = defensive skip, not migration).
 - [Phase ?]: [08-01]: Nyquist Wave-0 RED baseline pins exact foundation-seam symbol names (tags/modelVersion/expiry/schemaWorker + 3 per-kind barrels) before Plans 02-04 implement them
+- [08-02]: Shared tags.ts seam (bbox/g/t/c/a read+write) extracted; geo-event + map-context read getters now delegate (copy-paste removed). MODEL_VERSION='earthly/2' chosen. setLabels throws on t/l overlap (TAX-01); setHashtags strips l-governed values. Write setters live in tags.ts as pure transformers but shipped factories left on their inline setters (tight diff) — new kinds in Plan 04 consume the transformers.
 
 ### Pending Todos
 
@@ -119,12 +121,12 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-06-25T07:02:06.495Z
-Stopped at: Phase 8 context gathered
-Resume file: .planning/phases/08-spec-v2-foundation/08-CONTEXT.md
+Last session: 2026-06-25T07:20:00.000Z
+Stopped at: Completed 08-02-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
-- Plan the first v1.2 phase with /gsd-plan-phase 8 (Spec v2 + Foundation)
+- Execute Plan 08-03 (schemaWorker) and 08-04 (per-kind barrels) to turn the remaining 4 RED Wave-0 suites GREEN
 
 </content>
