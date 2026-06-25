@@ -457,14 +457,14 @@ export class TemporalSightingFactory extends EventFactory<typeof TEMPORAL_SIGHTI
 
 **If this table is empty:** it is not — but every entry is LOW risk and inside an explicitly-granted discretion area. No locked decision is assumed.
 
-## Open Questions
+## Open Questions (RESOLVED at plan time)
 
-1. **Exact `modelVersion` string + placement key**
+1. **Exact `modelVersion` string + placement key** — **RESOLVED** (plan 08-02 T2): `MODEL_VERSION = 'earthly/2'`, an in-content string constant written by every new-kind `create()`; for 37518 the guard requires it AND the slimmed `governance` shape. Documented in SPEC v2.
    - What we know: in-content field; absence/mismatch ⇒ skip; must round-trip Factory+Cast (D-03 + discretion).
    - What's unclear: literal value (`'earthly/2'`? `2`? `{model:'earthly',v:2}`?) and whether it doubles as the 37518-slimmed-Group legacy discriminator.
    - Recommendation: pick a single string constant (`MODEL_VERSION`), write it in every new-kind `create()`, and for 37518 require it AND the slimmed `governance` field. Document in SPEC v2 §8. Resolve at plan time, not in code review.
 
-2. **Should `tags.ts` migration touch `geo-event/factory.ts` writers too, or only the read helpers?**
+2. **Should `tags.ts` migration touch `geo-event/factory.ts` writers too, or only the read helpers?** — **RESOLVED** (plan 08-02 T1): centralize read getters now; centralize write setters only if byte-identical across both factories, otherwise leave per-factory to keep the shipped-surface diff tight.
    - What we know: discretion says migrate both `geo-event/helpers.ts` and `map-context/helpers.ts` to consume `tags.ts`; keep the diff tight.
    - What's unclear: whether the *factory* setters (bbox/hashtags/etc.) also centralize into `tags.ts`, or stay per-factory.
    - Recommendation: centralize read getters now (clear win, low risk); centralize write setters only if they're byte-identical across the two factories — otherwise keep per-factory to avoid a wide diff on shipped code. Planner decides per the "tight diff" constraint.
