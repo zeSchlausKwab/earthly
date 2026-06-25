@@ -83,7 +83,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 1**
 
-  - [ ] 09-01-PLAN.md — Nyquist Wave-0: 9 RED test stubs pinning every Group seam (GROUP-01..08 + O-03 schema-hash + D-06 worker errors[] + mute store)
+  - [x] 09-01-PLAN.md — Nyquist Wave-0: 9 RED test stubs pinning every Group seam (GROUP-01..08 + O-03 schema-hash + D-06 worker errors[] + mute store)
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -182,7 +182,7 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 6. AI Bulk Transform & Data-Driven Styling | v1.1 | 5/5 | Complete | 2026-06-22 |
 | 7. Geometry Optimization | v1.1 | 5/5 | Complete | 2026-06-23 |
 | 8. Spec v2 + Foundation | v1.2 | 5/5 | Complete    | 2026-06-25 |
-| 9. Group / Topic (37518 slimmed) | v1.2 | 0/6 | Planned | - |
+| 9. Group / Topic (37518 slimmed) | v1.2 | 1/6 | In Progress|  |
 | 10. Story / Article (~37520) | v1.2 | 0/TBD | Not started | - |
 | 11. Temporal Sighting | v1.2 | 0/TBD | Not started | - |
 | 12. Live Beacon (~37521) | v1.2 | 0/TBD | Not started | - |

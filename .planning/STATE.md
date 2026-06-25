@@ -4,13 +4,13 @@ milestone: v1.2
 milestone_name: Geo Entity Model Split
 status: executing
 stopped_at: Phase 9 UI-SPEC approved
-last_updated: "2026-06-25T09:40:46.716Z"
-last_activity: 2026-06-25 -- Phase 09 planning complete
+last_updated: "2026-06-25T10:16:28.778Z"
+last_activity: 2026-06-25 -- Phase 09 execution started
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 11
+  completed_plans: 6
   percent: 17
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 **Core value:** The maintainer (and any user) can open the app for fun, not duty.
-**Current focus:** Phase 08 — spec-v2-foundation
+**Current focus:** Phase 09 — group-topic-37518-slimmed
 
 ## Current Position
 
-Phase: 9
-Plan: Not started
+Phase: 09 (group-topic-37518-slimmed) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
-Last activity: 2026-06-25 -- Phase 09 planning complete
+Last activity: 2026-06-25 -- Phase 09 execution started
 
 Progress: [██░░░░░░░░] 17% (v1.2)
 
@@ -69,6 +69,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 | Phase 08 P02 | 11min | 2 tasks | 7 files |
 | Phase 08 P03 | 18min | 2 tasks | 3 files |
 | Phase 08 P04 | 7min | 2 tasks | 14 files |
+| Phase 09 P01 | 12m | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -88,6 +89,7 @@ Recent decisions affecting current work:
 - [08-03]: Off-thread schema-validation worker (SPEC-04) shipped — rejectUnsafeSchema gate ($ref/$dynamicRef + 64KB/depth-12/4096-keyword caps) runs BEFORE ajv.compile; Ajv2020 with $data OFF; compile-once-per-schemaHash cache; fail-closed on every throw; host watchdog (100ms+500ms) terminate-on-overrun; sync pure-engine fallback. Fallback discriminator widened to hasSpawnableWorker() (Worker + http(s) origin) because bun test defines a Worker global it can't serve — typeof-Worker alone left the GREEN unreachable. Registered in workerAssets.ts; bun run build emits dist/workers/schema.worker.js (anti-fail-open). NO Group wiring (Phase 9 consumes validateSchema()).
 - [08-04]: Article (37520), Live Beacon (37521), Temporal Sighting (37522) Factory+Cast scaffolds landed (SPEC-02/03). Each is<Entity>() guard = kind + d + hasCurrentModelVersion (no-throw); create() injects MODEL_VERSION + generates d only if absent; modify() preserves d. Tag reads/writes delegate to tags.ts (no copy-paste). Introduced shared EntityFactory base (src/lib/nostr/entityFactory.ts) so create/modify d-lineage + a sign() that accepts a bare sign-function (the Wave-0 test contract, since applesauce sign() needs an EventSigner) are written once. LiveBeacon AND TemporalSighting casts expose NIP-40 expiresAt. Three barrels wired into src/lib/nostr/index.ts. Full Wave-0 baseline now GREEN: 607 pass / 0 fail.
 - [08-05]: SPEC.md rewritten IN PLACE to v2 (SPEC-01) — split entity model with final kind block (37515 Dataset / 37517 Comment / 37518 slimmed Group / 37519 Proposal / 37520 Story / 37521 Live Beacon / 37522 Temporal Sighting / 34444 Map Layer); modelVersion='earthly/2' clean break (absence/mismatch => legacy/inert/skipped); three-way disjoint L/l·t·c taxonomy split + flat earthly namespace (with reverse-DNS tradeoff note) + FEATURE_CATEGORY_VOCAB; schema governance dialect (draft-2020-12, no $data, no external $ref, 64KB/depth-12/4096 caps); NIP-40 advisory client-always-filters. spec.doc.test.ts pins those strings against the doc on disk (RED on v1, GREEN on v2, mitigates doc-drift T-08-01-DOC). Suite 615 pass / 0 fail; build green; biome clean. Phase 08 COMPLETE (5/5). NOTE: gsd-tools not on PATH — STATE/ROADMAP updated manually.
+- [Phase ?]: D-06 pinned to EXTEND-worker (option a): off-thread verdict carries structured errors[] (schemaErrors.test.ts is the contract)
 
 ### Pending Todos
 
@@ -127,7 +129,7 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-06-25T09:14:40.563Z
+Last session: 2026-06-25T10:16:23.981Z
 Stopped at: Phase 9 UI-SPEC approved
 Resume file: .planning/phases/09-group-topic-37518-slimmed/09-UI-SPEC.md
 
