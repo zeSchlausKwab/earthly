@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 ## Current Position
 
 Phase: 09 (group-topic-37518-slimmed) — EXECUTING
-Plan: 5 of 6
-Status: Ready to execute (09-04 complete; 09-05 next)
-Last activity: 2026-06-25 -- Completed 09-04-PLAN.md (Group authoring panel; human-verify deferred to end-of-phase UAT)
+Plan: 6 of 6
+Status: Ready to execute (09-05 complete; 09-06 next — final plan)
+Last activity: 2026-06-25 -- Completed 09-05-PLAN.md (contributor Group-attach lane; human-verify deferred to end-of-phase UAT)
 
-Progress: [██░░░░░░░░] 22% (v1.2)
+Progress: [██░░░░░░░░] 24% (v1.2)
 
 ## Roadmap (v1.2 — Phases 8–13)
 
@@ -73,6 +73,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 | Phase 09 P02 | 9m | 2 tasks | 7 files |
 | Phase 09 P03 | ~22m | 2 tasks | 7 files |
 | Phase 09 P04 | ~20m | 2 tasks (+1 deferred checkpoint) | 4 files |
+| Phase 09 P05 | ~35m | 2 tasks (+1 deferred checkpoint) | 5 files |
 
 ## Accumulated Context
 
@@ -95,6 +96,7 @@ Recent decisions affecting current work:
 - [Phase ?]: D-06 pinned to EXTEND-worker (option a): off-thread verdict carries structured errors[] (schemaErrors.test.ts is the contract)
 - [09-04]: Group authoring panel shipped — MapContextEditorPanel refactored in place into src/features/groups/GroupEditorPanel.tsx (D-01): the contextUse/validationMode/allowForeignAttachments triad replaced by a single-column RadioGroup of 3 governance Cards (open/schema/closed) with verbatim UI-SPEC copy + accent-reserved selected ring. schemaBuilder.ts extracted as a pure (React-free) compileBuilderSchema(rows, geometry)→draft-2020-12 module shared by the visual Builder tab and the Advanced raw-JSON tab — both feed the SAME Phase-8 off-thread validateSchema worker (no in-thread compile). Schema section governance-gated (governance==='schema'); leaving schema strips geometryConstraints/schema (O-02). Write path: compile→computeSchemaHash→GroupFactory.create/modify (d-tag preserved on edit). Legacy unlabeled-checkbox a11y bug fixed (shadcn Checkbox + Label htmlFor). groups-columns renamed/repointed to useGroups; GeoEditorInfoPanel edit-branch repointed to GroupEditorPanel (a deferred map-context consumer migration). schemaBuilder.test.ts GREEN (GROUP-03); build green; biome clean. Task-3 human-verify (authoring flow) DEFERRED to end-of-phase UAT per human_verify_mode:end-of-phase — user approved finalize; steps preserved in 09-04-SUMMARY. gsd-tools not on PATH — STATE/ROADMAP/REQUIREMENTS updated manually.
 - [09-02]: src/lib/nostr/group/ shipped — the per-kind Factory+Cast+helpers foundation Plans 03–06 import. GroupContent collapses the contextUse/validationMode/allowForeignAttachments triad to a single governance:'open'|'schema'|'closed' enum (clean break, fields absent not migrated). isGroup adds the SPEC-03 hasCurrentModelVersion gate (legacy 37518 silently drops). GroupFactory extends EntityFactory (bare-sign base); create strips+re-asserts modelVersion, modify preserves d. All tag I/O delegates to tags.ts; added setSchemaHash transformer there (resolved the flagged inline-vs-tags.ts decision toward delegation). useGroups + useGroupAttachments(#c) hooks added; group/ wired into the nostr barrel (map-context/ retained, importable from its own path, ~34 consumers migrate in Plans 03–06). group.test.ts GREEN (GROUP-01); 20 pass / build green. gsd-tools not on PATH — STATE/ROADMAP/REQUIREMENTS updated manually.
+- [09-05]: Contributor `c`-attach lane shipped (GROUP-02/04). usePublishing rewritten: dropped the legacy `validateDatasetForContext` import + the `validateRequiredContextAttachments` blocking gate and its 4 call sites entirely (slimmed governance has NO validationMode:'required' — GROUP-04 hard invariant); the `.contextReferences` `c`-tag write SURVIVES at all 4 publish entrypoints (GROUP-02); option repointed `mapContexts: MapContext[]` → `groups: Group[]`. New GroupAttachField.tsx: command+popover picker over useGroups; per-feature off-thread `filterForeignAttachment('warn',…)` → dismissible amber `Alert variant="default"` (NOT destructive) + "Checking…" spinner + worker-fail "shown unfiltered" copy; "Publish anyway" always enabled, `disabled` = `!canPublish||isPublishing` ONLY (never the verdict). Mounted in desktop GeoEditorInfoPanel attach section; onPublishNew/canPublishNew threaded through AppSidebar. build green / warnNotBlock 3/0 / own files biome-clean. 2 pre-existing legacy noLabelWithoutControl errors in GeoEditorInfoPanel left out-of-scope (logged to deferred-items). human-verify deferred to end-of-phase UAT. gsd-tools not on PATH — tracking md updated manually.
 
 ### Pending Todos
 
@@ -135,13 +137,13 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-06-25T13:05:00.000Z
-Stopped at: Completed 09-04-PLAN.md (Group authoring panel; human-verify deferred to end-of-phase UAT)
+Last session: 2026-06-25T14:10:00.000Z
+Stopped at: Completed 09-05-PLAN.md (contributor Group-attach lane; human-verify deferred to end-of-phase UAT)
 Resume file: None
 
 ## Operator Next Steps
 
-- Phase 09 (Group / Topic) — Wave 4 plan 09-04 (GroupEditorPanel authoring surface) complete; 9/11 v1.2 plans done.
-- Next: execute 09-05 (contributor attach UI — c-tag picker + inline per-rule warnings + Publish-anyway) then 09-06 (GroupViewPanel NO-MOD two-lane). Then run the consolidated end-of-phase UAT (includes the deferred 09-04 authoring-flow human-verify, steps in 09-04-SUMMARY).
+- Phase 09 (Group / Topic) — Wave 4 plan 09-05 (contributor attach lane) complete; 10/11 v1.2 plans done.
+- Next: execute 09-06 (GroupViewPanel NO-MOD two-lane — final Phase 9 plan). Then run the consolidated end-of-phase UAT (includes the deferred 09-04 authoring-flow + 09-05 attach-flow human-verifies, steps preserved in 09-04-SUMMARY / 09-05-SUMMARY).
 
 </content>

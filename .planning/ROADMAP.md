@@ -96,7 +96,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 **Wave 4** *(blocked on Wave 3; 04 + 05 run in parallel — disjoint files)*
 
   - [x] 09-04-PLAN.md — GroupEditorPanel: governance radio cards (D-01) + visual schema builder + raw-JSON advanced (D-04) + canonical schema-hash write [GROUP-01/03] (human-verify deferred to end-of-phase UAT)
-  - [ ] 09-05-PLAN.md — contributor attach: c-tag picker + inline per-rule warnings + Publish-anyway (never blocks a standalone publish) [GROUP-02/04]
+  - [x] 09-05-PLAN.md — contributor attach: c-tag picker + inline per-rule warnings + Publish-anyway (never blocks a standalone publish) [GROUP-02/04] (human-verify deferred to end-of-phase UAT)
 
 **Wave 5** *(blocked on Waves 2–4)*
 
