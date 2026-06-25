@@ -22,6 +22,7 @@ import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { useAvailableGeoFeatures } from '@/lib/hooks/useAvailableGeoFeatures'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useGeoDatasets, useMapContexts } from '@/lib/hooks/useGeoDatasets'
+import { useGroups } from '@/lib/hooks/useGroups'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { type MapContext, deleteMapContext } from '@/lib/nostr/map-context'
 import { accounts } from '@/lib/nostr'
@@ -212,6 +213,8 @@ export function GeoEditorView() {
 	// External data
 	const { events: geoEvents } = useGeoDatasets()
 	const { events: mapContextEvents } = useMapContexts()
+	// Groups (kind 37518, slimmed) the contributor can `c`-attach to (GROUP-02).
+	const { events: groups } = useGroups()
 	// Round C.2 reliability: also fire a targeted subscription for every
 	// context entry on the stack. The global subscription above is best-effort
 	// — if a read relay was slow or 502 at open time, foreign attachments
@@ -625,7 +628,7 @@ export function GeoEditorView() {
 		currentUserPubkey,
 		getDatasetName,
 		getDatasetKey,
-		mapContexts: mapContextEvents,
+		groups,
 		resolvedCollectionResolver,
 	})
 

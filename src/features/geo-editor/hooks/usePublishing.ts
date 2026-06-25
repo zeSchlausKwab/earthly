@@ -1,8 +1,8 @@
 import { castEvent } from 'applesauce-core/casts'
 import type { FeatureCollection } from 'geojson'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { validateDatasetForContext } from '@/lib/context/validation'
+import { validateAttachment } from '@/lib/group'
 import { accounts, eventStore, publish } from '@/lib/nostr'
 import {
 	deleteDataset,
@@ -10,24 +10,90 @@ import {
 	GeoDatasetFactory,
 	type GeoBlobReference,
 } from '@/lib/nostr/geo-event'
-import { GeoProposal, GeoProposalFactory } from '@/lib/nostr/geo-proposal'
+import { GeoProposalFactory } from '@/lib/nostr/geo-proposal'
+import type { Group } from '@/lib/nostr/group'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
-import type { MapContext } from '@/lib/nostr/map-context'
-import {
-	extractReferencedCoordinates,
-	setAddressReferenceTags,
-} from '@/lib/nostr/references'
+import { extractReferencedCoordinates, setAddressReferenceTags } from '@/lib/nostr/references'
+import type { SchemaRuleError } from '@/lib/validation/schema.worker'
 import type { EditorFeature } from '../core'
 import { useEditorStore } from '../store'
 import type { EditorBlobReference } from '../types'
 import { extractCollectionMeta, sanitizeEditorProperties } from '../utils'
 import { BLOSSOM_UPLOAD_THRESHOLD_BYTES } from '../constants'
 
+/**
+ * One advisory, per-rule attach warning surfaced to the contributor when their
+ * dataset is `c`-attached to a `schema` Group. These NEVER block publishing
+ * (GROUP-04) — they are dismissible hints rendered as an amber `Alert`.
+ */
+export interface AttachWarning {
+	/** Stable key for React lists + per-line dismissal. */
+	id: string
+	/** Contributor-facing, specific copy (UI-SPEC), e.g. "Property `name` is required." */
+	message: string
+}
+
+/** The advisory validation state the attach UI reads. NEVER gates publish. */
+export interface AttachValidationState {
+	/** The `schema` Group coordinate currently being checked against, if any. */
+	groupCoordinate: string | null
+	/** The Group's display name (for the "Checking against {name}'s rules…" copy). */
+	groupName: string | null
+	/** True while the off-thread worker is running. */
+	checking: boolean
+	/** Per-rule warnings (empty when conforming or not a schema Group). */
+	warnings: AttachWarning[]
+	/** Set when the worker itself failed — copy: "shown unfiltered", publish still enabled. */
+	workerFailed: boolean
+}
+
+const EMPTY_ATTACH_VALIDATION: AttachValidationState = {
+	groupCoordinate: null,
+	groupName: null,
+	checking: false,
+	warnings: [],
+	workerFailed: false,
+}
+
+/**
+ * Turn the off-thread worker's structured `errors[]` into specific, contributor-facing
+ * warning lines per the UI-SPEC copywriting contract (e.g. "Property `name` is required.",
+ * "Geometry type `Polygon` isn't allowed here."). Bounded by the worker's own MAX_ERRORS cap.
+ */
+function toAttachWarnings(errors: SchemaRuleError[]): AttachWarning[] {
+	return errors.map((error, index) => ({
+		id: `${error.keyword}-${error.instancePath || 'root'}-${index}`,
+		message: describeAttachError(error),
+	}))
+}
+
+function describeAttachError(error: SchemaRuleError): string {
+	if (error.keyword === 'required') {
+		const missing = (error.params as { missingProperty?: string } | undefined)?.missingProperty
+		return missing ? `Property \`${missing}\` is required.` : 'A required property is missing.'
+	}
+	if (error.keyword === 'enum' && error.instancePath.endsWith('/geometry/type')) {
+		const allowed = (error.params as { allowedValues?: unknown[] } | undefined)?.allowedValues
+		const list = Array.isArray(allowed) ? allowed.join(', ') : ''
+		return list
+			? `Geometry type isn't allowed here — allowed: ${list}.`
+			: "This geometry type isn't allowed here."
+	}
+	const where = error.instancePath ? `\`${error.instancePath}\` ` : ''
+	return `${where}${error.message}.`.replace(/\.\.$/, '.')
+}
+
 interface UsePublishingOptions {
 	currentUserPubkey: string | undefined
 	getDatasetName: (event: GeoDataset) => string
 	getDatasetKey: (event: GeoDataset) => string
-	mapContexts: MapContext[]
+	/**
+	 * The Groups the contributor can `c`-attach to. Repointed from the legacy
+	 * `mapContexts: MapContext[]` (the slimmed governance model has NO
+	 * `validationMode:'required'` blocking gate — GROUP-04). Used ONLY to resolve a
+	 * `schema` Group's schema for the off-thread advisory validation pass.
+	 */
+	groups: Group[]
 	resolvedCollectionResolver?: (event: GeoDataset) => FeatureCollection | undefined
 }
 
@@ -35,7 +101,7 @@ export function usePublishing({
 	currentUserPubkey,
 	getDatasetName,
 	getDatasetKey,
-	mapContexts,
+	groups,
 	resolvedCollectionResolver,
 }: UsePublishingOptions) {
 	void resolvedCollectionResolver
@@ -250,53 +316,112 @@ export function usePublishing({
 		return collection ? getCollectionSize(collection) : 0
 	}, [buildCollectionFromEditor, getCollectionSize])
 
-	const validateRequiredContextAttachments = useCallback(
-		(collection: FeatureCollection): { ok: true } | { ok: false; message: string } => {
-			if (activeDatasetContextRefs.length === 0) {
-				return { ok: true }
+	// ── Off-thread advisory attach validation (GROUP-04 warn-not-block) ────────────
+	//
+	// The legacy blocking `validateRequiredContextAttachments` gate is GONE. The slimmed
+	// governance model has NO `validationMode:'required'` and NEVER blocks a contributor's
+	// publish on a schema failure (REQUIREMENTS "Out of scope: blocking a contributor's
+	// publish on schema failure"). Instead, when a dataset's `c` refs point at a `schema`
+	// Group, we run the off-thread `validateSchema` worker (via `@/lib/group`) and expose
+	// the per-rule verdict as ADVISORY hook state — it never sets `publishError` and never
+	// aborts a publish entrypoint.
+	const [attachValidation, setAttachValidation] =
+		useState<AttachValidationState>(EMPTY_ATTACH_VALIDATION)
+
+	/** Index Groups by their coordinate so a `c` ref resolves to its schema Group. */
+	const groupByCoordinate = useMemo(() => {
+		const map = new Map<string, Group>()
+		groups.forEach((group) => {
+			const coordinate = group.groupCoordinate
+			if (coordinate) map.set(coordinate, group)
+		})
+		return map
+	}, [groups])
+
+	/** The first attached `schema` Group (with a schema), if any — the validation target. */
+	const attachedSchemaGroup = useMemo(() => {
+		for (const ref of activeDatasetContextRefs) {
+			const group = groupByCoordinate.get(ref)
+			if (group && group.group.governance === 'schema' && group.group.schema) {
+				return group
+			}
+		}
+		return null
+	}, [activeDatasetContextRefs, groupByCoordinate])
+
+	/**
+	 * Run the OFF-THREAD advisory validation pass for the attached schema Group. The result
+	 * flows ONLY to `attachValidation` — it NEVER sets `publishError` and NEVER blocks
+	 * publishing (GROUP-04). A worker failure is surfaced as "shown unfiltered" with publish
+	 * still enabled (the dataset is a valid standalone 37515 regardless).
+	 */
+	const runAttachValidation = useCallback(async () => {
+		const group = attachedSchemaGroup
+		const schema = group?.group.schema
+		if (!group || !schema) {
+			setAttachValidation(EMPTY_ATTACH_VALIDATION)
+			return
+		}
+
+		const groupCoordinate = group.groupCoordinate ?? null
+		const groupName = group.group.name || 'this Group'
+		const schemaHash = group.schemaHash ?? 'sha256:unhashed'
+
+		setAttachValidation({
+			groupCoordinate,
+			groupName,
+			checking: true,
+			warnings: [],
+			workerFailed: false,
+		})
+
+		const collection = buildCollectionFromEditor()
+		const features = collection?.features ?? []
+
+		try {
+			const allWarnings: AttachWarning[] = []
+			for (const feature of features) {
+				const verdict = await validateAttachment(schema, feature.properties ?? {}, {
+					schemaHash,
+				})
+				if (!verdict.ok && verdict.errors && verdict.errors.length > 0) {
+					allWarnings.push(...toAttachWarnings(verdict.errors))
+				}
 			}
 
-			const contextByCoordinate = new Map<string, MapContext>()
-			mapContexts.forEach((context) => {
-				const coordinate = context.contextCoordinate
-				if (coordinate) {
-					contextByCoordinate.set(coordinate, context)
-				}
+			// Dedup identical per-rule lines across features so the contributor sees each
+			// distinct rule once.
+			const seen = new Set<string>()
+			const deduped = allWarnings.filter((warning) => {
+				if (seen.has(warning.message)) return false
+				seen.add(warning.message)
+				return true
 			})
 
-			const requiredContexts = activeDatasetContextRefs
-				.map((ref) => contextByCoordinate.get(ref))
-				.filter((context): context is MapContext => Boolean(context))
-				.filter(
-					(context) =>
-						(context.context.contextUse === 'validation' ||
-							context.context.contextUse === 'hybrid') &&
-						context.context.validationMode === 'required',
-				)
+			setAttachValidation({
+				groupCoordinate,
+				groupName,
+				checking: false,
+				warnings: deduped,
+				workerFailed: false,
+			})
+		} catch {
+			// Fail OPEN for legibility only — the worker's timeout-kill is the real DoS guard.
+			// Publish stays enabled (the dataset is a valid standalone 37515 regardless).
+			setAttachValidation({
+				groupCoordinate,
+				groupName,
+				checking: false,
+				warnings: [],
+				workerFailed: true,
+			})
+		}
+	}, [attachedSchemaGroup, buildCollectionFromEditor])
 
-			if (requiredContexts.length === 0) {
-				return { ok: true }
-			}
-
-			// Validation only consults the dataset for its featureCollection when
-			// none is provided explicitly. We always pass the collection here, so
-			// passing `null` for the dataset is fine.
-			for (const context of requiredContexts) {
-				const result = validateDatasetForContext(null, context, collection, 'strict')
-				if (result.status !== 'valid') {
-					const contextName =
-						context.context.name || context.contextId || context.id || 'Unknown context'
-					return {
-						ok: false,
-						message: `Context validation failed for "${contextName}" (${result.featureErrorCount} invalid feature(s)).`,
-					}
-				}
-			}
-
-			return { ok: true }
-		},
-		[activeDatasetContextRefs, mapContexts],
-	)
+	/** Clear the advisory warnings (e.g. when the contributor detaches the Group). */
+	const clearAttachValidation = useCallback(() => {
+		setAttachValidation(EMPTY_ATTACH_VALIDATION)
+	}, [])
 
 	const switchToDatasetViewMode = useCallback(
 		(dataset: GeoDataset) => {
@@ -317,11 +442,6 @@ export function usePublishing({
 		try {
 			const collection = buildCollectionFromEditor()
 			if (!collection) throw new Error('No features to publish')
-			const contextValidation = validateRequiredContextAttachments(collection)
-			if (contextValidation.ok === false) {
-				setPublishError(contextValidation.message)
-				return
-			}
 
 			const signer = accounts.signer
 			if (!signer) {
@@ -373,7 +493,6 @@ export function usePublishing({
 		setPublishMessage,
 		setPublishError,
 		buildCollectionFromEditor,
-		validateRequiredContextAttachments,
 		serializeBlobReferences,
 		activeDatasetContextRefs,
 		buildCollectionStub,
@@ -404,11 +523,6 @@ export function usePublishing({
 			try {
 				const collection = buildCollectionFromEditor()
 				if (!collection) throw new Error('No features to publish')
-				const contextValidation = validateRequiredContextAttachments(collection)
-				if (contextValidation.ok === false) {
-					setPublishError(contextValidation.message)
-					return
-				}
 
 				const existingRefs = serializeBlobReferences()
 				const blobRefs: GeoBlobReference[] = [
@@ -457,7 +571,6 @@ export function usePublishing({
 			setPublishMessage,
 			setPublishError,
 			buildCollectionFromEditor,
-			validateRequiredContextAttachments,
 			activeDatasetContextRefs,
 			serializeBlobReferences,
 			buildCollectionStub,
@@ -487,12 +600,6 @@ export function usePublishing({
 		const collection = buildCollectionFromEditor()
 		if (!collection) {
 			setPublishError('Draw or load geometry before publishing.')
-			setIsPublishing(false)
-			return
-		}
-		const contextValidation = validateRequiredContextAttachments(collection)
-		if (contextValidation.ok === false) {
-			setPublishError(contextValidation.message)
 			setIsPublishing(false)
 			return
 		}
@@ -553,7 +660,6 @@ export function usePublishing({
 		setPublishError,
 		currentUserPubkey,
 		buildCollectionFromEditor,
-		validateRequiredContextAttachments,
 		serializeBlobReferences,
 		activeDatasetContextRefs,
 		buildCollectionStub,
@@ -575,11 +681,6 @@ export function usePublishing({
 		try {
 			const collection = buildCollectionFromEditor()
 			if (!collection) throw new Error('No features to publish')
-			const contextValidation = validateRequiredContextAttachments(collection)
-			if (contextValidation.ok === false) {
-				setPublishError(contextValidation.message)
-				return
-			}
 
 			const signer = accounts.signer
 			if (!signer) {
@@ -628,7 +729,6 @@ export function usePublishing({
 		setPublishMessage,
 		setPublishError,
 		buildCollectionFromEditor,
-		validateRequiredContextAttachments,
 		serializeBlobReferences,
 		activeDatasetContextRefs,
 		buildCollectionStub,
@@ -754,6 +854,13 @@ export function usePublishing({
 		handlePublishWithBlossomUpload,
 		buildCollectionFromEditor,
 		serializeBlobReferences,
+		// Advisory attach validation (GROUP-04 warn-not-block; NEVER gates publish)
+		attachValidation,
+		attachedSchemaGroup,
+		runAttachValidation,
+		clearAttachValidation,
+		setActiveDatasetContextRefs,
+		activeDatasetContextRefs,
 		// Size helpers
 		getCollectionSize,
 		isOverSizeLimit,
