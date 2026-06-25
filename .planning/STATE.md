@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
 status: executing
-stopped_at: Completed 08-02-PLAN.md
-last_updated: "2026-06-25T07:20:00.000Z"
-last_activity: 2026-06-25 -- Phase 08 Plan 02 executed (shared foundation seams GREEN)
+stopped_at: Completed 08-03-PLAN.md
+last_updated: "2026-06-25T09:20:00.000Z"
+last_activity: 2026-06-25 -- Phase 08 Plan 03 executed (off-thread schema validation worker, SPEC-04, GREEN)
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 5
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 ## Current Position
 
 Phase: 08 (spec-v2-foundation) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
-Last activity: 2026-06-25 -- Phase 08 Plan 02 executed (shared foundation seams GREEN)
+Last activity: 2026-06-25 -- Phase 08 Plan 03 executed (off-thread schema validation worker, SPEC-04, GREEN)
 
 Progress: [░░░░░░░░░░] 0% (v1.2)
 
@@ -66,6 +66,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 *Updated after each plan completion*
 | Phase 08 P01 | 9min | 2 tasks | 7 files |
 | Phase 08 P02 | 11min | 2 tasks | 7 files |
+| Phase 08 P03 | 18min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,7 @@ Recent decisions affecting current work:
 - [Roadmap v1.2]: Amend, don't replace — `group/` refactors `map-context/`; dataset (37515) and proposal (37519) stay untouched; 37519 gets only a small Markdown-target extension for STORY-06. Clean break on legacy 37518 data (SPEC-03 = defensive skip, not migration).
 - [Phase ?]: [08-01]: Nyquist Wave-0 RED baseline pins exact foundation-seam symbol names (tags/modelVersion/expiry/schemaWorker + 3 per-kind barrels) before Plans 02-04 implement them
 - [08-02]: Shared tags.ts seam (bbox/g/t/c/a read+write) extracted; geo-event + map-context read getters now delegate (copy-paste removed). MODEL_VERSION='earthly/2' chosen. setLabels throws on t/l overlap (TAX-01); setHashtags strips l-governed values. Write setters live in tags.ts as pure transformers but shipped factories left on their inline setters (tight diff) — new kinds in Plan 04 consume the transformers.
+- [08-03]: Off-thread schema-validation worker (SPEC-04) shipped — rejectUnsafeSchema gate ($ref/$dynamicRef + 64KB/depth-12/4096-keyword caps) runs BEFORE ajv.compile; Ajv2020 with $data OFF; compile-once-per-schemaHash cache; fail-closed on every throw; host watchdog (100ms+500ms) terminate-on-overrun; sync pure-engine fallback. Fallback discriminator widened to hasSpawnableWorker() (Worker + http(s) origin) because bun test defines a Worker global it can't serve — typeof-Worker alone left the GREEN unreachable. Registered in workerAssets.ts; bun run build emits dist/workers/schema.worker.js (anti-fail-open). NO Group wiring (Phase 9 consumes validateSchema()).
 
 ### Pending Todos
 
@@ -121,12 +123,12 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-06-25T07:20:00.000Z
-Stopped at: Completed 08-02-PLAN.md
+Last session: 2026-06-25T09:20:00.000Z
+Stopped at: Completed 08-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
 
-- Execute Plan 08-03 (schemaWorker) and 08-04 (per-kind barrels) to turn the remaining 4 RED Wave-0 suites GREEN
+- Execute Plan 08-04 (per-kind barrels: article/live-beacon/temporal-sighting) to turn the remaining 3 RED Wave-0 suites GREEN
 
 </content>

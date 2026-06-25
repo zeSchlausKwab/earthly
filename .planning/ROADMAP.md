@@ -54,7 +54,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
   - [x] 08-01-PLAN.md — Nyquist Wave-0: create the six test stub files pinning every seam's export contract (RED baseline)
   - [x] 08-02-PLAN.md — kind constants (D-01), shared tags.ts (+migrate 2 consumers), NIP-32 L/l + vocab (TAX-01), modelVersion discriminator (SPEC-03), isExpired/dropExpired (SPEC-05)
-  - [ ] 08-03-PLAN.md — off-thread hardened schema-validation worker + registration (SPEC-04: ReDoS/$ref/$data/size-depth defenses, fail-closed, compile-once-per-hash)
+  - [x] 08-03-PLAN.md — off-thread hardened schema-validation worker + registration (SPEC-04: ReDoS/$ref/$data/size-depth defenses, fail-closed, compile-once-per-hash)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
