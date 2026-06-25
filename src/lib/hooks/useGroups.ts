@@ -5,15 +5,18 @@
  * A thin wrapper around `useTimelineWithEose` + `castEvent` mirroring
  * `useMapContexts` (`useGeoDatasets.ts`). The EventStore handles deduplication
  * and replaceable-event semantics, so the returned timeline contains the latest
- * version per `(kind, pubkey, d)`. The `isGroup` gate in the `Group` cast ctor
- * drops legacy 37518 events that lack the current `modelVersion`.
+ * version per `(kind, pubkey, d)`. Events are filtered through `isGroup` BEFORE
+ * casting: the `Group` cast ctor THROWS on a non-conforming kind-37518 event
+ * (legacy map context with no current `modelVersion`), so casting unfiltered
+ * would crash the whole timeline. Filtering first is the SPEC-03 defensive
+ * skip (drop legacy, never throw).
  */
 
 import { castEvent } from 'applesauce-core/casts'
 import type { Filter } from 'nostr-tools'
 import { useMemo } from 'react'
 import { eventStore } from '@/lib/nostr'
-import { Group } from '@/lib/nostr/group'
+import { Group, isGroup } from '@/lib/nostr/group'
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
 
@@ -26,7 +29,10 @@ export function useGroups(additionalFilters: Omit<Filter, 'kinds'>[] = [{}]) {
 
 	const { events, eose } = useTimelineWithEose(filters)
 
-	const groups = useMemo(() => events.map((event) => castEvent(event, Group, eventStore)), [events])
+	const groups = useMemo(
+		() => events.filter(isGroup).map((event) => castEvent(event, Group, eventStore)),
+		[events],
+	)
 
 	return { events: groups, eose }
 }

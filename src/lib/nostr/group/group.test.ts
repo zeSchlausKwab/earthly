@@ -153,3 +153,27 @@ describe('group — GROUP-01 content + coordinate views', () => {
 		expect(group.group.governance).toBe('schema')
 	})
 })
+
+describe('group — useGroups defensive-skip contract (SPEC-03)', () => {
+	// Regression: useGroups mapped EVERY kind-37518 timeline event through castEvent
+	// without an isGroup pre-filter. The Group cast ctor THROWS on a legacy 37518
+	// event (no current modelVersion), so a single legacy event crashed the whole
+	// timeline at runtime ("Event is not a Group (kind 37518)"). The hook must filter
+	// legacy events out BEFORE casting — defensive skip, never throw.
+	test('hook-style filter+cast drops legacy 37518 events and keeps conforming Groups', async () => {
+		const valid = await GroupFactory.create({ name: 'Live', governance: 'open' }).sign(bareSign)
+		const legacy = makeLegacyMapContextEvent()
+		const batch: NostrEvent[] = [valid, legacy]
+
+		// Mirror useGroups exactly: filter by isGroup, THEN cast.
+		const cast = batch.filter(isGroup).map((e) => new Group(e, undefined as never))
+
+		expect(cast).toHaveLength(1)
+		expect(cast[0].group.name).toBe('Live')
+	})
+
+	test('casting a legacy 37518 event WITHOUT the isGroup filter throws (guard is load-bearing)', () => {
+		const legacy = makeLegacyMapContextEvent()
+		expect(() => new Group(legacy, undefined as never)).toThrow('Event is not a Group')
+	})
+})
