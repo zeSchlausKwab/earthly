@@ -47,7 +47,12 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
   3. A legacy kind-37518 event still present on a relay is recognized via the in-content version discriminator and defensively skipped rather than mis-rendered or crashing the viewer.
   4. An untrusted relay-authored Group schema (e.g. a ReDoS `pattern` or recursive `$ref`) cannot freeze or crash a viewer's tab — schema validation runs off the main thread with a hard timeout-kill, schema-hash cache, restricted dialect (no `$data`, no external `$ref`, size/depth capped).
   5. The client filters expired (NIP-40) events on read regardless of relay garbage-collection behavior, and a user can apply NIP-32 `L`/`l` controlled-vocabulary labels with correct namespace pairing while freeform `t` hashtags remain available — the three-way `L`/`l` · `t` · `c` split is in place.
-**Plans**: TBD
+**Plans**: 5 plans (Wave 0 → 3)
+  - [ ] 08-01-PLAN.md — Nyquist Wave-0: create the six test stub files pinning every seam's export contract (RED baseline)
+  - [ ] 08-02-PLAN.md — kind constants (D-01), shared tags.ts (+migrate 2 consumers), NIP-32 L/l + vocab (TAX-01), modelVersion discriminator (SPEC-03), isExpired/dropExpired (SPEC-05)
+  - [ ] 08-03-PLAN.md — off-thread hardened schema-validation worker + registration (SPEC-04: ReDoS/$ref/$data/size-depth defenses, fail-closed, compile-once-per-hash)
+  - [ ] 08-04-PLAN.md — Factory+Cast scaffolds for Article 37520 / Live Beacon 37521 / Temporal Sighting 37522 (SPEC-02/03)
+  - [ ] 08-05-PLAN.md — SPEC.md v2 in-place rewrite documenting the split entity model + doc-assertion test (SPEC-01)
 **Research flag**: SKIP — all decisions documented in research files; kinds + tag helpers + worker harness are proven patterns (v1.1 QuickJS-in-Worker shape).
 
 ### Phase 9: Group / Topic (37518 slimmed)
@@ -128,7 +133,7 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 5. Dataset-Aware Safe Editing | v1.1 | 5/5 | Complete | 2026-06-21 |
 | 6. AI Bulk Transform & Data-Driven Styling | v1.1 | 5/5 | Complete | 2026-06-22 |
 | 7. Geometry Optimization | v1.1 | 5/5 | Complete | 2026-06-23 |
-| 8. Spec v2 + Foundation | v1.2 | 0/TBD | Not started | - |
+| 8. Spec v2 + Foundation | v1.2 | 0/5 | Planned | - |
 | 9. Group / Topic (37518 slimmed) | v1.2 | 0/TBD | Not started | - |
 | 10. Story / Article (~37520) | v1.2 | 0/TBD | Not started | - |
 | 11. Temporal Sighting | v1.2 | 0/TBD | Not started | - |
