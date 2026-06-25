@@ -40,8 +40,10 @@ export function EntityPanelShell({ title, tabs, children, className }: EntityPan
 				{tabs}
 			</div>
 
-			<div className="min-h-0 flex-1 overflow-y-auto">
-				<div className="space-y-3 pb-3">{children}</div>
+			{/* `scrollbar-gutter: stable` reserves the scrollbar track so the (often
+			    overlay) scrollbar never paints on top of the panel content. */}
+			<div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+				<div className="space-y-3 pb-3 pr-1">{children}</div>
 			</div>
 		</div>
 	)

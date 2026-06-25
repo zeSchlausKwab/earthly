@@ -569,13 +569,13 @@ export function AppSidebar({
 			return (
 				<ResizablePanelGroup direction="vertical" className="h-full">
 					<ResizablePanel id={`${activeEntity}-editor`} defaultSize={52} minSize={20}>
-						<div className="h-full min-w-0 overflow-x-hidden overflow-y-auto">
+						<div className="h-full min-w-0 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
 							{renderEntityContent()}
 						</div>
 					</ResizablePanel>
 					<ResizableHandle withHandle />
 					<ResizablePanel id={`${activeWorkMode}-panel`} defaultSize={48} minSize={20}>
-						<div className="h-full min-w-0 overflow-x-hidden overflow-y-auto">
+						<div className="h-full min-w-0 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
 							{renderWorkContent(activeWorkMode)}
 						</div>
 					</ResizablePanel>
@@ -594,7 +594,7 @@ export function AppSidebar({
 			return (
 				<div className="flex h-full min-h-0 flex-col">
 					{showEntityAsFullPanel ? renderBackToCatalogBar() : null}
-					<div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+					<div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
 						{renderEntityContent()}
 					</div>
 				</div>

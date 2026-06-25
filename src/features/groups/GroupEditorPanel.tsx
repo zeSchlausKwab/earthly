@@ -623,7 +623,7 @@ Write in Markdown. Use $ to insert datasets, Groups, or features.`}
 						<TabsContent value="builder" className="mt-0 space-y-3">
 							<div className="space-y-2">
 								{rows.length === 0 ? (
-									<p className="border border-border px-3 py-2 text-[11px] text-muted-foreground">
+									<p className="border border-border px-3 py-2 text-xs text-muted-foreground">
 										No property rules yet. Add one, or switch to the Advanced tab to paste raw JSON.
 									</p>
 								) : (
@@ -691,10 +691,7 @@ Write in Markdown. Use $ to insert datasets, Groups, or features.`}
 																setRows(next)
 															}}
 														/>
-														<Label
-															htmlFor={requiredId}
-															className="text-[11px] text-muted-foreground"
-														>
+														<Label htmlFor={requiredId} className="text-xs text-muted-foreground">
 															Required
 														</Label>
 													</div>
@@ -728,7 +725,11 @@ Write in Markdown. Use $ to insert datasets, Groups, or features.`}
 
 							<div className="space-y-2">
 								<Label>Allowed geometry types</Label>
-								<div className="grid grid-cols-2 gap-2">
+								{/* Wrapping flex (not a fixed grid): long labels like
+								    "MultiLineString"/"GeometryCollection" stay on one line and
+								    flow to the next row instead of clipping/overlapping when the
+								    panel is narrow. */}
+								<div className="flex flex-wrap gap-x-4 gap-y-2">
 									{GROUP_GEOMETRY_TYPES.map((geometryType) => {
 										const geometryId = `geometry-${geometryType}`
 										return (
@@ -740,7 +741,10 @@ Write in Markdown. Use $ to insert datasets, Groups, or features.`}
 														toggleAllowedGeometryType(geometryType, checked === true)
 													}
 												/>
-												<Label htmlFor={geometryId} className="text-[11px] text-foreground">
+												<Label
+													htmlFor={geometryId}
+													className="whitespace-nowrap text-xs text-foreground"
+												>
 													{geometryType}
 												</Label>
 											</div>
