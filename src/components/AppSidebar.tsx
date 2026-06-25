@@ -154,6 +154,10 @@ interface AppSidebarProps {
 	onExitViewMode?: () => void
 	featureCollectionForUpload?: FeatureCollection | null
 	onBlossomUploadComplete?: (result: { sha256: string; url: string; size: number }) => void
+	/** Publish-new action for the contributor Group attach field (GROUP-02/04). */
+	onPublishNew?: () => void | Promise<void>
+	/** Whether publish-new is currently possible (NEVER gated by validation — GROUP-04). */
+	canPublishNew?: boolean
 	userPubkey?: string
 	focusCommentId?: string
 	onFilteredDatasetKeysChange?: (keys: Set<string> | null) => void
@@ -206,6 +210,8 @@ export function AppSidebar({
 	onExitViewMode,
 	featureCollectionForUpload,
 	onBlossomUploadComplete,
+	onPublishNew,
+	canPublishNew,
 	userPubkey,
 	focusCommentId,
 	onFilteredDatasetKeysChange,
@@ -491,6 +497,9 @@ export function AppSidebar({
 		onZoomToFeature,
 		featureCollectionForUpload,
 		onBlossomUploadComplete,
+		onPublishNew,
+		canPublishNew,
+		isPublishing,
 		focusCommentId,
 		entityWorkspace: activeEntity,
 		entityIntent: currentEntityIntent,

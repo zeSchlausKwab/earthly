@@ -24,6 +24,7 @@ import {
 } from './info-panel'
 import { DatasetSizeIndicator } from './info-panel/DatasetSizeIndicator'
 import { GroupEditorPanel } from '../features/groups/GroupEditorPanel'
+import { GroupAttachField } from '../features/geo-editor/components/GroupAttachField'
 import { CommentsPanel } from '../features/social/comments'
 import { Button } from './ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible'
@@ -98,6 +99,12 @@ export interface GeoEditorInfoPanelProps {
 	featureCollectionForUpload?: FeatureCollection | null
 	/** Callback when blossom upload completes */
 	onBlossomUploadComplete?: (result: BlossomUploadResult) => void
+	/** Publish-new action for the contributor Group attach field (GROUP-02/04). */
+	onPublishNew?: () => void | Promise<void>
+	/** Whether publish-new is currently possible (NEVER gated by validation — GROUP-04). */
+	canPublishNew?: boolean
+	/** True while a publish is in flight. */
+	isPublishing?: boolean
 	/** Optional comment d-tag from the route to reveal in the thread */
 	focusCommentId?: string
 	entityWorkspace?: 'geometry' | 'context'
@@ -134,6 +141,9 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onZoomToFeature,
 		featureCollectionForUpload,
 		onBlossomUploadComplete,
+		onPublishNew,
+		canPublishNew = false,
+		isPublishing = false,
 		focusCommentId,
 		entityWorkspace,
 		entityIntent,
@@ -662,6 +672,29 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					/>
 				</CollapsibleContent>
 			</Collapsible>
+
+			{/* Contributor attach-to-a-Group lane (GROUP-02/04): picker + inline off-thread
+			    advisory warnings + always-available "Publish anyway". The warnings NEVER
+			    block a valid standalone publish. */}
+			{onPublishNew && (
+				<Collapsible defaultOpen={activeDatasetContextRefs.length > 0}>
+					<CollapsibleTrigger className="text-xs font-medium text-gray-700 hover:text-gray-900 w-full text-left py-1">
+						Attach to a Group
+					</CollapsibleTrigger>
+					<CollapsibleContent>
+						<GroupAttachField
+							contextRefs={activeDatasetContextRefs}
+							onContextRefsChange={setActiveDatasetContextRefs}
+							featureProperties={features.map(
+								(feature) => feature.properties as Record<string, unknown> | undefined,
+							)}
+							onPublish={onPublishNew}
+							canPublish={canPublishNew}
+							isPublishing={isPublishing}
+						/>
+					</CollapsibleContent>
+				</Collapsible>
+			)}
 
 			<Collapsible defaultOpen={false}>
 				<CollapsibleTrigger className="text-xs font-medium text-gray-700 hover:text-gray-900 w-full text-left py-1">

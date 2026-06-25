@@ -1669,6 +1669,9 @@ export function GeoEditorView() {
 					// Blossom upload props - callback adds blob ref to store, does NOT publish
 					featureCollectionForUpload={memoizedFeatureCollection}
 					onBlossomUploadComplete={handleBlobUploadComplete}
+					// Contributor Group-attach publish wiring (GROUP-02/04)
+					onPublishNew={handlePublishNew}
+					canPublishNew={canPublishNew}
 					// User profile props
 					userPubkey={userPubkey}
 					focusCommentId={focusCommentId}

@@ -27,3 +27,7 @@ and build `MapContext`-typed data. They migrate to `Group` / `useGroups` in Plan
 Out-of-scope pre-existing lint (NOT Plan 04's changes), to clean opportunistically:
 - `src/components/GeoEditorInfoPanel.tsx:686,739` — `lint/a11y/noLabelWithoutControl` on the
   legacy attach-context `<label>` rows (pre-existing; in the unmodified view branch).
+
+## Plan 05 — out-of-scope pre-existing biome errors (logged, not fixed)
+
+- `src/components/GeoEditorInfoPanel.tsx`: 2 × `lint/a11y/noLabelWithoutControl` in the LEGACY "Attached contexts" section (the per-context `<label>` rows). Pre-existing on master (confirmed via `git stash` baseline — present before Plan 05's changes), in the legacy MapContext attach UI that Plan 05 does NOT touch. Out of scope per the executor scope boundary. The legacy attach section is slated for removal/replacement during the map-context consumer-migration tail; fix there.
