@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
 status: executing
-stopped_at: Completed 08-03-PLAN.md
-last_updated: "2026-06-25T09:20:00.000Z"
-last_activity: 2026-06-25 -- Phase 08 Plan 03 executed (off-thread schema validation worker, SPEC-04, GREEN)
+stopped_at: Completed 08-04-PLAN.md
+last_updated: "2026-06-25T09:27:00.000Z"
+last_activity: 2026-06-25 -- Phase 08 Plan 04 executed (Article/Live Beacon/Temporal Sighting Factory+Cast scaffolds, SPEC-02/03, full Wave-0 GREEN)
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 ## Current Position
 
 Phase: 08 (spec-v2-foundation) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
-Last activity: 2026-06-25 -- Phase 08 Plan 03 executed (off-thread schema validation worker, SPEC-04, GREEN)
+Last activity: 2026-06-25 -- Phase 08 Plan 04 executed (Article/Live Beacon/Temporal Sighting Factory+Cast scaffolds, SPEC-02/03, full Wave-0 GREEN)
 
 Progress: [░░░░░░░░░░] 0% (v1.2)
 
@@ -67,6 +67,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 | Phase 08 P01 | 9min | 2 tasks | 7 files |
 | Phase 08 P02 | 11min | 2 tasks | 7 files |
 | Phase 08 P03 | 18min | 2 tasks | 3 files |
+| Phase 08 P04 | 7min | 2 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [08-01]: Nyquist Wave-0 RED baseline pins exact foundation-seam symbol names (tags/modelVersion/expiry/schemaWorker + 3 per-kind barrels) before Plans 02-04 implement them
 - [08-02]: Shared tags.ts seam (bbox/g/t/c/a read+write) extracted; geo-event + map-context read getters now delegate (copy-paste removed). MODEL_VERSION='earthly/2' chosen. setLabels throws on t/l overlap (TAX-01); setHashtags strips l-governed values. Write setters live in tags.ts as pure transformers but shipped factories left on their inline setters (tight diff) — new kinds in Plan 04 consume the transformers.
 - [08-03]: Off-thread schema-validation worker (SPEC-04) shipped — rejectUnsafeSchema gate ($ref/$dynamicRef + 64KB/depth-12/4096-keyword caps) runs BEFORE ajv.compile; Ajv2020 with $data OFF; compile-once-per-schemaHash cache; fail-closed on every throw; host watchdog (100ms+500ms) terminate-on-overrun; sync pure-engine fallback. Fallback discriminator widened to hasSpawnableWorker() (Worker + http(s) origin) because bun test defines a Worker global it can't serve — typeof-Worker alone left the GREEN unreachable. Registered in workerAssets.ts; bun run build emits dist/workers/schema.worker.js (anti-fail-open). NO Group wiring (Phase 9 consumes validateSchema()).
+- [08-04]: Article (37520), Live Beacon (37521), Temporal Sighting (37522) Factory+Cast scaffolds landed (SPEC-02/03). Each is<Entity>() guard = kind + d + hasCurrentModelVersion (no-throw); create() injects MODEL_VERSION + generates d only if absent; modify() preserves d. Tag reads/writes delegate to tags.ts (no copy-paste). Introduced shared EntityFactory base (src/lib/nostr/entityFactory.ts) so create/modify d-lineage + a sign() that accepts a bare sign-function (the Wave-0 test contract, since applesauce sign() needs an EventSigner) are written once. LiveBeacon AND TemporalSighting casts expose NIP-40 expiresAt. Three barrels wired into src/lib/nostr/index.ts. Full Wave-0 baseline now GREEN: 607 pass / 0 fail.
 
 ### Pending Todos
 
@@ -123,12 +125,12 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-06-25T09:20:00.000Z
-Stopped at: Completed 08-03-PLAN.md
+Last session: 2026-06-25T09:27:00.000Z
+Stopped at: Completed 08-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
 
-- Execute Plan 08-04 (per-kind barrels: article/live-beacon/temporal-sighting) to turn the remaining 3 RED Wave-0 suites GREEN
+- Execute Plan 08-05 (SPEC.md v2 in-place rewrite documenting the split entity model + doc-assertion test, SPEC-01) — the final Phase 8 plan
 
 </content>

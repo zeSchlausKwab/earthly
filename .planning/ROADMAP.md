@@ -58,7 +58,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-  - [ ] 08-04-PLAN.md — Factory+Cast scaffolds for Article 37520 / Live Beacon 37521 / Temporal Sighting 37522 (SPEC-02/03)
+  - [x] 08-04-PLAN.md — Factory+Cast scaffolds for Article 37520 / Live Beacon 37521 / Temporal Sighting 37522 (SPEC-02/03)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -159,7 +159,7 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 5. Dataset-Aware Safe Editing | v1.1 | 5/5 | Complete | 2026-06-21 |
 | 6. AI Bulk Transform & Data-Driven Styling | v1.1 | 5/5 | Complete | 2026-06-22 |
 | 7. Geometry Optimization | v1.1 | 5/5 | Complete | 2026-06-23 |
-| 8. Spec v2 + Foundation | v1.2 | 2/5 | In Progress|  |
+| 8. Spec v2 + Foundation | v1.2 | 4/5 | In Progress|  |
 | 9. Group / Topic (37518 slimmed) | v1.2 | 0/TBD | Not started | - |
 | 10. Story / Article (~37520) | v1.2 | 0/TBD | Not started | - |
 | 11. Temporal Sighting | v1.2 | 0/TBD | Not started | - |
