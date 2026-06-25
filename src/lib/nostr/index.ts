@@ -40,6 +40,8 @@ export * from './expiry'
 // shared tags.ts seam and gates its guard on modelVersion. Helper names are
 // uniquely prefixed per kind, so the wildcard re-exports never collide.
 export * from './article'
+export * from './live-beacon'
+export * from './temporal-sighting'
 
 /** Reactive event database. Single instance for the whole app. */
 export const eventStore = new EventStore()
