@@ -3,8 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
 status: planning
-last_updated: "2026-06-24T00:00:00.000Z"
-last_activity: 2026-06-24
+stopped_at: Phase 8 context gathered
+last_updated: "2026-06-25T06:18:51.473Z"
+last_activity: 2026-06-24 — v1.2 roadmap created; all 30 requirements mapped to Phases 8–13
 progress:
   total_phases: 6
   completed_phases: 0
@@ -116,11 +117,12 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-06-24
-Stopped at: v1.2 roadmap created — ROADMAP.md (Phases 8–13), REQUIREMENTS.md traceability (30/30 mapped), STATE.md updated. Ready to plan Phase 8.
-Resume file: None
+Last session: 2026-06-25T06:18:51.469Z
+Stopped at: Phase 8 context gathered
+Resume file: .planning/phases/08-spec-v2-foundation/08-CONTEXT.md
 
 ## Operator Next Steps
 
 - Plan the first v1.2 phase with /gsd-plan-phase 8 (Spec v2 + Foundation)
+
 </content>
