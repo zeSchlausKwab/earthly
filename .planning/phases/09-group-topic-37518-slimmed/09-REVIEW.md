@@ -36,7 +36,13 @@ findings:
   warning: 6
   info: 4
   total: 13
-status: issues_found
+criticals_resolved: 3
+criticals_open: 0
+status: criticals_resolved
+fixes_applied:
+  - "CR-01: aa44770 — reject $recursiveRef/$recursiveAnchor/$dynamicAnchor in schema DoS gate"
+  - "CR-02: 3e1bcb0 — content-based compile-cache key for unhashed schemas (resolveSchemaCacheKey + FNV-1a fallback)"
+  - "CR-03: 5087a36 — seed + preserve curated a-refs when editing a Group"
 ---
 
 # Phase 9: Code Review Report
@@ -44,7 +50,17 @@ status: issues_found
 **Reviewed:** 2026-06-25T12:13:59Z
 **Depth:** standard
 **Files Reviewed:** 27
-**Status:** issues_found
+**Status:** criticals_resolved (3/3 blockers fixed 2026-06-25; 6 warnings + 4 info remain open)
+
+## Resolution (2026-06-25)
+
+All 3 BLOCKER findings fixed and committed atomically on `feature/better-map-ux`, +12 regression tests, suite 663→675 pass / 0 fail, build green:
+
+- **CR-01** `aa44770` — extended `rejectUnsafeSchema` regex to `$recursiveRef`/`$recursiveAnchor`/`$dynamicAnchor` (draft-2019-09 recursive-ref DoS bypass closed; `__compileCount()` stays 0 on rejection).
+- **CR-02** `3e1bcb0` — replaced the shared `'sha256:unhashed'` cache-key sentinel with `resolveSchemaCacheKey()` (published hash → `computeSchemaHash` → deterministic `unhashed:`+FNV-1a fingerprint) across `filterModes.ts`, `GroupAttachField.tsx`, `usePublishing.ts`.
+- **CR-03** `5087a36` — `GroupEditorPanel` now seeds `curatedReferences` from the edited Group's existing `a` refs and preserves non-reverse-encodable coords on save (routine edits no longer wipe the curated lane).
+
+The 6 WARNING and 4 INFO findings below remain open (not in fix scope).
 
 ## Summary
 
