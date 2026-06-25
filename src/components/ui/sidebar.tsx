@@ -37,6 +37,12 @@ type SidebarContextProps = {
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
   toggleSidebar: () => void
+  // Desktop "expand" state (wider sidebar) — controlled by the host via the
+  // SidebarProvider `sidebarExpanded`/`onExpandedChange` props and surfaced
+  // here so descendants (e.g. AppSidebar's Expand/Shrink button) can read and
+  // toggle it through useSidebar().
+  sidebarExpanded: boolean
+  setSidebarExpanded: (expanded: boolean) => void
 }
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
@@ -54,6 +60,8 @@ function SidebarProvider({
   defaultOpen = true,
   open: openProp,
   onOpenChange: setOpenProp,
+  sidebarExpanded = false,
+  onExpandedChange,
   className,
   style,
   children,
@@ -62,6 +70,8 @@ function SidebarProvider({
   defaultOpen?: boolean
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  sidebarExpanded?: boolean
+  onExpandedChange?: (expanded: boolean) => void
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
@@ -106,6 +116,17 @@ function SidebarProvider({
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [toggleSidebar])
 
+  // Controlled passthrough for the desktop "expand" toggle. The host owns the
+  // state (e.g. a zustand store) and passes it via props; we surface a stable
+  // setter so descendants can toggle it through useSidebar() without crashing
+  // when the host wires only one side.
+  const setSidebarExpanded = React.useCallback(
+    (value: boolean) => {
+      onExpandedChange?.(value)
+    },
+    [onExpandedChange]
+  )
+
   // We add a state so that we can do data-state="expanded" or "collapsed".
   // This makes it easier to style the sidebar with Tailwind classes.
   const state = open ? "expanded" : "collapsed"
@@ -119,8 +140,20 @@ function SidebarProvider({
       openMobile,
       setOpenMobile,
       toggleSidebar,
+      sidebarExpanded,
+      setSidebarExpanded,
     }),
-    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar]
+    [
+      state,
+      open,
+      setOpen,
+      isMobile,
+      openMobile,
+      setOpenMobile,
+      toggleSidebar,
+      sidebarExpanded,
+      setSidebarExpanded,
+    ]
   )
 
   return (
