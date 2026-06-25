@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 ## Current Position
 
-Phase: 09 (group-topic-37518-slimmed) — EXECUTING
-Plan: 6 of 6
-Status: Ready to execute (09-05 complete; 09-06 next — final plan)
-Last activity: 2026-06-25 -- Completed 09-05-PLAN.md (contributor Group-attach lane; human-verify deferred to end-of-phase UAT)
+Phase: 09 (group-topic-37518-slimmed) — ALL PLANS EXECUTED (awaiting end-of-phase UAT)
+Plan: 6 of 6 (complete)
+Status: 09-06 complete (final plan) — all 6 Phase-9 plans executed; consolidated end-of-phase UAT pending
+Last activity: 2026-06-25 -- Completed 09-06-PLAN.md (NO-MOD MINIMUM two-lane GroupViewPanel; GROUP-08 GREEN; human-verify deferred to end-of-phase UAT)
 
-Progress: [██░░░░░░░░] 24% (v1.2)
+Progress: [██░░░░░░░░] 25% (v1.2)
 
 ## Roadmap (v1.2 — Phases 8–13)
 
@@ -97,6 +97,7 @@ Recent decisions affecting current work:
 - [09-04]: Group authoring panel shipped — MapContextEditorPanel refactored in place into src/features/groups/GroupEditorPanel.tsx (D-01): the contextUse/validationMode/allowForeignAttachments triad replaced by a single-column RadioGroup of 3 governance Cards (open/schema/closed) with verbatim UI-SPEC copy + accent-reserved selected ring. schemaBuilder.ts extracted as a pure (React-free) compileBuilderSchema(rows, geometry)→draft-2020-12 module shared by the visual Builder tab and the Advanced raw-JSON tab — both feed the SAME Phase-8 off-thread validateSchema worker (no in-thread compile). Schema section governance-gated (governance==='schema'); leaving schema strips geometryConstraints/schema (O-02). Write path: compile→computeSchemaHash→GroupFactory.create/modify (d-tag preserved on edit). Legacy unlabeled-checkbox a11y bug fixed (shadcn Checkbox + Label htmlFor). groups-columns renamed/repointed to useGroups; GeoEditorInfoPanel edit-branch repointed to GroupEditorPanel (a deferred map-context consumer migration). schemaBuilder.test.ts GREEN (GROUP-03); build green; biome clean. Task-3 human-verify (authoring flow) DEFERRED to end-of-phase UAT per human_verify_mode:end-of-phase — user approved finalize; steps preserved in 09-04-SUMMARY. gsd-tools not on PATH — STATE/ROADMAP/REQUIREMENTS updated manually.
 - [09-02]: src/lib/nostr/group/ shipped — the per-kind Factory+Cast+helpers foundation Plans 03–06 import. GroupContent collapses the contextUse/validationMode/allowForeignAttachments triad to a single governance:'open'|'schema'|'closed' enum (clean break, fields absent not migrated). isGroup adds the SPEC-03 hasCurrentModelVersion gate (legacy 37518 silently drops). GroupFactory extends EntityFactory (bare-sign base); create strips+re-asserts modelVersion, modify preserves d. All tag I/O delegates to tags.ts; added setSchemaHash transformer there (resolved the flagged inline-vs-tags.ts decision toward delegation). useGroups + useGroupAttachments(#c) hooks added; group/ wired into the nostr barrel (map-context/ retained, importable from its own path, ~34 consumers migrate in Plans 03–06). group.test.ts GREEN (GROUP-01); 20 pass / build green. gsd-tools not on PATH — STATE/ROADMAP/REQUIREMENTS updated manually.
 - [09-05]: Contributor `c`-attach lane shipped (GROUP-02/04). usePublishing rewritten: dropped the legacy `validateDatasetForContext` import + the `validateRequiredContextAttachments` blocking gate and its 4 call sites entirely (slimmed governance has NO validationMode:'required' — GROUP-04 hard invariant); the `.contextReferences` `c`-tag write SURVIVES at all 4 publish entrypoints (GROUP-02); option repointed `mapContexts: MapContext[]` → `groups: Group[]`. New GroupAttachField.tsx: command+popover picker over useGroups; per-feature off-thread `filterForeignAttachment('warn',…)` → dismissible amber `Alert variant="default"` (NOT destructive) + "Checking…" spinner + worker-fail "shown unfiltered" copy; "Publish anyway" always enabled, `disabled` = `!canPublish||isPublishing` ONLY (never the verdict). Mounted in desktop GeoEditorInfoPanel attach section; onPublishNew/canPublishNew threaded through AppSidebar. build green / warnNotBlock 3/0 / own files biome-clean. 2 pre-existing legacy noLabelWithoutControl errors in GeoEditorInfoPanel left out-of-scope (logged to deferred-items). human-verify deferred to end-of-phase UAT. gsd-tools not on PATH — tracking md updated manually.
+- [09-06]: NO-MOD MINIMUM two-lane GroupViewPanel shipped (GROUP-05/06/07/08) — the phase's second security-critical guard. New src/lib/group/noModMinimum.ts (the module the Wave-0 RED test imports; absent until now): gateForeignLane applies kind===37515 → verifyEvent signature → device-local mute IN ORDER before any event paints, then newest-first sort + cap 50 + hasMore; flipToClosed returns a modify template with governance:'closed' preserving d. SIG GATE HARDENED against nostr-tools verifiedSymbol cache poisoning (verifyUntrustedEvent rebuilds a plain event object from the sig-bearing fields and verifies THAT) — required to turn the corrupted-sig RED test GREEN and correct against relay events. ForeignLane.tsx: collapsed tone=neutral subordinate "Community contributions (N)" lane; off-thread filterForeignAttachment off/warn/strict (default strict) reason chips; ⋮ Mute @name (useMuteStore) + undo toast; Load more. CuratedLane.tsx: privileged tone=context "Canonical references" + Canonical Badge variant=secondary; owner Add-curated-reference picker + appendCuratedReference bless, both via GroupFactory.modify(group).referencedAddresses (preserves d). GroupViewPanel.tsx: CuratedLane FIRST then ForeignLane (D-08); owner Lock-down→Closed alert-dialog escape hatch (GroupFactory.modify.group({governance:'closed'})); sanitized RichContentRenderer narrative (0 dangerouslySetInnerHTML); CommentsPanel on the 37518 coord (GROUP-07, roots at target.kind===MAP_CONTEXT_KIND, no K/k widening — full widening stays Phase 13). Bridged store's MapContext-typed viewContext via rawEvent() (no store-wide type migration). Repointed info-panel barrel + GeoEditorInfoPanel; DELETED orphaned MapContextViewPanel.tsx. noModMinimum 6/0 · group+validation+mute 41/0 · FULL SUITE 663/0 · build green · biome clean. Task-3 human-verify (full NO-MOD trust posture) DEFERRED to end-of-phase UAT per human_verify_mode:end-of-phase — user approved finalize; steps preserved in 09-06-SUMMARY. gsd-tools not on PATH — STATE/ROADMAP/REQUIREMENTS updated manually.
 
 ### Pending Todos
 
@@ -137,13 +138,13 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-06-25T14:10:00.000Z
-Stopped at: Completed 09-05-PLAN.md (contributor Group-attach lane; human-verify deferred to end-of-phase UAT)
+Last session: 2026-06-25T15:00:00.000Z
+Stopped at: Completed 09-06-PLAN.md (NO-MOD MINIMUM two-lane GroupViewPanel — FINAL Phase-9 plan; human-verify deferred to end-of-phase UAT)
 Resume file: None
 
 ## Operator Next Steps
 
-- Phase 09 (Group / Topic) — Wave 4 plan 09-05 (contributor attach lane) complete; 10/11 v1.2 plans done.
-- Next: execute 09-06 (GroupViewPanel NO-MOD two-lane — final Phase 9 plan). Then run the consolidated end-of-phase UAT (includes the deferred 09-04 authoring-flow + 09-05 attach-flow human-verifies, steps preserved in 09-04-SUMMARY / 09-05-SUMMARY).
+- Phase 09 (Group / Topic) — ALL 6 plans (09-01..09-06) executed; the full v1.2 Phase-9 surface (foundation → validation core → authoring → contributor attach → NO-MOD two-lane view) is in place. GROUP-01..08 all GREEN. Full test suite 663/0; build green; biome clean.
+- Next: run the consolidated end-of-phase UAT — it includes the three deferred human-verifies (09-04 authoring flow, 09-05 attach flow, 09-06 full NO-MOD trust posture), steps preserved verbatim in 09-04-SUMMARY / 09-05-SUMMARY / 09-06-SUMMARY. After UAT sign-off, run /gsd-verify-phase (or the phase verification) and then advance to Phase 10/11/12 (Story / Sighting / Beacon).
 
 </content>

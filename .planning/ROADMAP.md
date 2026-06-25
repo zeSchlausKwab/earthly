@@ -100,7 +100,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 5** *(blocked on Waves 2–4)*
 
-  - [ ] 09-06-PLAN.md — GroupViewPanel NO-MOD two-lane: curated-first/foreign-second, per-coordinate sig+kind+mute gate before render, cap/sort/filter+reason, escape hatch, pin/bless, narrative, comment/react [GROUP-05/06/07/08]
+  - [x] 09-06-PLAN.md — GroupViewPanel NO-MOD two-lane: curated-first/foreign-second, per-coordinate sig+kind+mute gate before render, cap/sort/filter+reason, escape hatch, pin/bless, narrative, comment/react [GROUP-05/06/07/08] (GROUP-08 GREEN; human-verify deferred to end-of-phase UAT)
 
 **Research flag**: RESOLVED at planning — `governance` clean-break shape (O-02, legacy triad simply absent); non-developer schema builder + raw-JSON escape hatch (D-04); foreign-lane cap = 50, newest-first (O-01, no trust source in app — follows-boost deferred); NO-MOD UX contract (curated-default, local+global mute) all planned.
 **UI hint**: yes
@@ -182,7 +182,7 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 6. AI Bulk Transform & Data-Driven Styling | v1.1 | 5/5 | Complete | 2026-06-22 |
 | 7. Geometry Optimization | v1.1 | 5/5 | Complete | 2026-06-23 |
 | 8. Spec v2 + Foundation | v1.2 | 5/5 | Complete    | 2026-06-25 |
-| 9. Group / Topic (37518 slimmed) | v1.2 | 4/6 | In Progress|  |
+| 9. Group / Topic (37518 slimmed) | v1.2 | 6/6 | Plans done · end-of-phase UAT pending |  |
 | 10. Story / Article (~37520) | v1.2 | 0/TBD | Not started | - |
 | 11. Temporal Sighting | v1.2 | 0/TBD | Not started | - |
 | 12. Live Beacon (~37521) | v1.2 | 0/TBD | Not started | - |

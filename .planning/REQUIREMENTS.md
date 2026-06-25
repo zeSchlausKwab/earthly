@@ -30,10 +30,10 @@ Requirements for the v1.2 milestone. Full v2 / clean-break scope: spec + all eve
 - [x] **GROUP-02**: A user can attach their dataset (or sighting) to a Group via a `c` tag, and it appears in the Group's contribution (foreign) lane.
 - [x] **GROUP-03**: A Group owner can define a contribution schema (allowed geometry types + JSON-Schema property rules) for a schema-governed Group through an authoring UI usable by non-developers.
 - [x] **GROUP-04**: When attaching to a schema Group, the contributor sees inline validation warnings before publishing but is never blocked from publishing a valid standalone dataset.
-- [ ] **GROUP-05**: A viewer of a schema Group sees only conforming attachments by default, with a per-view override (off / warn / strict).
-- [ ] **GROUP-06**: A Group owner can add optional narrative and pin "canonical" curated references (curate-pull within the Group).
-- [ ] **GROUP-07**: A user can comment on and react to a Group.
-- [ ] **GROUP-08**: An open Group is usable and trustworthy without human moderation (NO-MOD MINIMUM): curated/pinned refs are the privileged default lane; the foreign lane is collapsed, opt-in, capped and sorted; every `c` coordinate is signature- and kind-validated; and a viewer can locally mute a contributor.
+- [x] **GROUP-05**: A viewer of a schema Group sees only conforming attachments by default, with a per-view override (off / warn / strict).
+- [x] **GROUP-06**: A Group owner can add optional narrative and pin "canonical" curated references (curate-pull within the Group).
+- [x] **GROUP-07**: A user can comment on and react to a Group.
+- [x] **GROUP-08**: An open Group is usable and trustworthy without human moderation (NO-MOD MINIMUM): curated/pinned refs are the privileged default lane; the foreign lane is collapsed, opt-in, capped and sorted; every `c` coordinate is signature- and kind-validated; and a viewer can locally mute a contributor.
 
 ### Live Beacon (BEACON) — real-time position
 
@@ -115,10 +115,10 @@ Populated during roadmap creation. Phase numbering continues from v1.1 (which en
 | GROUP-02 | Phase 9 | Complete (09-05: GroupAttachField picker writes the `c` tag via .contextReferences at all 4 publish entrypoints; foreign-lane discovery filter GREEN in 09-03) |
 | GROUP-03 | Phase 9 | Complete (09-04: schemaBuilder.ts compileBuilderSchema → draft-2020-12 + GroupEditorPanel visual builder/advanced-JSON authoring, both feed the Phase-8 off-thread worker; schemaBuilder.test GREEN) |
 | GROUP-04 | Phase 9 | Complete (09-05: legacy blocking required-context gate REMOVED; off-thread per-rule amber warnings + always-enabled "Publish anyway" in GroupAttachField; warnNotBlock 3/0; live human-verify deferred to end-of-phase UAT) |
-| GROUP-05 | Phase 9 | In progress (09-03: off/warn/strict filterModes off-thread, default-strict-for-schema GREEN; viewer override UI pending 09-06) |
-| GROUP-06 | Phase 9 | Pending |
-| GROUP-07 | Phase 9 | Pending |
-| GROUP-08 | Phase 9 | Pending |
+| GROUP-05 | Phase 9 | Complete (09-03 filterModes off/warn/strict off-thread + 09-06 ForeignLane per-view Off/Warn/Strict override, default strict, legible reason chips) |
+| GROUP-06 | Phase 9 | Complete (09-06: sanitized Markdown narrative + owner curated pin/bless of `a`-refs via GroupFactory.modify) |
+| GROUP-07 | Phase 9 | Complete (09-06: CommentsPanel mounted on the Group 37518 coordinate; comment + react via existing path) |
+| GROUP-08 | Phase 9 | Complete (09-06: NO-MOD MINIMUM — curated-first privileged lane, collapsed/capped(50)/newest-first foreign lane, per-coordinate kind+verifyEvent+mute gate before render, device-local app-global mute, owner one-click flip-to-closed; noModMinimum.test.ts GREEN) |
 | STORY-01 | Phase 10 | Pending |
 | STORY-02 | Phase 10 | Pending |
 | STORY-03 | Phase 10 | Pending |
