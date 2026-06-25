@@ -1,8 +1,8 @@
 ---
-status: verifying
+status: awaiting_human_verify
 trigger: "run_code tool fails in bun dev: Failed to construct 'Worker': Script at file:///.../sandbox.worker.ts cannot be accessed from origin http://localhost:3000"
 created: 2026-06-18T00:00:00Z
-updated: 2026-06-18T10:15:00Z
+updated: 2026-06-18T10:16:00Z
 ---
 
 ## Current Focus
