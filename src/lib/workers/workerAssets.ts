@@ -59,6 +59,10 @@ export const WORKER_ASSETS = {
 		servedName: 'optimize.worker.js',
 		sourcePath: 'src/features/chat/geometry/optimize.worker.ts',
 	},
+	schema: {
+		servedName: 'schema.worker.js',
+		sourcePath: 'src/lib/validation/schema.worker.ts',
+	},
 } as const satisfies Record<string, WorkerAsset>
 
 /** Logical worker ids (keys of {@link WORKER_ASSETS}). */
