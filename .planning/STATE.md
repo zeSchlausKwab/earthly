@@ -4,13 +4,13 @@ milestone: v1.2
 milestone_name: Geo Entity Model Split
 status: executing
 stopped_at: Phase 8 context gathered
-last_updated: "2026-06-25T06:47:04.533Z"
-last_activity: 2026-06-24 — v1.2 roadmap created; all 30 requirements mapped to Phases 8–13
+last_updated: "2026-06-25T07:02:24.823Z"
+last_activity: 2026-06-25 -- Phase 08 execution started
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 5
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 **Core value:** The maintainer (and any user) can open the app for fun, not duty.
-**Current focus:** v1.2 Geo Entity Model Split — roadmap created (Phases 8–13). Next: plan Phase 8 (Spec v2 + Foundation).
+**Current focus:** Phase 08 — spec-v2-foundation
 
 ## Current Position
 
-Phase: 8 of 13 (Spec v2 + Foundation) — first v1.2 phase
-Plan: — (not yet planned)
+Phase: 08 (spec-v2-foundation) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-06-24 — v1.2 roadmap created; all 30 requirements mapped to Phases 8–13
+Last activity: 2026-06-25 -- Phase 08 execution started
 
 Progress: [░░░░░░░░░░] 0% (v1.2)
 
@@ -64,6 +64,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 | 13 | TBD | - | - |
 
 *Updated after each plan completion*
+| Phase 08 P01 | 9min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,7 @@ Recent decisions affecting current work:
 - [Roadmap v1.2]: Story / Sighting / Beacon are independent once Foundation lands; sequenced after Group. Beacon is last among kinds (only net-new live-map-render + most privacy surface).
 - [Roadmap v1.2]: Two phase-level decisions LEFT OPEN as research flags — Beacon lifecycle (parameterized-replaceable + NIP-40 vs ephemeral) in Phase 12; Sighting representation (dedicated kind vs 37515 + property + NIP-40) in Phase 11. Do NOT pre-decide; resolve in phase planning/research.
 - [Roadmap v1.2]: Amend, don't replace — `group/` refactors `map-context/`; dataset (37515) and proposal (37519) stay untouched; 37519 gets only a small Markdown-target extension for STORY-06. Clean break on legacy 37518 data (SPEC-03 = defensive skip, not migration).
+- [Phase ?]: [08-01]: Nyquist Wave-0 RED baseline pins exact foundation-seam symbol names (tags/modelVersion/expiry/schemaWorker + 3 per-kind barrels) before Plans 02-04 implement them
 
 ### Pending Todos
 
@@ -117,7 +119,7 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-06-25T06:18:51.469Z
+Last session: 2026-06-25T07:02:06.495Z
 Stopped at: Phase 8 context gathered
 Resume file: .planning/phases/08-spec-v2-foundation/08-CONTEXT.md
 

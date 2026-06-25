@@ -52,7 +52,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 1**
 
-  - [ ] 08-01-PLAN.md — Nyquist Wave-0: create the six test stub files pinning every seam's export contract (RED baseline)
+  - [x] 08-01-PLAN.md — Nyquist Wave-0: create the six test stub files pinning every seam's export contract (RED baseline)
   - [ ] 08-02-PLAN.md — kind constants (D-01), shared tags.ts (+migrate 2 consumers), NIP-32 L/l + vocab (TAX-01), modelVersion discriminator (SPEC-03), isExpired/dropExpired (SPEC-05)
   - [ ] 08-03-PLAN.md — off-thread hardened schema-validation worker + registration (SPEC-04: ReDoS/$ref/$data/size-depth defenses, fail-closed, compile-once-per-hash)
 
@@ -159,7 +159,7 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 5. Dataset-Aware Safe Editing | v1.1 | 5/5 | Complete | 2026-06-21 |
 | 6. AI Bulk Transform & Data-Driven Styling | v1.1 | 5/5 | Complete | 2026-06-22 |
 | 7. Geometry Optimization | v1.1 | 5/5 | Complete | 2026-06-23 |
-| 8. Spec v2 + Foundation | v1.2 | 0/5 | Planned | - |
+| 8. Spec v2 + Foundation | v1.2 | 1/5 | In Progress|  |
 | 9. Group / Topic (37518 slimmed) | v1.2 | 0/TBD | Not started | - |
 | 10. Story / Article (~37520) | v1.2 | 0/TBD | Not started | - |
 | 11. Temporal Sighting | v1.2 | 0/TBD | Not started | - |

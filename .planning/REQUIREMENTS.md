@@ -10,10 +10,10 @@ Requirements for the v1.2 milestone. Full v2 / clean-break scope: spec + all eve
 ### Spec & Foundation (SPEC)
 
 - [ ] **SPEC-01**: SPEC.md v2 documents the split entity model — Story (~37520), slimmed Group (37518), Live Beacon (~37521), Temporal Sighting — replacing the overloaded kind-37518 "context", with final kind-number assignments.
-- [ ] **SPEC-02**: Each new kind has an event class following the existing Factory + Cast pattern (`helpers.ts`/`cast.ts`/`factory.ts`), sharing one extracted tag-helper module for `bbox`/`g`/`L`/`l`/`t`/`c`/`a`.
-- [ ] **SPEC-03**: Every new-model event carries an in-content version discriminator, and the client defensively parses so legacy kind-37518 events still present on relays are recognized and skipped rather than mis-rendered (clean-break safety on an append-only substrate).
-- [ ] **SPEC-04**: Group schema + geometry validation runs off the main thread in a Web Worker with a hard timeout-kill, schema-hash–cached, restricted dialect (no `$data`, no external `$ref`, size/depth capped) — untrusted relay-authored schemas cannot freeze or crash a viewer's tab.
-- [ ] **SPEC-05**: NIP-40 expiration is shared infrastructure — the client always filters expired events on read regardless of relay garbage-collection behavior.
+- [x] **SPEC-02**: Each new kind has an event class following the existing Factory + Cast pattern (`helpers.ts`/`cast.ts`/`factory.ts`), sharing one extracted tag-helper module for `bbox`/`g`/`L`/`l`/`t`/`c`/`a`.
+- [x] **SPEC-03**: Every new-model event carries an in-content version discriminator, and the client defensively parses so legacy kind-37518 events still present on relays are recognized and skipped rather than mis-rendered (clean-break safety on an append-only substrate).
+- [x] **SPEC-04**: Group schema + geometry validation runs off the main thread in a Web Worker with a hard timeout-kill, schema-hash–cached, restricted dialect (no `$data`, no external `$ref`, size/depth capped) — untrusted relay-authored schemas cannot freeze or crash a viewer's tab.
+- [x] **SPEC-05**: NIP-40 expiration is shared infrastructure — the client always filters expired events on read regardless of relay garbage-collection behavior.
 
 ### Story / Article (STORY) — curate-pull, closed
 
@@ -51,7 +51,7 @@ Requirements for the v1.2 milestone. Full v2 / clean-break scope: spec + all eve
 
 ### Taxonomy (TAX)
 
-- [ ] **TAX-01**: A user can apply NIP-32 `L`/`l` controlled-vocabulary labels to entities, a schema Group can enforce an allowed `l`-value set, and freeform `t` hashtags remain available for discovery — the three-way `L`/`l` · `t` · `c` split replacing the overloaded `t`/taxonomy on old 37518.
+- [x] **TAX-01**: A user can apply NIP-32 `L`/`l` controlled-vocabulary labels to entities, a schema Group can enforce an allowed `l`-value set, and freeform `t` hashtags remain available for discovery — the three-way `L`/`l` · `t` · `c` split replacing the overloaded `t`/taxonomy on old 37518.
 
 ### Cross-cutting (XCUT)
 
@@ -106,11 +106,11 @@ Populated during roadmap creation. Phase numbering continues from v1.1 (which en
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | SPEC-01 | Phase 8 | Pending |
-| SPEC-02 | Phase 8 | Pending |
-| SPEC-03 | Phase 8 | Pending |
-| SPEC-04 | Phase 8 | Pending |
-| SPEC-05 | Phase 8 | Pending |
-| TAX-01 | Phase 8 | Pending |
+| SPEC-02 | Phase 8 | Complete |
+| SPEC-03 | Phase 8 | Complete |
+| SPEC-04 | Phase 8 | Complete |
+| SPEC-05 | Phase 8 | Complete |
+| TAX-01 | Phase 8 | Complete |
 | GROUP-01 | Phase 9 | Pending |
 | GROUP-02 | Phase 9 | Pending |
 | GROUP-03 | Phase 9 | Pending |
@@ -137,6 +137,7 @@ Populated during roadmap creation. Phase numbering continues from v1.1 (which en
 | XCUT-02 | Phase 13 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 30 total
 - Mapped to phases: 30 (Phases 8–13)
 - Unmapped: 0 ✓
