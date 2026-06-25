@@ -79,8 +79,30 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
   4. An open Group is trustworthy without moderation (NO-MOD MINIMUM): curated/pinned refs are the privileged default lane; the foreign lane is collapsed, opt-in, capped and sorted; every `c` coordinate is signature- and kind-validated before render; a viewer can locally mute a contributor; and the owner can flip to closed in one click.
   5. A Group owner can add optional narrative and pin "canonical" curated references, and any user can comment on and react to a Group.
 
-**Plans**: TBD
-**Research flag**: NEEDS deeper research during planning — `governance` enum backward-compat shape with legacy content fields; schema-authoring UI for non-developer owners; exact foreign-lane cap number (suggested start: 50 visible, paginate, sort by recency); NO-MOD MINIMUM UX contract (curated-default presentation, mute persistence scope).
+**Plans**: 6 plans (Wave 1 → 5)
+
+**Wave 1**
+
+  - [ ] 09-01-PLAN.md — Nyquist Wave-0: 9 RED test stubs pinning every Group seam (GROUP-01..08 + O-03 schema-hash + D-06 worker errors[] + mute store)
+
+**Wave 2** *(blocked on Wave 1)*
+
+  - [ ] 09-02-PLAN.md — `group/` module: refactor map-context → governance enum, isGroup modelVersion gate, EntityFactory + tags.ts delegation, setSchemaHash transformer, useGroups [GROUP-01]
+
+**Wave 3** *(blocked on Wave 2)*
+
+  - [ ] 09-03-PLAN.md — validation pipeline: off-thread worker verdict + per-rule errors[] (D-06), canonical schema-hash (O-03), filterModes off/warn/strict, attach warn-not-block, device-local global mute store [GROUP-02/04/05]
+
+**Wave 4** *(blocked on Wave 3; 04 + 05 run in parallel — disjoint files)*
+
+  - [ ] 09-04-PLAN.md — GroupEditorPanel: governance radio cards (D-01) + visual schema builder + raw-JSON advanced (D-04) + canonical schema-hash write [GROUP-01/03]
+  - [ ] 09-05-PLAN.md — contributor attach: c-tag picker + inline per-rule warnings + Publish-anyway (never blocks a standalone publish) [GROUP-02/04]
+
+**Wave 5** *(blocked on Waves 2–4)*
+
+  - [ ] 09-06-PLAN.md — GroupViewPanel NO-MOD two-lane: curated-first/foreign-second, per-coordinate sig+kind+mute gate before render, cap/sort/filter+reason, escape hatch, pin/bless, narrative, comment/react [GROUP-05/06/07/08]
+
+**Research flag**: RESOLVED at planning — `governance` clean-break shape (O-02, legacy triad simply absent); non-developer schema builder + raw-JSON escape hatch (D-04); foreign-lane cap = 50, newest-first (O-01, no trust source in app — follows-boost deferred); NO-MOD UX contract (curated-default, local+global mute) all planned.
 **UI hint**: yes
 
 ### Phase 10: Story / Article (~37520)
@@ -160,7 +182,7 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 6. AI Bulk Transform & Data-Driven Styling | v1.1 | 5/5 | Complete | 2026-06-22 |
 | 7. Geometry Optimization | v1.1 | 5/5 | Complete | 2026-06-23 |
 | 8. Spec v2 + Foundation | v1.2 | 5/5 | Complete    | 2026-06-25 |
-| 9. Group / Topic (37518 slimmed) | v1.2 | 0/TBD | Not started | - |
+| 9. Group / Topic (37518 slimmed) | v1.2 | 0/6 | Planned | - |
 | 10. Story / Article (~37520) | v1.2 | 0/TBD | Not started | - |
 | 11. Temporal Sighting | v1.2 | 0/TBD | Not started | - |
 | 12. Live Beacon (~37521) | v1.2 | 0/TBD | Not started | - |
