@@ -52,12 +52,44 @@ export interface SchemaValidationRequest {
 	schemaHash: string
 }
 
+/**
+ * One per-rule validation error (D-06). Mirrors the Ajv `ErrorObject` shape so the UI
+ * can render exactly which rule failed ("property `name` required") with a "Publish
+ * anyway" path. Carried on the FAIL verdict's `errors[]`; never on a DoS/gate-reject
+ * path (that stays cheap — see `MAX_ERRORS`).
+ */
+export interface SchemaRuleError {
+	/** JSON Pointer into the data instance where the rule failed (Ajv `instancePath`). */
+	instancePath: string
+	/** JSON Pointer into the schema for the failed keyword (Ajv `schemaPath`). */
+	schemaPath?: string
+	/** The failing JSON Schema keyword (e.g. `required`, `type`, `enum`). */
+	keyword: string
+	/** Human-readable Ajv message (e.g. "must have required property 'name'"). */
+	message: string
+	/** Keyword-specific params (e.g. `{ missingProperty: 'name' }`). */
+	params?: Record<string, unknown>
+}
+
+/**
+ * Hard cap on the per-rule error array (T-09-03-ERR-DOS). A hostile schema/instance with
+ * `allErrors:true` could otherwise emit an unbounded error list that itself OOMs the UI —
+ * we surface only the first `MAX_ERRORS`.
+ */
+export const MAX_ERRORS = 50
+
 /** The structured, always-serializable validation verdict. Fails CLOSED on any error. */
 export interface SchemaValidationVerdict {
 	/** `true` only when the schema compiled AND the data validated against it. */
 	ok: boolean
 	/** Present on a fail-closed verdict — a short reason for the failure. */
 	error?: string
+	/**
+	 * Per-rule structured errors (D-06), present on a VALIDATION failure (schema compiled
+	 * but data did not conform). Bounded to `MAX_ERRORS`. Absent on a pass and on the
+	 * DoS/gate-reject path (that path must not allocate per-rule detail).
+	 */
+	errors?: SchemaRuleError[]
 }
 
 /** The fail-closed verdict every error path resolves to. */
@@ -157,8 +189,21 @@ export async function runSchemaValidation(
 	try {
 		const validate = compileOnce(request.schema, request.schemaHash)
 		const valid = validate(request.data)
-		return valid ? { ok: true } : { ok: false, error: FAIL_CLOSED_ERROR }
+		if (valid) return { ok: true }
+		// Map Ajv's `allErrors` list into bounded, serializable per-rule errors (D-06).
+		// The cap (`MAX_ERRORS`) keeps a hostile schema/instance from OOMing the error
+		// channel itself (T-09-03-ERR-DOS).
+		const errors: SchemaRuleError[] = (validate.errors ?? []).slice(0, MAX_ERRORS).map((e) => ({
+			instancePath: e.instancePath ?? '',
+			schemaPath: e.schemaPath,
+			keyword: e.keyword ?? '',
+			message: e.message ?? 'validation failed',
+			params: e.params as Record<string, unknown> | undefined,
+		}))
+		return { ok: false, error: FAIL_CLOSED_ERROR, errors }
 	} catch {
+		// Gate rejection / ReDoS overrun / compile failure: fail closed WITHOUT per-rule
+		// detail — the DoS path must stay cheap (no allocation of an error list).
 		return { ok: false, error: FAIL_CLOSED_ERROR }
 	}
 }

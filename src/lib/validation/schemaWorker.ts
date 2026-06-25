@@ -151,7 +151,9 @@ export async function validateSchema(
 			settled = true
 			clearTimeout(watchdog)
 			pending.delete(id)
-			resolve({ ok: res.ok, error: res.error })
+			// Forward the per-rule `errors[]` (D-06) alongside ok/error so off-thread callers
+			// receive structured detail. No in-thread re-validation path is added.
+			resolve({ ok: res.ok, error: res.error, errors: res.errors })
 		}
 
 		// Host-side wall-clock watchdog (defence in depth). On fire it KILLS the warm
