@@ -42,16 +42,18 @@ The app's base unit is **4px** (`--spacing: 0.25rem`). Panels are dense (`text-[
 |-------|-------|--------------------|
 | 2xs | 4px | Inline chip padding (`py-0.5`), icon-to-label gaps (`gap-1`), eyebrow-to-title gap |
 | xs | 8px | Compact element spacing (`gap-2`, `space-y-2`); list-row vertical padding (`py-2`); chip horizontal padding (`px-2`) |
-| sm | 12px | Section inner stack (`space-y-3`); surface inner padding (`px-3 py-3` on discussion tone) |
 | md | 16px | Discussion / comments block stack (`space-y-4`); governance radio-card internal padding |
 | lg | 24px | Gap between major editor sections when expanded |
 | xl | 32px | Reserved — not needed inside the panel column (panels are width-constrained) |
 | 2xl | 48px | Reserved |
 | 3xl | 64px | Reserved |
 
-**Exceptions:**
+The declared scale uses only standard-set values {4, 8, 16, 24, 32, 48, 64}.
+
+**Exceptions (tolerated inherited values — not part of the new declared scale):**
+- **Inherited panel rhythm (12px):** the section inner stack (`space-y-3`) and the discussion-tone surface inner padding (`px-3 py-3`) are inherited verbatim from the existing `MapContextEditorPanel`. 12px is NOT a declared scale value; it is a tolerated inherited-panel-rhythm exception. No visual change to shipped panels is required — the refactored `GroupEditorPanel` / `GroupViewPanel` keep this rhythm as-is. New surfaces this phase introduces use the declared scale.
 - Interactive icon-only controls (⋮ overflow trigger, EntityActionBar buttons, eye/zoom) render at the existing `h-6`/`h-7` (24–28px) compact panel sizes — these are inside a desktop side panel, not primary touch targets. On the mobile collapsible-panel breakpoint, the ⋮ overflow trigger and lock-down button MUST present a **≥44px** hit area (pad the trigger; icon stays 14–16px).
-- Schema-builder property rows keep the existing `px-3 py-2` bordered-row rhythm from `MapContextEditorPanel` — do not widen.
+- Schema-builder property rows keep the existing `px-3 py-2` bordered-row rhythm from `MapContextEditorPanel` (12px horizontal — same inherited-panel-rhythm exception) — do not widen.
 
 ---
 
@@ -59,12 +61,18 @@ The app's base unit is **4px** (`--spacing: 0.25rem`). Panels are dense (`text-[
 
 Inherited from `EntityPanelShell` + the panels. Poppins throughout; JetBrains Mono only for raw JSON and nostr coordinates. Exactly 4 sizes, 2 weights.
 
+The declared scale is exactly 4 sizes (20, 14, 13, 11) and 2 weights (400, 600):
+
 | Role | Size | Weight | Line Height | Where |
 |------|------|--------|-------------|-------|
 | Display (panel title) | 20px (`text-xl`) | 600 (semibold), tracking `-0.03em` | 1.2 | `GroupEditorPanel` / `GroupViewPanel` top title via `EntityPanelShell` |
 | Heading (section title) | 14px (`text-sm`) | 600 (semibold), tracking `-0.02em` | 1.3 | `EntityPanelSectionHeader` titles; governance card title |
-| Body | 13px (`text-[13px]`) / 12px (`text-xs`) | 400 (regular) | 1.5 (`leading-5`) | Descriptions, contributor explanations, list-row primary text (12px medium), narrative |
-| Label / meta | 11px (`text-[11px]`) / 10px (`text-[10px]`) | 400, eyebrows 600 uppercase tracking `0.2em` | 1.4 | Field labels, chip text, filter-reason, eyebrows, coordinate strings |
+| Body | 13px (`text-[13px]`) | 400 (regular) | 1.5 (`leading-5`) | Descriptions, contributor explanations, list-row primary text, narrative |
+| Label / meta | 11px (`text-[11px]`) | 400, eyebrows 600 uppercase tracking `0.2em` | 1.4 | Field labels, chip text, filter-reason, eyebrows, coordinate strings |
+
+**Tolerated inherited sizes — NOT part of the new declared scale:**
+- **12px (`text-xs`):** appears in the refactored panels (e.g. list-row secondary text, governance-card explanations, the mono raw-JSON `Textarea`) inherited verbatim from `MapContextEditorPanel`. It is a tolerated inherited value, not a declared scale size; new copy this phase introduces uses the declared 13px body / 11px meta. No visual change to shipped panels is required.
+- **10px (`text-[10px]`):** appears in a few dense inherited chips/coordinate strings carried over from `MapContextEditorPanel`. Same posture — tolerated inherited value, not part of the declared scale.
 
 **Weights:** regular (400) and semibold (600) only — matches the codebase. No medium/bold elsewhere; "medium" rows in legacy code (`font-medium` = 500) are tolerated as inherited but new copy uses 400/600.
 
@@ -182,7 +190,7 @@ All copy is plain-language and contributor-facing (the governance ladder must be
 These are the load-bearing interaction specs the executor implements. Each cites its decision.
 
 ### 1. Governance ladder (D-01) — `GroupEditorPanel`
-- 3 `RadioGroup` items rendered as `Card`-bodied radio cards in a vertical stack (single column in the narrow panel). Each card: title (14px semibold) + one-line explanation (12px `muted-foreground`) from the copy table.
+- 3 `RadioGroup` items rendered as `Card`-bodied radio cards in a vertical stack (single column in the narrow panel). Each card: title (14px semibold) + one-line explanation (13px body `muted-foreground`; legacy `text-xs`=12px is a tolerated inherited value if carried over) from the copy table.
 - Selected card: `--primary` ring + subtle accent fill; unselected: `border-border`, neutral.
 - The schema-authoring section (item 2) is **conditionally mounted** only when `schema` is selected (mirror the existing `allowForeignAttachments &&` gating, but keyed on `governance === 'schema'`). Leaving `schema` strips `geometryConstraints`/`schema` from content per O-02.
 
