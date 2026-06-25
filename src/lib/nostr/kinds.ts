@@ -20,6 +20,15 @@ export const GEO_EDIT_PROPOSAL_KIND = 37519
 /** Map Layer Set Announcement - server-signed layer configuration (parameterized replaceable) */
 export const MAP_LAYER_SET_KIND = 34444
 
+/** Story / Article Event - NIP-23-style long-form geo narrative (parameterized replaceable) */
+export const ARTICLE_KIND = 37520
+
+/** Live Beacon Event - replaceable presence/position with NIP-40 expiration */
+export const LIVE_BEACON_KIND = 37521
+
+/** Temporal Sighting Event - NIP-52 time-bounded observation with NIP-40 expiry */
+export const TEMPORAL_SIGHTING_KIND = 37522
+
 /** NIP-34 Status Event Kinds - reused for proposal status tracking */
 export const PROPOSAL_STATUS_OPEN_KIND = 1630
 export const PROPOSAL_STATUS_APPLIED_KIND = 1631

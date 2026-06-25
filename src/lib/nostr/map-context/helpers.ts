@@ -7,13 +7,10 @@
  */
 
 import { getOrComputeCachedValue } from 'applesauce-core/helpers/cache'
-import {
-	getTagValue,
-	type KnownEvent,
-	type NostrEvent,
-} from 'applesauce-core/helpers/event'
+import { getTagValue, type KnownEvent, type NostrEvent } from 'applesauce-core/helpers/event'
 import { MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
 import type { GeoBoundingBox } from '@/lib/nostr/geo-event'
+import { getBbox, getContextRefs, getHashtags, getReferencedAddresses } from '@/lib/nostr/tags'
 
 export type MapContextEvent = KnownEvent<typeof MAP_CONTEXT_KIND>
 
@@ -58,11 +55,7 @@ export const DEFAULT_CONTEXT_CONTENT: MapContextContent = {
 }
 
 const ContextContentSymbol = Symbol.for('map-context-content')
-const BoundingBoxSymbol = Symbol.for('map-context-bbox')
-const HashtagsSymbol = Symbol.for('map-context-hashtags')
 const RelayHintsSymbol = Symbol.for('map-context-relay-hints')
-const ContextRefsSymbol = Symbol.for('map-context-context-refs')
-const ReferencedAddrsSymbol = Symbol.for('map-context-referenced-addrs')
 
 export function isMapContext(event: NostrEvent): event is MapContextEvent {
 	return event.kind === MAP_CONTEXT_KIND && getContextId(event) !== undefined
@@ -92,13 +85,8 @@ export function getContextCoordinate(event: NostrEvent): string | undefined {
 }
 
 export function getContextBoundingBox(event: NostrEvent): GeoBoundingBox | undefined {
-	return getOrComputeCachedValue(event, BoundingBoxSymbol, () => {
-		const raw = getTagValue(event, 'bbox')
-		if (!raw) return undefined
-		const parts = raw.split(',').map((part) => Number.parseFloat(part.trim()))
-		if (parts.length !== 4 || parts.some((value) => Number.isNaN(value))) return undefined
-		return parts as GeoBoundingBox
-	})
+	// Delegates to the shared tags.ts seam (SPEC-02) — no copy-pasted body here.
+	return getBbox(event)
 }
 
 export function getContextRelayHints(event: NostrEvent): string[] {
@@ -110,11 +98,7 @@ export function getContextRelayHints(event: NostrEvent): string[] {
 }
 
 export function getContextHashtags(event: NostrEvent): string[] {
-	return getOrComputeCachedValue(event, HashtagsSymbol, () =>
-		event.tags
-			.filter((tag) => tag[0] === 't' && typeof tag[1] === 'string')
-			.map((tag) => tag[1] as string),
-	)
+	return getHashtags(event)
 }
 
 export function getContextVersion(event: NostrEvent): string | undefined {
@@ -122,19 +106,11 @@ export function getContextVersion(event: NostrEvent): string | undefined {
 }
 
 export function getContextReferencesOnContext(event: NostrEvent): string[] {
-	return getOrComputeCachedValue(event, ContextRefsSymbol, () =>
-		event.tags
-			.filter((tag) => tag[0] === 'c' && typeof tag[1] === 'string' && tag[1])
-			.map((tag) => tag[1] as string),
-	)
+	return getContextRefs(event)
 }
 
 export function getContextReferencedAddresses(event: NostrEvent): string[] {
-	return getOrComputeCachedValue(event, ReferencedAddrsSymbol, () =>
-		event.tags
-			.filter((tag) => tag[0] === 'a' && typeof tag[1] === 'string' && tag[1])
-			.map((tag) => tag[1] as string),
-	)
+	return getReferencedAddresses(event)
 }
 
 export function getContextSchemaHash(event: NostrEvent): string | undefined {

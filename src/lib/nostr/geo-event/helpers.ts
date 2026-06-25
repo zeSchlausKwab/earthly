@@ -8,14 +8,16 @@
 
 import { bbox, centroid } from '@turf/turf'
 import { getOrComputeCachedValue } from 'applesauce-core/helpers/cache'
-import {
-	getTagValue,
-	type KnownEvent,
-	type NostrEvent,
-} from 'applesauce-core/helpers/event'
+import { getTagValue, type KnownEvent, type NostrEvent } from 'applesauce-core/helpers/event'
 import type { FeatureCollection, Position } from 'geojson'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import { normalizeGeoJsonToFeatureCollection } from '@/lib/geo/normalizeGeoJSON'
+import {
+	getBbox,
+	getContextRefs,
+	getGeohash as getGeohashShared,
+	getHashtags as getHashtagsShared,
+} from '@/lib/nostr/tags'
 
 export type GeoDatasetEvent = KnownEvent<typeof GEO_EVENT_KIND>
 export type GeoBoundingBox = [number, number, number, number]
@@ -35,10 +37,7 @@ const DEFAULT_COLLECTION: FeatureCollection = {
 }
 
 const FeatureCollectionSymbol = Symbol.for('geo-dataset-feature-collection')
-const BoundingBoxSymbol = Symbol.for('geo-dataset-bbox')
-const HashtagsSymbol = Symbol.for('geo-dataset-hashtags')
 const CollectionRefsSymbol = Symbol.for('geo-dataset-collection-refs')
-const ContextRefsSymbol = Symbol.for('geo-dataset-context-refs')
 const RelayHintsSymbol = Symbol.for('geo-dataset-relay-hints')
 const BlobRefsSymbol = Symbol.for('geo-dataset-blob-refs')
 
@@ -63,17 +62,12 @@ export function getFeatureCollection(event: NostrEvent): FeatureCollection {
 }
 
 export function getBoundingBox(event: NostrEvent): GeoBoundingBox | undefined {
-	return getOrComputeCachedValue(event, BoundingBoxSymbol, () => {
-		const raw = getTagValue(event, 'bbox')
-		if (!raw) return undefined
-		const parts = raw.split(',').map((part) => Number.parseFloat(part.trim()))
-		if (parts.length !== 4 || parts.some((value) => Number.isNaN(value))) return undefined
-		return parts as GeoBoundingBox
-	})
+	// Delegates to the shared tags.ts seam (SPEC-02) — no copy-pasted body here.
+	return getBbox(event)
 }
 
 export function getGeohash(event: NostrEvent): string | undefined {
-	return getTagValue(event, 'g')
+	return getGeohashShared(event)
 }
 
 export function getCoordinateReferenceSystem(event: NostrEvent): string | undefined {
@@ -96,11 +90,7 @@ export function getVersion(event: NostrEvent): string | undefined {
 }
 
 export function getHashtags(event: NostrEvent): string[] {
-	return getOrComputeCachedValue(event, HashtagsSymbol, () =>
-		event.tags
-			.filter((tag) => tag[0] === 't' && typeof tag[1] === 'string')
-			.map((tag) => tag[1] as string),
-	)
+	return getHashtagsShared(event)
 }
 
 export function getCollectionReferences(event: NostrEvent): string[] {
@@ -112,11 +102,7 @@ export function getCollectionReferences(event: NostrEvent): string[] {
 }
 
 export function getContextReferences(event: NostrEvent): string[] {
-	return getOrComputeCachedValue(event, ContextRefsSymbol, () =>
-		event.tags
-			.filter((tag) => tag[0] === 'c' && typeof tag[1] === 'string' && tag[1])
-			.map((tag) => tag[1] as string),
-	)
+	return getContextRefs(event)
 }
 
 export function getRelayHints(event: NostrEvent): string[] {
@@ -177,10 +163,7 @@ export function computeBboxFor(fc: FeatureCollection): GeoBoundingBox | undefine
 }
 
 /** Geohash of the centroid of a feature collection at the given precision. */
-export function computeGeohashFor(
-	fc: FeatureCollection,
-	precision = 6,
-): string | undefined {
+export function computeGeohashFor(fc: FeatureCollection, precision = 6): string | undefined {
 	try {
 		const c = centroid(fc)
 		const coords = c.geometry?.coordinates as Position | undefined
@@ -248,8 +231,7 @@ function encodeGeohash(lat: number, lon: number, precision = 6): string {
 /** Build a `blob` tag for a single GeoBlobReference. */
 export function blobReferenceToTag(ref: GeoBlobReference): string[] | null {
 	if (!ref.url) return null
-	const scope =
-		ref.scope === 'feature' ? `feature:${ref.featureId ?? ''}` : 'collection'
+	const scope = ref.scope === 'feature' ? `feature:${ref.featureId ?? ''}` : 'collection'
 	const tag: string[] = ['blob', scope, ref.url]
 	if (ref.sha256) tag.push(`sha256=${ref.sha256}`)
 	if (typeof ref.size === 'number' && Number.isFinite(ref.size)) {

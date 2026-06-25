@@ -31,6 +31,9 @@ void timeout
 void TimeoutError
 import { config } from '@/config'
 
+// Shared tag read/write seam (SPEC-02) — re-exported for ergonomic access.
+export * from './tags'
+
 /** Reactive event database. Single instance for the whole app. */
 export const eventStore = new EventStore()
 
