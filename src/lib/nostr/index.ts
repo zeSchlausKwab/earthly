@@ -42,6 +42,12 @@ export * from './expiry'
 export * from './article'
 export * from './live-beacon'
 export * from './temporal-sighting'
+// Phase 9 Group / Topic (kind 37518, slimmed) Factory+Cast. The slimmed
+// successor to map-context/; its helper names are uniquely `getGroup*`-prefixed
+// so the wildcard re-export never collides with the other kinds. The
+// map-context/ module stays importable from its own path until Plans 03–06
+// repoint all ~34 consumer import sites.
+export * from './group'
 
 /** Reactive event database. Single instance for the whole app. */
 export const eventStore = new EventStore()
