@@ -81,6 +81,28 @@ export function naddrToCoordinate(address: string): string | null {
 	}
 }
 
+/**
+ * Inverse of `naddrToCoordinate`: encode a `kind:pubkey:identifier` replaceable-event
+ * coordinate as a `nostr:naddr1…` reference string. Returns `null` on a malformed
+ * coordinate or an `naddrEncode` failure. Used to seed the curated-reference editor from a
+ * Group's existing `a` tags so a routine edit does not wipe the curated lane (CR-03).
+ */
+export function coordinateToNaddrReference(coordinate: string): string | null {
+	const parts = coordinate.split(':')
+	if (parts.length !== 3) return null
+	const kind = Number.parseInt(parts[0] ?? '', 10)
+	const pubkey = parts[1]
+	const identifier = parts[2]
+	if (!Number.isFinite(kind) || !pubkey || !identifier) return null
+
+	try {
+		const address = nip19.naddrEncode({ kind, pubkey, identifier })
+		return stringifyNostrAddressReference({ address })
+	} catch {
+		return null
+	}
+}
+
 export function extractReferencedCoordinates(text: string | null | undefined): string[] {
 	const seen = new Set<string>()
 	const coordinates: string[] = []
@@ -121,11 +143,7 @@ export function syncAddressReferenceTags(
 	referencedCoordinates: string[],
 	preservedCoordinates: string[] = [],
 ): void {
-	event.tags = computeAddressReferenceTags(
-		event.tags,
-		referencedCoordinates,
-		preservedCoordinates,
-	)
+	event.tags = computeAddressReferenceTags(event.tags, referencedCoordinates, preservedCoordinates)
 }
 
 /**
@@ -153,9 +171,7 @@ export function computeAddressReferenceTags(
 		nextCoordinates.push(coordinate)
 	})
 
-	const filtered = currentTags.filter(
-		(tag) => tag[0] !== 'a' || preserved.has(tag[1] ?? ''),
-	)
+	const filtered = currentTags.filter((tag) => tag[0] !== 'a' || preserved.has(tag[1] ?? ''))
 	const existingAValues = new Set(
 		filtered
 			.filter((tag) => tag[0] === 'a' && typeof tag[1] === 'string' && tag[1])

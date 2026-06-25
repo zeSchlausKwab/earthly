@@ -63,10 +63,12 @@ import {
 	type GroupGeometryType,
 	type GroupGovernance,
 	getGroupContent,
+	getGroupReferencedAddresses,
 	isGroup,
 } from '@/lib/nostr/group'
 import { MapContext } from '@/lib/nostr/map-context'
 import {
+	coordinateToNaddrReference,
 	dedupeNostrAddressReferences,
 	extractNostrAddressReferences,
 	extractNostrAddressReferencesFromList,
@@ -138,6 +140,22 @@ function readInitialGroupContent(context?: MapContext | null): GroupContent | un
 	return getGroupContent(event)
 }
 
+/**
+ * Seed the curated-reference editor from an edited Group's existing `a` tags (CR-03). The
+ * curated list stores `nostr:naddr1…` reference strings, so each `kind:pubkey:identifier`
+ * coordinate is re-encoded; coordinates that fail to encode are dropped from the editable
+ * list but are still preserved on save via `preservedCoordinates`. Returns `[]` for a new
+ * Group (no `initialContext`) or a non-Group event so creation starts with an empty lane.
+ */
+function readInitialCuratedReferences(context?: MapContext | null): string[] {
+	if (!context) return []
+	const event = context.rawEvent()
+	if (!isGroup(event)) return []
+	return getGroupReferencedAddresses(event)
+		.map((coordinate) => coordinateToNaddrReference(coordinate))
+		.filter((reference): reference is string => reference !== null)
+}
+
 export function GroupEditorPanel({
 	initialContext,
 	onClose,
@@ -150,7 +168,11 @@ export function GroupEditorPanel({
 
 	const [name, setName] = useState(initial?.name ?? '')
 	const [description, setDescription] = useState(initial?.description ?? '')
-	const [curatedReferences, setCuratedReferences] = useState<string[]>([])
+	// CR-03: seed from the edited Group's existing curated `a` refs so a name/description/
+	// governance edit does not silently wipe the curated lane (empty for a new Group).
+	const [curatedReferences, setCuratedReferences] = useState<string[]>(() =>
+		readInitialCuratedReferences(initialContext),
+	)
 	const [image, setImage] = useState(initial?.image ?? '')
 	const [governance, setGovernance] = useState<GroupGovernance>(initial?.governance ?? 'open')
 	const [schemaMode, setSchemaMode] = useState<SchemaAuthorMode>('builder')
@@ -178,7 +200,8 @@ export function GroupEditorPanel({
 		setName(next?.name ?? '')
 		setDescription(next?.description ?? '')
 		descriptionEditorRef.current?.setContent(next?.description ?? '')
-		setCuratedReferences([])
+		// CR-03: re-seed curated refs from the edited Group (not []) so they survive the edit.
+		setCuratedReferences(readInitialCuratedReferences(initialContext))
 		setImage(next?.image ?? '')
 		setGovernance(next?.governance ?? 'open')
 		setSchemaMode('builder')
@@ -371,14 +394,26 @@ export function GroupEditorPanel({
 			]
 
 			const initialEvent = initialContext?.rawEvent()
-			const factory =
-				initialEvent && isGroup(initialEvent)
-					? GroupFactory.modify(initialEvent).group(content)
-					: GroupFactory.create(content)
+			const editedGroupEvent = initialEvent && isGroup(initialEvent) ? initialEvent : null
+			const factory = editedGroupEvent
+				? GroupFactory.modify(editedGroupEvent).group(content)
+				: GroupFactory.create(content)
+
+			// CR-03 (defense-in-depth): the curated lane the owner actually manages round-trips
+			// through `curatedReferences` → `referencedCoords`, so kept refs are re-added and
+			// removed refs are correctly dropped. But an existing `a` coordinate that could NOT be
+			// reverse-encoded to an naddr never reached the editable UI — preserve ONLY those so
+			// the destructive `a`-reconcile can't silently drop a curated reference the owner had
+			// no way to see or remove. Encodable-and-removed refs are intentionally NOT preserved.
+			const preservedCuratedCoords = editedGroupEvent
+				? getGroupReferencedAddresses(editedGroupEvent).filter(
+						(coordinate) => coordinateToNaddrReference(coordinate) === null,
+					)
+				: []
 
 			const signedEvent = await factory
 				.schemaHash(schemaHashTag)
-				.modifyPublicTags(setAddressReferenceTags(referencedCoords))
+				.modifyPublicTags(setAddressReferenceTags(referencedCoords, preservedCuratedCoords))
 				.sign(signer)
 
 			await publish(signedEvent, { routing: 'outbox' })
