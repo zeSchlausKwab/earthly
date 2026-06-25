@@ -19,7 +19,7 @@ import {
 	EntityPanelSectionHeader,
 	EntityPanelSurface,
 	GeometriesTable,
-	MapContextViewPanel,
+	GroupViewPanel,
 	ViewModePanel,
 } from './info-panel'
 import { DatasetSizeIndicator } from './info-panel/DatasetSizeIndicator'
@@ -534,7 +534,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	if (viewMode === 'view') {
 		if (viewContext) {
 			return (
-				<MapContextViewPanel
+				<GroupViewPanel
 					currentUserPubkey={currentUserPubkey}
 					getDatasetKey={getDatasetKey}
 					getDatasetName={getDatasetName}
