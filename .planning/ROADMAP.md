@@ -87,7 +87,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 2** *(blocked on Wave 1)*
 
-  - [ ] 09-02-PLAN.md — `group/` module: refactor map-context → governance enum, isGroup modelVersion gate, EntityFactory + tags.ts delegation, setSchemaHash transformer, useGroups [GROUP-01]
+  - [x] 09-02-PLAN.md — `group/` module: refactor map-context → governance enum, isGroup modelVersion gate, EntityFactory + tags.ts delegation, setSchemaHash transformer, useGroups [GROUP-01]
 
 **Wave 3** *(blocked on Wave 2)*
 
