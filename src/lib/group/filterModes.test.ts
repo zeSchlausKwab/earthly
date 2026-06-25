@@ -93,3 +93,33 @@ describe('filterModes — GROUP-05 off shows everything', () => {
 		expect(verdict.show).toBe(true)
 	})
 })
+
+describe('filterModes — CR-02 unhashed schemas do not collide on the compile cache', () => {
+	// Two DISTINCT schemas, NEITHER carrying an explicit `schemaHash`. Before the fix both
+	// keyed the compile cache under `'sha256:unhashed'`, so the SECOND schema validated
+	// against the FIRST's compiled validator. We prove each validates against its OWN schema.
+	const requireAgeSchema = {
+		$schema: 'https://json-schema.org/draft/2020-12/schema',
+		type: 'object',
+		properties: { age: { type: 'number' } },
+		required: ['age'],
+	}
+
+	test('a property valid under schema B but invalid under schema A is gated per-schema', async () => {
+		// `{ age: 1 }` is missing `name` (fails requireNameSchema) but satisfies requireAgeSchema.
+		const underNameSchema = await filterForeignAttachment(
+			'strict' as GroupFilterMode,
+			requireNameSchema,
+			{ age: 1 },
+		)
+		const underAgeSchema = await filterForeignAttachment(
+			'strict' as GroupFilterMode,
+			requireAgeSchema,
+			{ age: 1 },
+		)
+		// If the cache key collided, the second call would reuse the first compiled validator
+		// (requireNameSchema) and HIDE `{ age: 1 }`. With content-derived keys it is shown.
+		expect(underNameSchema.show).toBe(false)
+		expect(underAgeSchema.show).toBe(true)
+	})
+})

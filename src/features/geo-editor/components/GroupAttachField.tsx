@@ -128,7 +128,10 @@ export function GroupAttachField({
 		setChecking(true)
 		setWorkerFailed(false)
 		const publishedHash = group.schemaHash ?? undefined
-		const schemaHash = group.schemaHash ?? 'sha256:unhashed'
+		// CR-02: pass the published hash as the explicit key when present, else leave it
+		// undefined so `filterForeignAttachment` derives a content-based key — never a shared
+		// `'sha256:unhashed'` sentinel that would alias distinct unhashed schemas in the cache.
+		const schemaHash = group.schemaHash ?? undefined
 
 		;(async () => {
 			try {

@@ -16,7 +16,12 @@
  */
 
 import { describe, expect, test } from 'bun:test'
-import { canonicalizeSchema, computeSchemaHash, verifySchemaHash } from '@/lib/group/schemaHash'
+import {
+	canonicalizeSchema,
+	computeSchemaHash,
+	resolveSchemaCacheKey,
+	verifySchemaHash,
+} from '@/lib/group/schemaHash'
 
 const schemaA = {
 	$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -71,5 +76,41 @@ describe('schemaHash — O-03 verify (mismatch rejected)', () => {
 	test('verifySchemaHash accepts a reordered-equal schema against the same hash', async () => {
 		const hash = await computeSchemaHash(schemaA)
 		expect(await verifySchemaHash(schemaB, hash)).toBe(true)
+	})
+})
+
+describe('schemaHash — CR-02 cache key never collides on the no-hash path', () => {
+	const schemaRequireName = {
+		type: 'object',
+		properties: { name: { type: 'string' } },
+		required: ['name'],
+	}
+	const schemaRequireAge = {
+		type: 'object',
+		properties: { age: { type: 'number' } },
+		required: ['age'],
+	}
+
+	test('prefers the published hash when present', async () => {
+		expect(await resolveSchemaCacheKey(schemaRequireName, 'sha256:published')).toBe(
+			'sha256:published',
+		)
+	})
+
+	test('two DISTINCT unhashed schemas resolve to DIFFERENT keys', async () => {
+		const keyA = await resolveSchemaCacheKey(schemaRequireName)
+		const keyB = await resolveSchemaCacheKey(schemaRequireAge)
+		expect(keyA).not.toBe(keyB)
+	})
+
+	test('never returns the shared `sha256:unhashed` sentinel', async () => {
+		const key = await resolveSchemaCacheKey(schemaRequireName)
+		expect(key).not.toBe('sha256:unhashed')
+	})
+
+	test('equal-but-reordered unhashed schemas resolve to the SAME key (content-derived)', async () => {
+		const keyA = await resolveSchemaCacheKey(schemaA)
+		const keyB = await resolveSchemaCacheKey(schemaB)
+		expect(keyA).toBe(keyB)
 	})
 })

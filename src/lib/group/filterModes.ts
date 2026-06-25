@@ -18,7 +18,7 @@
 import type { GroupGovernance } from '@/lib/nostr/group'
 import type { SchemaRuleError } from '@/lib/validation/schema.worker'
 import { validateSchema } from '@/lib/validation/schemaWorker'
-import { verifySchemaHash } from './schemaHash'
+import { resolveSchemaCacheKey, verifySchemaHash } from './schemaHash'
 
 /** The three foreign-lane filter modes (GROUP-05). */
 export type GroupFilterMode = 'off' | 'warn' | 'strict'
@@ -34,8 +34,11 @@ export interface ForeignFilterVerdict {
 /** Options for one `filterForeignAttachment` call. */
 export interface FilterForeignOptions {
 	/**
-	 * The compile-once cache key handed to the off-thread worker. NOT itself verified
+	 * An explicit compile-once cache key for the off-thread worker. NOT itself verified
 	 * against the schema (it is an opaque key) — use `publishedHash` for verify-before-validate.
+	 * When ABSENT, a content-derived key is computed locally via `resolveSchemaCacheKey`
+	 * (CR-02): a shared sentinel must never key the compiled-validator cache, or two distinct
+	 * unhashed schemas would validate against the first-compiled one.
 	 */
 	schemaHash?: string
 	/**
@@ -111,10 +114,16 @@ export async function filterForeignAttachment(
 		}
 	}
 
+	// CR-02: never key the compiled-validator cache with a shared sentinel. When no explicit
+	// key is supplied, derive a content-based one (published hash → local canonical hash →
+	// deterministic FNV-1a fingerprint) so distinct unhashed schemas cannot collide.
+	const cacheKey =
+		options.schemaHash ?? (await resolveSchemaCacheKey(schema, options.publishedHash))
+
 	let verdict: Awaited<ReturnType<typeof validateSchema>>
 	try {
 		verdict = await validateSchema(schema, attachmentProperties, {
-			schemaHash: options.schemaHash ?? 'sha256:unhashed',
+			schemaHash: cacheKey,
 		})
 	} catch {
 		// Fail OPEN for legibility only — the worker's timeout-kill is the real DoS guard.

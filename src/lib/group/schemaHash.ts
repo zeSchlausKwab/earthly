@@ -57,3 +57,44 @@ export async function verifySchemaHash(schema: unknown, expected: string): Promi
 	if (actual === undefined) return false
 	return actual === expected
 }
+
+/**
+ * Synchronous, dependency-free FNV-1a-32 fingerprint of a string. Used only as the
+ * last-resort cache-key fallback when `crypto.subtle` is unavailable — it is NOT a
+ * security digest (collision-resistance is not claimed) but is content-derived and
+ * deterministic, which is all the compile-cache key requires: two DISTINCT schemas
+ * must not share a key (CR-02). Never returns a constant.
+ */
+function fnv1a32(input: string): string {
+	let hash = 0x811c9dc5
+	for (let i = 0; i < input.length; i++) {
+		hash ^= input.charCodeAt(i)
+		// `Math.imul` keeps the multiply in 32-bit space without BigInt.
+		hash = Math.imul(hash, 0x01000193)
+	}
+	// `>>> 0` coerces to an unsigned 32-bit int before hex-encoding.
+	return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
+/**
+ * Resolve the compile-once cache key for a schema (CR-02). The worker's compiled-validator
+ * cache returns a cached validator on a key HIT WITHOUT re-comparing the schema, so the key
+ * MUST be content-derived — a shared sentinel (`'sha256:unhashed'`) would alias every
+ * distinct unhashed schema onto the first-compiled validator. Resolution order:
+ *
+ *   1. the Group's PUBLISHED `schema-hash` tag when present (already content-derived);
+ *   2. else the locally-computed canonical `computeSchemaHash(schema)`;
+ *   3. else (no `crypto.subtle`) a deterministic `unhashed:`-prefixed FNV-1a fingerprint
+ *      of the canonicalized schema.
+ *
+ * NEVER returns a constant — every distinct schema yields a distinct key.
+ */
+export async function resolveSchemaCacheKey(
+	schema: unknown,
+	publishedHash?: string | null,
+): Promise<string> {
+	if (publishedHash) return publishedHash
+	const computed = await computeSchemaHash(schema)
+	if (computed !== undefined) return computed
+	return `unhashed:${fnv1a32(JSON.stringify(canonicalizeSchema(schema)))}`
+}
