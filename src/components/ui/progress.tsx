@@ -1,37 +1,31 @@
-import * as React from 'react'
-import { cn } from '@/lib/utils'
+"use client"
 
-interface ProgressProps extends React.HTMLAttributes<HTMLDivElement> {
-	value?: number
-	max?: number
+import * as React from "react"
+import { Progress as ProgressPrimitive } from "radix-ui"
+
+import { cn } from "@/lib/utils"
+
+function Progress({
+  className,
+  value,
+  ...props
+}: React.ComponentProps<typeof ProgressPrimitive.Root>) {
+  return (
+    <ProgressPrimitive.Root
+      data-slot="progress"
+      className={cn(
+        "relative flex h-1 w-full items-center overflow-x-hidden rounded-md bg-muted",
+        className
+      )}
+      {...props}
+    >
+      <ProgressPrimitive.Indicator
+        data-slot="progress-indicator"
+        className="size-full flex-1 bg-primary transition-all"
+        style={{ transform: `translateX(-${100 - (value || 0)}%)` }}
+      />
+    </ProgressPrimitive.Root>
+  )
 }
-
-const Progress = React.forwardRef<HTMLDivElement, ProgressProps>(
-	({ className, value = 0, max = 100, ...props }, ref) => {
-		const percentage = Math.min(100, Math.max(0, (value / max) * 100))
-
-		return (
-			<div
-				ref={ref}
-				className={cn(
-					'relative h-2 w-full overflow-hidden rounded-full bg-secondary',
-					className
-				)}
-				role="progressbar"
-				aria-valuenow={value}
-				aria-valuemin={0}
-				aria-valuemax={max}
-				{...props}
-			>
-				<div
-					className="h-full bg-primary transition-all duration-300 ease-in-out"
-					style={{ width: `${percentage}%` }}
-				/>
-			</div>
-		)
-	}
-)
-
-Progress.displayName = 'Progress'
 
 export { Progress }

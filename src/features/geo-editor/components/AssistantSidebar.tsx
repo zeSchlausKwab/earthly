@@ -1,7 +1,5 @@
-import { MessageCircle, X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { ChatPanel } from '@/features/chat'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
+import { ChatPanel } from '@/features/chat'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 
@@ -31,7 +29,7 @@ export function AssistantSidebar({
 			className="hidden h-svh min-w-[20rem] max-w-[32rem] basis-[25vw] shrink-0 flex-col border-l border-border bg-sidebar text-sidebar-foreground md:flex"
 			data-tour="assistant-sidebar"
 		>
-			<header className="flex h-12 shrink-0 items-center justify-between border-b border-sidebar-border px-3">
+			{/* <header className="flex h-12 shrink-0 items-center justify-between border-b border-sidebar-border px-3">
 				<div className="flex min-w-0 items-center gap-2">
 					<MessageCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
 					<div className="min-w-0">
@@ -52,7 +50,7 @@ export function AssistantSidebar({
 				>
 					<X className="h-4 w-4" />
 				</Button>
-			</header>
+			</header> */}
 			<div className="min-h-0 flex-1">
 				<ChatPanel
 					geoEvents={geoEvents}
