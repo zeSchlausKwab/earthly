@@ -1608,12 +1608,17 @@ export function GeoEditorView() {
 	const multiSelectModifierLabel = editor?.getMultiSelectModifierLabel() ?? 'Shift'
 	const sidebarExpanded = useEditorStore((state) => state.sidebarExpanded)
 	const setSidebarExpanded = useEditorStore((state) => state.setSidebarExpanded)
+	// Size the desktop sidebar from its own expand state — NOT the chat-open
+	// state. Previously this returned undefined whenever chat was closed, so
+	// `--sidebar-width` fell back to the 16rem default (content panel ~13rem,
+	// far too narrow) and the Expand/Shrink button was a no-op unless chat
+	// happened to be open.
 	const desktopShellStyle = useMemo<CSSProperties | undefined>(() => {
-		if (isMobile || !desktopChatOpen) return undefined
+		if (isMobile) return undefined
 		return {
 			'--sidebar-width': sidebarExpanded ? '32vw' : '25vw',
 		} as CSSProperties
-	}, [desktopChatOpen, isMobile, sidebarExpanded])
+	}, [isMobile, sidebarExpanded])
 
 	return (
 		<SidebarProvider
