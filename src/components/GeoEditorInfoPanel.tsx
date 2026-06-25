@@ -23,7 +23,7 @@ import {
 	ViewModePanel,
 } from './info-panel'
 import { DatasetSizeIndicator } from './info-panel/DatasetSizeIndicator'
-import { MapContextEditorPanel } from '../features/contexts/MapContextEditorPanel'
+import { GroupEditorPanel } from '../features/groups/GroupEditorPanel'
 import { CommentsPanel } from '../features/social/comments'
 import { Button } from './ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible'
@@ -511,12 +511,11 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	// Context Editor mode
 	if (contextEditorMode !== 'none' && onSaveContext && onCloseContextEditor) {
 		return (
-			<MapContextEditorPanel
+			<GroupEditorPanel
 				initialContext={editingContext}
 				onClose={onCloseContextEditor}
 				onSave={onSaveContext}
 				availableFeatures={availableFeatures}
-				mapContextEvents={mapContextEvents}
 			/>
 		)
 	}

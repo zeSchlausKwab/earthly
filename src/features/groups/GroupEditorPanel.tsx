@@ -1,0 +1,777 @@
+/**
+ * GroupEditorPanel — the owner-facing create/edit surface for a kind-37518 Group
+ * (Phase 9, D-01 / D-04). The slimmed successor to `MapContextEditorPanel`,
+ * refactored in place: the `contextUse`/`validationMode`/`Switch
+ * allowForeignAttachments` triad is replaced by a single governance ladder of 3
+ * plain-language radio cards (open · schema · closed), and the schema-authoring
+ * section is conditionally mounted ONLY under `governance: 'schema'`.
+ *
+ * Both schema-authoring paths — the visual builder (`compileBuilderSchema`) and the
+ * raw-JSON Advanced tab — compile to the SAME draft-2020-12 schema fed to the
+ * Phase-8 hardened off-thread `validateSchema` worker. On save the Group publishes
+ * with a canonical `schema-hash` (`computeSchemaHash`); edits preserve the `d` tag.
+ *
+ * Accent (`--primary`) is reserved per the UI-SPEC: the selected governance card
+ * and the submit button only. The legacy unlabeled-checkbox a11y gap
+ * (`MapContextEditorPanel.tsx:900-913`) is fixed via shadcn `Checkbox` + `Label
+ * htmlFor` pairing.
+ *
+ * NOTE (consumer migration, Plans 05/06): this panel still accepts/returns the
+ * `MapContext` cast at its props boundary so the existing GeoEditorInfoPanel
+ * view/save lifecycle is unchanged. The full `Group`-typed view + save lifecycle
+ * (GroupViewPanel, useGroups wiring at the call sites) migrates in Plan 06. The
+ * editor's internals are entirely Group-native (GroupFactory / GroupContent /
+ * compileBuilderSchema).
+ */
+
+import { castEvent } from 'applesauce-core/casts'
+import { useActiveAccount } from 'applesauce-react/hooks'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+	GeoRichTextEditor,
+	type GeoFeatureItem,
+	type GeoRichTextEditorRef,
+} from '@/components/editor'
+import { EntitySearchPopover, type EntitySearchResult } from '@/components/entity-search'
+import { BlossomUploaderButton } from '@/components/blossom/BlossomUploaderButton'
+import {
+	EntityPanelSectionHeader,
+	EntityPanelShell,
+	EntityPanelSurface,
+} from '@/components/info-panel/EntityPanelShell'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
+import { computeSchemaHash } from '@/lib/group/schemaHash'
+import { accounts, eventStore, publish } from '@/lib/nostr'
+import {
+	GROUP_GEOMETRY_TYPES,
+	GroupFactory,
+	type GroupContent,
+	type GroupGeometryType,
+	type GroupGovernance,
+	getGroupContent,
+	isGroup,
+} from '@/lib/nostr/group'
+import { MapContext } from '@/lib/nostr/map-context'
+import {
+	dedupeNostrAddressReferences,
+	extractNostrAddressReferences,
+	extractNostrAddressReferencesFromList,
+	extractReferencedCoordinates,
+	extractReferencedCoordinatesFromList,
+	setAddressReferenceTags,
+	stringifyNostrAddressReference,
+} from '@/lib/nostr/references'
+import { validateSchema } from '@/lib/validation/schemaWorker'
+import {
+	compileBuilderSchema,
+	decodeAllowedGeometryTypes,
+	decodeBuilderSchema,
+	type SchemaBuilderRow,
+	type SchemaFieldType,
+} from './schemaBuilder'
+
+type SchemaAuthorMode = 'builder' | 'advanced'
+
+interface BuilderRow extends SchemaBuilderRow {
+	/** Stable React key for the row (not serialized into the schema). */
+	id: string
+}
+
+interface GroupEditorPanelProps {
+	/** The Group being edited, surfaced through the existing MapContext cast. */
+	initialContext?: MapContext | null
+	onClose: () => void
+	/** Returns the saved Group as a MapContext cast (lifecycle migrates in Plan 06). */
+	onSave: (group: MapContext) => void
+	availableFeatures?: GeoFeatureItem[]
+}
+
+/** Governance ladder copy — verbatim from the UI-SPEC copy table (D-01). */
+const GOVERNANCE_CARDS: { value: GroupGovernance; title: string; explanation: string }[] = [
+	{
+		value: 'open',
+		title: 'Open',
+		explanation: 'Anyone can attach their dataset — contributions appear below your curated picks.',
+	},
+	{
+		value: 'schema',
+		title: 'Schema',
+		explanation: 'Anyone can attach, but contributions are checked against your rules first.',
+	},
+	{
+		value: 'closed',
+		title: 'Closed',
+		explanation: 'Only the references you curate appear — no outside contributions.',
+	},
+]
+
+function createRowId(): string {
+	if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+		return crypto.randomUUID()
+	}
+	return `group-row-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function rowsFromSchema(schema: unknown): BuilderRow[] {
+	return decodeBuilderSchema(schema).map((row) => ({ ...row, id: createRowId() }))
+}
+
+/** Read the slimmed Group content out of an editable MapContext (defensive). */
+function readInitialGroupContent(context?: MapContext | null): GroupContent | undefined {
+	if (!context) return undefined
+	const event = context.rawEvent()
+	if (!isGroup(event)) return undefined
+	return getGroupContent(event)
+}
+
+export function GroupEditorPanel({
+	initialContext,
+	onClose,
+	onSave,
+	availableFeatures = [],
+}: GroupEditorPanelProps) {
+	const currentUser = useActiveAccount()
+	const initial = useMemo(() => readInitialGroupContent(initialContext), [initialContext])
+	const descriptionEditorRef = useRef<GeoRichTextEditorRef>(null)
+
+	const [name, setName] = useState(initial?.name ?? '')
+	const [description, setDescription] = useState(initial?.description ?? '')
+	const [curatedReferences, setCuratedReferences] = useState<string[]>([])
+	const [image, setImage] = useState(initial?.image ?? '')
+	const [governance, setGovernance] = useState<GroupGovernance>(initial?.governance ?? 'open')
+	const [schemaMode, setSchemaMode] = useState<SchemaAuthorMode>('builder')
+	const [allowedGeometryTypes, setAllowedGeometryTypes] = useState<GroupGeometryType[]>(
+		initial?.geometryConstraints?.allowedTypes ?? decodeAllowedGeometryTypes(initial?.schema),
+	)
+	const [rows, setRows] = useState<BuilderRow[]>(() => rowsFromSchema(initial?.schema))
+	const [advancedJson, setAdvancedJson] = useState(() =>
+		JSON.stringify(compileBuilderSchema(rowsFromSchema(initial?.schema), []), null, 2),
+	)
+	const [sampleJson, setSampleJson] = useState('{}')
+	const [sampleVerdict, setSampleVerdict] = useState<{
+		status: 'valid' | 'invalid' | 'error'
+		message: string
+	} | null>(null)
+	const [isSaving, setIsSaving] = useState(false)
+	const [saveError, setSaveError] = useState<string | null>(null)
+
+	const isEditing = Boolean(readInitialGroupContent(initialContext))
+
+	// Reset all fields when the edited Group changes.
+	useEffect(() => {
+		const next = readInitialGroupContent(initialContext)
+		const nextRows = rowsFromSchema(next?.schema)
+		setName(next?.name ?? '')
+		setDescription(next?.description ?? '')
+		descriptionEditorRef.current?.setContent(next?.description ?? '')
+		setCuratedReferences([])
+		setImage(next?.image ?? '')
+		setGovernance(next?.governance ?? 'open')
+		setSchemaMode('builder')
+		setAllowedGeometryTypes(
+			next?.geometryConstraints?.allowedTypes ?? decodeAllowedGeometryTypes(next?.schema),
+		)
+		setRows(nextRows)
+		setAdvancedJson(JSON.stringify(next?.schema ?? compileBuilderSchema(nextRows, []), null, 2))
+		setSampleJson('{}')
+		setSampleVerdict(null)
+		setSaveError(null)
+	}, [initialContext])
+
+	const builderSchema = useMemo(
+		() => compileBuilderSchema(rows, allowedGeometryTypes),
+		[rows, allowedGeometryTypes],
+	)
+
+	/** The effective schema for the active authoring tab + its parse error, if any. */
+	const effectiveSchema = useMemo<{
+		schema: Record<string, unknown> | null
+		error: string | null
+	}>(() => {
+		if (schemaMode === 'builder') return { schema: builderSchema, error: null }
+		try {
+			const parsed = JSON.parse(advancedJson) as Record<string, unknown>
+			return { schema: parsed, error: null }
+		} catch (error) {
+			return {
+				schema: null,
+				error: error instanceof Error ? error.message : 'Invalid JSON',
+			}
+		}
+	}, [schemaMode, builderSchema, advancedJson])
+
+	const referencedEntities = useMemo(() => {
+		const featureMap = new Map<string, GeoFeatureItem>()
+		availableFeatures.forEach((item) => {
+			featureMap.set(`${item.address}#${item.featureId ?? ''}`, item)
+			if (!item.featureId) featureMap.set(item.address, item)
+		})
+		return dedupeNostrAddressReferences(extractNostrAddressReferences(description)).map(
+			(reference) => {
+				const key = `${reference.address}#${reference.featureId ?? ''}`
+				const matched =
+					featureMap.get(key) ??
+					(!reference.featureId ? featureMap.get(reference.address) : undefined)
+				return {
+					key,
+					name: matched?.name ?? reference.address,
+				}
+			},
+		)
+	}, [availableFeatures, description])
+
+	const curatedReferenceEntities = useMemo(() => {
+		return dedupeNostrAddressReferences(
+			extractNostrAddressReferencesFromList(curatedReferences),
+		).map((reference) => ({
+			key: `${reference.address}#${reference.featureId ?? ''}`,
+			raw: stringifyNostrAddressReference(reference),
+			name: reference.address,
+		}))
+	}, [curatedReferences])
+
+	const availableCuratedReferenceFeatures = useMemo(
+		() => availableFeatures.filter((item) => item.entityType !== 'context'),
+		[availableFeatures],
+	)
+
+	const toggleAllowedGeometryType = (type: GroupGeometryType, checked: boolean) => {
+		setAllowedGeometryTypes((prev) => {
+			const next = new Set(prev)
+			if (checked) next.add(type)
+			else next.delete(type)
+			return Array.from(next.values())
+		})
+	}
+
+	// Live "Sample properties" affordance — runs OFF-THREAD through the Phase-8 worker.
+	useEffect(() => {
+		let cancelled = false
+		if (governance !== 'schema') {
+			setSampleVerdict(null)
+			return
+		}
+		if (effectiveSchema.error || !effectiveSchema.schema) {
+			setSampleVerdict({
+				status: 'error',
+				message: `Schema JSON is invalid: ${effectiveSchema.error ?? 'unknown error'}. Fix it or switch back to the builder.`,
+			})
+			return
+		}
+		let sample: unknown
+		try {
+			sample = JSON.parse(sampleJson)
+		} catch (error) {
+			setSampleVerdict({
+				status: 'error',
+				message: error instanceof Error ? error.message : 'Invalid sample JSON',
+			})
+			return
+		}
+		const schema = effectiveSchema.schema
+		void (async () => {
+			const verdict = await validateSchema(schema, sample, { schemaHash: 'sha256:sample' })
+			if (cancelled) return
+			if (verdict.ok) {
+				setSampleVerdict({ status: 'valid', message: 'Sample is valid.' })
+			} else {
+				const first = verdict.errors?.[0]
+				const detail = first
+					? `${first.instancePath || '/'} ${first.message ?? 'failed'}`
+					: (verdict.error ?? 'Validation failed')
+				setSampleVerdict({ status: 'invalid', message: detail })
+			}
+		})()
+		return () => {
+			cancelled = true
+		}
+	}, [governance, effectiveSchema, sampleJson])
+
+	const handleCuratedReferenceSelect = (result: EntitySearchResult) => {
+		const selected = result.entity as GeoFeatureItem
+		const nextReference = stringifyNostrAddressReference({
+			address: selected.address,
+			featureId: selected.featureId,
+		})
+		setCuratedReferences((prev) => (prev.includes(nextReference) ? prev : [...prev, nextReference]))
+	}
+
+	const switchToAdvanced = () => {
+		// Seed the raw-JSON tab from the builder so the rules round-trip.
+		setAdvancedJson(JSON.stringify(builderSchema, null, 2))
+		setSchemaMode('advanced')
+	}
+
+	const handleSave = async () => {
+		if (!currentUser) return
+		setSaveError(null)
+
+		if (!name.trim()) {
+			setSaveError('Group name is required.')
+			return
+		}
+
+		// Compile the schema only under governance:'schema' (O-02 field-coexistence:
+		// leaving 'schema' strips geometryConstraints/schema from content).
+		let schema: Record<string, unknown> | undefined
+		let geometryConstraints: GroupContent['geometryConstraints']
+		let schemaHashTag: string | undefined
+
+		if (governance === 'schema') {
+			if (effectiveSchema.error || !effectiveSchema.schema) {
+				setSaveError(
+					`Schema JSON is invalid: ${effectiveSchema.error ?? 'unknown error'}. Fix it or switch back to the builder.`,
+				)
+				return
+			}
+			const hasRows = rows.some((row) => row.name.trim().length > 0)
+			if (!hasRows && allowedGeometryTypes.length === 0 && schemaMode === 'builder') {
+				setSaveError('Add at least one property rule or one allowed geometry type.')
+				return
+			}
+			schema = effectiveSchema.schema
+			geometryConstraints =
+				allowedGeometryTypes.length > 0 ? { allowedTypes: allowedGeometryTypes } : undefined
+			const hash = await computeSchemaHash(schema)
+			schemaHashTag = hash
+		}
+
+		setIsSaving(true)
+		try {
+			const signer = accounts.signer
+			if (!signer) throw new Error('No active account')
+
+			const content: GroupContent = {
+				name: name.trim(),
+				description: description.length > 0 ? description : undefined,
+				descriptionFormat: 'markdown',
+				governance,
+				image: image.trim() || undefined,
+				geometryConstraints,
+				schema,
+			}
+
+			const referencedCoords = [
+				...extractReferencedCoordinates(description),
+				...extractReferencedCoordinatesFromList(curatedReferences),
+			]
+
+			const initialEvent = initialContext?.rawEvent()
+			const factory =
+				initialEvent && isGroup(initialEvent)
+					? GroupFactory.modify(initialEvent).group(content)
+					: GroupFactory.create(content)
+
+			const signedEvent = await factory
+				.schemaHash(schemaHashTag)
+				.modifyPublicTags(setAddressReferenceTags(referencedCoords))
+				.sign(signer)
+
+			await publish(signedEvent, { routing: 'outbox' })
+			// Surface the saved Group through the existing MapContext cast so the
+			// current GeoEditorInfoPanel view/save lifecycle is unchanged (Plan 06).
+			const cast = castEvent(signedEvent, MapContext, eventStore)
+			onSave(cast)
+			onClose()
+		} catch (error) {
+			setSaveError(
+				error instanceof Error
+					? error.message
+					: "Couldn't publish — check your connection and try again.",
+			)
+		} finally {
+			setIsSaving(false)
+		}
+	}
+
+	return (
+		<EntityPanelShell title={isEditing ? 'Edit Group' : 'Create Group'}>
+			<EntityPanelSurface tone="context" className="space-y-3">
+				<EntityPanelSectionHeader
+					eyebrow="Narrative"
+					title="Describe the Group"
+					description="Markdown is stored verbatim. Use $ to insert NIP-27 nostr references inline."
+				/>
+				<div className="space-y-2">
+					<Label htmlFor="group-name">Name</Label>
+					<Input
+						id="group-name"
+						value={name}
+						onChange={(event) => setName(event.target.value)}
+						placeholder="Roman ruins in Carinthia"
+						className="rounded-none"
+					/>
+				</div>
+				<div className="space-y-2">
+					<Label>Description</Label>
+					<GeoRichTextEditor
+						ref={descriptionEditorRef}
+						initialValue={description}
+						onChange={setDescription}
+						availableFeatures={availableFeatures}
+						placeholder={`## Scope
+Write in Markdown. Use $ to insert datasets, Groups, or features.`}
+						rows={8}
+						className="min-h-[280px] w-full"
+					/>
+				</div>
+				<div className="space-y-2">
+					<div className="flex items-center justify-between gap-2">
+						<Label>Referenced entities</Label>
+						<span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+							{referencedEntities.length}
+						</span>
+					</div>
+					{referencedEntities.length === 0 ? (
+						<p className="border border-border px-3 py-2 text-[11px] text-muted-foreground">
+							No inline nostr references yet.
+						</p>
+					) : (
+						<div className="border border-border">
+							{referencedEntities.map((reference, index) => (
+								<div
+									key={reference.key}
+									className={`px-3 py-2 ${index > 0 ? 'border-t border-border' : ''}`}
+								>
+									<p className="truncate text-xs text-foreground">{reference.name}</p>
+								</div>
+							))}
+						</div>
+					)}
+				</div>
+				<div className="space-y-2">
+					<div className="flex items-center justify-between gap-2">
+						<Label>Curated references</Label>
+						<span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+							{curatedReferenceEntities.length}
+						</span>
+					</div>
+					<EntitySearchPopover
+						sources={{ features: availableCuratedReferenceFeatures }}
+						entityTypes={['feature']}
+						onSelect={handleCuratedReferenceSelect}
+						placeholder="Add curated reference…"
+						searchMode="local"
+						inputClassName="rounded-none"
+					/>
+					{curatedReferenceEntities.length > 0 && (
+						<div className="border border-border">
+							{curatedReferenceEntities.map((reference, index) => (
+								<div
+									key={reference.key}
+									className={`flex items-start justify-between gap-3 px-3 py-2 ${
+										index > 0 ? 'border-t border-border' : ''
+									}`}
+								>
+									<p className="min-w-0 truncate text-xs text-foreground">{reference.name}</p>
+									<Button
+										type="button"
+										variant="ghost"
+										size="sm"
+										className="h-6 rounded-none px-2 text-[11px]"
+										onClick={() =>
+											setCuratedReferences((prev) =>
+												prev.filter((value) => value !== reference.raw),
+											)
+										}
+									>
+										Remove
+									</Button>
+								</div>
+							))}
+						</div>
+					)}
+				</div>
+				<div className="space-y-2">
+					<Label htmlFor="group-image">Image URL</Label>
+					<div className="flex items-center gap-2">
+						<Input
+							id="group-image"
+							value={image}
+							onChange={(event) => setImage(event.target.value)}
+							placeholder="https://..."
+							className="rounded-none"
+						/>
+						<BlossomUploaderButton
+							currentUrl={image}
+							onUploaded={({ url }) => setImage(url)}
+							buttonLabel="Blossom"
+							className="rounded-none"
+						/>
+					</div>
+				</div>
+			</EntityPanelSurface>
+
+			{/* Governance ladder (D-01) — 3 plain-language radio cards. */}
+			<EntityPanelSurface tone="neutral" className="space-y-3">
+				<EntityPanelSectionHeader
+					eyebrow="Governance"
+					title="Who can contribute?"
+					description="Pick how outside datasets may attach to this Group."
+				/>
+				<RadioGroup
+					value={governance}
+					onValueChange={(value) => setGovernance(value as GroupGovernance)}
+					className="gap-2"
+				>
+					{GOVERNANCE_CARDS.map((card) => {
+						const selected = governance === card.value
+						const inputId = `governance-${card.value}`
+						return (
+							<Card
+								key={card.value}
+								size="sm"
+								className={`rounded-none ${
+									selected ? 'bg-primary/5 ring-2 ring-primary' : 'ring-1 ring-border'
+								}`}
+							>
+								<CardContent className="flex items-start gap-3">
+									<RadioGroupItem id={inputId} value={card.value} className="mt-0.5" />
+									<Label htmlFor={inputId} className="flex flex-col items-start gap-1">
+										<span className="text-sm font-semibold text-foreground">{card.title}</span>
+										<span className="text-[13px] font-normal leading-5 text-muted-foreground">
+											{card.explanation}
+										</span>
+									</Label>
+								</CardContent>
+							</Card>
+						)
+					})}
+				</RadioGroup>
+			</EntityPanelSurface>
+
+			{/* Schema-authoring section — mounted ONLY under governance:'schema' (O-02). */}
+			{governance === 'schema' && (
+				<EntityPanelSurface tone="neutral" className="space-y-3">
+					<EntityPanelSectionHeader
+						eyebrow="Schema"
+						title="Contribution rules"
+						description="Build property rules and allowed geometry types, or paste raw JSON Schema."
+					/>
+					<Tabs
+						value={schemaMode}
+						onValueChange={(value) => {
+							if (value === 'advanced') switchToAdvanced()
+							else setSchemaMode('builder')
+						}}
+						className="space-y-3"
+					>
+						<TabsList className="h-8 w-full justify-start rounded-none border-b border-border bg-transparent p-0">
+							<TabsTrigger
+								value="builder"
+								className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+							>
+								Builder
+							</TabsTrigger>
+							<TabsTrigger
+								value="advanced"
+								className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+							>
+								Advanced (JSON)
+							</TabsTrigger>
+						</TabsList>
+
+						<TabsContent value="builder" className="mt-0 space-y-3">
+							<div className="space-y-2">
+								{rows.length === 0 ? (
+									<p className="border border-border px-3 py-2 text-[11px] text-muted-foreground">
+										No property rules yet. Add one, or switch to the Advanced tab to paste raw JSON.
+									</p>
+								) : (
+									rows.map((row, index) => {
+										const requiredId = `row-required-${row.id}`
+										return (
+											<div key={row.id} className="space-y-2 border border-border px-3 py-2">
+												<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+													<Input
+														value={row.name}
+														onChange={(event) => {
+															const next = [...rows]
+															next[index] = { ...row, name: event.target.value }
+															setRows(next)
+														}}
+														placeholder="property name"
+														className="rounded-none"
+													/>
+													<Select
+														value={row.type}
+														onValueChange={(value) => {
+															const next = [...rows]
+															next[index] = { ...row, type: value as SchemaFieldType }
+															setRows(next)
+														}}
+													>
+														<SelectTrigger className="rounded-none">
+															<SelectValue />
+														</SelectTrigger>
+														<SelectContent>
+															<SelectItem value="text">text</SelectItem>
+															<SelectItem value="number">number</SelectItem>
+															<SelectItem value="integer">integer</SelectItem>
+															<SelectItem value="boolean">boolean</SelectItem>
+															<SelectItem value="enum">enum</SelectItem>
+														</SelectContent>
+													</Select>
+												</div>
+												{row.type === 'enum' && (
+													<Input
+														value={(row.allowedValues ?? []).join(', ')}
+														onChange={(event) => {
+															const next = [...rows]
+															next[index] = {
+																...row,
+																allowedValues: event.target.value
+																	.split(',')
+																	.map((value) => value.trim())
+																	.filter((value) => value.length > 0),
+															}
+															setRows(next)
+														}}
+														placeholder="allowed values, comma-separated"
+														className="rounded-none"
+													/>
+												)}
+												<div className="flex items-center justify-between">
+													<div className="flex items-center gap-2">
+														<Checkbox
+															id={requiredId}
+															checked={row.required ?? false}
+															onCheckedChange={(checked) => {
+																const next = [...rows]
+																next[index] = { ...row, required: checked === true }
+																setRows(next)
+															}}
+														/>
+														<Label
+															htmlFor={requiredId}
+															className="text-[11px] text-muted-foreground"
+														>
+															Required
+														</Label>
+													</div>
+													<Button
+														size="sm"
+														variant="ghost"
+														onClick={() => setRows(rows.filter((_, i) => i !== index))}
+														className="h-6 rounded-none px-2 text-[11px]"
+													>
+														Remove
+													</Button>
+												</div>
+											</div>
+										)
+									})
+								)}
+								<Button
+									size="sm"
+									variant="outline"
+									onClick={() =>
+										setRows([
+											...rows,
+											{ id: createRowId(), name: '', type: 'text', required: false },
+										])
+									}
+									className="rounded-none"
+								>
+									Add property
+								</Button>
+							</div>
+
+							<div className="space-y-2">
+								<Label>Allowed geometry types</Label>
+								<div className="grid grid-cols-2 gap-2">
+									{GROUP_GEOMETRY_TYPES.map((geometryType) => {
+										const geometryId = `geometry-${geometryType}`
+										return (
+											<div key={geometryType} className="flex items-center gap-2">
+												<Checkbox
+													id={geometryId}
+													checked={allowedGeometryTypes.includes(geometryType)}
+													onCheckedChange={(checked) =>
+														toggleAllowedGeometryType(geometryType, checked === true)
+													}
+												/>
+												<Label htmlFor={geometryId} className="text-[11px] text-foreground">
+													{geometryType}
+												</Label>
+											</div>
+										)
+									})}
+								</div>
+							</div>
+						</TabsContent>
+
+						<TabsContent value="advanced" className="mt-0 space-y-2">
+							<Textarea
+								value={advancedJson}
+								onChange={(event) => setAdvancedJson(event.target.value)}
+								rows={12}
+								className="rounded-none font-mono text-xs"
+							/>
+							{effectiveSchema.error && (
+								<p className="text-xs text-destructive">
+									Schema JSON is invalid: {effectiveSchema.error}. Fix it or switch back to the
+									builder.
+								</p>
+							)}
+						</TabsContent>
+					</Tabs>
+
+					<div className="space-y-1">
+						<Label htmlFor="group-sample">Sample properties</Label>
+						<Textarea
+							id="group-sample"
+							value={sampleJson}
+							onChange={(event) => setSampleJson(event.target.value)}
+							rows={4}
+							className="rounded-none font-mono text-xs"
+						/>
+						{sampleVerdict && (
+							<p
+								className={`text-xs ${
+									sampleVerdict.status === 'valid'
+										? 'text-emerald-600'
+										: sampleVerdict.status === 'invalid'
+											? 'text-amber-600'
+											: 'text-destructive'
+								}`}
+							>
+								{sampleVerdict.message}
+							</p>
+						)}
+					</div>
+				</EntityPanelSurface>
+			)}
+
+			<EntityPanelSurface tone="neutral" className="space-y-2">
+				{saveError && <p className="text-xs text-destructive">{saveError}</p>}
+				<div className="flex items-center justify-end gap-2">
+					<Button variant="outline" onClick={onClose} className="rounded-none">
+						Cancel
+					</Button>
+					<Button
+						onClick={handleSave}
+						disabled={isSaving || !currentUser}
+						className="rounded-none bg-primary text-primary-foreground"
+					>
+						{isSaving ? 'Saving…' : isEditing ? 'Save Group' : 'Create Group'}
+					</Button>
+				</div>
+			</EntityPanelSurface>
+		</EntityPanelShell>
+	)
+}
