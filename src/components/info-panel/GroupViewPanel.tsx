@@ -249,6 +249,7 @@ export function GroupViewPanel({
 					onInspectDataset={onInspectDataset}
 					onZoomToDataset={onZoomToDataset}
 					onBlessForeign={handleBlessForeign}
+					curatedCoordinates={referencedAddresses}
 				/>
 
 				{/* Comment + react on the Group coordinate (GROUP-07). The `viewContext` cast is a

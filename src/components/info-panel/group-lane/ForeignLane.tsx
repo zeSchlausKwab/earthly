@@ -19,7 +19,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { nip19 } from 'nostr-tools'
 import type { NostrEvent } from 'applesauce-core/helpers/event'
 import { toast } from 'sonner'
-import type { GeoDataset } from '@/lib/nostr/geo-event'
+import { castEvent } from 'applesauce-core/casts'
+import { eventStore } from '@/lib/nostr'
+import { GeoDataset } from '@/lib/nostr/geo-event'
 import {
 	type GroupFilterMode,
 	filterForeignAttachment,
@@ -58,6 +60,12 @@ export interface ForeignLaneProps {
 	onZoomToDataset: (event: GeoDataset) => void
 	/** Owner-only "Add to curated" (bless) — appends the row's coordinate to the `a` lane. */
 	onBlessForeign?: (coordinate: string) => void
+	/**
+	 * The Group's curated (`a`) coordinates. A dataset that has been blessed into the
+	 * curated lane MUST NOT also appear here (it would show in both lanes) — these are
+	 * excluded from the community lane.
+	 */
+	curatedCoordinates?: string[]
 }
 
 /** A foreign-lane row after the trust gate, carrying its off-thread schema verdict. */
@@ -100,6 +108,7 @@ export function ForeignLane({
 	onInspectDataset,
 	onZoomToDataset,
 	onBlessForeign,
+	curatedCoordinates = [],
 }: ForeignLaneProps) {
 	// Subscribe to the mute set so muting a contributor re-renders the lane immediately.
 	const muted = useMuteStore((state) => state.muted)
@@ -111,11 +120,26 @@ export function ForeignLane({
 	const [showAll, setShowAll] = useState(false)
 	const [gatedRows, setGatedRows] = useState<GatedRow[]>([])
 
-	// 1. TRUST GATE (GROUP-08): kind → signature → mute, then sort newest-first + cap.
+	// Stable key for the curated-coordinate set so the gate memo only recomputes when
+	// the curated lane actually changes (not on every render's fresh array identity).
+	const curatedKey = curatedCoordinates.join(',')
+
+	// 1. TRUST GATE (GROUP-08): drop datasets already curated (no double-listing across
+	//    lanes), then kind → signature → mute, then sort newest-first + cap.
 	const { visible, hasMore } = useMemo(() => {
 		const mutedPubkeys = new Set(muted)
-		return gateForeignLane(attachments, { mutedPubkeys })
-	}, [attachments, muted])
+		const curated = new Set(curatedKey ? curatedKey.split(',') : [])
+		const notCurated =
+			curated.size === 0
+				? attachments
+				: attachments.filter((event) => {
+						const coordinate = `37515:${event.pubkey}:${
+							event.tags.find((t) => t[0] === 'd')?.[1] ?? ''
+						}`
+						return !curated.has(coordinate)
+					})
+		return gateForeignLane(notCurated, { mutedPubkeys })
+	}, [attachments, muted, curatedKey])
 
 	const isSchema = governance === 'schema'
 
@@ -158,11 +182,37 @@ export function ForeignLane({
 
 	const shownRows = useMemo(() => gatedRows.filter((row) => row.show), [gatedRows])
 
+	// Cast each raw attachment event into a real `GeoDataset` ONCE (memoized) so
+	// the row name / inspect / zoom actions get a typed dataset with a usable
+	// `featureCollection`. Casting the raw NostrEvent with `as unknown as GeoDataset`
+	// (the previous approach) produced an object with no `featureCollection`, which
+	// crashed `getDatasetName` → `getCollectionName(undefined).name`. A non-castable
+	// event is dropped rather than allowed to crash the whole lane.
+	const visibleRows = useMemo(() => {
+		const list = showAll ? shownRows : shownRows.slice(0, 50)
+		return list
+			.map((row) => {
+				try {
+					const dataset = castEvent(row.event, GeoDataset, eventStore)
+					const coordinate = `37515:${row.event.pubkey}:${
+						row.event.tags.find((t) => t[0] === 'd')?.[1] ?? ''
+					}`
+					return { row, dataset, coordinate }
+				} catch {
+					return null
+				}
+			})
+			.filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+	}, [shownRows, showAll])
+
 	const handleMute = useCallback(
 		(pubkey: string) => {
 			const label = shortName(pubkey)
 			mute(pubkey)
+			// Longer-lived toast (10s) so the undo is actually reachable — the default
+			// ~4s expired before testers could click Undo (UAT 2026-06-26).
 			toast(`Muted ${label} everywhere.`, {
+				duration: 10000,
 				action: { label: 'Undo', onClick: () => unmute(pubkey) },
 			})
 		},
@@ -218,11 +268,7 @@ export function ForeignLane({
 						</p>
 					) : (
 						<div className="space-y-2">
-							{(showAll ? shownRows : shownRows.slice(0, 50)).map((row) => {
-								const dataset = row.event as unknown as GeoDataset
-								const coordinate = `37515:${row.event.pubkey}:${
-									row.event.tags.find((t) => t[0] === 'd')?.[1] ?? ''
-								}`
+							{visibleRows.map(({ row, dataset, coordinate }) => {
 								return (
 									<div
 										key={row.event.id}
@@ -232,11 +278,23 @@ export function ForeignLane({
 											<p className="truncate text-[13px] text-muted-foreground">
 												{getDatasetName(dataset)}
 											</p>
-											{row.reason && (
-												<Badge variant="outline" className="rounded-none text-[10px]">
-													{mode === 'strict' ? `Hidden: ${row.reason}` : row.reason}
+											{row.reason ? (
+												<Badge
+													variant="outline"
+													className="rounded-none border-l-2 border-l-amber-500 text-[10px] text-amber-700 dark:text-amber-400"
+												>
+													{row.reason}
 												</Badge>
-											)}
+											) : isSchema && mode !== 'off' ? (
+												// Positive verdict for conforming rows so a schema-filtered row is never
+												// silent about WHY it survived (UAT b: Strict survivors need a chip too).
+												<Badge
+													variant="outline"
+													className="rounded-none border-l-2 border-l-emerald-500 text-[10px] text-emerald-700 dark:text-emerald-400"
+												>
+													Matches the rules
+												</Badge>
+											) : null}
 										</div>
 										<div className="flex items-center gap-1">
 											<EntityActionBar

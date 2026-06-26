@@ -26,7 +26,10 @@ function createBlankDraftSourceId() {
 	return `session:${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
-function getCollectionName(collection: FeatureCollection): string | undefined {
+function getCollectionName(collection: FeatureCollection | undefined): string | undefined {
+	// Defensive: callers may pass an unresolved/blob-only dataset whose
+	// `featureCollection` is undefined — never throw on `.name` of undefined.
+	if (!collection) return undefined
 	const maybeName = (collection as FeatureCollection & { name?: unknown }).name
 	return typeof maybeName === 'string' ? maybeName : undefined
 }
