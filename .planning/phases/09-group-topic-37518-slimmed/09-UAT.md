@@ -3,7 +3,7 @@ status: complete
 phase: 09-group-topic-37518-slimmed
 source: [09-VERIFICATION.md]
 started: 2026-06-25T14:10:00Z
-updated: 2026-06-26T08:32:00Z
+updated: 2026-06-26T09:10:00Z
 ---
 
 ## Current Test
@@ -52,3 +52,28 @@ skipped: 0
 blocked: 0
 
 ## Gaps
+
+[none — all open items were found during browser-agent re-verification and fixed; see below]
+
+## Post-verification fixes (browser-agent UAT, 2026-06-26)
+
+Test 3 was re-verified end-to-end with a browser agent against rich seed data
+(`bun run seed:entities`). This exercised the community lane for the first time and
+surfaced real bugs, all now fixed + covered by `bun test` (682 pass) / `bun run build`:
+
+- **ForeignLane crash (blocker)** — `row.event as unknown as GeoDataset` fed a raw
+  NostrEvent (no `.featureCollection`) to `getDatasetName` → `getCollectionName(undefined).name`.
+  Crashed the two-lane view for ANY Group with a foreign attachment. Fixed: cast via
+  `castEvent(..., GeoDataset, eventStore)` (memoized, try/catch per row) + defensive guard
+  in `getCollectionName`. (Also fixes Inspect/Zoom.)
+- **(e) curate left source in community lane** — `referencedAddresses` (curated `a` coords)
+  was not passed to `ForeignLane`; a blessed dataset showed in both lanes. Fixed: thread
+  `curatedCoordinates` through and exclude curated coords from the community lane. → PASS
+- **(c) mute undo toast expired too fast** — bumped to 10s; seed now gives one contributor
+  multiple rows so app-wide mute is provable. → PASS
+- **(b) Strict survivors had no verdict chip** — schema-filtered rows now always carry a
+  verdict: amber reason (non-conforming) or emerald "Matches the rules" (conforming). → PASS
+
+Deferred Phase-9 follow-up (not blocking): wire `createGroupColumns` into a dedicated
+Groups tab and filter discovery to `isGroup` (earthly/2) so legacy 37518 contexts don't
+appear / open as "No Group selected".
