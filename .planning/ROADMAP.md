@@ -117,8 +117,25 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
   3. A user can save a Story as a draft before publishing and edit a published Story in place (parameterized-replaceable, same `d`-tag lineage).
   4. A user can comment on and react to a Story (reuses kind 37517 + kind 7), and a user can propose an edit to a Story's narrative that the author can preview and accept/reject (kind 37519 extended to a Markdown-content target).
 
-**Plans**: TBD
-**Research flag**: SKIP — NIP-23 is well-documented; `getContentPointers` is a library call; the 37519 generalization to a Markdown-content target is small and well-scoped (confirm whether it is a pure content-type extension or needs a spec discriminator during Phase planning).
+**Plans**: 4 plans (Wave 1 → 4) — reuse-dominant (data layer + editor/renderer + comment/proposal machinery all shipped)
+
+**Wave 1**
+
+  - [ ] 10-01-PLAN.md — Story data-layer service: publishStory/editStory over ArticleFactory + naddr→`a` re-derivation (STORY-03), d-tag-lineage edit (STORY-04), local-first draft helper, useStories() subscription
+
+**Wave 2** *(blocked on Wave 1)*
+
+  - [ ] 10-02-PLAN.md — StoryEditorPanel (Write/Preview tabs, metadata, @-mention insert, draft, in-place edit) + StoriesPanel browse + New Story entry [STORY-01/02/03/04]
+
+**Wave 3** *(blocked on Wave 2)*
+
+  - [ ] 10-03-PLAN.md — StoryViewPanel (sanitized narrative + inline eye-toggle/fly-to, default hidden) + comment/react mount (STORY-05) + nav spine: Stories rail (D-01/D-02), info-panel mount (D-03), /story/:naddr route + OG card (D-04)
+
+**Wave 4** *(blocked on Wave 3)*
+
+  - [ ] 10-04-PLAN.md — Propose narrative edit: kind-37519 Markdown-content target (resolved PURE content-type extension, no discriminator — SPEC.md §11/§17), author diff-preview + accept (republish in place) / reject [STORY-06]
+
+**Research flag**: SKIP — NIP-23 is well-documented; `getContentPointers` is a library call. **Resolved at planning:** the 37519 generalization is a pure content-type extension (no spec discriminator) — the `a` coordinate already disambiguates 37520 vs 37515 (SPEC.md §11.1/§11.2/§17); recorded in 10-04-PLAN.md.
 **UI hint**: yes
 
 ### Phase 11: Temporal Sighting
@@ -183,7 +200,7 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 7. Geometry Optimization | v1.1 | 5/5 | Complete | 2026-06-23 |
 | 8. Spec v2 + Foundation | v1.2 | 5/5 | Complete    | 2026-06-25 |
 | 9. Group / Topic (37518 slimmed) | v1.2 | 6/6 | Complete    | 2026-06-26 |
-| 10. Story / Article (~37520) | v1.2 | 0/TBD | Not started | - |
+| 10. Story / Article (~37520) | v1.2 | 0/4 | Planned | - |
 | 11. Temporal Sighting | v1.2 | 0/TBD | Not started | - |
 | 12. Live Beacon (~37521) | v1.2 | 0/TBD | Not started | - |
 | 13. Cross-Cutting | v1.2 | 0/TBD | Not started | - |
