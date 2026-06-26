@@ -401,9 +401,16 @@ function formatVmError(errVal: unknown): string {
 }
 
 // ── Worker message shell ────────────────────────────────────────────────────
-// Only registers when running as an actual Worker (self.onmessage exists). In the
-// bun test environment this module is imported for `runSandboxCode` directly, so
-// guarding avoids touching `self` where it isn't a worker global.
+// Register ONLY inside a real Worker. `self` is ALSO defined on the main thread
+// (`self === window`), so the old `typeof self !== 'undefined'` guard wrongly
+// installed `self.onmessage` on `window` whenever this module is imported into the
+// app graph (the main-thread `runSandboxCode` fallback import, pulled in app-wide
+// by the Phase-4 registry wire-in). That turned EVERY `window` message — e.g. a
+// NIP-07 signer extension's postMessage traffic — into a sandbox run that compiled
+// the QuickJS wasm and then `postMessage`d back to `window`, re-triggering itself:
+// a runaway message→compile→postMessage loop that pegged a core (GC storm).
+// `WorkerGlobalScope` exists ONLY in a worker realm, so this is true exclusively
+// inside the worker (and false on the main thread and under bun test).
 declare const self:
 	| {
 			onmessage: ((event: MessageEvent<SandboxWorkerRequest>) => void) | null
@@ -411,7 +418,13 @@ declare const self:
 	  }
 	| undefined
 
-if (typeof self !== 'undefined' && self) {
+const sandboxWorkerScopeCtor = (globalThis as Record<string, unknown>).WorkerGlobalScope
+if (
+	typeof sandboxWorkerScopeCtor === 'function' &&
+	typeof self !== 'undefined' &&
+	self &&
+	self instanceof (sandboxWorkerScopeCtor as new () => unknown)
+) {
 	self.onmessage = async (event: MessageEvent<SandboxWorkerRequest>) => {
 		const { id, code, readSnapshot, deadlineMs } = event.data
 		try {

@@ -218,9 +218,13 @@ export async function runSchemaValidation(
 }
 
 // ── Worker message shell ──────────────────────────────────────────────────────────
-// Only registers when running as an actual Worker (self.onmessage exists). Under
-// `bun test` this module is imported for `runSchemaValidation` directly, so guarding
-// avoids touching `self` where it isn't a worker global (mirrors sandbox.worker.ts).
+// Register ONLY inside a real Worker. `self === window` on the main thread, so the
+// old `typeof self !== 'undefined'` guard wrongly installed `self.onmessage` on
+// `window` when this module is imported for the `runSchemaValidation` fallback —
+// turning every `window` message into a validation run that `postMessage`d back to
+// `window` and re-triggered itself (runaway loop). `WorkerGlobalScope` exists only
+// in a worker realm, so this is true exclusively inside the worker (mirrors
+// sandbox.worker.ts).
 declare const self:
 	| {
 			onmessage: ((event: MessageEvent<SchemaWorkerRequest>) => void) | null
@@ -238,7 +242,13 @@ export interface SchemaWorkerResponse extends SchemaValidationVerdict {
 	id: string
 }
 
-if (typeof self !== 'undefined' && self) {
+const schemaWorkerScopeCtor = (globalThis as Record<string, unknown>).WorkerGlobalScope
+if (
+	typeof schemaWorkerScopeCtor === 'function' &&
+	typeof self !== 'undefined' &&
+	self &&
+	self instanceof (schemaWorkerScopeCtor as new () => unknown)
+) {
 	self.onmessage = async (event: MessageEvent<SchemaWorkerRequest>) => {
 		const { id, schema, data, schemaHash } = event.data
 		try {
