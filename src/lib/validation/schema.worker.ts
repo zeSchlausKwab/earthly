@@ -36,6 +36,7 @@
 import Ajv2020 from 'ajv/dist/2020'
 import addFormats from 'ajv-formats'
 import type { ValidateFunction } from 'ajv'
+import { isWorkerScope } from '@/lib/isWorkerScope'
 
 /** Max serialized schema size. A relay schema larger than this is rejected (OOM cap). */
 export const MAX_SCHEMA_BYTES = 64 * 1024
@@ -218,19 +219,16 @@ export async function runSchemaValidation(
 }
 
 // ── Worker message shell ──────────────────────────────────────────────────────────
-// Register ONLY inside a real Worker. `self === window` on the main thread, so the
-// old `typeof self !== 'undefined'` guard wrongly installed `self.onmessage` on
-// `window` when this module is imported for the `runSchemaValidation` fallback —
-// turning every `window` message into a validation run that `postMessage`d back to
-// `window` and re-triggered itself (runaway loop). `WorkerGlobalScope` exists only
-// in a worker realm, so this is true exclusively inside the worker (mirrors
-// sandbox.worker.ts).
-declare const self:
-	| {
-			onmessage: ((event: MessageEvent<SchemaWorkerRequest>) => void) | null
-			postMessage: (message: SchemaWorkerResponse) => void
-	  }
-	| undefined
+// Only registers when `isWorkerScope()` confirms we are in a real Worker realm. On the
+// main thread `self === window`, so an unconditional handler would install
+// `window.onmessage` and create a message → postMessage runaway loop if this module is
+// ever value-imported there (as `schemaWorker.ts` does for its synchronous fallback).
+// Under `bun test` this module is imported for `runSchemaValidation` directly, so the
+// guard skips registration (WorkerGlobalScope is undefined there). See `isWorkerScope`.
+declare const self: {
+	onmessage: ((event: MessageEvent<SchemaWorkerRequest>) => void) | null
+	postMessage: (message: SchemaWorkerResponse) => void
+}
 
 /** The `{ id, ... }` request posted to the worker. */
 export interface SchemaWorkerRequest extends SchemaValidationRequest {
@@ -242,13 +240,7 @@ export interface SchemaWorkerResponse extends SchemaValidationVerdict {
 	id: string
 }
 
-const schemaWorkerScopeCtor = (globalThis as Record<string, unknown>).WorkerGlobalScope
-if (
-	typeof schemaWorkerScopeCtor === 'function' &&
-	typeof self !== 'undefined' &&
-	self &&
-	self instanceof (schemaWorkerScopeCtor as new () => unknown)
-) {
+if (isWorkerScope()) {
 	self.onmessage = async (event: MessageEvent<SchemaWorkerRequest>) => {
 		const { id, schema, data, schemaHash } = event.data
 		try {

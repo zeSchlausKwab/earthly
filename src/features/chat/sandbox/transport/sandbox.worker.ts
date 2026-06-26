@@ -41,6 +41,7 @@ import {
 	RELEASE_SYNC,
 	shouldInterruptAfterDeadline,
 } from 'quickjs-emscripten'
+import { isWorkerScope } from '@/lib/isWorkerScope'
 import { assertSandboxDistanceWithinCap, curatedTurf } from '../curatedTurf'
 import { createOutputCapture } from '../outputCapture'
 import type { RecordedCall, SandboxWorkerRequest, SandboxWorkerResponse } from './types'
@@ -401,30 +402,18 @@ function formatVmError(errVal: unknown): string {
 }
 
 // ── Worker message shell ────────────────────────────────────────────────────
-// Register ONLY inside a real Worker. `self` is ALSO defined on the main thread
-// (`self === window`), so the old `typeof self !== 'undefined'` guard wrongly
-// installed `self.onmessage` on `window` whenever this module is imported into the
-// app graph (the main-thread `runSandboxCode` fallback import, pulled in app-wide
-// by the Phase-4 registry wire-in). That turned EVERY `window` message — e.g. a
-// NIP-07 signer extension's postMessage traffic — into a sandbox run that compiled
-// the QuickJS wasm and then `postMessage`d back to `window`, re-triggering itself:
-// a runaway message→compile→postMessage loop that pegged a core (GC storm).
-// `WorkerGlobalScope` exists ONLY in a worker realm, so this is true exclusively
-// inside the worker (and false on the main thread and under bun test).
-declare const self:
-	| {
-			onmessage: ((event: MessageEvent<SandboxWorkerRequest>) => void) | null
-			postMessage: (message: SandboxWorkerResponse) => void
-	  }
-	| undefined
+// Only registers when `isWorkerScope()` confirms we are in a real Worker realm. On the
+// main thread `self === window`, so an unconditional handler would install
+// `window.onmessage` and create a message → postMessage runaway loop if this module is
+// ever value-imported there (as `sandboxHost.ts` does for its synchronous fallback). In
+// the bun test environment this module is imported for `runSandboxCode` directly, so the
+// guard skips registration (WorkerGlobalScope is undefined there). See `isWorkerScope`.
+declare const self: {
+	onmessage: ((event: MessageEvent<SandboxWorkerRequest>) => void) | null
+	postMessage: (message: SandboxWorkerResponse) => void
+}
 
-const sandboxWorkerScopeCtor = (globalThis as Record<string, unknown>).WorkerGlobalScope
-if (
-	typeof sandboxWorkerScopeCtor === 'function' &&
-	typeof self !== 'undefined' &&
-	self &&
-	self instanceof (sandboxWorkerScopeCtor as new () => unknown)
-) {
+if (isWorkerScope()) {
 	self.onmessage = async (event: MessageEvent<SandboxWorkerRequest>) => {
 		const { id, code, readSnapshot, deadlineMs } = event.data
 		try {
