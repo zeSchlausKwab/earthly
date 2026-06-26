@@ -119,8 +119,19 @@ export function ForeignLane({
 
 	const isSchema = governance === 'schema'
 
+	// Stable schema identity. `group` is a fresh `castEvent` content object on every
+	// `useGroups` timeline emission, so `group.schema` changes ref constantly even when
+	// unchanged. Keying the filter effect on the schema's CONTENT (published hash, else a
+	// content hash) instead of the object ref stops incidental re-casts from re-validating
+	// every visible attachment off-thread on each emission — the schema-worker CPU/GC storm.
+	const schemaKey = useMemo(
+		() => (group.schema ? (publishedHash ?? JSON.stringify(group.schema)) : null),
+		[group.schema, publishedHash],
+	)
+
 	// 2. OFF-THREAD SCHEMA FILTER (GROUP-05): off/warn/strict with legible reasons. Runs
 	//    only on the already-trust-gated survivors; never re-validates trust.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: group.schema is keyed by schemaKey (content); depending on the raw ref would reintroduce the per-emission re-validation storm.
 	useEffect(() => {
 		let cancelled = false
 		if (!isSchema || mode === 'off' || !group.schema) {
@@ -143,7 +154,7 @@ export function ForeignLane({
 		return () => {
 			cancelled = true
 		}
-	}, [visible, isSchema, mode, group.schema, publishedHash])
+	}, [visible, isSchema, mode, schemaKey, publishedHash])
 
 	const shownRows = useMemo(() => gatedRows.filter((row) => row.show), [gatedRows])
 

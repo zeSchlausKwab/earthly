@@ -152,6 +152,16 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	// Store state
 	const stats = useEditorStore((state) => state.stats)
 	const features = useEditorStore((state) => state.features)
+	// Stable array of feature properties for GroupAttachField's off-thread schema
+	// validation. Built inline as `features.map(...)` this allocated a NEW array on
+	// every render, which is one of GroupAttachField's validation-effect deps — so
+	// any re-render re-triggered a full worker validation pass (the schema worker
+	// pegging a core / GC thrash). Memoizing on the stable `features` ref means the
+	// effect only re-validates when the features actually change.
+	const featurePropertiesForGroup = useMemo(
+		() => features.map((feature) => feature.properties as Record<string, unknown> | undefined),
+		[features],
+	)
 	const activeDataset = useEditorStore((state) => state.activeDataset)
 	const publishMessage = useEditorStore((state) => state.publishMessage)
 	const publishError = useEditorStore((state) => state.publishError)
@@ -685,9 +695,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						<GroupAttachField
 							contextRefs={activeDatasetContextRefs}
 							onContextRefsChange={setActiveDatasetContextRefs}
-							featureProperties={features.map(
-								(feature) => feature.properties as Record<string, unknown> | undefined,
-							)}
+							featureProperties={featurePropertiesForGroup}
 							onPublish={onPublishNew}
 							canPublish={canPublishNew}
 							isPublishing={isPublishing}

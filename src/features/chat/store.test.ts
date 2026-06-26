@@ -39,6 +39,63 @@ function emptyOverrides(): ProviderOverrideMap {
 	}
 }
 
+describe('loadModels — empty list must not drive an infinite refetch loop', () => {
+	test('an empty model list is surfaced as modelsError (stops the mount-effect loop)', async () => {
+		// ChatPanel's mount effect re-runs loadModels while
+		// `models.length === 0 && !modelsLoading && !modelsError`. A provider that
+		// returns zero models WITHOUT throwing must set modelsError, or that guard
+		// stays true forever and pegs the CPU (regression).
+		const originalFetch = globalThis.fetch
+		globalThis.fetch = (async () =>
+			new Response(JSON.stringify({ data: [] }), {
+				status: 200,
+				headers: { 'content-type': 'application/json' },
+			})) as typeof fetch
+		try {
+			useChatStore.setState({
+				provider: 'routstr',
+				models: [],
+				modelsError: null,
+				modelsLoading: false,
+				selectedModel: null,
+			})
+			await useChatStore.getState().loadModels()
+			const state = useChatStore.getState()
+			expect(state.models).toEqual([])
+			expect(state.modelsLoading).toBe(false)
+			// The loop-breaking invariant: error set, so the guard is now false.
+			expect(state.modelsError).toBeTruthy()
+		} finally {
+			globalThis.fetch = originalFetch
+		}
+	})
+
+	test('a non-empty model list clears modelsError and selects a model', async () => {
+		const originalFetch = globalThis.fetch
+		globalThis.fetch = (async () =>
+			new Response(JSON.stringify({ data: [{ id: 'm1', name: 'M1' }] }), {
+				status: 200,
+				headers: { 'content-type': 'application/json' },
+			})) as typeof fetch
+		try {
+			useChatStore.setState({
+				provider: 'routstr',
+				models: [],
+				modelsError: null,
+				modelsLoading: false,
+				selectedModel: null,
+			})
+			await useChatStore.getState().loadModels()
+			const state = useChatStore.getState()
+			expect(state.models.length).toBe(1)
+			expect(state.modelsError).toBeNull()
+			expect(state.selectedModel).toBe('m1')
+		} finally {
+			globalThis.fetch = originalFetch
+		}
+	})
+})
+
 describe('resolveProvider', () => {
 	test('falls back to BUILTIN localhost default when override baseUrl is empty (D-03)', () => {
 		const lm = resolveProvider('lmstudio', emptyOverrides())

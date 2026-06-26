@@ -1,6 +1,7 @@
 import { test, expect, describe, beforeEach } from 'bun:test'
 import type { DatasetDiff } from '@/features/geo-editor/api/diff'
 import {
+	cancelPendingDiffs,
 	emitDiffBlock,
 	getAllPendingDiffs,
 	getPendingDiff,
@@ -54,6 +55,38 @@ describe('requestConfirm / resolvePendingDiff', () => {
 		// a second resolve is a no-op — status does not change to cancelled
 		resolvePendingDiff(handle.id, 'cancelled')
 		expect(getPendingDiff(handle.id)?.status).toBe('applied')
+	})
+})
+
+describe('cancelPendingDiffs — abort path for the confirm gate', () => {
+	test("resolves an outstanding requestConfirm as 'cancel' (unwedges a stranded tool loop)", async () => {
+		const handle = emitDiffBlock(DIFF)
+		const confirm = requestConfirm(handle.id)
+		const cancelled = cancelPendingDiffs()
+		expect(cancelled).toBe(1)
+		await expect(confirm).resolves.toBe('cancel')
+		expect(getPendingDiff(handle.id)?.status).toBe('cancelled')
+	})
+
+	test('leaves already-resolved entries untouched and reports zero', () => {
+		const handle = emitDiffBlock(DIFF)
+		const confirm = requestConfirm(handle.id)
+		resolvePendingDiff(handle.id, 'applied')
+		const cancelled = cancelPendingDiffs()
+		expect(cancelled).toBe(0)
+		// status stays applied — cancel must not clobber a committed apply
+		expect(getPendingDiff(handle.id)?.status).toBe('applied')
+		return expect(confirm).resolves.toBe('apply')
+	})
+
+	test('cancels multiple outstanding pending diffs at once', async () => {
+		const a = emitDiffBlock(DIFF)
+		const b = emitDiffBlock(DIFF)
+		const confirmA = requestConfirm(a.id)
+		const confirmB = requestConfirm(b.id)
+		expect(cancelPendingDiffs()).toBe(2)
+		await expect(confirmA).resolves.toBe('cancel')
+		await expect(confirmB).resolves.toBe('cancel')
 	})
 })
 

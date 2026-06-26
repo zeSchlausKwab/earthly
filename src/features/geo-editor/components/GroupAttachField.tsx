@@ -110,14 +110,29 @@ export function GroupAttachField({
 		[attachedGroups],
 	)
 
-	// Run the OFF-THREAD advisory validation whenever the attached schema Group or the dataset's
+	// Stable validation inputs. `useGroups()` re-`castEvent`s a NEW Group object on every
+	// timeline emission, so `attachedSchemaGroup` changes identity constantly even when the
+	// schema is unchanged. Keying the validation effect on the schema's CONTENT (published
+	// hash, else a content hash of the schema) — not the object ref — stops those incidental
+	// re-casts from re-triggering a full off-thread validation pass, which otherwise pegs the
+	// schema worker (continuous GC churn) on every store emission.
+	const schema = attachedSchemaGroup?.group.schema ?? null
+	// CR-02: pass the published hash as the explicit cache key when present, else leave it
+	// undefined so `filterForeignAttachment` derives a content-based key — never a shared
+	// `'sha256:unhashed'` sentinel that would alias distinct unhashed schemas in the cache.
+	const publishedHash = attachedSchemaGroup?.schemaHash ?? undefined
+	const schemaKey = useMemo(
+		() => (schema ? (publishedHash ?? JSON.stringify(schema)) : null),
+		[schema, publishedHash],
+	)
+
+	// Run the OFF-THREAD advisory validation whenever the schema (by content) or the dataset's
 	// feature properties change. Gating runs EXCLUSIVELY through `filterForeignAttachment`
 	// (the Phase-8 `validateSchema` worker) — never the in-thread legacy validator. The
 	// result is ADVISORY: it flows to local warning state and NEVER disables publish (GROUP-04).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: schema/publishedHash are intentionally keyed by schemaKey (content) — depending on the raw refs would reintroduce the re-cast validation storm.
 	useEffect(() => {
-		const group = attachedSchemaGroup
-		const schema = group?.group.schema
-		if (!group || !schema) {
+		if (!schema || !schemaKey) {
 			setChecking(false)
 			setWorkerFailed(false)
 			setWarnings([])
@@ -127,11 +142,6 @@ export function GroupAttachField({
 		let cancelled = false
 		setChecking(true)
 		setWorkerFailed(false)
-		const publishedHash = group.schemaHash ?? undefined
-		// CR-02: pass the published hash as the explicit key when present, else leave it
-		// undefined so `filterForeignAttachment` derives a content-based key — never a shared
-		// `'sha256:unhashed'` sentinel that would alias distinct unhashed schemas in the cache.
-		const schemaHash = group.schemaHash ?? undefined
 
 		;(async () => {
 			try {
@@ -145,7 +155,7 @@ export function GroupAttachField({
 						'warn',
 						schema,
 						featureProperties[i] ?? {},
-						{ schemaHash, publishedHash },
+						{ schemaHash: publishedHash, publishedHash },
 					)
 					if (verdict.reason) {
 						if (verdict.reason === 'Attachment could not be checked against the schema') {
@@ -176,7 +186,7 @@ export function GroupAttachField({
 		return () => {
 			cancelled = true
 		}
-	}, [attachedSchemaGroup, featureProperties])
+	}, [schemaKey, featureProperties])
 
 	const handleSelect = (group: Group) => {
 		const coordinate = group.groupCoordinate

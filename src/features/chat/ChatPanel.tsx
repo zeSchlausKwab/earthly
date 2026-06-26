@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { resolveProvider, useChatStore } from './store'
 import { composeOutboundContent } from './composeOutboundContent'
@@ -184,11 +184,23 @@ export function ChatPanel({
 		provider,
 	])
 
-	// Auto-scroll to bottom when messages change
+	// Auto-scroll to bottom when messages change. Instant ('auto', not 'smooth')
+	// because during streaming this fires once per frame — stacked smooth-scroll
+	// animations forced synchronous layout every frame and were a major source of
+	// streaming jank. Gated on proximity so it never yanks the view away from a
+	// user who has scrolled up to read earlier messages.
 	const scrollTrigger = `${messages.length}:${streamingContent.length}:${executingTools ? 1 : 0}:${streamWarning ? 1 : 0}`
 	useEffect(() => {
 		if (!scrollTrigger) return
-		messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+		const anchor = messagesEndRef.current
+		if (!anchor) return
+		const container = anchor.parentElement
+		if (container) {
+			const distanceFromBottom =
+				container.scrollHeight - container.scrollTop - container.clientHeight
+			if (distanceFromBottom > 120) return
+		}
+		anchor.scrollIntoView({ behavior: 'auto' })
 	}, [scrollTrigger])
 
 	// Auto-resize textarea
@@ -1574,7 +1586,15 @@ function ChatMarkdownContent({
 	)
 }
 
-function MessageBubble({ message, isStreaming, runCodeSourceByCallId }: MessageBubbleProps) {
+// Memoized: ChatPanel re-renders on every streaming frame (it subscribes to the
+// whole chat store). Without memo, every completed bubble re-renders + re-parses
+// its markdown on each frame. messages refs are stable across frames (only
+// streamingContent changes), so memo lets the static history skip those renders.
+const MessageBubble = memo(function MessageBubble({
+	message,
+	isStreaming,
+	runCodeSourceByCallId,
+}: MessageBubbleProps) {
 	const isUser = message.role === 'user'
 	const isTool = message.role === 'tool'
 	const isAssistant = message.role === 'assistant'
@@ -1821,7 +1841,7 @@ function MessageBubble({ message, isStreaming, runCodeSourceByCallId }: MessageB
 			</div>
 		</div>
 	)
-}
+})
 
 function ReasoningDisclosure({ blocks }: { blocks: string[] }) {
 	const [isOpen, setIsOpen] = useState(false)

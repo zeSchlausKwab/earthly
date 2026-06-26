@@ -170,6 +170,36 @@ export function resolvePendingDiff(id: string, decision: PendingDiffStatus): voi
 	notify()
 }
 
+/**
+ * Cancel every still-pending diff, resolving each awaited `requestConfirm` as
+ * `'cancel'` (zero editor mutation — the buffered apply never ran). Returns the
+ * number of entries cancelled.
+ *
+ * This is the abort path for the confirm gate. The gate `await`s `requestConfirm`
+ * inside the chat tool loop; without this, a pending diff that is never answered
+ * via the Apply/Cancel buttons (the stream was stopped, or its chat was
+ * deleted/switched/reset) leaves the loop awaiting forever — stranding the whole
+ * turn with `isStreaming` stuck true, which disables the model/provider/chat
+ * controls until a page reload. Called from those stream-teardown paths so a
+ * cancelled/abandoned run can never wedge the gate.
+ */
+export function cancelPendingDiffs(): number {
+	let cancelled = 0
+	for (const entry of pendingDiffs.values()) {
+		if (entry.status !== 'pending') continue
+		entry.status = 'cancelled'
+		pendingDiffs.set(entry.id, entry)
+		const resolve = resolvers.get(entry.id)
+		if (resolve) {
+			resolvers.delete(entry.id)
+			resolve('cancel')
+		}
+		cancelled += 1
+	}
+	if (cancelled > 0) notify()
+	return cancelled
+}
+
 /** Subscribe to entry changes (React `useSyncExternalStore` wiring). */
 export function subscribePendingDiffs(fn: () => void): () => void {
 	subscribers.add(fn)

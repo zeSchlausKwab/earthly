@@ -3,10 +3,11 @@
  */
 import type { FeatureCollection } from 'geojson'
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist } from 'zustand/middleware'
 import type {
 	ChatMessage,
 	ChatMessageContent,
+	ChatTextContentPart,
 	RoutstrModel,
 	ToolCall,
 	ProviderType,
@@ -31,6 +32,7 @@ import { getWalletSnapshot, receiveCashuToken, sendCashuToken } from '@/lib/wall
 import { detectVisionSupport } from './vision/detectVisionSupport'
 import { gateToolsForVision } from './vision/gateToolsForVision'
 import { setSafetyLevelProvider } from './safeEditing/safetyAccess'
+import { cancelPendingDiffs } from './safeEditing/pendingDiffStore'
 const DEFAULT_MINT_KEY = 'nip60_default_mint'
 import { toast } from 'sonner'
 
@@ -947,13 +949,92 @@ const initialState: ChatState = createInitialState()
  * must NEVER persist here (SC-1 / T-01-01). Settings flow exclusively through the encrypted
  * envelope in `settingsStorage.ts`. Exported so unit tests can assert the serialized shape.
  */
+// Persisted-history hygiene. The `chat-store` localStorage blob is rewritten on
+// every set(). Without bounding it, base64 image parts (attached images, map
+// snapshots) and large tool results (run_code output, GeoJSON/ingest dumps)
+// accumulate across sessions and overflow the ~5MB localStorage quota — after
+// which every subsequent write throws QuotaExceededError. We persist a slimmed
+// copy of history: image data URLs are dropped (they are only needed for the
+// live model round, not for restoring a readable transcript) and oversized text
+// is truncated. The in-memory store still holds the full content for the session.
+const PERSIST_MAX_TEXT_CHARS = 16_000
+const PERSIST_MAX_REASONING_CHARS = 4_000
+const PERSIST_OMITTED_IMAGE = '[image omitted from saved history]'
+
+function truncateForPersist(text: string, max: number): string {
+	if (text.length <= max) return text
+	return `${text.slice(0, max)}\n…[${text.length - max} chars truncated from saved history]`
+}
+
+function sanitizeContentForPersist(content: ChatMessageContent | null): ChatMessageContent | null {
+	if (content == null) return content
+	if (typeof content === 'string') return truncateForPersist(content, PERSIST_MAX_TEXT_CHARS)
+	return content.map<ChatTextContentPart>((part) =>
+		part.type === 'image_url'
+			? { type: 'text', text: PERSIST_OMITTED_IMAGE }
+			: { type: 'text', text: truncateForPersist(part.text, PERSIST_MAX_TEXT_CHARS) },
+	)
+}
+
+function sanitizeMessageForPersist(message: ChatMessage): ChatMessage {
+	const next: ChatMessage = { ...message, content: sanitizeContentForPersist(message.content) }
+	if (typeof next.reasoning_content === 'string') {
+		next.reasoning_content = truncateForPersist(next.reasoning_content, PERSIST_MAX_REASONING_CHARS)
+	}
+	return next
+}
+
+function sanitizeSessionForPersist(session: ChatSession): ChatSession {
+	return { ...session, messages: session.messages.map(sanitizeMessageForPersist) }
+}
+
 export function chatStorePartialize(
 	state: ChatState,
 ): Pick<ChatState, 'chatSessions' | 'activeChatId'> {
 	return {
-		chatSessions: state.chatSessions,
+		chatSessions: state.chatSessions.map(sanitizeSessionForPersist),
 		activeChatId: state.activeChatId,
 	}
+}
+
+// A localStorage wrapper that never lets a persistence failure (quota overflow,
+// storage disabled in private mode) bubble up as an unhandled promise rejection
+// that breaks the chat UI. On quota overflow it drops the stale oversized blob
+// and retries once — which self-heals an already-overflowed store on the next
+// write now that partialize emits a slimmed payload.
+const resilientChatStorage = {
+	getItem: (name: string): string | null => {
+		if (typeof window === 'undefined') return null
+		try {
+			return window.localStorage.getItem(name)
+		} catch {
+			return null
+		}
+	},
+	setItem: (name: string, value: string): void => {
+		if (typeof window === 'undefined') return
+		try {
+			window.localStorage.setItem(name, value)
+		} catch {
+			try {
+				window.localStorage.removeItem(name)
+				window.localStorage.setItem(name, value)
+			} catch (err) {
+				console.warn(
+					'[chat-store] Skipped persisting chat history:',
+					err instanceof Error ? err.message : err,
+				)
+			}
+		}
+	},
+	removeItem: (name: string): void => {
+		if (typeof window === 'undefined') return
+		try {
+			window.localStorage.removeItem(name)
+		} catch {
+			// ignore
+		}
+	},
 }
 
 // AbortController for canceling streams
@@ -994,6 +1075,20 @@ export const useChatStore = create<ChatStore>()(
 				set({ modelsLoading: true, modelsError: null })
 				try {
 					const models = await fetchModels(providerConfig)
+					// An empty list must be recorded as an ERROR, not left as
+					// `{ models: [], modelsError: null }`. The ChatPanel mount effect
+					// re-runs loadModels whenever `models.length === 0 && !modelsLoading &&
+					// !modelsError`; without setting an error here a provider that returns
+					// zero models (e.g. a paid provider with no entitlements) drives an
+					// infinite fetch+set loop that pegs the CPU and spams the persist write.
+					if (models.length === 0) {
+						set({
+							models: [],
+							modelsLoading: false,
+							modelsError: 'No models available from this provider.',
+						})
+						return
+					}
 					const selectedModel = get().selectedModel
 					set({
 						models,
@@ -1086,7 +1181,12 @@ export const useChatStore = create<ChatStore>()(
 			},
 
 			createChat: () => {
-				if (get().isStreaming) return
+				// Abort any in-flight stream rather than silently no-opping. A stuck or
+				// runaway stream pins isStreaming true; if "New chat" just returned here
+				// the user would be locked out with no recourse but a page reload.
+				if (get().isStreaming) {
+					get().cancelStream()
+				}
 				const chat = createEmptyChatSession()
 				set((state) => ({
 					chatSessions: sortChatSessionsByRecent([...state.chatSessions, chat]),
@@ -1104,7 +1204,11 @@ export const useChatStore = create<ChatStore>()(
 			},
 
 			switchChat: (chatId: string) => {
-				if (get().isStreaming) return
+				// Abort any in-flight stream before switching away (same lock-out reason
+				// as createChat) — leaving a chat cancels its running response.
+				if (get().isStreaming) {
+					get().cancelStream()
+				}
 				set((state) => {
 					const target = state.chatSessions.find((chat) => chat.id === chatId)
 					if (!target) return {}
@@ -1128,6 +1232,9 @@ export const useChatStore = create<ChatStore>()(
 					streamAbortController.abort()
 					streamAbortController = null
 					currentStreamingChatId = null
+					// Release any confirm gate the aborted run was awaiting, else its
+					// tool loop stays parked on requestConfirm forever.
+					cancelPendingDiffs()
 				} else if (get().isStreaming) {
 					return
 				}
@@ -1144,6 +1251,15 @@ export const useChatStore = create<ChatStore>()(
 						messages: activeChat?.messages ?? [],
 						references: activeChat?.references ?? [],
 						error: null,
+						// Deleting the chat that is mid-stream aborts the run above. The
+						// aborted request rejects as DETACHED_STREAM_ERROR, which the
+						// sendMessage catch deliberately ignores — so these streaming flags
+						// must be cleared HERE, or isStreaming stays true forever and every
+						// isStreaming-gated control (provider/model pickers, new/switch chat)
+						// is stuck disabled until a reload.
+						isStreaming: false,
+						streamingContent: '',
+						executingTools: false,
 						streamWarning: null,
 						streamPhase: 'idle',
 						lastProgressAt: null,
@@ -1356,6 +1472,7 @@ export const useChatStore = create<ChatStore>()(
 							if (!isStreamRunActive()) return
 							settled = true
 							clearTimers()
+							cancelStreamingFlush()
 							set({
 								streamWarning: null,
 								lastProgressAt: Date.now(),
@@ -1366,11 +1483,21 @@ export const useChatStore = create<ChatStore>()(
 							)
 						}
 
+						const armStallTimers = () => {
+							clearTimers()
+							warningTimer = setTimeout(() => {
+								set({
+									streamWarning:
+										'No stream updates for 15s. The provider may be stuck. You can stop and retry.',
+								})
+							}, STREAM_STALL_WARNING_MS)
+							timeoutTimer = setTimeout(failStalledRequest, STREAM_STALL_TIMEOUT_MS)
+						}
+
 						const refreshActivity = (kind: StreamProgressKind) => {
 							if (!isStreamRunActive()) return
-							const now = Date.now()
 							set({
-								lastProgressAt: now,
+								lastProgressAt: Date.now(),
 								lastProgressKind: kind,
 								streamWarning: null,
 								streamPhase:
@@ -1380,14 +1507,41 @@ export const useChatStore = create<ChatStore>()(
 											? 'finalizing'
 											: 'streaming',
 							})
-							clearTimers()
-							warningTimer = setTimeout(() => {
-								set({
-									streamWarning:
-										'No stream updates for 15s. The provider may be stuck. You can stop and retry.',
-								})
-							}, STREAM_STALL_WARNING_MS)
-							timeoutTimer = setTimeout(failStalledRequest, STREAM_STALL_TIMEOUT_MS)
+							armStallTimers()
+						}
+
+						// Coalesce high-frequency token deltas into a single store write per
+						// animation frame. ChatPanel subscribes to the whole chat store, so a
+						// set() per SSE token meant a full panel re-render + markdown re-parse
+						// + auto-scroll on every token — hundreds of times a second, which
+						// pegged the CPU and froze the UI during streaming. Stall timers are
+						// still armed per-token (pure timer ops, no render) so stall detection
+						// and backgrounded-tab behavior are unchanged.
+						let streamFlushScheduled = false
+						let streamFlushRaf: number | null = null
+						const flushStreamingContent = () => {
+							streamFlushScheduled = false
+							streamFlushRaf = null
+							if (settled || !isStreamRunActive()) return
+							set({
+								streamingContent: accumulatedContent,
+								lastProgressAt: Date.now(),
+								lastProgressKind: 'token',
+								streamWarning: null,
+								streamPhase: 'streaming',
+							})
+						}
+						const scheduleStreamingFlush = () => {
+							if (streamFlushScheduled) return
+							streamFlushScheduled = true
+							streamFlushRaf = requestAnimationFrame(flushStreamingContent)
+						}
+						const cancelStreamingFlush = () => {
+							if (streamFlushRaf !== null) {
+								cancelAnimationFrame(streamFlushRaf)
+								streamFlushRaf = null
+							}
+							streamFlushScheduled = false
 						}
 
 						refreshActivity('request_start')
@@ -1407,13 +1561,14 @@ export const useChatStore = create<ChatStore>()(
 								onToken: (token: string) => {
 									if (settled || !isStreamRunActive()) return
 									accumulatedContent += token
-									set({ streamingContent: accumulatedContent })
-									refreshActivity('token')
+									armStallTimers()
+									scheduleStreamingFlush()
 								},
 								onReasoningToken: (token: string) => {
 									if (settled || !isStreamRunActive()) return
 									accumulatedReasoningContent += token
-									refreshActivity('reasoning')
+									armStallTimers()
+									scheduleStreamingFlush()
 								},
 								onToolCall: (toolCalls: ToolCall[]) => {
 									if (settled || !isStreamRunActive()) return
@@ -1435,6 +1590,7 @@ export const useChatStore = create<ChatStore>()(
 									settled = true
 									resultFinishReason = finishReason
 									clearTimers()
+									cancelStreamingFlush()
 									set({
 										streamWarning: null,
 										lastProgressAt: Date.now(),
@@ -1461,6 +1617,7 @@ export const useChatStore = create<ChatStore>()(
 									}
 									settled = true
 									clearTimers()
+									cancelStreamingFlush()
 									if (refundToken) {
 										console.log('[Chat] Processing refund from error response')
 										await processRefund(refundToken)
@@ -1846,6 +2003,21 @@ export const useChatStore = create<ChatStore>()(
 				} catch (err) {
 					const message = err instanceof Error ? err.message : 'Failed to send message'
 					if (message === DETACHED_STREAM_ERROR) {
+						// Normally a newer run (or an explicit cancel/delete/reset) superseded
+						// this one and owns the streaming UI state, so we must not clobber it.
+						// That supersede always bumps the run id. If the id still matches, the
+						// detach came from something else (e.g. the chat session vanished) and
+						// nobody else will clear the flags — so clear them here to avoid a
+						// stuck-disabled UI.
+						if (currentStreamRunId === streamRunId) {
+							set({
+								isStreaming: false,
+								streamingContent: '',
+								executingTools: false,
+								streamPhase: 'idle',
+								streamWarning: null,
+							})
+						}
 						return
 					}
 					set((state) => ({
@@ -1878,6 +2050,9 @@ export const useChatStore = create<ChatStore>()(
 					streamAbortController = null
 					currentStreamingChatId = null
 				}
+				// Settle any confirm gate the cancelled run was awaiting (resolves as
+				// 'cancel', zero editor mutation) so the tool loop can unwind.
+				cancelPendingDiffs()
 				set((state) => ({
 					isStreaming: false,
 					streamingContent: '',
@@ -1897,11 +2072,13 @@ export const useChatStore = create<ChatStore>()(
 					streamAbortController = null
 					currentStreamingChatId = null
 				}
+				cancelPendingDiffs()
 				set(createInitialState())
 			},
 		}),
 		{
 			name: 'chat-store',
+			storage: createJSONStorage(() => resilientChatStorage),
 			partialize: chatStorePartialize,
 			merge: (persistedState, currentState) => {
 				const persisted = (persistedState as Partial<ChatState> | undefined) ?? {}
