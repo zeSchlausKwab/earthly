@@ -29,7 +29,7 @@ Data Ingest, Transform & Safe Authoring — turned the AI chat from a map-drawin
 The dependency spine: **Foundation blocks everything** → **Group first** (refactor-dominant, exercises the shared seams + the two highest-severity pitfalls) → **Story / Sighting / Beacon** (independent once Foundation lands; Beacon last for net-new live-render + privacy surface) → **Cross-cutting** (comment widening + routing).
 
 - [x] **Phase 8: Spec v2 + Foundation** — Kind assignment, SPEC.md v2, Factory+Cast scaffolding, shared `tags.ts`, version discriminator + legacy skip, off-thread schema-validation worker, NIP-40 expiry filter, NIP-32 `L`/`l` taxonomy helper
-- [ ] **Phase 9: Group / Topic (37518 slimmed)** — Attach-push `c`-lane, governance ladder (open · schema · closed), schema authoring + validate-on-fetch, NO-MOD MINIMUM, comment/react
+- [x] **Phase 9: Group / Topic (37518 slimmed)** — Attach-push `c`-lane, governance ladder (open · schema · closed), schema authoring + validate-on-fetch, NO-MOD MINIMUM, comment/react (completed 2026-06-26)
 - [ ] **Phase 10: Story / Article (~37520)** — Curate-pull Markdown narrative, inline geo-ref render (eye-toggle/fly-to), naddr→`a` mirroring, draft + in-place edit, comment/react/propose-edit
 - [ ] **Phase 11: Temporal Sighting** — Time-bound placed observation (NIP-52 `start`/`end`), optional NIP-40 auto-fade, `c`-attach to Group, comment/react
 - [ ] **Phase 12: Live Beacon (~37521)** — Real-time updating position point, NIP-40 time-box + explicit stop, honest staleness, public/share-link viewing, live-map render
@@ -182,7 +182,7 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 6. AI Bulk Transform & Data-Driven Styling | v1.1 | 5/5 | Complete | 2026-06-22 |
 | 7. Geometry Optimization | v1.1 | 5/5 | Complete | 2026-06-23 |
 | 8. Spec v2 + Foundation | v1.2 | 5/5 | Complete    | 2026-06-25 |
-| 9. Group / Topic (37518 slimmed) | v1.2 | 6/6 | Plans done · end-of-phase UAT pending |  |
+| 9. Group / Topic (37518 slimmed) | v1.2 | 6/6 | Complete    | 2026-06-26 |
 | 10. Story / Article (~37520) | v1.2 | 0/TBD | Not started | - |
 | 11. Temporal Sighting | v1.2 | 0/TBD | Not started | - |
 | 12. Live Beacon (~37521) | v1.2 | 0/TBD | Not started | - |

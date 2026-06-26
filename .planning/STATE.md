@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
-status: executing
-stopped_at: Completed 09-04-PLAN.md
-last_updated: "2026-06-25T13:05:00.000Z"
-last_activity: 2026-06-25 -- Completed 09-04-PLAN.md (Group authoring panel; human-verify deferred to end-of-phase UAT)
+status: ready_to_plan
+stopped_at: Phase 9 complete — UAT 3/3 pass + security SECURED (threats_open:0); ready to plan Phase 10
+last_updated: "2026-06-26T12:26:49.857Z"
+last_activity: 2026-06-26
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 11
-  completed_plans: 9
-  percent: 22
+  completed_plans: 11
+  percent: 33
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 **Core value:** The maintainer (and any user) can open the app for fun, not duty.
-**Current focus:** Phase 09 — group-topic-37518-slimmed
+**Current focus:** Phase 10 — Story / Article (~37520)
 
 ## Current Position
 
-Phase: 09 (group-topic-37518-slimmed) — ALL PLANS EXECUTED (awaiting end-of-phase UAT)
-Plan: 6 of 6 (complete)
-Status: 09-06 complete (final plan) — all 6 Phase-9 plans executed; consolidated end-of-phase UAT pending
-Last activity: 2026-06-25 -- Completed 09-06-PLAN.md (NO-MOD MINIMUM two-lane GroupViewPanel; GROUP-08 GREEN; human-verify deferred to end-of-phase UAT)
+Phase: 10
+Plan: Not started
+Status: Ready to plan Phase 10 (Story / Article). Phase 9 complete — UAT 3/3 + SECURED.
+Last activity: 2026-06-26 — Phase 9 complete: UAT 3/3 pass, security SECURED (threats_open:0), worker-guard hardening merged
 
-Progress: [██░░░░░░░░] 25% (v1.2)
+Progress: [███░░░░░░░] 33% (v1.2 — 2/6 phases)
 
 ## Roadmap (v1.2 — Phases 8–13)
 
@@ -57,7 +57,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 8 | TBD | - | - |
-| 9 | TBD | - | - |
+| 9 | 6 | - | - |
 | 10 | TBD | - | - |
 | 11 | TBD | - | - |
 | 12 | TBD | - | - |

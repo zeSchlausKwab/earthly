@@ -26,7 +26,7 @@ Requirements for the v1.2 milestone. Full v2 / clean-break scope: spec + all eve
 
 ### Group / Topic (GROUP) — attach-push + governance ladder
 
-- [ ] **GROUP-01**: A user can create a Group with a name, description, and an explicit `governance` setting of open, schema, or closed.
+- [x] **GROUP-01**: A user can create a Group with a name, description, and an explicit `governance` setting of open, schema, or closed.
 - [x] **GROUP-02**: A user can attach their dataset (or sighting) to a Group via a `c` tag, and it appears in the Group's contribution (foreign) lane.
 - [x] **GROUP-03**: A Group owner can define a contribution schema (allowed geometry types + JSON-Schema property rules) for a schema-governed Group through an authoring UI usable by non-developers.
 - [x] **GROUP-04**: When attaching to a schema Group, the contributor sees inline validation warnings before publishing but is never blocked from publishing a valid standalone dataset.
