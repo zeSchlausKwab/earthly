@@ -41,6 +41,7 @@ import {
 	RELEASE_SYNC,
 	shouldInterruptAfterDeadline,
 } from 'quickjs-emscripten'
+import { isWorkerScope } from '@/lib/isWorkerScope'
 import { assertSandboxDistanceWithinCap, curatedTurf } from '../curatedTurf'
 import { createOutputCapture } from '../outputCapture'
 import type { RecordedCall, SandboxWorkerRequest, SandboxWorkerResponse } from './types'
@@ -401,17 +402,18 @@ function formatVmError(errVal: unknown): string {
 }
 
 // ── Worker message shell ────────────────────────────────────────────────────
-// Only registers when running as an actual Worker (self.onmessage exists). In the
-// bun test environment this module is imported for `runSandboxCode` directly, so
-// guarding avoids touching `self` where it isn't a worker global.
-declare const self:
-	| {
-			onmessage: ((event: MessageEvent<SandboxWorkerRequest>) => void) | null
-			postMessage: (message: SandboxWorkerResponse) => void
-	  }
-	| undefined
+// Only registers when `isWorkerScope()` confirms we are in a real Worker realm. On the
+// main thread `self === window`, so an unconditional handler would install
+// `window.onmessage` and create a message → postMessage runaway loop if this module is
+// ever value-imported there (as `sandboxHost.ts` does for its synchronous fallback). In
+// the bun test environment this module is imported for `runSandboxCode` directly, so the
+// guard skips registration (WorkerGlobalScope is undefined there). See `isWorkerScope`.
+declare const self: {
+	onmessage: ((event: MessageEvent<SandboxWorkerRequest>) => void) | null
+	postMessage: (message: SandboxWorkerResponse) => void
+}
 
-if (typeof self !== 'undefined' && self) {
+if (isWorkerScope()) {
 	self.onmessage = async (event: MessageEvent<SandboxWorkerRequest>) => {
 		const { id, code, readSnapshot, deadlineMs } = event.data
 		try {
