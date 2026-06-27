@@ -129,7 +129,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 3** *(blocked on Wave 2)*
 
-  - [ ] 10-03-PLAN.md — StoryViewPanel (sanitized narrative + inline eye-toggle/fly-to, default hidden) + comment/react mount (STORY-05) + nav spine: Stories rail (D-01/D-02), info-panel mount (D-03), /story/:naddr route + OG card (D-04)
+  - [x] 10-03-PLAN.md — StoryViewPanel (sanitized narrative + inline eye-toggle/fly-to, default hidden) + comment/react mount (STORY-05) + nav spine: Stories rail (D-01/D-02), info-panel mount (D-03), /story/:naddr route + OG card (D-04) ✓ (bf1112e, 769414c — 687/0, build green, biome clean)
 
 **Wave 4** *(blocked on Wave 3)*
 
@@ -200,7 +200,7 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 7. Geometry Optimization | v1.1 | 5/5 | Complete | 2026-06-23 |
 | 8. Spec v2 + Foundation | v1.2 | 5/5 | Complete    | 2026-06-25 |
 | 9. Group / Topic (37518 slimmed) | v1.2 | 6/6 | Complete    | 2026-06-26 |
-| 10. Story / Article (~37520) | v1.2 | 0/4 | Planned | - |
+| 10. Story / Article (~37520) | v1.2 | 3/4 | Executing | - |
 | 11. Temporal Sighting | v1.2 | 0/TBD | Not started | - |
 | 12. Live Beacon (~37521) | v1.2 | 0/TBD | Not started | - |
 | 13. Cross-Cutting | v1.2 | 0/TBD | Not started | - |
