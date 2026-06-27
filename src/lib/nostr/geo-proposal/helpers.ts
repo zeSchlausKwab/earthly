@@ -7,18 +7,10 @@
  */
 
 import { getOrComputeCachedValue } from 'applesauce-core/helpers/cache'
-import {
-	getTagValue,
-	type KnownEvent,
-	type NostrEvent,
-} from 'applesauce-core/helpers/event'
+import { getTagValue, type KnownEvent, type NostrEvent } from 'applesauce-core/helpers/event'
 import type { FeatureCollection } from 'geojson'
 import { GEO_EDIT_PROPOSAL_KIND } from '@/lib/nostr/kinds'
-import {
-	computeBboxFor,
-	computeGeohashFor,
-	type GeoBoundingBox,
-} from '@/lib/nostr/geo-event'
+import { computeBboxFor, computeGeohashFor, type GeoBoundingBox } from '@/lib/nostr/geo-event'
 import { normalizeGeoJsonToFeatureCollection } from '@/lib/geo/normalizeGeoJSON'
 
 export type GeoProposalEvent = KnownEvent<typeof GEO_EDIT_PROPOSAL_KIND>
@@ -54,6 +46,33 @@ export function getProposalFeatureCollection(event: NostrEvent): FeatureCollecti
 /** Address of the target dataset: `37515:<owner-pubkey>:<dataset-d-tag>` */
 export function getProposalTargetAddress(event: NostrEvent): string | undefined {
 	return getTagValue(event, 'a')
+}
+
+/**
+ * The raw proposal `content` string, returned unchanged (STORY-06). For a Story
+ * proposal this is the proposed Markdown body; for a dataset proposal it is the
+ * JSON-stringified FeatureCollection. Reads defensively — never throws — so a
+ * malformed proposal renders inertly (T-10-14); absent content yields `''`.
+ */
+export function getProposalMarkdownContent(event: NostrEvent): string {
+	return event.content ?? ''
+}
+
+/**
+ * The target KIND parsed from the proposal's `a` coordinate
+ * (`<kind>:<pubkey>:<d>`). This is the single disambiguator for a content-type:
+ * `37520` ⇒ the content is Markdown (a Story), `37515` ⇒ the content is a
+ * FeatureCollection (a dataset) — SPEC.md §17. No on-event discriminator tag is
+ * needed (STORY-06). Returns `undefined` for a missing or malformed coordinate,
+ * so a forged `a` yields no actionable target (T-10-13).
+ */
+export function getProposalTargetKind(event: NostrEvent): number | undefined {
+	const address = getProposalTargetAddress(event)
+	if (!address) return undefined
+	const parts = address.split(':')
+	if (parts.length < 3) return undefined
+	const kind = Number.parseInt(parts[0], 10)
+	return Number.isInteger(kind) ? kind : undefined
 }
 
 export function getProposalTargetPubkey(event: NostrEvent): string | undefined {

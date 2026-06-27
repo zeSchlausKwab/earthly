@@ -6,23 +6,14 @@
  * `description`, `base-version`, and discovery tags.
  */
 
-import {
-	blankEventTemplate,
-	DeleteFactory,
-	EventFactory,
-} from 'applesauce-core/factories'
+import { blankEventTemplate, DeleteFactory, EventFactory } from 'applesauce-core/factories'
 import type { EventSigner } from 'applesauce-core/factories/types'
 import type { FeatureCollection } from 'geojson'
 import type { NostrEvent } from 'nostr-tools'
 import { generateShortDTag } from '@/lib/nostr/dTag'
 import { GEO_EDIT_PROPOSAL_KIND } from '@/lib/nostr/kinds'
 import { publish } from '..'
-import {
-	computeBboxFor,
-	computeGeohashFor,
-	getProposalId,
-	type GeoProposalEvent,
-} from './helpers'
+import { computeBboxFor, computeGeohashFor, getProposalId, type GeoProposalEvent } from './helpers'
 
 export interface ProposalTarget {
 	/** `37515:<owner-pubkey>:<dataset-d-tag>` */
@@ -39,6 +30,33 @@ export class GeoProposalFactory extends EventFactory<typeof GEO_EDIT_PROPOSAL_KI
 		return new GeoProposalFactory((resolve) => {
 			const tpl = blankEventTemplate(GEO_EDIT_PROPOSAL_KIND)
 			tpl.content = JSON.stringify(fc)
+			if (!tpl.tags.some((t) => t[0] === 'd')) {
+				tpl.tags = [...tpl.tags, ['d', generateShortDTag()]]
+			}
+			tpl.tags.push(['a', target.address], ['p', target.ownerPubkey])
+			if (target.baseVersion) {
+				tpl.tags.push(['base-version', target.baseVersion])
+			}
+			resolve(tpl)
+		})
+	}
+
+	/**
+	 * Start a new Story-narrative proposal (STORY-06). Identical to {@link create}
+	 * except `content` is the proposed Markdown body STRING directly (NOT a
+	 * JSON-stringified FeatureCollection), and `target.address` is the Story
+	 * `37520:<owner>:<d>` coordinate.
+	 *
+	 * This is a PURE content-type extension — no spec discriminator tag is added.
+	 * A consumer reads the target kind off the `a` coordinate
+	 * (`getProposalTargetKind`) and parses `content` accordingly: Markdown for a
+	 * 37520 target, FeatureCollection for a 37515 target (SPEC.md §11.1 + §17).
+	 * The dataset path ({@link create}) is left untouched.
+	 */
+	static createForStory(target: ProposalTarget, markdownBody: string): GeoProposalFactory {
+		return new GeoProposalFactory((resolve) => {
+			const tpl = blankEventTemplate(GEO_EDIT_PROPOSAL_KIND)
+			tpl.content = markdownBody
 			if (!tpl.tags.some((t) => t[0] === 'd')) {
 				tpl.tags = [...tpl.tags, ['d', generateShortDTag()]]
 			}
@@ -78,9 +96,7 @@ export class GeoProposalFactory extends EventFactory<typeof GEO_EDIT_PROPOSAL_KI
 			const computedBbox = computeBboxFor(fc)
 			const computedGeohash = computeGeohashFor(fc, precision)
 
-			const newTags: string[][] = tpl.tags.filter(
-				(tag) => tag[0] !== 'bbox' && tag[0] !== 'g',
-			)
+			const newTags: string[][] = tpl.tags.filter((tag) => tag[0] !== 'bbox' && tag[0] !== 'g')
 			if (computedBbox) newTags.push(['bbox', computedBbox.join(',')])
 			if (computedGeohash) newTags.push(['g', computedGeohash])
 
