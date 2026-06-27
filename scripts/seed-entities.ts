@@ -35,6 +35,10 @@ import { LiveBeaconFactory } from '@/lib/nostr/live-beacon/factory'
 import { TemporalSightingFactory } from '@/lib/nostr/temporal-sighting/factory'
 import { GeoDatasetFactory } from '@/lib/nostr/geo-event/factory'
 import type { GeoBoundingBox } from '@/lib/nostr/geo-event/helpers'
+import {
+	coordinateToNaddrReference,
+	extractReferencedCoordinates,
+} from '@/lib/nostr/references'
 import { computeSchemaHash } from '@/lib/group/schemaHash'
 
 const RELAY_URL = 'ws://localhost:3334'
@@ -455,51 +459,56 @@ async function seed(): Promise<void> {
 
 	// ── Stories / Articles (kind 37520) ─────────────────────────────────────────
 	console.log('\nStories:')
+	// Encode a dataset coordinate as an inline `nostr:naddr…` body reference. The
+	// Story bodies below weave these in so the reading panel renders the inline
+	// ref chips (eye-toggle / fly-to) AND the map stack auto-shows the geometry —
+	// exactly the in-app authoring shape. `a` tags are re-derived FROM the body
+	// (STORY-03, body = single source of truth) instead of being set by hand.
+	const ref = (coord: string | undefined): string =>
+		(coord && coordinateToNaddrReference(coord)) || ''
+
 	const storySpecs = [
 		{
 			title: 'A Ride Through Vienna',
 			summary: 'A narrative loop along the Ringstrasse and the Donaukanal.',
-			content: '# A Ride Through Vienna\n\nWe started at the **Ringstrasse** and followed the canal north. The curated route is mapped here; the community keeps adding side paths.',
-			refs: [curated.cycling[0], cyclingCoord],
+			content: `# A Ride Through Vienna\n\nWe started at the **Ringstrasse** and followed the canal north. The curated cycling route is mapped here — ${ref(curated.cycling[0])} — and a second leg picks up further along: ${ref(curated.cycling[1])}.\n\nThe community keeps adding side paths; open the references above to drop them on the map.`,
 			tags: ['narrative', 'cycling'],
 			who: contributors[2],
 		},
 		{
 			title: 'Field Notes: Donaukanal Wildlife',
 			summary: 'Observations from a morning along the canal.',
-			content: '# Field Notes\n\nA quiet morning produced a memorable **kingfisher** sighting near the Salztorbrücke.',
-			refs: [curated.trees[0]],
+			content: `# Field Notes\n\nA quiet morning produced a memorable **kingfisher** sighting near the Salztorbrücke. The street-tree census nearby is mapped here: ${ref(curated.trees[0])}.`,
 			tags: ['narrative', 'wildlife'],
 			who: contributors[2],
 		},
 		{
 			title: 'Walls That Talk',
 			summary: 'A walking tour of Vienna’s best murals.',
-			content: '# Walls That Talk\n\nFrom the Gürtel to the canal, the city’s **street art** scene keeps shifting. Start with the curated picks.',
-			refs: [artCoord, curated.art[0]],
+			content: `# Walls That Talk\n\nFrom the Gürtel to the canal, the city’s **street art** scene keeps shifting. Start with the curated picks — ${ref(curated.art[0])} and ${ref(curated.art[1])} — then wander.`,
 			tags: ['narrative', 'streetart'],
 			who: contributors[0],
 		},
 		{
 			title: 'Under the Plane Trees',
 			summary: 'Why Vienna’s street trees matter.',
-			content: '# Under the Plane Trees\n\nThe **Street Trees** group tracks species block by block — a slow census of the urban canopy.',
-			refs: [treeCoord],
+			content: `# Under the Plane Trees\n\nThe **Street Trees** census tracks species block by block — a slow inventory of the urban canopy. Two of the mapped blocks: ${ref(curated.trees[1])} and ${ref(curated.heritage[0])}.`,
 			tags: ['narrative', 'trees'],
 			who: contributors[3],
 		},
 	]
 	for (const s of storySpecs) {
+		const refs = extractReferencedCoordinates(s.content)
 		await publish(
 			ArticleFactory.create({ title: s.title, summary: s.summary, content: s.content })
 				.hashtags(s.tags)
 				.bbox(VIENNA_BBOX)
 				.geohash(jitter(VIENNA_CENTROID))
-				.referencedAddresses(s.refs),
+				.referencedAddresses(refs),
 			s.who.signer,
 		)
 	}
-	console.log(`  ✓ ${storySpecs.length} stories`)
+	console.log(`  ✓ ${storySpecs.length} stories (with inline geo-refs → map-stack)`)
 
 	// ── Summary ────────────────────────────────────────────────────────────────
 	console.log('\n─────────────────────────────────────────────')
