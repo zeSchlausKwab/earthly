@@ -12,12 +12,10 @@ import {
 } from '@/lib/nostr/geo-comment'
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import { GEO_COMMENT_KIND } from '@/lib/nostr/kinds'
+import type { Article } from '@/lib/nostr/article'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
-import {
-	extractReferencedCoordinates,
-	setAddressReferenceTags,
-} from '@/lib/nostr/references'
+import { extractReferencedCoordinates, setAddressReferenceTags } from '@/lib/nostr/references'
 
 export interface CommentNode {
 	event: GeoComment
@@ -26,7 +24,7 @@ export interface CommentNode {
 }
 
 export interface UseGeoCommentsOptions {
-	target: GeoDataset | MapContext | null
+	target: GeoDataset | MapContext | Article | null
 	maxDepth?: number
 }
 
@@ -36,13 +34,9 @@ export interface UseGeoCommentsResult {
 	count: number
 	isLoading: boolean
 	postComment: (text: string, geojson?: FeatureCollection) => Promise<void>
-	postReply: (
-		parentComment: GeoComment,
-		text: string,
-		geojson?: FeatureCollection,
-	) => Promise<void>
+	postReply: (parentComment: GeoComment, text: string, geojson?: FeatureCollection) => Promise<void>
 	deleteComment: (comment: GeoComment) => Promise<void>
-	react: (target: GeoDataset | MapContext | GeoComment) => Promise<void>
+	react: (target: GeoDataset | MapContext | Article | GeoComment) => Promise<void>
 }
 
 /**
@@ -190,21 +184,18 @@ export function useGeoComments({
 		await deleteCommentEvent(comment.event, signer)
 	}, [])
 
-	const react = useCallback(
-		async (reactTarget: GeoDataset | MapContext | GeoComment) => {
-			const signer = accounts.signer
-			if (!signer) throw new Error('No active account')
-			// Pull the raw NostrEvent from an applesauce Cast (`.event`) or a
-			// legacy NDK subclass (`.rawEvent()`).
-			const raw =
-				'event' in reactTarget
-					? reactTarget.event
-					: (reactTarget as { rawEvent: () => NostrEvent }).rawEvent()
-			const signed = await ReactionFactory.create(raw, '❤️').sign(signer)
-			await publish(signed, { routing: 'outbox' })
-		},
-		[],
-	)
+	const react = useCallback(async (reactTarget: GeoDataset | MapContext | Article | GeoComment) => {
+		const signer = accounts.signer
+		if (!signer) throw new Error('No active account')
+		// Pull the raw NostrEvent from an applesauce Cast (`.event`) or a
+		// legacy NDK subclass (`.rawEvent()`).
+		const raw =
+			'event' in reactTarget
+				? reactTarget.event
+				: (reactTarget as { rawEvent: () => NostrEvent }).rawEvent()
+		const signed = await ReactionFactory.create(raw, '❤️').sign(signer)
+		await publish(signed, { routing: 'outbox' })
+	}, [])
 
 	return {
 		comments,

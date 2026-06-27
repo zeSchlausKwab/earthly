@@ -2,6 +2,7 @@ import { Eye, EyeOff, RefreshCw } from 'lucide-react'
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { useGeoComments } from '../hooks/useGeoComments'
+import type { Article } from '@/lib/nostr/article'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { GeoComment } from '@/lib/nostr/geo-comment'
 import type { MapContext } from '@/lib/nostr/map-context'
@@ -15,8 +16,8 @@ import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 const ROOT_COMPOSER_ID = 'root'
 
 interface CommentsPanelProps {
-	/** The dataset or context to show comments for */
-	target: GeoDataset | MapContext | null
+	/** The dataset, context, or Story to show comments for */
+	target: GeoDataset | MapContext | Article | null
 	/** Callback when a comment's GeoJSON visibility is toggled */
 	onCommentGeojsonVisibilityChange?: (comment: GeoComment, visible: boolean) => void
 	/** Callback to zoom to a comment's GeoJSON */
