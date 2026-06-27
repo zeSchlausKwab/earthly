@@ -35,6 +35,8 @@ created: 2026-06-27
 
 Earthly's Tailwind v4 base unit is `--spacing: 0.25rem` (4px), so the standard 4-point scale applies. Declared values (all multiples of 4):
 
+**Project standard-set override (deliberate, documented):** Earthly extends the checker's standard spacing set `(4, 8, 16, 24, 32, 48, 64)` with **12px** for panel surface padding, matching the existing `EntityPanelShell` chrome (`px-3 py-3`) already shipped in the Phase-9 Group and Phase-10 Story panels. This is a multiple of 4 and is recorded here as a deliberate, documented project override — NOT an undeclared deviation. Panels are intentionally kept at 12px (not raised to 16px) to preserve visual continuity with the already-shipped Phase-9/10 panel surfaces.
+
 | Token | Value | Tailwind | Usage |
 |-------|-------|----------|-------|
 | xs | 4px | `gap-1` / `p-1` | Icon-to-label gaps, badge inner padding, time-cue chip padding |
@@ -104,6 +106,7 @@ All user-facing strings rendered as escaped React text nodes (no `dangerouslySet
 |---------|------|
 | Primary CTA (browse + rail) | **New Sighting** |
 | Create-flow placement prompt (cursor armed) | "Click the map to drop your sighting" (map overlay hint while pin-drop is armed) |
+| Create-flow cancel button (overlay) | **Cancel placement** (`Esc` is the keyboard alternative) — never bare "Cancel" |
 | Editor submit (create) | **Publish Sighting** |
 | Editor submit (edit) | **Save changes** |
 | Title field placeholder | "What did you see?" |
@@ -135,7 +138,7 @@ All user-facing strings rendered as escaped React text nodes (no `dangerouslySet
 - Trigger: **New Sighting** (browse panel top OR rail New action) arms GeoEditor `DrawPointMode`; cursor becomes a crosshair/pin; a dismissible map overlay hint shows "Click the map to drop your sighting".
 - On click: point placed, the **SightingEditorPanel** opens in the right info panel (clone of `StoryEditorPanel` layout). Map remains the canvas; the form is compact (single column, `space-y-4`).
 - Optional area (D-02): an **"Draw an area instead"** secondary text affordance switches GeoEditor to line/polygon draw; the resulting geometry replaces the point. Keep it visually subordinate (not accent).
-- Cancel placement: `Esc` or an overlay "Cancel" button returns to idle without opening the form.
+- Cancel placement: `Esc` or an overlay **"Cancel placement"** button returns to idle without opening the form (`Esc` is the keyboard alternative).
 
 ### 2. Distinct Sighting marker + time cue + fade (D-05/D-06)
 - Marker must read as an **ephemeral observation**, visually distinct from dataset dots and story pins. Recommended: an eye/sighting glyph (lucide `Eye` or `Telescope` motif) in a pill/teardrop, NOT a plain circle.
