@@ -119,10 +119,10 @@ Populated during roadmap creation. Phase numbering continues from v1.1 (which en
 | GROUP-06 | Phase 9 | Complete (09-06: sanitized Markdown narrative + owner curated pin/bless of `a`-refs via GroupFactory.modify) |
 | GROUP-07 | Phase 9 | Complete (09-06: CommentsPanel mounted on the Group 37518 coordinate; comment + react via existing path) |
 | GROUP-08 | Phase 9 | Complete (09-06: NO-MOD MINIMUM — curated-first privileged lane, collapsed/capped(50)/newest-first foreign lane, per-coordinate kind+verifyEvent+mute gate before render, device-local app-global mute, owner one-click flip-to-closed; noModMinimum.test.ts GREEN) |
-| STORY-01 | Phase 10 | Planned (10-02: StoryEditorPanel title/summary/cover/Markdown body) |
-| STORY-02 | Phase 10 | Planned (10-02 @-mention insert + 10-03 RichContentRenderer inline eye-toggle/fly-to) |
-| STORY-03 | Phase 10 | Data layer DONE (10-01 publishStory/editStory re-derive `a` from body naddr refs on every publish, b1ebc7f); 10-02 UI pending |
-| STORY-04 | Phase 10 | Data layer DONE (10-01 editStory d-tag lineage + local draft helper readStoryDraft/writeStoryDraft/clearStoryDraft, b1ebc7f/0326375); 10-02 draft/in-place-edit UI pending |
+| STORY-01 | Phase 10 | UI DONE (10-02 StoryEditorPanel: Title/Summary/Cover 16:9 + GeoRichTextEditor Markdown body, 188b8a5) |
+| STORY-02 (insert half) | Phase 10 | UI DONE (10-02 GeoRichTextEditor @-mention picker inserts inline geo/media refs, 188b8a5); render half (inline eye-toggle/fly-to) pending 10-03 |
+| STORY-03 | Phase 10 | DONE (10-01 publishStory/editStory re-derive `a` from body naddr refs b1ebc7f; 10-02 StoryEditorPanel wired to the service, 188b8a5) |
+| STORY-04 | Phase 10 | DONE (10-01 editStory d-tag lineage + draft helper b1ebc7f/0326375; 10-02 Save/Discard draft + in-place-edit UI + Draft/Published chips, 188b8a5/245f50c) |
 | STORY-05 | Phase 10 | Planned (10-03 CommentsPanel/GeoSocialActions mount on Story coord + Article target widen) |
 | STORY-06 | Phase 10 | Planned (10-04 kind-37519 Markdown-content target — pure content-type extension, no discriminator; diff-preview accept/reject) |
 | SIGHT-01 | Phase 11 | Pending |

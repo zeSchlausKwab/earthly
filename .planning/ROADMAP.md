@@ -125,7 +125,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 2** *(blocked on Wave 1)*
 
-  - [ ] 10-02-PLAN.md — StoryEditorPanel (Write/Preview tabs, metadata, @-mention insert, draft, in-place edit) + StoriesPanel browse + New Story entry [STORY-01/02/03/04]
+  - [x] 10-02-PLAN.md — StoryEditorPanel (Write/Preview tabs, metadata, @-mention insert, draft, in-place edit) + StoriesPanel browse + New Story entry [STORY-01/02/03/04] ✓ (188b8a5, 245f50c — 687/0, build green, biome clean)
 
 **Wave 3** *(blocked on Wave 2)*
 
