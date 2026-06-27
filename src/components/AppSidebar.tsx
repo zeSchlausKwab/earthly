@@ -149,6 +149,7 @@ interface AppSidebarProps {
 		visible: boolean,
 	) => void
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
+	isMentionVisible?: (address: string, featureId: string | undefined) => boolean
 	contextEditorMode?: 'none' | 'create' | 'edit'
 	editingContext?: MapContext | null
 	onSaveContext?: (context: MapContext) => void
@@ -162,6 +163,7 @@ interface AppSidebarProps {
 	onSaveStory?: (story: import('@/lib/nostr/article').Article) => void
 	onCloseStoryEditor?: () => void
 	onDeleteStory?: (story: import('@/lib/nostr/article').Article) => void
+	onStoryUpdated?: (story: import('@/lib/nostr/article').Article) => void
 	onZoomToFeature?: (feature: EditorFeature) => void
 	onExitViewMode?: () => void
 	featureCollectionForUpload?: FeatureCollection | null
@@ -214,6 +216,7 @@ export function AppSidebar({
 	availableFeatures = [],
 	onMentionVisibilityToggle,
 	onMentionZoomTo,
+	isMentionVisible,
 	contextEditorMode = 'none',
 	editingContext,
 	onSaveContext,
@@ -226,6 +229,7 @@ export function AppSidebar({
 	onSaveStory,
 	onCloseStoryEditor,
 	onDeleteStory,
+	onStoryUpdated,
 	onZoomToFeature,
 	onExitViewMode,
 	featureCollectionForUpload,
@@ -581,6 +585,7 @@ export function AppSidebar({
 		availableFeatures,
 		onMentionVisibilityToggle,
 		onMentionZoomTo,
+		isMentionVisible,
 		onToggleProposalOverlay,
 		onProposalAccepted,
 		visibleProposalIds,
@@ -594,6 +599,7 @@ export function AppSidebar({
 		onCloseStoryEditor: handleCloseStoryEditor,
 		onEditStory: handleEditStory,
 		onDeleteStory,
+		onStoryUpdated,
 		mapContextEvents,
 		onZoomToFeature,
 		featureCollectionForUpload,

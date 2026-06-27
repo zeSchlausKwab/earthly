@@ -37,15 +37,22 @@ export async function acceptStoryProposalImpl(
 	const updated = await editStory(storyEvent, { content: markdown }, signer)
 
 	// Publish the "applied" status for the proposal (reuses the dataset status path).
-	await createProposalStatusEvent(
-		{
-			proposalCoordinate: proposalCoordinateOf(proposalEvent),
-			id: proposalEvent.id,
-			pubkey: proposalEvent.pubkey,
-		},
-		'applied',
-		signer as EventSigner,
-	)
+	// The republish above is the substantive accept; a failure to publish the status
+	// marker must NOT negate it (otherwise the caller sees an error and the story is
+	// silently already updated). Best-effort, logged, non-fatal.
+	try {
+		await createProposalStatusEvent(
+			{
+				proposalCoordinate: proposalCoordinateOf(proposalEvent),
+				id: proposalEvent.id,
+				pubkey: proposalEvent.pubkey,
+			},
+			'applied',
+			signer as EventSigner,
+		)
+	} catch (error) {
+		console.warn('Story republished, but publishing the proposal "applied" status failed:', error)
+	}
 
 	return updated
 }

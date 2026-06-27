@@ -48,6 +48,8 @@ interface StoryViewPanelProps {
 	/** Map-stack-derived visibility for inline narrative refs (single source of truth). */
 	isMentionVisible?: (address: string, featureId: string | undefined) => boolean
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
+	/** Called with the republished Story after an accepted proposed edit, to refresh the view in place. */
+	onStoryUpdated?: (updated: Article) => void
 	focusCommentId?: string
 }
 
@@ -76,6 +78,7 @@ export function StoryViewPanel({
 	onMentionZoomTo,
 	isMentionVisible,
 	onZoomToBounds,
+	onStoryUpdated,
 	focusCommentId,
 }: StoryViewPanelProps) {
 	const [coverFailed, setCoverFailed] = useState(false)
@@ -184,6 +187,7 @@ export function StoryViewPanel({
 							target={story}
 							currentUserPubkey={currentUserPubkey}
 							availableFeatures={availableFeatures}
+							onStoryUpdated={onStoryUpdated}
 						/>
 					</EntityPanelSurface>
 				)}

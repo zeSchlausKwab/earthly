@@ -126,6 +126,8 @@ export interface GeoEditorInfoPanelProps {
 	onEditStory?: (story: Article) => void
 	/** Callback to delete a Story (owner). */
 	onDeleteStory?: (story: Article) => void
+	/** Callback with the republished Story after an accepted proposed edit (refresh view in place). */
+	onStoryUpdated?: (updated: Article) => void
 }
 
 export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
@@ -171,6 +173,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onCloseStoryEditor,
 		onEditStory,
 		onDeleteStory,
+		onStoryUpdated,
 	} = props
 
 	// Store state
@@ -588,6 +591,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					currentUserPubkey={currentUserPubkey}
 					onEditStory={onEditStory}
 					onDeleteStory={onDeleteStory}
+					onStoryUpdated={onStoryUpdated}
 					deletingKey={deletingKey}
 					availableFeatures={availableFeatures}
 					onMentionVisibilityToggle={onMentionVisibilityToggle}

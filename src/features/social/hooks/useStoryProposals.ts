@@ -22,7 +22,7 @@ import { useCallback, useMemo, useState } from 'react'
 import type { SignerLike } from '@/lib/nostr/entityFactory'
 import { accounts, eventStore } from '@/lib/nostr'
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
-import type { Article } from '@/lib/nostr/article'
+import { Article } from '@/lib/nostr/article'
 import {
 	GeoProposal,
 	createProposalStatusEvent,
@@ -56,8 +56,12 @@ export interface UseStoryProposalsResult {
 	proposals: StoryProposalWithStatus[]
 	openCount: number
 	isLoading: boolean
-	/** Accept a proposal — republishes the Story in place via `editStory`. */
-	acceptStoryProposal: (proposal: GeoProposal) => Promise<void>
+	/**
+	 * Accept a proposal — republishes the Story in place via `editStory` and
+	 * returns the updated Story (cast from the republished event) so the caller
+	 * can refresh the view in place.
+	 */
+	acceptStoryProposal: (proposal: GeoProposal) => Promise<Article>
 	/** Reject a proposal with an optional reason. */
 	rejectStoryProposal: (proposal: GeoProposal, reason?: string) => Promise<void>
 }
@@ -138,7 +142,12 @@ export function useStoryProposals({ target }: UseStoryProposalsOptions): UseStor
 			if (!signer) throw new Error('No active account')
 			setIsActing(true)
 			try {
-				await acceptStoryProposalImpl(target.rawEvent(), proposal.rawEvent(), signer as SignerLike)
+				const updatedEvent = await acceptStoryProposalImpl(
+					target.rawEvent(),
+					proposal.rawEvent(),
+					signer as SignerLike,
+				)
+				return castEvent(updatedEvent, Article, eventStore)
 			} finally {
 				setIsActing(false)
 			}

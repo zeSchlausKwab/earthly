@@ -25,11 +25,13 @@ export function useMentionActions({
 	toggleDatasetVisibility,
 	toggleAllDatasetVisibility,
 }: UseMentionActionsParams) {
-	// Round D.3: mention visibility now toggles stack membership instead of
-	// the deprecated `datasetVisibility` slice. Adding for visibility, removing
-	// for hide — the eye toggle in mention UIs maps cleanly to add/remove.
+	// Round D.3: mention visibility toggles stack membership. A ref that is
+	// already on the stack (e.g. a Story's auto-stacked `source:'story'` entry)
+	// flips visibility IN PLACE via setMapStackEntryVisible — preserving its
+	// source/order/pin and keeping the resolver-driven chip in sync. A ref not yet
+	// stacked (e.g. a comment ref) is added on show.
 	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
-	const removeMapStackEntry = useEditorStore((state) => state.removeMapStackEntry)
+	const setMapStackEntryVisible = useEditorStore((state) => state.setMapStackEntryVisible)
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 
 	const resolveNaddrToDataset = useCallback(
@@ -104,7 +106,12 @@ export function useMentionActions({
 			}
 			const key = getDatasetKey(dataset)
 			const entryId = `dataset:${key}`
-			if (visible) {
+			if (mapStackEntries[entryId]) {
+				// Already stacked (auto-stacked Story ref, or a previously-shown ref):
+				// flip visibility in place so source/order/pin survive and the
+				// resolver-backed chip icon tracks the map exactly.
+				setMapStackEntryVisible(entryId, visible)
+			} else if (visible) {
 				const collectionName = (
 					dataset.featureCollection as GeoJSON.FeatureCollection & { name?: unknown }
 				).name
@@ -117,11 +124,15 @@ export function useMentionActions({
 					visible: true,
 					pinned: false,
 				})
-			} else if (mapStackEntries[entryId]) {
-				removeMapStackEntry(entryId)
 			}
 		},
-		[resolveNaddrToDataset, getDatasetKey, addMapStackEntry, removeMapStackEntry, mapStackEntries],
+		[
+			resolveNaddrToDataset,
+			getDatasetKey,
+			addMapStackEntry,
+			setMapStackEntryVisible,
+			mapStackEntries,
+		],
 	)
 
 	const handleToggleVisibilityWithExitFocus = useCallback(

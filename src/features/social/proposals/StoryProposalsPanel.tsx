@@ -34,6 +34,8 @@ interface StoryProposalsPanelProps {
 	currentUserPubkey?: string
 	availableFeatures?: GeoFeatureItem[]
 	className?: string
+	/** Called with the republished Story after an accepted edit, so the view refreshes in place. */
+	onStoryUpdated?: (updated: Article) => void
 }
 
 function formatTimeAgo(createdAt?: number): string {
@@ -169,6 +171,7 @@ export function StoryProposalsPanel({
 	currentUserPubkey,
 	availableFeatures = [],
 	className = '',
+	onStoryUpdated,
 }: StoryProposalsPanelProps) {
 	const { proposals, openCount, acceptStoryProposal, rejectStoryProposal } = useStoryProposals({
 		target,
@@ -190,7 +193,9 @@ export function StoryProposalsPanel({
 	const handleAccept = useCallback(
 		async (proposal: GeoProposal) => {
 			try {
-				await acceptStoryProposal(proposal)
+				const updated = await acceptStoryProposal(proposal)
+				// Refresh the viewed Story in place so the body updates without a reload.
+				onStoryUpdated?.(updated)
 				toast.success('Edit applied — your story is updated.')
 			} catch (error) {
 				console.error('Failed to accept proposed edit', error)
@@ -199,7 +204,7 @@ export function StoryProposalsPanel({
 				)
 			}
 		},
-		[acceptStoryProposal],
+		[acceptStoryProposal, onStoryUpdated],
 	)
 
 	const handleReject = useCallback(
@@ -240,7 +245,7 @@ export function StoryProposalsPanel({
 				</Alert>
 			)}
 
-			{proposals.length === 0 ? (
+			{openProposals.length === 0 ? (
 				<div className="rounded-none border border-dashed border-border p-4 text-center">
 					<p className="text-sm font-medium text-foreground">No proposed edits</p>
 					<p className="mt-1 text-xs text-muted-foreground">
@@ -249,7 +254,7 @@ export function StoryProposalsPanel({
 				</div>
 			) : (
 				<div className="space-y-2">
-					{(openProposals.length > 0 ? openProposals : proposals).map((pw) => {
+					{openProposals.map((pw) => {
 						const id = pw.proposal.id ?? pw.proposal.proposalId ?? ''
 						return (
 							<StoryProposalCard

@@ -105,6 +105,7 @@ export interface MobilePanelProps {
 	onCloseContextEditor?: () => void
 	/** Story view props (Phase 10, D-03) — a deep-linked Story renders in the edit tab. */
 	onEditStory?: (story: import('@/lib/nostr/article').Article) => void
+	onStoryUpdated?: (story: import('@/lib/nostr/article').Article) => void
 	onDeleteStory?: (story: import('@/lib/nostr/article').Article) => void
 	onZoomToFeature?: (feature: EditorFeature) => void
 	featureCollectionForUpload?: FeatureCollection | null
@@ -194,6 +195,7 @@ export function MobilePanel(props: MobilePanelProps) {
 		onSaveContext,
 		onCloseContextEditor,
 		onEditStory,
+		onStoryUpdated,
 		onDeleteStory,
 		onZoomToFeature,
 		featureCollectionForUpload,
@@ -520,6 +522,7 @@ export function MobilePanel(props: MobilePanelProps) {
 							onSaveContext={onSaveContext}
 							onCloseContextEditor={onCloseContextEditor}
 							onEditStory={onEditStory}
+							onStoryUpdated={onStoryUpdated}
 							onDeleteStory={onDeleteStory}
 							mapContextEvents={mapContextEvents}
 							onZoomToFeature={onZoomToFeature}

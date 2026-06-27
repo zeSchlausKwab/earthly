@@ -1767,6 +1767,7 @@ export function GeoEditorView() {
 					onSaveStory={handleSaveStory}
 					onCloseStoryEditor={handleCloseStoryEditor}
 					onDeleteStory={handleDeleteStory}
+					onStoryUpdated={handleInspectStory}
 					onZoomToFeature={handleZoomToFeature}
 					onExitViewMode={exitViewMode}
 					// Blossom upload props - callback adds blob ref to store, does NOT publish
@@ -2055,6 +2056,7 @@ export function GeoEditorView() {
 							onCloseContextEditor={handleCloseContextEditor}
 							onEditStory={handleEditStory}
 							onDeleteStory={handleDeleteStory}
+							onStoryUpdated={handleInspectStory}
 							onZoomToFeature={handleZoomToFeature}
 							featureCollectionForUpload={memoizedFeatureCollection}
 							onBlossomUploadComplete={handleBlobUploadComplete}
