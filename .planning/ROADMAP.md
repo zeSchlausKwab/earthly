@@ -150,8 +150,25 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
   3. A Sighting can carry an expiry so stale sightings auto-fade from the map (NIP-40, always client-filtered at every read path regardless of relay GC).
   4. A user can comment on and react to a Sighting.
 
-**Plans**: TBD
-**Research flag**: NEEDS phase-research decision (LEFT OPEN at roadmap level) — dedicated lightweight kind vs 37515 + property + NIP-40; confirm a new kind number does not require relay-side Khatru filter changes beyond what existing `pool.req` filters handle.
+**Plans**: 4 plans (Wave 0 → 3) — reuse-and-extend (Phase-10 Story spine cloned almost 1:1; two net-new logic concerns: 37522 geometry field + observation-state map marker)
+
+**Wave 0**
+
+  - [ ] 11-01-PLAN.md — Nyquist RED baseline: geometry round-trip/bbox-g-derive/defensive-parse/c-emit/d-preserve, per-read-path expiry, observation-state classifier, rootKind=37522 comment emit
+
+**Wave 1** *(blocked on Wave 0)*
+
+  - [ ] 11-02-PLAN.md — Data layer: geometry field on 37522 content + bbox/g derivation (D-02), publishSighting/editSighting/deleteSighting lifecycle, local-first draft, classifyObservationState (D-06), useSightings (dropExpired + filter-before-cast) [SIGHT-01/02/03]
+
+**Wave 2** *(blocked on Wave 1)*
+
+  - [ ] 11-03-PLAN.md — Authoring + browse + map render: map-first pin-drop SightingEditorPanel (time/expiry/Group-attach, D-01/D-03/D-04), SightingsPanel rail (D-07), AppSidebar + GeoEditorView wiring, distinct observation-state Sighting marker layer (D-05/D-06) [SIGHT-01/02/03] (blocking human-verify, may defer to end-of-phase UAT)
+
+**Wave 3** *(blocked on Wave 2)*
+
+  - [ ] 11-04-PLAN.md — Reading + share: SightingViewPanel + comment/react mount + target-union widening (SIGHT-04), thin /sighting/:naddr route + expiry-aware OG card (D-08, SIGHT-03 server path) [SIGHT-03/04]
+
+**Research flag**: RESOLVED at roadmap level (Phase 8) — dedicated kind 37522; no relay-side Khatru change needed (generic addressable kind via existing `pool.req`). Phase RESEARCH/CONTEXT/PATTERNS/UI-SPEC produced; the one data-layer gap (geometry on content) + one visual concern (observation-state marker) are the only net-new logic. D-08 scoped THIN (per-kind route + OG card); canonical addressing + read-side K/k widening deferred to Phase 13 (XCUT-01/02).
 **UI hint**: yes
 
 ### Phase 12: Live Beacon (~37521)
@@ -201,7 +218,7 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 8. Spec v2 + Foundation | v1.2 | 5/5 | Complete    | 2026-06-25 |
 | 9. Group / Topic (37518 slimmed) | v1.2 | 6/6 | Complete    | 2026-06-26 |
 | 10. Story / Article (~37520) | v1.2 | 4/4 | Complete    | 2026-06-27 |
-| 11. Temporal Sighting | v1.2 | 0/TBD | Not started | - |
+| 11. Temporal Sighting | v1.2 | 0/4 | Planned | - |
 | 12. Live Beacon (~37521) | v1.2 | 0/TBD | Not started | - |
 | 13. Cross-Cutting | v1.2 | 0/TBD | Not started | - |
 </content>
