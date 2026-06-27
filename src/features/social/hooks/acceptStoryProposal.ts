@@ -15,11 +15,8 @@
 import type { EventSigner } from 'applesauce-core/factories/types'
 import type { NostrEvent } from 'nostr-tools'
 import type { SignerLike } from '@/lib/nostr/entityFactory'
-import {
-	GEO_EDIT_PROPOSAL_KIND,
-	createProposalStatusEvent,
-	getProposalMarkdownContent,
-} from '@/lib/nostr/geo-proposal'
+import { createProposalStatusEvent, getProposalMarkdownContent } from '@/lib/nostr/geo-proposal'
+import { GEO_EDIT_PROPOSAL_KIND } from '@/lib/nostr/kinds'
 import { editStory } from '@/lib/nostr/story'
 
 /** Re-derive the `37519:<author>:<d>` coordinate of a raw proposal event. */

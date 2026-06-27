@@ -18,9 +18,10 @@
  * (STORY-05), exactly as Phase 9 mounted it on Groups — zero new comment UI.
  */
 
-import { Pencil } from 'lucide-react'
+import { Pencil, PencilLine } from 'lucide-react'
 import { useState } from 'react'
 import { CommentsPanel } from '@/features/social/comments'
+import { StoryProposalsPanel, StoryProposeEditDialog } from '@/features/social/proposals'
 import type { Article } from '@/lib/nostr/article'
 import { RichContentRenderer } from '../editor'
 import type { GeoFeatureItem } from '../editor/GeoRichTextEditor'
@@ -75,6 +76,7 @@ export function StoryViewPanel({
 	focusCommentId,
 }: StoryViewPanelProps) {
 	const [coverFailed, setCoverFailed] = useState(false)
+	const [proposeOpen, setProposeOpen] = useState(false)
 
 	if (!story) {
 		return (
@@ -126,7 +128,21 @@ export function StoryViewPanel({
 										/>
 									)}
 								</div>
-							) : null
+							) : (
+								// A reader (non-owner) can propose a narrative edit (STORY-06). The
+								// dialog opens the body in an edit affordance and submits a
+								// kind-37519 Markdown-content proposal targeting this Story.
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									onClick={() => setProposeOpen(true)}
+									className="gap-1 rounded-none px-2 text-[11px]"
+								>
+									<PencilLine className="h-3 w-3" />
+									Propose an edit
+								</Button>
+							)
 						}
 					/>
 
@@ -155,6 +171,19 @@ export function StoryViewPanel({
 					/>
 				</EntityPanelSurface>
 
+				{/* Author-side Proposed edits (STORY-06). The panel self-gates on ownership and
+				    renders nothing for a non-owner; the reader instead gets the Propose-an-edit
+				    button above. Accept republishes the Story in place via editStory. */}
+				{isOwner && (
+					<EntityPanelSurface tone="neutral" className="space-y-4">
+						<StoryProposalsPanel
+							target={story}
+							currentUserPubkey={currentUserPubkey}
+							availableFeatures={availableFeatures}
+						/>
+					</EntityPanelSurface>
+				)}
+
 				{/* Comment + react on the Story coordinate (STORY-05). The Article cast is a
 				    kind-ARTICLE_KIND (37520) event, so CommentsPanel/GeoSocialActions root the
 				    comment at `target.kind === ARTICLE_KIND` directly — runtime rooting is
@@ -175,6 +204,17 @@ export function StoryViewPanel({
 					/>
 				</EntityPanelSurface>
 			</div>
+
+			{/* Reader-side Propose-an-edit dialog (STORY-06) — only mounted for a
+			    non-owner reader; submits a kind-37519 Markdown-content proposal. */}
+			{!isOwner && (
+				<StoryProposeEditDialog
+					story={story}
+					open={proposeOpen}
+					onOpenChange={setProposeOpen}
+					availableFeatures={availableFeatures}
+				/>
+			)}
 		</EntityPanelShell>
 	)
 }
