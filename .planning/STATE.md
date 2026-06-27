@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
-status: planning
-stopped_at: Phase 10 UI-SPEC approved
-last_updated: "2026-06-27T06:41:39.415Z"
-last_activity: "2026-06-26 — Phase 9 complete: UAT 3/3 pass, security SECURED (threats_open:0), worker-guard hardening merged"
+status: executing
+stopped_at: Phase 10 Plan 01 complete
+last_updated: "2026-06-27T07:05:00.000Z"
+last_activity: 2026-06-27 -- Phase 10 Plan 01 (Story data-layer service) complete
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 15
+  completed_plans: 12
   percent: 33
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 **Core value:** The maintainer (and any user) can open the app for fun, not duty.
-**Current focus:** Phase 10 — Story / Article (~37520)
+**Current focus:** Phase 10 — story-article-37520
 
 ## Current Position
 
-Phase: 10
-Plan: Not started
-Status: Ready to plan Phase 10 (Story / Article). Phase 9 complete — UAT 3/3 + SECURED.
-Last activity: 2026-06-26 — Phase 9 complete: UAT 3/3 pass, security SECURED (threats_open:0), worker-guard hardening merged
+Phase: 10 (story-article-37520) — EXECUTING
+Plan: 2 of 4
+Status: Executing Phase 10 (Plan 01 complete)
+Last activity: 2026-06-27 -- Phase 10 Plan 01 (Story data-layer service) complete
 
 Progress: [███░░░░░░░] 33% (v1.2 — 2/6 phases)
 
@@ -74,6 +74,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 | Phase 09 P03 | ~22m | 2 tasks | 7 files |
 | Phase 09 P04 | ~20m | 2 tasks (+1 deferred checkpoint) | 4 files |
 | Phase 09 P05 | ~35m | 2 tasks (+1 deferred checkpoint) | 5 files |
+| Phase 10 P01 | ~14m | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,8 @@ Recent decisions affecting current work:
 - [09-02]: src/lib/nostr/group/ shipped — the per-kind Factory+Cast+helpers foundation Plans 03–06 import. GroupContent collapses the contextUse/validationMode/allowForeignAttachments triad to a single governance:'open'|'schema'|'closed' enum (clean break, fields absent not migrated). isGroup adds the SPEC-03 hasCurrentModelVersion gate (legacy 37518 silently drops). GroupFactory extends EntityFactory (bare-sign base); create strips+re-asserts modelVersion, modify preserves d. All tag I/O delegates to tags.ts; added setSchemaHash transformer there (resolved the flagged inline-vs-tags.ts decision toward delegation). useGroups + useGroupAttachments(#c) hooks added; group/ wired into the nostr barrel (map-context/ retained, importable from its own path, ~34 consumers migrate in Plans 03–06). group.test.ts GREEN (GROUP-01); 20 pass / build green. gsd-tools not on PATH — STATE/ROADMAP/REQUIREMENTS updated manually.
 - [09-05]: Contributor `c`-attach lane shipped (GROUP-02/04). usePublishing rewritten: dropped the legacy `validateDatasetForContext` import + the `validateRequiredContextAttachments` blocking gate and its 4 call sites entirely (slimmed governance has NO validationMode:'required' — GROUP-04 hard invariant); the `.contextReferences` `c`-tag write SURVIVES at all 4 publish entrypoints (GROUP-02); option repointed `mapContexts: MapContext[]` → `groups: Group[]`. New GroupAttachField.tsx: command+popover picker over useGroups; per-feature off-thread `filterForeignAttachment('warn',…)` → dismissible amber `Alert variant="default"` (NOT destructive) + "Checking…" spinner + worker-fail "shown unfiltered" copy; "Publish anyway" always enabled, `disabled` = `!canPublish||isPublishing` ONLY (never the verdict). Mounted in desktop GeoEditorInfoPanel attach section; onPublishNew/canPublishNew threaded through AppSidebar. build green / warnNotBlock 3/0 / own files biome-clean. 2 pre-existing legacy noLabelWithoutControl errors in GeoEditorInfoPanel left out-of-scope (logged to deferred-items). human-verify deferred to end-of-phase UAT. gsd-tools not on PATH — tracking md updated manually.
 - [09-06]: NO-MOD MINIMUM two-lane GroupViewPanel shipped (GROUP-05/06/07/08) — the phase's second security-critical guard. New src/lib/group/noModMinimum.ts (the module the Wave-0 RED test imports; absent until now): gateForeignLane applies kind===37515 → verifyEvent signature → device-local mute IN ORDER before any event paints, then newest-first sort + cap 50 + hasMore; flipToClosed returns a modify template with governance:'closed' preserving d. SIG GATE HARDENED against nostr-tools verifiedSymbol cache poisoning (verifyUntrustedEvent rebuilds a plain event object from the sig-bearing fields and verifies THAT) — required to turn the corrupted-sig RED test GREEN and correct against relay events. ForeignLane.tsx: collapsed tone=neutral subordinate "Community contributions (N)" lane; off-thread filterForeignAttachment off/warn/strict (default strict) reason chips; ⋮ Mute @name (useMuteStore) + undo toast; Load more. CuratedLane.tsx: privileged tone=context "Canonical references" + Canonical Badge variant=secondary; owner Add-curated-reference picker + appendCuratedReference bless, both via GroupFactory.modify(group).referencedAddresses (preserves d). GroupViewPanel.tsx: CuratedLane FIRST then ForeignLane (D-08); owner Lock-down→Closed alert-dialog escape hatch (GroupFactory.modify.group({governance:'closed'})); sanitized RichContentRenderer narrative (0 dangerouslySetInnerHTML); CommentsPanel on the 37518 coord (GROUP-07, roots at target.kind===MAP_CONTEXT_KIND, no K/k widening — full widening stays Phase 13). Bridged store's MapContext-typed viewContext via rawEvent() (no store-wide type migration). Repointed info-panel barrel + GeoEditorInfoPanel; DELETED orphaned MapContextViewPanel.tsx. noModMinimum 6/0 · group+validation+mute 41/0 · FULL SUITE 663/0 · build green · biome clean. Task-3 human-verify (full NO-MOD trust posture) DEFERRED to end-of-phase UAT per human_verify_mode:end-of-phase — user approved finalize; steps preserved in 09-06-SUMMARY. gsd-tools not on PATH — STATE/ROADMAP/REQUIREMENTS updated manually.
+
+- [10-01]: Story data-layer service shipped — src/lib/nostr/story/{lifecycle,draft,index}.ts + src/lib/hooks/useStories.ts. publishStory()/editStory() wrap the Phase-8 ArticleFactory and, on EVERY publish, destructively re-derive the `a` tags from the Markdown body's inline nostr:naddr refs via extractReferencedCoordinates → modifyPublicTags(setAddressReferenceTags) (STORY-03; body is the single source of truth — extracts the GroupEditorPanel.handleSave inline analog into one tested module Plans 02/04 share). editStory uses ArticleFactory.modify (preserves d, STORY-04 lineage, no fork). Malformed naddr inherited-excluded via naddrToCoordinate→null (no throw, T-10-01). Service does NOT cast (caller casts via castEvent). draft.ts: readStoryDraft/writeStoryDraft/clearStoryDraft keyed by d-tag over the existing readScopedStorage/writeScopedStorage primitives at base key 'earthly:story:drafts:v1' (NEW_STORY_DRAFT_KEY='new-story' sentinel); defensive map read → {} on malformed value, never throws (T-10-03 accept). useStories() copies useGroups exactly — isArticle filter BEFORE castEvent in the useMemo so a malformed/legacy/forged 37520 can't crash the timeline (T-10-02). 5-behavior lifecycle.test.ts GREEN (publish mocked via mock.module, no live publish); full suite 687/0; build green; new files biome-clean. NOTE: gsd-tools not on PATH — STATE/ROADMAP/REQUIREMENTS updated manually.
 
 ### Pending Todos
 

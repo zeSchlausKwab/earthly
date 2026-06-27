@@ -121,8 +121,8 @@ Populated during roadmap creation. Phase numbering continues from v1.1 (which en
 | GROUP-08 | Phase 9 | Complete (09-06: NO-MOD MINIMUM — curated-first privileged lane, collapsed/capped(50)/newest-first foreign lane, per-coordinate kind+verifyEvent+mute gate before render, device-local app-global mute, owner one-click flip-to-closed; noModMinimum.test.ts GREEN) |
 | STORY-01 | Phase 10 | Planned (10-02: StoryEditorPanel title/summary/cover/Markdown body) |
 | STORY-02 | Phase 10 | Planned (10-02 @-mention insert + 10-03 RichContentRenderer inline eye-toggle/fly-to) |
-| STORY-03 | Phase 10 | Planned (10-01 lifecycle naddr→`a` re-derive on every publish + 10-02 UI) |
-| STORY-04 | Phase 10 | Planned (10-01 editStory d-tag lineage + local draft helper; 10-02 draft/in-place-edit UI) |
+| STORY-03 | Phase 10 | Data layer DONE (10-01 publishStory/editStory re-derive `a` from body naddr refs on every publish, b1ebc7f); 10-02 UI pending |
+| STORY-04 | Phase 10 | Data layer DONE (10-01 editStory d-tag lineage + local draft helper readStoryDraft/writeStoryDraft/clearStoryDraft, b1ebc7f/0326375); 10-02 draft/in-place-edit UI pending |
 | STORY-05 | Phase 10 | Planned (10-03 CommentsPanel/GeoSocialActions mount on Story coord + Article target widen) |
 | STORY-06 | Phase 10 | Planned (10-04 kind-37519 Markdown-content target — pure content-type extension, no discriminator; diff-preview accept/reject) |
 | SIGHT-01 | Phase 11 | Pending |

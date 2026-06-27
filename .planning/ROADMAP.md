@@ -121,7 +121,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 1**
 
-  - [ ] 10-01-PLAN.md — Story data-layer service: publishStory/editStory over ArticleFactory + naddr→`a` re-derivation (STORY-03), d-tag-lineage edit (STORY-04), local-first draft helper, useStories() subscription
+  - [x] 10-01-PLAN.md — Story data-layer service: publishStory/editStory over ArticleFactory + naddr→`a` re-derivation (STORY-03), d-tag-lineage edit (STORY-04), local-first draft helper, useStories() subscription ✓ (b1ebc7f, 0326375 — 687/0, build green)
 
 **Wave 2** *(blocked on Wave 1)*
 
