@@ -133,7 +133,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 4** *(blocked on Wave 3)*
 
-  - [ ] 10-04-PLAN.md — Propose narrative edit: kind-37519 Markdown-content target (resolved PURE content-type extension, no discriminator — SPEC.md §11/§17), author diff-preview + accept (republish in place) / reject [STORY-06]
+  - [x] 10-04-PLAN.md — Propose narrative edit: kind-37519 Markdown-content target (resolved PURE content-type extension, no discriminator — SPEC.md §11/§17), author diff-preview + accept (republish in place) / reject [STORY-06] ✓ (cbe9917, 1888f7d — 693/0, build green, biome clean)
 
 **Research flag**: SKIP — NIP-23 is well-documented; `getContentPointers` is a library call. **Resolved at planning:** the 37519 generalization is a pure content-type extension (no spec discriminator) — the `a` coordinate already disambiguates 37520 vs 37515 (SPEC.md §11.1/§11.2/§17); recorded in 10-04-PLAN.md.
 **UI hint**: yes
@@ -200,7 +200,7 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 7. Geometry Optimization | v1.1 | 5/5 | Complete | 2026-06-23 |
 | 8. Spec v2 + Foundation | v1.2 | 5/5 | Complete    | 2026-06-25 |
 | 9. Group / Topic (37518 slimmed) | v1.2 | 6/6 | Complete    | 2026-06-26 |
-| 10. Story / Article (~37520) | v1.2 | 3/4 | Executing | - |
+| 10. Story / Article (~37520) | v1.2 | 4/4 | Executing | - |
 | 11. Temporal Sighting | v1.2 | 0/TBD | Not started | - |
 | 12. Live Beacon (~37521) | v1.2 | 0/TBD | Not started | - |
 | 13. Cross-Cutting | v1.2 | 0/TBD | Not started | - |

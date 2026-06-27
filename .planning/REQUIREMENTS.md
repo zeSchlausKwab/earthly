@@ -22,7 +22,7 @@ Requirements for the v1.2 milestone. Full v2 / clean-break scope: spec + all eve
 - [ ] **STORY-03**: Inline `nostr:naddr…` geo references in the body are automatically mirrored to queryable `a` tags on the Story event.
 - [ ] **STORY-04**: A user can save a Story as a draft before publishing, and edit a published Story in place (parameterized-replaceable, same `d`-tag lineage).
 - [x] **STORY-05**: A user can comment on and react to a Story (reuses kind 37517 + kind 7).
-- [ ] **STORY-06**: A user can propose an edit to a Story's narrative, and the author can preview and accept/reject it (kind 37519 extended to a Markdown-content target).
+- [x] **STORY-06**: A user can propose an edit to a Story's narrative, and the author can preview and accept/reject it (kind 37519 extended to a Markdown-content target).
 
 ### Group / Topic (GROUP) — attach-push + governance ladder
 
@@ -124,7 +124,7 @@ Populated during roadmap creation. Phase numbering continues from v1.1 (which en
 | STORY-03 | Phase 10 | DONE (10-01 publishStory/editStory re-derive `a` from body naddr refs b1ebc7f; 10-02 StoryEditorPanel wired to the service, 188b8a5) |
 | STORY-04 | Phase 10 | DONE (10-01 editStory d-tag lineage + draft helper b1ebc7f/0326375; 10-02 Save/Discard draft + in-place-edit UI + Draft/Published chips, 188b8a5/245f50c) |
 | STORY-05 | Phase 10 | DONE (10-03 CommentsPanel/GeoSocialActions mount on Story coord + Article target-union widen + ARTICLE_KIND→'story' share path, bf1112e) |
-| STORY-06 | Phase 10 | Planned (10-04 kind-37519 Markdown-content target — pure content-type extension, no discriminator; diff-preview accept/reject) |
+| STORY-06 | Phase 10 | Done (10-04 — createForStory content-type extension + author diff-preview panel/reader dialog; accept republishes via editStory; 693/0, build green; cbe9917, 1888f7d) |
 | SIGHT-01 | Phase 11 | Pending |
 | SIGHT-02 | Phase 11 | Pending |
 | SIGHT-03 | Phase 11 | Pending |
