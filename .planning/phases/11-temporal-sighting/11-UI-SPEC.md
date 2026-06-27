@@ -1,10 +1,11 @@
 ---
 phase: 11
 slug: temporal-sighting
-status: draft
+status: approved
 shadcn_initialized: true
 preset: radix-mira
 created: 2026-06-27
+reviewed_at: 2026-06-27
 ---
 
 # Phase 11 — UI Design Contract
@@ -141,6 +142,7 @@ All user-facing strings rendered as escaped React text nodes (no `dangerouslySet
 - Cancel placement: `Esc` or an overlay **"Cancel placement"** button returns to idle without opening the form (`Esc` is the keyboard alternative).
 
 ### 2. Distinct Sighting marker + time cue + fade (D-05/D-06)
+- **Primary visual anchor (focal point):** on the map canvas — the app's primary screen — the **live-now Sighting marker** (a Sighting currently within its `start`–`end` window, rendered with the `--primary` accent ring/glow) is the single highest-priority focal point. It is the one accent-colored element competing for attention against the muted basemap; upcoming/past/expired states recede so "happening now" draws the eye first.
 - Marker must read as an **ephemeral observation**, visually distinct from dataset dots and story pins. Recommended: an eye/sighting glyph (lucide `Eye` or `Telescope` motif) in a pill/teardrop, NOT a plain circle.
 - Time-cue and opacity encoding per the Observation-state table above. Cue is **subtle** — a small chip/ring, reuse existing map-layer paint expressions (data-driven on `start`/`end`/`now`).
 - Touch target ≥ 44px (see Spacing exceptions).
@@ -164,11 +166,11 @@ All user-facing strings rendered as escaped React text nodes (no `dangerouslySet
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS (focal point declared — Net-New Surface Specs §2)
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** approved 2026-06-27 (gsd-ui-checker — 6/6 dimensions; initial Visuals FLAG cleared by explicit focal-point declaration)
