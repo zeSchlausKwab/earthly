@@ -98,6 +98,7 @@ export interface MobilePanelProps {
 		visible: boolean,
 	) => void
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
+	isMentionVisible?: (address: string, featureId: string | undefined) => boolean
 	contextEditorMode?: 'none' | 'create' | 'edit'
 	editingContext?: MapContext | null
 	onSaveContext?: (context: MapContext) => void
@@ -187,6 +188,7 @@ export function MobilePanel(props: MobilePanelProps) {
 		availableFeatures,
 		onMentionVisibilityToggle,
 		onMentionZoomTo,
+		isMentionVisible,
 		contextEditorMode,
 		editingContext,
 		onSaveContext,
@@ -472,6 +474,7 @@ export function MobilePanel(props: MobilePanelProps) {
 							availableFeatures={availableFeatures}
 							onMentionVisibilityToggle={onMentionVisibilityToggle}
 							onMentionZoomTo={onMentionZoomTo}
+							isMentionVisible={isMentionVisible}
 							onToggleProposalOverlay={onToggleProposalOverlay}
 							onProposalAccepted={onProposalAccepted}
 							visibleProposalIds={visibleProposalIds}
@@ -508,6 +511,7 @@ export function MobilePanel(props: MobilePanelProps) {
 							availableFeatures={availableFeatures}
 							onMentionVisibilityToggle={onMentionVisibilityToggle}
 							onMentionZoomTo={onMentionZoomTo}
+							isMentionVisible={isMentionVisible}
 							onToggleProposalOverlay={onToggleProposalOverlay}
 							onProposalAccepted={onProposalAccepted}
 							visibleProposalIds={visibleProposalIds}

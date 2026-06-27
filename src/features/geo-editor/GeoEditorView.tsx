@@ -60,6 +60,7 @@ import {
 	useBlobResolution,
 	useContextEditor,
 	useStoryEditor,
+	useStoryMapRefs,
 	useCommentGeometry,
 	useProposalGeometry,
 	useDatasetManagement,
@@ -615,6 +616,13 @@ export function GeoEditorView() {
 
 	// Store state for viewMode
 	const viewMode = useEditorStore((state) => state.viewMode)
+
+	// Consolidate a viewed Story's inline geo-refs with the map stack: fetch the
+	// referenced datasets on demand, auto-stack them visible so the article's
+	// geometry shows on open, and expose the map-stack-derived eye state for the
+	// inline ref toggles (single source of truth).
+	const viewStory = useEditorStore((state) => state.viewStory)
+	const { isMentionVisible } = useStoryMapRefs(viewStory)
 
 	// Blossom upload dialog state
 	const blossomUploadDialogOpen = useEditorStore((state) => state.blossomUploadDialogOpen)
@@ -1746,6 +1754,7 @@ export function GeoEditorView() {
 					availableFeatures={availableFeatures}
 					onMentionVisibilityToggle={handleMentionVisibilityToggle}
 					onMentionZoomTo={handleMentionZoomTo}
+					isMentionVisible={isMentionVisible}
 					contextEditorMode={contextEditorMode}
 					editingContext={editingContext}
 					onSaveContext={handleSaveContext}
@@ -2039,6 +2048,7 @@ export function GeoEditorView() {
 							availableFeatures={availableFeatures}
 							onMentionVisibilityToggle={handleMentionVisibilityToggle}
 							onMentionZoomTo={handleMentionZoomTo}
+							isMentionVisible={isMentionVisible}
 							contextEditorMode={contextEditorMode}
 							editingContext={editingContext}
 							onSaveContext={handleSaveContext}

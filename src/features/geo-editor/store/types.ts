@@ -89,6 +89,11 @@ export type MapStackEntrySource =
 	 * can avoid re-triggering after a clear and so future Clear UX can opt
 	 * to wipe only these. */
 	| 'browse-default'
+	/** Phase 10: a dataset referenced by the currently-viewed Story's narrative,
+	 * auto-stacked (visible) on open so the article's geometry shows on the map.
+	 * The inline ref eye-toggles read membership of these entries as their single
+	 * source of truth; entries are removed when the viewed story changes. */
+	| 'story'
 
 export interface MapStackEntry {
 	id: string

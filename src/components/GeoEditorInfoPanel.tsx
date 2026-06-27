@@ -77,6 +77,8 @@ export interface GeoEditorInfoPanelProps {
 	) => void
 	/** Callback to zoom to a mentioned geometry */
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
+	/** Map-stack-derived visibility for inline Story refs (single source of truth) */
+	isMentionVisible?: (address: string, featureId: string | undefined) => boolean
 	/** Context editor mode */
 	contextEditorMode?: 'none' | 'create' | 'edit'
 	/** Context being edited */
@@ -145,6 +147,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		availableFeatures = [],
 		onMentionVisibilityToggle,
 		onMentionZoomTo,
+		isMentionVisible,
 		contextEditorMode = 'none',
 		editingContext,
 		onSaveContext,
@@ -589,6 +592,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					availableFeatures={availableFeatures}
 					onMentionVisibilityToggle={onMentionVisibilityToggle}
 					onMentionZoomTo={onMentionZoomTo}
+					isMentionVisible={isMentionVisible}
 					onZoomToBounds={onZoomToBounds}
 					focusCommentId={focusCommentId}
 				/>

@@ -45,6 +45,8 @@ interface StoryViewPanelProps {
 		visible: boolean,
 	) => void
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
+	/** Map-stack-derived visibility for inline narrative refs (single source of truth). */
+	isMentionVisible?: (address: string, featureId: string | undefined) => boolean
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
 	focusCommentId?: string
 }
@@ -72,6 +74,7 @@ export function StoryViewPanel({
 	availableFeatures = [],
 	onMentionVisibilityToggle,
 	onMentionZoomTo,
+	isMentionVisible,
 	onZoomToBounds,
 	focusCommentId,
 }: StoryViewPanelProps) {
@@ -167,6 +170,7 @@ export function StoryViewPanel({
 						availableFeatures={availableFeatures}
 						onMentionVisibilityToggle={onMentionVisibilityToggle}
 						onMentionZoomTo={onMentionZoomTo}
+						isMentionVisible={isMentionVisible}
 						emptyState="This story has no narrative yet."
 					/>
 				</EntityPanelSurface>
