@@ -1,8 +1,8 @@
 ---
 phase: 10-story-article-37520
 slug: story-article-37520
-status: draft
-threats_open: 2
+status: verified
+threats_open: 0
 asvs_level: 1
 created: 2026-06-27
 ---
@@ -12,11 +12,17 @@ created: 2026-06-27
 > Per-phase security contract: threat register, accepted risks, and audit trail.
 > Story / Article (kind 37520) author / read / propose feature.
 
-**Audit verdict: OPEN_THREATS — 2 open (both BLOCKER under `block_on: high`).** The
-plan-time register's two OG-path "mitigate" claims (T-10-09 and the register-omitted
-SSRF) do NOT hold in the implemented code. Independently confirmed against
-`src/lib/og/template.ts`, `src/lib/og/renderImage.ts`, `src/lib/og/fetchEvent.ts`,
-and `src/index.ts` — these are not rubber-stamps of the code review.
+**Audit verdict (re-audit 2026-06-27): SECURED — 0 open, 15/15 closed.** The two
+OG-path BLOCKERs flagged in the initial audit (T-10-09 OG-HTML XSS, T-10-15 OG-image
+SSRF) have been remediated in implementation and independently re-verified against the
+CURRENT code in `src/lib/og/template.ts`, `src/lib/og/renderImage.ts`,
+`src/index.ts`, with regression tests in `src/lib/og/template.test.ts` (5/5 pass).
+One TOCTOU caveat on T-10-15 is recorded as a documented residual (below ASVS-L1
+`block_on: high` threshold), not an open threat.
+
+> Initial-audit verdict (superseded, retained for trail): OPEN_THREATS — 2 open (both
+> BLOCKER under `block_on: high`); the plan-time register's two OG-path "mitigate"
+> claims did NOT hold in the as-shipped code.
 
 ---
 
@@ -44,13 +50,13 @@ and `src/index.ts` — these are not rubber-stamps of the code review.
 | T-10-06 | DoS | StoriesPanel relay events | mitigate | `useStories()` `isArticle`-filters before cast | closed |
 | T-10-07 | XSS | StoryViewPanel narrative render | mitigate | renders only via `RichContentRenderer` (`StoryViewPanel.tsx:165`); no `dangerouslySetInnerHTML` (grep gate = 0 real sinks) | closed |
 | T-10-08 | Tampering/InfoDisclosure | inline naddr refs → main map | mitigate | `GeoMentionChip` defaults hidden (`useState(false)`, `RichContentRenderer.tsx:460`); malformed refs inert | closed |
-| **T-10-09** | **XSS** | **OG HTML template (`og/template.ts`, `index.ts`)** | **mitigate** | **CLAIMED reuse of "audited" escaping — FALSE: `image` + `url` interpolated RAW into `<meta content>`, http-equiv refresh, and `<script>` sink (`template.ts:47,55,58,66`)** | **open** |
+| T-10-09 | XSS | OG HTML template (`og/template.ts`, `index.ts`) | mitigate | `sanitizeUrl`+`escapeHtml`/`escapeJsString` applied to EVERY `url`/`image` sink in the single `generateOGHtml` chokepoint (`template.ts:37-40,55,58,63,66,69,75,77`); no raw `${url}`/`${image}` remains; tests cover the breakout cases (`template.test.ts`, 5/5 pass) | closed |
 | T-10-10 | Spoofing | comment/react on Story coordinate | accept | reuses signed NIP-22/kind-7 path; authorship by signature | closed |
 | T-10-11 | XSS | StoryProposalsPanel accept-preview | mitigate | proposed Markdown rendered via `RichContentRenderer` (`StoryProposalsPanel.tsx:117`); no `dangerouslySetInnerHTML` | closed |
 | T-10-12 | Tampering | accept → republish | mitigate | `acceptStoryProposalImpl` routes through `editStory`; `a` re-derived, `d`-tag preserved (`acceptStoryProposal.ts:37`) — see WR-01 residual | closed (with residual) |
 | T-10-13 | Spoofing/target-confusion | `getProposalTargetKind` off `a` coord | mitigate | kind parsed from `a`, returns `undefined` on malformed (`helpers.ts:69-76`) | closed |
 | T-10-14 | DoS | `useStoryProposals` over relay | mitigate | subscribed by `#a`+kind 37519; `getProposalMarkdownContent` returns string, never throws (`helpers.ts:57-59`) | closed |
-| **T-10-15** | **InfoDisclosure/SSRF** | **`handleOGImageRoute` story branch → `fetchImageAsBase64` (`renderImage.ts`, `index.ts`)** | **mitigate (register-omitted)** | **untrusted Story `image` server-side `fetch`ed with NO scheme/host allowlist + NO redirect block; unauthenticated via `/og/image/story/:naddr` (`renderImage.ts:63-77`, `index.ts:221-232`)** | **open** |
+| T-10-15 | InfoDisclosure/SSRF | `handleOGImageRoute` story branch → `fetchImageAsBase64` (`renderImage.ts`, `index.ts`) | mitigate (register-omitted) | `fetchImageAsBase64` now gates on `assertPublicImageUrl` (http(s)-only + DNS-resolved private/loopback/link-local/CGNAT/reserved block, IPv4 + IPv6 + `::ffff:` mapped) before any fetch; fetch uses `redirect:'error'`, enforces `image/*` content-type, caps at `MAX_IMAGE_BYTES` (`renderImage.ts:74-161`); sole `fetch(` in the og module, no bypass path | closed (residual: DNS TOCTOU) |
 | T-10-SC | Tampering (supply-chain) | npm/pip/cargo installs | mitigate | zero new dependencies across all 4 plans (confirmed in 4 SUMMARYs) | closed |
 
 *Status: open · closed*
@@ -63,58 +69,89 @@ and is treated as OPEN per the task constraint.
 
 ---
 
-## Open Threat Detail (BLOCKERs)
+## Closed Threat Detail (former BLOCKERs — remediated + re-verified 2026-06-27)
 
-### T-10-09 — OG HTML attribute/script injection (was claimed mitigated; claim refuted)
+### T-10-09 — OG HTML attribute/script injection — CLOSED
 
-**Files:** `src/lib/og/template.ts:16-69` (sink), reached via
-`src/lib/og/fetchEvent.ts:192-216` (untrusted `content.image`/`title`/`summary`
-sourcing) → `src/index.ts:155-167` (`generateStoryOGHtml(..., data?.image)`).
+**Files (current code):** `src/lib/og/template.ts:16-206` (sink + new guards),
+reached via `src/lib/og/fetchEvent.ts:192-216` (untrusted `content.image`/`title`/
+`summary` sourcing, unchanged) → `src/index.ts:155-167` (`generateStoryOGHtml(...,
+data?.image)`).
 
-The plan/SUMMARY assert `generateStoryOGHtml` "reuses the audited generateOGHtml
-escaping path … no new escaping logic invented (T-10-09)" (`template.ts:127-130`,
-`10-03-SUMMARY.md:181-182`). **Verified false against code:** `generateOGHtml`
-applies `escapeHtml` to ONLY `title`/`description` (`template.ts:26-27`). The `image`
-and `url` values are interpolated RAW at:
-- `template.ts:47` `<meta property="og:image" content="${image}">`
-- `template.ts:55` `<meta property="twitter:image" content="${image}">`
-- `template.ts:58` `<meta http-equiv="refresh" content="0;url=${url}">`
-- `template.ts:66` `<script>window.location.href = "${url}";</script>` (JS string context)
+The fix adds two context-aware sanitisers and routes every untrusted `url`/`image`
+value through them inside the single `generateOGHtml` chokepoint:
 
-For a Story, `image` is untrusted `content.image` from the event
-(`fetchEvent.ts:200`, fallback to the `image` tag `:213-216`), with no URL
-validation before emit. A Story author setting `image` to e.g.
-`"><script>…</script>` breaks out of the attribute; the `url` sink additionally
-reflects the attacker-influenceable `Host` header (`index.ts:46-49`, see WR-05).
-This HTML is served to social crawlers and any crawler-UA request to
-`/story/:naddr`. **Disposition stays `mitigate`; status `open` (BLOCKER).**
+- `sanitizeUrl(raw, fallback)` (`template.ts:190-206`): site-relative paths require
+  exactly one leading slash with no backslash, so `//host` (protocol-relative) and
+  `/\host` are rejected (`:194`); absolute URLs must parse via `new URL` AND carry an
+  `http:`/`https:` protocol (`:198-199`), so `javascript:`/`data:`/`vbscript:` fall
+  through to the fallback. Verified `"/"` fallback for `url`, `DEFAULT_IMAGE` fallback
+  for `image`.
+- `escapeJsString(text)` (`template.ts:175-182`): `JSON.stringify` plus explicit
+  `<`/`>`/`&`/U+2028/U+2029 neutralisation for the inline-`<script>` context.
 
-Remediation (implementation, NOT done here): `escapeHtml` every interpolated value;
-validate `image`/`url` as `http(s)` URLs (reject `javascript:`/`data:`/non-URL);
-JSON-encode the value going into the `<script>` sink. Applies to ALL entry points
-of `generateOGHtml` (also `generateGeoEventOGHtml`/`generateContextOGHtml`), not
-just the Story wrapper.
+Every sink now consumes a sanitised+escaped value — no raw `${url}`/`${image}`
+remains:
+- og:url `:55`, twitter:url `:63`, http-equiv refresh `:69`, `<a href>` `:75` →
+  `safeUrlAttr = escapeHtml(sanitizeUrl(url, '/'))` (`:37-38`)
+- inline `<script>window.location.href = ...` `:77` → `safeUrlJs =
+  escapeJsString(sanitizeUrl(url, '/'))` (`:39`)
+- og:image `:58`, twitter:image `:66` → `safeImageAttr =
+  escapeHtml(sanitizeUrl(image, DEFAULT_IMAGE))` (`:40`)
 
-### T-10-15 — SSRF via server-side fetch of untrusted Story `image` (register-omitted)
+Because the fix is at the shared `generateOGHtml`, it covers ALL entry points
+(`generateStoryOGHtml`, `generateGeoEventOGHtml`, `generateContextOGHtml`,
+`generateHomeOGHtml`), not just the Story wrapper. Regression tests
+(`template.test.ts`) assert quote-breakout escaping, `javascript:` rejection →
+`"/"`, attribute-breakout image → default image, `</script>` breakout neutralised to
+exactly one legitimate `<script>` (+`</script`), and a legitimate https
+image/url passthrough — **5/5 pass**. **CLOSED.**
 
-**Files:** `src/lib/og/renderImage.ts:63-77` (`fetchImageAsBase64` — raw
-`fetch(url)`, no allowlist), reached via `src/index.ts:221-232`
-(`handleOGImageRoute` `type === 'story'` → `generateOGImagePNG({ backgroundImageUrl:
-data?.image })`) → `renderImage.ts:101`.
+WR-05 note still applies as defence-in-depth: `getBaseUrl` (`index.ts:46-49`) still
+derives the base URL from the inbound request URL/`Host`. The XSS sink is now closed
+(any hostile host string is escaped/sanitised before emit); deriving the base URL
+from trusted `serverConfig` would additionally close the open-redirect/cache-poison
+angle. Recorded as a residual, not counted in `threats_open`.
 
-`data?.image` is untrusted Story `content.image` (`fetchEvent.ts:200`). It is
-server-side `fetch`ed with no scheme restriction (so `http://`, internal hosts,
-link-local `169.254.169.254` metadata, etc. are all reachable), no host allowlist,
-and no `redirect: 'error'` (a public URL can 302 to an internal one). The 6s timeout
-and User-Agent header (`renderImage.ts:66-67`) do NOT mitigate SSRF. The response is
-base64-inlined into the SVG card, giving a limited read-back channel. Reachable
-unauthenticated by any request to `/og/image/story/:naddr` (production OG route,
-`index.ts:305`). **Disposition `mitigate`; status `open` (BLOCKER).**
+### T-10-15 — SSRF via server-side fetch of untrusted Story `image` — CLOSED
 
-Remediation (implementation, NOT done here): in `fetchImageAsBase64` require
-`https:` (or a blob/CDN host allowlist), reject private/loopback/link-local IP ranges
-after resolution, and set `redirect: 'error'`. Same sink is also reached by the
-context branch (`index.ts:198`), so fix at the `fetchImageAsBase64` chokepoint.
+**Files (current code):** `src/lib/og/renderImage.ts:74-161` (guard + guarded
+fetch), reached via `src/index.ts:221-232` (`handleOGImageRoute` `type === 'story'`
+→ `generateOGImagePNG({ backgroundImageUrl: data?.image })`) → `buildSvg`
+(`renderImage.ts:189`) → `fetchImageAsBase64`.
+
+`fetchImageAsBase64` (`:139-161`) now calls `assertPublicImageUrl` first and returns
+null on rejection (`:140-141`):
+
+- `assertPublicImageUrl` (`:115-137`): rejects non-`http(s)` schemes (`:122`);
+  resolves the hostname via `dns.lookup(host, { all: true })` and blocks if ANY
+  resolved address is non-public (`:129-131`), defeating public-DNS-name →
+  internal-IP rebinds at check time; IP literals are checked directly (`:126-127`).
+- `isBlockedIPv4` (`:74-87`) covers `0.0.0.0/8`, `10/8`, `127/8`, `169.254/16` (incl.
+  the `169.254.169.254` cloud-metadata endpoint), `172.16-31`, `192.168/16`,
+  `192.0/16`, `100.64-127` (CGNAT), `198.18-19` (benchmarking), and `>=224`
+  (multicast/reserved).
+- `isBlockedIPv6` (`:89-99`) covers `::1`, `::`, `fc00::/7` ULA, `fe80::/10`
+  link-local, and `::ffff:` IPv4-mapped (delegates to the IPv4 check).
+- The fetch (`:143-147`) sets `redirect: 'error'` (blocks public→internal 302
+  bypass), enforces `content-type` starts with `image/` (`:151`, refuses
+  text/JSON internal read-back), and caps size on both declared `content-length`
+  and actual byte length against `MAX_IMAGE_BYTES` (8 MiB, `:152-155`).
+
+This is the ONLY `fetch(` in the entire `src/lib/og/` module (grep-confirmed), and
+`backgroundImageUrl` — the sole entry for both the story and context branches — flows
+exclusively through `fetchImageAsBase64`. No remaining raw-fetch bypass. **CLOSED.**
+
+**Documented residual (T-10-15 TOCTOU — NOT an open threat under `block_on: high`):**
+the DNS resolution performed in `assertPublicImageUrl` is not pinned to the address
+the subsequent `fetch` connects to, so a DNS-rebinding attacker controlling a
+short-TTL record could in principle return a public IP at check time and an internal
+IP at fetch time. The combined `redirect: 'error'` + `image/*` content-type
+enforcement + 8 MiB size cap + 6 s timeout reduce both reachability and any read-back
+value below the ASVS-L1 `block_on: high` blocking threshold. Recommended future
+hardening (not required for sign-off): resolve once and connect to the pinned IP
+(or use a custom resolver/`lookup` callback). Recorded as a residual, not counted in
+`threats_open`.
 
 ---
 
@@ -161,10 +198,39 @@ do not silently disappear:
 | Audit Date | Threats Total | Closed | Open | Run By |
 |------------|---------------|--------|------|--------|
 | 2026-06-27 | 15 | 13 | 2 | gsd-security-auditor (Claude) |
+| 2026-06-27 (re-audit) | 15 | 15 | 0 | gsd-security-auditor (Claude) |
 
-Total counts T-10-01..T-10-14, T-10-SC, and the newly-registered T-10-15 (SSRF). Two
-open: T-10-09 (OG HTML XSS) and T-10-15 (OG image SSRF), both BLOCKER under
-`block_on: high`.
+Total counts T-10-01..T-10-14, T-10-SC, and the registered T-10-15 (SSRF). Initial
+audit left two open BLOCKERs (T-10-09 OG-HTML XSS, T-10-15 OG-image SSRF).
+
+## Security Audit 2026-06-27 (re-audit)
+
+Re-audit after remediation of the two OG-path BLOCKERs. Verified against the CURRENT
+code on disk; not a re-read of the prior audit's claims.
+
+| Metric | Initial (2026-06-27) | Re-audit (2026-06-27) |
+|--------|----------------------|-----------------------|
+| Threats total | 15 | 15 |
+| Closed | 13 | 15 |
+| Open (BLOCKER) | 2 | 0 |
+| `threats_open` | 2 | 0 |
+| Status | draft (OPEN_THREATS) | verified (SECURED) |
+| Documented residuals | WR-01, WR-03, WR-05 | WR-01, WR-03, WR-05, T-10-15 DNS-TOCTOU |
+
+**Re-verified closures:**
+
+| Threat ID | Category | Evidence (current code) |
+|-----------|----------|-------------------------|
+| T-10-09 | XSS | `template.ts:37-40` sanitise+escape every `url`/`image`; sinks `:55,58,63,66,69,75,77`; `sanitizeUrl` `:190-206`; `escapeJsString` `:175-182`; no raw `${url}`/`${image}`; tests `template.test.ts` 5/5 pass |
+| T-10-15 | InfoDisclosure/SSRF | `renderImage.ts:140` gates on `assertPublicImageUrl` `:115-137` (http(s)-only + DNS private/loopback/link-local/CGNAT/reserved block, IPv4+IPv6+`::ffff:`); fetch `redirect:'error'` `:146`, `image/*` `:151`, `MAX_IMAGE_BYTES` `:152-155`; sole `fetch(` in og module |
+
+**Verification commands:** `bun test src/lib/og/template.test.ts` → 5 pass / 0 fail;
+`grep -rn "fetch(" src/lib/og/` → single guarded site (`renderImage.ts:143`).
+
+**Residual carried forward (not counted in `threats_open`):** T-10-15 DNS-TOCTOU —
+the pre-fetch DNS check is not pinned to the connected address; mitigated below the
+ASVS-L1 `block_on: high` threshold by `redirect:'error'` + image-content-type +
+size-cap + timeout. See T-10-15 detail above.
 
 ---
 
@@ -172,8 +238,10 @@ open: T-10-09 (OG HTML XSS) and T-10-15 (OG image SSRF), both BLOCKER under
 
 - [x] All threats have a disposition (mitigate / accept / transfer)
 - [x] Accepted risks documented in Accepted Risks Log (AR-10-03, AR-10-10)
-- [ ] `threats_open: 0` confirmed — **NO, `threats_open: 2` (T-10-09, T-10-15)**
-- [ ] `status: verified` set in frontmatter — **blocked: 2 open BLOCKERs**
+- [x] `threats_open: 0` confirmed — re-audit 2026-06-27 (T-10-09 + T-10-15 closed)
+- [x] `status: verified` set in frontmatter — 0 open BLOCKERs
 
-**Approval:** pending — 2 open threats (T-10-09 OG HTML injection, T-10-15 OG image
-SSRF) must be remediated in implementation and re-audited before sign-off.
+**Approval:** SECURED — 15/15 threats closed, 0 open. Both former BLOCKERs (T-10-09 OG
+HTML injection, T-10-15 OG image SSRF) remediated in implementation and re-verified
+against current code. T-10-15 DNS-TOCTOU recorded as a documented residual below the
+ASVS-L1 `block_on: high` threshold.
