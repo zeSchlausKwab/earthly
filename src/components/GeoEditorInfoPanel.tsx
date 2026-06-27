@@ -20,10 +20,13 @@ import {
 	EntityPanelSurface,
 	GeometriesTable,
 	GroupViewPanel,
+	StoryViewPanel,
 	ViewModePanel,
 } from './info-panel'
+import { StoryEditorPanel } from './info-panel/StoryEditorPanel'
 import { DatasetSizeIndicator } from './info-panel/DatasetSizeIndicator'
 import { GroupEditorPanel } from '../features/groups/GroupEditorPanel'
+import type { Article } from '@/lib/nostr/article'
 import { GroupAttachField } from '../features/geo-editor/components/GroupAttachField'
 import { CommentsPanel } from '../features/social/comments'
 import { Button } from './ui/button'
@@ -109,6 +112,18 @@ export interface GeoEditorInfoPanelProps {
 	focusCommentId?: string
 	entityWorkspace?: 'geometry' | 'context'
 	entityIntent?: 'inspect' | 'edit'
+	/** Story editor mode (Phase 10, D-03). */
+	storyEditorMode?: 'none' | 'create' | 'edit'
+	/** Story being edited (create ⇒ null). */
+	editingStory?: Article | null
+	/** Callback when a Story is saved (publish/edit). */
+	onSaveStory?: (story: Article) => void
+	/** Callback to close the Story editor. */
+	onCloseStoryEditor?: () => void
+	/** Callback to open a Story in the editor (owner Edit affordance in the view). */
+	onEditStory?: (story: Article) => void
+	/** Callback to delete a Story (owner). */
+	onDeleteStory?: (story: Article) => void
 }
 
 export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
@@ -147,6 +162,12 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		focusCommentId,
 		entityWorkspace,
 		entityIntent,
+		storyEditorMode = 'none',
+		editingStory,
+		onSaveStory,
+		onCloseStoryEditor,
+		onEditStory,
+		onDeleteStory,
 	} = props
 
 	// Store state
@@ -172,6 +193,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	const blobReferences = useEditorStore((state) => state.blobReferences)
 	const viewContext = useEditorStore((state) => state.viewContext)
 	const setViewContext = useEditorStore((state) => state.setViewContext)
+	const viewStory = useEditorStore((state) => state.viewStory)
 	const activeDatasetContextRefs = useEditorStore((state) => state.activeDatasetContextRefs)
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
 	const setFeatures = useEditorStore((state) => state.setFeatures)
@@ -528,6 +550,18 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		[onZoomToBounds],
 	)
 
+	// Story Editor mode (D-03) — create/edit a Story in place.
+	if (storyEditorMode !== 'none' && onSaveStory && onCloseStoryEditor) {
+		return (
+			<StoryEditorPanel
+				initialStory={editingStory}
+				onClose={onCloseStoryEditor}
+				onSave={onSaveStory}
+				availableFeatures={availableFeatures}
+			/>
+		)
+	}
+
 	// Context Editor mode
 	if (contextEditorMode !== 'none' && onSaveContext && onCloseContextEditor) {
 		return (
@@ -542,6 +576,25 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 
 	// View mode - delegate to ViewModePanel
 	if (viewMode === 'view') {
+		// Story view (D-03) — opened Story renders in the right info panel; the main
+		// map stays the canvas. Mounted before the context/dataset branches.
+		if (viewStory) {
+			return (
+				<StoryViewPanel
+					story={viewStory}
+					currentUserPubkey={currentUserPubkey}
+					onEditStory={onEditStory}
+					onDeleteStory={onDeleteStory}
+					deletingKey={deletingKey}
+					availableFeatures={availableFeatures}
+					onMentionVisibilityToggle={onMentionVisibilityToggle}
+					onMentionZoomTo={onMentionZoomTo}
+					onZoomToBounds={onZoomToBounds}
+					focusCommentId={focusCommentId}
+				/>
+			)
+		}
+
 		if (viewContext) {
 			return (
 				<GroupViewPanel

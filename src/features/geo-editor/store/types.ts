@@ -1,4 +1,5 @@
 import type { FeatureCollection } from 'geojson'
+import type { Article } from '@/lib/nostr/article'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import type { ContextFilterMode } from '@/lib/context/validation'
@@ -11,6 +12,7 @@ export type SidebarViewMode =
 	| 'map-stack'
 	| 'contexts'
 	| 'context-editor'
+	| 'stories'
 	| 'combined'
 	| 'edit'
 	| 'posts'
@@ -27,7 +29,7 @@ export type SidebarViewMode =
  */
 export interface RouteSnapshot {
 	sidebarView: SidebarViewMode
-	focusType: 'none' | 'geoevent' | 'mapcontext'
+	focusType: 'none' | 'geoevent' | 'mapcontext' | 'story'
 	naddr?: string
 	contextNaddr?: string
 	contextCoordinate?: string
@@ -279,6 +281,7 @@ export interface ViewModeSlice {
 	viewMode: 'edit' | 'view'
 	viewDataset: GeoDataset | null
 	viewContext: MapContext | null
+	viewStory: Article | null
 	viewContextDatasets: GeoDataset[]
 	contextFilterMode: ContextFilterMode
 	contextMapScopeMode: ContextMapScopeMode
@@ -286,7 +289,7 @@ export interface ViewModeSlice {
 	activeContextScopeCoordinate: string | null
 
 	focusedNaddr: string | null
-	focusedType: 'geoevent' | 'mapcontext' | null
+	focusedType: 'geoevent' | 'mapcontext' | 'story' | null
 	focusedMapGeometry: {
 		bbox: [number, number, number, number]
 		datasetId?: string
@@ -297,13 +300,14 @@ export interface ViewModeSlice {
 	setViewMode: (mode: 'edit' | 'view') => void
 	setViewDataset: (dataset: GeoDataset | null) => void
 	setViewContext: (context: MapContext | null) => void
+	setViewStory: (story: Article | null) => void
 	setViewContextDatasets: (events: GeoDataset[]) => void
 	setContextFilterMode: (mode: ContextFilterMode) => void
 	setContextMapScopeMode: (mode: ContextMapScopeMode) => void
 	setActiveContextScope: (naddr: string | null, coordinate: string | null) => void
 	clearActiveContextScope: () => void
 
-	setFocused: (type: 'geoevent' | 'mapcontext', naddr: string) => void
+	setFocused: (type: 'geoevent' | 'mapcontext' | 'story', naddr: string) => void
 	clearFocused: () => void
 	setFocusedMapGeometry: (focused: ViewModeSlice['focusedMapGeometry']) => void
 	clearFocusedMapGeometry: () => void

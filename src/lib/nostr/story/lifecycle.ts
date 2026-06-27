@@ -20,10 +20,12 @@
  * `castEvent(signed, Article, eventStore)`.
  */
 
+import { DeleteFactory } from 'applesauce-core/factories'
+import type { EventSigner } from 'applesauce-core/factories/types'
 import type { NostrEvent } from 'applesauce-core/helpers/event'
 import type { SignerLike } from '@/lib/nostr/entityFactory'
 import { publish } from '@/lib/nostr'
-import { ArticleFactory } from '@/lib/nostr/article'
+import { ArticleFactory, getArticleId } from '@/lib/nostr/article'
 import type { ArticleContent } from '@/lib/nostr/article'
 import { extractReferencedCoordinates, setAddressReferenceTags } from '@/lib/nostr/references'
 
@@ -67,4 +69,17 @@ export async function editStory(
 
 	await publish(signed, { routing: 'outbox' })
 	return signed
+}
+
+/** Publish a NIP-09 deletion event for a Story the active account owns. */
+export async function deleteStory(
+	story: NostrEvent,
+	signer: EventSigner,
+	reason?: string,
+): Promise<void> {
+	if (!getArticleId(story)) {
+		throw new Error('Story is missing a d tag and cannot be deleted.')
+	}
+	const event = await DeleteFactory.fromEvents([story], reason).sign(signer)
+	await publish(event as NostrEvent, { routing: 'outbox' })
 }

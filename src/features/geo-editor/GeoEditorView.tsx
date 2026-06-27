@@ -23,6 +23,11 @@ import { useAvailableGeoFeatures } from '@/lib/hooks/useAvailableGeoFeatures'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useGeoDatasets, useMapContexts } from '@/lib/hooks/useGeoDatasets'
 import { useGroups } from '@/lib/hooks/useGroups'
+import { useStories } from '@/lib/hooks/useStories'
+import { nip19 } from 'nostr-tools'
+import type { Article } from '@/lib/nostr/article'
+import { ARTICLE_KIND } from '@/lib/nostr/kinds'
+import { deleteStory } from '@/lib/nostr/story'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { type MapContext, deleteMapContext } from '@/lib/nostr/map-context'
 import { accounts } from '@/lib/nostr'
@@ -54,6 +59,7 @@ import {
 	MAGNIFIER_SIZE,
 	useBlobResolution,
 	useContextEditor,
+	useStoryEditor,
 	useCommentGeometry,
 	useProposalGeometry,
 	useDatasetManagement,
@@ -215,6 +221,9 @@ export function GeoEditorView() {
 	const { events: mapContextEvents } = useMapContexts()
 	// Groups (kind 37518, slimmed) the contributor can `c`-attach to (GROUP-02).
 	const { events: groups } = useGroups()
+	// Stories (kind 37520) — used to resolve a /stories/story/:naddr deep link to the
+	// Article cast so the focus-route effect can open it (Phase 10, D-04).
+	const { events: stories } = useStories()
 	// Round C.2 reliability: also fire a targeted subscription for every
 	// context entry on the stack. The global subscription above is best-effort
 	// — if a read relay was slow or 502 at open time, foreign attachments
@@ -1462,6 +1471,69 @@ export function GeoEditorView() {
 		handleInspectDataset,
 	})
 
+	// Story editor hooks (Phase 10, D-01/D-02/D-03).
+	const encodeStoryNaddr = useCallback((story: Article): string | null => {
+		const identifier = story.dTag
+		if (!identifier || !story.pubkey) return null
+		try {
+			return nip19.naddrEncode({
+				kind: ARTICLE_KIND,
+				pubkey: story.pubkey,
+				identifier,
+			})
+		} catch {
+			return null
+		}
+	}, [])
+
+	const {
+		storyEditorMode,
+		editingStory,
+		handleInspectStory,
+		handleCreateStory,
+		handleEditStory,
+		handleSaveStory,
+		handleCloseStoryEditor,
+	} = useStoryEditor({
+		isMobile,
+		ensureInfoPanelVisible,
+		encodeStoryNaddr,
+		navigateTo,
+		navigateToView,
+		clearFocus,
+	})
+
+	const handleDeleteStory = useCallback(
+		async (story: Article) => {
+			const signer = accounts.signer
+			if (!signer) {
+				toast.error('No active account.')
+				return
+			}
+			const storyKey = story.dTag ?? story.id
+			if (!storyKey) {
+				toast.error('Story is missing a d tag and cannot be deleted.')
+				return
+			}
+			setDeletingKey(`story:${storyKey}`)
+			try {
+				await deleteStory(story.event, signer)
+				const viewedStory = useEditorStore.getState().viewStory
+				const viewedKey = viewedStory ? (viewedStory.dTag ?? viewedStory.id) : null
+				if (viewedKey === storyKey) {
+					exitViewMode()
+				}
+				toast.success(`Deleted "${story.article.title || 'story'}".`)
+			} catch (error) {
+				console.error('Failed to delete story', error)
+				toast.error('Failed to delete story. Check console for details.')
+			} finally {
+				setDeletingKey(null)
+			}
+		},
+		[exitViewMode],
+	)
+
 	// Handle initial route on page load (direct URL navigation)
 	const focusHandledRef = useRef<string | null>(null)
 	useEffect(() => {
@@ -1477,7 +1549,7 @@ export function GeoEditorView() {
 		// If there's a specific focus route (e.g. /datasets/geoevent/...), handle zoom
 		if (route.focusType === 'none' || !route.naddr) return
 		// Wait for data to be available
-		if (geoEvents.length === 0 && mapContextEvents.length === 0) return
+		if (geoEvents.length === 0 && mapContextEvents.length === 0 && stories.length === 0) return
 
 		if (route.focusType === 'geoevent') {
 			// Find the dataset matching the naddr
@@ -1496,17 +1568,26 @@ export function GeoEditorView() {
 				handleInspectContext(context)
 				focusHandledRef.current = routeKey
 			}
+		} else if (route.focusType === 'story') {
+			const story = stories.find((s) => encodeStoryNaddr(s) === route.naddr)
+			if (story) {
+				handleInspectStory(story)
+				focusHandledRef.current = routeKey
+			}
 		}
 	}, [
 		route.focusType,
 		route.naddr,
 		geoEvents,
 		mapContextEvents,
+		stories,
 		encodeGeoEventNaddr,
 		encodeContextNaddr,
+		encodeStoryNaddr,
 		addDatasetToMapStack,
 		handleInspectDataset,
 		handleInspectContext,
+		handleInspectStory,
 	])
 
 	// Pan lock and magnifier
@@ -1669,6 +1750,14 @@ export function GeoEditorView() {
 					editingContext={editingContext}
 					onSaveContext={handleSaveContext}
 					onCloseContextEditor={handleCloseContextEditor}
+					storyEditorMode={storyEditorMode}
+					editingStory={editingStory}
+					onCreateStory={handleCreateStory}
+					onInspectStory={handleInspectStory}
+					onEditStory={handleEditStory}
+					onSaveStory={handleSaveStory}
+					onCloseStoryEditor={handleCloseStoryEditor}
+					onDeleteStory={handleDeleteStory}
 					onZoomToFeature={handleZoomToFeature}
 					onExitViewMode={exitViewMode}
 					// Blossom upload props - callback adds blob ref to store, does NOT publish
@@ -1954,6 +2043,8 @@ export function GeoEditorView() {
 							editingContext={editingContext}
 							onSaveContext={handleSaveContext}
 							onCloseContextEditor={handleCloseContextEditor}
+							onEditStory={handleEditStory}
+							onDeleteStory={handleDeleteStory}
 							onZoomToFeature={handleZoomToFeature}
 							featureCollectionForUpload={memoizedFeatureCollection}
 							onBlossomUploadComplete={handleBlobUploadComplete}

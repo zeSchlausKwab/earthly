@@ -123,6 +123,28 @@ export function generateContextOGHtml(
 	})
 }
 
+/**
+ * Generate OG HTML for a Story (kind 37520). Reuses the audited generateOGHtml
+ * escaping path — the same OGMeta template that already serves untrusted
+ * dataset/context titles; no new escaping logic invented (T-10-09).
+ */
+export function generateStoryOGHtml(
+	baseUrl: string,
+	naddr: string,
+	title: string,
+	description: string,
+	image?: string,
+): string {
+	return generateOGHtml({
+		title: title || 'Story',
+		description:
+			description || 'Read this story on Earthly, a collaborative mapping platform on Nostr.',
+		url: `${baseUrl}/#/stories/story/${naddr}`,
+		image: image || `${baseUrl}/og/image/story/${naddr}`,
+		type: 'article',
+	})
+}
+
 function escapeHtml(text: string): string {
 	return text
 		.replace(/&/g, '&amp;')

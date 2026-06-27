@@ -3,6 +3,7 @@ import {
 	Database,
 	Globe,
 	HelpCircle,
+	BookOpen,
 	Newspaper,
 	PanelLeftClose,
 	PanelLeftOpen,
@@ -22,6 +23,7 @@ import type { MapContext } from '@/lib/nostr/map-context'
 import squareLogoRose from '../assets/square_logo_rose.svg'
 import { ShoutboxPanel } from '../features/social/shoutbox'
 import { GeoDatasetsPanelContent } from './GeoDatasetsPanel'
+import { StoriesPanelContent } from './StoriesPanel'
 import { UserProfilePanel } from './UserProfilePanel'
 import { GeoEditorInfoPanelContent } from './GeoEditorInfoPanel'
 import { HelpPanel } from './HelpPanel'
@@ -50,11 +52,11 @@ import { WorkspaceDraftNavigator } from './WorkspaceDraftNavigator'
 import { Button } from './ui/button'
 
 type SidebarContentMode = Exclude<SidebarViewMode, 'combined'>
-type EntityWorkspace = 'geometry' | 'context'
-type WorkViewMode = 'datasets' | 'contexts' | 'user'
+type EntityWorkspace = 'geometry' | 'context' | 'story'
+type WorkViewMode = 'datasets' | 'contexts' | 'stories' | 'user'
 type MetaViewMode = 'posts' | 'wallet' | 'settings' | 'help'
 
-const WORK_VIEW_MODES: WorkViewMode[] = ['datasets', 'contexts', 'user']
+const WORK_VIEW_MODES: WorkViewMode[] = ['datasets', 'contexts', 'stories', 'user']
 const META_VIEW_MODES: MetaViewMode[] = ['posts', 'wallet', 'settings', 'help']
 
 // Round H.3/H.4: the rail's browse destinations (Datasets / Contexts / My
@@ -73,6 +75,7 @@ const workNavItems: {
 }[] = [
 	{ mode: 'datasets', title: 'Datasets', icon: Database },
 	{ mode: 'contexts', title: 'Contexts', icon: Globe },
+	{ mode: 'stories', title: 'Stories', icon: BookOpen },
 	{ mode: 'user', title: 'My Entities', icon: UserCircle },
 ]
 
@@ -150,6 +153,15 @@ interface AppSidebarProps {
 	editingContext?: MapContext | null
 	onSaveContext?: (context: MapContext) => void
 	onCloseContextEditor?: () => void
+	/** Story editor mode (Phase 10, D-02/D-03). */
+	storyEditorMode?: 'none' | 'create' | 'edit'
+	editingStory?: import('@/lib/nostr/article').Article | null
+	onCreateStory?: () => void
+	onInspectStory?: (story: import('@/lib/nostr/article').Article) => void
+	onEditStory?: (story: import('@/lib/nostr/article').Article) => void
+	onSaveStory?: (story: import('@/lib/nostr/article').Article) => void
+	onCloseStoryEditor?: () => void
+	onDeleteStory?: (story: import('@/lib/nostr/article').Article) => void
 	onZoomToFeature?: (feature: EditorFeature) => void
 	onExitViewMode?: () => void
 	featureCollectionForUpload?: FeatureCollection | null
@@ -206,6 +218,14 @@ export function AppSidebar({
 	editingContext,
 	onSaveContext,
 	onCloseContextEditor,
+	storyEditorMode = 'none',
+	editingStory,
+	onCreateStory,
+	onInspectStory,
+	onEditStory,
+	onSaveStory,
+	onCloseStoryEditor,
+	onDeleteStory,
 	onZoomToFeature,
 	onExitViewMode,
 	featureCollectionForUpload,
@@ -223,8 +243,10 @@ export function AppSidebar({
 	const viewMode = useEditorStore((state) => state.sidebarViewMode)
 	const viewDataset = useEditorStore((state) => state.viewDataset)
 	const viewContext = useEditorStore((state) => state.viewContext)
+	const viewStory = useEditorStore((state) => state.viewStory)
 	const setViewDatasetState = useEditorStore((state) => state.setViewDataset)
 	const setViewContextState = useEditorStore((state) => state.setViewContext)
+	const setViewStoryState = useEditorStore((state) => state.setViewStory)
 	const { navigateToView, navigateToContext, clearContextScope, contextNaddr, encodeContextNaddr } =
 		useRouting()
 
@@ -284,7 +306,11 @@ export function AppSidebar({
 		// and snap back to the list. Browsing a catalog explicitly clears the
 		// subject (handleSelectWorkMode), so the guard still lets you browse.
 		const hasInspectSubject =
-			Boolean(viewContext) || Boolean(viewDataset) || contextEditorMode !== 'none'
+			Boolean(viewContext) ||
+			Boolean(viewDataset) ||
+			Boolean(viewStory) ||
+			contextEditorMode !== 'none' ||
+			storyEditorMode !== 'none'
 		if (
 			!splitWithEditor &&
 			!hasInspectSubject &&
@@ -292,9 +318,24 @@ export function AppSidebar({
 		) {
 			setShowEntityAsFullPanel(false)
 		}
-	}, [contentMode, splitWithEditor, viewContext, viewDataset, contextEditorMode])
+	}, [
+		contentMode,
+		splitWithEditor,
+		viewContext,
+		viewDataset,
+		viewStory,
+		contextEditorMode,
+		storyEditorMode,
+	])
 
 	useEffect(() => {
+		if (storyEditorMode !== 'none' || viewStory) {
+			setActiveEntity('story')
+			if (!splitWithEditor) {
+				setShowEntityAsFullPanel(true)
+			}
+			return
+		}
 		if (contextEditorMode !== 'none' || viewContext) {
 			setActiveEntity('context')
 			if (!splitWithEditor) {
@@ -308,7 +349,7 @@ export function AppSidebar({
 				setShowEntityAsFullPanel(true)
 			}
 		}
-	}, [contextEditorMode, splitWithEditor, viewContext, viewDataset])
+	}, [contextEditorMode, storyEditorMode, splitWithEditor, viewContext, viewStory, viewDataset])
 
 	const leaveMetaOverrideIfNeeded = () => {
 		if (metaModeActive) {
@@ -323,6 +364,7 @@ export function AppSidebar({
 		// browse-while-editing still works and the Editor return path stays.)
 		setViewContextState(null)
 		setViewDatasetState(null)
+		setViewStoryState(null)
 		setActiveWorkMode(mode)
 		setShowEntityAsFullPanel(false)
 		navigateToView(mode)
@@ -331,6 +373,7 @@ export function AppSidebar({
 	const handleSelectMetaMode = (mode: MetaViewMode) => {
 		setViewContextState(null)
 		setViewDatasetState(null)
+		setViewStoryState(null)
 		setShowEntityAsFullPanel(false)
 		navigateToView(mode)
 	}
@@ -384,6 +427,43 @@ export function AppSidebar({
 		navigateToView('contexts')
 	}
 
+	// Story handlers (D-01/D-02/D-03) — mirror the context handlers: each opens the
+	// Story surface as the full info panel and marks the active entity as 'story'.
+	const handleInspectStory = (story: import('@/lib/nostr/article').Article) => {
+		onInspectStory?.(story)
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('story')
+		setShowEntityAsFullPanel(true)
+	}
+
+	const handleCreateStory = () => {
+		onCreateStory?.()
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('story')
+		setShowEntityAsFullPanel(true)
+	}
+
+	const handleEditStory = (story: import('@/lib/nostr/article').Article) => {
+		onEditStory?.(story)
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('story')
+		setShowEntityAsFullPanel(true)
+	}
+
+	const handleSaveStory = (story: import('@/lib/nostr/article').Article) => {
+		onSaveStory?.(story)
+		setActiveEntity('story')
+		setShowEntityAsFullPanel(true)
+		setActiveWorkMode('stories')
+	}
+
+	const handleCloseStoryEditor = () => {
+		onCloseStoryEditor?.()
+		setShowEntityAsFullPanel(false)
+		setActiveWorkMode('stories')
+		navigateToView('stories')
+	}
+
 	// Round E.4/F.4: derived, not stored. Geometry mirrors the stance; the
 	// context entity mirrors whether the context editor is open. Used by the
 	// info panel (empty-state copy) and the rail surface highlighting.
@@ -402,16 +482,22 @@ export function AppSidebar({
 	// browse catalogs, and there's no empty-void state. It's the way back to
 	// your editor/inspector panel after you've wandered off to a catalog.
 	const currentSurface: 'editor' | 'inspector' | null =
-		editorStance === 'author' || contextEditorMode !== 'none'
+		editorStance === 'author' || contextEditorMode !== 'none' || storyEditorMode !== 'none'
 			? 'editor'
-			: editorStance === 'focus' || viewDataset || viewContext
+			: editorStance === 'focus' || viewDataset || viewContext || viewStory
 				? 'inspector'
 				: null
 
 	const returnToCurrentSurface = () => {
 		leaveMetaOverrideIfNeeded()
 		setShowEntityAsFullPanel(true)
-		setActiveEntity(contextEditorMode !== 'none' || viewContext ? 'context' : 'geometry')
+		setActiveEntity(
+			storyEditorMode !== 'none' || viewStory
+				? 'story'
+				: contextEditorMode !== 'none' || viewContext
+					? 'context'
+					: 'geometry',
+		)
 	}
 
 	const datasetsPanelProps = {
@@ -439,6 +525,15 @@ export function AppSidebar({
 		isFocused,
 		onExitFocus,
 		onFilteredDatasetKeysChange,
+	}
+
+	const storiesPanelProps = {
+		currentUserPubkey,
+		onOpenStory: handleInspectStory,
+		onCreateStory: handleCreateStory,
+		onEditStory: handleEditStory,
+		onDeleteStory: onDeleteStory ?? (() => {}),
+		deletingKey,
 	}
 
 	const userProfilePanelProps = {
@@ -493,6 +588,12 @@ export function AppSidebar({
 		editingContext,
 		onSaveContext: handleSaveContext,
 		onCloseContextEditor: handleCloseContextEditor,
+		storyEditorMode,
+		editingStory,
+		onSaveStory: handleSaveStory,
+		onCloseStoryEditor: handleCloseStoryEditor,
+		onEditStory: handleEditStory,
+		onDeleteStory,
 		mapContextEvents,
 		onZoomToFeature,
 		featureCollectionForUpload,
@@ -511,6 +612,8 @@ export function AppSidebar({
 				return <GeoDatasetsPanelContent mode="datasets" {...datasetsPanelProps} />
 			case 'contexts':
 				return <GeoDatasetsPanelContent mode="contexts" {...datasetsPanelProps} />
+			case 'stories':
+				return <StoriesPanelContent {...storiesPanelProps} />
 			case 'user': {
 				const profilePubkey = userPubkey ?? currentUserPubkey
 				if (!profilePubkey) {

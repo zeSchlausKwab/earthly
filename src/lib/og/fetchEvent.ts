@@ -1,11 +1,17 @@
 import { nip19 } from 'nostr-tools'
-import { GEO_EVENT_KIND } from '../nostr/kinds'
+import { ARTICLE_KIND, GEO_EVENT_KIND } from '../nostr/kinds'
 
 export interface GeoEventOGData {
 	title: string
 	description: string
 	image?: string
 	featureCount?: number
+}
+
+export interface StoryOGData {
+	title: string
+	description: string
+	image?: string
 }
 
 /**
@@ -155,5 +161,68 @@ export async function fetchGeoEventOGData(
 		title: title || 'Geographic Dataset',
 		description: description || 'View this geographic dataset on Earthly',
 		featureCount,
+	}
+}
+
+/**
+ * Fetch Story (kind 37520) data for OG tags. Reads the NIP-23-style Article
+ * content (`title`/`summary`/`image`) out of the event content JSON, falling
+ * back to NIP-23 `title`/`summary` tags and the `d` tag.
+ */
+export async function fetchStoryOGData(
+	naddr: string,
+	relayUrl: string,
+): Promise<StoryOGData | null> {
+	const decoded = decodeNaddr(naddr)
+	if (!decoded) return null
+	if (decoded.kind !== ARTICLE_KIND) return null
+
+	const event = await fetchEventFromRelay(relayUrl, {
+		kinds: [decoded.kind],
+		authors: [decoded.pubkey],
+		'#d': [decoded.identifier],
+	})
+
+	if (!event) return null
+
+	let title = ''
+	let description = ''
+	let image: string | undefined
+
+	try {
+		const content = JSON.parse(event.content) as {
+			title?: string
+			summary?: string
+			image?: string
+		}
+		title = content.title ?? ''
+		description = content.summary ?? ''
+		image = content.image
+	} catch {
+		// Invalid JSON content — fall back to tags below.
+	}
+
+	if (!title) {
+		const titleTag = event.tags.find((t) => t[0] === 'title')
+		if (titleTag?.[1]) title = titleTag[1]
+	}
+	if (!description) {
+		const summaryTag = event.tags.find((t) => t[0] === 'summary')
+		if (summaryTag?.[1]) description = summaryTag[1]
+	}
+	if (!image) {
+		const imageTag = event.tags.find((t) => t[0] === 'image')
+		if (imageTag?.[1]) image = imageTag[1]
+	}
+
+	if (!title) {
+		const dTag = event.tags.find((t) => t[0] === 'd')
+		if (dTag?.[1]) title = dTag[1]
+	}
+
+	return {
+		title: title || 'Story',
+		description: description || 'Read this story on Earthly',
+		image,
 	}
 }

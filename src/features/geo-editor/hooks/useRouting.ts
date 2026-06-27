@@ -10,6 +10,7 @@ const SIDEBAR_VIEW_MODES: SidebarViewMode[] = [
 	'map-stack',
 	'contexts',
 	'context-editor',
+	'stories',
 	'combined',
 	'edit',
 	'posts',
@@ -31,7 +32,7 @@ export interface RouteState {
 	/** Active context coordinate derived from naddr */
 	contextCoordinate?: string
 	/** Focus type for deep-linking to specific content */
-	focusType: 'none' | 'geoevent' | 'mapcontext'
+	focusType: 'none' | 'geoevent' | 'mapcontext' | 'story'
 	/** Nostr address for focused content */
 	naddr?: string
 	/** Optional comment d-tag deep-linked beneath the focused entity */
@@ -49,8 +50,8 @@ function isSidebarViewMode(value: string): value is SidebarViewMode {
 	return SIDEBAR_VIEW_MODES.includes(value as SidebarViewMode)
 }
 
-function isFocusType(value: string): value is 'geoevent' | 'mapcontext' {
-	return value === 'geoevent' || value === 'mapcontext'
+function isFocusType(value: string): value is 'geoevent' | 'mapcontext' | 'story' {
+	return value === 'geoevent' || value === 'mapcontext' || value === 'story'
 }
 
 function decodeContextCoordinateFromNaddr(naddr: string): string | undefined {
@@ -110,6 +111,16 @@ function parsePathSegments(segments: string[]): RouteState {
 			naddr: segments[1],
 			commentId: segments[2] === 'comment' && segments[3] ? segments[3] : undefined,
 			sidebarView: 'contexts',
+		}
+	}
+	// Story share form (also what the OG crawler matches via /story/:naddr →
+	// /#/stories/story/:naddr): /story/:naddr (+ optional /comment/:id).
+	if (first === 'story' && segments[1]) {
+		return {
+			focusType: 'story',
+			naddr: segments[1],
+			commentId: segments[2] === 'comment' && segments[3] ? segments[3] : undefined,
+			sidebarView: 'stories',
 		}
 	}
 
@@ -235,7 +246,7 @@ export function buildRoutePath({
 }: {
 	sidebarView: SidebarViewMode
 	contextNaddr?: string
-	focusType?: 'geoevent' | 'mapcontext'
+	focusType?: 'geoevent' | 'mapcontext' | 'story'
 	naddr?: string
 	commentId?: string
 }): string {
@@ -342,7 +353,11 @@ export function useRouting() {
 	 * Navigate to a focused route, preserving or setting sidebar view
 	 */
 	const navigateTo = useCallback(
-		(focusType: 'geoevent' | 'mapcontext', naddr: string, sidebarView?: SidebarViewMode) => {
+		(
+			focusType: 'geoevent' | 'mapcontext' | 'story',
+			naddr: string,
+			sidebarView?: SidebarViewMode,
+		) => {
 			const currentRoute = parseLocation()
 			commit({
 				sidebarView: sidebarView ?? currentRoute.sidebarView,
@@ -401,7 +416,7 @@ export function useRouting() {
 
 	const navigateToComment = useCallback(
 		(
-			focusType: 'geoevent' | 'mapcontext',
+			focusType: 'geoevent' | 'mapcontext' | 'story',
 			naddr: string,
 			commentId: string,
 			sidebarView?: SidebarViewMode,

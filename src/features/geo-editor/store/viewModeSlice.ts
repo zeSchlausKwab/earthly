@@ -5,6 +5,7 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 	viewMode: 'view',
 	viewDataset: null,
 	viewContext: null,
+	viewStory: null,
 	viewContextDatasets: [],
 	contextFilterMode: 'strict',
 	contextMapScopeMode: 'children',
@@ -18,6 +19,7 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 	setViewMode: (viewMode) => set({ viewMode }),
 	setViewDataset: (viewDataset) => set({ viewDataset }),
 	setViewContext: (viewContext) => set({ viewContext }),
+	setViewStory: (viewStory) => set({ viewStory }),
 	setViewContextDatasets: (viewContextDatasets) => set({ viewContextDatasets }),
 	setContextFilterMode: (contextFilterMode) => set({ contextFilterMode }),
 	setContextMapScopeMode: (contextMapScopeMode) => set({ contextMapScopeMode }),
@@ -62,6 +64,9 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 			const viewDataset = route.focusType === 'geoevent' ? state.viewDataset : null
 			const viewContext =
 				route.focusType === 'mapcontext' || route.contextNaddr != null ? state.viewContext : null
+			// The Story inspector is keyed to a `story` focus (always URL-derivable),
+			// like the dataset inspector. Drop it whenever the route isn't a story focus.
+			const viewStory = route.focusType === 'story' ? state.viewStory : null
 
 			// Inspecting iff a focus route is active or a context inspector is open.
 			const inspectingSubject = hasFocus || viewContext != null
@@ -86,6 +91,7 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 				activeContextScopeCoordinate: route.contextCoordinate ?? null,
 				viewDataset,
 				viewContext,
+				viewStory,
 				viewMode,
 				stance,
 			}
