@@ -17,10 +17,10 @@ Requirements for the v1.2 milestone. Full v2 / clean-break scope: spec + all eve
 
 ### Story / Article (STORY) — curate-pull, closed
 
-- [ ] **STORY-01**: A user can create a Story with a title, summary, cover image, and a Markdown body (NIP-23 metadata tags).
+- [x] **STORY-01**: A user can create a Story with a title, summary, cover image, and a Markdown body (NIP-23 metadata tags).
 - [x] **STORY-02**: A user can embed inline references to datasets/features (and images/videos) in the Story body that render in place with an eye-toggle (show/hide on map) and a fly-to button.
-- [ ] **STORY-03**: Inline `nostr:naddr…` geo references in the body are automatically mirrored to queryable `a` tags on the Story event.
-- [ ] **STORY-04**: A user can save a Story as a draft before publishing, and edit a published Story in place (parameterized-replaceable, same `d`-tag lineage).
+- [x] **STORY-03**: Inline `nostr:naddr…` geo references in the body are automatically mirrored to queryable `a` tags on the Story event.
+- [x] **STORY-04**: A user can save a Story as a draft before publishing, and edit a published Story in place (parameterized-replaceable, same `d`-tag lineage).
 - [x] **STORY-05**: A user can comment on and react to a Story (reuses kind 37517 + kind 7).
 - [x] **STORY-06**: A user can propose an edit to a Story's narrative, and the author can preview and accept/reject it (kind 37519 extended to a Markdown-content target).
 

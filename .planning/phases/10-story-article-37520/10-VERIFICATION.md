@@ -1,7 +1,8 @@
 ---
 phase: 10-story-article-37520
 verified: 2026-06-27T07:59:53Z
-status: human_needed
+status: passed
+uat: 4/4 passed (2026-06-27 — T3/T4 issues found in UAT, fixed in 99c82f6, re-tested PASS)
 score: 6/6
 overrides_applied: 0
 human_verification:

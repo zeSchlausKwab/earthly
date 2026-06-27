@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
-status: executing
-stopped_at: Phase 10 Plan 04 complete
-last_updated: "2026-06-27T10:00:00.000Z"
-last_activity: 2026-06-27 -- Phase 10 Plan 04 (Story narrative edit-proposals — createForStory content-type extension + author panel/reader dialog, STORY-06) complete
+status: completed
+stopped_at: Phase 10 Plan 04 complete (Story narrative edit-proposals — STORY-06)
+last_updated: "2026-06-27T14:12:55.502Z"
+last_activity: 2026-06-27
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 15
   completed_plans: 15
-  percent: 33
+  percent: 50
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 ## Current Position
 
-Phase: 10 (story-article-37520) — EXECUTING
-Plan: 4 of 4 (all plans complete — phase ready for verify/secure/UAT)
+Phase: 11
+Plan: Not started
 Status: Phase 10 Plans 01–04 complete; STORY-06 closed
-Last activity: 2026-06-27 -- Phase 10 Plan 04 (Story narrative edit-proposals — createForStory content-type extension + author panel/reader dialog, STORY-06) complete
+Last activity: 2026-06-27
 
 Progress: [███░░░░░░░] 33% (v1.2 — 2/6 phases)
 
@@ -58,7 +58,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 |-------|-------|-------|----------|
 | 8 | TBD | - | - |
 | 9 | 6 | - | - |
-| 10 | TBD | - | - |
+| 10 | 4 | - | - |
 | 11 | TBD | - | - |
 | 12 | TBD | - | - |
 | 13 | TBD | - | - |
