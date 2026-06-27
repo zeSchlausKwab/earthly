@@ -1,7 +1,13 @@
+import { lookup } from 'node:dns/promises'
+import { isIP } from 'node:net'
 import { join } from 'node:path'
 
 const OG_WIDTH = 1200
 const OG_HEIGHT = 630
+
+// Cap on a fetched cover image — guards against memory abuse from a hostile
+// or accidental multi-hundred-MB response (T-10-15).
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
 // Common font paths on Linux servers (checked in order)
 const SYSTEM_FONT_PATHS = [
@@ -60,15 +66,93 @@ async function ensureResvg(): Promise<void> {
 
 // ─── Image fetching ───────────────────────────────────────────────────────────
 
-async function fetchImageAsBase64(url: string): Promise<string | null> {
+/**
+ * Reject IPv4 literals in private, loopback, link-local (incl. the
+ * 169.254.169.254 cloud-metadata endpoint), CGNAT, or reserved/multicast
+ * ranges. (T-10-15)
+ */
+function isBlockedIPv4(ip: string): boolean {
+	const parts = ip.split('.').map(Number)
+	if (parts.length !== 4 || parts.some((p) => Number.isNaN(p) || p < 0 || p > 255)) return true
+	const [a, b] = parts
+	if (a === 0 || a === 10 || a === 127) return true // this-network, private, loopback
+	if (a === 169 && b === 254) return true // link-local incl. cloud metadata
+	if (a === 172 && b >= 16 && b <= 31) return true // private
+	if (a === 192 && b === 168) return true // private
+	if (a === 192 && b === 0) return true // IETF protocol assignments
+	if (a === 100 && b >= 64 && b <= 127) return true // CGNAT
+	if (a === 198 && (b === 18 || b === 19)) return true // benchmarking
+	if (a >= 224) return true // multicast + reserved
+	return false
+}
+
+/** Reject IPv6 loopback, ULA (fc00::/7), link-local (fe80::/10), and IPv4-mapped internals. (T-10-15) */
+function isBlockedIPv6(ip: string): boolean {
+	const addr = ip.toLowerCase().split('%')[0] // strip zone id
+	if (addr === '::1' || addr === '::') return true
+	const v4mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/)
+	if (v4mapped) return isBlockedIPv4(v4mapped[1])
+	const head = addr.split(':')[0]
+	if (/^f[cd]/.test(head)) return true // fc00::/7 unique-local
+	if (/^fe[89ab]/.test(head)) return true // fe80::/10 link-local
+	return false
+}
+
+function isBlockedAddress(ip: string): boolean {
+	const kind = isIP(ip)
+	if (kind === 4) return isBlockedIPv4(ip)
+	if (kind === 6) return isBlockedIPv6(ip)
+	return true // not a parseable IP → block
+}
+
+/**
+ * Validate a user-supplied image URL before the server fetches it (SSRF guard,
+ * T-10-15). Allows only http(s); resolves the hostname and blocks the request
+ * if ANY resolved address is private/loopback/link-local/reserved, which also
+ * defeats public-DNS-name → internal-IP tricks. Returns the URL to fetch, or
+ * null to skip.
+ */
+async function assertPublicImageUrl(rawUrl: string): Promise<URL | null> {
+	let parsed: URL
 	try {
-		const res = await fetch(url, {
+		parsed = new URL(rawUrl)
+	} catch {
+		return null
+	}
+	if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+
+	const hostname = parsed.hostname.replace(/^\[|\]$/g, '') // strip IPv6 brackets
+	try {
+		if (isIP(hostname)) {
+			if (isBlockedAddress(hostname)) return null
+		} else {
+			const resolved = await lookup(hostname, { all: true })
+			if (resolved.length === 0) return null
+			if (resolved.some((r) => isBlockedAddress(r.address))) return null
+		}
+	} catch {
+		return null
+	}
+	return parsed
+}
+
+async function fetchImageAsBase64(url: string): Promise<string | null> {
+	const safeUrl = await assertPublicImageUrl(url)
+	if (!safeUrl) return null
+	try {
+		const res = await fetch(safeUrl.href, {
 			headers: { 'User-Agent': 'Earthly/1.0 (+https://earthly.city) OGImage' },
 			signal: AbortSignal.timeout(6000),
+			redirect: 'error', // block redirect-based SSRF bypass to an internal target
 		})
 		if (!res.ok) return null
-		const contentType = res.headers.get('content-type') ?? 'image/jpeg'
+		const contentType = res.headers.get('content-type') ?? ''
+		// Only embed real images — refuse text/JSON internal responses (defense in depth).
+		if (!contentType.startsWith('image/')) return null
+		const declaredLength = Number(res.headers.get('content-length'))
+		if (Number.isFinite(declaredLength) && declaredLength > MAX_IMAGE_BYTES) return null
 		const buf = await res.arrayBuffer()
+		if (buf.byteLength > MAX_IMAGE_BYTES) return null
 		const b64 = Buffer.from(buf).toString('base64')
 		return `data:${contentType.split(';')[0].trim()};base64,${b64}`
 	} catch {
@@ -79,7 +163,11 @@ async function fetchImageAsBase64(url: string): Promise<string | null> {
 // ─── SVG helpers ──────────────────────────────────────────────────────────────
 
 function escapeXml(s: string): string {
-	return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+	return s
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
 }
 
 function truncate(text: string, maxChars: number): string {
