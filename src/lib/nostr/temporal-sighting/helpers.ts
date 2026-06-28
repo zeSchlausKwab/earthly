@@ -10,6 +10,7 @@
 
 import { getOrComputeCachedValue } from 'applesauce-core/helpers/cache'
 import { getTagValue, type KnownEvent, type NostrEvent } from 'applesauce-core/helpers/event'
+import type { LineString, Point, Polygon } from 'geojson'
 import type { GeoBoundingBox } from '@/lib/nostr/geo-event'
 import { TEMPORAL_SIGHTING_KIND } from '@/lib/nostr/kinds'
 import { hasCurrentModelVersion } from '@/lib/nostr/modelVersion'
@@ -35,6 +36,13 @@ export interface TemporalSightingContent {
 	start?: number
 	/** Optional NIP-52 end (epoch seconds) placeholder. */
 	end?: number
+	/**
+	 * NEW (D-02): precise placement carried in content. A single Point by default;
+	 * a small Line/Polygon for the "area where I saw it" case. The lossy `bbox`/`g`
+	 * discovery tags are derived from this on every publish (lifecycle.ts), so the
+	 * tags never drift from the precise coordinates.
+	 */
+	geometry?: Point | LineString | Polygon
 }
 
 export const DEFAULT_TEMPORAL_SIGHTING_CONTENT: TemporalSightingContent = {}

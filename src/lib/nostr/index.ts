@@ -8,7 +8,6 @@
  *   import { eventStore, pool, accounts, publish } from '@/lib/nostr'
  */
 
-import { EventStore } from 'applesauce-core'
 import { persistEventsToCache } from 'applesauce-core/helpers'
 import { MailboxesModel } from 'applesauce-core/models'
 import { RelayPool } from 'applesauce-relay'
@@ -30,6 +29,11 @@ void NEVER
 void timeout
 void TimeoutError
 import { config } from '@/config'
+import { eventStore } from './store'
+
+// The single EventStore singleton, constructed in ./store so service modules can
+// import it without going through (or being defeated by a test mock of) this barrel.
+export { eventStore } from './store'
 
 // Shared tag read/write seam (SPEC-02) — re-exported for ergonomic access.
 export * from './tags'
@@ -48,9 +52,6 @@ export * from './temporal-sighting'
 // map-context/ module stays importable from its own path until Plans 03–06
 // repoint all ~34 consumer import sites.
 export * from './group'
-
-/** Reactive event database. Single instance for the whole app. */
-export const eventStore = new EventStore()
 
 /** Connection pool — owns websocket lifecycles per relay URL. */
 export const pool = new RelayPool()
