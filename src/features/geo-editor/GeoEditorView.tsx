@@ -26,9 +26,13 @@ import { useGeoDatasets, useMapContexts } from '@/lib/hooks/useGeoDatasets'
 import { useGroups } from '@/lib/hooks/useGroups'
 import { useStories } from '@/lib/hooks/useStories'
 import { useSightings } from '@/lib/hooks/useSightings'
+import { useBeacons } from '@/lib/hooks/useBeacons'
+import { RunningBeaconBanner } from '@/components/RunningBeaconBanner'
+import type { LiveBeacon } from '@/lib/nostr/live-beacon'
+import { formatExpiryCountdown } from '@/lib/nostr/temporal-sighting'
 import { nip19 } from 'nostr-tools'
 import type { Article } from '@/lib/nostr/article'
-import { ARTICLE_KIND, TEMPORAL_SIGHTING_KIND } from '@/lib/nostr/kinds'
+import { ARTICLE_KIND, LIVE_BEACON_KIND, TEMPORAL_SIGHTING_KIND } from '@/lib/nostr/kinds'
 import { deleteStory } from '@/lib/nostr/story'
 import { deleteSighting, type TemporalSighting } from '@/lib/nostr/temporal-sighting'
 import { bboxFromGeometry } from '@/lib/geo/bbox'
@@ -65,6 +69,7 @@ import {
 	useContextEditor,
 	useStoryEditor,
 	useSightingEditor,
+	useBeaconController,
 	useStoryMapRefs,
 	useCommentGeometry,
 	useProposalGeometry,
@@ -248,6 +253,16 @@ export function GeoEditorView() {
 	useEffect(() => {
 		sightingsRef.current = sightings
 	}, [sightings])
+
+	// Live Beacons (kind 37521) — rendered as live/stale/ended markers on the browse
+	// map and listed in the Beacons rail (Phase 12, D-12). useBeacons drops expired
+	// at the subscription on a 15s tick (BEACON-03 / Pitfall P-1) and filters the
+	// `#t:['live']` discovery surface (link-only beacons never match — P-6).
+	const { events: beacons } = useBeacons()
+	const beaconsRef = useRef<LiveBeacon[]>([])
+	useEffect(() => {
+		beaconsRef.current = beacons
+	}, [beacons])
 	const setFocusedMapGeometry = useEditorStore((state) => state.setFocusedMapGeometry)
 	// "Zoom to on map" for a Sighting: fly the camera to its geometry and focus it.
 	// Sightings always render (D-05), so this centers + highlights rather than
@@ -259,6 +274,18 @@ export function GeoEditorView() {
 			// lands ON the dot. Fall back to the bbox tag only when geometry is absent.
 			const geometry = sighting.sighting.geometry
 			const bbox = (geometry ? bboxFromGeometry(geometry) : null) ?? sighting.boundingBox
+			if (!bbox) return
+			handleZoomToBounds(bbox)
+			setFocusedMapGeometry({ bbox })
+		},
+		[handleZoomToBounds, setFocusedMapGeometry],
+	)
+	// "Watch on map" for a beacon: fly the camera to its geometry and focus it
+	// (mirrors handleZoomToSighting).
+	const handleZoomToBeacon = useCallback(
+		(beacon: LiveBeacon) => {
+			const geometry = beacon.geometry
+			const bbox = (geometry ? bboxFromGeometry(geometry) : null) ?? beacon.boundingBox
 			if (!bbox) return
 			handleZoomToBounds(bbox)
 			setFocusedMapGeometry({ bbox })
@@ -1133,6 +1160,7 @@ export function GeoEditorView() {
 		mounted,
 		visibleGeoEvents,
 		visibleSightings: sightings,
+		visibleBeacons: beacons,
 		resolvedCollectionResolver,
 		resolvedCollectionsVersion,
 	})
@@ -1551,6 +1579,44 @@ export function GeoEditorView() {
 		}
 	}, [])
 
+	// Beacon naddr encoder — resolves a /beacon/:naddr deep link to its cast. The
+	// naddr carries the THROWAWAY pubkey (the beacon is not under the user's profile,
+	// D-05/D-11).
+	const encodeBeaconNaddr = useCallback((beacon: LiveBeacon): string | null => {
+		const identifier = beacon.dTag
+		if (!identifier || !beacon.pubkey) return null
+		try {
+			return nip19.naddrEncode({
+				kind: LIVE_BEACON_KIND,
+				pubkey: beacon.pubkey,
+				identifier,
+			})
+		} catch {
+			return null
+		}
+	}, [])
+
+	// A /beacon/:naddr deep link may target a LINK-ONLY beacon, which is absent from
+	// the `#t:['live']` discovery surface (`beacons` above). Decode the routed naddr
+	// and fire a TARGETED {authors,#d} subscription so a logged-out viewer can open
+	// it (account-free, D-11). The thin per-kind route is Phase 13 / XCUT-02 fodder.
+	const routedBeaconAddress = useMemo(() => {
+		if (route.focusType !== 'beacon' || !route.naddr) return null
+		try {
+			const decoded = nip19.decode(route.naddr)
+			if (decoded.type !== 'naddr' || decoded.data.kind !== LIVE_BEACON_KIND) return null
+			return { pubkey: decoded.data.pubkey, identifier: decoded.data.identifier }
+		} catch {
+			return null
+		}
+	}, [route.focusType, route.naddr])
+
+	const { events: routedBeacons } = useBeacons(
+		routedBeaconAddress
+			? [{ authors: [routedBeaconAddress.pubkey], '#d': [routedBeaconAddress.identifier] }]
+			: [],
+	)
+
 	const {
 		storyEditorMode,
 		editingStory,
@@ -1715,6 +1781,51 @@ export function GeoEditorView() {
 		editor?.setMode('draw_polygon')
 	}, [editor])
 
+	// ── Live Beacon Start/Stop/Adjust/inspect (Phase 12, BEACON-01..04, D-12) ──
+	// The controller binds the Plan-03 useBeaconPublisher (the live watch loop +
+	// throwaway signer) to the UI: the control panel, the read view, the Beacons
+	// rail handlers, and the always-on RunningBeaconBanner mounted over the map.
+	// No pin-drop — a beacon's position comes from GPS.
+	const {
+		isLive: beaconIsLive,
+		subState: beaconSubState,
+		session: beaconSession,
+		beaconControlMode,
+		adjustingBeacon,
+		viewBeacon,
+		lastInspectedBeaconKey,
+		handleShareLocation,
+		handleStartBeacon,
+		handleStopBeacon,
+		handleAdjustBeacon,
+		handleInspectBeacon,
+		handleCloseBeaconControl,
+		clearBeaconView,
+	} = useBeaconController({
+		ensureInfoPanelVisible,
+		navigateToView,
+		clearFocus,
+	})
+
+	// The running banner's countdown reads the user's own live beacon's NIP-40
+	// expiration. The publisher session carries the `d`; resolve the matching live
+	// cast from the subscription to read its expiry (the freshest own-beacon).
+	const ownLiveBeacon = useMemo<LiveBeacon | null>(() => {
+		if (!beaconSession || !currentUserPubkey) return null
+		const sessionPubkey = beaconSession.sk ? undefined : currentUserPubkey
+		return (
+			beacons.find(
+				(b) =>
+					b.dTag === beaconSession.d && (sessionPubkey === undefined || b.pubkey === sessionPubkey),
+			) ?? null
+		)
+	}, [beacons, beaconSession, currentUserPubkey])
+
+	const beaconBannerCountdown = useMemo(() => {
+		if (!ownLiveBeacon?.expiresAt) return null
+		return formatExpiryCountdown(ownLiveBeacon.expiresAt, Math.floor(Date.now() / 1000))
+	}, [ownLiveBeacon])
+
 	// Handle initial route on page load (direct URL navigation)
 	const focusHandledRef = useRef<string | null>(null)
 	useEffect(() => {
@@ -1734,7 +1845,9 @@ export function GeoEditorView() {
 			geoEvents.length === 0 &&
 			mapContextEvents.length === 0 &&
 			stories.length === 0 &&
-			sightings.length === 0
+			sightings.length === 0 &&
+			beacons.length === 0 &&
+			routedBeacons.length === 0
 		)
 			return
 
@@ -1772,6 +1885,20 @@ export function GeoEditorView() {
 				handleInspectSighting(sighting, route.commentId)
 				focusHandledRef.current = routeKey
 			}
+		} else if (route.focusType === 'beacon') {
+			// D-11: resolve the /beacon/:naddr deep link (account-free). Check the
+			// public discovery surface first, then the targeted {authors,#d}
+			// subscription (a link-only beacon only lives there). dropExpired at the
+			// subscription means an ended/expired beacon won't resolve — the view
+			// panel's isExpired gate then shows the terminal copy. Thin per-kind
+			// clone — Phase 13 / XCUT-02 generalizes.
+			const beacon =
+				beacons.find((b) => encodeBeaconNaddr(b) === route.naddr) ??
+				routedBeacons.find((b) => encodeBeaconNaddr(b) === route.naddr)
+			if (beacon) {
+				handleInspectBeacon(beacon)
+				focusHandledRef.current = routeKey
+			}
 		}
 	}, [
 		route.focusType,
@@ -1781,15 +1908,19 @@ export function GeoEditorView() {
 		mapContextEvents,
 		stories,
 		sightings,
+		beacons,
+		routedBeacons,
 		encodeGeoEventNaddr,
 		encodeContextNaddr,
 		encodeStoryNaddr,
 		encodeSightingNaddr,
+		encodeBeaconNaddr,
 		addDatasetToMapStack,
 		handleInspectDataset,
 		handleInspectContext,
 		handleInspectStory,
 		handleInspectSighting,
+		handleInspectBeacon,
 	])
 
 	// Pan lock and magnifier
@@ -1977,6 +2108,19 @@ export function GeoEditorView() {
 					onDeleteSighting={handleDeleteSighting}
 					onDrawSightingArea={handleDrawSightingArea}
 					onClearSightingView={clearSightingView}
+					beaconControlMode={beaconControlMode}
+					adjustingBeacon={adjustingBeacon}
+					viewBeacon={viewBeacon}
+					selectedBeaconKey={lastInspectedBeaconKey}
+					beaconIsStarting={beaconSubState === 'searching' && !beaconIsLive}
+					onShareLocation={handleShareLocation}
+					onStartBeacon={handleStartBeacon}
+					onCloseBeaconControl={handleCloseBeaconControl}
+					onInspectBeacon={handleInspectBeacon}
+					onWatchOnMapBeacon={handleZoomToBeacon}
+					onStopBeacon={() => handleStopBeacon()}
+					onAdjustBeacon={handleAdjustBeacon}
+					onClearBeaconView={clearBeaconView}
 					onZoomToFeature={handleZoomToFeature}
 					onExitViewMode={exitViewMode}
 					// Blossom upload props - callback adds blob ref to store, does NOT publish
@@ -2139,6 +2283,18 @@ export function GeoEditorView() {
 						</div>
 					)}
 
+					{/* Always-on "you are live" running banner (Phase 12, BEACON-02,
+					    UI-SPEC § Net-New 3). Pinned over the map whenever a publisher
+					    session is live, regardless of which panel is open — the one piece
+					    of always-on chrome + a one-tap Stop. */}
+					{beaconIsLive && (
+						<RunningBeaconBanner
+							subState={beaconSubState}
+							countdown={beaconBannerCountdown}
+							onStop={handleStopBeacon}
+						/>
+					)}
+
 					{/* Desktop: map controls (zoom/compass/locate/pitch/globe/fullscreen
 					    + the popup toggles via controlsChildren) live inside mapcn's
 					    MapControls — see <MapComponent> above. */}
@@ -2298,6 +2454,20 @@ export function GeoEditorView() {
 							onCloseSightingEditor={handleCloseSightingEditor}
 							onEditSighting={handleEditSighting}
 							onDeleteSighting={handleDeleteSighting}
+							beaconControlMode={beaconControlMode}
+							adjustingBeacon={adjustingBeacon}
+							viewBeacon={viewBeacon}
+							selectedBeaconKey={lastInspectedBeaconKey}
+							beaconIsStarting={beaconSubState === 'searching' && !beaconIsLive}
+							onShareLocation={handleShareLocation}
+							onStartBeacon={handleStartBeacon}
+							onCloseBeaconControl={handleCloseBeaconControl}
+							onInspectBeacon={handleInspectBeacon}
+							onOpenBeacon={handleInspectBeacon}
+							onWatchOnMapBeacon={handleZoomToBeacon}
+							onStopBeacon={() => handleStopBeacon()}
+							onAdjustBeacon={handleAdjustBeacon}
+							onClearBeaconView={clearBeaconView}
 							onZoomToFeature={handleZoomToFeature}
 							featureCollectionForUpload={memoizedFeatureCollection}
 							onBlossomUploadComplete={handleBlobUploadComplete}

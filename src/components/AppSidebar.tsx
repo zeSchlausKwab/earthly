@@ -56,7 +56,7 @@ import { WorkspaceDraftNavigator } from './WorkspaceDraftNavigator'
 import { Button } from './ui/button'
 
 type SidebarContentMode = Exclude<SidebarViewMode, 'combined'>
-type EntityWorkspace = 'geometry' | 'context' | 'story' | 'sighting'
+type EntityWorkspace = 'geometry' | 'context' | 'story' | 'sighting' | 'beacon'
 type WorkViewMode = 'datasets' | 'contexts' | 'stories' | 'sightings' | 'beacons' | 'user'
 type MetaViewMode = 'posts' | 'wallet' | 'settings' | 'help'
 
@@ -207,12 +207,29 @@ interface AppSidebarProps {
 	 * Plan-05 control flow threads them; this plan builds standalone with safe
 	 * `?? (() => {})` defaults so the Beacons rail renders before the controller lands. */
 	onShareLocation?: () => void
-	onOpenBeacon?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
 	onWatchOnMapBeacon?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
 	onStopBeacon?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
-	onAdjustBeacon?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
+	onAdjustBeacon?: (beacon?: import('@/lib/nostr/live-beacon').LiveBeacon) => void
 	/** The d-tag/id of the last-inspected/viewed beacon — highlights + scrolls its rail row. */
 	selectedBeaconKey?: string | null
+	/** Beacon control panel mode (Phase 12, BEACON-01). 'none' ⇒ no control surface. */
+	beaconControlMode?: 'none' | 'create' | 'adjust'
+	/** The beacon being adjusted — pre-fills the control panel. */
+	adjustingBeacon?: import('@/lib/nostr/live-beacon').LiveBeacon | null
+	/** The beacon currently inspected in the view panel. */
+	viewBeacon?: import('@/lib/nostr/live-beacon').LiveBeacon | null
+	/** True while the publisher is starting (Start → "Starting…"). */
+	beaconIsStarting?: boolean
+	/** Start the publisher session from the control panel. */
+	onStartBeacon?: (
+		options: import('@/components/info-panel/BeaconControlPanel').BeaconStartOptions,
+	) => void
+	/** Close the beacon control panel without starting. */
+	onCloseBeaconControl?: () => void
+	/** Open a beacon in the read/detail view panel. */
+	onInspectBeacon?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
+	/** Clear the inspected beacon (hook-local view state) when browsing away. */
+	onClearBeaconView?: () => void
 	onZoomToFeature?: (feature: EditorFeature) => void
 	onExitViewMode?: () => void
 	featureCollectionForUpload?: FeatureCollection | null
@@ -295,11 +312,18 @@ export function AppSidebar({
 	onDrawSightingArea,
 	onClearSightingView,
 	onShareLocation,
-	onOpenBeacon,
 	onWatchOnMapBeacon,
 	onStopBeacon,
 	onAdjustBeacon,
 	selectedBeaconKey,
+	beaconControlMode = 'none',
+	adjustingBeacon,
+	viewBeacon,
+	beaconIsStarting,
+	onStartBeacon,
+	onCloseBeaconControl,
+	onInspectBeacon,
+	onClearBeaconView,
 	onZoomToFeature,
 	onExitViewMode,
 	featureCollectionForUpload,
@@ -603,6 +627,37 @@ export function AppSidebar({
 		navigateToView('sightings')
 	}
 
+	// Beacon handlers (Phase 12, BEACON-01..04, D-12) — mirror the Sighting handlers:
+	// each opens the beacon surface as the full info panel and marks the active entity
+	// 'beacon'. There is NO pin-drop (position comes from GPS).
+	const handleShareLocationBeacon = () => {
+		onShareLocation?.()
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('beacon')
+		setShowEntityAsFullPanel(true)
+	}
+
+	const handleInspectBeacon = (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => {
+		onInspectBeacon?.(beacon)
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('beacon')
+		setShowEntityAsFullPanel(true)
+	}
+
+	const handleAdjustBeacon = (beacon?: import('@/lib/nostr/live-beacon').LiveBeacon) => {
+		onAdjustBeacon?.(beacon)
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('beacon')
+		setShowEntityAsFullPanel(true)
+	}
+
+	const handleCloseBeaconControl = () => {
+		onCloseBeaconControl?.()
+		setShowEntityAsFullPanel(false)
+		setActiveWorkMode('beacons')
+		navigateToView('beacons')
+	}
+
 	// Round E.4/F.4: derived, not stored. Geometry mirrors the stance; the
 	// context entity mirrors whether the context editor is open. Used by the
 	// info panel (empty-state copy) and the rail surface highlighting.
@@ -624,9 +679,15 @@ export function AppSidebar({
 		editorStance === 'author' ||
 		contextEditorMode !== 'none' ||
 		storyEditorMode !== 'none' ||
-		sightingEditorMode !== 'none'
+		sightingEditorMode !== 'none' ||
+		beaconControlMode !== 'none'
 			? 'editor'
-			: editorStance === 'focus' || viewDataset || viewContext || viewStory || viewSighting
+			: editorStance === 'focus' ||
+					viewDataset ||
+					viewContext ||
+					viewStory ||
+					viewSighting ||
+					viewBeacon
 				? 'inspector'
 				: null
 
@@ -634,13 +695,15 @@ export function AppSidebar({
 		leaveMetaOverrideIfNeeded()
 		setShowEntityAsFullPanel(true)
 		setActiveEntity(
-			sightingEditorMode !== 'none' || viewSighting
-				? 'sighting'
-				: storyEditorMode !== 'none' || viewStory
-					? 'story'
-					: contextEditorMode !== 'none' || viewContext
-						? 'context'
-						: 'geometry',
+			beaconControlMode !== 'none' || viewBeacon
+				? 'beacon'
+				: sightingEditorMode !== 'none' || viewSighting
+					? 'sighting'
+					: storyEditorMode !== 'none' || viewStory
+						? 'story'
+						: contextEditorMode !== 'none' || viewContext
+							? 'context'
+							: 'geometry',
 		)
 	}
 
@@ -695,16 +758,16 @@ export function AppSidebar({
 		selectedKey: selectedSightingKey ?? null,
 	}
 
-	// Beacons rail panel props (Phase 12, D-12). The beacon control handlers come
-	// from the Plan-05 controller; until then they default to no-ops so the rail +
-	// panel render standalone.
+	// Beacons rail panel props (Phase 12, D-12). The beacon control handlers are the
+	// real controller handlers threaded from GeoEditorView via useBeaconController,
+	// wrapped so the rail's Share/Open/Adjust actions open the full info panel.
 	const beaconsPanelProps = {
 		currentUserPubkey,
-		onShareLocation: onShareLocation ?? (() => {}),
-		onOpenBeacon: onOpenBeacon ?? (() => {}),
+		onShareLocation: handleShareLocationBeacon,
+		onOpenBeacon: handleInspectBeacon,
 		onWatchOnMap: onWatchOnMapBeacon,
 		onStopBeacon,
-		onAdjustBeacon,
+		onAdjustBeacon: handleAdjustBeacon,
 		selectedKey: selectedBeaconKey ?? null,
 	}
 
@@ -779,6 +842,16 @@ export function AppSidebar({
 		onEditSighting: handleEditSighting,
 		onDeleteSighting,
 		onDrawSightingArea,
+		// Beacon control + view (Phase 12, BEACON-01..04, D-12).
+		beaconControlMode,
+		adjustingBeacon,
+		viewBeacon,
+		beaconIsStarting,
+		onStartBeacon,
+		onCloseBeaconControl: handleCloseBeaconControl,
+		onStopBeacon,
+		onAdjustBeacon: handleAdjustBeacon,
+		onZoomToBeacon: onWatchOnMapBeacon,
 		mapContextEvents,
 		onZoomToFeature,
 		featureCollectionForUpload,

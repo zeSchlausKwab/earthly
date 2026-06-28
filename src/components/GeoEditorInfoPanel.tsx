@@ -26,6 +26,10 @@ import {
 } from './info-panel'
 import { StoryEditorPanel } from './info-panel/StoryEditorPanel'
 import { SightingEditorPanel } from './info-panel/SightingEditorPanel'
+import { BeaconControlPanel } from './info-panel/BeaconControlPanel'
+import type { BeaconStartOptions } from './info-panel/BeaconControlPanel'
+import { BeaconViewPanel } from './info-panel/BeaconViewPanel'
+import type { LiveBeacon } from '@/lib/nostr/live-beacon'
 import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
 import { DatasetSizeIndicator } from './info-panel/DatasetSizeIndicator'
 import { GroupEditorPanel } from '../features/groups/GroupEditorPanel'
@@ -118,7 +122,7 @@ export interface GeoEditorInfoPanelProps {
 	isPublishing?: boolean
 	/** Optional comment d-tag from the route to reveal in the thread */
 	focusCommentId?: string
-	entityWorkspace?: 'geometry' | 'context' | 'story' | 'sighting'
+	entityWorkspace?: 'geometry' | 'context' | 'story' | 'sighting' | 'beacon'
 	entityIntent?: 'inspect' | 'edit'
 	/** Story editor mode (Phase 10, D-03). */
 	storyEditorMode?: 'none' | 'create' | 'edit'
@@ -160,6 +164,24 @@ export interface GeoEditorInfoPanelProps {
 	onEditSighting?: (sighting: TemporalSighting) => void
 	/** Callback to delete a Sighting (owner). */
 	onDeleteSighting?: (sighting: TemporalSighting) => void
+	/** Beacon control panel mode (Phase 12, BEACON-01). 'none' ⇒ no control surface. */
+	beaconControlMode?: 'none' | 'create' | 'adjust'
+	/** The beacon being adjusted — pre-fills the control panel (create ⇒ null). */
+	adjustingBeacon?: LiveBeacon | null
+	/** The beacon currently inspected in the view panel. */
+	viewBeacon?: LiveBeacon | null
+	/** True while the publisher is starting (Start → "Starting…"). */
+	beaconIsStarting?: boolean
+	/** Start the publisher session from the control panel. */
+	onStartBeacon?: (options: BeaconStartOptions) => void
+	/** Close the beacon control panel without starting. */
+	onCloseBeaconControl?: () => void
+	/** Stop the user's own active beacon (owner-only, from the view panel). */
+	onStopBeacon?: (beacon: LiveBeacon) => void
+	/** Adjust the user's own active beacon — reopens the control pre-filled. */
+	onAdjustBeacon?: (beacon?: LiveBeacon) => void
+	/** Fly the map to a beacon and focus it (view-panel "Watch on map"). */
+	onZoomToBeacon?: (beacon: LiveBeacon) => void
 }
 
 export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
@@ -217,6 +239,15 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onCloseSightingEditor,
 		onEditSighting,
 		onDeleteSighting,
+		beaconControlMode = 'none',
+		adjustingBeacon,
+		viewBeacon,
+		beaconIsStarting,
+		onStartBeacon,
+		onCloseBeaconControl,
+		onStopBeacon,
+		onAdjustBeacon,
+		onZoomToBeacon,
 	} = props
 
 	// Store state
@@ -599,6 +630,22 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		[onZoomToBounds],
 	)
 
+	// Beacon control mode (Phase 12, BEACON-01) — the Start-beacon authoring surface
+	// (time-box / visibility / identity / consent). No pin-drop: position comes from
+	// GPS via the publisher. Mounted before the Sighting/Story/context branches.
+	if (beaconControlMode !== 'none' && onStartBeacon && onCloseBeaconControl) {
+		const isAdjusting = beaconControlMode === 'adjust'
+		return (
+			<BeaconControlPanel
+				initialLabel={isAdjusting ? adjustingBeacon?.beacon.label : undefined}
+				isAdjusting={isAdjusting}
+				isStarting={beaconIsStarting}
+				onStart={onStartBeacon}
+				onClose={onCloseBeaconControl}
+			/>
+		)
+	}
+
 	// Sighting Editor mode (D-01/D-07) — create/edit a Sighting in place. The
 	// create form opens with the map-first placed geometry as a prop.
 	if (sightingEditorMode !== 'none' && onSaveSighting && onCloseSightingEditor) {
@@ -639,6 +686,23 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 
 	// View mode - delegate to ViewModePanel
 	if (viewMode === 'view') {
+		// Beacon view (Phase 12, BEACON-03/04, D-11) — opened beacon renders the
+		// read surface (label + live/stale/ended status + last-seen + countdown +
+		// Copy-share-link with the throwaway pubkey). Owner sees inline Stop/Adjust.
+		// Expired beacons are gated inside the panel (T-12-05-FROZEN). Comment/react
+		// deferred to Phase 13. Mounted before the Sighting/Story/context branches.
+		if (viewBeacon) {
+			return (
+				<BeaconViewPanel
+					beacon={viewBeacon}
+					currentUserPubkey={currentUserPubkey}
+					onStopBeacon={onStopBeacon}
+					onAdjustBeacon={onAdjustBeacon}
+					onZoomTo={onZoomToBeacon ? () => onZoomToBeacon(viewBeacon) : undefined}
+				/>
+			)
+		}
+
 		// Sighting view (D-07/SIGHT-04) — opened Sighting renders the read surface in
 		// the right info panel (observation-time range + expiry countdown + comments /
 		// react); the main map stays the canvas. Mounted before the Story/context/
