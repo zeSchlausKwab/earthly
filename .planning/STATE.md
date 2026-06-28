@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
 status: completed
-stopped_at: Phase 11 context gathered
-last_updated: "2026-06-27T14:42:49.554Z"
-last_activity: 2026-06-27
+stopped_at: Phase 11 UI-SPEC approved
+last_updated: "2026-06-28T06:06:05.101Z"
+last_activity: 2026-06-28 -- Phase 11 planning complete
 progress:
   total_phases: 6
   completed_phases: 3
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 Phase: 11
 Plan: Not started
 Status: Phase 10 Plans 01–04 complete; STORY-06 closed
-Last activity: 2026-06-27
+Last activity: 2026-06-28 -- Phase 11 planning complete
 
 Progress: [███░░░░░░░] 33% (v1.2 — 2/6 phases)
 
@@ -147,9 +147,9 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-06-27T14:42:49.548Z
-Stopped at: Phase 11 context gathered
-Resume file: .planning/phases/11-temporal-sighting/11-CONTEXT.md
+Last session: 2026-06-27T15:34:16.303Z
+Stopped at: Phase 11 UI-SPEC approved
+Resume file: .planning/phases/11-temporal-sighting/11-UI-SPEC.md
 
 ## Operator Next Steps
 
