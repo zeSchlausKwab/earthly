@@ -40,7 +40,7 @@ Requirements for the v1.2 milestone. Full v2 / clean-break scope: spec + all eve
 - [x] **BEACON-01**: A user can start a live position beacon that updates on the map as their position changes.
 - [x] **BEACON-02**: A beacon auto-expires via a user-set time box (NIP-40), and the user can explicitly stop sharing at any time, leaving an unambiguous ended state.
 - [x] **BEACON-03**: A viewer sees a beacon's current position with an honest staleness indicator ("last seen N min ago") so a stopped/stale beacon is never shown as current.
-- [ ] **BEACON-04**: A user can make a beacon public/discoverable or share it via a link that a viewer can open without an account.
+- [x] **BEACON-04**: A user can make a beacon public/discoverable or share it via a link that a viewer can open without an account.
 
 ### Temporal Sighting (SIGHT) — time-bound observation
 
@@ -132,7 +132,7 @@ Populated during roadmap creation. Phase numbering continues from v1.1 (which en
 | BEACON-01 | Phase 12 | Complete |
 | BEACON-02 | Phase 12 | Complete |
 | BEACON-03 | Phase 12 | Complete |
-| BEACON-04 | Phase 12 | Pending |
+| BEACON-04 | Phase 12 | Complete |
 | XCUT-01 | Phase 13 | Minimal slice DONE for Story (10-03: CommentsPanel/useGeoComments target unions accept Article + ARTICLE_KIND→'story' share path, bf1112e); full NIP-22 K/k root-kind widening (Group/Beacon/Sighting) stays Phase 13 |
 | XCUT-02 | Phase 13 | Pending |
 

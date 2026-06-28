@@ -32,7 +32,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 - [x] **Phase 9: Group / Topic (37518 slimmed)** — Attach-push `c`-lane, governance ladder (open · schema · closed), schema authoring + validate-on-fetch, NO-MOD MINIMUM, comment/react (completed 2026-06-26)
 - [x] **Phase 10: Story / Article (~37520)** — Curate-pull Markdown narrative, inline geo-ref render (eye-toggle/fly-to), naddr→`a` mirroring, draft + in-place edit, comment/react/propose-edit (completed 2026-06-27)
 - [x] **Phase 11: Temporal Sighting** — Time-bound placed observation (NIP-52 `start`/`end`), optional NIP-40 auto-fade, `c`-attach to Group, comment/react (completed 2026-06-28)
-- [ ] **Phase 12: Live Beacon (~37521)** — Real-time updating position point, NIP-40 time-box + explicit stop, honest staleness, public/share-link viewing, live-map render
+- [x] **Phase 12: Live Beacon (~37521)** — Real-time updating position point, NIP-40 time-box + explicit stop, honest staleness, public/share-link viewing, live-map render (5/5 plans, all automated gates green; blocking human-verify UAT deferred to end-of-phase — completed 2026-06-28)
 - [ ] **Phase 13: Cross-Cutting** — Comment `K`/`k` root-scope widening + entity routing/addressing across all four new kinds
 
 ## Phase Details
@@ -200,7 +200,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 3** *(blocked on Wave 2)*
 
-  - [ ] 12-05-PLAN.md — Authoring + reading + share UX: BeaconControlPanel (time-box/visibility+honesty-caveat/identity/consent, D-03/D-05/D-06/D-10, no pin-drop), RunningBeaconBanner (NET-NEW), BeaconViewPanel (Copy-share-link w/ throwaway pubkey, D-11), useBeaconController + GeoEditorView/AppSidebar wiring, thin /beacon/:naddr route + account-free OG card (D-11) [BEACON-01/02/03/04] (blocking human-verify, may defer to end-of-phase UAT; comment/react DEFERRED to Phase 13 / XCUT-01)
+  - [x] 12-05-PLAN.md — Authoring + reading + share UX: BeaconControlPanel (time-box/visibility+honesty-caveat/identity/consent, D-03/D-05/D-06/D-10, no pin-drop), RunningBeaconBanner (NET-NEW), BeaconViewPanel (Copy-share-link w/ throwaway pubkey, D-11), useBeaconController + GeoEditorView/AppSidebar wiring, thin /beacon/:naddr route + account-free OG card (D-11) [BEACON-01/02/03/04] ✓ 2026-06-28 (3 logical commits 20b77ba/4a4a355/3a7b4b0; suite 755/0, build+biome green on beacon files; blocking human-verify deferred to end-of-phase UAT; comment/react DEFERRED to Phase 13 / XCUT-01)
 
 **Research flag**: RESOLVED at planning — lifecycle = parameterized-replaceable + NIP-40 (confirmed at Phase 8/SPEC §5, NOT reopened). The Khatru echo test is answered from source (khatru v0.19.1 manual-replacer latest-wins by `created_at`; NIP-40 GC is lazy ≥1h → client `dropExpired` is the only trusted filter) and encoded as a `bun relay` integration test (12-01). NO `seq` tag (created_at + id-lexicographic tie-break suffices). Staleness threshold = 4× heartbeat (120s), derived from the cadence constant (D-08). Visibility = `t:'live'` discovery marker + geo tags for public / omit both for link-only (D-10, client-side discovery-gating only, honest "unlisted not private" caveat). /beacon route kept thin (Phase 13/XCUT-02 generalizes). Zero new deps.
 **UI hint**: yes

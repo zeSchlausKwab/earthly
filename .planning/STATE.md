@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
 status: executing
-stopped_at: Phase 12 Plan 04 complete — beacon live-map render layer + Beacons browse rail + seed fixtures landed; ready for Plan 05
-last_updated: "2026-06-28T16:10:00.000Z"
-last_activity: 2026-06-28 -- Phase 12 Plan 04 (Live Beacon map render + Beacons rail) complete
+stopped_at: Phase 12 Plan 05 complete — Live Beacon authoring/reading/share UX landed (control panel + running banner + view panel + useBeaconController wiring + /beacon/:naddr route + OG card); BEACON-01..04 delivered end-to-end; Phase 12 now 5/5; deferred blocking human-verify UAT pending at end-of-phase + /gsd-secure-phase 12
+last_updated: "2026-06-28T17:30:00.000Z"
+last_activity: 2026-06-28 -- Phase 12 Plan 05 (Live Beacon Start/Stop/View/Share UX) complete; all 5 plans of Phase 12 done
 progress:
   total_phases: 6
-  completed_phases: 4
-  total_plans: 24
-  completed_plans: 24
-  percent: 67
+  completed_phases: 5
+  total_plans: 25
+  completed_plans: 25
+  percent: 83
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 ## Current Position
 
-Phase: 12 (live-beacon-37521) — EXECUTING
-Plan: 5 of 5
-Status: Ready to execute
-Last activity: 2026-06-28 -- Phase 12 Plan 04 (Live Beacon map render + Beacons rail) complete
+Phase: 12 (live-beacon-37521) — COMPLETE (5/5 plans; blocking human-verify UAT + /gsd-secure-phase 12 pending)
+Plan: 5 of 5 — complete
+Status: Phase 12 execution complete; ready for end-of-phase verify/secure, then Phase 13 (Cross-Cutting)
+Last activity: 2026-06-28 -- Phase 12 Plan 05 (Live Beacon Start/Stop/View/Share UX) complete
 
-Progress: [██████░░░░] 67% (v1.2 — 4/6 phases)
+Progress: [████████░░] 83% (v1.2 — 5/6 phases)
 
 ## Roadmap (v1.2 — Phases 8–13)
 
