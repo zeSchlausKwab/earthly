@@ -191,7 +191,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 1** *(blocked on Wave 0)*
 
-  - [ ] 12-02-PLAN.md — Data layer: content geometry(Point)+status discriminator (D-04/D-09), publishBeacon/updateBeacon/stopBeacon lifecycle with the public/link-only visibility branch + `{ routing:'configured' }` (D-10), beaconState live/stale/ended/removed + named cadence constants (D-07/D-08), useBeacons (#t:['live'] discovery + dropExpired + 15s tick + filter-before-cast) [BEACON-01/02/03/04]
+  - [x] 12-02-PLAN.md — Data layer: content geometry(Point)+status discriminator (D-04/D-09), publishBeacon/updateBeacon/stopBeacon lifecycle with the public/link-only visibility branch + `{ routing:'configured' }` (D-10), beaconState live/stale/ended/removed + named cadence constants (D-07/D-08), useBeacons (#t:['live'] discovery + dropExpired + 15s tick + filter-before-cast) [BEACON-01/02/03/04] ✓ 2026-06-28 (6 files, lifecycle/visibility/useBeacons RED→GREEN 10/10)
 
 **Wave 2** *(blocked on Wave 1; 03 + 04 run in parallel — disjoint files)*
 
@@ -237,5 +237,5 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 9. Group / Topic (37518 slimmed) | v1.2 | 6/6 | Complete    | 2026-06-26 |
 | 10. Story / Article (~37520) | v1.2 | 4/4 | Complete    | 2026-06-27 |
 | 11. Temporal Sighting | v1.2 | 4/4 | Complete    | 2026-06-28 |
-| 12. Live Beacon (~37521) | v1.2 | 1/5 | In progress | - |
+| 12. Live Beacon (~37521) | v1.2 | 2/5 | In progress | - |
 | 13. Cross-Cutting | v1.2 | 0/TBD | Not started | - |
