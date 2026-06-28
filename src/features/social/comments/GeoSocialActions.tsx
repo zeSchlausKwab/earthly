@@ -16,7 +16,13 @@ import {
 	DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { ARTICLE_KIND, GEO_COMMENT_KIND, GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
+import {
+	ARTICLE_KIND,
+	GEO_COMMENT_KIND,
+	GEO_EVENT_KIND,
+	MAP_CONTEXT_KIND,
+	TEMPORAL_SIGHTING_KIND,
+} from '@/lib/nostr/kinds'
 import { accounts, eventStore } from '@/lib/nostr'
 import { useTimeline } from '@/lib/nostr/hooks'
 import { useGeoReactions, type ReactableEvent } from '../hooks/useGeoReactions'
@@ -38,7 +44,7 @@ interface GeoSocialActionsProps {
 	loadCounts?: boolean
 }
 
-function getEntitySharePath(kind: number): 'geoevent' | 'context' | 'story' | null {
+function getEntitySharePath(kind: number): 'geoevent' | 'context' | 'story' | 'sighting' | null {
 	switch (kind) {
 		case GEO_EVENT_KIND:
 			return 'geoevent'
@@ -46,6 +52,8 @@ function getEntitySharePath(kind: number): 'geoevent' | 'context' | 'story' | nu
 			return 'context'
 		case ARTICLE_KIND:
 			return 'story'
+		case TEMPORAL_SIGHTING_KIND:
+			return 'sighting'
 		default:
 			return null
 	}

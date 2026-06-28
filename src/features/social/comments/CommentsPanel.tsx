@@ -6,6 +6,7 @@ import type { Article } from '@/lib/nostr/article'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { GeoComment } from '@/lib/nostr/geo-comment'
 import type { MapContext } from '@/lib/nostr/map-context'
+import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { GeoCommentItem } from './GeoCommentItem'
@@ -16,8 +17,8 @@ import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 const ROOT_COMPOSER_ID = 'root'
 
 interface CommentsPanelProps {
-	/** The dataset, context, or Story to show comments for */
-	target: GeoDataset | MapContext | Article | null
+	/** The dataset, context, Story, or Sighting to show comments for */
+	target: GeoDataset | MapContext | Article | TemporalSighting | null
 	/** Callback when a comment's GeoJSON visibility is toggled */
 	onCommentGeojsonVisibilityChange?: (comment: GeoComment, visible: boolean) => void
 	/** Callback to zoom to a comment's GeoJSON */

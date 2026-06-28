@@ -20,6 +20,7 @@ import {
 	EntityPanelSurface,
 	GeometriesTable,
 	GroupViewPanel,
+	SightingViewPanel,
 	StoryViewPanel,
 	ViewModePanel,
 } from './info-panel'
@@ -201,8 +202,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onDrawSightingArea,
 		onSaveSighting,
 		onCloseSightingEditor,
-		onEditSighting: _onEditSighting,
-		onDeleteSighting: _onDeleteSighting,
+		onEditSighting,
+		onDeleteSighting,
 	} = props
 
 	// Store state
@@ -599,11 +600,6 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		)
 	}
 
-	// Sighting view (D-07) — the view panel component lands in Plan 04. Until then
-	// an inspected Sighting falls through to the default view; the mount point is
-	// reserved here (viewSighting threaded) so Plan 04 only adds the component.
-	void viewSighting
-
 	// Story Editor mode (D-03) — create/edit a Story in place.
 	if (storyEditorMode !== 'none' && onSaveStory && onCloseStoryEditor) {
 		return (
@@ -630,6 +626,27 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 
 	// View mode - delegate to ViewModePanel
 	if (viewMode === 'view') {
+		// Sighting view (D-07/SIGHT-04) — opened Sighting renders the read surface in
+		// the right info panel (observation-time range + expiry countdown + comments /
+		// react); the main map stays the canvas. Mounted before the Story/context/
+		// dataset branches. Expired sightings are gated inside the panel (SIGHT-03).
+		if (viewSighting) {
+			return (
+				<SightingViewPanel
+					sighting={viewSighting}
+					currentUserPubkey={currentUserPubkey}
+					onEditSighting={onEditSighting}
+					onDeleteSighting={onDeleteSighting}
+					deletingKey={deletingKey}
+					availableFeatures={availableFeatures}
+					onMentionVisibilityToggle={onMentionVisibilityToggle}
+					onMentionZoomTo={onMentionZoomTo}
+					onZoomToBounds={onZoomToBounds}
+					focusCommentId={focusCommentId}
+				/>
+			)
+		}
+
 		// Story view (D-03) — opened Story renders in the right info panel; the main
 		// map stays the canvas. Mounted before the context/dataset branches.
 		if (viewStory) {

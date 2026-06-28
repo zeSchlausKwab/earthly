@@ -13,5 +13,6 @@ export {
 } from './FeaturePropertiesSection'
 export { GeometriesTable, GeometryBadge, GeometryDisplay } from './geometry'
 export { GroupViewPanel } from './GroupViewPanel'
+export { SightingViewPanel } from './SightingViewPanel'
 export { StoryViewPanel } from './StoryViewPanel'
 export { ViewModePanel, type ViewModePanelProps } from './ViewModePanel'

@@ -7,9 +7,10 @@ import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { GeoComment } from '@/lib/nostr/geo-comment'
 import type { MapContext } from '@/lib/nostr/map-context'
+import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
 
 /** Any Nostr event that can receive reactions */
-export type ReactableEvent = GeoDataset | MapContext | GeoComment | NostrEvent
+export type ReactableEvent = GeoDataset | MapContext | TemporalSighting | GeoComment | NostrEvent
 
 export interface UseGeoReactionsOptions {
 	/** The event to fetch reactions for */
