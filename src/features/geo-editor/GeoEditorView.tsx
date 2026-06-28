@@ -24,6 +24,7 @@ import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useGeoDatasets, useMapContexts } from '@/lib/hooks/useGeoDatasets'
 import { useGroups } from '@/lib/hooks/useGroups'
 import { useStories } from '@/lib/hooks/useStories'
+import { useSightings } from '@/lib/hooks/useSightings'
 import { nip19 } from 'nostr-tools'
 import type { Article } from '@/lib/nostr/article'
 import { ARTICLE_KIND } from '@/lib/nostr/kinds'
@@ -225,6 +226,10 @@ export function GeoEditorView() {
 	// Stories (kind 37520) — used to resolve a /stories/story/:naddr deep link to the
 	// Article cast so the focus-route effect can open it (Phase 10, D-04).
 	const { events: stories } = useStories()
+	// Temporal Sightings (kind 37522) — rendered as observation-state markers on the
+	// browse map (D-05/D-06) and listed in the Sightings rail (D-07). useSightings
+	// already drops expired at the subscription (SIGHT-03 / Pitfall P-1).
+	const { events: sightings } = useSightings()
 	// Round C.2 reliability: also fire a targeted subscription for every
 	// context entry on the stack. The global subscription above is best-effort
 	// — if a read relay was slow or 502 at open time, foreign attachments
@@ -1092,6 +1097,7 @@ export function GeoEditorView() {
 		mapRef: map,
 		mounted,
 		visibleGeoEvents,
+		visibleSightings: sightings,
 		resolvedCollectionResolver,
 		resolvedCollectionsVersion,
 	})
