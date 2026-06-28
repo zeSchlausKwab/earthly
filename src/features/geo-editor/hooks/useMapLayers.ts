@@ -7,6 +7,7 @@ import { bbox as turfBbox, pointOnFeature } from '@turf/turf'
 import { isGeoJsonGeometry } from '@/lib/geo/normalizeGeoJSON'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { dropExpired } from '@/lib/nostr/expiry'
+import { beaconState, type LiveBeacon } from '@/lib/nostr/live-beacon'
 import {
 	classifyObservationState,
 	getTemporalSightingContent,
@@ -92,6 +93,22 @@ const SIGHTING_GLYPH_LAYER = 'geo-editor-sighting-glyph'
 const SIGHTING_COLOR_LIVE = '#fdc700' // --primary (warm amber/gold) — the focal point
 const SIGHTING_COLOR_UPCOMING = '#00bcff' // --secondary (blue)
 const SIGHTING_COLOR_PAST = '#737373' // --muted-foreground
+
+// Live Beacon (kind 37521) marker source/layer IDs (BEACON-03, D-07/D-08). A
+// SEPARATE source/layer pair from the Sighting marker: a beacon is live PRESENCE
+// (someone is here, right now), not an ephemeral observation.
+const BEACON_SOURCE_ID = 'geo-editor-beacons'
+// Exported so the map-interaction layer (useMapInteractions) can bind the
+// click/hover handlers that open + locate a beacon marker (Plan 05 wiring).
+export const BEACON_HIT_LAYER = 'geo-editor-beacon-hit'
+const BEACON_CIRCLE_LAYER = 'geo-editor-beacon-circle'
+const BEACON_GLYPH_LAYER = 'geo-editor-beacon-glyph'
+
+// Beacon lifecycle-state marker colors (UI-SPEC § Color — mirror the shipped
+// Sighting hex). live = --primary accent focal point; stale/ended recede to the
+// neutral --muted-foreground grey.
+const BEACON_COLOR_LIVE = '#fdc700' // --primary — the live focal point
+const BEACON_COLOR_GREY = '#737373' // --muted-foreground — stale/ended
 const GEOMETRY_PROXY_MAX_DIMENSION_PX = 48
 const GEOMETRY_PROXY_MAX_AREA_PX = 1600
 const LINE_PROXY_MAX_LENGTH_PX = 36
@@ -318,12 +335,120 @@ function buildSightingSource(sightings: TemporalSighting[]): FeatureCollection<P
 	return { type: 'FeatureCollection', features }
 }
 
+/**
+ * Build the Live Beacon marker source data (BEACON-03, D-07/D-08).
+ *
+ * The map source is a SEPARATE read path from the `useBeacons` subscription, so
+ * it applies its own `dropExpired` against `unixNow()` (epoch seconds, UTC —
+ * never `Date.now()` ms) BEFORE building the source (Pitfall P-1 / per-read-path
+ * discipline; expired beacons are REMOVED, never merely styled hidden).
+ *
+ * Within the surviving set we keep the FRESHEST cast per `{pubkey,d}` session by
+ * `created_at`, breaking a `created_at` tie by the greater `event.id`
+ * lexicographically (the research § "seq tag" guard — a deterministic latest-wins
+ * de-dup without a clock-skew `seq` tag). A removed/'removed' beacon is excluded.
+ *
+ * Each surviving beacon contributes one point feature:
+ *   - geometry: `content.geometry` (a precise Point), else the lossy `bbox`/`g`
+ *     centroid; a beacon that yields no point is skipped — never crashes the layer.
+ *   - properties.beaconState: 'live' | 'stale' | 'ended' (drives the data-driven
+ *     paint `case`; live → accent).
+ *   - properties.lastSeenLabel: the offset "last seen …/ended …" marker label.
+ *
+ * Re-derived on every `useBeacons` tick (15s) so live→stale→removed flips live.
+ */
+function buildBeaconSource(beacons: LiveBeacon[]): FeatureCollection<Point> {
+	const now = unixNow()
+	const live = dropExpired(
+		beacons.map((beacon) => beacon.rawEvent()),
+		now,
+	)
+	const liveById = new Set(live.map((event) => event.id))
+
+	// Freshest cast per {pubkey,d} session: latest created_at wins; on a tie the
+	// greater event.id (lexicographic) wins — deterministic latest-wins de-dup.
+	const freshestByKey = new Map<string, LiveBeacon>()
+	for (const beacon of beacons) {
+		if (!liveById.has(beacon.id)) continue
+		const key = `${beacon.pubkey}:${beacon.dTag ?? beacon.id}`
+		const current = freshestByKey.get(key)
+		if (!current) {
+			freshestByKey.set(key, beacon)
+			continue
+		}
+		const isNewer =
+			beacon.created_at > current.created_at ||
+			(beacon.created_at === current.created_at && beacon.id > current.id)
+		if (isNewer) freshestByKey.set(key, beacon)
+	}
+
+	const features: Feature<Point>[] = []
+	for (const beacon of freshestByKey.values()) {
+		const state = beaconState(beacon, now)
+		if (state === 'removed') continue // expired — never rendered (defensive)
+
+		// Resolve a representative point: precise geometry first, else bbox centroid.
+		let coordinates: [number, number] | null = null
+		const geometry = beacon.geometry
+		if (geometry) {
+			try {
+				const point = pointOnFeature({
+					type: 'Feature',
+					geometry,
+					properties: {},
+				})
+				const coords = point.geometry.coordinates
+				if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+					coordinates = [coords[0], coords[1]]
+				}
+			} catch {
+				coordinates = null
+			}
+		}
+		if (!coordinates) {
+			const box = beacon.boundingBox
+			if (box?.every((value) => Number.isFinite(value))) {
+				coordinates = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]
+			}
+		}
+		if (!coordinates) continue // skip geometry-less, non-discoverable beacons
+
+		// Offset marker label: honest last-seen age (live/stale) or terminal "ended".
+		const ageMin = Math.max(0, Math.floor((now - beacon.created_at) / 60))
+		const lastSeenLabel =
+			state === 'ended'
+				? ageMin < 1
+					? 'ended just now'
+					: `ended ${ageMin}m ago`
+				: ageMin < 1
+					? 'last seen now'
+					: `last seen ${ageMin}m ago`
+
+		features.push({
+			type: 'Feature',
+			id: beacon.id,
+			geometry: { type: 'Point', coordinates },
+			properties: {
+				beaconState: state,
+				lastSeenLabel,
+				beaconId: beacon.id,
+				beaconDTag: beacon.dTag ?? '',
+				beaconLabel: beacon.beacon.label ?? '',
+			},
+		})
+	}
+
+	return { type: 'FeatureCollection', features }
+}
+
 interface UseMapLayersOptions {
 	mapRef: React.MutableRefObject<maplibregl.Map | null>
 	mounted: boolean
 	visibleGeoEvents: GeoDataset[]
 	/** Live Temporal Sightings (kind 37522) to render as observation-state markers. */
 	visibleSightings?: TemporalSighting[]
+	/** Live Beacons (kind 37521) to render as lifecycle-state presence markers. */
+	visibleBeacons?: LiveBeacon[]
 	resolvedCollectionResolver: (event: GeoDataset) => FeatureCollection | undefined
 	/** Version counter that increments when resolved blob data changes, triggers re-render */
 	resolvedCollectionsVersion: number
@@ -334,6 +459,7 @@ export function useMapLayers({
 	mounted,
 	visibleGeoEvents,
 	visibleSightings = [],
+	visibleBeacons = [],
 	resolvedCollectionResolver,
 	resolvedCollectionsVersion,
 }: UseMapLayersOptions) {
@@ -798,6 +924,108 @@ export function useMapLayers({
 					})
 				}
 
+				// ── Live Beacon marker source + layers (BEACON-03, D-07/D-08) ─────
+				// A distinct presence marker (someone is HERE, right now), separate
+				// from the Sighting observation marker and the dataset dot. Source
+				// data is built from `dropExpired`-filtered, freshest-per-{pubkey,d}
+				// beacons; paint is keyed on the per-feature `beaconState` property.
+				if (!mapInstance.getSource(BEACON_SOURCE_ID)) {
+					mapInstance.addSource(BEACON_SOURCE_ID, {
+						type: 'geojson',
+						data: { type: 'FeatureCollection', features: [] },
+					})
+				}
+				// Invisible ≥44px touch hit target (mobile-first; UI-SPEC Spacing).
+				if (!mapInstance.getLayer(BEACON_HIT_LAYER)) {
+					mapInstance.addLayer({
+						id: BEACON_HIT_LAYER,
+						type: 'circle',
+						source: BEACON_SOURCE_ID,
+						paint: {
+							'circle-radius': 22,
+							'circle-color': '#000000',
+							'circle-opacity': 0,
+						},
+					})
+				}
+				// Visible marker: data-driven paint keyed on beaconState.
+				//   live  → solid --primary fill, full opacity, accent ring (focal point)
+				//   stale → --muted-foreground fill at 70% opacity, no ring (demoted)
+				//   ended → hollow: transparent fill, --muted-foreground outline ring
+				if (!mapInstance.getLayer(BEACON_CIRCLE_LAYER)) {
+					mapInstance.addLayer({
+						id: BEACON_CIRCLE_LAYER,
+						type: 'circle',
+						source: BEACON_SOURCE_ID,
+						paint: {
+							'circle-radius': ['case', ['==', ['get', 'beaconState'], 'live'], 10, 8],
+							'circle-color': [
+								'case',
+								['==', ['get', 'beaconState'], 'live'],
+								BEACON_COLOR_LIVE,
+								['==', ['get', 'beaconState'], 'ended'],
+								'rgba(0,0,0,0)', // hollow — transparent fill
+								BEACON_COLOR_GREY, // stale
+							],
+							'circle-opacity': [
+								'case',
+								['==', ['get', 'beaconState'], 'live'],
+								1,
+								['==', ['get', 'beaconState'], 'ended'],
+								0,
+								0.7, // stale at 70%
+							],
+							'circle-stroke-width': [
+								'case',
+								['==', ['get', 'beaconState'], 'live'],
+								3, // accent ring
+								['==', ['get', 'beaconState'], 'ended'],
+								2, // hollow outline ring
+								0, // stale: no ring
+							],
+							'circle-stroke-color': [
+								'case',
+								['==', ['get', 'beaconState'], 'live'],
+								BEACON_COLOR_LIVE,
+								BEACON_COLOR_GREY,
+							],
+						},
+					})
+				}
+				// Broadcast/radio glyph so the marker reads as live presence, distinct
+				// from the Sighting observation eye. A unicode broadcast glyph for
+				// live/stale, a stop square for ended (no sprite dependency).
+				if (textFont && mapInstance.isStyleLoaded() && !mapInstance.getLayer(BEACON_GLYPH_LAYER)) {
+					mapInstance.addLayer({
+						id: BEACON_GLYPH_LAYER,
+						type: 'symbol',
+						source: BEACON_SOURCE_ID,
+						layout: {
+							'text-field': [
+								'case',
+								['==', ['get', 'beaconState'], 'ended'],
+								'■', // stop glyph — clearly terminal
+								'((•))', // broadcast/radio motif — live presence
+							],
+							'text-font': textFont,
+							'text-size': ['case', ['==', ['get', 'beaconState'], 'ended'], 11, 9],
+							'text-allow-overlap': true,
+							'text-ignore-placement': true,
+							// Offset "last seen …/ended …" label sits above-leading so a
+							// thumb over the dot doesn't cover the honest age (UI-SPEC §5).
+							'text-offset': [0, 0],
+						},
+						paint: {
+							'text-color': [
+								'case',
+								['==', ['get', 'beaconState'], 'live'],
+								'#ffffff',
+								BEACON_COLOR_GREY,
+							],
+						},
+					})
+				}
+
 				setRemoteLayersReady(true)
 				setStyleInitVersion((prev) => prev + 1)
 			} catch (error) {
@@ -989,6 +1217,26 @@ export function useMapLayers({
 		}
 	}, [visibleSightings, remoteLayersReady, mapRef, styleInitVersion])
 
+	// Update the Live Beacon marker source (BEACON-03, D-07/D-08). The source
+	// FeatureCollection is rebuilt from the live (dropExpired), freshest-per-
+	// {pubkey,d} beacons with the lifecycle-state + last-seen properties; expired
+	// markers are absent, not hidden. Re-runs as `visibleBeacons` ticks (15s) so
+	// live→stale→removed flips without a new event.
+	useEffect(() => {
+		const map = mapRef.current
+		if (!map) return
+		if (!remoteLayersReady) return
+		void styleInitVersion
+
+		try {
+			const source = map.getSource(BEACON_SOURCE_ID) as GeoJSONSource | undefined
+			if (!source) return
+			source.setData(buildBeaconSource(visibleBeacons))
+		} catch {
+			// Map may have been removed during source switch
+		}
+	}, [visibleBeacons, remoteLayersReady, mapRef, styleInitVersion])
+
 	return {
 		remoteLayersReady,
 		REMOTE_SOURCE_ID,
@@ -1002,5 +1250,8 @@ export function useMapLayers({
 		SIGHTING_SOURCE_ID,
 		SIGHTING_HIT_LAYER,
 		SIGHTING_CIRCLE_LAYER,
+		BEACON_SOURCE_ID,
+		BEACON_HIT_LAYER,
+		BEACON_CIRCLE_LAYER,
 	}
 }
