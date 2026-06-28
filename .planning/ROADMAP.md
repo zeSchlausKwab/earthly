@@ -183,8 +183,26 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
   3. A viewer sees a beacon's current position with an honest staleness indicator ("last seen N min ago") so a stopped or stale beacon is never shown as current (grey-out past threshold).
   4. A user can make a beacon public/discoverable or share it via a link that a viewer can open without an account.
 
-**Plans**: TBD
-**Research flag**: NEEDS phase-research decision (LEFT OPEN at roadmap level) — Beacon lifecycle: parameterized-replaceable + NIP-40 vs ephemeral; confirm with a relay echo test (Khatru NIP-40 GC behavior), `seq`-tag schema for clock-skew de-dup, and the exact staleness grey-out threshold; plus the visibility/privacy model.
+**Plans**: 5 plans (Wave 0 → 3) — reuse-and-extend (Phase-11 Sighting spine cloned almost 1:1; three genuinely net-new subsystems: throttled `watchPosition` publish loop + per-session throwaway signer, the always-on "you are live" banner, the data-driven live/stale/ended `beaconState` marker paint)
+
+**Wave 0**
+
+  - [ ] 12-01-PLAN.md — Nyquist RED baseline: lifecycle derive/preserve-d/ended (BEACON-01/02), public-vs-link-only discovery-gating (BEACON-04/D-10), relay latest-wins + lazy-GC + client-drop echo test (BEACON-02), useBeacons filter-before-cast/dropExpired/beaconState (BEACON-03), throttle + fresh-per-session unlinkable throwaway key (D-05), naddr/OG fetch (BEACON-04); + a reusable navigator.geolocation `watchPosition` mock fixture
+
+**Wave 1** *(blocked on Wave 0)*
+
+  - [ ] 12-02-PLAN.md — Data layer: content geometry(Point)+status discriminator (D-04/D-09), publishBeacon/updateBeacon/stopBeacon lifecycle with the public/link-only visibility branch + `{ routing:'configured' }` (D-10), beaconState live/stale/ended/removed + named cadence constants (D-07/D-08), useBeacons (#t:['live'] discovery + dropExpired + 15s tick + filter-before-cast) [BEACON-01/02/03/04]
+
+**Wave 2** *(blocked on Wave 1; 03 + 04 run in parallel — disjoint files)*
+
+  - [ ] 12-03-PLAN.md — NET-NEW: useBeaconPublisher — throttled own-watch publish loop (distance+time floor + heartbeat, D-01/D-02) under a per-session throwaway PrivateKeySigner (D-05), Stop teardown + permission/fix-unavailable handling [BEACON-01/02]
+  - [ ] 12-04-PLAN.md — Live-map render + browse rail: distinct beacon marker layer with data-driven live/stale/ended paint + dropExpired-before-source (D-07/D-08), BeaconsPanel rail (Radio, own-beacon-pinned-top, D-12), AppSidebar wiring, seed fixtures (geometry/status, all 4 states + link-only) [BEACON-01/03/04]
+
+**Wave 3** *(blocked on Wave 2)*
+
+  - [ ] 12-05-PLAN.md — Authoring + reading + share UX: BeaconControlPanel (time-box/visibility+honesty-caveat/identity/consent, D-03/D-05/D-06/D-10, no pin-drop), RunningBeaconBanner (NET-NEW), BeaconViewPanel (Copy-share-link w/ throwaway pubkey, D-11), useBeaconController + GeoEditorView/AppSidebar wiring, thin /beacon/:naddr route + account-free OG card (D-11) [BEACON-01/02/03/04] (blocking human-verify, may defer to end-of-phase UAT; comment/react DEFERRED to Phase 13 / XCUT-01)
+
+**Research flag**: RESOLVED at planning — lifecycle = parameterized-replaceable + NIP-40 (confirmed at Phase 8/SPEC §5, NOT reopened). The Khatru echo test is answered from source (khatru v0.19.1 manual-replacer latest-wins by `created_at`; NIP-40 GC is lazy ≥1h → client `dropExpired` is the only trusted filter) and encoded as a `bun relay` integration test (12-01). NO `seq` tag (created_at + id-lexicographic tie-break suffices). Staleness threshold = 4× heartbeat (120s), derived from the cadence constant (D-08). Visibility = `t:'live'` discovery marker + geo tags for public / omit both for link-only (D-10, client-side discovery-gating only, honest "unlisted not private" caveat). /beacon route kept thin (Phase 13/XCUT-02 generalizes). Zero new deps.
 **UI hint**: yes
 
 ### Phase 13: Cross-Cutting
@@ -219,7 +237,5 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 9. Group / Topic (37518 slimmed) | v1.2 | 6/6 | Complete    | 2026-06-26 |
 | 10. Story / Article (~37520) | v1.2 | 4/4 | Complete    | 2026-06-27 |
 | 11. Temporal Sighting | v1.2 | 4/4 | Complete    | 2026-06-28 |
-| 12. Live Beacon (~37521) | v1.2 | 0/TBD | Not started | - |
+| 12. Live Beacon (~37521) | v1.2 | 0/5 | Not started | - |
 | 13. Cross-Cutting | v1.2 | 0/TBD | Not started | - |
-</content>
-</invoke>
