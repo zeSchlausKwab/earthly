@@ -10,6 +10,7 @@ import {
 	PanelLeftOpen,
 	ArrowLeft,
 	Pencil,
+	Radio,
 	Search,
 	Settings2,
 	UserCircle,
@@ -26,6 +27,7 @@ import { ShoutboxPanel } from '../features/social/shoutbox'
 import { GeoDatasetsPanelContent } from './GeoDatasetsPanel'
 import { StoriesPanelContent } from './StoriesPanel'
 import { SightingsPanelContent } from './SightingsPanel'
+import { BeaconsPanelContent } from './BeaconsPanel'
 import { UserProfilePanel } from './UserProfilePanel'
 import { GeoEditorInfoPanelContent } from './GeoEditorInfoPanel'
 import { HelpPanel } from './HelpPanel'
@@ -55,10 +57,17 @@ import { Button } from './ui/button'
 
 type SidebarContentMode = Exclude<SidebarViewMode, 'combined'>
 type EntityWorkspace = 'geometry' | 'context' | 'story' | 'sighting'
-type WorkViewMode = 'datasets' | 'contexts' | 'stories' | 'sightings' | 'user'
+type WorkViewMode = 'datasets' | 'contexts' | 'stories' | 'sightings' | 'beacons' | 'user'
 type MetaViewMode = 'posts' | 'wallet' | 'settings' | 'help'
 
-const WORK_VIEW_MODES: WorkViewMode[] = ['datasets', 'contexts', 'stories', 'sightings', 'user']
+const WORK_VIEW_MODES: WorkViewMode[] = [
+	'datasets',
+	'contexts',
+	'stories',
+	'sightings',
+	'beacons',
+	'user',
+]
 const META_VIEW_MODES: MetaViewMode[] = ['posts', 'wallet', 'settings', 'help']
 
 // Round H.3/H.4: the rail's browse destinations (Datasets / Contexts / My
@@ -79,6 +88,7 @@ const workNavItems: {
 	{ mode: 'contexts', title: 'Contexts', icon: Globe },
 	{ mode: 'stories', title: 'Stories', icon: BookOpen },
 	{ mode: 'sightings', title: 'Sightings', icon: Eye },
+	{ mode: 'beacons', title: 'Beacons', icon: Radio },
 	{ mode: 'user', title: 'My Entities', icon: UserCircle },
 ]
 
@@ -193,6 +203,16 @@ interface AppSidebarProps {
 	onDrawSightingArea?: () => void
 	/** Clear the inspected Sighting (hook-local view state) when browsing a catalog. */
 	onClearSightingView?: () => void
+	/** Live Beacon (kind 37521) handlers (Phase 12, D-12). All optional — the
+	 * Plan-05 control flow threads them; this plan builds standalone with safe
+	 * `?? (() => {})` defaults so the Beacons rail renders before the controller lands. */
+	onShareLocation?: () => void
+	onOpenBeacon?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
+	onWatchOnMapBeacon?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
+	onStopBeacon?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
+	onAdjustBeacon?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
+	/** The d-tag/id of the last-inspected/viewed beacon — highlights + scrolls its rail row. */
+	selectedBeaconKey?: string | null
 	onZoomToFeature?: (feature: EditorFeature) => void
 	onExitViewMode?: () => void
 	featureCollectionForUpload?: FeatureCollection | null
@@ -274,6 +294,12 @@ export function AppSidebar({
 	placedSightingGeometry,
 	onDrawSightingArea,
 	onClearSightingView,
+	onShareLocation,
+	onOpenBeacon,
+	onWatchOnMapBeacon,
+	onStopBeacon,
+	onAdjustBeacon,
+	selectedBeaconKey,
 	onZoomToFeature,
 	onExitViewMode,
 	featureCollectionForUpload,
@@ -669,6 +695,19 @@ export function AppSidebar({
 		selectedKey: selectedSightingKey ?? null,
 	}
 
+	// Beacons rail panel props (Phase 12, D-12). The beacon control handlers come
+	// from the Plan-05 controller; until then they default to no-ops so the rail +
+	// panel render standalone.
+	const beaconsPanelProps = {
+		currentUserPubkey,
+		onShareLocation: onShareLocation ?? (() => {}),
+		onOpenBeacon: onOpenBeacon ?? (() => {}),
+		onWatchOnMap: onWatchOnMapBeacon,
+		onStopBeacon,
+		onAdjustBeacon,
+		selectedKey: selectedBeaconKey ?? null,
+	}
+
 	const userProfilePanelProps = {
 		geoEvents,
 		mapContextEvents,
@@ -762,6 +801,8 @@ export function AppSidebar({
 				return <StoriesPanelContent {...storiesPanelProps} />
 			case 'sightings':
 				return <SightingsPanelContent {...sightingsPanelProps} />
+			case 'beacons':
+				return <BeaconsPanelContent {...beaconsPanelProps} />
 			case 'user': {
 				const profilePubkey = userPubkey ?? currentUserPubkey
 				if (!profilePubkey) {

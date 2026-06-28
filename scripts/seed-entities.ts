@@ -422,25 +422,101 @@ async function seed(): Promise<void> {
 	// duplicate-titled, same-bbox-stacked markers on the map.
 
 	// ── Live Beacons (kind 37521) ───────────────────────────────────────────────
+	// New content shape (Plan 02): a GeoJSON `geometry` Point + a `status`
+	// discriminator. The lossy `bbox`/`g` discovery tags are derived from the
+	// point on publish. We cover ALL FOUR marker states for UAT:
+	//   - live  : status:'live', fresh created_at (default) — accent focal dot
+	//   - stale : status:'live' but created_at backdated past the 120s staleness
+	//             threshold (BEACON_STALE_THRESHOLD_S) — greyed, honest age
+	//   - ended : status:'ended' (the terminal Stop) — hollow grey outline
+	//   - expired: NIP-40 expiration already in the past — dropped at every read
+	//             path (proves dropExpired removal, never merely hidden)
+	// PLUS one LINK-ONLY beacon (no geohash, no hashtags, no bbox → no `t:'live'`)
+	// to prove the discovery-gating: it MUST NOT appear in the Beacons list nor on
+	// the discovery map layer (T-12-04-LINKLEAK / D-10).
 	console.log('\nLive Beacons:')
-	const beaconSpecs = [
-		{ label: 'Field surveyor — live', ttl: HOUR, who: contributors[4] },
-		{ label: 'Bike courier — live', ttl: 30 * 60, who: contributors[1] },
-		{ label: 'Park ranger — live', ttl: 2 * HOUR, who: contributors[6] },
-		{ label: 'Tour guide — live', ttl: 45 * 60, who: contributors[3] },
-		{ label: 'Delivery rider — live', ttl: 20 * 60, who: contributors[5] },
+
+	/** A tiny per-point bbox so the discovery tag is present + non-degenerate. */
+	function pointBbox(pos: [number, number]): GeoBoundingBox {
+		const d = 0.0005
+		return [pos[0] - d, pos[1] - d, pos[0] + d, pos[1] + d]
+	}
+
+	const beaconSpecs: {
+		label: string
+		ttl: number
+		who: (typeof contributors)[number]
+		status: 'live' | 'ended'
+		/** Seconds to subtract from `created_at` to simulate a frozen/stale tab. */
+		backdate?: number
+	}[] = [
+		{ label: 'Field surveyor — live', ttl: HOUR, who: contributors[4], status: 'live' },
+		{ label: 'Bike courier — live', ttl: 30 * 60, who: contributors[1], status: 'live' },
+		// Stale: claims status:'live' but its last heartbeat is well past the 120s
+		// staleness threshold — the map greys it out honestly (P-3 / BEACON-03).
+		{
+			label: 'Park ranger — stale (frozen tab)',
+			ttl: 2 * HOUR,
+			who: contributors[6],
+			status: 'live',
+			backdate: 300,
+		},
+		// Ended: the terminal Stop event — hollow grey, still placed until expiry.
+		{ label: 'Tour guide — ended', ttl: 45 * 60, who: contributors[3], status: 'ended' },
 	]
+
 	for (const b of beaconSpecs) {
 		const pos = jitter(VIENNA_CENTROID)
+		const createdAt = b.backdate ? now() - b.backdate : undefined
+		const factory = LiveBeaconFactory.create({
+			label: b.label,
+			geometry: { type: 'Point', coordinates: pos },
+			status: b.status,
+		})
+			.hashtags(['live'])
+			.geohash(pos)
+			.bbox(pointBbox(pos))
+			.expiration(now() + b.ttl)
+		if (createdAt !== undefined) factory.created(createdAt)
+		await publish(factory, b.who.signer)
+	}
+
+	// Expired beacon: NIP-40 expiration already in the past. It still emits the
+	// public discovery tags, but every read path drops it via dropExpired so it
+	// must NOT render on the map nor (after the relay GC / client drop) in the list.
+	{
+		const pos = jitter(VIENNA_CENTROID)
 		await publish(
-			LiveBeaconFactory.create({ label: b.label, position: pos })
+			LiveBeaconFactory.create({
+				label: 'Ghost beacon — expired',
+				geometry: { type: 'Point', coordinates: pos },
+				status: 'live',
+			})
 				.hashtags(['live'])
 				.geohash(pos)
-				.expiration(now() + b.ttl),
-			b.who.signer,
+				.bbox(pointBbox(pos))
+				.expiration(now() - 60),
+			contributors[5].signer,
 		)
 	}
-	console.log(`  ✓ ${beaconSpecs.length} beacons`)
+
+	// LINK-ONLY beacon: NO geohash, NO hashtags, NO bbox → no `t:'live'` marker, so
+	// it is invisible to the `#t:['live']` discovery surface (the list + map layer).
+	// Reachable only by its direct /beacon/:naddr share link (Plan 05). Proves the
+	// discovery-gating (T-12-04-LINKLEAK / D-10): it MUST stay off the list.
+	{
+		const pos = jitter(VIENNA_CENTROID)
+		await publish(
+			LiveBeaconFactory.create({
+				label: 'Private rendezvous — link-only',
+				geometry: { type: 'Point', coordinates: pos },
+				status: 'live',
+			}).expiration(now() + HOUR),
+			contributors[2].signer,
+		)
+	}
+
+	console.log(`  ✓ ${beaconSpecs.length + 2} beacons (live/stale/ended/expired + link-only)`)
 
 	// ── Stories / Articles (kind 37520) ─────────────────────────────────────────
 	console.log('\nStories:')
