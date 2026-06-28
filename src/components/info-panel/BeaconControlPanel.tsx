@@ -205,9 +205,7 @@ export function BeaconControlPanel({
 							htmlFor="timebox-custom"
 							className={cn(
 								'col-span-2 flex min-h-11 cursor-pointer items-center gap-2 border px-3 text-sm',
-								timeBoxPreset === 'custom'
-									? 'border-primary ring-1 ring-primary'
-									: 'border-border',
+								timeBoxPreset === 'custom' ? 'border-primary ring-1 ring-primary' : 'border-border',
 							)}
 						>
 							<RadioGroupItem id="timebox-custom" value="custom" />
@@ -324,9 +322,7 @@ export function BeaconControlPanel({
 					<p className="text-sm text-foreground">
 						{identity === 'my-account' ? CONSENT_MY_ACCOUNT : CONSENT_DEFAULT}
 					</p>
-					{permissionBlocked ? (
-						<p className="text-xs text-destructive">{PERMISSION_COPY}</p>
-					) : null}
+					{permissionBlocked ? <p className="text-xs text-destructive">{PERMISSION_COPY}</p> : null}
 					<Button
 						type="button"
 						onClick={handleStart}
@@ -335,12 +331,7 @@ export function BeaconControlPanel({
 					>
 						{isStarting ? 'Starting…' : 'Start beacon'}
 					</Button>
-					<Button
-						type="button"
-						variant="outline"
-						onClick={onClose}
-						className="w-full rounded-none"
-					>
+					<Button type="button" variant="outline" onClick={onClose} className="w-full rounded-none">
 						Cancel
 					</Button>
 				</div>

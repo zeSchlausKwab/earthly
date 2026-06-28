@@ -43,7 +43,12 @@ import {
 	AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { isExpired } from '@/lib/nostr/expiry'
-import { beaconState, LIVE_BEACON_KIND, type BeaconState, type LiveBeacon } from '@/lib/nostr/live-beacon'
+import {
+	beaconState,
+	LIVE_BEACON_KIND,
+	type BeaconState,
+	type LiveBeacon,
+} from '@/lib/nostr/live-beacon'
 import { formatExpiryCountdown, formatRelativeDate } from '@/lib/nostr/temporal-sighting'
 import { cn } from '@/lib/utils'
 import { EntityPanelSectionHeader, EntityPanelShell, EntityPanelSurface } from './EntityPanelShell'
