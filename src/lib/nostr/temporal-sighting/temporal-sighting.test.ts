@@ -165,4 +165,34 @@ describe('temporal-sighting — c-attach + lineage (SIGHT-02 / SPEC §17.1)', ()
 			.sign(bareSign)
 		expect(tpl.tags.find((t) => t[0] === 'd')?.[1]).toBe('sighting-1')
 	})
+
+	// CR-01 regression: editing a Group-attached Sighting must NOT drop its `c` tags.
+	// The editor pre-fills `contextRefs` from the cast's `contextReferences`, then
+	// re-passes them through editSighting → contextReferences(refs). This pins the
+	// read-back→re-emit round-trip so a future edit cannot silently wipe attachments.
+	test('cast.contextReferences round-trips back through editSighting (CR-01)', async () => {
+		const coordA = `37518:${'b'.repeat(64)}:topic-alpha`
+		const coordB = `37518:${'b'.repeat(64)}:topic-beta`
+		// A published Sighting attached to two Groups (two `c` tags).
+		const attached: NostrEvent = {
+			...makeSightingEvent(),
+			tags: [
+				['d', 'sighting-1'],
+				['c', coordA],
+				['c', coordB],
+			],
+		}
+
+		// The editor reads existing refs via the cast getter (tags-only, store-free).
+		const cast = new TemporalSighting(attached, undefined as never)
+		expect(cast.contextReferences).toEqual([coordA, coordB])
+
+		// Re-passing those refs through the edit path must preserve both `c` tags.
+		const edited = await TemporalSightingFactory.modify(attached)
+			.sighting({ title: 'Updated' })
+			.contextReferences(cast.contextReferences)
+			.sign(bareSign)
+		const cTags = edited.tags.filter((t) => t[0] === 'c').map((t) => t[1])
+		expect(cTags).toEqual([coordA, coordB])
+	})
 })

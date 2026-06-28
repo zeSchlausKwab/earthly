@@ -106,6 +106,7 @@ function readInitialContent(initialSighting?: TemporalSighting | null): {
 	start?: number
 	end?: number
 	geometry?: SightingGeometry
+	contextRefs: string[]
 	draftKey: string
 } {
 	const editedEvent = initialSighting?.rawEvent()
@@ -117,6 +118,11 @@ function readInitialContent(initialSighting?: TemporalSighting | null): {
 			start: content.start,
 			end: content.end,
 			geometry: content.geometry,
+			// Pre-fill the existing Group (`c`-tag) attachments so an edit preserves
+			// them — without this, editSighting overwrites with [] and silently
+			// drops every attachment (SIGHT-02 data loss). A draft-backed create has
+			// no cast, so it falls through to the empty draft branch below.
+			contextRefs: initialSighting?.contextReferences ?? [],
 			draftKey: initialSighting?.dTag ?? NEW_SIGHTING_DRAFT_KEY,
 		}
 	}
@@ -128,6 +134,7 @@ function readInitialContent(initialSighting?: TemporalSighting | null): {
 		start: draft?.start,
 		end: draft?.end,
 		geometry: draft?.geometry as SightingGeometry | undefined,
+		contextRefs: [],
 		draftKey,
 	}
 }
@@ -169,7 +176,7 @@ export function SightingEditorPanel({
 	)
 	const [expiryPreset, setExpiryPreset] = useState<ExpiryPreset>(DEFAULT_EXPIRY_PRESET)
 	const [customExpiryEpoch, setCustomExpiryEpoch] = useState<number | undefined>(undefined)
-	const [contextRefs, setContextRefs] = useState<string[]>([])
+	const [contextRefs, setContextRefs] = useState<string[]>(initial.contextRefs)
 	// The active geometry: the freshly-placed prop wins; else the stored/draft one.
 	const [geometry, setGeometry] = useState<SightingGeometry | undefined>(
 		placedGeometry ?? initial.geometry,
@@ -187,7 +194,7 @@ export function SightingEditorPanel({
 		setTimeExpanded(next.start !== undefined || next.end !== undefined)
 		setExpiryPreset(DEFAULT_EXPIRY_PRESET)
 		setCustomExpiryEpoch(undefined)
-		setContextRefs([])
+		setContextRefs(next.contextRefs)
 		setGeometry(next.geometry)
 		setSaveError(null)
 	}, [initialSighting])
