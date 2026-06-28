@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
-status: planned
-stopped_at: Phase 12 planned — 5 plans, ready to execute
-last_updated: "2026-06-28T17:11:00.000Z"
-last_activity: 2026-06-28 -- Phase 11 closed out (verify-work + secure-phase passed)
+status: executing
+stopped_at: Phase 12 Plan 01 complete — RED baseline landed, ready for Plan 02
+last_updated: "2026-06-28T15:48:00.000Z"
+last_activity: 2026-06-28 -- Phase 12 Plan 01 (Nyquist Wave-0 RED baseline) complete
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 19
-  completed_plans: 19
+  total_plans: 24
+  completed_plans: 20
   percent: 67
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 **Core value:** The maintainer (and any user) can open the app for fun, not duty.
-**Current focus:** Phase 12 — Live Beacon (~37521)
+**Current focus:** Phase 12 — live-beacon-37521
 
 ## Current Position
 
-Phase: 12 (live-beacon) — PLANNED (ready to execute)
-Plan: 5 plans in 4 waves (12-01..12-05); plan-checker VERIFICATION PASSED (0 blockers, 3 advisory warnings)
-Status: Phase 12 (Live Beacon ~37521) PLANNED 2026-06-28 — research HIGH-confidence (all 8 open unknowns resolved from source: Khatru replacer round-trips 37521 latest-wins but NIP-40 GC is lazy → client dropExpired is the only trusted layer; throwaway signer = PrivateKeySigner(generateSecretKey()) + routing:'configured'; no seq tag needed; content = GeoJSON Point + status:'live'|'ended'; visibility = t:'live' marker). 5 plans cover BEACON-01..04 + all D-01..D-12; net-new = useBeaconPublisher (throttled watchPosition + per-session throwaway key) + RunningBeaconBanner + beaconState paint; rest is a kind-substituted Phase-11 Sighting clone. Scope fences: /beacon/:naddr kept thin (Phase 13 generalizes), comment/react + encryption (BEACON-07/cordn) deferred. Next: /gsd-execute-phase 12.
-Last activity: 2026-06-28 -- Phase 11 closed out (verify-work + secure-phase passed)
+Phase: 12 (live-beacon-37521) — EXECUTING
+Plan: 2 of 5
+Status: Executing Phase 12 (Plan 01 complete — Wave-0 RED baseline)
+Last activity: 2026-06-28 -- Phase 12 Plan 01 (Nyquist Wave-0 RED baseline) complete
 
 Progress: [██████░░░░] 67% (v1.2 — 4/6 phases)
 
@@ -60,7 +60,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 | 9 | 6 | - | - |
 | 10 | 4 | - | - |
 | 11 | 4 | - | - |
-| 12 | TBD | - | - |
+| 12 | 5 | - | - |
 | 13 | TBD | - | - |
 | 08 | 5 | - | - |
 
@@ -82,6 +82,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 | Phase 11 P02 | ~30m | 2 tasks | 8 files |
 | Phase 11 P03 | 55min | 3 tasks | 11 files |
 | Phase 11 P04 | 50min | 2 tasks | 18 files |
+| Phase 12 P01 | ~22min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 11-03: viewSighting held hook-local (not store/route) — /sighting/:naddr route + viewModeSlice promotion deferred to Plan 04 (D-08)
 - [Phase ?]: 11-03: Sighting map marker rides useMapLayers source/layer pair with its own dropExpired-before-source-build; obsState paint, live → --primary accent
 - [Phase ?]: Phase 11 Plan 04: SightingViewPanel gates expiry at the detail read path independently (5th SIGHT-03 read path); SIGHT-04 = pure mount + type-union widening only (NIP-22 K/k enum stays Phase 13); /sighting/:naddr is a thin per-kind clone (Phase 13 owns XCUT-02)
+- [12-01]: Nyquist Wave-0 RED baseline for kind 37521 — 6 test files + a reusable src/test/geolocationMock.ts pin every net-new+extended beacon seam as RED before Plans 02–05: updateBeacon/stopBeacon lifecycle (derive bbox/g + t:live, preserve-d on heartbeat, status:ended keeps expiration — BEACON-01/02/D-04/D-09), public-vs-link-only discovery gating (visibility.test.ts — BEACON-04/D-10/P-6), useBeacons beaconState removed>ended>stale>live + frozen-as-live-is-stale (P-3) + GREEN filter-before-cast pin (P-2) + dropExpired at fixed now (P-1) (BEACON-03/D-07/D-08), useBeaconPublisher throttle (distance 25m OR heartbeat 30s, single-guard P-4) + fresh-per-session secp256k1 key never persisted (D-05), fetchBeaconOGData throwaway-naddr round-trip + expiry-null + kind-gate (BEACON-04/D-11), and a bun-relay relay-echo.test.ts (latest-wins + client dropExpired, SPEC-05) that self-skips without a relay. 17 RED + 1 GREEN pin; biome clean; no production source touched (build unaffected). gsd-tools not on PATH — STATE/ROADMAP updated manually. Two seam-name flags for later plans: fetchBeacon.test mocks @/lib/og/relayFetch#fetchEventFromRelay (extract the private WS helper there in Plan 05); BEACON_STALE_THRESHOLD_S exported from where useBeacons lives.
 
 ### Pending Todos
 
@@ -158,9 +160,9 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-06-28T14:33:15.845Z
-Stopped at: Phase 12 planned — 5 plans, ready to execute
-Resume file: .planning/phases/12-live-beacon-37521/12-01-PLAN.md
+Last session: 2026-06-28T15:48:00.000Z
+Stopped at: Phase 12 Plan 01 complete — Wave-0 RED baseline landed, ready for Plan 02
+Resume file: .planning/phases/12-live-beacon-37521/12-02-PLAN.md
 
 ## Operator Next Steps
 

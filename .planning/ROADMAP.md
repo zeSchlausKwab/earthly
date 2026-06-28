@@ -187,7 +187,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 0**
 
-  - [ ] 12-01-PLAN.md — Nyquist RED baseline: lifecycle derive/preserve-d/ended (BEACON-01/02), public-vs-link-only discovery-gating (BEACON-04/D-10), relay latest-wins + lazy-GC + client-drop echo test (BEACON-02), useBeacons filter-before-cast/dropExpired/beaconState (BEACON-03), throttle + fresh-per-session unlinkable throwaway key (D-05), naddr/OG fetch (BEACON-04); + a reusable navigator.geolocation `watchPosition` mock fixture
+  - [x] 12-01-PLAN.md — Nyquist RED baseline: lifecycle derive/preserve-d/ended (BEACON-01/02), public-vs-link-only discovery-gating (BEACON-04/D-10), relay latest-wins + lazy-GC + client-drop echo test (BEACON-02), useBeacons filter-before-cast/dropExpired/beaconState (BEACON-03), throttle + fresh-per-session unlinkable throwaway key (D-05), naddr/OG fetch (BEACON-04); + a reusable navigator.geolocation `watchPosition` mock fixture ✓ 2026-06-28 (7 files, 17 RED + 1 GREEN pin)
 
 **Wave 1** *(blocked on Wave 0)*
 
@@ -237,5 +237,5 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 9. Group / Topic (37518 slimmed) | v1.2 | 6/6 | Complete    | 2026-06-26 |
 | 10. Story / Article (~37520) | v1.2 | 4/4 | Complete    | 2026-06-27 |
 | 11. Temporal Sighting | v1.2 | 4/4 | Complete    | 2026-06-28 |
-| 12. Live Beacon (~37521) | v1.2 | 0/5 | Not started | - |
+| 12. Live Beacon (~37521) | v1.2 | 1/5 | In progress | - |
 | 13. Cross-Cutting | v1.2 | 0/TBD | Not started | - |
