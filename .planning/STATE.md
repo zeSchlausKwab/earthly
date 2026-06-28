@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 ## Current Position
 
-Phase: 11 (temporal-sighting) — EXECUTING
-Plan: 4 of 4
-Status: Phase complete — ready for verification
-Last activity: 2026-06-28 -- Plan 11-02 (Temporal Sighting data layer) complete — SIGHT-01/02/03 seams GREEN
+Phase: 11 (temporal-sighting) — AWAITING UAT
+Plan: 4 of 4 (all executed)
+Status: All plans shipped + code-review fixed (CR-01 + 9 findings, 32e58ed..4972eba) + post-execution UI polish (list rows / map click+hover / zoom, 6a7c765 + 3-bug fix). Verification human_needed (735/0, build green); 3 behavioral UAT items in 11-UAT.md; SC2 Group-lane deferred to Phase 13.
+Last activity: 2026-06-28 -- Phase 11 verification human_needed; UAT persisted; SC2 deferred to Phase 13 (XCUT-01)
 
 Progress: [███░░░░░░░] 33% (v1.2 — 2/6 phases)
 
@@ -135,6 +135,7 @@ Items acknowledged and carried forward / out of scope.
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
+| Feature (v1.2) | SIGHT-02 Group-lane RENDERING of Sightings (kind 37522 in the Group ForeignLane) — emit side done (`c` tag); ForeignLane filters kind 37515 only. ROADMAP SC#2 not observably met. | Deferred to Phase 13 (XCUT-01 lane-kind widening); not a Phase-11 blocker | 2026-06-28 (11-VERIFICATION) |
 | Feature | Nostr-scrolls / WASM (NIP-5C) | Deferred (builds on shipped code interpreter) | 2026-06-16 |
 | Feature | Compound routing | Deferred to v2 | 2026-06-16 |
 | Refactor | Reroute editor.updateFeature + deleteFeatures + dataset-load setFeatures through Authoring API (tighten A3 to all 4 verbs) | Deferred (facade-expansion follow-up) | 2026-06-16 (02-03) |
@@ -153,6 +154,7 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 | debug | sandbox-worker-file-url-dev | awaiting_human_verify (fix landed: dev `.wasm` served as application/wasm; regression-tested) |
 | debug | sandbox-worker-oom-runaway | awaiting_human_verify (fix landed: warm-pooled worker + circuit breaker; regression-tested) |
 | verification | Phase 06 — 06-VERIFICATION.md | human_needed (automated gates green 538/0; awaiting live UAT confirmation) |
+| verification | Phase 11 — 11-VERIFICATION.md | human_needed (735/0 green; 3 behavioral UAT items in 11-UAT.md; SC2 Group-lane deferred to Phase 13) |
 
 ## Session Continuity
 
