@@ -4,13 +4,13 @@ milestone: v1.2
 milestone_name: Geo Entity Model Split
 status: executing
 stopped_at: Phase 11 UI-SPEC approved
-last_updated: "2026-06-28T06:36:25.609Z"
-last_activity: 2026-06-28 -- Phase 11 execution started
+last_updated: "2026-06-28T07:03:07.062Z"
+last_activity: 2026-06-28 -- Plan 11-02 (Temporal Sighting data layer) complete — SIGHT-01/02/03 seams GREEN
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 19
-  completed_plans: 17
+  completed_plans: 18
   percent: 50
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 ## Current Position
 
 Phase: 11 (temporal-sighting) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-06-28 -- Plan 11-02 (Temporal Sighting data layer) complete — SIGHT-01/02/03 seams GREEN
 
@@ -80,6 +80,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 | Phase 10 P04 | ~28m | 2 tasks | 9 files |
 | Phase 11 P01 | 18min | 2 tasks | 4 files |
 | Phase 11 P02 | ~30m | 2 tasks | 8 files |
+| Phase 11 P03 | 55min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -111,6 +112,8 @@ Recent decisions affecting current work:
 - [10-01]: Story data-layer service shipped — src/lib/nostr/story/{lifecycle,draft,index}.ts + src/lib/hooks/useStories.ts. publishStory()/editStory() wrap the Phase-8 ArticleFactory and, on EVERY publish, destructively re-derive the `a` tags from the Markdown body's inline nostr:naddr refs via extractReferencedCoordinates → modifyPublicTags(setAddressReferenceTags) (STORY-03; body is the single source of truth — extracts the GroupEditorPanel.handleSave inline analog into one tested module Plans 02/04 share). editStory uses ArticleFactory.modify (preserves d, STORY-04 lineage, no fork). Malformed naddr inherited-excluded via naddrToCoordinate→null (no throw, T-10-01). Service does NOT cast (caller casts via castEvent). draft.ts: readStoryDraft/writeStoryDraft/clearStoryDraft keyed by d-tag over the existing readScopedStorage/writeScopedStorage primitives at base key 'earthly:story:drafts:v1' (NEW_STORY_DRAFT_KEY='new-story' sentinel); defensive map read → {} on malformed value, never throws (T-10-03 accept). useStories() copies useGroups exactly — isArticle filter BEFORE castEvent in the useMemo so a malformed/legacy/forged 37520 can't crash the timeline (T-10-02). 5-behavior lifecycle.test.ts GREEN (publish mocked via mock.module, no live publish); full suite 687/0; build green; new files biome-clean. NOTE: gsd-tools not on PATH — STATE/ROADMAP/REQUIREMENTS updated manually.
 - [Phase ?]: [11-01]: Nyquist Wave-0 RED baseline for kind 37522 — 4 test files pin the net-new geometry-on-content + bbox/g turf-derivation (SIGHT-01), the publishSighting lifecycle round-trip, and the classifyObservationState live/upcoming/past classifier (D-06) as RED; plus GREEN pins for c-emit/modify-d (SIGHT-02), per-read-path dropExpired over 37522 at a fixed UTC clock with epoch-seconds units guard (SIGHT-03, T-11-01-DOC), and GeoCommentFactory.root K/k=37522 (SIGHT-04, no allowlist). Baseline 16 pass/3 fail+1 error — failures isolated to missing publishSighting + classifyObservationState. sightingComment signs via a real EventSigner mock (EventFactory needs getPublicKey+signEvent). build green; 4 files biome-clean.
 - [Phase ?]: [11-02]: Temporal Sighting data layer shipped — content.geometry (Point|Line|Polygon, D-02) with bbox/g re-derived from geometry via turf every publish; publishSighting/editSighting/deleteSighting lifecycle (editSighting preserves d; expiry independent of observation end); classifyObservationState live/upcoming/past (D-06); local-first sighting draft; useSightings filter-before-cast + dropExpired at the subscription (SIGHT-03). eventStore extracted to src/lib/nostr/store.ts so the lifecycle stamps the parent-store ref for store-free castEvent (Plan-01 round-trip mocked the barrel). Plan-01 RED→GREEN; Temporal Sighting set 23/0; suite 717/0; build+biome green.
+- [Phase ?]: 11-03: viewSighting held hook-local (not store/route) — /sighting/:naddr route + viewModeSlice promotion deferred to Plan 04 (D-08)
+- [Phase ?]: 11-03: Sighting map marker rides useMapLayers source/layer pair with its own dropExpired-before-source-build; obsState paint, live → --primary accent
 
 ### Pending Todos
 
@@ -151,7 +154,7 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-06-28T06:35:57.327Z
+Last session: 2026-06-28T07:02:57.990Z
 Stopped at: Phase 11 UI-SPEC approved
 Resume file: .planning/phases/11-temporal-sighting/11-UI-SPEC.md
 

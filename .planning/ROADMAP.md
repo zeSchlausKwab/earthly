@@ -162,7 +162,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 2** *(blocked on Wave 1)*
 
-  - [ ] 11-03-PLAN.md — Authoring + browse + map render: map-first pin-drop SightingEditorPanel (time/expiry/Group-attach, D-01/D-03/D-04), SightingsPanel rail (D-07), AppSidebar + GeoEditorView wiring, distinct observation-state Sighting marker layer (D-05/D-06) [SIGHT-01/02/03] (blocking human-verify, may defer to end-of-phase UAT)
+  - [x] 11-03-PLAN.md — Authoring + browse + map render: map-first pin-drop SightingEditorPanel (time/expiry/Group-attach, D-01/D-03/D-04), SightingsPanel rail (D-07), AppSidebar + GeoEditorView wiring, distinct observation-state Sighting marker layer (D-05/D-06) [SIGHT-01/02/03] (blocking human-verify, may defer to end-of-phase UAT)
 
 **Wave 3** *(blocked on Wave 2)*
 
@@ -218,7 +218,7 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 8. Spec v2 + Foundation | v1.2 | 5/5 | Complete    | 2026-06-25 |
 | 9. Group / Topic (37518 slimmed) | v1.2 | 6/6 | Complete    | 2026-06-26 |
 | 10. Story / Article (~37520) | v1.2 | 4/4 | Complete    | 2026-06-27 |
-| 11. Temporal Sighting | v1.2 | 2/4 | In Progress|  |
+| 11. Temporal Sighting | v1.2 | 3/4 | In Progress|  |
 | 12. Live Beacon (~37521) | v1.2 | 0/TBD | Not started | - |
 | 13. Cross-Cutting | v1.2 | 0/TBD | Not started | - |
 </content>
