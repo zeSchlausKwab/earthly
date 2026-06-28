@@ -50,6 +50,13 @@ export function useSightingEditor({
 	const [sightingEditorMode, setSightingEditorMode] = useState<'none' | 'create' | 'edit'>('none')
 	const [editingSighting, setEditingSighting] = useState<TemporalSighting | null>(null)
 	const [viewSighting, setViewSighting] = useState<TemporalSighting | null>(null)
+	// The d-tag/id of the most recently inspected Sighting. Unlike `viewSighting`
+	// (which clears when the detail panel closes / "Back to Sightings"), this PERSISTS
+	// so the Sightings rail can highlight + scroll to the row you last opened from the
+	// map — the "where is this in the list?" affordance. A marker click hides the list
+	// behind the full-panel detail, so the highlight is only ever seen AFTER returning
+	// to the list, which is exactly when `viewSighting` is already null.
+	const [lastInspectedSightingKey, setLastInspectedSightingKey] = useState<string | null>(null)
 	const [placedGeometry, setPlacedGeometry] = useState<PlacedSightingGeometry | null>(null)
 	// True while the create flow is armed and waiting for a map click (D-01 overlay).
 	const [placementArmed, setPlacementArmed] = useState(false)
@@ -110,6 +117,7 @@ export function useSightingEditor({
 			navigateToView('sightings')
 
 			const sightingKey = sighting.dTag ?? sighting.id
+			setLastInspectedSightingKey(sightingKey ?? null)
 			if (sightingKey) recordRecentEntity(`sighting:${sightingKey}`)
 		},
 		[
@@ -211,6 +219,8 @@ export function useSightingEditor({
 		sightingEditorMode,
 		editingSighting,
 		viewSighting,
+		/** Persisted highlight key for the Sightings rail (survives closing the detail). */
+		lastInspectedSightingKey,
 		/** WR-06: deep-linked comment d-tag to focus beneath the viewed Sighting. */
 		sightingFocusCommentId: focusCommentId,
 		placedGeometry,

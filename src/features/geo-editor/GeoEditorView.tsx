@@ -1617,6 +1617,7 @@ export function GeoEditorView() {
 		sightingEditorMode,
 		editingSighting,
 		viewSighting,
+		lastInspectedSightingKey,
 		sightingFocusCommentId,
 		placedGeometry: placedSightingGeometry,
 		placementArmed: sightingPlacementArmed,
@@ -1965,6 +1966,7 @@ export function GeoEditorView() {
 					sightingEditorMode={sightingEditorMode}
 					editingSighting={editingSighting}
 					viewSighting={viewSighting}
+					selectedSightingKey={lastInspectedSightingKey}
 					sightingFocusCommentId={sightingFocusCommentId}
 					placedSightingGeometry={placedSightingGeometry}
 					onCreateSighting={handleCreateSighting}
@@ -2288,6 +2290,7 @@ export function GeoEditorView() {
 							sightingEditorMode={sightingEditorMode}
 							editingSighting={editingSighting}
 							viewSighting={viewSighting}
+							selectedSightingKey={lastInspectedSightingKey}
 							sightingFocusCommentId={sightingFocusCommentId}
 							placedSightingGeometry={placedSightingGeometry}
 							onDrawSightingArea={handleDrawSightingArea}

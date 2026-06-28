@@ -171,6 +171,9 @@ interface AppSidebarProps {
 	sightingEditorMode?: 'none' | 'create' | 'edit'
 	editingSighting?: import('@/lib/nostr/temporal-sighting').TemporalSighting | null
 	viewSighting?: import('@/lib/nostr/temporal-sighting').TemporalSighting | null
+	/** The d-tag/id of the last-inspected Sighting — highlights + scrolls its rail row
+	 * (persists after the detail closes, so a map-marker click is locatable in the list). */
+	selectedSightingKey?: string | null
 	/** WR-06: comment d-tag to focus beneath the viewed Sighting (survives navigateToView). */
 	sightingFocusCommentId?: string
 	onCreateSighting?: () => void
@@ -259,6 +262,7 @@ export function AppSidebar({
 	sightingEditorMode = 'none',
 	editingSighting,
 	viewSighting,
+	selectedSightingKey,
 	sightingFocusCommentId,
 	onCreateSighting,
 	onInspectSighting,
@@ -658,9 +662,11 @@ export function AppSidebar({
 		onDeleteSighting: onDeleteSighting ?? (() => {}),
 		onZoomToSighting,
 		deletingKey,
-		// Highlight + scroll the row matching the currently-viewed Sighting so a
-		// map-marker click surfaces "where is this in the list?".
-		selectedKey: viewSighting ? (viewSighting.dTag ?? viewSighting.id) : null,
+		// Highlight + scroll the row of the LAST-inspected Sighting. This persists
+		// after the detail panel closes (unlike viewSighting), because viewing a
+		// Sighting hides the list behind the full-panel detail — the highlight is
+		// only ever visible once you return to the list, when viewSighting is null.
+		selectedKey: selectedSightingKey ?? null,
 	}
 
 	const userProfilePanelProps = {
