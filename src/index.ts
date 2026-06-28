@@ -10,9 +10,11 @@ import {
 	generateHomeOGHtml,
 	generateGeoEventOGHtml,
 	generateContextOGHtml,
+	generateSightingOGHtml,
 	generateStoryOGHtml,
 	fetchCachedGeoEventOGData,
 	fetchCachedContextEventOGData,
+	fetchCachedSightingEventOGData,
 	fetchCachedStoryEventOGData,
 	getOGImageHeaders,
 	getOGRouteHeaders,
@@ -176,6 +178,45 @@ async function handleStoryRoute(req: BunRouteRequest): Promise<Response> {
 }
 
 /**
+ * Handle /sighting/:naddr — OG HTML for crawlers (D-08), redirect for users.
+ *
+ * SIGHT-03 (Pitfall P-1): the underlying `fetchSightingOGData` independently
+ * checks the NIP-40 `expiration` tag and returns null for an expired sighting, so
+ * a crawl of an expired/removed sighting renders the generic fallback card — the
+ * sighting's title/description are never leaked.
+ */
+async function handleSightingRoute(req: BunRouteRequest): Promise<Response> {
+	const naddr = req.params.naddr ?? ''
+	const commentId = req.params.commentId ?? ''
+	const baseUrl = getBaseUrl(req)
+
+	if (!naddr) {
+		return Response.redirect(baseUrl, 302)
+	}
+
+	if (isCrawler(req)) {
+		const { data, cacheStatus } = await fetchCachedSightingEventOGData(naddr, serverConfig.relayUrl)
+		const html = generateSightingOGHtml(
+			baseUrl,
+			naddr,
+			data?.title ?? 'Sighting',
+			data?.description ?? 'See this sighting on Earthly',
+		)
+		return new Response(html, {
+			headers: getOGRouteHeaders(cacheStatus),
+		})
+	}
+
+	warmOGCache('sighting', naddr, serverConfig.relayUrl)
+
+	if (commentId) {
+		return Response.redirect(`${baseUrl}/#/sightings/sighting/${naddr}/comment/${commentId}`, 302)
+	}
+
+	return Response.redirect(`${baseUrl}/#/sightings/sighting/${naddr}`, 302)
+}
+
+/**
  * Handle /og/image/:type/:naddr — generate and serve a PNG OG image
  */
 async function handleOGImageRoute(req: BunRouteRequest): Promise<Response> {
@@ -229,6 +270,26 @@ async function handleOGImageRoute(req: BunRouteRequest): Promise<Response> {
 				title: data?.title ?? 'Story',
 				description: data?.description ?? 'Read this story on Earthly',
 				backgroundImageUrl: data?.image,
+			})
+
+			if (!png) return new Response('Image generation failed', { status: 500 })
+			const body = new Uint8Array(png).buffer
+			return new Response(body, { headers: getOGImageHeaders(cacheStatus) })
+		}
+
+		if (type === 'sighting') {
+			// SIGHT-03 (Pitfall P-1): fetchCachedSightingEventOGData returns null for an
+			// expired sighting, so an expired card image falls back to the generic
+			// title/description — the sighting content is never leaked.
+			const { data, cacheStatus } = await fetchCachedSightingEventOGData(
+				naddr,
+				serverConfig.relayUrl,
+				{ waitForFreshMs: 1500 },
+			)
+
+			const png = await generateOGImagePNG({
+				title: data?.title ?? 'Sighting',
+				description: data?.description ?? 'See this sighting on Earthly',
 			})
 
 			if (!png) return new Response('Image generation failed', { status: 500 })
@@ -302,6 +363,8 @@ if (!isProduction) {
 			'/context/:naddr/comment/:commentId': handleContextRoute,
 			'/story/:naddr': handleStoryRoute,
 			'/story/:naddr/comment/:commentId': handleStoryRoute,
+			'/sighting/:naddr': handleSightingRoute,
+			'/sighting/:naddr/comment/:commentId': handleSightingRoute,
 			'/og/image/:type/:naddr': handleOGImageRoute,
 		}
 

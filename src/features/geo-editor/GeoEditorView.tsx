@@ -28,7 +28,7 @@ import { useStories } from '@/lib/hooks/useStories'
 import { useSightings } from '@/lib/hooks/useSightings'
 import { nip19 } from 'nostr-tools'
 import type { Article } from '@/lib/nostr/article'
-import { ARTICLE_KIND } from '@/lib/nostr/kinds'
+import { ARTICLE_KIND, TEMPORAL_SIGHTING_KIND } from '@/lib/nostr/kinds'
 import { deleteStory } from '@/lib/nostr/story'
 import { deleteSighting, type TemporalSighting } from '@/lib/nostr/temporal-sighting'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
@@ -1503,6 +1503,22 @@ export function GeoEditorView() {
 		}
 	}, [])
 
+	// Sighting naddr encoder — resolves a /sighting/:naddr deep link to the cast so
+	// the focus-route effect can open it (Phase 11, Plan 04 / D-08).
+	const encodeSightingNaddr = useCallback((sighting: TemporalSighting): string | null => {
+		const identifier = sighting.dTag
+		if (!identifier || !sighting.pubkey) return null
+		try {
+			return nip19.naddrEncode({
+				kind: TEMPORAL_SIGHTING_KIND,
+				pubkey: sighting.pubkey,
+				identifier,
+			})
+		} catch {
+			return null
+		}
+	}, [])
+
 	const {
 		storyEditorMode,
 		editingStory,
@@ -1680,7 +1696,13 @@ export function GeoEditorView() {
 		// If there's a specific focus route (e.g. /datasets/geoevent/...), handle zoom
 		if (route.focusType === 'none' || !route.naddr) return
 		// Wait for data to be available
-		if (geoEvents.length === 0 && mapContextEvents.length === 0 && stories.length === 0) return
+		if (
+			geoEvents.length === 0 &&
+			mapContextEvents.length === 0 &&
+			stories.length === 0 &&
+			sightings.length === 0
+		)
+			return
 
 		if (route.focusType === 'geoevent') {
 			// Find the dataset matching the naddr
@@ -1705,6 +1727,15 @@ export function GeoEditorView() {
 				handleInspectStory(story)
 				focusHandledRef.current = routeKey
 			}
+		} else if (route.focusType === 'sighting') {
+			// D-08: resolve the /sighting/:naddr deep link via useSightings (already
+			// dropExpired'd at the subscription — an expired sighting won't be found,
+			// SIGHT-03) and open the read view.
+			const sighting = sightings.find((s) => encodeSightingNaddr(s) === route.naddr)
+			if (sighting) {
+				handleInspectSighting(sighting)
+				focusHandledRef.current = routeKey
+			}
 		}
 	}, [
 		route.focusType,
@@ -1712,13 +1743,16 @@ export function GeoEditorView() {
 		geoEvents,
 		mapContextEvents,
 		stories,
+		sightings,
 		encodeGeoEventNaddr,
 		encodeContextNaddr,
 		encodeStoryNaddr,
+		encodeSightingNaddr,
 		addDatasetToMapStack,
 		handleInspectDataset,
 		handleInspectContext,
 		handleInspectStory,
+		handleInspectSighting,
 	])
 
 	// Pan lock and magnifier

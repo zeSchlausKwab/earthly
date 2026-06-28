@@ -4,18 +4,21 @@ import { Database } from 'bun:sqlite'
 import { fetchContextEventOGData, type ContextEventOGData } from './fetchContextEvent'
 import {
 	fetchGeoEventOGData,
+	fetchSightingOGData,
 	fetchStoryOGData,
 	type GeoEventOGData,
+	type SightingOGData,
 	type StoryOGData,
 } from './fetchEvent'
 
-export type OGCacheType = 'geoevent' | 'context' | 'story'
+export type OGCacheType = 'geoevent' | 'context' | 'story' | 'sighting'
 export type OGCacheStatus = 'fresh' | 'stale' | 'refreshed' | 'fallback'
 
 type OGPayloadByType = {
 	geoevent: GeoEventOGData
 	context: ContextEventOGData
 	story: StoryOGData
+	sighting: SightingOGData
 }
 
 interface CachedOGRecord<T extends OGCacheType = OGCacheType> {
@@ -199,7 +202,9 @@ async function fetchAndCacheRecord<T extends OGCacheType>(
 			? ((await fetchGeoEventOGData(naddr, relayUrl)) as OGPayloadByType[T] | null)
 			: type === 'story'
 				? ((await fetchStoryOGData(naddr, relayUrl)) as OGPayloadByType[T] | null)
-				: ((await fetchContextEventOGData(naddr, relayUrl)) as OGPayloadByType[T] | null)
+				: type === 'sighting'
+					? ((await fetchSightingOGData(naddr, relayUrl)) as OGPayloadByType[T] | null)
+					: ((await fetchContextEventOGData(naddr, relayUrl)) as OGPayloadByType[T] | null)
 
 	if (!payload) return null
 
@@ -331,4 +336,12 @@ export async function fetchCachedStoryEventOGData(
 	options?: ResolveCachedOGOptions,
 ): Promise<ResolveCachedOGResult<'story'>> {
 	return resolveCachedOGData('story', naddr, relayUrl, options)
+}
+
+export async function fetchCachedSightingEventOGData(
+	naddr: string,
+	relayUrl: string,
+	options?: ResolveCachedOGOptions,
+): Promise<ResolveCachedOGResult<'sighting'>> {
+	return resolveCachedOGData('sighting', naddr, relayUrl, options)
 }

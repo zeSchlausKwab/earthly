@@ -33,7 +33,7 @@ export interface RouteState {
 	/** Active context coordinate derived from naddr */
 	contextCoordinate?: string
 	/** Focus type for deep-linking to specific content */
-	focusType: 'none' | 'geoevent' | 'mapcontext' | 'story'
+	focusType: 'none' | 'geoevent' | 'mapcontext' | 'story' | 'sighting'
 	/** Nostr address for focused content */
 	naddr?: string
 	/** Optional comment d-tag deep-linked beneath the focused entity */
@@ -51,8 +51,8 @@ function isSidebarViewMode(value: string): value is SidebarViewMode {
 	return SIDEBAR_VIEW_MODES.includes(value as SidebarViewMode)
 }
 
-function isFocusType(value: string): value is 'geoevent' | 'mapcontext' | 'story' {
-	return value === 'geoevent' || value === 'mapcontext' || value === 'story'
+function isFocusType(value: string): value is 'geoevent' | 'mapcontext' | 'story' | 'sighting' {
+	return value === 'geoevent' || value === 'mapcontext' || value === 'story' || value === 'sighting'
 }
 
 function decodeContextCoordinateFromNaddr(naddr: string): string | undefined {
@@ -122,6 +122,18 @@ function parsePathSegments(segments: string[]): RouteState {
 			naddr: segments[1],
 			commentId: segments[2] === 'comment' && segments[3] ? segments[3] : undefined,
 			sidebarView: 'stories',
+		}
+	}
+	// Sighting share form (also what the OG crawler matches via /sighting/:naddr →
+	// /#/sightings/sighting/:naddr): /sighting/:naddr (+ optional /comment/:id). A
+	// thin per-kind clone of the story form (Pitfall P-5; the canonical entity
+	// router is Phase 13 / XCUT-02, NOT generalized here).
+	if (first === 'sighting' && segments[1]) {
+		return {
+			focusType: 'sighting',
+			naddr: segments[1],
+			commentId: segments[2] === 'comment' && segments[3] ? segments[3] : undefined,
+			sidebarView: 'sightings',
 		}
 	}
 
@@ -247,7 +259,7 @@ export function buildRoutePath({
 }: {
 	sidebarView: SidebarViewMode
 	contextNaddr?: string
-	focusType?: 'geoevent' | 'mapcontext' | 'story'
+	focusType?: 'geoevent' | 'mapcontext' | 'story' | 'sighting'
 	naddr?: string
 	commentId?: string
 }): string {
@@ -355,7 +367,7 @@ export function useRouting() {
 	 */
 	const navigateTo = useCallback(
 		(
-			focusType: 'geoevent' | 'mapcontext' | 'story',
+			focusType: 'geoevent' | 'mapcontext' | 'story' | 'sighting',
 			naddr: string,
 			sidebarView?: SidebarViewMode,
 		) => {
@@ -417,7 +429,7 @@ export function useRouting() {
 
 	const navigateToComment = useCallback(
 		(
-			focusType: 'geoevent' | 'mapcontext' | 'story',
+			focusType: 'geoevent' | 'mapcontext' | 'story' | 'sighting',
 			naddr: string,
 			commentId: string,
 			sidebarView?: SidebarViewMode,

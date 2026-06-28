@@ -8,7 +8,6 @@ export interface ContextEventOGData {
 	bbox?: [number, number, number, number] // west, south, east, north
 }
 
-
 interface NostrEvent {
 	id: string
 	pubkey: string
@@ -83,14 +82,11 @@ export async function fetchContextEventOGData(
 		if (decoded.type !== 'naddr') return null
 		if (decoded.data.kind !== MAP_CONTEXT_KIND) return null
 
-		const event = await fetchEventFromRelay(
-			relayUrl,
-			{
-				kinds: [decoded.data.kind],
-				authors: [decoded.data.pubkey],
-				'#d': [decoded.data.identifier],
-			},
-		)
+		const event = await fetchEventFromRelay(relayUrl, {
+			kinds: [decoded.data.kind],
+			authors: [decoded.data.pubkey],
+			'#d': [decoded.data.identifier],
+		})
 
 		if (!event) return null
 
@@ -129,4 +125,3 @@ export async function fetchContextEventOGData(
 		return null
 	}
 }
-

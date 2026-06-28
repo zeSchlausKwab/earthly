@@ -157,6 +157,29 @@ export function generateStoryOGHtml(
 	})
 }
 
+/**
+ * Generate OG HTML for a Temporal Sighting (kind 37522). The Sighting title/
+ * description are untrusted author content; generateOGHtml escapes every
+ * interpolated value and validates `url`/`image` scheme before rendering
+ * (T-11-04-02, mirrors the audited Story OG path T-10-09). A Sighting has no
+ * cover image of its own, so the OG image falls back to the generated card.
+ */
+export function generateSightingOGHtml(
+	baseUrl: string,
+	naddr: string,
+	title: string,
+	description: string,
+): string {
+	return generateOGHtml({
+		title: title || 'Sighting',
+		description:
+			description || 'See this sighting on Earthly, a collaborative mapping platform on Nostr.',
+		url: `${baseUrl}/#/sightings/sighting/${naddr}`,
+		image: `${baseUrl}/og/image/sighting/${naddr}`,
+		type: 'article',
+	})
+}
+
 function escapeHtml(text: string): string {
 	return text
 		.replace(/&/g, '&amp;')

@@ -2,6 +2,7 @@ export { isCrawler } from './crawler'
 export {
 	fetchCachedContextEventOGData,
 	fetchCachedGeoEventOGData,
+	fetchCachedSightingEventOGData,
 	fetchCachedStoryEventOGData,
 	getOGImageHeaders,
 	getOGRouteHeaders,
@@ -14,14 +15,18 @@ export {
 	generateHomeOGHtml,
 	generateGeoEventOGHtml,
 	generateContextOGHtml,
+	generateSightingOGHtml,
 	generateStoryOGHtml,
 	type OGMeta,
 } from './template'
 export {
 	decodeNaddr,
 	fetchGeoEventOGData,
+	fetchSightingOGData,
 	fetchStoryOGData,
+	isOGEventExpired,
 	type GeoEventOGData,
+	type SightingOGData,
 	type StoryOGData,
 } from './fetchEvent'
 export {

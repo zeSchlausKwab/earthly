@@ -1,5 +1,5 @@
 import { nip19 } from 'nostr-tools'
-import { ARTICLE_KIND, GEO_EVENT_KIND } from '../nostr/kinds'
+import { ARTICLE_KIND, GEO_EVENT_KIND, TEMPORAL_SIGHTING_KIND } from '../nostr/kinds'
 
 export interface GeoEventOGData {
 	title: string
@@ -12,6 +12,29 @@ export interface StoryOGData {
 	title: string
 	description: string
 	image?: string
+}
+
+export interface SightingOGData {
+	title: string
+	description: string
+}
+
+/**
+ * SIGHT-03 / Pitfall P-1 — the OG server fetch is its OWN read path (raw WS REQ,
+ * no applesauce cast, no `dropExpired` subscription filter), so it must check the
+ * NIP-40 `expiration` tag itself. Returns true when the event carries an
+ * `expiration` STRICTLY in the past relative to `now` (epoch seconds, UTC). No
+ * tag, or a malformed/non-numeric tag, ⇒ never expired (defensive; mirrors
+ * `isExpired` semantics in `@/lib/nostr/expiry`). `now` is injected so the
+ * predicate is deterministic and uses epoch seconds, never `Date.now()` ms.
+ */
+export function isOGEventExpired(event: { tags: string[][] }, now: number): boolean {
+	const expirationTag = event.tags.find((t) => t[0] === 'expiration')
+	const raw = expirationTag?.[1]
+	if (raw === undefined) return false
+	const expiration = Number.parseInt(raw, 10)
+	if (!Number.isFinite(expiration)) return false
+	return expiration < now
 }
 
 /**
@@ -224,5 +247,69 @@ export async function fetchStoryOGData(
 		title: title || 'Story',
 		description: description || 'Read this story on Earthly',
 		image,
+	}
+}
+
+/**
+ * Fetch Temporal Sighting (kind 37522) data for OG tags. Reads `title`/
+ * `description` out of the event content JSON (a Sighting has `description`, not
+ * the Story's `summary`), falling back to `title`/`description` tags and the `d`
+ * tag.
+ *
+ * SIGHT-03 (Pitfall P-1, the easy-miss read path): this is a separate raw-WS read
+ * path with no cast/filter, so it INDEPENDENTLY checks the NIP-40 `expiration`
+ * tag and returns null for an expired sighting — an expired/removed sighting is
+ * NEVER leaked via a social card.
+ */
+export async function fetchSightingOGData(
+	naddr: string,
+	relayUrl: string,
+): Promise<SightingOGData | null> {
+	const decoded = decodeNaddr(naddr)
+	if (!decoded) return null
+	if (decoded.kind !== TEMPORAL_SIGHTING_KIND) return null
+
+	const event = await fetchEventFromRelay(relayUrl, {
+		kinds: [decoded.kind],
+		authors: [decoded.pubkey],
+		'#d': [decoded.identifier],
+	})
+
+	if (!event) return null
+
+	// SIGHT-03 / Pitfall P-1: never render an expired sighting into the OG card.
+	if (isOGEventExpired(event, Math.floor(Date.now() / 1000))) return null
+
+	let title = ''
+	let description = ''
+
+	try {
+		const content = JSON.parse(event.content) as {
+			title?: string
+			description?: string
+		}
+		title = content.title ?? ''
+		description = content.description ?? ''
+	} catch {
+		// Invalid JSON content — fall back to tags below.
+	}
+
+	if (!title) {
+		const titleTag = event.tags.find((t) => t[0] === 'title')
+		if (titleTag?.[1]) title = titleTag[1]
+	}
+	if (!description) {
+		const descriptionTag = event.tags.find((t) => t[0] === 'description')
+		if (descriptionTag?.[1]) description = descriptionTag[1]
+	}
+
+	if (!title) {
+		const dTag = event.tags.find((t) => t[0] === 'd')
+		if (dTag?.[1]) title = dTag[1]
+	}
+
+	return {
+		title: title || 'Sighting',
+		description: description || 'See this sighting on Earthly',
 	}
 }
