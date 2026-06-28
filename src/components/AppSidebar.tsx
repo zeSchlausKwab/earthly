@@ -171,8 +171,13 @@ interface AppSidebarProps {
 	sightingEditorMode?: 'none' | 'create' | 'edit'
 	editingSighting?: import('@/lib/nostr/temporal-sighting').TemporalSighting | null
 	viewSighting?: import('@/lib/nostr/temporal-sighting').TemporalSighting | null
+	/** WR-06: comment d-tag to focus beneath the viewed Sighting (survives navigateToView). */
+	sightingFocusCommentId?: string
 	onCreateSighting?: () => void
-	onInspectSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
+	onInspectSighting?: (
+		sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting,
+		commentId?: string,
+	) => void
 	onEditSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
 	onSaveSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
 	onCloseSightingEditor?: () => void
@@ -252,6 +257,7 @@ export function AppSidebar({
 	sightingEditorMode = 'none',
 	editingSighting,
 	viewSighting,
+	sightingFocusCommentId,
 	onCreateSighting,
 	onInspectSighting,
 	onEditSighting,
@@ -713,6 +719,7 @@ export function AppSidebar({
 		sightingEditorMode,
 		editingSighting,
 		viewSighting,
+		sightingFocusCommentId,
 		placedSightingGeometry,
 		onSaveSighting: handleSaveSighting,
 		onCloseSightingEditor: handleCloseSightingEditor,

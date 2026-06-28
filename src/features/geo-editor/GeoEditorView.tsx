@@ -1585,6 +1585,7 @@ export function GeoEditorView() {
 		sightingEditorMode,
 		editingSighting,
 		viewSighting,
+		sightingFocusCommentId,
 		placedGeometry: placedSightingGeometry,
 		placementArmed: sightingPlacementArmed,
 		clearSightingEditorModes,
@@ -1733,13 +1734,16 @@ export function GeoEditorView() {
 			// SIGHT-03) and open the read view.
 			const sighting = sightings.find((s) => encodeSightingNaddr(s) === route.naddr)
 			if (sighting) {
-				handleInspectSighting(sighting)
+				// WR-06: thread the OG comment deep link so SightingViewPanel focuses it,
+				// mirroring the geoevent/story comment-focus wiring.
+				handleInspectSighting(sighting, route.commentId)
 				focusHandledRef.current = routeKey
 			}
 		}
 	}, [
 		route.focusType,
 		route.naddr,
+		route.commentId,
 		geoEvents,
 		mapContextEvents,
 		stories,
@@ -1928,6 +1932,7 @@ export function GeoEditorView() {
 					sightingEditorMode={sightingEditorMode}
 					editingSighting={editingSighting}
 					viewSighting={viewSighting}
+					sightingFocusCommentId={sightingFocusCommentId}
 					placedSightingGeometry={placedSightingGeometry}
 					onCreateSighting={handleCreateSighting}
 					onInspectSighting={handleInspectSighting}
@@ -2247,6 +2252,7 @@ export function GeoEditorView() {
 							sightingEditorMode={sightingEditorMode}
 							editingSighting={editingSighting}
 							viewSighting={viewSighting}
+							sightingFocusCommentId={sightingFocusCommentId}
 							placedSightingGeometry={placedSightingGeometry}
 							onDrawSightingArea={handleDrawSightingArea}
 							onSaveSighting={handleSaveSighting}

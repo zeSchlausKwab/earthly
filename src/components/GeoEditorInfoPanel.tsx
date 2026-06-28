@@ -137,6 +137,14 @@ export interface GeoEditorInfoPanelProps {
 	editingSighting?: TemporalSighting | null
 	/** The Sighting currently inspected in the view panel. */
 	viewSighting?: TemporalSighting | null
+	/**
+	 * WR-06: the comment d-tag to focus beneath the viewed Sighting. Separate from
+	 * the generic `focusCommentId` because the sighting focus path switches the
+	 * sidebar via `navigateToView` (which drops the URL `/comment/:id` segment), so
+	 * the global route-derived `focusCommentId` would be wiped — this one is held in
+	 * `useSightingEditor` state and survives that navigation.
+	 */
+	sightingFocusCommentId?: string
 	/** The geometry placed by the map-first pin-drop, fed to the create form. */
 	placedSightingGeometry?: Geometry | null
 	/** Switch the Sighting create flow to line/polygon draw (D-02). */
@@ -198,6 +206,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		sightingEditorMode = 'none',
 		editingSighting,
 		viewSighting,
+		sightingFocusCommentId,
 		placedSightingGeometry,
 		onDrawSightingArea,
 		onSaveSighting,
@@ -642,7 +651,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					onMentionVisibilityToggle={onMentionVisibilityToggle}
 					onMentionZoomTo={onMentionZoomTo}
 					onZoomToBounds={onZoomToBounds}
-					focusCommentId={focusCommentId}
+					focusCommentId={sightingFocusCommentId ?? focusCommentId}
 				/>
 			)
 		}

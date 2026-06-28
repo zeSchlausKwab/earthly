@@ -53,6 +53,13 @@ export function useSightingEditor({
 	const [placedGeometry, setPlacedGeometry] = useState<PlacedSightingGeometry | null>(null)
 	// True while the create flow is armed and waiting for a map click (D-01 overlay).
 	const [placementArmed, setPlacementArmed] = useState(false)
+	// WR-06: the deep-linked comment d-tag to focus beneath the viewed Sighting. The
+	// canonical /sighting/:naddr focus route is deferred (Plan 04/Phase 13), so
+	// `handleInspectSighting` switches the sidebar via `navigateToView`, which does
+	// NOT preserve the URL `/comment/:id` segment — `route.commentId` would be wiped
+	// before CommentsPanel could act on it. Holding it as hook state survives that
+	// navigation so the OG comment deep link is honored.
+	const [focusCommentId, setFocusCommentId] = useState<string | undefined>(undefined)
 
 	const clearSightingEditorModes = useCallback(() => {
 		setSightingEditorMode('none')
@@ -66,6 +73,7 @@ export function useSightingEditor({
 		setEditingSighting(null)
 		setPlacedGeometry(null)
 		setViewSighting(null)
+		setFocusCommentId(undefined)
 	}, [])
 
 	const prepareNonGeometryWorkspace = useCallback(() => {
@@ -85,7 +93,7 @@ export function useSightingEditor({
 	])
 
 	const handleInspectSighting = useCallback(
-		(sighting: TemporalSighting) => {
+		(sighting: TemporalSighting, commentId?: string) => {
 			clearSightingEditorModes()
 			setPlacementArmed(false)
 			disarmPlacement()
@@ -94,6 +102,9 @@ export function useSightingEditor({
 			setViewContext(null)
 			setViewStory(null)
 			setViewSighting(sighting)
+			// WR-06: honor the OG comment deep link beneath this Sighting. Held in hook
+			// state because navigateToView wipes the URL `/comment/:id` segment.
+			setFocusCommentId(commentId)
 			ensureInfoPanelVisible()
 			setStance('focus')
 			navigateToView('sightings')
@@ -118,6 +129,7 @@ export function useSightingEditor({
 	const handleCreateSighting = useCallback(() => {
 		clearSightingEditorModes()
 		setViewSighting(null)
+		setFocusCommentId(undefined)
 		prepareNonGeometryWorkspace()
 		navigateToView('sightings')
 		// Map-first (D-01): arm the pin-drop; the editor opens on the placed geometry.
@@ -137,6 +149,7 @@ export function useSightingEditor({
 			disarmPlacement()
 			setSightingEditorMode((mode) => (mode === 'none' ? 'create' : mode))
 			setViewSighting(null)
+			setFocusCommentId(undefined)
 			prepareNonGeometryWorkspace()
 			navigateToView('sightings')
 			if (!isMobile) setShowInfoPanel(true)
@@ -160,6 +173,7 @@ export function useSightingEditor({
 			setSightingEditorMode('edit')
 			setEditingSighting(sighting)
 			setViewSighting(null)
+			setFocusCommentId(undefined)
 			prepareNonGeometryWorkspace()
 			navigateToView('sightings')
 			if (!isMobile) setShowInfoPanel(true)
@@ -197,6 +211,8 @@ export function useSightingEditor({
 		sightingEditorMode,
 		editingSighting,
 		viewSighting,
+		/** WR-06: deep-linked comment d-tag to focus beneath the viewed Sighting. */
+		sightingFocusCommentId: focusCommentId,
 		placedGeometry,
 		placementArmed,
 		clearSightingEditorModes,

@@ -128,6 +128,8 @@ export interface MobilePanelProps {
 	onProposalAccepted?: (dataset: GeoDataset) => void
 	visibleProposalIds?: Set<string>
 	focusCommentId?: string
+	/** WR-06: comment d-tag to focus beneath the viewed Sighting (survives navigateToView). */
+	sightingFocusCommentId?: string
 }
 
 const TAB_CONFIG: { id: MobilePanelTab; label: string; icon: typeof Database }[] = [
@@ -224,6 +226,7 @@ export function MobilePanel(props: MobilePanelProps) {
 		onProposalAccepted,
 		visibleProposalIds,
 		focusCommentId,
+		sightingFocusCommentId,
 	} = props
 	const { contextNaddr, encodeContextNaddr, navigateToContext, clearContextScope } = useRouting()
 
@@ -546,6 +549,7 @@ export function MobilePanel(props: MobilePanelProps) {
 							sightingEditorMode={sightingEditorMode}
 							editingSighting={editingSighting}
 							viewSighting={viewSighting}
+							sightingFocusCommentId={sightingFocusCommentId}
 							placedSightingGeometry={placedSightingGeometry}
 							onDrawSightingArea={onDrawSightingArea}
 							onSaveSighting={onSaveSighting}
