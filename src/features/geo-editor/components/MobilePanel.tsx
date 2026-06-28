@@ -107,6 +107,16 @@ export interface MobilePanelProps {
 	onEditStory?: (story: import('@/lib/nostr/article').Article) => void
 	onStoryUpdated?: (story: import('@/lib/nostr/article').Article) => void
 	onDeleteStory?: (story: import('@/lib/nostr/article').Article) => void
+	/** Sighting view/edit props (Phase 11, D-01/D-07). */
+	sightingEditorMode?: 'none' | 'create' | 'edit'
+	editingSighting?: import('@/lib/nostr/temporal-sighting').TemporalSighting | null
+	viewSighting?: import('@/lib/nostr/temporal-sighting').TemporalSighting | null
+	placedSightingGeometry?: import('geojson').Geometry | null
+	onDrawSightingArea?: () => void
+	onSaveSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
+	onCloseSightingEditor?: () => void
+	onEditSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
+	onDeleteSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
 	onZoomToFeature?: (feature: EditorFeature) => void
 	featureCollectionForUpload?: FeatureCollection | null
 	onBlossomUploadComplete?: (result: BlossomUploadResult) => void
@@ -197,6 +207,15 @@ export function MobilePanel(props: MobilePanelProps) {
 		onEditStory,
 		onStoryUpdated,
 		onDeleteStory,
+		sightingEditorMode,
+		editingSighting,
+		viewSighting,
+		placedSightingGeometry,
+		onDrawSightingArea,
+		onSaveSighting,
+		onCloseSightingEditor,
+		onEditSighting,
+		onDeleteSighting,
 		onZoomToFeature,
 		featureCollectionForUpload,
 		onBlossomUploadComplete,
@@ -524,6 +543,15 @@ export function MobilePanel(props: MobilePanelProps) {
 							onEditStory={onEditStory}
 							onStoryUpdated={onStoryUpdated}
 							onDeleteStory={onDeleteStory}
+							sightingEditorMode={sightingEditorMode}
+							editingSighting={editingSighting}
+							viewSighting={viewSighting}
+							placedSightingGeometry={placedSightingGeometry}
+							onDrawSightingArea={onDrawSightingArea}
+							onSaveSighting={onSaveSighting}
+							onCloseSightingEditor={onCloseSightingEditor}
+							onEditSighting={onEditSighting}
+							onDeleteSighting={onDeleteSighting}
 							mapContextEvents={mapContextEvents}
 							onZoomToFeature={onZoomToFeature}
 							featureCollectionForUpload={featureCollectionForUpload}

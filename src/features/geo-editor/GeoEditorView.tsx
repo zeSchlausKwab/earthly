@@ -9,6 +9,7 @@ import {
 	PanelTopOpen,
 	Search,
 } from 'lucide-react'
+import type { Geometry } from 'geojson'
 import type maplibregl from 'maplibre-gl'
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -29,6 +30,7 @@ import { nip19 } from 'nostr-tools'
 import type { Article } from '@/lib/nostr/article'
 import { ARTICLE_KIND } from '@/lib/nostr/kinds'
 import { deleteStory } from '@/lib/nostr/story'
+import { deleteSighting, type TemporalSighting } from '@/lib/nostr/temporal-sighting'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { type MapContext, deleteMapContext } from '@/lib/nostr/map-context'
 import { accounts } from '@/lib/nostr'
@@ -55,12 +57,13 @@ import { UserLocationMarker } from './components/UserLocationMarker'
 import { GeoEditorMap as MapComponent } from './components/map'
 import { OsmResultsPanel } from './components/OsmResultsPanel'
 import { Toolbar } from './components/Toolbar'
-import type { EditorFeature } from './core'
+import type { EditorEvent, EditorFeature } from './core'
 import {
 	MAGNIFIER_SIZE,
 	useBlobResolution,
 	useContextEditor,
 	useStoryEditor,
+	useSightingEditor,
 	useStoryMapRefs,
 	useCommentGeometry,
 	useProposalGeometry,
@@ -1548,6 +1551,120 @@ export function GeoEditorView() {
 		[exitViewMode],
 	)
 
+	// ── Temporal Sighting create/edit + map-first pin-drop (Phase 11, D-01/D-02/D-07) ──
+	// A ref mirror of `placementArmed` so the editor 'create' listener (registered
+	// once) reads the latest armed state without re-subscribing.
+	const sightingPlacementArmedRef = useRef(false)
+	const armSightingPlacement = useCallback(() => {
+		sightingPlacementArmedRef.current = true
+		editor?.setMode('draw_point')
+	}, [editor])
+	const disarmSightingPlacement = useCallback(() => {
+		sightingPlacementArmedRef.current = false
+		// Return the editor to a non-drawing idle mode.
+		if (editor && editor.getMode() !== 'select') editor.setMode('select')
+	}, [editor])
+
+	const {
+		sightingEditorMode,
+		editingSighting,
+		viewSighting,
+		placedGeometry: placedSightingGeometry,
+		placementArmed: sightingPlacementArmed,
+		clearSightingEditorModes,
+		clearSightingView,
+		handleInspectSighting,
+		handleCreateSighting,
+		handleGeometryPlaced,
+		cancelPlacement: cancelSightingPlacement,
+		handleEditSighting,
+		handleSaveSighting,
+		handleCloseSightingEditor,
+	} = useSightingEditor({
+		isMobile,
+		ensureInfoPanelVisible,
+		navigateToView,
+		clearFocus,
+		armPlacement: armSightingPlacement,
+		disarmPlacement: disarmSightingPlacement,
+	})
+
+	// Keep the ref in sync with the hook's armed state (covers cancel/escape paths).
+	useEffect(() => {
+		sightingPlacementArmedRef.current = sightingPlacementArmed
+	}, [sightingPlacementArmed])
+
+	// Intercept the GeoEditor 'create' event ONLY while a Sighting placement is
+	// armed: capture the placed feature's geometry, open the editor with it, and
+	// remove the transient point from the editor's feature set (it isn't a dataset
+	// feature — it becomes the Sighting's content.geometry).
+	useEffect(() => {
+		if (!editor) return
+		const handleCreate = (event: EditorEvent) => {
+			if (!sightingPlacementArmedRef.current) return
+			const feature = event.features?.[0]
+			if (!feature?.geometry) return
+			sightingPlacementArmedRef.current = false
+			handleGeometryPlaced(feature.geometry as Geometry)
+			// Drop the transient draw feature so it doesn't pollute the dataset draft.
+			try {
+				if (feature.id) editor.deleteFeature(feature.id)
+			} catch {
+				// best-effort cleanup
+			}
+		}
+		editor.on('create', handleCreate)
+		return () => {
+			editor.off('create', handleCreate)
+		}
+	}, [editor, handleGeometryPlaced])
+
+	// Esc cancels an armed placement (D-01 keyboard alternative).
+	useEffect(() => {
+		if (!sightingPlacementArmed) return
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') cancelSightingPlacement()
+		}
+		window.addEventListener('keydown', onKey)
+		return () => window.removeEventListener('keydown', onKey)
+	}, [sightingPlacementArmed, cancelSightingPlacement])
+
+	const handleDeleteSighting = useCallback(
+		async (sighting: TemporalSighting) => {
+			const signer = accounts.signer
+			if (!signer) {
+				toast.error('No active account.')
+				return
+			}
+			const sightingKey = sighting.dTag ?? sighting.id
+			if (!sightingKey) {
+				toast.error('Sighting is missing a d tag and cannot be deleted.')
+				return
+			}
+			setDeletingKey(`sighting:${sightingKey}`)
+			try {
+				await deleteSighting(sighting.event, signer)
+				if (viewSighting && (viewSighting.dTag ?? viewSighting.id) === sightingKey) {
+					clearSightingEditorModes()
+					exitViewMode()
+				}
+				toast.success(`Deleted "${sighting.sighting.title || 'sighting'}".`)
+			} catch (error) {
+				console.error('Failed to delete sighting', error)
+				toast.error('Failed to delete sighting. Check console for details.')
+			} finally {
+				setDeletingKey(null)
+			}
+		},
+		[exitViewMode, viewSighting, clearSightingEditorModes],
+	)
+
+	// Switch the armed create flow to an area draw (D-02 "Draw an area instead").
+	const handleDrawSightingArea = useCallback(() => {
+		sightingPlacementArmedRef.current = true
+		editor?.setMode('draw_polygon')
+	}, [editor])
+
 	// Handle initial route on page load (direct URL navigation)
 	const focusHandledRef = useRef<string | null>(null)
 	useEffect(() => {
@@ -1774,6 +1891,18 @@ export function GeoEditorView() {
 					onCloseStoryEditor={handleCloseStoryEditor}
 					onDeleteStory={handleDeleteStory}
 					onStoryUpdated={handleInspectStory}
+					sightingEditorMode={sightingEditorMode}
+					editingSighting={editingSighting}
+					viewSighting={viewSighting}
+					placedSightingGeometry={placedSightingGeometry}
+					onCreateSighting={handleCreateSighting}
+					onInspectSighting={handleInspectSighting}
+					onEditSighting={handleEditSighting}
+					onSaveSighting={handleSaveSighting}
+					onCloseSightingEditor={handleCloseSightingEditor}
+					onDeleteSighting={handleDeleteSighting}
+					onDrawSightingArea={handleDrawSightingArea}
+					onClearSightingView={clearSightingView}
 					onZoomToFeature={handleZoomToFeature}
 					onExitViewMode={exitViewMode}
 					// Blossom upload props - callback adds blob ref to store, does NOT publish
@@ -1913,6 +2042,24 @@ export function GeoEditorView() {
 						<div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded z-50">
 							<p className="font-bold">Map Error</p>
 							<p>{mapError}</p>
+						</div>
+					)}
+
+					{/* Map-first pin-drop overlay (Phase 11, D-01): shown while a Sighting
+					    placement is armed. "Click the map to drop your sighting" + a
+					    "Cancel placement" button (Esc is the keyboard alternative). */}
+					{sightingPlacementArmed && (
+						<div className="pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2">
+							<div className="pointer-events-auto flex items-center gap-3 rounded-none border border-border bg-background/95 px-4 py-2 text-sm shadow-lg backdrop-blur">
+								<span className="text-foreground">Click the map to drop your sighting</span>
+								<button
+									type="button"
+									onClick={cancelSightingPlacement}
+									className="rounded-none border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+								>
+									Cancel placement
+								</button>
+							</div>
 						</div>
 					)}
 
@@ -2063,6 +2210,15 @@ export function GeoEditorView() {
 							onEditStory={handleEditStory}
 							onDeleteStory={handleDeleteStory}
 							onStoryUpdated={handleInspectStory}
+							sightingEditorMode={sightingEditorMode}
+							editingSighting={editingSighting}
+							viewSighting={viewSighting}
+							placedSightingGeometry={placedSightingGeometry}
+							onDrawSightingArea={handleDrawSightingArea}
+							onSaveSighting={handleSaveSighting}
+							onCloseSightingEditor={handleCloseSightingEditor}
+							onEditSighting={handleEditSighting}
+							onDeleteSighting={handleDeleteSighting}
 							onZoomToFeature={handleZoomToFeature}
 							featureCollectionForUpload={memoizedFeatureCollection}
 							onBlossomUploadComplete={handleBlobUploadComplete}

@@ -24,6 +24,8 @@ import {
 	ViewModePanel,
 } from './info-panel'
 import { StoryEditorPanel } from './info-panel/StoryEditorPanel'
+import { SightingEditorPanel } from './info-panel/SightingEditorPanel'
+import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
 import { DatasetSizeIndicator } from './info-panel/DatasetSizeIndicator'
 import { GroupEditorPanel } from '../features/groups/GroupEditorPanel'
 import type { Article } from '@/lib/nostr/article'
@@ -112,7 +114,7 @@ export interface GeoEditorInfoPanelProps {
 	isPublishing?: boolean
 	/** Optional comment d-tag from the route to reveal in the thread */
 	focusCommentId?: string
-	entityWorkspace?: 'geometry' | 'context'
+	entityWorkspace?: 'geometry' | 'context' | 'story' | 'sighting'
 	entityIntent?: 'inspect' | 'edit'
 	/** Story editor mode (Phase 10, D-03). */
 	storyEditorMode?: 'none' | 'create' | 'edit'
@@ -128,6 +130,24 @@ export interface GeoEditorInfoPanelProps {
 	onDeleteStory?: (story: Article) => void
 	/** Callback with the republished Story after an accepted proposed edit (refresh view in place). */
 	onStoryUpdated?: (updated: Article) => void
+	/** Sighting editor mode (Phase 11, D-01/D-07). */
+	sightingEditorMode?: 'none' | 'create' | 'edit'
+	/** Sighting being edited (create ⇒ null). */
+	editingSighting?: TemporalSighting | null
+	/** The Sighting currently inspected in the view panel. */
+	viewSighting?: TemporalSighting | null
+	/** The geometry placed by the map-first pin-drop, fed to the create form. */
+	placedSightingGeometry?: Geometry | null
+	/** Switch the Sighting create flow to line/polygon draw (D-02). */
+	onDrawSightingArea?: () => void
+	/** Callback when a Sighting is saved (publish/edit). */
+	onSaveSighting?: (sighting: TemporalSighting) => void
+	/** Callback to close the Sighting editor. */
+	onCloseSightingEditor?: () => void
+	/** Callback to open a Sighting in the editor (owner Edit affordance). */
+	onEditSighting?: (sighting: TemporalSighting) => void
+	/** Callback to delete a Sighting (owner). */
+	onDeleteSighting?: (sighting: TemporalSighting) => void
 }
 
 export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
@@ -174,6 +194,15 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onEditStory,
 		onDeleteStory,
 		onStoryUpdated,
+		sightingEditorMode = 'none',
+		editingSighting,
+		viewSighting,
+		placedSightingGeometry,
+		onDrawSightingArea,
+		onSaveSighting,
+		onCloseSightingEditor,
+		onEditSighting: _onEditSighting,
+		onDeleteSighting: _onDeleteSighting,
 	} = props
 
 	// Store state
@@ -555,6 +584,25 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		},
 		[onZoomToBounds],
 	)
+
+	// Sighting Editor mode (D-01/D-07) — create/edit a Sighting in place. The
+	// create form opens with the map-first placed geometry as a prop.
+	if (sightingEditorMode !== 'none' && onSaveSighting && onCloseSightingEditor) {
+		return (
+			<SightingEditorPanel
+				initialSighting={editingSighting}
+				placedGeometry={placedSightingGeometry}
+				onDrawArea={onDrawSightingArea}
+				onClose={onCloseSightingEditor}
+				onSave={onSaveSighting}
+			/>
+		)
+	}
+
+	// Sighting view (D-07) — the view panel component lands in Plan 04. Until then
+	// an inspected Sighting falls through to the default view; the mount point is
+	// reserved here (viewSighting threaded) so Plan 04 only adds the component.
+	void viewSighting
 
 	// Story Editor mode (D-03) — create/edit a Story in place.
 	if (storyEditorMode !== 'none' && onSaveStory && onCloseStoryEditor) {

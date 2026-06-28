@@ -4,6 +4,7 @@ import {
 	Globe,
 	HelpCircle,
 	BookOpen,
+	Eye,
 	Newspaper,
 	PanelLeftClose,
 	PanelLeftOpen,
@@ -24,6 +25,7 @@ import squareLogoRose from '../assets/square_logo_rose.svg'
 import { ShoutboxPanel } from '../features/social/shoutbox'
 import { GeoDatasetsPanelContent } from './GeoDatasetsPanel'
 import { StoriesPanelContent } from './StoriesPanel'
+import { SightingsPanelContent } from './SightingsPanel'
 import { UserProfilePanel } from './UserProfilePanel'
 import { GeoEditorInfoPanelContent } from './GeoEditorInfoPanel'
 import { HelpPanel } from './HelpPanel'
@@ -52,11 +54,11 @@ import { WorkspaceDraftNavigator } from './WorkspaceDraftNavigator'
 import { Button } from './ui/button'
 
 type SidebarContentMode = Exclude<SidebarViewMode, 'combined'>
-type EntityWorkspace = 'geometry' | 'context' | 'story'
-type WorkViewMode = 'datasets' | 'contexts' | 'stories' | 'user'
+type EntityWorkspace = 'geometry' | 'context' | 'story' | 'sighting'
+type WorkViewMode = 'datasets' | 'contexts' | 'stories' | 'sightings' | 'user'
 type MetaViewMode = 'posts' | 'wallet' | 'settings' | 'help'
 
-const WORK_VIEW_MODES: WorkViewMode[] = ['datasets', 'contexts', 'stories', 'user']
+const WORK_VIEW_MODES: WorkViewMode[] = ['datasets', 'contexts', 'stories', 'sightings', 'user']
 const META_VIEW_MODES: MetaViewMode[] = ['posts', 'wallet', 'settings', 'help']
 
 // Round H.3/H.4: the rail's browse destinations (Datasets / Contexts / My
@@ -76,6 +78,7 @@ const workNavItems: {
 	{ mode: 'datasets', title: 'Datasets', icon: Database },
 	{ mode: 'contexts', title: 'Contexts', icon: Globe },
 	{ mode: 'stories', title: 'Stories', icon: BookOpen },
+	{ mode: 'sightings', title: 'Sightings', icon: Eye },
 	{ mode: 'user', title: 'My Entities', icon: UserCircle },
 ]
 
@@ -164,6 +167,22 @@ interface AppSidebarProps {
 	onCloseStoryEditor?: () => void
 	onDeleteStory?: (story: import('@/lib/nostr/article').Article) => void
 	onStoryUpdated?: (story: import('@/lib/nostr/article').Article) => void
+	/** Sighting editor mode (Phase 11, D-01/D-07). */
+	sightingEditorMode?: 'none' | 'create' | 'edit'
+	editingSighting?: import('@/lib/nostr/temporal-sighting').TemporalSighting | null
+	viewSighting?: import('@/lib/nostr/temporal-sighting').TemporalSighting | null
+	onCreateSighting?: () => void
+	onInspectSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
+	onEditSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
+	onSaveSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
+	onCloseSightingEditor?: () => void
+	onDeleteSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
+	/** The geometry placed by the map-first pin-drop, fed to the Sighting editor. */
+	placedSightingGeometry?: import('geojson').Geometry | null
+	/** Switch the Sighting create flow to line/polygon draw (D-02). */
+	onDrawSightingArea?: () => void
+	/** Clear the inspected Sighting (hook-local view state) when browsing a catalog. */
+	onClearSightingView?: () => void
 	onZoomToFeature?: (feature: EditorFeature) => void
 	onExitViewMode?: () => void
 	featureCollectionForUpload?: FeatureCollection | null
@@ -230,6 +249,18 @@ export function AppSidebar({
 	onCloseStoryEditor,
 	onDeleteStory,
 	onStoryUpdated,
+	sightingEditorMode = 'none',
+	editingSighting,
+	viewSighting,
+	onCreateSighting,
+	onInspectSighting,
+	onEditSighting,
+	onSaveSighting,
+	onCloseSightingEditor,
+	onDeleteSighting,
+	placedSightingGeometry,
+	onDrawSightingArea,
+	onClearSightingView,
 	onZoomToFeature,
 	onExitViewMode,
 	featureCollectionForUpload,
@@ -313,8 +344,10 @@ export function AppSidebar({
 			Boolean(viewContext) ||
 			Boolean(viewDataset) ||
 			Boolean(viewStory) ||
+			Boolean(viewSighting) ||
 			contextEditorMode !== 'none' ||
-			storyEditorMode !== 'none'
+			storyEditorMode !== 'none' ||
+			sightingEditorMode !== 'none'
 		if (
 			!splitWithEditor &&
 			!hasInspectSubject &&
@@ -330,9 +363,18 @@ export function AppSidebar({
 		viewStory,
 		contextEditorMode,
 		storyEditorMode,
+		sightingEditorMode,
+		viewSighting,
 	])
 
 	useEffect(() => {
+		if (sightingEditorMode !== 'none' || viewSighting) {
+			setActiveEntity('sighting')
+			if (!splitWithEditor) {
+				setShowEntityAsFullPanel(true)
+			}
+			return
+		}
 		if (storyEditorMode !== 'none' || viewStory) {
 			setActiveEntity('story')
 			if (!splitWithEditor) {
@@ -353,7 +395,16 @@ export function AppSidebar({
 				setShowEntityAsFullPanel(true)
 			}
 		}
-	}, [contextEditorMode, storyEditorMode, splitWithEditor, viewContext, viewStory, viewDataset])
+	}, [
+		contextEditorMode,
+		storyEditorMode,
+		sightingEditorMode,
+		splitWithEditor,
+		viewContext,
+		viewStory,
+		viewSighting,
+		viewDataset,
+	])
 
 	const leaveMetaOverrideIfNeeded = () => {
 		if (metaModeActive) {
@@ -369,6 +420,7 @@ export function AppSidebar({
 		setViewContextState(null)
 		setViewDatasetState(null)
 		setViewStoryState(null)
+		onClearSightingView?.()
 		setActiveWorkMode(mode)
 		setShowEntityAsFullPanel(false)
 		navigateToView(mode)
@@ -378,6 +430,7 @@ export function AppSidebar({
 		setViewContextState(null)
 		setViewDatasetState(null)
 		setViewStoryState(null)
+		onClearSightingView?.()
 		setShowEntityAsFullPanel(false)
 		navigateToView(mode)
 	}
@@ -468,6 +521,49 @@ export function AppSidebar({
 		navigateToView('stories')
 	}
 
+	// Sighting handlers (D-01/D-07) — mirror the Story handlers: each opens the
+	// Sighting surface as the full info panel and marks the active entity 'sighting'.
+	const handleInspectSighting = (
+		sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting,
+	) => {
+		onInspectSighting?.(sighting)
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('sighting')
+		setShowEntityAsFullPanel(true)
+	}
+
+	const handleCreateSighting = () => {
+		onCreateSighting?.()
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('sighting')
+		setShowEntityAsFullPanel(true)
+	}
+
+	const handleEditSighting = (
+		sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting,
+	) => {
+		onEditSighting?.(sighting)
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('sighting')
+		setShowEntityAsFullPanel(true)
+	}
+
+	const handleSaveSighting = (
+		sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting,
+	) => {
+		onSaveSighting?.(sighting)
+		setActiveEntity('sighting')
+		setShowEntityAsFullPanel(true)
+		setActiveWorkMode('sightings')
+	}
+
+	const handleCloseSightingEditor = () => {
+		onCloseSightingEditor?.()
+		setShowEntityAsFullPanel(false)
+		setActiveWorkMode('sightings')
+		navigateToView('sightings')
+	}
+
 	// Round E.4/F.4: derived, not stored. Geometry mirrors the stance; the
 	// context entity mirrors whether the context editor is open. Used by the
 	// info panel (empty-state copy) and the rail surface highlighting.
@@ -486,9 +582,12 @@ export function AppSidebar({
 	// browse catalogs, and there's no empty-void state. It's the way back to
 	// your editor/inspector panel after you've wandered off to a catalog.
 	const currentSurface: 'editor' | 'inspector' | null =
-		editorStance === 'author' || contextEditorMode !== 'none' || storyEditorMode !== 'none'
+		editorStance === 'author' ||
+		contextEditorMode !== 'none' ||
+		storyEditorMode !== 'none' ||
+		sightingEditorMode !== 'none'
 			? 'editor'
-			: editorStance === 'focus' || viewDataset || viewContext || viewStory
+			: editorStance === 'focus' || viewDataset || viewContext || viewStory || viewSighting
 				? 'inspector'
 				: null
 
@@ -496,11 +595,13 @@ export function AppSidebar({
 		leaveMetaOverrideIfNeeded()
 		setShowEntityAsFullPanel(true)
 		setActiveEntity(
-			storyEditorMode !== 'none' || viewStory
-				? 'story'
-				: contextEditorMode !== 'none' || viewContext
-					? 'context'
-					: 'geometry',
+			sightingEditorMode !== 'none' || viewSighting
+				? 'sighting'
+				: storyEditorMode !== 'none' || viewStory
+					? 'story'
+					: contextEditorMode !== 'none' || viewContext
+						? 'context'
+						: 'geometry',
 		)
 	}
 
@@ -537,6 +638,15 @@ export function AppSidebar({
 		onCreateStory: handleCreateStory,
 		onEditStory: handleEditStory,
 		onDeleteStory: onDeleteStory ?? (() => {}),
+		deletingKey,
+	}
+
+	const sightingsPanelProps = {
+		currentUserPubkey,
+		onOpenSighting: handleInspectSighting,
+		onCreateSighting: handleCreateSighting,
+		onEditSighting: handleEditSighting,
+		onDeleteSighting: onDeleteSighting ?? (() => {}),
 		deletingKey,
 	}
 
@@ -600,6 +710,15 @@ export function AppSidebar({
 		onEditStory: handleEditStory,
 		onDeleteStory,
 		onStoryUpdated,
+		sightingEditorMode,
+		editingSighting,
+		viewSighting,
+		placedSightingGeometry,
+		onSaveSighting: handleSaveSighting,
+		onCloseSightingEditor: handleCloseSightingEditor,
+		onEditSighting: handleEditSighting,
+		onDeleteSighting,
+		onDrawSightingArea,
 		mapContextEvents,
 		onZoomToFeature,
 		featureCollectionForUpload,
@@ -620,6 +739,8 @@ export function AppSidebar({
 				return <GeoDatasetsPanelContent mode="contexts" {...datasetsPanelProps} />
 			case 'stories':
 				return <StoriesPanelContent {...storiesPanelProps} />
+			case 'sightings':
+				return <SightingsPanelContent {...sightingsPanelProps} />
 			case 'user': {
 				const profilePubkey = userPubkey ?? currentUserPubkey
 				if (!profilePubkey) {

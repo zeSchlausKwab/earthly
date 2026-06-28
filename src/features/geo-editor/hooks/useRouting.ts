@@ -11,6 +11,7 @@ const SIDEBAR_VIEW_MODES: SidebarViewMode[] = [
 	'contexts',
 	'context-editor',
 	'stories',
+	'sightings',
 	'combined',
 	'edit',
 	'posts',
