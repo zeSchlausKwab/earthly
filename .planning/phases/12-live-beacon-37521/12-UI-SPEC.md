@@ -1,10 +1,11 @@
 ---
 phase: 12
 slug: live-beacon-37521
-status: draft
+status: approved
 shadcn_initialized: true
 preset: radix-mira
 created: 2026-06-28
+reviewed_at: 2026-06-28
 ---
 
 # Phase 12 — UI Design Contract
