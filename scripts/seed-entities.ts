@@ -9,8 +9,10 @@
  *   - Many curated (`a`) + attached/foreign (`c`) datasets (kind 37515) per Group
  *   - A roster of named contributors (each with a kind-0 profile, so "Mute @name"
  *     shows a real display name)
- *   - Stories / Articles (kind 37520), Live Beacons (kind 37521, NIP-40 expiry),
- *     Temporal Sightings (kind 37522, time bounds + NIP-40 expiry, some `c`-attached)
+ *   - Stories / Articles (kind 37520) and Live Beacons (kind 37521, NIP-40 expiry)
+ *
+ * Temporal Sightings (kind 37522) live in `scripts/seed-sightings.ts` — the dev
+ * script (`scripts/dev-clean.sh`) runs both seeders.
  *
  * Built + signed through the REAL entity factories (authoritative
  * `modelVersion: "earthly/2"` + correct tag shapes), published straight to the
@@ -32,7 +34,6 @@ import { devUser1, devUser2, devUser3, devUser4, devUser5 } from '@/lib/fixtures
 import { GroupFactory } from '@/lib/nostr/group/factory'
 import { ArticleFactory } from '@/lib/nostr/article/factory'
 import { LiveBeaconFactory } from '@/lib/nostr/live-beacon/factory'
-import { TemporalSightingFactory } from '@/lib/nostr/temporal-sighting/factory'
 import { GeoDatasetFactory } from '@/lib/nostr/geo-event/factory'
 import type { GeoBoundingBox } from '@/lib/nostr/geo-event/helpers'
 import {
@@ -415,26 +416,10 @@ async function seed(): Promise<void> {
 	}
 	console.log('  ✓ 4 → CLOSED heritage group (must stay HIDDEN)')
 
-	// ── Temporal Sightings (kind 37522) ─────────────────────────────────────────
-	console.log('\nTemporal Sightings:')
-	const sightingSpecs = [
-		{ title: 'Kingfisher at Donaukanal', desc: 'Diving near Salztorbrücke.', start: now() - HOUR, end: now(), ctx: [cyclingCoord], ttl: 30 * DAY, who: contributors[4] },
-		{ title: 'Peregrine on Stephansdom', desc: 'Nesting pair sighted.', start: now() - 2 * HOUR, end: now() - HOUR, ctx: [], ttl: 14 * DAY, who: contributors[5] },
-		{ title: 'Naschmarkt night pop-up', desc: 'Temporary food stalls this weekend.', start: now() + DAY, end: now() + DAY + 6 * HOUR, ctx: [], ttl: 7 * DAY, who: contributors[0] },
-		{ title: 'Mural unveiling — Gürtel', desc: 'Live painting event.', start: now() + 2 * DAY, end: now() + 2 * DAY + 4 * HOUR, ctx: [artCoord], ttl: 10 * DAY, who: contributors[1] },
-		{ title: 'Beaver dam — Lobau', desc: 'Fresh activity observed.', start: now() - 6 * HOUR, end: now() - 5 * HOUR, ctx: [], ttl: 21 * DAY, who: contributors[6] },
-		{ title: 'Hedgehog crossing — Prater', desc: 'Recurring nightly crossing.', start: now() - DAY, end: now(), ctx: [cyclingCoord], ttl: 14 * DAY, who: contributors[2] },
-	]
-	for (const s of sightingSpecs) {
-		let f = TemporalSightingFactory.create({ title: s.title, description: s.desc, start: s.start, end: s.end })
-			.hashtags(['sighting', 'vienna'])
-			.bbox(VIENNA_BBOX)
-			.geohash(jitter(VIENNA_CENTROID))
-			.expiration(now() + s.ttl)
-		if (s.ctx.length) f = f.contextReferences(s.ctx)
-		await publish(f, s.who.signer)
-	}
-	console.log(`  ✓ ${sightingSpecs.length} sightings (2 attached to groups)`)
+	// Temporal Sightings (kind 37522) are seeded by `scripts/seed-sightings.ts`
+	// (distinct point/area geometry + full live/upcoming/past variety). The dev
+	// script runs both seeders; keeping sightings out of this file avoids
+	// duplicate-titled, same-bbox-stacked markers on the map.
 
 	// ── Live Beacons (kind 37521) ───────────────────────────────────────────────
 	console.log('\nLive Beacons:')

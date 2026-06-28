@@ -38,9 +38,16 @@ RELAY_PID=$!
 # Wait for relay to start
 sleep 2
 
-# Run migration
-echo "🔄 Running migration..."
-bun run seed
+# Seed the local relay with the current v1.2 entity model:
+#   seed:entities  → Groups (governance ladder) + curated/foreign datasets +
+#                    contributor profiles + Stories (37520) + Live Beacons (37521)
+#   seed:sightings → Temporal Sightings (37522) — distinct points, live/upcoming/past
+# The legacy `bun run seed` (kind-37518 map-context model) is retired — the v1.2 app
+# defensively skips those events (clean break on legacy 37518), so it was dead noise.
+echo "🌱 Seeding v1.2 entities (groups / datasets / stories / beacons)..."
+bun run seed:entities
+echo "🌱 Seeding temporal sightings..."
+bun run seed:sightings
 
 # Start ContextVM in background
 echo "🤖 Starting ContextVM..."
