@@ -45,7 +45,8 @@ async function ensureResvg(): Promise<void> {
 					const f = Bun.file(fontPath)
 					if (await f.exists()) {
 						fontBuffer = new Uint8Array(await f.arrayBuffer())
-						console.log(`[OG] Font loaded: ${fontPath}`)
+						// IN-01: removed the per-font-load console.log (per-crawl noise in
+						// production OG-image logs).
 						break
 					}
 				} catch {
