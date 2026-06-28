@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
-status: executing
+status: verifying
 stopped_at: Phase 11 UI-SPEC approved
-last_updated: "2026-06-28T07:03:07.062Z"
+last_updated: "2026-06-28T07:24:57.866Z"
 last_activity: 2026-06-28 -- Plan 11-02 (Temporal Sighting data layer) complete — SIGHT-01/02/03 seams GREEN
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 19
-  completed_plans: 18
-  percent: 50
+  completed_plans: 19
+  percent: 67
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 Phase: 11 (temporal-sighting) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-28 -- Plan 11-02 (Temporal Sighting data layer) complete — SIGHT-01/02/03 seams GREEN
 
 Progress: [███░░░░░░░] 33% (v1.2 — 2/6 phases)
@@ -81,6 +81,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 | Phase 11 P01 | 18min | 2 tasks | 4 files |
 | Phase 11 P02 | ~30m | 2 tasks | 8 files |
 | Phase 11 P03 | 55min | 3 tasks | 11 files |
+| Phase 11 P04 | 50min | 2 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -114,6 +115,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [11-02]: Temporal Sighting data layer shipped — content.geometry (Point|Line|Polygon, D-02) with bbox/g re-derived from geometry via turf every publish; publishSighting/editSighting/deleteSighting lifecycle (editSighting preserves d; expiry independent of observation end); classifyObservationState live/upcoming/past (D-06); local-first sighting draft; useSightings filter-before-cast + dropExpired at the subscription (SIGHT-03). eventStore extracted to src/lib/nostr/store.ts so the lifecycle stamps the parent-store ref for store-free castEvent (Plan-01 round-trip mocked the barrel). Plan-01 RED→GREEN; Temporal Sighting set 23/0; suite 717/0; build+biome green.
 - [Phase ?]: 11-03: viewSighting held hook-local (not store/route) — /sighting/:naddr route + viewModeSlice promotion deferred to Plan 04 (D-08)
 - [Phase ?]: 11-03: Sighting map marker rides useMapLayers source/layer pair with its own dropExpired-before-source-build; obsState paint, live → --primary accent
+- [Phase ?]: Phase 11 Plan 04: SightingViewPanel gates expiry at the detail read path independently (5th SIGHT-03 read path); SIGHT-04 = pure mount + type-union widening only (NIP-22 K/k enum stays Phase 13); /sighting/:naddr is a thin per-kind clone (Phase 13 owns XCUT-02)
 
 ### Pending Todos
 
@@ -154,7 +156,7 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-06-28T07:02:57.990Z
+Last session: 2026-06-28T07:24:42.511Z
 Stopped at: Phase 11 UI-SPEC approved
 Resume file: .planning/phases/11-temporal-sighting/11-UI-SPEC.md
 

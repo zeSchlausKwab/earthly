@@ -46,8 +46,8 @@ Requirements for the v1.2 milestone. Full v2 / clean-break scope: spec + all eve
 
 - [ ] **SIGHT-01**: A user can create a Sighting — a single placed feature with a title, description, and an observation time (NIP-52 `start`, optional `end`) distinct from the publish time.
 - [ ] **SIGHT-02**: A user can attach a Sighting to a Group/Topic via a `c` tag.
-- [ ] **SIGHT-03**: A Sighting can carry an expiry so stale sightings auto-fade from the map (NIP-40, client-filtered).
-- [ ] **SIGHT-04**: A user can comment on and react to a Sighting.
+- [x] **SIGHT-03**: A Sighting can carry an expiry so stale sightings auto-fade from the map (NIP-40, client-filtered).
+- [x] **SIGHT-04**: A user can comment on and react to a Sighting.
 
 ### Taxonomy (TAX)
 
@@ -127,8 +127,8 @@ Populated during roadmap creation. Phase numbering continues from v1.1 (which en
 | STORY-06 | Phase 10 | Done (10-04 — createForStory content-type extension + author diff-preview panel/reader dialog; accept republishes via editStory; 693/0, build green; cbe9917, 1888f7d) |
 | SIGHT-01 | Phase 11 | Pending |
 | SIGHT-02 | Phase 11 | Pending |
-| SIGHT-03 | Phase 11 | Pending |
-| SIGHT-04 | Phase 11 | Pending |
+| SIGHT-03 | Phase 11 | Complete |
+| SIGHT-04 | Phase 11 | Complete |
 | BEACON-01 | Phase 12 | Pending |
 | BEACON-02 | Phase 12 | Pending |
 | BEACON-03 | Phase 12 | Pending |

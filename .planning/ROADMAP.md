@@ -31,7 +31,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 - [x] **Phase 8: Spec v2 + Foundation** — Kind assignment, SPEC.md v2, Factory+Cast scaffolding, shared `tags.ts`, version discriminator + legacy skip, off-thread schema-validation worker, NIP-40 expiry filter, NIP-32 `L`/`l` taxonomy helper
 - [x] **Phase 9: Group / Topic (37518 slimmed)** — Attach-push `c`-lane, governance ladder (open · schema · closed), schema authoring + validate-on-fetch, NO-MOD MINIMUM, comment/react (completed 2026-06-26)
 - [x] **Phase 10: Story / Article (~37520)** — Curate-pull Markdown narrative, inline geo-ref render (eye-toggle/fly-to), naddr→`a` mirroring, draft + in-place edit, comment/react/propose-edit (completed 2026-06-27)
-- [ ] **Phase 11: Temporal Sighting** — Time-bound placed observation (NIP-52 `start`/`end`), optional NIP-40 auto-fade, `c`-attach to Group, comment/react
+- [x] **Phase 11: Temporal Sighting** — Time-bound placed observation (NIP-52 `start`/`end`), optional NIP-40 auto-fade, `c`-attach to Group, comment/react (completed 2026-06-28)
 - [ ] **Phase 12: Live Beacon (~37521)** — Real-time updating position point, NIP-40 time-box + explicit stop, honest staleness, public/share-link viewing, live-map render
 - [ ] **Phase 13: Cross-Cutting** — Comment `K`/`k` root-scope widening + entity routing/addressing across all four new kinds
 
@@ -166,7 +166,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 3** *(blocked on Wave 2)*
 
-  - [ ] 11-04-PLAN.md — Reading + share: SightingViewPanel + comment/react mount + target-union widening (SIGHT-04), thin /sighting/:naddr route + expiry-aware OG card (D-08, SIGHT-03 server path) [SIGHT-03/04]
+  - [x] 11-04-PLAN.md — Reading + share: SightingViewPanel + comment/react mount + target-union widening (SIGHT-04), thin /sighting/:naddr route + expiry-aware OG card (D-08, SIGHT-03 server path) [SIGHT-03/04]
 
 **Research flag**: RESOLVED at roadmap level (Phase 8) — dedicated kind 37522; no relay-side Khatru change needed (generic addressable kind via existing `pool.req`). Phase RESEARCH/CONTEXT/PATTERNS/UI-SPEC produced; the one data-layer gap (geometry on content) + one visual concern (observation-state marker) are the only net-new logic. D-08 scoped THIN (per-kind route + OG card); canonical addressing + read-side K/k widening deferred to Phase 13 (XCUT-01/02).
 **UI hint**: yes
@@ -218,7 +218,7 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 8. Spec v2 + Foundation | v1.2 | 5/5 | Complete    | 2026-06-25 |
 | 9. Group / Topic (37518 slimmed) | v1.2 | 6/6 | Complete    | 2026-06-26 |
 | 10. Story / Article (~37520) | v1.2 | 4/4 | Complete    | 2026-06-27 |
-| 11. Temporal Sighting | v1.2 | 3/4 | In Progress|  |
+| 11. Temporal Sighting | v1.2 | 4/4 | Complete   | 2026-06-28 |
 | 12. Live Beacon (~37521) | v1.2 | 0/TBD | Not started | - |
 | 13. Cross-Cutting | v1.2 | 0/TBD | Not started | - |
 </content>
