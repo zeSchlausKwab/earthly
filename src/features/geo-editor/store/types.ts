@@ -313,7 +313,7 @@ export interface ViewModeSlice {
 	setActiveContextScope: (naddr: string | null, coordinate: string | null) => void
 	clearActiveContextScope: () => void
 
-	setFocused: (type: 'geoevent' | 'mapcontext' | 'story', naddr: string) => void
+	setFocused: (type: 'geoevent' | 'mapcontext' | 'story' | 'sighting', naddr: string) => void
 	clearFocused: () => void
 	setFocusedMapGeometry: (focused: ViewModeSlice['focusedMapGeometry']) => void
 	clearFocusedMapGeometry: () => void
