@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
-status: verifying
-stopped_at: Phase 12 context gathered
-last_updated: "2026-06-28T13:26:19.539Z"
+status: planned
+stopped_at: Phase 12 planned — 5 plans, ready to execute
+last_updated: "2026-06-28T17:11:00.000Z"
 last_activity: 2026-06-28 -- Phase 11 closed out (verify-work + secure-phase passed)
 progress:
   total_phases: 6
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 ## Current Position
 
-Phase: 12 (live-beacon) — NOT STARTED
-Plan: Not started
-Status: Phase 11 (Temporal Sighting) COMPLETE & VERIFIED 2026-06-28 — 4/4 plans, UAT 3/3 pass, security threats_open:0 (17/17), 735/0 tests. SC2 (Group-lane rendering of Sightings) deferred to Phase 13 / XCUT-01. Next: discuss/plan Phase 12 (Beacon lifecycle decision LEFT OPEN — replaceable+NIP-40 vs ephemeral).
+Phase: 12 (live-beacon) — PLANNED (ready to execute)
+Plan: 5 plans in 4 waves (12-01..12-05); plan-checker VERIFICATION PASSED (0 blockers, 3 advisory warnings)
+Status: Phase 12 (Live Beacon ~37521) PLANNED 2026-06-28 — research HIGH-confidence (all 8 open unknowns resolved from source: Khatru replacer round-trips 37521 latest-wins but NIP-40 GC is lazy → client dropExpired is the only trusted layer; throwaway signer = PrivateKeySigner(generateSecretKey()) + routing:'configured'; no seq tag needed; content = GeoJSON Point + status:'live'|'ended'; visibility = t:'live' marker). 5 plans cover BEACON-01..04 + all D-01..D-12; net-new = useBeaconPublisher (throttled watchPosition + per-session throwaway key) + RunningBeaconBanner + beaconState paint; rest is a kind-substituted Phase-11 Sighting clone. Scope fences: /beacon/:naddr kept thin (Phase 13 generalizes), comment/react + encryption (BEACON-07/cordn) deferred. Next: /gsd-execute-phase 12.
 Last activity: 2026-06-28 -- Phase 11 closed out (verify-work + secure-phase passed)
 
 Progress: [██████░░░░] 67% (v1.2 — 4/6 phases)
@@ -158,9 +158,9 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-06-28T13:26:19.533Z
-Stopped at: Phase 12 context gathered
-Resume file: .planning/phases/12-live-beacon-37521/12-CONTEXT.md
+Last session: 2026-06-28T14:33:15.845Z
+Stopped at: Phase 12 planned — 5 plans, ready to execute
+Resume file: .planning/phases/12-live-beacon-37521/12-01-PLAN.md
 
 ## Operator Next Steps
 
