@@ -5,6 +5,7 @@
  * (including `LIVE_BEACON_KIND`, `isLiveBeacon`).
  */
 
+export * from './beaconState'
 export * from './cast'
 export * from './factory'
 export * from './helpers'
