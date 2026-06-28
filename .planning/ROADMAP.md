@@ -218,7 +218,7 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 8. Spec v2 + Foundation | v1.2 | 5/5 | Complete    | 2026-06-25 |
 | 9. Group / Topic (37518 slimmed) | v1.2 | 6/6 | Complete    | 2026-06-26 |
 | 10. Story / Article (~37520) | v1.2 | 4/4 | Complete    | 2026-06-27 |
-| 11. Temporal Sighting | v1.2 | 4/4 | Complete   | 2026-06-28 |
+| 11. Temporal Sighting | v1.2 | 4/4 | Complete    | 2026-06-28 |
 | 12. Live Beacon (~37521) | v1.2 | 0/TBD | Not started | - |
 | 13. Cross-Cutting | v1.2 | 0/TBD | Not started | - |
 </content>

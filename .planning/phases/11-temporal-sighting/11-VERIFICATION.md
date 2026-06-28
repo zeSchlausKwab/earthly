@@ -1,8 +1,10 @@
 ---
 phase: 11-temporal-sighting
 verified: 2026-06-28T08:03:27Z
-status: human_needed
-score: 3/4
+status: passed
+resolved: 2026-06-28T11:10:00Z
+resolution: "UAT 3/3 formal items PASS (11-UAT.md); SC2 (Group-lane rendering of Sightings) formally DEFERRED to Phase 13 / XCUT-01. Security verified threats_open:0 (11-SECURITY.md)."
+score: 4/4
 overrides_applied: 0
 gaps: []
 human_verification:

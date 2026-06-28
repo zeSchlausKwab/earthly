@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
-status: verifying
-stopped_at: Phase 11 UI-SPEC approved
-last_updated: "2026-06-28T07:24:57.866Z"
-last_activity: 2026-06-28 -- Plan 11-02 (Temporal Sighting data layer) complete — SIGHT-01/02/03 seams GREEN
+status: executing
+stopped_at: Phase 11 complete &amp; verified — ready for Phase 12
+last_updated: "2026-06-28T12:47:15.474Z"
+last_activity: 2026-06-28
 progress:
   total_phases: 6
   completed_phases: 4
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 **Core value:** The maintainer (and any user) can open the app for fun, not duty.
-**Current focus:** Phase 11 — temporal-sighting
+**Current focus:** Phase 12 — Live Beacon (~37521)
 
 ## Current Position
 
-Phase: 11 (temporal-sighting) — AWAITING UAT
-Plan: 4 of 4 (all executed)
-Status: All plans shipped + code-review fixed (CR-01 + 9 findings, 32e58ed..4972eba) + post-execution UI polish (list rows / map click+hover / zoom, 6a7c765 + 3-bug fix). Verification human_needed (735/0, build green); 3 behavioral UAT items in 11-UAT.md; SC2 Group-lane deferred to Phase 13.
-Last activity: 2026-06-28 -- Phase 11 verification human_needed; UAT persisted; SC2 deferred to Phase 13 (XCUT-01)
+Phase: 12 (live-beacon) — NOT STARTED
+Plan: Not started
+Status: Phase 11 (Temporal Sighting) COMPLETE & VERIFIED 2026-06-28 — 4/4 plans, UAT 3/3 pass, security threats_open:0 (17/17), 735/0 tests. SC2 (Group-lane rendering of Sightings) deferred to Phase 13 / XCUT-01. Next: discuss/plan Phase 12 (Beacon lifecycle decision LEFT OPEN — replaceable+NIP-40 vs ephemeral).
+Last activity: 2026-06-28 -- Phase 11 closed out (verify-work + secure-phase passed)
 
-Progress: [███░░░░░░░] 33% (v1.2 — 2/6 phases)
+Progress: [██████░░░░] 67% (v1.2 — 4/6 phases)
 
 ## Roadmap (v1.2 — Phases 8–13)
 
@@ -59,7 +59,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 | 8 | TBD | - | - |
 | 9 | 6 | - | - |
 | 10 | 4 | - | - |
-| 11 | TBD | - | - |
+| 11 | 4 | - | - |
 | 12 | TBD | - | - |
 | 13 | TBD | - | - |
 | 08 | 5 | - | - |
