@@ -14,6 +14,7 @@ export type SidebarViewMode =
 	| 'context-editor'
 	| 'stories'
 	| 'sightings'
+	| 'beacons'
 	| 'combined'
 	| 'edit'
 	| 'posts'
@@ -30,7 +31,7 @@ export type SidebarViewMode =
  */
 export interface RouteSnapshot {
 	sidebarView: SidebarViewMode
-	focusType: 'none' | 'geoevent' | 'mapcontext' | 'story' | 'sighting'
+	focusType: 'none' | 'geoevent' | 'mapcontext' | 'story' | 'sighting' | 'beacon'
 	naddr?: string
 	contextNaddr?: string
 	contextCoordinate?: string
@@ -295,7 +296,7 @@ export interface ViewModeSlice {
 	activeContextScopeCoordinate: string | null
 
 	focusedNaddr: string | null
-	focusedType: 'geoevent' | 'mapcontext' | 'story' | 'sighting' | null
+	focusedType: 'geoevent' | 'mapcontext' | 'story' | 'sighting' | 'beacon' | null
 	focusedMapGeometry: {
 		bbox: [number, number, number, number]
 		datasetId?: string

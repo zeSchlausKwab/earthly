@@ -1,5 +1,6 @@
 import { nip19 } from 'nostr-tools'
 import { ARTICLE_KIND, GEO_EVENT_KIND, TEMPORAL_SIGHTING_KIND } from '../nostr/kinds'
+import { fetchEventFromRelay } from './relayFetch'
 
 export interface GeoEventOGData {
 	title: string
@@ -77,71 +78,6 @@ export function decodeNaddr(naddr: string): {
 	} catch {
 		return null
 	}
-}
-
-/**
- * Fetch a Nostr event from a relay using WebSocket.
- *
- * WR-05: kind 37522 (and the other OG kinds) are parameterized-replaceable, so a
- * relay MAY stream an older version before the newest one. We therefore add an
- * explicit `limit: 1` to the filter AND collect every matching EVENT until EOSE,
- * resolving with the highest-`created_at` event (newest-wins) rather than the
- * first frame that arrives. This prevents the OG card from rendering a superseded
- * (e.g. pre-edit or pre-expiry) snapshot.
- */
-async function fetchEventFromRelay(
-	relayUrl: string,
-	filter: { kinds: number[]; authors: string[]; '#d': string[] },
-	timeoutMs = 5000,
-): Promise<NostrEvent | null> {
-	// Convert ws:// to http:// for comparison, handle both protocols
-	const wsUrl = relayUrl.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:')
-
-	return new Promise((resolve) => {
-		let newest: NostrEvent | null = null
-
-		const finish = () => {
-			clearTimeout(timeout)
-			try {
-				ws.send(JSON.stringify(['CLOSE', subId]))
-			} catch {
-				// socket may already be closing — ignore
-			}
-			ws.close()
-			resolve(newest)
-		}
-
-		const timeout = setTimeout(finish, timeoutMs)
-
-		const ws = new WebSocket(wsUrl)
-		const subId = crypto.randomUUID().slice(0, 8)
-
-		ws.onopen = () => {
-			ws.send(JSON.stringify(['REQ', subId, { ...filter, limit: 1 }]))
-		}
-
-		ws.onmessage = (msg) => {
-			try {
-				const data = JSON.parse(msg.data as string)
-				if (data[0] === 'EVENT' && data[1] === subId) {
-					// Collect until EOSE; keep the highest created_at (newest-wins).
-					const event = data[2] as NostrEvent
-					if (!newest || event.created_at > newest.created_at) {
-						newest = event
-					}
-				} else if (data[0] === 'EOSE' && data[1] === subId) {
-					finish()
-				}
-			} catch {
-				// Ignore parse errors
-			}
-		}
-
-		ws.onerror = () => {
-			clearTimeout(timeout)
-			resolve(newest)
-		}
-	})
 }
 
 interface NostrEvent {

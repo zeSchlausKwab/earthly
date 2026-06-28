@@ -180,6 +180,30 @@ export function generateSightingOGHtml(
 	})
 }
 
+/**
+ * Generate OG HTML for a Live Beacon (kind 37521). The beacon `label` is
+ * untrusted author content; generateOGHtml escapes every interpolated value and
+ * validates `url`/`image` scheme before rendering (T-12-05-XSS, mirrors the
+ * audited Sighting OG path). The copy is HONEST about staleness: a beacon may have
+ * already gone stale or ended by the time the card is fetched/rendered, so the
+ * default description reads "Live location — may have ended" (D-11). A beacon has
+ * no cover image of its own, so the OG image falls back to the generated card.
+ */
+export function generateBeaconOGHtml(
+	baseUrl: string,
+	naddr: string,
+	title: string,
+	description: string,
+): string {
+	return generateOGHtml({
+		title: title || 'Live location',
+		description: description || 'Live location — may have ended. Watch it on Earthly.',
+		url: `${baseUrl}/#/beacons/beacon/${naddr}`,
+		image: `${baseUrl}/og/image/beacon/${naddr}`,
+		type: 'article',
+	})
+}
+
 function escapeHtml(text: string): string {
 	return text
 		.replace(/&/g, '&amp;')

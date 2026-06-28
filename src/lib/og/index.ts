@@ -1,5 +1,6 @@
 export { isCrawler } from './crawler'
 export {
+	fetchCachedBeaconEventOGData,
 	fetchCachedContextEventOGData,
 	fetchCachedGeoEventOGData,
 	fetchCachedSightingEventOGData,
@@ -15,6 +16,7 @@ export {
 	generateHomeOGHtml,
 	generateGeoEventOGHtml,
 	generateContextOGHtml,
+	generateBeaconOGHtml,
 	generateSightingOGHtml,
 	generateStoryOGHtml,
 	type OGMeta,
@@ -29,6 +31,7 @@ export {
 	type SightingOGData,
 	type StoryOGData,
 } from './fetchEvent'
+export { fetchBeaconOGData, type BeaconOGData } from './fetchBeacon'
 export {
 	fetchContextEventOGData,
 	type ContextEventOGData,

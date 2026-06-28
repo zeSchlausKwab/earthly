@@ -10,10 +10,12 @@ import {
 	generateHomeOGHtml,
 	generateGeoEventOGHtml,
 	generateContextOGHtml,
+	generateBeaconOGHtml,
 	generateSightingOGHtml,
 	generateStoryOGHtml,
 	fetchCachedGeoEventOGData,
 	fetchCachedContextEventOGData,
+	fetchCachedBeaconEventOGData,
 	fetchCachedSightingEventOGData,
 	fetchCachedStoryEventOGData,
 	getOGImageHeaders,
@@ -217,6 +219,48 @@ async function handleSightingRoute(req: BunRouteRequest): Promise<Response> {
 }
 
 /**
+ * Handle /beacon/:naddr — OG HTML for crawlers (D-11), redirect for users. A thin
+ * per-kind clone of handleSightingRoute (Phase 13 / XCUT-02 owns generalization).
+ *
+ * T-12-05-OGLEAK (Pitfall P-1): the underlying `fetchBeaconOGData` independently
+ * checks the NIP-40 `expiration` tag and returns null for an expired beacon, so a
+ * crawl of an expired/removed beacon renders the generic fallback card — the
+ * beacon's label is never leaked. The share naddr carries the THROWAWAY pubkey
+ * (the beacon is not under the user's profile, D-05); the fetch resolves it by
+ * `{ kind, pubkey, #d }`.
+ */
+async function handleBeaconRoute(req: BunRouteRequest): Promise<Response> {
+	const naddr = req.params.naddr ?? ''
+	const commentId = req.params.commentId ?? ''
+	const baseUrl = getBaseUrl(req)
+
+	if (!naddr) {
+		return Response.redirect(baseUrl, 302)
+	}
+
+	if (isCrawler(req)) {
+		const { data, cacheStatus } = await fetchCachedBeaconEventOGData(naddr, serverConfig.relayUrl)
+		const html = generateBeaconOGHtml(
+			baseUrl,
+			naddr,
+			data?.title ?? 'Live location',
+			data?.description ?? 'Live location — may have ended. Watch it on Earthly.',
+		)
+		return new Response(html, {
+			headers: getOGRouteHeaders(cacheStatus),
+		})
+	}
+
+	warmOGCache('beacon', naddr, serverConfig.relayUrl)
+
+	if (commentId) {
+		return Response.redirect(`${baseUrl}/#/beacons/beacon/${naddr}/comment/${commentId}`, 302)
+	}
+
+	return Response.redirect(`${baseUrl}/#/beacons/beacon/${naddr}`, 302)
+}
+
+/**
  * Handle /og/image/:type/:naddr — generate and serve a PNG OG image
  */
 async function handleOGImageRoute(req: BunRouteRequest): Promise<Response> {
@@ -297,6 +341,26 @@ async function handleOGImageRoute(req: BunRouteRequest): Promise<Response> {
 			return new Response(body, { headers: getOGImageHeaders(cacheStatus) })
 		}
 
+		if (type === 'beacon') {
+			// T-12-05-OGLEAK (Pitfall P-1): fetchCachedBeaconEventOGData returns null
+			// for an expired beacon, so an expired card image falls back to the generic
+			// title/description — the beacon's label is never leaked.
+			const { data, cacheStatus } = await fetchCachedBeaconEventOGData(
+				naddr,
+				serverConfig.relayUrl,
+				{ waitForFreshMs: 1500 },
+			)
+
+			const png = await generateOGImagePNG({
+				title: data?.title ?? 'Live location',
+				description: data?.description ?? 'Live location — may have ended.',
+			})
+
+			if (!png) return new Response('Image generation failed', { status: 500 })
+			const body = new Uint8Array(png).buffer
+			return new Response(body, { headers: getOGImageHeaders(cacheStatus) })
+		}
+
 		return new Response('Not found', { status: 404 })
 	} catch (err) {
 		console.error('[OG image route] Error:', err)
@@ -365,6 +429,8 @@ if (!isProduction) {
 			'/story/:naddr/comment/:commentId': handleStoryRoute,
 			'/sighting/:naddr': handleSightingRoute,
 			'/sighting/:naddr/comment/:commentId': handleSightingRoute,
+			'/beacon/:naddr': handleBeaconRoute,
+			'/beacon/:naddr/comment/:commentId': handleBeaconRoute,
 			'/og/image/:type/:naddr': handleOGImageRoute,
 		}
 

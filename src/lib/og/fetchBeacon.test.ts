@@ -23,13 +23,24 @@
  * cases below MUST fail now on the missing symbol. Do NOT implement it.
  */
 
-import { describe, expect, mock, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, mock, setSystemTime, test } from 'bun:test'
 import { nip19 } from 'nostr-tools'
 import { LIVE_BEACON_KIND } from '@/lib/nostr/kinds'
 
 const THROWAWAY_PUBKEY = 'd'.repeat(64)
 const BEACON_D = 'beacon-session-1'
 const NOW_SECONDS = 1_700_000_000
+
+// The expiry guard (`isOGEventExpired`) compares the NIP-40 `expiration` against
+// the real wall clock (epoch seconds). Freeze the clock to the fixed `NOW_SECONDS`
+// the fixtures are authored around so the live/expired cases below are
+// deterministic regardless of the real date the suite runs on.
+beforeAll(() => {
+	setSystemTime(new Date(NOW_SECONDS * 1000))
+})
+afterAll(() => {
+	setSystemTime()
+})
 
 /** Encode a parameterized-replaceable coordinate as an naddr (the share link). */
 function encodeBeaconNaddr(kind: number, pubkey: string, identifier: string): string {

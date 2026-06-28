@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
+import { fetchBeaconOGData, type BeaconOGData } from './fetchBeacon'
 import { fetchContextEventOGData, type ContextEventOGData } from './fetchContextEvent'
 import {
 	fetchGeoEventOGData,
@@ -11,7 +12,7 @@ import {
 	type StoryOGData,
 } from './fetchEvent'
 
-export type OGCacheType = 'geoevent' | 'context' | 'story' | 'sighting'
+export type OGCacheType = 'geoevent' | 'context' | 'story' | 'sighting' | 'beacon'
 export type OGCacheStatus = 'fresh' | 'stale' | 'refreshed' | 'fallback'
 
 type OGPayloadByType = {
@@ -19,6 +20,7 @@ type OGPayloadByType = {
 	context: ContextEventOGData
 	story: StoryOGData
 	sighting: SightingOGData
+	beacon: BeaconOGData
 }
 
 interface CachedOGRecord<T extends OGCacheType = OGCacheType> {
@@ -184,8 +186,12 @@ function isStaleButUsable(record: CachedOGRecord, now: number): boolean {
  * SWR window. Non-Sighting records and Sightings that never expire are unaffected.
  */
 function isContentExpired(record: CachedOGRecord, now: number): boolean {
-	if (record.type !== 'sighting') return false
-	const expiresAt = (record.payload as SightingOGData).contentExpiresAt
+	// Both Sightings and Beacons carry a NIP-40 `contentExpiresAt` (epoch ms): a
+	// record cached while live can outlive its expiry within the SWR window, so
+	// treat an expired one as a HARD MISS (T-12-05-OGLEAK — never serve an expired
+	// beacon's label from cache).
+	if (record.type !== 'sighting' && record.type !== 'beacon') return false
+	const expiresAt = (record.payload as SightingOGData | BeaconOGData).contentExpiresAt
 	return expiresAt !== null && expiresAt <= now
 }
 
@@ -217,7 +223,9 @@ async function fetchAndCacheRecord<T extends OGCacheType>(
 				? ((await fetchStoryOGData(naddr, relayUrl)) as OGPayloadByType[T] | null)
 				: type === 'sighting'
 					? ((await fetchSightingOGData(naddr, relayUrl)) as OGPayloadByType[T] | null)
-					: ((await fetchContextEventOGData(naddr, relayUrl)) as OGPayloadByType[T] | null)
+					: type === 'beacon'
+						? ((await fetchBeaconOGData(naddr, relayUrl)) as OGPayloadByType[T] | null)
+						: ((await fetchContextEventOGData(naddr, relayUrl)) as OGPayloadByType[T] | null)
 
 	if (!payload) return null
 
@@ -361,4 +369,12 @@ export async function fetchCachedSightingEventOGData(
 	options?: ResolveCachedOGOptions,
 ): Promise<ResolveCachedOGResult<'sighting'>> {
 	return resolveCachedOGData('sighting', naddr, relayUrl, options)
+}
+
+export async function fetchCachedBeaconEventOGData(
+	naddr: string,
+	relayUrl: string,
+	options?: ResolveCachedOGOptions,
+): Promise<ResolveCachedOGResult<'beacon'>> {
+	return resolveCachedOGData('beacon', naddr, relayUrl, options)
 }
