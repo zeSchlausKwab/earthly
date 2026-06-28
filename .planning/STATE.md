@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
-status: completed
+status: executing
 stopped_at: Phase 11 UI-SPEC approved
-last_updated: "2026-06-28T06:06:05.101Z"
-last_activity: 2026-06-28 -- Phase 11 planning complete
+last_updated: "2026-06-28T06:23:06.857Z"
+last_activity: 2026-06-28 -- Phase 11 execution started
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 15
-  completed_plans: 15
+  total_plans: 19
+  completed_plans: 16
   percent: 50
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 **Core value:** The maintainer (and any user) can open the app for fun, not duty.
-**Current focus:** Phase 10 — story-article-37520
+**Current focus:** Phase 11 — temporal-sighting
 
 ## Current Position
 
-Phase: 11
-Plan: Not started
-Status: Phase 10 Plans 01–04 complete; STORY-06 closed
-Last activity: 2026-06-28 -- Phase 11 planning complete
+Phase: 11 (temporal-sighting) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-06-28 -- Phase 11 execution started
 
 Progress: [███░░░░░░░] 33% (v1.2 — 2/6 phases)
 
@@ -78,6 +78,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 | Phase 10 P02 | ~30m | 2 tasks | 2 files |
 | Phase 10 P03 | ~70m | 2 tasks | 20 files |
 | Phase 10 P04 | ~28m | 2 tasks | 9 files |
+| Phase 11 P01 | 18min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -107,6 +108,7 @@ Recent decisions affecting current work:
 - [10-03]: Story reading + navigation spine shipped — src/components/info-panel/StoryViewPanel.tsx + src/features/geo-editor/hooks/useStoryEditor.ts + nav/comment/OG wiring across 18 files (bf1112e, 769414c). StoryViewPanel is the GroupViewPanel reading analog with the CuratedLane/ForeignLane two-lane machinery STRIPPED (a Story is closed/curated): EntityPanelShell + tone=context surface (Story eyebrow + date meta + 16:9 cover w/ neutral placeholder) renders the Markdown body ONLY through the sanitized RichContentRenderer — inline geo-refs render in place with eye-toggle (show/hide on main map) + fly-to, DEFAULT HIDDEN (renderer chip starts hidden, emits a toggle only on reader opt-in → no auto-load of attacker-controlled targets, T-10-07/T-10-08; zero dangerouslySetInnerHTML). Owner Edit/ConfirmDeleteAction; tone=discussion CommentsPanel on the 37520 coord (STORY-05). XCUT-01 MINIMAL slice: widened CommentsPanel/useGeoComments target unions + react() param to accept Article + getEntitySharePath ARTICLE_KIND→'story' (did NOT widen NIP-22 K/k root-kind enum — runtime rooting already kind-generic, full widening stays Phase 13). Nav spine: AppSidebar Stories rail destination (BookOpen) + New Story create + StoriesPanelContent case (D-01/D-02), story is a 3rd EntityWorkspace; GeoEditorInfoPanel StoryEditorPanel create/edit + StoryViewPanel view branches gated on storyEditorMode/viewStory (D-03); store viewStory slot + setViewStory + applyRouteState story clause; SidebarViewMode+focusType+RouteSnapshot widened to 'story'/'stories'; useRouting /story parse + buildRoutePath; useStoryEditor hook (mirrors useContextEditor) + GeoEditorView /stories/story/:naddr focus-route resolve via useStories + handleDeleteStory; OG (D-04) handleStoryRoute + /story/:naddr routes + OG-image story case + fetchStoryOGData (NIP-23 title/summary/image) + generateStoryOGHtml (reuses audited generateOGHtml escaping, T-10-09) + 'story' OGCacheType; deleteStory NIP-09 helper added (Rule 2 — onDeleteStory was a dead stub). Full suite 687/0 (no regression); build green (client+server+5 workers); tsc NET-REDUCED 454→450 (touched-file errors 12→8, remainder pre-existing); biome clean on new files (2 pre-existing GeoEditorInfoPanel noLabelWithoutControl out-of-scope). NOTE: gsd-tools not on PATH — STATE/ROADMAP/REQUIREMENTS updated manually.
 - [10-02]: Story authoring surface shipped — src/components/info-panel/StoryEditorPanel.tsx + src/components/StoriesPanel.tsx (188b8a5, 245f50c). StoryEditorPanel is a structural copy of GroupEditorPanel (Article for Group): Title/Summary/Cover(16:9 AspectRatio + BlossomUploaderButton) metadata block + GeoRichTextEditor Markdown body (built-in @-mention picker = STORY-02 insert half) wrapped in a Write/Preview Tabs pair where Preview renders ONLY through the sanitized RichContentRenderer (T-10-04, zero dangerouslySetInnerHTML). It calls the Plan-01 publishStory/editStory service (NOT a re-inlined ArticleFactory) so STORY-03 a-derive + STORY-04 d-lineage live in one tested module; Save draft/Discard-draft (alert-dialog) via writeStoryDraft/clearStoryDraft; pre-fill from getArticleContent (edit) or readStoryDraft (create); reserved-accent submit (Publish Story / Save changes). StoriesPanelContent copies GeoDatasetsPanelContent browse (useStories + useFilterState + useSortedFilteredItems + EntitySearchToolbar) but renders Card list-rows per UI-SPEC §1 (cover thumb img-src + title + summary + author/date + Draft/Published Badge + ⋮ DropdownMenu) instead of the analog's DataTable; accent New Story button at top (D-02); skeleton on load + UI-SPEC empty states ("No stories yet"/"No stories match"). Draft chip via readStoryDraft(dTag); copy-link copies the 37520:pubkey:d coordinate as a pre-routing fallback (canonical /story/:naddr + OG card is Plan 03). Rail destination wiring (AppSidebar/GeoEditorInfoPanel mounts) deferred to Plan 03 — this plan delivers only the panel-body components + their props contracts. Full suite 687/0 (identical to Plan-01 baseline, no regression); build green; both files biome-clean. NOTE: gsd-tools not on PATH — STATE/ROADMAP/REQUIREMENTS updated manually.
 - [10-01]: Story data-layer service shipped — src/lib/nostr/story/{lifecycle,draft,index}.ts + src/lib/hooks/useStories.ts. publishStory()/editStory() wrap the Phase-8 ArticleFactory and, on EVERY publish, destructively re-derive the `a` tags from the Markdown body's inline nostr:naddr refs via extractReferencedCoordinates → modifyPublicTags(setAddressReferenceTags) (STORY-03; body is the single source of truth — extracts the GroupEditorPanel.handleSave inline analog into one tested module Plans 02/04 share). editStory uses ArticleFactory.modify (preserves d, STORY-04 lineage, no fork). Malformed naddr inherited-excluded via naddrToCoordinate→null (no throw, T-10-01). Service does NOT cast (caller casts via castEvent). draft.ts: readStoryDraft/writeStoryDraft/clearStoryDraft keyed by d-tag over the existing readScopedStorage/writeScopedStorage primitives at base key 'earthly:story:drafts:v1' (NEW_STORY_DRAFT_KEY='new-story' sentinel); defensive map read → {} on malformed value, never throws (T-10-03 accept). useStories() copies useGroups exactly — isArticle filter BEFORE castEvent in the useMemo so a malformed/legacy/forged 37520 can't crash the timeline (T-10-02). 5-behavior lifecycle.test.ts GREEN (publish mocked via mock.module, no live publish); full suite 687/0; build green; new files biome-clean. NOTE: gsd-tools not on PATH — STATE/ROADMAP/REQUIREMENTS updated manually.
+- [Phase ?]: [11-01]: Nyquist Wave-0 RED baseline for kind 37522 — 4 test files pin the net-new geometry-on-content + bbox/g turf-derivation (SIGHT-01), the publishSighting lifecycle round-trip, and the classifyObservationState live/upcoming/past classifier (D-06) as RED; plus GREEN pins for c-emit/modify-d (SIGHT-02), per-read-path dropExpired over 37522 at a fixed UTC clock with epoch-seconds units guard (SIGHT-03, T-11-01-DOC), and GeoCommentFactory.root K/k=37522 (SIGHT-04, no allowlist). Baseline 16 pass/3 fail+1 error — failures isolated to missing publishSighting + classifyObservationState. sightingComment signs via a real EventSigner mock (EventFactory needs getPublicKey+signEvent). build green; 4 files biome-clean.
 
 ### Pending Todos
 
@@ -147,7 +149,7 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-06-27T15:34:16.303Z
+Last session: 2026-06-28T06:22:30.825Z
 Stopped at: Phase 11 UI-SPEC approved
 Resume file: .planning/phases/11-temporal-sighting/11-UI-SPEC.md
 
