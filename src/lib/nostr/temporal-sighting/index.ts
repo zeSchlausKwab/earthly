@@ -8,6 +8,7 @@
 export * from './cast'
 export * from './draft'
 export * from './factory'
+export * from './format'
 export * from './helpers'
 export * from './lifecycle'
 export * from './observationState'

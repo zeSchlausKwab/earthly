@@ -34,8 +34,18 @@ import { unixNow } from 'applesauce-core/helpers/time'
 import { Pencil } from 'lucide-react'
 import { CommentsPanel } from '@/features/social/comments'
 import { isExpired } from '@/lib/nostr/expiry'
-import { classifyObservationState } from '@/lib/nostr/temporal-sighting'
+import {
+	classifyObservationState,
+	formatExpiryCountdown,
+	formatObservationRange,
+	formatRelativeDate,
+} from '@/lib/nostr/temporal-sighting'
 import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
+
+// IN-03: re-export the shared formatters so the Plan-01 test contract
+// (SightingViewPanel.test.ts imports them from this module path) stays intact
+// after the helpers moved to the shared temporal-sighting/format module.
+export { formatExpiryCountdown, formatObservationRange }
 import type { GeoFeatureItem } from '../editor/GeoRichTextEditor'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
@@ -59,54 +69,6 @@ interface SightingViewPanelProps {
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
 	focusCommentId?: string
-}
-
-function formatRelativeDate(createdAt?: number): string {
-	if (!createdAt) return ''
-	const date = new Date(createdAt * 1000)
-	const diffMs = Date.now() - date.getTime()
-	const diffMins = Math.floor(diffMs / 60000)
-	const diffHours = Math.floor(diffMs / 3600000)
-	const diffDays = Math.floor(diffMs / 86400000)
-	if (diffMins < 1) return 'just now'
-	if (diffMins < 60) return `${diffMins}m ago`
-	if (diffHours < 24) return `${diffHours}h ago`
-	if (diffDays < 7) return `${diffDays}d ago`
-	return date.toLocaleDateString()
-}
-
-function formatTimestamp(epochSeconds: number): string {
-	const date = new Date(epochSeconds * 1000)
-	return date.toLocaleString()
-}
-
-/**
- * The observation-time range rows for the view ("Observed …" / "Until …"). A
- * Sighting with no observation time at all yields two nulls (the form may omit
- * the row entirely). Pure + total — never throws on undefined input.
- */
-export function formatObservationRange(
-	start: number | undefined,
-	end: number | undefined,
-): { observed: string | null; until: string | null } {
-	return {
-		observed: start !== undefined ? formatTimestamp(start) : null,
-		until: end !== undefined ? formatTimestamp(end) : null,
-	}
-}
-
-/**
- * The expiry countdown copy ("Fades in 6 days" / "Fades soon" if < 24h), or null
- * when the Sighting never expires or is already past expiry. Mirrors the
- * SightingsPanel browse-row countdown so the read view stays consistent.
- */
-export function formatExpiryCountdown(expiresAt: number | undefined, now: number): string | null {
-	if (expiresAt === undefined) return null
-	const remaining = expiresAt - now
-	if (remaining <= 0) return null
-	if (remaining < 86_400) return 'Fades soon'
-	const days = Math.round(remaining / 86_400)
-	return `Fades in ${days} day${days === 1 ? '' : 's'}`
 }
 
 function ExpiredOrEmpty({ heading, body }: { heading: string; body: string }) {

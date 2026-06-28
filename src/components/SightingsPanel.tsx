@@ -26,6 +26,8 @@ import { useSightings } from '@/lib/hooks/useSightings'
 import {
 	type TemporalSighting,
 	classifyObservationState,
+	formatExpiryCountdown,
+	formatRelativeDate,
 	readSightingDraft,
 } from '@/lib/nostr/temporal-sighting'
 import { UserProfile } from '@/components/user-profile'
@@ -60,30 +62,6 @@ const sightingFilterConfig: FilterConfig<TemporalSighting> = {
 		return [content.title, content.description, sighting.dTag]
 	},
 	getName: (sighting) => sighting.sighting.title ?? sighting.dTag ?? 'Untitled',
-}
-
-function formatRelativeDate(createdAt?: number): string {
-	if (!createdAt) return ''
-	const date = new Date(createdAt * 1000)
-	const diffMs = Date.now() - date.getTime()
-	const diffMins = Math.floor(diffMs / 60000)
-	const diffHours = Math.floor(diffMs / 3600000)
-	const diffDays = Math.floor(diffMs / 86400000)
-	if (diffMins < 1) return 'just now'
-	if (diffMins < 60) return `${diffMins}m ago`
-	if (diffHours < 24) return `${diffHours}h ago`
-	if (diffDays < 7) return `${diffDays}d ago`
-	return date.toLocaleDateString()
-}
-
-/** The expiry countdown copy ("Fades in 6 days" / "Fades soon"), or null if never. */
-function formatExpiryCountdown(expiresAt: number | undefined, now: number): string | null {
-	if (expiresAt === undefined) return null
-	const remaining = expiresAt - now
-	if (remaining <= 0) return null
-	if (remaining < 86_400) return 'Fades soon'
-	const days = Math.round(remaining / 86_400)
-	return `Fades in ${days} day${days === 1 ? '' : 's'}`
 }
 
 interface SightingRowProps {
