@@ -195,7 +195,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 2** *(blocked on Wave 1; 03 + 04 run in parallel — disjoint files)*
 
-  - [ ] 12-03-PLAN.md — NET-NEW: useBeaconPublisher — throttled own-watch publish loop (distance+time floor + heartbeat, D-01/D-02) under a per-session throwaway PrivateKeySigner (D-05), Stop teardown + permission/fix-unavailable handling [BEACON-01/02]
+  - [x] 12-03-PLAN.md — NET-NEW: useBeaconPublisher — throttled own-watch publish loop (distance+time floor + heartbeat, D-01/D-02) under a per-session throwaway PrivateKeySigner (D-05), Stop teardown + permission/fix-unavailable handling [BEACON-01/02]
   - [ ] 12-04-PLAN.md — Live-map render + browse rail: distinct beacon marker layer with data-driven live/stale/ended paint + dropExpired-before-source (D-07/D-08), BeaconsPanel rail (Radio, own-beacon-pinned-top, D-12), AppSidebar wiring, seed fixtures (geometry/status, all 4 states + link-only) [BEACON-01/03/04]
 
 **Wave 3** *(blocked on Wave 2)*
@@ -237,5 +237,5 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 9. Group / Topic (37518 slimmed) | v1.2 | 6/6 | Complete    | 2026-06-26 |
 | 10. Story / Article (~37520) | v1.2 | 4/4 | Complete    | 2026-06-27 |
 | 11. Temporal Sighting | v1.2 | 4/4 | Complete    | 2026-06-28 |
-| 12. Live Beacon (~37521) | v1.2 | 2/5 | In progress | - |
+| 12. Live Beacon (~37521) | v1.2 | 3/5 | In Progress|  |
 | 13. Cross-Cutting | v1.2 | 0/TBD | Not started | - |

@@ -4,13 +4,13 @@ milestone: v1.2
 milestone_name: Geo Entity Model Split
 status: executing
 stopped_at: Phase 12 Plan 02 complete — beacon data layer landed (lifecycle/visibility/useBeacons GREEN), ready for Plan 03
-last_updated: "2026-06-28T16:05:00.000Z"
+last_updated: "2026-06-28T15:48:54.308Z"
 last_activity: 2026-06-28 -- Phase 12 Plan 02 (Live Beacon data layer) complete
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 24
-  completed_plans: 21
+  completed_plans: 22
   percent: 67
 ---
 
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 ## Current Position
 
 Phase: 12 (live-beacon-37521) — EXECUTING
-Plan: 3 of 5
-Status: Executing Phase 12 (Plan 02 complete — beacon data layer GREEN)
+Plan: 4 of 5
+Status: Ready to execute
 Last activity: 2026-06-28 -- Phase 12 Plan 02 (Live Beacon data layer) complete
 
 Progress: [██████░░░░] 67% (v1.2 — 4/6 phases)
@@ -84,6 +84,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 | Phase 11 P04 | 50min | 2 tasks | 18 files |
 | Phase 12 P01 | ~22min | 2 tasks | 7 files |
 | Phase 12 P02 | ~12min | 2 tasks | 6 files |
+| Phase 12 P03 | 9min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -120,6 +121,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 11 Plan 04: SightingViewPanel gates expiry at the detail read path independently (5th SIGHT-03 read path); SIGHT-04 = pure mount + type-union widening only (NIP-22 K/k enum stays Phase 13); /sighting/:naddr is a thin per-kind clone (Phase 13 owns XCUT-02)
 - [12-02]: Live Beacon data layer shipped (lifecycle/visibility/useBeacons RED→GREEN 10/10). LiveBeaconContent reconciled: `position?:[number,number]` → `geometry?:Point` + `status?:'live'|'ended'`, DEFAULT={status:'live'} (defensive getter unchanged → legacy/seeded beacons render live, never throw); cast gained `.status`(default live) + `.geometry`. src/lib/nostr/live-beacon/lifecycle.ts = the single publish path cloned from temporal-sighting/lifecycle.ts: `updateBeacon({content,expiration,visibility,existing?},signer)` derives bbox+g via turf (try/catch→undefined) + emits t:'live' for PUBLIC, OMITS all three (t:live/g/bbox) for LINK-ONLY (P-6/T-12-02-LINKONLY); `stopBeacon(existing,signer)` re-publishes status:'ended' keeping the SAME d + retained NIP-40 expiration (D-04) and re-derives visibility from the existing t:'live'. KEY DIVERGENCE from the Sighting analog: `publish(signed,{routing:'configured'})` NOT 'outbox' (throwaway key has no NIP-65 mailbox → outbox would time out 1.5s/heartbeat, D-05) — grep-confirmed no routing:'outbox'. beaconState.ts: BEACON_HEARTBEAT_MS=30_000 / BEACON_DISTANCE_FLOOR_M=25 / BEACON_STALE_FACTOR=4 / BEACON_STALE_THRESHOLD_S=(heartbeat/1000)*factor (=120, DERIVED not literal); `beaconState(beacon,now)` precedence removed>ended>stale>live, past-threshold-status:live ⇒ stale (P-3), epoch-seconds only. useBeacons.ts cloned from useSightings: EXPIRY_TICK_MS=15_000 (finer than Sighting's 60s), default filter `[{'#t':['live']}]`, `selectVisibleBeacons(events,now)` pure filter-before-cast(P-2)+dropExpired(P-1)→casts; re-exports beaconState+BEACON_* from the live-beacon barrel so the 12-01 test import (@/lib/hooks/useBeacons) resolves. Full suite 747/8 — the 8 fails are EXCLUSIVELY Plan-03 useBeaconPublisher (5) + Plan-05 fetchBeacon (3), still-RED by design; relay-echo self-skipped. build+biome green on all 6 files. gsd-tools not on PATH — STATE/ROADMAP updated manually. CONTRACT NOTES for Plan 03/04: updateBeacon takes `existing?:NostrEvent` (modify-path d-preserve); beaconState accepts a cast OR raw event (`'rawEvent' in beacon` discriminant).
 - [12-01]: Nyquist Wave-0 RED baseline for kind 37521 — 6 test files + a reusable src/test/geolocationMock.ts pin every net-new+extended beacon seam as RED before Plans 02–05: updateBeacon/stopBeacon lifecycle (derive bbox/g + t:live, preserve-d on heartbeat, status:ended keeps expiration — BEACON-01/02/D-04/D-09), public-vs-link-only discovery gating (visibility.test.ts — BEACON-04/D-10/P-6), useBeacons beaconState removed>ended>stale>live + frozen-as-live-is-stale (P-3) + GREEN filter-before-cast pin (P-2) + dropExpired at fixed now (P-1) (BEACON-03/D-07/D-08), useBeaconPublisher throttle (distance 25m OR heartbeat 30s, single-guard P-4) + fresh-per-session secp256k1 key never persisted (D-05), fetchBeaconOGData throwaway-naddr round-trip + expiry-null + kind-gate (BEACON-04/D-11), and a bun-relay relay-echo.test.ts (latest-wins + client dropExpired, SPEC-05) that self-skips without a relay. 17 RED + 1 GREEN pin; biome clean; no production source touched (build unaffected). gsd-tools not on PATH — STATE/ROADMAP updated manually. Two seam-name flags for later plans: fetchBeacon.test mocks @/lib/og/relayFetch#fetchEventFromRelay (extract the private WS helper there in Plan 05); BEACON_STALE_THRESHOLD_S exported from where useBeacons lives.
+- [Phase ?]: useBeaconPublisher: single lastPublished guard shared by fix+heartbeat (P-4); fresh in-memory throwaway PrivateKeySigner per Start (D-05), discarded at Stop
 
 ### Pending Todos
 
@@ -162,7 +164,7 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-06-28T16:05:00.000Z
+Last session: 2026-06-28T15:48:40.128Z
 Stopped at: Phase 12 Plan 02 complete — beacon data layer landed (lifecycle/visibility/useBeacons GREEN), ready for Plan 03
 Resume file: .planning/phases/12-live-beacon-37521/12-03-PLAN.md
 
