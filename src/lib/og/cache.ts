@@ -176,6 +176,19 @@ function isStaleButUsable(record: CachedOGRecord, now: number): boolean {
 	return record.staleUntil > now
 }
 
+/**
+ * WR-02: a Sighting cached while live can outlive its NIP-40 expiry within the
+ * cache's stale-while-revalidate window (~24h). Treat a Sighting record whose
+ * carried `contentExpiresAt` (epoch ms) is in the past as a HARD MISS so no stale
+ * or fallback return path can serve an expired Sighting card — independent of the
+ * SWR window. Non-Sighting records and Sightings that never expire are unaffected.
+ */
+function isContentExpired(record: CachedOGRecord, now: number): boolean {
+	if (record.type !== 'sighting') return false
+	const expiresAt = (record.payload as SightingOGData).contentExpiresAt
+	return expiresAt !== null && expiresAt <= now
+}
+
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | typeof CACHE_TIMEOUT> {
 	return new Promise((resolve) => {
 		const timeout = setTimeout(() => resolve(CACHE_TIMEOUT), timeoutMs)
@@ -253,7 +266,11 @@ async function resolveCachedOGData<T extends OGCacheType>(
 	options?: ResolveCachedOGOptions,
 ): Promise<ResolveCachedOGResult<T>> {
 	const now = Date.now()
-	const cached = loadCachedRecord(type, naddr)
+	const cachedRaw = loadCachedRecord(type, naddr)
+	// WR-02: a content-expired (NIP-40) Sighting record is a hard miss — drop it so
+	// no fresh/stale/fallback path below can serve it. A fresh upstream re-fetch
+	// (which returns null for an expired Sighting) then yields the fallback card.
+	const cached = cachedRaw && !isContentExpired(cachedRaw, now) ? cachedRaw : null
 
 	if (cached && isFresh(cached, now)) {
 		return {

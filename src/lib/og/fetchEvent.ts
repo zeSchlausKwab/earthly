@@ -17,6 +17,13 @@ export interface StoryOGData {
 export interface SightingOGData {
 	title: string
 	description: string
+	/**
+	 * WR-02: the Sighting's NIP-40 `expiration` in epoch MILLISECONDS (or null when
+	 * the Sighting never expires). The OG cache carries this so a record cached
+	 * while the Sighting was live can be treated as a hard miss once wall-clock
+	 * passes the expiry — independent of the cache's stale-while-revalidate window.
+	 */
+	contentExpiresAt: number | null
 }
 
 /**
@@ -29,12 +36,24 @@ export interface SightingOGData {
  * predicate is deterministic and uses epoch seconds, never `Date.now()` ms.
  */
 export function isOGEventExpired(event: { tags: string[][] }, now: number): boolean {
+	const expiration = readOGExpirationSeconds(event)
+	if (expiration === null) return false
+	return expiration < now
+}
+
+/**
+ * Read the NIP-40 `expiration` timestamp (epoch SECONDS, UTC) from an event, or
+ * null when there is no tag or the tag is malformed/non-numeric. Uses the same
+ * strict `Number(raw)` parse as `isOGEventExpired` (IN-02): trailing garbage ⇒
+ * null (treated as "never expires").
+ */
+export function readOGExpirationSeconds(event: { tags: string[][] }): number | null {
 	const expirationTag = event.tags.find((t) => t[0] === 'expiration')
 	const raw = expirationTag?.[1]
-	if (raw === undefined) return false
-	const expiration = Number.parseInt(raw, 10)
-	if (!Number.isFinite(expiration)) return false
-	return expiration < now
+	if (raw === undefined) return null
+	const expiration = Number(raw)
+	if (!Number.isFinite(expiration)) return null
+	return expiration
 }
 
 /**
@@ -61,7 +80,14 @@ export function decodeNaddr(naddr: string): {
 }
 
 /**
- * Fetch a Nostr event from a relay using WebSocket
+ * Fetch a Nostr event from a relay using WebSocket.
+ *
+ * WR-05: kind 37522 (and the other OG kinds) are parameterized-replaceable, so a
+ * relay MAY stream an older version before the newest one. We therefore add an
+ * explicit `limit: 1` to the filter AND collect every matching EVENT until EOSE,
+ * resolving with the highest-`created_at` event (newest-wins) rather than the
+ * first frame that arrives. This prevents the OG card from rendering a superseded
+ * (e.g. pre-edit or pre-expiry) snapshot.
  */
 async function fetchEventFromRelay(
 	relayUrl: string,
@@ -72,30 +98,39 @@ async function fetchEventFromRelay(
 	const wsUrl = relayUrl.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:')
 
 	return new Promise((resolve) => {
-		const timeout = setTimeout(() => {
+		let newest: NostrEvent | null = null
+
+		const finish = () => {
+			clearTimeout(timeout)
+			try {
+				ws.send(JSON.stringify(['CLOSE', subId]))
+			} catch {
+				// socket may already be closing — ignore
+			}
 			ws.close()
-			resolve(null)
-		}, timeoutMs)
+			resolve(newest)
+		}
+
+		const timeout = setTimeout(finish, timeoutMs)
 
 		const ws = new WebSocket(wsUrl)
 		const subId = crypto.randomUUID().slice(0, 8)
 
 		ws.onopen = () => {
-			ws.send(JSON.stringify(['REQ', subId, filter]))
+			ws.send(JSON.stringify(['REQ', subId, { ...filter, limit: 1 }]))
 		}
 
 		ws.onmessage = (msg) => {
 			try {
 				const data = JSON.parse(msg.data as string)
 				if (data[0] === 'EVENT' && data[1] === subId) {
-					clearTimeout(timeout)
-					ws.send(JSON.stringify(['CLOSE', subId]))
-					ws.close()
-					resolve(data[2] as NostrEvent)
+					// Collect until EOSE; keep the highest created_at (newest-wins).
+					const event = data[2] as NostrEvent
+					if (!newest || event.created_at > newest.created_at) {
+						newest = event
+					}
 				} else if (data[0] === 'EOSE' && data[1] === subId) {
-					clearTimeout(timeout)
-					ws.close()
-					resolve(null)
+					finish()
 				}
 			} catch {
 				// Ignore parse errors
@@ -104,7 +139,7 @@ async function fetchEventFromRelay(
 
 		ws.onerror = () => {
 			clearTimeout(timeout)
-			resolve(null)
+			resolve(newest)
 		}
 	})
 }
@@ -258,8 +293,16 @@ export async function fetchStoryOGData(
  *
  * SIGHT-03 (Pitfall P-1, the easy-miss read path): this is a separate raw-WS read
  * path with no cast/filter, so it INDEPENDENTLY checks the NIP-40 `expiration`
- * tag and returns null for an expired sighting — an expired/removed sighting is
- * NEVER leaked via a social card.
+ * tag and returns null for an expired sighting.
+ *
+ * WR-01 — deletion suppression boundary: unlike the in-app read paths (which run
+ * through the applesauce `eventStore` and its `DeleteManager`), this raw fetch does
+ * NOT issue a kind-5 companion query, so it cannot independently honor a NIP-09
+ * deletion. Deletion suppression for the OG card is DELEGATED TO THE RELAY: a
+ * conformant relay stops serving a deleted addressable event, in which case the
+ * REQ returns nothing and this function returns null. If the relay has not yet
+ * honored an (advisory, best-effort) delete, a not-yet-expired deleted sighting
+ * could still render. Expiry is covered here; deletion is the relay's job.
  */
 export async function fetchSightingOGData(
 	naddr: string,
@@ -308,8 +351,14 @@ export async function fetchSightingOGData(
 		if (dTag?.[1]) title = dTag[1]
 	}
 
+	// WR-02: carry the NIP-40 expiry (seconds → ms) so the cache can hard-miss an
+	// expired record regardless of its SWR window. null ⇒ never expires.
+	const expirationSeconds = readOGExpirationSeconds(event)
+	const contentExpiresAt = expirationSeconds === null ? null : expirationSeconds * 1000
+
 	return {
 		title: title || 'Sighting',
 		description: description || 'See this sighting on Earthly',
+		contentExpiresAt,
 	}
 }

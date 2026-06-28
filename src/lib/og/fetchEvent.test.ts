@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { isOGEventExpired } from './fetchEvent'
+import { isOGEventExpired, readOGExpirationSeconds } from './fetchEvent'
 
 // SIGHT-03 / Pitfall P-1: the server-side OG fetch is a SEPARATE read path (raw
 // WebSocket REQ, no cast, no subscription filter). It MUST independently check
@@ -35,5 +35,27 @@ describe('isOGEventExpired', () => {
 
 	test('a malformed (non-numeric) expiration tag never expires (defensive)', () => {
 		expect(isOGEventExpired({ tags: [['expiration', 'soon']] }, 1_700_000_000)).toBe(false)
+	})
+
+	// IN-02: strict `Number(raw)` parse — a trailing-garbage tag is NaN, not a
+	// finite past timestamp, so it never expires (matches the documented contract;
+	// the old `parseInt` accepted '1700000000garbage' as a finite past value).
+	test('a trailing-garbage expiration tag never expires (IN-02 strict parse)', () => {
+		const now = 1_700_000_000
+		expect(isOGEventExpired({ tags: [['expiration', `${now - 10}garbage`]] }, now)).toBe(false)
+	})
+})
+
+describe('readOGExpirationSeconds', () => {
+	test('returns the epoch-seconds value for a numeric tag', () => {
+		expect(readOGExpirationSeconds({ tags: [['expiration', '1700000000']] })).toBe(1_700_000_000)
+	})
+
+	test('returns null when there is no expiration tag', () => {
+		expect(readOGExpirationSeconds({ tags: [['d', 'abc']] })).toBeNull()
+	})
+
+	test('returns null for a trailing-garbage tag (strict parse)', () => {
+		expect(readOGExpirationSeconds({ tags: [['expiration', '1700000000garbage']] })).toBeNull()
 	})
 })
