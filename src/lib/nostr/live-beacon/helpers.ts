@@ -10,6 +10,7 @@
 
 import { getOrComputeCachedValue } from 'applesauce-core/helpers/cache'
 import { getTagValue, type KnownEvent, type NostrEvent } from 'applesauce-core/helpers/event'
+import type { Point } from 'geojson'
 import type { GeoBoundingBox } from '@/lib/nostr/geo-event'
 import { LIVE_BEACON_KIND } from '@/lib/nostr/kinds'
 import { hasCurrentModelVersion } from '@/lib/nostr/modelVersion'
@@ -26,16 +27,27 @@ export { LIVE_BEACON_KIND }
 
 export type LiveBeaconEvent = KnownEvent<typeof LIVE_BEACON_KIND>
 
-/** Minimal beacon content (scaffolding only). */
+/** Minimal beacon content. */
 export interface LiveBeaconContent {
 	modelVersion?: string
 	/** Human-readable label for the presence/position. */
 	label?: string
-	/** Optional [lon, lat] position placeholder. */
-	position?: [number, number]
+	/**
+	 * Precise placement carried in content (D-09). A single GeoJSON Point — the
+	 * lossy `bbox`/`g` discovery tags are derived from this on every publish
+	 * (lifecycle.ts), so the tags never drift from the precise coordinates.
+	 * Mirrors the Sighting `geometry` field.
+	 */
+	geometry?: Point
+	/**
+	 * Lifecycle discriminator (D-04). 'live' on every heartbeat; 'ended' on the
+	 * one final Stop event. Defaults to 'live' when absent (back-compat with the
+	 * Phase-8 scaffold + seeded beacons, which the map renders as live).
+	 */
+	status?: 'live' | 'ended'
 }
 
-export const DEFAULT_LIVE_BEACON_CONTENT: LiveBeaconContent = {}
+export const DEFAULT_LIVE_BEACON_CONTENT: LiveBeaconContent = { status: 'live' }
 
 const LiveBeaconContentSymbol = Symbol.for('live-beacon-content')
 

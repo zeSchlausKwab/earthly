@@ -8,3 +8,4 @@
 export * from './cast'
 export * from './factory'
 export * from './helpers'
+export * from './lifecycle'

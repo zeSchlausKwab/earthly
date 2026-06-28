@@ -60,6 +60,16 @@ export class LiveBeacon extends EventCast<LiveBeaconEvent> {
 		return getLiveBeaconContent(this.event)
 	}
 
+	/** Lifecycle discriminator — defaults to 'live' when absent (D-04). */
+	get status(): 'live' | 'ended' {
+		return this.beacon.status ?? 'live'
+	}
+
+	/** Precise placement carried in content (D-09), or undefined on a legacy event. */
+	get geometry() {
+		return this.beacon.geometry
+	}
+
 	get boundingBox() {
 		return getLiveBeaconBoundingBox(this.event)
 	}
