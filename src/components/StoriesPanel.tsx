@@ -11,20 +11,28 @@
  * panel (mirrors the Datasets/Groups create affordance, closing the Phase-9
  * discoverability gap). Each row is a `rounded-none` `Card`: a 16:9 cover thumbnail
  * (neutral placeholder on missing/error — cover renders as a plain `<img src>`, no
- * HTML injection sink; title/summary are auto-escaped React text nodes — T-10-05),
- * a title, a one-line summary, author/date meta, a Draft/Published status `Badge`,
- * and a ⋮ `DropdownMenu` (Open / Edit / Copy link / Delete). Loading shows skeleton
- * rows; empty shows the UI-SPEC empty states.
+ * HTML injection sink; title is an auto-escaped React text node — T-10-05),
+ * a title, author/date meta, a Draft/Published status `Badge`,
+ * and an inline action footer matching the dataset/context catalog rows: a compact
+ * `GeoSocialActions` bar (like / zap / comment / share — Share copies the deep link)
+ * plus inspect/edit/delete buttons (edit + delete owner-gated). Loading shows
+ * skeleton rows; empty shows the UI-SPEC empty states.
  *
  * Rail destination wiring (AppSidebar / GeoEditorInfoPanel mounts) is Plan 03 — this
  * plan delivers only the panel body component + its props contract.
  */
 
-import { MoreVertical } from 'lucide-react'
 import { useMemo } from 'react'
 import { useStories } from '@/lib/hooks/useStories'
 import type { Article } from '@/lib/nostr/article'
 import { readStoryDraft } from '@/lib/nostr/story'
+import { cn } from '@/lib/utils'
+import {
+	DeleteActionIcon,
+	InspectActionIcon,
+	LoadEditorActionIcon,
+} from '@/components/entity-action-icons'
+import { GeoSocialActions } from '@/features/social/comments/GeoSocialActions'
 import { UserProfile } from '@/components/user-profile'
 import { useFilterState, useSortedFilteredItems, type FilterConfig } from './data-filter'
 import { EntitySearchToolbar } from './entity-search'
@@ -32,15 +40,13 @@ import { AspectRatio } from './ui/aspect-ratio'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
 import { Card } from './ui/card'
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-} from './ui/dropdown-menu'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty'
 import { Skeleton } from './ui/skeleton'
+
+/** Shared ghost-button styling for the inline per-row action cluster (matches the
+ * dataset/context catalog rows so every entity surface exposes the same affordances). */
+const actionButtonClass =
+	'rounded-none px-2 text-xs text-gray-600 shadow-none hover:bg-muted hover:text-sky-600'
 
 export interface StoriesPanelProps {
 	currentUserPubkey?: string
@@ -78,35 +84,38 @@ interface StoryRowProps {
 	story: Article
 	hasLocalDraft: boolean
 	isDeleting: boolean
+	/** True when the signed-in user authored this Story — gates Edit/Delete. */
+	isOwner: boolean
 	onOpen: () => void
 	onEdit: () => void
 	onDelete: () => void
-	onCopyLink: () => void
 }
 
 function StoryRow({
 	story,
 	hasLocalDraft,
 	isDeleting,
+	isOwner,
 	onOpen,
 	onEdit,
 	onDelete,
-	onCopyLink,
 }: StoryRowProps) {
 	const content = story.article
 	const title = content.title?.trim() || 'Untitled'
-	const summary = content.summary?.trim()
 	const image = content.image?.trim()
 
 	return (
 		<Card size="sm" className="rounded-none ring-1 ring-border">
-			<div className="flex gap-3 p-3">
+			{/* Compact, dataset/context-density layout: a small cover thumb beside the
+			    title + status, author/date below, social + actions at the bottom. The
+			    full summary lives in the detail view. */}
+			<div className="space-y-1 p-2.5">
 				<button
 					type="button"
 					onClick={onOpen}
-					className="flex min-w-0 flex-1 items-start gap-3 text-left"
+					className="flex w-full min-w-0 items-center gap-2.5 text-left"
 				>
-					<div className="w-20 shrink-0">
+					<div className="w-12 shrink-0">
 						<AspectRatio ratio={16 / 9} className="overflow-hidden border border-border bg-muted">
 							{image ? (
 								<img
@@ -120,24 +129,21 @@ function StoryRow({
 							) : null}
 						</AspectRatio>
 					</div>
-					<div className="min-w-0 flex-1 space-y-1">
+					<div className="min-w-0 flex-1">
 						<div className="flex items-center gap-2">
 							<p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
 								{title}
 							</p>
 							{hasLocalDraft ? (
-								<Badge variant="outline" className="rounded-none text-[11px]">
+								<Badge variant="outline" className="shrink-0 rounded-none text-[11px]">
 									Draft
 								</Badge>
 							) : (
-								<Badge variant="secondary" className="rounded-none text-[11px]">
+								<Badge variant="secondary" className="shrink-0 rounded-none text-[11px]">
 									Published
 								</Badge>
 							)}
 						</div>
-						{summary ? (
-							<p className="truncate text-[13px] text-muted-foreground">{summary}</p>
-						) : null}
 						<div className="flex items-center gap-1 text-[11px] text-muted-foreground">
 							<UserProfile
 								pubkey={story.pubkey}
@@ -150,28 +156,60 @@ function StoryRow({
 						</div>
 					</div>
 				</button>
-				<DropdownMenu>
-					<DropdownMenuTrigger asChild>
+
+				{/* Inline social + action cluster — parity with the dataset/context rows:
+				    like / zap / comment / share on the left (Share copies the deep link,
+				    replacing the old "Copy link" menu item), inspect/edit/delete on the
+				    right (edit + delete owner-gated). */}
+				<div className="flex min-w-0 items-center justify-between gap-3">
+					<GeoSocialActions
+						target={story}
+						onReplyClick={onOpen}
+						showCommentButton
+						showAnnotateButton={false}
+						loadCounts={false}
+						compact
+						className="-ml-2 shrink-0 gap-0"
+					/>
+					<div className="flex shrink-0 items-center gap-0.5">
 						<Button
+							size="icon-sm"
 							variant="ghost"
-							size="icon"
-							className="h-7 w-7 shrink-0 rounded-none"
-							aria-label="Story actions"
-							disabled={isDeleting}
+							className={cn(actionButtonClass, 'hover:text-emerald-600')}
+							onClick={onOpen}
+							aria-label="Open story"
+							title="Open story"
 						>
-							<MoreVertical className="h-4 w-4" />
+							<InspectActionIcon className="h-4 w-4" />
 						</Button>
-					</DropdownMenuTrigger>
-					<DropdownMenuContent align="end" className="rounded-none">
-						<DropdownMenuItem onClick={onOpen}>Open</DropdownMenuItem>
-						<DropdownMenuItem onClick={onEdit}>Edit</DropdownMenuItem>
-						<DropdownMenuItem onClick={onCopyLink}>Copy link</DropdownMenuItem>
-						<DropdownMenuSeparator />
-						<DropdownMenuItem onClick={onDelete} className="text-destructive">
-							Delete
-						</DropdownMenuItem>
-					</DropdownMenuContent>
-				</DropdownMenu>
+						{isOwner ? (
+							<>
+								<Button
+									size="icon-sm"
+									variant="ghost"
+									className={cn(actionButtonClass, 'hover:text-sky-600')}
+									onClick={onEdit}
+									disabled={isDeleting}
+									aria-label="Edit story"
+									title="Edit story"
+								>
+									<LoadEditorActionIcon className="h-4 w-4" />
+								</Button>
+								<Button
+									size="icon-sm"
+									variant="ghost"
+									className={cn(actionButtonClass, 'hover:text-destructive')}
+									onClick={onDelete}
+									disabled={isDeleting}
+									aria-label="Delete story"
+									title="Delete story"
+								>
+									<DeleteActionIcon className="h-4 w-4" />
+								</Button>
+							</>
+						) : null}
+					</div>
+				</div>
 			</div>
 		</Card>
 	)
@@ -200,13 +238,6 @@ export function StoriesPanelContent({
 		}
 		return keys
 	}, [displayed, currentUserPubkey])
-
-	const handleCopyLink = (story: Article) => {
-		// Plan 03 wires the canonical /story/:naddr deep link + OG card. Here we copy
-		// the addressable coordinate so the action is functional pre-routing.
-		const coordinate = `${story.kind}:${story.pubkey}:${story.dTag ?? ''}`
-		void navigator.clipboard?.writeText(coordinate)
-	}
 
 	const hasSearch = filterState.searchQuery.trim().length > 0
 
@@ -255,10 +286,10 @@ export function StoriesPanelContent({
 								story={story}
 								hasLocalDraft={Boolean(story.dTag && draftKeys.has(story.dTag))}
 								isDeleting={deletingKey === dTag}
+								isOwner={Boolean(currentUserPubkey) && story.pubkey === currentUserPubkey}
 								onOpen={() => onOpenStory(story)}
 								onEdit={() => onEditStory(story)}
 								onDelete={() => onDeleteStory(story)}
-								onCopyLink={() => handleCopyLink(story)}
 							/>
 						)
 					})}

@@ -70,6 +70,9 @@ export interface GeoEditorInfoPanelProps {
 	) => void
 	/** Callback to zoom to a bounding box */
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
+	/** Fly the map to a Sighting and focus it (geometry-aware; used by the Sighting
+	 * view panel's "Zoom to" button). */
+	onZoomToSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
 	/** Available features for $ mentions in comments */
 	availableFeatures?: GeoFeatureItem[]
 	/** Callback when a geo mention's visibility is toggled */
@@ -175,6 +178,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		getDatasetName,
 		onCommentGeometryVisibility,
 		onZoomToBounds,
+		onZoomToSighting,
 		availableFeatures = [],
 		onMentionVisibilityToggle,
 		onMentionZoomTo,
@@ -646,8 +650,10 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					currentUserPubkey={currentUserPubkey}
 					onEditSighting={onEditSighting}
 					onDeleteSighting={onDeleteSighting}
+					onZoomTo={onZoomToSighting ? () => onZoomToSighting(viewSighting) : undefined}
 					deletingKey={deletingKey}
 					availableFeatures={availableFeatures}
+					onCommentGeometryVisibility={onCommentGeometryVisibility}
 					onMentionVisibilityToggle={onMentionVisibilityToggle}
 					onMentionZoomTo={onMentionZoomTo}
 					onZoomToBounds={onZoomToBounds}
@@ -666,8 +672,14 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					onEditStory={onEditStory}
 					onDeleteStory={onDeleteStory}
 					onStoryUpdated={onStoryUpdated}
+					onZoomTo={
+						viewStory.boundingBox && onZoomToBounds
+							? () => onZoomToBounds(viewStory.boundingBox as [number, number, number, number])
+							: undefined
+					}
 					deletingKey={deletingKey}
 					availableFeatures={availableFeatures}
+					onCommentGeometryVisibility={onCommentGeometryVisibility}
 					onMentionVisibilityToggle={onMentionVisibilityToggle}
 					onMentionZoomTo={onMentionZoomTo}
 					isMentionVisible={isMentionVisible}
@@ -685,6 +697,11 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					getDatasetName={getDatasetName}
 					onInspectDataset={onInspectDataset ?? onLoadDataset}
 					onZoomToDataset={onZoomToDataset}
+					onZoomTo={
+						viewContext.boundingBox && onZoomToBounds
+							? () => onZoomToBounds(viewContext.boundingBox as [number, number, number, number])
+							: undefined
+					}
 					onDeleteContext={onDeleteContext}
 					deletingKey={deletingKey}
 					onCommentGeometryVisibility={onCommentGeometryVisibility}

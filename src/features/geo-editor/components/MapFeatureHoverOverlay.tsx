@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type maplibregl from 'maplibre-gl'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
+import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
 import { useMapInteractions } from '../hooks/useMapInteractions'
 import { FeaturePopup, type FeaturePopupData } from './FeaturePopup'
+import { SightingPopup, type SightingPopupData } from './SightingPopup'
 import type { MapPopupPlacement } from './map-popup-positioning'
 
 interface MapFeatureHoverOverlayProps {
@@ -14,6 +16,8 @@ interface MapFeatureHoverOverlayProps {
 	currentUserPubkey?: string
 	getDatasetName: (event: GeoDataset) => string
 	handleInspectDatasetWithoutFocus: (event: GeoDataset) => void
+	sightingsRef?: React.RefObject<TemporalSighting[]>
+	onInspectSighting?: (sighting: TemporalSighting) => void
 	popupsEnabled?: boolean
 	placementMode?: MapPopupPlacement
 	toolbarOffset?: number
@@ -29,12 +33,15 @@ export function MapFeatureHoverOverlay({
 	currentUserPubkey,
 	getDatasetName,
 	handleInspectDatasetWithoutFocus,
+	sightingsRef,
+	onInspectSighting,
 	popupsEnabled = true,
 	placementMode = 'geometry',
 	toolbarOffset = 72,
 	suppressed = false,
 }: MapFeatureHoverOverlayProps) {
 	const [featurePopupData, setFeaturePopupData] = useState<FeaturePopupData | null>(null)
+	const [sightingPopupData, setSightingPopupData] = useState<SightingPopupData | null>(null)
 	const [displayedFeaturePopupData, setDisplayedFeaturePopupData] =
 		useState<FeaturePopupData | null>(null)
 	const popupHoverRef = useRef(false)
@@ -113,6 +120,9 @@ export function MapFeatureHoverOverlay({
 		getDatasetName,
 		handleInspectDatasetWithoutFocus,
 		setFeaturePopupData,
+		sightingsRef,
+		onInspectSighting,
+		setSightingPopupData,
 	})
 
 	if (!popupsEnabled || suppressed) {
@@ -120,13 +130,21 @@ export function MapFeatureHoverOverlay({
 	}
 
 	return (
-		<FeaturePopup
-			data={displayedFeaturePopupData}
-			containerRef={containerRef}
-			placementMode={placementMode}
-			toolbarOffset={toolbarOffset}
-			interactive={placementMode === 'dock'}
-			onHoverChange={handlePopupHoverChange}
-		/>
+		<>
+			<FeaturePopup
+				data={displayedFeaturePopupData}
+				containerRef={containerRef}
+				placementMode={placementMode}
+				toolbarOffset={toolbarOffset}
+				interactive={placementMode === 'dock'}
+				onHoverChange={handlePopupHoverChange}
+			/>
+			<SightingPopup
+				data={sightingPopupData}
+				containerRef={containerRef}
+				placementMode={placementMode}
+				toolbarOffset={toolbarOffset}
+			/>
+		</>
 	)
 }

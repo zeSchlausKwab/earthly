@@ -79,7 +79,9 @@ const UNCLUSTERED_POINT_LAYER = 'geo-editor-unclustered-point'
 
 // Temporal Sighting (kind 37522) marker source/layer IDs (D-05/D-06).
 const SIGHTING_SOURCE_ID = 'geo-editor-sightings'
-const SIGHTING_HIT_LAYER = 'geo-editor-sighting-hit'
+// Exported so the map-interaction layer (useMapInteractions) can bind the
+// click/hover handlers that turn a Sighting marker into "open + locate in list".
+export const SIGHTING_HIT_LAYER = 'geo-editor-sighting-hit'
 const SIGHTING_CIRCLE_LAYER = 'geo-editor-sighting-circle'
 const SIGHTING_GLYPH_LAYER = 'geo-editor-sighting-glyph'
 

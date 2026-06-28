@@ -182,6 +182,8 @@ interface AppSidebarProps {
 	onSaveSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
 	onCloseSightingEditor?: () => void
 	onDeleteSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
+	/** Fly the map to a Sighting and focus it (the rail "zoom to on map" affordance). */
+	onZoomToSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
 	/** The geometry placed by the map-first pin-drop, fed to the Sighting editor. */
 	placedSightingGeometry?: import('geojson').Geometry | null
 	/** Switch the Sighting create flow to line/polygon draw (D-02). */
@@ -264,6 +266,7 @@ export function AppSidebar({
 	onSaveSighting,
 	onCloseSightingEditor,
 	onDeleteSighting,
+	onZoomToSighting,
 	placedSightingGeometry,
 	onDrawSightingArea,
 	onClearSightingView,
@@ -653,7 +656,11 @@ export function AppSidebar({
 		onCreateSighting: handleCreateSighting,
 		onEditSighting: handleEditSighting,
 		onDeleteSighting: onDeleteSighting ?? (() => {}),
+		onZoomToSighting,
 		deletingKey,
+		// Highlight + scroll the row matching the currently-viewed Sighting so a
+		// map-marker click surfaces "where is this in the list?".
+		selectedKey: viewSighting ? (viewSighting.dTag ?? viewSighting.id) : null,
 	}
 
 	const userProfilePanelProps = {
@@ -698,6 +705,7 @@ export function AppSidebar({
 		getDatasetName,
 		onCommentGeometryVisibility,
 		onZoomToBounds,
+		onZoomToSighting,
 		availableFeatures,
 		onMentionVisibilityToggle,
 		onMentionZoomTo,

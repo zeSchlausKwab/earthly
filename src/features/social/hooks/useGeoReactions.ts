@@ -4,13 +4,20 @@ import type { NostrEvent } from 'nostr-tools'
 import { useCallback, useMemo, useState } from 'react'
 import { accounts, publish } from '@/lib/nostr'
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
+import type { Article } from '@/lib/nostr/article'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { GeoComment } from '@/lib/nostr/geo-comment'
 import type { MapContext } from '@/lib/nostr/map-context'
 import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
 
 /** Any Nostr event that can receive reactions */
-export type ReactableEvent = GeoDataset | MapContext | TemporalSighting | GeoComment | NostrEvent
+export type ReactableEvent =
+	| GeoDataset
+	| MapContext
+	| Article
+	| TemporalSighting
+	| GeoComment
+	| NostrEvent
 
 export interface UseGeoReactionsOptions {
 	/** The event to fetch reactions for */

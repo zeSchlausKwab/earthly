@@ -31,6 +31,7 @@ import type { Article } from '@/lib/nostr/article'
 import { ARTICLE_KIND, TEMPORAL_SIGHTING_KIND } from '@/lib/nostr/kinds'
 import { deleteStory } from '@/lib/nostr/story'
 import { deleteSighting, type TemporalSighting } from '@/lib/nostr/temporal-sighting'
+import { bboxFromGeometry } from '@/lib/geo/bbox'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { type MapContext, deleteMapContext } from '@/lib/nostr/map-context'
 import { accounts } from '@/lib/nostr'
@@ -141,6 +142,13 @@ export function GeoEditorView() {
 	const handleZoomToBounds = useCallback((bounds: [number, number, number, number]) => {
 		if (!map.current) return
 		const [west, south, east, north] = bounds
+		// A zero-area bbox (a single point — e.g. a point Sighting or a one-vertex
+		// comment annotation) makes fitBounds zoom to its max; fly to the point at a
+		// readable zoom instead.
+		if (west === east && south === north) {
+			map.current.flyTo({ center: [west, south], zoom: 15, duration: 500 })
+			return
+		}
 		map.current.fitBounds(
 			[
 				[west, south],
@@ -233,6 +241,30 @@ export function GeoEditorView() {
 	// browse map (D-05/D-06) and listed in the Sightings rail (D-07). useSightings
 	// already drops expired at the subscription (SIGHT-03 / Pitfall P-1).
 	const { events: sightings } = useSightings()
+	// Keep the live sighting list in a ref so the map-marker click handler
+	// (useMapInteractions) can resolve a clicked dot back to its cast without
+	// re-binding the handler on every subscription tick.
+	const sightingsRef = useRef<TemporalSighting[]>([])
+	useEffect(() => {
+		sightingsRef.current = sightings
+	}, [sightings])
+	const setFocusedMapGeometry = useEditorStore((state) => state.setFocusedMapGeometry)
+	// "Zoom to on map" for a Sighting: fly the camera to its geometry and focus it.
+	// Sightings always render (D-05), so this centers + highlights rather than
+	// toggling map-stack membership the way datasets do.
+	const handleZoomToSighting = useCallback(
+		(sighting: TemporalSighting) => {
+			// Derive the zoom target from the precise content geometry — the SAME
+			// source the marker uses (pointOnFeature(content.geometry)) — so the camera
+			// lands ON the dot. Fall back to the bbox tag only when geometry is absent.
+			const geometry = sighting.sighting.geometry
+			const bbox = (geometry ? bboxFromGeometry(geometry) : null) ?? sighting.boundingBox
+			if (!bbox) return
+			handleZoomToBounds(bbox)
+			setFocusedMapGeometry({ bbox })
+		},
+		[handleZoomToBounds, setFocusedMapGeometry],
+	)
 	// Round C.2 reliability: also fire a targeted subscription for every
 	// context entry on the stack. The global subscription above is best-effort
 	// — if a read relay was slow or 502 at open time, foreign attachments
@@ -1912,6 +1944,7 @@ export function GeoEditorView() {
 					// Editor panel props
 					onCommentGeometryVisibility={handleCommentGeometryVisibility}
 					onZoomToBounds={handleZoomToBounds}
+					onZoomToSighting={handleZoomToSighting}
 					availableFeatures={availableFeatures}
 					onMentionVisibilityToggle={handleMentionVisibilityToggle}
 					onMentionZoomTo={handleMentionZoomTo}
@@ -2057,6 +2090,8 @@ export function GeoEditorView() {
 						currentUserPubkey={currentUser?.pubkey}
 						getDatasetName={getDatasetName}
 						handleInspectDatasetWithoutFocus={handleInspectDatasetWithoutFocus}
+						sightingsRef={sightingsRef}
+						onInspectSighting={handleInspectSighting}
 						popupsEnabled={mapPopupsEnabled}
 						placementMode={mapPopupPlacement}
 						toolbarOffset={mapPopupToolbarOffset}
@@ -2238,6 +2273,7 @@ export function GeoEditorView() {
 							onExitViewMode={exitViewMode}
 							onCommentGeometryVisibility={handleCommentGeometryVisibility}
 							onZoomToBounds={handleZoomToBounds}
+							onZoomToSighting={handleZoomToSighting}
 							availableFeatures={availableFeatures}
 							onMentionVisibilityToggle={handleMentionVisibilityToggle}
 							onMentionZoomTo={handleMentionZoomTo}

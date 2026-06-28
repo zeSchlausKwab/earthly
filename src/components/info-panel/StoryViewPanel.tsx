@@ -18,11 +18,12 @@
  * (STORY-05), exactly as Phase 9 mounted it on Groups — zero new comment UI.
  */
 
-import { Pencil, PencilLine } from 'lucide-react'
+import { LocateFixed, Pencil, PencilLine } from 'lucide-react'
 import { useState } from 'react'
 import { CommentsPanel } from '@/features/social/comments'
 import { StoryProposalsPanel, StoryProposeEditDialog } from '@/features/social/proposals'
 import type { Article } from '@/lib/nostr/article'
+import type { GeoComment } from '@/lib/nostr/geo-comment'
 import { RichContentRenderer } from '../editor'
 import type { GeoFeatureItem } from '../editor/GeoRichTextEditor'
 import { AspectRatio } from '../ui/aspect-ratio'
@@ -36,9 +37,13 @@ interface StoryViewPanelProps {
 	currentUserPubkey?: string
 	onDeleteStory?: (story: Article) => void
 	onEditStory?: (story: Article) => void
+	/** Fly the map to this Story's footprint (the inspect-panel "Zoom to" button). */
+	onZoomTo?: () => void
 	/** The d-tag key of a Story whose delete is in flight. */
 	deletingKey?: string | null
 	availableFeatures?: GeoFeatureItem[]
+	/** Show/hide a comment's attached geojson annotation on the map. */
+	onCommentGeometryVisibility?: (comment: GeoComment, visible: boolean) => void
 	onMentionVisibilityToggle?: (
 		address: string,
 		featureId: string | undefined,
@@ -72,8 +77,10 @@ export function StoryViewPanel({
 	currentUserPubkey,
 	onDeleteStory,
 	onEditStory,
+	onZoomTo,
 	deletingKey,
 	availableFeatures = [],
+	onCommentGeometryVisibility,
 	onMentionVisibilityToggle,
 	onMentionZoomTo,
 	isMentionVisible,
@@ -112,43 +119,58 @@ export function StoryViewPanel({
 						title={title}
 						description={formatRelativeDate(story.created_at)}
 						action={
-							isOwner ? (
-								<div className="flex items-center gap-2">
-									{onEditStory && (
-										<Button
-											type="button"
-											variant="outline"
-											size="sm"
-											onClick={() => onEditStory(story)}
-											className="gap-1 rounded-none px-2 text-[11px]"
-										>
-											<Pencil className="h-3 w-3" />
-											Edit
-										</Button>
-									)}
-									{onDeleteStory && (
-										<ConfirmDeleteAction
-											label="story"
-											isDeleting={isDeleting}
-											onConfirm={() => onDeleteStory(story)}
-										/>
-									)}
-								</div>
-							) : (
-								// A reader (non-owner) can propose a narrative edit (STORY-06). The
-								// dialog opens the body in an edit affordance and submits a
-								// kind-37519 Markdown-content proposal targeting this Story.
-								<Button
-									type="button"
-									variant="outline"
-									size="sm"
-									onClick={() => setProposeOpen(true)}
-									className="gap-1 rounded-none px-2 text-[11px]"
-								>
-									<PencilLine className="h-3 w-3" />
-									Propose an edit
-								</Button>
-							)
+							<div className="flex items-center gap-2">
+								{onZoomTo && (
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										onClick={onZoomTo}
+										className="gap-1 rounded-none px-2 text-[11px]"
+										title="Zoom to on map"
+									>
+										<LocateFixed className="h-3 w-3" />
+										Zoom
+									</Button>
+								)}
+								{isOwner ? (
+									<>
+										{onEditStory && (
+											<Button
+												type="button"
+												variant="outline"
+												size="sm"
+												onClick={() => onEditStory(story)}
+												className="gap-1 rounded-none px-2 text-[11px]"
+											>
+												<Pencil className="h-3 w-3" />
+												Edit
+											</Button>
+										)}
+										{onDeleteStory && (
+											<ConfirmDeleteAction
+												label="story"
+												isDeleting={isDeleting}
+												onConfirm={() => onDeleteStory(story)}
+											/>
+										)}
+									</>
+								) : (
+									// A reader (non-owner) can propose a narrative edit (STORY-06). The
+									// dialog opens the body in an edit affordance and submits a
+									// kind-37519 Markdown-content proposal targeting this Story.
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										onClick={() => setProposeOpen(true)}
+										className="gap-1 rounded-none px-2 text-[11px]"
+									>
+										<PencilLine className="h-3 w-3" />
+										Propose an edit
+									</Button>
+								)}
+							</div>
 						}
 					/>
 
@@ -202,6 +224,9 @@ export function StoryViewPanel({
 					<CommentsPanel
 						key={story.id ?? story.dTag ?? 'no-story'}
 						target={story}
+						onCommentGeojsonVisibilityChange={(comment, visible) =>
+							onCommentGeometryVisibility?.(comment, visible)
+						}
 						onZoomToCommentGeojson={(comment) => {
 							if (comment.boundingBox && onZoomToBounds) onZoomToBounds(comment.boundingBox)
 						}}

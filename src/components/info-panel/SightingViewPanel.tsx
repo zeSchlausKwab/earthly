@@ -31,7 +31,8 @@
  */
 
 import { unixNow } from 'applesauce-core/helpers/time'
-import { Pencil } from 'lucide-react'
+import { LocateFixed, Pencil } from 'lucide-react'
+import type { GeoComment } from '@/lib/nostr/geo-comment'
 import { CommentsPanel } from '@/features/social/comments'
 import { isExpired } from '@/lib/nostr/expiry'
 import {
@@ -58,9 +59,13 @@ interface SightingViewPanelProps {
 	currentUserPubkey?: string
 	onDeleteSighting?: (sighting: TemporalSighting) => void
 	onEditSighting?: (sighting: TemporalSighting) => void
+	/** Fly the map to this Sighting and focus it (the inspect-panel "Zoom to" button). */
+	onZoomTo?: () => void
 	/** The d-tag key of a Sighting whose delete is in flight. */
 	deletingKey?: string | null
 	availableFeatures?: GeoFeatureItem[]
+	/** Show/hide a comment's attached geojson annotation on the map. */
+	onCommentGeometryVisibility?: (comment: GeoComment, visible: boolean) => void
 	onMentionVisibilityToggle?: (
 		address: string,
 		featureId: string | undefined,
@@ -86,8 +91,10 @@ export function SightingViewPanel({
 	currentUserPubkey,
 	onDeleteSighting,
 	onEditSighting,
+	onZoomTo,
 	deletingKey,
 	availableFeatures = [],
+	onCommentGeometryVisibility,
 	onMentionVisibilityToggle,
 	onMentionZoomTo,
 	onZoomToBounds,
@@ -149,9 +156,22 @@ export function SightingViewPanel({
 						title={title}
 						description={formatRelativeDate(sighting.created_at)}
 						action={
-							isOwner ? (
+							onZoomTo || isOwner ? (
 								<div className="flex items-center gap-2">
-									{onEditSighting && (
+									{onZoomTo && (
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											onClick={onZoomTo}
+											className="gap-1 rounded-none px-2 text-[11px]"
+											title="Zoom to on map"
+										>
+											<LocateFixed className="h-3 w-3" />
+											Zoom
+										</Button>
+									)}
+									{isOwner && onEditSighting && (
 										<Button
 											type="button"
 											variant="outline"
@@ -163,7 +183,7 @@ export function SightingViewPanel({
 											Edit
 										</Button>
 									)}
-									{onDeleteSighting && (
+									{isOwner && onDeleteSighting && (
 										<ConfirmDeleteAction
 											label="sighting"
 											isDeleting={isDeleting}
@@ -223,6 +243,9 @@ export function SightingViewPanel({
 					<CommentsPanel
 						key={sighting.id ?? sighting.dTag ?? 'no-sighting'}
 						target={sighting}
+						onCommentGeojsonVisibilityChange={(comment, visible) =>
+							onCommentGeometryVisibility?.(comment, visible)
+						}
 						onZoomToCommentGeojson={(comment) => {
 							if (comment.boundingBox && onZoomToBounds) onZoomToBounds(comment.boundingBox)
 						}}

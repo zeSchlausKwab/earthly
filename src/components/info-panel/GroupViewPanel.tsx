@@ -15,6 +15,7 @@
  * the same 37518 event) — no store-wide type migration required for this surface.
  */
 
+import { LocateFixed } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import type { GeoComment } from '@/lib/nostr/geo-comment'
@@ -60,6 +61,8 @@ interface GroupViewPanelProps {
 	onInspectDataset: (event: GeoDataset) => void
 	onZoomToDataset: (event: GeoDataset) => void
 	onDeleteContext?: (context: MapContext) => void
+	/** Fly the map to this Group's footprint (the inspect-panel "Zoom to" button). */
+	onZoomTo?: () => void
 	deletingKey?: string | null
 	onCommentGeometryVisibility?: (comment: GeoComment, visible: boolean) => void
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
@@ -80,6 +83,7 @@ export function GroupViewPanel({
 	onInspectDataset,
 	onZoomToDataset,
 	onDeleteContext,
+	onZoomTo,
 	deletingKey,
 	onCommentGeometryVisibility,
 	onZoomToBounds,
@@ -175,9 +179,22 @@ export function GroupViewPanel({
 						title={group.name || viewContext.contextId || 'Untitled Group'}
 						description={`Governance: ${group.governance}`}
 						action={
-							isOwner ? (
+							onZoomTo || isOwner ? (
 								<div className="flex items-center gap-2">
-									{group.governance !== 'closed' && (
+									{onZoomTo && (
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											onClick={onZoomTo}
+											className="gap-1 rounded-none px-2 text-[11px]"
+											title="Zoom to on map"
+										>
+											<LocateFixed className="h-3 w-3" />
+											Zoom
+										</Button>
+									)}
+									{isOwner && group.governance !== 'closed' && (
 										<AlertDialog>
 											<AlertDialogTrigger asChild>
 												<Button
@@ -206,7 +223,7 @@ export function GroupViewPanel({
 											</AlertDialogContent>
 										</AlertDialog>
 									)}
-									{onDeleteContext && (
+									{isOwner && onDeleteContext && (
 										<ConfirmDeleteAction
 											label="Group"
 											isDeleting={isDeleting}
