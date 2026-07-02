@@ -75,7 +75,37 @@ function decodeContextCoordinateFromNaddr(naddr: string): string | undefined {
 	}
 }
 
-function parsePathSegments(segments: string[]): RouteState {
+/**
+ * Table-driven share-form dispatch (D-08/XCUT-02): the five per-kind path
+ * prefixes each map to a `{focusType, sidebarView}` pair. A single generic
+ * dispatch body in `parsePathSegments` reads this table, replacing the five
+ * byte-identical per-kind blocks that used to live here (Pitfall P-5). URL
+ * shapes are preserved byte-for-byte (D-09): `first` is still matched against
+ * the exact same five prefixes, `segments[1]` is still the opaque naddr, and
+ * the optional `/comment/:id` suffix parses identically. Because the mapping is
+ * a closed `Record` keyed only by these known prefixes, an unknown prefix falls
+ * through to the /context and sidebar-tail branches exactly as before — no
+ * arbitrary focusType/sidebarView can be injected from the URL (T-13-02-MISROUTE).
+ */
+const SHARE_ROUTES: Record<
+	string,
+	{ focusType: RouteState['focusType']; sidebarView: SidebarViewMode }
+> = {
+	geoevent: { focusType: 'geoevent', sidebarView: 'datasets' },
+	mapcontext: { focusType: 'mapcontext', sidebarView: 'contexts' },
+	story: { focusType: 'story', sidebarView: 'stories' },
+	sighting: { focusType: 'sighting', sidebarView: 'sightings' },
+	beacon: { focusType: 'beacon', sidebarView: 'beacons' },
+}
+
+/**
+ * Parse an already-split path (or legacy hash) into a {@link RouteState}. The
+ * naddr in `segments[1]` is treated as an OPAQUE string — it is never decoded
+ * here, so a malformed naddr cannot throw in the parser (decode happens
+ * downstream in try/catch'd helpers like `decodeContextCoordinateFromNaddr`).
+ * Exported for the D-09 byte-for-byte parse tests.
+ */
+export function parsePathSegments(segments: string[]): RouteState {
 	if (segments.length === 0) {
 		return { focusType: 'none', sidebarView: 'contexts' }
 	}
@@ -105,57 +135,23 @@ function parsePathSegments(segments: string[]): RouteState {
 		}
 	}
 
-	// Share forms (also what the OG crawler matches): /geoevent/:naddr and
-	// /mapcontext/:naddr, each with an optional /comment/:id suffix.
-	if (first === 'geoevent' && segments[1]) {
+	// Share forms (also what the OG crawler matches): /geoevent/:naddr,
+	// /mapcontext/:naddr, /story/:naddr, /sighting/:naddr, /beacon/:naddr, each
+	// with an optional /comment/:id suffix. XCUT-02 (D-08): one table-driven
+	// dispatch body replaces the five byte-identical per-kind blocks (Pitfall
+	// P-5). URL shapes are byte-for-byte identical (D-09): `first` still matches
+	// only these five prefixes, `segments[1]` is still the opaque naddr (the
+	// throwaway-pubkey beacon naddr resolves because the parse is pubkey-agnostic
+	// and never decodes it), and the /comment/:id suffix parses the same. An
+	// unknown `first` is not in SHARE_ROUTES, so it falls through to the /context
+	// and sidebar-tail branches below exactly as before (T-13-02-MISROUTE).
+	const share = SHARE_ROUTES[first]
+	if (share && segments[1]) {
 		return {
-			focusType: 'geoevent',
+			focusType: share.focusType,
 			naddr: segments[1],
 			commentId: segments[2] === 'comment' && segments[3] ? segments[3] : undefined,
-			sidebarView: 'datasets',
-		}
-	}
-	if (first === 'mapcontext' && segments[1]) {
-		return {
-			focusType: 'mapcontext',
-			naddr: segments[1],
-			commentId: segments[2] === 'comment' && segments[3] ? segments[3] : undefined,
-			sidebarView: 'contexts',
-		}
-	}
-	// Story share form (also what the OG crawler matches via /story/:naddr →
-	// /#/stories/story/:naddr): /story/:naddr (+ optional /comment/:id).
-	if (first === 'story' && segments[1]) {
-		return {
-			focusType: 'story',
-			naddr: segments[1],
-			commentId: segments[2] === 'comment' && segments[3] ? segments[3] : undefined,
-			sidebarView: 'stories',
-		}
-	}
-	// Sighting share form (also what the OG crawler matches via /sighting/:naddr →
-	// /#/sightings/sighting/:naddr): /sighting/:naddr (+ optional /comment/:id). A
-	// thin per-kind clone of the story form (Pitfall P-5; the canonical entity
-	// router is Phase 13 / XCUT-02, NOT generalized here).
-	if (first === 'sighting' && segments[1]) {
-		return {
-			focusType: 'sighting',
-			naddr: segments[1],
-			commentId: segments[2] === 'comment' && segments[3] ? segments[3] : undefined,
-			sidebarView: 'sightings',
-		}
-	}
-	// Beacon share form (also what the OG crawler matches via /beacon/:naddr →
-	// /#/beacons/beacon/:naddr): /beacon/:naddr (+ optional /comment/:id). A thin
-	// per-kind clone of the sighting form (Pitfall P-5; the canonical entity router
-	// is Phase 13 / XCUT-02, NOT generalized here). The naddr carries the throwaway
-	// pubkey (D-05) — the parse is pubkey-agnostic, so an anonymous beacon resolves.
-	if (first === 'beacon' && segments[1]) {
-		return {
-			focusType: 'beacon',
-			naddr: segments[1],
-			commentId: segments[2] === 'comment' && segments[3] ? segments[3] : undefined,
-			sidebarView: 'beacons',
+			sidebarView: share.sidebarView,
 		}
 	}
 
