@@ -3,7 +3,7 @@ status: diagnosed
 phase: 13-cross-cutting
 source: [13-01-SUMMARY.md, 13-02-SUMMARY.md, 13-03-SUMMARY.md, 13-04-SUMMARY.md]
 started: 2026-07-02T13:50:00Z
-updated: 2026-07-02T14:20:00Z
+updated: 2026-07-02T14:32:00Z
 ---
 
 ## Current Test
@@ -36,7 +36,7 @@ note: "User confirmed other kinds work — isolates the deep-link bug to the bea
 ### 5. Add Beacon / Sighting to Map Stack
 expected: Beacon and Sighting view panels (and their rail rows) show an "Add to map stack" button. Clicking it adds that entity as a Map Stack entry (a toast confirms), and it stays visible on the map via the stack.
 result: issue
-reported: "no such button (screenshot: beacon rail row 'Untitled' LIVE shows only locate + inspect icons; no Add-to-map-stack button. Map Stack panel empty '0/0 visible / No map stack entries' though the live beacon renders on the map. Beacon inspect view panel unreachable due to the Test-2/3 doubled-prefix routing bug — URL localhost:3000/beacons/beacon/naddr...)"
+reported: "INITIAL (stale runtime): no such button. AFTER DEV-SERVER RESTART: the 'Add to map stack' button now RENDERS on the beacon inspect panel (confirms the missing-button symptom was the stale bundle). NEW BUG on the add ACTION: clicking 'Add to map stack' on a STALE beacon (last seen 2m ago) shows success toast 'Added beacon to the map' but the beacon appears nowhere — not on the map, not in the stack (panel still '0/0 visible / No map stack entries'). Suspected expiry-sweep removing the just-added stale entry (unresolvable in the live discovery superset)."
 severity: major
 
 ### 6. Aggregate Layer Toggle
@@ -100,6 +100,16 @@ blocked: 1
   artifacts: ["runtime-only: no source change — dev server PID 95035 predates the Plan-03/04 commits"]
   missing: ["Restart the dev server (kill the stale `bun --hot`/`bun dev` process, then `bun dev`) + hard browser reload, then RE-RUN UAT 5/6/7. Only a genuine code bug if a symptom persists after a clean restart."]
   debug_session: ".planning/debug/mapstack-ui-surface-absent.md"
+  retest_after_restart: "Button now RENDERS (stale-runtime confirmed for the missing-button symptom). But a REAL add-action bug surfaced — see gap test:5b below."
+- truth: "Clicking 'Add to map stack' actually lands the entity on the stack AND renders it on the map (toast reflects reality)"
+  status: failed
+  reason: "User reported (post-restart): add-to-map-stack on a STALE beacon (last seen 2m ago, 'Fades soon') shows success toast 'Added beacon to the map' but the beacon is nowhere — not on the map, and the Map Stack panel still reads '0/0 visible / No map stack entries'. Phantom entry."
+  severity: major
+  test: 5b
+  root_cause: "The Plan-04 expiry-sweep effect AND the deriveVisibleEntitiesFromStack render gate both resolve individual beacon stack entries against `beaconLookupSuperset` (= `#t:['live']` discovery `beacons` ∪ `routedBeacons`). A beacon with NO `t:live` discovery tags that is also NOT routed falls OUTSIDE that superset — e.g. an own/link-only beacon set via `setViewBeacon(publisher.liveBeacon)` (GeoEditorView ~L142) which bypasses `navigateTo('beacon', naddr)` and therefore never populates `routedBeacons`, or a stale beacon dropped from the live-discovery window. Sequence: addBeaconToMapStack(beacon,'manual') adds the entry + fires the toast UNCONDITIONALLY; on the next render tick the sweep resolves the entry against beaconLookupSuperset, finds it unresolvable (`!resolved`), and calls removeMapStackEntry → PHANTOM (entry gone). The render gate independently can't resolve it either → never draws. Two reinforcing failures. DECISIVE property: beacon out-of-superset (no t:live AND not routed), NOT strictly 'stale' — an own/link-only beacon reproduces it too. (Open sub-question the stalled agent flagged: whether own/public beacons SHOULD carry t:live at all — a private/link-only share legitimately omits it, so the fix must handle out-of-discovery entities, not force t:live.)"
+  artifacts: ["src/features/geo-editor/GeoEditorView.tsx — expiry-sweep effect (after visibleBeaconsFromStack memo) removes entries unresolvable in beaconLookupSuperset; deriveVisibleEntitiesFromStack render gate resolves against the same superset; addBeaconToMapStack fires toast unconditionally; setViewBeacon(~L142) sets own beacon without routing it"]
+  missing: ["A user-EXPLICITLY-added stack entry must remain resolvable + rendered even when the entity is outside live-discovery (no t:live) and not routed. Fix options: (a) inject the added beacon/sighting into the lookup superset (or a per-entry resolved-cache) at add time; and/or (b) open a targeted subscription for an added out-of-discovery beacon so it stays resolvable; and/or (c) do NOT sweep a not-yet-expired user-added entry merely because it left the live-discovery window (distinguish 'expired' from 'stale/faded-from-discovery'). Also stop the toast from claiming success if the entry cannot be rendered."]
+  debug_session: ".planning/debug/add-to-stack-phantom-entry.md (partial — agent stalled on watchdog; root cause captured)"
 - truth: "MapStackPanel shows top-pinned aggregate 'Sightings'/'Live beacons' rows whose toggle adds/removes the whole layer"
   status: failed
   reason: "User reported: no such button and no way to put a sighting to the mapstack. On /sightings the sightings render on the map and the list is populated, but the Map Stack panel is empty ('0/0 visible / No map stack entries') — the aggregate Sightings/Live beacons layer rows never appear, so there is nothing to toggle. CONTRADICTION for diagnosis: sightings/beacons still render on the map while the stack is empty — either the Plan-03 selectors are not actually gating render (useMapLayers still on the old always-on path) OR the aggregate entries exist in some state but MapStackPanel isn't rendering them. Whole Plan-04 Map Stack UI surface appears absent in the running app."
