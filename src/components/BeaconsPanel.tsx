@@ -25,6 +25,7 @@
  */
 
 import { unixNow } from 'applesauce-core/helpers/time'
+import { MapPlus } from 'lucide-react'
 import { useMemo } from 'react'
 import { useBeacons, beaconState, type BeaconState } from '@/lib/hooks/useBeacons'
 import type { LiveBeacon } from '@/lib/nostr/live-beacon'
@@ -54,6 +55,12 @@ export interface BeaconsPanelProps {
 	onOpenBeacon: (beacon: LiveBeacon) => void
 	/** Fly the map to the beacon's location and focus it ("Watch on map"). */
 	onWatchOnMap?: (beacon: LiveBeacon) => void
+	/**
+	 * Phase 13 (SPEC §3.4): add this beacon to the Map Stack as a normal,
+	 * non-isolated visible entry (mirrors the datasets rail onAddDatasetToMap).
+	 * Absent ⇒ the affordance is hidden.
+	 */
+	onAddToMapStack?: (beacon: LiveBeacon) => void
 	/** Stop the user's own active beacon (owner-only; wired in Plan 05). */
 	onStopBeacon?: (beacon: LiveBeacon) => void
 	/** Adjust the user's own active beacon — opens the control panel pre-filled,
@@ -102,6 +109,7 @@ interface BeaconRowProps {
 	now: number
 	onOpen: () => void
 	onWatch?: () => void
+	onAddToMapStack?: () => void
 	onStop?: () => void
 	onAdjust?: () => void
 }
@@ -113,6 +121,7 @@ function BeaconRow({
 	now,
 	onOpen,
 	onWatch,
+	onAddToMapStack,
 	onStop,
 	onAdjust,
 }: BeaconRowProps) {
@@ -173,6 +182,18 @@ function BeaconRow({
 							<ZoomActionIcon className="h-4 w-4" />
 						</Button>
 					) : null}
+					{onAddToMapStack ? (
+						<Button
+							size="icon-sm"
+							variant="ghost"
+							className={cn(actionButtonClass, 'hover:text-emerald-600')}
+							onClick={onAddToMapStack}
+							aria-label="Add to map stack"
+							title="Add to map stack"
+						>
+							<MapPlus className="h-4 w-4" />
+						</Button>
+					) : null}
 					<Button
 						size="icon-sm"
 						variant="ghost"
@@ -222,6 +243,7 @@ export function BeaconsPanelContent({
 	onShareLocation,
 	onOpenBeacon,
 	onWatchOnMap,
+	onAddToMapStack,
 	onStopBeacon,
 	onAdjustBeacon,
 	selectedKey,
@@ -261,6 +283,7 @@ export function BeaconsPanelContent({
 				now={now}
 				onOpen={() => onOpenBeacon(beacon)}
 				onWatch={onWatchOnMap ? () => onWatchOnMap(beacon) : undefined}
+				onAddToMapStack={onAddToMapStack ? () => onAddToMapStack(beacon) : undefined}
 				onStop={isOwner && onStopBeacon ? () => onStopBeacon(beacon) : undefined}
 				onAdjust={isOwner && onAdjustBeacon ? () => onAdjustBeacon(beacon) : undefined}
 			/>

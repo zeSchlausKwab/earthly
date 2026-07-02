@@ -23,6 +23,7 @@
  */
 
 import { unixNow } from 'applesauce-core/helpers/time'
+import { MapPlus } from 'lucide-react'
 import { useEffect, useMemo, useRef } from 'react'
 import { useSightings } from '@/lib/hooks/useSightings'
 import {
@@ -64,6 +65,12 @@ export interface SightingsPanelProps {
 	 * "zoom + show on map" affordance — sightings always render, so this centers
 	 * + highlights rather than toggling stack membership). */
 	onZoomToSighting?: (sighting: TemporalSighting) => void
+	/**
+	 * Phase 13 (SPEC §3.4): add this Sighting to the Map Stack as a normal,
+	 * non-isolated visible entry (mirrors the datasets rail onAddDatasetToMap).
+	 * Absent ⇒ the affordance is hidden.
+	 */
+	onAddToMapStack?: (sighting: TemporalSighting) => void
 	/** The d-tag key of a Sighting whose delete is in flight (disables its row menu). */
 	deletingKey?: string | null
 	/**
@@ -94,6 +101,7 @@ interface SightingRowProps {
 	now: number
 	onOpen: () => void
 	onZoomTo?: () => void
+	onAddToMapStack?: () => void
 	onEdit: () => void
 	onDelete: () => void
 }
@@ -107,6 +115,7 @@ function SightingRow({
 	now,
 	onOpen,
 	onZoomTo,
+	onAddToMapStack,
 	onEdit,
 	onDelete,
 }: SightingRowProps) {
@@ -204,6 +213,18 @@ function SightingRow({
 								<ZoomActionIcon className="h-4 w-4" />
 							</Button>
 						) : null}
+						{onAddToMapStack ? (
+							<Button
+								size="icon-sm"
+								variant="ghost"
+								className={cn(actionButtonClass, 'hover:text-emerald-600')}
+								onClick={onAddToMapStack}
+								aria-label="Add to map stack"
+								title="Add to map stack"
+							>
+								<MapPlus className="h-4 w-4" />
+							</Button>
+						) : null}
 						<Button
 							size="icon-sm"
 							variant="ghost"
@@ -254,6 +275,7 @@ export function SightingsPanelContent({
 	onEditSighting,
 	onDeleteSighting,
 	onZoomToSighting,
+	onAddToMapStack,
 	deletingKey,
 	selectedKey,
 }: SightingsPanelProps) {
@@ -328,6 +350,7 @@ export function SightingsPanelContent({
 								now={now}
 								onOpen={() => onOpenSighting(sighting)}
 								onZoomTo={onZoomToSighting ? () => onZoomToSighting(sighting) : undefined}
+								onAddToMapStack={onAddToMapStack ? () => onAddToMapStack(sighting) : undefined}
 								onEdit={() => onEditSighting(sighting)}
 								onDelete={() => onDeleteSighting(sighting)}
 							/>

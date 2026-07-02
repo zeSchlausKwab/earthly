@@ -186,6 +186,8 @@ interface AppSidebarProps {
 	selectedSightingKey?: string | null
 	/** WR-06: comment d-tag to focus beneath the viewed Sighting (survives navigateToView). */
 	sightingFocusCommentId?: string
+	/** D-10: comment d-tag to focus beneath the viewed Beacon (survives navigateToView). */
+	beaconFocusCommentId?: string
 	onCreateSighting?: () => void
 	onInspectSighting?: (
 		sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting,
@@ -197,6 +199,10 @@ interface AppSidebarProps {
 	onDeleteSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
 	/** Fly the map to a Sighting and focus it (the rail "zoom to on map" affordance). */
 	onZoomToSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
+	/** Phase 13 (SPEC §3.4): add a Sighting to the Map Stack (rail + view-panel affordance). */
+	onAddSightingToMapStack?: (
+		sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting,
+	) => void
 	/** The geometry placed by the map-first pin-drop, fed to the Sighting editor. */
 	placedSightingGeometry?: import('geojson').Geometry | null
 	/** Switch the Sighting create flow to line/polygon draw (D-02). */
@@ -208,6 +214,8 @@ interface AppSidebarProps {
 	 * `?? (() => {})` defaults so the Beacons rail renders before the controller lands. */
 	onShareLocation?: () => void
 	onWatchOnMapBeacon?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
+	/** Phase 13 (SPEC §3.4): add a Beacon to the Map Stack (rail + view-panel affordance). */
+	onAddBeaconToMapStack?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
 	onStopBeacon?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
 	onAdjustBeacon?: (beacon?: import('@/lib/nostr/live-beacon').LiveBeacon) => void
 	/** The d-tag/id of the last-inspected/viewed beacon — highlights + scrolls its rail row. */
@@ -301,6 +309,7 @@ export function AppSidebar({
 	viewSighting,
 	selectedSightingKey,
 	sightingFocusCommentId,
+	beaconFocusCommentId,
 	onCreateSighting,
 	onInspectSighting,
 	onEditSighting,
@@ -308,11 +317,13 @@ export function AppSidebar({
 	onCloseSightingEditor,
 	onDeleteSighting,
 	onZoomToSighting,
+	onAddSightingToMapStack,
 	placedSightingGeometry,
 	onDrawSightingArea,
 	onClearSightingView,
 	onShareLocation,
 	onWatchOnMapBeacon,
+	onAddBeaconToMapStack,
 	onStopBeacon,
 	onAdjustBeacon,
 	selectedBeaconKey,
@@ -750,6 +761,7 @@ export function AppSidebar({
 		onEditSighting: handleEditSighting,
 		onDeleteSighting: onDeleteSighting ?? (() => {}),
 		onZoomToSighting,
+		onAddToMapStack: onAddSightingToMapStack,
 		deletingKey,
 		// Highlight + scroll the row of the LAST-inspected Sighting. This persists
 		// after the detail panel closes (unlike viewSighting), because viewing a
@@ -766,6 +778,7 @@ export function AppSidebar({
 		onShareLocation: handleShareLocationBeacon,
 		onOpenBeacon: handleInspectBeacon,
 		onWatchOnMap: onWatchOnMapBeacon,
+		onAddToMapStack: onAddBeaconToMapStack,
 		onStopBeacon,
 		onAdjustBeacon: handleAdjustBeacon,
 		selectedKey: selectedBeaconKey ?? null,
@@ -842,6 +855,8 @@ export function AppSidebar({
 		onEditSighting: handleEditSighting,
 		onDeleteSighting,
 		onDrawSightingArea,
+		onAddSightingToMapStack,
+		beaconFocusCommentId,
 		// Beacon control + view (Phase 12, BEACON-01..04, D-12).
 		beaconControlMode,
 		adjustingBeacon,
@@ -852,6 +867,7 @@ export function AppSidebar({
 		onStopBeacon,
 		onAdjustBeacon: handleAdjustBeacon,
 		onZoomToBeacon: onWatchOnMapBeacon,
+		onAddBeaconToMapStack,
 		mapContextEvents,
 		onZoomToFeature,
 		featureCollectionForUpload,

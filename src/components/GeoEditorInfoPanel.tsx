@@ -172,6 +172,8 @@ export interface GeoEditorInfoPanelProps {
 	onEditSighting?: (sighting: TemporalSighting) => void
 	/** Callback to delete a Sighting (owner). */
 	onDeleteSighting?: (sighting: TemporalSighting) => void
+	/** Phase 13 (SPEC §3.4): add the viewed Sighting to the Map Stack (view-panel affordance). */
+	onAddSightingToMapStack?: (sighting: TemporalSighting) => void
 	/** Beacon control panel mode (Phase 12, BEACON-01). 'none' ⇒ no control surface. */
 	beaconControlMode?: 'none' | 'create' | 'adjust'
 	/** The beacon being adjusted — pre-fills the control panel (create ⇒ null). */
@@ -194,6 +196,8 @@ export interface GeoEditorInfoPanelProps {
 	onAdjustBeacon?: (beacon?: LiveBeacon) => void
 	/** Fly the map to a beacon and focus it (view-panel "Watch on map"). */
 	onZoomToBeacon?: (beacon: LiveBeacon) => void
+	/** Phase 13 (SPEC §3.4): add the viewed Beacon to the Map Stack (view-panel affordance). */
+	onAddBeaconToMapStack?: (beacon: LiveBeacon) => void
 }
 
 export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
@@ -252,6 +256,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onCloseSightingEditor,
 		onEditSighting,
 		onDeleteSighting,
+		onAddSightingToMapStack,
 		beaconControlMode = 'none',
 		adjustingBeacon,
 		viewBeacon,
@@ -263,6 +268,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onStopBeacon,
 		onAdjustBeacon,
 		onZoomToBeacon,
+		onAddBeaconToMapStack,
 	} = props
 
 	// Store state
@@ -716,6 +722,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					currentUserPubkey={currentUserPubkey}
 					onStopBeacon={onStopBeacon}
 					onAdjustBeacon={onAdjustBeacon}
+					onAddToMapStack={onAddBeaconToMapStack}
 					onZoomTo={onZoomToBeacon ? () => onZoomToBeacon(viewBeacon) : undefined}
 					isFollowing={isFollowingBeacon}
 					onToggleFollow={onToggleFollowBeacon}
@@ -740,6 +747,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					currentUserPubkey={currentUserPubkey}
 					onEditSighting={onEditSighting}
 					onDeleteSighting={onDeleteSighting}
+					onAddToMapStack={onAddSightingToMapStack}
 					onZoomTo={onZoomToSighting ? () => onZoomToSighting(viewSighting) : undefined}
 					deletingKey={deletingKey}
 					availableFeatures={availableFeatures}

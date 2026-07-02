@@ -33,7 +33,7 @@
  */
 
 import { unixNow } from 'applesauce-core/helpers/time'
-import { LocateFixed, Navigation, Pencil } from 'lucide-react'
+import { LocateFixed, MapPlus, Navigation, Pencil } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
@@ -71,6 +71,12 @@ interface BeaconViewPanelProps {
 	onStopBeacon?: (beacon: LiveBeacon) => void
 	/** Adjust the user's own active beacon — opens the control panel pre-filled. */
 	onAdjustBeacon?: (beacon: LiveBeacon) => void
+	/**
+	 * Phase 13 (SPEC §3.4): add this beacon to the Map Stack as a normal,
+	 * non-isolated visible entry (mirrors the dataset onAddDatasetToMap affordance).
+	 * Absent ⇒ the affordance is hidden.
+	 */
+	onAddToMapStack?: (beacon: LiveBeacon) => void
 	/** Fly the map to this beacon and focus it ("Watch on map"). */
 	onZoomTo?: () => void
 	/** True while the map is following this beacon (recenters on each new fix). */
@@ -129,6 +135,7 @@ export function BeaconViewPanel({
 	currentUserPubkey,
 	onStopBeacon,
 	onAdjustBeacon,
+	onAddToMapStack,
 	onZoomTo,
 	isFollowing = false,
 	onToggleFollow,
@@ -290,15 +297,30 @@ export function BeaconViewPanel({
 						</Button>
 					) : null}
 
-					{/* Copy share link — carries the throwaway pubkey (D-11). */}
-					<Button
-						type="button"
-						variant="outline"
-						onClick={handleCopyShareLink}
-						className="w-full rounded-none"
-					>
-						Copy share link
-					</Button>
+					{/* Add to map stack (SPEC §3.4) + Copy share link. Add-to-stack lands a
+					    normal, non-isolated visible entry so the beacon shows on the map
+					    without going solo (unlike a deep link). Only when the handler is wired. */}
+					<div className="flex flex-col gap-2">
+						{onAddToMapStack ? (
+							<Button
+								type="button"
+								variant="outline"
+								onClick={() => onAddToMapStack(beacon)}
+								className="w-full gap-1 rounded-none"
+							>
+								<MapPlus className="h-4 w-4" />
+								Add to map stack
+							</Button>
+						) : null}
+						<Button
+							type="button"
+							variant="outline"
+							onClick={handleCopyShareLink}
+							className="w-full rounded-none"
+						>
+							Copy share link
+						</Button>
+					</div>
 				</EntityPanelSurface>
 
 				{/* Comment + react on the beacon 37521 coordinate (XCUT-01, D-06). The

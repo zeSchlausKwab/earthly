@@ -33,6 +33,8 @@ import { formatExpiryCountdown } from '@/lib/nostr/temporal-sighting'
 import { nip19 } from 'nostr-tools'
 import type { Article } from '@/lib/nostr/article'
 import { ARTICLE_KIND, LIVE_BEACON_KIND, TEMPORAL_SIGHTING_KIND } from '@/lib/nostr/kinds'
+import { isExpired } from '@/lib/nostr/expiry'
+import { unixNow } from 'applesauce-core/helpers/time'
 import { deleteStory } from '@/lib/nostr/story'
 import { deleteSighting, type TemporalSighting } from '@/lib/nostr/temporal-sighting'
 import { bboxFromGeometry } from '@/lib/geo/bbox'
@@ -836,6 +838,55 @@ export function GeoEditorView() {
 		mapStackOrder.length === 0 &&
 		geoEvents.length > 0
 
+	// Phase 13 (SPEC §3.3, D-05): cold-start Browse auto-adds BOTH aggregate layer
+	// entries so today's always-on sightings/beacons behavior is preserved — but now
+	// as removable/toggleable Map Stack entries (source 'browse-default', entityKey
+	// 'all', visible). Seeded exactly once per session on the first cold-start (no
+	// `?ms=` URL), guarded by a ref so it never re-seeds after the user Clears them
+	// (browse-default entries clear normally per clearMapStack) or removes them —
+	// matching how browse-default avoids re-triggering after a clear (types.ts L101).
+	// A `?ms=`-bearing deep link hydrates its own stack and is NOT seeded (its
+	// membership is the shared view; the observer should see exactly what was shared).
+	const aggregateLayersSeededRef = useRef(false)
+	useEffect(() => {
+		if (aggregateLayersSeededRef.current) return
+		if (stance !== 'browse' || !stackUrlHydrated) return
+		// Only seed on a genuine cold-start (no shared `?ms=` stack to reconstruct).
+		if (new URLSearchParams(window.location.search).has('ms')) {
+			aggregateLayersSeededRef.current = true
+			return
+		}
+		aggregateLayersSeededRef.current = true
+		// Idempotent: addMapStackEntry keys by `${entityType}:${entityKey}` so a
+		// second call with entityKey 'all' is a no-op merge, never a duplicate row.
+		const hasSightingLayer = mapStackOrder.some(
+			(id) => mapStackEntries[id]?.entityType === 'sighting-layer',
+		)
+		const hasBeaconLayer = mapStackOrder.some(
+			(id) => mapStackEntries[id]?.entityType === 'beacon-layer',
+		)
+		if (!hasSightingLayer) {
+			addMapStackEntry({
+				entityType: 'sighting-layer',
+				entityKey: 'all',
+				title: 'Sightings',
+				source: 'browse-default',
+				visible: true,
+				pinned: false,
+			})
+		}
+		if (!hasBeaconLayer) {
+			addMapStackEntry({
+				entityType: 'beacon-layer',
+				entityKey: 'all',
+				title: 'Live beacons',
+				source: 'browse-default',
+				visible: true,
+				pinned: false,
+			})
+		}
+	}, [stance, stackUrlHydrated, mapStackEntries, mapStackOrder, addMapStackEntry])
+
 	// Store state for viewMode
 	const viewMode = useEditorStore((state) => state.viewMode)
 
@@ -1247,6 +1298,39 @@ export function GeoEditorView() {
 			),
 		[beacons, mapStackEntries, mapStackOrder, beaconLookupSuperset],
 	)
+
+	// Phase 13 (D-02): pinned-entry expiry AUTO-REMOVE sweep (dropExpired parity).
+	// An individual `sighting`/`beacon` stack entry whose resolved entity has passed
+	// its NIP-40 expiration — or has dropped out of the (already dropExpired'd)
+	// subscription entirely — has its stack entry removed, so "on the stack = visible"
+	// stays honest and no ended tombstone row lingers (matches the Phase-12 beacon
+	// honesty posture). Aggregate `*-layer` entries are NOT swept: they gate the whole
+	// subscription, which self-drops expired entities inside buildSighting/BeaconSource.
+	// Runs on the sighting/beacon subscription tick (the sets update on their own
+	// expiry ticks — 60s sightings / 15s beacons — so this re-evaluates as they change).
+	useEffect(() => {
+		const now = unixNow()
+		const sightingByKey = new Map<string, TemporalSighting>()
+		for (const s of sightings) {
+			sightingByKey.set(encodeSightingNaddrPure(s) ?? s.dTag ?? s.id, s)
+		}
+		const beaconByKey = new Map<string, LiveBeacon>()
+		for (const b of beaconLookupSuperset) {
+			beaconByKey.set(encodeBeaconNaddrPure(b) ?? b.dTag ?? b.id, b)
+		}
+		for (const id of mapStackOrder) {
+			const entry = mapStackEntries[id]
+			if (!entry) continue
+			if (entry.entityType === 'sighting') {
+				const resolved = sightingByKey.get(entry.entityKey)
+				// Gone from the dropExpired'd subscription OR independently expired ⇒ remove.
+				if (!resolved || isExpired(resolved.event, now)) removeMapStackEntry(id)
+			} else if (entry.entityType === 'beacon') {
+				const resolved = beaconByKey.get(entry.entityKey)
+				if (!resolved || isExpired(resolved.event, now)) removeMapStackEntry(id)
+			}
+		}
+	}, [sightings, beaconLookupSuperset, mapStackEntries, mapStackOrder, removeMapStackEntry])
 
 	// Round F.2: comment/annotation overlays follow the stack. A visible
 	// comment overlay stays only while its root entity is still anchored —
@@ -2377,6 +2461,8 @@ export function GeoEditorView() {
 					onCloseBeaconControl={handleCloseBeaconControl}
 					onInspectBeacon={handleInspectBeacon}
 					onWatchOnMapBeacon={handleZoomToBeacon}
+					onAddBeaconToMapStack={addBeaconToMapStack}
+					onAddSightingToMapStack={addSightingToMapStack}
 					onStopBeacon={() => handleStopBeacon()}
 					onAdjustBeacon={handleAdjustBeacon}
 					onClearBeaconView={clearBeaconView}
@@ -2727,6 +2813,8 @@ export function GeoEditorView() {
 							onInspectBeacon={handleInspectBeacon}
 							onOpenBeacon={handleInspectBeacon}
 							onWatchOnMapBeacon={handleZoomToBeacon}
+							onAddBeaconToMapStack={addBeaconToMapStack}
+							onAddSightingToMapStack={addSightingToMapStack}
 							onStopBeacon={() => handleStopBeacon()}
 							onAdjustBeacon={handleAdjustBeacon}
 							onClearBeaconView={clearBeaconView}

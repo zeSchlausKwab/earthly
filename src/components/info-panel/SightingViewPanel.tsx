@@ -31,7 +31,7 @@
  */
 
 import { unixNow } from 'applesauce-core/helpers/time'
-import { LocateFixed, Pencil } from 'lucide-react'
+import { LocateFixed, MapPlus, Pencil } from 'lucide-react'
 import type { GeoComment } from '@/lib/nostr/geo-comment'
 import { CommentsPanel } from '@/features/social/comments'
 import { isExpired } from '@/lib/nostr/expiry'
@@ -59,6 +59,12 @@ interface SightingViewPanelProps {
 	currentUserPubkey?: string
 	onDeleteSighting?: (sighting: TemporalSighting) => void
 	onEditSighting?: (sighting: TemporalSighting) => void
+	/**
+	 * Phase 13 (SPEC §3.4): add this Sighting to the Map Stack as a normal,
+	 * non-isolated visible entry (mirrors the dataset onAddDatasetToMap affordance).
+	 * Absent ⇒ the affordance is hidden.
+	 */
+	onAddToMapStack?: (sighting: TemporalSighting) => void
 	/** Fly the map to this Sighting and focus it (the inspect-panel "Zoom to" button). */
 	onZoomTo?: () => void
 	/** The d-tag key of a Sighting whose delete is in flight. */
@@ -91,6 +97,7 @@ export function SightingViewPanel({
 	currentUserPubkey,
 	onDeleteSighting,
 	onEditSighting,
+	onAddToMapStack,
 	onZoomTo,
 	deletingKey,
 	availableFeatures = [],
@@ -230,6 +237,20 @@ export function SightingViewPanel({
 								</div>
 							) : null}
 						</div>
+					) : null}
+
+					{/* Add to map stack (SPEC §3.4) — a normal, non-isolated visible entry so
+					    the sighting shows on the map without going solo. Only when wired. */}
+					{onAddToMapStack ? (
+						<Button
+							type="button"
+							variant="outline"
+							onClick={() => onAddToMapStack(sighting)}
+							className="w-full gap-1 rounded-none"
+						>
+							<MapPlus className="h-4 w-4" />
+							Add to map stack
+						</Button>
 					) : null}
 				</EntityPanelSurface>
 
