@@ -215,8 +215,25 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
   1. The comment system accepts Story, Group, Beacon, and Sighting as comment roots (NIP-22 `K`/`k` widening), verified end-to-end across all four kinds.
   2. Each new entity type is addressable by the router so it can be opened, deep-linked, and shared, replacing the old single-context route shape.
 
-**Plans**: TBD
-**Research flag**: SKIP — comment widening and routing are incremental; nothing novel.
+**Plans**: 4 plans (Wave 1 → 4) — gap-closure + the folded-in Map Stack ↔ entity-layer unification (D-01). Comment widening (XCUT-01) and routing generalization (XCUT-02) are small; the Map Stack unification (delete the `66a155e` hack; sightings/beacons become stack-gated) is the phase body.
+
+**Wave 1**
+
+  - [ ] 13-01-PLAN.md — XCUT-01 final gap: widen useGeoComments unions to LiveBeacon + mount CommentsPanel in BeaconViewPanel (beacon reaches comment parity; last kind wired) [XCUT-01, D-06/D-07]
+
+**Wave 2** *(blocked on Wave 1 — consumes the BeaconViewPanel focusCommentId prop Plan 01 adds)*
+
+  - [ ] 13-02-PLAN.md — XCUT-02 routing generalization: collapse the 5 per-kind parsers into one SHARE_ROUTES dispatcher (URL shapes byte-for-byte, D-09) + close the beacon commentId deep-link gap (D-10) [XCUT-02, D-08/D-09/D-10]
+
+**Wave 3** *(blocked on Wave 2 — shares GeoEditorView; deep-link-solo intersects the dispatcher)*
+
+  - [ ] 13-03-PLAN.md — Map Stack unification core: extend MapStackEntryType (+sighting/beacon/*-layer), stack-derived selectors gate rendering, deep-link→isolated-solo, DELETE the 66a155e extraMapBeacons hack (useMapLayers body untouched) [XCUT-01/XCUT-02, D-01/D-03/D-04]
+
+**Wave 4** *(blocked on Wave 3)*
+
+  - [ ] 13-04-PLAN.md — Map Stack unification UI: Add-to-map-stack on view panels + rails, aggregate layer entries top-pinned + toggleable, cold-start browse-default seeding, pinned-entry expiry auto-remove [XCUT-01/XCUT-02, D-02/D-05]
+
+**Research flag**: SKIP — comment widening and routing are incremental; the Map Stack unification has a written design SPEC (`.planning/design/map-stack-entity-layers-SPEC.md`) and every touchpoint has an in-repo analog (13-PATTERNS.md).
 **UI hint**: yes
 
 ## Progress
@@ -238,4 +255,4 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 10. Story / Article (~37520) | v1.2 | 4/4 | Complete    | 2026-06-27 |
 | 11. Temporal Sighting | v1.2 | 4/4 | Complete    | 2026-06-28 |
 | 12. Live Beacon (~37521) | v1.2 | 5/5 | Complete    | 2026-07-02 |
-| 13. Cross-Cutting | v1.2 | 0/TBD | Not started | - |
+| 13. Cross-Cutting | v1.2 | 0/4 | Planned | - |
