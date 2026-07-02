@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
-status: testing
-stopped_at: Phase 12 all 5 plans executed; code review + verification done. Fixed CR-01/CR-02 GPS-leak privacy criticals (commit bfb954f) that blocked BEACON-02 — re-verification human_needed, 4/4 must-haves code-verified. Phase NOT complete — PENDING end-of-phase UAT (/gsd-verify-work 12) + /gsd-secure-phase 12. Open warnings deferred: WR-02 (anon-beacon owner Stop/Adjust), WR-03 (seed stale fixture).
-last_updated: "2026-07-02T06:23:31Z"
-last_activity: 2026-07-02 -- Phase 12 verified (human_needed): fixed CR-01/CR-02 beacon GPS-leak, +3 regression tests (758 pass); routing beacons→contexts bug fixed; UAT pending
+status: planned
+stopped_at: Phase 12 (Live Beacon) COMPLETE 2026-07-02 — secured (threats_open:0) + UAT 4/4 PASS. v1.2 now 5/6 (83%). Next: Phase 13 (Cross-Cutting, XCUT-01/02). NOTE: map-stack entity-layer unification spec'd (.planning/design/) — candidate Phase 13 / slice.
+last_updated: "2026-07-02T11:32:32.044Z"
+last_activity: 2026-07-02
 progress:
   total_phases: 6
-  completed_phases: 4
-  total_plans: 25
-  completed_plans: 25
-  percent: 67
+  completed_phases: 5
+  total_plans: 24
+  completed_plans: 24
+  percent: 83
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 ## Current Position
 
-Phase: 12 (live-beacon-37521) — EXECUTED, PENDING UAT (5/5 plans; verification human_needed; /gsd-verify-work 12 + /gsd-secure-phase 12 pending)
-Plan: 5 of 5 — executed; phase sign-off gated on end-of-phase UAT
-Status: All 5 plans executed + committed. Code review found 2 privacy criticals (CR-01/CR-02 GPS-leak) — fixed + regression-tested (758 pass). Routing beacons→contexts bug fixed. Re-verification: human_needed, 4/4 code-verified. NOT complete until UAT passes. Then /gsd-secure-phase 12, then Phase 13 (Cross-Cutting).
-Last activity: 2026-06-28 -- Phase 12 Plan 05 (Live Beacon Start/Stop/View/Share UX) complete
+Phase: 13 (cross-cutting) — not started
+Plan: Not started
+Status: Phase 12 (Live Beacon) COMPLETE — 5/5 plans, secured (threats_open:0), UAT 4/4 PASS. Session fixes: CR-01/CR-02 GPS-leak, routing beacons→contexts, Start→share-link, deep-link→inspect+zoom+Follow, map-marker visibility (link-only/share), WR-03 stale-seed. 758 tests / build / biome green. Next: Phase 13 (XCUT-01 comment K/k widening + XCUT-02 entity routing) — and a spec'd map-stack entity-layer unification (.planning/design/map-stack-entity-layers-SPEC.md) is a candidate to fold in.
+Last activity: 2026-07-02
 
 Progress: [████████░░] 83% (v1.2 — 5/6 phases)
 

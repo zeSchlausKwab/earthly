@@ -1,7 +1,8 @@
 ---
 phase: 12-live-beacon-37521
 verified: 2026-07-02T00:00:00Z
-status: human_needed
+status: passed
+uat_closed: "2026-07-02 — /gsd-verify-work 12: UAT 4/4 PASS (human_verification items confirmed live; several beacon UX gaps found + fixed during UAT — see 12-UAT.md notes)"
 score: 4/4 must-haves verified
 overrides_applied: 0
 re_verification:
