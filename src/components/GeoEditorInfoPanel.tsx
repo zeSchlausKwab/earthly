@@ -152,6 +152,14 @@ export interface GeoEditorInfoPanelProps {
 	 * `useSightingEditor` state and survives that navigation.
 	 */
 	sightingFocusCommentId?: string
+	/**
+	 * D-10: the comment d-tag to focus beneath the viewed Beacon. Separate from the
+	 * generic `focusCommentId` for the same reason as `sightingFocusCommentId` — the
+	 * beacon focus path switches the sidebar via `navigateTo`/`navigateToView` (which
+	 * drops the URL `/comment/:id` segment), so the route-derived `focusCommentId`
+	 * would be wiped. Held in `useBeaconController` state and survives that navigation.
+	 */
+	beaconFocusCommentId?: string
 	/** The geometry placed by the map-first pin-drop, fed to the create form. */
 	placedSightingGeometry?: Geometry | null
 	/** Switch the Sighting create flow to line/polygon draw (D-02). */
@@ -237,6 +245,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		editingSighting,
 		viewSighting,
 		sightingFocusCommentId,
+		beaconFocusCommentId,
 		placedSightingGeometry,
 		onDrawSightingArea,
 		onSaveSighting,
@@ -695,8 +704,11 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		// Beacon view (Phase 12, BEACON-03/04, D-11) — opened beacon renders the
 		// read surface (label + live/stale/ended status + last-seen + countdown +
 		// Copy-share-link with the throwaway pubkey). Owner sees inline Stop/Adjust.
-		// Expired beacons are gated inside the panel (T-12-05-FROZEN). Comment/react
-		// deferred to Phase 13. Mounted before the Sighting/Story/context branches.
+		// Expired beacons are gated inside the panel (T-12-05-FROZEN). XCUT-01 wired
+		// the CommentsPanel mount (Plan 01) and XCUT-02/D-10 (Plan 02) threads the
+		// comment deep link here so /beacon/:naddr/comment/:id focuses a comment,
+		// reaching parity with Story/Sighting. Mounted before the Sighting/Story/
+		// context branches.
 		if (viewBeacon) {
 			return (
 				<BeaconViewPanel
@@ -707,6 +719,12 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					onZoomTo={onZoomToBeacon ? () => onZoomToBeacon(viewBeacon) : undefined}
 					isFollowing={isFollowingBeacon}
 					onToggleFollow={onToggleFollowBeacon}
+					availableFeatures={availableFeatures}
+					onCommentGeometryVisibility={onCommentGeometryVisibility}
+					onMentionVisibilityToggle={onMentionVisibilityToggle}
+					onMentionZoomTo={onMentionZoomTo}
+					onZoomToBounds={onZoomToBounds}
+					focusCommentId={beaconFocusCommentId ?? focusCommentId}
 				/>
 			)
 		}

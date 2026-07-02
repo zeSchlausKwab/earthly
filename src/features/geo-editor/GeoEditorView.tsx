@@ -1806,6 +1806,7 @@ export function GeoEditorView() {
 		viewBeacon,
 		ownLiveBeacon: publishedOwnBeacon,
 		lastInspectedBeaconKey,
+		beaconFocusCommentId,
 		handleShareLocation,
 		handleStartBeacon,
 		handleStopBeacon,
@@ -1965,7 +1966,10 @@ export function GeoEditorView() {
 				beacons.find((b) => encodeBeaconNaddr(b) === route.naddr) ??
 				routedBeacons.find((b) => encodeBeaconNaddr(b) === route.naddr)
 			if (beacon) {
-				handleInspectBeacon(beacon)
+				// D-10: thread the OG comment deep link so BeaconViewPanel focuses it,
+				// mirroring the Sighting comment-focus wiring above (~L1954). Closes the
+				// beacon /beacon/:naddr/comment/:id gap — parity across all five kinds.
+				handleInspectBeacon(beacon, route.commentId)
 				focusHandledRef.current = routeKey
 			}
 		}
@@ -2168,6 +2172,7 @@ export function GeoEditorView() {
 					viewSighting={viewSighting}
 					selectedSightingKey={lastInspectedSightingKey}
 					sightingFocusCommentId={sightingFocusCommentId}
+					beaconFocusCommentId={beaconFocusCommentId}
 					placedSightingGeometry={placedSightingGeometry}
 					onCreateSighting={handleCreateSighting}
 					onInspectSighting={handleInspectSighting}
@@ -2519,6 +2524,7 @@ export function GeoEditorView() {
 							viewSighting={viewSighting}
 							selectedSightingKey={lastInspectedSightingKey}
 							sightingFocusCommentId={sightingFocusCommentId}
+							beaconFocusCommentId={beaconFocusCommentId}
 							placedSightingGeometry={placedSightingGeometry}
 							onDrawSightingArea={handleDrawSightingArea}
 							onSaveSighting={handleSaveSighting}

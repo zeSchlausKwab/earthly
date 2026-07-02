@@ -67,6 +67,14 @@ export function useBeaconController({
 	// rail can highlight + scroll the row you last opened from the map (mirrors the
 	// Sighting `lastInspectedSightingKey`).
 	const [lastInspectedBeaconKey, setLastInspectedBeaconKey] = useState<string | null>(null)
+	// D-10: the deep-linked comment d-tag to focus beneath the viewed Beacon,
+	// mirroring `useSightingEditor`'s `focusCommentId`. `handleInspectBeacon`
+	// switches the sidebar via `navigateTo`/`navigateToView`, which does NOT
+	// preserve the URL `/comment/:id` segment — `route.commentId` would be wiped
+	// before CommentsPanel could act on it. Holding it as hook state survives that
+	// navigation so the /beacon/:naddr/comment/:id deep link is honored (parity
+	// with Story/Sighting).
+	const [focusCommentId, setFocusCommentId] = useState<string | undefined>(undefined)
 
 	const prepareNonGeometryWorkspace = useCallback(() => {
 		setViewModeState('view')
@@ -165,7 +173,7 @@ export function useBeaconController({
 
 	/** Open a beacon in the read/detail view panel. */
 	const handleInspectBeacon = useCallback(
-		(beacon: LiveBeacon) => {
+		(beacon: LiveBeacon, commentId?: string) => {
 			setBeaconControlMode('none')
 			setAdjustingBeacon(null)
 			setViewModeState('view')
@@ -173,6 +181,10 @@ export function useBeaconController({
 			setViewContext(null)
 			setViewStory(null)
 			setViewBeacon(beacon)
+			// D-10: honor the OG comment deep link beneath this Beacon. Held in hook
+			// state because navigateTo/navigateToView wipes the URL `/comment/:id`
+			// segment (same rationale as the Sighting comment thread).
+			setFocusCommentId(commentId)
 			ensureInfoPanelVisible()
 			setStance('focus')
 			// Preserve the /beacons/beacon/:naddr focus in the URL so a deep link stays
@@ -211,6 +223,7 @@ export function useBeaconController({
 		setBeaconControlMode('none')
 		setAdjustingBeacon(null)
 		setViewBeacon(null)
+		setFocusCommentId(undefined)
 	}, [])
 
 	return {
@@ -228,6 +241,8 @@ export function useBeaconController({
 		viewBeacon,
 		/** Persisted highlight key for the Beacons rail (survives closing the detail). */
 		lastInspectedBeaconKey,
+		/** D-10: deep-linked comment d-tag to focus beneath the viewed Beacon. */
+		beaconFocusCommentId: focusCommentId,
 		// Lifecycle handlers.
 		handleShareLocation,
 		handleStartBeacon,
