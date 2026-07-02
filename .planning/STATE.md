@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
-status: planned
-stopped_at: Phase 12 (Live Beacon) COMPLETE 2026-07-02 — secured (threats_open:0) + UAT 4/4 PASS. v1.2 now 5/6 (83%). Next: Phase 13 (Cross-Cutting, XCUT-01/02). NOTE: map-stack entity-layer unification spec'd (.planning/design/) — candidate Phase 13 / slice.
-last_updated: "2026-07-02T11:32:32.044Z"
+status: planning
+stopped_at: Phase 13 context gathered
+last_updated: "2026-07-02T11:50:21.052Z"
 last_activity: 2026-07-02
 progress:
   total_phases: 6
@@ -166,9 +166,9 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-06-28T16:10:00.000Z
-Stopped at: Phase 12 Plan 04 complete — beacon live-map render layer + Beacons browse rail + seed fixtures landed; ready for Plan 05
-Resume file: .planning/phases/12-live-beacon-37521/12-05-PLAN.md
+Last session: 2026-07-02T11:50:21.047Z
+Stopped at: Phase 13 context gathered
+Resume file: .planning/phases/13-cross-cutting/13-CONTEXT.md
 
 ## Operator Next Steps
 
