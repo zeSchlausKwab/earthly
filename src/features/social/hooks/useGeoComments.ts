@@ -14,6 +14,7 @@ import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import { GEO_COMMENT_KIND } from '@/lib/nostr/kinds'
 import type { Article } from '@/lib/nostr/article'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
+import type { LiveBeacon } from '@/lib/nostr/live-beacon'
 import type { MapContext } from '@/lib/nostr/map-context'
 import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
 import { extractReferencedCoordinates, setAddressReferenceTags } from '@/lib/nostr/references'
@@ -25,7 +26,7 @@ export interface CommentNode {
 }
 
 export interface UseGeoCommentsOptions {
-	target: GeoDataset | MapContext | Article | TemporalSighting | null
+	target: GeoDataset | MapContext | Article | TemporalSighting | LiveBeacon | null
 	maxDepth?: number
 }
 
@@ -38,7 +39,7 @@ export interface UseGeoCommentsResult {
 	postReply: (parentComment: GeoComment, text: string, geojson?: FeatureCollection) => Promise<void>
 	deleteComment: (comment: GeoComment) => Promise<void>
 	react: (
-		target: GeoDataset | MapContext | Article | TemporalSighting | GeoComment,
+		target: GeoDataset | MapContext | Article | TemporalSighting | LiveBeacon | GeoComment,
 	) => Promise<void>
 }
 
@@ -188,7 +189,9 @@ export function useGeoComments({
 	}, [])
 
 	const react = useCallback(
-		async (reactTarget: GeoDataset | MapContext | Article | TemporalSighting | GeoComment) => {
+		async (
+			reactTarget: GeoDataset | MapContext | Article | TemporalSighting | LiveBeacon | GeoComment,
+		) => {
 			const signer = accounts.signer
 			if (!signer) throw new Error('No active account')
 			// Pull the raw NostrEvent from an applesauce Cast (`.event`) or a
