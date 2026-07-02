@@ -468,7 +468,7 @@ async function seed(): Promise<void> {
 	for (const b of beaconSpecs) {
 		const pos = jitter(VIENNA_CENTROID)
 		const createdAt = b.backdate ? now() - b.backdate : undefined
-		const factory = LiveBeaconFactory.create({
+		let factory = LiveBeaconFactory.create({
 			label: b.label,
 			geometry: { type: 'Point', coordinates: pos },
 			status: b.status,
@@ -477,7 +477,10 @@ async function seed(): Promise<void> {
 			.geohash(pos)
 			.bbox(pointBbox(pos))
 			.expiration(now() + b.ttl)
-		if (createdAt !== undefined) factory.created(createdAt)
+		// WR-03: the factory is IMMUTABLE — `.created()` returns a NEW instance, so
+		// the backdate is lost unless we reassign. Without this the "stale" fixture
+		// publishes with a fresh created_at and renders LIVE instead of STALE.
+		if (createdAt !== undefined) factory = factory.created(createdAt)
 		await publish(factory, b.who.signer)
 	}
 
