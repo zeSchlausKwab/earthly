@@ -133,7 +133,7 @@ Populated during roadmap creation. Phase numbering continues from v1.1 (which en
 | BEACON-02 | Phase 12 | Complete |
 | BEACON-03 | Phase 12 | Complete |
 | BEACON-04 | Phase 12 | Complete |
-| XCUT-01 | Phase 13 | Minimal slice DONE for Story (10-03: CommentsPanel/useGeoComments target unions accept Article + ARTICLE_KIND→'story' share path, bf1112e); full NIP-22 K/k root-kind widening (Group/Beacon/Sighting) stays Phase 13 |
+| XCUT-01 | Phase 13 | Comment-root widening DONE 13-01 (LiveBeacon in useGeoComments unions + CommentsPanel mount, last kind wired; 0953c40/8e56443). 13-03 advances the folded-in Map Stack / SIGHT-02 group-lane-rendering angle (sightings/beacons stack-gated & renderable). Stays OPEN pending the D-11 4-kind comment×route×share matrix UAT (verifier). |
 | XCUT-02 | Phase 13 | Complete |
 
 **Coverage:**

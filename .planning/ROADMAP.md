@@ -227,7 +227,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 3** *(blocked on Wave 2 — shares GeoEditorView; deep-link-solo intersects the dispatcher)*
 
-  - [ ] 13-03-PLAN.md — Map Stack unification core: extend MapStackEntryType (+sighting/beacon/*-layer), stack-derived selectors gate rendering, deep-link→isolated-solo, DELETE the 66a155e extraMapBeacons hack (useMapLayers body untouched) [XCUT-01/XCUT-02, D-01/D-03/D-04]
+  - [x] 13-03-PLAN.md — Map Stack unification core: extend MapStackEntryType (+sighting/beacon/*-layer), stack-derived selectors gate rendering, deep-link→isolated-solo, DELETE the 66a155e extraMapBeacons hack (useMapLayers body untouched) [XCUT-01/XCUT-02, D-01/D-03/D-04] ✓ 2026-07-02 (2 commits 45936be/a219548; pure deriveVisibleEntitiesFromStack render gate, stackLayers.test 9/0, dispatch 12/0 no-regression, build+biome green, useMapLayers.ts byte-for-byte unchanged; 1 pre-existing storyProposal ordering flake flagged for verifier)
 
 **Wave 4** *(blocked on Wave 3)*
 
@@ -255,4 +255,4 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 10. Story / Article (~37520) | v1.2 | 4/4 | Complete    | 2026-06-27 |
 | 11. Temporal Sighting | v1.2 | 4/4 | Complete    | 2026-06-28 |
 | 12. Live Beacon (~37521) | v1.2 | 5/5 | Complete    | 2026-07-02 |
-| 13. Cross-Cutting | v1.2 | 2/4 | In Progress|  |
+| 13. Cross-Cutting | v1.2 | 3/4 | In Progress|  |

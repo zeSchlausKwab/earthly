@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
 status: executing
-stopped_at: Phase 13 Plan 01 (XCUT-01 beacon comment parity) complete
-last_updated: "2026-07-02T13:25:23.062Z"
-last_activity: 2026-07-02 -- Phase 13 Plan 01 (XCUT-01 beacon comment parity) complete
+stopped_at: Phase 13 Plan 03 (Map Stack unification core — stack-gated sightings/beacons) complete
+last_updated: "2026-07-02T13:41:00.000Z"
+last_activity: 2026-07-02 -- Phase 13 Plan 03 (Map Stack unification core) complete
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 28
-  completed_plans: 26
-  percent: 83
+  completed_plans: 28
+  percent: 88
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 ## Current Position
 
 Phase: 13 (cross-cutting) — EXECUTING
-Plan: 3 of 4
-Status: Ready to execute
-Last activity: 2026-07-02 -- Phase 13 Plan 01 (XCUT-01 beacon comment parity) complete
+Plan: 4 of 4
+Status: Ready to execute (13-04 Map Stack UI)
+Last activity: 2026-07-02 -- Phase 13 Plan 03 (Map Stack unification core) complete
 
 Progress: [████████░░] 85% (v1.2 — 5/6 phases)
 
@@ -88,6 +88,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 | Phase 12 P04 | ~18min | 2 tasks | 4 files |
 | Phase 13 P01 | ~10min | 2 tasks | 3 files |
 | Phase 13 P02 | ~15min | 2 tasks | 6 files |
+| Phase 13 P03 | ~12min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -129,6 +130,7 @@ Recent decisions affecting current work:
 - [12-04]: Live Beacon live-map render layer + Beacons browse rail shipped (BEACON-01/03/04). useMapLayers gained a SEPARATE beacon source/layer pair (BEACON_SOURCE_ID + exported BEACON_HIT_LAYER + BEACON_CIRCLE_LAYER/BEACON_GLYPH_LAYER) cloned from the Sighting block: buildBeaconSource does dropExpired-before-source (per-read-path P-1, defensive over useBeacons), then freshest-per-{pubkey,d} latest-wins de-dup with id-lexicographic tie-break (research "seq tag" guard — no clock-skew seq tag), then beaconState(cast,now) per feature ('removed' excluded). Data-driven paint: live=#fdc700 solid+3px accent ring, stale=#737373 70% opacity no ring, ended=hollow (transparent fill rgba(0,0,0,0)+#737373 outline+■ stop glyph); live/stale carry the ((•)) broadcast glyph distinct from the Sighting ◉ eye; 22px invisible hit layer. New visibleBeacons?:LiveBeacon[] option + tick-keyed source effect so live→stale→removed flips live. BeaconsPanel.tsx (BeaconsPanelContent/BeaconsPanelProps) = SightingsPanelContent kind-substituted over useBeacons (#t:['live'] discovery surface, link-only never matched P-6): status chip from beaconState + last-seen age + NIP-40 countdown + Watch-on-map; OWN active beacon partitioned to TOP (ownBeacons first), accent-ringed when own+live, inline Stop sharing(destructive)+Adjust gated on isOwner AND handler-present; accent Share-live-location CTA + empty-state copy; zero dangerouslySetInnerHTML. AppSidebar: 'beacons' WorkViewMode+Radio nav row+beaconsPanelProps (beacon handlers as new optional props with safe ?? (() => {}) defaults so it builds standalone)+renderWorkContent case; pre-existing selectedSightingKey highlight wiring left untouched. seed-entities rewritten to geometry/status shape: live×2 + stale (status:live + created_at backdated 300s past the 120s threshold via EventFactory.created()) + ended (status:ended) + expired (expiration now()-60) + LINK-ONLY (no geohash/hashtags/bbox → no t:live, stays off discovery) — all 4 marker states + discovery-gating for UAT. build+biome green (scripts/ biome-ignored; seed compiled via bun build). Full suite 752/3 — the 3 fails are EXCLUSIVELY Plan-05 fetchBeacon (still-RED by design); no regression. gsd-tools not on PATH — STATE/ROADMAP updated manually. Plan-05 wires the controller + visibleBeacons feed + BEACON_HIT_LAYER interactions; the no-op handler defaults are the documented seam.
 - [Phase ?]: XCUT-02: collapsed 5 per-kind route parsers into one SHARE_ROUTES lookup + generic dispatch body (D-08); URL shapes preserved byte-for-byte (D-09), pinned by useRouting.dispatch.test.ts — Pays down Pitfall P-5 cloned-per-kind debt; next kind is one table row
 - [Phase ?]: Beacon comment deep-link closed (D-10): handleInspectBeacon threads route.commentId to beaconFocusCommentId, mirroring the Sighting focusCommentId path; all five kinds now honor /:naddr/comment/:id — Parity across all entity kinds; hook state survives navigate* wiping the URL /comment segment
+- [13-03]: Map Stack unification STRUCTURAL CORE shipped (SPEC §3.1/§3.2/§3.5, D-01/D-03). MapStackEntryType +sighting|beacon|sighting-layer|beacon-layer. New PURE module-scope `deriveVisibleEntitiesFromStack(subscription, entries, order, individualType, layerType, resolveKey, individualLookupSet?)` = the stack-membership render gate mirroring visibleGeoEvents: isolation-first (isolated individual → single entity; isolated OTHER type → [] suppress) → aggregate `*-layer` seed → individual-pin union de-duped by key. `visibleSightingsFromStack`/`visibleBeaconsFromStack` memos feed useMapLayers CALLER-SIDE (useMapLayers.ts byte-for-byte unchanged — git diff --stat empty; buildSighting/BeaconSource + dropExpired intact). `addSightingToMapStack`/`addBeaconToMapStack` (isolated: source==='route' = deep-link-solo via existing setMapStackEntryIsolated global rule); route dispatch lands sighting/beacon on the stack. 66a155e extraMapBeacons hack DELETED (state + beaconsForMap merge + setExtraMapBeacons sync effect). KEY GOTCHA (T-13-03-GPSREGRESS): aggregate beacon-layer seeds DISCOVERY-only (`beacons` = #t:['live']); individual/isolated beacon entries resolve against a `beacons ∪ routedBeacons` superset (the `individualLookupSet` param) so a link-only/deep-linked beacon renders when pinned WITHOUT leaking into the aggregate layer. Two Rule-3 ordering deviations: (1) module-scope pure encode*NaddrPure to dodge TDZ ref from a high memo to lower useCallbacks (callbacks now delegate); (2) moved routedBeaconAddress/routedBeacons above useMapLayers so the beacon memo sees them, dropped now-unused publishedOwnBeacon destructure. stackLayers.test 9/0, dispatch 12/0 (no routing regression), build+biome green. Commits 45936be/a219548. RESIDUAL (out-of-scope, flagged for verifier): a PRE-EXISTING storyProposal.test.ts full-suite ordering flake (passes 6/0 in isolation, fails identically on the Task-1 commit alone) — NOT a regression from this plan. Plan 04 wires the UI (add-to-stack rails/panels, aggregate toggles, browse-default seeding, expiry auto-remove) on top of the shipped helper + handlers. gsd-tools not on PATH — STATE/ROADMAP updated manually.
 
 ### Pending Todos
 
@@ -171,9 +173,9 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-07-02T13:22:21.485Z
-Stopped at: Phase 13 Plan 01 (XCUT-01 beacon comment parity) complete
-Resume file: .planning/phases/13-cross-cutting/13-02-PLAN.md
+Last session: 2026-07-02T13:41:00.000Z
+Stopped at: Phase 13 Plan 03 (Map Stack unification core) complete
+Resume file: .planning/phases/13-cross-cutting/13-04-PLAN.md
 
 ## Operator Next Steps
 
