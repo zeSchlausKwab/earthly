@@ -29,13 +29,16 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import { PrivateKeySigner } from 'applesauce-signers'
 import { generateSecretKey } from 'nostr-tools'
+import { castEvent } from 'applesauce-core/casts'
 import type { NostrEvent } from 'applesauce-core/helpers/event'
+import { eventStore } from '@/lib/nostr'
 import {
 	BEACON_DISTANCE_FLOOR_M,
 	BEACON_HEARTBEAT_MS,
 	BEACON_STALE_FACTOR,
 	BEACON_STALE_THRESHOLD_S,
 	type BeaconVisibility,
+	LiveBeacon,
 	stopBeacon,
 	updateBeacon,
 } from '@/lib/nostr/live-beacon'
@@ -197,6 +200,12 @@ export interface UseBeaconPublisher {
 	subState: BeaconSubState
 	/** The current session (or null when idle). */
 	session: BeaconSession | null
+	/**
+	 * The latest published beacon cast to a `LiveBeacon` (or null before the first
+	 * fix publishes / after Stop). Lets the controller open the read/share view of
+	 * the user's OWN live beacon — the share naddr carries the throwaway pubkey.
+	 */
+	liveBeacon: LiveBeacon | null
 	/** Start a beacon: mint the signer, own a watch, begin heartbeating. */
 	startBeacon(args: {
 		content: Partial<{ geometry: Point; label: string }>
@@ -274,6 +283,9 @@ export function useBeaconPublisher(): UseBeaconPublisher {
 	const activeAccount = useActiveAccount()
 	const [isLive, setIsLive] = useState(false)
 	const [subState, setSubState] = useState<BeaconSubState>('idle')
+	// The latest published beacon (cast), surfaced so the controller can open the
+	// owner's read/share view. Set on each publish, cleared on teardown.
+	const [liveBeacon, setLiveBeacon] = useState<LiveBeacon | null>(null)
 
 	// All mutable session machinery lives in a ref — the secret key is in memory
 	// ONLY and never leaves this closure (D-05).
@@ -294,6 +306,7 @@ export function useBeaconPublisher(): UseBeaconPublisher {
 		lastEventRef.current = null
 		lastFixRef.current = null
 		optionsRef.current = null
+		setLiveBeacon(null)
 	}, [])
 
 	// CR-01: if the hook unmounts while a beacon is live (SPA route change,
@@ -320,6 +333,14 @@ export function useBeaconPublisher(): UseBeaconPublisher {
 				session.signer,
 			)
 			lastEventRef.current = signed
+			// Surface the just-published beacon so the controller can open the owner's
+			// read/share view. The event we just built conforms, but guard the cast.
+			try {
+				setLiveBeacon(castEvent(signed, LiveBeacon, eventStore))
+			} catch {
+				// Non-conforming cast — leave the prior liveBeacon; the useBeacons
+				// subscription still surfaces it via the relay round-trip.
+			}
 		} catch (err) {
 			console.error('useBeaconPublisher: heartbeat publish failed', err)
 			setSubState('error')
@@ -419,6 +440,7 @@ export function useBeaconPublisher(): UseBeaconPublisher {
 		isLive,
 		subState,
 		session: sessionRef.current,
+		liveBeacon,
 		startBeacon,
 		stopBeacon: stop,
 	}

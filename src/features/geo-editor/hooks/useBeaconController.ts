@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import type { BeaconStartOptions } from '@/components/info-panel/BeaconControlPanel'
 import type { LiveBeacon } from '@/lib/nostr/live-beacon'
@@ -45,6 +45,10 @@ export function useBeaconController({
 	// The beacon being adjusted (pre-fills the control panel). Null ⇒ a fresh Start.
 	const [adjustingBeacon, setAdjustingBeacon] = useState<LiveBeacon | null>(null)
 	const [viewBeacon, setViewBeacon] = useState<LiveBeacon | null>(null)
+	// After a Start, we want to open the owner's read/share view — but the first
+	// beacon isn't published until the first GPS fix arrives (async). This flag
+	// defers the open until `publisher.liveBeacon` becomes available.
+	const [pendingOwnView, setPendingOwnView] = useState(false)
 	// The d-tag/id of the most recently inspected beacon — persists so the Beacons
 	// rail can highlight + scroll the row you last opened from the map (mirrors the
 	// Sighting `lastInspectedSightingKey`).
@@ -95,6 +99,11 @@ export function useBeaconController({
 				})
 				setBeaconControlMode('none')
 				setAdjustingBeacon(null)
+				// Open the owner's read/share view as soon as the first fix publishes —
+				// this is where the Copy-share-link lives (fixes "Start → empty inspect
+				// panel, no link"). Deferred via pendingOwnView because the first beacon
+				// isn't published until GPS delivers a fix.
+				setPendingOwnView(true)
 			} catch (err) {
 				console.error('useBeaconController: failed to start beacon', err)
 				toast.error("Couldn't start your beacon. Check your connection and try again.")
@@ -103,8 +112,21 @@ export function useBeaconController({
 		[publisher],
 	)
 
+	// Once the just-started beacon publishes, open its read/share view (BeaconViewPanel
+	// with the Copy-share-link). Fires only for a fresh Start (pendingOwnView), never
+	// when inspecting someone else's beacon.
+	useEffect(() => {
+		if (pendingOwnView && publisher.liveBeacon) {
+			setViewBeacon(publisher.liveBeacon)
+			setViewModeState('view')
+			setStance('focus')
+			setPendingOwnView(false)
+		}
+	}, [pendingOwnView, publisher.liveBeacon, setViewModeState, setStance])
+
 	/** Stop the user's own live beacon (the no-delete-recap alert-dialog confirms first). */
 	const handleStopBeacon = useCallback(async () => {
+		setPendingOwnView(false)
 		try {
 			await publisher.stopBeacon()
 		} catch (err) {
