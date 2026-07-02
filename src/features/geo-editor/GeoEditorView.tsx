@@ -110,6 +110,13 @@ import { ensureFeatureCollection, extractCollectionMeta, toEditorFeature } from 
  * (naddr or dTag fallback). Expiry is NOT applied here — `buildSightingSource`/
  * `buildBeaconSource` keep their internal `dropExpired`, so this only chooses WHICH
  * entities are candidates (T-13-03-DROPEXPIRED).
+ *
+ * `individualLookupSet` (optional) is the set used to resolve individual/isolated
+ * entries. It defaults to `subscriptionSet`. Beacons pass a SUPERSET here (discovery
+ * ∪ routed/viewed/own) so a link-only or deep-linked beacon — which is absent from
+ * the `#t:['live']` discovery `subscriptionSet` — still resolves when pinned/isolated
+ * on the stack, WITHOUT leaking into the aggregate layer (T-13-03-GPSREGRESS: the
+ * aggregate branch only ever seeds from `subscriptionSet`, i.e. discovery).
  */
 export function deriveVisibleEntitiesFromStack<T>(
 	subscriptionSet: T[],
@@ -118,14 +125,25 @@ export function deriveVisibleEntitiesFromStack<T>(
 	individualType: MapStackEntryType,
 	layerType: MapStackEntryType,
 	resolveKey: (entity: T) => string | undefined,
+	individualLookupSet: T[] = subscriptionSet,
 ): T[] {
+	// Build the individual-resolution index once (discovery ∪ routed/viewed/own for
+	// beacons; just the subscription for sightings).
+	const indByKey = new Map<string, T>()
+	for (const entity of individualLookupSet) {
+		const key = resolveKey(entity)
+		if (key !== undefined && !indByKey.has(key)) indByKey.set(key, entity)
+	}
+
 	// (1) ISOLATION BRANCH — mirrors visibleGeoEvents L990-1004. First isolated
-	// entry in stack order wins; nothing else renders.
+	// entry in stack order wins; nothing else renders. An isolated individual is
+	// resolved against the broader lookup set so a deep-linked link-only beacon
+	// (absent from discovery) still renders solo.
 	for (const entryId of order) {
 		const entry = entries[entryId]
 		if (!entry?.isolated) continue
 		if (entry.entityType === individualType) {
-			const match = subscriptionSet.find((e) => resolveKey(e) === entry.entityKey)
+			const match = indByKey.get(entry.entityKey)
 			return match ? [match] : []
 		}
 		// Any other isolated type (dataset/context/the other kind) suppresses this
@@ -134,13 +152,9 @@ export function deriveVisibleEntitiesFromStack<T>(
 	}
 
 	// (2) AGGREGATE + (3) INDIVIDUAL UNION — walk visible entries in stack order,
-	// seeding from the layer entry and unioning in individual pins, de-duped by key.
+	// seeding the aggregate ONLY from discovery (subscriptionSet), unioning in
+	// individual pins resolved from the broader lookup set, de-duped by key.
 	const byKey = new Map<string, T>()
-	const subByKey = new Map<string, T>()
-	for (const entity of subscriptionSet) {
-		const key = resolveKey(entity)
-		if (key !== undefined && !subByKey.has(key)) subByKey.set(key, entity)
-	}
 	for (const entryId of order) {
 		const entry = entries[entryId]
 		if (!entry || entry.visible === false) continue
@@ -150,7 +164,7 @@ export function deriveVisibleEntitiesFromStack<T>(
 				if (key !== undefined && !byKey.has(key)) byKey.set(key, entity)
 			}
 		} else if (entry.entityType === individualType) {
-			const match = subByKey.get(entry.entityKey)
+			const match = indByKey.get(entry.entityKey)
 			if (match && !byKey.has(entry.entityKey)) byKey.set(entry.entityKey, match)
 		}
 	}
@@ -550,6 +564,51 @@ export function GeoEditorView() {
 			}
 		},
 		[addMapStackEntry, getDatasetKey, getDatasetName],
+	)
+
+	// Phase 13 (SPEC §3.4): put an individual Sighting on the Map Stack, mirroring
+	// addDatasetToMapStack. entityKey = naddr (dTag/id fallback) — the SAME key the
+	// stack-derived selector resolves under. A deep link (`source: 'route'`) lands
+	// SOLO: `isolated: true` triggers the existing global mutual-exclusion rule in
+	// mapStackSlice, suppressing every other entry (T-13-03-FORCEISO — the key comes
+	// from the resolved entity, never a raw URL field, so a route can only isolate
+	// exactly the entity its naddr resolved to).
+	const addSightingToMapStack = useCallback(
+		(sighting: TemporalSighting, source: 'manual' | 'route' | 'browse-default' = 'manual') => {
+			addMapStackEntry({
+				entityType: 'sighting',
+				entityKey: encodeSightingNaddrPure(sighting) ?? sighting.dTag ?? sighting.id,
+				title: sighting.sighting.title?.trim() || 'Sighting',
+				source,
+				visible: true,
+				pinned: false,
+				isolated: source === 'route',
+			})
+			if (source === 'manual') {
+				toast.success('Added sighting to the map.')
+			}
+		},
+		[addMapStackEntry],
+	)
+
+	// Phase 13 (SPEC §3.4): put an individual Live Beacon on the Map Stack. Same
+	// shape as addSightingToMapStack; deep-link lands SOLO (isolated 'route').
+	const addBeaconToMapStack = useCallback(
+		(beacon: LiveBeacon, source: 'manual' | 'route' | 'browse-default' = 'manual') => {
+			addMapStackEntry({
+				entityType: 'beacon',
+				entityKey: encodeBeaconNaddrPure(beacon) ?? beacon.dTag ?? beacon.id,
+				title: beacon.beacon.label?.trim() || 'Live location',
+				source,
+				visible: true,
+				pinned: false,
+				isolated: source === 'route',
+			})
+			if (source === 'manual') {
+				toast.success('Added beacon to the map.')
+			}
+		},
+		[addMapStackEntry],
 	)
 
 	const setMapStackVisibility = useCallback(
@@ -1145,6 +1204,36 @@ export function GeoEditorView() {
 			),
 		[sightings, mapStackEntries, mapStackOrder],
 	)
+	// A /beacon/:naddr deep link may target a LINK-ONLY beacon, which is absent from
+	// the `#t:['live']` discovery surface (`beacons` above). Decode the routed naddr
+	// and fire a TARGETED {authors,#d} subscription so a logged-out viewer can open
+	// it (account-free, D-11). Resolved up here (Phase 13, moved above useMapLayers)
+	// so `visibleBeaconsFromStack` can resolve an isolated/pinned link-only beacon
+	// against the discovery ∪ routed superset.
+	const routedBeaconAddress = useMemo(() => {
+		if (route.focusType !== 'beacon' || !route.naddr) return null
+		try {
+			const decoded = nip19.decode(route.naddr)
+			if (decoded.type !== 'naddr' || decoded.data.kind !== LIVE_BEACON_KIND) return null
+			return { pubkey: decoded.data.pubkey, identifier: decoded.data.identifier }
+		} catch {
+			return null
+		}
+	}, [route.focusType, route.naddr])
+	const { events: routedBeacons } = useBeacons(
+		routedBeaconAddress
+			? [{ authors: [routedBeaconAddress.pubkey], '#d': [routedBeaconAddress.identifier] }]
+			: [],
+	)
+	// Beacon individual/isolated stack entries resolve against discovery ∪ routed so
+	// a link-only or deep-linked beacon (outside `#t:['live']`) still renders when
+	// pinned/isolated. The AGGREGATE layer only ever seeds from `beacons` (discovery)
+	// inside the helper — a link-only beacon never leaks into the layer
+	// (T-13-03-GPSREGRESS).
+	const beaconLookupSuperset = useMemo(
+		() => (routedBeacons.length ? [...beacons, ...routedBeacons] : beacons),
+		[beacons, routedBeacons],
+	)
 	const visibleBeaconsFromStack = useMemo(
 		() =>
 			deriveVisibleEntitiesFromStack(
@@ -1154,8 +1243,9 @@ export function GeoEditorView() {
 				'beacon',
 				'beacon-layer',
 				(b) => encodeBeaconNaddrPure(b) ?? b.dTag ?? b.id,
+				beaconLookupSuperset,
 			),
-		[beacons, mapStackEntries, mapStackOrder],
+		[beacons, mapStackEntries, mapStackOrder, beaconLookupSuperset],
 	)
 
 	// Round F.2: comment/annotation overlays follow the stack. A visible
@@ -1286,23 +1376,19 @@ export function GeoEditorView() {
 	)
 
 	// Map layers hook
-	// The map layer renders the public `#t:['live']` discovery set PLUS any beacon
-	// we're explicitly viewing/routing/publishing — so a link-only beacon (absent
-	// from discovery) or one opened via a share link still shows its marker for both
-	// the sharer and the observer. Populated by the effect below (after the beacon
-	// hooks resolve); the freshest-per-{pubkey,d} de-dup in useMapLayers collapses
-	// any overlap with the discovery set.
-	const [extraMapBeacons, setExtraMapBeacons] = useState<LiveBeacon[]>([])
-	const beaconsForMap = useMemo(
-		() => (extraMapBeacons.length ? [...beacons, ...extraMapBeacons] : beacons),
-		[beacons, extraMapBeacons],
-	)
+	// Phase 13 (SPEC §3.2): sightings/beacons now render from STACK MEMBERSHIP, not
+	// unconditionally. `visibleSightingsFromStack`/`visibleBeaconsFromStack` (above)
+	// gate the subscription set through the Map Stack the same way `visibleGeoEvents`
+	// gates datasets — an aggregate `*-layer` entry shows the full set, an individual
+	// entry pins one, an isolated entry (deep-link-solo) renders alone. This REPLACES
+	// the `66a155e` beacon side-channel merge: a viewed/routed/own beacon renders
+	// because it is on the stack (isolated for a deep link), not via a merge hack.
 	const { remoteLayersReady, CLUSTERED_SOURCE_ID } = useMapLayers({
 		mapRef: map,
 		mounted,
 		visibleGeoEvents,
-		visibleSightings: sightings,
-		visibleBeacons: beaconsForMap,
+		visibleSightings: visibleSightingsFromStack,
+		visibleBeacons: visibleBeaconsFromStack,
 		resolvedCollectionResolver,
 		resolvedCollectionsVersion,
 	})
@@ -1720,27 +1806,6 @@ export function GeoEditorView() {
 		[],
 	)
 
-	// A /beacon/:naddr deep link may target a LINK-ONLY beacon, which is absent from
-	// the `#t:['live']` discovery surface (`beacons` above). Decode the routed naddr
-	// and fire a TARGETED {authors,#d} subscription so a logged-out viewer can open
-	// it (account-free, D-11). The thin per-kind route is Phase 13 / XCUT-02 fodder.
-	const routedBeaconAddress = useMemo(() => {
-		if (route.focusType !== 'beacon' || !route.naddr) return null
-		try {
-			const decoded = nip19.decode(route.naddr)
-			if (decoded.type !== 'naddr' || decoded.data.kind !== LIVE_BEACON_KIND) return null
-			return { pubkey: decoded.data.pubkey, identifier: decoded.data.identifier }
-		} catch {
-			return null
-		}
-	}, [route.focusType, route.naddr])
-
-	const { events: routedBeacons } = useBeacons(
-		routedBeaconAddress
-			? [{ authors: [routedBeaconAddress.pubkey], '#d': [routedBeaconAddress.identifier] }]
-			: [],
-	)
-
 	const {
 		storyEditorMode,
 		editingStory,
@@ -1917,7 +1982,6 @@ export function GeoEditorView() {
 		beaconControlMode,
 		adjustingBeacon,
 		viewBeacon,
-		ownLiveBeacon: publishedOwnBeacon,
 		lastInspectedBeaconKey,
 		beaconFocusCommentId,
 		handleShareLocation,
@@ -1977,18 +2041,11 @@ export function GeoEditorView() {
 		}
 	}, [mounted])
 
-	// Feed the viewed / deep-linked / own live beacon into the map layer so its
-	// marker renders even when it's link-only (absent from the `#t:['live']`
-	// discovery set) or arrived via a targeted share-link subscription. Guarded by a
-	// content signature so a stable set never churns state.
-	useEffect(() => {
-		const extras: LiveBeacon[] = [...routedBeacons]
-		if (viewBeacon) extras.push(viewBeacon)
-		if (publishedOwnBeacon) extras.push(publishedOwnBeacon)
-		const sig = (arr: LiveBeacon[]) =>
-			arr.map((b) => `${b.pubkey}:${b.dTag ?? b.id}:${b.created_at}`).join('|')
-		setExtraMapBeacons((prev) => (sig(prev) === sig(extras) ? prev : extras))
-	}, [routedBeacons, viewBeacon, publishedOwnBeacon])
+	// Phase 13 (SPEC §3.5): the `66a155e` side-channel that fed the viewed/routed/own
+	// beacon into the map layer via a merged extras state is DELETED. A deep-linked or
+	// viewed beacon now renders because the route/inspect flow puts it on the Map
+	// Stack (isolated for a deep link), and `visibleBeaconsFromStack` resolves it
+	// against the discovery ∪ routed superset. No merge state, no sync effect.
 
 	// The running banner's countdown reads the user's own live beacon's NIP-40
 	// expiration. The publisher session carries the `d`; resolve the matching live
@@ -2063,6 +2120,11 @@ export function GeoEditorView() {
 			// SIGHT-03) and open the read view.
 			const sighting = sightings.find((s) => encodeSightingNaddr(s) === route.naddr)
 			if (sighting) {
+				// Phase 13 (D-03/SPEC §2.2): the routed sighting lands on the Map Stack
+				// ISOLATED (deep-link-solo), mirroring the dataset route dispatch above
+				// (addDatasetToMapStack(dataset, 'route')). This replaces any ambient
+				// always-on rendering with explicit stack membership.
+				addSightingToMapStack(sighting, 'route')
 				// WR-06: thread the OG comment deep link so SightingViewPanel focuses it,
 				// mirroring the geoevent/story comment-focus wiring.
 				handleInspectSighting(sighting, route.commentId)
@@ -2079,8 +2141,14 @@ export function GeoEditorView() {
 				beacons.find((b) => encodeBeaconNaddr(b) === route.naddr) ??
 				routedBeacons.find((b) => encodeBeaconNaddr(b) === route.naddr)
 			if (beacon) {
+				// Phase 13 (D-03/SPEC §2.2): the routed beacon lands on the Map Stack
+				// ISOLATED (deep-link-solo). This is what makes a link-only / deep-linked
+				// beacon render now that the `66a155e` side-channel is gone — the isolated
+				// entry resolves against the discovery ∪ routed superset in
+				// visibleBeaconsFromStack.
+				addBeaconToMapStack(beacon, 'route')
 				// D-10: thread the OG comment deep link so BeaconViewPanel focuses it,
-				// mirroring the Sighting comment-focus wiring above (~L1954). Closes the
+				// mirroring the Sighting comment-focus wiring above. Closes the
 				// beacon /beacon/:naddr/comment/:id gap — parity across all five kinds.
 				handleInspectBeacon(beacon, route.commentId)
 				focusHandledRef.current = routeKey
@@ -2102,6 +2170,8 @@ export function GeoEditorView() {
 		encodeSightingNaddr,
 		encodeBeaconNaddr,
 		addDatasetToMapStack,
+		addSightingToMapStack,
+		addBeaconToMapStack,
 		handleInspectDataset,
 		handleInspectContext,
 		handleInspectStory,
