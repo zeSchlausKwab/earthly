@@ -218,6 +218,10 @@ export function useBeaconController({
 		isLive: publisher.isLive,
 		subState: publisher.subState,
 		session: publisher.session,
+		/** The user's OWN live beacon (cast) — merged into the map layer so the
+		 *  sharer always sees their own marker, even a link-only one absent from
+		 *  the public discovery set. */
+		ownLiveBeacon: publisher.liveBeacon,
 		// Control + view state.
 		beaconControlMode,
 		adjustingBeacon,

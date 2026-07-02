@@ -1155,12 +1155,23 @@ export function GeoEditorView() {
 	)
 
 	// Map layers hook
+	// The map layer renders the public `#t:['live']` discovery set PLUS any beacon
+	// we're explicitly viewing/routing/publishing — so a link-only beacon (absent
+	// from discovery) or one opened via a share link still shows its marker for both
+	// the sharer and the observer. Populated by the effect below (after the beacon
+	// hooks resolve); the freshest-per-{pubkey,d} de-dup in useMapLayers collapses
+	// any overlap with the discovery set.
+	const [extraMapBeacons, setExtraMapBeacons] = useState<LiveBeacon[]>([])
+	const beaconsForMap = useMemo(
+		() => (extraMapBeacons.length ? [...beacons, ...extraMapBeacons] : beacons),
+		[beacons, extraMapBeacons],
+	)
 	const { remoteLayersReady, CLUSTERED_SOURCE_ID } = useMapLayers({
 		mapRef: map,
 		mounted,
 		visibleGeoEvents,
 		visibleSightings: sightings,
-		visibleBeacons: beacons,
+		visibleBeacons: beaconsForMap,
 		resolvedCollectionResolver,
 		resolvedCollectionsVersion,
 	})
@@ -1793,6 +1804,7 @@ export function GeoEditorView() {
 		beaconControlMode,
 		adjustingBeacon,
 		viewBeacon,
+		ownLiveBeacon: publishedOwnBeacon,
 		lastInspectedBeaconKey,
 		handleShareLocation,
 		handleStartBeacon,
@@ -1850,6 +1862,19 @@ export function GeoEditorView() {
 			m.off('dragstart', stopFollow)
 		}
 	}, [mounted])
+
+	// Feed the viewed / deep-linked / own live beacon into the map layer so its
+	// marker renders even when it's link-only (absent from the `#t:['live']`
+	// discovery set) or arrived via a targeted share-link subscription. Guarded by a
+	// content signature so a stable set never churns state.
+	useEffect(() => {
+		const extras: LiveBeacon[] = [...routedBeacons]
+		if (viewBeacon) extras.push(viewBeacon)
+		if (publishedOwnBeacon) extras.push(publishedOwnBeacon)
+		const sig = (arr: LiveBeacon[]) =>
+			arr.map((b) => `${b.pubkey}:${b.dTag ?? b.id}:${b.created_at}`).join('|')
+		setExtraMapBeacons((prev) => (sig(prev) === sig(extras) ? prev : extras))
+	}, [routedBeacons, viewBeacon, publishedOwnBeacon])
 
 	// The running banner's countdown reads the user's own live beacon's NIP-40
 	// expiration. The publisher session carries the `d`; resolve the matching live
