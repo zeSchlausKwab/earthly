@@ -26,7 +26,7 @@
  */
 
 import { unixNow } from 'applesauce-core/helpers/time'
-import { LocateFixed, Pencil } from 'lucide-react'
+import { LocateFixed, Navigation, Pencil } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
@@ -63,6 +63,10 @@ interface BeaconViewPanelProps {
 	onAdjustBeacon?: (beacon: LiveBeacon) => void
 	/** Fly the map to this beacon and focus it ("Watch on map"). */
 	onZoomTo?: () => void
+	/** True while the map is following this beacon (recenters on each new fix). */
+	isFollowing?: boolean
+	/** Toggle follow mode — keeps the map centered on the beacon as it moves. */
+	onToggleFollow?: () => void
 }
 
 function EndedOrEmpty({ heading, body }: { heading: string; body: string }) {
@@ -101,6 +105,8 @@ export function BeaconViewPanel({
 	onStopBeacon,
 	onAdjustBeacon,
 	onZoomTo,
+	isFollowing = false,
+	onToggleFollow,
 }: BeaconViewPanelProps) {
 	if (!beacon) {
 		return (
@@ -237,6 +243,21 @@ export function BeaconViewPanel({
 							<span className="text-[11px] text-muted-foreground">{countdown}</span>
 						) : null}
 					</div>
+
+					{/* Follow — keep the map centered on the beacon as it moves. Auto-off
+					    on a manual pan (handled by the map owner). Only for a live beacon. */}
+					{onToggleFollow && isLive ? (
+						<Button
+							type="button"
+							variant={isFollowing ? 'default' : 'outline'}
+							onClick={onToggleFollow}
+							aria-pressed={isFollowing}
+							className="w-full gap-2 rounded-none"
+						>
+							<Navigation className="h-4 w-4" />
+							{isFollowing ? 'Following — tap to stop' : 'Follow on map'}
+						</Button>
+					) : null}
 
 					{/* Copy share link — carries the throwaway pubkey (D-11). */}
 					<Button

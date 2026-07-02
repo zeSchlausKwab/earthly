@@ -170,6 +170,10 @@ export interface GeoEditorInfoPanelProps {
 	adjustingBeacon?: LiveBeacon | null
 	/** The beacon currently inspected in the view panel. */
 	viewBeacon?: LiveBeacon | null
+	/** True while the map is following the viewed beacon (recenters on each fix). */
+	isFollowingBeacon?: boolean
+	/** Toggle follow mode for the viewed beacon. */
+	onToggleFollowBeacon?: () => void
 	/** True while the publisher is starting (Start → "Starting…"). */
 	beaconIsStarting?: boolean
 	/** Start the publisher session from the control panel. */
@@ -242,6 +246,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		beaconControlMode = 'none',
 		adjustingBeacon,
 		viewBeacon,
+		isFollowingBeacon,
+		onToggleFollowBeacon,
 		beaconIsStarting,
 		onStartBeacon,
 		onCloseBeaconControl,
@@ -699,6 +705,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					onStopBeacon={onStopBeacon}
 					onAdjustBeacon={onAdjustBeacon}
 					onZoomTo={onZoomToBeacon ? () => onZoomToBeacon(viewBeacon) : undefined}
+					isFollowing={isFollowingBeacon}
+					onToggleFollow={onToggleFollowBeacon}
 				/>
 			)
 		}

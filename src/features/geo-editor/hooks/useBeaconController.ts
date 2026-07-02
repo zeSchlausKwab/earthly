@@ -8,6 +8,17 @@ import { useBeaconPublisher } from './useBeaconPublisher'
 interface UseBeaconControllerParams {
 	ensureInfoPanelVisible: () => void
 	navigateToView: (view: SidebarViewMode) => void
+	/** Focus-preserving nav — keeps `/beacons/beacon/:naddr` in the URL so a
+	 *  deep-linked beacon opens the read view and STAYS on the route (not the list). */
+	navigateTo: (
+		focusType: 'geoevent' | 'mapcontext' | 'story' | 'sighting' | 'beacon',
+		naddr: string,
+		sidebarView?: SidebarViewMode,
+	) => void
+	/** Encode a beacon to its share naddr (throwaway pubkey). */
+	encodeBeaconNaddr: (beacon: LiveBeacon) => string | null
+	/** Zoom/center the map on a beacon's position. */
+	zoomToBeacon: (beacon: LiveBeacon) => void
 	clearFocus: () => void
 }
 
@@ -28,6 +39,9 @@ interface UseBeaconControllerParams {
 export function useBeaconController({
 	ensureInfoPanelVisible,
 	navigateToView,
+	navigateTo,
+	encodeBeaconNaddr,
+	zoomToBeacon,
 	clearFocus,
 }: UseBeaconControllerParams) {
 	const setViewModeState = useEditorStore((state) => state.setViewMode)
@@ -161,7 +175,17 @@ export function useBeaconController({
 			setViewBeacon(beacon)
 			ensureInfoPanelVisible()
 			setStance('focus')
-			navigateToView('beacons')
+			// Preserve the /beacons/beacon/:naddr focus in the URL so a deep link stays
+			// on the route and the read view isn't collapsed back to the list. Fall back
+			// to a bare view switch only if the beacon can't be addressed.
+			const naddr = encodeBeaconNaddr(beacon)
+			if (naddr) {
+				navigateTo('beacon', naddr, 'beacons')
+			} else {
+				navigateToView('beacons')
+			}
+			// Center the map on the beacon so an opened/shared beacon is immediately visible.
+			zoomToBeacon(beacon)
 
 			const beaconKey = beacon.dTag ?? beacon.id
 			setLastInspectedBeaconKey(beaconKey ?? null)
@@ -174,7 +198,10 @@ export function useBeaconController({
 			setViewStory,
 			ensureInfoPanelVisible,
 			setStance,
+			navigateTo,
 			navigateToView,
+			encodeBeaconNaddr,
+			zoomToBeacon,
 			recordRecentEntity,
 		],
 	)

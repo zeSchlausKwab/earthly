@@ -1804,8 +1804,52 @@ export function GeoEditorView() {
 	} = useBeaconController({
 		ensureInfoPanelVisible,
 		navigateToView,
+		navigateTo,
+		encodeBeaconNaddr,
+		zoomToBeacon: handleZoomToBeacon,
 		clearFocus,
 	})
+
+	// Follow mode: while on, keep the map centered on the VIEWED beacon as new
+	// positions arrive; auto-off on a manual pan so the user never fights the camera.
+	const [followingBeaconKey, setFollowingBeaconKey] = useState<string | null>(null)
+	const viewBeaconKey = viewBeacon ? (viewBeacon.dTag ?? viewBeacon.id) : null
+	const isFollowingBeacon = !!followingBeaconKey && followingBeaconKey === viewBeaconKey
+	const toggleFollowBeacon = useCallback(() => {
+		setFollowingBeaconKey((current) =>
+			current && current === viewBeaconKey ? null : viewBeaconKey,
+		)
+	}, [viewBeaconKey])
+	// Drop follow when the viewed beacon changes or the detail closes.
+	useEffect(() => {
+		if (followingBeaconKey && followingBeaconKey !== viewBeaconKey) setFollowingBeaconKey(null)
+	}, [followingBeaconKey, viewBeaconKey])
+	// Freshest position for the followed beacon (updates live through useBeacons).
+	const followedBeaconCoords = useMemo(() => {
+		if (!followingBeaconKey) return null
+		const match = [...beacons, ...routedBeacons].find(
+			(b) => (b.dTag ?? b.id) === followingBeaconKey,
+		)
+		const geometry = match?.geometry
+		if (!geometry || geometry.type !== 'Point') return null
+		return geometry.coordinates as [number, number]
+	}, [followingBeaconKey, beacons, routedBeacons])
+	// Recenter on each new position. easeTo does NOT emit 'dragstart', so it never
+	// trips the manual-pan auto-off below.
+	useEffect(() => {
+		if (!followingBeaconKey || !followedBeaconCoords || !map.current) return
+		map.current.easeTo({ center: followedBeaconCoords, duration: 600 })
+	}, [followingBeaconKey, followedBeaconCoords])
+	// Auto-off on user pan (drag). Programmatic recenters use easeTo, not drag.
+	useEffect(() => {
+		const m = map.current
+		if (!mounted || !m) return
+		const stopFollow = () => setFollowingBeaconKey(null)
+		m.on('dragstart', stopFollow)
+		return () => {
+			m.off('dragstart', stopFollow)
+		}
+	}, [mounted])
 
 	// The running banner's countdown reads the user's own live beacon's NIP-40
 	// expiration. The publisher session carries the `d`; resolve the matching live
@@ -2111,6 +2155,8 @@ export function GeoEditorView() {
 					beaconControlMode={beaconControlMode}
 					adjustingBeacon={adjustingBeacon}
 					viewBeacon={viewBeacon}
+					isFollowingBeacon={isFollowingBeacon}
+					onToggleFollowBeacon={toggleFollowBeacon}
 					selectedBeaconKey={lastInspectedBeaconKey}
 					beaconIsStarting={beaconSubState === 'searching' && !beaconIsLive}
 					onShareLocation={handleShareLocation}
@@ -2457,6 +2503,8 @@ export function GeoEditorView() {
 							beaconControlMode={beaconControlMode}
 							adjustingBeacon={adjustingBeacon}
 							viewBeacon={viewBeacon}
+							isFollowingBeacon={isFollowingBeacon}
+							onToggleFollowBeacon={toggleFollowBeacon}
 							selectedBeaconKey={lastInspectedBeaconKey}
 							beaconIsStarting={beaconSubState === 'searching' && !beaconIsLive}
 							onShareLocation={handleShareLocation}
