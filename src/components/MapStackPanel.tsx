@@ -1,4 +1,14 @@
-import { ChevronDown, ChevronRight, ChevronUp, Database, Layers, PencilLine, X } from 'lucide-react'
+import {
+	ChevronDown,
+	ChevronRight,
+	ChevronUp,
+	Database,
+	Layers,
+	MapPin,
+	PencilLine,
+	Radio,
+	X,
+} from 'lucide-react'
 import type { DragEvent, ReactNode } from 'react'
 import { useMemo, useState } from 'react'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
@@ -57,6 +67,123 @@ const sourceLabel: Record<MapStackEntry['source'], string> = {
 	proposal: 'proposal',
 	workspace: 'workspace',
 	'browse-default': 'suggested',
+}
+
+/**
+ * Phase 13 (D-05, SPEC §3.4): human-readable label for the row meta line + the
+ * aggregate-layer group headings. Every `MapStackEntryType` has an explicit case
+ * so a new entity kind never falls through to a blank/unknown label. The aggregate
+ * `*-layer` entries read "Sightings" / "Live beacons"; individual entity entries
+ * fall back to the entry's own title (set at add-to-stack time from the entity
+ * label).
+ */
+export function entityTypeLabel(entry: Pick<MapStackEntry, 'entityType' | 'title'>): string {
+	switch (entry.entityType) {
+		case 'sighting-layer':
+			return 'Sightings'
+		case 'beacon-layer':
+			return 'Live beacons'
+		case 'sighting':
+			return entry.title?.trim() || 'Sighting'
+		case 'beacon':
+			return entry.title?.trim() || 'Live location'
+		default:
+			return entry.entityType
+	}
+}
+
+/**
+ * Phase 13: the short type descriptor shown on the row meta line (the "kind"
+ * chip under the title). Distinct from `entityTypeLabel` (which is the row TITLE
+ * for aggregate layers). Every type has an explicit case — no `unknown` fallthrough.
+ */
+export function entryTypeMetaLabel(entityType: MapStackEntry['entityType']): string {
+	switch (entityType) {
+		case 'sighting':
+			return 'sighting'
+		case 'beacon':
+			return 'beacon'
+		case 'sighting-layer':
+			return 'sightings layer'
+		case 'beacon-layer':
+			return 'beacons layer'
+		default:
+			return entityType
+	}
+}
+
+export interface MapStackBuckets {
+	/** Aggregate layers pin to TOP (D-05), sighting layer first. */
+	sightingLayerEntries: MapStackEntry[]
+	beaconLayerEntries: MapStackEntry[]
+	draftEntries: MapStackEntry[]
+	contextEntries: MapStackEntry[]
+	datasetEntries: MapStackEntry[]
+	/** Individual sighting/beacon pins + any other non-bucketed type. */
+	otherEntries: MapStackEntry[]
+}
+
+/**
+ * Phase 13 (D-05): pure bucket-and-order of the ordered stack entries. The
+ * aggregate `sighting-layer`/`beacon-layer` entries are split into their own
+ * buckets so the render body can pin them ABOVE dataset/context entries (D-05
+ * top-pin). Individual `sighting`/`beacon` pins ride `otherEntries` (they don't
+ * need top-pinning — only the aggregate layers do). Extracted so the ordering is
+ * unit-testable without the DOM (MapStackPanel.layerEntries.test.ts).
+ */
+export function bucketMapStackEntries(entries: MapStackEntry[]): MapStackBuckets {
+	const sightingLayerEntries: MapStackEntry[] = []
+	const beaconLayerEntries: MapStackEntry[] = []
+	const draftEntries: MapStackEntry[] = []
+	const contextEntries: MapStackEntry[] = []
+	const datasetEntries: MapStackEntry[] = []
+	const otherEntries: MapStackEntry[] = []
+	for (const entry of entries) {
+		switch (entry.entityType) {
+			case 'sighting-layer':
+				sightingLayerEntries.push(entry)
+				break
+			case 'beacon-layer':
+				beaconLayerEntries.push(entry)
+				break
+			case 'draft':
+				draftEntries.push(entry)
+				break
+			case 'context':
+				contextEntries.push(entry)
+				break
+			case 'dataset':
+				datasetEntries.push(entry)
+				break
+			default:
+				otherEntries.push(entry)
+		}
+	}
+	return {
+		sightingLayerEntries,
+		beaconLayerEntries,
+		draftEntries,
+		contextEntries,
+		datasetEntries,
+		otherEntries,
+	}
+}
+
+/**
+ * Phase 13 (D-05): the flat render order the panel emits. Aggregate layers pin to
+ * the TOP, above every individual dataset/context entry, so their whole-layer
+ * toggle is the first thing the user sees. Returns the entries in the exact order
+ * groups are rendered — the test asserts aggregate layers precede dataset/context.
+ */
+export function orderedMapStackEntries(buckets: MapStackBuckets): MapStackEntry[] {
+	return [
+		...buckets.sightingLayerEntries,
+		...buckets.beaconLayerEntries,
+		...buckets.draftEntries,
+		...buckets.contextEntries,
+		...buckets.datasetEntries,
+		...buckets.otherEntries,
+	]
 }
 
 function hasDatasetDragData(event: DragEvent<HTMLElement>) {
@@ -248,6 +375,14 @@ function EntryRow({
 						<Layers className={actionIconClassName} />
 					) : entry.entityType === 'draft' ? (
 						<PencilLine className={actionIconClassName} />
+					) : entry.entityType === 'sighting' ? (
+						<MapPin className={actionIconClassName} />
+					) : entry.entityType === 'beacon' ? (
+						<Radio className={actionIconClassName} />
+					) : entry.entityType === 'sighting-layer' ? (
+						<MapPin className={actionIconClassName} />
+					) : entry.entityType === 'beacon-layer' ? (
+						<Radio className={actionIconClassName} />
 					) : (
 						<Layers className={actionIconClassName} />
 					)}
@@ -279,7 +414,7 @@ function EntryRow({
 							compact ? 'mt-0.5 gap-1 text-[11px]' : 'mt-1 gap-1.5 text-xs',
 						)}
 					>
-						<span>{entry.entityType}</span>
+						<span>{entryTypeMetaLabel(entry.entityType)}</span>
 						<span className="h-1 w-1 rounded-full bg-muted-foreground/40" />
 						<span>{sourceLabel[entry.source]}</span>
 						{isContextEntry ? (
@@ -521,6 +656,8 @@ function EntryRow({
 
 interface EntryGroupListProps {
 	compact: boolean
+	sightingLayerEntries: MapStackEntry[]
+	beaconLayerEntries: MapStackEntry[]
 	draftEntries: MapStackEntry[]
 	contextEntries: MapStackEntry[]
 	datasetEntries: MapStackEntry[]
@@ -549,6 +686,8 @@ interface EntryGroupListProps {
 
 function EntryGroupList({
 	compact,
+	sightingLayerEntries,
+	beaconLayerEntries,
 	draftEntries,
 	contextEntries,
 	datasetEntries,
@@ -577,7 +716,17 @@ function EntryGroupList({
 	const renderEntry = (entry: MapStackEntry) => {
 		const dataset = entry.entityType === 'dataset' ? datasetByKey.get(entry.entityKey) : undefined
 		const context = entry.entityType === 'context' ? contextByKey.get(entry.entityKey) : undefined
-		const title = dataset ? getDatasetName(dataset) : entry.title
+		// Phase 13 (D-05): aggregate + individual sighting/beacon entries resolve
+		// their title through `entityTypeLabel` so an aggregate layer always reads
+		// "Sightings"/"Live beacons" even if seeded without an explicit title.
+		const title = dataset
+			? getDatasetName(dataset)
+			: entry.entityType === 'sighting-layer' ||
+					entry.entityType === 'beacon-layer' ||
+					entry.entityType === 'sighting' ||
+					entry.entityType === 'beacon'
+				? entityTypeLabel(entry)
+				: entry.title
 		return (
 			<EntryRow
 				key={entry.id}
@@ -614,6 +763,33 @@ function EntryGroupList({
 	const groupGap = compact ? 'space-y-1' : 'space-y-1.5'
 	return (
 		<div className={cn('flex flex-col', compact ? 'gap-2' : 'gap-3')}>
+			{/* Phase 13 (D-05): aggregate "Sightings" / "Live beacons" layer entries
+			    pin to the TOP, above individual dataset/context/draft entries. Their
+			    `visible` toggle gates the whole subscription-driven layer. */}
+			{sightingLayerEntries.length > 0 ? (
+				<div className={cn(groupGap)}>
+					<div className={groupLabelClass}>
+						<MapPin className="h-3 w-3" />
+						<span>Sightings layer</span>
+						<span className="font-normal text-muted-foreground/70">
+							({sightingLayerEntries.length})
+						</span>
+					</div>
+					{sightingLayerEntries.map(renderEntry)}
+				</div>
+			) : null}
+			{beaconLayerEntries.length > 0 ? (
+				<div className={cn(groupGap)}>
+					<div className={groupLabelClass}>
+						<Radio className="h-3 w-3" />
+						<span>Live beacons layer</span>
+						<span className="font-normal text-muted-foreground/70">
+							({beaconLayerEntries.length})
+						</span>
+					</div>
+					{beaconLayerEntries.map(renderEntry)}
+				</div>
+			) : null}
 			{draftEntries.length > 0 ? (
 				<div className={cn(groupGap)}>
 					<div className={cn(groupLabelClass, 'text-emerald-700')}>
@@ -720,31 +896,18 @@ export function MapStackPanel({
 				.filter((entry): entry is MapStackEntry => Boolean(entry)),
 		[mapStackEntries, mapStackOrder],
 	)
-	// Group by entity type so the panel visually separates contexts (broader
-	// scope), individual datasets, and the in-edit draft. Within a group,
-	// insertion order is kept.
-	const draftEntries = useMemo(
-		() => entries.filter((entry) => entry.entityType === 'draft'),
-		[entries],
-	)
-	const contextEntries = useMemo(
-		() => entries.filter((entry) => entry.entityType === 'context'),
-		[entries],
-	)
-	const datasetEntries = useMemo(
-		() => entries.filter((entry) => entry.entityType === 'dataset'),
-		[entries],
-	)
-	const otherEntries = useMemo(
-		() =>
-			entries.filter(
-				(entry) =>
-					entry.entityType !== 'context' &&
-					entry.entityType !== 'dataset' &&
-					entry.entityType !== 'draft',
-			),
-		[entries],
-	)
+	// Group by entity type so the panel visually separates the aggregate
+	// sighting/beacon layers (pinned to top, D-05), contexts (broader scope),
+	// individual datasets, and the in-edit draft. Within a group, insertion order
+	// is kept. Bucketing is a pure helper (unit-tested for the D-05 top-pin order).
+	const {
+		sightingLayerEntries,
+		beaconLayerEntries,
+		draftEntries,
+		contextEntries,
+		datasetEntries,
+		otherEntries,
+	} = useMemo(() => bucketMapStackEntries(entries), [entries])
 	const visibleCount = entries.filter((entry) => entry.visible).length
 	const isolatedEntry = entries.find((entry) => entry.isolated) ?? null
 	const isolatedLabel = (() => {
@@ -916,6 +1079,8 @@ export function MapStackPanel({
 					>
 						<EntryGroupList
 							compact={compact}
+							sightingLayerEntries={sightingLayerEntries}
+							beaconLayerEntries={beaconLayerEntries}
 							draftEntries={draftEntries}
 							contextEntries={contextEntries}
 							datasetEntries={datasetEntries}
