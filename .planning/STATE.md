@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
-status: executing
-stopped_at: Phase 12 Plan 05 complete — Live Beacon authoring/reading/share UX landed (control panel + running banner + view panel + useBeaconController wiring + /beacon/:naddr route + OG card); BEACON-01..04 delivered end-to-end; Phase 12 now 5/5; deferred blocking human-verify UAT pending at end-of-phase + /gsd-secure-phase 12
-last_updated: "2026-06-28T17:30:00.000Z"
-last_activity: 2026-06-28 -- Phase 12 Plan 05 (Live Beacon Start/Stop/View/Share UX) complete; all 5 plans of Phase 12 done
+status: testing
+stopped_at: Phase 12 all 5 plans executed; code review + verification done. Fixed CR-01/CR-02 GPS-leak privacy criticals (commit bfb954f) that blocked BEACON-02 — re-verification human_needed, 4/4 must-haves code-verified. Phase NOT complete — PENDING end-of-phase UAT (/gsd-verify-work 12) + /gsd-secure-phase 12. Open warnings deferred: WR-02 (anon-beacon owner Stop/Adjust), WR-03 (seed stale fixture).
+last_updated: "2026-07-02T06:23:31Z"
+last_activity: 2026-07-02 -- Phase 12 verified (human_needed): fixed CR-01/CR-02 beacon GPS-leak, +3 regression tests (758 pass); routing beacons→contexts bug fixed; UAT pending
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 4
   total_plans: 25
   completed_plans: 25
-  percent: 83
+  percent: 67
 ---
 
 # Project State
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 ## Current Position
 
-Phase: 12 (live-beacon-37521) — COMPLETE (5/5 plans; blocking human-verify UAT + /gsd-secure-phase 12 pending)
-Plan: 5 of 5 — complete
-Status: Phase 12 execution complete; ready for end-of-phase verify/secure, then Phase 13 (Cross-Cutting)
+Phase: 12 (live-beacon-37521) — EXECUTED, PENDING UAT (5/5 plans; verification human_needed; /gsd-verify-work 12 + /gsd-secure-phase 12 pending)
+Plan: 5 of 5 — executed; phase sign-off gated on end-of-phase UAT
+Status: All 5 plans executed + committed. Code review found 2 privacy criticals (CR-01/CR-02 GPS-leak) — fixed + regression-tested (758 pass). Routing beacons→contexts bug fixed. Re-verification: human_needed, 4/4 code-verified. NOT complete until UAT passes. Then /gsd-secure-phase 12, then Phase 13 (Cross-Cutting).
 Last activity: 2026-06-28 -- Phase 12 Plan 05 (Live Beacon Start/Stop/View/Share UX) complete
 
 Progress: [████████░░] 83% (v1.2 — 5/6 phases)
