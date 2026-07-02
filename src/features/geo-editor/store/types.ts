@@ -76,6 +76,18 @@ export type MapStackEntryType =
 	| 'proposal'
 	| 'draft'
 	| 'ai-result'
+	/** Phase 13 (SPEC §3.1): an individual Temporal Sighting (37522) pinned to the
+	 * stack by its naddr/dTag. Reuses `isolated` for deep-link-solo. */
+	| 'sighting'
+	/** Phase 13 (SPEC §3.1): an individual Live Beacon (37521) pinned to the stack
+	 * by its naddr/dTag. Reuses `isolated` for deep-link-solo. */
+	| 'beacon'
+	/** Phase 13 (SPEC §3.1): the aggregate "Sightings" layer (entityKey: 'all')
+	 * whose `visible` flag gates the whole 37522 subscription-driven layer. */
+	| 'sighting-layer'
+	/** Phase 13 (SPEC §3.1): the aggregate "Live beacons" layer (entityKey: 'all')
+	 * whose `visible` flag gates the whole 37521 subscription-driven layer. */
+	| 'beacon-layer'
 export type MapStackEntrySource =
 	| 'manual'
 	| 'route'

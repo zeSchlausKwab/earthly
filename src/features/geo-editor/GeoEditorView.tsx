@@ -85,8 +85,104 @@ import {
 } from './hooks'
 import { exportShapefile, importShapefile } from './shapefile'
 import { useEditorStore, type MapStackEntry } from './store'
+import type { MapStackEntryType } from './store/types'
 import type { GeoSearchResult } from './types'
 import { ensureFeatureCollection, extractCollectionMeta, toEditorFeature } from './utils'
+
+/**
+ * Phase 13 (SPEC §3.2): derive the stack-gated render set for an ephemeral entity
+ * kind (sighting/beacon) from Map Stack membership, mirroring `visibleGeoEvents`.
+ * Extracted to module scope as a PURE function so the aggregate/individual/
+ * isolation/empty behaviors are unit-testable without a live React tree or hooks.
+ *
+ * Precedence (SPEC §3.2):
+ *   1. ISOLATION — if ANY entry is isolated, only that entry renders. If it is this
+ *      selector's individual type, return the single matching entity; if it is any
+ *      OTHER isolated type (dataset/context/the other kind), return [] (aggregate
+ *      layers + this kind are suppressed under isolation).
+ *   2. AGGREGATE — a visible `<kind>-layer` entry seeds the result with the full
+ *      subscription set (today's always-on behavior, now gated).
+ *   3. INDIVIDUAL UNION — union in each visible individual `<kind>` entry resolved
+ *      from the subscription by key, de-duped by key (D-04: the buildSource
+ *      freshest-per-{pubkey,d} de-dup collapses any residual overlap).
+ *
+ * `resolveKey(entity)` maps an entity to the stack `entityKey` it is pinned under
+ * (naddr or dTag fallback). Expiry is NOT applied here — `buildSightingSource`/
+ * `buildBeaconSource` keep their internal `dropExpired`, so this only chooses WHICH
+ * entities are candidates (T-13-03-DROPEXPIRED).
+ */
+export function deriveVisibleEntitiesFromStack<T>(
+	subscriptionSet: T[],
+	entries: Record<string, MapStackEntry>,
+	order: string[],
+	individualType: MapStackEntryType,
+	layerType: MapStackEntryType,
+	resolveKey: (entity: T) => string | undefined,
+): T[] {
+	// (1) ISOLATION BRANCH — mirrors visibleGeoEvents L990-1004. First isolated
+	// entry in stack order wins; nothing else renders.
+	for (const entryId of order) {
+		const entry = entries[entryId]
+		if (!entry?.isolated) continue
+		if (entry.entityType === individualType) {
+			const match = subscriptionSet.find((e) => resolveKey(e) === entry.entityKey)
+			return match ? [match] : []
+		}
+		// Any other isolated type (dataset/context/the other kind) suppresses this
+		// kind entirely (SPEC §3.2 — aggregate layers off under isolation).
+		return []
+	}
+
+	// (2) AGGREGATE + (3) INDIVIDUAL UNION — walk visible entries in stack order,
+	// seeding from the layer entry and unioning in individual pins, de-duped by key.
+	const byKey = new Map<string, T>()
+	const subByKey = new Map<string, T>()
+	for (const entity of subscriptionSet) {
+		const key = resolveKey(entity)
+		if (key !== undefined && !subByKey.has(key)) subByKey.set(key, entity)
+	}
+	for (const entryId of order) {
+		const entry = entries[entryId]
+		if (!entry || entry.visible === false) continue
+		if (entry.entityType === layerType) {
+			for (const entity of subscriptionSet) {
+				const key = resolveKey(entity)
+				if (key !== undefined && !byKey.has(key)) byKey.set(key, entity)
+			}
+		} else if (entry.entityType === individualType) {
+			const match = subByKey.get(entry.entityKey)
+			if (match && !byKey.has(entry.entityKey)) byKey.set(entry.entityKey, match)
+		}
+	}
+	return Array.from(byKey.values())
+}
+
+/**
+ * Phase 13: pure naddr encoders for the stack-derived selectors' `resolveKey`.
+ * Module-scope so `visibleSightingsFromStack`/`visibleBeaconsFromStack` (defined
+ * high in the component) can resolve an entity's stack key without a temporal-
+ * dead-zone reference to the `encodeSightingNaddr`/`encodeBeaconNaddr` useCallbacks
+ * (defined lower). Byte-identical logic to those callbacks; the callbacks remain
+ * for the route-focus effect. Falls back to dTag/id at the call site when null.
+ */
+export function encodeSightingNaddrPure(sighting: TemporalSighting): string | null {
+	const identifier = sighting.dTag
+	if (!identifier || !sighting.pubkey) return null
+	try {
+		return nip19.naddrEncode({ kind: TEMPORAL_SIGHTING_KIND, pubkey: sighting.pubkey, identifier })
+	} catch {
+		return null
+	}
+}
+export function encodeBeaconNaddrPure(beacon: LiveBeacon): string | null {
+	const identifier = beacon.dTag
+	if (!identifier || !beacon.pubkey) return null
+	try {
+		return nip19.naddrEncode({ kind: LIVE_BEACON_KIND, pubkey: beacon.pubkey, identifier })
+	} catch {
+		return null
+	}
+}
 
 export function GeoEditorView() {
 	const map = useRef<maplibregl.Map | null>(null)
@@ -1027,6 +1123,41 @@ export function GeoEditorView() {
 			)
 	}, [geoEvents, getDatasetKey, mapStackEntries, mapStackOrder, mapContextEvents])
 
+	// Phase 13 (SPEC §3.2): sightings/beacons render from STACK MEMBERSHIP, not
+	// unconditionally. These mirror `visibleGeoEvents` — an aggregate `*-layer`
+	// entry seeds the full subscription set; individual `sighting`/`beacon` entries
+	// union in one entity each; an isolated entry renders solo (deep-link-solo).
+	// The pure derivation lives in `deriveVisibleEntitiesFromStack` (module scope,
+	// unit-tested); `buildSightingSource`/`buildBeaconSource` keep their internal
+	// `dropExpired` + freshest-per-{pubkey,d} de-dup on whatever set they receive.
+	// entityKey resolution mirrors the map render/de-dup key: naddr with a dTag/id
+	// fallback (the same key the deep-link handlers pin under, so an isolated route
+	// entry resolves to exactly its own entity — T-13-03-FORCEISO).
+	const visibleSightingsFromStack = useMemo(
+		() =>
+			deriveVisibleEntitiesFromStack(
+				sightings,
+				mapStackEntries,
+				mapStackOrder,
+				'sighting',
+				'sighting-layer',
+				(s) => encodeSightingNaddrPure(s) ?? s.dTag ?? s.id,
+			),
+		[sightings, mapStackEntries, mapStackOrder],
+	)
+	const visibleBeaconsFromStack = useMemo(
+		() =>
+			deriveVisibleEntitiesFromStack(
+				beacons,
+				mapStackEntries,
+				mapStackOrder,
+				'beacon',
+				'beacon-layer',
+				(b) => encodeBeaconNaddrPure(b) ?? b.dTag ?? b.id,
+			),
+		[beacons, mapStackEntries, mapStackOrder],
+	)
+
 	// Round F.2: comment/annotation overlays follow the stack. A visible
 	// comment overlay stays only while its root entity is still anchored —
 	// either a context entry with the same coordinate, or a dataset that is
@@ -1576,36 +1707,18 @@ export function GeoEditorView() {
 
 	// Sighting naddr encoder — resolves a /sighting/:naddr deep link to the cast so
 	// the focus-route effect can open it (Phase 11, Plan 04 / D-08).
-	const encodeSightingNaddr = useCallback((sighting: TemporalSighting): string | null => {
-		const identifier = sighting.dTag
-		if (!identifier || !sighting.pubkey) return null
-		try {
-			return nip19.naddrEncode({
-				kind: TEMPORAL_SIGHTING_KIND,
-				pubkey: sighting.pubkey,
-				identifier,
-			})
-		} catch {
-			return null
-		}
-	}, [])
+	const encodeSightingNaddr = useCallback(
+		(sighting: TemporalSighting): string | null => encodeSightingNaddrPure(sighting),
+		[],
+	)
 
 	// Beacon naddr encoder — resolves a /beacon/:naddr deep link to its cast. The
 	// naddr carries the THROWAWAY pubkey (the beacon is not under the user's profile,
 	// D-05/D-11).
-	const encodeBeaconNaddr = useCallback((beacon: LiveBeacon): string | null => {
-		const identifier = beacon.dTag
-		if (!identifier || !beacon.pubkey) return null
-		try {
-			return nip19.naddrEncode({
-				kind: LIVE_BEACON_KIND,
-				pubkey: beacon.pubkey,
-				identifier,
-			})
-		} catch {
-			return null
-		}
-	}, [])
+	const encodeBeaconNaddr = useCallback(
+		(beacon: LiveBeacon): string | null => encodeBeaconNaddrPure(beacon),
+		[],
+	)
 
 	// A /beacon/:naddr deep link may target a LINK-ONLY beacon, which is absent from
 	// the `#t:['live']` discovery surface (`beacons` above). Decode the routed naddr
