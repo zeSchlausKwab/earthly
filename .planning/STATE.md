@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
-status: planning
-stopped_at: Phase 13 context gathered
-last_updated: "2026-07-02T12:16:51.855Z"
-last_activity: 2026-07-02 -- Phase 13 planning complete
+status: executing
+stopped_at: Phase 13 Plan 01 complete
+last_updated: "2026-07-02T13:11:00.000Z"
+last_activity: 2026-07-02 -- Phase 13 Plan 01 (XCUT-01 beacon comment parity) complete
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 24
-  completed_plans: 24
-  percent: 83
+  total_plans: 28
+  completed_plans: 25
+  percent: 85
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 **Core value:** The maintainer (and any user) can open the app for fun, not duty.
-**Current focus:** Phase 12 — live-beacon-37521
+**Current focus:** Phase 13 — cross-cutting
 
 ## Current Position
 
-Phase: 13 (cross-cutting) — not started
-Plan: Not started
-Status: Phase 12 (Live Beacon) COMPLETE — 5/5 plans, secured (threats_open:0), UAT 4/4 PASS. Session fixes: CR-01/CR-02 GPS-leak, routing beacons→contexts, Start→share-link, deep-link→inspect+zoom+Follow, map-marker visibility (link-only/share), WR-03 stale-seed. 758 tests / build / biome green. Next: Phase 13 (XCUT-01 comment K/k widening + XCUT-02 entity routing) — and a spec'd map-stack entity-layer unification (.planning/design/map-stack-entity-layers-SPEC.md) is a candidate to fold in.
-Last activity: 2026-07-02 -- Phase 13 planning complete
+Phase: 13 (cross-cutting) — EXECUTING
+Plan: 2 of 4
+Status: Executing Phase 13 (Plan 01 complete)
+Last activity: 2026-07-02 -- Phase 13 Plan 01 (XCUT-01 beacon comment parity) complete
 
-Progress: [████████░░] 83% (v1.2 — 5/6 phases)
+Progress: [████████░░] 85% (v1.2 — 5/6 phases)
 
 ## Roadmap (v1.2 — Phases 8–13)
 
@@ -86,6 +86,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 | Phase 12 P02 | ~12min | 2 tasks | 6 files |
 | Phase 12 P03 | 9min | 1 tasks | 1 files |
 | Phase 12 P04 | ~18min | 2 tasks | 4 files |
+| Phase 13 P01 | ~10min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -123,6 +124,7 @@ Recent decisions affecting current work:
 - [12-02]: Live Beacon data layer shipped (lifecycle/visibility/useBeacons RED→GREEN 10/10). LiveBeaconContent reconciled: `position?:[number,number]` → `geometry?:Point` + `status?:'live'|'ended'`, DEFAULT={status:'live'} (defensive getter unchanged → legacy/seeded beacons render live, never throw); cast gained `.status`(default live) + `.geometry`. src/lib/nostr/live-beacon/lifecycle.ts = the single publish path cloned from temporal-sighting/lifecycle.ts: `updateBeacon({content,expiration,visibility,existing?},signer)` derives bbox+g via turf (try/catch→undefined) + emits t:'live' for PUBLIC, OMITS all three (t:live/g/bbox) for LINK-ONLY (P-6/T-12-02-LINKONLY); `stopBeacon(existing,signer)` re-publishes status:'ended' keeping the SAME d + retained NIP-40 expiration (D-04) and re-derives visibility from the existing t:'live'. KEY DIVERGENCE from the Sighting analog: `publish(signed,{routing:'configured'})` NOT 'outbox' (throwaway key has no NIP-65 mailbox → outbox would time out 1.5s/heartbeat, D-05) — grep-confirmed no routing:'outbox'. beaconState.ts: BEACON_HEARTBEAT_MS=30_000 / BEACON_DISTANCE_FLOOR_M=25 / BEACON_STALE_FACTOR=4 / BEACON_STALE_THRESHOLD_S=(heartbeat/1000)*factor (=120, DERIVED not literal); `beaconState(beacon,now)` precedence removed>ended>stale>live, past-threshold-status:live ⇒ stale (P-3), epoch-seconds only. useBeacons.ts cloned from useSightings: EXPIRY_TICK_MS=15_000 (finer than Sighting's 60s), default filter `[{'#t':['live']}]`, `selectVisibleBeacons(events,now)` pure filter-before-cast(P-2)+dropExpired(P-1)→casts; re-exports beaconState+BEACON_* from the live-beacon barrel so the 12-01 test import (@/lib/hooks/useBeacons) resolves. Full suite 747/8 — the 8 fails are EXCLUSIVELY Plan-03 useBeaconPublisher (5) + Plan-05 fetchBeacon (3), still-RED by design; relay-echo self-skipped. build+biome green on all 6 files. gsd-tools not on PATH — STATE/ROADMAP updated manually. CONTRACT NOTES for Plan 03/04: updateBeacon takes `existing?:NostrEvent` (modify-path d-preserve); beaconState accepts a cast OR raw event (`'rawEvent' in beacon` discriminant).
 - [12-01]: Nyquist Wave-0 RED baseline for kind 37521 — 6 test files + a reusable src/test/geolocationMock.ts pin every net-new+extended beacon seam as RED before Plans 02–05: updateBeacon/stopBeacon lifecycle (derive bbox/g + t:live, preserve-d on heartbeat, status:ended keeps expiration — BEACON-01/02/D-04/D-09), public-vs-link-only discovery gating (visibility.test.ts — BEACON-04/D-10/P-6), useBeacons beaconState removed>ended>stale>live + frozen-as-live-is-stale (P-3) + GREEN filter-before-cast pin (P-2) + dropExpired at fixed now (P-1) (BEACON-03/D-07/D-08), useBeaconPublisher throttle (distance 25m OR heartbeat 30s, single-guard P-4) + fresh-per-session secp256k1 key never persisted (D-05), fetchBeaconOGData throwaway-naddr round-trip + expiry-null + kind-gate (BEACON-04/D-11), and a bun-relay relay-echo.test.ts (latest-wins + client dropExpired, SPEC-05) that self-skips without a relay. 17 RED + 1 GREEN pin; biome clean; no production source touched (build unaffected). gsd-tools not on PATH — STATE/ROADMAP updated manually. Two seam-name flags for later plans: fetchBeacon.test mocks @/lib/og/relayFetch#fetchEventFromRelay (extract the private WS helper there in Plan 05); BEACON_STALE_THRESHOLD_S exported from where useBeacons lives.
 - [Phase ?]: useBeaconPublisher: single lastPublished guard shared by fix+heartbeat (P-4); fresh in-memory throwaway PrivateKeySigner per Start (D-05), discarded at Stop
+- [13-01]: XCUT-01 beacon comment parity shipped (D-06) — the LAST unwired kind reaches full comment parity with Story/Group/Sighting. `LiveBeacon` added to BOTH `useGeoComments` unions (`UseGeoCommentsOptions.target` + the `react()`/inner `reactTarget` param, 4 occurrences); the comment stack has been kind-generic since Phase 8 (the `#A` filter builds `${target.kind}:${target.pubkey}:${target.dTag}` with no allowlist), so this was a pure type-union widening — zero comment-machinery change. `BeaconViewPanel` now mounts `<CommentsPanel target={beacon} />` inside a `tone="discussion"` surface identical to StoryViewPanel L217-238 (key/target/onCommentGeojsonVisibilityChange/onZoomToCommentGeojson/availableFeatures/onMentionVisibilityToggle/onMentionZoomTo/focusCommentId); 6 comment/mention props copied verbatim from StoryViewPanelProps onto BeaconViewPanelProps. The Phase-12 deferral note deleted (header + inline); a pre-existing XSS header comment rephrased so the file has 0 literal `dangerouslySetInnerHTML` tokens (T-13-01-XSS acceptance). EXPIRY GATE PRESERVED: an expired beacon short-circuits to the "This beacon has ended." terminal copy BEFORE the comment surface renders — no comment section on an ended beacon (Phase-12 honesty posture). New `useGeoComments.beacon.test.ts` (2/0): the derivation fn is typed against the SHIPPED `UseGeoCommentsOptions['target']` union so dropping LiveBeacon breaks it at compile-time; asserts the 37521:pubkey:dTag root address + null-on-missing-dTag. RESIDUAL (D-07, accept): own-pubkey `d`-reuse cross-session comment misattach — throwaway-key-per-session (Phase 12 D-05) makes the address effectively session-unique, only own-pubkey opt-in is exposed; NO de-dup built (deferred → cordn agenda). Commits 0953c40 + 8e56443; suite 760/0 (up from 755 baseline, no regression); build + biome green on all 3 files. XCUT-01 as a ROADMAP requirement stays OPEN (Plans 13-03/13-04 also carry the XCUT-01 tag). gsd-tools not on PATH — STATE/ROADMAP updated manually.
 - [12-04]: Live Beacon live-map render layer + Beacons browse rail shipped (BEACON-01/03/04). useMapLayers gained a SEPARATE beacon source/layer pair (BEACON_SOURCE_ID + exported BEACON_HIT_LAYER + BEACON_CIRCLE_LAYER/BEACON_GLYPH_LAYER) cloned from the Sighting block: buildBeaconSource does dropExpired-before-source (per-read-path P-1, defensive over useBeacons), then freshest-per-{pubkey,d} latest-wins de-dup with id-lexicographic tie-break (research "seq tag" guard — no clock-skew seq tag), then beaconState(cast,now) per feature ('removed' excluded). Data-driven paint: live=#fdc700 solid+3px accent ring, stale=#737373 70% opacity no ring, ended=hollow (transparent fill rgba(0,0,0,0)+#737373 outline+■ stop glyph); live/stale carry the ((•)) broadcast glyph distinct from the Sighting ◉ eye; 22px invisible hit layer. New visibleBeacons?:LiveBeacon[] option + tick-keyed source effect so live→stale→removed flips live. BeaconsPanel.tsx (BeaconsPanelContent/BeaconsPanelProps) = SightingsPanelContent kind-substituted over useBeacons (#t:['live'] discovery surface, link-only never matched P-6): status chip from beaconState + last-seen age + NIP-40 countdown + Watch-on-map; OWN active beacon partitioned to TOP (ownBeacons first), accent-ringed when own+live, inline Stop sharing(destructive)+Adjust gated on isOwner AND handler-present; accent Share-live-location CTA + empty-state copy; zero dangerouslySetInnerHTML. AppSidebar: 'beacons' WorkViewMode+Radio nav row+beaconsPanelProps (beacon handlers as new optional props with safe ?? (() => {}) defaults so it builds standalone)+renderWorkContent case; pre-existing selectedSightingKey highlight wiring left untouched. seed-entities rewritten to geometry/status shape: live×2 + stale (status:live + created_at backdated 300s past the 120s threshold via EventFactory.created()) + ended (status:ended) + expired (expiration now()-60) + LINK-ONLY (no geohash/hashtags/bbox → no t:live, stays off discovery) — all 4 marker states + discovery-gating for UAT. build+biome green (scripts/ biome-ignored; seed compiled via bun build). Full suite 752/3 — the 3 fails are EXCLUSIVELY Plan-05 fetchBeacon (still-RED by design); no regression. gsd-tools not on PATH — STATE/ROADMAP updated manually. Plan-05 wires the controller + visibleBeacons feed + BEACON_HIT_LAYER interactions; the no-op handler defaults are the documented seam.
 
 ### Pending Todos
@@ -166,9 +168,9 @@ Open artifact-audit items awaiting live in-browser human confirmation or design 
 
 ## Session Continuity
 
-Last session: 2026-07-02T11:50:21.047Z
-Stopped at: Phase 13 context gathered
-Resume file: .planning/phases/13-cross-cutting/13-CONTEXT.md
+Last session: 2026-07-02T13:11:00.000Z
+Stopped at: Phase 13 Plan 01 (XCUT-01 beacon comment parity) complete
+Resume file: .planning/phases/13-cross-cutting/13-02-PLAN.md
 
 ## Operator Next Steps
 

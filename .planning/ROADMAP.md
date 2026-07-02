@@ -219,7 +219,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 1**
 
-  - [ ] 13-01-PLAN.md — XCUT-01 final gap: widen useGeoComments unions to LiveBeacon + mount CommentsPanel in BeaconViewPanel (beacon reaches comment parity; last kind wired) [XCUT-01, D-06/D-07]
+  - [x] 13-01-PLAN.md — XCUT-01 final gap: widen useGeoComments unions to LiveBeacon + mount CommentsPanel in BeaconViewPanel (beacon reaches comment parity; last kind wired) [XCUT-01, D-06/D-07] ✓ 2026-07-02 (2 commits 0953c40/8e56443; suite 760/0, build+biome green; D-07 own-pubkey d-reuse recorded as residual)
 
 **Wave 2** *(blocked on Wave 1 — consumes the BeaconViewPanel focusCommentId prop Plan 01 adds)*
 
