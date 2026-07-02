@@ -3,9 +3,14 @@
  * (Phase 12, BEACON-03/04, D-11). The structural twin of `SightingViewPanel`,
  * cloned with `LiveBeacon` substituted and the Sighting-only machinery STRIPPED:
  *   - no observation-time range row (a beacon has live/stale/ended staleness, not
- *     an observation window),
- *   - NO `CommentsPanel`/`GeoSocialActions` mount — comment/react on beacons is
- *     DEFERRED to Phase 13 / XCUT-01 per research Open Q1.
+ *     an observation window).
+ *
+ * A `CommentsPanel` mounts against the beacon's 37521 coordinate for comment +
+ * react (XCUT-01, D-06) — the last kind wired to full comment parity, identical to
+ * the Story/Sighting mount. The `useGeoComments` filter roots the comment at
+ * `37521:<pubkey>:<dTag>` (kind-generic since Phase 8; only the type union widened).
+ * An expired beacon short-circuits to the terminal copy BEFORE the comment surface
+ * renders, so an ended beacon shows no Discussion section (Phase-12 honesty posture).
  *
  * It shows the label (20px), the live/stale/ended status chip (from
  * `beaconState`), the last-seen age (primary, from `created_at`), the time-box
@@ -21,8 +26,10 @@
  *
  * SIGHT-03 / T-12-05-FROZEN (the detail read path, P-1): if the viewed beacon is
  * expired (`isExpired`) the panel shows the "This beacon has ended." terminal copy
- * instead of the content. All strings render as escaped React text nodes — NO
- * `dangerouslySetInnerHTML` (T-12-05-XSS).
+ * instead of the content. All strings render as escaped React text nodes — no raw
+ * HTML injection sink (T-12-05-XSS). The XCUT-01 CommentsPanel mount reuses the
+ * existing escaped comment render path unchanged, adding no new injection surface
+ * (T-13-01-XSS).
  */
 
 import { unixNow } from 'applesauce-core/helpers/time'
@@ -31,6 +38,7 @@ import { nip19 } from 'nostr-tools'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { CommentsPanel } from '@/features/social/comments'
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -43,6 +51,7 @@ import {
 	AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { isExpired } from '@/lib/nostr/expiry'
+import type { GeoComment } from '@/lib/nostr/geo-comment'
 import {
 	beaconState,
 	LIVE_BEACON_KIND,
@@ -51,6 +60,7 @@ import {
 } from '@/lib/nostr/live-beacon'
 import { formatExpiryCountdown, formatRelativeDate } from '@/lib/nostr/temporal-sighting'
 import { cn } from '@/lib/utils'
+import type { GeoFeatureItem } from '../editor/GeoRichTextEditor'
 import { EntityPanelSectionHeader, EntityPanelShell, EntityPanelSurface } from './EntityPanelShell'
 
 interface BeaconViewPanelProps {
@@ -67,6 +77,21 @@ interface BeaconViewPanelProps {
 	isFollowing?: boolean
 	/** Toggle follow mode — keeps the map centered on the beacon as it moves. */
 	onToggleFollow?: () => void
+	// Comment/mention props — copied verbatim from StoryViewPanelProps for the
+	// XCUT-01 CommentsPanel mount (D-06). The comment surface is identical to
+	// Story/Sighting; these thread the comment geometry + inline mention toggles
+	// back to the map owner.
+	focusCommentId?: string
+	availableFeatures?: GeoFeatureItem[]
+	/** Show/hide a comment's attached geojson annotation on the map. */
+	onCommentGeometryVisibility?: (comment: GeoComment, visible: boolean) => void
+	onZoomToBounds?: (bounds: [number, number, number, number]) => void
+	onMentionVisibilityToggle?: (
+		address: string,
+		featureId: string | undefined,
+		visible: boolean,
+	) => void
+	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
 }
 
 function EndedOrEmpty({ heading, body }: { heading: string; body: string }) {
@@ -107,6 +132,12 @@ export function BeaconViewPanel({
 	onZoomTo,
 	isFollowing = false,
 	onToggleFollow,
+	focusCommentId,
+	availableFeatures,
+	onCommentGeometryVisibility,
+	onZoomToBounds,
+	onMentionVisibilityToggle,
+	onMentionZoomTo,
 }: BeaconViewPanelProps) {
 	if (!beacon) {
 		return (
@@ -270,8 +301,29 @@ export function BeaconViewPanel({
 					</Button>
 				</EntityPanelSurface>
 
-				{/* comment/react deferred to Phase 13 / XCUT-01 (research Open Q1) — no
-				    CommentsPanel/GeoSocialActions mount here. */}
+				{/* Comment + react on the beacon 37521 coordinate (XCUT-01, D-06). The
+				    LiveBeacon cast is a kind-LIVE_BEACON_KIND (37521) event, so
+				    CommentsPanel roots the comment at `target.kind === 37521` directly —
+				    runtime rooting is kind-generic (Phase 8); only the type union widened.
+				    Reached only for a non-expired beacon (the isExpired gate above
+				    short-circuits an ended beacon before this renders). */}
+				<EntityPanelSurface tone="discussion" className="space-y-4">
+					<EntityPanelSectionHeader eyebrow="Discussion" title="Comments" />
+					<CommentsPanel
+						key={beacon.id ?? beacon.dTag ?? 'no-beacon'}
+						target={beacon}
+						onCommentGeojsonVisibilityChange={(comment, visible) =>
+							onCommentGeometryVisibility?.(comment, visible)
+						}
+						onZoomToCommentGeojson={(comment) => {
+							if (comment.boundingBox && onZoomToBounds) onZoomToBounds(comment.boundingBox)
+						}}
+						availableFeatures={availableFeatures}
+						onMentionVisibilityToggle={onMentionVisibilityToggle}
+						onMentionZoomTo={onMentionZoomTo}
+						focusCommentId={focusCommentId}
+					/>
+				</EntityPanelSurface>
 			</div>
 		</EntityPanelShell>
 	)
