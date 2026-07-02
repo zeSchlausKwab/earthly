@@ -25,7 +25,7 @@
  */
 
 import type { Point } from 'geojson'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import { PrivateKeySigner } from 'applesauce-signers'
 import { generateSecretKey } from 'nostr-tools'
@@ -215,6 +215,56 @@ const WATCH_OPTIONS: PositionOptions = {
 	maximumAge: 5000,
 }
 
+/** A running beacon loop's OS resources — a geolocation watch + a heartbeat interval. */
+export interface BeaconLoopHandle {
+	/** Release the watch AND the heartbeat interval. Idempotent (safe to double-call). */
+	teardown(): void
+}
+
+/**
+ * Acquire the beacon publish loop's OS resources: a `watchPosition` subscription
+ * feeding `onFix`/`onError` and a heartbeat `setInterval` calling `onHeartbeat`.
+ * Returns a `teardown()` that releases BOTH — the single choke point the hook
+ * invokes on Stop, on unmount (CR-01), and before a re-Start (CR-02) so a loop can
+ * never outlive its owner still publishing GPS under the throwaway key (D-05).
+ *
+ * The geolocation + timer functions are injected (defaulting to the platform
+ * globals) so the teardown / anti-orphan invariant is unit-testable without React
+ * or a real GPS — the same pure-helper testability as `createBeaconThrottle`.
+ */
+export function openBeaconWatch(args: {
+	geolocation: Pick<Geolocation, 'watchPosition' | 'clearWatch'>
+	onFix(coords: [number, number], at: number): void
+	onError(error: GeolocationPositionError): void
+	onHeartbeat(at: number): void
+	heartbeatMs: number
+	watchOptions: PositionOptions
+	now?: () => number
+	setIntervalFn?: (fn: () => void, ms: number) => ReturnType<typeof setInterval>
+	clearIntervalFn?: (id: ReturnType<typeof setInterval>) => void
+}): BeaconLoopHandle {
+	const now = args.now ?? Date.now
+	const setIntervalImpl = args.setIntervalFn ?? setInterval
+	const clearIntervalImpl = args.clearIntervalFn ?? clearInterval
+
+	const watchId = args.geolocation.watchPosition(
+		(pos) => args.onFix([pos.coords.longitude, pos.coords.latitude], now()),
+		(err) => args.onError(err),
+		args.watchOptions,
+	)
+	const intervalId = setIntervalImpl(() => args.onHeartbeat(now()), args.heartbeatMs)
+
+	let released = false
+	return {
+		teardown() {
+			if (released) return
+			released = true
+			args.geolocation.clearWatch(watchId)
+			clearIntervalImpl(intervalId)
+		},
+	}
+}
+
 /**
  * Own a throttled `watchPosition` publish loop under a per-session throwaway (or
  * own-account) signer. The hook is the BEACON-01 publish discipline + the D-05
@@ -229,21 +279,15 @@ export function useBeaconPublisher(): UseBeaconPublisher {
 	// ONLY and never leaves this closure (D-05).
 	const sessionRef = useRef<BeaconSession | null>(null)
 	const throttleRef = useRef<BeaconThrottle | null>(null)
-	const watchIdRef = useRef<number | null>(null)
-	const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null)
+	const loopRef = useRef<BeaconLoopHandle | null>(null)
 	const lastEventRef = useRef<NostrEvent | null>(null)
 	const lastFixRef = useRef<[number, number] | null>(null)
 	const optionsRef = useRef<{ expiration?: number; visibility: BeaconVisibility } | null>(null)
 
 	const teardown = useCallback(() => {
-		if (watchIdRef.current !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
-			navigator.geolocation.clearWatch(watchIdRef.current)
-		}
-		watchIdRef.current = null
-		if (intervalIdRef.current !== null) {
-			clearInterval(intervalIdRef.current)
-		}
-		intervalIdRef.current = null
+		// Release the watch + heartbeat via the single loop handle (idempotent).
+		loopRef.current?.teardown()
+		loopRef.current = null
 		// Discard the session — drop the signer AND the secret key (D-05).
 		sessionRef.current = null
 		throttleRef.current = null
@@ -251,6 +295,12 @@ export function useBeaconPublisher(): UseBeaconPublisher {
 		lastFixRef.current = null
 		optionsRef.current = null
 	}, [])
+
+	// CR-01: if the hook unmounts while a beacon is live (SPA route change,
+	// StrictMode remount), stop the watch + heartbeat so a session can never
+	// outlive the component — otherwise the orphaned loop keeps publishing GPS
+	// under the throwaway key with no reachable Stop (D-05 privacy boundary).
+	useEffect(() => teardown, [teardown])
 
 	const publishFix = useCallback(async (coords: [number, number]) => {
 		const session = sessionRef.current
@@ -283,6 +333,12 @@ export function useBeaconPublisher(): UseBeaconPublisher {
 				return
 			}
 
+			// CR-02: never orphan a live session. Adjust / double-Start would otherwise
+			// overwrite the refs below and leave the PREVIOUS watch + heartbeat +
+			// throwaway signer running — publishing GPS under a key the UI can no
+			// longer Stop. Tear the prior session down before minting a new one.
+			teardown()
+
 			const session = await startBeaconSession(
 				identity,
 				identity === 'my-account' ? (activeAccount as unknown as SignerLike) : undefined,
@@ -306,15 +362,17 @@ export function useBeaconPublisher(): UseBeaconPublisher {
 
 			setSubState('searching')
 
-			// Own a SEPARATE watch (NOT the locate button's) — each fix → maybePublish.
-			watchIdRef.current = navigator.geolocation.watchPosition(
-				(pos) => {
-					const coords: [number, number] = [pos.coords.longitude, pos.coords.latitude]
+			// Own a SEPARATE watch (NOT the locate button's) + a heartbeat keepalive
+			// (D-02), funnelled through one teardown handle so Stop / unmount / re-Start
+			// all release both resources (CR-01 / CR-02).
+			loopRef.current = openBeaconWatch({
+				geolocation: navigator.geolocation,
+				onFix: (coords, at) => {
 					lastFixRef.current = coords
 					setSubState('tracking')
-					throttle.onFix(coords, Date.now())
+					throttle.onFix(coords, at)
 				},
-				(error) => {
+				onError: (error) => {
 					if (error.code === error.PERMISSION_DENIED) {
 						// Hard stop — the user denied location; surface honestly + tear down.
 						setSubState('permission-denied')
@@ -327,13 +385,10 @@ export function useBeaconPublisher(): UseBeaconPublisher {
 					// "searching…" (Pitfall P-3 / T-12-03-FROZEN).
 					setSubState('searching')
 				},
-				WATCH_OPTIONS,
-			)
-
-			// Heartbeat keepalive so a stationary beacon stays live (D-02).
-			intervalIdRef.current = setInterval(() => {
-				throttle.onHeartbeat(Date.now())
-			}, BEACON_HEARTBEAT_MS)
+				onHeartbeat: (at) => throttle.onHeartbeat(at),
+				heartbeatMs: BEACON_HEARTBEAT_MS,
+				watchOptions: WATCH_OPTIONS,
+			})
 
 			setIsLive(true)
 		},

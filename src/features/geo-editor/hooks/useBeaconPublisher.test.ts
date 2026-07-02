@@ -167,3 +167,112 @@ describe('useBeaconPublisher — fresh, never-persisted throwaway key (D-05)', (
 		}
 	})
 })
+
+describe('useBeaconPublisher — no orphaned publish loop (CR-01 unmount / CR-02 re-Start)', () => {
+	// The hook funnels its watch + heartbeat through one `openBeaconWatch` handle
+	// and calls `teardown()` on Stop, on unmount (useEffect cleanup, CR-01), and
+	// before minting a new session in `startBeacon` (CR-02 Adjust / double-Start).
+	// These pin the primitive that guarantee relies on: teardown must release BOTH
+	// OS resources, and a torn-down loop must stop delivering fixes — otherwise an
+	// orphaned loop keeps publishing GPS under the throwaway key with no reachable
+	// Stop (a direct D-05 privacy breach).
+
+	test('teardown() releases BOTH the geolocation watch and the heartbeat interval (unmount cleanup)', async () => {
+		const { openBeaconWatch, BEACON_HEARTBEAT_MS } = await import(
+			'@/features/geo-editor/hooks/useBeaconPublisher'
+		)
+
+		let clearedIntervalId: unknown = 'not-cleared'
+		const handle = openBeaconWatch({
+			geolocation: navigator.geolocation,
+			onFix: () => {},
+			onError: () => {},
+			onHeartbeat: () => {},
+			heartbeatMs: BEACON_HEARTBEAT_MS,
+			watchOptions: {},
+			setIntervalFn: () => 4242 as unknown as ReturnType<typeof setInterval>,
+			clearIntervalFn: (id) => {
+				clearedIntervalId = id
+			},
+		})
+
+		expect(geo.activeWatchCount()).toBe(1)
+
+		handle.teardown()
+
+		// Watch cleared (no more GPS reads) AND the heartbeat interval cleared (no
+		// more republishes) — the two resources CR-01 leaked on unmount.
+		expect(geo.clearWatchCount()).toBe(1)
+		expect(geo.activeWatchCount()).toBe(0)
+		expect(clearedIntervalId).toBe(4242)
+	})
+
+	test('a torn-down loop stops delivering fixes; a fresh loop after teardown leaves exactly one active watch (Adjust / double Start)', async () => {
+		const { openBeaconWatch, BEACON_HEARTBEAT_MS } = await import(
+			'@/features/geo-editor/hooks/useBeaconPublisher'
+		)
+		const noopTimers = {
+			setIntervalFn: () => 0 as unknown as ReturnType<typeof setInterval>,
+			clearIntervalFn: () => {},
+		}
+
+		const fixesA: number[] = []
+		const fixesB: number[] = []
+
+		// Session A starts, then the hook tears it down before re-Starting (CR-02).
+		const a = openBeaconWatch({
+			geolocation: navigator.geolocation,
+			onFix: () => fixesA.push(1),
+			onError: () => {},
+			onHeartbeat: () => {},
+			heartbeatMs: BEACON_HEARTBEAT_MS,
+			watchOptions: {},
+			...noopTimers,
+		})
+		a.teardown()
+
+		// Session B starts on the same geolocation.
+		openBeaconWatch({
+			geolocation: navigator.geolocation,
+			onFix: () => fixesB.push(1),
+			onError: () => {},
+			onHeartbeat: () => {},
+			heartbeatMs: BEACON_HEARTBEAT_MS,
+			watchOptions: {},
+			...noopTimers,
+		})
+
+		// Only B is live — A was released, so it can NOT still be broadcasting GPS.
+		expect(geo.activeWatchCount()).toBe(1)
+
+		geo.emitFix({ longitude: 16.3738, latitude: 48.2082 })
+
+		expect(fixesA).toHaveLength(0)
+		expect(fixesB).toHaveLength(1)
+	})
+
+	test('teardown() is idempotent — Stop followed by an unmount cleanup clears once', async () => {
+		const { openBeaconWatch, BEACON_HEARTBEAT_MS } = await import(
+			'@/features/geo-editor/hooks/useBeaconPublisher'
+		)
+		let clearIntervalCalls = 0
+		const handle = openBeaconWatch({
+			geolocation: navigator.geolocation,
+			onFix: () => {},
+			onError: () => {},
+			onHeartbeat: () => {},
+			heartbeatMs: BEACON_HEARTBEAT_MS,
+			watchOptions: {},
+			setIntervalFn: () => 1 as unknown as ReturnType<typeof setInterval>,
+			clearIntervalFn: () => {
+				clearIntervalCalls++
+			},
+		})
+
+		handle.teardown()
+		handle.teardown()
+
+		expect(geo.clearWatchCount()).toBe(1)
+		expect(clearIntervalCalls).toBe(1)
+	})
+})
