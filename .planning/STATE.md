@@ -4,8 +4,8 @@ milestone: v1.2
 milestone_name: Geo Entity Model Split
 status: planning
 stopped_at: Phase 13 context gathered
-last_updated: "2026-07-02T11:50:21.052Z"
-last_activity: 2026-07-02
+last_updated: "2026-07-02T12:16:51.855Z"
+last_activity: 2026-07-02 -- Phase 13 planning complete
 progress:
   total_phases: 6
   completed_phases: 5
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 Phase: 13 (cross-cutting) — not started
 Plan: Not started
 Status: Phase 12 (Live Beacon) COMPLETE — 5/5 plans, secured (threats_open:0), UAT 4/4 PASS. Session fixes: CR-01/CR-02 GPS-leak, routing beacons→contexts, Start→share-link, deep-link→inspect+zoom+Follow, map-marker visibility (link-only/share), WR-03 stale-seed. 758 tests / build / biome green. Next: Phase 13 (XCUT-01 comment K/k widening + XCUT-02 entity routing) — and a spec'd map-stack entity-layer unification (.planning/design/map-stack-entity-layers-SPEC.md) is a candidate to fold in.
-Last activity: 2026-07-02
+Last activity: 2026-07-02 -- Phase 13 planning complete
 
 Progress: [████████░░] 83% (v1.2 — 5/6 phases)
 
