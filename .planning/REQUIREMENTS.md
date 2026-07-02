@@ -133,7 +133,7 @@ Populated during roadmap creation. Phase numbering continues from v1.1 (which en
 | BEACON-02 | Phase 12 | Complete |
 | BEACON-03 | Phase 12 | Complete |
 | BEACON-04 | Phase 12 | Complete |
-| XCUT-01 | Phase 13 | Comment-root widening DONE 13-01 (LiveBeacon in useGeoComments unions + CommentsPanel mount, last kind wired; 0953c40/8e56443). 13-03 advances the folded-in Map Stack / SIGHT-02 group-lane-rendering angle (sightings/beacons stack-gated & renderable). Stays OPEN pending the D-11 4-kind comment×route×share matrix UAT (verifier). |
+| XCUT-01 | Phase 13 | Comment-root widening DONE 13-01 (LiveBeacon in useGeoComments unions + CommentsPanel mount, last kind wired; 0953c40/8e56443). 13-03 shipped the Map Stack structural core (sightings/beacons stack-gated & renderable). 13-04 shipped the Map Stack UI + lifecycle (add-to-stack affordances, top-pinned aggregate toggles, cold-start defaults, D-02 expiry auto-remove; c8d6df4/77071df) — SIGHT-02 group-lane-rendering angle now observable. All code work COMPLETE; stays OPEN pending the D-11 4-kind comment×route×share + new-stack-behaviors matrix UAT (verifier). |
 | XCUT-02 | Phase 13 | Complete |
 
 **Coverage:**

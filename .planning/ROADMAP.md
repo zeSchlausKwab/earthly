@@ -231,7 +231,9 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 4** *(blocked on Wave 3)*
 
-  - [ ] 13-04-PLAN.md — Map Stack unification UI: Add-to-map-stack on view panels + rails, aggregate layer entries top-pinned + toggleable, cold-start browse-default seeding, pinned-entry expiry auto-remove [XCUT-01/XCUT-02, D-02/D-05]
+  - [x] 13-04-PLAN.md — Map Stack unification UI: Add-to-map-stack on view panels + rails, aggregate layer entries top-pinned + toggleable, cold-start browse-default seeding, pinned-entry expiry auto-remove [XCUT-01/XCUT-02, D-02/D-05] ✓ 2026-07-02 (2 commits c8d6df4/77071df; pure bucket/order + label helpers, MapStackPanel.layerEntries.test 4/0; cold-start seeds both aggregate layers once-per-session/idempotent/Clear-aware; D-02 expiry sweep auto-removes expired/unresolvable pins; build+biome green on changed lines; full suite 775/2+1 = same pre-existing storyProposal flake, no regression; no extraMapBeacons reintroduced)
+
+**Phase 13 execution COMPLETE (4/4 plans).** Remaining: end-of-phase UAT (D-11 — comment × route × share × 4 kinds + add-to-stack/isolate-solo/aggregate-toggle/expiry-auto-remove), `/gsd-verify-phase 13`, `/gsd-secure-phase 13`.
 
 **Research flag**: SKIP — comment widening and routing are incremental; the Map Stack unification has a written design SPEC (`.planning/design/map-stack-entity-layers-SPEC.md`) and every touchpoint has an in-repo analog (13-PATTERNS.md).
 **UI hint**: yes
