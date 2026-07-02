@@ -56,7 +56,7 @@ Requirements for the v1.2 milestone. Full v2 / clean-break scope: spec + all eve
 ### Cross-cutting (XCUT)
 
 - [ ] **XCUT-01**: The comment system accepts every new kind as a comment root (NIP-22 `K`/`k` widening) so Story, Group, Beacon, and Sighting are all commentable.
-- [ ] **XCUT-02**: Each new entity type is addressable by the router so it can be opened, deep-linked, and shared, replacing the old single-context route shape.
+- [x] **XCUT-02**: Each new entity type is addressable by the router so it can be opened, deep-linked, and shared, replacing the old single-context route shape.
 
 ## v2 Requirements
 
@@ -134,7 +134,7 @@ Populated during roadmap creation. Phase numbering continues from v1.1 (which en
 | BEACON-03 | Phase 12 | Complete |
 | BEACON-04 | Phase 12 | Complete |
 | XCUT-01 | Phase 13 | Minimal slice DONE for Story (10-03: CommentsPanel/useGeoComments target unions accept Article + ARTICLE_KIND→'story' share path, bf1112e); full NIP-22 K/k root-kind widening (Group/Beacon/Sighting) stays Phase 13 |
-| XCUT-02 | Phase 13 | Pending |
+| XCUT-02 | Phase 13 | Complete |
 
 **Coverage:**
 

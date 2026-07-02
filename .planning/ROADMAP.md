@@ -223,7 +223,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Wave 2** *(blocked on Wave 1 — consumes the BeaconViewPanel focusCommentId prop Plan 01 adds)*
 
-  - [ ] 13-02-PLAN.md — XCUT-02 routing generalization: collapse the 5 per-kind parsers into one SHARE_ROUTES dispatcher (URL shapes byte-for-byte, D-09) + close the beacon commentId deep-link gap (D-10) [XCUT-02, D-08/D-09/D-10]
+  - [x] 13-02-PLAN.md — XCUT-02 routing generalization: collapse the 5 per-kind parsers into one SHARE_ROUTES dispatcher (URL shapes byte-for-byte, D-09) + close the beacon commentId deep-link gap (D-10) [XCUT-02, D-08/D-09/D-10]
 
 **Wave 3** *(blocked on Wave 2 — shares GeoEditorView; deep-link-solo intersects the dispatcher)*
 
@@ -255,4 +255,4 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 10. Story / Article (~37520) | v1.2 | 4/4 | Complete    | 2026-06-27 |
 | 11. Temporal Sighting | v1.2 | 4/4 | Complete    | 2026-06-28 |
 | 12. Live Beacon (~37521) | v1.2 | 5/5 | Complete    | 2026-07-02 |
-| 13. Cross-Cutting | v1.2 | 0/4 | Planned | - |
+| 13. Cross-Cutting | v1.2 | 2/4 | In Progress|  |
