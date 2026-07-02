@@ -20,6 +20,7 @@ import {
 	ARTICLE_KIND,
 	GEO_COMMENT_KIND,
 	GEO_EVENT_KIND,
+	LIVE_BEACON_KIND,
 	MAP_CONTEXT_KIND,
 	TEMPORAL_SIGHTING_KIND,
 } from '@/lib/nostr/kinds'
@@ -44,7 +45,9 @@ interface GeoSocialActionsProps {
 	loadCounts?: boolean
 }
 
-function getEntitySharePath(kind: number): 'geoevent' | 'context' | 'story' | 'sighting' | null {
+function getEntitySharePath(
+	kind: number,
+): 'geoevent' | 'context' | 'story' | 'sighting' | 'beacon' | null {
 	switch (kind) {
 		case GEO_EVENT_KIND:
 			return 'geoevent'
@@ -54,6 +57,8 @@ function getEntitySharePath(kind: number): 'geoevent' | 'context' | 'story' | 's
 			return 'story'
 		case TEMPORAL_SIGHTING_KIND:
 			return 'sighting'
+		case LIVE_BEACON_KIND:
+			return 'beacon'
 		default:
 			return null
 	}
