@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
-status: executing
-stopped_at: Phase 13 Plan 04 (Map Stack UI — add-to-stack, aggregate toggles, cold-start, expiry) complete
-last_updated: "2026-07-02T14:05:00.000Z"
-last_activity: 2026-07-02 -- Phase 13 Plan 04 (Map Stack UI + lifecycle) complete — all 4 plans executed
+status: verifying
+stopped_at: Phase 13 Plan 04 (Map Stack UI + lifecycle) complete — all 4 Phase-13 plans executed
+last_updated: "2026-07-02T14:22:09.662Z"
+last_activity: 2026-07-02
 progress:
   total_phases: 6
-  completed_phases: 5
-  total_plans: 29
-  completed_plans: 29
-  percent: 90
+  completed_phases: 6
+  total_plans: 28
+  completed_plans: 28
+  percent: 100
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 ## Current Position
 
-Phase: 13 (cross-cutting) — EXECUTING (all 4 plans complete; awaiting verify + UAT + secure)
-Plan: 4 of 4 — COMPLETE
+Phase: 13
+Plan: Not started
 Status: Phase 13 body done — ready for end-of-phase UAT (D-11 4-kind matrix + new stack behaviors), /gsd-verify-phase 13, /gsd-secure-phase 13
-Last activity: 2026-07-02 -- Phase 13 Plan 04 (Map Stack UI + lifecycle) complete
+Last activity: 2026-07-02
 
 Progress: [█████████░] 90% (v1.2 — 5/6 phases; Phase 13 execution done)
 
@@ -61,7 +61,7 @@ Phase numbering continues from v1.1 (ended at Phase 07). Dependency spine: Found
 | 10 | 4 | - | - |
 | 11 | 4 | - | - |
 | 12 | 5 | - | - |
-| 13 | TBD | - | - |
+| 13 | 4 | - | - |
 | 08 | 5 | - | - |
 
 *Updated after each plan completion*

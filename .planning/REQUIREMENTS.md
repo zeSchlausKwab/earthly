@@ -55,7 +55,7 @@ Requirements for the v1.2 milestone. Full v2 / clean-break scope: spec + all eve
 
 ### Cross-cutting (XCUT)
 
-- [ ] **XCUT-01**: The comment system accepts every new kind as a comment root (NIP-22 `K`/`k` widening) so Story, Group, Beacon, and Sighting are all commentable.
+- [x] **XCUT-01**: The comment system accepts every new kind as a comment root (NIP-22 `K`/`k` widening) so Story, Group, Beacon, and Sighting are all commentable.
 - [x] **XCUT-02**: Each new entity type is addressable by the router so it can be opened, deep-linked, and shared, replacing the old single-context route shape.
 
 ## v2 Requirements

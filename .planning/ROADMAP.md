@@ -33,7 +33,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 - [x] **Phase 10: Story / Article (~37520)** — Curate-pull Markdown narrative, inline geo-ref render (eye-toggle/fly-to), naddr→`a` mirroring, draft + in-place edit, comment/react/propose-edit (completed 2026-06-27)
 - [x] **Phase 11: Temporal Sighting** — Time-bound placed observation (NIP-52 `start`/`end`), optional NIP-40 auto-fade, `c`-attach to Group, comment/react (completed 2026-06-28)
 - [x] **Phase 12: Live Beacon (~37521)** — Real-time updating position point, NIP-40 time-box + explicit stop, honest staleness, public/share-link viewing, live-map render (5/5 plans; secured threats_open:0; UAT 4/4 PASS; CR-01/CR-02 GPS-leak privacy fix + beacon share/inspect/map + Follow toggle + WR-03 stale-seed all landed; 758 tests, build, biome green) (completed 2026-07-02)
-- [ ] **Phase 13: Cross-Cutting** — Comment `K`/`k` root-scope widening + entity routing/addressing across all four new kinds
+- [x] **Phase 13: Cross-Cutting** — Comment `K`/`k` root-scope widening + entity routing/addressing across all four new kinds (completed 2026-07-02)
 
 ## Phase Details
 
@@ -257,4 +257,4 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 10. Story / Article (~37520) | v1.2 | 4/4 | Complete    | 2026-06-27 |
 | 11. Temporal Sighting | v1.2 | 4/4 | Complete    | 2026-06-28 |
 | 12. Live Beacon (~37521) | v1.2 | 5/5 | Complete    | 2026-07-02 |
-| 13. Cross-Cutting | v1.2 | 3/4 | In Progress|  |
+| 13. Cross-Cutting | v1.2 | 4/4 | Complete    | 2026-07-02 |
