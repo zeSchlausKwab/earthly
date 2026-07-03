@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { deriveVisibleEntitiesFromStack } from './GeoEditorView'
+import { deriveVisibleEntitiesFromStack, shouldSweepStackEntry } from './GeoEditorView'
 import type { MapStackEntry, MapStackEntryType } from './store/types'
 
 // Phase 13 (SPEC §3.2): the stack-derived render gate for sightings/beacons.
@@ -133,5 +133,84 @@ describe('deriveVisibleEntitiesFromStack — Phase 13 render gate (SPEC §3.2)',
 	test('individual pin with no matching subscription entity → dropped', () => {
 		const result = derive(subscription, [entry('sighting', 'zzz')])
 		expect(result).toEqual([])
+	})
+})
+
+// Plan 13-06 (UAT test 5b — kill the add-to-stack phantom). An out-of-discovery
+// entity (own/link-only/faded-from-live beacon) is ABSENT from the discovery
+// `subscriptionSet` but present in the WIDENED `individualLookupSet` (the Task-1
+// added-entity cache unioned on top of discovery ∪ routed). It must render via its
+// INDIVIDUAL pin, yet must NEVER leak into the aggregate `*-layer` (privacy:
+// T-13-06-01 / T-13-03-GPSREGRESS — the aggregate seeds ONLY from subscriptionSet).
+describe('deriveVisibleEntitiesFromStack — out-of-discovery individual (13-06)', () => {
+	const a: Entity = { key: 'a' }
+	const b: Entity = { key: 'b' }
+	// `out` is the added out-of-discovery entity: NOT in the discovery subscription,
+	// only reachable via the widened individual-lookup superset.
+	const out: Entity = { key: 'out' }
+	const discovery = [a, b]
+	const widened = [a, b, out] // discovery ∪ cached-added
+
+	const deriveWide = (entries: MapStackEntry[]) => {
+		const { entries: map, order } = stack(entries)
+		return deriveVisibleEntitiesFromStack(
+			discovery, // subscriptionSet — discovery ONLY (aggregate seed)
+			map,
+			order,
+			'beacon',
+			'beacon-layer',
+			resolveKey,
+			widened, // individualLookupSet — discovery ∪ added
+		)
+	}
+
+	// (i) An individual entry whose key resolves ONLY from the widened superset IS
+	// returned in the union branch (the phantom is killed — it renders).
+	test('individual out-of-discovery pin resolves from the widened superset', () => {
+		const result = deriveWide([entry('beacon', 'out')])
+		expect(result).toEqual([out])
+	})
+
+	// The out-of-discovery entity also renders alongside a discovery individual.
+	test('out-of-discovery pin unions with a discovery individual pin', () => {
+		const result = deriveWide([entry('beacon', 'a'), entry('beacon', 'out')])
+		expect(result).toEqual([a, out])
+	})
+
+	// (ii) PRIVACY: with ONLY the aggregate `beacon-layer` visible and NO individual
+	// entry, the out-of-discovery entity is NOT returned — the aggregate seeds only
+	// from discovery (subscriptionSet), never from the widened superset.
+	test('aggregate layer alone does NOT surface the out-of-discovery entity (no leak)', () => {
+		const result = deriveWide([entry('beacon-layer', 'all')])
+		expect(result).toEqual([a, b])
+		expect(result.find((e) => e.key === 'out')).toBeUndefined()
+	})
+
+	// Isolation of the out-of-discovery entity resolves solo from the widened set.
+	test('isolated out-of-discovery pin renders solo', () => {
+		const result = deriveWide([
+			entry('beacon-layer', 'all'),
+			entry('beacon', 'out', { isolated: true }),
+		])
+		expect(result).toEqual([out])
+	})
+})
+
+// Plan 13-06 Task 2 — the sweep decision is a pure predicate. A user-added entry
+// that resolved (via the cache) and is NOT NIP-40 expired must be KEPT; only a
+// genuinely expired entity (or an aggregate-less unresolvable) is swept. STALE
+// (beaconState 120s) is NOT expiry and must not sweep.
+describe('shouldSweepStackEntry — sweep-honesty predicate (13-06 Task 2)', () => {
+	// resolved + not expired ⇒ keep (the out-of-discovery add survives).
+	test('resolved + not expired ⇒ keep (false)', () => {
+		expect(shouldSweepStackEntry({ resolved: true, expired: false })).toBe(false)
+	})
+	// resolved + expired ⇒ evict (D-02 honesty — a genuinely ended entity is removed).
+	test('resolved + expired ⇒ evict (true)', () => {
+		expect(shouldSweepStackEntry({ resolved: true, expired: true })).toBe(true)
+	})
+	// unresolvable (absent even from the widened cache) ⇒ evict (nothing to render).
+	test('unresolvable ⇒ evict (true)', () => {
+		expect(shouldSweepStackEntry({ resolved: false, expired: false })).toBe(true)
 	})
 })

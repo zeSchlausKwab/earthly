@@ -174,6 +174,22 @@ export function deriveVisibleEntitiesFromStack<T>(
 }
 
 /**
+ * Plan 13-06 (UAT test 5b): pure sweep decision for an individual sighting/beacon
+ * stack entry, extracted from the expiry-sweep effect so it is unit-testable.
+ *
+ * An entry is evicted when EITHER it cannot be resolved to any real entity (nothing
+ * to render — absent even from the widened added-entity cache), OR the resolved
+ * entity is genuinely NIP-40 `expired` (D-02 honesty — a truly-ended beacon/sighting
+ * never lingers as a stale marker). A user-added out-of-discovery entry that resolved
+ * via the added-entity cache and is NOT expired is KEPT — it stays pinned even though
+ * it faded from live-discovery. STALE (beaconState 120s) is NOT expiry and, because
+ * this predicate is driven ONLY by `expired`, cannot cause a sweep.
+ */
+export function shouldSweepStackEntry(status: { resolved: boolean; expired: boolean }): boolean {
+	return !status.resolved || status.expired
+}
+
+/**
  * Phase 13: pure naddr encoders for the stack-derived selectors' `resolveKey`.
  * Module-scope so `visibleSightingsFromStack`/`visibleBeaconsFromStack` (defined
  * high in the component) can resolve an entity's stack key without a temporal-
@@ -550,6 +566,20 @@ export function GeoEditorView() {
 		startNewDataset,
 	} = useDatasetManagement(map, geoEvents)
 
+	// Plan 13-06 (UAT test 5b — kill the add-to-stack phantom): a per-entry
+	// RESOLVED-ENTITY cache. `addBeaconToMapStack`/`addSightingToMapStack` deposit the
+	// actual resolved LiveBeacon/TemporalSighting at ADD TIME, keyed by the SAME
+	// entityKey the entry is pinned under. This keeps an explicitly-added
+	// out-of-discovery entity (own / link-only / faded-from-live) resolvable by BOTH
+	// the render gate and the expiry-sweep WITHOUT tagging it into `#t:['live']`
+	// discovery — so the individual pin renders while the aggregate layer stays
+	// discovery-only (T-13-06-01 / T-13-03-GPSREGRESS privacy invariant). `addedCacheTick`
+	// bumps on every deposit/prune so the selector memos re-derive against the fresh
+	// cache (refs alone don't trigger a re-render).
+	const addedBeaconCacheRef = useRef<Map<string, LiveBeacon>>(new Map())
+	const addedSightingCacheRef = useRef<Map<string, TemporalSighting>>(new Map())
+	const [addedCacheTick, setAddedCacheTick] = useState(0)
+
 	const addDatasetToMapStack = useCallback(
 		(event: GeoDataset, source: 'manual' | 'route' | 'browse-default' = 'manual') => {
 			const datasetKey = getDatasetKey(event)
@@ -577,9 +607,21 @@ export function GeoEditorView() {
 	// exactly the entity its naddr resolved to).
 	const addSightingToMapStack = useCallback(
 		(sighting: TemporalSighting, source: 'manual' | 'route' | 'browse-default' = 'manual') => {
+			// Toast-honesty (13-06 Task 2): only proceed if the sighting resolves to a
+			// real, keyable entity. `sighting` is already the resolved object the panel
+			// is displaying, so resolution "succeeds" when it has a stable entityKey.
+			const entityKey = encodeSightingNaddrPure(sighting) ?? sighting.dTag ?? sighting.id
+			if (!entityKey) {
+				if (source === 'manual') toast.error("Couldn't add this sighting to the map.")
+				return
+			}
+			// Deposit the resolved entity BEFORE adding the entry so the render gate +
+			// sweep can resolve an out-of-subscription sighting from the cache.
+			addedSightingCacheRef.current.set(entityKey, sighting)
+			setAddedCacheTick((t) => t + 1)
 			addMapStackEntry({
 				entityType: 'sighting',
-				entityKey: encodeSightingNaddrPure(sighting) ?? sighting.dTag ?? sighting.id,
+				entityKey,
 				title: sighting.sighting.title?.trim() || 'Sighting',
 				source,
 				visible: true,
@@ -597,9 +639,21 @@ export function GeoEditorView() {
 	// shape as addSightingToMapStack; deep-link lands SOLO (isolated 'route').
 	const addBeaconToMapStack = useCallback(
 		(beacon: LiveBeacon, source: 'manual' | 'route' | 'browse-default' = 'manual') => {
+			// Toast-honesty (13-06 Task 2): only fire success when the beacon resolves to
+			// a real, keyable entity. An out-of-discovery beacon (own / link-only / faded
+			// from live) IS resolvable — it is the object the inspect panel is showing —
+			// so caching it under its entityKey lets the individual pin render without
+			// forcing it into discovery.
+			const entityKey = encodeBeaconNaddrPure(beacon) ?? beacon.dTag ?? beacon.id
+			if (!entityKey) {
+				if (source === 'manual') toast.error("Couldn't add this beacon to the map.")
+				return
+			}
+			addedBeaconCacheRef.current.set(entityKey, beacon)
+			setAddedCacheTick((t) => t + 1)
 			addMapStackEntry({
 				entityType: 'beacon',
-				entityKey: encodeBeaconNaddrPure(beacon) ?? beacon.dTag ?? beacon.id,
+				entityKey,
 				title: beacon.beacon.label?.trim() || 'Live location',
 				source,
 				visible: true,
@@ -1243,6 +1297,17 @@ export function GeoEditorView() {
 	// entityKey resolution mirrors the map render/de-dup key: naddr with a dTag/id
 	// fallback (the same key the deep-link handlers pin under, so an isolated route
 	// entry resolves to exactly its own entity — T-13-03-FORCEISO).
+	// Plan 13-06: individual sighting entries resolve against the discovery
+	// subscription UNION the explicitly-added cache, so an out-of-subscription
+	// sighting pinned via `addSightingToMapStack` still renders. `addedCacheTick`
+	// forces re-derivation when the cache mutates. The FIRST arg (subscriptionSet /
+	// aggregate seed) stays discovery-only — an added sighting never leaks into the
+	// aggregate `sighting-layer`.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: addedCacheTick intentionally gates the ref-cache read.
+	const sightingLookupSuperset = useMemo(() => {
+		const added = Array.from(addedSightingCacheRef.current.values())
+		return added.length ? [...sightings, ...added] : sightings
+	}, [sightings, addedCacheTick])
 	const visibleSightingsFromStack = useMemo(
 		() =>
 			deriveVisibleEntitiesFromStack(
@@ -1252,8 +1317,9 @@ export function GeoEditorView() {
 				'sighting',
 				'sighting-layer',
 				(s) => encodeSightingNaddrPure(s) ?? s.dTag ?? s.id,
+				sightingLookupSuperset,
 			),
-		[sightings, mapStackEntries, mapStackOrder],
+		[sightings, mapStackEntries, mapStackOrder, sightingLookupSuperset],
 	)
 	// A /beacon/:naddr deep link may target a LINK-ONLY beacon, which is absent from
 	// the `#t:['live']` discovery surface (`beacons` above). Decode the routed naddr
@@ -1285,6 +1351,16 @@ export function GeoEditorView() {
 		() => (routedBeacons.length ? [...beacons, ...routedBeacons] : beacons),
 		[beacons, routedBeacons],
 	)
+	// Plan 13-06: widen the beacon individual-lookup to (discovery ∪ routed) ∪ the
+	// explicitly-added cache, so an own / link-only / faded-from-live beacon pinned via
+	// `addBeaconToMapStack` resolves for the render gate AND the sweep. The aggregate
+	// `beacon-layer` seed remains `beacons` (discovery only) inside the helper — a
+	// cached beacon NEVER reaches the aggregate branch (T-13-06-01 privacy invariant).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: addedCacheTick intentionally gates the ref-cache read.
+	const addedBeaconLookupSuperset = useMemo(() => {
+		const added = Array.from(addedBeaconCacheRef.current.values())
+		return added.length ? [...beaconLookupSuperset, ...added] : beaconLookupSuperset
+	}, [beaconLookupSuperset, addedCacheTick])
 	const visibleBeaconsFromStack = useMemo(
 		() =>
 			deriveVisibleEntitiesFromStack(
@@ -1294,9 +1370,9 @@ export function GeoEditorView() {
 				'beacon',
 				'beacon-layer',
 				(b) => encodeBeaconNaddrPure(b) ?? b.dTag ?? b.id,
-				beaconLookupSuperset,
+				addedBeaconLookupSuperset,
 			),
-		[beacons, mapStackEntries, mapStackOrder, beaconLookupSuperset],
+		[beacons, mapStackEntries, mapStackOrder, addedBeaconLookupSuperset],
 	)
 
 	// Phase 13 (D-02): pinned-entry expiry AUTO-REMOVE sweep (dropExpired parity).
@@ -1310,12 +1386,16 @@ export function GeoEditorView() {
 	// expiry ticks — 60s sightings / 15s beacons — so this re-evaluates as they change).
 	useEffect(() => {
 		const now = unixNow()
+		// Plan 13-06 (Task 2): build the sweep's per-kind lookup from the SAME widened
+		// (cache-inclusive) sets the render gate uses, so a user-added out-of-discovery
+		// entry resolves here and is judged on EXPIRY ALONE — not on discovery
+		// membership. A faded-from-live-but-not-expired entry is therefore KEPT.
 		const sightingByKey = new Map<string, TemporalSighting>()
-		for (const s of sightings) {
+		for (const s of sightingLookupSuperset) {
 			sightingByKey.set(encodeSightingNaddrPure(s) ?? s.dTag ?? s.id, s)
 		}
 		const beaconByKey = new Map<string, LiveBeacon>()
-		for (const b of beaconLookupSuperset) {
+		for (const b of addedBeaconLookupSuperset) {
 			beaconByKey.set(encodeBeaconNaddrPure(b) ?? b.dTag ?? b.id, b)
 		}
 		for (const id of mapStackOrder) {
@@ -1323,14 +1403,37 @@ export function GeoEditorView() {
 			if (!entry) continue
 			if (entry.entityType === 'sighting') {
 				const resolved = sightingByKey.get(entry.entityKey)
-				// Gone from the dropExpired'd subscription OR independently expired ⇒ remove.
-				if (!resolved || isExpired(resolved.event, now)) removeMapStackEntry(id)
+				// Evict only when unresolvable (nothing to render) OR genuinely NIP-40
+				// expired (D-02 honesty). STALE is NOT expiry — it never triggers here.
+				if (
+					shouldSweepStackEntry({
+						resolved: !!resolved,
+						expired: !!resolved && isExpired(resolved.event, now),
+					})
+				) {
+					addedSightingCacheRef.current.delete(entry.entityKey)
+					removeMapStackEntry(id)
+				}
 			} else if (entry.entityType === 'beacon') {
 				const resolved = beaconByKey.get(entry.entityKey)
-				if (!resolved || isExpired(resolved.event, now)) removeMapStackEntry(id)
+				if (
+					shouldSweepStackEntry({
+						resolved: !!resolved,
+						expired: !!resolved && isExpired(resolved.event, now),
+					})
+				) {
+					addedBeaconCacheRef.current.delete(entry.entityKey)
+					removeMapStackEntry(id)
+				}
 			}
 		}
-	}, [sightings, beaconLookupSuperset, mapStackEntries, mapStackOrder, removeMapStackEntry])
+	}, [
+		sightingLookupSuperset,
+		addedBeaconLookupSuperset,
+		mapStackEntries,
+		mapStackOrder,
+		removeMapStackEntry,
+	])
 
 	// Round F.2: comment/annotation overlays follow the stack. A visible
 	// comment overlay stays only while its root entity is still anchored —
