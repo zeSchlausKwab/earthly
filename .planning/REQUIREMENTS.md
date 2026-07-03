@@ -111,7 +111,7 @@ Populated during roadmap creation. Phase numbering continues from v1.1 (which en
 | SPEC-04 | Phase 8 | Complete |
 | SPEC-05 | Phase 8 | Complete |
 | TAX-01 | Phase 8 | Complete |
-| GROUP-01 | Phase 9 | In progress (09-02: factory/cast/governance contract GREEN; 09-04: GroupEditorPanel governance-ladder create/edit authoring surface + GroupFactory write path landed, build green; live publish/edit confirmation deferred to end-of-phase UAT) |
+| GROUP-01 | Phase 9 | Complete (09-02 factory/cast/governance contract GREEN; 09-04 GroupEditorPanel governance-ladder authoring + GroupFactory write path; live publish/edit + d-tag lineage CONFIRMED by 09-UAT.md test 1 "Group authoring flow" result:pass, browser-agent UAT 2026-06-26) |
 | GROUP-02 | Phase 9 | Complete (09-05: GroupAttachField picker writes the `c` tag via .contextReferences at all 4 publish entrypoints; foreign-lane discovery filter GREEN in 09-03) |
 | GROUP-03 | Phase 9 | Complete (09-04: schemaBuilder.ts compileBuilderSchema → draft-2020-12 + GroupEditorPanel visual builder/advanced-JSON authoring, both feed the Phase-8 off-thread worker; schemaBuilder.test GREEN) |
 | GROUP-04 | Phase 9 | Complete (09-05: legacy blocking required-context gate REMOVED; off-thread per-rule amber warnings + always-enabled "Publish anyway" in GroupAttachField; warnNotBlock 3/0; live human-verify deferred to end-of-phase UAT) |
@@ -133,7 +133,7 @@ Populated during roadmap creation. Phase numbering continues from v1.1 (which en
 | BEACON-02 | Phase 12 | Complete |
 | BEACON-03 | Phase 12 | Complete |
 | BEACON-04 | Phase 12 | Complete |
-| XCUT-01 | Phase 13 | Comment-root widening DONE 13-01 (LiveBeacon in useGeoComments unions + CommentsPanel mount, last kind wired; 0953c40/8e56443). 13-03 shipped the Map Stack structural core (sightings/beacons stack-gated & renderable). 13-04 shipped the Map Stack UI + lifecycle (add-to-stack affordances, top-pinned aggregate toggles, cold-start defaults, D-02 expiry auto-remove; c8d6df4/77071df) — SIGHT-02 group-lane-rendering angle now observable. All code work COMPLETE; stays OPEN pending the D-11 4-kind comment×route×share + new-stack-behaviors matrix UAT (verifier). |
+| XCUT-01 | Phase 13 | Complete (13-01 comment-root widening — LiveBeacon in useGeoComments unions + CommentsPanel mount, last kind wired; 13-03/04 Map Stack core+UI/lifecycle. D-11 4-kind comment×route×share + new-stack-behaviors matrix CONFIRMED by 13-UAT.md 9/9 pass, human UAT re-run 2026-07-03; integration checker verified all 5 ViewPanels mount CommentsPanel with no per-kind allowlist) |
 | XCUT-02 | Phase 13 | Complete |
 
 **Coverage:**
