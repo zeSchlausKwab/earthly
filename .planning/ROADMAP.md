@@ -235,7 +235,7 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
 **Gap-closure (post-UAT, 2026-07-03):**
   - [x] 13-05-PLAN.md — WR-01 finally fixed: route beacon Copy-share-link through the canonical clean `/beacon/:naddr` path (drop the legacy doubled-prefix `/#/beacons/beacon/:naddr`) + suppress the onboarding tour auto-start on a shared/deep-linked landing (new `isDeepLinkLanding()` in useRouting.ts, mount-captured in TourManager) [XCUT-02] ✓ 2026-07-03 (2 commits 5d25434/1bc2acf; beacons/beacon + /#/ grep 0/0, dispatch 12/12, geo-editor+tour 24/0, build+biome green; closes UAT tests 2+3 — pending UAT re-run)
-  - [ ] 13-06-PLAN.md — add-to-stack phantom-entry fix (pending execution)
+  - [x] 13-06-PLAN.md — add-to-stack phantom-entry fix: per-entry resolved-entity cache (addedBeacon/SightingCacheRef) keeps an explicitly-added out-of-discovery beacon/sighting resolvable by the render gate + sweep WITHOUT tagging it into `#t:['live']` discovery; sweep evicts only on genuine NIP-40 expiry (not faded-from-live); add-toast gated on resolution [XCUT-02] ✓ 2026-07-03 (1 commit 69581ef; stackLayers.test 9→16 incl no-aggregate-leak + shouldSweepStackEntry predicate; useMapLayers.ts diff empty; build+biome green; full suite 775/2+1 = same pre-existing storyProposal flake; closes UAT test 5b — pending UAT re-run)
   - [ ] 13-07-PLAN.md — stale-runtime retest checkpoint (pending execution; pauses for human)
 
 **Phase 13 execution COMPLETE (4/4 plans).** Remaining: end-of-phase UAT (D-11 — comment × route × share × 4 kinds + add-to-stack/isolate-solo/aggregate-toggle/expiry-auto-remove), `/gsd-verify-phase 13`, `/gsd-secure-phase 13`.
