@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
-status: executing
-stopped_at: Phase 13 Plan 04 (Map Stack UI + lifecycle) complete — all 4 Phase-13 plans executed
-last_updated: "2026-07-03T05:35:00.000Z"
-last_activity: 2026-07-03 -- Phase 13 gap-closure plan 13-06 executed (add-to-stack phantom-entry fix)
+status: verifying
+stopped_at: Phase 13 gap-closure COMPLETE (13-05/06/07 + 2 fix(13-uat) commits) — 13-UAT.md 9/9 pass
+last_updated: "2026-07-03T07:45:45Z"
+last_activity: 2026-07-03 -- Phase 13 gap-closure done; human UAT re-run all-pass; UAT cluster resolved
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 31
-  completed_plans: 28
-  percent: 83
+  completed_plans: 31
+  percent: 100
 ---
 
 # Project State
@@ -25,12 +25,16 @@ See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
 
 ## Current Position
 
-Phase: 13 (cross-cutting) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 13
-Last activity: 2026-07-03 -- Phase 13 execution started
+Phase: 13 (cross-cutting) — GAP-CLOSURE COMPLETE
+Plan: 3 of 3 (13-05/06/07 all done)
+Status: Phase 13 fully closed — gaps executed, human UAT re-run all-pass (9/9), 13-UAT.md resolved. Phase 13 was already auto-verified 3/3 + secured 15/15.
+Last activity: 2026-07-03 -- Phase 13 gap-closure complete; UAT all-pass
 
-Progress: [█████████░] 90% (v1.2 — 5/6 phases; Phase 13 execution done)
+Progress: [██████████] 100% (v1.2 — all 6 phases executed & phase-closed)
+
+## Milestone-close remaining (before /gsd-complete-milestone)
+- Phase 9 (Group) still has its OWN pending UAT + /gsd-verify-work 9 + /gsd-secure-phase 9 (see Phase 9 context memory) — the other open gate.
+- Optional advisory: /gsd-code-review 13 on the phase's source changes (never blocks).
 
 ## Roadmap (v1.2 — Phases 8–13)
 

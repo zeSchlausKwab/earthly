@@ -234,11 +234,12 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
   - [x] 13-04-PLAN.md — Map Stack unification UI: Add-to-map-stack on view panels + rails, aggregate layer entries top-pinned + toggleable, cold-start browse-default seeding, pinned-entry expiry auto-remove [XCUT-01/XCUT-02, D-02/D-05] ✓ 2026-07-02 (2 commits c8d6df4/77071df; pure bucket/order + label helpers, MapStackPanel.layerEntries.test 4/0; cold-start seeds both aggregate layers once-per-session/idempotent/Clear-aware; D-02 expiry sweep auto-removes expired/unresolvable pins; build+biome green on changed lines; full suite 775/2+1 = same pre-existing storyProposal flake, no regression; no extraMapBeacons reintroduced)
 
 **Gap-closure (post-UAT, 2026-07-03):**
+
   - [x] 13-05-PLAN.md — WR-01 finally fixed: route beacon Copy-share-link through the canonical clean `/beacon/:naddr` path (drop the legacy doubled-prefix `/#/beacons/beacon/:naddr`) + suppress the onboarding tour auto-start on a shared/deep-linked landing (new `isDeepLinkLanding()` in useRouting.ts, mount-captured in TourManager) [XCUT-02] ✓ 2026-07-03 (2 commits 5d25434/1bc2acf; beacons/beacon + /#/ grep 0/0, dispatch 12/12, geo-editor+tour 24/0, build+biome green; closes UAT tests 2+3 — pending UAT re-run)
   - [x] 13-06-PLAN.md — add-to-stack phantom-entry fix: per-entry resolved-entity cache (addedBeacon/SightingCacheRef) keeps an explicitly-added out-of-discovery beacon/sighting resolvable by the render gate + sweep WITHOUT tagging it into `#t:['live']` discovery; sweep evicts only on genuine NIP-40 expiry (not faded-from-live); add-toast gated on resolution [XCUT-02] ✓ 2026-07-03 (1 commit 69581ef; stackLayers.test 9→16 incl no-aggregate-leak + shouldSweepStackEntry predicate; useMapLayers.ts diff empty; build+biome green; full suite 775/2+1 = same pre-existing storyProposal flake; closes UAT test 5b — pending UAT re-run)
-  - [ ] 13-07-PLAN.md — stale-runtime retest checkpoint (pending execution; pauses for human)
+  - [x] 13-07-PLAN.md — stale-runtime retest checkpoint (human-verify): re-ran UAT 5/6/7/9 against a clean dev server. Tests 5/6/7 confirmed stale-HMR-runtime (not code defects); test 9 unblocked + passing. Surfaced + fixed two adjacent beacon findings — A: own beacon auto-adds to Map Stack on Start (new `'own'` source, no `#t:live` leak); B: `/beacon/:naddr` deep-link opens inspect (AppSidebar `viewBeacon` subject wiring, extracted pure helpers) [XCUT-01/XCUT-02] ✓ 2026-07-03 (3 commits ffaf12b/19a833d/fba9551; AppSidebar.inspectSubject.test 10/0, build+biome green, suite 775 + documented flakes; human UAT "all pass")
 
-**Phase 13 execution COMPLETE (4/4 plans).** Remaining: end-of-phase UAT (D-11 — comment × route × share × 4 kinds + add-to-stack/isolate-solo/aggregate-toggle/expiry-auto-remove), `/gsd-verify-phase 13`, `/gsd-secure-phase 13`.
+**Phase 13 gap-closure COMPLETE (7/7 plans; UAT 9/9 pass).** 13-UAT.md resolved. Phase 13 was already auto-verified 3/3 + secured 15/15; this UAT gap cluster was the only outstanding debt and is now closed.
 
 **Research flag**: SKIP — comment widening and routing are incremental; the Map Stack unification has a written design SPEC (`.planning/design/map-stack-entity-layers-SPEC.md`) and every touchpoint has an in-repo analog (13-PATTERNS.md).
 **UI hint**: yes
@@ -262,4 +263,4 @@ Phases execute in numeric order: 8 → 9 → 10 → 11 → 12 → 13
 | 10. Story / Article (~37520) | v1.2 | 4/4 | Complete    | 2026-06-27 |
 | 11. Temporal Sighting | v1.2 | 4/4 | Complete    | 2026-06-28 |
 | 12. Live Beacon (~37521) | v1.2 | 5/5 | Complete    | 2026-07-02 |
-| 13. Cross-Cutting | v1.2 | 4/4 | Complete    | 2026-07-02 |
+| 13. Cross-Cutting | v1.2 | 6/7 | In Progress|  |

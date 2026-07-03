@@ -1,14 +1,14 @@
 ---
-status: diagnosed
+status: resolved
 phase: 13-cross-cutting
 source: [13-01-SUMMARY.md, 13-02-SUMMARY.md, 13-03-SUMMARY.md, 13-04-SUMMARY.md]
 started: 2026-07-02T13:50:00Z
-updated: 2026-07-02T14:32:00Z
+updated: 2026-07-03T07:45:45Z
 ---
 
 ## Current Test
 
-[testing paused — 1 item blocked, 5 issues to diagnose]
+[complete — all 9 tests pass after gap plans 13-05/06/07 + two fix(13-uat) commits; re-run 2026-07-03 "all pass"]
 
 ## Tests
 
@@ -64,17 +64,19 @@ reason: "Cannot create a pinned individual stack entry to age out — the add-to
 ## Summary
 
 total: 9
-passed: 3
-issues: 5
+passed: 9
+issues: 0
 pending: 0
 skipped: 0
-blocked: 1
+blocked: 0
+
+resolution: "All 5 issues + 1 blocked closed. Tests 2/3 → 13-05 (canonical /beacon/:naddr share + tour-suppression) AND fix(13-uat) finding B (AppSidebar viewBeacon subject wiring — the second cause behind 'lands on list', hidden until the URL was fixed). Test 5b → 13-06 (out-of-discovery add-to-stack resolved-entity cache). Tests 5/6/7 → 13-07 clean dev-server restart (stale-HMR-runtime, not a code defect). Test 9 → unblocked by 5-fix + 13-06, verified auto-remove on expiry. Plus fix(13-uat) finding A (own beacon auto-adds to Map Stack on Start). Human UAT re-run 2026-07-03: all pass. Commits 5d25434/1bc2acf (13-05), 69581ef (13-06), ffaf12b/19a833d/fba9551 (13-uat)."
 
 ## Gaps
 
 <!-- YAML format for plan-phase --gaps consumption -->
 - truth: "Opening a beacon share link opens/focuses that specific beacon in inspect (no tour dialogs on a fresh deep-link land)"
-  status: failed
+  status: resolved
   reason: "User reported: share URL http://localhost:3000/#/beacons/beacon/naddr1qvzqqqyjjypzqjsfzm5z0fzlluvj3mfn7hyxr435wsmwstgapl0q7pv4qpypvmflqq25u5zsfdp9vmnj2e35ger9fcex572cv3m4yl2laun landed on the beacon LIST (sidebar view 'beacons'), not the beacon inspect panel; also got the intro/tour dialogs on fresh land. URL is doubled: /#/beacons/beacon/naddr — 'beacons' (sidebar view) prefixed before the 'beacon/naddr' share path, so the parser matches the isSidebarViewMode tail instead of SHARE_ROUTES.beacon."
   severity: major
   test: 2
@@ -83,7 +85,7 @@ blocked: 1
   missing: ["BeaconViewPanel.handleCopyShareLink must route through the canonical buildSharePath/getEntitySharePath pipeline (or emit the clean single-prefix `/beacon/${naddr}` path directly) instead of the hand-built `/#/beacons/beacon/${naddr}` string", "SEPARATE independent cause behind the same 'tour dialogs on fresh land' sub-symptom: TourManager auto-start (src/features/tour/TourManager.tsx:13-18, mounted unconditionally in src/App.tsx:15) fires 800ms after mount gated ONLY on !hasSeenTour (localStorage 'earthly-tour-seen'); it is route-blind and never checks for a deep-link/shared route. Add a deep-link suppression guard so startTour() is skipped when the initial URL is a shared/deep-linked route (e.g. parseLocation().focusType !== 'none', a contextNaddr, or a ?ms= param). Independent of the URL bug — fixing the share URL does NOT stop the tour."]
   debug_session: ".planning/debug/beacon-share-url-doubled-prefix.md (URL) + .planning/debug/tour-on-fresh-deeplink.md (tour)"
 - truth: "Opening a beacon comment deep-link opens the beacon and focuses that comment"
-  status: failed
+  status: resolved
   reason: "User reported: here im landing on the beacon list too — same doubled-prefix deep-link routing failure as Test 2 (/#/beacons/beacon/naddr/comment/:id resolves to the 'beacons' sidebar list rather than SHARE_ROUTES.beacon focus + focusCommentId)."
   severity: major
   test: 3
@@ -92,7 +94,7 @@ blocked: 1
   missing: ["Same fix as Test 2 — routing the beacon Copy-share-link through the canonical buildSharePath pipeline yields `/beacon/${naddr}/comment/${id}` for the comment case automatically (buildSharePath already emits the /comment/:id suffix for GEO_COMMENT_KIND targets)"]
   debug_session: ".planning/debug/beacon-share-url-doubled-prefix.md"
 - truth: "Beacon/Sighting view panels and rail rows expose an 'Add to map stack' button that adds a stack entry"
-  status: failed
+  status: resolved
   reason: "User reported: no such button. Screenshot shows the beacon rail row ('Untitled' LIVE) with only locate + inspect icons — no add-to-map-stack affordance. Map Stack panel empty despite the live beacon rendering on the map. View-panel button couldn't be checked because the deep-link routing bug (Test 2/3) lands on the beacon list, not the inspect panel. Likely an onAddToMapStack prop declared-but-not-forwarded through the AppSidebar/GeoEditorInfoPanel chain (the affordance is gated on the optional prop), OR the rail affordance not wired — same class of wiring gap Plan 04 found for beaconFocusCommentId."
   severity: major
   test: 5
@@ -102,7 +104,7 @@ blocked: 1
   debug_session: ".planning/debug/mapstack-ui-surface-absent.md"
   retest_after_restart: "Button now RENDERS (stale-runtime confirmed for the missing-button symptom). But a REAL add-action bug surfaced — see gap test:5b below."
 - truth: "Clicking 'Add to map stack' actually lands the entity on the stack AND renders it on the map (toast reflects reality)"
-  status: failed
+  status: resolved
   reason: "User reported (post-restart): add-to-map-stack on a STALE beacon (last seen 2m ago, 'Fades soon') shows success toast 'Added beacon to the map' but the beacon is nowhere — not on the map, and the Map Stack panel still reads '0/0 visible / No map stack entries'. Phantom entry."
   severity: major
   test: 5b
@@ -111,7 +113,7 @@ blocked: 1
   missing: ["A user-EXPLICITLY-added stack entry must remain resolvable + rendered even when the entity is outside live-discovery (no t:live) and not routed. Fix options: (a) inject the added beacon/sighting into the lookup superset (or a per-entry resolved-cache) at add time; and/or (b) open a targeted subscription for an added out-of-discovery beacon so it stays resolvable; and/or (c) do NOT sweep a not-yet-expired user-added entry merely because it left the live-discovery window (distinguish 'expired' from 'stale/faded-from-discovery'). Also stop the toast from claiming success if the entry cannot be rendered."]
   debug_session: ".planning/debug/add-to-stack-phantom-entry.md (partial — agent stalled on watchdog; root cause captured)"
 - truth: "MapStackPanel shows top-pinned aggregate 'Sightings'/'Live beacons' rows whose toggle adds/removes the whole layer"
-  status: failed
+  status: resolved
   reason: "User reported: no such button and no way to put a sighting to the mapstack. On /sightings the sightings render on the map and the list is populated, but the Map Stack panel is empty ('0/0 visible / No map stack entries') — the aggregate Sightings/Live beacons layer rows never appear, so there is nothing to toggle. CONTRADICTION for diagnosis: sightings/beacons still render on the map while the stack is empty — either the Plan-03 selectors are not actually gating render (useMapLayers still on the old always-on path) OR the aggregate entries exist in some state but MapStackPanel isn't rendering them. Whole Plan-04 Map Stack UI surface appears absent in the running app."
   severity: major
   test: 6
@@ -120,7 +122,7 @@ blocked: 1
   missing: ["Restart dev server + hard reload, re-run UAT 6."]
   debug_session: ".planning/debug/mapstack-ui-surface-absent.md"
 - truth: "Cold-start Browse seeds both aggregate layers (Sightings + Live beacons), visible by default"
-  status: failed
+  status: resolved
   reason: "User reported: no pass. A fresh Browse load does not seed the aggregate layer entries — Map Stack stays empty. Likely the SPEC §3.3 cold-start seeding effect (aggregateLayersSeededRef guard in GeoEditorView) never fires under the actual browse stance, or the seeded entries aren't reaching MapStackPanel. Same cluster as Test 5/6 (Plan-04 UI+lifecycle surface not active in the running app)."
   severity: major
   test: 7
