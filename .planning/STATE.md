@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Geo Entity Model Split
-status: verifying
-stopped_at: Phase 13 gap-closure COMPLETE (13-05/06/07 + 2 fix(13-uat) commits) — 13-UAT.md 9/9 pass
-last_updated: "2026-07-03T07:45:45Z"
-last_activity: 2026-07-03 -- Phase 13 gap-closure done; human UAT re-run all-pass; UAT cluster resolved
+status: Awaiting next milestone
+stopped_at: Phase 13 gap-closure plan 13-06 (add-to-stack phantom-entry fix) complete — closes UAT test 5b
+last_updated: "2026-07-03T08:32:43.237Z"
+last_activity: 2026-07-03 — Milestone v1.2 completed and archived
 progress:
   total_phases: 6
   completed_phases: 6
@@ -18,23 +18,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-23 after v1.1 milestone)
+See: .planning/PROJECT.md (updated 2026-07-03 after v1.2 milestone)
 
 **Core value:** The maintainer (and any user) can open the app for fun, not duty.
-**Current focus:** Phase 13 — cross-cutting
+**Current focus:** Planning next milestone — run `/gsd-new-milestone`
 
 ## Current Position
 
-Phase: 13 (cross-cutting) — GAP-CLOSURE COMPLETE
-Plan: 3 of 3 (13-05/06/07 all done)
-Status: Phase 13 fully closed — gaps executed, human UAT re-run all-pass (9/9), 13-UAT.md resolved. Phase 13 was already auto-verified 3/3 + secured 15/15.
-Last activity: 2026-07-03 -- Phase 13 gap-closure complete; UAT all-pass
-
-Progress: [██████████] 100% (v1.2 — all 6 phases executed & phase-closed)
-
-## Milestone-close remaining (before /gsd-complete-milestone)
-- Phase 9 (Group) still has its OWN pending UAT + /gsd-verify-work 9 + /gsd-secure-phase 9 (see Phase 9 context memory) — the other open gate.
-- Optional advisory: /gsd-code-review 13 on the phase's source changes (never blocks).
+Phase: Milestone v1.2 complete & archived
+Plan: —
+Status: Awaiting next milestone (run /gsd-new-milestone). v1.2 audit PASSED 30/30; ROADMAP + REQUIREMENTS archived to milestones/v1.2-*; REQUIREMENTS.md reset.
+Last activity: 2026-07-03 — Milestone v1.2 completed and archived
 
 ## Roadmap (v1.2 — Phases 8–13)
 
@@ -170,6 +164,18 @@ Items acknowledged and carried forward / out of scope.
 | Feature (v1.2) | External-source / sandbox-driven Beacon (BEACON-05), beacon trail (BEACON-06), encrypted beacons (BEACON-07) | Deferred to v2 | 2026-06-23 |
 | Feature (v1.2) | AI paste→Sighting ingest (SIGHT-05), geoprivacy obscuring (SIGHT-06) | Deferred to v2 | 2026-06-23 |
 
+### Acknowledged at v1.2 milestone close (2026-07-03)
+
+Open artifact-audit items acknowledged and deferred at v1.2 close (audit status: passed; 3 items, none v1.2 work-open):
+
+| Category | Item | Status |
+|----------|------|--------|
+| debug | sandbox-worker-file-url-dev | awaiting_human_verify (v1.1 carry-forward; fix landed + regression-tested) |
+| debug | sandbox-worker-oom-runaway | awaiting_human_verify (v1.1 carry-forward; fix landed + regression-tested) |
+| uat | Phase 11 — 11-UAT-BROWSER.md | unknown, 0 pending scenarios (Phase 11 UAT already 3/3; stub file) |
+
+Plus documented tech debt in .planning/milestones/v1.2-MILESTONE-AUDIT.md: XCUT-01 type-union hygiene (Group/LiveBeacon duck-typed, build green), CR-01 beacon Follow-button forwarding, full-suite bun test mock-leakage flake (passes in isolation), repo-wide biome/tsc baseline debt, Nyquist partials on Phases 10/11/12/13 (optional /gsd-validate-phase).
+
 ### Acknowledged at v1.1 milestone close (2026-06-23)
 
 Open artifact-audit items awaiting live in-browser human confirmation or design questions already resolved in code — bookkeeping-open, not work-open.
@@ -189,9 +195,4 @@ Resume file: none (13-06 done; next gap plan 13-07 stale-runtime retest still pe
 
 ## Operator Next Steps
 
-- Phase 10 (Story / Article ~37520) — ALL 4 plans (10-01..10-04) executed; the full Story surface (data layer → authoring → reading + nav spine → narrative edit-proposals) is in place. STORY-01..06 all GREEN. Full test suite 693/0; build green; biome clean.
-- The kind-37519 spec-discriminator open question is RESOLVED (pure content-type extension, no discriminator — SPEC.md §11.1/§17) and recorded in 10-04-SUMMARY + decisions above.
-- One deferred end-of-phase human-verify for Phase 10: a reader proposes an edit, the author reviews the diff and accepts → the Story updates in place (steps in 10-04-SUMMARY verification block). Plus the Plan 02/03 authoring/reading flows if not yet UAT'd.
-- Next: run the consolidated Phase-10 end-of-phase UAT, then /gsd-verify-phase 10 + /gsd-secure-phase 10. NOTE: Phase 9 still has its own pending UAT + /gsd-verify-work 9 + /gsd-secure-phase 9 (see Phase 9 memory).
-
-</content>
+- Start the next milestone with /gsd-new-milestone

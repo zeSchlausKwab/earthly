@@ -12,30 +12,21 @@ This project is the **overhaul** that comes after the applesauce migration: it u
 
 If we ship clean orchestration + classical utility but no AI demo, this project is still a success. If we ship a flashy AI demo on top of the current wonky foundation, this project failed.
 
-## Current Milestone: v1.2 Geo Entity Model Split
+## Last Shipped: v1.2 Geo Entity Model Split (2026-07-03)
 
-**Goal:** Un-bloat the kind-37518 "context" by splitting it into role-specific geo entity kinds — each with full create/edit/comment/react/attach authoring UI — so the schema expresses curated articles, community-attach groups, live position, and time-bound observations as distinct first-class entities instead of one overloaded discriminated union.
+**Shipped:** Un-bloated the kind-37518 "context" by splitting it into four role-specific geo entity kinds — **Story/Article (37520)**, **slimmed Group/Topic (37518)**, **Live Beacon (37521)**, **Temporal Sighting (37522)** — each a first-class entity with full create/edit/comment/react/attach authoring UI, over one shared Phase-8 foundation (kind constants, `tags.ts`, `modelVersion='earthly/2'` clean break + legacy skip, off-thread hardened schema-validation worker, NIP-40 expiry filter, NIP-32 `L`/`l` taxonomy). The schema now expresses curated articles, community-attach groups, live position, and time-bound observations as distinct entities instead of one overloaded discriminated union. All 30 v1.2 requirements delivered across 6 phases / 31 plans. Milestone audit PASSED (30/30 reqs · 5/5 cross-phase seams · 4/4 E2E flows). Full record: [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md), [`milestones/v1.2-MILESTONE-AUDIT.md`](milestones/v1.2-MILESTONE-AUDIT.md).
 
-**The defect being fixed:** kind 37518 varies along two orthogonal axes at once — *reference direction* (curate-pull vs attach-push) and *governance* (open→schema→closed). Splitting along reference direction (the axis that changes the create flow and default UI) is the clean cut; governance stays a policy object inside the attach-style Group.
+**Delivered (all ✓ — see Validated below):**
+- ✓ **Foundation (Phase 8)** — SPEC.md v2; the six shared seams every kind inherits (kind constants, `tags.ts`, `modelVersion` discriminator + legacy-37518 no-throw skip, NIP-40 `dropExpired`, NIP-32 `L`/`l` helper, off-thread `rejectUnsafeSchema`-gated schema worker); Factory+Cast scaffolds.
+- ✓ **Group / Topic (Phase 9)** — governance ladder (open · schema · closed), visual + raw-JSON schema authoring, warn-not-block `c`-attach lane, NO-MOD MINIMUM two-lane view (kind + signature + mute gate before paint).
+- ✓ **Story / Article (Phase 10)** — curate-pull Markdown narrative, inline geo-refs (eye-toggle/fly-to), body-derived `a` mirroring, draft + in-place edit, propose-edit via kind-37519.
+- ✓ **Temporal Sighting (Phase 11)** — geometry-on-content + turf bbox/g, live/upcoming/past classifier, per-read NIP-40 expiry, state-aware map marker.
+- ✓ **Live Beacon (Phase 12)** — no-pin-drop control panel, always-on "you are live" banner + Stop, throwaway-pubkey share link, honest staleness, public-vs-link-only discovery gating, live-map render (2 GPS-leak criticals caught + fixed).
+- ✓ **Cross-cutting (Phase 13)** — comment/react parity across all 5 kinds, one `SHARE_ROUTES` dispatcher (byte-for-byte URL parity + comment deep-links), Map Stack ↔ entity-layer unification (add-to-stack, aggregate layers, cold-start defaults, expiry auto-remove).
 
-**Target entity model (spec v2):**
-- **Dataset** (37515, unchanged) — geometry + properties atom.
-- **Story / Article** (new, ~37520) — pull/curate, **closed**: Markdown narrative with inline `naddr` references mirrored to `a`, comment/react/propose-edit (reuses kind 37519 proposals). The "Roman ruins in Austria" essay.
-- **Group / Topic** (37518, slimmed to one kind) — push/attach: datasets attach via `c`; governance **ladder open · schema · closed**; optional narrative + pinned "canonical" refs. Absorbs "best surfing beaches" (open) and "hiking trails" (schema-enforced: client validates `geometryConstraints` + JSON Schema on create, filters invalid on fetch).
-- **Live Beacon** (new, ~37521) — real-time, shareable/public updating position point.
-- **Temporal Sighting** (new) — NIP-52-flavored time-bound observation (the "soccer star spotted at hotel" case).
+**Next milestone:** not yet scoped — run `/gsd-new-milestone`. Likely candidates: the [[project_cordn_encrypted_geojson_agenda|cordn encrypted-GeoJSON]] agenda (key coordinator + encrypted entities — the real home for beacon/entity privacy), the geo-aware search rewrite (replace Bluge, which filled the VPS disk), or the carried-over v1.0 UX-orchestration debt (Pillar 1/2/3 below). Deferred v2 backlog: STORY-07, BEACON-05/06/07, SIGHT-05/06, MOD-01/02.
 
-**Cross-cutting taxonomy:** NIP-32 `L`/`l` (controlled, schema-enforceable) + `t` (freeform discovery) + `c` (entity-backed attach). Principled split removes the `t`/taxonomy overlap.
-
-**Foundation shipped (Phase 8, 2026-06-25):** All shared seams the four entity kinds depend on now exist and are verified (5/5 success criteria, 615 tests pass): the three new kind constants (37520/37521/37522) + slimmed 37518, the extracted shared `tags.ts` module (both shipped kinds migrated to consume it), the in-content `modelVersion` discriminator with no-throw legacy skip (SPEC-03), the NIP-40 `isExpired`/`dropExpired` filter (SPEC-05), the NIP-32 `L`/`l` taxonomy helper + starter vocab (TAX-01), the off-thread hardened Ajv schema-validation worker (SPEC-04: ReDoS/`$ref`/size-depth defenses, fail-closed, timeout-kill, compile-once cache), Factory+Cast scaffolds for all three new kinds (SPEC-02), and SPEC.md rewritten to v2 (SPEC-01). Six advisory code-review WARNINGs (sync-fallback watchdog gap, `$recursiveRef`, d-tag format, t/l disjointness, malformed-expiration fail-open) are carried to a `/gsd-secure-phase 8` pass. Next: Phase 9 (Group / Topic).
-
-**Scope decisions:**
-- **Full v2** — spec + all event classes + full authoring UI for every kind, in one milestone.
-- **Clean break** — existing 37518 data is seed/test only; redefine the kinds freely, no migration or back-compat.
-- **Deferred to a later milestone:** NIP-72 human moderation/approval + role lists (spam handled by web-of-trust + muting); Saved Map/Scene; Collection-as-list; compound routing; and the carried-over v1.0 UX-orchestration debt (Pillar 1/2/3 below).
-- **Open for phase-level research:** Beacon lifecycle (replaceable vs ephemeral) + visibility model; Sighting representation (dedicated kind vs property + NIP-40 expiry).
-
-## Last Shipped: v1.1 AI Chat — Data Ingest, Transform & Safe Authoring (2026-06-23)
+## Previously Shipped: v1.1 AI Chat — Data Ingest, Transform & Safe Authoring (2026-06-23)
 
 **Shipped:** Expanded the AI chat from a map-drawing assistant into a data-ingest-and-transformation workbench — upload and parse real-world files, run sandboxed code that drives the map programmatically, give the AI more authoring tools, and let it safely edit datasets it is explicitly bound to — broadening Earthly's audience to analysts, curators, and power users. All 29 v1.1 requirements delivered across 7 phases / 33 plans. Full record: [`milestones/v1.1-ROADMAP.md`](milestones/v1.1-ROADMAP.md), [`MILESTONES.md`](MILESTONES.md).
 
@@ -68,8 +59,13 @@ If we ship clean orchestration + classical utility but no AI demo, this project 
 - ✓ Kind 37515 — publish, edit, load GeoJSON datasets — existing
 - ✓ Kind 37516 — collections of datasets — existing
 - ✓ Kind 37517 — threaded comments on datasets — existing
-- ✓ Kind 37518 — map context events (read-side) — existing
-- ✓ Kind 37519 — edit proposal machinery — existing
+- ✓ Kind 37518 — Group / Topic (slimmed to one kind; governance ladder open·schema·closed, `c`-attach, NO-MOD MINIMUM) — v1.2
+- ✓ Kind 37519 — edit proposal machinery (generalized to Markdown/Story targets) — existing + v1.2 (STORY-06)
+- ✓ Kind 37520 — Story / Article (curate-pull Markdown narrative, inline geo-refs, propose-edit) — v1.2
+- ✓ Kind 37521 — Live Beacon (real-time position, throwaway-pubkey share, honest staleness, live-map render) — v1.2
+- ✓ Kind 37522 — Temporal Sighting (time-bound observation, geometry-on-content, NIP-40 auto-fade) — v1.2
+- ✓ Shared entity foundation — `tags.ts`, `modelVersion='earthly/2'` discriminator + legacy skip, off-thread hardened schema worker, NIP-40 `dropExpired`, NIP-32 `L`/`l` taxonomy — v1.2
+- ✓ Comment/react + route/share/Map-Stack parity across all entity kinds (XCUT-01/02) — v1.2
 - ✓ Factory + Cast pattern for all Nostr reads/writes — existing
 - ✓ Applesauce migration (EventStore + RelayPool + AccountManager) — existing
 
@@ -209,6 +205,11 @@ If we ship clean orchestration + classical utility but no AI demo, this project 
 | **v1.1 — Nostr-scrolls / WASM deferred** | NIP-5C authoring/persist/share builds on the code interpreter; sequence it after the sandbox lands. | ✓ Held — deferred to next milestone; sandbox now shipped so the prerequisite exists |
 | **v1.1 — Chat must be explicitly bound to its edit target, visibly** | The AI editing a dataset is destructive; the user must see what it is working on and add-vs-modify-vs-delete intent. Completes the carried-over binding-chip work. | ✓ Good — Phase 5: always-visible binding chip + add/modify/delete diff classification shipped |
 | **v1.1 — Single Authoring API is the only geometry-mutation seam** | One typed mutation seam (`createAuthoring`) for direct UI, chat tools, and sandboxed code; nothing reaches across into the Zustand store. Enables the safe-editing gate to have one choke point. | ✓ Good — Phase 2: INFRA-02 seam; A3 boundary scan enforces all four write verbs route through it from the AI trust boundary |
+| **v1.2 — Split 37518 along reference direction, not governance** | kind 37518 varied on two axes (curate-pull vs attach-push × open→schema→closed). Split on reference direction (the axis that changes the create flow/UI); governance stays a policy object inside the attach-style Group. | ✓ Good — Story (37520 pull) / Group (37518 push) cleanly separated; governance is a 3-card ladder inside Group |
+| **v1.2 — Shared foundation ships first, no per-kind copy-paste** | Phase 8 builds every shared seam (tags.ts, modelVersion, schema worker, dropExpired, L/l) before any entity phase; each kind delegates, never re-inlines. | ✓ Good — integration audit confirmed all 5 kinds delegate tag I/O + gate on modelVersion; no copy-paste; schema DoS guard un-bypassed |
+| **v1.2 — Clean break on legacy 37518, no migration** | `modelVersion='earthly/2'` absence/mismatch ⇒ legacy/inert/silently-skipped (SPEC-03); existing 37518 data is seed/test only. | ✓ Good — `is<Kind>` predicates drop legacy before cast; `group.test.ts` proves the filter is load-bearing (cast-without-filter throws) |
+| **v1.2 — Beacon privacy: link-only omits `t:live`/geo tags; client always filters** | Public beacons carry `t:live` + geo; link-only omit all three (unlisted, not private — honest caveat). Map Stack aggregate seeds discovery-only so a link-only/own beacon never leaks into public discovery. | ✓ Good — 2 GPS-leak criticals caught in review + fixed; `deriveVisibleEntitiesFromStack` aggregate branch seeds from discovery only (structural invariant, audited) |
+| **v1.2 — One SHARE_ROUTES dispatcher, byte-for-byte URL parity** | Collapse the 5 per-kind route parsers into one lookup table; preserve every URL shape exactly (dispatch test is the oracle). | ✓ Good — XCUT-02; UAT surfaced a beacon doubled-prefix bug (bespoke share builder bypassing the pipeline) + an AppSidebar subject-wiring gap, both fixed in gap-closure |
 
 ## Evolution
 
@@ -228,4 +229,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-02 — Phase 13 (Cross-Cutting) complete: all four v1.2 entity kinds are commentable (beacon comment parity closed XCUT-01), the 5 per-kind route parsers collapsed into one `SHARE_ROUTES` dispatcher with byte-for-byte URL parity + beacon comment deep-link + share path (XCUT-02, all 5 kinds open/deep-link/share), and the folded-in Map Stack ↔ entity-layer unification landed (sightings/beacons stack-gated, `66a155e` extraMapBeacons hack deleted, add-to-stack UI + aggregate layers + cold-start defaults + expiry auto-remove). 3/3 success criteria (one SC-2 share gap found + fixed inline, b6492c3); build+biome green, 775 tests pass. **All six v1.2 phases (8–13) now complete** — milestone ready for `/gsd-secure-phase 13` + `/gsd-verify-work 13` UAT, then `/gsd-complete-milestone`. Non-blocking residuals open: CR-01 (beacon Follow-toggle prop forwarding) + WR-01..05 from 13-REVIEW.md. Previously: 2026-06-25 — Phase 8 (Spec v2 + Foundation) complete: all six shared seams the four entity kinds depend on ship verified (kind constants, shared `tags.ts`, `modelVersion` discriminator + legacy skip, off-thread hardened schema worker, NIP-40 expiry filter, NIP-32 `L`/`l` taxonomy helper) with SPEC.md rewritten to v2; 5/5 success criteria, 615 tests pass, 6 advisory WARNINGs deferred to secure-phase. Earlier: 2026-06-23 — started milestone v1.2 Geo Entity Model Split (split bloated kind-37518 into Story/Article, slimmed Group, Live Beacon, Temporal Sighting; NIP-32 `L`/`l` taxonomy; schema-only group governance; clean break on 37518 data; full authoring UI; NIP-72 moderation + WoT/mute deferred). v1.1 AI Chat archived in `.planning/milestones/v1.1-*`.*
+*Last updated: 2026-07-03 — **v1.2 Geo Entity Model Split SHIPPED & ARCHIVED.** Milestone audit PASSED (30/30 requirements · 6/6 phases verified + secured · 5/5 cross-phase seams · 4/4 E2E flows). The overloaded kind-37518 is cleanly split into Story (37520) / slimmed Group (37518) / Live Beacon (37521) / Temporal Sighting (37522), each a first-class commentable/routable/shareable entity over one shared Phase-8 foundation; comment/route/share/Map-Stack parity across all kinds; NO-MOD MINIMUM + schema DoS guard + beacon privacy invariant intact. Phase 13 gap-closure closed the UAT cluster 9/9 (beacon share-link, deep-link inspect, own-beacon auto-add). Archived to `milestones/v1.2-*`; REQUIREMENTS.md reset for the next milestone. Accepted tech debt (audit): XCUT-01 type-union hygiene, CR-01 beacon Follow-button forwarding, full-suite `bun test` mock-leakage flake (passes in isolation), repo-wide biome/tsc baseline, Nyquist partials on Phases 10/11/12/13. Next: `/gsd-new-milestone`. Previously: 2026-06-23 — v1.1 AI Chat shipped (archived `milestones/v1.1-*`).*
