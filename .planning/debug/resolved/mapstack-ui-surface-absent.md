@@ -1,5 +1,7 @@
 ---
-status: investigating
+status: resolved
+resolved: 2026-07-03T07:45:45Z
+resolved_note: "Resolved by 13-07 — confirmed stale HMR bundle (not a code defect); clean restart, UAT 5/6/7 pass 2026-07-03."
 trigger: "Phase 13 UAT Tests 5/6/7 — the entire Plan-04 Map Stack ↔ entity-layer unification UI surface appears absent in the running app; contradiction: sightings/beacons still render while Map Stack shows '0/0 visible / No map stack entries'"
 created: 2026-07-02T14:30:00Z
 updated: 2026-07-02T14:30:00Z

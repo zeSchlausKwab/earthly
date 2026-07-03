@@ -1,5 +1,7 @@
 ---
-status: investigating
+status: resolved
+resolved: 2026-07-03T07:45:45Z
+resolved_note: "Resolved by 13-06 (69581ef) — per-entry resolved-entity cache; UAT test 5b pass 2026-07-03."
 trigger: "Phase 13 UAT Test 5b — Add to map stack for a STALE beacon shows success toast but the beacon never renders and the Map Stack panel stays 0/0 (phantom entry). find_root_cause_only."
 created: 2026-07-02
 updated: 2026-07-02

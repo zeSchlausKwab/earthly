@@ -1,5 +1,7 @@
 ---
-status: diagnosed
+status: resolved
+resolved: 2026-07-03T07:45:45Z
+resolved_note: "Resolved by 13-05 (5d25434) — canonical /beacon/:naddr share path; UAT tests 2/3 pass 2026-07-03."
 trigger: "Phase 13 UAT Tests 2 & 3 — beacon 'Copy share link' produces a malformed URL /#/beacons/beacon/naddr... (doubled prefix). Opening it lands on the beacon LIST, not the beacon inspect panel. Beacon comment deep-links fail the same way. BEACON-ONLY — Story/Group/Sighting/geoevent/mapcontext share links all resolve correctly."
 created: 2026-07-02T14:30:00Z
 updated: 2026-07-02T14:45:00Z

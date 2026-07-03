@@ -1,5 +1,7 @@
 ---
-status: diagnosed
+status: resolved
+resolved: 2026-07-03T07:45:45Z
+resolved_note: "Resolved by 13-05 (1bc2acf) — deep-link-aware tour auto-start guard; UAT test 2 sub-symptom gone 2026-07-03."
 trigger: "Landing FRESH on a beacon deep-link URL (/#/beacons/beacon/naddr...) shows the intro/tour/onboarding dialogs instead of going straight to the shared entity. UAT Phase 13 Test 2."
 created: 2026-07-02T15:00:00Z
 updated: 2026-07-02T15:00:00Z
