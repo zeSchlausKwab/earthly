@@ -188,7 +188,15 @@ export function BeaconViewPanel({
 				pubkey: beacon.pubkey,
 				identifier: dTag,
 			})
-			const url = `${window.location.origin}/#/beacons/beacon/${naddr}`
+			// Canonical clean single-prefix share URL: `${origin}/beacon/${naddr}`,
+			// built exactly as GeoSocialActions.handleShare does (new URL(path,
+			// origin)). This 2-segment path matches SHARE_ROUTES.beacon
+			// (focusType:'beacon') so the recipient lands on the beacon inspect
+			// panel — instead of the legacy doubled-prefix hash form, which forced
+			// the sidebar-tail branch and opened the beacon LIST. Beacon comment
+			// sharing stays on the shared CommentsPanel / GeoSocialActions pipeline
+			// (already canonical via b6492c3).
+			const url = new URL(`/beacon/${naddr}`, window.location.origin).toString()
 			void navigator.clipboard?.writeText(url)
 			toast.success('Link copied — anyone with it can watch')
 		} catch {
