@@ -119,6 +119,60 @@ function isMetaMode(mode: SidebarContentMode): mode is MetaViewMode {
 	return (META_VIEW_MODES as SidebarContentMode[]).includes(mode)
 }
 
+/**
+ * Phase 13 (13-uat, finding B): the per-kind inspect-subject state the two
+ * show-panel effects read. Extracted as pure predicates so the beacon regression
+ * (beacon omitted from BOTH the catalog-override guard and the show-panel switch,
+ * which snapped a deep-linked /beacon/:naddr back to the LIST) is pinned by a test
+ * without a live React tree. All fields optional so callers pass their raw props.
+ */
+export interface InspectSubjectState {
+	viewContext?: unknown
+	viewDataset?: unknown
+	viewStory?: unknown
+	viewSighting?: unknown
+	viewBeacon?: unknown
+	contextEditorMode?: 'none' | 'create' | 'edit'
+	storyEditorMode?: 'none' | 'create' | 'edit'
+	sightingEditorMode?: 'none' | 'create' | 'edit'
+	beaconControlMode?: 'none' | 'create' | 'adjust'
+}
+
+/** True when ANY kind has an active inspect/edit subject — beacon INCLUDED. */
+export function hasActiveInspectSubject(s: InspectSubjectState): boolean {
+	return (
+		Boolean(s.viewContext) ||
+		Boolean(s.viewDataset) ||
+		Boolean(s.viewStory) ||
+		Boolean(s.viewSighting) ||
+		Boolean(s.viewBeacon) ||
+		(s.contextEditorMode !== undefined && s.contextEditorMode !== 'none') ||
+		(s.storyEditorMode !== undefined && s.storyEditorMode !== 'none') ||
+		(s.sightingEditorMode !== undefined && s.sightingEditorMode !== 'none') ||
+		(s.beaconControlMode !== undefined && s.beaconControlMode !== 'none')
+	)
+}
+
+/**
+ * The active entity a subject resolves to for the full inspect panel, or null for
+ * the catalog list. Beacon is checked FIRST — mirroring currentSurface /
+ * returnToCurrentSurface, which resolve beacon before the other kinds.
+ */
+export function resolveActiveInspectEntity(
+	s: InspectSubjectState,
+): 'beacon' | 'sighting' | 'story' | 'context' | 'geometry' | null {
+	if ((s.beaconControlMode !== undefined && s.beaconControlMode !== 'none') || s.viewBeacon)
+		return 'beacon'
+	if ((s.sightingEditorMode !== undefined && s.sightingEditorMode !== 'none') || s.viewSighting)
+		return 'sighting'
+	if ((s.storyEditorMode !== undefined && s.storyEditorMode !== 'none') || s.viewStory)
+		return 'story'
+	if ((s.contextEditorMode !== undefined && s.contextEditorMode !== 'none') || s.viewContext)
+		return 'context'
+	if (s.viewDataset) return 'geometry'
+	return null
+}
+
 interface AppSidebarProps {
 	geoEvents: GeoDataset[]
 	mapContextEvents: MapContext[]
@@ -414,14 +468,17 @@ export function AppSidebar({
 		// route (a work mode), and on the delayed route update this used to win
 		// and snap back to the list. Browsing a catalog explicitly clears the
 		// subject (handleSelectWorkMode), so the guard still lets you browse.
-		const hasInspectSubject =
-			Boolean(viewContext) ||
-			Boolean(viewDataset) ||
-			Boolean(viewStory) ||
-			Boolean(viewSighting) ||
-			contextEditorMode !== 'none' ||
-			storyEditorMode !== 'none' ||
-			sightingEditorMode !== 'none'
+		const hasInspectSubject = hasActiveInspectSubject({
+			viewContext,
+			viewDataset,
+			viewStory,
+			viewSighting,
+			viewBeacon,
+			contextEditorMode,
+			storyEditorMode,
+			sightingEditorMode,
+			beaconControlMode,
+		})
 		if (
 			!splitWithEditor &&
 			!hasInspectSubject &&
@@ -439,32 +496,29 @@ export function AppSidebar({
 		storyEditorMode,
 		sightingEditorMode,
 		viewSighting,
+		viewBeacon,
+		beaconControlMode,
 	])
 
 	useEffect(() => {
-		if (sightingEditorMode !== 'none' || viewSighting) {
-			setActiveEntity('sighting')
-			if (!splitWithEditor) {
-				setShowEntityAsFullPanel(true)
-			}
-			return
-		}
-		if (storyEditorMode !== 'none' || viewStory) {
-			setActiveEntity('story')
-			if (!splitWithEditor) {
-				setShowEntityAsFullPanel(true)
-			}
-			return
-		}
-		if (contextEditorMode !== 'none' || viewContext) {
-			setActiveEntity('context')
-			if (!splitWithEditor) {
-				setShowEntityAsFullPanel(true)
-			}
-			return
-		}
-		if (viewDataset) {
-			setActiveEntity('geometry')
+		// Phase 13 (13-uat, finding B): resolve the active inspect entity via the pure
+		// predicate — beacon is checked FIRST (mirrors currentSurface). A deep-linked or
+		// inspected beacon (viewBeacon) or the Share-live-location control
+		// (beaconControlMode) now opens the full inspect/control panel instead of
+		// snapping back to the beacons LIST.
+		const activeEntity = resolveActiveInspectEntity({
+			viewContext,
+			viewDataset,
+			viewStory,
+			viewSighting,
+			viewBeacon,
+			contextEditorMode,
+			storyEditorMode,
+			sightingEditorMode,
+			beaconControlMode,
+		})
+		if (activeEntity) {
+			setActiveEntity(activeEntity)
 			if (!splitWithEditor) {
 				setShowEntityAsFullPanel(true)
 			}
@@ -473,10 +527,12 @@ export function AppSidebar({
 		contextEditorMode,
 		storyEditorMode,
 		sightingEditorMode,
+		beaconControlMode,
 		splitWithEditor,
 		viewContext,
 		viewStory,
 		viewSighting,
+		viewBeacon,
 		viewDataset,
 	])
 
