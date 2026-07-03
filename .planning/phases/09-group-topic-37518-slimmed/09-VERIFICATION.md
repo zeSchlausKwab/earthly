@@ -1,8 +1,10 @@
 ---
 phase: 09-group-topic-37518-slimmed
 verified: 2026-06-25T14:00:00Z
-status: human_needed
-score: 4/5 must-haves verified (SC-1 requires live-browser UAT for GROUP-01)
+status: passed
+human_verification_resolved_by: 09-UAT.md (3/3 pass, browser-agent UAT 2026-06-26 — all 3 human_verification scenarios below run against live relay + seed data; real bugs found + fixed during it)
+human_verification_resolved_at: 2026-07-03T07:45:45Z
+score: 5/5 must-haves verified (SC-1 GROUP-01 confirmed via 09-UAT.md live-browser UAT)
 overrides_applied: 0
 human_verification:
   - test: "Group authoring flow (GROUP-01): create a Group with name, description, and each governance card in turn; confirm the UI-SPEC copy appears, the accent ring on the selected card is the only accent, and only the Schema card shows the schema section."
@@ -20,9 +22,9 @@ human_verification:
 
 **Phase Goal:** A user can run an attach-push Group with an explicit governance ladder (open · schema · closed) where datasets/sightings self-attach via `c`, schema-governed Groups validate contributions off-thread without blocking valid standalone publishes, and an open Group is usable and trustworthy with no human moderator — the NO-MOD MINIMUM and the schema DoS guard both ship here, never after.
 
-**Verified:** 2026-06-25T14:00:00Z
-**Status:** human_needed
-**Re-verification:** No — initial verification
+**Verified:** 2026-06-25T14:00:00Z (automated) · human items closed 2026-06-26 via 09-UAT.md (3/3 pass)
+**Status:** passed
+**Re-verification:** Status reconciled 2026-07-03 — the 3 `human_verification` scenarios were run and PASSED in 09-UAT.md (browser-agent UAT against live relay + seed, 2026-06-26); this file's `human_needed` flag was stale.
 
 ---
 
