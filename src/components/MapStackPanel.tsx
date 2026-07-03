@@ -67,6 +67,7 @@ const sourceLabel: Record<MapStackEntry['source'], string> = {
 	proposal: 'proposal',
 	workspace: 'workspace',
 	'browse-default': 'suggested',
+	own: 'you',
 }
 
 /**

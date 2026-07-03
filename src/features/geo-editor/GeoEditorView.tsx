@@ -638,7 +638,7 @@ export function GeoEditorView() {
 	// Phase 13 (SPEC §3.4): put an individual Live Beacon on the Map Stack. Same
 	// shape as addSightingToMapStack; deep-link lands SOLO (isolated 'route').
 	const addBeaconToMapStack = useCallback(
-		(beacon: LiveBeacon, source: 'manual' | 'route' | 'browse-default' = 'manual') => {
+		(beacon: LiveBeacon, source: 'manual' | 'route' | 'browse-default' | 'own' = 'manual') => {
 			// Toast-honesty (13-06 Task 2): only fire success when the beacon resolves to
 			// a real, keyable entity. An out-of-discovery beacon (own / link-only / faded
 			// from live) IS resolvable — it is the object the inspect panel is showing —
@@ -2252,6 +2252,30 @@ export function GeoEditorView() {
 		if (!ownLiveBeacon?.expiresAt) return null
 		return formatExpiryCountdown(ownLiveBeacon.expiresAt, Math.floor(Date.now() / 1000))
 	}, [ownLiveBeacon])
+
+	// Phase 13 (13-uat, finding A): AUTO-ADD the sharer's OWN live beacon to the Map
+	// Stack the first time it appears, so the creator never has to click "Add to map
+	// stack" after Start. A link-only own beacon has no `#t:live`, so without this it
+	// isn't a stack entry and doesn't render (visibleBeaconsFromStack resolves only
+	// discovery ∪ explicit stack entries). We route through addBeaconToMapStack (NOT a
+	// raw addMapStackEntry) so the resolved beacon is deposited into addedBeaconCacheRef
+	// — that's what lets a link-only own beacon render WITHOUT leaking it into `#t:live`
+	// discovery (preserving the T-13-06-01 / T-13-03-GPSREGRESS privacy invariant).
+	// Source 'own' is non-toasting (the user didn't click) and non-isolating (doesn't
+	// suppress other entries). Keyed once per beacon identity via the stable `d` tag
+	// (preserved across 30s heartbeats), so this fires ONCE per session, not per fix.
+	const autoAddedOwnBeaconKeyRef = useRef<string | null>(null)
+	useEffect(() => {
+		if (!ownLiveBeacon) {
+			// Stop / expiry: reset so a later new beacon session re-adds.
+			autoAddedOwnBeaconKeyRef.current = null
+			return
+		}
+		const key = encodeBeaconNaddrPure(ownLiveBeacon) ?? ownLiveBeacon.dTag ?? ownLiveBeacon.id
+		if (!key || autoAddedOwnBeaconKeyRef.current === key) return
+		autoAddedOwnBeaconKeyRef.current = key
+		addBeaconToMapStack(ownLiveBeacon, 'own')
+	}, [ownLiveBeacon, addBeaconToMapStack])
 
 	// Handle initial route on page load (direct URL navigation)
 	const focusHandledRef = useRef<string | null>(null)

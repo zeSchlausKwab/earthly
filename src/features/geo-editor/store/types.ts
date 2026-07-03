@@ -103,6 +103,12 @@ export type MapStackEntrySource =
 	 * can avoid re-triggering after a clear and so future Clear UX can opt
 	 * to wipe only these. */
 	| 'browse-default'
+	/** Phase 13 (13-uat): the sharer's OWN live beacon, auto-added to the Map
+	 * Stack the moment it starts publishing so the creator doesn't have to click
+	 * "Add to map stack". Behaves like `manual` for rendering (individual pin via
+	 * addedBeaconCacheRef, discovery untouched — T-13-06-01 privacy invariant) but
+	 * is non-toasting and non-isolating (the user didn't click anything). */
+	| 'own'
 	/** Phase 10: a dataset referenced by the currently-viewed Story's narrative,
 	 * auto-stacked (visible) on open so the article's geometry shows on the map.
 	 * The inline ref eye-toggles read membership of these entries as their single
