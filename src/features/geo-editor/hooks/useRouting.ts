@@ -241,6 +241,30 @@ function parseLocation(): RouteState {
 }
 
 /**
+ * Is the CURRENT window location a shared / deep-linked entity route?
+ *
+ * Returns true when the initial URL either resolves (via the same
+ * pathname-then-hash fallback `parseLocation` uses) to an entity focus /
+ * context deep-link (`focusType !== 'none'` OR a truthy `contextNaddr`), OR
+ * carries a shared Map-Stack `?ms=` query param. Used by TourManager to skip
+ * the onboarding auto-start when a fresh recipient lands directly on a shared
+ * entity — the boolean is READ-ONLY (no transmit/log/persist) and the caller
+ * captures it once at mount so a later in-app navigation cannot retroactively
+ * suppress a legitimately-earned tour.
+ */
+export function isDeepLinkLanding(): boolean {
+	if (typeof window === 'undefined') return false
+
+	// (b) shared Map Stack link — a `?ms=` query param (GeoEditorView pattern).
+	if (new URLSearchParams(window.location.search).has('ms')) return true
+
+	// (a) entity/context deep-link — reuse parseLocation's pathname-then-hash
+	// fallback so a legacy `#/…` hash deep-link is detected too.
+	const route = parseLocation()
+	return route.focusType !== 'none' || !!route.contextNaddr
+}
+
+/**
  * Phase 1.2: one-time legacy redirect — upgrade a `#/…` hash route to the
  * equivalent clean path so the rest of the app (and crawlers) see the canonical
  * form. Preserves the map-stack query string.
