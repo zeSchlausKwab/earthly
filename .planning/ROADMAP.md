@@ -233,6 +233,11 @@ The dependency spine: **Foundation blocks everything** → **Group first** (refa
 
   - [x] 13-04-PLAN.md — Map Stack unification UI: Add-to-map-stack on view panels + rails, aggregate layer entries top-pinned + toggleable, cold-start browse-default seeding, pinned-entry expiry auto-remove [XCUT-01/XCUT-02, D-02/D-05] ✓ 2026-07-02 (2 commits c8d6df4/77071df; pure bucket/order + label helpers, MapStackPanel.layerEntries.test 4/0; cold-start seeds both aggregate layers once-per-session/idempotent/Clear-aware; D-02 expiry sweep auto-removes expired/unresolvable pins; build+biome green on changed lines; full suite 775/2+1 = same pre-existing storyProposal flake, no regression; no extraMapBeacons reintroduced)
 
+**Gap-closure (post-UAT, 2026-07-03):**
+  - [x] 13-05-PLAN.md — WR-01 finally fixed: route beacon Copy-share-link through the canonical clean `/beacon/:naddr` path (drop the legacy doubled-prefix `/#/beacons/beacon/:naddr`) + suppress the onboarding tour auto-start on a shared/deep-linked landing (new `isDeepLinkLanding()` in useRouting.ts, mount-captured in TourManager) [XCUT-02] ✓ 2026-07-03 (2 commits 5d25434/1bc2acf; beacons/beacon + /#/ grep 0/0, dispatch 12/12, geo-editor+tour 24/0, build+biome green; closes UAT tests 2+3 — pending UAT re-run)
+  - [ ] 13-06-PLAN.md — add-to-stack phantom-entry fix (pending execution)
+  - [ ] 13-07-PLAN.md — stale-runtime retest checkpoint (pending execution; pauses for human)
+
 **Phase 13 execution COMPLETE (4/4 plans).** Remaining: end-of-phase UAT (D-11 — comment × route × share × 4 kinds + add-to-stack/isolate-solo/aggregate-toggle/expiry-auto-remove), `/gsd-verify-phase 13`, `/gsd-secure-phase 13`.
 
 **Research flag**: SKIP — comment widening and routing are incremental; the Map Stack unification has a written design SPEC (`.planning/design/map-stack-entity-layers-SPEC.md`) and every touchpoint has an in-repo analog (13-PATTERNS.md).
