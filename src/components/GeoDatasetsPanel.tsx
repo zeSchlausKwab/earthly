@@ -1,4 +1,4 @@
-import { Eye } from 'lucide-react'
+import { Eye, EyeOff, Globe } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
@@ -10,6 +10,8 @@ import {
 import { orderContextsForDisplay } from '@/lib/context/displayOrdering'
 import { cn } from '@/lib/utils'
 import { useEditorStore } from '@/features/geo-editor/store'
+import { DatasetGlyphIcon } from './entity-action-icons'
+import { EntityListTable, ListPanel } from './entity-list'
 import { useFilterState, useSortedFilteredItems, type FilterConfig } from './data-filter'
 import {
 	createContextColumns,
@@ -23,7 +25,6 @@ import {
 	type DatasetRowData,
 } from './datasets-columns'
 import { Button } from './ui/button'
-import { DataTable } from './ui/data-table'
 
 export interface GeoDatasetsPanelProps {
 	mode: 'datasets' | 'contexts'
@@ -396,91 +397,99 @@ export function GeoDatasetsPanelContent({
 		[contextColumnsContext],
 	)
 
-	return (
-		<div className="space-y-3">
-			<div className="flex items-center justify-between gap-2">
-				<div>
-					{isFocused ? (
-						<div className="space-y-1">
-							<p className="text-xs text-primary">Focused map view</p>
-							<p className="text-[11px] text-primary">
-								Only the focused dataset is currently visible on the map. Visibility checkboxes
-								below control map visibility only, and “Show all” restores the normal map view.
-							</p>
-						</div>
-					) : (
-						<p className="text-xs text-muted-foreground">
-							{mode === 'datasets'
-								? 'Remote GeoJSON datasets available to load.'
-								: 'Taxonomy and validation contexts.'}
-						</p>
-					)}
-				</div>
-				<div className="flex items-center gap-1">
-					{/* Round G.2 / U.5: All | Favorites | Recent tab strip — moved up
-					    onto the header row to save a row. Favorites and recents are
-					    per-user (scoped localStorage) and apply on top of the filter
-					    toolbar below. */}
-					<div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-muted p-0.5">
-						{(
-							[
-								{ key: 'all', label: 'All' },
-								{ key: 'favorites', label: 'Favorites' },
-								{ key: 'recent', label: 'Recent' },
-							] as const
-						).map((tab) => (
-							<button
-								key={tab.key}
-								type="button"
-								onClick={() => setCatalogTab(tab.key)}
-								className={cn(
-									'rounded-md px-2 py-1 text-xs font-medium transition-colors',
-									catalogTab === tab.key
-										? 'bg-background text-foreground shadow-sm'
-										: 'text-muted-foreground hover:text-foreground',
-								)}
-							>
-								{tab.label}
-							</button>
-						))}
-					</div>
-					{isFocused && onExitFocus ? (
-						<Button
-							size="sm"
-							variant="outline"
-							onClick={onExitFocus}
-							className="text-xs"
-							title="Restore normal map visibility for all datasets"
-						>
-							<Eye className="mr-1 h-3.5 w-3.5" />
-							Show all
-						</Button>
-					) : null}
-					{mode === 'contexts' && onCreateContext ? (
-						<Button size="sm" variant="outline" onClick={onCreateContext} className="text-xs">
-							New context
-						</Button>
-					) : null}
-				</div>
+	const isDatasets = mode === 'datasets'
+	const activeResult = isDatasets ? datasetResult : contextResult
+	const shownCount = isDatasets ? displayedDatasetRows.length : displayedContextRows.length
+
+	// The All | Favorites | Recent strip + (datasets-only) show/hide-all eye. Both
+	// per-user and applied on top of the search toolbar below.
+	const headerExtra = (
+		<div className="flex items-center gap-1">
+			<div className="inline-flex items-center gap-0.5 rounded-[3px] border border-border bg-muted p-0.5">
+				{(
+					[
+						{ key: 'all', label: 'All' },
+						{ key: 'favorites', label: 'Favorites' },
+						{ key: 'recent', label: 'Recent' },
+					] as const
+				).map((tab) => (
+					<button
+						key={tab.key}
+						type="button"
+						onClick={() => setCatalogTab(tab.key)}
+						className={cn(
+							'rounded-[2px] px-2 py-0.5 text-[11px] font-medium transition-colors',
+							catalogTab === tab.key
+								? 'bg-background text-foreground shadow-sm'
+								: 'text-muted-foreground hover:text-foreground',
+						)}
+					>
+						{tab.label}
+					</button>
+				))}
 			</div>
+			<div className="ml-auto flex items-center gap-1">
+				{isDatasets ? (
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-sm"
+						className={cn(
+							'h-6 w-6 rounded-[2px]',
+							allVisibleState !== 'none' ? 'text-info hover:text-info' : 'text-muted-foreground',
+						)}
+						onClick={() => onToggleAllVisibility(allVisibleState !== 'all')}
+						aria-label={allVisibleState === 'all' ? 'Hide all datasets' : 'Show all datasets'}
+						title={allVisibleState === 'all' ? 'Hide all datasets' : 'Show all datasets'}
+					>
+						{allVisibleState !== 'none' ? (
+							<Eye className="h-4 w-4" />
+						) : (
+							<EyeOff className="h-4 w-4" />
+						)}
+					</Button>
+				) : null}
+				{isFocused && onExitFocus ? (
+					<Button
+						size="sm"
+						variant="outline"
+						onClick={onExitFocus}
+						className="h-6 text-[11px]"
+						title="Restore normal map visibility for all datasets"
+					>
+						<Eye className="mr-1 h-3.5 w-3.5" />
+						Show all
+					</Button>
+				) : null}
+			</div>
+		</div>
+	)
 
-			<EntitySearchToolbar
-				{...filterState}
-				totalCount={mode === 'datasets' ? datasetResult.totalCount : contextResult.totalCount}
-				filteredCount={
-					mode === 'datasets' ? datasetResult.filteredCount : contextResult.filteredCount
-				}
-				displayedCount={
-					mode === 'datasets' ? datasetResult.displayedCount : contextResult.displayedCount
-				}
-				hasMore={mode === 'datasets' ? datasetResult.hasMore : contextResult.hasMore}
-			/>
-
-			{mode === 'datasets' ? (
+	return (
+		<ListPanel
+			icon={isDatasets ? DatasetGlyphIcon : Globe}
+			title={isDatasets ? 'Datasets' : 'Contexts'}
+			count={activeResult.totalCount}
+			onNew={!isDatasets && onCreateContext ? onCreateContext : undefined}
+			newLabel="New context"
+			headerExtra={headerExtra}
+			toolbar={
+				<EntitySearchToolbar
+					{...filterState}
+					totalCount={activeResult.totalCount}
+					filteredCount={activeResult.filteredCount}
+					displayedCount={activeResult.displayedCount}
+					hasMore={activeResult.hasMore}
+				/>
+			}
+			footerLeft={`${shownCount} shown`}
+			footerRight={isFocused ? 'focused view' : undefined}
+		>
+			{isDatasets ? (
 				geoEvents.length === 0 ? (
-					<p className="text-xs text-muted-foreground">Listening for GeoJSON datasets…</p>
+					<p className="px-1 text-xs text-muted-foreground">Listening for GeoJSON datasets…</p>
 				) : displayedDatasetRows.length === 0 ? (
-					<p className="text-xs text-muted-foreground">
+					<p className="px-1 text-xs text-muted-foreground">
 						{catalogTab === 'favorites'
 							? 'No favorite datasets yet — tap the star on a row.'
 							: catalogTab === 'recent'
@@ -488,17 +497,16 @@ export function GeoDatasetsPanelContent({
 								: 'No datasets match your filters.'}
 					</p>
 				) : (
-					<DataTable
+					<EntityListTable
 						columns={datasetColumns}
 						data={displayedDatasetRows}
 						getRowId={(row) => row.datasetKey}
-						getRowClassName={(row) => (!row.isVisible ? 'opacity-60' : undefined)}
 					/>
 				)
 			) : mapContextEvents.length === 0 ? (
-				<p className="text-xs text-muted-foreground">Listening for map contexts…</p>
+				<p className="px-1 text-xs text-muted-foreground">Listening for map contexts…</p>
 			) : displayedContextRows.length === 0 ? (
-				<p className="text-xs text-muted-foreground">
+				<p className="px-1 text-xs text-muted-foreground">
 					{catalogTab === 'favorites'
 						? 'No favorite contexts yet — star one on a row.'
 						: catalogTab === 'recent'
@@ -506,13 +514,13 @@ export function GeoDatasetsPanelContent({
 							: 'No contexts match your filters.'}
 				</p>
 			) : (
-				<DataTable
+				<EntityListTable
 					columns={contextColumns}
 					data={displayedContextRows}
 					getRowId={(row) => row.context.contextId ?? row.context.dTag ?? row.context.id}
 				/>
 			)}
-		</div>
+		</ListPanel>
 	)
 }
 

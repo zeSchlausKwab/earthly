@@ -39,6 +39,7 @@ import {
 	type DatasetColumnsContext,
 	type DatasetRowData,
 } from './datasets-columns'
+import { EntityListTable } from './entity-list'
 import { Button } from './ui/button'
 import { DataTable } from './ui/data-table'
 import { UserProfile } from './user-profile/UserProfile'
@@ -630,11 +631,10 @@ export function UserProfilePanel({
 				) : filteredGeoEvents.length === 0 ? (
 					<p className="text-xs text-muted-foreground">No datasets match your filters.</p>
 				) : (
-					<DataTable
+					<EntityListTable
 						columns={datasetColumns}
 						data={datasetTableData}
 						getRowId={(row) => row.datasetKey}
-						getRowClassName={(row) => (!row.isVisible ? 'opacity-60' : undefined)}
 					/>
 				)
 			) : activeTab === 'contexts' ? (
@@ -643,7 +643,7 @@ export function UserProfilePanel({
 				) : filteredContexts.length === 0 ? (
 					<p className="text-xs text-muted-foreground">No contexts match your filters.</p>
 				) : (
-					<DataTable
+					<EntityListTable
 						columns={contextColumns}
 						data={contextTableData}
 						getRowId={(row) =>

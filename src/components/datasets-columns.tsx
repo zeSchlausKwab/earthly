@@ -1,9 +1,10 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { Eye, EyeOff, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
 import { memo } from 'react'
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
 import {
+	DatasetGlyphIcon,
 	DebugActionIcon,
 	FavoriteActionIcon,
 	InspectActionIcon,
@@ -11,12 +12,11 @@ import {
 	MapStackActionIcon,
 	ZoomActionIcon,
 } from './entity-action-icons'
-import { Button } from './ui/button'
+import { GlyphTile, ListRow, RowActionButton } from './entity-list'
 import { UserProfile } from './user-profile'
 import { useEditorStore } from '../features/geo-editor/store'
 import { GeoSocialActions } from '../features/social/comments/GeoSocialActions'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
-import { cn } from '@/lib/utils'
 
 export interface DatasetRowData {
 	event: GeoDataset
@@ -56,13 +56,6 @@ export interface DatasetColumnsContext {
 	deletingKey: string | null
 	allVisibleState: 'all' | 'none' | 'some'
 }
-
-// Shared resting style for entity row-action icons. Muted-but-present at rest
-// (so the cluster doesn't read as disabled) with a subtle rounded hover chip so
-// each icon clearly behaves like a button. Per-button hover tints
-// (emerald/amber/…) are layered on at the call site.
-const actionButtonClass =
-	'rounded-md px-2 text-xs text-muted-foreground shadow-none hover:bg-muted hover:text-info'
 
 /**
  * Round F.1: the load verb moved into the row's overflow menu; this indicator
@@ -125,35 +118,9 @@ export const createDatasetColumns = (
 ): ColumnDef<DatasetRowData>[] => [
 	{
 		accessorKey: 'datasetName',
-		header: () => {
-			const areAllVisible = context.allVisibleState === 'all'
-			const hasVisibleDatasets = context.allVisibleState !== 'none'
-			const label = areAllVisible ? 'Hide all datasets' : 'Show all datasets'
-
-			return (
-				<div className="flex items-center gap-2">
-					<span>Dataset</span>
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						className={cn(
-							actionButtonClass,
-							hasVisibleDatasets
-								? 'text-info hover:text-info'
-								: 'text-muted-foreground hover:text-info',
-						)}
-						onClick={() => context.onToggleAllVisibility(!areAllVisible)}
-						aria-label={label}
-						title={label}
-					>
-						{hasVisibleDatasets ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-					</Button>
-				</div>
-			)
-		},
 		cell: ({ row }) => {
-			const { event, datasetName } = row.original
+			const { event, datasetName, isActive, isInMapStack, isCatalogPinned, isVisible } =
+				row.original
 
 			const handleDragStart = (e: React.DragEvent<HTMLButtonElement>) => {
 				const datasetId = event.datasetId ?? event.dTag
@@ -184,30 +151,26 @@ export const createDatasetColumns = (
 			}
 
 			return (
-				<div className="min-w-0 whitespace-normal py-1 text-left">
-					<button
-						type="button"
-						className="block w-full cursor-grab text-left text-sm font-semibold leading-snug text-foreground transition-colors hover:text-info active:cursor-grabbing"
-						draggable
-						onDragStart={handleDragStart}
-						onClick={() => {
-							// Round C: stack = visibility. Clicking the dataset name shows it on
-							// the map (additive append). Zoom-to follows so the user lands on it.
-							if (!row.original.isInMapStack) {
-								context.onAddDatasetToMap?.(event)
-							}
-							context.onZoomToDataset(event)
-						}}
-						aria-label={
-							row.original.isInMapStack
-								? `Zoom to dataset ${datasetName}`
-								: `Show and zoom to dataset ${datasetName}`
-						}
-						title={row.original.isInMapStack ? 'Zoom to dataset' : 'Show on map and zoom'}
-					>
-						<span className="line-clamp-2 break-words">{datasetName}</span>
-					</button>
-					<div className="mt-1 min-w-0">
+				<ListRow
+					leading={<GlyphTile icon={DatasetGlyphIcon} />}
+					title={datasetName}
+					selected={isActive}
+					dimmed={!isVisible}
+					draggable
+					onDragStart={handleDragStart}
+					onTitleClick={() => {
+						// Round C: stack = visibility. Clicking the dataset name shows it on
+						// the map (additive append). Zoom-to follows so the user lands on it.
+						if (!isInMapStack) context.onAddDatasetToMap?.(event)
+						context.onZoomToDataset(event)
+					}}
+					titleAriaLabel={
+						isInMapStack
+							? `Zoom to dataset ${datasetName}`
+							: `Show and zoom to dataset ${datasetName}`
+					}
+					titleTitle={isInMapStack ? 'Zoom to dataset' : 'Show on map and zoom'}
+					meta={
 						<UserProfile
 							pubkey={event.pubkey}
 							mode="avatar-name"
@@ -215,8 +178,8 @@ export const createDatasetColumns = (
 							showNip05Badge={false}
 							interactive={false}
 						/>
-					</div>
-					<div className="mt-1 flex min-w-0 items-end justify-between gap-3">
+					}
+					engage={
 						<GeoSocialActions
 							target={event}
 							onReplyClick={() => context.onInspectDataset?.(event)}
@@ -226,114 +189,77 @@ export const createDatasetColumns = (
 							compact
 							className="-ml-2 shrink-0 gap-0"
 						/>
-						{/* U.2: actions inline (no overflow menu), in the canonical order
-						    map-stack → zoom → inspect → load → favorite → debug, using the
-						    shared action icons so every entity surface matches. */}
-						<div className="flex shrink-0 items-center gap-0.5">
+					}
+					actions={
+						<>
+							{/* Canonical order map-stack → zoom → inspect → load → favorite →
+							    debug, using the shared action icons so every entity matches. */}
 							{context.onAddDatasetToMap ? (
-								<Button
-									size="icon-sm"
-									variant="ghost"
-									className={cn(
-										actionButtonClass,
-										row.original.isInMapStack ? 'text-ok hover:text-ok' : 'hover:text-ok',
-									)}
+								<RowActionButton
+									icon={MapStackActionIcon}
+									label={isInMapStack ? 'Remove from map stack' : 'Add to map stack'}
+									hover="hover:text-ok"
+									active={isInMapStack}
+									activeClassName="text-ok hover:text-ok"
 									onClick={() => {
-										if (row.original.isInMapStack && context.onRemoveDatasetFromMap) {
+										if (isInMapStack && context.onRemoveDatasetFromMap) {
 											context.onRemoveDatasetFromMap(event)
 										} else {
 											context.onAddDatasetToMap?.(event)
 										}
 									}}
-									aria-label={
-										row.original.isInMapStack ? 'Remove from map stack' : 'Add to map stack'
-									}
-									title={row.original.isInMapStack ? 'Remove from map stack' : 'Add to map stack'}
-								>
-									<MapStackActionIcon className="h-4 w-4" />
-								</Button>
+								/>
 							) : null}
-							<Button
-								size="icon-sm"
-								variant="ghost"
-								className={cn(actionButtonClass, 'hover:text-info')}
+							<RowActionButton
+								icon={ZoomActionIcon}
+								label="Zoom to dataset"
 								onClick={() => context.onZoomToDataset(event)}
-								aria-label="Zoom to dataset"
-								title="Zoom to dataset"
-							>
-								<ZoomActionIcon className="h-4 w-4" />
-							</Button>
+							/>
 							{context.onInspectDataset ? (
-								<Button
-									size="icon-sm"
-									variant="ghost"
-									className={cn(actionButtonClass, 'hover:text-ok')}
+								<RowActionButton
+									icon={InspectActionIcon}
+									label="Inspect dataset"
+									hover="hover:text-ok"
 									onClick={() => context.onInspectDataset?.(event)}
-									aria-label="Inspect dataset"
-									title="Inspect dataset"
-								>
-									<InspectActionIcon className="h-4 w-4" />
-								</Button>
+								/>
 							) : null}
-							<Button
-								size="icon-sm"
-								variant="ghost"
+							<RowActionButton
+								icon={LoadEditorActionIcon}
+								label={isActive ? 'Loaded in editor' : 'Load into editor'}
+								hover="hover:text-ok"
 								disabled={context.isPublishing}
-								className={cn(actionButtonClass, 'hover:text-ok')}
 								onClick={() => context.onLoadDataset(event)}
-								aria-label={row.original.isActive ? 'Loaded in editor' : 'Load into editor'}
-								title={row.original.isActive ? 'Loaded in editor' : 'Load into editor'}
-							>
-								<LoadEditorActionIcon className="h-4 w-4" />
-							</Button>
+							/>
 							{context.onToggleCatalogPin ? (
-								<Button
-									size="icon-sm"
-									variant="ghost"
+								<RowActionButton
+									icon={FavoriteActionIcon}
+									label={
+										context.canFavorite === false
+											? 'Sign in to save favorites'
+											: isCatalogPinned
+												? 'Remove from favorites'
+												: 'Add to favorites'
+									}
+									hover="hover:text-primary"
+									active={Boolean(isCatalogPinned)}
+									activeClassName="text-primary hover:text-primary"
+									filled={Boolean(isCatalogPinned)}
 									disabled={context.canFavorite === false}
-									className={cn(
-										actionButtonClass,
-										row.original.isCatalogPinned
-											? 'text-primary hover:text-primary'
-											: 'hover:text-primary',
-									)}
 									onClick={() => context.onToggleCatalogPin?.(event)}
-									aria-label={
-										context.canFavorite === false
-											? 'Sign in to save favorites'
-											: row.original.isCatalogPinned
-												? 'Remove from favorites'
-												: 'Add to favorites'
-									}
-									title={
-										context.canFavorite === false
-											? 'Sign in to save favorites'
-											: row.original.isCatalogPinned
-												? 'Remove from favorites'
-												: 'Add to favorites'
-									}
-								>
-									<FavoriteActionIcon
-										className={cn('h-4 w-4', row.original.isCatalogPinned && 'fill-primary')}
-									/>
-								</Button>
+								/>
 							) : null}
 							{context.onOpenDebug ? (
-								<Button
-									size="icon-sm"
-									variant="ghost"
-									className={cn(actionButtonClass, 'hover:text-primary')}
+								<RowActionButton
+									icon={DebugActionIcon}
+									label="Debug event"
+									hover="hover:text-primary"
 									onClick={() => context.onOpenDebug?.(event)}
-									aria-label="Debug event"
-									title="Debug event"
-								>
-									<DebugActionIcon className="h-4 w-4" />
-								</Button>
+								/>
 							) : null}
 							<DatasetResolvingIndicator datasetKey={row.original.datasetKey} />
-						</div>
-					</div>
-				</div>
+						</>
+					}
+				/>
 			)
 		},
 	},
