@@ -63,6 +63,7 @@ import type { MapPopupPlacement } from './components/map-popup-positioning'
 import { UserLocationMarker } from './components/UserLocationMarker'
 import { GeoEditorMap as MapComponent } from './components/map'
 import { OsmResultsPanel } from './components/OsmResultsPanel'
+import { StudioStatusBar } from './components/StudioStatusBar'
 import { Toolbar } from './components/Toolbar'
 import type { EditorEvent, EditorFeature } from './core'
 import {
@@ -2498,6 +2499,10 @@ export function GeoEditorView() {
 		if (isMobile) return undefined
 		return {
 			'--sidebar-width': sidebarExpanded ? '32vw' : '25vw',
+			// DS Studio frame: keep the fixed sidebar between the docked top bar
+			// (toolbar) and the bottom status bar.
+			'--sidebar-inset-top': '52px',
+			'--sidebar-inset-bottom': '23px',
 		} as CSSProperties
 	}, [isMobile, sidebarExpanded])
 
@@ -2780,7 +2785,7 @@ export function GeoEditorView() {
 						</div>
 					)}
 
-					<div className="absolute top-2 left-2 right-2 z-10 pointer-events-none flex">
+					<div className="pointer-events-none absolute top-2 left-2 right-2 z-10 flex md:fixed md:top-0 md:left-0 md:right-0 md:z-30 md:px-2 md:pt-2">
 						<div className="w-full">
 							<Toolbar
 								datasetActions={{
@@ -3131,6 +3136,16 @@ export function GeoEditorView() {
 					<OsmResultsPanel onImport={handleOsmImport} onClose={clearOsmQuery} />
 				</div>
 			</SidebarInset>
+			{!isMobile && (
+				<div className="fixed bottom-0 left-0 right-0 z-30">
+					<StudioStatusBar
+						mapRef={map}
+						mapReady={mounted}
+						sightingsCount={sightings.length}
+						beaconsCount={beacons.length}
+					/>
+				</div>
+			)}
 			{!isMobile && desktopChatOpen && (
 				<AssistantSidebar
 					geoEvents={geoEvents}
