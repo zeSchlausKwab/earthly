@@ -1,6 +1,12 @@
 import { useActiveAccount } from 'applesauce-react/hooks'
 import {
+	Activity,
+	BookOpen,
+	Compass,
+	Database,
 	Download,
+	Eye,
+	Globe,
 	Hexagon,
 	Lock,
 	LockOpen,
@@ -8,14 +14,16 @@ import {
 	MapPinned,
 	MessageSquare,
 	MessageSquareOff,
-	MoreHorizontal,
 	MousePointer2,
 	PanelTopOpen,
+	Plus,
+	Radio,
 	Redo2,
 	Search,
 	Spline,
 	Trash2,
 	Undo2,
+	User,
 	Waypoints,
 } from 'lucide-react'
 import type { Geometry } from 'geojson'
@@ -32,6 +40,8 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
@@ -73,7 +83,8 @@ import { LocationInspectorPopup } from './components/LocationInspectorPopup'
 import { Magnifier } from './components/Magnifier'
 import { MapFeatureHoverOverlay } from './components/MapFeatureHoverOverlay'
 import { BrowseLandingPrompt } from './components/BrowseLandingPrompt'
-import { DETENT_VH, MobilePanel } from './components/MobilePanel'
+import { DETENT_VH, MobilePanel, type MobilePanelTab } from './components/MobilePanel'
+import { MobileToolMenu } from './components/MobileToolMenu'
 import { CommentAnnotationPopup } from './components/CommentAnnotationPopup'
 import type { CommentAnnotationPopupData } from './components/CommentAnnotationPopup'
 import type { MapPopupPlacement } from './components/map-popup-positioning'
@@ -277,6 +288,7 @@ export function GeoEditorView() {
 		magnifierMenuOpen,
 		magnifierButtonRef,
 		magnifierMenuRef,
+		toggleMagnifier,
 		handleMagnifierPointerDown,
 		handleMagnifierPointerUp,
 		clearMagnifierLongPress,
@@ -982,6 +994,7 @@ export function GeoEditorView() {
 		}
 	}, [geoEvents, addDatasetToMapStack])
 	const showBrowseLandingPrompt =
+		!isMobile &&
 		stance === 'browse' &&
 		stackUrlHydrated &&
 		!browseLandingDismissed &&
@@ -2321,6 +2334,64 @@ export function GeoEditorView() {
 		if (!followingBeaconKey || !followedBeaconCoords || !map.current) return
 		map.current.easeTo({ center: followedBeaconCoords, duration: 600 })
 	}, [followingBeaconKey, followedBeaconCoords])
+
+	// Mobile: when a non-dataset entity editor becomes ready for data entry, slide
+	// the sheet up to the 'edit' tab at Half so the form is visible (a dataset draft
+	// uses the author-stance effect → Map Stack instead). A Sighting create waits for
+	// the point to be dropped first (map-first placement) so the map stays usable
+	// while you place the pin; every other editor rises as soon as it opens. Fires
+	// only on the rising edge so a manual drag afterwards is respected.
+	const mobileEntityEditorReady =
+		contextEditorMode !== 'none' ||
+		storyEditorMode !== 'none' ||
+		beaconControlMode !== 'none' ||
+		viewSighting != null ||
+		viewBeacon != null ||
+		sightingEditorMode === 'edit' ||
+		(sightingEditorMode === 'create' && placedSightingGeometry != null)
+	const prevEntityEditorReadyRef = useRef(false)
+	useEffect(() => {
+		if (!isMobile) {
+			prevEntityEditorReadyRef.current = mobileEntityEditorReady
+			return
+		}
+		const wasReady = prevEntityEditorReadyRef.current
+		prevEntityEditorReadyRef.current = mobileEntityEditorReady
+		if (!wasReady && mobileEntityEditorReady) {
+			setMobilePanelTab('edit')
+			setMobilePanelSnap('half')
+		}
+	}, [isMobile, mobileEntityEditorReady, setMobilePanelTab, setMobilePanelSnap])
+
+	// Sighting pin-drop is map-first: when placement arms (create mode, no geometry
+	// yet), drop the sheet to peek so the whole map is reachable for dropping the
+	// pin. When the pin lands (armed → placed), lift the form to Half + the Editor
+	// tab. This is handled here (not via the generic rise-on-ready effect above)
+	// because placement completing may not be a rising edge of `mobileEntityEditorReady`
+	// if another entity editor was already open — so the placement transition must
+	// drive the rise directly. Fires only on the arm/land transitions.
+	const sightingPlacementActive = sightingEditorMode === 'create' && placedSightingGeometry == null
+	const prevSightingPlacementRef = useRef(false)
+	useEffect(() => {
+		if (!isMobile) {
+			prevSightingPlacementRef.current = sightingPlacementActive
+			return
+		}
+		const wasActive = prevSightingPlacementRef.current
+		prevSightingPlacementRef.current = sightingPlacementActive
+		if (!wasActive && sightingPlacementActive) {
+			setMobilePanelSnap('peek')
+		} else if (wasActive && !sightingPlacementActive && placedSightingGeometry != null) {
+			setMobilePanelTab('edit')
+			setMobilePanelSnap('half')
+		}
+	}, [
+		isMobile,
+		sightingPlacementActive,
+		placedSightingGeometry,
+		setMobilePanelTab,
+		setMobilePanelSnap,
+	])
 	// Auto-off on user pan (drag). Programmatic recenters use easeTo, not drag.
 	useEffect(() => {
 		const m = map.current
@@ -2634,6 +2705,13 @@ export function GeoEditorView() {
 			active: panLocked,
 		},
 		{
+			key: 'magnifier',
+			label: magnifierEnabled ? 'Hide magnifier' : 'Show magnifier',
+			icon: Search,
+			onClick: toggleMagnifier,
+			active: magnifierEnabled,
+		},
+		{
 			key: 'snap',
 			label: 'Toggle snapping',
 			icon: Waypoints,
@@ -2661,17 +2739,89 @@ export function GeoEditorView() {
 	const overflowVisibleCount = (() => {
 		if (!isMobile) return 0
 		const ITEM_W = 42 // 36px button + 6px gap
-		// Fixed strip content: px-2 padding + draw-tools group + Publish + a Finish
-		// button (when drawing) + inter-item gaps.
-		const fixed = 16 + 146 + 60 + 18 + (stripHasFinish ? 66 : 0)
+		// Fixed strip content: px-2 padding + draw-tools group + the always-present
+		// ••• menu + Publish + a Finish button (when drawing) + inter-item gaps.
+		const fixed = 16 + 146 + 42 + 60 + 18 + (stripHasFinish ? 66 : 0)
 		const available = viewportWidth - fixed
-		let count = Math.floor(available / ITEM_W)
-		// Reserve room for the ••• button when not everything fits.
-		if (count < mobileOverflowActions.length) count = Math.floor((available - ITEM_W) / ITEM_W)
+		const count = Math.floor(available / ITEM_W)
 		return Math.max(0, Math.min(mobileOverflowActions.length, count))
 	})()
+	// The strip shows as many quick-access shortcut icons as fit; the full command
+	// set always lives in the ••• MobileToolMenu regardless of what's extracted.
 	const stripOverflowActions = mobileOverflowActions.slice(0, overflowVisibleCount)
-	const menuOverflowActions = mobileOverflowActions.slice(overflowVisibleCount)
+
+	// Mobile browse-rail bundles — the self-subscribing entity lists rendered in the
+	// bottom sheet (§14a). Mirror the desktop AppSidebar prop objects, but bound to
+	// the raw GeoEditorView handlers (which surface the editor via the mobile 'edit'
+	// tab through ensureInfoPanelVisible).
+	const mobileSightingsPanelProps = {
+		currentUserPubkey,
+		onOpenSighting: handleInspectSighting,
+		onCreateSighting: handleCreateSighting,
+		onEditSighting: handleEditSighting,
+		onDeleteSighting: handleDeleteSighting,
+		onZoomToSighting: handleZoomToSighting,
+		onAddToMapStack: addSightingToMapStack,
+		deletingKey,
+		selectedKey: lastInspectedSightingKey ?? null,
+	}
+	const mobileBeaconsPanelProps = {
+		currentUserPubkey,
+		onShareLocation: handleShareLocation,
+		onOpenBeacon: handleInspectBeacon,
+		onWatchOnMap: handleZoomToBeacon,
+		onAddToMapStack: addBeaconToMapStack,
+		onStopBeacon: () => handleStopBeacon(),
+		onAdjustBeacon: handleAdjustBeacon,
+		selectedKey: lastInspectedBeaconKey ?? null,
+	}
+	const mobileStoriesPanelProps = {
+		currentUserPubkey,
+		onOpenStory: handleInspectStory,
+		onCreateStory: handleCreateStory,
+		onEditStory: handleEditStory,
+		onDeleteStory: handleDeleteStory,
+		deletingKey,
+	}
+
+	// §14a bottom dock: the top-level destinations that replace the tool strip on the
+	// browse/inspect stances. Each raises the sheet and swaps its tab; Create (a
+	// separate center button) enters the Author stance, which swaps the dock out for
+	// the tool strip.
+	const mobileDockItems: {
+		key: string
+		label: string
+		icon: typeof MapPin
+		tab: MobilePanelTab
+	}[] = [
+		{ key: 'map', label: 'Map', icon: MapPin, tab: 'sightings' },
+		{ key: 'explore', label: 'Explore', icon: Compass, tab: 'datasets' },
+		{ key: 'activity', label: 'Activity', icon: Activity, tab: 'beacons' },
+		{ key: 'you', label: 'You', icon: User, tab: 'profile' },
+	]
+	// Entity editors are mutually exclusive: close any open editor before starting a
+	// new one so a lingering editor (e.g. an unfinished Story) can't leak into the
+	// next entity's surface (incl. the dataset draft's Map Stack editor). Each
+	// create-handler resets its own state, so closing all-then-create is safe.
+	const startCreate = (create: () => void) => {
+		handleCloseStoryEditor()
+		handleCloseContextEditor()
+		handleCloseSightingEditor()
+		handleCloseBeaconControl()
+		create()
+	}
+	const handleDockSelect = (tab: MobilePanelTab) => {
+		// Re-tapping the active destination collapses back to peek (map owns the
+		// screen); otherwise swap the tab and rise to half. The sheet is always open
+		// on mobile, so we set the snap directly — calling setMobilePanelOpen(true)
+		// would force snap back to 'peek' and defeat the rise.
+		if (mobilePanelTab === tab && mobilePanelSnap !== 'peek') {
+			setMobilePanelSnap('peek')
+			return
+		}
+		setMobilePanelTab(tab)
+		setMobilePanelSnap('half')
+	}
 
 	return (
 		<StudioShell
@@ -2790,6 +2940,10 @@ export function GeoEditorView() {
 				}}
 				mapSource={mapSource}
 				onLocate={handleLocate}
+				// On mobile the bottom sheet + tool strip/dock occupy the lower edge,
+				// so the control stack lives top-right (clear of the sheet at every
+				// detent). Desktop keeps them bottom-right (thumb-free, above the status bar).
+				controlsPosition={isMobile ? 'top-right' : 'bottom-right'}
 				controlsChildren={
 					!isMobile ? (
 						<ControlGroup>
@@ -3059,6 +3213,10 @@ export function GeoEditorView() {
 					editingContext={editingContext}
 					onSaveContext={handleSaveContext}
 					onCloseContextEditor={handleCloseContextEditor}
+					storyEditorMode={storyEditorMode}
+					editingStory={editingStory}
+					onSaveStory={handleSaveStory}
+					onCloseStoryEditor={handleCloseStoryEditor}
 					onEditStory={handleEditStory}
 					onDeleteStory={handleDeleteStory}
 					onStoryUpdated={handleInspectStory}
@@ -3100,11 +3258,14 @@ export function GeoEditorView() {
 					onToggleProposalOverlay={handleToggleProposalOverlay}
 					onProposalAccepted={handleProposalAccepted}
 					visibleProposalIds={visibleProposalIds}
+					sightingsPanelProps={mobileSightingsPanelProps}
+					beaconsPanelProps={mobileBeaconsPanelProps}
+					storiesPanelProps={mobileStoriesPanelProps}
 				/>
 			)}
 			{/* Mobile tool strip (redesign §14a Row 0) — pinned at the very bottom;
 			    the sheet docks directly above it. Draw tools left, Publish right. */}
-			{isMobile && (
+			{isMobile && stance === 'author' && (
 				<div className="fixed inset-x-0 bottom-0 z-50 flex h-[52px] items-center gap-1.5 border-t border-border bg-[var(--surface-chrome)] px-2 md:hidden">
 					<div className="inline-flex shrink-0 overflow-hidden rounded-[2px] border border-border">
 						{(
@@ -3160,41 +3321,28 @@ export function GeoEditorView() {
 							</Button>
 						)
 					})}
-					{menuOverflowActions.length > 0 ? (
-						<DropdownMenu>
-							<DropdownMenuTrigger asChild>
-								<Button
-									variant="ghost"
-									size="icon-sm"
-									className="h-9 w-9 shrink-0 rounded-[2px]"
-									aria-label="More tools"
-									title="More tools"
-								>
-									<MoreHorizontal className="h-4 w-4" />
-								</Button>
-							</DropdownMenuTrigger>
-							<DropdownMenuContent side="top" align="start" className="w-52">
-								{menuOverflowActions.map((action) => {
-									const ActionIcon = action.icon
-									return (
-										<DropdownMenuItem
-											key={action.key}
-											onClick={action.onClick}
-											disabled={'disabled' in action ? action.disabled : false}
-											className={cn(
-												'danger' in action &&
-													action.danger &&
-													'text-destructive focus:text-destructive',
-											)}
-										>
-											<ActionIcon className="mr-2 h-4 w-4" />
-											{action.label}
-										</DropdownMenuItem>
-									)
-								})}
-							</DropdownMenuContent>
-						</DropdownMenu>
-					) : null}
+					{/* ••• — the full desktop authoring toolbar (Draw / Edit / Geometry
+					    ops / File / Publish) in one menu. Always present; the strip icons
+					    above are just responsive fast-access shortcuts. */}
+					<MobileToolMenu
+						panLocked={panLocked}
+						onTogglePanLock={togglePanLock}
+						magnifierEnabled={magnifierEnabled}
+						onToggleMagnifier={toggleMagnifier}
+						onExportGeoJSON={exportGeoJSON}
+						onExportSHP={exportSHP}
+						onImport={handleImport}
+						onClear={handleClear}
+						canExport={stats.total > 0}
+						canClear={stats.total > 0}
+						onPublishUpdate={handlePublishUpdate}
+						canPublishUpdate={canPublishUpdate}
+						onPublishCopy={handlePublishCopy}
+						canPublishCopy={canPublishCopy}
+						onOsmClick={handleOsmQueryClick}
+						onOsmView={handleOsmQueryView}
+						onOsmAdvanced={() => setImportOsmDialogOpen(true)}
+					/>
 					{currentMode === 'draw_linestring' || currentMode === 'draw_polygon' ? (
 						<Button
 							size="sm"
@@ -3215,6 +3363,92 @@ export function GeoEditorView() {
 						Publish
 					</Button>
 				</div>
+			)}
+			{/* Mobile bottom dock (§14a "switch top-level: Map · Explore · Create ·
+			    Activity · You"). Shown on the browse/inspect stances; entering the
+			    Author stance swaps it for the tool strip above. Create sits center as
+			    an amber square and starts a new dataset (⇒ Author). */}
+			{isMobile && stance !== 'author' && (
+				<nav
+					aria-label="Primary"
+					className="fixed inset-x-0 bottom-0 z-50 flex h-[52px] items-stretch justify-around border-t border-border bg-[var(--surface-chrome)] px-1 md:hidden"
+				>
+					{mobileDockItems.slice(0, 2).map((item) => {
+						const ItemIcon = item.icon
+						const active = mobilePanelTab === item.tab
+						return (
+							<button
+								key={item.key}
+								type="button"
+								onClick={() => handleDockSelect(item.tab)}
+								aria-pressed={active}
+								className={cn(
+									'flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] transition-colors',
+									active ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+								)}
+							>
+								<ItemIcon className="h-5 w-5" />
+								{item.label}
+							</button>
+						)
+					})}
+					<DropdownMenu>
+						<DropdownMenuTrigger asChild>
+							<button
+								type="button"
+								aria-label="Create"
+								className="flex flex-1 flex-col items-center justify-center"
+							>
+								<span className="flex h-8 w-8 items-center justify-center rounded-[3px] bg-primary text-primary-foreground shadow-sm">
+									<Plus className="h-5 w-5" />
+								</span>
+							</button>
+						</DropdownMenuTrigger>
+						<DropdownMenuContent side="top" align="center" className="w-52">
+							<DropdownMenuLabel>Create</DropdownMenuLabel>
+							<DropdownMenuSeparator />
+							<DropdownMenuItem onSelect={() => startCreate(startNewDataset)}>
+								<Database className="h-4 w-4" />
+								Dataset
+							</DropdownMenuItem>
+							<DropdownMenuItem onSelect={() => startCreate(handleCreateContext)}>
+								<Globe className="h-4 w-4" />
+								Context
+							</DropdownMenuItem>
+							<DropdownMenuItem onSelect={() => startCreate(handleCreateStory)}>
+								<BookOpen className="h-4 w-4" />
+								Article
+							</DropdownMenuItem>
+							<DropdownMenuItem onSelect={() => startCreate(handleCreateSighting)}>
+								<Eye className="h-4 w-4" />
+								Sighting
+							</DropdownMenuItem>
+							<DropdownMenuItem onSelect={() => startCreate(handleShareLocation)}>
+								<Radio className="h-4 w-4" />
+								Live beacon
+							</DropdownMenuItem>
+						</DropdownMenuContent>
+					</DropdownMenu>
+					{mobileDockItems.slice(2).map((item) => {
+						const ItemIcon = item.icon
+						const active = mobilePanelTab === item.tab
+						return (
+							<button
+								key={item.key}
+								type="button"
+								onClick={() => handleDockSelect(item.tab)}
+								aria-pressed={active}
+								className={cn(
+									'flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] transition-colors',
+									active ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+								)}
+							>
+								<ItemIcon className="h-5 w-5" />
+								{item.label}
+							</button>
+						)
+					})}
+				</nav>
 			)}
 			{debugEvent && (
 				<DebugDialog event={debugEvent} open={debugDialogOpen} onOpenChange={setDebugDialogOpen} />

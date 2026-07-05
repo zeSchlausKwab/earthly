@@ -1007,13 +1007,21 @@ export function AppSidebar({
 	const renderEntityContent = () => <GeoEditorInfoPanelContent {...editorPanelProps} />
 
 	const renderContent = () => {
-		// Editor-in-Map-Stack (redesign §9): whenever a geometry draft is being
-		// authored (`editorStance === 'author'` → the Map Stack mounts the draft's
-		// editor slot), portal the full entity editor into it — no sidebar view-mode
-		// navigation required, so drawing a fresh geometry shows the editor
-		// immediately. The sidebar falls back to the browse catalog. If the Map
-		// Stack is closed (no slot) the editor still renders here as a fallback.
-		if (draftEditorSlot && !metaModeActive && editorStance === 'author') {
+		// Editor-in-Map-Stack (redesign §9): the Map Stack portal is ONLY for the
+		// geometry/dataset draft. When a geometry draft is being authored
+		// (`editorStance === 'author'` → the Map Stack mounts the draft's editor slot)
+		// AND the geometry editor is the active surface, portal it into the slot — no
+		// sidebar view-mode navigation required. Every OTHER entity (context / story /
+		// sighting / beacon) is created/edited/forked in the LEFT SIDEBAR, even while a
+		// dataset draft is open (`activeEntity !== 'geometry'` → fall through below), so
+		// a non-geometry editor never gets hijacked into the Map Stack. If the Map Stack
+		// is closed (no slot) the editor still renders here as a fallback.
+		if (
+			draftEditorSlot &&
+			!metaModeActive &&
+			editorStance === 'author' &&
+			activeEntity === 'geometry'
+		) {
 			return (
 				<>
 					{renderWorkContent(activeWorkMode)}

@@ -2,9 +2,11 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { FeatureCollection } from 'geojson'
 import {
+	BookOpen,
 	Check,
 	ChevronDown,
 	Database,
+	Eye,
 	FilePenLine,
 	Globe,
 	HelpCircle,
@@ -13,6 +15,7 @@ import {
 	MessageSquare,
 	Pencil,
 	Plus,
+	Radio,
 	Settings2,
 	User,
 	Wallet,
@@ -23,6 +26,9 @@ import { GeoDatasetsPanelContent } from '@/components/GeoDatasetsPanel'
 import { GeoEditorInfoPanelContent } from '@/components/GeoEditorInfoPanel'
 import { HelpPanel } from '@/components/HelpPanel'
 import { MapStackPanel } from '@/components/MapStackPanel'
+import { SightingsPanelContent, type SightingsPanelProps } from '@/components/SightingsPanel'
+import { BeaconsPanelContent, type BeaconsPanelProps } from '@/components/BeaconsPanel'
+import { StoriesPanelContent, type StoriesPanelProps } from '@/components/StoriesPanel'
 import { UserProfilePanel } from '@/components/UserProfilePanel'
 import { ShoutboxPanel } from '@/features/social/shoutbox'
 import { Button } from '@/components/ui/button'
@@ -45,6 +51,9 @@ export type MobilePanelTab =
 	| 'contexts'
 	| 'context-editor'
 	| 'edit'
+	| 'sightings'
+	| 'beacons'
+	| 'stories'
 	| 'chat'
 	| 'profile'
 	| 'posts'
@@ -107,10 +116,28 @@ export interface MobilePanelProps {
 	editingContext?: MapContext | null
 	onSaveContext?: (context: MapContext) => void
 	onCloseContextEditor?: () => void
-	/** Story view props (Phase 10, D-03) — a deep-linked Story renders in the edit tab. */
+	/** Story view/edit props (Phase 10, D-03) — a Story create/edit/view renders in the edit tab. */
+	storyEditorMode?: 'none' | 'create' | 'edit'
+	editingStory?: import('@/lib/nostr/article').Article | null
+	onSaveStory?: (story: import('@/lib/nostr/article').Article) => void
+	onCloseStoryEditor?: () => void
 	onEditStory?: (story: import('@/lib/nostr/article').Article) => void
 	onStoryUpdated?: (story: import('@/lib/nostr/article').Article) => void
 	onDeleteStory?: (story: import('@/lib/nostr/article').Article) => void
+	/** Beacon control/view props (Phase 12, D-12) — a beacon create/adjust/view renders in the edit tab. */
+	beaconControlMode?: 'none' | 'create' | 'adjust'
+	adjustingBeacon?: import('@/lib/nostr/live-beacon').LiveBeacon | null
+	viewBeacon?: import('@/lib/nostr/live-beacon').LiveBeacon | null
+	beaconIsStarting?: boolean
+	beaconFocusCommentId?: string
+	onStartBeacon?: (
+		options: import('@/components/info-panel/BeaconControlPanel').BeaconStartOptions,
+	) => void
+	onCloseBeaconControl?: () => void
+	onStopBeacon?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
+	onAdjustBeacon?: (beacon?: import('@/lib/nostr/live-beacon').LiveBeacon) => void
+	onWatchOnMapBeacon?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
+	onAddBeaconToMapStack?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
 	/** Sighting view/edit props (Phase 11, D-01/D-07). */
 	sightingEditorMode?: 'none' | 'create' | 'edit'
 	editingSighting?: import('@/lib/nostr/temporal-sighting').TemporalSighting | null
@@ -134,9 +161,17 @@ export interface MobilePanelProps {
 	focusCommentId?: string
 	/** WR-06: comment d-tag to focus beneath the viewed Sighting (survives navigateToView). */
 	sightingFocusCommentId?: string
+	/** Browse-rail prop bundles — the self-subscribing entity lists (§14a dock
+	 *  targets: Map→sightings, Activity→beacons; Stories reachable via the switcher). */
+	sightingsPanelProps?: SightingsPanelProps
+	beaconsPanelProps?: BeaconsPanelProps
+	storiesPanelProps?: StoriesPanelProps
 }
 
 const TAB_CONFIG: { id: MobilePanelTab; label: string; icon: typeof Database }[] = [
+	{ id: 'sightings', label: 'Sightings', icon: Eye },
+	{ id: 'beacons', label: 'Beacons', icon: Radio },
+	{ id: 'stories', label: 'Stories', icon: BookOpen },
 	{ id: 'datasets', label: 'Datasets', icon: Database },
 	{ id: 'map-stack', label: 'Map', icon: Layers },
 	{ id: 'contexts', label: 'Contexts', icon: Globe },
@@ -160,6 +195,7 @@ const tabMeta = (id: MobilePanelTab) => TAB_CONFIG.find((tab) => tab.id === id) 
  * are reached via a "+ new" action, not the switcher.
  */
 const SWITCHER_GROUPS: { label: string; tabs: MobilePanelTab[] }[] = [
+	{ label: 'Explore', tabs: ['sightings', 'beacons', 'stories'] },
 	{ label: 'Workspace', tabs: ['datasets', 'contexts'] },
 	{ label: 'On the map', tabs: ['map-stack'] },
 	{ label: 'More', tabs: ['chat', 'posts', 'profile', 'wallet', 'settings', 'help'] },
@@ -230,9 +266,24 @@ export function MobilePanel(props: MobilePanelProps) {
 		editingContext,
 		onSaveContext,
 		onCloseContextEditor,
+		storyEditorMode,
+		editingStory,
+		onSaveStory,
+		onCloseStoryEditor,
 		onEditStory,
 		onStoryUpdated,
 		onDeleteStory,
+		beaconControlMode,
+		adjustingBeacon,
+		viewBeacon,
+		beaconIsStarting,
+		beaconFocusCommentId,
+		onStartBeacon,
+		onCloseBeaconControl,
+		onStopBeacon,
+		onAdjustBeacon,
+		onWatchOnMapBeacon,
+		onAddBeaconToMapStack,
 		sightingEditorMode,
 		editingSighting,
 		viewSighting,
@@ -251,6 +302,9 @@ export function MobilePanel(props: MobilePanelProps) {
 		visibleProposalIds,
 		focusCommentId,
 		sightingFocusCommentId,
+		sightingsPanelProps,
+		beaconsPanelProps,
+		storiesPanelProps,
 	} = props
 	const { contextNaddr, encodeContextNaddr, navigateToContext, clearContextScope } = useRouting()
 
@@ -339,6 +393,20 @@ export function MobilePanel(props: MobilePanelProps) {
 	const ActiveIcon = activeMeta.icon
 	const activeCount = panelCount(mobilePanelTab)
 
+	// The "+ new" action in the sheet header, per active browse tab.
+	const newAction: { label: string; onClick: () => void } | null =
+		mobilePanelTab === 'datasets' && onStartNewDataset
+			? { label: 'New dataset', onClick: onStartNewDataset }
+			: mobilePanelTab === 'contexts' && onCreateContext
+				? { label: 'New context', onClick: onCreateContext }
+				: mobilePanelTab === 'sightings' && sightingsPanelProps
+					? { label: 'New sighting', onClick: sightingsPanelProps.onCreateSighting }
+					: mobilePanelTab === 'beacons' && beaconsPanelProps
+						? { label: 'Share live location', onClick: beaconsPanelProps.onShareLocation }
+						: mobilePanelTab === 'stories' && storiesPanelProps
+							? { label: 'New story', onClick: storiesPanelProps.onCreateStory }
+							: null
+
 	// The entity/geometry editor — rendered in the Map Stack draft slot while
 	// authoring a draft (editor-in-Map-Stack), otherwise in the 'edit' tab body
 	// (e.g. a sighting/story/context inspected from a link).
@@ -371,9 +439,24 @@ export function MobilePanel(props: MobilePanelProps) {
 			editingContext={editingContext}
 			onSaveContext={onSaveContext}
 			onCloseContextEditor={onCloseContextEditor}
+			storyEditorMode={storyEditorMode}
+			editingStory={editingStory}
+			onSaveStory={onSaveStory}
+			onCloseStoryEditor={onCloseStoryEditor}
 			onEditStory={onEditStory}
 			onStoryUpdated={onStoryUpdated}
 			onDeleteStory={onDeleteStory}
+			beaconControlMode={beaconControlMode}
+			adjustingBeacon={adjustingBeacon}
+			viewBeacon={viewBeacon}
+			beaconIsStarting={beaconIsStarting}
+			beaconFocusCommentId={beaconFocusCommentId}
+			onStartBeacon={onStartBeacon}
+			onCloseBeaconControl={onCloseBeaconControl}
+			onStopBeacon={onStopBeacon}
+			onAdjustBeacon={onAdjustBeacon}
+			onZoomToBeacon={onWatchOnMapBeacon}
+			onAddBeaconToMapStack={onAddBeaconToMapStack}
 			sightingEditorMode={sightingEditorMode}
 			editingSighting={editingSighting}
 			viewSighting={viewSighting}
@@ -450,25 +533,14 @@ export function MobilePanel(props: MobilePanelProps) {
 							<span className="font-mono text-[9px] text-muted-foreground">{activeCount}</span>
 						) : null}
 						<div className="ml-auto flex items-center gap-1">
-							{mobilePanelTab === 'datasets' && onStartNewDataset ? (
+							{newAction ? (
 								<Button
 									type="button"
 									size="icon-sm"
 									variant="outline"
 									className="h-6 w-6 rounded-[2px]"
-									onClick={onStartNewDataset}
-									aria-label="New dataset"
-								>
-									<Plus className="h-3.5 w-3.5" />
-								</Button>
-							) : mobilePanelTab === 'contexts' && onCreateContext ? (
-								<Button
-									type="button"
-									size="icon-sm"
-									variant="outline"
-									className="h-6 w-6 rounded-[2px]"
-									onClick={onCreateContext}
-									aria-label="New context"
+									onClick={newAction.onClick}
+									aria-label={newAction.label}
 								>
 									<Plus className="h-3.5 w-3.5" />
 								</Button>
@@ -668,6 +740,24 @@ export function MobilePanel(props: MobilePanelProps) {
 										onBlossomUploadComplete={onBlossomUploadComplete}
 										focusCommentId={focusCommentId}
 									/>
+								) : null}
+
+								{mobilePanelTab === 'sightings' ? (
+									sightingsPanelProps ? (
+										<SightingsPanelContent {...sightingsPanelProps} />
+									) : null
+								) : null}
+
+								{mobilePanelTab === 'beacons' ? (
+									beaconsPanelProps ? (
+										<BeaconsPanelContent {...beaconsPanelProps} />
+									) : null
+								) : null}
+
+								{mobilePanelTab === 'stories' ? (
+									storiesPanelProps ? (
+										<StoriesPanelContent {...storiesPanelProps} />
+									) : null
 								) : null}
 
 								{/* The 'edit' tab hosts the editor only for non-draft entity views
