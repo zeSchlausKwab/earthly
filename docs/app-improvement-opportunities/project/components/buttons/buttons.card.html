@@ -1,0 +1,39 @@
+<!-- @dsCard group="Components" viewport="700x150" subtitle="Button variants + sizes · IconButton rail" name="Buttons" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+  body{margin:0;padding:18px;background:var(--surface-app);font-family:var(--font-ui);display:flex;flex-direction:column;gap:14px}
+  .row{display:flex;align-items:center;gap:8px}
+  .btn{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 12px;border-radius:2px;font-family:var(--font-ui);font-size:12px;font-weight:600;border:1px solid transparent;cursor:pointer;box-sizing:border-box}
+  .primary{background:var(--accent-active);color:var(--accent-ink)}
+  .secondary{background:var(--surface-raised);color:var(--text-body);border-color:var(--border-strong)}
+  .ghost{background:transparent;color:var(--text-muted)}
+  .danger{background:transparent;color:var(--accent-danger);border-color:color-mix(in oklch,var(--accent-danger) 55%,transparent)}
+  .grp{display:inline-flex;border:1px solid var(--border-strong);border-radius:2px;overflow:hidden}
+  .ib{width:28px;height:26px;display:flex;align-items:center;justify-content:center;background:var(--surface-raised);color:var(--text-muted)}
+  .ib+.ib{border-left:1px solid var(--border-hairline)}
+  .ib.on{background:var(--accent-active);color:var(--accent-ink)}
+  svg{width:14px;height:14px}
+  .m{font-family:var(--font-mono);font-size:9px;color:var(--text-faint);margin-left:6px}
+</style></head><body>
+  <div class="row">
+    <button class="btn primary">Publish</button>
+    <button class="btn secondary">Cancel</button>
+    <button class="btn ghost">Skip</button>
+    <button class="btn danger">Delete</button>
+    <span class="m">variants</span>
+  </div>
+  <div class="row">
+    <button class="btn primary" style="height:22px;font-size:11px;padding:0 9px">sm 22</button>
+    <button class="btn primary">md 26</button>
+    <button class="btn primary" style="height:30px">lg 30</button>
+    <span class="m">sizes</span>
+    <span style="flex:1"></span>
+    <div class="grp">
+      <div class="ib on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 3 7.07 17 2.51-7.39L20 10.07z"/></svg></div>
+      <div class="ib"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg></div>
+      <div class="ib"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 21 8v8l-9 6-9-6V8z"/></svg></div>
+      <div class="ib"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg></div>
+    </div>
+    <span class="m">tool rail</span>
+  </div>
+</body></html>
