@@ -14,6 +14,7 @@ import { useMemo, useState } from 'react'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import { useEditorStore, type MapStackEntry } from '../features/geo-editor/store'
+import { GeometriesTable } from './info-panel/geometry/GeometriesTable'
 import { getDefaultContextMapScopeMode, resolveContextMapScope } from '@/lib/context/scope'
 import {
 	DeleteActionIcon,
@@ -320,7 +321,10 @@ function EntryRow({
 	// curated set is empty. That makes "this context loaded but resolved to 0
 	// datasets" legible instead of looking like the entry does nothing.
 	const isContextEntry = entry.entityType === 'context'
-	const canExpand = isContextEntry
+	const isDraftEntry = entry.entityType === 'draft'
+	// Draft entries expand into the geometry editor inline (SPEC: edit where the
+	// layers are); context entries expand into their curated-dataset checklist.
+	const canExpand = isContextEntry || isDraftEntry
 	const [isReorderTarget, setIsReorderTarget] = useState(false)
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: drag-to-reorder container; all click targets inside are real buttons, and reordering stays reachable via the row action buttons for keyboard users.
@@ -442,11 +446,23 @@ function EntryRow({
 							}
 							className={cn(actionButtonClassName, 'hover:text-foreground')}
 							onClick={() => setExpanded((open) => !open)}
-							label={expanded ? 'Collapse curated datasets' : 'Expand curated datasets'}
+							label={
+								isDraftEntry
+									? expanded
+										? 'Collapse editor'
+										: 'Expand editor'
+									: expanded
+										? 'Collapse curated datasets'
+										: 'Expand curated datasets'
+							}
 							tooltip={
-								expanded
-									? 'Hide the curated dataset checklist'
-									: 'Show the curated dataset checklist — uncheck to exclude per-context'
+								isDraftEntry
+									? expanded
+										? 'Hide the geometry editor'
+										: 'Edit geometries inline'
+									: expanded
+										? 'Hide the curated dataset checklist'
+										: 'Show the curated dataset checklist — uncheck to exclude per-context'
 							}
 							pressed={expanded}
 						/>
@@ -578,7 +594,12 @@ function EntryRow({
 					/>
 				</div>
 			</div>
-			{canExpand && expanded ? (
+			{canExpand && expanded && isDraftEntry ? (
+				<div className="max-h-[46vh] overflow-y-auto border-border border-t bg-muted/30 p-1.5">
+					<GeometriesTable />
+				</div>
+			) : null}
+			{canExpand && expanded && !isDraftEntry ? (
 				<div
 					className={cn(
 						'border-border border-t bg-muted/30 px-2 py-1.5',
