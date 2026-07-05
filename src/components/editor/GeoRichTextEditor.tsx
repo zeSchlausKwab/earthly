@@ -551,25 +551,23 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 				>
 					{!readOnly && showToolbar && (
 						<>
-							<div className="flex items-center justify-between border-b border-border bg-muted px-2 py-1">
+							<div className="flex items-center justify-between border-b border-border bg-muted px-1.5">
 								<Button
 									type="button"
 									variant="ghost"
 									size="sm"
-									className="h-7 rounded-none px-2 text-[11px] uppercase tracking-[0.22em] text-muted-foreground"
+									className="h-5 gap-1 rounded-none px-1 text-[10px] uppercase tracking-[0.18em] text-muted-foreground"
 									onClick={() => setIsToolbarExpanded((value) => !value)}
 									disabled={disabled}
 								>
 									{isToolbarExpanded ? (
-										<ChevronUp className="h-3.5 w-3.5" />
+										<ChevronUp className="h-3 w-3" />
 									) : (
-										<ChevronDown className="h-3.5 w-3.5" />
+										<ChevronDown className="h-3 w-3" />
 									)}
 									Format
 								</Button>
-								<span className="text-[10px] text-muted-foreground">
-									$ inserts nostr references
-								</span>
+								<span className="text-[9px] text-muted-foreground">$ inserts nostr refs</span>
 							</div>
 							{isToolbarExpanded && (
 								<div className="flex flex-wrap items-center gap-1 border-b border-border bg-card px-2 py-1">

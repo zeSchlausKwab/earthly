@@ -363,7 +363,7 @@ function EntryRow({
 				}
 			}}
 		>
-			<div className={cn('flex items-start', compact ? 'gap-1.5 p-1.5 pl-2' : 'gap-2 p-2 pl-2.5')}>
+			<div className={cn('flex items-start', compact ? 'gap-1.5 p-1 pl-1.5' : 'gap-2 p-2 pl-2.5')}>
 				<div
 					className={cn(
 						'flex shrink-0 items-center justify-center rounded-md',
@@ -417,7 +417,7 @@ function EntryRow({
 					<div
 						className={cn(
 							'flex items-center text-muted-foreground',
-							compact ? 'mt-0.5 gap-1 text-[11px]' : 'mt-1 gap-1.5 text-xs',
+							compact ? 'gap-1 text-[10px] leading-tight' : 'mt-1 gap-1.5 text-xs',
 						)}
 					>
 						<span>{entryTypeMetaLabel(entry.entityType)}</span>
