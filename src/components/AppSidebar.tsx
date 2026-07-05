@@ -1006,12 +1006,13 @@ export function AppSidebar({
 	const renderEntityContent = () => <GeoEditorInfoPanelContent {...editorPanelProps} />
 
 	const renderContent = () => {
-		// Editor-in-Map-Stack (redesign §9): while editing a geometry draft, the
-		// Map Stack's expanded draft entry mounts an editor slot. Portal the full
-		// entity editor into it (guaranteed parity, single instance) and let the
-		// sidebar fall back to the browse catalog. Only when the slot exists — if
-		// the Map Stack is closed, the editor still renders here as a fallback.
-		if (draftEditorSlot && !metaModeActive && (contentMode === 'edit' || showEntityAsFullPanel)) {
+		// Editor-in-Map-Stack (redesign §9): whenever a geometry draft is being
+		// authored (`editorStance === 'author'` → the Map Stack mounts the draft's
+		// editor slot), portal the full entity editor into it — no sidebar view-mode
+		// navigation required, so drawing a fresh geometry shows the editor
+		// immediately. The sidebar falls back to the browse catalog. If the Map
+		// Stack is closed (no slot) the editor still renders here as a fallback.
+		if (draftEditorSlot && !metaModeActive && editorStance === 'author') {
 			return (
 				<>
 					{renderWorkContent(activeWorkMode)}
@@ -1093,7 +1094,9 @@ export function AppSidebar({
 					    while editing/inspecting, separated from the browse catalogs
 					    by its own group + divider. This is the return path to the
 					    editor/inspector panel after navigating to a catalog. */}
-					{currentSurface ? (
+					{/* The "Editor" rail surface is gone — geometry editing now lives in
+					    the Map Stack. Only the "Inspector" return surface remains. */}
+					{currentSurface === 'inspector' ? (
 						<SidebarGroup className="border-sidebar-border border-b pb-1">
 							<SidebarGroupContent className="px-1.5 md:px-0">
 								<SidebarMenu>
