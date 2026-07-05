@@ -83,7 +83,7 @@ export function ReceiveEcashModal({ open, onClose }: ReceiveEcashModalProps) {
 			<DialogContent className="sm:max-w-md">
 				<DialogHeader>
 					<DialogTitle className="flex items-center gap-2">
-						<QrCode className="w-5 h-5 text-blue-500" />
+						<QrCode className="w-5 h-5 text-info" />
 						Receive eCash
 					</DialogTitle>
 					<DialogDescription>Scan or paste a Cashu token to receive eCash</DialogDescription>
@@ -91,10 +91,10 @@ export function ReceiveEcashModal({ open, onClose }: ReceiveEcashModalProps) {
 
 				{isSuccess ? (
 					<div className="py-6 text-center">
-						<div className="w-12 h-12 mx-auto mb-4 rounded-full bg-green-100 flex items-center justify-center">
-							<Check className="w-6 h-6 text-green-600" />
+						<div className="w-12 h-12 mx-auto mb-4 rounded-full bg-ok/15 flex items-center justify-center">
+							<Check className="w-6 h-6 text-ok" />
 						</div>
-						<p className="text-lg font-medium text-green-600">eCash Received!</p>
+						<p className="text-lg font-medium text-ok">eCash Received!</p>
 						<p className="text-sm text-muted-foreground mt-2">
 							The tokens have been added to your wallet
 						</p>

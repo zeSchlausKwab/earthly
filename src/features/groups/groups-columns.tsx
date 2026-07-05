@@ -52,12 +52,12 @@ export interface GroupColumnsContext {
 // Shared resting style for entity row-action icons — kept identical to the
 // dataset catalog so the two surfaces stay uniform.
 const actionButtonClass =
-	'rounded-md px-2 text-xs text-gray-600 shadow-none hover:bg-muted hover:text-sky-600'
+	'rounded-md px-2 text-xs text-muted-foreground shadow-none hover:bg-muted hover:text-info'
 
 const GOVERNANCE_BADGE_CLASS: Record<GroupGovernance, string> = {
-	open: 'bg-emerald-100 text-emerald-700',
-	schema: 'bg-amber-100 text-amber-700',
-	closed: 'bg-stone-100 text-stone-700',
+	open: 'bg-ok/15 text-ok',
+	schema: 'bg-primary/10 text-primary',
+	closed: 'bg-muted text-foreground',
 }
 
 function GovernanceBadge({ governance }: { governance: GroupGovernance }) {
@@ -96,7 +96,7 @@ export const createGroupColumns = (context: GroupColumnsContext): ColumnDef<Grou
 					style={paddingLeftRem > 0 ? { paddingLeft: `${paddingLeftRem}rem` } : undefined}
 				>
 					{isMapActive ? (
-						<div className="absolute inset-y-1 left-0 w-1 rounded-full bg-emerald-500" />
+						<div className="absolute inset-y-1 left-0 w-1 rounded-full bg-ok" />
 					) : null}
 					{image && (
 						<div className="mr-2 h-16 w-16 shrink-0 overflow-hidden rounded-sm">
@@ -109,11 +109,11 @@ export const createGroupColumns = (context: GroupColumnsContext): ColumnDef<Grou
 					)}
 					<div className="min-w-0 flex-1 py-1">
 						<div className="flex min-w-0 items-start gap-1.5">
-							{displayDepth > 0 && <span className="text-[10px] text-slate-400">└</span>}
+							{displayDepth > 0 && <span className="text-[10px] text-muted-foreground">└</span>}
 							<div className="min-w-0 flex-1">
 								<div className="flex min-w-0 items-start justify-between gap-3">
 									<div className="min-w-0 flex-1">
-										<div className="line-clamp-2 break-words text-sm font-semibold leading-snug text-gray-900">
+										<div className="line-clamp-2 break-words text-sm font-semibold leading-snug text-foreground">
 											{groupName}
 										</div>
 										<div className="mt-1 min-w-0">
@@ -131,7 +131,7 @@ export const createGroupColumns = (context: GroupColumnsContext): ColumnDef<Grou
 									</div>
 								</div>
 								{isCuratedChild && (
-									<div className="mt-1 text-[10px] text-slate-400">
+									<div className="mt-1 text-[10px] text-muted-foreground">
 										curated child
 										{displayParentName ? ` in ${displayParentName}` : ''}
 										{attachmentCount > 1 ? ` · ${attachmentCount} Groups` : ''}
@@ -154,9 +154,7 @@ export const createGroupColumns = (context: GroupColumnsContext): ColumnDef<Grou
 												variant="ghost"
 												className={cn(
 													actionButtonClass,
-													row.original.isInMapStack
-														? 'text-emerald-600 hover:text-emerald-700'
-														: 'hover:text-emerald-600',
+													row.original.isInMapStack ? 'text-ok hover:text-ok' : 'hover:text-ok',
 												)}
 												onClick={() => context.onToggleGroupOnMap?.(group)}
 												aria-label={
@@ -172,7 +170,7 @@ export const createGroupColumns = (context: GroupColumnsContext): ColumnDef<Grou
 										<Button
 											size="icon-sm"
 											variant="ghost"
-											className={cn(actionButtonClass, 'hover:text-emerald-600')}
+											className={cn(actionButtonClass, 'hover:text-ok')}
 											onClick={() => context.onInspectGroup?.(group)}
 											aria-label="Inspect Group"
 											title="Inspect Group"
@@ -187,8 +185,8 @@ export const createGroupColumns = (context: GroupColumnsContext): ColumnDef<Grou
 												className={cn(
 													actionButtonClass,
 													row.original.isCatalogPinned
-														? 'text-amber-500 hover:text-amber-600'
-														: 'hover:text-amber-600',
+														? 'text-primary hover:text-primary'
+														: 'hover:text-primary',
 												)}
 												onClick={() => context.onToggleCatalogPin?.(group)}
 												aria-label={
@@ -207,10 +205,7 @@ export const createGroupColumns = (context: GroupColumnsContext): ColumnDef<Grou
 												}
 											>
 												<FavoriteActionIcon
-													className={cn(
-														'h-4 w-4',
-														row.original.isCatalogPinned && 'fill-amber-400',
-													)}
+													className={cn('h-4 w-4', row.original.isCatalogPinned && 'fill-primary')}
 												/>
 											</Button>
 										) : null}
@@ -218,7 +213,7 @@ export const createGroupColumns = (context: GroupColumnsContext): ColumnDef<Grou
 											<Button
 												size="icon-sm"
 												variant="ghost"
-												className={cn(actionButtonClass, 'hover:text-amber-600')}
+												className={cn(actionButtonClass, 'hover:text-primary')}
 												aria-label="Open debug dialog"
 												title="Open debug dialog"
 												onClick={() => context.onOpenDebug?.(group)}

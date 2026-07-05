@@ -110,10 +110,10 @@ export function WithdrawLightningModal({
 
 				{isSuccess ? (
 					<div className="py-6 text-center">
-						<div className="w-12 h-12 mx-auto mb-4 rounded-full bg-green-100 flex items-center justify-center">
-							<Check className="w-6 h-6 text-green-600" />
+						<div className="w-12 h-12 mx-auto mb-4 rounded-full bg-ok/15 flex items-center justify-center">
+							<Check className="w-6 h-6 text-ok" />
 						</div>
-						<p className="text-lg font-medium text-green-600">Withdrawal Successful!</p>
+						<p className="text-lg font-medium text-ok">Withdrawal Successful!</p>
 						<p className="text-sm text-muted-foreground mt-2">
 							Your Lightning invoice has been paid
 						</p>

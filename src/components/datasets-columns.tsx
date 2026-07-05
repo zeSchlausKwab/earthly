@@ -62,7 +62,7 @@ export interface DatasetColumnsContext {
 // each icon clearly behaves like a button. Per-button hover tints
 // (emerald/amber/…) are layered on at the call site.
 const actionButtonClass =
-	'rounded-md px-2 text-xs text-gray-600 shadow-none hover:bg-muted hover:text-sky-600'
+	'rounded-md px-2 text-xs text-muted-foreground shadow-none hover:bg-muted hover:text-info'
 
 /**
  * Round F.1: the load verb moved into the row's overflow menu; this indicator
@@ -95,7 +95,7 @@ const DatasetResolvingIndicator = memo(function DatasetResolvingIndicator({
 						fill="none"
 						stroke="currentColor"
 						strokeWidth="2"
-						className="text-gray-200"
+						className="text-foreground"
 					/>
 					<circle
 						cx="10"
@@ -105,17 +105,17 @@ const DatasetResolvingIndicator = memo(function DatasetResolvingIndicator({
 						stroke="currentColor"
 						strokeWidth="2"
 						strokeDasharray={`${progressPercent * 0.5} 50`}
-						className="text-sky-600 transition-all duration-150"
+						className="text-info transition-all duration-150"
 					/>
 				</svg>
-				<span className="absolute text-[8px] font-medium text-sky-600">{progressPercent}</span>
+				<span className="absolute text-[8px] font-medium text-info">{progressPercent}</span>
 			</div>
 		)
 	}
 
 	return (
 		<div className="flex h-8 w-8 items-center justify-center" title="Loading blob data...">
-			<Loader2 className="h-4 w-4 animate-spin text-sky-600" />
+			<Loader2 className="h-4 w-4 animate-spin text-info" />
 		</div>
 	)
 })
@@ -140,8 +140,8 @@ export const createDatasetColumns = (
 						className={cn(
 							actionButtonClass,
 							hasVisibleDatasets
-								? 'text-sky-600 hover:text-sky-700'
-								: 'text-gray-400 hover:text-sky-600',
+								? 'text-info hover:text-info'
+								: 'text-muted-foreground hover:text-info',
 						)}
 						onClick={() => context.onToggleAllVisibility(!areAllVisible)}
 						aria-label={label}
@@ -187,7 +187,7 @@ export const createDatasetColumns = (
 				<div className="min-w-0 whitespace-normal py-1 text-left">
 					<button
 						type="button"
-						className="block w-full cursor-grab text-left text-sm font-semibold leading-snug text-gray-900 transition-colors hover:text-sky-700 active:cursor-grabbing"
+						className="block w-full cursor-grab text-left text-sm font-semibold leading-snug text-foreground transition-colors hover:text-info active:cursor-grabbing"
 						draggable
 						onDragStart={handleDragStart}
 						onClick={() => {
@@ -236,9 +236,7 @@ export const createDatasetColumns = (
 									variant="ghost"
 									className={cn(
 										actionButtonClass,
-										row.original.isInMapStack
-											? 'text-emerald-600 hover:text-emerald-700'
-											: 'hover:text-emerald-600',
+										row.original.isInMapStack ? 'text-ok hover:text-ok' : 'hover:text-ok',
 									)}
 									onClick={() => {
 										if (row.original.isInMapStack && context.onRemoveDatasetFromMap) {
@@ -258,7 +256,7 @@ export const createDatasetColumns = (
 							<Button
 								size="icon-sm"
 								variant="ghost"
-								className={cn(actionButtonClass, 'hover:text-sky-600')}
+								className={cn(actionButtonClass, 'hover:text-info')}
 								onClick={() => context.onZoomToDataset(event)}
 								aria-label="Zoom to dataset"
 								title="Zoom to dataset"
@@ -269,7 +267,7 @@ export const createDatasetColumns = (
 								<Button
 									size="icon-sm"
 									variant="ghost"
-									className={cn(actionButtonClass, 'hover:text-emerald-600')}
+									className={cn(actionButtonClass, 'hover:text-ok')}
 									onClick={() => context.onInspectDataset?.(event)}
 									aria-label="Inspect dataset"
 									title="Inspect dataset"
@@ -281,7 +279,7 @@ export const createDatasetColumns = (
 								size="icon-sm"
 								variant="ghost"
 								disabled={context.isPublishing}
-								className={cn(actionButtonClass, 'hover:text-emerald-600')}
+								className={cn(actionButtonClass, 'hover:text-ok')}
 								onClick={() => context.onLoadDataset(event)}
 								aria-label={row.original.isActive ? 'Loaded in editor' : 'Load into editor'}
 								title={row.original.isActive ? 'Loaded in editor' : 'Load into editor'}
@@ -296,8 +294,8 @@ export const createDatasetColumns = (
 									className={cn(
 										actionButtonClass,
 										row.original.isCatalogPinned
-											? 'text-amber-500 hover:text-amber-600'
-											: 'hover:text-amber-600',
+											? 'text-primary hover:text-primary'
+											: 'hover:text-primary',
 									)}
 									onClick={() => context.onToggleCatalogPin?.(event)}
 									aria-label={
@@ -316,7 +314,7 @@ export const createDatasetColumns = (
 									}
 								>
 									<FavoriteActionIcon
-										className={cn('h-4 w-4', row.original.isCatalogPinned && 'fill-amber-400')}
+										className={cn('h-4 w-4', row.original.isCatalogPinned && 'fill-primary')}
 									/>
 								</Button>
 							) : null}
@@ -324,7 +322,7 @@ export const createDatasetColumns = (
 								<Button
 									size="icon-sm"
 									variant="ghost"
-									className={cn(actionButtonClass, 'hover:text-amber-600')}
+									className={cn(actionButtonClass, 'hover:text-primary')}
 									onClick={() => context.onOpenDebug?.(event)}
 									aria-label="Debug event"
 									title="Debug event"

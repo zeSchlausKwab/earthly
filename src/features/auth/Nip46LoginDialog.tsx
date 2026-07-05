@@ -240,8 +240,8 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 							onClick={() => setActiveTab('scan')}
 							className={`px-4 py-2 text-sm font-medium transition-colors ${
 								activeTab === 'scan'
-									? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
-									: 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+									? 'border-b-2 border-info/40 text-info'
+									: 'text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground'
 							}`}
 						>
 							Scan QR Code
@@ -251,8 +251,8 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 							onClick={() => setActiveTab('paste')}
 							className={`px-4 py-2 text-sm font-medium transition-colors ${
 								activeTab === 'paste'
-									? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
-									: 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+									? 'border-b-2 border-info/40 text-info'
+									: 'text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground'
 							}`}
 						>
 							Paste Bunker URL
@@ -263,7 +263,7 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 						<div className="space-y-4">
 							{state === 'connected' ? (
 								<div className="flex flex-col items-center gap-2 py-8">
-									<div className="text-green-500 mb-2">
+									<div className="text-ok mb-2">
 										<svg
 											xmlns="http://www.w3.org/2000/svg"
 											width="36"
@@ -280,7 +280,7 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 											<polyline points="22 4 12 14.01 9 11.01" />
 										</svg>
 									</div>
-									<p className="text-sm text-green-500 font-medium">Connected successfully!</p>
+									<p className="text-sm text-ok font-medium">Connected successfully!</p>
 									<p className="text-sm text-muted-foreground">Logging you in...</p>
 								</div>
 							) : state === 'generating' ? (
@@ -290,13 +290,13 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 								</div>
 							) : connectionUri ? (
 								<>
-									<div className="text-sm text-gray-600 dark:text-gray-400">
+									<div className="text-sm text-muted-foreground dark:text-muted-foreground">
 										Scan this QR code with your remote signer app (e.g., Amber)
 									</div>
 
 									<a
 										href={connectionUri}
-										className="block hover:opacity-90 transition-opacity bg-white p-4 rounded-lg"
+										className="block hover:opacity-90 transition-opacity bg-card p-4 rounded-lg"
 										target="_blank"
 										rel="noopener noreferrer"
 									>
@@ -336,7 +336,7 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 						<div className="space-y-4">
 							<div className="space-y-2">
 								<Label htmlFor="bunker-url">Bunker URL</Label>
-								<p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+								<p className="text-xs text-muted-foreground dark:text-muted-foreground mb-2">
 									Paste your bunker:// connection string from your remote signer (e.g., nsec.app,
 									Amber).
 								</p>
@@ -381,9 +381,9 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 								)}
 							</Button>
 
-							<div className="p-3 bg-gray-100 dark:bg-gray-800 rounded-lg">
+							<div className="p-3 bg-muted dark:bg-muted-foreground rounded-lg">
 								<h4 className="text-sm font-medium mb-2">How to get a bunker URL:</h4>
-								<ol className="text-sm text-gray-600 dark:text-gray-400 space-y-1 list-decimal list-inside">
+								<ol className="text-sm text-muted-foreground dark:text-muted-foreground space-y-1 list-decimal list-inside">
 									<li>Open your remote signer app (nsec.app, Amber, etc.)</li>
 									<li>Generate or copy your bunker connection string</li>
 									<li>Paste it into the field above or scan the QR code</li>
@@ -404,7 +404,7 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 					</div>
 
 					{error && (
-						<div className="text-sm text-red-600 dark:text-red-400 p-3 bg-red-50 dark:bg-red-900/20 rounded-md border border-red-200 dark:border-red-800">
+						<div className="text-sm text-destructive p-3 bg-destructive/10 rounded-md border border-destructive/40">
 							{error}
 						</div>
 					)}
@@ -422,7 +422,7 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 
 					<div className="mt-4 mb-4">
 						{scanError ? (
-							<div className="p-4 mb-4 text-sm text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900/20 rounded-lg">
+							<div className="p-4 mb-4 text-sm text-destructive bg-destructive/10 rounded-lg">
 								{scanError}
 								<Button
 									onClick={() => setScanError(null)}

@@ -114,7 +114,7 @@ export function CuratedLane({
 					{referencedAddresses.map((coordinate) => (
 						<div
 							key={coordinate}
-							className="flex items-center justify-between gap-2 border-b border-amber-200/60 py-2"
+							className="flex items-center justify-between gap-2 border-b border-primary/40 py-2"
 						>
 							<div className="min-w-0 space-y-1">
 								<p className="truncate font-mono text-xs text-foreground">{coordinate}</p>
@@ -127,7 +127,7 @@ export function CuratedLane({
 									size="sm"
 									variant="outline"
 									onClick={() => onInspectCoordinate?.(coordinate)}
-									className="rounded-none border-stone-200 bg-white px-2 text-xs"
+									className="rounded-none border-border bg-card px-2 text-xs"
 								>
 									Inspect
 								</Button>
@@ -135,7 +135,7 @@ export function CuratedLane({
 									size="sm"
 									variant="outline"
 									onClick={() => onZoomToCoordinate?.(coordinate)}
-									className="rounded-none border-stone-200 bg-white px-2 text-xs"
+									className="rounded-none border-border bg-card px-2 text-xs"
 								>
 									Zoom
 								</Button>

@@ -36,14 +36,7 @@ import {
 	Wrench,
 } from 'lucide-react'
 import type { EventTemplate } from 'nostr-tools'
-import {
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-	type ComponentProps,
-} from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
 import { toast } from 'sonner'
 import { config } from '@/config'
 import { Button } from '@/components/ui/button'
@@ -295,8 +288,7 @@ export function BlossomUploaderButton({
 				for (const server of targets) {
 					try {
 						const ok = await deleteBlob(server, blob.sha256, {
-							onAuth: async () =>
-								createDeleteAuth(makeBlossomSigner(), blob.sha256),
+							onAuth: async () => createDeleteAuth(makeBlossomSigner(), blob.sha256),
 						})
 						if (ok) deleted = true
 					} catch {
@@ -329,11 +321,9 @@ export function BlossomUploaderButton({
 				throw new Error('Could not parse a sha256 from the current URL.')
 			}
 
-			const candidates = [
-				...announcedServers,
-				defaultServer,
-				new URL(original).origin,
-			].map(normalizeServerUrl)
+			const candidates = [...announcedServers, defaultServer, new URL(original).origin].map(
+				normalizeServerUrl,
+			)
 			const tried = new Set<string>()
 
 			for (const server of candidates) {
@@ -343,10 +333,7 @@ export function BlossomUploaderButton({
 				try {
 					const res = await fetch(probe, { method: 'HEAD' })
 					if (res.ok) {
-						const result = descriptorToResult(
-							{ url: probe, sha256, size: 0 },
-							'healed',
-						)
+						const result = descriptorToResult({ url: probe, sha256, size: 0 }, 'healed')
 						onUploaded(result)
 						toast.success(probe === original ? 'URL is already healthy' : 'URL repaired')
 						closeDialog()
@@ -470,8 +457,8 @@ export function BlossomUploaderButton({
 		cn(
 			'h-10 flex-1 justify-center rounded-lg border px-3 text-sm shadow-none transition-colors',
 			serverMode === mode
-				? 'border-slate-900 bg-slate-900 text-white hover:bg-slate-800 hover:text-white'
-				: 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900',
+				? 'border-input bg-muted-foreground text-white hover:bg-muted-foreground hover:text-white'
+				: 'border-border bg-card text-foreground hover:bg-muted hover:text-foreground',
 		)
 
 	return (
@@ -491,24 +478,24 @@ export function BlossomUploaderButton({
 
 			<Dialog open={open} onOpenChange={(nextOpen) => (nextOpen ? setOpen(true) : closeDialog())}>
 				<DialogContent className="max-h-[88vh] overflow-hidden p-0 sm:max-w-3xl">
-					<DialogHeader className="border-b border-slate-200 bg-white px-6 py-6">
+					<DialogHeader className="border-b border-border bg-card px-6 py-6">
 						<DialogTitle>{title}</DialogTitle>
 						<DialogDescription>{description}</DialogDescription>
 					</DialogHeader>
 
 					<Tabs defaultValue="upload" className="flex max-h-[calc(88vh-6.5rem)] flex-col">
-						<div className="border-b border-slate-200 px-6 py-4">
-							<TabsList className="grid h-auto w-full grid-cols-2 rounded-xl border border-slate-200 bg-slate-100/80 p-1">
+						<div className="border-b border-border px-6 py-4">
+							<TabsList className="grid h-auto w-full grid-cols-2 rounded-xl border border-border bg-muted/80 p-1">
 								<TabsTrigger
 									value="upload"
-									className="rounded-lg px-4 py-2.5 text-sm data-[state=active]:bg-white data-[state=active]:shadow-none"
+									className="rounded-lg px-4 py-2.5 text-sm data-[state=active]:bg-card data-[state=active]:shadow-none"
 								>
 									Upload
 								</TabsTrigger>
 								<TabsTrigger
 									value="library"
 									disabled={!userPubkey}
-									className="rounded-lg px-4 py-2.5 text-sm data-[state=active]:bg-white data-[state=active]:shadow-none"
+									className="rounded-lg px-4 py-2.5 text-sm data-[state=active]:bg-card data-[state=active]:shadow-none"
 								>
 									My Blobs
 								</TabsTrigger>
@@ -517,10 +504,12 @@ export function BlossomUploaderButton({
 
 						<TabsContent value="upload" className="mt-0 overflow-y-auto px-6 py-5">
 							<div className="grid gap-4 md:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-								<div className="min-w-0 space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+								<div className="min-w-0 space-y-3 rounded-xl border border-border bg-muted/70 p-4">
 									<div className="space-y-1">
-										<p className="text-sm font-medium text-slate-900">Choose a file</p>
-										<p className="text-xs text-slate-500">Accepted types: {accept || 'any file'}</p>
+										<p className="text-sm font-medium text-foreground">Choose a file</p>
+										<p className="text-xs text-muted-foreground">
+											Accepted types: {accept || 'any file'}
+										</p>
 									</div>
 
 									<input
@@ -539,40 +528,40 @@ export function BlossomUploaderButton({
 										type="button"
 										onClick={() => fileInputRef.current?.click()}
 										className={cn(
-											'flex min-h-[18rem] w-full flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center transition hover:border-slate-400 hover:bg-slate-50',
-											selectedFile && 'border-emerald-300 bg-emerald-50/40',
+											'flex min-h-[18rem] w-full flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-card px-4 py-8 text-center transition hover:border-border hover:bg-muted',
+											selectedFile && 'border-ok/40 bg-ok/15',
 										)}
 									>
 										{selectedPreviewUrl ? (
 											<img
 												src={selectedPreviewUrl}
 												alt={selectedFile?.name ?? 'Selected upload'}
-												className="h-28 w-28 rounded-lg border border-slate-200 object-cover shadow-sm"
+												className="h-28 w-28 rounded-lg border border-border object-cover shadow-sm"
 											/>
 										) : (
-											<div className="flex h-28 w-28 items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-slate-400">
+											<div className="flex h-28 w-28 items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground">
 												<ImageIcon className="h-8 w-8" />
 											</div>
 										)}
 										<div className="max-w-full space-y-1">
-											<p className="break-all text-sm font-medium text-slate-900">
+											<p className="break-all text-sm font-medium text-foreground">
 												{selectedFile ? selectedFile.name : 'Select an image'}
 											</p>
-											<p className="text-xs text-slate-500">
+											<p className="text-xs text-muted-foreground">
 												{selectedFile ? formatBytes(selectedFile.size) : 'Click to browse'}
 											</p>
 										</div>
 									</button>
 
 									{uploadError ? (
-										<div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700">
+										<div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs leading-5 text-destructive">
 											{uploadError}
 										</div>
 									) : null}
 
 									{uploading ? (
 										<div className="space-y-2">
-											<div className="flex items-center justify-between text-xs text-slate-500">
+											<div className="flex items-center justify-between text-xs text-muted-foreground">
 												<span>Uploading to Blossom</span>
 												<span>{uploadProgress}%</span>
 											</div>
@@ -613,13 +602,15 @@ export function BlossomUploaderButton({
 									</div>
 								</div>
 
-								<div className="min-w-0 space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+								<div className="min-w-0 space-y-3 rounded-xl border border-border bg-card p-4">
 									<div className="space-y-1">
-										<p className="text-sm font-medium text-slate-900">Server routing</p>
-										<p className="text-xs leading-5 text-slate-500">{effectiveDescription}</p>
+										<p className="text-sm font-medium text-foreground">Server routing</p>
+										<p className="text-xs leading-5 text-muted-foreground">
+											{effectiveDescription}
+										</p>
 									</div>
 
-									<div className="rounded-xl border border-slate-200 bg-slate-50 p-1">
+									<div className="rounded-xl border border-border bg-muted p-1">
 										<div className="flex gap-1.5">
 											<Button
 												type="button"
@@ -643,7 +634,7 @@ export function BlossomUploaderButton({
 									</div>
 
 									{serverMode === 'custom' ? (
-										<div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+										<div className="space-y-2 rounded-xl border border-border bg-muted/70 p-3">
 											<Label htmlFor="blossom-custom-server">Custom Blossom server</Label>
 											<Input
 												id="blossom-custom-server"
@@ -653,11 +644,11 @@ export function BlossomUploaderButton({
 											/>
 										</div>
 									) : (
-										<div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+										<div className="space-y-2 rounded-xl border border-border bg-muted p-3">
 											<div className="flex items-center justify-between gap-3">
-												<p className="text-xs font-medium text-slate-700">Discovered servers</p>
+												<p className="text-xs font-medium text-foreground">Discovered servers</p>
 												{loadingDiscovery ? (
-													<Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+													<Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
 												) : null}
 											</div>
 											{announcedServers.length > 0 ? (
@@ -665,27 +656,27 @@ export function BlossomUploaderButton({
 													{announcedServers.map((server) => (
 														<p
 															key={server}
-															className="break-all rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] leading-4 text-slate-600"
+															className="break-all rounded-lg border border-border bg-card px-2 py-1.5 text-[11px] leading-4 text-muted-foreground"
 														>
 															{server}
 														</p>
 													))}
 												</div>
 											) : (
-												<p className="text-xs leading-5 text-slate-500">
+												<p className="text-xs leading-5 text-muted-foreground">
 													No Kind 10063 server list found for the current user.
 												</p>
 											)}
-											<div className="break-all rounded-lg border border-dashed border-slate-300 bg-white px-2 py-1.5 text-[11px] leading-4 text-slate-500">
+											<div className="break-all rounded-lg border border-dashed border-border bg-card px-2 py-1.5 text-[11px] leading-4 text-muted-foreground">
 												Fallback: {defaultServer}
 											</div>
 										</div>
 									)}
 
 									{currentUrl?.trim() ? (
-										<div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-											<p className="text-xs font-medium text-slate-700">Current field value</p>
-											<p className="break-all text-[11px] leading-5 text-slate-500">
+										<div className="space-y-2 rounded-xl border border-border bg-muted p-3">
+											<p className="text-xs font-medium text-foreground">Current field value</p>
+											<p className="break-all text-[11px] leading-5 text-muted-foreground">
 												{currentUrl.trim()}
 											</p>
 										</div>
@@ -698,8 +689,8 @@ export function BlossomUploaderButton({
 							<div className="space-y-3">
 								<div className="flex items-center justify-between gap-3">
 									<div>
-										<p className="text-sm font-medium text-slate-900">My Blossom uploads</p>
-										<p className="text-xs text-slate-500">
+										<p className="text-sm font-medium text-foreground">My Blossom uploads</p>
+										<p className="text-xs text-muted-foreground">
 											Reuse existing uploads instead of creating duplicates.
 										</p>
 									</div>
@@ -716,15 +707,15 @@ export function BlossomUploaderButton({
 								</div>
 
 								{libraryError ? (
-									<div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+									<div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
 										{libraryError}
 									</div>
 								) : null}
 
-								<ScrollArea className="h-[22rem] rounded-xl border border-slate-200">
+								<ScrollArea className="h-[22rem] rounded-xl border border-border">
 									<div className="space-y-3 p-3">
 										{loadingLibrary ? (
-											<div className="flex h-32 items-center justify-center text-sm text-slate-500">
+											<div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
 												<Loader2 className="mr-2 h-4 w-4 animate-spin" />
 												Loading blobs…
 											</div>
@@ -735,9 +726,9 @@ export function BlossomUploaderButton({
 												return (
 													<div
 														key={blob.sha256}
-														className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3"
+														className="flex items-start gap-3 rounded-xl border border-border bg-card p-3"
 													>
-														<div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-100">
+														<div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">
 															{isImage ? (
 																<img
 																	src={blob.url}
@@ -745,17 +736,17 @@ export function BlossomUploaderButton({
 																	className="h-full w-full object-cover"
 																/>
 															) : (
-																<ImageIcon className="h-5 w-5 text-slate-400" />
+																<ImageIcon className="h-5 w-5 text-muted-foreground" />
 															)}
 														</div>
 														<div className="min-w-0 flex-1 space-y-1">
-															<p className="truncate text-sm font-medium text-slate-900">
+															<p className="truncate text-sm font-medium text-foreground">
 																{blob.url}
 															</p>
-															<p className="text-xs text-slate-500">
+															<p className="text-xs text-muted-foreground">
 																{blob.type || 'unknown type'} • {formatBytes(blob.size)}
 															</p>
-															<p className="truncate text-[11px] text-slate-400">
+															<p className="truncate text-[11px] text-muted-foreground">
 																{blob.sha256.slice(0, 16)}…
 															</p>
 														</div>
@@ -802,7 +793,7 @@ export function BlossomUploaderButton({
 												)
 											})
 										) : (
-											<div className="flex h-32 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
+											<div className="flex h-32 items-center justify-center rounded-xl border border-dashed border-border bg-muted text-sm text-muted-foreground">
 												No matching blobs found for this field yet.
 											</div>
 										)}

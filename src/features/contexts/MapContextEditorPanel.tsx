@@ -591,23 +591,23 @@ export function MapContextEditorPanel({
 			<EntityPanelShell
 				title={initialContext ? 'Edit context' : 'Create context'}
 				tabs={
-					<TabsList className="h-8 w-full justify-start overflow-x-auto rounded-none border-b border-slate-200 bg-transparent p-0">
+					<TabsList className="h-8 w-full justify-start overflow-x-auto rounded-none border-b border-border bg-transparent p-0">
 						<TabsTrigger
 							value="content"
-							className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-slate-900 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+							className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-input data-[state=active]:bg-transparent data-[state=active]:shadow-none"
 						>
 							Content
 						</TabsTrigger>
 						<TabsTrigger
 							value="policy"
-							className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-slate-900 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+							className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-input data-[state=active]:bg-transparent data-[state=active]:shadow-none"
 						>
 							Policy
 						</TabsTrigger>
 						{allowForeignAttachments && (
 							<TabsTrigger
 								value="schema"
-								className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-slate-900 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+								className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-input data-[state=active]:bg-transparent data-[state=active]:shadow-none"
 							>
 								Schema
 							</TabsTrigger>
@@ -647,32 +647,32 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 						<div className="space-y-2">
 							<div className="flex items-center justify-between gap-2">
 								<Label>Referenced entities</Label>
-								<span className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
+								<span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
 									{referencedEntities.length}
 								</span>
 							</div>
 							{referencedEntities.length === 0 ? (
-								<p className="border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
+								<p className="border border-border px-3 py-2 text-[11px] text-muted-foreground">
 									No inline nostr references yet.
 								</p>
 							) : (
-								<div className="border border-slate-200">
+								<div className="border border-border">
 									{referencedEntities.map((reference, index) => (
 										<div
 											key={reference.key}
 											className={`flex items-start justify-between gap-3 px-3 py-2 ${
-												index > 0 ? 'border-t border-slate-200' : ''
+												index > 0 ? 'border-t border-border' : ''
 											}`}
 										>
 											<div className="min-w-0 space-y-0.5">
-												<p className="truncate text-xs font-medium text-slate-900">
+												<p className="truncate text-xs font-medium text-foreground">
 													{reference.name}
 												</p>
-												<p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">
+												<p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
 													{reference.entityType}
 													{reference.datasetName ? ` · ${reference.datasetName}` : ''}
 												</p>
-												<p className="truncate text-[10px] text-slate-500">
+												<p className="truncate text-[10px] text-muted-foreground">
 													nostr:{reference.address}
 													{reference.featureId ? `#${reference.featureId}` : ''}
 												</p>
@@ -685,7 +685,7 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 						<div className="space-y-2">
 							<div className="flex items-center justify-between gap-2">
 								<Label>Curated references</Label>
-								<span className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
+								<span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
 									{curatedReferenceEntities.length}
 								</span>
 							</div>
@@ -698,28 +698,30 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 								inputClassName="rounded-none"
 							/>
 							{curatedReferenceEntities.length === 0 ? (
-								<p className="border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
+								<p className="border border-border px-3 py-2 text-[11px] text-muted-foreground">
 									No extra curated references. Add items here when they belong to the context but do
 									not need to appear in the narrative text.
 								</p>
 							) : (
-								<div className="border border-slate-200">
+								<div className="border border-border">
 									{curatedReferenceEntities.map((reference, index) => (
 										<div
 											key={reference.key}
 											className={`flex items-start justify-between gap-3 px-3 py-2 ${
-												index > 0 ? 'border-t border-slate-200' : ''
+												index > 0 ? 'border-t border-border' : ''
 											}`}
 										>
 											<div className="min-w-0 space-y-0.5">
-												<p className="truncate text-xs font-medium text-slate-900">
+												<p className="truncate text-xs font-medium text-foreground">
 													{reference.name}
 												</p>
-												<p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">
+												<p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
 													{reference.entityType}
 													{reference.datasetName ? ` · ${reference.datasetName}` : ''}
 												</p>
-												<p className="truncate text-[10px] text-slate-500">{reference.raw}</p>
+												<p className="truncate text-[10px] text-muted-foreground">
+													{reference.raw}
+												</p>
 											</div>
 											<Button
 												type="button"
@@ -766,10 +768,10 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 							title="Attachment policy"
 							description="Open contexts accept foreign c attachments. Closed contexts ignore them."
 						/>
-						<div className="flex items-start justify-between gap-3 border border-slate-200 px-3 py-2">
+						<div className="flex items-start justify-between gap-3 border border-border px-3 py-2">
 							<div className="space-y-1">
-								<p className="text-xs font-medium text-slate-900">Allow foreign attachments</p>
-								<p className="text-[11px] leading-5 text-slate-500">
+								<p className="text-xs font-medium text-foreground">Allow foreign attachments</p>
+								<p className="text-[11px] leading-5 text-muted-foreground">
 									Compliant clients only query foreign attachments when this is enabled.
 								</p>
 							</div>
@@ -779,7 +781,7 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 							/>
 						</div>
 						{!allowForeignAttachments && (
-							<p className="text-[11px] text-slate-500">
+							<p className="text-[11px] text-muted-foreground">
 								Validation and schema controls stay hidden while foreign attachments are off.
 							</p>
 						)}
@@ -803,7 +805,7 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 							/>
 						</div>
 						{attachedContexts.length === 0 ? (
-							<p className="border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
+							<p className="border border-border px-3 py-2 text-[11px] text-muted-foreground">
 								This context is currently standalone.
 							</p>
 						) : (
@@ -814,13 +816,13 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 									return (
 										<div
 											key={coordinate}
-											className="flex items-center justify-between gap-2 border border-slate-200 px-3 py-2"
+											className="flex items-center justify-between gap-2 border border-border px-3 py-2"
 										>
 											<div className="min-w-0">
-												<p className="truncate text-xs font-medium text-slate-900">
+												<p className="truncate text-xs font-medium text-foreground">
 													{context.context.name || context.contextId || 'Untitled context'}
 												</p>
-												<p className="truncate text-[10px] text-slate-500">
+												<p className="truncate text-[10px] text-muted-foreground">
 													{context.context.allowForeignAttachments ? 'open' : 'closed'} ·{' '}
 													{coordinate}
 												</p>
@@ -952,7 +954,7 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 							{schemaMode === 'builder' ? (
 								<div className="space-y-2">
 									{fields.map((field, index) => (
-										<div key={field.id} className="space-y-2 border border-slate-200 px-3 py-2">
+										<div key={field.id} className="space-y-2 border border-border px-3 py-2">
 											<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
 												<Input
 													value={field.key}
@@ -1024,7 +1026,7 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 												/>
 											</div>
 											<div className="flex items-center justify-between">
-												<Label className="flex items-center gap-1 text-[11px] text-slate-600">
+												<Label className="flex items-center gap-1 text-[11px] text-muted-foreground">
 													<Input
 														type="checkbox"
 														checked={field.required}
@@ -1088,10 +1090,10 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 								<p
 									className={`text-xs ${
 										sampleValidation.status === 'valid'
-											? 'text-emerald-600'
+											? 'text-ok'
 											: sampleValidation.status === 'invalid'
-												? 'text-amber-600'
-												: 'text-red-600'
+												? 'text-primary'
+												: 'text-destructive'
 									}`}
 								>
 									{sampleValidation.message}
@@ -1102,7 +1104,7 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 				)}
 
 				<EntityPanelSurface tone="neutral" className="space-y-2">
-					{saveError && <p className="text-xs text-red-600">{saveError}</p>}
+					{saveError && <p className="text-xs text-destructive">{saveError}</p>}
 					<div className="flex items-center justify-end gap-2">
 						<Button variant="outline" onClick={onClose} className="rounded-none">
 							Cancel

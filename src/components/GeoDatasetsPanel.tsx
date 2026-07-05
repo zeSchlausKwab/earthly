@@ -402,14 +402,14 @@ export function GeoDatasetsPanelContent({
 				<div>
 					{isFocused ? (
 						<div className="space-y-1">
-							<p className="text-xs text-amber-700">Focused map view</p>
-							<p className="text-[11px] text-amber-600">
+							<p className="text-xs text-primary">Focused map view</p>
+							<p className="text-[11px] text-primary">
 								Only the focused dataset is currently visible on the map. Visibility checkboxes
 								below control map visibility only, and “Show all” restores the normal map view.
 							</p>
 						</div>
 					) : (
-						<p className="text-xs text-gray-500">
+						<p className="text-xs text-muted-foreground">
 							{mode === 'datasets'
 								? 'Remote GeoJSON datasets available to load.'
 								: 'Taxonomy and validation contexts.'}
@@ -478,9 +478,9 @@ export function GeoDatasetsPanelContent({
 
 			{mode === 'datasets' ? (
 				geoEvents.length === 0 ? (
-					<p className="text-xs text-gray-500">Listening for GeoJSON datasets…</p>
+					<p className="text-xs text-muted-foreground">Listening for GeoJSON datasets…</p>
 				) : displayedDatasetRows.length === 0 ? (
-					<p className="text-xs text-gray-500">
+					<p className="text-xs text-muted-foreground">
 						{catalogTab === 'favorites'
 							? 'No favorite datasets yet — tap the star on a row.'
 							: catalogTab === 'recent'
@@ -496,9 +496,9 @@ export function GeoDatasetsPanelContent({
 					/>
 				)
 			) : mapContextEvents.length === 0 ? (
-				<p className="text-xs text-gray-500">Listening for map contexts…</p>
+				<p className="text-xs text-muted-foreground">Listening for map contexts…</p>
 			) : displayedContextRows.length === 0 ? (
-				<p className="text-xs text-gray-500">
+				<p className="text-xs text-muted-foreground">
 					{catalogTab === 'favorites'
 						? 'No favorite contexts yet — star one on a row.'
 						: catalogTab === 'recent'

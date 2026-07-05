@@ -53,13 +53,13 @@ export function StylePropertiesSection({ feature }: StylePropertiesSectionProps)
 	}
 
 	return (
-		<div className="space-y-2 p-2 bg-blue-50/70 rounded-md border border-blue-200">
+		<div className="space-y-2 p-2 bg-info/15 rounded-md border border-info/40">
 			<div className="flex items-center justify-between">
-				<span className="text-[10px] text-blue-700 uppercase tracking-wide font-medium">Style</span>
+				<span className="text-[10px] text-info uppercase tracking-wide font-medium">Style</span>
 				<Button
 					size="icon-xs"
 					variant="ghost"
-					className="h-5 w-5 text-blue-600 hover:text-blue-800"
+					className="h-5 w-5 text-info hover:text-info"
 					onClick={resetToDefaults}
 					title="Reset to defaults"
 				>
@@ -101,19 +101,19 @@ function PointStyleControls({
 			{/* Color Row */}
 			<div className="flex items-center gap-2">
 				<div className="flex items-center gap-1 flex-1">
-					<span className="text-[10px] text-gray-600 w-8">Fill</span>
+					<span className="text-[10px] text-muted-foreground w-8">Fill</span>
 					<Input
 						type="color"
-						className="h-6 w-10 p-0.5 rounded border border-gray-200"
+						className="h-6 w-10 p-0.5 rounded border border-border"
 						value={feature.properties?.color ?? DEFAULT_POINT_STYLE.color}
 						onChange={(e) => onStyleChange('color', e.target.value)}
 					/>
 				</div>
 				<div className="flex items-center gap-1 flex-1">
-					<span className="text-[10px] text-gray-600 w-8">Stroke</span>
+					<span className="text-[10px] text-muted-foreground w-8">Stroke</span>
 					<Input
 						type="color"
-						className="h-6 w-10 p-0.5 rounded border border-gray-200"
+						className="h-6 w-10 p-0.5 rounded border border-border"
 						value={feature.properties?.strokeColor ?? DEFAULT_POINT_STYLE.strokeColor}
 						onChange={(e) => onStyleChange('strokeColor', e.target.value)}
 					/>
@@ -123,7 +123,7 @@ function PointStyleControls({
 			{/* Size Row */}
 			<div className="flex items-center gap-2">
 				<div className="flex items-center gap-1 flex-1">
-					<span className="text-[10px] text-gray-600 w-8">Size</span>
+					<span className="text-[10px] text-muted-foreground w-8">Size</span>
 					<Input
 						type="number"
 						className="h-6 text-xs flex-1"
@@ -134,7 +134,7 @@ function PointStyleControls({
 					/>
 				</div>
 				<div className="flex items-center gap-1 flex-1">
-					<span className="text-[10px] text-gray-600 w-8">Width</span>
+					<span className="text-[10px] text-muted-foreground w-8">Width</span>
 					<Input
 						type="number"
 						className="h-6 text-xs flex-1"
@@ -165,18 +165,18 @@ function LineStringStyleControls({
 			{/* Color & Pattern Row */}
 			<div className="flex items-center gap-2">
 				<div className="flex items-center gap-1">
-					<span className="text-[10px] text-gray-600 w-8">Color</span>
+					<span className="text-[10px] text-muted-foreground w-8">Color</span>
 					<Input
 						type="color"
-						className="h-6 w-10 p-0.5 rounded border border-gray-200"
+						className="h-6 w-10 p-0.5 rounded border border-border"
 						value={feature.properties?.strokeColor ?? DEFAULT_LINESTRING_STYLE.strokeColor}
 						onChange={(e) => onStyleChange('strokeColor', e.target.value)}
 					/>
 				</div>
 				<div className="flex items-center gap-1 flex-1">
-					<span className="text-[10px] text-gray-600 w-10">Pattern</span>
+					<span className="text-[10px] text-muted-foreground w-10">Pattern</span>
 					<select
-						className="h-6 text-xs flex-1 rounded border border-gray-200 bg-white px-1"
+						className="h-6 text-xs flex-1 rounded border border-border bg-card px-1"
 						value={feature.properties?.lineDash ?? DEFAULT_LINESTRING_STYLE.lineDash}
 						onChange={(e) => onStyleChange('lineDash', e.target.value)}
 					>
@@ -190,7 +190,7 @@ function LineStringStyleControls({
 			{/* Width & Opacity Row */}
 			<div className="flex items-center gap-2">
 				<div className="flex items-center gap-1 flex-1">
-					<span className="text-[10px] text-gray-600 w-8">Width</span>
+					<span className="text-[10px] text-muted-foreground w-8">Width</span>
 					<Input
 						type="number"
 						className="h-6 text-xs flex-1"
@@ -201,7 +201,7 @@ function LineStringStyleControls({
 					/>
 				</div>
 				<div className="flex items-center gap-1 flex-1">
-					<span className="text-[10px] text-gray-600 w-10">Opacity</span>
+					<span className="text-[10px] text-muted-foreground w-10">Opacity</span>
 					<Input
 						type="range"
 						className="h-6 flex-1"
@@ -233,16 +233,16 @@ function PolygonStyleControls({
 			{/* Fill Row */}
 			<div className="flex items-center gap-2">
 				<div className="flex items-center gap-1">
-					<span className="text-[10px] text-gray-600 w-8">Fill</span>
+					<span className="text-[10px] text-muted-foreground w-8">Fill</span>
 					<Input
 						type="color"
-						className="h-6 w-10 p-0.5 rounded border border-gray-200"
+						className="h-6 w-10 p-0.5 rounded border border-border"
 						value={feature.properties?.fillColor ?? DEFAULT_POLYGON_STYLE.fillColor}
 						onChange={(e) => onStyleChange('fillColor', e.target.value)}
 					/>
 				</div>
 				<div className="flex items-center gap-1 flex-1">
-					<span className="text-[10px] text-gray-600 w-10">Opacity</span>
+					<span className="text-[10px] text-muted-foreground w-10">Opacity</span>
 					<Input
 						type="range"
 						className="h-6 flex-1"
@@ -258,16 +258,16 @@ function PolygonStyleControls({
 			{/* Stroke Row */}
 			<div className="flex items-center gap-2">
 				<div className="flex items-center gap-1">
-					<span className="text-[10px] text-gray-600 w-8">Stroke</span>
+					<span className="text-[10px] text-muted-foreground w-8">Stroke</span>
 					<Input
 						type="color"
-						className="h-6 w-10 p-0.5 rounded border border-gray-200"
+						className="h-6 w-10 p-0.5 rounded border border-border"
 						value={feature.properties?.strokeColor ?? DEFAULT_POLYGON_STYLE.strokeColor}
 						onChange={(e) => onStyleChange('strokeColor', e.target.value)}
 					/>
 				</div>
 				<div className="flex items-center gap-1 flex-1">
-					<span className="text-[10px] text-gray-600 w-10">Width</span>
+					<span className="text-[10px] text-muted-foreground w-10">Width</span>
 					<Input
 						type="number"
 						className="h-6 text-xs flex-1"
@@ -294,8 +294,8 @@ function LabelControl({
 	onStyleChange: (key: string, value: string | number) => void
 }) {
 	return (
-		<div className="flex items-center gap-1 pt-1 border-t border-blue-100">
-			<span className="text-[10px] text-gray-600 w-8">Label</span>
+		<div className="flex items-center gap-1 pt-1 border-t border-info/40">
+			<span className="text-[10px] text-muted-foreground w-8">Label</span>
 			<Input
 				type="text"
 				className="h-6 text-xs flex-1"

@@ -819,10 +819,10 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 			return (
 				<div className="h-full flex items-center justify-center p-6">
 					<div className="max-w-sm text-center space-y-3">
-						<p className="text-sm font-medium text-gray-900">
+						<p className="text-sm font-medium text-foreground">
 							{isEmptyGeometryInspect ? 'No geometry selected' : 'Nothing selected'}
 						</p>
-						<p className="text-xs text-gray-500">
+						<p className="text-xs text-muted-foreground">
 							{isEmptyGeometryInspect
 								? 'Click on the map to inspect a geometry.'
 								: 'Choose a geometry or context to inspect.'}
@@ -874,7 +874,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	return (
 		<div className="space-y-2 text-sm">
 			{/* Header */}
-			<div className="flex items-center justify-between gap-2 pb-1 border-b border-gray-100">
+			<div className="flex items-center justify-between gap-2 pb-1 border-b border-border">
 				<div className="flex items-center gap-2">
 					{activeDataset && (
 						<Button
@@ -882,7 +882,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 							variant="ghost"
 							onClick={handleSwitchToView}
 							title="Switch to view mode"
-							className="h-6 px-2 text-xs text-gray-500 hover:text-gray-700"
+							className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
 						>
 							<Eye className="h-3 w-3 mr-1" />
 							View
@@ -890,14 +890,14 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					)}
 				</div>
 				{activeDatasetInfo && (
-					<span className="text-[10px] text-gray-500 truncate max-w-[100px]">
+					<span className="text-[10px] text-muted-foreground truncate max-w-[100px]">
 						{activeDatasetInfo.name} {activeDatasetInfo.isOwner ? '' : '(copy)'}
 					</span>
 				)}
 			</div>
 
 			{/* Stats row - inline */}
-			<div className="flex items-center gap-3 text-[10px] text-gray-500">
+			<div className="flex items-center gap-3 text-[10px] text-muted-foreground">
 				<span>{stats.points} pts</span>
 				<span>{stats.lines} lines</span>
 				<span>{stats.polygons} polys</span>
@@ -922,7 +922,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 
 			{/* Dataset Metadata - collapsible */}
 			<Collapsible defaultOpen>
-				<CollapsibleTrigger className="text-xs font-medium text-gray-700 hover:text-gray-900 w-full text-left py-1">
+				<CollapsibleTrigger className="text-xs font-medium text-foreground hover:text-foreground w-full text-left py-1">
 					Dataset info
 				</CollapsibleTrigger>
 				<CollapsibleContent>
@@ -938,7 +938,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 			    block a valid standalone publish. */}
 			{onPublishNew && (
 				<Collapsible defaultOpen={activeDatasetContextRefs.length > 0}>
-					<CollapsibleTrigger className="text-xs font-medium text-gray-700 hover:text-gray-900 w-full text-left py-1">
+					<CollapsibleTrigger className="text-xs font-medium text-foreground hover:text-foreground w-full text-left py-1">
 						Attach to a Group
 					</CollapsibleTrigger>
 					<CollapsibleContent>
@@ -955,13 +955,13 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 			)}
 
 			<Collapsible defaultOpen={false}>
-				<CollapsibleTrigger className="text-xs font-medium text-gray-700 hover:text-gray-900 w-full text-left py-1">
+				<CollapsibleTrigger className="text-xs font-medium text-foreground hover:text-foreground w-full text-left py-1">
 					Attached contexts ({activeDatasetContextRefs.length})
 				</CollapsibleTrigger>
 				<CollapsibleContent>
 					<div className="space-y-2">
 						{invalidAttachedContextCount > 0 && (
-							<p className="text-[11px] text-amber-700">
+							<p className="text-[11px] text-primary">
 								{invalidAttachedContextCount} attached context
 								{invalidAttachedContextCount === 1 ? '' : 's'} report constraint warnings.
 							</p>
@@ -977,20 +977,20 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 											<label
 												className={`flex items-center justify-between gap-2 rounded border px-2 py-1 ${
 													validation?.status === 'invalid'
-														? 'border-amber-300 bg-amber-50/40'
-														: 'border-gray-100'
+														? 'border-primary/40 bg-primary/10'
+														: 'border-border'
 												}`}
 											>
-												<span className="truncate text-xs text-gray-700">{context.name}</span>
+												<span className="truncate text-xs text-foreground">{context.name}</span>
 												<div className="flex items-center gap-2 shrink-0">
-													<span className="text-[10px] text-gray-500">
+													<span className="text-[10px] text-muted-foreground">
 														{context.validationMode}
 													</span>
 													{validation?.status === 'valid' && (
-														<span className="text-[10px] text-emerald-700">valid</span>
+														<span className="text-[10px] text-ok">valid</span>
 													)}
 													{validation?.status === 'invalid' && (
-														<span className="text-[10px] text-amber-700">
+														<span className="text-[10px] text-primary">
 															{validation.featureErrorCount} invalid
 														</span>
 													)}
@@ -1006,13 +1006,13 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 													const primaryError = getPrimaryContextError(context.coordinate)
 													if (!primaryError) return null
 													return (
-														<p className="px-2 text-[10px] text-amber-700">
+														<p className="px-2 text-[10px] text-primary">
 															{primaryError.path || '/'} {primaryError.message}
 														</p>
 													)
 												})()}
 											{validation?.status === 'unresolved' && context.contextUse !== 'taxonomy' && (
-												<p className="px-2 text-[10px] text-amber-600">
+												<p className="px-2 text-[10px] text-primary">
 													Validation not run yet — save or re-open this dataset to trigger it.
 												</p>
 											)}
@@ -1025,15 +1025,17 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						{/* Recent unattached contexts */}
 						{recentUnattachedContexts.length > 0 && (
 							<div className="space-y-1">
-								<p className="text-[10px] text-gray-400 uppercase tracking-wide">Recent</p>
+								<p className="text-[10px] text-muted-foreground uppercase tracking-wide">Recent</p>
 								{recentUnattachedContexts.map((context) => (
 									<label
 										key={context.coordinate}
-										className="flex items-center justify-between gap-2 rounded border border-gray-100 px-2 py-1"
+										className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1"
 									>
-										<span className="truncate text-xs text-gray-700">{context.name}</span>
+										<span className="truncate text-xs text-foreground">{context.name}</span>
 										<div className="flex items-center gap-2 shrink-0">
-											<span className="text-[10px] text-gray-500">{context.validationMode}</span>
+											<span className="text-[10px] text-muted-foreground">
+												{context.validationMode}
+											</span>
 											<Input
 												type="checkbox"
 												checked={false}
@@ -1055,7 +1057,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 							compact
 						/>
 						{attachableContexts.length === 0 && recentUnattachedContexts.length === 0 && (
-							<p className="text-[10px] text-gray-400 leading-snug">
+							<p className="text-[10px] text-muted-foreground leading-snug">
 								Only open contexts appear here. If you don't see yours, open its settings and enable
 								"Allow foreign attachments".
 							</p>
@@ -1066,7 +1068,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 
 			{/* Blob References - collapsible */}
 			<Collapsible defaultOpen={false}>
-				<CollapsibleTrigger className="text-xs font-medium text-gray-700 hover:text-gray-900 w-full text-left py-1">
+				<CollapsibleTrigger className="text-xs font-medium text-foreground hover:text-foreground w-full text-left py-1">
 					External references
 				</CollapsibleTrigger>
 				<CollapsibleContent>
@@ -1076,7 +1078,9 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 
 			{/* Geometries table */}
 			<div className="flex flex-col min-h-0">
-				<div className="text-xs font-medium text-gray-700 py-1">Geometries ({features.length})</div>
+				<div className="text-xs font-medium text-foreground py-1">
+					Geometries ({features.length})
+				</div>
 				<GeometriesTable
 					className="max-h-[50vh] overflow-y-auto"
 					onZoomToFeature={onZoomToFeature}
@@ -1100,7 +1104,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 									onClick={
 										attachedGeojson ? () => setAttachedGeojson(null) : handleAttachCommentGeometry
 									}
-									className="gap-1.5 rounded-none border-stone-200 bg-white px-2 text-[11px] text-stone-700 hover:bg-stone-100"
+									className="gap-1.5 rounded-none border-border bg-card px-2 text-[11px] text-foreground hover:bg-muted"
 								>
 									<MapPin className="h-3.5 w-3.5" />
 									{attachedGeojson
@@ -1131,8 +1135,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 			{/* Publishing Status */}
 			{(publishMessage || publishError) && (
 				<div className="text-[10px] pt-1">
-					{publishMessage && <p className="text-green-600">{publishMessage}</p>}
-					{publishError && <p className="text-red-600">{publishError}</p>}
+					{publishMessage && <p className="text-ok">{publishMessage}</p>}
+					{publishError && <p className="text-destructive">{publishError}</p>}
 				</div>
 			)}
 		</div>
@@ -1144,7 +1148,7 @@ export function GeoEditorInfoPanel({
 	...props
 }: GeoEditorInfoPanelProps & { className?: string }) {
 	return (
-		<div className={cn('w-80 rounded-xl bg-white p-3 shadow-lg', className)}>
+		<div className={cn('w-80 rounded-xl bg-card p-3 shadow-lg', className)}>
 			<GeoEditorInfoPanelContent {...props} />
 		</div>
 	)

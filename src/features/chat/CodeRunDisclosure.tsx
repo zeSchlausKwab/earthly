@@ -99,13 +99,13 @@ export function CodeRunDisclosure({ source, result, defaultOpen = false }: CodeR
 	const { created, updated, deleted, skippedDuplicates } = result.counts
 
 	return (
-		<div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs dark:border-violet-800 dark:bg-violet-950">
+		<div className="rounded-lg border border-edit/40 bg-edit/15 px-3 py-2 text-xs">
 			<div className="mb-1 flex items-center justify-between gap-2">
 				<Button
 					type="button"
 					variant="ghost"
 					onClick={() => setIsOpen((prev) => !prev)}
-					className="h-auto min-w-0 p-0 text-left font-medium text-violet-700 dark:text-violet-300"
+					className="h-auto min-w-0 p-0 text-left font-medium text-edit"
 					aria-expanded={isOpen}
 				>
 					<span className="mr-1">{isOpen ? '▾' : '▸'}</span>
@@ -118,10 +118,10 @@ export function CodeRunDisclosure({ source, result, defaultOpen = false }: CodeR
 				<div className="space-y-2">
 					{/* (1) read-only source — D-12: no editable control, no rerun */}
 					<div>
-						<div className="mb-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-700/80 dark:text-violet-300/80">
+						<div className="mb-0.5 text-[10px] font-medium uppercase tracking-wide text-edit/80">
 							Source (read-only)
 						</div>
-						<div className="max-h-56 overflow-y-auto rounded border border-violet-200/70 bg-background/70 p-2 dark:border-violet-800/60">
+						<div className="max-h-56 overflow-y-auto rounded border border-edit/40 bg-background/70 p-2">
 							<pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
 								<code>{source}</code>
 							</pre>
@@ -131,10 +131,10 @@ export function CodeRunDisclosure({ source, result, defaultOpen = false }: CodeR
 					{/* (2) captured console stream — D-10 */}
 					{result.consoleLines.length > 0 && (
 						<div>
-							<div className="mb-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-700/80 dark:text-violet-300/80">
+							<div className="mb-0.5 text-[10px] font-medium uppercase tracking-wide text-edit/80">
 								Console
 							</div>
-							<div className="max-h-40 overflow-y-auto rounded border border-violet-200/70 bg-background/70 p-2 dark:border-violet-800/60">
+							<div className="max-h-40 overflow-y-auto rounded border border-edit/40 bg-background/70 p-2">
 								<pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
 									{consoleText}
 									{result.truncated ? '\n…(output truncated)' : ''}
@@ -144,18 +144,18 @@ export function CodeRunDisclosure({ source, result, defaultOpen = false }: CodeR
 					)}
 
 					{/* (3) authoring counts summary — D-10 */}
-					<div className="rounded border border-violet-200/70 bg-background/70 p-2 text-[11px] text-muted-foreground dark:border-violet-800/60">
-						<span className="font-medium text-violet-700 dark:text-violet-300">Result:</span>{' '}
-						{created} created · {updated} updated · {deleted} deleted
+					<div className="rounded border border-edit/40 bg-background/70 p-2 text-[11px] text-muted-foreground">
+						<span className="font-medium text-edit">Result:</span> {created} created · {updated}{' '}
+						updated · {deleted} deleted
 						{skippedDuplicates > 0 ? ` · ${skippedDuplicates} skipped` : ''}
 					</div>
 
 					{/* (4) JSON-rendered return value — D-10 */}
 					<div>
-						<div className="mb-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-700/80 dark:text-violet-300/80">
+						<div className="mb-0.5 text-[10px] font-medium uppercase tracking-wide text-edit/80">
 							Return value
 						</div>
-						<div className="max-h-40 overflow-y-auto rounded border border-violet-200/70 bg-background/70 p-2 dark:border-violet-800/60">
+						<div className="max-h-40 overflow-y-auto rounded border border-edit/40 bg-background/70 p-2">
 							<pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
 								{returnText}
 								{result.truncated ? '\n…(output truncated)' : ''}

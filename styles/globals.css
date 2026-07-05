@@ -301,6 +301,11 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
+  /* DS single-purpose accents exposed as utilities: bg-ok / text-info / border-edit */
+  --color-ok: var(--accent-ok);
+  --color-info: var(--accent-info);
+  --color-edit: var(--accent-edit);
+
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
   --font-serif: var(--font-serif);

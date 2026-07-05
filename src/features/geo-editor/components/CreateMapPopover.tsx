@@ -599,7 +599,7 @@ export function CreateMapPopover({ small = false }: CreateMapPopoverProps) {
 
 						{flowState === 'done' && resultUrl && (
 							<div className="space-y-3">
-								<div className="flex items-center gap-2 text-green-600">
+								<div className="flex items-center gap-2 text-ok">
 									<Check className="h-5 w-5" />
 									<span className="text-sm font-medium">Upload complete!</span>
 								</div>

@@ -53,20 +53,20 @@ export function BindingChip({
 	return (
 		<div className="flex items-center justify-between gap-2 text-xs">
 			{/* Bound-target chip — always visible (SAFE-01) */}
-			<div className="flex min-w-0 items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-violet-700 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300">
+			<div className="flex min-w-0 items-center gap-1.5 rounded-full border border-edit/40 bg-edit/15 px-2 py-0.5 text-edit">
 				<Crosshair className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
 				<span className="truncate font-medium" title={name}>
 					{name}
 				</span>
 				{unsaved ? (
 					<span
-						className="flex-shrink-0 rounded-full bg-amber-100 px-1 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:bg-amber-900/60 dark:text-amber-300"
+						className="flex-shrink-0 rounded-full bg-primary/10 px-1 text-[10px] font-medium uppercase tracking-wide text-primary"
 						title="Unsaved in-memory edits"
 					>
 						unsaved
 					</span>
 				) : null}
-				<span className="flex-shrink-0 text-violet-500 dark:text-violet-400/80">
+				<span className="flex-shrink-0 text-edit">
 					· {featureCount} {featureLabel}
 				</span>
 			</div>

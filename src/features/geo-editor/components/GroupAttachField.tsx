@@ -311,25 +311,19 @@ export function GroupAttachField({
 			)}
 
 			{!checking && workerFailed && (
-				<Alert
-					variant="default"
-					className="border-l-2 border-l-amber-500 text-amber-700 dark:text-amber-400"
-				>
-					<AlertDescription className="text-amber-700 dark:text-amber-400">
+				<Alert variant="default" className="border-l-2 border-l-amber-500 text-primary">
+					<AlertDescription className="text-primary">
 						Couldn't check this contribution right now. It's shown unfiltered.
 					</AlertDescription>
 				</Alert>
 			)}
 
 			{!checking && visibleWarnings.length > 0 && (
-				<Alert
-					variant="default"
-					className="border-l-2 border-l-amber-500 text-amber-700 dark:text-amber-400"
-				>
-					<AlertTitle className="text-amber-700 dark:text-amber-400">
+				<Alert variant="default" className="border-l-2 border-l-amber-500 text-primary">
+					<AlertTitle className="text-primary">
 						This dataset doesn't match {schemaGroupName}'s rules
 					</AlertTitle>
-					<AlertDescription className="text-amber-700 dark:text-amber-400">
+					<AlertDescription className="text-primary">
 						<ul className="mt-1 space-y-1">
 							{visibleWarnings.map((warning) => (
 								<li key={warning.id} className="flex items-start justify-between gap-2">
@@ -338,7 +332,7 @@ export function GroupAttachField({
 										type="button"
 										onClick={() => handleDismissWarning(warning)}
 										aria-label="Dismiss warning"
-										className="shrink-0 text-amber-700/70 hover:text-amber-700 dark:text-amber-400/70 dark:hover:text-amber-400"
+										className="shrink-0 text-primary/70 hover:text-primary dark:hover:text-primary"
 									>
 										<X className="size-3" />
 									</button>

@@ -523,7 +523,7 @@ export function ShareExportPopover({ small = false }: ShareExportPopoverProps) {
 					<div className="space-y-3">
 						<div>
 							<h4 className="text-sm font-semibold mb-1">Share this view</h4>
-							<p className="text-xs text-gray-500">
+							<p className="text-xs text-muted-foreground">
 								Share this {shareMeta.subjectLabel} as a link or export card.
 							</p>
 						</div>
@@ -537,7 +537,7 @@ export function ShareExportPopover({ small = false }: ShareExportPopoverProps) {
 							>
 								{copiedUrl ? (
 									<>
-										<Check className="h-4 w-4 mr-2 text-green-600" />
+										<Check className="h-4 w-4 mr-2 text-ok" />
 										Copied!
 									</>
 								) : (
@@ -570,7 +570,7 @@ export function ShareExportPopover({ small = false }: ShareExportPopoverProps) {
 
 						<div className="grid grid-cols-2 gap-3">
 							<div className="space-y-1.5">
-								<p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
 									Capture
 								</p>
 								{canUseEntityBounds ? (
@@ -593,14 +593,14 @@ export function ShareExportPopover({ small = false }: ShareExportPopoverProps) {
 										</Button>
 									</div>
 								) : (
-									<div className="h-8 rounded-md border border-dashed border-gray-300 px-2 flex items-center text-xs text-gray-500">
+									<div className="h-8 rounded-md border border-dashed border-border px-2 flex items-center text-xs text-muted-foreground">
 										Viewport only
 									</div>
 								)}
 							</div>
 
 							<div className="space-y-1.5">
-								<p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
 									Aspect ratio
 								</p>
 								<div className="grid grid-cols-4 gap-1">
@@ -616,7 +616,7 @@ export function ShareExportPopover({ small = false }: ShareExportPopoverProps) {
 										</Button>
 									))}
 								</div>
-								<p className="text-[11px] font-medium uppercase tracking-wide text-gray-500 mt-2">
+								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mt-2">
 									Resolution
 								</p>
 								<div className="grid grid-cols-3 gap-1">
@@ -636,11 +636,11 @@ export function ShareExportPopover({ small = false }: ShareExportPopoverProps) {
 						</div>
 
 						<div className="space-y-1.5">
-							<p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+							<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
 								Preview
 							</p>
 							<div
-								className="relative w-full overflow-hidden rounded-md border border-gray-200 bg-gray-100"
+								className="relative w-full overflow-hidden rounded-md border border-border bg-muted"
 								style={{ aspectRatio: selectedAspect.ratio }}
 							>
 								{sharePreviewDataUrl && !sharePreviewLoading && (
@@ -651,20 +651,20 @@ export function ShareExportPopover({ small = false }: ShareExportPopoverProps) {
 									/>
 								)}
 								{sharePreviewLoading && (
-									<div className="absolute inset-0 flex items-center justify-center text-xs text-gray-600 bg-white/80">
+									<div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground bg-card/80">
 										<Loader2 className="h-4 w-4 mr-2 animate-spin" />
 										Rendering preview...
 									</div>
 								)}
 							</div>
-							{sharePreviewError && <p className="text-xs text-red-600">{sharePreviewError}</p>}
+							{sharePreviewError && <p className="text-xs text-destructive">{sharePreviewError}</p>}
 						</div>
 
 						{isFocused && (
 							<Button
 								size="sm"
 								variant="ghost"
-								className="w-full justify-start text-gray-600"
+								className="w-full justify-start text-muted-foreground"
 								onClick={handleExitFocus}
 							>
 								<X className="h-4 w-4 mr-2" />

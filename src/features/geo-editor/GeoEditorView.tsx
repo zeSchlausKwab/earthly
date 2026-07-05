@@ -2731,7 +2731,7 @@ export function GeoEditorView() {
 					)}
 
 					{mapError && (
-						<div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded z-50">
+						<div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-destructive/10 border border-destructive/40 text-destructive px-4 py-3 rounded z-50">
 							<p className="font-bold">Map Error</p>
 							<p>{mapError}</p>
 						</div>
@@ -2773,7 +2773,7 @@ export function GeoEditorView() {
 
 					{!isMobile && (
 						<div className="absolute bottom-0 left-0 right-0 z-10 pointer-events-none">
-							<div className="mx-auto w-full max-w-6xl px-6 pb-2 text-xs text-gray-500 text-center pointer-events-auto">
+							<div className="mx-auto w-full max-w-6xl px-6 pb-2 text-xs text-muted-foreground text-center pointer-events-auto">
 								Hold <strong>{multiSelectModifierLabel}</strong> to multi-select
 								{selectionCount > 0 ? ` • ${selectionCount} selected` : ''}
 							</div>
@@ -2963,7 +2963,7 @@ export function GeoEditorView() {
 									{/* Locate now lives in mapcn's MapControls (top-level of the map). */}
 									<Button
 										variant={panLocked ? 'default' : 'outline'}
-										className="shadow-lg h-10 w-10 p-0 rounded-full bg-white/95 backdrop-blur hover:bg-white"
+										className="shadow-lg h-10 w-10 p-0 rounded-full bg-card/95 backdrop-blur hover:bg-card"
 										onClick={togglePanLock}
 										aria-label="Toggle pan lock while drawing"
 										disabled={isDrawingMode}
@@ -2999,9 +2999,11 @@ export function GeoEditorView() {
 										{magnifierMenuOpen && (
 											<div
 												ref={magnifierMenuRef}
-												className="pointer-events-auto absolute bottom-14 left-0 z-50 w-52 rounded-xl border border-gray-200 bg-white/95 px-4 py-3 text-sm shadow-lg backdrop-blur"
+												className="pointer-events-auto absolute bottom-14 left-0 z-50 w-52 rounded-xl border border-border bg-card/95 px-4 py-3 text-sm shadow-lg backdrop-blur"
 											>
-												<div className="mb-3 text-xs font-medium text-gray-600">Magnifier zoom</div>
+												<div className="mb-3 text-xs font-medium text-muted-foreground">
+													Magnifier zoom
+												</div>
 												<div className="flex items-center gap-3">
 													<Button
 														type="button"
@@ -3038,7 +3040,7 @@ export function GeoEditorView() {
 														+
 													</Button>
 												</div>
-												<div className="mt-2 text-xs text-gray-500">
+												<div className="mt-2 text-xs text-muted-foreground">
 													Zoom +{magnifierZoomOffset}
 												</div>
 											</div>

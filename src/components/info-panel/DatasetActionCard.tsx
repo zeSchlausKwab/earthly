@@ -49,12 +49,12 @@ export function DatasetActionCard({
 	return (
 		<div
 			className={cn(
-				'rounded-lg border border-gray-200 bg-white p-3 text-sm space-y-2',
+				'rounded-lg border border-border bg-card p-3 text-sm space-y-2',
 				!isVisible && 'opacity-60',
 			)}
 		>
-			<div className="font-semibold text-gray-900 truncate">{datasetName}</div>
-			<div className="flex items-center gap-1.5 text-[11px] text-gray-500">
+			<div className="font-semibold text-foreground truncate">{datasetName}</div>
+			<div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
 				<span className="shrink-0">Owner:</span>
 				<UserProfile
 					pubkey={event.pubkey}
@@ -67,7 +67,7 @@ export function DatasetActionCard({
 			{event.hashtags.length > 0 && (
 				<div className="flex flex-wrap gap-1">
 					{event.hashtags.slice(0, 3).map((tag) => (
-						<span key={tag} className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">
+						<span key={tag} className="rounded bg-info/15 px-1.5 py-0.5 text-[10px] text-info">
 							#{tag}
 						</span>
 					))}
@@ -78,9 +78,7 @@ export function DatasetActionCard({
 					size="sm"
 					className={cn(
 						'w-full',
-						isOwned
-							? 'bg-green-600 text-white hover:bg-green-700'
-							: 'bg-blue-600 text-white hover:bg-blue-700',
+						isOwned ? 'bg-ok text-white hover:bg-ok/15' : 'bg-info text-white hover:bg-info/15',
 					)}
 					onClick={() => onLoadDataset(event)}
 					disabled={isPublishing}
@@ -89,8 +87,8 @@ export function DatasetActionCard({
 				</Button>
 				{isOwned &&
 					(confirmingDelete || isDeleting ? (
-						<div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">
-							<p className="text-[11px] font-medium text-rose-900">
+						<div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2">
+							<p className="text-[11px] font-medium text-destructive">
 								Delete this dataset from Nostr?
 							</p>
 							<div className="mt-2 flex items-center justify-end gap-2">

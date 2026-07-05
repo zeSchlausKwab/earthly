@@ -78,7 +78,7 @@ export function Magnifier({
 				top: position.y - size / 2,
 			}}
 		>
-			<div className="relative h-full w-full overflow-hidden rounded-full border border-gray-300 bg-white shadow-xl">
+			<div className="relative h-full w-full overflow-hidden rounded-full border border-border bg-card shadow-xl">
 				<div ref={containerRef} className="h-full w-full" />
 				<div className="pointer-events-none absolute inset-0 flex items-center justify-center">
 					<svg

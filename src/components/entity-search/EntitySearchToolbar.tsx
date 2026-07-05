@@ -93,7 +93,7 @@ export function EntitySearchToolbar({
 					))}
 				</SelectContent>
 			</Select>
-			<span className="text-[11px] text-gray-500 whitespace-nowrap">
+			<span className="text-[11px] text-muted-foreground whitespace-nowrap">
 				{displayedCount}/{filteredCount}
 				{filteredCount !== totalCount && ` (${totalCount})`}
 			</span>

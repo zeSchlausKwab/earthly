@@ -281,7 +281,7 @@ export function ForeignLane({
 											{row.reason ? (
 												<Badge
 													variant="outline"
-													className="rounded-none border-l-2 border-l-amber-500 text-[10px] text-amber-700 dark:text-amber-400"
+													className="rounded-none border-l-2 border-l-amber-500 text-[10px] text-primary"
 												>
 													{row.reason}
 												</Badge>
@@ -290,7 +290,7 @@ export function ForeignLane({
 												// silent about WHY it survived (UAT b: Strict survivors need a chip too).
 												<Badge
 													variant="outline"
-													className="rounded-none border-l-2 border-l-emerald-500 text-[10px] text-emerald-700 dark:text-emerald-400"
+													className="rounded-none border-l-2 border-l-emerald-500 text-[10px] text-ok"
 												>
 													Matches the rules
 												</Badge>
@@ -317,7 +317,7 @@ export function ForeignLane({
 														type="button"
 														size="icon-sm"
 														variant="outline"
-														className="border-slate-200"
+														className="border-border"
 														aria-label="Contribution actions"
 													>
 														<MoreVertical className="h-3.5 w-3.5" />
@@ -351,7 +351,7 @@ export function ForeignLane({
 									variant="outline"
 									size="sm"
 									onClick={() => setShowAll(true)}
-									className="rounded-none border-stone-200 bg-white px-2 text-xs"
+									className="rounded-none border-border bg-card px-2 text-xs"
 								>
 									Load more
 								</Button>

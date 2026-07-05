@@ -125,20 +125,22 @@ export function FeaturePropertiesSection({
 	return (
 		<div className="space-y-2">
 			<div className="flex items-center justify-between">
-				<span className="text-xs font-medium text-gray-700">
+				<span className="text-xs font-medium text-foreground">
 					{isAnnotation ? 'Annotation' : 'Feature'}
 				</span>
-				<span className="text-[10px] text-gray-400 font-mono">{feature.id.slice(0, 10)}…</span>
+				<span className="text-[10px] text-muted-foreground font-mono">
+					{feature.id.slice(0, 10)}…
+				</span>
 			</div>
 
 			{/* Annotation-specific: Text input prominently displayed */}
 			{isAnnotation && (
-				<div className="space-y-2 p-2 bg-amber-50 rounded border border-amber-200">
-					<div className="text-[10px] text-amber-700 uppercase tracking-wide font-medium">
+				<div className="space-y-2 p-2 bg-primary/10 rounded border border-primary/40">
+					<div className="text-[10px] text-primary uppercase tracking-wide font-medium">
 						Annotation Text
 					</div>
 					<textarea
-						className="w-full h-16 rounded border border-amber-300 px-2 py-1 text-sm resize-none bg-white"
+						className="w-full h-16 rounded border border-primary/40 px-2 py-1 text-sm resize-none bg-card"
 						placeholder="Enter annotation text..."
 						value={(feature.properties?.text as string) ?? ''}
 						onChange={(e) => onAnnotationTextChange(e.target.value)}
@@ -146,7 +148,7 @@ export function FeaturePropertiesSection({
 					/>
 					<div className="flex items-center gap-2">
 						<div className="flex items-center gap-1 flex-1">
-							<span className="text-[10px] text-gray-500">Size</span>
+							<span className="text-[10px] text-muted-foreground">Size</span>
 							<Input
 								type="number"
 								className="h-6 text-xs w-14"
@@ -157,19 +159,19 @@ export function FeaturePropertiesSection({
 							/>
 						</div>
 						<div className="flex items-center gap-1">
-							<span className="text-[10px] text-gray-500">Color</span>
+							<span className="text-[10px] text-muted-foreground">Color</span>
 							<Input
 								type="color"
-								className="h-6 w-8 p-0.5 rounded border border-gray-200"
+								className="h-6 w-8 p-0.5 rounded border border-border"
 								value={(feature.properties?.textColor as string) ?? '#1f2937'}
 								onChange={(e) => onAnnotationStyleChange('textColor', e.target.value)}
 							/>
 						</div>
 						<div className="flex items-center gap-1">
-							<span className="text-[10px] text-gray-500">Halo</span>
+							<span className="text-[10px] text-muted-foreground">Halo</span>
 							<Input
 								type="color"
-								className="h-6 w-8 p-0.5 rounded border border-gray-200"
+								className="h-6 w-8 p-0.5 rounded border border-border"
 								value={(feature.properties?.textHaloColor as string) ?? '#ffffff'}
 								onChange={(e) => onAnnotationStyleChange('textHaloColor', e.target.value)}
 							/>
@@ -201,10 +203,10 @@ export function FeaturePropertiesSection({
 
 			{/* Custom properties - compact */}
 			<div className="space-y-1">
-				<div className="text-[10px] text-gray-500 uppercase tracking-wide">Properties</div>
+				<div className="text-[10px] text-muted-foreground uppercase tracking-wide">Properties</div>
 				{Object.entries(customPropertiesToDisplay).map(([key, value]) => (
 					<div key={key} className="flex items-center gap-1">
-						<span className="text-[10px] text-gray-600 min-w-[40px] truncate">{key}</span>
+						<span className="text-[10px] text-muted-foreground min-w-[40px] truncate">{key}</span>
 						<Input
 							className="h-6 text-xs flex-1"
 							value={String(value)}
@@ -213,7 +215,7 @@ export function FeaturePropertiesSection({
 						<Button
 							size="icon-xs"
 							variant="ghost"
-							className="text-red-500"
+							className="text-destructive"
 							onClick={() => onRemoveCustomProperty(key)}
 						>
 							<Trash2 className="h-3 w-3" />

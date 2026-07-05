@@ -13,11 +13,7 @@ import { UserProfile } from '@/components/user-profile'
 
 interface GeoCommentItemProps {
 	commentNode: CommentNode
-	onReply: (
-		parentComment: GeoComment,
-		text: string,
-		geojson?: FeatureCollection,
-	) => Promise<void>
+	onReply: (parentComment: GeoComment, text: string, geojson?: FeatureCollection) => Promise<void>
 	onToggleGeojsonVisibility?: (comment: GeoComment, visible: boolean) => void
 	onZoomToGeojson?: (comment: GeoComment) => void
 	onMentionVisibilityToggle?: (
@@ -111,10 +107,10 @@ export function GeoCommentItem({
 			{/* Main comment */}
 			<div
 				ref={commentRef}
-				className={`group rounded-lg border bg-white p-2 transition-colors ${
+				className={`group rounded-lg border bg-card p-2 transition-colors ${
 					isFocusedComment
-						? 'border-amber-300 bg-amber-50/40 shadow-sm'
-						: 'border-gray-100 hover:border-gray-200'
+						? 'border-primary/40 bg-primary/10 shadow-sm'
+						: 'border-border hover:border-border'
 				}`}
 				style={indentStyle}
 			>
@@ -122,7 +118,7 @@ export function GeoCommentItem({
 				<div className="flex items-center justify-between gap-2 mb-1">
 					<div className="flex items-center gap-2 min-w-0">
 						<UserProfile pubkey={comment.pubkey} mode="avatar-name" size="sm" showNip05Badge />
-						<span className="text-[10px] text-gray-400">{timestamp}</span>
+						<span className="text-[10px] text-muted-foreground">{timestamp}</span>
 					</div>
 
 					<div className="flex items-center gap-1">
@@ -132,7 +128,7 @@ export function GeoCommentItem({
 								variant="ghost"
 								size="icon-xs"
 								onClick={() => setIsExpanded(!isExpanded)}
-								className="h-5 w-5 p-0 text-gray-400 hover:text-gray-600"
+								className="h-5 w-5 p-0 text-muted-foreground hover:text-muted-foreground"
 							>
 								{isExpanded ? (
 									<ChevronDown className="h-3.5 w-3.5" />
@@ -144,7 +140,7 @@ export function GeoCommentItem({
 					</div>
 				</div>
 
-				<div className="text-sm text-gray-800">
+				<div className="text-sm text-foreground">
 					<RichContentRenderer
 						content={comment.text}
 						onMentionVisibilityToggle={onMentionVisibilityToggle}
@@ -155,7 +151,7 @@ export function GeoCommentItem({
 
 				{/* GeoJSON attachment indicator */}
 				{hasGeojson && (
-					<div className="mt-2 flex items-center gap-2 rounded-md bg-emerald-50 border border-emerald-200 px-2 py-1 text-xs text-emerald-700">
+					<div className="mt-2 flex items-center gap-2 rounded-md bg-ok/15 border border-ok/40 px-2 py-1 text-xs text-ok">
 						<MapPin className="h-3.5 w-3.5 flex-shrink-0" />
 						<span>
 							{featureCount} geometry{featureCount === 1 ? '' : 'ies'}
@@ -169,8 +165,8 @@ export function GeoCommentItem({
 									size="icon-xs"
 									onClick={handleToggleGeojsonVisibility}
 									className={`ml-auto h-5 w-5 p-0 ${
-										isGeojsonVisible ? 'text-emerald-600' : 'text-gray-400'
-									} hover:text-emerald-700`}
+										isGeojsonVisible ? 'text-ok' : 'text-muted-foreground'
+									} hover:text-ok`}
 								>
 									{isGeojsonVisible ? (
 										<Eye className="h-3.5 w-3.5" />
@@ -190,7 +186,7 @@ export function GeoCommentItem({
 										variant="ghost"
 										size="xs"
 										onClick={handleZoomToGeojson}
-										className="h-5 px-1.5 text-emerald-600 hover:text-emerald-700"
+										className="h-5 px-1.5 text-ok hover:text-ok"
 									>
 										Zoom
 									</Button>
@@ -213,7 +209,7 @@ export function GeoCommentItem({
 
 				{/* Inline reply form */}
 				{showReplyForm && (
-					<div className="mt-2 pt-2 border-t border-gray-100">
+					<div className="mt-2 pt-2 border-t border-border">
 						<GeoCommentForm
 							onSubmit={handleReply}
 							onCancel={() => onComposerTargetChange('root')}

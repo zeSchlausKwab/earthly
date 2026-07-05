@@ -43,7 +43,7 @@ export interface ContextColumnsContext {
 // dataset catalog so the two surfaces stay uniform. Muted-but-present at rest
 // with a subtle rounded hover chip so each icon clearly behaves like a button.
 const actionButtonClass =
-	'rounded-md px-2 text-xs text-gray-600 shadow-none hover:bg-muted hover:text-sky-600'
+	'rounded-md px-2 text-xs text-muted-foreground shadow-none hover:bg-muted hover:text-info'
 
 function ContextBadge({ label, className }: { label: string; className: string }) {
 	return (
@@ -78,7 +78,7 @@ export const createContextColumns = (
 					style={paddingLeftRem > 0 ? { paddingLeft: `${paddingLeftRem}rem` } : undefined}
 				>
 					{isMapActive ? (
-						<div className="absolute inset-y-1 left-0 w-1 rounded-full bg-emerald-500" />
+						<div className="absolute inset-y-1 left-0 w-1 rounded-full bg-ok" />
 					) : null}
 					{image && (
 						<div className="mr-2 h-16 w-16 shrink-0 overflow-hidden rounded-sm">
@@ -91,11 +91,11 @@ export const createContextColumns = (
 					)}
 					<div className="min-w-0 flex-1 py-1">
 						<div className="flex min-w-0 items-start gap-1.5">
-							{displayDepth > 0 && <span className="text-[10px] text-slate-400">└</span>}
+							{displayDepth > 0 && <span className="text-[10px] text-muted-foreground">└</span>}
 							<div className="min-w-0 flex-1">
 								<div className="flex min-w-0 items-start justify-between gap-3">
 									<div className="min-w-0 flex-1">
-										<div className="line-clamp-2 break-words text-sm font-semibold leading-snug text-gray-900">
+										<div className="line-clamp-2 break-words text-sm font-semibold leading-snug text-foreground">
 											{contextName}
 										</div>
 										<div className="mt-1 min-w-0">
@@ -109,33 +109,33 @@ export const createContextColumns = (
 										</div>
 									</div>
 									<div className="flex max-w-[9rem] shrink-0 flex-wrap justify-end gap-1 pt-0.5">
-										<ContextBadge label={contextUse} className="bg-blue-100 text-blue-700" />
+										<ContextBadge label={contextUse} className="bg-info/15 text-info" />
 										{validationMode ? (
 											<ContextBadge
 												label={validationMode}
 												className={
 													validationMode === 'required'
-														? 'bg-red-100 text-red-700'
+														? 'bg-destructive/10 text-destructive'
 														: validationMode === 'optional'
-															? 'bg-amber-100 text-amber-700'
-															: 'bg-gray-100 text-gray-700'
+															? 'bg-primary/10 text-primary'
+															: 'bg-muted text-foreground'
 												}
 											/>
 										) : (
-											<ContextBadge label="none" className="bg-gray-100 text-gray-600" />
+											<ContextBadge label="none" className="bg-muted text-muted-foreground" />
 										)}
 										<ContextBadge
 											label={attachmentPolicy}
 											className={
 												attachmentPolicy === 'open'
-													? 'bg-emerald-100 text-emerald-700'
-													: 'bg-stone-100 text-stone-700'
+													? 'bg-ok/15 text-ok'
+													: 'bg-muted text-foreground'
 											}
 										/>
 									</div>
 								</div>
 								{isCuratedChild && (
-									<div className="mt-1 text-[10px] text-slate-400">
+									<div className="mt-1 text-[10px] text-muted-foreground">
 										curated child
 										{displayParentName ? ` in ${displayParentName}` : ''}
 										{attachmentCount > 1 ? ` · ${attachmentCount} contexts` : ''}
@@ -158,9 +158,7 @@ export const createContextColumns = (
 												variant="ghost"
 												className={cn(
 													actionButtonClass,
-													row.original.isInMapStack
-														? 'text-emerald-600 hover:text-emerald-700'
-														: 'hover:text-emerald-600',
+													row.original.isInMapStack ? 'text-ok hover:text-ok' : 'hover:text-ok',
 												)}
 												onClick={() => context.onToggleContextOnMap?.(contextEvent)}
 												aria-label={
@@ -176,7 +174,7 @@ export const createContextColumns = (
 										<Button
 											size="icon-sm"
 											variant="ghost"
-											className={cn(actionButtonClass, 'hover:text-emerald-600')}
+											className={cn(actionButtonClass, 'hover:text-ok')}
 											onClick={() => context.onInspectContext?.(contextEvent)}
 											aria-label="Inspect context"
 											title="Inspect context"
@@ -194,8 +192,8 @@ export const createContextColumns = (
 												className={cn(
 													actionButtonClass,
 													row.original.isCatalogPinned
-														? 'text-amber-500 hover:text-amber-600'
-														: 'hover:text-amber-600',
+														? 'text-primary hover:text-primary'
+														: 'hover:text-primary',
 												)}
 												onClick={() => context.onToggleCatalogPin?.(contextEvent)}
 												aria-label={
@@ -214,10 +212,7 @@ export const createContextColumns = (
 												}
 											>
 												<FavoriteActionIcon
-													className={cn(
-														'h-4 w-4',
-														row.original.isCatalogPinned && 'fill-amber-400',
-													)}
+													className={cn('h-4 w-4', row.original.isCatalogPinned && 'fill-primary')}
 												/>
 											</Button>
 										) : null}
@@ -225,7 +220,7 @@ export const createContextColumns = (
 											<Button
 												size="icon-sm"
 												variant="ghost"
-												className={cn(actionButtonClass, 'hover:text-amber-600')}
+												className={cn(actionButtonClass, 'hover:text-primary')}
 												aria-label="Open debug dialog"
 												title="Open debug dialog"
 												onClick={() => context.onOpenDebug?.(contextEvent)}

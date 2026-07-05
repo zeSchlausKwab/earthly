@@ -51,10 +51,10 @@ export function MobileSearch({
 					</Button>
 				</div>
 				<div className="mt-2 flex w-full flex-col gap-2">
-					{searchError && <div className="text-xs text-red-600">{searchError}</div>}
+					{searchError && <div className="text-xs text-destructive">{searchError}</div>}
 					{searchResults.length > 0 && (
-						<div className="w-full rounded-xl border border-gray-200 bg-white p-2 shadow-sm">
-							<div className="mb-1 flex items-center justify-between text-xs text-gray-600">
+						<div className="w-full rounded-xl border border-border bg-card p-2 shadow-sm">
+							<div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
 								<span>Search results ({searchResults.length})</span>
 								{onClearSearchResults && (
 									<Button
@@ -72,13 +72,13 @@ export function MobileSearch({
 								{searchResults.map((result) => (
 									<div
 										key={result.placeId}
-										className="flex items-start gap-2 rounded-lg border border-gray-100 px-2 py-1.5"
+										className="flex items-start gap-2 rounded-lg border border-border px-2 py-1.5"
 									>
 										<div className="flex-1">
 											<div className="text-sm font-medium leading-tight line-clamp-1">
 												{result.displayName}
 											</div>
-											<div className="text-[11px] text-gray-500">
+											<div className="text-[11px] text-muted-foreground">
 												{result.coordinates.lat.toFixed(4)}, {result.coordinates.lon.toFixed(4)}
 											</div>
 										</div>

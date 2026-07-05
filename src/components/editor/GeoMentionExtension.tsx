@@ -56,7 +56,7 @@ function GeoMentionNodeView({ node, deleteNode, editor }: NodeViewProps) {
 	return (
 		<NodeViewWrapper as="span" className="inline">
 			<span
-				className="inline-flex items-center gap-0.5 rounded-md bg-sky-50 border border-sky-200 px-1.5 py-0.5 text-xs font-medium text-sky-700 mx-0.5"
+				className="inline-flex items-center gap-0.5 rounded-md bg-info/15 border border-info/40 px-1.5 py-0.5 text-xs font-medium text-info mx-0.5"
 				contentEditable={false}
 			>
 				<MapPin className="h-3 w-3 flex-shrink-0" />
@@ -75,7 +75,7 @@ function GeoMentionNodeView({ node, deleteNode, editor }: NodeViewProps) {
 								variant="ghost"
 								size="icon-xs"
 								onClick={handleToggleVisibility}
-								className={`h-4 w-4 p-0 ${isVisible ? 'text-sky-600' : 'text-gray-400'} hover:text-sky-700`}
+								className={`h-4 w-4 p-0 ${isVisible ? 'text-info' : 'text-muted-foreground'} hover:text-info`}
 							>
 								{isVisible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
 							</Button>
@@ -92,7 +92,7 @@ function GeoMentionNodeView({ node, deleteNode, editor }: NodeViewProps) {
 								variant="ghost"
 								size="icon-xs"
 								onClick={handleZoomTo}
-								className="h-4 w-4 p-0 text-gray-400 hover:text-sky-700"
+								className="h-4 w-4 p-0 text-muted-foreground hover:text-info"
 							>
 								<Maximize2 className="h-3 w-3" />
 							</Button>
@@ -109,7 +109,7 @@ function GeoMentionNodeView({ node, deleteNode, editor }: NodeViewProps) {
 								variant="ghost"
 								size="icon-xs"
 								onClick={deleteNode}
-								className="h-4 w-4 p-0 text-gray-400 hover:text-red-500"
+								className="h-4 w-4 p-0 text-muted-foreground hover:text-destructive"
 							>
 								<span className="text-xs">×</span>
 							</Button>

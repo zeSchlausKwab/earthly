@@ -83,7 +83,7 @@ function NutzapRow({ nutzap, unlocked }: { nutzap: Nutzap; unlocked: boolean }) 
 				<span className="truncate min-w-0 font-medium">
 					{getDisplayName(senderProfile, `${nutzap.sender.pubkey.slice(0, 8)}…`)}
 				</span>
-				<span className="shrink-0 text-green-500 font-medium">⚡ {nutzap.amount}</span>
+				<span className="shrink-0 text-ok font-medium">⚡ {nutzap.amount}</span>
 			</div>
 			<div className="flex items-center justify-between gap-2">
 				<span className="truncate min-w-0 text-xs text-muted-foreground" title={nutzap.mint}>

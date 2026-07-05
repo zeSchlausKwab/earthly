@@ -470,7 +470,9 @@ export function ImportOsmDialog({
 						</Button>
 					</div>
 
-					{error && <div className="text-sm text-red-600 p-2 bg-red-50 rounded">{error}</div>}
+					{error && (
+						<div className="text-sm text-destructive p-2 bg-destructive/10 rounded">{error}</div>
+					)}
 
 					{results.length > 0 && (
 						<div className="flex-1 min-h-0 flex flex-col mt-4">

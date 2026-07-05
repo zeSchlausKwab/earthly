@@ -2,6 +2,7 @@ import type maplibregl from 'maplibre-gl'
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 // Aliased so we don't shadow the JS built-in `Map` constructor in this module.
 import { Map as McnMap, MapControls, useMap, type LocateCoords } from '@/components/ui/map'
+import { resolveBasemapStyles, useBasemapStyle } from '@/lib/basemap'
 import { config } from '@/config/env.client'
 import { ensurePmtilesProtocolsRegistered } from './pmtilesProtocols'
 import { DEFAULT_STYLE_URL, useBlossomOverlays, useMapSourceStyle } from './useMapSourceStyle'
@@ -117,18 +118,25 @@ export function GeoEditorMap({
 		defaultStyle: initialStyle ?? DEFAULT_STYLE_URL,
 	})
 
-	// mapcn requires `styles={{light,dark}}`. For non-default sources we use the
-	// same style for both themes (until we add a dark Protomaps flavor). For
-	// the default source we still build from `initialStyle ?? DEFAULT_STYLE_URL`
-	// — passing it under both slots keeps mapcn's theme switching as a
-	// pass-through.
+	// Basemap preference for the `default` source (Auto follows the theme).
+	const [basemapStyle] = useBasemapStyle()
+
+	// mapcn requires `styles={{light,dark}}`. For the `default` map source the
+	// basemap follows the theme (Positron in light, Dark in dark) or a pinned
+	// OpenFreeMap style — see `@/lib/basemap`. mapcn's own theme switch then
+	// picks the right slot, so toggling the app theme re-styles the map. For
+	// non-default sources (blossom/pmtiles) the built style is theme-agnostic,
+	// so we pass it under both slots.
 	const styles = useMemo(() => {
 		if (!resolvedStyle) {
 			// Fall through to mapcn defaults while blossom is resolving.
 			return undefined
 		}
+		if (mapSource.type === 'default') {
+			return resolveBasemapStyles(basemapStyle)
+		}
 		return { light: resolvedStyle.style, dark: resolvedStyle.style }
-	}, [resolvedStyle])
+	}, [resolvedStyle, mapSource.type, basemapStyle])
 
 	// Initial viewport (uncontrolled — mapcn's controlled mode requires
 	// onViewportChange, which we don't expose). Memoised so identity stays

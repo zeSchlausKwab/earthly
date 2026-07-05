@@ -281,11 +281,7 @@ export function SignupDialog({ open, onOpenChange, onSuccess }: SignupDialogProp
 	const handlePublishProfile = async (skip = false) => {
 		setProfileLoading(true)
 		try {
-			if (
-				!skip &&
-				signer &&
-				(profileDraft.name || profileDraft.about || profileDraft.picture)
-			) {
+			if (!skip && signer && (profileDraft.name || profileDraft.about || profileDraft.picture)) {
 				const profileContent = JSON.stringify({
 					name: profileDraft.name || undefined,
 					display_name: profileDraft.name || undefined,
@@ -477,7 +473,7 @@ export function SignupDialog({ open, onOpenChange, onSuccess }: SignupDialogProp
 										className="flex-shrink-0 self-stretch"
 									>
 										{nsecCopied ? (
-											<CheckCircle2 className="w-4 h-4 text-green-600" />
+											<CheckCircle2 className="w-4 h-4 text-ok" />
 										) : (
 											<Copy className="w-4 h-4" />
 										)}
@@ -501,7 +497,7 @@ export function SignupDialog({ open, onOpenChange, onSuccess }: SignupDialogProp
 										className="flex-shrink-0 self-stretch"
 									>
 										{npubCopied ? (
-											<CheckCircle2 className="w-4 h-4 text-green-600" />
+											<CheckCircle2 className="w-4 h-4 text-ok" />
 										) : (
 											<Copy className="w-4 h-4" />
 										)}
@@ -605,8 +601,8 @@ export function SignupDialog({ open, onOpenChange, onSuccess }: SignupDialogProp
 
 					{view === 'beginner-done' && (
 						<div className="py-8 flex flex-col items-center gap-4 text-center">
-							<div className="p-4 rounded-full bg-green-100 dark:bg-green-900/30">
-								<CheckCircle2 className="h-10 w-10 text-green-600" />
+							<div className="p-4 rounded-full bg-ok/15">
+								<CheckCircle2 className="h-10 w-10 text-ok" />
 							</div>
 							<div>
 								<h3 className="text-lg font-semibold mb-1">Welcome to Nostr!</h3>
@@ -654,7 +650,7 @@ export function SignupDialog({ open, onOpenChange, onSuccess }: SignupDialogProp
 										className="flex-shrink-0 self-stretch"
 									>
 										{nsecCopied ? (
-											<CheckCircle2 className="w-4 h-4 text-green-600" />
+											<CheckCircle2 className="w-4 h-4 text-ok" />
 										) : (
 											<Copy className="w-4 h-4" />
 										)}
@@ -675,7 +671,7 @@ export function SignupDialog({ open, onOpenChange, onSuccess }: SignupDialogProp
 										className="flex-shrink-0 self-stretch"
 									>
 										{npubCopied ? (
-											<CheckCircle2 className="w-4 h-4 text-green-600" />
+											<CheckCircle2 className="w-4 h-4 text-ok" />
 										) : (
 											<Copy className="w-4 h-4" />
 										)}

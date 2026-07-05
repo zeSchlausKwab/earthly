@@ -127,10 +127,10 @@ export function DepositLightningModal({
 
 				{phase === 'success' ? (
 					<div className="py-6 text-center">
-						<div className="w-12 h-12 mx-auto mb-4 rounded-full bg-green-100 flex items-center justify-center">
-							<Check className="w-6 h-6 text-green-600" />
+						<div className="w-12 h-12 mx-auto mb-4 rounded-full bg-ok/15 flex items-center justify-center">
+							<Check className="w-6 h-6 text-ok" />
 						</div>
-						<p className="text-lg font-medium text-green-600">Deposit Successful!</p>
+						<p className="text-lg font-medium text-ok">Deposit Successful!</p>
 						<p className="text-sm text-muted-foreground mt-2">Your eCash has been minted</p>
 						<Button onClick={handleClose} className="mt-4">
 							Done
@@ -139,7 +139,7 @@ export function DepositLightningModal({
 				) : session ? (
 					<div className="space-y-4">
 						<div className="flex justify-center">
-							<div className="p-4 bg-white rounded-lg">
+							<div className="p-4 bg-card rounded-lg">
 								<QRCodeSVG value={session.invoice} size={200} />
 							</div>
 						</div>

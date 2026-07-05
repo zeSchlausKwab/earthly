@@ -325,7 +325,7 @@ export function MobilePanel(props: MobilePanelProps) {
 				onPointerDownOutside={(e) => e.preventDefault()}
 				onInteractOutside={(e) => e.preventDefault()}
 			>
-				<div className="shrink-0 border-b border-gray-200 bg-white/95 px-0 py-1 backdrop-blur">
+				<div className="shrink-0 border-b border-border bg-card/95 px-0 py-1 backdrop-blur">
 					<Button
 						type="button"
 						variant="ghost"
@@ -334,11 +334,11 @@ export function MobilePanel(props: MobilePanelProps) {
 						className="flex w-full touch-none items-center justify-center py-1"
 						aria-label="Resize panel"
 					>
-						<span className="h-1.5 w-12 rounded-full bg-gray-300" />
+						<span className="h-1.5 w-12 rounded-full bg-accent" />
 					</Button>
 				</div>
 
-				<div className="shrink-0 border-b border-gray-200 bg-white px-3 py-1.5">
+				<div className="shrink-0 border-b border-border bg-card px-3 py-1.5">
 					<div className="flex items-center gap-1.5">
 						<div className="w-full">
 							<EntitySearchPopover
@@ -364,7 +364,7 @@ export function MobilePanel(props: MobilePanelProps) {
 					</div>
 				</div>
 
-				<div className="shrink-0 overflow-x-auto border-b border-gray-200 bg-gray-50/80 scrollbar-hide">
+				<div className="shrink-0 overflow-x-auto border-b border-border bg-muted/80 scrollbar-hide">
 					<div className="flex min-w-max">
 						{TAB_CONFIG.map((tab) => {
 							const Icon = tab.icon
@@ -382,8 +382,8 @@ export function MobilePanel(props: MobilePanelProps) {
 									className={cn(
 										'flex items-center justify-center gap-1 whitespace-nowrap px-3 py-2.5 text-xs font-medium transition-colors',
 										isActive
-											? 'border-b-2 border-blue-600 bg-white text-blue-600'
-											: 'text-gray-500 hover:bg-gray-100 hover:text-gray-700',
+											? 'border-b-2 border-info/40 bg-card text-info'
+											: 'text-muted-foreground hover:bg-muted hover:text-foreground',
 									)}
 								>
 									<Icon className="h-3.5 w-3.5" />
@@ -662,8 +662,8 @@ function MobileProfileContent(props: MobileProfileContentProps) {
 
 	if (!pubkey) {
 		return (
-			<div className="flex h-32 flex-col items-center justify-center text-sm text-gray-500">
-				<User className="mb-2 h-8 w-8 text-gray-400" />
+			<div className="flex h-32 flex-col items-center justify-center text-sm text-muted-foreground">
+				<User className="mb-2 h-8 w-8 text-muted-foreground" />
 				<p>Sign in to view your profile</p>
 			</div>
 		)

@@ -68,7 +68,7 @@ export function ProposalDialog({
 					</Button>
 					<Button
 						type="button"
-						className="bg-emerald-600 hover:bg-emerald-700"
+						className="bg-ok hover:bg-ok/15"
 						disabled={!trimmed || isPublishing}
 						onClick={() => {
 							if (!trimmed) return

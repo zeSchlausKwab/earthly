@@ -275,13 +275,11 @@ function RelayInfo({ url }: { url: string }) {
 	return (
 		<div className="min-w-0">
 			<div className="flex min-w-0 items-center gap-2">
-				<Server className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-				<span className="truncate font-mono text-xs text-slate-900">{url}</span>
-				{status?.connected ? (
-					<CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-				) : null}
+				<Server className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+				<span className="truncate font-mono text-xs text-foreground">{url}</span>
+				{status?.connected ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-ok" /> : null}
 			</div>
-			<div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-slate-500">
+			<div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
 				<span className="truncate">{info?.name || relayHostname(url)}</span>
 				{Array.isArray(info?.supported_nips) && info.supported_nips.length > 0 ? (
 					<span>NIPs {info.supported_nips.slice(0, 4).join(', ')}</span>
@@ -290,7 +288,7 @@ function RelayInfo({ url }: { url: string }) {
 					href={url.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:')}
 					target="_blank"
 					rel="noreferrer"
-					className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-900"
+					className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
 				>
 					<ExternalLink className="h-3 w-3" />
 					Open
@@ -304,20 +302,20 @@ function PublishResultList({ responses }: { responses: PublishResponse[] }) {
 	if (responses.length === 0) return null
 
 	return (
-		<div className="space-y-1 border border-slate-200 bg-slate-50 p-3">
+		<div className="space-y-1 border border-border bg-muted p-3">
 			{responses.map((response) => (
 				<div
 					key={`${response.from}-${response.ok ? 'ok' : response.message}`}
 					className="flex min-w-0 items-center gap-2 text-xs"
 				>
 					{response.ok ? (
-						<CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+						<CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-ok" />
 					) : (
-						<XCircle className="h-3.5 w-3.5 shrink-0 text-red-600" />
+						<XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
 					)}
-					<span className="truncate font-mono text-slate-700">{response.from}</span>
+					<span className="truncate font-mono text-foreground">{response.from}</span>
 					{response.message ? (
-						<span className="truncate text-slate-500">{response.message}</span>
+						<span className="truncate text-muted-foreground">{response.message}</span>
 					) : null}
 				</div>
 			))}
@@ -340,13 +338,13 @@ function ActiveConnectionRow({ url, roles }: { url: string; roles: ConnectionRol
 			<div className="min-w-0">
 				<div className="flex min-w-0 items-center gap-2">
 					{state === 'Ready' ? (
-						<CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+						<CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-ok" />
 					) : state === 'Failed' ? (
-						<XCircle className="h-3.5 w-3.5 shrink-0 text-red-600" />
+						<XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
 					) : (
-						<Activity className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+						<Activity className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 					)}
-					<span className="truncate font-mono text-xs text-slate-900">{url}</span>
+					<span className="truncate font-mono text-xs text-foreground">{url}</span>
 				</div>
 				<div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-xs">
 					{roles.map((role) => (
@@ -355,20 +353,20 @@ function ActiveConnectionRow({ url, roles }: { url: string; roles: ConnectionRol
 						</span>
 					))}
 					{status?.authRequiredForRead || status?.authRequiredForPublish ? (
-						<span className="border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-amber-700">
+						<span className="border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-primary">
 							Auth required
 						</span>
 					) : null}
 					{noticeCount > 0 ? (
-						<span className="border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-slate-600">
+						<span className="border border-border bg-muted px-1.5 py-0.5 text-muted-foreground">
 							{noticeCount} notice{noticeCount === 1 ? '' : 's'}
 						</span>
 					) : null}
-					{error ? <span className="truncate text-red-600">{error.message}</span> : null}
+					{error ? <span className="truncate text-destructive">{error.message}</span> : null}
 				</div>
 			</div>
-			<div className="text-center text-xs text-slate-700">{state}</div>
-			<div className="text-center text-xs text-slate-700">{reqCount}</div>
+			<div className="text-center text-xs text-foreground">{state}</div>
+			<div className="text-center text-xs text-foreground">{reqCount}</div>
 		</div>
 	)
 }
@@ -417,7 +415,7 @@ function ActiveConnectionsPanel({
 							: userRelay.read
 								? 'NIP-65 read'
 								: 'NIP-65 write',
-					className: 'border border-sky-200 bg-sky-50 text-sky-700',
+					className: 'border border-info/40 bg-info/15 text-info',
 				})
 			}
 			if (appReadRelays.has(normalized) || appWriteRelays.has(normalized)) {
@@ -428,32 +426,32 @@ function ActiveConnectionsPanel({
 							: appReadRelays.has(normalized)
 								? 'App read'
 								: 'App write',
-					className: 'border border-violet-200 bg-violet-50 text-violet-700',
+					className: 'border border-edit/40 bg-edit/15 text-edit',
 				})
 			}
 			if (signerRelaySet.has(normalized)) {
 				roles.push({
 					label: 'Signer',
-					className: 'border border-emerald-200 bg-emerald-50 text-emerald-700',
+					className: 'border border-ok/40 bg-ok/15 text-ok',
 				})
 			}
 			if (discoveryRelays.has(normalized)) {
 				roles.push({
 					label: 'Discovery',
-					className: 'border border-slate-200 bg-white text-slate-600',
+					className: 'border border-border bg-card text-muted-foreground',
 				})
 			}
 			if (isLoopbackRelay(normalized)) {
 				roles.push({
 					label: 'Loopback',
-					className: 'border border-slate-200 bg-slate-50 text-slate-600',
+					className: 'border border-border bg-muted text-muted-foreground',
 				})
 			}
 
 			if (roles.length === 0) {
 				roles.push({
 					label: 'External',
-					className: 'border border-amber-200 bg-amber-50 text-amber-700',
+					className: 'border border-primary/40 bg-primary/10 text-primary',
 				})
 			}
 
@@ -462,26 +460,26 @@ function ActiveConnectionsPanel({
 	}, [draft, discoveryRelayInput, signerRelays])
 
 	return (
-		<div className="overflow-hidden border border-slate-200 bg-white">
-			<div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2">
+		<div className="overflow-hidden border border-border bg-card">
+			<div className="flex items-center justify-between gap-3 border-b border-border bg-muted px-3 py-2">
 				<div className="min-w-0">
-					<div className="flex items-center gap-2 text-sm font-medium text-slate-900">
-						<Activity className="h-4 w-4 text-slate-500" />
+					<div className="flex items-center gap-2 text-sm font-medium text-foreground">
+						<Activity className="h-4 w-4 text-muted-foreground" />
 						Active app connections
 					</div>
-					<div className="mt-1 text-xs text-slate-500">
+					<div className="mt-1 text-xs text-muted-foreground">
 						{readyCount}/{relayUrls.length} ready, {connectedCount} connected
 					</div>
 				</div>
 				{relayUrls.some((url) => roleForRelay(url).some((role) => role.label === 'External')) ? (
-					<div className="flex shrink-0 items-center gap-1 text-xs text-amber-700">
+					<div className="flex shrink-0 items-center gap-1 text-xs text-primary">
 						<AlertTriangle className="h-3.5 w-3.5" />
 						External relays
 					</div>
 				) : null}
 			</div>
 
-			<div className="grid grid-cols-[minmax(0,1fr)_72px_72px] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500 uppercase">
+			<div className="grid grid-cols-[minmax(0,1fr)_72px_72px] gap-2 border-b border-border bg-muted px-3 py-2 text-xs font-medium text-muted-foreground uppercase">
 				<div>Relay</div>
 				<div className="text-center">State</div>
 				<div className="text-center">Reqs</div>
@@ -494,7 +492,7 @@ function ActiveConnectionsPanel({
 					))}
 				</div>
 			) : (
-				<div className="px-3 py-6 text-center text-sm text-slate-500">
+				<div className="px-3 py-6 text-center text-sm text-muted-foreground">
 					No relay connections have been opened yet.
 				</div>
 			)}
@@ -699,7 +697,7 @@ export function UserRelayManager() {
 
 	if (!account?.pubkey) {
 		return (
-			<div className="border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+			<div className="border border-dashed border-border bg-muted px-4 py-6 text-sm text-muted-foreground">
 				Sign in to manage your NIP-65 read and write relays.
 			</div>
 		)
@@ -708,24 +706,24 @@ export function UserRelayManager() {
 	return (
 		<div className="space-y-4">
 			<div className="grid gap-3 md:grid-cols-3">
-				<div className="border border-slate-200 bg-slate-50 p-3">
-					<div className="text-xs font-medium text-slate-500 uppercase">Read relays</div>
-					<div className="mt-1 text-2xl font-semibold text-slate-900">{inboxes.length}</div>
+				<div className="border border-border bg-muted p-3">
+					<div className="text-xs font-medium text-muted-foreground uppercase">Read relays</div>
+					<div className="mt-1 text-2xl font-semibold text-foreground">{inboxes.length}</div>
 				</div>
-				<div className="border border-slate-200 bg-slate-50 p-3">
-					<div className="text-xs font-medium text-slate-500 uppercase">Write relays</div>
-					<div className="mt-1 text-2xl font-semibold text-slate-900">{outboxes.length}</div>
+				<div className="border border-border bg-muted p-3">
+					<div className="text-xs font-medium text-muted-foreground uppercase">Write relays</div>
+					<div className="mt-1 text-2xl font-semibold text-foreground">{outboxes.length}</div>
 				</div>
-				<div className="border border-slate-200 bg-slate-50 p-3">
-					<div className="text-xs font-medium text-slate-500 uppercase">Published</div>
-					<div className="mt-2 truncate text-xs text-slate-700">
+				<div className="border border-border bg-muted p-3">
+					<div className="text-xs font-medium text-muted-foreground uppercase">Published</div>
+					<div className="mt-2 truncate text-xs text-foreground">
 						{formatEventDate(relayListEvent)}
 					</div>
 				</div>
 			</div>
 
 			{mailboxes && !relayListEvent ? (
-				<div className="border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+				<div className="border border-primary/40 bg-primary/10 px-3 py-2 text-xs text-primary">
 					Mailbox data is in memory, but the source relay-list event is still loading.
 				</div>
 			) : null}
@@ -736,7 +734,7 @@ export function UserRelayManager() {
 				signerRelays={signerRelays}
 			/>
 
-			<div className="space-y-3 border border-slate-200 bg-white p-3">
+			<div className="space-y-3 border border-border bg-card p-3">
 				<div className="flex flex-col gap-2 sm:flex-row">
 					<Input
 						value={relayInput}
@@ -783,8 +781,8 @@ export function UserRelayManager() {
 				</div>
 			</div>
 
-			<div className="overflow-hidden border border-slate-200 bg-white">
-				<div className="grid grid-cols-[1fr_72px_72px_44px] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500 uppercase">
+			<div className="overflow-hidden border border-border bg-card">
+				<div className="grid grid-cols-[1fr_72px_72px_44px] gap-2 border-b border-border bg-muted px-3 py-2 text-xs font-medium text-muted-foreground uppercase">
 					<div>Relay</div>
 					<div className="text-center">Read</div>
 					<div className="text-center">Write</div>
@@ -822,7 +820,7 @@ export function UserRelayManager() {
 											onClick={() => handleRemove(relay.url)}
 											aria-label={`Remove ${relay.url}`}
 										>
-											<Trash2 className="h-4 w-4 text-slate-500" />
+											<Trash2 className="h-4 w-4 text-muted-foreground" />
 										</Button>
 									</TooltipTrigger>
 									<TooltipContent>Remove relay</TooltipContent>
@@ -831,17 +829,17 @@ export function UserRelayManager() {
 						))}
 					</div>
 				) : (
-					<div className="px-3 py-8 text-center text-sm text-slate-500">
+					<div className="px-3 py-8 text-center text-sm text-muted-foreground">
 						No relay list loaded. Add relays, import app relays, or discover an existing list.
 					</div>
 				)}
 			</div>
 
-			<div className="space-y-3 border border-slate-200 bg-white p-3">
+			<div className="space-y-3 border border-border bg-card p-3">
 				<div className="flex items-center justify-between gap-3">
 					<div className="min-w-0">
 						<Label className="text-sm font-medium">Discover existing relay list</Label>
-						<p className="text-xs text-slate-500">
+						<p className="text-xs text-muted-foreground">
 							Search configured, example, and custom discovery relays for your latest kind 10002.
 						</p>
 					</div>
@@ -872,24 +870,24 @@ export function UserRelayManager() {
 							const relays = relayDraftFromEvent(event)
 							const active = event.id === relayListEvent?.id
 							return (
-								<div key={event.id} className="border border-slate-200 bg-slate-50 p-3">
+								<div key={event.id} className="border border-border bg-muted p-3">
 									<div className="flex items-start justify-between gap-3">
 										<div className="min-w-0 space-y-1">
 											<div className="flex flex-wrap items-center gap-2">
-												<span className="font-mono text-xs text-slate-700">
+												<span className="font-mono text-xs text-foreground">
 													{event.id.slice(0, 12)}...
 												</span>
 												{active ? (
-													<span className="border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-700">
+													<span className="border border-ok/40 bg-ok/15 px-1.5 py-0.5 text-xs text-ok">
 														Current
 													</span>
 												) : null}
 											</div>
-											<div className="text-xs text-slate-500">
+											<div className="text-xs text-muted-foreground">
 												{formatEventDate(event)} - {relays.length} relay
 												{relays.length === 1 ? '' : 's'} - seen on {seenOn.length}
 											</div>
-											<div className="truncate text-xs font-mono text-slate-500">
+											<div className="truncate text-xs font-mono text-muted-foreground">
 												{seenOn.join(', ')}
 											</div>
 										</div>
@@ -909,13 +907,13 @@ export function UserRelayManager() {
 				) : null}
 			</div>
 
-			<div className="space-y-3 border border-slate-200 bg-slate-50 p-3">
+			<div className="space-y-3 border border-border bg-muted p-3">
 				<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 					<div className="min-w-0">
-						<div className="text-sm font-medium text-slate-900">
+						<div className="text-sm font-medium text-foreground">
 							{isDirty ? 'You have unpublished relay changes.' : 'Relay list is up to date.'}
 						</div>
-						<div className="mt-1 truncate text-xs text-slate-500">
+						<div className="mt-1 truncate text-xs text-muted-foreground">
 							Publishing targets: {publishTargets.length > 0 ? publishTargets.join(', ') : 'none'}
 						</div>
 					</div>

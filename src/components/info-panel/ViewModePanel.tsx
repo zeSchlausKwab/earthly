@@ -225,7 +225,7 @@ export function ViewModePanel({
 	if (!viewDataset) {
 		return (
 			<EntityPanelShell title="Dataset overview">
-				<div className="text-sm text-gray-500">No dataset selected.</div>
+				<div className="text-sm text-muted-foreground">No dataset selected.</div>
 			</EntityPanelShell>
 		)
 	}
@@ -242,7 +242,7 @@ export function ViewModePanel({
 							variant={attachedGeojson ? 'default' : 'outline'}
 							size="sm"
 							onClick={attachedGeojson ? handleClearAttachment : handleAttachGeometry}
-							className="gap-1.5 rounded-none border-stone-200 bg-white px-2 text-[11px] text-stone-700 hover:bg-stone-100"
+							className="gap-1.5 rounded-none border-border bg-card px-2 text-[11px] text-foreground hover:bg-muted"
 						>
 							{attachedGeojson
 								? `Clear ${attachedGeojson.features.length} attachment${
@@ -274,17 +274,17 @@ export function ViewModePanel({
 			title="Dataset overview"
 			tabs={
 				<Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as ViewTab)}>
-					<TabsList className="h-8 rounded-none border-b border-slate-200 bg-transparent p-0">
+					<TabsList className="h-8 rounded-none border-b border-border bg-transparent p-0">
 						<TabsTrigger
 							value="details"
-							className="h-8 rounded-none border-b-2 border-transparent px-3 text-xs data-[state=active]:border-slate-950 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+							className="h-8 rounded-none border-b-2 border-transparent px-3 text-xs data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
 						>
 							<FileText className="h-3.5 w-3.5" />
 							Details
 						</TabsTrigger>
 						<TabsTrigger
 							value="proposals"
-							className="h-8 rounded-none border-b-2 border-transparent px-3 text-xs data-[state=active]:border-slate-950 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+							className="h-8 rounded-none border-b-2 border-transparent px-3 text-xs data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
 						>
 							<GitPullRequest className="h-3.5 w-3.5" />
 							Proposals
@@ -303,10 +303,10 @@ export function ViewModePanel({
 								availableFeatures={availableFeatures}
 								onMentionVisibilityToggle={onMentionVisibilityToggle}
 								onMentionZoomTo={onMentionZoomTo}
-								className="text-sm text-gray-600"
+								className="text-sm text-muted-foreground"
 							/>
 						)}
-						<div className="flex flex-wrap gap-2 text-[11px] text-gray-600">
+						<div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
 							<div className="flex items-center gap-1.5 px-2 py-0.5">
 								<span className="shrink-0">Owner:</span>
 								<UserProfile
@@ -326,19 +326,19 @@ export function ViewModePanel({
 								{viewDataset.hashtags.slice(0, 5).map((tag) => (
 									<span
 										key={tag}
-										className="border border-slate-200 px-2 py-0.5 text-[10px] text-blue-700"
+										className="border border-border px-2 py-0.5 text-[10px] text-info"
 									>
 										#{tag}
 									</span>
 								))}
 							</div>
 						)}
-						<div className="grid gap-1 text-[11px] text-gray-600 sm:grid-cols-2">
-							<div className="border-l border-slate-200 pl-2">
+						<div className="grid gap-1 text-[11px] text-muted-foreground sm:grid-cols-2">
+							<div className="border-l border-border pl-2">
 								Bounding box:{' '}
 								{viewDataset.boundingBox ? viewDataset.boundingBox.join(', ') : 'Not provided'}
 							</div>
-							<div className="border-l border-slate-200 pl-2">
+							<div className="border-l border-border pl-2">
 								Geohash: {viewDataset.geohash ?? '—'}
 							</div>
 						</div>
@@ -357,9 +357,9 @@ export function ViewModePanel({
 									return (
 										<div
 											key={key}
-											className="flex flex-col gap-1 border-b border-slate-200 pb-2 text-sm last:border-b-0 last:pb-0"
+											className="flex flex-col gap-1 border-b border-border pb-2 text-sm last:border-b-0 last:pb-0"
 										>
-											<span className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">
+											<span className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
 												{key}
 											</span>
 											{isLink ? (
@@ -367,19 +367,19 @@ export function ViewModePanel({
 													href={String(value)}
 													target="_blank"
 													rel="noreferrer"
-													className="break-all text-blue-700 underline decoration-blue-300 underline-offset-2"
+													className="break-all text-info underline decoration-info underline-offset-2"
 												>
 													{displayValue}
 												</a>
 											) : (
-												<span className="break-words text-slate-800">{displayValue}</span>
+												<span className="break-words text-foreground">{displayValue}</span>
 											)}
 										</div>
 									)
 								})}
 							</div>
 						) : (
-							<p className="text-xs text-slate-500">
+							<p className="text-xs text-muted-foreground">
 								No dataset-level properties were published with this version yet.
 							</p>
 						)}

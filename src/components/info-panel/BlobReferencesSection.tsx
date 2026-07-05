@@ -27,7 +27,7 @@ export function BlobReferencesSection() {
 
 	return (
 		<section className="space-y-2">
-			<div className="text-xs font-medium text-gray-700">External references</div>
+			<div className="text-xs font-medium text-foreground">External references</div>
 
 			{/* Inline add */}
 			<div className="flex items-center gap-1">
@@ -51,7 +51,7 @@ export function BlobReferencesSection() {
 			</div>
 
 			{blobDraftStatus === 'error' && blobDraftError && (
-				<p className="text-[10px] text-red-600">{blobDraftError}</p>
+				<p className="text-[10px] text-destructive">{blobDraftError}</p>
 			)}
 
 			{/* Reference list - compact */}
@@ -70,15 +70,15 @@ export function BlobReferencesSection() {
 								key={ref.id}
 								className={cn(
 									'flex items-center gap-1 text-xs py-1 px-1.5 rounded border',
-									isError ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-white',
+									isError ? 'border-destructive/40 bg-destructive/10' : 'border-border bg-card',
 								)}
 							>
-								<span className="flex-1 truncate text-gray-700" title={ref.url}>
+								<span className="flex-1 truncate text-foreground" title={ref.url}>
 									{filename}
 								</span>
 
 								{ref.featureCount !== undefined && (
-									<span className="text-[10px] text-gray-400">{ref.featureCount}</span>
+									<span className="text-[10px] text-muted-foreground">{ref.featureCount}</span>
 								)}
 
 								<div className="flex items-center gap-0.5">
@@ -90,7 +90,7 @@ export function BlobReferencesSection() {
 										aria-label={isPreviewing ? 'Hide preview' : 'Preview'}
 									>
 										{isPreviewing ? (
-											<EyeOff className="h-3 w-3 text-blue-500" />
+											<EyeOff className="h-3 w-3 text-info" />
 										) : (
 											<Eye className="h-3 w-3" />
 										)}
@@ -106,7 +106,7 @@ export function BlobReferencesSection() {
 									<Button
 										size="icon-xs"
 										variant="ghost"
-										className="text-red-500 hover:text-red-700"
+										className="text-destructive hover:text-destructive"
 										onClick={() => removeBlobReference(ref.id)}
 										aria-label="Remove"
 									>

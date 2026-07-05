@@ -235,11 +235,11 @@ export function StoryProposalsPanel({
 			</div>
 
 			{openCount > 0 && (
-				<Alert variant="default" className="border-amber-300 bg-amber-50 text-amber-900">
+				<Alert variant="default" className="border-primary/40 bg-primary/10 text-primary">
 					<AlertTitle>
 						{openCount} proposed edit{openCount === 1 ? '' : 's'} to review
 					</AlertTitle>
-					<AlertDescription className="text-amber-800">
+					<AlertDescription className="text-primary">
 						A reader suggested a change to your story. Review the edit, then accept or decline it.
 					</AlertDescription>
 				</Alert>

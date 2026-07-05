@@ -30,6 +30,7 @@ import type React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { BlossomUploaderButton } from '@/components/blossom/BlossomUploaderButton'
+import { BASEMAP_STYLE_OPTIONS, useBasemapStyle } from '@/lib/basemap'
 import { UserProfile } from '@/components/user-profile'
 import { SessionsManager } from '@/features/auth/SessionsManager'
 import { ChatSettingsSection } from '@/features/chat'
@@ -90,10 +91,10 @@ function SettingsShell({
 	children: React.ReactNode
 }) {
 	return (
-		<section className="space-y-4 border border-slate-200 bg-white/90 p-4 shadow-sm">
+		<section className="space-y-4 border border-border bg-card p-4 shadow-sm">
 			<div className="space-y-1">
-				<h3 className="text-sm font-semibold tracking-wide text-slate-900 uppercase">{title}</h3>
-				<p className="text-sm text-slate-500">{description}</p>
+				<h3 className="text-sm font-semibold tracking-wide text-foreground uppercase">{title}</h3>
+				<p className="text-sm text-muted-foreground">{description}</p>
 			</div>
 			{children}
 		</section>
@@ -204,7 +205,7 @@ function ProfileSettingsSection() {
 				title="Profile"
 				description="Profile settings are tied to your active Nostr session."
 			>
-				<div className="border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+				<div className="border border-dashed border-border bg-muted px-4 py-6 text-sm text-muted-foreground">
 					Sign in to edit your display name, bio, website, and Lightning address.
 				</div>
 			</SettingsShell>
@@ -216,7 +217,7 @@ function ProfileSettingsSection() {
 			title="Profile"
 			description="Edit the metadata published on your kind 0 profile event."
 		>
-			<div className="border border-slate-200 bg-slate-50/80 p-4">
+			<div className="border border-border bg-muted/50 p-4">
 				<UserProfile
 					pubkey={currentUser.pubkey}
 					mode="full-profile"
@@ -227,7 +228,7 @@ function ProfileSettingsSection() {
 			</div>
 
 			{isLoadingProfile ? (
-				<div className="flex items-center gap-2 border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
+				<div className="flex items-center gap-2 border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
 					<Loader2 className="h-4 w-4 animate-spin" />
 					Loading current profile...
 				</div>
@@ -317,8 +318,8 @@ function ProfileSettingsSection() {
 				</div>
 			</div>
 
-			<div className="flex items-center justify-between gap-3 border border-slate-200 bg-slate-50 px-3 py-2">
-				<p className="text-xs text-slate-500">
+			<div className="flex items-center justify-between gap-3 border border-border bg-muted px-3 py-2">
+				<p className="text-xs text-muted-foreground">
 					{isDirty ? 'You have unpublished profile changes.' : 'Profile metadata is up to date.'}
 				</p>
 				<div className="flex gap-2">
@@ -346,6 +347,7 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 	const pointClusteringEnabled = useEditorStore((state) => state.pointClusteringEnabled)
 	const setPointClusteringEnabled = useEditorStore((state) => state.setPointClusteringEnabled)
 	const mapLayers = useEditorStore((state) => state.mapLayers)
+	const [basemapStyle, setBasemapStyle] = useBasemapStyle()
 	const announcementSource = useEditorStore((state) => state.announcementSource)
 	const updateMapLayerState = useEditorStore((state) => state.updateMapLayerState)
 	const reorderMapLayers = useEditorStore((state) => state.reorderMapLayers)
@@ -503,6 +505,38 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 						</Select>
 					</div>
 
+					{mapSource.type === 'default' && (
+						<div className="space-y-2">
+							<Label>Basemap style</Label>
+							<Select
+								value={basemapStyle}
+								onValueChange={(value) =>
+									setBasemapStyle(value as (typeof BASEMAP_STYLE_OPTIONS)[number]['id'])
+								}
+							>
+								<SelectTrigger>
+									<SelectValue placeholder="Select basemap style" />
+								</SelectTrigger>
+								<SelectContent>
+									{BASEMAP_STYLE_OPTIONS.map((option) => (
+										<SelectItem key={option.id} value={option.id}>
+											{option.label}
+											{option.hint ? (
+												<span className="ml-1.5 font-mono text-[10px] text-muted-foreground">
+													{option.hint}
+												</span>
+											) : null}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<p className="text-xs text-muted-foreground">
+								<span className="font-mono">Auto</span> follows the app theme — Positron in light,
+								Dark in dark. Pin a style to keep it regardless of theme.
+							</p>
+						</div>
+					)}
+
 					{mapSource.type === 'pmtiles' && (
 						<>
 							<div className="space-y-2">
@@ -550,7 +584,9 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 											</Button>
 										)}
 									</div>
-									<p className="text-xs text-gray-500">Enter the URL to a remote PMTiles file.</p>
+									<p className="text-xs text-muted-foreground">
+										Enter the URL to a remote PMTiles file.
+									</p>
 								</div>
 							) : (
 								<div className="space-y-2">
@@ -571,7 +607,7 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 											onChange={handleFileChange}
 										/>
 									</div>
-									<p className="text-xs text-gray-500">
+									<p className="text-xs text-muted-foreground">
 										Select a local `.pmtiles` file from your device.
 									</p>
 								</div>
@@ -592,7 +628,7 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 									Lock to map bounds
 								</label>
 							</div>
-							<p className="text-xs text-gray-500">
+							<p className="text-xs text-muted-foreground">
 								Prevents zooming and panning beyond the PMTiles extent.
 							</p>
 						</>
@@ -740,7 +776,7 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 
 	return (
 		<Tabs defaultValue={defaultTab} className="space-y-4">
-			<TabsList className="grid h-auto w-full grid-cols-2 rounded-none bg-slate-100 p-1 sm:grid-cols-4">
+			<TabsList className="grid h-auto w-full grid-cols-2 rounded-none bg-muted p-1 sm:grid-cols-4">
 				<TabsTrigger value="profile" className="rounded-none px-3 py-2 text-xs sm:text-sm">
 					Profile
 				</TabsTrigger>

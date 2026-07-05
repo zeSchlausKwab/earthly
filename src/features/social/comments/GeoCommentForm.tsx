@@ -327,13 +327,13 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 					/>
 				</div>
 
-				<div className="border-t border-stone-200 pt-2">
+				<div className="border-t border-border pt-2">
 					{!currentUser ? (
-						<p className="text-[10px] text-stone-400">Log in to comment &amp; annotate</p>
+						<p className="text-[10px] text-muted-foreground">Log in to comment &amp; annotate</p>
 					) : (
 						<>
 							{!isGeometryDraftActive && (
-								<p className="mb-1 text-[10px] text-stone-400">
+								<p className="mb-1 text-[10px] text-muted-foreground">
 									Draw a point, line, or polygon on the map to attach it to your comment.
 								</p>
 							)}
@@ -347,8 +347,8 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 									disabled={!currentUser || !editor}
 									className={`rounded-none ${
 										mode === 'draw_annotation'
-											? 'border-amber-500 bg-amber-500 text-white hover:bg-amber-600'
-											: 'border-stone-200 bg-white text-amber-700 hover:bg-amber-50 hover:text-amber-800'
+											? 'border-primary/40 bg-primary text-white hover:bg-primary'
+											: 'border-border bg-card text-primary hover:bg-primary/10 hover:text-primary'
 									}`}
 									title="Attach label annotation"
 								>
@@ -360,7 +360,7 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 									variant={mode === 'select' ? 'default' : 'outline'}
 									onClick={() => isGeometryDraftActive && setMode('select')}
 									disabled={!isGeometryDraftActive}
-									className="rounded-none border-stone-200"
+									className="rounded-none border-border"
 								>
 									<MousePointer2 className="h-4 w-4" />
 								</Button>
@@ -370,7 +370,7 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 									variant={mode === 'edit' ? 'default' : 'outline'}
 									onClick={() => isGeometryDraftActive && setMode('edit')}
 									disabled={!isGeometryDraftActive || draftFeatureCount === 0}
-									className="rounded-none border-stone-200"
+									className="rounded-none border-border"
 								>
 									<Edit3 className="h-4 w-4" />
 								</Button>
@@ -381,7 +381,7 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 										variant="outline"
 										onClick={() => editor?.finishDrawing()}
 										disabled={!canFinishDrawing}
-										className="gap-1 rounded-none border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50"
+										className="gap-1 rounded-none border-ok/40 bg-card text-ok hover:bg-ok/15"
 									>
 										<Check className="h-3.5 w-3.5" />
 										Finish
@@ -393,23 +393,23 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 									variant="outline"
 									onClick={handleClearDraftGeometry}
 									disabled={!isGeometryDraftActive || draftFeatureCount === 0}
-									className="gap-1 rounded-none border-stone-200 bg-white text-stone-600 hover:bg-stone-100"
+									className="gap-1 rounded-none border-border bg-card text-muted-foreground hover:bg-muted"
 								>
 									<Trash2 className="h-3.5 w-3.5" />
 									Clear draft
 								</Button>
 							</div>
 							{mode === 'draw_annotation' && draftAnnotationFeatures.length === 0 && (
-								<p className="mt-2 text-[11px] text-amber-700">
+								<p className="mt-2 text-[11px] text-primary">
 									Click on the map to place a label, then type its text here.
 								</p>
 							)}
 							{activeDraftAnnotation && (
 								<div className="mt-2 space-y-1">
-									<div className="flex items-center justify-between gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-amber-700">
+									<div className="flex items-center justify-between gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-primary">
 										<span>Label text</span>
 										{draftAnnotationFeatures.length > 1 && (
-											<span className="text-[10px] normal-case tracking-normal text-stone-500">
+											<span className="text-[10px] normal-case tracking-normal text-muted-foreground">
 												Editing selected/latest label
 											</span>
 										)}
@@ -419,15 +419,15 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 										value={activeDraftAnnotationText}
 										onChange={(event) => handleAnnotationTextChange(event.target.value)}
 										placeholder="Type label text..."
-										className="h-8 rounded-none border-amber-200 bg-white px-2 text-sm"
+										className="h-8 rounded-none border-primary/40 bg-card px-2 text-sm"
 										disabled={isSubmitting || !currentUser}
 										autoFocus
 									/>
 								</div>
 							)}
 							{hasAnyGeometry && (
-								<div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-stone-700">
-									<span className="border border-stone-200 px-2 py-0.5 font-medium text-stone-900">
+								<div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-foreground">
+									<span className="border border-border px-2 py-0.5 font-medium text-foreground">
 										{totalFeatureCount} geometry attached
 									</span>
 									{geometrySummary.labels > 0 && <span>{geometrySummary.labels} labels</span>}
@@ -441,7 +441,7 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 				</div>
 
 				{hasAttachedGeometry && (
-					<div className="flex items-center gap-2 border border-emerald-200 px-2 py-1 text-[11px] text-emerald-700">
+					<div className="flex items-center gap-2 border border-ok/40 px-2 py-1 text-[11px] text-ok">
 						<MapPin className="h-3.5 w-3.5" />
 						<span>
 							{attachedFeatures.length} geometry{attachedFeatures.length === 1 ? '' : 'ies'} from
@@ -453,7 +453,7 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 								variant="ghost"
 								size="icon-sm"
 								onClick={onClearAttachment}
-								className="ml-auto h-6 w-6 rounded-none p-0 text-emerald-600 hover:text-emerald-800"
+								className="ml-auto h-6 w-6 rounded-none p-0 text-ok hover:text-ok"
 							>
 								<X className="h-3 w-3" />
 							</Button>
@@ -463,7 +463,7 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 
 				{/* Action buttons */}
 				<div className="flex items-center justify-between gap-2">
-					{!currentUser && <p className="text-[10px] text-gray-500">Log in to comment</p>}
+					{!currentUser && <p className="text-[10px] text-muted-foreground">Log in to comment</p>}
 
 					<div className="ml-auto flex items-center gap-2">
 						{onCancel && (
@@ -486,7 +486,7 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 										type="submit"
 										size="sm"
 										disabled={!canSubmit}
-										className={`gap-1 rounded-none px-2 text-xs ${canSubmit ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-stone-100 text-stone-400 border border-stone-200'}`}
+										className={`gap-1 rounded-none px-2 text-xs ${canSubmit ? 'bg-ok text-white hover:bg-ok/15' : 'bg-muted text-muted-foreground border border-border'}`}
 									>
 										<Send className="h-3 w-3" />
 										{isReply ? 'Reply' : 'Post'}

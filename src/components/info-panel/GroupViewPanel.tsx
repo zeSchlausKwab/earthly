@@ -164,7 +164,7 @@ export function GroupViewPanel({
 	)
 
 	if (!viewContext || !groupEvent || !group) {
-		return <div className="text-sm text-gray-500">No Group selected.</div>
+		return <div className="text-sm text-muted-foreground">No Group selected.</div>
 	}
 
 	const groupKey = viewContext.contextId ?? viewContext.dTag ?? viewContext.id ?? null
@@ -240,7 +240,7 @@ export function GroupViewPanel({
 							availableFeatures={availableFeatures}
 							onMentionVisibilityToggle={onMentionVisibilityToggle}
 							onMentionZoomTo={onMentionZoomTo}
-							className="text-sm text-gray-600"
+							className="text-sm text-muted-foreground"
 						/>
 					)}
 				</EntityPanelSurface>

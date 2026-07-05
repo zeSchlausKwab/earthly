@@ -10,7 +10,7 @@ import type { EditorFeature } from '@/features/geo-editor/core'
  *
  * It clones `CodeRunDisclosure`'s collapse idiom verbatim — a `useState` open
  * toggle + a `▸/▾` ghost `Button` with `aria-expanded` + a `useMemo` summary line
- * + the `rounded-lg border … bg-violet-50` shell with `text-[10px] uppercase
+ * + the `rounded-lg border … bg-edit/15` shell with `text-[10px] uppercase
  * tracking-wide` section labels — so the safe-editing preview is visually
  * consistent with the run_code block in the transcript (D-04).
  *
@@ -74,7 +74,7 @@ function DiffSection({ label, rows, tone }: DiffSectionProps) {
 			<div className={`mb-0.5 text-[10px] font-medium uppercase tracking-wide ${tone}`}>
 				{label} ({rows.length})
 			</div>
-			<div className="max-h-32 overflow-y-auto rounded border border-violet-200/70 bg-background/70 p-2 dark:border-violet-800/60">
+			<div className="max-h-32 overflow-y-auto rounded border border-edit/40 bg-background/70 p-2">
 				<ul className="space-y-0.5 font-mono text-[11px] leading-relaxed text-muted-foreground">
 					{rows.map((row, i) => (
 						// biome-ignore lint/suspicious/noArrayIndexKey: rows are a static, non-reordering diff list; ids may repeat as labels
@@ -140,13 +140,13 @@ export function DatasetDiffDisclosure({
 	const deletedRows = useMemo(() => diff.deleted.map(featureLabel), [diff.deleted])
 
 	return (
-		<div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs dark:border-violet-800 dark:bg-violet-950">
+		<div className="rounded-lg border border-edit/40 bg-edit/15 px-3 py-2 text-xs">
 			<div className="mb-1 flex items-center justify-between gap-2">
 				<Button
 					type="button"
 					variant="ghost"
 					onClick={() => setIsOpen((prev) => !prev)}
-					className="h-auto min-w-0 p-0 text-left font-medium text-violet-700 dark:text-violet-300"
+					className="h-auto min-w-0 p-0 text-left font-medium text-edit"
 					aria-expanded={isOpen}
 				>
 					<span className="mr-1">{isOpen ? '▾' : '▸'}</span>
@@ -157,21 +157,9 @@ export function DatasetDiffDisclosure({
 
 			{isOpen && (
 				<div className="space-y-2">
-					<DiffSection
-						label="Added"
-						rows={addedRows}
-						tone="text-emerald-700/90 dark:text-emerald-300/90"
-					/>
-					<DiffSection
-						label="Changed"
-						rows={modifiedRows}
-						tone="text-amber-700/90 dark:text-amber-300/90"
-					/>
-					<DiffSection
-						label="Deleted"
-						rows={deletedRows}
-						tone="text-rose-700/90 dark:text-rose-300/90"
-					/>
+					<DiffSection label="Added" rows={addedRows} tone="text-ok/90" />
+					<DiffSection label="Changed" rows={modifiedRows} tone="text-primary/90" />
+					<DiffSection label="Deleted" rows={deletedRows} tone="text-destructive/90" />
 				</div>
 			)}
 
@@ -189,9 +177,7 @@ export function DatasetDiffDisclosure({
 				) : (
 					<span
 						className={`text-[11px] font-medium uppercase tracking-wide ${
-							status === 'applied'
-								? 'text-emerald-700 dark:text-emerald-300'
-								: 'text-muted-foreground'
+							status === 'applied' ? 'text-ok' : 'text-muted-foreground'
 						}`}
 					>
 						{status === 'applied' ? 'Applied' : 'Cancelled'}

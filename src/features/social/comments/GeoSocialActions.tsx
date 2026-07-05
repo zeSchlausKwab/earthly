@@ -284,7 +284,7 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 			<DialogContent className="sm:max-w-md">
 				<DialogHeader>
 					<DialogTitle className="flex items-center gap-2">
-						<Zap className="h-5 w-5 text-amber-500 fill-current" />
+						<Zap className="h-5 w-5 text-primary fill-current" />
 						Send a zap
 					</DialogTitle>
 					<DialogDescription>
@@ -295,17 +295,17 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 
 				{invoice ? (
 					<div className="space-y-4">
-						<div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+						<div className="flex items-center justify-between gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm text-primary">
 							<span>Zap amount</span>
 							<span className="font-semibold">{invoiceAmount?.toLocaleString() ?? '—'} sats</span>
 						</div>
 						<div className="flex justify-center">
-							<div className="rounded-lg border bg-white p-4">
+							<div className="rounded-lg border bg-card p-4">
 								<QRCodeSVG value={invoice} size={208} />
 							</div>
 						</div>
 						<div className="space-y-2">
-							<p className="text-sm font-medium text-slate-900">Lightning invoice</p>
+							<p className="text-sm font-medium text-foreground">Lightning invoice</p>
 							<div className="flex gap-2">
 								<Input value={invoice} readOnly disabled className="font-mono text-xs" />
 								<Button
@@ -319,7 +319,7 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 								</Button>
 							</div>
 						</div>
-						<div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+						<div className="flex items-center gap-2 rounded-lg border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
 							<Loader2 className="h-4 w-4 animate-spin" />
 							Waiting for zap receipt...
 						</div>
@@ -373,8 +373,8 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 						</div>
 
 						{selectedAmount === 'custom' ? (
-							<div className="space-y-2 rounded-lg border border-slate-200 p-3">
-								<label className="text-sm font-medium text-slate-900" htmlFor="custom-zap-amount">
+							<div className="space-y-2 rounded-lg border border-border p-3">
+								<label className="text-sm font-medium text-foreground" htmlFor="custom-zap-amount">
 									Custom amount
 								</label>
 								<div className="flex gap-2">
@@ -400,7 +400,7 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 							</div>
 						) : null}
 
-						{generationError ? <p className="text-sm text-red-600">{generationError}</p> : null}
+						{generationError ? <p className="text-sm text-destructive">{generationError}</p> : null}
 
 						<div className="flex justify-end">
 							<Button type="button" variant="ghost" onClick={handleClose} disabled={isGenerating}>
@@ -555,8 +555,8 @@ export function GeoSocialActions({
 							aria-label={userHasReacted ? 'Unlike' : 'Like'}
 							className={`gap-1 ${
 								userHasReacted
-									? 'text-rose-500 hover:text-rose-600'
-									: 'text-gray-500 hover:text-rose-500'
+									? 'text-destructive hover:text-destructive'
+									: 'text-muted-foreground hover:text-destructive'
 							} rounded-none px-2 text-xs`}
 						>
 							<Heart className={`${iconSize} ${userHasReacted ? 'fill-current' : ''}`} />
@@ -581,8 +581,8 @@ export function GeoSocialActions({
 								disabled={isLoading || !currentUser}
 								className={`gap-1 ${
 									userHasZapped
-										? 'text-amber-500 hover:text-amber-600'
-										: 'text-gray-500 hover:text-amber-500'
+										? 'text-primary hover:text-primary'
+										: 'text-muted-foreground hover:text-primary'
 								} rounded-none px-2 text-xs`}
 							>
 								<Zap className={`${iconSize} ${userHasZapped ? 'fill-current' : ''}`} />
@@ -606,7 +606,7 @@ export function GeoSocialActions({
 								size={buttonSize}
 								onClick={handleShare}
 								aria-label="Share"
-								className="gap-1 rounded-none px-2 text-xs text-gray-500 hover:text-sky-600"
+								className="gap-1 rounded-none px-2 text-xs text-muted-foreground hover:text-info"
 							>
 								<Share2 className={iconSize} />
 								{!compact ? <span className="text-xs font-medium">Share</span> : null}
@@ -623,7 +623,7 @@ export function GeoSocialActions({
 								variant="ghost"
 								size={buttonSize}
 								onClick={onAnnotateClick}
-								className="gap-1 rounded-none px-2 text-xs text-amber-600 hover:text-amber-700"
+								className="gap-1 rounded-none px-2 text-xs text-primary hover:text-primary"
 							>
 								<PencilLine className={iconSize} />
 								{!compact && <span className="text-xs font-medium">Annotate</span>}
@@ -642,7 +642,7 @@ export function GeoSocialActions({
 								size={buttonSize}
 								onClick={onReplyClick}
 								aria-label="Reply"
-								className="gap-1 rounded-none px-2 text-xs text-gray-500 hover:text-emerald-500"
+								className="gap-1 rounded-none px-2 text-xs text-muted-foreground hover:text-ok"
 							>
 								<MessageCircle className={iconSize} />
 								{commentCount > 0 ? (

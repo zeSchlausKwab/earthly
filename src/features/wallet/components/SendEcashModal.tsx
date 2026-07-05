@@ -113,7 +113,7 @@ export function SendEcashModal({
 			<DialogContent className="sm:max-w-md">
 				<DialogHeader>
 					<DialogTitle className="flex items-center gap-2">
-						<Send className="w-5 h-5 text-purple-500" />
+						<Send className="w-5 h-5 text-edit" />
 						Send eCash
 					</DialogTitle>
 					<DialogDescription>
@@ -124,7 +124,7 @@ export function SendEcashModal({
 				{view === 'token' && generatedToken ? (
 					<div className="space-y-4">
 						<div className="flex justify-center">
-							<div className="p-4 bg-white rounded-lg">
+							<div className="p-4 bg-card rounded-lg">
 								<QRCodeSVG value={generatedToken} size={200} />
 							</div>
 						</div>

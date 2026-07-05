@@ -413,7 +413,7 @@ function renderInlineToken(token: InlineToken) {
 
 	if (token.type === 'strong') {
 		return (
-			<strong key={tokenKey(token)} className="font-semibold text-stone-900">
+			<strong key={tokenKey(token)} className="font-semibold text-foreground">
 				{token.value}
 			</strong>
 		)
@@ -431,7 +431,7 @@ function renderInlineToken(token: InlineToken) {
 		return (
 			<code
 				key={tokenKey(token)}
-				className="rounded bg-stone-100 px-1.5 py-0.5 font-mono text-[0.9em] text-stone-800"
+				className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.9em] text-foreground"
 			>
 				{token.value}
 			</code>
@@ -445,7 +445,7 @@ function renderInlineToken(token: InlineToken) {
 				href={token.url}
 				target="_blank"
 				rel="noopener noreferrer"
-				className="inline-flex items-center gap-1 break-all text-sky-700 underline underline-offset-2 hover:text-sky-800"
+				className="inline-flex items-center gap-1 break-all text-info underline underline-offset-2 hover:text-info"
 			>
 				<span>{token.value}</span>
 				<ExternalLink className="h-3 w-3 flex-shrink-0" />
@@ -472,7 +472,7 @@ function GeoMentionChip({ token }: { token: MentionInlineToken }) {
 	}
 
 	return (
-		<span className="mx-0.5 inline-flex items-center gap-0.5 rounded-md border border-sky-200 bg-sky-50 px-1.5 py-0.5 align-middle text-xs font-medium text-sky-700">
+		<span className="mx-0.5 inline-flex items-center gap-0.5 rounded-md border border-info/40 bg-info/15 px-1.5 py-0.5 align-middle text-xs font-medium text-info">
 			<MapPin className="h-3 w-3 flex-shrink-0" />
 			<span className="max-w-[180px] truncate" title={address}>
 				{token.displayName ?? 'Reference'}
@@ -485,7 +485,7 @@ function GeoMentionChip({ token }: { token: MentionInlineToken }) {
 							variant="ghost"
 							size="icon-xs"
 							onClick={handleToggle}
-							className={`h-4 w-4 p-0 ${isVisible ? 'text-sky-600' : 'text-gray-400'} hover:text-sky-700`}
+							className={`h-4 w-4 p-0 ${isVisible ? 'text-info' : 'text-muted-foreground'} hover:text-info`}
 						>
 							{isVisible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
 						</Button>
@@ -501,7 +501,7 @@ function GeoMentionChip({ token }: { token: MentionInlineToken }) {
 							variant="ghost"
 							size="icon-xs"
 							onClick={() => callbacks.onMentionZoomTo?.(address, featureId)}
-							className="h-4 w-4 p-0 text-gray-400 hover:text-sky-700"
+							className="h-4 w-4 p-0 text-muted-foreground hover:text-info"
 						>
 							<Maximize2 className="h-3 w-3" />
 						</Button>
@@ -520,14 +520,14 @@ function renderMediaBlock(block: MediaBlock, index: number, onImageOpen?: (url: 
 		return (
 			<div key={`image-${index}`} className="space-y-2">
 				{label && (
-					<div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-500">
+					<div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
 						{label}
 					</div>
 				)}
 				<button
 					type="button"
 					onClick={() => onImageOpen?.(block.url)}
-					className="block w-full overflow-hidden rounded-xl border border-amber-200 bg-amber-50/60 text-left"
+					className="block w-full overflow-hidden rounded-xl border border-primary/40 bg-primary/10 text-left"
 				>
 					<img
 						src={block.url}
@@ -546,11 +546,11 @@ function renderMediaBlock(block: MediaBlock, index: number, onImageOpen?: (url: 
 			return (
 				<div key={`youtube:${block.url}:${index}`} className="space-y-2">
 					{label && (
-						<div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-500">
+						<div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
 							{label}
 						</div>
 					)}
-					<div className="overflow-hidden rounded-xl border border-gray-200 bg-black">
+					<div className="overflow-hidden rounded-xl border border-border bg-black">
 						<div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
 							<iframe
 								src={embedUrl}
@@ -570,11 +570,11 @@ function renderMediaBlock(block: MediaBlock, index: number, onImageOpen?: (url: 
 		return (
 			<div key={`video:${block.url}:${index}`} className="space-y-2">
 				{label && (
-					<div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-500">
+					<div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
 						{label}
 					</div>
 				)}
-				<div className="overflow-hidden rounded-xl border border-gray-200 bg-gray-950 p-1">
+				<div className="overflow-hidden rounded-xl border border-border bg-background p-1">
 					<video src={block.url} controls className="block max-h-[320px] w-full rounded-lg">
 						<track kind="captions" />
 					</video>
@@ -589,7 +589,7 @@ function renderMediaBlock(block: MediaBlock, index: number, onImageOpen?: (url: 
 			href={block.url}
 			target="_blank"
 			rel="noopener noreferrer"
-			className="inline-flex items-center gap-1 text-sky-700 underline underline-offset-2"
+			className="inline-flex items-center gap-1 text-info underline underline-offset-2"
 		>
 			<Play className="h-3.5 w-3.5" />
 			<span>{block.url}</span>
@@ -632,7 +632,7 @@ export function RichContentRenderer({
 	}
 
 	return (
-		<div className={`space-y-3 text-sm leading-relaxed text-gray-800 ${className}`}>
+		<div className={`space-y-3 text-sm leading-relaxed text-foreground ${className}`}>
 			{blocks.map((block, index) => {
 				if (block.type === 'paragraph') {
 					return (
@@ -652,27 +652,27 @@ export function RichContentRenderer({
 					})
 					if (block.level <= 1) {
 						return (
-							<h1 key={`heading-${index}`} className="font-serif text-2xl text-stone-900">
+							<h1 key={`heading-${index}`} className="font-serif text-2xl text-foreground">
 								{headingContent}
 							</h1>
 						)
 					}
 					if (block.level === 2) {
 						return (
-							<h2 key={`heading-${index}`} className="font-serif text-2xl text-stone-900">
+							<h2 key={`heading-${index}`} className="font-serif text-2xl text-foreground">
 								{headingContent}
 							</h2>
 						)
 					}
 					if (block.level === 3) {
 						return (
-							<h3 key={`heading-${index}`} className="font-serif text-xl text-stone-900">
+							<h3 key={`heading-${index}`} className="font-serif text-xl text-foreground">
 								{headingContent}
 							</h3>
 						)
 					}
 					return (
-						<h4 key={`heading-${index}`} className="text-base font-semibold text-stone-900">
+						<h4 key={`heading-${index}`} className="text-base font-semibold text-foreground">
 							{headingContent}
 						</h4>
 					)
@@ -682,7 +682,7 @@ export function RichContentRenderer({
 					return (
 						<blockquote
 							key={`quote-${index}`}
-							className="border-l-2 border-amber-300 bg-amber-50/60 px-4 py-2 text-stone-700"
+							className="border-l-2 border-primary/40 bg-primary/10 px-4 py-2 text-foreground"
 						>
 							{renderInlineTokens(block.tokens, {
 								onMentionVisibilityToggle,
@@ -715,7 +715,7 @@ export function RichContentRenderer({
 					return (
 						<pre
 							key={`code-${index}`}
-							className="overflow-x-auto rounded-2xl border border-stone-200 bg-stone-950/95 p-4 font-mono text-xs text-stone-100"
+							className="overflow-x-auto rounded-2xl border border-border bg-background/95 p-4 font-mono text-xs text-foreground"
 						>
 							<code>{block.code}</code>
 						</pre>
@@ -735,7 +735,7 @@ export function RichContentRenderer({
 							type="button"
 							variant="ghost"
 							size="icon-lg"
-							className="absolute right-4 top-4 rounded-full bg-white/10 text-white hover:bg-white/20 hover:text-white"
+							className="absolute right-4 top-4 rounded-full bg-card/10 text-white hover:bg-card/20 hover:text-white"
 							onClick={() => setLightboxUrl(null)}
 							aria-label="Close image preview"
 						>

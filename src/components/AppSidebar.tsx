@@ -952,7 +952,7 @@ export function AppSidebar({
 				const profilePubkey = userPubkey ?? currentUserPubkey
 				if (!profilePubkey) {
 					return (
-						<div className="p-4 text-center text-gray-500">
+						<div className="p-4 text-center text-muted-foreground">
 							<p>Connect to view your entities</p>
 						</div>
 					)
@@ -1057,7 +1057,7 @@ export function AppSidebar({
 						<SidebarMenuItem>
 							<SidebarMenuButton size="lg" asChild className="md:h-8 md:p-0">
 								<a href="/">
-									<div className="flex aspect-square size-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-white">
+									<div className="flex aspect-square size-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-card">
 										<img src={squareLogoRose} alt="" className="size-6 object-contain" />
 									</div>
 									<div className="grid flex-1 text-left text-sm leading-tight">

@@ -44,7 +44,7 @@ import { Skeleton } from './ui/skeleton'
 /** Shared ghost-button styling for the inline per-row action cluster (matches the
  * dataset/sighting catalog rows so every entity surface exposes the same affordances). */
 const actionButtonClass =
-	'rounded-none px-2 text-xs text-gray-600 shadow-none hover:bg-muted hover:text-sky-600'
+	'rounded-none px-2 text-xs text-muted-foreground shadow-none hover:bg-muted hover:text-info'
 
 export interface BeaconsPanelProps {
 	currentUserPubkey?: string
@@ -174,7 +174,7 @@ function BeaconRow({
 						<Button
 							size="icon-sm"
 							variant="ghost"
-							className={cn(actionButtonClass, 'hover:text-sky-600')}
+							className={cn(actionButtonClass, 'hover:text-info')}
 							onClick={onWatch}
 							aria-label="Watch on map"
 							title="Watch on map"
@@ -186,7 +186,7 @@ function BeaconRow({
 						<Button
 							size="icon-sm"
 							variant="ghost"
-							className={cn(actionButtonClass, 'hover:text-emerald-600')}
+							className={cn(actionButtonClass, 'hover:text-ok')}
 							onClick={onAddToMapStack}
 							aria-label="Add to map stack"
 							title="Add to map stack"
@@ -197,7 +197,7 @@ function BeaconRow({
 					<Button
 						size="icon-sm"
 						variant="ghost"
-						className={cn(actionButtonClass, 'hover:text-emerald-600')}
+						className={cn(actionButtonClass, 'hover:text-ok')}
 						onClick={onOpen}
 						aria-label="Open beacon"
 						title="Open beacon"
@@ -210,7 +210,7 @@ function BeaconRow({
 								<Button
 									size="sm"
 									variant="ghost"
-									className={cn(actionButtonClass, 'hover:text-sky-600')}
+									className={cn(actionButtonClass, 'hover:text-info')}
 									onClick={onAdjust}
 									aria-label="Adjust beacon"
 									title="Adjust"

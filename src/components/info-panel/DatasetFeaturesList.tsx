@@ -62,7 +62,7 @@ function ReadOnlyFeatureRow({
 		<div
 			className={cn(
 				'rounded border text-xs',
-				isExternalPlaceholder ? 'border-sky-200 bg-sky-50/50' : 'border-gray-200 bg-white',
+				isExternalPlaceholder ? 'border-info/40 bg-info/15' : 'border-border bg-card',
 			)}
 		>
 			{/* Row header */}
@@ -81,7 +81,7 @@ function ReadOnlyFeatureRow({
 							<ChevronRight className="h-3 w-3" />
 						)
 					) : (
-						<Cloud className="h-3 w-3 text-sky-400" />
+						<Cloud className="h-3 w-3 text-info" />
 					)}
 				</Button>
 
@@ -91,18 +91,18 @@ function ReadOnlyFeatureRow({
 					isExternal={isExternal || isExternalPlaceholder}
 				/>
 
-				<span className="flex-1 text-left truncate text-gray-700">{name}</span>
+				<span className="flex-1 text-left truncate text-foreground">{name}</span>
 			</div>
 
 			{/* External placeholder info */}
 			{isExternalPlaceholder && !hasGeometry && (
-				<div className="border-t border-sky-100 px-2 py-1.5 text-[11px] text-sky-600">
+				<div className="border-t border-info/40 px-2 py-1.5 text-[11px] text-info">
 					<span className="flex items-center gap-1">
 						<Cloud className="h-3 w-3" />
 						Geometry stored externally
 					</span>
 					{feature.properties?.blobUrl && (
-						<span className="block truncate text-[10px] text-sky-500 mt-0.5">
+						<span className="block truncate text-[10px] text-info mt-0.5">
 							{feature.properties.blobUrl}
 						</span>
 					)}
@@ -111,33 +111,36 @@ function ReadOnlyFeatureRow({
 
 			{/* Expanded content */}
 			{isExpanded && hasGeometry && (
-				<div className="border-t border-gray-100 px-2 py-2 bg-gray-50/50 space-y-2">
+				<div className="border-t border-border px-2 py-2 bg-muted/50 space-y-2">
 					{/* Annotation text */}
 					{isAnnotation && feature.properties?.text && (
-						<div className="text-xs text-gray-600 italic">"{feature.properties.text}"</div>
+						<div className="text-xs text-muted-foreground italic">"{feature.properties.text}"</div>
 					)}
 
 					{/* Name if different from display */}
 					{feature.properties?.name && (
-						<div className="text-[11px] text-gray-600">
-							<span className="text-gray-400">Name:</span> {feature.properties.name}
+						<div className="text-[11px] text-muted-foreground">
+							<span className="text-muted-foreground">Name:</span> {feature.properties.name}
 						</div>
 					)}
 
 					{/* Description */}
 					{feature.properties?.description && (
-						<div className="text-[11px] text-gray-600">
-							<span className="text-gray-400">Description:</span> {feature.properties.description}
+						<div className="text-[11px] text-muted-foreground">
+							<span className="text-muted-foreground">Description:</span>{' '}
+							{feature.properties.description}
 						</div>
 					)}
 
 					{Object.keys(customProperties).length > 0 && (
 						<div className="space-y-1">
-							<div className="text-[10px] uppercase tracking-wide text-gray-400">Properties</div>
+							<div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+								Properties
+							</div>
 							<div className="space-y-1">
 								{Object.entries(customProperties).map(([key, value]) => (
-									<div key={key} className="text-[11px] text-gray-600">
-										<span className="text-gray-400">{key}:</span> {String(value)}
+									<div key={key} className="text-[11px] text-muted-foreground">
+										<span className="text-muted-foreground">{key}:</span> {String(value)}
 									</div>
 								))}
 							</div>
@@ -183,7 +186,7 @@ export function DatasetFeaturesList({
 
 	if (!featureCollection?.features?.length) {
 		return (
-			<div className={cn('text-xs text-gray-500 py-2', className)}>
+			<div className={cn('text-xs text-muted-foreground py-2', className)}>
 				No features in this dataset.
 			</div>
 		)

@@ -127,7 +127,7 @@ export function FileChip({ file, onRemove }: FileChipProps) {
 			className={cn(
 				'flex max-w-full items-center gap-1.5 rounded border bg-background px-2 py-1 text-xs',
 				isImageUnsupported && 'opacity-60',
-				isImageUncertain && 'border-amber-300 dark:border-amber-700',
+				isImageUncertain && 'border-primary/40',
 			)}
 		>
 			{isParsing ? (
@@ -142,7 +142,7 @@ export function FileChip({ file, onRemove }: FileChipProps) {
 				{file.fileName}
 			</span>
 			{isImageUncertain && (
-				<span className="shrink-0 rounded bg-amber-50 px-1 py-0.5 text-[10px] text-amber-600 dark:bg-amber-950 dark:text-amber-400">
+				<span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[10px] text-primary">
 					vision?
 				</span>
 			)}

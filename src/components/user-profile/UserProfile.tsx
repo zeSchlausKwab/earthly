@@ -165,7 +165,7 @@ function UserProfileComponent({
 			<Tooltip>
 				<TooltipTrigger asChild>
 					<span className={badgeClass}>
-						<BadgeCheck className={cn(config.badge, 'text-emerald-500 flex-shrink-0')} />
+						<BadgeCheck className={cn(config.badge, 'text-ok flex-shrink-0')} />
 					</span>
 				</TooltipTrigger>
 				<TooltipContent>{profile.nip05}</TooltipContent>
@@ -180,9 +180,7 @@ function UserProfileComponent({
 				alt={displayName}
 				className="object-cover"
 			/>
-			<AvatarFallback
-				className={cn(config.text, 'bg-gradient-to-br from-sky-400 to-emerald-400 text-white')}
-			>
+			<AvatarFallback className={cn(config.text, 'bg-gradient-to-br from-info to-ok text-white')}>
 				{profile ? getFallbackText() : <User className={config.icon} />}
 			</AvatarFallback>
 		</Avatar>
@@ -223,7 +221,7 @@ function UserProfileComponent({
 			return (
 				<Wrapper>
 					<div className={cn('flex items-center', config.gap)}>
-						<span className={cn('font-medium text-gray-900 truncate', config.text)}>
+						<span className={cn('font-medium text-foreground truncate', config.text)}>
 							{displayName}
 						</span>
 						<Nip05Badge />
@@ -237,7 +235,7 @@ function UserProfileComponent({
 					<div className={cn('flex items-center min-w-0', config.gap)}>
 						<ProfileAvatar sizeClass={config.avatar} />
 						<div className={cn('flex items-center min-w-0', config.gap)}>
-							<span className={cn('font-medium text-gray-700 truncate', config.text)}>
+							<span className={cn('font-medium text-foreground truncate', config.text)}>
 								{displayName}
 							</span>
 							<Nip05Badge />
@@ -263,13 +261,13 @@ function UserProfileComponent({
 						/>
 						<div className="flex flex-col gap-0.5 min-w-0">
 							<div className={cn('flex items-center', config.gap)}>
-								<span className={cn('font-semibold text-gray-900', config.text)}>
+								<span className={cn('font-semibold text-foreground', config.text)}>
 									{displayName}
 								</span>
 								<Nip05Badge />
 							</div>
 							{showBio && profile?.about && (
-								<p className="text-xs text-gray-600 line-clamp-2">{profile.about}</p>
+								<p className="text-xs text-muted-foreground line-clamp-2">{profile.about}</p>
 							)}
 						</div>
 					</div>
@@ -283,12 +281,12 @@ function UserProfileComponent({
 						<ProfileAvatar sizeClass="size-20" />
 						<div className="flex flex-col items-center gap-1.5 text-center">
 							<div className="flex items-center gap-2">
-								<h3 className="text-lg font-bold text-gray-900">{displayName}</h3>
+								<h3 className="text-lg font-bold text-foreground">{displayName}</h3>
 								<Nip05Badge />
 							</div>
-							{profile?.nip05 && <p className="text-xs text-gray-500">{profile.nip05}</p>}
+							{profile?.nip05 && <p className="text-xs text-muted-foreground">{profile.nip05}</p>}
 							{showBio && profile?.about && (
-								<p className="text-sm text-gray-700 max-w-md">{profile.about}</p>
+								<p className="text-sm text-foreground max-w-md">{profile.about}</p>
 							)}
 							{showWebsite && profile?.website && (
 								<a
@@ -299,7 +297,7 @@ function UserProfileComponent({
 									}
 									target="_blank"
 									rel="noopener noreferrer"
-									className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 hover:underline"
+									className="inline-flex items-center gap-1 text-sm text-info hover:text-info hover:underline"
 									onClick={(e) => e.stopPropagation()}
 								>
 									<Globe className="size-3.5" />

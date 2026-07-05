@@ -142,7 +142,7 @@ export function CommentsPanel({
 
 	if (!target) {
 		return (
-			<div className={`p-4 text-center text-sm text-gray-500 ${className}`}>
+			<div className={`p-4 text-center text-sm text-muted-foreground ${className}`}>
 				Select a dataset or context to view comments.
 			</div>
 		)
@@ -150,7 +150,7 @@ export function CommentsPanel({
 
 	return (
 		<div className={`flex h-full flex-col ${className}`}>
-			<div className="mb-2 flex-shrink-0 border-b border-stone-200 pb-2">
+			<div className="mb-2 flex-shrink-0 border-b border-border pb-2">
 				<div className="flex flex-wrap items-center justify-between gap-3">
 					<GeoSocialActions
 						target={target}
@@ -158,14 +158,14 @@ export function CommentsPanel({
 						commentCount={count}
 						compact
 					/>
-					<div className="flex items-center gap-2 text-xs text-stone-500">
+					<div className="flex items-center gap-2 text-xs text-muted-foreground">
 						{commentsWithGeometry.length > 0 && onCommentGeojsonVisibilityChange && (
 							<Button
 								type="button"
 								variant="outline"
 								size="sm"
 								onClick={handleToggleEntityAnnotations}
-								className="gap-1.5 rounded-none border-stone-200 bg-white px-2 text-[11px] text-stone-700 hover:bg-stone-100"
+								className="gap-1.5 rounded-none border-border bg-card px-2 text-[11px] text-foreground hover:bg-muted"
 							>
 								{entityAnnotationsVisible ? (
 									<EyeOff className="h-3.5 w-3.5" />
@@ -198,12 +198,12 @@ export function CommentsPanel({
 			{/* Comments list */}
 			<div ref={commentsListRef} className="min-h-0 flex-1 overflow-y-auto">
 				{isLoading && comments.length === 0 ? (
-					<div className="flex items-center justify-center py-8 text-sm text-stone-500">
+					<div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
 						<RefreshCw className="mr-2 h-4 w-4 animate-spin" />
 						Loading comments...
 					</div>
 				) : comments.length === 0 ? (
-					<div className="border border-dashed border-stone-200 py-8 text-center text-xs text-stone-500">
+					<div className="border border-dashed border-border py-8 text-center text-xs text-muted-foreground">
 						<p>No comments yet</p>
 						<p className="text-xs mt-1">Be the first to share your thoughts!</p>
 					</div>

@@ -4,6 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
+    <!-- Apply the saved theme before first paint (dark is the default). -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("earthly-theme");
+          if (t === "light" || t === "dark") {
+            var e = document.documentElement;
+            e.classList.remove("light", "dark");
+            e.classList.add(t);
+          }
+        } catch (e) {}
+      })();
+    </script>
+
     <!-- Dense-instrument design system fonts: IBM Plex Sans (UI),
          JetBrains Mono (values), Playfair Display (editorial display) -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />

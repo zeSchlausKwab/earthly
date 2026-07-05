@@ -230,7 +230,7 @@ function RowAction({
 					type="button"
 					variant="ghost"
 					size="icon-sm"
-					className={cn(className, hoverClassName, active && 'bg-amber-100 text-amber-700')}
+					className={cn(className, hoverClassName, active && 'bg-primary/10 text-primary')}
 					onClick={onClick}
 					aria-label={label}
 					aria-pressed={pressed}
@@ -328,10 +328,10 @@ function EntryRow({
 			className={cn(
 				'group relative flex cursor-grab flex-col rounded-md border bg-card transition-colors active:cursor-grabbing',
 				isolated
-					? 'border-amber-300 bg-amber-50/50 shadow-[inset_3px_0_0_0] shadow-amber-500'
+					? 'border-primary/40 bg-primary/10 shadow-[inset_3px_0_0_0] shadow-primary'
 					: 'border-border',
 				!entry.visible && !isolated && 'opacity-60',
-				isReorderTarget && 'border-sky-400 shadow-[0_-2px_0_0] shadow-sky-400',
+				isReorderTarget && 'border-info/40 shadow-[0_-2px_0_0] shadow-info',
 			)}
 			data-isolated={isolated ? 'true' : undefined}
 			draggable
@@ -363,9 +363,9 @@ function EntryRow({
 					className={cn(
 						'flex shrink-0 items-center justify-center rounded-md',
 						entry.entityType === 'draft'
-							? 'bg-emerald-100 text-emerald-700'
+							? 'bg-ok/15 text-ok'
 							: isolated
-								? 'bg-amber-100 text-amber-700'
+								? 'bg-primary/10 text-primary'
 								: 'bg-muted text-muted-foreground',
 						compact ? 'mt-0.5 h-6 w-6' : 'mt-1 h-7 w-7',
 					)}
@@ -401,7 +401,7 @@ function EntryRow({
 						{isolated ? (
 							<span
 								className={cn(
-									'shrink-0 rounded-full bg-amber-200/70 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-amber-800',
+									'shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-primary',
 									compact ? 'text-[9px]' : 'text-[10px]',
 								)}
 							>
@@ -456,7 +456,7 @@ function EntryRow({
 							icon={<IsolateActionIcon className={actionIconClassName} />}
 							className={cn(
 								actionButtonClassName,
-								isolated ? 'text-amber-600 hover:text-amber-700' : 'hover:text-amber-700',
+								isolated ? 'text-primary hover:text-primary' : 'hover:text-primary',
 							)}
 							onClick={() => onSetEntryIsolated(entry, !isolated)}
 							label={isolated ? 'Stop isolating' : 'Isolate on the map'}
@@ -480,21 +480,21 @@ function EntryRow({
 						<>
 							<RowAction
 								icon={<ZoomActionIcon className={actionIconClassName} />}
-								className={cn(actionButtonClassName, 'hover:text-sky-700')}
+								className={cn(actionButtonClassName, 'hover:text-info')}
 								onClick={() => onZoomToDataset(dataset)}
 								label="Zoom to dataset"
 								tooltip="Zoom the map to this dataset's bounds"
 							/>
 							<RowAction
 								icon={<InspectActionIcon className={actionIconClassName} />}
-								className={cn(actionButtonClassName, 'hover:text-emerald-700')}
+								className={cn(actionButtonClassName, 'hover:text-ok')}
 								onClick={() => onInspectDataset(dataset)}
 								label="Inspect dataset"
 								tooltip="Open the dataset details panel"
 							/>
 							<RowAction
 								icon={<LoadEditorActionIcon className={actionIconClassName} />}
-								className={cn(actionButtonClassName, 'hover:text-emerald-700')}
+								className={cn(actionButtonClassName, 'hover:text-ok')}
 								onClick={() => onLoadDataset(dataset)}
 								label="Load dataset into editor"
 								tooltip="Load this dataset into the editor for changes"
@@ -504,7 +504,7 @@ function EntryRow({
 					{context ? (
 						<RowAction
 							icon={<InspectActionIcon className={actionIconClassName} />}
-							className={cn(actionButtonClassName, 'hover:text-emerald-700')}
+							className={cn(actionButtonClassName, 'hover:text-ok')}
 							onClick={() => onInspectContext(context)}
 							label="Inspect context"
 							tooltip="Open the context details panel"
@@ -515,7 +515,7 @@ function EntryRow({
 							{onZoomToDraft ? (
 								<RowAction
 									icon={<ZoomActionIcon className={actionIconClassName} />}
-									className={cn(actionButtonClassName, 'hover:text-sky-700')}
+									className={cn(actionButtonClassName, 'hover:text-info')}
 									onClick={onZoomToDraft}
 									label="Zoom to edit"
 									tooltip="Zoom the map to the geometry being edited"
@@ -524,7 +524,7 @@ function EntryRow({
 							{onOpenDraftEditor ? (
 								<RowAction
 									icon={<OpenPanelActionIcon className={actionIconClassName} />}
-									className={cn(actionButtonClassName, 'hover:text-emerald-700')}
+									className={cn(actionButtonClassName, 'hover:text-ok')}
 									onClick={onOpenDraftEditor}
 									label="Open editor panel"
 									tooltip="Show the edit state in the side panel"
@@ -541,7 +541,7 @@ function EntryRow({
 							}
 							className={cn(
 								actionButtonClassName,
-								entry.pinned ? 'text-sky-600 hover:text-sky-700' : 'hover:text-sky-700',
+								entry.pinned ? 'text-info hover:text-info' : 'hover:text-info',
 							)}
 							onClick={() => onTogglePinned(entry.id)}
 							label={entry.pinned ? 'Unpin' : 'Pin'}
@@ -636,7 +636,7 @@ function EntryRow({
 								</span>
 								<button
 									type="button"
-									className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-sky-700"
+									className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-info"
 									onClick={(event) => {
 										event.preventDefault()
 										onZoomToDataset(curated)
@@ -793,7 +793,7 @@ function EntryGroupList({
 			) : null}
 			{draftEntries.length > 0 ? (
 				<div className={cn(groupGap)}>
-					<div className={cn(groupLabelClass, 'text-emerald-700')}>
+					<div className={cn(groupLabelClass, 'text-ok')}>
 						<PencilLine className="h-3 w-3" />
 						<span>Editing</span>
 						<span className="font-normal text-muted-foreground/70">({draftEntries.length})</span>
@@ -943,7 +943,7 @@ export function MapStackPanel({
 				'flex min-h-0 flex-col overflow-hidden rounded-md border border-border bg-background',
 				compact ? 'h-auto' : 'h-full',
 				compact && 'bg-background/95 backdrop-blur',
-				isDragOver && 'border-emerald-500 bg-emerald-50/60',
+				isDragOver && 'border-ok/40 bg-ok/15',
 			)}
 			onDragEnter={(event) => {
 				if (hasDatasetDragData(event)) {
@@ -971,7 +971,7 @@ export function MapStackPanel({
 				)}
 			>
 				<div className="flex min-w-0 items-center gap-2">
-					<Layers className={cn(actionIconClassName, 'text-emerald-600')} />
+					<Layers className={cn(actionIconClassName, 'text-ok')} />
 					<div className="min-w-0">
 						<div
 							className={cn(
@@ -987,7 +987,7 @@ export function MapStackPanel({
 						{isolatedEntry && isolatedLabel ? (
 							<div
 								className={cn(
-									'mt-0.5 flex items-center gap-1 text-amber-600',
+									'mt-0.5 flex items-center gap-1 text-primary',
 									compact ? 'text-[11px]' : 'text-xs',
 								)}
 							>
@@ -1005,7 +1005,7 @@ export function MapStackPanel({
 							size="sm"
 							className={cn(
 								compact ? 'h-6 px-1.5 text-[11px]' : 'h-7 px-2 text-xs',
-								'text-amber-700 hover:bg-amber-100 hover:text-amber-800',
+								'text-primary hover:bg-primary/10 hover:text-primary',
 							)}
 							onClick={() => onSetEntryIsolated(isolatedEntry, false)}
 							title="Stop isolating — show all again"

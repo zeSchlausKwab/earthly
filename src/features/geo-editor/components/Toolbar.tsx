@@ -15,6 +15,7 @@ import {
 	MessageCircle,
 	Merge,
 	Minus,
+	Moon,
 	MousePointerClick,
 	MousePointer2,
 	Pentagon,
@@ -27,6 +28,7 @@ import {
 	Sparkles,
 	Split as SplitIcon,
 	SquareDashedMousePointer,
+	Sun,
 	Type,
 	Trash2,
 	Undo2,
@@ -62,6 +64,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { SearchBar } from '@/components/ui/search-bar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { useTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 import { canExecuteEditorCommand, executeEditorCommand, type EditorCommandId } from '../commands'
 import type { EditorMode } from '../core'
@@ -173,18 +176,21 @@ function MapStateCluster({
 	// that combined viewMode + focusLabel). Transitions live at the explicit
 	// trigger sites — see stanceSlice for the model.
 	const stance = useEditorStore((state) => state.stance)
+	// Stance labels kept as-is (vocabulary change deferred). Colors follow the
+	// DS palette — amber = active/selection (focus), violet = edit/draft
+	// (author), muted neutral = browse.
 	const stanceLabel = stance === 'author' ? 'Edit' : stance === 'focus' ? 'Inspect' : 'Browse'
 	const stanceClass = flat
 		? stance === 'author'
-			? 'text-emerald-700'
+			? 'text-edit'
 			: stance === 'focus'
-				? 'text-amber-700'
+				? 'text-primary'
 				: 'text-muted-foreground'
 		: stance === 'author'
-			? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+			? 'border-edit/40 bg-edit/10 text-edit'
 			: stance === 'focus'
-				? 'border-amber-200 bg-amber-50 text-amber-800'
-				: 'border-slate-200 bg-slate-50 text-slate-700'
+				? 'border-primary/40 bg-primary/10 text-primary'
+				: 'border-border bg-muted/40 text-muted-foreground'
 	const mapCountLabel =
 		mapStackEntryCount > 0 ? `${mapStackVisibleCount}/${mapStackEntryCount}` : '0'
 	const clusterClass = flat
@@ -244,8 +250,8 @@ function MapStateCluster({
 						onClick={onExitFocus}
 						className={
 							flat
-								? `inline-flex h-8 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-transparent px-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors hover:bg-amber-100 ${stanceClass}`
-								: `inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md border px-2 text-[11px] font-semibold uppercase transition-colors hover:bg-amber-100 ${stanceClass}`
+								? `inline-flex h-8 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-transparent px-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors hover:bg-primary/15 ${stanceClass}`
+								: `inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md border px-2 text-[11px] font-semibold uppercase transition-colors hover:bg-primary/15 ${stanceClass}`
 						}
 						title="Exit inspection"
 						aria-label="Exit inspection"
@@ -267,6 +273,28 @@ function MapStateCluster({
 				)
 			) : null}
 		</div>
+	)
+}
+
+/**
+ * Dark/light theme toggle. The active theme is the `light`/`dark` class on
+ * `<html>` (see `@/lib/theme`); flipping it re-themes the whole app and the
+ * map basemap. Dark is the default working (Studio) theme.
+ */
+function ThemeToggleButton() {
+	const [theme, setTheme] = useTheme()
+	const isDark = theme === 'dark'
+	return (
+		<Button
+			variant="ghost"
+			size="icon-sm"
+			aria-label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
+			title={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
+			className="h-8 w-8 shrink-0 rounded-md border border-transparent text-muted-foreground shadow-none hover:text-foreground"
+			onClick={() => setTheme(isDark ? 'light' : 'dark')}
+		>
+			{isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+		</Button>
 	)
 }
 
@@ -1436,6 +1464,7 @@ export function Toolbar({
 					) : null}
 					<CreateMapPopover small />
 					<ShareExportPopover small />
+					<ThemeToggleButton />
 					<Popover open={showMapSettings} onOpenChange={setShowMapSettings}>
 						<PopoverTrigger asChild>
 							<Button

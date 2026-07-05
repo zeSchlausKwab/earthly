@@ -794,10 +794,10 @@ export function ChatPanel({
 
 						{isStreaming && streamWarning && (
 							<div className="flex gap-2">
-								<div className="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center bg-amber-100 dark:bg-amber-900">
-									<AlertCircle className="h-3.5 w-3.5 text-amber-700 dark:text-amber-300" />
+								<div className="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center bg-primary/10">
+									<AlertCircle className="h-3.5 w-3.5 text-primary" />
 								</div>
-								<div className="rounded-lg px-3 py-2 text-xs bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200">
+								<div className="rounded-lg px-3 py-2 text-xs bg-primary/10 border border-primary/40 text-primary">
 									<div>{streamWarning}</div>
 									<div className="mt-1 flex items-center gap-2">
 										<span className="opacity-80">last update {stalledSeconds}s ago</span>
@@ -1456,7 +1456,7 @@ function renderChatMarkdownInlineToken(
 			className={cn(
 				'break-all underline underline-offset-2',
 				variant === 'assistant'
-					? 'text-blue-700 hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200'
+					? 'text-info hover:text-info dark:hover:text-info'
 					: 'text-primary-foreground hover:text-primary-foreground/85',
 			)}
 		>
@@ -1627,23 +1627,19 @@ const MessageBubble = memo(function MessageBubble({
 		if (toolError) {
 			return (
 				<div className="ml-8 flex min-w-0 gap-2">
-					<div className="flex-shrink-0 h-5 w-5 rounded flex items-center justify-center bg-red-100 dark:bg-red-900">
-						<AlertTriangle className="h-3 w-3 text-red-600 dark:text-red-400" />
+					<div className="flex-shrink-0 h-5 w-5 rounded flex items-center justify-center bg-destructive/10">
+						<AlertTriangle className="h-3 w-3 text-destructive" />
 					</div>
-					<div className="relative min-w-0 max-w-[85%] overflow-hidden rounded-lg border border-red-300/80 bg-red-50/80 px-3 py-2 text-xs dark:border-red-800/70 dark:bg-red-950/40">
-						<div className="flex items-center gap-1.5 font-medium text-red-700 dark:text-red-300">
+					<div className="relative min-w-0 max-w-[85%] overflow-hidden rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs">
+						<div className="flex items-center gap-1.5 font-medium text-destructive">
 							<span>{toolError.kind === 'unknown_tool' ? 'Unknown tool' : 'Tool error'}:</span>
-							<code className="rounded bg-red-100 px-1 py-0.5 text-[11px] dark:bg-red-900/60">
+							<code className="rounded bg-destructive/10 px-1 py-0.5 text-[11px]">
 								{toolError.toolName}
 							</code>
 						</div>
-						<div className="mt-1 break-words text-red-800 dark:text-red-200">
-							{toolError.message}
-						</div>
+						<div className="mt-1 break-words text-destructive">{toolError.message}</div>
 						{toolError.origin && (
-							<div className="mt-1 text-[10px] text-red-600/80 dark:text-red-400/80">
-								origin: {toolError.origin}
-							</div>
+							<div className="mt-1 text-[10px] text-destructive/80">origin: {toolError.origin}</div>
 						)}
 					</div>
 				</div>
@@ -1665,8 +1661,8 @@ const MessageBubble = memo(function MessageBubble({
 			if (runResult) {
 				return (
 					<div className="ml-8 flex min-w-0 gap-2">
-						<div className="flex-shrink-0 h-5 w-5 rounded flex items-center justify-center bg-violet-100 dark:bg-violet-900">
-							<Code2 className="h-3 w-3 text-violet-600 dark:text-violet-400" />
+						<div className="flex-shrink-0 h-5 w-5 rounded flex items-center justify-center bg-edit/15">
+							<Code2 className="h-3 w-3 text-edit" />
 						</div>
 						<div className="min-w-0 max-w-[85%]">
 							<CodeRunDisclosure source={runCodeSource} result={runResult} />
@@ -1678,8 +1674,8 @@ const MessageBubble = memo(function MessageBubble({
 
 		return (
 			<div className="ml-8 flex min-w-0 gap-2">
-				<div className="flex-shrink-0 h-5 w-5 rounded flex items-center justify-center bg-blue-100 dark:bg-blue-900">
-					<MapPin className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+				<div className="flex-shrink-0 h-5 w-5 rounded flex items-center justify-center bg-info/15">
+					<MapPin className="h-3 w-3 text-info" />
 				</div>
 				<div className="min-w-0 max-w-[85%]">
 					<ToolResultDisclosure content={contentText} tokenEstimate={tokenEstimate} />
@@ -2002,13 +1998,13 @@ function ToolResultDisclosure({
 	}
 
 	return (
-		<div className="rounded-lg px-3 py-2 text-xs bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800">
+		<div className="rounded-lg px-3 py-2 text-xs bg-info/15 border border-info/40">
 			<div className="flex items-center justify-between gap-2 mb-1">
 				<Button
 					type="button"
 					variant="ghost"
 					onClick={() => setIsOpen((prev) => !prev)}
-					className="h-auto p-0 text-left font-medium text-blue-700 dark:text-blue-300"
+					className="h-auto p-0 text-left font-medium text-info"
 					aria-expanded={isOpen}
 				>
 					<span className="mr-1">{isOpen ? '▾' : '▸'}</span>
@@ -2032,21 +2028,19 @@ function ToolResultDisclosure({
 							)}
 						</Button>
 					)}
-					<span className="text-[10px] text-blue-700/80 dark:text-blue-300/80">
-						~{tokenEstimate.toLocaleString()} tok
-					</span>
+					<span className="text-[10px] text-info/80">~{tokenEstimate.toLocaleString()} tok</span>
 					<CopyBubbleButton text={content} title="Copy tool result" compact />
 				</div>
 			</div>
 			{!isOpen ? (
-				<div className="rounded border border-blue-200/70 dark:border-blue-800/60 bg-background/70 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
+				<div className="rounded border border-info/40 bg-background/70 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
 					<pre className="whitespace-pre-wrap break-words">
 						{previewLines.join('\n')}
 						{hasMore ? '\n...' : ''}
 					</pre>
 				</div>
 			) : (
-				<div className="max-h-56 overflow-y-auto rounded border border-blue-200/70 dark:border-blue-800/60 bg-background/70 p-2">
+				<div className="max-h-56 overflow-y-auto rounded border border-info/40 bg-background/70 p-2">
 					<pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
 						{displayContent}
 					</pre>

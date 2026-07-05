@@ -76,11 +76,7 @@ export function VisionGateControl({
 					type="button"
 					variant={sendAnyway ? 'default' : 'outline'}
 					size="sm"
-					className={cn(
-						'h-8 gap-1.5 text-xs',
-						!sendAnyway &&
-							'border-amber-300 text-amber-600 dark:border-amber-700 dark:text-amber-400',
-					)}
+					className={cn('h-8 gap-1.5 text-xs', !sendAnyway && 'border-primary/40 text-primary')}
 					onClick={() => onSendAnywayChange(!sendAnyway)}
 				>
 					<EyeOff className="h-3.5 w-3.5" />

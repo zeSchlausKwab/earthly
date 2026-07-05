@@ -783,9 +783,9 @@ Write in Markdown. Use $ to insert datasets, Groups, or features.`}
 							<p
 								className={`text-xs ${
 									sampleVerdict.status === 'valid'
-										? 'text-emerald-600'
+										? 'text-ok'
 										: sampleVerdict.status === 'invalid'
-											? 'text-amber-600'
+											? 'text-primary'
 											: 'text-destructive'
 								}`}
 							>

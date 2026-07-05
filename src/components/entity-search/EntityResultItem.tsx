@@ -11,10 +11,10 @@ const TYPE_ICONS: Record<EntityType, typeof Database> = {
 }
 
 const TYPE_COLORS: Record<EntityType, string> = {
-	dataset: 'text-blue-500',
-	collection: 'text-green-500',
-	context: 'text-amber-500',
-	feature: 'text-gray-500',
+	dataset: 'text-info',
+	collection: 'text-ok',
+	context: 'text-primary',
+	feature: 'text-muted-foreground',
 }
 
 interface EntityResultItemProps {

@@ -23,7 +23,7 @@ export function SessionButton({ viewMode, onStartNew, onCancel, small }: Session
 						size="icon"
 						variant={isEditing ? 'destructive' : 'default'}
 						onClick={isEditing ? onCancel : onStartNew}
-						className={`${buttonSize} ${!isEditing ? 'bg-violet-600 hover:bg-violet-700' : ''}`}
+						className={`${buttonSize} ${!isEditing ? 'bg-edit hover:bg-edit/80' : ''}`}
 						aria-label={isEditing ? 'Cancel editing' : 'New dataset'}
 					>
 						{isEditing ? <XCircle className={iconSize} /> : <PlusCircle className={iconSize} />}

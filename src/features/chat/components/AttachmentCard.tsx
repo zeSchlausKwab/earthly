@@ -176,7 +176,7 @@ export function AttachmentCard({ summary, defaultOpen = false }: AttachmentCardP
 				</span>
 				{warnings.length > 0 && (
 					<span
-						className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-50 px-1 py-0.5 text-[10px] text-amber-600 dark:bg-amber-950 dark:text-amber-400"
+						className="inline-flex shrink-0 items-center gap-0.5 rounded bg-primary/10 px-1 py-0.5 text-[10px] text-primary"
 						title={warnings.join('\n')}
 					>
 						<AlertTriangle className="h-2.5 w-2.5" />
@@ -192,10 +192,7 @@ export function AttachmentCard({ summary, defaultOpen = false }: AttachmentCardP
 					{warnings.length > 0 && (
 						<ul className="mb-1 space-y-0.5">
 							{warnings.map((warning) => (
-								<li
-									key={warning}
-									className="flex items-start gap-1 text-[11px] text-amber-700 dark:text-amber-400"
-								>
+								<li key={warning} className="flex items-start gap-1 text-[11px] text-primary">
 									<AlertTriangle className="mt-0.5 h-2.5 w-2.5 shrink-0" />
 									<span>{warning}</span>
 								</li>

@@ -113,7 +113,7 @@ export function SightingPopup({
 			ref={popupRef}
 			role="dialog"
 			aria-label={`${title} sighting`}
-			className="pointer-events-none absolute z-50 flex flex-col overflow-hidden rounded-xl bg-white/95 shadow-2xl ring-1 ring-black/5 backdrop-blur"
+			className="pointer-events-none absolute z-50 flex flex-col overflow-hidden rounded-xl bg-card/95 shadow-2xl ring-1 ring-black/5 backdrop-blur"
 			style={{
 				width: `min(${POPUP_WIDTH}px, calc(100% - 24px))`,
 				left: position.left,
@@ -121,17 +121,17 @@ export function SightingPopup({
 				maxHeight: position.maxHeight,
 			}}
 		>
-			<div className="border-b border-gray-100 bg-gray-50/80 px-3 py-2">
+			<div className="border-b border-border bg-muted/80 px-3 py-2">
 				<div className="flex items-center gap-2">
 					<span
 						className={`shrink-0 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${cueClass}`}
 					>
 						{cueLabel}
 					</span>
-					<span className="truncate font-semibold text-sm text-gray-900">{title}</span>
+					<span className="truncate font-semibold text-sm text-foreground">{title}</span>
 				</div>
-				<div className="mt-1 flex items-center gap-1.5 text-[11px] text-gray-600">
-					<span className="text-gray-400">By</span>
+				<div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+					<span className="text-muted-foreground">By</span>
 					<UserProfile
 						pubkey={sighting.pubkey}
 						mode="avatar-name"
@@ -143,14 +143,14 @@ export function SightingPopup({
 			</div>
 
 			<div className="space-y-1.5 overflow-y-auto px-3 py-2">
-				{description ? <p className="text-xs text-gray-700">{description}</p> : null}
-				<div className="text-[11px] text-gray-600">
-					<span className="text-gray-400">Observed:</span>{' '}
+				{description ? <p className="text-xs text-foreground">{description}</p> : null}
+				<div className="text-[11px] text-muted-foreground">
+					<span className="text-muted-foreground">Observed:</span>{' '}
 					{formatRelativeDate(content.end ?? content.start) || 'Unknown'}
 				</div>
 				{expiryCountdown ? (
-					<div className="text-[11px] text-gray-600">
-						<span className="text-gray-400">Expiry:</span> {expiryCountdown}
+					<div className="text-[11px] text-muted-foreground">
+						<span className="text-muted-foreground">Expiry:</span> {expiryCountdown}
 					</div>
 				) : null}
 			</div>

@@ -66,7 +66,7 @@ export function PublishDropdown({
 							variant="default"
 							size="sm"
 							disabled
-							className={`${buttonSize} gap-1 px-2 bg-emerald-600 hover:bg-emerald-700`}
+							className={`${buttonSize} gap-1 px-2 bg-ok hover:bg-ok/15`}
 						>
 							<UploadCloud className={iconSize} />
 						</Button>
@@ -95,7 +95,7 @@ export function PublishDropdown({
 							size="sm"
 							disabled={isPublishing}
 							onClick={primaryAction}
-							className={`${buttonSize} gap-1 px-2 bg-emerald-600 hover:bg-emerald-700`}
+							className={`${buttonSize} gap-1 px-2 bg-ok hover:bg-ok/15`}
 						>
 							<PrimaryIcon className={iconSize} />
 							{!small && <span className="text-xs">{primaryLabel}</span>}
@@ -127,7 +127,7 @@ export function PublishDropdown({
 								variant={viewingOnly ? 'outline' : 'default'}
 								size="sm"
 								disabled={isPublishing}
-								className={`${buttonSize} gap-1 px-2 ${viewingOnly ? '' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+								className={`${buttonSize} gap-1 px-2 ${viewingOnly ? '' : 'bg-ok hover:bg-ok/15'}`}
 							>
 								{viewingOnly ? (
 									<GitPullRequest className={iconSize} />
@@ -194,7 +194,7 @@ export function PublishDropdown({
 								</DropdownMenuItem>
 							) : (
 								<div className="space-y-2 px-2 py-2">
-									<DropdownMenuLabel className="px-0 py-0 text-xs font-medium text-slate-700">
+									<DropdownMenuLabel className="px-0 py-0 text-xs font-medium text-foreground">
 										Proposal summary
 									</DropdownMenuLabel>
 									<GeoRichTextEditor
@@ -217,7 +217,7 @@ export function PublishDropdown({
 										<Button
 											type="button"
 											size="sm"
-											className="h-8 bg-emerald-600 px-2 text-xs hover:bg-emerald-700"
+											className="h-8 bg-ok px-2 text-xs hover:bg-ok/15"
 											onClick={() => {
 												if (!trimmedProposalDescription) return
 												onProposeEdit?.(trimmedProposalDescription)

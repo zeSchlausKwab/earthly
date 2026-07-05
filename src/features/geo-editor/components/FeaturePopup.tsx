@@ -154,7 +154,7 @@ export function FeaturePopup({
 			ref={popupRef}
 			role="dialog"
 			aria-label={`${datasetName} details`}
-			className={`absolute z-50 flex flex-col overflow-hidden rounded-xl bg-white/95 shadow-2xl backdrop-blur ring-1 ring-black/5 ${
+			className={`absolute z-50 flex flex-col overflow-hidden rounded-xl bg-card/95 shadow-2xl backdrop-blur ring-1 ring-black/5 ${
 				interactive ? 'pointer-events-auto' : 'pointer-events-none'
 			}`}
 			style={{
@@ -166,10 +166,10 @@ export function FeaturePopup({
 			onMouseEnter={() => onHoverChange?.(true)}
 			onMouseLeave={() => onHoverChange?.(false)}
 		>
-			<div className="border-b border-gray-100 bg-gray-50/80 px-3 py-2">
-				<div className="font-semibold text-sm text-gray-900 truncate">{datasetName}</div>
-				<div className="mt-1 flex items-center gap-1.5 text-[11px] text-gray-600">
-					<span className="text-gray-400">Author:</span>
+			<div className="border-b border-border bg-muted/80 px-3 py-2">
+				<div className="font-semibold text-sm text-foreground truncate">{datasetName}</div>
+				<div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+					<span className="text-muted-foreground">Author:</span>
 					<UserProfile
 						pubkey={dataset.pubkey}
 						mode="avatar-name"
@@ -182,23 +182,27 @@ export function FeaturePopup({
 
 			<div className="space-y-2 overflow-y-auto px-3 py-2">
 				{description && (
-					<RichContentRenderer content={description} className="space-y-2 text-xs text-gray-700" />
+					<RichContentRenderer
+						content={description}
+						className="space-y-2 text-xs text-foreground"
+					/>
 				)}
-				<div className="rounded-md border border-gray-100 bg-gray-50 px-2 py-1.5 text-[11px] text-gray-700 space-y-0.5">
+				<div className="rounded-md border border-border bg-muted px-2 py-1.5 text-[11px] text-foreground space-y-0.5">
 					<div>
-						<span className="text-gray-400">Geometry:</span> {feature.geometry.type}
+						<span className="text-muted-foreground">Geometry:</span> {feature.geometry.type}
 					</div>
 					{featureLabel && (
 						<div className="truncate">
-							<span className="text-gray-400">Feature:</span> {featureLabel}
+							<span className="text-muted-foreground">Feature:</span> {featureLabel}
 						</div>
 					)}
 					<div>
-						<span className="text-gray-400">Vertices:</span> {vertexCount}
+						<span className="text-muted-foreground">Vertices:</span> {vertexCount}
 					</div>
 				</div>
-				<div className="text-[11px] text-gray-600">
-					<span className="text-gray-400">Created:</span> {formatCreatedAt(dataset.created_at)}
+				<div className="text-[11px] text-muted-foreground">
+					<span className="text-muted-foreground">Created:</span>{' '}
+					{formatCreatedAt(dataset.created_at)}
 				</div>
 			</div>
 		</div>

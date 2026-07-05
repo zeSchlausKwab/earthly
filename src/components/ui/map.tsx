@@ -526,7 +526,7 @@ function MarkerContent({ children, className }: MarkerContentProps) {
 
 function DefaultMarkerIcon() {
   return (
-    <div className="relative h-4 w-4 rounded-full border-2 border-white bg-blue-500 shadow-lg" />
+    <div className="relative h-4 w-4 rounded-full border-2 border-border bg-info shadow-lg" />
   );
 }
 
@@ -1036,7 +1036,7 @@ function MapControls({
       locateStatus === "loading" ? (
         <Loader2 className="size-4 animate-spin" />
       ) : locateStatus === "tracking" ? (
-        <LocateFixed className="size-4 text-sky-600" />
+        <LocateFixed className="size-4 text-info" />
       ) : locateStatus === "error" ? (
         <LocateOff className="size-4 text-destructive" />
       ) : (
@@ -1101,7 +1101,7 @@ function MapControls({
             <Globe
               className={cn(
                 "size-4",
-                projectionMode === "globe" && "text-sky-600",
+                projectionMode === "globe" && "text-info",
               )}
             />
           </ControlButton>
@@ -1152,8 +1152,8 @@ function CompassButton({ onClick }: { onClick: () => void }) {
         className="size-5 transition-transform duration-200"
         style={{ transformStyle: "preserve-3d" }}
       >
-        <path d="M12 2L16 12H12V2Z" className="fill-red-500" />
-        <path d="M12 2L8 12H12V2Z" className="fill-red-300" />
+        <path d="M12 2L16 12H12V2Z" className="fill-destructive" />
+        <path d="M12 2L8 12H12V2Z" className="fill-destructive/70" />
         <path d="M12 22L16 12H12V22Z" className="fill-muted-foreground/60" />
         <path d="M12 22L8 12H12V22Z" className="fill-muted-foreground/30" />
       </svg>

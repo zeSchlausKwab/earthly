@@ -31,7 +31,7 @@ export const createViewModeColumns = (
 			const { datasetName, event } = row.original
 			return (
 				<div className="space-y-0.5 max-w-[140px]">
-					<div className="text-xs font-semibold text-gray-900 truncate" title={datasetName}>
+					<div className="text-xs font-semibold text-foreground truncate" title={datasetName}>
 						{datasetName}
 					</div>
 					<UserProfile
@@ -44,10 +44,7 @@ export const createViewModeColumns = (
 					{event.hashtags.length > 0 && (
 						<div className="flex flex-wrap gap-0.5">
 							{event.hashtags.slice(0, 2).map((tag) => (
-								<span
-									key={tag}
-									className="rounded bg-blue-100 px-1 py-0.5 text-[9px] text-blue-700"
-								>
+								<span key={tag} className="rounded bg-info/15 px-1 py-0.5 text-[9px] text-info">
 									#{tag}
 								</span>
 							))}
@@ -67,9 +64,7 @@ export const createViewModeColumns = (
 					<Button
 						size="icon-xs"
 						className={cn(
-							isOwned
-								? 'bg-green-600 text-white hover:bg-green-700'
-								: 'bg-blue-600 text-white hover:bg-blue-700',
+							isOwned ? 'bg-ok text-white hover:bg-ok/15' : 'bg-info text-white hover:bg-info/15',
 						)}
 						onClick={() => context.onLoadDataset(event)}
 						disabled={context.isPublishing}

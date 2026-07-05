@@ -29,7 +29,7 @@ export const DebugDialog: React.FC<DebugDialogProps> = ({ event, open, onOpenCha
 						Raw Nostr event data for {displayName || event.id || 'Untitled'}
 					</DialogDescription>
 				</DialogHeader>
-				<div className="flex-1 overflow-auto rounded-md bg-gray-50 p-4">
+				<div className="flex-1 overflow-auto rounded-md bg-muted p-4">
 					<JsonView src={rawEvent} collapsed={1} />
 				</div>
 			</DialogContent>

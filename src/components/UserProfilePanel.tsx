@@ -124,10 +124,10 @@ const contextFilterConfig: FilterConfig<MapContext> = {
 }
 
 const PROPOSAL_STATUS_STYLES: Record<ProposalStatus, string> = {
-	open: 'bg-green-100 text-green-700',
-	applied: 'bg-blue-100 text-blue-700',
-	closed: 'bg-red-100 text-red-700',
-	draft: 'bg-gray-100 text-gray-600',
+	open: 'bg-ok/15 text-ok',
+	applied: 'bg-info/15 text-info',
+	closed: 'bg-destructive/10 text-destructive',
+	draft: 'bg-muted text-muted-foreground',
 }
 
 export function UserProfilePanel({
@@ -497,10 +497,13 @@ export function UserProfilePanel({
 					const item = row.original
 					return (
 						<div className="max-w-[260px] space-y-0.5">
-							<div className="line-clamp-2 text-xs font-semibold text-gray-900">
+							<div className="line-clamp-2 text-xs font-semibold text-foreground">
 								{item.description}
 							</div>
-							<div className="truncate text-[10px] text-gray-500" title={item.targetAddress}>
+							<div
+								className="truncate text-[10px] text-muted-foreground"
+								title={item.targetAddress}
+							>
 								Target: {item.targetName}
 							</div>
 						</div>
@@ -575,9 +578,7 @@ export function UserProfilePanel({
 					showNip05Badge={true}
 					showBio={true}
 				/>
-				{isOwnProfile ? (
-					<p className="mt-2 text-xs text-emerald-600">This is your profile</p>
-				) : null}
+				{isOwnProfile ? <p className="mt-2 text-xs text-ok">This is your profile</p> : null}
 			</div>
 
 			<div
@@ -625,9 +626,9 @@ export function UserProfilePanel({
 
 			{activeTab === 'datasets' ? (
 				userGeoEvents.length === 0 ? (
-					<p className="text-xs text-gray-500">No datasets published by this user.</p>
+					<p className="text-xs text-muted-foreground">No datasets published by this user.</p>
 				) : filteredGeoEvents.length === 0 ? (
-					<p className="text-xs text-gray-500">No datasets match your filters.</p>
+					<p className="text-xs text-muted-foreground">No datasets match your filters.</p>
 				) : (
 					<DataTable
 						columns={datasetColumns}
@@ -638,9 +639,9 @@ export function UserProfilePanel({
 				)
 			) : activeTab === 'contexts' ? (
 				userContextEvents.length === 0 ? (
-					<p className="text-xs text-gray-500">No contexts published by this user.</p>
+					<p className="text-xs text-muted-foreground">No contexts published by this user.</p>
 				) : filteredContexts.length === 0 ? (
-					<p className="text-xs text-gray-500">No contexts match your filters.</p>
+					<p className="text-xs text-muted-foreground">No contexts match your filters.</p>
 				) : (
 					<DataTable
 						columns={contextColumns}
@@ -652,11 +653,13 @@ export function UserProfilePanel({
 				)
 			) : activeTab === 'proposals' ? (
 				isProposalsLoading && userProposalRows.length === 0 ? (
-					<p className="text-xs text-gray-500">Loading change proposals...</p>
+					<p className="text-xs text-muted-foreground">Loading change proposals...</p>
 				) : userProposalRows.length === 0 ? (
-					<p className="text-xs text-gray-500">No change proposals published by this user.</p>
+					<p className="text-xs text-muted-foreground">
+						No change proposals published by this user.
+					</p>
 				) : filteredProposals.length === 0 ? (
-					<p className="text-xs text-gray-500">No proposals match your filters.</p>
+					<p className="text-xs text-muted-foreground">No proposals match your filters.</p>
 				) : (
 					<DataTable
 						columns={proposalColumns}
@@ -669,11 +672,11 @@ export function UserProfilePanel({
 					/>
 				)
 			) : !isOwnProfile ? (
-				<p className="text-xs text-gray-500">
+				<p className="text-xs text-muted-foreground">
 					Workspace management is only available on your profile.
 				</p>
 			) : sortedWorkspaces.length === 0 ? (
-				<p className="text-xs text-gray-500">No local workspaces yet.</p>
+				<p className="text-xs text-muted-foreground">No local workspaces yet.</p>
 			) : (
 				<div className="space-y-2">
 					{sortedWorkspaces.map((workspace) => {
@@ -695,7 +698,7 @@ export function UserProfilePanel({
 												{workspace.kind === 'scratch' ? 'draft' : 'dataset'}
 											</span>
 											{isActive ? (
-												<span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-emerald-700">
+												<span className="rounded-full bg-ok/15 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-ok">
 													Active
 												</span>
 											) : null}
@@ -739,7 +742,7 @@ export function UserProfilePanel({
 									</div>
 								</div>
 								{isConfirmingDelete ? (
-									<div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-900">
+									<div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-[11px] text-destructive">
 										<span className="min-w-0 flex-1 truncate">
 											Remove workspace "{workspace.label}"?
 										</span>

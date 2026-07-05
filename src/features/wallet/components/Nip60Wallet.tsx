@@ -221,7 +221,7 @@ export function Nip60Wallet() {
 				<Button
 					size="sm"
 					onClick={() => setOpenModal('deposit')}
-					className="bg-green-600 hover:bg-green-700 text-white"
+					className="bg-ok hover:bg-ok/15 text-white"
 				>
 					<Zap className="w-4 h-4" />
 					Deposit
@@ -230,7 +230,7 @@ export function Nip60Wallet() {
 					size="sm"
 					onClick={() => setOpenModal('withdraw')}
 					disabled={!ready || totalBalance === 0}
-					className="bg-amber-600 hover:bg-amber-700 text-white"
+					className="bg-primary hover:bg-primary/15 text-white"
 				>
 					<Zap className="w-4 h-4" />
 					Withdraw
@@ -537,9 +537,9 @@ function HistoryRow({ entry }: { entry: WalletHistory }) {
 		<div className="flex items-center justify-between text-sm gap-2">
 			<div className="flex items-center gap-2 min-w-0">
 				{direction === 'in' ? (
-					<ArrowDownLeft className="w-4 h-4 text-green-500 shrink-0" />
+					<ArrowDownLeft className="w-4 h-4 text-ok shrink-0" />
 				) : direction === 'out' ? (
-					<ArrowUpRight className="w-4 h-4 text-red-500 shrink-0" />
+					<ArrowUpRight className="w-4 h-4 text-destructive shrink-0" />
 				) : (
 					<ArrowUpDown className="w-4 h-4 text-muted-foreground shrink-0" />
 				)}
@@ -550,9 +550,9 @@ function HistoryRow({ entry }: { entry: WalletHistory }) {
 			<span
 				className={`shrink-0 ${
 					direction === 'in'
-						? 'text-green-500'
+						? 'text-ok'
 						: direction === 'out'
-							? 'text-red-500'
+							? 'text-destructive'
 							: 'text-muted-foreground'
 				}`}
 			>
