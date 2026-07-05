@@ -956,7 +956,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 
 			<Collapsible defaultOpen={false}>
 				<CollapsibleTrigger className="text-xs font-medium text-foreground hover:text-foreground w-full text-left py-1">
-					Attached contexts ({activeDatasetContextRefs.length})
+					Attached contexts ({attachedContexts.length})
 				</CollapsibleTrigger>
 				<CollapsibleContent>
 					<div className="space-y-2">

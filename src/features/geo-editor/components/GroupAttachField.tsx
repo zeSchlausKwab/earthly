@@ -214,9 +214,10 @@ export function GroupAttachField({
 	const visibleWarnings = warnings.filter((warning) => !dismissed.has(warning.id))
 	const hasAttachedGroups = attachedGroups.length > 0
 	const schemaGroupName = attachedSchemaGroup?.group.name || 'the Group'
-	// "Publish anyway" copy applies whenever a Group is attached (the contributor is
-	// overriding the advisory warnings); otherwise the normal publish label.
-	const resolvedPublishLabel = hasAttachedGroups ? 'Publish anyway' : publishLabel
+	// "Publish anyway" copy only when there are live advisory warnings to override
+	// — a plain valid attach reads as the normal publish label (no bare "anyway").
+	const resolvedPublishLabel =
+		hasAttachedGroups && visibleWarnings.length > 0 ? 'Publish anyway' : publishLabel
 
 	return (
 		<div className="space-y-2">

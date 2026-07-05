@@ -600,7 +600,7 @@ function EntryRow({
 				// editor (metadata + color + context-attach searchbar + geometries +
 				// publish) portals into this slot, so there's one editor with full
 				// parity — no duplicate in the sidebar. See AppSidebar renderContent.
-				<div ref={setDraftEditorSlot} className="border-border border-t bg-muted/30" />
+				<div ref={setDraftEditorSlot} className="border-border border-t bg-muted/30 p-2" />
 			) : null}
 			{canExpand && expanded && !isDraftEntry ? (
 				<div
@@ -788,9 +788,20 @@ function EntryGroupList({
 	const groupGap = compact ? 'space-y-1' : 'space-y-1.5'
 	return (
 		<div className={cn('flex flex-col', compact ? 'gap-2' : 'gap-3')}>
+			{/* The live draft editor pins to the very TOP of the stack (redesign §9). */}
+			{draftEntries.length > 0 ? (
+				<div className={cn(groupGap)}>
+					<div className={cn(groupLabelClass, 'text-ok')}>
+						<PencilLine className="h-3 w-3" />
+						<span>Editing</span>
+						<span className="font-normal text-muted-foreground/70">({draftEntries.length})</span>
+					</div>
+					{draftEntries.map(renderEntry)}
+				</div>
+			) : null}
 			{/* Phase 13 (D-05): aggregate "Sightings" / "Live beacons" layer entries
-			    pin to the TOP, above individual dataset/context/draft entries. Their
-			    `visible` toggle gates the whole subscription-driven layer. */}
+			    pin above individual dataset/context entries. Their `visible` toggle
+			    gates the whole subscription-driven layer. */}
 			{sightingLayerEntries.length > 0 ? (
 				<div className={cn(groupGap)}>
 					<div className={groupLabelClass}>
@@ -813,16 +824,6 @@ function EntryGroupList({
 						</span>
 					</div>
 					{beaconLayerEntries.map(renderEntry)}
-				</div>
-			) : null}
-			{draftEntries.length > 0 ? (
-				<div className={cn(groupGap)}>
-					<div className={cn(groupLabelClass, 'text-ok')}>
-						<PencilLine className="h-3 w-3" />
-						<span>Editing</span>
-						<span className="font-normal text-muted-foreground/70">({draftEntries.length})</span>
-					</div>
-					{draftEntries.map(renderEntry)}
 				</div>
 			) : null}
 			{contextEntries.length > 0 ? (
