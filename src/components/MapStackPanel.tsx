@@ -14,8 +14,6 @@ import { useMemo, useState } from 'react'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import { useEditorStore, type MapStackEntry } from '../features/geo-editor/store'
-import { DatasetMetadataSection } from './info-panel/DatasetMetadataSection'
-import { GeometriesTable } from './info-panel/geometry/GeometriesTable'
 import { getDefaultContextMapScopeMode, resolveContextMapScope } from '@/lib/context/scope'
 import {
 	DeleteActionIcon,
@@ -299,7 +297,9 @@ function EntryRow({
 	onReorderEntry,
 }: EntryRowProps) {
 	const isolated = entry.isolated === true
-	const [expanded, setExpanded] = useState(false)
+	const setDraftEditorSlot = useEditorStore((state) => state.setDraftEditorSlot)
+	// The live draft opens expanded by default (editor-in-place, redesign §9).
+	const [expanded, setExpanded] = useState(entry.entityType === 'draft')
 	// Resolve curated datasets only when this is a context entry. We compute
 	// regardless of `expanded` (cheap; usually a handful) so the row can show
 	// an accurate counter — but only render the checklist when expanded.
@@ -596,13 +596,11 @@ function EntryRow({
 				</div>
 			</div>
 			{canExpand && expanded && isDraftEntry ? (
-				// DS "editor in Map Stack" (redesign doc §9/§10): the draft opens the
-				// full editor in place — name/color/description + dataset properties
-				// (DatasetMetadataSection), then the expandable geometries list.
-				<div className="max-h-[56vh] space-y-1.5 overflow-y-auto border-border border-t bg-muted/30 p-1.5">
-					<DatasetMetadataSection />
-					<GeometriesTable />
-				</div>
+				// DS "editor in Map Stack" (redesign doc §9/§10): the FULL sidebar
+				// editor (metadata + color + context-attach searchbar + geometries +
+				// publish) portals into this slot, so there's one editor with full
+				// parity — no duplicate in the sidebar. See AppSidebar renderContent.
+				<div ref={setDraftEditorSlot} className="border-border border-t bg-muted/30" />
 			) : null}
 			{canExpand && expanded && !isDraftEntry ? (
 				<div
@@ -1101,7 +1099,7 @@ export function MapStackPanel({
 					<div
 						className={cn(
 							'overflow-y-auto',
-							compact ? 'max-h-[min(20rem,calc(100vh-8rem))] p-1.5' : 'min-h-0 flex-1 p-2',
+							compact ? 'max-h-[calc(100vh-5rem)] p-1.5' : 'min-h-0 flex-1 p-2',
 						)}
 					>
 						<EntryGroupList

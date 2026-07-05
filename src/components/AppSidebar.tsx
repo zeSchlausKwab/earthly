@@ -18,6 +18,7 @@ import {
 	X,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { FeatureCollection } from 'geojson'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { GeoProposal } from '@/lib/nostr/geo-proposal'
@@ -404,6 +405,9 @@ export function AppSidebar({
 }: AppSidebarProps) {
 	const { setOpen, sidebarExpanded, setSidebarExpanded } = useSidebar()
 	const viewMode = useEditorStore((state) => state.sidebarViewMode)
+	// Editor-in-Map-Stack: when a draft's editor slot is mounted in the Map Stack,
+	// the entity editor portals there instead of rendering in this sidebar.
+	const draftEditorSlot = useEditorStore((state) => state.draftEditorSlot)
 	const viewDataset = useEditorStore((state) => state.viewDataset)
 	const viewContext = useEditorStore((state) => state.viewContext)
 	const viewStory = useEditorStore((state) => state.viewStory)
@@ -1002,6 +1006,20 @@ export function AppSidebar({
 	const renderEntityContent = () => <GeoEditorInfoPanelContent {...editorPanelProps} />
 
 	const renderContent = () => {
+		// Editor-in-Map-Stack (redesign §9): while editing a geometry draft, the
+		// Map Stack's expanded draft entry mounts an editor slot. Portal the full
+		// entity editor into it (guaranteed parity, single instance) and let the
+		// sidebar fall back to the browse catalog. Only when the slot exists — if
+		// the Map Stack is closed, the editor still renders here as a fallback.
+		if (draftEditorSlot && !metaModeActive && (contentMode === 'edit' || showEntityAsFullPanel)) {
+			return (
+				<>
+					{renderWorkContent(activeWorkMode)}
+					{createPortal(<div className="min-w-0">{renderEntityContent()}</div>, draftEditorSlot)}
+				</>
+			)
+		}
+
 		if (splitWithEditor && !metaModeActive) {
 			return (
 				<ResizablePanelGroup direction="vertical" className="h-full">

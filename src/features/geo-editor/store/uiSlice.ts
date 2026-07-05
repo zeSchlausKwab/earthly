@@ -20,6 +20,7 @@ export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set) =
 	sidebarViewMode: 'contexts',
 	sidebarExpanded: false,
 	settingsTab: null,
+	draftEditorSlot: null,
 
 	setNewCollectionProp: (newCollectionProp) => set({ newCollectionProp }),
 	setNewFeatureProp: (newFeatureProp) => set({ newFeatureProp }),
@@ -66,6 +67,7 @@ export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set) =
 	setInspectorActive: (active) => set({ inspectorActive: active }),
 	setSidebarViewMode: (mode) => set({ sidebarViewMode: mode }),
 	setSettingsTab: (settingsTab) => set({ settingsTab }),
+	setDraftEditorSlot: (draftEditorSlot) => set({ draftEditorSlot }),
 	setSidebarExpanded: (sidebarExpanded) => set({ sidebarExpanded }),
 	toggleSidebarExpanded: () => set((state) => ({ sidebarExpanded: !state.sidebarExpanded })),
 })

@@ -2844,7 +2844,7 @@ export function GeoEditorView() {
 					) : null}
 
 					{!isMobile && desktopMapStackOpen && (
-						<div className="pointer-events-auto absolute top-14 left-2 z-20 w-80 max-w-[calc(100vw-1rem)] shadow-lg">
+						<div className="pointer-events-auto absolute top-12 left-2 z-20 flex max-h-[calc(100vh-3.5rem)] w-[400px] max-w-[calc(100vw-1rem)] flex-col shadow-lg">
 							<MapStackPanel
 								geoEvents={scopedGeoEvents}
 								mapContextEvents={mapContextEvents}
