@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { Drawer } from 'vaul'
 import type { FeatureCollection } from 'geojson'
 import {
 	Database,
@@ -20,7 +20,6 @@ import { HelpPanel } from '@/components/HelpPanel'
 import { MapStackPanel } from '@/components/MapStackPanel'
 import { UserProfilePanel } from '@/components/UserProfilePanel'
 import { ShoutboxPanel } from '@/features/social/shoutbox'
-import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
@@ -29,7 +28,7 @@ import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { EntitySearchPopover, type EntitySearchResult } from '@/components/entity-search'
 import type { EditorFeature } from '../core'
 import type { BlossomUploadResult } from '@/lib/blossom/blossomUpload'
-import { useEditorStore, type MapStackEntry } from '../store'
+import { useEditorStore, type MapStackEntry, type MobilePanelSnap } from '../store'
 import { MapSettingsPanel } from './MapSettingsPanel'
 import { ChatPanel } from '@/features/chat'
 import { Nip60Wallet } from '@/features/wallet/components/Nip60Wallet'
@@ -146,15 +145,22 @@ const TAB_CONFIG: { id: MobilePanelTab; label: string; icon: typeof Database }[]
 	{ id: 'help', label: 'Help', icon: HelpCircle },
 ]
 
-const PANEL_HEIGHTS_VH = {
-	peek: 45,
-	expanded: 82,
-} as const
+/**
+ * The three detents (redesign §5a "one sheet, three detents"): peek (browse, map
+ * owns the screen), half (properties on select), full (the outliner, full
+ * height). Heights are viewport fractions; the sheet content is sized to the
+ * tallest detent and vaul's snap points are fractions of THAT content height.
+ */
+export const DETENT_VH: Record<MobilePanelSnap, number> = { peek: 15, half: 55, full: 92 }
+const SNAP_ORDER: MobilePanelSnap[] = ['peek', 'half', 'full']
+const SHEET_MAX_VH = DETENT_VH.full
+/** vaul snapPoints — each detent as a fraction of the sheet's max height. */
+const MOBILE_SNAP_POINTS = SNAP_ORDER.map((snap) => DETENT_VH[snap] / SHEET_MAX_VH)
 
-const PANEL_SNAP_THRESHOLD_VH = (PANEL_HEIGHTS_VH.peek + PANEL_HEIGHTS_VH.expanded) / 2
-
-function clampPanelHeightVh(heightVh: number): number {
-	return Math.min(PANEL_HEIGHTS_VH.expanded, Math.max(PANEL_HEIGHTS_VH.peek, heightVh))
+const snapToPoint = (snap: MobilePanelSnap): number => DETENT_VH[snap] / SHEET_MAX_VH
+const pointToSnap = (point: number | string | null): MobilePanelSnap => {
+	const index = MOBILE_SNAP_POINTS.findIndex((value) => value === point)
+	return SNAP_ORDER[index] ?? 'peek'
 }
 
 export function MobilePanel(props: MobilePanelProps) {
@@ -252,385 +258,336 @@ export function MobilePanel(props: MobilePanelProps) {
 	const setMobilePanelTab = useEditorStore((state) => state.setMobilePanelTab)
 	const setMobilePanelSnap = useEditorStore((state) => state.setMobilePanelSnap)
 
-	const [dragHeightVh, setDragHeightVh] = useState<number | null>(null)
-	const dragHeightRef = useRef<number | null>(null)
-	const dragStartYRef = useRef<number | null>(null)
-	const dragStartHeightRef = useRef<number>(PANEL_HEIGHTS_VH.peek)
-	const draggedRef = useRef(false)
-
 	const handleClose = () => setMobilePanelOpen(false)
-	const baseHeightVh =
-		mobilePanelSnap === 'expanded' ? PANEL_HEIGHTS_VH.expanded : PANEL_HEIGHTS_VH.peek
-	const panelHeightVh = dragHeightVh ?? baseHeightVh
 
 	const handleOpenChange = (open: boolean) => {
 		setMobilePanelOpen(open)
-		if (!open) {
-			setDragHeightVh(null)
-			dragHeightRef.current = null
-		}
 	}
 
-	const handleDragStart = (event: ReactPointerEvent<HTMLButtonElement>) => {
-		event.preventDefault()
-		dragStartYRef.current = event.clientY
-		dragStartHeightRef.current = panelHeightVh
-		draggedRef.current = false
-		setDragHeightVh(panelHeightVh)
-		dragHeightRef.current = panelHeightVh
-
-		const handlePointerMove = (moveEvent: PointerEvent) => {
-			if (dragStartYRef.current == null || typeof window === 'undefined') return
-			const deltaY = dragStartYRef.current - moveEvent.clientY
-			if (Math.abs(deltaY) > 4) {
-				draggedRef.current = true
-			}
-			const deltaVh = (deltaY / window.innerHeight) * 100
-			const nextHeight = clampPanelHeightVh(dragStartHeightRef.current + deltaVh)
-			dragHeightRef.current = nextHeight
-			setDragHeightVh(nextHeight)
-		}
-
-		const handlePointerUp = () => {
-			const finalHeight = dragHeightRef.current ?? baseHeightVh
-			const nextSnap = finalHeight >= PANEL_SNAP_THRESHOLD_VH ? 'expanded' : 'peek'
-			setMobilePanelSnap(nextSnap)
-			setDragHeightVh(null)
-			dragHeightRef.current = null
-			dragStartYRef.current = null
-			window.removeEventListener('pointermove', handlePointerMove)
-			window.removeEventListener('pointerup', handlePointerUp)
-			window.removeEventListener('pointercancel', handlePointerUp)
-		}
-
-		window.addEventListener('pointermove', handlePointerMove, { passive: true })
-		window.addEventListener('pointerup', handlePointerUp)
-		window.addEventListener('pointercancel', handlePointerUp)
-	}
-
-	const handleGrabberClick = () => {
-		if (draggedRef.current) {
-			draggedRef.current = false
-			return
-		}
-		setMobilePanelSnap(mobilePanelSnap === 'expanded' ? 'peek' : 'expanded')
+	// vaul owns the drag; we mirror the resting detent into the store so the map
+	// FAB (and any auto-rise-on-select) can react to peek/half/full.
+	const handleSnapPointChange = (point: number | string | null) => {
+		setMobilePanelSnap(pointToSnap(point))
 	}
 
 	return (
-		<Sheet open={mobilePanelOpen} onOpenChange={handleOpenChange} modal={false}>
-			<SheetContent
-				side="bottom"
-				className="flex flex-col gap-0 p-0 md:hidden"
-				style={{ height: `${panelHeightVh}vh` }}
-				onPointerDownOutside={(e) => e.preventDefault()}
-				onInteractOutside={(e) => e.preventDefault()}
-			>
-				<div className="shrink-0 border-b border-border bg-card/95 px-0 py-1 backdrop-blur">
-					<Button
-						type="button"
-						variant="ghost"
-						onPointerDown={handleDragStart}
-						onClick={handleGrabberClick}
-						className="flex w-full touch-none items-center justify-center py-1"
-						aria-label="Resize panel"
-					>
-						<span className="h-1.5 w-12 rounded-full bg-accent" />
-					</Button>
-				</div>
-
-				<div className="shrink-0 border-b border-border bg-card px-3 py-1.5">
-					<div className="flex items-center gap-1.5">
-						<div className="w-full">
-							<EntitySearchPopover
-								sources={{ contexts: mapContextEvents }}
-								entityTypes={['context']}
-								onSelect={handleContextScopeSelect}
-								placeholder={activeContextScopeLabel ?? 'No context filter'}
-								searchMode="local"
-								compact
-							/>
-						</div>
-						{contextNaddr ? (
-							<Button
-								type="button"
-								variant="outline"
-								size="icon-sm"
-								onClick={clearContextScope}
-								aria-label="Leave context scope"
-							>
-								<X className="h-3.5 w-3.5" />
-							</Button>
-						) : null}
+		<Drawer.Root
+			open={mobilePanelOpen}
+			onOpenChange={handleOpenChange}
+			modal={false}
+			snapPoints={MOBILE_SNAP_POINTS}
+			activeSnapPoint={snapToPoint(mobilePanelSnap)}
+			setActiveSnapPoint={handleSnapPointChange}
+		>
+			<Drawer.Portal>
+				<Drawer.Content
+					data-testid="mobile-sheet"
+					className="fixed inset-x-0 bottom-0 z-40 flex flex-col overflow-hidden rounded-t-lg border-t border-border bg-card outline-none md:hidden"
+					style={{ height: `${SHEET_MAX_VH}vh` }}
+				>
+					{/* Grab handle — vaul drags between the three detents. */}
+					<div className="shrink-0 border-b border-border bg-card/95 py-2 backdrop-blur">
+						<Drawer.Handle className="mx-auto h-1.5 w-12 rounded-full bg-accent" />
+						<Drawer.Title className="sr-only">Panel</Drawer.Title>
+						<Drawer.Description className="sr-only">
+							Datasets, contexts, map stack, and editor panels.
+						</Drawer.Description>
 					</div>
-				</div>
 
-				<div className="shrink-0 overflow-x-auto border-b border-border bg-muted/80 scrollbar-hide">
-					<div className="flex min-w-max">
-						{TAB_CONFIG.map((tab) => {
-							const Icon = tab.icon
-							const isActive = mobilePanelTab === tab.id
-							return (
-								<button
-									key={tab.id}
+					<div className="shrink-0 border-b border-border bg-card px-3 py-1.5">
+						<div className="flex items-center gap-1.5">
+							<div className="w-full">
+								<EntitySearchPopover
+									sources={{ contexts: mapContextEvents }}
+									entityTypes={['context']}
+									onSelect={handleContextScopeSelect}
+									placeholder={activeContextScopeLabel ?? 'No context filter'}
+									searchMode="local"
+									compact
+								/>
+							</div>
+							{contextNaddr ? (
+								<Button
 									type="button"
-									onClick={() => {
-										if (tab.id === 'edit') {
-											onOpenGeometryEditor?.()
-										}
-										setMobilePanelTab(tab.id)
-									}}
-									className={cn(
-										'flex items-center justify-center gap-1 whitespace-nowrap px-3 py-2.5 text-xs font-medium transition-colors',
-										isActive
-											? 'border-b-2 border-info/40 bg-card text-info'
-											: 'text-muted-foreground hover:bg-muted hover:text-foreground',
-									)}
+									variant="outline"
+									size="icon-sm"
+									onClick={clearContextScope}
+									aria-label="Leave context scope"
 								>
-									<Icon className="h-3.5 w-3.5" />
-									<span>{tab.label}</span>
-								</button>
-							)
-						})}
+									<X className="h-3.5 w-3.5" />
+								</Button>
+							) : null}
+						</div>
 					</div>
-				</div>
 
-				<div className="flex-1 overflow-y-auto px-3 pb-4 pt-2">
-					{mobilePanelTab === 'datasets' ? (
-						<GeoDatasetsPanelContent
-							mode="datasets"
-							geoEvents={geoEvents}
-							mapContextEvents={mapContextEvents}
-							activeDataset={activeDataset}
-							currentUserPubkey={currentUserPubkey}
-							datasetVisibility={datasetVisibility}
-							isPublishing={isPublishing}
-							deletingKey={deletingKey}
-							onLoadDataset={onLoadDataset}
-							onToggleVisibility={onToggleVisibility}
-							onToggleAllVisibility={onToggleAllVisibility}
-							onZoomToDataset={onZoomToDataset}
-							onAddDatasetToMap={onAddDatasetToMap}
-							onRemoveDatasetFromMap={onRemoveDatasetFromMap}
-							onDeleteDataset={onDeleteDataset}
-							getDatasetKey={getDatasetKey}
-							getDatasetName={getDatasetName}
-							onInspectDataset={onInspectDataset}
-							onInspectContext={onInspectContext}
-							onOpenDebug={onOpenDebug}
-							onStartNewDataset={onStartNewDataset}
-							onCreateContext={onCreateContext}
-							onEditContext={onEditContext}
-							isFocused={isFocused}
-							onExitFocus={onExitFocus}
-							onFilteredDatasetKeysChange={onFilteredDatasetKeysChange}
-						/>
-					) : null}
+					<div className="shrink-0 overflow-x-auto border-b border-border bg-muted/80 scrollbar-hide">
+						<div className="flex min-w-max">
+							{TAB_CONFIG.map((tab) => {
+								const Icon = tab.icon
+								const isActive = mobilePanelTab === tab.id
+								return (
+									<button
+										key={tab.id}
+										type="button"
+										onClick={() => {
+											if (tab.id === 'edit') {
+												onOpenGeometryEditor?.()
+											}
+											setMobilePanelTab(tab.id)
+										}}
+										className={cn(
+											'flex items-center justify-center gap-1 whitespace-nowrap px-3 py-2.5 text-xs font-medium transition-colors',
+											isActive
+												? 'border-b-2 border-info/40 bg-card text-info'
+												: 'text-muted-foreground hover:bg-muted hover:text-foreground',
+										)}
+									>
+										<Icon className="h-3.5 w-3.5" />
+										<span>{tab.label}</span>
+									</button>
+								)
+							})}
+						</div>
+					</div>
 
-					{mobilePanelTab === 'map-stack' ? (
-						<div className="-mx-1 -mb-2 h-full min-h-[18rem]">
-							<MapStackPanel
+					<div className="flex-1 overflow-y-auto px-3 pb-4 pt-2">
+						{mobilePanelTab === 'datasets' ? (
+							<GeoDatasetsPanelContent
+								mode="datasets"
 								geoEvents={geoEvents}
 								mapContextEvents={mapContextEvents}
+								activeDataset={activeDataset}
+								currentUserPubkey={currentUserPubkey}
+								datasetVisibility={datasetVisibility}
+								isPublishing={isPublishing}
+								deletingKey={deletingKey}
+								onLoadDataset={onLoadDataset}
+								onToggleVisibility={onToggleVisibility}
+								onToggleAllVisibility={onToggleAllVisibility}
+								onZoomToDataset={onZoomToDataset}
+								onAddDatasetToMap={onAddDatasetToMap}
+								onRemoveDatasetFromMap={onRemoveDatasetFromMap}
+								onDeleteDataset={onDeleteDataset}
 								getDatasetKey={getDatasetKey}
 								getDatasetName={getDatasetName}
-								onAddDatasetToMap={onAddDatasetToMap}
-								onInspectDataset={onInspectDataset ?? (() => {})}
-								onZoomToDataset={onZoomToDataset}
-								onLoadDataset={onLoadDataset}
-								onInspectContext={onInspectContext ?? (() => {})}
-								onSetEntryVisible={onSetMapStackEntryVisible}
-								onSetEntryIsolated={onSetMapStackEntryIsolated}
-								onRemoveEntry={onRemoveMapStackEntry}
-								onOpenDraftEditor={onOpenDraftEditor}
-								onZoomToDraft={onZoomToDraft}
-								onClear={onClearMapStack}
-								onClose={handleClose}
+								onInspectDataset={onInspectDataset}
+								onInspectContext={onInspectContext}
+								onOpenDebug={onOpenDebug}
+								onStartNewDataset={onStartNewDataset}
+								onCreateContext={onCreateContext}
+								onEditContext={onEditContext}
+								isFocused={isFocused}
+								onExitFocus={onExitFocus}
+								onFilteredDatasetKeysChange={onFilteredDatasetKeysChange}
 							/>
-						</div>
-					) : null}
+						) : null}
 
-					{mobilePanelTab === 'contexts' ? (
-						<GeoDatasetsPanelContent
-							mode="contexts"
-							geoEvents={geoEvents}
-							mapContextEvents={mapContextEvents}
-							activeDataset={activeDataset}
-							currentUserPubkey={currentUserPubkey}
-							datasetVisibility={datasetVisibility}
-							isPublishing={isPublishing}
-							deletingKey={deletingKey}
-							onLoadDataset={onLoadDataset}
-							onToggleVisibility={onToggleVisibility}
-							onToggleAllVisibility={onToggleAllVisibility}
-							onZoomToDataset={onZoomToDataset}
-							onAddDatasetToMap={onAddDatasetToMap}
-							onRemoveDatasetFromMap={onRemoveDatasetFromMap}
-							onDeleteDataset={onDeleteDataset}
-							getDatasetKey={getDatasetKey}
-							getDatasetName={getDatasetName}
-							onInspectDataset={onInspectDataset}
-							onInspectContext={onInspectContext}
-							onOpenDebug={onOpenDebug}
-							onStartNewDataset={onStartNewDataset}
-							onCreateContext={onCreateContext}
-							onEditContext={onEditContext}
-							isFocused={isFocused}
-							onExitFocus={onExitFocus}
-							onFilteredDatasetKeysChange={onFilteredDatasetKeysChange}
-						/>
-					) : null}
+						{mobilePanelTab === 'map-stack' ? (
+							<div className="-mx-1 -mb-2 h-full min-h-[18rem]">
+								<MapStackPanel
+									geoEvents={geoEvents}
+									mapContextEvents={mapContextEvents}
+									getDatasetKey={getDatasetKey}
+									getDatasetName={getDatasetName}
+									onAddDatasetToMap={onAddDatasetToMap}
+									onInspectDataset={onInspectDataset ?? (() => {})}
+									onZoomToDataset={onZoomToDataset}
+									onLoadDataset={onLoadDataset}
+									onInspectContext={onInspectContext ?? (() => {})}
+									onSetEntryVisible={onSetMapStackEntryVisible}
+									onSetEntryIsolated={onSetMapStackEntryIsolated}
+									onRemoveEntry={onRemoveMapStackEntry}
+									onOpenDraftEditor={onOpenDraftEditor}
+									onZoomToDraft={onZoomToDraft}
+									onClear={onClearMapStack}
+									onClose={handleClose}
+								/>
+							</div>
+						) : null}
 
-					{mobilePanelTab === 'context-editor' ? (
-						<GeoEditorInfoPanelContent
-							currentUserPubkey={currentUserPubkey}
-							onLoadDataset={onLoadDataset}
-							onStartNewDataset={onStartNewDataset}
-							onSwitchWorkspace={onSwitchWorkspace}
-							onToggleVisibility={onToggleVisibility}
-							onZoomToDataset={onZoomToDataset}
-							onDeleteDataset={onDeleteDataset}
-							onDeleteContext={onDeleteContext}
-							deletingKey={deletingKey}
-							onExitViewMode={onExitViewMode}
-							onClose={handleClose}
-							getDatasetKey={getDatasetKey}
-							getDatasetName={getDatasetName}
-							onCommentGeometryVisibility={onCommentGeometryVisibility}
-							onZoomToBounds={onZoomToBounds}
-							availableFeatures={availableFeatures}
-							onMentionVisibilityToggle={onMentionVisibilityToggle}
-							onMentionZoomTo={onMentionZoomTo}
-							isMentionVisible={isMentionVisible}
-							onToggleProposalOverlay={onToggleProposalOverlay}
-							onProposalAccepted={onProposalAccepted}
-							visibleProposalIds={visibleProposalIds}
-							contextEditorMode={contextEditorMode !== 'none' ? contextEditorMode : 'create'}
-							editingContext={editingContext}
-							onSaveContext={onSaveContext}
-							onCloseContextEditor={onCloseContextEditor}
-							mapContextEvents={mapContextEvents}
-							onZoomToFeature={onZoomToFeature}
-							featureCollectionForUpload={featureCollectionForUpload}
-							onBlossomUploadComplete={onBlossomUploadComplete}
-							focusCommentId={focusCommentId}
-						/>
-					) : null}
-
-					{mobilePanelTab === 'edit' ? (
-						<GeoEditorInfoPanelContent
-							currentUserPubkey={currentUserPubkey}
-							onLoadDataset={onLoadDataset}
-							onStartNewDataset={onStartNewDataset}
-							onSwitchWorkspace={onSwitchWorkspace}
-							onOpenGeometryEditor={onOpenGeometryEditor}
-							onToggleVisibility={onToggleVisibility}
-							onZoomToDataset={onZoomToDataset}
-							onDeleteDataset={onDeleteDataset}
-							onDeleteContext={onDeleteContext}
-							deletingKey={deletingKey}
-							onExitViewMode={onExitViewMode}
-							onClose={handleClose}
-							getDatasetKey={getDatasetKey}
-							getDatasetName={getDatasetName}
-							onCommentGeometryVisibility={onCommentGeometryVisibility}
-							onZoomToBounds={onZoomToBounds}
-							availableFeatures={availableFeatures}
-							onMentionVisibilityToggle={onMentionVisibilityToggle}
-							onMentionZoomTo={onMentionZoomTo}
-							isMentionVisible={isMentionVisible}
-							onToggleProposalOverlay={onToggleProposalOverlay}
-							onProposalAccepted={onProposalAccepted}
-							visibleProposalIds={visibleProposalIds}
-							contextEditorMode={contextEditorMode}
-							editingContext={editingContext}
-							onSaveContext={onSaveContext}
-							onCloseContextEditor={onCloseContextEditor}
-							onEditStory={onEditStory}
-							onStoryUpdated={onStoryUpdated}
-							onDeleteStory={onDeleteStory}
-							sightingEditorMode={sightingEditorMode}
-							editingSighting={editingSighting}
-							viewSighting={viewSighting}
-							sightingFocusCommentId={sightingFocusCommentId}
-							placedSightingGeometry={placedSightingGeometry}
-							onDrawSightingArea={onDrawSightingArea}
-							onSaveSighting={onSaveSighting}
-							onCloseSightingEditor={onCloseSightingEditor}
-							onEditSighting={onEditSighting}
-							onDeleteSighting={onDeleteSighting}
-							mapContextEvents={mapContextEvents}
-							onZoomToFeature={onZoomToFeature}
-							featureCollectionForUpload={featureCollectionForUpload}
-							onBlossomUploadComplete={onBlossomUploadComplete}
-							focusCommentId={focusCommentId}
-						/>
-					) : null}
-
-					{mobilePanelTab === 'chat' ? (
-						<div className="-mx-3 -mb-4 -mt-2 h-full">
-							<ChatPanel
+						{mobilePanelTab === 'contexts' ? (
+							<GeoDatasetsPanelContent
+								mode="contexts"
 								geoEvents={geoEvents}
 								mapContextEvents={mapContextEvents}
-								availableFeatures={availableFeatures}
+								activeDataset={activeDataset}
+								currentUserPubkey={currentUserPubkey}
+								datasetVisibility={datasetVisibility}
+								isPublishing={isPublishing}
+								deletingKey={deletingKey}
+								onLoadDataset={onLoadDataset}
+								onToggleVisibility={onToggleVisibility}
+								onToggleAllVisibility={onToggleAllVisibility}
+								onZoomToDataset={onZoomToDataset}
+								onAddDatasetToMap={onAddDatasetToMap}
+								onRemoveDatasetFromMap={onRemoveDatasetFromMap}
+								onDeleteDataset={onDeleteDataset}
+								getDatasetKey={getDatasetKey}
 								getDatasetName={getDatasetName}
+								onInspectDataset={onInspectDataset}
+								onInspectContext={onInspectContext}
+								onOpenDebug={onOpenDebug}
+								onStartNewDataset={onStartNewDataset}
+								onCreateContext={onCreateContext}
+								onEditContext={onEditContext}
+								isFocused={isFocused}
+								onExitFocus={onExitFocus}
+								onFilteredDatasetKeysChange={onFilteredDatasetKeysChange}
+							/>
+						) : null}
+
+						{mobilePanelTab === 'context-editor' ? (
+							<GeoEditorInfoPanelContent
+								currentUserPubkey={currentUserPubkey}
+								onLoadDataset={onLoadDataset}
 								onStartNewDataset={onStartNewDataset}
 								onSwitchWorkspace={onSwitchWorkspace}
-								onOpenSettings={() => setMobilePanelTab('settings')}
+								onToggleVisibility={onToggleVisibility}
+								onZoomToDataset={onZoomToDataset}
+								onDeleteDataset={onDeleteDataset}
+								onDeleteContext={onDeleteContext}
+								deletingKey={deletingKey}
+								onExitViewMode={onExitViewMode}
+								onClose={handleClose}
+								getDatasetKey={getDatasetKey}
+								getDatasetName={getDatasetName}
+								onCommentGeometryVisibility={onCommentGeometryVisibility}
+								onZoomToBounds={onZoomToBounds}
+								availableFeatures={availableFeatures}
+								onMentionVisibilityToggle={onMentionVisibilityToggle}
+								onMentionZoomTo={onMentionZoomTo}
+								isMentionVisible={isMentionVisible}
+								onToggleProposalOverlay={onToggleProposalOverlay}
+								onProposalAccepted={onProposalAccepted}
+								visibleProposalIds={visibleProposalIds}
+								contextEditorMode={contextEditorMode !== 'none' ? contextEditorMode : 'create'}
+								editingContext={editingContext}
+								onSaveContext={onSaveContext}
+								onCloseContextEditor={onCloseContextEditor}
+								mapContextEvents={mapContextEvents}
+								onZoomToFeature={onZoomToFeature}
+								featureCollectionForUpload={featureCollectionForUpload}
+								onBlossomUploadComplete={onBlossomUploadComplete}
+								focusCommentId={focusCommentId}
 							/>
-						</div>
-					) : null}
+						) : null}
 
-					{mobilePanelTab === 'profile' ? (
-						<MobileProfileContent
-							pubkey={userPubkey ?? currentUserPubkey}
-							geoEvents={geoEvents}
-							mapContextEvents={mapContextEvents}
-							currentUserPubkey={currentUserPubkey}
-							datasetVisibility={datasetVisibility}
-							isPublishing={isPublishing}
-							deletingKey={deletingKey}
-							onLoadDataset={onLoadDataset}
-							onSwitchWorkspace={onSwitchWorkspace}
-							onDeleteWorkspace={onDeleteWorkspace}
-							onToggleVisibility={onToggleVisibility}
-							onToggleAllVisibility={onToggleAllVisibility}
-							onZoomToDataset={onZoomToDataset}
-							onDeleteDataset={onDeleteDataset}
-							getDatasetKey={getDatasetKey}
-							getDatasetName={getDatasetName}
-							onInspectDataset={onInspectDataset}
-							onInspectContext={onInspectContext}
-							onEditContext={onEditContext}
-							onOpenDebug={onOpenDebug}
-						/>
-					) : null}
+						{mobilePanelTab === 'edit' ? (
+							<GeoEditorInfoPanelContent
+								currentUserPubkey={currentUserPubkey}
+								onLoadDataset={onLoadDataset}
+								onStartNewDataset={onStartNewDataset}
+								onSwitchWorkspace={onSwitchWorkspace}
+								onOpenGeometryEditor={onOpenGeometryEditor}
+								onToggleVisibility={onToggleVisibility}
+								onZoomToDataset={onZoomToDataset}
+								onDeleteDataset={onDeleteDataset}
+								onDeleteContext={onDeleteContext}
+								deletingKey={deletingKey}
+								onExitViewMode={onExitViewMode}
+								onClose={handleClose}
+								getDatasetKey={getDatasetKey}
+								getDatasetName={getDatasetName}
+								onCommentGeometryVisibility={onCommentGeometryVisibility}
+								onZoomToBounds={onZoomToBounds}
+								availableFeatures={availableFeatures}
+								onMentionVisibilityToggle={onMentionVisibilityToggle}
+								onMentionZoomTo={onMentionZoomTo}
+								isMentionVisible={isMentionVisible}
+								onToggleProposalOverlay={onToggleProposalOverlay}
+								onProposalAccepted={onProposalAccepted}
+								visibleProposalIds={visibleProposalIds}
+								contextEditorMode={contextEditorMode}
+								editingContext={editingContext}
+								onSaveContext={onSaveContext}
+								onCloseContextEditor={onCloseContextEditor}
+								onEditStory={onEditStory}
+								onStoryUpdated={onStoryUpdated}
+								onDeleteStory={onDeleteStory}
+								sightingEditorMode={sightingEditorMode}
+								editingSighting={editingSighting}
+								viewSighting={viewSighting}
+								sightingFocusCommentId={sightingFocusCommentId}
+								placedSightingGeometry={placedSightingGeometry}
+								onDrawSightingArea={onDrawSightingArea}
+								onSaveSighting={onSaveSighting}
+								onCloseSightingEditor={onCloseSightingEditor}
+								onEditSighting={onEditSighting}
+								onDeleteSighting={onDeleteSighting}
+								mapContextEvents={mapContextEvents}
+								onZoomToFeature={onZoomToFeature}
+								featureCollectionForUpload={featureCollectionForUpload}
+								onBlossomUploadComplete={onBlossomUploadComplete}
+								focusCommentId={focusCommentId}
+							/>
+						) : null}
 
-					{mobilePanelTab === 'posts' ? (
-						<div className="-mx-3 -mb-4 -mt-2 h-full">
-							<ShoutboxPanel />
-						</div>
-					) : null}
+						{mobilePanelTab === 'chat' ? (
+							<div className="-mx-3 -mb-4 -mt-2 h-full">
+								<ChatPanel
+									geoEvents={geoEvents}
+									mapContextEvents={mapContextEvents}
+									availableFeatures={availableFeatures}
+									getDatasetName={getDatasetName}
+									onStartNewDataset={onStartNewDataset}
+									onSwitchWorkspace={onSwitchWorkspace}
+									onOpenSettings={() => setMobilePanelTab('settings')}
+								/>
+							</div>
+						) : null}
 
-					{mobilePanelTab === 'wallet' ? (
-						<div className="-mx-3 -mb-4 -mt-2 h-full p-4">
-							<Nip60Wallet />
-						</div>
-					) : null}
+						{mobilePanelTab === 'profile' ? (
+							<MobileProfileContent
+								pubkey={userPubkey ?? currentUserPubkey}
+								geoEvents={geoEvents}
+								mapContextEvents={mapContextEvents}
+								currentUserPubkey={currentUserPubkey}
+								datasetVisibility={datasetVisibility}
+								isPublishing={isPublishing}
+								deletingKey={deletingKey}
+								onLoadDataset={onLoadDataset}
+								onSwitchWorkspace={onSwitchWorkspace}
+								onDeleteWorkspace={onDeleteWorkspace}
+								onToggleVisibility={onToggleVisibility}
+								onToggleAllVisibility={onToggleAllVisibility}
+								onZoomToDataset={onZoomToDataset}
+								onDeleteDataset={onDeleteDataset}
+								getDatasetKey={getDatasetKey}
+								getDatasetName={getDatasetName}
+								onInspectDataset={onInspectDataset}
+								onInspectContext={onInspectContext}
+								onEditContext={onEditContext}
+								onOpenDebug={onOpenDebug}
+							/>
+						) : null}
 
-					{mobilePanelTab === 'settings' ? (
-						<div className="-mx-3 -mb-4 -mt-2 h-full">
-							<MapSettingsPanel />
-						</div>
-					) : null}
+						{mobilePanelTab === 'posts' ? (
+							<div className="-mx-3 -mb-4 -mt-2 h-full">
+								<ShoutboxPanel />
+							</div>
+						) : null}
 
-					{mobilePanelTab === 'help' ? (
-						<div className="-mx-3 -mb-4 -mt-2 h-full">
-							<HelpPanel multiSelectModifier={multiSelectModifier} />
-						</div>
-					) : null}
-				</div>
-			</SheetContent>
-		</Sheet>
+						{mobilePanelTab === 'wallet' ? (
+							<div className="-mx-3 -mb-4 -mt-2 h-full p-4">
+								<Nip60Wallet />
+							</div>
+						) : null}
+
+						{mobilePanelTab === 'settings' ? (
+							<div className="-mx-3 -mb-4 -mt-2 h-full">
+								<MapSettingsPanel />
+							</div>
+						) : null}
+
+						{mobilePanelTab === 'help' ? (
+							<div className="-mx-3 -mb-4 -mt-2 h-full">
+								<HelpPanel multiSelectModifier={multiSelectModifier} />
+							</div>
+						) : null}
+					</div>
+				</Drawer.Content>
+			</Drawer.Portal>
+		</Drawer.Root>
 	)
 }
 

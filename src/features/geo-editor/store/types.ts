@@ -152,7 +152,10 @@ export type MobilePanelTab =
 	| 'settings'
 	| 'help'
 
-export type MobilePanelSnap = 'peek' | 'expanded'
+/** Mobile bottom-sheet detents (redesign §5a "one sheet, three detents"):
+ *  peek ≈ 15% (browse, map owns the screen), half ≈ 55% (properties on select),
+ *  full ≈ 92% (the outliner, full height). */
+export type MobilePanelSnap = 'peek' | 'half' | 'full'
 
 export interface GeoCollectionEditDraft {
 	id: string
@@ -417,6 +420,11 @@ export interface UISlice {
 	inspectorActive: boolean
 	sidebarViewMode: SidebarViewMode
 	sidebarExpanded: boolean
+	/** Desktop right-side assistant/chat panel open state (single source of truth,
+	 *  read by the shell + the toolbar toggle). */
+	chatOpen: boolean
+	/** Desktop floating Map Stack panel open state. */
+	mapStackOpen: boolean
 	/** Deep-link target tab for the settings panel (e.g. from the status-bar
 	 *  relay indicator). Consumed by MapSettingsPanel; null = its own default. */
 	settingsTab: 'profile' | 'relays' | 'chat' | 'sessions' | null
@@ -447,6 +455,10 @@ export interface UISlice {
 	setDraftEditorSlot: (el: HTMLElement | null) => void
 	setSidebarExpanded: (expanded: boolean) => void
 	toggleSidebarExpanded: () => void
+	setChatOpen: (open: boolean) => void
+	toggleChat: () => void
+	setMapStackOpen: (open: boolean) => void
+	toggleMapStack: () => void
 }
 
 export interface SearchSlice {

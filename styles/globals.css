@@ -239,6 +239,20 @@
   --accent-info-text:   oklch(0.5 0.14 235);
   --accent-ok-text:     oklch(0.45 0.12 150);
   --accent-edit-text:   oklch(0.45 0.13 300);
+
+  /* ---- Studio shell layout knobs — the ONE place to tweak the responsive frame.
+     Consumed by StudioShell (desktop --sidebar-width + insets), AssistantSidebar
+     (right chat), the Map Stack wrapper, StudioStatusBar, and the toolbar bar.
+     Dimensions only (theme-independent), so they live on the base :root. ---- */
+  --shell-toolbar-h: 44px;          /* docked top toolbar height (desktop) */
+  --shell-statusbar-h: 23px;        /* bottom status bar height (desktop) */
+  --shell-sidebar-w: 25vw;          /* left panel, default */
+  --shell-sidebar-w-expanded: 32vw; /* left panel, expanded */
+  --shell-chat-w: 25vw;             /* right chat, open */
+  --shell-chat-w-min: 20rem;
+  --shell-chat-w-max: 32rem;
+  --shell-mapstack-w: 320px;        /* floating Map Stack panel width */
+  --shell-mapstack-top: 3rem;       /* Map Stack offset below the toolbar */
 }
 
 /* semantic aliases · DARK (default working theme) */

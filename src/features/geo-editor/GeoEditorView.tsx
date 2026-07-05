@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import type { Geometry } from 'geojson'
 import type maplibregl from 'maplibre-gl'
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { AppSidebar } from '@/components/AppSidebar'
 import { ControlButton, ControlGroup } from '@/components/ui/map'
@@ -19,7 +19,7 @@ import { BlossomUploadDialog } from '@/components/BlossomUploadDialog'
 import { DebugDialog } from '@/components/DebugDialog'
 import { MapStackPanel } from '@/components/MapStackPanel'
 import { Button } from '@/components/ui/button'
-import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
+import { StudioShell } from './components/StudioShell'
 import { useAvailableGeoFeatures } from '@/lib/hooks/useAvailableGeoFeatures'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useGeoDatasets, useMapContexts } from '@/lib/hooks/useGeoDatasets'
@@ -56,7 +56,7 @@ import { LocationInspectorPopup } from './components/LocationInspectorPopup'
 import { Magnifier } from './components/Magnifier'
 import { MapFeatureHoverOverlay } from './components/MapFeatureHoverOverlay'
 import { BrowseLandingPrompt } from './components/BrowseLandingPrompt'
-import { MobilePanel } from './components/MobilePanel'
+import { DETENT_VH, MobilePanel } from './components/MobilePanel'
 import { CommentAnnotationPopup } from './components/CommentAnnotationPopup'
 import type { CommentAnnotationPopupData } from './components/CommentAnnotationPopup'
 import type { MapPopupPlacement } from './components/map-popup-positioning'
@@ -225,8 +225,13 @@ export function GeoEditorView() {
 	const [resolvedCollectionsVersion, setResolvedCollectionsVersion] = useState(0)
 	const [mapPopupsEnabled, setMapPopupsEnabled] = useState(true)
 	const [mapPopupPlacement, setMapPopupPlacement] = useState<MapPopupPlacement>('dock')
-	const [desktopMapStackOpen, setDesktopMapStackOpen] = useState(true)
-	const [desktopChatOpen, setDesktopChatOpen] = useState(false)
+	// Desktop panel toggles live in the store (single layout source of truth).
+	const desktopMapStackOpen = useEditorStore((state) => state.mapStackOpen)
+	const setMapStackOpen = useEditorStore((state) => state.setMapStackOpen)
+	const toggleMapStack = useEditorStore((state) => state.toggleMapStack)
+	const desktopChatOpen = useEditorStore((state) => state.chatOpen)
+	const setChatOpen = useEditorStore((state) => state.setChatOpen)
+	const toggleChat = useEditorStore((state) => state.toggleChat)
 
 	// Drawing mode state
 	const [isDrawingMode] = useState(false)
@@ -345,6 +350,7 @@ export function GeoEditorView() {
 	const mobilePanelTab = useEditorStore((state) => state.mobilePanelTab)
 	const mobilePanelSnap = useEditorStore((state) => state.mobilePanelSnap)
 	const setMobilePanelOpen = useEditorStore((state) => state.setMobilePanelOpen)
+	const setMobilePanelSnap = useEditorStore((state) => state.setMobilePanelSnap)
 	// Mobile Tools/Search/Actions toggles are no longer used — the responsive
 	// toolbar replaces them. Store fields stay for backward compat.
 	const panLocked = useEditorStore((state) => state.panLocked)
@@ -548,6 +554,42 @@ export function GeoEditorView() {
 			setShowInfoPanel(true)
 		}
 	}, [isMobile, openMobilePanel, setShowInfoPanel])
+
+	// Mobile §14a: selecting a feature raises the sheet to Half (on the editor
+	// tab); deselecting drops it back to Peek. Only fire on the empty↔selected
+	// transition so a manual drag between selections is respected.
+	const prevSelectionCountRef = useRef(0)
+	useEffect(() => {
+		if (!isMobile) {
+			prevSelectionCountRef.current = selectionCount
+			return
+		}
+		const prev = prevSelectionCountRef.current
+		prevSelectionCountRef.current = selectionCount
+		if (prev === 0 && selectionCount > 0) {
+			openMobilePanel('edit')
+			setMobilePanelSnap('half')
+		} else if (prev > 0 && selectionCount === 0) {
+			setMobilePanelSnap('peek')
+		}
+	}, [isMobile, selectionCount, openMobilePanel, setMobilePanelSnap])
+
+	// Mobile §14a: keep a live map inset above the sheet — pad the camera by the
+	// active detent's height (in px) so recenters/fitBounds keep the edited
+	// geometry visible above the drawer. Desktop clears the padding.
+	useEffect(() => {
+		const mapInstance = map.current
+		if (!mapInstance || !mounted) return
+		const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 0
+		const rawBottom =
+			isMobile && mobilePanelOpen
+				? Math.round((DETENT_VH[mobilePanelSnap] / 100) * viewportHeight)
+				: 0
+		// Never pad away the whole map — keep a usable strip so MapLibre always has
+		// a positive padded viewport to center within.
+		const bottom = Math.max(0, Math.min(rawBottom, viewportHeight - 80))
+		mapInstance.easeTo({ padding: { top: 0, right: 0, bottom, left: 0 }, duration: 200 })
+	}, [isMobile, mobilePanelOpen, mobilePanelSnap, mounted])
 
 	// Custom hooks
 	const {
@@ -1473,8 +1515,15 @@ export function GeoEditorView() {
 			openMobilePanel('map-stack')
 			return
 		}
-		setDesktopMapStackOpen((open) => !open)
-	}, [isMobile, mobilePanelOpen, mobilePanelTab, openMobilePanel, setMobilePanelOpen])
+		toggleMapStack()
+	}, [
+		isMobile,
+		mobilePanelOpen,
+		mobilePanelTab,
+		openMobilePanel,
+		setMobilePanelOpen,
+		toggleMapStack,
+	])
 
 	const lastContextCoordinateRef = useRef<string | null>(null)
 	useEffect(() => {
@@ -2489,32 +2538,42 @@ export function GeoEditorView() {
 	})
 
 	const multiSelectModifierLabel = editor?.getMultiSelectModifierLabel() ?? 'Shift'
-	const sidebarExpanded = useEditorStore((state) => state.sidebarExpanded)
-	const setSidebarExpanded = useEditorStore((state) => state.setSidebarExpanded)
-	// Size the desktop sidebar from its own expand state — NOT the chat-open
-	// state. Previously this returned undefined whenever chat was closed, so
-	// `--sidebar-width` fell back to the 16rem default (content panel ~13rem,
-	// far too narrow) and the Expand/Shrink button was a no-op unless chat
-	// happened to be open.
-	const desktopShellStyle = useMemo<CSSProperties | undefined>(() => {
-		if (isMobile) return undefined
-		return {
-			'--sidebar-width': sidebarExpanded ? '32vw' : '25vw',
-			// DS Studio frame: keep the fixed sidebar between the docked top bar
-			// (toolbar) and the bottom status bar.
-			'--sidebar-inset-top': '44px',
-			'--sidebar-inset-bottom': '23px',
-		} as CSSProperties
-	}, [isMobile, sidebarExpanded])
+
+	// Desktop status bar + chat are passed to StudioShell as slots; the shell
+	// owns the responsive frame (widths/insets from the --shell-* CSS vars).
+	const statusBarSlot = (
+		<StudioStatusBar
+			mapRef={map}
+			mapReady={mounted}
+			sightingsCount={sightings.length}
+			beaconsCount={beacons.length}
+			onRelayClick={() => {
+				setSettingsTab('relays')
+				navigateToView('settings')
+			}}
+		/>
+	)
+
+	const chatSlot = (
+		<AssistantSidebar
+			open={desktopChatOpen}
+			geoEvents={geoEvents}
+			mapContextEvents={mapContextEvents}
+			availableFeatures={availableFeatures}
+			getDatasetName={getDatasetName}
+			onStartNewDataset={startNewDataset}
+			onSwitchWorkspace={switchToWorkspace}
+			onOpenSettings={() => navigateToView('settings')}
+			onClose={() => setChatOpen(false)}
+		/>
+	)
 
 	return (
-		<SidebarProvider
-			sidebarExpanded={sidebarExpanded}
-			onExpandedChange={setSidebarExpanded}
-			style={desktopShellStyle}
-		>
-			{/* Sidebar - desktop only */}
-			{!isMobile && (
+		<StudioShell
+			mapContainerRef={mapContainerRef}
+			statusBar={statusBarSlot}
+			chat={chatSlot}
+			sidebar={
 				<AppSidebar
 					geoEvents={scopedGeoEvents}
 					mapContextEvents={mapContextEvents}
@@ -2616,563 +2675,507 @@ export function GeoEditorView() {
 					onProposalAccepted={handleProposalAccepted}
 					visibleProposalIds={visibleProposalIds}
 				/>
+			}
+		>
+			<MapComponent
+				className="w-full h-full touch-none"
+				onLoad={(m) => {
+					map.current = m
+					setMounted(true)
+				}}
+				mapSource={mapSource}
+				onLocate={handleLocate}
+				controlsChildren={
+					!isMobile ? (
+						<ControlGroup>
+							<ControlButton
+								onClick={() => setMapPopupsEnabled((current) => !current)}
+								label={mapPopupsEnabled ? 'Disable map popups' : 'Enable map popups'}
+							>
+								{mapPopupsEnabled ? (
+									<MessageSquare className="h-4 w-4" />
+								) : (
+									<MessageSquareOff className="h-4 w-4" />
+								)}
+							</ControlButton>
+							<ControlButton
+								onClick={() =>
+									setMapPopupPlacement((current) => (current === 'geometry' ? 'dock' : 'geometry'))
+								}
+								label={
+									mapPopupPlacement === 'geometry'
+										? 'Dock popups in the top-right corner'
+										: 'Show popups above geometry'
+								}
+								disabled={!mapPopupsEnabled}
+							>
+								{mapPopupPlacement === 'geometry' ? (
+									<MapPinned className="h-4 w-4" />
+								) : (
+									<PanelTopOpen className="h-4 w-4" />
+								)}
+							</ControlButton>
+						</ControlGroup>
+					) : null
+				}
+			>
+				<Editor />
+			</MapComponent>
+
+			{/* User location marker - pulsating blue dot */}
+			<UserLocationMarker
+				map={map.current}
+				coordinates={userLocation}
+				accuracy={userLocation?.accuracy}
+			/>
+
+			<Magnifier
+				enabled={magnifierEnabled}
+				visible={magnifierVisible}
+				position={magnifierPosition}
+				center={magnifierCenter}
+				mainMap={map.current}
+				size={MAGNIFIER_SIZE}
+				zoomOffset={magnifierZoomOffset}
+			/>
+
+			{/* Inspector Popup - appears near cursor when inspector is active */}
+			<LocationInspectorPopup
+				isOpen={inspectorActive && inspectorClickPosition !== null}
+				loading={reverseLookupStatus === 'loading'}
+				error={reverseLookupError}
+				result={reverseLookupResult}
+				clickPosition={inspectorClickPosition}
+				containerRef={mapContainerRef}
+				onClose={() => {
+					setInspectorClickPosition(null)
+					setReverseLookupResult(null)
+					setReverseLookupError(null)
+				}}
+			/>
+
+			{/* Feature Popup + remote geometry interaction handling */}
+			<MapFeatureHoverOverlay
+				mapRef={map}
+				containerRef={mapContainerRef}
+				remoteLayersReady={remoteLayersReady}
+				clusteredSourceId={CLUSTERED_SOURCE_ID}
+				geoEventsRef={geoEventsRef}
+				currentUserPubkey={currentUser?.pubkey}
+				getDatasetName={getDatasetName}
+				handleInspectDatasetWithoutFocus={handleInspectDatasetWithoutFocus}
+				sightingsRef={sightingsRef}
+				onInspectSighting={handleInspectSighting}
+				popupsEnabled={mapPopupsEnabled}
+				placementMode={mapPopupPlacement}
+				toolbarOffset={mapPopupToolbarOffset}
+				suppressed={mapPopupPlacement === 'dock' && Boolean(displayedAnnotationPopupData)}
+			/>
+
+			{mapPopupsEnabled && (
+				<CommentAnnotationPopup
+					data={displayedAnnotationPopupData}
+					containerRef={mapContainerRef}
+					placementMode={mapPopupPlacement}
+					toolbarOffset={mapPopupToolbarOffset}
+					onHoverChange={handleAnnotationPopupHoverChange}
+					availableFeatures={availableFeatures}
+					onMentionVisibilityToggle={handleMentionVisibilityToggle}
+					onMentionZoomTo={handleMentionZoomTo}
+					onClose={handleCloseAnnotationPopup}
+				/>
 			)}
 
-			<SidebarInset>
-				<div
-					ref={mapContainerRef}
-					data-tour="map-canvas"
-					className="relative w-full"
-					style={
-						isMobile
-							? { height: '100dvh', minHeight: '100svh' }
-							: {
-									// Reserve the 23px status-bar band so the map + its floating
-									// panels sit above the footer instead of behind it.
-									height: 'calc(100dvh - 23px)',
-									minHeight: 'calc(100svh - 23px)',
-								}
-					}
-				>
-					<MapComponent
-						className="w-full h-full touch-none"
-						onLoad={(m) => {
-							map.current = m
-							setMounted(true)
-						}}
-						mapSource={mapSource}
-						onLocate={handleLocate}
-						controlsChildren={
-							!isMobile ? (
-								<ControlGroup>
-									<ControlButton
-										onClick={() => setMapPopupsEnabled((current) => !current)}
-										label={mapPopupsEnabled ? 'Disable map popups' : 'Enable map popups'}
-									>
-										{mapPopupsEnabled ? (
-											<MessageSquare className="h-4 w-4" />
-										) : (
-											<MessageSquareOff className="h-4 w-4" />
-										)}
-									</ControlButton>
-									<ControlButton
-										onClick={() =>
-											setMapPopupPlacement((current) =>
-												current === 'geometry' ? 'dock' : 'geometry',
-											)
-										}
-										label={
-											mapPopupPlacement === 'geometry'
-												? 'Dock popups in the top-right corner'
-												: 'Show popups above geometry'
-										}
-										disabled={!mapPopupsEnabled}
-									>
-										{mapPopupPlacement === 'geometry' ? (
-											<MapPinned className="h-4 w-4" />
-										) : (
-											<PanelTopOpen className="h-4 w-4" />
-										)}
-									</ControlButton>
-								</ControlGroup>
-							) : null
-						}
-					>
-						<Editor />
-					</MapComponent>
+			{mapError && (
+				<div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-destructive/10 border border-destructive/40 text-destructive px-4 py-3 rounded z-50">
+					<p className="font-bold">Map Error</p>
+					<p>{mapError}</p>
+				</div>
+			)}
 
-					{/* User location marker - pulsating blue dot */}
-					<UserLocationMarker
-						map={map.current}
-						coordinates={userLocation}
-						accuracy={userLocation?.accuracy}
-					/>
-
-					<Magnifier
-						enabled={magnifierEnabled}
-						visible={magnifierVisible}
-						position={magnifierPosition}
-						center={magnifierCenter}
-						mainMap={map.current}
-						size={MAGNIFIER_SIZE}
-						zoomOffset={magnifierZoomOffset}
-					/>
-
-					{/* Inspector Popup - appears near cursor when inspector is active */}
-					<LocationInspectorPopup
-						isOpen={inspectorActive && inspectorClickPosition !== null}
-						loading={reverseLookupStatus === 'loading'}
-						error={reverseLookupError}
-						result={reverseLookupResult}
-						clickPosition={inspectorClickPosition}
-						containerRef={mapContainerRef}
-						onClose={() => {
-							setInspectorClickPosition(null)
-							setReverseLookupResult(null)
-							setReverseLookupError(null)
-						}}
-					/>
-
-					{/* Feature Popup + remote geometry interaction handling */}
-					<MapFeatureHoverOverlay
-						mapRef={map}
-						containerRef={mapContainerRef}
-						remoteLayersReady={remoteLayersReady}
-						clusteredSourceId={CLUSTERED_SOURCE_ID}
-						geoEventsRef={geoEventsRef}
-						currentUserPubkey={currentUser?.pubkey}
-						getDatasetName={getDatasetName}
-						handleInspectDatasetWithoutFocus={handleInspectDatasetWithoutFocus}
-						sightingsRef={sightingsRef}
-						onInspectSighting={handleInspectSighting}
-						popupsEnabled={mapPopupsEnabled}
-						placementMode={mapPopupPlacement}
-						toolbarOffset={mapPopupToolbarOffset}
-						suppressed={mapPopupPlacement === 'dock' && Boolean(displayedAnnotationPopupData)}
-					/>
-
-					{mapPopupsEnabled && (
-						<CommentAnnotationPopup
-							data={displayedAnnotationPopupData}
-							containerRef={mapContainerRef}
-							placementMode={mapPopupPlacement}
-							toolbarOffset={mapPopupToolbarOffset}
-							onHoverChange={handleAnnotationPopupHoverChange}
-							availableFeatures={availableFeatures}
-							onMentionVisibilityToggle={handleMentionVisibilityToggle}
-							onMentionZoomTo={handleMentionZoomTo}
-							onClose={handleCloseAnnotationPopup}
-						/>
-					)}
-
-					{mapError && (
-						<div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-destructive/10 border border-destructive/40 text-destructive px-4 py-3 rounded z-50">
-							<p className="font-bold">Map Error</p>
-							<p>{mapError}</p>
-						</div>
-					)}
-
-					{/* Map-first pin-drop overlay (Phase 11, D-01): shown while a Sighting
+			{/* Map-first pin-drop overlay (Phase 11, D-01): shown while a Sighting
 					    placement is armed. "Click the map to drop your sighting" + a
 					    "Cancel placement" button (Esc is the keyboard alternative). */}
-					{sightingPlacementArmed && (
-						<div className="pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2">
-							<div className="pointer-events-auto flex items-center gap-3 rounded-none border border-border bg-background/95 px-4 py-2 text-sm shadow-lg backdrop-blur">
-								<span className="text-foreground">Click the map to drop your sighting</span>
-								<button
-									type="button"
-									onClick={cancelSightingPlacement}
-									className="rounded-none border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
-								>
-									Cancel placement
-								</button>
-							</div>
-						</div>
-					)}
+			{sightingPlacementArmed && (
+				<div className="pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2">
+					<div className="pointer-events-auto flex items-center gap-3 rounded-none border border-border bg-background/95 px-4 py-2 text-sm shadow-lg backdrop-blur">
+						<span className="text-foreground">Click the map to drop your sighting</span>
+						<button
+							type="button"
+							onClick={cancelSightingPlacement}
+							className="rounded-none border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+						>
+							Cancel placement
+						</button>
+					</div>
+				</div>
+			)}
 
-					{/* Always-on "you are live" running banner (Phase 12, BEACON-02,
+			{/* Always-on "you are live" running banner (Phase 12, BEACON-02,
 					    UI-SPEC § Net-New 3). Pinned over the map whenever a publisher
 					    session is live, regardless of which panel is open — the one piece
 					    of always-on chrome + a one-tap Stop. */}
-					{beaconIsLive && (
-						<RunningBeaconBanner
-							subState={beaconSubState}
-							countdown={beaconBannerCountdown}
-							onStop={handleStopBeacon}
-						/>
-					)}
+			{beaconIsLive && (
+				<RunningBeaconBanner
+					subState={beaconSubState}
+					countdown={beaconBannerCountdown}
+					onStop={handleStopBeacon}
+				/>
+			)}
 
-					{/* Desktop: map controls (zoom/compass/locate/pitch/globe/fullscreen
+			{/* Desktop: map controls (zoom/compass/locate/pitch/globe/fullscreen
 					    + the popup toggles via controlsChildren) live inside mapcn's
 					    MapControls — see <MapComponent> above. */}
 
-					{!isMobile && (
-						<div className="absolute bottom-0 left-0 right-0 z-10 pointer-events-none">
-							<div className="mx-auto w-full max-w-6xl px-6 pb-2 text-xs text-muted-foreground text-center pointer-events-auto">
-								Hold <strong>{multiSelectModifierLabel}</strong> to multi-select
-								{selectionCount > 0 ? ` • ${selectionCount} selected` : ''}
-							</div>
-						</div>
-					)}
+			{!isMobile && (
+				<div className="absolute bottom-0 left-0 right-0 z-10 pointer-events-none">
+					<div className="mx-auto w-full max-w-6xl px-6 pb-2 text-xs text-muted-foreground text-center pointer-events-auto">
+						Hold <strong>{multiSelectModifierLabel}</strong> to multi-select
+						{selectionCount > 0 ? ` • ${selectionCount} selected` : ''}
+					</div>
+				</div>
+			)}
 
-					<div className="pointer-events-none absolute top-2 left-2 right-2 z-10 flex md:pointer-events-auto md:fixed md:inset-x-0 md:top-0 md:z-30 md:h-11 md:items-center md:border-b md:border-border md:bg-[var(--surface-chrome)] md:p-0">
-						<div className="w-full">
-							<Toolbar
-								datasetActions={{
-									onExportGeoJSON: exportGeoJSON,
-									onExportSHP: exportSHP,
-									canExport: stats.total > 0,
-									onImport: handleImport,
-									onClear: handleClear,
-									onPublishNew: handlePublishNew,
-									canPublishNew,
-									onPublishUpdate: handlePublishUpdate,
-									canPublishUpdate,
-									onPublishCopy: handlePublishCopy,
-									canPublishCopy,
-									onProposeEdit: handleProposeEdit,
-									canProposeEdit,
-									isPublishing,
-								}}
-								isMobile={isMobile}
-								showLogin={true}
-								onSearchResultSelect={handleSearchResultSelect}
-								onInspectorDeactivate={disableInspector}
-								onStartNewDataset={startNewDataset}
-								onCancelEditing={tearDownEditSession}
-								onOsmQueryClick={handleOsmQueryClick}
-								onOsmQueryView={handleOsmQueryView}
-								onOsmAdvanced={() => setImportOsmDialogOpen(true)}
-								mapStackOpen={toolbarMapStackOpen}
-								mapStackEntryCount={mapStackStats.total}
-								mapStackVisibleCount={mapStackStats.visible}
-								chatOpen={desktopChatOpen}
-								onToggleMapStack={toggleToolbarMapStack}
-								onToggleChat={() => setDesktopChatOpen((open) => !open)}
-								onExitFocus={exitViewMode}
-							/>
+			<div className="pointer-events-none absolute top-2 left-2 right-2 z-10 flex md:pointer-events-auto md:fixed md:inset-x-0 md:top-0 md:z-30 md:h-[var(--shell-toolbar-h)] md:items-center md:border-b md:border-border md:bg-[var(--surface-chrome)] md:p-0">
+				<div className="w-full">
+					<Toolbar
+						datasetActions={{
+							onExportGeoJSON: exportGeoJSON,
+							onExportSHP: exportSHP,
+							canExport: stats.total > 0,
+							onImport: handleImport,
+							onClear: handleClear,
+							onPublishNew: handlePublishNew,
+							canPublishNew,
+							onPublishUpdate: handlePublishUpdate,
+							canPublishUpdate,
+							onPublishCopy: handlePublishCopy,
+							canPublishCopy,
+							onProposeEdit: handleProposeEdit,
+							canProposeEdit,
+							isPublishing,
+						}}
+						isMobile={isMobile}
+						showLogin={true}
+						onSearchResultSelect={handleSearchResultSelect}
+						onInspectorDeactivate={disableInspector}
+						onStartNewDataset={startNewDataset}
+						onCancelEditing={tearDownEditSession}
+						onOsmQueryClick={handleOsmQueryClick}
+						onOsmQueryView={handleOsmQueryView}
+						onOsmAdvanced={() => setImportOsmDialogOpen(true)}
+						mapStackOpen={toolbarMapStackOpen}
+						mapStackEntryCount={mapStackStats.total}
+						mapStackVisibleCount={mapStackStats.visible}
+						chatOpen={desktopChatOpen}
+						onToggleMapStack={toggleToolbarMapStack}
+						onToggleChat={toggleChat}
+						onExitFocus={exitViewMode}
+					/>
+				</div>
+			</div>
+
+			{showBrowseLandingPrompt ? (
+				<BrowseLandingPrompt
+					onShowNewest={seedRecentDatasets}
+					onBrowseDatasets={() => {
+						// Browsing is a choice too — dismiss so the prompt doesn't
+						// linger behind the opened catalog.
+						setBrowseLandingDismissed(true)
+						navigateToView('datasets')
+					}}
+					onBrowseContexts={() => {
+						setBrowseLandingDismissed(true)
+						navigateToView('contexts')
+					}}
+					onStartDrawing={startNewDataset}
+					onDismiss={() => setBrowseLandingDismissed(true)}
+				/>
+			) : null}
+
+			{!isMobile && desktopMapStackOpen && (
+				<div className="pointer-events-auto absolute top-[var(--shell-mapstack-top)] left-2 z-20 flex max-h-[calc(100vh-5rem)] w-[var(--shell-mapstack-w)] max-w-[calc(100vw-1rem)] flex-col shadow-lg">
+					<MapStackPanel
+						geoEvents={scopedGeoEvents}
+						mapContextEvents={mapContextEvents}
+						getDatasetKey={getDatasetKey}
+						getDatasetName={getDatasetName}
+						onAddDatasetToMap={addDatasetToMapStack}
+						onInspectDataset={handleInspectDatasetWithModeSwitch}
+						onZoomToDataset={zoomToDataset}
+						onLoadDataset={handleDatasetSelect}
+						onInspectContext={handleInspectContext}
+						onSetEntryVisible={setMapStackVisibility}
+						onSetEntryIsolated={setMapStackIsolation}
+						onRemoveEntry={removeFromMapStack}
+						onOpenDraftEditor={openDraftEditor}
+						onZoomToDraft={zoomToDraft}
+						onClear={clearMapStackAndVisibility}
+						onClose={() => setMapStackOpen(false)}
+						compact
+					/>
+				</div>
+			)}
+
+			{/* Mobile Panel - unified tabbed drawer */}
+			{isMobile && (
+				<MobilePanel
+					geoEvents={scopedGeoEvents}
+					mapContextEvents={mapContextEvents}
+					activeDataset={activeDataset}
+					currentUserPubkey={currentUser?.pubkey}
+					userPubkey={userPubkey}
+					datasetVisibility={effectiveVisibility}
+					isPublishing={isPublishing}
+					deletingKey={deletingKey}
+					isFocused={isFocused}
+					multiSelectModifier={multiSelectModifierLabel}
+					onLoadDataset={loadDatasetForEditing}
+					onStartNewDataset={startNewDataset}
+					onSwitchWorkspace={switchToWorkspace}
+					onDeleteWorkspace={deleteWorkspace}
+					onToggleVisibility={handleToggleVisibilityWithExitFocus}
+					onToggleAllVisibility={handleToggleAllVisibilityWithExitFocus}
+					onZoomToDataset={zoomToDataset}
+					onAddDatasetToMap={addDatasetToMapStack}
+					onRemoveDatasetFromMap={removeDatasetFromMapStack}
+					onSetMapStackEntryVisible={setMapStackVisibility}
+					onSetMapStackEntryIsolated={setMapStackIsolation}
+					onRemoveMapStackEntry={removeFromMapStack}
+					onOpenDraftEditor={openDraftEditor}
+					onZoomToDraft={zoomToDraft}
+					onClearMapStack={clearMapStackAndVisibility}
+					onDeleteDataset={onDeleteDataset}
+					onDeleteContext={onDeleteContext}
+					getDatasetKey={getDatasetKey}
+					getDatasetName={getDatasetName}
+					onOpenGeometryEditor={handleOpenGeometryEditor}
+					onInspectDataset={handleInspectDatasetWithModeSwitch}
+					onExitFocus={clearFocus}
+					onInspectContext={handleInspectContext}
+					onCreateContext={handleCreateContext}
+					onEditContext={handleEditContext}
+					onOpenDebug={handleOpenDebug}
+					onExitViewMode={exitViewMode}
+					onCommentGeometryVisibility={handleCommentGeometryVisibility}
+					onZoomToBounds={handleZoomToBounds}
+					onZoomToSighting={handleZoomToSighting}
+					availableFeatures={availableFeatures}
+					onMentionVisibilityToggle={handleMentionVisibilityToggle}
+					onMentionZoomTo={handleMentionZoomTo}
+					isMentionVisible={isMentionVisible}
+					contextEditorMode={contextEditorMode}
+					editingContext={editingContext}
+					onSaveContext={handleSaveContext}
+					onCloseContextEditor={handleCloseContextEditor}
+					onEditStory={handleEditStory}
+					onDeleteStory={handleDeleteStory}
+					onStoryUpdated={handleInspectStory}
+					sightingEditorMode={sightingEditorMode}
+					editingSighting={editingSighting}
+					viewSighting={viewSighting}
+					selectedSightingKey={lastInspectedSightingKey}
+					sightingFocusCommentId={sightingFocusCommentId}
+					beaconFocusCommentId={beaconFocusCommentId}
+					placedSightingGeometry={placedSightingGeometry}
+					onDrawSightingArea={handleDrawSightingArea}
+					onSaveSighting={handleSaveSighting}
+					onCloseSightingEditor={handleCloseSightingEditor}
+					onEditSighting={handleEditSighting}
+					onDeleteSighting={handleDeleteSighting}
+					beaconControlMode={beaconControlMode}
+					adjustingBeacon={adjustingBeacon}
+					viewBeacon={viewBeacon}
+					isFollowingBeacon={isFollowingBeacon}
+					onToggleFollowBeacon={toggleFollowBeacon}
+					selectedBeaconKey={lastInspectedBeaconKey}
+					beaconIsStarting={beaconSubState === 'searching' && !beaconIsLive}
+					onShareLocation={handleShareLocation}
+					onStartBeacon={handleStartBeacon}
+					onCloseBeaconControl={handleCloseBeaconControl}
+					onInspectBeacon={handleInspectBeacon}
+					onOpenBeacon={handleInspectBeacon}
+					onWatchOnMapBeacon={handleZoomToBeacon}
+					onAddBeaconToMapStack={addBeaconToMapStack}
+					onAddSightingToMapStack={addSightingToMapStack}
+					onStopBeacon={() => handleStopBeacon()}
+					onAdjustBeacon={handleAdjustBeacon}
+					onClearBeaconView={clearBeaconView}
+					onZoomToFeature={handleZoomToFeature}
+					featureCollectionForUpload={memoizedFeatureCollection}
+					onBlossomUploadComplete={handleBlobUploadComplete}
+					focusCommentId={focusCommentId}
+					onFilteredDatasetKeysChange={handleFilteredDatasetKeysChange}
+					onToggleProposalOverlay={handleToggleProposalOverlay}
+					onProposalAccepted={handleProposalAccepted}
+					visibleProposalIds={visibleProposalIds}
+				/>
+			)}
+
+			{isMobile && (
+				<>
+					<div className="fixed bottom-2 left-2 z-50 md:hidden">
+						<div className="flex gap-2">
+							{/* Locate now lives in mapcn's MapControls (top-level of the map). */}
+							<Button
+								variant={panLocked ? 'default' : 'outline'}
+								className="shadow-lg h-10 w-10 p-0 rounded-full bg-card/95 backdrop-blur hover:bg-card"
+								onClick={togglePanLock}
+								aria-label="Toggle pan lock while drawing"
+								disabled={isDrawingMode}
+								title={isDrawingMode ? 'Pan is auto-locked while drawing' : 'Toggle pan lock'}
+							>
+								{panLocked ? <Lock className="h-5 w-5" /> : <LockOpen className="h-5 w-5" />}
+							</Button>
+							{(currentMode === 'draw_linestring' || currentMode === 'draw_polygon') && (
+								<Button
+									variant="default"
+									className="shadow-lg h-10 px-4 rounded-full"
+									onClick={() => editor?.finishDrawing()}
+									aria-label="Finish current drawing"
+									disabled={!canFinishDrawing}
+								>
+									Finish
+								</Button>
+							)}
+							<div className="relative">
+								<Button
+									ref={magnifierButtonRef}
+									variant={magnifierEnabled ? 'default' : 'outline'}
+									className="shadow-lg h-10 w-10 p-0 rounded-full"
+									onPointerDown={handleMagnifierPointerDown}
+									onPointerUp={handleMagnifierPointerUp}
+									onPointerLeave={clearMagnifierLongPress}
+									onPointerCancel={clearMagnifierLongPress}
+									onContextMenu={(event) => event.preventDefault()}
+									aria-label="Toggle magnifier"
+								>
+									<Search className="h-5 w-5" />
+								</Button>
+								{magnifierMenuOpen && (
+									<div
+										ref={magnifierMenuRef}
+										className="pointer-events-auto absolute bottom-14 left-0 z-50 w-52 rounded-xl border border-border bg-card/95 px-4 py-3 text-sm shadow-lg backdrop-blur"
+									>
+										<div className="mb-3 text-xs font-medium text-muted-foreground">
+											Magnifier zoom
+										</div>
+										<div className="flex items-center gap-3">
+											<Button
+												type="button"
+												variant="outline"
+												size="icon"
+												className="h-8 w-8 text-sm"
+												onClick={() => setMagnifierZoomOffset((value) => Math.max(1, value - 0.5))}
+												aria-label="Decrease magnifier zoom"
+											>
+												-
+											</Button>
+											<Input
+												type="range"
+												min={1}
+												max={6}
+												step={0.5}
+												value={magnifierZoomOffset}
+												onChange={(event) => setMagnifierZoomOffset(Number(event.target.value))}
+												className="h-2 w-full"
+												aria-label="Magnifier zoom level"
+											/>
+											<Button
+												type="button"
+												variant="outline"
+												size="icon"
+												className="h-8 w-8 text-sm"
+												onClick={() => setMagnifierZoomOffset((value) => Math.min(6, value + 0.5))}
+												aria-label="Increase magnifier zoom"
+											>
+												+
+											</Button>
+										</div>
+										<div className="mt-2 text-xs text-muted-foreground">
+											Zoom +{magnifierZoomOffset}
+										</div>
+									</div>
+								)}
+							</div>
 						</div>
 					</div>
-
-					{showBrowseLandingPrompt ? (
-						<BrowseLandingPrompt
-							onShowNewest={seedRecentDatasets}
-							onBrowseDatasets={() => {
-								// Browsing is a choice too — dismiss so the prompt doesn't
-								// linger behind the opened catalog.
-								setBrowseLandingDismissed(true)
-								navigateToView('datasets')
-							}}
-							onBrowseContexts={() => {
-								setBrowseLandingDismissed(true)
-								navigateToView('contexts')
-							}}
-							onStartDrawing={startNewDataset}
-							onDismiss={() => setBrowseLandingDismissed(true)}
-						/>
-					) : null}
-
-					{!isMobile && desktopMapStackOpen && (
-						<div className="pointer-events-auto absolute top-12 left-2 z-20 flex max-h-[calc(100vh-5rem)] w-[320px] max-w-[calc(100vw-1rem)] flex-col shadow-lg">
-							<MapStackPanel
-								geoEvents={scopedGeoEvents}
-								mapContextEvents={mapContextEvents}
-								getDatasetKey={getDatasetKey}
-								getDatasetName={getDatasetName}
-								onAddDatasetToMap={addDatasetToMapStack}
-								onInspectDataset={handleInspectDatasetWithModeSwitch}
-								onZoomToDataset={zoomToDataset}
-								onLoadDataset={handleDatasetSelect}
-								onInspectContext={handleInspectContext}
-								onSetEntryVisible={setMapStackVisibility}
-								onSetEntryIsolated={setMapStackIsolation}
-								onRemoveEntry={removeFromMapStack}
-								onOpenDraftEditor={openDraftEditor}
-								onZoomToDraft={zoomToDraft}
-								onClear={clearMapStackAndVisibility}
-								onClose={() => setDesktopMapStackOpen(false)}
-								compact
-							/>
-						</div>
-					)}
-
-					{/* Mobile Panel - unified tabbed drawer */}
-					{isMobile && (
-						<MobilePanel
-							geoEvents={scopedGeoEvents}
-							mapContextEvents={mapContextEvents}
-							activeDataset={activeDataset}
-							currentUserPubkey={currentUser?.pubkey}
-							userPubkey={userPubkey}
-							datasetVisibility={effectiveVisibility}
-							isPublishing={isPublishing}
-							deletingKey={deletingKey}
-							isFocused={isFocused}
-							multiSelectModifier={multiSelectModifierLabel}
-							onLoadDataset={loadDatasetForEditing}
-							onStartNewDataset={startNewDataset}
-							onSwitchWorkspace={switchToWorkspace}
-							onDeleteWorkspace={deleteWorkspace}
-							onToggleVisibility={handleToggleVisibilityWithExitFocus}
-							onToggleAllVisibility={handleToggleAllVisibilityWithExitFocus}
-							onZoomToDataset={zoomToDataset}
-							onAddDatasetToMap={addDatasetToMapStack}
-							onRemoveDatasetFromMap={removeDatasetFromMapStack}
-							onSetMapStackEntryVisible={setMapStackVisibility}
-							onSetMapStackEntryIsolated={setMapStackIsolation}
-							onRemoveMapStackEntry={removeFromMapStack}
-							onOpenDraftEditor={openDraftEditor}
-							onZoomToDraft={zoomToDraft}
-							onClearMapStack={clearMapStackAndVisibility}
-							onDeleteDataset={onDeleteDataset}
-							onDeleteContext={onDeleteContext}
-							getDatasetKey={getDatasetKey}
-							getDatasetName={getDatasetName}
-							onOpenGeometryEditor={handleOpenGeometryEditor}
-							onInspectDataset={handleInspectDatasetWithModeSwitch}
-							onExitFocus={clearFocus}
-							onInspectContext={handleInspectContext}
-							onCreateContext={handleCreateContext}
-							onEditContext={handleEditContext}
-							onOpenDebug={handleOpenDebug}
-							onExitViewMode={exitViewMode}
-							onCommentGeometryVisibility={handleCommentGeometryVisibility}
-							onZoomToBounds={handleZoomToBounds}
-							onZoomToSighting={handleZoomToSighting}
-							availableFeatures={availableFeatures}
-							onMentionVisibilityToggle={handleMentionVisibilityToggle}
-							onMentionZoomTo={handleMentionZoomTo}
-							isMentionVisible={isMentionVisible}
-							contextEditorMode={contextEditorMode}
-							editingContext={editingContext}
-							onSaveContext={handleSaveContext}
-							onCloseContextEditor={handleCloseContextEditor}
-							onEditStory={handleEditStory}
-							onDeleteStory={handleDeleteStory}
-							onStoryUpdated={handleInspectStory}
-							sightingEditorMode={sightingEditorMode}
-							editingSighting={editingSighting}
-							viewSighting={viewSighting}
-							selectedSightingKey={lastInspectedSightingKey}
-							sightingFocusCommentId={sightingFocusCommentId}
-							beaconFocusCommentId={beaconFocusCommentId}
-							placedSightingGeometry={placedSightingGeometry}
-							onDrawSightingArea={handleDrawSightingArea}
-							onSaveSighting={handleSaveSighting}
-							onCloseSightingEditor={handleCloseSightingEditor}
-							onEditSighting={handleEditSighting}
-							onDeleteSighting={handleDeleteSighting}
-							beaconControlMode={beaconControlMode}
-							adjustingBeacon={adjustingBeacon}
-							viewBeacon={viewBeacon}
-							isFollowingBeacon={isFollowingBeacon}
-							onToggleFollowBeacon={toggleFollowBeacon}
-							selectedBeaconKey={lastInspectedBeaconKey}
-							beaconIsStarting={beaconSubState === 'searching' && !beaconIsLive}
-							onShareLocation={handleShareLocation}
-							onStartBeacon={handleStartBeacon}
-							onCloseBeaconControl={handleCloseBeaconControl}
-							onInspectBeacon={handleInspectBeacon}
-							onOpenBeacon={handleInspectBeacon}
-							onWatchOnMapBeacon={handleZoomToBeacon}
-							onAddBeaconToMapStack={addBeaconToMapStack}
-							onAddSightingToMapStack={addSightingToMapStack}
-							onStopBeacon={() => handleStopBeacon()}
-							onAdjustBeacon={handleAdjustBeacon}
-							onClearBeaconView={clearBeaconView}
-							onZoomToFeature={handleZoomToFeature}
-							featureCollectionForUpload={memoizedFeatureCollection}
-							onBlossomUploadComplete={handleBlobUploadComplete}
-							focusCommentId={focusCommentId}
-							onFilteredDatasetKeysChange={handleFilteredDatasetKeysChange}
-							onToggleProposalOverlay={handleToggleProposalOverlay}
-							onProposalAccepted={handleProposalAccepted}
-							visibleProposalIds={visibleProposalIds}
-						/>
-					)}
-
-					{isMobile && (
-						<>
-							<div className="fixed bottom-2 left-2 z-50 md:hidden">
-								<div className="flex gap-2">
-									{/* Locate now lives in mapcn's MapControls (top-level of the map). */}
-									<Button
-										variant={panLocked ? 'default' : 'outline'}
-										className="shadow-lg h-10 w-10 p-0 rounded-full bg-card/95 backdrop-blur hover:bg-card"
-										onClick={togglePanLock}
-										aria-label="Toggle pan lock while drawing"
-										disabled={isDrawingMode}
-										title={isDrawingMode ? 'Pan is auto-locked while drawing' : 'Toggle pan lock'}
-									>
-										{panLocked ? <Lock className="h-5 w-5" /> : <LockOpen className="h-5 w-5" />}
-									</Button>
-									{(currentMode === 'draw_linestring' || currentMode === 'draw_polygon') && (
-										<Button
-											variant="default"
-											className="shadow-lg h-10 px-4 rounded-full"
-											onClick={() => editor?.finishDrawing()}
-											aria-label="Finish current drawing"
-											disabled={!canFinishDrawing}
-										>
-											Finish
-										</Button>
-									)}
-									<div className="relative">
-										<Button
-											ref={magnifierButtonRef}
-											variant={magnifierEnabled ? 'default' : 'outline'}
-											className="shadow-lg h-10 w-10 p-0 rounded-full"
-											onPointerDown={handleMagnifierPointerDown}
-											onPointerUp={handleMagnifierPointerUp}
-											onPointerLeave={clearMagnifierLongPress}
-											onPointerCancel={clearMagnifierLongPress}
-											onContextMenu={(event) => event.preventDefault()}
-											aria-label="Toggle magnifier"
-										>
-											<Search className="h-5 w-5" />
-										</Button>
-										{magnifierMenuOpen && (
-											<div
-												ref={magnifierMenuRef}
-												className="pointer-events-auto absolute bottom-14 left-0 z-50 w-52 rounded-xl border border-border bg-card/95 px-4 py-3 text-sm shadow-lg backdrop-blur"
-											>
-												<div className="mb-3 text-xs font-medium text-muted-foreground">
-													Magnifier zoom
-												</div>
-												<div className="flex items-center gap-3">
-													<Button
-														type="button"
-														variant="outline"
-														size="icon"
-														className="h-8 w-8 text-sm"
-														onClick={() =>
-															setMagnifierZoomOffset((value) => Math.max(1, value - 0.5))
-														}
-														aria-label="Decrease magnifier zoom"
-													>
-														-
-													</Button>
-													<Input
-														type="range"
-														min={1}
-														max={6}
-														step={0.5}
-														value={magnifierZoomOffset}
-														onChange={(event) => setMagnifierZoomOffset(Number(event.target.value))}
-														className="h-2 w-full"
-														aria-label="Magnifier zoom level"
-													/>
-													<Button
-														type="button"
-														variant="outline"
-														size="icon"
-														className="h-8 w-8 text-sm"
-														onClick={() =>
-															setMagnifierZoomOffset((value) => Math.min(6, value + 0.5))
-														}
-														aria-label="Increase magnifier zoom"
-													>
-														+
-													</Button>
-												</div>
-												<div className="mt-2 text-xs text-muted-foreground">
-													Zoom +{magnifierZoomOffset}
-												</div>
-											</div>
-										)}
-									</div>
-								</div>
-							</div>
-							{/* Mobile drawer toggle (MobilePanel bottom-sheet). The old
+					{/* Mobile drawer toggle (MobilePanel bottom-sheet). The old
 							    Draw/Search/Actions toggles are gone — the unified responsive
 							    toolbar (with overflow-x-auto on narrow screens) replaces
 							    them. */}
-							<div
-								className={`fixed bottom-2 right-2 z-50 flex flex-col gap-2 md:hidden transition-all duration-300 ${
-									mobilePanelOpen
-										? mobilePanelSnap === 'expanded'
-											? 'bottom-[calc(82vh+0.5rem)]'
-											: 'bottom-[calc(45vh+0.5rem)]'
-										: ''
-								}`}
-							>
-								<Button
-									size="icon"
-									className="shadow-lg h-10 w-10 rounded-full"
-									variant={mobilePanelOpen ? 'default' : 'outline'}
-									onClick={() => setMobilePanelOpen(!mobilePanelOpen)}
-									aria-label="Toggle panel"
-								>
-									<Layers className="h-5 w-5" />
-								</Button>
-							</div>
-						</>
-					)}
-
-					{debugEvent && (
-						<DebugDialog
-							event={debugEvent}
-							open={debugDialogOpen}
-							onOpenChange={setDebugDialogOpen}
-						/>
-					)}
-
-					{/* Blossom Upload Dialog */}
-					<BlossomUploadDialog
-						open={blossomUploadDialogOpen}
-						onOpenChange={setBlossomUploadDialogOpen}
-						geojson={pendingPublishCollection ?? memoizedFeatureCollection}
-						onUploadComplete={handleBlobUploadComplete}
-						onPublishWithUpload={handlePublishWithBlossomUpload}
-						onSkip={handlePublishNew}
-						allowSkip={false}
-						title="Dataset Size Warning"
-					/>
-
-					{/* Import OSM Dialog */}
-					<ImportOsmDialog
-						open={importOsmDialogOpen}
-						onOpenChange={setImportOsmDialogOpen}
-						mapCenter={
-							map.current
-								? (() => {
-										const center = map.current.getCenter()
-										return { lat: center.lat, lon: center.lng }
-									})()
+					<div
+						className="fixed bottom-2 right-2 z-50 flex flex-col gap-2 transition-all duration-300 md:hidden"
+						style={
+							mobilePanelOpen
+								? { bottom: `calc(${DETENT_VH[mobilePanelSnap]}vh + 0.5rem)` }
 								: undefined
 						}
-						mapBounds={
-							map.current
-								? (() => {
-										const bounds = map.current.getBounds()
-										return {
-											west: bounds.getWest(),
-											south: bounds.getSouth(),
-											east: bounds.getEast(),
-											north: bounds.getNorth(),
-										}
-									})()
-								: undefined
-						}
-						onImport={(features) => {
-							if (!editor) return
-							// INFRA-02 / D-08: route through the Authoring API (normalizes raw
-							// features internally via toEditorFeature; append with dedup-by-id).
-							createAuthoring(editor).writeGeoJSON(features, { replace: false })
-						}}
-					/>
+					>
+						<Button
+							size="icon"
+							className="shadow-lg h-10 w-10 rounded-full"
+							variant={mobilePanelOpen ? 'default' : 'outline'}
+							onClick={() => setMobilePanelOpen(!mobilePanelOpen)}
+							aria-label="Toggle panel"
+						>
+							<Layers className="h-5 w-5" />
+						</Button>
+					</div>
+				</>
+			)}
 
-					{/* OSM Query Results Panel (cursor-oriented) */}
-					<OsmResultsPanel onImport={handleOsmImport} onClose={clearOsmQuery} />
-				</div>
-			</SidebarInset>
-			{!isMobile && (
-				<div className="fixed bottom-0 left-0 right-0 z-30">
-					<StudioStatusBar
-						mapRef={map}
-						mapReady={mounted}
-						sightingsCount={sightings.length}
-						beaconsCount={beacons.length}
-						onRelayClick={() => {
-							setSettingsTab('relays')
-							navigateToView('settings')
-						}}
-					/>
-				</div>
+			{debugEvent && (
+				<DebugDialog event={debugEvent} open={debugDialogOpen} onOpenChange={setDebugDialogOpen} />
 			)}
-			{!isMobile && (
-				<AssistantSidebar
-					open={desktopChatOpen}
-					geoEvents={geoEvents}
-					mapContextEvents={mapContextEvents}
-					availableFeatures={availableFeatures}
-					getDatasetName={getDatasetName}
-					onStartNewDataset={startNewDataset}
-					onSwitchWorkspace={switchToWorkspace}
-					onOpenSettings={() => navigateToView('settings')}
-					onClose={() => setDesktopChatOpen(false)}
-				/>
-			)}
-		</SidebarProvider>
+
+			{/* Blossom Upload Dialog */}
+			<BlossomUploadDialog
+				open={blossomUploadDialogOpen}
+				onOpenChange={setBlossomUploadDialogOpen}
+				geojson={pendingPublishCollection ?? memoizedFeatureCollection}
+				onUploadComplete={handleBlobUploadComplete}
+				onPublishWithUpload={handlePublishWithBlossomUpload}
+				onSkip={handlePublishNew}
+				allowSkip={false}
+				title="Dataset Size Warning"
+			/>
+
+			{/* Import OSM Dialog */}
+			<ImportOsmDialog
+				open={importOsmDialogOpen}
+				onOpenChange={setImportOsmDialogOpen}
+				mapCenter={
+					map.current
+						? (() => {
+								const center = map.current.getCenter()
+								return { lat: center.lat, lon: center.lng }
+							})()
+						: undefined
+				}
+				mapBounds={
+					map.current
+						? (() => {
+								const bounds = map.current.getBounds()
+								return {
+									west: bounds.getWest(),
+									south: bounds.getSouth(),
+									east: bounds.getEast(),
+									north: bounds.getNorth(),
+								}
+							})()
+						: undefined
+				}
+				onImport={(features) => {
+					if (!editor) return
+					// INFRA-02 / D-08: route through the Authoring API (normalizes raw
+					// features internally via toEditorFeature; append with dedup-by-id).
+					createAuthoring(editor).writeGeoJSON(features, { replace: false })
+				}}
+			/>
+
+			{/* OSM Query Results Panel (cursor-oriented) */}
+			<OsmResultsPanel onImport={handleOsmImport} onClose={clearOsmQuery} />
+		</StudioShell>
 	)
 }

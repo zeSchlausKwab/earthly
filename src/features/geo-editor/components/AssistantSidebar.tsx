@@ -34,14 +34,17 @@ export function AssistantSidebar({
 				// Slide like the left sidebar: animate width, clip the fixed-width
 				// inner so the content doesn't reflow mid-transition.
 				'hidden shrink-0 flex-col overflow-hidden border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-linear md:flex',
-				// Inset between the docked top bar (44px) and bottom status bar (23px).
-				'md:mt-[44px] md:mb-[23px] md:h-[calc(100svh-67px)]',
-				open ? 'w-[25vw] min-w-[20rem] max-w-[32rem] border-l' : 'w-0 border-l-0',
+				// Inset between the docked top bar and bottom status bar — dims from the
+				// shared --shell-* layout knobs (styles/globals.css).
+				'md:mt-[var(--shell-toolbar-h)] md:mb-[var(--shell-statusbar-h)] md:h-[calc(100svh-var(--shell-toolbar-h)-var(--shell-statusbar-h))]',
+				open
+					? 'w-[var(--shell-chat-w)] min-w-[var(--shell-chat-w-min)] max-w-[var(--shell-chat-w-max)] border-l'
+					: 'w-0 border-l-0',
 			)}
 			data-tour="assistant-sidebar"
 			aria-hidden={!open}
 		>
-			<div className="flex h-full w-[25vw] min-w-[20rem] max-w-[32rem] min-h-0 flex-col">
+			<div className="flex h-full w-[var(--shell-chat-w)] min-w-[var(--shell-chat-w-min)] max-w-[var(--shell-chat-w-max)] min-h-0 flex-col">
 				<ChatPanel
 					geoEvents={geoEvents}
 					mapContextEvents={mapContextEvents}

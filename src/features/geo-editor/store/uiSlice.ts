@@ -19,6 +19,8 @@ export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set) =
 	inspectorActive: false,
 	sidebarViewMode: 'contexts',
 	sidebarExpanded: false,
+	chatOpen: false,
+	mapStackOpen: true,
 	settingsTab: null,
 	draftEditorSlot: null,
 
@@ -70,4 +72,8 @@ export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set) =
 	setDraftEditorSlot: (draftEditorSlot) => set({ draftEditorSlot }),
 	setSidebarExpanded: (sidebarExpanded) => set({ sidebarExpanded }),
 	toggleSidebarExpanded: () => set((state) => ({ sidebarExpanded: !state.sidebarExpanded })),
+	setChatOpen: (chatOpen) => set({ chatOpen }),
+	toggleChat: () => set((state) => ({ chatOpen: !state.chatOpen })),
+	setMapStackOpen: (mapStackOpen) => set({ mapStackOpen }),
+	toggleMapStack: () => set((state) => ({ mapStackOpen: !state.mapStackOpen })),
 })

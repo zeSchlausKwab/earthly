@@ -66,7 +66,7 @@ export function StudioStatusBar({
 		basemapStyle === 'auto' ? `auto·${theme === 'dark' ? 'dark' : 'positron'}` : basemapStyle
 
 	return (
-		<footer className="flex h-[23px] shrink-0 items-center gap-3.5 border-t border-border bg-[var(--surface-chrome)] px-2.5 font-mono text-[10.5px] text-muted-foreground">
+		<footer className="flex h-[var(--shell-statusbar-h)] shrink-0 items-center gap-3.5 border-t border-border bg-[var(--surface-chrome)] px-2.5 font-mono text-[10.5px] text-muted-foreground">
 			<button
 				type="button"
 				onClick={onRelayClick}
