@@ -2786,7 +2786,7 @@ export function GeoEditorView() {
 						</div>
 					)}
 
-					<div className="pointer-events-none absolute top-2 left-2 right-2 z-10 flex md:fixed md:top-0 md:left-0 md:right-0 md:z-30 md:px-2 md:pt-2">
+					<div className="pointer-events-none absolute top-2 left-2 right-2 z-10 flex md:pointer-events-auto md:fixed md:inset-x-0 md:top-0 md:z-30 md:h-[52px] md:items-center md:border-b md:border-border md:bg-[var(--surface-chrome)] md:px-1.5">
 						<div className="w-full">
 							<Toolbar
 								datasetActions={{

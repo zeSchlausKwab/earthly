@@ -1259,7 +1259,7 @@ export function Toolbar({
 			>
 				<div
 					ref={toolbarContainerRef}
-					className="glass-panel flex w-full items-center gap-1 overflow-x-auto rounded-lg p-1"
+					className="flex w-full items-center gap-1 overflow-x-auto p-0"
 				>
 					{/* Topic 1: sidebar trigger (left-most chrome). */}
 					<SidebarTrigger className="h-8 w-8" />
