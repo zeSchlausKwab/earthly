@@ -12,10 +12,11 @@
  * header and footer.
  */
 
-import type { ReactNode } from 'react'
+import { type ReactNode, useContext } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { EmbeddedListPanelContext } from './EmbeddedContext'
 
 interface ListPanelProps {
 	icon: LucideIcon
@@ -55,33 +56,41 @@ export function ListPanel({
 	footerRight,
 	children,
 }: ListPanelProps) {
+	// Inside the mobile sheet the §14a switcher pill is already the header, so the
+	// panel's own title row (glyph · title · count · + new) would double it up.
+	const embedded = useContext(EmbeddedListPanelContext)
 	return (
 		<div className="flex h-full min-h-0 flex-col">
 			{/* Header — glyph · title · count · [inline controls] · + new */}
 			<div className="flex shrink-0 flex-col gap-2 border-b border-border pb-2">
-				<div className="flex items-center gap-2">
-					<Icon className={cn('h-3.5 w-3.5 shrink-0', accent)} />
-					<span className="truncate text-[13px] font-semibold text-foreground">{title}</span>
-					{count != null ? (
-						<span className={cn('shrink-0 font-mono text-[10px]', accent)}>{count}</span>
-					) : null}
-					<div className="ml-auto flex shrink-0 items-center gap-1.5">
-						{titleAccessory}
-						{onNew ? (
-							<Button
-								type="button"
-								variant="outline"
-								size="icon-sm"
-								onClick={onNew}
-								aria-label={newLabel}
-								title={newLabel}
-								className="h-6 w-6 rounded-[2px]"
-							>
-								<span className="text-base leading-none">+</span>
-							</Button>
+				{embedded ? null : (
+					<div className="flex items-center gap-2">
+						<Icon className={cn('h-3.5 w-3.5 shrink-0', accent)} />
+						<span className="truncate text-[13px] font-semibold text-foreground">{title}</span>
+						{count != null ? (
+							<span className={cn('shrink-0 font-mono text-[10px]', accent)}>{count}</span>
 						) : null}
+						<div className="ml-auto flex shrink-0 items-center gap-1.5">
+							{titleAccessory}
+							{onNew ? (
+								<Button
+									type="button"
+									variant="outline"
+									size="icon-sm"
+									onClick={onNew}
+									aria-label={newLabel}
+									title={newLabel}
+									className="h-6 w-6 rounded-[2px]"
+								>
+									<span className="text-base leading-none">+</span>
+								</Button>
+							) : null}
+						</div>
 					</div>
-				</div>
+				)}
+				{/* On mobile keep the tab strip (All/Favorites/Recent) — it moves off the
+				    hidden title row into its own line. */}
+				{embedded ? titleAccessory : null}
 				{headerExtra}
 				{toolbar}
 			</div>

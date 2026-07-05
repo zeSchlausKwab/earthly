@@ -1,13 +1,22 @@
 import { useActiveAccount } from 'applesauce-react/hooks'
 import {
-	Layers,
+	Download,
+	Hexagon,
 	Lock,
 	LockOpen,
+	MapPin,
 	MapPinned,
 	MessageSquare,
 	MessageSquareOff,
+	MoreHorizontal,
+	MousePointer2,
 	PanelTopOpen,
+	Redo2,
 	Search,
+	Spline,
+	Trash2,
+	Undo2,
+	Waypoints,
 } from 'lucide-react'
 import type { Geometry } from 'geojson'
 import type maplibregl from 'maplibre-gl'
@@ -19,6 +28,14 @@ import { BlossomUploadDialog } from '@/components/BlossomUploadDialog'
 import { DebugDialog } from '@/components/DebugDialog'
 import { MapStackPanel } from '@/components/MapStackPanel'
 import { Button } from '@/components/ui/button'
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { cn } from '@/lib/utils'
+import { executeEditorCommand } from './commands'
 import { StudioShell } from './components/StudioShell'
 import { useAvailableGeoFeatures } from '@/lib/hooks/useAvailableGeoFeatures'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
@@ -225,6 +242,17 @@ export function GeoEditorView() {
 	const [resolvedCollectionsVersion, setResolvedCollectionsVersion] = useState(0)
 	const [mapPopupsEnabled, setMapPopupsEnabled] = useState(true)
 	const [mapPopupPlacement, setMapPopupPlacement] = useState<MapPopupPlacement>('dock')
+	// Viewport width — drives how many mobile tool-strip overflow actions fit in
+	// the strip vs. collapse into the ••• menu (measured, not fixed breakpoints).
+	const [viewportWidth, setViewportWidth] = useState(() =>
+		typeof window !== 'undefined' ? window.innerWidth : 1024,
+	)
+	useEffect(() => {
+		if (typeof window === 'undefined') return
+		const onResize = () => setViewportWidth(window.innerWidth)
+		window.addEventListener('resize', onResize)
+		return () => window.removeEventListener('resize', onResize)
+	}, [])
 	// Desktop panel toggles live in the store (single layout source of truth).
 	const desktopMapStackOpen = useEditorStore((state) => state.mapStackOpen)
 	const setMapStackOpen = useEditorStore((state) => state.setMapStackOpen)
@@ -351,6 +379,7 @@ export function GeoEditorView() {
 	const mobilePanelSnap = useEditorStore((state) => state.mobilePanelSnap)
 	const setMobilePanelOpen = useEditorStore((state) => state.setMobilePanelOpen)
 	const setMobilePanelSnap = useEditorStore((state) => state.setMobilePanelSnap)
+	const setMobilePanelTab = useEditorStore((state) => state.setMobilePanelTab)
 	// Mobile Tools/Search/Actions toggles are no longer used — the responsive
 	// toolbar replaces them. Store fields stay for backward compat.
 	const panLocked = useEditorStore((state) => state.panLocked)
@@ -555,9 +584,10 @@ export function GeoEditorView() {
 		}
 	}, [isMobile, openMobilePanel, setShowInfoPanel])
 
-	// Mobile §14a: selecting a feature raises the sheet to Half (on the editor
-	// tab); deselecting drops it back to Peek. Only fire on the empty↔selected
-	// transition so a manual drag between selections is respected.
+	// Mobile §14a: selecting a feature raises the sheet to Half; deselecting drops
+	// it back to Peek. The editor lives in the Map Stack (editor-in-Map-Stack), so
+	// we surface that panel. Only fire on the empty↔selected transition so a manual
+	// drag between selections is respected.
 	const prevSelectionCountRef = useRef(0)
 	useEffect(() => {
 		if (!isMobile) {
@@ -567,7 +597,7 @@ export function GeoEditorView() {
 		const prev = prevSelectionCountRef.current
 		prevSelectionCountRef.current = selectionCount
 		if (prev === 0 && selectionCount > 0) {
-			openMobilePanel('edit')
+			openMobilePanel('map-stack')
 			setMobilePanelSnap('half')
 		} else if (prev > 0 && selectionCount === 0) {
 			setMobilePanelSnap('peek')
@@ -590,6 +620,12 @@ export function GeoEditorView() {
 		const bottom = Math.max(0, Math.min(rawBottom, viewportHeight - 80))
 		mapInstance.easeTo({ padding: { top: 0, right: 0, bottom, left: 0 }, duration: 200 })
 	}, [isMobile, mobilePanelOpen, mobilePanelSnap, mounted])
+
+	// Mobile §14a: the bottom sheet is the universal panel container — always
+	// present at peek minimum, never a toggled popover. Keep it open on mobile.
+	useEffect(() => {
+		if (isMobile && !mobilePanelOpen) setMobilePanelOpen(true)
+	}, [isMobile, mobilePanelOpen, setMobilePanelOpen])
 
 	// Custom hooks
 	const {
@@ -770,6 +806,22 @@ export function GeoEditorView() {
 	// in the most recent N datasets so the user doesn't land on a blank map.
 	// One-shot per page load (guarded by ref) so a manual Clear stays cleared.
 	const stance = useEditorStore((state) => state.stance)
+
+	// Mobile: entering the author stance (a geometry draft) surfaces the Map Stack
+	// panel — the draft entry there hosts the editor forms (editor-in-Map-Stack) —
+	// and lifts the sheet to Half. Fires once per transition so the user can still
+	// navigate away while drafting.
+	const prevStanceRef = useRef(stance)
+	useEffect(() => {
+		const wasAuthor = prevStanceRef.current === 'author'
+		prevStanceRef.current = stance
+		if (isMobile && stance === 'author' && !wasAuthor) {
+			setMobilePanelTab('map-stack')
+			setMobilePanelOpen(true)
+			setMobilePanelSnap('half')
+		}
+	}, [isMobile, stance, setMobilePanelTab, setMobilePanelOpen, setMobilePanelSnap])
+
 	// Round E.2: the cold-start auto-seed became an explicit landing prompt.
 	// Dismissal is session-local; the prompt re-appears after a manual Clear
 	// (empty stack again) unless dismissed.
@@ -1710,11 +1762,12 @@ export function GeoEditorView() {
 	// simply aren't rendered, regardless of how many datasets land in the
 	// subscription. This drops O(geoEvents) work on every relay update too.
 
-	// Initialize mobile/desktop UI
-	const closeMobilePanel = useEditorStore((state) => state.closeMobilePanel)
+	// Initialize mobile/desktop UI. On mobile the bottom sheet is the universal
+	// panel container (§14a) — always present at peek, so we OPEN it here rather
+	// than closing it.
 	useEffect(() => {
 		if (isMobile) {
-			closeMobilePanel()
+			setMobilePanelOpen(true)
 			setShowToolbar(false)
 			setShowTips(false)
 		} else {
@@ -1723,7 +1776,7 @@ export function GeoEditorView() {
 			setShowToolbar(true)
 			setShowTips(true)
 		}
-	}, [isMobile, closeMobilePanel, setShowTips, setShowDatasetsPanel, setShowInfoPanel])
+	}, [isMobile, setMobilePanelOpen, setShowTips, setShowDatasetsPanel, setShowInfoPanel])
 
 	// Handle pmtiles URL param on app load
 	const setMapSource = useEditorStore((state) => state.setMapSource)
@@ -2568,6 +2621,58 @@ export function GeoEditorView() {
 		/>
 	)
 
+	// Mobile tool-strip overflow actions in PRIORITY order (extract to the strip
+	// first as the screen grows; collapse into ••• as it shrinks). How many fit is
+	// measured from the viewport width against the fixed strip content.
+	const mobileOverflowActions = [
+		{
+			key: 'lock',
+			label: panLocked ? 'Unlock pan while drawing' : 'Lock pan while drawing',
+			icon: panLocked ? Lock : LockOpen,
+			onClick: togglePanLock,
+			disabled: isDrawingMode,
+			active: panLocked,
+		},
+		{
+			key: 'snap',
+			label: 'Toggle snapping',
+			icon: Waypoints,
+			onClick: () => executeEditorCommand('toggle_snapping'),
+		},
+		{ key: 'undo', label: 'Undo', icon: Undo2, onClick: () => executeEditorCommand('undo') },
+		{ key: 'redo', label: 'Redo', icon: Redo2, onClick: () => executeEditorCommand('redo') },
+		{
+			key: 'export',
+			label: 'Export GeoJSON',
+			icon: Download,
+			onClick: exportGeoJSON,
+			disabled: stats.total === 0,
+		},
+		{
+			key: 'clear',
+			label: 'Clear draft',
+			icon: Trash2,
+			onClick: handleClear,
+			disabled: stats.total === 0,
+			danger: true,
+		},
+	] as const
+	const stripHasFinish = currentMode === 'draw_linestring' || currentMode === 'draw_polygon'
+	const overflowVisibleCount = (() => {
+		if (!isMobile) return 0
+		const ITEM_W = 42 // 36px button + 6px gap
+		// Fixed strip content: px-2 padding + draw-tools group + Publish + a Finish
+		// button (when drawing) + inter-item gaps.
+		const fixed = 16 + 146 + 60 + 18 + (stripHasFinish ? 66 : 0)
+		const available = viewportWidth - fixed
+		let count = Math.floor(available / ITEM_W)
+		// Reserve room for the ••• button when not everything fits.
+		if (count < mobileOverflowActions.length) count = Math.floor((available - ITEM_W) / ITEM_W)
+		return Math.max(0, Math.min(mobileOverflowActions.length, count))
+	})()
+	const stripOverflowActions = mobileOverflowActions.slice(0, overflowVisibleCount)
+	const menuOverflowActions = mobileOverflowActions.slice(overflowVisibleCount)
+
 	return (
 		<StudioShell
 			mapContainerRef={mapContainerRef}
@@ -2721,14 +2826,12 @@ export function GeoEditorView() {
 			>
 				<Editor />
 			</MapComponent>
-
 			{/* User location marker - pulsating blue dot */}
 			<UserLocationMarker
 				map={map.current}
 				coordinates={userLocation}
 				accuracy={userLocation?.accuracy}
 			/>
-
 			<Magnifier
 				enabled={magnifierEnabled}
 				visible={magnifierVisible}
@@ -2738,7 +2841,6 @@ export function GeoEditorView() {
 				size={MAGNIFIER_SIZE}
 				zoomOffset={magnifierZoomOffset}
 			/>
-
 			{/* Inspector Popup - appears near cursor when inspector is active */}
 			<LocationInspectorPopup
 				isOpen={inspectorActive && inspectorClickPosition !== null}
@@ -2753,7 +2855,6 @@ export function GeoEditorView() {
 					setReverseLookupError(null)
 				}}
 			/>
-
 			{/* Feature Popup + remote geometry interaction handling */}
 			<MapFeatureHoverOverlay
 				mapRef={map}
@@ -2771,7 +2872,6 @@ export function GeoEditorView() {
 				toolbarOffset={mapPopupToolbarOffset}
 				suppressed={mapPopupPlacement === 'dock' && Boolean(displayedAnnotationPopupData)}
 			/>
-
 			{mapPopupsEnabled && (
 				<CommentAnnotationPopup
 					data={displayedAnnotationPopupData}
@@ -2785,14 +2885,12 @@ export function GeoEditorView() {
 					onClose={handleCloseAnnotationPopup}
 				/>
 			)}
-
 			{mapError && (
 				<div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-destructive/10 border border-destructive/40 text-destructive px-4 py-3 rounded z-50">
 					<p className="font-bold">Map Error</p>
 					<p>{mapError}</p>
 				</div>
 			)}
-
 			{/* Map-first pin-drop overlay (Phase 11, D-01): shown while a Sighting
 					    placement is armed. "Click the map to drop your sighting" + a
 					    "Cancel placement" button (Esc is the keyboard alternative). */}
@@ -2810,7 +2908,6 @@ export function GeoEditorView() {
 					</div>
 				</div>
 			)}
-
 			{/* Always-on "you are live" running banner (Phase 12, BEACON-02,
 					    UI-SPEC § Net-New 3). Pinned over the map whenever a publisher
 					    session is live, regardless of which panel is open — the one piece
@@ -2822,11 +2919,9 @@ export function GeoEditorView() {
 					onStop={handleStopBeacon}
 				/>
 			)}
-
 			{/* Desktop: map controls (zoom/compass/locate/pitch/globe/fullscreen
 					    + the popup toggles via controlsChildren) live inside mapcn's
 					    MapControls — see <MapComponent> above. */}
-
 			{!isMobile && (
 				<div className="absolute bottom-0 left-0 right-0 z-10 pointer-events-none">
 					<div className="mx-auto w-full max-w-6xl px-6 pb-2 text-xs text-muted-foreground text-center pointer-events-auto">
@@ -2835,8 +2930,7 @@ export function GeoEditorView() {
 					</div>
 				</div>
 			)}
-
-			<div className="pointer-events-none absolute top-2 left-2 right-2 z-10 flex md:pointer-events-auto md:fixed md:inset-x-0 md:top-0 md:z-30 md:h-[var(--shell-toolbar-h)] md:items-center md:border-b md:border-border md:bg-[var(--surface-chrome)] md:p-0">
+			<div className="pointer-events-none absolute top-2 left-2 right-2 z-10 hidden md:pointer-events-auto md:fixed md:inset-x-0 md:top-0 md:z-30 md:flex md:h-[var(--shell-toolbar-h)] md:items-center md:border-b md:border-border md:bg-[var(--surface-chrome)] md:p-0">
 				<div className="w-full">
 					<Toolbar
 						datasetActions={{
@@ -2874,7 +2968,6 @@ export function GeoEditorView() {
 					/>
 				</div>
 			</div>
-
 			{showBrowseLandingPrompt ? (
 				<BrowseLandingPrompt
 					onShowNewest={seedRecentDatasets}
@@ -2892,7 +2985,6 @@ export function GeoEditorView() {
 					onDismiss={() => setBrowseLandingDismissed(true)}
 				/>
 			) : null}
-
 			{!isMobile && desktopMapStackOpen && (
 				<div className="pointer-events-auto absolute top-[var(--shell-mapstack-top)] left-2 z-20 flex max-h-[calc(100vh-5rem)] w-[var(--shell-mapstack-w)] max-w-[calc(100vw-1rem)] flex-col shadow-lg">
 					<MapStackPanel
@@ -2916,7 +3008,6 @@ export function GeoEditorView() {
 					/>
 				</div>
 			)}
-
 			{/* Mobile Panel - unified tabbed drawer */}
 			{isMobile && (
 				<MobilePanel
@@ -3011,125 +3102,125 @@ export function GeoEditorView() {
 					visibleProposalIds={visibleProposalIds}
 				/>
 			)}
-
+			{/* Mobile tool strip (redesign §14a Row 0) — pinned at the very bottom;
+			    the sheet docks directly above it. Draw tools left, Publish right. */}
 			{isMobile && (
-				<>
-					<div className="fixed bottom-2 left-2 z-50 md:hidden">
-						<div className="flex gap-2">
-							{/* Locate now lives in mapcn's MapControls (top-level of the map). */}
+				<div className="fixed inset-x-0 bottom-0 z-50 flex h-[52px] items-center gap-1.5 border-t border-border bg-[var(--surface-chrome)] px-2 md:hidden">
+					<div className="inline-flex shrink-0 overflow-hidden rounded-[2px] border border-border">
+						{(
+							[
+								{ mode: 'select', icon: MousePointer2, label: 'Select / pan' },
+								{ mode: 'draw_point', icon: MapPin, label: 'Draw point' },
+								{ mode: 'draw_linestring', icon: Spline, label: 'Draw line' },
+								{ mode: 'draw_polygon', icon: Hexagon, label: 'Draw polygon' },
+							] as const
+						).map((tool) => {
+							const ToolIcon = tool.icon
+							const active = currentMode === tool.mode
+							return (
+								<button
+									key={tool.mode}
+									type="button"
+									onClick={() => executeEditorCommand('set_mode', { mode: tool.mode })}
+									aria-label={tool.label}
+									aria-pressed={active}
+									title={tool.label}
+									className={cn(
+										'flex h-9 w-9 items-center justify-center transition-colors [&:not(:first-child)]:border-border [&:not(:first-child)]:border-l',
+										active
+											? 'bg-edit text-white'
+											: 'bg-card text-muted-foreground hover:text-foreground',
+									)}
+								>
+									<ToolIcon className="h-4 w-4" />
+								</button>
+							)
+						})}
+					</div>
+					{/* Responsive overflow (§14a): items extract into the strip as the
+					    screen grows (measured show-what-fits, priority: lock → snapping →
+					    the rest) and collapse into ••• as it shrinks. */}
+					{stripOverflowActions.map((action) => {
+						const ActionIcon = action.icon
+						return (
 							<Button
-								variant={panLocked ? 'default' : 'outline'}
-								className="shadow-lg h-10 w-10 p-0 rounded-full bg-card/95 backdrop-blur hover:bg-card"
-								onClick={togglePanLock}
-								aria-label="Toggle pan lock while drawing"
-								disabled={isDrawingMode}
-								title={isDrawingMode ? 'Pan is auto-locked while drawing' : 'Toggle pan lock'}
-							>
-								{panLocked ? <Lock className="h-5 w-5" /> : <LockOpen className="h-5 w-5" />}
-							</Button>
-							{(currentMode === 'draw_linestring' || currentMode === 'draw_polygon') && (
-								<Button
-									variant="default"
-									className="shadow-lg h-10 px-4 rounded-full"
-									onClick={() => editor?.finishDrawing()}
-									aria-label="Finish current drawing"
-									disabled={!canFinishDrawing}
-								>
-									Finish
-								</Button>
-							)}
-							<div className="relative">
-								<Button
-									ref={magnifierButtonRef}
-									variant={magnifierEnabled ? 'default' : 'outline'}
-									className="shadow-lg h-10 w-10 p-0 rounded-full"
-									onPointerDown={handleMagnifierPointerDown}
-									onPointerUp={handleMagnifierPointerUp}
-									onPointerLeave={clearMagnifierLongPress}
-									onPointerCancel={clearMagnifierLongPress}
-									onContextMenu={(event) => event.preventDefault()}
-									aria-label="Toggle magnifier"
-								>
-									<Search className="h-5 w-5" />
-								</Button>
-								{magnifierMenuOpen && (
-									<div
-										ref={magnifierMenuRef}
-										className="pointer-events-auto absolute bottom-14 left-0 z-50 w-52 rounded-xl border border-border bg-card/95 px-4 py-3 text-sm shadow-lg backdrop-blur"
-									>
-										<div className="mb-3 text-xs font-medium text-muted-foreground">
-											Magnifier zoom
-										</div>
-										<div className="flex items-center gap-3">
-											<Button
-												type="button"
-												variant="outline"
-												size="icon"
-												className="h-8 w-8 text-sm"
-												onClick={() => setMagnifierZoomOffset((value) => Math.max(1, value - 0.5))}
-												aria-label="Decrease magnifier zoom"
-											>
-												-
-											</Button>
-											<Input
-												type="range"
-												min={1}
-												max={6}
-												step={0.5}
-												value={magnifierZoomOffset}
-												onChange={(event) => setMagnifierZoomOffset(Number(event.target.value))}
-												className="h-2 w-full"
-												aria-label="Magnifier zoom level"
-											/>
-											<Button
-												type="button"
-												variant="outline"
-												size="icon"
-												className="h-8 w-8 text-sm"
-												onClick={() => setMagnifierZoomOffset((value) => Math.min(6, value + 0.5))}
-												aria-label="Increase magnifier zoom"
-											>
-												+
-											</Button>
-										</div>
-										<div className="mt-2 text-xs text-muted-foreground">
-											Zoom +{magnifierZoomOffset}
-										</div>
-									</div>
+								key={action.key}
+								variant={'active' in action && action.active ? 'default' : 'ghost'}
+								size="icon-sm"
+								className={cn(
+									'h-9 w-9 shrink-0 rounded-[2px]',
+									'danger' in action && action.danger && 'hover:text-destructive',
 								)}
-							</div>
-						</div>
-					</div>
-					{/* Mobile drawer toggle (MobilePanel bottom-sheet). The old
-							    Draw/Search/Actions toggles are gone — the unified responsive
-							    toolbar (with overflow-x-auto on narrow screens) replaces
-							    them. */}
-					<div
-						className="fixed bottom-2 right-2 z-50 flex flex-col gap-2 transition-all duration-300 md:hidden"
-						style={
-							mobilePanelOpen
-								? { bottom: `calc(${DETENT_VH[mobilePanelSnap]}vh + 0.5rem)` }
-								: undefined
-						}
-					>
+								onClick={action.onClick}
+								disabled={'disabled' in action ? action.disabled : false}
+								aria-label={action.label}
+								title={action.label}
+							>
+								<ActionIcon className="h-4 w-4" />
+							</Button>
+						)
+					})}
+					{menuOverflowActions.length > 0 ? (
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button
+									variant="ghost"
+									size="icon-sm"
+									className="h-9 w-9 shrink-0 rounded-[2px]"
+									aria-label="More tools"
+									title="More tools"
+								>
+									<MoreHorizontal className="h-4 w-4" />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent side="top" align="start" className="w-52">
+								{menuOverflowActions.map((action) => {
+									const ActionIcon = action.icon
+									return (
+										<DropdownMenuItem
+											key={action.key}
+											onClick={action.onClick}
+											disabled={'disabled' in action ? action.disabled : false}
+											className={cn(
+												'danger' in action &&
+													action.danger &&
+													'text-destructive focus:text-destructive',
+											)}
+										>
+											<ActionIcon className="mr-2 h-4 w-4" />
+											{action.label}
+										</DropdownMenuItem>
+									)
+								})}
+							</DropdownMenuContent>
+						</DropdownMenu>
+					) : null}
+					{currentMode === 'draw_linestring' || currentMode === 'draw_polygon' ? (
 						<Button
-							size="icon"
-							className="shadow-lg h-10 w-10 rounded-full"
-							variant={mobilePanelOpen ? 'default' : 'outline'}
-							onClick={() => setMobilePanelOpen(!mobilePanelOpen)}
-							aria-label="Toggle panel"
+							size="sm"
+							className="h-9 shrink-0 rounded-[2px]"
+							onClick={() => editor?.finishDrawing()}
+							disabled={!canFinishDrawing}
 						>
-							<Layers className="h-5 w-5" />
+							Finish
 						</Button>
-					</div>
-				</>
+					) : null}
+					<div className="min-w-0 flex-1" />
+					<Button
+						size="sm"
+						className="h-9 shrink-0 rounded-[2px] bg-primary text-primary-foreground hover:bg-primary/90"
+						onClick={handlePublishNew}
+						disabled={!canPublishNew}
+					>
+						Publish
+					</Button>
+				</div>
 			)}
-
 			{debugEvent && (
 				<DebugDialog event={debugEvent} open={debugDialogOpen} onOpenChange={setDebugDialogOpen} />
 			)}
-
 			{/* Blossom Upload Dialog */}
+			;
 			<BlossomUploadDialog
 				open={blossomUploadDialogOpen}
 				onOpenChange={setBlossomUploadDialogOpen}
@@ -3140,8 +3231,8 @@ export function GeoEditorView() {
 				allowSkip={false}
 				title="Dataset Size Warning"
 			/>
-
 			{/* Import OSM Dialog */}
+			;
 			<ImportOsmDialog
 				open={importOsmDialogOpen}
 				onOpenChange={setImportOsmDialogOpen}
@@ -3173,9 +3264,8 @@ export function GeoEditorView() {
 					createAuthoring(editor).writeGeoJSON(features, { replace: false })
 				}}
 			/>
-
 			{/* OSM Query Results Panel (cursor-oriented) */}
-			<OsmResultsPanel onImport={handleOsmImport} onClose={clearOsmQuery} />
+			;<OsmResultsPanel onImport={handleOsmImport} onClose={clearOsmQuery} />
 		</StudioShell>
 	)
 }

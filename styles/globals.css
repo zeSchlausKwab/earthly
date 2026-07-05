@@ -354,6 +354,16 @@
   }
 }
 
+/* Mobile: lift MapLibre's bottom attribution/controls above the 52px pinned tool
+   strip so the (full-width, clickable) attribution never sits behind the strip —
+   otherwise taps in the gaps between tool buttons hit the attribution link. */
+@media (max-width: 767px) {
+  .maplibregl-ctrl-bottom-left,
+  .maplibregl-ctrl-bottom-right {
+    bottom: 56px !important;
+  }
+}
+
 /* floating over-map panel — hairline border + soft lift, no heavy blur */
 .glass-panel {
   background: var(--panel-bg);
