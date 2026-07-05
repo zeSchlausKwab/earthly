@@ -2,8 +2,12 @@ import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { ChatPanel } from '@/features/chat'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
+import { cn } from '@/lib/utils'
 
 interface AssistantSidebarProps {
+	/** When false, the panel slides shut (width → 0) but stays mounted so the
+	 *  transition — and the chat session — are preserved. */
+	open: boolean
 	geoEvents: GeoDataset[]
 	mapContextEvents: MapContext[]
 	availableFeatures: GeoFeatureItem[]
@@ -15,6 +19,7 @@ interface AssistantSidebarProps {
 }
 
 export function AssistantSidebar({
+	open,
 	geoEvents,
 	mapContextEvents,
 	availableFeatures,
@@ -22,36 +27,21 @@ export function AssistantSidebar({
 	onStartNewDataset,
 	onSwitchWorkspace,
 	onOpenSettings,
-	onClose,
 }: AssistantSidebarProps) {
 	return (
 		<aside
-			className="hidden h-svh min-w-[20rem] max-w-[32rem] basis-[25vw] shrink-0 flex-col border-l border-border bg-sidebar text-sidebar-foreground md:flex"
+			className={cn(
+				// Slide like the left sidebar: animate width, clip the fixed-width
+				// inner so the content doesn't reflow mid-transition.
+				'hidden shrink-0 flex-col overflow-hidden border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-linear md:flex',
+				// Inset between the docked top bar (52px) and bottom status bar (23px).
+				'md:mt-[52px] md:mb-[23px] md:h-[calc(100svh-75px)]',
+				open ? 'w-[25vw] min-w-[20rem] max-w-[32rem] border-l' : 'w-0 border-l-0',
+			)}
 			data-tour="assistant-sidebar"
+			aria-hidden={!open}
 		>
-			{/* <header className="flex h-12 shrink-0 items-center justify-between border-b border-sidebar-border px-3">
-				<div className="flex min-w-0 items-center gap-2">
-					<MessageCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
-					<div className="min-w-0">
-						<div className="truncate text-sm font-semibold">AI Chat</div>
-						<div className="truncate text-[11px] text-muted-foreground">
-							Map assistant workspace
-						</div>
-					</div>
-				</div>
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon-sm"
-					className="h-8 w-8 shrink-0 text-muted-foreground"
-					onClick={onClose}
-					aria-label="Close AI chat"
-					title="Close AI chat"
-				>
-					<X className="h-4 w-4" />
-				</Button>
-			</header> */}
-			<div className="min-h-0 flex-1">
+			<div className="flex h-full w-[25vw] min-w-[20rem] max-w-[32rem] min-h-0 flex-col">
 				<ChatPanel
 					geoEvents={geoEvents}
 					mapContextEvents={mapContextEvents}

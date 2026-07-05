@@ -9,6 +9,8 @@ interface StudioStatusBarProps {
 	mapReady: boolean
 	sightingsCount: number
 	beaconsCount: number
+	/** Opens the relay settings (status-bar relay indicator is a shortcut). */
+	onRelayClick?: () => void
 }
 
 /**
@@ -21,6 +23,7 @@ export function StudioStatusBar({
 	mapReady,
 	sightingsCount,
 	beaconsCount,
+	onRelayClick,
 }: StudioStatusBarProps) {
 	const [zoom, setZoom] = useState<number | null>(null)
 	const relayCount = pool.relays.size
@@ -38,10 +41,17 @@ export function StudioStatusBar({
 
 	return (
 		<footer className="flex h-[23px] shrink-0 items-center gap-3.5 border-t border-border bg-[var(--surface-chrome)] px-2.5 font-mono text-[10.5px] text-muted-foreground">
-			<span className="flex items-center gap-1.5">
+			<button
+				type="button"
+				onClick={onRelayClick}
+				className="flex items-center gap-1.5 rounded-[2px] px-1 -mx-1 transition-colors hover:text-foreground disabled:cursor-default"
+				disabled={!onRelayClick}
+				title="Relay settings"
+				aria-label={`${relayCount} relays — open relay settings`}
+			>
 				<span className="size-[7px] rounded-full bg-ok" />
 				{relayCount} {relayCount === 1 ? 'relay' : 'relays'}
-			</span>
+			</button>
 			<span>EPSG:4326</span>
 			{zoom !== null ? <span>z{zoom.toFixed(1)}</span> : null}
 			<span className="ml-auto">

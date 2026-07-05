@@ -19,6 +19,7 @@ export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set) =
 	inspectorActive: false,
 	sidebarViewMode: 'contexts',
 	sidebarExpanded: false,
+	settingsTab: null,
 
 	setNewCollectionProp: (newCollectionProp) => set({ newCollectionProp }),
 	setNewFeatureProp: (newFeatureProp) => set({ newFeatureProp }),
@@ -64,6 +65,7 @@ export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set) =
 	closeMobilePanel: () => set({ mobilePanelOpen: false }),
 	setInspectorActive: (active) => set({ inspectorActive: active }),
 	setSidebarViewMode: (mode) => set({ sidebarViewMode: mode }),
+	setSettingsTab: (settingsTab) => set({ settingsTab }),
 	setSidebarExpanded: (sidebarExpanded) => set({ sidebarExpanded }),
 	toggleSidebarExpanded: () => set((state) => ({ sidebarExpanded: !state.sidebarExpanded })),
 })

@@ -468,6 +468,17 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 	}
 
 	const defaultTab: SettingsTab = currentUser ? 'profile' : 'chat'
+	// Deep-link support: the status-bar relay indicator sets `settingsTab` in the
+	// store before opening settings; land on that tab, then consume it once.
+	const requestedTab = useEditorStore((state) => state.settingsTab)
+	const setRequestedTab = useEditorStore((state) => state.setSettingsTab)
+	const [activeTab, setActiveTab] = useState<SettingsTab>(requestedTab ?? defaultTab)
+	useEffect(() => {
+		if (requestedTab) {
+			setActiveTab(requestedTab)
+			setRequestedTab(null)
+		}
+	}, [requestedTab, setRequestedTab])
 	const mapSettingsContent = (
 		<div className="space-y-4">
 			<div className="rounded-lg border bg-card p-3">
@@ -775,7 +786,11 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 	}
 
 	return (
-		<Tabs defaultValue={defaultTab} className="space-y-4">
+		<Tabs
+			value={activeTab}
+			onValueChange={(value) => setActiveTab(value as SettingsTab)}
+			className="space-y-4"
+		>
 			<TabsList className="grid h-auto w-full grid-cols-2 rounded-none bg-muted p-1 sm:grid-cols-4">
 				<TabsTrigger value="profile" className="rounded-none px-3 py-2 text-xs sm:text-sm">
 					Profile

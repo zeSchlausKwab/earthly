@@ -315,6 +315,7 @@ export function GeoEditorView() {
 	const setViewDatasetState = useEditorStore((state) => state.setViewDataset)
 	const setViewContext = useEditorStore((state) => state.setViewContext)
 	const setStance = useEditorStore((state) => state.setStance)
+	const setSettingsTab = useEditorStore((state) => state.setSettingsTab)
 	const setViewContextDatasets = useEditorStore((state) => state.setViewContextDatasets)
 	const contextFilterMode = useEditorStore((state) => state.contextFilterMode)
 	const contextMapScopeMode = useEditorStore((state) => state.contextMapScopeMode)
@@ -3143,11 +3144,16 @@ export function GeoEditorView() {
 						mapReady={mounted}
 						sightingsCount={sightings.length}
 						beaconsCount={beacons.length}
+						onRelayClick={() => {
+							setSettingsTab('relays')
+							navigateToView('settings')
+						}}
 					/>
 				</div>
 			)}
-			{!isMobile && desktopChatOpen && (
+			{!isMobile && (
 				<AssistantSidebar
+					open={desktopChatOpen}
 					geoEvents={geoEvents}
 					mapContextEvents={mapContextEvents}
 					availableFeatures={availableFeatures}

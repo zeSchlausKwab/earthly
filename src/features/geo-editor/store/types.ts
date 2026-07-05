@@ -417,6 +417,9 @@ export interface UISlice {
 	inspectorActive: boolean
 	sidebarViewMode: SidebarViewMode
 	sidebarExpanded: boolean
+	/** Deep-link target tab for the settings panel (e.g. from the status-bar
+	 *  relay indicator). Consumed by MapSettingsPanel; null = its own default. */
+	settingsTab: 'profile' | 'relays' | 'chat' | 'sessions' | null
 
 	setNewCollectionProp: (prop: { key: string; value: string }) => void
 	setNewFeatureProp: (prop: { key: string; value: string }) => void
@@ -437,6 +440,7 @@ export interface UISlice {
 	closeMobilePanel: () => void
 	setInspectorActive: (active: boolean) => void
 	setSidebarViewMode: (mode: SidebarViewMode) => void
+	setSettingsTab: (tab: 'profile' | 'relays' | 'chat' | 'sessions' | null) => void
 	setSidebarExpanded: (expanded: boolean) => void
 	toggleSidebarExpanded: () => void
 }
