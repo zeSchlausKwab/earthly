@@ -1265,25 +1265,9 @@ export function Toolbar({
 					<SidebarTrigger className="h-8 w-8" />
 					<Divider />
 
-					{/* Topic 2: view toggles — chat + map stack. Moved from the
-					    middle/right of the bar to live alongside the sidebar
-					    trigger so all "what's visible right now" controls cluster
-					    in one spot. */}
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						onClick={onToggleChat}
-						aria-label={chatOpen ? 'Hide AI chat' : 'Show AI chat'}
-						title={chatOpen ? 'Hide AI chat' : 'Show AI chat'}
-						className={cn(
-							'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none',
-							chatOpen &&
-								'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
-						)}
-					>
-						<MessageCircle className="h-4 w-4" />
-					</Button>
+					{/* Topic 2: map-stack toggle (the chat/right-sidebar toggle now lives
+					    at the far right of the bar — see Topic 7 — mirroring the left
+					    sidebar trigger on the far left). */}
 					<MapStateCluster
 						viewMode={viewMode}
 						mapStackOpen={mapStackOpen}
@@ -1314,6 +1298,12 @@ export function Toolbar({
 
 					{/* Topic 4: file / draw / edit menus (priority-expanding) */}
 					{desktopCommandMenubar}
+
+					{/* Grow-spacer: once the priority-expanding menus can't grow any
+					    further, this invisible element takes the slack and pushes the
+					    search bar + right cluster to the right edge. */}
+					<div className="min-w-0 flex-1" aria-hidden="true" />
+
 					<Divider />
 
 					{/* Topic 5: search + location lookup */}
@@ -1488,6 +1478,25 @@ export function Toolbar({
 					{/* PR.1: the former standalone "Fork / Propose" publish control was
 					    removed — Publish-new / Update / Fork / Propose all live in the
 					    File menu now (Propose opens ProposalDialog). */}
+					{/* Topic 7: chat / right-sidebar toggle — pinned to the FAR RIGHT,
+				    mirroring the far-left sidebar trigger, with a separator to its
+				    left signalling that it opens the right sidebar. */}
+					<Divider />
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-sm"
+						onClick={onToggleChat}
+						aria-label={chatOpen ? 'Hide AI chat' : 'Show AI chat'}
+						title={chatOpen ? 'Hide AI chat' : 'Show AI chat'}
+						className={cn(
+							'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none',
+							chatOpen &&
+								'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
+						)}
+					>
+						<MessageCircle className="h-4 w-4" />
+					</Button>
 				</div>
 
 				{fileInput}

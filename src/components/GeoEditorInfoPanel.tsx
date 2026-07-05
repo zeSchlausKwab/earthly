@@ -39,10 +39,9 @@ import { CommentsPanel } from '../features/social/comments'
 import { Button } from './ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible'
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
-import { EntitySearchPopover, type EntitySearchResult } from './entity-search'
+import type { EntitySearchResult } from './entity-search'
 import type { EditorFeature } from '../features/geo-editor/core'
 import type { BlossomUploadResult } from '../lib/blossom/blossomUpload'
-import { Input } from './ui/input'
 
 type ContextPropertyTypeHint = 'string' | 'number' | 'integer' | 'boolean'
 
@@ -384,18 +383,6 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		[mapContextEvents, activeDatasetContextRefs],
 	)
 
-	// Split into: already attached (always shown) + recent unattached (top 5)
-	const { attachedContexts, recentUnattachedContexts } = useMemo(() => {
-		const attached = attachableContexts.filter((c) =>
-			activeDatasetContextRefs.includes(c.coordinate),
-		)
-		const unattached = attachableContexts
-			.filter((c) => !activeDatasetContextRefs.includes(c.coordinate))
-			.sort((a, b) => (b.contextEvent.created_at ?? 0) - (a.contextEvent.created_at ?? 0))
-			.slice(0, 5)
-		return { attachedContexts: attached, recentUnattachedContexts: unattached }
-	}, [attachableContexts, activeDatasetContextRefs])
-
 	// Pass the dataset (or null) directly; validation accepts a nullable dataset
 	// when an explicit FeatureCollection is provided.
 	const datasetForValidation = activeDataset ?? null
@@ -452,7 +439,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		datasetForValidation,
 		editorFeatureCollection,
 	])
-	const invalidAttachedContextCount = useMemo(
+	const _invalidAttachedContextCount = useMemo(
 		() =>
 			activeDatasetContextRefs.reduce((count, coordinate) => {
 				const result = contextValidationByCoordinate.get(coordinate)
@@ -518,7 +505,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		return asArray
 	}, [contextValidationByCoordinate])
 
-	const getPrimaryContextError = useCallback(
+	const _getPrimaryContextError = useCallback(
 		(coordinate: string) => {
 			const result = contextValidationByCoordinate.get(coordinate)
 			if (!result || result.status !== 'invalid' || result.errors.length === 0) return null
@@ -584,7 +571,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		}
 	}
 
-	const handleContextSearchSelect = (result: EntitySearchResult) => {
+	const _handleContextSearchSelect = (result: EntitySearchResult) => {
 		if (result.type !== 'context') return
 		const contextEvent = result.entity as MapContext
 		const coordinate = contextEvent.contextCoordinate
@@ -953,118 +940,6 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 					</CollapsibleContent>
 				</Collapsible>
 			)}
-
-			<Collapsible defaultOpen={false}>
-				<CollapsibleTrigger className="text-xs font-medium text-foreground hover:text-foreground w-full text-left py-1">
-					Attached contexts ({attachedContexts.length})
-				</CollapsibleTrigger>
-				<CollapsibleContent>
-					<div className="space-y-2">
-						{invalidAttachedContextCount > 0 && (
-							<p className="text-[11px] text-primary">
-								{invalidAttachedContextCount} attached context
-								{invalidAttachedContextCount === 1 ? '' : 's'} report constraint warnings.
-							</p>
-						)}
-
-						{/* Attached contexts — always shown */}
-						{attachedContexts.length > 0 && (
-							<div className="space-y-1">
-								{attachedContexts.map((context) => {
-									const validation = contextValidationByCoordinate.get(context.coordinate)
-									return (
-										<div key={context.coordinate} className="space-y-1">
-											<label
-												className={`flex items-center justify-between gap-2 rounded border px-2 py-1 ${
-													validation?.status === 'invalid'
-														? 'border-primary/40 bg-primary/10'
-														: 'border-border'
-												}`}
-											>
-												<span className="truncate text-xs text-foreground">{context.name}</span>
-												<div className="flex items-center gap-2 shrink-0">
-													<span className="text-[10px] text-muted-foreground">
-														{context.validationMode}
-													</span>
-													{validation?.status === 'valid' && (
-														<span className="text-[10px] text-ok">valid</span>
-													)}
-													{validation?.status === 'invalid' && (
-														<span className="text-[10px] text-primary">
-															{validation.featureErrorCount} invalid
-														</span>
-													)}
-													<Input
-														type="checkbox"
-														checked
-														onChange={() => toggleContextAttachment(context.coordinate, false)}
-													/>
-												</div>
-											</label>
-											{validation?.status === 'invalid' &&
-												(() => {
-													const primaryError = getPrimaryContextError(context.coordinate)
-													if (!primaryError) return null
-													return (
-														<p className="px-2 text-[10px] text-primary">
-															{primaryError.path || '/'} {primaryError.message}
-														</p>
-													)
-												})()}
-											{validation?.status === 'unresolved' && context.contextUse !== 'taxonomy' && (
-												<p className="px-2 text-[10px] text-primary">
-													Validation not run yet — save or re-open this dataset to trigger it.
-												</p>
-											)}
-										</div>
-									)
-								})}
-							</div>
-						)}
-
-						{/* Recent unattached contexts */}
-						{recentUnattachedContexts.length > 0 && (
-							<div className="space-y-1">
-								<p className="text-[10px] text-muted-foreground uppercase tracking-wide">Recent</p>
-								{recentUnattachedContexts.map((context) => (
-									<label
-										key={context.coordinate}
-										className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1"
-									>
-										<span className="truncate text-xs text-foreground">{context.name}</span>
-										<div className="flex items-center gap-2 shrink-0">
-											<span className="text-[10px] text-muted-foreground">
-												{context.validationMode}
-											</span>
-											<Input
-												type="checkbox"
-												checked={false}
-												onChange={() => toggleContextAttachment(context.coordinate, true)}
-											/>
-										</div>
-									</label>
-								))}
-							</div>
-						)}
-
-						{/* Search for more contexts */}
-						<EntitySearchPopover
-							sources={{ contexts: attachableContexts.map((context) => context.contextEvent) }}
-							entityTypes={['context']}
-							onSelect={handleContextSearchSelect}
-							placeholder="Search open contexts…"
-							searchMode="local"
-							compact
-						/>
-						{attachableContexts.length === 0 && recentUnattachedContexts.length === 0 && (
-							<p className="text-[10px] text-muted-foreground leading-snug">
-								Only open contexts appear here. If you don't see yours, open its settings and enable
-								"Allow foreign attachments".
-							</p>
-						)}
-					</div>
-				</CollapsibleContent>
-			</Collapsible>
 
 			{/* Blob References - collapsible */}
 			<Collapsible defaultOpen={false}>
