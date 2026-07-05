@@ -104,9 +104,40 @@ import type { GeoCollectionEditDraft } from './types'
 
 const GEO_COLLECTION_DRAFTS_STORAGE_KEY = 'earthly:geo-editor:collection-drafts:v1'
 
+// Persisting drafts means JSON.stringify-ing every draft (each carries its full
+// GeoJSON geometry) and writing it to localStorage. Doing that synchronously on
+// every keystroke while editing a draft's name/description blocks the main thread
+// and makes typing choppy. We debounce the actual write — only the latest state
+// matters for persistence — and flush on page hide so nothing is lost.
+let pendingGeoCollectionDraftPersist: {
+	drafts: Record<string, GeoCollectionEditDraft>
+	activeDraftId: string | null
+} | null = null
+let geoCollectionDraftPersistTimer: ReturnType<typeof setTimeout> | null = null
+
+const flushPersistedGeoCollectionDraftState = () => {
+	if (geoCollectionDraftPersistTimer !== null) {
+		clearTimeout(geoCollectionDraftPersistTimer)
+		geoCollectionDraftPersistTimer = null
+	}
+	if (!pendingGeoCollectionDraftPersist) return
+	const { drafts, activeDraftId } = pendingGeoCollectionDraftPersist
+	pendingGeoCollectionDraftPersist = null
+	writeScopedStorage(GEO_COLLECTION_DRAFTS_STORAGE_KEY, { drafts, activeDraftId })
+}
+
+if (typeof window !== 'undefined') {
+	window.addEventListener('pagehide', flushPersistedGeoCollectionDraftState)
+	window.addEventListener('beforeunload', flushPersistedGeoCollectionDraftState)
+}
+
 export const writePersistedGeoCollectionDraftState = (
 	drafts: Record<string, GeoCollectionEditDraft>,
 	activeDraftId: string | null,
 ) => {
-	writeScopedStorage(GEO_COLLECTION_DRAFTS_STORAGE_KEY, { drafts, activeDraftId })
+	pendingGeoCollectionDraftPersist = { drafts, activeDraftId }
+	if (geoCollectionDraftPersistTimer !== null) {
+		clearTimeout(geoCollectionDraftPersistTimer)
+	}
+	geoCollectionDraftPersistTimer = setTimeout(flushPersistedGeoCollectionDraftState, 400)
 }

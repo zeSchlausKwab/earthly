@@ -340,15 +340,6 @@
   }
 }
 
-/* Desktop Studio frame: lift MapLibre's bottom controls/attribution above the
-   fixed bottom status bar (23px). Mobile has no status bar, so scope to md+. */
-@media (min-width: 768px) {
-  .maplibregl-ctrl-bottom-right,
-  .maplibregl-ctrl-bottom-left {
-    bottom: 24px;
-  }
-}
-
 /* floating over-map panel — hairline border + soft lift, no heavy blur */
 .glass-panel {
   background: var(--panel-bg);

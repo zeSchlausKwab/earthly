@@ -860,28 +860,32 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	// Edit mode - compact layout
 	return (
 		<div className="space-y-2 text-sm">
-			{/* Header */}
-			<div className="flex items-center justify-between gap-2 pb-1 border-b border-border">
-				<div className="flex items-center gap-2">
-					{activeDataset && (
-						<Button
-							size="sm"
-							variant="ghost"
-							onClick={handleSwitchToView}
-							title="Switch to view mode"
-							className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-						>
-							<Eye className="h-3 w-3 mr-1" />
-							View
-						</Button>
+			{/* Header — only rendered when it has content (a fresh draft has neither
+			    the View button nor a dataset name, so we skip it to avoid an empty
+			    separator above the stats row). */}
+			{(activeDataset || activeDatasetInfo) && (
+				<div className="flex items-center justify-between gap-2 border-b border-border pb-1">
+					<div className="flex items-center gap-2">
+						{activeDataset && (
+							<Button
+								size="sm"
+								variant="ghost"
+								onClick={handleSwitchToView}
+								title="Switch to view mode"
+								className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+							>
+								<Eye className="mr-1 h-3 w-3" />
+								View
+							</Button>
+						)}
+					</div>
+					{activeDatasetInfo && (
+						<span className="max-w-[100px] truncate text-[10px] text-muted-foreground">
+							{activeDatasetInfo.name} {activeDatasetInfo.isOwner ? '' : '(copy)'}
+						</span>
 					)}
 				</div>
-				{activeDatasetInfo && (
-					<span className="text-[10px] text-muted-foreground truncate max-w-[100px]">
-						{activeDatasetInfo.name} {activeDatasetInfo.isOwner ? '' : '(copy)'}
-					</span>
-				)}
-			</div>
+			)}
 
 			{/* Stats row - inline */}
 			<div className="flex items-center gap-3 text-[10px] text-muted-foreground">

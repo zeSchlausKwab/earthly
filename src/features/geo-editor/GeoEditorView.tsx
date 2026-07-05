@@ -2622,8 +2622,17 @@ export function GeoEditorView() {
 				<div
 					ref={mapContainerRef}
 					data-tour="map-canvas"
-					className="relative h-screen w-full"
-					style={{ height: '100dvh', minHeight: '100svh' }}
+					className="relative w-full"
+					style={
+						isMobile
+							? { height: '100dvh', minHeight: '100svh' }
+							: {
+									// Reserve the 23px status-bar band so the map + its floating
+									// panels sit above the footer instead of behind it.
+									height: 'calc(100dvh - 23px)',
+									minHeight: 'calc(100svh - 23px)',
+								}
+					}
 				>
 					<MapComponent
 						className="w-full h-full touch-none"
@@ -2844,7 +2853,7 @@ export function GeoEditorView() {
 					) : null}
 
 					{!isMobile && desktopMapStackOpen && (
-						<div className="pointer-events-auto absolute top-12 left-2 z-20 flex max-h-[calc(100vh-3.5rem)] w-[400px] max-w-[calc(100vw-1rem)] flex-col shadow-lg">
+						<div className="pointer-events-auto absolute top-12 left-2 z-20 flex max-h-[calc(100vh-5rem)] w-[320px] max-w-[calc(100vw-1rem)] flex-col shadow-lg">
 							<MapStackPanel
 								geoEvents={scopedGeoEvents}
 								mapContextEvents={mapContextEvents}

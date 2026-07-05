@@ -298,6 +298,14 @@ function EntryRow({
 }: EntryRowProps) {
 	const isolated = entry.isolated === true
 	const setDraftEditorSlot = useEditorStore((state) => state.setDraftEditorSlot)
+	// Live draft name — reactive so the entry title updates on the fly as you type
+	// it in the editor. Returns a constant '' for non-draft rows so only the draft
+	// row re-renders on name changes (keeps the rest of the stack cheap).
+	const liveDraftName = useEditorStore((state) =>
+		entry.entityType === 'draft' ? (state.collectionMeta?.name ?? '') : '',
+	)
+	const displayTitle =
+		entry.entityType === 'draft' && liveDraftName.trim() ? liveDraftName.trim() : title
 	// The live draft opens expanded by default (editor-in-place, redesign §9).
 	const [expanded, setExpanded] = useState(entry.entityType === 'draft')
 	// Resolve curated datasets only when this is a context entry. We compute
@@ -401,7 +409,7 @@ function EntryRow({
 								compact ? 'text-xs leading-tight' : 'text-sm leading-snug',
 							)}
 						>
-							{title}
+							{displayTitle}
 						</div>
 						{isolated ? (
 							<span
