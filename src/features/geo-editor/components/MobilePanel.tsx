@@ -417,6 +417,7 @@ export function MobilePanel(props: MobilePanelProps) {
 							onInspectDataset={onInspectDataset}
 							onInspectContext={onInspectContext}
 							onOpenDebug={onOpenDebug}
+							onStartNewDataset={onStartNewDataset}
 							onCreateContext={onCreateContext}
 							onEditContext={onEditContext}
 							isFocused={isFocused}
@@ -470,6 +471,7 @@ export function MobilePanel(props: MobilePanelProps) {
 							onInspectDataset={onInspectDataset}
 							onInspectContext={onInspectContext}
 							onOpenDebug={onOpenDebug}
+							onStartNewDataset={onStartNewDataset}
 							onCreateContext={onCreateContext}
 							onEditContext={onEditContext}
 							isFocused={isFocused}

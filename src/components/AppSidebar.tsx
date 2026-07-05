@@ -798,6 +798,7 @@ export function AppSidebar({
 		onInspectDataset: handleInspectDataset,
 		onInspectContext: handleInspectContext,
 		onOpenDebug,
+		onStartNewDataset,
 		onCreateContext: handleCreateContext,
 		onEditContext: handleEditContext,
 		isFocused,

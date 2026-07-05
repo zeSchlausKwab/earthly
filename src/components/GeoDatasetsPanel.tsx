@@ -47,6 +47,8 @@ export interface GeoDatasetsPanelProps {
 	onRemoveDatasetFromMap?: (event: GeoDataset) => void
 	onInspectContext?: (context: MapContext) => void
 	onOpenDebug?: (event: GeoDataset | MapContext) => void
+	/** Start a fresh dataset draft (the datasets rail "+ new"). */
+	onStartNewDataset?: () => void
 	onCreateContext?: () => void
 	onEditContext?: (context: MapContext) => void
 	isFocused?: boolean
@@ -117,6 +119,7 @@ export function GeoDatasetsPanelContent({
 	onRemoveDatasetFromMap,
 	onInspectContext,
 	onOpenDebug,
+	onStartNewDataset,
 	onCreateContext,
 	onEditContext,
 	isFocused = false,
@@ -401,10 +404,11 @@ export function GeoDatasetsPanelContent({
 	const activeResult = isDatasets ? datasetResult : contextResult
 	const shownCount = isDatasets ? displayedDatasetRows.length : displayedContextRows.length
 
-	// The All | Favorites | Recent strip + (datasets-only) show/hide-all eye. Both
-	// per-user and applied on top of the search toolbar below.
-	const headerExtra = (
-		<div className="flex items-center gap-1">
+	// The All | Favorites | Recent strip shares the title line; the datasets-only
+	// show/hide-all eye sits beside it. Both are per-user and apply on top of the
+	// search toolbar below.
+	const titleAccessory = (
+		<>
 			<div className="inline-flex items-center gap-0.5 rounded-[3px] border border-border bg-muted p-0.5">
 				{(
 					[
@@ -418,7 +422,7 @@ export function GeoDatasetsPanelContent({
 						type="button"
 						onClick={() => setCatalogTab(tab.key)}
 						className={cn(
-							'rounded-[2px] px-2 py-0.5 text-[11px] font-medium transition-colors',
+							'rounded-[2px] px-1.5 py-0.5 text-[11px] font-medium transition-colors',
 							catalogTab === tab.key
 								? 'bg-background text-foreground shadow-sm'
 								: 'text-muted-foreground hover:text-foreground',
@@ -428,50 +432,52 @@ export function GeoDatasetsPanelContent({
 					</button>
 				))}
 			</div>
-			<div className="ml-auto flex items-center gap-1">
-				{isDatasets ? (
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						className={cn(
-							'h-6 w-6 rounded-[2px]',
-							allVisibleState !== 'none' ? 'text-info hover:text-info' : 'text-muted-foreground',
-						)}
-						onClick={() => onToggleAllVisibility(allVisibleState !== 'all')}
-						aria-label={allVisibleState === 'all' ? 'Hide all datasets' : 'Show all datasets'}
-						title={allVisibleState === 'all' ? 'Hide all datasets' : 'Show all datasets'}
-					>
-						{allVisibleState !== 'none' ? (
-							<Eye className="h-4 w-4" />
-						) : (
-							<EyeOff className="h-4 w-4" />
-						)}
-					</Button>
-				) : null}
-				{isFocused && onExitFocus ? (
-					<Button
-						size="sm"
-						variant="outline"
-						onClick={onExitFocus}
-						className="h-6 text-[11px]"
-						title="Restore normal map visibility for all datasets"
-					>
-						<Eye className="mr-1 h-3.5 w-3.5" />
-						Show all
-					</Button>
-				) : null}
-			</div>
-		</div>
+			{isDatasets ? (
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon-sm"
+					className={cn(
+						'h-6 w-6 rounded-[2px]',
+						allVisibleState !== 'none' ? 'text-info hover:text-info' : 'text-muted-foreground',
+					)}
+					onClick={() => onToggleAllVisibility(allVisibleState !== 'all')}
+					aria-label={allVisibleState === 'all' ? 'Hide all datasets' : 'Show all datasets'}
+					title={allVisibleState === 'all' ? 'Hide all datasets' : 'Show all datasets'}
+				>
+					{allVisibleState !== 'none' ? (
+						<Eye className="h-4 w-4" />
+					) : (
+						<EyeOff className="h-4 w-4" />
+					)}
+				</Button>
+			) : null}
+		</>
 	)
+
+	// The focus "Show all" restore control keeps its own row (datasets, focused only).
+	const headerExtra =
+		isFocused && onExitFocus ? (
+			<Button
+				size="sm"
+				variant="outline"
+				onClick={onExitFocus}
+				className="h-6 w-fit text-[11px]"
+				title="Restore normal map visibility for all datasets"
+			>
+				<Eye className="mr-1 h-3.5 w-3.5" />
+				Show all
+			</Button>
+		) : undefined
 
 	return (
 		<ListPanel
 			icon={isDatasets ? DatasetGlyphIcon : Globe}
 			title={isDatasets ? 'Datasets' : 'Contexts'}
 			count={activeResult.totalCount}
-			onNew={!isDatasets && onCreateContext ? onCreateContext : undefined}
-			newLabel="New context"
+			onNew={isDatasets ? onStartNewDataset : onCreateContext}
+			newLabel={isDatasets ? 'New dataset' : 'New context'}
+			titleAccessory={titleAccessory}
 			headerExtra={headerExtra}
 			toolbar={
 				<EntitySearchToolbar

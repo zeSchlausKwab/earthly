@@ -27,7 +27,10 @@ interface ListPanelProps {
 	/** The "+ new" affordance. Omit to hide the button. */
 	onNew?: () => void
 	newLabel?: string
-	/** Extra header controls (e.g. the All/Favorites/Recent strip) below the title. */
+	/** Inline controls sharing the title line (e.g. the All/Favorites/Recent strip),
+	 * right-aligned before the "+ new" button. */
+	titleAccessory?: ReactNode
+	/** Extra header controls on their own row below the title. */
 	headerExtra?: ReactNode
 	/** The search/sort toolbar. */
 	toolbar?: ReactNode
@@ -45,6 +48,7 @@ export function ListPanel({
 	count,
 	onNew,
 	newLabel = 'New',
+	titleAccessory,
 	headerExtra,
 	toolbar,
 	footerLeft,
@@ -53,27 +57,30 @@ export function ListPanel({
 }: ListPanelProps) {
 	return (
 		<div className="flex h-full min-h-0 flex-col">
-			{/* Header — glyph · title · count · + new */}
+			{/* Header — glyph · title · count · [inline controls] · + new */}
 			<div className="flex shrink-0 flex-col gap-2 border-b border-border pb-2">
 				<div className="flex items-center gap-2">
 					<Icon className={cn('h-3.5 w-3.5 shrink-0', accent)} />
-					<span className="text-[13px] font-semibold text-foreground">{title}</span>
+					<span className="truncate text-[13px] font-semibold text-foreground">{title}</span>
 					{count != null ? (
-						<span className={cn('font-mono text-[10px]', accent)}>{count}</span>
+						<span className={cn('shrink-0 font-mono text-[10px]', accent)}>{count}</span>
 					) : null}
-					{onNew ? (
-						<Button
-							type="button"
-							variant="outline"
-							size="icon-sm"
-							onClick={onNew}
-							aria-label={newLabel}
-							title={newLabel}
-							className="ml-auto h-6 w-6 rounded-[2px]"
-						>
-							<span className="text-base leading-none">+</span>
-						</Button>
-					) : null}
+					<div className="ml-auto flex shrink-0 items-center gap-1.5">
+						{titleAccessory}
+						{onNew ? (
+							<Button
+								type="button"
+								variant="outline"
+								size="icon-sm"
+								onClick={onNew}
+								aria-label={newLabel}
+								title={newLabel}
+								className="h-6 w-6 rounded-[2px]"
+							>
+								<span className="text-base leading-none">+</span>
+							</Button>
+						) : null}
+					</div>
 				</div>
 				{headerExtra}
 				{toolbar}
