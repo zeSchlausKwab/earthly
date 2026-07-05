@@ -2502,7 +2502,7 @@ export function GeoEditorView() {
 			'--sidebar-width': sidebarExpanded ? '32vw' : '25vw',
 			// DS Studio frame: keep the fixed sidebar between the docked top bar
 			// (toolbar) and the bottom status bar.
-			'--sidebar-inset-top': '52px',
+			'--sidebar-inset-top': '44px',
 			'--sidebar-inset-bottom': '23px',
 		} as CSSProperties
 	}, [isMobile, sidebarExpanded])
@@ -2786,7 +2786,7 @@ export function GeoEditorView() {
 						</div>
 					)}
 
-					<div className="pointer-events-none absolute top-2 left-2 right-2 z-10 flex md:pointer-events-auto md:fixed md:inset-x-0 md:top-0 md:z-30 md:h-[52px] md:items-center md:border-b md:border-border md:bg-[var(--surface-chrome)] md:px-1.5">
+					<div className="pointer-events-none absolute top-2 left-2 right-2 z-10 flex md:pointer-events-auto md:fixed md:inset-x-0 md:top-0 md:z-30 md:h-11 md:items-center md:border-b md:border-border md:bg-[var(--surface-chrome)] md:p-0">
 						<div className="w-full">
 							<Toolbar
 								datasetActions={{

@@ -14,6 +14,7 @@ import { useMemo, useState } from 'react'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import { useEditorStore, type MapStackEntry } from '../features/geo-editor/store'
+import { DatasetMetadataSection } from './info-panel/DatasetMetadataSection'
 import { GeometriesTable } from './info-panel/geometry/GeometriesTable'
 import { getDefaultContextMapScopeMode, resolveContextMapScope } from '@/lib/context/scope'
 import {
@@ -595,7 +596,11 @@ function EntryRow({
 				</div>
 			</div>
 			{canExpand && expanded && isDraftEntry ? (
-				<div className="max-h-[46vh] overflow-y-auto border-border border-t bg-muted/30 p-1.5">
+				// DS "editor in Map Stack" (redesign doc §9/§10): the draft opens the
+				// full editor in place — name/color/description + dataset properties
+				// (DatasetMetadataSection), then the expandable geometries list.
+				<div className="max-h-[56vh] space-y-1.5 overflow-y-auto border-border border-t bg-muted/30 p-1.5">
+					<DatasetMetadataSection />
 					<GeometriesTable />
 				</div>
 			) : null}

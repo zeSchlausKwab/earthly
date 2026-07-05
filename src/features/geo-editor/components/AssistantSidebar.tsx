@@ -34,8 +34,8 @@ export function AssistantSidebar({
 				// Slide like the left sidebar: animate width, clip the fixed-width
 				// inner so the content doesn't reflow mid-transition.
 				'hidden shrink-0 flex-col overflow-hidden border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-linear md:flex',
-				// Inset between the docked top bar (52px) and bottom status bar (23px).
-				'md:mt-[52px] md:mb-[23px] md:h-[calc(100svh-75px)]',
+				// Inset between the docked top bar (44px) and bottom status bar (23px).
+				'md:mt-[44px] md:mb-[23px] md:h-[calc(100svh-67px)]',
 				open ? 'w-[25vw] min-w-[20rem] max-w-[32rem] border-l' : 'w-0 border-l-0',
 			)}
 			data-tour="assistant-sidebar"
