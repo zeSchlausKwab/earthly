@@ -66,6 +66,13 @@ export async function runPurge(ctx: SeederContext): Promise<void> {
 	console.log(`[purge] Relay: ${client.url}`)
 	if (config.only) console.log(`[purge] Filter: --only ${config.only}`)
 	console.log(`[purge] Signing as ${owner.pubkey.slice(0, 16)}... (${config.keySource})`)
+	if (config.keySource === 'devUser1') {
+		console.warn(
+			'[purge] ⚠ Using the shared devUser1 key: this matches EVERY 37515/37518 event that\n' +
+				'        key ever published (fixture seeds included), not just canonical data.\n' +
+				'        Pass --key/--only, or review the preview carefully before confirming.',
+		)
+	}
 
 	// ── Fetch all seeded events ──
 	console.log('\n[purge] Fetching events from relay...')
