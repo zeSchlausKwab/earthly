@@ -23,6 +23,7 @@ import type { FeatureCollection } from 'geojson'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { GeoProposal } from '@/lib/nostr/geo-proposal'
 import type { MapContext } from '@/lib/nostr/map-context'
+import { DEFAULT_WORK_VIEW } from '@/features/geo-editor/defaults'
 import squareLogoRose from '../assets/square_logo_rose.svg'
 import { ShoutboxPanel } from '../features/social/shoutbox'
 import { GeoDatasetsPanelContent } from './GeoDatasetsPanel'
@@ -419,7 +420,7 @@ export function AppSidebar({
 
 	const [splitWithEditor, setSplitWithEditor] = useState(viewMode === 'combined')
 	const [activeEntity, setActiveEntity] = useState<EntityWorkspace>('geometry')
-	const [activeWorkMode, setActiveWorkMode] = useState<WorkViewMode>('datasets')
+	const [activeWorkMode, setActiveWorkMode] = useState<WorkViewMode>(DEFAULT_WORK_VIEW)
 	const [showEntityAsFullPanel, setShowEntityAsFullPanel] = useState(viewMode === 'edit')
 	// Round E.4: the Inspect/Edit toggle's displayed side derives from actual
 	// app state instead of a locally-synced mirror. The old `entityIntent`

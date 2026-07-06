@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { DEFAULT_SIDEBAR_VIEW } from '../defaults'
 import { parsePathSegments } from './useRouting'
 
 // XCUT-02 (D-08/D-09): the five per-kind share-form parsers collapsed into one
@@ -106,5 +107,15 @@ describe('parsePathSegments — malformed naddr does not crash (D-11 / T-13-02-M
 		// arbitrary focusType/sidebarView can be injected from the URL.
 		const result = parsePathSegments(['totally-unknown-kind', NADDR])
 		expect(result.focusType).toBe('none')
+		expect(result.sidebarView).toBe(DEFAULT_SIDEBAR_VIEW)
+	})
+})
+
+describe('parsePathSegments — landing default', () => {
+	test('an empty landing path opens the default sightings feed', () => {
+		expect(parsePathSegments([])).toEqual({
+			focusType: 'none',
+			sidebarView: DEFAULT_SIDEBAR_VIEW,
+		})
 	})
 })

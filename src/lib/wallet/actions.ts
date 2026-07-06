@@ -31,7 +31,7 @@ import {
 	UnlockWallet,
 } from 'applesauce-wallet/actions'
 import {
-	dumbTokenSelection,
+	getProofUID,
 	getTokenContent,
 	getTokenDeletedIds,
 	isTokenContentUnlocked,
@@ -160,6 +160,16 @@ function getDeletedTokenIds(tokens: NostrEvent[]): Set<string> {
 	return deleted
 }
 
+function proofAmount(proof: { amount: unknown }): number {
+	return typeof proof.amount === 'number' ? proof.amount : Number(proof.amount)
+}
+
+function getProofKeysetId(proofs: Array<{ id?: string }>): string {
+	const keysetId = proofs.find((proof) => proof.id)?.id
+	if (!keysetId) throw new Error('Selected proofs are missing keyset ids')
+	return keysetId
+}
+
 /**
  * TokensOperation reads raw token events from EventStore. Filter the same
  * `del` references that WalletBalanceModel uses before selecting proofs, or a
@@ -168,11 +178,51 @@ function getDeletedTokenIds(tokens: NostrEvent[]): Set<string> {
  */
 export const selectSpendableTokens: TokenSelectionFunction = (tokens, minAmount, mint) => {
 	const deleted = getDeletedTokenIds(tokens)
-	return dumbTokenSelection(
-		tokens.filter((token) => !deleted.has(token.id)),
-		minAmount,
-		mint,
-	)
+	const unlockedTokens = tokens
+		.filter((token) => !deleted.has(token.id))
+		.filter(isTokenContentUnlocked)
+		.sort((a, b) => b.created_at - a.created_at)
+
+	const selectFromMint = (targetMint: string) => {
+		let amount = 0
+		const seenProofs = new Set<string>()
+		const selectedEvents: NostrEvent[] = []
+		const selectedProofs = []
+
+		for (const token of unlockedTokens) {
+			const content = getTokenContent(token)
+			if (content.mint !== targetMint) continue
+
+			const tokenProofs = content.proofs.filter((proof) => {
+				const uid = getProofUID(proof)
+				if (seenProofs.has(uid)) return false
+				seenProofs.add(uid)
+				return true
+			})
+			if (tokenProofs.length === 0) continue
+
+			selectedEvents.push(token)
+			selectedProofs.push(...tokenProofs)
+			amount += tokenProofs.reduce((sum, proof) => sum + proofAmount(proof), 0)
+			if (amount >= minAmount) break
+		}
+
+		return { amount, events: selectedEvents, proofs: selectedProofs }
+	}
+
+	if (mint) {
+		const selected = selectFromMint(mint)
+		if (selected.amount < minAmount) throw new Error('Insufficient funds')
+		return { events: selected.events, proofs: selected.proofs }
+	}
+
+	const mints = Array.from(new Set(unlockedTokens.map((token) => getTokenContent(token).mint)))
+	for (const targetMint of mints) {
+		const selected = selectFromMint(targetMint)
+		if (selected.amount >= minAmount) return { events: selected.events, proofs: selected.proofs }
+	}
+
+	throw new Error('Insufficient funds in any mint')
 }
 
 /**
@@ -197,7 +247,13 @@ export async function sendCashuToken(
 			TokensOperation,
 			amountSats,
 			async ({ selectedProofs, mint, cashuWallet }) => {
-				const { keep, send } = await cashuWallet.ops.send(amountSats, selectedProofs).run()
+				const { keep, send } = await cashuWallet.ops
+					.send(amountSats, selectedProofs)
+					// Do not hand exact-match wallet proofs directly to Routstr. A forced
+					// online swap makes the outbound token fresh and lets the mint reject
+					// stale proofs before we send them upstream.
+					.keyset(getProofKeysetId(selectedProofs))
+					.run()
 				encoded = getEncodedToken({ mint, proofs: send, unit: 'sat' })
 				return { change: keep.length > 0 ? keep : undefined }
 			},
@@ -254,6 +310,7 @@ async function payLightningInvoiceUnlocked(
 			const { keep, send } = await opWallet.ops
 				.send(amount + fee, selectedProofs)
 				.includeFees(true)
+				.keyset(getProofKeysetId(selectedProofs))
 				.run()
 			const response = await opWallet.meltProofsBolt11(meltQuote, send)
 			result = {

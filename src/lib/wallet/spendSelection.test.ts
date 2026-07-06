@@ -10,6 +10,7 @@ function tokenEvent(opts: {
 	createdAt: number
 	amount: number
 	deleted?: string[]
+	proofSecret?: string
 	publicDeleted?: string[]
 }): NostrEvent {
 	const event: NostrEvent = {
@@ -27,10 +28,10 @@ function tokenEvent(opts: {
 		del: opts.deleted ?? [],
 		proofs: [
 			{
-				id: `proof-${opts.id}`,
+				id: `proof-${opts.proofSecret ?? opts.id}`,
 				amount: opts.amount,
-				secret: `secret-${opts.id}`,
-				C: `C-${opts.id}`,
+				secret: `secret-${opts.proofSecret ?? opts.id}`,
+				C: `C-${opts.proofSecret ?? opts.id}`,
 			},
 		],
 	})
@@ -66,5 +67,25 @@ describe('selectSpendableTokens', () => {
 
 		expect(selected.events.map((event) => event.id)).toEqual(['change'])
 		expect(selected.proofs.map((proof) => proof.secret)).toEqual(['secret-change'])
+	})
+
+	test('prefers the newest copy when duplicate proof events exist', () => {
+		const oldCopy = tokenEvent({
+			id: 'old-copy',
+			createdAt: 1,
+			amount: 100,
+			proofSecret: 'same-proof',
+		})
+		const newCopy = tokenEvent({
+			id: 'new-copy',
+			createdAt: 2,
+			amount: 100,
+			proofSecret: 'same-proof',
+		})
+
+		const selected = selectSpendableTokens([oldCopy, newCopy], 50, MINT)
+
+		expect(selected.events.map((event) => event.id)).toEqual(['new-copy'])
+		expect(selected.proofs.map((proof) => proof.secret)).toEqual(['secret-same-proof'])
 	})
 })

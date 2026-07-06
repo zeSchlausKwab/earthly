@@ -12,6 +12,7 @@ import type { Filter, NostrEvent } from 'nostr-tools'
 import { useEffect, useMemo, useState } from 'react'
 import { filter as rxFilter, map, tap } from 'rxjs'
 import { eventStore, pool, queryCache } from './index'
+import { filterList, filterRequestKey } from './filterGuards'
 import { bucketForKind, readRelaysFor } from './relay-router'
 
 /**
@@ -73,7 +74,7 @@ function defaultRelaysForFilters(filters: Filter | Filter[] | null): string[] {
  * read from public relays (see relay-router.ts).
  */
 export function useTimeline(filters: Filter | Filter[] | null, relays?: string[]): NostrEvent[] {
-	const filterKey = useMemo(() => (filters ? JSON.stringify(filters) : null), [filters])
+	const filterKey = useMemo(() => filterRequestKey(filters), [filters])
 	const relayKey = useMemo(
 		() => (relays ?? defaultRelaysForFilters(filtersFromKey(filterKey))).join(','),
 		[relays, filterKey],
@@ -99,8 +100,9 @@ export function useTimeline(filters: Filter | Filter[] | null, relays?: string[]
 	const events = use$(() => {
 		// TimelineModel already emits a fresh array instance per change — no
 		// extra copy needed for React identity checks.
-		if (!filters) return undefined
-		return eventStore.timeline(filters)
+		const activeFilters = filtersFromKey(filterKey)
+		if (!activeFilters) return undefined
+		return eventStore.timeline(activeFilters)
 	}, [filterKey])
 
 	return events ?? []
@@ -121,17 +123,17 @@ export function useTimelineWithEose(
 	filters: Filter | Filter[] | null,
 	relays?: string[],
 ): { events: NostrEvent[]; eose: boolean } {
-	const filterKey = useMemo(() => (filters ? JSON.stringify(filters) : null), [filters])
+	const filterKey = useMemo(() => filterRequestKey(filters), [filters])
 	const relayKey = useMemo(
 		() => (relays ?? defaultRelaysForFilters(filtersFromKey(filterKey))).join(','),
 		[relays, filterKey],
 	)
-	const [eose, setEose] = useState(false)
+	const [eose, setEose] = useState(() => filterKey === null)
 
 	useEffect(() => {
 		const activeFilters = filtersFromKey(filterKey)
 		if (!activeFilters) {
-			setEose(false)
+			setEose(true)
 			return undefined
 		}
 
@@ -146,12 +148,10 @@ export function useTimelineWithEose(
 		// Hydrate matching events from the IndexedDB cache so the timeline renders
 		// instantly on reload; relay events stream in on top and deduplicate.
 		let cancelled = false
-		void queryCache(Array.isArray(activeFilters) ? activeFilters : [activeFilters]).then(
-			(cached) => {
-				if (cancelled) return
-				for (const event of cached) eventStore.add(event)
-			},
-		)
+		void queryCache(filterList(activeFilters)).then((cached) => {
+			if (cancelled) return
+			for (const event of cached) eventStore.add(event)
+		})
 
 		const eoseTimeout = setTimeout(() => setEose(true), EOSE_TIMEOUT_MS)
 
@@ -182,8 +182,9 @@ export function useTimelineWithEose(
 
 	const events = use$(() => {
 		// TimelineModel already emits a fresh array instance per change.
-		if (!filters) return undefined
-		return eventStore.timeline(filters)
+		const activeFilters = filtersFromKey(filterKey)
+		if (!activeFilters) return undefined
+		return eventStore.timeline(activeFilters)
 	}, [filterKey])
 
 	return { events: events ?? [], eose }

@@ -31,6 +31,7 @@ void timeout
 void TimeoutError
 import { config } from '@/config'
 import { eventStore } from './store'
+import { cacheQueryableFilters } from './filterGuards'
 import {
 	bucketForKind,
 	guardedWebSocketCtor,
@@ -279,9 +280,11 @@ const stopPersist = hasIndexedDB
 async function cacheRequest(filters: Filter[]): Promise<NostrEvent[]> {
 	await cacheReady
 	if (!cache) return []
+	const queryableFilters = cacheQueryableFilters(filters)
+	if (queryableFilters.length === 0) return []
 
 	try {
-		return await cache.query(filters)
+		return await cache.query(queryableFilters)
 	} catch (err) {
 		logCacheError('query', err)
 		return []

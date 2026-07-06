@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { nip19 } from 'nostr-tools'
+import { DEFAULT_SIDEBAR_VIEW } from '../defaults'
 import { useEditorStore, type SidebarViewMode } from '../store'
 
 export type { SidebarViewMode }
@@ -107,12 +108,12 @@ const SHARE_ROUTES: Record<
  */
 export function parsePathSegments(segments: string[]): RouteState {
 	if (segments.length === 0) {
-		return { focusType: 'none', sidebarView: 'contexts' }
+		return { focusType: 'none', sidebarView: DEFAULT_SIDEBAR_VIEW }
 	}
 
 	const first = segments[0]
 	if (!first) {
-		return { focusType: 'none', sidebarView: 'contexts' }
+		return { focusType: 'none', sidebarView: DEFAULT_SIDEBAR_VIEW }
 	}
 
 	// User profile route: /user/{npub_or_pubkey}
@@ -215,7 +216,7 @@ export function parsePathSegments(segments: string[]): RouteState {
 		return { focusType: 'none', sidebarView: resolvedFirst }
 	}
 
-	return { focusType: 'none', sidebarView: 'contexts' }
+	return { focusType: 'none', sidebarView: DEFAULT_SIDEBAR_VIEW }
 }
 
 /**
@@ -237,7 +238,7 @@ function parseLocation(): RouteState {
 		return parsePathSegments(hash.split('/').filter(Boolean))
 	}
 
-	return { focusType: 'none', sidebarView: 'contexts' }
+	return { focusType: 'none', sidebarView: DEFAULT_SIDEBAR_VIEW }
 }
 
 /**
@@ -463,10 +464,10 @@ export function useRouting() {
 	}, [commit])
 
 	/**
-	 * Navigate to datasets view with no focus (home)
+	 * Navigate to the default landing view with no focus (home)
 	 */
 	const navigateHome = useCallback(() => {
-		commit({ sidebarView: 'datasets' })
+		commit({ sidebarView: DEFAULT_SIDEBAR_VIEW })
 	}, [commit])
 
 	const navigateToComment = useCallback(

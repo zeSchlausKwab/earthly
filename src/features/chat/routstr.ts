@@ -351,6 +351,32 @@ export interface StreamCallbacks {
 	onError: (error: Error, refundToken?: string | null) => void
 }
 
+function readRoutstrError(errorText: string): {
+	message: string | null
+	refundToken: string | null
+} {
+	try {
+		const errorJson = JSON.parse(errorText)
+		const nested = errorJson.error
+		return {
+			message:
+				typeof nested?.message === 'string'
+					? nested.message
+					: typeof errorJson.message === 'string'
+						? errorJson.message
+						: null,
+			refundToken:
+				typeof nested?.refund_token === 'string'
+					? nested.refund_token
+					: typeof errorJson.refund_token === 'string'
+						? errorJson.refund_token
+						: null,
+		}
+	} catch {
+		return { message: null, refundToken: null }
+	}
+}
+
 /**
  * Stream a chat completion with optional Cashu payment
  * Calls onToken for each streamed token, onComplete with refund token when done
@@ -387,29 +413,30 @@ export async function streamChatCompletion(
 		headers.Authorization = `Bearer ${provider.apiKey}`
 	}
 
-	const response = await fetch(`${provider.baseUrl}/chat/completions`, {
-		method: 'POST',
-		headers,
-		body: JSON.stringify(requestBody),
-		signal,
-	})
+	let response: Response
+	try {
+		response = await fetch(`${provider.baseUrl}/chat/completions`, {
+			method: 'POST',
+			headers,
+			body: JSON.stringify(requestBody),
+			signal,
+		})
+	} catch (error) {
+		callbacks.onError(error instanceof Error ? error : new Error(String(error)))
+		return
+	}
 
 	if (!response.ok) {
 		const errorText = await response.text()
 		let errorMessage = `Stream failed: ${errorText}`
-		let refundToken: string | null = null
+		const { message, refundToken } = readRoutstrError(errorText)
 
-		// Try to parse error as JSON to extract refund_token
-		try {
-			const errorJson = JSON.parse(errorText)
-			if (errorJson.error?.refund_token) {
-				refundToken = errorJson.error.refund_token
-				console.log('[Routstr] Got refund token from error response')
-			}
-			if (errorJson.error?.message) {
-				errorMessage = `Stream failed: ${errorJson.error.message}`
-			}
-		} catch {
+		if (refundToken) {
+			console.log('[Routstr] Got refund token from error response')
+		}
+		if (message) {
+			errorMessage = `Stream failed: ${message}`
+		} else {
 			const looksLikeHtml = errorText.includes('<!DOCTYPE html') || errorText.includes('<html')
 			if (looksLikeHtml) {
 				errorMessage = `Stream failed: ${response.status} ${response.statusText} (provider returned an HTML error page)`
@@ -436,7 +463,7 @@ export async function streamChatCompletion(
 	const toolCallsMap = new Map<number, { id: string; name: string; arguments: string }>()
 	let finishReason: string | undefined
 
-	const processSseDataLine = (data: string): 'done' | 'continue' => {
+	const processSseDataLine = (data: string): 'done' | 'continue' | 'invalid' => {
 		if (data === '[DONE]') {
 			// If we accumulated tool calls, emit them
 			if (toolCallsMap.size > 0 && callbacks.onToolCall) {
@@ -501,7 +528,7 @@ export async function streamChatCompletion(
 				finishReason = choice.finish_reason
 			}
 		} catch {
-			// Skip malformed chunks
+			return 'invalid'
 		}
 		return 'continue'
 	}
@@ -518,7 +545,58 @@ export async function streamChatCompletion(
 		if (dataLines.length === 0) return 'continue'
 		const data = dataLines.join('\n').trim()
 		if (!data) return 'continue'
-		return processSseDataLine(data)
+		const result = processSseDataLine(data)
+		return result === 'done' ? 'done' : 'continue'
+	}
+
+	const processCompleteLine = (line: string, final = false): 'done' | 'continue' | 'wait' => {
+		const trimmed = line.trim()
+		if (!trimmed || trimmed.startsWith(':')) return 'continue'
+		if (trimmed.startsWith('event:') || trimmed.startsWith('id:') || trimmed.startsWith('retry:')) {
+			return 'continue'
+		}
+
+		const data = trimmed.startsWith('data:') ? trimmed.slice(5).trimStart().trim() : trimmed
+		if (!data) return 'continue'
+		if (!(data === '[DONE]' || data.startsWith('{'))) return 'continue'
+
+		const result = processSseDataLine(data)
+		if (result === 'invalid' && !final) return 'wait'
+		return result === 'done' ? 'done' : 'continue'
+	}
+
+	const drainBufferedEvents = (final = false): 'done' | 'continue' => {
+		buffer = buffer.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+
+		while (true) {
+			const boundaryIndex = buffer.indexOf('\n\n')
+			if (boundaryIndex !== -1) {
+				const eventBlock = buffer.slice(0, boundaryIndex)
+				buffer = buffer.slice(boundaryIndex + 2)
+				if (processSseEventBlock(eventBlock) === 'done') return 'done'
+				continue
+			}
+
+			const lineEnd = buffer.indexOf('\n')
+			if (lineEnd === -1) break
+
+			const line = buffer.slice(0, lineEnd)
+			const result = processCompleteLine(line)
+			if (result === 'wait') break
+			buffer = buffer.slice(lineEnd + 1)
+			if (result === 'done') return 'done'
+		}
+
+		if (final && buffer.trim()) {
+			const trailing = buffer.trim()
+			buffer = ''
+			const dataLike =
+				trailing.startsWith('data:') || trailing === '[DONE]' || trailing.startsWith('{')
+			if (processCompleteLine(trailing, true) === 'done') return 'done'
+			if (!dataLike && processSseEventBlock(trailing) === 'done') return 'done'
+		}
+
+		return 'continue'
 	}
 
 	try {
@@ -527,21 +605,10 @@ export async function streamChatCompletion(
 			if (done) break
 
 			buffer += decoder.decode(value, { stream: true })
-			buffer = buffer.replace(/\r\n/g, '\n')
-
-			let boundaryIndex = buffer.indexOf('\n\n')
-			while (boundaryIndex !== -1) {
-				const eventBlock = buffer.slice(0, boundaryIndex)
-				buffer = buffer.slice(boundaryIndex + 2)
-				if (processSseEventBlock(eventBlock) === 'done') return
-				boundaryIndex = buffer.indexOf('\n\n')
-			}
+			if (drainBufferedEvents() === 'done') return
 		}
 
-		const trailingEvent = buffer.trim()
-		if (trailingEvent) {
-			if (processSseEventBlock(trailingEvent) === 'done') return
-		}
+		if (drainBufferedEvents(true) === 'done') return
 
 		// If we accumulated tool calls, emit them
 		if (toolCallsMap.size > 0 && callbacks.onToolCall) {

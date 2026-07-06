@@ -1,4 +1,5 @@
 import type { StateCreator } from 'zustand'
+import { DEFAULT_SIDEBAR_VIEW } from '../defaults'
 import type { EditorState, UISlice } from './types'
 
 export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set) => ({
@@ -17,7 +18,7 @@ export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set) =
 	mobilePanelTab: 'sightings',
 	mobilePanelSnap: 'peek',
 	inspectorActive: false,
-	sidebarViewMode: 'contexts',
+	sidebarViewMode: DEFAULT_SIDEBAR_VIEW,
 	sidebarExpanded: false,
 	chatOpen: false,
 	mapStackOpen: true,

@@ -10,6 +10,7 @@
  */
 
 import { type ColumnDef, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
+import { Fragment } from 'react'
 import { cn } from '@/lib/utils'
 
 interface EntityListTableProps<TData> {
@@ -32,6 +33,7 @@ export function EntityListTable<TData>({
 		getRowId,
 		getCoreRowModel: getCoreRowModel(),
 	})
+	const rowKeyCounts = new Map<string, number>()
 
 	return (
 		<div
@@ -41,13 +43,21 @@ export function EntityListTable<TData>({
 				className,
 			)}
 		>
-			{table.getRowModel().rows.map((row) => (
-				<div key={row.id}>
-					{row
-						.getVisibleCells()
-						.map((cell) => flexRender(cell.column.columnDef.cell, cell.getContext()))}
-				</div>
-			))}
+			{table.getRowModel().rows.map((row) => {
+				const seen = rowKeyCounts.get(row.id) ?? 0
+				rowKeyCounts.set(row.id, seen + 1)
+				const rowKey = seen === 0 ? row.id : `${row.id}:${seen}`
+
+				return (
+					<div key={rowKey}>
+						{row.getVisibleCells().map((cell) => (
+							<Fragment key={cell.id}>
+								{flexRender(cell.column.columnDef.cell, cell.getContext())}
+							</Fragment>
+						))}
+					</div>
+				)
+			})}
 		</div>
 	)
 }

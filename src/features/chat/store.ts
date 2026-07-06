@@ -74,8 +74,10 @@ const MAX_REASONING_CONTENT_CHARS = 4000
 const BUDGET_ESTIMATE_CHARS_PER_TOKEN = 2
 const MESSAGE_TOKEN_OVERHEAD = 24
 const MIN_CONTEXT_TOKENS_FOR_INLINE_IMAGE = 16000
-const STREAM_STALL_WARNING_MS = 15000
-const STREAM_STALL_TIMEOUT_MS = 45000
+const STREAM_STALL_WARNING_MS = 30000
+const STREAM_STALL_TIMEOUT_MS = 120000
+const STREAM_STALL_WARNING_SECONDS = STREAM_STALL_WARNING_MS / 1000
+const STREAM_STALL_TIMEOUT_SECONDS = STREAM_STALL_TIMEOUT_MS / 1000
 const OVERLOAD_RETRY_DELAYS_MS = [1500, 4000]
 
 type StreamProgressKind =
@@ -1514,7 +1516,9 @@ export const useChatStore = create<ChatStore>()(
 								lastProgressKind: 'error',
 							})
 							reject(
-								new Error('Stream stalled: no response updates for 45 seconds. Stop and retry.'),
+								new Error(
+									`Stream stalled: no response updates for ${STREAM_STALL_TIMEOUT_SECONDS} seconds. Stop and retry.`,
+								),
 							)
 						}
 
@@ -1522,8 +1526,7 @@ export const useChatStore = create<ChatStore>()(
 							clearTimers()
 							warningTimer = setTimeout(() => {
 								set({
-									streamWarning:
-										'No stream updates for 15s. The provider may be stuck. You can stop and retry.',
+									streamWarning: `No stream updates for ${STREAM_STALL_WARNING_SECONDS}s. The provider may be stuck. You can stop and retry.`,
 								})
 							}, STREAM_STALL_WARNING_MS)
 							timeoutTimer = setTimeout(failStalledRequest, STREAM_STALL_TIMEOUT_MS)
@@ -1581,7 +1584,7 @@ export const useChatStore = create<ChatStore>()(
 
 						refreshActivity('request_start')
 
-						streamChatCompletion(
+						void streamChatCompletion(
 							{
 								model: selectedModelId,
 								messages: requestMessages,
@@ -1672,7 +1675,19 @@ export const useChatStore = create<ChatStore>()(
 							providerConfig,
 							cashuToken || undefined,
 							streamAbortController?.signal,
-						)
+						).catch((error) => {
+							if (settled) return
+							if (!isStreamRunActive()) return
+							settled = true
+							clearTimers()
+							cancelStreamingFlush()
+							set({
+								streamWarning: null,
+								lastProgressAt: Date.now(),
+								lastProgressKind: 'error',
+							})
+							reject(error instanceof Error ? error : new Error(String(error)))
+						})
 					})
 				}
 
