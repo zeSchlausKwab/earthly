@@ -90,6 +90,7 @@ import type { CommentAnnotationPopupData } from './components/CommentAnnotationP
 import type { MapPopupPlacement } from './components/map-popup-positioning'
 import { UserLocationMarker } from './components/UserLocationMarker'
 import { EntityPinBubbles } from './components/map/EntityPinBubbles'
+import { MobileMapActions } from './components/MobileMapActions'
 import { SightingPlacementPreview } from './components/SightingPlacementPreview'
 import { GeoEditorMap as MapComponent } from './components/map'
 import { OsmResultsPanel } from './components/OsmResultsPanel'
@@ -2990,6 +2991,11 @@ export function GeoEditorView() {
 								)}
 							</ControlButton>
 						</ControlGroup>
+					) : stance !== 'author' ? (
+						// Mobile browse/inspect: desktop-toolbar parity actions (search,
+						// location lookup, theme, share). Hidden while authoring — the
+						// edit tool strip + MobileToolMenu own that surface.
+						<MobileMapActions onSearchResultSelect={handleSearchResultSelect} />
 					) : null
 				}
 			>
@@ -3373,6 +3379,9 @@ export function GeoEditorView() {
 						canPublishUpdate={canPublishUpdate}
 						onPublishCopy={handlePublishCopy}
 						canPublishCopy={canPublishCopy}
+						onProposeEdit={handleProposeEdit}
+						canProposeEdit={canProposeEdit}
+						isPublishing={isPublishing}
 						onOsmClick={handleOsmQueryClick}
 						onOsmView={handleOsmQueryView}
 						onOsmAdvanced={() => setImportOsmDialogOpen(true)}

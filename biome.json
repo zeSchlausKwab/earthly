@@ -21,6 +21,7 @@
 		}
 	},
 	"files": {
+		"experimentalScannerIgnores": [".claude"],
 		"includes": [
 			"src/**/*.ts",
 			"src/**/*.tsx",

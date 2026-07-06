@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import {
 	Combine,
 	Copy,
@@ -7,6 +7,7 @@ import {
 	Download,
 	Edit3,
 	EyeOff,
+	GitPullRequest,
 	Link2,
 	Lock,
 	LockOpen,
@@ -41,6 +42,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { canExecuteEditorCommand, executeEditorCommand } from '../commands'
+import { ProposalDialog } from './toolbar/ProposalDialog'
 import type { EditorMode } from '../core'
 import { useEditorStore } from '../store'
 
@@ -67,6 +69,10 @@ export interface MobileToolMenuProps {
 	canPublishUpdate?: boolean
 	onPublishCopy?: () => void
 	canPublishCopy?: boolean
+	/** Propose an edit to a foreign dataset (opens the description dialog). */
+	onProposeEdit?: (description: string) => void
+	canProposeEdit?: boolean
+	isPublishing?: boolean
 	onOsmClick?: () => void
 	onOsmView?: () => void
 	onOsmAdvanced?: () => void
@@ -87,10 +93,14 @@ export function MobileToolMenu({
 	canPublishUpdate,
 	onPublishCopy,
 	canPublishCopy,
+	onProposeEdit,
+	canProposeEdit,
+	isPublishing,
 	onOsmClick,
 	onOsmView,
 	onOsmAdvanced,
 }: MobileToolMenuProps) {
+	const [proposalDialogOpen, setProposalDialogOpen] = useState(false)
 	const mode = useEditorStore((state) => state.mode)
 	const snappingEnabled = useEditorStore((state) => state.snappingEnabled)
 	const inspectorActive = useEditorStore((state) => state.inspectorActive)
@@ -307,7 +317,7 @@ export function MobileToolMenu({
 						</DropdownMenuItem>
 					) : null}
 				</DropdownMenuGroup>
-				{canPublishUpdate || canPublishCopy ? (
+				{canPublishUpdate || canPublishCopy || canProposeEdit ? (
 					<>
 						<DropdownMenuSeparator />
 						<DropdownMenuLabel>Publish</DropdownMenuLabel>
@@ -322,6 +332,12 @@ export function MobileToolMenu({
 								<DropdownMenuItem disabled={!canPublishCopy} onSelect={onPublishCopy}>
 									<CopyPlus className="h-4 w-4" />
 									Fork as new dataset
+								</DropdownMenuItem>
+							) : null}
+							{onProposeEdit && canProposeEdit ? (
+								<DropdownMenuItem onSelect={() => setProposalDialogOpen(true)}>
+									<GitPullRequest className="h-4 w-4" />
+									Propose edit to owner…
 								</DropdownMenuItem>
 							) : null}
 						</DropdownMenuGroup>
@@ -349,6 +365,14 @@ export function MobileToolMenu({
 						if (file) onImport(file)
 						if (fileInputRef.current) fileInputRef.current.value = ''
 					}}
+				/>
+			) : null}
+			{onProposeEdit ? (
+				<ProposalDialog
+					open={proposalDialogOpen}
+					onOpenChange={setProposalDialogOpen}
+					isPublishing={isPublishing}
+					onSubmit={(description) => onProposeEdit(description)}
 				/>
 			) : null}
 		</DropdownMenu>
