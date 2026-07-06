@@ -14,12 +14,15 @@ import type { LineString, Point, Polygon } from 'geojson'
 import type { GeoBoundingBox } from '@/lib/nostr/geo-event'
 import { TEMPORAL_SIGHTING_KIND } from '@/lib/nostr/kinds'
 import { hasCurrentModelVersion } from '@/lib/nostr/modelVersion'
+import type { MediaAttachment } from 'applesauce-common/helpers/file-metadata'
 import {
 	getBbox,
 	getContextRefs,
 	getGeohash,
 	getHashtags,
+	getImages,
 	getLabels,
+	getPrimaryImage,
 	getReferencedAddresses,
 } from '@/lib/nostr/tags'
 
@@ -101,4 +104,14 @@ export function getTemporalSightingContextReferences(event: NostrEvent): string[
 
 export function getTemporalSightingReferencedAddresses(event: NostrEvent): string[] {
 	return getReferencedAddresses(event)
+}
+
+/** NIP-92 imeta attachments in tag order (SPEC §6.1); first = primary. */
+export function getTemporalSightingImages(event: NostrEvent): MediaAttachment[] {
+	return getImages(event)
+}
+
+/** The primary image (first imeta tag) shown in the map pin bubble. */
+export function getTemporalSightingPrimaryImage(event: NostrEvent): MediaAttachment | undefined {
+	return getPrimaryImage(event)
 }

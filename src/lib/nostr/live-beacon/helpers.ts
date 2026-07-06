@@ -14,11 +14,13 @@ import type { Point } from 'geojson'
 import type { GeoBoundingBox } from '@/lib/nostr/geo-event'
 import { LIVE_BEACON_KIND } from '@/lib/nostr/kinds'
 import { hasCurrentModelVersion } from '@/lib/nostr/modelVersion'
+import type { MediaAttachment } from 'applesauce-common/helpers/file-metadata'
 import {
 	getBbox,
 	getContextRefs,
 	getGeohash,
 	getHashtags,
+	getImages,
 	getLabels,
 	getReferencedAddresses,
 } from '@/lib/nostr/tags'
@@ -103,4 +105,12 @@ export function getLiveBeaconContextReferences(event: NostrEvent): string[] {
 
 export function getLiveBeaconReferencedAddresses(event: NostrEvent): string[] {
 	return getReferencedAddresses(event)
+}
+
+/**
+ * NIP-92 imeta attachments (SPEC §5.1). Supplementary evidence shown in the
+ * inspect view — the map pin bubble renders the author's avatar, not these.
+ */
+export function getLiveBeaconImages(event: NostrEvent): MediaAttachment[] {
+	return getImages(event)
 }

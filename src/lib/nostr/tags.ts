@@ -13,6 +13,11 @@
  * are pure `string[][] -> string[][]` transformers the factories delegate to.
  */
 
+import {
+	createImetaTagForAttachment,
+	getMediaAttachments,
+	type MediaAttachment,
+} from 'applesauce-common/helpers/file-metadata'
 import { getOrComputeCachedValue } from 'applesauce-core/helpers/cache'
 import { getTagValue, type NostrEvent } from 'applesauce-core/helpers/event'
 import type { GeoBoundingBox } from '@/lib/nostr/geo-event'
@@ -200,4 +205,37 @@ export function getLabels(event: NostrEvent): string[] {
 	return event.tags
 		.filter((t) => t[0] === 'l' && t[2] === EARTHLY_LABEL_NAMESPACE && typeof t[1] === 'string')
 		.map((t) => t[1] as string)
+}
+
+// =====================================================================
+// NIP-92 `imeta` media attachments (SPEC §7.3)
+// =====================================================================
+
+/**
+ * Read `imeta` media attachments in tag order. **The first attachment is the
+ * primary image** (SPEC §7.3) — reordering tags is how a publisher changes the
+ * primary. Delegates to the official applesauce parser; entries without a
+ * `url` field are dropped (unrenderable).
+ */
+export function getImages(event: NostrEvent): MediaAttachment[] {
+	return getMediaAttachments(event).filter((attachment) => Boolean(attachment.url))
+}
+
+/** The primary image (first `imeta` tag), if any. */
+export function getPrimaryImage(event: NostrEvent): MediaAttachment | undefined {
+	return getImages(event)[0]
+}
+
+/**
+ * Replace the `imeta` tag set. Order is meaningful (first = primary). An empty
+ * array strips all attachments; entries without a `url` are refused.
+ */
+export function setImages(tags: string[][], attachments: MediaAttachment[]): string[][] {
+	for (const attachment of attachments) {
+		if (!attachment.url) throw new Error('setImages: every media attachment needs a url')
+	}
+	return [
+		...tags.filter((t) => t[0] !== 'imeta'),
+		...attachments.map((attachment) => createImetaTagForAttachment(attachment)),
+	]
 }

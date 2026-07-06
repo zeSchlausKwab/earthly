@@ -7,6 +7,7 @@
  * `expiration` setter is provided since sightings are expiry-bearing.
  */
 
+import type { MediaAttachment } from 'applesauce-common/helpers/file-metadata'
 import { blankEventTemplate, toEventTemplate } from 'applesauce-core/factories'
 import { generateShortDTag } from '@/lib/nostr/dTag'
 import { EntityFactory } from '@/lib/nostr/entityFactory'
@@ -18,6 +19,7 @@ import {
 	setContextRefs,
 	setGeohash,
 	setHashtags,
+	setImages,
 	setLabels,
 	setReferencedAddresses,
 } from '@/lib/nostr/tags'
@@ -105,5 +107,13 @@ export class TemporalSightingFactory extends EntityFactory<typeof TEMPORAL_SIGHT
 
 	referencedAddresses(values: string[]): this {
 		return this.modifyPublicTags((tags: string[][]) => setReferencedAddresses(tags, values))
+	}
+
+	/**
+	 * Replace the NIP-92 imeta attachments (SPEC §6.1). Order is meaningful:
+	 * the first attachment is the primary image shown in the map pin bubble.
+	 */
+	images(attachments: MediaAttachment[]): this {
+		return this.modifyPublicTags((tags: string[][]) => setImages(tags, attachments))
 	}
 }

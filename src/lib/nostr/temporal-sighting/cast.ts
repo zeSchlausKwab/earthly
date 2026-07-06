@@ -17,7 +17,9 @@ import {
 	getTemporalSightingGeohash,
 	getTemporalSightingHashtags,
 	getTemporalSightingId,
+	getTemporalSightingImages,
 	getTemporalSightingLabels,
+	getTemporalSightingPrimaryImage,
 	getTemporalSightingReferencedAddresses,
 	isTemporalSighting,
 	type TemporalSightingContent,
@@ -80,6 +82,16 @@ export class TemporalSighting extends EventCast<TemporalSightingEvent> {
 	}
 	get referencedAddresses() {
 		return getTemporalSightingReferencedAddresses(this.event)
+	}
+
+	/** NIP-92 imeta attachments (SPEC §6.1); first = primary. */
+	get images() {
+		return getTemporalSightingImages(this.event)
+	}
+
+	/** The primary image shown in the map pin bubble, if any. */
+	get primaryImage() {
+		return getTemporalSightingPrimaryImage(this.event)
 	}
 
 	rawEvent() {

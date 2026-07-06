@@ -16,6 +16,7 @@ import {
 	getLiveBeaconGeohash,
 	getLiveBeaconHashtags,
 	getLiveBeaconId,
+	getLiveBeaconImages,
 	getLiveBeaconLabels,
 	getLiveBeaconReferencedAddresses,
 	isLiveBeacon,
@@ -87,6 +88,11 @@ export class LiveBeacon extends EventCast<LiveBeaconEvent> {
 	}
 	get referencedAddresses() {
 		return getLiveBeaconReferencedAddresses(this.event)
+	}
+
+	/** NIP-92 imeta attachments (SPEC §5.1) — inspect-view evidence, not the pin. */
+	get images() {
+		return getLiveBeaconImages(this.event)
 	}
 
 	rawEvent() {
