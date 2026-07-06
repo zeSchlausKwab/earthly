@@ -54,7 +54,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useEditorStore, type MapLayerState } from '../store'
 
 type MapSourceType = 'default' | 'pmtiles' | 'blossom'
-type SettingsTab = 'profile' | 'relays' | 'chat' | 'sessions'
+type SettingsTab = 'map' | 'profile' | 'relays' | 'chat' | 'sessions'
 type MapSettingsPanelMode = 'full' | 'map-only'
 
 interface ProfileDraft {
@@ -178,9 +178,10 @@ function ProfileSettingsSection() {
 			const signed = await EventFactory.fromKind(0)
 				.content(JSON.stringify(nextProfile))
 				.sign(signer)
+			// publish() adds the event to the EventStore optimistically, so the
+			// reactive use$ profile read above refreshes on its own.
 			await publish(signed, { routing: 'outbox' })
 
-			setLoadedProfile(nextProfile)
 			setDraft(createProfileDraft(nextProfile))
 			setHasLocalEdits(false)
 			toast.success('Profile saved')
@@ -493,152 +494,153 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 				</div>
 			</div>
 
-			{mode === 'map-only' && (
-				<>
+			{/* Map source + basemap + overlay layers render in BOTH modes: the
+			    desktop toolbar popover (map-only) and the full settings' Map tab —
+			    the mobile sheet's only path to these controls. */}
+			<>
+				<div className="space-y-2">
+					<Label>Map Source</Label>
+					<Select value={mapSource.type} onValueChange={handleSourceTypeChange}>
+						<SelectTrigger>
+							<SelectValue placeholder="Select source" />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="default">Default (OpenFreeMap)</SelectItem>
+							<SelectItem value="pmtiles">Protomaps (PMTiles)</SelectItem>
+							<SelectItem value="blossom">Blossom Map Discovery</SelectItem>
+						</SelectContent>
+					</Select>
+				</div>
+
+				{mapSource.type === 'default' && (
 					<div className="space-y-2">
-						<Label>Map Source</Label>
-						<Select value={mapSource.type} onValueChange={handleSourceTypeChange}>
+						<Label>Basemap style</Label>
+						<Select
+							value={basemapStyle}
+							onValueChange={(value) =>
+								setBasemapStyle(value as (typeof BASEMAP_STYLE_OPTIONS)[number]['id'])
+							}
+						>
 							<SelectTrigger>
-								<SelectValue placeholder="Select source" />
+								<SelectValue placeholder="Select basemap style" />
 							</SelectTrigger>
 							<SelectContent>
-								<SelectItem value="default">Default (OpenFreeMap)</SelectItem>
-								<SelectItem value="pmtiles">Protomaps (PMTiles)</SelectItem>
-								<SelectItem value="blossom">Blossom Map Discovery</SelectItem>
+								{BASEMAP_STYLE_OPTIONS.map((option) => (
+									<SelectItem key={option.id} value={option.id}>
+										{option.label}
+										{option.hint ? (
+											<span className="ml-1.5 font-mono text-[10px] text-muted-foreground">
+												{option.hint}
+											</span>
+										) : null}
+									</SelectItem>
+								))}
 							</SelectContent>
 						</Select>
+						<p className="text-xs text-muted-foreground">
+							<span className="font-mono">Auto</span> follows the app theme — Positron in light,
+							Dark in dark. Pin a style to keep it regardless of theme.
+						</p>
 					</div>
+				)}
 
-					{mapSource.type === 'default' && (
+				{mapSource.type === 'pmtiles' && (
+					<>
 						<div className="space-y-2">
-							<Label>Basemap style</Label>
-							<Select
-								value={basemapStyle}
-								onValueChange={(value) =>
-									setBasemapStyle(value as (typeof BASEMAP_STYLE_OPTIONS)[number]['id'])
-								}
-							>
+							<Label>Location</Label>
+							<Select value={mapSource.location} onValueChange={handleLocationChange}>
 								<SelectTrigger>
-									<SelectValue placeholder="Select basemap style" />
+									<SelectValue placeholder="Select location" />
 								</SelectTrigger>
 								<SelectContent>
-									{BASEMAP_STYLE_OPTIONS.map((option) => (
-										<SelectItem key={option.id} value={option.id}>
-											{option.label}
-											{option.hint ? (
-												<span className="ml-1.5 font-mono text-[10px] text-muted-foreground">
-													{option.hint}
-												</span>
-											) : null}
-										</SelectItem>
-									))}
+									<SelectItem value="remote">Remote URL</SelectItem>
+									<SelectItem value="local">Local File</SelectItem>
 								</SelectContent>
 							</Select>
-							<p className="text-xs text-muted-foreground">
-								<span className="font-mono">Auto</span> follows the app theme — Positron in light,
-								Dark in dark. Pin a style to keep it regardless of theme.
-							</p>
 						</div>
-					)}
 
-					{mapSource.type === 'pmtiles' && (
-						<>
+						{mapSource.location === 'remote' ? (
 							<div className="space-y-2">
-								<Label>Location</Label>
-								<Select value={mapSource.location} onValueChange={handleLocationChange}>
-									<SelectTrigger>
-										<SelectValue placeholder="Select location" />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="remote">Remote URL</SelectItem>
-										<SelectItem value="local">Local File</SelectItem>
-									</SelectContent>
-								</Select>
-							</div>
-
-							{mapSource.location === 'remote' ? (
-								<div className="space-y-2">
-									<Label>URL</Label>
-									<div className="flex gap-2">
-										<Input
-											value={mapSource.url || ''}
-											onChange={handleUrlChange}
-											placeholder="https://example.com/map.pmtiles"
-											className="flex-1"
-										/>
-										{mapSource.url && (
-											<Button
-												variant="outline"
-												size="icon"
-												onClick={() => {
-													if (!mapSource.url) return
-													const url = mapSource.url
-													const filename = url.split('/').pop() || 'map.pmtiles'
-													const a = document.createElement('a')
-													a.href = url
-													a.download = filename
-													a.target = '_blank'
-													document.body.appendChild(a)
-													a.click()
-													document.body.removeChild(a)
-												}}
-												title="Download for offline use"
-											>
-												<Download className="h-4 w-4" />
-											</Button>
-										)}
-									</div>
-									<p className="text-xs text-muted-foreground">
-										Enter the URL to a remote PMTiles file.
-									</p>
-								</div>
-							) : (
-								<div className="space-y-2">
-									<Label>File</Label>
-									<div className="flex gap-2">
+								<Label>URL</Label>
+								<div className="flex gap-2">
+									<Input
+										value={mapSource.url || ''}
+										onChange={handleUrlChange}
+										placeholder="https://example.com/map.pmtiles"
+										className="flex-1"
+									/>
+									{mapSource.url && (
 										<Button
 											variant="outline"
-											className="w-full"
-											onClick={() => fileInputRef.current?.click()}
+											size="icon"
+											onClick={() => {
+												if (!mapSource.url) return
+												const url = mapSource.url
+												const filename = url.split('/').pop() || 'map.pmtiles'
+												const a = document.createElement('a')
+												a.href = url
+												a.download = filename
+												a.target = '_blank'
+												document.body.appendChild(a)
+												a.click()
+												document.body.removeChild(a)
+											}}
+											title="Download for offline use"
 										>
-											{mapSource.file ? mapSource.file.name : 'Select File'}
+											<Download className="h-4 w-4" />
 										</Button>
-										<Input
-											type="file"
-											ref={fileInputRef}
-											className="hidden"
-											accept=".pmtiles"
-											onChange={handleFileChange}
-										/>
-									</div>
-									<p className="text-xs text-muted-foreground">
-										Select a local `.pmtiles` file from your device.
-									</p>
+									)}
 								</div>
-							)}
-
-							<div className="flex items-center gap-2 pt-2">
-								<Checkbox
-									id="bounds-lock"
-									checked={mapSource.boundsLocked ?? true}
-									onCheckedChange={(checked: boolean | 'indeterminate') =>
-										setMapSource({
-											...mapSource,
-											boundsLocked: checked === true,
-										})
-									}
-								/>
-								<label htmlFor="bounds-lock" className="text-sm cursor-pointer">
-									Lock to map bounds
-								</label>
+								<p className="text-xs text-muted-foreground">
+									Enter the URL to a remote PMTiles file.
+								</p>
 							</div>
-							<p className="text-xs text-muted-foreground">
-								Prevents zooming and panning beyond the PMTiles extent.
-							</p>
-						</>
-					)}
-				</>
-			)}
+						) : (
+							<div className="space-y-2">
+								<Label>File</Label>
+								<div className="flex gap-2">
+									<Button
+										variant="outline"
+										className="w-full"
+										onClick={() => fileInputRef.current?.click()}
+									>
+										{mapSource.file ? mapSource.file.name : 'Select File'}
+									</Button>
+									<Input
+										type="file"
+										ref={fileInputRef}
+										className="hidden"
+										accept=".pmtiles"
+										onChange={handleFileChange}
+									/>
+								</div>
+								<p className="text-xs text-muted-foreground">
+									Select a local `.pmtiles` file from your device.
+								</p>
+							</div>
+						)}
+
+						<div className="flex items-center gap-2 pt-2">
+							<Checkbox
+								id="bounds-lock"
+								checked={mapSource.boundsLocked ?? true}
+								onCheckedChange={(checked: boolean | 'indeterminate') =>
+									setMapSource({
+										...mapSource,
+										boundsLocked: checked === true,
+									})
+								}
+							/>
+							<label htmlFor="bounds-lock" className="text-sm cursor-pointer">
+								Lock to map bounds
+							</label>
+						</div>
+						<p className="text-xs text-muted-foreground">
+							Prevents zooming and panning beyond the PMTiles extent.
+						</p>
+					</>
+				)}
+			</>
 
 			{mapSource.type === 'blossom' && (
 				<>
@@ -784,7 +786,10 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 			onValueChange={(value) => setActiveTab(value as SettingsTab)}
 			className="space-y-4"
 		>
-			<TabsList className="grid h-auto w-full grid-cols-2 rounded-none bg-muted p-1 sm:grid-cols-4">
+			<TabsList className="grid h-auto w-full grid-cols-3 rounded-none bg-muted p-1 sm:grid-cols-5">
+				<TabsTrigger value="map" className="rounded-none px-3 py-2 text-xs sm:text-sm">
+					Map
+				</TabsTrigger>
 				<TabsTrigger value="profile" className="rounded-none px-3 py-2 text-xs sm:text-sm">
 					Profile
 				</TabsTrigger>
@@ -798,6 +803,15 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 					Sessions
 				</TabsTrigger>
 			</TabsList>
+
+			<TabsContent value="map" className="mt-0">
+				<SettingsShell
+					title="Map"
+					description="Map source, basemap style, point clustering, and overlay layers."
+				>
+					{mapSettingsContent}
+				</SettingsShell>
+			</TabsContent>
 
 			<TabsContent value="profile" className="mt-0">
 				<ProfileSettingsSection />
