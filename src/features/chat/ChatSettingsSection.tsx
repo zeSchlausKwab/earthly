@@ -73,6 +73,7 @@ export function ChatSettingsSection() {
 		setSelectedModel,
 		setToolsEnabled,
 		requestSettingsReload,
+		cancelStream,
 	} = useChatStore()
 	const selectedProviderOption = PROVIDER_OPTIONS.find((option) => option.value === provider)
 	const [modelPickerOpen, setModelPickerOpen] = useState(false)
@@ -197,10 +198,16 @@ export function ChatSettingsSection() {
 
 			<div className="space-y-2">
 				<Label>Provider</Label>
+				{/* NOT disabled while streaming: a stuck isStreaming flag would lock the
+				    user out of their own settings with no visual cue (Radix disabled
+				    selects look normal but swallow clicks). Switching provider cancels
+				    any in-flight response instead — same recovery contract as New chat. */}
 				<Select
 					value={provider}
-					onValueChange={(value) => setProvider(value as ProviderType)}
-					disabled={isStreaming}
+					onValueChange={(value) => {
+						if (isStreaming) cancelStream()
+						setProvider(value as ProviderType)
+					}}
 				>
 					<SelectTrigger>
 						<span className="flex min-w-0 items-center gap-2">
@@ -229,7 +236,6 @@ export function ChatSettingsSection() {
 							placeholder="http://localhost:1234/v1"
 							value={providerOverrides.lmstudio.baseUrl}
 							onChange={(event) => setProviderOverride('lmstudio', { baseUrl: event.target.value })}
-							disabled={isStreaming}
 						/>
 						<p className="text-xs text-muted-foreground">
 							Leave empty to use the default http://localhost:1234/v1.
@@ -243,7 +249,6 @@ export function ChatSettingsSection() {
 							type="password"
 							value={providerOverrides.lmstudio.apiKey}
 							onChange={(event) => setProviderOverride('lmstudio', { apiKey: event.target.value })}
-							disabled={isStreaming}
 						/>
 					</div>
 				</div>
@@ -257,7 +262,6 @@ export function ChatSettingsSection() {
 							placeholder="http://localhost:11434/v1"
 							value={providerOverrides.ollama.baseUrl}
 							onChange={(event) => setProviderOverride('ollama', { baseUrl: event.target.value })}
-							disabled={isStreaming}
 						/>
 						<p className="text-xs text-muted-foreground">
 							Leave empty to use the default http://localhost:11434/v1.
@@ -271,7 +275,6 @@ export function ChatSettingsSection() {
 							type="password"
 							value={providerOverrides.ollama.apiKey}
 							onChange={(event) => setProviderOverride('ollama', { apiKey: event.target.value })}
-							disabled={isStreaming}
 						/>
 					</div>
 				</div>
@@ -285,7 +288,6 @@ export function ChatSettingsSection() {
 							placeholder="http://localhost:8080/v1"
 							value={providerOverrides.custom.baseUrl}
 							onChange={(event) => setProviderOverride('custom', { baseUrl: event.target.value })}
-							disabled={isStreaming}
 						/>
 					</div>
 
@@ -296,14 +298,13 @@ export function ChatSettingsSection() {
 							type="password"
 							value={providerOverrides.custom.apiKey}
 							onChange={(event) => setProviderOverride('custom', { apiKey: event.target.value })}
-							disabled={isStreaming}
 						/>
 					</div>
 
 					<Button
 						variant="outline"
 						onClick={() => void loadModels()}
-						disabled={!providerOverrides.custom.baseUrl || isStreaming || modelsLoading}
+						disabled={!providerOverrides.custom.baseUrl || modelsLoading}
 						className="w-full"
 					>
 						{modelsLoading ? 'Connecting...' : 'Connect custom endpoint'}
@@ -483,9 +484,7 @@ export function ChatSettingsSection() {
 							<p className="font-medium text-destructive">
 								Decryption failed — your saved settings could not be loaded.
 							</p>
-							{settingsError ? (
-								<p className="mt-1 text-destructive/90">{settingsError}</p>
-							) : null}
+							{settingsError ? <p className="mt-1 text-destructive/90">{settingsError}</p> : null}
 							<Button
 								type="button"
 								variant="outline"
@@ -510,8 +509,8 @@ export function ChatSettingsSection() {
 					<div className="flex items-start gap-2">
 						<Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 						<p>
-							Changes are saved for the active Nostr account and restored automatically when the
-							app starts.
+							Changes are saved for the active Nostr account and restored automatically when the app
+							starts.
 						</p>
 					</div>
 				</div>

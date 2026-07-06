@@ -339,21 +339,24 @@ export function ChatPanel({
 		updateWorkspace(activeWorkspaceId, { chatSessionId: chatId })
 	}
 
+	// No isStreaming guards here: the store actions are the recovery path for a
+	// stuck/runaway stream — createChat/switchChat cancel any in-flight run, and
+	// deleteChat aborts the active chat's stream (and safely no-ops when a
+	// DIFFERENT chat is streaming). Guarding them re-created the lockout the
+	// store actions were written to break.
 	const handleCreateChat = () => {
-		if (isStreaming) return
 		createChat()
 		const nextChatId = useChatStore.getState().activeChatId
 		bindActiveWorkspaceChat(nextChatId)
 	}
 
 	const handleSwitchChat = (chatId: string) => {
-		if (isStreaming) return
 		switchChat(chatId)
 		bindActiveWorkspaceChat(chatId)
 	}
 
 	const handleDeleteChat = () => {
-		if (!activeChatId || isStreaming) return
+		if (!activeChatId) return
 		deleteChat(activeChatId)
 		bindActiveWorkspaceChat(useChatStore.getState().activeChatId)
 	}
@@ -538,15 +541,15 @@ export function ChatPanel({
 						size="sm"
 						className="h-8 text-xs"
 						onClick={handleCreateChat}
-						disabled={isStreaming}
 					>
 						New chat
 					</Button>
-					<Select
-						value={activeChatId ?? ''}
-						onValueChange={handleSwitchChat}
-						disabled={isStreaming}
-					>
+					{/* Deliberately NOT disabled while streaming: createChat/switchChat
+					    cancel any in-flight (or stuck/runaway) stream themselves — these
+					    controls ARE the recovery path. Hard-disabling them locked users
+					    out whenever isStreaming got pinned, with no visual cue (a Radix
+					    disabled select looks normal but swallows clicks). */}
+					<Select value={activeChatId ?? ''} onValueChange={handleSwitchChat}>
 						<SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
 							{activeChatSession ? (
 								<div className="flex min-w-0 items-center gap-2">
@@ -590,7 +593,7 @@ export function ChatPanel({
 						variant="ghost"
 						size="icon"
 						onClick={handleDeleteChat}
-						disabled={!activeChatId || isStreaming}
+						disabled={!activeChatId}
 						title="Delete chat"
 					>
 						<Trash2 className="h-4 w-4" />
