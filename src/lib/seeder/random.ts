@@ -10,11 +10,16 @@ import type { BoundingBox } from './geo/bbox'
 export function rand(): number {
 	const buf = new Uint32Array(1)
 	crypto.getRandomValues(buf)
-	return buf[0] / 0x100000000
+	return (buf[0] ?? 0) / 0x100000000
 }
 
 export function pick<T>(arr: readonly T[]): T {
-	return arr[Math.floor(rand() * arr.length)]
+	return arr[Math.floor(rand() * arr.length)] as T
+}
+
+/** Element at `i % arr.length` — safe round-robin over a non-empty roster. */
+export function nth<T>(arr: readonly T[], i: number): T {
+	return arr[((i % arr.length) + arr.length) % arr.length] as T
 }
 
 // ── Vienna ────────────────────────────────────────────────────────────────────
