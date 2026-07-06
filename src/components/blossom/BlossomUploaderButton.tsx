@@ -52,6 +52,7 @@ import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { downscaleImageToLimit } from '@/lib/blossom/downscaleImage'
 import { accounts, eventStore } from '@/lib/nostr'
 import { cn } from '@/lib/utils'
 
@@ -382,9 +383,21 @@ export function BlossomUploaderButton({
 				throw new Error('No Blossom server available.')
 			}
 
+			// blossom.earthly.city caps uploads at ~1 MB — downscale images in
+			// the browser when the default server is among the targets (SPEC §7.3).
+			// Must happen before auth: the upload auth binds to the file hash.
+			let uploadFile = selectedFile
+			const normalizedDefault = normalizeServerUrl(defaultServer)
+			if (targets.some((server) => normalizeServerUrl(server) === normalizedDefault)) {
+				uploadFile = await downscaleImageToLimit(selectedFile)
+				if (uploadFile !== selectedFile) {
+					toast.info(`Image downscaled to ${(uploadFile.size / 1024).toFixed(0)} kB for upload`)
+				}
+			}
+
 			setUploadProgress(20)
-			const auth = await createUploadAuth(makeBlossomSigner(), selectedFile, {
-				message: `Upload ${selectedFile.name}`,
+			const auth = await createUploadAuth(makeBlossomSigner(), uploadFile, {
+				message: `Upload ${uploadFile.name}`,
 				expiration: Math.floor(Date.now() / 1000) + 5 * 60,
 			})
 			setUploadProgress(40)
@@ -393,7 +406,7 @@ export function BlossomUploaderButton({
 			let descriptor: BlobDescriptor | null = null
 			for (const server of targets) {
 				try {
-					descriptor = await uploadBlob(server, selectedFile, { auth })
+					descriptor = await uploadBlob(server, uploadFile, { auth })
 					break
 				} catch (err) {
 					lastError = err
@@ -404,7 +417,7 @@ export function BlossomUploaderButton({
 			}
 			setUploadProgress(100)
 
-			const result = descriptorToResult(descriptor, 'upload', selectedFile.name)
+			const result = descriptorToResult(descriptor, 'upload', uploadFile.name)
 			onUploaded(result)
 			toast.success('Uploaded to Blossom', { description: result.url })
 			closeDialog()
