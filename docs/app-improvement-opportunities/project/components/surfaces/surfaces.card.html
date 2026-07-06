@@ -1,0 +1,39 @@
+<!-- @dsCard group="Components" viewport="700x340" subtitle="Framed panel: header · list body · footer" name="Panel" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+  body{margin:0;padding:18px;background:var(--surface-app);font-family:var(--font-ui);display:flex;gap:18px}
+  .panel{width:300px;background:var(--surface-panel);border:1px solid var(--border-strong);border-radius:3px;overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--shadow-panel)}
+  .hd{height:32px;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid var(--border-hairline)}
+  .hd .ic{color:var(--accent-active-text);display:inline-flex}
+  .hd .tt{font-size:12.5px;font-weight:600;color:var(--text-primary)}
+  .hd .mt{font-family:var(--font-mono);font-size:9px;color:var(--text-faint);margin-left:auto}
+  .hd .ac{width:22px;height:22px;border:1px solid var(--border-strong);border-radius:2px;background:var(--surface-raised);display:flex;align-items:center;justify-content:center;color:var(--text-muted)}
+  .row{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border-bottom:1px solid var(--border-hairline);box-sizing:border-box}
+  .row.sel{border-left:2px solid var(--accent-active);padding-left:6px;background:var(--fill-active-14)}
+  .dot{width:8px;height:8px;border-radius:1px;flex-shrink:0}
+  .row .t{flex:1;font-size:12px;color:var(--text-body)}
+  .row.sel .t{color:var(--text-primary);font-weight:600}
+  .row .mt{font-family:var(--font-mono);font-size:9px;color:var(--text-faint)}
+  .ft{border-top:1px solid var(--border-hairline);padding:6px;display:flex;gap:6px}
+  .btn{flex:1;height:26px;border-radius:2px;font-size:12px;font-weight:600;border:none;cursor:pointer}
+  .btn.sec{background:var(--surface-raised);color:var(--text-body);border:1px solid var(--border-strong)}
+  .btn.pri{background:var(--accent-active);color:var(--accent-ink)}
+  svg{width:14px;height:14px}
+</style></head><body>
+  <div class="panel">
+    <div class="hd">
+      <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></span>
+      <span class="tt">Sightings</span>
+      <span class="mt">8 nearby</span>
+      <span class="ac"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><path d="M5 12h14M12 5v14"/></svg></span>
+    </div>
+    <div style="flex:1">
+      <div class="row sel"><span class="dot" style="background:var(--accent-ok)"></span><span class="t">A heron by the lake</span><span class="mt">live</span></div>
+      <div class="row"><span class="dot" style="background:var(--accent-info)"></span><span class="t">Cherry blossom</span><span class="mt">2h</span></div>
+      <div class="row"><span class="dot" style="background:var(--accent-info)"></span><span class="t">Fox den entrance</span><span class="mt">5h</span></div>
+      <div class="row"><span class="dot" style="background:var(--accent-info)"></span><span class="t">Street musician</span><span class="mt">6h</span></div>
+    </div>
+    <div class="ft"><button class="btn sec">Filter</button><button class="btn pri">New sighting</button></div>
+  </div>
+  <div style="align-self:center;font-family:var(--font-mono);font-size:10px;color:var(--text-faint);max-width:180px;line-height:1.6">Panel = header (icon·title·meta·actions) + body + footer. <br><br>floating adds shadow-panel; docked = border only.</div>
+</body></html>

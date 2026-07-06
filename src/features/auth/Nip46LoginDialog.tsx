@@ -1,4 +1,5 @@
-import NDK, { NDKEvent, NDKKind, NDKNip46Signer, NDKPrivateKeySigner } from '@nostr-dev-kit/react'
+import { NostrConnectAccount } from 'applesauce-accounts/accounts'
+import { NostrConnectSigner, PrivateKeySigner } from 'applesauce-signers'
 import { Scanner } from '@yudiel/react-qr-scanner'
 import { Loader2, QrCode } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
@@ -22,15 +23,16 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from '@/components/ui/select'
+import { allowRelays, loginWithAccount } from '@/lib/nostr'
 
 interface Nip46LoginDialogProps {
 	trigger: React.ReactNode
-	onLogin: (signer: NDKNip46Signer, rememberMe: boolean) => Promise<void>
+	/** Called after the account is successfully added and made active. */
+	onSuccess?: () => void
 }
 
 type TabType = 'scan' | 'paste'
 
-// Common NIP-46 relays
 const DEFAULT_RELAYS = [
 	{ value: 'wss://relay.earthly.city', label: 'relay.earthly.city' },
 	{ value: 'wss://relay.nsec.app', label: 'relay.nsec.app' },
@@ -39,20 +41,26 @@ const DEFAULT_RELAYS = [
 	{ value: 'wss://relay.primal.net', label: 'relay.primal.net' },
 ]
 
+const APP_METADATA = {
+	name: 'Earthly City',
+	url: typeof window !== 'undefined' ? window.location.origin : 'https://earthly.city',
+	permissions: NostrConnectSigner.buildSigningPermissions([0, 1, 3, 10002]),
+}
+
 type ConnectionState = 'idle' | 'generating' | 'waiting' | 'connected' | 'error'
 
-export function Nip46LoginDialog({ trigger, onLogin }: Nip46LoginDialogProps) {
+export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) {
 	const [open, setOpen] = useState(false)
 	const [activeTab, setActiveTab] = useState<TabType>('scan')
 
-	// Simplified state management
 	const [state, setState] = useState<ConnectionState>('idle')
 	const [error, setError] = useState<string | null>(null)
-	const [selectedRelay, setSelectedRelay] = useState(DEFAULT_RELAYS[0].value)
+	const [selectedRelay, setSelectedRelay] = useState(DEFAULT_RELAYS[0]!.value)
 
-	// Scan tab state
+	// Scan tab state — the URI we display + the signer we're awaiting on
 	const [connectionUri, setConnectionUri] = useState('')
-	const [localSigner, setLocalSigner] = useState<NDKPrivateKeySigner | null>(null)
+	const signerRef = useRef<NostrConnectSigner | null>(null)
+	const abortRef = useRef<AbortController | null>(null)
 
 	// Paste tab state
 	const [bunkerUrl, setBunkerUrl] = useState('')
@@ -60,31 +68,13 @@ export function Nip46LoginDialog({ trigger, onLogin }: Nip46LoginDialogProps) {
 	const [scanError, setScanError] = useState<string | null>(null)
 	const [rememberMe, setRememberMe] = useState(true)
 
-	// Refs for cleanup
-	const ndkRef = useRef<NDK | null>(null)
-	const subscriptionRef = useRef<any>(null)
-	const secretRef = useRef<string>('')
-	const isProcessingRef = useRef(false)
-
-	// Cleanup function
 	const cleanup = useCallback(() => {
-		isProcessingRef.current = false
-
-		if (subscriptionRef.current) {
-			try {
-				subscriptionRef.current.stop()
-			} catch (e) {
-				console.error('Error stopping subscription:', e)
-			}
-			subscriptionRef.current = null
-		}
-
-		if (ndkRef.current) {
-			ndkRef.current = null
-		}
+		abortRef.current?.abort()
+		abortRef.current = null
+		signerRef.current?.close().catch(() => {})
+		signerRef.current = null
 	}, [])
 
-	// Reset all state when dialog closes
 	const handleOpenChange = (isOpen: boolean) => {
 		setOpen(isOpen)
 		if (!isOpen) {
@@ -92,20 +82,16 @@ export function Nip46LoginDialog({ trigger, onLogin }: Nip46LoginDialogProps) {
 			setState('idle')
 			setError(null)
 			setConnectionUri('')
-			setLocalSigner(null)
 			setBunkerUrl('')
 			setShowScanner(false)
 			setScanError(null)
-			secretRef.current = ''
 			setRememberMe(true)
 		}
 	}
 
-	// Reset connection when relay changes
 	const handleRelayChange = (relay: string) => {
 		setSelectedRelay(relay)
 		if (activeTab === 'scan' && connectionUri) {
-			// Reset connection to regenerate with new relay
 			cleanup()
 			setConnectionUri('')
 			setState('idle')
@@ -113,140 +99,63 @@ export function Nip46LoginDialog({ trigger, onLogin }: Nip46LoginDialogProps) {
 		}
 	}
 
-	// Initialize connection for scan tab
+	// Drives the scan tab: spin up a NostrConnectSigner, show its URI,
+	// wait for the remote to ping back, then create an account.
 	useEffect(() => {
 		if (!open || activeTab !== 'scan' || connectionUri) return
 
-		const initConnection = async () => {
+		let cancelled = false
+		const run = async () => {
 			setState('generating')
 			setError(null)
 
 			try {
-				// Generate local keypair
-				const signer = NDKPrivateKeySigner.generate()
-				const user = await signer.user()
-				secretRef.current = Math.random().toString(36).substring(2, 15)
-
-				// Build nostrconnect URI
-				const params = new URLSearchParams({
-					relay: selectedRelay,
-					metadata: JSON.stringify({
-						name: 'Earthly City',
-						description: 'Connect with Earthly City',
-						url: window.location.origin,
-					}),
-					token: secretRef.current,
+				// NIP-46 relays are signer transport, not content — vouch for them
+				// with the dev pool guard so bunker login works under relay isolation.
+				allowRelays([selectedRelay])
+				const localSigner = new PrivateKeySigner()
+				const ncSigner = new NostrConnectSigner({
+					relays: [selectedRelay],
+					signer: localSigner,
 				})
+				signerRef.current = ncSigner
 
-				const uri = `nostrconnect://${user.pubkey}?${params.toString()}`
-
-				setLocalSigner(signer)
+				const uri = ncSigner.getNostrConnectURI(APP_METADATA)
+				if (cancelled) return
 				setConnectionUri(uri)
 				setState('waiting')
 
-				// Start listening for connection
-				await startListening(signer, user.pubkey, selectedRelay)
+				const abort = new AbortController()
+				abortRef.current = abort
+
+				await ncSigner.waitForSigner(abort.signal)
+				if (cancelled) return
+
+				const pubkey = await ncSigner.getPublicKey()
+				const account = new NostrConnectAccount(pubkey, ncSigner)
+				loginWithAccount(account, { remember: rememberMe })
+
+				setState('connected')
+				onSuccess?.()
+				setOpen(false)
+				handleOpenChange(false)
 			} catch (err) {
-				console.error('Failed to initialize connection:', err)
+				if (cancelled) return
+				console.error('NIP-46 connect failed', err)
 				setState('error')
-				setError(err instanceof Error ? err.message : 'Failed to initialize')
+				setError(err instanceof Error ? err.message : 'Connection failed')
 			}
 		}
 
-		initConnection()
+		run()
+		return () => {
+			cancelled = true
+		}
+		// rememberMe intentionally omitted — flipping it after the fact shouldn't
+		// re-trigger the connection, just affect the next add
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [open, activeTab, connectionUri, selectedRelay])
 
-	// Listen for NIP-46 connection requests
-	const startListening = async (signer: NDKPrivateKeySigner, pubkey: string, relay: string) => {
-		cleanup() // Clean up any existing connection
-
-		const ndk = new NDK({ explicitRelayUrls: [relay] })
-		ndkRef.current = ndk
-
-		try {
-			await ndk.connect()
-		} catch (error) {
-			console.error('Failed to connect to relay:', error)
-			setState('error')
-			setError(`Failed to connect to ${relay}`)
-			return
-		}
-
-		const processedIds = new Set<string>()
-
-		const sub = ndk.subscribe(
-			{ kinds: [NDKKind.NostrConnect], '#p': [pubkey] },
-			{ closeOnEose: false },
-		)
-
-		subscriptionRef.current = sub
-
-		sub.on('event', async (event: NDKEvent) => {
-			if (isProcessingRef.current || processedIds.has(event.id)) return
-
-			try {
-				await event.decrypt(undefined, signer)
-				const request = JSON.parse(event.content)
-
-				// Handle connect request
-				if (request.method === 'connect' && request.params?.token === secretRef.current) {
-					if (request.id) processedIds.add(request.id)
-
-					// Send approval
-					const response = new NDKEvent(ndk)
-					response.kind = NDKKind.NostrConnect
-					response.tags = [['p', event.pubkey]]
-					response.content = JSON.stringify({
-						id: request.id,
-						result: secretRef.current,
-					})
-
-					await response.sign(signer)
-					// @ts-expect-error - NDK type mismatch
-					await response.encrypt(undefined, signer, event.pubkey)
-					await response.publish()
-				}
-				// Handle ack - connection successful
-				else if (request.result === 'ack') {
-					if (processedIds.has(event.id)) return
-					processedIds.add(event.id)
-
-					isProcessingRef.current = true
-					setState('connected')
-
-					// Build bunker URL and create signer
-					const bunkerUrl = `bunker://${event.pubkey}?relay=${relay}&secret=${secretRef.current}`
-
-					const loginNdk = new NDK({ explicitRelayUrls: [relay] })
-					await loginNdk.connect()
-
-					const nip46Signer = NDKNip46Signer.bunker(loginNdk, bunkerUrl, signer)
-					await nip46Signer.blockUntilReady()
-
-					await onLogin(nip46Signer, rememberMe)
-
-					cleanup()
-					setOpen(false)
-				}
-			} catch (error) {
-				console.error('Failed to process NIP-46 event:', error)
-				setState('error')
-				setError(error instanceof Error ? error.message : 'Connection failed')
-				isProcessingRef.current = false
-			}
-		})
-
-		// 5 minute timeout
-		setTimeout(() => {
-			if (state === 'waiting') {
-				cleanup()
-				setState('error')
-				setError('Connection timed out. Please try again.')
-			}
-		}, 300000)
-	}
-
-	// Handle paste tab login
 	const handlePasteLogin = async () => {
 		if (!bunkerUrl.trim()) {
 			setError('Please enter a bunker URL')
@@ -257,61 +166,54 @@ export function Nip46LoginDialog({ trigger, onLogin }: Nip46LoginDialogProps) {
 		setError(null)
 
 		try {
-			// Extract relay from bunker URL or use selected relay
-			const url = new URL(bunkerUrl)
-			const relayParam = url.searchParams.get('relay')
-			const relay = relayParam || selectedRelay
-
-			// Create local signer if needed
-			let signer = localSigner
-			if (!signer) {
-				signer = NDKPrivateKeySigner.generate()
-				setLocalSigner(signer)
+			// Vouch for the bunker's relays with the dev pool guard (signer
+			// transport, not content).
+			try {
+				const parsed = new URL(bunkerUrl)
+				allowRelays(parsed.searchParams.getAll('relay'))
+			} catch {
+				// Malformed URL — fromBunkerURI below will produce the user-facing error.
 			}
+			const ncSigner = await NostrConnectSigner.fromBunkerURI(bunkerUrl, {
+				permissions: APP_METADATA.permissions,
+			})
+			const pubkey = await ncSigner.getPublicKey()
+			const account = new NostrConnectAccount(pubkey, ncSigner)
+			loginWithAccount(account, { remember: rememberMe })
 
-			const ndk = new NDK({ explicitRelayUrls: [relay] })
-			await ndk.connect()
-
-			const nip46Signer = NDKNip46Signer.bunker(ndk, bunkerUrl, signer)
-			await nip46Signer.blockUntilReady()
-
-			await onLogin(nip46Signer, rememberMe)
+			setState('connected')
+			onSuccess?.()
 			setOpen(false)
-		} catch (err: any) {
-			console.error('NIP-46 login failed:', err)
+		} catch (err) {
+			console.error('Bunker connect failed', err)
 			setState('error')
-			setError(err.message || 'Failed to connect with bunker URL')
+			setError(err instanceof Error ? err.message : 'Failed to connect with bunker URL')
 		}
 	}
 
-	// QR Scanner handlers
 	const handleScanQR = () => {
 		setShowScanner(true)
 		setScanError(null)
 	}
 
-	const handleScan = useCallback((detectedCodes: any[]) => {
-		if (detectedCodes && detectedCodes.length > 0) {
-			const result = detectedCodes[0].rawValue
-			if (result && result.startsWith('bunker://')) {
-				setBunkerUrl(result)
-				setError(null)
-				setShowScanner(false)
-			} else if (result) {
-				setScanError('The scanned code is not a valid bunker:// URI')
-			}
+	const handleScan = useCallback((detectedCodes: { rawValue?: string }[]) => {
+		if (!detectedCodes?.length) return
+		const result = detectedCodes[0]?.rawValue
+		if (result?.startsWith('bunker://')) {
+			setBunkerUrl(result)
+			setError(null)
+			setShowScanner(false)
+		} else if (result) {
+			setScanError('The scanned code is not a valid bunker:// URI')
 		}
 	}, [])
 
-	const handleScanError = useCallback((err: any) => {
+	const handleScanError = useCallback((err: unknown) => {
 		console.error(err)
-		setScanError('Error accessing camera: ' + (err.message || 'Unknown error'))
+		setScanError(`Error accessing camera: ${err instanceof Error ? err.message : 'Unknown error'}`)
 	}, [])
 
-	// Cleanup on unmount
-	useEffect(() => {
-		return () => cleanup()
-	}, [cleanup])
+	useEffect(() => () => cleanup(), [cleanup])
 
 	return (
 		<Dialog open={open} onOpenChange={handleOpenChange}>
@@ -319,11 +221,10 @@ export function Nip46LoginDialog({ trigger, onLogin }: Nip46LoginDialogProps) {
 			<DialogContent className="sm:max-w-md">
 				<DialogHeader>
 					<DialogTitle>Connect with Remote Signer</DialogTitle>
-					<DialogDescription>Use a remote signer app like Amber or nsecBunker</DialogDescription>
+					<DialogDescription>Use a remote signer app like Amber or nsec.app</DialogDescription>
 				</DialogHeader>
 
 				<div className="space-y-4">
-					{/* Relay Selection */}
 					<div className="space-y-2">
 						<Label htmlFor="relay">NIP-46 Relay</Label>
 						<Select value={selectedRelay} onValueChange={handleRelayChange}>
@@ -339,19 +240,19 @@ export function Nip46LoginDialog({ trigger, onLogin }: Nip46LoginDialogProps) {
 							</SelectContent>
 						</Select>
 						<p className="text-xs text-muted-foreground">
-							Choose the relay for NIP-46 connection. Your remote signer should use the same relay.
+							Choose the relay for the NIP-46 connection. Your remote signer should use the same
+							relay.
 						</p>
 					</div>
 
-					{/* Tab Buttons */}
 					<div className="flex gap-2 border-b border-brutal">
 						<Button
 							variant="ghost"
 							onClick={() => setActiveTab('scan')}
 							className={`px-4 py-2 text-sm font-medium transition-colors ${
 								activeTab === 'scan'
-									? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
-									: 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+									? 'border-b-2 border-info/40 text-info'
+									: 'text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground'
 							}`}
 						>
 							Scan QR Code
@@ -361,20 +262,19 @@ export function Nip46LoginDialog({ trigger, onLogin }: Nip46LoginDialogProps) {
 							onClick={() => setActiveTab('paste')}
 							className={`px-4 py-2 text-sm font-medium transition-colors ${
 								activeTab === 'paste'
-									? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
-									: 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+									? 'border-b-2 border-info/40 text-info'
+									: 'text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground'
 							}`}
 						>
 							Paste Bunker URL
 						</Button>
 					</div>
 
-					{/* Tab Content */}
 					{activeTab === 'scan' ? (
 						<div className="space-y-4">
 							{state === 'connected' ? (
 								<div className="flex flex-col items-center gap-2 py-8">
-									<div className="text-green-500 mb-2">
+									<div className="text-ok mb-2">
 										<svg
 											xmlns="http://www.w3.org/2000/svg"
 											width="36"
@@ -386,11 +286,12 @@ export function Nip46LoginDialog({ trigger, onLogin }: Nip46LoginDialogProps) {
 											strokeLinecap="round"
 											strokeLinejoin="round"
 										>
+											<title>Connected</title>
 											<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
 											<polyline points="22 4 12 14.01 9 11.01" />
 										</svg>
 									</div>
-									<p className="text-sm text-green-500 font-medium">Connected successfully!</p>
+									<p className="text-sm text-ok font-medium">Connected successfully!</p>
 									<p className="text-sm text-muted-foreground">Logging you in...</p>
 								</div>
 							) : state === 'generating' ? (
@@ -400,13 +301,13 @@ export function Nip46LoginDialog({ trigger, onLogin }: Nip46LoginDialogProps) {
 								</div>
 							) : connectionUri ? (
 								<>
-									<div className="text-sm text-gray-600 dark:text-gray-400">
+									<div className="text-sm text-muted-foreground dark:text-muted-foreground">
 										Scan this QR code with your remote signer app (e.g., Amber)
 									</div>
 
 									<a
 										href={connectionUri}
-										className="block hover:opacity-90 transition-opacity bg-white p-4 rounded-lg"
+										className="block hover:opacity-90 transition-opacity bg-card p-4 rounded-lg"
 										target="_blank"
 										rel="noopener noreferrer"
 									>
@@ -446,7 +347,7 @@ export function Nip46LoginDialog({ trigger, onLogin }: Nip46LoginDialogProps) {
 						<div className="space-y-4">
 							<div className="space-y-2">
 								<Label htmlFor="bunker-url">Bunker URL</Label>
-								<p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+								<p className="text-xs text-muted-foreground dark:text-muted-foreground mb-2">
 									Paste your bunker:// connection string from your remote signer (e.g., nsec.app,
 									Amber).
 								</p>
@@ -491,9 +392,9 @@ export function Nip46LoginDialog({ trigger, onLogin }: Nip46LoginDialogProps) {
 								)}
 							</Button>
 
-							<div className="p-3 bg-gray-100 dark:bg-gray-800 rounded-lg">
+							<div className="p-3 bg-muted dark:bg-muted-foreground rounded-lg">
 								<h4 className="text-sm font-medium mb-2">How to get a bunker URL:</h4>
-								<ol className="text-sm text-gray-600 dark:text-gray-400 space-y-1 list-decimal list-inside">
+								<ol className="text-sm text-muted-foreground dark:text-muted-foreground space-y-1 list-decimal list-inside">
 									<li>Open your remote signer app (nsec.app, Amber, etc.)</li>
 									<li>Generate or copy your bunker connection string</li>
 									<li>Paste it into the field above or scan the QR code</li>
@@ -502,7 +403,6 @@ export function Nip46LoginDialog({ trigger, onLogin }: Nip46LoginDialogProps) {
 						</div>
 					)}
 
-					{/* Stay Logged In Checkbox */}
 					<div className="flex items-center gap-2 pt-2">
 						<Checkbox
 							id="nip46-remember-me"
@@ -514,16 +414,14 @@ export function Nip46LoginDialog({ trigger, onLogin }: Nip46LoginDialogProps) {
 						</label>
 					</div>
 
-					{/* Error Message */}
 					{error && (
-						<div className="text-sm text-red-600 dark:text-red-400 p-3 bg-red-50 dark:bg-red-900/20 rounded-md border border-red-200 dark:border-red-800">
+						<div className="text-sm text-destructive p-3 bg-destructive/10 rounded-md border border-destructive/40">
 							{error}
 						</div>
 					)}
 				</div>
 			</DialogContent>
 
-			{/* QR Scanner Dialog */}
 			<Dialog open={showScanner} onOpenChange={setShowScanner}>
 				<DialogContent className="sm:max-w-md">
 					<DialogHeader>
@@ -535,7 +433,7 @@ export function Nip46LoginDialog({ trigger, onLogin }: Nip46LoginDialogProps) {
 
 					<div className="mt-4 mb-4">
 						{scanError ? (
-							<div className="p-4 mb-4 text-sm text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900/20 rounded-lg">
+							<div className="p-4 mb-4 text-sm text-destructive bg-destructive/10 rounded-lg">
 								{scanError}
 								<Button
 									onClick={() => setScanError(null)}

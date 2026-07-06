@@ -1,0 +1,227 @@
+<!-- @dsCard group="Desktop" viewport="1440x820" subtitle="Interactive — real shadcn classNames · switch panel, stance, chat" name="Studio (click-through)" -->
+<!-- @startingPoint section="Desktop" subtitle="Interactive Studio — shadcn classNames, copy-paste ready" viewport="1440x900" -->
+<!DOCTYPE html>
+<html class="dark">
+<head>
+<meta charset="utf-8">
+<!-- Earthly tokens (shadcn vars live in tokens/shadcn.css) -->
+<link rel="stylesheet" href="../../styles.css">
+<!-- Tailwind Play CDN, mapped to the shadcn token variables -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        colors: {
+          background: "var(--background)", foreground: "var(--foreground)",
+          card: "var(--card)", "card-foreground": "var(--card-foreground)",
+          popover: "var(--popover)", "popover-foreground": "var(--popover-foreground)",
+          primary: "var(--primary)", "primary-foreground": "var(--primary-foreground)",
+          secondary: "var(--secondary)", "secondary-foreground": "var(--secondary-foreground)",
+          muted: "var(--muted)", "muted-foreground": "var(--muted-foreground)",
+          accent: "var(--accent)", "accent-foreground": "var(--accent-foreground)",
+          destructive: "var(--destructive)",
+          border: "var(--border)", input: "var(--input)", ring: "var(--ring)",
+          "chart-ok": "oklch(0.62 0.13 150)", "chart-info": "oklch(0.7484 0.1551 233.2517)",
+        },
+        borderRadius: { lg: "var(--radius)", md: "calc(var(--radius) - 1px)", sm: "1px" },
+        fontFamily: { sans: ["IBM Plex Sans", "sans-serif"], mono: ["JetBrains Mono", "monospace"] },
+      },
+    },
+  };
+</script>
+<style>
+  html,body{height:100%}
+  body{margin:0}
+  /* dotted map grid */
+  .map-grid{background-color:var(--background);background-image:linear-gradient(0deg,rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:40px 40px}
+  .thumb{background:repeating-linear-gradient(45deg,var(--muted),var(--muted) 5px,#313136 5px,#313136 10px)}
+</style>
+</head>
+<body class="font-sans text-foreground bg-background h-full overflow-hidden flex flex-col">
+
+  <!-- title bar -->
+  <div class="h-8 shrink-0 bg-[#151517] border-b border-black flex items-center gap-2 px-3">
+    <span class="w-[11px] h-[11px] rounded-full bg-[#e2685a]"></span>
+    <span class="w-[11px] h-[11px] rounded-full bg-[#e7b64b]"></span>
+    <span class="w-[11px] h-[11px] rounded-full bg-[#57b884]"></span>
+    <div class="flex items-center gap-1.5 ml-3">
+      <span class="w-4 h-4 rounded-[3px] overflow-hidden"><img src="../../assets/earthly-mark.png" class="w-full h-full"></span>
+      <span class="font-mono text-[11px] text-foreground">Untitled workspace</span>
+    </div>
+    <div class="flex-1"></div>
+    <!-- stance = shadcn ToggleGroup pattern -->
+    <div id="stance" class="inline-flex bg-card border border-input rounded-[2px] p-[2px] gap-[2px]">
+      <button data-stance class="text-[10.5px] px-2.5 py-[3px] rounded-sm font-semibold bg-primary text-primary-foreground">Looking</button>
+      <button data-stance class="text-[10.5px] px-2.5 py-[3px] rounded-sm text-muted-foreground">Focus</button>
+      <button data-stance class="text-[10.5px] px-2.5 py-[3px] rounded-sm text-muted-foreground">Build</button>
+    </div>
+    <div class="flex-1"></div>
+    <div class="flex items-center gap-1.5">
+      <div class="h-[22px] flex items-center gap-1.5 border border-border rounded-[2px] px-2 font-mono text-[10px] text-foreground">
+        <svg viewBox="0 0 24 24" fill="var(--primary)" stroke="var(--primary)" class="w-3 h-3"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></svg>12.4k
+      </div>
+      <button class="w-[22px] h-[22px] border border-border rounded-[2px] grid place-items-center text-muted-foreground"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-[13px] h-[13px]"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/></svg></button>
+      <div class="w-[22px] h-[22px] rounded-full bg-chart-info"></div>
+    </div>
+  </div>
+
+  <!-- body 25 / 50 / 25 -->
+  <div class="flex-1 flex min-h-0">
+
+    <!-- LEFT PANEL · 25% -->
+    <div class="w-1/4 bg-card border-r border-border flex flex-col relative">
+      <div class="h-[38px] flex items-center justify-between px-2.5 border-b border-border">
+        <!-- panel switcher: the header IS the trigger (shadcn Select/DropdownMenu) -->
+        <button id="switchBtn" class="flex items-center gap-1.5 border border-primary/50 bg-primary/10 rounded-[2px] px-2 py-1 text-[13px] font-semibold text-foreground">
+          <svg id="switchIcon" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" class="w-3.5 h-3.5"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+          <span id="switchLabel">Sightings</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" class="w-3 h-3"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="flex gap-1">
+          <button class="w-6 h-6 border border-input rounded-[2px] bg-secondary grid place-items-center text-muted-foreground"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-[13px] h-[13px]"><path d="M3 6h18M7 12h10M11 18h2"/></svg></button>
+          <button class="w-6 h-6 border border-input rounded-[2px] bg-secondary grid place-items-center text-muted-foreground"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-[13px] h-[13px]"><path d="M5 12h14M12 5v14"/></svg></button>
+        </div>
+      </div>
+      <div id="panelBody" class="flex-1 overflow-auto"></div>
+      <div class="h-[26px] border-t border-border flex items-center px-3 font-mono text-[9.5px] text-muted-foreground">
+        <span id="panelFoot">8 shown</span><span class="ml-auto">2 fading today</span>
+      </div>
+
+      <!-- switcher dropdown (shadcn DropdownMenuContent) -->
+      <div id="switchMenu" class="hidden absolute left-2.5 top-[42px] w-[216px] bg-popover border border-input rounded-[3px] shadow-[0_14px_34px_-8px_rgba(0,0,0,.6)] p-1 z-10">
+        <div class="px-2 pt-1.5 pb-1 font-mono text-[8.5px] tracking-[.08em] uppercase text-muted-foreground">Workspace</div>
+        <button data-panel="datasets" class="menu-item w-full flex items-center gap-2.5 h-7 px-2 rounded-[2px] text-xs text-foreground hover:bg-primary/10">
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted-foreground)" stroke-width="2" class="w-3.5 h-3.5"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/></svg>Datasets<span class="ml-auto font-mono text-[9px] text-muted-foreground">12</span>
+        </button>
+        <button data-panel="contexts" class="menu-item w-full flex items-center gap-2.5 h-7 px-2 rounded-[2px] text-xs text-foreground hover:bg-primary/10">
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted-foreground)" stroke-width="2" class="w-3.5 h-3.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/></svg>Contexts<span class="ml-auto font-mono text-[9px] text-muted-foreground">5</span>
+        </button>
+        <div class="px-2 pt-2 pb-1 font-mono text-[8.5px] tracking-[.08em] uppercase text-muted-foreground">On the map</div>
+        <button data-panel="sightings" class="menu-item w-full flex items-center gap-2.5 h-7 px-2 rounded-[2px] text-xs bg-primary/15 text-foreground">
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" class="w-3.5 h-3.5"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>Sightings
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2.5" class="w-3.5 h-3.5 ml-auto"><path d="M20 6 9 17l-5-5"/></svg>
+        </button>
+        <button data-panel="beacons" class="menu-item w-full flex items-center gap-2.5 h-7 px-2 rounded-[2px] text-xs text-foreground hover:bg-primary/10">
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted-foreground)" stroke-width="2" class="w-3.5 h-3.5"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><circle cx="12" cy="12" r="2"/></svg>Beacons<span class="ml-auto font-mono text-[9px] text-chart-ok">4</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- MAP · 50% -->
+    <div class="w-1/2 relative map-grid overflow-hidden">
+      <div class="absolute w-3.5 h-3.5 bg-primary border-2 border-background rotate-45 shadow-[0_0_0_6px_var(--primary)]/20" style="left:120px;top:120px"></div>
+      <div class="absolute w-3 h-3 bg-primary border-2 border-background rotate-45" style="left:280px;top:230px"></div>
+      <div class="absolute w-3 h-3 bg-primary border-2 border-background rotate-45" style="left:200px;top:360px"></div>
+      <div class="absolute w-4 h-4 rounded-full bg-chart-ok border-2 border-background" style="left:360px;top:180px;box-shadow:0 0 0 6px color-mix(in oklch,var(--chart-ok) 22%,transparent)"></div>
+      <div class="absolute left-2 top-2 font-mono text-[10.5px] text-muted-foreground bg-black/70 border border-border rounded-[2px] px-1.5 py-[3px] leading-normal">52.5163, 13.3777<br>zoom 13.2 · Volkspark</div>
+      <div class="absolute right-2.5 top-1/2 -translate-y-1/2 flex flex-col gap-2">
+        <div class="flex flex-col border border-input rounded-[2px] overflow-hidden bg-card">
+          <button class="w-[30px] h-[30px] grid place-items-center text-foreground"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3.5 h-3.5"><path d="M12 5v14M5 12h14"/></svg></button>
+          <button class="w-[30px] h-[30px] grid place-items-center text-foreground border-t border-border"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3.5 h-3.5"><path d="M5 12h14"/></svg></button>
+        </div>
+        <button class="w-[30px] h-[30px] border border-input rounded-[2px] bg-card grid place-items-center"><svg viewBox="0 0 24 24" fill="none" stroke="var(--destructive)" stroke-width="2" class="w-4 h-4"><path d="M12 2v6l3 6h-6z" fill="var(--destructive)"/><path d="M12 14v8" stroke="var(--muted-foreground)"/></svg></button>
+        <button class="w-[30px] h-[30px] border border-input rounded-[2px] bg-card grid place-items-center text-foreground"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3.5 h-3.5"><path d="M12 2 21 8v8l-9 6-9-6V8z"/><path d="M12 12v10M12 12 3 8M12 12l9-4"/></svg></button>
+      </div>
+    </div>
+
+    <!-- CHAT · 25% -->
+    <div class="w-1/4 bg-card border-l border-border flex flex-col">
+      <div class="h-[38px] flex items-center gap-2 px-3 border-b border-border">
+        <svg viewBox="0 0 24 24" fill="color-mix(in oklch,var(--accent-foreground) 0%,transparent)" stroke="oklch(0.78 0.11 300)" stroke-width="2" class="w-3.5 h-3.5"><path d="M9.94 14.06 8 20l-1.94-5.94L0 12l6.06-1.94L8 4l1.94 6.06L16 12Z"/></svg>
+        <span class="text-[13px] font-semibold text-foreground">Assistant</span>
+        <span class="ml-auto font-mono text-[9.5px] text-muted-foreground">map-aware</span>
+      </div>
+      <div id="chatBody" class="flex-1 overflow-auto p-3 flex flex-col gap-3">
+        <div class="self-end max-w-[82%] bg-primary/15 border border-primary/40 rounded-[2px] px-2.5 py-2 text-xs text-foreground">Which sightings fade today?</div>
+        <div class="self-start max-w-[90%] text-xs text-foreground leading-relaxed">Two expire today — highlighted on the map and filtered in the panel.</div>
+      </div>
+      <!-- shadcn Input + Button -->
+      <div class="p-3 border-t border-border">
+        <div class="flex items-center gap-1.5 border border-input rounded-[2px] bg-background px-2.5 py-2">
+          <input id="chatInput" placeholder="Ask about this map…" class="flex-1 min-w-0 bg-transparent outline-none text-xs text-foreground placeholder:text-muted-foreground">
+          <button id="chatSend" class="w-6 h-6 rounded-[2px] bg-primary text-primary-foreground grid place-items-center shrink-0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" class="w-[13px] h-[13px]"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- status bar -->
+  <div class="h-[23px] shrink-0 bg-[#151517] border-t border-black flex items-center px-2.5 gap-3.5 font-mono text-[10.5px] text-muted-foreground">
+    <span class="flex items-center gap-1.5"><span class="w-[7px] h-[7px] rounded-full bg-chart-ok"></span>4 relays</span>
+    <span>EPSG:4326</span><span>z13.2</span>
+    <span class="ml-auto">8 sightings · 4 beacons</span>
+  </div>
+
+<script>
+  // --- panel data (each row uses the same shadcn list-row className pattern) ---
+  const rowSel = "flex items-center gap-2.5 py-2.5 px-3 border-b border-border box-border";
+  const PANELS = {
+    sightings: { label: "Sightings", foot: "8 shown", icon:'<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>', rows: [
+      { n:"A heron by the lake", c:'"Big grey heron, still 🐦"', m:"@lea · 40m · fades 6d", live:true, sel:true },
+      { n:"Cherry blossom, peak now", c:'"Whole avenue is pink"', m:"@sam · 2h · fades 5d" },
+      { n:"Fox den entrance", c:'"Two kits at dusk"', m:"@ava · 5h · fades 4d" },
+    ]},
+    datasets: { label: "Datasets", foot: "12 datasets", icon:'<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/>', rows: [
+      { n:"Wall segments 1961", m:"43", dot:"var(--chart-ok)", sel:true },
+      { n:"Checkpoints", m:"7", dot:"var(--chart-info)" },
+      { n:"Tiergarten paths", m:"128", dot:"oklch(0.55 0.14 300)" },
+    ]},
+    contexts: { label: "Contexts", foot: "5 contexts", icon:'<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/>', rows: [
+      { n:"Berlin Wall trace", c:"Groups 8 · Open · Checks source", m:"", sel:true },
+      { n:"Berlin parks & green", m:"34" },
+      { n:"District boundaries", m:"strict" },
+    ]},
+    beacons: { label: "Beacons", foot: "4 live", icon:'<path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><circle cx="12" cy="12" r="2"/>', rows: [
+      { n:"Field surveyor — live", c:"Ava Sommer", m:"54m ago", live:true, sel:true },
+      { n:"Park ranger", c:"Sofia Maier", m:"1h ago" },
+    ]},
+  };
+  function renderPanel(key){
+    const p = PANELS[key];
+    document.getElementById("switchLabel").textContent = p.label;
+    document.getElementById("switchIcon").innerHTML = p.icon;
+    document.getElementById("panelFoot").textContent = p.foot;
+    document.getElementById("panelBody").innerHTML = p.rows.map(r => `
+      <div class="${rowSel} ${r.sel ? 'border-l-2 border-l-primary bg-primary/10 pl-2.5' : 'border-l-2 border-l-transparent'}">
+        ${r.dot ? `<span class="w-2 h-2 rounded-[1px] shrink-0" style="background:${r.dot}"></span>`
+                : `<div class="thumb w-11 h-11 rounded-[2px] shrink-0"></div>`}
+        <div class="flex-1 min-w-0 flex flex-col gap-[3px]">
+          <div class="flex items-center justify-between">
+            <span class="text-[12.5px] font-semibold ${r.sel?'text-foreground':'text-foreground'}">${r.n}</span>
+            ${r.live ? '<span class="text-[8.5px] font-bold px-1.5 rounded-[2px] bg-primary text-primary-foreground">LIVE</span>' : (r.m && r.dot? `<span class="font-mono text-[9px] text-muted-foreground">${r.m}</span>`:'')}
+          </div>
+          ${r.c ? `<span class="text-[11px] text-muted-foreground">${r.c}</span>` : ''}
+          ${r.m && !r.dot ? `<span class="font-mono text-[9px] text-muted-foreground">${r.m}</span>` : ''}
+        </div>
+      </div>`).join("");
+  }
+  renderPanel("sightings");
+
+  // switcher dropdown
+  const menu = document.getElementById("switchMenu");
+  document.getElementById("switchBtn").onclick = (e)=>{ e.stopPropagation(); menu.classList.toggle("hidden"); };
+  document.addEventListener("click", ()=> menu.classList.add("hidden"));
+  menu.querySelectorAll("[data-panel]").forEach(b => b.onclick = (e)=>{ e.stopPropagation(); renderPanel(b.dataset.panel); menu.classList.add("hidden"); });
+
+  // stance toggle
+  document.querySelectorAll("#stance [data-stance]").forEach(b => b.onclick = ()=>{
+    document.querySelectorAll("#stance [data-stance]").forEach(x => x.className = "text-[10.5px] px-2.5 py-[3px] rounded-sm text-muted-foreground");
+    b.className = "text-[10.5px] px-2.5 py-[3px] rounded-sm font-semibold bg-primary text-primary-foreground";
+  });
+
+  // chat send
+  function send(){
+    const i = document.getElementById("chatInput"); const v = i.value.trim(); if(!v) return;
+    const body = document.getElementById("chatBody");
+    body.insertAdjacentHTML("beforeend", `<div class="self-end max-w-[82%] bg-primary/15 border border-primary/40 rounded-[2px] px-2.5 py-2 text-xs text-foreground">${v.replace(/</g,'&lt;')}</div>`);
+    i.value = "";
+    setTimeout(()=>{ body.insertAdjacentHTML("beforeend", `<div class="self-start max-w-[90%] text-xs text-foreground leading-relaxed">On it — searching the map…</div>`); body.scrollTop = body.scrollHeight; }, 260);
+    body.scrollTop = body.scrollHeight;
+  }
+  document.getElementById("chatSend").onclick = send;
+  document.getElementById("chatInput").addEventListener("keydown", e=>{ if(e.key==="Enter") send(); });
+</script>
+</body>
+</html>

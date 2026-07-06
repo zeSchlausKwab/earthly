@@ -1,0 +1,16 @@
+<!-- @dsCard group="Spacing" viewport="700x120" subtitle="Near-square — 2px controls, 3px panels, never pill" name="Radius" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>
+  body{margin:0;padding:18px;background:var(--surface-app);font-family:var(--font-ui)}
+  .row{display:flex;align-items:flex-end;gap:22px}
+  .cell{display:flex;flex-direction:column;align-items:center;gap:7px}
+  .box{width:52px;height:52px;background:var(--surface-raised);border:1px solid var(--border-strong)}
+  .m{font-family:var(--font-mono);font-size:9px;color:var(--text-faint)}
+</style></head><body>
+  <div class="row">
+    <div class="cell"><div class="box" style="border-radius:0"></div><span class="m">0 · edges</span></div>
+    <div class="cell"><div class="box" style="border-radius:2px"></div><span class="m">2 · controls</span></div>
+    <div class="cell"><div class="box" style="border-radius:3px"></div><span class="m">3 · panels</span></div>
+    <div class="cell"><div class="box" style="border-radius:999px;width:20px;height:20px;background:var(--accent-ok)"></div><span class="m">full · dots only</span></div>
+  </div>
+</body></html>

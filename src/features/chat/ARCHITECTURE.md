@@ -63,7 +63,7 @@ Loop guardrail: `MAX_TOOL_CALL_ROUNDS = 10`.
 
 For `routstr`, each request uses prepay + automatic refund:
 
-1. Estimate max cost from prompt token estimate + reserved completion tokens.
+1. Estimate max cost from the prompt token estimate + the **context-derived output budget** (`deriveOutputBudget`, the same number sent as `max_tokens`). The budget is `effectiveContext − estimatedPrompt − safety`, floored at `MIN_OUTPUT_BUDGET_TOKENS`; the server reserves against it and refunds the unused remainder, so prepayment never underpays.
 2. Mint Cashu token via NIP-60 wallet and send as `X-Cashu` header.
 3. Receive refund token from response headers (or structured error payloads) and redeem it back into wallet state.
 
@@ -74,10 +74,10 @@ Local/custom providers skip payment flow.
 `store.ts` applies explicit context controls to reduce provider failures:
 
 - Per-message sanitization/truncation by role.
-- Prompt budget derived from effective context window minus completion reserve and safety margin.
+- Prompt budget derived from effective context window minus a proportional completion reserve (`COMPLETION_RESERVE_FRACTION`, floored at `MIN_OUTPUT_BUDGET_TOKENS`) and safety margin — the prompt gets the remainder, the completion is never starved to a fixed sliver.
 - LM Studio hard context cap handling (`4096`) to avoid `n_keep >= n_ctx` failures.
 - Emergency retry mode for context overflow with a reduced prompt window.
-- Tool-enabled requests enforce a minimum completion budget (`MIN_TOOL_ENABLED_MAX_TOKENS = 1024`).
+- **Output is not artificially capped.** The completion budget is derived per-request from the room left after the prompt (`deriveOutputBudget`): free/local providers (lmstudio, ollama, custom) **omit `max_tokens` entirely** so the model runs to its natural stop within the context window; paid providers (routstr) send the derived budget so cost-estimation, prepayment, and refund stay consistent. A `MIN_OUTPUT_BUDGET_TOKENS = 1024` floor guarantees room for a tool call even when the prompt is large.
 
 Diagnostics surfaced in UI:
 

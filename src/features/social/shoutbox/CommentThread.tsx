@@ -1,5 +1,5 @@
-import { useNDKCurrentUser } from '@nostr-dev-kit/react'
-import type { NDKEvent } from '@nostr-dev-kit/ndk'
+import { useActiveAccount } from 'applesauce-react/hooks'
+import type { NostrEvent } from 'nostr-tools'
 import { useState, useCallback, useRef } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { ChevronDown, ChevronUp } from 'lucide-react'
@@ -14,7 +14,7 @@ interface CommentThreadProps {
 	/** The comment node to render */
 	node: CommentNode
 	/** Callback to post a reply */
-	onReply: (parentComment: NDKEvent, content: string) => Promise<void>
+	onReply: (parentComment: NostrEvent, content: string) => Promise<void>
 	/** Maximum depth to show inline (deeper comments are collapsed) */
 	collapseDepth?: number
 }
@@ -23,7 +23,7 @@ interface CommentThreadProps {
  * Recursive component for rendering threaded comments.
  */
 export function CommentThread({ node, onReply, collapseDepth = 3 }: CommentThreadProps) {
-	const currentUser = useNDKCurrentUser()
+	const currentUser = useActiveAccount()
 	const [showReplyForm, setShowReplyForm] = useState(false)
 	const [isReplying, setIsReplying] = useState(false)
 	const [replyContent, setReplyContent] = useState('')
@@ -152,7 +152,7 @@ interface CommentsListProps {
 	/** Array of root comment nodes */
 	comments: CommentNode[]
 	/** Callback to post a reply */
-	onReply: (parentComment: NDKEvent, content: string) => Promise<void>
+	onReply: (parentComment: NostrEvent, content: string) => Promise<void>
 	/** Whether comments are loading */
 	isLoading?: boolean
 }

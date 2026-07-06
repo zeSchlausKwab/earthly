@@ -1,6 +1,7 @@
-import { useNDK, useNDKCurrentUser } from '@nostr-dev-kit/react'
+import { useActiveAccount } from 'applesauce-react/hooks'
 import { useEffect, useRef } from 'react'
 import { toast } from 'sonner'
+import { accounts } from '@/lib/nostr'
 import { loadEncryptedChatSettings, saveEncryptedChatSettings } from './settingsStorage'
 import {
 	DEFAULT_CHAT_SETTINGS,
@@ -11,29 +12,32 @@ import {
 
 function buildSnapshot(
 	provider: ChatSettingsSnapshot['provider'],
-	customEndpoint: string,
-	customApiKey: string,
+	providerOverrides: ChatSettingsSnapshot['providerOverrides'],
 	selectedModel: string | null,
 	toolsEnabled: boolean,
+	safetyLevel: ChatSettingsSnapshot['safetyLevel'],
 ): ChatSettingsSnapshot {
 	return {
 		provider,
-		customEndpoint,
-		customApiKey,
+		providerOverrides,
 		selectedModel,
 		toolsEnabled,
+		safetyLevel,
+		version: 2,
 	}
 }
 
 export function useChatSettingsSync(): void {
-	const { ndk } = useNDK()
-	const currentUser = useNDKCurrentUser()
-	const signer = ndk?.signer ?? null
+	const currentUser = useActiveAccount()
+	const signer = currentUser?.signer ?? null
+	const userPubkey = currentUser?.pubkey ?? null
 	const provider = useChatStore((state) => state.provider)
-	const customEndpoint = useChatStore((state) => state.customEndpoint)
-	const customApiKey = useChatStore((state) => state.customApiKey)
+	const providerOverrides = useChatStore((state) => state.providerOverrides)
 	const selectedModel = useChatStore((state) => state.selectedModel)
 	const toolsEnabled = useChatStore((state) => state.toolsEnabled)
+	const safetyLevel = useChatStore((state) => state.safetyLevel)
+	const settingsLoadNonce = useChatStore((state) => state.settingsLoadNonce)
+	const settingsImportNonce = useChatStore((state) => state.settingsImportNonce)
 
 	const hydrateGenerationRef = useRef(0)
 	const loadedPubkeyRef = useRef<string | null>(null)
@@ -41,14 +45,18 @@ export function useChatSettingsSync(): void {
 	const saveTimeoutRef = useRef<number | null>(null)
 	const saveErrorRef = useRef(false)
 	const loadErrorRef = useRef(false)
+	// "Load failed / not safe to save" guard (CR-01): set on a decrypt FAILURE, this blocks the
+	// debounced save effect so a subsequent edit cannot overwrite the still-recoverable ciphertext.
+	// Cleared on a successful load, a no-signer reset, or an explicit user import (settingsImportNonce).
+	const loadFailedRef = useRef(false)
 	const scrubbedLegacyStorageRef = useRef(false)
 
 	const snapshot = buildSnapshot(
 		provider,
-		customEndpoint,
-		customApiKey,
+		providerOverrides,
 		selectedModel,
 		toolsEnabled,
+		safetyLevel,
 	)
 	const serializedSnapshot = JSON.stringify(snapshot)
 
@@ -69,8 +77,11 @@ export function useChatSettingsSync(): void {
 			let changed = false
 			for (const key of [
 				'provider',
+				// Legacy v1 flat keys — may still exist in stale chat-store blobs.
 				'customEndpoint',
 				'customApiKey',
+				// v2 secret-bearing key — partialize already prevents new writes; scrub defensively.
+				'providerOverrides',
 				'selectedModel',
 				'toolsEnabled',
 			] as const) {
@@ -88,6 +99,7 @@ export function useChatSettingsSync(): void {
 		}
 	}, [])
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: settingsLoadNonce is an intentional Retry re-run trigger, not read in the body (Pitfall 2)
 	useEffect(() => {
 		if (saveTimeoutRef.current !== null) {
 			window.clearTimeout(saveTimeoutRef.current)
@@ -95,32 +107,62 @@ export function useChatSettingsSync(): void {
 		}
 
 		if (!signer || !currentUser) {
+			// No signer/account: settings stay in-memory only (D-12). Reset to defaults but
+			// surface a distinct 'no-signer' state so the UI shows a sign-in hint, not a failure.
 			loadedPubkeyRef.current = null
+			loadFailedRef.current = false
 			lastSavedSnapshotRef.current = JSON.stringify(DEFAULT_CHAT_SETTINGS)
 			chatActions.hydrateSettings(DEFAULT_CHAT_SETTINGS)
+			chatActions.setSettingsStatus('no-signer')
 			return
 		}
 
 		const generation = hydrateGenerationRef.current + 1
 		hydrateGenerationRef.current = generation
 
+		chatActions.setSettingsStatus('loading')
+
 		void (async () => {
 			try {
-				const settings = await loadEncryptedChatSettings(signer, currentUser)
+				if (!userPubkey) return
+				const settings = await loadEncryptedChatSettings(signer, userPubkey)
 				if (hydrateGenerationRef.current !== generation) return
+				// Guard against an account swap that has not yet bumped `generation` at resolve time
+				// (CR-02): the generation counter is global and cannot distinguish "newer generation
+				// for the same user" from "different user". Re-read the LIVE active account and bail
+				// if it no longer matches the pubkey this load was issued for, so account A's settings
+				// can never be hydrated into account B's session.
+				if (accounts.active?.pubkey !== userPubkey) return
 
+				// A null result is a valid "loaded / no settings saved yet" — NOT a failure.
+				// Distinguish it from a decrypt failure by reporting 'loaded' with no error (D-11).
 				chatActions.hydrateSettings(settings ?? DEFAULT_CHAT_SETTINGS)
 				loadedPubkeyRef.current = currentUser.pubkey
 				lastSavedSnapshotRef.current = JSON.stringify(settings ?? DEFAULT_CHAT_SETTINGS)
 				loadErrorRef.current = false
+				loadFailedRef.current = false
+				chatActions.setSettingsStatus('loaded')
 			} catch (error) {
 				console.warn('Failed to load encrypted chat settings', error)
 				if (hydrateGenerationRef.current !== generation) return
-				chatActions.hydrateSettings(DEFAULT_CHAT_SETTINGS)
+				// Same account-swap identity guard as the success path (CR-02): do not stamp a
+				// 'failed' status or arm the save guard against a session that has moved on.
+				if (accounts.active?.pubkey !== userPubkey) return
+				// Do NOT masquerade a decrypt failure as the user's data with silent DEFAULT
+				// hydration (D-11). Surface a visible 'failed' state with the error message; the
+				// status banner (ChatSettingsSection) is now the primary surface. Keep the
+				// loadErrorRef one-time toast guard as a secondary signal.
+				// Arm the save guard (CR-01): the ciphertext is undecryptable-but-recoverable. We must
+				// NOT let the debounced save effect overwrite it with default/in-memory plaintext.
+				// Cleared only on a successful (re)load or an explicit user import.
+				loadFailedRef.current = true
 				loadedPubkeyRef.current = currentUser.pubkey
-				lastSavedSnapshotRef.current = JSON.stringify(DEFAULT_CHAT_SETTINGS)
+				chatActions.setSettingsStatus(
+					'failed',
+					error instanceof Error ? error.message : 'Failed to decrypt saved chat settings',
+				)
 				if (!loadErrorRef.current) {
-					toast.error('Failed to decrypt saved chat settings. Using defaults instead.')
+					toast.error('Failed to decrypt saved chat settings.')
 					loadErrorRef.current = true
 				}
 			}
@@ -132,11 +174,26 @@ export function useChatSettingsSync(): void {
 				saveTimeoutRef.current = null
 			}
 		}
-	}, [currentUser, signer])
+		// settingsLoadNonce drives Retry (D-11): bumping it (via requestSettingsReload) re-enters
+		// this effect, which increments `generation` so any in-flight prior load fails its guard
+		// and cannot clobber the retry result (Pitfall 2). It is intentionally in the deps as a
+		// re-run trigger even though it is not read in the body. userPubkey IS read inside.
+	}, [currentUser, signer, settingsLoadNonce, userPubkey])
+
+	// An explicit user-initiated import (settingsImportNonce bump) is a deliberate overwrite of the
+	// undecryptable ciphertext (D-09). Clear the load-failed guard so the save effect below is
+	// allowed to re-encrypt the imported snapshot — the recovery write CR-01 must still permit.
+	useEffect(() => {
+		if (settingsImportNonce === 0) return
+		loadFailedRef.current = false
+	}, [settingsImportNonce])
 
 	useEffect(() => {
 		if (!signer || !currentUser) return
 		if (loadedPubkeyRef.current !== currentUser.pubkey) return
+		// Block saves while a decrypt failure is unresolved (CR-01): overwriting here would destroy
+		// the still-recoverable ciphertext. Reset happens on successful load or explicit import.
+		if (loadFailedRef.current) return
 		if (serializedSnapshot === lastSavedSnapshotRef.current) return
 
 		if (saveTimeoutRef.current !== null) {
@@ -146,7 +203,11 @@ export function useChatSettingsSync(): void {
 		saveTimeoutRef.current = window.setTimeout(() => {
 			void (async () => {
 				try {
-					await saveEncryptedChatSettings(signer, currentUser, snapshot)
+					// Reconstruct the snapshot from serializedSnapshot (the already-listed dep) instead
+					// of closing over the unstable per-render `snapshot` object (WR-05); the two are
+					// identical by construction (serializedSnapshot = JSON.stringify(snapshot)).
+					const toSave = JSON.parse(serializedSnapshot) as ChatSettingsSnapshot
+					await saveEncryptedChatSettings(signer, userPubkey ?? currentUser.pubkey, toSave)
 					lastSavedSnapshotRef.current = serializedSnapshot
 					saveErrorRef.current = false
 				} catch (error) {
@@ -165,5 +226,5 @@ export function useChatSettingsSync(): void {
 				saveTimeoutRef.current = null
 			}
 		}
-	}, [currentUser, serializedSnapshot, signer, snapshot])
+	}, [currentUser, serializedSnapshot, signer, userPubkey])
 }

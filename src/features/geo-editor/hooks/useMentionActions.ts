@@ -1,16 +1,16 @@
 import { useCallback } from 'react'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { useEditorStore } from '../store'
 
 interface UseMentionActionsParams {
-	geoEvents: NDKGeoEvent[]
-	resolvedCollectionResolver: (event: NDKGeoEvent) => GeoJSON.FeatureCollection | null | undefined
+	geoEvents: GeoDataset[]
+	resolvedCollectionResolver: (event: GeoDataset) => GeoJSON.FeatureCollection | null | undefined
 	handleZoomToBounds: (bounds: [number, number, number, number]) => void
-	zoomToDataset: (event: NDKGeoEvent) => void
-	getDatasetKey: (event: NDKGeoEvent) => string
+	zoomToDataset: (event: GeoDataset) => void
+	getDatasetKey: (event: GeoDataset) => string
 	isFocused: boolean
 	clearFocus: () => void
-	toggleDatasetVisibility: (event: NDKGeoEvent) => void
+	toggleDatasetVisibility: (event: GeoDataset) => void
 	toggleAllDatasetVisibility: (visible: boolean) => void
 }
 
@@ -25,11 +25,18 @@ export function useMentionActions({
 	toggleDatasetVisibility,
 	toggleAllDatasetVisibility,
 }: UseMentionActionsParams) {
-	const setDatasetVisibility = useEditorStore((state) => state.setDatasetVisibility)
+	// Round D.3: mention visibility toggles stack membership. A ref that is
+	// already on the stack (e.g. a Story's auto-stacked `source:'story'` entry)
+	// flips visibility IN PLACE via setMapStackEntryVisible — preserving its
+	// source/order/pin and keeping the resolver-driven chip in sync. A ref not yet
+	// stacked (e.g. a comment ref) is added on show.
+	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
+	const setMapStackEntryVisible = useEditorStore((state) => state.setMapStackEntryVisible)
+	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 
 	const resolveNaddrToDataset = useCallback(
-		(address: string): NDKGeoEvent | null => {
-			if (!address || !address.startsWith('naddr1')) {
+		(address: string): GeoDataset | null => {
+			if (!address?.startsWith('naddr1')) {
 				return null
 			}
 			try {
@@ -98,16 +105,38 @@ export function useMentionActions({
 				return
 			}
 			const key = getDatasetKey(dataset)
-			setDatasetVisibility((prev) => ({
-				...prev,
-				[key]: visible,
-			}))
+			const entryId = `dataset:${key}`
+			if (mapStackEntries[entryId]) {
+				// Already stacked (auto-stacked Story ref, or a previously-shown ref):
+				// flip visibility in place so source/order/pin survive and the
+				// resolver-backed chip icon tracks the map exactly.
+				setMapStackEntryVisible(entryId, visible)
+			} else if (visible) {
+				const collectionName = (
+					dataset.featureCollection as GeoJSON.FeatureCollection & { name?: unknown }
+				).name
+				addMapStackEntry({
+					entityType: 'dataset',
+					entityKey: key,
+					title:
+						(typeof collectionName === 'string' && collectionName) || dataset.dTag || dataset.id,
+					source: 'comment',
+					visible: true,
+					pinned: false,
+				})
+			}
 		},
-		[resolveNaddrToDataset, getDatasetKey, setDatasetVisibility],
+		[
+			resolveNaddrToDataset,
+			getDatasetKey,
+			addMapStackEntry,
+			setMapStackEntryVisible,
+			mapStackEntries,
+		],
 	)
 
 	const handleToggleVisibilityWithExitFocus = useCallback(
-		(event: NDKGeoEvent) => {
+		(event: GeoDataset) => {
 			if (isFocused) {
 				clearFocus()
 			}

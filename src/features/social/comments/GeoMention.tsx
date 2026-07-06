@@ -58,7 +58,7 @@ export function GeoMention({
 
 	return (
 		<span
-			className={`inline-flex items-center gap-0.5 rounded-md bg-sky-50 border border-sky-200 px-1.5 py-0.5 text-xs font-medium text-sky-700 ${className}`}
+			className={`inline-flex items-center gap-0.5 rounded-md bg-info/15 border border-info/40 px-1.5 py-0.5 text-xs font-medium text-info ${className}`}
 		>
 			<MapPin className="h-3 w-3 flex-shrink-0" />
 			<span
@@ -77,8 +77,8 @@ export function GeoMention({
 						onClick={handleToggleVisibility}
 						disabled={isLoading}
 						className={`ml-0.5 h-4 w-4 p-0 ${
-							localVisible ? 'text-sky-600' : 'text-gray-400'
-						} hover:text-sky-700`}
+							localVisible ? 'text-info' : 'text-muted-foreground'
+						} hover:text-info`}
 					>
 						{localVisible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
 					</Button>
@@ -97,7 +97,7 @@ export function GeoMention({
 							size="icon-xs"
 							onClick={onZoomTo}
 							disabled={isLoading}
-							className="h-4 w-4 p-0 text-gray-400 hover:text-sky-700"
+							className="h-4 w-4 p-0 text-muted-foreground hover:text-info"
 						>
 							<Maximize2 className="h-3 w-3" />
 						</Button>

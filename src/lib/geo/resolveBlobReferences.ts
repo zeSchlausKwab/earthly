@@ -1,5 +1,5 @@
 import type { Feature, FeatureCollection, Geometry } from 'geojson'
-import type { GeoBlobReference, NDKGeoEvent } from '../ndk/NDKGeoEvent'
+import type { GeoBlobReference, GeoDataset } from '@/lib/nostr/geo-event'
 import {
 	isGeoJsonFeature,
 	isGeoJsonFeatureCollection,
@@ -24,12 +24,57 @@ function normalizeToFeatureArray(payload: BlobPayload): Feature[] {
 	return (normalized.features ?? []).filter((feature) => Boolean(feature.geometry)) as Feature[]
 }
 
-// Track failed URLs to avoid repeated requests
+/** URLs that have permanently failed — skipped on subsequent calls. */
 const failedUrls = new Set<string>()
 
 /**
+ * Hard cap per blob (SPEC §1.5). Protects against hostile/broken Blossom
+ * servers streaming unbounded payloads into memory.
+ */
+const MAX_BLOB_SIZE_BYTES = 50 * 1024 * 1024
+
+/** Signals "payload exceeded MAX_BLOB_SIZE_BYTES" — never retried. */
+class BlobTooLargeError extends Error {
+	constructor(url: string, size: number) {
+		super(`Blob at ${url} exceeds the ${MAX_BLOB_SIZE_BYTES} byte cap (got ${size})`)
+	}
+}
+
+/**
+ * Verify a fetched blob against the `sha256=<hex>` parameter from its blob
+ * tag (SPEC §1.5.1: hash of the uncompressed payload bytes). Returns true
+ * when the hash matches or verification is unavailable (no WebCrypto).
+ */
+async function verifyBlobSha256(text: string, expectedHex: string): Promise<boolean> {
+	if (!globalThis.crypto?.subtle) return true
+	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+	const actualHex = Array.from(new Uint8Array(digest))
+		.map((byte) => byte.toString(16).padStart(2, '0'))
+		.join('')
+	return actualHex === expectedHex.toLowerCase()
+}
+
+/** In-flight fetches by URL, so concurrent callers share one network round-trip. */
+const inFlight = new Map<string, Promise<BlobPayload | null>>()
+
+/**
+ * Error class that signals "don't bother retrying" — used for HTTP 4xx
+ * responses where the resource definitively doesn't exist or we're forbidden.
+ */
+class NonRetryableHttpError extends Error {
+	readonly status: number
+	constructor(status: number, statusText: string) {
+		super(`HTTP ${status}: ${statusText}`)
+		this.status = status
+	}
+}
+
+/**
  * Fetch with streaming progress reporting.
- * Uses ReadableStream to track download progress against known total size.
+ *
+ * Retries only on transient failures (network errors, timeouts, 5xx). 4xx
+ * responses throw `NonRetryableHttpError` immediately — `fetchBlobReference`
+ * marks the URL as permanently failed so we never re-try it this session.
  */
 async function fetchWithProgress(
 	url: string,
@@ -49,6 +94,10 @@ async function fetchWithProgress(
 			clearTimeout(timeoutId)
 
 			if (!response.ok) {
+				// 4xx → don't retry; the resource isn't going to appear by the next attempt.
+				if (response.status >= 400 && response.status < 500) {
+					throw new NonRetryableHttpError(response.status, response.statusText)
+				}
 				throw new Error(`HTTP ${response.status}: ${response.statusText}`)
 			}
 
@@ -56,9 +105,17 @@ async function fetchWithProgress(
 			const contentLength = response.headers.get('Content-Length')
 			const total = knownSize ?? (contentLength ? parseInt(contentLength, 10) : 0)
 
+			// Reject oversized payloads up-front when the size is declared…
+			if (total > MAX_BLOB_SIZE_BYTES) {
+				throw new BlobTooLargeError(url, total)
+			}
+
 			// If no body or no progress callback, fall back to simple text()
 			if (!response.body || !onProgress || total === 0) {
 				const text = await response.text()
+				if (text.length > MAX_BLOB_SIZE_BYTES) {
+					throw new BlobTooLargeError(url, text.length)
+				}
 				if (onProgress && total > 0) {
 					onProgress(total, total)
 				}
@@ -76,6 +133,11 @@ async function fetchWithProgress(
 
 				chunks.push(value)
 				loaded += value.length
+				// …and enforce the cap while streaming, in case the server lied.
+				if (loaded > MAX_BLOB_SIZE_BYTES) {
+					await reader.cancel().catch(() => {})
+					throw new BlobTooLargeError(url, loaded)
+				}
 				onProgress(loaded, total)
 			}
 
@@ -92,8 +154,14 @@ async function fetchWithProgress(
 			clearTimeout(timeoutId)
 			lastError = error as Error
 
-			// Don't retry on abort or if it's the last attempt
-			if (controller.signal.aborted || attempt === maxRetries - 1) {
+			// Don't retry on abort, a non-retryable 4xx, an oversized payload, or
+			// on the last attempt.
+			if (
+				controller.signal.aborted ||
+				error instanceof NonRetryableHttpError ||
+				error instanceof BlobTooLargeError ||
+				attempt === maxRetries - 1
+			) {
 				throw lastError
 			}
 
@@ -114,7 +182,7 @@ async function fetchBlobReference(
 	const cached = blobCache.get(reference.url)
 	if (cached) return cached
 
-	// Skip URLs that have previously failed (after all retries)
+	// Already known to be unfetchable — skip silently.
 	if (failedUrls.has(reference.url)) {
 		return null
 	}
@@ -123,26 +191,57 @@ async function fetchBlobReference(
 		throw new Error('fetch API is not available in this environment.')
 	}
 
-	try {
-		const text = await fetchWithProgress(reference.url, reference.size, onProgress)
+	// Coalesce concurrent fetches of the same URL into a single round-trip.
+	const existing = inFlight.get(reference.url)
+	if (existing) return existing
 
-		const json = await parseJsonInWorker(text)
+	const pending = (async () => {
+		try {
+			const text = await fetchWithProgress(reference.url, reference.size, onProgress)
 
-		if (!isGeoJsonFeatureCollection(json) && !isGeoJsonFeature(json) && !isGeoJsonGeometry(json)) {
-			console.warn(
-				`Blob payload at ${reference.url} is not a valid GeoJSON Feature, FeatureCollection, or Geometry.`,
-			)
+			// SPEC §1.5.1: when the blob tag carries a sha256, verify the payload.
+			// A mismatch means the server returned corrupted or substituted data.
+			if (reference.sha256 && !(await verifyBlobSha256(text, reference.sha256))) {
+				console.warn(
+					`Blob ${reference.url} failed sha256 verification (expected ${reference.sha256}). Discarding.`,
+				)
+				failedUrls.add(reference.url)
+				return null
+			}
+
+			const json = await parseJsonInWorker(text)
+
+			if (
+				!isGeoJsonFeatureCollection(json) &&
+				!isGeoJsonFeature(json) &&
+				!isGeoJsonGeometry(json)
+			) {
+				console.warn(
+					`Blob payload at ${reference.url} is not a valid GeoJSON Feature, FeatureCollection, or Geometry.`,
+				)
+				failedUrls.add(reference.url)
+				return null
+			}
+			blobCache.set(reference.url, json)
+			return json
+		} catch (error) {
 			failedUrls.add(reference.url)
+			// Log with status detail so 404s are obviously distinguishable from network errors.
+			if (error instanceof NonRetryableHttpError) {
+				console.warn(
+					`Blob ${reference.url} unavailable (HTTP ${error.status}). Marking as permanently failed.`,
+				)
+			} else {
+				console.warn(`Failed to fetch blob reference ${reference.url}:`, error)
+			}
 			return null
+		} finally {
+			inFlight.delete(reference.url)
 		}
-		blobCache.set(reference.url, json)
-		return json
-	} catch (error) {
-		// Network error or other fetch failure (after retries)
-		failedUrls.add(reference.url)
-		console.warn(`Failed to fetch blob reference ${reference.url}:`, error)
-		return null
-	}
+	})()
+
+	inFlight.set(reference.url, pending)
+	return pending
 }
 
 export interface ResolveOptions {
@@ -151,7 +250,7 @@ export interface ResolveOptions {
 }
 
 export async function resolveGeoEventFeatureCollection(
-	event: NDKGeoEvent,
+	event: GeoDataset,
 	options?: ResolveOptions,
 ): Promise<FeatureCollection> {
 	const baseCollection = event.featureCollection

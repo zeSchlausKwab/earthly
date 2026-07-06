@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import type maplibregl from 'maplibre-gl'
-import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
+import type { GeoComment } from '@/lib/nostr/geo-comment'
 import type { CommentAnnotationPopupData } from '../components/CommentAnnotationPopup'
 
 interface CommentLayerEntry {
 	sourceId: string
 	layerIds: string[]
 	cursorLayerIds: string[]
-	comment: NDKGeoCommentEvent
+	comment: GeoComment
 	handleClick: (event: maplibregl.MapLayerMouseEvent) => void
 	handleMouseMove: (event: maplibregl.MapLayerMouseEvent) => void
 	handleMouseLeave: () => void
@@ -51,7 +51,7 @@ function getDefaultTextFontStack(
 	return null
 }
 
-function buildOverlayCollection(comment: NDKGeoCommentEvent): FeatureCollection {
+function buildOverlayCollection(comment: GeoComment): FeatureCollection {
 	const collection = comment.geojson ?? { type: 'FeatureCollection', features: [] }
 	return {
 		type: 'FeatureCollection',
@@ -73,7 +73,7 @@ export function useCommentGeometry(
 	mapReady = false,
 ) {
 	const commentGeometryLayers = useRef<Map<string, CommentLayerEntry>>(new Map())
-	const desiredVisibleComments = useRef<Map<string, NDKGeoCommentEvent>>(new Map())
+	const desiredVisibleComments = useRef<Map<string, GeoComment>>(new Map())
 	const [annotationPopupData, setAnnotationPopupData] = useState<CommentAnnotationPopupData | null>(
 		null,
 	)
@@ -116,7 +116,7 @@ export function useCommentGeometry(
 	)
 
 	const showCommentLayers = useCallback(
-		(comment: NDKGeoCommentEvent) => {
+		(comment: GeoComment) => {
 			if (!mapReady || !mapRef.current) return
 
 			const commentId = comment.commentId ?? comment.id ?? ''
@@ -291,11 +291,11 @@ export function useCommentGeometry(
 				handleMouseLeave,
 			})
 		},
-		[mapReady, mapRef, removeCommentLayers],
+		[mapReady, mapRef],
 	)
 
 	const handleCommentGeometryVisibility = useCallback(
-		(comment: NDKGeoCommentEvent, visible: boolean) => {
+		(comment: GeoComment, visible: boolean) => {
 			const commentId = comment.commentId ?? comment.id ?? ''
 			if (!commentId) return
 
@@ -310,6 +310,23 @@ export function useCommentGeometry(
 			removeCommentLayers(commentId)
 		},
 		[mapReady, removeCommentLayers, showCommentLayers],
+	)
+
+	/**
+	 * Round F: comment overlays follow the stack. Drops every visible comment
+	 * overlay whose `isAnchored(comment)` returns false — called by the view
+	 * whenever the map stack changes, so removing a context/dataset also
+	 * removes its annotations from the map.
+	 */
+	const pruneCommentGeometry = useCallback(
+		(isAnchored: (comment: GeoComment) => boolean) => {
+			for (const [commentId, comment] of [...desiredVisibleComments.current]) {
+				if (isAnchored(comment)) continue
+				desiredVisibleComments.current.delete(commentId)
+				removeCommentLayers(commentId)
+			}
+		},
+		[removeCommentLayers],
 	)
 
 	useEffect(() => {
@@ -344,5 +361,6 @@ export function useCommentGeometry(
 		annotationPopupData,
 		setAnnotationPopupData,
 		handleCommentGeometryVisibility,
+		pruneCommentGeometry,
 	}
 }

@@ -166,13 +166,13 @@ export function CommentAnnotationComposer({
 	}
 
 	return (
-		<div className="mb-3 overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/60 shadow-sm">
-			<div className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-100/70 px-4 py-3">
+		<div className="mb-3 overflow-hidden rounded-2xl border border-primary/40 bg-primary/10 shadow-sm">
+			<div className="flex items-center justify-between gap-3 border-b border-primary/40 bg-primary/10 px-4 py-3">
 				<div>
-					<div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+					<div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
 						Comment Annotation
 					</div>
-					<div className="text-sm font-medium text-amber-950">
+					<div className="text-sm font-medium text-primary">
 						Draw geometry on the map, add context, then publish as a comment
 					</div>
 				</div>
@@ -191,8 +191,8 @@ export function CommentAnnotationComposer({
 						onClick={() => setMode('draw_annotation')}
 						className={`h-9 w-9 ${
 							mode === 'draw_annotation'
-								? 'border-amber-500 bg-amber-500 text-white hover:bg-amber-600'
-								: 'border-amber-200 text-amber-700 hover:bg-amber-50 hover:text-amber-800'
+								? 'border-primary/40 bg-primary text-white hover:bg-primary'
+								: 'border-primary/40 text-primary hover:bg-primary/10 hover:text-primary'
 						}`}
 						title="Draw label annotation"
 					>
@@ -224,7 +224,7 @@ export function CommentAnnotationComposer({
 							variant="outline"
 							onClick={() => editor?.finishDrawing()}
 							disabled={!canFinishDrawing}
-							className="gap-1 border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50"
+							className="gap-1 border-ok/40 bg-card text-ok hover:bg-ok/15"
 						>
 							<Check className="h-3.5 w-3.5" />
 							Finish
@@ -236,14 +236,14 @@ export function CommentAnnotationComposer({
 						variant="outline"
 						onClick={handleClearGeometry}
 						disabled={geometryCount === 0}
-						className="gap-1 bg-white"
+						className="gap-1 bg-card"
 					>
 						<Trash2 className="h-3.5 w-3.5" />
 						Clear
 					</Button>
 				</div>
 
-				<div className="rounded-xl border border-amber-200 bg-white/80 px-3 py-2 text-xs text-amber-900">
+				<div className="rounded-xl border border-primary/40 bg-card/80 px-3 py-2 text-xs text-primary">
 					<div className="flex flex-wrap items-center gap-3">
 						<span>
 							{geometryCount} feature{geometryCount === 1 ? '' : 's'} drafted
@@ -255,7 +255,7 @@ export function CommentAnnotationComposer({
 					</div>
 				</div>
 
-				<div className="rounded-xl border border-sky-100 bg-white p-3">
+				<div className="rounded-xl border border-info/40 bg-card p-3">
 					<GeoRichTextEditor
 						ref={editorRef}
 						placeholder="Explain what happened here. Links, images, videos, and geo mentions are supported."
@@ -266,8 +266,8 @@ export function CommentAnnotationComposer({
 					/>
 				</div>
 
-				<div className="flex items-start gap-2 rounded-xl border border-transparent bg-white/50 px-3 py-2 text-xs text-gray-600">
-					<Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-700" />
+				<div className="flex items-start gap-2 rounded-xl border border-transparent bg-card/50 px-3 py-2 text-xs text-muted-foreground">
+					<Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-primary" />
 					<p>
 						This publishes a geo comment per the spec: comment text plus an attached GeoJSON
 						FeatureCollection. It does not modify the underlying dataset.
@@ -282,7 +282,7 @@ export function CommentAnnotationComposer({
 						type="button"
 						onClick={handleSubmit}
 						disabled={!canPublish}
-						className="gap-1 bg-amber-600 text-white hover:bg-amber-700"
+						className="gap-1 bg-primary text-white hover:bg-primary/15"
 					>
 						<Send className="h-3.5 w-3.5" />
 						Publish annotation

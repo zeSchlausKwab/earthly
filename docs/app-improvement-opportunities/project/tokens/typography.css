@@ -1,0 +1,33 @@
+/* Typography — three families, one small dense scale.
+   IBM Plex Sans  → all UI text
+   JetBrains Mono → numeric values, coordinates, counts, keycaps, code
+   Playfair Display → editorial display only (doc headings, splash) — NOT in the tool UI
+*/
+:root {
+  --font-ui:      "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, monospace;
+  --font-display: "Playfair Display", ui-serif, Georgia, serif;
+
+  /* size ramp — 11px is the floor; nothing smaller carries meaning */
+  --fs-meta:   11px;  /* captions, hints, status */
+  --fs-body:   12px;  /* default body + controls */
+  --fs-label:  13px;  /* row labels, emphasis */
+  --fs-title:  15px;  /* panel titles */
+  --fs-h4:     19px;  /* section headers */
+  --fs-mono-s: 10px;  /* dense mono meta (uppercase group labels) */
+  --fs-mono:   12px;  /* mono values */
+
+  /* weights */
+  --fw-regular: 400;
+  --fw-medium:  500;
+  --fw-semibold:600;
+  --fw-bold:    700;
+
+  --lh-tight: 1.15;
+  --lh-ui:    1.45;
+  --lh-body:  1.55;
+
+  /* the recurring uppercase mono group-label treatment */
+  --label-caps-size: 9px;
+  --label-caps-tracking: 0.08em;
+}

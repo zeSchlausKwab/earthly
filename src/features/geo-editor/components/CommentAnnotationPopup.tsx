@@ -5,11 +5,11 @@ import { RichContentRenderer } from '@/components/editor'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { Button } from '@/components/ui/button'
 import { UserProfile } from '@/components/user-profile'
-import type { NDKGeoCommentEvent } from '@/lib/ndk/NDKGeoCommentEvent'
+import type { GeoComment } from '@/lib/nostr/geo-comment'
 import { resolveMapPopupPosition, type MapPopupPlacement } from './map-popup-positioning'
 
 export interface CommentAnnotationPopupData {
-	comment: NDKGeoCommentEvent
+	comment: GeoComment
 	feature: Feature<Geometry>
 	screenPosition: { x: number; y: number }
 	pinned?: boolean
@@ -128,7 +128,7 @@ export function CommentAnnotationPopup({
 			ref={popupRef}
 			role="dialog"
 			aria-label={`${title} annotation`}
-			className="pointer-events-auto absolute z-50 overflow-hidden rounded-2xl border border-amber-200 bg-white/95 shadow-2xl backdrop-blur"
+			className="pointer-events-auto absolute z-50 overflow-hidden rounded-2xl border border-primary/40 bg-card/95 shadow-2xl backdrop-blur"
 			style={{
 				width: `min(${POPUP_WIDTH}px, calc(100% - 24px))`,
 				left: position.left,
@@ -138,13 +138,13 @@ export function CommentAnnotationPopup({
 			onMouseEnter={() => onHoverChange?.(true)}
 			onMouseLeave={() => onHoverChange?.(false)}
 		>
-			<div className="flex items-start justify-between gap-3 border-b border-amber-100 bg-amber-50/80 px-4 py-3">
+			<div className="flex items-start justify-between gap-3 border-b border-primary/40 bg-primary/10 px-4 py-3">
 				<div className="min-w-0">
-					<div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+					<div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
 						Annotation
 					</div>
-					<h3 className="truncate text-sm font-semibold text-gray-900">{title}</h3>
-					<div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-gray-500">
+					<h3 className="truncate text-sm font-semibold text-foreground">{title}</h3>
+					<div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
 						<div className="inline-flex items-center gap-1">
 							<MessageCircle className="h-3 w-3" />
 							<UserProfile
@@ -168,20 +168,20 @@ export function CommentAnnotationPopup({
 
 			<div className="space-y-4 overflow-y-auto px-4 py-4">
 				{featureDescription && (
-					<div className="rounded-xl border border-amber-100 bg-amber-50/50 p-3">
+					<div className="rounded-xl border border-primary/40 bg-primary/10 p-3">
 						<RichContentRenderer
 							content={featureDescription}
 							availableFeatures={availableFeatures}
 							onMentionVisibilityToggle={onMentionVisibilityToggle}
 							onMentionZoomTo={onMentionZoomTo}
-							className="space-y-2 text-sm text-gray-700"
+							className="space-y-2 text-sm text-foreground"
 						/>
 					</div>
 				)}
 
 				{comment.text && (
 					<div className="space-y-2">
-						<div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-400">
+						<div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
 							Comment
 						</div>
 						<RichContentRenderer

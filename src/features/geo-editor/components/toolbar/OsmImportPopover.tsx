@@ -46,6 +46,16 @@ export function OsmImportPopover({
 }: OsmImportPopoverProps) {
 	const iconSize = small ? 'h-3.5 w-3.5' : 'h-4 w-4'
 	const buttonSize = small ? 'h-8 w-8' : 'h-9 w-9'
+	// Uniform style with Chat / Lookup / Settings / Share: ghost variant +
+	// transparent border + active state via `bg-primary text-primary-foreground`
+	// (solid fill, high contrast — clearly distinct from inactive).
+	const triggerClass = small
+		? `${buttonSize} shrink-0 rounded-md border border-transparent shadow-none${
+				isClickMode
+					? ' bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground'
+					: ''
+			}`
+		: buttonSize
 
 	return (
 		<TooltipProvider delayDuration={500}>
@@ -54,9 +64,9 @@ export function OsmImportPopover({
 					<TooltipTrigger asChild>
 						<PopoverTrigger asChild>
 							<Button
-								size="icon"
-								variant={isClickMode ? 'default' : 'outline'}
-								className={buttonSize}
+								size={small ? 'icon-sm' : 'icon'}
+								variant={small ? 'ghost' : isClickMode ? 'default' : 'outline'}
+								className={triggerClass}
 								aria-label="OSM Import"
 							>
 								<Sparkles className={iconSize} />

@@ -1,0 +1,36 @@
+<!-- @dsCard group="Components" viewport="700x170" subtitle="Badges, type chips, and dense list rows" name="Data rows & badges" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+  body{margin:0;padding:16px;background:var(--surface-app);font-family:var(--font-ui);display:flex;flex-direction:column;gap:12px}
+  .badges{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .b{display:inline-flex;align-items:center;height:16px;padding:0 6px;border-radius:2px;font-size:10.5px;font-weight:700}
+  .b.solid{background:var(--accent-active);color:var(--accent-ink)}
+  .b.green{background:color-mix(in oklch,var(--accent-ok) 20%,transparent);color:var(--accent-ok-text)}
+  .b.violet{background:var(--fill-edit-14);color:var(--accent-edit-text)}
+  .b.cyan{background:color-mix(in oklch,var(--accent-info) 22%,transparent);color:var(--accent-info-text)}
+  .b.neutral{border:1px solid var(--border-strong);color:var(--text-muted)}
+  .b.mono{font-family:var(--font-mono);font-size:10px;background:var(--surface-sunken);border:1px solid var(--border-strong);color:var(--text-body)}
+  .list{border:1px solid var(--border-hairline);border-radius:2px;overflow:hidden}
+  .row{display:flex;align-items:center;gap:8px;height:28px;padding:0 8px;border-bottom:1px solid var(--border-hairline);box-sizing:border-box}
+  .row:last-child{border-bottom:none}
+  .row.sel{border-left:2px solid var(--accent-active);padding-left:6px;background:var(--fill-active-14)}
+  .dot{width:8px;height:8px;border-radius:1px;flex-shrink:0}
+  .row .t{flex:1;font-size:12px;color:var(--text-body)}
+  .row.sel .t{color:var(--text-primary);font-weight:600}
+  .row .mt{font-family:var(--font-mono);font-size:9px;color:var(--text-faint)}
+  svg{width:13px;height:13px;color:var(--text-body)}
+</style></head><body>
+  <div class="badges">
+    <span class="b solid">LIVE</span>
+    <span class="b green">Published</span>
+    <span class="b violet">Poly</span>
+    <span class="b cyan">Line</span>
+    <span class="b neutral">Draft</span>
+    <span class="b mono">12/43</span>
+  </div>
+  <div class="list">
+    <div class="row sel"><span class="dot" style="background:var(--accent-ok)"></span><span class="t">Wall segments 1961</span><span class="mt">43</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></div>
+    <div class="row"><span class="dot" style="background:var(--accent-info)"></span><span class="t">Checkpoints</span><span class="mt">7</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></div>
+    <div class="row"><span class="dot" style="background:#6c6c74"></span><span class="t" style="color:var(--text-faint)">Death strip · hidden</span><svg viewBox="0 0 24 24" fill="none" stroke="#6c6c74" stroke-width="2" style="margin-left:auto"><path d="M9.9 4.24A9 9 0 0 1 21 12s-3 7-9 7a9 9 0 0 1-4.5-1.2M2 2l20 20"/></svg></div>
+  </div>
+</body></html>

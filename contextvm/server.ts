@@ -65,11 +65,19 @@ import { valhallaIsochrone, valhallaRoute } from "./tools/valhalla.ts";
 const SERVER_PRIVATE_KEY =
   serverConfig.serverKey ||
   "0000000000000000000000000000000000000000000000000000000000000001"; // Dev fallback
-const RELAYS = [
-  serverConfig.relayUrl || "ws://localhost:3334",
-  "wss://relay2.contextvm.org",
-  "wss://relay.earthly.city",
-];
+// Stage isolation (docs/RELAY_STAGES.md): the dev geo server binds ONLY to the
+// local relay — even if RELAY_URL points elsewhere — so dev MCP traffic never
+// reaches public relays. Prod serves on the configured relay + the public
+// ContextVM relays.
+const RELAYS = serverConfig.isProduction
+  ? [
+      ...new Set([
+        serverConfig.relayUrl || "wss://relay.earthly.city",
+        "wss://relay2.contextvm.org",
+        "wss://relay.earthly.city",
+      ]),
+    ]
+  : ["ws://localhost:3334"];
 const TEXT_ENCODER = new TextEncoder();
 const NOSTR_PLAINTEXT_LIMIT_BYTES = 65535;
 const TRANSPORT_RESPONSE_BUDGET_BYTES = 42_000;

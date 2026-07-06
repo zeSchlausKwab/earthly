@@ -1,4 +1,7 @@
-import { NDKPrivateKeySigner, useNDK } from '@nostr-dev-kit/react'
+import { PrivateKeyAccount } from 'applesauce-accounts/accounts'
+import { EventFactory } from 'applesauce-core/factories'
+import { bytesToHex } from 'applesauce-core/helpers/event'
+import { PrivateKeySigner } from 'applesauce-signers'
 import { Scanner } from '@yudiel/react-qr-scanner'
 import {
 	AlertTriangle,
@@ -16,6 +19,7 @@ import {
 import { nip19 } from 'nostr-tools'
 import { QRCodeCanvas } from 'qrcode.react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { BlossomUploaderButton } from '@/components/blossom/BlossomUploaderButton'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -31,11 +35,13 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { loginWithAccount, publish } from '@/lib/nostr'
 
 interface SignupDialogProps {
 	open: boolean
 	onOpenChange: (open: boolean) => void
-	onConfirm: (signer: NDKPrivateKeySigner, rememberMe: boolean) => Promise<void>
+	/** Optional callback fired after the account is added and made active. */
+	onSuccess?: () => void
 }
 
 type WizardView =
@@ -54,10 +60,9 @@ interface ProfileDraft {
 	picture: string
 }
 
-export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProps) {
-	const { ndk } = useNDK()
+export function SignupDialog({ open, onOpenChange, onSuccess }: SignupDialogProps) {
 	const [view, setView] = useState<WizardView>('choose')
-	const [signer, setSigner] = useState<NDKPrivateKeySigner | null>(null)
+	const [signer, setSigner] = useState<PrivateKeySigner | null>(null)
 	const [nsec, setNsec] = useState('')
 	const [npub, setNpub] = useState('')
 	const [nsecCopied, setNsecCopied] = useState(false)
@@ -71,7 +76,6 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 		picture: '',
 	})
 	const [profileLoading, setProfileLoading] = useState(false)
-	// Import mode state
 	const [importKey, setImportKey] = useState('')
 	const [importError, setImportError] = useState('')
 	const [isImportWarningExpanded, setIsImportWarningExpanded] = useState(true)
@@ -99,36 +103,24 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 		setScanError(null)
 	}, [])
 
-	const generateNewKey = useCallback(() => {
-		const newSigner = NDKPrivateKeySigner.generate()
+	const generateNewKey = useCallback(async () => {
+		const newSigner = new PrivateKeySigner()
 		setSigner(newSigner)
 		setNsecCopied(false)
 		setNpubCopied(false)
 		setKeySaved(false)
-		const privateKeyHex = newSigner.privateKey
-		if (privateKeyHex) {
-			const privateKeyBytes = new Uint8Array(
-				privateKeyHex.match(/.{1,2}/g)?.map((byte) => parseInt(byte, 16)) || [],
-			)
-			setNsec(nip19.nsecEncode(privateKeyBytes))
-		}
-		newSigner.user().then((user) => {
-			if (user.pubkey) {
-				setNpub(nip19.npubEncode(user.pubkey))
-			}
-		})
+		setNsec(nip19.nsecEncode(newSigner.key))
+		const pubkey = await newSigner.getPublicKey()
+		setNpub(nip19.npubEncode(pubkey))
 	}, [])
 
 	useEffect(() => {
-		if (!open) {
-			reset()
-		}
+		if (!open) reset()
 	}, [open, reset])
 
-	// Auto-generate key when navigating to key views
 	useEffect(() => {
 		if (open && (view === 'beginner-keys' || view === 'expert-create') && !signer) {
-			generateNewKey()
+			void generateNewKey()
 		}
 	}, [open, view, signer, generateNewKey])
 
@@ -153,7 +145,7 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 
 		printWindow.document.write(`<!DOCTYPE html>
 <html><head>
-  <title>Earthly \u2013 Nostr Identity Backup</title>
+  <title>Earthly – Nostr Identity Backup</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 580px; margin: 40px auto; padding: 32px; color: #111; }
@@ -179,13 +171,13 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
   <div class="header">
     <span style="font-size:26px">&#127758;</span>
     <div>
-      <div class="app-name">Earthly \u00b7 Nostr Identity Backup</div>
+      <div class="app-name">Earthly · Nostr Identity Backup</div>
       <div class="date">Created ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
     </div>
   </div>
   <div class="warning">
-    <div class="warning-title">\u26a0\ufe0f Keep this document private</div>
-    <p>Your private key gives full access to your account. Anyone who has it can post as you. Store this in a secure place \u2014 a safe, password manager, or encrypted drive. Do not photograph or share it.</p>
+    <div class="warning-title">⚠️ Keep this document private</div>
+    <p>Your private key gives full access to your account. Anyone who has it can post as you. Store this in a secure place — a safe, password manager, or encrypted drive. Do not photograph or share it.</p>
   </div>
   ${
 		qrDataUrl
@@ -197,14 +189,14 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 			: ''
 	}
   <div class="key-section">
-    <div class="key-label">\ud83d\udd12 Private Key (nsec) \u2014 Keep secret, never share</div>
+    <div class="key-label">🔒 Private Key (nsec) — Keep secret, never share</div>
     <div class="key-value">${nsec}</div>
   </div>
   <div class="pub-section">
-    <div class="pub-label">\ud83d\udce2 Public Key (npub) \u2014 Your address, safe to share</div>
+    <div class="pub-label">📢 Public Key (npub) — Your address, safe to share</div>
     <div class="key-value">${npub}</div>
   </div>
-  <div class="footer">earthly.city \u00b7 Your keys never leave your device \u00b7 Generated by Earthly</div>
+  <div class="footer">earthly.city · Your keys never leave your device · Generated by Earthly</div>
   <script>setTimeout(() => window.print(), 400)</script>
 </body></html>`)
 		printWindow.document.close()
@@ -267,13 +259,17 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 		setScanError(`Camera error: ${msg}`)
 	}, [])
 
-	// ---- ACTIONS ----
+	/** Logs the user in by registering their key as the active applesauce account. */
+	const loginWithSigner = async (active: PrivateKeySigner) => {
+		const account = PrivateKeyAccount.fromKey(bytesToHex(active.key))
+		loginWithAccount(account, { remember: rememberMe })
+	}
 
 	const handleBeginnerNext = async () => {
 		if (!signer || !keySaved) return
 		setLoading(true)
 		try {
-			await onConfirm(signer, rememberMe)
+			await loginWithSigner(signer)
 			setView('beginner-profile')
 		} catch (error) {
 			console.error('Login failed:', error)
@@ -285,28 +281,21 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 	const handlePublishProfile = async (skip = false) => {
 		setProfileLoading(true)
 		try {
-			if (
-				!skip &&
-				ndk &&
-				signer &&
-				(profileDraft.name || profileDraft.about || profileDraft.picture)
-			) {
-				const user = await signer.user()
-				const ndkUser = ndk.getUser({ pubkey: user.pubkey })
-				ndkUser.ndk = ndk
-				ndkUser.profile = {
+			if (!skip && signer && (profileDraft.name || profileDraft.about || profileDraft.picture)) {
+				const profileContent = JSON.stringify({
 					name: profileDraft.name || undefined,
-					displayName: profileDraft.name || undefined,
+					display_name: profileDraft.name || undefined,
 					about: profileDraft.about || undefined,
-					image: profileDraft.picture || undefined,
 					picture: profileDraft.picture || undefined,
-				}
-				await ndkUser.publish()
+				})
+				const event = await EventFactory.fromKind(0).content(profileContent).sign(signer)
+				await publish(event, { routing: 'outbox' })
 			}
 			setView('beginner-done')
+			onSuccess?.()
 		} catch (error) {
 			console.error('Profile publish failed:', error)
-			// Still advance even on failure
+			// Advance even on failure — the account is already logged in.
 			setView('beginner-done')
 		} finally {
 			setProfileLoading(false)
@@ -317,7 +306,8 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 		if (!signer) return
 		setLoading(true)
 		try {
-			await onConfirm(signer, rememberMe)
+			await loginWithSigner(signer)
+			onSuccess?.()
 			onOpenChange(false)
 		} catch (error) {
 			console.error('Login failed:', error)
@@ -334,8 +324,9 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 		}
 		setLoading(true)
 		try {
-			const importSigner = new NDKPrivateKeySigner(privateKeyHex)
-			await onConfirm(importSigner, rememberMe)
+			const account = PrivateKeyAccount.fromKey(privateKeyHex)
+			loginWithAccount(account, { remember: rememberMe })
+			onSuccess?.()
 			onOpenChange(false)
 		} catch (error) {
 			console.error('Import failed:', error)
@@ -344,17 +335,15 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 		}
 	}
 
-	// ---- TITLES ----
-
 	const titles: Record<WizardView, { title: string; description: string }> = {
 		choose: { title: 'Connect to Nostr', description: 'Choose how you want to get started.' },
 		'beginner-keys': {
 			title: 'Your Nostr Identity',
-			description: 'Step 1 of 2 \u2014 Save your keys before continuing.',
+			description: 'Step 1 of 2 — Save your keys before continuing.',
 		},
 		'beginner-profile': {
 			title: 'Set Up Your Profile',
-			description: 'Step 2 of 2 \u2014 Optional, you can always change this later.',
+			description: 'Step 2 of 2 — Optional, you can always change this later.',
 		},
 		'beginner-done': {
 			title: "You're on Nostr!",
@@ -372,8 +361,6 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 
 	const { title, description } = titles[view]
 
-	// ---- RENDER ----
-
 	return (
 		<>
 			<Dialog open={open} onOpenChange={onOpenChange}>
@@ -383,14 +370,12 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 						<DialogDescription>{description}</DialogDescription>
 					</DialogHeader>
 
-					{/* Hidden QR canvas for backup PDF */}
 					{nsec && (
 						<div ref={qrContainerRef} className="hidden" aria-hidden="true">
 							<QRCodeCanvas value={nsec} size={200} />
 						</div>
 					)}
 
-					{/* ---- CHOOSE ---- */}
 					{view === 'choose' && (
 						<div className="space-y-3 py-2">
 							<Button
@@ -453,7 +438,6 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 						</div>
 					)}
 
-					{/* ---- BEGINNER KEYS ---- */}
 					{view === 'beginner-keys' && (
 						<div className="space-y-4 py-2">
 							<div className="rounded-lg bg-muted/60 p-4 text-sm space-y-1">
@@ -489,7 +473,7 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 										className="flex-shrink-0 self-stretch"
 									>
 										{nsecCopied ? (
-											<CheckCircle2 className="w-4 h-4 text-green-600" />
+											<CheckCircle2 className="w-4 h-4 text-ok" />
 										) : (
 											<Copy className="w-4 h-4" />
 										)}
@@ -513,7 +497,7 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 										className="flex-shrink-0 self-stretch"
 									>
 										{npubCopied ? (
-											<CheckCircle2 className="w-4 h-4 text-green-600" />
+											<CheckCircle2 className="w-4 h-4 text-ok" />
 										) : (
 											<Copy className="w-4 h-4" />
 										)}
@@ -563,7 +547,6 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 						</div>
 					)}
 
-					{/* ---- BEGINNER PROFILE ---- */}
 					{view === 'beginner-profile' && (
 						<div className="space-y-4 py-2">
 							<div className="space-y-2">
@@ -594,12 +577,21 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 									Profile picture URL{' '}
 									<span className="text-muted-foreground font-normal text-xs">(optional)</span>
 								</Label>
-								<Input
-									id="profile-picture"
-									placeholder="https://..."
-									value={profileDraft.picture}
-									onChange={(e) => setProfileDraft((d) => ({ ...d, picture: e.target.value }))}
-								/>
+								<div className="flex items-center gap-2">
+									<Input
+										id="profile-picture"
+										placeholder="https://..."
+										value={profileDraft.picture}
+										onChange={(e) => setProfileDraft((d) => ({ ...d, picture: e.target.value }))}
+									/>
+									<BlossomUploaderButton
+										currentUrl={profileDraft.picture}
+										onUploaded={({ url }) =>
+											setProfileDraft((draft) => ({ ...draft, picture: url }))
+										}
+										buttonLabel="Blossom"
+									/>
+								</div>
 							</div>
 							<p className="text-xs text-muted-foreground">
 								You can always update your profile later in the settings.
@@ -607,11 +599,10 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 						</div>
 					)}
 
-					{/* ---- BEGINNER DONE ---- */}
 					{view === 'beginner-done' && (
 						<div className="py-8 flex flex-col items-center gap-4 text-center">
-							<div className="p-4 rounded-full bg-green-100 dark:bg-green-900/30">
-								<CheckCircle2 className="h-10 w-10 text-green-600" />
+							<div className="p-4 rounded-full bg-ok/15">
+								<CheckCircle2 className="h-10 w-10 text-ok" />
 							</div>
 							<div>
 								<h3 className="text-lg font-semibold mb-1">Welcome to Nostr!</h3>
@@ -623,7 +614,6 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 						</div>
 					)}
 
-					{/* ---- EXPERT CREATE ---- */}
 					{view === 'expert-create' && (
 						<div className="space-y-5 py-2">
 							<Alert variant="destructive">
@@ -660,7 +650,7 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 										className="flex-shrink-0 self-stretch"
 									>
 										{nsecCopied ? (
-											<CheckCircle2 className="w-4 h-4 text-green-600" />
+											<CheckCircle2 className="w-4 h-4 text-ok" />
 										) : (
 											<Copy className="w-4 h-4" />
 										)}
@@ -681,7 +671,7 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 										className="flex-shrink-0 self-stretch"
 									>
 										{npubCopied ? (
-											<CheckCircle2 className="w-4 h-4 text-green-600" />
+											<CheckCircle2 className="w-4 h-4 text-ok" />
 										) : (
 											<Copy className="w-4 h-4" />
 										)}
@@ -702,7 +692,6 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 						</div>
 					)}
 
-					{/* ---- EXPERT IMPORT ---- */}
 					{view === 'expert-import' && (
 						<div className="space-y-4 py-2">
 							<Collapsible
@@ -780,9 +769,7 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 						</div>
 					)}
 
-					{/* ---- FOOTER ---- */}
 					<DialogFooter className="gap-2 flex-wrap">
-						{/* Back button */}
 						{(view === 'beginner-keys' || view === 'expert-create' || view === 'expert-import') && (
 							<Button
 								variant="ghost"
@@ -865,7 +852,6 @@ export function SignupDialog({ open, onOpenChange, onConfirm }: SignupDialogProp
 				</DialogContent>
 			</Dialog>
 
-			{/* QR Scanner Dialog */}
 			<Dialog open={showScanner} onOpenChange={setShowScanner}>
 				<DialogContent className="sm:max-w-md">
 					<DialogHeader>

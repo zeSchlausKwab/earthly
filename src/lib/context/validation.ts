@@ -1,12 +1,12 @@
 import Ajv2020 from 'ajv/dist/2020'
 import addFormats from 'ajv-formats'
 import type { FeatureCollection, Feature } from 'geojson'
-import type { NDKGeoEvent } from '../ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 import {
 	MAP_CONTEXT_GEOMETRY_TYPES,
 	type MapContextGeometryType,
-	type NDKMapContextEvent,
-} from '../ndk/NDKMapContextEvent'
+	type MapContext,
+} from '@/lib/nostr/map-context'
 
 export type ContextFilterMode = 'off' | 'warn' | 'strict'
 
@@ -30,33 +30,33 @@ const ajv = new Ajv2020({
 })
 addFormats(ajv)
 
-export function getContextCoordinate(context: NDKMapContextEvent): string | null {
+export function getContextCoordinate(context: MapContext): string | null {
 	return context.contextCoordinate ?? null
 }
 
 export function getEffectiveContextUse(
-	context: NDKMapContextEvent,
-): NDKMapContextEvent['context']['contextUse'] {
+	context: MapContext,
+): MapContext['context']['contextUse'] {
 	if (!context.context.allowForeignAttachments) return 'taxonomy'
 	return context.context.contextUse
 }
 
 export function getEffectiveContextValidationMode(
-	context: NDKMapContextEvent,
-): NDKMapContextEvent['context']['validationMode'] {
+	context: MapContext,
+): MapContext['context']['validationMode'] {
 	if (!context.context.allowForeignAttachments) return 'none'
 	if (getEffectiveContextUse(context) === 'taxonomy') return 'none'
 	return context.context.validationMode
 }
 
-export function defaultContextFilterMode(context: NDKMapContextEvent): ContextFilterMode {
+export function defaultContextFilterMode(context: MapContext): ContextFilterMode {
 	const mode = getEffectiveContextValidationMode(context)
 	if (mode === 'required') return 'strict'
 	if (mode === 'optional') return 'warn'
 	return 'off'
 }
 
-export function contextCanValidateDatasets(context: NDKMapContextEvent): boolean {
+export function contextCanValidateDatasets(context: MapContext): boolean {
 	const use = getEffectiveContextUse(context)
 	return use === 'validation' || use === 'hybrid'
 }
@@ -154,7 +154,7 @@ function featurePropertiesForValidation(feature: Feature): Record<string, unknow
 }
 
 export function getContextAllowedGeometryTypes(
-	context: NDKMapContextEvent,
+	context: MapContext,
 ): MapContextGeometryType[] {
 	const constraints = asRecord(context.context.geometryConstraints)
 	const allowedTypesRaw = Array.isArray(constraints?.allowedTypes) ? constraints.allowedTypes : []
@@ -169,7 +169,7 @@ export function getContextAllowedGeometryTypes(
 }
 
 export function getContextRequiredPropertyDefaults(
-	context: NDKMapContextEvent,
+	context: MapContext,
 ): Record<string, unknown> {
 	if (!contextCanValidateDatasets(context)) return {}
 
@@ -200,8 +200,8 @@ function toFeatureId(feature: Feature, index: number): string | undefined {
 }
 
 export function validateDatasetForContext(
-	dataset: NDKGeoEvent,
-	context: NDKMapContextEvent,
+	dataset: GeoDataset | null | undefined,
+	context: MapContext,
 	featureCollection?: FeatureCollection,
 	mode: ContextFilterMode = 'strict',
 ): ContextValidationResult {
@@ -253,7 +253,7 @@ export function validateDatasetForContext(
 			errors: [{ path: '$', message: 'Context has no validation constraints.' }],
 		}
 	}
-	const collection = featureCollection ?? dataset.featureCollection
+	const collection = featureCollection ?? dataset?.featureCollection
 	const features = collection?.features ?? []
 
 	if (features.length === 0) {

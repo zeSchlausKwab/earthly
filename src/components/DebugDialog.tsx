@@ -1,12 +1,12 @@
 import type React from 'react'
 import JsonView from 'react18-json-view'
 import 'react18-json-view/src/style.css'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
-import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
+import type { MapContext } from '@/lib/nostr/map-context'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog'
 
 interface DebugDialogProps {
-	event: NDKGeoEvent | NDKMapContextEvent
+	event: GeoDataset | MapContext
 	open: boolean
 	onOpenChange: (open: boolean) => void
 }
@@ -29,7 +29,7 @@ export const DebugDialog: React.FC<DebugDialogProps> = ({ event, open, onOpenCha
 						Raw Nostr event data for {displayName || event.id || 'Untitled'}
 					</DialogDescription>
 				</DialogHeader>
-				<div className="flex-1 overflow-auto rounded-md bg-gray-50 p-4">
+				<div className="flex-1 overflow-auto rounded-md bg-muted p-4">
 					<JsonView src={rawEvent} collapsed={1} />
 				</div>
 			</DialogContent>

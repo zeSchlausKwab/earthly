@@ -18,7 +18,7 @@ function VideoNodeView({ node }: NodeViewProps) {
 					href={src}
 					target="_blank"
 					rel="noopener noreferrer"
-					className="flex items-center gap-2 text-sm text-sky-600 hover:text-sky-700 hover:underline"
+					className="flex items-center gap-2 text-sm text-info hover:text-info hover:underline"
 				>
 					<Play className="h-4 w-4" />
 					<span className="truncate">{title || 'Video'}</span>
@@ -84,7 +84,7 @@ function ImageNodeView({ node }: NodeViewProps) {
 					href={src}
 					target="_blank"
 					rel="noopener noreferrer"
-					className="flex items-center gap-2 text-sm text-sky-600 hover:text-sky-700 hover:underline"
+					className="flex items-center gap-2 text-sm text-info hover:text-info hover:underline"
 				>
 					<span className="truncate">{alt || title || 'Image'}</span>
 					<ExternalLink className="h-3 w-3" />
@@ -173,7 +173,7 @@ function YouTubeNodeView({ node }: NodeViewProps) {
 					href={src}
 					target="_blank"
 					rel="noopener noreferrer"
-					className="flex items-center gap-2 text-sm text-red-600 hover:text-red-700 hover:underline"
+					className="flex items-center gap-2 text-sm text-destructive hover:text-destructive hover:underline"
 				>
 					<Play className="h-4 w-4" />
 					<span>YouTube Video</span>

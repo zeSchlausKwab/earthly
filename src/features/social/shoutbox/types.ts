@@ -1,4 +1,4 @@
-import type { NDKEvent } from '@nostr-dev-kit/ndk'
+import type { NostrEvent } from 'nostr-tools'
 
 /** Shoutbox tab categories */
 export type ShoutboxCategory = 'announcements' | 'features' | 'greetings' | 'bugs'
@@ -23,7 +23,7 @@ export interface CategoryConfig {
 
 /** NIP-22 Comment node for threading */
 export interface CommentNode {
-	event: NDKEvent
+	event: NostrEvent
 	children: CommentNode[]
 	depth: number
 }

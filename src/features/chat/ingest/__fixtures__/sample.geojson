@@ -1,0 +1,15 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "Eiffel Tower", "city": "Paris" },
+      "geometry": { "type": "Point", "coordinates": [2.2945, 48.8584] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Statue of Liberty", "city": "New York" },
+      "geometry": { "type": "Point", "coordinates": [-74.0445, 40.6892] }
+    }
+  ]
+}

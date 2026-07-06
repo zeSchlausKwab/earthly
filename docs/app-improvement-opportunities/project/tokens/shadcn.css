@@ -1,0 +1,57 @@
+/* shadcn compatibility layer — CANONICAL tokens.
+   Earthly builds on shadcn (radix-mira). These are the variable names shadcn's
+   own components read; consumers using <Button/>, <Input/>, <Select/> etc. from
+   shadcn get the dense Earthly look for free. Dark tool theme is the default.
+
+   The DS's semantic aliases (--surface-*, --text-*, --accent-*) in colors.css
+   mirror these one-to-one — use either; they resolve to the same palette. */
+:root {
+  --background: oklch(0.2050 0 0);            /* #1b1b1d viewport */
+  --foreground: #e7e7ea;
+  --card: #202023;
+  --card-foreground: #e7e7ea;
+  --popover: #2b2b2f;
+  --popover-foreground: #f0f0f2;
+  --primary: oklch(0.8535 0.1744 88.7734);    /* amber */
+  --primary-foreground: #241f10;
+  --secondary: #2b2b2f;
+  --secondary-foreground: #e7e7ea;
+  --muted: #2b2b2f;
+  --muted-foreground: #9b9ba3;
+  --accent: #38383d;
+  --accent-foreground: #f0f0f2;
+  --destructive: oklch(0.72 0.16 25);
+  --destructive-foreground: #ffffff;
+  --border: #38383d;
+  --input: #4a4a51;
+  --ring: oklch(0.8535 0.1744 88.7734);
+  --sidebar: #202023;
+  --sidebar-foreground: #e7e7ea;
+  --sidebar-border: #38383d;
+
+  /* Dense evolution of the shadcn defaults */
+  --radius: 0.125rem;   /* 2px — was 0.2rem. Cornered, not soft. */
+
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-serif: "Playfair Display", ui-serif, Georgia, serif;
+}
+
+/* light tool theme — map to .earthly-light too, so both selectors work */
+.earthly-light,
+.light {
+  --background: #ecebe8;
+  --foreground: #1b1a18;
+  --card: #ffffff;
+  --card-foreground: #1b1a18;
+  --popover: #ffffff;
+  --popover-foreground: #1b1a18;
+  --secondary: #f0eee9;
+  --secondary-foreground: #1b1a18;
+  --muted: #f0eee9;
+  --muted-foreground: #6d6b66;
+  --accent: #e6e4df;
+  --accent-foreground: #1b1a18;
+  --border: #d7d5d1;
+  --input: #d7d5d1;
+}

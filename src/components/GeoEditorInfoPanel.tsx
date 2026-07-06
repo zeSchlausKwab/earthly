@@ -11,27 +11,37 @@ import {
 } from '../lib/context/validation'
 import { useEditorStore } from '../features/geo-editor/store'
 import { sanitizeEditorProperties } from '../features/geo-editor/utils'
-import { NDKGeoEvent as NDKGeoEventClass, type NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
-import type { MapContextValidationMode, NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
+import type { MapContextValidationMode, MapContext } from '@/lib/nostr/map-context'
 import {
 	BlobReferencesSection,
 	DatasetMetadataSection,
 	EntityPanelSectionHeader,
 	EntityPanelSurface,
 	GeometriesTable,
-	MapContextViewPanel,
+	GroupViewPanel,
+	SightingViewPanel,
+	StoryViewPanel,
 	ViewModePanel,
 } from './info-panel'
+import { StoryEditorPanel } from './info-panel/StoryEditorPanel'
+import { SightingEditorPanel } from './info-panel/SightingEditorPanel'
+import { BeaconControlPanel } from './info-panel/BeaconControlPanel'
+import type { BeaconStartOptions } from './info-panel/BeaconControlPanel'
+import { BeaconViewPanel } from './info-panel/BeaconViewPanel'
+import type { LiveBeacon } from '@/lib/nostr/live-beacon'
+import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
 import { DatasetSizeIndicator } from './info-panel/DatasetSizeIndicator'
-import { MapContextEditorPanel } from '../features/contexts/MapContextEditorPanel'
+import { GroupEditorPanel } from '../features/groups/GroupEditorPanel'
+import type { Article } from '@/lib/nostr/article'
+import { GroupAttachField } from '../features/geo-editor/components/GroupAttachField'
 import { CommentsPanel } from '../features/social/comments'
 import { Button } from './ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible'
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
-import { EntitySearchPopover, type EntitySearchResult } from './entity-search'
+import type { EntitySearchResult } from './entity-search'
 import type { EditorFeature } from '../features/geo-editor/core'
 import type { BlossomUploadResult } from '../lib/blossom/blossomUpload'
-import { Input } from './ui/input'
 
 type ContextPropertyTypeHint = 'string' | 'number' | 'integer' | 'boolean'
 
@@ -42,27 +52,30 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 export interface GeoEditorInfoPanelProps {
 	currentUserPubkey?: string
-	onLoadDataset: (event: NDKGeoEvent) => void
-	onInspectDataset?: (event: NDKGeoEvent) => void
+	onLoadDataset: (event: GeoDataset) => void
+	onInspectDataset?: (event: GeoDataset) => void
 	onStartNewDataset?: () => void
 	onOpenGeometryEditor?: () => void
 	onSwitchWorkspace?: (workspaceId: string) => void
-	onToggleVisibility: (event: NDKGeoEvent) => void
-	onZoomToDataset: (event: NDKGeoEvent) => void
-	onDeleteDataset: (event: NDKGeoEvent) => void
-	onDeleteContext?: (context: NDKMapContextEvent) => void
+	onToggleVisibility: (event: GeoDataset) => void
+	onZoomToDataset: (event: GeoDataset) => void
+	onDeleteDataset: (event: GeoDataset) => void
+	onDeleteContext?: (context: MapContext) => void
 	deletingKey: string | null
 	onExitViewMode?: () => void
 	onClose?: () => void
-	getDatasetKey: (event: NDKGeoEvent) => string
-	getDatasetName: (event: NDKGeoEvent) => string
+	getDatasetKey: (event: GeoDataset) => string
+	getDatasetName: (event: GeoDataset) => string
 	/** Callback to add/remove comment GeoJSON overlay on map */
 	onCommentGeometryVisibility?: (
-		comment: import('../lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent,
+		comment: import('@/lib/nostr/geo-comment').GeoComment,
 		visible: boolean,
 	) => void
 	/** Callback to zoom to a bounding box */
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
+	/** Fly the map to a Sighting and focus it (geometry-aware; used by the Sighting
+	 * view panel's "Zoom to" button). */
+	onZoomToSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
 	/** Available features for $ mentions in comments */
 	availableFeatures?: GeoFeatureItem[]
 	/** Callback when a geo mention's visibility is toggled */
@@ -73,23 +86,25 @@ export interface GeoEditorInfoPanelProps {
 	) => void
 	/** Callback to zoom to a mentioned geometry */
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
+	/** Map-stack-derived visibility for inline Story refs (single source of truth) */
+	isMentionVisible?: (address: string, featureId: string | undefined) => boolean
 	/** Context editor mode */
 	contextEditorMode?: 'none' | 'create' | 'edit'
 	/** Context being edited */
-	editingContext?: NDKMapContextEvent | null
+	editingContext?: MapContext | null
 	/** Callback when context is saved */
-	onSaveContext?: (context: NDKMapContextEvent) => void
+	onSaveContext?: (context: MapContext) => void
 	/** Callback to close context editor */
 	onCloseContextEditor?: () => void
 	/** Available contexts for dataset attachment */
-	mapContextEvents?: NDKMapContextEvent[]
+	mapContextEvents?: MapContext[]
 	/** Callback when a proposal overlay visibility is toggled */
 	onToggleProposalOverlay?: (
-		proposal: import('@/lib/ndk/NDKGeoEditProposalEvent').NDKGeoEditProposalEvent,
+		proposal: import('@/lib/nostr/geo-proposal').GeoProposal,
 		visible: boolean,
 	) => void
 	/** Callback when a proposal is accepted */
-	onProposalAccepted?: (dataset: NDKGeoEvent) => void
+	onProposalAccepted?: (dataset: GeoDataset) => void
 	/** Set of proposal IDs whose overlay is visible */
 	visibleProposalIds?: Set<string>
 	/** Callback when a feature is zoomed to from the geometries list */
@@ -98,12 +113,90 @@ export interface GeoEditorInfoPanelProps {
 	featureCollectionForUpload?: FeatureCollection | null
 	/** Callback when blossom upload completes */
 	onBlossomUploadComplete?: (result: BlossomUploadResult) => void
-	/** NDK instance for authenticated uploads */
-	ndk?: import('@nostr-dev-kit/ndk').default | null
+	/** Publish-new action for the contributor Group attach field (GROUP-02/04). */
+	onPublishNew?: () => void | Promise<void>
+	/** Whether publish-new is currently possible (NEVER gated by validation — GROUP-04). */
+	canPublishNew?: boolean
+	/** True while a publish is in flight. */
+	isPublishing?: boolean
 	/** Optional comment d-tag from the route to reveal in the thread */
 	focusCommentId?: string
-	entityWorkspace?: 'geometry' | 'context'
+	entityWorkspace?: 'geometry' | 'context' | 'story' | 'sighting' | 'beacon'
 	entityIntent?: 'inspect' | 'edit'
+	/** Story editor mode (Phase 10, D-03). */
+	storyEditorMode?: 'none' | 'create' | 'edit'
+	/** Story being edited (create ⇒ null). */
+	editingStory?: Article | null
+	/** Callback when a Story is saved (publish/edit). */
+	onSaveStory?: (story: Article) => void
+	/** Callback to close the Story editor. */
+	onCloseStoryEditor?: () => void
+	/** Callback to open a Story in the editor (owner Edit affordance in the view). */
+	onEditStory?: (story: Article) => void
+	/** Callback to delete a Story (owner). */
+	onDeleteStory?: (story: Article) => void
+	/** Callback with the republished Story after an accepted proposed edit (refresh view in place). */
+	onStoryUpdated?: (updated: Article) => void
+	/** Sighting editor mode (Phase 11, D-01/D-07). */
+	sightingEditorMode?: 'none' | 'create' | 'edit'
+	/** Sighting being edited (create ⇒ null). */
+	editingSighting?: TemporalSighting | null
+	/** The Sighting currently inspected in the view panel. */
+	viewSighting?: TemporalSighting | null
+	/**
+	 * WR-06: the comment d-tag to focus beneath the viewed Sighting. Separate from
+	 * the generic `focusCommentId` because the sighting focus path switches the
+	 * sidebar via `navigateToView` (which drops the URL `/comment/:id` segment), so
+	 * the global route-derived `focusCommentId` would be wiped — this one is held in
+	 * `useSightingEditor` state and survives that navigation.
+	 */
+	sightingFocusCommentId?: string
+	/**
+	 * D-10: the comment d-tag to focus beneath the viewed Beacon. Separate from the
+	 * generic `focusCommentId` for the same reason as `sightingFocusCommentId` — the
+	 * beacon focus path switches the sidebar via `navigateTo`/`navigateToView` (which
+	 * drops the URL `/comment/:id` segment), so the route-derived `focusCommentId`
+	 * would be wiped. Held in `useBeaconController` state and survives that navigation.
+	 */
+	beaconFocusCommentId?: string
+	/** The geometry placed by the map-first pin-drop, fed to the create form. */
+	placedSightingGeometry?: Geometry | null
+	/** Switch the Sighting create flow to line/polygon draw (D-02). */
+	onDrawSightingArea?: () => void
+	/** Callback when a Sighting is saved (publish/edit). */
+	onSaveSighting?: (sighting: TemporalSighting) => void
+	/** Callback to close the Sighting editor. */
+	onCloseSightingEditor?: () => void
+	/** Callback to open a Sighting in the editor (owner Edit affordance). */
+	onEditSighting?: (sighting: TemporalSighting) => void
+	/** Callback to delete a Sighting (owner). */
+	onDeleteSighting?: (sighting: TemporalSighting) => void
+	/** Phase 13 (SPEC §3.4): add the viewed Sighting to the Map Stack (view-panel affordance). */
+	onAddSightingToMapStack?: (sighting: TemporalSighting) => void
+	/** Beacon control panel mode (Phase 12, BEACON-01). 'none' ⇒ no control surface. */
+	beaconControlMode?: 'none' | 'create' | 'adjust'
+	/** The beacon being adjusted — pre-fills the control panel (create ⇒ null). */
+	adjustingBeacon?: LiveBeacon | null
+	/** The beacon currently inspected in the view panel. */
+	viewBeacon?: LiveBeacon | null
+	/** True while the map is following the viewed beacon (recenters on each fix). */
+	isFollowingBeacon?: boolean
+	/** Toggle follow mode for the viewed beacon. */
+	onToggleFollowBeacon?: () => void
+	/** True while the publisher is starting (Start → "Starting…"). */
+	beaconIsStarting?: boolean
+	/** Start the publisher session from the control panel. */
+	onStartBeacon?: (options: BeaconStartOptions) => void
+	/** Close the beacon control panel without starting. */
+	onCloseBeaconControl?: () => void
+	/** Stop the user's own active beacon (owner-only, from the view panel). */
+	onStopBeacon?: (beacon: LiveBeacon) => void
+	/** Adjust the user's own active beacon — reopens the control pre-filled. */
+	onAdjustBeacon?: (beacon?: LiveBeacon) => void
+	/** Fly the map to a beacon and focus it (view-panel "Watch on map"). */
+	onZoomToBeacon?: (beacon: LiveBeacon) => void
+	/** Phase 13 (SPEC §3.4): add the viewed Beacon to the Map Stack (view-panel affordance). */
+	onAddBeaconToMapStack?: (beacon: LiveBeacon) => void
 }
 
 export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
@@ -122,9 +215,11 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		getDatasetName,
 		onCommentGeometryVisibility,
 		onZoomToBounds,
+		onZoomToSighting,
 		availableFeatures = [],
 		onMentionVisibilityToggle,
 		onMentionZoomTo,
+		isMentionVisible,
 		contextEditorMode = 'none',
 		editingContext,
 		onSaveContext,
@@ -136,15 +231,58 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		onZoomToFeature,
 		featureCollectionForUpload,
 		onBlossomUploadComplete,
-		ndk,
+		onPublishNew,
+		canPublishNew = false,
+		isPublishing = false,
 		focusCommentId,
 		entityWorkspace,
 		entityIntent,
+		storyEditorMode = 'none',
+		editingStory,
+		onSaveStory,
+		onCloseStoryEditor,
+		onEditStory,
+		onDeleteStory,
+		onStoryUpdated,
+		sightingEditorMode = 'none',
+		editingSighting,
+		viewSighting,
+		sightingFocusCommentId,
+		beaconFocusCommentId,
+		placedSightingGeometry,
+		onDrawSightingArea,
+		onSaveSighting,
+		onCloseSightingEditor,
+		onEditSighting,
+		onDeleteSighting,
+		onAddSightingToMapStack,
+		beaconControlMode = 'none',
+		adjustingBeacon,
+		viewBeacon,
+		isFollowingBeacon,
+		onToggleFollowBeacon,
+		beaconIsStarting,
+		onStartBeacon,
+		onCloseBeaconControl,
+		onStopBeacon,
+		onAdjustBeacon,
+		onZoomToBeacon,
+		onAddBeaconToMapStack,
 	} = props
 
 	// Store state
 	const stats = useEditorStore((state) => state.stats)
 	const features = useEditorStore((state) => state.features)
+	// Stable array of feature properties for GroupAttachField's off-thread schema
+	// validation. Built inline as `features.map(...)` this allocated a NEW array on
+	// every render, which is one of GroupAttachField's validation-effect deps — so
+	// any re-render re-triggered a full worker validation pass (the schema worker
+	// pegging a core / GC thrash). Memoizing on the stable `features` ref means the
+	// effect only re-validates when the features actually change.
+	const featurePropertiesForGroup = useMemo(
+		() => features.map((feature) => feature.properties as Record<string, unknown> | undefined),
+		[features],
+	)
 	const activeDataset = useEditorStore((state) => state.activeDataset)
 	const publishMessage = useEditorStore((state) => state.publishMessage)
 	const publishError = useEditorStore((state) => state.publishError)
@@ -155,6 +293,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	const blobReferences = useEditorStore((state) => state.blobReferences)
 	const viewContext = useEditorStore((state) => state.viewContext)
 	const setViewContext = useEditorStore((state) => state.setViewContext)
+	const viewStory = useEditorStore((state) => state.viewStory)
 	const activeDatasetContextRefs = useEditorStore((state) => state.activeDatasetContextRefs)
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
 	const setFeatures = useEditorStore((state) => state.setFeatures)
@@ -238,28 +377,15 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 						name: string
 						validationMode: MapContextValidationMode
 						contextUse: 'taxonomy' | 'validation' | 'hybrid'
-						contextEvent: NDKMapContextEvent
+						contextEvent: MapContext
 					} => entry !== null,
 				),
 		[mapContextEvents, activeDatasetContextRefs],
 	)
 
-	// Split into: already attached (always shown) + recent unattached (top 5)
-	const { attachedContexts, recentUnattachedContexts } = useMemo(() => {
-		const attached = attachableContexts.filter((c) =>
-			activeDatasetContextRefs.includes(c.coordinate),
-		)
-		const unattached = attachableContexts
-			.filter((c) => !activeDatasetContextRefs.includes(c.coordinate))
-			.sort((a, b) => (b.contextEvent.created_at ?? 0) - (a.contextEvent.created_at ?? 0))
-			.slice(0, 5)
-		return { attachedContexts: attached, recentUnattachedContexts: unattached }
-	}, [attachableContexts, activeDatasetContextRefs])
-
-	const datasetForValidation = useMemo(
-		() => activeDataset ?? new NDKGeoEventClass(undefined),
-		[activeDataset],
-	)
+	// Pass the dataset (or null) directly; validation accepts a nullable dataset
+	// when an explicit FeatureCollection is provided.
+	const datasetForValidation = activeDataset ?? null
 	const editorFeatureCollection = useMemo<FeatureCollection>(
 		() => ({
 			type: 'FeatureCollection',
@@ -285,7 +411,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				name: string
 				validationMode: MapContextValidationMode
 				contextUse: 'taxonomy' | 'validation' | 'hybrid'
-				contextEvent: NDKMapContextEvent
+				contextEvent: MapContext
 			}
 		>()
 		attachableContexts.forEach((context) => {
@@ -313,7 +439,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		datasetForValidation,
 		editorFeatureCollection,
 	])
-	const invalidAttachedContextCount = useMemo(
+	const _invalidAttachedContextCount = useMemo(
 		() =>
 			activeDatasetContextRefs.reduce((count, coordinate) => {
 				const result = contextValidationByCoordinate.get(coordinate)
@@ -379,7 +505,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		return asArray
 	}, [contextValidationByCoordinate])
 
-	const getPrimaryContextError = useCallback(
+	const _getPrimaryContextError = useCallback(
 		(coordinate: string) => {
 			const result = contextValidationByCoordinate.get(coordinate)
 			if (!result || result.status !== 'invalid' || result.errors.length === 0) return null
@@ -445,9 +571,9 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		}
 	}
 
-	const handleContextSearchSelect = (result: EntitySearchResult) => {
+	const _handleContextSearchSelect = (result: EntitySearchResult) => {
 		if (result.type !== 'context') return
-		const contextEvent = result.entity as NDKMapContextEvent
+		const contextEvent = result.entity as MapContext
 		const coordinate = contextEvent.contextCoordinate
 		if (coordinate) {
 			toggleContextAttachment(coordinate, true)
@@ -474,7 +600,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	}, [selectedFeatures])
 
 	const handleCommentGeojsonVisibilityChange = useCallback(
-		(comment: import('../lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent, visible: boolean) => {
+		(comment: import('@/lib/nostr/geo-comment').GeoComment, visible: boolean) => {
 			const id = comment.commentId ?? comment.id ?? ''
 			setVisibleGeojsonCommentIds((prev) => {
 				const next = new Set(prev)
@@ -488,7 +614,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	)
 
 	const handleZoomToCommentGeojson = useCallback(
-		(comment: import('../lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent) => {
+		(comment: import('@/lib/nostr/geo-comment').GeoComment) => {
 			if (comment.boundingBox && onZoomToBounds) {
 				onZoomToBounds(comment.boundingBox)
 				return
@@ -512,29 +638,155 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		[onZoomToBounds],
 	)
 
+	// Beacon control mode (Phase 12, BEACON-01) — the Start-beacon authoring surface
+	// (time-box / visibility / identity / consent). No pin-drop: position comes from
+	// GPS via the publisher. Mounted before the Sighting/Story/context branches.
+	if (beaconControlMode !== 'none' && onStartBeacon && onCloseBeaconControl) {
+		const isAdjusting = beaconControlMode === 'adjust'
+		return (
+			<BeaconControlPanel
+				initialLabel={isAdjusting ? adjustingBeacon?.beacon.label : undefined}
+				isAdjusting={isAdjusting}
+				isStarting={beaconIsStarting}
+				onStart={onStartBeacon}
+				onClose={onCloseBeaconControl}
+			/>
+		)
+	}
+
+	// Sighting Editor mode (D-01/D-07) — create/edit a Sighting in place. The
+	// create form opens with the map-first placed geometry as a prop.
+	if (sightingEditorMode !== 'none' && onSaveSighting && onCloseSightingEditor) {
+		return (
+			<SightingEditorPanel
+				initialSighting={editingSighting}
+				placedGeometry={placedSightingGeometry}
+				onDrawArea={onDrawSightingArea}
+				onClose={onCloseSightingEditor}
+				onSave={onSaveSighting}
+			/>
+		)
+	}
+
+	// Story Editor mode (D-03) — create/edit a Story in place.
+	if (storyEditorMode !== 'none' && onSaveStory && onCloseStoryEditor) {
+		return (
+			<StoryEditorPanel
+				initialStory={editingStory}
+				onClose={onCloseStoryEditor}
+				onSave={onSaveStory}
+				availableFeatures={availableFeatures}
+			/>
+		)
+	}
+
 	// Context Editor mode
 	if (contextEditorMode !== 'none' && onSaveContext && onCloseContextEditor) {
 		return (
-			<MapContextEditorPanel
+			<GroupEditorPanel
 				initialContext={editingContext}
 				onClose={onCloseContextEditor}
 				onSave={onSaveContext}
 				availableFeatures={availableFeatures}
-				mapContextEvents={mapContextEvents}
 			/>
 		)
 	}
 
 	// View mode - delegate to ViewModePanel
 	if (viewMode === 'view') {
+		// Beacon view (Phase 12, BEACON-03/04, D-11) — opened beacon renders the
+		// read surface (label + live/stale/ended status + last-seen + countdown +
+		// Copy-share-link with the throwaway pubkey). Owner sees inline Stop/Adjust.
+		// Expired beacons are gated inside the panel (T-12-05-FROZEN). XCUT-01 wired
+		// the CommentsPanel mount (Plan 01) and XCUT-02/D-10 (Plan 02) threads the
+		// comment deep link here so /beacon/:naddr/comment/:id focuses a comment,
+		// reaching parity with Story/Sighting. Mounted before the Sighting/Story/
+		// context branches.
+		if (viewBeacon) {
+			return (
+				<BeaconViewPanel
+					beacon={viewBeacon}
+					currentUserPubkey={currentUserPubkey}
+					onStopBeacon={onStopBeacon}
+					onAdjustBeacon={onAdjustBeacon}
+					onAddToMapStack={onAddBeaconToMapStack}
+					onZoomTo={onZoomToBeacon ? () => onZoomToBeacon(viewBeacon) : undefined}
+					isFollowing={isFollowingBeacon}
+					onToggleFollow={onToggleFollowBeacon}
+					availableFeatures={availableFeatures}
+					onCommentGeometryVisibility={onCommentGeometryVisibility}
+					onMentionVisibilityToggle={onMentionVisibilityToggle}
+					onMentionZoomTo={onMentionZoomTo}
+					onZoomToBounds={onZoomToBounds}
+					focusCommentId={beaconFocusCommentId ?? focusCommentId}
+				/>
+			)
+		}
+
+		// Sighting view (D-07/SIGHT-04) — opened Sighting renders the read surface in
+		// the right info panel (observation-time range + expiry countdown + comments /
+		// react); the main map stays the canvas. Mounted before the Story/context/
+		// dataset branches. Expired sightings are gated inside the panel (SIGHT-03).
+		if (viewSighting) {
+			return (
+				<SightingViewPanel
+					sighting={viewSighting}
+					currentUserPubkey={currentUserPubkey}
+					onEditSighting={onEditSighting}
+					onDeleteSighting={onDeleteSighting}
+					onAddToMapStack={onAddSightingToMapStack}
+					onZoomTo={onZoomToSighting ? () => onZoomToSighting(viewSighting) : undefined}
+					deletingKey={deletingKey}
+					availableFeatures={availableFeatures}
+					onCommentGeometryVisibility={onCommentGeometryVisibility}
+					onMentionVisibilityToggle={onMentionVisibilityToggle}
+					onMentionZoomTo={onMentionZoomTo}
+					onZoomToBounds={onZoomToBounds}
+					focusCommentId={sightingFocusCommentId ?? focusCommentId}
+				/>
+			)
+		}
+
+		// Story view (D-03) — opened Story renders in the right info panel; the main
+		// map stays the canvas. Mounted before the context/dataset branches.
+		if (viewStory) {
+			return (
+				<StoryViewPanel
+					story={viewStory}
+					currentUserPubkey={currentUserPubkey}
+					onEditStory={onEditStory}
+					onDeleteStory={onDeleteStory}
+					onStoryUpdated={onStoryUpdated}
+					onZoomTo={
+						viewStory.boundingBox && onZoomToBounds
+							? () => onZoomToBounds(viewStory.boundingBox as [number, number, number, number])
+							: undefined
+					}
+					deletingKey={deletingKey}
+					availableFeatures={availableFeatures}
+					onCommentGeometryVisibility={onCommentGeometryVisibility}
+					onMentionVisibilityToggle={onMentionVisibilityToggle}
+					onMentionZoomTo={onMentionZoomTo}
+					isMentionVisible={isMentionVisible}
+					onZoomToBounds={onZoomToBounds}
+					focusCommentId={focusCommentId}
+				/>
+			)
+		}
+
 		if (viewContext) {
 			return (
-				<MapContextViewPanel
+				<GroupViewPanel
 					currentUserPubkey={currentUserPubkey}
 					getDatasetKey={getDatasetKey}
 					getDatasetName={getDatasetName}
 					onInspectDataset={onInspectDataset ?? onLoadDataset}
 					onZoomToDataset={onZoomToDataset}
+					onZoomTo={
+						viewContext.boundingBox && onZoomToBounds
+							? () => onZoomToBounds(viewContext.boundingBox as [number, number, number, number])
+							: undefined
+					}
 					onDeleteContext={onDeleteContext}
 					deletingKey={deletingKey}
 					onCommentGeometryVisibility={onCommentGeometryVisibility}
@@ -554,10 +806,10 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 			return (
 				<div className="h-full flex items-center justify-center p-6">
 					<div className="max-w-sm text-center space-y-3">
-						<p className="text-sm font-medium text-gray-900">
+						<p className="text-sm font-medium text-foreground">
 							{isEmptyGeometryInspect ? 'No geometry selected' : 'Nothing selected'}
 						</p>
-						<p className="text-xs text-gray-500">
+						<p className="text-xs text-muted-foreground">
 							{isEmptyGeometryInspect
 								? 'Click on the map to inspect a geometry.'
 								: 'Choose a geometry or context to inspect.'}
@@ -608,31 +860,35 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	// Edit mode - compact layout
 	return (
 		<div className="space-y-2 text-sm">
-			{/* Header */}
-			<div className="flex items-center justify-between gap-2 pb-1 border-b border-gray-100">
-				<div className="flex items-center gap-2">
-					{activeDataset && (
-						<Button
-							size="sm"
-							variant="ghost"
-							onClick={handleSwitchToView}
-							title="Switch to view mode"
-							className="h-6 px-2 text-xs text-gray-500 hover:text-gray-700"
-						>
-							<Eye className="h-3 w-3 mr-1" />
-							View
-						</Button>
+			{/* Header — only rendered when it has content (a fresh draft has neither
+			    the View button nor a dataset name, so we skip it to avoid an empty
+			    separator above the stats row). */}
+			{(activeDataset || activeDatasetInfo) && (
+				<div className="flex items-center justify-between gap-2 border-b border-border pb-1">
+					<div className="flex items-center gap-2">
+						{activeDataset && (
+							<Button
+								size="sm"
+								variant="ghost"
+								onClick={handleSwitchToView}
+								title="Switch to view mode"
+								className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+							>
+								<Eye className="mr-1 h-3 w-3" />
+								View
+							</Button>
+						)}
+					</div>
+					{activeDatasetInfo && (
+						<span className="max-w-[100px] truncate text-[10px] text-muted-foreground">
+							{activeDatasetInfo.name} {activeDatasetInfo.isOwner ? '' : '(copy)'}
+						</span>
 					)}
 				</div>
-				{activeDatasetInfo && (
-					<span className="text-[10px] text-gray-500 truncate max-w-[100px]">
-						{activeDatasetInfo.name} {activeDatasetInfo.isOwner ? '' : '(copy)'}
-					</span>
-				)}
-			</div>
+			)}
 
 			{/* Stats row - inline */}
-			<div className="flex items-center gap-3 text-[10px] text-gray-500">
+			<div className="flex items-center gap-3 text-[10px] text-muted-foreground">
 				<span>{stats.points} pts</span>
 				<span>{stats.lines} lines</span>
 				<span>{stats.polygons} polys</span>
@@ -652,13 +908,12 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 								}
 							: null
 					}
-					ndk={ndk ?? undefined}
 				/>
 			)}
 
 			{/* Dataset Metadata - collapsible */}
 			<Collapsible defaultOpen>
-				<CollapsibleTrigger className="text-xs font-medium text-gray-700 hover:text-gray-900 w-full text-left py-1">
+				<CollapsibleTrigger className="text-xs font-medium text-foreground hover:text-foreground w-full text-left py-1">
 					Dataset info
 				</CollapsibleTrigger>
 				<CollapsibleContent>
@@ -669,119 +924,30 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				</CollapsibleContent>
 			</Collapsible>
 
-			<Collapsible defaultOpen={false}>
-				<CollapsibleTrigger className="text-xs font-medium text-gray-700 hover:text-gray-900 w-full text-left py-1">
-					Attached contexts ({activeDatasetContextRefs.length})
-				</CollapsibleTrigger>
-				<CollapsibleContent>
-					<div className="space-y-2">
-						{invalidAttachedContextCount > 0 && (
-							<p className="text-[11px] text-amber-700">
-								{invalidAttachedContextCount} attached context
-								{invalidAttachedContextCount === 1 ? '' : 's'} report constraint warnings.
-							</p>
-						)}
-
-						{/* Attached contexts — always shown */}
-						{attachedContexts.length > 0 && (
-							<div className="space-y-1">
-								{attachedContexts.map((context) => {
-									const validation = contextValidationByCoordinate.get(context.coordinate)
-									return (
-										<div key={context.coordinate} className="space-y-1">
-											<label
-												className={`flex items-center justify-between gap-2 rounded border px-2 py-1 ${
-													validation?.status === 'invalid'
-														? 'border-amber-300 bg-amber-50/40'
-														: 'border-gray-100'
-												}`}
-											>
-												<span className="truncate text-xs text-gray-700">{context.name}</span>
-												<div className="flex items-center gap-2 shrink-0">
-													<span className="text-[10px] text-gray-500">
-														{context.validationMode}
-													</span>
-													{validation?.status === 'valid' && (
-														<span className="text-[10px] text-emerald-700">valid</span>
-													)}
-													{validation?.status === 'invalid' && (
-														<span className="text-[10px] text-amber-700">
-															{validation.featureErrorCount} invalid
-														</span>
-													)}
-													<Input
-														type="checkbox"
-														checked
-														onChange={() => toggleContextAttachment(context.coordinate, false)}
-													/>
-												</div>
-											</label>
-											{validation?.status === 'invalid' &&
-												(() => {
-													const primaryError = getPrimaryContextError(context.coordinate)
-													if (!primaryError) return null
-													return (
-														<p className="px-2 text-[10px] text-amber-700">
-															{primaryError.path || '/'} {primaryError.message}
-														</p>
-													)
-												})()}
-											{validation?.status === 'unresolved' && context.contextUse !== 'taxonomy' && (
-												<p className="px-2 text-[10px] text-amber-600">
-													Validation not run yet — save or re-open this dataset to trigger it.
-												</p>
-											)}
-										</div>
-									)
-								})}
-							</div>
-						)}
-
-						{/* Recent unattached contexts */}
-						{recentUnattachedContexts.length > 0 && (
-							<div className="space-y-1">
-								<p className="text-[10px] text-gray-400 uppercase tracking-wide">Recent</p>
-								{recentUnattachedContexts.map((context) => (
-									<label
-										key={context.coordinate}
-										className="flex items-center justify-between gap-2 rounded border border-gray-100 px-2 py-1"
-									>
-										<span className="truncate text-xs text-gray-700">{context.name}</span>
-										<div className="flex items-center gap-2 shrink-0">
-											<span className="text-[10px] text-gray-500">{context.validationMode}</span>
-											<Input
-												type="checkbox"
-												checked={false}
-												onChange={() => toggleContextAttachment(context.coordinate, true)}
-											/>
-										</div>
-									</label>
-								))}
-							</div>
-						)}
-
-						{/* Search for more contexts */}
-						<EntitySearchPopover
-							sources={{ contexts: attachableContexts.map((context) => context.contextEvent) }}
-							entityTypes={['context']}
-							onSelect={handleContextSearchSelect}
-							placeholder="Search open contexts…"
-							searchMode="local"
-							compact
+			{/* Contributor attach-to-a-Group lane (GROUP-02/04): picker + inline off-thread
+			    advisory warnings + always-available "Publish anyway". The warnings NEVER
+			    block a valid standalone publish. */}
+			{onPublishNew && (
+				<Collapsible defaultOpen={activeDatasetContextRefs.length > 0}>
+					<CollapsibleTrigger className="text-xs font-medium text-foreground hover:text-foreground w-full text-left py-1">
+						Attach to a Group
+					</CollapsibleTrigger>
+					<CollapsibleContent>
+						<GroupAttachField
+							contextRefs={activeDatasetContextRefs}
+							onContextRefsChange={setActiveDatasetContextRefs}
+							featureProperties={featurePropertiesForGroup}
+							onPublish={onPublishNew}
+							canPublish={canPublishNew}
+							isPublishing={isPublishing}
 						/>
-						{attachableContexts.length === 0 && recentUnattachedContexts.length === 0 && (
-							<p className="text-[10px] text-gray-400 leading-snug">
-								Only open contexts appear here. If you don't see yours, open its settings and enable
-								"Allow foreign attachments".
-							</p>
-						)}
-					</div>
-				</CollapsibleContent>
-			</Collapsible>
+					</CollapsibleContent>
+				</Collapsible>
+			)}
 
 			{/* Blob References - collapsible */}
 			<Collapsible defaultOpen={false}>
-				<CollapsibleTrigger className="text-xs font-medium text-gray-700 hover:text-gray-900 w-full text-left py-1">
+				<CollapsibleTrigger className="text-xs font-medium text-foreground hover:text-foreground w-full text-left py-1">
 					External references
 				</CollapsibleTrigger>
 				<CollapsibleContent>
@@ -791,7 +957,9 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 
 			{/* Geometries table */}
 			<div className="flex flex-col min-h-0">
-				<div className="text-xs font-medium text-gray-700 py-1">Geometries ({features.length})</div>
+				<div className="text-xs font-medium text-foreground py-1">
+					Geometries ({features.length})
+				</div>
 				<GeometriesTable
 					className="max-h-[50vh] overflow-y-auto"
 					onZoomToFeature={onZoomToFeature}
@@ -815,7 +983,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 									onClick={
 										attachedGeojson ? () => setAttachedGeojson(null) : handleAttachCommentGeometry
 									}
-									className="gap-1.5 rounded-none border-stone-200 bg-white px-2 text-[11px] text-stone-700 hover:bg-stone-100"
+									className="gap-1.5 rounded-none border-border bg-card px-2 text-[11px] text-foreground hover:bg-muted"
 								>
 									<MapPin className="h-3.5 w-3.5" />
 									{attachedGeojson
@@ -846,8 +1014,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 			{/* Publishing Status */}
 			{(publishMessage || publishError) && (
 				<div className="text-[10px] pt-1">
-					{publishMessage && <p className="text-green-600">{publishMessage}</p>}
-					{publishError && <p className="text-red-600">{publishError}</p>}
+					{publishMessage && <p className="text-ok">{publishMessage}</p>}
+					{publishError && <p className="text-destructive">{publishError}</p>}
 				</div>
 			)}
 		</div>
@@ -859,7 +1027,7 @@ export function GeoEditorInfoPanel({
 	...props
 }: GeoEditorInfoPanelProps & { className?: string }) {
 	return (
-		<div className={cn('w-80 rounded-xl bg-white p-3 shadow-lg', className)}>
+		<div className={cn('w-80 rounded-xl bg-card p-3 shadow-lg', className)}>
 			<GeoEditorInfoPanelContent {...props} />
 		</div>
 	)

@@ -8,6 +8,11 @@ import {
 	type FrontendEnvKey,
 	safeParseEnv,
 } from "./src/config/env.schema";
+import { buildWorkerSource } from "./src/lib/workers/buildWorker";
+import {
+	WORKER_ASSETS,
+	type WorkerId,
+} from "./src/lib/workers/workerAssets";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
 	console.log(`
@@ -202,6 +207,72 @@ if (existsSync(wellKnownSrc)) {
 	console.log(`\n📋 Copying .well-known directory to ${wellKnownDest}`);
 	await mkdir(wellKnownDest, { recursive: true });
 	await cp(wellKnownSrc, wellKnownDest, { recursive: true });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Emit the QuickJS WASM asset (Phase 4 criterion c)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The code-interpreter sandbox worker loads the `@jitl/quickjs-wasmfile-release-sync`
+// emscripten variant, whose glue fetches a SEPARATE `.wasm` at runtime. Bun.build()
+// does NOT trace/copy that asset, so without this step the production worker fetches
+// `/emscripten-module.wasm` → 404 → "failed to instantiate WebAssembly". We copy it
+// to a stable served path (`dist/emscripten-module.wasm`) that sandbox.worker.ts
+// points its loader at via `wasmLocation`. Fail LOUDLY if the source is missing so a
+// dependency move can never silently regress in-browser code execution.
+const QUICKJS_WASM_FILENAME = "emscripten-module.wasm";
+let quickjsWasmSrc: string;
+try {
+	// Resolve via the package's own export so this tracks the installed version.
+	quickjsWasmSrc = Bun.fileURLToPath(
+		import.meta.resolve(
+			`@jitl/quickjs-wasmfile-release-sync/${QUICKJS_WASM_FILENAME}`,
+		),
+	);
+} catch {
+	// Fall back to the canonical node_modules path if the export map omits it.
+	quickjsWasmSrc = path.join(
+		process.cwd(),
+		"node_modules",
+		"@jitl",
+		"quickjs-wasmfile-release-sync",
+		"dist",
+		QUICKJS_WASM_FILENAME,
+	);
+}
+
+const quickjsWasmSource = Bun.file(quickjsWasmSrc);
+if (!(await quickjsWasmSource.exists())) {
+	console.error(
+		`\n❌ QuickJS WASM asset not found at ${quickjsWasmSrc}\n` +
+			"   The code-interpreter sandbox cannot run in the browser without it.\n" +
+			"   Did @jitl/quickjs-wasmfile-release-sync move or fail to install?\n",
+	);
+	process.exit(1);
+}
+
+const quickjsWasmDest = path.join(outdir, QUICKJS_WASM_FILENAME);
+console.log(`\n📋 Copying QuickJS WASM asset to ${quickjsWasmDest}`);
+await Bun.write(quickjsWasmDest, quickjsWasmSource);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Emit Web Worker bundles (sandbox / ingest / geoJsonParse)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Bun's bundler does NOT auto-emit a worker chunk from the `new Worker(new URL(...))`
+// form (Bun #7534/#7901/#16869), so the main `Bun.build` above leaves the worker
+// sources referenced but unbuilt. We bundle each worker explicitly as its own
+// self-contained entrypoint and write it to a stable served path (`dist/workers/<name>`)
+// that spawn sites request via `workerUrl(...)`. Without this, `run_code` (and the
+// ingest/geo parse workers) fail to construct a Worker in production.
+const workersOutDir = path.join(outdir, "workers");
+await mkdir(workersOutDir, { recursive: true });
+for (const id of Object.keys(WORKER_ASSETS) as WorkerId[]) {
+	const { servedName, sourcePath } = WORKER_ASSETS[id];
+	const dest = path.join(workersOutDir, servedName);
+	console.log(`📋 Building worker ${id} → ${path.relative(process.cwd(), dest)}`);
+	const js = await buildWorkerSource(sourcePath, true);
+	await Bun.write(dest, js);
 }
 
 const buildTime = (end - start).toFixed(2);

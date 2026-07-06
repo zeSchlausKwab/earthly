@@ -1,8 +1,31 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- Apply the saved theme before first paint (dark is the default). -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("earthly-theme");
+          if (t === "light" || t === "dark") {
+            var e = document.documentElement;
+            e.classList.remove("light", "dark");
+            e.classList.add(t);
+          }
+        } catch (e) {}
+      })();
+    </script>
+
+    <!-- Dense-instrument design system fonts: IBM Plex Sans (UI),
+         JetBrains Mono (values), Playfair Display (editorial display) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
 
     <!-- Primary -->
     <title>Earthly — Collaborative Maps on Nostr</title>

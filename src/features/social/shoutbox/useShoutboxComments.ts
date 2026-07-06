@@ -1,194 +1,122 @@
-import { useNDK, useSubscribe } from '@nostr-dev-kit/react'
-import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk'
-import { NDKEvent as NDKEventClass } from '@nostr-dev-kit/ndk'
-import { useMemo, useCallback, useState } from 'react'
+import { CommentFactory, ReactionFactory } from 'applesauce-common/factories'
+import type { NostrEvent } from 'nostr-tools'
+import { useCallback, useMemo, useState } from 'react'
+import { accounts, publish } from '@/lib/nostr'
+import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import type { CommentNode } from './types'
 
 interface UseShoutboxCommentsOptions {
-	/** The root event to fetch comments for */
-	rootEvent: NDKEvent | null
+	/** The root event (kind 1) to fetch NIP-22 comments for */
+	rootEvent: NostrEvent | null
 	/** Maximum depth for nested replies */
 	maxDepth?: number
 }
 
 interface UseShoutboxCommentsResult {
-	/** Threaded comment tree */
 	comments: CommentNode[]
-	/** Flat list of all comments */
-	allComments: NDKEvent[]
-	/** Total comment count */
+	allComments: NostrEvent[]
 	count: number
-	/** Loading state */
 	isLoading: boolean
-	/** Post a new top-level comment */
 	postComment: (content: string) => Promise<void>
-	/** Post a reply to an existing comment */
-	postReply: (parentComment: NDKEvent, content: string) => Promise<void>
-	/** React to an event */
-	react: (target: NDKEvent) => Promise<void>
+	postReply: (parentComment: NostrEvent, content: string) => Promise<void>
+	react: (target: NostrEvent) => Promise<void>
 }
 
 /**
- * Hook for fetching and managing NIP-22 comments (kind 1111) on kind 1 posts.
+ * NIP-22 comments (kind 1111) on a kind 1 root post — fetch + post + react.
  */
 export function useShoutboxComments({
 	rootEvent,
 	maxDepth = 10,
 }: UseShoutboxCommentsOptions): UseShoutboxCommentsResult {
-	const { ndk } = useNDK()
 	const [isPosting, setIsPosting] = useState(false)
 
-	// Build the filter for NIP-22 comments on this root event
-	const filters = useMemo<NDKFilter[] | false>(() => {
-		if (!rootEvent?.id) return false
-
-		return [
-			{
-				kinds: [1111],
-				'#E': [rootEvent.id],
-				limit: 100,
-			},
-		]
+	const filters = useMemo(() => {
+		if (!rootEvent?.id) return null
+		return [{ kinds: [1111], '#E': [rootEvent.id], limit: 100 }]
 	}, [rootEvent?.id])
 
-	const { events, eose } = useSubscribe(filters)
+	const { events, eose } = useTimelineWithEose(filters)
 	const subscriptionLoading = !eose
 
-	// Sort comments by created_at
-	const allComments = useMemo(() => {
-		return [...events].sort((a, b) => (a.created_at ?? 0) - (b.created_at ?? 0))
-	}, [events])
+	const allComments = useMemo(
+		() => [...events].sort((a, b) => (a.created_at ?? 0) - (b.created_at ?? 0)),
+		[events],
+	)
 
-	// Build threaded tree
 	const comments = useMemo(() => {
 		const nodeMap = new Map<string, CommentNode>()
 		const roots: CommentNode[] = []
 
-		// Create nodes for all comments
 		for (const comment of allComments) {
-			const nodeId = comment.id
-			nodeMap.set(nodeId, {
-				event: comment,
-				children: [],
-				depth: 0,
-			})
+			nodeMap.set(comment.id, { event: comment, children: [], depth: 0 })
 		}
 
-		// Build tree structure
 		for (const comment of allComments) {
-			const nodeId = comment.id
-			const node = nodeMap.get(nodeId)
+			const node = nodeMap.get(comment.id)
 			if (!node) continue
-
-			// Check if this is a reply to another comment (has lowercase 'e' tag pointing to a 1111 event)
-			const parentTag = comment.tags.find(
-				(t) => t[0] === 'e' && t[3] !== 'root', // Exclude root markers
-			)
-			const parentKindTag = comment.tags.find((t) => t[0] === 'k')
-			const parentKind = parentKindTag?.[1]
-
+			// Reply if there's a lowercase `e` parent and `k` says 1111.
+			const parentTag = comment.tags.find((t) => t[0] === 'e' && t[3] !== 'root')
+			const parentKind = comment.tags.find((t) => t[0] === 'k')?.[1]
 			if (parentTag && parentKind === '1111') {
-				const parentId = parentTag[1]
-				const parentNode = parentId ? nodeMap.get(parentId) : null
-
+				const parentNode = parentTag[1] ? nodeMap.get(parentTag[1]) : null
 				if (parentNode) {
 					node.depth = Math.min(parentNode.depth + 1, maxDepth)
 					parentNode.children.push(node)
 				} else {
-					// Orphaned reply - treat as root
 					roots.push(node)
 				}
 			} else {
-				// Top-level comment on the root post
 				roots.push(node)
 			}
 		}
 
-		// Sort children by timestamp
 		const sortChildren = (nodes: CommentNode[]) => {
 			nodes.sort((a, b) => (a.event.created_at ?? 0) - (b.event.created_at ?? 0))
-			for (const n of nodes) {
-				sortChildren(n.children)
-			}
+			for (const n of nodes) sortChildren(n.children)
 		}
-
 		sortChildren(roots)
-
 		return roots
 	}, [allComments, maxDepth])
 
-	// Post a top-level comment (NIP-22 format)
 	const postComment = useCallback(
 		async (content: string) => {
-			if (!ndk || !rootEvent) {
-				throw new Error('NDK or root event not available')
-			}
-
+			if (!rootEvent) throw new Error('No root event')
+			const signer = accounts.signer
+			if (!signer) throw new Error('No active account')
 			setIsPosting(true)
 			try {
-				const comment = new NDKEventClass(ndk)
-				comment.kind = 1111
-				comment.content = content
-				comment.tags = [
-					// Root scope (uppercase)
-					['E', rootEvent.id, '', rootEvent.pubkey],
-					['K', '1'],
-					['P', rootEvent.pubkey],
-					// Parent (same as root for top-level comments)
-					['e', rootEvent.id, '', rootEvent.pubkey],
-					['k', '1'],
-					['p', rootEvent.pubkey],
-				]
-
-				await comment.publish()
+				const signed = await CommentFactory.create(rootEvent, content).sign(signer)
+				await publish(signed, { routing: 'inbox', target: rootEvent.pubkey })
 			} finally {
 				setIsPosting(false)
 			}
 		},
-		[ndk, rootEvent],
+		[rootEvent],
 	)
 
-	// Post a reply to another comment
 	const postReply = useCallback(
-		async (parentComment: NDKEvent, content: string) => {
-			if (!ndk || !rootEvent) {
-				throw new Error('NDK or root event not available')
-			}
-
+		async (parentComment: NostrEvent, content: string) => {
+			if (!rootEvent) throw new Error('No root event')
+			const signer = accounts.signer
+			if (!signer) throw new Error('No active account')
 			setIsPosting(true)
 			try {
-				const reply = new NDKEventClass(ndk)
-				reply.kind = 1111
-				reply.content = content
-				reply.tags = [
-					// Root scope (uppercase) - always points to the original post
-					['E', rootEvent.id, '', rootEvent.pubkey],
-					['K', '1'],
-					['P', rootEvent.pubkey],
-					// Parent (lowercase) - points to the comment we're replying to
-					['e', parentComment.id, '', parentComment.pubkey],
-					['k', '1111'],
-					['p', parentComment.pubkey],
-				]
-
-				await reply.publish()
+				const signed = await CommentFactory.reply(parentComment, content).sign(signer)
+				await publish(signed, { routing: 'inbox', target: parentComment.pubkey })
 			} finally {
 				setIsPosting(false)
 			}
 		},
-		[ndk, rootEvent],
+		[rootEvent],
 	)
 
-	// React to an event
-	const react = useCallback(
-		async (target: NDKEvent) => {
-			if (!ndk) {
-				throw new Error('NDK not available')
-			}
-			await target.react('❤️', true)
-		},
-		[ndk],
-	)
+	const react = useCallback(async (target: NostrEvent) => {
+		const signer = accounts.signer
+		if (!signer) throw new Error('No active account')
+		const signed = await ReactionFactory.create(target, '❤️').sign(signer)
+		await publish(signed, { routing: 'outbox' })
+	}, [])
 
 	return {
 		comments,

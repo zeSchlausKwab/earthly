@@ -25,15 +25,15 @@ function coordKey(coords: number[], index: number): string {
 function CoordinateDisplay({ coordinates, index }: CoordinateDisplayProps) {
 	const [lng, lat, alt] = coordinates
 	return (
-		<div className="flex items-center gap-1 text-[10px] font-mono text-gray-600">
-			{index !== undefined && <span className="text-gray-400 w-4">{index}</span>}
+		<div className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground">
+			{index !== undefined && <span className="text-muted-foreground w-4">{index}</span>}
 			<span>{lng?.toFixed(5)}</span>
-			<span className="text-gray-300">,</span>
+			<span className="text-muted-foreground">,</span>
 			<span>{lat?.toFixed(5)}</span>
 			{alt !== undefined && (
 				<>
-					<span className="text-gray-300">,</span>
-					<span className="text-gray-400">{alt?.toFixed(1)}</span>
+					<span className="text-muted-foreground">,</span>
+					<span className="text-muted-foreground">{alt?.toFixed(1)}</span>
 				</>
 			)}
 		</div>
@@ -58,7 +58,7 @@ function GeometryHeader({ type, count, unit, expanded, onToggle }: GeometryHeade
 		>
 			{expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
 			<span className="font-medium">{type}</span>
-			<span className="text-gray-400">
+			<span className="text-muted-foreground">
 				({count} {unit})
 			</span>
 		</Button>
@@ -69,7 +69,7 @@ function GeometryHeader({ type, count, unit, expanded, onToggle }: GeometryHeade
 export function PointDisplay({ geometry }: { geometry: Point }) {
 	return (
 		<div className="text-xs">
-			<span className="font-medium text-gray-700">Point</span>
+			<span className="font-medium text-foreground">Point</span>
 			<div className="mt-0.5">
 				<CoordinateDisplay coordinates={geometry.coordinates} />
 			</div>
@@ -124,7 +124,7 @@ export function PolygonDisplay({ geometry }: { geometry: Polygon }) {
 						const ringKey = firstCoord ? `ring-${coordKey(firstCoord, ringIdx)}` : `ring-${ringIdx}`
 						return (
 							<div key={ringKey} className="mb-1">
-								<div className="text-[10px] text-gray-400 font-medium">
+								<div className="text-[10px] text-muted-foreground font-medium">
 									{ringIdx === 0 ? 'Outer' : `Hole ${ringIdx}`}
 								</div>
 								<div className="space-y-0.5">
@@ -188,7 +188,9 @@ export function MultiLineStringDisplay({ geometry }: { geometry: MultiLineString
 						const lineKey = firstCoord ? `line-${coordKey(firstCoord, lineIdx)}` : `line-${lineIdx}`
 						return (
 							<div key={lineKey} className="mb-1">
-								<div className="text-[10px] text-gray-400 font-medium">Line {lineIdx + 1}</div>
+								<div className="text-[10px] text-muted-foreground font-medium">
+									Line {lineIdx + 1}
+								</div>
 								<div className="space-y-0.5">
 									{line.map((coord, i) => (
 										<CoordinateDisplay key={coordKey(coord, i)} coordinates={coord} index={i} />
@@ -231,7 +233,9 @@ export function MultiPolygonDisplay({ geometry }: { geometry: MultiPolygon }) {
 							: `poly-${polyIdx}`
 						return (
 							<div key={polyKey} className="mb-1">
-								<div className="text-[10px] text-gray-400 font-medium">Polygon {polyIdx + 1}</div>
+								<div className="text-[10px] text-muted-foreground font-medium">
+									Polygon {polyIdx + 1}
+								</div>
 								{poly.map((ring, ringIdx) => {
 									const firstRingCoord = ring[0]
 									const ringKey = firstRingCoord
@@ -239,7 +243,7 @@ export function MultiPolygonDisplay({ geometry }: { geometry: MultiPolygon }) {
 										: `ring-${ringIdx}`
 									return (
 										<div key={ringKey} className="ml-2">
-											<div className="text-[10px] text-gray-300">
+											<div className="text-[10px] text-muted-foreground">
 												{ringIdx === 0 ? 'Outer' : `Hole ${ringIdx}`}
 											</div>
 											<div className="space-y-0.5">
@@ -279,7 +283,7 @@ export function GeometryDisplay({ geometry }: { geometry: Geometry }) {
 		case 'MultiPolygon':
 			return <MultiPolygonDisplay geometry={geometry} />
 		default:
-			return <span className="text-xs text-gray-400">Unknown geometry</span>
+			return <span className="text-xs text-muted-foreground">Unknown geometry</span>
 	}
 }
 
@@ -303,18 +307,18 @@ export function GeometryBadge({
 	}
 
 	const colors: Record<string, string> = {
-		Point: 'bg-green-100 text-green-700',
-		LineString: 'bg-blue-100 text-blue-700',
-		Polygon: 'bg-purple-100 text-purple-700',
-		MultiPoint: 'bg-green-50 text-green-600',
-		MultiLineString: 'bg-blue-50 text-blue-600',
-		MultiPolygon: 'bg-purple-50 text-purple-600',
+		Point: 'bg-ok/15 text-ok',
+		LineString: 'bg-info/15 text-info',
+		Polygon: 'bg-edit/15 text-edit',
+		MultiPoint: 'bg-ok/15 text-ok',
+		MultiLineString: 'bg-info/15 text-info',
+		MultiPolygon: 'bg-edit/15 text-edit',
 	}
 
 	// Special styling for annotations
 	if (isAnnotation) {
 		return (
-			<span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700">
+			<span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">
 				Text
 			</span>
 		)
@@ -323,7 +327,7 @@ export function GeometryBadge({
 	// External placeholder with no geometry
 	if (!geometry || geometry === null) {
 		return (
-			<span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-sky-100 text-sky-700">
+			<span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-info/15 text-info">
 				<Cloud className="h-2.5 w-2.5" />
 				External
 			</span>
@@ -337,7 +341,7 @@ export function GeometryBadge({
 				colors[geometry.type],
 			)}
 		>
-			{isExternal && <Cloud className="h-2.5 w-2.5 text-sky-500" />}
+			{isExternal && <Cloud className="h-2.5 w-2.5 text-info" />}
 			{typeShort[geometry.type] ?? geometry.type}
 		</span>
 	)

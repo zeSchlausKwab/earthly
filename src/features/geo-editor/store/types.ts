@@ -1,6 +1,7 @@
 import type { FeatureCollection } from 'geojson'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
-import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import type { Article } from '@/lib/nostr/article'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
+import type { MapContext } from '@/lib/nostr/map-context'
 import type { ContextFilterMode } from '@/lib/context/validation'
 import type { ContextMapScopeMode } from '@/lib/context/scope'
 import type { EditorFeature, EditorMode, GeoEditor } from '../core'
@@ -8,8 +9,12 @@ import type { CollectionMeta, EditorBlobReference, GeoSearchResult } from '../ty
 
 export type SidebarViewMode =
 	| 'datasets'
+	| 'map-stack'
 	| 'contexts'
 	| 'context-editor'
+	| 'stories'
+	| 'sightings'
+	| 'beacons'
 	| 'combined'
 	| 'edit'
 	| 'posts'
@@ -18,6 +23,19 @@ export type SidebarViewMode =
 	| 'user'
 	| 'wallet'
 	| 'chat'
+
+/**
+ * Phase 1.3: the minimal parsed-route shape consumed by `applyRouteState`. A
+ * structural subset of useRouting's `RouteState`, declared here so the store
+ * slice doesn't import the routing hook (which imports the store → cycle).
+ */
+export interface RouteSnapshot {
+	sidebarView: SidebarViewMode
+	focusType: 'none' | 'geoevent' | 'mapcontext' | 'story' | 'sighting' | 'beacon'
+	naddr?: string
+	contextNaddr?: string
+	contextCoordinate?: string
+}
 
 export interface EditorStats {
 	points: number
@@ -44,11 +62,92 @@ export interface MapLayerState {
 	pmtilesType?: string
 }
 
+/**
+ * Round C.3: the in-edit draft is also represented as a map-stack entry so the
+ * panel honestly reflects what's contributing to the map render. The draft is
+ * rendered by the editor's draft layer, not by `visibleGeoEvents`, so the
+ * stack entry is cosmetic — but it lets the user see, isolate, and end the
+ * edit session from the same surface.
+ */
+export type MapStackEntryType =
+	| 'dataset'
+	| 'context'
+	| 'comment'
+	| 'proposal'
+	| 'draft'
+	| 'ai-result'
+	/** Phase 13 (SPEC §3.1): an individual Temporal Sighting (37522) pinned to the
+	 * stack by its naddr/dTag. Reuses `isolated` for deep-link-solo. */
+	| 'sighting'
+	/** Phase 13 (SPEC §3.1): an individual Live Beacon (37521) pinned to the stack
+	 * by its naddr/dTag. Reuses `isolated` for deep-link-solo. */
+	| 'beacon'
+	/** Phase 13 (SPEC §3.1): the aggregate "Sightings" layer (entityKey: 'all')
+	 * whose `visible` flag gates the whole 37522 subscription-driven layer. */
+	| 'sighting-layer'
+	/** Phase 13 (SPEC §3.1): the aggregate "Live beacons" layer (entityKey: 'all')
+	 * whose `visible` flag gates the whole 37521 subscription-driven layer. */
+	| 'beacon-layer'
+export type MapStackEntrySource =
+	| 'manual'
+	| 'route'
+	| 'context-curated'
+	| 'context-foreign'
+	| 'child-context'
+	| 'chat'
+	| 'comment'
+	| 'proposal'
+	| 'workspace'
+	/** Round C.4: auto-populated on cold-start Browse so the user lands on
+	 * something instead of a blank map. Distinguishable from `manual` so we
+	 * can avoid re-triggering after a clear and so future Clear UX can opt
+	 * to wipe only these. */
+	| 'browse-default'
+	/** Phase 13 (13-uat): the sharer's OWN live beacon, auto-added to the Map
+	 * Stack the moment it starts publishing so the creator doesn't have to click
+	 * "Add to map stack". Behaves like `manual` for rendering (individual pin via
+	 * addedBeaconCacheRef, discovery untouched — T-13-06-01 privacy invariant) but
+	 * is non-toasting and non-isolating (the user didn't click anything). */
+	| 'own'
+	/** Phase 10: a dataset referenced by the currently-viewed Story's narrative,
+	 * auto-stacked (visible) on open so the article's geometry shows on the map.
+	 * The inline ref eye-toggles read membership of these entries as their single
+	 * source of truth; entries are removed when the viewed story changes. */
+	| 'story'
+
+export interface MapStackEntry {
+	id: string
+	entityType: MapStackEntryType
+	entityKey: string
+	title: string
+	source: MapStackEntrySource
+	visible: boolean
+	pinned: boolean
+	/**
+	 * When true, ONLY this entry renders on the map — all other map-stack
+	 * entries + context-scope filters are bypassed. Mutually exclusive: setting
+	 * one entry's `isolated=true` clears it on all others.
+	 */
+	isolated: boolean
+	/**
+	 * For context entries (Round C.2): dataset keys the user has unchecked in
+	 * the inline expand panel. The map skips these when rendering the context's
+	 * curated set. Unused for dataset entries (kept on every entry to avoid a
+	 * second optional discriminant).
+	 */
+	exclusions: string[]
+	addedAt: number
+}
+
 export type MobilePanelTab =
 	| 'datasets'
+	| 'map-stack'
 	| 'contexts'
 	| 'context-editor'
 	| 'edit'
+	| 'sightings'
+	| 'beacons'
+	| 'stories'
 	| 'chat'
 	| 'profile'
 	| 'posts'
@@ -56,7 +155,10 @@ export type MobilePanelTab =
 	| 'settings'
 	| 'help'
 
-export type MobilePanelSnap = 'peek' | 'expanded'
+/** Mobile bottom-sheet detents (redesign §5a "one sheet, three detents"):
+ *  peek ≈ 15% (browse, map owns the screen), half ≈ 55% (properties on select),
+ *  full ≈ 92% (the outliner, full height). */
+export type MobilePanelSnap = 'peek' | 'half' | 'full'
 
 export interface GeoCollectionEditDraft {
 	id: string
@@ -160,22 +262,16 @@ export interface WorkspaceSlice {
 
 export interface MetadataSlice {
 	collectionMeta: CollectionMeta
-	activeDataset: NDKGeoEvent | null
+	activeDataset: GeoDataset | null
 	activeDatasetContextRefs: string[]
-	datasetVisibility: Record<string, boolean>
 	resolvingDatasets: Set<string>
 	resolvingProgress: Map<string, { loaded: number; total: number }>
 	isDirty: boolean
 
 	setCollectionMeta: (meta: CollectionMeta) => void
-	setActiveDataset: (dataset: NDKGeoEvent | null) => void
+	setActiveDataset: (dataset: GeoDataset | null) => void
 	setIsDirty: (isDirty: boolean) => void
 	setActiveDatasetContextRefs: (refs: string[]) => void
-	setDatasetVisibility: (
-		visibility:
-			| Record<string, boolean>
-			| ((prev: Record<string, boolean>) => Record<string, boolean>),
-	) => void
 	setDatasetResolving: (datasetKey: string, resolving: boolean) => void
 	setDatasetResolvingProgress: (datasetKey: string, loaded: number, total: number) => void
 }
@@ -214,17 +310,17 @@ export interface PublishingSlice {
 
 export interface ViewModeSlice {
 	viewMode: 'edit' | 'view'
-	editIsolationEnabled: boolean
-	viewDataset: NDKGeoEvent | null
-	viewContext: NDKMapContextEvent | null
-	viewContextDatasets: NDKGeoEvent[]
+	viewDataset: GeoDataset | null
+	viewContext: MapContext | null
+	viewStory: Article | null
+	viewContextDatasets: GeoDataset[]
 	contextFilterMode: ContextFilterMode
 	contextMapScopeMode: ContextMapScopeMode
 	activeContextScopeNaddr: string | null
 	activeContextScopeCoordinate: string | null
 
 	focusedNaddr: string | null
-	focusedType: 'geoevent' | 'mapcontext' | null
+	focusedType: 'geoevent' | 'mapcontext' | 'story' | 'sighting' | 'beacon' | null
 	focusedMapGeometry: {
 		bbox: [number, number, number, number]
 		datasetId?: string
@@ -233,20 +329,80 @@ export interface ViewModeSlice {
 	} | null
 
 	setViewMode: (mode: 'edit' | 'view') => void
-	setViewDataset: (dataset: NDKGeoEvent | null) => void
-	setViewContext: (context: NDKMapContextEvent | null) => void
-	setViewContextDatasets: (events: NDKGeoEvent[]) => void
+	setViewDataset: (dataset: GeoDataset | null) => void
+	setViewContext: (context: MapContext | null) => void
+	setViewStory: (story: Article | null) => void
+	setViewContextDatasets: (events: GeoDataset[]) => void
 	setContextFilterMode: (mode: ContextFilterMode) => void
 	setContextMapScopeMode: (mode: ContextMapScopeMode) => void
 	setActiveContextScope: (naddr: string | null, coordinate: string | null) => void
 	clearActiveContextScope: () => void
-	setEditIsolationEnabled: (enabled: boolean) => void
-	toggleEditIsolation: () => void
 
-	setFocused: (type: 'geoevent' | 'mapcontext', naddr: string) => void
+	setFocused: (type: 'geoevent' | 'mapcontext' | 'story' | 'sighting', naddr: string) => void
 	clearFocused: () => void
 	setFocusedMapGeometry: (focused: ViewModeSlice['focusedMapGeometry']) => void
 	clearFocusedMapGeometry: () => void
+
+	/**
+	 * Phase 1.3: the single atomic writer of navigation-derived state. Given a
+	 * parsed route it reconciles `sidebarViewMode`, focus, context scope,
+	 * `viewMode`, and `stance` in one `set()` so they can never drift into the
+	 * contradictory combinations the verification report flagged (rec #1).
+	 *
+	 * Subjects (`viewDataset`/`viewContext`) are cleared here when the route has
+	 * no focus — that is the Back/Forward stale-inspector fix (report 7.4). When
+	 * focus IS present they are left untouched: the resolver effect in
+	 * GeoEditorView fills them once the matching event has streamed in (so this
+	 * reducer stays free of event-data lookups).
+	 *
+	 * It never touches the active draft, the `draft:active` stack entry, or the
+	 * workspace — those are edit-session state, owned by applyEditingState /
+	 * tearDownEditSession (the draft invariant, Phase 1.4).
+	 */
+	applyRouteState: (route: RouteSnapshot) => void
+}
+
+export interface MapStackSlice {
+	mapStackEntries: Record<string, MapStackEntry>
+	mapStackOrder: string[]
+
+	addMapStackEntry: (
+		entry: Omit<MapStackEntry, 'id' | 'addedAt' | 'isolated' | 'exclusions'> & {
+			id?: string
+			addedAt?: number
+			isolated?: boolean
+			exclusions?: string[]
+		},
+	) => string
+	removeMapStackEntry: (id: string) => void
+	setMapStackEntryVisible: (id: string, visible: boolean) => void
+	toggleMapStackEntryVisible: (id: string) => void
+	/**
+	 * Mutually exclusive: setting `isolated=true` on one entry clears it on
+	 * all others. Setting `isolated=false` clears just that entry.
+	 */
+	setMapStackEntryIsolated: (id: string, isolated: boolean) => void
+	/** Clears the `isolated` flag on every entry. */
+	clearMapStackIsolation: () => void
+	/**
+	 * Round C.2: toggle whether a curated dataset (by its dataset key) is
+	 * excluded from a context entry's render. No-op for non-context entries.
+	 */
+	toggleMapStackEntryExclusion: (id: string, datasetKey: string) => void
+	/** Replace the full exclusions list for a context entry. */
+	setMapStackEntryExclusions: (id: string, exclusions: string[]) => void
+	/** Round G.1: pinned entries survive Clear. */
+	toggleMapStackEntryPinned: (id: string) => void
+	/**
+	 * Round G.1: replace the stack order (drag-to-reorder). Must contain
+	 * exactly the current ids — otherwise the call is ignored.
+	 */
+	setMapStackOrder: (order: string[]) => void
+	/**
+	 * Removes all entries except pinned ones and the active draft. Pinning is
+	 * the contract for "keep this through a Clear".
+	 */
+	clearMapStack: () => void
 }
 
 export interface UISlice {
@@ -267,6 +423,17 @@ export interface UISlice {
 	inspectorActive: boolean
 	sidebarViewMode: SidebarViewMode
 	sidebarExpanded: boolean
+	/** Desktop right-side assistant/chat panel open state (single source of truth,
+	 *  read by the shell + the toolbar toggle). */
+	chatOpen: boolean
+	/** Desktop floating Map Stack panel open state. */
+	mapStackOpen: boolean
+	/** Deep-link target tab for the settings panel (e.g. from the status-bar
+	 *  relay indicator). Consumed by MapSettingsPanel; null = its own default. */
+	settingsTab: 'map' | 'profile' | 'relays' | 'chat' | 'sessions' | null
+	/** DOM slot in the Map Stack's expanded draft entry that the sidebar editor
+	 *  portals into (editor-in-Map-Stack). Null when no draft slot is mounted. */
+	draftEditorSlot: HTMLElement | null
 
 	setNewCollectionProp: (prop: { key: string; value: string }) => void
 	setNewFeatureProp: (prop: { key: string; value: string }) => void
@@ -287,8 +454,14 @@ export interface UISlice {
 	closeMobilePanel: () => void
 	setInspectorActive: (active: boolean) => void
 	setSidebarViewMode: (mode: SidebarViewMode) => void
+	setSettingsTab: (tab: 'profile' | 'relays' | 'chat' | 'sessions' | null) => void
+	setDraftEditorSlot: (el: HTMLElement | null) => void
 	setSidebarExpanded: (expanded: boolean) => void
 	toggleSidebarExpanded: () => void
+	setChatOpen: (open: boolean) => void
+	toggleChat: () => void
+	setMapStackOpen: (open: boolean) => void
+	toggleMapStack: () => void
 }
 
 export interface SearchSlice {
@@ -296,6 +469,13 @@ export interface SearchSlice {
 	searchResults: GeoSearchResult[]
 	searchLoading: boolean
 	searchError: string | null
+	/**
+	 * True once a search has completed for the current query (P2.1). Lets the
+	 * dropdown distinguish "no results found" from "haven't searched yet" so an
+	 * empty/failed geocode shows feedback instead of silently rendering nothing
+	 * (report 8.1). Reset on every query edit and on clear.
+	 */
+	searchPerformed: boolean
 
 	osmQueryMode: 'idle' | 'click' | 'loading'
 	osmQueryFilter: string
@@ -330,6 +510,7 @@ export interface MapSourceSlice {
 		boundsLocked?: boolean
 	}
 	showMapSettings: boolean
+	pointClusteringEnabled: boolean
 
 	mapLayers: MapLayerState[]
 	announcementSource: AnnouncementSourceMeta | null
@@ -343,6 +524,7 @@ export interface MapSourceSlice {
 
 	setMapSource: (source: MapSourceSlice['mapSource']) => void
 	setShowMapSettings: (show: boolean) => void
+	setPointClusteringEnabled: (enabled: boolean) => void
 	setMapLayers: (layers: MapLayerState[]) => void
 	updateMapLayerState: (
 		id: string,
@@ -360,6 +542,30 @@ export interface SessionSyncSlice {
 	hydrateEditorSessionForPubkey: (pubkey: string | null) => void
 }
 
+/** The user's explicit top-level intent — drives UI affordances + transitions. */
+export type Stance = 'browse' | 'focus' | 'author'
+
+export interface StanceSlice {
+	stance: Stance
+	setStance: (stance: Stance) => void
+}
+
+/** Round G.2: a recently inspected/loaded catalog entity. */
+export interface RecentEntity {
+	/** `dataset:<pubkey>:<d>` or `context:<coordinate>` — stack-entry id convention. */
+	id: string
+	at: number
+}
+
+export interface CatalogSlice {
+	/** Catalog-level pins (favorites) — distinct from map-stack entry pins. */
+	pinnedEntityIds: string[]
+	recentEntities: RecentEntity[]
+	togglePinnedEntity: (entityId: string) => void
+	recordRecentEntity: (entityId: string) => void
+	hydrateCatalogPrefsForPubkey: (pubkey: string | null) => void
+}
+
 /** Combined state — intersection of all slices */
 export type EditorState = EditorCoreSlice &
 	DraftSlice &
@@ -367,7 +573,10 @@ export type EditorState = EditorCoreSlice &
 	MetadataSlice &
 	PublishingSlice &
 	ViewModeSlice &
+	MapStackSlice &
 	UISlice &
 	SearchSlice &
 	MapSourceSlice &
-	SessionSyncSlice
+	SessionSyncSlice &
+	StanceSlice &
+	CatalogSlice

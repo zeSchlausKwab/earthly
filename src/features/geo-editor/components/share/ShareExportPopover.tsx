@@ -13,6 +13,10 @@ type ShareAspect = '16:9' | '4:3' | '1:1' | '3:4'
 type ShareCaptureMode = 'viewport' | 'entity-bounds'
 type ShareResolution = 1 | 2 | 3
 
+interface ShareExportPopoverProps {
+	small?: boolean
+}
+
 const SHARE_ASPECTS: Array<{ id: ShareAspect; label: string; ratio: number }> = [
 	{ id: '16:9', label: '16:9', ratio: 16 / 9 },
 	{ id: '4:3', label: '4:3', ratio: 4 / 3 },
@@ -263,7 +267,7 @@ async function buildShareImage(options: {
 	}
 }
 
-export function ShareExportPopover() {
+export function ShareExportPopover({ small = false }: ShareExportPopoverProps) {
 	const editor = useEditorStore((state) => state.editor)
 	const focusedMapGeometry = useEditorStore((state) => state.focusedMapGeometry)
 	const viewDataset = useEditorStore((state) => state.viewDataset)
@@ -273,9 +277,9 @@ export function ShareExportPopover() {
 	const { clearFocus, route } = useRouting()
 
 	const isFocused = Boolean(focusedNaddr && focusedType)
-	// Build a clean server-side URL (no #/) so OG crawlers can resolve it properly.
-	// /context/:naddr and /geoevent/:naddr serve OG HTML to crawlers and redirect
-	// regular users to the hash-based SPA route.
+	// Build a clean server-side URL so OG crawlers can resolve it properly.
+	// /context/:naddr and /geoevent/:naddr serve OG HTML to crawlers and the
+	// SPA renders the same clean path for regular users (Round I — no more #/).
 	const shareRouteUrl = useMemo(() => {
 		if (typeof window === 'undefined') return 'https://earthly.city'
 		const origin = window.location.origin
@@ -497,7 +501,16 @@ export function ShareExportPopover() {
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<PopoverTrigger asChild>
-							<Button variant="default" size="icon" aria-label="Share">
+							<Button
+								variant={small ? 'ghost' : 'default'}
+								size={small ? 'icon-sm' : 'icon'}
+								className={
+									small
+										? 'h-8 w-8 shrink-0 rounded-md border border-transparent shadow-none'
+										: undefined
+								}
+								aria-label="Share"
+							>
 								<Share2 className="h-4 w-4" />
 							</Button>
 						</PopoverTrigger>
@@ -510,7 +523,7 @@ export function ShareExportPopover() {
 					<div className="space-y-3">
 						<div>
 							<h4 className="text-sm font-semibold mb-1">Share this view</h4>
-							<p className="text-xs text-gray-500">
+							<p className="text-xs text-muted-foreground">
 								Share this {shareMeta.subjectLabel} as a link or export card.
 							</p>
 						</div>
@@ -524,7 +537,7 @@ export function ShareExportPopover() {
 							>
 								{copiedUrl ? (
 									<>
-										<Check className="h-4 w-4 mr-2 text-green-600" />
+										<Check className="h-4 w-4 mr-2 text-ok" />
 										Copied!
 									</>
 								) : (
@@ -557,7 +570,7 @@ export function ShareExportPopover() {
 
 						<div className="grid grid-cols-2 gap-3">
 							<div className="space-y-1.5">
-								<p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
 									Capture
 								</p>
 								{canUseEntityBounds ? (
@@ -580,14 +593,14 @@ export function ShareExportPopover() {
 										</Button>
 									</div>
 								) : (
-									<div className="h-8 rounded-md border border-dashed border-gray-300 px-2 flex items-center text-xs text-gray-500">
+									<div className="h-8 rounded-md border border-dashed border-border px-2 flex items-center text-xs text-muted-foreground">
 										Viewport only
 									</div>
 								)}
 							</div>
 
 							<div className="space-y-1.5">
-								<p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
 									Aspect ratio
 								</p>
 								<div className="grid grid-cols-4 gap-1">
@@ -603,7 +616,7 @@ export function ShareExportPopover() {
 										</Button>
 									))}
 								</div>
-								<p className="text-[11px] font-medium uppercase tracking-wide text-gray-500 mt-2">
+								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mt-2">
 									Resolution
 								</p>
 								<div className="grid grid-cols-3 gap-1">
@@ -623,11 +636,11 @@ export function ShareExportPopover() {
 						</div>
 
 						<div className="space-y-1.5">
-							<p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+							<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
 								Preview
 							</p>
 							<div
-								className="relative w-full overflow-hidden rounded-md border border-gray-200 bg-gray-100"
+								className="relative w-full overflow-hidden rounded-md border border-border bg-muted"
 								style={{ aspectRatio: selectedAspect.ratio }}
 							>
 								{sharePreviewDataUrl && !sharePreviewLoading && (
@@ -638,20 +651,20 @@ export function ShareExportPopover() {
 									/>
 								)}
 								{sharePreviewLoading && (
-									<div className="absolute inset-0 flex items-center justify-center text-xs text-gray-600 bg-white/80">
+									<div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground bg-card/80">
 										<Loader2 className="h-4 w-4 mr-2 animate-spin" />
 										Rendering preview...
 									</div>
 								)}
 							</div>
-							{sharePreviewError && <p className="text-xs text-red-600">{sharePreviewError}</p>}
+							{sharePreviewError && <p className="text-xs text-destructive">{sharePreviewError}</p>}
 						</div>
 
 						{isFocused && (
 							<Button
 								size="sm"
 								variant="ghost"
-								className="w-full justify-start text-gray-600"
+								className="w-full justify-start text-muted-foreground"
 								onClick={handleExitFocus}
 							>
 								<X className="h-4 w-4 mr-2" />

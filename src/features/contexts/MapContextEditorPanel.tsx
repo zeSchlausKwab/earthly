@@ -1,27 +1,31 @@
-import { useNDK, useNDKCurrentUser } from '@nostr-dev-kit/react'
+import { useActiveAccount } from 'applesauce-react/hooks'
+import { castEvent } from 'applesauce-core/casts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Ajv2020 from 'ajv/dist/2020'
 import addFormats from 'ajv-formats'
+import { accounts, eventStore, publish } from '@/lib/nostr'
 import {
 	MAP_CONTEXT_GEOMETRY_TYPES,
-	NDKMapContextEvent,
+	MapContext,
+	MapContextFactory,
 	type MapContextContent,
 	type MapContextGeometryType,
-} from '@/lib/ndk/NDKMapContextEvent'
+} from '@/lib/nostr/map-context'
 import {
 	dedupeNostrAddressReferences,
 	extractNostrAddressReferences,
 	extractReferencedCoordinates,
 	extractReferencedCoordinatesFromList,
 	extractNostrAddressReferencesFromList,
+	setAddressReferenceTags,
 	stringifyNostrAddressReference,
-	syncAddressReferenceTags,
-} from '@/lib/ndk/nostrReferences'
+} from '@/lib/nostr/references'
 import {
 	GeoRichTextEditor,
 	type GeoFeatureItem,
 	type GeoRichTextEditorRef,
 } from '@/components/editor'
+import { BlossomUploaderButton } from '@/components/blossom/BlossomUploaderButton'
 import { EntitySearchPopover, type EntitySearchResult } from '@/components/entity-search'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -58,11 +62,11 @@ interface SchemaBuilderField {
 }
 
 interface MapContextEditorPanelProps {
-	initialContext?: NDKMapContextEvent | null
+	initialContext?: MapContext | null
 	onClose: () => void
-	onSave: (context: NDKMapContextEvent) => void
+	onSave: (context: MapContext) => void
 	availableFeatures?: GeoFeatureItem[]
-	mapContextEvents?: NDKMapContextEvent[]
+	mapContextEvents?: MapContext[]
 }
 
 const ajv = new Ajv2020({
@@ -251,8 +255,7 @@ export function MapContextEditorPanel({
 	availableFeatures = [],
 	mapContextEvents = [],
 }: MapContextEditorPanelProps) {
-	const { ndk } = useNDK()
-	const currentUser = useNDKCurrentUser()
+	const currentUser = useActiveAccount()
 	const initial = initialContext?.context
 	const descriptionEditorRef = useRef<GeoRichTextEditorRef>(null)
 
@@ -470,13 +473,13 @@ export function MapContextEditorPanel({
 					(coordinate) =>
 						mapContextEvents.find((context) => context.contextCoordinate === coordinate) ?? null,
 				)
-				.filter((context): context is NDKMapContextEvent => Boolean(context)),
+				.filter((context): context is MapContext => Boolean(context)),
 		[attachedContextRefs, mapContextEvents],
 	)
 
 	const handleAttachmentSearchSelect = (result: EntitySearchResult) => {
 		if (result.type !== 'context') return
-		const selectedContext = result.entity as NDKMapContextEvent
+		const selectedContext = result.entity as MapContext
 		const coordinate = selectedContext.contextCoordinate
 		if (!coordinate) return
 		setAttachedContextRefs((prev) => (prev.includes(coordinate) ? prev : [...prev, coordinate]))
@@ -495,7 +498,7 @@ export function MapContextEditorPanel({
 	}
 
 	const handleSave = async () => {
-		if (!ndk || !currentUser) return
+		if (!currentUser) return
 		setSaveError(null)
 
 		if (!name.trim()) {
@@ -523,9 +526,8 @@ export function MapContextEditorPanel({
 
 		setIsSaving(true)
 		try {
-			const event = initialContext
-				? NDKMapContextEvent.from(initialContext)
-				: new NDKMapContextEvent(ndk)
+			const signer = accounts.signer
+			if (!signer) throw new Error('No active account')
 
 			const effectiveContextUse = !allowForeignAttachments ? 'taxonomy' : contextUse
 			const effectiveValidationMode =
@@ -533,7 +535,7 @@ export function MapContextEditorPanel({
 					? 'none'
 					: validationMode || 'optional'
 
-			event.context = {
+			const contextContent: MapContextContent = {
 				name: name.trim(),
 				description: description.length > 0 ? description : undefined,
 				descriptionFormat: 'markdown',
@@ -555,14 +557,23 @@ export function MapContextEditorPanel({
 						? (parsedSchema.schema as Record<string, unknown>)
 						: undefined,
 			}
-			event.contextReferences = attachedContextRefs
-			syncAddressReferenceTags(event, [
+			const referencedCoords = [
 				...extractReferencedCoordinates(description),
 				...extractReferencedCoordinatesFromList(curatedReferences),
-			])
+			]
 
-			await event.publishNew()
-			onSave(event)
+			const factory = initialContext
+				? MapContextFactory.modify(initialContext.event).context(contextContent)
+				: MapContextFactory.create(contextContent)
+
+			const signedEvent = await factory
+				.contextReferences(attachedContextRefs)
+				.modifyPublicTags(setAddressReferenceTags(referencedCoords))
+				.sign(signer)
+
+			await publish(signedEvent, { routing: 'outbox' })
+			const cast = castEvent(signedEvent, MapContext, eventStore)
+			onSave(cast)
 			onClose()
 		} catch (error) {
 			setSaveError(error instanceof Error ? error.message : 'Failed to save context')
@@ -580,23 +591,23 @@ export function MapContextEditorPanel({
 			<EntityPanelShell
 				title={initialContext ? 'Edit context' : 'Create context'}
 				tabs={
-					<TabsList className="h-8 w-full justify-start overflow-x-auto rounded-none border-b border-slate-200 bg-transparent p-0">
+					<TabsList className="h-8 w-full justify-start overflow-x-auto rounded-none border-b border-border bg-transparent p-0">
 						<TabsTrigger
 							value="content"
-							className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-slate-900 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+							className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-input data-[state=active]:bg-transparent data-[state=active]:shadow-none"
 						>
 							Content
 						</TabsTrigger>
 						<TabsTrigger
 							value="policy"
-							className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-slate-900 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+							className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-input data-[state=active]:bg-transparent data-[state=active]:shadow-none"
 						>
 							Policy
 						</TabsTrigger>
 						{allowForeignAttachments && (
 							<TabsTrigger
 								value="schema"
-								className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-slate-900 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+								className="h-8 rounded-none border-b-2 border-transparent px-2 text-xs data-[state=active]:border-input data-[state=active]:bg-transparent data-[state=active]:shadow-none"
 							>
 								Schema
 							</TabsTrigger>
@@ -636,32 +647,32 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 						<div className="space-y-2">
 							<div className="flex items-center justify-between gap-2">
 								<Label>Referenced entities</Label>
-								<span className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
+								<span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
 									{referencedEntities.length}
 								</span>
 							</div>
 							{referencedEntities.length === 0 ? (
-								<p className="border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
+								<p className="border border-border px-3 py-2 text-[11px] text-muted-foreground">
 									No inline nostr references yet.
 								</p>
 							) : (
-								<div className="border border-slate-200">
+								<div className="border border-border">
 									{referencedEntities.map((reference, index) => (
 										<div
 											key={reference.key}
 											className={`flex items-start justify-between gap-3 px-3 py-2 ${
-												index > 0 ? 'border-t border-slate-200' : ''
+												index > 0 ? 'border-t border-border' : ''
 											}`}
 										>
 											<div className="min-w-0 space-y-0.5">
-												<p className="truncate text-xs font-medium text-slate-900">
+												<p className="truncate text-xs font-medium text-foreground">
 													{reference.name}
 												</p>
-												<p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">
+												<p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
 													{reference.entityType}
 													{reference.datasetName ? ` · ${reference.datasetName}` : ''}
 												</p>
-												<p className="truncate text-[10px] text-slate-500">
+												<p className="truncate text-[10px] text-muted-foreground">
 													nostr:{reference.address}
 													{reference.featureId ? `#${reference.featureId}` : ''}
 												</p>
@@ -674,7 +685,7 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 						<div className="space-y-2">
 							<div className="flex items-center justify-between gap-2">
 								<Label>Curated references</Label>
-								<span className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
+								<span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
 									{curatedReferenceEntities.length}
 								</span>
 							</div>
@@ -687,28 +698,30 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 								inputClassName="rounded-none"
 							/>
 							{curatedReferenceEntities.length === 0 ? (
-								<p className="border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
+								<p className="border border-border px-3 py-2 text-[11px] text-muted-foreground">
 									No extra curated references. Add items here when they belong to the context but do
 									not need to appear in the narrative text.
 								</p>
 							) : (
-								<div className="border border-slate-200">
+								<div className="border border-border">
 									{curatedReferenceEntities.map((reference, index) => (
 										<div
 											key={reference.key}
 											className={`flex items-start justify-between gap-3 px-3 py-2 ${
-												index > 0 ? 'border-t border-slate-200' : ''
+												index > 0 ? 'border-t border-border' : ''
 											}`}
 										>
 											<div className="min-w-0 space-y-0.5">
-												<p className="truncate text-xs font-medium text-slate-900">
+												<p className="truncate text-xs font-medium text-foreground">
 													{reference.name}
 												</p>
-												<p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">
+												<p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
 													{reference.entityType}
 													{reference.datasetName ? ` · ${reference.datasetName}` : ''}
 												</p>
-												<p className="truncate text-[10px] text-slate-500">{reference.raw}</p>
+												<p className="truncate text-[10px] text-muted-foreground">
+													{reference.raw}
+												</p>
 											</div>
 											<Button
 												type="button"
@@ -730,12 +743,20 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 						</div>
 						<div className="space-y-2">
 							<Label>Image URL</Label>
-							<Input
-								value={image}
-								onChange={(event) => setImage(event.target.value)}
-								placeholder="https://..."
-								className="rounded-none"
-							/>
+							<div className="flex items-center gap-2">
+								<Input
+									value={image}
+									onChange={(event) => setImage(event.target.value)}
+									placeholder="https://..."
+									className="rounded-none"
+								/>
+								<BlossomUploaderButton
+									currentUrl={image}
+									onUploaded={({ url }) => setImage(url)}
+									buttonLabel="Blossom"
+									className="rounded-none"
+								/>
+							</div>
 						</div>
 					</EntityPanelSurface>
 				</TabsContent>
@@ -747,10 +768,10 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 							title="Attachment policy"
 							description="Open contexts accept foreign c attachments. Closed contexts ignore them."
 						/>
-						<div className="flex items-start justify-between gap-3 border border-slate-200 px-3 py-2">
+						<div className="flex items-start justify-between gap-3 border border-border px-3 py-2">
 							<div className="space-y-1">
-								<p className="text-xs font-medium text-slate-900">Allow foreign attachments</p>
-								<p className="text-[11px] leading-5 text-slate-500">
+								<p className="text-xs font-medium text-foreground">Allow foreign attachments</p>
+								<p className="text-[11px] leading-5 text-muted-foreground">
 									Compliant clients only query foreign attachments when this is enabled.
 								</p>
 							</div>
@@ -760,7 +781,7 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 							/>
 						</div>
 						{!allowForeignAttachments && (
-							<p className="text-[11px] text-slate-500">
+							<p className="text-[11px] text-muted-foreground">
 								Validation and schema controls stay hidden while foreign attachments are off.
 							</p>
 						)}
@@ -784,7 +805,7 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 							/>
 						</div>
 						{attachedContexts.length === 0 ? (
-							<p className="border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
+							<p className="border border-border px-3 py-2 text-[11px] text-muted-foreground">
 								This context is currently standalone.
 							</p>
 						) : (
@@ -795,13 +816,13 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 									return (
 										<div
 											key={coordinate}
-											className="flex items-center justify-between gap-2 border border-slate-200 px-3 py-2"
+											className="flex items-center justify-between gap-2 border border-border px-3 py-2"
 										>
 											<div className="min-w-0">
-												<p className="truncate text-xs font-medium text-slate-900">
+												<p className="truncate text-xs font-medium text-foreground">
 													{context.context.name || context.contextId || 'Untitled context'}
 												</p>
-												<p className="truncate text-[10px] text-slate-500">
+												<p className="truncate text-[10px] text-muted-foreground">
 													{context.context.allowForeignAttachments ? 'open' : 'closed'} ·{' '}
 													{coordinate}
 												</p>
@@ -885,8 +906,8 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 											<Checkbox
 												checked={allowedGeometryTypes.includes(geometryType)}
 												disabled={!validationEnabled}
-												onChange={(event) =>
-													toggleAllowedGeometryType(geometryType, event.target.checked)
+												onCheckedChange={(checked) =>
+													toggleAllowedGeometryType(geometryType, checked === true)
 												}
 											/>
 											<span>{geometryType}</span>
@@ -933,7 +954,7 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 							{schemaMode === 'builder' ? (
 								<div className="space-y-2">
 									{fields.map((field, index) => (
-										<div key={field.id} className="space-y-2 border border-slate-200 px-3 py-2">
+										<div key={field.id} className="space-y-2 border border-border px-3 py-2">
 											<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
 												<Input
 													value={field.key}
@@ -1005,7 +1026,7 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 												/>
 											</div>
 											<div className="flex items-center justify-between">
-												<Label className="flex items-center gap-1 text-[11px] text-slate-600">
+												<Label className="flex items-center gap-1 text-[11px] text-muted-foreground">
 													<Input
 														type="checkbox"
 														checked={field.required}
@@ -1069,10 +1090,10 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 								<p
 									className={`text-xs ${
 										sampleValidation.status === 'valid'
-											? 'text-emerald-600'
+											? 'text-ok'
 											: sampleValidation.status === 'invalid'
-												? 'text-amber-600'
-												: 'text-red-600'
+												? 'text-primary'
+												: 'text-destructive'
 									}`}
 								>
 									{sampleValidation.message}
@@ -1083,14 +1104,14 @@ Write in Markdown. Use $ to insert datasets, contexts, or features.`}
 				)}
 
 				<EntityPanelSurface tone="neutral" className="space-y-2">
-					{saveError && <p className="text-xs text-red-600">{saveError}</p>}
+					{saveError && <p className="text-xs text-destructive">{saveError}</p>}
 					<div className="flex items-center justify-end gap-2">
 						<Button variant="outline" onClick={onClose} className="rounded-none">
 							Cancel
 						</Button>
 						<Button
 							onClick={handleSave}
-							disabled={isSaving || !ndk || !currentUser}
+							disabled={isSaving || !currentUser}
 							className="rounded-none"
 						>
 							{isSaving ? 'Saving…' : 'Save context'}

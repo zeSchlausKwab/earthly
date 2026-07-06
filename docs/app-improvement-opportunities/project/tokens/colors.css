@@ -1,0 +1,103 @@
+/* Colors — dark-first "instrument" theme.
+   :root IS the dark tool theme (primary surface of Earthly Studio).
+   .earthly-light re-scopes the same semantic aliases for light contexts.
+
+   Two layers:
+   1. Palette primitives  (--n-*, --a-*, --l-*)  — raw values, rarely used directly.
+   2. Semantic aliases    (--surface-*, --text-*, --border-*, --accent-*) — use these.
+*/
+
+:root {
+  /* ---- palette · dark neutrals (cool graphite) ---- */
+  --n-chrome:  #151517;   /* title/status bars, deepest */
+  --n-bg:      #1b1b1d;   /* app / viewport background */
+  --n-sunken:  #111112;   /* inset fields inside panels */
+  --n-panel-2: #1d1d1f;   /* active panel column */
+  --n-panel:   #202023;   /* floating panels, rails */
+  --n-raised:  #2b2b2f;   /* raised controls, hovered rows */
+  --n-border:  #38383d;   /* hairline dividers */
+  --n-line:    #4a4a51;   /* control borders, stronger edges */
+  --n-muted:   #7d7d85;   /* meta, captions, disabled glyphs */
+  --n-muted-2: #9b9ba3;   /* secondary text / inactive labels */
+  --n-text:    #e7e7ea;   /* body text */
+  --n-text-hi: #f0f0f2;   /* emphasis / titles */
+
+  /* ---- palette · accents (scarce, one job each) ---- */
+  --a-amber:        oklch(0.8535 0.1744 88.7734); /* brand primary · active / selection */
+  --a-amber-ink:    #241f10;                       /* text/icon on amber fill */
+  --a-amber-ondark: oklch(0.85 0.14 85);           /* amber as text/icon on dark */
+  --a-cyan:         oklch(0.7484 0.1551 233.2517); /* info / reference layers */
+  --a-cyan-ondark:  oklch(0.78 0.11 233);
+  --a-green:        oklch(0.62 0.13 150);          /* ok / live / valid */
+  --a-green-ondark: oklch(0.75 0.12 150);
+  --a-red:          oklch(0.72 0.16 25);           /* danger / destructive / expiring */
+  --a-violet:       oklch(0.55 0.14 300);          /* edit / draft mode */
+  --a-violet-ondark:oklch(0.78 0.11 300);
+
+  /* ---- palette · light neutrals (warm paper) ---- */
+  --l-bg:     #ecebe8;
+  --l-panel:  #f7f6f4;
+  --l-card:   #ffffff;
+  --l-border: #d7d5d1;
+  --l-line:   #bdbbb6;
+  --l-muted:  #6d6b66;
+  --l-text:   #1b1a18;
+
+  /* ==== semantic aliases · DARK (default) ==== */
+  --surface-app:     var(--n-bg);
+  --surface-chrome:  var(--n-chrome);
+  --surface-panel:   var(--n-panel);
+  --surface-panel-2: var(--n-panel-2);
+  --surface-raised:  var(--n-raised);
+  --surface-sunken:  var(--n-sunken);
+
+  --border-hairline: var(--n-border);
+  --border-strong:   var(--n-line);
+
+  --text-primary: var(--n-text-hi);
+  --text-body:    var(--n-text);
+  --text-muted:   var(--n-muted-2);
+  --text-faint:   var(--n-muted);
+
+  --accent-active: var(--a-amber);   /* selection, active tool, primary button */
+  --accent-ink:    var(--a-amber-ink);
+  --accent-info:   var(--a-cyan);
+  --accent-ok:     var(--a-green);
+  --accent-danger: var(--a-red);
+  --accent-edit:   var(--a-violet);
+
+  /* accent-as-text on dark surfaces */
+  --accent-active-text: var(--a-amber-ondark);
+  --accent-info-text:   var(--a-cyan-ondark);
+  --accent-ok-text:     var(--a-green-ondark);
+  --accent-edit-text:   var(--a-violet-ondark);
+
+  /* tinted fills (selection rows, mode blocks) */
+  --fill-active-08: oklch(0.8535 0.1744 88.7734 / 0.08);
+  --fill-active-14: oklch(0.8535 0.1744 88.7734 / 0.14);
+  --fill-edit-06:   oklch(0.55 0.14 300 / 0.06);
+  --fill-edit-14:   oklch(0.55 0.14 300 / 0.14);
+}
+
+/* ==== semantic aliases · LIGHT ==== */
+.earthly-light {
+  --surface-app:     var(--l-bg);
+  --surface-chrome:  var(--l-panel);
+  --surface-panel:   var(--l-panel);
+  --surface-panel-2: var(--l-card);
+  --surface-raised:  var(--l-card);
+  --surface-sunken:  var(--l-card);
+
+  --border-hairline: var(--l-border);
+  --border-strong:   var(--l-line);
+
+  --text-primary: var(--l-text);
+  --text-body:    var(--l-text);
+  --text-muted:   var(--l-muted);
+  --text-faint:   var(--l-line);
+
+  --accent-active-text: oklch(0.55 0.13 78);
+  --accent-info-text:   oklch(0.5 0.14 235);
+  --accent-ok-text:     oklch(0.45 0.12 150);
+  --accent-edit-text:   oklch(0.45 0.13 300);
+}

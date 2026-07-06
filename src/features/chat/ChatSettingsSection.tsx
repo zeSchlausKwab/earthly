@@ -3,25 +3,33 @@ import {
 	AlertTriangle,
 	Bot,
 	Check,
+	ClipboardCopy,
 	SlidersHorizontal,
 	ChevronsUpDown,
+	Download,
 	KeyRound,
+	Loader2,
 	Lock,
 	Search,
 	Server,
 	ToggleLeft,
 	ToggleRight,
+	Upload,
 } from 'lucide-react'
-import { useNDKCurrentUser } from '@nostr-dev-kit/react'
+import { useActiveAccount } from 'applesauce-react/hooks'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { ProviderType } from './routstr'
-import { useChatStore } from './store'
+import { serializeSnapshot, validateImportedSnapshot } from './settingsExport'
+import { chatActions, useChatStore } from './store'
 
 const PROVIDER_OPTIONS: { value: ProviderType; label: string }[] = [
 	{ value: 'routstr', label: 'Routstr (paid)' },
@@ -48,29 +56,74 @@ function DangerIndicator() {
 }
 
 export function ChatSettingsSection() {
-	const currentUser = useNDKCurrentUser()
+	const currentUser = useActiveAccount()
 	const {
 		provider,
-		customEndpoint,
-		customApiKey,
+		providerOverrides,
 		models,
 		selectedModel,
 		modelsLoading,
 		modelsError,
 		toolsEnabled,
 		isStreaming,
+		settingsStatus,
+		settingsError,
 		setProvider,
-		setCustomEndpoint,
-		setCustomApiKey,
+		setProviderOverride,
 		loadModels,
 		setSelectedModel,
 		setToolsEnabled,
+		requestSettingsReload,
+		cancelStream,
 	} = useChatStore()
 	const selectedProviderOption = PROVIDER_OPTIONS.find((option) => option.value === provider)
 	const [modelPickerOpen, setModelPickerOpen] = useState(false)
 	const [modelQuery, setModelQuery] = useState('')
 	const [modelSortMode, setModelSortMode] = useState<ModelSortMode>('relevance')
 	const [toolCallingOnly, setToolCallingOnly] = useState(false)
+	// SET-03 export/import escape hatch (D-08/D-09/D-10).
+	const [exported, setExported] = useState(false)
+	const [importText, setImportText] = useState('')
+
+	// Export reads the LIVE store snapshot (not the encrypted envelope), so it works even when
+	// load/save is failing — the whole point of the recovery hatch (D-08). It deliberately emits
+	// plaintext secrets to the clipboard, so it sets a persistent warning (D-10 / T-01-11).
+	const handleExport = () => {
+		void (async () => {
+			try {
+				const json = serializeSnapshot({
+					provider,
+					providerOverrides,
+					selectedModel,
+					toolsEnabled,
+					version: 2,
+				})
+				await navigator.clipboard.writeText(json)
+				setExported(true)
+				toast.success('Settings copied to clipboard')
+			} catch (error) {
+				toast.error(error instanceof Error ? error.message : 'Failed to copy settings')
+			}
+		})()
+	}
+
+	// Import REPLACES (not merges) the current settings via hydrateSettings; the existing debounced
+	// save effect then re-encrypts to the CURRENT signer automatically (D-07/D-09 — no explicit
+	// re-encrypt call). Pasted JSON is parsed + validated before it reaches the store (T-01-10/V5).
+	const handleImport = () => {
+		try {
+			const parsed: unknown = JSON.parse(importText)
+			const validated = validateImportedSnapshot(parsed)
+			chatActions.hydrateSettings(validated)
+			// Signal the sync hook that this is a deliberate user overwrite so it clears any
+			// load-failed save guard and re-encrypts the imported snapshot (CR-01 recovery path).
+			chatActions.notifySettingsImported()
+			setImportText('')
+			toast.success('Settings imported')
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : 'Invalid settings JSON')
+		}
+	}
 	const selectedModelData = useMemo(
 		() => models.find((model) => model.id === selectedModel) ?? null,
 		[models, selectedModel],
@@ -112,11 +165,18 @@ export function ChatSettingsSection() {
 	}, [models, modelQuery, modelSortMode, toolCallingOnly])
 
 	useEffect(() => {
-		if (provider === 'custom' && !customEndpoint.trim()) return
+		if (provider === 'custom' && !providerOverrides.custom.baseUrl.trim()) return
 		if (models.length === 0 && !modelsLoading && !modelsError) {
 			void loadModels()
 		}
-	}, [customEndpoint, loadModels, models.length, modelsError, modelsLoading, provider])
+	}, [
+		providerOverrides.custom.baseUrl,
+		loadModels,
+		models.length,
+		modelsError,
+		modelsLoading,
+		provider,
+	])
 
 	useEffect(() => {
 		if (!hasToolCallingMetadata && toolCallingOnly) {
@@ -138,30 +198,85 @@ export function ChatSettingsSection() {
 			</div>
 
 			<div className="space-y-2">
-				<Label>Provider</Label>
-				<Select
-					value={provider}
-					onValueChange={(value) => setProvider(value as ProviderType)}
-					disabled={isStreaming}
-				>
-					<SelectTrigger>
-						<span className="flex min-w-0 items-center gap-2">
-							<span className="truncate">{selectedProviderOption?.label ?? 'Select provider'}</span>
-							{provider === 'routstr' ? <DangerIndicator /> : null}
-						</span>
-					</SelectTrigger>
-					<SelectContent>
+				<Label htmlFor="chat-provider-select">Provider</Label>
+				{/* NOT disabled while streaming: a stuck isStreaming flag would lock the
+				    user out of their own settings with no visual cue (Radix disabled
+				    selects look normal but swallow clicks). Switching provider cancels
+				    any in-flight response instead — same recovery contract as New chat. */}
+				<div className="flex items-center gap-2">
+					<NativeSelect
+						id="chat-provider-select"
+						value={provider}
+						onChange={(event) => {
+							const value = event.target.value
+							if (isStreaming) cancelStream()
+							setProvider(value as ProviderType)
+						}}
+					>
 						{PROVIDER_OPTIONS.map((option) => (
-							<SelectItem key={option.value} value={option.value}>
-								<span className="flex min-w-0 items-center gap-2">
-									<span className="truncate">{option.label}</span>
-									{option.value === 'routstr' ? <DangerIndicator /> : null}
-								</span>
-							</SelectItem>
+							<NativeSelectOption key={option.value} value={option.value}>
+								{option.label}
+							</NativeSelectOption>
 						))}
-					</SelectContent>
-				</Select>
+					</NativeSelect>
+					{provider === 'routstr' ? <DangerIndicator /> : null}
+					{selectedProviderOption ? null : (
+						<span className="text-xs text-muted-foreground">Select provider</span>
+					)}
+				</div>
 			</div>
+
+			{provider === 'lmstudio' && (
+				<div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+					<div className="space-y-2">
+						<Label>LM Studio endpoint</Label>
+						<Input
+							placeholder="http://localhost:1234/v1"
+							value={providerOverrides.lmstudio.baseUrl}
+							onChange={(event) => setProviderOverride('lmstudio', { baseUrl: event.target.value })}
+						/>
+						<p className="text-xs text-muted-foreground">
+							Leave empty to use the default http://localhost:1234/v1.
+						</p>
+					</div>
+
+					<div className="space-y-2">
+						<Label>API Key</Label>
+						<Input
+							placeholder="Optional bearer token"
+							type="password"
+							value={providerOverrides.lmstudio.apiKey}
+							onChange={(event) => setProviderOverride('lmstudio', { apiKey: event.target.value })}
+						/>
+					</div>
+				</div>
+			)}
+
+			{provider === 'ollama' && (
+				<div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+					<div className="space-y-2">
+						<Label>Ollama endpoint</Label>
+						<Input
+							placeholder="http://localhost:11434/v1"
+							value={providerOverrides.ollama.baseUrl}
+							onChange={(event) => setProviderOverride('ollama', { baseUrl: event.target.value })}
+						/>
+						<p className="text-xs text-muted-foreground">
+							Leave empty to use the default http://localhost:11434/v1.
+						</p>
+					</div>
+
+					<div className="space-y-2">
+						<Label>API Key</Label>
+						<Input
+							placeholder="Optional bearer token"
+							type="password"
+							value={providerOverrides.ollama.apiKey}
+							onChange={(event) => setProviderOverride('ollama', { apiKey: event.target.value })}
+						/>
+					</div>
+				</div>
+			)}
 
 			{provider === 'custom' && (
 				<div className="space-y-3 rounded-lg border bg-muted/20 p-3">
@@ -169,9 +284,8 @@ export function ChatSettingsSection() {
 						<Label>Endpoint</Label>
 						<Input
 							placeholder="http://localhost:8080/v1"
-							value={customEndpoint}
-							onChange={(event) => setCustomEndpoint(event.target.value)}
-							disabled={isStreaming}
+							value={providerOverrides.custom.baseUrl}
+							onChange={(event) => setProviderOverride('custom', { baseUrl: event.target.value })}
 						/>
 					</div>
 
@@ -180,16 +294,15 @@ export function ChatSettingsSection() {
 						<Input
 							placeholder="Optional bearer token"
 							type="password"
-							value={customApiKey}
-							onChange={(event) => setCustomApiKey(event.target.value)}
-							disabled={isStreaming}
+							value={providerOverrides.custom.apiKey}
+							onChange={(event) => setProviderOverride('custom', { apiKey: event.target.value })}
 						/>
 					</div>
 
 					<Button
 						variant="outline"
 						onClick={() => void loadModels()}
-						disabled={!customEndpoint || isStreaming || modelsLoading}
+						disabled={!providerOverrides.custom.baseUrl || modelsLoading}
 						className="w-full"
 					>
 						{modelsLoading ? 'Connecting...' : 'Connect custom endpoint'}
@@ -337,12 +450,12 @@ export function ChatSettingsSection() {
 							: 'border-border bg-muted/40 text-muted-foreground',
 					)}
 				>
-					<div className="space-y-1">
+					<div className="space-y-1 break-all">
 						<div className="flex items-center gap-2 text-sm font-medium">
 							<Server className="h-4 w-4" />
 							<span>Geo and web tools</span>
 						</div>
-						<p className="text-xs opacity-80">
+						<p className="text-xs opacity-80 break-all">
 							Allow the model to call map, editor, and search tools during a chat.
 						</p>
 					</div>
@@ -354,18 +467,107 @@ export function ChatSettingsSection() {
 				</Button>
 			</div>
 
-			<div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-				<div className="flex items-start gap-2">
-					{currentUser ? (
-						<Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-					) : (
+			{settingsStatus === 'loading' ? (
+				<div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+					<div className="flex items-start gap-2">
+						<Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />
+						<p>Loading your saved settings…</p>
+					</div>
+				</div>
+			) : settingsStatus === 'failed' ? (
+				<div className="rounded-lg border border-destructive/50 bg-destructive/5 p-3 text-xs">
+					<div className="flex items-start gap-2">
+						<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+						<div className="min-w-0 flex-1">
+							<p className="font-medium text-destructive">
+								Decryption failed — your saved settings could not be loaded.
+							</p>
+							{settingsError ? <p className="mt-1 text-destructive/90">{settingsError}</p> : null}
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								onClick={() => requestSettingsReload()}
+								className="mt-2 h-7 text-xs"
+							>
+								Retry
+							</Button>
+						</div>
+					</div>
+				</div>
+			) : settingsStatus === 'no-signer' || !currentUser ? (
+				<div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+					<div className="flex items-start gap-2">
 						<KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-					)}
-					<p>
-						{currentUser
-							? 'Changes are saved for the active Nostr account and restored automatically when the app starts.'
-							: 'Sign in with a Nostr account to persist chat settings in encrypted local storage.'}
+						<p>Sign in with a Nostr account to persist chat settings in encrypted local storage.</p>
+					</div>
+				</div>
+			) : (
+				<div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+					<div className="flex items-start gap-2">
+						<Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+						<p>
+							Changes are saved for the active Nostr account and restored automatically when the app
+							starts.
+						</p>
+					</div>
+				</div>
+			)}
+
+			<div className="space-y-3 rounded-lg border bg-card p-3">
+				<div className="space-y-1">
+					<div className="flex items-center gap-2">
+						<Download className="h-4 w-4 text-muted-foreground" />
+						<Label className="text-sm font-medium">Backup &amp; restore</Label>
+					</div>
+					<p className="text-xs text-muted-foreground">
+						Export your settings as plaintext JSON to recover them if your signer changes and the
+						encrypted copy can no longer be decrypted. Import re-encrypts to the current account.
 					</p>
+				</div>
+
+				<div className="space-y-2">
+					<Button
+						type="button"
+						variant="outline"
+						onClick={handleExport}
+						className="w-full justify-center gap-2"
+					>
+						<ClipboardCopy className="h-4 w-4" />
+						Export settings
+					</Button>
+					{exported ? (
+						<div className="rounded-md border border-orange-300 bg-orange-50 p-2.5 text-xs text-orange-900 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-200">
+							<div className="flex items-start gap-2">
+								<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+								<p>
+									The clipboard now holds your plaintext API keys — paste it somewhere safe and
+									clear your clipboard afterward.
+								</p>
+							</div>
+						</div>
+					) : null}
+				</div>
+
+				<div className="space-y-2">
+					<Label className="text-xs text-muted-foreground">Paste exported settings JSON</Label>
+					<Textarea
+						value={importText}
+						onChange={(event) => setImportText(event.target.value)}
+						placeholder='{ "provider": "lmstudio", ... }'
+						rows={4}
+						className="font-mono text-xs"
+					/>
+					<Button
+						type="button"
+						variant="outline"
+						onClick={handleImport}
+						disabled={!importText.trim()}
+						className="w-full justify-center gap-2"
+					>
+						<Upload className="h-4 w-4" />
+						Import settings
+					</Button>
 				</div>
 			</div>
 		</div>

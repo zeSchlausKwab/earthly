@@ -186,7 +186,7 @@ function FeatureRow({
 		<div
 			className={cn(
 				'rounded border text-xs',
-				isSelected ? 'border-blue-400 bg-blue-50' : 'border-gray-200 bg-white hover:bg-gray-50',
+				isSelected ? 'border-info/40 bg-info/15' : 'border-border bg-card hover:bg-muted',
 			)}
 		>
 			{/* Row header */}
@@ -207,7 +207,7 @@ function FeatureRow({
 				</Button>
 
 				{hasValidationIssues && (
-					<div className="flex items-center gap-1 text-amber-600" title={validationSummary}>
+					<div className="flex items-center gap-1 text-primary" title={validationSummary}>
 						<AlertTriangle className="h-3 w-3" />
 						<span className="text-[10px]">{validationIssues?.length}</span>
 					</div>
@@ -216,7 +216,7 @@ function FeatureRow({
 				<Button
 					size="icon-sm"
 					variant="ghost"
-					className="text-blue-500 hover:text-blue-700"
+					className="text-info hover:text-info"
 					onClick={onZoomTo}
 					aria-label="Zoom to feature"
 				>
@@ -226,7 +226,7 @@ function FeatureRow({
 				<Button
 					size="icon-sm"
 					variant="ghost"
-					className="text-red-500 hover:text-red-700"
+					className="text-destructive hover:text-destructive"
 					onClick={onDelete}
 					aria-label="Delete feature"
 				>
@@ -236,14 +236,14 @@ function FeatureRow({
 
 			{/* Expanded content */}
 			{isExpanded && (
-				<div className="border-t border-gray-100 px-2 py-2 bg-gray-50/50 space-y-2">
+				<div className="border-t border-border px-2 py-2 bg-muted/50 space-y-2">
 					{hasValidationIssues && (
-						<div className="rounded border border-amber-300 bg-amber-50 px-2 py-1">
-							<div className="mb-1 flex items-center gap-1 text-[10px] font-medium text-amber-800 uppercase tracking-wide">
+						<div className="rounded border border-primary/40 bg-primary/10 px-2 py-1">
+							<div className="mb-1 flex items-center gap-1 text-[10px] font-medium text-primary uppercase tracking-wide">
 								<AlertTriangle className="h-3 w-3" />
 								Context warnings
 							</div>
-							<div className="space-y-0.5 text-[10px] text-amber-800">
+							<div className="space-y-0.5 text-[10px] text-primary">
 								{validationIssues?.slice(0, 3).map((issue) => (
 									<p key={issue}>{issue}</p>
 								))}
@@ -256,19 +256,19 @@ function FeatureRow({
 
 					{/* Annotation-specific: Text input prominently displayed */}
 					{isAnnotation && (
-						<div className="space-y-1.5 p-1.5 bg-amber-50 rounded border border-amber-200">
-							<div className="text-[10px] text-amber-700 uppercase tracking-wide font-medium">
+						<div className="space-y-1.5 p-1.5 bg-primary/10 rounded border border-primary/40">
+							<div className="text-[10px] text-primary uppercase tracking-wide font-medium">
 								Annotation Text
 							</div>
 							<textarea
-								className="w-full h-12 rounded border border-amber-300 px-1.5 py-1 text-xs resize-none bg-white"
+								className="w-full h-12 rounded border border-primary/40 px-1.5 py-1 text-xs resize-none bg-card"
 								placeholder="Enter annotation text..."
 								value={(feature.properties?.text as string) ?? ''}
 								onChange={(e) => onAnnotationTextChange(e.target.value)}
 							/>
 							<div className="flex items-center gap-2">
 								<div className="flex items-center gap-1 flex-1">
-									<span className="text-[9px] text-gray-500">Size</span>
+									<span className="text-[9px] text-muted-foreground">Size</span>
 									<Input
 										type="number"
 										className="h-5 text-[11px] w-12"
@@ -281,19 +281,19 @@ function FeatureRow({
 									/>
 								</div>
 								<div className="flex items-center gap-1">
-									<span className="text-[9px] text-gray-500">Text</span>
+									<span className="text-[9px] text-muted-foreground">Text</span>
 									<Input
 										type="color"
-										className="h-5 w-6 p-0.5 rounded border border-gray-200"
+										className="h-5 w-6 p-0.5 rounded border border-border"
 										value={(feature.properties?.textColor as string) ?? '#1f2937'}
 										onChange={(e) => onAnnotationStyleChange('textColor', e.target.value)}
 									/>
 								</div>
 								<div className="flex items-center gap-1">
-									<span className="text-[9px] text-gray-500">Halo</span>
+									<span className="text-[9px] text-muted-foreground">Halo</span>
 									<Input
 										type="color"
-										className="h-5 w-6 p-0.5 rounded border border-gray-200"
+										className="h-5 w-6 p-0.5 rounded border border-border"
 										value={(feature.properties?.textHaloColor as string) ?? '#ffffff'}
 										onChange={(e) => onAnnotationStyleChange('textHaloColor', e.target.value)}
 									/>
@@ -328,8 +328,10 @@ function FeatureRow({
 						<div className="space-y-0.5">
 							{Object.entries(customProperties).map(([key, value]) => (
 								<div key={key} className="flex items-center gap-1">
-									<span className="text-[10px] text-gray-500 min-w-[32px] truncate">{key}</span>
-									<span className="rounded bg-gray-100 px-1 py-0.5 text-[9px] text-gray-600 uppercase">
+									<span className="text-[10px] text-muted-foreground min-w-[32px] truncate">
+										{key}
+									</span>
+									<span className="rounded bg-muted px-1 py-0.5 text-[9px] text-muted-foreground uppercase">
 										{inferDisplayType(value, propertyTypeHints?.get(key))}
 									</span>
 									<Input
@@ -340,7 +342,7 @@ function FeatureRow({
 									<Button
 										size="icon-sm"
 										variant="ghost"
-										className="text-red-400 hover:text-red-600"
+										className="text-destructive hover:text-destructive"
 										onClick={() => onRemoveCustomProperty(key)}
 									>
 										<Trash2 className="h-2.5 w-2.5" />
@@ -367,7 +369,7 @@ function FeatureRow({
 							onKeyDown={handleKeyDown}
 						/>
 						{newPropertyTypeHint && (
-							<span className="rounded bg-blue-100 px-1 py-0.5 text-[9px] text-blue-700 uppercase">
+							<span className="rounded bg-info/15 px-1 py-0.5 text-[9px] text-info uppercase">
 								{newPropertyTypeHint}
 							</span>
 						)}
@@ -472,7 +474,7 @@ export function GeometriesTable({
 
 	if (features.length === 0) {
 		return (
-			<div className={cn('text-xs text-gray-500 py-2', className)}>
+			<div className={cn('text-xs text-muted-foreground py-2', className)}>
 				Draw or load geometries to edit.
 			</div>
 		)

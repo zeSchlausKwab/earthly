@@ -4,7 +4,7 @@ import maplibregl from 'maplibre-gl'
 import { useCallback, useRef } from 'react'
 import { useChatStore } from '@/features/chat'
 import { resolveGeoEventFeatureCollection } from '@/lib/geo/resolveBlobReferences'
-import type { NDKGeoEvent, GeoBlobReference } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset, GeoBlobReference } from '@/lib/nostr/geo-event'
 import { useEditorStore } from '../store'
 import type { EditorBlobReference } from '../types'
 import {
@@ -26,7 +26,10 @@ function createBlankDraftSourceId() {
 	return `session:${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
-function getCollectionName(collection: FeatureCollection): string | undefined {
+function getCollectionName(collection: FeatureCollection | undefined): string | undefined {
+	// Defensive: callers may pass an unresolved/blob-only dataset whose
+	// `featureCollection` is undefined — never throw on `.name` of undefined.
+	if (!collection) return undefined
 	const maybeName = (collection as FeatureCollection & { name?: unknown }).name
 	return typeof maybeName === 'string' ? maybeName : undefined
 }
@@ -51,11 +54,11 @@ function getCollectionBbox(
 
 export function useDatasetManagement(
 	mapRef: React.MutableRefObject<maplibregl.Map | null>,
-	geoEvents: NDKGeoEvent[],
+	geoEvents: GeoDataset[],
 ) {
 	const resolvedCollectionsRef = useRef<Map<string, ResolvedCache>>(new Map())
 	const isMountedRef = useRef(true)
-	const geoEventsRef = useRef<NDKGeoEvent[]>([])
+	const geoEventsRef = useRef<GeoDataset[]>([])
 
 	// Keep ref in sync
 	geoEventsRef.current = geoEvents
@@ -64,8 +67,10 @@ export function useDatasetManagement(
 	const editor = useEditorStore((state) => state.editor)
 	const setFeatures = useEditorStore((state) => state.setFeatures)
 	const setActiveDataset = useEditorStore((state) => state.setActiveDataset)
+	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
+	const removeMapStackEntry = useEditorStore((state) => state.removeMapStackEntry)
+	const recordRecentEntity = useEditorStore((state) => state.recordRecentEntity)
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
-	const setDatasetVisibility = useEditorStore((state) => state.setDatasetVisibility)
 	const setSelectedFeatureIds = useEditorStore((state) => state.setSelectedFeatureIds)
 	const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta)
 	const setNewCollectionProp = useEditorStore((state) => state.setNewCollectionProp)
@@ -79,6 +84,7 @@ export function useDatasetManagement(
 	const setBlobDraftStatus = useEditorStore((state) => state.setBlobDraftStatus)
 	const setBlobDraftError = useEditorStore((state) => state.setBlobDraftError)
 	const setViewMode = useEditorStore((state) => state.setViewMode)
+	const setStance = useEditorStore((state) => state.setStance)
 	const setViewDataset = useEditorStore((state) => state.setViewDataset)
 	const setDatasetResolving = useEditorStore((state) => state.setDatasetResolving)
 	const setDatasetResolvingProgress = useEditorStore((state) => state.setDatasetResolvingProgress)
@@ -93,18 +99,18 @@ export function useDatasetManagement(
 	const activeContextScopeCoordinate = useEditorStore((state) => state.activeContextScopeCoordinate)
 
 	const getDatasetKey = useCallback(
-		(event: NDKGeoEvent) => `${event.pubkey}:${event.datasetId ?? event.id}`,
+		(event: GeoDataset) => `${event.pubkey}:${event.datasetId ?? event.id}`,
 		[],
 	)
 
 	const getDatasetName = useCallback(
-		(event: NDKGeoEvent) =>
+		(event: GeoDataset) =>
 			getCollectionName(event.featureCollection) ?? event.datasetId ?? event.id,
 		[],
 	)
 
 	const resolvedCollectionResolver = useCallback(
-		(event: NDKGeoEvent) => {
+		(event: GeoDataset) => {
 			const datasetKey = getDatasetKey(event)
 			return resolvedCollectionsRef.current.get(datasetKey)?.featureCollection
 		},
@@ -112,7 +118,7 @@ export function useDatasetManagement(
 	)
 
 	const ensureResolvedFeatureCollection = useCallback(
-		async (event: NDKGeoEvent) => {
+		async (event: GeoDataset) => {
 			if (event.blobReferences.length === 0) {
 				return event.featureCollection
 			}
@@ -199,7 +205,7 @@ export function useDatasetManagement(
 			blobReferences,
 		}: {
 			features: ReturnType<typeof convertGeoEventsToEditorFeatures>
-			activeDataset: NDKGeoEvent | null
+			activeDataset: GeoDataset | null
 			contextRefs: string[]
 			collectionMeta: ReturnType<typeof extractCollectionMeta>
 			blobReferences: GeoBlobReference[]
@@ -224,6 +230,25 @@ export function useDatasetManagement(
 			setBlobDraftError(null)
 			setViewMode('edit')
 			setViewDataset(null)
+			// Stance transition: loading a dataset for editing means the user
+			// has committed to authoring it.
+			setStance('author')
+			// Round C.3: surface the in-edit state as a map-stack entry. It's
+			// rendered by the editor's draft layer (not via `visibleGeoEvents`)
+			// so the stack entry is informational — but it lets the panel
+			// honestly reflect what's contributing to the map and lets the
+			// user end the session from the same surface.
+			const draftTitle =
+				collectionMeta?.name || (activeDataset ? getDatasetName(activeDataset) : 'Untitled draft')
+			addMapStackEntry({
+				id: 'draft:active',
+				entityType: 'draft',
+				entityKey: 'draft:active',
+				title: draftTitle,
+				source: 'workspace',
+				visible: true,
+				pinned: false,
+			})
 		},
 		[
 			editor,
@@ -246,6 +271,9 @@ export function useDatasetManagement(
 			setBlobDraftError,
 			setViewMode,
 			setViewDataset,
+			setStance,
+			addMapStackEntry,
+			getDatasetName,
 		],
 	)
 
@@ -362,7 +390,7 @@ export function useDatasetManagement(
 	)
 
 	const zoomToDataset = useCallback(
-		(event: NDKGeoEvent) => {
+		(event: GeoDataset) => {
 			if (!mapRef.current) return
 			const resolvedCollection = resolvedCollectionResolver(event)
 			const bbox =
@@ -409,34 +437,62 @@ export function useDatasetManagement(
 	)
 
 	const toggleDatasetVisibility = useCallback(
-		(event: NDKGeoEvent) => {
+		(event: GeoDataset) => {
+			// Round D.3: "visibility" == stack membership. Toggle by id.
 			const key = getDatasetKey(event)
-			setDatasetVisibility((prev) => ({
-				...prev,
-				[key]: !(prev[key] !== false),
-			}))
+			const entryId = `dataset:${key}`
+			const store = useEditorStore.getState()
+			if (store.mapStackEntries[entryId]) {
+				store.removeMapStackEntry(entryId)
+			} else {
+				store.addMapStackEntry({
+					entityType: 'dataset',
+					entityKey: key,
+					title: getDatasetName(event),
+					source: 'manual',
+					visible: true,
+					pinned: false,
+				})
+			}
 		},
-		[getDatasetKey, setDatasetVisibility],
+		[getDatasetKey, getDatasetName],
 	)
 
 	const toggleAllDatasetVisibility = useCallback(
 		(visible: boolean) => {
-			setDatasetVisibility((prev) => {
-				const next = { ...prev }
+			// Round D.3: "show all" pushes every loaded dataset onto the stack;
+			// "hide all" removes every dataset entry. Context/draft entries are
+			// untouched. This is the bulk-toggle from the catalog column header.
+			const store = useEditorStore.getState()
+			if (visible) {
 				for (const event of geoEventsRef.current) {
 					const key = getDatasetKey(event)
-					next[key] = visible
+					store.addMapStackEntry({
+						entityType: 'dataset',
+						entityKey: key,
+						title: getDatasetName(event),
+						source: 'manual',
+						visible: true,
+						pinned: false,
+					})
 				}
-				return next
-			})
+			} else {
+				for (const id of [...store.mapStackOrder]) {
+					if (store.mapStackEntries[id]?.entityType === 'dataset') {
+						store.removeMapStackEntry(id)
+					}
+				}
+			}
 		},
-		[getDatasetKey, setDatasetVisibility],
+		[getDatasetKey, getDatasetName],
 	)
 
 	const loadDatasetForEditing = useCallback(
-		async (event: NDKGeoEvent) => {
+		async (event: GeoDataset) => {
 			if (!editor) return
 			const datasetKey = getDatasetKey(event)
+			// Round G.2: loading for edit counts as a recent interaction too.
+			recordRecentEntity(`dataset:${datasetKey}`)
 			const draftSourceId = `dataset:${datasetKey}`
 			const existingWorkspace = Object.values(useEditorStore.getState().workspaces).find(
 				(workspace) => workspace.sourceId === draftSourceId,
@@ -507,10 +563,16 @@ export function useDatasetManagement(
 			applyEditingState,
 			createGeoEditDraft,
 			setPublishError,
+			recordRecentEntity,
 		],
 	)
 
-	const clearEditingSession = useCallback(() => {
+	// Phase 1.1: the single, complete edit-session teardown. Previously split
+	// across `clearEditingSession` (full teardown, but no viewMode reset) and
+	// `cancelEditing` (reset viewMode/viewDataset, but left `draft:active` on
+	// the stack AND stance on author — bug 3.6). This unifies both: it is the
+	// ONLY place `draft:active` is removed (the draft invariant, Phase 1.4).
+	const tearDownEditSession = useCallback(() => {
 		if (!editor) return
 		setActiveGeoEditDraftId(null)
 		setActiveWorkspaceId(null)
@@ -525,6 +587,13 @@ export function useDatasetManagement(
 		setNewCollectionProp({ key: '', value: '' })
 		setNewFeatureProp({ key: '', value: '' })
 		resetBlobReferenceState()
+		setViewMode('view')
+		setViewDataset(null)
+		// Stance transition: stopping editing returns to browse. (Phase 1.3 will
+		// make stance derived from the route + edit-session and drop this line.)
+		setStance('browse')
+		// Round C.3: remove the in-edit stack entry on session end.
+		removeMapStackEntry('draft:active')
 	}, [
 		editor,
 		setFeatures,
@@ -539,6 +608,10 @@ export function useDatasetManagement(
 		resetBlobReferenceState,
 		setActiveGeoEditDraftId,
 		setActiveWorkspaceId,
+		setViewMode,
+		setViewDataset,
+		setStance,
+		removeMapStackEntry,
 	])
 
 	const deleteWorkspace = useCallback(
@@ -569,13 +642,13 @@ export function useDatasetManagement(
 				return
 			}
 			if (editor) {
-				clearEditingSession()
+				tearDownEditSession()
 				return
 			}
 
 			useEditorStore.getState().setActiveGeoEditDraftId(null)
 		},
-		[clearEditingSession, deleteGeoEditDraft, deleteWorkspaceState, editor, switchToWorkspace],
+		[tearDownEditSession, deleteGeoEditDraft, deleteWorkspaceState, editor, switchToWorkspace],
 	)
 
 	const createDraftInWorkspace = useCallback(
@@ -714,40 +787,6 @@ export function useDatasetManagement(
 	 * Cancel editing and return to view mode.
 	 * Clears the editor and any unsaved changes.
 	 */
-	const cancelEditing = useCallback(() => {
-		if (!editor) return
-		setActiveGeoEditDraftId(null)
-		editor.setFeatures([])
-		setFeatures([])
-		setActiveDataset(null)
-		setActiveDatasetContextRefs([])
-		setPublishMessage(null)
-		setPublishError(null)
-		setSelectedFeatureIds([])
-		setCollectionMeta(createDefaultCollectionMeta())
-		setNewCollectionProp({ key: '', value: '' })
-		setNewFeatureProp({ key: '', value: '' })
-		resetBlobReferenceState()
-		// Return to view mode
-		setViewMode('view')
-		setViewDataset(null)
-	}, [
-		editor,
-		setFeatures,
-		setActiveDataset,
-		setActiveDatasetContextRefs,
-		setPublishMessage,
-		setPublishError,
-		setSelectedFeatureIds,
-		setCollectionMeta,
-		setNewCollectionProp,
-		setNewFeatureProp,
-		resetBlobReferenceState,
-		setViewMode,
-		setViewDataset,
-		setActiveGeoEditDraftId,
-	])
-
 	return {
 		// Refs
 		resolvedCollectionsRef,
@@ -768,8 +807,7 @@ export function useDatasetManagement(
 		switchToWorkspace,
 		deleteWorkspace,
 		createDraftInWorkspace,
-		clearEditingSession,
+		tearDownEditSession,
 		startNewDataset,
-		cancelEditing,
 	}
 }

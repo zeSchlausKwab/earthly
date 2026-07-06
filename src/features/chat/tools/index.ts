@@ -17,7 +17,16 @@ export type {
 export { TO_EDITOR_COMPATIBLE_TOOLS } from './types'
 
 // Tool definitions
-export { geoTools } from './definitions'
+export { geoTools, getGeoTools } from './definitions'
+
+// MCP hot-reload (D-05): poll-based live tool discovery
+export {
+	syncMcpTools,
+	startMcpToolPolling,
+	stopMcpToolPolling,
+	isMcpSyncActive,
+	getSyncedMcpToolNames,
+} from './mcp-sync'
 
 // Executor
 export { executeToolCall } from './execute'

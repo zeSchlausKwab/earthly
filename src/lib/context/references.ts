@@ -1,13 +1,13 @@
 import { nip19 } from 'nostr-tools'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
-import type { NDKGeoEvent } from '../ndk/NDKGeoEvent'
-import type { NDKMapContextEvent } from '../ndk/NDKMapContextEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
+import type { MapContext } from '@/lib/nostr/map-context'
 import {
 	dedupeNostrAddressReferences,
 	extractNostrAddressReferences,
 	extractNostrAddressReferencesFromList,
 	naddrToCoordinate,
-} from '../ndk/nostrReferences'
+} from '../nostr/references'
 
 interface ResolvedBaseReference {
 	address: string
@@ -17,12 +17,12 @@ interface ResolvedBaseReference {
 
 export interface ResolvedContextDatasetReference extends ResolvedBaseReference {
 	type: 'dataset'
-	dataset: NDKGeoEvent
+	dataset: GeoDataset
 }
 
 export interface ResolvedContextContextReference extends ResolvedBaseReference {
 	type: 'context'
-	context: NDKMapContextEvent
+	context: MapContext
 }
 
 export type ResolvedContextReference =
@@ -41,7 +41,7 @@ function decodeCoordinate(
 	return { kind, pubkey, identifier }
 }
 
-export function encodeContextNaddr(context: NDKMapContextEvent): string | null {
+export function encodeContextNaddr(context: MapContext): string | null {
 	const identifier = context.contextId ?? context.dTag ?? context.id
 	if (!identifier || !context.pubkey || !context.kind) return null
 
@@ -56,7 +56,7 @@ export function encodeContextNaddr(context: NDKMapContextEvent): string | null {
 	}
 }
 
-export function getContextReferencedMentions(context: NDKMapContextEvent | null | undefined) {
+export function getContextReferencedMentions(context: MapContext | null | undefined) {
 	return dedupeNostrAddressReferences([
 		...extractNostrAddressReferences(context?.context.description),
 		...extractNostrAddressReferencesFromList(context?.context.references ?? []),
@@ -64,14 +64,14 @@ export function getContextReferencedMentions(context: NDKMapContextEvent | null 
 }
 
 export function resolveContextReferences(
-	context: NDKMapContextEvent | null | undefined,
-	geoEvents: NDKGeoEvent[],
-	mapContexts: NDKMapContextEvent[],
+	context: MapContext | null | undefined,
+	geoEvents: GeoDataset[],
+	mapContexts: MapContext[],
 	availableFeatures: GeoFeatureItem[] = [],
 ): ResolvedContextReference[] {
 	const mentions = getContextReferencedMentions(context)
 
-	return mentions.flatMap((reference) => {
+	return mentions.flatMap((reference): ResolvedContextReference[] => {
 		const coordinate = naddrToCoordinate(reference.address)
 		if (!coordinate) return []
 
@@ -94,7 +94,7 @@ export function resolveContextReferences(
 					dataset,
 					label:
 						featureMatch?.name ??
-						dataset.featureCollection?.name ??
+						(dataset.featureCollection as { name?: string } | undefined)?.name ??
 						dataset.datasetId ??
 						'Referenced dataset',
 				},
@@ -126,11 +126,11 @@ export function resolveContextReferences(
 }
 
 export function getContextReferencedDatasets(
-	context: NDKMapContextEvent | null | undefined,
-	geoEvents: NDKGeoEvent[],
-): NDKGeoEvent[] {
+	context: MapContext | null | undefined,
+	geoEvents: GeoDataset[],
+): GeoDataset[] {
 	const seen = new Set<string>()
-	const datasets: NDKGeoEvent[] = []
+	const datasets: GeoDataset[] = []
 
 	context?.referencedAddresses.forEach((coordinate) => {
 		const match = decodeCoordinate(coordinate)

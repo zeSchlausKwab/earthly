@@ -1,9 +1,9 @@
 import { useCallback, useEffect } from 'react'
 import type maplibregl from 'maplibre-gl'
 import { earthlyGeoServer } from '@/ctxcn'
+import { createAuthoring } from '../api'
 import type { EditorFeature } from '../core'
 import { useEditorStore } from '../store'
-import { toEditorFeature } from '../utils'
 
 export function useOsmQuery(
 	mapRef: React.RefObject<maplibregl.Map | null>,
@@ -92,9 +92,8 @@ export function useOsmQuery(
 	const handleOsmImport = useCallback(
 		(features: GeoJSON.Feature[]) => {
 			if (!editor) return
-			features.forEach((feature) => {
-				editor.addFeature(toEditorFeature(feature))
-			})
+			// INFRA-02: route OSM imports through the Authoring API (append, dedup-by-id).
+			createAuthoring(editor).writeGeoJSON(features, { replace: false })
 		},
 		[editor],
 	)

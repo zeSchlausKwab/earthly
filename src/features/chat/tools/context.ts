@@ -32,13 +32,31 @@ export function getMapContextSnapshot() {
 			kind: layer.kind,
 			opacity: layer.opacity,
 		}))
-	const visibleDatasetIds = Object.entries(store.datasetVisibility)
-		.filter(([, visible]) => visible)
-		.map(([datasetId]) => datasetId)
+	// Round D.3: visibility is no longer a separate slice — the map stack is
+	// the single source of truth. A dataset is "visible" iff it has an entry
+	// on the stack (including curated datasets surfaced via context entries).
+	const visibleDatasetIds = store.mapStackOrder
+		.map((entryId) => store.mapStackEntries[entryId])
+		.filter(
+			(entry): entry is NonNullable<typeof entry> =>
+				Boolean(entry) && entry.entityType === 'dataset' && entry.visible !== false,
+		)
+		.map((entry) => entry.entityKey)
+
+	// Dataset-level (FeatureCollection-level) metadata the model can READ before
+	// changing it via set_dataset_metadata / authoring.setDatasetMetadata. Lets the
+	// model see the existing dataset name/description instead of guessing.
+	const datasetMetadata = {
+		name: store.collectionMeta.name,
+		description: store.collectionMeta.description,
+		color: store.collectionMeta.color,
+		customProperties: store.collectionMeta.customProperties,
+	}
 
 	return {
 		editorReady: Boolean(store.editor),
 		mode: store.mode,
+		datasetMetadata,
 		featureCount: store.features.length,
 		selectedFeatureCount: store.selectedFeatureIds.length,
 		selectedFeatures: selectedSummary,
@@ -86,6 +104,7 @@ export function getCompactMapContextForTool(snapshot: ReturnType<typeof getMapCo
 	return {
 		editorReady: snapshot.editorReady,
 		mode: snapshot.mode,
+		datasetMetadata: snapshot.datasetMetadata,
 		featureCount: snapshot.featureCount,
 		selectedFeatureCount: snapshot.selectedFeatureCount,
 		featureGeometryCounts: snapshot.featureGeometryCounts,
@@ -115,6 +134,7 @@ export function createMapContextSystemMessage(): ChatMessage | null {
 			'You have map-editing tool access in this chat.',
 			'If the user asks to draw/create/edit map features, call tools instead of replying that you cannot edit the map.',
 			'For draw requests, generate GeoJSON yourself and call add_feature_to_editor or write_geojson_to_editor directly.',
+			'To name or describe the dataset (or set collection-level properties), call set_dataset_metadata — or authoring.setDatasetMetadata(...) inside run_code. Do NOT stamp dataset_name/dataset_description onto every feature. Read the current dataset name/description from get_editor_state (datasetMetadata) before changing it.',
 			'For many OSM features in an area (e.g. all military bases in viewport), prefer import_osm_to_editor with filters and bbox/point instead of embedding large GeoJSON argument strings.',
 			'For polygon-constrained searches (selected polygon, country border, custom area), prefer query_osm_area.',
 			'Do not call query_osm_area as an unfiltered scan. Always include filters, filterSets, or concept.',
@@ -134,6 +154,10 @@ export function createMapContextSystemMessage(): ChatMessage | null {
 			'When exact OSM tags are brittle, prefer filters with array values or filterSets to cover multiple tagging variants in one query.',
 			'Think in OSM tags and aliases: military often spans military=*, landuse=military, and building=bunker; rivers are usually waterway=river; benches are usually amenity=bench.',
 			'When calling a tool, output strict JSON arguments only.',
+			'For well-known places (capitals, countries, major cities), use their known coordinates directly instead of geocoding. Only call search_location for genuinely ambiguous or unknown places.',
+			'Do not fetch OSM relation geometry or query OSM unless the task explicitly needs real boundary or feature geometry. For a simple shape (arc, circle, line between known points), compute it yourself or with run_code+turf.',
+			'In run_code, the result is the final bare expression OR a top-level `return <value>` (both work). Only `data`, `turf`, `authoring`, and `console` exist — there is no fetch/Buffer/process/require/window/document.',
+			'Trust tool results: after a successful authoring write (a tool result with created/updated/deleted counts), do NOT re-verify with capture_map_snapshot or get_editor_state. The write result is authoritative.',
 			`Current map state JSON:\n${JSON.stringify(compact)}`,
 		].join('\n\n'),
 	}

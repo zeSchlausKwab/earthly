@@ -122,7 +122,9 @@ export function OsmResultsPanel({ onImport, onClose }: OsmResultsPanelProps) {
 					<div className="text-sm text-muted-foreground text-center py-4">Searching...</div>
 				)}
 
-				{error && <div className="text-sm text-red-600 p-2 bg-red-50 rounded">{error}</div>}
+				{error && (
+					<div className="text-sm text-destructive p-2 bg-destructive/10 rounded">{error}</div>
+				)}
 
 				{!loading && !error && results.length === 0 && (
 					<div className="text-sm text-muted-foreground text-center py-4">No features found</div>

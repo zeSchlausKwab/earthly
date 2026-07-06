@@ -1,14 +1,65 @@
-// Types
-export type { ProofInfo, PendingToken, ProofEntry } from './types'
+/**
+ * Wallet module — applesauce-wallet–powered NIP-60 implementation for Earthly.
+ *
+ * UI hook surface lives in `./hooks`; high-level actions in `./actions`.
+ * Lower-level applesauce-wallet primitives are reachable via the singletons
+ * in `./runtime` (`walletActions`, `couch`).
+ */
 
-// Proof utilities
-export { extractProofsByMint, getProofsForMint } from './proofs'
+// React hooks
+export {
+	type NutzapsState,
+	useDefaultMint,
+	useNutzapInfo,
+	useNutzaps,
+	useWallet,
+	useWalletHistory,
+	useWalletTokens,
+	type WalletState,
+} from './hooks'
 
-// Storage utilities
-export { loadUserData, saveUserData, removeUserData } from './storage'
+// Action wrappers
+export {
+	addNutzapMint,
+	consolidateTokens,
+	createWallet,
+	payLightningInvoice,
+	receiveCashuToken,
+	receiveNutzaps,
+	recoverFromCouch,
+	removeNutzapMint,
+	sendCashuToken,
+	setMints,
+	setWalletRelays,
+	startLightningDeposit,
+	unlockWallet,
+	type CreateWalletOptions,
+	type DepositSession,
+} from './actions'
 
-// Current user utilities (for storage scoping)
+// Runtime singletons (rare direct use; most code should go via hooks/actions)
+export {
+	couch,
+	getWalletSnapshot,
+	walletActions,
+	walletSnapshot$,
+	type WalletSnapshot,
+} from './runtime'
+
+export {
+	DEFAULT_MINT_CHANGE_EVENT,
+	DEFAULT_MINT_KEY,
+	getStoredDefaultMint,
+	normalizeDefaultMint,
+	resolveWalletPaymentMint,
+	setStoredDefaultMint,
+	type ResolveWalletPaymentMintOptions,
+	type WalletPaymentMintSelection,
+	type WalletPaymentMintSource,
+} from './defaultMint'
+
+// Pre-existing utilities (kept)
 export { getCurrentPubkey, setCurrentPubkey } from './currentUser'
-
-// Display utilities
-export { getMintHostname, formatSats } from './display'
+export { encodeWalletToken, formatSats, getMintHostname } from './display'
+export { loadUserData, removeUserData, saveUserData } from './storage'
+export type { PendingToken, ProofEntry, ProofInfo } from './types'

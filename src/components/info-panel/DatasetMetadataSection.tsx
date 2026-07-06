@@ -74,7 +74,7 @@ export function DatasetMetadataSection({
 				/>
 				<Input
 					type="color"
-					className="h-7 w-10 p-0.5 rounded border border-gray-200"
+					className="h-7 w-10 p-0.5 rounded border border-border"
 					value={collectionMeta.color}
 					onChange={(e) => onColorChange(e.target.value)}
 				/>
@@ -91,10 +91,10 @@ export function DatasetMetadataSection({
 
 			{/* Custom properties - compact */}
 			<div className="space-y-1">
-				<div className="text-[10px] text-gray-500 uppercase tracking-wide">Properties</div>
+				<div className="text-[10px] text-muted-foreground uppercase tracking-wide">Properties</div>
 				{Object.entries(collectionMeta.customProperties).map(([key, value]) => (
 					<div key={key} className="flex items-center gap-1">
-						<span className="text-[10px] text-gray-600 min-w-[40px] truncate">{key}</span>
+						<span className="text-[10px] text-muted-foreground min-w-[40px] truncate">{key}</span>
 						<Input
 							className="h-6 text-xs flex-1"
 							value={String(value)}
@@ -103,7 +103,7 @@ export function DatasetMetadataSection({
 						<Button
 							size="icon-xs"
 							variant="ghost"
-							className="text-red-500"
+							className="text-destructive"
 							onClick={() => onCustomPropertyRemove(key)}
 						>
 							<Trash2 className="h-3 w-3" />

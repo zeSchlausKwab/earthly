@@ -54,6 +54,7 @@ func main() {
 
 	// Initialize relay
 	relay := khatru.NewRelay()
+	relay.MaxMessageSize = 2 * 1024 * 1024 // 2MB — needed for large GeoJSON dataset events
 	relay.Info.Name = "Earthly City Relay"
 	relay.Info.Description = "A Nostr relay for collaborative geographic mapping with full-text search"
 	relay.Info.PubKey = "96c727f4d1ea18a80d03621520ebfe3c9be1387033009a4f5b65959d09222eec"

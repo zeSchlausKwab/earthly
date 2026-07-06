@@ -1,4 +1,5 @@
-import { ExternalLink, Github, MapPin } from 'lucide-react'
+import { ExternalLink, MapPin } from 'lucide-react'
+import { GithubIcon } from '@/components/icons/GithubIcon'
 import textLogoRose from '../assets/text_logo_rose.svg'
 import { Kbd } from './ui/kbd'
 import { ScrollArea } from './ui/scroll-area'
@@ -16,7 +17,7 @@ export function HelpPanel({ multiSelectModifier = 'Shift' }: HelpPanelProps) {
 		<ScrollArea className="h-full">
 			<div className="p-4 space-y-4">
 				{/* Branding Header */}
-				<div className="rounded-lg border border-border bg-gradient-to-r from-sky-50 via-white to-emerald-50 dark:from-sky-950/30 dark:via-background dark:to-emerald-950/30 p-3">
+				<div className="rounded-lg border border-border bg-gradient-to-r from-info via-white to-ok dark:from-info/30 dark:via-background dark:to-ok/30 p-3">
 					<div className="flex items-center justify-between gap-3">
 						<div className="min-w-0">
 							<img
@@ -32,7 +33,7 @@ export function HelpPanel({ multiSelectModifier = 'Shift' }: HelpPanelProps) {
 								rel="noreferrer"
 								className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
 							>
-								<Github className="h-4 w-4" />
+								<GithubIcon className="h-4 w-4" />
 								<span className="text-xs font-medium">GitHub</span>
 							</a>
 							<a
@@ -115,27 +116,21 @@ export function HelpPanel({ multiSelectModifier = 'Shift' }: HelpPanelProps) {
 					</h4>
 					<div className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm text-muted-foreground pl-6">
 						<span>
-							<Kbd className="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-950/50 text-blue-900 dark:text-blue-300 rounded text-xs">
-								⌘/Ctrl+Z
-							</Kbd>
+							<Kbd className="px-1.5 py-0.5 bg-info/15 text-info rounded text-xs">⌘/Ctrl+Z</Kbd>
 						</span>
 						<span>Undo</span>
 						<span>
-							<Kbd className="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-950/50 text-blue-900 dark:text-blue-300 rounded text-xs">
-								⌘/Ctrl+⇧+Z
-							</Kbd>
+							<Kbd className="px-1.5 py-0.5 bg-info/15 text-info rounded text-xs">⌘/Ctrl+⇧+Z</Kbd>
 						</span>
 						<span>Redo</span>
 						<span>
-							<Kbd className="px-1.5 py-0.5 bg-rose-50 dark:bg-rose-950/50 text-rose-900 dark:text-rose-300 rounded text-xs">
+							<Kbd className="px-1.5 py-0.5 bg-destructive/10 text-destructive rounded text-xs">
 								Delete
 							</Kbd>
 						</span>
 						<span>Delete selected</span>
 						<span>
-							<Kbd className="px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-300 rounded text-xs">
-								Enter
-							</Kbd>
+							<Kbd className="px-1.5 py-0.5 bg-ok/15 text-ok rounded text-xs">Enter</Kbd>
 						</span>
 						<span>Finish drawing</span>
 						<span>

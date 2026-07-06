@@ -1,0 +1,43 @@
+/* Spacing, radius, borders, control sizing.
+   The system is DENSE: a 2·4·6·8·12 spacing scale and 22–30px controls.
+   Corners are near-square — 2px base, 3px for panels. Never pill, never soft. */
+:root {
+  /* spacing scale */
+  --sp-1: 2px;
+  --sp-2: 4px;
+  --sp-3: 6px;
+  --sp-4: 8px;
+  --sp-6: 12px;
+  --sp-8: 16px;
+  --sp-12: 24px;
+
+  /* the working defaults */
+  --pad-panel: 6px;    /* panel inner padding — hairline */
+  --gap-rows:  2px;    /* between list rows */
+  --gap-inline:6px;    /* between inline controls */
+
+  /* radius — cornered, not round */
+  --r-0: 0px;
+  --r-1: 2px;   /* controls, chips, buttons (base) */
+  --r-2: 3px;   /* panels, popovers */
+  --r-full: 999px; /* reserved: status dots & avatars only */
+
+  /* control heights */
+  --ctl-sm: 22px;
+  --ctl-md: 26px;   /* the default */
+  --ctl-lg: 30px;
+
+  /* list-row heights (visual) — hit target extends to 44px on touch */
+  --row-sm: 24px;
+  --row-md: 28px;
+  --row-lg: 32px;
+
+  /* borders */
+  --bw-hair: 1px;
+  --bw-accent: 2px; /* the left-border selection / mode marker */
+
+  /* icon sizes */
+  --icon-sm: 12px;
+  --icon-md: 14px;
+  --icon-lg: 16px;
+}

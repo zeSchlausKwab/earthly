@@ -1,0 +1,43 @@
+<!-- @dsCard group="Components" viewport="700x200" subtitle="Text / numeric · property · toggle · checkbox · select" name="Forms" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+  body{margin:0;padding:18px;background:var(--surface-app);font-family:var(--font-ui);display:flex;flex-direction:column;gap:12px}
+  .field{display:flex;align-items:center;gap:6px;height:26px;padding:0 8px;background:var(--surface-sunken);border:1px solid var(--border-strong);border-radius:2px;box-sizing:border-box}
+  .field input{flex:1;min-width:0;border:none;outline:none;background:transparent;color:var(--text-primary);font-family:var(--font-ui);font-size:12px}
+  .field .num{flex:1;text-align:right;font-family:var(--font-mono);font-size:12px;color:var(--text-primary)}
+  .field .suf{font-size:11px;color:var(--text-faint)}
+  .row{display:flex;align-items:center;gap:8px}
+  .kv{display:flex;gap:4px;flex:1}
+  .kv .field{flex:1}
+  .add{width:20px;height:20px;border:1px solid var(--border-strong);border-radius:2px;background:var(--surface-raised);display:flex;align-items:center;justify-content:center;color:var(--text-muted)}
+  .sw{width:26px;height:26px;border:1px solid var(--border-strong);border-radius:2px;background:var(--accent-ok)}
+  .tog{width:30px;height:17px;border-radius:2px;background:var(--accent-active);position:relative}
+  .tog span{position:absolute;top:2px;left:15px;width:13px;height:13px;border-radius:1px;background:var(--accent-ink)}
+  .cb{width:15px;height:15px;border-radius:2px;background:var(--accent-active);display:flex;align-items:center;justify-content:center}
+  .sel{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 8px;background:var(--surface-sunken);border:1px solid var(--border-strong);border-radius:2px;color:var(--text-primary);font-size:12px;box-sizing:border-box}
+  .lbl{font-size:12px;color:var(--text-body)}
+  .m{font-family:var(--font-mono);font-size:9px;color:var(--text-faint)}
+</style></head><body>
+  <div class="row">
+    <div class="field" style="flex:1"><input value="Berlin Wall — segments"></div>
+    <div class="sw"></div>
+    <span class="m">name + color</span>
+  </div>
+  <div class="row">
+    <div class="field" style="width:120px"><span class="num">52.5163</span><span class="suf">lat</span></div>
+    <div class="kv">
+      <div class="field"><input value="era" style="font-family:var(--font-mono);font-size:10px"></div>
+      <div class="field"><input value="1961" style="font-family:var(--font-mono);font-size:10px"></div>
+      <div class="add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:10px;height:10px"><path d="M12 5v14M5 12h14"/></svg></div>
+    </div>
+    <span class="m">numeric · property</span>
+  </div>
+  <div class="row">
+    <div class="tog"><span></span></div><span class="lbl">Snap to grid</span>
+    <span style="width:14px"></span>
+    <div class="cb"><svg viewBox="0 0 24 24" fill="none" stroke="var(--accent-ink)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" style="width:10px;height:10px"><path d="M20 6 9 17l-5-5"/></svg></div><span class="lbl">Show labels</span>
+    <span style="flex:1"></span>
+    <div class="sel"><span>Dark</span><svg viewBox="0 0 24 24" fill="none" stroke="var(--text-faint)" stroke-width="2" style="width:11px;height:11px"><path d="m6 9 6 6 6-6"/></svg></div>
+    <span class="m">toggle · check · select</span>
+  </div>
+</body></html>

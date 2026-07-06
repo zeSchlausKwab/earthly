@@ -6,8 +6,10 @@ import type {
 	MapMouseEvent,
 	MapTouchEvent,
 } from 'maplibre-gl'
+import type { CollectionMeta } from '../types'
 import { BooleanManager } from './managers/BooleanManager'
 import { CombineManager } from './managers/CombineManager'
+import { DatasetSnapshotManager } from './managers/DatasetSnapshotManager'
 import { HistoryManager } from './managers/HistoryManager'
 import { LayerManager } from './managers/LayerManager'
 import { LineOperationsManager } from './managers/LineOperationsManager'
@@ -62,6 +64,12 @@ export class GeoEditor {
 
 	// Managers
 	public history: HistoryManager
+	/**
+	 * SEPARATE dataset-level snapshot/undo stack (SAFE-06 / D-10). Holds
+	 * features + collectionMeta per confirmed AI apply so a renamed/restyled
+	 * dataset reverts as one undo step. Distinct from the geometry-only `history`.
+	 */
+	public datasetSnapshots: DatasetSnapshotManager
 	public snap: SnapManager
 	public selection: SelectionManager
 	public transform: TransformManager
@@ -88,9 +96,30 @@ export class GeoEditor {
 	private pointerOffset: PointerOffset
 	private panLockEnabled: boolean = false
 	private panLockDragPanWasEnabled: boolean = false
+	// When set, a single touch TAP places a point/vertex even with pan lock off, so a
+	// drag still pans the map (used by the map-first Sighting pin-drop — "tap the map
+	// to drop your sighting"). Without this, touch taps in a draw mode are ignored
+	// unless pan lock is on (see the guard in onClick), which strands the pin-drop.
+	private touchTapDrawEnabled: boolean = false
 	private touchDrawInProgress: boolean = false
 	private lastTouchPoint?: ScreenPoint
 	private vertexDragMoved: boolean = false
+
+	/**
+	 * Injected bridge to the FeatureCollection-level metadata (D-10). The editor
+	 * core must NOT import the Zustand store (that would form a store↔core cycle and
+	 * break the clean-boundary invariant), so the view installs a provider/applier:
+	 *  - `metadataProvider` reads the current `collectionMeta` (for snapshot capture);
+	 *  - `metadataApplier` writes it back (for snapshot restore on undo).
+	 * Defaults are inert no-ops so a headless editor with no store still works.
+	 */
+	private metadataProvider: () => CollectionMeta = () => ({
+		name: '',
+		description: '',
+		color: '#3b82f6',
+		customProperties: {},
+	})
+	private metadataApplier: (meta: CollectionMeta) => void = () => {}
 	private readonly DRAW_MIN_LINE_POINTS = 2
 	private readonly DRAW_MIN_POLYGON_POINTS = 3
 	private readonly keyDownHandler = this.onKeyDown.bind(this)
@@ -141,6 +170,7 @@ export class GeoEditor {
 
 		// Initialize managers
 		this.history = new HistoryManager()
+		this.datasetSnapshots = new DatasetSnapshotManager()
 		this.snap = new SnapManager(
 			this.options.snapDistance,
 			this.options.snapToVertices,
@@ -168,6 +198,7 @@ export class GeoEditor {
 	private initialize(): void {
 		// Add managers to map
 		this.history.onAdd(this.map)
+		this.datasetSnapshots.onAdd(this.map)
 		this.snap.onAdd(this.map)
 		this.selection.onAdd(this.map)
 		this.transform.onAdd(this.map)
@@ -266,7 +297,13 @@ export class GeoEditor {
 		if (this.skipClickUntil && Date.now() < this.skipClickUntil) return
 		this.skipClickUntil = 0
 
-		if (this.isTouchLikeEvent(e) && this.isDrawMode(this.mode) && !this.panLockEnabled) return
+		if (
+			this.isTouchLikeEvent(e) &&
+			this.isDrawMode(this.mode) &&
+			!this.panLockEnabled &&
+			!this.touchTapDrawEnabled
+		)
+			return
 
 		const { position: clickPoint } = this.getAdjustedPointerPosition(e)
 		e.lngLat.lng = clickPoint[0]
@@ -599,6 +636,18 @@ export class GeoEditor {
 	}
 
 	private onKeyDown(e: KeyboardEvent): void {
+		// Don't hijack keys while the user is typing in an input / textarea /
+		// contenteditable. Without this guard, Backspace clears selected
+		// features while the user types in the search box, Ctrl+Z conflicts
+		// with browser undo in form fields, etc.
+		const target = e.target as HTMLElement | null
+		if (target) {
+			const tag = target.tagName
+			if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) {
+				return
+			}
+		}
+
 		if (e.key === 'Escape' && this.transformDragState) {
 			e.preventDefault()
 			this.finishTransformDrag(false)
@@ -955,6 +1004,12 @@ export class GeoEditor {
 		if (this.panLockEnabled === enabled) return
 		this.panLockEnabled = enabled
 		this.updatePanLockForMode()
+	}
+
+	/** Allow a single touch tap to place a point/vertex even with pan lock off (the
+	 *  Sighting map-first pin-drop). A drag still pans the map. */
+	setTouchTapDrawEnabled(enabled: boolean): void {
+		this.touchTapDrawEnabled = enabled
 	}
 
 	isPanLocked(): boolean {
@@ -1486,11 +1541,83 @@ export class GeoEditor {
 		})
 		this.render()
 		if (this.mode === 'edit') this.renderVertices()
+		// Emit a bulk-replace event so the Zustand read-mirror (Editor.tsx) catches
+		// the new feature set — without this, bulk replace left a stale sidebar (D-09,
+		// Plan 03 Task 1). `addFeature`/`updateFeature` already emit; this closes the gap.
+		this.emit('features.replace', {
+			type: 'features.replace',
+			features: [...this.features.values()],
+		})
+	}
+
+	/**
+	 * Install the metadata bridge (D-10). The view calls this once after construction
+	 * so dataset-snapshot capture/restore can read + write the Zustand
+	 * `collectionMeta` WITHOUT the editor core importing the store (avoids the
+	 * store↔core cycle that crashed under the dev bundler in Phase 2).
+	 */
+	setMetadataBridge(provider: () => CollectionMeta, applier: (meta: CollectionMeta) => void): void {
+		this.metadataProvider = provider
+		this.metadataApplier = applier
+	}
+
+	/**
+	 * Capture a dataset-level snapshot (features + current collectionMeta) BEFORE a
+	 * confirmed AI apply (SAFE-06 / D-10 / D-11). The Phase 5 safe-editing gate
+	 * (Plan 04) calls this exactly once per apply; Cmd+Z / the chat "undo last AI
+	 * edit" accessor consult the resulting stack.
+	 */
+	pushDatasetSnapshot(label: string): void {
+		this.datasetSnapshots.push(this.getAllFeatures(), this.metadataProvider(), label)
+	}
+
+	/**
+	 * Restore the most-recent dataset snapshot (features + metadata) as ONE step.
+	 * Shared by Cmd+Z (via `undo()`) and the chat "undo last AI edit" affordance
+	 * (Plan 05) so both paths use one mechanism. Returns true iff a snapshot was
+	 * consumed.
+	 */
+	private restoreLastDatasetSnapshot(): boolean {
+		const snapshot = this.datasetSnapshots.undo()
+		if (!snapshot) return false
+		// Restore geometry via the bulk-replace path (emits features.replace for the
+		// store read-mirror) and metadata via the injected applier — both in one step.
+		this.setFeatures(snapshot.features)
+		this.metadataApplier(snapshot.collectionMeta)
+		this.emit('undo', { type: 'undo' })
+		return true
+	}
+
+	/**
+	 * Public chat-callable accessor (Plan 05 "Undo last AI edit"). Reverts the most
+	 * recent dataset-level AI apply (geometry + metadata/style) as one step, sharing
+	 * the same snapshot stack as Cmd+Z. No-op (returns false) when the stack is empty.
+	 */
+	undoLastDatasetSnapshot(): boolean {
+		return this.restoreLastDatasetSnapshot()
 	}
 
 	undo(): void {
+		// Ordered-timeline precedence (Open Q 2): the dataset-snapshot stack and the
+		// geometry HistoryManager share ONE undo timeline. Undo whichever event is
+		// MORE RECENT. A dataset snapshot (an AI apply) takes precedence iff its top
+		// entry is newer than the geometry history's next-undoable action — so a
+		// manual geometry edit made BETWEEN two AI applies is undone in the right
+		// order rather than being skipped.
+		const snapshotTs = this.datasetSnapshots.peekTimestamp()
+		const historyTs = this.history.peekUndoTimestamp()
+
+		if (snapshotTs !== null && (historyTs === null || snapshotTs >= historyTs)) {
+			if (this.restoreLastDatasetSnapshot()) return
+		}
+
 		const action = this.history.undo()
-		if (!action) return
+		if (!action) {
+			// Geometry history is empty — fall back to any remaining dataset snapshot
+			// (e.g. an AI apply older than the last manual edit just undone).
+			this.restoreLastDatasetSnapshot()
+			return
+		}
 
 		if (action.type === 'create') {
 			action.features.forEach((f: EditorFeature) => this.features.delete(f.id))
@@ -1524,6 +1651,7 @@ export class GeoEditor {
 
 	clearHistory(): void {
 		this.history.clear()
+		this.datasetSnapshots.clear()
 		this.emit('undo', { type: 'undo' })
 	}
 
@@ -1575,6 +1703,7 @@ export class GeoEditor {
 		}
 
 		this.history.onRemove()
+		this.datasetSnapshots.onRemove()
 		this.snap.onRemove()
 		this.selection.onRemove()
 		this.transform.onRemove()

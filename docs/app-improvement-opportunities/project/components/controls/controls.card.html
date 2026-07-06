@@ -1,0 +1,18 @@
+<!-- @dsCard group="Components" viewport="700x140" subtitle="Segmented switch · sub-tabs · slider" name="Controls" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+  body{margin:0;padding:20px;background:var(--surface-app);font-family:var(--font-ui);display:flex;flex-direction:column;gap:16px}
+  .seg{display:inline-flex;background:var(--surface-sunken);border:1px solid var(--border-strong);border-radius:2px;padding:2px;gap:2px}
+  .seg span{height:20px;display:flex;align-items:center;padding:0 11px;border-radius:1px;font-size:11.5px;font-weight:500;color:var(--text-muted)}
+  .seg span.on{background:var(--accent-active);color:var(--accent-ink);font-weight:600}
+  .row{display:flex;align-items:center;gap:10px}
+  .track{flex:1;height:4px;border-radius:2px;background:var(--surface-sunken);position:relative;max-width:280px}
+  .fill{position:absolute;left:0;top:0;bottom:0;background:var(--accent-active);border-radius:2px}
+  .handle{position:absolute;top:-4px;width:10px;height:12px;border-radius:2px;background:var(--text-body);border:1px solid var(--border-strong)}
+  .val{font-family:var(--font-mono);font-size:10.5px;color:var(--text-body);width:34px;text-align:right}
+  .m{font-family:var(--font-mono);font-size:9px;color:var(--text-faint)}
+</style></head><body>
+  <div class="row"><div class="seg"><span class="on">Looking</span><span>Focusing</span><span>Making</span></div><span class="m">stance</span></div>
+  <div class="row"><div class="seg"><span>Info</span><span class="on">Style</span><span>Layers</span><span>Rules</span></div><span class="m">panel sub-tabs</span></div>
+  <div class="row"><div class="track"><div class="fill" style="width:40%"></div><div class="handle" style="left:calc(40% - 5px)"></div></div><span class="val">40%</span><span class="m">slider · opacity</span></div>
+</body></html>

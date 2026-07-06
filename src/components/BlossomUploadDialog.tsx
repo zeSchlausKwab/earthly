@@ -52,8 +52,6 @@ export interface BlossomUploadDialogProps {
 	allowSkip?: boolean
 	/** Title override */
 	title?: string
-	/** NDK instance for authenticated uploads */
-	ndk?: import('@nostr-dev-kit/ndk').default | null
 }
 
 type UploadState = 'idle' | 'uploading' | 'success' | 'error'
@@ -67,7 +65,6 @@ export function BlossomUploadDialog({
 	onSkip,
 	allowSkip = false,
 	title = 'Upload to Blossom',
-	ndk,
 }: BlossomUploadDialogProps) {
 	const [uploadState, setUploadState] = useState<UploadState>('idle')
 	const [uploadProgress, setUploadProgress] = useState(0)
@@ -101,7 +98,6 @@ export function BlossomUploadDialog({
 		try {
 			const result = await uploadGeoJsonToBlossom(geojson, {
 				onProgress: setUploadProgress,
-				ndk,
 			})
 			setUploadResult(result)
 			setUploadState('success')
@@ -172,11 +168,11 @@ export function BlossomUploadDialog({
 				<DialogHeader>
 					<DialogTitle className="flex items-center gap-2">
 						{uploadState === 'success' ? (
-							<CheckCircle2 className="h-5 w-5 text-green-500" />
+							<CheckCircle2 className="h-5 w-5 text-ok" />
 						) : isOverLimit ? (
-							<AlertTriangle className="h-5 w-5 text-amber-500" />
+							<AlertTriangle className="h-5 w-5 text-primary" />
 						) : (
-							<Cloud className="h-5 w-5 text-blue-500" />
+							<Cloud className="h-5 w-5 text-info" />
 						)}
 						{uploadState === 'success' ? 'Upload Complete' : title}
 					</DialogTitle>
@@ -208,10 +204,10 @@ export function BlossomUploadDialog({
 							</div>
 							<Progress
 								value={Math.min(percentOfLimit, 100)}
-								className={percentOfLimit > 100 ? '[&>div]:bg-amber-500' : ''}
+								className={percentOfLimit > 100 ? '[&>div]:bg-primary' : ''}
 							/>
 							{percentOfLimit > 100 && (
-								<p className="text-xs text-amber-600">
+								<p className="text-xs text-primary">
 									⚠️ {Math.round(percentOfLimit - 100)}% over the limit
 								</p>
 							)}
@@ -232,10 +228,10 @@ export function BlossomUploadDialog({
 					{/* Success state with URL and actions */}
 					{uploadState === 'success' && uploadResult && (
 						<div className="space-y-3">
-							<div className="rounded-md bg-green-50 p-3 text-sm">
-								<p className="font-medium text-green-800 mb-2">Uploaded successfully!</p>
-								<div className="flex items-center gap-2 bg-white rounded border border-green-200 p-2">
-									<code className="text-xs text-green-700 break-all flex-1 select-all">
+							<div className="rounded-md bg-ok/15 p-3 text-sm">
+								<p className="font-medium text-ok mb-2">Uploaded successfully!</p>
+								<div className="flex items-center gap-2 bg-card rounded border border-ok/40 p-2">
+									<code className="text-xs text-ok break-all flex-1 select-all">
 										{uploadResult.url}
 									</code>
 								</div>
@@ -256,7 +252,7 @@ export function BlossomUploadDialog({
 										</a>
 									</Button>
 								</div>
-								<p className="text-xs text-green-600 mt-2">
+								<p className="text-xs text-ok mt-2">
 									Size: {formatBytes(uploadResult.size)} • SHA-256:{' '}
 									{uploadResult.sha256.slice(0, 12)}...
 								</p>
@@ -270,7 +266,9 @@ export function BlossomUploadDialog({
 
 					{/* Error state */}
 					{uploadState === 'error' && uploadError && (
-						<div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{uploadError}</div>
+						<div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+							{uploadError}
+						</div>
 					)}
 
 					{/* Info text */}

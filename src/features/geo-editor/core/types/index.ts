@@ -127,6 +127,7 @@ export type EditorEventType =
 	| 'create'
 	| 'update'
 	| 'delete'
+	| 'features.replace'
 	| 'selection.change'
 	| 'undo'
 	| 'redo'

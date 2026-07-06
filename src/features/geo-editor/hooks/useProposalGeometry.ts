@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import type maplibregl from 'maplibre-gl'
-import type { NDKGeoEditProposalEvent } from '@/lib/ndk/NDKGeoEditProposalEvent'
+import type { GeoProposal } from '@/lib/nostr/geo-proposal'
 
 export function useProposalGeometry(mapRef: React.RefObject<maplibregl.Map | null>) {
 	const proposalGeometryLayers = useRef<Map<string, { sourceId: string; layerIds: string[] }>>(
@@ -9,7 +9,7 @@ export function useProposalGeometry(mapRef: React.RefObject<maplibregl.Map | nul
 	const [visibleProposalIds, setVisibleProposalIds] = useState<Set<string>>(new Set())
 
 	const handleToggleProposalOverlay = useCallback(
-		(proposal: NDKGeoEditProposalEvent, visible: boolean) => {
+		(proposal: GeoProposal, visible: boolean) => {
 			if (!mapRef.current) return
 
 			const proposalId = proposal.id ?? proposal.proposalId ?? ''

@@ -3,25 +3,33 @@ import {
 	Database,
 	Globe,
 	HelpCircle,
-	Layers,
-	MessageCircle,
+	BookOpen,
+	Eye,
 	Newspaper,
 	PanelLeftClose,
 	PanelLeftOpen,
-	PanelTop,
+	ArrowLeft,
 	Pencil,
+	Radio,
+	Search,
 	Settings2,
+	UserCircle,
 	Wallet,
 	X,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { FeatureCollection } from 'geojson'
-import type { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
-import type { NDKGeoEditProposalEvent } from '../lib/ndk/NDKGeoEditProposalEvent'
-import type { NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
+import type { GeoProposal } from '@/lib/nostr/geo-proposal'
+import type { MapContext } from '@/lib/nostr/map-context'
+import { DEFAULT_WORK_VIEW } from '@/features/geo-editor/defaults'
 import squareLogoRose from '../assets/square_logo_rose.svg'
 import { ShoutboxPanel } from '../features/social/shoutbox'
 import { GeoDatasetsPanelContent } from './GeoDatasetsPanel'
+import { StoriesPanelContent } from './StoriesPanel'
+import { SightingsPanelContent } from './SightingsPanel'
+import { BeaconsPanelContent } from './BeaconsPanel'
 import { UserProfilePanel } from './UserProfilePanel'
 import { GeoEditorInfoPanelContent } from './GeoEditorInfoPanel'
 import { HelpPanel } from './HelpPanel'
@@ -41,7 +49,6 @@ import {
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './ui/resizable'
 import { MapSettingsPanel } from '../features/geo-editor/components/MapSettingsPanel'
 import { Nip60Wallet } from '../features/wallet/components/Nip60Wallet'
-import { ChatPanel } from '../features/chat'
 import { useEditorStore } from '../features/geo-editor/store'
 import { useRouting, type SidebarViewMode } from '../features/geo-editor/hooks/useRouting'
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
@@ -51,21 +58,28 @@ import { WorkspaceDraftNavigator } from './WorkspaceDraftNavigator'
 import { Button } from './ui/button'
 
 type SidebarContentMode = Exclude<SidebarViewMode, 'combined'>
-type EntityWorkspace = 'geometry' | 'context'
-type WorkViewMode = 'datasets' | 'contexts' | 'chat' | 'user'
+type EntityWorkspace = 'geometry' | 'context' | 'story' | 'sighting' | 'beacon'
+type WorkViewMode = 'datasets' | 'contexts' | 'stories' | 'sightings' | 'beacons' | 'user'
 type MetaViewMode = 'posts' | 'wallet' | 'settings' | 'help'
 
-const WORK_VIEW_MODES: WorkViewMode[] = ['datasets', 'contexts', 'chat', 'user']
+const WORK_VIEW_MODES: WorkViewMode[] = [
+	'datasets',
+	'contexts',
+	'stories',
+	'sightings',
+	'beacons',
+	'user',
+]
 const META_VIEW_MODES: MetaViewMode[] = ['posts', 'wallet', 'settings', 'help']
 
-const entityNavItems: {
-	entity: EntityWorkspace
-	title: string
-	icon: typeof Database
-}[] = [
-	{ entity: 'geometry', title: 'Geometry', icon: Pencil },
-	{ entity: 'context', title: 'Context', icon: Globe },
-]
+// Round H.3/H.4: the rail's browse destinations (Datasets / Contexts / My
+// Entities + footer meta) are the always-present list. The Round-F.4
+// Inspector/Editor "surface" buttons that used to sit as their peers caused
+// confusion (always present, identical styling, empty-void when nothing was
+// being edited). H.4 reinstates a single CONTEXTUAL surface entry above the
+// catalogs — it appears only while you're editing or inspecting (derived from
+// stance), separated by its own group + divider, and is the return path to the
+// editor/inspector panel after you navigate off to a catalog.
 
 const workNavItems: {
 	mode: WorkViewMode
@@ -74,8 +88,10 @@ const workNavItems: {
 }[] = [
 	{ mode: 'datasets', title: 'Datasets', icon: Database },
 	{ mode: 'contexts', title: 'Contexts', icon: Globe },
-	{ mode: 'chat', title: 'AI Chat', icon: MessageCircle },
-	{ mode: 'user', title: 'My Entities', icon: Layers },
+	{ mode: 'stories', title: 'Stories', icon: BookOpen },
+	{ mode: 'sightings', title: 'Sightings', icon: Eye },
+	{ mode: 'beacons', title: 'Beacons', icon: Radio },
+	{ mode: 'user', title: 'My Entities', icon: UserCircle },
 ]
 
 const metaNavItems: {
@@ -105,38 +121,93 @@ function isMetaMode(mode: SidebarContentMode): mode is MetaViewMode {
 	return (META_VIEW_MODES as SidebarContentMode[]).includes(mode)
 }
 
+/**
+ * Phase 13 (13-uat, finding B): the per-kind inspect-subject state the two
+ * show-panel effects read. Extracted as pure predicates so the beacon regression
+ * (beacon omitted from BOTH the catalog-override guard and the show-panel switch,
+ * which snapped a deep-linked /beacon/:naddr back to the LIST) is pinned by a test
+ * without a live React tree. All fields optional so callers pass their raw props.
+ */
+export interface InspectSubjectState {
+	viewContext?: unknown
+	viewDataset?: unknown
+	viewStory?: unknown
+	viewSighting?: unknown
+	viewBeacon?: unknown
+	contextEditorMode?: 'none' | 'create' | 'edit'
+	storyEditorMode?: 'none' | 'create' | 'edit'
+	sightingEditorMode?: 'none' | 'create' | 'edit'
+	beaconControlMode?: 'none' | 'create' | 'adjust'
+}
+
+/** True when ANY kind has an active inspect/edit subject — beacon INCLUDED. */
+export function hasActiveInspectSubject(s: InspectSubjectState): boolean {
+	return (
+		Boolean(s.viewContext) ||
+		Boolean(s.viewDataset) ||
+		Boolean(s.viewStory) ||
+		Boolean(s.viewSighting) ||
+		Boolean(s.viewBeacon) ||
+		(s.contextEditorMode !== undefined && s.contextEditorMode !== 'none') ||
+		(s.storyEditorMode !== undefined && s.storyEditorMode !== 'none') ||
+		(s.sightingEditorMode !== undefined && s.sightingEditorMode !== 'none') ||
+		(s.beaconControlMode !== undefined && s.beaconControlMode !== 'none')
+	)
+}
+
+/**
+ * The active entity a subject resolves to for the full inspect panel, or null for
+ * the catalog list. Beacon is checked FIRST — mirroring currentSurface /
+ * returnToCurrentSurface, which resolve beacon before the other kinds.
+ */
+export function resolveActiveInspectEntity(
+	s: InspectSubjectState,
+): 'beacon' | 'sighting' | 'story' | 'context' | 'geometry' | null {
+	if ((s.beaconControlMode !== undefined && s.beaconControlMode !== 'none') || s.viewBeacon)
+		return 'beacon'
+	if ((s.sightingEditorMode !== undefined && s.sightingEditorMode !== 'none') || s.viewSighting)
+		return 'sighting'
+	if ((s.storyEditorMode !== undefined && s.storyEditorMode !== 'none') || s.viewStory)
+		return 'story'
+	if ((s.contextEditorMode !== undefined && s.contextEditorMode !== 'none') || s.viewContext)
+		return 'context'
+	if (s.viewDataset) return 'geometry'
+	return null
+}
+
 interface AppSidebarProps {
-	geoEvents: NDKGeoEvent[]
-	mapContextEvents: NDKMapContextEvent[]
-	activeDataset: NDKGeoEvent | null
+	geoEvents: GeoDataset[]
+	mapContextEvents: MapContext[]
+	activeDataset: GeoDataset | null
 	currentUserPubkey?: string
 	datasetVisibility: Record<string, boolean>
 	isPublishing: boolean
 	deletingKey: string | null
-	onLoadDataset: (event: NDKGeoEvent) => void
+	onLoadDataset: (event: GeoDataset) => void
 	onStartNewDataset?: () => void
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void
 	onAddDraftToWorkspace?: (workspaceId: string) => void | Promise<void>
-	onToggleVisibility: (event: NDKGeoEvent) => void
+	onToggleVisibility: (event: GeoDataset) => void
 	onToggleAllVisibility: (visible: boolean) => void
-	onZoomToDataset: (event: NDKGeoEvent) => void
-	onDeleteDataset: (event: NDKGeoEvent) => void
-	onDeleteContext?: (context: NDKMapContextEvent) => void
-	getDatasetKey: (event: NDKGeoEvent) => string
-	getDatasetName: (event: NDKGeoEvent) => string
+	onZoomToDataset: (event: GeoDataset) => void
+	onAddDatasetToMap?: (event: GeoDataset) => void
+	onRemoveDatasetFromMap?: (event: GeoDataset) => void
+	onDeleteDataset: (event: GeoDataset) => void
+	onDeleteContext?: (context: MapContext) => void
+	getDatasetKey: (event: GeoDataset) => string
+	getDatasetName: (event: GeoDataset) => string
 	onOpenGeometryEditor?: () => void
-	onClearEntityEditors?: () => void
-	onInspectDataset: (event: NDKGeoEvent) => void
-	onInspectContext: (context: NDKMapContextEvent) => void
-	onOpenDebug: (event: NDKGeoEvent | NDKMapContextEvent) => void
+	onInspectDataset: (event: GeoDataset) => void
+	onInspectContext: (context: MapContext) => void
+	onOpenDebug: (event: GeoDataset | MapContext) => void
 	onCreateContext: () => void
-	onEditContext: (context: NDKMapContextEvent) => void
+	onEditContext: (context: MapContext) => void
 	isFocused: boolean
 	onExitFocus: () => void
 	multiSelectModifier?: string
 	onCommentGeometryVisibility?: (
-		comment: import('../lib/ndk/NDKGeoCommentEvent').NDKGeoCommentEvent,
+		comment: import('@/lib/nostr/geo-comment').GeoComment,
 		visible: boolean,
 	) => void
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
@@ -147,20 +218,95 @@ interface AppSidebarProps {
 		visible: boolean,
 	) => void
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
+	isMentionVisible?: (address: string, featureId: string | undefined) => boolean
 	contextEditorMode?: 'none' | 'create' | 'edit'
-	editingContext?: NDKMapContextEvent | null
-	onSaveContext?: (context: NDKMapContextEvent) => void
+	editingContext?: MapContext | null
+	onSaveContext?: (context: MapContext) => void
 	onCloseContextEditor?: () => void
+	/** Story editor mode (Phase 10, D-02/D-03). */
+	storyEditorMode?: 'none' | 'create' | 'edit'
+	editingStory?: import('@/lib/nostr/article').Article | null
+	onCreateStory?: () => void
+	onInspectStory?: (story: import('@/lib/nostr/article').Article) => void
+	onEditStory?: (story: import('@/lib/nostr/article').Article) => void
+	onSaveStory?: (story: import('@/lib/nostr/article').Article) => void
+	onCloseStoryEditor?: () => void
+	onDeleteStory?: (story: import('@/lib/nostr/article').Article) => void
+	onStoryUpdated?: (story: import('@/lib/nostr/article').Article) => void
+	/** Sighting editor mode (Phase 11, D-01/D-07). */
+	sightingEditorMode?: 'none' | 'create' | 'edit'
+	editingSighting?: import('@/lib/nostr/temporal-sighting').TemporalSighting | null
+	viewSighting?: import('@/lib/nostr/temporal-sighting').TemporalSighting | null
+	/** The d-tag/id of the last-inspected Sighting — highlights + scrolls its rail row
+	 * (persists after the detail closes, so a map-marker click is locatable in the list). */
+	selectedSightingKey?: string | null
+	/** WR-06: comment d-tag to focus beneath the viewed Sighting (survives navigateToView). */
+	sightingFocusCommentId?: string
+	/** D-10: comment d-tag to focus beneath the viewed Beacon (survives navigateToView). */
+	beaconFocusCommentId?: string
+	onCreateSighting?: () => void
+	onInspectSighting?: (
+		sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting,
+		commentId?: string,
+	) => void
+	onEditSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
+	onSaveSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
+	onCloseSightingEditor?: () => void
+	onDeleteSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
+	/** Fly the map to a Sighting and focus it (the rail "zoom to on map" affordance). */
+	onZoomToSighting?: (sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting) => void
+	/** Phase 13 (SPEC §3.4): add a Sighting to the Map Stack (rail + view-panel affordance). */
+	onAddSightingToMapStack?: (
+		sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting,
+	) => void
+	/** The geometry placed by the map-first pin-drop, fed to the Sighting editor. */
+	placedSightingGeometry?: import('geojson').Geometry | null
+	/** Switch the Sighting create flow to line/polygon draw (D-02). */
+	onDrawSightingArea?: () => void
+	/** Clear the inspected Sighting (hook-local view state) when browsing a catalog. */
+	onClearSightingView?: () => void
+	/** Live Beacon (kind 37521) handlers (Phase 12, D-12). All optional — the
+	 * Plan-05 control flow threads them; this plan builds standalone with safe
+	 * `?? (() => {})` defaults so the Beacons rail renders before the controller lands. */
+	onShareLocation?: () => void
+	onWatchOnMapBeacon?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
+	/** Phase 13 (SPEC §3.4): add a Beacon to the Map Stack (rail + view-panel affordance). */
+	onAddBeaconToMapStack?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
+	onStopBeacon?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
+	onAdjustBeacon?: (beacon?: import('@/lib/nostr/live-beacon').LiveBeacon) => void
+	/** The d-tag/id of the last-inspected/viewed beacon — highlights + scrolls its rail row. */
+	selectedBeaconKey?: string | null
+	/** Beacon control panel mode (Phase 12, BEACON-01). 'none' ⇒ no control surface. */
+	beaconControlMode?: 'none' | 'create' | 'adjust'
+	/** The beacon being adjusted — pre-fills the control panel. */
+	adjustingBeacon?: import('@/lib/nostr/live-beacon').LiveBeacon | null
+	/** The beacon currently inspected in the view panel. */
+	viewBeacon?: import('@/lib/nostr/live-beacon').LiveBeacon | null
+	/** True while the publisher is starting (Start → "Starting…"). */
+	beaconIsStarting?: boolean
+	/** Start the publisher session from the control panel. */
+	onStartBeacon?: (
+		options: import('@/components/info-panel/BeaconControlPanel').BeaconStartOptions,
+	) => void
+	/** Close the beacon control panel without starting. */
+	onCloseBeaconControl?: () => void
+	/** Open a beacon in the read/detail view panel. */
+	onInspectBeacon?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
+	/** Clear the inspected beacon (hook-local view state) when browsing away. */
+	onClearBeaconView?: () => void
 	onZoomToFeature?: (feature: EditorFeature) => void
 	onExitViewMode?: () => void
 	featureCollectionForUpload?: FeatureCollection | null
 	onBlossomUploadComplete?: (result: { sha256: string; url: string; size: number }) => void
-	ndk?: import('@nostr-dev-kit/ndk').default | null
+	/** Publish-new action for the contributor Group attach field (GROUP-02/04). */
+	onPublishNew?: () => void | Promise<void>
+	/** Whether publish-new is currently possible (NEVER gated by validation — GROUP-04). */
+	canPublishNew?: boolean
 	userPubkey?: string
 	focusCommentId?: string
-	onFilteredDatasetKeysChange?: (keys: Set<string>) => void
-	onToggleProposalOverlay?: (proposal: NDKGeoEditProposalEvent, visible: boolean) => void
-	onProposalAccepted?: (dataset: NDKGeoEvent) => void
+	onFilteredDatasetKeysChange?: (keys: Set<string> | null) => void
+	onToggleProposalOverlay?: (proposal: GeoProposal, visible: boolean) => void
+	onProposalAccepted?: (dataset: GeoDataset) => void
 	visibleProposalIds?: Set<string>
 }
 
@@ -180,12 +326,13 @@ export function AppSidebar({
 	onToggleVisibility,
 	onToggleAllVisibility,
 	onZoomToDataset,
+	onAddDatasetToMap,
+	onRemoveDatasetFromMap,
 	onDeleteDataset,
 	onDeleteContext,
 	getDatasetKey,
 	getDatasetName,
 	onOpenGeometryEditor,
-	onClearEntityEditors,
 	onInspectDataset,
 	onInspectContext,
 	onOpenDebug,
@@ -199,15 +346,57 @@ export function AppSidebar({
 	availableFeatures = [],
 	onMentionVisibilityToggle,
 	onMentionZoomTo,
+	isMentionVisible,
 	contextEditorMode = 'none',
 	editingContext,
 	onSaveContext,
 	onCloseContextEditor,
+	storyEditorMode = 'none',
+	editingStory,
+	onCreateStory,
+	onInspectStory,
+	onEditStory,
+	onSaveStory,
+	onCloseStoryEditor,
+	onDeleteStory,
+	onStoryUpdated,
+	sightingEditorMode = 'none',
+	editingSighting,
+	viewSighting,
+	selectedSightingKey,
+	sightingFocusCommentId,
+	beaconFocusCommentId,
+	onCreateSighting,
+	onInspectSighting,
+	onEditSighting,
+	onSaveSighting,
+	onCloseSightingEditor,
+	onDeleteSighting,
+	onZoomToSighting,
+	onAddSightingToMapStack,
+	placedSightingGeometry,
+	onDrawSightingArea,
+	onClearSightingView,
+	onShareLocation,
+	onWatchOnMapBeacon,
+	onAddBeaconToMapStack,
+	onStopBeacon,
+	onAdjustBeacon,
+	selectedBeaconKey,
+	beaconControlMode = 'none',
+	adjustingBeacon,
+	viewBeacon,
+	beaconIsStarting,
+	onStartBeacon,
+	onCloseBeaconControl,
+	onInspectBeacon,
+	onClearBeaconView,
 	onZoomToFeature,
 	onExitViewMode,
 	featureCollectionForUpload,
 	onBlossomUploadComplete,
-	ndk,
+	onPublishNew,
+	canPublishNew,
 	userPubkey,
 	focusCommentId,
 	onFilteredDatasetKeysChange,
@@ -217,29 +406,28 @@ export function AppSidebar({
 }: AppSidebarProps) {
 	const { setOpen, sidebarExpanded, setSidebarExpanded } = useSidebar()
 	const viewMode = useEditorStore((state) => state.sidebarViewMode)
+	// Editor-in-Map-Stack: when a draft's editor slot is mounted in the Map Stack,
+	// the entity editor portals there instead of rendering in this sidebar.
+	const draftEditorSlot = useEditorStore((state) => state.draftEditorSlot)
 	const viewDataset = useEditorStore((state) => state.viewDataset)
 	const viewContext = useEditorStore((state) => state.viewContext)
-	const setEditorViewMode = useEditorStore((state) => state.setViewMode)
+	const viewStory = useEditorStore((state) => state.viewStory)
 	const setViewDatasetState = useEditorStore((state) => state.setViewDataset)
 	const setViewContextState = useEditorStore((state) => state.setViewContext)
-	const setViewContextDatasetsState = useEditorStore((state) => state.setViewContextDatasets)
+	const setViewStoryState = useEditorStore((state) => state.setViewStory)
 	const { navigateToView, navigateToContext, clearContextScope, contextNaddr, encodeContextNaddr } =
 		useRouting()
 
 	const [splitWithEditor, setSplitWithEditor] = useState(viewMode === 'combined')
 	const [activeEntity, setActiveEntity] = useState<EntityWorkspace>('geometry')
-	const [activeWorkMode, setActiveWorkMode] = useState<WorkViewMode>('datasets')
+	const [activeWorkMode, setActiveWorkMode] = useState<WorkViewMode>(DEFAULT_WORK_VIEW)
 	const [showEntityAsFullPanel, setShowEntityAsFullPanel] = useState(viewMode === 'edit')
-	const [entityIntent, setEntityIntent] = useState<Record<EntityWorkspace, 'inspect' | 'edit'>>({
-		geometry: 'inspect',
-		context: 'inspect',
-	})
-
-	useEffect(() => {
-		if (!currentUserPubkey) {
-			setEntityIntent({ geometry: 'inspect', context: 'inspect' })
-		}
-	}, [currentUserPubkey])
+	// Round E.4: the Inspect/Edit toggle's displayed side derives from actual
+	// app state instead of a locally-synced mirror. The old `entityIntent`
+	// state chronically desynced (starting a draft left the toggle on
+	// Inspect). Geometry follows the stance — Author means the editor owns a
+	// draft; the context entity follows whether the context editor is open.
+	const editorStance = useEditorStore((state) => state.stance)
 
 	const activeContextScope = useMemo(() => {
 		if (!contextNaddr) return null
@@ -254,7 +442,7 @@ export function AppSidebar({
 
 	const handleContextScopeSelect = (result: EntitySearchResult) => {
 		if (result.type !== 'context') return
-		const context = result.entity as NDKMapContextEvent
+		const context = result.entity as MapContext
 		const naddr = encodeContextNaddr(context)
 		if (!naddr) return
 		navigateToContext(naddr)
@@ -279,38 +467,79 @@ export function AppSidebar({
 	}, [contentMode])
 
 	useEffect(() => {
-		if (!splitWithEditor && (isWorkMode(contentMode) || isMetaMode(contentMode))) {
+		// Round H.6: only force the catalog/meta view to take over when there's no
+		// active inspect/edit subject. Otherwise this raced the "subject → show
+		// panel" effect below: inspecting a context navigates to the `contexts`
+		// route (a work mode), and on the delayed route update this used to win
+		// and snap back to the list. Browsing a catalog explicitly clears the
+		// subject (handleSelectWorkMode), so the guard still lets you browse.
+		const hasInspectSubject = hasActiveInspectSubject({
+			viewContext,
+			viewDataset,
+			viewStory,
+			viewSighting,
+			viewBeacon,
+			contextEditorMode,
+			storyEditorMode,
+			sightingEditorMode,
+			beaconControlMode,
+		})
+		if (
+			!splitWithEditor &&
+			!hasInspectSubject &&
+			(isWorkMode(contentMode) || isMetaMode(contentMode))
+		) {
 			setShowEntityAsFullPanel(false)
 		}
-	}, [contentMode, splitWithEditor])
+	}, [
+		contentMode,
+		splitWithEditor,
+		viewContext,
+		viewDataset,
+		viewStory,
+		contextEditorMode,
+		storyEditorMode,
+		sightingEditorMode,
+		viewSighting,
+		viewBeacon,
+		beaconControlMode,
+	])
 
 	useEffect(() => {
-		if (contextEditorMode !== 'none' || viewContext) {
-			setActiveEntity('context')
+		// Phase 13 (13-uat, finding B): resolve the active inspect entity via the pure
+		// predicate — beacon is checked FIRST (mirrors currentSurface). A deep-linked or
+		// inspected beacon (viewBeacon) or the Share-live-location control
+		// (beaconControlMode) now opens the full inspect/control panel instead of
+		// snapping back to the beacons LIST.
+		const activeEntity = resolveActiveInspectEntity({
+			viewContext,
+			viewDataset,
+			viewStory,
+			viewSighting,
+			viewBeacon,
+			contextEditorMode,
+			storyEditorMode,
+			sightingEditorMode,
+			beaconControlMode,
+		})
+		if (activeEntity) {
+			setActiveEntity(activeEntity)
 			if (!splitWithEditor) {
 				setShowEntityAsFullPanel(true)
 			}
-			return
 		}
-		if (viewDataset) {
-			setActiveEntity('geometry')
-			if (!splitWithEditor) {
-				setShowEntityAsFullPanel(true)
-			}
-		}
-	}, [contextEditorMode, splitWithEditor, viewContext, viewDataset])
-
-	useEffect(() => {
-		if (contextEditorMode !== 'none') {
-			setEntityIntent((prev) => ({ ...prev, context: 'edit' }))
-		}
-		if (viewDataset) {
-			setEntityIntent((prev) => ({ ...prev, geometry: 'inspect' }))
-		}
-		if (viewContext) {
-			setEntityIntent((prev) => ({ ...prev, context: 'inspect' }))
-		}
-	}, [contextEditorMode, viewContext, viewDataset])
+	}, [
+		contextEditorMode,
+		storyEditorMode,
+		sightingEditorMode,
+		beaconControlMode,
+		splitWithEditor,
+		viewContext,
+		viewStory,
+		viewSighting,
+		viewBeacon,
+		viewDataset,
+	])
 
 	const leaveMetaOverrideIfNeeded = () => {
 		if (metaModeActive) {
@@ -318,77 +547,47 @@ export function AppSidebar({
 		}
 	}
 
-	const openGeometryWorkspace = () => {
-		leaveMetaOverrideIfNeeded()
-		onClearEntityEditors?.()
-		setActiveEntity('geometry')
-		setEntityIntent((prev) => ({ ...prev, geometry: 'edit' }))
-		setShowEntityAsFullPanel(true)
-		onOpenGeometryEditor?.()
-	}
-
-	const openContextWorkspace = () => {
-		leaveMetaOverrideIfNeeded()
-		setActiveEntity('context')
-		setEntityIntent((prev) => ({ ...prev, context: 'edit' }))
-		setShowEntityAsFullPanel(true)
-		if (editingContext) {
-			onEditContext(editingContext)
-			return
-		}
-		if (viewContext) {
-			onEditContext(viewContext)
-			return
-		}
-		onCreateContext()
-	}
-
 	const handleSelectWorkMode = (mode: WorkViewMode) => {
+		// Round H.6: browsing a catalog is a deliberate "leave the inspect
+		// subject" — clear it so the show-panel guard lets the list through.
+		// (The active edit draft is separate store state and is untouched, so
+		// browse-while-editing still works and the Editor return path stays.)
+		setViewContextState(null)
+		setViewDatasetState(null)
+		setViewStoryState(null)
+		onClearSightingView?.()
 		setActiveWorkMode(mode)
 		setShowEntityAsFullPanel(false)
 		navigateToView(mode)
 	}
 
 	const handleSelectMetaMode = (mode: MetaViewMode) => {
+		setViewContextState(null)
+		setViewDatasetState(null)
+		setViewStoryState(null)
+		onClearSightingView?.()
 		setShowEntityAsFullPanel(false)
 		navigateToView(mode)
 	}
 
-	const openEmptyInspectWorkspace = (entity: EntityWorkspace) => {
-		leaveMetaOverrideIfNeeded()
-		if (entity === 'geometry') {
-			onClearEntityEditors?.()
-		}
-		setActiveEntity(entity)
-		setEntityIntent((prev) => ({ ...prev, [entity]: 'inspect' }))
-		setShowEntityAsFullPanel(true)
-		setEditorViewMode('view')
-		setViewDatasetState(null)
-		setViewContextState(null)
-		setViewContextDatasetsState([])
-	}
-
-	const handleLoadDataset = (event: NDKGeoEvent) => {
+	const handleLoadDataset = (event: GeoDataset) => {
 		onLoadDataset(event)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('geometry')
-		setEntityIntent((prev) => ({ ...prev, geometry: 'edit' }))
 		setShowEntityAsFullPanel(true)
 	}
 
-	const handleInspectDataset = (event: NDKGeoEvent) => {
+	const handleInspectDataset = (event: GeoDataset) => {
 		onInspectDataset(event)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('geometry')
-		setEntityIntent((prev) => ({ ...prev, geometry: 'inspect' }))
 		setShowEntityAsFullPanel(true)
 	}
 
-	const handleInspectContext = (context: NDKMapContextEvent) => {
+	const handleInspectContext = (context: MapContext) => {
 		onInspectContext(context)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('context')
-		setEntityIntent((prev) => ({ ...prev, context: 'inspect' }))
 		setShowEntityAsFullPanel(true)
 	}
 
@@ -399,15 +598,14 @@ export function AppSidebar({
 		setShowEntityAsFullPanel(true)
 	}
 
-	const handleEditContext = (context: NDKMapContextEvent) => {
+	const handleEditContext = (context: MapContext) => {
 		onEditContext(context)
 		leaveMetaOverrideIfNeeded()
 		setActiveEntity('context')
-		setEntityIntent((prev) => ({ ...prev, context: 'edit' }))
 		setShowEntityAsFullPanel(true)
 	}
 
-	const handleSaveContext = (context: NDKMapContextEvent) => {
+	const handleSaveContext = (context: MapContext) => {
 		onSaveContext?.(context)
 		setShowEntityAsFullPanel(false)
 		setActiveWorkMode('contexts')
@@ -421,50 +619,164 @@ export function AppSidebar({
 		navigateToView('contexts')
 	}
 
-	const currentEntityIntent = entityIntent[activeEntity]
-	const entityToggleEnabled = !metaModeActive && (splitWithEditor || showEntityAsFullPanel)
-	const geometryEditLabel =
-		activeEntity === 'geometry' &&
-		viewDataset &&
-		currentUserPubkey &&
-		viewDataset.pubkey !== currentUserPubkey
-			? 'Load copy'
-			: 'Edit'
+	// Story handlers (D-01/D-02/D-03) — mirror the context handlers: each opens the
+	// Story surface as the full info panel and marks the active entity as 'story'.
+	const handleInspectStory = (story: import('@/lib/nostr/article').Article) => {
+		onInspectStory?.(story)
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('story')
+		setShowEntityAsFullPanel(true)
+	}
 
-	const handleEntityIntentChange = (intent: 'inspect' | 'edit') => {
-		if (!entityToggleEnabled || intent === currentEntityIntent) return
-		setEntityIntent((prev) => ({ ...prev, [activeEntity]: intent }))
+	const handleCreateStory = () => {
+		onCreateStory?.()
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('story')
+		setShowEntityAsFullPanel(true)
+	}
 
-		if (activeEntity === 'geometry') {
-			if (intent === 'edit') {
-				if (viewDataset) {
-					handleLoadDataset(viewDataset)
-				} else {
-					openGeometryWorkspace()
-				}
-			} else if (activeDataset) {
-				handleInspectDataset(activeDataset)
-			} else {
-				openEmptyInspectWorkspace('geometry')
-			}
-			return
-		}
+	const handleEditStory = (story: import('@/lib/nostr/article').Article) => {
+		onEditStory?.(story)
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('story')
+		setShowEntityAsFullPanel(true)
+	}
 
-		if (intent === 'edit') {
-			const target = editingContext ?? viewContext
-			if (target) {
-				handleEditContext(target)
-			} else {
-				openContextWorkspace()
-			}
-		} else {
-			const target = viewContext ?? editingContext
-			if (target) {
-				handleInspectContext(target)
-			} else {
-				openEmptyInspectWorkspace('context')
-			}
-		}
+	const handleSaveStory = (story: import('@/lib/nostr/article').Article) => {
+		onSaveStory?.(story)
+		setActiveEntity('story')
+		setShowEntityAsFullPanel(true)
+		setActiveWorkMode('stories')
+	}
+
+	const handleCloseStoryEditor = () => {
+		onCloseStoryEditor?.()
+		setShowEntityAsFullPanel(false)
+		setActiveWorkMode('stories')
+		navigateToView('stories')
+	}
+
+	// Sighting handlers (D-01/D-07) — mirror the Story handlers: each opens the
+	// Sighting surface as the full info panel and marks the active entity 'sighting'.
+	const handleInspectSighting = (
+		sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting,
+	) => {
+		onInspectSighting?.(sighting)
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('sighting')
+		setShowEntityAsFullPanel(true)
+	}
+
+	const handleCreateSighting = () => {
+		onCreateSighting?.()
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('sighting')
+		setShowEntityAsFullPanel(true)
+	}
+
+	const handleEditSighting = (
+		sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting,
+	) => {
+		onEditSighting?.(sighting)
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('sighting')
+		setShowEntityAsFullPanel(true)
+	}
+
+	const handleSaveSighting = (
+		sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting,
+	) => {
+		onSaveSighting?.(sighting)
+		setActiveEntity('sighting')
+		setShowEntityAsFullPanel(true)
+		setActiveWorkMode('sightings')
+	}
+
+	const handleCloseSightingEditor = () => {
+		onCloseSightingEditor?.()
+		setShowEntityAsFullPanel(false)
+		setActiveWorkMode('sightings')
+		navigateToView('sightings')
+	}
+
+	// Beacon handlers (Phase 12, BEACON-01..04, D-12) — mirror the Sighting handlers:
+	// each opens the beacon surface as the full info panel and marks the active entity
+	// 'beacon'. There is NO pin-drop (position comes from GPS).
+	const handleShareLocationBeacon = () => {
+		onShareLocation?.()
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('beacon')
+		setShowEntityAsFullPanel(true)
+	}
+
+	const handleInspectBeacon = (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => {
+		onInspectBeacon?.(beacon)
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('beacon')
+		setShowEntityAsFullPanel(true)
+	}
+
+	const handleAdjustBeacon = (beacon?: import('@/lib/nostr/live-beacon').LiveBeacon) => {
+		onAdjustBeacon?.(beacon)
+		leaveMetaOverrideIfNeeded()
+		setActiveEntity('beacon')
+		setShowEntityAsFullPanel(true)
+	}
+
+	const handleCloseBeaconControl = () => {
+		onCloseBeaconControl?.()
+		setShowEntityAsFullPanel(false)
+		setActiveWorkMode('beacons')
+		navigateToView('beacons')
+	}
+
+	// Round E.4/F.4: derived, not stored. Geometry mirrors the stance; the
+	// context entity mirrors whether the context editor is open. Used by the
+	// info panel (empty-state copy) and the rail surface highlighting.
+	const currentEntityIntent: 'inspect' | 'edit' =
+		activeEntity === 'geometry'
+			? editorStance === 'author'
+				? 'edit'
+				: 'inspect'
+			: contextEditorMode !== 'none'
+				? 'edit'
+				: 'inspect'
+
+	// Round H.4: a single CONTEXTUAL "current work" rail entry, derived from
+	// stance. It only exists while you're actually editing (author) or
+	// inspecting (focus) — so it never reads as an always-on peer of the
+	// browse catalogs, and there's no empty-void state. It's the way back to
+	// your editor/inspector panel after you've wandered off to a catalog.
+	const currentSurface: 'editor' | 'inspector' | null =
+		editorStance === 'author' ||
+		contextEditorMode !== 'none' ||
+		storyEditorMode !== 'none' ||
+		sightingEditorMode !== 'none' ||
+		beaconControlMode !== 'none'
+			? 'editor'
+			: editorStance === 'focus' ||
+					viewDataset ||
+					viewContext ||
+					viewStory ||
+					viewSighting ||
+					viewBeacon
+				? 'inspector'
+				: null
+
+	const returnToCurrentSurface = () => {
+		leaveMetaOverrideIfNeeded()
+		setShowEntityAsFullPanel(true)
+		setActiveEntity(
+			beaconControlMode !== 'none' || viewBeacon
+				? 'beacon'
+				: sightingEditorMode !== 'none' || viewSighting
+					? 'sighting'
+					: storyEditorMode !== 'none' || viewStory
+						? 'story'
+						: contextEditorMode !== 'none' || viewContext
+							? 'context'
+							: 'geometry',
+		)
 	}
 
 	const datasetsPanelProps = {
@@ -479,17 +791,59 @@ export function AppSidebar({
 		onToggleVisibility,
 		onToggleAllVisibility,
 		onZoomToDataset,
+		onAddDatasetToMap,
+		onRemoveDatasetFromMap,
 		onDeleteDataset,
 		getDatasetKey,
 		getDatasetName,
 		onInspectDataset: handleInspectDataset,
 		onInspectContext: handleInspectContext,
 		onOpenDebug,
+		onStartNewDataset,
 		onCreateContext: handleCreateContext,
 		onEditContext: handleEditContext,
 		isFocused,
 		onExitFocus,
 		onFilteredDatasetKeysChange,
+	}
+
+	const storiesPanelProps = {
+		currentUserPubkey,
+		onOpenStory: handleInspectStory,
+		onCreateStory: handleCreateStory,
+		onEditStory: handleEditStory,
+		onDeleteStory: onDeleteStory ?? (() => {}),
+		deletingKey,
+	}
+
+	const sightingsPanelProps = {
+		currentUserPubkey,
+		onOpenSighting: handleInspectSighting,
+		onCreateSighting: handleCreateSighting,
+		onEditSighting: handleEditSighting,
+		onDeleteSighting: onDeleteSighting ?? (() => {}),
+		onZoomToSighting,
+		onAddToMapStack: onAddSightingToMapStack,
+		deletingKey,
+		// Highlight + scroll the row of the LAST-inspected Sighting. This persists
+		// after the detail panel closes (unlike viewSighting), because viewing a
+		// Sighting hides the list behind the full-panel detail — the highlight is
+		// only ever visible once you return to the list, when viewSighting is null.
+		selectedKey: selectedSightingKey ?? null,
+	}
+
+	// Beacons rail panel props (Phase 12, D-12). The beacon control handlers are the
+	// real controller handlers threaded from GeoEditorView via useBeaconController,
+	// wrapped so the rail's Share/Open/Adjust actions open the full info panel.
+	const beaconsPanelProps = {
+		currentUserPubkey,
+		onShareLocation: handleShareLocationBeacon,
+		onOpenBeacon: handleInspectBeacon,
+		onWatchOnMap: onWatchOnMapBeacon,
+		onAddToMapStack: onAddBeaconToMapStack,
+		onStopBeacon,
+		onAdjustBeacon: handleAdjustBeacon,
+		selectedKey: selectedBeaconKey ?? null,
 	}
 
 	const userProfilePanelProps = {
@@ -503,6 +857,8 @@ export function AppSidebar({
 		onToggleVisibility,
 		onToggleAllVisibility,
 		onZoomToDataset,
+		onAddDatasetToMap,
+		onRemoveDatasetFromMap,
 		onDeleteDataset,
 		getDatasetKey,
 		getDatasetName,
@@ -532,9 +888,11 @@ export function AppSidebar({
 		getDatasetName,
 		onCommentGeometryVisibility,
 		onZoomToBounds,
+		onZoomToSighting,
 		availableFeatures,
 		onMentionVisibilityToggle,
 		onMentionZoomTo,
+		isMentionVisible,
 		onToggleProposalOverlay,
 		onProposalAccepted,
 		visibleProposalIds,
@@ -542,11 +900,43 @@ export function AppSidebar({
 		editingContext,
 		onSaveContext: handleSaveContext,
 		onCloseContextEditor: handleCloseContextEditor,
+		storyEditorMode,
+		editingStory,
+		onSaveStory: handleSaveStory,
+		onCloseStoryEditor: handleCloseStoryEditor,
+		onEditStory: handleEditStory,
+		onDeleteStory,
+		onStoryUpdated,
+		sightingEditorMode,
+		editingSighting,
+		viewSighting,
+		sightingFocusCommentId,
+		placedSightingGeometry,
+		onSaveSighting: handleSaveSighting,
+		onCloseSightingEditor: handleCloseSightingEditor,
+		onEditSighting: handleEditSighting,
+		onDeleteSighting,
+		onDrawSightingArea,
+		onAddSightingToMapStack,
+		beaconFocusCommentId,
+		// Beacon control + view (Phase 12, BEACON-01..04, D-12).
+		beaconControlMode,
+		adjustingBeacon,
+		viewBeacon,
+		beaconIsStarting,
+		onStartBeacon,
+		onCloseBeaconControl: handleCloseBeaconControl,
+		onStopBeacon,
+		onAdjustBeacon: handleAdjustBeacon,
+		onZoomToBeacon: onWatchOnMapBeacon,
+		onAddBeaconToMapStack,
 		mapContextEvents,
 		onZoomToFeature,
 		featureCollectionForUpload,
 		onBlossomUploadComplete,
-		ndk,
+		onPublishNew,
+		canPublishNew,
+		isPublishing,
 		focusCommentId,
 		entityWorkspace: activeEntity,
 		entityIntent: currentEntityIntent,
@@ -558,23 +948,17 @@ export function AppSidebar({
 				return <GeoDatasetsPanelContent mode="datasets" {...datasetsPanelProps} />
 			case 'contexts':
 				return <GeoDatasetsPanelContent mode="contexts" {...datasetsPanelProps} />
-			case 'chat':
-				return (
-					<ChatPanel
-						geoEvents={geoEvents}
-						mapContextEvents={mapContextEvents}
-						availableFeatures={availableFeatures}
-						getDatasetName={getDatasetName}
-						onStartNewDataset={onStartNewDataset}
-						onSwitchWorkspace={onSwitchWorkspace}
-						onOpenSettings={() => navigateToView('settings')}
-					/>
-				)
+			case 'stories':
+				return <StoriesPanelContent {...storiesPanelProps} />
+			case 'sightings':
+				return <SightingsPanelContent {...sightingsPanelProps} />
+			case 'beacons':
+				return <BeaconsPanelContent {...beaconsPanelProps} />
 			case 'user': {
 				const profilePubkey = userPubkey ?? currentUserPubkey
 				if (!profilePubkey) {
 					return (
-						<div className="p-4 text-center text-gray-500">
+						<div className="p-4 text-center text-muted-foreground">
 							<p>Connect to view your entities</p>
 						</div>
 					)
@@ -605,20 +989,59 @@ export function AppSidebar({
 		}
 	}
 
+	// Round H.1: when a catalog drill-in takes over the whole sidebar, give the
+	// user an explicit way back to the list they came from. Previously the only
+	// route back was hunting for the rail nav item.
+	const activeWorkModeLabel =
+		workNavItems.find((item) => item.mode === activeWorkMode)?.title ?? 'list'
+	const renderBackToCatalogBar = () => (
+		<button
+			type="button"
+			onClick={() => handleSelectWorkMode(activeWorkMode)}
+			className="flex w-full shrink-0 items-center gap-1.5 border-b border-border px-3 py-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+		>
+			<ArrowLeft className="h-3.5 w-3.5 shrink-0" />
+			<span className="truncate">Back to {activeWorkModeLabel}</span>
+		</button>
+	)
+
 	const renderEntityContent = () => <GeoEditorInfoPanelContent {...editorPanelProps} />
 
 	const renderContent = () => {
+		// Editor-in-Map-Stack (redesign §9): the Map Stack portal is ONLY for the
+		// geometry/dataset draft. When a geometry draft is being authored
+		// (`editorStance === 'author'` → the Map Stack mounts the draft's editor slot)
+		// AND the geometry editor is the active surface, portal it into the slot — no
+		// sidebar view-mode navigation required. Every OTHER entity (context / story /
+		// sighting / beacon) is created/edited/forked in the LEFT SIDEBAR, even while a
+		// dataset draft is open (`activeEntity !== 'geometry'` → fall through below), so
+		// a non-geometry editor never gets hijacked into the Map Stack. If the Map Stack
+		// is closed (no slot) the editor still renders here as a fallback.
+		if (
+			draftEditorSlot &&
+			!metaModeActive &&
+			editorStance === 'author' &&
+			activeEntity === 'geometry'
+		) {
+			return (
+				<>
+					{renderWorkContent(activeWorkMode)}
+					{createPortal(<div className="min-w-0">{renderEntityContent()}</div>, draftEditorSlot)}
+				</>
+			)
+		}
+
 		if (splitWithEditor && !metaModeActive) {
 			return (
 				<ResizablePanelGroup direction="vertical" className="h-full">
 					<ResizablePanel id={`${activeEntity}-editor`} defaultSize={52} minSize={20}>
-						<div className="h-full min-w-0 overflow-x-hidden overflow-y-auto">
+						<div className="h-full min-w-0 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
 							{renderEntityContent()}
 						</div>
 					</ResizablePanel>
 					<ResizableHandle withHandle />
 					<ResizablePanel id={`${activeWorkMode}-panel`} defaultSize={48} minSize={20}>
-						<div className="h-full min-w-0 overflow-x-hidden overflow-y-auto">
+						<div className="h-full min-w-0 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
 							{renderWorkContent(activeWorkMode)}
 						</div>
 					</ResizablePanel>
@@ -631,7 +1054,17 @@ export function AppSidebar({
 		}
 
 		if (showEntityAsFullPanel || contentMode === 'edit' || contentMode === 'context-editor') {
-			return renderEntityContent()
+			// Show the back bar only when the panel drilled in over a catalog
+			// (showEntityAsFullPanel). The dedicated edit/context-editor routes
+			// have their own save/cancel exits, so no back bar there.
+			return (
+				<div className="flex h-full min-h-0 flex-col">
+					{showEntityAsFullPanel ? renderBackToCatalogBar() : null}
+					<div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
+						{renderEntityContent()}
+					</div>
+				</div>
+			)
 		}
 
 		if (isWorkMode(contentMode)) {
@@ -643,13 +1076,17 @@ export function AppSidebar({
 
 	return (
 		<Sidebar collapsible="icon" className="overflow-hidden *:data-[sidebar=sidebar]:flex-row">
-			<Sidebar collapsible="none" className="w-[calc(var(--sidebar-width-icon)+1px)]! border-r" data-tour="sidebar-nav">
+			<Sidebar
+				collapsible="none"
+				className="w-[calc(var(--sidebar-width-icon)+1px)]! border-r"
+				data-tour="sidebar-nav"
+			>
 				<SidebarHeader>
 					<SidebarMenu>
 						<SidebarMenuItem>
 							<SidebarMenuButton size="lg" asChild className="md:h-8 md:p-0">
 								<a href="/">
-									<div className="flex aspect-square size-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-white">
+									<div className="flex aspect-square size-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-card">
 										<img src={squareLogoRose} alt="" className="size-6 object-contain" />
 									</div>
 									<div className="grid flex-1 text-left text-sm leading-tight">
@@ -663,49 +1100,54 @@ export function AppSidebar({
 				</SidebarHeader>
 
 				<SidebarContent>
+					{/* Round H.4: contextual "current work" surface — only present
+					    while editing/inspecting, separated from the browse catalogs
+					    by its own group + divider. This is the return path to the
+					    editor/inspector panel after navigating to a catalog. */}
+					{/* The "Editor" rail surface is gone — geometry editing now lives in
+					    the Map Stack. Only the "Inspector" return surface remains. */}
+					{currentSurface === 'inspector' ? (
+						<SidebarGroup className="border-sidebar-border border-b pb-1">
+							<SidebarGroupContent className="px-1.5 md:px-0">
+								<SidebarMenu>
+									<SidebarMenuItem>
+										<SidebarMenuButton
+											tooltip={{
+												children: currentSurface === 'editor' ? 'Editor' : 'Inspector',
+												hidden: false,
+											}}
+											onClick={() => {
+												returnToCurrentSurface()
+												setOpen(true)
+											}}
+											isActive={!metaModeActive && (showEntityAsFullPanel || splitWithEditor)}
+											className="border border-sidebar-border/70 bg-sidebar-accent/30 px-2.5 text-sidebar-foreground hover:bg-sidebar-accent data-[active=true]:border-sidebar-primary data-[active=true]:bg-sidebar-primary data-[active=true]:text-sidebar-primary-foreground md:px-2"
+										>
+											{currentSurface === 'editor' ? <Pencil /> : <Search />}
+											<span>{currentSurface === 'editor' ? 'Editor' : 'Inspector'}</span>
+										</SidebarMenuButton>
+									</SidebarMenuItem>
+								</SidebarMenu>
+							</SidebarGroupContent>
+						</SidebarGroup>
+					) : null}
+
 					<SidebarGroup>
 						<SidebarGroupContent className="px-1.5 md:px-0">
 							<SidebarMenu>
-								{entityNavItems.map((item) => (
-									<SidebarMenuItem key={item.entity}>
-										<SidebarMenuButton
-											tooltip={{ children: item.title, hidden: false }}
-											onClick={() => {
-												if (item.entity === 'geometry') {
-													openEmptyInspectWorkspace('geometry')
-												} else {
-													openContextWorkspace()
-												}
-												setOpen(true)
-											}}
-											isActive={
-												activeEntity === item.entity && (splitWithEditor || showEntityAsFullPanel)
-											}
-											className="border border-sidebar-border/70 bg-sidebar-accent/30 px-2.5 text-sidebar-foreground hover:bg-sidebar-accent data-[active=true]:border-sidebar-primary data-[active=true]:bg-sidebar-primary data-[active=true]:text-sidebar-primary-foreground md:px-2"
-										>
-											<item.icon />
-											<span>{item.title}</span>
-										</SidebarMenuButton>
-									</SidebarMenuItem>
-								))}
-
-								<SidebarMenuItem key="editor-split-toggle">
-									<SidebarMenuButton
-										tooltip={{ children: 'Toggle entity/work split layout.', hidden: false }}
-										onClick={() => setSplitWithEditor((prev) => !prev)}
-										isActive={splitWithEditor}
-										className="border border-dashed border-sidebar-border px-2.5 text-sidebar-foreground/80 hover:bg-sidebar-accent data-[active=true]:border-sidebar-primary data-[active=true]:bg-sidebar-primary/10 data-[active=true]:text-sidebar-primary md:px-2"
-									>
-										<PanelTop />
-										<span>{splitWithEditor ? 'Split On' : 'Split Off'}</span>
-									</SidebarMenuButton>
-								</SidebarMenuItem>
-
 								{workNavItems.map((item) => (
 									<SidebarMenuItem
-								key={item.mode}
-								data-tour={item.mode === 'datasets' ? 'sidebar-datasets' : item.mode === 'contexts' ? 'sidebar-contexts' : item.mode === 'chat' ? 'sidebar-chat' : item.mode === 'user' ? 'sidebar-my-entities' : undefined}
-							>
+										key={item.mode}
+										data-tour={
+											item.mode === 'datasets'
+												? 'sidebar-datasets'
+												: item.mode === 'contexts'
+													? 'sidebar-contexts'
+													: item.mode === 'user'
+														? 'sidebar-my-entities'
+														: undefined
+										}
+									>
 										<SidebarMenuButton
 											tooltip={{ children: item.title, hidden: false }}
 											onClick={() => {
@@ -775,42 +1217,11 @@ export function AppSidebar({
 				className="hidden w-[calc(var(--sidebar-width)-var(--sidebar-width-icon)-1px)]! min-w-0 flex-1 md:flex"
 			>
 				<SidebarHeader className="gap-3.5 border-b p-4">
+					{/* Round F.4: the Inspect/Edit segmented toggle that lived here was
+					    removed — it duplicated app state (stance / contextEditorMode)
+					    and chronically desynced. The rail's Inspector/Editor surface
+					    items carry that role now, with derived active state. */}
 					<div className="flex w-full items-center gap-2">
-						<div className="shrink-0">
-							<div
-								className={`inline-flex items-center rounded-lg border border-border bg-muted p-0.5 ${
-									entityToggleEnabled ? '' : 'pointer-events-none opacity-40'
-								}`}
-							>
-								<Button
-									type="button"
-									variant="ghost"
-									disabled={!entityToggleEnabled}
-									className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-										currentEntityIntent === 'inspect'
-											? 'bg-background text-foreground shadow-sm'
-											: 'text-muted-foreground hover:text-foreground'
-									}`}
-									onClick={() => handleEntityIntentChange('inspect')}
-								>
-									Inspect
-								</Button>
-								<Button
-									type="button"
-									variant="ghost"
-									disabled={!entityToggleEnabled}
-									className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-										currentEntityIntent === 'edit'
-											? 'bg-background text-foreground shadow-sm'
-											: 'text-muted-foreground hover:text-foreground'
-									}`}
-									onClick={() => handleEntityIntentChange('edit')}
-								>
-									{geometryEditLabel}
-								</Button>
-							</div>
-						</div>
-
 						<div className="min-w-0 flex-1">
 							<EntitySearchPopover
 								sources={{ contexts: mapContextEvents }}
@@ -852,7 +1263,9 @@ export function AppSidebar({
 									<PanelLeftOpen className="h-4 w-4" />
 								)}
 							</Button>
-							<span data-tour="sidebar-login"><LoginSessionButtons /></span>
+							<span data-tour="sidebar-login">
+								<LoginSessionButtons />
+							</span>
 						</div>
 					</div>
 					{currentUserPubkey && (

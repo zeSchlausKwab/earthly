@@ -1,10 +1,17 @@
-import { Eye } from 'lucide-react'
-import { useEffect, useMemo, useRef } from 'react'
-import type { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
-import type { NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
-import { getEffectiveContextUse, getEffectiveContextValidationMode } from '@/lib/context/validation'
+import { Eye, EyeOff, Globe } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
+import type { MapContext } from '@/lib/nostr/map-context'
+import {
+	getContextCoordinate,
+	getEffectiveContextUse,
+	getEffectiveContextValidationMode,
+} from '@/lib/context/validation'
 import { orderContextsForDisplay } from '@/lib/context/displayOrdering'
 import { cn } from '@/lib/utils'
+import { useEditorStore } from '@/features/geo-editor/store'
+import { DatasetGlyphIcon } from './entity-action-icons'
+import { EntityListTable, ListPanel } from './entity-list'
 import { useFilterState, useSortedFilteredItems, type FilterConfig } from './data-filter'
 import {
 	createContextColumns,
@@ -18,36 +25,39 @@ import {
 	type DatasetRowData,
 } from './datasets-columns'
 import { Button } from './ui/button'
-import { DataTable } from './ui/data-table'
 
 export interface GeoDatasetsPanelProps {
 	mode: 'datasets' | 'contexts'
-	geoEvents: NDKGeoEvent[]
-	mapContextEvents: NDKMapContextEvent[]
-	activeDataset: NDKGeoEvent | null
+	geoEvents: GeoDataset[]
+	mapContextEvents: MapContext[]
+	activeDataset: GeoDataset | null
 	currentUserPubkey?: string
 	datasetVisibility: Record<string, boolean>
 	isPublishing: boolean
 	deletingKey: string | null
-	onLoadDataset: (event: NDKGeoEvent) => void
-	onToggleVisibility: (event: NDKGeoEvent) => void
+	onLoadDataset: (event: GeoDataset) => void
+	onToggleVisibility: (event: GeoDataset) => void
 	onToggleAllVisibility: (visible: boolean) => void
-	onZoomToDataset: (event: NDKGeoEvent) => void
-	onDeleteDataset: (event: NDKGeoEvent) => void
-	getDatasetKey: (event: NDKGeoEvent) => string
-	getDatasetName: (event: NDKGeoEvent) => string
-	onInspectDataset?: (event: NDKGeoEvent) => void
-	onInspectContext?: (context: NDKMapContextEvent) => void
-	onOpenDebug?: (event: NDKGeoEvent | NDKMapContextEvent) => void
+	onZoomToDataset: (event: GeoDataset) => void
+	onDeleteDataset: (event: GeoDataset) => void
+	getDatasetKey: (event: GeoDataset) => string
+	getDatasetName: (event: GeoDataset) => string
+	onInspectDataset?: (event: GeoDataset) => void
+	onAddDatasetToMap?: (event: GeoDataset) => void
+	onRemoveDatasetFromMap?: (event: GeoDataset) => void
+	onInspectContext?: (context: MapContext) => void
+	onOpenDebug?: (event: GeoDataset | MapContext) => void
+	/** Start a fresh dataset draft (the datasets rail "+ new"). */
+	onStartNewDataset?: () => void
 	onCreateContext?: () => void
-	onEditContext?: (context: NDKMapContextEvent) => void
+	onEditContext?: (context: MapContext) => void
 	isFocused?: boolean
 	onExitFocus?: () => void
-	onFilteredDatasetKeysChange?: (keys: Set<string>) => void
+	onFilteredDatasetKeysChange?: (keys: Set<string> | null) => void
 }
 
-const getDatasetDescriptionText = (event: NDKGeoEvent): string | undefined => {
-	const featureCollection = event.featureCollection as Record<string, unknown>
+const getDatasetDescriptionText = (event: GeoDataset): string | undefined => {
+	const featureCollection = event.featureCollection as unknown as Record<string, unknown>
 	if (!featureCollection) return undefined
 	const candidates = [
 		featureCollection.description,
@@ -64,16 +74,16 @@ const getDatasetDescriptionText = (event: NDKGeoEvent): string | undefined => {
 }
 
 const createDatasetFilterConfig = (
-	getDatasetName: (event: NDKGeoEvent) => string,
-): FilterConfig<NDKGeoEvent> => ({
+	getDatasetName: (event: GeoDataset) => string,
+): FilterConfig<GeoDataset> => ({
 	getSearchableText: (event) => [getDatasetName(event), getDatasetDescriptionText(event)],
 	getName: (event) => getDatasetName(event),
 })
 
-const getContextDisplayName = (context: NDKMapContextEvent): string =>
+const getContextDisplayName = (context: MapContext): string =>
 	context.context.name || context.contextId || context.id || 'Untitled'
 
-const contextFilterConfig: FilterConfig<NDKMapContextEvent> = {
+const contextFilterConfig: FilterConfig<MapContext> = {
 	getSearchableText: (context) => {
 		const content = context.context
 		return [
@@ -105,8 +115,11 @@ export function GeoDatasetsPanelContent({
 	getDatasetKey,
 	getDatasetName,
 	onInspectDataset,
+	onAddDatasetToMap,
+	onRemoveDatasetFromMap,
 	onInspectContext,
 	onOpenDebug,
+	onStartNewDataset,
 	onCreateContext,
 	onEditContext,
 	isFocused = false,
@@ -115,6 +128,21 @@ export function GeoDatasetsPanelContent({
 }: GeoDatasetsPanelProps) {
 	const filterState = useFilterState()
 	const prevFilteredKeysRef = useRef<Set<string> | null>(null)
+	const viewContext = useEditorStore((state) => state.viewContext)
+	const activeContextScopeCoordinate = useEditorStore((state) => state.activeContextScopeCoordinate)
+	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
+	const effectiveContextCoordinate = viewContext?.contextCoordinate ?? activeContextScopeCoordinate
+	// Round G.2: catalog favorites + recents (scoped localStorage via the
+	// catalog slice). The tab strip below narrows the table to either set.
+	const pinnedEntityIds = useEditorStore((state) => state.pinnedEntityIds)
+	const recentEntities = useEditorStore((state) => state.recentEntities)
+	const togglePinnedEntity = useEditorStore((state) => state.togglePinnedEntity)
+	const [catalogTab, setCatalogTab] = useState<'all' | 'favorites' | 'recent'>('all')
+	const pinnedEntitySet = useMemo(() => new Set(pinnedEntityIds), [pinnedEntityIds])
+	const recentRankById = useMemo(
+		() => new Map(recentEntities.map((entry, index) => [entry.id, index])),
+		[recentEntities],
+	)
 
 	const datasetFilterConfig = useMemo(
 		() => createDatasetFilterConfig(getDatasetName),
@@ -128,8 +156,22 @@ export function GeoDatasetsPanelContent({
 	const filteredContexts = contextResult.items
 
 	useEffect(() => {
-		if (!onFilteredDatasetKeysChange || mode !== 'datasets') return
-		const keys = new Set(filteredGeoEvents.map((event) => getDatasetKey(event)))
+		if (!onFilteredDatasetKeysChange) return
+		return () => {
+			prevFilteredKeysRef.current = null
+			onFilteredDatasetKeysChange(null)
+		}
+	}, [onFilteredDatasetKeysChange])
+
+	useEffect(() => {
+		if (!onFilteredDatasetKeysChange) return
+		if (mode !== 'datasets') {
+			prevFilteredKeysRef.current = null
+			onFilteredDatasetKeysChange(null)
+			return
+		}
+
+		const keys = new Set(datasetResult.filteredItems.map((event) => getDatasetKey(event)))
 		const previous = prevFilteredKeysRef.current
 		if (previous && previous.size === keys.size) {
 			let same = true
@@ -143,7 +185,7 @@ export function GeoDatasetsPanelContent({
 		}
 		prevFilteredKeysRef.current = keys
 		onFilteredDatasetKeysChange(keys)
-	}, [filteredGeoEvents, getDatasetKey, mode, onFilteredDatasetKeysChange])
+	}, [datasetResult.filteredItems, getDatasetKey, mode, onFilteredDatasetKeysChange])
 
 	const datasetTableData: DatasetRowData[] = useMemo(
 		() =>
@@ -158,6 +200,8 @@ export function GeoDatasetsPanelContent({
 					isActive,
 					isOwned,
 					isVisible: datasetVisibility[datasetKey] !== false,
+					isInMapStack: Boolean(mapStackEntries[`dataset:${datasetKey}`]),
+					isCatalogPinned: pinnedEntitySet.has(`dataset:${datasetKey}`),
 					primaryLabel: isActive ? 'Loaded in editor' : isOwned ? 'Edit dataset' : 'Load copy',
 				}
 			}),
@@ -168,8 +212,28 @@ export function GeoDatasetsPanelContent({
 			datasetVisibility,
 			getDatasetKey,
 			getDatasetName,
+			mapStackEntries,
+			pinnedEntitySet,
 		],
 	)
+
+	// Round G.2: tab-narrowed views. Favorites filters to starred entities;
+	// Recent filters to the interaction ring buffer, most recent first.
+	const displayedDatasetRows = useMemo(() => {
+		if (catalogTab === 'favorites') {
+			return datasetTableData.filter((row) => row.isCatalogPinned)
+		}
+		if (catalogTab === 'recent') {
+			return datasetTableData
+				.filter((row) => recentRankById.has(`dataset:${row.datasetKey}`))
+				.sort(
+					(a, b) =>
+						(recentRankById.get(`dataset:${a.datasetKey}`) ?? 0) -
+						(recentRankById.get(`dataset:${b.datasetKey}`) ?? 0),
+				)
+		}
+		return datasetTableData
+	}, [datasetTableData, catalogTab, recentRankById])
 
 	const allVisibleState = useMemo((): 'all' | 'none' | 'some' => {
 		if (datasetTableData.length === 0) return 'none'
@@ -188,26 +252,64 @@ export function GeoDatasetsPanelContent({
 			}
 		})
 		return orderContextsForDisplay(filteredContexts).map(
-			({ context, depth, displayParentCoordinate }) => ({
-				context,
-				contextName: getContextDisplayName(context),
-				contextUse: getEffectiveContextUse(context),
-				validationMode: context.context.allowForeignAttachments
-					? getEffectiveContextValidationMode(context)
-					: null,
-				attachmentPolicy: context.context.allowForeignAttachments ? 'open' : 'closed',
-				displayDepth: depth,
-				displayParentName: displayParentCoordinate
-					? (nameByCoordinate.get(displayParentCoordinate) ?? null)
-					: null,
-				isCuratedChild:
-					depth > 0 &&
-					!context.context.allowForeignAttachments &&
-					context.contextReferences.length > 0,
-				attachmentCount: context.contextReferences.length,
-			}),
+			({ context, depth, displayParentCoordinate }) => {
+				const coordinate = getContextCoordinate(context)
+				return {
+					context,
+					contextName: getContextDisplayName(context),
+					contextUse: getEffectiveContextUse(context),
+					validationMode: context.context.allowForeignAttachments
+						? getEffectiveContextValidationMode(context)
+						: null,
+					attachmentPolicy: context.context.allowForeignAttachments ? 'open' : 'closed',
+					displayDepth: depth,
+					displayParentName: displayParentCoordinate
+						? (nameByCoordinate.get(displayParentCoordinate) ?? null)
+						: null,
+					isCuratedChild:
+						depth > 0 &&
+						!context.context.allowForeignAttachments &&
+						context.contextReferences.length > 0,
+					attachmentCount: context.contextReferences.length,
+					isMapActive: coordinate === effectiveContextCoordinate,
+					isInMapStack: Boolean(coordinate && mapStackEntries[`context:${coordinate}`]),
+					isCatalogPinned: Boolean(coordinate && pinnedEntitySet.has(`context:${coordinate}`)),
+				}
+			},
 		)
-	}, [filteredContexts])
+	}, [filteredContexts, effectiveContextCoordinate, mapStackEntries, pinnedEntitySet])
+
+	const displayedContextRows = useMemo(() => {
+		const coordOf = (row: ContextRowData) => getContextCoordinate(row.context)
+		if (catalogTab === 'favorites') {
+			return contextTableData.filter((row) => row.isCatalogPinned)
+		}
+		if (catalogTab === 'recent') {
+			return contextTableData
+				.filter((row) => recentRankById.has(`context:${coordOf(row)}`))
+				.sort(
+					(a, b) =>
+						(recentRankById.get(`context:${coordOf(a)}`) ?? 0) -
+						(recentRankById.get(`context:${coordOf(b)}`) ?? 0),
+				)
+		}
+		return contextTableData
+	}, [contextTableData, catalogTab, recentRankById])
+
+	const toggleDatasetFavorite = useCallback(
+		(event: GeoDataset) => {
+			togglePinnedEntity(`dataset:${getDatasetKey(event)}`)
+		},
+		[togglePinnedEntity, getDatasetKey],
+	)
+
+	const toggleContextFavorite = useCallback(
+		(context: MapContext) => {
+			const coordinate = getContextCoordinate(context)
+			if (coordinate) togglePinnedEntity(`context:${coordinate}`)
+		},
+		[togglePinnedEntity],
+	)
 
 	const datasetColumnsContext: DatasetColumnsContext = useMemo(
 		() => ({
@@ -217,6 +319,10 @@ export function GeoDatasetsPanelContent({
 			onToggleAllVisibility,
 			onZoomToDataset,
 			onInspectDataset,
+			onAddDatasetToMap,
+			onRemoveDatasetFromMap,
+			onToggleCatalogPin: toggleDatasetFavorite,
+			canFavorite: Boolean(currentUserPubkey),
 			onOpenDebug,
 			isPublishing,
 			deletingKey,
@@ -229,6 +335,10 @@ export function GeoDatasetsPanelContent({
 			onToggleAllVisibility,
 			onZoomToDataset,
 			onInspectDataset,
+			onAddDatasetToMap,
+			onRemoveDatasetFromMap,
+			toggleDatasetFavorite,
+			currentUserPubkey,
 			onOpenDebug,
 			isPublishing,
 			deletingKey,
@@ -236,18 +346,49 @@ export function GeoDatasetsPanelContent({
 		],
 	)
 
+	// Round F.3: context rows get the same stack-toggle primary verb as dataset
+	// rows. Reads/writes the store directly (like MapStackPanel does) so the
+	// verb works in every surface that renders this panel without prop drift.
+	const toggleContextOnMap = useCallback((context: MapContext) => {
+		const coordinate = getContextCoordinate(context)
+		if (!coordinate) return
+		const store = useEditorStore.getState()
+		const entryId = `context:${coordinate}`
+		if (store.mapStackEntries[entryId]) {
+			store.removeMapStackEntry(entryId)
+			return
+		}
+		store.addMapStackEntry({
+			entityType: 'context',
+			entityKey: coordinate,
+			title: getContextDisplayName(context),
+			source: 'manual',
+			visible: true,
+			pinned: false,
+		})
+	}, [])
+
 	const contextColumnsContext: ContextColumnsContext = useMemo(
 		() => ({
 			currentUserPubkey,
 			onInspectContext,
 			onEditContext,
+			onToggleContextOnMap: toggleContextOnMap,
+			onToggleCatalogPin: toggleContextFavorite,
 			onOpenDebug: onOpenDebug
 				? (event) => {
 						onOpenDebug(event)
 					}
 				: undefined,
 		}),
-		[currentUserPubkey, onInspectContext, onEditContext, onOpenDebug],
+		[
+			currentUserPubkey,
+			onInspectContext,
+			onEditContext,
+			onOpenDebug,
+			toggleContextOnMap,
+			toggleContextFavorite,
+		],
 	)
 
 	const datasetColumns = useMemo(
@@ -259,84 +400,133 @@ export function GeoDatasetsPanelContent({
 		[contextColumnsContext],
 	)
 
-	return (
-		<div className="space-y-3">
-			<div className="flex items-center justify-between gap-2">
-				<div>
-					{isFocused ? (
-						<div className="space-y-1">
-							<p className="text-xs text-amber-700">Focused map view</p>
-							<p className="text-[11px] text-amber-600">
-								Only the focused dataset is currently visible on the map. Visibility checkboxes
-								below control map visibility only, and “Show all” restores the normal map view.
-							</p>
-						</div>
-					) : (
-						<p className="text-xs text-gray-500">
-							{mode === 'datasets'
-								? 'Remote GeoJSON datasets available to load.'
-								: 'Taxonomy and validation contexts.'}
-						</p>
-					)}
-				</div>
-				<div className="flex items-center gap-1">
-					{isFocused && onExitFocus ? (
-						<Button
-							size="sm"
-							variant="outline"
-							onClick={onExitFocus}
-							className="text-xs"
-							title="Restore normal map visibility for all datasets"
-						>
-							<Eye className="mr-1 h-3.5 w-3.5" />
-							Show all
-						</Button>
-					) : null}
-					{mode === 'contexts' && onCreateContext ? (
-						<Button size="sm" variant="outline" onClick={onCreateContext} className="text-xs">
-							New context
-						</Button>
-					) : null}
-				</div>
+	const isDatasets = mode === 'datasets'
+	const activeResult = isDatasets ? datasetResult : contextResult
+	const shownCount = isDatasets ? displayedDatasetRows.length : displayedContextRows.length
+
+	// The All | Favorites | Recent strip shares the title line; the datasets-only
+	// show/hide-all eye sits beside it. Both are per-user and apply on top of the
+	// search toolbar below.
+	const titleAccessory = (
+		<>
+			<div className="inline-flex items-center gap-0.5 rounded-[3px] border border-border bg-muted p-0.5">
+				{(
+					[
+						{ key: 'all', label: 'All' },
+						{ key: 'favorites', label: 'Favorites' },
+						{ key: 'recent', label: 'Recent' },
+					] as const
+				).map((tab) => (
+					<button
+						key={tab.key}
+						type="button"
+						onClick={() => setCatalogTab(tab.key)}
+						className={cn(
+							'rounded-[2px] px-1.5 py-0.5 text-[11px] font-medium transition-colors',
+							catalogTab === tab.key
+								? 'bg-background text-foreground shadow-sm'
+								: 'text-muted-foreground hover:text-foreground',
+						)}
+					>
+						{tab.label}
+					</button>
+				))}
 			</div>
+			{isDatasets ? (
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon-sm"
+					className={cn(
+						'h-6 w-6 rounded-[2px]',
+						allVisibleState !== 'none' ? 'text-info hover:text-info' : 'text-muted-foreground',
+					)}
+					onClick={() => onToggleAllVisibility(allVisibleState !== 'all')}
+					aria-label={allVisibleState === 'all' ? 'Hide all datasets' : 'Show all datasets'}
+					title={allVisibleState === 'all' ? 'Hide all datasets' : 'Show all datasets'}
+				>
+					{allVisibleState !== 'none' ? (
+						<Eye className="h-4 w-4" />
+					) : (
+						<EyeOff className="h-4 w-4" />
+					)}
+				</Button>
+			) : null}
+		</>
+	)
 
-			<EntitySearchToolbar
-				{...filterState}
-				totalCount={mode === 'datasets' ? datasetResult.totalCount : contextResult.totalCount}
-				filteredCount={
-					mode === 'datasets' ? datasetResult.filteredCount : contextResult.filteredCount
-				}
-				displayedCount={
-					mode === 'datasets' ? datasetResult.displayedCount : contextResult.displayedCount
-				}
-				hasMore={mode === 'datasets' ? datasetResult.hasMore : contextResult.hasMore}
-			/>
+	// The focus "Show all" restore control keeps its own row (datasets, focused only).
+	const headerExtra =
+		isFocused && onExitFocus ? (
+			<Button
+				size="sm"
+				variant="outline"
+				onClick={onExitFocus}
+				className="h-6 w-fit text-[11px]"
+				title="Restore normal map visibility for all datasets"
+			>
+				<Eye className="mr-1 h-3.5 w-3.5" />
+				Show all
+			</Button>
+		) : undefined
 
-			{mode === 'datasets' ? (
+	return (
+		<ListPanel
+			icon={isDatasets ? DatasetGlyphIcon : Globe}
+			title={isDatasets ? 'Datasets' : 'Contexts'}
+			count={activeResult.totalCount}
+			onNew={isDatasets ? onStartNewDataset : onCreateContext}
+			newLabel={isDatasets ? 'New dataset' : 'New context'}
+			titleAccessory={titleAccessory}
+			headerExtra={headerExtra}
+			toolbar={
+				<EntitySearchToolbar
+					{...filterState}
+					totalCount={activeResult.totalCount}
+					filteredCount={activeResult.filteredCount}
+					displayedCount={activeResult.displayedCount}
+					hasMore={activeResult.hasMore}
+				/>
+			}
+			footerLeft={`${shownCount} shown`}
+			footerRight={isFocused ? 'focused view' : undefined}
+		>
+			{isDatasets ? (
 				geoEvents.length === 0 ? (
-					<p className="text-xs text-gray-500">Listening for GeoJSON datasets…</p>
-				) : filteredGeoEvents.length === 0 ? (
-					<p className="text-xs text-gray-500">No datasets match your filters.</p>
+					<p className="px-1 text-xs text-muted-foreground">Listening for GeoJSON datasets…</p>
+				) : displayedDatasetRows.length === 0 ? (
+					<p className="px-1 text-xs text-muted-foreground">
+						{catalogTab === 'favorites'
+							? 'No favorite datasets yet — tap the star on a row.'
+							: catalogTab === 'recent'
+								? 'No recently viewed datasets yet.'
+								: 'No datasets match your filters.'}
+					</p>
 				) : (
-					<DataTable
+					<EntityListTable
 						columns={datasetColumns}
-						data={datasetTableData}
+						data={displayedDatasetRows}
 						getRowId={(row) => row.datasetKey}
-						getRowClassName={(row) => (!row.isVisible ? 'opacity-60' : undefined)}
 					/>
 				)
 			) : mapContextEvents.length === 0 ? (
-				<p className="text-xs text-gray-500">Listening for map contexts…</p>
-			) : filteredContexts.length === 0 ? (
-				<p className="text-xs text-gray-500">No contexts match your filters.</p>
+				<p className="px-1 text-xs text-muted-foreground">Listening for map contexts…</p>
+			) : displayedContextRows.length === 0 ? (
+				<p className="px-1 text-xs text-muted-foreground">
+					{catalogTab === 'favorites'
+						? 'No favorite contexts yet — star one on a row.'
+						: catalogTab === 'recent'
+							? 'No recently viewed contexts yet.'
+							: 'No contexts match your filters.'}
+				</p>
 			) : (
-				<DataTable
+				<EntityListTable
 					columns={contextColumns}
-					data={contextTableData}
+					data={displayedContextRows}
 					getRowId={(row) => row.context.contextId ?? row.context.dTag ?? row.context.id}
 				/>
 			)}
-		</div>
+		</ListPanel>
 	)
 }
 

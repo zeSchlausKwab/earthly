@@ -1,0 +1,360 @@
+/**
+ * BeaconViewPanel — the reader-facing view surface for a kind-37521 Live Beacon
+ * (Phase 12, BEACON-03/04, D-11). The structural twin of `SightingViewPanel`,
+ * cloned with `LiveBeacon` substituted and the Sighting-only machinery STRIPPED:
+ *   - no observation-time range row (a beacon has live/stale/ended staleness, not
+ *     an observation window).
+ *
+ * A `CommentsPanel` mounts against the beacon's 37521 coordinate for comment +
+ * react (XCUT-01, D-06) — the last kind wired to full comment parity, identical to
+ * the Story/Sighting mount. The `useGeoComments` filter roots the comment at
+ * `37521:<pubkey>:<dTag>` (kind-generic since Phase 8; only the type union widened).
+ * An expired beacon short-circuits to the terminal copy BEFORE the comment surface
+ * renders, so an ended beacon shows no Discussion section (Phase-12 honesty posture).
+ *
+ * It shows the label (20px), the live/stale/ended status chip (from
+ * `beaconState`), the last-seen age (primary, from `created_at`), the time-box
+ * countdown (secondary, from `expiration`), and a "Copy share link" affordance.
+ * The share naddr carries the THROWAWAY pubkey (the beacon is not under the user's
+ * profile, D-05): `naddrEncode({ kind: LIVE_BEACON_KIND, pubkey: beacon.pubkey,
+ * identifier: beacon.dTag })`.
+ *
+ * Owner viewing their own live beacon also sees inline Stop sharing (an
+ * alert-dialog, destructive-toned, with the no-delete recap) + Adjust. There is NO
+ * Delete action — the substrate is no-delete and Stop is the only teardown
+ * (D-04/D-06, T-12-05-NODELETE).
+ *
+ * SIGHT-03 / T-12-05-FROZEN (the detail read path, P-1): if the viewed beacon is
+ * expired (`isExpired`) the panel shows the "This beacon has ended." terminal copy
+ * instead of the content. All strings render as escaped React text nodes — no raw
+ * HTML injection sink (T-12-05-XSS). The XCUT-01 CommentsPanel mount reuses the
+ * existing escaped comment render path unchanged, adding no new injection surface
+ * (T-13-01-XSS).
+ */
+
+import { unixNow } from 'applesauce-core/helpers/time'
+import { LocateFixed, MapPlus, Navigation, Pencil } from 'lucide-react'
+import { nip19 } from 'nostr-tools'
+import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { CommentsPanel } from '@/features/social/comments'
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import { isExpired } from '@/lib/nostr/expiry'
+import type { GeoComment } from '@/lib/nostr/geo-comment'
+import {
+	beaconState,
+	LIVE_BEACON_KIND,
+	type BeaconState,
+	type LiveBeacon,
+} from '@/lib/nostr/live-beacon'
+import { formatExpiryCountdown, formatRelativeDate } from '@/lib/nostr/temporal-sighting'
+import { cn } from '@/lib/utils'
+import type { GeoFeatureItem } from '../editor/GeoRichTextEditor'
+import { EntityPanelSectionHeader, EntityPanelShell, EntityPanelSurface } from './EntityPanelShell'
+
+interface BeaconViewPanelProps {
+	/** The beacon being viewed (cast). Absent ⇒ empty fallback. */
+	beacon?: LiveBeacon | null
+	currentUserPubkey?: string
+	/** Stop the user's own active beacon (owner-only). */
+	onStopBeacon?: (beacon: LiveBeacon) => void
+	/** Adjust the user's own active beacon — opens the control panel pre-filled. */
+	onAdjustBeacon?: (beacon: LiveBeacon) => void
+	/**
+	 * Phase 13 (SPEC §3.4): add this beacon to the Map Stack as a normal,
+	 * non-isolated visible entry (mirrors the dataset onAddDatasetToMap affordance).
+	 * Absent ⇒ the affordance is hidden.
+	 */
+	onAddToMapStack?: (beacon: LiveBeacon) => void
+	/** Fly the map to this beacon and focus it ("Watch on map"). */
+	onZoomTo?: () => void
+	/** True while the map is following this beacon (recenters on each new fix). */
+	isFollowing?: boolean
+	/** Toggle follow mode — keeps the map centered on the beacon as it moves. */
+	onToggleFollow?: () => void
+	// Comment/mention props — copied verbatim from StoryViewPanelProps for the
+	// XCUT-01 CommentsPanel mount (D-06). The comment surface is identical to
+	// Story/Sighting; these thread the comment geometry + inline mention toggles
+	// back to the map owner.
+	focusCommentId?: string
+	availableFeatures?: GeoFeatureItem[]
+	/** Show/hide a comment's attached geojson annotation on the map. */
+	onCommentGeometryVisibility?: (comment: GeoComment, visible: boolean) => void
+	onZoomToBounds?: (bounds: [number, number, number, number]) => void
+	onMentionVisibilityToggle?: (
+		address: string,
+		featureId: string | undefined,
+		visible: boolean,
+	) => void
+	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
+}
+
+function EndedOrEmpty({ heading, body }: { heading: string; body: string }) {
+	return (
+		<EntityPanelShell title={heading}>
+			<EntityPanelSurface tone="neutral">
+				<p className="text-sm text-muted-foreground">{body}</p>
+			</EntityPanelSurface>
+		</EntityPanelShell>
+	)
+}
+
+/** The live/stale/ended status chip styling + label per UI-SPEC § Color. */
+function statusChip(state: BeaconState): { label: string; className: string } {
+	if (state === 'live') {
+		return {
+			label: 'LIVE',
+			className: 'rounded-none bg-primary text-primary-foreground text-[11px]',
+		}
+	}
+	if (state === 'ended') {
+		return {
+			label: 'ENDED',
+			className: 'rounded-none bg-muted text-muted-foreground text-[11px]',
+		}
+	}
+	return {
+		label: 'STALE',
+		className: 'rounded-none bg-muted text-muted-foreground text-[11px]',
+	}
+}
+
+export function BeaconViewPanel({
+	beacon,
+	currentUserPubkey,
+	onStopBeacon,
+	onAdjustBeacon,
+	onAddToMapStack,
+	onZoomTo,
+	isFollowing = false,
+	onToggleFollow,
+	focusCommentId,
+	availableFeatures,
+	onCommentGeometryVisibility,
+	onZoomToBounds,
+	onMentionVisibilityToggle,
+	onMentionZoomTo,
+}: BeaconViewPanelProps) {
+	if (!beacon) {
+		return (
+			<EndedOrEmpty
+				heading="No beacon selected"
+				body="No beacon selected. Pick a beacon from the Beacons panel, or share your own live location."
+			/>
+		)
+	}
+
+	const now = unixNow()
+
+	// T-12-05-FROZEN (detail read path, P-1): never render an expired beacon's
+	// content — show the terminal copy instead. Gated independently of the
+	// subscription drop.
+	if (isExpired(beacon.event, now)) {
+		return <EndedOrEmpty heading="Beacon ended" body="This beacon has ended." />
+	}
+
+	const label = beacon.beacon.label?.trim() || beacon.dTag || 'Live location'
+	const isOwner = !!currentUserPubkey && currentUserPubkey === beacon.pubkey
+	const state = beaconState(beacon, now)
+	const chip = statusChip(state)
+	// Honest last-seen age (created_at), surfaced as a friendly relative label.
+	const lastSeen = formatRelativeDate(beacon.created_at)
+	// Time-box countdown from the NIP-40 expiration (secondary clock).
+	const countdown = formatExpiryCountdown(beacon.expiresAt, now)
+	const isLive = state === 'live'
+
+	const handleCopyShareLink = () => {
+		const dTag = beacon.dTag
+		if (!dTag) {
+			toast.error("This beacon can't be shared — it has no address.")
+			return
+		}
+		try {
+			// The share naddr carries the THROWAWAY pubkey (D-05) — the beacon is not
+			// under the user's profile, so the OG fetch resolves it by {kind,pubkey,#d}.
+			const naddr = nip19.naddrEncode({
+				kind: LIVE_BEACON_KIND,
+				pubkey: beacon.pubkey,
+				identifier: dTag,
+			})
+			// Canonical clean single-prefix share URL: `${origin}/beacon/${naddr}`,
+			// built exactly as GeoSocialActions.handleShare does (new URL(path,
+			// origin)). This 2-segment path matches SHARE_ROUTES.beacon
+			// (focusType:'beacon') so the recipient lands on the beacon inspect
+			// panel — instead of the legacy doubled-prefix hash form, which forced
+			// the sidebar-tail branch and opened the beacon LIST. Beacon comment
+			// sharing stays on the shared CommentsPanel / GeoSocialActions pipeline
+			// (already canonical via b6492c3).
+			const url = new URL(`/beacon/${naddr}`, window.location.origin).toString()
+			void navigator.clipboard?.writeText(url)
+			toast.success('Link copied — anyone with it can watch')
+		} catch {
+			toast.error("Couldn't copy the share link. Try again.")
+		}
+	}
+
+	return (
+		<EntityPanelShell title={label}>
+			<div className="space-y-3 text-[13px]">
+				<EntityPanelSurface tone="context" className="space-y-3">
+					<EntityPanelSectionHeader
+						eyebrow="Beacon"
+						title={label}
+						action={
+							onZoomTo || (isOwner && (onAdjustBeacon || onStopBeacon)) ? (
+								<div className="flex items-center gap-2">
+									{onZoomTo && (
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											onClick={onZoomTo}
+											className="gap-1 rounded-none px-2 text-[11px]"
+											title="Watch on map"
+										>
+											<LocateFixed className="h-3 w-3" />
+											Watch
+										</Button>
+									)}
+									{isOwner && onAdjustBeacon && (
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											onClick={() => onAdjustBeacon(beacon)}
+											className="gap-1 rounded-none px-2 text-[11px]"
+										>
+											<Pencil className="h-3 w-3" />
+											Adjust
+										</Button>
+									)}
+									{/* Stop is the ONLY teardown — destructive-toned alert-dialog with the
+									    no-delete recap. There is NO Delete action (D-04/D-06). */}
+									{isOwner && onStopBeacon && (
+										<AlertDialog>
+											<AlertDialogTrigger asChild>
+												<Button
+													type="button"
+													variant="destructive"
+													size="sm"
+													className="rounded-none px-2 text-[11px]"
+												>
+													Stop sharing
+												</Button>
+											</AlertDialogTrigger>
+											<AlertDialogContent>
+												<AlertDialogHeader>
+													<AlertDialogTitle>Stop sharing your location?</AlertDialogTitle>
+													<AlertDialogDescription>
+														Your last point stays visible until your time box runs out, then it's
+														gone. You can't remove it sooner.
+													</AlertDialogDescription>
+												</AlertDialogHeader>
+												<AlertDialogFooter>
+													<AlertDialogCancel>Keep sharing</AlertDialogCancel>
+													<AlertDialogAction onClick={() => onStopBeacon(beacon)}>
+														Stop sharing
+													</AlertDialogAction>
+												</AlertDialogFooter>
+											</AlertDialogContent>
+										</AlertDialog>
+									)}
+								</div>
+							) : undefined
+						}
+					/>
+
+					{/* Status chip + last-seen (primary) + countdown (secondary). */}
+					<div className="flex flex-wrap items-center gap-2">
+						{isLive ? (
+							<Badge className={chip.className}>{chip.label}</Badge>
+						) : (
+							<span className={cn(chip.className, 'px-1.5 py-0.5')}>{chip.label}</span>
+						)}
+						<span className="text-[12px] text-muted-foreground">
+							{state === 'ended' ? `ended ${lastSeen}` : `last seen ${lastSeen}`}
+						</span>
+						{countdown ? (
+							<span className="text-[11px] text-muted-foreground">{countdown}</span>
+						) : null}
+					</div>
+
+					{/* Follow — keep the map centered on the beacon as it moves. Auto-off
+					    on a manual pan (handled by the map owner). Only for a live beacon. */}
+					{onToggleFollow && isLive ? (
+						<Button
+							type="button"
+							variant={isFollowing ? 'default' : 'outline'}
+							onClick={onToggleFollow}
+							aria-pressed={isFollowing}
+							className="w-full gap-2 rounded-none"
+						>
+							<Navigation className="h-4 w-4" />
+							{isFollowing ? 'Following — tap to stop' : 'Follow on map'}
+						</Button>
+					) : null}
+
+					{/* Add to map stack (SPEC §3.4) + Copy share link. Add-to-stack lands a
+					    normal, non-isolated visible entry so the beacon shows on the map
+					    without going solo (unlike a deep link). Only when the handler is wired. */}
+					<div className="flex flex-col gap-2">
+						{onAddToMapStack ? (
+							<Button
+								type="button"
+								variant="outline"
+								onClick={() => onAddToMapStack(beacon)}
+								className="w-full gap-1 rounded-none"
+							>
+								<MapPlus className="h-4 w-4" />
+								Add to map stack
+							</Button>
+						) : null}
+						<Button
+							type="button"
+							variant="outline"
+							onClick={handleCopyShareLink}
+							className="w-full rounded-none"
+						>
+							Copy share link
+						</Button>
+					</div>
+				</EntityPanelSurface>
+
+				{/* Comment + react on the beacon 37521 coordinate (XCUT-01, D-06). The
+				    LiveBeacon cast is a kind-LIVE_BEACON_KIND (37521) event, so
+				    CommentsPanel roots the comment at `target.kind === 37521` directly —
+				    runtime rooting is kind-generic (Phase 8); only the type union widened.
+				    Reached only for a non-expired beacon (the isExpired gate above
+				    short-circuits an ended beacon before this renders). */}
+				<EntityPanelSurface tone="discussion" className="space-y-4">
+					<EntityPanelSectionHeader eyebrow="Discussion" title="Comments" />
+					<CommentsPanel
+						key={beacon.id ?? beacon.dTag ?? 'no-beacon'}
+						target={beacon}
+						onCommentGeojsonVisibilityChange={(comment, visible) =>
+							onCommentGeometryVisibility?.(comment, visible)
+						}
+						onZoomToCommentGeojson={(comment) => {
+							if (comment.boundingBox && onZoomToBounds) onZoomToBounds(comment.boundingBox)
+						}}
+						availableFeatures={availableFeatures}
+						onMentionVisibilityToggle={onMentionVisibilityToggle}
+						onMentionZoomTo={onMentionZoomTo}
+						focusCommentId={focusCommentId}
+					/>
+				</EntityPanelSurface>
+			</div>
+		</EntityPanelShell>
+	)
+}

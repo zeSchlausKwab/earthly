@@ -1,20 +1,28 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
-import { useChatStore } from './store'
-import { useNip60Store } from '@/lib/stores/nip60'
+import { resolveProvider, useChatStore } from './store'
+import { composeOutboundContent } from './composeOutboundContent'
+import { FileChipStrip } from './components/FileChipStrip'
+import { evictDataset } from './ingest/ingestStore'
+import type { AttachedFileView, ImageVisionTier } from './components/FileChip'
+import type { IngestSummary } from './ingest/datasetTypes'
+import { VisionGateControl } from './components/VisionGateControl'
+import { detectVisionSupport, type VisionSupport } from './vision/detectVisionSupport'
+import { getMintHostname, resolveWalletPaymentMint, useDefaultMint, useWallet } from '@/lib/wallet'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useEditorStore } from '@/features/geo-editor/store'
+import { navigateToRoute } from '@/features/geo-editor/hooks/useRouting'
 import {
 	EntityReferenceToolbar,
 	getEntityReferenceKey,
 	type EntitySearchResult,
 } from '@/components/entity-search'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
-import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
+import type { MapContext } from '@/lib/nostr/map-context'
 import type { EditorFeature } from '@/features/geo-editor/core'
 import { Button } from '@/components/ui/button'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
-import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
 	AlertTriangle,
@@ -34,10 +42,22 @@ import {
 	Check,
 	Copy,
 	ArrowDownToLine,
+	Code2,
+	Bug,
 } from 'lucide-react'
 import { estimateTokens, type ChatMessage, type ToolCall, type ProviderType } from './routstr'
 import { analyzeToolResultGeometryContent, bakeToolResultContentToEditor } from './tools'
+import { isToolError, type ToolError } from './tools/errors'
 import { ChatGeometryAttachment } from './ChatGeometryAttachment'
+import { CodeRunDisclosure, parseRunCodeResult } from './CodeRunDisclosure'
+import { BindingChipContainer } from './safeEditing/BindingChip'
+import { PendingDiffList } from './safeEditing/PendingDiffList'
+import { AttachmentCard, parseIngestHandlePart } from './components/AttachmentCard'
+import {
+	buildConversationDump,
+	buildConversationDumpFilename,
+	serializeConversationDump,
+} from './conversationDump'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { ChatReference } from './store'
@@ -62,17 +82,21 @@ const PROVIDER_LABELS: Record<ProviderType, string> = {
 	custom: 'Custom endpoint',
 }
 
+function formatChatSessionOption(chat: { title: string; updatedAt: number }): string {
+	return `${chat.title} · ${new Date(chat.updatedAt).toLocaleTimeString()}`
+}
+
 interface ChatPanelProps {
-	geoEvents?: NDKGeoEvent[]
-	mapContextEvents?: NDKMapContextEvent[]
+	geoEvents?: GeoDataset[]
+	mapContextEvents?: MapContext[]
 	availableFeatures?: GeoFeatureItem[]
-	getDatasetName?: (event: NDKGeoEvent) => string
+	getDatasetName?: (event: GeoDataset) => string
 	onStartNewDataset?: () => void
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onOpenSettings?: () => void
 }
 
-const defaultGetDatasetName = (event: NDKGeoEvent): string =>
+const defaultGetDatasetName = (event: GeoDataset): string =>
 	event.datasetId ?? event.dTag ?? event.id ?? 'Untitled'
 
 function DangerIndicator() {
@@ -118,7 +142,7 @@ export function ChatPanel({
 		totalSpent,
 		diagnostics,
 		provider,
-		customEndpoint,
+		providerOverrides,
 		loadModels,
 		sendMessage,
 		createChat,
@@ -135,29 +159,78 @@ export function ChatPanel({
 	const editorFeatures = useEditorStore((state) => state.features)
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 
-	const { status: walletStatus, balance: walletBalance } = useNip60Store()
+	const {
+		exists: walletExists,
+		totalBalance: walletBalance,
+		balance: walletBalanceByMint,
+		mints: walletMints,
+	} = useWallet()
+	const [defaultMint] = useDefaultMint()
+	const walletStatus: 'ready' | 'no_wallet' = walletExists ? 'ready' : 'no_wallet'
+	const paymentMint = useMemo(
+		() =>
+			resolveWalletPaymentMint(
+				{ mints: walletMints, balance: walletBalanceByMint ?? {} },
+				{ defaultMint },
+			),
+		[defaultMint, walletBalanceByMint, walletMints],
+	)
+	const paymentMintPrefix =
+		paymentMint.source === 'default' ? 'default' : paymentMint.defaultMint ? 'fallback' : 'paying'
+	const paymentMintDisplay = paymentMint.mint
+		? `${paymentMintPrefix}: ${getMintHostname(paymentMint.mint)} (${paymentMint.balance.toLocaleString()} sats)`
+		: null
+	const paymentMintTooltip = paymentMint.mint
+		? paymentMint.source === 'default'
+			? `Routstr payments are sent from your default mint: ${paymentMint.mint}`
+			: paymentMint.defaultMint
+				? `Default mint is not configured on this wallet, so payments fall back to: ${paymentMint.mint}`
+				: `No default mint selected; payments use: ${paymentMint.mint}`
+		: null
 	const isMobile = useIsMobile()
 
 	const [input, setInput] = useState('')
 	const [selectionContextEnabled, setSelectionContextEnabled] = useState(false)
 	const [attachedGeometry, setAttachedGeometry] = useState<FeatureCollection | null>(null)
+	const [attachedFiles, setAttachedFiles] = useState<AttachedFileView[]>([])
+	const [sendAnyway, setSendAnyway] = useState(false)
+	const [visionSupport, setVisionSupport] = useState<VisionSupport>('no-vision')
 	const [nowMs, setNowMs] = useState(Date.now())
 	const messagesEndRef = useRef<HTMLDivElement>(null)
 	const textareaRef = useRef<HTMLTextAreaElement>(null)
 
 	// Load models on mount
 	useEffect(() => {
-		if (provider === 'custom' && !customEndpoint.trim()) return
+		if (provider === 'custom' && !providerOverrides.custom.baseUrl.trim()) return
 		if (models.length === 0 && !modelsLoading && !modelsError) {
 			void loadModels()
 		}
-	}, [customEndpoint, loadModels, models.length, modelsError, modelsLoading, provider])
+	}, [
+		providerOverrides.custom.baseUrl,
+		loadModels,
+		models.length,
+		modelsError,
+		modelsLoading,
+		provider,
+	])
 
-	// Auto-scroll to bottom when messages change
+	// Auto-scroll to bottom when messages change. Instant ('auto', not 'smooth')
+	// because during streaming this fires once per frame — stacked smooth-scroll
+	// animations forced synchronous layout every frame and were a major source of
+	// streaming jank. Gated on proximity so it never yanks the view away from a
+	// user who has scrolled up to read earlier messages.
 	const scrollTrigger = `${messages.length}:${streamingContent.length}:${executingTools ? 1 : 0}:${streamWarning ? 1 : 0}`
 	useEffect(() => {
 		if (!scrollTrigger) return
-		messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+		const anchor = messagesEndRef.current
+		if (!anchor) return
+		const container = anchor.parentElement
+		if (container) {
+			const distanceFromBottom =
+				container.scrollHeight - container.scrollTop - container.clientHeight
+			if (distanceFromBottom > 120) return
+		}
+		anchor.scrollIntoView({ behavior: 'auto' })
 	}, [scrollTrigger])
 
 	// Auto-resize textarea
@@ -198,8 +271,37 @@ export function ChatPanel({
 	useEffect(() => {
 		void activeChatId
 		setAttachedGeometry(null)
+		// WR-02: evict any not-yet-sent attached datasets before dropping the list,
+		// so switching/clearing chats doesn't leave their `fullRows` resident in the
+		// session-only ingest store. (Sent datasets are cleared without eviction in
+		// `handleSubmit` because the placement tools still need their handles.)
+		setAttachedFiles((prev) => {
+			for (const file of prev) {
+				if (file.summary?.handleId) evictDataset(file.summary.handleId)
+			}
+			return []
+		})
+		setSendAnyway(false)
 		setSelectionContextEnabled(false)
 	}, [activeChatId])
+
+	// D-09: resolve the single vision verdict for the selected model. The same
+	// ladder result gates user-attached images here AND the autonomous
+	// capture_map_snapshot one-shot in the store (cached per model, so free).
+	useEffect(() => {
+		if (!selectedModel) {
+			setVisionSupport('no-vision')
+			return
+		}
+		let cancelled = false
+		const providerConfig = resolveProvider(provider, providerOverrides)
+		void detectVisionSupport(providerConfig, selectedModel).then((support) => {
+			if (!cancelled) setVisionSupport(support)
+		})
+		return () => {
+			cancelled = true
+		}
+	}, [provider, providerOverrides, selectedModel])
 
 	const ensureChatWorkspace = () => {
 		const store = useEditorStore.getState()
@@ -211,6 +313,18 @@ export function ChatPanel({
 		return Boolean(useEditorStore.getState().activeWorkspaceId)
 	}
 
+	const visionTier: ImageVisionTier = visionSupport
+	const hasAttachedImage = useMemo(
+		() => attachedFiles.some((file) => file.status === 'image'),
+		[attachedFiles],
+	)
+	// Stamp the resolved vision tier onto image chips so their visual language
+	// (amber-uncertain / dimmed-unsupported) tracks the gate (UI-SPEC Color).
+	const displayedFiles = useMemo(
+		() => attachedFiles.map((file) => (file.status === 'image' ? { ...file, visionTier } : file)),
+		[attachedFiles, visionTier],
+	)
+
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault()
 		if (!input.trim() || isStreaming) return
@@ -219,6 +333,17 @@ export function ChatPanel({
 		const geometryContextMessage = attachedGeometry
 			? buildAttachedGeometryContextMessage(attachedGeometry)
 			: undefined
+		// D-11/D-08/D-09: compose the outbound content — datasets as
+		// {ingestHandle, ingestSummary} (never fullRows) + gated image parts.
+		const composedContent =
+			attachedFiles.length > 0
+				? composeOutboundContent({
+						text: message,
+						attachedFiles,
+						visionSupport,
+						sendAnyway,
+					})
+				: undefined
 		setInput('')
 		if (!ensureChatWorkspace()) return
 		await sendMessage(message, {
@@ -228,9 +353,14 @@ export function ChatPanel({
 				: undefined,
 			geometryContextMessage,
 			geometryAttachment: attachedGeometry,
+			composedContent,
 		})
 		if (geometryContextMessage) {
 			setAttachedGeometry(null)
+		}
+		if (attachedFiles.length > 0) {
+			setAttachedFiles([])
+			setSendAnyway(false)
 		}
 	}
 
@@ -239,23 +369,76 @@ export function ChatPanel({
 		updateWorkspace(activeWorkspaceId, { chatSessionId: chatId })
 	}
 
+	// No isStreaming guards here: the store actions are the recovery path for a
+	// stuck/runaway stream — createChat/switchChat cancel any in-flight run, and
+	// deleteChat aborts the active chat's stream (and safely no-ops when a
+	// DIFFERENT chat is streaming). Guarding them re-created the lockout the
+	// store actions were written to break.
 	const handleCreateChat = () => {
-		if (isStreaming) return
 		createChat()
 		const nextChatId = useChatStore.getState().activeChatId
 		bindActiveWorkspaceChat(nextChatId)
 	}
 
 	const handleSwitchChat = (chatId: string) => {
-		if (isStreaming) return
 		switchChat(chatId)
 		bindActiveWorkspaceChat(chatId)
 	}
 
 	const handleDeleteChat = () => {
-		if (!activeChatId || isStreaming) return
+		if (!activeChatId) return
 		deleteChat(activeChatId)
 		bindActiveWorkspaceChat(useChatStore.getState().activeChatId)
+	}
+
+	const handleExportConversation = async () => {
+		if (messages.length === 0) {
+			toast.error('Nothing to export yet')
+			return
+		}
+		const dump = buildConversationDump({
+			exportedAt: Date.now(),
+			activeChat: activeChatSession,
+			messages,
+			references,
+			provider,
+			providerOverrides,
+			selectedModel,
+			models,
+			toolsEnabled,
+			diagnostics: diagnostics as unknown as Record<string, unknown>,
+		})
+		const json = serializeConversationDump(dump)
+
+		// Default to copying the JSON to the clipboard...
+		let copied = false
+		try {
+			await navigator.clipboard.writeText(json)
+			copied = true
+		} catch (clipboardError) {
+			console.error('Failed to copy conversation dump', clipboardError)
+		}
+
+		// ...AND offer a .json download (Blob + object URL, dependency-free).
+		try {
+			const blob = new Blob([json], { type: 'application/json' })
+			const url = URL.createObjectURL(blob)
+			const anchor = document.createElement('a')
+			anchor.href = url
+			anchor.download = buildConversationDumpFilename(dump)
+			document.body.appendChild(anchor)
+			anchor.click()
+			anchor.remove()
+			URL.revokeObjectURL(url)
+		} catch (downloadError) {
+			console.error('Failed to download conversation dump', downloadError)
+			if (!copied) {
+				toast.error('Failed to export conversation')
+				return
+			}
+		}
+
+		toast.success(copied ? 'Conversation copied & downloaded' : 'Conversation downloaded')
 	}
 
 	const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -318,7 +501,7 @@ export function ChatPanel({
 			setMobilePanelOpen(true)
 			return
 		}
-		window.location.hash = '#/settings'
+		navigateToRoute('/settings')
 	}
 	const stalledSeconds =
 		isStreaming && lastProgressAt ? Math.max(0, Math.floor((nowMs - lastProgressAt) / 1000)) : 0
@@ -340,6 +523,28 @@ export function ChatPanel({
 	}, [streamPhase])
 	const contextTokenDisplay =
 		diagnostics.effectiveContextTokens ?? selectedModelData?.contextLength ?? null
+	// Pair each run_code tool call (which carries the source `code` argument) with
+	// its later role:'tool' result message by tool_call_id, so MessageBubble can
+	// render the source + output together as a single CodeRunDisclosure block
+	// (D-07: one block per result message keeps each self-correction retry distinct).
+	const runCodeSourceByCallId = useMemo(() => {
+		const map = new Map<string, string>()
+		for (const message of messages) {
+			if (message.role !== 'assistant' || !message.tool_calls) continue
+			for (const call of message.tool_calls) {
+				if (call.function.name !== 'run_code') continue
+				let source = ''
+				try {
+					const args = JSON.parse(call.function.arguments) as { code?: unknown }
+					if (typeof args.code === 'string') source = args.code
+				} catch {
+					source = ''
+				}
+				map.set(call.id, source)
+			}
+		}
+		return map
+	}, [messages])
 	const renderedMessages = useMemo(() => {
 		const seen = new Map<string, number>()
 		return messages.map((message) => {
@@ -366,48 +571,51 @@ export function ChatPanel({
 						size="sm"
 						className="h-8 text-xs"
 						onClick={handleCreateChat}
-						disabled={isStreaming}
 					>
 						New chat
 					</Button>
-					<Select
-						value={activeChatId ?? ''}
-						onValueChange={handleSwitchChat}
-						disabled={isStreaming}
+					{/* Deliberately NOT disabled while streaming: createChat/switchChat
+					    cancel any in-flight (or stuck/runaway) stream themselves — these
+					    controls ARE the recovery path. Hard-disabling them locked users
+					    out whenever isStreaming got pinned, with no visual cue (a Radix
+					    disabled select looks normal but swallows clicks). */}
+					<NativeSelect
+						value={activeChatSession ? (activeChatId ?? '') : ''}
+						onChange={(event) => {
+							const chatId = event.target.value
+							if (chatId) handleSwitchChat(chatId)
+						}}
+						aria-label="Select chat"
+						className="min-w-0 flex-1"
 					>
-						<SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
-							{activeChatSession ? (
-								<div className="flex min-w-0 items-center gap-2">
-									<span className="min-w-0 flex-1 truncate text-left">
-										{activeChatSession.title}
-									</span>
-									<span className="shrink-0 text-[10px] text-muted-foreground">
-										{new Date(activeChatSession.updatedAt).toLocaleTimeString()}
-									</span>
-								</div>
-							) : (
-								<span className="truncate text-muted-foreground">Select chat</span>
-							)}
-						</SelectTrigger>
-						<SelectContent>
-							{sortedChatSessions.map((chat) => (
-								<SelectItem key={chat.id} value={chat.id}>
-									<div className="flex min-w-0 items-center gap-2">
-										<span className="truncate">{chat.title}</span>
-										<span className="shrink-0 text-[10px] text-muted-foreground">
-											{new Date(chat.updatedAt).toLocaleTimeString()}
-										</span>
-									</div>
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+						{activeChatSession ? null : (
+							<NativeSelectOption value="" disabled>
+								Select chat
+							</NativeSelectOption>
+						)}
+						{sortedChatSessions.map((chat) => (
+							<NativeSelectOption key={chat.id} value={chat.id}>
+								{formatChatSessionOption(chat)}
+							</NativeSelectOption>
+						))}
+					</NativeSelect>
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon"
+						onClick={handleExportConversation}
+						disabled={messages.length === 0}
+						title="Export conversation (copy JSON + download .json)"
+						aria-label="Export conversation"
+					>
+						<Bug className="h-4 w-4" />
+					</Button>
 					<Button
 						type="button"
 						variant="ghost"
 						size="icon"
 						onClick={handleDeleteChat}
-						disabled={!activeChatId || isStreaming}
+						disabled={!activeChatId}
 						title="Delete chat"
 					>
 						<Trash2 className="h-4 w-4" />
@@ -447,12 +655,31 @@ export function ChatPanel({
 						<div className="flex items-center gap-1.5 text-muted-foreground">
 							<Wallet className="h-3.5 w-3.5" />
 							{walletStatus === 'ready' ? (
-								<span>{walletBalance.toLocaleString()} sats</span>
-							) : walletStatus === 'initializing' ? (
-								<span className="flex items-center gap-1">
-									<Loader2 className="h-3 w-3 animate-spin" />
-									Loading...
-								</span>
+								<div className="flex min-w-0 items-center gap-1.5">
+									<span className="shrink-0">{walletBalance.toLocaleString()} sats</span>
+									{paymentMintDisplay ? (
+										<>
+											<span className="shrink-0 text-muted-foreground/70">·</span>
+											<Tooltip>
+												<TooltipTrigger asChild>
+													<span
+														className={cn(
+															'max-w-[14rem] truncate text-xs',
+															paymentMint.defaultMint && paymentMint.source !== 'default'
+																? 'text-orange-500 dark:text-orange-400'
+																: 'text-muted-foreground',
+														)}
+													>
+														{paymentMintDisplay}
+													</span>
+												</TooltipTrigger>
+												<TooltipContent side="top" sideOffset={6} className="max-w-xs">
+													{paymentMintTooltip}
+												</TooltipContent>
+											</Tooltip>
+										</>
+									) : null}
+								</div>
 							) : (
 								<span className="text-destructive">Wallet not connected</span>
 							)}
@@ -472,6 +699,9 @@ export function ChatPanel({
 						</div>
 					)}
 				</div>
+
+				{/* Bound-target chip + "Just accept" toggle — always visible (SAFE-01 / SAFE-04 / D-12) */}
+				<BindingChipContainer />
 
 				{/* Diagnostics */}
 				<div className="min-w-0">
@@ -567,7 +797,11 @@ export function ChatPanel({
 				) : (
 					<>
 						{renderedMessages.map(({ message, key }) => (
-							<MessageBubble key={key} message={message} />
+							<MessageBubble
+								key={key}
+								message={message}
+								runCodeSourceByCallId={runCodeSourceByCallId}
+							/>
 						))}
 
 						{/* Streaming message */}
@@ -609,10 +843,10 @@ export function ChatPanel({
 
 						{isStreaming && streamWarning && (
 							<div className="flex gap-2">
-								<div className="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center bg-amber-100 dark:bg-amber-900">
-									<AlertCircle className="h-3.5 w-3.5 text-amber-700 dark:text-amber-300" />
+								<div className="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center bg-primary/10">
+									<AlertCircle className="h-3.5 w-3.5 text-primary" />
 								</div>
-								<div className="rounded-lg px-3 py-2 text-xs bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200">
+								<div className="rounded-lg px-3 py-2 text-xs bg-primary/10 border border-primary/40 text-primary">
 									<div>{streamWarning}</div>
 									<div className="mt-1 flex items-center gap-2">
 										<span className="opacity-80">last update {stalledSeconds}s ago</span>
@@ -623,6 +857,10 @@ export function ChatPanel({
 								</div>
 							</div>
 						)}
+
+						{/* Safe-editing diff blocks (SAFE-03 / SAFE-04 / D-12): pending Apply/Cancel
+						    + resolved/applied outcomes with the "Undo last AI edit" affordance. */}
+						<PendingDiffList />
 
 						<div ref={messagesEndRef} />
 					</>
@@ -679,6 +917,18 @@ export function ChatPanel({
 							onChange={setAttachedGeometry}
 							layout="detached"
 							panelClassName="w-full"
+						/>
+						<FileChipStrip
+							files={displayedFiles}
+							onChange={setAttachedFiles}
+							visionTier={visionTier}
+						/>
+						<VisionGateControl
+							support={visionSupport}
+							modelLabel={selectedModelLabel}
+							hasImage={hasAttachedImage}
+							sendAnyway={sendAnyway}
+							onSendAnywayChange={setSendAnyway}
 						/>
 						{(selectedEditorFeatures.length > 0 || attachedGeometry) && (
 							<div className="basis-full text-[11px] text-muted-foreground">
@@ -849,6 +1099,9 @@ function buildAttachedGeometryContextMessage(geojson: FeatureCollection): string
 interface MessageBubbleProps {
 	message: ChatMessage
 	isStreaming?: boolean
+	/** Maps a run_code tool_call_id → its source `code`, so the result bubble can
+	 * pair source + output into one CodeRunDisclosure block (D-07/D-09). */
+	runCodeSourceByCallId?: Map<string, string>
 }
 
 interface ParsedAssistantContent {
@@ -932,12 +1185,68 @@ function contentToDisplayText(content: ChatMessage['content']): string {
 
 	return content
 		.map((part) => {
-			if (part.type === 'text') return part.text
+			if (part.type === 'text') {
+				// Slice A: a dataset attachment part is the `{ ingestHandle, ingestSummary }`
+				// JSON; it renders as a file card, never as inline text. Surface a compact
+				// placeholder in plain-text contexts (copy, previews) instead of the blob.
+				const dataset = parseIngestHandlePart(part.text)
+				if (dataset) return `[Attached dataset: ${dataset.ingestSummary.fileName}]`
+				return part.text
+			}
 			if (part.type === 'image_url') return '[Image]'
 			return ''
 		})
 		.filter((part) => part.length > 0)
 		.join('\n')
+}
+
+/**
+ * Slice A (ingest + attachment rethink, Move 1): split a user message's content
+ * into the prose text (concatenated, markdown-rendered) and the attached-dataset
+ * summaries (rendered as collapsible `AttachmentCard`s — NOT as raw JSON text).
+ * A plain-string message has no attachments; a parts array may interleave both.
+ * The model payload is untouched — this is a pure display-side decoupling.
+ */
+function splitUserMessageContent(content: ChatMessage['content']): {
+	text: string
+	datasets: IngestSummary[]
+} {
+	if (typeof content === 'string') return { text: content, datasets: [] }
+	if (!content) return { text: '', datasets: [] }
+
+	const textParts: string[] = []
+	const datasets: IngestSummary[] = []
+	for (const part of content) {
+		if (part.type === 'text') {
+			const dataset = parseIngestHandlePart(part.text)
+			if (dataset) {
+				datasets.push(dataset.ingestSummary)
+				continue
+			}
+			if (part.text.length > 0) textParts.push(part.text)
+			continue
+		}
+		if (part.type === 'image_url') {
+			textParts.push('[Image]')
+		}
+	}
+	return { text: textParts.join('\n'), datasets }
+}
+
+/**
+ * D-16: the tool registry serializes a `ToolError` into the role:'tool' content
+ * envelope. Try to recover it so the chat UI can render failures distinctly.
+ * Returns null for normal (non-error) tool output.
+ */
+function parseToolErrorContent(content: string): ToolError | null {
+	const trimmed = content.trim()
+	if (!trimmed.startsWith('{')) return null
+	try {
+		const parsed = JSON.parse(trimmed)
+		return isToolError(parsed) ? parsed : null
+	} catch {
+		return null
+	}
 }
 
 function parseChatMarkdownInlineTokens(text: string): ChatMarkdownInlineToken[] {
@@ -1196,7 +1505,7 @@ function renderChatMarkdownInlineToken(
 			className={cn(
 				'break-all underline underline-offset-2',
 				variant === 'assistant'
-					? 'text-blue-700 hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200'
+					? 'text-info hover:text-info dark:hover:text-info'
 					: 'text-primary-foreground hover:text-primary-foreground/85',
 			)}
 		>
@@ -1326,7 +1635,15 @@ function ChatMarkdownContent({
 	)
 }
 
-function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
+// Memoized: ChatPanel re-renders on every streaming frame (it subscribes to the
+// whole chat store). Without memo, every completed bubble re-renders + re-parses
+// its markdown on each frame. messages refs are stable across frames (only
+// streamingContent changes), so memo lets the static history skip those renders.
+const MessageBubble = memo(function MessageBubble({
+	message,
+	isStreaming,
+	runCodeSourceByCallId,
+}: MessageBubbleProps) {
 	const isUser = message.role === 'user'
 	const isTool = message.role === 'tool'
 	const isAssistant = message.role === 'assistant'
@@ -1353,10 +1670,61 @@ function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
 
 	// Tool result message
 	if (isTool) {
+		// D-16: a serialized ToolError (unknown tool or handler failure) renders
+		// distinctly from normal tool output so failures are visible, not buried.
+		const toolError = parseToolErrorContent(contentText)
+		if (toolError) {
+			return (
+				<div className="ml-8 flex min-w-0 gap-2">
+					<div className="flex-shrink-0 h-5 w-5 rounded flex items-center justify-center bg-destructive/10">
+						<AlertTriangle className="h-3 w-3 text-destructive" />
+					</div>
+					<div className="relative min-w-0 max-w-[85%] overflow-hidden rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs">
+						<div className="flex items-center gap-1.5 font-medium text-destructive">
+							<span>{toolError.kind === 'unknown_tool' ? 'Unknown tool' : 'Tool error'}:</span>
+							<code className="rounded bg-destructive/10 px-1 py-0.5 text-[11px]">
+								{toolError.toolName}
+							</code>
+						</div>
+						<div className="mt-1 break-words text-destructive">{toolError.message}</div>
+						{toolError.origin && (
+							<div className="mt-1 text-[10px] text-destructive/80">origin: {toolError.origin}</div>
+						)}
+					</div>
+				</div>
+			)
+		}
+
+		// run_code special-case (D-09/D-10/D-12): a successful run_code result renders
+		// as the collapsible read-only code+output block. We pair the source (from the
+		// matching assistant tool-call, looked up by tool_call_id) with the output
+		// (this result message). Only run_code is rerouted; every other tool keeps the
+		// generic ToolResultDisclosure path below. A failed run_code is a serialized
+		// ToolError and was already handled by the red bubble above (D-11).
+		const runCodeSource =
+			message.tool_call_id !== undefined
+				? runCodeSourceByCallId?.get(message.tool_call_id)
+				: undefined
+		if (runCodeSource !== undefined) {
+			const runResult = parseRunCodeResult(contentText)
+			if (runResult) {
+				return (
+					<div className="ml-8 flex min-w-0 gap-2">
+						<div className="flex-shrink-0 h-5 w-5 rounded flex items-center justify-center bg-edit/15">
+							<Code2 className="h-3 w-3 text-edit" />
+						</div>
+						<div className="min-w-0 max-w-[85%]">
+							<CodeRunDisclosure source={runCodeSource} result={runResult} />
+						</div>
+					</div>
+				)
+			}
+		}
+
 		return (
 			<div className="ml-8 flex min-w-0 gap-2">
-				<div className="flex-shrink-0 h-5 w-5 rounded flex items-center justify-center bg-blue-100 dark:bg-blue-900">
-					<MapPin className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+				<div className="flex-shrink-0 h-5 w-5 rounded flex items-center justify-center bg-info/15">
+					<MapPin className="h-3 w-3 text-info" />
 				</div>
 				<div className="min-w-0 max-w-[85%]">
 					<ToolResultDisclosure content={contentText} tokenEstimate={tokenEstimate} />
@@ -1367,6 +1735,10 @@ function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
 
 	// Assistant message with tool calls
 	if (hasToolCalls) {
+		// run_code calls render their source inside the paired result block
+		// (CodeRunDisclosure), so suppress them from the generic orange chip strip.
+		const nonRunCodeCalls =
+			message.tool_calls?.filter((tc) => tc.function.name !== 'run_code') ?? []
 		return (
 			<div className="min-w-0 space-y-2">
 				{(parsedAssistantContent.answerText ||
@@ -1400,36 +1772,43 @@ function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
 						</div>
 					</div>
 				)}
-				<div className="ml-8 flex min-w-0 gap-2">
-					<div className="flex-shrink-0 h-5 w-5 rounded flex items-center justify-center bg-orange-100 dark:bg-orange-900">
-						<Wrench className="h-3 w-3 text-orange-600 dark:text-orange-400" />
-					</div>
-					<div className="relative min-w-0 overflow-hidden rounded-lg border border-orange-200/80 bg-orange-50/70 px-2 py-1.5 text-xs text-muted-foreground dark:border-orange-800/70 dark:bg-orange-950/40">
-						<CopyBubbleButton
-							text={JSON.stringify(message.tool_calls, null, 2)}
-							className="absolute right-1 top-1"
-							title="Copy tool calls JSON"
-						/>
-						{message.tool_calls?.map((tc: ToolCall) => (
-							<span
-								key={tc.id}
-								className="mr-1 inline-flex max-w-full items-center gap-1 rounded bg-orange-50 px-2 py-1 dark:bg-orange-950"
-							>
-								<Wrench className="h-3 w-3" />
-								<span className="truncate">{tc.function.name}</span>
-							</span>
-						))}
-						<div className="mt-1 text-[10px] text-muted-foreground">
-							{message.tool_calls?.length ?? 0} tool call(s)
+				{nonRunCodeCalls.length > 0 && (
+					<div className="ml-8 flex min-w-0 gap-2">
+						<div className="flex-shrink-0 h-5 w-5 rounded flex items-center justify-center bg-orange-100 dark:bg-orange-900">
+							<Wrench className="h-3 w-3 text-orange-600 dark:text-orange-400" />
+						</div>
+						<div className="relative min-w-0 overflow-hidden rounded-lg border border-orange-200/80 bg-orange-50/70 px-2 py-1.5 text-xs text-muted-foreground dark:border-orange-800/70 dark:bg-orange-950/40">
+							<CopyBubbleButton
+								text={JSON.stringify(nonRunCodeCalls, null, 2)}
+								className="absolute right-1 top-1"
+								title="Copy tool calls JSON"
+							/>
+							{nonRunCodeCalls.map((tc: ToolCall) => (
+								<span
+									key={tc.id}
+									className="mr-1 inline-flex max-w-full items-center gap-1 rounded bg-orange-50 px-2 py-1 dark:bg-orange-950"
+								>
+									<Wrench className="h-3 w-3" />
+									<span className="truncate">{tc.function.name}</span>
+								</span>
+							))}
+							<div className="mt-1 text-[10px] text-muted-foreground">
+								{nonRunCodeCalls.length} tool call(s)
+							</div>
 						</div>
 					</div>
-				</div>
+				)}
 			</div>
 		)
 	}
 
 	// Regular user message
 	if (isUser) {
+		// Slice A: attached datasets render as collapsible file cards, NOT as the raw
+		// `{ ingestHandle, ingestSummary }` JSON blob. The model payload is unchanged
+		// (composeOutboundContent still sends the JSON part); this only decouples the
+		// transcript's display from that payload.
+		const { text: userText, datasets } = splitUserMessageContent(message.content)
 		return (
 			<div className="flex min-w-0 flex-row-reverse gap-2">
 				<div className="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center bg-primary text-primary-foreground">
@@ -1446,9 +1825,23 @@ function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
 						className="absolute right-1.5 top-1.5"
 						title="Copy user message"
 					/>
-					<div className="pr-6">
-						<ChatMarkdownContent content={contentText} variant="user" />
-					</div>
+					{userText.length > 0 && (
+						<div className="pr-6">
+							<ChatMarkdownContent content={userText} variant="user" />
+						</div>
+					)}
+					{datasets.length > 0 && (
+						<div
+							className={cn(
+								'flex flex-col gap-1.5 rounded-md bg-background/95 p-1.5 text-foreground',
+								userText.length > 0 && 'mt-2',
+							)}
+						>
+							{datasets.map((summary) => (
+								<AttachmentCard key={summary.handleId} summary={summary} />
+							))}
+						</div>
+					)}
 					<div className="mt-2 text-[10px] text-primary-foreground/80">
 						~{tokenEstimate.toLocaleString()} tok
 					</div>
@@ -1493,7 +1886,7 @@ function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
 			</div>
 		</div>
 	)
-}
+})
 
 function ReasoningDisclosure({ blocks }: { blocks: string[] }) {
 	const [isOpen, setIsOpen] = useState(false)
@@ -1654,13 +2047,13 @@ function ToolResultDisclosure({
 	}
 
 	return (
-		<div className="rounded-lg px-3 py-2 text-xs bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800">
+		<div className="rounded-lg px-3 py-2 text-xs bg-info/15 border border-info/40">
 			<div className="flex items-center justify-between gap-2 mb-1">
 				<Button
 					type="button"
 					variant="ghost"
 					onClick={() => setIsOpen((prev) => !prev)}
-					className="h-auto p-0 text-left font-medium text-blue-700 dark:text-blue-300"
+					className="h-auto p-0 text-left font-medium text-info"
 					aria-expanded={isOpen}
 				>
 					<span className="mr-1">{isOpen ? '▾' : '▸'}</span>
@@ -1684,21 +2077,19 @@ function ToolResultDisclosure({
 							)}
 						</Button>
 					)}
-					<span className="text-[10px] text-blue-700/80 dark:text-blue-300/80">
-						~{tokenEstimate.toLocaleString()} tok
-					</span>
+					<span className="text-[10px] text-info/80">~{tokenEstimate.toLocaleString()} tok</span>
 					<CopyBubbleButton text={content} title="Copy tool result" compact />
 				</div>
 			</div>
 			{!isOpen ? (
-				<div className="rounded border border-blue-200/70 dark:border-blue-800/60 bg-background/70 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
+				<div className="rounded border border-info/40 bg-background/70 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
 					<pre className="whitespace-pre-wrap break-words">
 						{previewLines.join('\n')}
 						{hasMore ? '\n...' : ''}
 					</pre>
 				</div>
 			) : (
-				<div className="max-h-56 overflow-y-auto rounded border border-blue-200/70 dark:border-blue-800/60 bg-background/70 p-2">
+				<div className="max-h-56 overflow-y-auto rounded border border-info/40 bg-background/70 p-2">
 					<pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
 						{displayContent}
 					</pre>

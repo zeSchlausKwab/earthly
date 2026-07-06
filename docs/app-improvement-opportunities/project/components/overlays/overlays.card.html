@@ -1,0 +1,30 @@
+<!-- @dsCard group="Components" viewport="700x320" subtitle="Menu / dropdown / command palette" name="Menu" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+  body{margin:0;padding:18px;background:var(--surface-app);font-family:var(--font-ui);display:flex;gap:20px}
+  .menu{width:200px;background:var(--surface-raised);border:1px solid var(--border-strong);border-radius:3px;box-shadow:var(--shadow-pop);padding:4px}
+  .grp{padding:6px 8px 3px}
+  .grp span{font-family:var(--font-mono);font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint)}
+  .it{display:flex;align-items:center;gap:9px;height:28px;padding:0 8px;border-radius:2px;color:var(--text-body);font-size:12px}
+  .it.on{background:var(--fill-active-14);color:var(--text-primary)}
+  .it .ic{width:14px;height:14px;display:inline-flex;color:var(--text-muted)}
+  .it.on .ic{color:var(--accent-active-text)}
+  .it .t{flex:1}
+  .it .kc{font-family:var(--font-mono);font-size:9px;color:var(--text-faint)}
+  .it.danger{color:var(--accent-danger)}
+  .sep{height:1px;background:var(--border-hairline);margin:4px 0}
+  svg{width:14px;height:14px}
+  .chk{width:13px;height:13px;color:var(--accent-active-text)}
+</style></head><body>
+  <div class="menu">
+    <div class="grp"><span>Workspace</span></div>
+    <div class="it"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/></svg></span><span class="t">Datasets</span><span class="kc">⌘1</span></div>
+    <div class="it"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/></svg></span><span class="t">Contexts</span><span class="kc">⌘2</span></div>
+    <div class="grp"><span>On the map</span></div>
+    <div class="it on"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></span><span class="t">Sightings</span><svg class="chk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5"/></svg></div>
+    <div class="it"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><circle cx="12" cy="12" r="2"/></svg></span><span class="t">Beacons</span></div>
+    <div class="sep"></div>
+    <div class="it danger"><span class="ic" style="color:var(--accent-danger)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></span><span class="t">Delete draft</span><span class="kc">⌫</span></div>
+  </div>
+  <div style="align-self:center;font-family:var(--font-mono);font-size:10px;color:var(--text-faint);max-width:200px;line-height:1.6">One primitive powers dropdowns, context menus, the panel switcher, and the ⌘K palette.</div>
+</body></html>

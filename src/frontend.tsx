@@ -5,46 +5,35 @@
  * It is included in `src/index.html`.
  */
 
-import NDKCacheAdapterDexie from '@nostr-dev-kit/ndk-cache-dexie'
-import { NDKHeadless, NDKSessionLocalStorage } from '@nostr-dev-kit/react'
+import { AccountsProvider, EventStoreProvider } from 'applesauce-react/providers'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
-import { config } from './config'
-import { DEFAULT_PUBLIC_RELAYS } from './features/geo-editor/constants'
+import { upgradeLegacyHashRoute } from './features/geo-editor/hooks/useRouting'
+// Import for side-effects: instantiates eventStore, pool, accounts, cache, etc.
+import { accounts, eventStore } from './lib/nostr'
+
+// Phase 1.2: rewrite a legacy `#/…` hash route to its clean-path equivalent
+// before React mounts, so the first parseLocation() the app runs already sees
+// the canonical URL (fixes report 7.5 — `/#/datasets` deep-links).
+upgradeLegacyHashRoute()
 
 const elem = document.getElementById('root')!
 
-// Initialize Dexie cache adapter for efficient caching and cache invalidation
-const dexieAdapter = new NDKCacheAdapterDexie({
-	dbName: 'earthly-cache',
-	profileCacheSize: 5000,
-	eventCacheSize: 10000,
-	eventTagsCacheSize: 20000,
-	saveSig: true,
-})
-
-// App renders synchronously - config values are baked in at build time
 const app = (
 	<StrictMode>
-		<NDKHeadless
-			ndk={{
-				explicitRelayUrls: config.relayUrls, //.concat(DEFAULT_PUBLIC_RELAYS),
-				cacheAdapter: dexieAdapter,
-			}}
-			session={{
-				storage: new NDKSessionLocalStorage(),
-				opts: { follows: true, profile: true },
-			}}
-		/>
-		<App />
+		<EventStoreProvider eventStore={eventStore}>
+			<AccountsProvider manager={accounts}>
+				<App />
+			</AccountsProvider>
+		</EventStoreProvider>
 	</StrictMode>
 )
 
 if (import.meta.hot) {
 	// With hot module reloading, `import.meta.hot.data` is persisted.
-	const root = (import.meta.hot.data.root ??= createRoot(elem))
-	root.render(app)
+	import.meta.hot.data.root ??= createRoot(elem)
+	import.meta.hot.data.root.render(app)
 } else {
 	// The hot module reloading API is not available in production.
 	createRoot(elem).render(app)

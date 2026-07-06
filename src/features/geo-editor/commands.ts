@@ -18,7 +18,7 @@ export type EditorCommandId =
 	| 'finish_drawing'
 	| 'simplify_selected_features'
 
-type EditorCommandArgs = Record<string, unknown>
+export type EditorCommandArgs = Record<string, unknown>
 type EditorStoreSnapshot = ReturnType<typeof useEditorStore.getState>
 
 export interface EditorCommandExecutionResult {

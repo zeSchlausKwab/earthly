@@ -1,5 +1,20 @@
-import type { NDKUserProfile } from '@nostr-dev-kit/ndk'
-import { useNDK, useNDKCurrentUser } from '@nostr-dev-kit/react'
+import { EventFactory } from 'applesauce-core/factories'
+import { use$, useActiveAccount } from 'applesauce-react/hooks'
+import { accounts, eventStore, publish } from '@/lib/nostr'
+
+interface ProfileMetadata {
+	name?: string
+	displayName?: string
+	display_name?: string
+	about?: string
+	website?: string
+	nip05?: string
+	image?: string
+	picture?: string
+	banner?: string
+	lud16?: string
+	[key: string]: unknown
+}
 import {
 	ChevronDown,
 	Download,
@@ -12,11 +27,14 @@ import {
 	Server,
 } from 'lucide-react'
 import type React from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { BlossomUploaderButton } from '@/components/blossom/BlossomUploaderButton'
+import { BASEMAP_STYLE_OPTIONS, useBasemapStyle } from '@/lib/basemap'
 import { UserProfile } from '@/components/user-profile'
 import { SessionsManager } from '@/features/auth/SessionsManager'
 import { ChatSettingsSection } from '@/features/chat'
+import { UserRelayManager } from '@/features/settings/UserRelayManager'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -30,12 +48,14 @@ import {
 	SelectValue,
 } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
+import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { useEditorStore, type MapLayerState } from '../store'
 
 type MapSourceType = 'default' | 'pmtiles' | 'blossom'
-type SettingsTab = 'profile' | 'chat' | 'map' | 'sessions'
+type SettingsTab = 'map' | 'profile' | 'relays' | 'chat' | 'sessions'
+type MapSettingsPanelMode = 'full' | 'map-only'
 
 interface ProfileDraft {
 	name: string
@@ -48,10 +68,10 @@ interface ProfileDraft {
 	lud16: string
 }
 
-function createProfileDraft(profile?: NDKUserProfile | null): ProfileDraft {
+function createProfileDraft(profile?: ProfileMetadata | null): ProfileDraft {
 	return {
 		name: profile?.name ?? '',
-		displayName: profile?.displayName ?? '',
+		displayName: profile?.displayName ?? profile?.display_name ?? '',
 		about: profile?.about ?? '',
 		website: profile?.website ?? '',
 		nip05: profile?.nip05 ?? '',
@@ -71,10 +91,10 @@ function SettingsShell({
 	children: React.ReactNode
 }) {
 	return (
-		<section className="space-y-4 border border-slate-200 bg-white/90 p-4 shadow-sm">
+		<section className="space-y-4 border border-border bg-card p-4 shadow-sm">
 			<div className="space-y-1">
-				<h3 className="text-sm font-semibold tracking-wide text-slate-900 uppercase">{title}</h3>
-				<p className="text-sm text-slate-500">{description}</p>
+				<h3 className="text-sm font-semibold tracking-wide text-foreground uppercase">{title}</h3>
+				<p className="text-sm text-muted-foreground">{description}</p>
 			</div>
 			{children}
 		</section>
@@ -82,51 +102,29 @@ function SettingsShell({
 }
 
 function ProfileSettingsSection() {
-	const { ndk } = useNDK()
-	const currentUser = useNDKCurrentUser()
-	const [loadedProfile, setLoadedProfile] = useState<NDKUserProfile | null>(null)
+	const currentUser = useActiveAccount()
 	const [draft, setDraft] = useState<ProfileDraft>(() => createProfileDraft())
 	const [hasLocalEdits, setHasLocalEdits] = useState(false)
-	const [isLoadingProfile, setIsLoadingProfile] = useState(false)
 	const [isSaving, setIsSaving] = useState(false)
+
+	// Reactive read straight from the EventStore (auto-loads via the configured
+	// event-loader) — no manual subscribe + useState copy that goes stale.
+	const profileValue = use$(
+		() => (currentUser?.pubkey ? eventStore.profile(currentUser.pubkey) : undefined),
+		[currentUser?.pubkey],
+	)
+	const loadedProfile = (profileValue ?? null) as ProfileMetadata | null
+	const isLoadingProfile = Boolean(currentUser?.pubkey) && profileValue === undefined
 
 	const loadedDraft = useMemo(() => createProfileDraft(loadedProfile), [loadedProfile])
 	const isDirty = JSON.stringify(draft) !== JSON.stringify(loadedDraft)
 
 	useEffect(() => {
-		if (!ndk || !currentUser?.pubkey) {
-			setLoadedProfile(null)
+		if (!currentUser?.pubkey) {
 			setDraft(createProfileDraft())
 			setHasLocalEdits(false)
-			return
 		}
-
-		let cancelled = false
-		setIsLoadingProfile(true)
-
-		const loadProfile = async () => {
-			try {
-				const user = ndk.getUser({ pubkey: currentUser.pubkey })
-				user.ndk = ndk
-				const profile = await user.fetchProfile()
-				if (!cancelled) {
-					setLoadedProfile(profile)
-				}
-			} catch (error) {
-				console.error('Failed to load profile settings:', error)
-			} finally {
-				if (!cancelled) {
-					setIsLoadingProfile(false)
-				}
-			}
-		}
-
-		void loadProfile()
-
-		return () => {
-			cancelled = true
-		}
-	}, [currentUser?.pubkey, ndk])
+	}, [currentUser?.pubkey])
 
 	useEffect(() => {
 		if (!hasLocalEdits) {
@@ -142,25 +140,32 @@ function ProfileSettingsSection() {
 			setHasLocalEdits(true)
 		}
 
+	const handleUploadedField = useCallback((field: keyof Pick<ProfileDraft, 'image' | 'banner'>) => {
+		return ({ url }: { url: string }) => {
+			setDraft((current) => ({ ...current, [field]: url }))
+			setHasLocalEdits(true)
+		}
+	}, [])
+
 	const handleReset = () => {
 		setDraft(loadedDraft)
 		setHasLocalEdits(false)
 	}
 
 	const handleSave = async () => {
-		if (!ndk || !currentUser?.pubkey) {
+		const signer = accounts.signer
+		if (!signer || !currentUser?.pubkey) {
 			toast.error('Sign in to edit your profile')
 			return
 		}
 
 		setIsSaving(true)
 		try {
-			const user = ndk.getUser({ pubkey: currentUser.pubkey })
-			user.ndk = ndk
-			user.profile = {
+			const nextProfile: ProfileMetadata = {
 				...(loadedProfile ?? {}),
 				name: draft.name || undefined,
 				displayName: draft.displayName || undefined,
+				display_name: draft.displayName || undefined,
 				about: draft.about || undefined,
 				website: draft.website || undefined,
 				nip05: draft.nip05 || undefined,
@@ -169,10 +174,14 @@ function ProfileSettingsSection() {
 				banner: draft.banner || undefined,
 				lud16: draft.lud16 || undefined,
 			}
-			await user.publish()
 
-			const nextProfile = { ...user.profile }
-			setLoadedProfile(nextProfile)
+			const signed = await EventFactory.fromKind(0)
+				.content(JSON.stringify(nextProfile))
+				.sign(signer)
+			// publish() adds the event to the EventStore optimistically, so the
+			// reactive use$ profile read above refreshes on its own.
+			await publish(signed, { routing: 'outbox' })
+
 			setDraft(createProfileDraft(nextProfile))
 			setHasLocalEdits(false)
 			toast.success('Profile saved')
@@ -190,7 +199,7 @@ function ProfileSettingsSection() {
 				title="Profile"
 				description="Profile settings are tied to your active Nostr session."
 			>
-				<div className="border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+				<div className="border border-dashed border-border bg-muted px-4 py-6 text-sm text-muted-foreground">
 					Sign in to edit your display name, bio, website, and Lightning address.
 				</div>
 			</SettingsShell>
@@ -202,7 +211,7 @@ function ProfileSettingsSection() {
 			title="Profile"
 			description="Edit the metadata published on your kind 0 profile event."
 		>
-			<div className="border border-slate-200 bg-slate-50/80 p-4">
+			<div className="border border-border bg-muted/50 p-4">
 				<UserProfile
 					pubkey={currentUser.pubkey}
 					mode="full-profile"
@@ -213,7 +222,7 @@ function ProfileSettingsSection() {
 			</div>
 
 			{isLoadingProfile ? (
-				<div className="flex items-center gap-2 border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
+				<div className="flex items-center gap-2 border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
 					<Loader2 className="h-4 w-4 animate-spin" />
 					Loading current profile...
 				</div>
@@ -262,21 +271,35 @@ function ProfileSettingsSection() {
 				</div>
 				<div className="space-y-2">
 					<Label htmlFor="profile-image">Avatar URL</Label>
-					<Input
-						id="profile-image"
-						value={draft.image}
-						onChange={updateField('image')}
-						placeholder="https://..."
-					/>
+					<div className="flex items-center gap-2">
+						<Input
+							id="profile-image"
+							value={draft.image}
+							onChange={updateField('image')}
+							placeholder="https://..."
+						/>
+						<BlossomUploaderButton
+							currentUrl={draft.image}
+							onUploaded={handleUploadedField('image')}
+							buttonLabel="Blossom"
+						/>
+					</div>
 				</div>
 				<div className="space-y-2">
 					<Label htmlFor="profile-banner">Banner URL</Label>
-					<Input
-						id="profile-banner"
-						value={draft.banner}
-						onChange={updateField('banner')}
-						placeholder="https://..."
-					/>
+					<div className="flex items-center gap-2">
+						<Input
+							id="profile-banner"
+							value={draft.banner}
+							onChange={updateField('banner')}
+							placeholder="https://..."
+						/>
+						<BlossomUploaderButton
+							currentUrl={draft.banner}
+							onUploaded={handleUploadedField('banner')}
+							buttonLabel="Blossom"
+						/>
+					</div>
 				</div>
 				<div className="space-y-2 md:col-span-2">
 					<Label htmlFor="profile-lud16">Lightning address</Label>
@@ -289,8 +312,8 @@ function ProfileSettingsSection() {
 				</div>
 			</div>
 
-			<div className="flex items-center justify-between gap-3 border border-slate-200 bg-slate-50 px-3 py-2">
-				<p className="text-xs text-slate-500">
+			<div className="flex items-center justify-between gap-3 border border-border bg-muted px-3 py-2">
+				<p className="text-xs text-muted-foreground">
 					{isDirty ? 'You have unpublished profile changes.' : 'Profile metadata is up to date.'}
 				</p>
 				<div className="flex gap-2">
@@ -311,15 +334,17 @@ function ProfileSettingsSection() {
 	)
 }
 
-export function MapSettingsPanel() {
-	const currentUser = useNDKCurrentUser()
+export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMode }) {
+	const currentUser = useActiveAccount()
 	const mapSource = useEditorStore((state) => state.mapSource)
 	const setMapSource = useEditorStore((state) => state.setMapSource)
+	const pointClusteringEnabled = useEditorStore((state) => state.pointClusteringEnabled)
+	const setPointClusteringEnabled = useEditorStore((state) => state.setPointClusteringEnabled)
 	const mapLayers = useEditorStore((state) => state.mapLayers)
+	const [basemapStyle, setBasemapStyle] = useBasemapStyle()
 	const announcementSource = useEditorStore((state) => state.announcementSource)
 	const updateMapLayerState = useEditorStore((state) => state.updateMapLayerState)
 	const reorderMapLayers = useEditorStore((state) => state.reorderMapLayers)
-
 	const fileInputRef = useRef<HTMLInputElement>(null)
 
 	const [dragIndex, setDragIndex] = useState<number | null>(null)
@@ -436,27 +461,372 @@ export function MapSettingsPanel() {
 		setDropIndex(null)
 	}
 
-	const defaultTab: SettingsTab = currentUser ? 'profile' : 'map'
+	const defaultTab: SettingsTab = currentUser ? 'profile' : 'chat'
+	// Deep-link support: the status-bar relay indicator sets `settingsTab` in the
+	// store before opening settings; land on that tab, then consume it once.
+	const requestedTab = useEditorStore((state) => state.settingsTab)
+	const setRequestedTab = useEditorStore((state) => state.setSettingsTab)
+	const [activeTab, setActiveTab] = useState<SettingsTab>(requestedTab ?? defaultTab)
+	useEffect(() => {
+		if (requestedTab) {
+			setActiveTab(requestedTab)
+			setRequestedTab(null)
+		}
+	}, [requestedTab, setRequestedTab])
+	const mapSettingsContent = (
+		<div className="space-y-4">
+			<div className="rounded-lg border bg-card p-3">
+				<div className="flex items-start justify-between gap-4">
+					<div className="space-y-1">
+						<Label htmlFor="point-clustering" className="text-sm font-medium">
+							Point clustering
+						</Label>
+						<p className="text-xs text-muted-foreground">
+							Group nearby points into clusters while zoomed out.
+						</p>
+					</div>
+					<Switch
+						id="point-clustering"
+						checked={pointClusteringEnabled}
+						onCheckedChange={setPointClusteringEnabled}
+						aria-label="Toggle point clustering"
+					/>
+				</div>
+			</div>
+
+			{/* Map source + basemap + overlay layers render in BOTH modes: the
+			    desktop toolbar popover (map-only) and the full settings' Map tab —
+			    the mobile sheet's only path to these controls. */}
+			<>
+				<div className="space-y-2">
+					<Label>Map Source</Label>
+					<Select value={mapSource.type} onValueChange={handleSourceTypeChange}>
+						<SelectTrigger>
+							<SelectValue placeholder="Select source" />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="default">Default (OpenFreeMap)</SelectItem>
+							<SelectItem value="pmtiles">Protomaps (PMTiles)</SelectItem>
+							<SelectItem value="blossom">Blossom Map Discovery</SelectItem>
+						</SelectContent>
+					</Select>
+				</div>
+
+				{mapSource.type === 'default' && (
+					<div className="space-y-2">
+						<Label>Basemap style</Label>
+						<Select
+							value={basemapStyle}
+							onValueChange={(value) =>
+								setBasemapStyle(value as (typeof BASEMAP_STYLE_OPTIONS)[number]['id'])
+							}
+						>
+							<SelectTrigger>
+								<SelectValue placeholder="Select basemap style" />
+							</SelectTrigger>
+							<SelectContent>
+								{BASEMAP_STYLE_OPTIONS.map((option) => (
+									<SelectItem key={option.id} value={option.id}>
+										{option.label}
+										{option.hint ? (
+											<span className="ml-1.5 font-mono text-[10px] text-muted-foreground">
+												{option.hint}
+											</span>
+										) : null}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+						<p className="text-xs text-muted-foreground">
+							<span className="font-mono">Auto</span> follows the app theme — Positron in light,
+							Dark in dark. Pin a style to keep it regardless of theme.
+						</p>
+					</div>
+				)}
+
+				{mapSource.type === 'pmtiles' && (
+					<>
+						<div className="space-y-2">
+							<Label>Location</Label>
+							<Select value={mapSource.location} onValueChange={handleLocationChange}>
+								<SelectTrigger>
+									<SelectValue placeholder="Select location" />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="remote">Remote URL</SelectItem>
+									<SelectItem value="local">Local File</SelectItem>
+								</SelectContent>
+							</Select>
+						</div>
+
+						{mapSource.location === 'remote' ? (
+							<div className="space-y-2">
+								<Label>URL</Label>
+								<div className="flex gap-2">
+									<Input
+										value={mapSource.url || ''}
+										onChange={handleUrlChange}
+										placeholder="https://example.com/map.pmtiles"
+										className="flex-1"
+									/>
+									{mapSource.url && (
+										<Button
+											variant="outline"
+											size="icon"
+											onClick={() => {
+												if (!mapSource.url) return
+												const url = mapSource.url
+												const filename = url.split('/').pop() || 'map.pmtiles'
+												const a = document.createElement('a')
+												a.href = url
+												a.download = filename
+												a.target = '_blank'
+												document.body.appendChild(a)
+												a.click()
+												document.body.removeChild(a)
+											}}
+											title="Download for offline use"
+										>
+											<Download className="h-4 w-4" />
+										</Button>
+									)}
+								</div>
+								<p className="text-xs text-muted-foreground">
+									Enter the URL to a remote PMTiles file.
+								</p>
+							</div>
+						) : (
+							<div className="space-y-2">
+								<Label>File</Label>
+								<div className="flex gap-2">
+									<Button
+										variant="outline"
+										className="w-full"
+										onClick={() => fileInputRef.current?.click()}
+									>
+										{mapSource.file ? mapSource.file.name : 'Select File'}
+									</Button>
+									<Input
+										type="file"
+										ref={fileInputRef}
+										className="hidden"
+										accept=".pmtiles"
+										onChange={handleFileChange}
+									/>
+								</div>
+								<p className="text-xs text-muted-foreground">
+									Select a local `.pmtiles` file from your device.
+								</p>
+							</div>
+						)}
+
+						<div className="flex items-center gap-2 pt-2">
+							<Checkbox
+								id="bounds-lock"
+								checked={mapSource.boundsLocked ?? true}
+								onCheckedChange={(checked: boolean | 'indeterminate') =>
+									setMapSource({
+										...mapSource,
+										boundsLocked: checked === true,
+									})
+								}
+							/>
+							<label htmlFor="bounds-lock" className="text-sm cursor-pointer">
+								Lock to map bounds
+							</label>
+						</div>
+						<p className="text-xs text-muted-foreground">
+							Prevents zooming and panning beyond the PMTiles extent.
+						</p>
+					</>
+				)}
+			</>
+
+			{mapSource.type === 'blossom' && (
+				<>
+					{announcementSource && (
+						<div className="space-y-2 border bg-card p-3">
+							<div className="flex items-center gap-2">
+								<Radio className="h-4 w-4 text-muted-foreground" />
+								<span className="text-sm font-medium">
+									{announcementSource.name || 'Announcement Source'}
+								</span>
+							</div>
+							{announcementSource.about && (
+								<p className="pl-6 text-xs text-muted-foreground">{announcementSource.about}</p>
+							)}
+							{announcementSource.pubkey && (
+								<div className="flex items-center gap-1.5 pl-6">
+									<Globe className="h-3 w-3 text-muted-foreground" />
+									<UserProfile
+										pubkey={announcementSource.pubkey}
+										mode="avatar-name"
+										size="xs"
+										showNip05Badge={false}
+										interactive={false}
+									/>
+								</div>
+							)}
+						</div>
+					)}
+
+					{layersByServer.length > 0 && (
+						<div className="space-y-3">
+							{layersByServer.map((group) => (
+								<Collapsible key={group.server} defaultOpen className="border-t pt-2">
+									<CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-2">
+										<ChevronDown className="h-3.5 w-3.5 text-muted-foreground transition-transform group-data-[state=closed]:-rotate-90" />
+										<Server className="h-3.5 w-3.5 text-muted-foreground" />
+										<span className="truncate font-mono text-xs text-muted-foreground">
+											{group.server}
+										</span>
+										<span className="ml-auto text-xs text-muted-foreground">
+											{group.layers.length} {group.layers.length === 1 ? 'layer' : 'layers'}
+										</span>
+									</CollapsibleTrigger>
+									<CollapsibleContent className="space-y-1 pt-2">
+										{group.layers.map((layer) => (
+											<div key={layer.id}>
+												{dropIndex === layer.globalIndex &&
+												dragIndex !== null &&
+												dragIndex > layer.globalIndex ? (
+													<div className="mx-2 mb-1 h-0.5 bg-primary" />
+												) : null}
+												<li
+													draggable
+													aria-label={`Reorder layer ${layer.title}`}
+													onDragStart={handleDragStart(layer.globalIndex)}
+													onDragOver={handleDragOver(layer.globalIndex)}
+													onDragLeave={handleDragLeave}
+													onDrop={handleDrop(layer.globalIndex)}
+													onDragEnd={handleDragEnd}
+													className={`list-none space-y-2 border bg-card p-3 transition-opacity ${
+														dragIndex === layer.globalIndex ? 'opacity-50' : ''
+													}`}
+												>
+													<div className="flex items-center justify-between">
+														<div className="flex items-center gap-2">
+															<GripVertical className="h-4 w-4 cursor-grab text-muted-foreground active:cursor-grabbing" />
+															<Checkbox
+																id={`layer-${layer.id}`}
+																checked={layer.enabled}
+																onCheckedChange={(checked: boolean | 'indeterminate') =>
+																	handleLayerToggle(layer.id, checked === true)
+																}
+															/>
+															<label
+																htmlFor={`layer-${layer.id}`}
+																className="cursor-pointer text-sm font-medium"
+															>
+																{layer.title}
+															</label>
+														</div>
+														<div className="flex items-center gap-1">
+															{layer.enabled ? (
+																<Eye className="h-3.5 w-3.5 text-muted-foreground" />
+															) : (
+																<EyeOff className="h-3.5 w-3.5 text-muted-foreground" />
+															)}
+															<span className="bg-muted px-1.5 py-0.5 text-xs capitalize text-muted-foreground">
+																{layer.kind === 'chunked-vector'
+																	? 'vector'
+																	: layer.pmtilesType || 'raster'}
+															</span>
+														</div>
+													</div>
+													<div className="flex items-center gap-3 pl-6">
+														<span className="w-14 text-xs text-muted-foreground">Opacity</span>
+														<Slider
+															value={[layer.opacity]}
+															onValueChange={(values: number[]) =>
+																handleLayerOpacity(layer.id, values[0] ?? layer.opacity)
+															}
+															min={0}
+															max={1}
+															step={0.05}
+															disabled={!layer.enabled}
+															className="flex-1"
+														/>
+														<span className="w-10 text-right text-xs text-muted-foreground">
+															{Math.round(layer.opacity * 100)}%
+														</span>
+													</div>
+												</li>
+												{dropIndex === layer.globalIndex &&
+												dragIndex !== null &&
+												dragIndex < layer.globalIndex ? (
+													<div className="mx-2 mt-1 h-0.5 bg-primary" />
+												) : null}
+											</div>
+										))}
+									</CollapsibleContent>
+								</Collapsible>
+							))}
+						</div>
+					)}
+
+					{!announcementSource && mapLayers.length === 0 ? (
+						<div className="flex items-center gap-2 border-t pt-2 text-xs italic text-muted-foreground">
+							<Radio className="h-4 w-4" />
+							<span>Waiting for layer announcements...</span>
+						</div>
+					) : null}
+				</>
+			)}
+		</div>
+	)
+
+	if (mode === 'map-only') {
+		return mapSettingsContent
+	}
 
 	return (
-		<Tabs defaultValue={defaultTab} className="space-y-4">
-			<TabsList className="grid h-auto w-full grid-cols-4 rounded-none bg-slate-100 p-1">
-				<TabsTrigger value="profile" className="rounded-none px-3 py-2 text-xs sm:text-sm">
-					Profile
-				</TabsTrigger>
-				<TabsTrigger value="chat" className="rounded-none px-3 py-2 text-xs sm:text-sm">
-					Chat settings
-				</TabsTrigger>
-				<TabsTrigger value="map" className="rounded-none px-3 py-2 text-xs sm:text-sm">
+		<Tabs
+			value={activeTab}
+			onValueChange={(value) => setActiveTab(value as SettingsTab)}
+			className="space-y-4"
+		>
+			{/* One scrollable row: the base TabsList pins its height (h-8 via the
+			    orientation variant), so wrapped grid rows overflow it — never wrap;
+			    scroll horizontally instead when space runs out. */}
+			<TabsList className="flex w-full justify-start gap-1 overflow-x-auto rounded-none bg-muted p-1">
+				<TabsTrigger value="map" className="flex-none rounded-none px-3 text-xs sm:text-sm">
 					Map
 				</TabsTrigger>
-				<TabsTrigger value="sessions" className="rounded-none px-3 py-2 text-xs sm:text-sm">
+				<TabsTrigger value="profile" className="flex-none rounded-none px-3 text-xs sm:text-sm">
+					Profile
+				</TabsTrigger>
+				<TabsTrigger value="relays" className="flex-none rounded-none px-3 text-xs sm:text-sm">
+					Relays
+				</TabsTrigger>
+				<TabsTrigger value="chat" className="flex-none rounded-none px-3 text-xs sm:text-sm">
+					Chat
+				</TabsTrigger>
+				<TabsTrigger value="sessions" className="flex-none rounded-none px-3 text-xs sm:text-sm">
 					Sessions
 				</TabsTrigger>
 			</TabsList>
 
+			<TabsContent value="map" className="mt-0">
+				<SettingsShell
+					title="Map"
+					description="Map source, basemap style, point clustering, and overlay layers."
+				>
+					{mapSettingsContent}
+				</SettingsShell>
+			</TabsContent>
+
 			<TabsContent value="profile" className="mt-0">
 				<ProfileSettingsSection />
+			</TabsContent>
+
+			<TabsContent value="relays" className="mt-0">
+				<SettingsShell
+					title="Relays"
+					description="Manage the NIP-65 relay list used for account reads, writes, and discovery."
+				>
+					<UserRelayManager />
+				</SettingsShell>
 			</TabsContent>
 
 			<TabsContent value="chat" className="mt-0">
@@ -465,260 +835,6 @@ export function MapSettingsPanel() {
 					description="Choose providers, models, tools, and local chat behavior."
 				>
 					<ChatSettingsSection />
-				</SettingsShell>
-			</TabsContent>
-
-			<TabsContent value="map" className="mt-0">
-				<SettingsShell
-					title="Map"
-					description="Control the base map source, discovery layers, and layer visibility."
-				>
-					<div className="space-y-4">
-						<div className="space-y-2">
-							<Label>Map Source</Label>
-							<Select value={mapSource.type} onValueChange={handleSourceTypeChange}>
-								<SelectTrigger>
-									<SelectValue placeholder="Select source" />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="default">Default (OpenFreeMap)</SelectItem>
-									<SelectItem value="pmtiles">Protomaps (PMTiles)</SelectItem>
-									<SelectItem value="blossom">Blossom Map Discovery</SelectItem>
-								</SelectContent>
-							</Select>
-						</div>
-
-						{mapSource.type === 'pmtiles' && (
-							<>
-								<div className="space-y-2">
-									<Label>Location</Label>
-									<Select value={mapSource.location} onValueChange={handleLocationChange}>
-										<SelectTrigger>
-											<SelectValue placeholder="Select location" />
-										</SelectTrigger>
-										<SelectContent>
-											<SelectItem value="remote">Remote URL</SelectItem>
-											<SelectItem value="local">Local File</SelectItem>
-										</SelectContent>
-									</Select>
-								</div>
-
-								{mapSource.location === 'remote' ? (
-									<div className="space-y-2">
-										<Label>URL</Label>
-										<div className="flex gap-2">
-											<Input
-												value={mapSource.url || ''}
-												onChange={handleUrlChange}
-												placeholder="https://example.com/map.pmtiles"
-												className="flex-1"
-											/>
-											{mapSource.url && (
-												<Button
-													variant="outline"
-													size="icon"
-													onClick={() => {
-														if (!mapSource.url) return
-														const url = mapSource.url
-														const filename = url.split('/').pop() || 'map.pmtiles'
-														const a = document.createElement('a')
-														a.href = url
-														a.download = filename
-														a.target = '_blank'
-														document.body.appendChild(a)
-														a.click()
-														document.body.removeChild(a)
-													}}
-													title="Download for offline use"
-												>
-													<Download className="h-4 w-4" />
-												</Button>
-											)}
-										</div>
-										<p className="text-xs text-gray-500">Enter the URL to a remote PMTiles file.</p>
-									</div>
-								) : (
-									<div className="space-y-2">
-										<Label>File</Label>
-										<div className="flex gap-2">
-											<Button
-												variant="outline"
-												className="w-full"
-												onClick={() => fileInputRef.current?.click()}
-											>
-												{mapSource.file ? mapSource.file.name : 'Select File'}
-											</Button>
-											<Input
-												type="file"
-												ref={fileInputRef}
-												className="hidden"
-												accept=".pmtiles"
-												onChange={handleFileChange}
-											/>
-										</div>
-										<p className="text-xs text-gray-500">
-											Select a local `.pmtiles` file from your device.
-										</p>
-									</div>
-								)}
-
-								<div className="flex items-center gap-2 pt-2">
-									<Checkbox
-										id="bounds-lock"
-										checked={mapSource.boundsLocked ?? true}
-										onCheckedChange={(checked: boolean | 'indeterminate') =>
-											setMapSource({
-												...mapSource,
-												boundsLocked: checked === true,
-											})
-										}
-									/>
-									<label htmlFor="bounds-lock" className="text-sm cursor-pointer">
-										Lock to map bounds
-									</label>
-								</div>
-								<p className="text-xs text-gray-500">
-									Prevents zooming and panning beyond the PMTiles extent.
-								</p>
-							</>
-						)}
-
-						{mapSource.type === 'blossom' && (
-							<>
-								{announcementSource && (
-									<div className="space-y-2 border bg-card p-3">
-										<div className="flex items-center gap-2">
-											<Radio className="h-4 w-4 text-muted-foreground" />
-											<span className="text-sm font-medium">
-												{announcementSource.name || 'Announcement Source'}
-											</span>
-										</div>
-										{announcementSource.about && (
-											<p className="pl-6 text-xs text-muted-foreground">
-												{announcementSource.about}
-											</p>
-										)}
-										{announcementSource.pubkey && (
-											<div className="flex items-center gap-1.5 pl-6">
-												<Globe className="h-3 w-3 text-muted-foreground" />
-												<UserProfile
-													pubkey={announcementSource.pubkey}
-													mode="avatar-name"
-													size="xs"
-													showNip05Badge={false}
-													interactive={false}
-												/>
-											</div>
-										)}
-									</div>
-								)}
-
-								{layersByServer.length > 0 && (
-									<div className="space-y-3">
-										{layersByServer.map((group) => (
-											<Collapsible key={group.server} defaultOpen className="border-t pt-2">
-												<CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-2">
-													<ChevronDown className="h-3.5 w-3.5 text-muted-foreground transition-transform group-data-[state=closed]:-rotate-90" />
-													<Server className="h-3.5 w-3.5 text-muted-foreground" />
-													<span className="truncate font-mono text-xs text-muted-foreground">
-														{group.server}
-													</span>
-													<span className="ml-auto text-xs text-muted-foreground">
-														{group.layers.length} {group.layers.length === 1 ? 'layer' : 'layers'}
-													</span>
-												</CollapsibleTrigger>
-												<CollapsibleContent className="space-y-1 pt-2">
-													{group.layers.map((layer) => (
-														<div key={layer.id}>
-															{dropIndex === layer.globalIndex &&
-															dragIndex !== null &&
-															dragIndex > layer.globalIndex ? (
-																<div className="mx-2 mb-1 h-0.5 bg-primary" />
-															) : null}
-															<li
-																draggable
-																aria-label={`Reorder layer ${layer.title}`}
-																onDragStart={handleDragStart(layer.globalIndex)}
-																onDragOver={handleDragOver(layer.globalIndex)}
-																onDragLeave={handleDragLeave}
-																onDrop={handleDrop(layer.globalIndex)}
-																onDragEnd={handleDragEnd}
-																className={`list-none space-y-2 border bg-card p-3 transition-opacity ${
-																	dragIndex === layer.globalIndex ? 'opacity-50' : ''
-																}`}
-															>
-																<div className="flex items-center justify-between">
-																	<div className="flex items-center gap-2">
-																		<GripVertical className="h-4 w-4 cursor-grab text-muted-foreground active:cursor-grabbing" />
-																		<Checkbox
-																			id={`layer-${layer.id}`}
-																			checked={layer.enabled}
-																			onCheckedChange={(checked: boolean | 'indeterminate') =>
-																				handleLayerToggle(layer.id, checked === true)
-																			}
-																		/>
-																		<label
-																			htmlFor={`layer-${layer.id}`}
-																			className="cursor-pointer text-sm font-medium"
-																		>
-																			{layer.title}
-																		</label>
-																	</div>
-																	<div className="flex items-center gap-1">
-																		{layer.enabled ? (
-																			<Eye className="h-3.5 w-3.5 text-muted-foreground" />
-																		) : (
-																			<EyeOff className="h-3.5 w-3.5 text-muted-foreground" />
-																		)}
-																		<span className="bg-muted px-1.5 py-0.5 text-xs capitalize text-muted-foreground">
-																			{layer.kind === 'chunked-vector'
-																				? 'vector'
-																				: layer.pmtilesType || 'raster'}
-																		</span>
-																	</div>
-																</div>
-																<div className="flex items-center gap-3 pl-6">
-																	<span className="w-14 text-xs text-muted-foreground">
-																		Opacity
-																	</span>
-																	<Slider
-																		value={[layer.opacity]}
-																		onValueChange={(values: number[]) =>
-																			handleLayerOpacity(layer.id, values[0] ?? layer.opacity)
-																		}
-																		min={0}
-																		max={1}
-																		step={0.05}
-																		disabled={!layer.enabled}
-																		className="flex-1"
-																	/>
-																	<span className="w-10 text-right text-xs text-muted-foreground">
-																		{Math.round(layer.opacity * 100)}%
-																	</span>
-																</div>
-															</li>
-															{dropIndex === layer.globalIndex &&
-															dragIndex !== null &&
-															dragIndex < layer.globalIndex ? (
-																<div className="mx-2 mt-1 h-0.5 bg-primary" />
-															) : null}
-														</div>
-													))}
-												</CollapsibleContent>
-											</Collapsible>
-										))}
-									</div>
-								)}
-
-								{!announcementSource && mapLayers.length === 0 ? (
-									<div className="flex items-center gap-2 border-t pt-2 text-xs italic text-muted-foreground">
-										<Radio className="h-4 w-4" />
-										<span>Waiting for layer announcements...</span>
-									</div>
-								) : null}
-							</>
-						)}
-					</div>
 				</SettingsShell>
 			</TabsContent>
 

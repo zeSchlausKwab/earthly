@@ -206,8 +206,8 @@ export function SimplifyDialog({ open, onOpenChange }: SimplifyDialogProps) {
 				<div className="space-y-4 py-1">
 					<div className="space-y-2">
 						<div className="flex items-center justify-between text-xs">
-							<span className="font-medium text-gray-700">Tolerance</span>
-							<span className="font-mono text-gray-600">
+							<span className="font-medium text-foreground">Tolerance</span>
+							<span className="font-mono text-muted-foreground">
 								{simplifyTolerance.toExponential(2)} (~{(simplifyTolerance * 111320).toFixed(2)} m)
 							</span>
 						</div>
@@ -226,30 +226,30 @@ export function SimplifyDialog({ open, onOpenChange }: SimplifyDialogProps) {
 					</div>
 
 					<div className="grid grid-cols-1 gap-2 text-xs">
-						<div className="rounded-md border border-gray-200 bg-gray-50 p-2">
-							<div className="font-medium text-gray-700">Selected geometries</div>
-							<div className="mt-1 text-gray-600">
+						<div className="rounded-md border border-border bg-muted p-2">
+							<div className="font-medium text-foreground">Selected geometries</div>
+							<div className="mt-1 text-muted-foreground">
 								{metrics.selectedFeatureCount} selected • {metrics.updatedFeatureCount} will change
 								• {metrics.skippedFeatureCount} unchanged
 							</div>
 						</div>
 
-						<div className="rounded-md border border-gray-200 p-2">
-							<div className="font-medium text-gray-700">Coordinate points</div>
-							<div className="mt-1 text-gray-800">
+						<div className="rounded-md border border-border p-2">
+							<div className="font-medium text-foreground">Coordinate points</div>
+							<div className="mt-1 text-foreground">
 								{metrics.vertexCountBefore.toLocaleString()} →{' '}
 								{metrics.vertexCountAfter.toLocaleString()}
 							</div>
-							<div className="text-[10px] text-gray-500">
+							<div className="text-[10px] text-muted-foreground">
 								{vertexDeltaPercent <= 0
 									? `${Math.abs(vertexDeltaPercent).toFixed(1)}% fewer points`
 									: `${vertexDeltaPercent.toFixed(1)}% more points`}
 							</div>
 						</div>
 
-						<div className="rounded-md border border-gray-200 p-2">
-							<div className="font-medium text-gray-700">Selected payload estimate</div>
-							<div className="mt-1 text-gray-800">
+						<div className="rounded-md border border-border p-2">
+							<div className="font-medium text-foreground">Selected payload estimate</div>
+							<div className="mt-1 text-foreground">
 								{formatBytes(metrics.selectedBytesBefore)} →{' '}
 								{formatBytes(metrics.selectedBytesAfter)}
 							</div>
@@ -257,16 +257,14 @@ export function SimplifyDialog({ open, onOpenChange }: SimplifyDialogProps) {
 
 						<div
 							className={`rounded-md border p-2 ${
-								nextDatasetOverLimit
-									? 'border-amber-200 bg-amber-50'
-									: 'border-green-200 bg-green-50'
+								nextDatasetOverLimit ? 'border-primary/40 bg-primary/10' : 'border-ok/40 bg-ok/15'
 							}`}
 						>
-							<div className="font-medium text-gray-700">Dataset size estimate</div>
-							<div className="mt-1 text-gray-800">
+							<div className="font-medium text-foreground">Dataset size estimate</div>
+							<div className="mt-1 text-foreground">
 								{formatBytes(metrics.datasetBytesBefore)} → {formatBytes(metrics.datasetBytesAfter)}
 							</div>
-							<div className="text-[10px] text-gray-500">
+							<div className="text-[10px] text-muted-foreground">
 								{datasetDeltaPercent <= 0
 									? `${Math.abs(datasetDeltaPercent).toFixed(1)}% smaller`
 									: `${datasetDeltaPercent.toFixed(1)}% larger`}{' '}

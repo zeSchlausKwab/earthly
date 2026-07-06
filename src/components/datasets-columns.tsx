@@ -1,72 +1,83 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { Bug, Download, Eye, EyeOff, Loader2, Search } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
 import { memo } from 'react'
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
-import { Button } from './ui/button'
+import {
+	DatasetGlyphIcon,
+	DebugActionIcon,
+	FavoriteActionIcon,
+	InspectActionIcon,
+	LoadEditorActionIcon,
+	MapStackActionIcon,
+	ZoomActionIcon,
+} from './entity-action-icons'
+import { GlyphTile, ListRow, RowActionButton } from './entity-list'
 import { UserProfile } from './user-profile'
 import { useEditorStore } from '../features/geo-editor/store'
 import { GeoSocialActions } from '../features/social/comments/GeoSocialActions'
-import type { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
-import { cn } from '@/lib/utils'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 
 export interface DatasetRowData {
-	event: NDKGeoEvent
+	event: GeoDataset
 	datasetKey: string
 	datasetName: string
 	isActive: boolean
 	isOwned: boolean
 	isVisible: boolean
+	isInMapStack: boolean
+	/** Round G.2: starred in the catalog Favorites tab. Optional — profile view doesn't wire it. */
+	isCatalogPinned?: boolean
 	primaryLabel: string
 }
 
 export interface DatasetColumnsContext {
-	onLoadDataset: (event: NDKGeoEvent) => void
-	onDeleteDataset: (event: NDKGeoEvent) => void
-	onToggleVisibility: (event: NDKGeoEvent) => void
+	onLoadDataset: (event: GeoDataset) => void
+	onDeleteDataset: (event: GeoDataset) => void
+	onToggleVisibility: (event: GeoDataset) => void
 	onToggleAllVisibility: (visible: boolean) => void
-	onZoomToDataset: (event: NDKGeoEvent) => void
-	onInspectDataset?: (event: NDKGeoEvent) => void
-	onOpenDebug?: (event: NDKGeoEvent) => void
+	onZoomToDataset: (event: GeoDataset) => void
+	onInspectDataset?: (event: GeoDataset) => void
+	/** Add to map stack. Idempotent — calling on an already-stacked entity is a no-op. */
+	onAddDatasetToMap?: (event: GeoDataset) => void
+	/** Round C: remove from map stack. Paired with onAddDatasetToMap to make the Layers button a toggle. */
+	onRemoveDatasetFromMap?: (event: GeoDataset) => void
+	/** Round G.2: toggle catalog favorite (Star). */
+	onToggleCatalogPin?: (event: GeoDataset) => void
+	/**
+	 * P2.2 (report 6.x): favorites are persisted per-pubkey, so they're
+	 * meaningless while logged out. When false, the favorite action is shown
+	 * disabled with a sign-in hint instead of silently writing guest-scoped
+	 * state. Defaults to allowed when omitted (callers that don't know auth).
+	 */
+	canFavorite?: boolean
+	onOpenDebug?: (event: GeoDataset) => void
 	isPublishing: boolean
 	deletingKey: string | null
 	allVisibleState: 'all' | 'none' | 'some'
 }
 
-const actionButtonClass =
-	'rounded-none px-2 text-xs text-gray-500 shadow-none hover:bg-transparent hover:text-sky-600'
-
-const DatasetLoadButton = memo(function DatasetLoadButton({
+/**
+ * Round F.1: the load verb moved into the row's overflow menu; this indicator
+ * only surfaces blob-resolution progress (ring with percent, or a spinner
+ * when the total is unknown). Renders nothing when idle.
+ */
+const DatasetResolvingIndicator = memo(function DatasetResolvingIndicator({
 	datasetKey,
-	event,
-	isActive,
-	isPublishing,
-	onLoadDataset,
 }: {
 	datasetKey: string
-	event: NDKGeoEvent
-	isActive: boolean
-	isPublishing: boolean
-	onLoadDataset: (event: NDKGeoEvent) => void
 }) {
 	const isResolving = useEditorStore((state) => state.resolvingDatasets.has(datasetKey))
 	const progress = useEditorStore((state) => state.resolvingProgress.get(datasetKey))
 
+	if (!isResolving) return null
+
 	const progressPercent =
 		progress && progress.total > 0 ? Math.round((progress.loaded / progress.total) * 100) : 0
 
-	const label = (() => {
-		if (!isResolving) {
-			return isActive ? 'Dataset loaded in editor' : 'Load dataset into editor'
-		}
-		if (progress && progress.total > 0) {
-			const sizeMB = (progress.total / 1024 / 1024).toFixed(1)
-			return `Loading ${progressPercent}% of ${sizeMB}MB...`
-		}
-		return 'Loading blob data...'
-	})()
-
-	if (isResolving && progress && progress.total > 0) {
+	if (progress && progress.total > 0) {
+		const sizeMB = (progress.total / 1024 / 1024).toFixed(1)
+		const label = `Loading ${progressPercent}% of ${sizeMB}MB...`
 		return (
 			<div className="relative flex h-8 w-8 items-center justify-center" title={label}>
 				<svg className="h-5 w-5 -rotate-90" viewBox="0 0 20 20" aria-hidden="true">
@@ -77,7 +88,7 @@ const DatasetLoadButton = memo(function DatasetLoadButton({
 						fill="none"
 						stroke="currentColor"
 						strokeWidth="2"
-						className="text-gray-200"
+						className="text-foreground"
 					/>
 					<circle
 						cx="10"
@@ -87,33 +98,18 @@ const DatasetLoadButton = memo(function DatasetLoadButton({
 						stroke="currentColor"
 						strokeWidth="2"
 						strokeDasharray={`${progressPercent * 0.5} 50`}
-						className="text-sky-600 transition-all duration-150"
+						className="text-info transition-all duration-150"
 					/>
 				</svg>
-				<span className="absolute text-[8px] font-medium text-sky-600">{progressPercent}</span>
+				<span className="absolute text-[8px] font-medium text-info">{progressPercent}</span>
 			</div>
 		)
 	}
 
 	return (
-		<Button
-			size="icon-sm"
-			variant="ghost"
-			className={cn(
-				actionButtonClass,
-				isActive ? 'text-emerald-600 hover:text-emerald-700' : 'text-gray-500 hover:text-sky-600',
-			)}
-			onClick={() => onLoadDataset(event)}
-			disabled={isPublishing || isResolving}
-			aria-label={label}
-			title={label}
-		>
-			{isResolving ? (
-				<Loader2 className="h-4 w-4 animate-spin" />
-			) : (
-				<Download className="h-4 w-4" />
-			)}
-		</Button>
+		<div className="flex h-8 w-8 items-center justify-center" title="Loading blob data...">
+			<Loader2 className="h-4 w-4 animate-spin text-info" />
+		</div>
 	)
 })
 
@@ -122,37 +118,11 @@ export const createDatasetColumns = (
 ): ColumnDef<DatasetRowData>[] => [
 	{
 		accessorKey: 'datasetName',
-		header: () => {
-			const areAllVisible = context.allVisibleState === 'all'
-			const hasVisibleDatasets = context.allVisibleState !== 'none'
-			const label = areAllVisible ? 'Hide all datasets' : 'Show all datasets'
-
-			return (
-				<div className="flex items-center gap-2">
-					<span>Dataset</span>
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						className={cn(
-							actionButtonClass,
-							hasVisibleDatasets
-								? 'text-sky-600 hover:text-sky-700'
-								: 'text-gray-400 hover:text-sky-600',
-						)}
-						onClick={() => context.onToggleAllVisibility(!areAllVisible)}
-						aria-label={label}
-						title={label}
-					>
-						{hasVisibleDatasets ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-					</Button>
-				</div>
-			)
-		},
 		cell: ({ row }) => {
-			const { event, datasetName, isVisible } = row.original
+			const { event, datasetName, isActive, isInMapStack, isCatalogPinned, isVisible } =
+				row.original
 
-			const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
+			const handleDragStart = (e: React.DragEvent<HTMLButtonElement>) => {
 				const datasetId = event.datasetId ?? event.dTag
 				if (!datasetId || !event.pubkey || !event.kind) return
 
@@ -176,23 +146,31 @@ export const createDatasetColumns = (
 				}
 
 				e.dataTransfer.setData('application/geo-feature', JSON.stringify(item))
+				e.dataTransfer.setData('application/earthly-dataset-key', row.original.datasetKey)
 				e.dataTransfer.effectAllowed = 'copy'
 			}
 
 			return (
-				<div className="min-w-0 whitespace-normal py-1 text-left">
-					<button
-						type="button"
-						className="block w-full cursor-grab text-left text-sm font-semibold leading-snug text-gray-900 transition-colors hover:text-sky-700 active:cursor-grabbing"
-						draggable
-						onDragStart={handleDragStart}
-						onClick={() => context.onZoomToDataset(event)}
-						aria-label={`Zoom to dataset ${datasetName}`}
-						title="Zoom to dataset"
-					>
-						<span className="line-clamp-2 break-words">{datasetName}</span>
-					</button>
-					<div className="mt-1 min-w-0">
+				<ListRow
+					leading={<GlyphTile icon={DatasetGlyphIcon} />}
+					title={datasetName}
+					selected={isActive}
+					dimmed={!isVisible}
+					draggable
+					onDragStart={handleDragStart}
+					onTitleClick={() => {
+						// Round C: stack = visibility. Clicking the dataset name shows it on
+						// the map (additive append). Zoom-to follows so the user lands on it.
+						if (!isInMapStack) context.onAddDatasetToMap?.(event)
+						context.onZoomToDataset(event)
+					}}
+					titleAriaLabel={
+						isInMapStack
+							? `Zoom to dataset ${datasetName}`
+							: `Show and zoom to dataset ${datasetName}`
+					}
+					titleTitle={isInMapStack ? 'Zoom to dataset' : 'Show on map and zoom'}
+					meta={
 						<UserProfile
 							pubkey={event.pubkey}
 							mode="avatar-name"
@@ -200,64 +178,88 @@ export const createDatasetColumns = (
 							showNip05Badge={false}
 							interactive={false}
 						/>
-					</div>
-					<div className="mt-1 flex min-w-0 items-end justify-between gap-3">
+					}
+					engage={
 						<GeoSocialActions
 							target={event}
 							onReplyClick={() => context.onInspectDataset?.(event)}
 							showCommentButton={Boolean(context.onInspectDataset)}
 							showAnnotateButton={false}
+							loadCounts={false}
 							compact
 							className="-ml-2 shrink-0 gap-0"
 						/>
-						<div className="flex shrink-0 items-center gap-0.5">
-							<Button
-								size="icon-sm"
-								variant="ghost"
-								className={cn(
-									actionButtonClass,
-									isVisible
-										? 'text-sky-600 hover:text-sky-700'
-										: 'text-gray-400 hover:text-sky-600',
-								)}
-								onClick={() => context.onToggleVisibility(event)}
-								aria-label={isVisible ? 'Hide dataset' : 'Show dataset'}
-								title={isVisible ? 'Hide dataset' : 'Show dataset'}
-							>
-								{isVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-							</Button>
-							<DatasetLoadButton
-								datasetKey={row.original.datasetKey}
-								event={event}
-								isActive={row.original.isActive}
-								isPublishing={context.isPublishing}
-								onLoadDataset={context.onLoadDataset}
-							/>
-							<Button
-								size="icon-sm"
-								variant="ghost"
-								className={cn(actionButtonClass, 'hover:text-emerald-600')}
-								onClick={() => context.onInspectDataset?.(event)}
-								aria-label="Inspect dataset"
-								title="Inspect dataset"
-							>
-								<Search className="h-4 w-4" />
-							</Button>
-							{context.onOpenDebug ? (
-								<Button
-									size="icon-sm"
-									variant="ghost"
-									className={cn(actionButtonClass, 'hover:text-amber-600')}
-									aria-label="Open debug"
-									title="Open debug"
-									onClick={() => context.onOpenDebug?.(event)}
-								>
-									<Bug className="h-4 w-4" />
-								</Button>
+					}
+					actions={
+						<>
+							{/* Canonical order map-stack → zoom → inspect → load → favorite →
+							    debug, using the shared action icons so every entity matches. */}
+							{context.onAddDatasetToMap ? (
+								<RowActionButton
+									icon={MapStackActionIcon}
+									label={isInMapStack ? 'Remove from map stack' : 'Add to map stack'}
+									hover="hover:text-ok"
+									active={isInMapStack}
+									activeClassName="text-ok hover:text-ok"
+									onClick={() => {
+										if (isInMapStack && context.onRemoveDatasetFromMap) {
+											context.onRemoveDatasetFromMap(event)
+										} else {
+											context.onAddDatasetToMap?.(event)
+										}
+									}}
+								/>
 							) : null}
-						</div>
-					</div>
-				</div>
+							<RowActionButton
+								icon={ZoomActionIcon}
+								label="Zoom to dataset"
+								onClick={() => context.onZoomToDataset(event)}
+							/>
+							{context.onInspectDataset ? (
+								<RowActionButton
+									icon={InspectActionIcon}
+									label="Inspect dataset"
+									hover="hover:text-ok"
+									onClick={() => context.onInspectDataset?.(event)}
+								/>
+							) : null}
+							<RowActionButton
+								icon={LoadEditorActionIcon}
+								label={isActive ? 'Loaded in editor' : 'Load into editor'}
+								hover="hover:text-ok"
+								disabled={context.isPublishing}
+								onClick={() => context.onLoadDataset(event)}
+							/>
+							{context.onToggleCatalogPin ? (
+								<RowActionButton
+									icon={FavoriteActionIcon}
+									label={
+										context.canFavorite === false
+											? 'Sign in to save favorites'
+											: isCatalogPinned
+												? 'Remove from favorites'
+												: 'Add to favorites'
+									}
+									hover="hover:text-primary"
+									active={Boolean(isCatalogPinned)}
+									activeClassName="text-primary hover:text-primary"
+									filled={Boolean(isCatalogPinned)}
+									disabled={context.canFavorite === false}
+									onClick={() => context.onToggleCatalogPin?.(event)}
+								/>
+							) : null}
+							{context.onOpenDebug ? (
+								<RowActionButton
+									icon={DebugActionIcon}
+									label="Debug event"
+									hover="hover:text-primary"
+									onClick={() => context.onOpenDebug?.(event)}
+								/>
+							) : null}
+							<DatasetResolvingIndicator datasetKey={row.original.datasetKey} />
+						</>
+					}
+				/>
 			)
 		},
 	},

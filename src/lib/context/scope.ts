@@ -1,29 +1,29 @@
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
-import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
+import type { MapContext } from '@/lib/nostr/map-context'
 import { getContextReferencedDatasets } from './references'
 
 export type ContextMapScopeMode = 'direct' | 'children'
 
 export interface ScopedContextDataset {
-	dataset: NDKGeoEvent
-	sourceContext: NDKMapContextEvent
+	dataset: GeoDataset
+	sourceContext: MapContext
 }
 
 export interface ResolvedContextMapScope {
 	mode: ContextMapScopeMode
 	datasets: ScopedContextDataset[]
 	directDatasets: ScopedContextDataset[]
-	includedContexts: NDKMapContextEvent[]
-	childContexts: NDKMapContextEvent[]
+	includedContexts: MapContext[]
+	childContexts: MapContext[]
 }
 
-function getDatasetScopeKey(event: NDKGeoEvent): string {
+function getDatasetScopeKey(event: GeoDataset): string {
 	return `${event.kind}:${event.pubkey}:${event.datasetId ?? event.dTag ?? event.id ?? 'dataset'}`
 }
 
 function getDirectContextDatasets(
-	context: NDKMapContextEvent,
-	geoEvents: NDKGeoEvent[],
+	context: MapContext,
+	geoEvents: GeoDataset[],
 ): ScopedContextDataset[] {
 	const coordinate = context.contextCoordinate
 	const byKey = new Map<string, ScopedContextDataset>()
@@ -43,15 +43,15 @@ function getDirectContextDatasets(
 }
 
 export function getDefaultContextMapScopeMode(
-	context: NDKMapContextEvent | null | undefined,
+	context: MapContext | null | undefined,
 ): ContextMapScopeMode {
 	return context?.context.allowForeignAttachments ? 'children' : 'direct'
 }
 
 export function getAttachedChildContexts(
-	context: NDKMapContextEvent | null | undefined,
-	mapContexts: NDKMapContextEvent[],
-): NDKMapContextEvent[] {
+	context: MapContext | null | undefined,
+	mapContexts: MapContext[],
+): MapContext[] {
 	const coordinate = context?.contextCoordinate
 	if (!coordinate) return []
 	return mapContexts.filter(
@@ -63,9 +63,9 @@ export function getAttachedChildContexts(
 }
 
 export function resolveContextMapScope(
-	context: NDKMapContextEvent | null | undefined,
-	geoEvents: NDKGeoEvent[],
-	mapContexts: NDKMapContextEvent[],
+	context: MapContext | null | undefined,
+	geoEvents: GeoDataset[],
+	mapContexts: MapContext[],
 	mode: ContextMapScopeMode,
 ): ResolvedContextMapScope {
 	if (!context) {
@@ -91,11 +91,11 @@ export function resolveContextMapScope(
 		}
 	}
 
-	const includedContexts: NDKMapContextEvent[] = []
+	const includedContexts: MapContext[] = []
 	const seenContextCoordinates = new Set<string>()
 	const seenDatasetKeys = new Set<string>()
 	const datasets: ScopedContextDataset[] = []
-	const queue: NDKMapContextEvent[] = [context]
+	const queue: MapContext[] = [context]
 
 	while (queue.length > 0) {
 		const current = queue.shift()

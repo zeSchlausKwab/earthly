@@ -1,0 +1,60 @@
+<!-- @dsCard group="Mobile" viewport="390x780" subtitle="Map home — search · stance · nearby drawer · dock" name="Map home" -->
+<!-- @startingPoint section="Mobile" subtitle="Earthly mobile map + bottom drawer" viewport="390x844" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+  html,body{margin:0;height:100%}
+  body{background:var(--surface-app);font-family:var(--font-ui);color:var(--text-body);display:flex;flex-direction:column;overflow:hidden;position:relative}
+  .map{flex:1;position:relative;background-color:var(--surface-app);background-image:linear-gradient(0deg,rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:34px 34px;overflow:hidden}
+  .status{position:absolute;left:0;top:0;right:0;height:36px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-family:var(--font-mono);font-size:12px;color:var(--text-primary)}
+  .status .z{color:var(--text-faint)}
+  .topbar{position:absolute;left:12px;right:12px;top:44px;display:flex;gap:8px}
+  .search{flex:1;height:32px;border:1px solid var(--border-strong);border-radius:2px;background:rgba(20,20,22,.8);display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--text-faint);font-size:13px}
+  .spark{width:32px;height:32px;border:1px solid var(--border-strong);border-radius:2px;background:rgba(20,20,22,.8);display:flex;align-items:center;justify-content:center;color:var(--accent-edit-text)}
+  .stance{position:absolute;left:12px;top:84px;display:inline-flex;background:rgba(20,20,22,.85);border:1px solid var(--border-strong);border-radius:2px;padding:2px;gap:2px}
+  .stance span{font-size:10.5px;padding:3px 9px;color:var(--text-muted)}
+  .stance span.on{background:var(--accent-active);color:var(--accent-ink);font-weight:600}
+  .pin{position:absolute;width:14px;height:14px;background:var(--accent-active);border:2px solid var(--surface-app);transform:rotate(45deg)}
+  .beacon{position:absolute;width:15px;height:15px;border-radius:50%;background:var(--accent-ok);border:2px solid var(--surface-app);box-shadow:0 0 0 5px color-mix(in oklch,var(--accent-ok) 25%,transparent)}
+  .drawer{position:absolute;left:0;right:0;bottom:56px;background:var(--surface-panel);border-top:1px solid var(--border-strong);border-radius:8px 8px 0 0;padding:8px 14px 14px}
+  .grab{width:30px;height:3px;border-radius:2px;background:var(--border-strong);margin:0 auto 10px}
+  .dhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .dhead .l{font-family:var(--font-mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint)}
+  .sr{display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-hairline)}
+  .sr:last-child{border-bottom:none}
+  .sr .th{width:38px;height:38px;border-radius:2px;flex-shrink:0;background:repeating-linear-gradient(45deg,var(--surface-raised),var(--surface-raised) 4px,#313136 4px,#313136 8px)}
+  .sr .c{flex:1}
+  .sr .n{font-size:13px;color:var(--text-primary)}
+  .sr .m{font-family:var(--font-mono);font-size:9px;color:var(--text-faint)}
+  .live{font-size:8.5px;font-weight:700;padding:1px 5px;border-radius:2px;background:var(--accent-active);color:var(--accent-ink)}
+  .dock{position:absolute;left:0;right:0;bottom:0;height:56px;background:var(--surface-chrome);border-top:1px solid var(--border-hairline);display:flex;align-items:center;justify-content:space-around;padding:0 8px}
+  .di{display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--text-faint)}
+  .di.on{color:var(--accent-active-text)}
+  .di span{font-size:9px}
+  .fab{width:36px;height:36px;border-radius:2px;background:var(--accent-active);display:flex;align-items:center;justify-content:center;color:var(--accent-ink)}
+  svg{width:16px;height:16px}
+</style></head><body>
+  <div class="map">
+    <div class="status"><span>9:41</span><span class="z">z14 · Volkspark</span></div>
+    <div class="topbar">
+      <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>Search or ask…</div>
+      <div class="spark"><svg viewBox="0 0 24 24" fill="color-mix(in oklch,var(--accent-edit) 30%,transparent)" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M9.94 14.06 8 20l-1.94-5.94L0 12l6.06-1.94L8 4l1.94 6.06L16 12Z"/></svg></div>
+    </div>
+    <div class="stance"><span class="on">Looking</span><span>Focus</span><span>Build</span></div>
+    <div class="pin" style="left:70px;top:230px"></div>
+    <div class="pin" style="left:250px;top:300px"></div>
+    <div class="beacon" style="left:150px;top:360px"></div>
+    <div class="drawer">
+      <div class="grab"></div>
+      <div class="dhead"><span class="l">Nearby · 6</span><span class="l">sort ▾</span></div>
+      <div class="sr"><div class="th"></div><div class="c"><div class="n">A heron by the lake</div><div class="m">@lea · 40m · fades 6d</div></div><span class="live">LIVE</span></div>
+      <div class="sr"><div class="th"></div><div class="c"><div class="n">Cherry blossom, peak now</div><div class="m">@sam · 2h · fades 5d</div></div></div>
+    </div>
+    <div class="dock">
+      <div class="di on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg><span>Map</span></div>
+      <div class="di"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08 12 10l9.4-3.9Z"/></svg><span>Explore</span></div>
+      <div class="fab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M5 12h14M12 5v14"/></svg></div>
+      <div class="di"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span>Activity</span></div>
+      <div class="di"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg><span>You</span></div>
+    </div>
+  </div>
+</body></html>

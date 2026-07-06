@@ -1,20 +1,23 @@
-import { useSubscribe } from '@nostr-dev-kit/react'
-import type { NDKEvent } from '@nostr-dev-kit/react'
+import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Database, Eye, Globe, Layers, MessageCircle, MessageSquare, Trash2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
-import { NDKGeoEditProposalEvent } from '../lib/ndk/NDKGeoEditProposalEvent'
-import { NDKGeoEvent } from '../lib/ndk/NDKGeoEvent'
-import type { NDKMapContextEvent } from '../lib/ndk/NDKMapContextEvent'
+import { GeoProposal } from '@/lib/nostr/geo-proposal'
+import { castEvent } from 'applesauce-core/casts'
+import { eventStore } from '@/lib/nostr'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
+import type { MapContext } from '@/lib/nostr/map-context'
 import {
 	GEO_EDIT_PROPOSAL_KIND,
+	GEO_EVENT_KIND,
 	PROPOSAL_STATUS_APPLIED_KIND,
 	PROPOSAL_STATUS_CLOSED_KIND,
 	PROPOSAL_STATUS_DRAFT_KIND,
 	PROPOSAL_STATUS_OPEN_KIND,
-} from '../lib/ndk/kinds'
-import { getLatestProposalStatus, type ProposalStatus } from '../lib/ndk/proposalStatus'
+} from '../lib/nostr/kinds'
+import { getLatestProposalStatus, type ProposalStatus } from '@/lib/nostr/geo-proposal'
 import {
+	getContextCoordinate,
 	getEffectiveContextUse,
 	getEffectiveContextValidationMode,
 } from '../lib/context/validation'
@@ -36,47 +39,50 @@ import {
 	type DatasetColumnsContext,
 	type DatasetRowData,
 } from './datasets-columns'
+import { EntityListTable } from './entity-list'
 import { Button } from './ui/button'
 import { DataTable } from './ui/data-table'
 import { UserProfile } from './user-profile/UserProfile'
 
 export interface UserProfilePanelProps {
 	pubkey: string
-	geoEvents: NDKGeoEvent[]
-	mapContextEvents: NDKMapContextEvent[]
+	geoEvents: GeoDataset[]
+	mapContextEvents: MapContext[]
 	currentUserPubkey?: string
 	datasetVisibility: Record<string, boolean>
 	isPublishing: boolean
 	deletingKey: string | null
-	onLoadDataset: (event: NDKGeoEvent) => void
-	onToggleVisibility: (event: NDKGeoEvent) => void
+	onLoadDataset: (event: GeoDataset) => void
+	onToggleVisibility: (event: GeoDataset) => void
 	onToggleAllVisibility: (visible: boolean) => void
-	onZoomToDataset: (event: NDKGeoEvent) => void
-	onDeleteDataset: (event: NDKGeoEvent) => void
-	getDatasetKey: (event: NDKGeoEvent) => string
-	getDatasetName: (event: NDKGeoEvent) => string
-	onInspectDataset?: (event: NDKGeoEvent) => void
+	onZoomToDataset: (event: GeoDataset) => void
+	onDeleteDataset: (event: GeoDataset) => void
+	getDatasetKey: (event: GeoDataset) => string
+	getDatasetName: (event: GeoDataset) => string
+	onInspectDataset?: (event: GeoDataset) => void
+	onAddDatasetToMap?: (event: GeoDataset) => void
+	onRemoveDatasetFromMap?: (event: GeoDataset) => void
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void | Promise<void>
-	onInspectContext?: (context: NDKMapContextEvent) => void
-	onEditContext?: (context: NDKMapContextEvent) => void
-	onOpenDebug?: (event: NDKGeoEvent | NDKMapContextEvent) => void
+	onInspectContext?: (context: MapContext) => void
+	onEditContext?: (context: MapContext) => void
+	onOpenDebug?: (event: GeoDataset | MapContext) => void
 }
 
 type TabMode = 'datasets' | 'contexts' | 'proposals' | 'workspaces'
 
 interface UserProposalRow {
-	proposal: NDKGeoEditProposalEvent
+	proposal: GeoProposal
 	description: string
 	targetName: string
 	targetAddress: string
-	targetDataset: NDKGeoEvent | null
+	targetDataset: GeoDataset | null
 	status: ProposalStatus
 	created_at?: number
 	pubkey: string
 }
 
-const getDatasetDescriptionText = (event: NDKGeoEvent): string | undefined => {
+const getDatasetDescriptionText = (event: GeoDataset): string | undefined => {
 	const featureCollection = event.featureCollection as unknown as Record<string, unknown>
 	if (!featureCollection) return undefined
 	const candidates = [
@@ -94,16 +100,16 @@ const getDatasetDescriptionText = (event: NDKGeoEvent): string | undefined => {
 }
 
 const createDatasetFilterConfig = (
-	getDatasetName: (event: NDKGeoEvent) => string,
-): FilterConfig<NDKGeoEvent> => ({
+	getDatasetName: (event: GeoDataset) => string,
+): FilterConfig<GeoDataset> => ({
 	getSearchableText: (event) => [getDatasetName(event), getDatasetDescriptionText(event)],
 	getName: (event) => getDatasetName(event),
 })
 
-const getContextDisplayName = (context: NDKMapContextEvent): string =>
+const getContextDisplayName = (context: MapContext): string =>
 	context.context.name || context.contextId || context.id || 'Untitled'
 
-const contextFilterConfig: FilterConfig<NDKMapContextEvent> = {
+const contextFilterConfig: FilterConfig<MapContext> = {
 	getSearchableText: (context) => {
 		const content = context.context
 		return [
@@ -119,10 +125,10 @@ const contextFilterConfig: FilterConfig<NDKMapContextEvent> = {
 }
 
 const PROPOSAL_STATUS_STYLES: Record<ProposalStatus, string> = {
-	open: 'bg-green-100 text-green-700',
-	applied: 'bg-blue-100 text-blue-700',
-	closed: 'bg-red-100 text-red-700',
-	draft: 'bg-gray-100 text-gray-600',
+	open: 'bg-ok/15 text-ok',
+	applied: 'bg-info/15 text-info',
+	closed: 'bg-destructive/10 text-destructive',
+	draft: 'bg-muted text-muted-foreground',
 }
 
 export function UserProfilePanel({
@@ -141,6 +147,8 @@ export function UserProfilePanel({
 	getDatasetKey,
 	getDatasetName,
 	onInspectDataset,
+	onAddDatasetToMap,
+	onRemoveDatasetFromMap,
 	onSwitchWorkspace,
 	onDeleteWorkspace,
 	onInspectContext,
@@ -155,6 +163,28 @@ export function UserProfilePanel({
 	const isOwnProfile = currentUserPubkey === pubkey
 	const workspaces = useEditorStore((state) => state.workspaces)
 	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
+	const viewContext = useEditorStore((state) => state.viewContext)
+	const activeContextScopeCoordinate = useEditorStore((state) => state.activeContextScopeCoordinate)
+	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
+	// Round H.2: catalog favorites are global — starring here writes the same
+	// scoped-localStorage set the main catalog reads, so state stays in sync.
+	const pinnedEntityIds = useEditorStore((state) => state.pinnedEntityIds)
+	const togglePinnedEntity = useEditorStore((state) => state.togglePinnedEntity)
+	const pinnedEntitySet = useMemo(() => new Set(pinnedEntityIds), [pinnedEntityIds])
+	const toggleDatasetFavorite = useCallback(
+		(event: GeoDataset) => {
+			togglePinnedEntity(`dataset:${getDatasetKey(event)}`)
+		},
+		[togglePinnedEntity, getDatasetKey],
+	)
+	const toggleContextFavorite = useCallback(
+		(context: MapContext) => {
+			const coordinate = getContextCoordinate(context)
+			if (coordinate) togglePinnedEntity(`context:${coordinate}`)
+		},
+		[togglePinnedEntity],
+	)
+	const effectiveContextCoordinate = viewContext?.contextCoordinate ?? activeContextScopeCoordinate
 
 	const userGeoEvents = useMemo(
 		() => geoEvents.filter((event) => event.pubkey === pubkey),
@@ -184,11 +214,11 @@ export function UserProfilePanel({
 	)
 
 	const datasetReferenceMap = useMemo(() => {
-		const map = new Map<string, NDKGeoEvent>()
+		const map = new Map<string, GeoDataset>()
 		geoEvents.forEach((event) => {
 			const datasetId = event.datasetId ?? event.dTag ?? event.id
 			if (!datasetId) return
-			const kind = event.kind ?? NDKGeoEvent.kinds[0]
+			const kind = event.kind ?? GEO_EVENT_KIND
 			map.set(`${kind}:${event.pubkey}:${datasetId}`, event)
 		})
 		return map
@@ -200,25 +230,25 @@ export function UserProfilePanel({
 	)
 
 	const proposalFilters = useMemo(() => {
-		if (!pubkey) return false
+		if (!pubkey) return null
 		return [{ kinds: [GEO_EDIT_PROPOSAL_KIND], authors: [pubkey] }]
 	}, [pubkey])
 
-	const { events: proposalEvents, eose: proposalEose } = useSubscribe(proposalFilters)
+	const { events: proposalEvents, eose: proposalEose } = useTimelineWithEose(proposalFilters)
 
 	const userProposalEvents = useMemo(() => {
 		return proposalEvents
-			.filter((event: NDKEvent) => event.kind === GEO_EDIT_PROPOSAL_KIND)
-			.map((event: NDKEvent) => NDKGeoEditProposalEvent.from(event))
+			.filter((event) => event.kind === GEO_EDIT_PROPOSAL_KIND)
+			.map((event) => castEvent(event, GeoProposal, eventStore))
 			.sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
 	}, [proposalEvents])
 
 	const proposalStatusFilters = useMemo(() => {
-		if (userProposalEvents.length === 0) return false
+		if (userProposalEvents.length === 0) return null
 		const addresses = userProposalEvents
 			.map((proposal) => proposal.proposalCoordinate)
 			.filter((value): value is string => Boolean(value))
-		if (addresses.length === 0) return false
+		if (addresses.length === 0) return null
 		return [
 			{
 				kinds: [
@@ -233,7 +263,7 @@ export function UserProfilePanel({
 	}, [userProposalEvents])
 
 	const { events: proposalStatusEvents, eose: proposalStatusEose } =
-		useSubscribe(proposalStatusFilters)
+		useTimelineWithEose(proposalStatusFilters)
 
 	const datasetResult = useSortedFilteredItems(userGeoEvents, datasetFilterConfig, filterState)
 	const contextResult = useSortedFilteredItems(userContextEvents, contextFilterConfig, filterState)
@@ -313,10 +343,20 @@ export function UserProfilePanel({
 					isActive: false,
 					isOwned: true,
 					isVisible: datasetVisibility[datasetKey] !== false,
+					isInMapStack: Boolean(mapStackEntries[`dataset:${datasetKey}`]),
+					isCatalogPinned: pinnedEntitySet.has(`dataset:${datasetKey}`),
 					primaryLabel: isOwnProfile ? 'Edit dataset' : 'Load copy',
 				}
 			}),
-		[filteredGeoEvents, getDatasetKey, getDatasetName, datasetVisibility, isOwnProfile],
+		[
+			filteredGeoEvents,
+			getDatasetKey,
+			getDatasetName,
+			datasetVisibility,
+			isOwnProfile,
+			mapStackEntries,
+			pinnedEntitySet,
+		],
 	)
 
 	const allVisibleState = useMemo((): 'all' | 'none' | 'some' => {
@@ -335,6 +375,10 @@ export function UserProfilePanel({
 			onToggleAllVisibility,
 			onZoomToDataset,
 			onInspectDataset,
+			onAddDatasetToMap,
+			onRemoveDatasetFromMap,
+			onToggleCatalogPin: toggleDatasetFavorite,
+			canFavorite: Boolean(currentUserPubkey),
 			onOpenDebug,
 			isPublishing,
 			deletingKey,
@@ -347,6 +391,10 @@ export function UserProfilePanel({
 			onToggleAllVisibility,
 			onZoomToDataset,
 			onInspectDataset,
+			onAddDatasetToMap,
+			onRemoveDatasetFromMap,
+			toggleDatasetFavorite,
+			currentUserPubkey,
 			onOpenDebug,
 			isPublishing,
 			deletingKey,
@@ -358,14 +406,44 @@ export function UserProfilePanel({
 		[datasetColumnsContext],
 	)
 
+	// Round F.3: same stack-toggle verb as the main catalog — store-direct so
+	// the profile view stays consistent without extra prop drilling.
+	const toggleContextOnMap = useCallback((context: MapContext) => {
+		const coordinate = getContextCoordinate(context)
+		if (!coordinate) return
+		const store = useEditorStore.getState()
+		const entryId = `context:${coordinate}`
+		if (store.mapStackEntries[entryId]) {
+			store.removeMapStackEntry(entryId)
+			return
+		}
+		store.addMapStackEntry({
+			entityType: 'context',
+			entityKey: coordinate,
+			title: getContextDisplayName(context),
+			source: 'manual',
+			visible: true,
+			pinned: false,
+		})
+	}, [])
+
 	const contextColumnsContext: ContextColumnsContext = useMemo(
 		() => ({
 			currentUserPubkey,
 			onInspectContext,
 			onEditContext,
+			onToggleContextOnMap: toggleContextOnMap,
+			onToggleCatalogPin: toggleContextFavorite,
 			onOpenDebug,
 		}),
-		[currentUserPubkey, onInspectContext, onEditContext, onOpenDebug],
+		[
+			currentUserPubkey,
+			onInspectContext,
+			onEditContext,
+			onOpenDebug,
+			toggleContextOnMap,
+			toggleContextFavorite,
+		],
 	)
 	const contextColumns = useMemo(
 		() => createContextColumns(contextColumnsContext),
@@ -398,9 +476,18 @@ export function UserProfilePanel({
 					!context.context.allowForeignAttachments &&
 					context.contextReferences.length > 0,
 				attachmentCount: context.contextReferences.length,
+				isInMapStack: Boolean(
+					getContextCoordinate(context) &&
+						mapStackEntries[`context:${getContextCoordinate(context)}`],
+				),
+				isCatalogPinned: Boolean(
+					getContextCoordinate(context) &&
+						pinnedEntitySet.has(`context:${getContextCoordinate(context)}`),
+				),
+				isMapActive: getContextCoordinate(context) === effectiveContextCoordinate,
 			}),
 		)
-	}, [filteredContexts])
+	}, [filteredContexts, effectiveContextCoordinate, mapStackEntries, pinnedEntitySet])
 
 	const proposalColumns = useMemo<ColumnDef<UserProposalRow>[]>(
 		() => [
@@ -411,10 +498,13 @@ export function UserProfilePanel({
 					const item = row.original
 					return (
 						<div className="max-w-[260px] space-y-0.5">
-							<div className="line-clamp-2 text-xs font-semibold text-gray-900">
+							<div className="line-clamp-2 text-xs font-semibold text-foreground">
 								{item.description}
 							</div>
-							<div className="truncate text-[10px] text-gray-500" title={item.targetAddress}>
+							<div
+								className="truncate text-[10px] text-muted-foreground"
+								title={item.targetAddress}
+							>
 								Target: {item.targetName}
 							</div>
 						</div>
@@ -468,7 +558,7 @@ export function UserProfilePanel({
 
 	const isProposalsLoading =
 		!proposalEose ||
-		(userProposalEvents.length > 0 && proposalStatusFilters !== false && !proposalStatusEose)
+		(userProposalEvents.length > 0 && proposalStatusFilters !== null && !proposalStatusEose)
 
 	const activeResult =
 		activeTab === 'datasets'
@@ -489,9 +579,7 @@ export function UserProfilePanel({
 					showNip05Badge={true}
 					showBio={true}
 				/>
-				{isOwnProfile ? (
-					<p className="mt-2 text-xs text-emerald-600">This is your profile</p>
-				) : null}
+				{isOwnProfile ? <p className="mt-2 text-xs text-ok">This is your profile</p> : null}
 			</div>
 
 			<div
@@ -539,24 +627,23 @@ export function UserProfilePanel({
 
 			{activeTab === 'datasets' ? (
 				userGeoEvents.length === 0 ? (
-					<p className="text-xs text-gray-500">No datasets published by this user.</p>
+					<p className="text-xs text-muted-foreground">No datasets published by this user.</p>
 				) : filteredGeoEvents.length === 0 ? (
-					<p className="text-xs text-gray-500">No datasets match your filters.</p>
+					<p className="text-xs text-muted-foreground">No datasets match your filters.</p>
 				) : (
-					<DataTable
+					<EntityListTable
 						columns={datasetColumns}
 						data={datasetTableData}
 						getRowId={(row) => row.datasetKey}
-						getRowClassName={(row) => (!row.isVisible ? 'opacity-60' : undefined)}
 					/>
 				)
 			) : activeTab === 'contexts' ? (
 				userContextEvents.length === 0 ? (
-					<p className="text-xs text-gray-500">No contexts published by this user.</p>
+					<p className="text-xs text-muted-foreground">No contexts published by this user.</p>
 				) : filteredContexts.length === 0 ? (
-					<p className="text-xs text-gray-500">No contexts match your filters.</p>
+					<p className="text-xs text-muted-foreground">No contexts match your filters.</p>
 				) : (
-					<DataTable
+					<EntityListTable
 						columns={contextColumns}
 						data={contextTableData}
 						getRowId={(row) =>
@@ -566,11 +653,13 @@ export function UserProfilePanel({
 				)
 			) : activeTab === 'proposals' ? (
 				isProposalsLoading && userProposalRows.length === 0 ? (
-					<p className="text-xs text-gray-500">Loading change proposals...</p>
+					<p className="text-xs text-muted-foreground">Loading change proposals...</p>
 				) : userProposalRows.length === 0 ? (
-					<p className="text-xs text-gray-500">No change proposals published by this user.</p>
+					<p className="text-xs text-muted-foreground">
+						No change proposals published by this user.
+					</p>
 				) : filteredProposals.length === 0 ? (
-					<p className="text-xs text-gray-500">No proposals match your filters.</p>
+					<p className="text-xs text-muted-foreground">No proposals match your filters.</p>
 				) : (
 					<DataTable
 						columns={proposalColumns}
@@ -583,11 +672,11 @@ export function UserProfilePanel({
 					/>
 				)
 			) : !isOwnProfile ? (
-				<p className="text-xs text-gray-500">
+				<p className="text-xs text-muted-foreground">
 					Workspace management is only available on your profile.
 				</p>
 			) : sortedWorkspaces.length === 0 ? (
-				<p className="text-xs text-gray-500">No local workspaces yet.</p>
+				<p className="text-xs text-muted-foreground">No local workspaces yet.</p>
 			) : (
 				<div className="space-y-2">
 					{sortedWorkspaces.map((workspace) => {
@@ -609,7 +698,7 @@ export function UserProfilePanel({
 												{workspace.kind === 'scratch' ? 'draft' : 'dataset'}
 											</span>
 											{isActive ? (
-												<span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-emerald-700">
+												<span className="rounded-full bg-ok/15 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-ok">
 													Active
 												</span>
 											) : null}
@@ -653,7 +742,7 @@ export function UserProfilePanel({
 									</div>
 								</div>
 								{isConfirmingDelete ? (
-									<div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-900">
+									<div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-[11px] text-destructive">
 										<span className="min-w-0 flex-1 truncate">
 											Remove workspace "{workspace.label}"?
 										</span>

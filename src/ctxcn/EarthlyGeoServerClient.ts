@@ -7,6 +7,7 @@ import {
 	ApplesauceRelayPool,
 } from '@contextvm/sdk'
 import { config } from '@/config'
+import { readRelaysFor } from '@/lib/nostr/relay-router'
 
 export interface SearchLocationInput {
 	/**
@@ -761,8 +762,15 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 
 		// Use options.signer if provided, otherwise create from resolved private key
 		const signer = options.signer || new PrivateKeySigner(resolvedPrivateKey)
-		// Prefer frontend runtime config and fall back to generated defaults for standalone consumers.
-		const relays = options.relays || config.relayUrls || EarthlyGeoServerClient.DEFAULT_RELAYS
+		// Route through the relay router's discovery bucket: local relay in dev
+		// (bun dev runs the ContextVM geo server against it), configured relays in
+		// prod. DEFAULT_RELAYS remains ONLY for standalone consumers that construct
+		// this client outside the app (config missing entirely) — never as a dev
+		// fallback, which used to leak MCP traffic to public relays.
+		const routedRelays = readRelaysFor('discovery')
+		const relays =
+			options.relays ||
+			(routedRelays.length > 0 ? routedRelays : EarthlyGeoServerClient.DEFAULT_RELAYS)
 		// Use options.relayHandler if provided, otherwise create from relays
 		const relayHandler = options.relayHandler || new ApplesauceRelayPool(relays)
 		const serverPubkey = options.serverPubkey || config.serverPubkey
@@ -773,6 +781,14 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 			signer,
 			relayHandler,
 			isStateless: true,
+			// CEP-22 oversized-payload transfer. Enabled is already the SDK default
+			// (threshold ~48 KB, receiver max 100 MiB, reassembly + digest automatic),
+			// but we set it explicitly to document intent and give a stable hook for
+			// tuning thresholds/policy later. This is what lets the client accept FULL
+			// (non-simplified) geometry once the geo server drops its 42 KB truncation
+			// cap — see .planning/backlog/cvm-osm-cache.md. Placed before `...rest` so
+			// callers can still override per-instance.
+			oversizedTransfer: { enabled: true },
 			...rest,
 		})
 
@@ -784,6 +800,33 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 
 	async disconnect(): Promise<void> {
 		await this.transport.close()
+	}
+
+	/**
+	 * Passthrough to the MCP SDK `client.listTools()` — fetches the connected server's
+	 * live tool manifest (the `tools/list` MCP method). Poll-based (NOT push): over the
+	 * stateless Nostr transport (`isStateless: true`) server-initiated
+	 * `notifications/tools/list_changed` is not guaranteed, so callers must poll
+	 * (Pitfall 3, D-05). Returns the raw SDK result whose `tools` array each carries
+	 * `{ name, description?, inputSchema }`.
+	 *
+	 * Whether the live Earthly geo server actually implements `tools/list` is the
+	 * UNVERIFIED assumption A1 — this method exists to network-spike that gate before
+	 * any mcp-sync build is committed.
+	 */
+	async listTools(): Promise<Awaited<ReturnType<Client['listTools']>>> {
+		return this.client.listTools()
+	}
+
+	/**
+	 * Generic passthrough for invoking a remote MCP tool by name (D-05). Used by
+	 * the poll-based `mcp-sync` registrations: tools discovered via `listTools()`
+	 * get a thin handler that routes the call through the SAME stateless transport
+	 * + error-unwrapping path (`call`) the hand-written handlers use. Returns the
+	 * unwrapped structured result (or parsed text content); throws on `isError`.
+	 */
+	async callRemoteTool<T = unknown>(name: string, args: Record<string, unknown>): Promise<T> {
+		return this.call<T>(name, args)
 	}
 
 	private async call<T = unknown>(name: string, args: Record<string, unknown>): Promise<T> {

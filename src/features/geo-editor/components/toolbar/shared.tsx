@@ -61,5 +61,5 @@ export function IconButtonRow({
 
 /** Small vertical divider for button groups */
 export function Divider({ className = '' }: { className?: string }) {
-	return <div className={`h-5 w-px bg-gray-300 mx-0.5 ${className}`} />
+	return <div className={`h-5 w-px bg-accent mx-0.5 ${className}`} />
 }

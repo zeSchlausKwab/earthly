@@ -15,7 +15,6 @@ export const createMetadataSlice: StateCreator<EditorState, [], [], MetadataSlic
 	activeDataset: null,
 	isDirty: false,
 	activeDatasetContextRefs: [],
-	datasetVisibility: {},
 	resolvingDatasets: new Set<string>(),
 	resolvingProgress: new Map<string, { loaded: number; total: number }>(),
 
@@ -48,10 +47,6 @@ export const createMetadataSlice: StateCreator<EditorState, [], [], MetadataSlic
 	setActiveDataset: (activeDataset) => set({ activeDataset, isDirty: false }),
 	setIsDirty: (isDirty) => set({ isDirty }),
 	setActiveDatasetContextRefs: (activeDatasetContextRefs) => set({ activeDatasetContextRefs }),
-	setDatasetVisibility: (update) =>
-		set((state) => ({
-			datasetVisibility: typeof update === 'function' ? update(state.datasetVisibility) : update,
-		})),
 	setDatasetResolving: (datasetKey, resolving) =>
 		set((state) => {
 			const next = new Set(state.resolvingDatasets)

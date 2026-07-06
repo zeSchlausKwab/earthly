@@ -104,11 +104,11 @@ export function SearchResults<T extends { id: string; displayName: string }>({
 	if (results.length === 0) return null
 
 	return (
-		<div className={`rounded-lg bg-white border border-gray-100 shadow-lg ${className}`}>
+		<div className={`rounded-lg bg-card border border-border shadow-lg ${className}`}>
 			{(showCount || onClear) && (
-				<div className="flex items-center justify-between border-b border-gray-100 px-3 py-2">
+				<div className="flex items-center justify-between border-b border-border px-3 py-2">
 					{showCount && (
-						<span className="text-xs font-medium text-gray-500">
+						<span className="text-xs font-medium text-muted-foreground">
 							{results.length} result{results.length !== 1 ? 's' : ''}
 						</span>
 					)}
@@ -127,7 +127,7 @@ export function SearchResults<T extends { id: string; displayName: string }>({
 						<button
 							key={result.id}
 							type="button"
-							className="w-full text-left text-sm p-2 hover:bg-gray-50 rounded truncate"
+							className="w-full text-left text-sm p-2 hover:bg-muted rounded truncate"
 							onClick={() => onResultSelect?.(result)}
 						>
 							{result.displayName}

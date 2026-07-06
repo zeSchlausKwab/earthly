@@ -39,7 +39,7 @@ export function DataTable<TData, TValue>({
   });
 
   return (
-    <div className="rounded-md border border-gray-200">
+    <div className="rounded-md border border-border">
       <Table>
         <TableHeader>
           {table.getHeaderGroups().map((headerGroup) => (
@@ -77,7 +77,7 @@ export function DataTable<TData, TValue>({
           ) : (
             <TableRow>
               <TableCell colSpan={columns.length} className="h-24 text-center">
-                <p className="text-xs text-gray-500">{emptyMessage}</p>
+                <p className="text-xs text-muted-foreground">{emptyMessage}</p>
               </TableCell>
             </TableRow>
           )}

@@ -1,6 +1,8 @@
 import { Check, Copy, Heart, Loader2, MessageCircle, PencilLine, Share2, Zap } from 'lucide-react'
-import { getNip57ZapSpecFromLud, NDKZapper, type NDKLnLudData } from '@nostr-dev-kit/ndk'
-import { useNDK, useNDKCurrentUser, useSubscribe, NDKEvent } from '@nostr-dev-kit/react'
+import { use$, useActiveAccount } from 'applesauce-react/hooks'
+import { ZapRequestFactory } from 'applesauce-common/factories'
+import { getInvoice, parseLNURLOrAddress } from 'applesauce-common/helpers'
+import type { NostrEvent } from 'nostr-tools'
 import { nip19 } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
@@ -14,8 +16,16 @@ import {
 	DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { buildRouteHash } from '@/features/geo-editor/hooks/useRouting'
-import { GEO_COMMENT_KIND, GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/ndk/kinds'
+import {
+	ARTICLE_KIND,
+	GEO_COMMENT_KIND,
+	GEO_EVENT_KIND,
+	LIVE_BEACON_KIND,
+	MAP_CONTEXT_KIND,
+	TEMPORAL_SIGHTING_KIND,
+} from '@/lib/nostr/kinds'
+import { accounts, eventStore, readRelaysFor } from '@/lib/nostr'
+import { useTimeline } from '@/lib/nostr/hooks'
 import { useGeoReactions, type ReactableEvent } from '../hooks/useGeoReactions'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -32,17 +42,23 @@ interface GeoSocialActionsProps {
 	showShareButton?: boolean
 	className?: string
 	compact?: boolean
+	loadCounts?: boolean
 }
 
-function getEntityRouteParts(kind: number): {
-	sidebarView: 'datasets' | 'contexts'
-	focusType: 'geoevent' | 'mapcontext'
-} | null {
+function getEntitySharePath(
+	kind: number,
+): 'geoevent' | 'context' | 'story' | 'sighting' | 'beacon' | null {
 	switch (kind) {
 		case GEO_EVENT_KIND:
-			return { sidebarView: 'datasets', focusType: 'geoevent' }
+			return 'geoevent'
 		case MAP_CONTEXT_KIND:
-			return { sidebarView: 'contexts', focusType: 'mapcontext' }
+			return 'context'
+		case ARTICLE_KIND:
+			return 'story'
+		case TEMPORAL_SIGHTING_KIND:
+			return 'sighting'
+		case LIVE_BEACON_KIND:
+			return 'beacon'
 		default:
 			return null
 	}
@@ -78,34 +94,35 @@ function buildZapFilters(target: ReactableEvent | null) {
 	return []
 }
 
-function sanitizeTag(tag: Array<string | number | null | undefined>): string[] {
-	return tag
-		.filter((value): value is string | number => value !== null && value !== undefined)
-		.map((value) => String(value))
+/** Get the underlying raw NostrEvent regardless of whether we got a Cast/wrapper. */
+function rawNostrEvent(target: ReactableEvent): NostrEvent {
+	if ('event' in target && (target as { event?: NostrEvent }).event) {
+		return (target as { event: NostrEvent }).event
+	}
+	return target as NostrEvent
 }
 
-function normalizeTargetEvent(
-	ndk: NonNullable<ReturnType<typeof useNDK>['ndk']>,
-	target: ReactableEvent,
-): NDKEvent {
-	if (target instanceof NDKEvent) {
-		return target
+/** LNURL pay-endpoint payload (NIP-57 §3). */
+interface NostrLnurlSpec {
+	callback: string
+	minSendable?: number
+	maxSendable?: number
+	allowsNostr?: boolean
+	nostrPubkey?: string
+}
+
+/** Extract a Lightning address (lud16) or LNURLp (lud06) from a kind 0 event. */
+function getLightningEndpointFromProfile(profileEvent: NostrEvent | undefined): URL | undefined {
+	if (!profileEvent) return undefined
+	let parsed: { lud16?: string; lud06?: string }
+	try {
+		parsed = JSON.parse(profileEvent.content) as typeof parsed
+	} catch {
+		return undefined
 	}
-
-	const tags = Array.isArray(target.tags)
-		? target.tags.map((tag) =>
-				Array.isArray(tag) ? tag.map((value) => String(value)) : [String(tag)],
-			)
-		: []
-
-	return new NDKEvent(ndk, {
-		kind: target.kind ?? 1,
-		pubkey: target.pubkey,
-		id: target.id ?? '',
-		created_at: target.created_at ?? Math.floor(Date.now() / 1000),
-		content: typeof target.content === 'string' ? target.content : '',
-		tags,
-	})
+	const candidate = parsed.lud16 ?? parsed.lud06
+	if (!candidate) return undefined
+	return parseLNURLOrAddress(candidate)
 }
 
 interface ZapDialogProps {
@@ -115,8 +132,7 @@ interface ZapDialogProps {
 }
 
 function ZapDialog({ target, open, onClose }: ZapDialogProps) {
-	const { ndk } = useNDK()
-	const currentUser = useNDKCurrentUser()
+	const currentUser = useActiveAccount()
 	const [selectedAmount, setSelectedAmount] = useState<number | 'custom' | null>(null)
 	const [customAmount, setCustomAmount] = useState('')
 	const [invoice, setInvoice] = useState('')
@@ -126,8 +142,17 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 	const [copied, setCopied] = useState(false)
 	const receiptEventIdRef = useRef<string | null>(null)
 
-	const zapFilters = useMemo(() => buildZapFilters(target), [target])
-	const { events: zapReceiptEvents } = useSubscribe(zapFilters)
+	const zapFilters = useMemo(() => {
+		const filters = buildZapFilters(target)
+		return filters.length ? filters : null
+	}, [target])
+	const zapReceiptEvents = useTimeline(open ? zapFilters : null)
+
+	// Read recipient's profile (kind 0) to extract their Lightning endpoint.
+	const recipientProfileEvent = use$(
+		() => (target?.pubkey ? eventStore.replaceable(0, target.pubkey) : undefined),
+		[target?.pubkey],
+	)
 
 	const resetDialogState = useCallback(() => {
 		setSelectedAmount(null)
@@ -154,7 +179,9 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 	useEffect(() => {
 		if (!open || !invoice) return
 
-		const matchingReceipt = zapReceiptEvents.find((event) => event.tagValue('bolt11') === invoice)
+		const matchingReceipt = zapReceiptEvents.find(
+			(event) => event.tags.find((t) => t[0] === 'bolt11')?.[1] === invoice,
+		)
 		if (!matchingReceipt) return
 
 		const receiptId = matchingReceipt.id ?? invoice
@@ -166,8 +193,9 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 
 	const generateInvoice = useCallback(
 		async (amountSats: number) => {
-			if (!ndk) {
-				toast.error('NDK is not ready yet')
+			const signer = accounts.signer
+			if (!signer) {
+				toast.error('Sign in to send zaps')
 				return
 			}
 			if (!Number.isFinite(amountSats) || amountSats <= 0) {
@@ -181,60 +209,48 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 			receiptEventIdRef.current = null
 
 			try {
-				const senderPubkey = currentUser?.pubkey ?? ndk.activeUser?.pubkey
-				if (!senderPubkey) {
-					throw new Error('No active signer pubkey available for zaps.')
-				}
+				const senderPubkey = currentUser?.pubkey
+				if (!senderPubkey) throw new Error('No active signer.')
 
-				const targetEvent = normalizeTargetEvent(ndk, target)
-				const amountMsats = amountSats * 1000
-				const zapper = new NDKZapper(targetEvent, amountMsats, 'msat', { ndk })
-				const splits = zapper.getZapSplits()
-				if (splits.length !== 1) {
-					throw new Error('Split zaps are not supported in this dialog yet.')
-				}
-
-				const split = splits[0]
-				const recipientMethods = (await zapper.getRecipientZapMethods()).get(split.pubkey)
-				const nip57Data = recipientMethods?.get('nip57') as NDKLnLudData | undefined
-				if (!nip57Data) {
+				const lnurlEndpoint = getLightningEndpointFromProfile(recipientProfileEvent)
+				if (!lnurlEndpoint) {
 					throw new Error('This recipient does not expose a Lightning zap endpoint.')
 				}
-				const zapSpec = await getNip57ZapSpecFromLud(nip57Data, ndk)
-				if (!zapSpec?.callback) {
-					throw new Error('This recipient does not expose a valid Lightning zap callback.')
+
+				// Step 1: Fetch the LNURL-pay metadata.
+				const spec: NostrLnurlSpec = await fetch(lnurlEndpoint).then((r) => r.json())
+				if (!spec.callback) {
+					throw new Error('Recipient LNURL endpoint did not return a callback.')
+				}
+				if (!spec.allowsNostr) {
+					throw new Error('Recipient endpoint does not support Nostr zaps.')
 				}
 
-				const relays = await zapper.relays(split.pubkey)
-				const zapRequest = new NDKEvent(ndk)
-				zapRequest.kind = 9734
-				zapRequest.created_at = Math.floor(Date.now() / 1000)
-				zapRequest.pubkey = senderPubkey
-				zapRequest.content = ''
-				zapRequest.tags = [
-					sanitizeTag(['relays', ...relays.slice(0, 4)]),
-					sanitizeTag(['amount', amountMsats]),
-					sanitizeTag(['lnurl', zapSpec.callback]),
-					sanitizeTag(['p', split.pubkey]),
-				]
-
-				const targetAddress = buildTargetAddress(target)
-				if (targetAddress) {
-					zapRequest.tags.push(sanitizeTag(['a', targetAddress]))
+				const amountMsats = amountSats * 1000
+				if (spec.minSendable && amountMsats < spec.minSendable) {
+					throw new Error(`Minimum zap is ${Math.ceil(spec.minSendable / 1000)} sats.`)
 				}
-				if (target.id) {
-					zapRequest.tags.push(sanitizeTag(['e', target.id, '', target.pubkey]))
-				}
-				if (target.kind !== undefined) {
-					zapRequest.tags.push(sanitizeTag(['k', target.kind]))
+				if (spec.maxSendable && amountMsats > spec.maxSendable) {
+					throw new Error(`Maximum zap is ${Math.floor(spec.maxSendable / 1000)} sats.`)
 				}
 
-				await zapRequest.sign(ndk.signer)
+				// Step 2: Build the zap request (kind 9734). ZapRequestFactory wires up
+				// the e/a/k/p/relays/amount tags for us; we only need to choose relays.
+				// The relays tag tells the recipient's LNURL server where to publish the
+				// zap receipt — route it where we read content (local relay in dev).
+				const targetEvent = rawNostrEvent(target)
+				const relays = readRelaysFor('content')
+				const zapRequest = await ZapRequestFactory.event(targetEvent, amountMsats, relays).sign(
+					signer,
+				)
 
-				const pr = await zapper.getLnInvoice(zapRequest, amountMsats, zapSpec)
-				if (!pr) {
-					throw new Error('Unable to fetch a Lightning invoice.')
-				}
+				// Step 3: Call the LNURL callback with the zap request and amount.
+				const callbackUrl = new URL(spec.callback)
+				callbackUrl.searchParams.set('amount', String(amountMsats))
+				callbackUrl.searchParams.set('nostr', encodeURIComponent(JSON.stringify(zapRequest)))
+
+				const pr = await getInvoice(callbackUrl)
+				if (!pr) throw new Error('Unable to fetch a Lightning invoice.')
 
 				setInvoice(pr)
 				setInvoiceAmount(amountSats)
@@ -247,7 +263,7 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 				setIsGenerating(false)
 			}
 		},
-		[currentUser?.pubkey, ndk, target],
+		[currentUser?.pubkey, recipientProfileEvent, target],
 	)
 
 	const handleCopyInvoice = useCallback(async () => {
@@ -270,7 +286,7 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 			<DialogContent className="sm:max-w-md">
 				<DialogHeader>
 					<DialogTitle className="flex items-center gap-2">
-						<Zap className="h-5 w-5 text-amber-500 fill-current" />
+						<Zap className="h-5 w-5 text-primary fill-current" />
 						Send a zap
 					</DialogTitle>
 					<DialogDescription>
@@ -281,17 +297,17 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 
 				{invoice ? (
 					<div className="space-y-4">
-						<div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+						<div className="flex items-center justify-between gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm text-primary">
 							<span>Zap amount</span>
 							<span className="font-semibold">{invoiceAmount?.toLocaleString() ?? '—'} sats</span>
 						</div>
 						<div className="flex justify-center">
-							<div className="rounded-lg border bg-white p-4">
+							<div className="rounded-lg border bg-card p-4">
 								<QRCodeSVG value={invoice} size={208} />
 							</div>
 						</div>
 						<div className="space-y-2">
-							<p className="text-sm font-medium text-slate-900">Lightning invoice</p>
+							<p className="text-sm font-medium text-foreground">Lightning invoice</p>
 							<div className="flex gap-2">
 								<Input value={invoice} readOnly disabled className="font-mono text-xs" />
 								<Button
@@ -305,7 +321,7 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 								</Button>
 							</div>
 						</div>
-						<div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+						<div className="flex items-center gap-2 rounded-lg border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
 							<Loader2 className="h-4 w-4 animate-spin" />
 							Waiting for zap receipt...
 						</div>
@@ -359,8 +375,8 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 						</div>
 
 						{selectedAmount === 'custom' ? (
-							<div className="space-y-2 rounded-lg border border-slate-200 p-3">
-								<label className="text-sm font-medium text-slate-900" htmlFor="custom-zap-amount">
+							<div className="space-y-2 rounded-lg border border-border p-3">
+								<label className="text-sm font-medium text-foreground" htmlFor="custom-zap-amount">
 									Custom amount
 								</label>
 								<div className="flex gap-2">
@@ -386,7 +402,7 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 							</div>
 						) : null}
 
-						{generationError ? <p className="text-sm text-red-600">{generationError}</p> : null}
+						{generationError ? <p className="text-sm text-destructive">{generationError}</p> : null}
 
 						<div className="flex justify-end">
 							<Button type="button" variant="ghost" onClick={handleClose} disabled={isGenerating}>
@@ -400,7 +416,7 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 	)
 }
 
-function buildShareHash(target: ReactableEvent): string | null {
+function buildSharePath(target: ReactableEvent): string | null {
 	if (!target.kind) return null
 
 	if (target.kind === GEO_COMMENT_KIND) {
@@ -418,19 +434,15 @@ function buildShareHash(target: ReactableEvent): string | null {
 		const identifier = identifierParts.join(':')
 		if (!Number.isFinite(rootKind) || !pubkey || !identifier) return null
 
-		const route = getEntityRouteParts(rootKind)
-		if (!route) return null
+		const sharePath = getEntitySharePath(rootKind)
+		if (!sharePath) return null
 
-		return buildRouteHash({
-			sidebarView: route.sidebarView,
-			focusType: route.focusType,
-			naddr: nip19.naddrEncode({
-				kind: rootKind,
-				pubkey,
-				identifier,
-			}),
-			commentId,
+		const naddr = nip19.naddrEncode({
+			kind: rootKind,
+			pubkey,
+			identifier,
 		})
+		return `/${sharePath}/${naddr}/comment/${encodeURIComponent(commentId)}`
 	}
 
 	const targetWithDTag = target as {
@@ -442,23 +454,20 @@ function buildShareHash(target: ReactableEvent): string | null {
 	const identifier = targetWithDTag.dTag ?? targetWithDTag.datasetId ?? targetWithDTag.contextId
 	if (!identifier) return null
 
-	const route = getEntityRouteParts(target.kind)
-	if (!route) return null
+	const sharePath = getEntitySharePath(target.kind)
+	if (!sharePath) return null
 
-	return buildRouteHash({
-		sidebarView: route.sidebarView,
-		focusType: route.focusType,
-		naddr: nip19.naddrEncode({
-			kind: target.kind,
-			pubkey: target.pubkey,
-			identifier,
-		}),
+	const naddr = nip19.naddrEncode({
+		kind: target.kind,
+		pubkey: target.pubkey,
+		identifier,
 	})
+	return `/${sharePath}/${naddr}`
 }
 
 /**
  * Social actions bar for any Nostr event: reactions, zaps, and comments.
- * Works with geo events (NDKGeoEvent, etc.) and regular events (NDKEvent).
+ * Works with geo events (GeoDataset, etc.) and regular events (NDKEvent).
  */
 export function GeoSocialActions({
 	target,
@@ -471,8 +480,9 @@ export function GeoSocialActions({
 	showShareButton = true,
 	className = '',
 	compact = false,
+	loadCounts = true,
 }: GeoSocialActionsProps) {
-	const currentUser = useNDKCurrentUser()
+	const currentUser = useActiveAccount()
 	const {
 		reactionCount,
 		zapCount,
@@ -483,8 +493,8 @@ export function GeoSocialActions({
 		openZapDialog,
 		zapDialogOpen,
 		closeZapDialog,
-	} = useGeoReactions({ target })
-	const shareHash = useMemo(() => buildShareHash(target), [target])
+	} = useGeoReactions({ target, loadCounts })
+	const sharePath = useMemo(() => buildSharePath(target), [target])
 
 	const formatCount = (count: number): string => {
 		if (count === 0) return ''
@@ -514,13 +524,12 @@ export function GeoSocialActions({
 	}
 
 	const handleShare = async () => {
-		if (!shareHash) {
+		if (!sharePath) {
 			toast.error('No share route available for this item')
 			return
 		}
 
-		const shareUrl = new URL(window.location.href)
-		shareUrl.hash = shareHash
+		const shareUrl = new URL(sharePath, window.location.origin)
 
 		try {
 			await navigator.clipboard.writeText(shareUrl.toString())
@@ -548,8 +557,8 @@ export function GeoSocialActions({
 							aria-label={userHasReacted ? 'Unlike' : 'Like'}
 							className={`gap-1 ${
 								userHasReacted
-									? 'text-rose-500 hover:text-rose-600'
-									: 'text-gray-500 hover:text-rose-500'
+									? 'text-destructive hover:text-destructive'
+									: 'text-muted-foreground hover:text-destructive'
 							} rounded-none px-2 text-xs`}
 						>
 							<Heart className={`${iconSize} ${userHasReacted ? 'fill-current' : ''}`} />
@@ -574,8 +583,8 @@ export function GeoSocialActions({
 								disabled={isLoading || !currentUser}
 								className={`gap-1 ${
 									userHasZapped
-										? 'text-amber-500 hover:text-amber-600'
-										: 'text-gray-500 hover:text-amber-500'
+										? 'text-primary hover:text-primary'
+										: 'text-muted-foreground hover:text-primary'
 								} rounded-none px-2 text-xs`}
 							>
 								<Zap className={`${iconSize} ${userHasZapped ? 'fill-current' : ''}`} />
@@ -590,7 +599,7 @@ export function GeoSocialActions({
 					</Tooltip>
 				)}
 
-				{showShareButton && shareHash && (
+				{showShareButton && sharePath && (
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<Button
@@ -599,7 +608,7 @@ export function GeoSocialActions({
 								size={buttonSize}
 								onClick={handleShare}
 								aria-label="Share"
-								className="gap-1 rounded-none px-2 text-xs text-gray-500 hover:text-sky-600"
+								className="gap-1 rounded-none px-2 text-xs text-muted-foreground hover:text-info"
 							>
 								<Share2 className={iconSize} />
 								{!compact ? <span className="text-xs font-medium">Share</span> : null}
@@ -616,7 +625,7 @@ export function GeoSocialActions({
 								variant="ghost"
 								size={buttonSize}
 								onClick={onAnnotateClick}
-								className="gap-1 rounded-none px-2 text-xs text-amber-600 hover:text-amber-700"
+								className="gap-1 rounded-none px-2 text-xs text-primary hover:text-primary"
 							>
 								<PencilLine className={iconSize} />
 								{!compact && <span className="text-xs font-medium">Annotate</span>}
@@ -635,7 +644,7 @@ export function GeoSocialActions({
 								size={buttonSize}
 								onClick={onReplyClick}
 								aria-label="Reply"
-								className="gap-1 rounded-none px-2 text-xs text-gray-500 hover:text-emerald-500"
+								className="gap-1 rounded-none px-2 text-xs text-muted-foreground hover:text-ok"
 							>
 								<MessageCircle className={iconSize} />
 								{commentCount > 0 ? (

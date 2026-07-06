@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 
 interface UseBlobResolutionParams {
-	geoEvents: NDKGeoEvent[]
-	ensureResolvedFeatureCollection: (event: NDKGeoEvent) => Promise<GeoJSON.FeatureCollection>
+	geoEvents: GeoDataset[]
+	ensureResolvedFeatureCollection: (event: GeoDataset) => Promise<GeoJSON.FeatureCollection>
 	isMountedRef: React.RefObject<boolean>
 	onResolved: () => void
 }

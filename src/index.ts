@@ -1,16 +1,27 @@
 import { join } from 'node:path'
-import { hexToBytes } from '@noble/hashes/utils'
+import { hexToBytes } from '@noble/hashes/utils.js'
 import { file, serve } from 'bun'
 import { getPublicKey } from 'nostr-tools/pure'
 import { serverConfig } from './config/env.server'
+import { buildWorkerSource } from './lib/workers/buildWorker'
+import { WORKER_ASSETS, type WorkerId } from './lib/workers/workerAssets'
 import {
 	isCrawler,
 	generateHomeOGHtml,
 	generateGeoEventOGHtml,
 	generateContextOGHtml,
-	fetchGeoEventOGData,
-	fetchContextEventOGData,
+	generateBeaconOGHtml,
+	generateSightingOGHtml,
+	generateStoryOGHtml,
+	fetchCachedGeoEventOGData,
+	fetchCachedContextEventOGData,
+	fetchCachedBeaconEventOGData,
+	fetchCachedSightingEventOGData,
+	fetchCachedStoryEventOGData,
+	getOGImageHeaders,
+	getOGRouteHeaders,
 	generateOGImagePNG,
+	warmOGCache,
 } from './lib/og'
 
 const isProduction = process.env.NODE_ENV === 'production'
@@ -42,10 +53,34 @@ function getBaseUrl(req: Request): string {
 }
 
 /**
+ * Serve a built file with an explicit `Content-Type` for extensions that browsers
+ * are strict about. WebAssembly streaming compilation
+ * (`WebAssembly.instantiateStreaming`) REQUIRES `application/wasm` — without it the
+ * QuickJS code-interpreter sandbox (Phase 4) fails to instantiate in the browser.
+ */
+function serveBuiltFile(builtFile: ReturnType<typeof file>, pathname: string): Response {
+	const headers: Record<string, string> = {}
+	if (pathname.endsWith('.wasm')) {
+		headers['Content-Type'] = 'application/wasm'
+		// The QuickJS sandbox wasm is a fixed, content-addressable asset. Let the browser
+		// cache it aggressively so a worker (re)spawn never re-downloads the ~503KB blob
+		// (defence-in-depth against the Phase 4 wasm re-fetch runaway, on top of the
+		// worker-side compile-once memoization).
+		headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+	} else if (pathname.endsWith('.js') || pathname.endsWith('.mjs')) {
+		// Worker modules (and any served JS) MUST have a JS MIME — a module Worker
+		// refuses to load a script served as anything else.
+		headers['Content-Type'] = 'text/javascript; charset=utf-8'
+	}
+	return new Response(builtFile, { headers })
+}
+
+/**
  * Handle OG routes for crawlers, serve SPA for regular users
  */
 async function handleGeoEventRoute(req: BunRouteRequest): Promise<Response> {
 	const naddr = req.params.naddr ?? ''
+	const commentId = req.params.commentId ?? ''
 	const baseUrl = getBaseUrl(req)
 
 	if (!naddr) {
@@ -53,8 +88,7 @@ async function handleGeoEventRoute(req: BunRouteRequest): Promise<Response> {
 	}
 
 	if (isCrawler(req)) {
-		// Fetch event data and return OG HTML
-		const data = await fetchGeoEventOGData(naddr, serverConfig.relayUrl)
+		const { data, cacheStatus } = await fetchCachedGeoEventOGData(naddr, serverConfig.relayUrl)
 		const html = generateGeoEventOGHtml(
 			baseUrl,
 			naddr,
@@ -62,12 +96,17 @@ async function handleGeoEventRoute(req: BunRouteRequest): Promise<Response> {
 			data?.description ?? 'View this geographic dataset on Earthly',
 		)
 		return new Response(html, {
-			headers: { 'Content-Type': 'text/html; charset=utf-8' },
+			headers: getOGRouteHeaders(cacheStatus),
 		})
 	}
 
+	warmOGCache('geoevent', naddr, serverConfig.relayUrl)
+
 	// For regular users, redirect to hash-based route
-	return Response.redirect(`${baseUrl}/#/geoevent/${naddr}`, 302)
+	if (commentId) {
+		return Response.redirect(`${baseUrl}/#/datasets/geoevent/${naddr}/comment/${commentId}`, 302)
+	}
+	return Response.redirect(`${baseUrl}/#/datasets/geoevent/${naddr}`, 302)
 }
 
 /**
@@ -75,6 +114,7 @@ async function handleGeoEventRoute(req: BunRouteRequest): Promise<Response> {
  */
 async function handleContextRoute(req: BunRouteRequest): Promise<Response> {
 	const naddr = req.params.naddr ?? ''
+	const commentId = req.params.commentId ?? ''
 	const baseUrl = getBaseUrl(req)
 
 	if (!naddr) {
@@ -82,7 +122,7 @@ async function handleContextRoute(req: BunRouteRequest): Promise<Response> {
 	}
 
 	if (isCrawler(req)) {
-		const data = await fetchContextEventOGData(naddr, serverConfig.relayUrl)
+		const { data, cacheStatus } = await fetchCachedContextEventOGData(naddr, serverConfig.relayUrl)
 		const html = generateContextOGHtml(
 			baseUrl,
 			naddr,
@@ -91,11 +131,133 @@ async function handleContextRoute(req: BunRouteRequest): Promise<Response> {
 			data?.image,
 		)
 		return new Response(html, {
-			headers: { 'Content-Type': 'text/html; charset=utf-8' },
+			headers: getOGRouteHeaders(cacheStatus),
 		})
 	}
 
-	return Response.redirect(`${baseUrl}/#/context/${naddr}`, 302)
+	warmOGCache('context', naddr, serverConfig.relayUrl)
+
+	if (commentId) {
+		return Response.redirect(`${baseUrl}/#/contexts/mapcontext/${naddr}/comment/${commentId}`, 302)
+	}
+
+	return Response.redirect(`${baseUrl}/#/contexts/mapcontext/${naddr}`, 302)
+}
+
+/**
+ * Handle /story/:naddr — OG HTML for crawlers (D-04), redirect for users
+ */
+async function handleStoryRoute(req: BunRouteRequest): Promise<Response> {
+	const naddr = req.params.naddr ?? ''
+	const commentId = req.params.commentId ?? ''
+	const baseUrl = getBaseUrl(req)
+
+	if (!naddr) {
+		return Response.redirect(baseUrl, 302)
+	}
+
+	if (isCrawler(req)) {
+		const { data, cacheStatus } = await fetchCachedStoryEventOGData(naddr, serverConfig.relayUrl)
+		const html = generateStoryOGHtml(
+			baseUrl,
+			naddr,
+			data?.title ?? 'Story',
+			data?.description ?? 'Read this story on Earthly',
+			data?.image,
+		)
+		return new Response(html, {
+			headers: getOGRouteHeaders(cacheStatus),
+		})
+	}
+
+	warmOGCache('story', naddr, serverConfig.relayUrl)
+
+	if (commentId) {
+		return Response.redirect(`${baseUrl}/#/stories/story/${naddr}/comment/${commentId}`, 302)
+	}
+
+	return Response.redirect(`${baseUrl}/#/stories/story/${naddr}`, 302)
+}
+
+/**
+ * Handle /sighting/:naddr — OG HTML for crawlers (D-08), redirect for users.
+ *
+ * SIGHT-03 (Pitfall P-1): the underlying `fetchSightingOGData` independently
+ * checks the NIP-40 `expiration` tag and returns null for an expired sighting, so
+ * a crawl of an expired/removed sighting renders the generic fallback card — the
+ * sighting's title/description are never leaked.
+ */
+async function handleSightingRoute(req: BunRouteRequest): Promise<Response> {
+	const naddr = req.params.naddr ?? ''
+	const commentId = req.params.commentId ?? ''
+	const baseUrl = getBaseUrl(req)
+
+	if (!naddr) {
+		return Response.redirect(baseUrl, 302)
+	}
+
+	if (isCrawler(req)) {
+		const { data, cacheStatus } = await fetchCachedSightingEventOGData(naddr, serverConfig.relayUrl)
+		const html = generateSightingOGHtml(
+			baseUrl,
+			naddr,
+			data?.title ?? 'Sighting',
+			data?.description ?? 'See this sighting on Earthly',
+		)
+		return new Response(html, {
+			headers: getOGRouteHeaders(cacheStatus),
+		})
+	}
+
+	warmOGCache('sighting', naddr, serverConfig.relayUrl)
+
+	if (commentId) {
+		return Response.redirect(`${baseUrl}/#/sightings/sighting/${naddr}/comment/${commentId}`, 302)
+	}
+
+	return Response.redirect(`${baseUrl}/#/sightings/sighting/${naddr}`, 302)
+}
+
+/**
+ * Handle /beacon/:naddr — OG HTML for crawlers (D-11), redirect for users. A thin
+ * per-kind clone of handleSightingRoute (Phase 13 / XCUT-02 owns generalization).
+ *
+ * T-12-05-OGLEAK (Pitfall P-1): the underlying `fetchBeaconOGData` independently
+ * checks the NIP-40 `expiration` tag and returns null for an expired beacon, so a
+ * crawl of an expired/removed beacon renders the generic fallback card — the
+ * beacon's label is never leaked. The share naddr carries the THROWAWAY pubkey
+ * (the beacon is not under the user's profile, D-05); the fetch resolves it by
+ * `{ kind, pubkey, #d }`.
+ */
+async function handleBeaconRoute(req: BunRouteRequest): Promise<Response> {
+	const naddr = req.params.naddr ?? ''
+	const commentId = req.params.commentId ?? ''
+	const baseUrl = getBaseUrl(req)
+
+	if (!naddr) {
+		return Response.redirect(baseUrl, 302)
+	}
+
+	if (isCrawler(req)) {
+		const { data, cacheStatus } = await fetchCachedBeaconEventOGData(naddr, serverConfig.relayUrl)
+		const html = generateBeaconOGHtml(
+			baseUrl,
+			naddr,
+			data?.title ?? 'Live location',
+			data?.description ?? 'Live location — may have ended. Watch it on Earthly.',
+		)
+		return new Response(html, {
+			headers: getOGRouteHeaders(cacheStatus),
+		})
+	}
+
+	warmOGCache('beacon', naddr, serverConfig.relayUrl)
+
+	if (commentId) {
+		return Response.redirect(`${baseUrl}/#/beacons/beacon/${naddr}/comment/${commentId}`, 302)
+	}
+
+	return Response.redirect(`${baseUrl}/#/beacons/beacon/${naddr}`, 302)
 }
 
 /**
@@ -107,39 +269,96 @@ async function handleOGImageRoute(req: BunRouteRequest): Promise<Response> {
 		return new Response('Not found', { status: 404 })
 	}
 
-	// 5-minute cache
-	const cacheHeaders = {
-		'Content-Type': 'image/png',
-		'Cache-Control': 'public, max-age=300, s-maxage=300',
-	}
-
 	try {
 		if (type === 'context') {
-			const data = await fetchContextEventOGData(naddr, serverConfig.relayUrl)
-			if (!data) return new Response('Not found', { status: 404 })
+			const { data, cacheStatus } = await fetchCachedContextEventOGData(
+				naddr,
+				serverConfig.relayUrl,
+				{ waitForFreshMs: 1500 },
+			)
 
 			const png = await generateOGImagePNG({
-				title: data.title,
-				description: data.description,
-				bbox: data.bbox,
-				backgroundImageUrl: data.image,
+				title: data?.title ?? 'Map Context',
+				description: data?.description ?? 'Explore this geographic context on Earthly',
+				backgroundImageUrl: data?.image,
 			})
 
 			if (!png) return new Response('Image generation failed', { status: 500 })
-			return new Response(png, { headers: cacheHeaders })
+			const body = new Uint8Array(png).buffer
+			return new Response(body, { headers: getOGImageHeaders(cacheStatus) })
 		}
 
 		if (type === 'geoevent') {
-			const data = await fetchGeoEventOGData(naddr, serverConfig.relayUrl)
-			if (!data) return new Response('Not found', { status: 404 })
+			const { data, cacheStatus } = await fetchCachedGeoEventOGData(naddr, serverConfig.relayUrl, {
+				waitForFreshMs: 1500,
+			})
 
 			const png = await generateOGImagePNG({
-				title: data.title,
-				description: data.description,
+				title: data?.title ?? 'Geographic Dataset',
+				description: data?.description ?? 'View this geographic dataset on Earthly',
 			})
 
 			if (!png) return new Response('Image generation failed', { status: 500 })
-			return new Response(png, { headers: cacheHeaders })
+			const body = new Uint8Array(png).buffer
+			return new Response(body, { headers: getOGImageHeaders(cacheStatus) })
+		}
+
+		if (type === 'story') {
+			const { data, cacheStatus } = await fetchCachedStoryEventOGData(
+				naddr,
+				serverConfig.relayUrl,
+				{ waitForFreshMs: 1500 },
+			)
+
+			const png = await generateOGImagePNG({
+				title: data?.title ?? 'Story',
+				description: data?.description ?? 'Read this story on Earthly',
+				backgroundImageUrl: data?.image,
+			})
+
+			if (!png) return new Response('Image generation failed', { status: 500 })
+			const body = new Uint8Array(png).buffer
+			return new Response(body, { headers: getOGImageHeaders(cacheStatus) })
+		}
+
+		if (type === 'sighting') {
+			// SIGHT-03 (Pitfall P-1): fetchCachedSightingEventOGData returns null for an
+			// expired sighting, so an expired card image falls back to the generic
+			// title/description — the sighting content is never leaked.
+			const { data, cacheStatus } = await fetchCachedSightingEventOGData(
+				naddr,
+				serverConfig.relayUrl,
+				{ waitForFreshMs: 1500 },
+			)
+
+			const png = await generateOGImagePNG({
+				title: data?.title ?? 'Sighting',
+				description: data?.description ?? 'See this sighting on Earthly',
+			})
+
+			if (!png) return new Response('Image generation failed', { status: 500 })
+			const body = new Uint8Array(png).buffer
+			return new Response(body, { headers: getOGImageHeaders(cacheStatus) })
+		}
+
+		if (type === 'beacon') {
+			// T-12-05-OGLEAK (Pitfall P-1): fetchCachedBeaconEventOGData returns null
+			// for an expired beacon, so an expired card image falls back to the generic
+			// title/description — the beacon's label is never leaked.
+			const { data, cacheStatus } = await fetchCachedBeaconEventOGData(
+				naddr,
+				serverConfig.relayUrl,
+				{ waitForFreshMs: 1500 },
+			)
+
+			const png = await generateOGImagePNG({
+				title: data?.title ?? 'Live location',
+				description: data?.description ?? 'Live location — may have ended.',
+			})
+
+			if (!png) return new Response('Image generation failed', { status: 500 })
+			const body = new Uint8Array(png).buffer
+			return new Response(body, { headers: getOGImageHeaders(cacheStatus) })
 		}
 
 		return new Response('Not found', { status: 404 })
@@ -203,12 +422,22 @@ if (!isProduction) {
 		// OG routes for social media crawlers (production only)
 		const ogRoutes: Record<string, BunRoute> = {
 			'/geoevent/:naddr': handleGeoEventRoute,
+			'/geoevent/:naddr/comment/:commentId': handleGeoEventRoute,
 			'/context/:naddr': handleContextRoute,
+			'/context/:naddr/comment/:commentId': handleContextRoute,
+			'/story/:naddr': handleStoryRoute,
+			'/story/:naddr/comment/:commentId': handleStoryRoute,
+			'/sighting/:naddr': handleSightingRoute,
+			'/sighting/:naddr/comment/:commentId': handleSightingRoute,
+			'/beacon/:naddr': handleBeaconRoute,
+			'/beacon/:naddr/comment/:commentId': handleBeaconRoute,
 			'/og/image/:type/:naddr': handleOGImageRoute,
 		}
 
 		// Production: Serve static files from dist/ and public/
+		const port = Number.parseInt(process.env.PORT ?? '3000', 10)
 		const server = serve({
+			port: Number.isFinite(port) ? port : 3000,
 			routes: {
 				...apiRoutes,
 				...ogRoutes,
@@ -233,7 +462,7 @@ if (!isProduction) {
 					const publicFile = file(publicPath)
 
 					if (await publicFile.exists()) {
-						return new Response(publicFile)
+						return serveBuiltFile(publicFile, pathname)
 					}
 
 					// Try to serve from dist/ (built assets)
@@ -241,7 +470,15 @@ if (!isProduction) {
 					const staticFile = file(filePath)
 
 					if (await staticFile.exists()) {
-						return new Response(staticFile)
+						return serveBuiltFile(staticFile, pathname)
+					}
+
+					// Assets that must NEVER fall through to the SPA index.html. A `.wasm`
+					// served as text/html would break WebAssembly instantiation, and a
+					// worker module under /workers/ served as text/html would fail to
+					// construct, so a genuine 404 is the correct (debuggable) outcome here.
+					if (pathname.endsWith('.wasm') || pathname.startsWith('/workers/')) {
+						return new Response('Not found', { status: 404 })
 					}
 
 					// If file not found, serve index.html for client-side routing
@@ -256,11 +493,83 @@ if (!isProduction) {
 		// Assets in src/assets/ are bundled automatically by Bun
 		const index = (await import('./index.html')).default
 
+		// Web Workers (sandbox / ingest / geoJsonParse). Bun's HTML-import dev server
+		// does NOT bundle/serve workers spawned via `new Worker(new URL('./x.worker.ts',
+		// import.meta.url))` (Bun #17705): `import.meta.url` becomes a file:// source path
+		// the browser blocks cross-origin. Spawn sites instead request a stable URL
+		// (`/workers/<name>.js`, see workerAssets.ts); here we build that worker on demand
+		// and serve it as a JS module. Cached per served-name (the sandbox spawns a fresh
+		// Worker PER RUN, so an uncached rebuild-per-spawn would be far too slow).
+		const devWorkerCache = new Map<string, Promise<string>>()
+		const workerSourceByServedName = new Map<string, string>(
+			(Object.keys(WORKER_ASSETS) as WorkerId[]).map((id) => [
+				WORKER_ASSETS[id].servedName,
+				WORKER_ASSETS[id].sourcePath,
+			]),
+		)
+
+		const serveDevWorker = async (req: BunRouteRequest): Promise<Response> => {
+			const servedName = req.params.name ?? ''
+			const sourcePath = workerSourceByServedName.get(servedName)
+			if (!sourcePath) {
+				return new Response('Unknown worker', { status: 404 })
+			}
+			try {
+				let pending = devWorkerCache.get(servedName)
+				if (!pending) {
+					// dev: unminified for readable stack traces.
+					pending = buildWorkerSource(sourcePath, false)
+					devWorkerCache.set(servedName, pending)
+				}
+				const js = await pending
+				return new Response(js, {
+					headers: { 'Content-Type': 'text/javascript; charset=utf-8' },
+				})
+			} catch (err) {
+				devWorkerCache.delete(servedName)
+				console.error(`[dev worker] build failed for ${servedName}:`, err)
+				return new Response(`/* worker build failed: ${String(err)} */`, {
+					status: 500,
+					headers: { 'Content-Type': 'text/javascript; charset=utf-8' },
+				})
+			}
+		}
+
+		// The QuickJS code-interpreter sandbox (Phase 4) loads its `.wasm` from a
+		// stable root URL. In production `build.ts` emits it to `dist/`; in dev there
+		// is no build, so serve it straight from node_modules with the correct MIME.
+		const serveQuickjsWasm = (): Response => {
+			const wasmFile = file(
+				join(
+					process.cwd(),
+					'node_modules',
+					'@jitl',
+					'quickjs-wasmfile-release-sync',
+					'dist',
+					'emscripten-module.wasm',
+				),
+			)
+			return new Response(wasmFile, {
+				headers: {
+					'Content-Type': 'application/wasm',
+					// Cache the fixed wasm blob so a worker (re)spawn never re-downloads it
+					// (defence-in-depth against the Phase 4 wasm re-fetch runaway).
+					'Cache-Control': 'public, max-age=31536000, immutable',
+				},
+			})
+		}
+
+		const port = Number.parseInt(process.env.PORT ?? '3000', 10)
 		const server = serve({
+			port: Number.isFinite(port) ? port : 3000,
 			routes: {
 				...apiRoutes,
 				// Serve static files from public/static/ (stable URLs for OG images, etc.)
 				'/static/*': serveStaticFile,
+				// Web Workers built on demand (Bun dev server doesn't bundle workers itself).
+				'/workers/:name': serveDevWorker,
+				// QuickJS sandbox WASM (served from node_modules in dev).
+				'/emscripten-module.wasm': serveQuickjsWasm,
 				// Catch-all for SPA routing (Bun handles assets from src/assets/)
 				'/*': index,
 			},

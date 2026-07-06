@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react'
 import type maplibregl from 'maplibre-gl'
 import type { Feature, Geometry } from 'geojson'
-import type { NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
+import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
 import { bboxFromGeometry } from '@/lib/geo/bbox'
 import { useEditorStore } from '../store'
 import type { FeaturePopupData } from '../components/FeaturePopup'
+import type { SightingPopupData } from '../components/SightingPopup'
 import {
 	CLUSTER_CIRCLE_LAYER,
 	REMOTE_ANNOTATION_ANCHOR_LAYER,
@@ -13,6 +15,7 @@ import {
 	REMOTE_LINE_LAYER,
 	REMOTE_POLYGON_PROXY_LAYER,
 	REMOTE_POINT_LAYER,
+	SIGHTING_HIT_LAYER,
 	UNCLUSTERED_POINT_LAYER,
 } from './useMapLayers'
 
@@ -20,11 +23,18 @@ interface UseMapInteractionsParams {
 	mapRef: React.RefObject<maplibregl.Map | null>
 	remoteLayersReady: boolean
 	CLUSTERED_SOURCE_ID: string
-	geoEventsRef: React.RefObject<NDKGeoEvent[]>
+	geoEventsRef: React.RefObject<GeoDataset[]>
 	currentUserPubkey: string | undefined
-	getDatasetName: (event: NDKGeoEvent) => string
-	handleInspectDatasetWithoutFocus: (event: NDKGeoEvent) => void
+	getDatasetName: (event: GeoDataset) => string
+	handleInspectDatasetWithoutFocus: (event: GeoDataset) => void
 	setFeaturePopupData: (data: FeaturePopupData | null) => void
+	/** Live list of visible Sightings, kept in a ref so the click handler resolves a
+	 * clicked marker back to its cast without re-binding on every data change. */
+	sightingsRef?: React.RefObject<TemporalSighting[]>
+	/** Open a Sighting's detail view (and surface it in the rail) on marker click. */
+	onInspectSighting?: (sighting: TemporalSighting) => void
+	/** Show/clear the Sighting marker hover preview. */
+	setSightingPopupData?: (data: SightingPopupData | null) => void
 }
 
 export function useMapInteractions({
@@ -36,6 +46,9 @@ export function useMapInteractions({
 	getDatasetName,
 	handleInspectDatasetWithoutFocus,
 	setFeaturePopupData,
+	sightingsRef,
+	onInspectSighting,
+	setSightingPopupData,
 }: UseMapInteractionsParams) {
 	const viewMode = useEditorStore((state) => state.viewMode)
 	const currentMode = useEditorStore((state) => state.mode)
@@ -192,6 +205,76 @@ export function useMapInteractions({
 			setFeaturePopupData(null)
 		}
 
+		// Temporal Sighting markers: clicking a dot opens its detail (the "what is
+		// this content?") and surfaces its row in the Sightings rail (the "where is
+		// it in the list?"). Bound as a general map click + queryRenderedFeatures so
+		// it is robust to the sighting layer being added after this effect runs.
+		const handleSightingClick = (event: maplibregl.MapMouseEvent) => {
+			if (isInDrawingMode || !onInspectSighting) return
+			if (!mapInstance.getLayer(SIGHTING_HIT_LAYER)) return
+			const features = mapInstance.queryRenderedFeatures(event.point, {
+				layers: [SIGHTING_HIT_LAYER],
+			})
+			const feature = features[0]
+			if (!feature?.properties) return
+			const sightingId =
+				typeof feature.properties.sightingId === 'string'
+					? feature.properties.sightingId
+					: undefined
+			const sightingDTag =
+				typeof feature.properties.sightingDTag === 'string'
+					? feature.properties.sightingDTag
+					: undefined
+			const sightings = sightingsRef?.current ?? []
+			const sighting =
+				sightings.find((item) => item.id === sightingId) ??
+				(sightingDTag
+					? sightings.find((item) => (item.dTag ?? item.id) === sightingDTag)
+					: undefined)
+			if (sighting) onInspectSighting(sighting)
+		}
+
+		// Hover preview for a Sighting marker — the dataset hover-popup analog.
+		const resolveHoveredSighting = (feature: maplibregl.MapGeoJSONFeature) => {
+			if (!feature.properties) return undefined
+			const sightingId =
+				typeof feature.properties.sightingId === 'string'
+					? feature.properties.sightingId
+					: undefined
+			const sightingDTag =
+				typeof feature.properties.sightingDTag === 'string'
+					? feature.properties.sightingDTag
+					: undefined
+			const sightings = sightingsRef?.current ?? []
+			return (
+				sightings.find((item) => item.id === sightingId) ??
+				(sightingDTag
+					? sightings.find((item) => (item.dTag ?? item.id) === sightingDTag)
+					: undefined)
+			)
+		}
+
+		const handleSightingHover = (event: maplibregl.MapLayerMouseEvent) => {
+			if (isInDrawingMode || !setSightingPopupData) return
+			const feature = event.features?.[0]
+			const sighting = feature ? resolveHoveredSighting(feature) : undefined
+			if (!sighting) {
+				setSightingPopupData(null)
+				return
+			}
+			mapInstance.getCanvas().style.cursor = 'pointer'
+			setSightingPopupData({
+				sighting,
+				clickPosition: { x: event.point.x, y: event.point.y },
+			})
+		}
+
+		const handleSightingLeave = () => {
+			if (isInDrawingMode) return
+			mapInstance.getCanvas().style.cursor = ''
+			setSightingPopupData?.(null)
+		}
+
 		for (const layer of remoteLayers) {
 			if (mapInstance.getLayer(layer)) {
 				mapInstance.on('click', layer, handleMapDatasetClick)
@@ -205,6 +288,15 @@ export function useMapInteractions({
 			mapInstance.on('click', CLUSTER_CIRCLE_LAYER, handleClusterClick)
 			mapInstance.on('mouseenter', CLUSTER_CIRCLE_LAYER, handleMouseEnter)
 			mapInstance.on('mouseleave', CLUSTER_CIRCLE_LAYER, handleMouseLeave)
+		}
+
+		mapInstance.on('click', handleSightingClick)
+		// Pointer affordance + hover preview over Sighting markers. The sighting layer
+		// exists by the time remoteLayersReady is true (it is added before that flag
+		// flips), so the layer-scoped binding is reliable here.
+		if (mapInstance.getLayer(SIGHTING_HIT_LAYER)) {
+			mapInstance.on('mousemove', SIGHTING_HIT_LAYER, handleSightingHover)
+			mapInstance.on('mouseleave', SIGHTING_HIT_LAYER, handleSightingLeave)
 		}
 
 		return () => {
@@ -225,6 +317,13 @@ export function useMapInteractions({
 			} catch {
 				// Layer may have been removed
 			}
+			try {
+				mapInstance.off('click', handleSightingClick)
+				mapInstance.off('mousemove', SIGHTING_HIT_LAYER, handleSightingHover)
+				mapInstance.off('mouseleave', SIGHTING_HIT_LAYER, handleSightingLeave)
+			} catch {
+				// Layer may have been removed
+			}
 		}
 	}, [
 		mapInstance,
@@ -238,5 +337,8 @@ export function useMapInteractions({
 		currentUserPubkey,
 		getDatasetName,
 		setFeaturePopupData,
+		sightingsRef,
+		onInspectSighting,
+		setSightingPopupData,
 	])
 }

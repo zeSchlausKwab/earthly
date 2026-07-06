@@ -81,7 +81,7 @@ export function LocationInspectorPopup({
 	return (
 		<div
 			ref={popupRef}
-			className="pointer-events-auto absolute z-50 w-80 overflow-hidden rounded-xl bg-white/95 shadow-2xl backdrop-blur ring-1 ring-black/5"
+			className="pointer-events-auto absolute z-50 w-80 overflow-hidden rounded-xl bg-card/95 shadow-2xl backdrop-blur ring-1 ring-black/5"
 			style={{
 				left: position.x,
 				...(position.anchor === 'bottom'
@@ -91,8 +91,8 @@ export function LocationInspectorPopup({
 			}}
 		>
 			{/* Header */}
-			<div className="flex items-center justify-between gap-2 border-b border-gray-100 bg-gray-50/80 px-3 py-2">
-				<div className="text-xs font-medium text-gray-600">Location Details</div>
+			<div className="flex items-center justify-between gap-2 border-b border-border bg-muted/80 px-3 py-2">
+				<div className="text-xs font-medium text-muted-foreground">Location Details</div>
 				<Button
 					size="icon"
 					variant="ghost"
@@ -105,15 +105,15 @@ export function LocationInspectorPopup({
 			</div>
 
 			{/* Content */}
-			<div className="max-h-[300px] overflow-y-auto px-3 py-3 text-sm text-gray-700">
+			<div className="max-h-[300px] overflow-y-auto px-3 py-3 text-sm text-foreground">
 				{loading && (
-					<div className="flex items-center gap-2 text-xs text-gray-500">
-						<div className="h-3 w-3 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
+					<div className="flex items-center gap-2 text-xs text-muted-foreground">
+						<div className="h-3 w-3 animate-spin rounded-full border-2 border-border border-t-gray-600" />
 						Fetching location info...
 					</div>
 				)}
 
-				{error && <div className="text-xs text-red-600">{error}</div>}
+				{error && <div className="text-xs text-destructive">{error}</div>}
 
 				{result && (
 					<div className="space-y-3">
@@ -121,34 +121,34 @@ export function LocationInspectorPopup({
 							<div className="font-medium leading-tight">
 								{result.result?.displayName ?? 'No address found'}
 							</div>
-							<div className="mt-1 text-xs text-gray-500">
+							<div className="mt-1 text-xs text-muted-foreground">
 								{result.coordinates.lat.toFixed(5)}, {result.coordinates.lon.toFixed(5)}
 							</div>
 						</div>
 
-						<div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-600">
+						<div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
 							{result.result?.type && (
-								<span className="rounded-full bg-gray-100 px-2 py-0.5 capitalize">
+								<span className="rounded-full bg-muted px-2 py-0.5 capitalize">
 									{result.result.type}
 								</span>
 							)}
 							{result.result?.class && (
-								<span className="rounded-full bg-gray-100 px-2 py-0.5 capitalize">
+								<span className="rounded-full bg-muted px-2 py-0.5 capitalize">
 									{result.result.class}
 								</span>
 							)}
 							{result.zoom !== undefined && (
-								<span className="rounded-full bg-gray-100 px-2 py-0.5">zoom {result.zoom}</span>
+								<span className="rounded-full bg-muted px-2 py-0.5">zoom {result.zoom}</span>
 							)}
 						</div>
 
 						{result.result?.address && (
-							<div className="rounded-lg border border-gray-100 bg-gray-50 p-2 text-[11px] text-gray-700">
+							<div className="rounded-lg border border-border bg-muted p-2 text-[11px] text-foreground">
 								{Object.entries(result.result.address)
 									.slice(0, 8)
 									.map(([key, value]) => (
 										<div key={key} className="flex items-center gap-1">
-											<span className="capitalize text-gray-400">{key}:</span>
+											<span className="capitalize text-muted-foreground">{key}:</span>
 											<span className="truncate">{value}</span>
 										</div>
 									))}
@@ -158,7 +158,9 @@ export function LocationInspectorPopup({
 				)}
 
 				{!hasContent && (
-					<div className="text-xs text-gray-500">Click on the map to inspect a location.</div>
+					<div className="text-xs text-muted-foreground">
+						Click on the map to inspect a location.
+					</div>
 				)}
 			</div>
 		</div>

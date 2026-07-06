@@ -1,35 +1,107 @@
-import type NDK from '@nostr-dev-kit/ndk'
+import { castEvent } from 'applesauce-core/casts'
 import type { FeatureCollection } from 'geojson'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { validateDatasetForContext } from '@/lib/context/validation'
-import type { GeoBlobReference, NDKGeoEvent } from '@/lib/ndk/NDKGeoEvent'
-import { NDKGeoEvent as NDKGeoEventClass } from '@/lib/ndk/NDKGeoEvent'
-import { NDKGeoEditProposalEvent } from '@/lib/ndk/NDKGeoEditProposalEvent'
-import { GEO_EVENT_KIND } from '@/lib/ndk/kinds'
-import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
-import { extractReferencedCoordinates, syncAddressReferenceTags } from '@/lib/ndk/nostrReferences'
+import { resolveSchemaCacheKey, validateAttachment } from '@/lib/group'
+import { accounts, eventStore, publish } from '@/lib/nostr'
+import {
+	deleteDataset,
+	GeoDataset,
+	GeoDatasetFactory,
+	type GeoBlobReference,
+} from '@/lib/nostr/geo-event'
+import { GeoProposalFactory } from '@/lib/nostr/geo-proposal'
+import type { Group } from '@/lib/nostr/group'
+import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
+import { extractReferencedCoordinates, setAddressReferenceTags } from '@/lib/nostr/references'
+import type { SchemaRuleError } from '@/lib/validation/schema.worker'
 import type { EditorFeature } from '../core'
 import { useEditorStore } from '../store'
 import type { EditorBlobReference } from '../types'
 import { extractCollectionMeta, sanitizeEditorProperties } from '../utils'
 import { BLOSSOM_UPLOAD_THRESHOLD_BYTES } from '../constants'
 
+/**
+ * One advisory, per-rule attach warning surfaced to the contributor when their
+ * dataset is `c`-attached to a `schema` Group. These NEVER block publishing
+ * (GROUP-04) — they are dismissible hints rendered as an amber `Alert`.
+ */
+export interface AttachWarning {
+	/** Stable key for React lists + per-line dismissal. */
+	id: string
+	/** Contributor-facing, specific copy (UI-SPEC), e.g. "Property `name` is required." */
+	message: string
+}
+
+/** The advisory validation state the attach UI reads. NEVER gates publish. */
+export interface AttachValidationState {
+	/** The `schema` Group coordinate currently being checked against, if any. */
+	groupCoordinate: string | null
+	/** The Group's display name (for the "Checking against {name}'s rules…" copy). */
+	groupName: string | null
+	/** True while the off-thread worker is running. */
+	checking: boolean
+	/** Per-rule warnings (empty when conforming or not a schema Group). */
+	warnings: AttachWarning[]
+	/** Set when the worker itself failed — copy: "shown unfiltered", publish still enabled. */
+	workerFailed: boolean
+}
+
+const EMPTY_ATTACH_VALIDATION: AttachValidationState = {
+	groupCoordinate: null,
+	groupName: null,
+	checking: false,
+	warnings: [],
+	workerFailed: false,
+}
+
+/**
+ * Turn the off-thread worker's structured `errors[]` into specific, contributor-facing
+ * warning lines per the UI-SPEC copywriting contract (e.g. "Property `name` is required.",
+ * "Geometry type `Polygon` isn't allowed here."). Bounded by the worker's own MAX_ERRORS cap.
+ */
+function toAttachWarnings(errors: SchemaRuleError[]): AttachWarning[] {
+	return errors.map((error, index) => ({
+		id: `${error.keyword}-${error.instancePath || 'root'}-${index}`,
+		message: describeAttachError(error),
+	}))
+}
+
+function describeAttachError(error: SchemaRuleError): string {
+	if (error.keyword === 'required') {
+		const missing = (error.params as { missingProperty?: string } | undefined)?.missingProperty
+		return missing ? `Property \`${missing}\` is required.` : 'A required property is missing.'
+	}
+	if (error.keyword === 'enum' && error.instancePath.endsWith('/geometry/type')) {
+		const allowed = (error.params as { allowedValues?: unknown[] } | undefined)?.allowedValues
+		const list = Array.isArray(allowed) ? allowed.join(', ') : ''
+		return list
+			? `Geometry type isn't allowed here — allowed: ${list}.`
+			: "This geometry type isn't allowed here."
+	}
+	const where = error.instancePath ? `\`${error.instancePath}\` ` : ''
+	return `${where}${error.message}.`.replace(/\.\.$/, '.')
+}
+
 interface UsePublishingOptions {
-	ndk: NDK | undefined
 	currentUserPubkey: string | undefined
-	getDatasetName: (event: NDKGeoEvent) => string
-	getDatasetKey: (event: NDKGeoEvent) => string
-	mapContexts: NDKMapContextEvent[]
-	resolvedCollectionResolver?: (event: NDKGeoEvent) => FeatureCollection | undefined
+	getDatasetName: (event: GeoDataset) => string
+	getDatasetKey: (event: GeoDataset) => string
+	/**
+	 * The Groups the contributor can `c`-attach to. Repointed from the legacy
+	 * `mapContexts: MapContext[]` (the slimmed governance model has NO
+	 * `validationMode:'required'` blocking gate — GROUP-04). Used ONLY to resolve a
+	 * `schema` Group's schema for the off-thread advisory validation pass.
+	 */
+	groups: Group[]
+	resolvedCollectionResolver?: (event: GeoDataset) => FeatureCollection | undefined
 }
 
 export function usePublishing({
-	ndk,
 	currentUserPubkey,
 	getDatasetName,
 	getDatasetKey,
-	mapContexts,
+	groups,
 	resolvedCollectionResolver,
 }: UsePublishingOptions) {
 	void resolvedCollectionResolver
@@ -82,17 +154,6 @@ export function usePublishing({
 		const propertyDescription = maybeCollection.properties?.description
 		return typeof propertyDescription === 'string' ? propertyDescription : ''
 	}, [])
-
-	const syncRichTextReferenceTags = useCallback(
-		(
-			event: NDKGeoEvent | NDKGeoEditProposalEvent,
-			text: string | undefined,
-			preservedCoordinates: string[] = [],
-		) => {
-			syncAddressReferenceTags(event, extractReferencedCoordinates(text), preservedCoordinates)
-		},
-		[],
-	)
 
 	const serializeBlobReferences = useCallback(
 		(): GeoBlobReference[] =>
@@ -255,57 +316,118 @@ export function usePublishing({
 		return collection ? getCollectionSize(collection) : 0
 	}, [buildCollectionFromEditor, getCollectionSize])
 
-	const validateRequiredContextAttachments = useCallback(
-		(collection: FeatureCollection): { ok: true } | { ok: false; message: string } => {
-			if (activeDatasetContextRefs.length === 0) {
-				return { ok: true }
+	// ── Off-thread advisory attach validation (GROUP-04 warn-not-block) ────────────
+	//
+	// The legacy blocking `validateRequiredContextAttachments` gate is GONE. The slimmed
+	// governance model has NO `validationMode:'required'` and NEVER blocks a contributor's
+	// publish on a schema failure (REQUIREMENTS "Out of scope: blocking a contributor's
+	// publish on schema failure"). Instead, when a dataset's `c` refs point at a `schema`
+	// Group, we run the off-thread `validateSchema` worker (via `@/lib/group`) and expose
+	// the per-rule verdict as ADVISORY hook state — it never sets `publishError` and never
+	// aborts a publish entrypoint.
+	const [attachValidation, setAttachValidation] =
+		useState<AttachValidationState>(EMPTY_ATTACH_VALIDATION)
+
+	/** Index Groups by their coordinate so a `c` ref resolves to its schema Group. */
+	const groupByCoordinate = useMemo(() => {
+		const map = new Map<string, Group>()
+		groups.forEach((group) => {
+			const coordinate = group.groupCoordinate
+			if (coordinate) map.set(coordinate, group)
+		})
+		return map
+	}, [groups])
+
+	/** The first attached `schema` Group (with a schema), if any — the validation target. */
+	const attachedSchemaGroup = useMemo(() => {
+		for (const ref of activeDatasetContextRefs) {
+			const group = groupByCoordinate.get(ref)
+			if (group && group.group.governance === 'schema' && group.group.schema) {
+				return group
+			}
+		}
+		return null
+	}, [activeDatasetContextRefs, groupByCoordinate])
+
+	/**
+	 * Run the OFF-THREAD advisory validation pass for the attached schema Group. The result
+	 * flows ONLY to `attachValidation` — it NEVER sets `publishError` and NEVER blocks
+	 * publishing (GROUP-04). A worker failure is surfaced as "shown unfiltered" with publish
+	 * still enabled (the dataset is a valid standalone 37515 regardless).
+	 */
+	const runAttachValidation = useCallback(async () => {
+		const group = attachedSchemaGroup
+		const schema = group?.group.schema
+		if (!group || !schema) {
+			setAttachValidation(EMPTY_ATTACH_VALIDATION)
+			return
+		}
+
+		const groupCoordinate = group.groupCoordinate ?? null
+		const groupName = group.group.name || 'this Group'
+		// CR-02: derive a content-based compile-cache key when the Group has no published
+		// `schema-hash` tag — never the shared `'sha256:unhashed'` sentinel, which would alias
+		// distinct unhashed schemas onto the first-compiled validator in the worker cache.
+		const schemaHash = await resolveSchemaCacheKey(schema, group.schemaHash)
+
+		setAttachValidation({
+			groupCoordinate,
+			groupName,
+			checking: true,
+			warnings: [],
+			workerFailed: false,
+		})
+
+		const collection = buildCollectionFromEditor()
+		const features = collection?.features ?? []
+
+		try {
+			const allWarnings: AttachWarning[] = []
+			for (const feature of features) {
+				const verdict = await validateAttachment(schema, feature.properties ?? {}, {
+					schemaHash,
+				})
+				if (!verdict.ok && verdict.errors && verdict.errors.length > 0) {
+					allWarnings.push(...toAttachWarnings(verdict.errors))
+				}
 			}
 
-			const contextByCoordinate = new Map<string, NDKMapContextEvent>()
-			mapContexts.forEach((context) => {
-				const coordinate = context.contextCoordinate
-				if (coordinate) {
-					contextByCoordinate.set(coordinate, context)
-				}
+			// Dedup identical per-rule lines across features so the contributor sees each
+			// distinct rule once.
+			const seen = new Set<string>()
+			const deduped = allWarnings.filter((warning) => {
+				if (seen.has(warning.message)) return false
+				seen.add(warning.message)
+				return true
 			})
 
-			const requiredContexts = activeDatasetContextRefs
-				.map((ref) => contextByCoordinate.get(ref))
-				.filter((context): context is NDKMapContextEvent => Boolean(context))
-				.filter(
-					(context) =>
-						(context.context.contextUse === 'validation' ||
-							context.context.contextUse === 'hybrid') &&
-						context.context.validationMode === 'required',
-				)
+			setAttachValidation({
+				groupCoordinate,
+				groupName,
+				checking: false,
+				warnings: deduped,
+				workerFailed: false,
+			})
+		} catch {
+			// Fail OPEN for legibility only — the worker's timeout-kill is the real DoS guard.
+			// Publish stays enabled (the dataset is a valid standalone 37515 regardless).
+			setAttachValidation({
+				groupCoordinate,
+				groupName,
+				checking: false,
+				warnings: [],
+				workerFailed: true,
+			})
+		}
+	}, [attachedSchemaGroup, buildCollectionFromEditor])
 
-			if (requiredContexts.length === 0) {
-				return { ok: true }
-			}
-
-			const candidate = new NDKGeoEventClass(ndk || undefined)
-			candidate.featureCollection = collection
-			candidate.contextReferences = activeDatasetContextRefs
-
-			for (const context of requiredContexts) {
-				const result = validateDatasetForContext(candidate, context, collection, 'strict')
-				if (result.status !== 'valid') {
-					const contextName =
-						context.context.name || context.contextId || context.id || 'Unknown context'
-					return {
-						ok: false,
-						message: `Context validation failed for "${contextName}" (${result.featureErrorCount} invalid feature(s)).`,
-					}
-				}
-			}
-
-			return { ok: true }
-		},
-		[activeDatasetContextRefs, mapContexts, ndk],
-	)
+	/** Clear the advisory warnings (e.g. when the contributor detaches the Group). */
+	const clearAttachValidation = useCallback(() => {
+		setAttachValidation(EMPTY_ATTACH_VALIDATION)
+	}, [])
 
 	const switchToDatasetViewMode = useCallback(
-		(dataset: NDKGeoEvent) => {
+		(dataset: GeoDataset) => {
 			setMode('select')
 			setViewMode('view')
 			setViewDataset(dataset)
@@ -323,50 +445,45 @@ export function usePublishing({
 		try {
 			const collection = buildCollectionFromEditor()
 			if (!collection) throw new Error('No features to publish')
-			const contextValidation = validateRequiredContextAttachments(collection)
-			if (contextValidation.ok === false) {
-				setPublishError(contextValidation.message)
-				return
-			}
 
-			if (!ndk) {
-				setPublishError('NDK is not ready.')
+			const signer = accounts.signer
+			if (!signer) {
+				setPublishError('No active account.')
 				return
 			}
 
 			const refs = serializeBlobReferences()
 			const collectionBlobRef = refs.find((ref) => ref.scope === 'collection')
+			const referencedCoords = extractReferencedCoordinates(getCollectionDescription(collection))
 
-			const event = new NDKGeoEventClass(ndk)
-			event.contextReferences = activeDatasetContextRefs
-			syncRichTextReferenceTags(event, getCollectionDescription(collection))
+			let factory = GeoDatasetFactory.create(collection)
+				.contextReferences(activeDatasetContextRefs)
+				.blobReferences(refs)
+				.modifyPublicTags(setAddressReferenceTags(referencedCoords))
 
 			if (collectionBlobRef) {
-				// Publish as STUB with external reference (per SPEC.md section 1.5)
-				// Compute metadata from FULL collection first, then set stub content
-				event.featureCollection = collection
-				event.updateDerivedMetadata() // Computes bbox, geohash from full geometry
-
-				// Now replace content with stub - keeping the computed metadata tags
+				// Stub publish (SPEC.md §1.5): compute spatial discovery tags from
+				// the full collection, swap the content for a stub, then update
+				// content-derived tags (size, checksum) so they match the stub.
 				const stubCollection = buildCollectionStub(collection, collectionBlobRef.url)
-
-				// Set stub as content (metadata tags already computed above)
-				event.content = JSON.stringify(stubCollection)
-				event.blobReferences = refs
-				// Skip metadata update since we pre-computed from full collection
-				await event.publishNew(undefined, { skipMetadataUpdate: true })
+				factory = factory
+					.withSpatialMetadata()
+					.content(JSON.stringify(stubCollection))
+					.withContentMetadata()
 			} else {
-				// Publish with full geometry inline (standard case)
-				event.featureCollection = collection
-				event.blobReferences = refs
-				await event.publishNew()
+				factory = factory.withDerivedMetadata()
 			}
+
+			const signedEvent = await factory.sign(signer)
+			await publish(signedEvent, { routing: 'outbox' })
+			const cast = castEvent(signedEvent, GeoDataset, eventStore)
+
 			setPublishMessage('Dataset published successfully.')
-			setActiveDataset(event)
-			setActiveDatasetContextRefs(event.contextReferences)
+			setActiveDataset(cast)
+			setActiveDatasetContextRefs(cast.contextReferences)
 			setCollectionMeta(extractCollectionMeta(collection))
 			setSelectedFeatureIds([])
-			switchToDatasetViewMode(event)
+			switchToDatasetViewMode(cast)
 		} catch (error) {
 			console.error('Failed to publish dataset', error)
 			setPublishError('Failed to publish dataset. Check console for details.')
@@ -379,11 +496,10 @@ export function usePublishing({
 		setPublishMessage,
 		setPublishError,
 		buildCollectionFromEditor,
-		validateRequiredContextAttachments,
-		ndk,
 		serializeBlobReferences,
 		activeDatasetContextRefs,
 		buildCollectionStub,
+		getCollectionDescription,
 		setActiveDataset,
 		setActiveDatasetContextRefs,
 		setCollectionMeta,
@@ -397,8 +513,9 @@ export function usePublishing({
 	 */
 	const handlePublishWithBlossomUpload = useCallback(
 		async (blobResult: { sha256: string; url: string; size: number }) => {
-			if (!ndk) {
-				setPublishError('NDK is not ready.')
+			const signer = accounts.signer
+			if (!signer) {
+				setPublishError('No active account.')
 				return
 			}
 
@@ -409,26 +526,9 @@ export function usePublishing({
 			try {
 				const collection = buildCollectionFromEditor()
 				if (!collection) throw new Error('No features to publish')
-				const contextValidation = validateRequiredContextAttachments(collection)
-				if (contextValidation.ok === false) {
-					setPublishError(contextValidation.message)
-					return
-				}
 
-				const event = new NDKGeoEventClass(ndk)
-				event.contextReferences = activeDatasetContextRefs
-				syncRichTextReferenceTags(event, getCollectionDescription(collection))
-				// Compute discovery metadata (bbox/geohash) from the full geometry first.
-				event.featureCollection = collection
-				event.updateDerivedMetadata()
-
-				// Then publish stub content referencing Blossom.
-				const stubCollection = buildCollectionStub(collection, blobResult.url)
-				event.content = JSON.stringify(stubCollection)
-
-				// Add the blob reference for the full collection
 				const existingRefs = serializeBlobReferences()
-				event.blobReferences = [
+				const blobRefs: GeoBlobReference[] = [
 					...existingRefs.filter((ref) => ref.scope !== 'collection'),
 					{
 						scope: 'collection',
@@ -438,16 +538,28 @@ export function usePublishing({
 						mimeType: 'application/geo+json',
 					},
 				]
+				const referencedCoords = extractReferencedCoordinates(getCollectionDescription(collection))
+				const stubCollection = buildCollectionStub(collection, blobResult.url)
 
-				await event.publishNew(undefined, { skipMetadataUpdate: true })
+				const signedEvent = await GeoDatasetFactory.create(collection)
+					.contextReferences(activeDatasetContextRefs)
+					.blobReferences(blobRefs)
+					.modifyPublicTags(setAddressReferenceTags(referencedCoords))
+					.withSpatialMetadata()
+					.content(JSON.stringify(stubCollection))
+					.withContentMetadata()
+					.sign(signer)
+
+				await publish(signedEvent, { routing: 'outbox' })
+				const cast = castEvent(signedEvent, GeoDataset, eventStore)
+
 				setPublishMessage('Dataset published with external reference.')
-				setActiveDataset(event)
-				setActiveDatasetContextRefs(event.contextReferences)
+				setActiveDataset(cast)
+				setActiveDatasetContextRefs(cast.contextReferences)
 				setCollectionMeta(extractCollectionMeta(collection))
 				setSelectedFeatureIds([])
-				switchToDatasetViewMode(event)
+				switchToDatasetViewMode(cast)
 
-				// Clean up dialog state
 				setPendingPublishCollection(null)
 				setBlossomUploadDialogOpen(false)
 			} catch (error) {
@@ -458,15 +570,14 @@ export function usePublishing({
 			}
 		},
 		[
-			ndk,
 			setIsPublishing,
 			setPublishMessage,
 			setPublishError,
 			buildCollectionFromEditor,
-			validateRequiredContextAttachments,
 			activeDatasetContextRefs,
 			serializeBlobReferences,
 			buildCollectionStub,
+			getCollectionDescription,
 			setActiveDataset,
 			setActiveDatasetContextRefs,
 			setCollectionMeta,
@@ -495,9 +606,10 @@ export function usePublishing({
 			setIsPublishing(false)
 			return
 		}
-		const contextValidation = validateRequiredContextAttachments(collection)
-		if (contextValidation.ok === false) {
-			setPublishError(contextValidation.message)
+
+		const signer = accounts.signer
+		if (!signer) {
+			setPublishError('No active account.')
 			setIsPublishing(false)
 			return
 		}
@@ -505,44 +617,38 @@ export function usePublishing({
 		try {
 			const refs = serializeBlobReferences()
 			const collectionBlobRef = refs.find((ref) => ref.scope === 'collection')
+			const referencedCoords = extractReferencedCoordinates(getCollectionDescription(collection))
 
-			const event = new NDKGeoEventClass(ndk || undefined)
-			event.datasetId = activeDataset.datasetId ?? activeDataset.id
-			event.hashtags = activeDataset.hashtags
-			event.collectionReferences = activeDataset.collectionReferences
-			event.contextReferences = activeDatasetContextRefs
-			event.relayHints = activeDataset.relayHints
-			event.blobReferences = refs
-			syncRichTextReferenceTags(event, getCollectionDescription(collection))
+			let factory = GeoDatasetFactory.update(activeDataset.event, collection)
+				.hashtags(activeDataset.hashtags)
+				.collectionReferences(activeDataset.collectionReferences)
+				.contextReferences(activeDatasetContextRefs)
+				.relayHints(activeDataset.relayHints)
+				.blobReferences(refs)
+				.modifyPublicTags(setAddressReferenceTags(referencedCoords))
 
 			if (collectionBlobRef) {
-				// Publish as STUB with external reference (per SPEC.md section 1.5)
-				// Preserve discovery metadata if we can't compute it (e.g. geometry not loaded)
-				event.boundingBox = activeDataset.boundingBox
-				event.geohash = activeDataset.geohash
-
-				// Compute bbox/geohash from FULL collection first, then set stub content.
-				event.featureCollection = collection
-				event.updateDerivedMetadata()
-
 				const stubCollection = buildCollectionStub(collection, collectionBlobRef.url)
-				event.content = JSON.stringify(stubCollection)
-
-				await event.publishUpdate(activeDataset, undefined, { skipMetadataUpdate: true })
+				factory = factory
+					.withSpatialMetadata()
+					.content(JSON.stringify(stubCollection))
+					.withContentMetadata()
 			} else {
-				// Publish with full geometry inline (standard case)
-				event.featureCollection = collection
-				await event.publishUpdate(activeDataset)
+				factory = factory.withDerivedMetadata()
 			}
+
+			const signedEvent = await factory.sign(signer)
+			await publish(signedEvent, { routing: 'outbox' })
+			const cast = castEvent(signedEvent, GeoDataset, eventStore)
 
 			setPublishMessage('Dataset update published successfully.')
 			toast.success('Dataset updated.')
 			setIsDirty(false)
-			setActiveDataset(event)
-			setActiveDatasetContextRefs(event.contextReferences)
+			setActiveDataset(cast)
+			setActiveDatasetContextRefs(cast.contextReferences)
 			setCollectionMeta(extractCollectionMeta(collection))
 			setSelectedFeatureIds([])
-			switchToDatasetViewMode(event)
+			switchToDatasetViewMode(cast)
 		} catch (error) {
 			console.error('Failed to publish dataset update', error)
 			setPublishError('Failed to publish dataset update. Check console for details.')
@@ -557,11 +663,10 @@ export function usePublishing({
 		setPublishError,
 		currentUserPubkey,
 		buildCollectionFromEditor,
-		validateRequiredContextAttachments,
-		ndk,
 		serializeBlobReferences,
 		activeDatasetContextRefs,
 		buildCollectionStub,
+		getCollectionDescription,
 		setActiveDataset,
 		setActiveDatasetContextRefs,
 		setCollectionMeta,
@@ -579,43 +684,42 @@ export function usePublishing({
 		try {
 			const collection = buildCollectionFromEditor()
 			if (!collection) throw new Error('No features to publish')
-			const contextValidation = validateRequiredContextAttachments(collection)
-			if (contextValidation.ok === false) {
-				setPublishError(contextValidation.message)
-				return
-			}
 
-			if (!ndk) {
-				setPublishError('NDK is not ready.')
+			const signer = accounts.signer
+			if (!signer) {
+				setPublishError('No active account.')
 				return
 			}
 
 			const refs = serializeBlobReferences()
 			const collectionBlobRef = refs.find((ref) => ref.scope === 'collection')
+			const referencedCoords = extractReferencedCoordinates(getCollectionDescription(collection))
 
-			const event = new NDKGeoEventClass(ndk)
-			event.contextReferences = activeDatasetContextRefs
-			event.blobReferences = refs
-			syncRichTextReferenceTags(event, getCollectionDescription(collection))
+			let factory = GeoDatasetFactory.create(collection)
+				.contextReferences(activeDatasetContextRefs)
+				.blobReferences(refs)
+				.modifyPublicTags(setAddressReferenceTags(referencedCoords))
 
 			if (collectionBlobRef) {
-				event.featureCollection = collection
-				event.updateDerivedMetadata()
-
 				const stubCollection = buildCollectionStub(collection, collectionBlobRef.url)
-				event.content = JSON.stringify(stubCollection)
-				await event.publishNew(undefined, { skipMetadataUpdate: true })
+				factory = factory
+					.withSpatialMetadata()
+					.content(JSON.stringify(stubCollection))
+					.withContentMetadata()
 			} else {
-				event.featureCollection = collection
-				await event.publishNew()
+				factory = factory.withDerivedMetadata()
 			}
 
+			const signedEvent = await factory.sign(signer)
+			await publish(signedEvent, { routing: 'outbox' })
+			const cast = castEvent(signedEvent, GeoDataset, eventStore)
+
 			setPublishMessage('Dataset copy published successfully.')
-			setActiveDataset(event)
-			setActiveDatasetContextRefs(event.contextReferences)
+			setActiveDataset(cast)
+			setActiveDatasetContextRefs(cast.contextReferences)
 			setCollectionMeta(extractCollectionMeta(collection))
 			setSelectedFeatureIds([])
-			switchToDatasetViewMode(event)
+			switchToDatasetViewMode(cast)
 		} catch (error) {
 			console.error('Failed to publish dataset copy', error)
 			setPublishError('Failed to publish dataset copy. Check console for details.')
@@ -628,11 +732,10 @@ export function usePublishing({
 		setPublishMessage,
 		setPublishError,
 		buildCollectionFromEditor,
-		validateRequiredContextAttachments,
-		ndk,
 		serializeBlobReferences,
 		activeDatasetContextRefs,
 		buildCollectionStub,
+		getCollectionDescription,
 		setActiveDataset,
 		setActiveDatasetContextRefs,
 		setCollectionMeta,
@@ -651,27 +754,33 @@ export function usePublishing({
 				const collection = buildCollectionFromEditor()
 				if (!collection) throw new Error('No features to publish')
 
-				if (!ndk) {
-					setPublishError('NDK is not ready.')
+				const signer = accounts.signer
+				if (!signer) {
+					setPublishError('No active account.')
 					return
 				}
 
-				const proposal = new NDKGeoEditProposalEvent(ndk)
-				proposal.featureCollection = collection
-				proposal.targetAddress = `${GEO_EVENT_KIND}:${activeDataset.pubkey}:${activeDataset.dTag}`
-				proposal.ownerPubkey = activeDataset.pubkey
-				if (activeDataset.id) {
-					proposal.baseVersion = activeDataset.id
-				}
-				proposal.description = description
-				proposal.hashtags = activeDataset.hashtags
-				syncRichTextReferenceTags(
-					proposal,
-					description,
-					proposal.targetAddress ? [proposal.targetAddress] : [],
+				const targetAddress = `${GEO_EVENT_KIND}:${activeDataset.pubkey}:${activeDataset.dTag}`
+				const referencedCoords = extractReferencedCoordinates(description)
+				const signedEvent = await GeoProposalFactory.create(
+					{
+						address: targetAddress,
+						ownerPubkey: activeDataset.pubkey,
+						baseVersion: activeDataset.id,
+					},
+					collection,
 				)
+					.description(description)
+					.hashtags(activeDataset.hashtags)
+					// Preserve the target's `a` tag so the rich-text sync can't strip it.
+					.modifyPublicTags(setAddressReferenceTags(referencedCoords, [targetAddress]))
+					.withSpatialMetadata()
+					.sign(signer)
 
-				await proposal.publishProposal()
+				// Route to the dataset owner's inbox so they're notified, with a
+				// safe dev-mode fallback to `config.relayUrls`.
+				await publish(signedEvent, { routing: 'inbox', target: activeDataset.pubkey })
+
 				setPublishMessage('Edit proposal published successfully.')
 				switchToDatasetViewMode(activeDataset)
 				setSelectedFeatureIds([])
@@ -689,16 +798,16 @@ export function usePublishing({
 			setPublishMessage,
 			setPublishError,
 			buildCollectionFromEditor,
-			ndk,
 			switchToDatasetViewMode,
 			setSelectedFeatureIds,
 		],
 	)
 
 	const handleDeleteDataset = useCallback(
-		async (event: NDKGeoEvent, onClear: () => void) => {
-			if (!ndk) {
-				toast.error('NDK is not ready.')
+		async (event: GeoDataset, onClear: () => void) => {
+			const signer = accounts.signer
+			if (!signer) {
+				toast.error('No active account.')
 				return
 			}
 			if (!(event.datasetId ?? event.dTag)) {
@@ -708,7 +817,7 @@ export function usePublishing({
 
 			const key = getDatasetKey(event)
 			try {
-				await NDKGeoEventClass.deleteDataset(ndk, event)
+				await deleteDataset(event.event, signer)
 				if (activeDataset && getDatasetKey(activeDataset) === key) {
 					onClear()
 				}
@@ -718,7 +827,7 @@ export function usePublishing({
 				toast.error('Failed to delete dataset. Check console for details.')
 			}
 		},
-		[ndk, activeDataset, getDatasetKey, getDatasetName],
+		[activeDataset, getDatasetKey, getDatasetName],
 	)
 
 	// Check if there's a collection blob reference (uploaded to Blossom)
@@ -748,6 +857,13 @@ export function usePublishing({
 		handlePublishWithBlossomUpload,
 		buildCollectionFromEditor,
 		serializeBlobReferences,
+		// Advisory attach validation (GROUP-04 warn-not-block; NEVER gates publish)
+		attachValidation,
+		attachedSchemaGroup,
+		runAttachValidation,
+		clearAttachValidation,
+		setActiveDatasetContextRefs,
+		activeDatasetContextRefs,
 		// Size helpers
 		getCollectionSize,
 		isOverSizeLimit,

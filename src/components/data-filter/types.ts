@@ -31,6 +31,7 @@ export interface FilterConfig<T extends FilterableItem> {
 
 export interface FilteredResult<T> {
 	items: T[]
+	filteredItems: T[]
 	totalCount: number
 	filteredCount: number
 	displayedCount: number

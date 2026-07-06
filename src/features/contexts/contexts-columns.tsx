@@ -1,13 +1,19 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { Bug, Eye } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Globe } from 'lucide-react'
+import {
+	DebugActionIcon,
+	FavoriteActionIcon,
+	InspectActionIcon,
+	MapStackActionIcon,
+} from '@/components/entity-action-icons'
+import { CoverThumb, ListRow, RowActionButton, RowBadge } from '@/components/entity-list'
 import { UserProfile } from '@/components/user-profile'
 import { cn } from '@/lib/utils'
-import type { NDKMapContextEvent } from '@/lib/ndk/NDKMapContextEvent'
+import type { MapContext } from '@/lib/nostr/map-context'
 import { GeoSocialActions } from '../social/comments/GeoSocialActions'
 
 export interface ContextRowData {
-	context: NDKMapContextEvent
+	context: MapContext
 	contextName: string
 	contextUse: string
 	validationMode: string | null
@@ -16,22 +22,22 @@ export interface ContextRowData {
 	displayParentName: string | null
 	isCuratedChild: boolean
 	attachmentCount: number
+	isMapActive: boolean
+	/** Round F.3: whether a `context:<coordinate>` entry is on the map stack. */
+	isInMapStack: boolean
+	/** Round G.2: starred in the catalog Favorites tab. Optional — profile view doesn't wire it. */
+	isCatalogPinned?: boolean
 }
 
 export interface ContextColumnsContext {
 	currentUserPubkey?: string
-	onInspectContext?: (context: NDKMapContextEvent) => void
-	onEditContext?: (context: NDKMapContextEvent) => void
-	onOpenDebug?: (event: NDKMapContextEvent) => void
-}
-
-const actionButtonClass =
-	'rounded-none px-2 text-xs text-gray-500 shadow-none hover:bg-transparent hover:text-sky-600'
-
-function ContextBadge({ label, className }: { label: string; className: string }) {
-	return (
-		<span className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium', className)}>{label}</span>
-	)
+	onInspectContext?: (context: MapContext) => void
+	onEditContext?: (context: MapContext) => void
+	/** Round F.3: add/remove the context's stack entry (the primary row verb). */
+	onToggleContextOnMap?: (context: MapContext) => void
+	/** Round G.2: toggle catalog favorite (Star). */
+	onToggleCatalogPin?: (context: MapContext) => void
+	onOpenDebug?: (event: MapContext) => void
 }
 
 export const createContextColumns = (
@@ -39,7 +45,6 @@ export const createContextColumns = (
 ): ColumnDef<ContextRowData>[] => [
 	{
 		accessorKey: 'contextName',
-		header: 'Context',
 		cell: ({ row }) => {
 			const {
 				context: contextEvent,
@@ -51,108 +56,131 @@ export const createContextColumns = (
 				displayParentName,
 				isCuratedChild,
 				attachmentCount,
+				isMapActive,
+				isInMapStack,
+				isCatalogPinned,
 			} = row.original
 			const image = contextEvent.context.image
+
 			return (
-				<div
-					className="flex min-w-0 items-center whitespace-normal"
-					style={displayDepth > 0 ? { paddingLeft: `${displayDepth}rem` } : undefined}
-				>
-					{image && (
-						<div className="mr-2 h-16 w-16 shrink-0 overflow-hidden rounded-sm">
-							<img src={image} alt={contextName} className="h-full w-full object-cover object-center" />
-						</div>
-					)}
-					<div className="min-w-0 flex-1 py-1">
-					<div className="flex min-w-0 items-start gap-1.5">
-						{displayDepth > 0 && <span className="text-[10px] text-slate-400">└</span>}
-						<div className="min-w-0 flex-1">
-							<div className="flex min-w-0 items-start justify-between gap-3">
-								<div className="min-w-0 flex-1">
-									<div className="line-clamp-2 break-words text-sm font-semibold leading-snug text-gray-900">
-										{contextName}
-									</div>
-									<div className="mt-1 min-w-0">
-										<UserProfile
-											pubkey={contextEvent.pubkey}
-											mode="avatar-name"
-											size="xs"
-											showNip05Badge={false}
-											interactive={false}
-										/>
-									</div>
-								</div>
-								<div className="flex max-w-[9rem] shrink-0 flex-wrap justify-end gap-1 pt-0.5">
-									<ContextBadge label={contextUse} className="bg-blue-100 text-blue-700" />
-									{validationMode ? (
-										<ContextBadge
-											label={validationMode}
-											className={
-												validationMode === 'required'
-													? 'bg-red-100 text-red-700'
-													: validationMode === 'optional'
-														? 'bg-amber-100 text-amber-700'
-														: 'bg-gray-100 text-gray-700'
-											}
-										/>
-									) : (
-										<ContextBadge label="none" className="bg-gray-100 text-gray-600" />
+				<ListRow
+					leading={
+						<CoverThumb
+							src={image}
+							alt={contextName}
+							fallbackIcon={Globe}
+							fallbackClassName="bg-info/15 text-info"
+						/>
+					}
+					title={contextName}
+					selected={isMapActive}
+					indentRem={displayDepth > 0 ? displayDepth * 0.75 : undefined}
+					onTitleClick={
+						context.onInspectContext ? () => context.onInspectContext?.(contextEvent) : undefined
+					}
+					titleAriaLabel={`Inspect context ${contextName}`}
+					titleTitle="Inspect context"
+					badges={
+						<>
+							<RowBadge label={contextUse} className="bg-info/15 text-info" />
+							{validationMode ? (
+								<RowBadge
+									label={validationMode}
+									className={cn(
+										validationMode === 'required'
+											? 'bg-destructive/10 text-destructive'
+											: validationMode === 'optional'
+												? 'bg-primary/10 text-primary'
+												: 'bg-muted text-foreground',
 									)}
-									<ContextBadge
-										label={attachmentPolicy}
-										className={
-											attachmentPolicy === 'open'
-												? 'bg-emerald-100 text-emerald-700'
-												: 'bg-stone-100 text-stone-700'
-										}
-									/>
-								</div>
-							</div>
-							{isCuratedChild && (
-								<div className="mt-1 text-[10px] text-slate-400">
-									curated child
-									{displayParentName ? ` in ${displayParentName}` : ''}
-									{attachmentCount > 1 ? ` · ${attachmentCount} contexts` : ''}
-								</div>
-							)}
-							<div className="mt-1 flex min-w-0 items-end justify-between gap-3">
-								<GeoSocialActions
-									target={contextEvent}
-									onReplyClick={() => context.onInspectContext?.(contextEvent)}
-									showCommentButton={Boolean(context.onInspectContext)}
-									showAnnotateButton={false}
-									compact
-									className="-ml-2 shrink-0 gap-0"
 								/>
-								<div className="flex shrink-0 items-center gap-0.5">
-									<Button
-										size="icon-sm"
-										variant="ghost"
-										className={cn(actionButtonClass, 'hover:text-emerald-600')}
-										onClick={() => context.onInspectContext?.(contextEvent)}
-										aria-label="Inspect context"
-										title="Inspect context"
-									>
-										<Eye className="h-4 w-4" />
-									</Button>
-									{context.onOpenDebug ? (
-										<Button
-											size="icon-sm"
-											variant="ghost"
-											className={cn(actionButtonClass, 'hover:text-amber-600')}
-											aria-label="Open debug dialog"
-											title="Open debug dialog"
-											onClick={() => context.onOpenDebug?.(contextEvent)}
-										>
-											<Bug className="h-4 w-4" />
-										</Button>
-									) : null}
-								</div>
-							</div>
-						</div>
-					</div>
-					</div>
-				</div>
+							) : (
+								<RowBadge label="none" className="bg-muted text-muted-foreground" />
+							)}
+							<RowBadge
+								label={attachmentPolicy}
+								className={cn(
+									attachmentPolicy === 'open' ? 'bg-ok/15 text-ok' : 'bg-muted text-foreground',
+								)}
+							/>
+						</>
+					}
+					meta={
+						<UserProfile
+							pubkey={contextEvent.pubkey}
+							mode="avatar-name"
+							size="xs"
+							showNip05Badge={false}
+							interactive={false}
+						/>
+					}
+					note={
+						isCuratedChild
+							? `curated child${displayParentName ? ` in ${displayParentName}` : ''}${
+									attachmentCount > 1 ? ` · ${attachmentCount} contexts` : ''
+								}`
+							: undefined
+					}
+					engage={
+						<GeoSocialActions
+							target={contextEvent}
+							onReplyClick={() => context.onInspectContext?.(contextEvent)}
+							showCommentButton={Boolean(context.onInspectContext)}
+							showAnnotateButton={false}
+							loadCounts={false}
+							compact
+							className="-ml-2 shrink-0 gap-0"
+						/>
+					}
+					actions={
+						<>
+							{context.onToggleContextOnMap ? (
+								<RowActionButton
+									icon={MapStackActionIcon}
+									label={isInMapStack ? 'Remove from map stack' : 'Add to map stack'}
+									hover="hover:text-ok"
+									active={isInMapStack}
+									activeClassName="text-ok hover:text-ok"
+									onClick={() => context.onToggleContextOnMap?.(contextEvent)}
+								/>
+							) : null}
+							<RowActionButton
+								icon={InspectActionIcon}
+								label="Inspect context"
+								hover="hover:text-ok"
+								onClick={() => context.onInspectContext?.(contextEvent)}
+							/>
+							{context.onToggleCatalogPin ? (
+								// P2.2: favorites persist per-pubkey — disable with a sign-in hint
+								// rather than silently writing guest-scoped state.
+								<RowActionButton
+									icon={FavoriteActionIcon}
+									label={
+										!context.currentUserPubkey
+											? 'Sign in to save favorites'
+											: isCatalogPinned
+												? 'Remove from favorites'
+												: 'Add to favorites'
+									}
+									hover="hover:text-primary"
+									active={Boolean(isCatalogPinned)}
+									activeClassName="text-primary hover:text-primary"
+									filled={Boolean(isCatalogPinned)}
+									disabled={!context.currentUserPubkey}
+									onClick={() => context.onToggleCatalogPin?.(contextEvent)}
+								/>
+							) : null}
+							{context.onOpenDebug ? (
+								<RowActionButton
+									icon={DebugActionIcon}
+									label="Open debug dialog"
+									hover="hover:text-primary"
+									onClick={() => context.onOpenDebug?.(contextEvent)}
+								/>
+							) : null}
+						</>
+					}
+				/>
 			)
 		},
 	},

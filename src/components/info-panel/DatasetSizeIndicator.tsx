@@ -21,7 +21,6 @@ import {
 } from '@/lib/blossom/blossomUpload'
 import type { FeatureCollection } from 'geojson'
 import { cn } from '@/lib/utils'
-import type NDK from '@nostr-dev-kit/react'
 
 interface DatasetSizeIndicatorProps {
 	/** The current feature collection to measure */
@@ -33,8 +32,6 @@ interface DatasetSizeIndicatorProps {
 	/** Show compact version */
 	compact?: boolean
 	className?: string
-	/** NDK instance for authenticated uploads */
-	ndk?: NDK
 }
 
 export function DatasetSizeIndicator({
@@ -43,7 +40,6 @@ export function DatasetSizeIndicator({
 	existingBlob = null,
 	compact = false,
 	className,
-	ndk,
 }: DatasetSizeIndicatorProps) {
 	const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle')
 	const [uploadError, setUploadError] = useState<string | null>(null)
@@ -104,7 +100,7 @@ export function DatasetSizeIndicator({
 		setUploadResult(null)
 
 		try {
-			const result = await uploadGeoJsonToBlossom(featureCollection, { ndk })
+			const result = await uploadGeoJsonToBlossom(featureCollection)
 			setUploadState('success')
 			setUploadResult(result)
 			// Notify parent - should add blob reference to store, NOT publish
@@ -136,7 +132,7 @@ export function DatasetSizeIndicator({
 			<div
 				className={cn(
 					'flex items-center gap-1',
-					isStoredExternally ? 'text-green-700' : 'text-amber-600',
+					isStoredExternally ? 'text-ok' : 'text-primary',
 					className,
 				)}
 			>
@@ -158,9 +154,9 @@ export function DatasetSizeIndicator({
 				'space-y-2 rounded-md border p-2',
 				isOverLimit
 					? isStoredExternally
-						? 'border-green-200 bg-green-50'
-						: 'border-amber-200 bg-amber-50'
-					: 'border-gray-200 bg-gray-50',
+						? 'border-ok/40 bg-ok/15'
+						: 'border-primary/40 bg-primary/10'
+					: 'border-border bg-muted',
 				className,
 			)}
 		>
@@ -169,12 +165,12 @@ export function DatasetSizeIndicator({
 				<div className="flex items-center gap-1.5">
 					{isOverLimit ? (
 						isStoredExternally ? (
-							<CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+							<CheckCircle2 className="h-3.5 w-3.5 text-ok" />
 						) : (
-							<AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+							<AlertTriangle className="h-3.5 w-3.5 text-primary" />
 						)
 					) : (
-						<CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+						<CheckCircle2 className="h-3.5 w-3.5 text-ok" />
 					)}
 					<span className="text-xs font-medium">
 						{isOverLimit
@@ -184,7 +180,7 @@ export function DatasetSizeIndicator({
 							: 'Dataset size OK'}
 					</span>
 				</div>
-				<span className="text-[10px] text-gray-500">
+				<span className="text-[10px] text-muted-foreground">
 					{formatBytes(size)} / {formatBytes(BLOSSOM_UPLOAD_THRESHOLD_BYTES)}
 				</span>
 			</div>
@@ -194,8 +190,8 @@ export function DatasetSizeIndicator({
 				value={Math.min(percentOfLimit, 100)}
 				className={cn(
 					'h-1.5',
-					isOverLimit && !isStoredExternally && '[&>div]:bg-amber-500',
-					(!isOverLimit || isStoredExternally) && '[&>div]:bg-green-500',
+					isOverLimit && !isStoredExternally && '[&>div]:bg-primary',
+					(!isOverLimit || isStoredExternally) && '[&>div]:bg-ok',
 				)}
 			/>
 
@@ -203,12 +199,12 @@ export function DatasetSizeIndicator({
 			{isOverLimit && (
 				<div className="space-y-2">
 					{isStoredExternally ? (
-						<p className="text-[10px] text-green-700">
+						<p className="text-[10px] text-ok">
 							This dataset exceeds the Nostr event limit, but it already has an external blob
 							reference.
 						</p>
 					) : (
-						<p className="text-[10px] text-amber-700">
+						<p className="text-[10px] text-primary">
 							This dataset exceeds the Nostr event limit. Upload to Blossom to store externally.
 						</p>
 					)}
@@ -218,7 +214,7 @@ export function DatasetSizeIndicator({
 							size="sm"
 							variant="outline"
 							onClick={handleUpload}
-							className="w-full gap-1.5 h-7 text-xs border-amber-300 hover:bg-amber-100"
+							className="w-full gap-1.5 h-7 text-xs border-primary/40 hover:bg-primary/10"
 						>
 							<CloudUpload className="h-3 w-3" />
 							Upload to Blossom
@@ -234,14 +230,14 @@ export function DatasetSizeIndicator({
 					{((uploadState === 'success' && uploadResult) ||
 						(uploadState === 'idle' && effectiveExistingBlob)) && (
 						<div className="space-y-2">
-							<div className="text-[10px] text-green-600 flex items-center gap-1">
+							<div className="text-[10px] text-ok flex items-center gap-1">
 								<CheckCircle2 className="h-3 w-3" />
 								{uploadState === 'success'
 									? 'Uploaded! Click Publish when ready.'
 									: 'External blob reference detected.'}
 							</div>
-							<div className="flex items-center gap-1 bg-white rounded border border-green-200 p-1.5">
-								<code className="text-[9px] text-green-700 break-all flex-1 select-all">
+							<div className="flex items-center gap-1 bg-card rounded border border-ok/40 p-1.5">
+								<code className="text-[9px] text-ok break-all flex-1 select-all">
 									{(uploadState === 'success' ? uploadResult?.url : effectiveExistingBlob?.url) ??
 										''}
 								</code>
@@ -277,7 +273,7 @@ export function DatasetSizeIndicator({
 
 					{uploadState === 'error' && uploadError && (
 						<div className="space-y-1">
-							<p className="text-[10px] text-red-600">{uploadError}</p>
+							<p className="text-[10px] text-destructive">{uploadError}</p>
 							<Button
 								size="sm"
 								variant="outline"
