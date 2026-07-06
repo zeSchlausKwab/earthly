@@ -82,7 +82,6 @@ import { ImportOsmDialog } from './components/ImportOsmDialog'
 import { LocationInspectorPopup } from './components/LocationInspectorPopup'
 import { Magnifier } from './components/Magnifier'
 import { MapFeatureHoverOverlay } from './components/MapFeatureHoverOverlay'
-import { BrowseLandingPrompt } from './components/BrowseLandingPrompt'
 import { DETENT_VH, MobilePanel, type MobilePanelTab } from './components/MobilePanel'
 import { MobileToolMenu } from './components/MobileToolMenu'
 import { CommentAnnotationPopup } from './components/CommentAnnotationPopup'
@@ -817,9 +816,6 @@ export function GeoEditorView() {
 		clearMapStack()
 	}, [clearMapStack])
 
-	// Round C.4: cold-start auto-populate. On Browse with an empty stack, drop
-	// in the most recent N datasets so the user doesn't land on a blank map.
-	// One-shot per page load (guarded by ref) so a manual Clear stays cleared.
 	const stance = useEditorStore((state) => state.stance)
 
 	// Mobile: entering the author stance (a geometry draft) surfaces the Map Stack
@@ -837,10 +833,6 @@ export function GeoEditorView() {
 		}
 	}, [isMobile, stance, setMobilePanelTab, setMobilePanelOpen, setMobilePanelSnap])
 
-	// Round E.2: the cold-start auto-seed became an explicit landing prompt.
-	// Dismissal is session-local; the prompt re-appears after a manual Clear
-	// (empty stack again) unless dismissed.
-	const [browseLandingDismissed, setBrowseLandingDismissed] = useState(false)
 	// Round C.5: stack ⇄ URL serialization. Read URL params on mount once data
 	// is loaded; afterwards push stack mutations back to the URL (debounced via
 	// rAF). The URL is the canonical shareable representation of a map view.
@@ -987,36 +979,22 @@ export function GeoEditorView() {
 	}, [mapStackEntries, mapStackOrder])
 	// Round E.2: the former auto-seed, now triggered by the landing prompt's
 	// "Show recent datasets" button — the 5 most recent datasets by created_at.
-	const seedRecentDatasets = useCallback(() => {
-		const SEED_COUNT = 5
-		const seeded = [...geoEvents]
-			.sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
-			.slice(0, SEED_COUNT)
-		for (const event of seeded) {
-			addDatasetToMapStack(event, 'browse-default')
-		}
-	}, [geoEvents, addDatasetToMapStack])
-	const showBrowseLandingPrompt =
-		!isMobile &&
-		stance === 'browse' &&
-		stackUrlHydrated &&
-		!browseLandingDismissed &&
-		mapStackOrder.length === 0 &&
-		geoEvents.length > 0
-
-	// Phase 13 (SPEC §3.3, D-05): cold-start Browse auto-adds BOTH aggregate layer
-	// entries so today's always-on sightings/beacons behavior is preserved — but now
-	// as removable/toggleable Map Stack entries (source 'browse-default', entityKey
-	// 'all', visible). Seeded exactly once per session on the first cold-start (no
-	// `?ms=` URL), guarded by a ref so it never re-seeds after the user Clears them
-	// (browse-default entries clear normally per clearMapStack) or removes them —
-	// matching how browse-default avoids re-triggering after a clear (types.ts L101).
-	// A `?ms=`-bearing deep link hydrates its own stack and is NOT seeded (its
-	// membership is the shared view; the observer should see exactly what was shared).
+	// Phase 13 (SPEC §3.3, D-05) + landing default: cold-start auto-adds BOTH
+	// aggregate layer entries — 'All sightings' + 'Live beacons' — so the user
+	// NEVER lands on an empty map (this replaced the 'Your map is empty'
+	// BrowseLandingPrompt; mobile and desktop alike). Entries are removable/
+	// toggleable Map Stack rows (source 'browse-default', entityKey 'all',
+	// visible). Seeded exactly once per session on the first cold-start (no
+	// `?ms=` URL), guarded by a ref so it never re-seeds after the user Clears
+	// them (browse-default entries clear normally per clearMapStack) or removes
+	// them. A `?ms=`-bearing deep link hydrates its own stack and is NOT seeded
+	// (its membership is the shared view; the observer should see exactly what
+	// was shared). Author stance is exempt — a restored draft shouldn't get
+	// layers pushed under it mid-edit.
 	const aggregateLayersSeededRef = useRef(false)
 	useEffect(() => {
 		if (aggregateLayersSeededRef.current) return
-		if (stance !== 'browse' || !stackUrlHydrated) return
+		if (stance === 'author' || !stackUrlHydrated) return
 		// Only seed on a genuine cold-start (no shared `?ms=` stack to reconstruct).
 		if (new URLSearchParams(window.location.search).has('ms')) {
 			aggregateLayersSeededRef.current = true
@@ -1035,7 +1013,7 @@ export function GeoEditorView() {
 			addMapStackEntry({
 				entityType: 'sighting-layer',
 				entityKey: 'all',
-				title: 'Sightings',
+				title: 'All sightings',
 				source: 'browse-default',
 				visible: true,
 				pinned: false,
@@ -3162,23 +3140,6 @@ export function GeoEditorView() {
 					/>
 				</div>
 			</div>
-			{showBrowseLandingPrompt ? (
-				<BrowseLandingPrompt
-					onShowNewest={seedRecentDatasets}
-					onBrowseDatasets={() => {
-						// Browsing is a choice too — dismiss so the prompt doesn't
-						// linger behind the opened catalog.
-						setBrowseLandingDismissed(true)
-						navigateToView('datasets')
-					}}
-					onBrowseContexts={() => {
-						setBrowseLandingDismissed(true)
-						navigateToView('contexts')
-					}}
-					onStartDrawing={startNewDataset}
-					onDismiss={() => setBrowseLandingDismissed(true)}
-				/>
-			) : null}
 			{!isMobile && desktopMapStackOpen && (
 				<div className="pointer-events-auto absolute top-[var(--shell-mapstack-top)] left-2 z-20 flex max-h-[calc(100vh-5rem)] w-[var(--shell-mapstack-w)] max-w-[calc(100vw-1rem)] flex-col shadow-lg">
 					<MapStackPanel
