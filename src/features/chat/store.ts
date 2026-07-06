@@ -28,6 +28,7 @@ import {
 	consumeMapSnapshot,
 	compactToolMessageContentForPrompt,
 } from './tools'
+import { getTokenMetadata } from '@cashu/cashu-ts'
 import { getWalletSnapshot, receiveCashuToken, sendCashuToken } from '@/lib/wallet'
 import { detectVisionSupport } from './vision/detectVisionSupport'
 import { gateToolsForVision } from './vision/gateToolsForVision'
@@ -1349,15 +1350,28 @@ export const useChatStore = create<ChatStore>()(
 					)
 				}
 
-				// Helper to process refund (no-ops when refundToken is null)
+				// Helper to process refund (no-ops when refundToken is null).
+				// A refund is real money: on redeem failure the encoded token is
+				// surfaced to the user (toast + console) instead of being dropped —
+				// it can be pasted into the wallet's Receive panel to recover it.
 				const processRefund = async (refundToken: string | null) => {
-					if (refundToken) {
-						console.log('[Chat] Received refund token, redeeming...')
+					if (!refundToken) return
+					console.log('[Chat] Received refund token, redeeming...')
+					try {
+						await receiveCashuToken(refundToken)
 						try {
-							await receiveCashuToken(refundToken)
-						} catch (err) {
-							console.error('[Chat] Failed to process refund:', err)
+							const amount = getTokenMetadata(refundToken).amount.toNumber()
+							set((state) => ({ totalRefunded: state.totalRefunded + amount }))
+						} catch {
+							// Amount accounting is best-effort; the redeem already succeeded.
 						}
+					} catch (err) {
+						console.error('[Chat] Failed to redeem refund token:', err, refundToken)
+						toast.error('Refund received but could not be redeemed automatically.', {
+							description:
+								'The token was logged to the console — paste it into Wallet → Receive to recover the sats.',
+							duration: 15_000,
+						})
 					}
 				}
 
@@ -1584,6 +1598,8 @@ export const useChatStore = create<ChatStore>()(
 									if (!isStreamRunActive()) {
 										settled = true
 										clearTimers()
+										// The UI detached, but the refund is still money — redeem it.
+										await processRefund(refundToken)
 										reject(new Error(DETACHED_STREAM_ERROR))
 										return
 									}
@@ -1612,6 +1628,8 @@ export const useChatStore = create<ChatStore>()(
 									if (!isStreamRunActive()) {
 										settled = true
 										clearTimers()
+										// The UI detached, but the refund is still money — redeem it.
+										await processRefund(refundToken ?? null)
 										reject(new Error(DETACHED_STREAM_ERROR))
 										return
 									}

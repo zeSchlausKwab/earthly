@@ -123,31 +123,57 @@ export async function receiveCashuToken(tokenOrString: string | Token): Promise<
 }
 
 /**
+ * Serializes proof-spending operations (send / melt / consolidate).
+ *
+ * `ActionRunner.run` does NOT queue: two concurrent `TokensOperation` runs
+ * both read the token set before either publishes its `CompleteSpend`, so
+ * they can select the SAME proofs — the mint accepts one and rejects the
+ * other with "token already spent". Chaining through this mutex makes the
+ * second operation see the post-spend token set (CompleteSpend deletes the
+ * consumed token events from the store before the lock releases).
+ */
+let spendLock: Promise<unknown> = Promise.resolve()
+
+/** Exported for tests; treat as internal. */
+export function withSpendLock<T>(fn: () => Promise<T>): Promise<T> {
+	const next = spendLock.then(fn, fn)
+	// Keep the chain alive on failure — the next caller must still run.
+	spendLock = next.catch(() => undefined)
+	return next
+}
+
+/**
  * Send a Cashu token of the given amount.
  *
  * Returns the encoded `cashuB…` string ready to share with the recipient.
  * Optionally constrains the source mint; when omitted, applesauce-wallet
  * picks a mint with sufficient balance.
+ *
+ * TokensOperation completes the spend lifecycle internally (applesauce ≥6.2):
+ * consumed token events are deleted (del + NIP-09) and an "out" kind-7376
+ * history entry is written.
  */
 export async function sendCashuToken(
 	amountSats: number,
 	options?: { mint?: string },
 ): Promise<string> {
-	let encoded: string | null = null
+	return withSpendLock(async () => {
+		let encoded: string | null = null
 
-	await walletActions.run(
-		TokensOperation,
-		amountSats,
-		async ({ selectedProofs, mint, cashuWallet }) => {
-			const { keep, send } = await cashuWallet.ops.send(amountSats, selectedProofs).run()
-			encoded = getEncodedToken({ mint, proofs: send, unit: 'sat' })
-			return { change: keep.length > 0 ? keep : undefined }
-		},
-		{ mint: options?.mint, couch, getCashuWallet },
-	)
+		await walletActions.run(
+			TokensOperation,
+			amountSats,
+			async ({ selectedProofs, mint, cashuWallet }) => {
+				const { keep, send } = await cashuWallet.ops.send(amountSats, selectedProofs).run()
+				encoded = getEncodedToken({ mint, proofs: send, unit: 'sat' })
+				return { change: keep.length > 0 ? keep : undefined }
+			},
+			{ mint: options?.mint, couch, getCashuWallet },
+		)
 
-	if (!encoded) throw new Error('Failed to create token')
-	return encoded
+		if (!encoded) throw new Error('Failed to create token')
+		return encoded
+	})
 }
 
 /**
@@ -159,6 +185,13 @@ export async function sendCashuToken(
  * before proofs can be selected).
  */
 export async function payLightningInvoice(
+	invoice: string,
+	options?: { mint?: string },
+): Promise<{ paid: boolean; preimage?: string }> {
+	return withSpendLock(() => payLightningInvoiceUnlocked(invoice, options))
+}
+
+async function payLightningInvoiceUnlocked(
 	invoice: string,
 	options?: { mint?: string },
 ): Promise<{ paid: boolean; preimage?: string }> {
@@ -280,7 +313,9 @@ export async function receiveNutzaps(events: NostrEvent | NostrEvent[]): Promise
  * reduce token-event count.
  */
 export async function consolidateTokens(): Promise<void> {
-	await walletActions.run(ConsolidateTokens, { unlockTokens: true, getCashuWallet })
+	await withSpendLock(() =>
+		walletActions.run(ConsolidateTokens, { unlockTokens: true, getCashuWallet }),
+	)
 }
 
 /** Sweep tokens stranded in the couch back into the wallet (after a crash). */
