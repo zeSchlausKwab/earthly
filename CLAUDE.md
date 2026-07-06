@@ -24,7 +24,13 @@ bun dev                    # Start dev server with HMR (runs ./scripts/dev-clean
 bun relay                  # Start Go relay on port 3334
 bun relay:reset            # Reset relay database and restart
 bun relay:kill             # Kill relay process
-bun run seed              # Generate seed data with Faker
+bun run seed full          # Seed local relay: groups/datasets/beacons/stories/comments/reactions
+bun run seed sightings     # Seed temporal sightings (37522)
+bun run seed minimal       # Fast smoke seed: profiles + 1 dataset
+bun run seed canonical     # Real-world datasets from base-assets/base_rips
+bun run seed purge         # NIP-09 delete canonical seed data
+# All seed commands: --relay <url> --allow-remote --key <hex> --dry-run --verbose
+# Non-loopback relays are a HARD ERROR without --allow-remote (docs/RELAY_STAGES.md § Seeding)
 ```
 
 ### Mapnolia (Map Tile Server)
@@ -261,7 +267,7 @@ Large datasets are stored externally via Blossom blob storage:
 - **Hooks:** Business logic extracted to 5 custom hooks in `hooks/` directory
 - **Blob handling:** Large GeoJSON stored externally via Blossom with event references
 - **Mobile-first:** Responsive UI with collapsible panels
-- **Test data:** Use `bun run seed` to generate fake datasets with Faker
+- **Test data:** Use `bun run seed full` (+ `seed sightings`) for the dev fixture set; the unified seeder lives in `src/lib/seeder/`
 - **Code quality:** Biome is used for linting and formatting (not ESLint/Prettier)
 - **Map tiles:** PMTiles chunking and blob storage handled by mapnolia (external binary)
 - **Social hooks:** `useGeoComments` and `useGeoReactions` in `src/lib/hooks/` for comment subscriptions

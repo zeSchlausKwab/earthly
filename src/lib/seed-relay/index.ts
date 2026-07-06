@@ -3,10 +3,12 @@
  *
  * Provides the small slice of the legacy `@nostr-dev-kit/ndk` API the seed
  * scripts still rely on (`NDK`, `NDKEvent`, `NDKPrivateKeySigner`, etc.) but
- * implemented entirely on top of `applesauce-relay` and `nostr-tools`. The app
- * itself doesn't import from this module — it's exclusively for the
- * `scripts/seed*.ts` pipeline. Once the seed scripts are rewritten on
- * applesauce primitives directly, this whole directory disappears.
+ * implemented entirely on top of `applesauce-relay` and `nostr-tools`.
+ *
+ * DEPRECATED: the unified seeder (`scripts/seed.ts` + `src/lib/seeder/`) is
+ * applesauce-native and does NOT use this shim. Its only remaining consumers
+ * are the archived scripts in `scripts/seed-legacy/`; this directory gets
+ * deleted together with them after one release.
  *
  * Behavior:
  *   - `NDK` carries an explicit relay-url list and a lazy `RelayPool` from
