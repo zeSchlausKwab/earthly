@@ -21,6 +21,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
@@ -197,35 +198,32 @@ export function ChatSettingsSection() {
 			</div>
 
 			<div className="space-y-2">
-				<Label>Provider</Label>
+				<Label htmlFor="chat-provider-select">Provider</Label>
 				{/* NOT disabled while streaming: a stuck isStreaming flag would lock the
 				    user out of their own settings with no visual cue (Radix disabled
 				    selects look normal but swallow clicks). Switching provider cancels
 				    any in-flight response instead — same recovery contract as New chat. */}
-				<Select
-					value={provider}
-					onValueChange={(value) => {
-						if (isStreaming) cancelStream()
-						setProvider(value as ProviderType)
-					}}
-				>
-					<SelectTrigger>
-						<span className="flex min-w-0 items-center gap-2">
-							<span className="truncate">{selectedProviderOption?.label ?? 'Select provider'}</span>
-							{provider === 'routstr' ? <DangerIndicator /> : null}
-						</span>
-					</SelectTrigger>
-					<SelectContent>
+				<div className="flex items-center gap-2">
+					<NativeSelect
+						id="chat-provider-select"
+						value={provider}
+						onChange={(event) => {
+							const value = event.target.value
+							if (isStreaming) cancelStream()
+							setProvider(value as ProviderType)
+						}}
+					>
 						{PROVIDER_OPTIONS.map((option) => (
-							<SelectItem key={option.value} value={option.value}>
-								<span className="flex min-w-0 items-center gap-2">
-									<span className="truncate">{option.label}</span>
-									{option.value === 'routstr' ? <DangerIndicator /> : null}
-								</span>
-							</SelectItem>
+							<NativeSelectOption key={option.value} value={option.value}>
+								{option.label}
+							</NativeSelectOption>
 						))}
-					</SelectContent>
-				</Select>
+					</NativeSelect>
+					{provider === 'routstr' ? <DangerIndicator /> : null}
+					{selectedProviderOption ? null : (
+						<span className="text-xs text-muted-foreground">Select provider</span>
+					)}
+				</div>
 			</div>
 
 			{provider === 'lmstudio' && (

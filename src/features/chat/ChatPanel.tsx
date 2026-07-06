@@ -22,7 +22,7 @@ import type { MapContext } from '@/lib/nostr/map-context'
 import type { EditorFeature } from '@/features/geo-editor/core'
 import { Button } from '@/components/ui/button'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
-import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
 	AlertTriangle,
@@ -80,6 +80,10 @@ const PROVIDER_LABELS: Record<ProviderType, string> = {
 	lmstudio: 'LM Studio',
 	ollama: 'Ollama',
 	custom: 'Custom endpoint',
+}
+
+function formatChatSessionOption(chat: { title: string; updatedAt: number }): string {
+	return `${chat.title} · ${new Date(chat.updatedAt).toLocaleTimeString()}`
 }
 
 interface ChatPanelProps {
@@ -549,34 +553,26 @@ export function ChatPanel({
 					    controls ARE the recovery path. Hard-disabling them locked users
 					    out whenever isStreaming got pinned, with no visual cue (a Radix
 					    disabled select looks normal but swallows clicks). */}
-					<Select value={activeChatId ?? ''} onValueChange={handleSwitchChat}>
-						<SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
-							{activeChatSession ? (
-								<div className="flex min-w-0 items-center gap-2">
-									<span className="min-w-0 flex-1 truncate text-left">
-										{activeChatSession.title}
-									</span>
-									<span className="shrink-0 text-[10px] text-muted-foreground">
-										{new Date(activeChatSession.updatedAt).toLocaleTimeString()}
-									</span>
-								</div>
-							) : (
-								<span className="truncate text-muted-foreground">Select chat</span>
-							)}
-						</SelectTrigger>
-						<SelectContent>
-							{sortedChatSessions.map((chat) => (
-								<SelectItem key={chat.id} value={chat.id}>
-									<div className="flex min-w-0 items-center gap-2">
-										<span className="truncate">{chat.title}</span>
-										<span className="shrink-0 text-[10px] text-muted-foreground">
-											{new Date(chat.updatedAt).toLocaleTimeString()}
-										</span>
-									</div>
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+					<NativeSelect
+						value={activeChatSession ? (activeChatId ?? '') : ''}
+						onChange={(event) => {
+							const chatId = event.target.value
+							if (chatId) handleSwitchChat(chatId)
+						}}
+						aria-label="Select chat"
+						className="min-w-0 flex-1"
+					>
+						{activeChatSession ? null : (
+							<NativeSelectOption value="" disabled>
+								Select chat
+							</NativeSelectOption>
+						)}
+						{sortedChatSessions.map((chat) => (
+							<NativeSelectOption key={chat.id} value={chat.id}>
+								{formatChatSessionOption(chat)}
+							</NativeSelectOption>
+						))}
+					</NativeSelect>
 					<Button
 						type="button"
 						variant="ghost"
