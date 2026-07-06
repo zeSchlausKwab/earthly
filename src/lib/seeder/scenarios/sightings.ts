@@ -39,6 +39,21 @@ interface SightingSpec {
 	who: SeedIdentity
 	/** 'point' (default) or 'area' (small polygon). */
 	shape?: 'point' | 'area'
+	/**
+	 * NIP-92 imeta photo slugs (SPEC §6.1). Rendered from picsum.photos so dev
+	 * seeds carry realistic image tags without a local blossom server; first
+	 * slug = primary image (the map pin-bubble thumbnail).
+	 */
+	images?: string[]
+}
+
+/** Deterministic dev photo URL — stable per slug across seed runs. */
+function seedPhoto(slug: string): { url: string; type: string; dimensions: string } {
+	return {
+		url: `https://picsum.photos/seed/${slug}/480/360`,
+		type: 'image/jpeg',
+		dimensions: '480x360',
+	}
 }
 
 function buildSpecs(owner: SeedIdentity, contributors: SeedIdentity[]): SightingSpec[] {
@@ -50,6 +65,7 @@ function buildSpecs(owner: SeedIdentity, contributors: SeedIdentity[]): Sighting
 		// ── LIVE (start in the past, still ongoing) → amber focal markers ────────
 		{
 			title: 'Kingfisher at Donaukanal',
+			images: ['kingfisher-1', 'kingfisher-2'],
 			description: 'Diving near Salztorbrücke — bright blue flash.',
 			start: now() - HOUR,
 			end: now() + HOUR,
@@ -65,6 +81,7 @@ function buildSpecs(owner: SeedIdentity, contributors: SeedIdentity[]): Sighting
 		},
 		{
 			title: 'Food truck rally — MuseumsQuartier',
+			images: ['foodtrucks-1', 'foodtrucks-2', 'foodtrucks-3'],
 			description: 'A dozen trucks set up in the courtyard.',
 			start: now() - 3 * HOUR,
 			end: now() + 4 * HOUR,
@@ -73,6 +90,7 @@ function buildSpecs(owner: SeedIdentity, contributors: SeedIdentity[]): Sighting
 		},
 		{
 			title: 'Red fox — Stadtpark',
+			images: ['redfox-1'],
 			start: now() - 40 * 60,
 			end: now() + 20 * 60,
 			ttl: 20 * HOUR,
@@ -83,6 +101,7 @@ function buildSpecs(owner: SeedIdentity, contributors: SeedIdentity[]): Sighting
 		// ── UPCOMING (start in the future) → blue markers ────────────────────────
 		{
 			title: 'Mural unveiling — Gürtel',
+			images: ['mural-1'],
 			description: 'Live painting + DJ from 6pm.',
 			start: now() + 2 * DAY,
 			end: now() + 2 * DAY + 4 * HOUR,
@@ -116,6 +135,7 @@ function buildSpecs(owner: SeedIdentity, contributors: SeedIdentity[]): Sighting
 		// ── PAST (ended, but not yet NIP-40 expired) → grey markers ──────────────
 		{
 			title: 'Peregrine on Stephansdom',
+			images: ['peregrine-1', 'peregrine-2'],
 			description: 'Nesting pair sighted at dawn.',
 			start: now() - 2 * DAY,
 			end: now() - 2 * DAY + HOUR,
@@ -124,6 +144,7 @@ function buildSpecs(owner: SeedIdentity, contributors: SeedIdentity[]): Sighting
 		},
 		{
 			title: 'Beaver dam — Lobau',
+			images: ['beaverdam-1'],
 			description: 'Fresh-cut branches across the side channel.',
 			start: now() - 5 * DAY,
 			end: now() - 5 * DAY + 30 * 60,
@@ -133,6 +154,7 @@ function buildSpecs(owner: SeedIdentity, contributors: SeedIdentity[]): Sighting
 		},
 		{
 			title: 'Ice formation — Donauinsel',
+			images: ['ice-1'],
 			description: 'Wind-sculpted ridge along the bank.',
 			start: now() - 4 * DAY,
 			end: now() - 4 * DAY + 2 * HOUR,
@@ -190,6 +212,8 @@ export async function runSightings(ctx: SeederContext): Promise<void> {
 			.bbox((bboxFromGeometry(geometry) as GeoBoundingBox) ?? pointBbox(center, 0.0008))
 			.geohash(center)
 		if (spec.ttl !== undefined) factory = factory.expiration(now() + spec.ttl)
+		// NIP-92 imeta photos (SPEC §6.1) — first = primary (map pin-bubble thumbnail).
+		if (spec.images?.length) factory = factory.images(spec.images.map(seedPhoto))
 
 		const signed = await factory.sign(spec.who.signer)
 		await client.publish(signed, spec.title)
