@@ -96,6 +96,11 @@ export class GeoEditor {
 	private pointerOffset: PointerOffset
 	private panLockEnabled: boolean = false
 	private panLockDragPanWasEnabled: boolean = false
+	// When set, a single touch TAP places a point/vertex even with pan lock off, so a
+	// drag still pans the map (used by the map-first Sighting pin-drop — "tap the map
+	// to drop your sighting"). Without this, touch taps in a draw mode are ignored
+	// unless pan lock is on (see the guard in onClick), which strands the pin-drop.
+	private touchTapDrawEnabled: boolean = false
 	private touchDrawInProgress: boolean = false
 	private lastTouchPoint?: ScreenPoint
 	private vertexDragMoved: boolean = false
@@ -292,7 +297,13 @@ export class GeoEditor {
 		if (this.skipClickUntil && Date.now() < this.skipClickUntil) return
 		this.skipClickUntil = 0
 
-		if (this.isTouchLikeEvent(e) && this.isDrawMode(this.mode) && !this.panLockEnabled) return
+		if (
+			this.isTouchLikeEvent(e) &&
+			this.isDrawMode(this.mode) &&
+			!this.panLockEnabled &&
+			!this.touchTapDrawEnabled
+		)
+			return
 
 		const { position: clickPoint } = this.getAdjustedPointerPosition(e)
 		e.lngLat.lng = clickPoint[0]
@@ -995,6 +1006,12 @@ export class GeoEditor {
 		this.updatePanLockForMode()
 	}
 
+	/** Allow a single touch tap to place a point/vertex even with pan lock off (the
+	 *  Sighting map-first pin-drop). A drag still pans the map. */
+	setTouchTapDrawEnabled(enabled: boolean): void {
+		this.touchTapDrawEnabled = enabled
+	}
+
 	isPanLocked(): boolean {
 		return this.panLockEnabled
 	}
@@ -1539,10 +1556,7 @@ export class GeoEditor {
 	 * `collectionMeta` WITHOUT the editor core importing the store (avoids the
 	 * store↔core cycle that crashed under the dev bundler in Phase 2).
 	 */
-	setMetadataBridge(
-		provider: () => CollectionMeta,
-		applier: (meta: CollectionMeta) => void,
-	): void {
+	setMetadataBridge(provider: () => CollectionMeta, applier: (meta: CollectionMeta) => void): void {
 		this.metadataProvider = provider
 		this.metadataApplier = applier
 	}

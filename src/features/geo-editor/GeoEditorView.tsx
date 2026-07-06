@@ -89,6 +89,7 @@ import { CommentAnnotationPopup } from './components/CommentAnnotationPopup'
 import type { CommentAnnotationPopupData } from './components/CommentAnnotationPopup'
 import type { MapPopupPlacement } from './components/map-popup-positioning'
 import { UserLocationMarker } from './components/UserLocationMarker'
+import { SightingPlacementPreview } from './components/SightingPlacementPreview'
 import { GeoEditorMap as MapComponent } from './components/map'
 import { OsmResultsPanel } from './components/OsmResultsPanel'
 import { StudioStatusBar } from './components/StudioStatusBar'
@@ -2164,10 +2165,15 @@ export function GeoEditorView() {
 	const sightingPlacementArmedRef = useRef(false)
 	const armSightingPlacement = useCallback(() => {
 		sightingPlacementArmedRef.current = true
+		// Map-first pin-drop: a single touch tap must place the point even with pan
+		// lock off (otherwise touch taps in draw mode are ignored — the tap never
+		// drops the pin on mobile). A drag still pans the map.
+		editor?.setTouchTapDrawEnabled(true)
 		editor?.setMode('draw_point')
 	}, [editor])
 	const disarmSightingPlacement = useCallback(() => {
 		sightingPlacementArmedRef.current = false
+		editor?.setTouchTapDrawEnabled(false)
 		// Return the editor to a non-drawing idle mode.
 		if (editor && editor.getMode() !== 'select') editor.setMode('select')
 	}, [editor])
@@ -2271,6 +2277,7 @@ export function GeoEditorView() {
 	// Switch the armed create flow to an area draw (D-02 "Draw an area instead").
 	const handleDrawSightingArea = useCallback(() => {
 		sightingPlacementArmedRef.current = true
+		editor?.setTouchTapDrawEnabled(true)
 		editor?.setMode('draw_polygon')
 	}, [editor])
 
@@ -2799,15 +2806,18 @@ export function GeoEditorView() {
 		{ key: 'activity', label: 'Activity', icon: Activity, tab: 'beacons' },
 		{ key: 'you', label: 'You', icon: User, tab: 'profile' },
 	]
-	// Entity editors are mutually exclusive: close any open editor before starting a
-	// new one so a lingering editor (e.g. an unfinished Story) can't leak into the
-	// next entity's surface (incl. the dataset draft's Map Stack editor). Each
-	// create-handler resets its own state, so closing all-then-create is safe.
-	const startCreate = (create: () => void) => {
-		handleCloseStoryEditor()
-		handleCloseContextEditor()
-		handleCloseSightingEditor()
-		handleCloseBeaconControl()
+	// Entity editors are mutually exclusive: close any OTHER open editor before
+	// starting a new one so a lingering editor (e.g. an unfinished Story) can't leak
+	// into the next entity's surface (incl. the dataset draft's Map Stack editor).
+	// `keep` names the entity being created — we must NOT close it: the create-handler
+	// resets its own state, and for map-first entities (sighting/beacon) closing it
+	// first would disarm the pin-drop (`editor.setMode('select')`) in the same tick as
+	// the create arms it (`setMode('draw_point')`), which cancels the placement.
+	const startCreate = (create: () => void, keep?: 'story' | 'context' | 'sighting' | 'beacon') => {
+		if (keep !== 'story') handleCloseStoryEditor()
+		if (keep !== 'context') handleCloseContextEditor()
+		if (keep !== 'sighting') handleCloseSightingEditor()
+		if (keep !== 'beacon') handleCloseBeaconControl()
 		create()
 	}
 	const handleDockSelect = (tab: MobilePanelTab) => {
@@ -2985,6 +2995,14 @@ export function GeoEditorView() {
 				map={map.current}
 				coordinates={userLocation}
 				accuracy={userLocation?.accuracy}
+			/>
+			{/* Amber preview of the Sighting geometry being placed/edited — the
+			    transient draw feature is deleted after capture, so this is the only
+			    thing on the map showing where the pin/area landed. */}
+			<SightingPlacementPreview
+				map={map.current}
+				geometry={sightingEditorMode !== 'none' ? (placedSightingGeometry ?? null) : null}
+				mapReady={mounted}
 			/>
 			<Magnifier
 				enabled={magnifierEnabled}
@@ -3411,19 +3429,19 @@ export function GeoEditorView() {
 								<Database className="h-4 w-4" />
 								Dataset
 							</DropdownMenuItem>
-							<DropdownMenuItem onSelect={() => startCreate(handleCreateContext)}>
+							<DropdownMenuItem onSelect={() => startCreate(handleCreateContext, 'context')}>
 								<Globe className="h-4 w-4" />
 								Context
 							</DropdownMenuItem>
-							<DropdownMenuItem onSelect={() => startCreate(handleCreateStory)}>
+							<DropdownMenuItem onSelect={() => startCreate(handleCreateStory, 'story')}>
 								<BookOpen className="h-4 w-4" />
 								Article
 							</DropdownMenuItem>
-							<DropdownMenuItem onSelect={() => startCreate(handleCreateSighting)}>
+							<DropdownMenuItem onSelect={() => startCreate(handleCreateSighting, 'sighting')}>
 								<Eye className="h-4 w-4" />
 								Sighting
 							</DropdownMenuItem>
-							<DropdownMenuItem onSelect={() => startCreate(handleShareLocation)}>
+							<DropdownMenuItem onSelect={() => startCreate(handleShareLocation, 'beacon')}>
 								<Radio className="h-4 w-4" />
 								Live beacon
 							</DropdownMenuItem>
