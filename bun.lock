@@ -6,7 +6,7 @@
       "name": "earthly",
       "dependencies": {
         "@base-ui/react": "^1.6.0",
-        "@cashu/cashu-ts": "^4.5.1",
+        "@cashu/cashu-ts": "^4.6.1",
         "@contextvm/sdk": "^0.12.3",
         "@faker-js/faker": "^10.4.0",
         "@formkit/auto-animate": "^0.9.0",
@@ -45,15 +45,15 @@
         "@yudiel/react-qr-scanner": "^2.5.1",
         "ajv": "^8.20.0",
         "ajv-formats": "^3.0.1",
-        "applesauce-accounts": "^6.0.0",
-        "applesauce-actions": "0.0.0-next-20260610164519",
-        "applesauce-common": "0.0.0-next-20260610164519",
-        "applesauce-core": "^6.1.0",
-        "applesauce-loaders": "^6.1.0",
+        "applesauce-accounts": "^6.2.0",
+        "applesauce-actions": "^6.2.0",
+        "applesauce-common": "^6.2.0",
+        "applesauce-core": "^6.2.0",
+        "applesauce-loaders": "^6.2.0",
         "applesauce-react": "^6.0.0",
-        "applesauce-relay": "^6.0.3",
-        "applesauce-signers": "0.0.0-next-20260610164519",
-        "applesauce-wallet": "0.0.0-next-20260610164519",
+        "applesauce-relay": "^6.2.1",
+        "applesauce-signers": "^6.2.2",
+        "applesauce-wallet": "^6.2.0",
         "blossom-client-sdk": "^5.0.0",
         "bun-plugin-tailwind": "^0.1.2",
         "class-variance-authority": "^0.7.1",
@@ -131,7 +131,7 @@
 
     "@capacitor/core": ["@capacitor/core@7.6.2", "", { "dependencies": { "tslib": "^2.1.0" } }, "sha512-8HRKEUlYpCOeRec8bCHZwEA4o/E2q5dhHSd0v/Cr6+ume08fZY/gniF+ZCKF+6DO0T/nRaBeNRQn6Up+45J1mg=="],
 
-    "@cashu/cashu-ts": ["@cashu/cashu-ts@4.5.1", "", { "dependencies": { "@noble/curves": "^2.2.0", "@noble/hashes": "^2.2.0", "@scure/base": "^2.2.0", "@scure/bip32": "^2.2.0" } }, "sha512-AGB7wh1SC0iANRSsdwM091eoS1uVhSf/Qf2VM3plw8EzlYjiFkwSa9X0Nh6NpsE1VVeAuPpNInvpznvElp2Q0A=="],
+    "@cashu/cashu-ts": ["@cashu/cashu-ts@4.6.1", "", { "dependencies": { "@noble/curves": "^2.2.0", "@noble/hashes": "^2.2.0", "@scure/base": "^2.2.0", "@scure/bip32": "^2.2.0" } }, "sha512-63X9AI9nrN8auPYld+EGd24CMFrnOraUNs7FaOR5+XeKG9FwyFK43Qh2qGOq+dXfq575bmEL9AWN5uFw6qbe4w=="],
 
     "@contextvm/mcp-sdk": ["@contextvm/mcp-sdk@1.29.2", "", { "dependencies": { "cross-spawn": "^7.0.5" }, "peerDependencies": { "ajv": "^8.17.1", "ajv-formats": "^3.0.1", "zod": "^3.25 || ^4.0", "zod-to-json-schema": "^3.25.1" }, "optionalPeers": ["ajv", "ajv-formats", "zod", "zod-to-json-schema"] }, "sha512-BquItl7HEtcdB32RxrL/f9iHM3AVRL/QZeBYUmZ+48vA8z0Kog8w75C16esUuXa7dxW/nrac0dw/HuoK68oiIQ=="],
 
@@ -203,7 +203,7 @@
 
     "@noble/hashes": ["@noble/hashes@2.2.0", "", {}, "sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg=="],
 
-    "@noble/secp256k1": ["@noble/secp256k1@1.7.2", "", {}, "sha512-/qzwYl5eFLH8OWIecQWM31qld2g1NfjgylK+TNhqtaUKP37Nm+Y+z30Fjhw0Ct8p9yCQEm2N3W/AckdIb3SMcQ=="],
+    "@noble/secp256k1": ["@noble/secp256k1@3.1.0", "", {}, "sha512-+F7iS7tUMaNGXcc9X3PjmjvuQnXEuSjCRNzVVA2xAcKXgCaP0dHYz4SFyt4FKNHef7sOP//xihowcySSS7PK9g=="],
 
     "@oven/bun-darwin-aarch64": ["@oven/bun-darwin-aarch64@1.3.13", "", { "os": "darwin", "cpu": "arm64" }, "sha512-qAS6Hg8Q14ckfBuqJ2Zh7gBQSVSUHeibSq4OFqBTv6DzyJuxYlr0sdYQzmYmnbPxbqobekqUDTa/4XEaqRi7vg=="],
 
@@ -733,25 +733,25 @@
 
     "ajv-formats": ["ajv-formats@3.0.1", "", { "dependencies": { "ajv": "^8.0.0" } }, "sha512-8iUql50EUR+uUcdRQ3HDqa6EVyo3docL8g5WJ3FNcWmu62IbkGUue/pEyLBW8VGKKucTPgqeks4fIU1DA4yowQ=="],
 
-    "applesauce-accounts": ["applesauce-accounts@6.0.0", "", { "dependencies": { "applesauce-core": "^6.0.0", "applesauce-signers": "^6.0.0", "nanoid": "^5.1.5", "rxjs": "^7.8.1" }, "optionalDependencies": { "nostr-signer-capacitor-plugin": "^0.0.5" } }, "sha512-Z1KeW/yZiOU1p0SBElt9BFzpZmpnrqiJ8fNsDr/pIDP734+Sid3ovbfZp6yu+Oj+n0Bs9vlLiH6hOhMxSAXATQ=="],
+    "applesauce-accounts": ["applesauce-accounts@6.2.0", "", { "dependencies": { "applesauce-core": "^6.2.0", "applesauce-signers": "^6.2.0", "nanoid": "^5.1.5", "rxjs": "^7.8.1" }, "optionalDependencies": { "nostr-signer-capacitor-plugin": "^0.0.5" } }, "sha512-kbIaDObN+2l0dK8RfnDKJTxeBf9DvCYcR8pP7DHDHa5JTLD9S7eeXN0g/53mgomS0cyiwne+TaXJfDXD/lw/uA=="],
 
-    "applesauce-actions": ["applesauce-actions@0.0.0-next-20260610164519", "", { "dependencies": { "applesauce-common": "0.0.0-next-20260610164519", "applesauce-core": "^6.1.0", "rxjs": "^7.8.1" } }, "sha512-t89nG8kh5JQ8zOdkKrxv5QXln8vFiD2C3nq27yfMfdBF6VF7LNg2X/lu13t0iYsgQ4cnBk4UY4UlgI264YSp7A=="],
+    "applesauce-actions": ["applesauce-actions@6.2.0", "", { "dependencies": { "applesauce-common": "^6.2.0", "applesauce-core": "^6.2.0", "rxjs": "^7.8.1" } }, "sha512-DxlsPEdpISld16ym/CCh1aIfJ+yX+m2HlMd+Ck8T854kvAqU4PzuM+Gex7fJ1rHt5FaCc3Lrr+/r/0FY5BSRyQ=="],
 
-    "applesauce-common": ["applesauce-common@0.0.0-next-20260610164519", "", { "dependencies": { "@scure/base": "^1.2.4", "applesauce-core": "^6.1.0", "hash-sum": "^2.0.0", "light-bolt11-decoder": "^3.2.0", "nanoid": "^5.0.9", "rxjs": "^7.8.1" } }, "sha512-MpKmtnnYk+jWFDN3k0G4EyLN5jerbme2OeLaV/mdl7/bmIBU8roy+BxC9XEZxAT9hNPQB5MKFYhpsINK5doxBg=="],
+    "applesauce-common": ["applesauce-common@6.2.0", "", { "dependencies": { "@scure/base": "^2.2.0", "applesauce-core": "^6.2.0", "hash-sum": "^2.0.0", "light-bolt11-decoder": "^3.2.0", "nanoid": "^5.0.9", "rxjs": "^7.8.1" } }, "sha512-meXbDCdqA1LKy1tr04BW7wMfnBBkHetLv+wlXYjAj5iR4Sji5KMxLFdAjUe6cSvrxrk9LxFcP+0P9BcZQxjpaA=="],
 
     "applesauce-content": ["applesauce-content@6.0.0", "", { "dependencies": { "@cashu/cashu-ts": "^3.1.1", "@types/hast": "^3.0.4", "@types/mdast": "^4.0.4", "@types/unist": "^3.0.3", "applesauce-common": "^6.0.0", "applesauce-core": "^6.0.0", "mdast-util-find-and-replace": "^3.0.2", "remark": "^15.0.1", "remark-parse": "^11.0.0", "unified": "^11.0.5", "unist-util-visit-parents": "^6.0.1" } }, "sha512-1zHN9i0glSwUlXAPFZOUGFqeoS6S2QmQak/EZ5LKhZR/2LPjt00Buwged/If7/tVLNUqouvKfR9zLzap2H9Ixg=="],
 
-    "applesauce-core": ["applesauce-core@6.1.0", "", { "dependencies": { "debug": "^4.4.0", "fast-deep-equal": "^3.1.3", "hash-sum": "^2.0.0", "nanoid": "^5.0.9", "nostr-tools": "~2.19", "rxjs": "^7.8.1" } }, "sha512-+tOFNP/54Zz3Z2tKeCqQZRdFQp0bwwPRiYO4A/PKOmx9iHO2XOFMrPEuRGtNqaHeBmDQQn0pFNB9mif0t94g8w=="],
+    "applesauce-core": ["applesauce-core@6.2.0", "", { "dependencies": { "debug": "^4.4.0", "fast-deep-equal": "^3.1.3", "hash-sum": "^2.0.0", "nanoid": "^5.0.9", "nostr-tools": "~2.19", "rxjs": "^7.8.1" } }, "sha512-O6AlVyzqcuIhTOIuexm6UWmx7mRIa2D98gJP7K7vFGf90YdtvSH78AsKQWZXJ0Pk/K14at+9zkwfCkFr7ghgNw=="],
 
-    "applesauce-loaders": ["applesauce-loaders@6.1.0", "", { "dependencies": { "applesauce-core": "^6.1.0", "nanoid": "^5.0.9", "rxjs": "^7.8.1" } }, "sha512-er5yS5t+xqD1OMkJOgLm5xMvC52kAj2S2MIbQoQqg3w7ENjHWsl8mXEe/7eHj9aRyaGXJx3VB+jOPjcTRUBDVw=="],
+    "applesauce-loaders": ["applesauce-loaders@6.2.0", "", { "dependencies": { "applesauce-core": "^6.2.0", "nanoid": "^5.0.9", "rxjs": "^7.8.1" } }, "sha512-isU2BuoVFhugv4WxdbUFrqm7mCNgsGrMU4BYcNqMm8qAVpVb3L7K3I1hlkIZWwOvNTkhoYO/u0utgwnkQj4Hrg=="],
 
     "applesauce-react": ["applesauce-react@6.0.0", "", { "dependencies": { "hash-sum": "^2.0.0", "observable-hooks": "^4.2.4", "rxjs": "^7.8.1" }, "optionalDependencies": { "applesauce-accounts": "^6.0.0", "applesauce-actions": "^6.0.0", "applesauce-content": "^6.0.0", "applesauce-core": "^6.0.0" }, "peerDependencies": { "react": "^18.0.0 || ^19.0.0" } }, "sha512-E2X82lYgO1CBt2h7+imV5QAAsNwzkoFXn3wPA881IQ9tz0UZAxtxC3l3ZbCc+mOuRBDsdbrWvosNA1/nHd1jjA=="],
 
-    "applesauce-relay": ["applesauce-relay@6.0.3", "", { "dependencies": { "@noble/hashes": "^1.7.1", "applesauce-core": "^6.0.0", "nanoid": "^5.0.9", "nostr-tools": "~2.19", "rxjs": "^7.8.1" } }, "sha512-AqJMKaCwxljwRCr3cR3iaB8r+adl1+DNzeLpoXX9+locBENQaIdDbV5Kk2D0o1gcI1rGpvx9bGVUyUs32Z4rog=="],
+    "applesauce-relay": ["applesauce-relay@6.2.1", "", { "dependencies": { "@noble/hashes": "^2.2.0", "applesauce-core": "^6.2.0", "nanoid": "^5.0.9", "nostr-tools": "~2.19", "rxjs": "^7.8.1" } }, "sha512-YIUHEtL2Fl5FZjeKYe/IuwL3OnMUNP2j4ydSr3iZDeHEZSEda4d1PoChefiNhtjE/U/F5OBHEbAX1zCHRZoxpg=="],
 
-    "applesauce-signers": ["applesauce-signers@0.0.0-next-20260610164519", "", { "dependencies": { "@noble/secp256k1": "^1.7.1", "applesauce-core": "^6.0.0", "debug": "^4.4.0", "nanoid": "^5.0.9", "rxjs": "^7.8.2" }, "optionalDependencies": { "nostr-signer-capacitor-plugin": "^0.0.5" } }, "sha512-Qm76NbTIhqRqj+aDYAHotEge6wx/uw5WbmawF52Qf6/YM1yir5WF6DPQI9E2WtrVPfQUi3CBydcZ1ypXeKcKCg=="],
+    "applesauce-signers": ["applesauce-signers@6.2.2", "", { "dependencies": { "@noble/secp256k1": "^3.1.0", "@scure/base": "^2.2.0", "applesauce-core": "^6.2.0", "debug": "^4.4.0", "nanoid": "^5.0.9", "rxjs": "^7.8.2" }, "optionalDependencies": { "nostr-signer-capacitor-plugin": "^0.0.5" } }, "sha512-UIJCFIqSdA+rI5DE4SHrFmJf7CkkBbgALGdxgtvScFf1IaOvrT+ntR5D4fbuZREyPnrVuEIwuCTZ7b31WbQ7yQ=="],
 
-    "applesauce-wallet": ["applesauce-wallet@0.0.0-next-20260610164519", "", { "dependencies": { "@cashu/cashu-ts": "^4.5.1", "@gandlaf21/bc-ur": "^1.1.12", "applesauce-actions": "0.0.0-next-20260610164519", "applesauce-common": "0.0.0-next-20260610164519", "applesauce-core": "^6.1.0", "debug": "^4.4.3", "rxjs": "^7.8.2" }, "peerDependencies": { "applesauce-relay": "6.0.3", "applesauce-signers": "0.0.0-next-20260610164519" } }, "sha512-wXJyk7kPvFLpIW7558S9RGgOctSwfv3G+F0r0GTY75FDAHJDqP3+zcVaVDEynywJXVSKP30FKUFOI49xZ+ZgGw=="],
+    "applesauce-wallet": ["applesauce-wallet@6.2.0", "", { "dependencies": { "@cashu/cashu-ts": "^4.5.1", "@gandlaf21/bc-ur": "^1.1.12", "applesauce-actions": "^6.2.0", "applesauce-common": "^6.2.0", "applesauce-core": "^6.2.0", "applesauce-loaders": "^6.2.0", "debug": "^4.4.3", "rxjs": "^7.8.2" }, "peerDependencies": { "applesauce-relay": "^6.0.3", "applesauce-signers": "^6.0.0" } }, "sha512-JTzZn1ug5VyqJY/m0BObwVOPGqvHLUe5L57m5RqWKMdiu0QKtHqJoUlpS6L2Rb+RXqTA/T5RTMzd8VV+2ZrDcw=="],
 
     "arc": ["arc@0.2.0", "", {}, "sha512-8NFOo126uYKQJyXNSLY/jSklgfLQL+XWAcPXGo876JwEQ8nSOPXWNI3TV2jLZMN8QEw8uksJ1ZwS4npjBca8MA=="],
 
@@ -1911,12 +1911,6 @@
 
     "@turf/tesselate/earcut": ["earcut@2.2.4", "", {}, "sha512-/pjZsA1b4RPHbeWZQn66SWS8nZZWLQQ23oE3Eam7aroEFGEvwKAsJfZ9ytiEMycfzXWpca4FA9QIOehf7PocBQ=="],
 
-    "applesauce-accounts/applesauce-core": ["applesauce-core@6.0.0", "", { "dependencies": { "debug": "^4.4.0", "fast-deep-equal": "^3.1.3", "hash-sum": "^2.0.0", "nanoid": "^5.0.9", "nostr-tools": "~2.19", "rxjs": "^7.8.1" } }, "sha512-uibHa8AAaWf1MlgqRzDd4/DNptmKE/kcOue0ivO051HmBFHanSbuTNBLC21Yp7SymSLdhA4F4jl8rFppaNO6wg=="],
-
-    "applesauce-accounts/applesauce-signers": ["applesauce-signers@6.0.1", "", { "dependencies": { "@noble/secp256k1": "^1.7.1", "applesauce-core": "^6.0.0", "debug": "^4.4.0", "nanoid": "^5.0.9", "rxjs": "^7.8.2" }, "optionalDependencies": { "nostr-signer-capacitor-plugin": "^0.0.5" } }, "sha512-SV60zT7+kMdASEOUfOvNGSFQFjfXdGbhyAQvCMaN3S5JIMzbO8YMmf9BzyGJF+HoWZRi888xscXCgkAea6mUJw=="],
-
-    "applesauce-common/@scure/base": ["@scure/base@1.2.6", "", {}, "sha512-g/nm5FgUa//MCj1gV09zTJTaM6KBAHqLN907YVQqf7zC49+DcO4B1so4ZX07Ef10Twr6nuqYEH9GEggFXA4Fmg=="],
-
     "applesauce-content/@cashu/cashu-ts": ["@cashu/cashu-ts@3.6.4", "", { "dependencies": { "@noble/curves": "^2.0.1", "@noble/hashes": "^2.0.1", "@scure/base": "^2.0.0", "@scure/bip32": "^2.0.1" } }, "sha512-a6Asqk+wPEk9a6BQmdLMeegngj0KHKicABUEtr1cUMLTAUYHVHfdfEuHDlU+bNUqXXyaTssG7yo/ZhfHrgbSkQ=="],
 
     "applesauce-content/applesauce-common": ["applesauce-common@6.0.1", "", { "dependencies": { "@scure/base": "^1.2.4", "applesauce-core": "^6.0.0", "hash-sum": "^2.0.0", "light-bolt11-decoder": "^3.2.0", "nanoid": "^5.0.9", "rxjs": "^7.8.1" } }, "sha512-eACXtr/m5WvmnA2gUOQ+phvA6t5CtB0oSRmBNaMqi+BN9siLMjkG3lER8LliFD9I7PmK7hB5xBSqiVSezk6sJw=="],
@@ -1925,11 +1919,11 @@
 
     "applesauce-core/nostr-tools": ["nostr-tools@2.19.4", "", { "dependencies": { "@noble/ciphers": "^0.5.1", "@noble/curves": "1.2.0", "@noble/hashes": "1.3.1", "@scure/base": "1.1.1", "@scure/bip32": "1.3.1", "@scure/bip39": "1.2.1", "nostr-wasm": "0.1.0" }, "peerDependencies": { "typescript": ">=5.0.0" }, "optionalPeers": ["typescript"] }, "sha512-qVLfoTpZegNYRJo5j+Oi6RPu0AwLP6jcvzcB3ySMnIT5DrAGNXfs5HNBspB/2HiGfH3GY+v6yXkTtcKSBQZwSg=="],
 
+    "applesauce-react/applesauce-accounts": ["applesauce-accounts@6.0.0", "", { "dependencies": { "applesauce-core": "^6.0.0", "applesauce-signers": "^6.0.0", "nanoid": "^5.1.5", "rxjs": "^7.8.1" }, "optionalDependencies": { "nostr-signer-capacitor-plugin": "^0.0.5" } }, "sha512-Z1KeW/yZiOU1p0SBElt9BFzpZmpnrqiJ8fNsDr/pIDP734+Sid3ovbfZp6yu+Oj+n0Bs9vlLiH6hOhMxSAXATQ=="],
+
     "applesauce-react/applesauce-actions": ["applesauce-actions@6.0.0", "", { "dependencies": { "applesauce-common": "^6.0.0", "applesauce-core": "^6.0.0", "rxjs": "^7.8.1" } }, "sha512-S+/ibqC6oyTYbAtgXeNanBt/iCyokaJFpW9MVmvCRrc1ij1FvUtwkIATmCYpH2ikWznEYU5hIKp2qUcGMocPAw=="],
 
     "applesauce-react/applesauce-core": ["applesauce-core@6.0.0", "", { "dependencies": { "debug": "^4.4.0", "fast-deep-equal": "^3.1.3", "hash-sum": "^2.0.0", "nanoid": "^5.0.9", "nostr-tools": "~2.19", "rxjs": "^7.8.1" } }, "sha512-uibHa8AAaWf1MlgqRzDd4/DNptmKE/kcOue0ivO051HmBFHanSbuTNBLC21Yp7SymSLdhA4F4jl8rFppaNO6wg=="],
-
-    "applesauce-relay/@noble/hashes": ["@noble/hashes@1.8.0", "", {}, "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A=="],
 
     "applesauce-relay/nostr-tools": ["nostr-tools@2.19.4", "", { "dependencies": { "@noble/ciphers": "^0.5.1", "@noble/curves": "1.2.0", "@noble/hashes": "1.3.1", "@scure/base": "1.1.1", "@scure/bip32": "1.3.1", "@scure/bip39": "1.2.1", "nostr-wasm": "0.1.0" }, "peerDependencies": { "typescript": ">=5.0.0" }, "optionalPeers": ["typescript"] }, "sha512-qVLfoTpZegNYRJo5j+Oi6RPu0AwLP6jcvzcB3ySMnIT5DrAGNXfs5HNBspB/2HiGfH3GY+v6yXkTtcKSBQZwSg=="],
 
@@ -2241,8 +2235,6 @@
 
     "@radix-ui/react-visually-hidden/@radix-ui/react-primitive/@radix-ui/react-slot": ["@radix-ui/react-slot@1.2.3", "", { "dependencies": { "@radix-ui/react-compose-refs": "1.1.2" }, "peerDependencies": { "@types/react": "*", "react": "^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc" }, "optionalPeers": ["@types/react"] }, "sha512-aeNmHnBxbi2St0au6VBVC7JXFlhLlOnvIIlePNniyUNAClzmtAUEY8/pBiK3iHjufOlwA+c20/8jngo7xcrg8A=="],
 
-    "applesauce-accounts/applesauce-core/nostr-tools": ["nostr-tools@2.19.4", "", { "dependencies": { "@noble/ciphers": "^0.5.1", "@noble/curves": "1.2.0", "@noble/hashes": "1.3.1", "@scure/base": "1.1.1", "@scure/bip32": "1.3.1", "@scure/bip39": "1.2.1", "nostr-wasm": "0.1.0" }, "peerDependencies": { "typescript": ">=5.0.0" }, "optionalPeers": ["typescript"] }, "sha512-qVLfoTpZegNYRJo5j+Oi6RPu0AwLP6jcvzcB3ySMnIT5DrAGNXfs5HNBspB/2HiGfH3GY+v6yXkTtcKSBQZwSg=="],
-
     "applesauce-content/@cashu/cashu-ts/@noble/curves": ["@noble/curves@2.0.1", "", { "dependencies": { "@noble/hashes": "2.0.1" } }, "sha512-vs1Az2OOTBiP4q0pwjW5aF0xp9n4MxVrmkFBxc6EKZc6ddYx5gaZiAsZoq0uRRXWbi3AT/sBqn05eRPtn1JCPw=="],
 
     "applesauce-content/@cashu/cashu-ts/@noble/hashes": ["@noble/hashes@2.0.1", "", {}, "sha512-XlOlEbQcE9fmuXxrVTXCTlG2nlRXa9Rj3rr5Ue/+tX+nmkgbX720YHh0VR3hBF9xDvwnb8D2shVGOwNx+ulArw=="],
@@ -2262,6 +2254,8 @@
     "applesauce-core/nostr-tools/@scure/base": ["@scure/base@1.1.1", "", {}, "sha512-ZxOhsSyxYwLJj3pLZCefNitxsj093tb2vq90mp2txoYeBqbcjDjqFhyM8eUjq/uFm6zJ+mUuqxlS2FkuSY1MTA=="],
 
     "applesauce-core/nostr-tools/@scure/bip32": ["@scure/bip32@1.3.1", "", { "dependencies": { "@noble/curves": "~1.1.0", "@noble/hashes": "~1.3.1", "@scure/base": "~1.1.0" } }, "sha512-osvveYtyzdEVbt3OfwwXFr4P2iVBL5u1Q3q4ONBfDY/UpOuXmOlbgwc1xECEboY8wIays8Yt6onaWMUdUbfl0A=="],
+
+    "applesauce-react/applesauce-accounts/applesauce-signers": ["applesauce-signers@6.0.1", "", { "dependencies": { "@noble/secp256k1": "^1.7.1", "applesauce-core": "^6.0.0", "debug": "^4.4.0", "nanoid": "^5.0.9", "rxjs": "^7.8.2" }, "optionalDependencies": { "nostr-signer-capacitor-plugin": "^0.0.5" } }, "sha512-SV60zT7+kMdASEOUfOvNGSFQFjfXdGbhyAQvCMaN3S5JIMzbO8YMmf9BzyGJF+HoWZRi888xscXCgkAea6mUJw=="],
 
     "applesauce-react/applesauce-actions/applesauce-common": ["applesauce-common@6.0.1", "", { "dependencies": { "@scure/base": "^1.2.4", "applesauce-core": "^6.0.0", "hash-sum": "^2.0.0", "light-bolt11-decoder": "^3.2.0", "nanoid": "^5.0.9", "rxjs": "^7.8.1" } }, "sha512-eACXtr/m5WvmnA2gUOQ+phvA6t5CtB0oSRmBNaMqi+BN9siLMjkG3lER8LliFD9I7PmK7hB5xBSqiVSezk6sJw=="],
 
@@ -2391,14 +2385,6 @@
 
     "@radix-ui/react-toolbar/@radix-ui/react-roving-focus/@radix-ui/react-use-controllable-state/@radix-ui/react-use-layout-effect": ["@radix-ui/react-use-layout-effect@1.1.2", "", { "peerDependencies": { "@types/react": "*", "react": "^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc" }, "optionalPeers": ["@types/react"] }, "sha512-jrBWOxZITuGcnjRCM2t2U5ZPkCLxD+Ym6DjfssS5haTj2iiak/DOb64JeN6OdLfLgptb6/e2kKR+ZuTrGoZTPA=="],
 
-    "applesauce-accounts/applesauce-core/nostr-tools/@noble/curves": ["@noble/curves@1.2.0", "", { "dependencies": { "@noble/hashes": "1.3.2" } }, "sha512-oYclrNgRaM9SsBUBVbb8M6DTV7ZHRTKugureoYEncY5c65HOmRzvSiTE3y5CYaPYJA/GVkrhXEoF0M3Ya9PMnw=="],
-
-    "applesauce-accounts/applesauce-core/nostr-tools/@noble/hashes": ["@noble/hashes@1.3.1", "", {}, "sha512-EbqwksQwz9xDRGfDST86whPBgM65E0OH/pCgqW0GBVzO22bNE+NuIbeTb714+IfSjU3aRk47EUvXIb5bTsenKA=="],
-
-    "applesauce-accounts/applesauce-core/nostr-tools/@scure/base": ["@scure/base@1.1.1", "", {}, "sha512-ZxOhsSyxYwLJj3pLZCefNitxsj093tb2vq90mp2txoYeBqbcjDjqFhyM8eUjq/uFm6zJ+mUuqxlS2FkuSY1MTA=="],
-
-    "applesauce-accounts/applesauce-core/nostr-tools/@scure/bip32": ["@scure/bip32@1.3.1", "", { "dependencies": { "@noble/curves": "~1.1.0", "@noble/hashes": "~1.3.1", "@scure/base": "~1.1.0" } }, "sha512-osvveYtyzdEVbt3OfwwXFr4P2iVBL5u1Q3q4ONBfDY/UpOuXmOlbgwc1xECEboY8wIays8Yt6onaWMUdUbfl0A=="],
-
     "applesauce-content/applesauce-core/nostr-tools/@noble/curves": ["@noble/curves@1.2.0", "", { "dependencies": { "@noble/hashes": "1.3.2" } }, "sha512-oYclrNgRaM9SsBUBVbb8M6DTV7ZHRTKugureoYEncY5c65HOmRzvSiTE3y5CYaPYJA/GVkrhXEoF0M3Ya9PMnw=="],
 
     "applesauce-content/applesauce-core/nostr-tools/@noble/hashes": ["@noble/hashes@1.3.1", "", {}, "sha512-EbqwksQwz9xDRGfDST86whPBgM65E0OH/pCgqW0GBVzO22bNE+NuIbeTb714+IfSjU3aRk47EUvXIb5bTsenKA=="],
@@ -2410,6 +2396,8 @@
     "applesauce-core/nostr-tools/@noble/curves/@noble/hashes": ["@noble/hashes@1.3.2", "", {}, "sha512-MVC8EAQp7MvEcm30KWENFjgR+Mkmf+D189XJTkFIlwohU5hcBbn1ZkKq7KVTi2Hme3PMGF390DaL52beVrIihQ=="],
 
     "applesauce-core/nostr-tools/@scure/bip32/@noble/curves": ["@noble/curves@1.1.0", "", { "dependencies": { "@noble/hashes": "1.3.1" } }, "sha512-091oBExgENk/kGj3AZmtBDMpxQPDtxQABR2B9lb1JbVTs6ytdzZNwvhxQ4MWasRNEzlbEH8jCWFCwhF/Obj5AA=="],
+
+    "applesauce-react/applesauce-accounts/applesauce-signers/@noble/secp256k1": ["@noble/secp256k1@1.7.2", "", {}, "sha512-/qzwYl5eFLH8OWIecQWM31qld2g1NfjgylK+TNhqtaUKP37Nm+Y+z30Fjhw0Ct8p9yCQEm2N3W/AckdIb3SMcQ=="],
 
     "applesauce-react/applesauce-actions/applesauce-common/@scure/base": ["@scure/base@1.2.6", "", {}, "sha512-g/nm5FgUa//MCj1gV09zTJTaM6KBAHqLN907YVQqf7zC49+DcO4B1so4ZX07Ef10Twr6nuqYEH9GEggFXA4Fmg=="],
 
@@ -2436,10 +2424,6 @@
     "@contextvm/sdk/applesauce-relay/nostr-tools/@scure/bip32/@noble/curves": ["@noble/curves@1.1.0", "", { "dependencies": { "@noble/hashes": "1.3.1" } }, "sha512-091oBExgENk/kGj3AZmtBDMpxQPDtxQABR2B9lb1JbVTs6ytdzZNwvhxQ4MWasRNEzlbEH8jCWFCwhF/Obj5AA=="],
 
     "@radix-ui/react-accessible-icon/@radix-ui/react-visually-hidden/@radix-ui/react-primitive/@radix-ui/react-slot/@radix-ui/react-compose-refs": ["@radix-ui/react-compose-refs@1.1.3", "", { "peerDependencies": { "@types/react": "*", "react": "^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc" }, "optionalPeers": ["@types/react"] }, "sha512-rYOP8OMnuuPMQF1uhPVlGNcCDlkokKqGFE3JcxFViIkAXP7EvFWUliJAstrapypaBLJNHbZL6jGhbVDGTwmVhA=="],
-
-    "applesauce-accounts/applesauce-core/nostr-tools/@noble/curves/@noble/hashes": ["@noble/hashes@1.3.2", "", {}, "sha512-MVC8EAQp7MvEcm30KWENFjgR+Mkmf+D189XJTkFIlwohU5hcBbn1ZkKq7KVTi2Hme3PMGF390DaL52beVrIihQ=="],
-
-    "applesauce-accounts/applesauce-core/nostr-tools/@scure/bip32/@noble/curves": ["@noble/curves@1.1.0", "", { "dependencies": { "@noble/hashes": "1.3.1" } }, "sha512-091oBExgENk/kGj3AZmtBDMpxQPDtxQABR2B9lb1JbVTs6ytdzZNwvhxQ4MWasRNEzlbEH8jCWFCwhF/Obj5AA=="],
 
     "applesauce-content/applesauce-core/nostr-tools/@noble/curves/@noble/hashes": ["@noble/hashes@1.3.2", "", {}, "sha512-MVC8EAQp7MvEcm30KWENFjgR+Mkmf+D189XJTkFIlwohU5hcBbn1ZkKq7KVTi2Hme3PMGF390DaL52beVrIihQ=="],
 
