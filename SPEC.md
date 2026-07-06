@@ -119,6 +119,29 @@ Scope behaviors:
 
 Tags for this event would include `["blob","feature:canada_provinces_blob","https://example.org/canada.geojson","size=2800000","mime=application/geo+json"]`.
 
+#### 1.5.1 Blob tag parameter rules
+
+Each entry in positions 3+ of a `blob` tag MUST be a `key=value` pair. Entries without an `=`
+are silently ignored; unknown keys are silently ignored (forward compatibility). Keys are
+case-sensitive. Defined keys:
+
+- `sha256` — hex SHA-256 digest of the **uncompressed payload bytes** (the raw JSON string,
+  UTF-8). Clients SHOULD verify the fetched payload against it and MUST discard the payload on
+  mismatch (treat the URL as failed).
+- `size` — the **uncompressed UTF-8 byte length** of the blob JSON, NOT the HTTP
+  `Content-Length` (which may reflect transfer encoding). Used for progress reporting and
+  pre-flight size checks.
+- `mime` — MIME type, e.g. `application/geo+json`.
+
+Clients SHOULD enforce a sane per-blob size ceiling (this implementation: 50 MB) and treat
+oversized payloads as permanently failed.
+
+#### 1.5.2 Feature id constraints
+
+Feature ids used in `scope = "feature:<feature-id>"` MUST match `[A-Za-z0-9_.-]+`. A colon in a
+feature id would make the scope grammar ambiguous; clients MUST reject blob references whose
+feature id contains `:` or is empty (`"feature:"`).
+
 ### 1.6 GeoJSON Collection Event (kind 37516) — removed from the active model
 
 Collections are superseded by Groups (§3), which carry Markdown narrative, pin fixed geo references, and gate foreign attachments. Clients in the current app model SHOULD NOT surface kind 37516 as a first-class entity. The `collection` back-link tag in §1.2 is retained only for legacy datasets.
@@ -244,6 +267,20 @@ Inline `nostr:naddr…` mentions in the Markdown body SHOULD be mirrored into qu
 
 `isArticle(event)` returns `true` only for `kind === 37520` AND a `d` tag AND `hasCurrentModelVersion(event)`. A legacy or malformed event returns `false` without throwing.
 
+### 4.3 Content schema
+
+The JSON content object carries:
+
+- `modelVersion` — string, `"earthly/2"` (§8; factory-asserted, never caller-controlled).
+- `title` — string, article title.
+- `summary` — optional string, short description for previews.
+- `image` — optional string, cover-image URL.
+- `publishedAt` — optional number, **first-publication timestamp in epoch seconds** (NIP-23
+  semantics). Stable across edits: `created_at` moves on every replaceable update,
+  `publishedAt` does not. `ArticleFactory.create()` stamps it automatically; `modify()` never
+  touches it. Readers MUST fall back to `event.created_at` when absent (legacy events).
+- `content` — string, long-form Markdown body.
+
 ---
 
 ## 5 Live Beacon (kind 37521)
@@ -262,6 +299,14 @@ Because 37521 is parameterized-replaceable, a publisher refreshes their Beacon b
 
 > **Phase 12 note:** the final Beacon lifecycle (replaceable + NIP-40 vs. ephemeral) is confirmed in Phase 12. Phase 8 ships the replaceable + NIP-40 representation and the scaffold.
 
+### 5.1 Media attachments (images)
+
+A Live Beacon MAY carry image attachments as NIP-92 `imeta` tags (§7.3). On the map, Beacons
+render the **author's profile avatar** in the pin bubble (falling back to name initials, then
+the first two characters of the pubkey) — `imeta` images on a Beacon are supplementary
+evidence shown in the inspect view, not the pin. Image fetch failures MUST NOT gate Beacon
+rendering.
+
 ---
 
 ## 6 Temporal Sighting (kind 37522)
@@ -277,6 +322,14 @@ Kind constant: `src/lib/nostr/kinds.ts:30` (`TEMPORAL_SIGHTING_KIND = 37522`). S
 | tags | `d` (lineage), `bbox`/`g` (location), and `expiration` (NIP-40, §10). |
 
 > **D-02 representation note:** the kind **number 37522 is assigned and reserved now**, and v2 documents the Sighting as the assigned-and-recommended **dedicated kind**. Phase 11 confirms the final *representation* (dedicated kind vs. a 37515 dataset with a temporal property). The number is reserved regardless, so the Foundation seams (`tags.ts`, the `modelVersion` discriminator) can reference it today.
+
+### 6.1 Media attachments (images)
+
+A Temporal Sighting MAY carry one or more image attachments as NIP-92 `imeta` tags (§7.3) —
+photo evidence of the observation. The **first `imeta` tag is the primary image**; clients
+rendering Sightings on the map SHOULD display the primary image as a thumbnail in the pin
+bubble above the point. Additional images are shown in the inspect view (e.g. a carousel).
+Image fetch failures MUST NOT gate Sighting rendering — fall back to the plain marker.
 
 ---
 
@@ -308,6 +361,23 @@ Controlled labels are emitted as a paired set — exactly one `["L", "earthly"]`
 ### 7.2 `t` / `l` disjointness enforcement
 
 The disjointness rule is enforced at write time, not merely documented: `setLabels` **throws** if a requested label value already exists as a freeform `t` hashtag (`tags.ts:167-185`), and `setHashtags` **strips** any value already governed by an `l` label (`tags.ts:110-114`). The two lanes can never overlap — `L`/`l` = controlled/enforceable; `t` = freeform discovery; `c` = entity-backed attach.
+
+### 7.3 Media attachments (NIP-92 `imeta`)
+
+Entities that support image attachments (Live Beacon §5.1, Temporal Sighting §6.1, and
+optionally Story §4 for the cover image) use NIP-92 `imeta` tags — one tag per image, each a
+list of space-delimited `key value` fields:
+
+`["imeta", "url <https-url>", "m <mime>", "x <sha256-hex>", "dim <width>x<height>", "blurhash <hash>"]`
+
+- `url` is mandatory; all other fields are optional but recommended (`dim` for layout,
+  `x` for Blossom-verifiable integrity, `blurhash` for placeholders).
+- **Order is meaningful: the first `imeta` tag is the primary image.** Re-ordering tags is how
+  a publisher changes the primary.
+- Images SHOULD be hosted on a Blossom server (default `blossom.earthly.city`, which caps
+  uploads at ~1 MB after client-side downscaling); the `x` field then equals the Blossom blob
+  hash, so any BUD-compatible server can serve the file.
+- Clients MUST render entities normally when images fail to load.
 
 ---
 

@@ -32,6 +32,12 @@ export interface ArticleContent {
 	title?: string
 	summary?: string
 	image?: string
+	/**
+	 * First-publication timestamp (epoch seconds), per NIP-23. Stable across
+	 * edits — `created_at` moves on every replacement, `publishedAt` does not.
+	 * Readers should fall back to `event.created_at` when absent (legacy events).
+	 */
+	publishedAt?: number
 	/** Long-form markdown body. */
 	content?: string
 }

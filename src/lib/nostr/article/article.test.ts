@@ -55,6 +55,40 @@ describe('article — SPEC-02 ArticleFactory.create()', () => {
 		const content = JSON.parse(tpl.content)
 		expect(content.modelVersion).toBe(MODEL_VERSION)
 	})
+
+	test('stamps NIP-23 publishedAt on create and respects a caller-supplied value (SPEC §4.3)', async () => {
+		const sign = async (e: Omit<NostrEvent, 'id' | 'pubkey' | 'sig'>) => ({
+			...e,
+			id: 'a'.repeat(64),
+			pubkey: 'b'.repeat(64),
+			sig: 'c'.repeat(128),
+		})
+		const stamped = await ArticleFactory.create({ title: 'T' }).sign(sign)
+		const content = JSON.parse(stamped.content)
+		expect(typeof content.publishedAt).toBe('number')
+		expect(content.publishedAt).toBeGreaterThan(1_700_000_000)
+
+		const explicit = await ArticleFactory.create({ title: 'T', publishedAt: 1_234 }).sign(sign)
+		expect(JSON.parse(explicit.content).publishedAt).toBe(1_234)
+	})
+
+	test('modify() preserves an existing publishedAt (stable across edits)', async () => {
+		const event = {
+			...makeArticleEvent(),
+			content: JSON.stringify({ modelVersion: MODEL_VERSION, title: 'A', publishedAt: 42 }),
+		}
+		const edited = await ArticleFactory.modify(event as never)
+			.article({ title: 'B' })
+			.sign(async (e) => ({
+				...e,
+				id: 'a'.repeat(64),
+				pubkey: 'b'.repeat(64),
+				sig: 'c'.repeat(128),
+			}))
+		const content = JSON.parse(edited.content)
+		expect(content.publishedAt).toBe(42)
+		expect(content.title).toBe('B')
+	})
 })
 
 describe('article — SPEC-02 Article cast', () => {

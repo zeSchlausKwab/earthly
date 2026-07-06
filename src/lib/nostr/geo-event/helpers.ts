@@ -113,9 +113,14 @@ export function getRelayHints(event: NostrEvent): string[] {
 	)
 }
 
+/** SPEC §1.5.2: feature ids in blob scopes — no colons, no empty ids. */
+const BLOB_FEATURE_ID_PATTERN = /^[A-Za-z0-9_.-]+$/
+
 /**
  * External blob references for oversized FeatureCollections or individual features.
  * Tags follow `["blob","collection|feature:<id>","<url>","sha256=...","size=...","mime=..."]`.
+ * Malformed references (SPEC §1.5.2: empty or non-`[A-Za-z0-9_.-]+` feature ids)
+ * are dropped defensively.
  */
 export function getBlobReferences(event: NostrEvent): GeoBlobReference[] {
 	return getOrComputeCachedValue(event, BlobRefsSymbol, () =>
@@ -123,7 +128,7 @@ export function getBlobReferences(event: NostrEvent): GeoBlobReference[] {
 			.filter(
 				(tag) => tag[0] === 'blob' && typeof tag[1] === 'string' && typeof tag[2] === 'string',
 			)
-			.map((tag) => {
+			.flatMap((tag) => {
 				const scope = tag[1] as string
 				const url = tag[2] as string
 				const reference: GeoBlobReference = {
@@ -131,7 +136,9 @@ export function getBlobReferences(event: NostrEvent): GeoBlobReference[] {
 					url,
 				}
 				if (reference.scope === 'feature') {
-					reference.featureId = scope.slice('feature:'.length)
+					const featureId = scope.slice('feature:'.length)
+					if (!BLOB_FEATURE_ID_PATTERN.test(featureId)) return []
+					reference.featureId = featureId
 				}
 				for (const entry of tag.slice(3)) {
 					const [key, value] = entry.split('=')
@@ -142,7 +149,7 @@ export function getBlobReferences(event: NostrEvent): GeoBlobReference[] {
 						if (!Number.isNaN(parsed)) reference.size = parsed
 					} else if (key === 'mime') reference.mimeType = value
 				}
-				return reference
+				return [reference]
 			}),
 	)
 }
@@ -231,7 +238,11 @@ function encodeGeohash(lat: number, lon: number, precision = 6): string {
 /** Build a `blob` tag for a single GeoBlobReference. */
 export function blobReferenceToTag(ref: GeoBlobReference): string[] | null {
 	if (!ref.url) return null
-	const scope = ref.scope === 'feature' ? `feature:${ref.featureId ?? ''}` : 'collection'
+	// SPEC §1.5.2: never write a feature scope with an empty or malformed id.
+	if (ref.scope === 'feature' && !BLOB_FEATURE_ID_PATTERN.test(ref.featureId ?? '')) {
+		return null
+	}
+	const scope = ref.scope === 'feature' ? `feature:${ref.featureId}` : 'collection'
 	const tag: string[] = ['blob', scope, ref.url]
 	if (ref.sha256) tag.push(`sha256=${ref.sha256}`)
 	if (typeof ref.size === 'number' && Number.isFinite(ref.size)) {

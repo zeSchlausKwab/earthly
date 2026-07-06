@@ -149,9 +149,7 @@ export class GeoDatasetFactory extends EventFactory<typeof GEO_EVENT_KIND> {
 	blobReferences(refs: GeoBlobReference[]): this {
 		return this.modifyPublicTags((tags: string[][]) => [
 			...tags.filter((t) => t[0] !== 'blob'),
-			...refs
-				.map((ref) => blobReferenceToTag(ref))
-				.filter((tag): tag is string[] => tag !== null),
+			...refs.map((ref) => blobReferenceToTag(ref)).filter((tag): tag is string[] => tag !== null),
 		])
 	}
 
@@ -180,9 +178,7 @@ export class GeoDatasetFactory extends EventFactory<typeof GEO_EVENT_KIND> {
 			const computedBbox = computeBboxFor(fc)
 			const computedGeohash = computeGeohashFor(fc, precision)
 
-			const newTags: string[][] = tpl.tags.filter(
-				(tag) => tag[0] !== 'bbox' && tag[0] !== 'g',
-			)
+			const newTags: string[][] = tpl.tags.filter((tag) => tag[0] !== 'bbox' && tag[0] !== 'g')
 			if (computedBbox) newTags.push(['bbox', computedBbox.join(',')])
 			if (computedGeohash) newTags.push(['g', computedGeohash])
 

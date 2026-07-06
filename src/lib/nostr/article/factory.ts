@@ -38,6 +38,9 @@ export class ArticleFactory extends EntityFactory<typeof ARTICLE_KIND> {
 			const { modelVersion: _ignored, ...rest } = content
 			tpl.content = JSON.stringify({
 				...DEFAULT_ARTICLE_CONTENT,
+				// NIP-23 publishedAt: stamped at creation, preserved across edits
+				// (modify()/article() never touch it unless the caller passes one).
+				publishedAt: Math.floor(Date.now() / 1000),
 				...rest,
 				modelVersion: MODEL_VERSION,
 			})
