@@ -1,6 +1,10 @@
 # Housekeeping Refactor Roadmap (feature/house-keeping-refactor)
 
-**Created:** 2026-07-06 · **Status:** Phase 1 in progress
+**Created:** 2026-07-06 · **Status (2026-07-06):** Phases 1–7 DONE (see git log from 81140a7);
+Phase 8 (geo-editor extraction prep) deliberately not started — nice-to-have, do in a fresh
+session using §Phase 8 below. Open follow-ups: visual UAT of the pin bubbles (preview browser
+was basemap-throttled), NostrIDB 'No Filters' console flood (spawned as separate task),
+Phase-5 backlog items (live NIP-65 pool re-subscription, outbox timeline loader).
 **Goal:** Pre-merge/pre-deploy housekeeping — kill cross-cutting pain points (stage leaks, wallet
 reliability, seeding sprawl, relay management, spec drift), ship the last feature (sighting
 images), and bump core libs. Based on a 7-track parallel architecture analysis of this branch.
