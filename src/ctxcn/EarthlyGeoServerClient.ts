@@ -7,6 +7,7 @@ import {
 	ApplesauceRelayPool,
 } from '@contextvm/sdk'
 import { config } from '@/config'
+import { readRelaysFor } from '@/lib/nostr/relay-router'
 
 export interface SearchLocationInput {
 	/**
@@ -761,8 +762,15 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 
 		// Use options.signer if provided, otherwise create from resolved private key
 		const signer = options.signer || new PrivateKeySigner(resolvedPrivateKey)
-		// Prefer frontend runtime config and fall back to generated defaults for standalone consumers.
-		const relays = options.relays || config.relayUrls || EarthlyGeoServerClient.DEFAULT_RELAYS
+		// Route through the relay router's discovery bucket: local relay in dev
+		// (bun dev runs the ContextVM geo server against it), configured relays in
+		// prod. DEFAULT_RELAYS remains ONLY for standalone consumers that construct
+		// this client outside the app (config missing entirely) — never as a dev
+		// fallback, which used to leak MCP traffic to public relays.
+		const routedRelays = readRelaysFor('discovery')
+		const relays =
+			options.relays ||
+			(routedRelays.length > 0 ? routedRelays : EarthlyGeoServerClient.DEFAULT_RELAYS)
 		// Use options.relayHandler if provided, otherwise create from relays
 		const relayHandler = options.relayHandler || new ApplesauceRelayPool(relays)
 		const serverPubkey = options.serverPubkey || config.serverPubkey

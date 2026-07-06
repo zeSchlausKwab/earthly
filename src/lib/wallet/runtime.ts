@@ -30,7 +30,7 @@ import { WalletBalanceModel } from 'applesauce-wallet/models'
 import type { NostrEvent } from 'nostr-tools'
 import { BehaviorSubject, firstValueFrom, map, of, switchMap, timeout } from 'rxjs'
 import { config } from '@/config'
-import { accounts, eventStore, pool } from '@/lib/nostr'
+import { accounts, allowRelays, eventStore, pool } from '@/lib/nostr'
 
 /**
  * Tokens-in-flight storage. ApplesauceWallet `TokensOperation` requires this
@@ -141,6 +141,9 @@ export const walletActions = new ActionRunner(
 	async (event: NostrEvent, relays?: string[]) => {
 		let targetRelays = relays?.length ? relays : await resolveWalletPublishRelays(event.pubkey)
 		if (targetRelays.length === 0) targetRelays = config.writeRelays
+		// Vouch for the wallet's relays with the dev pool guard — the wallet is
+		// the one sanctioned exception to dev relay isolation (see comment above).
+		allowRelays(targetRelays)
 		await pool.publish(targetRelays, event)
 		eventStore.add(event)
 	},

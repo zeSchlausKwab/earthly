@@ -21,7 +21,7 @@ import { NUTZAP_INFO_KIND } from 'applesauce-wallet/helpers/nutzap-info'
 import type { Filter } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { config } from '@/config'
-import { eventStore } from '@/lib/nostr'
+import { allowRelays, eventStore } from '@/lib/nostr'
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
 
 /**
@@ -77,7 +77,13 @@ export function useWallet(): WalletState {
 	const balance = use$(() => wallet?.balance$, [wallet])
 
 	const walletRelays = wallet?.relays
-	const walletDataRelays = useMemo(() => relaySet(config.readRelays, walletRelays), [walletRelays])
+	const walletDataRelays = useMemo(() => {
+		const relays = relaySet(config.readRelays, walletRelays)
+		// Wallet relays are the sanctioned exception to dev relay isolation —
+		// vouch for them with the pool guard so token/history reads work in dev.
+		allowRelays(relays)
+		return relays
+	}, [walletRelays])
 	const walletDataFilters = useMemo<Filter[] | null>(
 		() =>
 			active?.pubkey && wallet

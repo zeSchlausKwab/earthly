@@ -24,7 +24,7 @@ import {
 	MAP_CONTEXT_KIND,
 	TEMPORAL_SIGHTING_KIND,
 } from '@/lib/nostr/kinds'
-import { accounts, eventStore } from '@/lib/nostr'
+import { accounts, eventStore, readRelaysFor } from '@/lib/nostr'
 import { useTimeline } from '@/lib/nostr/hooks'
 import { useGeoReactions, type ReactableEvent } from '../hooks/useGeoReactions'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -236,8 +236,10 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 
 				// Step 2: Build the zap request (kind 9734). ZapRequestFactory wires up
 				// the e/a/k/p/relays/amount tags for us; we only need to choose relays.
+				// The relays tag tells the recipient's LNURL server where to publish the
+				// zap receipt — route it where we read content (local relay in dev).
 				const targetEvent = rawNostrEvent(target)
-				const relays = ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.nostr.band']
+				const relays = readRelaysFor('content')
 				const zapRequest = await ZapRequestFactory.event(targetEvent, amountMsats, relays).sign(
 					signer,
 				)

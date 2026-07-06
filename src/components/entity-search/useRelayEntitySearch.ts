@@ -2,9 +2,8 @@ import { castEvent } from 'applesauce-core/casts'
 import type { Filter } from 'nostr-tools'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Subscription } from 'rxjs'
-import { config } from '@/config'
 import { GEO_EVENT_KIND, MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
-import { eventStore, pool } from '@/lib/nostr'
+import { eventStore, pool, readRelaysFor } from '@/lib/nostr'
 import { GeoDataset } from '@/lib/nostr/geo-event'
 import { MapContext } from '@/lib/nostr/map-context'
 import {
@@ -34,8 +33,9 @@ interface UseRelayEntitySearchOptions {
  * NIP-50 (relay-side search) for datasets and contexts. Uses `pool.req` so
  * the subscription completes on EOSE (one-shot search, no live updates).
  *
- * Searches happen against `config.readRelays` so dev with EXTRA_READ_RELAYS
- * set can search public relays without ever publishing there.
+ * Searches are routed through the relay router's content bucket: local relay
+ * in dev (public only with the allowPublicReads dev flag), configured read
+ * relays in prod.
  */
 export function useRelayEntitySearch({
 	query,
@@ -84,40 +84,38 @@ export function useRelayEntitySearch({
 				limit,
 			}
 
-			subRef.current = pool
-				.request(config.readRelays, filter)
-				.subscribe({
-					next: (event) => {
-						const kind = event.kind as number
-						const eventId = event.id as string
-						if (resultMap.has(eventId)) return
+			subRef.current = pool.request(readRelaysFor('content'), filter).subscribe({
+				next: (event) => {
+					const kind = event.kind as number
+					const eventId = event.id as string
+					if (resultMap.has(eventId)) return
 
-						const entityType = KIND_TO_TYPE[kind]
-						if (!entityType) return
+					const entityType = KIND_TO_TYPE[kind]
+					if (!entityType) return
 
-						let result: EntitySearchResult | null = null
-						if (entityType === 'dataset') {
-							const wrapped = castEvent(event, GeoDataset, eventStore)
-							result = datasetToSearchResult(wrapped, getDatasetName)
-						} else if (entityType === 'context') {
-							const wrapped = castEvent(event, MapContext, eventStore)
-							result = contextToSearchResult(wrapped)
-						}
+					let result: EntitySearchResult | null = null
+					if (entityType === 'dataset') {
+						const wrapped = castEvent(event, GeoDataset, eventStore)
+						result = datasetToSearchResult(wrapped, getDatasetName)
+					} else if (entityType === 'context') {
+						const wrapped = castEvent(event, MapContext, eventStore)
+						result = contextToSearchResult(wrapped)
+					}
 
-						if (result) {
-							resultMap.set(eventId, result)
-							setResults(Array.from(resultMap.values()))
-						}
-					},
-					complete: () => {
-						setLoading(false)
-						setEose(true)
-					},
-					error: (err) => {
-						console.error('[entity-search] subscription error', err)
-						setLoading(false)
-					},
-				})
+					if (result) {
+						resultMap.set(eventId, result)
+						setResults(Array.from(resultMap.values()))
+					}
+				},
+				complete: () => {
+					setLoading(false)
+					setEose(true)
+				},
+				error: (err) => {
+					console.error('[entity-search] subscription error', err)
+					setLoading(false)
+				},
+			})
 		}, DEBOUNCE_MS)
 
 		return () => {

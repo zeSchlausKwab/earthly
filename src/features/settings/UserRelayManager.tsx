@@ -32,7 +32,8 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { eventStore, accounts, pool, publish } from '@/lib/nostr'
+import { Switch } from '@/components/ui/switch'
+import { accounts, devRelayFlags$, eventStore, pool, publish, setDevRelayFlags } from '@/lib/nostr'
 
 type RelayDraft = {
 	url: string
@@ -500,6 +501,50 @@ function ActiveConnectionsPanel({
 	)
 }
 
+/**
+ * Dev-only escape hatches for relay stage isolation (docs/RELAY_STAGES.md).
+ * Content stays on the local relay in dev; these flags open public relays for
+ * reading (debugging) or writing (authoring). Not rendered in production.
+ */
+function DevRelayIsolationPanel() {
+	const flags = use$(() => devRelayFlags$, [])
+	if (!config.isDevelopment || !flags) return null
+
+	return (
+		<div className="space-y-3 border border-primary/40 bg-primary/5 p-3">
+			<div className="flex items-center gap-2 text-sm font-medium text-foreground">
+				<AlertTriangle className="h-4 w-4 text-primary" />
+				Dev relay isolation
+			</div>
+			<p className="text-xs text-muted-foreground">
+				Content entities talk only to the local relay in dev. Profile and wallet data still read
+				from public relays. Flip these to debug against or author to public relays — seeded data
+				must never be published with writes enabled.
+			</p>
+			<div className="flex items-center justify-between gap-3">
+				<Label htmlFor="dev-public-reads" className="text-xs text-foreground">
+					Allow public-relay reads (debugging)
+				</Label>
+				<Switch
+					id="dev-public-reads"
+					checked={flags.allowPublicReads}
+					onCheckedChange={(checked) => setDevRelayFlags({ allowPublicReads: checked })}
+				/>
+			</div>
+			<div className="flex items-center justify-between gap-3">
+				<Label htmlFor="dev-public-writes" className="text-xs text-foreground">
+					Allow public-relay writes (authoring) ⚠
+				</Label>
+				<Switch
+					id="dev-public-writes"
+					checked={flags.allowPublicWrites}
+					onCheckedChange={(checked) => setDevRelayFlags({ allowPublicWrites: checked })}
+				/>
+			</div>
+		</div>
+	)
+}
+
 export function UserRelayManager() {
 	const account = useActiveAccount()
 	const relayListEvent = use$(
@@ -727,6 +772,8 @@ export function UserRelayManager() {
 					Mailbox data is in memory, but the source relay-list event is still loading.
 				</div>
 			) : null}
+
+			<DevRelayIsolationPanel />
 
 			<ActiveConnectionsPanel
 				draft={draft}

@@ -23,7 +23,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from '@/components/ui/select'
-import { loginWithAccount } from '@/lib/nostr'
+import { allowRelays, loginWithAccount } from '@/lib/nostr'
 
 interface Nip46LoginDialogProps {
 	trigger: React.ReactNode
@@ -110,6 +110,9 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 			setError(null)
 
 			try {
+				// NIP-46 relays are signer transport, not content — vouch for them
+				// with the dev pool guard so bunker login works under relay isolation.
+				allowRelays([selectedRelay])
 				const localSigner = new PrivateKeySigner()
 				const ncSigner = new NostrConnectSigner({
 					relays: [selectedRelay],
@@ -163,6 +166,14 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 		setError(null)
 
 		try {
+			// Vouch for the bunker's relays with the dev pool guard (signer
+			// transport, not content).
+			try {
+				const parsed = new URL(bunkerUrl)
+				allowRelays(parsed.searchParams.getAll('relay'))
+			} catch {
+				// Malformed URL — fromBunkerURI below will produce the user-facing error.
+			}
 			const ncSigner = await NostrConnectSigner.fromBunkerURI(bunkerUrl, {
 				permissions: APP_METADATA.permissions,
 			})

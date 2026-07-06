@@ -11,8 +11,8 @@ import type { GroupReqMessage } from 'applesauce-relay'
 import type { Filter, NostrEvent } from 'nostr-tools'
 import { useEffect, useMemo, useState } from 'react'
 import { filter as rxFilter, map, tap } from 'rxjs'
-import { config } from '@/config'
 import { eventStore, pool, queryCache } from './index'
+import { bucketForKind, readRelaysFor } from './relay-router'
 
 /**
  * Upper bound for waiting on relay EOSE signals. A single dead or slow relay
@@ -41,6 +41,21 @@ function relaysFromKey(relayKey: string): string[] {
 }
 
 /**
+ * Default relay set for a subscription, derived from the filter kinds via the
+ * relay router. Filters without kinds are treated as content — the bucket
+ * that stays on the local relay in dev. Evaluated when the filters change;
+ * flipping a dev relay flag applies to newly-mounted subscriptions.
+ */
+function defaultRelaysForFilters(filters: Filter | Filter[] | null): string[] {
+	if (!filters) return readRelaysFor('content')
+	const kinds = (Array.isArray(filters) ? filters : [filters]).flatMap((f) => f.kinds ?? [])
+	const buckets =
+		kinds.length > 0 ? new Set(kinds.map(bucketForKind)) : new Set(['content'] as const)
+	const relays = [...buckets].flatMap((bucket) => readRelaysFor(bucket))
+	return relays.filter((url, index) => relays.indexOf(url) === index)
+}
+
+/**
  * Subscribe to a filter on the relay pool, ingest events into the EventStore,
  * and return the live timeline matching that filter.
  *
@@ -53,16 +68,16 @@ function relaysFromKey(relayKey: string): string[] {
  * Pass `null` filters to skip the subscription entirely (useful for guards
  * like "wait for an address before subscribing").
  *
- * `relays` defaults to `config.readRelays` — broader than write relays, so dev
- * can fetch public profiles via EXTRA_READ_RELAYS without ever publishing
- * to those relays.
+ * `relays` defaults to the router-derived set for the filter kinds: content
+ * subscriptions stay on the local relay in dev while profile/wallet kinds may
+ * read from public relays (see relay-router.ts).
  */
-export function useTimeline(
-	filters: Filter | Filter[] | null,
-	relays: string[] = config.readRelays,
-): NostrEvent[] {
+export function useTimeline(filters: Filter | Filter[] | null, relays?: string[]): NostrEvent[] {
 	const filterKey = useMemo(() => (filters ? JSON.stringify(filters) : null), [filters])
-	const relayKey = useMemo(() => relays.join(','), [relays])
+	const relayKey = useMemo(
+		() => (relays ?? defaultRelaysForFilters(filtersFromKey(filterKey))).join(','),
+		[relays, filterKey],
+	)
 
 	useEffect(() => {
 		const activeFilters = filtersFromKey(filterKey)
@@ -97,14 +112,18 @@ export function useTimeline(
  * EOSE per relay; this is more involved than `subscription` which only emits
  * NostrEvents.
  *
- * `relays` defaults to `config.readRelays`.
+ * `relays` defaults to the router-derived set for the filter kinds (see
+ * `useTimeline`).
  */
 export function useTimelineWithEose(
 	filters: Filter | Filter[] | null,
-	relays: string[] = config.readRelays,
+	relays?: string[],
 ): { events: NostrEvent[]; eose: boolean } {
 	const filterKey = useMemo(() => (filters ? JSON.stringify(filters) : null), [filters])
-	const relayKey = useMemo(() => relays.join(','), [relays])
+	const relayKey = useMemo(
+		() => (relays ?? defaultRelaysForFilters(filtersFromKey(filterKey))).join(','),
+		[relays, filterKey],
+	)
 	const [eose, setEose] = useState(false)
 
 	useEffect(() => {

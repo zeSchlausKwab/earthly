@@ -9,11 +9,12 @@
  */
 
 import { persistEventsToCache } from 'applesauce-core/helpers'
+import { isEventPointer } from 'applesauce-core/helpers/pointers'
 import { MailboxesModel } from 'applesauce-core/models'
 import { RelayPool } from 'applesauce-relay'
 import { AccountManager } from 'applesauce-accounts'
 import { registerCommonAccountTypes } from 'applesauce-accounts/accounts'
-import { createEventLoaderForStore } from 'applesauce-loaders/loaders'
+import { createUnifiedEventLoader, type UnifiedEventLoader } from 'applesauce-loaders/loaders'
 import { NostrConnectSigner } from 'applesauce-signers'
 import { NostrIDB, openDB } from 'nostr-idb'
 import type { Filter, NostrEvent } from 'nostr-tools'
@@ -30,6 +31,12 @@ void timeout
 void TimeoutError
 import { config } from '@/config'
 import { eventStore } from './store'
+import {
+	bucketForKind,
+	guardedWebSocketCtor,
+	readRelays$,
+	shouldCollapseWritesToLocal,
+} from './relay-router'
 
 // The single EventStore singleton, constructed in ./store so service modules can
 // import it without going through (or being defeated by a test mock of) this barrel.
@@ -53,8 +60,26 @@ export * from './temporal-sighting'
 // repoint all ~34 consumer import sites.
 export * from './group'
 
-/** Connection pool — owns websocket lifecycles per relay URL. */
-export const pool = new RelayPool()
+// Stage-isolation seam (see ./relay-router.ts + docs/RELAY_STAGES.md).
+export * from './relay-router'
+
+/**
+ * Connection pool — owns websocket lifecycles per relay URL.
+ * The guarded WebSocket ctor is the dev backstop: sockets to relays outside
+ * the router allowlist never open, no matter which code path asked.
+ */
+export const pool = new RelayPool({ WebSocket: guardedWebSocketCtor() })
+
+// Dev-only debug handles: inspect open relay connections and the effective
+// relay config from the console to verify stage isolation (docs/RELAY_STAGES.md).
+if (config.isDevelopment && typeof window !== 'undefined') {
+	const w = window as unknown as Record<string, unknown>
+	w.__earthlyPool = pool
+	w.__earthlyRelayConfig = {
+		readRelays: config.readRelays,
+		writeRelays: config.writeRelays,
+	}
+}
 
 /**
  * Earthly-specific account metadata stored alongside each saved account.
@@ -238,15 +263,47 @@ export async function queryCache(filters: Filter[]): Promise<NostrEvent[]> {
  * that isn't in the store, we pull from cache then from relays. The result is
  * added to the store automatically and stored back into the cache via persistEventsToCache.
  *
- * Loaders read broadly (`config.readRelays`) so profile and metadata lookups
- * can hit public relays in dev when EXTRA_READ_RELAYS is set, without ever
- * publishing there.
+ * Bucket-routed (see relay-router.ts): address pointers carry their kind, so
+ * profile/wallet lookups may reach public relays in dev while content lookups
+ * stay on the local relay. `followRelayHints: false` on both loaders — relay
+ * hints embedded in tags/pointers must never open implicit sockets; the
+ * router's relay sets are the only read paths.
  */
-createEventLoaderForStore(eventStore, pool, {
+const contentLoader = createUnifiedEventLoader(pool, {
+	eventStore,
 	cacheRequest,
-	lookupRelays: config.readRelays,
-	extraRelays: config.readRelays,
+	followRelayHints: false,
+	lookupRelays: readRelays$('content'),
+	extraRelays: readRelays$('content'),
 })
+const socialLoader = createUnifiedEventLoader(pool, {
+	eventStore,
+	cacheRequest,
+	followRelayHints: false,
+	lookupRelays: readRelays$('profile'),
+	extraRelays: readRelays$('profile'),
+})
+const routedLoader: UnifiedEventLoader = Object.assign(
+	(pointer: Parameters<UnifiedEventLoader>[0]) => {
+		// Event pointers (plain ids) carry no kind — treat as content, the
+		// bucket that must never leave the local relay in dev.
+		if (isEventPointer(pointer)) return contentLoader(pointer)
+		return bucketForKind(pointer.kind) === 'content'
+			? contentLoader(pointer)
+			: socialLoader(pointer)
+	},
+	{
+		stop: () => {
+			contentLoader.stop()
+			socialLoader.stop()
+		},
+		[Symbol.dispose]: () => {
+			contentLoader.stop()
+			socialLoader.stop()
+		},
+	},
+)
+eventStore.eventLoader = routedLoader
 
 /**
  * NIP-46 Nostr Connect needs a relay transport. Sharing the pool means
@@ -317,10 +374,11 @@ export async function publish(event: NostrEvent, options: PublishOptions = {}) {
 	let targetRelays: string[]
 	if (relays) {
 		targetRelays = relays
-	} else if (config.isDevelopment || routing === 'configured') {
+	} else if (shouldCollapseWritesToLocal() || routing === 'configured') {
 		// In dev, ALL routing modes collapse to writeRelays. This is the dev-leak
 		// safety net: even if a user's NIP-65 mailboxes point at public relays,
-		// we never write to them in dev.
+		// we never write to them in dev — unless the allowPublicWrites dev flag
+		// (relay-router) is explicitly enabled for authoring.
 		targetRelays = config.writeRelays
 	} else if (routing === 'outbox') {
 		targetRelays = await resolveRoutedRelays(
