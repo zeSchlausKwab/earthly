@@ -27,8 +27,15 @@ import {
 	SetWalletMints,
 	SetWalletRelays,
 	TokensOperation,
+	type TokenSelectionFunction,
 	UnlockWallet,
 } from 'applesauce-wallet/actions'
+import {
+	dumbTokenSelection,
+	getTokenContent,
+	getTokenDeletedIds,
+	isTokenContentUnlocked,
+} from 'applesauce-wallet/helpers'
 import { generateSecretKey } from 'nostr-tools'
 import type { NostrEvent } from 'nostr-tools'
 import { couch, getCashuWallet, getWalletSnapshot, walletActions } from './runtime'
@@ -142,6 +149,32 @@ export function withSpendLock<T>(fn: () => Promise<T>): Promise<T> {
 	return next
 }
 
+function getDeletedTokenIds(tokens: NostrEvent[]): Set<string> {
+	const deleted = new Set<string>()
+	for (const token of tokens) {
+		for (const id of getTokenDeletedIds(token)) deleted.add(id)
+		if (isTokenContentUnlocked(token)) {
+			for (const id of getTokenContent(token).del) deleted.add(id)
+		}
+	}
+	return deleted
+}
+
+/**
+ * TokensOperation reads raw token events from EventStore. Filter the same
+ * `del` references that WalletBalanceModel uses before selecting proofs, or a
+ * second immediate spend can choose an older token event whose proofs were
+ * already consumed by the previous spend.
+ */
+export const selectSpendableTokens: TokenSelectionFunction = (tokens, minAmount, mint) => {
+	const deleted = getDeletedTokenIds(tokens)
+	return dumbTokenSelection(
+		tokens.filter((token) => !deleted.has(token.id)),
+		minAmount,
+		mint,
+	)
+}
+
 /**
  * Send a Cashu token of the given amount.
  *
@@ -168,7 +201,7 @@ export async function sendCashuToken(
 				encoded = getEncodedToken({ mint, proofs: send, unit: 'sat' })
 				return { change: keep.length > 0 ? keep : undefined }
 			},
-			{ mint: options?.mint, couch, getCashuWallet },
+			{ mint: options?.mint, couch, getCashuWallet, tokenSelection: selectSpendableTokens },
 		)
 
 		if (!encoded) throw new Error('Failed to create token')
@@ -229,7 +262,7 @@ async function payLightningInvoiceUnlocked(
 			}
 			return { change: [...keep, ...response.change] }
 		},
-		{ mint, couch, getCashuWallet },
+		{ mint, couch, getCashuWallet, tokenSelection: selectSpendableTokens },
 	)
 
 	return result
