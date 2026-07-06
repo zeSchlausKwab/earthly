@@ -51,9 +51,37 @@ with the pool guard at the call site:
 
 ## Seeding
 
-Seed scripts must target the local relay only. The structural guard (unified seeder, Phase 6 of
-docs/HOUSEKEEPING_ROADMAP.md): non-loopback relay URLs are a hard error without an explicit
-`--allow-remote` flag. `config.seedRelays` is always `config.writeRelays`.
+All seeding goes through the unified CLI (`scripts/seed.ts` + `src/lib/seeder/`):
+
+```bash
+bun run seed <command> [flags]
+
+# commands
+bun run seed minimal              # profiles + 1 dataset (fast smoke seed)
+bun run seed full                 # rich v1.2 entity seed: groups, datasets, beacons,
+                                  #   stories, geo-annotated comments, reactions
+bun run seed sightings            # temporal sightings (37522), all observation states
+bun run seed canonical            # real-world datasets from base-assets/base_rips
+bun run seed purge                # NIP-09 delete canonical data signed by the key
+
+# flags
+--relay <url>      # default ws://localhost:3334
+--allow-remote     # REQUIRED for any non-loopback relay (see guard below)
+--key <hex>        # signing key; falls back to $SEED_KEY, then devUser1
+                   #   (canonical/purge also honour $APP_PRIVATE_KEY)
+--dry-run          # build + enumerate every event, publish nothing
+--verbose          # log each published event
+--only <name>      # canonical/purge: one sub-seeder (e.g. sea-cables)
+--force            # purge: skip the confirmation prompt
+```
+
+`seed:entities` / `seed:sightings` in package.json are thin aliases onto
+`seed full` / `seed sightings` (used by `scripts/dev-clean.sh`).
+
+**The structural guard:** `validateRelayURL()` in `src/lib/seeder/config.ts` hard-errors on any
+non-loopback relay URL unless `--allow-remote` was passed — seed data cannot leak to a public
+relay by accident, regardless of env vars. Loopback = localhost / 127.0.0.1 / ::1 / 0.0.0.0.
+Never combine seeding with the `allowPublicWrites` dev flag.
 
 ## Server side
 
