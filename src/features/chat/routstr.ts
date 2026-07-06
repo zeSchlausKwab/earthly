@@ -10,6 +10,9 @@ export interface RoutstrModel {
 	name: string
 	description?: string
 	contextLength?: number
+	maxCompletionTokens?: number
+	inputModalities?: string[]
+	outputModalities?: string[]
 	supportsTools?: boolean
 	pricing: {
 		input: number // cost per 1M input tokens in sats
@@ -168,6 +171,17 @@ interface ApiModel {
 	name?: string
 	description?: string
 	context_length?: number
+	architecture?: {
+		input_modalities?: string[]
+		output_modalities?: string[]
+	}
+	top_provider?: {
+		max_completion_tokens?: number | null
+	}
+	per_request_limits?: {
+		max_completion_tokens?: number | null
+		max_output_tokens?: number | null
+	}
 	supports_tools?: boolean
 	supports_tool_calling?: boolean
 	tool_calling?: boolean
@@ -176,6 +190,20 @@ interface ApiModel {
 		completion?: number
 		request?: number
 	}
+}
+
+function normalizePositiveInteger(value: unknown): number | undefined {
+	return typeof value === 'number' && Number.isFinite(value) && value > 0
+		? Math.floor(value)
+		: undefined
+}
+
+function getApiModelMaxCompletionTokens(model: ApiModel): number | undefined {
+	return (
+		normalizePositiveInteger(model.top_provider?.max_completion_tokens) ??
+		normalizePositiveInteger(model.per_request_limits?.max_completion_tokens) ??
+		normalizePositiveInteger(model.per_request_limits?.max_output_tokens)
+	)
 }
 
 /**
@@ -201,6 +229,9 @@ export async function fetchModels(provider: ProviderConfig): Promise<RoutstrMode
 		name: model.name || model.id,
 		description: model.description,
 		contextLength: model.context_length,
+		maxCompletionTokens: getApiModelMaxCompletionTokens(model),
+		inputModalities: model.architecture?.input_modalities,
+		outputModalities: model.architecture?.output_modalities,
 		supportsTools:
 			typeof model.supports_tools === 'boolean'
 				? model.supports_tools

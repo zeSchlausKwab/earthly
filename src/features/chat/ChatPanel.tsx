@@ -8,7 +8,7 @@ import type { AttachedFileView, ImageVisionTier } from './components/FileChip'
 import type { IngestSummary } from './ingest/datasetTypes'
 import { VisionGateControl } from './components/VisionGateControl'
 import { detectVisionSupport, type VisionSupport } from './vision/detectVisionSupport'
-import { useWallet } from '@/lib/wallet'
+import { getMintHostname, resolveWalletPaymentMint, useDefaultMint, useWallet } from '@/lib/wallet'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { navigateToRoute } from '@/features/geo-editor/hooks/useRouting'
@@ -159,8 +159,34 @@ export function ChatPanel({
 	const editorFeatures = useEditorStore((state) => state.features)
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 
-	const { exists: walletExists, totalBalance: walletBalance } = useWallet()
+	const {
+		exists: walletExists,
+		totalBalance: walletBalance,
+		balance: walletBalanceByMint,
+		mints: walletMints,
+	} = useWallet()
+	const [defaultMint] = useDefaultMint()
 	const walletStatus: 'ready' | 'no_wallet' = walletExists ? 'ready' : 'no_wallet'
+	const paymentMint = useMemo(
+		() =>
+			resolveWalletPaymentMint(
+				{ mints: walletMints, balance: walletBalanceByMint ?? {} },
+				{ defaultMint },
+			),
+		[defaultMint, walletBalanceByMint, walletMints],
+	)
+	const paymentMintPrefix =
+		paymentMint.source === 'default' ? 'default' : paymentMint.defaultMint ? 'fallback' : 'paying'
+	const paymentMintDisplay = paymentMint.mint
+		? `${paymentMintPrefix}: ${getMintHostname(paymentMint.mint)} (${paymentMint.balance.toLocaleString()} sats)`
+		: null
+	const paymentMintTooltip = paymentMint.mint
+		? paymentMint.source === 'default'
+			? `Routstr payments are sent from your default mint: ${paymentMint.mint}`
+			: paymentMint.defaultMint
+				? `Default mint is not configured on this wallet, so payments fall back to: ${paymentMint.mint}`
+				: `No default mint selected; payments use: ${paymentMint.mint}`
+		: null
 	const isMobile = useIsMobile()
 
 	const [input, setInput] = useState('')
@@ -629,7 +655,31 @@ export function ChatPanel({
 						<div className="flex items-center gap-1.5 text-muted-foreground">
 							<Wallet className="h-3.5 w-3.5" />
 							{walletStatus === 'ready' ? (
-								<span>{walletBalance.toLocaleString()} sats</span>
+								<div className="flex min-w-0 items-center gap-1.5">
+									<span className="shrink-0">{walletBalance.toLocaleString()} sats</span>
+									{paymentMintDisplay ? (
+										<>
+											<span className="shrink-0 text-muted-foreground/70">·</span>
+											<Tooltip>
+												<TooltipTrigger asChild>
+													<span
+														className={cn(
+															'max-w-[14rem] truncate text-xs',
+															paymentMint.defaultMint && paymentMint.source !== 'default'
+																? 'text-orange-500 dark:text-orange-400'
+																: 'text-muted-foreground',
+														)}
+													>
+														{paymentMintDisplay}
+													</span>
+												</TooltipTrigger>
+												<TooltipContent side="top" sideOffset={6} className="max-w-xs">
+													{paymentMintTooltip}
+												</TooltipContent>
+											</Tooltip>
+										</>
+									) : null}
+								</div>
 							) : (
 								<span className="text-destructive">Wallet not connected</span>
 							)}

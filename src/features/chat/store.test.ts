@@ -376,6 +376,17 @@ describe('deriveOutputBudget — no artificial output cap (UAT: 512/1024 truncat
 		expect(maxTokens).toBe(costTokens)
 	})
 
+	test('paid provider clamps max_tokens to model max completion tokens', () => {
+		const model = makeModel({
+			id: 'qwen3.7-plus',
+			contextLength: 1_000_000,
+			maxCompletionTokens: 65_536,
+		})
+		const { maxTokens, costTokens } = deriveOutputBudget(model, PAID_PROVIDER, 1000)
+		expect(maxTokens).toBe(65_536)
+		expect(costTokens).toBe(65_536)
+	})
+
 	test('paid cost estimate uses the SAME derived budget (prepay never underpays)', () => {
 		// Non-zero output pricing so the budget actually drives cost.
 		const model = makeModel({

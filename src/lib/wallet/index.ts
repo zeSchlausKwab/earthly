@@ -46,6 +46,18 @@ export {
 	type WalletSnapshot,
 } from './runtime'
 
+export {
+	DEFAULT_MINT_CHANGE_EVENT,
+	DEFAULT_MINT_KEY,
+	getStoredDefaultMint,
+	normalizeDefaultMint,
+	resolveWalletPaymentMint,
+	setStoredDefaultMint,
+	type ResolveWalletPaymentMintOptions,
+	type WalletPaymentMintSelection,
+	type WalletPaymentMintSource,
+} from './defaultMint'
+
 // Pre-existing utilities (kept)
 export { getCurrentPubkey, setCurrentPubkey } from './currentUser'
 export { encodeWalletToken, formatSats, getMintHostname } from './display'

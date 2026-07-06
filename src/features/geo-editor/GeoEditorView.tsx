@@ -117,6 +117,7 @@ import {
 	useViewMode,
 } from './hooks'
 import { exportShapefile, importShapefile } from './shapefile'
+import { getGeoJsonPasteCandidate } from './geoJsonPaste'
 import { useEditorStore, type MapStackEntry } from './store'
 import type { MapStackEntryType } from './store/types'
 import type { GeoSearchResult } from './types'
@@ -1823,11 +1824,20 @@ export function GeoEditorView() {
 	const handlePaste = useCallback(
 		async (e: ClipboardEvent) => {
 			if (!editor) return
+			const target = e.target
+			if (
+				target instanceof HTMLInputElement ||
+				target instanceof HTMLTextAreaElement ||
+				(target instanceof HTMLElement && target.isContentEditable)
+			) {
+				return
+			}
 			const text = e.clipboardData?.getData('text/plain')
-			if (!text) return
+			const candidate = getGeoJsonPasteCandidate(text)
+			if (!candidate) return
 
 			try {
-				const json = JSON.parse(text)
+				const json = JSON.parse(candidate)
 				const collection = ensureFeatureCollection(json)
 				const newFeatures = collection.features.map((f) => {
 					// Ensure ID is a string

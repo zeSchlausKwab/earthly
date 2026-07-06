@@ -23,6 +23,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { config } from '@/config'
 import { allowRelays, eventStore } from '@/lib/nostr'
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
+import {
+	DEFAULT_MINT_CHANGE_EVENT,
+	DEFAULT_MINT_KEY,
+	getStoredDefaultMint,
+	normalizeDefaultMint,
+	setStoredDefaultMint,
+} from './defaultMint'
 
 /**
  * Reactive view of the active account's wallet state.
@@ -221,8 +228,6 @@ export function useNutzapInfo(): NutzapInfo | undefined {
 	}, [infoEvent, active?.pubkey])
 }
 
-const DEFAULT_MINT_KEY = 'nip60_default_mint'
-
 /**
  * Persisted "default mint" preference (per browser, not per account).
  *
@@ -231,26 +236,27 @@ const DEFAULT_MINT_KEY = 'nip60_default_mint'
  * Send/Deposit/Withdraw modals open pre-selected.
  */
 export function useDefaultMint(): [string | null, (mint: string | null) => void] {
-	const [value, setValue] = useState<string | null>(() => {
-		if (typeof localStorage === 'undefined') return null
-		return localStorage.getItem(DEFAULT_MINT_KEY)
-	})
+	const [value, setValue] = useState<string | null>(() => getStoredDefaultMint())
 
 	useEffect(() => {
-		if (typeof localStorage === 'undefined') return
+		if (typeof window === 'undefined') return
+		const sync = () => setValue(getStoredDefaultMint())
 		const onStorage = (e: StorageEvent) => {
-			if (e.key === DEFAULT_MINT_KEY) setValue(e.newValue)
+			if (e.key === DEFAULT_MINT_KEY) sync()
 		}
+		const onDefaultMintChange = () => sync()
 		window.addEventListener('storage', onStorage)
-		return () => window.removeEventListener('storage', onStorage)
+		window.addEventListener(DEFAULT_MINT_CHANGE_EVENT, onDefaultMintChange)
+		return () => {
+			window.removeEventListener('storage', onStorage)
+			window.removeEventListener(DEFAULT_MINT_CHANGE_EVENT, onDefaultMintChange)
+		}
 	}, [])
 
 	const setMint = useCallback((mint: string | null) => {
-		if (typeof localStorage !== 'undefined') {
-			if (mint) localStorage.setItem(DEFAULT_MINT_KEY, mint)
-			else localStorage.removeItem(DEFAULT_MINT_KEY)
-		}
-		setValue(mint)
+		const normalized = normalizeDefaultMint(mint)
+		setStoredDefaultMint(normalized)
+		setValue(normalized)
 	}, [])
 
 	return [value, setMint]

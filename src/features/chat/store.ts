@@ -29,12 +29,16 @@ import {
 	compactToolMessageContentForPrompt,
 } from './tools'
 import { getTokenMetadata } from '@cashu/cashu-ts'
-import { getWalletSnapshot, receiveCashuToken, sendCashuToken } from '@/lib/wallet'
+import {
+	getWalletSnapshot,
+	receiveCashuToken,
+	resolveWalletPaymentMint,
+	sendCashuToken,
+} from '@/lib/wallet'
 import { detectVisionSupport } from './vision/detectVisionSupport'
 import { gateToolsForVision } from './vision/gateToolsForVision'
 import { setSafetyLevelProvider } from './safeEditing/safetyAccess'
 import { cancelPendingDiffs } from './safeEditing/pendingDiffStore'
-const DEFAULT_MINT_KEY = 'nip60_default_mint'
 import { toast } from 'sonner'
 
 // Output is NOT artificially capped. We size the completion budget from the
@@ -635,17 +639,25 @@ export function deriveOutputBudget(
 		contextTokens > 0
 			? Math.max(MIN_OUTPUT_BUDGET_TOKENS, remaining)
 			: PAID_OUTPUT_BUDGET_FALLBACK_TOKENS
+	const maxCompletionTokens =
+		typeof model.maxCompletionTokens === 'number' &&
+		Number.isFinite(model.maxCompletionTokens) &&
+		model.maxCompletionTokens > 0
+			? Math.floor(model.maxCompletionTokens)
+			: undefined
+	const capped = maxCompletionTokens ? Math.min(derived, maxCompletionTokens) : derived
 
 	if (!provider.requiresPayment) {
 		// Free/local (lmstudio, ollama, custom): omit max_tokens so the model is
 		// not truncated. costTokens is unused for these (no payment) but reported
 		// for diagnostics/consistency.
-		return { maxTokens: undefined, costTokens: derived }
+		return { maxTokens: undefined, costTokens: capped }
 	}
 
 	// Paid (routstr/cashu): send the derived budget so prepay reserves against it
-	// and refunds the unused remainder. Same number drives estimateMaxCost.
-	return { maxTokens: derived, costTokens: derived }
+	// and refunds the unused remainder. Clamp to upstream max-completion metadata
+	// when present so large-context models don't receive impossible max_tokens.
+	return { maxTokens: capped, costTokens: capped }
 }
 
 function trimMessagesToPromptBudget(messages: ChatMessage[], budgetTokens: number): ChatMessage[] {
@@ -1419,16 +1431,25 @@ export const useChatStore = create<ChatStore>()(
 							)
 						}
 
-						const defaultMint =
-							typeof localStorage !== 'undefined' ? localStorage.getItem(DEFAULT_MINT_KEY) : null
-						const mint = defaultMint || snap.mints[0]
-						if (!mint) {
+						const paymentMint = resolveWalletPaymentMint(snap, { amountSats: estimatedCost })
+						if (!paymentMint.mint) {
 							throw new Error('No mint available for payment')
 						}
+						if (paymentMint.balance < estimatedCost) {
+							const label = paymentMint.source === 'default' ? 'Default mint' : 'Selected mint'
+							throw new Error(
+								`${label} has insufficient balance. Need ~${estimatedCost} sats, have ${paymentMint.balance} on ${paymentMint.mint}`,
+							)
+						}
 
-						console.log(`[Chat] Generating ${estimatedCost} sat token for inference`)
+						console.log('[Chat] Generating payment token for inference', {
+							amountSats: estimatedCost,
+							mint: paymentMint.mint,
+							source: paymentMint.source,
+							mintBalance: paymentMint.balance,
+						})
 						try {
-							cashuToken = await sendCashuToken(estimatedCost, { mint })
+							cashuToken = await sendCashuToken(estimatedCost, { mint: paymentMint.mint })
 						} catch (err) {
 							throw new Error(
 								`Failed to generate payment token: ${err instanceof Error ? err.message : String(err)}`,
