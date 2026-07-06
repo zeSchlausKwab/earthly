@@ -786,20 +786,23 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 			onValueChange={(value) => setActiveTab(value as SettingsTab)}
 			className="space-y-4"
 		>
-			<TabsList className="grid h-auto w-full grid-cols-3 rounded-none bg-muted p-1 sm:grid-cols-5">
-				<TabsTrigger value="map" className="rounded-none px-3 py-2 text-xs sm:text-sm">
+			{/* One scrollable row: the base TabsList pins its height (h-8 via the
+			    orientation variant), so wrapped grid rows overflow it — never wrap;
+			    scroll horizontally instead when space runs out. */}
+			<TabsList className="flex w-full justify-start gap-1 overflow-x-auto rounded-none bg-muted p-1">
+				<TabsTrigger value="map" className="flex-none rounded-none px-3 text-xs sm:text-sm">
 					Map
 				</TabsTrigger>
-				<TabsTrigger value="profile" className="rounded-none px-3 py-2 text-xs sm:text-sm">
+				<TabsTrigger value="profile" className="flex-none rounded-none px-3 text-xs sm:text-sm">
 					Profile
 				</TabsTrigger>
-				<TabsTrigger value="relays" className="rounded-none px-3 py-2 text-xs sm:text-sm">
+				<TabsTrigger value="relays" className="flex-none rounded-none px-3 text-xs sm:text-sm">
 					Relays
 				</TabsTrigger>
-				<TabsTrigger value="chat" className="rounded-none px-3 py-2 text-xs sm:text-sm">
-					Chat settings
+				<TabsTrigger value="chat" className="flex-none rounded-none px-3 text-xs sm:text-sm">
+					Chat
 				</TabsTrigger>
-				<TabsTrigger value="sessions" className="rounded-none px-3 py-2 text-xs sm:text-sm">
+				<TabsTrigger value="sessions" className="flex-none rounded-none px-3 text-xs sm:text-sm">
 					Sessions
 				</TabsTrigger>
 			</TabsList>
