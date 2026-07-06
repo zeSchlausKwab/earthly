@@ -97,8 +97,10 @@ export function useTimeline(filters: Filter | Filter[] | null, relays?: string[]
 	}, [filterKey, relayKey])
 
 	const events = use$(() => {
+		// TimelineModel already emits a fresh array instance per change — no
+		// extra copy needed for React identity checks.
 		if (!filters) return undefined
-		return eventStore.timeline(filters).pipe(map((events) => [...events]))
+		return eventStore.timeline(filters)
 	}, [filterKey])
 
 	return events ?? []
@@ -179,8 +181,9 @@ export function useTimelineWithEose(
 	}, [filterKey, relayKey])
 
 	const events = use$(() => {
+		// TimelineModel already emits a fresh array instance per change.
 		if (!filters) return undefined
-		return eventStore.timeline(filters).pipe(map((evts) => [...evts]))
+		return eventStore.timeline(filters)
 	}, [filterKey])
 
 	return { events: events ?? [], eose }

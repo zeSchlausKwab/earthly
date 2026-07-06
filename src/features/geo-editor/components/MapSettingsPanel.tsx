@@ -1,5 +1,5 @@
 import { EventFactory } from 'applesauce-core/factories'
-import { useActiveAccount } from 'applesauce-react/hooks'
+import { use$, useActiveAccount } from 'applesauce-react/hooks'
 import { accounts, eventStore, publish } from '@/lib/nostr'
 
 interface ProfileMetadata {
@@ -103,34 +103,27 @@ function SettingsShell({
 
 function ProfileSettingsSection() {
 	const currentUser = useActiveAccount()
-	const [loadedProfile, setLoadedProfile] = useState<ProfileMetadata | null>(null)
 	const [draft, setDraft] = useState<ProfileDraft>(() => createProfileDraft())
 	const [hasLocalEdits, setHasLocalEdits] = useState(false)
-	const [isLoadingProfile, setIsLoadingProfile] = useState(false)
 	const [isSaving, setIsSaving] = useState(false)
+
+	// Reactive read straight from the EventStore (auto-loads via the configured
+	// event-loader) — no manual subscribe + useState copy that goes stale.
+	const profileValue = use$(
+		() => (currentUser?.pubkey ? eventStore.profile(currentUser.pubkey) : undefined),
+		[currentUser?.pubkey],
+	)
+	const loadedProfile = (profileValue ?? null) as ProfileMetadata | null
+	const isLoadingProfile = Boolean(currentUser?.pubkey) && profileValue === undefined
 
 	const loadedDraft = useMemo(() => createProfileDraft(loadedProfile), [loadedProfile])
 	const isDirty = JSON.stringify(draft) !== JSON.stringify(loadedDraft)
 
 	useEffect(() => {
 		if (!currentUser?.pubkey) {
-			setLoadedProfile(null)
 			setDraft(createProfileDraft())
 			setHasLocalEdits(false)
-			return
 		}
-
-		setIsLoadingProfile(true)
-
-		// Subscribe to the active user's profile event in the EventStore. The
-		// store auto-loads via the configured event-loader, so this fires once
-		// the kind 0 lands (cached or freshly fetched).
-		const sub = eventStore.profile(currentUser.pubkey).subscribe((profile) => {
-			setLoadedProfile((profile ?? null) as ProfileMetadata | null)
-			setIsLoadingProfile(false)
-		})
-
-		return () => sub.unsubscribe()
 	}, [currentUser?.pubkey])
 
 	useEffect(() => {

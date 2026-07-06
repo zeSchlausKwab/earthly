@@ -11,7 +11,7 @@
 import { persistEventsToCache } from 'applesauce-core/helpers'
 import { isEventPointer } from 'applesauce-core/helpers/pointers'
 import { MailboxesModel } from 'applesauce-core/models'
-import { RelayPool } from 'applesauce-relay'
+import { RelayPool, type Relay } from 'applesauce-relay'
 import { AccountManager } from 'applesauce-accounts'
 import { registerCommonAccountTypes } from 'applesauce-accounts/accounts'
 import { createUnifiedEventLoader, type UnifiedEventLoader } from 'applesauce-loaders/loaders'
@@ -118,6 +118,44 @@ function restoreAccounts() {
 }
 
 restoreAccounts()
+
+/**
+ * NIP-42: answer relay AUTH challenges with the active signer.
+ *
+ * Without this, relays that require AUTH silently reject publishes and
+ * subscriptions (the settings UI showed the auth badges but nothing ever
+ * answered). Policy: authenticate to any relay the pool talks to — the relay
+ * router already constrains which relays that can be — whenever a challenge
+ * is pending and an account is active. Re-runs on account switch so a login
+ * answers challenges that arrived while logged out.
+ */
+function setupNip42AuthResponder() {
+	const answered = new Map<string, string>()
+
+	const answerChallenge = (relay: Relay) => {
+		const challenge = relay.challenge
+		const signer = accounts.signer
+		if (!challenge || !signer) return
+		if (answered.get(relay.url) === challenge) return
+		answered.set(relay.url, challenge)
+		relay
+			.authenticate(signer)
+			.catch((err) => console.warn(`[nostr] NIP-42 auth failed for ${relay.url}`, err))
+	}
+
+	const watchRelay = (relay: Relay) => {
+		relay.challenge$.subscribe(() => answerChallenge(relay))
+	}
+
+	for (const relay of pool.relays.values()) watchRelay(relay)
+	pool.add$.subscribe(watchRelay)
+	// A login should answer challenges that arrived while logged out.
+	accounts.active$.subscribe(() => {
+		for (const relay of pool.relays.values()) answerChallenge(relay)
+	})
+}
+
+setupNip42AuthResponder()
 
 // Persist on every change. BehaviorSubjects emit immediately so the first save
 // is essentially a no-op when storage is already in sync. Ephemeral accounts
@@ -316,13 +354,17 @@ NostrConnectSigner.pool = pool
  *
  *   - 'configured' (default): publish to `config.writeRelays`.
  *   - 'outbox':    publish to the author's NIP-65 outbox relays (own events).
- *   - 'inbox':     publish to the recipient's NIP-65 inbox relays (replies, reactions).
+ *   - 'inbox':     publish to the recipient's NIP-65 inbox relays.
+ *   - 'reply':     publish to the author's outboxes ∪ the recipient's inboxes —
+ *                  the correct NIP-65 shape for comments/reactions/zap requests,
+ *                  so the recipient actually discovers them.
  *
- * In development, outbox/inbox routing is silently downgraded to
+ * In development, outbox/inbox/reply routing is silently downgraded to
  * `config.writeRelays` (= local relay) so we never broadcast to public relays
- * even if the user's NIP-65 record points to public ones.
+ * even if the user's NIP-65 record points to public ones (unless the
+ * allowPublicWrites dev flag is on — see relay-router.ts).
  */
-export type PublishRouting = 'configured' | 'outbox' | 'inbox'
+export type PublishRouting = 'configured' | 'outbox' | 'inbox' | 'reply'
 
 export interface PublishOptions {
 	/** Override relays explicitly. Wins over `routing`. */
@@ -386,6 +428,14 @@ export async function publish(event: NostrEvent, options: PublishOptions = {}) {
 			'outboxes',
 			mailboxTimeoutMs ?? MAILBOX_TIMEOUT_DEFAULT,
 		)
+	} else if (routing === 'reply') {
+		if (!target) throw new Error("publish({ routing: 'reply' }) requires a target pubkey")
+		const timeoutMs = mailboxTimeoutMs ?? MAILBOX_TIMEOUT_DEFAULT
+		const [outboxes, inboxes] = await Promise.all([
+			resolveRoutedRelays(event.pubkey, 'outboxes', timeoutMs),
+			resolveRoutedRelays(target, 'inboxes', timeoutMs),
+		])
+		targetRelays = [...new Set([...outboxes, ...inboxes])]
 	} else {
 		// routing === 'inbox'
 		if (!target) throw new Error("publish({ routing: 'inbox' }) requires a target pubkey")

@@ -136,7 +136,9 @@ export function useGeoComments({
 					.modifyPublicTags(setAddressReferenceTags(referencedCoords, [address]))
 					.withDerivedMetadata()
 					.sign(signer)
-				await publish(signed, { routing: 'outbox' })
+				// NIP-65 reply shape: own outboxes ∪ the dataset author's inboxes,
+				// so the author actually discovers the comment.
+				await publish(signed, { routing: 'reply', target: targetPubkey })
 			} finally {
 				setIsPosting(false)
 			}
@@ -174,7 +176,8 @@ export function useGeoComments({
 					.modifyPublicTags(setAddressReferenceTags(referencedCoords, [parentAddress]))
 					.withDerivedMetadata()
 					.sign(signer)
-				await publish(signed, { routing: 'outbox' })
+				// Route to the parent comment's author — the person being replied to.
+				await publish(signed, { routing: 'reply', target: parentComment.pubkey })
 			} finally {
 				setIsPosting(false)
 			}
@@ -201,7 +204,8 @@ export function useGeoComments({
 					? reactTarget.event
 					: (reactTarget as { rawEvent: () => NostrEvent }).rawEvent()
 			const signed = await ReactionFactory.create(raw, '❤️').sign(signer)
-			await publish(signed, { routing: 'outbox' })
+			// Route to the reacted-upon event's author so they see the reaction.
+			await publish(signed, { routing: 'reply', target: raw.pubkey })
 		},
 		[],
 	)
