@@ -75,6 +75,7 @@ export const pool = new RelayPool({ WebSocket: guardedWebSocketCtor() })
 if (config.isDevelopment && typeof window !== 'undefined') {
 	const w = window as unknown as Record<string, unknown>
 	w.__earthlyPool = pool
+	w.__earthlyEventStore = eventStore
 	w.__earthlyRelayConfig = {
 		readRelays: config.readRelays,
 		writeRelays: config.writeRelays,

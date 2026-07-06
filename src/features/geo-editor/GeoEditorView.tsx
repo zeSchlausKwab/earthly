@@ -89,6 +89,7 @@ import { CommentAnnotationPopup } from './components/CommentAnnotationPopup'
 import type { CommentAnnotationPopupData } from './components/CommentAnnotationPopup'
 import type { MapPopupPlacement } from './components/map-popup-positioning'
 import { UserLocationMarker } from './components/UserLocationMarker'
+import { EntityPinBubbles } from './components/map/EntityPinBubbles'
 import { SightingPlacementPreview } from './components/SightingPlacementPreview'
 import { GeoEditorMap as MapComponent } from './components/map'
 import { OsmResultsPanel } from './components/OsmResultsPanel'
@@ -2947,6 +2948,10 @@ export function GeoEditorView() {
 				onLoad={(m) => {
 					map.current = m
 					setMounted(true)
+					if (process.env.NODE_ENV !== 'production' && typeof window !== 'undefined') {
+						// Dev-only debug handle (pairs with __earthlyPool/__earthlyEventStore).
+						;(window as unknown as Record<string, unknown>).__earthlyMap = m
+					}
 				}}
 				mapSource={mapSource}
 				onLocate={handleLocate}
@@ -2995,6 +3000,17 @@ export function GeoEditorView() {
 				map={map.current}
 				coordinates={userLocation}
 				accuracy={userLocation?.accuracy}
+			/>
+			{/* Pin bubbles above sighting/beacon points: sighting primary photo,
+			    beacon author avatar (SPEC §5.1/§6.1). Overlay only — the circle
+			    layers in useMapLayers stay the hit/hover surface and fallback. */}
+			<EntityPinBubbles
+				mapRef={map}
+				mounted={mounted}
+				sightings={visibleSightingsFromStack}
+				beacons={visibleBeaconsFromStack}
+				onInspectSighting={handleInspectSighting}
+				onInspectBeacon={handleInspectBeacon}
 			/>
 			{/* Amber preview of the Sighting geometry being placed/edited — the
 			    transient draw feature is deleted after capture, so this is the only

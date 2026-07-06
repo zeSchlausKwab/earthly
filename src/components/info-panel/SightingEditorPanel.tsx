@@ -30,6 +30,7 @@
  * text nodes — NO `dangerouslySetInnerHTML` (T-11-03-01).
  */
 
+import type { MediaAttachment } from 'applesauce-common/helpers/file-metadata'
 import { castEvent } from 'applesauce-core/casts'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import type { Geometry, LineString, Point, Polygon } from 'geojson'
@@ -40,6 +41,7 @@ import {
 	EntityPanelShell,
 	EntityPanelSurface,
 } from '@/components/info-panel/EntityPanelShell'
+import { BlossomUploaderButton } from '@/components/blossom/BlossomUploaderButton'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Input } from '@/components/ui/input'
@@ -177,6 +179,9 @@ export function SightingEditorPanel({
 	const [expiryPreset, setExpiryPreset] = useState<ExpiryPreset>(DEFAULT_EXPIRY_PRESET)
 	const [customExpiryEpoch, setCustomExpiryEpoch] = useState<number | undefined>(undefined)
 	const [contextRefs, setContextRefs] = useState<string[]>(initial.contextRefs)
+	// NIP-92 imeta attachments (SPEC §6.1). Order matters: images[0] is the
+	// primary shown in the map pin bubble.
+	const [images, setImages] = useState<MediaAttachment[]>(initialSighting?.images ?? [])
 	// The active geometry: the freshly-placed prop wins; else the stored/draft one.
 	const [geometry, setGeometry] = useState<SightingGeometry | undefined>(
 		placedGeometry ?? initial.geometry,
@@ -195,6 +200,7 @@ export function SightingEditorPanel({
 		setExpiryPreset(DEFAULT_EXPIRY_PRESET)
 		setCustomExpiryEpoch(undefined)
 		setContextRefs(next.contextRefs)
+		setImages(initialSighting?.images ?? [])
 		setGeometry(next.geometry)
 		setSaveError(null)
 	}, [initialSighting])
@@ -261,6 +267,7 @@ export function SightingEditorPanel({
 				content,
 				expiration: resolveExpiration(),
 				groupCoords: contextRefs,
+				images,
 			}
 
 			const editedEvent = initialSighting?.rawEvent()
@@ -314,6 +321,77 @@ export function SightingEditorPanel({
 						rows={3}
 						className="rounded-none"
 					/>
+				</div>
+				<div className="space-y-2">
+					<Label>Photos</Label>
+					{images.length > 0 ? (
+						<div className="grid grid-cols-3 gap-2">
+							{images.map((image, index) => (
+								<div key={image.url} className="group relative border border-border">
+									{/* biome-ignore lint/performance/noImgElement: plain thumbnails */}
+									<img
+										src={image.url}
+										alt={image.alt ?? `Photo ${index + 1}`}
+										className="aspect-square w-full object-cover"
+										loading="lazy"
+									/>
+									{index === 0 ? (
+										<span className="absolute top-1 left-1 bg-primary px-1 text-[10px] font-medium text-primary-foreground">
+											Primary
+										</span>
+									) : (
+										<button
+											type="button"
+											className="absolute top-1 left-1 hidden bg-background/90 px-1 text-[10px] group-hover:block"
+											onClick={() =>
+												setImages((current) => [
+													image,
+													...current.filter((entry) => entry.url !== image.url),
+												])
+											}
+										>
+											Make primary
+										</button>
+									)}
+									<button
+										type="button"
+										aria-label="Remove photo"
+										className="absolute top-1 right-1 hidden bg-background/90 px-1 text-[10px] text-destructive group-hover:block"
+										onClick={() =>
+											setImages((current) => current.filter((entry) => entry.url !== image.url))
+										}
+									>
+										✕
+									</button>
+								</div>
+							))}
+						</div>
+					) : null}
+					<BlossomUploaderButton
+						accept="image/*"
+						buttonLabel={images.length > 0 ? 'Add another photo' : 'Add a photo'}
+						buttonVariant="outline"
+						buttonSize="sm"
+						title="Add a photo"
+						description="Uploaded to your Blossom server (defaults to blossom.earthly.city, images scaled to ≤1 MB). The first photo becomes the map pin thumbnail."
+						onUploaded={(result) =>
+							setImages((current) => {
+								if (current.some((entry) => entry.url === result.url)) return current
+								return [
+									...current,
+									{
+										url: result.url,
+										type: result.mimeType,
+										sha256: result.sha256,
+										size: result.size,
+									},
+								]
+							})
+						}
+					/>
+					<p className="text-xs text-muted-foreground">
+						The first photo is shown in the pin bubble on the map.
+					</p>
 				</div>
 				{!hasPlacement ? (
 					<p className="text-xs text-destructive">Drop a pin on the map to place this sighting.</p>

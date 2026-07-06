@@ -22,6 +22,7 @@
  */
 
 import { bbox, centroid } from '@turf/turf'
+import type { MediaAttachment } from 'applesauce-common/helpers/file-metadata'
 import { DeleteFactory } from 'applesauce-core/factories'
 import type { EventSigner } from 'applesauce-core/factories/types'
 import type { NostrEvent } from 'applesauce-core/helpers/event'
@@ -62,6 +63,12 @@ export interface SightingPublishOptions {
 	expiration?: number
 	/** `c` context-reference coordinates of Groups this Sighting attaches to (SIGHT-02). */
 	groupCoords?: string[]
+	/**
+	 * NIP-92 imeta image attachments (SPEC §6.1). Order is meaningful — the
+	 * first is the primary image shown in the map pin bubble. Undefined leaves
+	 * existing tags untouched on edit; pass [] to strip.
+	 */
+	images?: MediaAttachment[]
 }
 
 /**
@@ -104,14 +111,15 @@ export async function publishSighting(
 	options: SightingPublishOptions,
 	signer: SignerLike,
 ): Promise<NostrEvent> {
-	const { content, expiration, groupCoords } = options
+	const { content, expiration, groupCoords, images } = options
 
-	const signed = await TemporalSightingFactory.create(content)
+	let factory = TemporalSightingFactory.create(content)
 		.bbox(deriveBbox(content))
 		.geohash(deriveCentroid(content))
 		.expiration(expiration)
 		.contextReferences(groupCoords ?? [])
-		.sign(signer)
+	if (images !== undefined) factory = factory.images(images)
+	const signed = await factory.sign(signer)
 
 	await publish(signed, { routing: 'outbox' })
 	return attachStore(signed)
@@ -127,15 +135,16 @@ export async function editSighting(
 	options: SightingPublishOptions,
 	signer: SignerLike,
 ): Promise<NostrEvent> {
-	const { content, expiration, groupCoords } = options
+	const { content, expiration, groupCoords, images } = options
 
-	const signed = await TemporalSightingFactory.modify(existingEvent)
+	let factory = TemporalSightingFactory.modify(existingEvent)
 		.sighting(content)
 		.bbox(deriveBbox(content))
 		.geohash(deriveCentroid(content))
 		.expiration(expiration)
 		.contextReferences(groupCoords ?? [])
-		.sign(signer)
+	if (images !== undefined) factory = factory.images(images)
+	const signed = await factory.sign(signer)
 
 	await publish(signed, { routing: 'outbox' })
 	return attachStore(signed)
