@@ -430,7 +430,7 @@ export interface UISlice {
 	mapStackOpen: boolean
 	/** Deep-link target tab for the settings panel (e.g. from the status-bar
 	 *  relay indicator). Consumed by MapSettingsPanel; null = its own default. */
-	settingsTab: 'profile' | 'relays' | 'chat' | 'sessions' | null
+	settingsTab: 'map' | 'profile' | 'relays' | 'chat' | 'sessions' | null
 	/** DOM slot in the Map Stack's expanded draft entry that the sidebar editor
 	 *  portals into (editor-in-Map-Stack). Null when no draft slot is mounted. */
 	draftEditorSlot: HTMLElement | null
