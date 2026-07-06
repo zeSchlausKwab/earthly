@@ -102,8 +102,9 @@ export function EntityPinBubbles({
 			const marker = new maplibregl.Marker({
 				element: el,
 				anchor: 'bottom',
-				// Float above the base circle marker (radius ~8px + breathing room).
-				offset: [0, -12],
+				// The tail tip lands just above the base dot's center, visually
+				// touching its top edge.
+				offset: [0, -5],
 			})
 				.setLngLat(entry.coordinates)
 				.addTo(map)
@@ -139,42 +140,69 @@ export function EntityPinBubbles({
 				if (!el) return null
 				return createPortal(
 					entry.kind === 'sighting' && entry.sighting ? (
-						<button
-							type="button"
-							title={entry.title}
-							aria-label={`Open sighting: ${entry.title}`}
-							className="block h-12 w-12 cursor-pointer overflow-hidden rounded-full border-2 border-background bg-card shadow-md transition-transform hover:scale-110"
-							onClick={() => entry.sighting && onInspectSighting?.(entry.sighting)}
-						>
-							{/* biome-ignore lint/performance/noImgElement: map marker thumbnail */}
-							<img
-								src={entry.imageUrl}
-								alt={entry.title}
-								loading="lazy"
-								className="h-full w-full object-cover"
-								onError={(event) => {
-									// Broken image → hide the bubble; the base marker stays.
-									event.currentTarget.closest<HTMLElement>(
-										'.earthly-pin-bubble-host',
-									)!.style.display = 'none'
-								}}
-							/>
-						</button>
+						<BubbleWithTail>
+							<button
+								type="button"
+								title={entry.title}
+								aria-label={`Open sighting: ${entry.title}`}
+								className="block h-12 w-12 cursor-pointer overflow-hidden rounded-full border-2 border-background bg-card shadow-md transition-transform hover:scale-110"
+								onClick={() => entry.sighting && onInspectSighting?.(entry.sighting)}
+							>
+								{/* biome-ignore lint/performance/noImgElement: map marker thumbnail */}
+								<img
+									src={entry.imageUrl}
+									alt={entry.title}
+									loading="lazy"
+									className="h-full w-full object-cover"
+									onError={(event) => {
+										// Broken image → hide the bubble; the base marker stays.
+										event.currentTarget.closest<HTMLElement>(
+											'.earthly-pin-bubble-host',
+										)!.style.display = 'none'
+									}}
+								/>
+							</button>
+						</BubbleWithTail>
 					) : entry.beacon ? (
-						<button
-							type="button"
-							title={entry.title}
-							aria-label={`Open beacon: ${entry.title}`}
-							className="block cursor-pointer overflow-hidden rounded-full border-2 border-background shadow-md transition-transform hover:scale-110"
-							onClick={() => entry.beacon && onInspectBeacon?.(entry.beacon)}
-						>
-							<BeaconAvatar pubkey={entry.beacon.pubkey} />
-						</button>
+						<BubbleWithTail>
+							<button
+								type="button"
+								title={entry.title}
+								aria-label={`Open beacon: ${entry.title}`}
+								className="block cursor-pointer overflow-hidden rounded-full border-2 border-background shadow-md transition-transform hover:scale-110"
+								onClick={() => entry.beacon && onInspectBeacon?.(entry.beacon)}
+							>
+								<BeaconAvatar pubkey={entry.beacon.pubkey} />
+							</button>
+						</BubbleWithTail>
 					) : null,
 					el,
 					entry.key,
 				)
 			})}
 		</>
+	)
+}
+
+/**
+ * Circle bubble + a tapered tail that leaves the bubble tangentially on both
+ * sides and converges on the map point below — the classic pin-bubble shape.
+ * The tail is tucked 3px under the circle so the border ring reads as one
+ * continuous outline.
+ */
+function BubbleWithTail({ children }: { children: React.ReactNode }) {
+	return (
+		<div className="flex flex-col items-center">
+			{children}
+			<svg
+				width="18"
+				height="12"
+				viewBox="0 0 18 12"
+				aria-hidden="true"
+				className="-mt-[3px] drop-shadow-sm"
+			>
+				<path d="M1 0 C6 2.5 8 6.5 9 12 C10 6.5 12 2.5 17 0 Z" fill="var(--background)" />
+			</svg>
+		</div>
 	)
 }

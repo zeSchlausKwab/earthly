@@ -83,6 +83,7 @@ const SIGHTING_SOURCE_ID = 'geo-editor-sightings'
 // Exported so the map-interaction layer (useMapInteractions) can bind the
 // click/hover handlers that turn a Sighting marker into "open + locate in list".
 export const SIGHTING_HIT_LAYER = 'geo-editor-sighting-hit'
+const SIGHTING_HALO_LAYER = 'geo-editor-sighting-halo'
 const SIGHTING_CIRCLE_LAYER = 'geo-editor-sighting-circle'
 const SIGHTING_GLYPH_LAYER = 'geo-editor-sighting-glyph'
 
@@ -101,6 +102,7 @@ const BEACON_SOURCE_ID = 'geo-editor-beacons'
 // Exported so the map-interaction layer (useMapInteractions) can bind the
 // click/hover handlers that open + locate a beacon marker (Plan 05 wiring).
 export const BEACON_HIT_LAYER = 'geo-editor-beacon-hit'
+const BEACON_HALO_LAYER = 'geo-editor-beacon-halo'
 const BEACON_CIRCLE_LAYER = 'geo-editor-beacon-circle'
 const BEACON_GLYPH_LAYER = 'geo-editor-beacon-glyph'
 
@@ -860,6 +862,23 @@ export function useMapLayers({
 						},
 					})
 				}
+				// Soft accent halo under LIVE sightings only — a wide, low-opacity,
+				// blurred disc that makes the focal points glow without shouting.
+				// Pure presentation (separate layer beneath the dot; no state logic).
+				if (!mapInstance.getLayer(SIGHTING_HALO_LAYER)) {
+					mapInstance.addLayer({
+						id: SIGHTING_HALO_LAYER,
+						type: 'circle',
+						source: SIGHTING_SOURCE_ID,
+						filter: ['==', ['get', 'obsState'], 'live'],
+						paint: {
+							'circle-radius': 19,
+							'circle-color': SIGHTING_COLOR_LIVE,
+							'circle-opacity': 0.18,
+							'circle-blur': 0.6,
+						},
+					})
+				}
 				// Visible marker: data-driven color keyed on observation state.
 				// live → --primary accent (the ONE map focal point); upcoming →
 				// --secondary blue; past → --muted-foreground. Optional opacity
@@ -870,7 +889,7 @@ export function useMapLayers({
 						type: 'circle',
 						source: SIGHTING_SOURCE_ID,
 						paint: {
-							'circle-radius': ['case', ['==', ['get', 'obsState'], 'live'], 10, 8],
+							'circle-radius': ['case', ['==', ['get', 'obsState'], 'live'], 10, 7],
 							'circle-color': [
 								'case',
 								['==', ['get', 'obsState'], 'live'],
@@ -888,12 +907,18 @@ export function useMapLayers({
 								1,
 								1,
 							],
-							'circle-stroke-width': ['case', ['==', ['get', 'obsState'], 'live'], 3, 2],
-							'circle-stroke-color': [
-								'case',
-								['==', ['get', 'obsState'], 'live'],
-								SIGHTING_COLOR_LIVE,
-								'#ffffff',
+							// A white contrast ring on every state — separates dense dots
+							// from each other and from the basemap; live gets the wider ring.
+							'circle-stroke-width': ['case', ['==', ['get', 'obsState'], 'live'], 2.5, 1.5],
+							'circle-stroke-color': '#ffffff',
+							'circle-stroke-opacity': [
+								'interpolate',
+								['linear'],
+								['coalesce', ['get', 'agingFactor'], 1],
+								0,
+								0.35,
+								1,
+								0.9,
 							],
 						},
 					})
@@ -948,9 +973,25 @@ export function useMapLayers({
 						},
 					})
 				}
+				// Soft accent halo under LIVE beacons — same glow treatment as live
+				// sightings (pure presentation layer beneath the dot).
+				if (!mapInstance.getLayer(BEACON_HALO_LAYER)) {
+					mapInstance.addLayer({
+						id: BEACON_HALO_LAYER,
+						type: 'circle',
+						source: BEACON_SOURCE_ID,
+						filter: ['==', ['get', 'beaconState'], 'live'],
+						paint: {
+							'circle-radius': 19,
+							'circle-color': BEACON_COLOR_LIVE,
+							'circle-opacity': 0.18,
+							'circle-blur': 0.6,
+						},
+					})
+				}
 				// Visible marker: data-driven paint keyed on beaconState.
-				//   live  → solid --primary fill, full opacity, accent ring (focal point)
-				//   stale → --muted-foreground fill at 70% opacity, no ring (demoted)
+				//   live  → solid --primary fill, full opacity, white contrast ring
+				//   stale → --muted-foreground fill at 70% opacity, thin white ring
 				//   ended → hollow: transparent fill, --muted-foreground outline ring
 				if (!mapInstance.getLayer(BEACON_CIRCLE_LAYER)) {
 					mapInstance.addLayer({
@@ -978,16 +1019,18 @@ export function useMapLayers({
 							'circle-stroke-width': [
 								'case',
 								['==', ['get', 'beaconState'], 'live'],
-								3, // accent ring
+								2.5, // white contrast ring
 								['==', ['get', 'beaconState'], 'ended'],
 								2, // hollow outline ring
-								0, // stale: no ring
+								1.5, // stale: thin separation ring
 							],
 							'circle-stroke-color': [
 								'case',
 								['==', ['get', 'beaconState'], 'live'],
-								BEACON_COLOR_LIVE,
+								'#ffffff',
+								['==', ['get', 'beaconState'], 'ended'],
 								BEACON_COLOR_GREY,
+								'#ffffff',
 							],
 						},
 					})
