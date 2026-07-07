@@ -1,0 +1,265 @@
+{
+  "$comment": "Golden test vectors for the Earthly NIP-50 search extension grammar (docs/GEO_SEARCH_REWRITE.md §4). The TS facade (src/lib/search/) must serialize `structured` to exactly `search`; the Go parser (relay/earthlysearch/grammar.go) must parse `search` to exactly `parsed`. Both test suites read this file — it is the grammar's source of truth. Token order in `search` is canonical builder order: text, bbox, point, rel, near, radius, label*, tag*, ref*, start-after, start-before, sort. Defaults (rel:intersects, sort:relevance) are omitted by the builder and resolved by the parser.",
+  "version": 1,
+  "vectors": [
+    {
+      "name": "text-only",
+      "structured": { "text": "hiking trails" },
+      "search": "hiking trails",
+      "parsed": {
+        "text": "hiking trails",
+        "bbox": null,
+        "point": null,
+        "rel": "intersects",
+        "near": "",
+        "radiusKm": 0,
+        "labels": null,
+        "hashtags": null,
+        "refs": null,
+        "startAfter": 0,
+        "startBefore": 0,
+        "sort": "relevance"
+      }
+    },
+    {
+      "name": "bbox-only-viewport",
+      "structured": { "bbox": [16.1, 48.1, 16.7, 48.4] },
+      "search": "bbox:16.1,48.1,16.7,48.4",
+      "parsed": {
+        "text": "",
+        "bbox": [16.1, 48.1, 16.7, 48.4],
+        "point": null,
+        "rel": "intersects",
+        "near": "",
+        "radiusKm": 0,
+        "labels": null,
+        "hashtags": null,
+        "refs": null,
+        "startAfter": 0,
+        "startBefore": 0,
+        "sort": "relevance"
+      }
+    },
+    {
+      "name": "text-plus-bbox",
+      "structured": { "text": "playground", "bbox": [16.1, 48.1, 16.7, 48.4] },
+      "search": "playground bbox:16.1,48.1,16.7,48.4",
+      "parsed": {
+        "text": "playground",
+        "bbox": [16.1, 48.1, 16.7, 48.4],
+        "point": null,
+        "rel": "intersects",
+        "near": "",
+        "radiusKm": 0,
+        "labels": null,
+        "hashtags": null,
+        "refs": null,
+        "startAfter": 0,
+        "startBefore": 0,
+        "sort": "relevance"
+      }
+    },
+    {
+      "name": "point-contains-standing-in",
+      "structured": { "point": [16.37, 48.21], "rel": "contains" },
+      "search": "point:16.37,48.21 rel:contains",
+      "parsed": {
+        "text": "",
+        "bbox": null,
+        "point": [16.37, 48.21],
+        "rel": "contains",
+        "near": "",
+        "radiusKm": 0,
+        "labels": null,
+        "hashtags": null,
+        "refs": null,
+        "startAfter": 0,
+        "startBefore": 0,
+        "sort": "relevance"
+      }
+    },
+    {
+      "name": "bbox-within-district",
+      "structured": { "bbox": [16.2, 48.15, 16.5, 48.3], "rel": "within" },
+      "search": "bbox:16.2,48.15,16.5,48.3 rel:within",
+      "parsed": {
+        "text": "",
+        "bbox": [16.2, 48.15, 16.5, 48.3],
+        "point": null,
+        "rel": "within",
+        "near": "",
+        "radiusKm": 0,
+        "labels": null,
+        "hashtags": null,
+        "refs": null,
+        "startAfter": 0,
+        "startBefore": 0,
+        "sort": "relevance"
+      }
+    },
+    {
+      "name": "near-radius-distance-sort",
+      "structured": { "text": "trails", "near": "u2yh7", "radiusKm": 2, "sort": "distance" },
+      "search": "trails near:u2yh7 radius:2km sort:distance",
+      "parsed": {
+        "text": "trails",
+        "bbox": null,
+        "point": null,
+        "rel": "intersects",
+        "near": "u2yh7",
+        "radiusKm": 2,
+        "labels": null,
+        "hashtags": null,
+        "refs": null,
+        "startAfter": 0,
+        "startBefore": 0,
+        "sort": "distance"
+      }
+    },
+    {
+      "name": "radius-meters",
+      "structured": { "point": [16.37, 48.21], "radiusKm": 0.5 },
+      "search": "point:16.37,48.21 radius:500m",
+      "parsed": {
+        "text": "",
+        "bbox": null,
+        "point": [16.37, 48.21],
+        "rel": "intersects",
+        "near": "",
+        "radiusKm": 0.5,
+        "labels": null,
+        "hashtags": null,
+        "refs": null,
+        "startAfter": 0,
+        "startBefore": 0,
+        "sort": "relevance"
+      }
+    },
+    {
+      "name": "labels-and-hashtags",
+      "structured": { "text": "wetland", "labels": ["natural"], "hashtags": ["birds", "conservation"] },
+      "search": "wetland label:natural tag:birds tag:conservation",
+      "parsed": {
+        "text": "wetland",
+        "bbox": null,
+        "point": null,
+        "rel": "intersects",
+        "near": "",
+        "radiusKm": 0,
+        "labels": ["natural"],
+        "hashtags": ["birds", "conservation"],
+        "refs": null,
+        "startAfter": 0,
+        "startBefore": 0,
+        "sort": "relevance"
+      }
+    },
+    {
+      "name": "ref-coordinate",
+      "structured": { "refs": ["37515:96c727f4d1ea18a80d03621520ebfe3c9be1387033009a4f5b65959d09222eec:87a12b72"] },
+      "search": "ref:37515:96c727f4d1ea18a80d03621520ebfe3c9be1387033009a4f5b65959d09222eec:87a12b72",
+      "parsed": {
+        "text": "",
+        "bbox": null,
+        "point": null,
+        "rel": "intersects",
+        "near": "",
+        "radiusKm": 0,
+        "labels": null,
+        "hashtags": null,
+        "refs": ["37515:96c727f4d1ea18a80d03621520ebfe3c9be1387033009a4f5b65959d09222eec:87a12b72"],
+        "startAfter": 0,
+        "startBefore": 0,
+        "sort": "relevance"
+      }
+    },
+    {
+      "name": "temporal-date-range",
+      "structured": { "bbox": [16.1, 48.1, 16.7, 48.4], "startAfter": "2026-06-01", "startBefore": "2026-07-01" },
+      "search": "bbox:16.1,48.1,16.7,48.4 start-after:2026-06-01 start-before:2026-07-01",
+      "parsed": {
+        "text": "",
+        "bbox": [16.1, 48.1, 16.7, 48.4],
+        "point": null,
+        "rel": "intersects",
+        "near": "",
+        "radiusKm": 0,
+        "labels": null,
+        "hashtags": null,
+        "refs": null,
+        "startAfter": 1780272000,
+        "startBefore": 1782864000,
+        "sort": "relevance"
+      }
+    },
+    {
+      "name": "temporal-epoch",
+      "structured": { "startAfter": 1780272000, "hashtags": ["heron"] },
+      "search": "tag:heron start-after:1780272000",
+      "parsed": {
+        "text": "",
+        "bbox": null,
+        "point": null,
+        "rel": "intersects",
+        "near": "",
+        "radiusKm": 0,
+        "labels": null,
+        "hashtags": ["heron"],
+        "refs": null,
+        "startAfter": 1780272000,
+        "startBefore": 0,
+        "sort": "relevance"
+      }
+    },
+    {
+      "name": "scale-sort",
+      "structured": { "bbox": [16.1, 48.1, 16.7, 48.4], "rel": "within", "sort": "scale" },
+      "search": "bbox:16.1,48.1,16.7,48.4 rel:within sort:scale",
+      "parsed": {
+        "text": "",
+        "bbox": [16.1, 48.1, 16.7, 48.4],
+        "point": null,
+        "rel": "within",
+        "near": "",
+        "radiusKm": 0,
+        "labels": null,
+        "hashtags": null,
+        "refs": null,
+        "startAfter": 0,
+        "startBefore": 0,
+        "sort": "scale"
+      }
+    },
+    {
+      "name": "unknown-tokens-stay-text",
+      "structured": { "text": "see https://example.org/map re: parks" },
+      "search": "see https://example.org/map re: parks",
+      "parsed": {
+        "text": "see https://example.org/map re: parks",
+        "bbox": null,
+        "point": null,
+        "rel": "intersects",
+        "near": "",
+        "radiusKm": 0,
+        "labels": null,
+        "hashtags": null,
+        "refs": null,
+        "startAfter": 0,
+        "startBefore": 0,
+        "sort": "relevance"
+      }
+    }
+  ],
+  "invalid": [
+    { "name": "bbox-wrong-arity", "search": "bbox:16.1,48.1,16.7" },
+    { "name": "bbox-inverted", "search": "bbox:16.7,48.4,16.1,48.1" },
+    { "name": "point-out-of-range", "search": "point:200,95" },
+    { "name": "bad-rel", "search": "bbox:16.1,48.1,16.7,48.4 rel:touches" },
+    { "name": "bad-sort", "search": "parks sort:alphabetical" },
+    { "name": "radius-no-unit", "search": "near:u2yh7 radius:5" },
+    { "name": "radius-without-origin", "search": "parks radius:5km" },
+    { "name": "distance-sort-without-origin", "search": "parks sort:distance" },
+    { "name": "bad-near", "search": "near:not-a-geohash!" },
+    { "name": "bad-date", "search": "start-after:junel" }
+  ]
+}

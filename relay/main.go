@@ -3,365 +3,268 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
-	"io"
-	"log"
+	"iter"
+	"log/slog"
+	"net/http"
 	"os"
-	"strconv"
-	"strings"
+	"os/signal"
+	"path/filepath"
+	"sync/atomic"
+	"syscall"
+	"time"
 
-	"github.com/fiatjaf/eventstore/badger"
-	"github.com/fiatjaf/eventstore/bluge"
-	"github.com/fiatjaf/eventstore/sqlite3"
-	"github.com/fiatjaf/khatru"
-	"github.com/fiatjaf/khatru/blossom"
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
+	"fiatjaf.com/nostr/eventstore/lmdb"
+	"fiatjaf.com/nostr/khatru"
+	"fiatjaf.com/nostr/khatru/policies"
+
+	"github.com/schlaus/earthly-relay/earthlysearch"
 )
 
 var (
 	port       = flag.String("port", "3334", "Port to listen on")
-	dbPath     = flag.String("db-path", "./data/events.db", "Path to SQLite database file")
-	searchPath = flag.String("search-path", "./data/search", "Path to bluge search index")
-	resetDB    = flag.Bool("reset-db", false, "Reset the SQLite database")
-	resetIndex = flag.Bool("reset-index", false, "Reset the search index")
-	resetAll   = flag.Bool("reset-all", false, "Reset both database and index")
+	dataDir    = flag.String("data-dir", "./data", "Directory for event store and search index")
+	resetDB    = flag.Bool("reset-db", false, "Reset the event store (and the index, which derives from it)")
+	resetIndex = flag.Bool("reset-index", false, "Reset the search index (rebuilt from the event store on start)")
+	resetAll   = flag.Bool("reset-all", false, "Reset both event store and index")
+	reindex    = flag.Bool("reindex", false, "Force a full index rebuild from the event store on start")
+	logLevel   = flag.String("log-level", "info", "Log level: debug|info|warn|error")
+
+	// minFreeBytes is the disk budget: below this free space the relay
+	// refuses writes instead of crash-looping the machine (the 2026-06-08
+	// incident mode).
+	minFreeBytes = flag.Int64("min-free-bytes", 512*1024*1024, "Refuse event writes when the data volume has less free space than this")
 )
 
 func main() {
 	flag.Parse()
 
+	logger := newLogger(*logLevel)
+	slog.SetDefault(logger)
+
+	lmdbPath := filepath.Join(*dataDir, "events-lmdb")
+	searchPath := filepath.Join(*dataDir, "search")
+
 	if *resetAll {
 		*resetDB = true
 		*resetIndex = true
 	}
-
 	if *resetDB {
-		log.Println("⚠️  Resetting SQLite database...")
-		if err := resetDatabase(); err != nil {
-			log.Fatalf("Failed to reset database: %v", err)
+		// The index is derived from the event store — resetting the store
+		// without the index would leave dangling documents.
+		*resetIndex = true
+		logger.Warn("resetting event store", "path", lmdbPath)
+		if err := os.RemoveAll(lmdbPath); err != nil {
+			fatal(logger, "failed to reset event store", err)
 		}
-		log.Println("✅ Database reset complete")
 	}
-
 	if *resetIndex {
-		log.Println("⚠️  Resetting search index...")
-		if err := resetSearchIndex(); err != nil {
-			log.Fatalf("Failed to reset search index: %v", err)
+		logger.Warn("resetting search index", "path", searchPath)
+		if err := os.RemoveAll(searchPath); err != nil {
+			fatal(logger, "failed to reset search index", err)
 		}
-		log.Println("✅ Search index reset complete")
 	}
 
-	// Initialize relay
-	relay := khatru.NewRelay()
-	relay.MaxMessageSize = 2 * 1024 * 1024 // 2MB — needed for large GeoJSON dataset events
-	relay.Info.Name = "Earthly City Relay"
-	relay.Info.Description = "A Nostr relay for collaborative geographic mapping with full-text search"
-	relay.Info.PubKey = "96c727f4d1ea18a80d03621520ebfe3c9be1387033009a4f5b65959d09222eec"
-	relay.Info.Icon = "https://earthly.city/icons/logo.png"
-	relay.Info.Contact = "https://github.com/schlaus/earthly-rewrite"
-	relay.Info.SupportedNIPs = []any{1, 9, 11, 12, 15, 16, 20, 22, 33, 40, 50}
+	if err := os.MkdirAll(lmdbPath, 0o755); err != nil {
+		fatal(logger, "failed to create data dir", err)
+	}
 
-	// Initialize SQLite backend
-	os.MkdirAll("./data", 0755)
-	db := &sqlite3.SQLite3Backend{DatabaseURL: *dbPath}
+	db := &lmdb.LMDBBackend{Path: lmdbPath}
 	if err := db.Init(); err != nil {
-		log.Fatalf("Failed to initialize SQLite: %v", err)
+		fatal(logger, "failed to initialize LMDB", err)
 	}
 	defer db.Close()
 
-	// Initialize Bluge search backend
-	os.MkdirAll(*searchPath, 0755)
-	search := &bluge.BlugeBackend{
-		Path:          *searchPath,
-		RawEventStore: db,
-	}
+	search := &earthlysearch.Backend{Path: searchPath, Raw: db, Log: logger}
 	if err := search.Init(); err != nil {
-		log.Fatalf("Failed to initialize Bluge: %v", err)
+		fatal(logger, "failed to initialize search index", err)
 	}
 	defer search.Close()
 
-	// Set up event storage with enrichment for search indexing
-	relay.StoreEvent = append(relay.StoreEvent,
-		logIncomingEvent,
-		db.SaveEvent,
-		enrichAndIndexEvent(search),
-	)
-
-	// Set up event querying with search support
-	relay.QueryEvents = append(relay.QueryEvents, func(ctx context.Context, filter nostr.Filter) (chan *nostr.Event, error) {
-		logQuery(ctx, filter)
-
-		// If the filter has a search term, use Bluge
-		if len(filter.Search) > 0 {
-			ch, err := search.QueryEvents(ctx, filter)
-			if err != nil {
-				log.Printf("❌ [QUERY] Search error: %v", err)
-			}
-			return ch, err
-		}
-		// Otherwise use SQLite
-		ch, err := db.QueryEvents(ctx, filter)
+	// Self-heal: a fresh/reset index rebuilds from the event store. The
+	// index is derived data (docs/GEO_SEARCH_REWRITE.md D-08).
+	docCount, _ := search.DocCount()
+	if *reindex || docCount == 0 {
+		start := time.Now()
+		indexed, skipped, err := search.Reindex()
 		if err != nil {
-			log.Printf("❌ [QUERY] Database error: %v", err)
+			fatal(logger, "reindex failed", err)
 		}
-		return ch, err
-	})
+		logger.Info("reindex complete", "indexed", indexed, "skipped", skipped, "took", time.Since(start).Round(time.Millisecond))
+	}
 
-	// Set up event deletion
-	relay.DeleteEvent = append(relay.DeleteEvent,
-		db.DeleteEvent,
-		search.DeleteEvent,
+	relay := khatru.NewRelay()
+	relay.MaxMessageSize = 2 * 1024 * 1024 // large GeoJSON dataset events
+	relay.Info.Name = "Earthly City Relay"
+	relay.Info.Description = "Nostr relay for collaborative geographic mapping. Geo-aware NIP-50 search — capability document at /earthly-search."
+	relay.Info.Icon = "https://earthly.city/icons/logo.png"
+	relay.Info.Contact = "https://github.com/schlaus/earthly-rewrite"
+	relay.Info.AddSupportedNIP(40)
+	relay.Info.AddSupportedNIP(50)
+	if pk, err := nostr.PubKeyFromHex("96c727f4d1ea18a80d03621520ebfe3c9be1387033009a4f5b65959d09222eec"); err == nil {
+		relay.Info.PubKey = &pk
+	}
+
+	relay.UseEventstore(db, 500)
+
+	// Layer the search index over the eventstore wiring. Order matters for
+	// deletes: the index needs the event still present in LMDB to resolve
+	// its coordinate doc ID.
+	storeEvent := relay.StoreEvent
+	relay.StoreEvent = func(ctx context.Context, evt nostr.Event) error {
+		if err := storeEvent(ctx, evt); err != nil {
+			return err
+		}
+		if err := search.SaveEvent(evt); err != nil {
+			logger.Error("index save failed", "id", evt.ID.Hex(), "err", err)
+		}
+		return nil
+	}
+	replaceEvent := relay.ReplaceEvent
+	relay.ReplaceEvent = func(ctx context.Context, evt nostr.Event) error {
+		if err := replaceEvent(ctx, evt); err != nil {
+			return err
+		}
+		if err := search.SaveEvent(evt); err != nil {
+			logger.Error("index replace failed", "id", evt.ID.Hex(), "err", err)
+		}
+		return nil
+	}
+	deleteEvent := relay.DeleteEvent
+	relay.DeleteEvent = func(ctx context.Context, id nostr.ID) error {
+		if err := search.DeleteEvent(id); err != nil {
+			logger.Warn("index delete failed", "id", id.Hex(), "err", err)
+		}
+		return deleteEvent(ctx, id)
+	}
+
+	// Query routing: NIP-50 search and #g viewport filters go to the geo
+	// index; everything else goes to LMDB.
+	queryStored := relay.QueryStored
+	relay.QueryStored = func(ctx context.Context, filter nostr.Filter) iter.Seq[nostr.Event] {
+		logger.Debug("query", "filter", filter.String())
+		if filter.Search != "" {
+			return search.QueryEvents(filter, 500)
+		}
+		if len(filter.Tags["g"]) > 0 {
+			return search.QueryGeohash(filter, 500)
+		}
+		return queryStored(ctx, filter)
+	}
+
+	// Filter validation: reject malformed grammar with a useful message
+	// instead of silently returning nothing.
+	relay.OnRequest = func(ctx context.Context, filter nostr.Filter) (bool, string) {
+		if filter.Search != "" {
+			if _, err := earthlysearch.ParseSearch(filter.Search); err != nil {
+				return true, fmt.Sprintf("invalid: search grammar: %s", err)
+			}
+		}
+		return false, ""
+	}
+
+	diskFull := watchDiskBudget(logger, *dataDir, *minFreeBytes)
+	relay.OnEvent = policies.SeqEvent(
+		func(ctx context.Context, evt nostr.Event) (bool, string) {
+			if diskFull.Load() {
+				return true, "blocked: relay storage is full"
+			}
+			return false, ""
+		},
+		policies.PreventTimestampsInTheFuture(30*time.Minute),
+		func(ctx context.Context, evt nostr.Event) (bool, string) {
+			logger.Debug("event", "kind", int(evt.Kind), "id", evt.ID.Hex(), "pubkey", evt.PubKey.Hex()[:8])
+			return false, ""
+		},
 	)
 
-	// Set up filter acceptance (REQUIRED for subscriptions to work)
-	relay.RejectFilter = append(relay.RejectFilter, func(ctx context.Context, filter nostr.Filter) (bool, string) {
-		// Log subscription request - safely get subscription ID
-		subID := "unknown"
-		defer func() {
-			if r := recover(); r != nil {
-				subID = "unknown"
-			}
-		}()
-
-		if ctx != nil {
-			if id := khatru.GetSubscriptionID(ctx); id != "" {
-				subID = id
-			}
-		}
-		log.Printf("📥 [SUB %s] New subscription", subID)
-
-		// Accept all filters by default
-		return false, ""
+	mux := http.NewServeMux()
+	mux.Handle("/", relay)
+	mux.HandleFunc("/earthly-search", func(w http.ResponseWriter, r *http.Request) {
+		docs, _ := search.DocCount()
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		json.NewEncoder(w).Encode(map[string]any{
+			"version":    earthlysearch.GrammarVersion,
+			"extensions": earthlysearch.GrammarExtensions,
+			"documents":  docs,
+		})
 	})
 
-	// Set up event acceptance (for publishing events)
-	relay.RejectEvent = append(relay.RejectEvent, func(ctx context.Context, event *nostr.Event) (bool, string) {
-		// Accept all events by default
-		return false, ""
-	})
+	server := &http.Server{Addr: "0.0.0.0:" + *port, Handler: mux}
 
-	bdb := &badger.BadgerBackend{Path: "/tmp/khatru-badger-blossom-tmp"}
-	if err := bdb.Init(); err != nil {
-		panic(err)
-	}
-	bl := blossom.New(relay, "http://localhost:3334")
-	bl.Store = blossom.EventStoreBlobIndexWrapper{Store: bdb, ServiceURL: bl.ServiceURL}
-	bl.StoreBlob = append(bl.StoreBlob, func(ctx context.Context, sha256 string, ext string, body []byte) error {
-		fmt.Println("storing", sha256, ext, len(body))
-		return nil
-	})
-	bl.LoadBlob = append(bl.LoadBlob, func(ctx context.Context, sha256 string, ext string) (io.ReadSeeker, error) {
-		fmt.Println("loading", sha256)
-		blob := strings.NewReader("aaaaa")
-		return blob, nil
-	})
-
-	// Log startup
-	log.Printf("🚀 Earthly Relay starting on port %s", *port)
-	log.Printf("📊 SQLite: %s", *dbPath)
-	log.Printf("🔍 Search index: %s", *searchPath)
-
-	// Convert port string to int
-	portInt, err := strconv.Atoi(*port)
-	if err != nil {
-		log.Fatalf("Invalid port number: %v", err)
-	}
-
-	// Start the relay
-	if err := relay.Start("0.0.0.0", portInt); err != nil {
-		log.Fatalf("Failed to start relay: %v", err)
-	}
-}
-
-func resetDatabase() error {
-	// Remove the database file
-	if err := os.Remove(*dbPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove database: %w", err)
-	}
-
-	log.Println("Database removed. It will be recreated on next start.")
-	return nil
-}
-
-func resetSearchIndex() error {
-	// Remove the search index directory
-	if err := os.RemoveAll(*searchPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove search index: %w", err)
-	}
-
-	// Recreate the directory
-	if err := os.MkdirAll(*searchPath, 0755); err != nil {
-		return fmt.Errorf("failed to create search index directory: %w", err)
-	}
-
-	return nil
-}
-
-// StationContent represents the JSON structure in station event content
-type StationContent struct {
-	Description string `json:"description"`
-}
-
-// logIncomingEvent logs incoming events being stored
-func logIncomingEvent(ctx context.Context, evt *nostr.Event) error {
-	kindName := getKindName(evt.Kind)
-
-	// Get event name/identifier for more useful logs
-	identifier := ""
-	if evt.Kind == 31237 {
-		// Station event - get name tag
-		for _, tag := range evt.Tags {
-			if len(tag) >= 2 && tag[0] == "name" {
-				identifier = fmt.Sprintf(" (%s)", tag[1])
-				break
-			}
-		}
-	} else if evt.Kind == 30078 || evt.Kind == 31990 || evt.Kind == 31989 {
-		// Parameterized replaceable - get d tag
-		for _, tag := range evt.Tags {
-			if len(tag) >= 2 && tag[0] == "d" {
-				identifier = fmt.Sprintf(" (d:%s)", tag[1])
-				break
-			}
-		}
-	}
-
-	log.Printf("📝 [EVENT] Kind %d (%s)%s - ID: %s (%.8s...)",
-		evt.Kind, kindName, identifier, evt.ID, evt.PubKey)
-
-	return nil
-}
-
-// logQuery logs incoming subscription queries
-func logQuery(ctx context.Context, filter nostr.Filter) {
-	// Safely get subscription ID - it may not exist for internal queries
-	subID := "internal"
-	defer func() {
-		if r := recover(); r != nil {
-			// Silently handle panic from GetSubscriptionID
-			subID = "internal"
+	go func() {
+		logger.Info("earthly relay listening", "addr", server.Addr, "data", *dataDir, "indexedDocs", docCount)
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fatal(logger, "server failed", err)
 		}
 	}()
 
-	if ctx != nil {
-		if id := khatru.GetSubscriptionID(ctx); id != "" {
-			subID = id
-		}
-	}
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	<-stop
 
-	// Build filter description
-	var parts []string
-
-	if len(filter.IDs) > 0 {
-		parts = append(parts, fmt.Sprintf("IDs:%d", len(filter.IDs)))
-	}
-	if len(filter.Authors) > 0 {
-		parts = append(parts, fmt.Sprintf("Authors:%d", len(filter.Authors)))
-	}
-	if len(filter.Kinds) > 0 {
-		kindNames := make([]string, len(filter.Kinds))
-		for i, k := range filter.Kinds {
-			kindNames[i] = fmt.Sprintf("%d", k)
-		}
-		parts = append(parts, fmt.Sprintf("Kinds:[%s]", strings.Join(kindNames, ",")))
-	}
-	if filter.Since != nil {
-		parts = append(parts, fmt.Sprintf("Since:%d", *filter.Since))
-	}
-	if filter.Until != nil {
-		parts = append(parts, fmt.Sprintf("Until:%d", *filter.Until))
-	}
-	if filter.Limit > 0 {
-		parts = append(parts, fmt.Sprintf("Limit:%d", filter.Limit))
-	}
-	if len(filter.Search) > 0 {
-		parts = append(parts, fmt.Sprintf("Search:'%s'", filter.Search))
-	}
-
-	// Check for tag filters
-	if len(filter.Tags) > 0 {
-		for tagName, values := range filter.Tags {
-			parts = append(parts, fmt.Sprintf("#%s:%d", tagName, len(values)))
-		}
-	}
-
-	filterDesc := strings.Join(parts, ", ")
-	if filterDesc == "" {
-		filterDesc = "empty filter"
-	}
-
-	log.Printf("🔍 [QUERY %s] %s", subID, filterDesc)
+	logger.Info("shutting down")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	server.Shutdown(shutdownCtx)
 }
 
-// getKindName returns a human-readable name for event kinds
-func getKindName(kind int) string {
-	switch kind {
-	case 0:
-		return "Metadata"
-	case 1:
-		return "Note"
-	case 3:
-		return "Contacts"
-	case 7:
-		return "Reaction"
-	case 1111:
-		return "Comment"
-	case 1311:
-		return "Live Chat"
-	case 9735:
-		return "Zap"
-	case 10002:
-		return "Relay List"
-	case 30078:
-		return "App Data"
-	case 31237:
-		return "Radio Station"
-	case 31989:
-		return "Handler Recommendation"
-	case 31990:
-		return "Handler Info"
+func newLogger(level string) *slog.Logger {
+	var l slog.Level
+	switch level {
+	case "debug":
+		l = slog.LevelDebug
+	case "warn":
+		l = slog.LevelWarn
+	case "error":
+		l = slog.LevelError
 	default:
-		if kind >= 30000 && kind < 40000 {
-			return "Parameterized Replaceable"
-		} else if kind >= 10000 && kind < 20000 {
-			return "Replaceable"
-		} else if kind >= 20000 && kind < 30000 {
-			return "Ephemeral"
-		}
-		return "Unknown"
+		l = slog.LevelInfo
 	}
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: l}))
 }
 
-// enrichAndIndexEvent adds description from content JSON as a tag so Bluge can index it
-// Bluge automatically indexes all tag values, so we just need to make description a tag
-func enrichAndIndexEvent(search *bluge.BlugeBackend) func(context.Context, *nostr.Event) error {
-	return func(ctx context.Context, evt *nostr.Event) error {
-		// Only enrich station events (kind 31237)
-		if evt.Kind == 31237 {
-			// Parse the content JSON to extract description
-			var content StationContent
-			if err := json.Unmarshal([]byte(evt.Content), &content); err == nil {
-				// Add description as a searchable tag if it exists
-				if content.Description != "" {
-					// Check if description tag already exists
-					hasDescTag := false
-					for _, tag := range evt.Tags {
-						if len(tag) >= 2 && tag[0] == "description" {
-							hasDescTag = true
-							break
-						}
-					}
+func fatal(logger *slog.Logger, msg string, err error) {
+	logger.Error(msg, "err", err)
+	os.Exit(1)
+}
 
-					// Add description tag - Bluge will index all tag values including name and description
-					if !hasDescTag {
-						evt.Tags = append(evt.Tags, nostr.Tag{"description", content.Description})
-					}
-				}
+// watchDiskBudget polls free space on the data volume and flips a flag that
+// makes the relay refuse writes (logged once per transition) instead of
+// filling the disk and crash-looping the whole machine.
+func watchDiskBudget(logger *slog.Logger, dir string, minFree int64) *atomic.Bool {
+	full := &atomic.Bool{}
+
+	check := func() {
+		var stat syscall.Statfs_t
+		if err := syscall.Statfs(dir, &stat); err != nil {
+			return
+		}
+		free := int64(stat.Bavail) * int64(stat.Bsize)
+		wasFull := full.Load()
+		isFull := free < minFree
+		if isFull != wasFull {
+			full.Store(isFull)
+			if isFull {
+				logger.Error("disk budget exceeded — refusing event writes", "freeBytes", free, "minFreeBytes", minFree)
+			} else {
+				logger.Info("disk budget recovered — accepting event writes", "freeBytes", free)
 			}
 		}
-
-		// Save to Bluge - it will index all tag values: name, description, genre, location, etc.
-		return search.SaveEvent(ctx, evt)
 	}
+
+	check()
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			check()
+		}
+	}()
+
+	return full
 }
