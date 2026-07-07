@@ -12,6 +12,7 @@ import { createMapSourceSlice } from './mapSourceSlice'
 import { createSessionSyncSlice } from './sessionSyncSlice'
 import { createStanceSlice } from './stanceSlice'
 import { createCatalogSlice } from './catalogSlice'
+import { createGeoQuerySlice } from './geoQuerySlice'
 import type { EditorState } from './types'
 
 export const useEditorStore = create<EditorState>((...a) => ({
@@ -28,11 +29,19 @@ export const useEditorStore = create<EditorState>((...a) => ({
 	...createSessionSyncSlice(...a),
 	...createStanceSlice(...a),
 	...createCatalogSlice(...a),
+	...createGeoQuerySlice(...a),
 }))
+
+if (process.env.NODE_ENV !== 'production' && typeof window !== 'undefined') {
+	// Dev-only debug handle (pairs with __earthlyMap/__earthlyPool/__earthlyEventStore).
+	;(window as unknown as Record<string, unknown>).__earthlyEditorStore = useEditorStore
+}
 
 // Re-export all types for backwards compatibility
 export type {
 	EditorState,
+	GeoQuerySlice,
+	GeoQueryStatus,
 	EditorStats,
 	AnnouncementSourceMeta,
 	MapLayerState,

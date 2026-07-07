@@ -25,3 +25,4 @@ export { useSightingEditor, type PlacedSightingGeometry } from './useSightingEdi
 export { useBeaconController } from './useBeaconController'
 export { useStoryMapRefs } from './useStoryMapRefs'
 export { useMapInteractions } from './useMapInteractions'
+export { useGeoQueryByView } from './useGeoQueryByView'

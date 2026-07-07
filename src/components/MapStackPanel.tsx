@@ -4,16 +4,22 @@ import {
 	ChevronUp,
 	Database,
 	Layers,
+	Loader2,
 	MapPin,
 	PencilLine,
 	Radio,
+	ScanSearch,
 	X,
 } from 'lucide-react'
 import type { DragEvent, ReactNode } from 'react'
 import { useMemo, useState } from 'react'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
-import { useEditorStore, type MapStackEntry } from '../features/geo-editor/store'
+import {
+	useEditorStore,
+	type GeoQueryStatus,
+	type MapStackEntry,
+} from '../features/geo-editor/store'
 import { getDefaultContextMapScopeMode, resolveContextMapScope } from '@/lib/context/scope'
 import {
 	DeleteActionIcon,
@@ -68,6 +74,8 @@ const sourceLabel: Record<MapStackEntry['source'], string> = {
 	workspace: 'workspace',
 	'browse-default': 'suggested',
 	own: 'you',
+	story: 'story',
+	'geo-query': 'in view',
 }
 
 /**
@@ -118,6 +126,9 @@ export interface MapStackBuckets {
 	sightingLayerEntries: MapStackEntry[]
 	beaconLayerEntries: MapStackEntry[]
 	draftEntries: MapStackEntry[]
+	/** Query-by-view results (source 'geo-query', unpinned) — own section for
+	 * transparency; pinning an entry graduates it to its type bucket. */
+	geoQueryEntries: MapStackEntry[]
 	contextEntries: MapStackEntry[]
 	datasetEntries: MapStackEntry[]
 	/** Individual sighting/beacon pins + any other non-bucketed type. */
@@ -136,10 +147,19 @@ export function bucketMapStackEntries(entries: MapStackEntry[]): MapStackBuckets
 	const sightingLayerEntries: MapStackEntry[] = []
 	const beaconLayerEntries: MapStackEntry[] = []
 	const draftEntries: MapStackEntry[] = []
+	const geoQueryEntries: MapStackEntry[] = []
 	const contextEntries: MapStackEntry[] = []
 	const datasetEntries: MapStackEntry[] = []
 	const otherEntries: MapStackEntry[] = []
 	for (const entry of entries) {
+		// Query-by-view results bucket by SOURCE, not entity type: the whole
+		// point of the section is showing the user what the viewport query put
+		// on the map. Pinned ones graduate to their type bucket (user claimed
+		// them; they survive viewport changes and Clear).
+		if (entry.source === 'geo-query' && !entry.pinned) {
+			geoQueryEntries.push(entry)
+			continue
+		}
 		switch (entry.entityType) {
 			case 'sighting-layer':
 				sightingLayerEntries.push(entry)
@@ -164,6 +184,7 @@ export function bucketMapStackEntries(entries: MapStackEntry[]): MapStackBuckets
 		sightingLayerEntries,
 		beaconLayerEntries,
 		draftEntries,
+		geoQueryEntries,
 		contextEntries,
 		datasetEntries,
 		otherEntries,
@@ -181,6 +202,7 @@ export function orderedMapStackEntries(buckets: MapStackBuckets): MapStackEntry[
 		...buckets.sightingLayerEntries,
 		...buckets.beaconLayerEntries,
 		...buckets.draftEntries,
+		...buckets.geoQueryEntries,
 		...buckets.contextEntries,
 		...buckets.datasetEntries,
 		...buckets.otherEntries,
@@ -692,6 +714,9 @@ interface EntryGroupListProps {
 	sightingLayerEntries: MapStackEntry[]
 	beaconLayerEntries: MapStackEntry[]
 	draftEntries: MapStackEntry[]
+	geoQueryEntries: MapStackEntry[]
+	/** Query-by-view transparency readout (null when the mode is off). */
+	geoQueryStatus: GeoQueryStatus | null
 	contextEntries: MapStackEntry[]
 	datasetEntries: MapStackEntry[]
 	otherEntries: MapStackEntry[]
@@ -722,6 +747,8 @@ function EntryGroupList({
 	sightingLayerEntries,
 	beaconLayerEntries,
 	draftEntries,
+	geoQueryEntries,
+	geoQueryStatus,
 	contextEntries,
 	datasetEntries,
 	otherEntries,
@@ -834,6 +861,56 @@ function EntryGroupList({
 					{beaconLayerEntries.map(renderEntry)}
 				</div>
 			) : null}
+			{/* Query-by-view: the section renders whenever the mode is on (status
+			    non-null) so the transparency readout — queried cells, in-flight
+			    state, match count — is visible even with zero results. */}
+			{geoQueryStatus !== null || geoQueryEntries.length > 0 ? (
+				<div className={cn(groupGap)}>
+					<div className={cn(groupLabelClass, 'text-info')}>
+						<ScanSearch className="h-3 w-3" />
+						<span>Geo query</span>
+						<span className="font-normal text-muted-foreground/70">({geoQueryEntries.length})</span>
+						{geoQueryStatus?.loading ? (
+							<Loader2 className="h-3 w-3 animate-spin text-muted-foreground/70" />
+						) : null}
+					</div>
+					{geoQueryStatus ? (
+						<div
+							className={cn(
+								'px-1 text-muted-foreground/80',
+								compact ? 'text-[10px]' : 'text-[11px]',
+							)}
+						>
+							{geoQueryStatus.cells.length > 0 ? (
+								<span className="font-mono">
+									{geoQueryStatus.cells.slice(0, 4).join(' ')}
+									{geoQueryStatus.cells.length > 4 ? ` +${geoQueryStatus.cells.length - 4}` : ''}
+								</span>
+							) : (
+								<span>waiting for map…</span>
+							)}
+							{geoQueryStatus.updatedAt !== null ? (
+								<span>
+									{' · '}
+									{geoQueryStatus.matchCount} in view
+								</span>
+							) : null}
+						</div>
+					) : null}
+					{geoQueryEntries.length > 0 ? (
+						geoQueryEntries.map(renderEntry)
+					) : geoQueryStatus && !geoQueryStatus.loading && geoQueryStatus.updatedAt !== null ? (
+						<div
+							className={cn(
+								'px-1 text-muted-foreground/60',
+								compact ? 'text-[10px]' : 'text-[11px]',
+							)}
+						>
+							No entities in this view
+						</div>
+					) : null}
+				</div>
+			) : null}
 			{contextEntries.length > 0 ? (
 				<div className={cn(groupGap)}>
 					<div className={groupLabelClass}>
@@ -938,11 +1015,16 @@ export function MapStackPanel({
 		sightingLayerEntries,
 		beaconLayerEntries,
 		draftEntries,
+		geoQueryEntries,
 		contextEntries,
 		datasetEntries,
 		otherEntries,
 	} = useMemo(() => bucketMapStackEntries(entries), [entries])
 	const visibleCount = entries.filter((entry) => entry.visible).length
+	// Query-by-view mode (header toggle + "Geo query" section readout).
+	const geoQueryEnabled = useEditorStore((state) => state.geoQueryEnabled)
+	const geoQueryStatus = useEditorStore((state) => state.geoQueryStatus)
+	const setGeoQueryEnabled = useEditorStore((state) => state.setGeoQueryEnabled)
 	const isolatedEntry = entries.find((entry) => entry.isolated) ?? null
 	const isolatedLabel = (() => {
 		if (!isolatedEntry) return null
@@ -1031,6 +1113,25 @@ export function MapStackPanel({
 					</div>
 				</div>
 				<div className="flex shrink-0 items-center gap-1">
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-sm"
+						className={cn(
+							actionButtonClassName,
+							geoQueryEnabled && 'bg-info/15 text-info hover:bg-info/20 hover:text-info',
+						)}
+						onClick={() => setGeoQueryEnabled(!geoQueryEnabled)}
+						aria-pressed={geoQueryEnabled}
+						aria-label={geoQueryEnabled ? 'Turn off query by view' : 'Turn on query by view'}
+						title={
+							geoQueryEnabled
+								? 'Query by view is ON — the relay is queried for entities in the viewport as you pan/zoom (see the Geo query section). Click to turn off.'
+								: 'Query by view — search the relay for entities in the current viewport as you pan/zoom'
+						}
+					>
+						<ScanSearch className={actionIconClassName} />
+					</Button>
 					{isolatedEntry && onSetEntryIsolated ? (
 						<Button
 							type="button"
@@ -1116,6 +1217,8 @@ export function MapStackPanel({
 							sightingLayerEntries={sightingLayerEntries}
 							beaconLayerEntries={beaconLayerEntries}
 							draftEntries={draftEntries}
+							geoQueryEntries={geoQueryEntries}
+							geoQueryStatus={geoQueryEnabled ? geoQueryStatus : null}
 							contextEntries={contextEntries}
 							datasetEntries={datasetEntries}
 							otherEntries={otherEntries}

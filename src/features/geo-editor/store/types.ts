@@ -114,6 +114,12 @@ export type MapStackEntrySource =
 	 * The inline ref eye-toggles read membership of these entries as their single
 	 * source of truth; entries are removed when the viewed story changes. */
 	| 'story'
+	/** Query-by-view: found by the viewport relay geo query (Map Stack header
+	 * toggle, useGeoQueryByView). These entries live in the panel's "Geo query"
+	 * section and are RECONCILED on every pan/zoom — results leaving the
+	 * viewport disappear. Pinning one graduates it out of the section and it
+	 * then survives both Clear and viewport changes like any pinned entry. */
+	| 'geo-query'
 
 export interface MapStackEntry {
 	id: string
@@ -566,6 +572,30 @@ export interface CatalogSlice {
 	hydrateCatalogPrefsForPubkey: (pubkey: string | null) => void
 }
 
+/**
+ * Query-by-view (Map Stack header toggle): viewport relay geo queries on
+ * pan/zoom, surfaced in the "Geo query" stack section. The status object is
+ * the TRANSPARENCY readout — the queried area (geohash cells), in-flight
+ * state, and match count — so the map changing on pan is always explainable.
+ * The query loop lives in hooks/useGeoQueryByView; this slice holds mode +
+ * status only.
+ */
+export interface GeoQueryStatus {
+	/** Geohash cells covering the queried viewport (human-readable area). */
+	cells: string[]
+	loading: boolean
+	matchCount: number
+	/** Epoch ms of the last completed query; null before the first run. */
+	updatedAt: number | null
+}
+
+export interface GeoQuerySlice {
+	geoQueryEnabled: boolean
+	geoQueryStatus: GeoQueryStatus
+	setGeoQueryEnabled: (enabled: boolean) => void
+	setGeoQueryStatus: (status: Partial<GeoQueryStatus>) => void
+}
+
 /** Combined state — intersection of all slices */
 export type EditorState = EditorCoreSlice &
 	DraftSlice &
@@ -579,4 +609,5 @@ export type EditorState = EditorCoreSlice &
 	MapSourceSlice &
 	SessionSyncSlice &
 	StanceSlice &
-	CatalogSlice
+	CatalogSlice &
+	GeoQuerySlice

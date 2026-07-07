@@ -1,9 +1,14 @@
 # Geo-Aware Relay Search Rewrite
 
 **Status:** Plan approved 2026-07-07. WP1–WP6 implemented same day (relay rewrite, geo index,
-grammar both sides + golden vectors, facade, entity-search extension, AI tools). Open: the
-mention-picker async rewiring (WP5 remainder) and WP7 VPS deployment/ops — both tracked as
-follow-up tasks.
+grammar both sides + golden vectors, facade, entity-search extension, AI tools), plus the
+mention-picker relay integration (browser-verified end-to-end: type `$…`, relay entity merges
+into the dropdown, selection inserts an address-only naddr mention). Open: WP7 VPS
+deployment/ops (tracked as a follow-up task).
+
+**Field note (typeahead):** bleve `MatchQuery` matches whole tokens only — search-as-you-type
+requires the relay's text clauses to add a prefix match on the last token (implemented in
+`textClause`, relay/earthlysearch/query.go).
 
 **Field note (Lane 1):** filter-verifying clients (nak, possibly applesauce) drop relay
 results that don't literally match the `#g` filter. Publishers therefore emit

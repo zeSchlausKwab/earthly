@@ -107,6 +107,7 @@ import {
 	useCommentGeometry,
 	useProposalGeometry,
 	useDatasetManagement,
+	useGeoQueryByView,
 	useInspector,
 	useMagnifier,
 	useMapLayers,
@@ -251,6 +252,11 @@ export function encodeBeaconNaddrPure(beacon: LiveBeacon): string | null {
 export function GeoEditorView() {
 	const map = useRef<maplibregl.Map | null>(null)
 	const [mounted, setMounted] = useState(false)
+
+	// Query-by-view (Map Stack header toggle): viewport relay geo queries on
+	// pan/zoom feeding the stack's "Geo query" section. Reads its own enabled
+	// flag from the store; inert until toggled on.
+	useGeoQueryByView(map, mounted)
 	const [mapError, _setMapError] = useState<string | null>(null)
 	const [deletingKey, setDeletingKey] = useState<string | null>(null)
 	const [resolvedCollectionsVersion, setResolvedCollectionsVersion] = useState(0)

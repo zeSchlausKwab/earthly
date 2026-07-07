@@ -257,6 +257,12 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
     };
     const loadHandler = () => setIsLoaded(true);
 
+    if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
+      // Dev-only debug handle from the moment of construction (pairs with
+      // __earthlyMap, which is only set once the map reaches 'load').
+      (window as unknown as Record<string, unknown>).__earthlyUiMap = map;
+    }
+
     // Viewport change handler - skip if triggered by internal update
     const handleMove = () => {
       if (internalUpdateRef.current) return;

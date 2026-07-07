@@ -112,3 +112,43 @@ describe('MapStackPanel bucketing / ordering (D-05)', () => {
 		expect(entityTypeLabel(entry('sighting', 'Owl at dusk'))).toBe('Owl at dusk')
 	})
 })
+
+describe('geo-query bucket (query-by-view)', () => {
+	it('unpinned geo-query entries bucket into their own section by SOURCE', () => {
+		const geoQueryDataset: MapStackEntry = {
+			...entry('dataset'),
+			id: 'dataset:pk:found',
+			source: 'geo-query',
+		}
+		const buckets = bucketMapStackEntries([geoQueryDataset])
+		expect(buckets.geoQueryEntries).toHaveLength(1)
+		expect(buckets.datasetEntries).toHaveLength(0)
+	})
+
+	it('pinning a geo-query entry graduates it to its type bucket', () => {
+		const pinned: MapStackEntry = {
+			...entry('dataset'),
+			id: 'dataset:pk:kept',
+			source: 'geo-query',
+			pinned: true,
+		}
+		const buckets = bucketMapStackEntries([pinned])
+		expect(buckets.geoQueryEntries).toHaveLength(0)
+		expect(buckets.datasetEntries).toHaveLength(1)
+	})
+
+	it('geo-query section orders below aggregate layers, above contexts/datasets', () => {
+		const ordered = orderedMapStackEntries(
+			bucketMapStackEntries([
+				{ ...entry('dataset'), id: 'dataset:pk:manual' },
+				{ ...entry('dataset'), id: 'dataset:pk:found', source: 'geo-query' },
+				{ ...entry('sighting-layer'), id: 'sighting-layer:all' },
+			]),
+		)
+		expect(ordered.map((e) => e.id)).toEqual([
+			'sighting-layer:all',
+			'dataset:pk:found',
+			'dataset:pk:manual',
+		])
+	})
+})
