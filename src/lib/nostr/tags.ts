@@ -44,9 +44,18 @@ export function getBbox(event: NostrEvent): GeoBoundingBox | undefined {
 	})
 }
 
-/** Read the `g` geohash tag. */
+/**
+ * Read the `g` geohash tag. Events publish multi-precision `g` tags (one per
+ * prefix, see `setGeohash`) — this returns the most precise one.
+ */
 export function getGeohash(event: NostrEvent): string | undefined {
-	return getTagValue(event, 'g')
+	let best: string | undefined
+	for (const tag of event.tags) {
+		if (tag[0] === 'g' && tag[1] && (!best || tag[1].length > best.length)) {
+			best = tag[1]
+		}
+	}
+	return best
 }
 
 /** Read freeform `t` hashtags. */
@@ -88,8 +97,13 @@ export function setBbox(tags: string[][], box: GeoBoundingBox | undefined): stri
 }
 
 /**
- * Replace the `g` geohash tag, derived from a `[lon, lat]` centroid via
- * `lonLatToWorldGeohash`. Undefined centroid removes the tag.
+ * Replace the `g` geohash tags, derived from a `[lon, lat]` centroid via
+ * `lonLatToWorldGeohash`. Undefined centroid removes them.
+ *
+ * Emits ONE TAG PER PRECISION 1..N (most precise first) so relays can answer
+ * viewport queries at any zoom level with exact `#g` tag matches, and
+ * filter-verifying clients (which drop events that don't literally match the
+ * filter) accept the results. See docs/GEO_SEARCH_REWRITE.md §4 Lane 1.
  */
 export function setGeohash(
 	tags: string[][],
@@ -102,7 +116,12 @@ export function setGeohash(
 	if (typeof lon !== 'number' || typeof lat !== 'number') return filtered
 	if (Number.isNaN(lon) || Number.isNaN(lat)) return filtered
 	const clamped = Math.min(7, Math.max(5, precision))
-	return [...filtered, ['g', lonLatToWorldGeohash(clamped, lon, lat)]]
+	const full = lonLatToWorldGeohash(clamped, lon, lat)
+	const prefixTags: string[][] = []
+	for (let p = clamped; p >= 1; p--) {
+		prefixTags.push(['g', full.slice(0, p)])
+	}
+	return [...filtered, ...prefixTags]
 }
 
 /**
