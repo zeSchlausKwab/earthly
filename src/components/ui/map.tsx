@@ -33,8 +33,8 @@ import {
 import { cn } from "@/lib/utils";
 
 const defaultStyles = {
-  dark: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
-  light: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+  dark: "https://tiles.openfreemap.org/styles/dark",
+  light: "https://tiles.openfreemap.org/styles/liberty",
 };
 
 type Theme = "light" | "dark";
@@ -134,7 +134,7 @@ type MapProps = {
    * Pass your theme value here.
    */
   theme?: Theme;
-  /** Custom map styles for light and dark themes. Overrides the default Carto styles. */
+  /** Custom map styles for light and dark themes. Overrides the default OpenFreeMap styles. */
   styles?: {
     light?: MapStyleOption;
     dark?: MapStyleOption;

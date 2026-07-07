@@ -279,7 +279,7 @@ function MapStateCluster({
 /**
  * Dark/light theme toggle. The active theme is the `light`/`dark` class on
  * `<html>` (see `@/lib/theme`); flipping it re-themes the whole app and the
- * map basemap. Dark is the default working (Studio) theme.
+ * map basemap. Light is the default working theme.
  */
 function ThemeToggleButton() {
 	const [theme, setTheme] = useTheme()

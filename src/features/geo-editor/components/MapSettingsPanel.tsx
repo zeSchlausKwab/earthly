@@ -538,8 +538,8 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 							</SelectContent>
 						</Select>
 						<p className="text-xs text-muted-foreground">
-							<span className="font-mono">Auto</span> follows the app theme — Positron in light,
-							Dark in dark. Pin a style to keep it regardless of theme.
+							<span className="font-mono">Auto</span> follows the app theme — Liberty in light, Dark
+							in dark. Pin a style to keep it regardless of theme.
 						</p>
 					</div>
 				)}
