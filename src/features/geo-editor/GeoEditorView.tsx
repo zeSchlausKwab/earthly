@@ -2461,25 +2461,66 @@ export function GeoEditorView() {
 		)
 			return
 
+		// Decode the routed naddr ONCE and match by address fields. A shared
+		// naddr may carry relay-hint TLVs (other clients, share sheets, chat
+		// mentions) — string-comparing it against our locally-encoded bare
+		// naddr silently never matches, which is exactly the "landing on a
+		// shared route does nothing" failure. Falls back to string comparison
+		// when the naddr doesn't decode.
+		let routePointer: { kind: number; pubkey: string; identifier: string } | null = null
+		try {
+			const decoded = nip19.decode(route.naddr)
+			if (decoded.type === 'naddr') routePointer = decoded.data
+		} catch {
+			routePointer = null
+		}
+		const matchesRoute = (fields: {
+			kind?: number
+			pubkey?: string
+			identifier?: string | null
+		}): boolean =>
+			routePointer !== null &&
+			fields.kind === routePointer.kind &&
+			fields.pubkey === routePointer.pubkey &&
+			(fields.identifier ?? '') === routePointer.identifier
+
 		if (route.focusType === 'geoevent') {
 			// Find the dataset matching the naddr
-			const dataset = geoEvents.find((event) => {
-				const eventNaddr = encodeGeoEventNaddr(event)
-				return eventNaddr === route.naddr
-			})
+			const dataset = geoEvents.find(
+				(event) =>
+					matchesRoute({
+						kind: event.kind,
+						pubkey: event.pubkey,
+						identifier: event.datasetId ?? event.dTag,
+					}) || encodeGeoEventNaddr(event) === route.naddr,
+			)
 			if (dataset) {
 				addDatasetToMapStack(dataset, 'route')
 				handleInspectDataset(dataset)
+				// Shared-link contract: landing zooms to the entity, not just
+				// stacks it — the recipient should SEE what was shared.
+				zoomToDataset(dataset)
 				focusHandledRef.current = routeKey
 			}
 		} else if (route.focusType === 'mapcontext') {
-			const context = mapContextEvents.find((ctx) => encodeContextNaddr(ctx) === route.naddr)
+			const context = mapContextEvents.find(
+				(ctx) =>
+					matchesRoute({
+						kind: ctx.kind,
+						pubkey: ctx.pubkey,
+						identifier: ctx.contextId ?? ctx.dTag,
+					}) || encodeContextNaddr(ctx) === route.naddr,
+			)
 			if (context) {
 				handleInspectContext(context)
 				focusHandledRef.current = routeKey
 			}
 		} else if (route.focusType === 'story') {
-			const story = stories.find((s) => encodeStoryNaddr(s) === route.naddr)
+			const story = stories.find(
+				(s) =>
+					matchesRoute({ kind: s.kind, pubkey: s.pubkey, identifier: s.dTag }) ||
+					encodeStoryNaddr(s) === route.naddr,
+			)
 			if (story) {
 				handleInspectStory(story)
 				focusHandledRef.current = routeKey
@@ -2488,7 +2529,11 @@ export function GeoEditorView() {
 			// D-08: resolve the /sighting/:naddr deep link via useSightings (already
 			// dropExpired'd at the subscription — an expired sighting won't be found,
 			// SIGHT-03) and open the read view.
-			const sighting = sightings.find((s) => encodeSightingNaddr(s) === route.naddr)
+			const sighting = sightings.find(
+				(s) =>
+					matchesRoute({ kind: s.kind, pubkey: s.pubkey, identifier: s.dTag }) ||
+					encodeSightingNaddr(s) === route.naddr,
+			)
 			if (sighting) {
 				// Phase 13 (D-03/SPEC §2.2): the routed sighting lands on the Map Stack
 				// ISOLATED (deep-link-solo), mirroring the dataset route dispatch above
@@ -2507,9 +2552,10 @@ export function GeoEditorView() {
 			// subscription means an ended/expired beacon won't resolve — the view
 			// panel's isExpired gate then shows the terminal copy. Thin per-kind
 			// clone — Phase 13 / XCUT-02 generalizes.
-			const beacon =
-				beacons.find((b) => encodeBeaconNaddr(b) === route.naddr) ??
-				routedBeacons.find((b) => encodeBeaconNaddr(b) === route.naddr)
+			const matchesBeacon = (b: (typeof beacons)[number]) =>
+				matchesRoute({ kind: b.kind, pubkey: b.pubkey, identifier: b.dTag }) ||
+				encodeBeaconNaddr(b) === route.naddr
+			const beacon = beacons.find(matchesBeacon) ?? routedBeacons.find(matchesBeacon)
 			if (beacon) {
 				// Phase 13 (D-03/SPEC §2.2): the routed beacon lands on the Map Stack
 				// ISOLATED (deep-link-solo). This is what makes a link-only / deep-linked
@@ -2547,6 +2593,7 @@ export function GeoEditorView() {
 		handleInspectStory,
 		handleInspectSighting,
 		handleInspectBeacon,
+		zoomToDataset,
 	])
 
 	// Pan lock and magnifier

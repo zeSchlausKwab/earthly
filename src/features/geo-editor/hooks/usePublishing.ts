@@ -479,6 +479,7 @@ export function usePublishing({
 			const cast = castEvent(signedEvent, GeoDataset, eventStore)
 
 			setPublishMessage('Dataset published successfully.')
+			toast.success('Dataset published.')
 			setActiveDataset(cast)
 			setActiveDatasetContextRefs(cast.contextReferences)
 			setCollectionMeta(extractCollectionMeta(collection))
@@ -554,6 +555,7 @@ export function usePublishing({
 				const cast = castEvent(signedEvent, GeoDataset, eventStore)
 
 				setPublishMessage('Dataset published with external reference.')
+				toast.success('Dataset published (large geometry stored externally).')
 				setActiveDataset(cast)
 				setActiveDatasetContextRefs(cast.contextReferences)
 				setCollectionMeta(extractCollectionMeta(collection))
@@ -715,6 +717,7 @@ export function usePublishing({
 			const cast = castEvent(signedEvent, GeoDataset, eventStore)
 
 			setPublishMessage('Dataset copy published successfully.')
+			toast.success('Dataset copy published.')
 			setActiveDataset(cast)
 			setActiveDatasetContextRefs(cast.contextReferences)
 			setCollectionMeta(extractCollectionMeta(collection))
@@ -782,11 +785,13 @@ export function usePublishing({
 				await publish(signedEvent, { routing: 'inbox', target: activeDataset.pubkey })
 
 				setPublishMessage('Edit proposal published successfully.')
+				toast.success('Edit proposal sent to the dataset owner.')
 				switchToDatasetViewMode(activeDataset)
 				setSelectedFeatureIds([])
 			} catch (error) {
 				console.error('Failed to publish edit proposal', error)
 				setPublishError('Failed to publish edit proposal. Check console for details.')
+				toast.error('Failed to publish edit proposal.')
 			} finally {
 				setIsPublishing(false)
 			}

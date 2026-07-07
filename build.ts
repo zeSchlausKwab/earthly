@@ -185,6 +185,11 @@ const result = await Bun.build({
 	target: "browser",
 	sourcemap: "none", // Disable for production (saves 17MB)
 	splitting: true,   // Enable code splitting
+	// Absolute asset URLs: with relative "./chunk-x.js" refs, a nested SPA
+	// route like /datasets/geoevent/<naddr> resolves chunks under the route
+	// path, misses, and the SPA fallback serves index.html as a module script
+	// ("Expected a JavaScript-or-Wasm module script but ... text/html").
+	publicPath: "/",
 	define,
 	...cliConfig,
 });

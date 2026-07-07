@@ -1,3 +1,4 @@
+import { toast } from 'sonner'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import { castEvent } from 'applesauce-core/casts'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -572,6 +573,7 @@ export function MapContextEditorPanel({
 				.sign(signer)
 
 			await publish(signedEvent, { routing: 'outbox' })
+			toast.success('Context published.')
 			const cast = castEvent(signedEvent, MapContext, eventStore)
 			onSave(cast)
 			onClose()

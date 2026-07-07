@@ -117,11 +117,22 @@ export function setGeohash(
 	if (Number.isNaN(lon) || Number.isNaN(lat)) return filtered
 	const clamped = Math.min(7, Math.max(5, precision))
 	const full = lonLatToWorldGeohash(clamped, lon, lat)
-	const prefixTags: string[][] = []
-	for (let p = clamped; p >= 1; p--) {
-		prefixTags.push(['g', full.slice(0, p)])
+	return [...filtered, ...geohashPrefixes(full).map((prefix) => ['g', prefix])]
+}
+
+/**
+ * All prefixes of a geohash, most precise first — the multi-precision `g`
+ * tag set (see `setGeohash`). Factories that compute their geohash from a
+ * FeatureCollection (geo-event/geo-proposal/geo-comment) route their tag
+ * writes through this so every published geo event matches viewport `#g`
+ * filters at any zoom level.
+ */
+export function geohashPrefixes(hash: string): string[] {
+	const prefixes: string[] = []
+	for (let p = hash.length; p >= 1; p--) {
+		prefixes.push(hash.slice(0, p))
 	}
-	return [...filtered, ...prefixTags]
+	return prefixes
 }
 
 /**
