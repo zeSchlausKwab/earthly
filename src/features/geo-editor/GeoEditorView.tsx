@@ -59,7 +59,7 @@ import type { LiveBeacon } from '@/lib/nostr/live-beacon'
 import { formatExpiryCountdown } from '@/lib/nostr/temporal-sighting'
 import { nip19 } from 'nostr-tools'
 import type { Article } from '@/lib/nostr/article'
-import { ARTICLE_KIND, LIVE_BEACON_KIND, TEMPORAL_SIGHTING_KIND } from '@/lib/nostr/kinds'
+import { ARTICLE_KIND, LIVE_BEACON_KIND } from '@/lib/nostr/kinds'
 import { isExpired } from '@/lib/nostr/expiry'
 import { unixNow } from 'applesauce-core/helpers/time'
 import { deleteStory } from '@/lib/nostr/story'
@@ -78,6 +78,12 @@ import { getDefaultContextMapScopeMode, resolveContextMapScope } from '@/lib/con
 import { createAuthoring } from './api'
 import { AssistantSidebar } from './components/AssistantSidebar'
 import { Editor } from './components/Editor'
+import {
+	encodeBeaconNaddrPure,
+	encodeSightingNaddrPure,
+	getBeaconMapStackKey,
+	getSightingMapStackKey,
+} from './mapStackEntityKeys'
 import { ImportOsmDialog } from './components/ImportOsmDialog'
 import { LocationInspectorPopup } from './components/LocationInspectorPopup'
 import { Magnifier } from './components/Magnifier'
@@ -220,33 +226,6 @@ export function deriveVisibleEntitiesFromStack<T>(
  */
 export function shouldSweepStackEntry(status: { resolved: boolean; expired: boolean }): boolean {
 	return !status.resolved || status.expired
-}
-
-/**
- * Phase 13: pure naddr encoders for the stack-derived selectors' `resolveKey`.
- * Module-scope so `visibleSightingsFromStack`/`visibleBeaconsFromStack` (defined
- * high in the component) can resolve an entity's stack key without a temporal-
- * dead-zone reference to the `encodeSightingNaddr`/`encodeBeaconNaddr` useCallbacks
- * (defined lower). Byte-identical logic to those callbacks; the callbacks remain
- * for the route-focus effect. Falls back to dTag/id at the call site when null.
- */
-export function encodeSightingNaddrPure(sighting: TemporalSighting): string | null {
-	const identifier = sighting.dTag
-	if (!identifier || !sighting.pubkey) return null
-	try {
-		return nip19.naddrEncode({ kind: TEMPORAL_SIGHTING_KIND, pubkey: sighting.pubkey, identifier })
-	} catch {
-		return null
-	}
-}
-export function encodeBeaconNaddrPure(beacon: LiveBeacon): string | null {
-	const identifier = beacon.dTag
-	if (!identifier || !beacon.pubkey) return null
-	try {
-		return nip19.naddrEncode({ kind: LIVE_BEACON_KIND, pubkey: beacon.pubkey, identifier })
-	} catch {
-		return null
-	}
 }
 
 export function GeoEditorView() {
@@ -711,7 +690,7 @@ export function GeoEditorView() {
 			// Toast-honesty (13-06 Task 2): only proceed if the sighting resolves to a
 			// real, keyable entity. `sighting` is already the resolved object the panel
 			// is displaying, so resolution "succeeds" when it has a stable entityKey.
-			const entityKey = encodeSightingNaddrPure(sighting) ?? sighting.dTag ?? sighting.id
+			const entityKey = getSightingMapStackKey(sighting)
 			if (!entityKey) {
 				if (source === 'manual') toast.error("Couldn't add this sighting to the map.")
 				return
@@ -745,7 +724,7 @@ export function GeoEditorView() {
 			// from live) IS resolvable — it is the object the inspect panel is showing —
 			// so caching it under its entityKey lets the individual pin render without
 			// forcing it into discovery.
-			const entityKey = encodeBeaconNaddrPure(beacon) ?? beacon.dTag ?? beacon.id
+			const entityKey = getBeaconMapStackKey(beacon)
 			if (!entityKey) {
 				if (source === 'manual') toast.error("Couldn't add this beacon to the map.")
 				return
@@ -1413,7 +1392,7 @@ export function GeoEditorView() {
 				mapStackOrder,
 				'sighting',
 				'sighting-layer',
-				(s) => encodeSightingNaddrPure(s) ?? s.dTag ?? s.id,
+				getSightingMapStackKey,
 				sightingLookupSuperset,
 			),
 		[sightings, mapStackEntries, mapStackOrder, sightingLookupSuperset],
@@ -1466,7 +1445,7 @@ export function GeoEditorView() {
 				mapStackOrder,
 				'beacon',
 				'beacon-layer',
-				(b) => encodeBeaconNaddrPure(b) ?? b.dTag ?? b.id,
+				getBeaconMapStackKey,
 				addedBeaconLookupSuperset,
 			),
 		[beacons, mapStackEntries, mapStackOrder, addedBeaconLookupSuperset],
@@ -1489,11 +1468,13 @@ export function GeoEditorView() {
 		// membership. A faded-from-live-but-not-expired entry is therefore KEPT.
 		const sightingByKey = new Map<string, TemporalSighting>()
 		for (const s of sightingLookupSuperset) {
-			sightingByKey.set(encodeSightingNaddrPure(s) ?? s.dTag ?? s.id, s)
+			const key = getSightingMapStackKey(s)
+			if (key) sightingByKey.set(key, s)
 		}
 		const beaconByKey = new Map<string, LiveBeacon>()
 		for (const b of addedBeaconLookupSuperset) {
-			beaconByKey.set(encodeBeaconNaddrPure(b) ?? b.dTag ?? b.id, b)
+			const key = getBeaconMapStackKey(b)
+			if (key) beaconByKey.set(key, b)
 		}
 		for (const id of mapStackOrder) {
 			const entry = mapStackEntries[id]
@@ -2449,7 +2430,7 @@ export function GeoEditorView() {
 			autoAddedOwnBeaconKeyRef.current = null
 			return
 		}
-		const key = encodeBeaconNaddrPure(ownLiveBeacon) ?? ownLiveBeacon.dTag ?? ownLiveBeacon.id
+		const key = getBeaconMapStackKey(ownLiveBeacon)
 		if (!key || autoAddedOwnBeaconKeyRef.current === key) return
 		autoAddedOwnBeaconKeyRef.current = key
 		addBeaconToMapStack(ownLiveBeacon, 'own')

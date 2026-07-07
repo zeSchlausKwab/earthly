@@ -191,7 +191,7 @@ interface AppSidebarProps {
 	onToggleVisibility: (event: GeoDataset) => void
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: GeoDataset) => void
-	onAddDatasetToMap?: (event: GeoDataset) => void
+	onAddDatasetToMap?: (event: GeoDataset, source?: 'manual' | 'route' | 'browse-default') => void
 	onRemoveDatasetFromMap?: (event: GeoDataset) => void
 	onDeleteDataset: (event: GeoDataset) => void
 	onDeleteContext?: (context: MapContext) => void
@@ -258,6 +258,7 @@ interface AppSidebarProps {
 	/** Phase 13 (SPEC §3.4): add a Sighting to the Map Stack (rail + view-panel affordance). */
 	onAddSightingToMapStack?: (
 		sighting: import('@/lib/nostr/temporal-sighting').TemporalSighting,
+		source?: 'manual' | 'route' | 'browse-default',
 	) => void
 	/** The geometry placed by the map-first pin-drop, fed to the Sighting editor. */
 	placedSightingGeometry?: import('geojson').Geometry | null
@@ -271,7 +272,10 @@ interface AppSidebarProps {
 	onShareLocation?: () => void
 	onWatchOnMapBeacon?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
 	/** Phase 13 (SPEC §3.4): add a Beacon to the Map Stack (rail + view-panel affordance). */
-	onAddBeaconToMapStack?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
+	onAddBeaconToMapStack?: (
+		beacon: import('@/lib/nostr/live-beacon').LiveBeacon,
+		source?: 'manual' | 'route' | 'browse-default' | 'own',
+	) => void
 	onStopBeacon?: (beacon: import('@/lib/nostr/live-beacon').LiveBeacon) => void
 	onAdjustBeacon?: (beacon?: import('@/lib/nostr/live-beacon').LiveBeacon) => void
 	/** The d-tag/id of the last-inspected/viewed beacon — highlights + scrolls its rail row. */

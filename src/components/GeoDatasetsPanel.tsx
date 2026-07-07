@@ -11,7 +11,7 @@ import { orderContextsForDisplay } from '@/lib/context/displayOrdering'
 import { cn } from '@/lib/utils'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { DatasetGlyphIcon } from './entity-action-icons'
-import { EntityListTable, ListPanel } from './entity-list'
+import { BulkMapStackButton, EntityListTable, ListPanel } from './entity-list'
 import { useFilterState, useSortedFilteredItems, type FilterConfig } from './data-filter'
 import {
 	createContextColumns,
@@ -43,7 +43,7 @@ export interface GeoDatasetsPanelProps {
 	getDatasetKey: (event: GeoDataset) => string
 	getDatasetName: (event: GeoDataset) => string
 	onInspectDataset?: (event: GeoDataset) => void
-	onAddDatasetToMap?: (event: GeoDataset) => void
+	onAddDatasetToMap?: (event: GeoDataset, source?: 'manual' | 'route' | 'browse-default') => void
 	onRemoveDatasetFromMap?: (event: GeoDataset) => void
 	onInspectContext?: (context: MapContext) => void
 	onOpenDebug?: (event: GeoDataset | MapContext) => void
@@ -154,6 +154,33 @@ export function GeoDatasetsPanelContent({
 
 	const filteredGeoEvents = datasetResult.items
 	const filteredContexts = contextResult.items
+	const toDatasetRow = useCallback(
+		(event: GeoDataset): DatasetRowData => {
+			const datasetKey = getDatasetKey(event)
+			const isActive = activeDataset ? getDatasetKey(activeDataset) === datasetKey : false
+			const isOwned = currentUserPubkey === event.pubkey
+			return {
+				event,
+				datasetKey,
+				datasetName: getDatasetName(event),
+				isActive,
+				isOwned,
+				isVisible: datasetVisibility[datasetKey] !== false,
+				isInMapStack: Boolean(mapStackEntries[`dataset:${datasetKey}`]),
+				isCatalogPinned: pinnedEntitySet.has(`dataset:${datasetKey}`),
+				primaryLabel: isActive ? 'Loaded in editor' : isOwned ? 'Edit dataset' : 'Load copy',
+			}
+		},
+		[
+			activeDataset,
+			currentUserPubkey,
+			datasetVisibility,
+			getDatasetKey,
+			getDatasetName,
+			mapStackEntries,
+			pinnedEntitySet,
+		],
+	)
 
 	useEffect(() => {
 		if (!onFilteredDatasetKeysChange) return
@@ -188,52 +215,42 @@ export function GeoDatasetsPanelContent({
 	}, [datasetResult.filteredItems, getDatasetKey, mode, onFilteredDatasetKeysChange])
 
 	const datasetTableData: DatasetRowData[] = useMemo(
-		() =>
-			filteredGeoEvents.map((event) => {
-				const datasetKey = getDatasetKey(event)
-				const isActive = activeDataset ? getDatasetKey(activeDataset) === datasetKey : false
-				const isOwned = currentUserPubkey === event.pubkey
-				return {
-					event,
-					datasetKey,
-					datasetName: getDatasetName(event),
-					isActive,
-					isOwned,
-					isVisible: datasetVisibility[datasetKey] !== false,
-					isInMapStack: Boolean(mapStackEntries[`dataset:${datasetKey}`]),
-					isCatalogPinned: pinnedEntitySet.has(`dataset:${datasetKey}`),
-					primaryLabel: isActive ? 'Loaded in editor' : isOwned ? 'Edit dataset' : 'Load copy',
-				}
-			}),
-		[
-			filteredGeoEvents,
-			activeDataset,
-			currentUserPubkey,
-			datasetVisibility,
-			getDatasetKey,
-			getDatasetName,
-			mapStackEntries,
-			pinnedEntitySet,
-		],
+		() => filteredGeoEvents.map(toDatasetRow),
+		[filteredGeoEvents, toDatasetRow],
+	)
+	const bulkDatasetTableData: DatasetRowData[] = useMemo(
+		() => datasetResult.filteredItems.map(toDatasetRow),
+		[datasetResult.filteredItems, toDatasetRow],
 	)
 
 	// Round G.2: tab-narrowed views. Favorites filters to starred entities;
 	// Recent filters to the interaction ring buffer, most recent first.
-	const displayedDatasetRows = useMemo(() => {
-		if (catalogTab === 'favorites') {
-			return datasetTableData.filter((row) => row.isCatalogPinned)
-		}
-		if (catalogTab === 'recent') {
-			return datasetTableData
-				.filter((row) => recentRankById.has(`dataset:${row.datasetKey}`))
-				.sort(
-					(a, b) =>
-						(recentRankById.get(`dataset:${a.datasetKey}`) ?? 0) -
-						(recentRankById.get(`dataset:${b.datasetKey}`) ?? 0),
-				)
-		}
-		return datasetTableData
-	}, [datasetTableData, catalogTab, recentRankById])
+	const selectDatasetRowsForCatalog = useCallback(
+		(rows: DatasetRowData[]) => {
+			if (catalogTab === 'favorites') {
+				return rows.filter((row) => row.isCatalogPinned)
+			}
+			if (catalogTab === 'recent') {
+				return rows
+					.filter((row) => recentRankById.has(`dataset:${row.datasetKey}`))
+					.sort(
+						(a, b) =>
+							(recentRankById.get(`dataset:${a.datasetKey}`) ?? 0) -
+							(recentRankById.get(`dataset:${b.datasetKey}`) ?? 0),
+					)
+			}
+			return rows
+		},
+		[catalogTab, recentRankById],
+	)
+	const displayedDatasetRows = useMemo(
+		() => selectDatasetRowsForCatalog(datasetTableData),
+		[datasetTableData, selectDatasetRowsForCatalog],
+	)
+	const bulkDatasetRows = useMemo(
+		() => selectDatasetRowsForCatalog(bulkDatasetTableData),
+		[bulkDatasetTableData, selectDatasetRowsForCatalog],
+	)
 
 	const allVisibleState = useMemo((): 'all' | 'none' | 'some' => {
 		if (datasetTableData.length === 0) return 'none'
@@ -243,58 +260,81 @@ export function GeoDatasetsPanelContent({
 		return 'some'
 	}, [datasetTableData])
 
-	const contextTableData: ContextRowData[] = useMemo(() => {
-		const nameByCoordinate = new Map<string, string>()
-		filteredContexts.forEach((context) => {
-			const coordinate = context.contextCoordinate
-			if (coordinate) {
-				nameByCoordinate.set(coordinate, getContextDisplayName(context))
-			}
-		})
-		return orderContextsForDisplay(filteredContexts).map(
-			({ context, depth, displayParentCoordinate }) => {
-				const coordinate = getContextCoordinate(context)
-				return {
-					context,
-					contextName: getContextDisplayName(context),
-					contextUse: getEffectiveContextUse(context),
-					validationMode: context.context.allowForeignAttachments
-						? getEffectiveContextValidationMode(context)
-						: null,
-					attachmentPolicy: context.context.allowForeignAttachments ? 'open' : 'closed',
-					displayDepth: depth,
-					displayParentName: displayParentCoordinate
-						? (nameByCoordinate.get(displayParentCoordinate) ?? null)
-						: null,
-					isCuratedChild:
-						depth > 0 &&
-						!context.context.allowForeignAttachments &&
-						context.contextReferences.length > 0,
-					attachmentCount: context.contextReferences.length,
-					isMapActive: coordinate === effectiveContextCoordinate,
-					isInMapStack: Boolean(coordinate && mapStackEntries[`context:${coordinate}`]),
-					isCatalogPinned: Boolean(coordinate && pinnedEntitySet.has(`context:${coordinate}`)),
+	const buildContextRows = useCallback(
+		(contexts: MapContext[]): ContextRowData[] => {
+			const nameByCoordinate = new Map<string, string>()
+			contexts.forEach((context) => {
+				const coordinate = context.contextCoordinate
+				if (coordinate) {
+					nameByCoordinate.set(coordinate, getContextDisplayName(context))
 				}
-			},
-		)
-	}, [filteredContexts, effectiveContextCoordinate, mapStackEntries, pinnedEntitySet])
+			})
+			return orderContextsForDisplay(contexts).map(
+				({ context, depth, displayParentCoordinate }) => {
+					const coordinate = getContextCoordinate(context)
+					return {
+						context,
+						contextName: getContextDisplayName(context),
+						contextUse: getEffectiveContextUse(context),
+						validationMode: context.context.allowForeignAttachments
+							? getEffectiveContextValidationMode(context)
+							: null,
+						attachmentPolicy: context.context.allowForeignAttachments ? 'open' : 'closed',
+						displayDepth: depth,
+						displayParentName: displayParentCoordinate
+							? (nameByCoordinate.get(displayParentCoordinate) ?? null)
+							: null,
+						isCuratedChild:
+							depth > 0 &&
+							!context.context.allowForeignAttachments &&
+							context.contextReferences.length > 0,
+						attachmentCount: context.contextReferences.length,
+						isMapActive: coordinate === effectiveContextCoordinate,
+						isInMapStack: Boolean(coordinate && mapStackEntries[`context:${coordinate}`]),
+						isCatalogPinned: Boolean(coordinate && pinnedEntitySet.has(`context:${coordinate}`)),
+					}
+				},
+			)
+		},
+		[effectiveContextCoordinate, mapStackEntries, pinnedEntitySet],
+	)
 
-	const displayedContextRows = useMemo(() => {
-		const coordOf = (row: ContextRowData) => getContextCoordinate(row.context)
-		if (catalogTab === 'favorites') {
-			return contextTableData.filter((row) => row.isCatalogPinned)
-		}
-		if (catalogTab === 'recent') {
-			return contextTableData
-				.filter((row) => recentRankById.has(`context:${coordOf(row)}`))
-				.sort(
-					(a, b) =>
-						(recentRankById.get(`context:${coordOf(a)}`) ?? 0) -
-						(recentRankById.get(`context:${coordOf(b)}`) ?? 0),
-				)
-		}
-		return contextTableData
-	}, [contextTableData, catalogTab, recentRankById])
+	const contextTableData: ContextRowData[] = useMemo(
+		() => buildContextRows(filteredContexts),
+		[buildContextRows, filteredContexts],
+	)
+	const bulkContextTableData: ContextRowData[] = useMemo(
+		() => buildContextRows(contextResult.filteredItems),
+		[buildContextRows, contextResult.filteredItems],
+	)
+
+	const selectContextRowsForCatalog = useCallback(
+		(rows: ContextRowData[]) => {
+			const coordOf = (row: ContextRowData) => getContextCoordinate(row.context)
+			if (catalogTab === 'favorites') {
+				return rows.filter((row) => row.isCatalogPinned)
+			}
+			if (catalogTab === 'recent') {
+				return rows
+					.filter((row) => recentRankById.has(`context:${coordOf(row)}`))
+					.sort(
+						(a, b) =>
+							(recentRankById.get(`context:${coordOf(a)}`) ?? 0) -
+							(recentRankById.get(`context:${coordOf(b)}`) ?? 0),
+					)
+			}
+			return rows
+		},
+		[catalogTab, recentRankById],
+	)
+	const displayedContextRows = useMemo(
+		() => selectContextRowsForCatalog(contextTableData),
+		[contextTableData, selectContextRowsForCatalog],
+	)
+	const bulkContextRows = useMemo(
+		() => selectContextRowsForCatalog(bulkContextTableData),
+		[bulkContextTableData, selectContextRowsForCatalog],
+	)
 
 	const toggleDatasetFavorite = useCallback(
 		(event: GeoDataset) => {
@@ -310,6 +350,13 @@ export function GeoDatasetsPanelContent({
 		},
 		[togglePinnedEntity],
 	)
+
+	const addFilteredDatasetsToMapStack = useCallback(() => {
+		if (!onAddDatasetToMap) return
+		for (const row of bulkDatasetRows.filter((item) => !item.isInMapStack)) {
+			onAddDatasetToMap(row.event, 'browse-default')
+		}
+	}, [bulkDatasetRows, onAddDatasetToMap])
 
 	const datasetColumnsContext: DatasetColumnsContext = useMemo(
 		() => ({
@@ -349,24 +396,48 @@ export function GeoDatasetsPanelContent({
 	// Round F.3: context rows get the same stack-toggle primary verb as dataset
 	// rows. Reads/writes the store directly (like MapStackPanel does) so the
 	// verb works in every surface that renders this panel without prop drift.
-	const toggleContextOnMap = useCallback((context: MapContext) => {
-		const coordinate = getContextCoordinate(context)
-		if (!coordinate) return
-		const store = useEditorStore.getState()
-		const entryId = `context:${coordinate}`
-		if (store.mapStackEntries[entryId]) {
-			store.removeMapStackEntry(entryId)
-			return
+	const addContextToMapStack = useCallback(
+		(context: MapContext, source: 'manual' | 'browse-default') => {
+			const coordinate = getContextCoordinate(context)
+			if (!coordinate) return
+			const store = useEditorStore.getState()
+			const entryId = `context:${coordinate}`
+			if (store.mapStackEntries[entryId]) return
+			store.addMapStackEntry({
+				entityType: 'context',
+				entityKey: coordinate,
+				title: getContextDisplayName(context),
+				source,
+				visible: true,
+				pinned: false,
+			})
+		},
+		[],
+	)
+
+	const toggleContextOnMap = useCallback(
+		(context: MapContext) => {
+			const coordinate = getContextCoordinate(context)
+			if (!coordinate) return
+			const store = useEditorStore.getState()
+			const entryId = `context:${coordinate}`
+			if (store.mapStackEntries[entryId]) {
+				store.removeMapStackEntry(entryId)
+				return
+			}
+			addContextToMapStack(context, 'manual')
+		},
+		[addContextToMapStack],
+	)
+
+	const addFilteredContextsToMapStack = useCallback(() => {
+		for (const row of bulkContextRows.filter((item) => !item.isInMapStack)) {
+			addContextToMapStack(row.context, 'browse-default')
 		}
-		store.addMapStackEntry({
-			entityType: 'context',
-			entityKey: coordinate,
-			title: getContextDisplayName(context),
-			source: 'manual',
-			visible: true,
-			pinned: false,
-		})
-	}, [])
+	}, [bulkContextRows, addContextToMapStack])
+
+	const stackableBulkDatasetCount = bulkDatasetRows.filter((row) => !row.isInMapStack).length
+	const stackableBulkContextCount = bulkContextRows.filter((row) => !row.isInMapStack).length
 
 	const contextColumnsContext: ContextColumnsContext = useMemo(
 		() => ({
@@ -409,6 +480,19 @@ export function GeoDatasetsPanelContent({
 	// search toolbar below.
 	const titleAccessory = (
 		<>
+			<BulkMapStackButton
+				count={isDatasets ? stackableBulkDatasetCount : stackableBulkContextCount}
+				onClick={
+					isDatasets
+						? onAddDatasetToMap
+							? addFilteredDatasetsToMapStack
+							: undefined
+						: addFilteredContextsToMapStack
+				}
+				label={
+					isDatasets ? 'Add filtered datasets to map stack' : 'Add filtered contexts to map stack'
+				}
+			/>
 			<div className="inline-flex items-center gap-0.5 rounded-[3px] border border-border bg-muted p-0.5">
 				{(
 					[
