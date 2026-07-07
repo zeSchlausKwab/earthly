@@ -327,3 +327,27 @@ func TestDeleteEventRemovesCoordinateDoc(t *testing.T) {
 		t.Fatalf("deleted event still searchable: %d hits", len(hits))
 	}
 }
+
+func TestSearchAsYouTypePrefix(t *testing.T) {
+	b, raw := newTestBackend(t)
+	saveBoth(t, b, raw, viennaDataset(t))
+
+	// Partial last token must prefix-match (typeahead semantics).
+	for _, q := range []string{"steph", "stephansdom", "inne"} {
+		hits := collect(b.QueryEvents(nostr.Filter{Search: q}, 10))
+		if len(hits) != 1 {
+			t.Errorf("prefix search %q returned %d, want 1", q, len(hits))
+		}
+	}
+
+	// Multi-word: full words + partial last token.
+	hits := collect(b.QueryEvents(nostr.Filter{Search: "vienna dist"}, 10))
+	if len(hits) != 1 {
+		t.Errorf("multi-word prefix search returned %d, want 1", len(hits))
+	}
+
+	// Nonsense prefix stays empty.
+	if hits := collect(b.QueryEvents(nostr.Filter{Search: "xyzzy"}, 10)); len(hits) != 0 {
+		t.Errorf("nonsense prefix matched %d docs", len(hits))
+	}
+}

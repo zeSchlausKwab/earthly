@@ -15,6 +15,7 @@ export {
 	fetchSearchCapability,
 	supportsSearchExtensions,
 } from './capability'
+export { searchEntityEvents } from './execute'
 export { buildSearchString, hasExtensions, stripExtensions } from './grammar'
 export type {
 	GeoRelation,

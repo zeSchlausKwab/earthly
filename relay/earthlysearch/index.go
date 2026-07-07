@@ -3,6 +3,7 @@ package earthlysearch
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"sync/atomic"
 
 	"fiatjaf.com/nostr"
@@ -124,12 +125,26 @@ func (b *Backend) Init() error {
 	}
 
 	index, err := bleve.Open(b.Path)
-	if err == bleve.ErrorIndexPathDoesNotExist {
+	switch err {
+	case nil:
+	case bleve.ErrorIndexPathDoesNotExist:
 		index, err = bleve.New(b.Path, buildIndexMapping())
 		if err != nil {
 			return fmt.Errorf("earthlysearch: creating index: %w", err)
 		}
-	} else if err != nil {
+	case bleve.ErrorIndexMetaMissing, bleve.ErrorIndexMetaCorrupt:
+		// The index is derived data (D-08): an empty or corrupt index dir is
+		// wiped and rebuilt from the event store, never a fatal condition.
+		// Other open errors (e.g. a lock held by another process) stay fatal.
+		b.Log.Warn("unusable search index dir — recreating", "path", b.Path, "err", err)
+		if err := os.RemoveAll(b.Path); err != nil {
+			return fmt.Errorf("earthlysearch: wiping unusable index: %w", err)
+		}
+		index, err = bleve.New(b.Path, buildIndexMapping())
+		if err != nil {
+			return fmt.Errorf("earthlysearch: recreating index: %w", err)
+		}
+	default:
 		return fmt.Errorf("earthlysearch: opening index: %w", err)
 	}
 

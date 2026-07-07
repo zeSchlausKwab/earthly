@@ -3,6 +3,7 @@ package earthlysearch
 import (
 	"fmt"
 	"iter"
+	"strings"
 	"time"
 
 	"fiatjaf.com/nostr"
@@ -38,6 +39,31 @@ func matchClause(field, text string, boost float64) bleveQuery.Query {
 	m.SetField(field)
 	m.SetBoost(boost)
 	return m
+}
+
+// textClause builds search-as-you-type semantics for one field: full-token
+// match OR a prefix match on the last token (so "steph" finds
+// "Stephansplatz" while the user is still typing). Prefix queries are not
+// analyzed — lowercase to align with the standard analyzer's tokens.
+func textClause(field, text string, boost float64) bleveQuery.Query {
+	clause := bleve.NewDisjunctionQuery(matchClause(field, text, boost))
+
+	words := strings.Fields(strings.ToLower(text))
+	if len(words) > 0 {
+		last := words[len(words)-1]
+		prefix := bleve.NewPrefixQuery(last)
+		prefix.SetField(field)
+		prefix.SetBoost(boost * 0.8)
+		if len(words) > 1 {
+			// Preceding words must still match the field normally.
+			rest := matchClause(field, strings.Join(words[:len(words)-1], " "), boost)
+			clause.AddQuery(bleveQuery.NewConjunctionQuery([]bleveQuery.Query{rest, prefix}))
+		} else {
+			clause.AddQuery(prefix)
+		}
+	}
+
+	return clause
 }
 
 func numericRange(field string, min, max *float64) bleveQuery.Query {
@@ -115,10 +141,10 @@ func buildSearchQuery(filter nostr.Filter, params SearchParams) (bleveQuery.Quer
 
 	if len(params.Text) >= 2 {
 		text := bleve.NewDisjunctionQuery(
-			matchClause("title", params.Text, 3),
-			matchClause("feature_names", params.Text, 2),
-			matchClause("summary", params.Text, 1.5),
-			matchClause("body", params.Text, 1),
+			textClause("title", params.Text, 3),
+			textClause("feature_names", params.Text, 2),
+			textClause("summary", params.Text, 1.5),
+			textClause("body", params.Text, 1),
 		)
 		boolQ.AddMust(text)
 		hasClause = true

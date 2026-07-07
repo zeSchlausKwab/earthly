@@ -18,10 +18,7 @@
 
 import { nip19 } from 'nostr-tools'
 import type { NostrEvent } from 'nostr-tools'
-import { firstValueFrom, timeout, toArray } from 'rxjs'
 import { useEditorStore } from '@/features/geo-editor/store'
-import { pool, readRelaysFor } from '@/lib/nostr'
-import { isExpired } from '@/lib/nostr/expiry'
 import {
 	ARTICLE_KIND,
 	GEO_EVENT_KIND,
@@ -34,6 +31,7 @@ import {
 	buildSearchString,
 	type GeoRelation,
 	type SearchBBox,
+	searchEntityEvents,
 	type SearchQuery,
 	type SearchSort,
 } from '@/lib/search'
@@ -231,23 +229,16 @@ async function runSearch(query: SearchQuery, kinds: number[], limit: number) {
 		throw new Error('Empty query: provide text or a spatial/temporal constraint.')
 	}
 
-	const filter = { kinds, search, limit }
-	const events = await firstValueFrom(
-		pool.request(readRelaysFor('content'), filter).pipe(toArray(), timeout(RELAY_TIMEOUT_MS)),
-	).catch((err: unknown) => {
+	// searchEntityEvents dedupes and drops expired events (SPEC §10).
+	const events = await searchEntityEvents(query, {
+		kinds,
+		limit,
+		timeoutMs: RELAY_TIMEOUT_MS,
+	}).catch((err: unknown) => {
 		throw new Error(`Relay search failed or timed out: ${String(err)}`)
 	})
 
-	const now = Math.floor(Date.now() / 1000)
-	const seen = new Set<string>()
-	const results: CompactEntityResult[] = []
-	for (const event of events as NostrEvent[]) {
-		if (seen.has(event.id)) continue
-		seen.add(event.id)
-		if (isExpired(event, now)) continue
-		results.push(compactEntity(event))
-	}
-
+	const results = events.map(compactEntity)
 	return {
 		ok: true,
 		count: results.length,
