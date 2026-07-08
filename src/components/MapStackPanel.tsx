@@ -1245,6 +1245,44 @@ export function MapStackPanel({
 						/>
 					</div>
 				)
+			) : draftEntries.length > 0 ? (
+				// Collapsed + active draft: the draft editor ALWAYS stays in the Map
+				// Stack (redesign §9). Unmounting its row here would tear down the
+				// portal slot and bounce the editor into the left sidebar mid-edit —
+				// so the collapse hides everything EXCEPT the draft.
+				<div className={cn('overflow-y-auto', compact ? 'max-h-[calc(100vh-5rem)] p-1.5' : 'p-2')}>
+					<EntryGroupList
+						compact={compact}
+						sightingLayerEntries={[]}
+						beaconLayerEntries={[]}
+						draftEntries={draftEntries}
+						geoQueryEntries={[]}
+						geoQueryStatus={null}
+						contextEntries={[]}
+						datasetEntries={[]}
+						otherEntries={[]}
+						datasetByKey={datasetByKey}
+						contextByKey={contextByKey}
+						getDatasetKey={getDatasetKey}
+						getDatasetName={getDatasetName}
+						sourceLabel={sourceLabel}
+						actionIconClassName={actionIconClassName}
+						actionButtonClassName={actionButtonClassName}
+						geoEvents={geoEvents}
+						mapContextEvents={mapContextEvents}
+						onSetEntryIsolated={onSetEntryIsolated}
+						onZoomToDataset={onZoomToDataset}
+						onInspectDataset={onInspectDataset}
+						onLoadDataset={onLoadDataset}
+						onInspectContext={onInspectContext}
+						onRemoveEntry={onRemoveEntry}
+						onToggleEntryExclusion={toggleEntryExclusion}
+						onTogglePinned={toggleEntryPinned}
+						onReorderEntry={reorderEntry}
+						onOpenDraftEditor={onOpenDraftEditor}
+						onZoomToDraft={onZoomToDraft}
+					/>
+				</div>
 			) : null}
 		</section>
 	)

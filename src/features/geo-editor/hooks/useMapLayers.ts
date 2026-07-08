@@ -111,9 +111,14 @@ const BEACON_GLYPH_LAYER = 'geo-editor-beacon-glyph'
 // neutral --muted-foreground grey.
 const BEACON_COLOR_LIVE = '#fdc700' // --primary — the live focal point
 const BEACON_COLOR_GREY = '#737373' // --muted-foreground — stale/ended
-const GEOMETRY_PROXY_MAX_DIMENSION_PX = 48
-const GEOMETRY_PROXY_MAX_AREA_PX = 1600
-const LINE_PROXY_MAX_LENGTH_PX = 36
+// Tuned down from 48/1600/36: only geometry that is genuinely illegible on
+// screen (a couple dozen pixels) collapses — a 40px polygon was still very
+// much readable and collapsing it read as "my polygons turn into points".
+// The whole behavior is additionally OFF by default behind the
+// `geometryPointProxyEnabled` setting (Map settings → tiny-shape simplification).
+const GEOMETRY_PROXY_MAX_DIMENSION_PX = 24
+const GEOMETRY_PROXY_MAX_AREA_PX = 400
+const LINE_PROXY_MAX_LENGTH_PX = 18
 
 export {
 	REMOTE_FILL_LAYER,
@@ -469,6 +474,7 @@ export function useMapLayers({
 	const [styleInitVersion, setStyleInitVersion] = useState(0)
 	const blobPreviewCollection = useEditorStore((state) => state.blobPreviewCollection)
 	const pointClusteringEnabled = useEditorStore((state) => state.pointClusteringEnabled)
+	const geometryPointProxyEnabled = useEditorStore((state) => state.geometryPointProxyEnabled)
 	const syncRemoteDatasetsRef = useRef<(() => void) | null>(null)
 	const zoomSyncFrameRef = useRef<number | null>(null)
 
@@ -1160,6 +1166,7 @@ export function useMapLayers({
 
 				const geometryProxyFeatures = nonPointFeatures
 					.map((feature, index) => {
+						if (!geometryPointProxyEnabled) return null
 						if (!shouldCollapseGeometryToPointProxy(map, feature)) return null
 						const featureKey = String(feature.id ?? feature.properties?.featureId ?? index)
 						collapseToProxyById.add(featureKey)
@@ -1223,6 +1230,7 @@ export function useMapLayers({
 		remoteLayersReady,
 		mapRef,
 		pointClusteringEnabled,
+		geometryPointProxyEnabled,
 		styleInitVersion,
 	])
 

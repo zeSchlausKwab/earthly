@@ -177,6 +177,25 @@ export function ViewModePanel({
 		[onCommentGeometryVisibility],
 	)
 
+	// Zoom to a single feature from the read-only features list — inspect-view
+	// parity with the edit view's per-feature zoom.
+	const handleZoomToFeature = useCallback(
+		(feature: GeoJSON.Feature<GeoJSON.Geometry | null, GeoJSON.GeoJsonProperties>) => {
+			if (!feature.geometry || !onZoomToBounds) return
+			import('@turf/turf')
+				.then((turf) => {
+					const bbox = turf.bbox(feature as GeoJSON.Feature) as [number, number, number, number]
+					if (bbox.every((v) => Number.isFinite(v))) {
+						onZoomToBounds(bbox)
+					}
+				})
+				.catch(() => {
+					console.warn('Could not calculate bounds for feature')
+				})
+		},
+		[onZoomToBounds],
+	)
+
 	const handleZoomToCommentGeojson = useCallback(
 		(comment: GeoComment) => {
 			if (comment.boundingBox && onZoomToBounds) {
@@ -443,6 +462,7 @@ export function ViewModePanel({
 							featureCollection={viewDataset.featureCollection}
 							hiddenFeatureIds={hiddenFeatureIds}
 							className="max-h-[40vh] overflow-y-auto"
+							onZoomToFeature={handleZoomToFeature}
 						/>
 					</EntityPanelSurface>
 

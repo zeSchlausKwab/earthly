@@ -340,6 +340,8 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 	const setMapSource = useEditorStore((state) => state.setMapSource)
 	const pointClusteringEnabled = useEditorStore((state) => state.pointClusteringEnabled)
 	const setPointClusteringEnabled = useEditorStore((state) => state.setPointClusteringEnabled)
+	const geometryPointProxyEnabled = useEditorStore((state) => state.geometryPointProxyEnabled)
+	const setGeometryPointProxyEnabled = useEditorStore((state) => state.setGeometryPointProxyEnabled)
 	const mapLayers = useEditorStore((state) => state.mapLayers)
 	const [basemapStyle, setBasemapStyle] = useBasemapStyle()
 	const announcementSource = useEditorStore((state) => state.announcementSource)
@@ -490,6 +492,26 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 						checked={pointClusteringEnabled}
 						onCheckedChange={setPointClusteringEnabled}
 						aria-label="Toggle point clustering"
+					/>
+				</div>
+			</div>
+
+			<div className="rounded-lg border bg-card p-3">
+				<div className="flex items-start justify-between gap-4">
+					<div className="space-y-1">
+						<Label htmlFor="geometry-point-proxy" className="text-sm font-medium">
+							Simplify tiny shapes to points
+						</Label>
+						<p className="text-xs text-muted-foreground">
+							Replace polygons and lines that are only a few pixels on screen with a point marker
+							while zoomed far out.
+						</p>
+					</div>
+					<Switch
+						id="geometry-point-proxy"
+						checked={geometryPointProxyEnabled}
+						onCheckedChange={setGeometryPointProxyEnabled}
+						aria-label="Toggle tiny-shape point simplification"
 					/>
 				</div>
 			</div>

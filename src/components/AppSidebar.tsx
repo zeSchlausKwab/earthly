@@ -1054,7 +1054,21 @@ export function AppSidebar({
 		}
 
 		if (metaModeActive && isMetaMode(contentMode)) {
-			return renderMetaContent(contentMode)
+			// A meta view (settings/wallet/help/posts) takes over the SIDEBAR, but
+			// an in-progress geometry draft must not vanish with it — the draft
+			// editor lives in the Map Stack (redesign §9), so keep portaling it
+			// there while the sidebar shows the meta content. Without this the
+			// settings route made the whole edit UI disappear.
+			const keepDraftEditorInStack =
+				draftEditorSlot && editorStance === 'author' && activeEntity === 'geometry'
+			return (
+				<>
+					{renderMetaContent(contentMode)}
+					{keepDraftEditorInStack
+						? createPortal(<div className="min-w-0">{renderEntityContent()}</div>, draftEditorSlot)
+						: null}
+				</>
+			)
 		}
 
 		if (showEntityAsFullPanel || contentMode === 'edit' || contentMode === 'context-editor') {

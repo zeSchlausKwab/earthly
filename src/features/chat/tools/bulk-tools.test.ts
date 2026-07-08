@@ -13,7 +13,12 @@ import { isToolError } from './errors'
 import { advertise, dispatch, register, registry } from './registry'
 // RED (Wave 0): these symbols do not exist yet — they land in Plans 02/04/05. The
 // import itself must fail to resolve so this file is red on landing (intended W0).
-import { BULK_EDIT_MAX_FEATURES, parsePredicate, registerBulkTools } from './bulk-tools'
+import {
+	BULK_EDIT_MAX_FEATURES,
+	parsePredicate,
+	registerBulkTools,
+	resolveSelectionScope,
+} from './bulk-tools'
 
 /**
  * TOOLS-02 / TOOLS-03 / TOOLS-04 / STYLE-01 / STYLE-02 behavior contract, FIRST.
@@ -600,5 +605,46 @@ describe('style_by_attribute (STYLE-01 — materialize canonical style keys per 
 		const p = roundTripped.features.find((f) => f.id === 'p')
 		expect(p?.properties?.fillColor).toBe('#0000ff')
 		expect(p?.properties?.fillOpacity).toBe(0.5)
+	})
+})
+
+describe('resolveSelectionScope ($selected predicate field)', () => {
+	const feature = (id: string, props: Record<string, unknown> = {}) =>
+		({ id, geometry: { type: 'Point', coordinates: [0, 0] }, properties: props }) as never
+
+	it('scopes to the current selection with eq:true', () => {
+		useEditorStore.setState({ selectedFeatureIds: ['a', 'b'] })
+		const scope = resolveSelectionScope({ all: [{ field: '$selected', op: 'eq', value: true }] })
+		const out = scope.filter([feature('a'), feature('b'), feature('c')])
+		expect(out.map((f: { id: string }) => f.id)).toEqual(['a', 'b'])
+	})
+
+	it('inverts with eq:false and combines with property clauses', () => {
+		useEditorStore.setState({ selectedFeatureIds: ['a'] })
+		const scope = resolveSelectionScope({
+			all: [
+				{ field: '$selected', op: 'eq', value: false },
+				{ field: 'kind', op: 'eq', value: 'tree' },
+			],
+		})
+		const out = scope.filter([
+			feature('a', { kind: 'tree' }),
+			feature('b', { kind: 'tree' }),
+			feature('c', { kind: 'rock' }),
+		])
+		expect(out.map((f: { id: string }) => f.id)).toEqual(['b'])
+	})
+
+	it('rejects unsupported ops on $selected', () => {
+		expect(() =>
+			resolveSelectionScope({ all: [{ field: '$selected', op: 'contains', value: 'x' }] }),
+		).toThrow()
+	})
+
+	it('without $selected behaves like a plain predicate', () => {
+		useEditorStore.setState({ selectedFeatureIds: ['a'] })
+		const scope = resolveSelectionScope({ all: [{ field: 'kind', op: 'eq', value: 'tree' }] })
+		const out = scope.filter([feature('a', { kind: 'rock' }), feature('b', { kind: 'tree' })])
+		expect(out.map((f: { id: string }) => f.id)).toEqual(['b'])
 	})
 })
