@@ -9,6 +9,7 @@ import {
 	resolvePendingDiff,
 	clearPendingDiffs,
 	setPendingDiffChatContext,
+	setPendingDiffToolContext,
 } from './pendingDiffStore'
 
 const DIFF: DatasetDiff = {
@@ -20,6 +21,7 @@ const DIFF: DatasetDiff = {
 beforeEach(() => {
 	clearPendingDiffs()
 	setPendingDiffChatContext(null)
+	setPendingDiffToolContext(null)
 })
 
 describe('emitDiffBlock registration', () => {
@@ -38,6 +40,15 @@ describe('emitDiffBlock registration', () => {
 		const untagged = emitDiffBlock(DIFF)
 		expect(getPendingDiff(inChatA.id)?.chatId).toBe('chat-a')
 		expect(getPendingDiff(untagged.id)?.chatId).toBeUndefined()
+	})
+
+	test('stamps the current tool-call context so cards can anchor to their turn', () => {
+		setPendingDiffToolContext('style_by_attribute:12')
+		const anchored = emitDiffBlock(DIFF)
+		setPendingDiffToolContext(null)
+		const unanchored = emitDiffBlock(DIFF)
+		expect(getPendingDiff(anchored.id)?.toolCallId).toBe('style_by_attribute:12')
+		expect(getPendingDiff(unanchored.id)?.toolCallId).toBeUndefined()
 	})
 })
 

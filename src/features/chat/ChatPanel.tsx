@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { resolveProvider, useChatStore } from './store'
 import { composeOutboundContent } from './composeOutboundContent'
@@ -52,7 +52,7 @@ import { isToolError, type ToolError } from './tools/errors'
 import { ChatGeometryAttachment } from './ChatGeometryAttachment'
 import { CodeRunDisclosure, parseRunCodeResult } from './CodeRunDisclosure'
 import { BindingChipContainer } from './safeEditing/BindingChip'
-import { PendingDiffList } from './safeEditing/PendingDiffList'
+import { InlineDiffCards, PendingDiffList } from './safeEditing/PendingDiffList'
 import { AttachmentCard, parseIngestHandlePart } from './components/AttachmentCard'
 import {
 	buildConversationDump,
@@ -805,11 +805,14 @@ export function ChatPanel({
 				) : (
 					<>
 						{renderedMessages.map(({ message, key }) => (
-							<MessageBubble
-								key={key}
-								message={message}
-								runCodeSourceByCallId={runCodeSourceByCallId}
-							/>
+							<Fragment key={key}>
+								<MessageBubble message={message} runCodeSourceByCallId={runCodeSourceByCallId} />
+								{/* Safe-editing diff cards render INLINE under the tool turn
+								    that emitted them — temporal order, not a trailing clump. */}
+								{message.role === 'tool' && typeof message.tool_call_id === 'string' ? (
+									<InlineDiffCards toolCallId={message.tool_call_id} />
+								) : null}
+							</Fragment>
 						))}
 
 						{/* Streaming message */}

@@ -20,21 +20,15 @@ function usePendingDiffs(): PendingDiffEntry[] {
 	return useSyncExternalStore(subscribePendingDiffs, getAllPendingDiffs, getAllPendingDiffs)
 }
 
-/**
- * PendingDiffList — the transcript region that renders every safe-editing diff
- * block (SAFE-03). Each entry renders a `DatasetDiffDisclosure`; a `pending`
- * block exposes inline Apply/Cancel wired to `resolvePendingDiff` (resolving the
- * gate's awaited confirm), and a resolved/applied block shows the outcome (D-12)
- * with an "Undo last AI edit" affordance that reverts the last dataset snapshot
- * (SAFE-06 surface).
- */
-export function PendingDiffList() {
+/** Entries belonging to the ACTIVE chat (untagged legacy entries show everywhere). */
+function useActiveChatDiffs(): PendingDiffEntry[] {
 	const allEntries = usePendingDiffs()
 	const activeChatId = useChatStore((state) => state.activeChatId)
-	// Diff cards belong to the chat whose run emitted them — an "APPLIED" card
-	// from the last chat must not stick around in a new one. Untagged entries
-	// (non-chat emitters) keep rendering everywhere.
-	const entries = allEntries.filter((entry) => !entry.chatId || entry.chatId === activeChatId)
+	return allEntries.filter((entry) => !entry.chatId || entry.chatId === activeChatId)
+}
+
+/** One stack of diff disclosures (shared by the inline and trailing renderers). */
+function DiffCardStack({ entries }: { entries: PendingDiffEntry[] }) {
 	if (entries.length === 0) return null
 
 	const undoLastAiEdit = () => {
@@ -70,4 +64,38 @@ export function PendingDiffList() {
 			))}
 		</div>
 	)
+}
+
+/**
+ * InlineDiffCards — the diff block(s) emitted by ONE tool call, rendered
+ * directly under that tool turn in the transcript. This is what preserves
+ * temporal ordering: each APPLIED/CANCELLED card sits at the point in the
+ * conversation where the edit actually happened.
+ */
+export function InlineDiffCards({ toolCallId }: { toolCallId: string }) {
+	const entries = useActiveChatDiffs().filter((entry) => entry.toolCallId === toolCallId)
+	return <DiffCardStack entries={entries} />
+}
+
+/**
+ * PendingDiffList — the trailing transcript region for diff blocks that have
+ * no anchor turn yet (SAFE-03). While a gate is awaiting Apply/Cancel its tool
+ * message does not exist yet, so the live confirmation renders here at the
+ * bottom where the user is looking; once resolved, the tool message lands and
+ * the card moves inline via {@link InlineDiffCards}. Untagged (pre-fix) entries
+ * also render here.
+ */
+export function PendingDiffList() {
+	const chatEntries = useActiveChatDiffs()
+	const messages = useChatStore((state) => state.messages)
+	// Anchored = a tool message for the emitting call is present in the transcript.
+	const anchoredCallIds = new Set(
+		messages
+			.filter((message) => message.role === 'tool' && typeof message.tool_call_id === 'string')
+			.map((message) => message.tool_call_id as string),
+	)
+	const entries = chatEntries.filter(
+		(entry) => !entry.toolCallId || !anchoredCallIds.has(entry.toolCallId),
+	)
+	return <DiffCardStack entries={entries} />
 }

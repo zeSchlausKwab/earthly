@@ -58,6 +58,13 @@ export interface PendingDiffEntry {
 	 * owning chat — applied/cancelled cards must not leak across chats.
 	 */
 	chatId?: string
+	/**
+	 * The tool call whose execution emitted this diff (stamped from the
+	 * module-level context the chat store sets around each executeToolCall).
+	 * Lets the transcript render the card INLINE under its own tool turn —
+	 * a trailing clump of APPLIED cards loses all temporal ordering.
+	 */
+	toolCallId?: string
 }
 
 export interface EmitDiffBlockHandle {
@@ -92,6 +99,13 @@ let currentDiffChatId: string | null = null
 
 export function setPendingDiffChatContext(chatId: string | null): void {
 	currentDiffChatId = chatId
+}
+
+/** The tool call currently executing (set around each executeToolCall). */
+let currentDiffToolCallId: string | null = null
+
+export function setPendingDiffToolContext(toolCallId: string | null): void {
+	currentDiffToolCallId = toolCallId
 }
 
 const pendingDiffs = new Map<string, PendingDiffEntry>()
@@ -133,6 +147,7 @@ export function emitDiffBlock(diff: DatasetDiff, opts?: EmitDiffBlockOptions): E
 		headline: opts?.headline,
 		intent: opts?.intent,
 		chatId: currentDiffChatId ?? undefined,
+		toolCallId: currentDiffToolCallId ?? undefined,
 	})
 	notify()
 	return { id }
