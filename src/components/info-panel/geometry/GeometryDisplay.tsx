@@ -8,9 +8,19 @@ import type {
 	MultiPolygon,
 } from 'geojson'
 import { ChevronDown, ChevronRight, Cloud } from 'lucide-react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { formatGeometryMeasurement } from '@/features/geo-editor/api/measure'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+
+/**
+ * Passive companion (AI_GEO_AWARENESS §2): computed length/area/perimeter for
+ * the geometry, memoized per geometry object (rows re-render in lists; the
+ * store replaces geometry objects on edit, so identity is a fresh-enough key).
+ */
+function useGeometryMeasurement(geometry: Geometry): string | null {
+	return useMemo(() => formatGeometryMeasurement(geometry), [geometry])
+}
 
 interface CoordinateDisplayProps {
 	coordinates: number[]
@@ -44,11 +54,19 @@ interface GeometryHeaderProps {
 	type: string
 	count: number
 	unit: string
+	measurement?: string | null
 	expanded: boolean
 	onToggle: () => void
 }
 
-function GeometryHeader({ type, count, unit, expanded, onToggle }: GeometryHeaderProps) {
+function GeometryHeader({
+	type,
+	count,
+	unit,
+	measurement,
+	expanded,
+	onToggle,
+}: GeometryHeaderProps) {
 	return (
 		<Button
 			type="button"
@@ -61,6 +79,7 @@ function GeometryHeader({ type, count, unit, expanded, onToggle }: GeometryHeade
 			<span className="text-muted-foreground">
 				({count} {unit})
 			</span>
+			{measurement && <span className="text-muted-foreground">· {measurement}</span>}
 		</Button>
 	)
 }
@@ -81,6 +100,7 @@ export function PointDisplay({ geometry }: { geometry: Point }) {
 export function LineStringDisplay({ geometry }: { geometry: LineString }) {
 	const [expanded, setExpanded] = useState(false)
 	const coords = geometry.coordinates
+	const measurement = useGeometryMeasurement(geometry)
 
 	return (
 		<div className="text-xs">
@@ -88,6 +108,7 @@ export function LineStringDisplay({ geometry }: { geometry: LineString }) {
 				type="LineString"
 				count={coords.length}
 				unit="vertices"
+				measurement={measurement}
 				expanded={expanded}
 				onToggle={() => setExpanded(!expanded)}
 			/>
@@ -107,6 +128,7 @@ export function PolygonDisplay({ geometry }: { geometry: Polygon }) {
 	const [expanded, setExpanded] = useState(false)
 	const rings = geometry.coordinates
 	const totalVertices = rings.reduce((sum, ring) => sum + ring.length, 0)
+	const measurement = useGeometryMeasurement(geometry)
 
 	return (
 		<div className="text-xs">
@@ -114,6 +136,7 @@ export function PolygonDisplay({ geometry }: { geometry: Polygon }) {
 				type="Polygon"
 				count={totalVertices}
 				unit={`vertices, ${rings.length} ring${rings.length > 1 ? 's' : ''}`}
+				measurement={measurement}
 				expanded={expanded}
 				onToggle={() => setExpanded(!expanded)}
 			/>
@@ -171,6 +194,7 @@ export function MultiLineStringDisplay({ geometry }: { geometry: MultiLineString
 	const [expanded, setExpanded] = useState(false)
 	const lines = geometry.coordinates
 	const totalVertices = lines.reduce((sum, line) => sum + line.length, 0)
+	const measurement = useGeometryMeasurement(geometry)
 
 	return (
 		<div className="text-xs">
@@ -178,6 +202,7 @@ export function MultiLineStringDisplay({ geometry }: { geometry: MultiLineString
 				type="MultiLineString"
 				count={lines.length}
 				unit={`lines, ${totalVertices} vertices`}
+				measurement={measurement}
 				expanded={expanded}
 				onToggle={() => setExpanded(!expanded)}
 			/>
@@ -213,6 +238,7 @@ export function MultiPolygonDisplay({ geometry }: { geometry: MultiPolygon }) {
 		(sum, poly) => sum + poly.reduce((s, ring) => s + ring.length, 0),
 		0,
 	)
+	const measurement = useGeometryMeasurement(geometry)
 
 	return (
 		<div className="text-xs">
@@ -220,6 +246,7 @@ export function MultiPolygonDisplay({ geometry }: { geometry: MultiPolygon }) {
 				type="MultiPolygon"
 				count={polygons.length}
 				unit={`polygons, ${totalVertices} vertices`}
+				measurement={measurement}
 				expanded={expanded}
 				onToggle={() => setExpanded(!expanded)}
 			/>

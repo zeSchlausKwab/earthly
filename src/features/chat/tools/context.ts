@@ -2,13 +2,85 @@
  * Map context snapshot helpers for chat tool system messages.
  */
 
+import {
+	aggregateMeasurements,
+	type DatasetMeasurements,
+	summarizeFeatureMeasurements,
+} from '@/features/geo-editor/api/measure'
+import type { EditorFeature } from '@/features/geo-editor/core/types'
 import { useEditorStore } from '@/features/geo-editor/store'
+import { describeViewport } from '@/lib/geo/describeLocation'
+import { getLoadedWorldLayer } from '@/lib/geo/worldData'
+import { lonLatToWorldGeohash } from '@/lib/worldGeohash'
 import type { ChatMessage } from '../routstr'
 import type { CachedMapSnapshot } from './types'
 import { MAX_SNAPSHOT_CACHE_SIZE } from './types'
 import { countFeaturesByGeometry } from './helpers'
 
 export const mapSnapshotCache = new Map<string, CachedMapSnapshot>()
+
+/**
+ * Passive-companion dataset totals (AI_GEO_AWARENESS §2): delivered in every
+ * context message so the model usually needn't call `measure` at all. Cached
+ * by the store's features-array IDENTITY — Zustand replaces the array on any
+ * mutation, so a WeakMap entry is exactly as fresh as the dataset.
+ */
+const datasetMeasurementCache = new WeakMap<EditorFeature[], DatasetMeasurements | null>()
+
+function getDatasetMeasurements(features: EditorFeature[]): DatasetMeasurements | null {
+	if (datasetMeasurementCache.has(features)) {
+		return datasetMeasurementCache.get(features) ?? null
+	}
+	const aggregates = aggregateMeasurements(features)
+	datasetMeasurementCache.set(features, aggregates)
+	return aggregates
+}
+
+/**
+ * Named viewport anchors (AI_GEO_AWARENESS §5): countries in view, a textual
+ * description of the center, and the center geohash. Built synchronously from
+ * the eagerly-preloaded world layers (absent until they resolve — the context
+ * message simply omits the anchors then) and cached per rounded viewport so a
+ * static map costs one computation, not one per message.
+ */
+interface ViewportAnchorSummary {
+	countriesInView: string[]
+	center: string
+	geohash: string
+}
+
+const viewportAnchorCache = new Map<string, ViewportAnchorSummary | null>()
+const MAX_ANCHOR_CACHE_SIZE = 16
+
+function getViewportAnchors(
+	viewport: [number, number, number, number] | null | undefined,
+): ViewportAnchorSummary | null {
+	if (!viewport || viewport.some((value) => !Number.isFinite(value))) return null
+	const countries = getLoadedWorldLayer('countries_110m')
+	const cities = getLoadedWorldLayer('cities_110m')
+	const land = getLoadedWorldLayer('land_50m')
+	const coastline = getLoadedWorldLayer('coastline_110m')
+	if (!countries && !cities && !land) return null
+
+	const key = viewport.map((value) => value.toFixed(2)).join(',')
+	const cached = viewportAnchorCache.get(key)
+	if (cached !== undefined) return cached
+
+	const anchors = describeViewport({ land, countries, cities, coastline }, viewport)
+	const centerLon = (viewport[0] + viewport[2]) / 2
+	const centerLat = (viewport[1] + viewport[3]) / 2
+	const summary: ViewportAnchorSummary = {
+		countriesInView: anchors.countriesInView,
+		center: anchors.center.text,
+		geohash: lonLatToWorldGeohash(6, centerLon, centerLat),
+	}
+	if (viewportAnchorCache.size >= MAX_ANCHOR_CACHE_SIZE) {
+		const oldestKey = viewportAnchorCache.keys().next().value
+		if (oldestKey !== undefined) viewportAnchorCache.delete(oldestKey)
+	}
+	viewportAnchorCache.set(key, summary)
+	return summary
+}
 
 export function getMapContextSnapshot() {
 	const store = useEditorStore.getState()
@@ -19,11 +91,20 @@ export function getMapContextSnapshot() {
 	const selectedEditorFeatures = store.features.filter((feature) =>
 		selectedFeatures.has(feature.id),
 	)
-	const selectedSummary = selectedEditorFeatures.slice(0, 20).map((feature) => ({
-		id: feature.id,
-		geometryType: feature.geometry?.type ?? 'Unknown',
-		name: typeof feature.properties?.name === 'string' ? feature.properties?.name : undefined,
-	}))
+	const selectedSummary = selectedEditorFeatures.slice(0, 20).map((feature) => {
+		// Passive measurements (AI_GEO_AWARENESS §2): the model frequently needs
+		// length/area of what the user selected — injecting them here means it
+		// often doesn't have to call `measure` at all. (undefined keys drop out
+		// of the JSON serialization.)
+		const measurements = summarizeFeatureMeasurements(feature)
+		return {
+			id: feature.id,
+			geometryType: feature.geometry?.type ?? 'Unknown',
+			name: typeof feature.properties?.name === 'string' ? feature.properties?.name : undefined,
+			lengthKm: measurements?.lengthKm,
+			areaKm2: measurements?.areaKm2,
+		}
+	})
 	const visibleMapLayers = store.mapLayers
 		.filter((layer) => layer.enabled)
 		.map((layer) => ({
@@ -58,6 +139,7 @@ export function getMapContextSnapshot() {
 		mode: store.mode,
 		datasetMetadata,
 		featureCount: store.features.length,
+		datasetMeasurements: getDatasetMeasurements(store.features),
 		selectedFeatureCount: store.selectedFeatureIds.length,
 		selectedFeatures: selectedSummary,
 		selectedFeatureGeometryCounts: countFeaturesByGeometry(selectedEditorFeatures),
@@ -70,6 +152,7 @@ export function getMapContextSnapshot() {
 			zoom,
 			bbox: viewport,
 		},
+		viewportAnchors: getViewportAnchors(viewport),
 		visibleLayers: visibleMapLayers,
 		visibleDatasets: visibleDatasetIds,
 		mapSource: store.mapSource,
@@ -80,6 +163,8 @@ export function getCompactMapContextForPrompt(snapshot: ReturnType<typeof getMap
 	const selectedFeatureHints = snapshot.selectedFeatures.slice(0, 4).map((feature) => ({
 		geometryType: feature.geometryType,
 		name: feature.name ?? null,
+		...(feature.lengthKm !== undefined ? { lengthKm: feature.lengthKm } : {}),
+		...(feature.areaKm2 !== undefined ? { areaKm2: feature.areaKm2 } : {}),
 	}))
 
 	const visibleLayerIds = snapshot.visibleLayers.map((layer) => layer.id).slice(0, 8)
@@ -88,8 +173,10 @@ export function getCompactMapContextForPrompt(snapshot: ReturnType<typeof getMap
 		editorReady: snapshot.editorReady,
 		mode: snapshot.mode,
 		featureCount: snapshot.featureCount,
+		datasetMeasurements: snapshot.datasetMeasurements,
 		selectedFeatureCount: snapshot.selectedFeatureCount,
 		mapView: snapshot.mapView,
+		viewportAnchors: snapshot.viewportAnchors,
 		featureGeometryCounts: snapshot.featureGeometryCounts,
 		selectedFeatureGeometryCounts: snapshot.selectedFeatureGeometryCounts,
 		mapSource: snapshot.mapSource,
@@ -106,6 +193,7 @@ export function getCompactMapContextForTool(snapshot: ReturnType<typeof getMapCo
 		mode: snapshot.mode,
 		datasetMetadata: snapshot.datasetMetadata,
 		featureCount: snapshot.featureCount,
+		datasetMeasurements: snapshot.datasetMeasurements,
 		selectedFeatureCount: snapshot.selectedFeatureCount,
 		featureGeometryCounts: snapshot.featureGeometryCounts,
 		selectedFeatureGeometryCounts: snapshot.selectedFeatureGeometryCounts,
@@ -140,6 +228,9 @@ export function createMapContextSystemMessage(): ChatMessage | null {
 			'Do not call query_osm_area as an unfiltered scan. Always include filters, filterSets, or concept.',
 			'For boundaries, prefer resolve_osm_entity -> get_osm_relation_geometry/get_country_boundary, then import using relationId or returned feature.',
 			'For routing and travel-time polygons, use valhalla_route and valhalla_isochrone.',
+			'Measurements are delivered passively: datasetMeasurements holds dataset totals and selected-feature hints carry lengthKm/areaKm2 — read those first. Call measure (one operation per call) only for something not already in context (distance/bearing between points, perimeter, centroid, bbox, nearest_point).',
+			'To ground coordinates in named places (country, nearest city, on-land/on-water, distance to coast), call describe_location with a point or bbox. Use it to sanity-check where drawn geometry actually landed.',
+			'viewportAnchors in the map state names what the user is looking at (countries in view, center description, geohash) — trust it over guessing from raw coordinates.',
 			'When a geometry-producing tool supports it, set toEditor=true to import directly and keep tool results compact.',
 			'If the user says "within this polygon" or explicitly attaches the current selection, use query_osm_area with selectedOnly=true.',
 			'If the user attached transient chat geometry, query_osm_area can use that attached geometry directly for the current request even when nothing is selected in the editor.',
@@ -156,7 +247,8 @@ export function createMapContextSystemMessage(): ChatMessage | null {
 			'When calling a tool, output strict JSON arguments only.',
 			'For well-known places (capitals, countries, major cities), use their known coordinates directly instead of geocoding. Only call search_location for genuinely ambiguous or unknown places.',
 			'Do not fetch OSM relation geometry or query OSM unless the task explicitly needs real boundary or feature geometry. For a simple shape (arc, circle, line between known points), compute it yourself or with run_code+turf.',
-			'In run_code, the result is the final bare expression OR a top-level `return <value>` (both work). Only `data`, `turf`, `authoring`, and `console` exist — there is no fetch/Buffer/process/require/window/document.',
+			'In run_code, the result is the final bare expression OR a top-level `return <value>` (both work). Only `data`, `turf`, `authoring`, `console`, `world`, and `pathfinder` exist — there is no fetch/Buffer/process/require/window/document.',
+			'For a route along a real network (sea lanes, rivers), use run_code with pathfinder("maritime_network", from, to) or another world layer/line dataset — never hand-emit long coordinate streams from memory.',
 			'Trust tool results: after a successful authoring write (a tool result with created/updated/deleted counts), do NOT re-verify with capture_map_snapshot or get_editor_state. The write result is authoritative.',
 			`Current map state JSON:\n${JSON.stringify(compact)}`,
 		].join('\n\n'),

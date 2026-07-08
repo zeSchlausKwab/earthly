@@ -44,6 +44,7 @@ import type { ToolEntry } from '@/features/chat/tools/registry'
 import type { Tool } from '@/features/chat/tools/types'
 import { buildReadSnapshot } from './readSnapshot'
 import { DEFAULT_SANDBOX_DEADLINE_MS, type SandboxTransport, runSandbox } from './sandboxHost'
+import { buildPostWriteValidation } from '@/features/chat/safeEditing/autoValidate'
 import { gateRunCodeBatch } from '@/features/chat/safeEditing/gateRunCode'
 import { getSafetyLevel } from '@/features/chat/safeEditing/safetyAccess'
 
@@ -133,11 +134,13 @@ const runCodeSchema: Tool = {
 		name: 'run_code',
 		description:
 			'Run JavaScript inside an isolated sandbox to author map geometry programmatically or compute over ingested data. ' +
-			'The sandbox exposes EXACTLY four globals — `authoring` (the map-mutation API: addFeature, writeGeoJSON, circle, buffer, setDatasetMetadata), ' +
+			'The sandbox exposes EXACTLY six globals — `authoring` (the map-mutation API: addFeature, writeGeoJSON, circle, buffer, setDatasetMetadata), ' +
 			'`turf` (a curated @turf/turf subset: circle, distance, buffer, area, length, bearing, destination, point, lineString, along, nearestPointOnLine, booleanPointInPolygon, centroid), ' +
 			'`data` (read-only: `data.datasets[handleId]` = the ARRAY of ingested rows for that handle (only for handles you pass in `handles`); ' +
 			'`data.features` = an ARRAY of GeoJSON Features for the current map — iterate it directly, e.g. `data.features.find(...)` / `data.features.map(...)`, NOT `data.features.features` (it is a Feature[], not a FeatureCollection)), ' +
-			'and `console` — and NOTHING else. Node/host globals are NOT available: no `fetch`, `Buffer`, `process`, `require`, `XMLHttpRequest`, `localStorage`, `window`, or `document`. ' +
+			'`console`, `world` (bundled read-only reference layers: `world.layers` lists ids like land_110m, coastline_110m, countries_110m, borders_110m, rivers_110m, lakes_110m, cities_110m, land_50m, maritime_network; `world.get(id)` returns that FeatureCollection — REAL anchors, so construct geometry FROM them instead of emitting coordinates from memory), ' +
+			'and `pathfinder(network, [fromLon,fromLat], [toLon,toLat])` (A* shortest path over any LineString network; `network` is a world layer id like "maritime_network" or an inline FeatureCollection; endpoints auto-snap to the nearest network vertex; returns { path (LineString Feature), lengthKm, from/to snap info }. For a realistic sea route: `const r = pathfinder("maritime_network", [4.5,51.9], [51.53,25.9]); authoring.writeGeoJSON(r.path)`) ' +
+			'— and NOTHING else. Node/host globals are NOT available: no `fetch`, `Buffer`, `process`, `require`, `XMLHttpRequest`, `localStorage`, `window`, or `document`. ' +
 			'RETURN: either end with a bare expression (its value is the result) OR write a top-level `return <value>` — both work. ' +
 			'Drawing happens via `authoring.*` — pass a GeoJSON Feature (a bare Geometry is auto-wrapped). ' +
 			'`authoring.writeGeoJSON(input, { replace? })` accepts a Feature[], a FeatureCollection object, OR a single Feature; ' +
@@ -348,12 +351,20 @@ export function registerSandboxTools(register: (entry: ToolEntry) => void): void
 				}
 			}
 
+			// AI_GEO_AWARENESS §1: auto-append advisory topology + land/water findings
+			// over exactly the features this batch touched (added + modified-after),
+			// so the model self-corrects in the next round without prompting.
+			const written = [
+				...gateResult.diff.added,
+				...gateResult.diff.modified.map((change) => change.after),
+			]
 			return {
 				ok: true,
 				counts,
 				consoleLines: result.consoleLines,
 				truncated: result.truncated,
 				returnValue: result.returnValue,
+				...(written.length > 0 ? { validation: await buildPostWriteValidation(written) } : {}),
 			}
 		},
 	})

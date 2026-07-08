@@ -71,6 +71,7 @@ import type { EditorMode } from '../core'
 import { useEditorStore } from '../store'
 import type { GeoSearchResult } from '../types'
 import { CreateMapPopover } from './CreateMapPopover'
+import { MeasurePopover } from './MeasurePopover'
 import { MapSettingsPanel } from './MapSettingsPanel'
 import { ShareExportPopover } from './share/ShareExportPopover'
 import {
@@ -1458,6 +1459,7 @@ export function Toolbar({
 						/>
 					) : null}
 					<CreateMapPopover small />
+					<MeasurePopover />
 					<ShareExportPopover small />
 					<ThemeToggleButton />
 					<Popover open={showMapSettings} onOpenChange={setShowMapSettings}>

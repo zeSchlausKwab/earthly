@@ -31,6 +31,7 @@
 
 import { runOptimize } from '@/features/chat/geometry/optimizeClient'
 import type { OptimizeFeatureCollection, OptimizeReport } from '@/features/chat/geometry/types'
+import { buildPostWriteValidation } from '@/features/chat/safeEditing/autoValidate'
 import { gateBulkApply } from '@/features/chat/safeEditing/gateBulkEdit'
 import { getSafetyLevel } from '@/features/chat/safeEditing/safetyAccess'
 import { createAuthoring } from '@/features/geo-editor/api/authoring'
@@ -158,7 +159,19 @@ export function registerGeometryTools(register: (entry: ToolEntry) => void): voi
 
 			// Return the metrics + reachedBudget so the model sees the before/after and the
 			// honest unreachable-budget signal (the user ships it via the normal flow).
-			return { cancelled: outcome.status === 'cancelled', ...report }
+			// AI_GEO_AWARENESS §1: re-validate exactly the features the optimizer touched
+			// (simplification can shift vertices) and append the advisory findings.
+			const touched = [
+				...outcome.diff.added,
+				...outcome.diff.modified.map((change) => change.after),
+			]
+			return {
+				cancelled: outcome.status === 'cancelled',
+				...report,
+				...(outcome.status === 'applied' && touched.length > 0
+					? { validation: await buildPostWriteValidation(touched) }
+					: {}),
+			}
 		},
 	})
 }

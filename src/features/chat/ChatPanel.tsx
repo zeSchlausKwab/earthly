@@ -45,6 +45,7 @@ import {
 	Code2,
 	Bug,
 } from 'lucide-react'
+import { preloadWorldData } from '@/lib/geo/worldData'
 import { estimateTokens, type ChatMessage, type ToolCall, type ProviderType } from './routstr'
 import { analyzeToolResultGeometryContent, bakeToolResultContentToEditor } from './tools'
 import { isToolError, type ToolError } from './tools/errors'
@@ -198,6 +199,13 @@ export function ChatPanel({
 	const [nowMs, setNowMs] = useState(Date.now())
 	const messagesEndRef = useRef<HTMLDivElement>(null)
 	const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+	// Eagerly load the world reference layers (anchors, land/water validation,
+	// sandbox `world`) as soon as the chat opens, so the synchronous consumers
+	// find them resolved by the first message (AI_GEO_AWARENESS §4).
+	useEffect(() => {
+		preloadWorldData()
+	}, [])
 
 	// Load models on mount
 	useEffect(() => {

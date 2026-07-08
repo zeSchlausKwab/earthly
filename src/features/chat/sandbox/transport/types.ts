@@ -20,6 +20,21 @@ export interface RecordedCall {
 	args: unknown[]
 }
 
+/**
+ * Realm-local accessor for the bundled world reference layers (AI_GEO_AWARENESS
+ * §4). NOT part of the postMessage contract — each realm (worker shell, main-
+ * thread fallback) builds its own from its own `worldData` cache and hands it
+ * to `runSandboxCode` directly. Synchronous by design: the VM eval cannot
+ * await, so `get` returns whatever is already cached (the worker prefetches
+ * all layers at spawn) or null.
+ */
+export interface SandboxWorldAccess {
+	/** The known layer ids (advertised as `world.layers` inside the VM). */
+	layers(): string[]
+	/** The resolved FeatureCollection for a layer, or null when not cached. */
+	get(id: string): unknown | null
+}
+
 /** Request posted host → worker to execute one run. */
 export interface SandboxWorkerRequest {
 	id: string

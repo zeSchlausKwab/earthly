@@ -2,10 +2,14 @@
  * The QuickJS isolation boundary — the greenfield spike deliverable (Wave 1).
  *
  * This Web Worker instantiates a QuickJS-WASM context with an EMPTY global and
- * injects EXACTLY four host objects — `authoring` (recording), `turf`, `data`,
- * `console` — and nothing else. Because no `fetch` / `localStorage` / `document`
- * / `window` / signer / wallet is ever created in the context, CODE-01
- * confinement holds BY OMISSION (proven in sandboxHost.test.ts).
+ * injects EXACTLY six host objects — `authoring` (recording), `turf`, `data`,
+ * `console`, `world` (read-only bundled reference layers), `pathfinder` (A*
+ * over a LineString network) — and nothing else. Because no `fetch` /
+ * `localStorage` / `document` / `window` / signer / wallet is ever created in
+ * the context, CODE-01 confinement holds BY OMISSION (proven in
+ * sandboxHost.test.ts). `world`/`pathfinder` data is fetched by the WORKER
+ * (outside the VM) at spawn and handed in read-only — the VM still cannot
+ * reach the network.
  *
  * Mirrors `src/features/chat/ingest/ingest.worker.ts` message discipline: a
  * single `self.onmessage` that branches on a discriminated `{ id, ... }` request,
@@ -41,10 +45,17 @@ import {
 	RELEASE_SYNC,
 	shouldInterruptAfterDeadline,
 } from 'quickjs-emscripten'
+import { getLoadedWorldLayer, loadWorldLayer, WORLD_LAYER_IDS } from '@/lib/geo/worldData'
 import { isWorkerScope } from '@/lib/isWorkerScope'
 import { assertSandboxDistanceWithinCap, curatedTurf } from '../curatedTurf'
 import { createOutputCapture } from '../outputCapture'
-import type { RecordedCall, SandboxWorkerRequest, SandboxWorkerResponse } from './types'
+import { runPathfinder } from '../sandboxPathfinder'
+import type {
+	RecordedCall,
+	SandboxWorkerRequest,
+	SandboxWorkerResponse,
+	SandboxWorldAccess,
+} from './types'
 
 /**
  * The served path of the QuickJS `.wasm` asset emitted by `build.ts` (Phase 4
@@ -175,6 +186,7 @@ const AUTHORING_METHODS = [
  */
 export async function runSandboxCode(
 	req: Pick<SandboxWorkerRequest, 'code' | 'readSnapshot' | 'deadlineMs'>,
+	world?: SandboxWorldAccess,
 ): Promise<Omit<SandboxWorkerResponse, 'id'>> {
 	const deadlineMs = req.deadlineMs > 0 ? req.deadlineMs : DEFAULT_DEADLINE_MS
 	const recordedCalls: RecordedCall[] = []
@@ -245,6 +257,64 @@ export async function runSandboxCode(
 			fn.dispose()
 		}
 		vm.setProp(vm.global, 'turf', turfObj)
+
+		// (2b) world — bundled read-only reference layers (AI_GEO_AWARENESS §4).
+		// `world.layers` lists the ids; `world.get(id)` marshals ONE layer into the
+		// VM on demand (lazy — a run that never touches world data pays nothing).
+		// The accessor is realm-local and synchronous: the worker prefetches every
+		// layer at spawn, so a miss means "not loaded / unknown id", reported via
+		// the same tagged-error-string convention as turf.
+		const worldObj = vm.newObject()
+		toDispose.push(worldObj)
+		const layerIds = world ? world.layers() : []
+		const layersHandle = jsToHandle(vm, layerIds)
+		vm.setProp(worldObj, 'layers', layersHandle)
+		layersHandle.dispose()
+		const worldGetFn = vm.newFunction('get', (idHandle) => {
+			const id = String(vm.dump(idHandle))
+			const layer = world?.get(id) ?? null
+			if (!layer) {
+				return vm.newString(
+					`__world_error__:layer "${id}" is not available${
+						layerIds.length > 0 ? ` (known layers: ${layerIds.join(', ')})` : ' in this environment'
+					}`,
+				)
+			}
+			return jsToHandle(vm, layer)
+		})
+		vm.setProp(worldObj, 'get', worldGetFn)
+		worldGetFn.dispose()
+		vm.setProp(vm.global, 'world', worldObj)
+
+		// (2c) pathfinder — A* shortest path over a LineString network (§3). The
+		// network is a world layer id (routed WITHOUT marshalling the network into
+		// the VM, and with a warm per-layer graph cache) or an inline
+		// FeatureCollection. Runs synchronously on the worker thread like turf, so
+		// the network size is hard-capped inside runPathfinder (WR-01 idiom).
+		const pathfinderFn = vm.newFunction('pathfinder', (...argHandles) => {
+			const args = argHandles.map((h) => vm.dump(h))
+			try {
+				const [network, from, to] = args
+				const resolved =
+					typeof network === 'string' ? (world?.get(network) ?? null) : (network ?? null)
+				if (!resolved || typeof resolved !== 'object') {
+					throw new Error(
+						typeof network === 'string'
+							? `network layer "${network}" is not available${
+									layerIds.length > 0 ? ` (known layers: ${layerIds.join(', ')})` : ''
+								}`
+							: 'network must be a world layer id string or a GeoJSON FeatureCollection',
+					)
+				}
+				const result = runPathfinder(resolved as GeoJSON.FeatureCollection, from, to)
+				return jsToHandle(vm, result)
+			} catch (error) {
+				const msg = error instanceof Error ? error.message : String(error)
+				return vm.newString(`__pathfinder_error__:${msg}`)
+			}
+		})
+		vm.setProp(vm.global, 'pathfinder', pathfinderFn)
+		pathfinderFn.dispose()
 
 		// (3) data — the frozen plain-data read snapshot (D-01). Pass-through this phase.
 		const dataHandle = jsToHandle(vm, req.readSnapshot ?? null)
@@ -364,6 +434,16 @@ function stringifyDump(value: unknown): string {
 }
 
 /**
+ * UTF-8 byte counter for the WR-04 cap. MUST be TextEncoder, not Buffer: this
+ * file runs as a BROWSER worker where Node's `Buffer` does not exist — the old
+ * `Buffer.byteLength` compiled fine, passed bun tests (Node globals present),
+ * then threw `ReferenceError: Buffer is not defined` on the FIRST recorded
+ * `authoring.*` call of every real in-browser run. Guarded by
+ * `noNodeGlobals.test.ts`.
+ */
+const utf8 = new TextEncoder()
+
+/**
  * Approximate the serialized UTF-8 byte size of a recorded call's args (WR-04).
  * Used to bound the cumulative write-channel payload; JSON.stringify is the same
  * serialization the host replays, so this is a faithful proxy. A non-serializable
@@ -372,7 +452,7 @@ function stringifyDump(value: unknown): string {
 function serializedByteLength(args: unknown[]): number {
 	let total = 0
 	for (const arg of args) {
-		total += Buffer.byteLength(stringifyDump(arg), 'utf8')
+		total += utf8.encode(stringifyDump(arg)).length
 	}
 	return total
 }
@@ -401,6 +481,48 @@ function formatVmError(errVal: unknown): string {
 	return String(errVal)
 }
 
+// ── World layer access (realm-local) ────────────────────────────────────────
+
+/**
+ * The world accessor backed by THIS realm's `worldData` cache. Exported so the
+ * main-thread fallback path (`quickjsWorker.ts`, bun test / no-Worker) hands
+ * the same shape to `runSandboxCode`; tests prime layers via
+ * `primeWorldLayerForTest`.
+ */
+export const cachedWorldAccess: SandboxWorldAccess = {
+	layers: () => [...WORLD_LAYER_IDS],
+	get: (id) =>
+		(WORLD_LAYER_IDS as string[]).includes(id)
+			? getLoadedWorldLayer(id as (typeof WORLD_LAYER_IDS)[number])
+			: null,
+}
+
+/** Bound on how long the FIRST run waits for the spawn-time world prefetch. */
+const WORLD_PREFETCH_WAIT_MS = 2500
+
+let worldPrefetchPromise: Promise<unknown> | null = null
+
+/**
+ * Kick off (once) the fetch of every world layer on the WORKER thread — eager
+ * per the AI_GEO_AWARENESS decision, so `world.get` is warm by the time user
+ * code runs. Individual failures are swallowed: an unavailable layer degrades
+ * to the in-VM `__world_error__` string, never a run failure.
+ */
+function ensureWorldPrefetch(): Promise<unknown> {
+	if (!worldPrefetchPromise) {
+		worldPrefetchPromise = Promise.allSettled(WORLD_LAYER_IDS.map((id) => loadWorldLayer(id)))
+	}
+	return worldPrefetchPromise
+}
+
+/** Await the prefetch, but never let a slow fetch stall a run past the bound. */
+async function worldReadyBounded(): Promise<void> {
+	await Promise.race([
+		ensureWorldPrefetch(),
+		new Promise((resolve) => setTimeout(resolve, WORLD_PREFETCH_WAIT_MS)),
+	])
+}
+
 // ── Worker message shell ────────────────────────────────────────────────────
 // Only registers when `isWorkerScope()` confirms we are in a real Worker realm. On the
 // main thread `self === window`, so an unconditional handler would install
@@ -414,10 +536,14 @@ declare const self: {
 }
 
 if (isWorkerScope()) {
+	// Eager world prefetch at worker spawn (the worker realm has fetch; the VM
+	// does not — data crosses INTO the VM only via the world accessor above).
+	ensureWorldPrefetch()
 	self.onmessage = async (event: MessageEvent<SandboxWorkerRequest>) => {
 		const { id, code, readSnapshot, deadlineMs } = event.data
 		try {
-			const result = await runSandboxCode({ code, readSnapshot, deadlineMs })
+			await worldReadyBounded()
+			const result = await runSandboxCode({ code, readSnapshot, deadlineMs }, cachedWorldAccess)
 			self.postMessage({ id, ...result })
 		} catch (error) {
 			self.postMessage({

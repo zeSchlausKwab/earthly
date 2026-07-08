@@ -33,7 +33,7 @@
  */
 
 import { workerUrl } from '../../../../lib/workers/workerAssets'
-import { runSandboxCode } from './sandbox.worker'
+import { cachedWorldAccess, runSandboxCode } from './sandbox.worker'
 import type { SandboxWorkerRequest, SandboxWorkerResponse } from './types'
 
 /** Extra wall-clock slack on top of the in-VM deadline before the host kills the worker. */
@@ -128,8 +128,9 @@ export async function runInQuickjsWorker(
 	}
 
 	// Fallback path: no Worker (bun test / SSR) → drive the pure engine directly.
+	// World layers come from THIS realm's cache (tests prime it explicitly).
 	if (typeof Worker === 'undefined') {
-		const result = await runSandboxCode(request)
+		const result = await runSandboxCode(request, cachedWorldAccess)
 		return { id, ...result }
 	}
 

@@ -1278,4 +1278,81 @@ export const geoStaticToolSchemas: Tool[] = [
 			},
 		},
 	},
+	{
+		type: 'function',
+		function: {
+			name: 'measure',
+			description:
+				'READ-ONLY measurement primitive. One operation per call: length (km, lines), area (km², polygons), perimeter (km, polygons), distance (km between two points or two feature centroids), bearing (degrees), centroid, bbox, nearest_point (nearest vertex among targets from a reference point). Targets: raw geometry > featureIds > selected:true > every editor feature. Prefer this over computing measurements yourself or spinning up run_code for a single number.',
+			parameters: {
+				type: 'object',
+				properties: {
+					operation: {
+						type: 'string',
+						description: 'Which measurement to compute.',
+						enum: [
+							'length',
+							'area',
+							'perimeter',
+							'distance',
+							'bearing',
+							'centroid',
+							'bbox',
+							'nearest_point',
+						],
+					},
+					featureIds: {
+						type: 'array',
+						description: 'Target specific editor features by id.',
+						items: { type: 'string' },
+					},
+					selected: {
+						type: 'boolean',
+						description: 'Target the user’s CURRENT map selection.',
+					},
+					geometry: {
+						type: 'object',
+						description:
+							'Raw GeoJSON to measure instead of editor features (Feature, FeatureCollection, or Geometry). Works without the editor.',
+					},
+					from: {
+						type: 'array',
+						description:
+							'[lon, lat] reference point. Required for nearest_point; with `to`, gives distance/bearing between two points with no features needed.',
+						items: { type: 'number' },
+					},
+					to: {
+						type: 'array',
+						description: '[lon, lat] second point for distance/bearing.',
+						items: { type: 'number' },
+					},
+				},
+				required: ['operation'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'describe_location',
+			description:
+				'READ-ONLY textual grounding from bundled Natural Earth reference data. For a point: on-land/on-water, containing country, nearest city (distance + direction), distance and direction to the nearest coast. For a bbox: the countries in view plus a description of its center. Use it to anchor coordinates in NAMES before or after drawing — especially to sanity-check where something actually landed.',
+			parameters: {
+				type: 'object',
+				properties: {
+					point: {
+						type: 'array',
+						description: '[lon, lat] position to describe.',
+						items: { type: 'number' },
+					},
+					bbox: {
+						type: 'array',
+						description: '[west, south, east, north] viewport to describe instead of a point.',
+						items: { type: 'number' },
+					},
+				},
+				required: [],
+			},
+		},
+	},
 ]
