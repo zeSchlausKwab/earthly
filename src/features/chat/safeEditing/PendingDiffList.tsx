@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useChatStore } from '@/features/chat/store'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { DatasetDiffDisclosure } from './DatasetDiffDisclosure'
 import {
@@ -28,7 +29,12 @@ function usePendingDiffs(): PendingDiffEntry[] {
  * (SAFE-06 surface).
  */
 export function PendingDiffList() {
-	const entries = usePendingDiffs()
+	const allEntries = usePendingDiffs()
+	const activeChatId = useChatStore((state) => state.activeChatId)
+	// Diff cards belong to the chat whose run emitted them — an "APPLIED" card
+	// from the last chat must not stick around in a new one. Untagged entries
+	// (non-chat emitters) keep rendering everywhere.
+	const entries = allEntries.filter((entry) => !entry.chatId || entry.chatId === activeChatId)
 	if (entries.length === 0) return null
 
 	const undoLastAiEdit = () => {

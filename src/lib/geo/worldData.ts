@@ -18,6 +18,7 @@ export type WorldLayerId =
 	| 'countries_110m'
 	| 'borders_110m'
 	| 'rivers_110m'
+	| 'rivers_50m'
 	| 'lakes_110m'
 	| 'cities_110m'
 	| 'maritime_network'
@@ -29,6 +30,9 @@ export const WORLD_LAYER_IDS: WorldLayerId[] = [
 	'countries_110m',
 	'borders_110m',
 	'rivers_110m',
+	// 50m rivers carry NAMES for ~450 major rivers (Danube, Rhine, Nile, …) at
+	// traceable fidelity — the layer for "trace river X" tasks (110m is too coarse).
+	'rivers_50m',
 	'lakes_110m',
 	'cities_110m',
 	'maritime_network',

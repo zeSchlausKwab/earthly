@@ -47,7 +47,13 @@ export function bearingToCompass(bearing: number): string {
 
 const roundKm = (km: number) => (km >= 100 ? Math.round(km) : Math.round(km * 10) / 10)
 
-function countryAt(
+/**
+ * Name of the country containing `position`, or undefined (open water /
+ * unmatched). Exported for the sandbox `world.countryAt` host primitive —
+ * hand-rolled per-point country attribution inside the VM is both slow and a
+ * proven [lon,lat]-swap hazard (2026-07-08 bench).
+ */
+export function countryAt(
 	countries: GeoJSON.FeatureCollection,
 	position: [number, number],
 ): string | undefined {

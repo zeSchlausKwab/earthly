@@ -370,7 +370,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'query_osm_area',
 			description:
-				'Find OpenStreetMap features constrained to a polygonal area. The area can come from the current selected polygon(s), explicit areaGeojson, transient chat-attached geometry for the current request, a country boundary, or an OSM relation. Can also clip matching lines to the area or convert results to representative points. Always provide filters, filterSets, or concept; unfiltered area scans are too large for Overpass.',
+				'Find OpenStreetMap features constrained to a polygonal area (SLOW remote call — use for LOCAL/detailed features: POIs, streets, buildings, small waterways; country-scale coastlines and major rivers come from the bundled world layers in run_code instead). The area can come from the current selected polygon(s), explicit areaGeojson, transient chat-attached geometry for the current request, a country boundary, or an OSM relation. Can also clip matching lines to the area or convert results to representative points. Always provide filters, filterSets, or concept; unfiltered area scans are too large for Overpass.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -532,7 +532,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'get_country_boundary',
 			description:
-				'Get a country administrative boundary relation (admin_level=2 by default) with cleaner geometry than generic bbox lookup.',
+				'SLOW remote OSM call: get a country administrative boundary relation (admin_level=2 by default). The response is transport-simplified (~250 points per ring), so it is NOT higher fidelity than the bundled data for most uses — for country outlines, areas, or coastline work prefer world.get("countries_110m") inside run_code (instant, local). Use this only when the user explicitly needs OSM-sourced national borders.',
 			parameters: {
 				type: 'object',
 				properties: {

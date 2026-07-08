@@ -38,7 +38,7 @@ import {
 import { detectVisionSupport } from './vision/detectVisionSupport'
 import { gateToolsForVision } from './vision/gateToolsForVision'
 import { setSafetyLevelProvider } from './safeEditing/safetyAccess'
-import { cancelPendingDiffs } from './safeEditing/pendingDiffStore'
+import { cancelPendingDiffs, setPendingDiffChatContext } from './safeEditing/pendingDiffStore'
 import { toast } from 'sonner'
 
 // Output is NOT artificially capped. We size the completion budget from the
@@ -1297,6 +1297,9 @@ export const useChatStore = create<ChatStore>()(
 
 			sendMessage: async (content: string, options?: SendMessageOptions) => {
 				const targetChatId = get().activeChatId
+				// Stamp safe-editing diff blocks emitted during this run with the chat
+				// they belong to, so applied/cancelled cards render only in that chat.
+				setPendingDiffChatContext(targetChatId)
 				const { selectedModel, models, toolsEnabled, provider, providerOverrides } = get()
 				const providerConfig = resolveProvider(provider, providerOverrides)
 				// Hoisted so the request-builder closure can gate capture_map_snapshot on
@@ -1934,10 +1937,32 @@ export const useChatStore = create<ChatStore>()(
 
 							// Execute each tool call
 							for (const toolCall of result.toolCalls) {
+								// Run-currency check PER TOOL, not just per round: STOP /
+								// chat-switch / delete bump the run id mid-round, and without
+								// this check the rest of the round's tools kept executing in
+								// the background — mutating the editor through the gates and
+								// flipping the visible transcript between chats.
+								if (!isStreamRunActive()) {
+									throw new Error(DETACHED_STREAM_ERROR)
+								}
 								console.log(`[Chat] Executing tool: ${toolCall.function.name}`)
 								const toolResult = await executeToolCall(toolCall, {
 									attachedGeometry: geometryAttachment,
 								})
+
+								// Re-check AFTER the await: the run may have been superseded
+								// while this tool executed. Discard the result instead of
+								// writing it into whatever chat is now active. If the tool
+								// emitted a safe-editing gate AFTER cancelStream's sweep, that
+								// late gate is parked un-cancellable — sweep it now, but only
+								// when no NEW stream is running (a new run's own pending gates
+								// must not be collateral damage).
+								if (!isStreamRunActive()) {
+									if (!get().isStreaming) {
+										cancelPendingDiffs()
+									}
+									throw new Error(DETACHED_STREAM_ERROR)
+								}
 
 								// Add tool result message
 								const toolMessage: ChatMessage = {

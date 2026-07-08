@@ -8,6 +8,7 @@ import {
 	requestConfirm,
 	resolvePendingDiff,
 	clearPendingDiffs,
+	setPendingDiffChatContext,
 } from './pendingDiffStore'
 
 const DIFF: DatasetDiff = {
@@ -18,6 +19,7 @@ const DIFF: DatasetDiff = {
 
 beforeEach(() => {
 	clearPendingDiffs()
+	setPendingDiffChatContext(null)
 })
 
 describe('emitDiffBlock registration', () => {
@@ -27,6 +29,15 @@ describe('emitDiffBlock registration', () => {
 		expect(entry).not.toBeNull()
 		expect(entry?.diff).toBe(DIFF)
 		expect(entry?.status).toBe('pending')
+	})
+
+	test('stamps the current chat context so cards stay in their owning chat', () => {
+		setPendingDiffChatContext('chat-a')
+		const inChatA = emitDiffBlock(DIFF)
+		setPendingDiffChatContext(null)
+		const untagged = emitDiffBlock(DIFF)
+		expect(getPendingDiff(inChatA.id)?.chatId).toBe('chat-a')
+		expect(getPendingDiff(untagged.id)?.chatId).toBeUndefined()
 	})
 })
 

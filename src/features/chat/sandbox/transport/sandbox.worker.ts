@@ -45,6 +45,8 @@ import {
 	RELEASE_SYNC,
 	shouldInterruptAfterDeadline,
 } from 'quickjs-emscripten'
+import { countryAt, describeLocation } from '@/lib/geo/describeLocation'
+import { isOnLand } from '@/lib/geo/landWater'
 import { getLoadedWorldLayer, loadWorldLayer, WORLD_LAYER_IDS } from '@/lib/geo/worldData'
 import { isWorkerScope } from '@/lib/isWorkerScope'
 import { assertSandboxDistanceWithinCap, curatedTurf } from '../curatedTurf'
@@ -123,8 +125,8 @@ function loadQuickJS(): Promise<QuickJSWASMModule> {
 const MEMORY_LIMIT_BYTES = 64 * 1024 * 1024
 /** Stack cap for one run (T-04-03). */
 const MAX_STACK_SIZE_BYTES = 512 * 1024
-/** Default in-VM wall-clock deadline if the host omits one (D-14). */
-export const DEFAULT_DEADLINE_MS = 3000
+/** Default in-VM wall-clock deadline if the host omits one (D-14; mirrors DEFAULT_SANDBOX_DEADLINE_MS). */
+export const DEFAULT_DEADLINE_MS = 10_000
 
 /**
  * WR-04 recorded-call write-channel caps (T-05-06 / Pitfall 4).
@@ -284,6 +286,91 @@ export async function runSandboxCode(
 		})
 		vm.setProp(worldObj, 'get', worldGetFn)
 		worldGetFn.dispose()
+
+		// world.isOnLand([lon, lat]) — HOST-side point-in-polygon against the
+		// bbox-indexed 1:50m land mask. The per-vertex land/water filtering real
+		// tasks need ("keep only the offshore segments") is impractical inside the
+		// VM: marshalling the whole mask in and looping booleanPointInPolygon over
+		// ~1400 polygons per vertex is exactly the CPU burn the boundary avoids.
+		const isOnLandFn = vm.newFunction('isOnLand', (posHandle) => {
+			const pos = vm.dump(posHandle)
+			try {
+				const mask = world?.get('land_50m') as GeoJSON.FeatureCollection | null
+				if (!mask) throw new Error('land_50m layer is not available')
+				if (
+					!Array.isArray(pos) ||
+					pos.length !== 2 ||
+					typeof pos[0] !== 'number' ||
+					typeof pos[1] !== 'number'
+				) {
+					throw new Error('isOnLand takes a [lon, lat] pair')
+				}
+				return isOnLand(mask, pos as GeoJSON.Position) ? vm.true : vm.false
+			} catch (error) {
+				const msg = error instanceof Error ? error.message : String(error)
+				return vm.newString(`__world_error__:${msg}`)
+			}
+		})
+		vm.setProp(worldObj, 'isOnLand', isOnLandFn)
+		isOnLandFn.dispose()
+
+		// world.countryAt([lon, lat]) — HOST-side country attribution (name or
+		// null). Same rationale as isOnLand: per-point attribution loops in the
+		// VM burn the deadline and invite [lon,lat] swaps.
+		const countryAtFn = vm.newFunction('countryAt', (posHandle) => {
+			const pos = vm.dump(posHandle)
+			try {
+				const countries = world?.get('countries_110m') as GeoJSON.FeatureCollection | null
+				if (!countries) throw new Error('countries_110m layer is not available')
+				if (
+					!Array.isArray(pos) ||
+					pos.length !== 2 ||
+					typeof pos[0] !== 'number' ||
+					typeof pos[1] !== 'number'
+				) {
+					throw new Error('countryAt takes a [lon, lat] pair')
+				}
+				const name = countryAt(countries, [pos[0], pos[1]])
+				return name === undefined ? vm.null : vm.newString(name)
+			} catch (error) {
+				const msg = error instanceof Error ? error.message : String(error)
+				return vm.newString(`__world_error__:${msg}`)
+			}
+		})
+		vm.setProp(worldObj, 'countryAt', countryAtFn)
+		countryAtFn.dispose()
+
+		// world.describe([lon, lat]) — the describe_location primitive inside the
+		// sandbox: { onLand, country, nearestCity, coastDistanceKm, text }.
+		const describeFn = vm.newFunction('describe', (posHandle) => {
+			const pos = vm.dump(posHandle)
+			try {
+				if (
+					!Array.isArray(pos) ||
+					pos.length !== 2 ||
+					typeof pos[0] !== 'number' ||
+					typeof pos[1] !== 'number'
+				) {
+					throw new Error('describe takes a [lon, lat] pair')
+				}
+				const bundle = {
+					land: world?.get('land_50m') as GeoJSON.FeatureCollection | null,
+					countries: world?.get('countries_110m') as GeoJSON.FeatureCollection | null,
+					cities: world?.get('cities_110m') as GeoJSON.FeatureCollection | null,
+					coastline: world?.get('coastline_110m') as GeoJSON.FeatureCollection | null,
+				}
+				if (!bundle.land && !bundle.countries && !bundle.cities && !bundle.coastline) {
+					throw new Error('world reference layers are not available')
+				}
+				return jsToHandle(vm, describeLocation(bundle, [pos[0], pos[1]]))
+			} catch (error) {
+				const msg = error instanceof Error ? error.message : String(error)
+				return vm.newString(`__world_error__:${msg}`)
+			}
+		})
+		vm.setProp(worldObj, 'describe', describeFn)
+		describeFn.dispose()
+
 		vm.setProp(vm.global, 'world', worldObj)
 
 		// (2c) pathfinder — A* shortest path over a LineString network (§3). The
