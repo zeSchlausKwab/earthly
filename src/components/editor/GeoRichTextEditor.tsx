@@ -28,6 +28,7 @@ import {
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { GeoMentionNode, serializeToText, parseFromText } from './GeoMentionExtension'
+import { mergeMentionItems, searchMentionEntities } from './mentionSearch'
 
 export interface GeoFeatureItem {
 	/** Unique identifier */
@@ -37,7 +38,7 @@ export interface GeoFeatureItem {
 	/** The naddr1... address */
 	address: string
 	/** Entity type for reference rendering */
-	entityType?: 'dataset' | 'context' | 'feature'
+	entityType?: 'dataset' | 'context' | 'feature' | 'story'
 	/** Feature ID within the dataset (optional for dataset-level refs) */
 	featureId?: string
 	/** Geometry type for icon */
@@ -182,6 +183,44 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 				.slice(0, 10)
 		}, [])
 
+		// Relay entity suggestions: local matches render instantly (sync
+		// items), relay results (unloaded datasets/groups/stories) merge into
+		// the open suggestion state when they arrive. Guarded by a query
+		// token so stale responses never overwrite a newer query's list.
+		const relayMentionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+		const relayMentionQueryRef = useRef<string>('')
+
+		// Stable ([] deps) so the memoized mention extension never has to be
+		// recreated. Suggestions cannot open on a disabled/read-only editor,
+		// so no gating is needed here.
+		const queueRelayMentionSearch = useCallback((query: string) => {
+			relayMentionQueryRef.current = query
+			if (relayMentionTimerRef.current) clearTimeout(relayMentionTimerRef.current)
+			if (query.trim().length < 2) return
+
+			relayMentionTimerRef.current = setTimeout(() => {
+				void searchMentionEntities(query).then((relayItems) => {
+					if (relayItems.length === 0) return
+					if (relayMentionQueryRef.current !== query) return
+					setSuggestion((prev) => {
+						if (!prev.isOpen || prev.query !== query) return prev
+						const next: SuggestionState = {
+							...prev,
+							items: mergeMentionItems(prev.items, relayItems),
+						}
+						suggestionStateRef.current = next
+						return next
+					})
+				})
+			}, 250)
+		}, [])
+
+		useEffect(() => {
+			return () => {
+				if (relayMentionTimerRef.current) clearTimeout(relayMentionTimerRef.current)
+			}
+		}, [])
+
 		// Create mention extension with $ trigger
 		// We use useMemo to avoid recreating the extension on every render,
 		// but we need to ensure it has access to the latest filterFeatures
@@ -215,6 +254,7 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 
 								suggestionStateRef.current = next
 								setSuggestion(next)
+								queueRelayMentionSearch(props.query)
 							},
 							onUpdate: (props: GeoSuggestionProps) => {
 								const items = Array.isArray(props.items)
@@ -235,9 +275,11 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 									suggestionStateRef.current = next
 									return next
 								})
+								queueRelayMentionSearch(props.query)
 							},
 							onExit: () => {
 								suggestionCommandRef.current = null
+								relayMentionQueryRef.current = ''
 								setSuggestion((prev) => {
 									const next: SuggestionState = { ...prev, isOpen: false, range: null }
 									suggestionStateRef.current = next
@@ -305,7 +347,7 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 					},
 				},
 			})
-		}, [filterFeatures])
+		}, [filterFeatures, queueRelayMentionSearch])
 
 		const editor = useEditor({
 			extensions: [

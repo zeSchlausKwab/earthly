@@ -450,12 +450,15 @@ export function ChatSettingsSection() {
 							: 'border-border bg-muted/40 text-muted-foreground',
 					)}
 				>
-					<div className="space-y-1 break-all">
+					{/* min-w-0 lets this flex child shrink so the copy wraps INSIDE the
+					    button instead of overflowing it; break-words (not break-all)
+					    keeps whole words intact. */}
+					<div className="min-w-0 flex-1 space-y-1">
 						<div className="flex items-center gap-2 text-sm font-medium">
-							<Server className="h-4 w-4" />
+							<Server className="h-4 w-4 shrink-0" />
 							<span>Geo and web tools</span>
 						</div>
-						<p className="text-xs opacity-80 break-all">
+						<p className="text-xs opacity-80 break-words">
 							Allow the model to call map, editor, and search tools during a chat.
 						</p>
 					</div>

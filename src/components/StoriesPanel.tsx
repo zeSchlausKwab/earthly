@@ -13,12 +13,14 @@
  * as a plain `<img src>` — no HTML injection sink.
  */
 
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { BookOpen } from 'lucide-react'
+import { useEditorStore } from '@/features/geo-editor/store'
+import { parseStoryRefs } from '@/features/geo-editor/hooks/useStoryMapRefs'
 import { useStories } from '@/lib/hooks/useStories'
 import type { Article } from '@/lib/nostr/article'
 import { readStoryDraft } from '@/lib/nostr/story'
-import { EntityListTable, ListPanel } from '@/components/entity-list'
+import { BulkMapStackButton, EntityListTable, ListPanel } from '@/components/entity-list'
 import { createStoryColumns, type StoryColumnsContext, type StoryRowData } from './stories-columns'
 import { useFilterState, useSortedFilteredItems, type FilterConfig } from './data-filter'
 import { EntitySearchToolbar } from './entity-search'
@@ -52,6 +54,8 @@ export function StoriesPanelContent({
 	deletingKey,
 }: StoriesPanelProps) {
 	const filterState = useFilterState()
+	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
+	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const { events: stories, eose } = useStories()
 
 	const result = useSortedFilteredItems(stories, storyFilterConfig, filterState)
@@ -88,6 +92,27 @@ export function StoriesPanelContent({
 	)
 
 	const hasSearch = filterState.searchQuery.trim().length > 0
+	const storyRefsToStack = useMemo(() => {
+		const refs = new Map<string, ReturnType<typeof parseStoryRefs>[number]>()
+		for (const story of result.filteredItems) {
+			for (const ref of parseStoryRefs(story)) {
+				if (!mapStackEntries[ref.entryId]) refs.set(ref.entryId, ref)
+			}
+		}
+		return [...refs.values()]
+	}, [result.filteredItems, mapStackEntries])
+	const addFilteredStoryRefsToMapStack = useCallback(() => {
+		for (const ref of storyRefsToStack) {
+			addMapStackEntry({
+				entityType: 'dataset',
+				entityKey: ref.datasetKey,
+				title: ref.identifier,
+				source: 'story',
+				visible: true,
+				pinned: false,
+			})
+		}
+	}, [storyRefsToStack, addMapStackEntry])
 
 	return (
 		<ListPanel
@@ -96,6 +121,14 @@ export function StoriesPanelContent({
 			count={result.totalCount}
 			onNew={onCreateStory}
 			newLabel="New Story"
+			titleAccessory={
+				<BulkMapStackButton
+					count={storyRefsToStack.length}
+					onClick={addFilteredStoryRefsToMapStack}
+					label="Add filtered story references to map stack"
+					emptyLabel="No referenced datasets in filtered stories"
+				/>
+			}
 			toolbar={
 				<EntitySearchToolbar
 					{...filterState}

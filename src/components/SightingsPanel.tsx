@@ -14,11 +14,13 @@
  */
 
 import { unixNow } from 'applesauce-core/helpers/time'
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { Eye } from 'lucide-react'
+import { useEditorStore } from '@/features/geo-editor/store'
+import { getSightingMapStackKey } from '@/features/geo-editor/mapStackEntityKeys'
 import { useSightings } from '@/lib/hooks/useSightings'
 import { type TemporalSighting, readSightingDraft } from '@/lib/nostr/temporal-sighting'
-import { EntityListTable, ListPanel } from '@/components/entity-list'
+import { BulkMapStackButton, EntityListTable, ListPanel } from '@/components/entity-list'
 import {
 	createSightingColumns,
 	type SightingColumnsContext,
@@ -38,7 +40,10 @@ export interface SightingsPanelProps {
 	/** Fly the map to the Sighting's location and focus it. */
 	onZoomToSighting?: (sighting: TemporalSighting) => void
 	/** Phase 13 (SPEC §3.4): add this Sighting to the Map Stack. Absent ⇒ hidden. */
-	onAddToMapStack?: (sighting: TemporalSighting) => void
+	onAddToMapStack?: (
+		sighting: TemporalSighting,
+		source?: 'manual' | 'route' | 'browse-default',
+	) => void
 	/** The d-tag key of a Sighting whose delete is in flight. */
 	deletingKey?: string | null
 	/** The d-tag/id key of the currently-viewed Sighting — highlighted + scrolled. */
@@ -65,6 +70,7 @@ export function SightingsPanelContent({
 	selectedKey,
 }: SightingsPanelProps) {
 	const filterState = useFilterState()
+	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	// useSightings already drops expired at the subscription (SIGHT-03).
 	const { events: sightings, eose } = useSightings()
 	const now = unixNow()
@@ -113,6 +119,20 @@ export function SightingsPanelContent({
 	const liveOrDrafts = draftKeys.size
 
 	const hasSearch = filterState.searchQuery.trim().length > 0
+	const stackableFilteredSightings = useMemo(
+		() =>
+			result.filteredItems.filter((sighting) => {
+				const key = getSightingMapStackKey(sighting)
+				return Boolean(key && !mapStackEntries[`sighting:${key}`])
+			}),
+		[result.filteredItems, mapStackEntries],
+	)
+	const addFilteredToMapStack = useCallback(() => {
+		if (!onAddToMapStack) return
+		for (const sighting of stackableFilteredSightings) {
+			onAddToMapStack(sighting, 'browse-default')
+		}
+	}, [onAddToMapStack, stackableFilteredSightings])
 
 	return (
 		<ListPanel
@@ -121,6 +141,13 @@ export function SightingsPanelContent({
 			count={result.totalCount}
 			onNew={onCreateSighting}
 			newLabel="New Sighting"
+			titleAccessory={
+				<BulkMapStackButton
+					count={stackableFilteredSightings.length}
+					onClick={onAddToMapStack ? addFilteredToMapStack : undefined}
+					label="Add filtered sightings to map stack"
+				/>
+			}
 			toolbar={
 				<EntitySearchToolbar
 					{...filterState}

@@ -1,183 +1,72 @@
 # Earthly Relay
 
-A Nostr relay built with [khatru](https://khatru.nostr.technology/) that provides full-text search support for internet radio stations using [Bluge](https://github.com/blugelabs/bluge) and stores events in SQLite.
+A Nostr relay built on [khatru](https://pkg.go.dev/fiatjaf.com/nostr/khatru)
+(the `fiatjaf.com/nostr` monorepo) with a purpose-built geo search index for
+the Earthly entity model (SPEC.md kinds 37515–37522).
 
-## Features
-
-- **Full-Text Search**: Search radio stations by name and description using NIP-50
-- **SQLite Storage**: Persistent event storage with SQLite (just a file!)
-- **Bluge Indexing**: Fast full-text search with Bluge
-- **Reset Options**: CLI flags to reset database, index, or both
-- **No Dependencies**: No containers or external databases needed
-
-## Requirements
-
-- Go 1.23 or higher
-- That's it! Everything else is just files.
-
-## Quick Start
-
-```bash
-# Run the setup script
-./setup.sh
-
-# Start the relay
-make dev
-```
-
-That's it! No Docker, no containers, just Go and some files.
-
-## Installation
-
-### Automated Setup
-
-```bash
-./setup.sh
-```
-
-This will:
-
-- Check for Go installation
-- Create the data directory
-- Install Go dependencies
-
-### Manual Setup
-
-1. **Install Go 1.23 or higher**
-
-2. **Create data directory**:
-
-   ```bash
-   mkdir -p data
-   ```
-
-3. **Install Go dependencies**:
-   ```bash
-   make install
-   # Or manually
-   go mod download
-   go mod tidy
-   ```
-
-## Configuration
-
-All configuration is done via command-line flags (no environment files needed):
-
-- `PORT`: Port to listen on (default: 3334)
-- `DB_PATH`: SQLite database file path (default: ./data/events.db)
-- `SEARCH_PATH`: Path to store the search index (default: ./data/search)
-
-## Usage
-
-### Running the Relay
-
-```bash
-# Development mode (auto-reload)
-make dev
-
-# Production mode
-make build
-make run
-
-# Or directly
-go run .
-```
-
-### Command Line Flags
-
-```bash
-# Reset database only
-go run . --reset-db
-
-# Reset search index only
-go run . --reset-index
-
-# Reset everything
-go run . --reset-all
-
-# Custom port
-go run . --port 8080
-
-# Custom database path
-go run . --db-path /path/to/events.db
-
-# Custom search path
-go run . --search-path /path/to/search/index
-```
-
-### Make Commands
-
-```bash
-make setup        # Run the setup script
-make build        # Build the relay binary
-make run          # Build and run the relay
-make dev          # Run in development mode
-make clean        # Clean build artifacts and data
-make reset-db     # Reset the database
-make reset-index  # Reset the search index
-make reset-all    # Reset both database and index
-make install      # Install Go dependencies
-```
-
-## NIP-50 Search
-
-The relay implements NIP-50 full-text search for radio stations (kind 31237). It indexes:
-
-- Station `name` tag
-- Station `description` from the content JSON
-
-Example search filter:
-
-```json
-{
-  "kinds": [31237],
-  "search": "jazz radio"
-}
-```
+Design document: [docs/GEO_SEARCH_REWRITE.md](../docs/GEO_SEARCH_REWRITE.md)
 
 ## Architecture
 
-- **Primary Storage**: SQLite - stores all events in `./data/events.db`
-- **Search Index**: Bluge - indexes station names and descriptions in `./data/search/`
-- **Query Routing**:
-  - Filters with `search` field → Bluge
-  - All other filters → SQLite
+- **Events:** LMDB (`fiatjaf.com/nostr/eventstore/lmdb`) — canonical storage.
+- **Search/geo:** bleve v2 with geoshape fields (`earthlysearch/` package) —
+  derived data, rebuilt from LMDB via `--reindex` or automatically when empty.
+- **Expiry:** khatru's NIP-40 manager deletes expired events (beacons,
+  sightings) from both stores; query paths additionally exclude them.
+- **Disk budget:** below `--min-free-bytes` free space the relay refuses
+  writes with a NOTICE instead of filling the disk.
 
-Everything is just files! No external databases or containers needed.
+## Query routing
 
-## Event Kinds Supported
+| Filter | Backend |
+|--------|---------|
+| plain NIP-01 | LMDB |
+| `#g` geohash tags | bleve (centroid geohash indexed at precisions 1–7) |
+| `search` (NIP-50) | bleve via the Earthly extension grammar |
 
-- **31237**: Radio Station Events (with search indexing)
-- **30078**: Favorites Lists & Featured Station Lists
-- **31990**: NIP-89 Handler Events
-- **31989**: NIP-89 Recommendation Events
-- **1311**: Live Chat Messages
-- **1111**: Station Comments
+### Search grammar (version 1)
+
+Free text plus `key:value` tokens: `bbox:w,s,e,n`, `point:lon,lat`,
+`rel:intersects|contains|within`, `near:<geohash>`, `radius:2km`,
+`label:<vocab>`, `tag:<hashtag>`, `ref:<kind:pubkey:d>`,
+`start-after:/start-before:<epoch|YYYY-MM-DD>`,
+`sort:relevance|distance|recent|scale`.
+
+Examples:
+
+```
+playground bbox:16.1,48.1,16.7,48.4        # text + viewport
+point:16.37,48.21 rel:contains             # what am I standing in
+bbox:16.1,48.1,16.7,48.4 start-after:2026-06-01   # sightings this month
+trails near:u2yh7 radius:2km sort:distance # proximity
+```
+
+Malformed grammar values reject the subscription with a CLOSED message.
+Unknown `key:value` tokens stay in the free text (URLs are safe).
+
+The grammar is pinned by golden vectors in
+`../spec/search-grammar-vectors.json`, shared with the TypeScript facade in
+`../src/lib/search/`. Capability advertisement: `GET /earthly-search`.
+
+## Index document schema
+
+Per-kind extraction in `earthlysearch/extract.go` (schema table in the design
+doc §5): per-feature geometry as a geometrycollection (CCW-normalized),
+feature names, title/summary/body, `t`/`l` facets, `a`+`c` refs, NIP-52
+start/end, NIP-40 expiration, centroid + multi-precision geohashes, bbox
+area. New-model kinds (37518/20/21/22) gate on `modelVersion:"earthly/2"` —
+legacy events are stored but never indexed.
+
+Doc IDs are address coordinates for addressable kinds, so replaceable
+updates (beacon heartbeats) overwrite one document instead of accumulating
+segments — the failure mode that killed the old Bluge index.
 
 ## Development
 
-### Project Structure
-
-```
-relay/
-├── main.go           # Main relay implementation
-├── go.mod           # Go module definition
-├── Makefile         # Build and development commands
-├── README.md        # This file
-└── .env.example     # Example environment configuration
+```bash
+make dev            # go run . --port 3334
+make build          # build bin/relay
+go test ./...       # unit + integration tests
 ```
 
-### Adding Custom Event Handlers
-
-The relay uses khatru's middleware system. You can add custom event handlers in `main.go`:
-
-```go
-relay.RejectEvent = append(relay.RejectEvent, func(ctx context.Context, event *nostr.Event) (bool, string) {
-    // Custom validation logic
-    return false, ""
-})
-```
-
-## License
-
-See the main project LICENSE file.
+See QUICKSTART.md for all flags.

@@ -279,7 +279,7 @@ function MapStateCluster({
 /**
  * Dark/light theme toggle. The active theme is the `light`/`dark` class on
  * `<html>` (see `@/lib/theme`); flipping it re-themes the whole app and the
- * map basemap. Dark is the default working (Studio) theme.
+ * map basemap. Light is the default working theme.
  */
 function ThemeToggleButton() {
 	const [theme, setTheme] = useTheme()
@@ -558,9 +558,13 @@ export function Toolbar({
 	}
 
 	const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-		const file = e.target.files?.[0]
-		if (file && datasetActions?.onImport) {
-			datasetActions.onImport(file)
+		// Multi-file import: every selected file goes through the same handler;
+		// each import appends (replace:false) and reports its own toast.
+		const files = Array.from(e.target.files ?? [])
+		if (files.length > 0 && datasetActions?.onImport) {
+			for (const file of files) {
+				datasetActions.onImport(file)
+			}
 		}
 		if (fileInputRef.current) {
 			fileInputRef.current.value = ''
@@ -1059,6 +1063,7 @@ export function Toolbar({
 			ref={fileInputRef}
 			className="hidden"
 			accept=".geojson,.json,.zip,.shp"
+			multiple
 			onChange={handleFileImport}
 		/>
 	)

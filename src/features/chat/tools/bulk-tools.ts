@@ -95,6 +95,62 @@ function requireEditor() {
 }
 
 /**
+ * Selection-aware predicate: the special field `$selected` scopes a predicate
+ * to the user's CURRENT map selection ("color the selected geometries red").
+ * `{ field: '$selected', op: 'eq', value: true }` (or op 'exists') targets
+ * selected features; `value: false` / op 'missing' targets unselected ones.
+ * Resolved HERE at the tool layer — the shared predicate engine (api/predicate,
+ * boundary D-07) stays store-free and only ever sees the remaining clauses.
+ * The selection is read once per call, so a mid-run selection change cannot
+ * shear a bulk apply.
+ */
+interface SelectionScopedPredicate {
+	/** Remaining clauses with `$selected` stripped (engine-safe). */
+	predicate: Predicate
+	matches: (feature: EditorFeature) => boolean
+	filter: (features: EditorFeature[]) => EditorFeature[]
+}
+
+export function resolveSelectionScope(raw: unknown): SelectionScopedPredicate {
+	const parsed = parsePredicate(raw)
+	let selectedOnly: boolean | null = null
+	const rest: Predicate['all'] = []
+	for (const clause of parsed.all) {
+		if (clause.field !== '$selected') {
+			rest.push(clause)
+			continue
+		}
+		if (clause.op === 'eq' && typeof clause.value === 'boolean') {
+			selectedOnly = clause.value
+		} else if (clause.op === 'exists') {
+			selectedOnly = true
+		} else if (clause.op === 'missing') {
+			selectedOnly = false
+		} else {
+			throw new Error(
+				"predicate field '$selected' supports only: { op: 'eq', value: true|false }, { op: 'exists' } or { op: 'missing' }",
+			)
+		}
+	}
+	const predicate: Predicate = { all: rest }
+	if (selectedOnly === null) {
+		return {
+			predicate,
+			matches: (feature) => matchesPredicate(feature, predicate),
+			filter: (features) => selectByPredicate(features, predicate),
+		}
+	}
+	const selectedIds = new Set(useEditorStore.getState().selectedFeatureIds.map(String))
+	const matches = (feature: EditorFeature) =>
+		selectedIds.has(String(feature.id)) === selectedOnly && matchesPredicate(feature, predicate)
+	return {
+		predicate,
+		matches,
+		filter: (features) => features.filter(matches),
+	}
+}
+
+/**
  * Validate an untrusted predicate arg into a `Predicate` (V5 — T-06-04a). Rejects a
  * missing/ malformed clause list and any clause whose `op` is not in the allow-list or
  * whose `field` is not a string, throwing a CATCHABLE error so the model self-corrects.
@@ -293,7 +349,7 @@ function parseStyleBuckets(raw: unknown): StyleBucket[] {
 		// InvalidStyleOptionError, surfaced to the loop as a self-correctable ToolError.
 		normalizeStyleOptions(style as Record<string, unknown>)
 		return {
-			predicate: parsePredicate(bucket.predicate),
+			matches: resolveSelectionScope(bucket.predicate).matches,
 			style: style as Record<string, unknown>,
 		}
 	})
@@ -315,10 +371,10 @@ export function registerBulkTools(register: (entry: ToolEntry) => void): void {
 		schema: schemaFor('select_features'),
 		handler: (args) => {
 			const editor = requireEditor()
-			const predicate = parsePredicate(args.predicate)
+			const scope = resolveSelectionScope(args.predicate)
 			// Read the FULL id-keyed set — never the model's compacted sample (SAFE-05).
 			const all = editor.getAllFeatures()
-			const matched = selectByPredicate(all, predicate)
+			const matched = scope.filter(all)
 			const matchedIds = matched.map((f) => String(f.id))
 			return {
 				matched: matchedIds.length,
@@ -337,10 +393,15 @@ export function registerBulkTools(register: (entry: ToolEntry) => void): void {
 		handler: (args) => {
 			const editor = requireEditor()
 			// An optional predicate pre-scopes the check; absent → the whole dataset.
-			const predicate = args.predicate === undefined ? undefined : parsePredicate(args.predicate)
+			// Selection scoping ($selected) resolves here; the validator sees only
+			// the pre-filtered list.
+			if (args.predicate === undefined) {
+				return validateGeometryFeatures(editor.getAllFeatures(), undefined)
+			}
+			const scope = resolveSelectionScope(args.predicate)
 			// READ-ONLY: validateGeometryFeatures holds no editor reference and mutates
 			// nothing — Phase 7 owns fixing. Return the report verbatim.
-			return validateGeometryFeatures(editor.getAllFeatures(), predicate)
+			return validateGeometryFeatures(scope.filter(editor.getAllFeatures()), undefined)
 		},
 	})
 
@@ -361,10 +422,10 @@ export function registerBulkTools(register: (entry: ToolEntry) => void): void {
 				// D-04a: the MODEL supplies the RULE, the HOST supplies the LIST — the
 				// rule runs over editor.getAllFeatures() via runFixAllRule (SAFE-05),
 				// touching EVERY matching id incl. ones the model never saw (Pitfall 1).
-				const predicate = parsePredicate(args.predicate)
+				const scope = resolveSelectionScope(args.predicate)
 				const ops = parseDeclarativeOps(args.ops)
 				const rule: FixAllRule = {
-					predicate: (f) => matchesPredicate(f, predicate),
+					predicate: scope.matches,
 					transform: (f) => ({
 						...f,
 						properties: applyDeclarativeOps(
@@ -381,7 +442,7 @@ export function registerBulkTools(register: (entry: ToolEntry) => void): void {
 						runFixAllRule(editor, rule)
 					},
 				)
-				const matched = selectByPredicate(editor.getAllFeatures(), predicate).length
+				const matched = scope.filter(editor.getAllFeatures()).length
 				return {
 					mode,
 					cancelled: outcome.status === 'cancelled',
@@ -467,7 +528,7 @@ export function registerBulkTools(register: (entry: ToolEntry) => void): void {
 			const scoped =
 				args.predicate === undefined
 					? editor.getAllFeatures()
-					: selectByPredicate(editor.getAllFeatures(), parsePredicate(args.predicate))
+					: resolveSelectionScope(args.predicate).filter(editor.getAllFeatures())
 			const by = args.by === 'attributes' || args.by === 'both' ? args.by : ('geometry' as const)
 			// Reject a non-string `keys` entry rather than silently dropping it (WR-03) —
 			// silent dropping would change the dedup tuple the user asked for and could
@@ -552,11 +613,9 @@ export function registerBulkTools(register: (entry: ToolEntry) => void): void {
 			// ONE rule call over the full set (NOT O(N) recolors — STYLE-01 anti-pattern
 			// ban). A feature matches the rule iff a bucket matches OR a fallback exists.
 			const rule: FixAllRule = {
-				predicate: (f) =>
-					buckets.some((b) => matchesPredicate(f, b.predicate)) || fallbackStyle !== undefined,
+				predicate: (f) => buckets.some((b) => b.matches(f)) || fallbackStyle !== undefined,
 				transform: (f) => {
-					const chosen =
-						buckets.find((b) => matchesPredicate(f, b.predicate))?.style ?? fallbackStyle
+					const chosen = buckets.find((b) => b.matches(f))?.style ?? fallbackStyle
 					// Unmatched + no fallback → untouched (smallest diff, D-03).
 					if (!chosen) return f
 					// normalizeStyleOptions throws InvalidStyleOptionError on an unknown key

@@ -2,7 +2,7 @@
  * Basemap (OpenFreeMap) style preference.
  *
  * The map is central to Earthly's look, so its basemap follows the app theme
- * by default (`auto`: Positron in light, Dark in dark) but can be pinned to a
+ * by default (`auto`: Liberty in light, Dark in dark) but can be pinned to a
  * specific OpenFreeMap style regardless of theme via the Map settings dropdown.
  *
  * Only applies to the `default` map source; blossom/pmtiles sources build their
@@ -33,12 +33,12 @@ export function basemapStyleUrl(id: Exclude<BasemapStyleId, 'auto'>): string {
 
 /**
  * Resolve a preference into the `{ light, dark }` pair the map component reads.
- * `auto` maps light→Positron, dark→Dark; a pinned style uses the same URL for
+ * `auto` maps light→Liberty, dark→Dark; a pinned style uses the same URL for
  * both theme slots so it stays put when the theme flips.
  */
 export function resolveBasemapStyles(pref: BasemapStyleId): { light: string; dark: string } {
 	if (pref === 'auto') {
-		return { light: basemapStyleUrl('positron'), dark: basemapStyleUrl('dark') }
+		return { light: basemapStyleUrl('liberty'), dark: basemapStyleUrl('dark') }
 	}
 	const url = basemapStyleUrl(pref)
 	return { light: url, dark: url }

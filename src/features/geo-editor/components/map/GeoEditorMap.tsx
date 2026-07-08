@@ -122,7 +122,7 @@ export function GeoEditorMap({
 	const [basemapStyle] = useBasemapStyle()
 
 	// mapcn requires `styles={{light,dark}}`. For the `default` map source the
-	// basemap follows the theme (Positron in light, Dark in dark) or a pinned
+	// basemap follows the theme (Liberty in light, Dark in dark) or a pinned
 	// OpenFreeMap style — see `@/lib/basemap`. mapcn's own theme switch then
 	// picks the right slot, so toggling the app theme re-styles the map. For
 	// non-default sources (blossom/pmtiles) the built style is theme-agnostic,

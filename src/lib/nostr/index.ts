@@ -407,6 +407,21 @@ async function resolveRoutedRelays(
 }
 
 /**
+ * Routed publishes ALWAYS include the configured write relays as a baseline.
+ *
+ * The app's content model reads entity kinds from the configured relays
+ * (relay-router 'content' bucket) — NIP-65 routing is an additional
+ * notification/discovery channel, not a replacement home. Without the
+ * baseline, an event routed purely to a counterparty's personal mailboxes is
+ * invisible to every reader on the app relay: the proposer sees their own
+ * proposal (local eventStore) while the dataset owner's Proposals tab —
+ * subscribed on the app relay — never receives it.
+ */
+function withConfiguredBaseline(routed: string[]): string[] {
+	return [...new Set([...config.writeRelays, ...routed])]
+}
+
+/**
  * One-stop publish: broadcast to relays, add to the local store, return the
  * relay responses. Use this in place of `event.publish()` from NDK.
  *
@@ -427,11 +442,12 @@ export async function publish(event: NostrEvent, options: PublishOptions = {}) {
 		// (relay-router) is explicitly enabled for authoring.
 		targetRelays = config.writeRelays
 	} else if (routing === 'outbox') {
-		targetRelays = await resolveRoutedRelays(
+		const outboxes = await resolveRoutedRelays(
 			event.pubkey,
 			'outboxes',
 			mailboxTimeoutMs ?? MAILBOX_TIMEOUT_DEFAULT,
 		)
+		targetRelays = withConfiguredBaseline(outboxes)
 	} else if (routing === 'reply') {
 		if (!target) throw new Error("publish({ routing: 'reply' }) requires a target pubkey")
 		const timeoutMs = mailboxTimeoutMs ?? MAILBOX_TIMEOUT_DEFAULT
@@ -439,15 +455,16 @@ export async function publish(event: NostrEvent, options: PublishOptions = {}) {
 			resolveRoutedRelays(event.pubkey, 'outboxes', timeoutMs),
 			resolveRoutedRelays(target, 'inboxes', timeoutMs),
 		])
-		targetRelays = [...new Set([...outboxes, ...inboxes])]
+		targetRelays = withConfiguredBaseline([...outboxes, ...inboxes])
 	} else {
 		// routing === 'inbox'
 		if (!target) throw new Error("publish({ routing: 'inbox' }) requires a target pubkey")
-		targetRelays = await resolveRoutedRelays(
+		const inboxes = await resolveRoutedRelays(
 			target,
 			'inboxes',
 			mailboxTimeoutMs ?? MAILBOX_TIMEOUT_DEFAULT,
 		)
+		targetRelays = withConfiguredBaseline(inboxes)
 	}
 
 	const responses = await pool.publish(targetRelays, event)

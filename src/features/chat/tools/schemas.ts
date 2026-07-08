@@ -911,7 +911,7 @@ export const geoStaticToolSchemas: Tool[] = [
 					predicate: {
 						type: 'object',
 						description:
-							'A flat AND-list of clauses evaluated over each feature’s properties. Empty/omitted matches every feature.',
+							'A flat AND-list of clauses evaluated over each feature’s properties. Empty/omitted matches every feature. The special field "$selected" scopes to the user’s CURRENT map selection: { field: "$selected", op: "eq", value: true } targets exactly the selected features (value: false targets the unselected rest).',
 						properties: {
 							all: {
 								type: 'array',
@@ -923,7 +923,7 @@ export const geoStaticToolSchemas: Tool[] = [
 										field: {
 											type: 'string',
 											description:
-												'The feature property key to test (read directly off properties; no nesting).',
+												'The feature property key to test (read directly off properties; no nesting), or the special key "$selected" to test map-selection membership.',
 										},
 										op: {
 											type: 'string',

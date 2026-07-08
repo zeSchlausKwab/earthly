@@ -24,6 +24,7 @@
  * compileBuilderSchema).
  */
 
+import { toast } from 'sonner'
 import { castEvent } from 'applesauce-core/casts'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -417,6 +418,7 @@ export function GroupEditorPanel({
 				.sign(signer)
 
 			await publish(signedEvent, { routing: 'outbox' })
+			toast.success(isEditing ? 'Group updated.' : 'Group published.')
 			// Surface the saved Group through the existing MapContext cast so the
 			// current GeoEditorInfoPanel view/save lifecycle is unchanged (Plan 06).
 			const cast = castEvent(signedEvent, MapContext, eventStore)

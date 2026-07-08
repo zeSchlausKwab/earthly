@@ -12,6 +12,7 @@
  *     await GeoDatasetFactory.create(fc).as(signer).hashtags(['nature']).sign()
  */
 
+import { geohashPrefixes } from '../tags'
 import {
 	blankEventTemplate,
 	DeleteFactory,
@@ -180,7 +181,9 @@ export class GeoDatasetFactory extends EventFactory<typeof GEO_EVENT_KIND> {
 
 			const newTags: string[][] = tpl.tags.filter((tag) => tag[0] !== 'bbox' && tag[0] !== 'g')
 			if (computedBbox) newTags.push(['bbox', computedBbox.join(',')])
-			if (computedGeohash) newTags.push(['g', computedGeohash])
+			if (computedGeohash) {
+				for (const prefix of geohashPrefixes(computedGeohash)) newTags.push(['g', prefix])
+			}
 
 			return { ...tpl, tags: newTags }
 		})

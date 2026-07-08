@@ -59,7 +59,7 @@ import type { LiveBeacon } from '@/lib/nostr/live-beacon'
 import { formatExpiryCountdown } from '@/lib/nostr/temporal-sighting'
 import { nip19 } from 'nostr-tools'
 import type { Article } from '@/lib/nostr/article'
-import { ARTICLE_KIND, LIVE_BEACON_KIND, TEMPORAL_SIGHTING_KIND } from '@/lib/nostr/kinds'
+import { ARTICLE_KIND, LIVE_BEACON_KIND } from '@/lib/nostr/kinds'
 import { isExpired } from '@/lib/nostr/expiry'
 import { unixNow } from 'applesauce-core/helpers/time'
 import { deleteStory } from '@/lib/nostr/story'
@@ -78,6 +78,12 @@ import { getDefaultContextMapScopeMode, resolveContextMapScope } from '@/lib/con
 import { createAuthoring } from './api'
 import { AssistantSidebar } from './components/AssistantSidebar'
 import { Editor } from './components/Editor'
+import {
+	encodeBeaconNaddrPure,
+	encodeSightingNaddrPure,
+	getBeaconMapStackKey,
+	getSightingMapStackKey,
+} from './mapStackEntityKeys'
 import { ImportOsmDialog } from './components/ImportOsmDialog'
 import { LocationInspectorPopup } from './components/LocationInspectorPopup'
 import { Magnifier } from './components/Magnifier'
@@ -107,6 +113,7 @@ import {
 	useCommentGeometry,
 	useProposalGeometry,
 	useDatasetManagement,
+	useGeoQueryByView,
 	useInspector,
 	useMagnifier,
 	useMapLayers,
@@ -221,36 +228,14 @@ export function shouldSweepStackEntry(status: { resolved: boolean; expired: bool
 	return !status.resolved || status.expired
 }
 
-/**
- * Phase 13: pure naddr encoders for the stack-derived selectors' `resolveKey`.
- * Module-scope so `visibleSightingsFromStack`/`visibleBeaconsFromStack` (defined
- * high in the component) can resolve an entity's stack key without a temporal-
- * dead-zone reference to the `encodeSightingNaddr`/`encodeBeaconNaddr` useCallbacks
- * (defined lower). Byte-identical logic to those callbacks; the callbacks remain
- * for the route-focus effect. Falls back to dTag/id at the call site when null.
- */
-export function encodeSightingNaddrPure(sighting: TemporalSighting): string | null {
-	const identifier = sighting.dTag
-	if (!identifier || !sighting.pubkey) return null
-	try {
-		return nip19.naddrEncode({ kind: TEMPORAL_SIGHTING_KIND, pubkey: sighting.pubkey, identifier })
-	} catch {
-		return null
-	}
-}
-export function encodeBeaconNaddrPure(beacon: LiveBeacon): string | null {
-	const identifier = beacon.dTag
-	if (!identifier || !beacon.pubkey) return null
-	try {
-		return nip19.naddrEncode({ kind: LIVE_BEACON_KIND, pubkey: beacon.pubkey, identifier })
-	} catch {
-		return null
-	}
-}
-
 export function GeoEditorView() {
 	const map = useRef<maplibregl.Map | null>(null)
 	const [mounted, setMounted] = useState(false)
+
+	// Query-by-view (Map Stack header toggle): viewport relay geo queries on
+	// pan/zoom feeding the stack's "Geo query" section. Reads its own enabled
+	// flag from the store; inert until toggled on.
+	useGeoQueryByView(map, mounted)
 	const [mapError, _setMapError] = useState<string | null>(null)
 	const [deletingKey, setDeletingKey] = useState<string | null>(null)
 	const [resolvedCollectionsVersion, setResolvedCollectionsVersion] = useState(0)
@@ -705,7 +690,7 @@ export function GeoEditorView() {
 			// Toast-honesty (13-06 Task 2): only proceed if the sighting resolves to a
 			// real, keyable entity. `sighting` is already the resolved object the panel
 			// is displaying, so resolution "succeeds" when it has a stable entityKey.
-			const entityKey = encodeSightingNaddrPure(sighting) ?? sighting.dTag ?? sighting.id
+			const entityKey = getSightingMapStackKey(sighting)
 			if (!entityKey) {
 				if (source === 'manual') toast.error("Couldn't add this sighting to the map.")
 				return
@@ -739,7 +724,7 @@ export function GeoEditorView() {
 			// from live) IS resolvable — it is the object the inspect panel is showing —
 			// so caching it under its entityKey lets the individual pin render without
 			// forcing it into discovery.
-			const entityKey = encodeBeaconNaddrPure(beacon) ?? beacon.dTag ?? beacon.id
+			const entityKey = getBeaconMapStackKey(beacon)
 			if (!entityKey) {
 				if (source === 'manual') toast.error("Couldn't add this beacon to the map.")
 				return
@@ -1407,7 +1392,7 @@ export function GeoEditorView() {
 				mapStackOrder,
 				'sighting',
 				'sighting-layer',
-				(s) => encodeSightingNaddrPure(s) ?? s.dTag ?? s.id,
+				getSightingMapStackKey,
 				sightingLookupSuperset,
 			),
 		[sightings, mapStackEntries, mapStackOrder, sightingLookupSuperset],
@@ -1460,7 +1445,7 @@ export function GeoEditorView() {
 				mapStackOrder,
 				'beacon',
 				'beacon-layer',
-				(b) => encodeBeaconNaddrPure(b) ?? b.dTag ?? b.id,
+				getBeaconMapStackKey,
 				addedBeaconLookupSuperset,
 			),
 		[beacons, mapStackEntries, mapStackOrder, addedBeaconLookupSuperset],
@@ -1483,11 +1468,13 @@ export function GeoEditorView() {
 		// membership. A faded-from-live-but-not-expired entry is therefore KEPT.
 		const sightingByKey = new Map<string, TemporalSighting>()
 		for (const s of sightingLookupSuperset) {
-			sightingByKey.set(encodeSightingNaddrPure(s) ?? s.dTag ?? s.id, s)
+			const key = getSightingMapStackKey(s)
+			if (key) sightingByKey.set(key, s)
 		}
 		const beaconByKey = new Map<string, LiveBeacon>()
 		for (const b of addedBeaconLookupSuperset) {
-			beaconByKey.set(encodeBeaconNaddrPure(b) ?? b.dTag ?? b.id, b)
+			const key = getBeaconMapStackKey(b)
+			if (key) beaconByKey.set(key, b)
 		}
 		for (const id of mapStackOrder) {
 			const entry = mapStackEntries[id]
@@ -2443,7 +2430,7 @@ export function GeoEditorView() {
 			autoAddedOwnBeaconKeyRef.current = null
 			return
 		}
-		const key = encodeBeaconNaddrPure(ownLiveBeacon) ?? ownLiveBeacon.dTag ?? ownLiveBeacon.id
+		const key = getBeaconMapStackKey(ownLiveBeacon)
 		if (!key || autoAddedOwnBeaconKeyRef.current === key) return
 		autoAddedOwnBeaconKeyRef.current = key
 		addBeaconToMapStack(ownLiveBeacon, 'own')
@@ -2474,25 +2461,66 @@ export function GeoEditorView() {
 		)
 			return
 
+		// Decode the routed naddr ONCE and match by address fields. A shared
+		// naddr may carry relay-hint TLVs (other clients, share sheets, chat
+		// mentions) — string-comparing it against our locally-encoded bare
+		// naddr silently never matches, which is exactly the "landing on a
+		// shared route does nothing" failure. Falls back to string comparison
+		// when the naddr doesn't decode.
+		let routePointer: { kind: number; pubkey: string; identifier: string } | null = null
+		try {
+			const decoded = nip19.decode(route.naddr)
+			if (decoded.type === 'naddr') routePointer = decoded.data
+		} catch {
+			routePointer = null
+		}
+		const matchesRoute = (fields: {
+			kind?: number
+			pubkey?: string
+			identifier?: string | null
+		}): boolean =>
+			routePointer !== null &&
+			fields.kind === routePointer.kind &&
+			fields.pubkey === routePointer.pubkey &&
+			(fields.identifier ?? '') === routePointer.identifier
+
 		if (route.focusType === 'geoevent') {
 			// Find the dataset matching the naddr
-			const dataset = geoEvents.find((event) => {
-				const eventNaddr = encodeGeoEventNaddr(event)
-				return eventNaddr === route.naddr
-			})
+			const dataset = geoEvents.find(
+				(event) =>
+					matchesRoute({
+						kind: event.kind,
+						pubkey: event.pubkey,
+						identifier: event.datasetId ?? event.dTag,
+					}) || encodeGeoEventNaddr(event) === route.naddr,
+			)
 			if (dataset) {
 				addDatasetToMapStack(dataset, 'route')
 				handleInspectDataset(dataset)
+				// Shared-link contract: landing zooms to the entity, not just
+				// stacks it — the recipient should SEE what was shared.
+				zoomToDataset(dataset)
 				focusHandledRef.current = routeKey
 			}
 		} else if (route.focusType === 'mapcontext') {
-			const context = mapContextEvents.find((ctx) => encodeContextNaddr(ctx) === route.naddr)
+			const context = mapContextEvents.find(
+				(ctx) =>
+					matchesRoute({
+						kind: ctx.kind,
+						pubkey: ctx.pubkey,
+						identifier: ctx.contextId ?? ctx.dTag,
+					}) || encodeContextNaddr(ctx) === route.naddr,
+			)
 			if (context) {
 				handleInspectContext(context)
 				focusHandledRef.current = routeKey
 			}
 		} else if (route.focusType === 'story') {
-			const story = stories.find((s) => encodeStoryNaddr(s) === route.naddr)
+			const story = stories.find(
+				(s) =>
+					matchesRoute({ kind: s.kind, pubkey: s.pubkey, identifier: s.dTag }) ||
+					encodeStoryNaddr(s) === route.naddr,
+			)
 			if (story) {
 				handleInspectStory(story)
 				focusHandledRef.current = routeKey
@@ -2501,7 +2529,11 @@ export function GeoEditorView() {
 			// D-08: resolve the /sighting/:naddr deep link via useSightings (already
 			// dropExpired'd at the subscription — an expired sighting won't be found,
 			// SIGHT-03) and open the read view.
-			const sighting = sightings.find((s) => encodeSightingNaddr(s) === route.naddr)
+			const sighting = sightings.find(
+				(s) =>
+					matchesRoute({ kind: s.kind, pubkey: s.pubkey, identifier: s.dTag }) ||
+					encodeSightingNaddr(s) === route.naddr,
+			)
 			if (sighting) {
 				// Phase 13 (D-03/SPEC §2.2): the routed sighting lands on the Map Stack
 				// ISOLATED (deep-link-solo), mirroring the dataset route dispatch above
@@ -2520,9 +2552,10 @@ export function GeoEditorView() {
 			// subscription means an ended/expired beacon won't resolve — the view
 			// panel's isExpired gate then shows the terminal copy. Thin per-kind
 			// clone — Phase 13 / XCUT-02 generalizes.
-			const beacon =
-				beacons.find((b) => encodeBeaconNaddr(b) === route.naddr) ??
-				routedBeacons.find((b) => encodeBeaconNaddr(b) === route.naddr)
+			const matchesBeacon = (b: (typeof beacons)[number]) =>
+				matchesRoute({ kind: b.kind, pubkey: b.pubkey, identifier: b.dTag }) ||
+				encodeBeaconNaddr(b) === route.naddr
+			const beacon = beacons.find(matchesBeacon) ?? routedBeacons.find(matchesBeacon)
 			if (beacon) {
 				// Phase 13 (D-03/SPEC §2.2): the routed beacon lands on the Map Stack
 				// ISOLATED (deep-link-solo). This is what makes a link-only / deep-linked
@@ -2560,6 +2593,7 @@ export function GeoEditorView() {
 		handleInspectStory,
 		handleInspectSighting,
 		handleInspectBeacon,
+		zoomToDataset,
 	])
 
 	// Pan lock and magnifier

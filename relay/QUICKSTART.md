@@ -1,113 +1,42 @@
 # Quick Start Guide
 
-Welcome to the Earthly Radio Relay! This is a dead-simple Nostr relay with full-text search.
+The Earthly relay: a khatru-based Nostr relay with geo-aware search.
 
-## 🎯 What You Get
+## What You Get
 
-- **SQLite database** - All your events in `./data/events.db`
-- **Bluge search index** - Fast full-text search in `./data/search/`
-- **No containers** - Just files on disk
-- **NIP-50 support** - Full-text search for radio stations
+- **LMDB event store** — all events in `./data/events-lmdb/` (canonical storage)
+- **bleve geo index** — `./data/search/` (derived data, rebuildable at any time)
+- **NIP-50 + Earthly extension grammar** — text, bbox, geo-relation, temporal, facet queries
+- **`#g` viewport queries** — multi-precision geohash matching for map pan/zoom
+- **NIP-40 expiry** — expired beacons/sightings are GC'd and never served
 
-## 🚀 Get Started (2 commands)
-
-```bash
-./setup.sh    # Install dependencies
-make dev      # Start the relay
-```
-
-That's it! Your relay is now running on `ws://localhost:3334`
-
-## 📊 What's Happening
-
-The relay stores events in two places:
-
-1. **SQLite** (`data/events.db`) - All events, permanent storage
-2. **Bluge** (`data/search/`) - Search index for fast queries
-
-When you query:
-
-- Regular filters → SQLite
-- Filters with `search` field → Bluge (which fetches from SQLite)
-
-## 🔍 Testing Search
-
-Connect a Nostr client and try:
-
-```json
-{
-  "kinds": [31237],
-  "search": "jazz"
-}
-```
-
-This will search through station names and descriptions.
-
-## 🗑️ Reset Data
+## Get Started
 
 ```bash
-make reset-all     # Delete everything, start fresh
-make reset-db      # Just delete the database
-make reset-index   # Just delete the search index
+make dev      # Start the relay on ws://localhost:3334
 ```
 
-## 📁 File Structure
+## Query lanes
 
-```
-relay/
-├── data/
-│   ├── events.db         # SQLite database
-│   └── search/          # Bluge search index
-│       └── (index files)
-├── main.go              # Relay code
-└── Makefile            # Commands
-```
+1. Regular filters → LMDB
+2. `#g` tag filters → geo index (any geohash precision 1–7 matches)
+3. `search` filters → geo index via the extension grammar
+   (`docs/GEO_SEARCH_REWRITE.md` §4; e.g. `playground bbox:16.1,48.1,16.7,48.4`)
 
-## 🎛️ Configuration
+Capability document: `GET /earthly-search` → grammar version + extensions.
 
-All flags and their defaults:
+## Flags
 
-```bash
-go run . \
-  --port 3334 \                      # Port to listen on
-  --db-path ./data/events.db \       # SQLite database
-  --search-path ./data/search        # Search index
-```
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `--port` | 3334 | Listen port |
+| `--data-dir` | ./data | Event store + index location |
+| `--log-level` | info | debug logs every event/query |
+| `--reset-db` | | Wipe event store (index too — it derives from it) |
+| `--reset-index` | | Wipe index only (auto-rebuilds from LMDB on start) |
+| `--reset-all` | | Both |
+| `--reindex` | | Force full index rebuild on start |
+| `--min-free-bytes` | 512 MB | Refuse writes below this free disk space |
 
-## 🐛 Troubleshooting
-
-### Port already in use?
-
-```bash
-go run . --port 8080
-```
-
-### Want to start fresh?
-
-```bash
-make reset-all
-go run .
-```
-
-### Check what's stored?
-
-```bash
-# View events in SQLite
-sqlite3 data/events.db "SELECT * FROM events LIMIT 10;"
-
-# Check file sizes
-du -sh data/
-```
-
-## 🔥 Production Tips
-
-1. **Build it**: `make build` creates `bin/relay`
-2. **Run it**: `./bin/relay --port 3334`
-3. **Backup**: Just copy the `data/` directory!
-4. **Monitor**: Check file sizes with `du -sh data/`
-
-## 📚 Learn More
-
-- Full docs: [README.md](README.md)
-- Main project: [../README.md](../README.md)
-- Event spec: [../SPEC.md](../SPEC.md)
+The index self-heals: if it is empty (fresh/reset) while LMDB has events, the
+relay reindexes automatically on startup.

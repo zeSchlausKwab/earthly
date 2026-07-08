@@ -2,8 +2,8 @@
  * Lightweight theme controller for the "dense instrument" design system.
  *
  * The app has no `next-themes` provider; the active theme is simply the
- * `light` / `dark` class on `<html>`. Dark is the default working theme
- * (Studio); light is warm paper for light contexts. The preference persists
+ * `light` / `dark` class on `<html>`. Light is the default working theme;
+ * dark is available for Studio-style low-light contexts. The preference persists
  * to localStorage and is applied pre-render by an inline script in
  * `src/index.html` to avoid a flash of the wrong theme.
  *
@@ -16,13 +16,16 @@ import { useEffect, useState } from 'react'
 export type ThemeMode = 'light' | 'dark'
 
 export const THEME_STORAGE_KEY = 'earthly-theme'
+export const DEFAULT_THEME: ThemeMode = 'light'
 
 const listeners = new Set<(mode: ThemeMode) => void>()
 
 /** Current theme read straight from the document class (source of truth). */
 export function getTheme(): ThemeMode {
-	if (typeof document === 'undefined') return 'dark'
-	return document.documentElement.classList.contains('light') ? 'light' : 'dark'
+	if (typeof document === 'undefined') return DEFAULT_THEME
+	if (document.documentElement.classList.contains('dark')) return 'dark'
+	if (document.documentElement.classList.contains('light')) return 'light'
+	return DEFAULT_THEME
 }
 
 /** Apply a theme to the document, persist it, and notify subscribers. */

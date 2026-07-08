@@ -6,6 +6,7 @@
  * `description`, `base-version`, and discovery tags.
  */
 
+import { geohashPrefixes } from '../tags'
 import { blankEventTemplate, DeleteFactory, EventFactory } from 'applesauce-core/factories'
 import type { EventSigner } from 'applesauce-core/factories/types'
 import type { FeatureCollection } from 'geojson'
@@ -98,7 +99,9 @@ export class GeoProposalFactory extends EventFactory<typeof GEO_EDIT_PROPOSAL_KI
 
 			const newTags: string[][] = tpl.tags.filter((tag) => tag[0] !== 'bbox' && tag[0] !== 'g')
 			if (computedBbox) newTags.push(['bbox', computedBbox.join(',')])
-			if (computedGeohash) newTags.push(['g', computedGeohash])
+			if (computedGeohash) {
+				for (const prefix of geohashPrefixes(computedGeohash)) newTags.push(['g', prefix])
+			}
 
 			return { ...tpl, tags: newTags }
 		})

@@ -473,11 +473,14 @@ if (!isProduction) {
 						return serveBuiltFile(staticFile, pathname)
 					}
 
-					// Assets that must NEVER fall through to the SPA index.html. A `.wasm`
-					// served as text/html would break WebAssembly instantiation, and a
-					// worker module under /workers/ served as text/html would fail to
-					// construct, so a genuine 404 is the correct (debuggable) outcome here.
-					if (pathname.endsWith('.wasm') || pathname.startsWith('/workers/')) {
+					// Assets that must NEVER fall through to the SPA index.html: a missing
+					// script/wasm/style served as text/html produces the opaque
+					// "Expected a JavaScript-or-Wasm module script" failure instead of a
+					// debuggable 404. Route paths (naddr segments, d-tags) never end in
+					// these extensions, so this cannot shadow client-side routes.
+					const assetExtension =
+						/\.(js|mjs|css|map|wasm|json|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf)$/i
+					if (assetExtension.test(pathname) || pathname.startsWith('/workers/')) {
 						return new Response('Not found', { status: 404 })
 					}
 

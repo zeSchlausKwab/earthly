@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { Feature, FeatureCollection, Geometry, GeoJsonProperties } from 'geojson'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { ZoomActionIcon } from '../entity-action-icons'
 import { GeometryBadge, GeometryDisplay } from './geometry/GeometryDisplay'
 
 function deriveFeatureCustomProperties(properties: GeoJsonProperties | null | undefined) {
@@ -44,6 +45,8 @@ interface ReadOnlyFeatureRowProps {
 	isExpanded: boolean
 	onToggleExpand: () => void
 	isExternal?: boolean
+	/** Zoom the map to this feature (inspect-view parity with the edit view). */
+	onZoomToFeature?: (feature: Feature<Geometry | null, GeoJsonProperties>) => void
 }
 
 function ReadOnlyFeatureRow({
@@ -52,6 +55,7 @@ function ReadOnlyFeatureRow({
 	isExpanded,
 	onToggleExpand,
 	isExternal,
+	onZoomToFeature,
 }: ReadOnlyFeatureRowProps) {
 	const isAnnotation = feature.properties?.featureType === 'annotation'
 	const isExternalPlaceholder = feature.properties?.externalPlaceholder === true
@@ -92,6 +96,19 @@ function ReadOnlyFeatureRow({
 				/>
 
 				<span className="flex-1 text-left truncate text-foreground">{name}</span>
+
+				{onZoomToFeature && hasGeometry ? (
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-sm"
+						onClick={() => onZoomToFeature(feature)}
+						aria-label={`Zoom to ${name}`}
+						title="Zoom to this feature"
+					>
+						<ZoomActionIcon className="h-3 w-3" />
+					</Button>
+				) : null}
 			</div>
 
 			{/* External placeholder info */}
@@ -159,6 +176,8 @@ interface DatasetFeaturesListProps {
 	featureCollection: FeatureCollection | null | undefined
 	hiddenFeatureIds?: Set<string>
 	className?: string
+	/** When provided, each geometry row gets a zoom-to button. */
+	onZoomToFeature?: (feature: Feature<Geometry | null, GeoJsonProperties>) => void
 }
 
 /**
@@ -169,6 +188,7 @@ export function DatasetFeaturesList({
 	featureCollection,
 	hiddenFeatureIds,
 	className,
+	onZoomToFeature,
 }: DatasetFeaturesListProps) {
 	const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set())
 
@@ -229,6 +249,7 @@ export function DatasetFeaturesList({
 						isExpanded={expandedIds.has(index)}
 						onToggleExpand={() => toggleExpand(index)}
 						isExternal={isExternalPlaceholder}
+						onZoomToFeature={onZoomToFeature}
 					/>
 				)
 			})}

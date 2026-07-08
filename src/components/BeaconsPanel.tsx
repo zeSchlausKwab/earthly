@@ -16,11 +16,13 @@
  */
 
 import { unixNow } from 'applesauce-core/helpers/time'
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { Radio } from 'lucide-react'
+import { useEditorStore } from '@/features/geo-editor/store'
+import { getBeaconMapStackKey } from '@/features/geo-editor/mapStackEntityKeys'
 import { useBeacons, beaconState } from '@/lib/hooks/useBeacons'
 import type { LiveBeacon } from '@/lib/nostr/live-beacon'
-import { EntityListTable, ListPanel } from '@/components/entity-list'
+import { BulkMapStackButton, EntityListTable, ListPanel } from '@/components/entity-list'
 import {
 	createBeaconColumns,
 	type BeaconColumnsContext,
@@ -41,7 +43,10 @@ export interface BeaconsPanelProps {
 	/** Fly the map to the beacon's location and focus it ("Watch on map"). */
 	onWatchOnMap?: (beacon: LiveBeacon) => void
 	/** Phase 13 (SPEC §3.4): add this beacon to the Map Stack. Absent ⇒ hidden. */
-	onAddToMapStack?: (beacon: LiveBeacon) => void
+	onAddToMapStack?: (
+		beacon: LiveBeacon,
+		source?: 'manual' | 'route' | 'browse-default' | 'own',
+	) => void
 	/** Stop the user's own active beacon (owner-only). */
 	onStopBeacon?: (beacon: LiveBeacon) => void
 	/** Adjust the user's own active beacon (owner-only). */
@@ -66,6 +71,7 @@ export function BeaconsPanelContent({
 	selectedKey,
 }: BeaconsPanelProps) {
 	const filterState = useFilterState()
+	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const { events: beacons, eose } = useBeacons()
 	const now = unixNow()
 
@@ -110,6 +116,20 @@ export function BeaconsPanelContent({
 	)
 
 	const hasSearch = filterState.searchQuery.trim().length > 0
+	const stackableFilteredBeacons = useMemo(
+		() =>
+			result.filteredItems.filter((beacon) => {
+				const key = getBeaconMapStackKey(beacon)
+				return Boolean(key && !mapStackEntries[`beacon:${key}`])
+			}),
+		[result.filteredItems, mapStackEntries],
+	)
+	const addFilteredToMapStack = useCallback(() => {
+		if (!onAddToMapStack) return
+		for (const beacon of stackableFilteredBeacons) {
+			onAddToMapStack(beacon, 'browse-default')
+		}
+	}, [onAddToMapStack, stackableFilteredBeacons])
 
 	return (
 		<ListPanel
@@ -119,6 +139,13 @@ export function BeaconsPanelContent({
 			count={liveCount > 0 ? `${liveCount} live` : rows.length}
 			onNew={onShareLocation}
 			newLabel="Share live location"
+			titleAccessory={
+				<BulkMapStackButton
+					count={stackableFilteredBeacons.length}
+					onClick={onAddToMapStack ? addFilteredToMapStack : undefined}
+					label="Add filtered beacons to map stack"
+				/>
+			}
 			toolbar={
 				<EntitySearchToolbar
 					{...filterState}

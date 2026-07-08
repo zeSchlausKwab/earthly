@@ -39,7 +39,7 @@ import {
 	type DatasetColumnsContext,
 	type DatasetRowData,
 } from './datasets-columns'
-import { EntityListTable } from './entity-list'
+import { BulkMapStackButton, EntityListTable } from './entity-list'
 import { Button } from './ui/button'
 import { DataTable } from './ui/data-table'
 import { UserProfile } from './user-profile/UserProfile'
@@ -427,6 +427,46 @@ export function UserProfilePanel({
 		})
 	}, [])
 
+	// Bulk "add the whole filtered list to the map stack" (parity with the
+	// catalog panels' BulkMapStackButton). Operates on filteredItems — the FULL
+	// search/filter match set, not just the displayed page.
+	const stackableFilteredDatasets = useMemo(
+		() =>
+			datasetResult.filteredItems.filter(
+				(event) => !mapStackEntries[`dataset:${getDatasetKey(event)}`],
+			),
+		[datasetResult.filteredItems, mapStackEntries, getDatasetKey],
+	)
+	const stackableFilteredContexts = useMemo(
+		() =>
+			contextResult.filteredItems.filter((context) => {
+				const coordinate = getContextCoordinate(context)
+				return coordinate ? !mapStackEntries[`context:${coordinate}`] : false
+			}),
+		[contextResult.filteredItems, mapStackEntries],
+	)
+	const addFilteredDatasetsToMapStack = useCallback(() => {
+		if (!onAddDatasetToMap) return
+		for (const event of stackableFilteredDatasets) {
+			onAddDatasetToMap(event)
+		}
+	}, [stackableFilteredDatasets, onAddDatasetToMap])
+	const addFilteredContextsToMapStack = useCallback(() => {
+		const store = useEditorStore.getState()
+		for (const context of stackableFilteredContexts) {
+			const coordinate = getContextCoordinate(context)
+			if (!coordinate || store.mapStackEntries[`context:${coordinate}`]) continue
+			store.addMapStackEntry({
+				entityType: 'context',
+				entityKey: coordinate,
+				title: getContextDisplayName(context),
+				source: 'manual',
+				visible: true,
+				pinned: false,
+			})
+		}
+	}, [stackableFilteredContexts])
+
 	const contextColumnsContext: ContextColumnsContext = useMemo(
 		() => ({
 			currentUserPubkey,
@@ -616,13 +656,38 @@ export function UserProfilePanel({
 			</div>
 
 			{activeResult ? (
-				<DatasetFilterToolbar
-					{...filterState}
-					totalCount={activeResult.totalCount}
-					filteredCount={activeResult.filteredCount}
-					displayedCount={activeResult.displayedCount}
-					hasMore={activeResult.hasMore}
-				/>
+				<div className="flex items-center gap-1.5">
+					{activeTab === 'datasets' || activeTab === 'contexts' ? (
+						<BulkMapStackButton
+							count={
+								activeTab === 'datasets'
+									? stackableFilteredDatasets.length
+									: stackableFilteredContexts.length
+							}
+							onClick={
+								activeTab === 'datasets'
+									? onAddDatasetToMap
+										? addFilteredDatasetsToMapStack
+										: undefined
+									: addFilteredContextsToMapStack
+							}
+							label={
+								activeTab === 'datasets'
+									? 'Add filtered datasets to map stack'
+									: 'Add filtered contexts to map stack'
+							}
+						/>
+					) : null}
+					<div className="min-w-0 flex-1">
+						<DatasetFilterToolbar
+							{...filterState}
+							totalCount={activeResult.totalCount}
+							filteredCount={activeResult.filteredCount}
+							displayedCount={activeResult.displayedCount}
+							hasMore={activeResult.hasMore}
+						/>
+					</div>
+				</div>
 			) : null}
 
 			{activeTab === 'datasets' ? (

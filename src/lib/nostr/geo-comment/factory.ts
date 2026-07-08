@@ -12,11 +12,8 @@
  * and finish with `.sign(signer)`.
  */
 
-import {
-	blankEventTemplate,
-	DeleteFactory,
-	EventFactory,
-} from 'applesauce-core/factories'
+import { geohashPrefixes } from '../tags'
+import { blankEventTemplate, DeleteFactory, EventFactory } from 'applesauce-core/factories'
 import type { EventSigner } from 'applesauce-core/factories/types'
 import type { NostrEvent } from 'nostr-tools'
 import { generateShortDTag } from '@/lib/nostr/dTag'
@@ -146,11 +143,11 @@ export class GeoCommentFactory extends EventFactory<typeof GEO_COMMENT_KIND> {
 			const computedBbox = computeCommentBbox(fc)
 			const computedGeohash = computeCommentGeohash(fc, precision)
 
-			const newTags: string[][] = tpl.tags.filter(
-				(tag) => tag[0] !== 'bbox' && tag[0] !== 'g',
-			)
+			const newTags: string[][] = tpl.tags.filter((tag) => tag[0] !== 'bbox' && tag[0] !== 'g')
 			if (computedBbox) newTags.push(['bbox', computedBbox.join(',')])
-			if (computedGeohash) newTags.push(['g', computedGeohash])
+			if (computedGeohash) {
+				for (const prefix of geohashPrefixes(computedGeohash)) newTags.push(['g', prefix])
+			}
 
 			return { ...tpl, tags: newTags }
 		})

@@ -47,7 +47,7 @@ Kind constant: `src/lib/nostr/kinds.ts:9` (`GEO_EVENT_KIND = 37515`).
 
 | Tag | Example | Purpose |
 |-----|---------|---------|
-| g | `["g", "u2yh7"]` | Geohash (5–7 chars) of dataset centroid for fast proximity search. `getGeohash` / `setGeohash` in `tags.ts:43` / `:89`. |
+| g | `["g", "u2yh7"]` … `["g", "u"]` | Geohash of dataset centroid for fast proximity search. **Multi-precision:** one `g` tag per prefix from the full precision (5–7 chars) down to 1, most precise first, so relays answer viewport `#g` filters at any zoom with exact tag matches. `getGeohash` (returns the most precise) / `setGeohash` in `tags.ts`. |
 | crs | `["crs", "EPSG:4326"]` | Coordinate reference system. Default EPSG:4326. |
 | checksum | `["checksum", "9b06e56ee3…"]` | SHA-256 of content for integrity. |
 | size | `["size", "142359"]` | Uncompressed byte length of content. |
@@ -340,7 +340,7 @@ v2 makes the discovery/attachment axes **disjoint** — each lane has one job an
 | Tag | Lane | Role | Disjointness |
 |-----|------|------|--------------|
 | `bbox` | spatial | Bounding box `[w,s,e,n]`. | — |
-| `g` | spatial | Geohash (precision 5–7) of centroid. | — |
+| `g` | spatial | Geohash of centroid, multi-precision (one tag per prefix 1–N, see §1.2). | — |
 | `L` / `l` | **controlled vocabulary** | NIP-32 labels: enforceable, queryable categories. | — |
 | `t` | **freeform discovery** | User hashtags. Open set, never enforced. | A value governed by an `l` label MUST NOT also appear as a `t`. |
 | `c` | **entity attach** | Coordinate (`<kind>:<pubkey>:<d>`) attaching one entity to a Group. | — |
@@ -528,4 +528,23 @@ For private datasets or large binary attachments:
 
 ---
 
-*Spec v2 — describes the implemented v1.2 split entity model. Foundation seams shipped Phase 8; per-kind authoring (Group/Story/Sighting/Beacon UIs, governance enum, naddr mirror) lands across Phases 9–13.*
+## 18 Relay Search Extension (NIP-50 grammar)
+
+The Earthly relay extends NIP-50 with a `key:value` token grammar inside the `search` filter
+field: spatial constraints (`bbox:`, `point:`, `rel:intersects|contains|within`, `near:`,
+`radius:`), facets (`label:`, `tag:`, `ref:`), NIP-52 temporal ranges (`start-after:`,
+`start-before:`), and result ordering (`sort:`). Unknown tokens are ignored by other relays
+(NIP-50 semantics); known keys with malformed values reject the subscription.
+
+- **Normative definition:** the golden vectors in `spec/search-grammar-vectors.json` — the
+  TypeScript serializer (`src/lib/search/`) and the Go parser (`relay/earthlysearch/`) are both
+  tested against the same file.
+- **Design + full token table:** `docs/GEO_SEARCH_REWRITE.md` §4.
+- **Capability discovery:** `GET /earthly-search` on the relay host returns
+  `{version, extensions[]}`; clients strip extension tokens for relays without it.
+- **Viewport lane:** automated map queries use plain NIP-01 `#g` filters against the
+  multi-precision `g` tags (§1.2), not the search grammar.
+
+---
+
+*Spec v2 — describes the implemented v1.2 split entity model. Foundation seams shipped Phase 8; per-kind authoring (Group/Story/Sighting/Beacon UIs, governance enum, naddr mirror) lands across Phases 9–13. §18 (relay search) shipped with the geo-search rewrite.*

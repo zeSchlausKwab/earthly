@@ -63,7 +63,7 @@ export function StudioStatusBar({
 
 	const sourceLabel = MAP_SOURCE_LABELS[mapSourceType] ?? mapSourceType
 	const styleLabel =
-		basemapStyle === 'auto' ? `auto·${theme === 'dark' ? 'dark' : 'positron'}` : basemapStyle
+		basemapStyle === 'auto' ? `auto·${theme === 'dark' ? 'dark' : 'liberty'}` : basemapStyle
 
 	return (
 		<footer className="flex h-[var(--shell-statusbar-h)] shrink-0 items-center gap-3.5 border-t border-border bg-[var(--surface-chrome)] px-2.5 font-mono text-[10.5px] text-muted-foreground">
