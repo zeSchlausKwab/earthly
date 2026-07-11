@@ -524,7 +524,7 @@ export function SightingEditorPanel({
 
 			{/* ── Group attach (SIGHT-02) + submit. Publish NEVER disabled by verdict ── */}
 			<EntityPanelSurface tone="neutral" className="space-y-3">
-				<EntityPanelSectionHeader eyebrow="Optional" title="Add to a Group (optional)" />
+				<EntityPanelSectionHeader eyebrow="Optional" title="Add to a Context (optional)" />
 				{saveError && <p className="text-xs text-destructive">{saveError}</p>}
 				<GroupAttachField
 					contextRefs={contextRefs}

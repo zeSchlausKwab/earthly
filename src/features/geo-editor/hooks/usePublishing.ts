@@ -364,7 +364,7 @@ export function usePublishing({
 		}
 
 		const groupCoordinate = group.groupCoordinate ?? null
-		const groupName = group.group.name || 'this Group'
+		const groupName = group.group.name || 'this Context'
 		// CR-02: derive a content-based compile-cache key when the Group has no published
 		// `schema-hash` tag — never the shared `'sha256:unhashed'` sentinel, which would alias
 		// distinct unhashed schemas onto the first-compiled validator in the worker cache.
