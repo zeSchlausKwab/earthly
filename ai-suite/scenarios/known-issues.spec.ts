@@ -69,33 +69,44 @@ test('anonymous mobile account panels offer a sign-in recovery action @regressio
 	).toBeVisible()
 })
 
-test('visible icon actions have accessible names @known-issue', async ({ earthly }) => {
-	test.fail(
-		true,
-		'Known audit finding: compact Zap and Posts refresh actions have no accessible name',
-	)
+// FIXED (audit P2 #12): compact Zap and Posts refresh actions expose explicit
+// names even when disabled or rendered without visible text.
+test('visible icon actions have accessible names @regression', async ({ earthly }) => {
 	await earthly.open({ tour: 'seen' })
 	await openPanel(earthly, 'Datasets')
 	const surface = await inspectSurface(earthly)
 	expect(surface.unnamedControls).toEqual([])
 })
 
-test('primary browse panels expose a semantic heading @known-issue', async ({ earthly }) => {
-	test.fail(
-		true,
-		'Known audit finding: primary panel titles are visual controls rather than headings',
-	)
+// FIXED (audit P2 #12): ListPanel uses a visible h2 on desktop and an sr-only
+// h2 when its visual title is supplied by the mobile sheet switcher.
+test('primary browse panels expose a semantic heading @regression', async ({ earthly }) => {
 	await earthly.open({ tour: 'seen' })
-	await openPanel(earthly, 'Datasets')
-	const surface = await inspectSurface(earthly)
-	expect(surface.headings).not.toEqual([])
+	for (const [panel, heading] of [
+		['Datasets', 'Datasets'],
+		['Contexts', 'Contexts'],
+		['Stories', 'Stories'],
+		['Sightings', 'Sightings'],
+		['Beacons', 'Beacons'],
+		['Profile', 'Profile'],
+		['Posts', 'Local posts'],
+		['Wallet', 'Wallet'],
+		['Settings', 'Settings'],
+		['Help', 'Help'],
+	] as const) {
+		await openPanel(earthly, panel)
+		await expect
+			.soft(earthly.page.getByRole('heading', { name: heading, exact: true }).first())
+			.toBeAttached()
+	}
 })
 
-test('mobile keyboard users can reach primary navigation promptly @known-issue', async ({
+// FIXED (audit P1 #7): map bubble actions remain available through the entity
+// list but leave the ordinary mobile tab order, so the dock is reachable.
+test('mobile keyboard users can reach primary navigation promptly @regression', async ({
 	earthly,
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'mobile', 'The audited focus-order defect is mobile-specific')
-	test.fail(true, 'Known audit finding: map marker buttons precede and bury the mobile navigation')
 	await earthly.open({ tour: 'seen' })
 	// The defect only reproduces once sighting markers are in the tab order —
 	// on a slow relay the walk would otherwise reach the dock and flake as an
@@ -107,36 +118,37 @@ test('mobile keyboard users can reach primary navigation promptly @known-issue',
 	expect(stops.some(({ name }) => name === 'Explore')).toBe(true)
 })
 
-test('Settings retains a usable content width at the desktop breakpoint @known-issue', async ({
+// FIXED (audit P1 #5): the desktop shell keeps a 25rem minimum, preserving at
+// least 280px of Settings tab content at the 768px breakpoint.
+test('Settings retains a usable content width at the desktop breakpoint @regression', async ({
 	earthly,
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'desktop', 'The defect occurs at the desktop breakpoint')
-	test.fail(true, 'Known audit finding: Settings content collapses to roughly 94px at 768px')
 	await earthly.page.setViewportSize({ width: 768, height: 1024 })
 	await earthly.open({ tour: 'seen' })
 	await openPanel(earthly, 'Settings')
 	const panel = earthly.page.getByRole('tabpanel', { name: 'Chat' })
 	await expect(panel).toBeVisible()
-	expect((await panel.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(280)
+	const panelWidth = (await panel.boundingBox())?.width ?? 0
+	expect(panelWidth).toBeGreaterThanOrEqual(280)
 })
 
-test('Announcements empty state does not promise an unavailable posting action @known-issue', async ({
+// FIXED (audit P2 #15): the read-only Announcements category uses a read-only
+// empty state instead of promising an unavailable posting action.
+test('Announcements empty state does not promise an unavailable posting action @regression', async ({
 	earthly,
 }) => {
-	test.fail(
-		true,
-		'Known audit finding: Announcements hides the post form but says “Be the first to post!”',
-	)
 	await earthly.open({ tour: 'seen' })
 	await openPanel(earthly, 'Posts')
 	await expect(earthly.page.getByText('No posts yet. Be the first to post!')).toBeHidden()
 })
 
-test('mobile Posts tabs retain descriptive visible labels @known-issue', async ({
+// FIXED (audit P2 #15): category names stay visible beside their emoji at the
+// mobile breakpoint.
+test('mobile Posts tabs retain descriptive visible labels @regression', async ({
 	earthly,
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'mobile', 'The sm breakpoint hides these labels on mobile')
-	test.fail(true, 'Known audit finding: mobile category tabs render only four unexplained emoji')
 	await earthly.open({ tour: 'seen' })
 	await openPanel(earthly, 'Posts')
 	await expect(earthly.page.getByText('Announcements', { exact: true })).toBeVisible()

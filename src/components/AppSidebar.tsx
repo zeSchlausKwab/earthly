@@ -963,7 +963,10 @@ export function AppSidebar({
 				const profilePubkey = userPubkey ?? currentUserPubkey
 				if (!profilePubkey) {
 					return (
-						<SignedOutCta description="Sign in to see your published datasets, contexts, and stories in one place." />
+						<SignedOutCta
+							title="Profile"
+							description="Sign in to see your published datasets, contexts, and stories in one place."
+						/>
 					)
 				}
 				return <UserProfilePanel pubkey={profilePubkey} {...userProfilePanelProps} />

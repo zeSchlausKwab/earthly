@@ -24,6 +24,7 @@ import maplibregl from 'maplibre-gl'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import type { LiveBeacon } from '@/lib/nostr/live-beacon'
 import { eventStore } from '@/lib/nostr'
 import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
@@ -69,6 +70,7 @@ export function EntityPinBubbles({
 	onInspectSighting,
 	onInspectBeacon,
 }: EntityPinBubblesProps) {
+	const isMobile = useIsMobile()
 	// Marker DOM elements by bubble key — portals render into these.
 	const markersRef = useRef(new Map<string, { marker: maplibregl.Marker; el: HTMLDivElement }>())
 	const [elements, setElements] = useState<Map<string, HTMLDivElement>>(new Map())
@@ -145,10 +147,10 @@ export function EntityPinBubbles({
 								type="button"
 								title={entry.title}
 								aria-label={`Open sighting: ${entry.title}`}
+								tabIndex={isMobile ? -1 : undefined}
 								className="block h-12 w-12 cursor-pointer overflow-hidden rounded-full border-2 border-background bg-card shadow-md transition-transform hover:scale-110"
 								onClick={() => entry.sighting && onInspectSighting?.(entry.sighting)}
 							>
-								{/* biome-ignore lint/performance/noImgElement: map marker thumbnail */}
 								<img
 									src={entry.imageUrl}
 									alt={entry.title}
@@ -156,9 +158,10 @@ export function EntityPinBubbles({
 									className="h-full w-full object-cover"
 									onError={(event) => {
 										// Broken image → hide the bubble; the base marker stays.
-										event.currentTarget.closest<HTMLElement>(
+										const host = event.currentTarget.closest<HTMLElement>(
 											'.earthly-pin-bubble-host',
-										)!.style.display = 'none'
+										)
+										if (host) host.style.display = 'none'
 									}}
 								/>
 							</button>
@@ -169,6 +172,7 @@ export function EntityPinBubbles({
 								type="button"
 								title={entry.title}
 								aria-label={`Open beacon: ${entry.title}`}
+								tabIndex={isMobile ? -1 : undefined}
 								className="block cursor-pointer overflow-hidden rounded-full border-2 border-background shadow-md transition-transform hover:scale-110"
 								onClick={() => entry.beacon && onInspectBeacon?.(entry.beacon)}
 							>

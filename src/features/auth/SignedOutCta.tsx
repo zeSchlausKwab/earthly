@@ -16,9 +16,12 @@ import { loginWithAccount } from '@/lib/nostr'
  * users otherwise had to hunt down in Settings → Accounts).
  */
 export function SignedOutCta({
+	title,
 	description,
 	className,
 }: {
+	/** Semantic title for the protected surface, e.g. "Profile" or "Wallet". */
+	title: string
 	/** One sentence naming what signing in unlocks here, e.g. "Sign in to view your profile." */
 	description: string
 	className?: string
@@ -41,6 +44,7 @@ export function SignedOutCta({
 
 	return (
 		<div className={cn('flex flex-col items-center gap-3 p-4 text-center', className)}>
+			<h2 className="sr-only">{title}</h2>
 			<p className="text-sm text-muted-foreground">{description}</p>
 			<Button onClick={() => setShowSignupDialog(true)}>
 				<KeyRoundIcon className="h-4 w-4" />

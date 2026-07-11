@@ -882,7 +882,10 @@ function MobileProfileContent(props: MobileProfileContentProps) {
 		return (
 			<div className="flex flex-col items-center py-6">
 				<User className="mb-2 h-8 w-8 text-muted-foreground" />
-				<SignedOutCta description="Sign in to view your profile and everything you've published." />
+				<SignedOutCta
+					title="Profile"
+					description="Sign in to view your profile and everything you've published."
+				/>
 			</div>
 		)
 	}

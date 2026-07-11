@@ -25,7 +25,7 @@
     "ai:e2e": "playwright test -c ai-suite/playwright.config.ts --grep-invert '@audit|@workflow-audit'",
     "ai:audit": "playwright test -c ai-suite/playwright.config.ts --grep @audit",
     "ai:audit:workflows": "playwright test -c ai-suite/playwright.config.ts --grep @workflow-audit",
-    "ai:known-issues": "playwright test -c ai-suite/playwright.config.ts --grep @known-issue",
+    "ai:known-issues": "playwright test -c ai-suite/playwright.config.ts --grep @known-issue --pass-with-no-tests",
     "ai:verify": "bun run ai:typecheck && bun run ai:e2e && bun run ai:audit",
     "ai:e2e:visible": "playwright test -c ai-suite/playwright.config.ts --grep-invert '@audit|@workflow-audit'",
     "ai:e2e:ui": "playwright test -c ai-suite/playwright.config.ts --ui"

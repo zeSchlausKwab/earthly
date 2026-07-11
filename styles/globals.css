@@ -246,8 +246,8 @@
      Dimensions only (theme-independent), so they live on the base :root. ---- */
   --shell-toolbar-h: 44px;          /* docked top toolbar height (desktop) */
   --shell-statusbar-h: 23px;        /* bottom status bar height (desktop) */
-  --shell-sidebar-w: 25vw;          /* left panel, default */
-  --shell-sidebar-w-expanded: 32vw; /* left panel, expanded */
+  --shell-sidebar-w: clamp(25rem, 25vw, 30rem);          /* left panel; keeps settings ≥280px */
+  --shell-sidebar-w-expanded: clamp(30rem, 32vw, 40rem); /* left panel, expanded */
   --shell-chat-w: 25vw;             /* right chat, open */
   --shell-chat-w-min: 20rem;
   --shell-chat-w-max: 32rem;

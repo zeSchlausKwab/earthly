@@ -61,12 +61,13 @@ export function ListPanel({
 	const embedded = useContext(EmbeddedListPanelContext)
 	return (
 		<div className="flex h-full min-h-0 flex-col">
+			{embedded ? <h2 className="sr-only">{title}</h2> : null}
 			{/* Header — glyph · title · count · [inline controls] · + new */}
 			<div className="flex shrink-0 flex-col gap-2 border-b border-border pb-2">
 				{embedded ? null : (
 					<div className="flex items-center gap-2">
 						<Icon className={cn('h-3.5 w-3.5 shrink-0', accent)} />
-						<span className="truncate text-[13px] font-semibold text-foreground">{title}</span>
+						<h2 className="truncate text-[13px] font-semibold text-foreground">{title}</h2>
 						{count != null ? (
 							<span className={cn('shrink-0 font-mono text-[10px]', accent)}>{count}</span>
 						) : null}
