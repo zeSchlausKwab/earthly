@@ -370,7 +370,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'query_osm_area',
 			description:
-				'Find OpenStreetMap features constrained to a polygonal area. The area can come from the current selected polygon(s), explicit areaGeojson, transient chat-attached geometry for the current request, a country boundary, or an OSM relation. Can also clip matching lines to the area or convert results to representative points. Always provide filters, filterSets, or concept; unfiltered area scans are too large for Overpass.',
+				'Find OpenStreetMap features constrained to a polygonal area (SLOW remote call — use for LOCAL/detailed features: POIs, streets, buildings, small waterways; country-scale coastlines and major rivers come from the bundled world layers in run_code instead). The area can come from the current selected polygon(s), explicit areaGeojson, transient chat-attached geometry for the current request, a country boundary, or an OSM relation. Can also clip matching lines to the area or convert results to representative points. Always provide filters, filterSets, or concept; unfiltered area scans are too large for Overpass.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -532,7 +532,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'get_country_boundary',
 			description:
-				'Get a country administrative boundary relation (admin_level=2 by default) with cleaner geometry than generic bbox lookup.',
+				'SLOW remote OSM call: get a country administrative boundary relation (admin_level=2 by default). The response is transport-simplified (~250 points per ring), so it is NOT higher fidelity than the bundled data for most uses — for country outlines, areas, or coastline work prefer world.get("countries_110m") inside run_code (instant, local). Use this only when the user explicitly needs OSM-sourced national borders.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -1272,6 +1272,83 @@ export const geoStaticToolSchemas: Tool[] = [
 						type: 'number',
 						description:
 							'OPTIONAL target serialized byte budget. Defaults to the 1MB publish limit when omitted. Non-finite, negative, zero, or absurdly large values are ignored and default to the publish limit.',
+					},
+				},
+				required: [],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'measure',
+			description:
+				'READ-ONLY measurement primitive. One operation per call: length (km, lines), area (km², polygons), perimeter (km, polygons), distance (km between two points or two feature centroids), bearing (degrees), centroid, bbox, nearest_point (nearest vertex among targets from a reference point). Targets: raw geometry > featureIds > selected:true > every editor feature. Prefer this over computing measurements yourself or spinning up run_code for a single number.',
+			parameters: {
+				type: 'object',
+				properties: {
+					operation: {
+						type: 'string',
+						description: 'Which measurement to compute.',
+						enum: [
+							'length',
+							'area',
+							'perimeter',
+							'distance',
+							'bearing',
+							'centroid',
+							'bbox',
+							'nearest_point',
+						],
+					},
+					featureIds: {
+						type: 'array',
+						description: 'Target specific editor features by id.',
+						items: { type: 'string' },
+					},
+					selected: {
+						type: 'boolean',
+						description: 'Target the user’s CURRENT map selection.',
+					},
+					geometry: {
+						type: 'object',
+						description:
+							'Raw GeoJSON to measure instead of editor features (Feature, FeatureCollection, or Geometry). Works without the editor.',
+					},
+					from: {
+						type: 'array',
+						description:
+							'[lon, lat] reference point. Required for nearest_point; with `to`, gives distance/bearing between two points with no features needed.',
+						items: { type: 'number' },
+					},
+					to: {
+						type: 'array',
+						description: '[lon, lat] second point for distance/bearing.',
+						items: { type: 'number' },
+					},
+				},
+				required: ['operation'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'describe_location',
+			description:
+				'READ-ONLY textual grounding from bundled Natural Earth reference data. For a point: on-land/on-water, containing country, nearest city (distance + direction), distance and direction to the nearest coast. For a bbox: the countries in view plus a description of its center. Use it to anchor coordinates in NAMES before or after drawing — especially to sanity-check where something actually landed.',
+			parameters: {
+				type: 'object',
+				properties: {
+					point: {
+						type: 'array',
+						description: '[lon, lat] position to describe.',
+						items: { type: 'number' },
+					},
+					bbox: {
+						type: 'array',
+						description: '[west, south, east, north] viewport to describe instead of a point.',
+						items: { type: 'number' },
 					},
 				},
 				required: [],

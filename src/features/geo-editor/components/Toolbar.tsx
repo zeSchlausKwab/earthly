@@ -71,6 +71,7 @@ import type { EditorMode } from '../core'
 import { useEditorStore } from '../store'
 import type { GeoSearchResult } from '../types'
 import { CreateMapPopover } from './CreateMapPopover'
+import { MeasurePopover } from './MeasurePopover'
 import { MapSettingsPanel } from './MapSettingsPanel'
 import { ShareExportPopover } from './share/ShareExportPopover'
 import {
@@ -1458,6 +1459,7 @@ export function Toolbar({
 						/>
 					) : null}
 					<CreateMapPopover small />
+					<MeasurePopover />
 					<ShareExportPopover small />
 					<ThemeToggleButton />
 					<Popover open={showMapSettings} onOpenChange={setShowMapSettings}>
@@ -1480,9 +1482,24 @@ export function Toolbar({
 							<MapSettingsPanel mode="map-only" />
 						</PopoverContent>
 					</Popover>
-					{/* PR.1: the former standalone "Fork / Propose" publish control was
-					    removed — Publish-new / Update / Fork / Propose all live in the
-					    File menu now (Propose opens ProposalDialog). */}
+					{/* Workflow audit P2: publishing is the completion of the core
+					    workflow, so the primary Publish action stays persistently
+					    visible beside the editing controls whenever a publish verb is
+					    available — the File menu keeps the full verb list alongside
+					    import/export. */}
+					{datasetActions && canPublishFromMenu ? (
+						<PublishDropdown
+							canPublishNew={datasetActions.canPublishNew}
+							canPublishUpdate={datasetActions.canPublishUpdate}
+							canPublishCopy={datasetActions.canPublishCopy}
+							canProposeEdit={datasetActions.canProposeEdit}
+							isPublishing={datasetActions.isPublishing}
+							onPublishNew={datasetActions.onPublishNew}
+							onPublishUpdate={datasetActions.onPublishUpdate}
+							onPublishCopy={datasetActions.onPublishCopy}
+							onProposeEdit={datasetActions.onProposeEdit}
+						/>
+					) : null}
 					{/* Topic 7: chat / right-sidebar toggle — pinned to the FAR RIGHT,
 				    mirroring the far-left sidebar trigger, with a separator to its
 				    left signalling that it opens the right sidebar. */}
@@ -1492,6 +1509,7 @@ export function Toolbar({
 						variant="ghost"
 						size="icon-sm"
 						onClick={onToggleChat}
+						data-tour="sidebar-chat"
 						aria-label={chatOpen ? 'Hide AI chat' : 'Show AI chat'}
 						title={chatOpen ? 'Hide AI chat' : 'Show AI chat'}
 						className={cn(

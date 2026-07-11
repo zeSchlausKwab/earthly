@@ -1,6 +1,8 @@
 import type React from 'react'
 import { useEffect, useRef } from 'react'
-import { GeoEditor } from '../core'
+import { toast } from 'sonner'
+import { bboxDiagonalKm, IMPLAUSIBLE_SPAN_KM } from '@/lib/geo/span'
+import { GeoEditor, type EditorFeature } from '../core'
 import { useEditorStore } from '../store'
 import { useMap } from './map'
 
@@ -97,6 +99,29 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 		editor.on('create', updateHistory)
 		editor.on('update', updateHistory)
 		editor.on('delete', updateHistory)
+
+		// Implausible-scale guardrail (workflow audit P1): a couple of casual
+		// clicks at world zoom silently produce continent-sized shapes. Warn on
+		// creation with a one-tap Undo — advisory, never blocking, and skipped
+		// for the map-area capture rectangle (deleted right after creation).
+		editor.on('create', (e: any) => {
+			if (useEditorStore.getState().isDrawingMapArea) return
+			const created = (e.features as EditorFeature[] | undefined) ?? []
+			for (const feature of created) {
+				if (!feature.geometry || feature.geometry.type === 'Point') continue
+				const spanKm = bboxDiagonalKm(feature.geometry)
+				if (spanKm < IMPLAUSIBLE_SPAN_KM) continue
+				toast.warning(`That shape spans about ${Math.round(spanKm).toLocaleString()} km`, {
+					description:
+						'It looks like it was drawn at world scale. Keep it if that was intended, or undo and zoom into your area first.',
+					duration: 10000,
+					action: {
+						label: 'Undo',
+						onClick: () => editor.undo(),
+					},
+				})
+			}
+		})
 
 		// Map Area polygon capture - when drawing for map area, capture bbox and remove the polygon
 		editor.on('create', (e: any) => {

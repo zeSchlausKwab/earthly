@@ -1,4 +1,6 @@
 import type { StateCreator } from 'zustand'
+import { DEFAULT_SIDEBAR_VIEW } from '../defaults'
+import { viewToMobileTab } from './mobileTabRoute'
 import type { EditorState, ViewModeSlice } from './types'
 
 export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlice> = (set) => ({
@@ -36,7 +38,7 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 	setFocusedMapGeometry: (focusedMapGeometry) => set({ focusedMapGeometry }),
 	clearFocusedMapGeometry: () => set({ focusedMapGeometry: null }),
 
-	applyRouteState: (route) =>
+	applyRouteState: (route, options) =>
 		set((state) => {
 			const hasFocus = route.focusType !== 'none'
 			// "Edit session live" = the `draft:active` map-stack entry exists. It is
@@ -83,6 +85,25 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 					? 'focus'
 					: 'browse'
 
+			// Browser-driven navigation (initial load, Back/Forward): the URL is the
+			// only source of truth, so derive the mobile sheet's tab from it — this
+			// is what makes reload and deep links restore the mobile destination
+			// (audit P1 #6). In-app navigations skip this (syncMobileTab unset):
+			// their handlers own the tab (e.g. the `edit` overlay during inspect).
+			const mobileTab = options?.syncMobileTab ? viewToMobileTab(route.sidebarView) : null
+			const mobileSheet =
+				mobileTab && mobileTab !== state.mobilePanelTab
+					? {
+							mobilePanelTab: mobileTab,
+							// Surface a non-default destination; the default landing view
+							// keeps the map in charge at the peek detent. Written directly
+							// (not via setMobilePanelOpen, which resets the snap to peek).
+							...(route.sidebarView !== DEFAULT_SIDEBAR_VIEW
+								? { mobilePanelOpen: true, mobilePanelSnap: 'half' as const }
+								: {}),
+						}
+					: {}
+
 			return {
 				sidebarViewMode: route.sidebarView,
 				focusedType: hasFocus ? route.focusType : null,
@@ -94,6 +115,7 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 				viewStory,
 				viewMode,
 				stance,
+				...mobileSheet,
 			}
 		}),
 })

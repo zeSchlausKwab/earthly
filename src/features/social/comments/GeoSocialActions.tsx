@@ -581,6 +581,9 @@ export function GeoSocialActions({
 								size={buttonSize}
 								onClick={handleZap}
 								disabled={isLoading || !currentUser}
+								aria-label={
+									userHasZapped ? 'You zapped this' : currentUser ? 'Zap' : 'Log in to zap'
+								}
 								className={`gap-1 ${
 									userHasZapped
 										? 'text-primary hover:text-primary'

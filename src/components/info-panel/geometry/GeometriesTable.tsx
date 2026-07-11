@@ -1,5 +1,5 @@
 import { AlertTriangle, ChevronDown, ChevronRight, Locate, Plus, Trash2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { EditorFeature } from '@/features/geo-editor/core'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { parseCustomValue } from '@/features/geo-editor/utils'
@@ -76,6 +76,9 @@ interface FeatureRowProps {
 	onSelect: (event: React.MouseEvent) => void
 	onDelete: () => void
 	onZoomTo: () => void
+	/** Registers the annotation textarea so the table can focus it when a
+	 *  freshly drawn label should be typed into immediately. */
+	annotationTextareaRef?: (el: HTMLTextAreaElement | null) => void
 }
 
 function FeatureRow({
@@ -90,6 +93,7 @@ function FeatureRow({
 	onSelect,
 	onDelete,
 	onZoomTo,
+	annotationTextareaRef,
 }: FeatureRowProps) {
 	const editor = useEditorStore((state) => state.editor)
 
@@ -261,8 +265,9 @@ function FeatureRow({
 								Annotation Text
 							</div>
 							<textarea
+								ref={annotationTextareaRef}
 								className="w-full h-12 rounded border border-primary/40 px-1.5 py-1 text-xs resize-none bg-card"
-								placeholder="Enter annotation text..."
+								placeholder="Type label text..."
 								value={(feature.properties?.text as string) ?? ''}
 								onChange={(e) => onAnnotationTextChange(e.target.value)}
 							/>
@@ -410,8 +415,38 @@ export function GeometriesTable({
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 	const setSelectedFeatureIds = useEditorStore((state) => state.setSelectedFeatureIds)
 	const editor = useEditorStore((state) => state.editor)
+	const mode = useEditorStore((state) => state.mode)
+	const setModeState = useEditorStore((state) => state.setMode)
 
 	const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+
+	// Immediate label entry (workflow audit P2): when a label is placed with the
+	// Draw-label tool, expand its row and focus the text field right away — the
+	// same behavior the comment composer already has — instead of leaving a
+	// closed row named "Annotation" for the user to discover.
+	const prevFeatureIdsRef = useRef<Set<string>>(new Set(features.map((f) => String(f.id))))
+	const annotationTextareaRefs = useRef(new Map<string, HTMLTextAreaElement>())
+	useEffect(() => {
+		const prev = prevFeatureIdsRef.current
+		prevFeatureIdsRef.current = new Set(features.map((f) => String(f.id)))
+		if (mode !== 'draw_annotation') return
+		const placed = features.find(
+			(f) => !prev.has(String(f.id)) && f.properties?.featureType === 'annotation',
+		)
+		if (!placed) return
+		const placedId = String(placed.id)
+		setExpandedIds((ids) => new Set(ids).add(placedId))
+		// Comment-composer parity: leave the drawing mode so typing can't be
+		// interrupted by accidentally placing a second label.
+		setModeState('select')
+		// After the expanded row paints, focus the text field and select the
+		// default text so typing replaces it while the map keeps its position.
+		window.requestAnimationFrame(() => {
+			const el = annotationTextareaRefs.current.get(placedId)
+			el?.focus()
+			el?.select()
+		})
+	}, [features, mode, setModeState])
 
 	const toggleExpand = (id: string) => {
 		setExpandedIds((prev) => {
@@ -496,6 +531,11 @@ export function GeometriesTable({
 					onSelect={(e) => handleSelect(row.feature.id, e)}
 					onDelete={() => handleDelete(row.feature.id)}
 					onZoomTo={() => onZoomToFeature?.(row.feature)}
+					annotationTextareaRef={(el) => {
+						const id = String(row.feature.id)
+						if (el) annotationTextareaRefs.current.set(id, el)
+						else annotationTextareaRefs.current.delete(id)
+					}}
 				/>
 			))}
 		</div>

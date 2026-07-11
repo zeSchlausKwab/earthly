@@ -25,17 +25,30 @@
 import {
 	along,
 	area,
+	bbox,
+	bboxPolygon,
 	bearing,
+	booleanIntersects,
 	booleanPointInPolygon,
 	buffer,
 	centroid,
 	circle,
+	cleanCoords,
 	destination,
+	difference,
 	distance,
+	explode,
+	featureCollection,
+	intersect,
 	length,
+	lineSlice,
 	lineString,
+	nearestPoint,
 	nearestPointOnLine,
 	point,
+	polygonToLine,
+	simplify,
+	union,
 } from '@turf/turf'
 import { MAX_DISTANCE_METERS } from '@/features/geo-editor/api/primitives'
 
@@ -156,6 +169,23 @@ export const curatedTurf = Object.freeze({
 	nearestPointOnLine,
 	booleanPointInPolygon,
 	centroid,
+	// Geometry-construction extensions (AI_GEO_AWARENESS follow-up 2026-07-08):
+	// the Italy-coastline bench run showed real tasks need set operations and
+	// polygon↔line conversion, not just measurement. All pure turf functions;
+	// the same freeze + WR-01 discipline applies (none take a distance arg).
+	bbox,
+	bboxPolygon,
+	booleanIntersects,
+	cleanCoords,
+	difference,
+	explode,
+	featureCollection,
+	intersect,
+	lineSlice,
+	nearestPoint,
+	polygonToLine,
+	simplify,
+	union,
 })
 
 export type CuratedTurf = typeof curatedTurf

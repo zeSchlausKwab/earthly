@@ -25,8 +25,10 @@ import {
 } from './context'
 import { isToolError, type ToolError } from './errors'
 import { registerSandboxTools } from '@/features/chat/sandbox/runCode'
+import { buildPostWriteValidation } from '@/features/chat/safeEditing/autoValidate'
 import { gateEditorImport } from '@/features/chat/safeEditing/gateEditorImport'
 import { registerBulkTools } from './bulk-tools'
+import { registerGeoAwarenessTools } from './geo-awareness-tools'
 import { registerGeometryTools } from './geometry-tools'
 import { registerIngestTools } from './ingest-tools'
 import { registerPrimitiveTools } from './primitives-tools'
@@ -406,6 +408,11 @@ function registerEditorWriters(): void {
 				totalFeaturesInEditor: outcome.totalFeaturesInEditor,
 				replaceExisting,
 				cancelled: outcome.status === 'cancelled',
+				// AI_GEO_AWARENESS §1: auto-append advisory topology + land/water
+				// findings so the model can self-correct without being asked to check.
+				...(outcome.status === 'applied'
+					? { validation: await buildPostWriteValidation(features) }
+					: {}),
 			}
 		},
 	})
@@ -432,6 +439,9 @@ function registerEditorWriters(): void {
 				totalFeaturesInEditor: outcome.totalFeaturesInEditor,
 				replaceExisting,
 				cancelled: outcome.status === 'cancelled',
+				...(outcome.status === 'applied'
+					? { validation: await buildPostWriteValidation([feature]) }
+					: {}),
 			}
 		},
 	})
@@ -1098,6 +1108,9 @@ function bootstrapRegistry(): void {
 	// query_entities_in_area (host-builtin relay queries over the src/lib/search
 	// facade). It imports ONLY a type from `./registry` back (one-way edge).
 	registerSearchTools(register)
+	// Same injected-`register` idiom: geo-awareness-tools registers the read-only
+	// measure + describe_location primitives (AI_GEO_AWARENESS §2/§5).
+	registerGeoAwarenessTools(register)
 }
 
 bootstrapRegistry()

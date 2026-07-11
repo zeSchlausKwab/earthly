@@ -207,13 +207,17 @@ export function useSightingEditor({
 	)
 
 	const handleCloseSightingEditor = useCallback(() => {
+		// Navigation-safe close: only reroute when the editor (or armed placement)
+		// was actually active — `startCreate` calls this as blanket cleanup for
+		// unrelated create flows.
+		const wasOpen = sightingEditorMode !== 'none' || placementArmed
 		setSightingEditorMode('none')
 		setEditingSighting(null)
 		setPlacedGeometry(null)
 		setPlacementArmed(false)
 		disarmPlacement()
-		navigateToView('sightings')
-	}, [disarmPlacement, navigateToView])
+		if (wasOpen) navigateToView('sightings')
+	}, [sightingEditorMode, placementArmed, disarmPlacement, navigateToView])
 
 	return {
 		sightingEditorMode,

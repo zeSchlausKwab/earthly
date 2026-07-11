@@ -16,7 +16,7 @@ import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import { extractReferencedCoordinates, setAddressReferenceTags } from '@/lib/nostr/references'
 import type { SchemaRuleError } from '@/lib/validation/schema.worker'
 import type { EditorFeature } from '../core'
-import { useEditorStore } from '../store'
+import { useEditorStore, type SidebarViewMode } from '../store'
 import type { EditorBlobReference } from '../types'
 import { extractCollectionMeta, sanitizeEditorProperties } from '../utils'
 import { BLOSSOM_UPLOAD_THRESHOLD_BYTES } from '../constants'
@@ -95,6 +95,21 @@ interface UsePublishingOptions {
 	 */
 	groups: Group[]
 	resolvedCollectionResolver?: (event: GeoDataset) => FeatureCollection | undefined
+	/** Navigate to a focus route (from useRouting) — publish success lands on the
+	 *  published dataset's canonical URL instead of stranding the author in the
+	 *  catalog (workflow audit P1). Preserves any active context scope. */
+	navigateTo?: (
+		focusType: 'geoevent' | 'mapcontext' | 'story' | 'sighting' | 'beacon',
+		naddr: string,
+		sidebarView?: SidebarViewMode,
+	) => void
+	/** Encode a dataset's naddr (from useRouting). */
+	encodeGeoEventNaddr?: (event: {
+		kind?: number
+		pubkey: string
+		datasetId?: string
+		dTag?: string
+	}) => string | null
 }
 
 export function usePublishing({
@@ -103,6 +118,8 @@ export function usePublishing({
 	getDatasetKey,
 	groups,
 	resolvedCollectionResolver,
+	navigateTo,
+	encodeGeoEventNaddr,
 }: UsePublishingOptions) {
 	void resolvedCollectionResolver
 	// Store state
@@ -126,7 +143,6 @@ export function usePublishing({
 	const setMode = useEditorStore((state) => state.setMode)
 	const setViewMode = useEditorStore((state) => state.setViewMode)
 	const setViewDataset = useEditorStore((state) => state.setViewDataset)
-	const setViewCollection = useEditorStore((state) => state.setViewCollection)
 
 	// Blossom dialog state
 	const setBlossomUploadDialogOpen = useEditorStore((state) => state.setBlossomUploadDialogOpen)
@@ -364,7 +380,7 @@ export function usePublishing({
 		}
 
 		const groupCoordinate = group.groupCoordinate ?? null
-		const groupName = group.group.name || 'this Group'
+		const groupName = group.group.name || 'this Context'
 		// CR-02: derive a content-based compile-cache key when the Group has no published
 		// `schema-hash` tag — never the shared `'sha256:unhashed'` sentinel, which would alias
 		// distinct unhashed schemas onto the first-compiled validator in the worker cache.
@@ -426,14 +442,29 @@ export function usePublishing({
 		setAttachValidation(EMPTY_ATTACH_VALIDATION)
 	}, [])
 
+	// NOTE: this previously called a nonexistent store action (setViewCollection —
+	// legacy state removed long ago), which threw mid-success on EVERY publish and
+	// sent the flow into the catch branch. That crash is what stranded authors in
+	// the catalog with a stale "Failed to publish" error (workflow audit P1).
 	const switchToDatasetViewMode = useCallback(
 		(dataset: GeoDataset) => {
 			setMode('select')
 			setViewMode('view')
 			setViewDataset(dataset)
-			setViewCollection(null)
 		},
-		[setMode, setViewMode, setViewDataset, setViewCollection],
+		[setMode, setViewMode, setViewDataset],
+	)
+
+	/** Land the author on the just-published dataset's canonical reader route
+	 *  (workflow audit P1): the completion destination is the entity itself —
+	 *  where it can be verified, shared, and discussed — not the catalog. */
+	const navigateToPublishedDataset = useCallback(
+		(dataset: GeoDataset) => {
+			if (!navigateTo || !encodeGeoEventNaddr) return
+			const naddr = encodeGeoEventNaddr(dataset)
+			if (naddr) navigateTo('geoevent', naddr, 'datasets')
+		},
+		[navigateTo, encodeGeoEventNaddr],
 	)
 
 	const handlePublishNew = useCallback(async () => {
@@ -485,6 +516,7 @@ export function usePublishing({
 			setCollectionMeta(extractCollectionMeta(collection))
 			setSelectedFeatureIds([])
 			switchToDatasetViewMode(cast)
+			navigateToPublishedDataset(cast)
 		} catch (error) {
 			console.error('Failed to publish dataset', error)
 			setPublishError('Failed to publish dataset. Check console for details.')
@@ -506,6 +538,7 @@ export function usePublishing({
 		setCollectionMeta,
 		setSelectedFeatureIds,
 		switchToDatasetViewMode,
+		navigateToPublishedDataset,
 	])
 
 	/**
@@ -561,6 +594,7 @@ export function usePublishing({
 				setCollectionMeta(extractCollectionMeta(collection))
 				setSelectedFeatureIds([])
 				switchToDatasetViewMode(cast)
+				navigateToPublishedDataset(cast)
 
 				setPendingPublishCollection(null)
 				setBlossomUploadDialogOpen(false)
@@ -585,6 +619,7 @@ export function usePublishing({
 			setCollectionMeta,
 			setSelectedFeatureIds,
 			switchToDatasetViewMode,
+			navigateToPublishedDataset,
 			setPendingPublishCollection,
 			setBlossomUploadDialogOpen,
 		],
@@ -651,6 +686,7 @@ export function usePublishing({
 			setCollectionMeta(extractCollectionMeta(collection))
 			setSelectedFeatureIds([])
 			switchToDatasetViewMode(cast)
+			navigateToPublishedDataset(cast)
 		} catch (error) {
 			console.error('Failed to publish dataset update', error)
 			setPublishError('Failed to publish dataset update. Check console for details.')
@@ -675,6 +711,7 @@ export function usePublishing({
 		setSelectedFeatureIds,
 		setIsDirty,
 		switchToDatasetViewMode,
+		navigateToPublishedDataset,
 	])
 
 	const handlePublishCopy = useCallback(async () => {
@@ -723,6 +760,7 @@ export function usePublishing({
 			setCollectionMeta(extractCollectionMeta(collection))
 			setSelectedFeatureIds([])
 			switchToDatasetViewMode(cast)
+			navigateToPublishedDataset(cast)
 		} catch (error) {
 			console.error('Failed to publish dataset copy', error)
 			setPublishError('Failed to publish dataset copy. Check console for details.')
@@ -744,6 +782,7 @@ export function usePublishing({
 		setCollectionMeta,
 		setSelectedFeatureIds,
 		switchToDatasetViewMode,
+		navigateToPublishedDataset,
 	])
 
 	const handleProposeEdit = useCallback(

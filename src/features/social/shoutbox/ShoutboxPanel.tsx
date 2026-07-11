@@ -122,6 +122,7 @@ function CategoryTab({ config, developerPubkey }: CategoryTabProps) {
 						size="icon"
 						onClick={handleRefresh}
 						disabled={isLoading}
+						aria-label={`Refresh ${config.label}`}
 						className="h-8 w-8"
 					>
 						<RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -147,7 +148,9 @@ function CategoryTab({ config, developerPubkey }: CategoryTabProps) {
 
 					{!isLoading && sortedPosts.length === 0 && (
 						<div className="text-center py-8 text-muted-foreground text-sm">
-							No posts yet. Be the first to post!
+							{config.developerOnly
+								? 'No announcements have been published yet.'
+								: 'No posts yet. Be the first to post!'}
 						</div>
 					)}
 
@@ -180,6 +183,7 @@ export function ShoutboxPanel() {
 
 	return (
 		<div className="flex flex-col h-full min-h-0">
+			<h2 className="sr-only">Local posts</h2>
 			{/* Tabs */}
 			<Tabs
 				value={activeTab}
@@ -194,7 +198,7 @@ export function ShoutboxPanel() {
 							className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-3 py-2 text-xs"
 						>
 							<span className="mr-1">{config.icon}</span>
-							<span className="hidden sm:inline">{config.label}</span>
+							<span>{config.label}</span>
 						</TabsTrigger>
 					))}
 				</TabsList>

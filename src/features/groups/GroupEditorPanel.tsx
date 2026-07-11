@@ -345,7 +345,7 @@ export function GroupEditorPanel({
 		setSaveError(null)
 
 		if (!name.trim()) {
-			setSaveError('Group name is required.')
+			setSaveError('Context name is required.')
 			return
 		}
 
@@ -418,7 +418,7 @@ export function GroupEditorPanel({
 				.sign(signer)
 
 			await publish(signedEvent, { routing: 'outbox' })
-			toast.success(isEditing ? 'Group updated.' : 'Group published.')
+			toast.success(isEditing ? 'Context updated.' : 'Context published.')
 			// Surface the saved Group through the existing MapContext cast so the
 			// current GeoEditorInfoPanel view/save lifecycle is unchanged (Plan 06).
 			const cast = castEvent(signedEvent, MapContext, eventStore)
@@ -436,11 +436,11 @@ export function GroupEditorPanel({
 	}
 
 	return (
-		<EntityPanelShell title={isEditing ? 'Edit Group' : 'Create Group'}>
+		<EntityPanelShell title={isEditing ? 'Edit Context' : 'Create Context'}>
 			<EntityPanelSurface tone="context" className="space-y-3">
 				<EntityPanelSectionHeader
 					eyebrow="Narrative"
-					title="Describe the Group"
+					title="Describe the Context"
 					description="Markdown is stored verbatim. Use $ to insert NIP-27 nostr references inline."
 				/>
 				<div className="space-y-2">
@@ -558,7 +558,7 @@ Write in Markdown. Use $ to insert datasets, Groups, or features.`}
 				<EntityPanelSectionHeader
 					eyebrow="Governance"
 					title="Who can contribute?"
-					description="Pick how outside datasets may attach to this Group."
+					description="Pick how outside datasets may attach to this Context."
 				/>
 				<RadioGroup
 					value={governance}
@@ -809,7 +809,7 @@ Write in Markdown. Use $ to insert datasets, Groups, or features.`}
 						disabled={isSaving || !currentUser}
 						className="rounded-none bg-primary text-primary-foreground"
 					>
-						{isSaving ? 'Saving…' : isEditing ? 'Save Group' : 'Create Group'}
+						{isSaving ? 'Saving…' : isEditing ? 'Save Context' : 'Create Context'}
 					</Button>
 				</div>
 			</EntityPanelSurface>

@@ -76,7 +76,7 @@ function GovernanceBadge({ governance }: { governance: GroupGovernance }) {
 export const createGroupColumns = (context: GroupColumnsContext): ColumnDef<GroupRowData>[] => [
 	{
 		accessorKey: 'groupName',
-		header: 'Group',
+		header: 'Context',
 		cell: ({ row }) => {
 			const {
 				group,
@@ -172,8 +172,8 @@ export const createGroupColumns = (context: GroupColumnsContext): ColumnDef<Grou
 											variant="ghost"
 											className={cn(actionButtonClass, 'hover:text-ok')}
 											onClick={() => context.onInspectGroup?.(group)}
-											aria-label="Inspect Group"
-											title="Inspect Group"
+											aria-label="Inspect Context"
+											title="Inspect Context"
 										>
 											<InspectActionIcon className="h-4 w-4" />
 										</Button>

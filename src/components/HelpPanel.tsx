@@ -16,6 +16,7 @@ export function HelpPanel({ multiSelectModifier = 'Shift' }: HelpPanelProps) {
 	return (
 		<ScrollArea className="h-full">
 			<div className="p-4 space-y-4">
+				<h2 className="sr-only">Help</h2>
 				{/* Branding Header */}
 				<div className="rounded-lg border border-border bg-gradient-to-r from-info via-white to-ok dark:from-info/30 dark:via-background dark:to-ok/30 p-3">
 					<div className="flex items-center justify-between gap-3">

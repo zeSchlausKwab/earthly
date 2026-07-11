@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { resolveProvider, useChatStore } from './store'
 import { composeOutboundContent } from './composeOutboundContent'
@@ -45,13 +45,14 @@ import {
 	Code2,
 	Bug,
 } from 'lucide-react'
+import { preloadWorldData } from '@/lib/geo/worldData'
 import { estimateTokens, type ChatMessage, type ToolCall, type ProviderType } from './routstr'
 import { analyzeToolResultGeometryContent, bakeToolResultContentToEditor } from './tools'
 import { isToolError, type ToolError } from './tools/errors'
 import { ChatGeometryAttachment } from './ChatGeometryAttachment'
 import { CodeRunDisclosure, parseRunCodeResult } from './CodeRunDisclosure'
 import { BindingChipContainer } from './safeEditing/BindingChip'
-import { PendingDiffList } from './safeEditing/PendingDiffList'
+import { InlineDiffCards, PendingDiffList } from './safeEditing/PendingDiffList'
 import { AttachmentCard, parseIngestHandlePart } from './components/AttachmentCard'
 import {
 	buildConversationDump,
@@ -198,6 +199,13 @@ export function ChatPanel({
 	const [nowMs, setNowMs] = useState(Date.now())
 	const messagesEndRef = useRef<HTMLDivElement>(null)
 	const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+	// Eagerly load the world reference layers (anchors, land/water validation,
+	// sandbox `world`) as soon as the chat opens, so the synchronous consumers
+	// find them resolved by the first message (AI_GEO_AWARENESS §4).
+	useEffect(() => {
+		preloadWorldData()
+	}, [])
 
 	// Load models on mount
 	useEffect(() => {
@@ -797,11 +805,14 @@ export function ChatPanel({
 				) : (
 					<>
 						{renderedMessages.map(({ message, key }) => (
-							<MessageBubble
-								key={key}
-								message={message}
-								runCodeSourceByCallId={runCodeSourceByCallId}
-							/>
+							<Fragment key={key}>
+								<MessageBubble message={message} runCodeSourceByCallId={runCodeSourceByCallId} />
+								{/* Safe-editing diff cards render INLINE under the tool turn
+								    that emitted them — temporal order, not a trailing clump. */}
+								{message.role === 'tool' && typeof message.tool_call_id === 'string' ? (
+									<InlineDiffCards toolCallId={message.tool_call_id} />
+								) : null}
+							</Fragment>
 						))}
 
 						{/* Streaming message */}

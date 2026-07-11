@@ -30,6 +30,20 @@ const EXPECTED_KEYS = [
 	'nearestPointOnLine',
 	'booleanPointInPolygon',
 	'centroid',
+	// Geometry-construction extensions (AI_GEO_AWARENESS follow-up 2026-07-08).
+	'bbox',
+	'bboxPolygon',
+	'booleanIntersects',
+	'cleanCoords',
+	'difference',
+	'explode',
+	'featureCollection',
+	'intersect',
+	'lineSlice',
+	'nearestPoint',
+	'polygonToLine',
+	'simplify',
+	'union',
 ].sort()
 
 describe('curatedTurf surface (D-02)', () => {

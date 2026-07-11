@@ -37,6 +37,17 @@ export interface RouteSnapshot {
 	contextCoordinate?: string
 }
 
+export interface ApplyRouteStateOptions {
+	/**
+	 * Derive `mobilePanelTab` (and surface the sheet) from the route. True only
+	 * for browser-driven navigation — initial load, Back/Forward, hashchange —
+	 * where the URL is the sole source of truth. In-app navigations skip this:
+	 * their handlers already set the tab they want (e.g. the `edit` overlay tab
+	 * during an inspect flow), and deriving from the route would clobber it.
+	 */
+	syncMobileTab?: boolean
+}
+
 export interface EditorStats {
 	points: number
 	lines: number
@@ -365,7 +376,7 @@ export interface ViewModeSlice {
 	 * workspace — those are edit-session state, owned by applyEditingState /
 	 * tearDownEditSession (the draft invariant, Phase 1.4).
 	 */
-	applyRouteState: (route: RouteSnapshot) => void
+	applyRouteState: (route: RouteSnapshot, options?: ApplyRouteStateOptions) => void
 }
 
 export interface MapStackSlice {

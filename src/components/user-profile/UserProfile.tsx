@@ -208,6 +208,10 @@ function UserProfileComponent({
 				onClick={clickHandler}
 				className={cn(
 					'cursor-pointer hover:opacity-80 transition-opacity text-left h-auto p-0 justify-start',
+					// The Button base sets whitespace-nowrap + shrink-0; a long bio would
+					// otherwise render as one unwrappable line and force the whole panel
+					// to scroll horizontally.
+					'max-w-full min-w-0 shrink whitespace-normal',
 					className,
 				)}
 			>
@@ -267,7 +271,9 @@ function UserProfileComponent({
 								<Nip05Badge />
 							</div>
 							{showBio && profile?.about && (
-								<p className="text-xs text-muted-foreground line-clamp-2">{profile.about}</p>
+								<p className="text-xs text-muted-foreground line-clamp-2 break-words">
+									{profile.about}
+								</p>
 							)}
 						</div>
 					</div>
@@ -286,7 +292,7 @@ function UserProfileComponent({
 							</div>
 							{profile?.nip05 && <p className="text-xs text-muted-foreground">{profile.nip05}</p>}
 							{showBio && profile?.about && (
-								<p className="text-sm text-foreground max-w-md">{profile.about}</p>
+								<p className="text-sm text-foreground max-w-md break-words">{profile.about}</p>
 							)}
 							{showWebsite && profile?.website && (
 								<a

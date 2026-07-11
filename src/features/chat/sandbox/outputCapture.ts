@@ -39,6 +39,15 @@ export interface OutputCapture {
 }
 
 /**
+ * UTF-8 byte counter. MUST be TextEncoder, not Buffer: this module bundles
+ * into the BROWSER sandbox worker, where Node's `Buffer` does not exist —
+ * a `Buffer.byteLength` here compiles, passes bun tests (Node globals), and
+ * then throws `ReferenceError: Buffer is not defined` on every real run.
+ * `noNodeGlobals.test.ts` guards the whole worker graph against regressions.
+ */
+const utf8 = new TextEncoder()
+
+/**
  * Create a fresh bounded capture sink. Once either the line cap or the byte cap
  * is reached, subsequent `push` calls are dropped and a single truncation marker
  * is emitted on drain — the marker is never duplicated.
@@ -51,7 +60,7 @@ export function createOutputCapture(): OutputCapture {
 	return {
 		push(line: string): void {
 			if (truncated) return // already at a cap — drop silently (marker added on drain).
-			const lineBytes = Buffer.byteLength(line, 'utf8')
+			const lineBytes = utf8.encode(line).length
 			// Accept this line, THEN check whether we've now crossed a cap. This lets the
 			// boundary keep the line that tips us over (bounded overshoot of one line)
 			// rather than silently dropping the line that hits the limit.

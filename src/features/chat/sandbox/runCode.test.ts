@@ -66,17 +66,23 @@ describe('run_code — error feedback (CODE-03 / D-11 / D-13)', () => {
 		expect(err.message).toContain('boom inside the sandbox')
 	})
 
-	it('a script that runs past the deadline is a retryable timeout fed back to the model (D-13)', async () => {
-		useHeadlessEditor()
-		const result = await dispatch('run_code', {
-			code: 'while (true) {}',
-		})
-		expect(isToolError(result)).toBe(true)
-		const err = result as { kind: string; message: string }
-		expect(err.kind).toBe('handler_error')
-		// D-13: the model is told the script was terminated for exceeding the deadline.
-		expect(err.message.toLowerCase()).toMatch(/exceed|terminat|deadline|interrupt/)
-	})
+	it(
+		'a script that runs past the deadline is a retryable timeout fed back to the model (D-13)',
+		async () => {
+			useHeadlessEditor()
+			const result = await dispatch('run_code', {
+				code: 'while (true) {}',
+			})
+			expect(isToolError(result)).toBe(true)
+			const err = result as { kind: string; message: string }
+			expect(err.kind).toBe('handler_error')
+			// D-13: the model is told the script was terminated for exceeding the deadline.
+			expect(err.message.toLowerCase()).toMatch(/exceed|terminat|deadline|interrupt/)
+		},
+		// The run burns the FULL default sandbox deadline (10s) by design — give the
+		// test itself headroom past it.
+		15_000,
+	)
 })
 
 describe('run_code — bounded self-correction is a HARD stop (D-06, runaway fix)', () => {

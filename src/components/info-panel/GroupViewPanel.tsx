@@ -136,7 +136,7 @@ export function GroupViewPanel({
 				.group({ governance: 'closed' })
 				.sign(signer)
 			await publish(signed, { routing: 'outbox' })
-			toast.success('Group locked down. Only your curated references show now.')
+			toast.success('Context locked down. Only your curated references show now.')
 		} catch {
 			toast.error("Couldn't publish — check your connection and try again.")
 		} finally {
@@ -164,19 +164,19 @@ export function GroupViewPanel({
 	)
 
 	if (!viewContext || !groupEvent || !group) {
-		return <div className="text-sm text-muted-foreground">No Group selected.</div>
+		return <div className="text-sm text-muted-foreground">No Context selected.</div>
 	}
 
 	const groupKey = viewContext.contextId ?? viewContext.dTag ?? viewContext.id ?? null
 	const isDeleting = groupKey ? deletingKey === `context:${groupKey}` : false
 
 	return (
-		<EntityPanelShell title={group.name || viewContext.contextId || 'Untitled Group'}>
+		<EntityPanelShell title={group.name || viewContext.contextId || 'Untitled Context'}>
 			<div className="space-y-3 text-[13px]">
 				<EntityPanelSurface tone="context" className="space-y-3">
 					<EntityPanelSectionHeader
-						eyebrow="Group"
-						title={group.name || viewContext.contextId || 'Untitled Group'}
+						eyebrow="Context"
+						title={group.name || viewContext.contextId || 'Untitled Context'}
 						description={`Governance: ${group.governance}`}
 						action={
 							onZoomTo || isOwner ? (
@@ -209,11 +209,11 @@ export function GroupViewPanel({
 											</AlertDialogTrigger>
 											<AlertDialogContent>
 												<AlertDialogHeader>
-													<AlertDialogTitle>Lock this Group down?</AlertDialogTitle>
+													<AlertDialogTitle>Lock this Context down?</AlertDialogTitle>
 													<AlertDialogDescription>
 														Switching to Closed hides all community contributions immediately and
 														only your curated references will show. You can reopen it later by
-														editing the Group.
+														editing the Context.
 													</AlertDialogDescription>
 												</AlertDialogHeader>
 												<AlertDialogFooter>
@@ -225,7 +225,7 @@ export function GroupViewPanel({
 									)}
 									{isOwner && onDeleteContext && (
 										<ConfirmDeleteAction
-											label="Group"
+											label="Context"
 											isDeleting={isDeleting}
 											onConfirm={() => onDeleteContext(viewContext)}
 										/>

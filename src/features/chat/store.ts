@@ -36,9 +36,14 @@ import {
 	sendCashuToken,
 } from '@/lib/wallet'
 import { detectVisionSupport } from './vision/detectVisionSupport'
+import { sanitizeDanglingToolCalls, syntheticCancelledToolResult } from './toolCallIntegrity'
 import { gateToolsForVision } from './vision/gateToolsForVision'
 import { setSafetyLevelProvider } from './safeEditing/safetyAccess'
-import { cancelPendingDiffs } from './safeEditing/pendingDiffStore'
+import {
+	cancelPendingDiffs,
+	setPendingDiffChatContext,
+	setPendingDiffToolContext,
+} from './safeEditing/pendingDiffStore'
 import { toast } from 'sonner'
 
 // Output is NOT artificially capped. We size the completion budget from the
@@ -1297,6 +1302,9 @@ export const useChatStore = create<ChatStore>()(
 
 			sendMessage: async (content: string, options?: SendMessageOptions) => {
 				const targetChatId = get().activeChatId
+				// Stamp safe-editing diff blocks emitted during this run with the chat
+				// they belong to, so applied/cancelled cards render only in that chat.
+				setPendingDiffChatContext(targetChatId)
 				const { selectedModel, models, toolsEnabled, provider, providerOverrides } = get()
 				const providerConfig = resolveProvider(provider, providerOverrides)
 				// Hoisted so the request-builder closure can gate capture_map_snapshot on
@@ -1693,7 +1701,9 @@ export const useChatStore = create<ChatStore>()(
 
 				try {
 					streamAbortController = new AbortController()
-					let conversationMessages = [...get().messages]
+					// Repair any assistant tool_calls left unanswered by a stopped run
+					// (protocol requirement) — heals previously wedged chats on send.
+					let conversationMessages = [...sanitizeDanglingToolCalls(get().messages)]
 					let oneShotVisionMessages: ChatMessage[] = []
 					let oneShotGeometryContextMessage = geometryContextMessage
 					let totalToolCalls = 0
@@ -1932,12 +1942,84 @@ export const useChatStore = create<ChatStore>()(
 								),
 							}))
 
+							// PROTOCOL INTEGRITY on detach: the assistant message carrying
+							// tool_calls is already persisted above, so a detached run MUST
+							// still persist one tool result per call id — a dangling
+							// tool_calls message makes the whole chat unsendable ("must be
+							// followed by tool messages responding to each tool_call_id").
+							// The executed tool's REAL result answers its own call; every
+							// not-yet-run call gets a synthetic cancelled result. Writes go
+							// to the OWNING chat session (and to the visible transcript only
+							// when that chat is still active) — never to another chat's UI.
+							const persistDetachedRoundResults = (
+								pendingCalls: ToolCall[],
+								executedResult: { tool_call_id: string; content: string } | null,
+							): void => {
+								const filler: ChatMessage[] = pendingCalls.map((call, index) => ({
+									role: 'tool' as const,
+									content:
+										index === 0 && executedResult
+											? executedResult.content
+											: syntheticCancelledToolResult(
+													'The run was stopped before this tool call completed. Nothing was applied for it.',
+												),
+									tool_call_id:
+										index === 0 && executedResult ? executedResult.tool_call_id : call.id,
+								}))
+								conversationMessages = [...conversationMessages, ...filler]
+								set((state) => ({
+									chatSessions: applyMessagesToActiveChat(
+										state.chatSessions,
+										targetChatId,
+										conversationMessages,
+									),
+									...(state.activeChatId === targetChatId
+										? { messages: conversationMessages }
+										: {}),
+								}))
+							}
+
 							// Execute each tool call
-							for (const toolCall of result.toolCalls) {
+							const roundToolCalls = result.toolCalls
+							for (let callIndex = 0; callIndex < roundToolCalls.length; callIndex++) {
+								const toolCall = roundToolCalls[callIndex] as ToolCall
+								// Run-currency check PER TOOL, not just per round: STOP /
+								// chat-switch / delete bump the run id mid-round, and without
+								// this check the rest of the round's tools kept executing in
+								// the background — mutating the editor through the gates and
+								// flipping the visible transcript between chats.
+								if (!isStreamRunActive()) {
+									persistDetachedRoundResults(roundToolCalls.slice(callIndex), null)
+									throw new Error(DETACHED_STREAM_ERROR)
+								}
 								console.log(`[Chat] Executing tool: ${toolCall.function.name}`)
-								const toolResult = await executeToolCall(toolCall, {
-									attachedGeometry: geometryAttachment,
-								})
+								// Tag any safe-editing diff this tool emits with its call id so
+								// the transcript can render the card inline at this turn.
+								setPendingDiffToolContext(toolCall.id)
+								let toolResult: Awaited<ReturnType<typeof executeToolCall>>
+								try {
+									toolResult = await executeToolCall(toolCall, {
+										attachedGeometry: geometryAttachment,
+									})
+								} finally {
+									setPendingDiffToolContext(null)
+								}
+
+								// Re-check AFTER the await: the run may have been superseded
+								// while this tool executed (e.g. STOP while a safe-editing gate
+								// awaited Apply/Cancel). Persist this tool's real result +
+								// synthetic results for the rest of the round, then end. If the
+								// tool emitted a gate AFTER cancelStream's sweep, that late gate
+								// is parked un-cancellable — sweep it now, but only when no NEW
+								// stream is running (a new run's own pending gates must not be
+								// collateral damage).
+								if (!isStreamRunActive()) {
+									if (!get().isStreaming) {
+										cancelPendingDiffs()
+									}
+									persistDetachedRoundResults(roundToolCalls.slice(callIndex), toolResult)
+									throw new Error(DETACHED_STREAM_ERROR)
+								}
 
 								// Add tool result message
 								const toolMessage: ChatMessage = {

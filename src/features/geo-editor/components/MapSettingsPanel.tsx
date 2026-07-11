@@ -808,6 +808,7 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 			onValueChange={(value) => setActiveTab(value as SettingsTab)}
 			className="space-y-4"
 		>
+			<h2 className="sr-only">Settings</h2>
 			{/* One scrollable row: the base TabsList pins its height (h-8 via the
 			    orientation variant), so wrapped grid rows overflow it — never wrap;
 			    scroll horizontally instead when space runs out. */}

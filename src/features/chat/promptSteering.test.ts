@@ -49,6 +49,32 @@ describe('fix #4 — agent map-context steering', () => {
 		expect(text).toMatch(/do NOT re-verify/i)
 		expect(text).toMatch(/capture_map_snapshot/i)
 	})
+
+	// AI_GEO_AWARENESS: the bench runs showed the model picking slow OSM calls
+	// for country-scale work because older OSM-forward lines out-competed the
+	// world-layer guidance. The hierarchy must stay explicit and de-conflicted.
+	it('states the world-layers-first data source order', () => {
+		expect(text).toMatch(/DATA SOURCE ORDER/i)
+		expect(text).toMatch(/BUNDLED WORLD LAYERS/i)
+		expect(text).toMatch(/OSM tools ONLY for/i)
+	})
+
+	it('scopes OSM boundary/line guidance to LOCAL features (no country-scale OSM)', () => {
+		expect(text).toMatch(/For LOCAL admin boundaries/i)
+		expect(text).toMatch(/NEVER query OSM for a country-scale coastline/i)
+		expect(text).toMatch(/world\.get\("countries_110m"\)/)
+	})
+
+	it('carries the offshore-offset recipe (buffer → polygonToLine → isOnLand filter)', () => {
+		expect(text).toMatch(/offshore offset line/i)
+		expect(text).toMatch(/polygonToLine/)
+		expect(text).toMatch(/world\.isOnLand/)
+	})
+
+	it('frames generalized-data honesty instead of external verification', () => {
+		expect(text).toMatch(/GENERALIZED cartography/i)
+		expect(text).toMatch(/systematic underestimates/i)
+	})
 })
 
 describe('fix #4 — run_code description steering (advertised surface in sync)', () => {

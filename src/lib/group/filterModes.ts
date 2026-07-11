@@ -72,7 +72,7 @@ export function resolveGroupFilterDefault(governance: GroupGovernance): GroupFil
  * by the worker's own `MAX_ERRORS` cap.
  */
 function describeErrors(errors: SchemaRuleError[]): string {
-	if (errors.length === 0) return 'does not conform to the Group schema'
+	if (errors.length === 0) return 'does not conform to the Context schema'
 	const parts = errors.slice(0, 3).map((e) => {
 		if (e.keyword === 'required') {
 			const missing = (e.params as { missingProperty?: string } | undefined)?.missingProperty

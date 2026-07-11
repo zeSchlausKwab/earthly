@@ -9,6 +9,11 @@ import {
 	validateDatasetForContext,
 	type ContextValidationResult,
 } from '../lib/context/validation'
+import {
+	aggregateMeasurements,
+	formatAreaKm2,
+	formatLengthKm,
+} from '../features/geo-editor/api/measure'
 import { useEditorStore } from '../features/geo-editor/store'
 import { sanitizeEditorProperties } from '../features/geo-editor/utils'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
@@ -323,6 +328,8 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		if (selectedFeatureIds.length === 0) return []
 		return features.filter((feature) => selectedFeatureIds.includes(feature.id))
 	}, [features, selectedFeatureIds])
+	// Passive companion (AI_GEO_AWARENESS §2): dataset totals for the stats row.
+	const datasetMeasurements = useMemo(() => aggregateMeasurements(features), [features])
 	const canAttachCommentGeometry = selectedFeatures.length > 0 && !attachedGeojson
 	const currentDraftSourceId = activeDataset
 		? `dataset:${getDatasetKey(activeDataset)}`
@@ -887,11 +894,17 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 				</div>
 			)}
 
-			{/* Stats row - inline */}
+			{/* Stats row - inline (counts + passive measurement totals) */}
 			<div className="flex items-center gap-3 text-[10px] text-muted-foreground">
 				<span>{stats.points} pts</span>
 				<span>{stats.lines} lines</span>
 				<span>{stats.polygons} polys</span>
+				{datasetMeasurements && datasetMeasurements.totalLengthKm > 0 && (
+					<span>{formatLengthKm(datasetMeasurements.totalLengthKm)}</span>
+				)}
+				{datasetMeasurements && datasetMeasurements.totalAreaKm2 > 0 && (
+					<span>{formatAreaKm2(datasetMeasurements.totalAreaKm2)}</span>
+				)}
 			</div>
 
 			{/* Dataset size indicator - shows warning when over limit */}

@@ -25,7 +25,7 @@ const KIND_TO_MENTION_TYPE: Record<
 	{ entityType: GeoFeatureItem['entityType']; label: string }
 > = {
 	[GEO_EVENT_KIND]: { entityType: 'dataset', label: 'Dataset' },
-	[MAP_CONTEXT_KIND]: { entityType: 'context', label: 'Group' },
+	[MAP_CONTEXT_KIND]: { entityType: 'context', label: 'Context' },
 	[ARTICLE_KIND]: { entityType: 'story', label: 'Story' },
 }
 

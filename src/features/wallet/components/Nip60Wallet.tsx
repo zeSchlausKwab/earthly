@@ -52,6 +52,7 @@ import {
 	useNutzaps,
 	useWallet,
 } from '@/lib/wallet'
+import { SignedOutCta } from '@/features/auth/SignedOutCta'
 import { DepositLightningModal } from './DepositLightningModal'
 import { NutzapsSection } from './NutzapsSection'
 import { ReceiveEcashModal } from './ReceiveEcashModal'
@@ -162,8 +163,11 @@ export function Nip60Wallet() {
 
 	if (!account) {
 		return (
-			<div className="p-4 text-center text-muted-foreground bg-muted rounded-lg">
-				<p>Please log in to view your wallet</p>
+			<div className="bg-muted rounded-lg">
+				<SignedOutCta
+					title="Wallet"
+					description="Sign in to view your wallet and send or receive zaps."
+				/>
 			</div>
 		)
 	}
@@ -171,6 +175,7 @@ export function Nip60Wallet() {
 	if (!exists) {
 		return (
 			<div className="p-4 text-center bg-muted rounded-lg">
+				<h2 className="sr-only">Wallet</h2>
 				<p className="text-muted-foreground mb-4">
 					{loading ? 'Checking Cashu wallet…' : 'No Cashu wallet found'}
 				</p>
@@ -185,6 +190,7 @@ export function Nip60Wallet() {
 	if (!unlocked) {
 		return (
 			<div className="p-4 text-center bg-muted rounded-lg space-y-3">
+				<h2 className="sr-only">Wallet</h2>
 				<p className="text-muted-foreground">
 					{isUnlocking ? 'Unlocking wallet…' : 'Wallet is locked'}
 				</p>
@@ -204,6 +210,7 @@ export function Nip60Wallet() {
 
 	return (
 		<div className="p-4 max-w-full overflow-hidden bg-card rounded-lg border">
+			<h2 className="sr-only">Wallet</h2>
 			<div className="text-center mb-4">
 				<p className="text-sm text-muted-foreground mb-1">
 					{syncing ? 'Syncing wallet…' : 'Balance'}

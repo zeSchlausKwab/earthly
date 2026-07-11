@@ -23,6 +23,7 @@
 	"files": {
 		"experimentalScannerIgnores": [".claude"],
 		"includes": [
+			"ai-suite/**/*.ts",
 			"src/**/*.ts",
 			"src/**/*.tsx",
 			"src/**/*.js",

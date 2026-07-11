@@ -30,10 +30,10 @@ const COLLAPSED_TRIGGER_WIDTH = 80
 /**
  * Width budget reserved for non-priority toolbar elements (sidebar trigger,
  * search box, map state cluster, chat toggle, settings, share, create-map,
- * file menu, etc.). Treated as fixed overhead — the hook subtracts this
- * from the available width before deciding what to expand.
+ * measure, file menu, etc.). Treated as fixed overhead — the hook subtracts
+ * this from the available width before deciding what to expand.
  */
-const NON_PRIORITY_RESERVED_WIDTH = 520
+const NON_PRIORITY_RESERVED_WIDTH = 556
 
 /**
  * Hook: measures a container's available width and decides which priority

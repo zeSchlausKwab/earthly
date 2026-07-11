@@ -51,6 +51,20 @@ export interface PendingDiffEntry {
 	 * `'modify'`). Omitted by every Phase 5/6 caller — strictly additive.
 	 */
 	intent?: MutationIntent
+	/**
+	 * The chat the emitting run belonged to (stamped from the module-level
+	 * context set by the chat store at run start). Entries without a chatId
+	 * render in every chat (back-compat); entries WITH one render only in their
+	 * owning chat — applied/cancelled cards must not leak across chats.
+	 */
+	chatId?: string
+	/**
+	 * The tool call whose execution emitted this diff (stamped from the
+	 * module-level context the chat store sets around each executeToolCall).
+	 * Lets the transcript render the card INLINE under its own tool turn —
+	 * a trailing clump of APPLIED cards loses all temporal ordering.
+	 */
+	toolCallId?: string
 }
 
 export interface EmitDiffBlockHandle {
@@ -74,6 +88,24 @@ export interface EmitDiffBlockOptions {
 	 * every existing caller — additive, backward-compatible.
 	 */
 	intent?: MutationIntent
+}
+
+/**
+ * The chat id stamped onto newly emitted entries. Set by the chat store at run
+ * start (and on chat switch) rather than imported from it — this module is
+ * imported BY the chat store, so reading the store back would be a cycle.
+ */
+let currentDiffChatId: string | null = null
+
+export function setPendingDiffChatContext(chatId: string | null): void {
+	currentDiffChatId = chatId
+}
+
+/** The tool call currently executing (set around each executeToolCall). */
+let currentDiffToolCallId: string | null = null
+
+export function setPendingDiffToolContext(toolCallId: string | null): void {
+	currentDiffToolCallId = toolCallId
 }
 
 const pendingDiffs = new Map<string, PendingDiffEntry>()
@@ -114,6 +146,8 @@ export function emitDiffBlock(diff: DatasetDiff, opts?: EmitDiffBlockOptions): E
 		status: opts?.status ?? 'pending',
 		headline: opts?.headline,
 		intent: opts?.intent,
+		chatId: currentDiffChatId ?? undefined,
+		toolCallId: currentDiffToolCallId ?? undefined,
 	})
 	notify()
 	return { id }

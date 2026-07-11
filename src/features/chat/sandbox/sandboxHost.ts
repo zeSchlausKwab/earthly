@@ -41,8 +41,15 @@ export const directEngineTransport: SandboxTransport = async (code, opts) => {
 	return { id: 'direct', ...result }
 }
 
-/** Default wall-clock deadline for one run (D-14). */
-export const DEFAULT_SANDBOX_DEADLINE_MS = 3000
+/**
+ * Default wall-clock deadline for one run (D-14). Raised 3000 → 10000 on
+ * 2026-07-08: the geo-awareness work deliberately moved heavy geometry
+ * (world-layer sweeps, per-vertex land checks, pathfinding) INTO the sandbox,
+ * and legitimate analysis runs were dying at 3s (bench: coastline-per-country
+ * over 39 countries). Still a hard ceiling — the in-VM interrupt and the host
+ * watchdog (deadline + slack) both key off this value.
+ */
+export const DEFAULT_SANDBOX_DEADLINE_MS = 10_000
 
 /** Options for one transport-agnostic sandbox run. */
 export interface SandboxRunOptions {

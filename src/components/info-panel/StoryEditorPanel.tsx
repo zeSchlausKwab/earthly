@@ -206,8 +206,12 @@ export function StoryEditorPanel({
 
 			clearStoryDraft(draftKey)
 			const cast = castEvent(signed, Article, eventStore)
+			// onSave (handleSaveStory) both tears the editor down AND navigates to
+			// the published story's canonical /stories/story/:naddr route. Do NOT
+			// also call onClose() here: its close handler still sees the pre-render
+			// editor mode and would re-navigate to the bare /stories catalog,
+			// clobbering the publish destination (workflow audit P1).
 			onSave(cast)
-			onClose()
 		} catch (error) {
 			setSaveError(
 				error instanceof Error && error.message === 'No active account'
