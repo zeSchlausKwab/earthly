@@ -78,11 +78,9 @@ test('a reader can type a proposed Story edit without a runtime failure @workflo
 	earthly,
 	newEarthlySession,
 }, testInfo) => {
+	// FIXED: prosemirror-model is deduped to a single version via the package.json
+	// override — typing in the proposal editor no longer mixes Fragment classes.
 	test.skip(testInfo.project.name !== 'desktop', 'Multi-persona proposal audit is desktop-only')
-	test.fail(
-		true,
-		'Current defect: typing in the proposal editor loads incompatible ProseMirror model copies',
-	)
 	const runId = Date.now().toString(36)
 	await signIn(earthly, 'owner')
 	const story = await createAndPublishStory(earthly, {
