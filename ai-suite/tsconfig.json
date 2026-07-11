@@ -1,0 +1,10 @@
+{
+	"extends": "../tsconfig.json",
+	"compilerOptions": {
+		"allowJs": false,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"types": ["bun", "node", "@playwright/test"]
+	},
+	"include": ["./**/*.ts", "../src/lib/fixtures.ts"]
+}

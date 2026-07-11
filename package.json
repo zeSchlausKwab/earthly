@@ -19,7 +19,15 @@
     "deploy": "./scripts/deploy.sh",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "test": "bun test"
+    "test": "bun test",
+    "ai:list": "bun run ai-suite/catalog.ts",
+    "ai:typecheck": "tsc -p ai-suite/tsconfig.json --noEmit",
+    "ai:e2e": "playwright test -c ai-suite/playwright.config.ts --grep-invert @audit",
+    "ai:audit": "playwright test -c ai-suite/playwright.config.ts --grep @audit",
+    "ai:known-issues": "playwright test -c ai-suite/playwright.config.ts --grep @known-issue",
+    "ai:verify": "bun run ai:typecheck && bun run ai:e2e && bun run ai:audit",
+    "ai:e2e:headless": "AI_SUITE_HEADLESS=1 playwright test -c ai-suite/playwright.config.ts --grep-invert @audit",
+    "ai:e2e:ui": "playwright test -c ai-suite/playwright.config.ts --ui"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -107,6 +115,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.2",
+    "@playwright/test": "1.61.1",
     "@types/bun": "^1.3.14",
     "@types/papaparse": "^5.5.2",
     "@types/react": "^19.2.14",

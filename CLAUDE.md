@@ -56,7 +56,12 @@ bun run lint:fix          # Auto-fix with Biome
 ### Testing
 ```bash
 bun test                  # Run tests with Bun's test runner
+bun run ai:list           # List reusable Earthly browser tasks
+bun run ai:e2e            # Run the repo-owned Playwright AI/E2E suite
 ```
+
+Before writing browser automation, read `ai-suite/README.md` and reuse `ai-suite/tasks/`. Put
+one-off browser experiments in `ai-suite/scratch/`.
 
 ## Runtime & APIs
 

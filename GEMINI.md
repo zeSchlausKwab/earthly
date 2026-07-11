@@ -66,3 +66,8 @@ bun start
 *   Environment variables are managed using a schema defined in `src/config/env.schema.ts`.
 *   The custom build script `build.ts` handles the production build process, including environment variable injection.
 *   The project uses a custom Nostr relay, which suggests that specific NIPs (Nostr Implementation Possibilities) and event kinds might be in use. The relay code in `relay/main.go` would be the place to look for details.
+
+## Browser automation
+
+Before writing Playwright automation, read `ai-suite/README.md`, run `bun run ai:list`, and reuse
+the Earthly-level tasks under `ai-suite/tasks/`. Keep one-off experiments in `ai-suite/scratch/`.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Earthly AI Suite"
+  short_description: "Reuse Earthly browser tasks and scenarios"
+  default_prompt: "Use $earthly-ai-suite to automate and verify an Earthly browser workflow."

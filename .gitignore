@@ -42,6 +42,9 @@ deploy.tar.gz
 .cache
 *.tsbuildinfo
 
+# Earthly AI/E2E suite artifacts
+ai-suite/artifacts
+
 # IntelliJ based IDEs
 .idea
 
