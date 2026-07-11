@@ -63,15 +63,25 @@ async function waitForTourTransition(earthly: EarthlySession): Promise<void> {
 	)
 }
 
+/** The tour is viewport-split (11 desktop steps, 6 mobile), so the step count
+ *  is read from the live progress text instead of being hardcoded. */
+async function readTourTotal(earthly: EarthlySession): Promise<number> {
+	const text = await earthly.page.locator('.driver-popover-progress-text').innerText()
+	const match = text.match(/\d+ of (\d+)/)
+	if (!match?.[1]) throw new Error(`Unparseable tour progress text: ${text}`)
+	return Number(match[1])
+}
+
 export async function completeTour(earthly: EarthlySession): Promise<void> {
 	await waitForTour(earthly)
-	for (let step = 1; step <= 11; step += 1) {
+	const total = await readTourTotal(earthly)
+	for (let step = 1; step <= total; step += 1) {
 		const progress = earthly.page.locator('.driver-popover-progress-text')
-		await expect(progress).toHaveText(`${step} of 11`)
+		await expect(progress).toHaveText(`${step} of ${total}`)
 		await earthly.page.locator('.driver-popover-next-btn').click()
-		if (step < 11) {
+		if (step < total) {
 			await waitForTourTransition(earthly)
-			await expect(progress).toHaveText(`${step + 1} of 11`)
+			await expect(progress).toHaveText(`${step + 1} of ${total}`)
 		}
 	}
 	await expect(earthly.page.locator('.driver-popover')).toBeHidden()
@@ -86,8 +96,9 @@ export async function skipTour(earthly: EarthlySession): Promise<void> {
 export async function inspectTourTargets(earthly: EarthlySession): Promise<TourStepObservation[]> {
 	await waitForTour(earthly)
 	const observations: TourStepObservation[] = []
+	const total = await readTourTotal(earthly)
 
-	for (let step = 1; step <= 11; step += 1) {
+	for (let step = 1; step <= total; step += 1) {
 		const observation = await earthly.page.evaluate((currentStep) => {
 			const popover = document.querySelector<HTMLElement>('.driver-popover')
 			const active = document.querySelector<HTMLElement>('.driver-active-element')
@@ -120,10 +131,10 @@ export async function inspectTourTargets(earthly: EarthlySession): Promise<TourS
 		observations.push(observation)
 
 		await earthly.page.locator('.driver-popover-next-btn').click()
-		if (step < 11) {
+		if (step < total) {
 			await waitForTourTransition(earthly)
 			await expect(earthly.page.locator('.driver-popover-progress-text')).toHaveText(
-				`${step + 1} of 11`,
+				`${step + 1} of ${total}`,
 			)
 			await expect(earthly.page.locator('.driver-popover-title')).not.toHaveText(observation.title)
 		}

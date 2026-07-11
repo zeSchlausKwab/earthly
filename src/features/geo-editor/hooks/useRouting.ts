@@ -356,7 +356,7 @@ export function useRouting() {
 
 	// Sync route state on navigation.
 	useEffect(() => {
-		const syncRoute = () => {
+		const syncRoute = (event?: Event) => {
 			const newRoute = parseLocation()
 			setRoute(newRoute)
 			// Phase 1.3: in-app pushState, Back/Forward (popstate), and hashchange
@@ -364,7 +364,13 @@ export function useRouting() {
 			// path. This is what stops Back/Forward from leaving a stale inspector
 			// open (report 7.4) — applyRouteState clears the subject when the route
 			// it lands on carries no focus.
-			applyRouteState(newRoute)
+			//
+			// syncMobileTab: only browser-driven navigation (initial mount, Back/
+			// Forward, hashchange) derives the mobile sheet tab from the URL. In-app
+			// pushState (LOCATION_CHANGE_EVENT) skips it — those handlers set the
+			// tab themselves, and deriving here would clobber overlay tabs like
+			// `edit` mid-inspect.
+			applyRouteState(newRoute, { syncMobileTab: event?.type !== LOCATION_CHANGE_EVENT })
 		}
 
 		// Phase 1.2: the legacy `#/…`→clean-path redirect now runs synchronously in

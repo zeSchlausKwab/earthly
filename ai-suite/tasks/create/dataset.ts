@@ -16,6 +16,23 @@ export interface DatasetDraftResult {
 }
 
 export async function startDataset(earthly: EarthlySession): Promise<DatasetDraftResult> {
+	// startNewDataset silently no-ops until the GeoEditor instance exists (it
+	// is created on the map's style-load). Wait for it so the create click
+	// can't race map initialization on a slow tile fetch.
+	await expect
+		.poll(
+			() =>
+				earthly.page.evaluate(() =>
+					Boolean(
+						(
+							window as { __earthlyEditorStore?: { getState(): { editor: unknown } } }
+						).__earthlyEditorStore?.getState().editor,
+					),
+				),
+			{ timeout: 30_000 },
+		)
+		.toBe(true)
+
 	if (earthly.isMobile) {
 		await earthly.page.getByRole('button', { name: 'Create', exact: true }).click()
 		await earthly.page.getByRole('menuitem', { name: 'Dataset', exact: true }).click()

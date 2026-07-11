@@ -36,9 +36,11 @@ const desktopRoutes: Record<EarthlyPanel, string> = {
 }
 
 export async function openPanel(earthly: EarthlySession, panel: EarthlyPanel): Promise<void> {
+	// Unified vocabulary (audit P2 #8): Posts is labeled "Local posts" on both
+	// viewports; the mobile dock's beacon destination is labeled "Live".
+	const visibleLabel = panel === 'Posts' ? 'Local posts' : panel
 	if (!earthly.isMobile) {
-		const desktopLabel =
-			panel === 'Profile' ? 'My Entities' : panel === 'Posts' ? 'City Posts' : panel
+		const desktopLabel = panel === 'Profile' ? 'My Entities' : visibleLabel
 		await earthly.page.getByRole('button', { name: desktopLabel, exact: true }).click()
 		await expect.poll(() => new URL(earthly.page.url()).pathname).toBe(desktopRoutes[panel])
 		return
@@ -50,7 +52,7 @@ export async function openPanel(earthly: EarthlySession, panel: EarthlyPanel): P
 			: panel === 'Datasets'
 				? 'Explore'
 				: panel === 'Beacons'
-					? 'Activity'
+					? 'Live'
 					: panel === 'Profile'
 						? 'You'
 						: null
@@ -64,14 +66,14 @@ export async function openPanel(earthly: EarthlySession, panel: EarthlyPanel): P
 			.first()
 			.click()
 		await earthly.page
-			.getByRole('button', { name: new RegExp(`^${panel}(?:\\s|$)`) })
+			.getByRole('button', { name: new RegExp(`^${visibleLabel}(?:\\s|$)`) })
 			.last()
 			.click()
 	}
 	await expect(
 		earthly.page
 			.locator('button:visible')
-			.filter({ hasText: new RegExp(panel) })
+			.filter({ hasText: new RegExp(panel === 'Profile' ? 'Profile|You' : visibleLabel) })
 			.first(),
 	).toBeVisible()
 }

@@ -52,6 +52,7 @@ import {
 	useNutzaps,
 	useWallet,
 } from '@/lib/wallet'
+import { SignedOutCta } from '@/features/auth/SignedOutCta'
 import { DepositLightningModal } from './DepositLightningModal'
 import { NutzapsSection } from './NutzapsSection'
 import { ReceiveEcashModal } from './ReceiveEcashModal'
@@ -162,8 +163,8 @@ export function Nip60Wallet() {
 
 	if (!account) {
 		return (
-			<div className="p-4 text-center text-muted-foreground bg-muted rounded-lg">
-				<p>Please log in to view your wallet</p>
+			<div className="bg-muted rounded-lg">
+				<SignedOutCta description="Sign in to view your wallet and send or receive zaps." />
 			</div>
 		)
 	}

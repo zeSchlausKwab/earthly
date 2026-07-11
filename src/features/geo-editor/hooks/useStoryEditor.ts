@@ -139,10 +139,13 @@ export function useStoryEditor({
 	)
 
 	const handleCloseStoryEditor = useCallback(() => {
+		// Navigation-safe close: only reroute when the editor was actually open —
+		// `startCreate` calls this as blanket cleanup for unrelated create flows.
+		const wasOpen = storyEditorMode !== 'none'
 		setStoryEditorMode('none')
 		setEditingStory(null)
-		navigateToView('stories')
-	}, [navigateToView])
+		if (wasOpen) navigateToView('stories')
+	}, [storyEditorMode, navigateToView])
 
 	return {
 		storyEditorMode,

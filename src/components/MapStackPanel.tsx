@@ -1246,11 +1246,12 @@ export function MapStackPanel({
 					</div>
 				)
 			) : draftEntries.length > 0 ? (
-				// Collapsed + active draft: the draft editor ALWAYS stays in the Map
-				// Stack (redesign §9). Unmounting its row here would tear down the
-				// portal slot and bounce the editor into the left sidebar mid-edit —
-				// so the collapse hides everything EXCEPT the draft.
-				<div className={cn('overflow-y-auto', compact ? 'max-h-[calc(100vh-5rem)] p-1.5' : 'p-2')}>
+				// Collapsed + active draft: the draft editor's row must stay MOUNTED —
+				// unmounting it would tear down the portal slot and bounce the editor
+				// into the left sidebar mid-edit — but it must not stay VISIBLE, or the
+				// panel is never fully collapsible while editing. `hidden` keeps the
+				// portal target in the DOM while the collapse hides everything.
+				<div className="hidden" aria-hidden="true">
 					<EntryGroupList
 						compact={compact}
 						sightingLayerEntries={[]}

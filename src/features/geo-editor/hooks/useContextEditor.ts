@@ -159,10 +159,13 @@ export function useContextEditor({
 	)
 
 	const handleCloseContextEditor = useCallback(() => {
+		// Navigation-safe close: only reroute when the editor was actually open —
+		// `startCreate` calls this as blanket cleanup for unrelated create flows.
+		const wasOpen = contextEditorMode !== 'none'
 		setContextEditorMode('none')
 		setEditingContext(null)
-		navigateToView('contexts')
-	}, [navigateToView])
+		if (wasOpen) navigateToView('contexts')
+	}, [contextEditorMode, navigateToView])
 
 	const handleOpenGeometryEditor = useCallback(() => {
 		clearEditorModes()

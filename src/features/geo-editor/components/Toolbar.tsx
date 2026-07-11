@@ -1494,6 +1494,7 @@ export function Toolbar({
 						variant="ghost"
 						size="icon-sm"
 						onClick={onToggleChat}
+						data-tour="sidebar-chat"
 						aria-label={chatOpen ? 'Hide AI chat' : 'Show AI chat'}
 						title={chatOpen ? 'Hide AI chat' : 'Show AI chat'}
 						className={cn(

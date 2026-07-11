@@ -34,6 +34,7 @@ import { UserProfilePanel } from './UserProfilePanel'
 import { GeoEditorInfoPanelContent } from './GeoEditorInfoPanel'
 import { HelpPanel } from './HelpPanel'
 import { LoginSessionButtons } from '../features/auth/LoginSessionButtons'
+import { SignedOutCta } from '../features/auth/SignedOutCta'
 import {
 	Sidebar,
 	SidebarContent,
@@ -99,7 +100,7 @@ const metaNavItems: {
 	title: string
 	icon: typeof Settings2
 }[] = [
-	{ mode: 'posts', title: 'City Posts', icon: Newspaper },
+	{ mode: 'posts', title: 'Local posts', icon: Newspaper },
 	{ mode: 'wallet', title: 'Wallet', icon: Wallet },
 	{ mode: 'settings', title: 'Settings', icon: Settings2 },
 	{ mode: 'help', title: 'Help', icon: HelpCircle },
@@ -962,9 +963,7 @@ export function AppSidebar({
 				const profilePubkey = userPubkey ?? currentUserPubkey
 				if (!profilePubkey) {
 					return (
-						<div className="p-4 text-center text-muted-foreground">
-							<p>Connect to view your entities</p>
-						</div>
+						<SignedOutCta description="Sign in to see your published datasets, contexts, and stories in one place." />
 					)
 				}
 				return <UserProfilePanel pubkey={profilePubkey} {...userProfilePanelProps} />

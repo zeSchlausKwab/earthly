@@ -5,16 +5,18 @@ import { walkKeyboardOrder } from '../tasks/diagnostics/keyboard-walk'
 import { openPanel } from '../tasks/navigation/open-panel'
 import { inspectTourTargets } from '../tasks/onboarding/tour'
 
-test('all instructional tour steps point at visible controls @known-issue', async ({ earthly }) => {
-	test.fail(true, 'Known audit finding: desktop AI Chat and most mobile tour targets are missing')
+// FIXED (audit P1 #1/#4): the tour is viewport-split; every anchored step must
+// point at a visible control. Steps without a target (welcome, finale, and the
+// desktop collaboration concept step) are intentionally centered.
+test('all anchored tour steps point at visible controls @regression', async ({ earthly }) => {
 	await earthly.open({ tour: 'new' })
 	const observations = await inspectTourTargets(earthly)
-	const instructionalSteps = observations.filter(({ step }) => step >= 2 && step <= 10)
-	const invalidSteps = instructionalSteps
-		.filter(
-			({ target, targetVisible, popoverFitsViewport }) =>
-				!target || !targetVisible || !popoverFitsViewport,
-		)
+	const anchoredSteps = observations.filter(({ target }) => target != null)
+	// Guard against the degenerate all-centered tour: both variants anchor at
+	// least four steps to real chrome.
+	expect(anchoredSteps.length).toBeGreaterThanOrEqual(4)
+	const invalidSteps = anchoredSteps
+		.filter(({ targetVisible, popoverFitsViewport }) => !targetVisible || !popoverFitsViewport)
 		.map(({ step, title, target, targetVisible, popoverFitsViewport }) => ({
 			step,
 			title,
@@ -25,24 +27,23 @@ test('all instructional tour steps point at visible controls @known-issue', asyn
 	expect(invalidSteps).toEqual([])
 })
 
-test('creating a mobile Dataset does not route to Beacons @known-issue', async ({
+// FIXED (audit P1 #2): entity-editor close handlers are navigation-safe now —
+// startCreate's blanket cleanup no longer drags an unrelated create to /beacons.
+test('creating a mobile Dataset does not route to Beacons @regression', async ({
 	earthly,
 }, testInfo) => {
-	test.skip(testInfo.project.name !== 'mobile', 'The audited routing defect is mobile-specific')
-	test.fail(
-		true,
-		'Known audit finding: startCreate closes beacon control and navigates to /beacons',
-	)
+	test.skip(testInfo.project.name !== 'mobile', 'The audited routing defect was mobile-specific')
 	await earthly.open({ tour: 'seen' })
 	const draft = await startDataset(earthly)
 	expect(draft.pathname).not.toBe('/beacons')
 })
 
-test('mobile panel choices update the canonical route @known-issue', async ({
+// FIXED (audit P1 #6): mobile dock/switcher selections write the URL through
+// the same canonical router as desktop, and reload restores the destination.
+test('mobile panel choices update the canonical route @regression', async ({
 	earthly,
 }, testInfo) => {
-	test.skip(testInfo.project.name !== 'mobile', 'The mobile panel switcher has separate state')
-	test.fail(true, 'Known audit finding: mobile panel selection never calls the route navigator')
+	test.skip(testInfo.project.name !== 'mobile', 'The mobile panel switcher had separate state')
 	await earthly.open({ tour: 'seen' })
 	await openPanel(earthly, 'Contexts')
 	expect.soft(new URL(earthly.page.url()).pathname).toBe('/contexts')
@@ -55,15 +56,16 @@ test('mobile panel choices update the canonical route @known-issue', async ({
 	).toBeVisible()
 })
 
-test('anonymous mobile account panels offer a sign-in recovery action @known-issue', async ({
+// FIXED (audit P1 #3): signed-out Profile/Wallet/My-Entities render the shared
+// SignedOutCta with a labeled sign-in action instead of a dead-end message.
+test('anonymous mobile account panels offer a sign-in recovery action @regression', async ({
 	earthly,
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'mobile', 'Desktop retains separate global identity controls')
-	test.fail(true, 'Known audit finding: mobile Profile and Wallet signed-out states are dead ends')
 	await earthly.open({ tour: 'seen' })
 	await openPanel(earthly, 'Profile')
 	await expect(
-		earthly.page.getByRole('button', { name: /sign in|create.*identity|get.*identity/i }),
+		earthly.page.getByRole('button', { name: /sign in|create.*identity|get.*identity/i }).first(),
 	).toBeVisible()
 })
 
@@ -95,6 +97,12 @@ test('mobile keyboard users can reach primary navigation promptly @known-issue',
 	test.skip(testInfo.project.name !== 'mobile', 'The audited focus-order defect is mobile-specific')
 	test.fail(true, 'Known audit finding: map marker buttons precede and bury the mobile navigation')
 	await earthly.open({ tour: 'seen' })
+	// The defect only reproduces once sighting markers are in the tab order —
+	// on a slow relay the walk would otherwise reach the dock and flake as an
+	// unexpected pass. Wait for the first marker before walking.
+	await expect(earthly.page.getByRole('button', { name: /^Open sighting:/ }).first()).toBeVisible({
+		timeout: 15_000,
+	})
 	const stops = await walkKeyboardOrder(earthly, 25)
 	expect(stops.some(({ name }) => name === 'Explore')).toBe(true)
 })

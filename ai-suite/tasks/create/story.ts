@@ -22,7 +22,7 @@ export async function createStoryDraft(
 ): Promise<void> {
 	if (earthly.isMobile) {
 		await earthly.page.getByRole('button', { name: 'Create', exact: true }).click()
-		await earthly.page.getByRole('menuitem', { name: 'Article', exact: true }).click()
+		await earthly.page.getByRole('menuitem', { name: 'Story', exact: true }).click()
 	} else {
 		await earthly.page.getByRole('button', { name: 'Stories', exact: true }).click()
 		await earthly.page.getByRole('button', { name: 'New Story' }).click()

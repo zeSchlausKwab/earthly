@@ -93,10 +93,15 @@ export function useBeaconController({
 	])
 
 	const handleCloseBeaconControl = useCallback(() => {
+		// Navigation-safe close: `startCreate` calls this as blanket cleanup before
+		// creating ANY entity, so only reroute to /beacons when a beacon control
+		// panel was actually open — otherwise an unrelated create flow (e.g. New
+		// Dataset) would land on /beacons.
+		const wasOpen = beaconControlMode !== 'none'
 		setBeaconControlMode('none')
 		setAdjustingBeacon(null)
-		navigateToView('beacons')
-	}, [navigateToView])
+		if (wasOpen) navigateToView('beacons')
+	}, [beaconControlMode, navigateToView])
 
 	/** Open the Start-beacon control panel (the "Share live location" CTA). */
 	const handleShareLocation = useCallback(() => {

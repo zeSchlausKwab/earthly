@@ -40,6 +40,8 @@ import { EntitySearchPopover, type EntitySearchResult } from '@/components/entit
 import type { EditorFeature } from '../core'
 import type { BlossomUploadResult } from '@/lib/blossom/blossomUpload'
 import { useEditorStore, type MapStackEntry, type MobilePanelSnap } from '../store'
+import { mobileTabToView } from '../store/mobileTabRoute'
+import { SignedOutCta } from '@/features/auth/SignedOutCta'
 import { MapSettingsPanel } from './MapSettingsPanel'
 import { ChatPanel } from '@/features/chat'
 import { Nip60Wallet } from '@/features/wallet/components/Nip60Wallet'
@@ -179,7 +181,7 @@ const TAB_CONFIG: { id: MobilePanelTab; label: string; icon: typeof Database }[]
 	{ id: 'edit', label: 'Editor', icon: Pencil },
 	{ id: 'chat', label: 'AI Chat', icon: MessageCircle },
 	{ id: 'profile', label: 'Profile', icon: User },
-	{ id: 'posts', label: 'Posts', icon: MessageSquare },
+	{ id: 'posts', label: 'Local posts', icon: MessageSquare },
 	{ id: 'wallet', label: 'Wallet', icon: Wallet },
 	{ id: 'settings', label: 'Settings', icon: Settings2 },
 	{ id: 'help', label: 'Help', icon: HelpCircle },
@@ -306,7 +308,8 @@ export function MobilePanel(props: MobilePanelProps) {
 		beaconsPanelProps,
 		storiesPanelProps,
 	} = props
-	const { contextNaddr, encodeContextNaddr, navigateToContext, clearContextScope } = useRouting()
+	const { contextNaddr, encodeContextNaddr, navigateToContext, clearContextScope, navigateToView } =
+		useRouting()
 
 	const activeContextScope = mapContextEvents.find((context) => {
 		if (!contextNaddr) return false
@@ -385,7 +388,17 @@ export function MobilePanel(props: MobilePanelProps) {
 	const panelCount = (id: MobilePanelTab): number | undefined =>
 		id === 'datasets' ? geoEvents.length : id === 'contexts' ? mapContextEvents.length : undefined
 	const selectPanel = (id: MobilePanelTab) => {
-		if (id === 'edit') onOpenGeometryEditor?.()
+		if (id === 'edit') {
+			// The geometry-editor opener owns its own navigation (draft/workspace
+			// restore) — don't double-navigate here.
+			onOpenGeometryEditor?.()
+		} else {
+			// Switcher selection is a real navigation: write the URL through the
+			// canonical router so history/reload/share agree with the sheet
+			// (audit P1 #6). The tab is also set directly — in-app pushState
+			// deliberately skips route→tab derivation.
+			navigateToView(mobileTabToView(id))
+		}
 		setMobilePanelTab(id)
 		setSwitcherOpen(false)
 	}
@@ -867,9 +880,9 @@ function MobileProfileContent(props: MobileProfileContentProps) {
 
 	if (!pubkey) {
 		return (
-			<div className="flex h-32 flex-col items-center justify-center text-sm text-muted-foreground">
+			<div className="flex flex-col items-center py-6">
 				<User className="mb-2 h-8 w-8 text-muted-foreground" />
-				<p>Sign in to view your profile</p>
+				<SignedOutCta description="Sign in to view your profile and everything you've published." />
 			</div>
 		)
 	}

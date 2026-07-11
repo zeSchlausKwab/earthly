@@ -126,6 +126,7 @@ import {
 import { exportShapefile, importShapefile } from './shapefile'
 import { getGeoJsonPasteCandidate } from './geoJsonPaste'
 import { useEditorStore, type MapStackEntry } from './store'
+import { mobileTabToView } from './store/mobileTabRoute'
 import type { MapStackEntryType } from './store/types'
 import type { GeoSearchResult } from './types'
 import { ensureFeatureCollection, extractCollectionMeta, toEditorFeature } from './utils'
@@ -623,8 +624,14 @@ export function GeoEditorView() {
 
 	// Mobile §14a: the bottom sheet is the universal panel container — always
 	// present at peek minimum, never a toggled popover. Keep it open on mobile.
+	// Double-check the CURRENT store value, not just the render snapshot: on a
+	// deep-link mount the route-restore (applyRouteState) opens the sheet at
+	// 'half' between this effect's render and its run, and re-calling
+	// setMobilePanelOpen(true) would reset that snap back to 'peek'.
 	useEffect(() => {
-		if (isMobile && !mobilePanelOpen) setMobilePanelOpen(true)
+		if (isMobile && !mobilePanelOpen && !useEditorStore.getState().mobilePanelOpen) {
+			setMobilePanelOpen(true)
+		}
 	}, [isMobile, mobilePanelOpen, setMobilePanelOpen])
 
 	// Custom hooks
@@ -1746,10 +1753,12 @@ export function GeoEditorView() {
 
 	// Initialize mobile/desktop UI. On mobile the bottom sheet is the universal
 	// panel container (§14a) — always present at peek, so we OPEN it here rather
-	// than closing it.
+	// than closing it. Skip when already open (fresh store read, not the render
+	// snapshot): on a deep-link mount the route-restore has already opened the
+	// sheet at 'half', and setMobilePanelOpen(true) resets the snap to 'peek'.
 	useEffect(() => {
 		if (isMobile) {
-			setMobilePanelOpen(true)
+			if (!useEditorStore.getState().mobilePanelOpen) setMobilePanelOpen(true)
 			setShowToolbar(false)
 			setShowTips(false)
 		} else {
@@ -2827,7 +2836,9 @@ export function GeoEditorView() {
 	}[] = [
 		{ key: 'map', label: 'Map', icon: MapPin, tab: 'sightings' },
 		{ key: 'explore', label: 'Explore', icon: Compass, tab: 'datasets' },
-		{ key: 'activity', label: 'Activity', icon: Activity, tab: 'beacons' },
+		// "Live", not "Activity": the destination is live location beacons, and the
+		// label should say what it opens (audit P2 #9).
+		{ key: 'live', label: 'Live', icon: Activity, tab: 'beacons' },
 		{ key: 'you', label: 'You', icon: User, tab: 'profile' },
 	]
 	// Entity editors are mutually exclusive: close any OTHER open editor before
@@ -2853,6 +2864,11 @@ export function GeoEditorView() {
 			setMobilePanelSnap('peek')
 			return
 		}
+		// Dock selection is a real navigation: write the URL through the same
+		// canonical router as the desktop rail so history, reload, and share links
+		// agree with the visible destination (audit P1 #6). The tab is also set
+		// directly — in-app pushState deliberately skips route→tab derivation.
+		navigateToView(mobileTabToView(tab))
 		setMobilePanelTab(tab)
 		setMobilePanelSnap('half')
 	}
@@ -3419,6 +3435,7 @@ export function GeoEditorView() {
 			{isMobile && stance !== 'author' && (
 				<nav
 					aria-label="Primary"
+					data-tour="mobile-dock"
 					className="fixed inset-x-0 bottom-0 z-50 flex h-[52px] items-stretch justify-around border-t border-border bg-[var(--surface-chrome)] px-1 md:hidden"
 				>
 					{mobileDockItems.slice(0, 2).map((item) => {
@@ -3430,6 +3447,7 @@ export function GeoEditorView() {
 								type="button"
 								onClick={() => handleDockSelect(item.tab)}
 								aria-pressed={active}
+								data-tour={`mobile-dock-${item.key}`}
 								className={cn(
 									'flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] transition-colors',
 									active ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
@@ -3445,6 +3463,7 @@ export function GeoEditorView() {
 							<button
 								type="button"
 								aria-label="Create"
+								data-tour="mobile-create"
 								className="flex flex-1 flex-col items-center justify-center"
 							>
 								<span className="flex h-8 w-8 items-center justify-center rounded-[3px] bg-primary text-primary-foreground shadow-sm">
@@ -3465,7 +3484,7 @@ export function GeoEditorView() {
 							</DropdownMenuItem>
 							<DropdownMenuItem onSelect={() => startCreate(handleCreateStory, 'story')}>
 								<BookOpen className="h-4 w-4" />
-								Article
+								Story
 							</DropdownMenuItem>
 							<DropdownMenuItem onSelect={() => startCreate(handleCreateSighting, 'sighting')}>
 								<Eye className="h-4 w-4" />
@@ -3486,6 +3505,7 @@ export function GeoEditorView() {
 								type="button"
 								onClick={() => handleDockSelect(item.tab)}
 								aria-pressed={active}
+								data-tour={`mobile-dock-${item.key}`}
 								className={cn(
 									'flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] transition-colors',
 									active ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
