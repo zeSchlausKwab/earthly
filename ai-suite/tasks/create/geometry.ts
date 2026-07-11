@@ -80,6 +80,9 @@ export async function createGeometryDraft(
 	await clickMap(earthly, 0.68, 0.47)
 	await earthly.page.keyboard.press('Enter')
 	await expectFeatureCount(earthly, 2)
+	// Implausible-scale guardrail (workflow audit P1): this line was drawn at
+	// world zoom, so the span warning with its Undo action must appear.
+	await expect(earthly.page.getByText(/spans about/).first()).toBeVisible()
 
 	await earthly.page.getByRole('button', { name: 'Draw polygon', exact: true }).first().click()
 	await clickMap(earthly, 0.56, 0.56)
