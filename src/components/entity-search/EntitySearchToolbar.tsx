@@ -1,4 +1,15 @@
-import { ArrowDownAZ, ArrowUpZA, Clock, Database, FolderOpen, Globe, MapPin, X } from 'lucide-react'
+import {
+	ArrowDownAZ,
+	ArrowUpZA,
+	BookOpen,
+	Clock,
+	Database,
+	Eye,
+	Globe,
+	MapPin,
+	RadioTower,
+	X,
+} from 'lucide-react'
 import {
 	LIMIT_OPTIONS,
 	type FilterActions,
@@ -116,9 +127,11 @@ interface EntityReferenceToolbarProps {
 
 const ENTITY_TYPE_ICONS: Record<EntityType, typeof Database> = {
 	dataset: Database,
-	collection: FolderOpen,
 	context: Globe,
 	feature: MapPin,
+	story: BookOpen,
+	beacon: RadioTower,
+	sighting: Eye,
 }
 
 export function getEntityReferenceKey(result: EntitySearchResult): string {
@@ -153,7 +166,9 @@ export function EntityReferenceToolbar({
 			{references.length > 0 && (
 				<div className="mt-1.5 flex flex-wrap items-center gap-1">
 					{references.map((reference) => {
-						const Icon = ENTITY_TYPE_ICONS[reference.type]
+						// Fallback keeps an unknown/future entity type from rendering an
+						// undefined component (a hard React crash) — worst case is a pin.
+						const Icon = ENTITY_TYPE_ICONS[reference.type] ?? MapPin
 						const referenceKey = getEntityReferenceKey(reference)
 						return (
 							<div

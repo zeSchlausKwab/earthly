@@ -16,6 +16,7 @@ import {
 	EntityReferenceToolbar,
 	getEntityReferenceKey,
 	type EntitySearchResult,
+	type EntityType,
 } from '@/components/entity-search'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
@@ -907,8 +908,9 @@ export function ChatPanel({
 							onRemoveReference={handleRemoveReference}
 							onClearReferences={handleClearReferences}
 							searchMode="both"
+							entityTypes={CHAT_REFERENCE_ENTITY_TYPES}
 							getDatasetName={getDatasetName}
-							placeholder="Add geometry, dataset, or context references..."
+							placeholder="Add dataset, context, story, or feature references..."
 							className="min-w-0 flex-1"
 						/>
 						<Button
@@ -1010,6 +1012,21 @@ function getChatReferenceKey(reference: ChatReference): string {
 	const stableId = reference.id || reference.name || 'unknown'
 	return `${reference.type}:${stableId}:${reference.pubkey ?? ''}`
 }
+
+/**
+ * Entity types offered by the chat reference picker. Passed explicitly because
+ * the relay search DEFAULTS to datasets+contexts only — without this, stories,
+ * beacons, and sightings are silently unsearchable in the composer (the whole
+ * point of referencing entities before composing an article).
+ */
+const CHAT_REFERENCE_ENTITY_TYPES: EntityType[] = [
+	'dataset',
+	'context',
+	'feature',
+	'story',
+	'beacon',
+	'sighting',
+]
 
 const ENTITY_TYPE_TO_KIND: Partial<Record<ChatReference['type'], number>> = {
 	dataset: GEO_EVENT_KIND,
