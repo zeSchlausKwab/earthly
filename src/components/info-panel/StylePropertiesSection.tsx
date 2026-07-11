@@ -10,6 +10,7 @@ import {
 import { useEditorStore } from '@/features/geo-editor/store'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
+import { DisplayIconPickerControl } from './DisplayIconPickerControl'
 
 export interface StylePropertiesSectionProps {
 	feature: EditorFeature
@@ -33,6 +34,20 @@ export function StylePropertiesSection({ feature }: StylePropertiesSectionProps)
 		})
 	}
 
+	// Set or CLEAR the displayIcon. Clearing must delete the key (not set
+	// undefined) so the map layers' `['has', 'displayIcon']` filters flip back
+	// to the plain-circle rendering.
+	const onDisplayIconChange = (value: string | undefined) => {
+		if (!editor) return
+		const nextProperties = { ...feature.properties }
+		if (value === undefined) {
+			delete nextProperties.displayIcon
+		} else {
+			nextProperties.displayIcon = value
+		}
+		editor.updateFeature(feature.id, { ...feature, properties: nextProperties })
+	}
+
 	const resetToDefaults = () => {
 		if (!editor) return
 		const defaults =
@@ -42,13 +57,16 @@ export function StylePropertiesSection({ feature }: StylePropertiesSectionProps)
 					? DEFAULT_LINESTRING_STYLE
 					: DEFAULT_POLYGON_STYLE
 
+		const nextProperties = {
+			...feature.properties,
+			...defaults,
+			label: undefined,
+		}
+		delete nextProperties.displayIcon
+
 		editor.updateFeature(feature.id, {
 			...feature,
-			properties: {
-				...feature.properties,
-				...defaults,
-				label: undefined,
-			},
+			properties: nextProperties,
 		})
 	}
 
@@ -68,7 +86,11 @@ export function StylePropertiesSection({ feature }: StylePropertiesSectionProps)
 			</div>
 
 			{category === 'Point' && (
-				<PointStyleControls feature={feature} onStyleChange={onStyleChange} />
+				<PointStyleControls
+					feature={feature}
+					onStyleChange={onStyleChange}
+					onDisplayIconChange={onDisplayIconChange}
+				/>
 			)}
 
 			{category === 'LineString' && (
@@ -92,9 +114,11 @@ export function StylePropertiesSection({ feature }: StylePropertiesSectionProps)
 function PointStyleControls({
 	feature,
 	onStyleChange,
+	onDisplayIconChange,
 }: {
 	feature: EditorFeature
 	onStyleChange: (key: string, value: string | number) => void
+	onDisplayIconChange: (value: string | undefined) => void
 }) {
 	return (
 		<div className="space-y-1.5">
@@ -145,6 +169,12 @@ function PointStyleControls({
 					/>
 				</div>
 			</div>
+
+			{/* Icon Row — renders the point as a Lucide icon instead of a circle */}
+			<DisplayIconPickerControl
+				value={feature.properties?.displayIcon as string | undefined}
+				onChange={onDisplayIconChange}
+			/>
 		</div>
 	)
 }

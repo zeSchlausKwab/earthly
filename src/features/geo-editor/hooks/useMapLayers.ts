@@ -13,6 +13,12 @@ import {
 	getTemporalSightingContent,
 	type TemporalSighting,
 } from '@/lib/nostr/temporal-sighting'
+import {
+	circleOpacityHidingIconedPoints,
+	displayIconImageExpression,
+	displayIconSizeExpression,
+	hasDisplayIconFilter,
+} from '../icons/displayIcon'
 import { useEditorStore } from '../store'
 import { convertGeoEventsToFeatureCollection } from '../utils'
 
@@ -63,6 +69,7 @@ const REMOTE_SOURCE_ID = 'geo-editor-remote-datasets'
 const REMOTE_FILL_LAYER = 'geo-editor-remote-fill'
 const REMOTE_LINE_LAYER = 'geo-editor-remote-line'
 const REMOTE_POINT_LAYER = 'geo-editor-remote-point'
+const REMOTE_POINT_ICON_LAYER = 'geo-editor-remote-point-icon'
 const REMOTE_LABEL_LAYER = 'geo-editor-remote-label'
 const REMOTE_ANNOTATION_ANCHOR_LAYER = 'geo-editor-remote-annotation-anchor'
 const REMOTE_ANNOTATION_LAYER = 'geo-editor-remote-annotation'
@@ -77,6 +84,7 @@ const CLUSTERED_SOURCE_ID = 'geo-editor-clustered-points'
 const CLUSTER_CIRCLE_LAYER = 'geo-editor-cluster-circles'
 const CLUSTER_COUNT_LAYER = 'geo-editor-cluster-count'
 const UNCLUSTERED_POINT_LAYER = 'geo-editor-unclustered-point'
+const UNCLUSTERED_POINT_ICON_LAYER = 'geo-editor-unclustered-point-icon'
 
 // Temporal Sighting (kind 37522) marker source/layer IDs (D-05/D-06).
 const SIGHTING_SOURCE_ID = 'geo-editor-sightings'
@@ -620,6 +628,34 @@ export function useMapLayers({
 							'circle-color': ['coalesce', ['get', 'color'], ['get', 'fillColor'], '#1d4ed8'],
 							'circle-stroke-width': ['coalesce', ['get', 'strokeWidth'], 2],
 							'circle-stroke-color': ['coalesce', ['get', 'strokeColor'], '#fff'],
+							// Iconed points render via the icon layer below; the circle
+							// stays at opacity 0 so existing interactions keep working.
+							'circle-opacity': circleOpacityHidingIconedPoints(),
+							'circle-stroke-opacity': circleOpacityHidingIconedPoints(),
+						},
+					})
+				}
+
+				// Point icon layer — remote dataset points with a `displayIcon` style
+				// property render as an SVG-derived symbol instead of the circle.
+				// Unknown icon ids resolve to the always-registered fallback marker
+				// (coalesce/image pattern), so points never silently vanish.
+				if (!mapInstance.getLayer(REMOTE_POINT_ICON_LAYER)) {
+					mapInstance.addLayer({
+						id: REMOTE_POINT_ICON_LAYER,
+						type: 'symbol',
+						source: REMOTE_SOURCE_ID,
+						filter: [
+							'all',
+							['any', ['==', ['geometry-type'], 'Point'], ['==', ['geometry-type'], 'MultiPoint']],
+							['!=', ['get', 'featureType'], 'annotation'],
+							hasDisplayIconFilter(),
+						],
+						layout: {
+							'icon-image': displayIconImageExpression(),
+							'icon-size': displayIconSizeExpression(),
+							'icon-allow-overlap': true,
+							'icon-ignore-placement': true,
 						},
 					})
 				}
@@ -840,6 +876,32 @@ export function useMapLayers({
 							'circle-color': ['coalesce', ['get', 'color'], ['get', 'fillColor'], '#1d4ed8'],
 							'circle-stroke-width': ['coalesce', ['get', 'strokeWidth'], 2],
 							'circle-stroke-color': ['coalesce', ['get', 'strokeColor'], '#fff'],
+							// Iconed points render via the icon layer below (opacity 0
+							// keeps the circle available for interactions/hit-testing).
+							'circle-opacity': circleOpacityHidingIconedPoints(),
+							'circle-stroke-opacity': circleOpacityHidingIconedPoints(),
+						},
+					})
+				}
+
+				// Unclustered point icon layer — same displayIcon treatment as the
+				// remote point layer, for the clustering-enabled source.
+				if (!mapInstance.getLayer(UNCLUSTERED_POINT_ICON_LAYER)) {
+					mapInstance.addLayer({
+						id: UNCLUSTERED_POINT_ICON_LAYER,
+						type: 'symbol',
+						source: CLUSTERED_SOURCE_ID,
+						filter: [
+							'all',
+							['!', ['has', 'point_count']],
+							['!=', ['get', 'featureType'], 'annotation'],
+							hasDisplayIconFilter(),
+						],
+						layout: {
+							'icon-image': displayIconImageExpression(),
+							'icon-size': displayIconSizeExpression(),
+							'icon-allow-overlap': true,
+							'icon-ignore-placement': true,
 						},
 					})
 				}

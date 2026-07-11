@@ -80,4 +80,36 @@ describe('normalizeStyleOptions (UAT styling gap-closure)', () => {
 		expect(normalizeStyleOptions({})).toEqual({})
 		expect(normalizeStyleOptions({ units: 'kilometers' })).toEqual({})
 	})
+
+	it('accepts a bundled lucide displayIcon id (icons phase 1)', () => {
+		expect(normalizeStyleOptions({ displayIcon: 'lucide:anchor' })).toEqual({
+			displayIcon: 'lucide:anchor',
+		})
+		expect(normalizeStyleOptions({ displayIcon: 'lucide:tent', color: '#123456' })).toEqual({
+			displayIcon: 'lucide:tent',
+			color: '#123456',
+		})
+	})
+
+	it('rejects displayIcon values outside the lucide:<name> namespace with a helpful error', () => {
+		let caught: unknown
+		try {
+			normalizeStyleOptions({ displayIcon: 'https://example.org/icon.svg' })
+		} catch (err) {
+			caught = err
+		}
+		expect(caught).toBeInstanceOf(InvalidStyleOptionError)
+		expect((caught as Error).message).toContain('lucide:anchor')
+		expect((caught as Error).message).toContain('Remote icon URLs are not supported yet')
+	})
+
+	it('rejects unknown lucide icon names and non-string displayIcon values', () => {
+		expect(() => normalizeStyleOptions({ displayIcon: 'lucide:not-a-real-icon' })).toThrow(
+			InvalidStyleOptionError,
+		)
+		expect(() => normalizeStyleOptions({ displayIcon: 7 as unknown as string })).toThrow(
+			InvalidStyleOptionError,
+		)
+		expect(() => normalizeStyleOptions({ displayIcon: '' })).toThrow(InvalidStyleOptionError)
+	})
 })

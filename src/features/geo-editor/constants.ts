@@ -30,4 +30,5 @@ export const NON_CUSTOM_EDITOR_PROPERTY_KEYS = new Set([
 	'textColor',
 	'textHaloColor',
 	'textHaloWidth',
+	'displayIcon',
 ])

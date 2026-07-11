@@ -28,6 +28,18 @@ import { publish } from '@/lib/nostr'
 import { ArticleFactory, getArticleId } from '@/lib/nostr/article'
 import type { ArticleContent } from '@/lib/nostr/article'
 import { extractReferencedCoordinates, setAddressReferenceTags } from '@/lib/nostr/references'
+import { noteSessionPublish } from '@/lib/nostr/sessionPublishes'
+
+/** AI-chat session breadcrumb (one line per publish) — see sessionPublishes.ts. */
+function noteStorySessionPublish(signed: NostrEvent, content: Partial<ArticleContent>): void {
+	const dTag = getArticleId(signed)
+	if (!dTag) return
+	noteSessionPublish({
+		type: 'story',
+		name: content.title?.trim() || dTag,
+		coordinate: `${signed.kind}:${signed.pubkey}:${dTag}`,
+	})
+}
 
 /**
  * Publish a NEW Story (new `d`-tag). The `a` tags are derived from the body's
@@ -47,6 +59,7 @@ export async function publishStory(
 		.sign(signer)
 
 	await publish(signed, { routing: 'outbox' })
+	noteStorySessionPublish(signed, content)
 	return signed
 }
 
@@ -68,6 +81,7 @@ export async function editStory(
 		.sign(signer)
 
 	await publish(signed, { routing: 'outbox' })
+	noteStorySessionPublish(signed, content)
 	return signed
 }
 

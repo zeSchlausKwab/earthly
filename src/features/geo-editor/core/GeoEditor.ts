@@ -273,6 +273,7 @@ export class GeoEditor {
 			this.layers.LAYER_FILL,
 			this.layers.LAYER_LINE,
 			this.layers.LAYER_POINT,
+			this.layers.LAYER_POINT_ICON,
 			this.layers.LAYER_ANNOTATION_ANCHOR,
 		]
 		for (const layer of selectableLayers) {
@@ -354,6 +355,7 @@ export class GeoEditor {
 				this.layers.LAYER_FILL,
 				this.layers.LAYER_LINE,
 				this.layers.LAYER_POINT,
+				this.layers.LAYER_POINT_ICON,
 				this.layers.LAYER_ANNOTATION_ANCHOR,
 			],
 		})
@@ -421,7 +423,12 @@ export class GeoEditor {
 		} else {
 			if (!this.map.getLayer(this.layers.LAYER_FILL)) return
 			const features = this.map.queryRenderedFeatures(e.point, {
-				layers: [this.layers.LAYER_FILL, this.layers.LAYER_LINE, this.layers.LAYER_POINT],
+				layers: [
+					this.layers.LAYER_FILL,
+					this.layers.LAYER_LINE,
+					this.layers.LAYER_POINT,
+					this.layers.LAYER_POINT_ICON,
+				],
 			})
 
 			if (features.length > 0) {
@@ -793,6 +800,7 @@ export class GeoEditor {
 					this.layers.LAYER_FILL,
 					this.layers.LAYER_LINE,
 					this.layers.LAYER_POINT,
+					this.layers.LAYER_POINT_ICON,
 					this.layers.LAYER_ANNOTATION_ANCHOR,
 				],
 			},

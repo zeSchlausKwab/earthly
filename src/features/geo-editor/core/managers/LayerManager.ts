@@ -1,5 +1,11 @@
 import type { FeatureCollection } from 'geojson'
 import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl'
+import {
+	circleOpacityHidingIconedPoints,
+	displayIconImageExpression,
+	displayIconSizeExpression,
+	hasDisplayIconFilter,
+} from '../../icons/displayIcon'
 
 const FALLBACK_TEXT_FONT_STACK = ['Open Sans Regular', 'Arial Unicode MS Regular']
 
@@ -26,6 +32,7 @@ export class LayerManager {
 	readonly LAYER_LINE = 'geo-editor-line'
 	readonly LAYER_FILL = 'geo-editor-fill'
 	readonly LAYER_POINT = 'geo-editor-point'
+	readonly LAYER_POINT_ICON = 'geo-editor-point-icon'
 	readonly LAYER_LABEL = 'geo-editor-label'
 	readonly LAYER_ANNOTATION_ANCHOR = 'geo-editor-annotation-anchor'
 	readonly LAYER_ANNOTATION = 'geo-editor-annotation'
@@ -319,6 +326,36 @@ export class LayerManager {
 							'#93c5fd',
 							['coalesce', ['get', 'strokeColor'], '#fff'],
 						],
+						// Iconed points render via LAYER_POINT_ICON instead; the circle
+						// stays in this layer at opacity 0 so hit-testing keeps working.
+						'circle-opacity': circleOpacityHidingIconedPoints(),
+						'circle-stroke-opacity': circleOpacityHidingIconedPoints(),
+					},
+				})
+			}
+
+			// 5a. Point icon layer — points whose `displayIcon` style property is
+			// set render as an SVG-derived symbol instead of the plain circle.
+			// Unknown/unregistered icon ids resolve to the always-registered
+			// fallback marker via the `coalesce`/`image` expression, so a point
+			// can never silently vanish (see icons/registerDisplayIconImages.ts).
+			if (!this.map.getLayer(this.LAYER_POINT_ICON)) {
+				this.map.addLayer({
+					id: this.LAYER_POINT_ICON,
+					type: 'symbol',
+					source: this.SOURCE_ID,
+					filter: [
+						'all',
+						['any', ['==', ['geometry-type'], 'Point'], ['==', ['geometry-type'], 'MultiPoint']],
+						['==', ['get', 'meta'], 'feature'],
+						['!=', ['get', 'featureType'], 'annotation'],
+						hasDisplayIconFilter(),
+					],
+					layout: {
+						'icon-image': displayIconImageExpression(),
+						'icon-size': displayIconSizeExpression({ activeBoost: true }),
+						'icon-allow-overlap': true,
+						'icon-ignore-placement': true,
 					},
 				})
 			}
@@ -589,6 +626,7 @@ export class LayerManager {
 			if (this.map.getLayer(this.LAYER_ANNOTATION)) this.map.removeLayer(this.LAYER_ANNOTATION)
 			if (this.map.getLayer(this.LAYER_ANNOTATION_ANCHOR))
 				this.map.removeLayer(this.LAYER_ANNOTATION_ANCHOR)
+			if (this.map.getLayer(this.LAYER_POINT_ICON)) this.map.removeLayer(this.LAYER_POINT_ICON)
 			if (this.map.getLayer(this.LAYER_POINT)) this.map.removeLayer(this.LAYER_POINT)
 			if (this.map.getLayer(this.LAYER_SELECTION_LINE))
 				this.map.removeLayer(this.LAYER_SELECTION_LINE)

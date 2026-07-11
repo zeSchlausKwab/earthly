@@ -14,6 +14,7 @@ import { GeoProposalFactory } from '@/lib/nostr/geo-proposal'
 import type { Group } from '@/lib/nostr/group'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import { extractReferencedCoordinates, setAddressReferenceTags } from '@/lib/nostr/references'
+import { noteSessionPublish } from '@/lib/nostr/sessionPublishes'
 import type { SchemaRuleError } from '@/lib/validation/schema.worker'
 import type { EditorFeature } from '../core'
 import { useEditorStore, type SidebarViewMode } from '../store'
@@ -110,6 +111,22 @@ interface UsePublishingOptions {
 		datasetId?: string
 		dTag?: string
 	}) => string | null
+}
+
+/**
+ * Session breadcrumb for the AI chat (one line per publish): lets a same-session
+ * "now write the article about what I just published" resolve the fresh naddr
+ * without the user re-attaching it.
+ */
+function noteDatasetSessionPublish(cast: GeoDataset, collection: FeatureCollection): void {
+	if (!cast.pubkey || !cast.dTag) return
+	const rawName = (collection as { name?: unknown }).name
+	const name = typeof rawName === 'string' && rawName ? rawName : (cast.datasetId ?? cast.dTag)
+	noteSessionPublish({
+		type: 'dataset',
+		name,
+		coordinate: `${GEO_EVENT_KIND}:${cast.pubkey}:${cast.dTag}`,
+	})
 }
 
 export function usePublishing({
@@ -511,6 +528,7 @@ export function usePublishing({
 
 			setPublishMessage('Dataset published successfully.')
 			toast.success('Dataset published.')
+			noteDatasetSessionPublish(cast, collection)
 			setActiveDataset(cast)
 			setActiveDatasetContextRefs(cast.contextReferences)
 			setCollectionMeta(extractCollectionMeta(collection))
@@ -589,6 +607,7 @@ export function usePublishing({
 
 				setPublishMessage('Dataset published with external reference.')
 				toast.success('Dataset published (large geometry stored externally).')
+				noteDatasetSessionPublish(cast, collection)
 				setActiveDataset(cast)
 				setActiveDatasetContextRefs(cast.contextReferences)
 				setCollectionMeta(extractCollectionMeta(collection))
@@ -680,6 +699,7 @@ export function usePublishing({
 
 			setPublishMessage('Dataset update published successfully.')
 			toast.success('Dataset updated.')
+			noteDatasetSessionPublish(cast, collection)
 			setIsDirty(false)
 			setActiveDataset(cast)
 			setActiveDatasetContextRefs(cast.contextReferences)
@@ -755,6 +775,7 @@ export function usePublishing({
 
 			setPublishMessage('Dataset copy published successfully.')
 			toast.success('Dataset copy published.')
+			noteDatasetSessionPublish(cast, collection)
 			setActiveDataset(cast)
 			setActiveDatasetContextRefs(cast.contextReferences)
 			setCollectionMeta(extractCollectionMeta(collection))
