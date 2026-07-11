@@ -16,6 +16,14 @@ export const createStoryDraftTask: AiTaskMetadata = {
 	viewports: 'both',
 }
 
+export const publishStoryTask: AiTaskMetadata = {
+	id: 'create.publish-story',
+	summary: 'Create and publish a Story (Nostr long-form Article) through the visible editor.',
+	preconditions: ['Signed-in local development persona', 'Earthly is open'],
+	sideEffects: ['Publishes a Story event to the local development relay'],
+	viewports: 'both',
+}
+
 export async function createStoryDraft(
 	earthly: EarthlySession,
 	input: StoryDraftInput,
@@ -41,4 +49,19 @@ export async function publishOpenStory(earthly: EarthlySession): Promise<void> {
 	await expect(publishButton).toBeEnabled()
 	await publishButton.click()
 	await expect(earthly.page.getByText('New Story').first()).toBeHidden()
+}
+
+export async function createAndPublishStory(
+	earthly: EarthlySession,
+	input: StoryDraftInput,
+): Promise<{ url: string }> {
+	await createStoryDraft(earthly, input)
+	await publishOpenStory(earthly)
+	await expect(earthly.page.getByText(input.title, { exact: true }).first()).toBeVisible()
+	await earthly.page
+		.getByRole('button', { name: `Open story ${input.title}`, exact: true })
+		.first()
+		.click()
+	await expect(earthly.page.getByText(input.body, { exact: true }).first()).toBeVisible()
+	return { url: earthly.page.url() }
 }

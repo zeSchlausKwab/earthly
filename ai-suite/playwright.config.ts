@@ -15,6 +15,7 @@ export default defineConfig({
 	use: {
 		baseURL: environment.baseURL,
 		headless: environment.headless,
+		launchOptions: { slowMo: environment.slowMo },
 		trace: 'retain-on-failure',
 		screenshot: 'only-on-failure',
 		video: 'off',

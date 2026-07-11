@@ -1,12 +1,31 @@
 import { createIdentityTask } from './tasks/auth/create-identity'
 import { signInTask } from './tasks/auth/sign-in'
 import { startDatasetTask } from './tasks/create/dataset'
-import { createStoryDraftTask } from './tasks/create/story'
+import { createContextTask } from './tasks/create/context'
+import { createGeometryDraftTask, publishGeometryDatasetTask } from './tasks/create/geometry'
+import { createStoryDraftTask, publishStoryTask } from './tasks/create/story'
 import { monitorBrowserHealthTask } from './tasks/diagnostics/browser-health'
 import { inspectSurfaceTask } from './tasks/diagnostics/inspect-surface'
 import { keyboardWalkTask } from './tasks/diagnostics/keyboard-walk'
 import { openPanelTask } from './tasks/navigation/open-panel'
 import { completeTourTask, inspectTourTask, skipTourTask } from './tasks/onboarding/tour'
+import { seedDatasetProposalTask, seedStoryProposalTask } from './tasks/setup/story-proposal'
+import {
+	postAnnotatedCommentTask,
+	postCommentTask,
+	replyToCommentTask,
+	toggleCommentAnnotationsTask,
+} from './tasks/social/comments'
+import {
+	decideDatasetProposalTask,
+	proposeDatasetEditTask,
+	reviewDatasetProposalTask,
+} from './tasks/social/dataset-proposals'
+import {
+	acceptStoryEditTask,
+	proposeStoryEditTask,
+	rejectStoryEditTask,
+} from './tasks/social/story-proposals'
 
 const tasks = [
 	createIdentityTask,
@@ -15,8 +34,24 @@ const tasks = [
 	skipTourTask,
 	inspectTourTask,
 	openPanelTask,
+	postCommentTask,
+	replyToCommentTask,
+	postAnnotatedCommentTask,
+	toggleCommentAnnotationsTask,
+	reviewDatasetProposalTask,
+	decideDatasetProposalTask,
+	proposeDatasetEditTask,
+	proposeStoryEditTask,
+	acceptStoryEditTask,
+	rejectStoryEditTask,
+	seedStoryProposalTask,
+	seedDatasetProposalTask,
 	startDatasetTask,
+	createContextTask,
+	createGeometryDraftTask,
+	publishGeometryDatasetTask,
 	createStoryDraftTask,
+	publishStoryTask,
 	monitorBrowserHealthTask,
 	inspectSurfaceTask,
 	keyboardWalkTask,

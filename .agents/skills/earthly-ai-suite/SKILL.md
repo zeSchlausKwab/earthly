@@ -24,10 +24,13 @@ bun run ai:list
 bun run ai:typecheck
 bun run ai:e2e
 bun run ai:e2e -- --project mobile
-bun run ai:e2e:headless
+bun run ai:audit
+bun run ai:audit:workflows
+bun run ai:known-issues
 ```
 
 Set `AI_SUITE_BASE_URL` to override `http://localhost:3000`. The suite rejects non-loopback URLs.
+Local commands open a visible, slightly slowed browser. Only `CI=1` runs headless.
 
 ## Contribution rules
 

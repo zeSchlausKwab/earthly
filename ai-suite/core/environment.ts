@@ -1,6 +1,7 @@
 export interface AiSuiteEnvironment {
 	baseURL: string
 	headless: boolean
+	slowMo: number
 }
 
 const DEFAULT_BASE_URL = 'http://localhost:3000'
@@ -25,9 +26,17 @@ export function resolveEnvironment(
 				'Start a local server or set AI_SUITE_BASE_URL to a loopback URL.',
 		)
 	}
+	const ci = env.CI === '1'
+	const slowMo = ci ? 0 : Number(env.AI_SUITE_SLOW_MO ?? 75)
+	if (!Number.isFinite(slowMo) || slowMo < 0) {
+		throw new Error(
+			`AI_SUITE_SLOW_MO must be a non-negative number, received ${env.AI_SUITE_SLOW_MO}`,
+		)
+	}
 
 	return {
 		baseURL: new URL(baseURL).origin,
-		headless: env.AI_SUITE_HEADLESS === '1' || env.CI === '1',
+		headless: ci,
+		slowMo,
 	}
 }
