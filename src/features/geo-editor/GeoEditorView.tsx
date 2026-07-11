@@ -1039,6 +1039,24 @@ export function GeoEditorView() {
 	const setBlossomUploadDialogOpen = useEditorStore((state) => state.setBlossomUploadDialogOpen)
 	const pendingPublishCollection = useEditorStore((state) => state.pendingPublishCollection)
 
+	// Routing hook for URL-based focus mode. Declared before usePublishing so the
+	// publish success paths can land on the published entity's canonical route.
+	const {
+		route,
+		navigateTo,
+		navigateToContext,
+		navigateToView,
+		clearFocus,
+		clearContextScope,
+		encodeGeoEventNaddr,
+		encodeContextNaddr,
+		isFocused,
+		contextNaddr,
+		contextCoordinate,
+		userPubkey,
+		commentId: focusCommentId,
+	} = useRouting()
+
 	const {
 		handlePublishNew,
 		handlePublishUpdate,
@@ -1057,6 +1075,8 @@ export function GeoEditorView() {
 		getDatasetKey,
 		groups,
 		resolvedCollectionResolver,
+		navigateTo,
+		encodeGeoEventNaddr,
 	})
 
 	/**
@@ -1089,23 +1109,6 @@ export function GeoEditorView() {
 		if (viewMode !== 'edit') return null
 		return buildCollectionFromEditor()
 	}, [buildCollectionFromEditor, viewMode])
-
-	// Routing hook for URL-based focus mode
-	const {
-		route,
-		navigateTo,
-		navigateToContext,
-		navigateToView,
-		clearFocus,
-		clearContextScope,
-		encodeGeoEventNaddr,
-		encodeContextNaddr,
-		isFocused,
-		contextNaddr,
-		contextCoordinate,
-		userPubkey,
-		commentId: focusCommentId,
-	} = useRouting()
 
 	// Round H.5: the in-edit draft row in the Map Stack gets the usual row
 	// actions' analogues. "Open editor panel" routes to the editor view so the

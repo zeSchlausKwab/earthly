@@ -126,19 +126,10 @@ export async function createAndPublishGeometryDataset(
 	await expect(publishButton).toBeEnabled()
 	await publishButton.click()
 	await expect(earthly.page.getByText('Dataset overview')).toBeVisible({ timeout: 15_000 })
-	const naddr = await earthly.page.evaluate(() => {
-		const store = (
-			window as typeof window & {
-				__earthlyEditorStore?: {
-					getState(): { activeDataset?: { address?: string } | null }
-				}
-			}
-		).__earthlyEditorStore
-		return store?.getState().activeDataset?.address ?? null
-	})
-	if (!naddr) throw new Error('Published Dataset did not expose its address in editor state')
-	const path = `/geoevent/${naddr}`
-	await earthly.open({ path, tour: 'seen' })
-	await expect(earthly.page.getByText('Dataset overview')).toBeVisible({ timeout: 15_000 })
-	return { ...result, url: new URL(path, earthly.environment.baseURL).toString() }
+	// Publish now lands on the published Dataset's canonical entity route
+	// (workflow audit P1) — no catalog round-trip or address recovery needed.
+	await expect
+		.poll(() => new URL(earthly.page.url()).pathname, { timeout: 15_000 })
+		.toMatch(/^\/datasets\/geoevent\//)
+	return { ...result, url: earthly.page.url() }
 }

@@ -57,11 +57,12 @@ export async function createAndPublishStory(
 ): Promise<{ url: string }> {
 	await createStoryDraft(earthly, input)
 	await publishOpenStory(earthly)
+	// Publish now lands directly on the published Story's canonical reader
+	// route (workflow audit P1) — no catalog round-trip needed.
+	await expect
+		.poll(() => new URL(earthly.page.url()).pathname, { timeout: 15_000 })
+		.toMatch(/^\/stories\/story\//)
 	await expect(earthly.page.getByText(input.title, { exact: true }).first()).toBeVisible()
-	await earthly.page
-		.getByRole('button', { name: `Open story ${input.title}`, exact: true })
-		.first()
-		.click()
 	await expect(earthly.page.getByText(input.body, { exact: true }).first()).toBeVisible()
 	return { url: earthly.page.url() }
 }
