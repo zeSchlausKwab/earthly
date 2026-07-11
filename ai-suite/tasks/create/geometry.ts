@@ -91,16 +91,12 @@ export async function createGeometryDraft(
 	await earthly.page.getByRole('button', { name: 'Draw label', exact: true }).first().click()
 	await clickMap(earthly, 0.64, 0.38)
 	await expectFeatureCount(earthly, 4)
-	const annotationInput = earthly.page.getByPlaceholder('Enter annotation text...').first()
-	const annotationEditorAutoOpened = await annotationInput.isVisible()
-	if (!annotationEditorAutoOpened) {
-		const annotationRowLabel = earthly.page
-			.locator('button:visible')
-			.filter({ hasText: 'Annotation' })
-		await expect(annotationRowLabel).toHaveCount(1)
-		await annotationRowLabel.locator('..').locator('button').first().click()
-	}
+	// Placing a label now expands its row and focuses the text field
+	// immediately (workflow audit P2) — same behavior as the comment composer.
+	const annotationInput = earthly.page.getByPlaceholder('Type label text...').first()
 	await expect(annotationInput).toBeVisible()
+	await expect(annotationInput).toBeFocused()
+	const annotationEditorAutoOpened = true
 	await annotationInput.fill(annotationText)
 	await expect
 		.poll(async () => (await featureSnapshot(earthly)).annotationText)

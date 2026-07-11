@@ -1,4 +1,4 @@
-import { Check, Edit3, MapPin, MousePointer2, Send, Trash2, Type, X } from 'lucide-react'
+import { Check, Edit3, MapPin, MousePointer2, Send, Trash2, X } from 'lucide-react'
 import { forwardRef, useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import type { FeatureCollection } from 'geojson'
@@ -338,22 +338,10 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 								</p>
 							)}
 							<div className="flex flex-wrap items-center gap-1">
+								{/* The shared DrawButtonGroup already includes the "Draw label"
+								    (draw_annotation) action — no second label button (audit P2:
+								    two identical-looking label tools read as two concepts). */}
 								<DrawButtonGroup mode={mode} onModeChange={ensureDraftSession} />
-								<Button
-									type="button"
-									size="icon-sm"
-									variant={mode === 'draw_annotation' ? 'default' : 'outline'}
-									onClick={() => ensureDraftSession('draw_annotation')}
-									disabled={!currentUser || !editor}
-									className={`rounded-none ${
-										mode === 'draw_annotation'
-											? 'border-primary/40 bg-primary text-white hover:bg-primary'
-											: 'border-border bg-card text-primary hover:bg-primary/10 hover:text-primary'
-									}`}
-									title="Attach label annotation"
-								>
-									<Type className="h-4 w-4" />
-								</Button>
 								<Button
 									type="button"
 									size="icon-sm"
