@@ -98,9 +98,30 @@ export function EntitySearchPopover({
 		const seen = new Set(localResults.results.map((r) => r.id))
 		const extra = relayResults.filter((r) => !seen.has(r.id))
 		if (extra.length === 0) return localResults
+		// The dropdown renders GROUPS, not the flat results array — relay-only
+		// extras must be folded into the group list or they are invisible
+		// (previously they were only reachable via keyboard navigation).
+		const groups = localResults.groups.map((group) => ({ ...group, results: [...group.results] }))
+		for (const result of extra) {
+			let group = groups.find((g) => g.type === result.type)
+			if (!group) {
+				group = {
+					type: result.type,
+					label: ENTITY_TYPE_LABELS[result.type] ?? result.type,
+					results: [],
+					totalCount: 0,
+					filteredCount: 0,
+				}
+				groups.push(group)
+			}
+			group.results.push(result)
+			group.totalCount += 1
+			group.filteredCount += 1
+		}
 		return {
 			...localResults,
 			results: [...localResults.results, ...extra],
+			groups,
 			hasResults: localResults.hasResults || extra.length > 0,
 		}
 	}, [useLocal, useRelay, localResults, relayResults])

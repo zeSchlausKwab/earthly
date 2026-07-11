@@ -7,6 +7,7 @@ import { config } from '@/config/env.client'
 import { ensurePmtilesProtocolsRegistered } from './pmtilesProtocols'
 import { DEFAULT_STYLE_URL, useBlossomOverlays, useMapSourceStyle } from './useMapSourceStyle'
 import { useMapLayerStateSync } from './useMapLayerStateSync'
+import { useDisplayIconImages } from './useDisplayIconImages'
 import { useNostrMapLayerAnnouncements } from './useNostrMapLayerAnnouncements'
 import { usePmtilesBoundsLock } from './usePmtilesBoundsLock'
 import { useStyleImageMissingHandler } from './useStyleImageMissingHandler'
@@ -208,6 +209,7 @@ function MapInternals({
 	const { map, isLoaded } = useMap()
 
 	useStyleImageMissingHandler(map)
+	useDisplayIconImages(map, isLoaded)
 	useMapLayerStateSync(map, isLoaded)
 	usePmtilesBoundsLock(map, isLoaded, mapSource)
 

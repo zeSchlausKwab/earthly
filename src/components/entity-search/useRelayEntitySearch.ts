@@ -117,6 +117,10 @@ export function useRelayEntitySearch({
 
 		debounceRef.current = setTimeout(() => {
 			const resultMap = new Map<string, EntitySearchResult>()
+			// Newest created_at seen per replaceable coordinate — some relays return
+			// the full replaceable HISTORY for a search, and keying results by event
+			// id would render one row per stale version of the same entity.
+			const newestByCoordinate = new Map<string, number>()
 			// NIP-50: relays with `search` capability filter server-side.
 			const filter: Filter & { search: string } = {
 				kinds,
@@ -127,8 +131,11 @@ export function useRelayEntitySearch({
 			subRef.current = pool.request(readRelaysFor('content'), filter).subscribe({
 				next: (event) => {
 					const kind = event.kind as number
-					const eventId = event.id as string
-					if (resultMap.has(eventId)) return
+					const dTag = (event.tags as string[][]).find((t) => t[0] === 'd')?.[1]
+					const coordinate = `${kind}:${event.pubkey}:${dTag ?? event.id}`
+					const newest = newestByCoordinate.get(coordinate)
+					if (newest !== undefined && newest >= (event.created_at as number)) return
+					newestByCoordinate.set(coordinate, event.created_at as number)
 
 					const entityType = KIND_TO_TYPE[kind]
 					if (!entityType) return
@@ -156,7 +163,7 @@ export function useRelayEntitySearch({
 					}
 
 					if (result) {
-						resultMap.set(eventId, result)
+						resultMap.set(coordinate, result)
 						setResults(Array.from(resultMap.values()))
 					}
 				},

@@ -16,9 +16,18 @@ import {
 	EntityReferenceToolbar,
 	getEntityReferenceKey,
 	type EntitySearchResult,
+	type EntityType,
 } from '@/components/entity-search'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
+import { nip19 } from 'nostr-tools'
+import {
+	ARTICLE_KIND,
+	GEO_EVENT_KIND,
+	LIVE_BEACON_KIND,
+	MAP_CONTEXT_KIND,
+	TEMPORAL_SIGHTING_KIND,
+} from '@/lib/nostr/kinds'
 import type { EditorFeature } from '@/features/geo-editor/core'
 import { Button } from '@/components/ui/button'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
@@ -470,7 +479,8 @@ export function ChatPanel({
 			name: result.name,
 			type: result.type,
 			subtitle: result.subtitle,
-			address: result.address,
+			address: resolveReferenceAddress(result),
+			featureId: resolveReferenceFeatureId(result),
 			pubkey: result.pubkey,
 			createdAt: result.createdAt,
 		}
@@ -898,8 +908,9 @@ export function ChatPanel({
 							onRemoveReference={handleRemoveReference}
 							onClearReferences={handleClearReferences}
 							searchMode="both"
+							entityTypes={CHAT_REFERENCE_ENTITY_TYPES}
 							getDatasetName={getDatasetName}
-							placeholder="Add geometry, dataset, or context references..."
+							placeholder="Add dataset, context, story, or feature references..."
 							className="min-w-0 flex-1"
 						/>
 						<Button
@@ -1002,6 +1013,54 @@ function getChatReferenceKey(reference: ChatReference): string {
 	return `${reference.type}:${stableId}:${reference.pubkey ?? ''}`
 }
 
+/**
+ * Entity types offered by the chat reference picker. Passed explicitly because
+ * the relay search DEFAULTS to datasets+contexts only — without this, stories,
+ * beacons, and sightings are silently unsearchable in the composer (the whole
+ * point of referencing entities before composing an article).
+ */
+const CHAT_REFERENCE_ENTITY_TYPES: EntityType[] = [
+	'dataset',
+	'context',
+	'feature',
+	'story',
+	'beacon',
+	'sighting',
+]
+
+const ENTITY_TYPE_TO_KIND: Partial<Record<ChatReference['type'], number>> = {
+	dataset: GEO_EVENT_KIND,
+	context: MAP_CONTEXT_KIND,
+	story: ARTICLE_KIND,
+	beacon: LIVE_BEACON_KIND,
+	sighting: TEMPORAL_SIGHTING_KIND,
+}
+
+/**
+ * Resolve the bare `naddr1…` address for a picked search result. Feature results
+ * already carry one; entity results from the relay search don't, so derive it
+ * from kind + pubkey + d-tag. The address is what lets the model cite the
+ * reference inline (`nostr:naddr…`) when composing story drafts.
+ */
+function resolveReferenceAddress(result: EntitySearchResult): string | undefined {
+	if (result.address) return result.address
+	const kind = ENTITY_TYPE_TO_KIND[result.type]
+	const entity = result.entity as { dTag?: string | null }
+	const identifier = typeof entity?.dTag === 'string' ? entity.dTag : undefined
+	if (!kind || !result.pubkey || !identifier) return undefined
+	try {
+		return nip19.naddrEncode({ kind, pubkey: result.pubkey, identifier })
+	} catch {
+		return undefined
+	}
+}
+
+function resolveReferenceFeatureId(result: EntitySearchResult): string | undefined {
+	if (result.type !== 'feature') return undefined
+	const entity = result.entity as { featureId?: string }
+	return typeof entity?.featureId === 'string' ? entity.featureId : undefined
+}
+
 function chatReferenceToSearchResult(reference: ChatReference): EntitySearchResult {
 	return {
 		id: reference.id,
@@ -1018,11 +1077,14 @@ function chatReferenceToSearchResult(reference: ChatReference): EntitySearchResu
 function buildReferenceContextMessage(references: ChatReference[]): string | undefined {
 	if (references.length === 0) return undefined
 	const lines = references.map((reference, index) => {
+		const mention = reference.address
+			? `nostr:${reference.address}${reference.featureId ? `#${reference.featureId}` : ''}`
+			: null
 		const parts = [
 			`${index + 1}. type=${reference.type}`,
 			`name="${reference.name}"`,
 			reference.subtitle ? `subtitle="${reference.subtitle}"` : null,
-			reference.address ? `address="${reference.address}"` : null,
+			mention ? `mention="${mention}"` : null,
 			reference.pubkey ? `pubkey="${reference.pubkey}"` : null,
 			reference.createdAt ? `createdAt=${reference.createdAt}` : null,
 		].filter(Boolean)
@@ -1032,6 +1094,7 @@ function buildReferenceContextMessage(references: ChatReference[]): string | und
 		'The user attached the following entity references for this request.',
 		'Use them as high-priority context and as likely targets for inspection, comparison, or editing.',
 		'If a reference needs verification or expansion, use tools to inspect it before making destructive changes.',
+		'To cite a reference inline in prose or a story draft, embed its `mention` string verbatim (e.g. `nostr:naddr1…`).',
 		...lines,
 	].join('\n')
 }

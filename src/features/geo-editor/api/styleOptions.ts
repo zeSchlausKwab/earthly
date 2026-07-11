@@ -16,6 +16,7 @@
  *   - line:           `strokeOpacity`                  → line-opacity   (0..1)
  *   - line/point:     `strokeWidth`                    → line/circle stroke width
  *   - point:          `radius`                         → circle-radius
+ *   - point icon:     `displayIcon` (`lucide:<name>`)  → icon-image
  *   - feature label:  `label`                          → text-field
  *   - metadata:       `name` / `description`           → preserved (not rendered)
  *
@@ -29,6 +30,8 @@
  * opacities must be finite numbers in [0,1], widths/radii must be finite > 0.
  * Garbage is rejected, never injected into `properties`.
  */
+
+import { validateDisplayIconValue } from '../icons/displayIcon'
 
 /** Thrown when a style/metadata option is unknown or has an invalid value. */
 export class InvalidStyleOptionError extends Error {
@@ -51,6 +54,7 @@ export const CANONICAL_STYLE_KEYS = [
 	'strokeWidth',
 	'radius',
 	'label',
+	'displayIcon',
 	'name',
 	'description',
 ] as const
@@ -93,6 +97,11 @@ export interface FeatureStyleOptions {
 	radius?: number
 	/** Feature label text rendered on the map. */
 	label?: string
+	/**
+	 * Point icon id, `lucide:<name>` from the bundled Lucide subset (e.g.
+	 * `lucide:anchor`). Renders the point as an icon instead of a circle.
+	 */
+	displayIcon?: string
 	/** Metadata: feature name (not rendered). */
 	name?: string
 	/** Metadata: feature description (not rendered). */
@@ -111,6 +120,16 @@ const ACCEPTED_OPTION_NAMES = [...CANONICAL_STYLE_KEYS, ...ALIAS_OPTION_KEYS]
 const RESERVED_PRIMITIVE_KEYS = new Set(['units', 'steps'])
 
 function validateValue(canonicalKey: string, value: unknown): string | number {
+	if (canonicalKey === 'displayIcon') {
+		// Namespaced icon id — must be a bundled `lucide:<name>` (Phase 1). The
+		// dedicated validator's message names the format, flags that remote
+		// URLs are not supported yet, and lists the accepted ids.
+		try {
+			return validateDisplayIconValue(value)
+		} catch (error) {
+			throw new InvalidStyleOptionError(error instanceof Error ? error.message : String(error))
+		}
+	}
 	if (COLOR_KEYS.has(canonicalKey) || STRING_KEYS.has(canonicalKey)) {
 		if (typeof value !== 'string' || value.length === 0) {
 			throw new InvalidStyleOptionError(

@@ -16,6 +16,13 @@ export interface PointStyleProperties {
 	strokeWidth: number
 	radius: number
 	label?: string
+	/**
+	 * Namespaced icon id rendered INSTEAD of the plain circle. Phase 1 accepts
+	 * only bundled Lucide ids (`lucide:<name>`, e.g. `lucide:anchor`) — see
+	 * `src/features/geo-editor/icons/`. The namespace keeps the value
+	 * forward-compatible with remote URL icons in a later phase.
+	 */
+	displayIcon?: string
 }
 
 export interface LineStringStyleProperties {
@@ -59,6 +66,7 @@ export const STYLE_PROPERTY_KEYS: StylePropertyKey[] = [
 	'strokeOpacity',
 	'lineDash',
 	'label',
+	'displayIcon',
 ]
 
 export function isStyleProperty(key: string): key is StylePropertyKey {

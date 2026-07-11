@@ -1,10 +1,16 @@
 import type maplibregl from 'maplibre-gl'
 import { useEffect } from 'react'
+import { handleMissingDisplayIconImage } from '../../icons/registerDisplayIconImages'
 
 /**
  * MapLibre crashes on styles that reference missing sprite icons. We listen
  * for `styleimagemissing` and supply a transparent 1×1 placeholder so the
  * symbol layer still renders without errors.
+ *
+ * EXCEPTION: displayIcon ids (`lucide:<name>` + the fallback marker) must never
+ * receive the transparent pixel — that would make iconed points vanish
+ * silently. Those ids get a VISIBLE fallback dot (and, when bundled, the real
+ * glyph shortly after) via `handleMissingDisplayIconImage`.
  */
 export function useStyleImageMissingHandler(map: maplibregl.Map | null): void {
 	useEffect(() => {
@@ -15,6 +21,7 @@ export function useStyleImageMissingHandler(map: maplibregl.Map | null): void {
 				const id = e.id
 				if (!id) return
 				if (map.hasImage(id)) return
+				if (handleMissingDisplayIconImage(map, id)) return
 
 				const imageData:
 					| ImageData

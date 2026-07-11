@@ -11,6 +11,7 @@ import type { EditorFeature } from '@/features/geo-editor/core/types'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { describeViewport } from '@/lib/geo/describeLocation'
 import { getLoadedWorldLayer } from '@/lib/geo/worldData'
+import { getSessionPublishes } from '@/lib/nostr/sessionPublishes'
 import { lonLatToWorldGeohash } from '@/lib/worldGeohash'
 import type { ChatMessage } from '../routstr'
 import type { CachedMapSnapshot } from './types'
@@ -216,6 +217,18 @@ export function getCompactMapContextForTool(snapshot: ReturnType<typeof getMapCo
 export function createMapContextSystemMessage(): ChatMessage | null {
 	const snapshot = getMapContextSnapshot()
 	const compact = getCompactMapContextForPrompt(snapshot)
+	// One line per entity the user published THIS session — lets "write the
+	// article about what I just published" resolve fresh naddrs without the
+	// user re-attaching them (deliberately tiny; capped in sessionPublishes.ts).
+	const sessionPublishes = getSessionPublishes()
+	const sessionPublishBlock =
+		sessionPublishes.length > 0
+			? `Entities the user published THIS session (freshest references — prefer these when the user refers to "what I just published"):\n${sessionPublishes
+					.map(
+						(entry) => `- [${entry.type}] "${entry.name}" → ${entry.mention ?? entry.coordinate}`,
+					)
+					.join('\n')}`
+			: null
 	return {
 		role: 'system',
 		content: [
@@ -255,6 +268,8 @@ export function createMapContextSystemMessage(): ChatMessage | null {
 			'For land/water splitting (offshore lines, "how much crosses land"), use world.isOnLand([lon,lat]) per vertex inside run_code — do not marshal the land mask yourself.',
 			'Recipe — offshore offset line ("follow the coastline of X, N km out to sea"), ONE run_code call, no OSM: take the country polygon from world.get("countries_110m"), ring = turf.polygonToLine(turf.buffer(country, N, {units:"kilometers"})), split the ring into segments and keep those whose midpoint has world.isOnLand(mid) === false, then authoring.writeGeoJSON the kept segments.',
 			'Trust tool results: after a successful authoring write (a tool result with created/updated/deleted counts), do NOT re-verify with capture_map_snapshot or get_editor_state. The write result is authoritative.',
+			'To compose a long-form article/story, write it into the local draft with write_story_draft (Markdown body; cite datasets/entities inline as nostr:naddr1…, optionally #featureId). You cannot publish anything — the user reviews and publishes the draft in the Story editor. Use read_entity first to pull the full content of anything you cite; use search_entities to discover references.',
+			...(sessionPublishBlock ? [sessionPublishBlock] : []),
 			`Current map state JSON:\n${JSON.stringify(compact)}`,
 		].join('\n\n'),
 	}

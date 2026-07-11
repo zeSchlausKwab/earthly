@@ -1,20 +1,24 @@
-import { Database, FolderOpen, Globe, MapPin } from 'lucide-react'
+import { BookOpen, Database, Eye, Globe, MapPin, RadioTower } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { EntitySearchResult, EntityType } from './types'
 import { Button } from '@/components/ui/button'
 
 const TYPE_ICONS: Record<EntityType, typeof Database> = {
 	dataset: Database,
-	collection: FolderOpen,
 	context: Globe,
 	feature: MapPin,
+	story: BookOpen,
+	beacon: RadioTower,
+	sighting: Eye,
 }
 
 const TYPE_COLORS: Record<EntityType, string> = {
 	dataset: 'text-info',
-	collection: 'text-ok',
 	context: 'text-primary',
 	feature: 'text-muted-foreground',
+	story: 'text-info',
+	beacon: 'text-ok',
+	sighting: 'text-edit',
 }
 
 interface EntityResultItemProps {
@@ -30,8 +34,10 @@ export function EntityResultItem({
 	showTypeIcon = true,
 	onSelect,
 }: EntityResultItemProps) {
-	const Icon = TYPE_ICONS[result.type]
-	const colorClass = TYPE_COLORS[result.type]
+	// Fallbacks keep an unknown/future entity type from rendering an undefined
+	// component (a hard React crash) — worst case is a neutral pin.
+	const Icon = TYPE_ICONS[result.type] ?? MapPin
+	const colorClass = TYPE_COLORS[result.type] ?? 'text-muted-foreground'
 
 	return (
 		<Button

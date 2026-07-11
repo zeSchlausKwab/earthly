@@ -154,7 +154,10 @@ export interface ChatReference {
 	name: string
 	type: EntityType
 	subtitle?: string
+	/** Bare `naddr1…` address of the referenced entity (or its parent dataset for features). */
 	address?: string
+	/** For `feature` references: the feature id inside the parent dataset. */
+	featureId?: string
 	pubkey?: string
 	createdAt?: number
 }

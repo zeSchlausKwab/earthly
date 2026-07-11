@@ -28,7 +28,9 @@ import { registerSandboxTools } from '@/features/chat/sandbox/runCode'
 import { buildPostWriteValidation } from '@/features/chat/safeEditing/autoValidate'
 import { gateEditorImport } from '@/features/chat/safeEditing/gateEditorImport'
 import { registerBulkTools } from './bulk-tools'
+import { registerEntityTools } from './entity-tools'
 import { registerGeoAwarenessTools } from './geo-awareness-tools'
+import { registerStoryTools } from './story-tools'
 import { registerGeometryTools } from './geometry-tools'
 import { registerIngestTools } from './ingest-tools'
 import { registerPrimitiveTools } from './primitives-tools'
@@ -1111,6 +1113,13 @@ function bootstrapRegistry(): void {
 	// Same injected-`register` idiom: geo-awareness-tools registers the read-only
 	// measure + describe_location primitives (AI_GEO_AWARENESS §2/§5).
 	registerGeoAwarenessTools(register)
+	// Same injected-`register` idiom: entity-tools registers read_entity (the
+	// full-content follow-up to search_entities' compact summaries).
+	registerEntityTools(register)
+	// Same injected-`register` idiom: story-tools registers the local-draft
+	// composition pair read_story_draft + write_story_draft. Publishing a story
+	// remains a user action in the StoryEditorPanel — no publish tool exists.
+	registerStoryTools(register)
 }
 
 bootstrapRegistry()
