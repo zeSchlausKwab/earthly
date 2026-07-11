@@ -68,7 +68,8 @@ export async function acceptStoryEdit(
 	proposedBody: string,
 ): Promise<void> {
 	await openProposalReview(earthly)
-	await earthly.page.getByRole('button', { name: 'Accept edit', exact: true }).click()
+	// Verb aligned with Dataset proposals (workflow audit P2): "Accept".
+	await earthly.page.getByRole('button', { name: 'Accept', exact: true }).click()
 	await expect(earthly.page.getByText('Edit applied — your story is updated.')).toBeVisible()
 	await expect(earthly.page.getByText(proposedBody, { exact: true }).first()).toBeVisible()
 }
@@ -78,5 +79,28 @@ export async function rejectStoryEdit(earthly: EarthlySession): Promise<void> {
 	await earthly.page.getByRole('button', { name: 'Reject', exact: true }).click()
 	await expect(
 		earthly.page.getByText('Proposed edit rejected — your story stays as-is.'),
+	).toBeVisible()
+}
+
+/** Request changes on a Story proposal with a reason — the same review verb the
+ *  Dataset proposal flow offers (workflow audit P2). */
+export async function requestStoryEditChanges(
+	earthly: EarthlySession,
+	reason: string,
+): Promise<void> {
+	await openProposalReview(earthly)
+	await earthly.page.getByRole('button', { name: 'Request changes', exact: true }).click()
+	// The story reader also renders the Comments composer below — scope to the
+	// request-changes container via its helper copy (the ProseMirror placeholder
+	// is not text content, so it can't anchor a hasText filter).
+	const container = earthly.page
+		.locator('div')
+		.filter({ hasText: 'Describe what should be changed' })
+		.last()
+	const form = container.locator('form').first()
+	await form.locator('.ProseMirror[contenteditable="true"]').fill(reason)
+	await form.getByRole('button', { name: 'Post', exact: true }).click()
+	await expect(
+		earthly.page.getByText('Changes requested — the contributor can see your note.'),
 	).toBeVisible()
 }

@@ -23,6 +23,7 @@ import {
 	acceptStoryEdit,
 	draftStoryProposal,
 	rejectStoryEdit,
+	requestStoryEditChanges,
 } from '../tasks/social/story-proposals'
 
 test('point, line, polygon, and label creation remain understandable @workflow-audit', async ({
@@ -55,6 +56,7 @@ test('a Story owner can accept and reject proposed edits @workflow-audit', async
 	const originalBody = `Original proposal audit narrative ${runId}`
 	const acceptedBody = `Accepted proposal audit narrative ${runId}`
 	const rejectedBody = `Rejected proposal audit narrative ${runId}`
+	const changesBody = `Changes-requested proposal audit narrative ${runId}`
 	await signIn(earthly, 'owner')
 	const story = await createAndPublishStory(earthly, {
 		title: `Proposal audit story ${runId}`,
@@ -63,6 +65,9 @@ test('a Story owner can accept and reject proposed edits @workflow-audit', async
 
 	await seedStoryProposal(earthly, story.url, acceptedBody)
 	await acceptStoryEdit(earthly, acceptedBody)
+
+	await seedStoryProposal(earthly, story.url, changesBody)
+	await requestStoryEditChanges(earthly, `Please tighten the intro ${runId}`)
 
 	await seedStoryProposal(earthly, story.url, rejectedBody)
 	await rejectStoryEdit(earthly)

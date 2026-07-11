@@ -15,7 +15,14 @@
  * ever renders through the sanitized renderer.
  */
 
-import { Check, ChevronDown, ChevronRight, GitPullRequest, X } from 'lucide-react'
+import {
+	Check,
+	ChevronDown,
+	ChevronRight,
+	GitPullRequest,
+	MessageSquareWarning,
+	X,
+} from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { RichContentRenderer } from '@/components/editor'
@@ -26,6 +33,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { UserProfile } from '@/components/user-profile'
 import type { Article } from '@/lib/nostr/article'
 import type { GeoProposal } from '@/lib/nostr/geo-proposal'
+import { GeoCommentForm } from '../comments'
 import { useStoryProposals, type StoryProposalWithStatus } from '../hooks/useStoryProposals'
 
 interface StoryProposalsPanelProps {
@@ -61,6 +69,9 @@ interface StoryProposalCardProps {
 	onToggleExpanded: () => void
 	onAccept: () => void
 	onReject: () => void
+	/** Close with a reason — derives to the shared `needs_changes` review state,
+	 *  exactly like Dataset proposals (same status event + reason content). */
+	onRequestChanges: (reason: string) => Promise<void>
 }
 
 function StoryProposalCard({
@@ -72,9 +83,21 @@ function StoryProposalCard({
 	onToggleExpanded,
 	onAccept,
 	onReject,
+	onRequestChanges,
 }: StoryProposalCardProps) {
 	const { proposal, status } = proposalWithStatus
 	const proposedBody = proposal.content
+	const [showChangesNeededForm, setShowChangesNeededForm] = useState(false)
+
+	const handleSubmitChangesNeeded = useCallback(
+		async (text: string) => {
+			const reason = text.trim()
+			if (!reason) return
+			await onRequestChanges(reason)
+			setShowChangesNeededForm(false)
+		},
+		[onRequestChanges],
+	)
 
 	return (
 		<Collapsible open={isExpanded} onOpenChange={onToggleExpanded}>
@@ -136,8 +159,21 @@ function StoryProposalCard({
 							</div>
 						</div>
 
+						{/* Same review verbs as Dataset proposals (workflow audit P2):
+						    Accept / Request changes / Reject, with the reasoned close
+						    deriving to the shared needs_changes state. */}
 						{isOwner && status === 'open' && (
 							<div className="flex flex-wrap items-center justify-end gap-2">
+								<Button
+									type="button"
+									variant={showChangesNeededForm ? 'default' : 'outline'}
+									size="sm"
+									onClick={() => setShowChangesNeededForm((prev) => !prev)}
+									className="h-7 gap-1.5 rounded-none px-2 text-[11px]"
+								>
+									<MessageSquareWarning className="h-3.5 w-3.5" />
+									Request changes
+								</Button>
 								<Button
 									type="button"
 									variant="outline"
@@ -155,8 +191,21 @@ function StoryProposalCard({
 									className="h-7 gap-1.5 rounded-none bg-primary px-2 text-[11px] text-primary-foreground"
 								>
 									<Check className="h-3.5 w-3.5" />
-									Accept edit
+									Accept
 								</Button>
+							</div>
+						)}
+
+						{isOwner && status === 'open' && showChangesNeededForm && (
+							<div className="rounded-none border border-destructive/40 bg-destructive/10 p-2">
+								<p className="mb-2 text-[11px] font-medium text-destructive">
+									Describe what should be changed before this can be accepted.
+								</p>
+								<GeoCommentForm
+									onSubmit={handleSubmitChangesNeeded}
+									onCancel={() => setShowChangesNeededForm(false)}
+									placeholder="What needs to change?"
+								/>
 							</div>
 						)}
 					</div>
@@ -222,6 +271,21 @@ export function StoryProposalsPanel({
 		[rejectStoryProposal],
 	)
 
+	// A reasoned close is the shared "changes requested" state — identical to the
+	// Dataset review model (same status event; the reason rides in its content).
+	const handleRequestChanges = useCallback(
+		async (proposal: GeoProposal, reason: string) => {
+			try {
+				await rejectStoryProposal(proposal, reason)
+				toast.success('Changes requested — the contributor can see your note.')
+			} catch (error) {
+				console.error('Failed to request changes on proposed edit', error)
+				toast.error(error instanceof Error ? error.message : "Couldn't request changes. Try again.")
+			}
+		},
+		[rejectStoryProposal],
+	)
+
 	const openProposals = useMemo(() => proposals.filter((p) => p.status === 'open'), [proposals])
 
 	// Only the Story author sees the Proposed-edits surface.
@@ -267,6 +331,7 @@ export function StoryProposalsPanel({
 								onToggleExpanded={() => toggleExpanded(id)}
 								onAccept={() => handleAccept(pw.proposal)}
 								onReject={() => handleReject(pw.proposal)}
+								onRequestChanges={(reason) => handleRequestChanges(pw.proposal, reason)}
 							/>
 						)
 					})}
