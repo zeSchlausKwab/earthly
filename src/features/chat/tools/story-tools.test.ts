@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import type { ToolEntry } from './registry'
 import { registerStoryTools, resetStoryDraftOwnership } from './story-tools'
+import type { ToolExecutionContext } from './types'
 
 // readScopedStorage/writeScopedStorage no-op without a window — give the tools a
 // map-backed localStorage so draft round-trips are observable.
@@ -21,10 +22,10 @@ let previousWindow: unknown
 const tools = new Map<string, ToolEntry>()
 registerStoryTools((entry) => tools.set(entry.name, entry))
 
-const call = (name: string, args: Record<string, unknown> = {}) => {
+const call = (name: string, args: Record<string, unknown> = {}, context?: ToolExecutionContext) => {
 	const entry = tools.get(name)
 	if (!entry) throw new Error(`tool not registered: ${name}`)
-	return entry.handler(args, undefined) as Promise<Record<string, unknown>>
+	return entry.handler(args, context) as Promise<Record<string, unknown>>
 }
 
 beforeAll(() => {
@@ -84,11 +85,24 @@ describe('story draft tools', () => {
 			/overwrite/,
 		)
 
-		const overwritten = await call('write_story_draft', {
-			title: 'AI draft',
-			markdown: 'new',
-			overwrite: true,
-		})
+		// The model cannot authorize itself by proactively setting overwrite:true.
+		expect(
+			call('write_story_draft', {
+				title: 'AI draft',
+				markdown: 'new',
+				overwrite: true,
+			}),
+		).rejects.toThrow(/confirm/i)
+
+		const overwritten = await call(
+			'write_story_draft',
+			{
+				title: 'AI draft',
+				markdown: 'new',
+				overwrite: true,
+			},
+			{ userMessage: 'yes, overwrite the existing story draft' } as ToolExecutionContext,
+		)
 		expect(overwritten.ok).toBe(true)
 	})
 
@@ -98,6 +112,19 @@ describe('story draft tools', () => {
 		expect(second.ok).toBe(true)
 		const read = await call('read_story_draft')
 		expect((read.draft as Record<string, unknown>).title).toBe('v2')
+	})
+
+	it('does not treat an explicit refusal as overwrite confirmation', async () => {
+		await call('write_story_draft', { title: 'User draft', markdown: 'precious user text' })
+		resetStoryDraftOwnership()
+
+		expect(
+			call(
+				'write_story_draft',
+				{ title: 'AI draft', markdown: 'new', overwrite: true },
+				{ userMessage: 'Do not overwrite my existing draft.' },
+			),
+		).rejects.toThrow(/confirm/i)
 	})
 
 	it('validates required fields', async () => {

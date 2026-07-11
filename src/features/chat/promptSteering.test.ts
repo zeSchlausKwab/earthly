@@ -25,6 +25,12 @@ function runCodeDescription(): string {
 	return tool?.function.description ?? ''
 }
 
+function styleByAttributeDescription(): string {
+	const tool = getGeoTools().find((candidate) => candidate.function.name === 'style_by_attribute')
+	expect(tool).toBeDefined()
+	return tool?.function.description ?? ''
+}
+
 describe('fix #4 — agent map-context steering', () => {
 	const text = mapContextText()
 
@@ -114,5 +120,13 @@ describe('fix #4 — run_code description steering (advertised surface in sync)'
 	it('tells the model to trust the returned counts (no re-verify)', () => {
 		expect(desc).toMatch(/TRUST the returned `counts`/i)
 		expect(desc).toMatch(/do NOT re-verify/i)
+	})
+})
+
+describe('display-icon authoring steering', () => {
+	it('advertises displayIcon and the lucide namespace to the model', () => {
+		const description = styleByAttributeDescription()
+		expect(description).toContain('displayIcon')
+		expect(description).toContain('lucide:')
 	})
 })

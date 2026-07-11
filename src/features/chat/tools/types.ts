@@ -38,6 +38,8 @@ export interface ToolResult {
 
 export interface ToolExecutionContext {
 	attachedGeometry?: GeoJSON.FeatureCollection | null
+	/** The user-authored text that initiated this tool loop. */
+	userMessage?: string
 }
 
 export interface GeometryBakeAnalysis {

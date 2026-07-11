@@ -57,6 +57,13 @@ function optionalString(value: unknown, name: string, max: number): string | und
 	return value.trim() || undefined
 }
 
+function explicitlyConfirmsOverwrite(message: string | undefined): boolean {
+	if (!message) return false
+	const normalized = message.trim().toLowerCase()
+	if (/\b(?:do not|don't|dont|never)\s+(?:overwrite|replace)\b/.test(normalized)) return false
+	return /\boverwrite\b/.test(normalized) || /\breplace\b[^.\n]{0,40}\bdraft\b/.test(normalized)
+}
+
 const MENTION_SYNTAX_HINT =
 	'Cite entities inline in the Markdown as nostr:naddr1… (append #featureId to point at one feature inside a dataset). On publish these mentions are mirrored into queryable references automatically.'
 
@@ -134,20 +141,24 @@ export function registerStoryTools(register: (entry: ToolEntry) => void): void {
 		name: 'write_story_draft',
 		kind: 'host-builtin',
 		schema: writeStoryDraftSchema,
-		handler: async (args) => {
+		handler: async (args, context) => {
 			const title = requireString(args.title, 'title', MAX_TITLE_CHARS)
 			const markdown = requireString(args.markdown, 'markdown', MAX_BODY_CHARS)
 			const summary = optionalString(args.summary, 'summary', MAX_SUMMARY_CHARS)
 			const image = optionalString(args.image, 'image', MAX_TITLE_CHARS)
 
 			const existing = readStoryDraft(NEW_STORY_DRAFT_KEY)
-			if (existing && !sessionOwnsDraft && args.overwrite !== true) {
+			if (
+				existing &&
+				!sessionOwnsDraft &&
+				(args.overwrite !== true || !explicitlyConfirmsOverwrite(context?.userMessage))
+			) {
 				const existingChars = existing.content?.length ?? 0
 				throw new Error(
 					`A draft already exists (title: ${JSON.stringify(existing.title ?? 'untitled')}, ` +
 						`${existingChars} chars, updated ${new Date(existing.updatedAt).toISOString()}) ` +
 						'and was not written by this session. Call read_story_draft, preserve or merge ' +
-						'what the user wrote, and pass overwrite: true only after confirming with the user.',
+						'what the user wrote, and pass overwrite: true only after the user explicitly confirms overwrite.',
 				)
 			}
 

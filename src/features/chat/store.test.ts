@@ -94,6 +94,53 @@ describe('loadModels — empty list must not drive an infinite refetch loop', ()
 			globalThis.fetch = originalFetch
 		}
 	})
+
+	test('a stale model response cannot replace settings hydrated while it was in flight', async () => {
+		const originalFetch = globalThis.fetch
+		let resolveFetch: ((response: Response) => void) | null = null
+		globalThis.fetch = (() =>
+			new Promise<Response>((resolve) => {
+				resolveFetch = resolve
+			})) as typeof fetch
+		try {
+			const firstOverrides = emptyOverrides()
+			firstOverrides.custom = { baseUrl: 'http://first.example/v1', apiKey: 'first' }
+			useChatStore.setState({
+				provider: 'custom',
+				providerOverrides: firstOverrides,
+				models: [],
+				modelsError: null,
+				modelsLoading: false,
+				selectedModel: 'imported-model',
+			})
+
+			const staleLoad = useChatStore.getState().loadModels()
+
+			const hydratedOverrides = emptyOverrides()
+			hydratedOverrides.custom = { baseUrl: 'http://hydrated.example/v1', apiKey: 'hydrated' }
+			useChatStore.getState().hydrateSettings({
+				provider: 'custom',
+				providerOverrides: hydratedOverrides,
+				selectedModel: 'imported-model',
+			})
+
+			resolveFetch?.(
+				new Response(JSON.stringify({ data: [{ id: 'stale-vision-model', name: 'Stale' }] }), {
+					status: 200,
+					headers: { 'content-type': 'application/json' },
+				}),
+			)
+			await staleLoad
+
+			const state = useChatStore.getState()
+			expect(state.providerOverrides.custom.baseUrl).toBe('http://hydrated.example/v1')
+			expect(state.selectedModel).toBe('imported-model')
+			expect(state.models).toEqual([])
+			expect(state.modelsLoading).toBe(false)
+		} finally {
+			globalThis.fetch = originalFetch
+		}
+	})
 })
 
 describe('resolveProvider', () => {

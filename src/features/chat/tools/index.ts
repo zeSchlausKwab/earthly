@@ -33,6 +33,7 @@ export { executeToolCall } from './execute'
 
 // Context / snapshot
 export {
+	buildSessionPublishContextMessage,
 	createMapContextSystemMessage,
 	consumeMapSnapshot,
 	getMapContextSnapshot,
