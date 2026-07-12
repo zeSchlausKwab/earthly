@@ -14,10 +14,13 @@ import {
 	type TemporalSighting,
 } from '@/lib/nostr/temporal-sighting'
 import {
-	circleOpacityHidingIconedPoints,
+	displayIconColorExpression,
+	displayIconDiscRadiusExpression,
 	displayIconImageExpression,
 	displayIconSizeExpression,
 	hasDisplayIconFilter,
+	pointLabelAnchorExpression,
+	pointLabelRadialOffsetExpression,
 } from '../icons/displayIcon'
 import { useEditorStore } from '../store'
 import { convertGeoEventsToFeatureCollection } from '../utils'
@@ -624,20 +627,24 @@ export function useMapLayers({
 							['!=', ['get', 'featureType'], 'annotation'],
 						],
 						paint: {
-							'circle-radius': ['coalesce', ['get', 'radius'], 6],
+							// Iconed points reuse this circle as the glyph's backing disc
+							// (color fill + strokeColor ring), sized up to fit the glyph.
+							'circle-radius': [
+								'case',
+								hasDisplayIconFilter(),
+								displayIconDiscRadiusExpression(),
+								['coalesce', ['get', 'radius'], 6],
+							],
 							'circle-color': ['coalesce', ['get', 'color'], ['get', 'fillColor'], '#1d4ed8'],
 							'circle-stroke-width': ['coalesce', ['get', 'strokeWidth'], 2],
 							'circle-stroke-color': ['coalesce', ['get', 'strokeColor'], '#fff'],
-							// Iconed points render via the icon layer below; the circle
-							// stays at opacity 0 so existing interactions keep working.
-							'circle-opacity': circleOpacityHidingIconedPoints(),
-							'circle-stroke-opacity': circleOpacityHidingIconedPoints(),
 						},
 					})
 				}
 
 				// Point icon layer — remote dataset points with a `displayIcon` style
-				// property render as an SVG-derived symbol instead of the circle.
+				// property render an SDF glyph tinted with the feature's `strokeColor`
+				// on top of the circle layer's disc + ring.
 				// Unknown icon ids resolve to the always-registered fallback marker
 				// (coalesce/image pattern), so points never silently vanish.
 				if (!mapInstance.getLayer(REMOTE_POINT_ICON_LAYER)) {
@@ -656,6 +663,9 @@ export function useMapLayers({
 							'icon-size': displayIconSizeExpression(),
 							'icon-allow-overlap': true,
 							'icon-ignore-placement': true,
+						},
+						paint: {
+							'icon-color': displayIconColorExpression(),
 						},
 					})
 				}
@@ -680,12 +690,16 @@ export function useMapLayers({
 					})
 				}
 
-				// Annotation text layer
-				if (
-					textFont &&
-					mapInstance.isStyleLoaded() &&
-					!mapInstance.getLayer(REMOTE_ANNOTATION_LAYER)
-				) {
+				// Annotation text layer.
+				// NOTE: no `isStyleLoaded()` gate on the text layers — that is the
+				// STRICT loaded check (style + all sources/sprites settled) and is
+				// routinely false during init while geojson sources stream, which
+				// silently skipped these layers with no retry until the next full
+				// style reload (labels missing in view mode). `addLayer` only needs
+				// the style itself; the too-early case throws, is caught below, and
+				// the `style.load` listener re-runs init — same path the non-text
+				// layers already rely on.
+				if (textFont && !mapInstance.getLayer(REMOTE_ANNOTATION_LAYER)) {
 					mapInstance.addLayer({
 						id: REMOTE_ANNOTATION_LAYER,
 						type: 'symbol',
@@ -713,7 +727,7 @@ export function useMapLayers({
 				}
 
 				// Feature label layer (for non-annotation features with labels)
-				if (textFont && mapInstance.isStyleLoaded() && !mapInstance.getLayer(REMOTE_LABEL_LAYER)) {
+				if (textFont && !mapInstance.getLayer(REMOTE_LABEL_LAYER)) {
 					mapInstance.addLayer({
 						id: REMOTE_LABEL_LAYER,
 						type: 'symbol',
@@ -723,7 +737,10 @@ export function useMapLayers({
 							'text-field': ['get', 'label'],
 							'text-font': textFont,
 							'text-size': 12,
-							'text-anchor': 'center',
+							// Point labels hang below the marker (clearing the icon disc)
+							// so the glyph stays readable; line/polygon labels stay centered.
+							'text-anchor': pointLabelAnchorExpression(),
+							'text-radial-offset': pointLabelRadialOffsetExpression(12),
 							'text-allow-overlap': false,
 							'text-ignore-placement': false,
 						},
@@ -872,14 +889,16 @@ export function useMapLayers({
 							['!=', ['get', 'featureType'], 'annotation'],
 						],
 						paint: {
-							'circle-radius': ['coalesce', ['get', 'radius'], 6],
+							// Same disc + ring treatment as the remote point layer.
+							'circle-radius': [
+								'case',
+								hasDisplayIconFilter(),
+								displayIconDiscRadiusExpression(),
+								['coalesce', ['get', 'radius'], 6],
+							],
 							'circle-color': ['coalesce', ['get', 'color'], ['get', 'fillColor'], '#1d4ed8'],
 							'circle-stroke-width': ['coalesce', ['get', 'strokeWidth'], 2],
 							'circle-stroke-color': ['coalesce', ['get', 'strokeColor'], '#fff'],
-							// Iconed points render via the icon layer below (opacity 0
-							// keeps the circle available for interactions/hit-testing).
-							'circle-opacity': circleOpacityHidingIconedPoints(),
-							'circle-stroke-opacity': circleOpacityHidingIconedPoints(),
 						},
 					})
 				}
@@ -902,6 +921,9 @@ export function useMapLayers({
 							'icon-size': displayIconSizeExpression(),
 							'icon-allow-overlap': true,
 							'icon-ignore-placement': true,
+						},
+						paint: {
+							'icon-color': displayIconColorExpression(),
 						},
 					})
 				}
@@ -994,11 +1016,8 @@ export function useMapLayers({
 				// Eye/observation glyph so the marker reads as an ephemeral sighting,
 				// not a dataset dot (UI-SPEC Net-New §2). Uses a unicode observation
 				// glyph (no sprite dependency) via a symbol text layer.
-				if (
-					textFont &&
-					mapInstance.isStyleLoaded() &&
-					!mapInstance.getLayer(SIGHTING_GLYPH_LAYER)
-				) {
+				// (No `isStyleLoaded()` gate — see the annotation-text-layer note.)
+				if (textFont && !mapInstance.getLayer(SIGHTING_GLYPH_LAYER)) {
 					mapInstance.addLayer({
 						id: SIGHTING_GLYPH_LAYER,
 						type: 'symbol',
@@ -1106,7 +1125,8 @@ export function useMapLayers({
 				// Broadcast/radio glyph so the marker reads as live presence, distinct
 				// from the Sighting observation eye. A unicode broadcast glyph for
 				// live/stale, a stop square for ended (no sprite dependency).
-				if (textFont && mapInstance.isStyleLoaded() && !mapInstance.getLayer(BEACON_GLYPH_LAYER)) {
+				// (No `isStyleLoaded()` gate — see the annotation-text-layer note.)
+				if (textFont && !mapInstance.getLayer(BEACON_GLYPH_LAYER)) {
 					mapInstance.addLayer({
 						id: BEACON_GLYPH_LAYER,
 						type: 'symbol',

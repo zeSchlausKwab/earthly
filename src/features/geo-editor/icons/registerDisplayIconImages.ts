@@ -1,43 +1,62 @@
 /**
  * Runtime registration of bundled displayIcon images on a MapLibre map.
  *
- * Each bundled Lucide SVG is rasterized once (data URL → Image → 2× canvas)
- * and registered under its full `lucide:<name>` id, together with a
- * synchronously drawn fallback marker under {@link FALLBACK_ICON_IMAGE_ID}.
- * Registration is idempotent and must be re-run after every `style.load` —
- * `setStyle` (theme flips, map-source switches) wipes custom images.
- *
- * Lucide glyphs are 24×24 stroke-based outlines (`stroke="currentColor"`,
- * `fill="none"`, stroke-width 2). Before rasterizing, `currentColor` is
- * substituted with a fixed dark glyph color and the glyph is drawn over a
- * subtle white backing circle so icons stay legible on dark basemaps and
- * satellite imagery.
+ * Each bundled Lucide SVG is rasterized once (data URL → Image → alpha mask),
+ * converted into a signed distance field (see `sdf.ts`) and registered under
+ * its full `lucide:<name>` id with `{ sdf: true }`, together with a
+ * synchronously drawn SDF fallback dot under {@link FALLBACK_ICON_IMAGE_ID}.
+ * SDF images accept the data-driven `icon-color` paint property, which is how
+ * the symbol layers tint glyphs with the feature's `strokeColor` — no color
+ * (and no backing disc) is baked into the bitmap; the disc + ring come from
+ * the circle layer underneath. Registration is idempotent and must be re-run
+ * after every `style.load` — `setStyle` (theme flips, map-source switches)
+ * wipes custom images.
  *
  * SAFETY: `useStyleImageMissingHandler` registers transparent 1×1 pixels for
  * ANY missing style image, which would make iconed points vanish silently.
  * This module therefore (a) registers everything eagerly, (b) exposes
  * {@link handleMissingDisplayIconImage} so the missing-image handler can serve
- * a VISIBLE fallback dot for icon ids instead of a transparent pixel, and
- * (c) tracks which ids it registered itself so placeholder images are replaced
- * by the real glyph once rasterization completes.
+ * a VISIBLE (SDF, tintable) fallback dot for icon ids instead of a transparent
+ * pixel, and (c) tracks which ids it registered itself so placeholder images
+ * are replaced by the real glyph once rasterization completes.
  */
 
 import type { Map as MapLibreMap } from 'maplibre-gl'
 import {
 	BUNDLED_DISPLAY_ICON_IDS,
+	DISPLAY_ICON_GLYPH_LOGICAL_PX,
 	FALLBACK_ICON_IMAGE_ID,
 	LUCIDE_NAMESPACE,
 	getDisplayIconSvg,
 } from './displayIcon'
+import { alphaMaskToSdfData } from './sdf'
 
 /** Icons are rasterized at 2× and registered with this pixelRatio. */
 const ICON_PIXEL_RATIO = 2
-/** Lucide glyphs are 24×24; pad so the backing circle never clips. */
-const ICON_LOGICAL_SIZE = 24
-const ICON_LOGICAL_PADDING = 2
-/** Glyph + backing colors — dark glyph on a white disc reads on any basemap. */
-const ICON_GLYPH_COLOR = '#1f2937'
-const ICON_BACKING_COLOR = 'rgba(255, 255, 255, 0.9)'
+/**
+ * Raster px of the glyph box. Lucide glyphs are 24×24 stroke-width-2 outlines;
+ * rasterizing at 96px makes each stroke ~8px wide — plenty for a clean SDF.
+ * Registered logical size (÷ pixelRatio) must match
+ * {@link DISPLAY_ICON_GLYPH_LOGICAL_PX}, which the shared `icon-size`
+ * expression is calibrated against.
+ */
+const GLYPH_RASTER_PX = DISPLAY_ICON_GLYPH_LOGICAL_PX * ICON_PIXEL_RATIO
+/**
+ * SDF spread radius in raster px. Kept at the tiny-sdf/glyph convention of
+ * ⅓ of the glyph size so MapLibre's SDF shader (tuned for font glyphs)
+ * antialiases these icons like text.
+ */
+const SDF_RADIUS_PX = GLYPH_RASTER_PX / 3
+/** Fraction of the SDF range outside the shape edge (glyph convention). */
+const SDF_CUTOFF = 0.25
+/**
+ * Transparent padding around the glyph so the outward SDF spread
+ * (radius × (1 − cutoff) = 24px) never clips at the canvas edge.
+ */
+const CANVAS_PADDING_PX = SDF_RADIUS_PX * (1 - SDF_CUTOFF)
+const CANVAS_SIZE_PX = GLYPH_RASTER_PX + CANVAS_PADDING_PX * 2
+/** Raster radius of the fallback dot (rendered ≈ 4px at the default radius 6). */
+const FALLBACK_DOT_RADIUS_PX = 28
 
 /** Rasterized-icon cache shared across maps and style reloads. */
 const rasterizedIconCache = new Map<string, Promise<ImageData | null>>()
@@ -72,36 +91,38 @@ function loadSvgImage(svg: string): Promise<HTMLImageElement> {
 	})
 }
 
-/**
- * Rasterize one bundled SVG: substitute `currentColor` with the fixed dark
- * glyph color, then draw the glyph (native stroke-width 2, at 2×) over a
- * subtle white backing circle on a padded transparent canvas.
- */
-async function rasterizeIconSvg(svg: string): Promise<ImageData | null> {
-	if (!canRasterize()) return null
-	const image = await loadSvgImage(svg.replaceAll('currentColor', ICON_GLYPH_COLOR))
-
-	const glyphSizePx = ICON_LOGICAL_SIZE * ICON_PIXEL_RATIO
-	const canvasSizePx = (ICON_LOGICAL_SIZE + ICON_LOGICAL_PADDING * 2) * ICON_PIXEL_RATIO
-	const paddingPx = ICON_LOGICAL_PADDING * ICON_PIXEL_RATIO
-
-	const out = createCanvas(canvasSizePx)
-	if (!out) return null
-
-	const center = canvasSizePx / 2
-	out.ctx.beginPath()
-	out.ctx.arc(center, center, canvasSizePx / 2, 0, Math.PI * 2)
-	out.ctx.fillStyle = ICON_BACKING_COLOR
-	out.ctx.fill()
-	out.ctx.drawImage(image, paddingPx, paddingPx, glyphSizePx, glyphSizePx)
-
-	return out.ctx.getImageData(0, 0, canvasSizePx, canvasSizePx)
+/** Convert a drawn alpha mask into an SDF ImageData ready for `addImage`. */
+function sdfImageDataFromCanvas(ctx: CanvasRenderingContext2D, sizePx: number): ImageData {
+	const mask = ctx.getImageData(0, 0, sizePx, sizePx)
+	const sdf = alphaMaskToSdfData(mask.data, sizePx, sizePx, {
+		radius: SDF_RADIUS_PX,
+		cutoff: SDF_CUTOFF,
+	})
+	return new ImageData(sdf, sizePx, sizePx)
 }
 
 /**
- * Fallback marker: the default point circle (blue dot, white ring), drawn
- * synchronously so it can be registered before any symbol layer needs it.
- * Matches DEFAULT_POINT_STYLE so an unknown icon degrades to a normal point.
+ * Rasterize one bundled SVG to an alpha mask (glyph color is irrelevant —
+ * only coverage is read) and convert it into an SDF image. The actual glyph
+ * color comes from the symbol layer's data-driven `icon-color`.
+ */
+async function rasterizeIconSvg(svg: string): Promise<ImageData | null> {
+	if (!canRasterize()) return null
+	// `currentColor` resolves inconsistently inside <img>-loaded SVGs; pin it.
+	const image = await loadSvgImage(svg.replaceAll('currentColor', '#000'))
+
+	const out = createCanvas(CANVAS_SIZE_PX)
+	if (!out) return null
+
+	out.ctx.drawImage(image, CANVAS_PADDING_PX, CANVAS_PADDING_PX, GLYPH_RASTER_PX, GLYPH_RASTER_PX)
+	return sdfImageDataFromCanvas(out.ctx, CANVAS_SIZE_PX)
+}
+
+/**
+ * Fallback marker: a plain filled dot, drawn synchronously so it can be
+ * registered before any symbol layer needs it. SDF like the real glyphs, so
+ * an unknown icon id degrades to a visible dot tinted by the same
+ * `icon-color` expression, sitting on the same circle-layer disc.
  */
 function getFallbackMarkerImageData(): ImageData | null {
 	if (fallbackImageData !== undefined) return fallbackImageData
@@ -110,23 +131,16 @@ function getFallbackMarkerImageData(): ImageData | null {
 		return null
 	}
 
-	const logicalSize = ICON_LOGICAL_SIZE + ICON_LOGICAL_PADDING * 2
-	const sizePx = logicalSize * ICON_PIXEL_RATIO
-	const drawn = createCanvas(sizePx)
+	const drawn = createCanvas(CANVAS_SIZE_PX)
 	if (!drawn) return null
 
-	const center = sizePx / 2
-	const radiusPx = 6 * ICON_PIXEL_RATIO
-	const strokePx = 2 * ICON_PIXEL_RATIO
+	const center = CANVAS_SIZE_PX / 2
 	drawn.ctx.beginPath()
-	drawn.ctx.arc(center, center, radiusPx, 0, Math.PI * 2)
-	drawn.ctx.fillStyle = '#1d4ed8'
+	drawn.ctx.arc(center, center, FALLBACK_DOT_RADIUS_PX, 0, Math.PI * 2)
+	drawn.ctx.fillStyle = '#000'
 	drawn.ctx.fill()
-	drawn.ctx.lineWidth = strokePx
-	drawn.ctx.strokeStyle = '#ffffff'
-	drawn.ctx.stroke()
 
-	fallbackImageData = drawn.ctx.getImageData(0, 0, sizePx, sizePx)
+	fallbackImageData = sdfImageDataFromCanvas(drawn.ctx, CANVAS_SIZE_PX)
 	return fallbackImageData
 }
 
@@ -142,6 +156,8 @@ function getOwnedIds(map: MapLibreMap): Set<string> {
 /**
  * Register (or replace a foreign placeholder for) an image id. Style reloads
  * wipe images, so ownership alone is not enough — the map is always asked.
+ * Everything this module registers is SDF (a symbol layer cannot mix SDF and
+ * non-SDF images).
  */
 function addOrReplaceImage(map: MapLibreMap, id: string, data: ImageData, own: boolean): void {
 	try {
@@ -150,7 +166,7 @@ function addOrReplaceImage(map: MapLibreMap, id: string, data: ImageData, own: b
 			if (owned.has(id)) return
 			map.removeImage(id)
 		}
-		map.addImage(id, data, { pixelRatio: ICON_PIXEL_RATIO })
+		map.addImage(id, data, { pixelRatio: ICON_PIXEL_RATIO, sdf: true })
 		if (own) owned.add(id)
 	} catch {
 		// Map may have been removed mid-flight.

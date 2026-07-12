@@ -35,7 +35,8 @@ function InlineIconSvg({ iconId, className }: { iconId: string; className?: stri
 /**
  * "Icon" style row for Point features: a popover with a searchable grid of the
  * bundled Lucide icons (Phase 1 `lucide:<name>` namespace) plus a clear action.
- * Points with an icon render it on the map instead of the plain circle.
+ * Points with an icon render it on the map as a glyph (tinted by the point's
+ * stroke color) on the color-filled disc.
  */
 export function DisplayIconPickerControl({ value, onChange }: DisplayIconPickerControlProps) {
 	const [open, setOpen] = useState(false)

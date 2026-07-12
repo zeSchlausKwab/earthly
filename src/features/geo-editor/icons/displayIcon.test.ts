@@ -3,7 +3,8 @@ import {
 	BUNDLED_DISPLAY_ICON_IDS,
 	DISPLAY_ICON_PROPERTY,
 	FALLBACK_ICON_IMAGE_ID,
-	circleOpacityHidingIconedPoints,
+	displayIconColorExpression,
+	displayIconDiscRadiusExpression,
 	displayIconImageExpression,
 	displayIconSizeExpression,
 	getDisplayIconSvg,
@@ -11,6 +12,8 @@ import {
 	isBundledDisplayIcon,
 	lucideIconId,
 	parseDisplayIcon,
+	pointLabelAnchorExpression,
+	pointLabelRadialOffsetExpression,
 	validateDisplayIconValue,
 } from './displayIcon'
 import { LUCIDE_ICON_NAMES } from './lucideIcons'
@@ -93,12 +96,19 @@ describe('MapLibre expression builders', () => {
 		])
 	})
 
-	it('icon-size scales off the radius style property', () => {
-		expect(displayIconSizeExpression()).toEqual(['*', ['coalesce', ['get', 'radius'], 6], 0.125])
+	// 2.4 px-per-radius-unit ÷ 48 logical glyph px ≈ 0.05.
+	const ICON_SIZE_FACTOR = 2.4 / 48
+
+	it('icon-size scales off the radius style property (glyph ≈ 2.4 × radius px)', () => {
+		expect(displayIconSizeExpression()).toEqual([
+			'*',
+			['coalesce', ['get', 'radius'], 6],
+			ICON_SIZE_FACTOR,
+		])
 	})
 
 	it('icon-size active boost wraps the base expression in an active case', () => {
-		const base = ['*', ['coalesce', ['get', 'radius'], 6], 0.125]
+		const base = ['*', ['coalesce', ['get', 'radius'], 6], ICON_SIZE_FACTOR]
 		expect(displayIconSizeExpression({ activeBoost: true })).toEqual([
 			'case',
 			['==', ['get', 'active'], true],
@@ -107,12 +117,60 @@ describe('MapLibre expression builders', () => {
 		])
 	})
 
-	it('circle opacity zeroes out iconed points and keeps plain points visible', () => {
-		expect(circleOpacityHidingIconedPoints()).toEqual([
+	it('icon-color tints the SDF glyph with strokeColor, white fallback', () => {
+		expect(displayIconColorExpression()).toEqual(['coalesce', ['get', 'strokeColor'], '#ffffff'])
+	})
+
+	it('icon-color activeColor overrides the tint while the feature is active', () => {
+		expect(displayIconColorExpression({ activeColor: '#ffffff' })).toEqual([
 			'case',
-			['has', DISPLAY_ICON_PROPERTY],
+			['==', ['get', 'active'], true],
+			'#ffffff',
+			['coalesce', ['get', 'strokeColor'], '#ffffff'],
+		])
+	})
+
+	it('disc radius scales the point radius up so the glyph + ring fit', () => {
+		expect(displayIconDiscRadiusExpression()).toEqual([
+			'*',
+			['coalesce', ['get', 'radius'], 6],
+			1.75,
+		])
+	})
+
+	it('disc radius active boost matches the icon-size active boost', () => {
+		const base = ['*', ['coalesce', ['get', 'radius'], 6], 1.75]
+		expect(displayIconDiscRadiusExpression({ activeBoost: true })).toEqual([
+			'case',
+			['==', ['get', 'active'], true],
+			['*', base, 1.25],
+			base,
+		])
+	})
+
+	it('point labels anchor below the marker, non-points stay centered', () => {
+		const isPoint = [
+			'any',
+			['==', ['geometry-type'], 'Point'],
+			['==', ['geometry-type'], 'MultiPoint'],
+		]
+		expect(pointLabelAnchorExpression()).toEqual(['case', isPoint, 'top', 'center'])
+	})
+
+	it('label radial offset clears the icon disc for iconed points and the circle for plain ones', () => {
+		const isPoint = [
+			'any',
+			['==', ['geometry-type'], 'Point'],
+			['==', ['geometry-type'], 'MultiPoint'],
+		]
+		const radius = ['coalesce', ['get', 'radius'], 6]
+		expect(pointLabelRadialOffsetExpression(12)).toEqual([
+			'case',
+			['all', isPoint, ['has', DISPLAY_ICON_PROPERTY]],
+			['/', ['+', ['*', radius, 1.75], 4], 12],
+			isPoint,
+			['/', ['+', radius, 4], 12],
 			0,
-			1,
 		])
 	})
 })
