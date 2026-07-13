@@ -150,4 +150,25 @@ describe('parseInlineTokens nostr:naddr references', () => {
 			tokens.some((token) => token.type === 'link' && token.url === 'https://example.com/x'),
 		).toBe(true)
 	})
+
+	test('a code span that is exactly one reference renders as a mention pill', () => {
+		const tokens = parseInlineTokens(`the network: \`nostr:${NADDR}\` .`, availableFeatures)
+		const [mention] = mentions(tokens)
+		expect(mention).toMatchObject({ address: NADDR, displayName: 'Anchorage Lanes' })
+		expect(tokens.some((token) => token.type === 'code')).toBe(false)
+	})
+
+	test('backticked reference variants: bare naddr and #featureId fragment', () => {
+		const bare = mentions(parseInlineTokens(`\`${NADDR}\``, availableFeatures))
+		expect(bare[0]).toMatchObject({ address: NADDR })
+
+		const withFeature = mentions(parseInlineTokens(`\`nostr:${NADDR}#feat-12\``, availableFeatures))
+		expect(withFeature[0]).toMatchObject({ address: NADDR, featureId: 'feat-12' })
+	})
+
+	test('mixed-content code spans stay code', () => {
+		const tokens = parseInlineTokens(`\`load nostr:${NADDR} now\``, availableFeatures)
+		expect(tokens.some((token) => token.type === 'code')).toBe(true)
+		expect(mentions(tokens)).toHaveLength(0)
+	})
 })

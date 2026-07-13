@@ -66,7 +66,7 @@ function explicitlyConfirmsOverwrite(message: string | undefined): boolean {
 }
 
 const MENTION_SYNTAX_HINT =
-	'Cite entities inline in the Markdown as nostr:naddr1… (append #featureId to point at one feature inside a dataset). On publish these mentions are mirrored into queryable references automatically.'
+	'Cite entities inline in the Markdown as nostr:naddr1… written BARE in prose — never wrapped in backticks/code spans or bold (append #featureId to point at one feature inside a dataset). On publish these mentions are mirrored into queryable references automatically and render as interactive pills.'
 
 const REVIEW_HINT =
 	'Draft saved locally and the Story editor is now open on the left with the draft loaded. Tell the user to review it there and publish when ready — publishing is always their action.'

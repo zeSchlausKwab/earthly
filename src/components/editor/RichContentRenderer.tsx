@@ -202,10 +202,29 @@ export function parseInlineTokens(
 				url: cleanUrl,
 			})
 		} else if (groups.code) {
-			tokens.push({
-				type: 'code',
-				value: groups.code.slice(1, -1),
-			})
+			const codeValue = groups.code.slice(1, -1)
+			// AI-composed prose habitually wraps references in backticks
+			// (`nostr:naddr1…`). A code span that is EXACTLY one reference renders
+			// as the mention pill; mixed-content code spans stay code.
+			const codeMention = codeValue
+				.trim()
+				.match(/^(?:nostr:)?(naddr1[a-z0-9]+)(?:#([a-zA-Z0-9_-]+))?$/i)
+			if (codeMention?.[1]) {
+				const address = codeMention[1]
+				const featureId = codeMention[2] || undefined
+				tokens.push({
+					type: 'mention',
+					value: matchedValue,
+					address,
+					featureId,
+					displayName: resolveMentionLabel(address, featureId, availableFeatures),
+				})
+			} else {
+				tokens.push({
+					type: 'code',
+					value: codeValue,
+				})
+			}
 		} else if (groups.strong) {
 			const inner = groups.strong.slice(2, -2)
 			tokens.push({
