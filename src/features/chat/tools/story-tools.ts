@@ -18,6 +18,7 @@
  * level (the model must read the draft and confirm with the user first).
  */
 
+import { requestOpenStoryEditor } from '@/features/geo-editor/storyEditorBridge'
 import { NEW_STORY_DRAFT_KEY, readStoryDraft, writeStoryDraft } from '@/lib/nostr/story'
 import type { ToolEntry } from './registry'
 import type { Tool } from './types'
@@ -57,11 +58,18 @@ function optionalString(value: unknown, name: string, max: number): string | und
 	return value.trim() || undefined
 }
 
+function explicitlyConfirmsOverwrite(message: string | undefined): boolean {
+	if (!message) return false
+	const normalized = message.trim().toLowerCase()
+	if (/\b(?:do not|don't|dont|never)\s+(?:overwrite|replace)\b/.test(normalized)) return false
+	return /\boverwrite\b/.test(normalized) || /\breplace\b[^.\n]{0,40}\bdraft\b/.test(normalized)
+}
+
 const MENTION_SYNTAX_HINT =
-	'Cite entities inline in the Markdown as nostr:naddr1… (append #featureId to point at one feature inside a dataset). On publish these mentions are mirrored into queryable references automatically.'
+	'Cite entities inline in the Markdown as nostr:naddr1… written BARE in prose — never wrapped in backticks/code spans or bold (append #featureId to point at one feature inside a dataset). On publish these mentions are mirrored into queryable references automatically and render as interactive pills.'
 
 const REVIEW_HINT =
-	'Draft saved locally. Tell the user to open Stories → New story to review and publish it — publishing is always their action. If the editor panel was already open, they should reopen it to pick up the new draft.'
+	'Draft saved locally and the Story editor is now open on the left with the draft loaded. Tell the user to review it there and publish when ready — publishing is always their action.'
 
 const readStoryDraftSchema: Tool = {
 	type: 'function',
@@ -134,20 +142,24 @@ export function registerStoryTools(register: (entry: ToolEntry) => void): void {
 		name: 'write_story_draft',
 		kind: 'host-builtin',
 		schema: writeStoryDraftSchema,
-		handler: async (args) => {
+		handler: async (args, context) => {
 			const title = requireString(args.title, 'title', MAX_TITLE_CHARS)
 			const markdown = requireString(args.markdown, 'markdown', MAX_BODY_CHARS)
 			const summary = optionalString(args.summary, 'summary', MAX_SUMMARY_CHARS)
 			const image = optionalString(args.image, 'image', MAX_TITLE_CHARS)
 
 			const existing = readStoryDraft(NEW_STORY_DRAFT_KEY)
-			if (existing && !sessionOwnsDraft && args.overwrite !== true) {
+			if (
+				existing &&
+				!sessionOwnsDraft &&
+				(args.overwrite !== true || !explicitlyConfirmsOverwrite(context?.userMessage))
+			) {
 				const existingChars = existing.content?.length ?? 0
 				throw new Error(
 					`A draft already exists (title: ${JSON.stringify(existing.title ?? 'untitled')}, ` +
 						`${existingChars} chars, updated ${new Date(existing.updatedAt).toISOString()}) ` +
 						'and was not written by this session. Call read_story_draft, preserve or merge ' +
-						'what the user wrote, and pass overwrite: true only after confirming with the user.',
+						'what the user wrote, and pass overwrite: true only after the user explicitly confirms overwrite.',
 				)
 			}
 
@@ -158,6 +170,10 @@ export function registerStoryTools(register: (entry: ToolEntry) => void): void {
 				content: markdown,
 			})
 			sessionOwnsDraft = true
+
+			// Surface the draft: open the Story editor in create mode (or re-run its
+			// pre-fill if it is already open) so the user never has to hunt for it.
+			requestOpenStoryEditor()
 
 			return {
 				ok: true,

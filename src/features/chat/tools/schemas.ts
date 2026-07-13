@@ -1182,7 +1182,9 @@ export const geoStaticToolSchemas: Tool[] = [
 				'every matching feature across the full dataset — this is ONE rule pass, NOT a per-feature ' +
 				'recolor loop. Features matching no bucket are LEFT UNTOUCHED unless you supply a `fallback`. ' +
 				'Style keys MUST be canonical: color, fillColor, strokeColor, fillOpacity, strokeOpacity, ' +
-				'strokeWidth, radius, label (aliases fill/stroke/width/opacity are accepted). An unknown key ' +
+				'strokeWidth, radius, label, displayIcon. For Point icons, displayIcon must be a bundled ' +
+				'Lucide id such as `lucide:tree-pine` or `lucide:anchor` (never a URL). Aliases ' +
+				'fill/stroke/width/opacity are accepted. An unknown key ' +
 				'is rejected so you can correct it. Styles persist as plain properties and survive save/reload. ' +
 				'Changes pass through the diff/preview safety gate.',
 			parameters: {
@@ -1234,7 +1236,7 @@ export const geoStaticToolSchemas: Tool[] = [
 								style: {
 									type: 'object',
 									description:
-										'Canonical style keys: color, fillColor, strokeColor, fillOpacity, strokeOpacity, strokeWidth, radius, label.',
+										'Canonical style keys: color, fillColor, strokeColor, fillOpacity, strokeOpacity, strokeWidth, radius, label, displayIcon (`lucide:<name>` for Point features).',
 									additionalProperties: true,
 								},
 							},
@@ -1248,7 +1250,8 @@ export const geoStaticToolSchemas: Tool[] = [
 						properties: {
 							style: {
 								type: 'object',
-								description: 'Canonical style keys (same set as a bucket style).',
+								description:
+									'Canonical style keys (same set as a bucket style, including displayIcon as `lucide:<name>`).',
 								additionalProperties: true,
 							},
 						},

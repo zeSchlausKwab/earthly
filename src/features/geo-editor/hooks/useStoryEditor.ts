@@ -1,6 +1,7 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Article } from '@/lib/nostr/article'
 import { useEditorStore, type SidebarViewMode } from '../store'
+import { getStoryEditorOpenRequest, subscribeStoryEditorOpenRequests } from '../storyEditorBridge'
 
 interface UseStoryEditorParams {
 	isMobile: boolean
@@ -110,6 +111,22 @@ export function useStoryEditor({
 		isMobile,
 		setShowInfoPanel,
 	])
+
+	// Chat seam: the `write_story_draft` tool cannot reach this hook's local
+	// `storyEditorMode`, so it fires a module-level open request instead
+	// (storyEditorBridge). Honor each NEW request by opening the Story editor in
+	// create mode — StoryEditorPanel pre-fills from the freshly written draft.
+	// The consumed-nonce ref starts at the CURRENT nonce so a stale request from
+	// a previous mount (e.g. HMR remount) never re-opens the editor.
+	const consumedStoryOpenNonceRef = useRef(getStoryEditorOpenRequest()?.nonce ?? 0)
+	useEffect(() => {
+		return subscribeStoryEditorOpenRequests(() => {
+			const request = getStoryEditorOpenRequest()
+			if (!request || request.nonce === consumedStoryOpenNonceRef.current) return
+			consumedStoryOpenNonceRef.current = request.nonce
+			handleCreateStory()
+		})
+	}, [handleCreateStory])
 
 	const handleEditStory = useCallback(
 		(story: Article) => {

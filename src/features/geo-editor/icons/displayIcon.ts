@@ -9,9 +9,12 @@
  * without changing the property shape.
  *
  * Rendering contract (see `core/managers/LayerManager.ts` + `hooks/useMapLayers.ts`):
- * iconed points render as an SVG-derived symbol INSTEAD of the plain circle,
- * and unknown/missing icons fall back to a visible marker image — a point with
- * a bad `displayIcon` must never vanish from the map.
+ * iconed points render as a tintable SDF glyph ON TOP of the circle layer —
+ * the circle becomes a backing disc (`color` fill) with a ring
+ * (`strokeColor`), and the glyph is tinted via `icon-color` from the same
+ * `strokeColor` (white fallback). Unknown/missing icons fall back to a
+ * visible marker image — a point with a bad `displayIcon` must never vanish
+ * from the map.
  */
 
 import type { DataDrivenPropertyValueSpecification, ExpressionSpecification } from 'maplibre-gl'
@@ -95,6 +98,31 @@ export function validateDisplayIconValue(value: unknown): string {
 // LayerManager and the view-mode layers in useMapLayers)
 // ============================================================================
 
+/**
+ * Logical px of the glyph box inside registered displayIcon images. The
+ * raster geometry in `registerDisplayIconImages.ts` derives from this, and
+ * {@link displayIconSizeExpression} converts "desired glyph px" into an
+ * `icon-size` factor with it. Keep the three in sync.
+ */
+export const DISPLAY_ICON_GLYPH_LOGICAL_PX = 48
+
+/** Rendered glyph size ≈ point `radius` × this (px per radius unit). */
+const DISPLAY_ICON_GLYPH_PER_RADIUS = 2.4
+
+/**
+ * Backing-disc radius = point `radius` × this. Sized so the glyph
+ * (2.4 × radius px, Lucide content inset ~1/12 per side) sits comfortably
+ * inside the disc with the `strokeColor` ring visible around it.
+ */
+const DISPLAY_ICON_DISC_RADIUS_FACTOR = 1.75
+
+/** Selected-state boost shared by the glyph and its backing disc. */
+const DISPLAY_ICON_ACTIVE_BOOST = 1.25
+
+/** Glyph/ring color when the feature has no `strokeColor` — there is always a
+ * `color`-filled disc underneath, so white reads on any fill. */
+const DISPLAY_ICON_DEFAULT_GLYPH_COLOR = '#ffffff'
+
 /** Filter clause: the feature carries a displayIcon. */
 export function hasDisplayIconFilter(): ExpressionSpecification {
 	return ['has', DISPLAY_ICON_PROPERTY]
@@ -115,38 +143,118 @@ export function displayIconImageExpression(): DataDrivenPropertyValueSpecificati
 }
 
 /**
- * `icon-size` expression scaled off the point's `radius` style property so an
- * icon reads at roughly the footprint of the circle it replaces (radius 6 →
- * icon-size 0.75 ≈ 18px for the 24px Lucide glyphs). `activeBoost` grows the
- * icon when the editor marks the feature active, mirroring the circle layer's
- * selected-state radius bump.
+ * `icon-size` expression scaled off the point's `radius` style property so the
+ * glyph tracks the disc it sits on (radius 6 → 2.4 × 6 = 14.4px glyph inside a
+ * 10.5px-radius disc). `activeBoost` grows the glyph when the editor marks the
+ * feature active, mirroring the disc's selected-state boost in
+ * {@link displayIconDiscRadiusExpression}.
  */
 export function displayIconSizeExpression(options?: {
 	activeBoost?: boolean
 }): DataDrivenPropertyValueSpecification<number> {
-	const base: ExpressionSpecification = ['*', ['coalesce', ['get', 'radius'], 6], 0.125]
+	const factor = DISPLAY_ICON_GLYPH_PER_RADIUS / DISPLAY_ICON_GLYPH_LOGICAL_PX
+	const base: ExpressionSpecification = ['*', ['coalesce', ['get', 'radius'], 6], factor]
 	if (!options?.activeBoost) {
 		return base as unknown as DataDrivenPropertyValueSpecification<number>
 	}
 	return [
 		'case',
 		['==', ['get', 'active'], true],
-		['*', base, 1.25],
+		['*', base, DISPLAY_ICON_ACTIVE_BOOST],
 		base,
 	] as unknown as DataDrivenPropertyValueSpecification<number>
 }
 
 /**
- * Opacity expression for the circle layers: hide the plain circle when the
- * point renders as an icon. The circle stays in the layer (opacity 0) so the
- * editor's `queryRenderedFeatures` hit-testing and existing interaction
- * bindings keep working unchanged.
+ * `icon-color` paint expression for the SDF glyph (and the SDF fallback dot):
+ * the feature's `strokeColor` with a white fallback, so the glyph color always
+ * matches the ring around the backing disc. `activeColor`, when given,
+ * overrides the tint while the editor marks the feature active (the disc turns
+ * selection-blue, so the glyph flips to a fixed high-contrast color).
  */
-export function circleOpacityHidingIconedPoints(): DataDrivenPropertyValueSpecification<number> {
+export function displayIconColorExpression(options?: {
+	activeColor?: string
+}): DataDrivenPropertyValueSpecification<string> {
+	const base: ExpressionSpecification = [
+		'coalesce',
+		['get', 'strokeColor'],
+		DISPLAY_ICON_DEFAULT_GLYPH_COLOR,
+	]
+	if (!options?.activeColor) {
+		return base as unknown as DataDrivenPropertyValueSpecification<string>
+	}
 	return [
 		'case',
-		hasDisplayIconFilter(),
+		['==', ['get', 'active'], true],
+		options.activeColor,
+		base,
+	] as unknown as DataDrivenPropertyValueSpecification<string>
+}
+
+/** Point-geometry test shared by the label-placement builders. */
+const IS_POINT_GEOMETRY: ExpressionSpecification = [
+	'any',
+	['==', ['geometry-type'], 'Point'],
+	['==', ['geometry-type'], 'MultiPoint'],
+]
+
+/**
+ * `text-anchor` for feature-label layers: point features hang their label BELOW
+ * the marker ('top' anchor = text below the anchor point) so the glyph/circle
+ * stays readable; line/polygon labels keep the centered placement.
+ */
+export function pointLabelAnchorExpression(): DataDrivenPropertyValueSpecification<string> {
+	return [
+		'case',
+		IS_POINT_GEOMETRY,
+		'top',
+		'center',
+	] as unknown as DataDrivenPropertyValueSpecification<string>
+}
+
+/**
+ * `text-radial-offset` (ems) clearing the marker under a below-anchored label:
+ * iconed points clear their backing disc (radius × disc factor), plain points
+ * their circle, both plus stroke + breathing room. Zero for non-points, whose
+ * labels stay centered.
+ */
+export function pointLabelRadialOffsetExpression(
+	textSizePx = 12,
+): DataDrivenPropertyValueSpecification<number> {
+	const radius: ExpressionSpecification = ['coalesce', ['get', 'radius'], 6]
+	const clearancePx = 4 // default stroke width (2) + gap
+	return [
+		'case',
+		['all', IS_POINT_GEOMETRY, hasDisplayIconFilter()],
+		['/', ['+', ['*', radius, DISPLAY_ICON_DISC_RADIUS_FACTOR], clearancePx], textSizePx],
+		IS_POINT_GEOMETRY,
+		['/', ['+', radius, clearancePx], textSizePx],
 		0,
-		1,
+	] as unknown as DataDrivenPropertyValueSpecification<number>
+}
+
+/**
+ * `circle-radius` branch for ICONED points: the circle layer doubles as the
+ * icon's backing disc (`circle-color` = feature fill, `circle-stroke-color` =
+ * ring), so it renders larger than the point's plain-circle footprint to fit
+ * the glyph plus a visible ring. `activeBoost` mirrors the glyph's
+ * selected-state boost so the disc/glyph proportions stay constant.
+ */
+export function displayIconDiscRadiusExpression(options?: {
+	activeBoost?: boolean
+}): DataDrivenPropertyValueSpecification<number> {
+	const base: ExpressionSpecification = [
+		'*',
+		['coalesce', ['get', 'radius'], 6],
+		DISPLAY_ICON_DISC_RADIUS_FACTOR,
+	]
+	if (!options?.activeBoost) {
+		return base as unknown as DataDrivenPropertyValueSpecification<number>
+	}
+	return [
+		'case',
+		['==', ['get', 'active'], true],
+		['*', base, DISPLAY_ICON_ACTIVE_BOOST],
+		base,
 	] as unknown as DataDrivenPropertyValueSpecification<number>
 }

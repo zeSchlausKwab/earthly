@@ -3,7 +3,8 @@ export {
 	DISPLAY_ICON_PROPERTY,
 	FALLBACK_ICON_IMAGE_ID,
 	LUCIDE_NAMESPACE,
-	circleOpacityHidingIconedPoints,
+	displayIconColorExpression,
+	displayIconDiscRadiusExpression,
 	displayIconImageExpression,
 	displayIconSizeExpression,
 	getDisplayIconSvg,
@@ -11,6 +12,8 @@ export {
 	isBundledDisplayIcon,
 	lucideIconId,
 	parseDisplayIcon,
+	pointLabelAnchorExpression,
+	pointLabelRadialOffsetExpression,
 	validateDisplayIconValue,
 } from './displayIcon'
 export { LUCIDE_ICON_NAMES, LUCIDE_ICONS, type LucideIconName } from './lucideIcons'

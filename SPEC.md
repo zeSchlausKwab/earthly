@@ -158,7 +158,7 @@ Individual features inside the FeatureCollection MAY carry canonical style prope
 
 - Value format is `<namespace>:<name>`. **Phase 1 defines a single namespace, `lucide:`**, whose names are the client's bundled subset of the [Lucide icon set](https://lucide.dev) (ISC; see `src/features/geo-editor/icons/lucideIcons.ts` for the curated list, e.g. `lucide:anchor`, `lucide:hospital`, `lucide:tent`).
 - The namespace prefix is forward-compatible: a later phase may add a remote-URL namespace (`https://…` icon sources). Clients MUST treat unrecognized namespaces/names as "no icon they can resolve" and MUST fall back to a **visible** default marker — a point with an unknown `displayIcon` must never disappear from the map.
-- `displayIcon` composes with the other point style properties: `radius` scales the icon footprint, and `label` still renders. `color`/`strokeColor` continue to describe the circle fallback.
+- `displayIcon` composes with the other point style properties: `radius` scales the icon footprint, and `label` still renders. The reference renderer derives the glyph and the ring around the backing disc from `strokeColor` (white when unset) and fills the disc itself with `color`, so per-feature category colors stay visible on iconed points.
 
 ---
 

@@ -217,18 +217,7 @@ export function getCompactMapContextForTool(snapshot: ReturnType<typeof getMapCo
 export function createMapContextSystemMessage(): ChatMessage | null {
 	const snapshot = getMapContextSnapshot()
 	const compact = getCompactMapContextForPrompt(snapshot)
-	// One line per entity the user published THIS session — lets "write the
-	// article about what I just published" resolve fresh naddrs without the
-	// user re-attaching them (deliberately tiny; capped in sessionPublishes.ts).
-	const sessionPublishes = getSessionPublishes()
-	const sessionPublishBlock =
-		sessionPublishes.length > 0
-			? `Entities the user published THIS session (freshest references — prefer these when the user refers to "what I just published"):\n${sessionPublishes
-					.map(
-						(entry) => `- [${entry.type}] "${entry.name}" → ${entry.mention ?? entry.coordinate}`,
-					)
-					.join('\n')}`
-			: null
+	const sessionPublishBlock = buildSessionPublishContextMessage()
 	return {
 		role: 'system',
 		content: [
@@ -238,6 +227,7 @@ export function createMapContextSystemMessage(): ChatMessage | null {
 			'If the user asks to draw/create/edit map features, call tools instead of replying that you cannot edit the map.',
 			'For draw requests, generate GeoJSON yourself and call add_feature_to_editor or write_geojson_to_editor directly.',
 			'To name or describe the dataset (or set collection-level properties), call set_dataset_metadata — or authoring.setDatasetMetadata(...) inside run_code. Do NOT stamp dataset_name/dataset_description onto every feature. Read the current dataset name/description from get_editor_state (datasetMetadata) before changing it.',
+			'For a Point icon, style the feature with displayIcon using a bundled Lucide id such as `lucide:tree-pine` or `lucide:anchor`; do not substitute emoji labels, colors, or image URLs.',
 			'For many OSM features in an area (e.g. all military bases in viewport), prefer import_osm_to_editor with filters and bbox/point instead of embedding large GeoJSON argument strings.',
 			'For polygon-constrained searches (selected polygon, country border, custom area), prefer query_osm_area.',
 			'Do not call query_osm_area as an unfiltered scan. Always include filters, filterSets, or concept.',
@@ -273,6 +263,15 @@ export function createMapContextSystemMessage(): ChatMessage | null {
 			`Current map state JSON:\n${JSON.stringify(compact)}`,
 		].join('\n\n'),
 	}
+}
+
+/** Compact model-facing breadcrumb block for the current request. */
+export function buildSessionPublishContextMessage(): string | undefined {
+	const sessionPublishes = getSessionPublishes()
+	if (sessionPublishes.length === 0) return undefined
+	return `Entities the user published THIS session (freshest references — prefer these when the user refers to "what I just published"):\n${sessionPublishes
+		.map((entry) => `- [${entry.type}] "${entry.name}" → ${entry.mention ?? entry.coordinate}`)
+		.join('\n')}`
 }
 
 export function pruneSnapshotCache() {

@@ -1,10 +1,13 @@
 import type { FeatureCollection } from 'geojson'
 import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl'
 import {
-	circleOpacityHidingIconedPoints,
+	displayIconColorExpression,
+	displayIconDiscRadiusExpression,
 	displayIconImageExpression,
 	displayIconSizeExpression,
 	hasDisplayIconFilter,
+	pointLabelAnchorExpression,
+	pointLabelRadialOffsetExpression,
 } from '../../icons/displayIcon'
 
 const FALLBACK_TEXT_FONT_STACK = ['Open Sans Regular', 'Arial Unicode MS Regular']
@@ -302,11 +305,19 @@ export class LayerManager {
 						['!=', ['get', 'featureType'], 'annotation'],
 					],
 					paint: {
+						// Iconed points reuse this circle as the glyph's backing disc:
+						// larger radius so the SDF glyph (LAYER_POINT_ICON above) sits
+						// inside with the strokeColor ring visible around it.
 						'circle-radius': [
 							'case',
-							['==', ['get', 'active'], true],
-							['+', ['coalesce', ['get', 'radius'], 6], 2],
-							['coalesce', ['get', 'radius'], 6],
+							hasDisplayIconFilter(),
+							displayIconDiscRadiusExpression({ activeBoost: true }),
+							[
+								'case',
+								['==', ['get', 'active'], true],
+								['+', ['coalesce', ['get', 'radius'], 6], 2],
+								['coalesce', ['get', 'radius'], 6],
+							],
 						],
 						'circle-color': [
 							'case',
@@ -326,16 +337,13 @@ export class LayerManager {
 							'#93c5fd',
 							['coalesce', ['get', 'strokeColor'], '#fff'],
 						],
-						// Iconed points render via LAYER_POINT_ICON instead; the circle
-						// stays in this layer at opacity 0 so hit-testing keeps working.
-						'circle-opacity': circleOpacityHidingIconedPoints(),
-						'circle-stroke-opacity': circleOpacityHidingIconedPoints(),
 					},
 				})
 			}
 
 			// 5a. Point icon layer — points whose `displayIcon` style property is
-			// set render as an SVG-derived symbol instead of the plain circle.
+			// set render an SDF glyph tinted with the feature's `strokeColor`
+			// on top of the circle layer's color-filled disc + strokeColor ring.
 			// Unknown/unregistered icon ids resolve to the always-registered
 			// fallback marker via the `coalesce`/`image` expression, so a point
 			// can never silently vanish (see icons/registerDisplayIconImages.ts).
@@ -356,6 +364,10 @@ export class LayerManager {
 						'icon-size': displayIconSizeExpression({ activeBoost: true }),
 						'icon-allow-overlap': true,
 						'icon-ignore-placement': true,
+					},
+					paint: {
+						// Active glyphs go white — the disc turns selection-blue.
+						'icon-color': displayIconColorExpression({ activeColor: '#ffffff' }),
 					},
 				})
 			}
@@ -442,7 +454,10 @@ export class LayerManager {
 						'text-field': ['get', 'label'],
 						'text-font': annotationTextFont,
 						'text-size': 12,
-						'text-anchor': 'center',
+						// Point labels hang below the marker (clearing the icon disc)
+						// so the glyph stays readable; line/polygon labels stay centered.
+						'text-anchor': pointLabelAnchorExpression(),
+						'text-radial-offset': pointLabelRadialOffsetExpression(12),
 						'text-allow-overlap': false,
 						'text-ignore-placement': false,
 					},

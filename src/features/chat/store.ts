@@ -23,11 +23,13 @@ import {
 } from './routstr'
 import {
 	createMapContextSystemMessage,
+	buildSessionPublishContextMessage,
 	getGeoTools,
 	executeToolCall,
 	consumeMapSnapshot,
 	compactToolMessageContentForPrompt,
 } from './tools'
+import { appendRequestContextToLatestUserMessage } from './requestContext'
 import { getTokenMetadata } from '@cashu/cashu-ts'
 import {
 	getWalletSnapshot,
@@ -1064,6 +1066,7 @@ const resilientChatStorage = {
 let streamAbortController: AbortController | null = null
 let currentStreamRunId = 0
 let currentStreamingChatId: string | null = null
+let modelsLoadGeneration = 0
 const DETACHED_STREAM_ERROR = 'Chat stream was canceled or detached from its session.'
 
 export const useChatStore = create<ChatStore>()(
@@ -1072,13 +1075,17 @@ export const useChatStore = create<ChatStore>()(
 			...initialState,
 
 			setProvider: (providerType: ProviderType) => {
+				modelsLoadGeneration += 1
 				set({ provider: providerType, models: [], selectedModel: null, modelsError: null })
 				get().loadModels()
 			},
 
 			setProviderOverride: (type: ProviderType, patch: Partial<ProviderOverride>) => {
 				if (type === 'routstr') return
+				modelsLoadGeneration += 1
 				set((state) => ({
+					modelsLoading: false,
+					modelsError: null,
 					providerOverrides: {
 						...state.providerOverrides,
 						[type]: { ...state.providerOverrides[type], ...patch },
@@ -1087,6 +1094,8 @@ export const useChatStore = create<ChatStore>()(
 			},
 
 			loadModels: async () => {
+				const generation = modelsLoadGeneration + 1
+				modelsLoadGeneration = generation
 				const { provider, providerOverrides } = get()
 				const providerConfig = resolveProvider(provider, providerOverrides)
 
@@ -1098,6 +1107,7 @@ export const useChatStore = create<ChatStore>()(
 				set({ modelsLoading: true, modelsError: null })
 				try {
 					const models = await fetchModels(providerConfig)
+					if (modelsLoadGeneration !== generation) return
 					// An empty list must be recorded as an ERROR, not left as
 					// `{ models: [], modelsError: null }`. The ChatPanel mount effect
 					// re-runs loadModels whenever `models.length === 0 && !modelsLoading &&
@@ -1122,6 +1132,7 @@ export const useChatStore = create<ChatStore>()(
 								: (models[0]?.id ?? null),
 					})
 				} catch (err) {
+					if (modelsLoadGeneration !== generation) return
 					const message = err instanceof Error ? err.message : 'Failed to load models'
 					set({ modelsLoading: false, modelsError: message })
 				}
@@ -1142,6 +1153,9 @@ export const useChatStore = create<ChatStore>()(
 			},
 
 			hydrateSettings: (settings: Partial<ChatSettingsSnapshot>) => {
+				// Invalidate any model request that started under the pre-hydration
+				// provider. Otherwise its late response can replace the imported model.
+				modelsLoadGeneration += 1
 				const incomingOverrides = settings.providerOverrides
 				set({
 					provider: settings.provider ?? DEFAULT_CHAT_SETTINGS.provider,
@@ -1801,6 +1815,10 @@ export const useChatStore = create<ChatStore>()(
 							]
 							oneShotGeometryContextMessage = undefined
 						}
+						requestMessages = appendRequestContextToLatestUserMessage(requestMessages, [
+							referenceContextMessage,
+							buildSessionPublishContextMessage(),
+						])
 						requestMessages = ensureReasoningContentForToolMessages(
 							requestMessages,
 							requiresReasoningContent,
@@ -1881,7 +1899,10 @@ export const useChatStore = create<ChatStore>()(
 								streamWarning:
 									'Context overflow detected. Retrying with a reduced prompt window...',
 							})
-							const emergencyMessages = buildEmergencyRetryMessages(conversationMessages)
+							const emergencyMessages = appendRequestContextToLatestUserMessage(
+								buildEmergencyRetryMessages(conversationMessages),
+								[referenceContextMessage, buildSessionPublishContextMessage()],
+							)
 							// Re-derive the budget for the reduced prompt so a paid retry's
 							// cost estimate matches the smaller request (more room => budget
 							// floored, never starved).
@@ -2003,6 +2024,7 @@ export const useChatStore = create<ChatStore>()(
 								try {
 									toolResult = await executeToolCall(toolCall, {
 										attachedGeometry: geometryAttachment,
+										userMessage: content,
 									})
 								} finally {
 									setPendingDiffToolContext(null)

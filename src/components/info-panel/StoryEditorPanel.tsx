@@ -54,6 +54,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { subscribeStoryEditorOpenRequests } from '@/features/geo-editor/storyEditorBridge'
 import { accounts, eventStore } from '@/lib/nostr'
 import { Article, type ArticleContent, getArticleContent, isArticle } from '@/lib/nostr/article'
 import {
@@ -143,6 +144,25 @@ export function StoryEditorPanel({
 		bodyEditorRef.current?.setContent(next.body)
 		setBodyTab('write')
 		setSaveError(null)
+	}, [initialStory])
+
+	// Chat seam (storyEditorBridge): the panel reads the local draft only on
+	// mount, so when the AI's `write_story_draft` fires while this panel is
+	// ALREADY open in create mode, re-run the pre-fill so the freshly written
+	// draft replaces the stale fields. Published-story edits (initialStory set)
+	// are untouched — the AI tool never writes those draft slots.
+	useEffect(() => {
+		if (initialStory) return
+		return subscribeStoryEditorOpenRequests(() => {
+			const next = readInitialContent(null)
+			setTitle(next.title)
+			setSummary(next.summary)
+			setImage(next.image)
+			setBody(next.body)
+			bodyEditorRef.current?.setContent(next.body)
+			setBodyTab('write')
+			setSaveError(null)
+		})
 	}, [initialStory])
 
 	const draftKey = initial.draftKey

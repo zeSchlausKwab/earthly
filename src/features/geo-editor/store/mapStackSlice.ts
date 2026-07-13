@@ -21,6 +21,11 @@ export const createMapStackSlice: StateCreator<EditorState, [], [], MapStackSlic
 				pinned: input.pinned,
 				isolated: input.isolated ?? existing?.isolated ?? false,
 				exclusions: input.exclusions ?? existing?.exclusions ?? [],
+				// Carrier provenance survives a re-add without it (e.g. a catalog
+				// "add to map" on a dataset a Story already auto-stacked) — the
+				// carrier still references the dataset, so the nested presentation
+				// stays truthful until the carrier's own cleanup removes the entry.
+				via: input.via ?? existing?.via,
 			}
 			return {
 				mapStackEntries: {

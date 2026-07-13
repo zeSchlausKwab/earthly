@@ -17,7 +17,8 @@ export interface PointStyleProperties {
 	radius: number
 	label?: string
 	/**
-	 * Namespaced icon id rendered INSTEAD of the plain circle. Phase 1 accepts
+	 * Namespaced icon id rendered as a `strokeColor`-tinted glyph on a
+	 * `color`-filled backing disc with a `strokeColor` ring. Phase 1 accepts
 	 * only bundled Lucide ids (`lucide:<name>`, e.g. `lucide:anchor`) — see
 	 * `src/features/geo-editor/icons/`. The namespace keeps the value
 	 * forward-compatible with remote URL icons in a later phase.

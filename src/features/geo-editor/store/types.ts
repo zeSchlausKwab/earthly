@@ -132,12 +132,33 @@ export type MapStackEntrySource =
 	 * then survives both Clear and viewport changes like any pinned entry. */
 	| 'geo-query'
 
+/**
+ * Provenance of a CARRIED entry — set when a carrier entity (a Story's
+ * narrative refs today; a context's curated set if it ever surfaces individual
+ * entries) auto-stacks this entry on the user's behalf. The Map Stack panel
+ * nests carried entries under a synthetic carrier row so the user immediately
+ * sees WHY the dataset is on the map ("this story references it") instead of
+ * mystery top-level dataset rows. Purely presentational: map visibility
+ * semantics ignore it, and entries without it render as plain rows (back-compat
+ * for anything added before the field existed).
+ */
+export interface MapStackEntryVia {
+	/** The carrier's kind — what put this entry on the stack. */
+	entityType: 'story' | 'context'
+	/** Carrier identity (`pubkey:d` for a story), stable across renders. */
+	entityKey: string
+	/** Human-readable carrier title for the nested group's header row. */
+	title: string
+}
+
 export interface MapStackEntry {
 	id: string
 	entityType: MapStackEntryType
 	entityKey: string
 	title: string
 	source: MapStackEntrySource
+	/** Set when a carrier entity auto-stacked this entry — see MapStackEntryVia. */
+	via?: MapStackEntryVia
 	visible: boolean
 	pinned: boolean
 	/**
