@@ -852,20 +852,29 @@ export function GeoEditorView() {
 
 	const stance = useEditorStore((state) => state.stance)
 
-	// Mobile: entering the author stance (a geometry draft) surfaces the Map Stack
-	// panel — the draft entry there hosts the editor forms (editor-in-Map-Stack) —
-	// and lifts the sheet to Half. Fires once per transition so the user can still
-	// navigate away while drafting.
+	// Entering the author stance (a geometry draft) surfaces the Map Stack panel —
+	// the draft entry there hosts the editor forms (editor-in-Map-Stack). Mobile
+	// opens the sheet on the map-stack tab at Half; desktop opens the floating
+	// Map Stack panel. The desktop half fixes the "edit UI nowhere / draft not in
+	// the Map Stack" report: with the panel closed, `draftEditorSlot` stays null,
+	// so a freshly started edit session (AI draw in a fresh chat, or a catalog
+	// "Load into editor") had no visible draft entry and its editor either fell
+	// back into the sidebar or rendered nowhere. Fires once per browse/focus →
+	// author transition so the user can still close the panel or navigate away
+	// while drafting.
 	const prevStanceRef = useRef(stance)
 	useEffect(() => {
 		const wasAuthor = prevStanceRef.current === 'author'
 		prevStanceRef.current = stance
-		if (isMobile && stance === 'author' && !wasAuthor) {
+		if (stance !== 'author' || wasAuthor) return
+		if (isMobile) {
 			setMobilePanelTab('map-stack')
 			setMobilePanelOpen(true)
 			setMobilePanelSnap('half')
+			return
 		}
-	}, [isMobile, stance, setMobilePanelTab, setMobilePanelOpen, setMobilePanelSnap])
+		setMapStackOpen(true)
+	}, [isMobile, stance, setMobilePanelTab, setMobilePanelOpen, setMobilePanelSnap, setMapStackOpen])
 
 	// Round C.5: stack ⇄ URL serialization. Read URL params on mount once data
 	// is loaded; afterwards push stack mutations back to the URL (debounced via

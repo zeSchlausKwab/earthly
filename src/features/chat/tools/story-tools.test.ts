@@ -1,4 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
+import {
+	getStoryEditorOpenRequest,
+	resetStoryEditorOpenRequests,
+} from '@/features/geo-editor/storyEditorBridge'
 import type { ToolEntry } from './registry'
 import { registerStoryTools, resetStoryDraftOwnership } from './story-tools'
 import type { ToolExecutionContext } from './types'
@@ -45,6 +49,7 @@ afterAll(() => {
 beforeEach(() => {
 	backing.clear()
 	resetStoryDraftOwnership()
+	resetStoryEditorOpenRequests()
 })
 
 describe('story draft tools', () => {
@@ -125,6 +130,30 @@ describe('story draft tools', () => {
 				{ userMessage: 'Do not overwrite my existing draft.' },
 			),
 		).rejects.toThrow(/confirm/i)
+	})
+
+	it('surfaces the draft: a successful write fires a story-editor open request', async () => {
+		expect(getStoryEditorOpenRequest()).toBeNull()
+
+		await call('write_story_draft', { title: 'Surfaced', markdown: 'body' })
+		const first = getStoryEditorOpenRequest()
+		expect(first?.mode).toBe('create')
+		expect(first?.nonce).toBe(1)
+
+		// A follow-up write fires a NEW nonce so an already-open panel re-prefills.
+		await call('write_story_draft', { title: 'Surfaced v2', markdown: 'body 2' })
+		expect(getStoryEditorOpenRequest()?.nonce).toBe(2)
+	})
+
+	it('does not fire an open request when the overwrite gate rejects the write', async () => {
+		await call('write_story_draft', { title: 'User draft', markdown: 'precious user text' })
+		resetStoryDraftOwnership()
+		resetStoryEditorOpenRequests()
+
+		expect(call('write_story_draft', { title: 'AI draft', markdown: 'new' })).rejects.toThrow(
+			/overwrite/,
+		)
+		expect(getStoryEditorOpenRequest()).toBeNull()
 	})
 
 	it('validates required fields', async () => {

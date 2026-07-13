@@ -48,6 +48,7 @@ export type {
 	MapStackEntry,
 	MapStackEntrySource,
 	MapStackEntryType,
+	MapStackEntryVia,
 	MobilePanelTab,
 	MobilePanelSnap,
 	GeoCollectionEditDraft,

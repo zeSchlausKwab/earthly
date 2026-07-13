@@ -21,6 +21,8 @@ interface RichContentRendererProps {
 interface BaseInlineToken {
 	type: 'text' | 'link' | 'mention' | 'strong' | 'emphasis' | 'code'
 	value: string
+	/** Nested inline tokens (strong/emphasis wrap other inline content, incl. mentions) */
+	children?: InlineToken[]
 }
 
 interface MentionInlineToken extends BaseInlineToken {
@@ -90,7 +92,7 @@ const LABELED_MEDIA_PATTERN = /^(image|video|media)\s*:\s*(https?:\/\/[^\s<>"{}|
 const MEDIA_LABEL_ONLY_PATTERN = /^(image|video|media)\s*:\s*$/i
 const MARKDOWN_IMAGE_PATTERN = /^!\[([^\]]*)\]\((https?:\/\/[^\s<>"{}|\\^`()[\]]+)\)\s*$/i
 const TOKEN_PATTERN =
-	/(\[[^\]]+\]\((https?:\/\/[^\s)]+)\))|(nostr:(naddr1[a-z0-9]+)(#([a-zA-Z0-9_-]+))?)|(https?:\/\/[^\s<>"{}|\\^`[\]]+)|(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\n]+\*)/gi
+	/(?<mentionLink>\[(?<mentionLinkLabel>[^\]]+)\]\(nostr:(?<mentionLinkAddress>naddr1[a-z0-9]+)(?:#(?<mentionLinkFeatureId>[a-zA-Z0-9_-]+))?\))|(?<link>\[(?<linkLabel>[^\]]+)\]\((?<linkUrl>https?:\/\/[^\s)]+)\))|(?<mention>nostr:(?<mentionAddress>naddr1[a-z0-9]+)(?:#(?<mentionFeatureId>[a-zA-Z0-9_-]+))?)|(?<url>https?:\/\/[^\s<>"{}|\\^`[\]]+)|(?<code>`[^`]+`)|(?<strong>\*\*[^*]+\*\*)|(?<emphasis>\*[^*\n]+\*)/gi
 
 function detectMediaType(url: string): 'image' | 'video' | 'youtube' | 'link' {
 	for (const pattern of YOUTUBE_PATTERNS) {
@@ -138,7 +140,10 @@ function resolveMentionLabel(
 	return match?.name ?? 'Reference'
 }
 
-function parseInlineTokens(text: string, availableFeatures: GeoFeatureItem[]): InlineToken[] {
+export function parseInlineTokens(
+	text: string,
+	availableFeatures: GeoFeatureItem[],
+): InlineToken[] {
 	if (!text) return []
 
 	const tokens: InlineToken[] = []
@@ -148,6 +153,7 @@ function parseInlineTokens(text: string, availableFeatures: GeoFeatureItem[]): I
 	for (const match of matches) {
 		const matchedValue = match[0]
 		if (!matchedValue) continue
+		const groups = match.groups ?? {}
 
 		if (match.index > cursor) {
 			tokens.push({
@@ -156,46 +162,63 @@ function parseInlineTokens(text: string, availableFeatures: GeoFeatureItem[]): I
 			})
 		}
 
-		if (match[1] && match[2]) {
-			const linkLabel = matchedValue.slice(1, matchedValue.indexOf(']('))
+		if (groups.mentionLink && groups.mentionLinkAddress) {
+			// Markdown link targeting a nostr reference: [Anchorage lanes](nostr:naddr1…#feat)
+			const address = groups.mentionLinkAddress
+			const featureId = groups.mentionLinkFeatureId || undefined
+			const label = groups.mentionLinkLabel?.trim()
+			const displayName =
+				label && !/^nostr:naddr1/i.test(label)
+					? label
+					: resolveMentionLabel(address, featureId, availableFeatures)
+			tokens.push({
+				type: 'mention',
+				value: matchedValue,
+				address,
+				featureId,
+				displayName,
+			})
+		} else if (groups.link && groups.linkUrl) {
 			tokens.push({
 				type: 'link',
-				value: linkLabel,
-				url: match[2],
+				value: groups.linkLabel ?? groups.link,
+				url: groups.linkUrl,
 			})
-		} else if (match[3]) {
-			const address = match[4]
-			const featureId = match[6] || undefined
-			if (address) {
-				tokens.push({
-					type: 'mention',
-					value: matchedValue,
-					address,
-					featureId,
-					displayName: resolveMentionLabel(address, featureId, availableFeatures),
-				})
-			}
-		} else if (match[7]) {
-			const cleanUrl = match[7].replace(/[.,;:!?)]+$/, '')
+		} else if (groups.mention && groups.mentionAddress) {
+			const address = groups.mentionAddress
+			const featureId = groups.mentionFeatureId || undefined
+			tokens.push({
+				type: 'mention',
+				value: matchedValue,
+				address,
+				featureId,
+				displayName: resolveMentionLabel(address, featureId, availableFeatures),
+			})
+		} else if (groups.url) {
+			const cleanUrl = groups.url.replace(/[.,;:!?)]+$/, '')
 			tokens.push({
 				type: 'link',
 				value: cleanUrl,
 				url: cleanUrl,
 			})
-		} else if (match[8]) {
+		} else if (groups.code) {
 			tokens.push({
 				type: 'code',
-				value: match[8].slice(1, -1),
+				value: groups.code.slice(1, -1),
 			})
-		} else if (match[9]) {
+		} else if (groups.strong) {
+			const inner = groups.strong.slice(2, -2)
 			tokens.push({
 				type: 'strong',
-				value: match[9].slice(2, -2),
+				value: inner,
+				children: parseInlineTokens(inner, availableFeatures),
 			})
-		} else if (match[10]) {
+		} else if (groups.emphasis) {
+			const inner = groups.emphasis.slice(1, -1)
 			tokens.push({
 				type: 'emphasis',
-				value: match[10].slice(1, -1),
+				value: inner,
+				children: parseInlineTokens(inner, availableFeatures),
 			})
 		}
 
@@ -402,7 +425,12 @@ function tokenKey(token: InlineToken): string {
 	return base
 }
 
-function renderInlineToken(token: InlineToken) {
+type MentionCallbacks = Pick<
+	RichContentRendererProps,
+	'onMentionVisibilityToggle' | 'onMentionZoomTo'
+>
+
+function renderInlineToken(token: InlineToken, callbacks: MentionCallbacks) {
 	if (token.type === 'text') {
 		return (
 			<span key={tokenKey(token)} className="whitespace-pre-wrap break-words">
@@ -414,7 +442,7 @@ function renderInlineToken(token: InlineToken) {
 	if (token.type === 'strong') {
 		return (
 			<strong key={tokenKey(token)} className="font-semibold text-foreground">
-				{token.value}
+				{token.children?.length ? renderInlineTokens(token.children, callbacks) : token.value}
 			</strong>
 		)
 	}
@@ -422,7 +450,7 @@ function renderInlineToken(token: InlineToken) {
 	if (token.type === 'emphasis') {
 		return (
 			<em key={tokenKey(token)} className="italic">
-				{token.value}
+				{token.children?.length ? renderInlineTokens(token.children, callbacks) : token.value}
 			</em>
 		)
 	}
@@ -453,22 +481,22 @@ function renderInlineToken(token: InlineToken) {
 		)
 	}
 
-	return <GeoMentionChip key={tokenKey(token)} token={token} />
+	return <GeoMentionChip key={tokenKey(token)} token={token} {...callbacks} />
 }
 
-function GeoMentionChip({ token }: { token: MentionInlineToken }) {
+function GeoMentionChip({
+	token,
+	onMentionVisibilityToggle,
+	onMentionZoomTo,
+}: { token: MentionInlineToken } & MentionCallbacks) {
 	const [isVisible, setIsVisible] = useState(false)
 	const address = token.address ?? ''
 	const featureId = token.featureId
-	const callbacks = token as MentionInlineToken & {
-		onMentionVisibilityToggle?: RichContentRendererProps['onMentionVisibilityToggle']
-		onMentionZoomTo?: RichContentRendererProps['onMentionZoomTo']
-	}
 
 	const handleToggle = () => {
 		const next = !isVisible
 		setIsVisible(next)
-		callbacks.onMentionVisibilityToggle?.(address, featureId, next)
+		onMentionVisibilityToggle?.(address, featureId, next)
 	}
 
 	return (
@@ -477,7 +505,7 @@ function GeoMentionChip({ token }: { token: MentionInlineToken }) {
 			<span className="max-w-[180px] truncate" title={address}>
 				{token.displayName ?? 'Reference'}
 			</span>
-			{callbacks.onMentionVisibilityToggle && (
+			{onMentionVisibilityToggle && (
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<Button
@@ -493,14 +521,14 @@ function GeoMentionChip({ token }: { token: MentionInlineToken }) {
 					<TooltipContent>{isVisible ? 'Hide on map' : 'Show on map'}</TooltipContent>
 				</Tooltip>
 			)}
-			{callbacks.onMentionZoomTo && (
+			{onMentionZoomTo && (
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<Button
 							type="button"
 							variant="ghost"
 							size="icon-xs"
-							onClick={() => callbacks.onMentionZoomTo?.(address, featureId)}
+							onClick={() => onMentionZoomTo?.(address, featureId)}
 							className="h-4 w-4 p-0 text-muted-foreground hover:text-info"
 						>
 							<Maximize2 className="h-3 w-3" />
@@ -597,20 +625,8 @@ function renderMediaBlock(block: MediaBlock, index: number, onImageOpen?: (url: 
 	)
 }
 
-function renderInlineTokens(
-	tokens: InlineToken[],
-	callbacks: Pick<RichContentRendererProps, 'onMentionVisibilityToggle' | 'onMentionZoomTo'>,
-) {
-	return tokens.map((token) => {
-		if (token.type !== 'mention') {
-			return renderInlineToken(token)
-		}
-
-		return renderInlineToken({
-			...token,
-			...callbacks,
-		} as MentionInlineToken)
-	})
+function renderInlineTokens(tokens: InlineToken[], callbacks: MentionCallbacks) {
+	return tokens.map((token) => renderInlineToken(token, callbacks))
 }
 
 export function RichContentRenderer({

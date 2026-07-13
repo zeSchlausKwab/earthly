@@ -546,6 +546,52 @@ export function AppSidebar({
 		viewDataset,
 	])
 
+	useEffect(() => {
+		// A live geometry draft (author stance) is deliberately NOT one of the
+		// inspect subjects above — but nothing kept its editor reachable either.
+		// Loading a dataset for editing clears `viewDataset`, so the reset effect
+		// snapped the sidebar back to the catalog, and with the Map Stack panel
+		// closed (`draftEditorSlot` null — no portal target) the edit UI rendered
+		// NOWHERE. When a draft is live and no other subject/editor owns the
+		// panel, reclaim the geometry surface; and when the Map Stack cannot host
+		// the editor, host it here as the full panel (redesign §9's sidebar
+		// fallback, now deterministic). Declared after the reset effect so this
+		// write wins when both fire in the same commit. Deliberate catalog
+		// browsing (handleSelectWorkMode) changes none of these deps, so
+		// browse-while-editing still works.
+		if (editorStance !== 'author') return
+		const hasInspectSubject = hasActiveInspectSubject({
+			viewContext,
+			viewDataset,
+			viewStory,
+			viewSighting,
+			viewBeacon,
+			contextEditorMode,
+			storyEditorMode,
+			sightingEditorMode,
+			beaconControlMode,
+		})
+		if (hasInspectSubject) return
+		setActiveEntity('geometry')
+		if (!draftEditorSlot && !splitWithEditor && !metaModeActive) {
+			setShowEntityAsFullPanel(true)
+		}
+	}, [
+		editorStance,
+		draftEditorSlot,
+		splitWithEditor,
+		metaModeActive,
+		viewContext,
+		viewDataset,
+		viewStory,
+		viewSighting,
+		viewBeacon,
+		contextEditorMode,
+		storyEditorMode,
+		sightingEditorMode,
+		beaconControlMode,
+	])
+
 	const leaveMetaOverrideIfNeeded = () => {
 		if (metaModeActive) {
 			navigateToView(activeWorkMode)

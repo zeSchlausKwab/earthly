@@ -18,6 +18,7 @@
  * level (the model must read the draft and confirm with the user first).
  */
 
+import { requestOpenStoryEditor } from '@/features/geo-editor/storyEditorBridge'
 import { NEW_STORY_DRAFT_KEY, readStoryDraft, writeStoryDraft } from '@/lib/nostr/story'
 import type { ToolEntry } from './registry'
 import type { Tool } from './types'
@@ -68,7 +69,7 @@ const MENTION_SYNTAX_HINT =
 	'Cite entities inline in the Markdown as nostr:naddr1… (append #featureId to point at one feature inside a dataset). On publish these mentions are mirrored into queryable references automatically.'
 
 const REVIEW_HINT =
-	'Draft saved locally. Tell the user to open Stories → New story to review and publish it — publishing is always their action. If the editor panel was already open, they should reopen it to pick up the new draft.'
+	'Draft saved locally and the Story editor is now open on the left with the draft loaded. Tell the user to review it there and publish when ready — publishing is always their action.'
 
 const readStoryDraftSchema: Tool = {
 	type: 'function',
@@ -169,6 +170,10 @@ export function registerStoryTools(register: (entry: ToolEntry) => void): void {
 				content: markdown,
 			})
 			sessionOwnsDraft = true
+
+			// Surface the draft: open the Story editor in create mode (or re-run its
+			// pre-fill if it is already open) so the user never has to hunt for it.
+			requestOpenStoryEditor()
 
 			return {
 				ok: true,

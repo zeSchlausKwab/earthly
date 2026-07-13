@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { Article } from '@/lib/nostr/article'
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
-import { useEditorStore } from '../store'
+import { useEditorStore, type MapStackEntryVia } from '../store'
 
 /**
  * Consolidate a Story's inline geo-references with the map-stack paradigm
@@ -34,10 +34,21 @@ interface ParsedStoryRef {
 	datasetKey: string
 	/** `dataset:pubkey:d` — the map-stack entry id. */
 	entryId: string
+	/**
+	 * Carrier provenance stamped onto the auto-stacked entry: the Map Stack
+	 * panel nests these entries under the Story's own row instead of showing
+	 * them as mystery top-level datasets (see `MapStackEntryVia`).
+	 */
+	via: MapStackEntryVia
 }
 
 export function parseStoryRefs(story: Article | null): ParsedStoryRef[] {
 	if (!story) return []
+	const via: MapStackEntryVia = {
+		entityType: 'story',
+		entityKey: `${story.pubkey}:${story.dTag ?? ''}`,
+		title: story.article.title?.trim() || story.dTag || 'Story',
+	}
 	const out: ParsedStoryRef[] = []
 	for (const coord of story.referencedAddresses) {
 		const parts = coord.split(':')
@@ -47,7 +58,7 @@ export function parseStoryRefs(story: Article | null): ParsedStoryRef[] {
 		const identifier = parts.slice(2).join(':')
 		if (kind !== GEO_EVENT_KIND || !pubkey || !identifier) continue
 		const datasetKey = `${pubkey}:${identifier}`
-		out.push({ coord, pubkey, identifier, datasetKey, entryId: `dataset:${datasetKey}` })
+		out.push({ coord, pubkey, identifier, datasetKey, entryId: `dataset:${datasetKey}`, via })
 	}
 	return out
 }
@@ -101,6 +112,7 @@ export function useStoryMapRefs(story: Article | null) {
 				entityKey: ref.datasetKey,
 				title: ref.identifier,
 				source: 'story',
+				via: ref.via,
 				visible: true,
 				pinned: false,
 			})

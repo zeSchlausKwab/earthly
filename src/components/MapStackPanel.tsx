@@ -1,4 +1,5 @@
 import {
+	BookOpen,
 	ChevronDown,
 	ChevronRight,
 	ChevronUp,
@@ -19,6 +20,7 @@ import {
 	useEditorStore,
 	type GeoQueryStatus,
 	type MapStackEntry,
+	type MapStackEntryVia,
 } from '../features/geo-editor/store'
 import { getDefaultContextMapScopeMode, resolveContextMapScope } from '@/lib/context/scope'
 import {
@@ -121,6 +123,21 @@ export function entryTypeMetaLabel(entityType: MapStackEntry['entityType']): str
 	}
 }
 
+/**
+ * Entries auto-stacked BY a carrier entity (a Story's narrative refs), grouped
+ * under that carrier so the panel can render them nested — the user sees "these
+ * datasets are on the map because this story references them" instead of
+ * mystery top-level dataset rows. The carrier row itself is synthetic (derived
+ * from the shared `via`), so no store migration is needed and entries without
+ * `via` render exactly as before.
+ */
+export interface CarriedEntryGroup {
+	/** `${via.entityType}:${via.entityKey}` — stable render key. */
+	key: string
+	via: MapStackEntryVia
+	entries: MapStackEntry[]
+}
+
 export interface MapStackBuckets {
 	/** Aggregate layers pin to TOP (D-05), sighting layer first. */
 	sightingLayerEntries: MapStackEntry[]
@@ -130,6 +147,8 @@ export interface MapStackBuckets {
 	 * transparency; pinning an entry graduates it to its type bucket. */
 	geoQueryEntries: MapStackEntry[]
 	contextEntries: MapStackEntry[]
+	/** Carrier-nested entries (`via` set), one group per carrier, insertion order. */
+	carriedGroups: CarriedEntryGroup[]
 	datasetEntries: MapStackEntry[]
 	/** Individual sighting/beacon pins + any other non-bucketed type. */
 	otherEntries: MapStackEntry[]
@@ -149,6 +168,7 @@ export function bucketMapStackEntries(entries: MapStackEntry[]): MapStackBuckets
 	const draftEntries: MapStackEntry[] = []
 	const geoQueryEntries: MapStackEntry[] = []
 	const contextEntries: MapStackEntry[] = []
+	const carriedGroupsByKey = new Map<string, CarriedEntryGroup>()
 	const datasetEntries: MapStackEntry[] = []
 	const otherEntries: MapStackEntry[] = []
 	for (const entry of entries) {
@@ -158,6 +178,20 @@ export function bucketMapStackEntries(entries: MapStackEntry[]): MapStackBuckets
 		// them; they survive viewport changes and Clear).
 		if (entry.source === 'geo-query' && !entry.pinned) {
 			geoQueryEntries.push(entry)
+			continue
+		}
+		// Carried entries (auto-stacked by a Story or another carrier) nest under
+		// their carrier's synthetic row instead of the flat type bucket, so the
+		// panel shows WHY they're on the map. Grouping is by carrier identity;
+		// group order follows first appearance in the stack order.
+		if (entry.via) {
+			const key = `${entry.via.entityType}:${entry.via.entityKey}`
+			const group = carriedGroupsByKey.get(key)
+			if (group) {
+				group.entries.push(entry)
+			} else {
+				carriedGroupsByKey.set(key, { key, via: entry.via, entries: [entry] })
+			}
 			continue
 		}
 		switch (entry.entityType) {
@@ -186,6 +220,7 @@ export function bucketMapStackEntries(entries: MapStackEntry[]): MapStackBuckets
 		draftEntries,
 		geoQueryEntries,
 		contextEntries,
+		carriedGroups: [...carriedGroupsByKey.values()],
 		datasetEntries,
 		otherEntries,
 	}
@@ -204,6 +239,9 @@ export function orderedMapStackEntries(buckets: MapStackBuckets): MapStackEntry[
 		...buckets.draftEntries,
 		...buckets.geoQueryEntries,
 		...buckets.contextEntries,
+		// Carrier groups render between contexts and plain datasets — carriers
+		// are broader-scope than an individual dataset, like contexts are.
+		...buckets.carriedGroups.flatMap((group) => group.entries),
 		...buckets.datasetEntries,
 		...buckets.otherEntries,
 	]
@@ -709,6 +747,175 @@ function EntryRow({
 	)
 }
 
+interface CarriedGroupCardProps {
+	group: CarriedEntryGroup
+	compact: boolean
+	actionIconClassName: string
+	actionButtonClassName: string
+	datasetByKey: Map<string, GeoDataset>
+	getDatasetName: (event: GeoDataset) => string
+	onZoomToDataset: (dataset: GeoDataset) => void
+	onInspectDataset: (dataset: GeoDataset) => void
+	onRemoveEntry: (entry: MapStackEntry) => void
+}
+
+/** Row title + meta descriptor for a synthetic carrier row, per carrier kind. */
+const carrierTypeMeta: Record<MapStackEntryVia['entityType'], string> = {
+	story: 'story',
+	context: 'context',
+}
+
+/**
+ * Synthetic CARRIER row for a group of carried entries: the Story (or other
+ * carrier) is the visible Map Stack citizen, with the datasets it references
+ * rendered nested — indented, smaller, muted — underneath (mirrors the context
+ * entry's curated-dataset expand). The card is presentation-only: the children
+ * remain the real stack entries (map rendering unchanged), so removing the
+ * carrier row simply removes every child entry.
+ */
+function CarriedGroupCard({
+	group,
+	compact,
+	actionIconClassName,
+	actionButtonClassName,
+	datasetByKey,
+	getDatasetName,
+	onZoomToDataset,
+	onInspectDataset,
+	onRemoveEntry,
+}: CarriedGroupCardProps) {
+	// Open by default — the whole point is making the carried datasets visible.
+	const [expanded, setExpanded] = useState(true)
+	const carrierKind = carrierTypeMeta[group.via.entityType]
+	return (
+		<div className="flex flex-col rounded-md border border-border bg-card transition-colors">
+			<div className={cn('flex items-start', compact ? 'gap-1.5 p-1 pl-1.5' : 'gap-2 p-2 pl-2.5')}>
+				<div
+					className={cn(
+						'flex shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground',
+						compact ? 'mt-0.5 h-6 w-6' : 'mt-1 h-7 w-7',
+					)}
+				>
+					{group.via.entityType === 'story' ? (
+						<BookOpen className={actionIconClassName} />
+					) : (
+						<Layers className={actionIconClassName} />
+					)}
+				</div>
+				<div className="min-w-0 flex-1">
+					<div
+						className={cn(
+							'line-clamp-2 min-w-0 break-words font-medium text-foreground',
+							compact ? 'text-xs leading-tight' : 'text-sm leading-snug',
+						)}
+					>
+						{group.via.title}
+					</div>
+					<div
+						className={cn(
+							'flex items-center text-muted-foreground',
+							compact ? 'gap-1 text-[10px] leading-tight' : 'mt-1 gap-1.5 text-xs',
+						)}
+					>
+						<span>{carrierKind}</span>
+						<span className="h-1 w-1 rounded-full bg-muted-foreground/40" />
+						<span>
+							{group.entries.length} {group.entries.length === 1 ? 'dataset' : 'datasets'}
+						</span>
+					</div>
+				</div>
+				<div className="flex shrink-0 items-center gap-0.5">
+					<RowAction
+						icon={
+							expanded ? (
+								<ChevronDown className={actionIconClassName} />
+							) : (
+								<ChevronRight className={actionIconClassName} />
+							)
+						}
+						className={cn(actionButtonClassName, 'hover:text-foreground')}
+						onClick={() => setExpanded((open) => !open)}
+						label={expanded ? 'Collapse referenced datasets' : 'Expand referenced datasets'}
+						tooltip={
+							expanded
+								? `Hide the datasets this ${carrierKind} put on the map`
+								: `Show the datasets this ${carrierKind} put on the map`
+						}
+						pressed={expanded}
+					/>
+					<RowAction
+						icon={<RemoveActionIcon className={actionIconClassName} />}
+						className={cn(actionButtonClassName, 'hover:text-destructive')}
+						onClick={() => {
+							for (const entry of group.entries) onRemoveEntry(entry)
+						}}
+						label={`Remove ${carrierKind} datasets from map stack`}
+						tooltip={`Remove this ${carrierKind}'s datasets from the map stack`}
+					/>
+				</div>
+			</div>
+			{expanded ? (
+				<div
+					className={cn(
+						'border-border border-t bg-muted/30 px-2 py-1.5',
+						compact ? 'space-y-0.5' : 'space-y-1',
+					)}
+				>
+					{group.entries.map((entry) => {
+						const dataset =
+							entry.entityType === 'dataset' ? datasetByKey.get(entry.entityKey) : undefined
+						const name = dataset ? getDatasetName(dataset) : entry.title || entry.entityKey
+						return (
+							<div
+								key={entry.id}
+								className={cn(
+									'flex items-center gap-2 rounded px-1.5 py-1 transition-colors hover:bg-muted/60',
+									compact ? 'text-[11px]' : 'text-xs',
+									!entry.visible && 'opacity-60',
+								)}
+							>
+								<Database className="h-3 w-3 shrink-0 text-muted-foreground" />
+								<span className="min-w-0 flex-1 truncate text-foreground">{name}</span>
+								{dataset ? (
+									<>
+										<button
+											type="button"
+											className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-info"
+											onClick={() => onZoomToDataset(dataset)}
+											aria-label={`Zoom to ${name}`}
+											title="Zoom to dataset"
+										>
+											<ZoomActionIcon className="h-3 w-3" />
+										</button>
+										<button
+											type="button"
+											className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-ok"
+											onClick={() => onInspectDataset(dataset)}
+											aria-label={`Inspect ${name}`}
+											title="Open the dataset details panel"
+										>
+											<InspectActionIcon className="h-3 w-3" />
+										</button>
+									</>
+								) : null}
+								<button
+									type="button"
+									className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
+									onClick={() => onRemoveEntry(entry)}
+									aria-label={`Remove ${name} from map stack`}
+									title="Remove from map stack"
+								>
+									<RemoveActionIcon className="h-3 w-3" />
+								</button>
+							</div>
+						)
+					})}
+				</div>
+			) : null}
+		</div>
+	)
+}
+
 interface EntryGroupListProps {
 	compact: boolean
 	sightingLayerEntries: MapStackEntry[]
@@ -718,6 +925,7 @@ interface EntryGroupListProps {
 	/** Query-by-view transparency readout (null when the mode is off). */
 	geoQueryStatus: GeoQueryStatus | null
 	contextEntries: MapStackEntry[]
+	carriedGroups: CarriedEntryGroup[]
 	datasetEntries: MapStackEntry[]
 	otherEntries: MapStackEntry[]
 	datasetByKey: Map<string, GeoDataset>
@@ -750,6 +958,7 @@ function EntryGroupList({
 	geoQueryEntries,
 	geoQueryStatus,
 	contextEntries,
+	carriedGroups,
 	datasetEntries,
 	otherEntries,
 	datasetByKey,
@@ -921,6 +1130,33 @@ function EntryGroupList({
 					{contextEntries.map(renderEntry)}
 				</div>
 			) : null}
+			{/* Carrier groups: the Story (or other carrier) renders as the visible
+			    entry with its referenced datasets nested underneath, so the user
+			    sees WHY those datasets are on the map. Only stories produce these
+			    today (contexts nest their curated sets inside their own entry). */}
+			{carriedGroups.length > 0 ? (
+				<div className={cn(groupGap)}>
+					<div className={groupLabelClass}>
+						<BookOpen className="h-3 w-3" />
+						<span>Stories</span>
+						<span className="font-normal text-muted-foreground/70">({carriedGroups.length})</span>
+					</div>
+					{carriedGroups.map((group) => (
+						<CarriedGroupCard
+							key={group.key}
+							group={group}
+							compact={compact}
+							actionIconClassName={actionIconClassName}
+							actionButtonClassName={actionButtonClassName}
+							datasetByKey={datasetByKey}
+							getDatasetName={getDatasetName}
+							onZoomToDataset={onZoomToDataset}
+							onInspectDataset={onInspectDataset}
+							onRemoveEntry={onRemoveEntry}
+						/>
+					))}
+				</div>
+			) : null}
 			{datasetEntries.length > 0 ? (
 				<div className={cn(groupGap)}>
 					<div className={groupLabelClass}>
@@ -1017,6 +1253,7 @@ export function MapStackPanel({
 		draftEntries,
 		geoQueryEntries,
 		contextEntries,
+		carriedGroups,
 		datasetEntries,
 		otherEntries,
 	} = useMemo(() => bucketMapStackEntries(entries), [entries])
@@ -1220,6 +1457,7 @@ export function MapStackPanel({
 							geoQueryEntries={geoQueryEntries}
 							geoQueryStatus={geoQueryEnabled ? geoQueryStatus : null}
 							contextEntries={contextEntries}
+							carriedGroups={carriedGroups}
 							datasetEntries={datasetEntries}
 							otherEntries={otherEntries}
 							datasetByKey={datasetByKey}
@@ -1260,6 +1498,7 @@ export function MapStackPanel({
 						geoQueryEntries={[]}
 						geoQueryStatus={null}
 						contextEntries={[]}
+						carriedGroups={[]}
 						datasetEntries={[]}
 						otherEntries={[]}
 						datasetByKey={datasetByKey}

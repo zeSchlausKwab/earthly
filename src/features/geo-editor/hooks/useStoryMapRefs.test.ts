@@ -8,11 +8,23 @@ import { parseStoryRefs } from './useStoryMapRefs'
 // getDatasetKey(dataset) === `${pubkey}:${datasetId}` so the auto-stacked entry
 // and the inline eye-toggle operate on the same map-stack entry.
 
-function fakeStory(referencedAddresses: string[]): Article {
-	return { referencedAddresses } as unknown as Article
+const PK = 'a'.repeat(64)
+
+function fakeStory(referencedAddresses: string[], title = 'A Story'): Article {
+	return {
+		referencedAddresses,
+		pubkey: PK,
+		dTag: 'story-1',
+		article: { title },
+	} as unknown as Article
 }
 
-const PK = 'a'.repeat(64)
+/** The carrier provenance every parsed ref carries — see MapStackEntryVia. */
+const STORY_VIA = {
+	entityType: 'story' as const,
+	entityKey: `${PK}:story-1`,
+	title: 'A Story',
+}
 
 describe('parseStoryRefs', () => {
 	test('returns [] for a null story', () => {
@@ -28,7 +40,23 @@ describe('parseStoryRefs', () => {
 			identifier: 'river-segments',
 			datasetKey: `${PK}:river-segments`,
 			entryId: `dataset:${PK}:river-segments`,
+			via: STORY_VIA,
 		})
+	})
+
+	test('stamps carrier provenance (via) so the Map Stack nests refs under the story', () => {
+		const refs = parseStoryRefs(
+			fakeStory([`${GEO_EVENT_KIND}:${PK}:x`, `${GEO_EVENT_KIND}:${PK}:y`]),
+		)
+		expect(refs).toHaveLength(2)
+		for (const ref of refs) {
+			expect(ref.via).toEqual(STORY_VIA)
+		}
+	})
+
+	test('via title falls back to the d-tag when the story has no title', () => {
+		const refs = parseStoryRefs(fakeStory([`${GEO_EVENT_KIND}:${PK}:x`], ''))
+		expect(refs[0]?.via.title).toBe('story-1')
 	})
 
 	test('preserves d-tags that contain colons', () => {
