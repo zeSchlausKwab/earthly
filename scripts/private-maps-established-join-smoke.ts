@@ -24,6 +24,12 @@ class InMemoryCordnServer {
 	private readonly joinRequests = new Map<string, PendingJoinRequest[]>()
 	private readonly welcomes: StoredWelcome[] = []
 	private readonly messages = new Map<string, CoordinatorMessage[]>()
+	private readonly suppressedFetches = new Set<string>()
+
+	setFetchSuppressed(pubkey: string, suppressed: boolean): void {
+		if (suppressed) this.suppressedFetches.add(pubkey)
+		else this.suppressedFetches.delete(pubkey)
+	}
 
 	client(signer: NostrSigner): PrivateWorkspaceCoordinator {
 		const ownerPubkey = () => signer.getPublicKey()
@@ -101,11 +107,15 @@ class InMemoryCordnServer {
 				this.messages.set(gid, messages)
 				return { cursor, gid, at }
 			},
-			fetchMessages: async ({ gid, after }) => ({
-				messages: (this.messages.get(gid) ?? []).filter(
-					(message) => message.cursor > (after ?? 0),
-				),
-			}),
+			fetchMessages: async ({ gid, after }) => {
+				const pk = await ownerPubkey()
+				if (this.suppressedFetches.has(pk)) return { messages: [] }
+				return {
+					messages: (this.messages.get(gid) ?? []).filter(
+						(message) => message.cursor > (after ?? 0),
+					),
+				}
+			},
 			disconnect: async () => undefined,
 		}
 	}
@@ -158,6 +168,10 @@ const oldDataset = await aliceService.sendDataset(
 	},
 	{ datasetId, name: 'Ridge survey old' },
 )
+// Model a coordinator that durably acknowledges Alice's writes but does not
+// immediately expose their echoes back to Alice. Approval must still include
+// acknowledged local records in the late-member checkpoint.
+cordn.setFetchSuppressed(alice.pubkey, true)
 const currentDataset = await aliceService.sendDataset(
 	workspace.workspaceId,
 	{
@@ -173,6 +187,12 @@ const currentDataset = await aliceService.sendDataset(
 	{ datasetId, name: 'Ridge survey current' },
 )
 await aliceService.sendComment(workspace.workspaceId, 'Discussion before either member joined')
+const [aliceBeforeJoin] = await aliceService.listWorkspaces()
+assert(aliceBeforeJoin)
+const expectedCheckpointBasis = Math.max(
+	aliceBeforeJoin.cursor,
+	...(aliceBeforeJoin.pendingOutbound ?? []).map((item) => item.cursor),
+)
 
 async function join(
 	joiningService: PrivateWorkspaceService,
@@ -189,8 +209,14 @@ async function join(
 }
 
 await join(bobService, bob.pubkey)
+cordn.setFetchSuppressed(alice.pubkey, false)
 const [joinedBobWorkspace] = await bobService.listWorkspaces()
 assert(joinedBobWorkspace)
+const bobCheckpoint = joinedBobWorkspace.envelopes.find(
+	(envelope) => envelope.kind === PRIVATE_WORKSPACE_CHECKPOINT_KIND,
+)
+assert(bobCheckpoint)
+assert.equal(parseWorkspaceCheckpointManifest(bobCheckpoint.content).basisCursor, expectedCheckpointBasis)
 assert.deepEqual(
 	joinedBobWorkspace.envelopes
 		.filter((item) => item.kind === GEO_EVENT_KIND)

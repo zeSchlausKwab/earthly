@@ -310,12 +310,10 @@ export class PrivateWorkspaceService {
 		const ownerPubkey = await this.ownerPubkey()
 		const workspace = await this.syncWorkspace(request.workspaceId)
 		this.requireAdministrator(workspace, ownerPubkey, 'add members')
-		if (workspace.pendingOutbound?.length) {
-			throw new Error(
-				'Wait for pending private-map records to be confirmed before approving a member',
-			)
-		}
-		const checkpointBasisCursor = workspace.cursor
+		const checkpointBasisCursor = (workspace.pendingOutbound ?? []).reduce(
+			(cursor, item) => Math.max(cursor, item.cursor),
+			workspace.cursor,
+		)
 		const checkpointEnvelopes = currentMapCheckpointEnvelopes(workspace)
 		const metadataEnvelope = await this.createMetadataEnvelope(workspace)
 		const checkpointManifest = createWorkspaceCheckpointManifest({
@@ -347,6 +345,7 @@ export class PrivateWorkspaceService {
 		const posted = await coordinator.postMessage({ gid: workspace.groupId, msg_64: sealedCommit })
 		workspace.stateBase64 = serializeClientState(added.newState)
 		workspace.cursor = posted.cursor
+		this.reconcileAcknowledgedOutbounds(workspace, posted.cursor)
 		await this.options.store.putWorkspace(workspace)
 		for (const envelope of checkpointEnvelopes) {
 			await this.postApplicationEnvelope(workspace, coordinator, envelope, true)
@@ -637,7 +636,12 @@ export class PrivateWorkspaceService {
 			gid: workspace.groupId,
 			after: workspace.cursor > 0 ? workspace.cursor : undefined,
 		})
-		if (fetched.messages.length === 0) return false
+		if (fetched.messages.length === 0) {
+			const reconciled = this.reconcileAcknowledgedOutbounds(workspace, workspace.cursor)
+			if (!reconciled) return false
+			await this.options.store.putWorkspace(workspace)
+			return true
+		}
 		let state = deserializeClientState(workspace.stateBase64)
 		for (const message of fetched.messages.sort((a, b) => a.cursor - b.cursor)) {
 			const pendingOutboundIndex = workspace.pendingOutbound?.findIndex(
@@ -682,9 +686,26 @@ export class PrivateWorkspaceService {
 			if (workspace.status === 'removed') break
 		}
 		workspace.stateBase64 = serializeClientState(state)
-		if (workspace.pendingOutbound?.length === 0) workspace.pendingOutbound = undefined
+		this.reconcileAcknowledgedOutbounds(workspace, workspace.cursor)
 		this.administratorPolicy(workspace)
 		await this.options.store.putWorkspace(workspace)
+		return true
+	}
+
+	private reconcileAcknowledgedOutbounds(
+		workspace: StoredWorkspace,
+		throughCursor: number,
+	): boolean {
+		const pending = workspace.pendingOutbound
+		if (!pending?.length) return false
+		const acknowledged = pending
+			.filter((item) => item.cursor <= throughCursor)
+			.sort((a, b) => a.cursor - b.cursor)
+		if (acknowledged.length === 0) return false
+		for (const item of acknowledged) this.applyEnvelope(workspace, item.envelope)
+		const acknowledgedCursors = new Set(acknowledged.map((item) => item.cursor))
+		const remaining = pending.filter((item) => !acknowledgedCursors.has(item.cursor))
+		workspace.pendingOutbound = remaining.length > 0 ? remaining : undefined
 		return true
 	}
 

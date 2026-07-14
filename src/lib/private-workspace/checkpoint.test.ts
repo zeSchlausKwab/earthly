@@ -46,12 +46,13 @@ describe('private workspace checkpoints', () => {
 		)
 		const workspace = {
 			adminPubkey: pubkey,
-			envelopes: [policyEnvelope, oldTrail, historicalComment, currentTrail, camp],
+			envelopes: [policyEnvelope, oldTrail, historicalComment, camp],
+			pendingOutbound: [{ cursor: 12, envelope: currentTrail }],
 		} as StoredWorkspace
 
 		const selected = currentMapCheckpointEnvelopes(workspace)
 
-		expect(selected.map((item) => item.id)).toEqual([policyEnvelope.id, currentTrail.id, camp.id])
+		expect(selected.map((item) => item.id)).toEqual([policyEnvelope.id, camp.id, currentTrail.id])
 		expect(selected).not.toContain(historicalComment)
 	})
 

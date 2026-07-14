@@ -25,16 +25,26 @@ function identifier(envelope: PrivateWorkspaceEnvelope): string | undefined {
  * newly added member. Discussion history is deliberately not part of v1.
  */
 export function currentMapCheckpointEnvelopes(
-	workspace: Pick<StoredWorkspace, 'adminPubkey' | 'envelopes'>,
+	workspace: Pick<StoredWorkspace, 'adminPubkey' | 'envelopes' | 'pendingOutbound'>,
 ): PrivateWorkspaceEnvelope[] {
-	const policy = reduceAdministratorPolicy(workspace.adminPubkey, workspace.envelopes)
+	const envelopes = [...workspace.envelopes]
+	const knownIds = new Set(envelopes.map((envelope) => envelope.id))
+	for (const pending of [...(workspace.pendingOutbound ?? [])].sort(
+		(a, b) => a.cursor - b.cursor,
+	)) {
+		if (knownIds.has(pending.envelope.id)) continue
+		envelopes.push(pending.envelope)
+		knownIds.add(pending.envelope.id)
+	}
+
+	const policy = reduceAdministratorPolicy(workspace.adminPubkey, envelopes)
 	const acceptedPolicyIds = new Set(
-		acceptedAdministratorPolicyEnvelopes(policy, workspace.envelopes).map((item) => item.id),
+		acceptedAdministratorPolicyEnvelopes(policy, envelopes).map((item) => item.id),
 	)
 	const latestDatasetIds = new Set<string>()
 	const latestDatasetByCoordinate = new Map<string, PrivateWorkspaceEnvelope>()
 
-	for (const envelope of workspace.envelopes) {
+	for (const envelope of envelopes) {
 		if (envelope.kind !== GEO_EVENT_KIND) continue
 		const d = identifier(envelope)
 		if (!d) continue
@@ -42,7 +52,7 @@ export function currentMapCheckpointEnvelopes(
 	}
 	for (const envelope of latestDatasetByCoordinate.values()) latestDatasetIds.add(envelope.id)
 
-	return workspace.envelopes.filter(
+	return envelopes.filter(
 		(envelope) => acceptedPolicyIds.has(envelope.id) || latestDatasetIds.has(envelope.id),
 	)
 }
