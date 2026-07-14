@@ -5,6 +5,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "tauri:frontend": "bun --hot src/index.ts --host 0.0.0.0",
     "dev": "./scripts/dev-clean.sh",
     "seed": "bun run scripts/seed.ts",
     "seed:entities": "bun run scripts/seed.ts full",
@@ -117,6 +121,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.2",
     "@playwright/test": "1.61.1",
+    "@tauri-apps/cli": "^2.11.4",
     "@types/bun": "^1.3.14",
     "@types/papaparse": "^5.5.2",
     "@types/react": "^19.2.14",

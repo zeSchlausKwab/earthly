@@ -1,0 +1,21 @@
+[package]
+name = "earthly-desktop"
+version = "0.1.0"
+description = "Earthly native application shell"
+authors = ["Earthly contributors"]
+edition = "2021"
+rust-version = "1.77.2"
+license = "MIT"
+publish = false
+
+[lib]
+name = "earthly_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+earthly-local-node = { path = "../crates/earthly-local-node" }
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2.11.5", features = [] }

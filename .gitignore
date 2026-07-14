@@ -1,5 +1,7 @@
 # dependencies (bun install)
 node_modules
+/target
+/src-tauri/gen/schemas
 
 # map-chunks
 map-chunks
