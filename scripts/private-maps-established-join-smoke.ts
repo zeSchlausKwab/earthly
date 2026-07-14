@@ -206,6 +206,23 @@ const daveService = service(dave)
 const erinService = service(erin)
 const frankService = service(frank)
 const workspace = await aliceService.createWorkspace({ name: 'Established field map' })
+cordn.failNextMessageResponseAfterWrite()
+await assert.rejects(
+	aliceService.sendChat(workspace.workspaceId, 'Recovered after an application response loss'),
+	/simulated message response loss after durable storage/u,
+)
+aliceService = service(alice, aliceStore)
+const recoveredApplication = await aliceService.syncWorkspace(workspace.workspaceId)
+assert(
+	recoveredApplication.envelopes.some(
+		(envelope) => envelope.content === 'Recovered after an application response loss',
+	),
+)
+assert.equal(
+	cordn.groupMessages(workspace.groupId).length,
+	1,
+	'application response recovery must recognize the stored ciphertext before retrying',
+)
 const datasetId = 'ridge-survey'
 const oldDataset = await aliceService.sendDataset(
 	workspace.workspaceId,

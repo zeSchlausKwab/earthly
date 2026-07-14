@@ -9,7 +9,11 @@ import {
 	parseWorkspaceCheckpointManifest,
 	PRIVATE_WORKSPACE_CHECKPOINT_KIND,
 } from './checkpoint'
-import { createPrivateEnvelope, type PrivateWorkspaceEnvelope } from './envelope'
+import {
+	assertPrivateEnvelopeAuthorization,
+	createPrivateEnvelope,
+	type PrivateWorkspaceEnvelope,
+} from './envelope'
 import {
 	decodeKeyPackage,
 	decodePrivateKeyPackage,
@@ -43,6 +47,7 @@ import {
 import type {
 	PendingWorkspaceApproval,
 	PendingWorkspaceApprovalMessage,
+	PendingWorkspaceApplication,
 	PendingWorkspaceJoin,
 	PendingWorkspaceMembershipCommit,
 	PrivateWorkspaceStore,
@@ -419,6 +424,10 @@ export class PrivateWorkspaceService {
 		const ownerPubkey = await this.ownerPubkey()
 		const workspace = await this.requireWorkspace(ownerPubkey, workspaceId)
 		const coordinator = this.coordinator(workspace.coordinatorPubkey, workspace.relays)
+		if (workspace.pendingApplication) {
+			await this.resumePendingApplication(workspace, coordinator)
+			return { workspace, changed: true }
+		}
 		if (workspace.pendingApproval) {
 			await this.resumePendingApproval(workspace, coordinator)
 			return { workspace, changed: true }
@@ -587,19 +596,64 @@ export class PrivateWorkspaceService {
 		envelope: PrivateWorkspaceEnvelope,
 		forwarded = false,
 	): Promise<void> {
+		if (workspace.pendingApplication) {
+			throw new Error('Finish the pending private-map record before sending another')
+		}
 		const oldState = deserializeClientState(workspace.stateBase64)
 		const outbound = forwarded
 			? await createForwardedWorkspaceApplicationMessage({ state: oldState, envelope })
 			: await createWorkspaceApplicationMessage({ state: oldState, envelope })
-		const posted = await coordinator.postMessage({
-			gid: workspace.groupId,
-			msg_64: await sealCoordinatorPayload(oldState, outbound.messageBase64),
-		})
-		workspace.stateBase64 = serializeClientState(outbound.newState)
-		workspace.pendingOutbound = [
-			...(workspace.pendingOutbound ?? []),
-			{ cursor: posted.cursor, envelope },
-		]
+		workspace.pendingApplication = {
+			version: 1,
+			envelope,
+			forwarded,
+			basisCursor: workspace.cursor,
+			basisStateBase64: workspace.stateBase64,
+			msgBase64: await sealCoordinatorPayload(oldState, outbound.messageBase64),
+			finalStateBase64: serializeClientState(outbound.newState),
+			attempt: 1,
+		}
+		await this.options.store.putWorkspace(workspace)
+		await this.resumePendingApplication(workspace, coordinator)
+	}
+
+	private async resumePendingApplication(
+		workspace: StoredWorkspace,
+		coordinator: PrivateWorkspaceCoordinator,
+	): Promise<void> {
+		const pending = workspace.pendingApplication
+		if (pending?.version !== 1) {
+			throw new Error('Unsupported private-map application recovery journal')
+		}
+		assertPrivateEnvelopeAuthorization(pending.envelope, workspace.groupId)
+
+		if (pending.cursor === undefined) {
+			const fetched = await coordinator.fetchMessages({
+				gid: workspace.groupId,
+				after: pending.basisCursor > 0 ? pending.basisCursor : undefined,
+			})
+			const existing = fetched.messages.find(
+				(message) => message.msg_64 === pending.msgBase64,
+			)
+			if (existing) {
+				pending.cursor = existing.cursor
+			} else {
+				const posted = await coordinator.postMessage({
+					gid: workspace.groupId,
+					msg_64: pending.msgBase64,
+				})
+				pending.cursor = posted.cursor
+			}
+		}
+
+		workspace.stateBase64 = pending.finalStateBase64
+		if (!workspace.pendingOutbound?.some((item) => item.cursor === pending.cursor)) {
+			workspace.pendingOutbound = [
+				...(workspace.pendingOutbound ?? []),
+				{ cursor: pending.cursor, envelope: pending.envelope },
+			]
+		}
+		workspace.pendingApplication = undefined
 		await this.options.store.putWorkspace(workspace)
 		await this.syncWithCoordinator(workspace, coordinator)
 	}

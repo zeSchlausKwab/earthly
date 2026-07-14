@@ -14,6 +14,19 @@ export interface PendingWorkspaceOutbound {
 	envelope: PrivateWorkspaceEnvelope
 }
 
+/** Write-ahead journal for the single application record currently being posted. */
+export interface PendingWorkspaceApplication {
+	version: 1
+	envelope: PrivateWorkspaceEnvelope
+	forwarded: boolean
+	basisCursor: number
+	basisStateBase64: string
+	msgBase64: string
+	finalStateBase64: string
+	attempt: number
+	cursor?: number
+}
+
 export interface PendingWorkspaceApprovalMessage {
 	type: 'commit' | 'application'
 	msgBase64: string
@@ -80,6 +93,7 @@ export interface StoredWorkspace {
 	metadata?: WorkspaceMetadata
 	envelopes: PrivateWorkspaceEnvelope[]
 	pendingOutbound?: PendingWorkspaceOutbound[]
+	pendingApplication?: PendingWorkspaceApplication
 	pendingApproval?: PendingWorkspaceApproval
 	pendingMembershipCommit?: PendingWorkspaceMembershipCommit
 	skippedCoordinatorMessages?: SkippedWorkspaceCoordinatorMessage[]

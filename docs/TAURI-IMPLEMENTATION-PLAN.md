@@ -1217,6 +1217,16 @@ removals, lost post and Welcome responses, process restarts, convergence, new-me
 future-epoch exclusion of both removed members. Permanent loss of the only administrator device
 holding a winning but unpublished Welcome still needs an explicit recovery design.
 
+Ordinary private application records now use a version-1 write-ahead journal as well. Earthly
+persists the authenticated Comment/Dataset envelope, exact Cordn ciphertext, basis cursor, and
+post-send MLS state before calling `msg_post`. A reload searches coordinator history for that exact
+ciphertext before retrying, restores the sender ratchet state, and hands the acknowledged record to
+the existing delayed-echo reconciler. The failure-injection smoke gate loses a post response after
+durable coordinator storage, recreates the service, and proves one ciphertext and one projected
+record. This closes the single in-flight response-loss window; a multi-record offline queue,
+stale-epoch application re-encryption, and a coordinator idempotency key are still required for the
+complete private outbox.
+
 Dataset/comment schemas and most map presentation components should be highly reusable. Membership,
 state persistence, multi-device identity, recovery, delivery ordering, and encrypted blobs are the
 high-risk work. `ts-mls` is a suitable TypeScript implementation candidate and already targets

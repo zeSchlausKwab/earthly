@@ -112,12 +112,13 @@ deployments must provide their own `CORDN_SERVER_PUBKEY` and relay configuration
   ContextVM `msg_sub` stream still needs browser teardown/removal hardening before Earthly can rely
   on a long-lived subscription. Coordinator-acknowledged application sends persist their advanced
   MLS state and remain pending until a later fetch confirms the cursor, so an immediate self-echo is
-  not required. Member approval now persists a version-1 recovery journal containing the exact
-  Add/checkpoint ciphertext plan before any group message is posted. A reload recognizes already
-  accepted ciphertext, resumes missing writes, stores the Welcome only after the complete
-  checkpoint, and consumes duplicate Welcomes for the same KeyPackage together. General offline
-  application outbox recovery remains; manual **Sync** is a recovery control rather than the normal
-  receive path.
+  not required. Each application send also persists a version-1 write-ahead journal containing the
+  authenticated envelope, exact outer ciphertext, basis cursor, and resulting MLS state before
+  `msg_post`; a reload finds an already stored ciphertext before retrying and cannot lose a Comment
+  or Dataset merely because the post response disappeared. Member approval similarly journals the
+  complete Add/checkpoint ciphertext plan before any group message is posted. General multi-record
+  offline authoring, stale-epoch application re-encryption, and coordinator-level idempotency remain;
+  manual **Sync** is a recovery control rather than the normal receive path.
 - The demo projects standalone Datasets plus Comments with optional small inline GeoJSON through a
   workspace-scoped store. It does not yet provide encrypted large-object/blob attachments,
   threaded private replies, tombstones, or a complete concurrent-edit conflict protocol.
