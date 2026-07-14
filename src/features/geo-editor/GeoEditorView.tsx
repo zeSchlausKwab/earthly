@@ -692,49 +692,8 @@ export function GeoEditorView() {
 		deleteWorkspace,
 		createDraftInWorkspace,
 		tearDownEditSession,
-		startNewDataset: startNewDatasetBase,
+		startNewDataset,
 	} = useDatasetManagement(map, mapGeoEvents)
-
-	// Workflow audit P1: starting a dataset at world zoom invites accidental
-	// continent-scale shapes. If geolocation is ALREADY granted, fly to the
-	// user's area (never triggers a new permission prompt); otherwise nudge
-	// them to pick an area before drawing. The hard guardrail (the span
-	// warning on create) lives in Editor.tsx.
-	const nudgeToLocalDrawExtent = useCallback(() => {
-		const mapInstance = map.current
-		if (!mapInstance || mapInstance.getZoom() >= 8) return
-		const hint = () =>
-			toast.info('Zoom into your area before drawing', {
-				description:
-					'You are viewing the whole world — shapes drawn at this scale come out kilometers wide.',
-			})
-		if (typeof navigator === 'undefined' || !navigator.permissions?.query) {
-			hint()
-			return
-		}
-		navigator.permissions
-			.query({ name: 'geolocation' })
-			.then((status) => {
-				if (status.state !== 'granted') {
-					hint()
-					return
-				}
-				navigator.geolocation.getCurrentPosition(
-					(pos) =>
-						mapInstance.flyTo({
-							center: [pos.coords.longitude, pos.coords.latitude],
-							zoom: 13,
-						}),
-					() => hint(),
-				)
-			})
-			.catch(() => hint())
-	}, [])
-
-	const startNewDataset = useCallback(() => {
-		startNewDatasetBase()
-		nudgeToLocalDrawExtent()
-	}, [startNewDatasetBase, nudgeToLocalDrawExtent])
 
 	// Plan 13-06 (UAT test 5b — kill the add-to-stack phantom): a per-entry
 	// RESOLVED-ENTITY cache. `addBeaconToMapStack`/`addSightingToMapStack` deposit the
