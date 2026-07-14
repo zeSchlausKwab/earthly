@@ -18,10 +18,8 @@ if [[ ! -f .env.production ]]; then
   exit 1
 fi
 
-set -a
 # shellcheck disable=SC1091
 source .env
-set +a
 
 : "${VPS_HOST:?VPS_HOST is required in .env}"
 : "${VPS_USER:?VPS_USER is required in .env}"
@@ -35,7 +33,13 @@ if [[ ! "$VPS_USER" =~ ^[A-Za-z0-9._-]+$ ]] ||
 fi
 
 echo "Validating production identities, URLs, and Cordn persistence..."
-bun --env-file=.env.production scripts/validate-production-env.ts
+(
+  set -a
+  # shellcheck disable=SC1091
+  source .env.production
+  set +a
+  bun scripts/validate-production-env.ts
+)
 
 if [[ "$mode" == "--check" ]]; then
   bash -n scripts/deploy.sh scripts/deploy-remote.sh scripts/start-cordn-production.sh
