@@ -27,7 +27,7 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "test": "bun test",
-    "test:private-maps": "bun build scripts/private-maps-mls-smoke.ts --target=node --outfile=.cache/private-maps-mls-smoke.mjs && node .cache/private-maps-mls-smoke.mjs && bun build scripts/private-maps-delayed-echo-smoke.ts --target=node --outfile=.cache/private-maps-delayed-echo-smoke.mjs && node .cache/private-maps-delayed-echo-smoke.mjs",
+    "test:private-maps": "bun build scripts/private-maps-mls-smoke.ts --target=node --outfile=.cache/private-maps-mls-smoke.mjs && node .cache/private-maps-mls-smoke.mjs && bun build scripts/private-maps-delayed-echo-smoke.ts --target=node --outfile=.cache/private-maps-delayed-echo-smoke.mjs && node .cache/private-maps-delayed-echo-smoke.mjs && bun build scripts/private-maps-established-join-smoke.ts --target=node --outfile=.cache/private-maps-established-join-smoke.mjs && node .cache/private-maps-established-join-smoke.mjs",
     "ai:list": "bun run ai-suite/catalog.ts",
     "ai:typecheck": "tsc -p ai-suite/tsconfig.json --noEmit",
     "ai:e2e": "playwright test -c ai-suite/playwright.config.ts --grep-invert '@audit|@workflow-audit'",

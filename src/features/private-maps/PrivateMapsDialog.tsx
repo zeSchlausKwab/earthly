@@ -657,6 +657,10 @@ export function PrivateGroupsPanel({
 													interactive={false}
 													className="mt-1"
 												/>
+												<p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+													Approval shares the current datasets. Earlier discussion and its
+													attachments remain private to members who already received them.
+												</p>
 												<Button
 													className="mt-2 w-full"
 													size="sm"

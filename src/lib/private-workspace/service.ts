@@ -3,6 +3,12 @@ import type { NostrSigner } from '@contextvm/sdk'
 import type { FeatureCollection } from 'geojson'
 import { GEO_COMMENT_KIND, GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import type { PendingJoinRequest, PrivateWorkspaceCoordinator } from './contracts'
+import {
+	createWorkspaceCheckpointManifest,
+	currentMapCheckpointEnvelopes,
+	parseWorkspaceCheckpointManifest,
+	PRIVATE_WORKSPACE_CHECKPOINT_KIND,
+} from './checkpoint'
 import { createPrivateEnvelope, type PrivateWorkspaceEnvelope } from './envelope'
 import {
 	decodeKeyPackage,
@@ -24,7 +30,6 @@ import {
 	serializeClientState,
 } from './mls'
 import {
-	acceptedAdministratorPolicyEnvelopes,
 	createAdministratorPolicyTransition,
 	PRIVATE_WORKSPACE_ADMIN_POLICY_KIND,
 	reduceAdministratorPolicy,
@@ -148,8 +153,21 @@ export class PrivateWorkspaceService {
 	private applyEnvelope(workspace: StoredWorkspace, envelope: PrivateWorkspaceEnvelope): void {
 		if (workspace.envelopes.some((item) => item.id === envelope.id)) return
 		const policyBefore = this.administratorPolicy(workspace)
-		workspace.envelopes.push(envelope)
+		if (
+			envelope.kind === PRIVATE_WORKSPACE_CHECKPOINT_KIND &&
+			policyBefore.administrators.includes(envelope.pubkey)
+		) {
+			const manifest = parseWorkspaceCheckpointManifest(envelope.content)
+			const receivedIds = new Set(workspace.envelopes.map((item) => item.id))
+			const missingIds = manifest.envelopeIds.filter((id) => !receivedIds.has(id))
+			if (missingIds.length > 0) {
+				throw new Error(
+					`Private workspace checkpoint is incomplete (${missingIds.length} records missing)`,
+				)
+			}
+		}
 
+		workspace.envelopes.push(envelope)
 		const metadata = policyBefore.administrators.includes(envelope.pubkey)
 			? readMetadata(envelope)
 			: undefined
@@ -291,7 +309,22 @@ export class PrivateWorkspaceService {
 	async approveJoinRequest(request: WorkspaceJoinRequest): Promise<StoredWorkspace> {
 		const ownerPubkey = await this.ownerPubkey()
 		const workspace = await this.syncWorkspace(request.workspaceId)
-		const policy = this.requireAdministrator(workspace, ownerPubkey, 'add members')
+		this.requireAdministrator(workspace, ownerPubkey, 'add members')
+		if (workspace.pendingOutbound?.length) {
+			throw new Error(
+				'Wait for pending private-map records to be confirmed before approving a member',
+			)
+		}
+		const checkpointBasisCursor = workspace.cursor
+		const checkpointEnvelopes = currentMapCheckpointEnvelopes(workspace)
+		const metadataEnvelope = await this.createMetadataEnvelope(workspace)
+		const checkpointManifest = createWorkspaceCheckpointManifest({
+			basisCursor: checkpointBasisCursor,
+			envelopeIds: [
+				...checkpointEnvelopes.map((envelope) => envelope.id),
+				...(metadataEnvelope ? [metadataEnvelope.id] : []),
+			],
+		})
 		const coordinator = this.coordinator(workspace.coordinatorPubkey, workspace.relays)
 		const consumed = await coordinator.takeKeyPackage({ id: request.kp_ref })
 		if (!consumed.keyPackage) throw new Error('The requested MLS KeyPackage is no longer available')
@@ -315,10 +348,13 @@ export class PrivateWorkspaceService {
 		workspace.stateBase64 = serializeClientState(added.newState)
 		workspace.cursor = posted.cursor
 		await this.options.store.putWorkspace(workspace)
-		for (const envelope of acceptedAdministratorPolicyEnvelopes(policy, workspace.envelopes)) {
+		for (const envelope of checkpointEnvelopes) {
 			await this.postApplicationEnvelope(workspace, coordinator, envelope, true)
 		}
-		await this.publishMetadata(workspace, coordinator)
+		if (metadataEnvelope) {
+			await this.postApplicationEnvelope(workspace, coordinator, metadataEnvelope)
+		}
+		await this.publishCheckpoint(workspace, coordinator, checkpointManifest)
 		await coordinator.storeWelcome({
 			target_pk: request.pk,
 			kp_ref: request.kp_ref,
@@ -560,19 +596,34 @@ export class PrivateWorkspaceService {
 		await this.syncWithCoordinator(workspace, coordinator)
 	}
 
-	private async publishMetadata(
+	private async createMetadataEnvelope(
 		workspace: StoredWorkspace,
-		coordinator: PrivateWorkspaceCoordinator,
-	): Promise<void> {
+	): Promise<PrivateWorkspaceEnvelope | undefined> {
 		if (!workspace.metadata) return
 		this.requireAdministrator(workspace, workspace.ownerPubkey, 'publish group metadata')
-		const envelope = await createPrivateEnvelope({
+		return createPrivateEnvelope({
 			signer: this.options.signer,
 			groupId: workspace.groupId,
 			pubkey: workspace.ownerPubkey,
 			kind: PRIVATE_WORKSPACE_METADATA_KIND,
 			tags: [['d', 'workspace-metadata']],
 			content: JSON.stringify(workspace.metadata),
+		})
+	}
+
+	private async publishCheckpoint(
+		workspace: StoredWorkspace,
+		coordinator: PrivateWorkspaceCoordinator,
+		manifest: ReturnType<typeof createWorkspaceCheckpointManifest>,
+	): Promise<void> {
+		this.requireAdministrator(workspace, workspace.ownerPubkey, 'publish a join checkpoint')
+		const envelope = await createPrivateEnvelope({
+			signer: this.options.signer,
+			groupId: workspace.groupId,
+			pubkey: workspace.ownerPubkey,
+			kind: PRIVATE_WORKSPACE_CHECKPOINT_KIND,
+			tags: [['d', 'current-map-checkpoint']],
+			content: JSON.stringify(manifest),
 		})
 		await this.postApplicationEnvelope(workspace, coordinator, envelope)
 	}

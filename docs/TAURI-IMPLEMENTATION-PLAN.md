@@ -1089,6 +1089,13 @@ Snapshot and history-bootstrap records need content hashes, a source epoch/curso
 replay protection, size limits, and deterministic projection rules. They must not weaken the
 forward-secrecy guarantee for members who are removed later.
 
+The implemented checkpoint version 1 uses an administrator-authored kind-37525 manifest after the
+Add commit. It binds a pre-Add coordinator cursor to at most 4,096 authenticated envelope IDs,
+replays the accepted administrator-policy chain and the latest kind-37515 Dataset per `pubkey` +
+`d` coordinate, and publishes fresh encrypted metadata before storing the Welcome. Earlier Comments
+and their geometry attachments are excluded. An optional prior-history archive and encrypted
+large-object manifests remain later work.
+
 ### 18.5 Product surface inside a private map
 
 Do not build a reduced parallel map editor. Preserve the core Earthly workflow:

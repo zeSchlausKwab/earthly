@@ -1,5 +1,6 @@
 export * from './contracts'
 export * from './coordinator'
+export * from './checkpoint'
 export * from './envelope'
 export * from './invitation'
 export * from './mls'

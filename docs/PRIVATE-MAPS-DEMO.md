@@ -12,6 +12,9 @@ that the security and recovery work is finished.
 - an invitation carries only opaque rendezvous data, coordinator identity, relays, and a nonce;
 - a second browser profile requests access and an administrator explicitly approves its device;
 - the new device retrieves an MLS Welcome and decrypts workspace metadata;
+- a member joining an established workspace receives a versioned post-Add checkpoint containing
+  the accepted administrator policy, fresh metadata, and the latest authenticated version of each
+  current Dataset, while earlier discussion and its geometry attachments remain undisclosed;
 - members exchange Nostr-shaped private envelopes containing kind-37517 Comments, optional inline
   comment geometry, and standalone kind-37515 Dataset records;
 - every private envelope carries a detached Nostr authorization proof over its payload ID and opaque
@@ -131,9 +134,11 @@ deployments must provide their own `CORDN_SERVER_PUBKEY` and relay configuration
   projection, but are rejected if received again from the coordinator. This is an intentional
   security compatibility boundary for the current development checkpoint.
 - A newly added MLS member cannot decrypt records sent before the Add epoch. Earthly re-encrypts the
-  accepted administrator-policy chain into the post-Add epoch before exposing the Welcome, so the
-  newcomer derives current authorization safely. It does not yet publish the planned current map
-  snapshot or optional, explicitly shared chat/geometry history archive.
+  accepted administrator-policy chain, fresh metadata, and the latest Dataset envelope for each
+  `pubkey` + `d` coordinate into the post-Add epoch. An administrator-authored kind-37525 manifest
+  binds the bounded checkpoint to its source cursor and authenticated envelope IDs. Version 1
+  deliberately excludes prior Comments and their geometry attachments; the optional, explicitly
+  shared history archive is not implemented yet.
 - Metadata is encrypted as an Earthly application record. It is intentionally not copied into an
   MLS GroupContext extension, public Nostr tags, or the invitation.
 - Removal protects future epochs; it cannot retract content or keys that a former member already
