@@ -145,6 +145,9 @@ const env = envResult.data;
 console.log("📋 Environment configuration:");
 console.log(`   RELAY_URL: ${env.RELAY_URL}`);
 console.log(`   SERVER_PUBKEY: ${env.SERVER_PUBKEY.slice(0, 16)}...`);
+console.log(
+	`   CORDN_SERVER_PUBKEY: ${env.CORDN_SERVER_PUBKEY ? `${env.CORDN_SERVER_PUBKEY.slice(0, 16)}...` : "disabled"}`,
+);
 console.log();
 
 // Build define object for frontend env injection

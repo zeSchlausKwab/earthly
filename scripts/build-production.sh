@@ -29,6 +29,12 @@ fi
 
 echo ""
 
+if [ -f .env.production ]; then
+    bun --env-file=.env.production scripts/validate-production-env.ts
+elif [ "${NODE_ENV:-}" = "production" ]; then
+    bun scripts/validate-production-env.ts
+fi
+
 # Build the frontend (build.ts validates env and shows config)
 bun run build.ts
 

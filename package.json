@@ -22,6 +22,7 @@
     "start": "NODE_ENV=production bun src/index.ts",
     "build": "bun run build.ts",
     "build:production": "./scripts/build-production.sh",
+    "validate:production": "bun run scripts/validate-production-env.ts",
     "setup:vps": "./scripts/setup-vps.sh",
     "deploy": "./scripts/deploy.sh",
     "lint": "biome check .",

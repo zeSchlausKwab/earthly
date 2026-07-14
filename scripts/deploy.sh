@@ -1,70 +1,85 @@
-#!/bin/bash
-# Deploy Earthly to VPS
-# Usage: ./scripts/deploy.sh
+#!/usr/bin/env bash
+# Build and deploy Earthly's web, relay, ContextVM, and Cordn services to the VPS.
 
-set -e
+set -euo pipefail
 
-# Load deployment configuration
-if [ ! -f .env ]; then
-    echo "❌ .env file not found. Please create one based on .env.example"
-    exit 1
+mode="${1:-}"
+if [[ -n "$mode" && "$mode" != "--check" ]]; then
+  echo "Usage: $0 [--check]" >&2
+  exit 1
 fi
 
-export $(cat .env | grep -v '^#' | xargs)
-
-# Validate required variables
-if [ -z "$VPS_HOST" ] || [ -z "$VPS_USER" ] || [ -z "$VPS_PATH" ]; then
-    echo "❌ Required variables missing: VPS_HOST, VPS_USER, VPS_PATH"
-    exit 1
+if [[ ! -f .env ]]; then
+  echo "Deployment target .env not found. Copy .env.deploy.example to .env." >&2
+  exit 1
+fi
+if [[ ! -f .env.production ]]; then
+  echo "Production configuration not found. Copy .env.production.example to .env.production." >&2
+  exit 1
 fi
 
-echo "🚀 Deploying Earthly to $VPS_HOST..."
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
 
-# Build frontend locally
-echo "📦 Building frontend..."
+: "${VPS_HOST:?VPS_HOST is required in .env}"
+: "${VPS_USER:?VPS_USER is required in .env}"
+: "${VPS_PATH:?VPS_PATH is required in .env}"
+
+if [[ ! "$VPS_USER" =~ ^[A-Za-z0-9._-]+$ ]] ||
+   [[ ! "$VPS_HOST" =~ ^[A-Za-z0-9._:-]+$ ]] ||
+   [[ ! "$VPS_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
+  echo "VPS_USER, VPS_HOST, or VPS_PATH contains unsupported shell characters" >&2
+  exit 1
+fi
+
+echo "Validating production identities, URLs, and Cordn persistence..."
+bun --env-file=.env.production scripts/validate-production-env.ts
+
+if [[ "$mode" == "--check" ]]; then
+  bash -n scripts/deploy.sh scripts/deploy-remote.sh scripts/start-cordn-production.sh
+  echo "Deployment configuration and shell scripts are valid; no build, upload, or restart was performed."
+  exit 0
+fi
+
+echo "Building the production browser bundle..."
 ./scripts/build-production.sh
 
-# Create deployment archive
-echo "📦 Creating archive..."
+archive="deploy.tar.gz"
+trap 'rm -f "$archive"' EXIT
 
-# Check if legacy-db exists before including it
-INCLUDE_LEGACY_DB=""
-if [ -d "legacy-db" ] && [ -f "legacy-db/latest.sql" ]; then
-    echo "   Including legacy-db/latest.sql..."
-    INCLUDE_LEGACY_DB="legacy-db/"
+include_legacy_db=()
+if [[ -d legacy-db && -f legacy-db/latest.sql ]]; then
+  include_legacy_db=(legacy-db/)
 fi
 
-tar -czf deploy.tar.gz \
-    --exclude='contextvm/node_modules' \
-    --exclude='relay/relay' \
-    --exclude='relay/data' \
-    --exclude='src-tauri' \
-    dist/ src/ public/ relay/ contextvm/ scripts/ \
-    $INCLUDE_LEGACY_DB \
-    ecosystem.config.cjs \
-    Caddyfile \
-    package.json \
-    bun.lock
+echo "Creating deployment archive..."
+tar -czf "$archive" \
+  --exclude='contextvm/node_modules' \
+  --exclude='relay/relay' \
+  --exclude='relay/data' \
+  --exclude='src-tauri' \
+  dist/ src/ public/ relay/ contextvm/ scripts/ docs/ \
+  "${include_legacy_db[@]}" \
+  ecosystem.config.cjs \
+  Caddyfile \
+  package.json \
+  bun.lock
 
-# Upload files
-echo "📤 Uploading to VPS..."
-ssh $VPS_USER@$VPS_HOST "mkdir -p $VPS_PATH"
-scp deploy.tar.gz $VPS_USER@$VPS_HOST:$VPS_PATH/
-scp .env.production $VPS_USER@$VPS_HOST:$VPS_PATH/.env 2>/dev/null || \
-    echo "⚠️  No .env.production found, using existing VPS .env"
-scp mapnolia.config.json $VPS_USER@$VPS_HOST:$VPS_PATH/ 2>/dev/null || \
-    echo "⚠️  No mapnolia.config.json found, using existing VPS config"
-scp scripts/deploy-remote.sh $VPS_USER@$VPS_HOST:$VPS_PATH/
+remote="${VPS_USER}@${VPS_HOST}"
+echo "Uploading release to ${remote}:${VPS_PATH}..."
+ssh "$remote" "mkdir -p '$VPS_PATH'"
+scp "$archive" "$remote:$VPS_PATH/"
+ssh "$remote" "umask 077 && cat > '$VPS_PATH/.env.next'" < .env.production
+scp mapnolia.config.json "$remote:$VPS_PATH/" 2>/dev/null || \
+  echo "No local mapnolia.config.json; retaining the VPS copy"
+scp scripts/deploy-remote.sh "$remote:$VPS_PATH/"
 
-# Execute remote deployment
-echo "🔧 Running deployment on VPS..."
-ssh $VPS_USER@$VPS_HOST "cd $VPS_PATH && bash deploy-remote.sh"
+echo "Activating release on the VPS..."
+ssh "$remote" "cd '$VPS_PATH' && chmod 600 .env.next && mv .env.next .env && bash deploy-remote.sh"
 
-# Cleanup
-rm deploy.tar.gz
-
-echo ""
-echo "🎉 Deployment complete!"
-echo ""
-echo "📊 View logs:   ssh $VPS_USER@$VPS_HOST 'pm2 logs'"
-echo "📊 Check status: ssh $VPS_USER@$VPS_HOST 'pm2 status'"
+echo
+echo "Deployment complete."
+echo "PM2 logs: ssh $remote 'pm2 logs'"
+echo "Cordn logs: ssh $remote 'docker logs --tail 100 earthly-cordn'"

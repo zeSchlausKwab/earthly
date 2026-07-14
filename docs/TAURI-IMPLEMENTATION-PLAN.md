@@ -1,5 +1,10 @@
 # Earthly Tauri Application Implementation Plan
 
+> Current release scope (July 2026): Earthly is shipping the web application first. Tauri/mobile
+> packaging, platform-protected MLS storage, and offline device transport are deferred. The active
+> private-map deployment is the browser application plus a persistent Cordn ContextVM coordinator;
+> see [`PRIVATE-MAPS-DEPLOYMENT.md`](./PRIVATE-MAPS-DEPLOYMENT.md).
+
 Status: committed product direction
 Created: 2026-07-13
 Scope: production desktop and mobile application for Earthly using Tauri v2

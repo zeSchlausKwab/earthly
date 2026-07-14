@@ -102,6 +102,13 @@ bun run tauri:build -- --debug
 The macOS debug application is emitted at `target/debug/bundle/macos/Earthly.app`. Production
 deployments must provide their own `CORDN_SERVER_PUBKEY` and relay configuration.
 
+The web deployment path runs the same pinned Cordn v0.4.0 ContextVM server with SQLite rather than
+development memory storage. It validates that the private service key matches the public key baked
+into the browser bundle, retains coordinator data outside the release archive, snapshots the
+SQLite directory before container replacement, and applies Cordn's rate and KeyPackage quotas. See
+[`PRIVATE-MAPS-DEPLOYMENT.md`](./PRIVATE-MAPS-DEPLOYMENT.md). Tauri/mobile packaging and offline
+transport are intentionally outside this web release.
+
 ## Deliberate limitations of this checkpoint
 
 - `ts-mls` is pinned to `2.0.0-rc.12`; it is not professionally audited and this code has not had
