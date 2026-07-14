@@ -28,6 +28,8 @@ const DEV_DEFAULTS = {
 
 const LOCAL_DEV_RELAY_URL = 'ws://localhost:3334'
 const LOCAL_DEV_BLOSSOM_URL = 'http://localhost:3544'
+const LOCAL_DEV_CORDN_SERVER_PUBKEY =
+	'79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
 
 function safeEnv<T>(getValue: () => T, fallback: T): T {
 	try {
@@ -171,6 +173,7 @@ const blossomServer = safeEnv(
 )
 const isProduction = safeEnv(() => process.env.NODE_ENV === 'production', false)
 const isDevelopment = safeEnv(() => process.env.NODE_ENV !== 'production', true)
+const configuredCordnServerPubkey = safeEnv(() => process.env.CORDN_SERVER_PUBKEY as string, '')
 
 const writeRelays = buildWriteRelays({ relayUrl, isDevelopment })
 const readRelays = buildReadRelays({ writeRelays, relayUrl, extraReadRelays })
@@ -183,6 +186,15 @@ export const config = {
 
 	/** Public key of the ContextVM geo server */
 	serverPubkey: safeEnv(() => process.env.SERVER_PUBKEY as string, DEV_DEFAULTS.SERVER_PUBKEY),
+
+	/** Cordn-compatible coordinator used for MLS private maps. */
+	cordnServerPubkey:
+		isDevelopment && isLoopbackHostname(getBrowserLocation()?.hostname ?? '')
+			? LOCAL_DEV_CORDN_SERVER_PUBKEY
+			: configuredCordnServerPubkey,
+
+	/** Default delivery relay set. Invitations carry their selected set explicitly. */
+	cordnRelays: writeRelays,
 
 	/**
 	 * Relays this client publishes to. In dev: locked to the local relay.

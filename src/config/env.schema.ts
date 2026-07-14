@@ -50,6 +50,9 @@ export const envSchema = z.object({
 		.length(64)
 		.default('ceadb7d5b739189fb3ecb7023a0c3f55d8995404d7750f5068865decf8b304cc'),
 
+	/** Public key of the Cordn-compatible private-map coordinator */
+	CORDN_SERVER_PUBKEY: z.union([z.string().length(64), z.literal('')]).default(''),
+
 	// ─────────────────────────────────────────────────────────────────────────
 	// App Configuration
 	// ─────────────────────────────────────────────────────────────────────────
@@ -91,6 +94,7 @@ export const FRONTEND_ENV_KEYS = [
 	'RELAY_URL',
 	'EXTRA_READ_RELAYS',
 	'SERVER_PUBKEY',
+	'CORDN_SERVER_PUBKEY',
 	'BLOSSOM_SERVER',
 	'NODE_ENV',
 ] as const
