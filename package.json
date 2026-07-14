@@ -8,6 +8,8 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "tauri:android:init": "tauri android init --ci",
+    "tauri:android:build": "tauri android build --apk --ci",
     "tauri:frontend": "bun --hot src/index.ts --host 0.0.0.0",
     "dev": "./scripts/dev-clean.sh",
     "seed": "bun run scripts/seed.ts",

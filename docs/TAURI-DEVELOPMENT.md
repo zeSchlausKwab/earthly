@@ -57,6 +57,39 @@ On macOS the unsigned local artifacts are written beneath
 projects, and release CI are later Phase 1/Phase 12 deliverables; local output is not a release
 artifact.
 
+## Android
+
+Android builds use Tauri's generated Gradle host in `src-tauri/gen/android`. The checked-in project
+targets Android SDK 36 with a minimum SDK of 24. Use Android Studio's bundled JDK so Gradle and the
+Android Gradle plugin run on a supported Java version:
+
+```sh
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export NDK_HOME="$ANDROID_HOME/ndk/$(ls -1 "$ANDROID_HOME/ndk" | tail -1)"
+export ANDROID_NDK_HOME="$NDK_HOME"
+```
+
+Initialize the generated host only when it is absent, then build an APK for an emulator or device:
+
+```sh
+bun run tauri:android:init
+bun run tauri:android:build --debug --target aarch64
+```
+
+For an x86_64 emulator, replace `aarch64` with `x86_64`. The APK is emitted below
+`src-tauri/gen/android/app/build/outputs/apk/`. Build outputs, generated Rust/JNI links, machine-local
+SDK paths, and signing files remain ignored.
+
+The Android app declares `INTERNET` because it hosts and consumes the embedded Nostr and Blossom
+services. Release WebViews permit cleartext only to `127.0.0.1`/`localhost`; debug builds permit
+cleartext development endpoints. Connections to another device's offline node must go through the
+native peer transport rather than granting the WebView unrestricted cleartext LAN access.
+
+The local node currently has process/foreground availability on Android. A production background
+node requires a user-visible Android foreground service and the associated lifecycle and notification
+work; an APK build alone does not make it continuously available in the background.
+
 ## Frontend build behavior
 
 `tauri:frontend` starts only the Bun frontend server on port 3000. It deliberately does not run
@@ -79,5 +112,7 @@ As of 2026-07-14:
 - independent clients have verified relay publish/query and Blossom upload/range/read across node
   restarts, with persistent node identity, event/blob data, and peer grants;
 - the macOS application and DMG, including the embedded node, build successfully on Apple silicon;
+- arm64 and x86_64 Android debug APKs build successfully, and the arm64 app runs on both an API 36.1
+  emulator and a physical Pixel with independently reachable embedded relay and Blossom listeners;
 - full Xcode is not installed in the current environment, so iOS initialization is pending;
-- Android toolchain initialization and physical-device verification are pending.
+- Android foreground-service lifecycle and release signing are pending.
