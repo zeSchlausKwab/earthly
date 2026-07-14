@@ -218,6 +218,7 @@ export class PrivateWorkspaceService {
 			keyPackageRef: keyPackage.keyPackageRef,
 			keyPackageBase64: keyPackage.keyPackageBase64,
 			privateKeyPackageBase64: keyPackage.privateKeyPackageBase64,
+			lastResort: keyPackage.lastResort,
 			published: false,
 			createdAt,
 		})
@@ -262,22 +263,29 @@ export class PrivateWorkspaceService {
 		const ownerPubkey = await this.ownerPubkey()
 		if (ownerPubkey === invitation.adminPubkey)
 			throw new Error('You already administer this private map')
-		const artifacts = await generateMlsKeyPackage(ownerPubkey)
+		const artifacts = await generateMlsKeyPackage(ownerPubkey, { lastResort: true })
 		const storedKeyPackage: StoredMlsKeyPackage = {
 			ownerPubkey,
 			keyPackageRef: artifacts.keyPackageRef,
 			keyPackageBase64: artifacts.keyPackageBase64,
 			privateKeyPackageBase64: artifacts.privateKeyPackageBase64,
+			lastResort: artifacts.lastResort,
 			published: false,
 			createdAt: this.now(),
 		}
 		await this.options.store.putKeyPackage(storedKeyPackage)
 
 		const coordinator = this.coordinator(invitation.coordinatorPubkey, invitation.relays)
-		await coordinator.publishKeyPackage({
+		const published = await coordinator.publishKeyPackage({
 			kp_ref: artifacts.keyPackageRef,
 			kp_64: artifacts.keyPackageBase64,
 		})
+		if (!artifacts.lastResort || !published.last_resort) {
+			await coordinator
+				.removeKeyPackages({ kp_refs: [artifacts.keyPackageRef] })
+				.catch(() => undefined)
+			throw new Error('The coordinator did not recognize the retryable join KeyPackage profile')
+		}
 		storedKeyPackage.published = true
 		await this.options.store.putKeyPackage(storedKeyPackage)
 		await coordinator.storeJoinRequest({
@@ -444,6 +452,12 @@ export class PrivateWorkspaceService {
 				createdAt: this.now(),
 			}
 			await this.options.store.putWorkspace(workspace)
+			if (keyPackage.lastResort) {
+				const available = await coordinator.listKeyPackages()
+				if (available.keyPackages.some((item) => item.kp_ref === pending.keyPackageRef)) {
+					await coordinator.removeKeyPackages({ kp_refs: [pending.keyPackageRef] })
+				}
+			}
 			await this.options.store.deletePendingJoin(ownerPubkey, pending.keyPackageRef)
 			await coordinator.takeWelcomes({
 				consumed: result.welcomes

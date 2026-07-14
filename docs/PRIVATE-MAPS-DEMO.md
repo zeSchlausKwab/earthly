@@ -128,11 +128,13 @@ deployments must provide their own `CORDN_SERVER_PUBKEY` and relay configuration
   membership proposals from a sender whose verified MLS credential is not a current administrator.
   Simultaneous administrator commits and their stale-epoch conflict recovery remain a
   production-hardening item.
-- Cordn's current `kp_take` operation destructively consumes a regular KeyPackage and has no
-  reservation/idempotency token. Earthly journals immediately after a successful response, but a
-  process loss between the coordinator mutation and that local write cannot be repaired by the
-  current protocol. Production Cordn needs an idempotent reservation/consume contract for that
-  final response-loss window.
+- Every new Earthly access request publishes a fresh Cordn-profile last-resort KeyPackage and
+  verifies that the coordinator recognized the profile. Cordn returns that package
+  non-destructively, so an administrator can retry `kp_take` after losing its response even before
+  the local approval journal exists. Earthly removes the package after the member durably accepts
+  its Welcome; it is a bounded retry mechanism, not a permanently reusable device package. Legacy
+  pending requests created with a regular KeyPackage retain the old one-shot behavior and should be
+  re-requested if that retrieval response is lost.
 - Creating a private application record asks the active Nostr signer for its detached authorization
   proof. Browser extension and remote signers may therefore prompt per record until Earthly defines
   a narrowly scoped, revocable device/session authorization mechanism.

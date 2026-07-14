@@ -62,6 +62,7 @@ export interface StoredMlsKeyPackage {
 	keyPackageRef: string
 	keyPackageBase64: string
 	privateKeyPackageBase64: string
+	lastResort?: boolean
 	published: boolean
 	createdAt: number
 }

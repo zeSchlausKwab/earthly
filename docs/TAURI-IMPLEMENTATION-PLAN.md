@@ -1201,9 +1201,12 @@ the exact opaque ciphertext and final post-plan client state, recognizes a coord
 response was lost, resumes missing messages after reload, delays Welcome publication until the
 checkpoint is complete, and retires duplicate Welcomes together. This makes the Add/checkpoint/
 Welcome/request sequence retryable without duplicating MLS commits. Cordn still needs an
-idempotent KeyPackage reservation API to close the response-loss window around its destructive
-`kp_take`, and Earthly still needs stale-epoch recovery for genuinely concurrent administrator
-commits.
+idempotent KeyPackage handoff for regular packages, but Earthly closes its own response-loss window
+without a coordinator fork: each new access request publishes a fresh Cordn-profile last-resort
+KeyPackage, verifies the coordinator recognized it, and removes it once the Welcome is durably
+accepted. The non-destructive `kp_take` retry plus the version-1 approval journal covers every
+coordinator response boundary in the single-administrator approval path. Earthly still needs
+stale-epoch recovery for genuinely concurrent administrator commits.
 
 Dataset/comment schemas and most map presentation components should be highly reusable. Membership,
 state persistence, multi-device identity, recovery, delivery ordering, and encrypted blobs are the

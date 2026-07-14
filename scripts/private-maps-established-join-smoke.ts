@@ -12,6 +12,8 @@ import {
 	parseWorkspaceCheckpointManifest,
 	PRIVATE_WORKSPACE_CHECKPOINT_KIND,
 } from '../src/lib/private-workspace/checkpoint'
+import { isCordnLastResortKeyPackage } from '../src/lib/private-workspace/last-resort-key-package'
+import { decodeKeyPackage } from '../src/lib/private-workspace/mls'
 import { PrivateWorkspaceService } from '../src/lib/private-workspace/service'
 import { MemoryPrivateWorkspaceStore } from '../src/lib/private-workspace/storage'
 import { GEO_COMMENT_KIND, GEO_EVENT_KIND } from '../src/lib/nostr/kinds'
@@ -20,6 +22,7 @@ type StoredWelcome = PendingWelcome & { targetPubkey: string }
 
 class InMemoryCordnServer {
 	private clock = 0
+	private failKeyPackageAfterRead = false
 	private failMessageAfterWrite = false
 	private failWelcomeAfterWrite = false
 	private readonly keyPackages = new Map<string, PublishedKeyPackage>()
@@ -37,6 +40,10 @@ class InMemoryCordnServer {
 		this.failMessageAfterWrite = true
 	}
 
+	failNextKeyPackageResponseAfterRead(): void {
+		this.failKeyPackageAfterRead = true
+	}
+
 	failNextWelcomeResponseAfterWrite(): void {
 		this.failWelcomeAfterWrite = true
 	}
@@ -49,27 +56,36 @@ class InMemoryCordnServer {
 		return this.welcomes.filter((welcome) => welcome.targetPubkey === targetPubkey).length
 	}
 
+	keyPackageCount(pubkey: string): number {
+		return [...this.keyPackages.values()].filter((keyPackage) => keyPackage.pk === pubkey).length
+	}
+
 	client(signer: NostrSigner): PrivateWorkspaceCoordinator {
 		const ownerPubkey = () => signer.getPublicKey()
 		return {
 			publishKeyPackage: async ({ kp_ref, kp_64 }) => {
 				const pk = await ownerPubkey()
 				const at = ++this.clock
+				const lastResort = isCordnLastResortKeyPackage(decodeKeyPackage(kp_64))
 				const event = await signer.signEvent({
 					kind: 27524,
 					created_at: at,
 					tags: [],
 					content: JSON.stringify({ params: { arguments: { kp_64 } } }),
 				})
-				this.keyPackages.set(kp_ref, { pk, kp_ref, last_resort: false, at, event })
-				return { kp_ref, last_resort: false, at }
+				this.keyPackages.set(kp_ref, { pk, kp_ref, last_resort: lastResort, at, event })
+				return { kp_ref, last_resort: lastResort, at }
 			},
 			listKeyPackages: async () => ({
 				keyPackages: [...this.keyPackages.values()].map(({ event: _event, ...item }) => item),
 			}),
 			takeKeyPackage: async ({ id }) => {
 				const keyPackage = this.keyPackages.get(id) ?? null
-				if (keyPackage) this.keyPackages.delete(id)
+				if (keyPackage && !keyPackage.last_resort) this.keyPackages.delete(id)
+				if (keyPackage && this.failKeyPackageAfterRead) {
+					this.failKeyPackageAfterRead = false
+					throw new Error('simulated KeyPackage response loss after non-destructive read')
+				}
 				return { keyPackage }
 			},
 			removeKeyPackages: async ({ kp_refs }) => {
@@ -164,6 +180,7 @@ const cordn = new InMemoryCordnServer()
 const alice = testSigner()
 const bob = testSigner()
 const carol = testSigner()
+const dave = testSigner()
 
 function service(
 	identity: ReturnType<typeof testSigner>,
@@ -182,6 +199,7 @@ const aliceStore = new MemoryPrivateWorkspaceStore()
 let aliceService = service(alice, aliceStore)
 const bobService = service(bob)
 const carolService = service(carol)
+const daveService = service(dave)
 const workspace = await aliceService.createWorkspace({ name: 'Established field map' })
 const datasetId = 'ridge-survey'
 const oldDataset = await aliceService.sendDataset(
@@ -227,7 +245,7 @@ const expectedCheckpointBasis = Math.max(
 async function join(
 	joiningService: PrivateWorkspaceService,
 	joiningPubkey: string,
-	failure?: 'message-response' | 'welcome-response',
+	failure?: 'key-package-response' | 'message-response' | 'welcome-response',
 ): Promise<void> {
 	const invitation = await aliceService.createInvitation(workspace.workspaceId)
 	await joiningService.requestToJoin(invitation)
@@ -235,12 +253,21 @@ async function join(
 		(item) => item.pk === joiningPubkey,
 	)
 	assert(request)
+	if (failure === 'key-package-response') cordn.failNextKeyPackageResponseAfterRead()
 	if (failure === 'message-response') cordn.failNextMessageResponseAfterWrite()
 	if (failure === 'welcome-response') cordn.failNextWelcomeResponseAfterWrite()
 	if (failure) {
 		await assert.rejects(
 			aliceService.approveJoinRequest(request),
-			new RegExp(`simulated ${failure === 'message-response' ? 'message' : 'Welcome'} response loss`),
+			new RegExp(
+				`simulated ${
+					failure === 'key-package-response'
+						? 'KeyPackage'
+						: failure === 'message-response'
+							? 'message'
+							: 'Welcome'
+				} response loss`,
+			),
 		)
 		aliceService = service(alice, aliceStore)
 	}
@@ -313,6 +340,13 @@ assert.equal(
 	carolWorkspace.envelopes.some((envelope) => envelope.kind === GEO_COMMENT_KIND),
 	false,
 	'checkpoint v1 must not disclose discussion history',
+)
+
+await join(daveService, dave.pubkey, 'key-package-response')
+assert.equal(
+	cordn.keyPackageCount(dave.pubkey),
+	0,
+	'the retryable last-resort KeyPackage must be removed after Welcome acceptance',
 )
 
 await bobService.syncWorkspace(workspace.workspaceId)

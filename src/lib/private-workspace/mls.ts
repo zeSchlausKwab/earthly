@@ -42,6 +42,10 @@ import {
 	encodePrivateEnvelope,
 	type PrivateWorkspaceEnvelope,
 } from './envelope'
+import {
+	createCordnLastResortKeyPackageOptions,
+	isCordnLastResortKeyPackage,
+} from './last-resort-key-package'
 
 const CIPHERSUITE = 'MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'
 const encoder = new TextEncoder()
@@ -67,6 +71,7 @@ export interface MlsKeyPackageArtifacts {
 	keyPackageRef: string
 	keyPackageBase64: string
 	privateKeyPackageBase64: string
+	lastResort: boolean
 }
 
 function getCiphersuite() {
@@ -84,11 +89,18 @@ export function createNostrCredential(pubkey: string): Credential {
 	return { credentialType: defaultCredentialTypes.basic, identity: encoder.encode(pubkey) }
 }
 
-export async function generateMlsKeyPackage(pubkey: string): Promise<MlsKeyPackageArtifacts> {
+export async function generateMlsKeyPackage(
+	pubkey: string,
+	options: { lastResort?: boolean } = {},
+): Promise<MlsKeyPackageArtifacts> {
 	const cipherSuite = await getCiphersuite()
+	const lastResortOptions = options.lastResort
+		? createCordnLastResortKeyPackageOptions()
+		: undefined
 	const generated = await generateKeyPackage({
 		credential: createNostrCredential(pubkey),
 		cipherSuite,
+		...(lastResortOptions ?? {}),
 	})
 	const keyPackageRef = bytesToHex(
 		await makeKeyPackageRef(generated.publicPackage, cipherSuite.hash),
@@ -102,6 +114,7 @@ export async function generateMlsKeyPackage(pubkey: string): Promise<MlsKeyPacka
 		privateKeyPackageBase64: bytesToBase64(
 			encode(privateKeyPackageEncoder, generated.privatePackage),
 		),
+		lastResort: isCordnLastResortKeyPackage(generated.publicPackage),
 	}
 }
 
