@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { hexToBytes } from '@noble/hashes/utils.js'
@@ -70,6 +70,31 @@ async function createDeploymentFixture(): Promise<string> {
 	return fixtureRoot
 }
 
+async function writeExecutable(path: string, content: string): Promise<void> {
+	await mkdir(dirname(path), { recursive: true })
+	await writeFile(path, content)
+	await chmod(path, 0o755)
+}
+
+async function runDeploy(fixtureRoot: string, args: string[] = []) {
+	const process = Bun.spawn(['bash', 'scripts/deploy.sh', ...args], {
+		cwd: fixtureRoot,
+		env: {
+			HOME: Bun.env.HOME ?? '',
+			PATH: Bun.env.PATH ?? '',
+			TMPDIR: Bun.env.TMPDIR ?? '/tmp',
+		},
+		stdout: 'pipe',
+		stderr: 'pipe',
+	})
+	const [exitCode, stdout, stderr] = await Promise.all([
+		process.exited,
+		new Response(process.stdout).text(),
+		new Response(process.stderr).text(),
+	])
+	return { exitCode, stdout, stderr }
+}
+
 afterEach(async () => {
 	await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true })))
 })
@@ -77,24 +102,34 @@ afterEach(async () => {
 describe('deployment environment isolation', () => {
 	test('deploy check validates .env.production even when .env contains development URLs', async () => {
 		const fixtureRoot = await createDeploymentFixture()
-		const process = Bun.spawn(['bash', 'scripts/deploy.sh', '--check'], {
-			cwd: fixtureRoot,
-			env: {
-				HOME: Bun.env.HOME ?? '',
-				PATH: Bun.env.PATH ?? '',
-				TMPDIR: Bun.env.TMPDIR ?? '/tmp',
-			},
-			stdout: 'pipe',
-			stderr: 'pipe',
-		})
-		const [exitCode, stdout, stderr] = await Promise.all([
-			process.exited,
-			new Response(process.stdout).text(),
-			new Response(process.stderr).text(),
-		])
+		const { exitCode, stdout, stderr } = await runDeploy(fixtureRoot, ['--check'])
 
 		expect(`${stdout}\n${stderr}`).not.toContain('ws://localhost:3334')
 		expect(exitCode).toBe(0)
 		expect(stdout).toContain('no build, upload, or restart was performed')
+	})
+
+	test('creates a release archive when the optional legacy database is absent', async () => {
+		const fixtureRoot = await createDeploymentFixture()
+		const fakeBin = join(fixtureRoot, 'fake-bin')
+		await writeExecutable(join(fixtureRoot, 'scripts/build-production.sh'), '#!/bin/bash\nexit 0\n')
+		await writeExecutable(
+			join(fakeBin, 'tar'),
+			'#!/bin/bash\ntouch deploy.tar.gz\nexit 0\n',
+		)
+		for (const command of ['ssh', 'scp']) {
+			await writeExecutable(join(fakeBin, command), '#!/bin/bash\nexit 0\n')
+		}
+
+		const originalPath = Bun.env.PATH ?? ''
+		Bun.env.PATH = `${fakeBin}:${originalPath}`
+		try {
+			const { exitCode, stdout, stderr } = await runDeploy(fixtureRoot)
+			expect(stderr).not.toContain('unbound variable')
+			expect(exitCode).toBe(0)
+			expect(stdout).toContain('Deployment complete')
+		} finally {
+			Bun.env.PATH = originalPath
+		}
 	})
 })

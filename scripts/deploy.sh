@@ -53,9 +53,21 @@ echo "Building the production browser bundle..."
 archive="deploy.tar.gz"
 trap 'rm -f "$archive"' EXIT
 
-include_legacy_db=()
+archive_paths=(
+  dist/
+  src/
+  public/
+  relay/
+  contextvm/
+  scripts/
+  docs/
+  ecosystem.config.cjs
+  Caddyfile
+  package.json
+  bun.lock
+)
 if [[ -d legacy-db && -f legacy-db/latest.sql ]]; then
-  include_legacy_db=(legacy-db/)
+  archive_paths+=(legacy-db/)
 fi
 
 echo "Creating deployment archive..."
@@ -64,12 +76,7 @@ tar -czf "$archive" \
   --exclude='relay/relay' \
   --exclude='relay/data' \
   --exclude='src-tauri' \
-  dist/ src/ public/ relay/ contextvm/ scripts/ docs/ \
-  "${include_legacy_db[@]}" \
-  ecosystem.config.cjs \
-  Caddyfile \
-  package.json \
-  bun.lock
+  "${archive_paths[@]}"
 
 remote="${VPS_USER}@${VPS_HOST}"
 echo "Uploading release to ${remote}:${VPS_PATH}..."
