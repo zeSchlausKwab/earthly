@@ -181,6 +181,8 @@ const alice = testSigner()
 const bob = testSigner()
 const carol = testSigner()
 const dave = testSigner()
+const erin = testSigner()
+const frank = testSigner()
 
 function service(
 	identity: ReturnType<typeof testSigner>,
@@ -201,6 +203,8 @@ const bobStore = new MemoryPrivateWorkspaceStore()
 let bobService = service(bob, bobStore)
 const carolService = service(carol)
 const daveService = service(dave)
+const erinService = service(erin)
+const frankService = service(frank)
 const workspace = await aliceService.createWorkspace({ name: 'Established field map' })
 const datasetId = 'ridge-survey'
 const oldDataset = await aliceService.sendDataset(
@@ -358,6 +362,53 @@ assert.equal(bobWorkspace.envelopes.filter((item) => item.kind === GEO_EVENT_KIN
 await aliceService.setAdministrator(workspace.workspaceId, bob.pubkey, true)
 await bobService.syncWorkspace(workspace.workspaceId)
 
+// Alice and Bob approve different pending members from the same MLS epoch.
+// Alice's plan occupies the first contiguous coordinator cursors and wins;
+// Bob catches up after restart and rebuilds Frank's Add against Alice's epoch.
+const erinInvitation = await aliceService.createInvitation(workspace.workspaceId)
+const frankInvitation = await bobService.createInvitation(workspace.workspaceId)
+await erinService.requestToJoin(erinInvitation)
+await frankService.requestToJoin(frankInvitation)
+const erinRequest = (await aliceService.fetchJoinRequests(workspace.workspaceId)).find(
+	(request) => request.pk === erin.pubkey,
+)
+const frankRequest = (await bobService.fetchJoinRequests(workspace.workspaceId)).find(
+	(request) => request.pk === frank.pubkey,
+)
+assert(erinRequest)
+assert(frankRequest)
+cordn.setFetchSuppressed(alice.pubkey, true)
+cordn.setFetchSuppressed(bob.pubkey, true)
+cordn.failNextWelcomeResponseAfterWrite()
+await assert.rejects(
+	aliceService.approveJoinRequest(erinRequest),
+	/simulated Welcome response loss after durable storage/u,
+)
+await assert.rejects(
+	bobService.approveJoinRequest(frankRequest),
+	/Coordinator did not return the posted private-group approval records/u,
+)
+cordn.setFetchSuppressed(alice.pubkey, false)
+cordn.setFetchSuppressed(bob.pubkey, false)
+aliceService = service(alice, aliceStore)
+bobService = service(bob, bobStore)
+await aliceService.syncWorkspace(workspace.workspaceId)
+await bobService.syncWorkspace(workspace.workspaceId)
+assert.equal((await erinService.acceptPendingWelcomes()).length, 1)
+assert.equal((await frankService.acceptPendingWelcomes()).length, 1)
+const afterConcurrentAddsAlice = await aliceService.syncWorkspace(workspace.workspaceId)
+const afterConcurrentAddsBob = await bobService.syncWorkspace(workspace.workspaceId)
+const expectedMembersAfterAdds = new Set([
+	alice.pubkey,
+	bob.pubkey,
+	carol.pubkey,
+	dave.pubkey,
+	erin.pubkey,
+	frank.pubkey,
+])
+assert.deepEqual(new Set(aliceService.members(afterConcurrentAddsAlice)), expectedMembersAfterAdds)
+assert.deepEqual(new Set(bobService.members(afterConcurrentAddsBob)), expectedMembersAfterAdds)
+
 // Both administrators build a removal from the same MLS epoch while fetches
 // are delayed. The first coordinator-ordered commit wins; the losing semantic
 // removal must catch up, rebuild against the new epoch, and converge.
@@ -379,8 +430,14 @@ aliceService = service(alice, aliceStore)
 bobService = service(bob, bobStore)
 const convergedAlice = await aliceService.syncWorkspace(workspace.workspaceId)
 const convergedBob = await bobService.syncWorkspace(workspace.workspaceId)
-assert.deepEqual(new Set(aliceService.members(convergedAlice)), new Set([alice.pubkey, bob.pubkey]))
-assert.deepEqual(new Set(bobService.members(convergedBob)), new Set([alice.pubkey, bob.pubkey]))
+const expectedMembersAfterRemovals = new Set([
+	alice.pubkey,
+	bob.pubkey,
+	erin.pubkey,
+	frank.pubkey,
+])
+assert.deepEqual(new Set(aliceService.members(convergedAlice)), expectedMembersAfterRemovals)
+assert.deepEqual(new Set(bobService.members(convergedBob)), expectedMembersAfterRemovals)
 assert(
 	convergedAlice.skippedCoordinatorMessages?.some(
 		(message) => message.reason === 'stale-or-invalid',
@@ -413,6 +470,18 @@ assert.equal(
 		(envelope) => envelope.content === 'After Carol and Dave were removed',
 	),
 	false,
+)
+const activeErin = await erinService.syncWorkspace(workspace.workspaceId)
+const activeFrank = await frankService.syncWorkspace(workspace.workspaceId)
+assert(
+	activeErin.envelopes.some(
+		(envelope) => envelope.content === 'After Carol and Dave were removed',
+	),
+)
+assert(
+	activeFrank.envelopes.some(
+		(envelope) => envelope.content === 'After Carol and Dave were removed',
+	),
 )
 
 console.log('private maps established-workspace join smoke test passed')

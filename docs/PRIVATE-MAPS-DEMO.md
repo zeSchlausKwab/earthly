@@ -131,8 +131,11 @@ deployments must provide their own `CORDN_SERVER_PUBKEY` and relay configuration
   membership proposals from a sender whose verified MLS credential is not a current administrator.
   Removal commits now recover from simultaneous administrators without forking the group:
   coordinator cursor order selects the first valid commit, losing ciphertext is retained only as a
-  bounded local diagnostic, and a still-needed removal is regenerated from the accepted state.
-  Genuinely concurrent Add/approval plans still fail closed and remain a production-hardening item.
+  bounded local diagnostic, and a still-needed removal is regenerated from the accepted state. Add
+  approvals use the same ordered rule: a losing plan discards its unpublished Welcome/checkpoint,
+  catches up, and rebuilds with the request's retryable KeyPackage. A winning plan survives process
+  restart and a lost Welcome response. If the only device holding a winning but unpublished Welcome
+  is permanently lost, administrator recovery still needs an explicit remove-and-reinvite flow.
 - Every new Earthly access request publishes a fresh Cordn-profile last-resort KeyPackage and
   verifies that the coordinator recognized the profile. Cordn returns that package
   non-destructively, so an administrator can retry `kp_take` after losing its response even before

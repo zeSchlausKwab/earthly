@@ -24,17 +24,21 @@ export interface PendingWorkspaceApprovalMessage {
 /**
  * Crash-recovery journal for the multi-write member approval sequence.
  * Version 1 is embedded in the workspace record, so existing IndexedDB stores
- * gain it without a schema migration.
+ * gain it without a schema migration. New journals also retain their verified
+ * KeyPackage and basis state so a losing same-epoch Add can be rebuilt.
  */
 export interface PendingWorkspaceApproval {
 	version: 1
 	targetPubkey: string
 	keyPackageRef: string
+	keyPackageBase64?: string
 	requestAt: number
 	basisCursor: number
+	basisStateBase64?: string
 	welcomeBase64: string
 	finalStateBase64: string
 	messages: PendingWorkspaceApprovalMessage[]
+	attempt?: number
 	welcomeStoredAt?: number
 	localFinalized?: boolean
 }

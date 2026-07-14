@@ -1205,14 +1205,17 @@ idempotent KeyPackage handoff for regular packages, but Earthly closes its own r
 without a coordinator fork: each new access request publishes a fresh Cordn-profile last-resort
 KeyPackage, verifies the coordinator recognized it, and removes it once the Welcome is durably
 accepted. The non-destructive `kp_take` retry plus the version-1 approval journal covers every
-coordinator response boundary in the single-administrator approval path. Earthly still needs
-stale-epoch recovery for genuinely concurrent Add/approval commits. Remove operations now have a
-separate version-1 semantic journal: coordinator cursor order selects the first valid same-epoch
-commit, an exact ciphertext makes response loss idempotent, losing commits are skipped with bounded
-diagnostics, and a still-authorized removal intent is regenerated against the accepted epoch. The
-repeatable established-workspace smoke gate covers two promoted administrators, two simultaneous
-removals, a lost post response, process restart, convergence, and future-epoch exclusion of both
-removed members.
+coordinator response boundary in the single-administrator approval path. Approval recovery now
+also handles genuinely concurrent administrators: coordinator cursor order selects the first valid
+Add, a losing plan discards its unpublished Welcome/checkpoint ciphertext, replays the winning
+epoch, and rebuilds the same semantic approval with the cached retryable KeyPackage. Remove
+operations use a parallel version-1 semantic journal: an exact ciphertext makes response loss
+idempotent, losing commits are skipped with bounded diagnostics, and a still-authorized removal
+intent is regenerated against the accepted epoch. The repeatable established-workspace smoke gate
+covers two promoted administrators, concurrent Add plans for different members, two simultaneous
+removals, lost post and Welcome responses, process restarts, convergence, new-member catch-up, and
+future-epoch exclusion of both removed members. Permanent loss of the only administrator device
+holding a winning but unpublished Welcome still needs an explicit recovery design.
 
 Dataset/comment schemas and most map presentation components should be highly reusable. Membership,
 state persistence, multi-device identity, recovery, delivery ordering, and encrypted blobs are the
