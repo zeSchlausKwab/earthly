@@ -145,7 +145,6 @@ const env = envResult.data;
 console.log("📋 Environment configuration:");
 console.log(`   RELAY_URL: ${env.RELAY_URL}`);
 console.log(`   SERVER_PUBKEY: ${env.SERVER_PUBKEY.slice(0, 16)}...`);
-console.log(`   CLIENT_KEY: ${env.CLIENT_KEY.slice(0, 16)}...`);
 console.log();
 
 // Build define object for frontend env injection

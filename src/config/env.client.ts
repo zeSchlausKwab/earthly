@@ -23,7 +23,6 @@
 const DEV_DEFAULTS = {
 	RELAY_URL: 'wss://relay.earthly.city',
 	SERVER_PUBKEY: 'ceadb7d5b739189fb3ecb7023a0c3f55d8995404d7750f5068865decf8b304cc',
-	CLIENT_KEY: '4e842ce1a820603c44f6ce3c4acd6527fdeb4898a9023d84bed51c1b4417eb5c',
 	BLOSSOM_SERVER: 'https://blossom.earthly.city',
 } as const
 
@@ -184,9 +183,6 @@ export const config = {
 
 	/** Public key of the ContextVM geo server */
 	serverPubkey: safeEnv(() => process.env.SERVER_PUBKEY as string, DEV_DEFAULTS.SERVER_PUBKEY),
-
-	/** Client private key for ContextVM communication */
-	clientKey: safeEnv(() => process.env.CLIENT_KEY as string, DEV_DEFAULTS.CLIENT_KEY),
 
 	/**
 	 * Relays this client publishes to. In dev: locked to the local relay.

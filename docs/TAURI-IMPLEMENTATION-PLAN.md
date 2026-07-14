@@ -557,16 +557,17 @@ Every command:
   release workflows.
 - Generate release checksums and a software bill of materials.
 
-### 12.5 Existing client-key migration
+### 12.5 ContextVM session identity
 
-The current web build includes `CLIENT_KEY` in `FRONTEND_ENV_KEYS`, logs a prefix during builds,
-and bakes the value into the frontend bundle even though the schema describes it as a client
-private key. Any shipped frontend value is public and cannot act as a shared secret.
+Earthly generates one ephemeral secp256k1 credential for ContextVM transport messages per running
+app session. The credential is shared by ContextVM clients in that process but is never bundled,
+logged, or persisted. It is separate from the user's Nostr signer and the native local-node
+identity.
 
-Before a native release, replace this fixed key with a per-install or per-session ContextVM client
-identity, migrate the call sites deliberately, remove private-key build logging, and ensure no
-server or user signing key enters the webview bundle. This migration is separate from the local
-node identity and must preserve existing ContextVM interoperability tests.
+`FRONTEND_ENV_KEYS` is an explicit public-value allow-list and excludes all private keys. Regression
+tests enforce the allow-list and ensure the retired shared `CLIENT_KEY` is ignored by environment
+parsing. A future platform-keystore identity can replace the session credential if stable ContextVM
+client identity becomes a product requirement; it must not reintroduce a build-time secret.
 
 ## 13. Failure recovery and observability
 

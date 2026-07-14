@@ -50,12 +50,6 @@ export const envSchema = z.object({
 		.length(64)
 		.default('ceadb7d5b739189fb3ecb7023a0c3f55d8995404d7750f5068865decf8b304cc'),
 
-	/** Client private key for ContextVM communication */
-	CLIENT_KEY: z
-		.string()
-		.length(64)
-		.default('4e842ce1a820603c44f6ce3c4acd6527fdeb4898a9023d84bed51c1b4417eb5c'),
-
 	// ─────────────────────────────────────────────────────────────────────────
 	// App Configuration
 	// ─────────────────────────────────────────────────────────────────────────
@@ -97,7 +91,6 @@ export const FRONTEND_ENV_KEYS = [
 	'RELAY_URL',
 	'EXTRA_READ_RELAYS',
 	'SERVER_PUBKEY',
-	'CLIENT_KEY',
 	'BLOSSOM_SERVER',
 	'NODE_ENV',
 ] as const

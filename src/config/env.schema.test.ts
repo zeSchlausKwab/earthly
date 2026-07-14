@@ -1,0 +1,19 @@
+import { describe, expect, test } from 'bun:test'
+import { FRONTEND_ENV_KEYS, parseEnv } from './env.schema'
+
+describe('frontend environment allow-list', () => {
+	test('contains no private signing credentials', () => {
+		expect(FRONTEND_ENV_KEYS).not.toContain('CLIENT_KEY' as never)
+		expect(FRONTEND_ENV_KEYS).not.toContain('SERVER_KEY' as never)
+		expect(FRONTEND_ENV_KEYS).not.toContain('APP_PRIVATE_KEY' as never)
+	})
+
+	test('does not retain the retired shared client key', () => {
+		const parsed = parseEnv({
+			NODE_ENV: 'test',
+			CLIENT_KEY: '4e842ce1a820603c44f6ce3c4acd6527fdeb4898a9023d84bed51c1b4417eb5c',
+		})
+
+		expect('CLIENT_KEY' in parsed).toBe(false)
+	})
+})
