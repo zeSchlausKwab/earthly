@@ -44,6 +44,7 @@ import type {
 	PendingWorkspaceApproval,
 	PendingWorkspaceApprovalMessage,
 	PendingWorkspaceJoin,
+	PendingWorkspaceMembershipCommit,
 	PrivateWorkspaceStore,
 	StoredMlsKeyPackage,
 	StoredWorkspace,
@@ -52,6 +53,9 @@ import type {
 
 export const PRIVATE_WORKSPACE_METADATA_KIND = 37523
 export const PRIVATE_WORKSPACE_CHAT_KIND = 9
+
+const MAX_SKIPPED_COORDINATOR_MESSAGES = 32
+const MAX_MEMBERSHIP_RECOVERY_PASSES = 4
 
 type CoordinatorFactory = (options: {
 	serverPubkey: string
@@ -482,6 +486,10 @@ export class PrivateWorkspaceService {
 			await this.resumePendingApproval(workspace, coordinator)
 			return { workspace, changed: true }
 		}
+		if (workspace.pendingMembershipCommit) {
+			await this.resumePendingMembershipCommit(workspace, coordinator)
+			return { workspace, changed: true }
+		}
 		const changed = await this.syncWithCoordinator(workspace, coordinator)
 		return { workspace, changed }
 	}
@@ -553,21 +561,20 @@ export class PrivateWorkspaceService {
 	async removeMember(workspaceId: string, memberPubkey: string): Promise<StoredWorkspace> {
 		const ownerPubkey = await this.ownerPubkey()
 		const workspace = await this.syncWorkspace(workspaceId)
+		if (!this.members(workspace).includes(memberPubkey)) return workspace
 		const policy = this.requireAdministrator(workspace, ownerPubkey, 'remove members')
 		if (policy.administrators.includes(memberPubkey)) {
 			throw new Error('Demote this administrator before removing them')
 		}
-		const oldState = deserializeClientState(workspace.stateBase64)
-		const removed = await removeWorkspaceMember({ state: oldState, pubkey: memberPubkey })
+		if (workspace.pendingOutbound?.length) {
+			throw new Error(
+				'Wait for pending private-map records to be confirmed before removing a member',
+			)
+		}
 		const coordinator = this.coordinator(workspace.coordinatorPubkey, workspace.relays)
-		const posted = await coordinator.postMessage({
-			gid: workspace.groupId,
-			msg_64: await sealCoordinatorPayload(oldState, removed.commitBase64),
-		})
-		workspace.stateBase64 = serializeClientState(removed.newState)
-		workspace.cursor = posted.cursor
+		workspace.pendingMembershipCommit = await this.createPendingRemoval(workspace, memberPubkey, 1)
 		await this.options.store.putWorkspace(workspace)
-		return workspace
+		return this.resumePendingMembershipCommit(workspace, coordinator)
 	}
 
 	async setAdministrator(
@@ -688,6 +695,183 @@ export class PrivateWorkspaceService {
 			tags: [['d', 'current-map-checkpoint']],
 			content: JSON.stringify(manifest),
 		})
+	}
+
+	private async createPendingRemoval(
+		workspace: StoredWorkspace,
+		targetPubkey: string,
+		attempt: number,
+	): Promise<PendingWorkspaceMembershipCommit> {
+		const oldState = deserializeClientState(workspace.stateBase64)
+		const removed = await removeWorkspaceMember({
+			state: oldState,
+			pubkey: targetPubkey,
+		})
+		return {
+			version: 1,
+			operation: 'remove',
+			targetPubkey,
+			basisCursor: workspace.cursor,
+			basisStateBase64: workspace.stateBase64,
+			msgBase64: await sealCoordinatorPayload(oldState, removed.commitBase64),
+			finalStateBase64: serializeClientState(removed.newState),
+			attempt,
+		}
+	}
+
+	private recordSkippedCoordinatorMessage(
+		workspace: StoredWorkspace,
+		cursor: number,
+		reason: 'rejected' | 'stale-or-invalid',
+	): void {
+		const previous = (workspace.skippedCoordinatorMessages ?? []).filter(
+			(message) => message.cursor !== cursor,
+		)
+		workspace.skippedCoordinatorMessages = [
+			...previous,
+			{ cursor, reason, recordedAt: this.now() },
+		].slice(-MAX_SKIPPED_COORDINATOR_MESSAGES)
+	}
+
+	private async resumePendingMembershipCommit(
+		workspace: StoredWorkspace,
+		coordinator: PrivateWorkspaceCoordinator,
+	): Promise<StoredWorkspace> {
+		for (let pass = 0; pass < MAX_MEMBERSHIP_RECOVERY_PASSES; pass += 1) {
+			const pending = workspace.pendingMembershipCommit
+			if (pending?.version !== 1 || pending.operation !== 'remove') {
+				throw new Error('Unsupported private-map membership recovery journal')
+			}
+			if (workspace.pendingApproval) {
+				throw new Error('Finish the pending member approval before changing membership')
+			}
+
+			const firstFetch = await coordinator.fetchMessages({
+				gid: workspace.groupId,
+				after: pending.basisCursor > 0 ? pending.basisCursor : undefined,
+			})
+			if (pending.cursor === undefined) {
+				const existing = firstFetch.messages.find((message) => message.msg_64 === pending.msgBase64)
+				if (existing) {
+					pending.cursor = existing.cursor
+				} else {
+					const posted = await coordinator.postMessage({
+						gid: workspace.groupId,
+						msg_64: pending.msgBase64,
+					})
+					pending.cursor = posted.cursor
+				}
+				await this.options.store.putWorkspace(workspace)
+			}
+
+			const delivered = await coordinator.fetchMessages({
+				gid: workspace.groupId,
+				after: pending.basisCursor > 0 ? pending.basisCursor : undefined,
+			})
+			let state = deserializeClientState(pending.basisStateBase64)
+			let replayCursor = pending.basisCursor
+			let epochChangedBeforeOwnCommit = false
+			let ownCommitAccepted = false
+			let ownCommitObserved = false
+
+			for (const message of delivered.messages.sort((a, b) => a.cursor - b.cursor)) {
+				if (message.cursor <= replayCursor) continue
+				if (message.msg_64 === pending.msgBase64) {
+					ownCommitObserved = true
+					const policy = this.administratorPolicy(workspace)
+					const currentMembers = memberPubkeysFromState(state)
+					if (
+						!epochChangedBeforeOwnCommit &&
+						policy.administrators.includes(workspace.ownerPubkey) &&
+						!policy.administrators.includes(pending.targetPubkey) &&
+						currentMembers.includes(pending.targetPubkey)
+					) {
+						state = deserializeClientState(pending.finalStateBase64)
+						ownCommitAccepted = true
+					} else {
+						this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'stale-or-invalid')
+					}
+					replayCursor = message.cursor
+					continue
+				}
+
+				try {
+					const epochBefore = String(state.groupContext.epoch)
+					const mlsBase64 = message.encrypted
+						? await openCoordinatorPayload(state, message.msg_64)
+						: message.msg_64
+					const processed = await processWorkspaceMessage({
+						state,
+						messageBase64: mlsBase64,
+						administratorPubkeys: this.administratorPolicy(workspace).administrators,
+					})
+					state = processed.newState
+					if (processed.kind === 'applicationMessage') {
+						this.applyEnvelope(workspace, processed.envelope)
+					} else if (processed.kind === 'rejected') {
+						this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'rejected')
+					}
+					if (!ownCommitAccepted && String(state.groupContext.epoch) !== epochBefore) {
+						epochChangedBeforeOwnCommit = true
+					}
+					if (!memberPubkeysFromState(state).includes(workspace.ownerPubkey)) {
+						workspace.status = 'removed'
+					}
+				} catch (error) {
+					if (
+						workspace.role === 'member' &&
+						error instanceof Error &&
+						/ancestor|overlap/u.test(error.message)
+					) {
+						workspace.status = 'removed'
+					} else {
+						this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'stale-or-invalid')
+					}
+				} finally {
+					replayCursor = message.cursor
+				}
+				if (workspace.status === 'removed') break
+			}
+
+			if (!ownCommitObserved) {
+				throw new Error('Coordinator did not return the posted private-group membership record')
+			}
+
+			workspace.stateBase64 = serializeClientState(state)
+			workspace.cursor = replayCursor
+			this.reconcileAcknowledgedOutbounds(workspace, replayCursor)
+			const policy = this.administratorPolicy(workspace)
+			const currentMembers = memberPubkeysFromState(state)
+
+			if (
+				workspace.status === 'removed' ||
+				ownCommitAccepted ||
+				!currentMembers.includes(pending.targetPubkey)
+			) {
+				workspace.pendingMembershipCommit = undefined
+				await this.options.store.putWorkspace(workspace)
+				return workspace
+			}
+			if (!policy.administrators.includes(workspace.ownerPubkey)) {
+				workspace.pendingMembershipCommit = undefined
+				await this.options.store.putWorkspace(workspace)
+				throw new Error('Administrator role changed concurrently; member removal was not applied')
+			}
+			if (policy.administrators.includes(pending.targetPubkey)) {
+				workspace.pendingMembershipCommit = undefined
+				await this.options.store.putWorkspace(workspace)
+				throw new Error('The member became an administrator concurrently and was not removed')
+			}
+
+			workspace.pendingMembershipCommit = await this.createPendingRemoval(
+				workspace,
+				pending.targetPubkey,
+				pending.attempt + 1,
+			)
+			await this.options.store.putWorkspace(workspace)
+		}
+
+		throw new Error('Private-map membership kept changing; removal will resume on the next sync')
 	}
 
 	private async resumePendingApproval(
@@ -828,6 +1012,8 @@ export class PrivateWorkspaceService {
 				state = processed.newState
 				if (processed.kind === 'applicationMessage') {
 					this.applyEnvelope(workspace, processed.envelope)
+				} else if (processed.kind === 'rejected') {
+					this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'rejected')
 				}
 				if (!memberPubkeysFromState(state).includes(workspace.ownerPubkey)) {
 					workspace.status = 'removed'
@@ -840,7 +1026,7 @@ export class PrivateWorkspaceService {
 				) {
 					workspace.status = 'removed'
 				} else {
-					throw error
+					this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'stale-or-invalid')
 				}
 			} finally {
 				workspace.cursor = message.cursor

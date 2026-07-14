@@ -197,7 +197,8 @@ function service(
 
 const aliceStore = new MemoryPrivateWorkspaceStore()
 let aliceService = service(alice, aliceStore)
-const bobService = service(bob)
+const bobStore = new MemoryPrivateWorkspaceStore()
+let bobService = service(bob, bobStore)
 const carolService = service(carol)
 const daveService = service(dave)
 const workspace = await aliceService.createWorkspace({ name: 'Established field map' })
@@ -354,12 +355,63 @@ const [bobWorkspace] = await bobService.listWorkspaces()
 assert(bobWorkspace)
 assert.equal(bobWorkspace.envelopes.filter((item) => item.kind === GEO_EVENT_KIND).length, 2)
 
-await aliceService.removeMember(workspace.workspaceId, carol.pubkey)
-await aliceService.sendChat(workspace.workspaceId, 'After Carol was removed')
+await aliceService.setAdministrator(workspace.workspaceId, bob.pubkey, true)
+await bobService.syncWorkspace(workspace.workspaceId)
+
+// Both administrators build a removal from the same MLS epoch while fetches
+// are delayed. The first coordinator-ordered commit wins; the losing semantic
+// removal must catch up, rebuild against the new epoch, and converge.
+cordn.setFetchSuppressed(alice.pubkey, true)
+cordn.setFetchSuppressed(bob.pubkey, true)
+cordn.failNextMessageResponseAfterWrite()
+await assert.rejects(
+	bobService.removeMember(workspace.workspaceId, dave.pubkey),
+	/simulated message response loss after durable storage/u,
+)
+await assert.rejects(
+	aliceService.removeMember(workspace.workspaceId, carol.pubkey),
+	/Coordinator did not return the posted private-group membership record/u,
+)
+cordn.setFetchSuppressed(alice.pubkey, false)
+cordn.setFetchSuppressed(bob.pubkey, false)
+
+aliceService = service(alice, aliceStore)
+bobService = service(bob, bobStore)
+const convergedAlice = await aliceService.syncWorkspace(workspace.workspaceId)
+const convergedBob = await bobService.syncWorkspace(workspace.workspaceId)
+assert.deepEqual(new Set(aliceService.members(convergedAlice)), new Set([alice.pubkey, bob.pubkey]))
+assert.deepEqual(new Set(bobService.members(convergedBob)), new Set([alice.pubkey, bob.pubkey]))
+assert(
+	convergedAlice.skippedCoordinatorMessages?.some(
+		(message) => message.reason === 'stale-or-invalid',
+	),
+	'the losing same-epoch commit should be retained as bounded diagnostic state',
+)
+const membershipCiphertexts = cordn
+	.groupMessages(workspace.groupId)
+	.slice(-3)
+	.map((message) => message.msg_64)
+assert.equal(
+	new Set(membershipCiphertexts).size,
+	membershipCiphertexts.length,
+	'membership response recovery must not duplicate an acknowledged MLS commit',
+)
+
+await aliceService.sendChat(workspace.workspaceId, 'After Carol and Dave were removed')
 const removedCarol = await carolService.syncWorkspace(workspace.workspaceId)
 assert.equal(removedCarol.status, 'removed')
 assert.equal(
-	removedCarol.envelopes.some((envelope) => envelope.content === 'After Carol was removed'),
+	removedCarol.envelopes.some(
+		(envelope) => envelope.content === 'After Carol and Dave were removed',
+	),
+	false,
+)
+const removedDave = await daveService.syncWorkspace(workspace.workspaceId)
+assert.equal(removedDave.status, 'removed')
+assert.equal(
+	removedDave.envelopes.some(
+		(envelope) => envelope.content === 'After Carol and Dave were removed',
+	),
 	false,
 )
 

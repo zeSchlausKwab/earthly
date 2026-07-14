@@ -39,6 +39,29 @@ export interface PendingWorkspaceApproval {
 	localFinalized?: boolean
 }
 
+/**
+ * Crash-recovery journal for an MLS membership change. The exact ciphertext
+ * makes a lost coordinator response recoverable, while the semantic operation
+ * can be rebuilt if an earlier coordinator-ordered commit wins the epoch.
+ */
+export interface PendingWorkspaceMembershipCommit {
+	version: 1
+	operation: 'remove'
+	targetPubkey: string
+	basisCursor: number
+	basisStateBase64: string
+	msgBase64: string
+	finalStateBase64: string
+	attempt: number
+	cursor?: number
+}
+
+export interface SkippedWorkspaceCoordinatorMessage {
+	cursor: number
+	reason: 'rejected' | 'stale-or-invalid'
+	recordedAt: number
+}
+
 export interface StoredWorkspace {
 	workspaceId: string
 	groupId: string
@@ -54,6 +77,8 @@ export interface StoredWorkspace {
 	envelopes: PrivateWorkspaceEnvelope[]
 	pendingOutbound?: PendingWorkspaceOutbound[]
 	pendingApproval?: PendingWorkspaceApproval
+	pendingMembershipCommit?: PendingWorkspaceMembershipCommit
+	skippedCoordinatorMessages?: SkippedWorkspaceCoordinatorMessage[]
 	createdAt: number
 }
 

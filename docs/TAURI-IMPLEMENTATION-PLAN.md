@@ -1206,7 +1206,13 @@ without a coordinator fork: each new access request publishes a fresh Cordn-prof
 KeyPackage, verifies the coordinator recognized it, and removes it once the Welcome is durably
 accepted. The non-destructive `kp_take` retry plus the version-1 approval journal covers every
 coordinator response boundary in the single-administrator approval path. Earthly still needs
-stale-epoch recovery for genuinely concurrent administrator commits.
+stale-epoch recovery for genuinely concurrent Add/approval commits. Remove operations now have a
+separate version-1 semantic journal: coordinator cursor order selects the first valid same-epoch
+commit, an exact ciphertext makes response loss idempotent, losing commits are skipped with bounded
+diagnostics, and a still-authorized removal intent is regenerated against the accepted epoch. The
+repeatable established-workspace smoke gate covers two promoted administrators, two simultaneous
+removals, a lost post response, process restart, convergence, and future-epoch exclusion of both
+removed members.
 
 Dataset/comment schemas and most map presentation components should be highly reusable. Membership,
 state persistence, multi-device identity, recovery, delivery ordering, and encrypted blobs are the

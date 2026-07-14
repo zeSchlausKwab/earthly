@@ -31,6 +31,9 @@ that the security and recovery work is finished.
 - MLS client state, cursors, envelopes, KeyPackages, and pending joins survive browser reloads in
   IndexedDB;
 - a member Remove/Commit advances the epoch and the removed profile cannot decrypt a later record;
+- concurrent administrator removals are serialized by coordinator cursor order. A durable local
+  journal recognizes response-lost commits, quarantines the losing same-epoch ciphertext, and
+  rebuilds the still-authorized removal intent against the winning epoch;
 - Cordn sees ordered opaque payloads and never receives workspace plaintext or MLS epoch secrets.
 
 ## Run it locally
@@ -126,8 +129,10 @@ deployments must provide their own `CORDN_SERVER_PUBKEY` and relay configuration
   other members, each transition extends one predecessor, and coordinator delivery order selects
   the first valid concurrent transition. The MLS incoming-message callback also rejects sensitive
   membership proposals from a sender whose verified MLS credential is not a current administrator.
-  Simultaneous administrator commits and their stale-epoch conflict recovery remain a
-  production-hardening item.
+  Removal commits now recover from simultaneous administrators without forking the group:
+  coordinator cursor order selects the first valid commit, losing ciphertext is retained only as a
+  bounded local diagnostic, and a still-needed removal is regenerated from the accepted state.
+  Genuinely concurrent Add/approval plans still fail closed and remain a production-hardening item.
 - Every new Earthly access request publishes a fresh Cordn-profile last-resort KeyPackage and
   verifies that the coordinator recognized the profile. Cordn returns that package
   non-destructively, so an administrator can retry `kp_take` after losing its response even before
