@@ -115,7 +115,17 @@ describe('deployment environment isolation', () => {
 		await writeExecutable(join(fixtureRoot, 'scripts/build-production.sh'), '#!/bin/bash\nexit 0\n')
 		await writeExecutable(
 			join(fakeBin, 'tar'),
-			'#!/bin/bash\ntouch deploy.tar.gz\nexit 0\n',
+			[
+				'#!/bin/bash',
+				'if [[ "${1:-}" == "--help" ]]; then',
+				'  printf "%s\\n" --no-xattrs --no-acls --no-fflags --no-mac-metadata',
+				'  exit 0',
+				'fi',
+				'printf "%s\\n" "$@" > .tar-args',
+				'touch deploy.tar.gz',
+				'exit 0',
+				'',
+			].join('\n'),
 		)
 		for (const command of ['ssh', 'scp']) {
 			await writeExecutable(join(fakeBin, command), '#!/bin/bash\nexit 0\n')
@@ -128,6 +138,10 @@ describe('deployment environment isolation', () => {
 			expect(stderr).not.toContain('unbound variable')
 			expect(exitCode).toBe(0)
 			expect(stdout).toContain('Deployment complete')
+			const tarArguments = await readFile(join(fixtureRoot, '.tar-args'), 'utf8')
+			for (const flag of ['--no-xattrs', '--no-acls', '--no-fflags', '--no-mac-metadata']) {
+				expect(tarArguments).toContain(flag)
+			}
 		} finally {
 			Bun.env.PATH = originalPath
 		}

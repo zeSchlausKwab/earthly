@@ -71,7 +71,13 @@ if [[ -d legacy-db && -f legacy-db/latest.sql ]]; then
 fi
 
 echo "Creating deployment archive..."
-COPYFILE_DISABLE=1 tar -czf "$archive" \
+tar_args=(-czf "$archive")
+for metadata_flag in --no-xattrs --no-acls --no-fflags --no-mac-metadata; do
+  if tar --help 2>&1 | grep -q -- "$metadata_flag"; then
+    tar_args=("$metadata_flag" "${tar_args[@]}")
+  fi
+done
+COPYFILE_DISABLE=1 tar "${tar_args[@]}" \
   --exclude='contextvm/node_modules' \
   --exclude='relay/relay' \
   --exclude='relay/data' \
