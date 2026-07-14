@@ -25,6 +25,11 @@ durable native capabilities:
 The browser application remains supported. Tauri is a first-class runtime of the same Earthly
 product, not a separate frontend and not a Rust rewrite.
 
+Private map collaboration is an adjacent application workstream shared by the browser and Tauri
+runtimes. It is included in this plan so its identity, storage, server, and offline requirements do
+not accidentally conflict with the native architecture; it is specified in section 18 and is not a
+prerequisite for completing phases 1–12.
+
 ## 2. Product definition
 
 The first completed vertical slice is local-node interoperability:
@@ -910,7 +915,320 @@ Phase 7 closes so these budgets become measurable release gates.
 - Native command and bundle versions remain backward-readable for all stable releases.
 - Database migrations are tested from every released native schema version.
 
-## 18. Explicit non-goals
+## 18. Private map workspaces over MLS
+
+This workstream adds confidential, member-managed collaboration to Earthly using Messaging Layer
+Security (MLS) for group key agreement and Nostr-based infrastructure for delivery. It is a full
+product implementation plan, not a requirement of the Tauri shell and offline-map release. The web
+and Tauri applications share the protocol and domain implementation; the native application adds
+secure durable state, offline queuing, and local-node integration.
+
+### 18.1 Domain boundary and terminology
+
+Introduce a new `PrivateMapWorkspace` aggregate, presented to users as a **Private map**. Do not
+turn the existing kind-37518 `Group` into the private-workspace entity:
+
+- an Earthly `Group` is a public, single-author curation topic whose governance controls which
+  foreign attachments are surfaced;
+- a `PrivateMapWorkspace` is a confidential collaboration and authorization boundary with shared
+  content, explicit membership, and membership epochs;
+- an MLS group is the cryptographic mechanism that protects a workspace, not the product entity
+  users organize or edit;
+- a Nostr pubkey identifies a person/account, while each of that person's devices is a distinct MLS
+  client with its own key material and group state;
+- a coordinator is the MLS Delivery Service that stores KeyPackages, Welcomes, and ordered opaque
+  group messages. It is not a signer or a NIP-46 delegation service.
+
+Use one MLS group per private workspace initially, but keep that one-to-one mapping behind a
+workspace crypto interface. This leaves room to split a large workspace into content channels or
+rotate to a replacement group without changing the product identity.
+
+Existing Earthly entities are reused as private application payloads rather than republished as
+ordinary public events. Dataset, comment, annotation, story, and sighting schemas retain their
+semantic fields and kind numbers. Public event signing and relay publication are replaced by an
+MLS-authenticated private envelope at the publish boundary. Decrypted records must retain their
+proven sender identity and authentication result without fabricating a Nostr signature.
+
+The existing kind-30078 encrypted-dataset shape is not the workspace aggregate: it does not define
+group epochs, shared administration, multi-device membership, comments, or coordinated removal.
+Likewise, a public kind-30000 role list is not authoritative private-workspace policy. Both formats
+may inform compatibility work, but neither substitutes for the MLS-backed workspace lifecycle.
+
+An optional public Group may link to a private workspace as a public landing page, but it is never
+the membership list, encryption root, or authorization source.
+
+### 18.2 Confidential envelope and storage model
+
+The private publish path is:
+
+```text
+Earthly entity template
+        |
+        v
+versioned Nostr-shaped private envelope
+        |
+        v
+MLS PrivateMessage -----> coordinator -----> member clients
+        |                                          |
+        `-- local encrypted outbox                 `-- decrypt, authenticate, project
+```
+
+The envelope should follow Cordn's Nostr-shaped application-message model where interoperability
+is useful: `id`, `pubkey`, `created_at`, `kind`, `tags`, and `content` retain familiar Nostr
+semantics, while MLS authenticates the sender. The exact profile must be versioned by Earthly and
+specified before implementation, including deterministic ids, replay handling, replaceable-event
+semantics, tombstones, threading, and format migration.
+
+Do not place large GeoJSON, media, or PMTiles payloads directly in MLS application messages. Store
+them as content-addressed ciphertext in Blossom-compatible or local blob storage. An encrypted
+manifest carried inside the workspace contains the object key, ciphertext hash, plaintext hash,
+media type, size, and logical attachment relationship. New objects created after a membership
+change use keys unavailable to removed members. Removing a member cannot retract data or keys that
+the member already received.
+
+The coordinator and public relays may retain opaque ciphertext, but clients remain authoritative
+for MLS validation, application authorization, and content schema validation.
+
+### 18.3 Workspace metadata and privacy budget
+
+Workspace metadata includes:
+
+- name, description, and optional icon;
+- default viewport and optional working bounds;
+- recommended basemap and overlays, including local/offline alternatives;
+- member roles and workspace policy;
+- content-envelope version and required client capabilities;
+- retention, export, and external-network policy.
+
+Sensitive presentation metadata must be an encrypted, replaceable workspace application record.
+Do not copy the name, description, bounds, geohash, basemap, member list, or administrator list into
+public Nostr tags, coordinator indexes, invitation URLs, or an MLS GroupContext extension. MLS
+GroupContext is authenticated public group state; Cordn's draft metadata extension protects
+integrity but is not an appropriate confidentiality boundary for location-sensitive metadata.
+Only opaque routing identifiers, protocol/ciphersuite negotiation, and the minimum coordinator data
+needed for delivery may be externally visible.
+
+A basemap is a recommendation and initial default, not a restriction. Members can choose another
+map. Earthly must explain that a public tile server, geocoder, router, AI service, or remote media
+host can learn network and location-related metadata even though workspace content is encrypted.
+For sensitive work, the preferred path is a downloaded local PMTiles basemap and local processing.
+
+Traffic timing, message size, coordinator access, and possibly group relationships remain observable
+unless a later privacy layer adds padding, batching, or stronger metadata-hiding transport. The UI
+and documentation must not describe MLS as making participation anonymous.
+
+### 18.4 Membership, invitations, and roles
+
+The initial product flow is:
+
+1. An administrator creates a private workspace and its first MLS client state.
+2. The administrator creates a short-lived, one-use invitation link or QR code. It carries only
+   rendezvous information and an invitation nonce, never an epoch secret or durable bearer key.
+3. The invitee authenticates their Nostr identity and publishes or submits a signed MLS KeyPackage
+   for the joining device.
+4. An administrator verifies that the pubkey is allowed and explicitly approves the device.
+5. The administrator creates an MLS Add/Commit; the coordinator stores the resulting Welcome until
+   the new client retrieves it.
+6. Every member sees the authenticated membership change and the new workspace epoch.
+
+Whitelisting a pubkey is an admission policy, not the cryptographic act of joining. Removal requires
+an MLS Remove/Commit and protects future epochs; it cannot erase previously decrypted or exported
+content. Device loss, a second device, key rotation, recovery, and complete account removal must be
+first-class lifecycle cases rather than treated as a single-login edge case.
+
+Start with two application roles:
+
+- **administrator** — manages membership, metadata, and policy, and can create normal content;
+- **member** — reads and creates normal workspace content.
+
+MLS membership grants decryption capability; application roles govern which decrypted messages a
+client accepts as authorized. If editor and read-only viewer roles are later added, they are
+application authorization rules and do not create cryptographically distinct audiences inside one
+MLS group. Administrator policy updates must be encrypted, authenticated, versioned, and evaluated
+against the policy state that was current for the message's workspace epoch. Clients must reject
+membership commits from a sender who was not an authorized administrator in that state; coordinator
+admission checks are defense in depth, not the source of that authorization.
+
+### 18.5 Product surface inside a private map
+
+Do not build a reduced parallel map editor. Preserve the core Earthly workflow:
+
+- browse workspace datasets and layers;
+- draw and edit datasets and annotations;
+- create threaded comments with map geometry;
+- attach encrypted media and larger geometry objects;
+- inspect authorship, history, membership, and synchronization state;
+- export content when workspace policy permits it.
+
+Add private-specific surfaces for member/device management, invitations, roles, security state,
+coordinator status, offline queues, and recovery. The active workspace must be visually persistent
+so a user can tell whether an action is private, local-only, queued, or public.
+
+Disable or gate operations that cross the privacy boundary:
+
+- public discovery, public search indexing, zaps, public reactions, and ordinary public sharing;
+- automatic publication to public relays or upload of plaintext to public Blossom servers;
+- external geocoding, routing, content-processing AI/ContextVM tools, remote media, and public
+  basemap requests without explicit policy and user awareness;
+- implicit references that reveal a private workspace or object from a public event;
+- copying private content into another workspace without an explicit export/import decision.
+
+Provide a deliberate **Publish a public copy** flow later. It must preview exactly which geometry,
+properties, attachments, authorship, and metadata leave the workspace and create a new public
+lineage rather than silently changing the private record's visibility.
+
+### 18.6 Relationship to offline and local-node work
+
+Private maps are useful offline even though their normal rendezvous service is online:
+
+- a member can read already-decrypted local projections and create MLS application messages while
+  disconnected, provided the client has current usable group state;
+- Tauri persists MLS client state in a dedicated secure store. The durable outbox retains the
+  application envelope encrypted at rest under a device key, its current MLS ciphertext, and
+  ciphertext blobs; it never retains unprotected workspace plaintext;
+- the embedded relay and Blossom server may cache and exchange opaque private messages and blobs
+  between paired devices on the same LAN without learning workspace content;
+- comments, field notes, annotation discussions, and status updates already use the private
+  application channel. A separate free-form group-chat feature is useful but not required for the
+  hiking workflow.
+
+The first offline release does not allow membership, role, or workspace-policy changes while
+disconnected. Those operations create MLS commits and require one accepted order for each epoch.
+On reconnection, a client catches up on commits before publishing newly queued application data. If
+the workspace epoch advanced, the client discards the stale MLS ciphertext and re-encrypts the
+protected application envelope under the current epoch. If the client was removed, the queued
+operation fails visibly and cannot be delivered. Concurrent edits to map entities still require
+application-level conflict and merge rules; MLS orders and authenticates messages but does not
+merge GeoJSON.
+
+Direct LAN synchronization is an additional delivery path, not a second source of membership truth.
+The implementation must define coordinator reconciliation, per-group cursors, duplicate detection,
+commit conflict handling, and stale-epoch recovery before local private sync is enabled.
+
+### 18.7 Coordinator and deployment model
+
+Earthly should provide or adopt a Cordn-compatible coordinator exposed as a ContextVM server over
+Nostr transport. Its minimum responsibilities are:
+
+- publish, fetch, consume, and remove identity-bound KeyPackages;
+- store and deliver pending Welcomes;
+- accept opaque MLS handshake and application messages;
+- provide monotonic per-workspace ordering, bounded catch-up, and live subscriptions;
+- authenticate callers, apply quotas, and retain enough history for offline members;
+- never receive or persist MLS epoch secrets or plaintext workspace content.
+
+This service is an MLS coordinator/Delivery Service, not a delegation server. Earthly may operate a
+default instance, but the protocol and invitation format must allow a workspace to select a
+self-hosted or third-party compatible coordinator. Coordinator migration, multi-coordinator
+replication, retention guarantees, and abuse handling are explicit protocol work; they must not be
+hidden behind a hard-coded Earthly endpoint.
+
+The browser and Tauri clients use the same coordinator protocol. Tauri's embedded local node can
+later implement a compatible local cache or delivery adapter, but it must not become mandatory for
+web clients or for private-map interoperability.
+
+### 18.8 Integration depth and API seams
+
+This is not a thin wrapper around the current relay API. The reusable portion is the Earthly entity
+model before public signing. The following seams need explicit implementation:
+
+- split entity construction from public Nostr signing so the same validated template can enter a
+  public signed-event path or a private MLS-envelope path;
+- project authenticated private envelopes into UI/domain records without pretending they are
+  relay-validated signed `NostrEvent` objects;
+- add workspace-scoped queries, subscriptions, replacement/deletion rules, comments, and entity
+  references alongside the public Applesauce event store;
+- persist transactional MLS group state, epochs, sender ratchets, KeyPackages, pending commits,
+  Welcomes, coordinator cursors, and encrypted outbox records;
+- bind each MLS device credential to a Nostr identity with a signed, independently verifiable
+  statement;
+- implement encrypted-object storage, key rotation, local projection encryption, backup, recovery,
+  and device removal;
+- define replay, ordering, stale-client, concurrent-commit, and schema-migration behavior.
+
+Dataset/comment schemas and most map presentation components should be highly reusable. Membership,
+state persistence, multi-device identity, recovery, delivery ordering, and encrypted blobs are the
+high-risk work. `ts-mls` is a suitable TypeScript implementation candidate and already targets
+browsers and Node, but it has not undergone a professional security audit; production adoption
+requires an independent review, pinned interoperability vectors, and a maintained fallback or fork
+strategy.
+
+MLS private keys are not Nostr account keys, but they are long-lived sensitive client state. Browser
+storage must use the strongest available origin-bound storage; Tauri must use platform-protected
+storage with an explicit backup and recovery design. The coordinator never gets these keys.
+
+### 18.9 Delivery phases
+
+#### Private phase A — protocol, threat model, and domain contracts
+
+Deliver the `PrivateMapWorkspace` terminology and state model, threat model, metadata privacy
+budget, versioned private envelope, Nostr-to-MLS identity binding, role authorization rules,
+encrypted-object manifest, coordinator contract, and library security/interoperability assessment.
+
+Exit when two independent reference clients can validate the same fixtures and every plaintext
+field visible to relays/coordinators is documented and justified.
+
+#### Private phase B — complete group lifecycle
+
+Deliver coordinator deployment, durable browser client state, workspace creation, invitation,
+allowlist approval, join/Welcome processing, multi-device membership, administrator policy, member
+removal, catch-up, live delivery, recovery diagnostics, and revocation tests.
+
+Exit when two accounts on three devices can create, join, restart, catch up, add/remove a device,
+and prove that a removed device cannot decrypt new-epoch content.
+
+#### Private phase C — collaborative Earthly content
+
+Deliver private Dataset, annotation, Comment, and attachment envelopes; workspace-scoped
+projections and queries; editor reuse; encrypted blob storage; authorship/history UI; application
+authorization; tombstones; and deterministic conflict behavior.
+
+Exit when members collaboratively draw, edit, comment, annotate, restart, and retrieve large
+encrypted content without plaintext appearing in relay, coordinator, Blossom, or log fixtures.
+
+#### Private phase D — production web experience
+
+Deliver the persistent private-context UI, member administration, invitations, sync/recovery state,
+privacy-boundary prompts, external-service controls, export/declassification flow, accessibility,
+abuse limits, browser compatibility, and security review remediation.
+
+Exit when the full lifecycle works in supported browsers and a privacy audit verifies all network
+egress and metadata claims.
+
+#### Private phase E — Tauri secure state and offline delivery
+
+Deliver platform-protected MLS state, encrypted local projections, durable private outbox, encrypted
+blob integration, lifecycle recovery, local-node opaque caching, and an opt-in same-LAN delivery
+path. Membership and policy mutation remain online-only until a later protocol supports safe commit
+coordination.
+
+Exit when two physical mobile devices can work in one existing private workspace without internet,
+exchange opaque changes locally, restart safely, and reconcile through the coordinator without
+duplicate content or divergent MLS state.
+
+#### Private phase F — interoperability and operations
+
+Deliver a publishable protocol profile, reusable client/coordinator libraries, compatibility tests,
+self-hosting documentation, coordinator migration and retention policy, independent cryptographic
+review, incident response, upgrade vectors, and operational runbooks.
+
+Exit when an Earthly client interoperates with a separately implemented compatible client and no
+Earthly-operated service is a mandatory trust or availability root.
+
+### 18.10 Decisions to close before private phase B
+
+- Whether Earthly implements the Cordn draft exactly, profiles it, or contributes the map-specific
+  envelope and encrypted-object extensions upstream.
+- The recovery model when every administrator device is lost.
+- Coordinator retention duration and what a long-offline client does after history expiry.
+- Whether the first release has only administrator/member roles or also read-only viewers.
+- The accepted conflict model for simultaneous dataset edits and replaceable workspace records.
+- Padding and batching policy for location-sensitive traffic analysis.
+- Coordinator migration and fork resolution when the current service is unavailable.
+- Whether a public Group may advertise a private workspace and exactly what that link is allowed to
+  reveal.
+
+## 19. Explicit non-goals
 
 - Rewriting Earthly UI or domain logic in Rust.
 - Replacing Applesauce live subscriptions with a second complete Nostr frontend stack.
@@ -922,7 +1240,7 @@ Phase 7 closes so these budgets become measurable release gates.
 - Exposing arbitrary filesystem or shell access to the webview.
 - Storing signing keys in LMDB, SQLite, bundles, logs, or outbox rows.
 
-## 19. Definition of done
+## 20. Definition of done
 
 The Tauri implementation is complete when:
 
@@ -938,7 +1256,7 @@ The Tauri implementation is complete when:
 - the web application remains functional through the same platform contracts;
 - no production path, document, or UI describes the native application as experimental.
 
-## 20. Authoritative implementation references
+## 21. Authoritative implementation references
 
 - [Tauri development and mobile commands](https://v2.tauri.app/develop/)
 - [Tauri platform-specific configuration](https://v2.tauri.app/develop/configuration-files/)
@@ -949,3 +1267,7 @@ The Tauri implementation is complete when:
 - [Tauri distribution](https://v2.tauri.app/distribute/)
 - [Tauri asynchronous custom URI protocol API](https://docs.rs/tauri/latest/tauri/struct.Builder.html#method.register_asynchronous_uri_scheme_protocol)
 - [rust-nostr LMDB backend](https://docs.rs/nostr-lmdb/latest/nostr_lmdb/struct.NostrLMDB.html)
+- [Messaging Layer Security protocol (RFC 9420)](https://www.rfc-editor.org/rfc/rfc9420.html)
+- [Messaging Layer Security architecture (RFC 9750)](https://www.rfc-editor.org/rfc/rfc9750.html)
+- [Cordn coordinator and protocol reference](https://github.com/Cordn-msg/cordn)
+- [ts-mls TypeScript MLS implementation](https://github.com/LukaJCB/ts-mls)
