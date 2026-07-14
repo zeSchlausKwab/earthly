@@ -1,6 +1,8 @@
+use std::net::Ipv6Addr;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use url::Url;
+use url::{Host, Url};
 
 pub const DESCRIPTOR_VERSION: u8 = 1;
 
@@ -85,6 +87,14 @@ impl NodeDescriptor {
             ));
         }
 
+        for endpoint in [&self.relay_url, &self.blossom_url] {
+            if !endpoint_matches_scope(endpoint, self.scope) {
+                return Err(NodeDescriptorError::UnsafeEndpointHost(
+                    endpoint.as_str().to_owned(),
+                ));
+            }
+        }
+
         Ok(())
     }
 }
@@ -99,6 +109,34 @@ pub enum NodeDescriptorError {
     InvalidRelayScheme(String),
     #[error("Blossom endpoint must use http or https, got {0}")]
     InvalidBlossomScheme(String),
+    #[error("endpoint host does not match the declared local scope: {0}")]
+    UnsafeEndpointHost(String),
+}
+
+fn endpoint_matches_scope(endpoint: &Url, scope: EndpointScope) -> bool {
+    match (endpoint.host(), scope) {
+        (Some(Host::Domain(domain)), EndpointScope::Loopback) => {
+            domain.eq_ignore_ascii_case("localhost")
+        }
+        (Some(Host::Ipv4(ip)), EndpointScope::Loopback) => ip.is_loopback(),
+        (Some(Host::Ipv6(ip)), EndpointScope::Loopback) => ip.is_loopback(),
+        (Some(Host::Ipv4(ip)), EndpointScope::LocalNetwork) => {
+            ip.is_private() || ip.is_link_local()
+        }
+        (Some(Host::Ipv6(ip)), EndpointScope::LocalNetwork) => {
+            is_unique_local_v6(ip) || is_link_local_v6(ip)
+        }
+        _ => false,
+    }
+}
+
+fn is_unique_local_v6(ip: Ipv6Addr) -> bool {
+    ip.octets()[0] & 0xfe == 0xfc
+}
+
+fn is_link_local_v6(ip: Ipv6Addr) -> bool {
+    let octets = ip.octets();
+    octets[0] == 0xfe && octets[1] & 0xc0 == 0x80
 }
 
 #[cfg(test)]
@@ -144,5 +182,20 @@ mod tests {
             descriptor.validate(),
             Err(NodeDescriptorError::InvalidRelayScheme("http".to_owned()))
         );
+    }
+
+    #[test]
+    fn rejects_endpoint_hosts_outside_the_declared_scope() {
+        let mut descriptor = valid_descriptor();
+        descriptor.blossom_url = Url::parse("https://example.com/blob").unwrap();
+        assert!(matches!(
+            descriptor.validate(),
+            Err(NodeDescriptorError::UnsafeEndpointHost(_))
+        ));
+
+        descriptor.scope = EndpointScope::LocalNetwork;
+        descriptor.relay_url = Url::parse("ws://192.168.1.5:17447/").unwrap();
+        descriptor.blossom_url = Url::parse("http://192.168.1.5:17448/").unwrap();
+        assert!(descriptor.validate().is_ok());
     }
 }

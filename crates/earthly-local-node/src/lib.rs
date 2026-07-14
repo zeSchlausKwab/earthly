@@ -9,6 +9,7 @@ mod descriptor;
 mod error;
 mod identity;
 mod node;
+mod pairing;
 mod policy;
 mod relay;
 
@@ -20,5 +21,11 @@ pub use descriptor::{
 pub use error::NodeError;
 pub use identity::NodeIdentity;
 pub use node::LocalNode;
+pub use pairing::{
+    PairingCapability, PairingClaimContent, PairingClaimReceipt, PairingClaimRequest, PairingError,
+    PairingInvitation, PairingInvitationContent, PairingManager, PairingStatus,
+    PendingPairingClaim, PAIRING_CLAIMS_PATH, PAIRING_CLAIM_KIND, PAIRING_INVITATION_KIND,
+    PAIRING_PROTOCOL_VERSION,
+};
 pub use policy::PeerPolicy;
 pub use relay::EmbeddedRelay;

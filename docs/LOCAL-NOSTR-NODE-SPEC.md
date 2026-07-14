@@ -19,6 +19,9 @@ This removes Citrine, Morganite, or any other companion application from Earthly
 requirements. Offline maps, event caching, publishing, and partner mirroring become consumers of
 the local node rather than separate native subsystems.
 
+Discovery and bearer selection are defined in
+[`OFFLINE-TRANSPORT-STRATEGY.md`](./OFFLINE-TRANSPORT-STRATEGY.md).
+
 ## 2. First proof
 
 With internet access disabled:
@@ -32,14 +35,16 @@ With internet access disabled:
 7. It retrieves the blob with `HEAD`, `GET`, and multiple Range requests.
 8. Earthly is restarted.
 9. The client reconnects and recovers the same event and blob.
-10. An unpaired client is denied protected reads, enumeration, writes, deletes, and mirroring.
+10. An unpaired client is denied relay writes and protected Blossom operations. Pairing-aware relay
+    reads become part of this gate once the selected relay exposes the authenticated session pubkey
+    to query policy.
 
 The reference client must depend only on published protocols and the pairing document. It may not
 import Earthly application code.
 
 ### Implementation checkpoint — 2026-07-14
 
-The desktop foundation is implemented:
+The native foundation and transport-neutral handshake are implemented:
 
 - Tauri supervises the node and exposes a read-only `starting`/`running`/`failed` status command;
 - one stable node identity, an exclusive data-directory lock, and peer grants survive restart;
@@ -48,18 +53,22 @@ The desktop foundation is implemented:
 - Blossom implements authenticated BUD-01 GET/HEAD with single ranges, BUD-02 streaming upload,
   and BUD-11 authorization with paired-pubkey enforcement;
 - independent rust-nostr and HTTP clients pass publish/query/upload/range/restart tests;
-- a separate process has verified both listeners while the actual Tauri application was running.
+- signed, ten-minute invitations, peer-signed claims, explicit approval/rejection, one-use
+  consumption, crash-recoverable decisions, and capability-scoped grants are implemented;
+- independent host and client processes complete pairing and then prove a relay write, Blossom
+  upload, and Blossom byte-range read without a public relay;
+- arm64 and x86_64 Android APKs build, and the arm64 application has run its own embedded listeners
+  on an API 36.1 emulator and a physical Pixel.
 
-This is not yet the finished handshake. The current test harness grants a peer through the Rust
-API. Before the interoperability proof is product-complete it still needs:
+Before the interoperability proof is product-complete in the Earthly UI it still needs:
 
-- signed, expiring pairing invitations plus explicit accept/deny/revoke UI;
-- a protocol endpoint and reference-client flow for claiming an invitation;
-- signed descriptor/discovery data;
+- Tauri commands and QR/deep-link UI for invitation creation/import, pending claims,
+  accept/deny/revoke, and capability display;
+- explicit LAN listener selection plus Android/iOS local-network permission adapters;
 - relay authorization against the authenticated NIP-42 session pubkey, including separate
   read/write capabilities;
 - BUD-12 deletion, persistent blob ownership/quota metadata, and NIP-11 relay information;
-- Android foreground-service and physical-device verification.
+- an Android foreground service for user-visible background availability.
 
 `nostr-relay-builder` 0.44 exposes event-author and socket information to write policies, but not
 the authenticated NIP-42 session pubkey. The implemented policy therefore safely accepts events
@@ -72,7 +81,8 @@ maintained patch; it must not be approximated by weakening NIP-42.
 ### Same device
 
 - Desktop: supported through loopback TCP while the Earthly process is running.
-- Android: supported through a foreground/bound native service with visible lifecycle state.
+- Android: currently supported while the Earthly process is alive; a user-visible foreground
+  service is required before background availability can be promised.
 - iOS: Earthly itself uses the node in-process, but another foreground app cannot rely on Earthly
   remaining available after iOS suspends Earthly.
 
@@ -92,6 +102,9 @@ The reusable Rust crate lives outside the Tauri application implementation:
 ```text
 crates/earthly-local-node/
 ├── Cargo.toml
+├── examples/
+│   ├── pairing_host.rs
+│   └── pairing_client.rs
 └── src/
     ├── lib.rs
     ├── config.rs
@@ -100,9 +113,9 @@ crates/earthly-local-node/
     ├── identity.rs
     ├── node.rs
     ├── policy.rs
-    ├── relay/
-    ├── blossom/
-    └── storage/
+    ├── relay.rs
+    ├── blossom.rs
+    └── pairing.rs
 ```
 
 Tauri, Android, and iOS lifecycle code are adapters. They must not be required to instantiate the
@@ -111,18 +124,14 @@ node in a CLI, test harness, or another native application.
 The external Rust interface stays small:
 
 ```rust
-pub struct LocalNode;
-
 impl LocalNode {
-    pub async fn start(config: NodeConfig) -> Result<NodeHandle, NodeError>;
-}
-
-impl NodeHandle {
-    pub fn descriptor(&self) -> NodeDescriptor;
-    pub async fn create_invitation(&self, request: InvitationRequest)
-        -> Result<PairingInvitation, NodeError>;
-    pub async fn status(&self) -> NodeStatus;
-    pub async fn stop(self) -> Result<(), NodeError>;
+    pub async fn start(config: NodeConfig) -> Result<Self, NodeError>;
+    pub fn descriptor(&self) -> &NodeDescriptor;
+    pub async fn create_pairing_invitation(/* ... */) -> Result<PairingInvitation, PairingError>;
+    pub async fn pending_pairing_claims(&self) -> Result<Vec<PendingPairingClaim>, PairingError>;
+    pub async fn approve_pairing_claim(/* ... */) -> Result<PendingPairingClaim, PairingError>;
+    pub async fn reject_pairing_claim(/* ... */) -> Result<(), PairingError>;
+    pub fn shutdown(&self);
 }
 ```
 
@@ -148,19 +157,11 @@ The versioned descriptor is serializable and transport-neutral:
 ```json
 {
   "version": 1,
-  "nodePubkey": "<32-byte lowercase hex>",
-  "name": "Earthly on this device",
-  "relay": {
-    "url": "ws://127.0.0.1:4869/relay",
-    "nips": [1, 11, 42, 45, 77]
-  },
-  "blossom": {
-    "url": "http://127.0.0.1:4870",
-    "buds": [1, 2, 4, 11]
-  },
+  "nodeId": "<32-byte lowercase hex>",
+  "relayUrl": "ws://127.0.0.1:17447/",
+  "blossomUrl": "http://127.0.0.1:17448/",
   "scope": "loopback",
-  "availability": "foreground",
-  "issuedAt": 0
+  "availability": "foreground"
 }
 ```
 
@@ -194,8 +195,40 @@ Capabilities are deny-by-default, revocable, and bound to the peer pubkey. Loopb
 membership never implies authorization. Invitations never contain the node private key or an
 unlimited bearer credential.
 
-The invitation encoding is experimental until two independent clients interoperate. No NIP or BUD
-number is claimed during the first implementation.
+### 7.1 Implemented draft v1 wire format
+
+The implemented invitation is a signed Nostr event wrapped as
+`earthly-pair-v1:<base64url-json>`. The event:
+
+- uses experimental ephemeral kind `24243`;
+- is signed by the stable node identity;
+- contains the versioned node descriptor, a random 32-byte nonce, expiry, and offered capabilities;
+- repeats the expiry as a NIP-40 `expiration` tag;
+- has a maximum lifetime of ten minutes and is persisted until consumed or expired.
+
+The peer claim is a separately signed ephemeral event of experimental kind `24244`. It binds the
+peer pubkey to the invitation event id, host pubkey, nonce, and a non-empty subset of offered
+capabilities. The peer submits it to:
+
+```text
+POST /.well-known/earthly-local-node/pairing/claims
+GET  /.well-known/earthly-local-node/pairing/claims/{claim-id}
+```
+
+Submission returns `pending`; it never grants access by itself. Host approval durably reserves one
+winning claim, moves the invitation to the consumed set, persists the capability grant, and changes
+the claim status to `accepted`. Each step is idempotent so the same approval can resume after a
+crash without allowing another winner. Replaying the invitation returns a conflict. Rejection
+records a terminal status but does not consume the invitation.
+
+The v1 implementation offers and enforces `relay.write`, `blob.read`, and `blob.write`. The broader
+capability names above are reserved for the endpoints that implement them. The selected relay
+dependency requires NIP-42 authentication for reads but does not expose the authenticated pubkey to
+its query-policy hook; therefore pubkey-specific `relay.read` authorization remains an explicit
+upstream integration gap and is not offered by v1 invitations.
+
+Kinds `24243` and `24244`, the HTTP paths, and the invitation prefix are an Earthly interoperability
+draft. They are not registered Nostr kinds and no NIP or BUD number is claimed.
 
 ## 8. Embedded relay
 

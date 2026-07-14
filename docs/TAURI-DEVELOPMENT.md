@@ -90,6 +90,31 @@ The local node currently has process/foreground availability on Android. A produ
 node requires a user-visible Android foreground service and the associated lifecycle and notification
 work; an APK build alone does not make it continuously available in the background.
 
+## Pairing reference apps
+
+Two small Rust reference apps exercise the transport-neutral handshake without Tauri or a companion
+service. The host example intentionally auto-approves the first valid pending claim so the demo is
+non-interactive; production Earthly must show the peer and requested capabilities to the user before
+calling the same approval API.
+
+Run the host in one terminal with a fresh data directory and optional invitation handoff file:
+
+```sh
+demo_dir="$(mktemp -d)"
+cargo run -p earthly-local-node --example pairing_host -- "$demo_dir" /tmp/earthly-invite
+```
+
+Run the independent client in another terminal. The `@file` form stands in for QR/deep-link/copy
+handoff; the encoded `earthly-pair-v1:` value can be passed directly instead:
+
+```sh
+cargo run -p earthly-local-node --example pairing_client -- @/tmp/earthly-invite
+```
+
+A successful run proves two distinct signed identities, pending-before-approval state, one-use
+invitation consumption, persisted capability grants, a Nostr relay write, a Blossom upload, and a
+Blossom byte-range read. It does not select the offline discovery or radio transport.
+
 ## Frontend build behavior
 
 `tauri:frontend` starts only the Bun frontend server on port 3000. It deliberately does not run
@@ -111,6 +136,8 @@ As of 2026-07-14:
   versioned descriptor through `local_node_status`;
 - independent clients have verified relay publish/query and Blossom upload/range/read across node
   restarts, with persistent node identity, event/blob data, and peer grants;
+- independent host/client processes complete the signed, approval-gated pairing flow and then use
+  their narrow grant for relay and Blossom protocol proofs;
 - the macOS application and DMG, including the embedded node, build successfully on Apple silicon;
 - arm64 and x86_64 Android debug APKs build successfully, and the arm64 app runs on both an API 36.1
   emulator and a physical Pixel with independently reachable embedded relay and Blossom listeners;

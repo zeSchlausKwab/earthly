@@ -10,7 +10,7 @@ use nostr_relay_builder::builder::{
 use nostr_relay_builder::LocalRelay;
 use url::Url;
 
-use crate::{NodeConfig, NodeError, PeerPolicy};
+use crate::{NodeConfig, NodeError, PairingCapability, PeerPolicy};
 
 /// Running persistent Nostr relay owned by the local node.
 #[derive(Debug, Clone)]
@@ -101,7 +101,11 @@ impl WritePolicy for PairedAuthorPolicy {
         _addr: &'a SocketAddr,
     ) -> nostr::util::BoxedFuture<'a, PolicyResult> {
         Box::pin(async move {
-            if self.peers.allows(&event.pubkey).await {
+            if self
+                .peers
+                .allows_capability(&event.pubkey, PairingCapability::RelayWrite)
+                .await
+            {
                 PolicyResult::Accept
             } else {
                 PolicyResult::Reject("blocked: author is not paired".to_owned())

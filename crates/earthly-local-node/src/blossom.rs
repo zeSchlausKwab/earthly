@@ -4,19 +4,19 @@ use std::path::{Path as FilePath, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::body::Body;
-use axum::extract::{Path, State};
+use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::header::{
     ACCEPT_RANGES, AUTHORIZATION, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, ETAG,
     RANGE,
 };
 use axum::http::{HeaderMap, HeaderValue, Method, Response, StatusCode};
 use axum::response::IntoResponse;
-use axum::routing::{get, put};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use base64::engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
 use futures_util::StreamExt;
-use nostr::{Event, PublicKey, Timestamp};
+use nostr::{Event, EventId, PublicKey, Timestamp};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tokio::fs::{self, File, OpenOptions};
@@ -28,7 +28,10 @@ use tower_http::cors::{Any, CorsLayer};
 use url::Url;
 use uuid::Uuid;
 
-use crate::{NodeConfig, NodeError, PeerPolicy};
+use crate::{
+    NodeConfig, NodeError, PairingCapability, PairingClaimRequest, PairingError, PairingManager,
+    PairingStatus, PeerPolicy, PAIRING_CLAIMS_PATH,
+};
 
 const X_SHA_256: &str = "x-sha-256";
 const X_REASON: &str = "x-reason";
@@ -53,7 +56,11 @@ pub struct EmbeddedBlossom {
 }
 
 impl EmbeddedBlossom {
-    pub async fn start(config: &NodeConfig, peers: PeerPolicy) -> Result<Self, NodeError> {
+    pub async fn start(
+        config: &NodeConfig,
+        peers: PeerPolicy,
+        pairing: PairingManager,
+    ) -> Result<Self, NodeError> {
         config.validate()?;
         let store = BlobStore::open(config.data_dir.join("blossom")).await?;
         let listener =
@@ -65,6 +72,7 @@ impl EmbeddedBlossom {
         let state = BlossomState {
             store,
             peers,
+            pairing,
             base_url: url.clone(),
             server_host: url.host_str().unwrap_or_default().to_owned(),
             max_blob_bytes: config.max_blob_bytes,
@@ -74,10 +82,24 @@ impl EmbeddedBlossom {
         let app = Router::new()
             .route("/upload", put(upload_blob))
             .route("/{blob}", get(get_blob).head(head_blob))
+            .route(
+                PAIRING_CLAIMS_PATH,
+                post(submit_pairing_claim).layer(DefaultBodyLimit::max(16 * 1024)),
+            )
+            .route(
+                &format!("{PAIRING_CLAIMS_PATH}/{{claim_id}}"),
+                get(get_pairing_status),
+            )
             .layer(
                 CorsLayer::new()
                     .allow_origin(Any)
-                    .allow_methods([Method::GET, Method::HEAD, Method::PUT, Method::DELETE])
+                    .allow_methods([
+                        Method::GET,
+                        Method::HEAD,
+                        Method::POST,
+                        Method::PUT,
+                        Method::DELETE,
+                    ])
                     .allow_headers(Any)
                     .expose_headers(Any)
                     .max_age(Duration::from_secs(86_400)),
@@ -129,9 +151,63 @@ impl Drop for EmbeddedBlossom {
 struct BlossomState {
     store: BlobStore,
     peers: PeerPolicy,
+    pairing: PairingManager,
     base_url: Url,
     server_host: String,
     max_blob_bytes: u64,
+}
+
+async fn submit_pairing_claim(
+    State(state): State<BlossomState>,
+    Json(request): Json<PairingClaimRequest>,
+) -> Result<impl IntoResponse, PairingHttpError> {
+    let receipt = state.pairing.submit_claim(request.claim).await?;
+    Ok((StatusCode::ACCEPTED, Json(receipt)))
+}
+
+async fn get_pairing_status(
+    Path(claim_id): Path<String>,
+    State(state): State<BlossomState>,
+) -> Result<Json<PairingStatus>, PairingHttpError> {
+    let claim_id =
+        EventId::from_hex(&claim_id).map_err(|_| PairingHttpError(PairingError::NotFound))?;
+    Ok(Json(state.pairing.status(claim_id).await?))
+}
+
+#[derive(Debug)]
+struct PairingHttpError(PairingError);
+
+impl From<PairingError> for PairingHttpError {
+    fn from(error: PairingError) -> Self {
+        Self(error)
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct PairingErrorBody {
+    error: String,
+}
+
+impl IntoResponse for PairingHttpError {
+    fn into_response(self) -> Response<Body> {
+        let status = match self.0 {
+            PairingError::NotFound => StatusCode::NOT_FOUND,
+            PairingError::Expired => StatusCode::GONE,
+            PairingError::AlreadyUsed => StatusCode::CONFLICT,
+            PairingError::TooManyClaims => StatusCode::TOO_MANY_REQUESTS,
+            PairingError::Io(_) | PairingError::Policy(_) | PairingError::InconsistentState(_) => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+            _ => StatusCode::BAD_REQUEST,
+        };
+        (
+            status,
+            Json(PairingErrorBody {
+                error: self.0.to_string(),
+            }),
+        )
+            .into_response()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -410,10 +486,19 @@ async fn authorize(
             return Err(BlossomError::unauthorized());
         }
     }
-    if !state.peers.allows(&event.pubkey).await {
+    let required_capability = match action {
+        "get" => PairingCapability::BlobRead,
+        "upload" => PairingCapability::BlobWrite,
+        _ => return Err(BlossomError::unauthorized()),
+    };
+    if !state
+        .peers
+        .allows_capability(&event.pubkey, required_capability)
+        .await
+    {
         return Err(BlossomError::new(
             StatusCode::FORBIDDEN,
-            "peer is not paired",
+            "peer is not granted this capability",
         ));
     }
     Ok(event.pubkey)

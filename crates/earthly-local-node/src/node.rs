@@ -1,7 +1,11 @@
-use nostr::PublicKey;
+use std::time::Duration;
+
+use nostr::{Event, EventId, PublicKey};
 
 use crate::{
-    EmbeddedBlossom, EmbeddedRelay, NodeConfig, NodeDescriptor, NodeError, NodeIdentity, PeerPolicy,
+    EmbeddedBlossom, EmbeddedRelay, NodeConfig, NodeDescriptor, NodeError, NodeIdentity,
+    PairingCapability, PairingClaimReceipt, PairingError, PairingInvitation, PairingManager,
+    PairingStatus, PeerPolicy, PendingPairingClaim,
 };
 
 /// Complete running local node. Dropping it closes both listeners and releases the data lock.
@@ -10,6 +14,7 @@ pub struct LocalNode {
     descriptor: NodeDescriptor,
     identity: NodeIdentity,
     peers: PeerPolicy,
+    pairing: PairingManager,
     relay: EmbeddedRelay,
     blossom: EmbeddedBlossom,
 }
@@ -19,8 +24,9 @@ impl LocalNode {
         config.validate()?;
         let identity = NodeIdentity::load_or_create(&config.data_dir)?;
         let peers = PeerPolicy::load(config.data_dir.join("policy").join("peers")).await?;
+        let pairing = PairingManager::open(config.data_dir.join("pairing")).await?;
         let relay = EmbeddedRelay::start(&config, peers.clone()).await?;
-        let blossom = EmbeddedBlossom::start(&config, peers.clone()).await?;
+        let blossom = EmbeddedBlossom::start(&config, peers.clone(), pairing.clone()).await?;
         let descriptor = NodeDescriptor::new(
             identity.public_key_hex(),
             relay.url().clone(),
@@ -33,6 +39,7 @@ impl LocalNode {
             descriptor,
             identity,
             peers,
+            pairing,
             relay,
             blossom,
         })
@@ -52,6 +59,50 @@ impl LocalNode {
 
     pub async fn revoke_peer(&self, public_key: &PublicKey) -> Result<bool, NodeError> {
         self.peers.revoke(public_key).await
+    }
+
+    pub async fn create_pairing_invitation(
+        &self,
+        ttl: Duration,
+        capabilities: Vec<PairingCapability>,
+    ) -> Result<PairingInvitation, PairingError> {
+        self.pairing
+            .create_invitation(&self.identity, &self.descriptor, ttl, capabilities)
+            .await
+    }
+
+    pub async fn submit_pairing_claim(
+        &self,
+        claim: Event,
+    ) -> Result<PairingClaimReceipt, PairingError> {
+        self.pairing.submit_claim(claim).await
+    }
+
+    pub async fn pending_pairing_claims(&self) -> Result<Vec<PendingPairingClaim>, PairingError> {
+        self.pairing.pending_claims().await
+    }
+
+    pub async fn approve_pairing_claim(
+        &self,
+        claim_id: EventId,
+    ) -> Result<PendingPairingClaim, PairingError> {
+        self.pairing.approve_claim(claim_id, &self.peers).await
+    }
+
+    pub async fn reject_pairing_claim(
+        &self,
+        claim_id: EventId,
+        reason: impl Into<String>,
+    ) -> Result<(), PairingError> {
+        self.pairing.reject_claim(claim_id, reason).await
+    }
+
+    pub async fn pairing_status(&self, claim_id: EventId) -> Result<PairingStatus, PairingError> {
+        self.pairing.status(claim_id).await
+    }
+
+    pub async fn peer_is_granted(&self, public_key: &PublicKey) -> bool {
+        self.peers.allows(public_key).await
     }
 
     pub fn shutdown(&self) {

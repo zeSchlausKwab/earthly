@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use fs2::FileExt;
-use nostr::{Keys, PublicKey, SecretKey};
+use nostr::{Event, EventBuilder, Keys, PublicKey, SecretKey};
 
 use crate::NodeError;
 
@@ -46,6 +46,12 @@ impl NodeIdentity {
 
     pub fn public_key_hex(&self) -> String {
         self.public_key().to_hex()
+    }
+
+    pub(crate) fn sign(&self, builder: EventBuilder) -> Result<Event, crate::PairingError> {
+        builder
+            .sign_with_keys(&self.keys)
+            .map_err(|error| crate::PairingError::Signing(error.to_string()))
     }
 }
 

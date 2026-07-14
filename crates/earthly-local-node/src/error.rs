@@ -2,7 +2,7 @@ use std::io;
 
 use thiserror::Error;
 
-use crate::{NodeConfigError, NodeDescriptorError};
+use crate::{NodeConfigError, NodeDescriptorError, PairingError};
 
 #[derive(Debug, Error)]
 pub enum NodeError {
@@ -22,6 +22,8 @@ pub enum NodeError {
     Blossom(String),
     #[error("peer policy store failed: {0}")]
     PolicyStore(String),
+    #[error(transparent)]
+    Pairing(#[from] PairingError),
     #[error(transparent)]
     Io(#[from] io::Error),
 }
