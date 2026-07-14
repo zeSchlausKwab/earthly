@@ -532,6 +532,9 @@ function GeoMentionChip({
 							variant="ghost"
 							size="icon-xs"
 							onClick={handleToggle}
+							aria-label={
+								isVisible ? 'Hide referenced geometry on map' : 'Show referenced geometry on map'
+							}
 							className={`h-4 w-4 p-0 ${isVisible ? 'text-info' : 'text-muted-foreground'} hover:text-info`}
 						>
 							{isVisible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
@@ -548,6 +551,7 @@ function GeoMentionChip({
 							variant="ghost"
 							size="icon-xs"
 							onClick={() => onMentionZoomTo?.(address, featureId)}
+							aria-label="Zoom to referenced geometry"
 							className="h-4 w-4 p-0 text-muted-foreground hover:text-info"
 						>
 							<Maximize2 className="h-3 w-3" />

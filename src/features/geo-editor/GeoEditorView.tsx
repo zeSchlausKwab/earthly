@@ -1448,7 +1448,7 @@ export function GeoEditorView() {
 	])
 
 	const scopedGeoEvents = useMemo(() => {
-		if (!mapFilterContext || !mapFilterContextCoordinate) return geoEvents
+		if (!mapFilterContext || !mapFilterContextCoordinate) return mapGeoEvents
 		if (mapFilterContext.context.contextUse === 'taxonomy') {
 			return activeContextDatasets
 		}
@@ -1467,7 +1467,7 @@ export function GeoEditorView() {
 		activeContextValidationByDatasetKey,
 		getDatasetKey,
 		contextFilterMode,
-		geoEvents,
+		mapGeoEvents,
 	])
 
 	// Stack = visibility. Under the Round C/D invariant, the map renders exactly
@@ -1820,10 +1820,10 @@ export function GeoEditorView() {
 	// Available features for $ mentions in comments
 	// We want to allow mentioning any loaded dataset, not just visible ones
 	const geoEventsForMentions = useMemo(() => {
-		if (!viewingDataset) return geoEvents
-		if (geoEvents.some((ev) => ev.id === viewingDataset.id)) return geoEvents
-		return [...geoEvents, viewingDataset]
-	}, [geoEvents, viewingDataset])
+		if (!viewingDataset) return mapGeoEvents
+		if (mapGeoEvents.some((ev) => ev.id === viewingDataset.id)) return mapGeoEvents
+		return [...mapGeoEvents, viewingDataset]
+	}, [mapGeoEvents, viewingDataset])
 
 	const availableFeatures = useAvailableGeoFeatures(
 		geoEventsForMentions,
@@ -2867,7 +2867,7 @@ export function GeoEditorView() {
 		handleToggleVisibilityWithExitFocus,
 		handleToggleAllVisibilityWithExitFocus,
 	} = useMentionActions({
-		geoEvents,
+		geoEvents: mapGeoEvents,
 		resolvedCollectionResolver,
 		handleZoomToBounds,
 		zoomToDataset,

@@ -16,7 +16,11 @@ that the security and recovery work is finished.
   comment geometry, and standalone kind-37515 Dataset records;
 - comments and Dataset updates arrive reactively without requiring the recovery Sync control;
 - private Datasets use the normal Earthly editor and remain independently controllable in the Map
-  Stack, while comment geometry appears as an attachment in Chat and in the Geometry overview;
+  Stack, including its existing zoom, inspect, and edit actions;
+- private comments can reference workspace Datasets or individual features with the normal `$`
+  mention UI. Reference lookup stays inside the loaded workspace instead of querying public relays,
+  and the serialized reference is protected inside the MLS application message;
+- comment geometry appears as a default-visible attachment in Chat and in the Geometry overview;
 - MLS client state, cursors, envelopes, KeyPackages, and pending joins survive browser reloads in
   IndexedDB;
 - a member Remove/Commit advances the epoch and the removed profile cannot decrypt a later record;
@@ -54,10 +58,12 @@ then open **Private groups** from the left workspace rail:
 3. Profile A opens **Settings**, selects **Check requests**, then **Approve member**.
 4. Profile B selects **Check approval**.
 5. Either profile can post a private comment with or without drawn geometry. New comments arrive
-   automatically and attachments can be shown, hidden, or zoomed from Chat or Geometry.
+   automatically; attachments appear on the map by default and can be hidden or zoomed from Chat or
+   Geometry. A comment can also `$`-reference an existing encrypted Dataset or feature.
 6. Either profile can create and edit a standalone private Dataset with the normal Earthly editor.
    Removing its reference from the Map Stack does not delete it or cause automatic sync to add it
-   back; Geometry remains the overview from which it can be restored.
+   back; Geometry remains the overview from which it can be restored. Map Stack Inspect/Edit use the
+   standard Dataset panels, and their back action returns to the same private group.
 7. Profile A removes Profile B and posts another record. Profile B moves into the removed state and
    cannot decrypt that later record.
 
@@ -97,6 +103,9 @@ deployments must provide their own `CORDN_SERVER_PUBKEY` and relay configuration
 - The demo projects standalone Datasets plus Comments with optional small inline GeoJSON through a
   workspace-scoped store. It does not yet provide encrypted large-object/blob attachments,
   threaded private replies, tombstones, or a complete concurrent-edit conflict protocol.
+- Private inline references currently reuse a Dataset's Nostr address tuple inside the ciphertext
+  and resolve only against the active workspace projection. A future protocol profile should make
+  cross-workspace reference semantics and coordinate collisions explicit.
 - The creator is currently the only administrator. Secure promotion requires an encrypted,
   versioned role-policy record and validation against the authenticated MLS sender; a local role
   toggle would not be sufficient authorization.

@@ -38,6 +38,8 @@ interface GeoCommentFormProps {
 	onClearAttachment?: () => void
 	/** Available features for $ mentions */
 	availableFeatures?: GeoFeatureItem[]
+	/** Whether `$` suggestions may query public relays in addition to local features */
+	searchRelayMentions?: boolean
 	className?: string
 }
 
@@ -56,6 +58,7 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 			attachedGeojson,
 			onClearAttachment,
 			availableFeatures = [],
+			searchRelayMentions = true,
 			className = '',
 		},
 		_ref,
@@ -321,6 +324,7 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 						ref={richEditorRef}
 						placeholder={effectivePlaceholder}
 						availableFeatures={availableFeatures}
+						searchRelayMentions={searchRelayMentions}
 						onChange={handleRichEditorChange}
 						disabled={isSubmitting || !currentUser}
 						rows={isReply ? 2 : 3}

@@ -4,6 +4,7 @@ import { RichContentRenderer } from '@/components/editor'
 import { UserProfile } from '@/components/user-profile/UserProfile'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 
 function formatRelativeTime(createdAt: number) {
 	const date = new Date(createdAt * 1000)
@@ -23,11 +24,21 @@ export function PrivateCommentItem({
 	geometryVisible,
 	onGeometryVisibilityChange,
 	onZoomToGeometry,
+	availableFeatures = [],
+	onMentionVisibilityToggle,
+	onMentionZoomTo,
 }: {
 	comment: GeoComment
 	geometryVisible: boolean
 	onGeometryVisibilityChange?: (comment: GeoComment, visible: boolean) => void
 	onZoomToGeometry?: (comment: GeoComment) => void
+	availableFeatures?: GeoFeatureItem[]
+	onMentionVisibilityToggle?: (
+		address: string,
+		featureId: string | undefined,
+		visible: boolean,
+	) => void
+	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
 }) {
 	const featureCount = comment.geojson?.features.length ?? 0
 	const hasGeometry = featureCount > 0
@@ -51,6 +62,9 @@ export function PrivateCommentItem({
 			{comment.text ? (
 				<RichContentRenderer
 					content={comment.text}
+					availableFeatures={availableFeatures}
+					onMentionVisibilityToggle={onMentionVisibilityToggle}
+					onMentionZoomTo={onMentionZoomTo}
 					className="mt-1.5 break-words text-xs leading-relaxed text-foreground"
 				/>
 			) : null}

@@ -434,8 +434,16 @@ export function AppSidebar({
 	const setViewDatasetState = useEditorStore((state) => state.setViewDataset)
 	const setViewContextState = useEditorStore((state) => state.setViewContext)
 	const setViewStoryState = useEditorStore((state) => state.setViewStory)
-	const { navigateToView, navigateToContext, clearContextScope, contextNaddr, encodeContextNaddr } =
-		useRouting()
+	const {
+		navigateToView,
+		navigateToPrivateGroup,
+		navigateToContext,
+		clearContextScope,
+		contextNaddr,
+		privateGroupId,
+		encodeContextNaddr,
+	} = useRouting()
+	const setStance = useEditorStore((state) => state.setStance)
 
 	const [splitWithEditor, setSplitWithEditor] = useState(viewMode === 'combined')
 	const [activeEntity, setActiveEntity] = useState<EntityWorkspace>('geometry')
@@ -1021,6 +1029,8 @@ export function AppSidebar({
 						onCommentGeometryVisibility={onCommentGeometryVisibility}
 						onZoomToBounds={onZoomToBounds}
 						availableFeatures={availableFeatures}
+						onMentionVisibilityToggle={onMentionVisibilityToggle}
+						onMentionZoomTo={onMentionZoomTo}
 					/>
 				)
 			case 'stories':
@@ -1070,14 +1080,32 @@ export function AppSidebar({
 	// route back was hunting for the rail nav item.
 	const activeWorkModeLabel =
 		workNavItems.find((item) => item.mode === activeWorkMode)?.title ?? 'list'
+	const handleBackToWorkSurface = () => {
+		if (activeWorkMode === 'private-groups' && privateGroupId) {
+			setViewContextState(null)
+			setViewDatasetState(null)
+			setViewStoryState(null)
+			onClearSightingView?.()
+			setStance(useEditorStore.getState().mapStackEntries['draft:active'] ? 'author' : 'browse')
+			setShowEntityAsFullPanel(false)
+			navigateToPrivateGroup(privateGroupId)
+			return
+		}
+		handleSelectWorkMode(activeWorkMode)
+	}
 	const renderBackToCatalogBar = () => (
 		<button
 			type="button"
-			onClick={() => handleSelectWorkMode(activeWorkMode)}
+			onClick={handleBackToWorkSurface}
 			className="flex w-full shrink-0 items-center gap-1.5 border-b border-border px-3 py-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
 		>
 			<ArrowLeft className="h-3.5 w-3.5 shrink-0" />
-			<span className="truncate">Back to {activeWorkModeLabel}</span>
+			<span className="truncate">
+				Back to{' '}
+				{activeWorkMode === 'private-groups' && privateGroupId
+					? 'private group'
+					: activeWorkModeLabel}
+			</span>
 		</button>
 	)
 

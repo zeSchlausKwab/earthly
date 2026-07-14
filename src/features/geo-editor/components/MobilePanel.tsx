@@ -733,6 +733,8 @@ export function MobilePanel(props: MobilePanelProps) {
 										onCommentGeometryVisibility={onCommentGeometryVisibility}
 										onZoomToBounds={onZoomToBounds}
 										availableFeatures={availableFeatures}
+										onMentionVisibilityToggle={onMentionVisibilityToggle}
+										onMentionZoomTo={onMentionZoomTo}
 									/>
 								) : null}
 

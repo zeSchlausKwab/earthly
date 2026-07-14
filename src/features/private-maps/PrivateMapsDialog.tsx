@@ -14,7 +14,7 @@ import {
 	UserPlus,
 	UsersRound,
 } from 'lucide-react'
-import { useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { toast } from 'sonner'
 import {
@@ -69,12 +69,20 @@ export function PrivateGroupsPanel({
 	onCommentGeometryVisibility,
 	onZoomToBounds,
 	availableFeatures = [],
+	onMentionVisibilityToggle,
+	onMentionZoomTo,
 }: {
 	onStartNewDataset?: () => void
 	datasetActions?: PrivateDatasetActions
 	onCommentGeometryVisibility?: (comment: GeoComment, visible: boolean) => void
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
 	availableFeatures?: GeoFeatureItem[]
+	onMentionVisibilityToggle?: (
+		address: string,
+		featureId: string | undefined,
+		visible: boolean,
+	) => void
+	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
 }) {
 	const { account: activeAccount, runtime, snapshot } = usePrivateWorkspaceRuntime()
 	const embedded = useContext(EmbeddedListPanelContext)
@@ -93,6 +101,7 @@ export function PrivateGroupsPanel({
 		workspaceId?: string
 		ids: Set<string>
 	}>({ workspaceId: privateGroupId, ids: new Set() })
+	const defaultVisibleCommentIdsRef = useRef(new Map<string, Set<string>>())
 	const [detailView, setDetailView] = useState<{
 		workspaceId?: string
 		tab: 'chat' | 'geometry' | 'settings'
@@ -150,6 +159,31 @@ export function PrivateGroupsPanel({
 		if (!runtime || !privateGroupId || !selectedWorkspaceId) return
 		return runtime.watchWorkspace(privateGroupId)
 	}, [runtime, privateGroupId, selectedWorkspaceId])
+
+	useEffect(() => {
+		if (!selected) return
+		let seenIds = defaultVisibleCommentIdsRef.current.get(selected.workspaceId)
+		if (!seenIds) {
+			seenIds = new Set<string>()
+			defaultVisibleCommentIdsRef.current.set(selected.workspaceId, seenIds)
+		}
+
+		const newlyVisible = privateComments.filter((comment) => {
+			const commentId = comment.commentId ?? comment.id ?? ''
+			return Boolean(commentId && comment.geojson?.features.length && !seenIds.has(commentId))
+		})
+		if (newlyVisible.length === 0) return
+
+		const ids = newlyVisible.map((comment) => comment.commentId ?? comment.id ?? '')
+		for (const id of ids) seenIds.add(id)
+		setVisibleCommentState((current) => {
+			const nextIds =
+				current.workspaceId === selected.workspaceId ? new Set(current.ids) : new Set<string>()
+			for (const id of ids) nextIds.add(id)
+			return { workspaceId: selected.workspaceId, ids: nextIds }
+		})
+		for (const comment of newlyVisible) onCommentGeometryVisibility?.(comment, true)
+	}, [selected, privateComments, onCommentGeometryVisibility])
 
 	const run = async (label: string, action: () => Promise<void>) => {
 		setBusy(label)
@@ -415,9 +449,14 @@ export function PrivateGroupsPanel({
 												<PrivateCommentItem
 													key={item.id}
 													comment={item.comment}
-													geometryVisible={visibleCommentIds.has(item.comment.commentId)}
+													geometryVisible={visibleCommentIds.has(
+														item.comment.commentId ?? item.comment.id ?? '',
+													)}
 													onGeometryVisibilityChange={handleCommentGeometryVisibility}
 													onZoomToGeometry={handleZoomToCommentGeometry}
+													availableFeatures={availableFeatures}
+													onMentionVisibilityToggle={onMentionVisibilityToggle}
+													onMentionZoomTo={onMentionZoomTo}
 												/>
 											) : (
 												<div key={item.id} className="py-2.5">
@@ -445,6 +484,7 @@ export function PrivateGroupsPanel({
 										onSubmit={handleSendComment}
 										placeholder="Comment in this private group…"
 										availableFeatures={availableFeatures}
+										searchRelayMentions={false}
 										className="mt-3"
 									/>
 								</TabsContent>
