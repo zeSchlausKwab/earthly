@@ -9,6 +9,11 @@ export interface WorkspaceMetadata {
 	recommendedBasemap?: string
 }
 
+export interface PendingWorkspaceOutbound {
+	cursor: number
+	envelope: PrivateWorkspaceEnvelope
+}
+
 export interface StoredWorkspace {
 	workspaceId: string
 	groupId: string
@@ -22,6 +27,7 @@ export interface StoredWorkspace {
 	cursor: number
 	metadata?: WorkspaceMetadata
 	envelopes: PrivateWorkspaceEnvelope[]
+	pendingOutbound?: PendingWorkspaceOutbound[]
 	createdAt: number
 }
 

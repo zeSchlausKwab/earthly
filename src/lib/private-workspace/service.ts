@@ -484,7 +484,10 @@ export class PrivateWorkspaceService {
 			[['d', 'administrator-policy']],
 		)
 		const updated = await this.requireWorkspace(ownerPubkey, workspaceId)
-		if (this.administratorPolicy(updated).head !== envelope.id) {
+		const transitionIsPending = updated.pendingOutbound?.some(
+			(item) => item.envelope.id === envelope.id,
+		)
+		if (this.administratorPolicy(updated).head !== envelope.id && !transitionIsPending) {
 			throw new Error(
 				'Administrator policy changed concurrently; review the current roles and retry',
 			)
@@ -539,10 +542,13 @@ export class PrivateWorkspaceService {
 			gid: workspace.groupId,
 			msg_64: await sealCoordinatorPayload(oldState, outbound.messageBase64),
 		})
-		await this.syncWithCoordinator(workspace, coordinator, {
-			initialState: outbound.newState,
-			selfEcho: { cursor: posted.cursor, envelope },
-		})
+		workspace.stateBase64 = serializeClientState(outbound.newState)
+		workspace.pendingOutbound = [
+			...(workspace.pendingOutbound ?? []),
+			{ cursor: posted.cursor, envelope },
+		]
+		await this.options.store.putWorkspace(workspace)
+		await this.syncWithCoordinator(workspace, coordinator)
 	}
 
 	private async publishMetadata(
@@ -565,23 +571,22 @@ export class PrivateWorkspaceService {
 	private async syncWithCoordinator(
 		workspace: StoredWorkspace,
 		coordinator: PrivateWorkspaceCoordinator,
-		options?: {
-			initialState?: ReturnType<typeof deserializeClientState>
-			selfEcho?: { cursor: number; envelope: PrivateWorkspaceEnvelope }
-		},
 	): Promise<void> {
 		if (workspace.status === 'removed') return
 		const fetched = await coordinator.fetchMessages({
 			gid: workspace.groupId,
 			after: workspace.cursor > 0 ? workspace.cursor : undefined,
 		})
-		let state = options?.initialState ?? deserializeClientState(workspace.stateBase64)
-		let sawSelfEcho = options?.selfEcho === undefined
+		let state = deserializeClientState(workspace.stateBase64)
 		for (const message of fetched.messages.sort((a, b) => a.cursor - b.cursor)) {
-			if (message.cursor === options?.selfEcho?.cursor) {
-				this.applyEnvelope(workspace, options.selfEcho.envelope)
+			const pendingOutboundIndex = workspace.pendingOutbound?.findIndex(
+				(item) => item.cursor === message.cursor,
+			)
+			if (pendingOutboundIndex !== undefined && pendingOutboundIndex >= 0) {
+				const pending = workspace.pendingOutbound?.[pendingOutboundIndex]
+				if (pending) this.applyEnvelope(workspace, pending.envelope)
+				workspace.pendingOutbound?.splice(pendingOutboundIndex, 1)
 				workspace.cursor = message.cursor
-				sawSelfEcho = true
 				continue
 			}
 			try {
@@ -615,8 +620,8 @@ export class PrivateWorkspaceService {
 			}
 			if (workspace.status === 'removed') break
 		}
-		if (!sawSelfEcho) throw new Error('Coordinator did not return the posted private-group record')
 		workspace.stateBase64 = serializeClientState(state)
+		if (workspace.pendingOutbound?.length === 0) workspace.pendingOutbound = undefined
 		this.administratorPolicy(workspace)
 		await this.options.store.putWorkspace(workspace)
 	}

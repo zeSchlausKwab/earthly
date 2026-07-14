@@ -102,8 +102,10 @@ deployments must provide their own `CORDN_SERVER_PUBKEY` and relay configuration
   approval remains explicit, but replay-resistant invitation expiry is not complete.
 - Delivery currently uses serialized bounded Cordn fetches on an automatic watcher. Cordn's
   ContextVM `msg_sub` stream still needs browser teardown/removal hardening before Earthly can rely
-  on a long-lived subscription. Durable transactional pending commits and crash recovery remain;
-  manual **Sync** is a recovery control rather than the normal receive path.
+  on a long-lived subscription. Coordinator-acknowledged application sends persist their advanced
+  MLS state and remain pending until a later fetch confirms the cursor, so an immediate self-echo is
+  not required. Durable transactional pending commits and full crash recovery remain; manual
+  **Sync** is a recovery control rather than the normal receive path.
 - The demo projects standalone Datasets plus Comments with optional small inline GeoJSON through a
   workspace-scoped store. It does not yet provide encrypted large-object/blob attachments,
   threaded private replies, tombstones, or a complete concurrent-edit conflict protocol.
