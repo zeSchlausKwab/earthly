@@ -18,6 +18,7 @@ import {
 	Radio,
 	Settings2,
 	User,
+	UsersRound,
 	Wallet,
 	X,
 } from 'lucide-react'
@@ -31,6 +32,7 @@ import { BeaconsPanelContent, type BeaconsPanelProps } from '@/components/Beacon
 import { StoriesPanelContent, type StoriesPanelProps } from '@/components/StoriesPanel'
 import { UserProfilePanel } from '@/components/UserProfilePanel'
 import { ShoutboxPanel } from '@/features/social/shoutbox'
+import { PrivateGroupsPanel } from '@/features/private-maps/PrivateMapsDialog'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
@@ -51,6 +53,7 @@ export type MobilePanelTab =
 	| 'datasets'
 	| 'map-stack'
 	| 'contexts'
+	| 'private-groups'
 	| 'context-editor'
 	| 'edit'
 	| 'sightings'
@@ -177,6 +180,7 @@ const TAB_CONFIG: { id: MobilePanelTab; label: string; icon: typeof Database }[]
 	{ id: 'datasets', label: 'Datasets', icon: Database },
 	{ id: 'map-stack', label: 'Map', icon: Layers },
 	{ id: 'contexts', label: 'Contexts', icon: Globe },
+	{ id: 'private-groups', label: 'Private groups', icon: UsersRound },
 	{ id: 'context-editor', label: 'Ctx Editor', icon: FilePenLine },
 	{ id: 'edit', label: 'Editor', icon: Pencil },
 	{ id: 'chat', label: 'AI Chat', icon: MessageCircle },
@@ -198,7 +202,7 @@ const tabMeta = (id: MobilePanelTab) => TAB_CONFIG.find((tab) => tab.id === id) 
  */
 const SWITCHER_GROUPS: { label: string; tabs: MobilePanelTab[] }[] = [
 	{ label: 'Explore', tabs: ['sightings', 'beacons', 'stories'] },
-	{ label: 'Workspace', tabs: ['datasets', 'contexts'] },
+	{ label: 'Workspace', tabs: ['datasets', 'contexts', 'private-groups'] },
 	{ label: 'On the map', tabs: ['map-stack'] },
 	{ label: 'More', tabs: ['chat', 'posts', 'profile', 'wallet', 'settings', 'help'] },
 ]
@@ -562,7 +566,7 @@ export function MobilePanel(props: MobilePanelProps) {
 					</div>
 
 					{/* Context-scope filter — below the switcher; scrolls away at peek. */}
-					{!switcherOpen ? (
+					{!switcherOpen && mobilePanelTab !== 'private-groups' ? (
 						<div className="shrink-0 border-b border-border bg-card px-3 py-1.5">
 							<div className="flex items-center gap-1.5">
 								<div className="w-full">
@@ -718,6 +722,8 @@ export function MobilePanel(props: MobilePanelProps) {
 										onFilteredDatasetKeysChange={onFilteredDatasetKeysChange}
 									/>
 								) : null}
+
+								{mobilePanelTab === 'private-groups' ? <PrivateGroupsPanel /> : null}
 
 								{mobilePanelTab === 'context-editor' ? (
 									<GeoEditorInfoPanelContent

@@ -105,6 +105,10 @@ export class PrivateWorkspaceService {
 		return this.options.store.listWorkspaces(await this.ownerPubkey())
 	}
 
+	async listPendingJoins() {
+		return this.options.store.listPendingJoins(await this.ownerPubkey())
+	}
+
 	async createWorkspace(metadata: WorkspaceMetadata): Promise<StoredWorkspace> {
 		if (!metadata.name.trim()) throw new Error('Private map name is required')
 		const ownerPubkey = await this.ownerPubkey()

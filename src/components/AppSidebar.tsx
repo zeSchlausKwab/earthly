@@ -14,6 +14,7 @@ import {
 	Search,
 	Settings2,
 	UserCircle,
+	UsersRound,
 	Wallet,
 	X,
 } from 'lucide-react'
@@ -33,6 +34,7 @@ import { BeaconsPanelContent } from './BeaconsPanel'
 import { UserProfilePanel } from './UserProfilePanel'
 import { GeoEditorInfoPanelContent } from './GeoEditorInfoPanel'
 import { HelpPanel } from './HelpPanel'
+import { PrivateGroupsPanel } from '../features/private-maps/PrivateMapsDialog'
 import { LoginSessionButtons } from '../features/auth/LoginSessionButtons'
 import { SignedOutCta } from '../features/auth/SignedOutCta'
 import {
@@ -60,12 +62,20 @@ import { Button } from './ui/button'
 
 type SidebarContentMode = Exclude<SidebarViewMode, 'combined'>
 type EntityWorkspace = 'geometry' | 'context' | 'story' | 'sighting' | 'beacon'
-type WorkViewMode = 'datasets' | 'contexts' | 'stories' | 'sightings' | 'beacons' | 'user'
+type WorkViewMode =
+	| 'datasets'
+	| 'contexts'
+	| 'private-groups'
+	| 'stories'
+	| 'sightings'
+	| 'beacons'
+	| 'user'
 type MetaViewMode = 'posts' | 'wallet' | 'settings' | 'help'
 
 const WORK_VIEW_MODES: WorkViewMode[] = [
 	'datasets',
 	'contexts',
+	'private-groups',
 	'stories',
 	'sightings',
 	'beacons',
@@ -89,6 +99,7 @@ const workNavItems: {
 }[] = [
 	{ mode: 'datasets', title: 'Datasets', icon: Database },
 	{ mode: 'contexts', title: 'Contexts', icon: Globe },
+	{ mode: 'private-groups', title: 'Private groups', icon: UsersRound },
 	{ mode: 'stories', title: 'Stories', icon: BookOpen },
 	{ mode: 'sightings', title: 'Sightings', icon: Eye },
 	{ mode: 'beacons', title: 'Beacons', icon: Radio },
@@ -999,6 +1010,8 @@ export function AppSidebar({
 				return <GeoDatasetsPanelContent mode="datasets" {...datasetsPanelProps} />
 			case 'contexts':
 				return <GeoDatasetsPanelContent mode="contexts" {...datasetsPanelProps} />
+			case 'private-groups':
+				return <PrivateGroupsPanel />
 			case 'stories':
 				return <StoriesPanelContent {...storiesPanelProps} />
 			case 'sightings':
@@ -1289,16 +1302,22 @@ export function AppSidebar({
 					    items carry that role now, with derived active state. */}
 					<div className="flex w-full items-center gap-2">
 						<div className="min-w-0 flex-1">
-							<EntitySearchPopover
-								sources={{ contexts: mapContextEvents }}
-								entityTypes={['context']}
-								onSelect={handleContextScopeSelect}
-								placeholder={
-									activeContextScopeLabel ? activeContextScopeLabel : 'Filter by context…'
-								}
-								searchMode="local"
-								compact
-							/>
+							{contentMode === 'private-groups' ? (
+								<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
+									Encrypted workspace
+								</div>
+							) : (
+								<EntitySearchPopover
+									sources={{ contexts: mapContextEvents }}
+									entityTypes={['context']}
+									onSelect={handleContextScopeSelect}
+									placeholder={
+										activeContextScopeLabel ? activeContextScopeLabel : 'Filter by context…'
+									}
+									searchMode="local"
+									compact
+								/>
+							)}
 						</div>
 
 						<div className="flex shrink-0 items-center gap-1">
@@ -1334,7 +1353,7 @@ export function AppSidebar({
 							</span>
 						</div>
 					</div>
-					{currentUserPubkey && (
+					{currentUserPubkey && contentMode !== 'private-groups' && (
 						<WorkspaceDraftNavigator
 							onStartNewDataset={onStartNewDataset}
 							onSwitchWorkspace={onSwitchWorkspace}

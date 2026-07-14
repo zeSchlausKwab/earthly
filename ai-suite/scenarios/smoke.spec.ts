@@ -44,6 +44,12 @@ test('Contexts can be opened through the current viewport navigation', async ({ 
 	await openPanel(earthly, 'Contexts')
 })
 
+test('Private groups can be opened as a routed panel', async ({ earthly }) => {
+	await earthly.open({ tour: 'seen' })
+	await openPanel(earthly, 'Private groups')
+	await expect(earthly.page.getByRole('heading', { name: 'Private groups' })).toBeVisible()
+})
+
 test('a Story can be saved as a local draft', async ({ earthly }) => {
 	await earthly.open({ tour: 'seen' })
 	await createStoryDraft(earthly, {

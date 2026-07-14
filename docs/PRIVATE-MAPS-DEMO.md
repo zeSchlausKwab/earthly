@@ -1,6 +1,6 @@
-# Private maps browser/Tauri demo
+# Private groups browser/Tauri demo
 
-Earthly now has a browser-first vertical slice for MLS-protected private maps. The same React,
+Earthly now has a browser-first vertical slice for MLS-protected private groups. The same React,
 domain, storage, and Cordn coordinator client code is bundled into the Tauri application. This is
 an implementation checkpoint on the full plan in `docs/TAURI-IMPLEMENTATION-PLAN.md`, not a claim
 that the security and recovery work is finished.
@@ -26,9 +26,11 @@ Start the complete development stack:
 bun dev
 ```
 
-This starts the local relay, Earthly ContextVM server, frontend, and Cordn v0.4.0 coordinator. If a
-Docker daemon is available, the coordinator uses the pinned
-`ghcr.io/cordn-msg/cordn:v0.4.0` image. Otherwise the launcher verifies and runs the exact
+This starts the local relay, Earthly's geo/AI ContextVM server, frontend, and the separate Cordn
+v0.4.0 ContextVM MLS coordinator. Cordn always communicates through ContextVM over Nostr. Docker is
+only one reproducible way to package and launch that coordinator; it is not an alternative transport
+or architecture. If a Docker daemon is available, the launcher uses the pinned
+`ghcr.io/cordn-msg/cordn:v0.4.0` image. Otherwise it verifies and runs the exact
 `96ecdd277cdd9051c81f113dda521ce5ce380e94` source commit from the ignored `.cache` directory.
 
 The loopback coordinator uses the documented insecure development key with public key:
@@ -40,15 +42,16 @@ The loopback coordinator uses the documented insecure development key with publi
 Do not deploy that key.
 
 Open `http://localhost:3000` in two isolated browser profiles, sign in with different accounts,
-then use the **Private maps** control:
+then open **Private groups** from the left workspace rail:
 
-1. Profile A creates a private map and copies an invitation.
+1. Profile A opens `/private-groups`, creates a private group, and copies an invitation. Its stable
+   detail URL is `/privategroup/:id`.
 2. Profile B opens the invitation and selects **Request access**.
 3. Profile A selects **Requests**, then **Approve device**.
 4. Profile B selects **Check approved invites**.
 5. Either profile can post a message or demo Dataset; the other selects **Sync**.
-6. Profile A removes Profile B, posts another record, and Profile B syncs into the removed state
-   without seeing that later record.
+6. Profile A removes Profile B and posts another record. Profile B moves into the removed state and
+   cannot decrypt that later record.
 
 The repeatable MLS crypto smoke gate is:
 
@@ -79,8 +82,11 @@ deployments must provide their own `CORDN_SERVER_PUBKEY` and relay configuration
   encrypted under a hardware-backed device key. Tauri secure storage is a later phase.
 - Invitation nonces are not yet consumed by a coordinator-side one-use rendezvous record. Device
   approval remains explicit, but replay-resistant invitation expiry is not complete.
-- Delivery uses bounded Cordn polling. CEP-41 live subscriptions, durable transactional pending
-  commits, and crash recovery still need implementation.
+- Delivery currently uses explicit bounded Cordn fetches. Cordn's ContextVM `msg_sub` stream works
+  for live records, but its browser teardown/removal lifecycle still needs hardening before Earthly
+  can rely on it. Timer polling is also unsuitable while each fetch creates a new ephemeral delivery
+  session. Durable transactional pending commits and crash recovery remain; manual **Sync** is the
+  current recovery path.
 - The demo projects chat and a small Dataset envelope. It does not yet route the full map editor,
   comments, encrypted blobs, attachments, or conflict resolution through a workspace-scoped store.
 - Metadata is encrypted as an Earthly application record. It is intentionally not copied into an

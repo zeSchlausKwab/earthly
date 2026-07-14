@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { DEFAULT_SIDEBAR_VIEW } from '../defaults'
-import { parsePathSegments } from './useRouting'
+import { buildRoutePath, parsePathSegments } from './useRouting'
 
 // XCUT-02 (D-08/D-09): the five per-kind share-form parsers collapsed into one
 // SHARE_ROUTES lookup + one generic dispatch body. These assertions pin the
@@ -72,6 +72,35 @@ describe('parsePathSegments — /comment/:id suffix', () => {
 		for (const prefix of ['geoevent', 'mapcontext', 'story', 'sighting', 'beacon']) {
 			expect(parsePathSegments([prefix, NADDR, 'comment', CID]).commentId).toBe(CID)
 		}
+	})
+})
+
+describe('parsePathSegments — private groups', () => {
+	test('/private-groups opens the collection panel', () => {
+		expect(parsePathSegments(['private-groups'])).toEqual({
+			focusType: 'none',
+			sidebarView: 'private-groups',
+		})
+	})
+
+	test('/privategroup/:id opens one opaque local MLS workspace', () => {
+		expect(parsePathSegments(['privategroup', 'workspace-123'])).toEqual({
+			focusType: 'none',
+			sidebarView: 'private-groups',
+			privateGroupId: 'workspace-123',
+		})
+	})
+
+	test('private-group detail navigation builds the canonical route', () => {
+		expect(buildRoutePath({ sidebarView: 'private-groups', privateGroupId: 'workspace 123' })).toBe(
+			'/privategroup/workspace%20123',
+		)
+	})
+
+	test('the hyphenated preview route remains readable', () => {
+		expect(parsePathSegments(['private-group', 'workspace-123']).privateGroupId).toBe(
+			'workspace-123',
+		)
 	})
 })
 

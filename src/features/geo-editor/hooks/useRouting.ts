@@ -10,6 +10,7 @@ const SIDEBAR_VIEW_MODES: SidebarViewMode[] = [
 	'datasets',
 	'map-stack',
 	'contexts',
+	'private-groups',
 	'context-editor',
 	'stories',
 	'sightings',
@@ -42,6 +43,8 @@ export interface RouteState {
 	commentId?: string
 	/** Current sidebar view mode */
 	sidebarView: SidebarViewMode
+	/** Local MLS workspace identifier for a `/privategroup/:id` detail route. */
+	privateGroupId?: string
 	/** User pubkey for user profile routes (hex format) */
 	userPubkey?: string
 }
@@ -133,6 +136,18 @@ export function parsePathSegments(segments: string[]): RouteState {
 			focusType: 'none',
 			sidebarView: 'user',
 			userPubkey,
+		}
+	}
+
+	// Private groups use the same collection/detail route grammar as Earthly's
+	// public entities, but the opaque id addresses local MLS state rather than a
+	// public Nostr event: /private-groups and /privategroup/:id. Accept the
+	// earlier hyphenated preview route so copied development invites still open.
+	if ((first === 'privategroup' || first === 'private-group') && segments[1]) {
+		return {
+			focusType: 'none',
+			sidebarView: 'private-groups',
+			privateGroupId: segments[1],
 		}
 	}
 
@@ -299,13 +314,18 @@ export function buildRoutePath({
 	focusType,
 	naddr,
 	commentId,
+	privateGroupId,
 }: {
 	sidebarView: SidebarViewMode
 	contextNaddr?: string
 	focusType?: 'geoevent' | 'mapcontext' | 'story' | 'sighting' | 'beacon'
 	naddr?: string
 	commentId?: string
+	privateGroupId?: string
 }): string {
+	if (sidebarView === 'private-groups' && privateGroupId) {
+		return `/privategroup/${encodeURIComponent(privateGroupId)}`
+	}
 	const root = contextNaddr ? `/context/${contextNaddr}/${sidebarView}` : `/${sidebarView}`
 	if (focusType && naddr) {
 		if (commentId) {
@@ -406,7 +426,19 @@ export function useRouting() {
 	const navigateToView = useCallback(
 		(view: SidebarViewMode) => {
 			const currentRoute = parseLocation()
-			commit({ sidebarView: view, contextNaddr: currentRoute.contextNaddr })
+			commit({
+				sidebarView: view,
+				// Private groups are their own encrypted scope; a public Context filter
+				// must not leak into or wrap their route.
+				contextNaddr: view === 'private-groups' ? undefined : currentRoute.contextNaddr,
+			})
+		},
+		[commit],
+	)
+
+	const navigateToPrivateGroup = useCallback(
+		(privateGroupId: string) => {
+			commit({ sidebarView: 'private-groups', privateGroupId })
 		},
 		[commit],
 	)
@@ -558,6 +590,7 @@ export function useRouting() {
 	return {
 		route,
 		navigateToView,
+		navigateToPrivateGroup,
 		navigateTo,
 		navigateToComment,
 		navigateToContext,
@@ -577,6 +610,8 @@ export function useRouting() {
 		contextCoordinate: route.contextCoordinate,
 		/** User pubkey from route (for user profile pages) */
 		userPubkey: route.userPubkey,
+		/** Selected local MLS workspace from `/privategroup/:id`. */
+		privateGroupId: route.privateGroupId,
 		/** Comment d-tag deep-linked beneath the focused entity route */
 		commentId: route.commentId,
 	}

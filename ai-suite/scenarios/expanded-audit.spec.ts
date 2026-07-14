@@ -7,6 +7,7 @@ import { openPanel, type EarthlyPanel } from '../tasks/navigation/open-panel'
 const panels: EarthlyPanel[] = [
 	'Datasets',
 	'Contexts',
+	'Private groups',
 	'Stories',
 	'Sightings',
 	'Beacons',

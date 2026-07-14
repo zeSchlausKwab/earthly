@@ -11,6 +11,7 @@ export type SidebarViewMode =
 	| 'datasets'
 	| 'map-stack'
 	| 'contexts'
+	| 'private-groups'
 	| 'context-editor'
 	| 'stories'
 	| 'sightings'
@@ -35,6 +36,7 @@ export interface RouteSnapshot {
 	naddr?: string
 	contextNaddr?: string
 	contextCoordinate?: string
+	privateGroupId?: string
 }
 
 export interface ApplyRouteStateOptions {
@@ -181,6 +183,7 @@ export type MobilePanelTab =
 	| 'datasets'
 	| 'map-stack'
 	| 'contexts'
+	| 'private-groups'
 	| 'context-editor'
 	| 'edit'
 	| 'sightings'
