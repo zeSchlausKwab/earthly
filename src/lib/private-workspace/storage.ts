@@ -14,6 +14,31 @@ export interface PendingWorkspaceOutbound {
 	envelope: PrivateWorkspaceEnvelope
 }
 
+export interface PendingWorkspaceApprovalMessage {
+	type: 'commit' | 'application'
+	msgBase64: string
+	envelope?: PrivateWorkspaceEnvelope
+	cursor?: number
+}
+
+/**
+ * Crash-recovery journal for the multi-write member approval sequence.
+ * Version 1 is embedded in the workspace record, so existing IndexedDB stores
+ * gain it without a schema migration.
+ */
+export interface PendingWorkspaceApproval {
+	version: 1
+	targetPubkey: string
+	keyPackageRef: string
+	requestAt: number
+	basisCursor: number
+	welcomeBase64: string
+	finalStateBase64: string
+	messages: PendingWorkspaceApprovalMessage[]
+	welcomeStoredAt?: number
+	localFinalized?: boolean
+}
+
 export interface StoredWorkspace {
 	workspaceId: string
 	groupId: string
@@ -28,6 +53,7 @@ export interface StoredWorkspace {
 	metadata?: WorkspaceMetadata
 	envelopes: PrivateWorkspaceEnvelope[]
 	pendingOutbound?: PendingWorkspaceOutbound[]
+	pendingApproval?: PendingWorkspaceApproval
 	createdAt: number
 }
 

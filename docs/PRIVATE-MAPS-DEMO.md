@@ -109,8 +109,12 @@ deployments must provide their own `CORDN_SERVER_PUBKEY` and relay configuration
   ContextVM `msg_sub` stream still needs browser teardown/removal hardening before Earthly can rely
   on a long-lived subscription. Coordinator-acknowledged application sends persist their advanced
   MLS state and remain pending until a later fetch confirms the cursor, so an immediate self-echo is
-  not required. Durable transactional pending commits and full crash recovery remain; manual
-  **Sync** is a recovery control rather than the normal receive path.
+  not required. Member approval now persists a version-1 recovery journal containing the exact
+  Add/checkpoint ciphertext plan before any group message is posted. A reload recognizes already
+  accepted ciphertext, resumes missing writes, stores the Welcome only after the complete
+  checkpoint, and consumes duplicate Welcomes for the same KeyPackage together. General offline
+  application outbox recovery remains; manual **Sync** is a recovery control rather than the normal
+  receive path.
 - The demo projects standalone Datasets plus Comments with optional small inline GeoJSON through a
   workspace-scoped store. It does not yet provide encrypted large-object/blob attachments,
   threaded private replies, tombstones, or a complete concurrent-edit conflict protocol.
@@ -122,8 +126,13 @@ deployments must provide their own `CORDN_SERVER_PUBKEY` and relay configuration
   other members, each transition extends one predecessor, and coordinator delivery order selects
   the first valid concurrent transition. The MLS incoming-message callback also rejects sensitive
   membership proposals from a sender whose verified MLS credential is not a current administrator.
-  Durable transactional handling of simultaneous administrator commits and crash recovery remains
-  a production-hardening item.
+  Simultaneous administrator commits and their stale-epoch conflict recovery remain a
+  production-hardening item.
+- Cordn's current `kp_take` operation destructively consumes a regular KeyPackage and has no
+  reservation/idempotency token. Earthly journals immediately after a successful response, but a
+  process loss between the coordinator mutation and that local write cannot be repaired by the
+  current protocol. Production Cordn needs an idempotent reservation/consume contract for that
+  final response-loss window.
 - Creating a private application record asks the active Nostr signer for its detached authorization
   proof. Browser extension and remote signers may therefore prompt per record until Earthly defines
   a narrowly scoped, revocable device/session authorization mechanism.

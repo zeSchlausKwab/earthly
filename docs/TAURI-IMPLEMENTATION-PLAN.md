@@ -1195,6 +1195,16 @@ model before public signing. The following seams need explicit implementation:
   and device removal;
 - define replay, ordering, stale-client, concurrent-commit, and schema-migration behavior.
 
+The browser implementation now journals the complete member-approval write set inside the
+workspace record before posting its MLS Add and current-map checkpoint. The version-1 journal keeps
+the exact opaque ciphertext and final post-plan client state, recognizes a coordinator write whose
+response was lost, resumes missing messages after reload, delays Welcome publication until the
+checkpoint is complete, and retires duplicate Welcomes together. This makes the Add/checkpoint/
+Welcome/request sequence retryable without duplicating MLS commits. Cordn still needs an
+idempotent KeyPackage reservation API to close the response-loss window around its destructive
+`kp_take`, and Earthly still needs stale-epoch recovery for genuinely concurrent administrator
+commits.
+
 Dataset/comment schemas and most map presentation components should be highly reusable. Membership,
 state persistence, multi-device identity, recovery, delivery ordering, and encrypted blobs are the
 high-risk work. `ts-mls` is a suitable TypeScript implementation candidate and already targets

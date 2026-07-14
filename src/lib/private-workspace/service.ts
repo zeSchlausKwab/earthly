@@ -41,6 +41,8 @@ import {
 	type PrivateMapInvitation,
 } from './invitation'
 import type {
+	PendingWorkspaceApproval,
+	PendingWorkspaceApprovalMessage,
 	PendingWorkspaceJoin,
 	PrivateWorkspaceStore,
 	StoredMlsKeyPackage,
@@ -308,8 +310,31 @@ export class PrivateWorkspaceService {
 
 	async approveJoinRequest(request: WorkspaceJoinRequest): Promise<StoredWorkspace> {
 		const ownerPubkey = await this.ownerPubkey()
-		const workspace = await this.syncWorkspace(request.workspaceId)
+		let workspace = await this.requireWorkspace(ownerPubkey, request.workspaceId)
+		if (workspace.pendingApproval) {
+			if (
+				workspace.pendingApproval.targetPubkey !== request.pk ||
+				workspace.pendingApproval.keyPackageRef !== request.kp_ref
+			) {
+				throw new Error('Finish the pending member approval before approving another member')
+			}
+			return this.resumePendingApproval(
+				workspace,
+				this.coordinator(workspace.coordinatorPubkey, workspace.relays),
+			)
+		}
+		workspace = await this.syncWorkspace(request.workspaceId)
 		this.requireAdministrator(workspace, ownerPubkey, 'add members')
+		const coordinator = this.coordinator(workspace.coordinatorPubkey, workspace.relays)
+		if (
+			memberPubkeysFromState(deserializeClientState(workspace.stateBase64)).includes(request.pk)
+		) {
+			await coordinator.takeJoinRequests({
+				gid: workspace.groupId,
+				consumed: [{ pk: request.pk, at: request.at }],
+			})
+			return workspace
+		}
 		const checkpointBasisCursor = (workspace.pendingOutbound ?? []).reduce(
 			(cursor, item) => Math.max(cursor, item.cursor),
 			workspace.cursor,
@@ -323,7 +348,6 @@ export class PrivateWorkspaceService {
 				...(metadataEnvelope ? [metadataEnvelope.id] : []),
 			],
 		})
-		const coordinator = this.coordinator(workspace.coordinatorPubkey, workspace.relays)
 		const consumed = await coordinator.takeKeyPackage({ id: request.kp_ref })
 		if (!consumed.keyPackage) throw new Error('The requested MLS KeyPackage is no longer available')
 		const published = consumed.keyPackage
@@ -341,30 +365,49 @@ export class PrivateWorkspaceService {
 
 		const oldState = deserializeClientState(workspace.stateBase64)
 		const added = await addWorkspaceMember({ state: oldState, keyPackage })
-		const sealedCommit = await sealCoordinatorPayload(oldState, added.commitBase64)
-		const posted = await coordinator.postMessage({ gid: workspace.groupId, msg_64: sealedCommit })
-		workspace.stateBase64 = serializeClientState(added.newState)
-		workspace.cursor = posted.cursor
-		this.reconcileAcknowledgedOutbounds(workspace, posted.cursor)
-		await this.options.store.putWorkspace(workspace)
+		const checkpointEnvelope = await this.createCheckpointEnvelope(workspace, checkpointManifest)
+		let plannedState = added.newState
+		const messages: PendingWorkspaceApprovalMessage[] = [
+			{
+				type: 'commit',
+				msgBase64: await sealCoordinatorPayload(oldState, added.commitBase64),
+			},
+		]
+		const appendApplicationMessage = async (
+			envelope: PrivateWorkspaceEnvelope,
+			forwarded: boolean,
+		) => {
+			const stateBefore = plannedState
+			const outbound = forwarded
+				? await createForwardedWorkspaceApplicationMessage({ state: stateBefore, envelope })
+				: await createWorkspaceApplicationMessage({ state: stateBefore, envelope })
+			plannedState = outbound.newState
+			messages.push({
+				type: 'application',
+				msgBase64: await sealCoordinatorPayload(stateBefore, outbound.messageBase64),
+				envelope,
+			})
+		}
 		for (const envelope of checkpointEnvelopes) {
-			await this.postApplicationEnvelope(workspace, coordinator, envelope, true)
+			await appendApplicationMessage(envelope, true)
 		}
 		if (metadataEnvelope) {
-			await this.postApplicationEnvelope(workspace, coordinator, metadataEnvelope)
+			await appendApplicationMessage(metadataEnvelope, false)
 		}
-		await this.publishCheckpoint(workspace, coordinator, checkpointManifest)
-		await coordinator.storeWelcome({
-			target_pk: request.pk,
-			kp_ref: request.kp_ref,
-			welcome_64: added.welcomeBase64,
-			after: posted.cursor,
-		})
-		await coordinator.takeJoinRequests({
-			gid: workspace.groupId,
-			consumed: [{ pk: request.pk, at: request.at }],
-		})
-		return workspace
+		await appendApplicationMessage(checkpointEnvelope, false)
+		const approval: PendingWorkspaceApproval = {
+			version: 1,
+			targetPubkey: request.pk,
+			keyPackageRef: request.kp_ref,
+			requestAt: request.at,
+			basisCursor: checkpointBasisCursor,
+			welcomeBase64: added.welcomeBase64,
+			finalStateBase64: serializeClientState(plannedState),
+			messages,
+		}
+		workspace.pendingApproval = approval
+		await this.options.store.putWorkspace(workspace)
+		return this.resumePendingApproval(workspace, coordinator)
 	}
 
 	async acceptPendingWelcomes(): Promise<StoredWorkspace[]> {
@@ -402,7 +445,11 @@ export class PrivateWorkspaceService {
 			}
 			await this.options.store.putWorkspace(workspace)
 			await this.options.store.deletePendingJoin(ownerPubkey, pending.keyPackageRef)
-			await coordinator.takeWelcomes({ consumed: [{ kp_ref: welcome.kp_ref, at: welcome.at }] })
+			await coordinator.takeWelcomes({
+				consumed: result.welcomes
+					.filter((item) => item.kp_ref === welcome.kp_ref)
+					.map((item) => ({ kp_ref: item.kp_ref, at: item.at })),
+			})
 			await this.syncWithCoordinator(workspace, coordinator)
 			accepted.push(workspace)
 		}
@@ -417,6 +464,10 @@ export class PrivateWorkspaceService {
 		const ownerPubkey = await this.ownerPubkey()
 		const workspace = await this.requireWorkspace(ownerPubkey, workspaceId)
 		const coordinator = this.coordinator(workspace.coordinatorPubkey, workspace.relays)
+		if (workspace.pendingApproval) {
+			await this.resumePendingApproval(workspace, coordinator)
+			return { workspace, changed: true }
+		}
 		const changed = await this.syncWithCoordinator(workspace, coordinator)
 		return { workspace, changed }
 	}
@@ -610,13 +661,12 @@ export class PrivateWorkspaceService {
 		})
 	}
 
-	private async publishCheckpoint(
+	private async createCheckpointEnvelope(
 		workspace: StoredWorkspace,
-		coordinator: PrivateWorkspaceCoordinator,
 		manifest: ReturnType<typeof createWorkspaceCheckpointManifest>,
-	): Promise<void> {
+	): Promise<PrivateWorkspaceEnvelope> {
 		this.requireAdministrator(workspace, workspace.ownerPubkey, 'publish a join checkpoint')
-		const envelope = await createPrivateEnvelope({
+		return createPrivateEnvelope({
 			signer: this.options.signer,
 			groupId: workspace.groupId,
 			pubkey: workspace.ownerPubkey,
@@ -624,7 +674,105 @@ export class PrivateWorkspaceService {
 			tags: [['d', 'current-map-checkpoint']],
 			content: JSON.stringify(manifest),
 		})
-		await this.postApplicationEnvelope(workspace, coordinator, envelope)
+	}
+
+	private async resumePendingApproval(
+		workspace: StoredWorkspace,
+		coordinator: PrivateWorkspaceCoordinator,
+	): Promise<StoredWorkspace> {
+		const approval = workspace.pendingApproval
+		if (approval?.version !== 1) {
+			throw new Error('Unsupported private-map approval recovery journal')
+		}
+		this.requireAdministrator(workspace, workspace.ownerPubkey, 'recover member approval')
+		if (approval.messages.length === 0 || approval.messages[0]?.type !== 'commit') {
+			throw new Error('Invalid private-map approval recovery journal')
+		}
+
+		const fetched = await coordinator.fetchMessages({
+			gid: workspace.groupId,
+			after: approval.basisCursor > 0 ? approval.basisCursor : undefined,
+		})
+		for (const planned of approval.messages) {
+			if (planned.cursor !== undefined) continue
+			const existing = fetched.messages.find((message) => message.msg_64 === planned.msgBase64)
+			if (existing) {
+				planned.cursor = existing.cursor
+			} else {
+				const posted = await coordinator.postMessage({
+					gid: workspace.groupId,
+					msg_64: planned.msgBase64,
+				})
+				planned.cursor = posted.cursor
+			}
+			await this.options.store.putWorkspace(workspace)
+		}
+
+		const delivered = await coordinator.fetchMessages({
+			gid: workspace.groupId,
+			after: approval.basisCursor > 0 ? approval.basisCursor : undefined,
+		})
+		const plannedCiphertexts = new Set(approval.messages.map((message) => message.msgBase64))
+		const unexpected = delivered.messages.filter(
+			(message) => !plannedCiphertexts.has(message.msg_64),
+		)
+		if (unexpected.length > 0) {
+			throw new Error(
+				'Private map changed while member approval was being recovered; concurrent recovery is not yet supported',
+			)
+		}
+
+		if (!approval.localFinalized) {
+			const commitCursor = approval.messages[0]?.cursor
+			if (commitCursor === undefined || !approval.finalStateBase64) {
+				throw new Error('Private-map approval messages were not fully acknowledged')
+			}
+			workspace.stateBase64 = approval.finalStateBase64
+			this.reconcileAcknowledgedOutbounds(workspace, commitCursor)
+			for (const planned of [...approval.messages]
+				.filter(
+					(
+						message,
+					): message is PendingWorkspaceApprovalMessage & {
+						envelope: PrivateWorkspaceEnvelope
+						cursor: number
+					} =>
+						message.type === 'application' &&
+						message.envelope !== undefined &&
+						message.cursor !== undefined,
+				)
+				.sort((a, b) => a.cursor - b.cursor)) {
+				this.applyEnvelope(workspace, planned.envelope)
+			}
+			workspace.cursor = Math.max(
+				workspace.cursor,
+				...approval.messages.map((message) => message.cursor ?? 0),
+			)
+			approval.localFinalized = true
+			await this.options.store.putWorkspace(workspace)
+		}
+
+		const commitCursor = approval.messages[0]?.cursor
+		if (commitCursor === undefined) {
+			throw new Error('Private-map approval commit was not acknowledged')
+		}
+		if (approval.welcomeStoredAt === undefined) {
+			const stored = await coordinator.storeWelcome({
+				target_pk: approval.targetPubkey,
+				kp_ref: approval.keyPackageRef,
+				welcome_64: approval.welcomeBase64,
+				after: commitCursor,
+			})
+			approval.welcomeStoredAt = stored.at
+			await this.options.store.putWorkspace(workspace)
+		}
+		await coordinator.takeJoinRequests({
+			gid: workspace.groupId,
+			consumed: [{ pk: approval.targetPubkey, at: approval.requestAt }],
+		})
+		workspace.pendingApproval = undefined
+		await this.options.store.putWorkspace(workspace)
+		return workspace
 	}
 
 	private async syncWithCoordinator(

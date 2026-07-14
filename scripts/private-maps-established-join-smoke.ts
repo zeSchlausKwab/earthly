@@ -20,6 +20,8 @@ type StoredWelcome = PendingWelcome & { targetPubkey: string }
 
 class InMemoryCordnServer {
 	private clock = 0
+	private failMessageAfterWrite = false
+	private failWelcomeAfterWrite = false
 	private readonly keyPackages = new Map<string, PublishedKeyPackage>()
 	private readonly joinRequests = new Map<string, PendingJoinRequest[]>()
 	private readonly welcomes: StoredWelcome[] = []
@@ -29,6 +31,22 @@ class InMemoryCordnServer {
 	setFetchSuppressed(pubkey: string, suppressed: boolean): void {
 		if (suppressed) this.suppressedFetches.add(pubkey)
 		else this.suppressedFetches.delete(pubkey)
+	}
+
+	failNextMessageResponseAfterWrite(): void {
+		this.failMessageAfterWrite = true
+	}
+
+	failNextWelcomeResponseAfterWrite(): void {
+		this.failWelcomeAfterWrite = true
+	}
+
+	groupMessages(groupId: string): CoordinatorMessage[] {
+		return [...(this.messages.get(groupId) ?? [])]
+	}
+
+	welcomeCount(targetPubkey: string): number {
+		return this.welcomes.filter((welcome) => welcome.targetPubkey === targetPubkey).length
 	}
 
 	client(signer: NostrSigner): PrivateWorkspaceCoordinator {
@@ -78,6 +96,10 @@ class InMemoryCordnServer {
 			storeWelcome: async ({ target_pk, kp_ref, welcome_64, after }) => {
 				const at = ++this.clock
 				this.welcomes.push({ targetPubkey: target_pk, kp_ref, welcome_64, after, at })
+				if (this.failWelcomeAfterWrite) {
+					this.failWelcomeAfterWrite = false
+					throw new Error('simulated Welcome response loss after durable storage')
+				}
 				return { at }
 			},
 			storeJoinRequest: async ({ gid, kp_ref }) => {
@@ -105,6 +127,10 @@ class InMemoryCordnServer {
 				const at = ++this.clock
 				messages.push({ cursor, gid, msg_64, at, encrypted: true })
 				this.messages.set(gid, messages)
+				if (this.failMessageAfterWrite) {
+					this.failMessageAfterWrite = false
+					throw new Error('simulated message response loss after durable storage')
+				}
 				return { cursor, gid, at }
 			},
 			fetchMessages: async ({ gid, after }) => {
@@ -139,17 +165,21 @@ const alice = testSigner()
 const bob = testSigner()
 const carol = testSigner()
 
-function service(identity: ReturnType<typeof testSigner>) {
+function service(
+	identity: ReturnType<typeof testSigner>,
+	store = new MemoryPrivateWorkspaceStore(),
+) {
 	return new PrivateWorkspaceService({
 		signer: identity.signer,
-		store: new MemoryPrivateWorkspaceStore(),
+		store,
 		coordinatorPubkey: 'f'.repeat(64),
 		relays: ['ws://localhost:3334'],
 		createCoordinator: () => cordn.client(identity.signer),
 	})
 }
 
-const aliceService = service(alice)
+const aliceStore = new MemoryPrivateWorkspaceStore()
+let aliceService = service(alice, aliceStore)
 const bobService = service(bob)
 const carolService = service(carol)
 const workspace = await aliceService.createWorkspace({ name: 'Established field map' })
@@ -197,6 +227,7 @@ const expectedCheckpointBasis = Math.max(
 async function join(
 	joiningService: PrivateWorkspaceService,
 	joiningPubkey: string,
+	failure?: 'message-response' | 'welcome-response',
 ): Promise<void> {
 	const invitation = await aliceService.createInvitation(workspace.workspaceId)
 	await joiningService.requestToJoin(invitation)
@@ -204,12 +235,22 @@ async function join(
 		(item) => item.pk === joiningPubkey,
 	)
 	assert(request)
+	if (failure === 'message-response') cordn.failNextMessageResponseAfterWrite()
+	if (failure === 'welcome-response') cordn.failNextWelcomeResponseAfterWrite()
+	if (failure) {
+		await assert.rejects(
+			aliceService.approveJoinRequest(request),
+			new RegExp(`simulated ${failure === 'message-response' ? 'message' : 'Welcome'} response loss`),
+		)
+		aliceService = service(alice, aliceStore)
+	}
 	await aliceService.approveJoinRequest(request)
 	assert.equal((await joiningService.acceptPendingWelcomes()).length, 1)
 }
 
-await join(bobService, bob.pubkey)
+await join(bobService, bob.pubkey, 'welcome-response')
 cordn.setFetchSuppressed(alice.pubkey, false)
+assert.equal(cordn.welcomeCount(bob.pubkey), 0, 'duplicate Welcomes must be consumed together')
 const [joinedBobWorkspace] = await bobService.listWorkspaces()
 assert(joinedBobWorkspace)
 const bobCheckpoint = joinedBobWorkspace.envelopes.find(
@@ -243,7 +284,15 @@ const bobDataset = await bobService.sendDataset(
 )
 await aliceService.syncWorkspace(workspace.workspaceId)
 
-await join(carolService, carol.pubkey)
+await join(carolService, carol.pubkey, 'message-response')
+const deliveredCiphertexts = cordn
+	.groupMessages(workspace.groupId)
+	.map((message) => message.msg_64)
+assert.equal(
+	new Set(deliveredCiphertexts).size,
+	deliveredCiphertexts.length,
+	'recovery must not duplicate an acknowledged MLS message',
+)
 const [carolWorkspace] = await carolService.listWorkspaces()
 assert(carolWorkspace)
 const checkpoint = carolWorkspace.envelopes.find(
