@@ -17,9 +17,39 @@ if [[ ! -f .env ]]; then
   exit 1
 fi
 
-echo "Extracting release..."
-tar -xzf deploy.tar.gz
+next_index=""
+mapnolia_tmp=""
+cordn_tmp=""
+cleanup_deployment() {
+  if [[ -n "$next_index" ]]; then rm -f "$next_index"; fi
+  if [[ -n "$mapnolia_tmp" ]]; then rm -f "$mapnolia_tmp"; fi
+  if [[ -n "$cordn_tmp" ]]; then rm -rf "$cordn_tmp"; fi
+}
+trap cleanup_deployment EXIT
+
+# Hashed assets can coexist across releases. Preserve the currently served
+# HTML until every replacement process is online, then switch it atomically.
+next_index="$(mktemp "$PWD/.earthly-index.XXXXXX")"
+tar -xOf deploy.tar.gz dist/index.html > "$next_index"
+chmod 644 "$next_index"
+echo "Extracting release while retaining the active browser entrypoint..."
+tar -xzf deploy.tar.gz --exclude='dist/index.html'
 rm deploy.tar.gz
+
+next_entry_asset="$(NEXT_INDEX="$next_index" bun -e '
+	const html = await Bun.file(process.env.NEXT_INDEX).text();
+	const match = html.match(/<script\b(?=[^>]*\btype=["\x27]module["\x27])[^>]*\bsrc=["\x27]([^"\x27]+\.js)["\x27][^>]*><\/script>/i);
+	if (!match?.[1]) process.exit(1);
+	console.log(match[1]);
+')" || {
+  echo "Release browser entrypoint does not contain a module script" >&2
+  exit 1
+}
+if [[ ! "$next_entry_asset" =~ ^/[A-Za-z0-9._-]+\.js$ ]] || \
+   [[ ! -s "dist/${next_entry_asset#/}" ]]; then
+  echo "Release browser entrypoint references a missing or unsafe asset: $next_entry_asset" >&2
+  exit 1
+fi
 
 echo "Installing frozen production dependencies..."
 bun install --frozen-lockfile --production
@@ -28,10 +58,14 @@ bun --env-file=.env scripts/validate-production-env.ts
 echo "Building Earthly relay..."
 (cd relay && CGO_ENABLED=1 go build -o relay .)
 
-# Mapnolia is still distributed separately from this repository.
+# Mapnolia is still distributed separately from this repository. Download next
+# to the live binary and atomically rename it so a running process never causes
+# ETXTBSY or observes a partially written executable.
+mapnolia_tmp="$(mktemp "$PWD/.mapnolia-server.XXXXXX")"
 echo "Downloading mapnolia server..."
-curl -fSL "https://github.com/zeSchlausKwab/mapnolia/releases/latest/download/mapnolia-server-linux-amd64" -o mapnolia-server
-chmod +x mapnolia-server
+curl -fSL "https://github.com/zeSchlausKwab/mapnolia/releases/latest/download/mapnolia-server-linux-amd64" -o "$mapnolia_tmp"
+chmod 755 "$mapnolia_tmp"
+mv -f "$mapnolia_tmp" mapnolia-server
 mkdir -p logs
 
 CORDN_VERSION="v0.4.0"
@@ -50,7 +84,6 @@ case "$(uname -m)" in
     ;;
 esac
 cordn_tmp="$(mktemp -d)"
-trap 'rm -rf "$cordn_tmp"' EXIT
 cordn_archive="$cordn_tmp/cordn-server.tar.gz"
 cordn_url="https://github.com/Cordn-msg/cordn-rs/releases/download/$CORDN_VERSION/cordn-server-$cordn_target.tar.gz"
 echo "Downloading native Cordn $CORDN_VERSION for $cordn_target..."
@@ -119,6 +152,39 @@ PORT=3334 pm2 start relay/relay \
   -o logs/relay-out.log \
   --merge-logs
 
+services=(earthly-web earthly-contextvm earthly-mapnolia earthly-relay earthly-cordn)
+services_ready=false
+ready_observations=0
+for attempt in {1..15}; do
+  current_observation_ready=true
+  for service in "${services[@]}"; do
+    service_pid="$(pm2 pid "$service" 2>/dev/null || true)"
+    if [[ ! "$service_pid" =~ ^[1-9][0-9]*$ ]]; then
+      current_observation_ready=false
+      break
+    fi
+  done
+  if [[ "$current_observation_ready" == "true" ]] && \
+     curl -fsS http://127.0.0.1:3000/ >/dev/null; then
+    ready_observations=$((ready_observations + 1))
+    if [[ "$ready_observations" -ge 3 ]]; then
+      services_ready=true
+      break
+    fi
+  else
+    ready_observations=0
+  fi
+  [[ "$attempt" -eq 15 ]] || sleep 1
+done
+if [[ "$services_ready" != "true" ]]; then
+  pm2 logs --nostream --lines 100 >&2 || true
+  echo "Release processes did not become ready; the previous browser entrypoint remains active" >&2
+  exit 1
+fi
+
+echo "Activating browser entrypoint..."
+mv -f "$next_index" dist/index.html
+next_index=""
 pm2 save
 
 echo

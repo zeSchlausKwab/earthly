@@ -85,7 +85,12 @@ Remote activation:
 - stops Cordn and writes a consistent compressed SQLite-directory snapshot before replacing its
   process. Snapshots live in `backups/cordn/` and default to 14-day retention.
 - retains the previous versioned Cordn binary and restores it automatically when replacement startup
-  fails.
+  fails;
+- downloads Mapnolia beside the live executable and replaces it atomically, avoiding partial binaries
+  and replacement failures while the previous process is still running;
+- keeps the currently served browser entrypoint active while the release is prepared, verifies the
+  generated module asset, and switches the HTML atomically only after all five PM2 services and the
+  loopback web endpoint remain ready across consecutive checks.
 
 ## Verify
 

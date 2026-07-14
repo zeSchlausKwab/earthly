@@ -71,7 +71,7 @@ if [[ -d legacy-db && -f legacy-db/latest.sql ]]; then
 fi
 
 echo "Creating deployment archive..."
-tar -czf "$archive" \
+COPYFILE_DISABLE=1 tar -czf "$archive" \
   --exclude='contextvm/node_modules' \
   --exclude='relay/relay' \
   --exclude='relay/data' \

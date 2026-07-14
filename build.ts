@@ -13,6 +13,7 @@ import {
 	WORKER_ASSETS,
 	type WorkerId,
 } from "./src/lib/workers/workerAssets";
+import { ensureHtmlEntrypoint } from "./scripts/ensure-html-entrypoint";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
 	console.log(`
@@ -197,6 +198,13 @@ const result = await Bun.build({
 });
 
 const end = performance.now();
+
+const htmlEntrypoint = await ensureHtmlEntrypoint(result.outputs, "/");
+if (htmlEntrypoint.corrected) {
+	console.warn(
+		`⚠️ Corrected Bun HTML module entry to ${htmlEntrypoint.scriptPath}`,
+	);
+}
 
 const outputTable = result.outputs.map((output) => ({
 	File: path.relative(process.cwd(), output.path),
