@@ -430,7 +430,14 @@ export class PrivateWorkspaceService {
 		workspace = await this.syncWorkspace(workspaceId)
 		if (workspace.status !== 'active')
 			throw new Error('This account was removed from the private map')
-		const envelope = createPrivateEnvelope({ pubkey: ownerPubkey, kind, content, tags })
+		const envelope = await createPrivateEnvelope({
+			signer: this.options.signer,
+			groupId: workspace.groupId,
+			pubkey: ownerPubkey,
+			kind,
+			content,
+			tags,
+		})
 		const oldState = deserializeClientState(workspace.stateBase64)
 		const outbound = await createWorkspaceApplicationMessage({ state: oldState, envelope })
 		const coordinator = this.coordinator(workspace.coordinatorPubkey, workspace.relays)
@@ -451,7 +458,9 @@ export class PrivateWorkspaceService {
 	): Promise<void> {
 		if (!workspace.metadata) return
 		const state = deserializeClientState(workspace.stateBase64)
-		const envelope = createPrivateEnvelope({
+		const envelope = await createPrivateEnvelope({
+			signer: this.options.signer,
+			groupId: workspace.groupId,
 			pubkey: workspace.ownerPubkey,
 			kind: PRIVATE_WORKSPACE_METADATA_KIND,
 			tags: [['d', 'workspace-metadata']],

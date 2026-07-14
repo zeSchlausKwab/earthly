@@ -1046,9 +1046,25 @@ that pubkey. Promotion adds another pubkey through an encrypted, versioned polic
 authorized by the administrator set that was valid for the transition's epoch. Demotion uses the
 same mechanism. Derive roles from the validated policy history on every client; never implement
 promotion as a local `role` flag, coordinator-side ACL alone, or unsigned UI preference. Before
-enabling this control, Earthly must bind each decrypted application message to the actual MLS
-sender credential (or verify an equivalently strong signed inner policy record), so an ordinary
-member cannot claim an administrator pubkey in a sender-chosen envelope field.
+enabling this control, Earthly must bind each decrypted application message to an authenticated
+identity, so an ordinary member cannot claim an administrator pubkey in a sender-chosen envelope
+field.
+
+The current implementation completes that prerequisite with a version-1 detached Nostr
+authorization proof inside every MLS application message. The signed proof commits to the private
+payload ID and opaque MLS group ID; its event ID is carried in MLS authenticated data and checked
+before projection. The private payload remains unsigned, so decrypted location data does not become
+a normal publishable Nostr event. Outbound messages also require the proof author to match the local
+MLS BasicCredential. Because `ts-mls` rc.12 does not expose the verified incoming sender leaf through
+its public `processMessage` result, policy authorization relies on this independently verifiable
+inner proof rather than a sender-chosen `pubkey` field. A later library upgrade may additionally bind
+the proof directly to the reported MLS sender leaf.
+
+This identity checkpoint does not by itself implement administrator promotion. The role-policy
+protocol still needs a predecessor/revision chain, deterministic handling of concurrent transitions,
+and a trusted current-policy bootstrap for a member whose Welcome intentionally starts after earlier
+epochs. Account signers may also prompt once per private record; a future narrowly scoped, revocable
+device/session authorization can improve that UX without weakening the identity binding.
 
 MLS membership grants decryption capability; application roles govern which decrypted messages a
 client accepts as authorized. If editor and read-only viewer roles are later added, they are
@@ -1167,6 +1183,8 @@ model before public signing. The following seams need explicit implementation:
   Welcomes, coordinator cursors, and encrypted outbox records;
 - bind each MLS device credential to a Nostr identity with a signed, independently verifiable
   statement;
+- verify a detached, group-bound Nostr authorization proof for each private application envelope
+  and bind its proof ID into MLS authenticated data;
 - implement encrypted-object storage, key rotation, local projection encryption, backup, recovery,
   and device removal;
 - define replay, ordering, stale-client, concurrent-commit, and schema-migration behavior.

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools'
 import { createPrivateEnvelope } from '../src/lib/private-workspace/envelope'
 import {
 	addWorkspaceMember,
@@ -13,12 +14,23 @@ import {
 	sealCoordinatorPayload,
 } from '../src/lib/private-workspace/mls'
 
-const alicePubkey = 'a'.repeat(64)
-const bobPubkey = 'b'.repeat(64)
+const groupId = 'earthly:node-smoke'
+const aliceSecretKey = generateSecretKey()
+const bobSecretKey = generateSecretKey()
+const alicePubkey = getPublicKey(aliceSecretKey)
+const bobPubkey = getPublicKey(bobSecretKey)
+const aliceSigner = {
+	signEvent: async (event: Parameters<typeof finalizeEvent>[0]) =>
+		finalizeEvent(event, aliceSecretKey),
+}
+const bobSigner = {
+	signEvent: async (event: Parameters<typeof finalizeEvent>[0]) =>
+		finalizeEvent(event, bobSecretKey),
+}
 const aliceKeys = await generateMlsKeyPackage(alicePubkey)
 const bobKeys = await generateMlsKeyPackage(bobPubkey)
 const aliceInitial = await createWorkspaceGroup({
-	groupId: 'earthly:node-smoke',
+	groupId,
 	keyPackage: aliceKeys.keyPackage,
 	privateKeyPackage: aliceKeys.privateKeyPackage,
 })
@@ -31,7 +43,21 @@ let bobState = await joinWorkspaceGroup({
 })
 assert.deepEqual(memberPubkeysFromState(bobState), [alicePubkey, bobPubkey])
 
-const envelope = createPrivateEnvelope({
+const forgedSender = await createPrivateEnvelope({
+	signer: bobSigner,
+	groupId,
+	pubkey: bobPubkey,
+	kind: 9,
+	content: 'forged through Alice state',
+})
+await assert.rejects(
+	() => createWorkspaceApplicationMessage({ state: aliceState, envelope: forgedSender }),
+	/local MLS credential/u,
+)
+
+const envelope = await createPrivateEnvelope({
+	signer: aliceSigner,
+	groupId,
 	pubkey: alicePubkey,
 	kind: 9,
 	content: 'private map MLS smoke test',
@@ -53,9 +79,16 @@ const removedBob = await processWorkspaceMessage({
 	state: bobState,
 	messageBase64: await openCoordinatorPayload(bobState, removalPayload),
 })
+const futureEnvelope = await createPrivateEnvelope({
+	signer: aliceSigner,
+	groupId,
+	pubkey: alicePubkey,
+	kind: 9,
+	content: 'future epoch',
+})
 const future = await createWorkspaceApplicationMessage({
 	state: removal.newState,
-	envelope: createPrivateEnvelope({ pubkey: alicePubkey, kind: 9, content: 'future epoch' }),
+	envelope: futureEnvelope,
 })
 const futurePayload = await sealCoordinatorPayload(removal.newState, future.messageBase64)
 await assert.rejects(() => openCoordinatorPayload(removedBob.newState, futurePayload))

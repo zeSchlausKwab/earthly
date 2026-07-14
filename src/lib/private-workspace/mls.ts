@@ -13,6 +13,7 @@ import {
 	generateKeyPackage,
 	getCiphersuiteImpl,
 	getGroupMembers,
+	getOwnLeafNode,
 	isDefaultCredential,
 	joinGroup,
 	keyPackageDecoder,
@@ -35,6 +36,7 @@ import {
 } from 'ts-mls'
 import { base64ToBytes, bytesToBase64, bytesToHex } from './codec'
 import {
+	assertPrivateEnvelopeAuthorization,
 	decodePrivateEnvelope,
 	encodePrivateEnvelope,
 	type PrivateWorkspaceEnvelope,
@@ -109,16 +111,23 @@ export function decodeKeyPackage(value: string): KeyPackage {
 }
 
 export function credentialPubkeyFromKeyPackage(keyPackage: KeyPackage): string {
-	const credential = keyPackage.leafNode.credential
+	return credentialPubkey(keyPackage.leafNode.credential, 'MLS KeyPackage')
+}
+
+function credentialPubkey(credential: Credential, source: string): string {
 	if (
 		!isDefaultCredential(credential) ||
 		credential.credentialType !== defaultCredentialTypes.basic
 	) {
-		throw new Error('Only BasicCredential MLS KeyPackages are supported')
+		throw new Error(`Only BasicCredential ${source} identities are supported`)
 	}
 	const pubkey = decoder.decode(credential.identity)
-	if (!/^[0-9a-f]{64}$/u.test(pubkey)) throw new Error('Invalid Nostr identity in MLS KeyPackage')
+	if (!/^[0-9a-f]{64}$/u.test(pubkey)) throw new Error(`Invalid Nostr identity in ${source}`)
 	return pubkey
+}
+
+export function ownPubkeyFromState(state: ClientState): string {
+	return credentialPubkey(getOwnLeafNode(state).credential, 'MLS state')
 }
 
 export function decodePrivateKeyPackage(value: string): PrivateKeyPackage {
@@ -243,12 +252,17 @@ export async function createWorkspaceApplicationMessage(input: {
 	state: ClientState
 	envelope: PrivateWorkspaceEnvelope
 }) {
+	const groupId = groupIdFromState(input.state)
+	assertPrivateEnvelopeAuthorization(input.envelope, groupId)
+	if (ownPubkeyFromState(input.state) !== input.envelope.pubkey) {
+		throw new Error('Private envelope author does not match the local MLS credential')
+	}
 	const cipherSuite = await getCiphersuite()
 	const result = await createApplicationMessage({
 		context: getContext(cipherSuite),
 		state: input.state,
 		message: encodePrivateEnvelope(input.envelope),
-		authenticatedData: encoder.encode(input.envelope.pubkey),
+		authenticatedData: encoder.encode(input.envelope.authorization.event.id),
 	})
 	return {
 		newState: result.newState,
@@ -272,9 +286,11 @@ export async function processWorkspaceMessage(input: {
 	})
 
 	if (result.kind === 'applicationMessage') {
-		const sender = decoder.decode(result.aad)
-		const envelope = decodePrivateEnvelope(result.message)
-		if (sender !== envelope.pubkey) throw new Error('MLS sender does not match envelope pubkey')
+		const authorizationId = decoder.decode(result.aad)
+		const envelope = decodePrivateEnvelope(result.message, groupIdFromState(input.state))
+		if (authorizationId !== envelope.authorization.event.id) {
+			throw new Error('MLS authenticated data does not match the envelope authorization')
+		}
 		return { kind: 'applicationMessage' as const, newState: result.newState, envelope }
 	}
 

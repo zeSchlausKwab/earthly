@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools'
 import { GEO_COMMENT_KIND, GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import { createPrivateEnvelope } from './envelope'
 import {
@@ -8,12 +9,20 @@ import {
 } from './projection'
 import type { StoredWorkspace } from './storage'
 
+const testSecretKey = generateSecretKey()
+const testPubkey = getPublicKey(testSecretKey)
+const testSigner = {
+	signEvent: async (event: Parameters<typeof finalizeEvent>[0]) =>
+		finalizeEvent(event, testSecretKey),
+}
+const testGroupId = 'group-1'
+
 function workspace(envelopes: StoredWorkspace['envelopes']): StoredWorkspace {
 	return {
 		workspaceId: 'workspace-1',
 		groupId: 'group-1',
-		ownerPubkey: 'a'.repeat(64),
-		adminPubkey: 'a'.repeat(64),
+		ownerPubkey: testPubkey,
+		adminPubkey: testPubkey,
 		coordinatorPubkey: 'b'.repeat(64),
 		relays: ['ws://localhost:3334'],
 		role: 'administrator',
@@ -27,7 +36,9 @@ function workspace(envelopes: StoredWorkspace['envelopes']): StoredWorkspace {
 
 function datasetEnvelope(name: string, datasetId = 'dataset-1') {
 	return createPrivateEnvelope({
-		pubkey: 'a'.repeat(64),
+		signer: testSigner,
+		groupId: testGroupId,
+		pubkey: testPubkey,
 		kind: GEO_EVENT_KIND,
 		tags: [['d', datasetId]],
 		content: JSON.stringify({
@@ -45,8 +56,10 @@ function datasetEnvelope(name: string, datasetId = 'dataset-1') {
 }
 
 describe('projectPrivateWorkspaceDatasets', () => {
-	test('adapts decrypted datasets for the existing map pipeline', () => {
-		const [dataset] = projectPrivateWorkspaceDatasets(workspace([datasetEnvelope('Trailhead')]))
+	test('adapts decrypted datasets for the existing map pipeline', async () => {
+		const [dataset] = projectPrivateWorkspaceDatasets(
+			workspace([await datasetEnvelope('Trailhead')]),
+		)
 
 		expect(dataset).toBeDefined()
 		expect(dataset?.datasetId).toBe('dataset-1')
@@ -55,9 +68,9 @@ describe('projectPrivateWorkspaceDatasets', () => {
 		expect(privateWorkspaceIdForDataset(dataset)).toBe('workspace-1')
 	})
 
-	test('keeps the newest snapshot for a replaceable dataset coordinate', () => {
+	test('keeps the newest snapshot for a replaceable dataset coordinate', async () => {
 		const datasets = projectPrivateWorkspaceDatasets(
-			workspace([datasetEnvelope('Old'), datasetEnvelope('Current')]),
+			workspace([await datasetEnvelope('Old'), await datasetEnvelope('Current')]),
 		)
 
 		expect(datasets).toHaveLength(1)
@@ -66,9 +79,11 @@ describe('projectPrivateWorkspaceDatasets', () => {
 })
 
 describe('projectPrivateWorkspaceComments', () => {
-	test('keeps geometry optional for ordinary private comments', () => {
-		const comment = createPrivateEnvelope({
-			pubkey: 'a'.repeat(64),
+	test('keeps geometry optional for ordinary private comments', async () => {
+		const comment = await createPrivateEnvelope({
+			signer: testSigner,
+			groupId: testGroupId,
+			pubkey: testPubkey,
 			kind: GEO_COMMENT_KIND,
 			tags: [['d', 'comment-1']],
 			content: JSON.stringify({ text: 'Text only' }),
@@ -80,9 +95,11 @@ describe('projectPrivateWorkspaceComments', () => {
 		expect(projected?.geojson).toBeUndefined()
 	})
 
-	test('keeps optional GeoJSON attachments on encrypted comments', () => {
-		const comment = createPrivateEnvelope({
-			pubkey: 'a'.repeat(64),
+	test('keeps optional GeoJSON attachments on encrypted comments', async () => {
+		const comment = await createPrivateEnvelope({
+			signer: testSigner,
+			groupId: testGroupId,
+			pubkey: testPubkey,
 			kind: GEO_COMMENT_KIND,
 			tags: [['d', 'comment-1']],
 			content: JSON.stringify({
@@ -106,7 +123,9 @@ describe('projectPrivateWorkspaceComments', () => {
 		expect(projected?.geojson?.features).toHaveLength(1)
 	})
 
-	test('ignores standalone datasets in the comment projection', () => {
-		expect(projectPrivateWorkspaceComments(workspace([datasetEnvelope('Trailhead')]))).toEqual([])
+	test('ignores standalone datasets in the comment projection', async () => {
+		expect(
+			projectPrivateWorkspaceComments(workspace([await datasetEnvelope('Trailhead')])),
+		).toEqual([])
 	})
 })

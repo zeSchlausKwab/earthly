@@ -14,6 +14,10 @@ that the security and recovery work is finished.
 - the new device retrieves an MLS Welcome and decrypts workspace metadata;
 - members exchange Nostr-shaped private envelopes containing kind-37517 Comments, optional inline
   comment geometry, and standalone kind-37515 Dataset records;
+- every private envelope carries a detached Nostr authorization proof over its payload ID and opaque
+  MLS group ID. The proof ID is also bound into MLS authenticated data, receivers verify it before
+  projection, and the private payload itself remains an unsigned, non-publishable Nostr-shaped
+  record;
 - comments and Dataset updates arrive reactively without requiring the recovery Sync control;
 - private Datasets use the normal Earthly editor and remain independently controllable in the Map
   Stack, including its existing zoom, inspect, and edit actions;
@@ -106,9 +110,19 @@ deployments must provide their own `CORDN_SERVER_PUBKEY` and relay configuration
 - Private inline references currently reuse a Dataset's Nostr address tuple inside the ciphertext
   and resolve only against the active workspace projection. A future protocol profile should make
   cross-workspace reference semantics and coordinate collisions explicit.
-- The creator is currently the only administrator. Secure promotion requires an encrypted,
-  versioned role-policy record and validation against the authenticated MLS sender; a local role
-  toggle would not be sufficient authorization.
+- The creator is currently the only administrator. Signed, group-bound application authorship is
+  now enforced, but secure promotion still requires an encrypted, versioned role-policy chain,
+  deterministic concurrent-transition rules, and a trusted current-policy bootstrap for newcomers.
+  A local role toggle would not be sufficient authorization.
+- Creating a private application record asks the active Nostr signer for its detached authorization
+  proof. Browser extension and remote signers may therefore prompt per record until Earthly defines
+  a narrowly scoped, revocable device/session authorization mechanism.
+- Authorization kind 27523 is an Earthly-experimental ephemeral-range inner event, never an event
+  the client intentionally publishes to a relay. A reusable protocol profile still needs
+  interoperability review and kind coordination.
+- Private envelopes written before authorization version 1 remain readable from an existing local
+  projection, but are rejected if received again from the coordinator. This is an intentional
+  security compatibility boundary for the current development checkpoint.
 - A newly added MLS member cannot decrypt records sent before the Add epoch. Earthly has not yet
   implemented the planned post-join current-state snapshot or optional, explicitly shared history
   archive.

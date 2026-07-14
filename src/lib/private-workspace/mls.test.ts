@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools'
 import { createPrivateEnvelope } from './envelope'
 import {
 	addWorkspaceMember,
@@ -23,12 +24,23 @@ describe('private workspace MLS lifecycle', () => {
 	test.skipIf(!supportsHpkeX25519)(
 		'adds, persists, messages, and removes a member across future epochs',
 		async () => {
-			const alicePubkey = 'a'.repeat(64)
-			const bobPubkey = 'b'.repeat(64)
+			const groupId = 'earthly:test-group'
+			const aliceSecretKey = generateSecretKey()
+			const bobSecretKey = generateSecretKey()
+			const alicePubkey = getPublicKey(aliceSecretKey)
+			const bobPubkey = getPublicKey(bobSecretKey)
+			const aliceSigner = {
+				signEvent: async (event: Parameters<typeof finalizeEvent>[0]) =>
+					finalizeEvent(event, aliceSecretKey),
+			}
+			const bobSigner = {
+				signEvent: async (event: Parameters<typeof finalizeEvent>[0]) =>
+					finalizeEvent(event, bobSecretKey),
+			}
 			const aliceKeys = await generateMlsKeyPackage(alicePubkey)
 			const bobKeys = await generateMlsKeyPackage(bobPubkey)
 			const aliceInitial = await createWorkspaceGroup({
-				groupId: 'earthly:test-group',
+				groupId,
 				keyPackage: aliceKeys.keyPackage,
 				privateKeyPackage: aliceKeys.privateKeyPackage,
 			})
@@ -43,7 +55,20 @@ describe('private workspace MLS lifecycle', () => {
 			expect(memberPubkeysFromState(aliceState)).toEqual([alicePubkey, bobPubkey])
 			expect(memberPubkeysFromState(bobState)).toEqual([alicePubkey, bobPubkey])
 
-			const envelope = createPrivateEnvelope({
+			const forgedSender = await createPrivateEnvelope({
+				signer: bobSigner,
+				groupId,
+				pubkey: bobPubkey,
+				kind: 9,
+				content: 'forged through Alice state',
+			})
+			await expect(
+				createWorkspaceApplicationMessage({ state: aliceState, envelope: forgedSender }),
+			).rejects.toThrow('local MLS credential')
+
+			const envelope = await createPrivateEnvelope({
+				signer: aliceSigner,
+				groupId,
 				pubkey: alicePubkey,
 				kind: 9,
 				content: 'Meet at the north trailhead',
@@ -68,9 +93,16 @@ describe('private workspace MLS lifecycle', () => {
 			expect(removedBob.kind).toBe('newState')
 			aliceState = removal.newState
 
+			const futureEnvelope = await createPrivateEnvelope({
+				signer: aliceSigner,
+				groupId,
+				pubkey: alicePubkey,
+				kind: 9,
+				content: 'future epoch',
+			})
 			const future = await createWorkspaceApplicationMessage({
 				state: aliceState,
-				envelope: createPrivateEnvelope({ pubkey: alicePubkey, kind: 9, content: 'future epoch' }),
+				envelope: futureEnvelope,
 			})
 			const futurePayload = await sealCoordinatorPayload(aliceState, future.messageBase64)
 			await expect(openCoordinatorPayload(removedBob.newState, futurePayload)).rejects.toThrow()
