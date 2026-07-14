@@ -11,6 +11,8 @@ use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
 use nostr_sdk::Client as NostrClient;
 use sha2::{Digest, Sha256};
 
+const AUTHORIZATION_BACKDATE_SECONDS: u64 = 60;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let invitation_arg = std::env::args().nth(1).ok_or(
@@ -127,7 +129,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn blossom_authorization(keys: &Keys, action: &str, hash: &str) -> Result<String, Box<dyn Error>> {
+    let created_at = Timestamp::from(
+        Timestamp::now()
+            .as_secs()
+            .saturating_sub(AUTHORIZATION_BACKDATE_SECONDS),
+    );
     let event = EventBuilder::new(Kind::Custom(24_242), format!("{action} local blob"))
+        .custom_created_at(created_at)
         .tags([
             Tag::parse(["t", action])?,
             Tag::expiration(Timestamp::now() + 300),

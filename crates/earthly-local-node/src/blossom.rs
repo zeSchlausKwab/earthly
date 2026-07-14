@@ -333,15 +333,9 @@ async fn upload_blob(
     fs::create_dir_all(target_path.parent().expect("blob path has parent"))
         .await
         .map_err(BlossomError::internal)?;
-    let created = match fs::hard_link(&staging_path, &target_path).await {
-        Ok(()) => true,
-        Err(error) if error.kind() == ErrorKind::AlreadyExists => false,
-        Err(_) => {
-            discard_staging(&staging_path).await;
-            return Err(BlossomError::internal_reason("failed to adopt upload"));
-        }
-    };
-    discard_staging(&staging_path).await;
+    let created = adopt_staging(&staging_path, &target_path)
+        .await
+        .map_err(|_| BlossomError::internal_reason("failed to adopt upload"))?;
 
     let descriptor = descriptor(
         &state.base_url,
@@ -653,6 +647,30 @@ async fn discard_staging(path: &FilePath) {
     let _ = fs::remove_file(path).await;
 }
 
+async fn adopt_staging(
+    staging_path: &FilePath,
+    target_path: &FilePath,
+) -> Result<bool, std::io::Error> {
+    match fs::metadata(target_path).await {
+        Ok(metadata) if metadata.is_file() => {
+            fs::remove_file(staging_path).await?;
+            return Ok(false);
+        }
+        Ok(_) => return Err(std::io::Error::from(ErrorKind::AlreadyExists)),
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+
+    match fs::rename(staging_path, target_path).await {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+            fs::remove_file(staging_path).await?;
+            Ok(false)
+        }
+        Err(error) => Err(error),
+    }
+}
+
 fn unix_now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -756,5 +774,22 @@ mod tests {
             hash
         );
         assert!(parse_blob_segment(&format!("{hash}../secret")).is_err());
+    }
+
+    #[tokio::test]
+    async fn adopts_staging_with_atomic_rename_and_preserves_existing_blob() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target");
+        let first = directory.path().join("first.upload");
+        fs::write(&first, b"first").await.unwrap();
+
+        assert!(adopt_staging(&first, &target).await.unwrap());
+        assert_eq!(fs::read(&target).await.unwrap(), b"first");
+
+        let duplicate = directory.path().join("duplicate.upload");
+        fs::write(&duplicate, b"duplicate").await.unwrap();
+        assert!(!adopt_staging(&duplicate, &target).await.unwrap());
+        assert_eq!(fs::read(&target).await.unwrap(), b"first");
+        assert!(!duplicate.exists());
     }
 }

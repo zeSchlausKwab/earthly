@@ -258,6 +258,8 @@ The first Blossom implementation provides:
 - BUD-01 `HEAD` and `GET /<sha256>` with ETag, immutable caching, CORS, and single Range requests;
 - BUD-02 upload and blob-descriptor behavior;
 - BUD-11 kind-24242 authorization;
+- BUD-11 clients backdate short-lived authorization events slightly so independently clocked
+  offline devices still satisfy the requirement that `created_at` is in the server's past;
 - BUD-12 authenticated deletion; the discouraged owner-list endpoint is not required initially;
 - BUD-04 mirroring only after a separate SSRF, redirect, DNS-rebinding, and size-control review;
 - streaming upload into a staging file;

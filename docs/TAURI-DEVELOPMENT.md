@@ -104,6 +104,15 @@ demo_dir="$(mktemp -d)"
 cargo run -p earthly-local-node --example pairing_host -- "$demo_dir" /tmp/earthly-invite
 ```
 
+To prove a direct LAN bearer, pass the host device's private or link-local address as the third
+argument. The signed descriptor will contain that address, and unsafe public or wildcard addresses
+are rejected:
+
+```sh
+cargo run -p earthly-local-node --example pairing_host -- \
+  "$demo_dir" /tmp/earthly-invite 192.168.1.20
+```
+
 Run the independent client in another terminal. The `@file` form stands in for QR/deep-link/copy
 handoff; the encoded `earthly-pair-v1:` value can be passed directly instead:
 

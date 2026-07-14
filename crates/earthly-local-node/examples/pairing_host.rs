@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use earthly_local_node::{
-    LocalNode, NodeAvailability, NodeConfig, PairingCapability, PairingStatus,
+    LocalNode, NodeAvailability, NodeBind, NodeConfig, PairingCapability, PairingStatus,
 };
 use nostr::EventId;
 
@@ -12,10 +12,18 @@ use nostr::EventId;
 async fn main() -> Result<(), Box<dyn Error>> {
     let mut args = std::env::args_os().skip(1);
     let data_dir = args.next().map(PathBuf::from).ok_or(
-        "usage: cargo run -p earthly-local-node --example pairing_host -- DATA_DIR [INVITE_FILE]",
+        "usage: cargo run -p earthly-local-node --example pairing_host -- DATA_DIR [INVITE_FILE] [BIND_IP]",
     )?;
     let invitation_file = args.next().map(PathBuf::from);
-    let config = NodeConfig::loopback(data_dir, NodeAvailability::Process).with_ephemeral_ports();
+    let bind_ip = args
+        .next()
+        .map(|value| value.to_string_lossy().parse())
+        .transpose()?;
+    let mut config =
+        NodeConfig::loopback(data_dir, NodeAvailability::Process).with_ephemeral_ports();
+    if let Some(bind_ip) = bind_ip {
+        config.bind = NodeBind::LocalNetwork(bind_ip);
+    }
     let node = LocalNode::start(config).await?;
     let invitation = node
         .create_pairing_invitation(Duration::from_secs(120), PairingCapability::initial_set())
