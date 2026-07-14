@@ -53,9 +53,10 @@ describe('PrivateWorkspaceRuntime', () => {
 		const fake = {
 			listWorkspaces: async () => [storedWorkspace(1)],
 			listPendingJoins: async () => [],
-			syncWorkspace: async () => {
+			syncWorkspaceResult: async () => {
 				syncCalls += 1
 				await barrier
+				return { workspace: storedWorkspace(1), changed: false }
 			},
 			resetConnections: async () => undefined,
 			dispose: async () => undefined,
@@ -70,5 +71,26 @@ describe('PrivateWorkspaceRuntime', () => {
 		await Promise.all([first, duplicate])
 
 		expect(runtime.getSnapshot().syncByWorkspace['workspace-1']).toBe('current')
+	})
+
+	test('does not publish snapshots for a repeated no-op background sync', async () => {
+		const workspace = storedWorkspace(1)
+		const fake = {
+			listWorkspaces: async () => [workspace],
+			listPendingJoins: async () => [],
+			syncWorkspaceResult: async () => ({ workspace, changed: false }),
+			resetConnections: async () => undefined,
+			dispose: async () => undefined,
+		} as unknown as PrivateWorkspaceService
+		const runtime = new PrivateWorkspaceRuntime(fake)
+		await runtime.refresh()
+		await runtime.syncWorkspace('workspace-1', false)
+
+		let notifications = 0
+		const unsubscribe = runtime.subscribe(() => notifications++)
+		await runtime.syncWorkspace('workspace-1', false)
+
+		expect(notifications).toBe(0)
+		unsubscribe()
 	})
 })

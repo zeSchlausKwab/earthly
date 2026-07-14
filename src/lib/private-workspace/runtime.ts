@@ -31,7 +31,12 @@ export class PrivateWorkspaceRuntime {
 	private readonly pendingSyncs = new Set<string>()
 	private readonly watches = new Map<
 		string,
-		{ count: number; failures: number; timer?: ReturnType<typeof setTimeout> }
+		{
+			count: number
+			failures: number
+			quietPolls: number
+			timer?: ReturnType<typeof setTimeout>
+		}
 	>()
 
 	constructor(
@@ -53,6 +58,13 @@ export class PrivateWorkspaceRuntime {
 
 	private patch(next: Partial<PrivateWorkspaceSnapshot>): void {
 		this.emit({ ...this.snapshot, ...next })
+	}
+
+	private setSyncState(workspaceId: string, state: PrivateWorkspaceSyncState): void {
+		if (this.snapshot.syncByWorkspace[workspaceId] === state) return
+		this.patch({
+			syncByWorkspace: { ...this.snapshot.syncByWorkspace, [workspaceId]: state },
+		})
 	}
 
 	private enqueue<T>(operation: () => Promise<T>): Promise<T> {
@@ -90,30 +102,27 @@ export class PrivateWorkspaceRuntime {
 		})
 	}
 
-	async syncWorkspace(workspaceId: string, reportFailure = true): Promise<void> {
-		if (this.pendingSyncs.has(workspaceId)) return
+	async syncWorkspace(workspaceId: string, reportFailure = true): Promise<boolean> {
+		if (this.pendingSyncs.has(workspaceId)) return false
 		this.pendingSyncs.add(workspaceId)
-		this.patch({
-			syncByWorkspace: { ...this.snapshot.syncByWorkspace, [workspaceId]: 'syncing' },
-		})
+		if (reportFailure) this.setSyncState(workspaceId, 'syncing')
 		try {
-			await this.enqueue(async () => {
+			const changed = await this.enqueue(async () => {
 				try {
-					await this.service.syncWorkspace(workspaceId)
-					await this.reload()
+					const result = await this.service.syncWorkspaceResult(workspaceId)
+					if (result.changed) await this.reload()
+					return result.changed
 				} catch (error) {
 					await this.service.resetConnections()
 					throw error
 				}
 			})
-			this.patch({
-				syncByWorkspace: { ...this.snapshot.syncByWorkspace, [workspaceId]: 'current' },
-			})
+			this.setSyncState(workspaceId, 'current')
+			return changed
 		} catch (error) {
-			this.patch({
-				syncByWorkspace: { ...this.snapshot.syncByWorkspace, [workspaceId]: 'offline' },
-			})
+			this.setSyncState(workspaceId, 'offline')
 			if (reportFailure) throw error
+			return false
 		} finally {
 			this.pendingSyncs.delete(workspaceId)
 		}
@@ -130,20 +139,21 @@ export class PrivateWorkspaceRuntime {
 			return () => this.unwatchWorkspace(workspaceId)
 		}
 
-		this.watches.set(workspaceId, { count: 1, failures: 0 })
+		this.watches.set(workspaceId, { count: 1, failures: 0, quietPolls: 0 })
 		void this.pollWorkspace(workspaceId)
 		return () => this.unwatchWorkspace(workspaceId)
 	}
 
 	private async pollWorkspace(workspaceId: string): Promise<void> {
-		await this.syncWorkspace(workspaceId, false)
+		const changed = await this.syncWorkspace(workspaceId, false)
 		const watch = this.watches.get(workspaceId)
 		if (!watch) return
 		const offline = this.snapshot.syncByWorkspace[workspaceId] === 'offline'
 		watch.failures = offline ? watch.failures + 1 : 0
+		watch.quietPolls = offline || changed ? 0 : Math.min(watch.quietPolls + 1, 2)
 		const delay = offline
 			? Math.min(30_000, this.syncIntervalMs * 2 ** Math.min(watch.failures, 5))
-			: this.syncIntervalMs
+			: this.syncIntervalMs * 2 ** watch.quietPolls
 		watch.timer = setTimeout(() => void this.pollWorkspace(workspaceId), delay)
 	}
 

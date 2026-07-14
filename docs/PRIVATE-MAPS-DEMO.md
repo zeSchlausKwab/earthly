@@ -100,7 +100,9 @@ deployments must provide their own `CORDN_SERVER_PUBKEY` and relay configuration
   encrypted under a hardware-backed device key. Tauri secure storage is a later phase.
 - Invitation nonces are not yet consumed by a coordinator-side one-use rendezvous record. Device
   approval remains explicit, but replay-resistant invitation expiry is not complete.
-- Delivery currently uses serialized bounded Cordn fetches on an automatic watcher. Cordn's
+- Delivery currently uses serialized bounded Cordn fetches on an automatic watcher. Empty fetches
+  take a no-op path: Earthly does not deserialize or rewrite MLS state and does not publish a new
+  React workspace snapshot, while repeated quiet polls back off to reduce background work. Cordn's
   ContextVM `msg_sub` stream still needs browser teardown/removal hardening before Earthly can rely
   on a long-lived subscription. Coordinator-acknowledged application sends persist their advanced
   MLS state and remain pending until a later fetch confirms the cursor, so an immediate self-echo is

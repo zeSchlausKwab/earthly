@@ -65,6 +65,11 @@ export interface WorkspaceJoinRequest extends PendingJoinRequest {
 	workspaceId: string
 }
 
+export interface WorkspaceSyncResult {
+	workspace: StoredWorkspace
+	changed: boolean
+}
+
 function publicationKeyPackageBase64(event: NostrEvent): string {
 	const content = JSON.parse(event.content) as {
 		params?: { arguments?: { kp_64?: unknown; keyPackageBase64?: unknown } }
@@ -370,11 +375,15 @@ export class PrivateWorkspaceService {
 	}
 
 	async syncWorkspace(workspaceId: string): Promise<StoredWorkspace> {
+		return (await this.syncWorkspaceResult(workspaceId)).workspace
+	}
+
+	async syncWorkspaceResult(workspaceId: string): Promise<WorkspaceSyncResult> {
 		const ownerPubkey = await this.ownerPubkey()
 		const workspace = await this.requireWorkspace(ownerPubkey, workspaceId)
 		const coordinator = this.coordinator(workspace.coordinatorPubkey, workspace.relays)
-		await this.syncWithCoordinator(workspace, coordinator)
-		return workspace
+		const changed = await this.syncWithCoordinator(workspace, coordinator)
+		return { workspace, changed }
 	}
 
 	async sendChat(workspaceId: string, content: string) {
@@ -571,12 +580,13 @@ export class PrivateWorkspaceService {
 	private async syncWithCoordinator(
 		workspace: StoredWorkspace,
 		coordinator: PrivateWorkspaceCoordinator,
-	): Promise<void> {
-		if (workspace.status === 'removed') return
+	): Promise<boolean> {
+		if (workspace.status === 'removed') return false
 		const fetched = await coordinator.fetchMessages({
 			gid: workspace.groupId,
 			after: workspace.cursor > 0 ? workspace.cursor : undefined,
 		})
+		if (fetched.messages.length === 0) return false
 		let state = deserializeClientState(workspace.stateBase64)
 		for (const message of fetched.messages.sort((a, b) => a.cursor - b.cursor)) {
 			const pendingOutboundIndex = workspace.pendingOutbound?.findIndex(
@@ -624,6 +634,7 @@ export class PrivateWorkspaceService {
 		if (workspace.pendingOutbound?.length === 0) workspace.pendingOutbound = undefined
 		this.administratorPolicy(workspace)
 		await this.options.store.putWorkspace(workspace)
+		return true
 	}
 
 	private async requireWorkspace(ownerPubkey: string, workspaceId: string) {
