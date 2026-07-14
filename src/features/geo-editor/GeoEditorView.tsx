@@ -68,8 +68,15 @@ import { bboxFromGeometry } from '@/lib/geo/bbox'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { type MapContext, deleteMapContext } from '@/lib/nostr/map-context'
 import { accounts } from '@/lib/nostr'
-import { projectPrivateWorkspaceDatasets } from '@/lib/private-workspace'
+import {
+	privateWorkspaceIdForDataset,
+	projectPrivateWorkspaceDatasets,
+} from '@/lib/private-workspace'
 import { usePrivateWorkspaceRuntime } from '@/features/private-maps/usePrivateWorkspaceRuntime'
+import {
+	planPrivateDatasetStackReconciliation,
+	privateDatasetStackEntryId,
+} from '@/features/private-maps/privateDatasetStack'
 import {
 	defaultContextFilterMode,
 	getContextCoordinate,
@@ -250,8 +257,11 @@ export function GeoEditorView() {
 		privateGroupId,
 		commentId: focusCommentId,
 	} = useRouting()
-	const { runtime: privateWorkspaceRuntime, snapshot: privateWorkspaceSnapshot } =
-		usePrivateWorkspaceRuntime()
+	const {
+		account: privateWorkspaceAccount,
+		runtime: privateWorkspaceRuntime,
+		snapshot: privateWorkspaceSnapshot,
+	} = usePrivateWorkspaceRuntime()
 
 	// Query-by-view (Map Stack header toggle): viewport relay geo queries on
 	// pan/zoom feeding the stack's "Geo query" section. Reads its own enabled
@@ -386,6 +396,16 @@ export function GeoEditorView() {
 	const setMapStackEntryExclusions = useEditorStore((state) => state.setMapStackEntryExclusions)
 	const removeMapStackEntry = useEditorStore((state) => state.removeMapStackEntry)
 	const clearMapStack = useEditorStore((state) => state.clearMapStack)
+	const dismissedPrivateDatasetIdsByAccountRef = useRef(new Map<string, Set<string>>())
+	const dismissedPrivateDatasetIds = useCallback(() => {
+		const accountKey = privateWorkspaceAccount?.pubkey ?? 'signed-out'
+		let ids = dismissedPrivateDatasetIdsByAccountRef.current.get(accountKey)
+		if (!ids) {
+			ids = new Set<string>()
+			dismissedPrivateDatasetIdsByAccountRef.current.set(accountKey, ids)
+		}
+		return ids
+	}, [privateWorkspaceAccount?.pubkey])
 	const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta)
 	const hydrateEditorSessionForPubkey = useEditorStore(
 		(state) => state.hydrateEditorSessionForPubkey,
@@ -727,34 +747,58 @@ export function GeoEditorView() {
 		[addMapStackEntry, getDatasetKey, getDatasetName],
 	)
 
-	// A private-group route is an encrypted map scope. Project every decrypted
-	// dataset into the normal Map Stack while that scope is active, and remove it
-	// immediately when the user leaves or changes groups.
-	useEffect(() => {
-		const desiredIds = new Set<string>()
-		if (privateGroupId) {
-			for (const dataset of privateGeoEvents) {
-				const datasetKey = getDatasetKey(dataset)
-				const id = `private-group:${privateGroupId}:${datasetKey}`
-				desiredIds.add(id)
-				addMapStackEntry({
-					id,
-					entityType: 'dataset',
-					entityKey: datasetKey,
-					title: getDatasetName(dataset),
-					source: 'private-group',
-					visible: true,
-					pinned: false,
-				})
-			}
-		}
+	const addPrivateDatasetToMapStack = useCallback(
+		(event: GeoDataset) => {
+			const workspaceId = privateWorkspaceIdForDataset(event) ?? privateGroupId
+			if (!workspaceId) return
+			const datasetKey = getDatasetKey(event)
+			const id = privateDatasetStackEntryId(workspaceId, datasetKey)
+			dismissedPrivateDatasetIds().delete(id)
+			const existing = useEditorStore.getState().mapStackEntries[id]
+			addMapStackEntry({
+				id,
+				entityType: 'dataset',
+				entityKey: datasetKey,
+				title: getDatasetName(event),
+				source: 'private-group',
+				visible: existing?.visible ?? true,
+				pinned: existing?.pinned ?? false,
+				isolated: existing?.isolated,
+				exclusions: existing?.exclusions,
+			})
+		},
+		[privateGroupId, getDatasetKey, getDatasetName, addMapStackEntry, dismissedPrivateDatasetIds],
+	)
 
+	// A private-group route is an encrypted map scope. New decrypted datasets are
+	// added once, while existing Map Stack state remains user-owned. Explicitly
+	// removed entries stay dismissed until the Geometry tab adds them again.
+	useEffect(() => {
 		const stack = useEditorStore.getState()
-		for (const entryId of stack.mapStackOrder) {
-			const entry = stack.mapStackEntries[entryId]
-			if (entry?.source === 'private-group' && !desiredIds.has(entryId)) {
-				removeMapStackEntry(entryId)
-			}
+		const plan = planPrivateDatasetStackReconciliation({
+			workspaceId: privateGroupId,
+			datasets: privateGeoEvents.map((dataset) => ({
+				datasetKey: getDatasetKey(dataset),
+				title: getDatasetName(dataset),
+			})),
+			entries: stack.mapStackEntries,
+			order: stack.mapStackOrder,
+			dismissedIds: dismissedPrivateDatasetIds(),
+		})
+
+		for (const id of plan.remove) removeMapStackEntry(id)
+		for (const item of plan.upsert) {
+			addMapStackEntry({
+				id: item.id,
+				entityType: 'dataset',
+				entityKey: item.datasetKey,
+				title: item.title,
+				source: 'private-group',
+				visible: item.existing?.visible ?? true,
+				pinned: item.existing?.pinned ?? false,
+				isolated: item.existing?.isolated,
+				exclusions: item.existing?.exclusions,
+			})
 		}
 	}, [
 		privateGroupId,
@@ -763,6 +807,7 @@ export function GeoEditorView() {
 		getDatasetName,
 		addMapStackEntry,
 		removeMapStackEntry,
+		dismissedPrivateDatasetIds,
 	])
 
 	// Phase 13 (SPEC §3.4): put an individual Sighting on the Map Stack, mirroring
@@ -862,9 +907,23 @@ export function GeoEditorView() {
 				tearDownEditSession()
 				return
 			}
+			if (entry.source === 'private-group') {
+				dismissedPrivateDatasetIds().add(entry.id)
+			}
 			removeMapStackEntry(entry.id)
 		},
-		[removeMapStackEntry, tearDownEditSession],
+		[removeMapStackEntry, tearDownEditSession, dismissedPrivateDatasetIds],
+	)
+
+	const removePrivateDatasetFromMapStack = useCallback(
+		(event: GeoDataset) => {
+			const workspaceId = privateWorkspaceIdForDataset(event) ?? privateGroupId
+			if (!workspaceId) return
+			const id = privateDatasetStackEntryId(workspaceId, getDatasetKey(event))
+			const entry = useEditorStore.getState().mapStackEntries[id]
+			if (entry) removeFromMapStack(entry)
+		},
+		[privateGroupId, getDatasetKey, removeFromMapStack],
 	)
 
 	/**
@@ -886,8 +945,14 @@ export function GeoEditorView() {
 	)
 
 	const clearMapStackAndVisibility = useCallback(() => {
+		const stack = useEditorStore.getState()
+		for (const id of stack.mapStackOrder) {
+			if (stack.mapStackEntries[id]?.source === 'private-group') {
+				dismissedPrivateDatasetIds().add(id)
+			}
+		}
 		clearMapStack()
-	}, [clearMapStack])
+	}, [clearMapStack, dismissedPrivateDatasetIds])
 
 	const stance = useEditorStore((state) => state.stance)
 
@@ -2935,6 +3000,14 @@ export function GeoEditorView() {
 		onDeleteStory: handleDeleteStory,
 		deletingKey,
 	}
+	const privateDatasetActions = {
+		getDatasetKey,
+		getDatasetName,
+		onAddToMap: addPrivateDatasetToMapStack,
+		onRemoveFromMap: removePrivateDatasetFromMapStack,
+		onZoomTo: zoomToDataset,
+		onLoadIntoEditor: handleDatasetSelect,
+	}
 
 	// §14a bottom dock: the top-level destinations that replace the tool strip on the
 	// browse/inspect stances. Each raises the sheet and swaps its tab; Create (a
@@ -3001,6 +3074,7 @@ export function GeoEditorView() {
 					deletingKey={deletingKey}
 					onLoadDataset={handleDatasetSelect}
 					onStartNewDataset={startNewDataset}
+					privateDatasetActions={privateDatasetActions}
 					onSwitchWorkspace={switchToWorkspace}
 					onDeleteWorkspace={deleteWorkspace}
 					onAddDraftToWorkspace={createDraftInWorkspace}
@@ -3362,6 +3436,7 @@ export function GeoEditorView() {
 					multiSelectModifier={multiSelectModifierLabel}
 					onLoadDataset={loadDatasetForEditing}
 					onStartNewDataset={startNewDataset}
+					privateDatasetActions={privateDatasetActions}
 					onSwitchWorkspace={switchToWorkspace}
 					onDeleteWorkspace={deleteWorkspace}
 					onToggleVisibility={handleToggleVisibilityWithExitFocus}

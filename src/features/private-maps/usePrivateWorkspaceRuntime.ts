@@ -5,6 +5,7 @@ import { config } from '@/config'
 import {
 	BrowserPrivateWorkspaceStore,
 	CordnCoordinatorClient,
+	type PrivateWorkspaceSnapshot,
 	PrivateWorkspaceRuntime,
 	PrivateWorkspaceService,
 } from '@/lib/private-workspace'
@@ -12,12 +13,12 @@ import { accounts } from '@/lib/nostr'
 
 const browserStore = new BrowserPrivateWorkspaceStore()
 const runtimes = new Map<string, PrivateWorkspaceRuntime>()
-const EMPTY_SNAPSHOT = {
+const EMPTY_SNAPSHOT: PrivateWorkspaceSnapshot = {
 	loaded: true,
 	workspaces: [],
 	pendingJoins: [],
 	syncByWorkspace: {},
-} as const
+}
 const subscribeToNothing = () => () => undefined
 const getEmptySnapshot = () => EMPTY_SNAPSHOT
 
@@ -45,10 +46,14 @@ export function usePrivateWorkspaceRuntime() {
 		() => (accountPubkey ? getRuntime(accountPubkey) : undefined),
 		[accountPubkey],
 	)
-	const snapshot = useSyncExternalStore(
-		runtime?.subscribe ?? subscribeToNothing,
-		runtime?.getSnapshot ?? getEmptySnapshot,
-		runtime?.getSnapshot ?? getEmptySnapshot,
+	const subscribe = runtime ? runtime.subscribe : subscribeToNothing
+	const getSnapshot: () => PrivateWorkspaceSnapshot = runtime
+		? runtime.getSnapshot
+		: getEmptySnapshot
+	const snapshot = useSyncExternalStore<PrivateWorkspaceSnapshot>(
+		subscribe,
+		getSnapshot,
+		getSnapshot,
 	)
 
 	useEffect(() => {

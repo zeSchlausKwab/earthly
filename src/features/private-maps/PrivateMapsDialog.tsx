@@ -8,12 +8,13 @@ import {
 	MessageSquareText,
 	Plus,
 	RefreshCw,
+	Settings2,
 	ShieldCheck,
 	UserMinus,
 	UserPlus,
 	UsersRound,
 } from 'lucide-react'
-import { useContext, useEffect, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import {
 	EmbeddedListPanelContext,
@@ -28,10 +29,15 @@ import { UserProfile } from '@/components/user-profile/UserProfile'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { config } from '@/config'
-import { PRIVATE_WORKSPACE_METADATA_KIND, type WorkspaceJoinRequest } from '@/lib/private-workspace'
-import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
+import {
+	PRIVATE_WORKSPACE_CHAT_KIND,
+	projectPrivateWorkspaceDatasets,
+	type WorkspaceJoinRequest,
+} from '@/lib/private-workspace'
 import { cn } from '@/lib/utils'
+import { PrivateGeometryReferences, type PrivateDatasetActions } from './PrivateGeometryReferences'
 import { usePrivateWorkspaceRuntime } from './usePrivateWorkspaceRuntime'
 
 function shortKey(value: string) {
@@ -43,19 +49,6 @@ function invitationFromLocation() {
 	return new URL(location.href).searchParams.get('private-invite') ?? ''
 }
 
-function describeDataset(content: string) {
-	try {
-		const parsed = JSON.parse(content) as { name?: unknown; features?: unknown[] }
-		const count = parsed.features?.length ?? 0
-		const summary = `${count} map feature${count === 1 ? '' : 's'}`
-		return typeof parsed.name === 'string' && parsed.name.trim()
-			? `${parsed.name.trim()} · ${summary}`
-			: summary
-	} catch {
-		return 'Encrypted map dataset'
-	}
-}
-
 function PanelNotice({ children }: { children: ReactNode }) {
 	return (
 		<div className="flex items-start gap-2 rounded-[2px] border border-border bg-muted/35 px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
@@ -65,7 +58,13 @@ function PanelNotice({ children }: { children: ReactNode }) {
 	)
 }
 
-export function PrivateGroupsPanel({ onStartNewDataset }: { onStartNewDataset?: () => void }) {
+export function PrivateGroupsPanel({
+	onStartNewDataset,
+	datasetActions,
+}: {
+	onStartNewDataset?: () => void
+	datasetActions?: PrivateDatasetActions
+}) {
 	const { account: activeAccount, runtime, snapshot } = usePrivateWorkspaceRuntime()
 	const embedded = useContext(EmbeddedListPanelContext)
 	const { privateGroupId, navigateToPrivateGroup, navigateToView } = useRouting()
@@ -80,6 +79,11 @@ export function PrivateGroupsPanel({ onStartNewDataset }: { onStartNewDataset?: 
 	const [description, setDescription] = useState('')
 	const [basemap, setBasemap] = useState('Local PMTiles when available')
 	const [chat, setChat] = useState('')
+	const [detailView, setDetailView] = useState<{
+		workspaceId?: string
+		tab: 'chat' | 'geometry' | 'settings'
+	}>({ workspaceId: privateGroupId, tab: 'chat' })
+	const detailTab = detailView.workspaceId === privateGroupId ? detailView.tab : 'chat'
 	const { loaded, workspaces, pendingJoins } = snapshot
 	const pendingWorkspaceIds = new Set(pendingJoins.map((item) => item.workspaceId))
 	const service = runtime?.service
@@ -88,8 +92,12 @@ export function PrivateGroupsPanel({ onStartNewDataset }: { onStartNewDataset?: 
 		? workspaces.find((workspace) => workspace.workspaceId === privateGroupId)
 		: undefined
 	const selectedWorkspaceId = selected?.workspaceId
-	const messages = selected?.envelopes.filter(
-		(envelope) => envelope.kind !== PRIVATE_WORKSPACE_METADATA_KIND,
+	const chatMessages = selected?.envelopes.filter(
+		(envelope) => envelope.kind === PRIVATE_WORKSPACE_CHAT_KIND,
+	)
+	const privateDatasets = useMemo(
+		() => (selected ? projectPrivateWorkspaceDatasets(selected) : []),
+		[selected],
 	)
 	const joinRequests =
 		joinRequestState.workspaceId === privateGroupId ? joinRequestState.requests : []
@@ -116,8 +124,9 @@ export function PrivateGroupsPanel({ onStartNewDataset }: { onStartNewDataset?: 
 
 	const handleCreate = () =>
 		run('create private group', async () => {
-			if (!service) throw new Error('Sign in and configure a private-group coordinator first')
-			const created = await runtime!.perform((workspaceService) =>
+			if (!runtime || !service)
+				throw new Error('Sign in and configure a private-group coordinator first')
+			const created = await runtime.perform((workspaceService) =>
 				workspaceService.createWorkspace({
 					name,
 					description: description || undefined,
@@ -133,8 +142,8 @@ export function PrivateGroupsPanel({ onStartNewDataset }: { onStartNewDataset?: 
 
 	const handleCopyInvite = () =>
 		run('create invitation', async () => {
-			if (!service || !selected) return
-			const token = await runtime!.perform((workspaceService) =>
+			if (!runtime || !service || !selected) return
+			const token = await runtime.perform((workspaceService) =>
 				workspaceService.createInvitation(selected.workspaceId),
 			)
 			const url = new URL(location.href)
@@ -148,8 +157,9 @@ export function PrivateGroupsPanel({ onStartNewDataset }: { onStartNewDataset?: 
 
 	const handleRequestJoin = () =>
 		run('request access', async () => {
-			if (!service || !invitation) throw new Error('The invitation is missing or invalid')
-			const pending = await runtime!.perform((workspaceService) =>
+			if (!runtime || !service || !invitation)
+				throw new Error('The invitation is missing or invalid')
+			const pending = await runtime.perform((workspaceService) =>
 				workspaceService.requestToJoin(invitation),
 			)
 			navigateToPrivateGroup(pending.workspaceId)
@@ -162,8 +172,8 @@ export function PrivateGroupsPanel({ onStartNewDataset }: { onStartNewDataset?: 
 
 	const handleWelcomes = () =>
 		run('check invitations', async () => {
-			if (!service) return
-			const accepted = await runtime!.perform((workspaceService) =>
+			if (!runtime || !service) return
+			const accepted = await runtime.perform((workspaceService) =>
 				workspaceService.acceptPendingWelcomes(),
 			)
 			if (accepted[0]) navigateToPrivateGroup(accepted[0].workspaceId)
@@ -176,10 +186,10 @@ export function PrivateGroupsPanel({ onStartNewDataset }: { onStartNewDataset?: 
 
 	const handleFetchRequests = () =>
 		run('check join requests', async () => {
-			if (!service || !selected) return
+			if (!runtime || !service || !selected) return
 			setJoinRequestState({
 				workspaceId: selected.workspaceId,
-				requests: await runtime!.perform((workspaceService) =>
+				requests: await runtime.perform((workspaceService) =>
 					workspaceService.fetchJoinRequests(selected.workspaceId),
 				),
 			})
@@ -187,8 +197,8 @@ export function PrivateGroupsPanel({ onStartNewDataset }: { onStartNewDataset?: 
 
 	const handleApprove = (request: WorkspaceJoinRequest) =>
 		run('approve member', async () => {
-			if (!service) return
-			await runtime!.perform((workspaceService) => workspaceService.approveJoinRequest(request))
+			if (!runtime || !service) return
+			await runtime.perform((workspaceService) => workspaceService.approveJoinRequest(request))
 			setJoinRequestState((current) => ({
 				...current,
 				requests: current.requests.filter((item) => item.kp_ref !== request.kp_ref),
@@ -198,15 +208,15 @@ export function PrivateGroupsPanel({ onStartNewDataset }: { onStartNewDataset?: 
 
 	const handleSync = () =>
 		run('sync private group', async () => {
-			if (!service || !selected) return
-			await runtime!.syncWorkspace(selected.workspaceId)
+			if (!runtime || !service || !selected) return
+			await runtime.syncWorkspace(selected.workspaceId)
 			toast.success('Private group is current')
 		})
 
 	const handleSendChat = () =>
 		run('send message', async () => {
-			if (!service || !selected) return
-			await runtime!.perform((workspaceService) =>
+			if (!runtime || !service || !selected) return
+			await runtime.perform((workspaceService) =>
 				workspaceService.sendChat(selected.workspaceId, chat),
 			)
 			setChat('')
@@ -220,8 +230,8 @@ export function PrivateGroupsPanel({ onStartNewDataset }: { onStartNewDataset?: 
 
 	const handleRemove = (pubkey: string) =>
 		run('remove member', async () => {
-			if (!service || !selected) return
-			await runtime!.perform((workspaceService) =>
+			if (!runtime || !service || !selected) return
+			await runtime.perform((workspaceService) =>
 				workspaceService.removeMember(selected.workspaceId, pubkey),
 			)
 			toast.success('Member removed from future epochs')
@@ -264,14 +274,14 @@ export function PrivateGroupsPanel({ onStartNewDataset }: { onStartNewDataset?: 
 					Back to Private groups
 				</button>
 
-				<div className="min-h-0 flex-1 overflow-y-auto px-1 py-2 [scrollbar-gutter:stable]">
+				<div className="min-h-0 flex-1">
 					{!loaded ? (
 						<p className="px-2 py-6 text-center text-xs text-muted-foreground">
 							Opening encrypted group…
 						</p>
 					) : selected ? (
-						<div className="space-y-4">
-							<section className="space-y-3 border-b border-border px-2 pb-4">
+						<div className="flex h-full min-h-0 flex-col">
+							<section className="shrink-0 border-b border-border px-3 py-3">
 								<div className="flex items-start gap-2">
 									<GlyphTile icon={LockKeyhole} className="bg-primary/15 text-primary" />
 									<div className="min-w-0 flex-1">
@@ -288,204 +298,261 @@ export function PrivateGroupsPanel({ onStartNewDataset }: { onStartNewDataset?: 
 												}
 											/>
 										</div>
-										<p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+										<p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
 											{selected.metadata?.description || 'No description'}
 										</p>
 									</div>
 								</div>
-
-								<div className="grid grid-cols-2 gap-1.5">
-									<Button
-										variant="outline"
-										size="sm"
-										onClick={handleSync}
-										disabled={Boolean(busy) || selectedSyncState === 'syncing'}
-									>
-										<RefreshCw className={cn(selectedSyncState === 'syncing' && 'animate-spin')} />
-										{selectedSyncState === 'offline'
-											? 'Retry'
-											: selectedSyncState === 'syncing'
-												? 'Updating'
-												: selectedSyncState === 'current'
-													? 'Current'
-													: 'Check'}
-									</Button>
-									{selected.role === 'administrator' ? (
-										<Button
-											variant="outline"
-											size="sm"
-											onClick={handleCopyInvite}
-											disabled={Boolean(busy)}
-										>
-											<Copy /> Invite
-										</Button>
-									) : null}
-								</div>
-
-								<div className="grid grid-cols-2 gap-px overflow-hidden rounded-[2px] border border-border bg-border font-mono text-[9.5px]">
-									<div className="bg-card p-2">
-										<span className="text-muted-foreground">ROLE</span>
-										<div className="mt-0.5 text-foreground">{selected.role}</div>
-									</div>
-									<div className="bg-card p-2">
-										<span className="text-muted-foreground">CURSOR</span>
-										<div className="mt-0.5 text-foreground">{selected.cursor} messages</div>
-									</div>
-									<div className="col-span-2 bg-card p-2">
-										<span className="text-muted-foreground">BASEMAP</span>
-										<div className="mt-0.5 truncate text-foreground">
-											{selected.metadata?.recommendedBasemap ?? 'Member choice'}
-										</div>
-									</div>
-								</div>
-								<PanelNotice>
-									MLS encrypts map records before the Cordn ContextVM coordinator stores them.
-								</PanelNotice>
 							</section>
 
-							<section className="space-y-2 px-2">
-								<div className="flex items-center gap-2">
-									<Database className="h-3.5 w-3.5 text-primary" />
-									<h3 className="text-xs font-semibold text-foreground">Encrypted activity</h3>
-									<span className="ml-auto font-mono text-[9px] text-muted-foreground">
-										{messages?.length ?? 0} records
-									</span>
-								</div>
-								<div className="divide-y divide-border border-y border-border">
-									{messages?.map((message) => (
-										<div key={message.id} className="py-2">
-											<div className="flex items-center gap-2 text-[9px] uppercase text-muted-foreground">
-												<span>{message.kind === GEO_EVENT_KIND ? 'Dataset' : 'Message'}</span>
+							<Tabs
+								value={detailTab}
+								onValueChange={(value) =>
+									setDetailView({
+										workspaceId: privateGroupId,
+										tab: value as typeof detailTab,
+									})
+								}
+								className="flex min-h-0 flex-1 flex-col gap-0"
+							>
+								<TabsList className="grid h-9 w-full shrink-0 grid-cols-3 rounded-none border-b border-border bg-transparent p-0">
+									<TabsTrigger
+										value="chat"
+										className="h-9 rounded-none border-b-2 border-transparent px-2 text-[11px] data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+									>
+										<MessageSquareText className="h-3.5 w-3.5" /> Chat
+										<span className="font-mono text-[9px] text-muted-foreground">
+											{chatMessages?.length ?? 0}
+										</span>
+									</TabsTrigger>
+									<TabsTrigger
+										value="geometry"
+										className="h-9 rounded-none border-b-2 border-transparent px-2 text-[11px] data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+									>
+										<Database className="h-3.5 w-3.5" /> Geometry
+										<span className="font-mono text-[9px] text-muted-foreground">
+											{privateDatasets.length}
+										</span>
+									</TabsTrigger>
+									<TabsTrigger
+										value="settings"
+										className="h-9 rounded-none border-b-2 border-transparent px-2 text-[11px] data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+									>
+										<Settings2 className="h-3.5 w-3.5" /> Settings
+										{joinRequests.length > 0 ? (
+											<span className="h-1.5 w-1.5 rounded-full bg-primary" />
+										) : null}
+									</TabsTrigger>
+								</TabsList>
+
+								<TabsContent
+									value="chat"
+									className="m-0 min-h-0 flex-1 overflow-y-auto px-3 py-3 [scrollbar-gutter:stable]"
+								>
+									<div className="divide-y divide-border border-y border-border">
+										{chatMessages?.map((message) => (
+											<div key={message.id} className="py-2.5">
 												<UserProfile
 													pubkey={message.pubkey}
 													mode="avatar-name"
 													size="xs"
 													showNip05Badge={false}
 													interactive={false}
-													className="ml-auto min-w-0 normal-case"
+													className="min-w-0"
 												/>
+												<p className="mt-1.5 break-words text-xs leading-relaxed text-foreground">
+													{message.content}
+												</p>
 											</div>
-											<p className="mt-1 break-words text-xs text-foreground">
-												{message.kind === GEO_EVENT_KIND
-													? describeDataset(message.content)
-													: message.content}
+										))}
+										{chatMessages?.length === 0 ? (
+											<p className="py-8 text-center text-xs text-muted-foreground">
+												No private messages yet.
 											</p>
-										</div>
-									))}
-									{messages?.length === 0 ? (
-										<p className="py-5 text-center text-xs text-muted-foreground">
-											No encrypted activity yet.
-										</p>
-									) : null}
-								</div>
-								<div className="flex gap-1.5">
-									<Textarea
-										aria-label="Private group message"
-										className="min-h-14 resize-none text-xs"
-										placeholder="Message this private group…"
-										value={chat}
-										onChange={(event) => setChat(event.target.value)}
-									/>
-									<Button
-										size="icon"
-										className="h-auto shrink-0 rounded-[2px]"
-										onClick={handleSendChat}
-										disabled={!chat.trim() || Boolean(busy)}
-										aria-label="Send private message"
-									>
-										<MessageSquareText />
-									</Button>
-								</div>
-								<div>
-									<Button
-										variant="default"
-										size="sm"
-										className="w-full"
-										onClick={handleStartDataset}
-										disabled={!onStartNewDataset || Boolean(busy)}
-									>
-										<Plus /> New private dataset
-									</Button>
-								</div>
-							</section>
-
-							<section className="space-y-2 border-t border-border px-2 pt-4">
-								<div className="flex items-center gap-2">
-									<UsersRound className="h-3.5 w-3.5 text-primary" />
-									<h3 className="text-xs font-semibold text-foreground">Members</h3>
-									{selected.role === 'administrator' ? (
+										) : null}
+									</div>
+									<div className="mt-3 flex gap-1.5">
+										<Textarea
+											aria-label="Private group message"
+											className="min-h-16 resize-none text-xs"
+											placeholder="Message this private group…"
+											value={chat}
+											onChange={(event) => setChat(event.target.value)}
+										/>
 										<Button
-											className="ml-auto h-6 text-[10px]"
-											size="sm"
-											variant="outline"
-											onClick={handleFetchRequests}
-											disabled={Boolean(busy)}
+											size="icon"
+											className="h-auto shrink-0 rounded-[2px]"
+											onClick={handleSendChat}
+											disabled={!chat.trim() || Boolean(busy)}
+											aria-label="Send private message"
 										>
-											<UserPlus /> Requests
+											<MessageSquareText />
 										</Button>
-									) : null}
-								</div>
-								<div className="divide-y divide-border border-y border-border">
-									{members.map((member) => (
-										<div key={member} className="flex items-center gap-2 py-2 text-[11px]">
-											<UserProfile
-												pubkey={member}
-												mode="avatar-name"
-												size="sm"
-												showNip05Badge={false}
-												interactive={false}
-												className="min-w-0 flex-1"
+									</div>
+								</TabsContent>
+
+								<TabsContent
+									value="geometry"
+									className="m-0 min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
+								>
+									<div className="px-3 py-3">
+										<p className="text-[11px] leading-relaxed text-muted-foreground">
+											Current encrypted dataset references. Removing one from the Map Stack does not
+											delete it from the group.
+										</p>
+									</div>
+									<PrivateGeometryReferences
+										workspaceId={selected.workspaceId}
+										datasets={privateDatasets}
+										actions={datasetActions}
+									/>
+									<div className="p-3">
+										<Button
+											variant="default"
+											size="sm"
+											className="w-full"
+											onClick={handleStartDataset}
+											disabled={!onStartNewDataset || Boolean(busy)}
+										>
+											<Plus /> New private dataset
+										</Button>
+									</div>
+								</TabsContent>
+
+								<TabsContent
+									value="settings"
+									className="m-0 min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3 [scrollbar-gutter:stable]"
+								>
+									<div className="grid grid-cols-2 gap-1.5">
+										<Button
+											variant="outline"
+											size="sm"
+											onClick={handleSync}
+											disabled={Boolean(busy) || selectedSyncState === 'syncing'}
+										>
+											<RefreshCw
+												className={cn(selectedSyncState === 'syncing' && 'animate-spin')}
 											/>
-											{member === selected.adminPubkey ? (
-												<RowBadge label="admin" className="bg-primary/15 text-primary" />
-											) : null}
-											{selected.role === 'administrator' && member !== activeAccount.pubkey ? (
+											{selectedSyncState === 'offline'
+												? 'Retry sync'
+												: selectedSyncState === 'syncing'
+													? 'Updating'
+													: selectedSyncState === 'current'
+														? 'Current'
+														: 'Check sync'}
+										</Button>
+										{selected.role === 'administrator' ? (
+											<Button
+												variant="outline"
+												size="sm"
+												onClick={handleCopyInvite}
+												disabled={Boolean(busy)}
+											>
+												<Copy /> Copy invite
+											</Button>
+										) : null}
+									</div>
+
+									<div className="grid grid-cols-2 gap-px overflow-hidden rounded-[2px] border border-border bg-border font-mono text-[9.5px]">
+										<div className="bg-card p-2">
+											<span className="text-muted-foreground">ROLE</span>
+											<div className="mt-0.5 text-foreground">{selected.role}</div>
+										</div>
+										<div className="bg-card p-2">
+											<span className="text-muted-foreground">RECORD CURSOR</span>
+											<div className="mt-0.5 text-foreground">{selected.cursor}</div>
+										</div>
+										<div className="col-span-2 bg-card p-2">
+											<span className="text-muted-foreground">RECOMMENDED BASEMAP</span>
+											<div className="mt-0.5 truncate text-foreground">
+												{selected.metadata?.recommendedBasemap ?? 'Member choice'}
+											</div>
+										</div>
+									</div>
+
+									<section className="space-y-2">
+										<div className="flex items-center gap-2">
+											<UsersRound className="h-3.5 w-3.5 text-primary" />
+											<h3 className="text-xs font-semibold text-foreground">Members & invites</h3>
+											{selected.role === 'administrator' ? (
 												<Button
-													className="ml-auto"
-													size="icon-xs"
-													variant="ghost"
-													aria-label={`Remove ${shortKey(member)}`}
-													onClick={() => handleRemove(member)}
+													className="ml-auto h-6 text-[10px]"
+													size="sm"
+													variant="outline"
+													onClick={handleFetchRequests}
 													disabled={Boolean(busy)}
 												>
-													<UserMinus className="text-destructive" />
+													<UserPlus /> Check requests
 												</Button>
 											) : null}
 										</div>
-									))}
-								</div>
-								{joinRequests.map((request) => (
-									<div
-										key={request.kp_ref}
-										className="rounded-[2px] border border-ok/30 bg-ok/5 p-2"
-									>
-										<p className="font-mono text-[9px] uppercase text-ok">Pending member</p>
-										<UserProfile
-											pubkey={request.pk}
-											mode="avatar-name"
-											size="sm"
-											showNip05Badge={false}
-											interactive={false}
-											className="mt-1"
-										/>
-										<Button
-											className="mt-2 w-full"
-											size="sm"
-											onClick={() => handleApprove(request)}
-											disabled={Boolean(busy)}
-										>
-											<Check /> Approve member
-										</Button>
-									</div>
-								))}
-								<p className="text-[10px] leading-relaxed text-muted-foreground">
-									Removal protects future epochs; it cannot erase data a former member already
-									decrypted.
-								</p>
-							</section>
+										<div className="divide-y divide-border border-y border-border">
+											{members.map((member) => (
+												<div key={member} className="flex items-center gap-2 py-2 text-[11px]">
+													<UserProfile
+														pubkey={member}
+														mode="avatar-name"
+														size="sm"
+														showNip05Badge={false}
+														interactive={false}
+														className="min-w-0 flex-1"
+													/>
+													{member === selected.adminPubkey ? (
+														<RowBadge label="admin" className="bg-primary/15 text-primary" />
+													) : null}
+													{selected.role === 'administrator' && member !== activeAccount.pubkey ? (
+														<Button
+															className="ml-auto"
+															size="icon-xs"
+															variant="ghost"
+															aria-label={`Remove ${shortKey(member)}`}
+															onClick={() => handleRemove(member)}
+															disabled={Boolean(busy)}
+														>
+															<UserMinus className="text-destructive" />
+														</Button>
+													) : null}
+												</div>
+											))}
+										</div>
+										{joinRequests.map((request) => (
+											<div
+												key={request.kp_ref}
+												className="rounded-[2px] border border-ok/30 bg-ok/5 p-2"
+											>
+												<p className="font-mono text-[9px] uppercase text-ok">Pending member</p>
+												<UserProfile
+													pubkey={request.pk}
+													mode="avatar-name"
+													size="sm"
+													showNip05Badge={false}
+													interactive={false}
+													className="mt-1"
+												/>
+												<Button
+													className="mt-2 w-full"
+													size="sm"
+													onClick={() => handleApprove(request)}
+													disabled={Boolean(busy)}
+												>
+													<Check /> Approve member
+												</Button>
+											</div>
+										))}
+										<p className="text-[10px] leading-relaxed text-muted-foreground">
+											Removal protects future epochs; it cannot erase data a former member already
+											decrypted.
+										</p>
+									</section>
+
+									<PanelNotice>
+										MLS encrypts group records before the Cordn ContextVM coordinator stores them.
+									</PanelNotice>
+								</TabsContent>
+							</Tabs>
 						</div>
 					) : (
-						<div className="space-y-3 px-2 py-3">
+						<div className="h-full space-y-3 overflow-y-auto px-2 py-3">
 							<div className="rounded-[2px] border border-border bg-card p-3 text-center">
 								<LockKeyhole className="mx-auto mb-2 h-7 w-7 text-primary" />
 								<h2 className="text-sm font-semibold text-foreground">

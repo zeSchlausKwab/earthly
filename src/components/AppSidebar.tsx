@@ -35,6 +35,7 @@ import { UserProfilePanel } from './UserProfilePanel'
 import { GeoEditorInfoPanelContent } from './GeoEditorInfoPanel'
 import { HelpPanel } from './HelpPanel'
 import { PrivateGroupsPanel } from '../features/private-maps/PrivateMapsDialog'
+import type { PrivateDatasetActions } from '../features/private-maps/PrivateGeometryReferences'
 import { LoginSessionButtons } from '../features/auth/LoginSessionButtons'
 import { SignedOutCta } from '../features/auth/SignedOutCta'
 import {
@@ -197,6 +198,7 @@ interface AppSidebarProps {
 	deletingKey: string | null
 	onLoadDataset: (event: GeoDataset) => void
 	onStartNewDataset?: () => void
+	privateDatasetActions?: PrivateDatasetActions
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void
 	onAddDraftToWorkspace?: (workspaceId: string) => void | Promise<void>
@@ -336,6 +338,7 @@ export function AppSidebar({
 	deletingKey,
 	onLoadDataset,
 	onStartNewDataset,
+	privateDatasetActions,
 	onSwitchWorkspace,
 	onDeleteWorkspace,
 	onAddDraftToWorkspace,
@@ -1011,7 +1014,12 @@ export function AppSidebar({
 			case 'contexts':
 				return <GeoDatasetsPanelContent mode="contexts" {...datasetsPanelProps} />
 			case 'private-groups':
-				return <PrivateGroupsPanel onStartNewDataset={onStartNewDataset} />
+				return (
+					<PrivateGroupsPanel
+						onStartNewDataset={onStartNewDataset}
+						datasetActions={privateDatasetActions}
+					/>
+				)
 			case 'stories':
 				return <StoriesPanelContent {...storiesPanelProps} />
 			case 'sightings':

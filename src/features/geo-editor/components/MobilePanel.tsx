@@ -33,6 +33,7 @@ import { StoriesPanelContent, type StoriesPanelProps } from '@/components/Storie
 import { UserProfilePanel } from '@/components/UserProfilePanel'
 import { ShoutboxPanel } from '@/features/social/shoutbox'
 import { PrivateGroupsPanel } from '@/features/private-maps/PrivateMapsDialog'
+import type { PrivateDatasetActions } from '@/features/private-maps/PrivateGeometryReferences'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
@@ -79,6 +80,7 @@ export interface MobilePanelProps {
 	multiSelectModifier?: string
 	onLoadDataset: (event: GeoDataset) => void
 	onStartNewDataset?: () => void
+	privateDatasetActions?: PrivateDatasetActions
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void
 	onToggleVisibility: (event: GeoDataset) => void
@@ -237,6 +239,7 @@ export function MobilePanel(props: MobilePanelProps) {
 		multiSelectModifier = 'Shift',
 		onLoadDataset,
 		onStartNewDataset,
+		privateDatasetActions,
 		onSwitchWorkspace,
 		onDeleteWorkspace,
 		onToggleVisibility,
@@ -724,7 +727,10 @@ export function MobilePanel(props: MobilePanelProps) {
 								) : null}
 
 								{mobilePanelTab === 'private-groups' ? (
-									<PrivateGroupsPanel onStartNewDataset={onStartNewDataset} />
+									<PrivateGroupsPanel
+										onStartNewDataset={onStartNewDataset}
+										datasetActions={privateDatasetActions}
+									/>
 								) : null}
 
 								{mobilePanelTab === 'context-editor' ? (
