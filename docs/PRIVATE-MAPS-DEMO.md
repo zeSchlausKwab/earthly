@@ -62,8 +62,9 @@ Do not deploy that key.
 Open `http://localhost:3000` in two isolated browser profiles, sign in with different accounts,
 then open **Private groups** from the left workspace rail:
 
-1. Profile A opens `/private-groups`, creates a private group, and copies an invitation. Its stable
-   detail URL is `/privategroup/:id`.
+1. Profile A opens `/private-groups`, creates a private group, and copies an administrator-signed
+   invitation. New invitation links expire after 24 hours; the stable detail URL is
+   `/privategroup/:id`.
 2. Profile B opens the invitation and selects **Request access**.
 3. Profile A opens **Settings**, selects **Check requests**, then **Approve member**.
 4. Profile B selects **Check approval**.
@@ -104,8 +105,12 @@ deployments must provide their own `CORDN_SERVER_PUBKEY` and relay configuration
   an independent cryptographic review.
 - Browser MLS state and decrypted projections are origin-bound in IndexedDB but are not yet
   encrypted under a hardware-backed device key. Tauri secure storage is a later phase.
-- Invitation nonces are not yet consumed by a coordinator-side one-use rendezvous record. Device
-  approval remains explicit, but replay-resistant invitation expiry is not complete.
+- New version-2 invitations are signed by the inviting administrator, bind the opaque workspace,
+  trust anchor, coordinator, relays, nonce, and expiration, and are rejected after 24 hours before
+  Earthly publishes an invitee KeyPackage. Existing unsigned version-1 links remain readable for
+  development compatibility and have no expiry. Cordn v0.4 join requests do not carry an
+  invitation nonce, so the coordinator cannot yet consume a one-use rendezvous record; explicit
+  administrator approval remains the admission boundary until that protocol extension lands.
 - Delivery currently uses serialized bounded Cordn fetches on an automatic watcher. Empty fetches
   take a no-op path: Earthly does not deserialize or rewrite MLS state and does not publish a new
   React workspace snapshot, while repeated quiet polls back off to reduce background work. Cordn's

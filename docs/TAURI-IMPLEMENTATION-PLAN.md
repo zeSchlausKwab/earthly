@@ -1031,6 +1031,16 @@ The initial product flow is:
    the new client retrieves it.
 6. Every member sees the authenticated membership change and the new workspace epoch.
 
+Earthly's implemented version-2 invitation is a signed ephemeral Nostr event carried inside the
+URL rather than published. It binds the opaque workspace/group identifiers, original policy trust
+anchor, coordinator, relay set, nonce, and a 24-hour expiration to the current administrator's
+signature. The client verifies the signature and expiry before generating or publishing the
+invitee's MLS KeyPackage. Unsigned version-1 links remain readable only for development
+compatibility. True one-use consumption is not implementable against Cordn v0.4's current
+`join_request_store` input because it contains only `gid` and `kp_ref`; the coordinator contract
+must accept and atomically consume the signed nonce (or an equivalent rendezvous handle) before
+Earthly can claim replay-resistant single use.
+
 Whitelisting a pubkey is an admission policy, not the cryptographic act of joining. Removal requires
 an MLS Remove/Commit and protects future epochs; it cannot erase previously decrypted or exported
 content. Device loss, a second device, key rotation, recovery, and complete account removal must be

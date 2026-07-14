@@ -3,10 +3,48 @@ import type { NostrSigner } from '@contextvm/sdk'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools'
 import type { PrivateWorkspaceCoordinator } from './contracts'
 import { createPrivateEnvelope } from './envelope'
+import { createPrivateMapInvitation, PRIVATE_MAP_INVITATION_TTL_SECONDS } from './invitation'
 import { PrivateWorkspaceService } from './service'
 import { MemoryPrivateWorkspaceStore, type StoredWorkspace } from './storage'
 
 describe('PrivateWorkspaceService synchronization', () => {
+	test('rejects an expired signed invitation before contacting its coordinator', async () => {
+		const adminSecretKey = generateSecretKey()
+		const guestSecretKey = generateSecretKey()
+		const issuedAt = 1_700_000_000
+		const coordinatorPubkey = 'b'.repeat(64)
+		const invitation = await createPrivateMapInvitation({
+			signer: {
+				signEvent: async (event) => finalizeEvent(event, adminSecretKey),
+			},
+			workspaceId: 'workspace-1',
+			groupId: 'group-1',
+			adminPubkey: getPublicKey(adminSecretKey),
+			coordinatorPubkey,
+			relays: ['ws://localhost:3334'],
+			nonce: 'expired-nonce',
+			issuedAt,
+		})
+		let coordinatorConnections = 0
+		const service = new PrivateWorkspaceService({
+			signer: {
+				getPublicKey: async () => getPublicKey(guestSecretKey),
+				signEvent: async (event) => finalizeEvent(event, guestSecretKey),
+			} as NostrSigner,
+			store: new MemoryPrivateWorkspaceStore(),
+			coordinatorPubkey,
+			relays: ['ws://localhost:3334'],
+			createCoordinator: () => {
+				coordinatorConnections += 1
+				return {} as PrivateWorkspaceCoordinator
+			},
+			now: () => (issuedAt + PRIVATE_MAP_INVITATION_TTL_SECONDS) * 1000,
+		})
+
+		await expect(service.requestToJoin(invitation)).rejects.toThrow('expired')
+		expect(coordinatorConnections).toBe(0)
+	})
+
 	test('does not decode or rewrite MLS state when the coordinator has no new records', async () => {
 		const ownerPubkey = 'a'.repeat(64)
 		const workspace: StoredWorkspace = {

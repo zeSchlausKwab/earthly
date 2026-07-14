@@ -40,14 +40,13 @@ import {
 	type AdministratorPolicyState,
 } from './policy'
 import {
+	assertPrivateMapInvitationCurrent,
+	createPrivateMapInvitation,
 	decodePrivateMapInvitation,
-	encodePrivateMapInvitation,
-	type PrivateMapInvitation,
 } from './invitation'
 import type {
 	PendingWorkspaceApproval,
 	PendingWorkspaceApprovalMessage,
-	PendingWorkspaceApplication,
 	PendingWorkspaceJoin,
 	PendingWorkspaceMembershipCommit,
 	PrivateWorkspaceStore,
@@ -255,20 +254,21 @@ export class PrivateWorkspaceService {
 		const ownerPubkey = await this.ownerPubkey()
 		const workspace = await this.syncWorkspace(workspaceId)
 		this.requireAdministrator(workspace, ownerPubkey, 'invite members')
-		const invitation: PrivateMapInvitation = {
-			version: 1,
+		return createPrivateMapInvitation({
+			signer: this.options.signer,
 			workspaceId: workspace.workspaceId,
 			groupId: workspace.groupId,
 			adminPubkey: workspace.adminPubkey,
 			coordinatorPubkey: workspace.coordinatorPubkey,
 			relays: workspace.relays,
 			nonce: randomToken(),
-		}
-		return encodePrivateMapInvitation(invitation)
+			issuedAt: Math.floor(this.now() / 1000),
+		})
 	}
 
 	async requestToJoin(encodedInvitation: string): Promise<PendingWorkspaceJoin> {
 		const invitation = decodePrivateMapInvitation(encodedInvitation)
+		assertPrivateMapInvitationCurrent(invitation, this.now())
 		const ownerPubkey = await this.ownerPubkey()
 		if (ownerPubkey === invitation.adminPubkey)
 			throw new Error('You already administer this private map')
@@ -632,9 +632,7 @@ export class PrivateWorkspaceService {
 				gid: workspace.groupId,
 				after: pending.basisCursor > 0 ? pending.basisCursor : undefined,
 			})
-			const existing = fetched.messages.find(
-				(message) => message.msg_64 === pending.msgBase64,
-			)
+			const existing = fetched.messages.find((message) => message.msg_64 === pending.msgBase64)
 			if (existing) {
 				pending.cursor = existing.cursor
 			} else {
@@ -981,9 +979,7 @@ export class PrivateWorkspaceService {
 			})
 			for (const planned of approval.messages) {
 				if (planned.cursor !== undefined) continue
-				const existing = firstFetch.messages.find(
-					(message) => message.msg_64 === planned.msgBase64,
-				)
+				const existing = firstFetch.messages.find((message) => message.msg_64 === planned.msgBase64)
 				if (existing) {
 					planned.cursor = existing.cursor
 				} else {
@@ -1000,9 +996,7 @@ export class PrivateWorkspaceService {
 				gid: workspace.groupId,
 				after: approval.basisCursor > 0 ? approval.basisCursor : undefined,
 			})
-			const deliveredCiphertexts = new Set(
-				delivered.messages.map((message) => message.msg_64),
-			)
+			const deliveredCiphertexts = new Set(delivered.messages.map((message) => message.msg_64))
 			const plannedCursors = approval.messages.map((message) => message.cursor)
 			const planIsContiguousFromBasis = plannedCursors.every(
 				(cursor, index) => cursor === approval.basisCursor + index + 1,
@@ -1026,16 +1020,12 @@ export class PrivateWorkspaceService {
 							at: 0,
 							encrypted: true,
 						})),
-						...delivered.messages.filter(
-							(message) => message.cursor > finalPlannedCursor,
-						),
+						...delivered.messages.filter((message) => message.cursor > finalPlannedCursor),
 					]
 				: delivered.messages
 
 			this.reconcileAcknowledgedOutbounds(workspace, approval.basisCursor)
-			let state = deserializeClientState(
-				approval.basisStateBase64 ?? workspace.stateBase64,
-			)
+			let state = deserializeClientState(approval.basisStateBase64 ?? workspace.stateBase64)
 			let replayCursor = approval.basisCursor
 			let epochChangedBeforeOwnCommit = false
 			let ownCommitAccepted = false
@@ -1062,18 +1052,10 @@ export class PrivateWorkspaceService {
 							}
 							ownCommitAccepted = true
 						} else {
-							this.recordSkippedCoordinatorMessage(
-								workspace,
-								message.cursor,
-								'stale-or-invalid',
-							)
+							this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'stale-or-invalid')
 						}
 					} else if (!ownCommitAccepted) {
-						this.recordSkippedCoordinatorMessage(
-							workspace,
-							message.cursor,
-							'stale-or-invalid',
-						)
+						this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'stale-or-invalid')
 					}
 					replayCursor = message.cursor
 					continue
@@ -1109,11 +1091,7 @@ export class PrivateWorkspaceService {
 					) {
 						workspace.status = 'removed'
 					} else {
-						this.recordSkippedCoordinatorMessage(
-							workspace,
-							message.cursor,
-							'stale-or-invalid',
-						)
+						this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'stale-or-invalid')
 					}
 				} finally {
 					replayCursor = message.cursor

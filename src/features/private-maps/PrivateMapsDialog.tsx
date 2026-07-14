@@ -230,7 +230,7 @@ export function PrivateGroupsPanel({
 			url.hash = ''
 			url.searchParams.set('private-invite', token)
 			await navigator.clipboard.writeText(url.toString())
-			toast.success('Private-group invitation copied')
+			toast.success('Signed 24-hour private-group invitation copied')
 		})
 
 	const handleRequestJoin = () =>
@@ -566,6 +566,11 @@ export function PrivateGroupsPanel({
 											</Button>
 										) : null}
 									</div>
+									{selected.role === 'administrator' ? (
+										<p className="text-[10px] leading-relaxed text-muted-foreground">
+											New invitation links are administrator-signed and expire after 24 hours.
+										</p>
+									) : null}
 
 									<div className="grid grid-cols-2 gap-px overflow-hidden rounded-[2px] border border-border bg-border font-mono text-[9.5px]">
 										<div className="bg-card p-2">
