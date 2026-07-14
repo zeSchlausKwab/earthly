@@ -1011,7 +1011,7 @@ export function AppSidebar({
 			case 'contexts':
 				return <GeoDatasetsPanelContent mode="contexts" {...datasetsPanelProps} />
 			case 'private-groups':
-				return <PrivateGroupsPanel />
+				return <PrivateGroupsPanel onStartNewDataset={onStartNewDataset} />
 			case 'stories':
 				return <StoriesPanelContent {...storiesPanelProps} />
 			case 'sightings':

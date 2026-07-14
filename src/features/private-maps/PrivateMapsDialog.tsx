@@ -1,5 +1,3 @@
-import type { NostrSigner } from '@contextvm/sdk'
-import { useActiveAccount } from 'applesauce-react/hooks'
 import {
 	ArrowLeft,
 	Check,
@@ -7,7 +5,6 @@ import {
 	Database,
 	KeyRound,
 	LockKeyhole,
-	MapPinned,
 	MessageSquareText,
 	Plus,
 	RefreshCw,
@@ -16,7 +13,7 @@ import {
 	UserPlus,
 	UsersRound,
 } from 'lucide-react'
-import { useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import {
 	EmbeddedListPanelContext,
@@ -27,23 +24,15 @@ import {
 } from '@/components/entity-list'
 import { SignedOutCta } from '@/features/auth/SignedOutCta'
 import { useRouting } from '@/features/geo-editor/hooks/useRouting'
+import { UserProfile } from '@/components/user-profile/UserProfile'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { config } from '@/config'
-import {
-	BrowserPrivateWorkspaceStore,
-	CordnCoordinatorClient,
-	PRIVATE_WORKSPACE_METADATA_KIND,
-	PrivateWorkspaceService,
-	type StoredWorkspace,
-	type WorkspaceJoinRequest,
-} from '@/lib/private-workspace'
-import { accounts } from '@/lib/nostr'
+import { PRIVATE_WORKSPACE_METADATA_KIND, type WorkspaceJoinRequest } from '@/lib/private-workspace'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import { cn } from '@/lib/utils'
-
-const browserStore = new BrowserPrivateWorkspaceStore()
+import { usePrivateWorkspaceRuntime } from './usePrivateWorkspaceRuntime'
 
 function shortKey(value: string) {
 	return `${value.slice(0, 8)}…${value.slice(-6)}`
@@ -56,8 +45,12 @@ function invitationFromLocation() {
 
 function describeDataset(content: string) {
 	try {
-		const parsed = JSON.parse(content) as { features?: unknown[] }
-		return `${parsed.features?.length ?? 0} map feature${parsed.features?.length === 1 ? '' : 's'}`
+		const parsed = JSON.parse(content) as { name?: unknown; features?: unknown[] }
+		const count = parsed.features?.length ?? 0
+		const summary = `${count} map feature${count === 1 ? '' : 's'}`
+		return typeof parsed.name === 'string' && parsed.name.trim()
+			? `${parsed.name.trim()} · ${summary}`
+			: summary
 	} catch {
 		return 'Encrypted map dataset'
 	}
@@ -72,14 +65,11 @@ function PanelNotice({ children }: { children: ReactNode }) {
 	)
 }
 
-export function PrivateGroupsPanel() {
-	const activeAccount = useActiveAccount()
+export function PrivateGroupsPanel({ onStartNewDataset }: { onStartNewDataset?: () => void }) {
+	const { account: activeAccount, runtime, snapshot } = usePrivateWorkspaceRuntime()
 	const embedded = useContext(EmbeddedListPanelContext)
 	const { privateGroupId, navigateToPrivateGroup, navigateToView } = useRouting()
 	const [busy, setBusy] = useState<string>()
-	const [loaded, setLoaded] = useState(false)
-	const [workspaces, setWorkspaces] = useState<StoredWorkspace[]>([])
-	const [pendingWorkspaceIds, setPendingWorkspaceIds] = useState<Set<string>>(new Set())
 	const [joinRequestState, setJoinRequestState] = useState<{
 		workspaceId: string
 		requests: WorkspaceJoinRequest[]
@@ -90,23 +80,14 @@ export function PrivateGroupsPanel() {
 	const [description, setDescription] = useState('')
 	const [basemap, setBasemap] = useState('Local PMTiles when available')
 	const [chat, setChat] = useState('')
-	const [markerName, setMarkerName] = useState('North trailhead')
-
-	const service = useMemo(() => {
-		const signer = accounts.signer
-		if (!activeAccount || !signer || !config.cordnServerPubkey) return undefined
-		return new PrivateWorkspaceService({
-			signer: signer as NostrSigner,
-			store: browserStore,
-			coordinatorPubkey: config.cordnServerPubkey,
-			relays: [...config.cordnRelays],
-			createCoordinator: (options) => new CordnCoordinatorClient(options),
-		})
-	}, [activeAccount])
+	const { loaded, workspaces, pendingJoins } = snapshot
+	const pendingWorkspaceIds = new Set(pendingJoins.map((item) => item.workspaceId))
+	const service = runtime?.service
 
 	const selected = privateGroupId
 		? workspaces.find((workspace) => workspace.workspaceId === privateGroupId)
 		: undefined
+	const selectedWorkspaceId = selected?.workspaceId
 	const messages = selected?.envelopes.filter(
 		(envelope) => envelope.kind !== PRIVATE_WORKSPACE_METADATA_KIND,
 	)
@@ -114,26 +95,12 @@ export function PrivateGroupsPanel() {
 		joinRequestState.workspaceId === privateGroupId ? joinRequestState.requests : []
 	const members = selected && service ? service.members(selected) : []
 	const pendingForRoute = Boolean(privateGroupId && pendingWorkspaceIds.has(privateGroupId))
-
-	const refreshLocal = useCallback(async () => {
-		if (!service) {
-			setWorkspaces([])
-			setPendingWorkspaceIds(new Set())
-			setLoaded(true)
-			return
-		}
-		const [next, pending] = await Promise.all([
-			service.listWorkspaces(),
-			service.listPendingJoins(),
-		])
-		setWorkspaces(next)
-		setPendingWorkspaceIds(new Set(pending.map((item) => item.workspaceId)))
-		setLoaded(true)
-	}, [service])
+	const selectedSyncState = selected ? snapshot.syncByWorkspace[selected.workspaceId] : undefined
 
 	useEffect(() => {
-		void refreshLocal()
-	}, [refreshLocal])
+		if (!runtime || !privateGroupId || !selectedWorkspaceId) return
+		return runtime.watchWorkspace(privateGroupId)
+	}, [runtime, privateGroupId, selectedWorkspaceId])
 
 	const run = async (label: string, action: () => Promise<void>) => {
 		setBusy(label)
@@ -150,15 +117,16 @@ export function PrivateGroupsPanel() {
 	const handleCreate = () =>
 		run('create private group', async () => {
 			if (!service) throw new Error('Sign in and configure a private-group coordinator first')
-			const created = await service.createWorkspace({
-				name,
-				description: description || undefined,
-				recommendedBasemap: basemap || undefined,
-			})
+			const created = await runtime!.perform((workspaceService) =>
+				workspaceService.createWorkspace({
+					name,
+					description: description || undefined,
+					recommendedBasemap: basemap || undefined,
+				}),
+			)
 			setName('')
 			setDescription('')
 			setShowCreate(false)
-			await refreshLocal()
 			navigateToPrivateGroup(created.workspaceId)
 			toast.success('Private group created locally')
 		})
@@ -166,7 +134,9 @@ export function PrivateGroupsPanel() {
 	const handleCopyInvite = () =>
 		run('create invitation', async () => {
 			if (!service || !selected) return
-			const token = await service.createInvitation(selected.workspaceId)
+			const token = await runtime!.perform((workspaceService) =>
+				workspaceService.createInvitation(selected.workspaceId),
+			)
 			const url = new URL(location.href)
 			url.pathname = `/privategroup/${encodeURIComponent(selected.workspaceId)}`
 			url.search = ''
@@ -179,8 +149,9 @@ export function PrivateGroupsPanel() {
 	const handleRequestJoin = () =>
 		run('request access', async () => {
 			if (!service || !invitation) throw new Error('The invitation is missing or invalid')
-			const pending = await service.requestToJoin(invitation)
-			await refreshLocal()
+			const pending = await runtime!.perform((workspaceService) =>
+				workspaceService.requestToJoin(invitation),
+			)
 			navigateToPrivateGroup(pending.workspaceId)
 			const url = new URL(location.href)
 			url.pathname = `/privategroup/${encodeURIComponent(pending.workspaceId)}`
@@ -192,8 +163,9 @@ export function PrivateGroupsPanel() {
 	const handleWelcomes = () =>
 		run('check invitations', async () => {
 			if (!service) return
-			const accepted = await service.acceptPendingWelcomes()
-			await refreshLocal()
+			const accepted = await runtime!.perform((workspaceService) =>
+				workspaceService.acceptPendingWelcomes(),
+			)
 			if (accepted[0]) navigateToPrivateGroup(accepted[0].workspaceId)
 			toast.success(
 				accepted.length > 0
@@ -207,51 +179,51 @@ export function PrivateGroupsPanel() {
 			if (!service || !selected) return
 			setJoinRequestState({
 				workspaceId: selected.workspaceId,
-				requests: await service.fetchJoinRequests(selected.workspaceId),
+				requests: await runtime!.perform((workspaceService) =>
+					workspaceService.fetchJoinRequests(selected.workspaceId),
+				),
 			})
 		})
 
 	const handleApprove = (request: WorkspaceJoinRequest) =>
 		run('approve member', async () => {
 			if (!service) return
-			await service.approveJoinRequest(request)
+			await runtime!.perform((workspaceService) => workspaceService.approveJoinRequest(request))
 			setJoinRequestState((current) => ({
 				...current,
 				requests: current.requests.filter((item) => item.kp_ref !== request.kp_ref),
 			}))
-			await refreshLocal()
 			toast.success('Member added and encrypted Welcome stored')
 		})
 
 	const handleSync = () =>
 		run('sync private group', async () => {
 			if (!service || !selected) return
-			await service.syncWorkspace(selected.workspaceId)
-			await refreshLocal()
+			await runtime!.syncWorkspace(selected.workspaceId)
 			toast.success('Private group is current')
 		})
 
 	const handleSendChat = () =>
 		run('send message', async () => {
 			if (!service || !selected) return
-			await service.sendChat(selected.workspaceId, chat)
+			await runtime!.perform((workspaceService) =>
+				workspaceService.sendChat(selected.workspaceId, chat),
+			)
 			setChat('')
-			await refreshLocal()
 		})
 
-	const handleMarker = () =>
-		run('add private marker', async () => {
-			if (!service || !selected) return
-			await service.sendDemoDataset(selected.workspaceId, markerName)
-			await refreshLocal()
-			toast.success('Encrypted dataset posted')
-		})
+	const handleStartDataset = () => {
+		if (!onStartNewDataset) return
+		onStartNewDataset()
+		navigateToView('edit')
+	}
 
 	const handleRemove = (pubkey: string) =>
 		run('remove member', async () => {
 			if (!service || !selected) return
-			await service.removeMember(selected.workspaceId, pubkey)
-			await refreshLocal()
+			await runtime!.perform((workspaceService) =>
+				workspaceService.removeMember(selected.workspaceId, pubkey),
+			)
 			toast.success('Member removed from future epochs')
 		})
 
@@ -323,9 +295,20 @@ export function PrivateGroupsPanel() {
 								</div>
 
 								<div className="grid grid-cols-2 gap-1.5">
-									<Button variant="outline" size="sm" onClick={handleSync} disabled={Boolean(busy)}>
-										<RefreshCw className={cn(busy === 'sync private group' && 'animate-spin')} />
-										Sync
+									<Button
+										variant="outline"
+										size="sm"
+										onClick={handleSync}
+										disabled={Boolean(busy) || selectedSyncState === 'syncing'}
+									>
+										<RefreshCw className={cn(selectedSyncState === 'syncing' && 'animate-spin')} />
+										{selectedSyncState === 'offline'
+											? 'Retry'
+											: selectedSyncState === 'syncing'
+												? 'Updating'
+												: selectedSyncState === 'current'
+													? 'Current'
+													: 'Check'}
 									</Button>
 									{selected.role === 'administrator' ? (
 										<Button
@@ -371,9 +354,16 @@ export function PrivateGroupsPanel() {
 								<div className="divide-y divide-border border-y border-border">
 									{messages?.map((message) => (
 										<div key={message.id} className="py-2">
-											<div className="flex items-center gap-2 font-mono text-[9px] uppercase text-muted-foreground">
+											<div className="flex items-center gap-2 text-[9px] uppercase text-muted-foreground">
 												<span>{message.kind === GEO_EVENT_KIND ? 'Dataset' : 'Message'}</span>
-												<code className="ml-auto">{shortKey(message.pubkey)}</code>
+												<UserProfile
+													pubkey={message.pubkey}
+													mode="avatar-name"
+													size="xs"
+													showNip05Badge={false}
+													interactive={false}
+													className="ml-auto min-w-0 normal-case"
+												/>
 											</div>
 											<p className="mt-1 break-words text-xs text-foreground">
 												{message.kind === GEO_EVENT_KIND
@@ -406,21 +396,15 @@ export function PrivateGroupsPanel() {
 										<MessageSquareText />
 									</Button>
 								</div>
-								<div className="flex gap-1.5">
-									<Input
-										aria-label="Private marker name"
-										className="h-8 text-xs"
-										value={markerName}
-										onChange={(event) => setMarkerName(event.target.value)}
-									/>
+								<div>
 									<Button
-										variant="outline"
+										variant="default"
 										size="sm"
-										className="shrink-0"
-										onClick={handleMarker}
-										disabled={Boolean(busy)}
+										className="w-full"
+										onClick={handleStartDataset}
+										disabled={!onStartNewDataset || Boolean(busy)}
 									>
-										<MapPinned /> Demo point
+										<Plus /> New private dataset
 									</Button>
 								</div>
 							</section>
@@ -444,7 +428,14 @@ export function PrivateGroupsPanel() {
 								<div className="divide-y divide-border border-y border-border">
 									{members.map((member) => (
 										<div key={member} className="flex items-center gap-2 py-2 text-[11px]">
-											<code className="truncate">{shortKey(member)}</code>
+											<UserProfile
+												pubkey={member}
+												mode="avatar-name"
+												size="sm"
+												showNip05Badge={false}
+												interactive={false}
+												className="min-w-0 flex-1"
+											/>
 											{member === selected.adminPubkey ? (
 												<RowBadge label="admin" className="bg-primary/15 text-primary" />
 											) : null}
@@ -469,7 +460,14 @@ export function PrivateGroupsPanel() {
 										className="rounded-[2px] border border-ok/30 bg-ok/5 p-2"
 									>
 										<p className="font-mono text-[9px] uppercase text-ok">Pending member</p>
-										<code className="text-[10px]">{shortKey(request.pk)}</code>
+										<UserProfile
+											pubkey={request.pk}
+											mode="avatar-name"
+											size="sm"
+											showNip05Badge={false}
+											interactive={false}
+											className="mt-1"
+										/>
 										<Button
 											className="mt-2 w-full"
 											size="sm"

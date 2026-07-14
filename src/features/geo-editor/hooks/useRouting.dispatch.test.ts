@@ -91,6 +91,17 @@ describe('parsePathSegments — private groups', () => {
 		})
 	})
 
+	test('/privategroup/:id/edit keeps the encrypted scope while authoring', () => {
+		expect(parsePathSegments(['privategroup', 'workspace-123', 'edit'])).toEqual({
+			focusType: 'none',
+			sidebarView: 'edit',
+			privateGroupId: 'workspace-123',
+		})
+		expect(buildRoutePath({ sidebarView: 'edit', privateGroupId: 'workspace-123' })).toBe(
+			'/privategroup/workspace-123/edit',
+		)
+	})
+
 	test('private-group detail navigation builds the canonical route', () => {
 		expect(buildRoutePath({ sidebarView: 'private-groups', privateGroupId: 'workspace 123' })).toBe(
 			'/privategroup/workspace%20123',

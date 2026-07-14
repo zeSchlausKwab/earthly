@@ -22,6 +22,7 @@ export interface PublishDropdownProps {
 	onPublishUpdate?: () => void
 	onPublishCopy?: () => void
 	onProposeEdit?: (description: string) => void
+	privateMode?: boolean
 	small?: boolean
 }
 
@@ -35,6 +36,7 @@ export function PublishDropdown({
 	onPublishUpdate,
 	onPublishCopy,
 	onProposeEdit,
+	privateMode = false,
 	small,
 }: PublishDropdownProps) {
 	const [open, setOpen] = useState(false)
@@ -52,7 +54,7 @@ export function PublishDropdown({
 	// Determine primary action based on state
 	const hasPrimaryAction = canPublishUpdate || canPublishNew
 	const primaryIcon = canPublishUpdate ? RefreshCw : UploadCloud
-	const primaryLabel = canPublishUpdate ? 'Update' : 'Publish'
+	const primaryLabel = canPublishUpdate ? 'Update' : privateMode ? 'Save' : 'Publish'
 	const primaryAction = canPublishUpdate ? onPublishUpdate : onPublishNew
 	const PrimaryIcon = primaryIcon
 
@@ -102,7 +104,7 @@ export function PublishDropdown({
 						</Button>
 					</TooltipTrigger>
 					<TooltipContent side="bottom" sideOffset={8}>
-						<p>{primaryLabel} dataset</p>
+						<p>{privateMode ? `${primaryLabel} encrypted dataset` : `${primaryLabel} dataset`}</p>
 					</TooltipContent>
 				</Tooltip>
 			</TooltipProvider>
@@ -142,7 +144,13 @@ export function PublishDropdown({
 						</DropdownMenuTrigger>
 					</TooltipTrigger>
 					<TooltipContent side="bottom" sideOffset={8}>
-						<p>{viewingOnly ? "You're editing someone else's dataset" : 'Publish options'}</p>
+						<p>
+							{viewingOnly
+								? "You're editing someone else's dataset"
+								: privateMode
+									? 'Private save options'
+									: 'Publish options'}
+						</p>
 					</TooltipContent>
 				</Tooltip>
 				<DropdownMenuContent align="end" className="max-w-[280px]">
@@ -161,13 +169,13 @@ export function PublishDropdown({
 					{canPublishNew && (
 						<DropdownMenuItem onClick={onPublishNew}>
 							<UploadCloud className="h-4 w-4" />
-							Publish new dataset
+							{privateMode ? 'Save new private dataset' : 'Publish new dataset'}
 						</DropdownMenuItem>
 					)}
 					{canPublishUpdate && (
 						<DropdownMenuItem onClick={onPublishUpdate}>
 							<RefreshCw className="h-4 w-4" />
-							Update existing
+							{privateMode ? 'Update private dataset' : 'Update existing'}
 						</DropdownMenuItem>
 					)}
 					{canPublishCopy && (
@@ -175,7 +183,7 @@ export function PublishDropdown({
 							<DropdownMenuSeparator />
 							<DropdownMenuItem onClick={onPublishCopy}>
 								<CopyPlus className="h-4 w-4" />
-								Fork as new dataset
+								{privateMode ? 'Save as new private dataset' : 'Fork as new dataset'}
 							</DropdownMenuItem>
 						</>
 					)}

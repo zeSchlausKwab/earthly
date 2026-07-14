@@ -68,6 +68,8 @@ import { bboxFromGeometry } from '@/lib/geo/bbox'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { type MapContext, deleteMapContext } from '@/lib/nostr/map-context'
 import { accounts } from '@/lib/nostr'
+import { projectPrivateWorkspaceDatasets } from '@/lib/private-workspace'
+import { usePrivateWorkspaceRuntime } from '@/features/private-maps/usePrivateWorkspaceRuntime'
 import {
 	defaultContextFilterMode,
 	getContextCoordinate,
@@ -232,6 +234,24 @@ export function shouldSweepStackEntry(status: { resolved: boolean; expired: bool
 export function GeoEditorView() {
 	const map = useRef<maplibregl.Map | null>(null)
 	const [mounted, setMounted] = useState(false)
+	const {
+		route,
+		navigateTo,
+		navigateToContext,
+		navigateToView,
+		clearFocus,
+		clearContextScope,
+		encodeGeoEventNaddr,
+		encodeContextNaddr,
+		isFocused,
+		contextNaddr,
+		contextCoordinate,
+		userPubkey,
+		privateGroupId,
+		commentId: focusCommentId,
+	} = useRouting()
+	const { runtime: privateWorkspaceRuntime, snapshot: privateWorkspaceSnapshot } =
+		usePrivateWorkspaceRuntime()
 
 	// Query-by-view (Map Stack header toggle): viewport relay geo queries on
 	// pan/zoom feeding the stack's "Geo query" section. Reads its own enabled
@@ -402,6 +422,28 @@ export function GeoEditorView() {
 
 	// External data
 	const { events: geoEvents } = useGeoDatasets()
+	const privateWorkspace = useMemo(
+		() =>
+			privateGroupId
+				? privateWorkspaceSnapshot.workspaces.find(
+						(workspace) => workspace.workspaceId === privateGroupId,
+					)
+				: undefined,
+		[privateGroupId, privateWorkspaceSnapshot.workspaces],
+	)
+	const privateWorkspaceId = privateWorkspace?.workspaceId
+	const privateGeoEvents = useMemo(
+		() => (privateWorkspace ? projectPrivateWorkspaceDatasets(privateWorkspace) : []),
+		[privateWorkspace],
+	)
+	const mapGeoEvents = useMemo(
+		() => (privateGeoEvents.length > 0 ? [...geoEvents, ...privateGeoEvents] : geoEvents),
+		[geoEvents, privateGeoEvents],
+	)
+	useEffect(() => {
+		if (!privateWorkspaceRuntime || !privateGroupId || !privateWorkspaceId) return
+		return privateWorkspaceRuntime.watchWorkspace(privateGroupId)
+	}, [privateWorkspaceRuntime, privateGroupId, privateWorkspaceId])
 	const { events: mapContextEvents } = useMapContexts()
 	// Groups (kind 37518, slimmed) the contributor can `c`-attach to (GROUP-02).
 	const { events: groups } = useGroups()
@@ -651,7 +693,7 @@ export function GeoEditorView() {
 		createDraftInWorkspace,
 		tearDownEditSession,
 		startNewDataset: startNewDatasetBase,
-	} = useDatasetManagement(map, geoEvents)
+	} = useDatasetManagement(map, mapGeoEvents)
 
 	// Workflow audit P1: starting a dataset at world zoom invites accidental
 	// continent-scale shapes. If geolocation is ALREADY granted, fly to the
@@ -725,6 +767,44 @@ export function GeoEditorView() {
 		},
 		[addMapStackEntry, getDatasetKey, getDatasetName],
 	)
+
+	// A private-group route is an encrypted map scope. Project every decrypted
+	// dataset into the normal Map Stack while that scope is active, and remove it
+	// immediately when the user leaves or changes groups.
+	useEffect(() => {
+		const desiredIds = new Set<string>()
+		if (privateGroupId) {
+			for (const dataset of privateGeoEvents) {
+				const datasetKey = getDatasetKey(dataset)
+				const id = `private-group:${privateGroupId}:${datasetKey}`
+				desiredIds.add(id)
+				addMapStackEntry({
+					id,
+					entityType: 'dataset',
+					entityKey: datasetKey,
+					title: getDatasetName(dataset),
+					source: 'private-group',
+					visible: true,
+					pinned: false,
+				})
+			}
+		}
+
+		const stack = useEditorStore.getState()
+		for (const entryId of stack.mapStackOrder) {
+			const entry = stack.mapStackEntries[entryId]
+			if (entry?.source === 'private-group' && !desiredIds.has(entryId)) {
+				removeMapStackEntry(entryId)
+			}
+		}
+	}, [
+		privateGroupId,
+		privateGeoEvents,
+		getDatasetKey,
+		getDatasetName,
+		addMapStackEntry,
+		removeMapStackEntry,
+	])
 
 	// Phase 13 (SPEC §3.4): put an individual Sighting on the Map Stack, mirroring
 	// addDatasetToMapStack. entityKey = naddr (dTag/id fallback) — the SAME key the
@@ -986,7 +1066,7 @@ export function GeoEditorView() {
 			const shareableEntries = mapStackOrder
 				.map((id) => mapStackEntries[id])
 				.filter((entry): entry is MapStackEntry => Boolean(entry))
-				.filter((entry) => entry.entityType !== 'draft')
+				.filter((entry) => entry.entityType !== 'draft' && entry.source !== 'private-group')
 			const tokens = shareableEntries.map((entry) => `${entry.entityType}:${entry.entityKey}`)
 			if (tokens.length > 0) {
 				params.set('ms', tokens.join(','))
@@ -1089,23 +1169,41 @@ export function GeoEditorView() {
 	const setBlossomUploadDialogOpen = useEditorStore((state) => state.setBlossomUploadDialogOpen)
 	const pendingPublishCollection = useEditorStore((state) => state.pendingPublishCollection)
 
-	// Routing hook for URL-based focus mode. Declared before usePublishing so the
-	// publish success paths can land on the published entity's canonical route.
-	const {
-		route,
-		navigateTo,
-		navigateToContext,
-		navigateToView,
-		clearFocus,
-		clearContextScope,
-		encodeGeoEventNaddr,
-		encodeContextNaddr,
-		isFocused,
-		contextNaddr,
-		contextCoordinate,
-		userPubkey,
-		commentId: focusCommentId,
-	} = useRouting()
+	const publishPrivateDataset = useCallback(
+		async (
+			collection: import('geojson').FeatureCollection,
+			options?: { datasetId?: string; name?: string },
+		) => {
+			if (!privateWorkspaceRuntime || !privateGroupId) {
+				throw new Error('The private group is not available in this browser profile')
+			}
+			const envelope = await privateWorkspaceRuntime.perform((service) =>
+				service.sendDataset(privateGroupId, collection, options),
+			)
+			const workspace = privateWorkspaceRuntime
+				.getSnapshot()
+				.workspaces.find((item) => item.workspaceId === privateGroupId)
+			const dataset = workspace
+				? projectPrivateWorkspaceDatasets(workspace).find((item) => item.event.id === envelope.id)
+				: undefined
+			if (!dataset) throw new Error('The encrypted dataset could not be opened after saving')
+			return dataset
+		},
+		[privateWorkspaceRuntime, privateGroupId],
+	)
+	const navigateToEntityFocus = useCallback(
+		(
+			focusType: 'geoevent' | 'mapcontext',
+			naddr: string,
+			sidebarView?: 'datasets' | 'contexts',
+		) => {
+			// Projected private datasets have no public naddr route. Keep inspection
+			// inside /privategroup/:id so opening a map row cannot drop the MLS scope.
+			if (privateGroupId && focusType === 'geoevent') return
+			navigateTo(focusType, naddr, sidebarView)
+		},
+		[privateGroupId, navigateTo],
+	)
 
 	const {
 		handlePublishNew,
@@ -1127,6 +1225,8 @@ export function GeoEditorView() {
 		resolvedCollectionResolver,
 		navigateTo,
 		encodeGeoEventNaddr,
+		privateWorkspaceId: privateGroupId,
+		publishPrivateDataset: privateGroupId ? publishPrivateDataset : undefined,
 	})
 
 	/**
@@ -1206,9 +1306,9 @@ export function GeoEditorView() {
 		handleInspectDatasetWithoutFocus,
 		handleOpenDebug,
 	} = useViewMode({
-		geoEvents,
+		geoEvents: mapGeoEvents,
 		onEnsureInfoPanelVisible: ensureInfoPanelVisible,
-		onNavigateToFocus: navigateTo,
+		onNavigateToFocus: navigateToEntityFocus,
 		onClearRouteFocus: clearFocus,
 		onZoomToDataset: zoomToDataset,
 	})
@@ -1396,7 +1496,7 @@ export function GeoEditorView() {
 					? new Set([isolatedEntry.entityKey])
 					: curatedKeysFor(isolatedEntry)
 			if (isolatedKeys.size === 0) return []
-			return geoEvents.filter((event) => isolatedKeys.has(getDatasetKey(event)))
+			return mapGeoEvents.filter((event) => isolatedKeys.has(getDatasetKey(event)))
 		}
 
 		// Round G.1: stack order is render order. Each dataset key gets the rank
@@ -1416,12 +1516,12 @@ export function GeoEditorView() {
 			}
 		}
 		if (rankByKey.size === 0) return []
-		return geoEvents
+		return mapGeoEvents
 			.filter((event) => rankByKey.has(getDatasetKey(event)))
 			.sort(
 				(a, b) => (rankByKey.get(getDatasetKey(a)) ?? 0) - (rankByKey.get(getDatasetKey(b)) ?? 0),
 			)
-	}, [geoEvents, getDatasetKey, mapStackEntries, mapStackOrder, mapContextEvents])
+	}, [geoEvents, mapGeoEvents, getDatasetKey, mapStackEntries, mapStackOrder, mapContextEvents])
 
 	// Phase 13 (SPEC §3.2): sightings/beacons render from STACK MEMBERSHIP, not
 	// unconditionally. These mirror `visibleGeoEvents` — an aggregate `*-layer`
@@ -3170,6 +3270,17 @@ export function GeoEditorView() {
 					onClose={handleCloseAnnotationPopup}
 				/>
 			)}
+			{privateWorkspace ? (
+				<div className="pointer-events-none absolute right-2 top-2 z-20 md:top-[calc(var(--shell-toolbar-h)+0.5rem)]">
+					<div className="flex items-center gap-1.5 rounded-[2px] border border-primary/35 bg-background/95 px-2 py-1.5 text-[10px] font-medium text-foreground shadow-sm backdrop-blur">
+						<Lock className="h-3 w-3 text-primary" />
+						<span className="max-w-40 truncate">
+							{privateWorkspace.metadata?.name ?? 'Private group'}
+						</span>
+						<span className="text-muted-foreground">· MLS-encrypted saves</span>
+					</div>
+				</div>
+			) : null}
 			{mapError && (
 				<div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-destructive/10 border border-destructive/40 text-destructive px-4 py-3 rounded z-50">
 					<p className="font-bold">Map Error</p>
@@ -3232,6 +3343,7 @@ export function GeoEditorView() {
 							canPublishCopy,
 							onProposeEdit: handleProposeEdit,
 							canProposeEdit,
+							privateMode: Boolean(privateGroupId),
 							isPublishing,
 						}}
 						isMobile={isMobile}
@@ -3456,6 +3568,7 @@ export function GeoEditorView() {
 						onProposeEdit={handleProposeEdit}
 						canProposeEdit={canProposeEdit}
 						isPublishing={isPublishing}
+						privateMode={Boolean(privateGroupId)}
 						onOsmClick={handleOsmQueryClick}
 						onOsmView={handleOsmQueryView}
 						onOsmAdvanced={() => setImportOsmDialogOpen(true)}
@@ -3477,7 +3590,7 @@ export function GeoEditorView() {
 						onClick={handlePublishNew}
 						disabled={!canPublishNew}
 					>
-						Publish
+						{privateGroupId ? 'Save' : 'Publish'}
 					</Button>
 				</div>
 			)}

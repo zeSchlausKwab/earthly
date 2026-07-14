@@ -111,6 +111,12 @@ interface UsePublishingOptions {
 		datasetId?: string
 		dTag?: string
 	}) => string | null
+	/** Active MLS workspace. When set, dataset writes stay encrypted and never hit public relays. */
+	privateWorkspaceId?: string
+	publishPrivateDataset?: (
+		collection: FeatureCollection,
+		options?: { datasetId?: string; name?: string },
+	) => Promise<GeoDataset>
 }
 
 /**
@@ -137,6 +143,8 @@ export function usePublishing({
 	resolvedCollectionResolver,
 	navigateTo,
 	encodeGeoEventNaddr,
+	privateWorkspaceId,
+	publishPrivateDataset,
 }: UsePublishingOptions) {
 	void resolvedCollectionResolver
 	// Store state
@@ -472,6 +480,32 @@ export function usePublishing({
 		[setMode, setViewMode, setViewDataset],
 	)
 
+	const finishPrivateDatasetSave = useCallback(
+		(
+			dataset: GeoDataset,
+			collection: FeatureCollection,
+			action: 'saved' | 'updated' | 'copied',
+		) => {
+			setPublishMessage(`Private dataset ${action}.`)
+			toast.success(`Private dataset ${action}.`)
+			setIsDirty(false)
+			setActiveDataset(dataset)
+			setActiveDatasetContextRefs([])
+			setCollectionMeta(extractCollectionMeta(collection))
+			setSelectedFeatureIds([])
+			switchToDatasetViewMode(dataset)
+		},
+		[
+			setPublishMessage,
+			setIsDirty,
+			setActiveDataset,
+			setActiveDatasetContextRefs,
+			setCollectionMeta,
+			setSelectedFeatureIds,
+			switchToDatasetViewMode,
+		],
+	)
+
 	/** Land the author on the just-published dataset's canonical reader route
 	 *  (workflow audit P1): the completion destination is the entity itself —
 	 *  where it can be verified, shared, and discussed — not the catalog. */
@@ -493,6 +527,12 @@ export function usePublishing({
 		try {
 			const collection = buildCollectionFromEditor()
 			if (!collection) throw new Error('No features to publish')
+			if (privateWorkspaceId) {
+				if (!publishPrivateDataset) throw new Error('The private group is not available')
+				const dataset = await publishPrivateDataset(collection)
+				finishPrivateDatasetSave(dataset, collection, 'saved')
+				return
+			}
 
 			const signer = accounts.signer
 			if (!signer) {
@@ -547,6 +587,9 @@ export function usePublishing({
 		setPublishMessage,
 		setPublishError,
 		buildCollectionFromEditor,
+		privateWorkspaceId,
+		publishPrivateDataset,
+		finishPrivateDatasetSave,
 		serializeBlobReferences,
 		activeDatasetContextRefs,
 		buildCollectionStub,
@@ -663,6 +706,22 @@ export function usePublishing({
 			return
 		}
 
+		if (privateWorkspaceId) {
+			try {
+				if (!publishPrivateDataset) throw new Error('The private group is not available')
+				const dataset = await publishPrivateDataset(collection, {
+					datasetId: activeDataset.dTag,
+				})
+				finishPrivateDatasetSave(dataset, collection, 'updated')
+			} catch (error) {
+				console.error('Failed to update private dataset', error)
+				setPublishError('Failed to update private dataset. Check the group connection.')
+			} finally {
+				setIsPublishing(false)
+			}
+			return
+		}
+
 		const signer = accounts.signer
 		if (!signer) {
 			setPublishError('No active account.')
@@ -721,6 +780,9 @@ export function usePublishing({
 		setPublishError,
 		currentUserPubkey,
 		buildCollectionFromEditor,
+		privateWorkspaceId,
+		publishPrivateDataset,
+		finishPrivateDatasetSave,
 		serializeBlobReferences,
 		activeDatasetContextRefs,
 		buildCollectionStub,
@@ -743,6 +805,12 @@ export function usePublishing({
 		try {
 			const collection = buildCollectionFromEditor()
 			if (!collection) throw new Error('No features to publish')
+			if (privateWorkspaceId) {
+				if (!publishPrivateDataset) throw new Error('The private group is not available')
+				const dataset = await publishPrivateDataset(collection)
+				finishPrivateDatasetSave(dataset, collection, 'copied')
+				return
+			}
 
 			const signer = accounts.signer
 			if (!signer) {
@@ -794,6 +862,9 @@ export function usePublishing({
 		setPublishMessage,
 		setPublishError,
 		buildCollectionFromEditor,
+		privateWorkspaceId,
+		publishPrivateDataset,
+		finishPrivateDatasetSave,
 		serializeBlobReferences,
 		activeDatasetContextRefs,
 		buildCollectionStub,
@@ -870,6 +941,10 @@ export function usePublishing({
 
 	const handleDeleteDataset = useCallback(
 		async (event: GeoDataset, onClear: () => void) => {
+			if (privateWorkspaceId) {
+				toast.error('Private dataset deletion is not available yet.')
+				return
+			}
 			const signer = accounts.signer
 			if (!signer) {
 				toast.error('No active account.')
@@ -892,7 +967,7 @@ export function usePublishing({
 				toast.error('Failed to delete dataset. Check console for details.')
 			}
 		},
-		[activeDataset, getDatasetKey, getDatasetName],
+		[activeDataset, getDatasetKey, getDatasetName, privateWorkspaceId],
 	)
 
 	// Check if there's a collection blob reference (uploaded to Blossom)
@@ -904,13 +979,16 @@ export function usePublishing({
 	const canPublishNew =
 		features.length > 0 &&
 		!activeDataset &&
-		(hasCollectionBlob || (collection ? !isOverSizeLimit(collection) : true))
+		(privateWorkspaceId || hasCollectionBlob || (collection ? !isOverSizeLimit(collection) : true))
 	const canPublishUpdate =
 		!!activeDataset && currentUserPubkey === activeDataset?.pubkey && features.length > 0 && isDirty
 	const canPublishCopy =
 		!!activeDataset && currentUserPubkey !== activeDataset?.pubkey && features.length > 0
 	const canProposeEdit =
-		!!activeDataset && currentUserPubkey !== activeDataset?.pubkey && features.length > 0
+		!privateWorkspaceId &&
+		!!activeDataset &&
+		currentUserPubkey !== activeDataset?.pubkey &&
+		features.length > 0
 
 	return {
 		// Actions

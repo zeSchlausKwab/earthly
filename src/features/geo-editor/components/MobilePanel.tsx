@@ -723,7 +723,9 @@ export function MobilePanel(props: MobilePanelProps) {
 									/>
 								) : null}
 
-								{mobilePanelTab === 'private-groups' ? <PrivateGroupsPanel /> : null}
+								{mobilePanelTab === 'private-groups' ? (
+									<PrivateGroupsPanel onStartNewDataset={onStartNewDataset} />
+								) : null}
 
 								{mobilePanelTab === 'context-editor' ? (
 									<GeoEditorInfoPanelContent

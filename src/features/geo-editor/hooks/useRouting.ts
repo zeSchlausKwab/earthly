@@ -144,9 +144,10 @@ export function parsePathSegments(segments: string[]): RouteState {
 	// public Nostr event: /private-groups and /privategroup/:id. Accept the
 	// earlier hyphenated preview route so copied development invites still open.
 	if ((first === 'privategroup' || first === 'private-group') && segments[1]) {
+		const nestedView = segments[2]
 		return {
 			focusType: 'none',
-			sidebarView: 'private-groups',
+			sidebarView: nestedView && isSidebarViewMode(nestedView) ? nestedView : 'private-groups',
 			privateGroupId: segments[1],
 		}
 	}
@@ -323,8 +324,9 @@ export function buildRoutePath({
 	commentId?: string
 	privateGroupId?: string
 }): string {
-	if (sidebarView === 'private-groups' && privateGroupId) {
-		return `/privategroup/${encodeURIComponent(privateGroupId)}`
+	if (privateGroupId) {
+		const root = `/privategroup/${encodeURIComponent(privateGroupId)}`
+		return sidebarView === 'private-groups' ? root : `${root}/${sidebarView}`
 	}
 	const root = contextNaddr ? `/context/${contextNaddr}/${sidebarView}` : `/${sidebarView}`
 	if (focusType && naddr) {
@@ -431,6 +433,7 @@ export function useRouting() {
 				// Private groups are their own encrypted scope; a public Context filter
 				// must not leak into or wrap their route.
 				contextNaddr: view === 'private-groups' ? undefined : currentRoute.contextNaddr,
+				privateGroupId: view === 'private-groups' ? undefined : currentRoute.privateGroupId,
 			})
 		},
 		[commit],

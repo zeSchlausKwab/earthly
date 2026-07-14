@@ -107,6 +107,7 @@ interface DatasetActionsProps {
 	onProposeEdit?: (description: string) => void
 	canProposeEdit?: boolean
 	isPublishing?: boolean
+	privateMode?: boolean
 }
 
 interface ToolbarProps {
@@ -1213,6 +1214,7 @@ export function Toolbar({
 									onPublishUpdate={datasetActions.onPublishUpdate}
 									onPublishCopy={datasetActions.onPublishCopy}
 									onProposeEdit={datasetActions.onProposeEdit}
+									privateMode={datasetActions.privateMode}
 									small
 								/>
 								<Divider />
@@ -1498,6 +1500,7 @@ export function Toolbar({
 							onPublishUpdate={datasetActions.onPublishUpdate}
 							onPublishCopy={datasetActions.onPublishCopy}
 							onProposeEdit={datasetActions.onProposeEdit}
+							privateMode={datasetActions.privateMode}
 						/>
 					) : null}
 					{/* Topic 7: chat / right-sidebar toggle — pinned to the FAR RIGHT,

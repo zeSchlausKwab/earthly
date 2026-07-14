@@ -1,5 +1,6 @@
 import { verifyEvent, type NostrEvent } from 'nostr-tools'
 import type { NostrSigner } from '@contextvm/sdk'
+import type { FeatureCollection } from 'geojson'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import type { PendingJoinRequest, PrivateWorkspaceCoordinator } from './contracts'
 import { createPrivateEnvelope, type PrivateWorkspaceEnvelope } from './envelope'
@@ -86,6 +87,7 @@ function randomToken(): string {
 
 export class PrivateWorkspaceService {
 	private readonly now: () => number
+	private readonly coordinators = new Map<string, PrivateWorkspaceCoordinator>()
 
 	constructor(private readonly options: PrivateWorkspaceServiceOptions) {
 		this.now = options.now ?? Date.now
@@ -98,7 +100,28 @@ export class PrivateWorkspaceService {
 	}
 
 	private coordinator(serverPubkey = this.options.coordinatorPubkey, relays = this.options.relays) {
-		return this.options.createCoordinator({ serverPubkey, relays, signer: this.options.signer })
+		const key = `${serverPubkey}:${relays.join(',')}`
+		const existing = this.coordinators.get(key)
+		if (existing) return existing
+		const coordinator = this.options.createCoordinator({
+			serverPubkey,
+			relays,
+			signer: this.options.signer,
+		})
+		this.coordinators.set(key, coordinator)
+		return coordinator
+	}
+
+	/** Close the long-lived ContextVM sessions owned by this service. */
+	async dispose(): Promise<void> {
+		await this.resetConnections()
+	}
+
+	/** Drop failed transports so the next operation can establish a fresh session. */
+	async resetConnections(): Promise<void> {
+		const coordinators = [...this.coordinators.values()]
+		this.coordinators.clear()
+		await Promise.allSettled(coordinators.map((coordinator) => coordinator.disconnect()))
 	}
 
 	async listWorkspaces() {
@@ -183,20 +206,16 @@ export class PrivateWorkspaceService {
 		await this.options.store.putKeyPackage(storedKeyPackage)
 
 		const coordinator = this.coordinator(invitation.coordinatorPubkey, invitation.relays)
-		try {
-			await coordinator.publishKeyPackage({
-				kp_ref: artifacts.keyPackageRef,
-				kp_64: artifacts.keyPackageBase64,
-			})
-			storedKeyPackage.published = true
-			await this.options.store.putKeyPackage(storedKeyPackage)
-			await coordinator.storeJoinRequest({
-				gid: invitation.groupId,
-				kp_ref: artifacts.keyPackageRef,
-			})
-		} finally {
-			await coordinator.disconnect()
-		}
+		await coordinator.publishKeyPackage({
+			kp_ref: artifacts.keyPackageRef,
+			kp_64: artifacts.keyPackageBase64,
+		})
+		storedKeyPackage.published = true
+		await this.options.store.putKeyPackage(storedKeyPackage)
+		await coordinator.storeJoinRequest({
+			gid: invitation.groupId,
+			kp_ref: artifacts.keyPackageRef,
+		})
 
 		const pending: PendingWorkspaceJoin = {
 			ownerPubkey,
@@ -217,12 +236,8 @@ export class PrivateWorkspaceService {
 		const workspace = await this.requireWorkspace(ownerPubkey, workspaceId)
 		if (workspace.role !== 'administrator') return []
 		const coordinator = this.coordinator(workspace.coordinatorPubkey, workspace.relays)
-		try {
-			const result = await coordinator.takeJoinRequests({ gid: workspace.groupId })
-			return result.requests.map((request) => ({ ...request, workspaceId }))
-		} finally {
-			await coordinator.disconnect()
-		}
+		const result = await coordinator.takeJoinRequests({ gid: workspace.groupId })
+		return result.requests.map((request) => ({ ...request, workspaceId }))
 	}
 
 	async approveJoinRequest(request: WorkspaceJoinRequest): Promise<StoredWorkspace> {
@@ -230,45 +245,40 @@ export class PrivateWorkspaceService {
 		const workspace = await this.requireWorkspace(ownerPubkey, request.workspaceId)
 		if (workspace.role !== 'administrator') throw new Error('Only administrators can add members')
 		const coordinator = this.coordinator(workspace.coordinatorPubkey, workspace.relays)
-		try {
-			const consumed = await coordinator.takeKeyPackage({ id: request.kp_ref })
-			if (!consumed.keyPackage)
-				throw new Error('The requested MLS KeyPackage is no longer available')
-			const published = consumed.keyPackage
-			if (!verifyEvent(published.event)) throw new Error('Invalid KeyPackage publication signature')
-			if (published.kp_ref !== request.kp_ref) {
-				throw new Error('Coordinator returned a different KeyPackage than requested')
-			}
-			if (published.pk !== request.pk || published.event.pubkey !== request.pk) {
-				throw new Error('Join request identity does not match its KeyPackage publication')
-			}
-			const keyPackage = decodeKeyPackage(publicationKeyPackageBase64(published.event))
-			if (credentialPubkeyFromKeyPackage(keyPackage) !== request.pk) {
-				throw new Error('KeyPackage credential is not bound to the requesting Nostr account')
-			}
-
-			const oldState = deserializeClientState(workspace.stateBase64)
-			const added = await addWorkspaceMember({ state: oldState, keyPackage })
-			const sealedCommit = await sealCoordinatorPayload(oldState, added.commitBase64)
-			const posted = await coordinator.postMessage({ gid: workspace.groupId, msg_64: sealedCommit })
-			await coordinator.storeWelcome({
-				target_pk: request.pk,
-				kp_ref: request.kp_ref,
-				welcome_64: added.welcomeBase64,
-				after: posted.cursor,
-			})
-			workspace.stateBase64 = serializeClientState(added.newState)
-			workspace.cursor = posted.cursor
-			await this.options.store.putWorkspace(workspace)
-			await this.publishMetadata(workspace, coordinator)
-			await coordinator.takeJoinRequests({
-				gid: workspace.groupId,
-				consumed: [{ pk: request.pk, at: request.at }],
-			})
-			return workspace
-		} finally {
-			await coordinator.disconnect()
+		const consumed = await coordinator.takeKeyPackage({ id: request.kp_ref })
+		if (!consumed.keyPackage) throw new Error('The requested MLS KeyPackage is no longer available')
+		const published = consumed.keyPackage
+		if (!verifyEvent(published.event)) throw new Error('Invalid KeyPackage publication signature')
+		if (published.kp_ref !== request.kp_ref) {
+			throw new Error('Coordinator returned a different KeyPackage than requested')
 		}
+		if (published.pk !== request.pk || published.event.pubkey !== request.pk) {
+			throw new Error('Join request identity does not match its KeyPackage publication')
+		}
+		const keyPackage = decodeKeyPackage(publicationKeyPackageBase64(published.event))
+		if (credentialPubkeyFromKeyPackage(keyPackage) !== request.pk) {
+			throw new Error('KeyPackage credential is not bound to the requesting Nostr account')
+		}
+
+		const oldState = deserializeClientState(workspace.stateBase64)
+		const added = await addWorkspaceMember({ state: oldState, keyPackage })
+		const sealedCommit = await sealCoordinatorPayload(oldState, added.commitBase64)
+		const posted = await coordinator.postMessage({ gid: workspace.groupId, msg_64: sealedCommit })
+		await coordinator.storeWelcome({
+			target_pk: request.pk,
+			kp_ref: request.kp_ref,
+			welcome_64: added.welcomeBase64,
+			after: posted.cursor,
+		})
+		workspace.stateBase64 = serializeClientState(added.newState)
+		workspace.cursor = posted.cursor
+		await this.options.store.putWorkspace(workspace)
+		await this.publishMetadata(workspace, coordinator)
+		await coordinator.takeJoinRequests({
+			gid: workspace.groupId,
+			consumed: [{ pk: request.pk, at: request.at }],
+		})
+		return workspace
 	}
 
 	async acceptPendingWelcomes(): Promise<StoredWorkspace[]> {
@@ -278,44 +288,37 @@ export class PrivateWorkspaceService {
 
 		for (const pending of joins) {
 			const coordinator = this.coordinator(pending.coordinatorPubkey, pending.relays)
-			try {
-				const result = await coordinator.takeWelcomes()
-				const welcome = result.welcomes.find((item) => item.kp_ref === pending.keyPackageRef)
-				if (!welcome) continue
-				const keyPackage = await this.options.store.getKeyPackage(
-					ownerPubkey,
-					pending.keyPackageRef,
-				)
-				if (!keyPackage) throw new Error('The MLS private KeyPackage for this Welcome is missing')
-				const state = await joinWorkspaceGroup({
-					welcomeBase64: welcome.welcome_64,
-					keyPackage: decodeKeyPackage(keyPackage.keyPackageBase64),
-					privateKeyPackage: decodePrivateKeyPackage(keyPackage.privateKeyPackageBase64),
-				})
-				if (groupIdFromState(state) !== pending.groupId)
-					throw new Error('Welcome is for another group')
-				const workspace: StoredWorkspace = {
-					workspaceId: pending.workspaceId,
-					groupId: pending.groupId,
-					ownerPubkey,
-					adminPubkey: pending.adminPubkey,
-					coordinatorPubkey: pending.coordinatorPubkey,
-					relays: pending.relays,
-					role: 'member',
-					status: 'active',
-					stateBase64: serializeClientState(state),
-					cursor: welcome.after ?? 0,
-					envelopes: [],
-					createdAt: this.now(),
-				}
-				await this.options.store.putWorkspace(workspace)
-				await this.options.store.deletePendingJoin(ownerPubkey, pending.keyPackageRef)
-				await coordinator.takeWelcomes({ consumed: [{ kp_ref: welcome.kp_ref, at: welcome.at }] })
-				await this.syncWithCoordinator(workspace, coordinator)
-				accepted.push(workspace)
-			} finally {
-				await coordinator.disconnect()
+			const result = await coordinator.takeWelcomes()
+			const welcome = result.welcomes.find((item) => item.kp_ref === pending.keyPackageRef)
+			if (!welcome) continue
+			const keyPackage = await this.options.store.getKeyPackage(ownerPubkey, pending.keyPackageRef)
+			if (!keyPackage) throw new Error('The MLS private KeyPackage for this Welcome is missing')
+			const state = await joinWorkspaceGroup({
+				welcomeBase64: welcome.welcome_64,
+				keyPackage: decodeKeyPackage(keyPackage.keyPackageBase64),
+				privateKeyPackage: decodePrivateKeyPackage(keyPackage.privateKeyPackageBase64),
+			})
+			if (groupIdFromState(state) !== pending.groupId)
+				throw new Error('Welcome is for another group')
+			const workspace: StoredWorkspace = {
+				workspaceId: pending.workspaceId,
+				groupId: pending.groupId,
+				ownerPubkey,
+				adminPubkey: pending.adminPubkey,
+				coordinatorPubkey: pending.coordinatorPubkey,
+				relays: pending.relays,
+				role: 'member',
+				status: 'active',
+				stateBase64: serializeClientState(state),
+				cursor: welcome.after ?? 0,
+				envelopes: [],
+				createdAt: this.now(),
 			}
+			await this.options.store.putWorkspace(workspace)
+			await this.options.store.deletePendingJoin(ownerPubkey, pending.keyPackageRef)
+			await coordinator.takeWelcomes({ consumed: [{ kp_ref: welcome.kp_ref, at: welcome.at }] })
+			await this.syncWithCoordinator(workspace, coordinator)
+			accepted.push(workspace)
 		}
 		return accepted
 	}
@@ -324,12 +327,8 @@ export class PrivateWorkspaceService {
 		const ownerPubkey = await this.ownerPubkey()
 		const workspace = await this.requireWorkspace(ownerPubkey, workspaceId)
 		const coordinator = this.coordinator(workspace.coordinatorPubkey, workspace.relays)
-		try {
-			await this.syncWithCoordinator(workspace, coordinator)
-			return workspace
-		} finally {
-			await coordinator.disconnect()
-		}
+		await this.syncWithCoordinator(workspace, coordinator)
+		return workspace
 	}
 
 	async sendChat(workspaceId: string, content: string) {
@@ -337,9 +336,38 @@ export class PrivateWorkspaceService {
 		return this.sendEnvelope(workspaceId, PRIVATE_WORKSPACE_CHAT_KIND, content.trim())
 	}
 
+	async sendEntity(
+		workspaceId: string,
+		entity: { kind: number; content: string; tags?: string[][] },
+	) {
+		return this.sendEnvelope(workspaceId, entity.kind, entity.content, entity.tags)
+	}
+
+	async sendDataset(
+		workspaceId: string,
+		collection: FeatureCollection,
+		options: { datasetId?: string; name?: string } = {},
+	) {
+		if (collection.type !== 'FeatureCollection') throw new Error('A dataset must be GeoJSON')
+		const collectionName =
+			options.name ??
+			(typeof (collection as FeatureCollection & { name?: unknown }).name === 'string'
+				? (collection as FeatureCollection & { name: string }).name
+				: 'Private dataset')
+		return this.sendEntity(workspaceId, {
+			kind: GEO_EVENT_KIND,
+			content: JSON.stringify(collection),
+			tags: [
+				['d', options.datasetId ?? crypto.randomUUID()],
+				['name', collectionName],
+			],
+		})
+	}
+
 	async sendDemoDataset(workspaceId: string, label: string) {
-		const content = JSON.stringify({
+		const collection: FeatureCollection & { name: string } = {
 			type: 'FeatureCollection',
+			name: label || 'Private map marker',
 			features: [
 				{
 					type: 'Feature',
@@ -347,11 +375,8 @@ export class PrivateWorkspaceService {
 					properties: { name: label || 'Private map marker', demo: true },
 				},
 			],
-		})
-		return this.sendEnvelope(workspaceId, GEO_EVENT_KIND, content, [
-			['d', crypto.randomUUID()],
-			['name', label || 'Private map marker'],
-		])
+		}
+		return this.sendDataset(workspaceId, collection)
 	}
 
 	async removeMember(workspaceId: string, memberPubkey: string): Promise<StoredWorkspace> {
@@ -364,18 +389,14 @@ export class PrivateWorkspaceService {
 		const oldState = deserializeClientState(workspace.stateBase64)
 		const removed = await removeWorkspaceMember({ state: oldState, pubkey: memberPubkey })
 		const coordinator = this.coordinator(workspace.coordinatorPubkey, workspace.relays)
-		try {
-			const posted = await coordinator.postMessage({
-				gid: workspace.groupId,
-				msg_64: await sealCoordinatorPayload(oldState, removed.commitBase64),
-			})
-			workspace.stateBase64 = serializeClientState(removed.newState)
-			workspace.cursor = posted.cursor
-			await this.options.store.putWorkspace(workspace)
-			return workspace
-		} finally {
-			await coordinator.disconnect()
-		}
+		const posted = await coordinator.postMessage({
+			gid: workspace.groupId,
+			msg_64: await sealCoordinatorPayload(oldState, removed.commitBase64),
+		})
+		workspace.stateBase64 = serializeClientState(removed.newState)
+		workspace.cursor = posted.cursor
+		await this.options.store.putWorkspace(workspace)
+		return workspace
 	}
 
 	members(workspace: StoredWorkspace): string[] {
@@ -397,19 +418,15 @@ export class PrivateWorkspaceService {
 		const oldState = deserializeClientState(workspace.stateBase64)
 		const outbound = await createWorkspaceApplicationMessage({ state: oldState, envelope })
 		const coordinator = this.coordinator(workspace.coordinatorPubkey, workspace.relays)
-		try {
-			const posted = await coordinator.postMessage({
-				gid: workspace.groupId,
-				msg_64: await sealCoordinatorPayload(oldState, outbound.messageBase64),
-			})
-			workspace.stateBase64 = serializeClientState(outbound.newState)
-			workspace.cursor = posted.cursor
-			workspace.envelopes.push(envelope)
-			await this.options.store.putWorkspace(workspace)
-			return envelope
-		} finally {
-			await coordinator.disconnect()
-		}
+		const posted = await coordinator.postMessage({
+			gid: workspace.groupId,
+			msg_64: await sealCoordinatorPayload(oldState, outbound.messageBase64),
+		})
+		workspace.stateBase64 = serializeClientState(outbound.newState)
+		workspace.cursor = posted.cursor
+		workspace.envelopes.push(envelope)
+		await this.options.store.putWorkspace(workspace)
+		return envelope
 	}
 
 	private async publishMetadata(
