@@ -34,6 +34,9 @@ that the security and recovery work is finished.
 - concurrent administrator removals are serialized by coordinator cursor order. A durable local
   journal recognizes response-lost commits, quarantines the losing same-epoch ciphertext, and
   rebuilds the still-authorized removal intent against the winning epoch;
+- an application journal also detects a membership commit ordered between local authoring and the
+  stored Comment/Dataset ciphertext, catches up to the winning epoch, and re-encrypts the same
+  authenticated envelope instead of losing or duplicating the user's record;
 - Cordn sees ordered opaque payloads and never receives workspace plaintext or MLS epoch secrets.
 
 ## Run it locally
@@ -120,10 +123,12 @@ deployments must provide their own `CORDN_SERVER_PUBKEY` and relay configuration
   not required. Each application send also persists a version-1 write-ahead journal containing the
   authenticated envelope, exact outer ciphertext, basis cursor, and resulting MLS state before
   `msg_post`; a reload finds an already stored ciphertext before retrying and cannot lose a Comment
-  or Dataset merely because the post response disappeared. Member approval similarly journals the
-  complete Add/checkpoint ciphertext plan before any group message is posted. General multi-record
-  offline authoring, stale-epoch application re-encryption, and coordinator-level idempotency remain;
-  manual **Sync** is a recovery control rather than the normal receive path.
+  or Dataset merely because the post response disappeared. After Cordn assigns a cursor, Earthly
+  inspects preceding records; if a membership commit won first, it applies that epoch and rebuilds
+  the same authorized application envelope. The established-workspace smoke injects this exact
+  race. Member approval similarly journals the complete Add/checkpoint ciphertext plan before any
+  group message is posted. A general multi-record offline outbox and coordinator-level idempotency
+  remain; manual **Sync** is a recovery control rather than the normal receive path.
 - The demo projects standalone Datasets plus Comments with optional small inline GeoJSON through a
   workspace-scoped store. It does not yet provide encrypted large-object/blob attachments,
   threaded private replies, tombstones, or a complete concurrent-edit conflict protocol.

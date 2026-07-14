@@ -17,13 +17,19 @@ import { MemoryPrivateWorkspaceStore } from '../src/lib/private-workspace/storag
 class DelayedEchoCoordinator {
 	private cursor = 0
 	private suppressFetches = 0
+	private nextPostFetchSuppressions = 1
 	private readonly messages: CoordinatorMessage[] = []
+
+	suppressNextPostFetches(count: number): void {
+		this.nextPostFetchSuppressions = count
+	}
 
 	readonly client = {
 		postMessage: async ({ gid, msg_64 }: { gid: string; msg_64: string }) => {
 			const cursor = ++this.cursor
 			this.messages.push({ cursor, gid, msg_64, at: cursor, encrypted: true })
-			this.suppressFetches = 1
+			this.suppressFetches = this.nextPostFetchSuppressions
+			this.nextPostFetchSuppressions = 1
 			return { cursor, gid, at: cursor }
 		},
 		fetchMessages: async ({ gid, after }: { gid: string; after?: number }) => {
@@ -57,6 +63,9 @@ const service = new PrivateWorkspaceService({
 })
 
 const workspace = await service.createWorkspace({ name: 'Delayed echo' })
+// Hide both the post-cursor ordering check and the immediate echo
+// reconciliation. The next user/background sync must confirm it.
+coordinator.suppressNextPostFetches(2)
 await service.sendChat(workspace.workspaceId, 'survives a delayed coordinator echo')
 
 const beforeEcho = (await service.listWorkspaces())[0]

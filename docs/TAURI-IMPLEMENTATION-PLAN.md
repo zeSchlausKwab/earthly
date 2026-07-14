@@ -1233,9 +1233,13 @@ post-send MLS state before calling `msg_post`. A reload searches coordinator his
 ciphertext before retrying, restores the sender ratchet state, and hands the acknowledged record to
 the existing delayed-echo reconciler. The failure-injection smoke gate loses a post response after
 durable coordinator storage, recreates the service, and proves one ciphertext and one projected
-record. This closes the single in-flight response-loss window; a multi-record offline queue,
-stale-epoch application re-encryption, and a coordinator idempotency key are still required for the
-complete private outbox.
+record. Once Cordn assigns a cursor, recovery also processes every earlier coordinator-ordered
+record from the journal's basis. If a membership commit advanced the epoch first, Earthly catches
+up, records the superseded ciphertext as a bounded diagnostic, and re-encrypts the same authenticated
+application envelope under the accepted epoch. The six-profile smoke injects a removal precisely
+between application encryption and coordinator storage and proves both active clients project one
+envelope. This closes the single in-flight response-loss and stale-epoch windows; a multi-record
+offline queue and coordinator idempotency key are still required for the complete private outbox.
 
 Dataset/comment schemas and most map presentation components should be highly reusable. Membership,
 state persistence, multi-device identity, recovery, delivery ordering, and encrypted blobs are the

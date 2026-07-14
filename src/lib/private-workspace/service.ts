@@ -47,6 +47,7 @@ import {
 import type {
 	PendingWorkspaceApproval,
 	PendingWorkspaceApprovalMessage,
+	PendingWorkspaceApplication,
 	PendingWorkspaceJoin,
 	PendingWorkspaceMembershipCommit,
 	PrivateWorkspaceStore,
@@ -621,39 +622,178 @@ export class PrivateWorkspaceService {
 		workspace: StoredWorkspace,
 		coordinator: PrivateWorkspaceCoordinator,
 	): Promise<void> {
-		const pending = workspace.pendingApplication
-		if (pending?.version !== 1) {
-			throw new Error('Unsupported private-map application recovery journal')
-		}
-		assertPrivateEnvelopeAuthorization(pending.envelope, workspace.groupId)
+		for (let pass = 0; pass < MAX_MEMBERSHIP_RECOVERY_PASSES; pass += 1) {
+			const pending = workspace.pendingApplication
+			if (pending?.version !== 1) {
+				throw new Error('Unsupported private-map application recovery journal')
+			}
+			assertPrivateEnvelopeAuthorization(pending.envelope, workspace.groupId)
 
-		if (pending.cursor === undefined) {
-			const fetched = await coordinator.fetchMessages({
+			if (pending.cursor === undefined) {
+				const fetched = await coordinator.fetchMessages({
+					gid: workspace.groupId,
+					after: pending.basisCursor > 0 ? pending.basisCursor : undefined,
+				})
+				const existing = fetched.messages.find((message) => message.msg_64 === pending.msgBase64)
+				if (existing) {
+					pending.cursor = existing.cursor
+				} else {
+					const posted = await coordinator.postMessage({
+						gid: workspace.groupId,
+						msg_64: pending.msgBase64,
+					})
+					pending.cursor = posted.cursor
+				}
+				await this.options.store.putWorkspace(workspace)
+			}
+
+			const preceding = await coordinator.fetchMessages({
 				gid: workspace.groupId,
 				after: pending.basisCursor > 0 ? pending.basisCursor : undefined,
 			})
-			const existing = fetched.messages.find((message) => message.msg_64 === pending.msgBase64)
-			if (existing) {
-				pending.cursor = existing.cursor
-			} else {
-				const posted = await coordinator.postMessage({
-					gid: workspace.groupId,
-					msg_64: pending.msgBase64,
-				})
-				pending.cursor = posted.cursor
+			const orderedPreceding = preceding.messages
+				.filter((message) => message.cursor < (pending.cursor ?? 0))
+				.sort((a, b) => a.cursor - b.cursor)
+			if (await this.applicationEpochAdvanced(workspace, pending, orderedPreceding)) {
+				await this.catchUpBeforeStaleApplication(workspace, pending, orderedPreceding)
+				if (workspace.status === 'removed') {
+					workspace.pendingApplication = undefined
+					await this.options.store.putWorkspace(workspace)
+					throw new Error(
+						'This account was removed before the pending private-map record could be delivered',
+					)
+				}
+				workspace.pendingApplication = await this.rebuildPendingApplication(workspace, pending)
+				await this.options.store.putWorkspace(workspace)
+				continue
 			}
+
+			workspace.stateBase64 = pending.finalStateBase64
+			if (!workspace.pendingOutbound?.some((item) => item.cursor === pending.cursor)) {
+				workspace.pendingOutbound = [
+					...(workspace.pendingOutbound ?? []),
+					{ cursor: pending.cursor, envelope: pending.envelope },
+				]
+			}
+			workspace.pendingApplication = undefined
+			await this.options.store.putWorkspace(workspace)
+			await this.syncWithCoordinator(workspace, coordinator)
+			return
 		}
 
-		workspace.stateBase64 = pending.finalStateBase64
-		if (!workspace.pendingOutbound?.some((item) => item.cursor === pending.cursor)) {
-			workspace.pendingOutbound = [
-				...(workspace.pendingOutbound ?? []),
-				{ cursor: pending.cursor, envelope: pending.envelope },
-			]
+		throw new Error('Private-map membership kept changing; the pending record will resume later')
+	}
+
+	private async applicationEpochAdvanced(
+		workspace: StoredWorkspace,
+		pending: PendingWorkspaceApplication,
+		messages: Awaited<ReturnType<PrivateWorkspaceCoordinator['fetchMessages']>>['messages'],
+	): Promise<boolean> {
+		let state = deserializeClientState(pending.basisStateBase64)
+		const basisEpoch = String(state.groupContext.epoch)
+		const probe: StoredWorkspace = {
+			...workspace,
+			stateBase64: pending.basisStateBase64,
+			cursor: pending.basisCursor,
+			envelopes: [...workspace.envelopes],
+			pendingOutbound: workspace.pendingOutbound ? [...workspace.pendingOutbound] : undefined,
 		}
-		workspace.pendingApplication = undefined
-		await this.options.store.putWorkspace(workspace)
-		await this.syncWithCoordinator(workspace, coordinator)
+
+		for (const message of messages) {
+			const priorOutbound = probe.pendingOutbound?.find((item) => item.cursor === message.cursor)
+			if (priorOutbound) {
+				this.applyEnvelope(probe, priorOutbound.envelope)
+				continue
+			}
+			try {
+				const mlsBase64 = message.encrypted
+					? await openCoordinatorPayload(state, message.msg_64)
+					: message.msg_64
+				const processed = await processWorkspaceMessage({
+					state,
+					messageBase64: mlsBase64,
+					administratorPubkeys: this.administratorPolicy(probe).administrators,
+				})
+				state = processed.newState
+				if (processed.kind === 'applicationMessage') {
+					this.applyEnvelope(probe, processed.envelope)
+				}
+			} catch {
+				// Invalid/stale records do not advance the usable MLS epoch.
+			}
+			if (String(state.groupContext.epoch) !== basisEpoch) return true
+		}
+		return false
+	}
+
+	private async catchUpBeforeStaleApplication(
+		workspace: StoredWorkspace,
+		pending: PendingWorkspaceApplication,
+		messages: Awaited<ReturnType<PrivateWorkspaceCoordinator['fetchMessages']>>['messages'],
+	): Promise<void> {
+		let state = deserializeClientState(pending.basisStateBase64)
+		for (const message of messages) {
+			const pendingOutboundIndex = workspace.pendingOutbound?.findIndex(
+				(item) => item.cursor === message.cursor,
+			)
+			if (pendingOutboundIndex !== undefined && pendingOutboundIndex >= 0) {
+				const priorOutbound = workspace.pendingOutbound?.[pendingOutboundIndex]
+				if (priorOutbound) this.applyEnvelope(workspace, priorOutbound.envelope)
+				workspace.pendingOutbound?.splice(pendingOutboundIndex, 1)
+				workspace.cursor = message.cursor
+				continue
+			}
+			try {
+				const mlsBase64 = message.encrypted
+					? await openCoordinatorPayload(state, message.msg_64)
+					: message.msg_64
+				const processed = await processWorkspaceMessage({
+					state,
+					messageBase64: mlsBase64,
+					administratorPubkeys: this.administratorPolicy(workspace).administrators,
+				})
+				state = processed.newState
+				if (processed.kind === 'applicationMessage') {
+					this.applyEnvelope(workspace, processed.envelope)
+				} else if (processed.kind === 'rejected') {
+					this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'rejected')
+				}
+				if (!memberPubkeysFromState(state).includes(workspace.ownerPubkey)) {
+					workspace.status = 'removed'
+				}
+			} catch {
+				this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'stale-or-invalid')
+			} finally {
+				workspace.cursor = message.cursor
+			}
+			if (workspace.status === 'removed') break
+		}
+		workspace.stateBase64 = serializeClientState(state)
+		this.reconcileAcknowledgedOutbounds(workspace, workspace.cursor)
+		this.administratorPolicy(workspace)
+	}
+
+	private async rebuildPendingApplication(
+		workspace: StoredWorkspace,
+		pending: PendingWorkspaceApplication,
+	): Promise<PendingWorkspaceApplication> {
+		const oldState = deserializeClientState(workspace.stateBase64)
+		const outbound = pending.forwarded
+			? await createForwardedWorkspaceApplicationMessage({
+					state: oldState,
+					envelope: pending.envelope,
+				})
+			: await createWorkspaceApplicationMessage({ state: oldState, envelope: pending.envelope })
+		return {
+			version: 1,
+			envelope: pending.envelope,
+			forwarded: pending.forwarded,
+			basisCursor: workspace.cursor,
+			basisStateBase64: workspace.stateBase64,
+			msgBase64: await sealCoordinatorPayload(oldState, outbound.messageBase64),
+			finalStateBase64: serializeClientState(outbound.newState),
+			attempt: pending.attempt + 1,
+		}
 	}
 
 	private async createMetadataEnvelope(

@@ -25,6 +25,7 @@ class InMemoryCordnServer {
 	private failKeyPackageAfterRead = false
 	private failMessageAfterWrite = false
 	private failWelcomeAfterWrite = false
+	private beforeMessageWrite?: () => Promise<void>
 	private readonly keyPackages = new Map<string, PublishedKeyPackage>()
 	private readonly joinRequests = new Map<string, PendingJoinRequest[]>()
 	private readonly welcomes: StoredWelcome[] = []
@@ -46,6 +47,10 @@ class InMemoryCordnServer {
 
 	failNextWelcomeResponseAfterWrite(): void {
 		this.failWelcomeAfterWrite = true
+	}
+
+	beforeNextMessageWrite(callback: () => Promise<void>): void {
+		this.beforeMessageWrite = callback
 	}
 
 	groupMessages(groupId: string): CoordinatorMessage[] {
@@ -138,6 +143,9 @@ class InMemoryCordnServer {
 				return { requests: [...requests] }
 			},
 			postMessage: async ({ gid, msg_64 }) => {
+				const beforeWrite = this.beforeMessageWrite
+				this.beforeMessageWrite = undefined
+				await beforeWrite?.()
 				const messages = this.messages.get(gid) ?? []
 				const cursor = (messages.at(-1)?.cursor ?? 0) + 1
 				const at = ++this.clock
@@ -426,6 +434,35 @@ const expectedMembersAfterAdds = new Set([
 assert.deepEqual(new Set(aliceService.members(afterConcurrentAddsAlice)), expectedMembersAfterAdds)
 assert.deepEqual(new Set(bobService.members(afterConcurrentAddsBob)), expectedMembersAfterAdds)
 
+// Bob advances the MLS epoch after Alice has encrypted an application record
+// but before Cordn orders that ciphertext. Alice must catch up and re-encrypt
+// the same authenticated envelope instead of projecting the stale ciphertext.
+cordn.beforeNextMessageWrite(async () => {
+	await bobService.removeMember(workspace.workspaceId, dave.pubkey)
+})
+const racedApplication = await aliceService.sendChat(
+	workspace.workspaceId,
+	'Re-encrypted after a concurrent epoch change',
+)
+const afterApplicationRaceAlice = await aliceService.syncWorkspace(workspace.workspaceId)
+const afterApplicationRaceBob = await bobService.syncWorkspace(workspace.workspaceId)
+assert(
+	afterApplicationRaceAlice.envelopes.some((envelope) => envelope.id === racedApplication.id),
+)
+assert(afterApplicationRaceBob.envelopes.some((envelope) => envelope.id === racedApplication.id))
+assert.equal(
+	afterApplicationRaceAlice.envelopes.filter((envelope) => envelope.id === racedApplication.id)
+		.length,
+	1,
+	'application re-encryption must project the authenticated envelope once',
+)
+assert(
+	afterApplicationRaceAlice.skippedCoordinatorMessages?.some(
+		(message) => message.reason === 'stale-or-invalid',
+	),
+	'the superseded application ciphertext should remain a bounded diagnostic',
+)
+
 // Both administrators build a removal from the same MLS epoch while fetches
 // are delayed. The first coordinator-ordered commit wins; the losing semantic
 // removal must catch up, rebuild against the new epoch, and converge.
@@ -433,7 +470,7 @@ cordn.setFetchSuppressed(alice.pubkey, true)
 cordn.setFetchSuppressed(bob.pubkey, true)
 cordn.failNextMessageResponseAfterWrite()
 await assert.rejects(
-	bobService.removeMember(workspace.workspaceId, dave.pubkey),
+	bobService.removeMember(workspace.workspaceId, frank.pubkey),
 	/simulated message response loss after durable storage/u,
 )
 await assert.rejects(
@@ -451,7 +488,6 @@ const expectedMembersAfterRemovals = new Set([
 	alice.pubkey,
 	bob.pubkey,
 	erin.pubkey,
-	frank.pubkey,
 ])
 assert.deepEqual(new Set(aliceService.members(convergedAlice)), expectedMembersAfterRemovals)
 assert.deepEqual(new Set(bobService.members(convergedBob)), expectedMembersAfterRemovals)
@@ -471,12 +507,12 @@ assert.equal(
 	'membership response recovery must not duplicate an acknowledged MLS commit',
 )
 
-await aliceService.sendChat(workspace.workspaceId, 'After Carol and Dave were removed')
+await aliceService.sendChat(workspace.workspaceId, 'After Carol, Dave, and Frank were removed')
 const removedCarol = await carolService.syncWorkspace(workspace.workspaceId)
 assert.equal(removedCarol.status, 'removed')
 assert.equal(
 	removedCarol.envelopes.some(
-		(envelope) => envelope.content === 'After Carol and Dave were removed',
+		(envelope) => envelope.content === 'After Carol, Dave, and Frank were removed',
 	),
 	false,
 )
@@ -484,20 +520,22 @@ const removedDave = await daveService.syncWorkspace(workspace.workspaceId)
 assert.equal(removedDave.status, 'removed')
 assert.equal(
 	removedDave.envelopes.some(
-		(envelope) => envelope.content === 'After Carol and Dave were removed',
+		(envelope) => envelope.content === 'After Carol, Dave, and Frank were removed',
+	),
+	false,
+)
+const removedFrank = await frankService.syncWorkspace(workspace.workspaceId)
+assert.equal(removedFrank.status, 'removed')
+assert.equal(
+	removedFrank.envelopes.some(
+		(envelope) => envelope.content === 'After Carol, Dave, and Frank were removed',
 	),
 	false,
 )
 const activeErin = await erinService.syncWorkspace(workspace.workspaceId)
-const activeFrank = await frankService.syncWorkspace(workspace.workspaceId)
 assert(
 	activeErin.envelopes.some(
-		(envelope) => envelope.content === 'After Carol and Dave were removed',
-	),
-)
-assert(
-	activeFrank.envelopes.some(
-		(envelope) => envelope.content === 'After Carol and Dave were removed',
+		(envelope) => envelope.content === 'After Carol, Dave, and Frank were removed',
 	),
 )
 
