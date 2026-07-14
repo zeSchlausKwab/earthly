@@ -30,6 +30,7 @@ import {
 	type AuthenticationService,
 	type ClientState,
 	type Credential,
+	type IncomingMessageCallback,
 	type KeyPackage,
 	type PrivateKeyPackage,
 	type Welcome,
@@ -161,6 +162,51 @@ export function memberPubkeysFromState(state: ClientState): string[] {
 		.map((credential) => decoder.decode(credential.identity))
 }
 
+function memberPubkeyAtLeafIndex(state: ClientState, leafIndex: number): string | undefined {
+	const node = state.ratchetTree[leafIndex * 2]
+	if (!node || node.nodeType !== nodeTypes.leaf) return undefined
+	try {
+		return credentialPubkey(node.leaf.credential, 'MLS state')
+	} catch {
+		return undefined
+	}
+}
+
+function proposalRequiresAdministrator(proposalType: number): boolean {
+	return proposalType !== defaultProposalTypes.update
+}
+
+export function createWorkspaceAuthorizationCallback(input: {
+	state: ClientState
+	administratorPubkeys: readonly string[]
+}): IncomingMessageCallback {
+	const administrators = new Set(input.administratorPubkeys)
+	return (incoming) => {
+		const proposals = incoming.kind === 'commit' ? incoming.proposals : [incoming.proposal]
+		if (!proposals.some(({ proposal }) => proposalRequiresAdministrator(proposal.proposalType))) {
+			return 'accept'
+		}
+
+		const senderLeafIndex =
+			incoming.kind === 'commit' ? incoming.senderLeafIndex : incoming.proposal.senderLeafIndex
+		const senderPubkey =
+			senderLeafIndex === undefined
+				? undefined
+				: memberPubkeyAtLeafIndex(input.state, Number(senderLeafIndex))
+		if (!senderPubkey || !administrators.has(senderPubkey)) return 'reject'
+
+		for (const { proposal } of proposals) {
+			if (proposal.proposalType !== defaultProposalTypes.remove || !('remove' in proposal)) {
+				continue
+			}
+			const removedPubkey = memberPubkeyAtLeafIndex(input.state, proposal.remove.removed)
+			if (removedPubkey && administrators.has(removedPubkey)) return 'reject'
+		}
+
+		return 'accept'
+	}
+}
+
 export async function createWorkspaceGroup(input: {
 	groupId: string
 	keyPackage: KeyPackage
@@ -248,13 +294,14 @@ export async function joinWorkspaceGroup(input: {
 	})
 }
 
-export async function createWorkspaceApplicationMessage(input: {
+async function createApplicationEnvelopeMessage(input: {
 	state: ClientState
 	envelope: PrivateWorkspaceEnvelope
+	allowForwardedAuthor: boolean
 }) {
 	const groupId = groupIdFromState(input.state)
 	assertPrivateEnvelopeAuthorization(input.envelope, groupId)
-	if (ownPubkeyFromState(input.state) !== input.envelope.pubkey) {
+	if (!input.allowForwardedAuthor && ownPubkeyFromState(input.state) !== input.envelope.pubkey) {
 		throw new Error('Private envelope author does not match the local MLS credential')
 	}
 	const cipherSuite = await getCiphersuite()
@@ -270,9 +317,29 @@ export async function createWorkspaceApplicationMessage(input: {
 	}
 }
 
+export function createWorkspaceApplicationMessage(input: {
+	state: ClientState
+	envelope: PrivateWorkspaceEnvelope
+}) {
+	return createApplicationEnvelopeMessage({ ...input, allowForwardedAuthor: false })
+}
+
+/**
+ * Re-encrypt an already authenticated envelope into the current epoch. This is
+ * only for replaying accepted policy history to newly joined members; normal
+ * authoring must use createWorkspaceApplicationMessage.
+ */
+export function createForwardedWorkspaceApplicationMessage(input: {
+	state: ClientState
+	envelope: PrivateWorkspaceEnvelope
+}) {
+	return createApplicationEnvelopeMessage({ ...input, allowForwardedAuthor: true })
+}
+
 export async function processWorkspaceMessage(input: {
 	state: ClientState
 	messageBase64: string
+	administratorPubkeys: readonly string[]
 }) {
 	const message = decode(mlsMessageDecoder, base64ToBytes(input.messageBase64))
 	if (!message || (message.wireformat !== 1 && message.wireformat !== 2)) {
@@ -283,6 +350,10 @@ export async function processWorkspaceMessage(input: {
 		context: getContext(cipherSuite),
 		state: input.state,
 		message,
+		callback: createWorkspaceAuthorizationCallback({
+			state: input.state,
+			administratorPubkeys: input.administratorPubkeys,
+		}),
 	})
 
 	if (result.kind === 'applicationMessage') {
@@ -292,6 +363,9 @@ export async function processWorkspaceMessage(input: {
 			throw new Error('MLS authenticated data does not match the envelope authorization')
 		}
 		return { kind: 'applicationMessage' as const, newState: result.newState, envelope }
+	}
+	if (result.actionTaken === 'reject') {
+		return { kind: 'rejected' as const, newState: result.newState }
 	}
 
 	return { kind: 'newState' as const, newState: result.newState }

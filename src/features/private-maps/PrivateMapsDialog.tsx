@@ -10,6 +10,8 @@ import {
 	RefreshCw,
 	Settings2,
 	ShieldCheck,
+	ShieldMinus,
+	ShieldPlus,
 	UserMinus,
 	UserPlus,
 	UsersRound,
@@ -150,6 +152,7 @@ export function PrivateGroupsPanel({
 	const joinRequests =
 		joinRequestState.workspaceId === privateGroupId ? joinRequestState.requests : []
 	const members = selected && service ? service.members(selected) : []
+	const administrators = selected && service ? service.administrators(selected) : []
 	const pendingForRoute = Boolean(privateGroupId && pendingWorkspaceIds.has(privateGroupId))
 	const selectedSyncState = selected ? snapshot.syncByWorkspace[selected.workspaceId] : undefined
 	const visibleCommentIds =
@@ -329,6 +332,15 @@ export function PrivateGroupsPanel({
 				workspaceService.removeMember(selected.workspaceId, pubkey),
 			)
 			toast.success('Member removed from future epochs')
+		})
+
+	const handleAdministrator = (pubkey: string, administrator: boolean) =>
+		run(administrator ? 'promote administrator' : 'demote administrator', async () => {
+			if (!runtime || !service || !selected) return
+			await runtime.perform((workspaceService) =>
+				workspaceService.setAdministrator(selected.workspaceId, pubkey, administrator),
+			)
+			toast.success(administrator ? 'Member promoted to administrator' : 'Administrator demoted')
 		})
 
 	if (!activeAccount) {
@@ -599,20 +611,34 @@ export function PrivateGroupsPanel({
 														interactive={false}
 														className="min-w-0 flex-1"
 													/>
-													{member === selected.adminPubkey ? (
+													{administrators.includes(member) ? (
 														<RowBadge label="admin" className="bg-primary/15 text-primary" />
 													) : null}
 													{selected.role === 'administrator' && member !== activeAccount.pubkey ? (
-														<Button
-															className="ml-auto"
-															size="icon-xs"
-															variant="ghost"
-															aria-label={`Remove ${shortKey(member)}`}
-															onClick={() => handleRemove(member)}
-															disabled={Boolean(busy)}
-														>
-															<UserMinus className="text-destructive" />
-														</Button>
+														<div className="ml-auto flex items-center gap-0.5">
+															<Button
+																size="icon-xs"
+																variant="ghost"
+																aria-label={`${administrators.includes(member) ? 'Demote' : 'Promote'} ${shortKey(member)}`}
+																onClick={() =>
+																	handleAdministrator(member, !administrators.includes(member))
+																}
+																disabled={Boolean(busy)}
+															>
+																{administrators.includes(member) ? <ShieldMinus /> : <ShieldPlus />}
+															</Button>
+															{!administrators.includes(member) ? (
+																<Button
+																	size="icon-xs"
+																	variant="ghost"
+																	aria-label={`Remove ${shortKey(member)}`}
+																	onClick={() => handleRemove(member)}
+																	disabled={Boolean(busy)}
+																>
+																	<UserMinus className="text-destructive" />
+																</Button>
+															) : null}
+														</div>
 													) : null}
 												</div>
 											))}

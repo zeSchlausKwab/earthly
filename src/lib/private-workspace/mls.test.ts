@@ -78,10 +78,30 @@ describe('private workspace MLS lifecycle', () => {
 			const opaque = await sealCoordinatorPayload(aliceState, outbound.messageBase64)
 			aliceState = outbound.newState
 			const opened = await openCoordinatorPayload(bobState, opaque)
-			const received = await processWorkspaceMessage({ state: bobState, messageBase64: opened })
+			const received = await processWorkspaceMessage({
+				state: bobState,
+				messageBase64: opened,
+				administratorPubkeys: [alicePubkey],
+			})
 			expect(received.kind).toBe('applicationMessage')
 			if (received.kind === 'applicationMessage') expect(received.envelope).toEqual(envelope)
 			bobState = received.newState
+
+			const unauthorizedRemoval = await removeWorkspaceMember({
+				state: bobState,
+				pubkey: alicePubkey,
+			})
+			const unauthorizedPayload = await sealCoordinatorPayload(
+				bobState,
+				unauthorizedRemoval.commitBase64,
+			)
+			const rejected = await processWorkspaceMessage({
+				state: aliceState,
+				messageBase64: await openCoordinatorPayload(aliceState, unauthorizedPayload),
+				administratorPubkeys: [alicePubkey],
+			})
+			expect(rejected.kind).toBe('rejected')
+			expect(memberPubkeysFromState(rejected.newState)).toEqual([alicePubkey, bobPubkey])
 
 			const removal = await removeWorkspaceMember({ state: aliceState, pubkey: bobPubkey })
 			const removalPayload = await sealCoordinatorPayload(aliceState, removal.commitBase64)
@@ -89,6 +109,7 @@ describe('private workspace MLS lifecycle', () => {
 			const removedBob = await processWorkspaceMessage({
 				state: bobState,
 				messageBase64: openedRemoval,
+				administratorPubkeys: [alicePubkey],
 			})
 			expect(removedBob.kind).toBe('newState')
 			aliceState = removal.newState

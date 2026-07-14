@@ -17,8 +17,10 @@ import {
 const groupId = 'earthly:node-smoke'
 const aliceSecretKey = generateSecretKey()
 const bobSecretKey = generateSecretKey()
+const carolSecretKey = generateSecretKey()
 const alicePubkey = getPublicKey(aliceSecretKey)
 const bobPubkey = getPublicKey(bobSecretKey)
+const carolPubkey = getPublicKey(carolSecretKey)
 const aliceSigner = {
 	signEvent: async (event: Parameters<typeof finalizeEvent>[0]) =>
 		finalizeEvent(event, aliceSecretKey),
@@ -29,6 +31,7 @@ const bobSigner = {
 }
 const aliceKeys = await generateMlsKeyPackage(alicePubkey)
 const bobKeys = await generateMlsKeyPackage(bobPubkey)
+const carolKeys = await generateMlsKeyPackage(carolPubkey)
 const aliceInitial = await createWorkspaceGroup({
 	groupId,
 	keyPackage: aliceKeys.keyPackage,
@@ -68,16 +71,56 @@ aliceState = outbound.newState
 const received = await processWorkspaceMessage({
 	state: bobState,
 	messageBase64: await openCoordinatorPayload(bobState, sealed),
+	administratorPubkeys: [alicePubkey],
 })
 assert.equal(received.kind, 'applicationMessage')
 if (received.kind === 'applicationMessage') assert.deepEqual(received.envelope, envelope)
 bobState = received.newState
+
+const unauthorizedRemoval = await removeWorkspaceMember({
+	state: bobState,
+	pubkey: alicePubkey,
+})
+const unauthorizedPayload = await sealCoordinatorPayload(
+	bobState,
+	unauthorizedRemoval.commitBase64,
+)
+const rejected = await processWorkspaceMessage({
+	state: aliceState,
+	messageBase64: await openCoordinatorPayload(aliceState, unauthorizedPayload),
+	administratorPubkeys: [alicePubkey],
+})
+assert.equal(rejected.kind, 'rejected')
+assert.deepEqual(memberPubkeysFromState(rejected.newState), [alicePubkey, bobPubkey])
+
+const promotedAdministratorAdd = await addWorkspaceMember({
+	state: bobState,
+	keyPackage: carolKeys.keyPackage,
+})
+const promotedAdministratorPayload = await sealCoordinatorPayload(
+	bobState,
+	promotedAdministratorAdd.commitBase64,
+)
+const acceptedPromotionCommit = await processWorkspaceMessage({
+	state: aliceState,
+	messageBase64: await openCoordinatorPayload(aliceState, promotedAdministratorPayload),
+	administratorPubkeys: [alicePubkey, bobPubkey],
+})
+assert.equal(acceptedPromotionCommit.kind, 'newState')
+assert.deepEqual(memberPubkeysFromState(acceptedPromotionCommit.newState), [
+	alicePubkey,
+	bobPubkey,
+	carolPubkey,
+])
+aliceState = acceptedPromotionCommit.newState
+bobState = promotedAdministratorAdd.newState
 
 const removal = await removeWorkspaceMember({ state: aliceState, pubkey: bobPubkey })
 const removalPayload = await sealCoordinatorPayload(aliceState, removal.commitBase64)
 const removedBob = await processWorkspaceMessage({
 	state: bobState,
 	messageBase64: await openCoordinatorPayload(bobState, removalPayload),
+	administratorPubkeys: [alicePubkey],
 })
 const futureEnvelope = await createPrivateEnvelope({
 	signer: aliceSigner,

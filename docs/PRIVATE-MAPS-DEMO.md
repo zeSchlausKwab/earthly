@@ -110,10 +110,13 @@ deployments must provide their own `CORDN_SERVER_PUBKEY` and relay configuration
 - Private inline references currently reuse a Dataset's Nostr address tuple inside the ciphertext
   and resolve only against the active workspace projection. A future protocol profile should make
   cross-workspace reference semantics and coordinate collisions explicit.
-- The creator is currently the only administrator. Signed, group-bound application authorship is
-  now enforced, but secure promotion still requires an encrypted, versioned role-policy chain,
-  deterministic concurrent-transition rules, and a trusted current-policy bootstrap for newcomers.
-  A local role toggle would not be sufficient authorization.
+- Administrator roles now come from a signed, MLS-encrypted, versioned policy chain rather than a
+  local role toggle. The creator is the trust anchor, current administrators can promote or demote
+  other members, each transition extends one predecessor, and coordinator delivery order selects
+  the first valid concurrent transition. The MLS incoming-message callback also rejects sensitive
+  membership proposals from a sender whose verified MLS credential is not a current administrator.
+  Durable transactional handling of simultaneous administrator commits and crash recovery remains
+  a production-hardening item.
 - Creating a private application record asks the active Nostr signer for its detached authorization
   proof. Browser extension and remote signers may therefore prompt per record until Earthly defines
   a narrowly scoped, revocable device/session authorization mechanism.
@@ -123,9 +126,10 @@ deployments must provide their own `CORDN_SERVER_PUBKEY` and relay configuration
 - Private envelopes written before authorization version 1 remain readable from an existing local
   projection, but are rejected if received again from the coordinator. This is an intentional
   security compatibility boundary for the current development checkpoint.
-- A newly added MLS member cannot decrypt records sent before the Add epoch. Earthly has not yet
-  implemented the planned post-join current-state snapshot or optional, explicitly shared history
-  archive.
+- A newly added MLS member cannot decrypt records sent before the Add epoch. Earthly re-encrypts the
+  accepted administrator-policy chain into the post-Add epoch before exposing the Welcome, so the
+  newcomer derives current authorization safely. It does not yet publish the planned current map
+  snapshot or optional, explicitly shared chat/geometry history archive.
 - Metadata is encrypted as an Earthly application record. It is intentionally not copied into an
   MLS GroupContext extension, public Nostr tags, or the invitation.
 - Removal protects future epochs; it cannot retract content or keys that a former member already

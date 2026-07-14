@@ -1043,28 +1043,27 @@ Start with two application roles:
 
 The workspace creator is the first administrator, but administration is not permanently tied to
 that pubkey. Promotion adds another pubkey through an encrypted, versioned policy transition
-authorized by the administrator set that was valid for the transition's epoch. Demotion uses the
-same mechanism. Derive roles from the validated policy history on every client; never implement
-promotion as a local `role` flag, coordinator-side ACL alone, or unsigned UI preference. Before
-enabling this control, Earthly must bind each decrypted application message to an authenticated
-identity, so an ordinary member cannot claim an administrator pubkey in a sender-chosen envelope
-field.
+authorized by the administrator set that was valid at the previous accepted revision. Demotion
+uses the same mechanism. Roles are derived from validated policy history on every client; the
+stored `role` field is only a UI projection, never the authority source.
 
-The current implementation completes that prerequisite with a version-1 detached Nostr
-authorization proof inside every MLS application message. The signed proof commits to the private
-payload ID and opaque MLS group ID; its event ID is carried in MLS authenticated data and checked
-before projection. The private payload remains unsigned, so decrypted location data does not become
-a normal publishable Nostr event. Outbound messages also require the proof author to match the local
-MLS BasicCredential. Because `ts-mls` rc.12 does not expose the verified incoming sender leaf through
-its public `processMessage` result, policy authorization relies on this independently verifiable
-inner proof rather than a sender-chosen `pubkey` field. A later library upgrade may additionally bind
-the proof directly to the reported MLS sender leaf.
+The implementation binds every MLS application envelope to a version-1 detached Nostr
+authorization proof. The proof commits to the private payload ID and opaque MLS group ID; its event
+ID is carried in MLS authenticated data and checked before projection. The private payload remains
+unsigned, so decrypted location data does not become a normal publishable Nostr event. Normal
+outbound messages require the proof author to match the local MLS BasicCredential. For membership
+proposals and commits, `ts-mls` rc.12 supplies the verified sender leaf to its incoming-message
+callback even though it is absent from the final `processMessage` result. Earthly resolves that leaf
+to its BasicCredential and rejects sensitive proposals from non-administrators.
 
-This identity checkpoint does not by itself implement administrator promotion. The role-policy
-protocol still needs a predecessor/revision chain, deterministic handling of concurrent transitions,
-and a trusted current-policy bootstrap for a member whose Welcome intentionally starts after earlier
-epochs. Account signers may also prompt once per private record; a future narrowly scoped, revocable
-device/session authorization can improve that UX without weakening the identity binding.
+Administrator promotion and demotion use encrypted kind `37524` policy records. Each transition has
+a strict revision, predecessor envelope ID, and canonically sorted administrator set; it changes
+exactly one member. Clients evaluate records in coordinator cursor order, accept the first valid
+extension, and ignore stale or unauthorized alternatives. Accepted policy records are re-encrypted
+into the post-Add epoch before a newcomer can retrieve its Welcome, giving that device the trusted
+current policy without exposing the administrator list publicly. Account signers may still prompt
+once per private record; a future narrowly scoped, revocable device/session authorization can
+improve that UX without weakening the identity binding.
 
 MLS membership grants decryption capability; application roles govern which decrypted messages a
 client accepts as authorized. If editor and read-only viewer roles are later added, they are

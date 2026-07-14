@@ -9,6 +9,7 @@ import {
 	decodePrivateKeyPackage,
 	credentialPubkeyFromKeyPackage,
 	addWorkspaceMember,
+	createForwardedWorkspaceApplicationMessage,
 	createWorkspaceApplicationMessage,
 	createWorkspaceGroup,
 	deserializeClientState,
@@ -22,6 +23,13 @@ import {
 	sealCoordinatorPayload,
 	serializeClientState,
 } from './mls'
+import {
+	acceptedAdministratorPolicyEnvelopes,
+	createAdministratorPolicyTransition,
+	PRIVATE_WORKSPACE_ADMIN_POLICY_KIND,
+	reduceAdministratorPolicy,
+	type AdministratorPolicyState,
+} from './policy'
 import {
 	decodePrivateMapInvitation,
 	encodePrivateMapInvitation,
@@ -112,6 +120,40 @@ export class PrivateWorkspaceService {
 		return coordinator
 	}
 
+	private administratorPolicy(workspace: StoredWorkspace): AdministratorPolicyState {
+		const policy = reduceAdministratorPolicy(workspace.adminPubkey, workspace.envelopes)
+		workspace.role = policy.administrators.includes(workspace.ownerPubkey)
+			? 'administrator'
+			: 'member'
+		return policy
+	}
+
+	private requireAdministrator(
+		workspace: StoredWorkspace,
+		ownerPubkey: string,
+		action: string,
+	): AdministratorPolicyState {
+		const policy = this.administratorPolicy(workspace)
+		if (!policy.administrators.includes(ownerPubkey)) {
+			throw new Error(`Only administrators can ${action}`)
+		}
+		return policy
+	}
+
+	private applyEnvelope(workspace: StoredWorkspace, envelope: PrivateWorkspaceEnvelope): void {
+		if (workspace.envelopes.some((item) => item.id === envelope.id)) return
+		const policyBefore = this.administratorPolicy(workspace)
+		workspace.envelopes.push(envelope)
+
+		const metadata = policyBefore.administrators.includes(envelope.pubkey)
+			? readMetadata(envelope)
+			: undefined
+		if (metadata) {
+			workspace.metadata = metadata
+		}
+		this.administratorPolicy(workspace)
+	}
+
 	/** Close the long-lived ContextVM sessions owned by this service. */
 	async dispose(): Promise<void> {
 		await this.resetConnections()
@@ -125,7 +167,9 @@ export class PrivateWorkspaceService {
 	}
 
 	async listWorkspaces() {
-		return this.options.store.listWorkspaces(await this.ownerPubkey())
+		const workspaces = await this.options.store.listWorkspaces(await this.ownerPubkey())
+		for (const workspace of workspaces) this.administratorPolicy(workspace)
+		return workspaces
 	}
 
 	async listPendingJoins() {
@@ -174,9 +218,8 @@ export class PrivateWorkspaceService {
 
 	async createInvitation(workspaceId: string): Promise<string> {
 		const ownerPubkey = await this.ownerPubkey()
-		const workspace = await this.requireWorkspace(ownerPubkey, workspaceId)
-		if (workspace.role !== 'administrator')
-			throw new Error('Only administrators can invite members')
+		const workspace = await this.syncWorkspace(workspaceId)
+		this.requireAdministrator(workspace, ownerPubkey, 'invite members')
 		const invitation: PrivateMapInvitation = {
 			version: 1,
 			workspaceId: workspace.workspaceId,
@@ -233,8 +276,8 @@ export class PrivateWorkspaceService {
 
 	async fetchJoinRequests(workspaceId: string): Promise<WorkspaceJoinRequest[]> {
 		const ownerPubkey = await this.ownerPubkey()
-		const workspace = await this.requireWorkspace(ownerPubkey, workspaceId)
-		if (workspace.role !== 'administrator') return []
+		const workspace = await this.syncWorkspace(workspaceId)
+		if (!this.administratorPolicy(workspace).administrators.includes(ownerPubkey)) return []
 		const coordinator = this.coordinator(workspace.coordinatorPubkey, workspace.relays)
 		const result = await coordinator.takeJoinRequests({ gid: workspace.groupId })
 		return result.requests.map((request) => ({ ...request, workspaceId }))
@@ -242,8 +285,8 @@ export class PrivateWorkspaceService {
 
 	async approveJoinRequest(request: WorkspaceJoinRequest): Promise<StoredWorkspace> {
 		const ownerPubkey = await this.ownerPubkey()
-		const workspace = await this.requireWorkspace(ownerPubkey, request.workspaceId)
-		if (workspace.role !== 'administrator') throw new Error('Only administrators can add members')
+		const workspace = await this.syncWorkspace(request.workspaceId)
+		const policy = this.requireAdministrator(workspace, ownerPubkey, 'add members')
 		const coordinator = this.coordinator(workspace.coordinatorPubkey, workspace.relays)
 		const consumed = await coordinator.takeKeyPackage({ id: request.kp_ref })
 		if (!consumed.keyPackage) throw new Error('The requested MLS KeyPackage is no longer available')
@@ -264,16 +307,19 @@ export class PrivateWorkspaceService {
 		const added = await addWorkspaceMember({ state: oldState, keyPackage })
 		const sealedCommit = await sealCoordinatorPayload(oldState, added.commitBase64)
 		const posted = await coordinator.postMessage({ gid: workspace.groupId, msg_64: sealedCommit })
+		workspace.stateBase64 = serializeClientState(added.newState)
+		workspace.cursor = posted.cursor
+		await this.options.store.putWorkspace(workspace)
+		for (const envelope of acceptedAdministratorPolicyEnvelopes(policy, workspace.envelopes)) {
+			await this.postApplicationEnvelope(workspace, coordinator, envelope, true)
+		}
+		await this.publishMetadata(workspace, coordinator)
 		await coordinator.storeWelcome({
 			target_pk: request.pk,
 			kp_ref: request.kp_ref,
 			welcome_64: added.welcomeBase64,
 			after: posted.cursor,
 		})
-		workspace.stateBase64 = serializeClientState(added.newState)
-		workspace.cursor = posted.cursor
-		await this.options.store.putWorkspace(workspace)
-		await this.publishMetadata(workspace, coordinator)
 		await coordinator.takeJoinRequests({
 			gid: workspace.groupId,
 			consumed: [{ pk: request.pk, at: request.at }],
@@ -397,11 +443,11 @@ export class PrivateWorkspaceService {
 
 	async removeMember(workspaceId: string, memberPubkey: string): Promise<StoredWorkspace> {
 		const ownerPubkey = await this.ownerPubkey()
-		let workspace = await this.requireWorkspace(ownerPubkey, workspaceId)
-		if (workspace.role !== 'administrator')
-			throw new Error('Only administrators can remove members')
-		if (memberPubkey === ownerPubkey) throw new Error('Administrator self-removal is not supported')
-		workspace = await this.syncWorkspace(workspaceId)
+		const workspace = await this.syncWorkspace(workspaceId)
+		const policy = this.requireAdministrator(workspace, ownerPubkey, 'remove members')
+		if (policy.administrators.includes(memberPubkey)) {
+			throw new Error('Demote this administrator before removing them')
+		}
 		const oldState = deserializeClientState(workspace.stateBase64)
 		const removed = await removeWorkspaceMember({ state: oldState, pubkey: memberPubkey })
 		const coordinator = this.coordinator(workspace.coordinatorPubkey, workspace.relays)
@@ -415,8 +461,44 @@ export class PrivateWorkspaceService {
 		return workspace
 	}
 
+	async setAdministrator(
+		workspaceId: string,
+		memberPubkey: string,
+		administrator: boolean,
+	): Promise<StoredWorkspace> {
+		const ownerPubkey = await this.ownerPubkey()
+		const workspace = await this.syncWorkspace(workspaceId)
+		const policy = this.requireAdministrator(workspace, ownerPubkey, 'manage administrators')
+		if (!this.members(workspace).includes(memberPubkey)) {
+			throw new Error('Only current group members can be administrators')
+		}
+
+		const transition = createAdministratorPolicyTransition(policy, {
+			pubkey: memberPubkey,
+			administrator,
+		})
+		const envelope = await this.sendEnvelope(
+			workspaceId,
+			PRIVATE_WORKSPACE_ADMIN_POLICY_KIND,
+			JSON.stringify(transition),
+			[['d', 'administrator-policy']],
+		)
+		const updated = await this.requireWorkspace(ownerPubkey, workspaceId)
+		if (this.administratorPolicy(updated).head !== envelope.id) {
+			throw new Error(
+				'Administrator policy changed concurrently; review the current roles and retry',
+			)
+		}
+		await this.options.store.putWorkspace(updated)
+		return updated
+	}
+
 	members(workspace: StoredWorkspace): string[] {
 		return memberPubkeysFromState(deserializeClientState(workspace.stateBase64))
+	}
+
+	administrators(workspace: StoredWorkspace): string[] {
+		return [...this.administratorPolicy(workspace).administrators]
 	}
 
 	private async sendEnvelope(
@@ -438,18 +520,29 @@ export class PrivateWorkspaceService {
 			content,
 			tags,
 		})
-		const oldState = deserializeClientState(workspace.stateBase64)
-		const outbound = await createWorkspaceApplicationMessage({ state: oldState, envelope })
 		const coordinator = this.coordinator(workspace.coordinatorPubkey, workspace.relays)
+		await this.postApplicationEnvelope(workspace, coordinator, envelope)
+		return envelope
+	}
+
+	private async postApplicationEnvelope(
+		workspace: StoredWorkspace,
+		coordinator: PrivateWorkspaceCoordinator,
+		envelope: PrivateWorkspaceEnvelope,
+		forwarded = false,
+	): Promise<void> {
+		const oldState = deserializeClientState(workspace.stateBase64)
+		const outbound = forwarded
+			? await createForwardedWorkspaceApplicationMessage({ state: oldState, envelope })
+			: await createWorkspaceApplicationMessage({ state: oldState, envelope })
 		const posted = await coordinator.postMessage({
 			gid: workspace.groupId,
 			msg_64: await sealCoordinatorPayload(oldState, outbound.messageBase64),
 		})
-		workspace.stateBase64 = serializeClientState(outbound.newState)
-		workspace.cursor = posted.cursor
-		workspace.envelopes.push(envelope)
-		await this.options.store.putWorkspace(workspace)
-		return envelope
+		await this.syncWithCoordinator(workspace, coordinator, {
+			initialState: outbound.newState,
+			selfEcho: { cursor: posted.cursor, envelope },
+		})
 	}
 
 	private async publishMetadata(
@@ -457,7 +550,7 @@ export class PrivateWorkspaceService {
 		coordinator: PrivateWorkspaceCoordinator,
 	): Promise<void> {
 		if (!workspace.metadata) return
-		const state = deserializeClientState(workspace.stateBase64)
+		this.requireAdministrator(workspace, workspace.ownerPubkey, 'publish group metadata')
 		const envelope = await createPrivateEnvelope({
 			signer: this.options.signer,
 			groupId: workspace.groupId,
@@ -466,40 +559,43 @@ export class PrivateWorkspaceService {
 			tags: [['d', 'workspace-metadata']],
 			content: JSON.stringify(workspace.metadata),
 		})
-		const outbound = await createWorkspaceApplicationMessage({ state, envelope })
-		const posted = await coordinator.postMessage({
-			gid: workspace.groupId,
-			msg_64: await sealCoordinatorPayload(state, outbound.messageBase64),
-		})
-		workspace.stateBase64 = serializeClientState(outbound.newState)
-		workspace.cursor = posted.cursor
-		workspace.envelopes.push(envelope)
-		await this.options.store.putWorkspace(workspace)
+		await this.postApplicationEnvelope(workspace, coordinator, envelope)
 	}
 
 	private async syncWithCoordinator(
 		workspace: StoredWorkspace,
 		coordinator: PrivateWorkspaceCoordinator,
+		options?: {
+			initialState?: ReturnType<typeof deserializeClientState>
+			selfEcho?: { cursor: number; envelope: PrivateWorkspaceEnvelope }
+		},
 	): Promise<void> {
 		if (workspace.status === 'removed') return
 		const fetched = await coordinator.fetchMessages({
 			gid: workspace.groupId,
 			after: workspace.cursor > 0 ? workspace.cursor : undefined,
 		})
-		let state = deserializeClientState(workspace.stateBase64)
+		let state = options?.initialState ?? deserializeClientState(workspace.stateBase64)
+		let sawSelfEcho = options?.selfEcho === undefined
 		for (const message of fetched.messages.sort((a, b) => a.cursor - b.cursor)) {
+			if (message.cursor === options?.selfEcho?.cursor) {
+				this.applyEnvelope(workspace, options.selfEcho.envelope)
+				workspace.cursor = message.cursor
+				sawSelfEcho = true
+				continue
+			}
 			try {
 				const mlsBase64 = message.encrypted
 					? await openCoordinatorPayload(state, message.msg_64)
 					: message.msg_64
-				const processed = await processWorkspaceMessage({ state, messageBase64: mlsBase64 })
+				const processed = await processWorkspaceMessage({
+					state,
+					messageBase64: mlsBase64,
+					administratorPubkeys: this.administratorPolicy(workspace).administrators,
+				})
 				state = processed.newState
 				if (processed.kind === 'applicationMessage') {
-					if (!workspace.envelopes.some((item) => item.id === processed.envelope.id)) {
-						workspace.envelopes.push(processed.envelope)
-					}
-					const metadata = readMetadata(processed.envelope)
-					if (metadata) workspace.metadata = metadata
+					this.applyEnvelope(workspace, processed.envelope)
 				}
 				if (!memberPubkeysFromState(state).includes(workspace.ownerPubkey)) {
 					workspace.status = 'removed'
@@ -519,13 +615,16 @@ export class PrivateWorkspaceService {
 			}
 			if (workspace.status === 'removed') break
 		}
+		if (!sawSelfEcho) throw new Error('Coordinator did not return the posted private-group record')
 		workspace.stateBase64 = serializeClientState(state)
+		this.administratorPolicy(workspace)
 		await this.options.store.putWorkspace(workspace)
 	}
 
 	private async requireWorkspace(ownerPubkey: string, workspaceId: string) {
 		const workspace = await this.options.store.getWorkspace(ownerPubkey, workspaceId)
 		if (!workspace) throw new Error('Private map was not found in this browser profile')
+		this.administratorPolicy(workspace)
 		return workspace
 	}
 }
