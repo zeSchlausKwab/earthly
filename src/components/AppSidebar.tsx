@@ -1018,6 +1018,9 @@ export function AppSidebar({
 					<PrivateGroupsPanel
 						onStartNewDataset={onStartNewDataset}
 						datasetActions={privateDatasetActions}
+						onCommentGeometryVisibility={onCommentGeometryVisibility}
+						onZoomToBounds={onZoomToBounds}
+						availableFeatures={availableFeatures}
 					/>
 				)
 			case 'stories':

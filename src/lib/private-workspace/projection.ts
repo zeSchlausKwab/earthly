@@ -2,7 +2,8 @@ import { castEvent } from 'applesauce-core/casts'
 import type { NostrEvent } from 'nostr-tools'
 import { eventStore } from '@/lib/nostr'
 import { GeoDataset } from '@/lib/nostr/geo-event'
-import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
+import { GeoComment } from '@/lib/nostr/geo-comment'
+import { GEO_COMMENT_KIND, GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import type { StoredWorkspace } from './storage'
 
 const workspaceByDataset = new WeakMap<GeoDataset, string>()
@@ -41,4 +42,22 @@ export function projectPrivateWorkspaceDatasets(workspace: StoredWorkspace): Geo
 		}
 	}
 	return datasets
+}
+
+/**
+ * Adapt decrypted private comment envelopes to the existing read-only comment
+ * interface. The records stay out of the public EventStore and relay graph.
+ */
+export function projectPrivateWorkspaceComments(workspace: StoredWorkspace): GeoComment[] {
+	const comments: GeoComment[] = []
+	for (const envelope of workspace.envelopes) {
+		if (envelope.kind !== GEO_COMMENT_KIND) continue
+		try {
+			const event: NostrEvent = { ...envelope, sig: '0'.repeat(128) }
+			comments.push(castEvent(event, GeoComment, eventStore))
+		} catch (error) {
+			console.warn('[private-groups] Ignoring invalid encrypted comment', envelope.id, error)
+		}
+	}
+	return comments.sort((a, b) => a.created_at - b.created_at)
 }

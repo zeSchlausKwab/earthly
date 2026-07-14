@@ -730,6 +730,9 @@ export function MobilePanel(props: MobilePanelProps) {
 									<PrivateGroupsPanel
 										onStartNewDataset={onStartNewDataset}
 										datasetActions={privateDatasetActions}
+										onCommentGeometryVisibility={onCommentGeometryVisibility}
+										onZoomToBounds={onZoomToBounds}
+										availableFeatures={availableFeatures}
 									/>
 								) : null}
 

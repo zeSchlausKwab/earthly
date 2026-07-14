@@ -1041,6 +1041,15 @@ Start with two application roles:
 - **administrator** — manages membership, metadata, and policy, and can create normal content;
 - **member** — reads and creates normal workspace content.
 
+The workspace creator is the first administrator, but administration is not permanently tied to
+that pubkey. Promotion adds another pubkey through an encrypted, versioned policy transition
+authorized by the administrator set that was valid for the transition's epoch. Demotion uses the
+same mechanism. Derive roles from the validated policy history on every client; never implement
+promotion as a local `role` flag, coordinator-side ACL alone, or unsigned UI preference. Before
+enabling this control, Earthly must bind each decrypted application message to the actual MLS
+sender credential (or verify an equivalently strong signed inner policy record), so an ordinary
+member cannot claim an administrator pubkey in a sender-chosen envelope field.
+
 MLS membership grants decryption capability; application roles govern which decrypted messages a
 client accepts as authorized. If editor and read-only viewer roles are later added, they are
 application authorization rules and do not create cryptographically distinct audiences inside one
@@ -1048,6 +1057,22 @@ MLS group. Administrator policy updates must be encrypted, authenticated, versio
 against the policy state that was current for the message's workspace epoch. Clients must reject
 membership commits from a sender who was not an authorized administrator in that state; coordinator
 admission checks are defense in depth, not the source of that authorization.
+
+A newly added MLS member receives the current epoch secrets, not the secrets for epochs before the
+Add operation. Pre-join chat and geometry history therefore require a separate application-level
+bootstrap after the member joins:
+
+- by default, an existing authorized member publishes a current-state snapshot in the new epoch so
+  the newcomer receives the present datasets and annotations without disclosing the full audit
+  trail;
+- an optional **Share prior history** policy can publish a bounded encrypted archive in the new
+  epoch when the workspace explicitly wants newcomers to read older comments and revisions;
+- the coordinator cannot manufacture this history transfer because it stores ciphertext and does
+  not possess old application plaintext or epoch secrets.
+
+Snapshot and history-bootstrap records need content hashes, a source epoch/cursor, authorization,
+replay protection, size limits, and deterministic projection rules. They must not weaken the
+forward-secrecy guarantee for members who are removed later.
 
 ### 18.5 Product surface inside a private map
 

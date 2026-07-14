@@ -12,7 +12,11 @@ that the security and recovery work is finished.
 - an invitation carries only opaque rendezvous data, coordinator identity, relays, and a nonce;
 - a second browser profile requests access and an administrator explicitly approves its device;
 - the new device retrieves an MLS Welcome and decrypts workspace metadata;
-- members exchange Nostr-shaped private envelopes containing chat and kind-37515 Dataset records;
+- members exchange Nostr-shaped private envelopes containing kind-37517 Comments, optional inline
+  comment geometry, and standalone kind-37515 Dataset records;
+- comments and Dataset updates arrive reactively without requiring the recovery Sync control;
+- private Datasets use the normal Earthly editor and remain independently controllable in the Map
+  Stack, while comment geometry appears as an attachment in Chat and in the Geometry overview;
 - MLS client state, cursors, envelopes, KeyPackages, and pending joins survive browser reloads in
   IndexedDB;
 - a member Remove/Commit advances the epoch and the removed profile cannot decrypt a later record;
@@ -47,10 +51,14 @@ then open **Private groups** from the left workspace rail:
 1. Profile A opens `/private-groups`, creates a private group, and copies an invitation. Its stable
    detail URL is `/privategroup/:id`.
 2. Profile B opens the invitation and selects **Request access**.
-3. Profile A selects **Requests**, then **Approve device**.
-4. Profile B selects **Check approved invites**.
-5. Either profile can post a message or demo Dataset; the other selects **Sync**.
-6. Profile A removes Profile B and posts another record. Profile B moves into the removed state and
+3. Profile A opens **Settings**, selects **Check requests**, then **Approve member**.
+4. Profile B selects **Check approval**.
+5. Either profile can post a private comment with or without drawn geometry. New comments arrive
+   automatically and attachments can be shown, hidden, or zoomed from Chat or Geometry.
+6. Either profile can create and edit a standalone private Dataset with the normal Earthly editor.
+   Removing its reference from the Map Stack does not delete it or cause automatic sync to add it
+   back; Geometry remains the overview from which it can be restored.
+7. Profile A removes Profile B and posts another record. Profile B moves into the removed state and
    cannot decrypt that later record.
 
 The repeatable MLS crypto smoke gate is:
@@ -82,13 +90,19 @@ deployments must provide their own `CORDN_SERVER_PUBKEY` and relay configuration
   encrypted under a hardware-backed device key. Tauri secure storage is a later phase.
 - Invitation nonces are not yet consumed by a coordinator-side one-use rendezvous record. Device
   approval remains explicit, but replay-resistant invitation expiry is not complete.
-- Delivery currently uses explicit bounded Cordn fetches. Cordn's ContextVM `msg_sub` stream works
-  for live records, but its browser teardown/removal lifecycle still needs hardening before Earthly
-  can rely on it. Timer polling is also unsuitable while each fetch creates a new ephemeral delivery
-  session. Durable transactional pending commits and crash recovery remain; manual **Sync** is the
-  current recovery path.
-- The demo projects chat and a small Dataset envelope. It does not yet route the full map editor,
-  comments, encrypted blobs, attachments, or conflict resolution through a workspace-scoped store.
+- Delivery currently uses serialized bounded Cordn fetches on an automatic watcher. Cordn's
+  ContextVM `msg_sub` stream still needs browser teardown/removal hardening before Earthly can rely
+  on a long-lived subscription. Durable transactional pending commits and crash recovery remain;
+  manual **Sync** is a recovery control rather than the normal receive path.
+- The demo projects standalone Datasets plus Comments with optional small inline GeoJSON through a
+  workspace-scoped store. It does not yet provide encrypted large-object/blob attachments,
+  threaded private replies, tombstones, or a complete concurrent-edit conflict protocol.
+- The creator is currently the only administrator. Secure promotion requires an encrypted,
+  versioned role-policy record and validation against the authenticated MLS sender; a local role
+  toggle would not be sufficient authorization.
+- A newly added MLS member cannot decrypt records sent before the Add epoch. Earthly has not yet
+  implemented the planned post-join current-state snapshot or optional, explicitly shared history
+  archive.
 - Metadata is encrypted as an Earthly application record. It is intentionally not copied into an
   MLS GroupContext extension, public Nostr tags, or the invitation.
 - Removal protects future epochs; it cannot retract content or keys that a former member already

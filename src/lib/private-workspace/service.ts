@@ -1,7 +1,7 @@
 import { verifyEvent, type NostrEvent } from 'nostr-tools'
 import type { NostrSigner } from '@contextvm/sdk'
 import type { FeatureCollection } from 'geojson'
-import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
+import { GEO_COMMENT_KIND, GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import type { PendingJoinRequest, PrivateWorkspaceCoordinator } from './contracts'
 import { createPrivateEnvelope, type PrivateWorkspaceEnvelope } from './envelope'
 import {
@@ -334,6 +334,22 @@ export class PrivateWorkspaceService {
 	async sendChat(workspaceId: string, content: string) {
 		if (!content.trim()) throw new Error('Message cannot be empty')
 		return this.sendEnvelope(workspaceId, PRIVATE_WORKSPACE_CHAT_KIND, content.trim())
+	}
+
+	async sendComment(workspaceId: string, text: string, geojson?: FeatureCollection) {
+		const trimmedText = text.trim()
+		const hasGeometry = Boolean(geojson?.features.length)
+		if (!trimmedText && !hasGeometry) throw new Error('A comment needs text or geometry')
+		if (geojson && geojson.type !== 'FeatureCollection') {
+			throw new Error('A comment attachment must be GeoJSON')
+		}
+
+		return this.sendEnvelope(
+			workspaceId,
+			GEO_COMMENT_KIND,
+			JSON.stringify({ text: trimmedText, ...(hasGeometry ? { geojson } : {}) }),
+			[['d', crypto.randomUUID()]],
+		)
 	}
 
 	async sendEntity(

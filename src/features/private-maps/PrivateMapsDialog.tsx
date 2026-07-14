@@ -15,6 +15,7 @@ import {
 	UsersRound,
 } from 'lucide-react'
 import { useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import type { FeatureCollection } from 'geojson'
 import { toast } from 'sonner'
 import {
 	EmbeddedListPanelContext,
@@ -28,15 +29,19 @@ import { useRouting } from '@/features/geo-editor/hooks/useRouting'
 import { UserProfile } from '@/components/user-profile/UserProfile'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { config } from '@/config'
 import {
 	PRIVATE_WORKSPACE_CHAT_KIND,
+	projectPrivateWorkspaceComments,
 	projectPrivateWorkspaceDatasets,
 	type WorkspaceJoinRequest,
 } from '@/lib/private-workspace'
+import { computeCommentBbox, type GeoComment } from '@/lib/nostr/geo-comment'
+import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
+import { GeoCommentForm } from '@/features/social/comments/GeoCommentForm'
 import { cn } from '@/lib/utils'
+import { PrivateCommentItem } from './PrivateCommentItem'
 import { PrivateGeometryReferences, type PrivateDatasetActions } from './PrivateGeometryReferences'
 import { usePrivateWorkspaceRuntime } from './usePrivateWorkspaceRuntime'
 
@@ -61,9 +66,15 @@ function PanelNotice({ children }: { children: ReactNode }) {
 export function PrivateGroupsPanel({
 	onStartNewDataset,
 	datasetActions,
+	onCommentGeometryVisibility,
+	onZoomToBounds,
+	availableFeatures = [],
 }: {
 	onStartNewDataset?: () => void
 	datasetActions?: PrivateDatasetActions
+	onCommentGeometryVisibility?: (comment: GeoComment, visible: boolean) => void
+	onZoomToBounds?: (bounds: [number, number, number, number]) => void
+	availableFeatures?: GeoFeatureItem[]
 }) {
 	const { account: activeAccount, runtime, snapshot } = usePrivateWorkspaceRuntime()
 	const embedded = useContext(EmbeddedListPanelContext)
@@ -78,7 +89,10 @@ export function PrivateGroupsPanel({
 	const [name, setName] = useState('')
 	const [description, setDescription] = useState('')
 	const [basemap, setBasemap] = useState('Local PMTiles when available')
-	const [chat, setChat] = useState('')
+	const [visibleCommentState, setVisibleCommentState] = useState<{
+		workspaceId?: string
+		ids: Set<string>
+	}>({ workspaceId: privateGroupId, ids: new Set() })
 	const [detailView, setDetailView] = useState<{
 		workspaceId?: string
 		tab: 'chat' | 'geometry' | 'settings'
@@ -92,8 +106,33 @@ export function PrivateGroupsPanel({
 		? workspaces.find((workspace) => workspace.workspaceId === privateGroupId)
 		: undefined
 	const selectedWorkspaceId = selected?.workspaceId
-	const chatMessages = selected?.envelopes.filter(
+	const legacyChatMessages = selected?.envelopes.filter(
 		(envelope) => envelope.kind === PRIVATE_WORKSPACE_CHAT_KIND,
+	)
+	const privateComments = useMemo(
+		() => (selected ? projectPrivateWorkspaceComments(selected) : []),
+		[selected],
+	)
+	const privateCommentGeometryCount = privateComments.filter(
+		(comment) => (comment.geojson?.features.length ?? 0) > 0,
+	).length
+	const discussionItems = useMemo(
+		() =>
+			[
+				...privateComments.map((comment) => ({
+					type: 'comment' as const,
+					createdAt: comment.created_at,
+					id: comment.id,
+					comment,
+				})),
+				...(legacyChatMessages ?? []).map((message) => ({
+					type: 'legacy' as const,
+					createdAt: message.created_at,
+					id: message.id,
+					message,
+				})),
+			].sort((a, b) => a.createdAt - b.createdAt),
+		[legacyChatMessages, privateComments],
 	)
 	const privateDatasets = useMemo(
 		() => (selected ? projectPrivateWorkspaceDatasets(selected) : []),
@@ -104,6 +143,8 @@ export function PrivateGroupsPanel({
 	const members = selected && service ? service.members(selected) : []
 	const pendingForRoute = Boolean(privateGroupId && pendingWorkspaceIds.has(privateGroupId))
 	const selectedSyncState = selected ? snapshot.syncByWorkspace[selected.workspaceId] : undefined
+	const visibleCommentIds =
+		visibleCommentState.workspaceId === privateGroupId ? visibleCommentState.ids : new Set<string>()
 
 	useEffect(() => {
 		if (!runtime || !privateGroupId || !selectedWorkspaceId) return
@@ -213,14 +254,33 @@ export function PrivateGroupsPanel({
 			toast.success('Private group is current')
 		})
 
-	const handleSendChat = () =>
-		run('send message', async () => {
+	const handleSendComment = (text: string, geojson?: FeatureCollection) =>
+		run('send comment', async () => {
 			if (!runtime || !service || !selected) return
 			await runtime.perform((workspaceService) =>
-				workspaceService.sendChat(selected.workspaceId, chat),
+				workspaceService.sendComment(selected.workspaceId, text, geojson),
 			)
-			setChat('')
 		})
+
+	const handleCommentGeometryVisibility = (comment: GeoComment, visible: boolean) => {
+		const commentId = comment.commentId ?? comment.id ?? ''
+		if (!commentId || !selected) return
+		setVisibleCommentState((current) => {
+			const ids =
+				current.workspaceId === selected.workspaceId ? new Set(current.ids) : new Set<string>()
+			if (visible) ids.add(commentId)
+			else ids.delete(commentId)
+			return { workspaceId: selected.workspaceId, ids }
+		})
+		onCommentGeometryVisibility?.(comment, visible)
+	}
+
+	const handleZoomToCommentGeometry = (comment: GeoComment) => {
+		const bounds = computeCommentBbox(comment.geojson)
+		if (!bounds) return
+		handleCommentGeometryVisibility(comment, true)
+		onZoomToBounds?.(bounds)
+	}
 
 	const handleStartDataset = () => {
 		if (!onStartNewDataset) return
@@ -322,7 +382,7 @@ export function PrivateGroupsPanel({
 									>
 										<MessageSquareText className="h-3.5 w-3.5" /> Chat
 										<span className="font-mono text-[9px] text-muted-foreground">
-											{chatMessages?.length ?? 0}
+											{discussionItems.length}
 										</span>
 									</TabsTrigger>
 									<TabsTrigger
@@ -331,7 +391,7 @@ export function PrivateGroupsPanel({
 									>
 										<Database className="h-3.5 w-3.5" /> Geometry
 										<span className="font-mono text-[9px] text-muted-foreground">
-											{privateDatasets.length}
+											{privateDatasets.length + privateCommentGeometryCount}
 										</span>
 									</TabsTrigger>
 									<TabsTrigger
@@ -350,45 +410,43 @@ export function PrivateGroupsPanel({
 									className="m-0 min-h-0 flex-1 overflow-y-auto px-3 py-3 [scrollbar-gutter:stable]"
 								>
 									<div className="divide-y divide-border border-y border-border">
-										{chatMessages?.map((message) => (
-											<div key={message.id} className="py-2.5">
-												<UserProfile
-													pubkey={message.pubkey}
-													mode="avatar-name"
-													size="xs"
-													showNip05Badge={false}
-													interactive={false}
-													className="min-w-0"
+										{discussionItems.map((item) =>
+											item.type === 'comment' ? (
+												<PrivateCommentItem
+													key={item.id}
+													comment={item.comment}
+													geometryVisible={visibleCommentIds.has(item.comment.commentId)}
+													onGeometryVisibilityChange={handleCommentGeometryVisibility}
+													onZoomToGeometry={handleZoomToCommentGeometry}
 												/>
-												<p className="mt-1.5 break-words text-xs leading-relaxed text-foreground">
-													{message.content}
-												</p>
-											</div>
-										))}
-										{chatMessages?.length === 0 ? (
+											) : (
+												<div key={item.id} className="py-2.5">
+													<UserProfile
+														pubkey={item.message.pubkey}
+														mode="avatar-name"
+														size="xs"
+														showNip05Badge={false}
+														interactive={false}
+														className="min-w-0"
+													/>
+													<p className="mt-1.5 break-words text-xs leading-relaxed text-foreground">
+														{item.message.content}
+													</p>
+												</div>
+											),
+										)}
+										{discussionItems.length === 0 ? (
 											<p className="py-8 text-center text-xs text-muted-foreground">
-												No private messages yet.
+												No private comments yet.
 											</p>
 										) : null}
 									</div>
-									<div className="mt-3 flex gap-1.5">
-										<Textarea
-											aria-label="Private group message"
-											className="min-h-16 resize-none text-xs"
-											placeholder="Message this private group…"
-											value={chat}
-											onChange={(event) => setChat(event.target.value)}
-										/>
-										<Button
-											size="icon"
-											className="h-auto shrink-0 rounded-[2px]"
-											onClick={handleSendChat}
-											disabled={!chat.trim() || Boolean(busy)}
-											aria-label="Send private message"
-										>
-											<MessageSquareText />
-										</Button>
-									</div>
+									<GeoCommentForm
+										onSubmit={handleSendComment}
+										placeholder="Comment in this private group…"
+										availableFeatures={availableFeatures}
+										className="mt-3"
+									/>
 								</TabsContent>
 
 								<TabsContent
@@ -397,14 +455,18 @@ export function PrivateGroupsPanel({
 								>
 									<div className="px-3 py-3">
 										<p className="text-[11px] leading-relaxed text-muted-foreground">
-											Current encrypted dataset references. Removing one from the Map Stack does not
-											delete it from the group.
+											Encrypted datasets and optional comment attachments. Removing a dataset from
+											the Map Stack does not delete it from the group.
 										</p>
 									</div>
 									<PrivateGeometryReferences
 										workspaceId={selected.workspaceId}
 										datasets={privateDatasets}
+										comments={privateComments}
 										actions={datasetActions}
+										visibleCommentIds={visibleCommentIds}
+										onCommentGeometryVisibilityChange={handleCommentGeometryVisibility}
+										onZoomToCommentGeometry={handleZoomToCommentGeometry}
 									/>
 									<div className="p-3">
 										<Button
