@@ -8,13 +8,15 @@ deliberately excludes Tauri, mobile packaging, local relays, and offline device 
 ```text
 Browser ── ContextVM requests over Nostr ──> relay.earthly.city
                                                 │
-                                                └── Cordn v0.4.0 container
-                                                    └── /data/cordn.sqlite
+                                                └── cordn-rs v0.4.0 under PM2
+                                                    └── data/cordn/cordn.sqlite
 ```
 
 Cordn is a ContextVM server over Nostr. It does not listen on a public HTTP port and needs no Caddy
-hostname. Docker is only the pinned distribution/runtime package. The browser bundle contains the
-coordinator public key; the matching private key exists only in the VPS `.env` and Cordn process.
+hostname. Production uses the official native `cordn-rs` v0.4.0 binary, which is wire- and
+database-compatible with the TypeScript coordinator. The deployment pins and verifies the official
+release archive's SHA-256 digest before PM2 starts it. The browser bundle contains the coordinator
+public key; the matching private key exists only in the VPS `.env` and Cordn process.
 
 ## Prepare configuration
 
@@ -47,8 +49,7 @@ The preflight rejects:
 
 - missing, malformed, mismatched, or known development keys;
 - insecure or loopback relay URLs;
-- in-memory Cordn storage or an unexpected SQLite mount path;
-- an image other than the compatible Cordn v0.4.0 tag or an immutable GHCR digest;
+- in-memory Cordn storage, an unsafe native SQLite path, or relaxed SQLite durability;
 - absent rate-limit, quota, or retention settings.
 
 ## VPS prerequisites
@@ -57,13 +58,11 @@ The deploy user needs these commands on `PATH`:
 
 - Bun and PM2;
 - Go with CGO support for the Earthly relay;
-- Docker for the pinned Cordn image;
 - Caddy, with permission to replace/reload its configuration;
-- `curl` and `tar`.
+- `curl`, `tar`, `sha256sum`, and standard GNU userland tools.
 
 The deployment directory defaults to `/var/www/earthly`. The deploy user must be able to write it.
-Docker access should be granted through the normal `docker` group or an equivalent rootless setup;
-the deployment scripts do not use `sudo docker`.
+No Docker daemon, root access, or public HTTP endpoint is needed for Cordn.
 
 ## Deploy
 
@@ -80,12 +79,13 @@ Remote activation:
 - installs exactly `bun.lock` with production dependencies;
 - builds the Go relay;
 - restarts only `earthly-*` PM2 processes, leaving unrelated VPS apps untouched;
-- starts `ghcr.io/cordn-msg/cordn:v0.4.0` with SQLite storage and abuse limits;
-- preserves the `earthly-cordn-data` Docker volume across application deployments;
+- downloads the architecture-specific `cordn-rs` v0.4.0 release and verifies its pinned SHA-256;
+- supervises `earthly-cordn` with PM2 using SQLite storage and abuse limits;
+- preserves `data/cordn/` outside release archives across application deployments;
 - stops Cordn and writes a consistent compressed SQLite-directory snapshot before replacing its
-  container. Snapshots live in `backups/cordn/` and default to 14-day retention.
-- retains the stopped previous Cordn container until the replacement remains running, restoring it
-  automatically when replacement startup fails.
+  process. Snapshots live in `backups/cordn/` and default to 14-day retention.
+- retains the previous versioned Cordn binary and restores it automatically when replacement startup
+  fails.
 
 ## Verify
 
@@ -93,9 +93,8 @@ On the VPS:
 
 ```bash
 pm2 list
-docker ps --filter name=earthly-cordn
-docker logs --tail 100 earthly-cordn
-docker run --rm -v earthly-cordn-data:/data:ro alpine:3.20 test -s /data/cordn.sqlite
+pm2 logs earthly-cordn --lines 100
+test -s /var/www/earthly/data/cordn/cordn.sqlite
 ```
 
 Then verify `https://earthly.city`, `wss://relay.earthly.city`, and the complete private-group flow

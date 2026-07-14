@@ -15,9 +15,9 @@ function validEnvironment(): Record<string, string> {
 		CORDN_SERVER_PRIVATE_KEY: cordnKey,
 		CORDN_SERVER_PUBKEY: getPublicKey(hexToBytes(cordnKey)),
 		CORDN_RELAY_URLS: 'wss://relay.earthly.city',
-		CORDN_IMAGE: 'ghcr.io/cordn-msg/cordn:v0.4.0',
 		CORDN_STORAGE_BACKEND: 'sqlite',
-		CORDN_SQLITE_PATH: '/data/cordn.sqlite',
+		CORDN_NATIVE_SQLITE_PATH: 'data/cordn/cordn.sqlite',
+		CORDN_SQLITE_SYNCHRONOUS: 'full',
 		CORDN_MAX_AGE_DAYS: '30',
 		CORDN_RATE_LIMIT_REFILL_PER_MINUTE: '500',
 		CORDN_RATE_LIMIT_BURST: '160',
@@ -45,17 +45,17 @@ describe('production environment validation', () => {
 		)
 	})
 
-	test('rejects volatile storage, insecure relays, and a floating image', () => {
+	test('rejects volatile storage, insecure relays, and an unsafe native database path', () => {
 		const env = validEnvironment()
 		env.CORDN_STORAGE_BACKEND = 'memory'
 		env.CORDN_RELAY_URLS = 'ws://localhost:3334'
-		env.CORDN_IMAGE = 'ghcr.io/cordn-msg/cordn:latest'
+		env.CORDN_NATIVE_SQLITE_PATH = '../../cordn.sqlite'
 
 		const errors = validateProductionEnv(env).errors.join('\n')
 		expect(errors).toContain('must be sqlite')
 		expect(errors).toContain('must use wss://')
 		expect(errors).toContain('must not use a loopback relay')
-		expect(errors).toContain('must pin Cordn v0.4.0')
+		expect(errors).toContain('must be data/cordn/cordn.sqlite')
 	})
 
 	test('rejects Earthly development signing keys', () => {

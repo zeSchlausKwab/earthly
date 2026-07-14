@@ -117,15 +117,14 @@ export function validateProductionEnv(
 	if (env.CORDN_STORAGE_BACKEND !== 'sqlite') {
 		errors.push('CORDN_STORAGE_BACKEND must be sqlite in production')
 	}
-	if (env.CORDN_SQLITE_PATH !== '/data/cordn.sqlite') {
-		errors.push('CORDN_SQLITE_PATH must be /data/cordn.sqlite for the mounted production volume')
-	}
 	if (
-		!env.CORDN_IMAGE ||
-		(!/^ghcr\.io\/cordn-msg\/cordn:v0\.4\.0$/u.test(env.CORDN_IMAGE) &&
-			!/^ghcr\.io\/cordn-msg\/cordn@sha256:[0-9a-f]{64}$/u.test(env.CORDN_IMAGE))
+		env.CORDN_NATIVE_SQLITE_PATH &&
+		env.CORDN_NATIVE_SQLITE_PATH !== 'data/cordn/cordn.sqlite'
 	) {
-		errors.push('CORDN_IMAGE must pin Cordn v0.4.0 or an immutable ghcr.io digest')
+		errors.push('CORDN_NATIVE_SQLITE_PATH must be data/cordn/cordn.sqlite for VPS deployment')
+	}
+	if (env.CORDN_SQLITE_SYNCHRONOUS && env.CORDN_SQLITE_SYNCHRONOUS !== 'full') {
+		errors.push('CORDN_SQLITE_SYNCHRONOUS must be full for durable production writes')
 	}
 	if (env.BLOSSOM_SERVER) {
 		try {

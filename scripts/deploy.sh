@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build and deploy Earthly's web, relay, ContextVM, and Cordn services to the VPS.
+# Build and deploy Earthly's web, relay, ContextVM, and native Cordn services to the VPS.
 
 set -euo pipefail
 
@@ -93,4 +93,4 @@ ssh "$remote" "cd '$VPS_PATH' && chmod 600 .env.next && mv .env.next .env && bas
 echo
 echo "Deployment complete."
 echo "PM2 logs: ssh $remote 'pm2 logs'"
-echo "Cordn logs: ssh $remote 'docker logs --tail 100 earthly-cordn'"
+echo "Cordn logs: ssh $remote 'pm2 logs earthly-cordn --lines 100'"
