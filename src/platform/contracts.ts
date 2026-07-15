@@ -25,7 +25,11 @@ export type NodeDescriptor = z.infer<typeof nodeDescriptorSchema>
 
 const nativeLocalNodeStatusSchema = z.discriminatedUnion('state', [
 	z.object({ state: z.literal('starting') }),
-	z.object({ state: z.literal('running'), descriptor: nodeDescriptorSchema }),
+	z.object({
+		state: z.literal('running'),
+		descriptor: nodeDescriptorSchema,
+		lanExpiresAt: z.number().int().positive().nullable().optional(),
+	}),
 	z.object({ state: z.literal('failed'), message: z.string().min(1) }),
 ])
 
@@ -62,15 +66,51 @@ export const peerGrantSchema = z.object({
 
 export type PeerGrant = z.infer<typeof peerGrantSchema>
 
+export const networkAddressSchema = z.object({
+	address: z.ipv4(),
+	interfaceName: z.string().min(1),
+})
+
+export type NetworkAddress = z.infer<typeof networkAddressSchema>
+
+export const pairingStatusSchema = z.discriminatedUnion('state', [
+	z.object({ state: z.literal('pending') }),
+	z.object({ state: z.literal('accepted') }),
+	z.object({ state: z.literal('rejected'), reason: z.string().min(1) }),
+])
+
+export type PairingStatus = z.infer<typeof pairingStatusSchema>
+
+export const remoteNodeRecordSchema = z.object({
+	version: z.literal(1),
+	nodeId: z.string().regex(/^[0-9a-f]{64}$/),
+	descriptor: nodeDescriptorSchema,
+	claimId: z.string().regex(/^[0-9a-f]{64}$/),
+	peerPubkey: z.string().regex(/^[0-9a-f]{64}$/),
+	peerName: z.string().min(1).nullable().optional(),
+	capabilities: z.array(pairingCapabilitySchema).min(1),
+	status: pairingStatusSchema,
+	updatedAt: z.number().int().positive(),
+})
+
+export type RemoteNodeRecord = z.infer<typeof remoteNodeRecordSchema>
+
 export interface LocalNodeService {
 	readonly supported: boolean
 	status(): Promise<LocalNodeStatus>
+	networkAddresses(): Promise<NetworkAddress[]>
+	enableLan(address: string, durationSeconds: number): Promise<LocalNodeStatus>
+	disableLan(): Promise<LocalNodeStatus>
 	createInvitation(): Promise<PairingInvitation>
 	pendingClaims(): Promise<PendingPairingClaim[]>
 	approveClaim(claimId: string): Promise<PendingPairingClaim>
 	rejectClaim(claimId: string, reason: string): Promise<void>
 	peerGrants(): Promise<PeerGrant[]>
 	revokePeer(peerPubkey: string): Promise<boolean>
+	joinInvitation(invitation: string, peerName?: string): Promise<RemoteNodeRecord>
+	remoteNodes(): Promise<RemoteNodeRecord[]>
+	refreshRemoteNode(nodeId: string): Promise<RemoteNodeRecord>
+	forgetRemoteNode(nodeId: string): Promise<boolean>
 }
 
 export const nativeSchemas = {
@@ -79,4 +119,7 @@ export const nativeSchemas = {
 	pendingClaims: z.array(pendingPairingClaimSchema),
 	pendingClaim: pendingPairingClaimSchema,
 	peerGrants: z.array(peerGrantSchema),
+	networkAddresses: z.array(networkAddressSchema),
+	remoteNode: remoteNodeRecordSchema,
+	remoteNodes: z.array(remoteNodeRecordSchema),
 }

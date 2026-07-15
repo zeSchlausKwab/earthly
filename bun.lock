@@ -68,6 +68,7 @@
         "geojson": "^0.5.0",
         "geojson-path-finder": "^2.1.0",
         "input-otp": "^1.4.2",
+        "jsqr": "1.4.0",
         "linkedom": "^0.18.12",
         "lucide-react": "^1.17.0",
         "maplibre-gl": "^5.24.0",
@@ -1130,6 +1131,8 @@
     "json-schema-typed": ["json-schema-typed@8.0.2", "", {}, "sha512-fQhoXdcvc3V28x7C7BMs4P5+kNlgUURe2jmUT1T//oBRMDrqy1QPelJimwZGo7Hg9VPV3EQV5Bnq4hbFy2vetA=="],
 
     "json-stringify-pretty-compact": ["json-stringify-pretty-compact@4.0.0", "", {}, "sha512-3CNZ2DnrpByG9Nqj6Xo8vqbjT4F6N+tb4Gb28ESAZjYZ5yqvmc56J+/kuIwkaAMOyblTQhUW7PxMkUb8Q36N3Q=="],
+
+    "jsqr": ["jsqr@1.4.0", "", {}, "sha512-dxLob7q65Xg2DvstYkRpkYtmKm2sPJ9oFhrhmudT1dZvNFFTlroai3AWSpLey/w5vMcLBXRgOJsbXpdN9HzU/A=="],
 
     "jsts": ["jsts@2.7.1", "", {}, "sha512-x2wSZHEBK20CY+Wy+BPE7MrFQHW6sIsdaGUMEqmGAio+3gFzQaBYPwLRonUfQf9Ak8pBieqj9tUofX1+WtAEIg=="],
 

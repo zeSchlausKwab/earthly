@@ -2,9 +2,12 @@ import { invoke } from '@tauri-apps/api/core'
 import {
 	nativeSchemas,
 	type LocalNodeService,
+	type LocalNodeStatus,
+	type NetworkAddress,
 	type PairingInvitation,
 	type PendingPairingClaim,
 	type PeerGrant,
+	type RemoteNodeRecord,
 } from '../contracts'
 
 function commandError(error: unknown): Error {
@@ -29,6 +32,15 @@ async function invokeValidated<T>(
 export const tauriLocalNodeService: LocalNodeService = {
 	supported: true,
 	status: () => invokeValidated('local_node_status_v1', nativeSchemas.status),
+	networkAddresses: (): Promise<NetworkAddress[]> =>
+		invokeValidated('local_node_network_addresses_v1', nativeSchemas.networkAddresses),
+	enableLan: (address, durationSeconds): Promise<LocalNodeStatus> =>
+		invokeValidated('local_node_enable_lan_v1', nativeSchemas.status, {
+			address,
+			durationSeconds,
+		}),
+	disableLan: (): Promise<LocalNodeStatus> =>
+		invokeValidated('local_node_disable_lan_v1', nativeSchemas.status),
 	createInvitation: (): Promise<PairingInvitation> =>
 		invokeValidated('local_node_create_invitation_v1', nativeSchemas.invitation),
 	pendingClaims: (): Promise<PendingPairingClaim[]> =>
@@ -47,6 +59,22 @@ export const tauriLocalNodeService: LocalNodeService = {
 	revokePeer: async (peerPubkey): Promise<boolean> => {
 		try {
 			return Boolean(await invoke('local_node_revoke_peer_v1', { peerPubkey }))
+		} catch (error) {
+			throw commandError(error)
+		}
+	},
+	joinInvitation: (invitation, peerName): Promise<RemoteNodeRecord> =>
+		invokeValidated('local_node_join_invitation_v1', nativeSchemas.remoteNode, {
+			invitation,
+			peerName,
+		}),
+	remoteNodes: (): Promise<RemoteNodeRecord[]> =>
+		invokeValidated('local_node_remote_nodes_v1', nativeSchemas.remoteNodes),
+	refreshRemoteNode: (nodeId): Promise<RemoteNodeRecord> =>
+		invokeValidated('local_node_refresh_remote_node_v1', nativeSchemas.remoteNode, { nodeId }),
+	forgetRemoteNode: async (nodeId): Promise<boolean> => {
+		try {
+			return Boolean(await invoke('local_node_forget_remote_node_v1', { nodeId }))
 		} catch (error) {
 			throw commandError(error)
 		}

@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { localNodeStatusSchema, nativeSchemas, pairingInvitationSchema } from './contracts'
+import {
+	localNodeStatusSchema,
+	nativeSchemas,
+	pairingInvitationSchema,
+	remoteNodeRecordSchema,
+} from './contracts'
 
 const descriptor = {
 	version: 1,
@@ -37,5 +42,20 @@ describe('local node platform contracts', () => {
 				descriptor,
 			}),
 		).toThrow()
+	})
+
+	test('accepts a durable pending remote-node relationship', () => {
+		const remote = {
+			version: 1,
+			nodeId: descriptor.nodeId,
+			descriptor,
+			claimId: 'b'.repeat(64),
+			peerPubkey: 'c'.repeat(64),
+			peerName: 'Trail phone',
+			capabilities: ['relay-write', 'blob-read'],
+			status: { state: 'pending' },
+			updatedAt: 1_900_000_000,
+		}
+		expect(remoteNodeRecordSchema.parse(remote)).toEqual(remote)
 	})
 })

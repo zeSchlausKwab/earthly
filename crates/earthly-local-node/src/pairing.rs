@@ -1,11 +1,14 @@
 use std::collections::BTreeSet;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use flate2::read::ZlibDecoder;
+use flate2::write::ZlibEncoder;
+use flate2::Compression;
 use nostr::{Event, EventBuilder, EventId, Keys, Kind, Tag, Timestamp};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -19,8 +22,10 @@ pub const PAIRING_INVITATION_KIND: u16 = 24_243;
 pub const PAIRING_CLAIM_KIND: u16 = 24_244;
 pub const PAIRING_CLAIMS_PATH: &str = "/.well-known/earthly-local-node/pairing/claims";
 const INVITATION_PREFIX: &str = "earthly-pair-v1:";
+const COMPRESSED_INVITATION_MARKER: &str = "z";
 const MAX_INVITATION_TTL: Duration = Duration::from_secs(10 * 60);
 const MAX_ENCODED_INVITATION_BYTES: usize = 16 * 1024;
+const MAX_DECOMPRESSED_INVITATION_BYTES: u64 = 64 * 1024;
 const MAX_CLOCK_SKEW: u64 = 5 * 60;
 const MAX_PENDING_CLAIMS: usize = 64;
 const MAX_PENDING_PER_INVITATION: usize = 8;
@@ -64,9 +69,12 @@ pub struct PairingInvitation {
 impl PairingInvitation {
     pub fn encode(&self) -> Result<String, PairingError> {
         self.validate()?;
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
+        encoder.write_all(&serde_json::to_vec(self)?)?;
+        let compressed = encoder.finish()?;
         Ok(format!(
-            "{INVITATION_PREFIX}{}",
-            URL_SAFE_NO_PAD.encode(serde_json::to_vec(self)?)
+            "{INVITATION_PREFIX}{COMPRESSED_INVITATION_MARKER}{}",
+            URL_SAFE_NO_PAD.encode(compressed)
         ))
     }
 
@@ -77,9 +85,26 @@ impl PairingInvitation {
         let encoded = value
             .strip_prefix(INVITATION_PREFIX)
             .ok_or(PairingError::InvalidEncoding)?;
+        let (compressed, encoded) = match encoded.strip_prefix(COMPRESSED_INVITATION_MARKER) {
+            Some(encoded) => (true, encoded),
+            None => (false, encoded),
+        };
         let decoded = URL_SAFE_NO_PAD
             .decode(encoded)
             .map_err(|_| PairingError::InvalidEncoding)?;
+        let decoded = if compressed {
+            let mut decoded_invitation = Vec::new();
+            ZlibDecoder::new(decoded.as_slice())
+                .take(MAX_DECOMPRESSED_INVITATION_BYTES + 1)
+                .read_to_end(&mut decoded_invitation)
+                .map_err(|_| PairingError::InvalidEncoding)?;
+            if decoded_invitation.len() as u64 > MAX_DECOMPRESSED_INVITATION_BYTES {
+                return Err(PairingError::InvalidEncoding);
+            }
+            decoded_invitation
+        } else {
+            decoded
+        };
         let invitation: Self = serde_json::from_slice(&decoded)?;
         invitation.validate()?;
         Ok(invitation)
@@ -159,6 +184,25 @@ impl PairingInvitation {
         requested_capabilities: Vec<PairingCapability>,
         peer_name: Option<String>,
     ) -> Result<Event, PairingError> {
+        self.claim_builder(requested_capabilities, peer_name)?
+            .sign_with_keys(peer)
+            .map_err(|error| PairingError::Signing(error.to_string()))
+    }
+
+    pub(crate) fn create_claim_with_identity(
+        &self,
+        identity: &NodeIdentity,
+        requested_capabilities: Vec<PairingCapability>,
+        peer_name: Option<String>,
+    ) -> Result<Event, PairingError> {
+        identity.sign(self.claim_builder(requested_capabilities, peer_name)?)
+    }
+
+    fn claim_builder(
+        &self,
+        requested_capabilities: Vec<PairingCapability>,
+        peer_name: Option<String>,
+    ) -> Result<EventBuilder, PairingError> {
         let invitation = self.validate()?;
         validate_capabilities(&requested_capabilities, false)?;
         ensure_subset(&requested_capabilities, &invitation.capabilities)?;
@@ -170,15 +214,13 @@ impl PairingInvitation {
             requested_capabilities,
             peer_name: normalize_peer_name(peer_name)?,
         };
-        let event = EventBuilder::new(PAIRING_CLAIM_KIND.into(), serde_json::to_string(&content)?)
-            .tags([
+        Ok(
+            EventBuilder::new(PAIRING_CLAIM_KIND.into(), serde_json::to_string(&content)?).tags([
                 Tag::event(self.event.id),
                 Tag::public_key(self.event.pubkey),
                 Tag::expiration(Timestamp::from(content_expiration(&self.event))),
-            ])
-            .sign_with_keys(peer)
-            .map_err(|error| PairingError::Signing(error.to_string()))?;
-        Ok(event)
+            ]),
+        )
     }
 }
 
@@ -875,8 +917,18 @@ mod tests {
             .await
             .unwrap();
         let encoded = invitation.encode().unwrap();
+        assert!(encoded.starts_with("earthly-pair-v1:z"));
+        assert!(
+            encoded.len() < 900,
+            "encoded invitation is too dense for QR"
+        );
         let decoded = PairingInvitation::decode(&encoded).unwrap();
         assert_eq!(decoded, invitation);
+        let legacy = format!(
+            "{INVITATION_PREFIX}{}",
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&invitation).unwrap())
+        );
+        assert_eq!(PairingInvitation::decode(&legacy).unwrap(), invitation);
 
         let peer = Keys::generate();
         let claim = decoded

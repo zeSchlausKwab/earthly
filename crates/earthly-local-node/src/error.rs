@@ -2,7 +2,7 @@ use std::io;
 
 use thiserror::Error;
 
-use crate::{NodeConfigError, NodeDescriptorError, PairingError};
+use crate::{NodeConfigError, NodeDescriptorError, PairingError, RemoteNodeError};
 
 #[derive(Debug, Error)]
 pub enum NodeError {
@@ -24,6 +24,8 @@ pub enum NodeError {
     PolicyStore(String),
     #[error(transparent)]
     Pairing(#[from] PairingError),
+    #[error(transparent)]
+    Remote(#[from] RemoteNodeError),
     #[error(transparent)]
     Io(#[from] io::Error),
 }

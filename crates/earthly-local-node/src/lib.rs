@@ -12,6 +12,7 @@ mod node;
 mod pairing;
 mod policy;
 mod relay;
+mod remote;
 
 pub use blossom::{BlobDescriptor, EmbeddedBlossom};
 pub use config::{NodeBind, NodeConfig, NodeConfigError};
@@ -29,3 +30,4 @@ pub use pairing::{
 };
 pub use policy::{PeerGrant, PeerPolicy};
 pub use relay::EmbeddedRelay;
+pub use remote::{RemoteNodeError, RemoteNodeRecord, RemoteNodeStore, REMOTE_NODE_RECORD_VERSION};

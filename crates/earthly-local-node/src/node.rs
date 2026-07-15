@@ -5,7 +5,8 @@ use nostr::{Event, EventId, PublicKey};
 use crate::{
     EmbeddedBlossom, EmbeddedRelay, NodeConfig, NodeDescriptor, NodeError, NodeIdentity,
     PairingCapability, PairingClaimReceipt, PairingError, PairingInvitation, PairingManager,
-    PairingStatus, PeerGrant, PeerPolicy, PendingPairingClaim,
+    PairingStatus, PeerGrant, PeerPolicy, PendingPairingClaim, RemoteNodeError, RemoteNodeRecord,
+    RemoteNodeStore,
 };
 
 /// Complete running local node. Dropping it closes both listeners and releases the data lock.
@@ -15,6 +16,7 @@ pub struct LocalNode {
     identity: NodeIdentity,
     peers: PeerPolicy,
     pairing: PairingManager,
+    remote_nodes: RemoteNodeStore,
     relay: EmbeddedRelay,
     blossom: EmbeddedBlossom,
 }
@@ -25,6 +27,7 @@ impl LocalNode {
         let identity = NodeIdentity::load_or_create(&config.data_dir)?;
         let peers = PeerPolicy::load(config.data_dir.join("policy").join("peers")).await?;
         let pairing = PairingManager::open(config.data_dir.join("pairing")).await?;
+        let remote_nodes = RemoteNodeStore::open(config.data_dir.join("remote-nodes")).await?;
         let relay = EmbeddedRelay::start(&config, peers.clone()).await?;
         let blossom = EmbeddedBlossom::start(&config, peers.clone(), pairing.clone()).await?;
         let descriptor = NodeDescriptor::new(
@@ -40,6 +43,7 @@ impl LocalNode {
             identity,
             peers,
             pairing,
+            remote_nodes,
             relay,
             blossom,
         })
@@ -109,6 +113,40 @@ impl LocalNode {
         self.peers.grants().await
     }
 
+    pub async fn join_pairing_invitation(
+        &self,
+        encoded: &str,
+        peer_name: Option<String>,
+    ) -> Result<RemoteNodeRecord, RemoteNodeError> {
+        let invitation = PairingInvitation::decode(encoded)?;
+        let content = invitation.validate()?;
+        let claim = invitation.create_claim_with_identity(
+            &self.identity,
+            content.capabilities,
+            peer_name,
+        )?;
+        self.remote_nodes.submit_claim(&invitation, claim).await
+    }
+
+    pub async fn remote_nodes(&self) -> Result<Vec<RemoteNodeRecord>, RemoteNodeError> {
+        self.remote_nodes.list().await
+    }
+
+    pub fn remote_node_store(&self) -> RemoteNodeStore {
+        self.remote_nodes.clone()
+    }
+
+    pub async fn refresh_remote_node(
+        &self,
+        node_id: &str,
+    ) -> Result<RemoteNodeRecord, RemoteNodeError> {
+        self.remote_nodes.refresh(node_id).await
+    }
+
+    pub async fn forget_remote_node(&self, node_id: &str) -> Result<bool, RemoteNodeError> {
+        self.remote_nodes.forget(node_id).await
+    }
+
     pub fn shutdown(&self) {
         self.blossom.shutdown();
         self.relay.shutdown();
@@ -145,6 +183,44 @@ mod tests {
         assert_eq!(node.descriptor().relay_url.scheme(), "ws");
         assert_eq!(node.descriptor().blossom_url.scheme(), "http");
         node.shutdown();
+    }
+
+    #[tokio::test]
+    async fn peer_submits_polls_and_persists_a_remote_pairing() {
+        let host_dir = tempfile::tempdir().unwrap();
+        let peer_dir = tempfile::tempdir().unwrap();
+        let host = LocalNode::start(
+            NodeConfig::loopback(host_dir.path(), NodeAvailability::Process).with_ephemeral_ports(),
+        )
+        .await
+        .unwrap();
+        let peer_config =
+            NodeConfig::loopback(peer_dir.path(), NodeAvailability::Process).with_ephemeral_ports();
+        let peer = LocalNode::start(peer_config.clone()).await.unwrap();
+        let invitation = host
+            .create_pairing_invitation(Duration::from_secs(60), PairingCapability::initial_set())
+            .await
+            .unwrap();
+
+        let pending = peer
+            .join_pairing_invitation(
+                &invitation.encode().unwrap(),
+                Some("Trail phone".to_owned()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(pending.status, PairingStatus::Pending);
+        assert_eq!(pending.peer_pubkey, peer.identity_public_key().to_hex());
+
+        let claim_id = EventId::from_hex(&pending.claim_id).unwrap();
+        host.approve_pairing_claim(claim_id).await.unwrap();
+        let accepted = peer.refresh_remote_node(&pending.node_id).await.unwrap();
+        assert_eq!(accepted.status, PairingStatus::Accepted);
+        assert!(host.peer_is_granted(&peer.identity_public_key()).await);
+
+        drop(peer);
+        let restored = LocalNode::start(peer_config).await.unwrap();
+        assert_eq!(restored.remote_nodes().await.unwrap(), vec![accepted]);
     }
 
     #[tokio::test]

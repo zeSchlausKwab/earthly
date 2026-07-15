@@ -1,31 +1,62 @@
 import {
+	AlertTriangle,
+	Camera,
 	Check,
+	CheckCircle2,
+	Clock3,
 	Copy,
 	Laptop,
+	Link2,
 	Loader2,
+	Network,
 	QrCode,
 	RadioTower,
 	RefreshCw,
 	ShieldCheck,
 	Smartphone,
+	Trash2,
 	Unplug,
+	Wifi,
 	WifiOff,
 	X,
 } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
 import { getLocalNodeService } from '@/platform/registry'
 import type {
 	LocalNodeService,
 	LocalNodeStatus,
+	NetworkAddress,
 	PairingCapability,
 	PairingInvitation,
 	PendingPairingClaim,
 	PeerGrant,
+	RemoteNodeRecord,
 } from '@/platform/contracts'
+import { decodePairingQrImage, isPairingInvitation } from './pairingQr'
+
+const LAN_SESSION_SECONDS = 15 * 60
 
 const capabilityLabels: Record<PairingCapability, string> = {
 	'relay-read': 'Read events',
@@ -59,10 +90,18 @@ export function OfflineSharingSection() {
 	const [service, setService] = useState<LocalNodeService | null>(null)
 	const [status, setStatus] = useState<LocalNodeStatus>({ state: 'starting' })
 	const [invitation, setInvitation] = useState<PairingInvitation | null>(null)
+	const [qrOpen, setQrOpen] = useState(false)
 	const [claims, setClaims] = useState<PendingPairingClaim[]>([])
 	const [grants, setGrants] = useState<PeerGrant[]>([])
+	const [addresses, setAddresses] = useState<NetworkAddress[]>([])
+	const [selectedAddress, setSelectedAddress] = useState('')
+	const [remoteNodes, setRemoteNodes] = useState<RemoteNodeRecord[]>([])
+	const [invitationInput, setInvitationInput] = useState('')
+	const [peerName, setPeerName] = useState('Earthly on this device')
 	const [operation, setOperation] = useState<string | null>(null)
 	const [nowSeconds, setNowSeconds] = useState(() => Math.floor(Date.now() / 1000))
+	const refreshInFlight = useRef(false)
+	const scanInputRef = useRef<HTMLInputElement>(null)
 
 	useEffect(() => {
 		let active = true
@@ -75,23 +114,62 @@ export function OfflineSharingSection() {
 	}, [])
 
 	const refresh = useCallback(async () => {
-		if (!service) return
+		if (!service || refreshInFlight.current) return
+		refreshInFlight.current = true
 		try {
-			const nextStatus = await service.status()
+			let nextStatus: LocalNodeStatus
+			try {
+				nextStatus = await service.status()
+			} catch (error) {
+				setStatus({ state: 'failed', message: errorMessage(error) })
+				return
+			}
 			setStatus(nextStatus)
 			if (nextStatus.state !== 'running') {
 				setClaims([])
 				setGrants([])
+				setAddresses([])
+				setRemoteNodes([])
 				return
 			}
-			const [nextClaims, nextGrants] = await Promise.all([
+			const [nextClaims, nextGrants, nextAddresses, storedRemoteNodes] = await Promise.allSettled([
 				service.pendingClaims(),
 				service.peerGrants(),
+				service.networkAddresses(),
+				service.remoteNodes(),
 			])
-			setClaims(nextClaims)
-			setGrants(nextGrants)
-		} catch (error) {
-			setStatus({ state: 'failed', message: errorMessage(error) })
+			if (nextClaims.status === 'fulfilled') setClaims(nextClaims.value)
+			if (nextGrants.status === 'fulfilled') setGrants(nextGrants.value)
+			if (nextAddresses.status === 'fulfilled') {
+				setAddresses(nextAddresses.value)
+				setSelectedAddress((current) =>
+					nextAddresses.value.some((candidate) => candidate.address === current)
+						? current
+						: (nextAddresses.value[0]?.address ?? ''),
+				)
+			}
+			if (storedRemoteNodes.status === 'fulfilled') {
+				const refreshedRemoteNodes = await Promise.all(
+					storedRemoteNodes.value.map(async (remote) => {
+						if (remote.status.state !== 'pending') return remote
+						try {
+							return await service.refreshRemoteNode(remote.nodeId)
+						} catch {
+							return remote
+						}
+					}),
+				)
+				setRemoteNodes(refreshedRemoteNodes)
+			}
+			setInvitation((current) => {
+				if (!current) return current
+				return current.descriptor.nodeId === nextStatus.descriptor.nodeId &&
+					current.descriptor.scope === nextStatus.descriptor.scope
+					? current
+					: null
+			})
+		} finally {
+			refreshInFlight.current = false
 		}
 	}, [service])
 
@@ -99,19 +177,26 @@ export function OfflineSharingSection() {
 		if (!service) return
 		void refresh()
 		if (!service.supported) return
-		const refreshTimer = window.setInterval(() => void refresh(), 2_500)
+		const refreshTimer = window.setInterval(() => void refresh(), 3_000)
 		return () => window.clearInterval(refreshTimer)
 	}, [refresh, service])
 
 	useEffect(() => {
-		if (!invitation) return
+		if (!invitation && !(status.state === 'running' && status.lanExpiresAt)) return
 		const timer = window.setInterval(() => setNowSeconds(Math.floor(Date.now() / 1000)), 1_000)
 		return () => window.clearInterval(timer)
-	}, [invitation])
+	}, [invitation, status])
 
 	const remainingSeconds = useMemo(
 		() => (invitation ? Math.max(0, invitation.expiresAt - nowSeconds) : 0),
 		[invitation, nowSeconds],
+	)
+	const remainingLanSeconds = useMemo(
+		() =>
+			status.state === 'running' && status.lanExpiresAt
+				? Math.max(0, status.lanExpiresAt - nowSeconds)
+				: 0,
+		[nowSeconds, status],
 	)
 
 	useEffect(() => {
@@ -133,6 +218,25 @@ export function OfflineSharingSection() {
 		run('invite', async () => {
 			if (!service) return
 			setInvitation(await service.createInvitation())
+			setQrOpen(true)
+			await refresh()
+		})
+
+	const enableLan = () =>
+		run('enable-lan', async () => {
+			if (!service || !selectedAddress) return
+			setStatus(await service.enableLan(selectedAddress, LAN_SESSION_SECONDS))
+			setInvitation(null)
+			toast.success('Local-network sharing is active for 15 minutes')
+			await refresh()
+		})
+
+	const disableLan = () =>
+		run('disable-lan', async () => {
+			if (!service) return
+			setStatus(await service.disableLan())
+			setInvitation(null)
+			toast.success('Local-network sharing stopped')
 			await refresh()
 		})
 
@@ -168,6 +272,46 @@ export function OfflineSharingSection() {
 			await service.revokePeer(grant.peerPubkey)
 			toast.success('Device access revoked')
 			await refresh()
+		})
+
+	const joinInvitation = () =>
+		run('join', async () => {
+			if (!service) return
+			const invitation = invitationInput.trim()
+			if (!isPairingInvitation(invitation)) {
+				throw new Error('Paste or scan an Earthly pairing invitation first')
+			}
+			const remote = await service.joinInvitation(invitation, peerName.trim() || undefined)
+			setRemoteNodes((current) => [
+				remote,
+				...current.filter((candidate) => candidate.nodeId !== remote.nodeId),
+			])
+			setInvitationInput('')
+			toast.success('Access requested — approve it on the host device')
+		})
+
+	const scanInvitation = (file: File) =>
+		run('scan', async () => {
+			setInvitationInput(await decodePairingQrImage(file))
+			toast.success('Earthly pairing invitation scanned')
+		})
+
+	const refreshRemote = (remote: RemoteNodeRecord) =>
+		run(`refresh-remote:${remote.nodeId}`, async () => {
+			if (!service) return
+			const refreshed = await service.refreshRemoteNode(remote.nodeId)
+			setRemoteNodes((current) =>
+				current.map((candidate) => (candidate.nodeId === refreshed.nodeId ? refreshed : candidate)),
+			)
+			if (refreshed.status.state === 'accepted') toast.success('Device pairing approved')
+		})
+
+	const forgetRemote = (remote: RemoteNodeRecord) =>
+		run(`forget-remote:${remote.nodeId}`, async () => {
+			if (!service) return
+			await service.forgetRemoteNode(remote.nodeId)
+			setRemoteNodes((current) => current.filter((candidate) => candidate.nodeId !== remote.nodeId))
+			toast.success('Remote device removed from this installation')
 		})
 
 	if (!service || status.state === 'starting') {
@@ -215,6 +359,7 @@ export function OfflineSharingSection() {
 	}
 
 	const descriptor = status.descriptor
+	const lanAddress = new URL(descriptor.relayUrl).hostname
 
 	return (
 		<div className="space-y-4">
@@ -265,154 +410,433 @@ export function OfflineSharingSection() {
 				</div>
 			</div>
 
-			<div className="grid gap-4 border border-border p-4">
-				<div className="space-y-3">
-					<div className="flex items-start gap-2">
-						<ShieldCheck className="mt-0.5 h-4 w-4 text-primary" />
-						<div>
-							<p className="text-sm font-semibold text-foreground">Pair another application</p>
-							<p className="text-xs text-muted-foreground">
-								Invitations expire after ten minutes and still require your approval.
-							</p>
-							{descriptor.scope === 'loopback' ? (
-								<p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">
-									This node is currently reachable only by other applications on this device.
+			<Tabs defaultValue="share" className="space-y-4">
+				<TabsList className="grid h-auto w-full grid-cols-2 rounded-none border border-border bg-muted/40 p-1">
+					<TabsTrigger value="share" className="rounded-none">
+						<RadioTower /> Share this device
+					</TabsTrigger>
+					<TabsTrigger value="join" className="rounded-none">
+						<Link2 /> Join a device
+					</TabsTrigger>
+				</TabsList>
+
+				<TabsContent value="share" className="mt-0 space-y-4">
+					<section
+						className="space-y-3 border border-border p-4"
+						aria-labelledby="lan-sharing-heading"
+					>
+						<div className="flex items-start gap-2">
+							<Network className="mt-0.5 h-4 w-4 text-primary" />
+							<div className="min-w-0 flex-1">
+								<h4 id="lan-sharing-heading" className="text-sm font-semibold">
+									Local-network reachability
+								</h4>
+								<p className="text-xs text-muted-foreground">
+									Both devices may use the same Wi-Fi or a phone hotspot; internet is not required.
 								</p>
-							) : null}
+							</div>
 						</div>
-					</div>
-					{invitation ? (
-						<>
-							<CapabilityBadges capabilities={invitation.capabilities} />
-							<div className="flex flex-wrap gap-2">
-								<Button type="button" variant="outline" onClick={() => void copyInvitation()}>
-									<Copy /> Copy invitation
-								</Button>
-								<Button type="button" variant="ghost" onClick={() => void createInvitation()}>
-									<RefreshCw /> Replace
+						{descriptor.scope === 'local-network' ? (
+							<div className="space-y-3 border border-emerald-500/35 bg-emerald-500/5 p-3">
+								<div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
+									<Wifi className="h-4 w-4" />
+									<span className="text-sm font-semibold">Serving on {lanAddress}</span>
+								</div>
+								<div className="flex flex-wrap items-center justify-between gap-2">
+									<span className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
+										<Clock3 className="h-3 w-3" />
+										Stops in {Math.floor(remainingLanSeconds / 60)}:
+										{String(remainingLanSeconds % 60).padStart(2, '0')}
+									</span>
+									<Button
+										type="button"
+										variant="outline"
+										onClick={() => void disableLan()}
+										disabled={operation !== null}
+									>
+										<WifiOff /> Stop serving
+									</Button>
+								</div>
+							</div>
+						) : addresses.length > 0 ? (
+							<div className="space-y-2">
+								<Label htmlFor="offline-lan-address">Network address</Label>
+								<Select value={selectedAddress} onValueChange={setSelectedAddress}>
+									<SelectTrigger id="offline-lan-address" className="w-full rounded-none">
+										<SelectValue placeholder="Choose a local address" />
+									</SelectTrigger>
+									<SelectContent>
+										{addresses.map((candidate) => (
+											<SelectItem key={candidate.address} value={candidate.address}>
+												{candidate.address} · {candidate.interfaceName}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+								<Button
+									type="button"
+									onClick={() => void enableLan()}
+									disabled={!selectedAddress || operation !== null}
+									className="w-full"
+								>
+									{operation === 'enable-lan' ? <Loader2 className="animate-spin" /> : <Wifi />}
+									Serve for 15 minutes
 								</Button>
 							</div>
-							<p className="font-mono text-[10px] text-muted-foreground">
-								Expires in {Math.floor(remainingSeconds / 60)}:
-								{String(remainingSeconds % 60).padStart(2, '0')}
-							</p>
-						</>
-					) : (
-						<Button
-							type="button"
-							onClick={() => void createInvitation()}
-							disabled={operation === 'invite'}
-						>
-							{operation === 'invite' ? <Loader2 className="animate-spin" /> : <QrCode />}
-							Create pairing invitation
-						</Button>
-					)}
-				</div>
-				{invitation ? (
-					<div className="justify-self-center border border-border bg-white p-2">
-						<QRCodeSVG
-							value={invitation.encoded}
-							size={224}
-							level="L"
-							className="h-auto max-w-full"
-							aria-label="Local-node pairing QR code"
-						/>
-					</div>
-				) : null}
-			</div>
+						) : (
+							<div className="space-y-2 border border-dashed border-border p-3 text-xs text-muted-foreground">
+								<p>Join Wi-Fi or enable a hotspot to make this device reachable.</p>
+								<Button type="button" variant="outline" size="sm" onClick={() => void refresh()}>
+									<RefreshCw /> Check again
+								</Button>
+							</div>
+						)}
+					</section>
 
-			{claims.length > 0 ? (
-				<section className="space-y-2" aria-labelledby="pairing-requests-heading">
-					<div className="flex items-center justify-between">
-						<h4
-							id="pairing-requests-heading"
-							className="text-xs font-semibold uppercase tracking-wide"
-						>
-							Pairing requests
-						</h4>
-						<Badge className="rounded-[2px]">{claims.length} pending</Badge>
-					</div>
-					{claims.map((claim) => (
-						<div
-							key={claim.claimId}
-							className="space-y-3 border border-primary/40 bg-primary/5 p-3"
-						>
+					<section
+						className="grid gap-4 border border-border p-4"
+						aria-labelledby="invite-device-heading"
+					>
+						<div className="space-y-3">
 							<div className="flex items-start gap-2">
-								<Smartphone className="mt-0.5 h-4 w-4 text-primary" />
-								<div className="min-w-0 flex-1">
-									<p className="truncate text-sm font-semibold text-foreground">
-										{claim.peerName ?? 'Unnamed nearby device'}
-									</p>
-									<p
-										className="font-mono text-[10px] text-muted-foreground"
-										title={claim.peerPubkey}
-									>
-										{shortKey(claim.peerPubkey)}
+								<ShieldCheck className="mt-0.5 h-4 w-4 text-primary" />
+								<div>
+									<h4 id="invite-device-heading" className="text-sm font-semibold">
+										Invite another Earthly device
+									</h4>
+									<p className="text-xs text-muted-foreground">
+										The invitation expires after ten minutes and still requires approval here.
 									</p>
 								</div>
 							</div>
-							<CapabilityBadges capabilities={claim.requestedCapabilities} />
-							<div className="flex gap-2">
+							{descriptor.scope === 'loopback' ? (
+								<p className="flex items-start gap-2 text-xs font-medium text-amber-700 dark:text-amber-400">
+									<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+									Turn on local-network reachability above before inviting another device.
+								</p>
+							) : null}
+							{invitation ? (
+								<>
+									<CapabilityBadges capabilities={invitation.capabilities} />
+									<div className="flex flex-wrap gap-2">
+										<Button type="button" onClick={() => setQrOpen(true)}>
+											<QrCode /> Show large QR
+										</Button>
+										<Button type="button" variant="outline" onClick={() => void copyInvitation()}>
+											<Copy /> Copy invitation
+										</Button>
+										<Button type="button" variant="ghost" onClick={() => void createInvitation()}>
+											<RefreshCw /> Replace
+										</Button>
+									</div>
+									<p className="font-mono text-[10px] text-muted-foreground">
+										Expires in {Math.floor(remainingSeconds / 60)}:
+										{String(remainingSeconds % 60).padStart(2, '0')}
+									</p>
+								</>
+							) : (
 								<Button
 									type="button"
-									onClick={() => void approve(claim)}
-									disabled={operation !== null}
+									onClick={() => void createInvitation()}
+									disabled={descriptor.scope !== 'local-network' || operation !== null}
 								>
-									{operation === `approve:${claim.claimId}` ? (
-										<Loader2 className="animate-spin" />
-									) : (
-										<Check />
-									)}
-									Approve
+									{operation === 'invite' ? <Loader2 className="animate-spin" /> : <QrCode />}
+									Create pairing invitation
 								</Button>
-								<Button
-									type="button"
-									variant="outline"
-									onClick={() => void reject(claim)}
-									disabled={operation !== null}
-								>
-									<X /> Reject
-								</Button>
-							</div>
+							)}
 						</div>
-					))}
-				</section>
-			) : null}
+						{invitation ? (
+							<div className="justify-self-center border border-border bg-white p-3">
+								<QRCodeSVG
+									value={invitation.encoded}
+									size={288}
+									level="L"
+									marginSize={4}
+									className="h-auto max-w-full"
+									aria-label="Local-node pairing QR code"
+								/>
+							</div>
+						) : null}
+					</section>
 
-			<section className="space-y-2" aria-labelledby="paired-devices-heading">
-				<h4 id="paired-devices-heading" className="text-xs font-semibold uppercase tracking-wide">
-					Paired devices
-				</h4>
-				{grants.length === 0 ? (
-					<div className="border border-dashed border-border p-4 text-sm text-muted-foreground">
-						No applications have access to this node yet.
-					</div>
-				) : (
-					grants.map((grant) => (
-						<div key={grant.peerPubkey} className="space-y-2 border border-border p-3">
-							<div className="flex items-center gap-2">
-								<Smartphone className="h-4 w-4 text-muted-foreground" />
-								<span
-									className="min-w-0 flex-1 truncate font-mono text-xs"
-									title={grant.peerPubkey}
+					{claims.length > 0 ? (
+						<section className="space-y-2" aria-labelledby="pairing-requests-heading">
+							<div className="flex items-center justify-between">
+								<h4
+									id="pairing-requests-heading"
+									className="text-xs font-semibold uppercase tracking-wide"
 								>
-									{shortKey(grant.peerPubkey)}
-								</span>
-								<Button
-									type="button"
-									variant="destructive"
-									size="sm"
-									onClick={() => void revoke(grant)}
-									disabled={operation !== null}
-								>
-									<Unplug /> Revoke
-								</Button>
+									Pairing requests
+								</h4>
+								<Badge className="rounded-[2px]">{claims.length} pending</Badge>
 							</div>
-							<CapabilityBadges capabilities={grant.capabilities} />
+							{claims.map((claim) => (
+								<div
+									key={claim.claimId}
+									className="space-y-3 border border-primary/40 bg-primary/5 p-3"
+								>
+									<div className="flex items-start gap-2">
+										<Smartphone className="mt-0.5 h-4 w-4 text-primary" />
+										<div className="min-w-0 flex-1">
+											<p className="truncate text-sm font-semibold text-foreground">
+												{claim.peerName ?? 'Unnamed nearby device'}
+											</p>
+											<p
+												className="font-mono text-[10px] text-muted-foreground"
+												title={claim.peerPubkey}
+											>
+												{shortKey(claim.peerPubkey)}
+											</p>
+										</div>
+									</div>
+									<CapabilityBadges capabilities={claim.requestedCapabilities} />
+									<div className="flex gap-2">
+										<Button
+											type="button"
+											onClick={() => void approve(claim)}
+											disabled={operation !== null}
+										>
+											{operation === `approve:${claim.claimId}` ? (
+												<Loader2 className="animate-spin" />
+											) : (
+												<Check />
+											)}
+											Approve
+										</Button>
+										<Button
+											type="button"
+											variant="outline"
+											onClick={() => void reject(claim)}
+											disabled={operation !== null}
+										>
+											<X /> Reject
+										</Button>
+									</div>
+								</div>
+							))}
+						</section>
+					) : null}
+
+					<section className="space-y-2" aria-labelledby="paired-devices-heading">
+						<h4
+							id="paired-devices-heading"
+							className="text-xs font-semibold uppercase tracking-wide"
+						>
+							Applications with access
+						</h4>
+						{grants.length === 0 ? (
+							<div className="border border-dashed border-border p-4 text-sm text-muted-foreground">
+								No applications have access to this node yet.
+							</div>
+						) : (
+							grants.map((grant) => (
+								<div key={grant.peerPubkey} className="space-y-2 border border-border p-3">
+									<div className="flex items-center gap-2">
+										<Smartphone className="h-4 w-4 text-muted-foreground" />
+										<span
+											className="min-w-0 flex-1 truncate font-mono text-xs"
+											title={grant.peerPubkey}
+										>
+											{shortKey(grant.peerPubkey)}
+										</span>
+										<Button
+											type="button"
+											variant="destructive"
+											size="sm"
+											onClick={() => void revoke(grant)}
+											disabled={operation !== null}
+										>
+											<Unplug /> Revoke
+										</Button>
+									</div>
+									<CapabilityBadges capabilities={grant.capabilities} />
+								</div>
+							))
+						)}
+					</section>
+				</TabsContent>
+
+				<TabsContent value="join" className="mt-0 space-y-4">
+					<section
+						className="space-y-4 border border-border p-4"
+						aria-labelledby="join-device-heading"
+					>
+						<div className="flex items-start gap-2">
+							<Smartphone className="mt-0.5 h-4 w-4 text-primary" />
+							<div>
+								<h4 id="join-device-heading" className="text-sm font-semibold">
+									Request access
+								</h4>
+								<p className="text-xs text-muted-foreground">
+									Scan the QR shown by the host, or paste its invitation. The host must approve this
+									installation.
+								</p>
+							</div>
 						</div>
-					))
-				)}
-			</section>
+						<div className="space-y-2">
+							<Label htmlFor="offline-peer-name">Device name shown to the host</Label>
+							<Input
+								id="offline-peer-name"
+								value={peerName}
+								maxLength={128}
+								onChange={(event) => setPeerName(event.target.value)}
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="offline-pairing-invitation">Pairing invitation</Label>
+							<Textarea
+								id="offline-pairing-invitation"
+								value={invitationInput}
+								onChange={(event) => setInvitationInput(event.target.value)}
+								placeholder="earthly-pair-v1:…"
+								className="min-h-24 break-all font-mono text-[10px]"
+							/>
+						</div>
+						<input
+							ref={scanInputRef}
+							type="file"
+							accept="image/*"
+							capture="environment"
+							className="sr-only"
+							aria-label="Choose a pairing QR image"
+							onChange={(event) => {
+								const file = event.target.files?.[0]
+								if (file) void scanInvitation(file)
+								event.target.value = ''
+							}}
+						/>
+						<div className="grid gap-2 sm:grid-cols-2">
+							<Button
+								type="button"
+								variant="outline"
+								onClick={() => scanInputRef.current?.click()}
+								disabled={operation !== null}
+							>
+								{operation === 'scan' ? <Loader2 className="animate-spin" /> : <Camera />}
+								Scan QR image
+							</Button>
+							<Button
+								type="button"
+								onClick={() => void joinInvitation()}
+								disabled={!isPairingInvitation(invitationInput) || operation !== null}
+							>
+								{operation === 'join' ? <Loader2 className="animate-spin" /> : <Link2 />}
+								Request access
+							</Button>
+						</div>
+					</section>
+
+					<section className="space-y-2" aria-labelledby="joined-devices-heading">
+						<div className="flex items-center justify-between">
+							<h4
+								id="joined-devices-heading"
+								className="text-xs font-semibold uppercase tracking-wide"
+							>
+								Joined devices
+							</h4>
+							<Badge variant="outline" className="rounded-[2px]">
+								{remoteNodes.length}
+							</Badge>
+						</div>
+						{remoteNodes.length === 0 ? (
+							<div className="border border-dashed border-border p-4 text-sm text-muted-foreground">
+								This installation has not joined another Earthly node yet.
+							</div>
+						) : (
+							remoteNodes.map((remote) => (
+								<div key={remote.nodeId} className="space-y-3 border border-border p-3">
+									<div className="flex items-start gap-2">
+										{remote.status.state === 'accepted' ? (
+											<CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />
+										) : remote.status.state === 'rejected' ? (
+											<X className="mt-0.5 h-4 w-4 text-destructive" />
+										) : (
+											<Clock3 className="mt-0.5 h-4 w-4 text-amber-600" />
+										)}
+										<div className="min-w-0 flex-1">
+											<p className="text-sm font-semibold">
+												{remote.status.state === 'accepted'
+													? 'Connected Earthly node'
+													: remote.status.state === 'rejected'
+														? 'Request rejected'
+														: 'Waiting for host approval'}
+											</p>
+											<p
+												className="truncate font-mono text-[10px] text-muted-foreground"
+												title={remote.nodeId}
+											>
+												{shortKey(remote.nodeId)} · {new URL(remote.descriptor.relayUrl).hostname}
+											</p>
+										</div>
+									</div>
+									{remote.status.state === 'rejected' ? (
+										<p className="text-xs text-destructive">{remote.status.reason}</p>
+									) : null}
+									<CapabilityBadges capabilities={remote.capabilities} />
+									<div className="flex flex-wrap gap-2">
+										{remote.status.state === 'pending' ? (
+											<Button
+												type="button"
+												variant="outline"
+												size="sm"
+												onClick={() => void refreshRemote(remote)}
+												disabled={operation !== null}
+											>
+												<RefreshCw /> Check approval
+											</Button>
+										) : null}
+										<Button
+											type="button"
+											variant="ghost"
+											size="sm"
+											onClick={() => void forgetRemote(remote)}
+											disabled={operation !== null}
+										>
+											<Trash2 /> Forget
+										</Button>
+									</div>
+								</div>
+							))
+						)}
+					</section>
+				</TabsContent>
+			</Tabs>
+
+			<Dialog open={qrOpen && invitation !== null} onOpenChange={setQrOpen}>
+				<DialogContent
+					className="max-h-[calc(100dvh-2rem)] overflow-auto rounded-none sm:max-w-xl"
+					onEscapeKeyDown={(event) => event.stopPropagation()}
+				>
+					<DialogHeader>
+						<DialogTitle>Scan with the other Earthly device</DialogTitle>
+						<DialogDescription>
+							Keep both devices on the same Wi-Fi or hotspot. The request still appears here for
+							approval.
+						</DialogDescription>
+					</DialogHeader>
+					{invitation ? (
+						<div className="mx-auto w-full max-w-[512px] border border-border bg-white p-2">
+							<QRCodeSVG
+								value={invitation.encoded}
+								size={512}
+								level="L"
+								marginSize={4}
+								className="h-auto w-full"
+								aria-label="Expanded pairing QR code"
+							/>
+						</div>
+					) : null}
+					<div className="flex flex-wrap items-center justify-between gap-2">
+						<p className="font-mono text-[10px] text-muted-foreground">
+							Expires in {Math.floor(remainingSeconds / 60)}:
+							{String(remainingSeconds % 60).padStart(2, '0')}
+						</p>
+						<Button type="button" variant="outline" onClick={() => void copyInvitation()}>
+							<Copy /> Copy instead
+						</Button>
+					</div>
+				</DialogContent>
+			</Dialog>
 		</div>
 	)
 }

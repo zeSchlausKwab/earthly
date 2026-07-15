@@ -1,28 +1,46 @@
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use earthly_local_node::{
-    LocalNode, NodeAvailability, NodeConfig, NodeDescriptor, PairingCapability, PairingError,
-    PeerGrant, PendingPairingClaim,
+    LocalNode, NodeAvailability, NodeBind, NodeConfig, NodeDescriptor, PairingCapability,
+    PairingError, PeerGrant, PendingPairingClaim, RemoteNodeError, RemoteNodeRecord,
 };
 use nostr::{EventId, PublicKey};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
+use tokio::sync::Mutex as AsyncMutex;
+
+const MIN_LAN_DURATION_SECONDS: u64 = 60;
+const MAX_LAN_DURATION_SECONDS: u64 = 60 * 60;
+const NODE_RELEASE_ATTEMPTS: usize = 100;
+const NODE_RELEASE_RETRY: Duration = Duration::from_millis(20);
 
 #[derive(Debug)]
 pub struct LocalNodeState {
     runtime: RwLock<Runtime>,
+    data_dir: RwLock<Option<PathBuf>>,
+    reconfigure: AsyncMutex<()>,
+    lan_generation: AtomicU64,
+    lan_expires_at: AtomicU64,
 }
 
 impl LocalNodeState {
     pub fn starting() -> Self {
         Self {
             runtime: RwLock::new(Runtime::Starting),
+            data_dir: RwLock::new(None),
+            reconfigure: AsyncMutex::new(()),
+            lan_generation: AtomicU64::new(0),
+            lan_expires_at: AtomicU64::new(0),
         }
     }
 
     pub fn shutdown(&self) {
+        self.lan_generation.fetch_add(1, Ordering::SeqCst);
+        self.lan_expires_at.store(0, Ordering::SeqCst);
         if let Ok(runtime) = self.runtime.read() {
             if let Runtime::Running(node) = &*runtime {
                 node.shutdown();
@@ -37,6 +55,23 @@ impl LocalNodeState {
         }
     }
 
+    fn set_data_dir(&self, data_dir: PathBuf) {
+        match self.data_dir.write() {
+            Ok(mut current) => *current = Some(data_dir),
+            Err(poisoned) => *poisoned.into_inner() = Some(data_dir),
+        }
+    }
+
+    fn data_dir(&self) -> Result<PathBuf, LocalNodeCommandError> {
+        let data_dir = match self.data_dir.read() {
+            Ok(data_dir) => data_dir,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        data_dir.clone().ok_or_else(|| {
+            LocalNodeCommandError::new("node-starting", "The local node is still starting")
+        })
+    }
+
     fn status(&self) -> LocalNodeStatus {
         let runtime = match self.runtime.read() {
             Ok(runtime) => runtime,
@@ -46,6 +81,7 @@ impl LocalNodeState {
             Runtime::Starting => LocalNodeStatus::Starting,
             Runtime::Running(node) => LocalNodeStatus::Running {
                 descriptor: node.descriptor().clone(),
+                lan_expires_at: nonzero(self.lan_expires_at.load(Ordering::SeqCst)),
             },
             Runtime::Failed { message } => LocalNodeStatus::Failed {
                 message: message.clone(),
@@ -69,6 +105,83 @@ impl LocalNodeState {
             }
         }
     }
+
+    fn take_node(&self) -> Result<Arc<LocalNode>, LocalNodeCommandError> {
+        let mut runtime = match self.runtime.write() {
+            Ok(runtime) => runtime,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        match std::mem::replace(&mut *runtime, Runtime::Starting) {
+            Runtime::Running(node) => Ok(node),
+            Runtime::Starting => Err(LocalNodeCommandError::new(
+                "node-starting",
+                "The local node is still starting",
+            )),
+            Runtime::Failed { message } => {
+                *runtime = Runtime::Failed {
+                    message: message.clone(),
+                };
+                Err(LocalNodeCommandError::new("node-failed", message))
+            }
+        }
+    }
+
+    async fn reconfigure(&self, bind: NodeBind) -> Result<NodeDescriptor, LocalNodeCommandError> {
+        let _guard = self.reconfigure.lock().await;
+        if let Ok(node) = self.node() {
+            if node_matches_bind(&node, bind) {
+                return Ok(node.descriptor().clone());
+            }
+        }
+
+        let data_dir = self.data_dir()?;
+        let node = self.take_node()?;
+        if let Err((error, node)) = release_node(node).await {
+            self.replace(Runtime::Running(node));
+            return Err(error);
+        }
+
+        let desired = node_config(data_dir.clone(), bind);
+        match LocalNode::start(desired).await {
+            Ok(node) => {
+                let descriptor = node.descriptor().clone();
+                self.replace(Runtime::Running(Arc::new(node)));
+                Ok(descriptor)
+            }
+            Err(error) => {
+                let fallback = LocalNode::start(node_config(data_dir, NodeBind::Loopback)).await;
+                match fallback {
+                    Ok(node) => self.replace(Runtime::Running(Arc::new(node))),
+                    Err(fallback_error) => self.replace(Runtime::Failed {
+                        message: format!(
+                            "LAN start failed ({error}); loopback recovery failed ({fallback_error})"
+                        ),
+                    }),
+                }
+                Err(LocalNodeCommandError::new(
+                    "lan-start-failed",
+                    format!("Could not serve the local node on {bind:?}: {error}"),
+                ))
+            }
+        }
+    }
+
+    fn begin_lan_session(&self, duration_seconds: u64) -> (u64, u64) {
+        let expires_at = now_seconds().saturating_add(duration_seconds);
+        let generation = self.lan_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        self.lan_expires_at.store(expires_at, Ordering::SeqCst);
+        (generation, expires_at)
+    }
+
+    fn invalidate_lan_session(&self) {
+        self.lan_generation.fetch_add(1, Ordering::SeqCst);
+        self.lan_expires_at.store(0, Ordering::SeqCst);
+    }
+
+    fn lan_session_is_current(&self, generation: u64, expires_at: u64) -> bool {
+        self.lan_generation.load(Ordering::SeqCst) == generation
+            && self.lan_expires_at.load(Ordering::SeqCst) == expires_at
+    }
 }
 
 #[derive(Debug)]
@@ -82,8 +195,20 @@ enum Runtime {
 #[serde(tag = "state", rename_all = "kebab-case")]
 pub enum LocalNodeStatus {
     Starting,
-    Running { descriptor: NodeDescriptor },
-    Failed { message: String },
+    Running {
+        descriptor: NodeDescriptor,
+        lan_expires_at: Option<u64>,
+    },
+    Failed {
+        message: String,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkAddressView {
+    address: String,
+    interface_name: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -115,6 +240,12 @@ impl From<PairingError> for LocalNodeCommandError {
     }
 }
 
+impl From<RemoteNodeError> for LocalNodeCommandError {
+    fn from(error: RemoteNodeError) -> Self {
+        Self::new("remote-pairing-failed", error.to_string())
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PairingInvitationView {
@@ -125,9 +256,103 @@ pub struct PairingInvitationView {
     descriptor: NodeDescriptor,
 }
 
+fn now_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn nonzero(value: u64) -> Option<u64> {
+    (value > 0).then_some(value)
+}
+
+fn node_config(data_dir: PathBuf, bind: NodeBind) -> NodeConfig {
+    let mut config = NodeConfig::loopback(data_dir, NodeAvailability::Process);
+    config.bind = bind;
+    config
+}
+
+fn node_matches_bind(node: &LocalNode, bind: NodeBind) -> bool {
+    let Ok(ip) = bind.ip() else {
+        return false;
+    };
+    node.descriptor().scope == bind.scope()
+        && node.descriptor().relay_url.host_str() == Some(ip.to_string().as_str())
+}
+
+async fn release_node(
+    mut node: Arc<LocalNode>,
+) -> Result<(), (LocalNodeCommandError, Arc<LocalNode>)> {
+    for _ in 0..NODE_RELEASE_ATTEMPTS {
+        match Arc::try_unwrap(node) {
+            Ok(node) => {
+                drop(node);
+                return Ok(());
+            }
+            Err(returned) => {
+                node = returned;
+                tokio::time::sleep(NODE_RELEASE_RETRY).await;
+            }
+        }
+    }
+    Err((
+        LocalNodeCommandError::new(
+            "node-busy",
+            "The local node is busy; wait for the current operation and try again",
+        ),
+        node,
+    ))
+}
+
+fn network_addresses() -> Result<Vec<NetworkAddressView>, LocalNodeCommandError> {
+    let mut addresses: Vec<_> = if_addrs::get_if_addrs()
+        .map_err(|error| LocalNodeCommandError::new("network-scan-failed", error.to_string()))?
+        .into_iter()
+        .filter_map(|interface| match interface.ip() {
+            IpAddr::V4(address)
+                if !address.is_loopback() && (address.is_private() || address.is_link_local()) =>
+            {
+                Some(NetworkAddressView {
+                    address: address.to_string(),
+                    interface_name: interface.name,
+                })
+            }
+            _ => None,
+        })
+        .collect();
+    addresses.sort_by(|left, right| {
+        interface_priority(&left.interface_name)
+            .cmp(&interface_priority(&right.interface_name))
+            .then_with(|| left.address.cmp(&right.address))
+            .then_with(|| left.interface_name.cmp(&right.interface_name))
+    });
+    addresses.dedup_by(|left, right| left.address == right.address);
+    Ok(addresses)
+}
+
+fn interface_priority(name: &str) -> u8 {
+    let name = name.to_ascii_lowercase();
+    if name == "en0" || name.starts_with("wlan") || name.starts_with("wlp") {
+        0
+    } else if name.starts_with("en") || name.starts_with("eth") {
+        1
+    } else if name.starts_with("ap") || name.starts_with("bridge") {
+        2
+    } else if ["utun", "tun", "tap", "wg", "vpn", "tailscale"]
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
+    {
+        4
+    } else {
+        3
+    }
+}
+
 pub fn start(app: AppHandle, data_dir: PathBuf) {
+    app.state::<LocalNodeState>().set_data_dir(data_dir.clone());
     tauri::async_runtime::spawn(async move {
-        let config = NodeConfig::loopback(data_dir, NodeAvailability::Process);
+        let config = node_config(data_dir, NodeBind::Loopback);
         let runtime = match LocalNode::start(config).await {
             Ok(node) => Runtime::Running(Arc::new(node)),
             Err(error) => Runtime::Failed {
@@ -146,6 +371,65 @@ pub fn local_node_status(state: State<'_, LocalNodeState>) -> LocalNodeStatus {
 #[tauri::command]
 pub fn local_node_status_v1(state: State<'_, LocalNodeState>) -> LocalNodeStatus {
     state.status()
+}
+
+#[tauri::command]
+pub fn local_node_network_addresses_v1() -> Result<Vec<NetworkAddressView>, LocalNodeCommandError> {
+    network_addresses()
+}
+
+#[tauri::command]
+pub async fn local_node_enable_lan_v1(
+    app: AppHandle,
+    state: State<'_, LocalNodeState>,
+    address: String,
+    duration_seconds: u64,
+) -> Result<LocalNodeStatus, LocalNodeCommandError> {
+    if !(MIN_LAN_DURATION_SECONDS..=MAX_LAN_DURATION_SECONDS).contains(&duration_seconds) {
+        return Err(LocalNodeCommandError::new(
+            "invalid-lan-duration",
+            "LAN serving must last between one minute and one hour",
+        ));
+    }
+    let address: Ipv4Addr = address.parse().map_err(|_| {
+        LocalNodeCommandError::new(
+            "invalid-lan-address",
+            "Choose an available private IPv4 address",
+        )
+    })?;
+    let address_text = address.to_string();
+    if !network_addresses()?
+        .iter()
+        .any(|candidate| candidate.address == address_text)
+    {
+        return Err(LocalNodeCommandError::new(
+            "lan-address-unavailable",
+            "That local-network address is no longer available on this device",
+        ));
+    }
+
+    state
+        .reconfigure(NodeBind::LocalNetwork(IpAddr::V4(address)))
+        .await?;
+    let (generation, expires_at) = state.begin_lan_session(duration_seconds);
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(duration_seconds)).await;
+        let state = app.state::<LocalNodeState>();
+        if state.lan_session_is_current(generation, expires_at) {
+            state.invalidate_lan_session();
+            let _ = state.reconfigure(NodeBind::Loopback).await;
+        }
+    });
+    Ok(state.status())
+}
+
+#[tauri::command]
+pub async fn local_node_disable_lan_v1(
+    state: State<'_, LocalNodeState>,
+) -> Result<LocalNodeStatus, LocalNodeCommandError> {
+    state.invalidate_lan_session();
+    state.reconfigure(NodeBind::Loopback).await?;
+    Ok(state.status())
 }
 
 #[tauri::command]
@@ -217,4 +501,54 @@ pub async fn local_node_revoke_peer_v1(
         .revoke_peer(&peer)
         .await
         .map_err(|error| LocalNodeCommandError::new("revoke-failed", error.to_string()))
+}
+
+#[tauri::command]
+pub async fn local_node_join_invitation_v1(
+    state: State<'_, LocalNodeState>,
+    invitation: String,
+    peer_name: Option<String>,
+) -> Result<RemoteNodeRecord, LocalNodeCommandError> {
+    Ok(state
+        .node()?
+        .join_pairing_invitation(invitation.trim(), peer_name)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn local_node_remote_nodes_v1(
+    state: State<'_, LocalNodeState>,
+) -> Result<Vec<RemoteNodeRecord>, LocalNodeCommandError> {
+    let remote_nodes = state.node()?.remote_node_store();
+    Ok(remote_nodes.list().await?)
+}
+
+#[tauri::command]
+pub async fn local_node_refresh_remote_node_v1(
+    state: State<'_, LocalNodeState>,
+    node_id: String,
+) -> Result<RemoteNodeRecord, LocalNodeCommandError> {
+    let remote_nodes = state.node()?.remote_node_store();
+    Ok(remote_nodes.refresh(&node_id).await?)
+}
+
+#[tauri::command]
+pub async fn local_node_forget_remote_node_v1(
+    state: State<'_, LocalNodeState>,
+    node_id: String,
+) -> Result<bool, LocalNodeCommandError> {
+    let remote_nodes = state.node()?.remote_node_store();
+    Ok(remote_nodes.forget(&node_id).await?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prioritizes_physical_wifi_over_tunnel_interfaces() {
+        assert!(interface_priority("wlan0") < interface_priority("tun0"));
+        assert!(interface_priority("en0") < interface_priority("utun4"));
+        assert!(interface_priority("eth0") < interface_priority("tailscale0"));
+    }
 }

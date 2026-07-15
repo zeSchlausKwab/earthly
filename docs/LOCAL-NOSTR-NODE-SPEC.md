@@ -62,12 +62,19 @@ The native foundation and transport-neutral handshake are implemented:
 - the Earthly frontend now uses a versioned, runtime-validated platform adapter to show node state,
   create QR/copy invitations, review and approve or reject pending claims, display capabilities,
   list paired devices, and revoke grants; the browser adapter reports this capability as unsupported
-  without attempting native IPC.
+  without attempting native IPC;
+- a host can explicitly select a private IPv4 interface and serve for a bounded 15-minute LAN
+  session; expiry or an explicit stop returns the node to loopback;
+- a second Earthly installation can paste or photograph the QR invitation, sign a claim with its
+  stable installation identity, poll for approval, and persist the joined-node descriptor and
+  capability state across restart;
+- the LAN reference proof completes claim approval, relay publish/query, Blossom upload, and a
+  Blossom byte-range read through the advertised private-IP endpoints.
 
 Before the interoperability proof is product-complete in the Earthly UI it still needs:
 
-- peer-side invitation import and claim creation, including QR scan/deep-link handling;
-- explicit LAN listener selection plus Android/iOS local-network permission adapters;
+- deep-link invitation import and an optional live-camera scanner (photo-based QR import ships now);
+- Android 17/iOS local-network permission adapters and denial diagnostics;
 - relay authorization against the authenticated NIP-42 session pubkey, including separate
   read/write capabilities;
 - BUD-12 deletion, persistent blob ownership/quota metadata, and NIP-11 relay information;
@@ -201,7 +208,10 @@ unlimited bearer credential.
 ### 7.1 Implemented draft v1 wire format
 
 The implemented invitation is a signed Nostr event wrapped as
-`earthly-pair-v1:<base64url-json>`. The event:
+`earthly-pair-v1:z<base64url-zlib-json>`. Decoders continue to accept the earlier uncompressed
+`earthly-pair-v1:<base64url-json>` form. Compression keeps the signed envelope near 700 characters
+so the QR retains scannable modules at phone size; it does not alter or replace signature
+verification. The event:
 
 - uses experimental ephemeral kind `24243`;
 - is signed by the stable node identity;

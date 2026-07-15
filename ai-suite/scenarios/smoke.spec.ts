@@ -65,9 +65,11 @@ test('the web app describes native offline sharing without pretending to host a 
 	await expect(earthly.page.getByText(/does not expose a local relay or file server/)).toBeVisible()
 })
 
-test('the native command bridge exposes local-node pairing controls', async ({ earthly }) => {
+test('the native command bridge exposes local-node pairing controls', async ({
+	earthly,
+}, testInfo) => {
 	await earthly.page.addInitScript(() => {
-		const descriptor = {
+		let descriptor = {
 			version: 1,
 			nodeId: 'a'.repeat(64),
 			relayUrl: 'ws://127.0.0.1:17447/',
@@ -75,21 +77,58 @@ test('the native command bridge exposes local-node pairing controls', async ({ e
 			scope: 'loopback',
 			availability: 'process',
 		}
-		const invoke = async (command: string) => {
+		let remoteNodes: Record<string, unknown>[] = []
+		const invoke = async (command: string, args?: Record<string, unknown>) => {
 			switch (command) {
 				case 'local_node_status_v1':
 					return { state: 'running', descriptor }
+				case 'local_node_network_addresses_v1':
+					return [{ address: '192.168.50.4', interfaceName: 'wlan0' }]
+				case 'local_node_enable_lan_v1':
+					descriptor = {
+						...descriptor,
+						relayUrl: 'ws://192.168.50.4:17447/',
+						blossomUrl: 'http://192.168.50.4:17448/',
+						scope: 'local-network',
+					}
+					return {
+						state: 'running',
+						descriptor,
+						lanExpiresAt: Math.floor(Date.now() / 1000) + 900,
+					}
 				case 'local_node_pending_claims_v1':
 				case 'local_node_peer_grants_v1':
 					return []
+				case 'local_node_remote_nodes_v1':
+					return remoteNodes
 				case 'local_node_create_invitation_v1':
 					return {
 						version: 1,
-						encoded: `earthly-pair-v1:${'x'.repeat(96)}`,
+						encoded: `earthly-pair-v1:z${'x'.repeat(680)}`,
 						expiresAt: Math.floor(Date.now() / 1000) + 600,
 						capabilities: ['relay-write', 'blob-read', 'blob-write'],
 						descriptor,
 					}
+				case 'local_node_join_invitation_v1': {
+					const remote = {
+						version: 1,
+						nodeId: 'b'.repeat(64),
+						descriptor: {
+							...descriptor,
+							nodeId: 'b'.repeat(64),
+						},
+						claimId: 'c'.repeat(64),
+						peerPubkey: 'a'.repeat(64),
+						peerName: String(args?.peerName ?? 'Earthly device'),
+						capabilities: ['relay-write', 'blob-read', 'blob-write'],
+						status: { state: 'pending' },
+						updatedAt: Math.floor(Date.now() / 1000),
+					}
+					remoteNodes = [remote]
+					return remote
+				}
+				case 'local_node_refresh_remote_node_v1':
+					return remoteNodes[0]
 				default:
 					throw new Error(`Unexpected native command: ${command}`)
 			}
@@ -104,9 +143,21 @@ test('the native command bridge exposes local-node pairing controls', async ({ e
 	await openPanel(earthly, 'Settings')
 	await earthly.page.getByRole('tab', { name: 'Offline', exact: true }).click()
 	await expect(earthly.page.getByText('Local node running', { exact: true })).toBeVisible()
+	await earthly.page.getByRole('button', { name: 'Serve for 15 minutes' }).click()
+	await expect(earthly.page.getByText(/Serving on 192\.168\.50\.4/)).toBeVisible()
 	await earthly.page.getByRole('button', { name: 'Create pairing invitation' }).click()
-	await expect(earthly.page.getByLabel('Local-node pairing QR code')).toBeVisible()
+	const pairingQr = earthly.page.getByLabel('Expanded pairing QR code')
+	await expect(pairingQr).toBeVisible()
+	const pairingQrPath = testInfo.outputPath('pairing-invitation.png')
+	await pairingQr.screenshot({ path: pairingQrPath })
+	await earthly.page.keyboard.press('Escape')
 	await expect(earthly.page.getByRole('button', { name: 'Copy invitation' })).toBeVisible()
+
+	await earthly.page.getByRole('tab', { name: 'Join a device' }).click()
+	await earthly.page.getByLabel('Choose a pairing QR image').setInputFiles(pairingQrPath)
+	await expect(earthly.page.getByLabel('Pairing invitation')).toHaveValue(/^earthly-pair-v1:/)
+	await earthly.page.getByRole('button', { name: 'Request access' }).click()
+	await expect(earthly.page.getByText('Waiting for host approval', { exact: true })).toBeVisible()
 })
 
 test('a Story can be saved as a local draft', async ({ earthly }) => {

@@ -131,13 +131,13 @@ Earthly's existing `dev-clean` stack because the embedded relay and Blossom serv
 native process. Browser development can continue using the existing development stack while Tauri
 development uses the embedded services.
 
-The native capability file currently grants only Tauri core defaults to the main window. Add
-permissions narrowly alongside the adapter that needs them; do not add shell or broad filesystem
-access as a convenience.
+The native capability file grants Tauri core defaults, platform identification, and the explicit
+`local-node-admin` command set to the main window. Continue adding permissions narrowly alongside
+the adapter that needs them; do not add shell or broad filesystem access as a convenience.
 
 ## Current status
 
-As of 2026-07-14:
+As of 2026-07-15:
 
 - the web production build passes;
 - the Rust workspace passes unit and network integration tests;
@@ -152,8 +152,12 @@ As of 2026-07-14:
   emulator and a physical Pixel with independently reachable embedded relay and Blossom listeners;
 - Settings → Offline uses the official Tauri command bridge and runtime-validated DTOs to show node
   status, create pairing invitations, approve or reject requests, list grants, and revoke peers;
+- the host can switch from loopback to a selected private IPv4 interface for a bounded 15-minute
+  serving session; a peer can scan a QR image or paste an invitation, submit its installation-signed
+  claim, poll approval, and retain the joined node across restart;
+- the arm64 Android APK builds with the LAN interface enumerator and native HTTP pairing client;
 - the equivalent browser settings surface reports that hosting an embedded node requires the native
   app and never attempts native commands;
 - full Xcode is not installed in the current environment, so iOS initialization is pending;
-- LAN listener selection, peer-side invite import, Android foreground-service lifecycle, and release
-  signing are pending.
+- deep-link import, future Android/iOS local-network permission adapters, Android foreground-service
+  lifecycle, and release signing are pending.
