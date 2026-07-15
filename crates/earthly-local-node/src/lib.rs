@@ -13,6 +13,7 @@ mod pairing;
 mod policy;
 mod relay;
 mod remote;
+mod remote_sync;
 
 pub use blossom::{BlobDescriptor, EmbeddedBlossom};
 pub use config::{NodeBind, NodeConfig, NodeConfigError};
@@ -30,4 +31,8 @@ pub use pairing::{
 };
 pub use policy::{PeerGrant, PeerPolicy};
 pub use relay::EmbeddedRelay;
-pub use remote::{RemoteNodeError, RemoteNodeRecord, RemoteNodeStore, REMOTE_NODE_RECORD_VERSION};
+pub use remote::{
+    RemoteNodeError, RemoteNodeRecord, RemoteNodeStore, RemoteSyncCheckpoint,
+    REMOTE_NODE_RECORD_VERSION,
+};
+pub use remote_sync::{RemoteSyncError, RemoteSyncResult};

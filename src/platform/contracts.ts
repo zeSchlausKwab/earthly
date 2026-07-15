@@ -81,6 +81,13 @@ export const pairingStatusSchema = z.discriminatedUnion('state', [
 
 export type PairingStatus = z.infer<typeof pairingStatusSchema>
 
+export const remoteSyncCheckpointSchema = z.object({
+	syncedAt: z.number().int().positive(),
+	receivedEvents: z.number().int().nonnegative(),
+})
+
+export type RemoteSyncCheckpoint = z.infer<typeof remoteSyncCheckpointSchema>
+
 export const remoteNodeRecordSchema = z.object({
 	version: z.literal(1),
 	nodeId: z.string().regex(/^[0-9a-f]{64}$/),
@@ -91,9 +98,33 @@ export const remoteNodeRecordSchema = z.object({
 	capabilities: z.array(pairingCapabilitySchema).min(1),
 	status: pairingStatusSchema,
 	updatedAt: z.number().int().positive(),
+	lastSync: remoteSyncCheckpointSchema.optional(),
 })
 
 export type RemoteNodeRecord = z.infer<typeof remoteNodeRecordSchema>
+
+export const syncedNostrEventSchema = z.object({
+	id: z.string().regex(/^[0-9a-f]{64}$/),
+	pubkey: z.string().regex(/^[0-9a-f]{64}$/),
+	created_at: z.number().int().nonnegative(),
+	kind: z.number().int().nonnegative(),
+	tags: z.array(z.array(z.string()).min(1)),
+	content: z.string(),
+	sig: z.string().regex(/^[0-9a-f]{128}$/),
+})
+
+export type SyncedNostrEvent = z.infer<typeof syncedNostrEventSchema>
+
+export const remoteSyncResultSchema = z.object({
+	nodeId: z.string().regex(/^[0-9a-f]{64}$/),
+	receivedEvents: z.number().int().nonnegative(),
+	hydratedEvents: z.number().int().nonnegative(),
+	eventsTruncated: z.boolean(),
+	events: z.array(syncedNostrEventSchema),
+	remoteNode: remoteNodeRecordSchema,
+})
+
+export type RemoteSyncResult = z.infer<typeof remoteSyncResultSchema>
 
 export interface LocalNodeService {
 	readonly supported: boolean
@@ -111,6 +142,7 @@ export interface LocalNodeService {
 	remoteNodes(): Promise<RemoteNodeRecord[]>
 	refreshRemoteNode(nodeId: string): Promise<RemoteNodeRecord>
 	forgetRemoteNode(nodeId: string): Promise<boolean>
+	syncRemoteNode(nodeId: string): Promise<RemoteSyncResult>
 }
 
 export const nativeSchemas = {
@@ -122,4 +154,5 @@ export const nativeSchemas = {
 	networkAddresses: z.array(networkAddressSchema),
 	remoteNode: remoteNodeRecordSchema,
 	remoteNodes: z.array(remoteNodeRecordSchema),
+	remoteSync: remoteSyncResultSchema,
 }

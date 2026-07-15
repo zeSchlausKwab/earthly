@@ -69,7 +69,13 @@ The native foundation and transport-neutral handshake are implemented:
   stable installation identity, poll for approval, and persist the joined-node descriptor and
   capability state across restart;
 - the LAN reference proof completes claim approval, relay publish/query, Blossom upload, and a
-  Blossom byte-range read through the advertised private-IP endpoints.
+  Blossom byte-range read through the advertised private-IP endpoints;
+- newly issued grants include `relay-read`; an accepted peer can explicitly run a pull-only NIP-77
+  reconciliation for Earthly entity, comment, proposal, status, reaction, and deletion kinds;
+- synchronized events retain their original user signatures, enter the peer's local LMDB through a
+  verified in-process ingestion path, and are returned through a bounded Tauri response so
+  Applesauce updates immediately. Profiles, wallets, arbitrary kinds, and blobs are not pulled by
+  that operation.
 
 Before the interoperability proof is product-complete in the Earthly UI it still needs:
 
@@ -77,14 +83,17 @@ Before the interoperability proof is product-complete in the Earthly UI it still
 - Android 17/iOS local-network permission adapters and denial diagnostics;
 - relay authorization against the authenticated NIP-42 session pubkey, including separate
   read/write capabilities;
+- explicit immutable-blob mirroring and local resolution for synchronized Blossom references;
 - BUD-12 deletion, persistent blob ownership/quota metadata, and NIP-11 relay information;
 - an Android foreground service for user-visible background availability.
 
 `nostr-relay-builder` 0.44 exposes event-author and socket information to write policies, but not
-the authenticated NIP-42 session pubkey. The implemented policy therefore safely accepts events
-authored by a paired pubkey—the partner-map case—but cannot yet authorize a paired client to mirror
-arbitrary third-party events. That requires an upstream policy-context hook or a narrowly
-maintained patch; it must not be approximated by weakening NIP-42.
+the authenticated NIP-42 session pubkey. The implemented network write policy therefore safely
+accepts events authored by a paired pubkey but cannot authorize a paired client to push arbitrary
+third-party events. Pull synchronization does not weaken that policy: the receiving native process
+reconciles downward, verifies the original signatures, and writes through its trusted internal
+database boundary. Bidirectional relay mirroring still requires an upstream policy-context hook or
+a narrowly maintained patch; it must not be approximated by weakening NIP-42.
 
 ## 3. Supported reachability
 

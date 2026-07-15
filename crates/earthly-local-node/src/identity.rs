@@ -48,6 +48,10 @@ impl NodeIdentity {
         self.public_key().to_hex()
     }
 
+    pub(crate) fn keys(&self) -> Keys {
+        self.keys.clone()
+    }
+
     pub(crate) fn sign(&self, builder: EventBuilder) -> Result<Event, crate::PairingError> {
         builder
             .sign_with_keys(&self.keys)

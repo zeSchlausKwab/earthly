@@ -1,8 +1,10 @@
 use std::fmt;
 use std::net::SocketAddr;
 use std::path::Path;
+use std::sync::Arc;
 
 use nostr::Event;
+use nostr_database::{NostrDatabase, SaveEventStatus};
 use nostr_lmdb::NostrLMDB;
 use nostr_relay_builder::builder::{
     PolicyResult, RateLimit, RelayBuilder, RelayBuilderNip42, RelayBuilderNip42Mode, WritePolicy,
@@ -17,6 +19,7 @@ use crate::{NodeConfig, NodeError, PairingCapability, PeerPolicy};
 pub struct EmbeddedRelay {
     inner: LocalRelay,
     url: Url,
+    database: Arc<dyn NostrDatabase>,
 }
 
 impl EmbeddedRelay {
@@ -24,11 +27,11 @@ impl EmbeddedRelay {
         config.validate()?;
         let database_path = config.data_dir.join("relay").join("lmdb");
         tokio::fs::create_dir_all(&database_path).await?;
-        let database = open_database(&database_path)?;
+        let database: Arc<dyn NostrDatabase> = Arc::new(open_database(&database_path)?);
 
         let mut builder = RelayBuilder::default()
             .addr(config.bind.ip()?)
-            .database(database)
+            .database(Arc::clone(&database))
             .max_connections(config.max_relay_connections)
             .rate_limit(RateLimit {
                 max_reqs: config.max_relay_subscriptions,
@@ -55,11 +58,35 @@ impl EmbeddedRelay {
         let url = Url::parse(relay.url().await.as_str())
             .map_err(|error| NodeError::Relay(error.to_string()))?;
 
-        Ok(Self { inner: relay, url })
+        Ok(Self {
+            inner: relay,
+            url,
+            database,
+        })
     }
 
     pub fn url(&self) -> &Url {
         &self.url
+    }
+
+    pub(crate) fn database(&self) -> Arc<dyn NostrDatabase> {
+        Arc::clone(&self.database)
+    }
+
+    /// Persist a signed event through the trusted in-process path.
+    ///
+    /// This path is intentionally separate from relay writes: it verifies the original event and
+    /// preserves its author while allowing native synchronization to mirror third-party events.
+    pub async fn ingest_verified_event(&self, event: &Event) -> Result<bool, NodeError> {
+        event
+            .verify()
+            .map_err(|error| NodeError::RelayDatabase(error.to_string()))?;
+        let status = self
+            .database
+            .save_event(event)
+            .await
+            .map_err(|error| NodeError::RelayDatabase(error.to_string()))?;
+        Ok(matches!(status, SaveEventStatus::Success))
     }
 
     pub fn shutdown(&self) {

@@ -958,6 +958,7 @@ dependencies = [
  "infer",
  "mime_guess",
  "nostr",
+ "nostr-database",
  "nostr-lmdb",
  "nostr-relay-builder",
  "nostr-sdk",

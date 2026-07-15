@@ -17,4 +17,5 @@ commands.allow = [
   "local_node_remote_nodes_v1",
   "local_node_refresh_remote_node_v1",
   "local_node_forget_remote_node_v1",
+  "local_node_sync_remote_node_v1",
 ]

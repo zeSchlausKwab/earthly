@@ -46,7 +46,12 @@ pub enum PairingCapability {
 
 impl PairingCapability {
     pub fn initial_set() -> Vec<Self> {
-        vec![Self::RelayWrite, Self::BlobRead, Self::BlobWrite]
+        vec![
+            Self::RelayRead,
+            Self::RelayWrite,
+            Self::BlobRead,
+            Self::BlobWrite,
+        ]
     }
 }
 

@@ -23,4 +23,5 @@ export const webLocalNodeService: LocalNodeService = {
 	remoteNodes: async () => unsupported(),
 	refreshRemoteNode: async () => unsupported(),
 	forgetRemoteNode: async () => unsupported(),
+	syncRemoteNode: async () => unsupported(),
 }

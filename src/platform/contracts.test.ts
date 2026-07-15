@@ -4,6 +4,7 @@ import {
 	nativeSchemas,
 	pairingInvitationSchema,
 	remoteNodeRecordSchema,
+	remoteSyncResultSchema,
 } from './contracts'
 
 const descriptor = {
@@ -57,5 +58,28 @@ describe('local node platform contracts', () => {
 			updatedAt: 1_900_000_000,
 		}
 		expect(remoteNodeRecordSchema.parse(remote)).toEqual(remote)
+	})
+
+	test('accepts a bounded native sync result and its durable checkpoint', () => {
+		const remoteNode = {
+			version: 1,
+			nodeId: descriptor.nodeId,
+			descriptor,
+			claimId: 'b'.repeat(64),
+			peerPubkey: 'c'.repeat(64),
+			capabilities: ['relay-read'],
+			status: { state: 'accepted' },
+			updatedAt: 1_900_000_000,
+			lastSync: { syncedAt: 1_900_000_000, receivedEvents: 0 },
+		}
+		const result = {
+			nodeId: descriptor.nodeId,
+			receivedEvents: 0,
+			hydratedEvents: 0,
+			eventsTruncated: false,
+			events: [],
+			remoteNode,
+		}
+		expect(remoteSyncResultSchema.parse(result)).toEqual(result)
 	})
 })

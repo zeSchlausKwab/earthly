@@ -18,6 +18,13 @@ use crate::{
 
 pub const REMOTE_NODE_RECORD_VERSION: u8 = 1;
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteSyncCheckpoint {
+    pub synced_at: u64,
+    pub received_events: usize,
+}
+
 /// A host that this installation has requested or received access to.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,6 +38,8 @@ pub struct RemoteNodeRecord {
     pub capabilities: Vec<PairingCapability>,
     pub status: PairingStatus,
     pub updated_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_sync: Option<RemoteSyncCheckpoint>,
 }
 
 impl RemoteNodeRecord {
@@ -57,6 +66,15 @@ impl RemoteNodeRecord {
         if unique.is_empty() || unique.len() != self.capabilities.len() {
             return Err(RemoteNodeError::InvalidRecord(
                 "capabilities must be unique and non-empty".to_owned(),
+            ));
+        }
+        if self
+            .last_sync
+            .as_ref()
+            .is_some_and(|checkpoint| checkpoint.synced_at == 0)
+        {
+            return Err(RemoteNodeError::InvalidRecord(
+                "sync timestamp must be positive".to_owned(),
             ));
         }
         Ok(())
@@ -123,6 +141,7 @@ impl RemoteNodeStore {
             capabilities: claim_content.requested_capabilities,
             status: receipt.status,
             updated_at: Timestamp::now().as_secs(),
+            last_sync: None,
         };
         self.persist(record).await
     }
@@ -143,6 +162,25 @@ impl RemoteNodeStore {
     pub async fn list(&self) -> Result<Vec<RemoteNodeRecord>, RemoteNodeError> {
         let _guard = self.mutation.lock().await;
         self.list_unlocked().await
+    }
+
+    pub async fn get(&self, node_id: &str) -> Result<RemoteNodeRecord, RemoteNodeError> {
+        self.load(node_id).await
+    }
+
+    pub async fn record_sync(
+        &self,
+        node_id: &str,
+        received_events: usize,
+    ) -> Result<RemoteNodeRecord, RemoteNodeError> {
+        let mut record = self.load(node_id).await?;
+        let synced_at = Timestamp::now().as_secs();
+        record.updated_at = synced_at;
+        record.last_sync = Some(RemoteSyncCheckpoint {
+            synced_at,
+            received_events,
+        });
+        self.persist(record).await
     }
 
     pub async fn forget(&self, node_id: &str) -> Result<bool, RemoteNodeError> {

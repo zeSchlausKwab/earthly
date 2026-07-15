@@ -4,7 +4,9 @@ Status: implementation decision for the local-node foundation, 2026-07-14.
 
 Implementation checkpoint, 2026-07-15: step 1 and the QR/photo/paste portion of step 2 are now
 implemented. The LAN session is explicit and expires after 15 minutes; pairing remains signed,
-approval-gated, and capability-scoped. Deep links and platform permission-denial adapters remain.
+approval-gated, and capability-scoped. Accepted peers can explicitly pull signed Earthly records
+with NIP-77 into their verified local database. Deep links, immutable-blob mirroring, and platform
+permission-denial adapters remain.
 
 ## Decision
 

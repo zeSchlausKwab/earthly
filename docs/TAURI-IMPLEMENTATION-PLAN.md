@@ -4,9 +4,9 @@
 > coordinator are live, and native implementation has resumed. The Tauri shell, embedded node,
 > Android host, signed pairing protocol, and first product-facing pairing administration bridge are
 > implemented. Explicit time-bounded LAN exposure, QR/photo invitation import, signed peer claims,
-> approval polling, and durable joined-node records are also implemented. Deep links, mobile
-> lifecycle, platform-protected MLS storage, remote-node synchronization, and offline map regions
-> remain staged work.
+> approval polling, durable joined-node records, and explicit pull-only synchronization of signed
+> Earthly records are also implemented. Deep links, mobile lifecycle, platform-protected MLS
+> storage, Blossom mirroring, and offline map regions remain staged work.
 
 Status: committed product direction
 Created: 2026-07-13

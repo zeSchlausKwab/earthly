@@ -6,7 +6,7 @@ use crate::{
     EmbeddedBlossom, EmbeddedRelay, NodeConfig, NodeDescriptor, NodeError, NodeIdentity,
     PairingCapability, PairingClaimReceipt, PairingError, PairingInvitation, PairingManager,
     PairingStatus, PeerGrant, PeerPolicy, PendingPairingClaim, RemoteNodeError, RemoteNodeRecord,
-    RemoteNodeStore,
+    RemoteNodeStore, RemoteSyncError, RemoteSyncResult,
 };
 
 /// Complete running local node. Dropping it closes both listeners and releases the data lock.
@@ -147,6 +147,23 @@ impl LocalNode {
         self.remote_nodes.forget(node_id).await
     }
 
+    pub async fn sync_remote_node(
+        &self,
+        node_id: &str,
+    ) -> Result<RemoteSyncResult, RemoteSyncError> {
+        crate::remote_sync::sync_remote_node(
+            self.identity.keys(),
+            self.relay.database(),
+            &self.remote_nodes,
+            node_id,
+        )
+        .await
+    }
+
+    pub async fn ingest_verified_event(&self, event: &Event) -> Result<bool, NodeError> {
+        self.relay.ingest_verified_event(event).await
+    }
+
     pub fn shutdown(&self) {
         self.blossom.shutdown();
         self.relay.shutdown();
@@ -221,6 +238,51 @@ mod tests {
         drop(peer);
         let restored = LocalNode::start(peer_config).await.unwrap();
         assert_eq!(restored.remote_nodes().await.unwrap(), vec![accepted]);
+    }
+
+    #[tokio::test]
+    async fn accepted_peer_reconciles_user_signed_earthly_events_into_its_local_database() {
+        let host_dir = tempfile::tempdir().unwrap();
+        let peer_dir = tempfile::tempdir().unwrap();
+        let host = LocalNode::start(
+            NodeConfig::loopback(host_dir.path(), NodeAvailability::Process).with_ephemeral_ports(),
+        )
+        .await
+        .unwrap();
+        let peer = LocalNode::start(
+            NodeConfig::loopback(peer_dir.path(), NodeAvailability::Process).with_ephemeral_ports(),
+        )
+        .await
+        .unwrap();
+
+        let invitation = host
+            .create_pairing_invitation(Duration::from_secs(60), PairingCapability::initial_set())
+            .await
+            .unwrap();
+        let pending = peer
+            .join_pairing_invitation(&invitation.encode().unwrap(), Some("Map tablet".to_owned()))
+            .await
+            .unwrap();
+        host.approve_pairing_claim(EventId::from_hex(&pending.claim_id).unwrap())
+            .await
+            .unwrap();
+        peer.refresh_remote_node(&pending.node_id).await.unwrap();
+
+        let author = Keys::generate();
+        let dataset = EventBuilder::new(Kind::Custom(37_515), r#"{"type":"FeatureCollection"}"#)
+            .tag(Tag::parse(["d", "shared-trail"]).unwrap())
+            .sign_with_keys(&author)
+            .unwrap();
+        assert!(host.ingest_verified_event(&dataset).await.unwrap());
+
+        let first_sync = peer.sync_remote_node(&pending.node_id).await.unwrap();
+        assert_eq!(first_sync.received_events, 1);
+        assert_eq!(first_sync.events, vec![dataset]);
+        assert_eq!(first_sync.remote_node.last_sync.unwrap().received_events, 1);
+
+        let second_sync = peer.sync_remote_node(&pending.node_id).await.unwrap();
+        assert_eq!(second_sync.received_events, 0);
+        assert!(second_sync.events.is_empty());
     }
 
     #[tokio::test]

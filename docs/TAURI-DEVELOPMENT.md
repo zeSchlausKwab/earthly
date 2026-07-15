@@ -155,6 +155,9 @@ As of 2026-07-15:
 - the host can switch from loopback to a selected private IPv4 interface for a bounded 15-minute
   serving session; a peer can scan a QR image or paste an invitation, submit its installation-signed
   claim, poll approval, and retain the joined node across restart;
+- accepted peers can explicitly reconcile signed Earthly map records downward with NIP-77; the
+  native client persists verified originals into local LMDB and hydrates Applesauce with a bounded
+  response, while profile/wallet kinds and Blossom files remain outside that operation;
 - the arm64 Android APK builds with the LAN interface enumerator and native HTTP pairing client;
 - the equivalent browser settings surface reports that hosting an embedded node requires the native
   app and never attempts native commands;

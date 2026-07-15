@@ -106,7 +106,7 @@ test('the native command bridge exposes local-node pairing controls', async ({
 						version: 1,
 						encoded: `earthly-pair-v1:z${'x'.repeat(680)}`,
 						expiresAt: Math.floor(Date.now() / 1000) + 600,
-						capabilities: ['relay-write', 'blob-read', 'blob-write'],
+						capabilities: ['relay-read', 'relay-write', 'blob-read', 'blob-write'],
 						descriptor,
 					}
 				case 'local_node_join_invitation_v1': {
@@ -120,15 +120,36 @@ test('the native command bridge exposes local-node pairing controls', async ({
 						claimId: 'c'.repeat(64),
 						peerPubkey: 'a'.repeat(64),
 						peerName: String(args?.peerName ?? 'Earthly device'),
-						capabilities: ['relay-write', 'blob-read', 'blob-write'],
+						capabilities: ['relay-read', 'relay-write', 'blob-read', 'blob-write'],
 						status: { state: 'pending' },
 						updatedAt: Math.floor(Date.now() / 1000),
 					}
 					remoteNodes = [remote]
 					return remote
 				}
-				case 'local_node_refresh_remote_node_v1':
-					return remoteNodes[0]
+				case 'local_node_refresh_remote_node_v1': {
+					const remote = { ...remoteNodes[0], status: { state: 'accepted' } }
+					remoteNodes = [remote]
+					return remote
+				}
+				case 'local_node_sync_remote_node_v1': {
+					const now = Math.floor(Date.now() / 1000)
+					const nodeId = String(remoteNodes[0]?.nodeId ?? '')
+					const remote = {
+						...remoteNodes[0],
+						updatedAt: now,
+						lastSync: { syncedAt: now, receivedEvents: 0 },
+					}
+					remoteNodes = [remote]
+					return {
+						nodeId,
+						receivedEvents: 0,
+						hydratedEvents: 0,
+						eventsTruncated: false,
+						events: [],
+						remoteNode: remote,
+					}
+				}
 				default:
 					throw new Error(`Unexpected native command: ${command}`)
 			}
@@ -158,6 +179,10 @@ test('the native command bridge exposes local-node pairing controls', async ({
 	await expect(earthly.page.getByLabel('Pairing invitation')).toHaveValue(/^earthly-pair-v1:/)
 	await earthly.page.getByRole('button', { name: 'Request access' }).click()
 	await expect(earthly.page.getByText('Waiting for host approval', { exact: true })).toBeVisible()
+	await earthly.page.getByRole('button', { name: 'Check approval' }).click()
+	await expect(earthly.page.getByText('Connected Earthly node', { exact: true })).toBeVisible()
+	await earthly.page.getByRole('button', { name: 'Sync map records' }).click()
+	await expect(earthly.page.getByText(/Last sync/)).toBeVisible()
 })
 
 test('a Story can be saved as a local draft', async ({ earthly }) => {

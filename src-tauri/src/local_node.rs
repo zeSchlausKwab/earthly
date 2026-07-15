@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use earthly_local_node::{
     LocalNode, NodeAvailability, NodeBind, NodeConfig, NodeDescriptor, PairingCapability,
     PairingError, PeerGrant, PendingPairingClaim, RemoteNodeError, RemoteNodeRecord,
+    RemoteSyncError, RemoteSyncResult,
 };
 use nostr::{EventId, PublicKey};
 use serde::Serialize;
@@ -243,6 +244,12 @@ impl From<PairingError> for LocalNodeCommandError {
 impl From<RemoteNodeError> for LocalNodeCommandError {
     fn from(error: RemoteNodeError) -> Self {
         Self::new("remote-pairing-failed", error.to_string())
+    }
+}
+
+impl From<RemoteSyncError> for LocalNodeCommandError {
+    fn from(error: RemoteSyncError) -> Self {
+        Self::new("remote-sync-failed", error.to_string())
     }
 }
 
@@ -539,6 +546,14 @@ pub async fn local_node_forget_remote_node_v1(
 ) -> Result<bool, LocalNodeCommandError> {
     let remote_nodes = state.node()?.remote_node_store();
     Ok(remote_nodes.forget(&node_id).await?)
+}
+
+#[tauri::command]
+pub async fn local_node_sync_remote_node_v1(
+    state: State<'_, LocalNodeState>,
+    node_id: String,
+) -> Result<RemoteSyncResult, LocalNodeCommandError> {
+    Ok(state.node()?.sync_remote_node(&node_id).await?)
 }
 
 #[cfg(test)]

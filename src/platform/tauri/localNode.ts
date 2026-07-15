@@ -8,6 +8,7 @@ import {
 	type PendingPairingClaim,
 	type PeerGrant,
 	type RemoteNodeRecord,
+	type RemoteSyncResult,
 } from '../contracts'
 
 function commandError(error: unknown): Error {
@@ -79,4 +80,6 @@ export const tauriLocalNodeService: LocalNodeService = {
 			throw commandError(error)
 		}
 	},
+	syncRemoteNode: (nodeId): Promise<RemoteSyncResult> =>
+		invokeValidated('local_node_sync_remote_node_v1', nativeSchemas.remoteSync, { nodeId }),
 }

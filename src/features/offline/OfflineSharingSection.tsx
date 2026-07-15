@@ -5,6 +5,7 @@ import {
 	CheckCircle2,
 	Clock3,
 	Copy,
+	Download,
 	Laptop,
 	Link2,
 	Loader2,
@@ -20,6 +21,7 @@ import {
 	WifiOff,
 	X,
 } from 'lucide-react'
+import { verifyEvent, type NostrEvent } from 'nostr-tools'
 import { QRCodeSVG } from 'qrcode.react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -44,6 +46,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { getLocalNodeService } from '@/platform/registry'
+import { eventStore } from '@/lib/nostr'
 import type {
 	LocalNodeService,
 	LocalNodeStatus,
@@ -312,6 +315,34 @@ export function OfflineSharingSection() {
 			await service.forgetRemoteNode(remote.nodeId)
 			setRemoteNodes((current) => current.filter((candidate) => candidate.nodeId !== remote.nodeId))
 			toast.success('Remote device removed from this installation')
+		})
+
+	const syncRemote = (remote: RemoteNodeRecord) =>
+		run(`sync-remote:${remote.nodeId}`, async () => {
+			if (!service) return
+			const result = await service.syncRemoteNode(remote.nodeId)
+			const verifiedEvents = result.events.map((event) => event as NostrEvent)
+			if (!verifiedEvents.every((event) => verifyEvent(event))) {
+				throw new Error('The native node returned an invalid signed event')
+			}
+			for (const event of verifiedEvents) eventStore.add(event)
+			setRemoteNodes((current) =>
+				current.map((candidate) =>
+					candidate.nodeId === result.remoteNode.nodeId ? result.remoteNode : candidate,
+				),
+			)
+			if (result.receivedEvents === 0) {
+				toast.success('Map records are already up to date')
+			} else {
+				toast.success(
+					`Synced ${result.receivedEvents} new map record${result.receivedEvents === 1 ? '' : 's'}`,
+				)
+			}
+			if (result.eventsTruncated) {
+				toast.warning(
+					`${result.receivedEvents - result.hydratedEvents} additional records were saved in the local node but were not added to this view`,
+				)
+			}
 		})
 
 	if (!service || status.state === 'starting') {
@@ -773,6 +804,19 @@ export function OfflineSharingSection() {
 										<p className="text-xs text-destructive">{remote.status.reason}</p>
 									) : null}
 									<CapabilityBadges capabilities={remote.capabilities} />
+									{remote.lastSync ? (
+										<p className="text-xs text-muted-foreground">
+											Last sync {new Date(remote.lastSync.syncedAt * 1000).toLocaleString()} ·{' '}
+											{remote.lastSync.receivedEvents} new
+										</p>
+									) : null}
+									{remote.status.state === 'accepted' &&
+									!remote.capabilities.includes('relay-read') ? (
+										<p className="text-xs text-amber-700 dark:text-amber-400">
+											This older grant cannot read map records. Create a new invitation on the host
+											to add read access.
+										</p>
+									) : null}
 									<div className="flex flex-wrap gap-2">
 										{remote.status.state === 'pending' ? (
 											<Button
@@ -783,6 +827,22 @@ export function OfflineSharingSection() {
 												disabled={operation !== null}
 											>
 												<RefreshCw /> Check approval
+											</Button>
+										) : null}
+										{remote.status.state === 'accepted' &&
+										remote.capabilities.includes('relay-read') ? (
+											<Button
+												type="button"
+												size="sm"
+												onClick={() => void syncRemote(remote)}
+												disabled={operation !== null}
+											>
+												{operation === `sync-remote:${remote.nodeId}` ? (
+													<Loader2 className="animate-spin" />
+												) : (
+													<Download />
+												)}
+												Sync map records
 											</Button>
 										) : null}
 										<Button
