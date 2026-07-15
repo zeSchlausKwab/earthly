@@ -1,0 +1,11 @@
+[[permission]]
+identifier = "publish-outbox"
+description = "Allows the Earthly main window to enqueue and administer already-signed Nostr events in the native publish outbox."
+commands.allow = [
+  "outbox_enqueue_v1",
+  "outbox_list_v1",
+  "outbox_flush_v1",
+  "outbox_record_results_v1",
+  "outbox_retry_v1",
+  "outbox_discard_v1",
+]
