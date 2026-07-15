@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand'
 import { DEFAULT_SIDEBAR_VIEW } from '../defaults'
-import { viewToMobileTab } from './mobileTabRoute'
+import { isMobileMapSurfaceTab, viewToMobileTab } from './mobileTabRoute'
 import type { EditorState, ViewModeSlice } from './types'
 
 export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlice> = (set) => ({
@@ -91,22 +91,33 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 			// (audit P1 #6). In-app navigations skip this (syncMobileTab unset):
 			// their handlers own the tab (e.g. the `edit` overlay during inspect).
 			const mobileTab = options?.syncMobileTab ? viewToMobileTab(route.sidebarView) : null
-			const mobileSheet =
-				mobileTab && mobileTab !== state.mobilePanelTab
+			const mobileSurface = mobileTab
+				? hasFocus || inContextEditor || isMobileMapSurfaceTab(mobileTab)
 					? {
-							mobilePanelTab: mobileTab,
-							// Surface a non-default destination; the default landing view
-							// keeps the map in charge at the peek detent. Written directly
-							// (not via setMobilePanelOpen, which resets the snap to peek).
-							...(route.sidebarView !== DEFAULT_SIDEBAR_VIEW
-								? { mobilePanelOpen: true, mobilePanelSnap: 'half' as const }
-								: {}),
+							mobilePanelTab: hasFocus ? ('edit' as const) : mobileTab,
+							mobilePanelOpen: true,
+							mobilePanelSnap: 'half' as const,
+							mobileSidebarOpen: false,
+							mobilePanelResumeOnSidebarClose: null,
 						}
-					: {}
+					: route.sidebarView !== DEFAULT_SIDEBAR_VIEW
+						? {
+								mobilePanelTab: mobileTab,
+								mobilePanelOpen: false,
+								mobileSidebarOpen: true,
+								mobileSidebarMode: 'content' as const,
+								mobilePanelResumeOnSidebarClose: null,
+							}
+						: {
+								mobilePanelTab: mobileTab,
+								mobilePanelOpen: false,
+								mobileSidebarOpen: false,
+							}
+				: {}
 
 			return {
 				sidebarViewMode: route.sidebarView,
-				focusedType: hasFocus ? route.focusType : null,
+				focusedType: route.focusType === 'none' ? null : route.focusType,
 				focusedNaddr: hasFocus ? (route.naddr ?? null) : null,
 				activeContextScopeNaddr: route.contextNaddr ?? null,
 				activeContextScopeCoordinate: route.contextCoordinate ?? null,
@@ -115,7 +126,7 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 				viewStory,
 				viewMode,
 				stance,
-				...mobileSheet,
+				...mobileSurface,
 			}
 		}),
 })

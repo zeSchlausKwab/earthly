@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { mobileTabToView, viewToMobileTab } from './mobileTabRoute'
+import {
+	isMobileMapSurfaceTab,
+	isMobileSidebarTab,
+	mobileTabToView,
+	viewToMobileTab,
+} from './mobileTabRoute'
 import type { MobilePanelTab, SidebarViewMode } from './types'
 
 // Audit P1 #6: mobile destinations and sidebar views are the same set of
@@ -63,5 +68,15 @@ describe('mobileTabRoute — tab↔view mapping', () => {
 				expect(viewToMobileTab(view)).not.toBeNull()
 			}
 		}
+	})
+
+	test('every tab belongs to exactly one mobile surface', () => {
+		for (const tab of ALL_TABS) {
+			expect(Number(isMobileMapSurfaceTab(tab)) + Number(isMobileSidebarTab(tab))).toBe(1)
+		}
+	})
+
+	test('only map-bound destinations use the bottom sheet', () => {
+		expect(ALL_TABS.filter(isMobileMapSurfaceTab)).toEqual(['map-stack', 'context-editor', 'edit'])
 	})
 })

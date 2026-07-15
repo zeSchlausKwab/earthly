@@ -202,6 +202,15 @@ export type MobilePanelTab =
  *  full ≈ 92% (the outliner, full height). */
 export type MobilePanelSnap = 'peek' | 'half' | 'full'
 
+/** The mobile navigation drawer has a compact destination menu and a wider
+ * content state for lists/account surfaces. */
+export type MobileSidebarMode = 'menu' | 'content'
+
+export interface MobilePanelResume {
+	tab: MobilePanelTab
+	snap: MobilePanelSnap
+}
+
 export interface GeoCollectionEditDraft {
 	id: string
 	sourceId: string
@@ -462,6 +471,9 @@ export interface UISlice {
 	mobilePanelOpen: boolean
 	mobilePanelTab: MobilePanelTab
 	mobilePanelSnap: MobilePanelSnap
+	mobileSidebarOpen: boolean
+	mobileSidebarMode: MobileSidebarMode
+	mobilePanelResumeOnSidebarClose: MobilePanelResume | null
 	inspectorActive: boolean
 	sidebarViewMode: SidebarViewMode
 	sidebarExpanded: boolean
@@ -494,6 +506,10 @@ export interface UISlice {
 	setMobilePanelSnap: (snap: MobilePanelSnap) => void
 	openMobilePanel: (tab?: MobilePanelTab) => void
 	closeMobilePanel: () => void
+	openMobileSidebar: (tab?: MobilePanelTab) => void
+	showMobileSidebarMenu: () => void
+	selectMobileSidebarDestination: (tab: MobilePanelTab) => void
+	closeMobileSidebar: () => void
 	setInspectorActive: (active: boolean) => void
 	setSidebarViewMode: (mode: SidebarViewMode) => void
 	setSettingsTab: (tab: 'profile' | 'relays' | 'chat' | 'sessions' | null) => void

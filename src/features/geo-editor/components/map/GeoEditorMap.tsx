@@ -51,6 +51,10 @@ export interface GeoEditorMapProps {
 	showPitch?: boolean
 	/** Include the mercator/globe projection toggle. Default: true when showControls is true. */
 	showGlobe?: boolean
+	/** Include the built-in locate control. Default: true. */
+	showLocate?: boolean
+	/** Collapse MapLibre attribution behind its info button. Default: true. */
+	attributionCompact?: boolean
 	/**
 	 * Extra controls rendered inside the MapControls column, after the built-in
 	 * groups. Use `ControlGroup` + `ControlButton` from `@/components/ui/map`
@@ -97,6 +101,8 @@ export function GeoEditorMap({
 	controlsPosition = 'bottom-right',
 	showPitch = true,
 	showGlobe = true,
+	showLocate = true,
+	attributionCompact = true,
 	controlsChildren,
 	onLocate,
 }: GeoEditorMapProps) {
@@ -168,6 +174,7 @@ export function GeoEditorMap({
 			className={className}
 			renderWorldCopies={true}
 			maxZoom={22}
+			attributionControl={{ compact: attributionCompact }}
 			// preserveDrawingBuffer moved into canvasContextAttributes in
 			// maplibre-gl 5.x. Required for canvas snapshot export (share image).
 			canvasContextAttributes={{ preserveDrawingBuffer: true }}
@@ -178,7 +185,7 @@ export function GeoEditorMap({
 					position={controlsPosition}
 					showZoom
 					showCompass
-					showLocate
+					showLocate={showLocate}
 					showFullscreen
 					showPitch={showPitch}
 					showProjection={showGlobe}

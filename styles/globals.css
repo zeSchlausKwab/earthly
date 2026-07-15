@@ -354,13 +354,46 @@
   }
 }
 
-/* Mobile: lift MapLibre's bottom attribution/controls above the 52px pinned tool
-   strip so the (full-width, clickable) attribution never sits behind the strip —
-   otherwise taps in the gaps between tool buttons hit the attribution link. */
+:root {
+  --mobile-dock-height: 52px;
+  --mobile-sheet-height: 0px;
+}
+
+/* Mobile: attribution is intentionally expanded and always occupies the live
+   map band above the dock / current sheet detent. */
 @media (max-width: 767px) {
   .maplibregl-ctrl-bottom-left,
   .maplibregl-ctrl-bottom-right {
-    bottom: 56px !important;
+    bottom: calc(
+      var(--mobile-dock-height) + env(safe-area-inset-bottom) +
+      var(--mobile-sheet-height) + 4px
+    ) !important;
+    transition: bottom 200ms ease-out;
+  }
+
+  .maplibregl-ctrl-bottom-right {
+    right: 88px !important;
+    width: calc(100vw - 104px);
+  }
+
+  .maplibregl-ctrl-attrib {
+    box-sizing: border-box;
+    display: block !important;
+    width: calc(100vw - 104px);
+    margin-inline: 4px !important;
+    line-height: 14px;
+    white-space: normal !important;
+  }
+
+  .maplibregl-ctrl-attrib-inner {
+    display: block;
+    overflow-wrap: anywhere;
+    white-space: normal !important;
+  }
+
+  .maplibregl-ctrl-attrib.maplibregl-compact {
+    min-height: auto;
+    min-width: auto;
   }
 }
 

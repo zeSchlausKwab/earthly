@@ -1,8 +1,6 @@
 import { useActiveAccount } from 'applesauce-react/hooks'
 import {
-	Activity,
 	BookOpen,
-	Compass,
 	Database,
 	Download,
 	Eye,
@@ -10,10 +8,13 @@ import {
 	Hexagon,
 	Lock,
 	LockOpen,
+	Layers,
+	Map as MapIcon,
 	MapPin,
 	MapPinned,
 	MessageSquare,
 	MessageSquareOff,
+	Menu,
 	MousePointer2,
 	PanelTopOpen,
 	Plus,
@@ -23,7 +24,6 @@ import {
 	Spline,
 	Trash2,
 	Undo2,
-	User,
 	Waypoints,
 } from 'lucide-react'
 import type { Geometry } from 'geojson'
@@ -97,7 +97,7 @@ import { ImportOsmDialog } from './components/ImportOsmDialog'
 import { LocationInspectorPopup } from './components/LocationInspectorPopup'
 import { Magnifier } from './components/Magnifier'
 import { MapFeatureHoverOverlay } from './components/MapFeatureHoverOverlay'
-import { DETENT_VH, MobilePanel, type MobilePanelTab } from './components/MobilePanel'
+import { mobilePanelHeightPx, MobilePanel } from './components/MobilePanel'
 import { MobileToolMenu } from './components/MobileToolMenu'
 import { CommentAnnotationPopup } from './components/CommentAnnotationPopup'
 import type { CommentAnnotationPopupData } from './components/CommentAnnotationPopup'
@@ -135,7 +135,6 @@ import {
 import { exportShapefile, importShapefile } from './shapefile'
 import { getGeoJsonPasteCandidate } from './geoJsonPaste'
 import { useEditorStore, type MapStackEntry } from './store'
-import { mobileTabToView } from './store/mobileTabRoute'
 import type { MapStackEntryType } from './store/types'
 import type { GeoSearchResult } from './types'
 import { ensureFeatureCollection, extractCollectionMeta, toEditorFeature } from './utils'
@@ -420,7 +419,10 @@ export function GeoEditorView() {
 	const mobilePanelSnap = useEditorStore((state) => state.mobilePanelSnap)
 	const setMobilePanelOpen = useEditorStore((state) => state.setMobilePanelOpen)
 	const setMobilePanelSnap = useEditorStore((state) => state.setMobilePanelSnap)
-	const setMobilePanelTab = useEditorStore((state) => state.setMobilePanelTab)
+	const mobileSidebarOpen = useEditorStore((state) => state.mobileSidebarOpen)
+	const openMobileSidebar = useEditorStore((state) => state.openMobileSidebar)
+	const closeMobileSidebar = useEditorStore((state) => state.closeMobileSidebar)
+	const setMobileSearchOpen = useEditorStore((state) => state.setMobileSearchOpen)
 	// Mobile Tools/Search/Actions toggles are no longer used — the responsive
 	// toolbar replaces them. Store fields stay for backward compat.
 	const panLocked = useEditorStore((state) => state.panLocked)
@@ -667,34 +669,24 @@ export function GeoEditorView() {
 		}
 	}, [isMobile, selectionCount, openMobilePanel, setMobilePanelSnap])
 
-	// Mobile §14a: keep a live map inset above the sheet — pad the camera by the
-	// active detent's height (in px) so recenters/fitBounds keep the edited
-	// geometry visible above the drawer. Desktop clears the padding.
+	// Keep camera moves and MapLibre attribution above the exact live sheet
+	// height. The old percentage approximation disagreed with the fixed peek
+	// detent and let the sheet cover both geometry and attribution.
 	useEffect(() => {
 		const mapInstance = map.current
-		if (!mapInstance || !mounted) return
 		const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 0
 		const rawBottom =
-			isMobile && mobilePanelOpen
-				? Math.round((DETENT_VH[mobilePanelSnap] / 100) * viewportHeight)
-				: 0
+			isMobile && mobilePanelOpen ? Math.round(mobilePanelHeightPx(mobilePanelSnap)) : 0
+		mapContainerRef.current?.style.setProperty('--mobile-sheet-height', `${rawBottom}px`)
+		if (!mapInstance || !mounted) return
 		// Never pad away the whole map — keep a usable strip so MapLibre always has
 		// a positive padded viewport to center within.
 		const bottom = Math.max(0, Math.min(rawBottom, viewportHeight - 80))
 		mapInstance.easeTo({ padding: { top: 0, right: 0, bottom, left: 0 }, duration: 200 })
-	}, [isMobile, mobilePanelOpen, mobilePanelSnap, mounted])
-
-	// Mobile §14a: the bottom sheet is the universal panel container — always
-	// present at peek minimum, never a toggled popover. Keep it open on mobile.
-	// Double-check the CURRENT store value, not just the render snapshot: on a
-	// deep-link mount the route-restore (applyRouteState) opens the sheet at
-	// 'half' between this effect's render and its run, and re-calling
-	// setMobilePanelOpen(true) would reset that snap back to 'peek'.
-	useEffect(() => {
-		if (isMobile && !mobilePanelOpen && !useEditorStore.getState().mobilePanelOpen) {
-			setMobilePanelOpen(true)
+		return () => {
+			mapContainerRef.current?.style.setProperty('--mobile-sheet-height', '0px')
 		}
-	}, [isMobile, mobilePanelOpen, setMobilePanelOpen])
+	}, [isMobile, mobilePanelOpen, mobilePanelSnap, mounted])
 
 	// Custom hooks
 	const {
@@ -972,13 +964,12 @@ export function GeoEditorView() {
 		prevStanceRef.current = stance
 		if (stance !== 'author' || wasAuthor) return
 		if (isMobile) {
-			setMobilePanelTab('map-stack')
-			setMobilePanelOpen(true)
+			openMobilePanel('map-stack')
 			setMobilePanelSnap('half')
 			return
 		}
 		setMapStackOpen(true)
-	}, [isMobile, stance, setMobilePanelTab, setMobilePanelOpen, setMobilePanelSnap, setMapStackOpen])
+	}, [isMobile, stance, openMobilePanel, setMobilePanelSnap, setMapStackOpen])
 
 	// Round C.5: stack ⇄ URL serialization. Read URL params on mount once data
 	// is loaded; afterwards push stack mutations back to the URL (debounced via
@@ -1928,14 +1919,10 @@ export function GeoEditorView() {
 	// simply aren't rendered, regardless of how many datasets land in the
 	// subscription. This drops O(geoEvents) work on every relay update too.
 
-	// Initialize mobile/desktop UI. On mobile the bottom sheet is the universal
-	// panel container (§14a) — always present at peek, so we OPEN it here rather
-	// than closing it. Skip when already open (fresh store read, not the render
-	// snapshot): on a deep-link mount the route-restore has already opened the
-	// sheet at 'half', and setMobilePanelOpen(true) resets the snap to 'peek'.
+	// Initialize platform chrome. Mobile starts map-first with both transient
+	// surfaces closed; route restoration may still open the appropriate one.
 	useEffect(() => {
 		if (isMobile) {
-			if (!useEditorStore.getState().mobilePanelOpen) setMobilePanelOpen(true)
 			setShowToolbar(false)
 			setShowTips(false)
 		} else {
@@ -1944,7 +1931,7 @@ export function GeoEditorView() {
 			setShowToolbar(true)
 			setShowTips(true)
 		}
-	}, [isMobile, setMobilePanelOpen, setShowTips, setShowDatasetsPanel, setShowInfoPanel])
+	}, [isMobile, setShowTips, setShowDatasetsPanel, setShowInfoPanel])
 
 	// Handle pmtiles URL param on app load
 	const setMapSource = useEditorStore((state) => state.setMapSource)
@@ -2528,10 +2515,10 @@ export function GeoEditorView() {
 		const wasReady = prevEntityEditorReadyRef.current
 		prevEntityEditorReadyRef.current = mobileEntityEditorReady
 		if (!wasReady && mobileEntityEditorReady) {
-			setMobilePanelTab('edit')
+			openMobilePanel('edit')
 			setMobilePanelSnap('half')
 		}
-	}, [isMobile, mobileEntityEditorReady, setMobilePanelTab, setMobilePanelSnap])
+	}, [isMobile, mobileEntityEditorReady, openMobilePanel, setMobilePanelSnap])
 
 	// Sighting pin-drop is map-first: when placement arms (create mode, no geometry
 	// yet), drop the sheet to peek so the whole map is reachable for dropping the
@@ -2550,16 +2537,17 @@ export function GeoEditorView() {
 		const wasActive = prevSightingPlacementRef.current
 		prevSightingPlacementRef.current = sightingPlacementActive
 		if (!wasActive && sightingPlacementActive) {
-			setMobilePanelSnap('peek')
+			setMobilePanelOpen(false)
 		} else if (wasActive && !sightingPlacementActive && placedSightingGeometry != null) {
-			setMobilePanelTab('edit')
+			openMobilePanel('edit')
 			setMobilePanelSnap('half')
 		}
 	}, [
 		isMobile,
 		sightingPlacementActive,
 		placedSightingGeometry,
-		setMobilePanelTab,
+		openMobilePanel,
+		setMobilePanelOpen,
 		setMobilePanelSnap,
 	])
 	// Auto-off on user pan (drag). Programmatic recenters use easeTo, not drag.
@@ -3009,23 +2997,6 @@ export function GeoEditorView() {
 		onLoadIntoEditor: handleDatasetSelect,
 	}
 
-	// §14a bottom dock: the top-level destinations that replace the tool strip on the
-	// browse/inspect stances. Each raises the sheet and swaps its tab; Create (a
-	// separate center button) enters the Author stance, which swaps the dock out for
-	// the tool strip.
-	const mobileDockItems: {
-		key: string
-		label: string
-		icon: typeof MapPin
-		tab: MobilePanelTab
-	}[] = [
-		{ key: 'map', label: 'Map', icon: MapPin, tab: 'sightings' },
-		{ key: 'explore', label: 'Explore', icon: Compass, tab: 'datasets' },
-		// "Live", not "Activity": the destination is live location beacons, and the
-		// label should say what it opens (audit P2 #9).
-		{ key: 'live', label: 'Live', icon: Activity, tab: 'beacons' },
-		{ key: 'you', label: 'You', icon: User, tab: 'profile' },
-	]
 	// Entity editors are mutually exclusive: close any OTHER open editor before
 	// starting a new one so a lingering editor (e.g. an unfinished Story) can't leak
 	// into the next entity's surface (incl. the dataset draft's Map Stack editor).
@@ -3040,24 +3011,6 @@ export function GeoEditorView() {
 		if (keep !== 'beacon') handleCloseBeaconControl()
 		create()
 	}
-	const handleDockSelect = (tab: MobilePanelTab) => {
-		// Re-tapping the active destination collapses back to peek (map owns the
-		// screen); otherwise swap the tab and rise to half. The sheet is always open
-		// on mobile, so we set the snap directly — calling setMobilePanelOpen(true)
-		// would force snap back to 'peek' and defeat the rise.
-		if (mobilePanelTab === tab && mobilePanelSnap !== 'peek') {
-			setMobilePanelSnap('peek')
-			return
-		}
-		// Dock selection is a real navigation: write the URL through the same
-		// canonical router as the desktop rail so history, reload, and share links
-		// agree with the visible destination (audit P1 #6). The tab is also set
-		// directly — in-app pushState deliberately skips route→tab derivation.
-		navigateToView(mobileTabToView(tab))
-		setMobilePanelTab(tab)
-		setMobilePanelSnap('half')
-	}
-
 	return (
 		<StudioShell
 			mapContainerRef={mapContainerRef}
@@ -3180,6 +3133,7 @@ export function GeoEditorView() {
 				}}
 				mapSource={mapSource}
 				onLocate={handleLocate}
+				attributionCompact={!isMobile}
 				// On mobile the bottom sheet + tool strip/dock occupy the lower edge,
 				// so the control stack lives top-right (clear of the sheet at every
 				// detent). Desktop keeps them bottom-right (thumb-free, above the status bar).
@@ -3526,7 +3480,7 @@ export function GeoEditorView() {
 			{/* Mobile tool strip (redesign §14a Row 0) — pinned at the very bottom;
 			    the sheet docks directly above it. Draw tools left, Publish right. */}
 			{isMobile && stance === 'author' && (
-				<div className="fixed inset-x-0 bottom-0 z-50 flex h-[52px] items-center gap-1.5 border-t border-border bg-[var(--surface-chrome)] px-2 md:hidden">
+				<div className="fixed inset-x-0 bottom-0 z-[60] flex min-h-[calc(var(--mobile-dock-height)+env(safe-area-inset-bottom))] items-center gap-1.5 border-t border-border bg-[var(--surface-chrome)] px-2 pb-[env(safe-area-inset-bottom)] md:hidden">
 					<div className="inline-flex shrink-0 overflow-hidden rounded-[2px] border border-border">
 						{(
 							[
@@ -3628,36 +3582,36 @@ export function GeoEditorView() {
 					</Button>
 				</div>
 			)}
-			{/* Mobile bottom dock (§14a "switch top-level: Map · Explore · Create ·
-			    Activity · You"). Shown on the browse/inspect stances; entering the
-			    Author stance swaps it for the tool strip above. Create sits center as
-			    an amber square and starts a new dataset (⇒ Author). */}
+			{/* Map-first mobile dock. Navigation opens horizontally; map-bound work
+			    opens vertically. Create remains the additive center action. */}
 			{isMobile && stance !== 'author' && (
 				<nav
 					aria-label="Primary"
 					data-tour="mobile-dock"
-					className="fixed inset-x-0 bottom-0 z-50 flex h-[52px] items-stretch justify-around border-t border-border bg-[var(--surface-chrome)] px-1 md:hidden"
+					className="fixed inset-x-0 bottom-0 z-[60] flex min-h-[calc(var(--mobile-dock-height)+env(safe-area-inset-bottom))] items-stretch justify-around border-t border-border bg-[var(--surface-chrome)] px-1 pb-[env(safe-area-inset-bottom)] md:hidden"
 				>
-					{mobileDockItems.slice(0, 2).map((item) => {
-						const ItemIcon = item.icon
-						const active = mobilePanelTab === item.tab
-						return (
-							<button
-								key={item.key}
-								type="button"
-								onClick={() => handleDockSelect(item.tab)}
-								aria-pressed={active}
-								data-tour={`mobile-dock-${item.key}`}
-								className={cn(
-									'flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] transition-colors',
-									active ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
-								)}
-							>
-								<ItemIcon className="h-5 w-5" />
-								{item.label}
-							</button>
-						)
-					})}
+					<button
+						type="button"
+						onClick={() => (mobileSidebarOpen ? closeMobileSidebar() : openMobileSidebar())}
+						aria-pressed={mobileSidebarOpen}
+						data-tour="mobile-dock-menu"
+						className={cn(
+							'flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] transition-colors',
+							mobileSidebarOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+						)}
+					>
+						<Menu className="h-5 w-5" />
+						Menu
+					</button>
+					<button
+						type="button"
+						onClick={() => setMobileSearchOpen(true)}
+						data-tour="mobile-dock-search"
+						className="flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] text-muted-foreground transition-colors hover:text-foreground"
+					>
+						<Search className="h-5 w-5" />
+						Search
+					</button>
 					<DropdownMenu>
 						<DropdownMenuTrigger asChild>
 							<button
@@ -3696,26 +3650,32 @@ export function GeoEditorView() {
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
-					{mobileDockItems.slice(2).map((item) => {
-						const ItemIcon = item.icon
-						const active = mobilePanelTab === item.tab
-						return (
-							<button
-								key={item.key}
-								type="button"
-								onClick={() => handleDockSelect(item.tab)}
-								aria-pressed={active}
-								data-tour={`mobile-dock-${item.key}`}
-								className={cn(
-									'flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] transition-colors',
-									active ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
-								)}
-							>
-								<ItemIcon className="h-5 w-5" />
-								{item.label}
-							</button>
-						)
-					})}
+					<button
+						type="button"
+						onClick={toggleToolbarMapStack}
+						aria-pressed={toolbarMapStackOpen}
+						data-tour="mobile-dock-map-stack"
+						className={cn(
+							'flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] transition-colors',
+							toolbarMapStackOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+						)}
+					>
+						<Layers className="h-5 w-5" />
+						Map stack
+					</button>
+					<button
+						type="button"
+						onClick={() => {
+							closeMobileSidebar()
+							setMobilePanelOpen(false)
+							setMobileSearchOpen(false)
+						}}
+						data-tour="mobile-dock-map"
+						className="flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] text-muted-foreground transition-colors hover:text-foreground"
+					>
+						<MapIcon className="h-5 w-5" />
+						Map
+					</button>
 				</nav>
 			)}
 			{debugEvent && (

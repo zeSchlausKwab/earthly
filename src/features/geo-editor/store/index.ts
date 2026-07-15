@@ -51,6 +51,8 @@ export type {
 	MapStackEntryVia,
 	MobilePanelTab,
 	MobilePanelSnap,
+	MobileSidebarMode,
+	MobilePanelResume,
 	GeoCollectionEditDraft,
 	GeoEditorWorkspace,
 	SidebarViewMode,

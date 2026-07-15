@@ -19,7 +19,7 @@ export const openPanelTask: AiTaskMetadata = {
 	id: 'navigation.open-panel',
 	summary: 'Open an Earthly browse or account panel on desktop or mobile.',
 	preconditions: ['Earthly is open', 'First-run tour is not blocking the UI'],
-	sideEffects: ['Changes the current route or mobile sheet tab'],
+	sideEffects: ['Changes the current route and opens the mobile navigation drawer'],
 	viewports: 'both',
 }
 
@@ -40,7 +40,14 @@ const desktopRoutes: Record<EarthlyPanel, string> = {
 export async function openPanel(earthly: EarthlySession, panel: EarthlyPanel): Promise<void> {
 	// Unified vocabulary (audit P2 #8): Posts is labeled "Local posts" on both
 	// viewports; the mobile dock's beacon destination is labeled "Live".
-	const visibleLabel = panel === 'Posts' ? 'Local posts' : panel
+	const visibleLabel =
+		panel === 'Posts'
+			? 'Local posts'
+			: earthly.isMobile && panel === 'Beacons'
+				? 'Live beacons'
+				: earthly.isMobile && panel === 'Profile'
+					? 'My entities'
+					: panel
 	if (!earthly.isMobile) {
 		const desktopLabel = panel === 'Profile' ? 'My Entities' : visibleLabel
 		await earthly.page.getByRole('button', { name: desktopLabel, exact: true }).click()
@@ -48,34 +55,15 @@ export async function openPanel(earthly: EarthlySession, panel: EarthlyPanel): P
 		return
 	}
 
-	const directDock =
-		panel === 'Sightings'
-			? 'Map'
-			: panel === 'Datasets'
-				? 'Explore'
-				: panel === 'Beacons'
-					? 'Live'
-					: panel === 'Profile'
-						? 'You'
-						: null
-	if (directDock) {
-		await earthly.page.getByRole('button', { name: directDock, exact: true }).click()
-	} else {
-		await earthly.page.getByRole('button', { name: 'Explore', exact: true }).click()
-		const visibleButtons = earthly.page.locator('button:visible')
-		await visibleButtons
-			.filter({ hasText: /^Datasets/ })
-			.first()
-			.click()
-		await earthly.page
-			.getByRole('button', { name: new RegExp(`^${visibleLabel}(?:\\s|$)`) })
-			.last()
-			.click()
-	}
+	await earthly.page.getByRole('button', { name: 'Menu', exact: true }).click()
+	const drawer = earthly.page.getByRole('dialog', { name: 'Earthly navigation' })
+	await expect(drawer).toBeVisible()
+	await drawer.getByRole('button', { name: new RegExp(`^${visibleLabel}(?:\\s|$)`) }).click()
 	await expect(
-		earthly.page
-			.locator('button:visible')
-			.filter({ hasText: new RegExp(panel === 'Profile' ? 'Profile|You' : visibleLabel) })
+		drawer
+			.locator('h2:visible')
+			.filter({ hasText: new RegExp(`^${visibleLabel}$`) })
 			.first(),
 	).toBeVisible()
+	await expect.poll(() => new URL(earthly.page.url()).pathname).toBe(desktopRoutes[panel])
 }
