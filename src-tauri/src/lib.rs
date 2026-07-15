@@ -1,3 +1,4 @@
+mod android_lifecycle;
 mod local_node;
 mod outbox;
 
@@ -31,6 +32,7 @@ pub fn run() {
     }));
 
     let app = builder
+        .plugin(android_lifecycle::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_os::init())
         .manage(LocalNodeState::starting())

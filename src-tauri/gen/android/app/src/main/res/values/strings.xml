@@ -1,4 +1,8 @@
 <resources>
     <string name="app_name">"Earthly"</string>
     <string name="main_activity_title">"Earthly"</string>
+    <string name="local_sharing_title">Earthly nearby sharing</string>
+    <string name="local_sharing_description">Available at %1$s for about %2$d minutes</string>
+    <string name="local_sharing_channel">Nearby sharing</string>
+    <string name="local_sharing_channel_description">Shows when Earthly is serving maps and records to paired nearby devices.</string>
 </resources>

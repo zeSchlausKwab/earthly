@@ -8,8 +8,8 @@ Release boundary: Android only; macOS is a development host. iOS, Windows, and L
 
 ## Readiness estimate
 
-- Private Android alpha: approximately 70% complete.
-- Public Android release: approximately 48% complete.
+- Private Android alpha: approximately 75% complete.
+- Public Android release: approximately 50% complete.
 - Embedded-node and offline-sharing foundation: approximately 80% complete.
 
 The percentages describe release risk, not source-code volume. The Tauri shell is no longer the
@@ -29,7 +29,7 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 - [x] Crash-safe SQLite signed-event outbox with immutable events and per-relay acknowledgements.
 - [ ] Physical Android process-death UAT for offline create/edit and later authenticated delivery.
 - [ ] Suspend/resume and low-storage recovery tests on supported Android versions.
-- [ ] User-visible foreground service for background local-node availability.
+- [x] Timed, user-visible foreground service for background local-node availability.
 - [ ] Redacted diagnostics export suitable for alpha support.
 
 ## Public release gate
@@ -48,9 +48,11 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 
 1. Finish the mirrored-PMTiles offline proof on two physical Android devices.
 2. Prove the durable native publish outbox across offline authoring and Android process death.
-3. Add the explicit Android foreground-service/lifecycle boundary and permissions.
-4. Close saved-region management, recovery, diagnostics, and storage-pressure behavior.
-5. Add protected AAB signing and release CI, then run upgrade and staged-release rehearsals.
+3. Close saved-region management, recovery, diagnostics, and storage-pressure behavior.
+4. Add protected AAB signing and release CI, then run upgrade and staged-release rehearsals.
+
+Physical lifecycle evidence currently covers Android 10/API 29. Notification-permission denial and
+foreground-service restrictions still need matrix coverage on Android 13–16 before public release.
 
 Work that is intentionally not on this release path: iOS initialization and signing, Windows/Linux
 build closure, desktop installers/updaters, and native platform-protected MLS key storage.

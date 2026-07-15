@@ -807,7 +807,7 @@ Deliver:
 
 Exit criteria:
 
-- bundles round-trip byte-for-byte across macOS and Android, then all supported targets;
+- bundles round-trip byte-for-byte on Android;
 - corrupt, oversized, traversal, duplicate-path, unsupported-version, and invalid-event bundles are
   rejected without partial catalog changes;
 - a shared bundle imports on a clean installation and renders offline;
@@ -823,6 +823,11 @@ Deliver:
 - disk pressure, battery, metered-network, and large-download policy;
 - accessibility, safe areas, keyboard, rotation, and mobile MapLibre verification;
 - Android-native share behavior.
+
+Nearby device serving uses the Android `connectedDevice` foreground-service type because the
+session transfers data to paired devices over a local network. It is timed, begins only from an
+explicit foreground user action, never auto-starts at boot, and requests notification permission
+before exposing LAN listeners. Ordinary map use does not start the service.
 
 Exit criteria:
 

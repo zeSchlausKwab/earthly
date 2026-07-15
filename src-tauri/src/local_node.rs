@@ -290,9 +290,18 @@ fn nonzero(value: u64) -> Option<u64> {
 }
 
 fn node_config(data_dir: PathBuf, bind: NodeBind) -> NodeConfig {
-    let mut config = NodeConfig::loopback(data_dir, NodeAvailability::Process);
+    let availability = node_availability(bind, cfg!(target_os = "android"));
+    let mut config = NodeConfig::loopback(data_dir, availability);
     config.bind = bind;
     config
+}
+
+fn node_availability(bind: NodeBind, android_foreground_service: bool) -> NodeAvailability {
+    if android_foreground_service && matches!(bind, NodeBind::LocalNetwork(_)) {
+        NodeAvailability::ForegroundService
+    } else {
+        NodeAvailability::Process
+    }
 }
 
 fn node_matches_bind(node: &LocalNode, bind: NodeBind) -> bool {
@@ -430,16 +439,33 @@ pub async fn local_node_enable_lan_v1(
         ));
     }
 
+    crate::android_lifecycle::prepare(&app)
+        .await
+        .map_err(|error| LocalNodeCommandError::new("notification-permission-required", error))?;
+
     state
         .reconfigure(NodeBind::LocalNetwork(IpAddr::V4(address)))
         .await?;
     let (generation, expires_at) = state.begin_lan_session(duration_seconds);
+    if let Err(error) = crate::android_lifecycle::start(&app, &address_text, expires_at).await {
+        state.invalidate_lan_session();
+        let recovery = state.reconfigure(NodeBind::Loopback).await;
+        let message = match recovery {
+            Ok(_) => error,
+            Err(recovery_error) => format!("{error}; loopback recovery failed: {recovery_error:?}"),
+        };
+        return Err(LocalNodeCommandError::new(
+            "foreground-service-failed",
+            message,
+        ));
+    }
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(duration_seconds)).await;
         let state = app.state::<LocalNodeState>();
         if state.lan_session_is_current(generation, expires_at) {
             state.invalidate_lan_session();
             let _ = state.reconfigure(NodeBind::Loopback).await;
+            let _ = crate::android_lifecycle::stop(&app).await;
         }
     });
     Ok(state.status())
@@ -447,10 +473,14 @@ pub async fn local_node_enable_lan_v1(
 
 #[tauri::command]
 pub async fn local_node_disable_lan_v1(
+    app: AppHandle,
     state: State<'_, LocalNodeState>,
 ) -> Result<LocalNodeStatus, LocalNodeCommandError> {
     state.invalidate_lan_session();
     state.reconfigure(NodeBind::Loopback).await?;
+    if let Err(error) = crate::android_lifecycle::stop(&app).await {
+        eprintln!("failed to stop Android sharing notification: {error}");
+    }
     Ok(state.status())
 }
 
@@ -771,6 +801,28 @@ mod tests {
                 .get(ACCESS_CONTROL_EXPOSE_HEADERS)
                 .unwrap(),
             "Accept-Ranges, Content-Length, Content-Range, Content-Type, ETag"
+        );
+    }
+
+    #[test]
+    fn advertises_foreground_service_only_for_android_lan_sessions() {
+        assert_eq!(
+            node_availability(
+                NodeBind::LocalNetwork(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 4))),
+                true,
+            ),
+            NodeAvailability::ForegroundService
+        );
+        assert_eq!(
+            node_availability(NodeBind::Loopback, true),
+            NodeAvailability::Process
+        );
+        assert_eq!(
+            node_availability(
+                NodeBind::LocalNetwork(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 4))),
+                false,
+            ),
+            NodeAvailability::Process
         );
     }
 }
