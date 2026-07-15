@@ -158,6 +158,10 @@ As of 2026-07-15:
 - accepted peers can explicitly reconcile signed Earthly map records downward with NIP-77; the
   native client persists verified originals into local LMDB and hydrates Applesauce with a bounded
   response, while profile/wallet kinds remain outside that operation;
+- the embedded relay validates the exact NIP-42 relay tag and authorizes the authenticated
+  installation pubkey against durable `relay-read` and `relay-write` grants. REQ, COUNT, NIP-77,
+  and live subscription delivery share the read gate; an unpaired authenticated key receives no
+  stored records;
 - record synchronization discovers bounded SHA-256 Blossom references. Settings → Offline can
   explicitly mirror missing files in batches from the paired descriptor, with BUD-11 authorization,
   no redirect following, streaming size enforcement, hash verification, atomic local adoption, and

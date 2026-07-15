@@ -83,24 +83,26 @@ The native foundation and transport-neutral handshake are implemented:
 - the main Earthly webview can read local hashes through the `earthly-blob` custom protocol with
   GET, HEAD, and single-Range semantics. Paths are exact lowercase SHA-256 values, full responses
   are capped at 64 MiB, and larger files require bounded Range reads. Dataset resolution probes
-  this local source first and falls back to the event URL only when the hash is absent.
+  this local source first and falls back to the event URL only when the hash is absent;
+- NIP-42 relay sessions are authorized against the durable pairing policy. `relay-read` gates REQ,
+  COUNT, NIP-77 reconciliation, and live subscription delivery; `relay-write` gates EVENT
+  independently. Authentication events must name the exact relay URL, and an authenticated but
+  unpaired Nostr key cannot query stored records.
 
 Before the interoperability proof is product-complete in the Earthly UI it still needs:
 
 - deep-link invitation import and an optional live-camera scanner (photo-based QR import ships now);
 - Android 17/iOS local-network permission adapters and denial diagnostics;
-- relay authorization against the authenticated NIP-42 session pubkey, including separate
-  read/write capabilities;
 - BUD-12 deletion, persistent blob ownership/quota metadata, and NIP-11 relay information;
 - an Android foreground service for user-visible background availability.
 
-`nostr-relay-builder` 0.44 exposes event-author and socket information to write policies, but not
-the authenticated NIP-42 session pubkey. The implemented network write policy therefore safely
-accepts events authored by a paired pubkey but cannot authorize a paired client to push arbitrary
-third-party events. Pull synchronization does not weaken that policy: the receiving native process
-reconciles downward, verifies the original signatures, and writes through its trusted internal
-database boundary. Bidirectional relay mirroring still requires an upstream policy-context hook or
-a narrowly maintained patch; it must not be approximated by weakening NIP-42.
+Earthly pins a narrow `nostr-relay-builder` 0.44.1 fork because upstream does not expose the
+authenticated NIP-42 session pubkey to an authorization policy and skips NIP-42 on its negentropy
+handler. The fork adds that policy seam and is documented in
+`crates/nostr-relay-builder/EARTHLY-PATCHES.md`. The network write policy still accepts only events
+authored by a paired pubkey; a paired client cannot push arbitrary third-party events. Pull
+synchronization preserves third-party authors through the verified internal ingestion boundary
+instead of weakening network authorization.
 
 ## 3. Supported reachability
 

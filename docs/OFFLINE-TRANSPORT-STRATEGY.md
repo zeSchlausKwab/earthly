@@ -9,7 +9,8 @@ with NIP-77 into their verified local database, discover SHA-256 Blossom referen
 records, and explicitly copy the referenced immutable files into their local Blossom store. Deep
 links and platform permission-denial adapters remain. Mirrored GeoJSON is resolved local-first
 through a read-only native custom protocol; its Range behavior is also the seam for later local
-PMTiles consumption.
+PMTiles consumption. Relay queries, counts, negentropy reconciliation, live reads, and writes are
+bound to the authenticated installation pubkey and its separate durable pairing capabilities.
 
 ## Decision
 

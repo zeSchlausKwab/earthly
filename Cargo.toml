@@ -3,4 +3,8 @@ members = [
   "crates/earthly-local-node",
   "src-tauri",
 ]
+exclude = ["crates/nostr-relay-builder"]
 resolver = "2"
+
+[patch.crates-io]
+nostr-relay-builder = { path = "crates/nostr-relay-builder" }

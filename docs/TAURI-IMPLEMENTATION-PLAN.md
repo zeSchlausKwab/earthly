@@ -8,8 +8,9 @@
 > Earthly records are also implemented. Synchronized records now yield a durable referenced-blob
 > inventory and an explicit, authorized, hash-verifying mirror action into the local Blossom store.
 > Mirrored GeoJSON resolves local-first through a read-only, Range-capable native custom protocol.
-> Deep links, mobile lifecycle, platform-protected MLS storage, local PMTiles integration, and
-> complete offline map regions remain staged work.
+> NIP-42 sessions now enforce the approved installation's distinct relay-read and relay-write
+> capabilities across ordinary and NIP-77 access. Deep links, mobile lifecycle, platform-protected
+> MLS storage, local PMTiles integration, and complete offline map regions remain staged work.
 
 Status: committed product direction
 Created: 2026-07-13

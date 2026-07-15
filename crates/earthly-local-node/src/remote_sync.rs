@@ -78,14 +78,45 @@ pub(crate) async fn sync_remote_node(
     let options = SyncOptions::new()
         .direction(SyncDirection::Down)
         .initial_timeout(Duration::from_secs(5));
-    let reconciliation = match client
+    let first_reconciliation = client
         .sync_with([relay_url.as_str()], Filter::new().kinds(kinds), &options)
-        .await
-    {
-        Ok(reconciliation) => reconciliation,
-        Err(error) => {
-            client.disconnect().await;
-            return Err(RemoteSyncError::Relay(error.to_string()));
+        .await;
+    let reconciliation = match first_reconciliation {
+        Ok(reconciliation) if !reconciliation.success.is_empty() => reconciliation,
+        first_attempt => {
+            // NIP-77 does not define an auth replay. A private relay challenges the first NEG-OPEN,
+            // the SDK completes NIP-42 on that connection, and Earthly explicitly replays the
+            // reconciliation once rather than weakening the relay's read gate.
+            let first_error = match first_attempt {
+                Ok(reconciliation) => reconciliation
+                    .failed
+                    .values()
+                    .next()
+                    .cloned()
+                    .unwrap_or_else(|| "the host did not complete reconciliation".to_owned()),
+                Err(error) => error.to_string(),
+            };
+            let retry_kinds = EARTHLY_SYNC_KIND_NUMBERS
+                .iter()
+                .copied()
+                .map(Kind::from)
+                .collect::<Vec<_>>();
+            match client
+                .sync_with(
+                    [relay_url.as_str()],
+                    Filter::new().kinds(retry_kinds),
+                    &options,
+                )
+                .await
+            {
+                Ok(reconciliation) => reconciliation,
+                Err(retry_error) => {
+                    client.disconnect().await;
+                    return Err(RemoteSyncError::Relay(format!(
+                        "{first_error}; authenticated retry failed: {retry_error}"
+                    )));
+                }
+            }
         }
     };
 
