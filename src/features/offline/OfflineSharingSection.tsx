@@ -345,6 +345,25 @@ export function OfflineSharingSection() {
 			}
 		})
 
+	const mirrorRemoteBlobs = (remote: RemoteNodeRecord) =>
+		run(`mirror-remote:${remote.nodeId}`, async () => {
+			if (!service) return
+			const missingHashes = remote.discoveredBlobHashes.filter(
+				(hash) => !remote.mirroredBlobHashes.includes(hash),
+			)
+			const batch = missingHashes.slice(0, 64)
+			if (batch.length === 0) return
+			const result = await service.mirrorRemoteBlobs(remote.nodeId, batch)
+			setRemoteNodes((current) =>
+				current.map((candidate) =>
+					candidate.nodeId === result.remoteNode.nodeId ? result.remoteNode : candidate,
+				),
+			)
+			toast.success(
+				`Saved ${result.items.length} referenced file${result.items.length === 1 ? '' : 's'} locally`,
+			)
+		})
+
 	if (!service || status.state === 'starting') {
 		return (
 			<div className="flex items-center gap-3 border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
@@ -774,89 +793,124 @@ export function OfflineSharingSection() {
 								This installation has not joined another Earthly node yet.
 							</div>
 						) : (
-							remoteNodes.map((remote) => (
-								<div key={remote.nodeId} className="space-y-3 border border-border p-3">
-									<div className="flex items-start gap-2">
-										{remote.status.state === 'accepted' ? (
-											<CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />
-										) : remote.status.state === 'rejected' ? (
-											<X className="mt-0.5 h-4 w-4 text-destructive" />
-										) : (
-											<Clock3 className="mt-0.5 h-4 w-4 text-amber-600" />
-										)}
-										<div className="min-w-0 flex-1">
-											<p className="text-sm font-semibold">
-												{remote.status.state === 'accepted'
-													? 'Connected Earthly node'
-													: remote.status.state === 'rejected'
-														? 'Request rejected'
-														: 'Waiting for host approval'}
-											</p>
-											<p
-												className="truncate font-mono text-[10px] text-muted-foreground"
-												title={remote.nodeId}
-											>
-												{shortKey(remote.nodeId)} · {new URL(remote.descriptor.relayUrl).hostname}
-											</p>
+							remoteNodes.map((remote) => {
+								const missingBlobHashes = remote.discoveredBlobHashes.filter(
+									(hash) => !remote.mirroredBlobHashes.includes(hash),
+								)
+								const mirrorBatchSize = Math.min(missingBlobHashes.length, 64)
+								return (
+									<div key={remote.nodeId} className="space-y-3 border border-border p-3">
+										<div className="flex items-start gap-2">
+											{remote.status.state === 'accepted' ? (
+												<CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />
+											) : remote.status.state === 'rejected' ? (
+												<X className="mt-0.5 h-4 w-4 text-destructive" />
+											) : (
+												<Clock3 className="mt-0.5 h-4 w-4 text-amber-600" />
+											)}
+											<div className="min-w-0 flex-1">
+												<p className="text-sm font-semibold">
+													{remote.status.state === 'accepted'
+														? 'Connected Earthly node'
+														: remote.status.state === 'rejected'
+															? 'Request rejected'
+															: 'Waiting for host approval'}
+												</p>
+												<p
+													className="truncate font-mono text-[10px] text-muted-foreground"
+													title={remote.nodeId}
+												>
+													{shortKey(remote.nodeId)} · {new URL(remote.descriptor.relayUrl).hostname}
+												</p>
+											</div>
 										</div>
-									</div>
-									{remote.status.state === 'rejected' ? (
-										<p className="text-xs text-destructive">{remote.status.reason}</p>
-									) : null}
-									<CapabilityBadges capabilities={remote.capabilities} />
-									{remote.lastSync ? (
-										<p className="text-xs text-muted-foreground">
-											Last sync {new Date(remote.lastSync.syncedAt * 1000).toLocaleString()} ·{' '}
-											{remote.lastSync.receivedEvents} new
-										</p>
-									) : null}
-									{remote.status.state === 'accepted' &&
-									!remote.capabilities.includes('relay-read') ? (
-										<p className="text-xs text-amber-700 dark:text-amber-400">
-											This older grant cannot read map records. Create a new invitation on the host
-											to add read access.
-										</p>
-									) : null}
-									<div className="flex flex-wrap gap-2">
-										{remote.status.state === 'pending' ? (
-											<Button
-												type="button"
-												variant="outline"
-												size="sm"
-												onClick={() => void refreshRemote(remote)}
-												disabled={operation !== null}
-											>
-												<RefreshCw /> Check approval
-											</Button>
+										{remote.status.state === 'rejected' ? (
+											<p className="text-xs text-destructive">{remote.status.reason}</p>
+										) : null}
+										<CapabilityBadges capabilities={remote.capabilities} />
+										{remote.lastSync ? (
+											<p className="text-xs text-muted-foreground">
+												Last sync {new Date(remote.lastSync.syncedAt * 1000).toLocaleString()} ·{' '}
+												{remote.lastSync.receivedEvents} new
+											</p>
+										) : null}
+										{remote.discoveredBlobHashes.length > 0 ? (
+											<div className="space-y-2 border border-border bg-muted/30 p-2.5">
+												<p className="text-xs font-medium text-foreground">
+													{remote.mirroredBlobHashes.length} of {remote.discoveredBlobHashes.length}{' '}
+													referenced files saved locally
+												</p>
+												<p className="text-[11px] text-muted-foreground">
+													Files are copied by verified SHA-256 hash; arbitrary links in map records
+													are not opened.
+												</p>
+												{mirrorBatchSize > 0 && remote.capabilities.includes('blob-read') ? (
+													<Button
+														type="button"
+														variant="outline"
+														size="sm"
+														onClick={() => void mirrorRemoteBlobs(remote)}
+														disabled={operation !== null}
+													>
+														{operation === `mirror-remote:${remote.nodeId}` ? (
+															<Loader2 className="animate-spin" />
+														) : (
+															<Download />
+														)}
+														Mirror {mirrorBatchSize} referenced file
+														{mirrorBatchSize === 1 ? '' : 's'}
+													</Button>
+												) : null}
+											</div>
 										) : null}
 										{remote.status.state === 'accepted' &&
-										remote.capabilities.includes('relay-read') ? (
+										!remote.capabilities.includes('relay-read') ? (
+											<p className="text-xs text-amber-700 dark:text-amber-400">
+												This older grant cannot read map records. Create a new invitation on the
+												host to add read access.
+											</p>
+										) : null}
+										<div className="flex flex-wrap gap-2">
+											{remote.status.state === 'pending' ? (
+												<Button
+													type="button"
+													variant="outline"
+													size="sm"
+													onClick={() => void refreshRemote(remote)}
+													disabled={operation !== null}
+												>
+													<RefreshCw /> Check approval
+												</Button>
+											) : null}
+											{remote.status.state === 'accepted' &&
+											remote.capabilities.includes('relay-read') ? (
+												<Button
+													type="button"
+													size="sm"
+													onClick={() => void syncRemote(remote)}
+													disabled={operation !== null}
+												>
+													{operation === `sync-remote:${remote.nodeId}` ? (
+														<Loader2 className="animate-spin" />
+													) : (
+														<Download />
+													)}
+													Sync map records
+												</Button>
+											) : null}
 											<Button
 												type="button"
+												variant="ghost"
 												size="sm"
-												onClick={() => void syncRemote(remote)}
+												onClick={() => void forgetRemote(remote)}
 												disabled={operation !== null}
 											>
-												{operation === `sync-remote:${remote.nodeId}` ? (
-													<Loader2 className="animate-spin" />
-												) : (
-													<Download />
-												)}
-												Sync map records
+												<Trash2 /> Forget
 											</Button>
-										) : null}
-										<Button
-											type="button"
-											variant="ghost"
-											size="sm"
-											onClick={() => void forgetRemote(remote)}
-											disabled={operation !== null}
-										>
-											<Trash2 /> Forget
-										</Button>
+										</div>
 									</div>
-								</div>
-							))
+								)
+							})
 						)}
 					</section>
 				</TabsContent>

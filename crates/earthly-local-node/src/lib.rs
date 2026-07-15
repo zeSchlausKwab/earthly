@@ -13,6 +13,7 @@ mod pairing;
 mod policy;
 mod relay;
 mod remote;
+mod remote_blob;
 mod remote_sync;
 
 pub use blossom::{BlobDescriptor, EmbeddedBlossom};
@@ -34,5 +35,8 @@ pub use relay::EmbeddedRelay;
 pub use remote::{
     RemoteNodeError, RemoteNodeRecord, RemoteNodeStore, RemoteSyncCheckpoint,
     REMOTE_NODE_RECORD_VERSION,
+};
+pub use remote_blob::{
+    RemoteBlobMirrorError, RemoteBlobMirrorItem, RemoteBlobMirrorResult, RemoteBlobMirrorState,
 };
 pub use remote_sync::{RemoteSyncError, RemoteSyncResult};

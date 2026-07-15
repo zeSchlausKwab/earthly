@@ -5,8 +5,9 @@ Status: implementation decision for the local-node foundation, 2026-07-14.
 Implementation checkpoint, 2026-07-15: step 1 and the QR/photo/paste portion of step 2 are now
 implemented. The LAN session is explicit and expires after 15 minutes; pairing remains signed,
 approval-gated, and capability-scoped. Accepted peers can explicitly pull signed Earthly records
-with NIP-77 into their verified local database. Deep links, immutable-blob mirroring, and platform
-permission-denial adapters remain.
+with NIP-77 into their verified local database, discover SHA-256 Blossom references in those
+records, and explicitly copy the referenced immutable files into their local Blossom store. Deep
+links, transparent local-blob resolution, and platform permission-denial adapters remain.
 
 ## Decision
 
@@ -24,8 +25,10 @@ contains the exact IP endpoints, so successful discovery never implies authoriza
 bootstrap option, not the map/blob transport.
 
 Earthly does not continuously stream a partner's map. After pairing, clients synchronize signed
-Nostr state and request immutable Blossom objects or byte ranges when needed. An explicit mirror
-operation may copy selected map data for later offline use.
+Nostr state and explicitly mirror referenced immutable Blossom objects when they want a durable
+offline copy. Mirroring fetches only SHA-256 hashes discovered in synchronized Earthly records from
+the approved node's advertised Blossom endpoint; event-supplied URLs are never used as generic
+fetch targets.
 
 ## Transport matrix
 

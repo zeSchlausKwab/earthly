@@ -4,6 +4,7 @@ import {
 	nativeSchemas,
 	pairingInvitationSchema,
 	remoteNodeRecordSchema,
+	remoteBlobMirrorResultSchema,
 	remoteSyncResultSchema,
 } from './contracts'
 
@@ -47,7 +48,7 @@ describe('local node platform contracts', () => {
 
 	test('accepts a durable pending remote-node relationship', () => {
 		const remote = {
-			version: 1,
+			version: 1 as const,
 			nodeId: descriptor.nodeId,
 			descriptor,
 			claimId: 'b'.repeat(64),
@@ -57,12 +58,16 @@ describe('local node platform contracts', () => {
 			status: { state: 'pending' },
 			updatedAt: 1_900_000_000,
 		}
-		expect(remoteNodeRecordSchema.parse(remote)).toEqual(remote)
+		expect(remoteNodeRecordSchema.parse(remote)).toEqual({
+			...remote,
+			discoveredBlobHashes: [],
+			mirroredBlobHashes: [],
+		})
 	})
 
 	test('accepts a bounded native sync result and its durable checkpoint', () => {
 		const remoteNode = {
-			version: 1,
+			version: 1 as const,
 			nodeId: descriptor.nodeId,
 			descriptor,
 			claimId: 'b'.repeat(64),
@@ -71,6 +76,8 @@ describe('local node platform contracts', () => {
 			status: { state: 'accepted' },
 			updatedAt: 1_900_000_000,
 			lastSync: { syncedAt: 1_900_000_000, receivedEvents: 0 },
+			discoveredBlobHashes: ['d'.repeat(64)],
+			mirroredBlobHashes: [],
 		}
 		const result = {
 			nodeId: descriptor.nodeId,
@@ -78,8 +85,31 @@ describe('local node platform contracts', () => {
 			hydratedEvents: 0,
 			eventsTruncated: false,
 			events: [],
+			discoveredBlobHashes: ['d'.repeat(64)],
 			remoteNode,
 		}
 		expect(remoteSyncResultSchema.parse(result)).toEqual(result)
+	})
+
+	test('accepts a verified remote-blob mirror result', () => {
+		const hash = 'd'.repeat(64)
+		const remoteNode = remoteNodeRecordSchema.parse({
+			version: 1,
+			nodeId: descriptor.nodeId,
+			descriptor,
+			claimId: 'b'.repeat(64),
+			peerPubkey: 'c'.repeat(64),
+			capabilities: ['blob-read'],
+			status: { state: 'accepted' },
+			updatedAt: 1_900_000_000,
+			discoveredBlobHashes: [hash],
+			mirroredBlobHashes: [hash],
+		})
+		const result = {
+			nodeId: descriptor.nodeId,
+			items: [{ sha256: hash, state: 'mirrored' as const }],
+			remoteNode,
+		}
+		expect(remoteBlobMirrorResultSchema.parse(result)).toEqual(result)
 	})
 })

@@ -51,6 +51,8 @@ pub struct BlobDescriptor {
 #[derive(Debug)]
 pub struct EmbeddedBlossom {
     url: Url,
+    store: BlobStore,
+    max_blob_bytes: u64,
     shutdown: CancellationToken,
     task: Option<JoinHandle<()>>,
 }
@@ -70,7 +72,7 @@ impl EmbeddedBlossom {
         let url = Url::parse(&format!("http://{address}/"))
             .map_err(|error| NodeError::Blossom(error.to_string()))?;
         let state = BlossomState {
-            store,
+            store: store.clone(),
             peers,
             pairing,
             base_url: url.clone(),
@@ -117,6 +119,8 @@ impl EmbeddedBlossom {
 
         Ok(Self {
             url,
+            store,
+            max_blob_bytes: config.max_blob_bytes,
             shutdown,
             task: Some(task),
         })
@@ -128,6 +132,114 @@ impl EmbeddedBlossom {
 
     pub fn shutdown(&self) {
         self.shutdown.cancel();
+    }
+
+    pub(crate) async fn has_blob(&self, hash: &str) -> Result<bool, NodeError> {
+        validate_hash(hash).map_err(|error| NodeError::Blossom(error.reason.to_owned()))?;
+        match fs::metadata(self.store.blob_path(hash)).await {
+            Ok(metadata) => Ok(metadata.is_file()),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub(crate) async fn adopt_remote_response(
+        &self,
+        hash: &str,
+        response: reqwest::Response,
+    ) -> Result<(BlobDescriptor, bool), NodeError> {
+        validate_hash(hash).map_err(|error| NodeError::Blossom(error.reason.to_owned()))?;
+        let target_path = self.store.blob_path(hash);
+        match fs::metadata(&target_path).await {
+            Ok(metadata) => {
+                if !metadata.is_file() {
+                    return Err(NodeError::Blossom(
+                        "local blob target is not a regular file".to_owned(),
+                    ));
+                }
+                let media_type = detect_media_type(&target_path).await;
+                let descriptor = descriptor(
+                    &self.url,
+                    &target_path,
+                    hash.to_owned(),
+                    metadata.len(),
+                    media_type,
+                )
+                .await
+                .map_err(|error| NodeError::Blossom(error.reason.to_owned()))?;
+                return Ok((descriptor, false));
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+
+        if response
+            .content_length()
+            .is_some_and(|size| size > self.max_blob_bytes)
+        {
+            return Err(NodeError::Blossom(
+                "remote blob exceeds the configured size limit".to_owned(),
+            ));
+        }
+        let media_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| !value.is_empty())
+            .unwrap_or("application/octet-stream")
+            .to_owned();
+        let staging_path = self.store.staging_path();
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&staging_path)
+            .await?;
+        let mut stream = response.bytes_stream();
+        let mut hasher = Sha256::new();
+        let mut size = 0_u64;
+
+        while let Some(chunk) = stream.next().await {
+            let chunk = match chunk {
+                Ok(chunk) => chunk,
+                Err(error) => {
+                    discard_staging(&staging_path).await;
+                    return Err(NodeError::Blossom(format!(
+                        "remote blob download failed: {error}"
+                    )));
+                }
+            };
+            size = size.saturating_add(chunk.len() as u64);
+            if size > self.max_blob_bytes {
+                discard_staging(&staging_path).await;
+                return Err(NodeError::Blossom(
+                    "remote blob exceeds the configured size limit".to_owned(),
+                ));
+            }
+            hasher.update(&chunk);
+            if let Err(error) = file.write_all(&chunk).await {
+                discard_staging(&staging_path).await;
+                return Err(error.into());
+            }
+        }
+        if let Err(error) = file.sync_all().await {
+            discard_staging(&staging_path).await;
+            return Err(error.into());
+        }
+        drop(file);
+
+        let actual_hash = format!("{:x}", hasher.finalize());
+        if actual_hash != hash {
+            discard_staging(&staging_path).await;
+            return Err(NodeError::Blossom(format!(
+                "remote blob hash mismatch: expected {hash}, got {actual_hash}"
+            )));
+        }
+        fs::create_dir_all(target_path.parent().expect("blob path has parent")).await?;
+        let created = adopt_staging(&staging_path, &target_path).await?;
+        let descriptor = descriptor(&self.url, &target_path, hash.to_owned(), size, media_type)
+            .await
+            .map_err(|error| NodeError::Blossom(error.reason.to_owned()))?;
+        Ok((descriptor, created))
     }
 
     pub async fn close(mut self) {
@@ -144,6 +256,53 @@ impl Drop for EmbeddedBlossom {
         if let Some(task) = self.task.take() {
             task.abort();
         }
+    }
+}
+
+#[cfg(test)]
+mod mirror_tests {
+    use super::*;
+    use axum::routing::get;
+    use sha2::{Digest, Sha256};
+
+    #[tokio::test]
+    async fn corrupt_remote_blob_is_discarded_before_local_adoption() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = NodeConfig::loopback(dir.path(), crate::NodeAvailability::Process)
+            .with_ephemeral_ports();
+        let peers = PeerPolicy::load(dir.path().join("test-policy"))
+            .await
+            .unwrap();
+        let pairing = PairingManager::open(dir.path().join("test-pairing"))
+            .await
+            .unwrap();
+        let blossom = EmbeddedBlossom::start(&config, peers, pairing)
+            .await
+            .unwrap();
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().route("/blob", get(|| async { "corrupt" })),
+            )
+            .await
+            .unwrap();
+        });
+        let expected_hash = format!("{:x}", Sha256::digest(b"expected"));
+        let response = reqwest::get(format!("http://{address}/blob"))
+            .await
+            .unwrap();
+
+        let error = blossom
+            .adopt_remote_response(&expected_hash, response)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("hash mismatch"));
+        assert!(!blossom.has_blob(&expected_hash).await.unwrap());
+
+        server.abort();
     }
 }
 

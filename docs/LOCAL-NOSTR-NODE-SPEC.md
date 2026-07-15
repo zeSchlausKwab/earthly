@@ -74,8 +74,12 @@ The native foundation and transport-neutral handshake are implemented:
   reconciliation for Earthly entity, comment, proposal, status, reaction, and deletion kinds;
 - synchronized events retain their original user signatures, enter the peer's local LMDB through a
   verified in-process ingestion path, and are returned through a bounded Tauri response so
-  Applesauce updates immediately. Profiles, wallets, arbitrary kinds, and blobs are not pulled by
-  that operation.
+  Applesauce updates immediately. Profiles, wallets, and arbitrary kinds are not pulled by that
+  operation;
+- synchronized dataset `blob` tags and NIP-92 `imeta` hashes populate a bounded durable inventory.
+  The user can explicitly mirror those hashes from the approved node's advertised Blossom endpoint;
+  downloads require `blob-read`, send BUD-11 authorization, reject redirects, stream within the
+  configured size cap, verify SHA-256, and atomically enter the local content-addressed store.
 
 Before the interoperability proof is product-complete in the Earthly UI it still needs:
 
@@ -83,7 +87,7 @@ Before the interoperability proof is product-complete in the Earthly UI it still
 - Android 17/iOS local-network permission adapters and denial diagnostics;
 - relay authorization against the authenticated NIP-42 session pubkey, including separate
   read/write capabilities;
-- explicit immutable-blob mirroring and local resolution for synchronized Blossom references;
+- transparent local resolution for synchronized Blossom references already mirrored by hash;
 - BUD-12 deletion, persistent blob ownership/quota metadata, and NIP-11 relay information;
 - an Android foreground service for user-visible background availability.
 

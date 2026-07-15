@@ -8,6 +8,7 @@ import {
 	type PendingPairingClaim,
 	type PeerGrant,
 	type RemoteNodeRecord,
+	type RemoteBlobMirrorResult,
 	type RemoteSyncResult,
 } from '../contracts'
 
@@ -82,4 +83,9 @@ export const tauriLocalNodeService: LocalNodeService = {
 	},
 	syncRemoteNode: (nodeId): Promise<RemoteSyncResult> =>
 		invokeValidated('local_node_sync_remote_node_v1', nativeSchemas.remoteSync, { nodeId }),
+	mirrorRemoteBlobs: (nodeId, hashes): Promise<RemoteBlobMirrorResult> =>
+		invokeValidated('local_node_mirror_remote_blobs_v1', nativeSchemas.remoteBlobMirror, {
+			nodeId,
+			hashes,
+		}),
 }

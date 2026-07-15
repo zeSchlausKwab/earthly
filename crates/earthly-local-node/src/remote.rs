@@ -17,6 +17,7 @@ use crate::{
 };
 
 pub const REMOTE_NODE_RECORD_VERSION: u8 = 1;
+const MAX_REMOTE_BLOB_HASHES: usize = 4_096;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,6 +41,10 @@ pub struct RemoteNodeRecord {
     pub updated_at: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_sync: Option<RemoteSyncCheckpoint>,
+    #[serde(default)]
+    pub discovered_blob_hashes: Vec<String>,
+    #[serde(default)]
+    pub mirrored_blob_hashes: Vec<String>,
 }
 
 impl RemoteNodeRecord {
@@ -75,6 +80,17 @@ impl RemoteNodeRecord {
         {
             return Err(RemoteNodeError::InvalidRecord(
                 "sync timestamp must be positive".to_owned(),
+            ));
+        }
+        validate_blob_hash_inventory(&self.discovered_blob_hashes)?;
+        validate_blob_hash_inventory(&self.mirrored_blob_hashes)?;
+        if self
+            .mirrored_blob_hashes
+            .iter()
+            .any(|hash| !self.discovered_blob_hashes.contains(hash))
+        {
+            return Err(RemoteNodeError::InvalidRecord(
+                "mirrored blob inventory must be a subset of discovered blobs".to_owned(),
             ));
         }
         Ok(())
@@ -142,6 +158,8 @@ impl RemoteNodeStore {
             status: receipt.status,
             updated_at: Timestamp::now().as_secs(),
             last_sync: None,
+            discovered_blob_hashes: Vec::new(),
+            mirrored_blob_hashes: Vec::new(),
         };
         self.persist(record).await
     }
@@ -172,6 +190,7 @@ impl RemoteNodeStore {
         &self,
         node_id: &str,
         received_events: usize,
+        discovered_blob_hashes: &[String],
     ) -> Result<RemoteNodeRecord, RemoteNodeError> {
         let mut record = self.load(node_id).await?;
         let synced_at = Timestamp::now().as_secs();
@@ -180,6 +199,41 @@ impl RemoteNodeStore {
             synced_at,
             received_events,
         });
+        let mut inventory = record
+            .discovered_blob_hashes
+            .into_iter()
+            .chain(discovered_blob_hashes.iter().cloned())
+            .collect::<BTreeSet<_>>();
+        if inventory.len() > MAX_REMOTE_BLOB_HASHES {
+            return Err(RemoteNodeError::InvalidRecord(format!(
+                "remote blob inventory exceeds {MAX_REMOTE_BLOB_HASHES} hashes"
+            )));
+        }
+        record.discovered_blob_hashes = std::mem::take(&mut inventory).into_iter().collect();
+        self.persist(record).await
+    }
+
+    pub async fn record_mirrored_blobs(
+        &self,
+        node_id: &str,
+        hashes: &[String],
+    ) -> Result<RemoteNodeRecord, RemoteNodeError> {
+        let mut record = self.load(node_id).await?;
+        if hashes
+            .iter()
+            .any(|hash| !record.discovered_blob_hashes.contains(hash))
+        {
+            return Err(RemoteNodeError::InvalidRecord(
+                "cannot mark an undiscovered blob as mirrored".to_owned(),
+            ));
+        }
+        let mut mirrored = record
+            .mirrored_blob_hashes
+            .into_iter()
+            .chain(hashes.iter().cloned())
+            .collect::<BTreeSet<_>>();
+        record.mirrored_blob_hashes = std::mem::take(&mut mirrored).into_iter().collect();
+        record.updated_at = Timestamp::now().as_secs();
         self.persist(record).await
     }
 
@@ -271,6 +325,27 @@ fn validate_node_id(node_id: &str) -> Result<(), RemoteNodeError> {
     PublicKey::from_hex(node_id)
         .map(|_| ())
         .map_err(|_| RemoteNodeError::InvalidRecord("invalid node id".to_owned()))
+}
+
+fn validate_blob_hash_inventory(hashes: &[String]) -> Result<(), RemoteNodeError> {
+    if hashes.len() > MAX_REMOTE_BLOB_HASHES {
+        return Err(RemoteNodeError::InvalidRecord(format!(
+            "remote blob inventory exceeds {MAX_REMOTE_BLOB_HASHES} hashes"
+        )));
+    }
+    if hashes.windows(2).any(|pair| pair[0] >= pair[1])
+        || hashes.iter().any(|hash| {
+            hash.len() != 64
+                || !hash
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        })
+    {
+        return Err(RemoteNodeError::InvalidRecord(
+            "remote blob hashes must be unique, sorted, lowercase SHA-256 values".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 async fn persist_record(root: &Path, record: &RemoteNodeRecord) -> Result<(), RemoteNodeError> {

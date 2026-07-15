@@ -6,8 +6,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use earthly_local_node::{
     LocalNode, NodeAvailability, NodeBind, NodeConfig, NodeDescriptor, PairingCapability,
-    PairingError, PeerGrant, PendingPairingClaim, RemoteNodeError, RemoteNodeRecord,
-    RemoteSyncError, RemoteSyncResult,
+    PairingError, PeerGrant, PendingPairingClaim, RemoteBlobMirrorError, RemoteBlobMirrorResult,
+    RemoteNodeError, RemoteNodeRecord, RemoteSyncError, RemoteSyncResult,
 };
 use nostr::{EventId, PublicKey};
 use serde::Serialize;
@@ -250,6 +250,12 @@ impl From<RemoteNodeError> for LocalNodeCommandError {
 impl From<RemoteSyncError> for LocalNodeCommandError {
     fn from(error: RemoteSyncError) -> Self {
         Self::new("remote-sync-failed", error.to_string())
+    }
+}
+
+impl From<RemoteBlobMirrorError> for LocalNodeCommandError {
+    fn from(error: RemoteBlobMirrorError) -> Self {
+        Self::new("remote-blob-mirror-failed", error.to_string())
     }
 }
 
@@ -554,6 +560,15 @@ pub async fn local_node_sync_remote_node_v1(
     node_id: String,
 ) -> Result<RemoteSyncResult, LocalNodeCommandError> {
     Ok(state.node()?.sync_remote_node(&node_id).await?)
+}
+
+#[tauri::command]
+pub async fn local_node_mirror_remote_blobs_v1(
+    state: State<'_, LocalNodeState>,
+    node_id: String,
+    hashes: Vec<String>,
+) -> Result<RemoteBlobMirrorResult, LocalNodeCommandError> {
+    Ok(state.node()?.mirror_remote_blobs(&node_id, hashes).await?)
 }
 
 #[cfg(test)]

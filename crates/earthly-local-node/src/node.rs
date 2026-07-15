@@ -5,8 +5,9 @@ use nostr::{Event, EventId, PublicKey};
 use crate::{
     EmbeddedBlossom, EmbeddedRelay, NodeConfig, NodeDescriptor, NodeError, NodeIdentity,
     PairingCapability, PairingClaimReceipt, PairingError, PairingInvitation, PairingManager,
-    PairingStatus, PeerGrant, PeerPolicy, PendingPairingClaim, RemoteNodeError, RemoteNodeRecord,
-    RemoteNodeStore, RemoteSyncError, RemoteSyncResult,
+    PairingStatus, PeerGrant, PeerPolicy, PendingPairingClaim, RemoteBlobMirrorError,
+    RemoteBlobMirrorResult, RemoteNodeError, RemoteNodeRecord, RemoteNodeStore, RemoteSyncError,
+    RemoteSyncResult,
 };
 
 /// Complete running local node. Dropping it closes both listeners and releases the data lock.
@@ -160,6 +161,21 @@ impl LocalNode {
         .await
     }
 
+    pub async fn mirror_remote_blobs(
+        &self,
+        node_id: &str,
+        hashes: Vec<String>,
+    ) -> Result<RemoteBlobMirrorResult, RemoteBlobMirrorError> {
+        crate::remote_blob::mirror_remote_blobs(
+            self.identity.keys(),
+            &self.blossom,
+            &self.remote_nodes,
+            node_id,
+            hashes,
+        )
+        .await
+    }
+
     pub async fn ingest_verified_event(&self, event: &Event) -> Result<bool, NodeError> {
         self.relay.ingest_verified_event(event).await
     }
@@ -268,9 +284,35 @@ mod tests {
             .unwrap();
         peer.refresh_remote_node(&pending.node_id).await.unwrap();
 
+        let blob_bytes = b"paired immutable map attachment".to_vec();
+        let blob_hash = format!("{:x}", Sha256::digest(&blob_bytes));
+        let upload = reqwest::Client::new()
+            .put(host.descriptor().blossom_url.join("upload").unwrap())
+            .header("content-type", "application/octet-stream")
+            .header("x-sha-256", &blob_hash)
+            .header(
+                "authorization",
+                authorization(&peer.identity.keys(), "upload", &blob_hash),
+            )
+            .body(blob_bytes)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(upload.status(), reqwest::StatusCode::CREATED);
+
         let author = Keys::generate();
+        let blob_checksum = format!("sha256={blob_hash}");
         let dataset = EventBuilder::new(Kind::Custom(37_515), r#"{"type":"FeatureCollection"}"#)
-            .tag(Tag::parse(["d", "shared-trail"]).unwrap())
+            .tags([
+                Tag::parse(["d", "shared-trail"]).unwrap(),
+                Tag::parse([
+                    "blob",
+                    "collection",
+                    "https://origin.invalid/map-object",
+                    &blob_checksum,
+                ])
+                .unwrap(),
+            ])
             .sign_with_keys(&author)
             .unwrap();
         assert!(host.ingest_verified_event(&dataset).await.unwrap());
@@ -278,11 +320,46 @@ mod tests {
         let first_sync = peer.sync_remote_node(&pending.node_id).await.unwrap();
         assert_eq!(first_sync.received_events, 1);
         assert_eq!(first_sync.events, vec![dataset]);
+        assert_eq!(first_sync.discovered_blob_hashes, vec![blob_hash.clone()]);
+        assert_eq!(
+            first_sync.remote_node.discovered_blob_hashes,
+            vec![blob_hash.clone()]
+        );
         assert_eq!(first_sync.remote_node.last_sync.unwrap().received_events, 1);
+
+        let mirrored = peer
+            .mirror_remote_blobs(&pending.node_id, vec![blob_hash.clone()])
+            .await
+            .unwrap();
+        assert_eq!(
+            mirrored.items,
+            vec![crate::RemoteBlobMirrorItem {
+                sha256: blob_hash.clone(),
+                state: crate::RemoteBlobMirrorState::Mirrored,
+            }]
+        );
+        assert_eq!(
+            mirrored.remote_node.mirrored_blob_hashes,
+            vec![blob_hash.clone()]
+        );
+        assert!(peer.blossom.has_blob(&blob_hash).await.unwrap());
+
+        let repeated = peer
+            .mirror_remote_blobs(&pending.node_id, vec![blob_hash.clone()])
+            .await
+            .unwrap();
+        assert_eq!(
+            repeated.items[0].state,
+            crate::RemoteBlobMirrorState::AlreadyPresent
+        );
 
         let second_sync = peer.sync_remote_node(&pending.node_id).await.unwrap();
         assert_eq!(second_sync.received_events, 0);
         assert!(second_sync.events.is_empty());
+        assert_eq!(
+            second_sync.remote_node.discovered_blob_hashes,
+            vec![blob_hash]
+        );
     }
 
     #[tokio::test]

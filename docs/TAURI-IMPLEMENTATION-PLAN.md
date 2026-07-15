@@ -5,8 +5,10 @@
 > Android host, signed pairing protocol, and first product-facing pairing administration bridge are
 > implemented. Explicit time-bounded LAN exposure, QR/photo invitation import, signed peer claims,
 > approval polling, durable joined-node records, and explicit pull-only synchronization of signed
-> Earthly records are also implemented. Deep links, mobile lifecycle, platform-protected MLS
-> storage, Blossom mirroring, and offline map regions remain staged work.
+> Earthly records are also implemented. Synchronized records now yield a durable referenced-blob
+> inventory and an explicit, authorized, hash-verifying mirror action into the local Blossom store.
+> Deep links, transparent local-blob resolution, mobile lifecycle, platform-protected MLS storage,
+> and offline map regions remain staged work.
 
 Status: committed product direction
 Created: 2026-07-13

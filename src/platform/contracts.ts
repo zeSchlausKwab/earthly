@@ -99,6 +99,8 @@ export const remoteNodeRecordSchema = z.object({
 	status: pairingStatusSchema,
 	updatedAt: z.number().int().positive(),
 	lastSync: remoteSyncCheckpointSchema.optional(),
+	discoveredBlobHashes: z.array(z.string().regex(/^[0-9a-f]{64}$/)).default([]),
+	mirroredBlobHashes: z.array(z.string().regex(/^[0-9a-f]{64}$/)).default([]),
 })
 
 export type RemoteNodeRecord = z.infer<typeof remoteNodeRecordSchema>
@@ -121,10 +123,24 @@ export const remoteSyncResultSchema = z.object({
 	hydratedEvents: z.number().int().nonnegative(),
 	eventsTruncated: z.boolean(),
 	events: z.array(syncedNostrEventSchema),
+	discoveredBlobHashes: z.array(z.string().regex(/^[0-9a-f]{64}$/)),
 	remoteNode: remoteNodeRecordSchema,
 })
 
 export type RemoteSyncResult = z.infer<typeof remoteSyncResultSchema>
+
+export const remoteBlobMirrorItemSchema = z.object({
+	sha256: z.string().regex(/^[0-9a-f]{64}$/),
+	state: z.enum(['mirrored', 'alreadyPresent']),
+})
+
+export const remoteBlobMirrorResultSchema = z.object({
+	nodeId: z.string().regex(/^[0-9a-f]{64}$/),
+	items: z.array(remoteBlobMirrorItemSchema),
+	remoteNode: remoteNodeRecordSchema,
+})
+
+export type RemoteBlobMirrorResult = z.infer<typeof remoteBlobMirrorResultSchema>
 
 export interface LocalNodeService {
 	readonly supported: boolean
@@ -143,6 +159,7 @@ export interface LocalNodeService {
 	refreshRemoteNode(nodeId: string): Promise<RemoteNodeRecord>
 	forgetRemoteNode(nodeId: string): Promise<boolean>
 	syncRemoteNode(nodeId: string): Promise<RemoteSyncResult>
+	mirrorRemoteBlobs(nodeId: string, hashes: string[]): Promise<RemoteBlobMirrorResult>
 }
 
 export const nativeSchemas = {
@@ -155,4 +172,5 @@ export const nativeSchemas = {
 	remoteNode: remoteNodeRecordSchema,
 	remoteNodes: z.array(remoteNodeRecordSchema),
 	remoteSync: remoteSyncResultSchema,
+	remoteBlobMirror: remoteBlobMirrorResultSchema,
 }

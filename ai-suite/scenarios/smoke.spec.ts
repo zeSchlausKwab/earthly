@@ -69,6 +69,7 @@ test('the native command bridge exposes local-node pairing controls', async ({
 	earthly,
 }, testInfo) => {
 	await earthly.page.addInitScript(() => {
+		const referencedBlobHash = 'd'.repeat(64)
 		let descriptor = {
 			version: 1,
 			nodeId: 'a'.repeat(64),
@@ -139,6 +140,8 @@ test('the native command bridge exposes local-node pairing controls', async ({
 						...remoteNodes[0],
 						updatedAt: now,
 						lastSync: { syncedAt: now, receivedEvents: 0 },
+						discoveredBlobHashes: [referencedBlobHash],
+						mirroredBlobHashes: [],
 					}
 					remoteNodes = [remote]
 					return {
@@ -147,6 +150,20 @@ test('the native command bridge exposes local-node pairing controls', async ({
 						hydratedEvents: 0,
 						eventsTruncated: false,
 						events: [],
+						discoveredBlobHashes: [referencedBlobHash],
+						remoteNode: remote,
+					}
+				}
+				case 'local_node_mirror_remote_blobs_v1': {
+					const remote = {
+						...remoteNodes[0],
+						discoveredBlobHashes: [referencedBlobHash],
+						mirroredBlobHashes: [referencedBlobHash],
+					}
+					remoteNodes = [remote]
+					return {
+						nodeId: String(args?.nodeId ?? ''),
+						items: [{ sha256: referencedBlobHash, state: 'mirrored' }],
 						remoteNode: remote,
 					}
 				}
@@ -183,6 +200,8 @@ test('the native command bridge exposes local-node pairing controls', async ({
 	await expect(earthly.page.getByText('Connected Earthly node', { exact: true })).toBeVisible()
 	await earthly.page.getByRole('button', { name: 'Sync map records' }).click()
 	await expect(earthly.page.getByText(/Last sync/)).toBeVisible()
+	await earthly.page.getByRole('button', { name: 'Mirror 1 referenced file' }).click()
+	await expect(earthly.page.getByText('1 of 1 referenced files saved locally')).toBeVisible()
 })
 
 test('a Story can be saved as a local draft', async ({ earthly }) => {

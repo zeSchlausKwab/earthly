@@ -3,9 +3,9 @@ mod local_node;
 use local_node::{
     local_node_approve_claim_v1, local_node_create_invitation_v1, local_node_disable_lan_v1,
     local_node_enable_lan_v1, local_node_forget_remote_node_v1, local_node_join_invitation_v1,
-    local_node_network_addresses_v1, local_node_peer_grants_v1, local_node_pending_claims_v1,
-    local_node_refresh_remote_node_v1, local_node_reject_claim_v1, local_node_remote_nodes_v1,
-    local_node_revoke_peer_v1, local_node_status, local_node_status_v1,
+    local_node_mirror_remote_blobs_v1, local_node_network_addresses_v1, local_node_peer_grants_v1,
+    local_node_pending_claims_v1, local_node_refresh_remote_node_v1, local_node_reject_claim_v1,
+    local_node_remote_nodes_v1, local_node_revoke_peer_v1, local_node_status, local_node_status_v1,
     local_node_sync_remote_node_v1, LocalNodeState,
 };
 use tauri::Manager;
@@ -32,6 +32,7 @@ pub fn run() {
             local_node_refresh_remote_node_v1,
             local_node_forget_remote_node_v1,
             local_node_sync_remote_node_v1,
+            local_node_mirror_remote_blobs_v1,
         ])
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?.join("local-node");

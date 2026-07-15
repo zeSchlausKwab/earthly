@@ -2,7 +2,10 @@ use std::io;
 
 use thiserror::Error;
 
-use crate::{NodeConfigError, NodeDescriptorError, PairingError, RemoteNodeError, RemoteSyncError};
+use crate::{
+    NodeConfigError, NodeDescriptorError, PairingError, RemoteBlobMirrorError, RemoteNodeError,
+    RemoteSyncError,
+};
 
 #[derive(Debug, Error)]
 pub enum NodeError {
@@ -28,6 +31,8 @@ pub enum NodeError {
     Remote(#[from] RemoteNodeError),
     #[error(transparent)]
     RemoteSync(#[from] RemoteSyncError),
+    #[error(transparent)]
+    RemoteBlobMirror(#[from] RemoteBlobMirrorError),
     #[error(transparent)]
     Io(#[from] io::Error),
 }

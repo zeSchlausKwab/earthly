@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
+use std::{collections::BTreeSet, iter};
 
 use nostr::{Event, Filter, Keys, Kind};
 use nostr_database::NostrDatabase;
@@ -24,6 +25,7 @@ pub struct RemoteSyncResult {
     pub hydrated_events: usize,
     pub events_truncated: bool,
     pub events: Vec<Event>,
+    pub discovered_blob_hashes: Vec<String>,
     pub remote_node: RemoteNodeRecord,
 }
 
@@ -150,6 +152,7 @@ pub(crate) async fn sync_remote_node(
             .then_with(|| right.id.cmp(&left.id))
     });
 
+    let discovered_blob_hashes = extract_blob_hashes(&received);
     let mut response_bytes = 0usize;
     let mut events = Vec::with_capacity(received.len().min(MAX_RESPONSE_EVENTS));
     for event in received {
@@ -163,15 +166,52 @@ pub(crate) async fn sync_remote_node(
         events.push(event);
     }
 
-    let remote_node = remote_nodes.record_sync(node_id, received_events).await?;
+    let remote_node = remote_nodes
+        .record_sync(node_id, received_events, &discovered_blob_hashes)
+        .await?;
     Ok(RemoteSyncResult {
         node_id: node_id.to_owned(),
         received_events,
         hydrated_events: events.len(),
         events_truncated: events.len() < received_events,
         events,
+        discovered_blob_hashes,
         remote_node,
     })
+}
+
+fn extract_blob_hashes(events: &[Event]) -> Vec<String> {
+    let mut hashes = BTreeSet::new();
+    for event in events {
+        for tag in event.tags.iter() {
+            let values = tag.as_slice();
+            let candidates: Box<dyn Iterator<Item = &str> + '_> =
+                match values.first().map(String::as_str) {
+                    Some("blob") => Box::new(
+                        values
+                            .iter()
+                            .skip(3)
+                            .filter_map(|value| value.strip_prefix("sha256=")),
+                    ),
+                    Some("imeta") => Box::new(values.iter().skip(1).filter_map(|value| {
+                        value
+                            .strip_prefix("x ")
+                            .or_else(|| value.strip_prefix("x="))
+                            .or_else(|| value.strip_prefix("sha256="))
+                    })),
+                    _ => Box::new(iter::empty()),
+                };
+            hashes.extend(candidates.filter(|hash| is_sha256(hash)).map(str::to_owned));
+        }
+    }
+    hashes.into_iter().collect()
+}
+
+fn is_sha256(hash: &str) -> bool {
+    hash.len() == 64
+        && hash
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 #[cfg(test)]
@@ -184,5 +224,40 @@ mod tests {
         assert!(EARTHLY_SYNC_KIND_NUMBERS.contains(&37_522));
         assert!(!EARTHLY_SYNC_KIND_NUMBERS.contains(&0));
         assert!(!EARTHLY_SYNC_KIND_NUMBERS.contains(&17_375));
+    }
+
+    #[test]
+    fn extracts_only_valid_dataset_and_media_hashes() {
+        use nostr::{EventBuilder, Keys, Tag};
+
+        let hash_a = "a".repeat(64);
+        let hash_b = "b".repeat(64);
+        let event = EventBuilder::new(Kind::Custom(37_515), "{}")
+            .tags([
+                Tag::parse([
+                    "blob",
+                    "collection",
+                    "https://example.test/a",
+                    &format!("sha256={hash_a}"),
+                ])
+                .unwrap(),
+                Tag::parse([
+                    "imeta",
+                    "url https://example.test/b",
+                    &format!("x {hash_b}"),
+                ])
+                .unwrap(),
+                Tag::parse([
+                    "blob",
+                    "collection",
+                    "https://example.test/c",
+                    "sha256=not-a-hash",
+                ])
+                .unwrap(),
+            ])
+            .sign_with_keys(&Keys::generate())
+            .unwrap();
+
+        assert_eq!(extract_blob_hashes(&[event]), vec![hash_a, hash_b]);
     }
 }

@@ -157,7 +157,11 @@ As of 2026-07-15:
   claim, poll approval, and retain the joined node across restart;
 - accepted peers can explicitly reconcile signed Earthly map records downward with NIP-77; the
   native client persists verified originals into local LMDB and hydrates Applesauce with a bounded
-  response, while profile/wallet kinds and Blossom files remain outside that operation;
+  response, while profile/wallet kinds remain outside that operation;
+- record synchronization discovers bounded SHA-256 Blossom references. Settings → Offline can
+  explicitly mirror missing files in batches from the paired descriptor, with BUD-11 authorization,
+  no redirect following, streaming size enforcement, hash verification, atomic local adoption, and
+  durable per-peer progress. Transparent application-level resolution to the local copy is next;
 - the arm64 Android APK builds with the LAN interface enumerator and native HTTP pairing client;
 - the equivalent browser settings surface reports that hosting an embedded node requires the native
   app and never attempts native commands;
