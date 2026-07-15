@@ -56,6 +56,7 @@ export type {
 	GeoCollectionEditDraft,
 	GeoEditorWorkspace,
 	SidebarViewMode,
+	SettingsTab,
 	Stance,
 	RecentEntity,
 } from './types'

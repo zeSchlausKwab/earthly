@@ -68,6 +68,10 @@ The native foundation and transport-neutral handshake are implemented:
 - a second Earthly installation can paste or photograph the QR invitation, sign a claim with its
   stable installation identity, poll for approval, and persist the joined-node descriptor and
   capability state across restart;
+- pairing QRs and copied links use the exact `earthly://pair?invitation=…` envelope. Tauri registers
+  the scheme on desktop and mobile, handles cold starts and already-running instances, and opens
+  Settings → Offline → Join a device with the extracted raw invitation. The URL is only handoff:
+  Rust still validates the signed event, expiry, nonce, endpoint scope, claim, and approval;
 - the LAN reference proof completes claim approval, relay publish/query, Blossom upload, and a
   Blossom byte-range read through the advertised private-IP endpoints;
 - newly issued grants include `relay-read`; an accepted peer can explicitly run a pull-only NIP-77
@@ -91,7 +95,7 @@ The native foundation and transport-neutral handshake are implemented:
 
 Before the interoperability proof is product-complete in the Earthly UI it still needs:
 
-- deep-link invitation import and an optional live-camera scanner (photo-based QR import ships now);
+- an optional live-camera scanner (photo-based QR import and native deep-link import ship now);
 - Android 17/iOS local-network permission adapters and denial diagnostics;
 - BUD-12 deletion, persistent blob ownership/quota metadata, and NIP-11 relay information;
 - an Android foreground service for user-visible background availability.

@@ -12,7 +12,21 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    // Windows and Linux launch a second process for a custom URI. Register this
+    // first so its deep-link integration forwards that URL into the running app.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
+
+    let app = builder
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_os::init())
         .manage(LocalNodeState::starting())
         .register_asynchronous_uri_scheme_protocol("earthly-blob", local_node::local_blob_protocol)

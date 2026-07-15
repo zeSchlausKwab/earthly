@@ -25,6 +25,8 @@ export type SidebarViewMode =
 	| 'wallet'
 	| 'chat'
 
+export type SettingsTab = 'map' | 'profile' | 'relays' | 'offline' | 'chat' | 'sessions'
+
 /**
  * Phase 1.3: the minimal parsed-route shape consumed by `applyRouteState`. A
  * structural subset of useRouting's `RouteState`, declared here so the store
@@ -484,7 +486,7 @@ export interface UISlice {
 	mapStackOpen: boolean
 	/** Deep-link target tab for the settings panel (e.g. from the status-bar
 	 *  relay indicator). Consumed by MapSettingsPanel; null = its own default. */
-	settingsTab: 'map' | 'profile' | 'relays' | 'chat' | 'sessions' | null
+	settingsTab: SettingsTab | null
 	/** DOM slot in the Map Stack's expanded draft entry that the sidebar editor
 	 *  portals into (editor-in-Map-Stack). Null when no draft slot is mounted. */
 	draftEditorSlot: HTMLElement | null
@@ -512,7 +514,7 @@ export interface UISlice {
 	closeMobileSidebar: () => void
 	setInspectorActive: (active: boolean) => void
 	setSidebarViewMode: (mode: SidebarViewMode) => void
-	setSettingsTab: (tab: 'profile' | 'relays' | 'chat' | 'sessions' | null) => void
+	setSettingsTab: (tab: SettingsTab | null) => void
 	setDraftEditorSlot: (el: HTMLElement | null) => void
 	setSidebarExpanded: (expanded: boolean) => void
 	toggleSidebarExpanded: () => void

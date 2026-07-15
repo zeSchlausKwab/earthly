@@ -9,8 +9,10 @@
 > inventory and an explicit, authorized, hash-verifying mirror action into the local Blossom store.
 > Mirrored GeoJSON resolves local-first through a read-only, Range-capable native custom protocol.
 > NIP-42 sessions now enforce the approved installation's distinct relay-read and relay-write
-> capabilities across ordinary and NIP-77 access. Deep links, mobile lifecycle, platform-protected
-> MLS storage, local PMTiles integration, and complete offline map regions remain staged work.
+> capabilities across ordinary and NIP-77 access. Versioned pairing deep links now converge on the
+> existing approval-gated join flow across cold start and an already-running app. Mobile lifecycle,
+> platform-protected MLS storage, local PMTiles integration, and complete offline map regions remain
+> staged work.
 
 Status: committed product direction
 Created: 2026-07-13
@@ -1370,6 +1372,8 @@ The Tauri implementation is complete when:
 - [Tauri capabilities](https://v2.tauri.app/security/capabilities/)
 - [Tauri permissions](https://v2.tauri.app/security/permissions/)
 - [Tauri official plugin catalog](https://v2.tauri.app/plugin/)
+- [Tauri deep-link plugin](https://v2.tauri.app/plugin/deep-linking/)
+- [Tauri single-instance plugin](https://v2.tauri.app/plugin/single-instance/)
 - [Tauri filesystem plugin](https://v2.tauri.app/plugin/file-system/)
 - [Tauri distribution](https://v2.tauri.app/distribute/)
 - [Tauri asynchronous custom URI protocol API](https://docs.rs/tauri/latest/tauri/struct.Builder.html#method.register_asynchronous_uri_scheme_protocol)

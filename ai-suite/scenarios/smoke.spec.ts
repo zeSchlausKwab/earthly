@@ -189,15 +189,25 @@ test('the native command bridge exposes local-node pairing controls', async ({
 	const pairingQrPath = testInfo.outputPath('pairing-invitation.png')
 	await pairingQr.screenshot({ path: pairingQrPath })
 	await earthly.page.keyboard.press('Escape')
-	await expect(earthly.page.getByRole('button', { name: 'Copy invitation' })).toBeVisible()
+	await expect(earthly.page.getByRole('button', { name: 'Copy app link' })).toBeVisible()
 
 	await earthly.page.getByRole('tab', { name: 'Join a device' }).click()
 	await earthly.page.getByLabel('Choose a pairing QR image').setInputFiles(pairingQrPath)
 	await expect(earthly.page.getByLabel('Pairing invitation')).toHaveValue(/^earthly-pair-v1:/)
 	await earthly.page.getByRole('button', { name: 'Request access' }).click()
 	await expect(earthly.page.getByText('Waiting for host approval', { exact: true })).toBeVisible()
-	await earthly.page.getByRole('button', { name: 'Check approval' }).click()
-	await expect(earthly.page.getByText('Connected Earthly node', { exact: true })).toBeVisible()
+	const connectedNode = earthly.page.getByText('Connected Earthly node', { exact: true })
+	await expect
+		.poll(async () => {
+			if (await connectedNode.isVisible()) return true
+			try {
+				await earthly.page.getByRole('button', { name: 'Check approval' }).click({ timeout: 1_000 })
+			} catch {
+				// The three-second native refresh may observe approval and replace this button mid-click.
+			}
+			return connectedNode.isVisible()
+		})
+		.toBe(true)
 	await earthly.page.getByRole('button', { name: 'Sync map records' }).click()
 	await expect(earthly.page.getByText(/Last sync/)).toBeVisible()
 	await earthly.page.getByRole('button', { name: 'Mirror 1 referenced file' }).click()

@@ -52,10 +52,9 @@ import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { useEditorStore, type MapLayerState } from '../store'
+import { useEditorStore, type MapLayerState, type SettingsTab } from '../store'
 
 type MapSourceType = 'default' | 'pmtiles' | 'blossom'
-type SettingsTab = 'map' | 'profile' | 'relays' | 'offline' | 'chat' | 'sessions'
 type MapSettingsPanelMode = 'full' | 'map-only'
 
 interface ProfileDraft {

@@ -3,11 +3,14 @@
 Status: implementation decision for the local-node foundation, 2026-07-14.
 
 Implementation checkpoint, 2026-07-15: step 1 and the QR/photo/paste portion of step 2 are now
-implemented. The LAN session is explicit and expires after 15 minutes; pairing remains signed,
-approval-gated, and capability-scoped. Accepted peers can explicitly pull signed Earthly records
+implemented, including the `earthly://pair` native handoff. The LAN session is explicit and expires
+after 15 minutes; pairing remains signed, approval-gated, and capability-scoped. Accepted peers can
+explicitly pull signed Earthly records
 with NIP-77 into their verified local database, discover SHA-256 Blossom references in those
-records, and explicitly copy the referenced immutable files into their local Blossom store. Deep
-links and platform permission-denial adapters remain. Mirrored GeoJSON is resolved local-first
+records, and explicitly copy the referenced immutable files into their local Blossom store. Pairing
+QRs and copied links now carry the same bounded invitation in an OS-registered custom scheme;
+cold-start and already-running app delivery converge on the paste/photo join flow. Platform
+permission-denial adapters remain. Mirrored GeoJSON is resolved local-first
 through a read-only native custom protocol; its Range behavior is also the seam for later local
 PMTiles consumption. Relay queries, counts, negentropy reconciliation, live reads, and writes are
 bound to the authenticated installation pubkey and its separate durable pairing capabilities.

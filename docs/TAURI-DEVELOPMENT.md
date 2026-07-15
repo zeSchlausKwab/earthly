@@ -90,6 +90,33 @@ The local node currently has process/foreground availability on Android. A produ
 node requires a user-visible Android foreground service and the associated lifecycle and notification
 work; an APK build alone does not make it continuously available in the background.
 
+### Pairing deep links
+
+Tauri registers `earthly://` on desktop, Android, and iOS. Pairing handoff uses one exact URL shape:
+
+```text
+earthly://pair?invitation=earthly-pair-v1%3A…
+```
+
+The QR and **Copy app link** action emit this envelope. Raw `earthly-pair-v1:` values remain valid
+for paste and imported QR images. The frontend accepts only the exact `pair` host, one invitation
+query value, no path/credentials/fragment, the v1 prefix, URL-safe encoding, and the native 16 KiB
+input bound before passing the raw value to Rust. The URL does not grant access: the native pairing
+decoder still verifies the invitation signature, expiry, nonce, advertised endpoints, requested
+capabilities, peer claim, and explicit host approval.
+
+On Windows and Linux, `tauri-plugin-single-instance` is registered first with its `deep-link`
+integration so an OS-launched second process forwards the URL to the running Earthly instance. On
+Android the generated activity uses `singleTask`; both launch delivery and later intents feed the
+same Settings → Offline → Join a device surface.
+
+Test an installed Android debug build with a real, URL-encoded invitation:
+
+```sh
+adb shell am start -W -a android.intent.action.VIEW \
+  -d 'earthly://pair?invitation=earthly-pair-v1%3Az…' city.earthly
+```
+
 ## Pairing reference apps
 
 Two small Rust reference apps exercise the transport-neutral handshake without Tauri or a companion
@@ -170,9 +197,12 @@ As of 2026-07-15:
   GET/HEAD/single-Range responses and a 64 MiB per-response cap. GeoJSON references resolve through
   it before trying their network URL, and mirror completion invalidates prior failed resolutions so
   an open map can retry without a restart;
+- pairing QRs and copied links use the statically registered `earthly://pair` scheme. Launch and
+  already-running delivery retain the pending URL until the existing join surface has normalized
+  and consumed it; raw paste and QR-photo import remain compatible;
 - the arm64 Android APK builds with the LAN interface enumerator and native HTTP pairing client;
 - the equivalent browser settings surface reports that hosting an embedded node requires the native
   app and never attempts native commands;
 - full Xcode is not installed in the current environment, so iOS initialization is pending;
-- deep-link import, future Android/iOS local-network permission adapters, Android foreground-service
+- future Android/iOS local-network permission adapters, Android foreground-service
   lifecycle, and release signing are pending.

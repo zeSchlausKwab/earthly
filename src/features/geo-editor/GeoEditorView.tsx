@@ -73,6 +73,13 @@ import {
 	projectPrivateWorkspaceDatasets,
 } from '@/lib/private-workspace'
 import { usePrivateWorkspaceRuntime } from '@/features/private-maps/usePrivateWorkspaceRuntime'
+import { normalizePairingInvitation } from '@/features/offline/pairingQr'
+import {
+	consumePendingNativeDeepLink,
+	getPendingNativeDeepLink,
+	NATIVE_DEEP_LINK_EVENT,
+	type NativeDeepLinkDetail,
+} from '@/platform/registry'
 import {
 	planPrivateDatasetStackReconciliation,
 	privateDatasetStackEntryId,
@@ -421,6 +428,9 @@ export function GeoEditorView() {
 	const setMobilePanelSnap = useEditorStore((state) => state.setMobilePanelSnap)
 	const mobileSidebarOpen = useEditorStore((state) => state.mobileSidebarOpen)
 	const openMobileSidebar = useEditorStore((state) => state.openMobileSidebar)
+	const selectMobileSidebarDestination = useEditorStore(
+		(state) => state.selectMobileSidebarDestination,
+	)
 	const closeMobileSidebar = useEditorStore((state) => state.closeMobileSidebar)
 	const setMobileSearchOpen = useEditorStore((state) => state.setMobileSearchOpen)
 	// Mobile Tools/Search/Actions toggles are no longer used — the responsive
@@ -544,6 +554,28 @@ export function GeoEditorView() {
 	const currentUserPubkey = currentUser?.pubkey ?? null
 	const isMobile = useIsMobile()
 	const mapPopupToolbarOffset = 112
+
+	// A native pairing URL is navigation, not an alternate trust path: reveal the
+	// existing Offline settings surface, where the normal decoder and approval
+	// flow consume it. Keep the pending value until that surface has mounted.
+	useEffect(() => {
+		const openPairingInvitation = (url: string) => {
+			if (!normalizePairingInvitation(url)) {
+				consumePendingNativeDeepLink(url)
+				return
+			}
+			setSettingsTab('offline')
+			navigateToView('settings')
+			if (isMobile) selectMobileSidebarDestination('settings')
+		}
+		const pending = getPendingNativeDeepLink()
+		if (pending) openPairingInvitation(pending)
+		const onNativeLink = (event: Event) => {
+			openPairingInvitation((event as CustomEvent<NativeDeepLinkDetail>).detail.url)
+		}
+		window.addEventListener(NATIVE_DEEP_LINK_EVENT, onNativeLink)
+		return () => window.removeEventListener(NATIVE_DEEP_LINK_EVENT, onNativeLink)
+	}, [isMobile, navigateToView, selectMobileSidebarDestination, setSettingsTab])
 
 	const clearAnnotationPopupHideTimeout = useCallback(() => {
 		if (annotationPopupHideTimeoutRef.current !== null) {

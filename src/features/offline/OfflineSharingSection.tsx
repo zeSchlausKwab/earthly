@@ -46,7 +46,14 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { eventStore } from '@/lib/nostr'
-import { getLocalNodeService, notifyLocalBlobsChanged } from '@/platform/registry'
+import {
+	consumePendingNativeDeepLink,
+	getLocalNodeService,
+	getPendingNativeDeepLink,
+	NATIVE_DEEP_LINK_EVENT,
+	notifyLocalBlobsChanged,
+	type NativeDeepLinkDetail,
+} from '@/platform/registry'
 import type {
 	LocalNodeService,
 	LocalNodeStatus,
@@ -57,7 +64,11 @@ import type {
 	PeerGrant,
 	RemoteNodeRecord,
 } from '@/platform/contracts'
-import { decodePairingQrImage, isPairingInvitation } from './pairingQr'
+import {
+	decodePairingQrImage,
+	normalizePairingInvitation,
+	pairingInvitationLink,
+} from './pairingQr'
 
 const LAN_SESSION_SECONDS = 15 * 60
 
@@ -100,11 +111,34 @@ export function OfflineSharingSection() {
 	const [selectedAddress, setSelectedAddress] = useState('')
 	const [remoteNodes, setRemoteNodes] = useState<RemoteNodeRecord[]>([])
 	const [invitationInput, setInvitationInput] = useState('')
+	const [pairingTab, setPairingTab] = useState<'share' | 'join'>('share')
 	const [peerName, setPeerName] = useState('Earthly on this device')
 	const [operation, setOperation] = useState<string | null>(null)
 	const [nowSeconds, setNowSeconds] = useState(() => Math.floor(Date.now() / 1000))
 	const refreshInFlight = useRef(false)
 	const scanInputRef = useRef<HTMLInputElement>(null)
+
+	const acceptInvitationInput = useCallback((value: string): boolean => {
+		const normalized = normalizePairingInvitation(value)
+		if (!normalized) return false
+		setInvitationInput(normalized)
+		setPairingTab('join')
+		return true
+	}, [])
+
+	useEffect(() => {
+		const acceptNativeLink = (url: string) => {
+			if (!acceptInvitationInput(url)) return
+			consumePendingNativeDeepLink(url)
+		}
+		const pending = getPendingNativeDeepLink()
+		if (pending) acceptNativeLink(pending)
+		const onNativeLink = (event: Event) => {
+			acceptNativeLink((event as CustomEvent<NativeDeepLinkDetail>).detail.url)
+		}
+		window.addEventListener(NATIVE_DEEP_LINK_EVENT, onNativeLink)
+		return () => window.removeEventListener(NATIVE_DEEP_LINK_EVENT, onNativeLink)
+	}, [acceptInvitationInput])
 
 	useEffect(() => {
 		let active = true
@@ -246,10 +280,10 @@ export function OfflineSharingSection() {
 	const copyInvitation = async () => {
 		if (!invitation) return
 		try {
-			await navigator.clipboard.writeText(invitation.encoded)
-			toast.success('Pairing invitation copied')
+			await navigator.clipboard.writeText(pairingInvitationLink(invitation.encoded))
+			toast.success('Pairing link copied')
 		} catch {
-			toast.error('Unable to copy the pairing invitation')
+			toast.error('Unable to copy the pairing link')
 		}
 	}
 
@@ -280,8 +314,8 @@ export function OfflineSharingSection() {
 	const joinInvitation = () =>
 		run('join', async () => {
 			if (!service) return
-			const invitation = invitationInput.trim()
-			if (!isPairingInvitation(invitation)) {
+			const invitation = normalizePairingInvitation(invitationInput)
+			if (!invitation) {
 				throw new Error('Paste or scan an Earthly pairing invitation first')
 			}
 			const remote = await service.joinInvitation(invitation, peerName.trim() || undefined)
@@ -295,7 +329,7 @@ export function OfflineSharingSection() {
 
 	const scanInvitation = (file: File) =>
 		run('scan', async () => {
-			setInvitationInput(await decodePairingQrImage(file))
+			acceptInvitationInput(await decodePairingQrImage(file))
 			toast.success('Earthly pairing invitation scanned')
 		})
 
@@ -461,7 +495,11 @@ export function OfflineSharingSection() {
 				</div>
 			</div>
 
-			<Tabs defaultValue="share" className="space-y-4">
+			<Tabs
+				value={pairingTab}
+				onValueChange={(value) => setPairingTab(value as 'share' | 'join')}
+				className="space-y-4"
+			>
 				<TabsList className="grid h-auto w-full grid-cols-2 rounded-none border border-border bg-muted/40 p-1">
 					<TabsTrigger value="share" className="rounded-none">
 						<RadioTower /> Share this device
@@ -574,7 +612,7 @@ export function OfflineSharingSection() {
 											<QrCode /> Show large QR
 										</Button>
 										<Button type="button" variant="outline" onClick={() => void copyInvitation()}>
-											<Copy /> Copy invitation
+											<Copy /> Copy app link
 										</Button>
 										<Button type="button" variant="ghost" onClick={() => void createInvitation()}>
 											<RefreshCw /> Replace
@@ -599,7 +637,7 @@ export function OfflineSharingSection() {
 						{invitation ? (
 							<div className="justify-self-center border border-border bg-white p-3">
 								<QRCodeSVG
-									value={invitation.encoded}
+									value={pairingInvitationLink(invitation.encoded)}
 									size={288}
 									level="L"
 									marginSize={4}
@@ -739,7 +777,7 @@ export function OfflineSharingSection() {
 								id="offline-pairing-invitation"
 								value={invitationInput}
 								onChange={(event) => setInvitationInput(event.target.value)}
-								placeholder="earthly-pair-v1:…"
+								placeholder="earthly://pair?invitation=… or earthly-pair-v1:…"
 								className="min-h-24 break-all font-mono text-[10px]"
 							/>
 						</div>
@@ -769,7 +807,7 @@ export function OfflineSharingSection() {
 							<Button
 								type="button"
 								onClick={() => void joinInvitation()}
-								disabled={!isPairingInvitation(invitationInput) || operation !== null}
+								disabled={!normalizePairingInvitation(invitationInput) || operation !== null}
 							>
 								{operation === 'join' ? <Loader2 className="animate-spin" /> : <Link2 />}
 								Request access
