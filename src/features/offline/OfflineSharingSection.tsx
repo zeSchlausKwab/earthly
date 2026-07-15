@@ -9,6 +9,7 @@ import {
 	Laptop,
 	Link2,
 	Loader2,
+	MapPinned,
 	Network,
 	QrCode,
 	RadioTower,
@@ -46,6 +47,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { eventStore } from '@/lib/nostr'
+import { inspectPmtiles } from '@/lib/localPmtiles'
+import { useEditorStore } from '@/features/geo-editor/store'
 import {
 	consumePendingNativeDeepLink,
 	getLocalNodeService,
@@ -101,6 +104,8 @@ function CapabilityBadges({ capabilities }: { capabilities: PairingCapability[] 
 }
 
 export function OfflineSharingSection() {
+	const activeLocalBlobHash = useEditorStore((state) => state.mapSource.localBlobHash)
+	const setMapSource = useEditorStore((state) => state.setMapSource)
 	const [service, setService] = useState<LocalNodeService | null>(null)
 	const [status, setStatus] = useState<LocalNodeStatus>({ state: 'starting' })
 	const [invitation, setInvitation] = useState<PairingInvitation | null>(null)
@@ -396,6 +401,25 @@ export function OfflineSharingSection() {
 			notifyLocalBlobsChanged(result.items.map((item) => item.sha256))
 			toast.success(
 				`Saved ${result.items.length} referenced file${result.items.length === 1 ? '' : 's'} locally`,
+			)
+		})
+
+	const activateMirroredBlobMap = (sha256: string) =>
+		run(`use-map:${sha256}`, async () => {
+			if (!service) return
+			const url = await service.localBlobUrl(sha256)
+			if (!url) throw new Error('This file is not available through Earthly’s local storage')
+			const inspected = await inspectPmtiles(url)
+			setMapSource({
+				type: 'pmtiles',
+				location: 'local',
+				url,
+				localBlobHash: sha256,
+				pmtilesKind: inspected.kind,
+				boundsLocked: true,
+			})
+			toast.success(
+				`${inspected.kind === 'vector' ? 'Vector' : 'Raster'} offline map is now active`,
 			)
 		})
 
@@ -883,6 +907,41 @@ export function OfflineSharingSection() {
 													Files are copied by verified SHA-256 hash; arbitrary links in map records
 													are not opened.
 												</p>
+												{remote.mirroredBlobHashes.length > 0 ? (
+													<div className="max-h-44 space-y-1 overflow-y-auto">
+														{remote.mirroredBlobHashes.map((sha256) => {
+															const isActive = activeLocalBlobHash === sha256
+															return (
+																<div
+																	key={sha256}
+																	className="flex items-center gap-2 border border-border bg-card p-2"
+																>
+																	<MapPinned className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+																	<span
+																		className="min-w-0 flex-1 truncate font-mono text-[10px]"
+																		title={sha256}
+																	>
+																		{shortKey(sha256)}
+																	</span>
+																	<Button
+																		type="button"
+																		variant={isActive ? 'secondary' : 'outline'}
+																		size="sm"
+																		onClick={() => void activateMirroredBlobMap(sha256)}
+																		disabled={isActive || operation !== null}
+																	>
+																		{operation === `use-map:${sha256}` ? (
+																			<Loader2 className="animate-spin" />
+																		) : (
+																			<MapPinned />
+																		)}
+																		{isActive ? 'Active map' : 'Use as map'}
+																	</Button>
+																</div>
+															)
+														})}
+													</div>
+												) : null}
 												{mirrorBatchSize > 0 && remote.capabilities.includes('blob-read') ? (
 													<Button
 														type="button"

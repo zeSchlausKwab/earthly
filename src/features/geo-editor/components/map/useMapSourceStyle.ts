@@ -59,7 +59,10 @@ export function useMapSourceStyle({
 			const url = resolvePmtilesUrl(mapSource)
 			if (!url) return null
 			const pmtilesUrl = url.startsWith('pmtiles://') ? url : `pmtiles://${url}`
-			return { key: pmtilesUrl, style: buildPmtilesStyle(url) }
+			return {
+				key: `${pmtilesUrl}:${mapSource.pmtilesKind ?? 'vector'}`,
+				style: buildPmtilesStyle(url, mapSource.pmtilesKind),
+			}
 		}
 
 		// default

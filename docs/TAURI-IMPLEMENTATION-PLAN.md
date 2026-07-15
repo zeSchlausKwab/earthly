@@ -10,14 +10,15 @@
 > Mirrored GeoJSON resolves local-first through a read-only, Range-capable native custom protocol.
 > NIP-42 sessions now enforce the approved installation's distinct relay-read and relay-write
 > capabilities across ordinary and NIP-77 access. Versioned pairing deep links now converge on the
-> existing approval-gated join flow across cold start and an already-running app. Mobile lifecycle,
-> platform-protected MLS storage, local PMTiles integration, and complete offline map regions remain
-> staged work.
+> existing approval-gated join flow across cold start and an already-running app. Mirrored PMTiles
+> archives can now be validated, rendered locally as vector or raster maps, and retained as the
+> selected Android basemap across restart. Complete saved regions, crash-safe offline publishing,
+> Android foreground lifecycle, and release distribution remain staged work.
 
 Status: committed product direction
 Created: 2026-07-13
-Scope: production desktop and mobile application for Earthly using Tauri v2
-Targets: macOS, Windows, Linux, Android, and iOS
+Scope: production Android application for Earthly using Tauri v2
+Release target: Android; macOS is a development host. iOS, Windows, and Linux are deferred.
 
 ## 1. Outcome
 
@@ -33,7 +34,7 @@ durable native capabilities:
 - a durable signed-event outbox with retry and per-relay delivery state;
 - import and export of portable Earthly offline bundles;
 - native file dialogs, deep links, QR scanning, geolocation, and operating-system sharing;
-- signed desktop installers and Android/iOS store releases;
+- a signed Android App Bundle and managed Android release process;
 - platform-specific lifecycle, permission, update, backup, and recovery behavior.
 
 The browser application remains supported. Tauri is a first-class runtime of the same Earthly
@@ -153,9 +154,8 @@ Earthly connects to the same local relay interface available to other clients ra
 private persistence shortcut. The reusable node is transport-neutral Rust; Tauri and mobile
 lifecycle code are adapters.
 
-Desktop and Android support same-device clients while the native service is running. iOS supports
-Earthly's in-process use and cross-device serving while foregrounded, but it does not promise that
-another foreground app can keep a backgrounded Earthly process serving sockets.
+Android supports same-device clients while the native service is running. Serving while Earthly is
+backgrounded requires the explicit foreground-service work in Phase 11.
 
 ### 3.5 Signing remains outside the native storage bridge
 
@@ -175,7 +175,7 @@ Register an asynchronous `earthly-blob` URI scheme in Rust. A URL identifies a c
 an arbitrary path:
 
 ```text
-earthly-blob://localhost/sha256/<64-lowercase-hex>
+earthly-blob://localhost/<64-lowercase-hex>
 ```
 
 The handler must:
@@ -195,17 +195,14 @@ The handler must:
 The existing `pmtiles` JavaScript library continues parsing PMTiles. The only changed dependency
 is its byte source.
 
-### 3.7 Full target support, staged release order
+### 3.7 Android-first release boundary
 
-The implementation targets all five platforms from the beginning, but release gates are staged:
+The current native product ships on Android. macOS remains useful for local development and Rust
+integration testing but is not a distribution gate. iOS, Windows, and Linux are future ports and do
+not block the Android release.
 
-1. macOS and Android establish the desktop and mobile paths.
-2. Windows and Linux close desktop portability.
-3. iOS closes mobile portability and App Store distribution.
-
-Platform staging is scheduling, not an experiment and not permission to create incompatible data
-formats. Storage schemas, command contracts, and bundles are versioned and cross-platform from
-their first merge.
+This narrower schedule is not permission to make the durable data model Android-specific. Storage
+schemas, command contracts, hashes, and future bundles remain versioned and platform-neutral.
 
 ## 4. Proposed repository structure
 
@@ -812,39 +809,38 @@ Exit criteria:
 - a shared bundle imports on a clean installation and renders offline;
 - deep links never grant broader native capabilities.
 
-### Phase 11 — Mobile lifecycle and platform completeness
+### Phase 11 — Android lifecycle and platform completeness
 
 Deliver:
 
-- iOS build and platform configuration;
-- Windows and Linux build closure;
 - foreground geolocation and permission UX;
+- a user-visible Android foreground service for explicitly enabled local-node serving;
 - mobile suspension/resume handling;
 - disk pressure, battery, metered-network, and large-download policy;
 - accessibility, safe areas, keyboard, rotation, and mobile MapLibre verification;
-- platform-native share behavior.
+- Android-native share behavior.
 
 Exit criteria:
 
-- the hiking workflow passes on physical Android and iOS devices;
+- the hiking workflow passes on the supported physical Android versions;
 - suspend/resume cannot corrupt a download, import, database, or outbox transition;
 - denied permissions leave usable non-native alternatives;
 - platform differences do not change bundle or database semantics.
 
-### Phase 12 — Distribution and operations
+### Phase 12 — Android distribution and operations
 
 Deliver:
 
-- signed macOS, Windows, and Linux packages;
-- Android App Bundle and iOS archive/store metadata;
-- desktop update channels with rollback policy;
+- signed Android App Bundle and Play Console metadata;
+- staged Android rollout, upgrade, and rollback policy;
 - privacy disclosures, data export/delete behavior, and support diagnostics;
 - release CI, checksums, SBOM, provenance, and operational runbooks;
 - staged release and telemetry-free health reporting unless users explicitly opt in.
 
 Exit criteria:
 
-- every target installs, upgrades, retains data, and uninstalls according to documented behavior;
+- supported Android versions install, upgrade, retain data, and uninstall according to documented
+  behavior;
 - signing and store submissions run from protected CI workflows;
 - upgrade tests cover every released native schema version;
 - support can diagnose failures from a redacted user-exported report.

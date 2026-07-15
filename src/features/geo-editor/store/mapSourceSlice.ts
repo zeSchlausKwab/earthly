@@ -1,12 +1,28 @@
 import type { StateCreator } from 'zustand'
+import { readStoredLocalPmtiles, writeStoredLocalPmtiles } from '@/lib/localPmtiles'
 import type { EditorState, MapSourceSlice } from './types'
 
-export const createMapSourceSlice: StateCreator<EditorState, [], [], MapSourceSlice> = (set) => ({
-	mapSource: {
+function initialMapSource(): MapSourceSlice['mapSource'] {
+	const stored = readStoredLocalPmtiles()
+	if (stored) {
+		return {
+			type: 'pmtiles',
+			location: 'local',
+			url: stored.url,
+			localBlobHash: stored.sha256,
+			pmtilesKind: stored.kind,
+			boundsLocked: true,
+		}
+	}
+	return {
 		type: 'default',
 		location: 'remote',
 		url: 'https://build.protomaps.com/20251202.pmtiles',
-	},
+	}
+}
+
+export const createMapSourceSlice: StateCreator<EditorState, [], [], MapSourceSlice> = (set) => ({
+	mapSource: initialMapSource(),
 	showMapSettings: false,
 	pointClusteringEnabled: false,
 	geometryPointProxyEnabled: false,
@@ -18,7 +34,25 @@ export const createMapSourceSlice: StateCreator<EditorState, [], [], MapSourceSl
 	mapAreaRect: null,
 	isDrawingMapArea: false,
 
-	setMapSource: (mapSource) => set({ mapSource }),
+	setMapSource: (mapSource) => {
+		if (
+			mapSource.type === 'pmtiles' &&
+			mapSource.location === 'local' &&
+			mapSource.localBlobHash &&
+			mapSource.url &&
+			mapSource.pmtilesKind
+		) {
+			writeStoredLocalPmtiles({
+				version: 1,
+				sha256: mapSource.localBlobHash,
+				url: mapSource.url,
+				kind: mapSource.pmtilesKind,
+			})
+		} else {
+			writeStoredLocalPmtiles(null)
+		}
+		set({ mapSource })
+	},
 	setShowMapSettings: (showMapSettings) => set({ showMapSettings }),
 	setPointClusteringEnabled: (pointClusteringEnabled) => set({ pointClusteringEnabled }),
 	setGeometryPointProxyEnabled: (geometryPointProxyEnabled) => set({ geometryPointProxyEnabled }),

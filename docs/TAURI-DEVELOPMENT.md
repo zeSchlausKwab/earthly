@@ -18,7 +18,6 @@ The workspace-root `Cargo.lock` is authoritative for native builds.
 - Bun 1.3 or newer;
 - Rust stable with Cargo;
 - macOS desktop: Xcode Command Line Tools;
-- iOS: full Xcode installation and the required Rust targets;
 - Android: Android Studio/SDK, NDK, platform tools, and the required Rust targets.
 
 Run `bunx tauri info` for a local toolchain report. Missing mobile toolchains do not prevent a
@@ -52,10 +51,8 @@ Create a production application and installer for the current desktop platform:
 bun run tauri:build
 ```
 
-On macOS the unsigned local artifacts are written beneath
-`target/release/bundle/macos/` and `target/release/bundle/dmg/`. Signing, notarization, mobile
-projects, and release CI are later Phase 1/Phase 12 deliverables; local output is not a release
-artifact.
+On macOS the unsigned local artifacts beneath `target/release/bundle/` are development output. The
+current release target is Android; macOS, iOS, Windows, and Linux distribution is deferred.
 
 ## Android
 
@@ -203,6 +200,7 @@ As of 2026-07-15:
 - the arm64 Android APK builds with the LAN interface enumerator and native HTTP pairing client;
 - the equivalent browser settings surface reports that hosting an embedded node requires the native
   app and never attempts native commands;
-- full Xcode is not installed in the current environment, so iOS initialization is pending;
-- future Android/iOS local-network permission adapters, Android foreground-service
-  lifecycle, and release signing are pending.
+- mirrored PMTiles archives can be header-validated through bounded native range reads, rendered as
+  vector or raster sources, selected from joined-device storage, and restored after app restart;
+- Android permission adapters, foreground-service lifecycle, saved regions, durable publishing,
+  and release signing are pending. iOS, Windows, and Linux are outside the current release gate.

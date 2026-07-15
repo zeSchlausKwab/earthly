@@ -4,6 +4,7 @@ import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import type { ContextFilterMode } from '@/lib/context/validation'
 import type { ContextMapScopeMode } from '@/lib/context/scope'
+import type { PmtilesKind } from '@/lib/localPmtiles'
 import type { EditorFeature, EditorMode, GeoEditor } from '../core'
 import type { CollectionMeta, EditorBlobReference, GeoSearchResult } from '../types'
 
@@ -566,6 +567,8 @@ export interface MapSourceSlice {
 		location: 'remote' | 'local'
 		url?: string
 		file?: File
+		localBlobHash?: string
+		pmtilesKind?: PmtilesKind
 		blossomServer?: string
 		boundsLocked?: boolean
 	}

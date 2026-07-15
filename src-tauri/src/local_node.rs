@@ -13,8 +13,8 @@ use nostr::{EventId, PublicKey};
 use serde::Serialize;
 use tauri::http::header::{
     ACCEPT_RANGES, ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS,
-    ACCESS_CONTROL_ALLOW_ORIGIN, ALLOW, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE,
-    ETAG, RANGE,
+    ACCESS_CONTROL_ALLOW_ORIGIN, ACCESS_CONTROL_EXPOSE_HEADERS, ALLOW, CACHE_CONTROL,
+    CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, ETAG, RANGE,
 };
 use tauri::http::{Method, Request, Response, StatusCode};
 use tauri::{
@@ -725,6 +725,10 @@ fn local_blob_response_builder(status: StatusCode) -> tauri::http::response::Bui
         .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .header(ACCESS_CONTROL_ALLOW_METHODS, "GET, HEAD, OPTIONS")
         .header(ACCESS_CONTROL_ALLOW_HEADERS, "Range")
+        .header(
+            ACCESS_CONTROL_EXPOSE_HEADERS,
+            "Accept-Ranges, Content-Length, Content-Range, Content-Type, ETag",
+        )
 }
 
 fn local_blob_error_response(
@@ -754,5 +758,19 @@ mod tests {
         assert!(interface_priority("wlan0") < interface_priority("tun0"));
         assert!(interface_priority("en0") < interface_priority("utun4"));
         assert!(interface_priority("eth0") < interface_priority("tailscale0"));
+    }
+
+    #[test]
+    fn local_blob_responses_expose_range_metadata_to_the_webview() {
+        let response = local_blob_response_builder(StatusCode::OK)
+            .body(Vec::<u8>::new())
+            .unwrap();
+        assert_eq!(
+            response
+                .headers()
+                .get(ACCESS_CONTROL_EXPOSE_HEADERS)
+                .unwrap(),
+            "Accept-Ranges, Content-Length, Content-Range, Content-Type, ETag"
+        );
     }
 }

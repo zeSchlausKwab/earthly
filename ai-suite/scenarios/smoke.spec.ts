@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures/earthly'
+import { readFile } from 'node:fs/promises'
 import { createIdentity } from '../tasks/auth/create-identity'
 import { signIn } from '../tasks/auth/sign-in'
 import { createStoryDraft } from '../tasks/create/story'
@@ -68,6 +69,34 @@ test('the web app describes native offline sharing without pretending to host a 
 test('the native command bridge exposes local-node pairing controls', async ({
 	earthly,
 }, testInfo) => {
+	const pmtilesFixture = await readFile(
+		new URL('../../base-assets/flowers.pmtiles', import.meta.url),
+	)
+	await earthly.page.route('http://earthly-blob.localhost/**', async (route) => {
+		const range = route
+			.request()
+			.headers()
+			.range?.match(/^bytes=(\d+)-(\d+)$/)
+		if (!range) {
+			await route.fulfill({ status: 400, body: 'Range required' })
+			return
+		}
+		const start = Number(range[1])
+		const end = Math.min(Number(range[2]), pmtilesFixture.length - 1)
+		await route.fulfill({
+			status: 206,
+			headers: {
+				'Access-Control-Allow-Origin': '*',
+				'Access-Control-Expose-Headers': 'Content-Length, Content-Range, ETag',
+				'Accept-Ranges': 'bytes',
+				'Content-Length': String(end - start + 1),
+				'Content-Range': `bytes ${start}-${end}/${pmtilesFixture.length}`,
+				'Content-Type': 'application/octet-stream',
+				ETag: `"${'d'.repeat(64)}"`,
+			},
+			body: pmtilesFixture.subarray(start, end + 1),
+		})
+	})
 	await earthly.page.addInitScript(() => {
 		const referencedBlobHash = 'd'.repeat(64)
 		let descriptor = {
@@ -175,6 +204,10 @@ test('the native command bridge exposes local-node pairing controls', async ({
 			configurable: true,
 			value: { invoke },
 		})
+		Object.defineProperty(window, '__TAURI_OS_PLUGIN_INTERNALS__', {
+			configurable: true,
+			value: { platform: 'android' },
+		})
 	})
 
 	await earthly.open({ tour: 'seen' })
@@ -212,6 +245,11 @@ test('the native command bridge exposes local-node pairing controls', async ({
 	await expect(earthly.page.getByText(/Last sync/)).toBeVisible()
 	await earthly.page.getByRole('button', { name: 'Mirror 1 referenced file' }).click()
 	await expect(earthly.page.getByText('1 of 1 referenced files saved locally')).toBeVisible()
+	await earthly.page.getByRole('button', { name: 'Use as map' }).click()
+	await expect(earthly.page.getByRole('button', { name: 'Active map' })).toBeVisible()
+	await expect
+		.poll(() => earthly.page.evaluate(() => localStorage.getItem('earthly-local-pmtiles-v1')))
+		.toContain(`"sha256":"${'d'.repeat(64)}"`)
 })
 
 test('a Story can be saved as a local draft', async ({ earthly }) => {

@@ -1,5 +1,6 @@
 import { namedFlavor, layers as protomapsLayers } from '@protomaps/basemaps'
 import type maplibregl from 'maplibre-gl'
+import type { PmtilesKind } from '@/lib/localPmtiles'
 import type { MapSource, OverlayStyleDescriptor } from './types'
 
 const PROTOMAPS_GLYPHS = 'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf'
@@ -69,8 +70,24 @@ export function buildBlossomStyle(
  * Build a MapLibre style for a single PMTiles vector source (the `pmtiles`
  * source mode). The PMTiles URL can be remote (https://) or local (object URL).
  */
-export function buildPmtilesStyle(pmtilesUrl: string): maplibregl.StyleSpecification {
+export function buildPmtilesStyle(
+	pmtilesUrl: string,
+	kind: PmtilesKind = 'vector',
+): maplibregl.StyleSpecification {
 	const url = pmtilesUrl.startsWith('pmtiles://') ? pmtilesUrl : `pmtiles://${pmtilesUrl}`
+	if (kind === 'raster') {
+		return {
+			version: 8,
+			sources: {
+				pmtiles: {
+					type: 'raster',
+					tiles: [`${url}/{z}/{x}/{y}`],
+					tileSize: 256,
+				},
+			},
+			layers: [{ id: 'pmtiles-raster', type: 'raster', source: 'pmtiles' }],
+		}
+	}
 	return {
 		version: 8,
 		glyphs: PROTOMAPS_GLYPHS,
