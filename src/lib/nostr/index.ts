@@ -20,6 +20,8 @@ import { NostrIDB, openDB } from 'nostr-idb'
 import type { Filter, NostrEvent } from 'nostr-tools'
 import type { IAccount } from 'applesauce-accounts'
 import { EMPTY, filter, firstValueFrom, NEVER, of, race, timeout, TimeoutError, timer } from 'rxjs'
+import { getPublishOutboxService } from '@/platform/registry'
+import type { OutboxItem, OutboxRelayResult, PublishOutboxService } from '@/platform/contracts'
 
 // Bun HMR bundler tree-shaking bug: rxjs/index.js re-exports some values via
 // source files that Bun's HMR runtime can stub without populating. Referencing
@@ -32,6 +34,8 @@ void TimeoutError
 import { config } from '@/config'
 import { eventStore } from './store'
 import { cacheQueryableFilters } from './filterGuards'
+import { LIVE_BEACON_KIND } from './kinds'
+import { failedRelayResults, pendingOutboxRelays, requiredPublishRelays } from './publishOutbox'
 import {
 	bucketForKind,
 	guardedWebSocketCtor,
@@ -421,6 +425,59 @@ function withConfiguredBaseline(routed: string[]): string[] {
 	return [...new Set([...config.writeRelays, ...routed])]
 }
 
+function relayResults(
+	responses: Array<{ from: string; ok: boolean; message?: string }>,
+): OutboxRelayResult[] {
+	return responses.map((response) => ({
+		relayUrl: response.from,
+		ok: response.ok,
+		...(response.message ? { message: response.message } : {}),
+	}))
+}
+
+async function deliverOutboxItem(service: PublishOutboxService, item: OutboxItem): Promise<void> {
+	const targetRelays = pendingOutboxRelays(item)
+	if (targetRelays.length === 0) return
+	const event = JSON.parse(item.eventJson) as NostrEvent
+	eventStore.add(event)
+	try {
+		const responses = await pool.publish(targetRelays, event)
+		await service.recordResults(item.id, relayResults(responses))
+	} catch (error) {
+		await service.recordResults(item.id, failedRelayResults(targetRelays, error))
+	}
+}
+
+let outboxFlushPromise: Promise<void> | null = null
+let outboxReplayStarted = false
+
+/** Replay due native publishes without ever requesting or persisting a signing key. */
+export function flushPublishOutbox(): Promise<void> {
+	outboxFlushPromise ??= getPublishOutboxService()
+		.then(async (service) => {
+			if (!service) return
+			const due = await service.flush()
+			for (const item of due) await deliverOutboxItem(service, item)
+		})
+		.catch((error) => console.warn('[nostr] native outbox replay failed', error))
+		.finally(() => {
+			outboxFlushPromise = null
+		})
+	return outboxFlushPromise
+}
+
+/** Start the Android resume/online replay hooks once. */
+export function startPublishOutbox(): Promise<void> {
+	if (!outboxReplayStarted && typeof window !== 'undefined') {
+		outboxReplayStarted = true
+		window.addEventListener('online', () => void flushPublishOutbox())
+		document.addEventListener('visibilitychange', () => {
+			if (document.visibilityState === 'visible') void flushPublishOutbox()
+		})
+	}
+	return flushPublishOutbox()
+}
+
 /**
  * One-stop publish: broadcast to relays, add to the local store, return the
  * relay responses. Use this in place of `event.publish()` from NDK.
@@ -467,9 +524,45 @@ export async function publish(event: NostrEvent, options: PublishOptions = {}) {
 		targetRelays = withConfiguredBaseline(inboxes)
 	}
 
-	const responses = await pool.publish(targetRelays, event)
+	const outbox = event.kind === LIVE_BEACON_KIND ? null : await getPublishOutboxService()
+	const durableRouting: PublishRouting = relays ? 'configured' : routing
+	const queued = outbox
+		? await outbox.enqueue({
+				version: 1,
+				eventJson: JSON.stringify(event),
+				routing: durableRouting,
+				...(target && !relays && (routing === 'inbox' || routing === 'reply')
+					? { targetPubkey: target }
+					: {}),
+				relayUrls: targetRelays,
+				requiredRelayUrls: relays
+					? targetRelays
+					: requiredPublishRelays(targetRelays, config.writeRelays),
+			})
+		: null
 	eventStore.add(event)
-	return responses
+	const deliveryRelays = queued ? pendingOutboxRelays(queued) : targetRelays
+	if (deliveryRelays.length === 0) return []
+	// Normal native authoring succeeds once the immutable signed event is durable.
+	// Delivery continues in the background and survives process death. Explicit
+	// relay-management publishes remain synchronous because that UI displays each
+	// relay's immediate response.
+	if (outbox && queued && !relays) {
+		void deliverOutboxItem(outbox, queued).catch((error) =>
+			console.warn('[nostr] initial native outbox delivery failed', error),
+		)
+		return []
+	}
+	try {
+		const responses = await pool.publish(deliveryRelays, event)
+		if (outbox && queued) await outbox.recordResults(queued.id, relayResults(responses))
+		return responses
+	} catch (error) {
+		if (outbox && queued) {
+			await outbox.recordResults(queued.id, failedRelayResults(deliveryRelays, error))
+		}
+		throw error
+	}
 }
 
 /**

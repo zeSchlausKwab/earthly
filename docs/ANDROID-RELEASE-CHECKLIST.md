@@ -8,8 +8,8 @@ Release boundary: Android only; macOS is a development host. iOS, Windows, and L
 
 ## Readiness estimate
 
-- Private Android alpha: approximately 65% complete.
-- Public Android release: approximately 45% complete.
+- Private Android alpha: approximately 70% complete.
+- Public Android release: approximately 48% complete.
 - Embedded-node and offline-sharing foundation: approximately 80% complete.
 
 The percentages describe release risk, not source-code volume. The Tauri shell is no longer the
@@ -26,7 +26,8 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 - [x] Mirrored raster and vector PMTiles can become the restart-persistent offline basemap.
 - [ ] Two-device UAT of a mirrored PMTiles map with internet disabled and both apps restarted.
 - [ ] Saved-region catalog with progress, size, repair, and removal controls.
-- [ ] Crash-safe signed-event outbox for offline create/edit and later delivery.
+- [x] Crash-safe SQLite signed-event outbox with immutable events and per-relay acknowledgements.
+- [ ] Physical Android process-death UAT for offline create/edit and later authenticated delivery.
 - [ ] Suspend/resume and low-storage recovery tests on supported Android versions.
 - [ ] User-visible foreground service for background local-node availability.
 - [ ] Redacted diagnostics export suitable for alpha support.
@@ -46,7 +47,7 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 ## Execution order
 
 1. Finish the mirrored-PMTiles offline proof on two physical Android devices.
-2. Implement the durable native publish outbox and prove offline authoring across process death.
+2. Prove the durable native publish outbox across offline authoring and Android process death.
 3. Add the explicit Android foreground-service/lifecycle boundary and permissions.
 4. Close saved-region management, recovery, diagnostics, and storage-pressure behavior.
 5. Add protected AAB signing and release CI, then run upgrade and staged-release rehearsals.

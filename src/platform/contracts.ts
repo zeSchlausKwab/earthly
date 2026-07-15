@@ -142,6 +142,76 @@ export const remoteBlobMirrorResultSchema = z.object({
 
 export type RemoteBlobMirrorResult = z.infer<typeof remoteBlobMirrorResultSchema>
 
+export const publishRoutingSchema = z.enum(['configured', 'outbox', 'inbox', 'reply'])
+
+export type NativePublishRouting = z.infer<typeof publishRoutingSchema>
+
+export const outboxRelayResultSchema = z.object({
+	relayUrl: z.string().url(),
+	ok: z.boolean(),
+	message: z.string().optional(),
+})
+
+export type OutboxRelayResult = z.infer<typeof outboxRelayResultSchema>
+
+export const outboxRelaySchema = z.object({
+	relayUrl: z.string().url(),
+	required: z.boolean(),
+	state: z.enum(['pending', 'acknowledged', 'rejected']),
+	attempts: z.number().int().nonnegative(),
+	acknowledgedAt: z.number().int().positive().nullable().optional(),
+	lastError: z.string().nullable().optional(),
+})
+
+export const outboxItemSchema = z.object({
+	version: z.literal(1),
+	id: z.string().regex(/^[0-9a-f]{64}$/),
+	eventJson: z.string().min(1),
+	eventId: z.string().regex(/^[0-9a-f]{64}$/),
+	eventKind: z.number().int().nonnegative().max(65535),
+	routing: publishRoutingSchema,
+	targetPubkey: z
+		.string()
+		.regex(/^[0-9a-f]{64}$/)
+		.nullable()
+		.optional(),
+	state: z.enum([
+		'queued',
+		'delivering',
+		'delivered',
+		'partial',
+		'retryWait',
+		'rejected',
+		'discarded',
+	]),
+	attemptCount: z.number().int().nonnegative(),
+	nextAttemptAt: z.number().int().positive().nullable().optional(),
+	createdAt: z.number().int().positive(),
+	updatedAt: z.number().int().positive(),
+	lastError: z.string().nullable().optional(),
+	relays: z.array(outboxRelaySchema).min(1),
+})
+
+export type OutboxItem = z.infer<typeof outboxItemSchema>
+
+export interface OutboxEnqueueRequest {
+	version: 1
+	eventJson: string
+	routing: NativePublishRouting
+	targetPubkey?: string
+	relayUrls: string[]
+	requiredRelayUrls: string[]
+}
+
+export interface PublishOutboxService {
+	enqueue(input: OutboxEnqueueRequest): Promise<OutboxItem>
+	list(): Promise<OutboxItem[]>
+	flush(): Promise<OutboxItem[]>
+	recordResults(id: string, results: OutboxRelayResult[]): Promise<OutboxItem>
+	retry(id: string): Promise<OutboxItem>
+	discard(id: string): Promise<OutboxItem>
+}
+
 export interface LocalNodeService {
 	readonly supported: boolean
 	status(): Promise<LocalNodeStatus>
@@ -174,4 +244,6 @@ export const nativeSchemas = {
 	remoteNodes: z.array(remoteNodeRecordSchema),
 	remoteSync: remoteSyncResultSchema,
 	remoteBlobMirror: remoteBlobMirrorResultSchema,
+	outboxItem: outboxItemSchema,
+	outboxItems: z.array(outboxItemSchema),
 }

@@ -1,4 +1,5 @@
 mod local_node;
+mod outbox;
 
 use local_node::{
     local_node_approve_claim_v1, local_node_create_invitation_v1, local_node_disable_lan_v1,
@@ -7,6 +8,10 @@ use local_node::{
     local_node_pending_claims_v1, local_node_refresh_remote_node_v1, local_node_reject_claim_v1,
     local_node_remote_nodes_v1, local_node_revoke_peer_v1, local_node_status, local_node_status_v1,
     local_node_sync_remote_node_v1, LocalNodeState,
+};
+use outbox::{
+    outbox_discard_v1, outbox_enqueue_v1, outbox_flush_v1, outbox_list_v1,
+    outbox_record_results_v1, outbox_retry_v1, OutboxState,
 };
 use tauri::Manager;
 
@@ -48,9 +53,17 @@ pub fn run() {
             local_node_forget_remote_node_v1,
             local_node_sync_remote_node_v1,
             local_node_mirror_remote_blobs_v1,
+            outbox_enqueue_v1,
+            outbox_list_v1,
+            outbox_flush_v1,
+            outbox_record_results_v1,
+            outbox_retry_v1,
+            outbox_discard_v1,
         ])
         .setup(|app| {
-            let data_dir = app.path().app_data_dir()?.join("local-node");
+            let app_data_dir = app.path().app_data_dir()?;
+            app.manage(OutboxState::open(app_data_dir.join("earthly.sqlite3"))?);
+            let data_dir = app_data_dir.join("local-node");
             local_node::start(app.handle().clone(), data_dir);
             Ok(())
         })

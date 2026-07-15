@@ -1,9 +1,10 @@
 import { isTauri } from '@/config/platform'
-import type { LocalNodeService } from './contracts'
+import type { LocalNodeService, PublishOutboxService } from './contracts'
 import { webLocalNodeService } from './web/localNode'
 
 let localNodeServicePromise: Promise<LocalNodeService> | null = null
 let nativeDeepLinksPromise: Promise<void> | null = null
+let publishOutboxServicePromise: Promise<PublishOutboxService | null> | null = null
 let pendingNativeDeepLink: string | null = null
 
 export const LOCAL_BLOBS_CHANGED_EVENT = 'earthly:local-blobs-changed'
@@ -25,6 +26,14 @@ export function getLocalNodeService(): Promise<LocalNodeService> {
 		? import('./tauri/localNode').then(({ tauriLocalNodeService }) => tauriLocalNodeService)
 		: Promise.resolve(webLocalNodeService)
 	return localNodeServicePromise
+}
+
+/** The browser deliberately has no durable publish outbox. */
+export function getPublishOutboxService(): Promise<PublishOutboxService | null> {
+	publishOutboxServicePromise ??= isTauri()
+		? import('./tauri/outbox').then(({ tauriPublishOutboxService }) => tauriPublishOutboxService)
+		: Promise.resolve(null)
+	return publishOutboxServicePromise
 }
 
 /** Start the OS URL bridge once; the browser build deliberately remains inert. */

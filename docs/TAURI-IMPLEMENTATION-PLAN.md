@@ -348,6 +348,7 @@ Keep commands coarse enough to preserve transactions and avoid chatty IPC:
 - `outbox_retry_v1`
 - `outbox_discard_v1`
 - `outbox_flush_v1`
+- `outbox_record_results_v1`
 
 ### Bundles
 
@@ -393,7 +394,7 @@ The initial migration defines:
 - `download_jobs(id, region_id, state, bytes_total, bytes_done, error_code, updated_at)`
 - `outbox_items(id, event_json, event_id, event_kind, routing, target_pubkey, state,
   attempt_count, next_attempt_at, created_at, updated_at, last_error)`
-- `outbox_relays(outbox_id, relay_url, state, attempts, acknowledged_at, last_error)`
+- `outbox_relays(outbox_id, relay_url, required, state, attempts, acknowledged_at, last_error)`
 - `settings(key, value_json, updated_at)` for non-secret native metadata only.
 
 Foreign keys are enabled. Region/blob reference changes and outbox transitions are transactional.
@@ -569,8 +570,7 @@ Every command:
 - Commit Bun and Cargo lockfiles.
 - Pin Tauri plugins and Rust dependencies through normal lockfile review.
 - Run `cargo audit`, license checks, TypeScript/Bun tests, and secret scanning in CI.
-- Protect Apple, Android, and desktop signing material in CI environment secrets with restricted
-  release workflows.
+- Protect Android signing material in CI environment secrets with restricted release workflows.
 - Generate release checksums and a software bill of materials.
 
 ### 12.5 ContextVM session identity
@@ -613,12 +613,12 @@ event content configured as private, wallet material, and all signing data.
 Deliver:
 
 - `src-tauri` scaffold and Bun build integration;
-- platform-specific Tauri configuration;
+- Android Tauri configuration plus host-development configuration;
 - desktop and mobile capability files;
-- development commands for desktop, Android, and iOS;
+- development commands for the macOS host and Android target;
 - environment handling that does not inject server secrets into the webview;
 - CI compile jobs for Rust and TypeScript;
-- a booted Earthly map on macOS and Android.
+- a booted Earthly map on the macOS development host and physical Android hardware.
 
 Exit criteria:
 
@@ -708,8 +708,7 @@ Exit criteria:
   both reads after an Earthly restart while offline;
 - revocation closes existing access and prevents reconnect without corrupting stored data;
 - LAN exposure cannot be enabled silently and node services are never bound to WAN interfaces;
-- desktop lifecycle behavior is demonstrated; Android is demonstrated with a visible
-  foreground/bound service; iOS limitations are reported truthfully rather than hidden;
+- Android lifecycle behavior is demonstrated with a visible foreground/bound service;
 - the protocol-facing crates and fixtures are usable without depending on Earthly or Tauri.
 
 ### Phase 6 — Earthly platform contracts and local-node integration
@@ -777,7 +776,7 @@ Deliver:
 
 - immutable signed-event enqueue before first network attempt;
 - transactional item/relay state machine;
-- rust-nostr delivery worker and acknowledgement capture;
+- authenticated Applesauce relay delivery and native per-relay acknowledgement capture;
 - lifecycle-triggered flush on start, resume, connectivity recovery, and user request;
 - queued/partial/delivered/rejected UI with retry and discard;
 - explicit live-beacon exclusion.
@@ -789,6 +788,11 @@ Exit criteria:
 - configured baseline and NIP-65 target delivery semantics match current `publish()` behavior;
 - an offline-created sighting is delivered after reconnection and visible after a clean restart;
 - beacon heartbeats can never replay from durable storage.
+
+The native boundary stores and validates only already-signed events; it never receives a user
+signing key. Delivery currently returns through the existing Applesauce pool so NIP-42 challenges
+can use the active signer. A future fully native delivery worker is valid only with an explicit
+delegated authentication design; it must not expand native key custody implicitly.
 
 ### Phase 10 — Bundles, file associations, deep links, and sharing
 
@@ -1349,15 +1353,14 @@ Earthly-operated service is a mandatory trust or availability root.
 
 The Tauri implementation is complete when:
 
-- the canonical offline hiking journey passes on macOS, Windows, Linux, physical Android, and
-  physical iOS;
+- the canonical offline hiking journey passes on the supported physical Android versions;
 - offline maps use verified native blobs through correct Range responses;
 - offline Nostr reads survive restarts through the embedded event database;
 - signed publishes are crash-safe and eventually delivered with transparent relay state;
-- `.earthly` bundles safely round-trip across every platform;
+- `.earthly` bundles safely round-trip on Android;
 - native deep links, QR, geolocation, file dialogs, and sharing have permission-aware UX;
 - platform capability scopes and command validation pass security review;
-- installers/store packages are signed, reproducible, upgrade-tested, and supported by runbooks;
+- the Android App Bundle is signed, reproducible, upgrade-tested, and supported by runbooks;
 - the web application remains functional through the same platform contracts;
 - no production path, document, or UI describes the native application as experimental.
 

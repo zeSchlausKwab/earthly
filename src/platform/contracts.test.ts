@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
 	localNodeStatusSchema,
 	nativeSchemas,
+	outboxItemSchema,
 	pairingInvitationSchema,
 	remoteNodeRecordSchema,
 	remoteBlobMirrorResultSchema,
@@ -111,5 +112,35 @@ describe('local node platform contracts', () => {
 			remoteNode,
 		}
 		expect(remoteBlobMirrorResultSchema.parse(result)).toEqual(result)
+	})
+
+	test('accepts the versioned native outbox delivery state', () => {
+		const eventId = 'e'.repeat(64)
+		const item = {
+			version: 1,
+			id: eventId,
+			eventJson: '{}',
+			eventId,
+			eventKind: 1,
+			routing: 'reply',
+			targetPubkey: 'f'.repeat(64),
+			state: 'retryWait',
+			attemptCount: 1,
+			nextAttemptAt: 1_900_000_005,
+			createdAt: 1_900_000_000,
+			updatedAt: 1_900_000_000,
+			lastError: 'offline',
+			relays: [
+				{
+					relayUrl: 'wss://relay.example/',
+					required: true,
+					state: 'rejected',
+					attempts: 1,
+					lastError: 'offline',
+				},
+			],
+		}
+		expect(outboxItemSchema.parse(item).id).toBe(eventId)
+		expect(nativeSchemas.outboxItems.parse([item])).toHaveLength(1)
 	})
 })

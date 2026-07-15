@@ -110,6 +110,9 @@ test('the native command bridge exposes local-node pairing controls', async ({
 		let remoteNodes: Record<string, unknown>[] = []
 		const invoke = async (command: string, args?: Record<string, unknown>) => {
 			switch (command) {
+				case 'outbox_flush_v1':
+				case 'outbox_list_v1':
+					return []
 				case 'local_node_status_v1':
 					return { state: 'running', descriptor }
 				case 'local_node_network_addresses_v1':
