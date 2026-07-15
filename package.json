@@ -68,6 +68,8 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@resvg/resvg-wasm": "^2.6.2",
     "@tanstack/react-table": "^8.21.3",
+    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-os": "2.3.2",
     "@tiptap/extension-image": "^3.27.1",
     "@tiptap/extension-link": "^3.27.1",
     "@tiptap/extension-mention": "^3.27.1",
@@ -123,6 +125,7 @@
     "tailwind-merge": "^3.5.0",
     "ts-mls": "2.0.0-rc.12",
     "vaul": "^1.1.2",
+    "zod": "4.4.3",
     "zustand": "^5.0.14"
   },
   "devDependencies": {

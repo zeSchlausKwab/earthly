@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Minimum permissions for the Earthly main window",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "os:allow-platform", "local-node-admin"]
 }

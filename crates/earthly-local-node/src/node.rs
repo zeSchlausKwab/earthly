@@ -5,7 +5,7 @@ use nostr::{Event, EventId, PublicKey};
 use crate::{
     EmbeddedBlossom, EmbeddedRelay, NodeConfig, NodeDescriptor, NodeError, NodeIdentity,
     PairingCapability, PairingClaimReceipt, PairingError, PairingInvitation, PairingManager,
-    PairingStatus, PeerPolicy, PendingPairingClaim,
+    PairingStatus, PeerGrant, PeerPolicy, PendingPairingClaim,
 };
 
 /// Complete running local node. Dropping it closes both listeners and releases the data lock.
@@ -103,6 +103,10 @@ impl LocalNode {
 
     pub async fn peer_is_granted(&self, public_key: &PublicKey) -> bool {
         self.peers.allows(public_key).await
+    }
+
+    pub async fn peer_grants(&self) -> Vec<PeerGrant> {
+        self.peers.grants().await
     }
 
     pub fn shutdown(&self) {

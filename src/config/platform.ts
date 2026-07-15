@@ -13,8 +13,9 @@ export function isTauri(): boolean {
 	const w = window as Window & {
 		__TAURI__?: unknown
 		__TAURI_INTERNAL__?: unknown
+		__TAURI_INTERNALS__?: unknown
 	}
-	return !!w.__TAURI__ || !!w.__TAURI_INTERNAL__
+	return !!w.__TAURI__ || !!w.__TAURI_INTERNAL__ || !!w.__TAURI_INTERNALS__
 }
 
 /**
@@ -30,9 +31,8 @@ export async function getPlatform(): Promise<Platform> {
 	if (!isTauri()) return 'web'
 
 	try {
-		// @ts-expect-error - Tauri API may not be available at compile time
-		const { platform } = await import('@tauri-apps/api/os')
-		const platformName = await platform()
+		const { platform } = await import('@tauri-apps/plugin-os')
+		const platformName = platform()
 
 		// Map Tauri platform names to our Platform type
 		const platformMap: Record<string, Platform> = {

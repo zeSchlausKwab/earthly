@@ -34,6 +34,7 @@ import { BASEMAP_STYLE_OPTIONS, useBasemapStyle } from '@/lib/basemap'
 import { UserProfile } from '@/components/user-profile'
 import { SessionsManager } from '@/features/auth/SessionsManager'
 import { ChatSettingsSection } from '@/features/chat'
+import { OfflineSharingSection } from '@/features/offline/OfflineSharingSection'
 import { UserRelayManager } from '@/features/settings/UserRelayManager'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -54,7 +55,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useEditorStore, type MapLayerState } from '../store'
 
 type MapSourceType = 'default' | 'pmtiles' | 'blossom'
-type SettingsTab = 'map' | 'profile' | 'relays' | 'chat' | 'sessions'
+type SettingsTab = 'map' | 'profile' | 'relays' | 'offline' | 'chat' | 'sessions'
 type MapSettingsPanelMode = 'full' | 'map-only'
 
 interface ProfileDraft {
@@ -822,6 +823,9 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 				<TabsTrigger value="relays" className="flex-none rounded-none px-3 text-xs sm:text-sm">
 					Relays
 				</TabsTrigger>
+				<TabsTrigger value="offline" className="flex-none rounded-none px-3 text-xs sm:text-sm">
+					Offline
+				</TabsTrigger>
 				<TabsTrigger value="chat" className="flex-none rounded-none px-3 text-xs sm:text-sm">
 					Chat
 				</TabsTrigger>
@@ -849,6 +853,15 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 					description="Manage the NIP-65 relay list used for account reads, writes, and discovery."
 				>
 					<UserRelayManager />
+				</SettingsShell>
+			</TabsContent>
+
+			<TabsContent value="offline" className="mt-0">
+				<SettingsShell
+					title="Offline sharing"
+					description="Pair nearby applications with Earthly’s embedded relay and file service."
+				>
+					<OfflineSharingSection />
 				</SettingsShell>
 			</TabsContent>
 

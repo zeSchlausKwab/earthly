@@ -150,5 +150,10 @@ As of 2026-07-14:
 - the macOS application and DMG, including the embedded node, build successfully on Apple silicon;
 - arm64 and x86_64 Android debug APKs build successfully, and the arm64 app runs on both an API 36.1
   emulator and a physical Pixel with independently reachable embedded relay and Blossom listeners;
+- Settings → Offline uses the official Tauri command bridge and runtime-validated DTOs to show node
+  status, create pairing invitations, approve or reject requests, list grants, and revoke peers;
+- the equivalent browser settings surface reports that hosting an embedded node requires the native
+  app and never attempts native commands;
 - full Xcode is not installed in the current environment, so iOS initialization is pending;
-- Android foreground-service lifecycle and release signing are pending.
+- LAN listener selection, peer-side invite import, Android foreground-service lifecycle, and release
+  signing are pending.

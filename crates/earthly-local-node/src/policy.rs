@@ -9,6 +9,13 @@ use tokio::sync::RwLock;
 
 use crate::{NodeError, PairingCapability};
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerGrant {
+    pub peer_pubkey: String,
+    pub capabilities: Vec<PairingCapability>,
+}
+
 /// Shared, runtime-updatable pubkey allowlist used by node services.
 #[derive(Clone, Debug)]
 pub struct PeerPolicy {
@@ -130,6 +137,19 @@ impl PeerPolicy {
 
     pub async fn is_empty(&self) -> bool {
         self.allowed.read().await.is_empty()
+    }
+
+    pub async fn grants(&self) -> Vec<PeerGrant> {
+        let allowed = self.allowed.read().await;
+        let mut grants: Vec<_> = allowed
+            .iter()
+            .map(|(peer, capabilities)| PeerGrant {
+                peer_pubkey: peer.to_hex(),
+                capabilities: capabilities.iter().copied().collect(),
+            })
+            .collect();
+        grants.sort_by(|left, right| left.peer_pubkey.cmp(&right.peer_pubkey));
+        grants
     }
 }
 
@@ -304,5 +324,33 @@ mod tests {
         PeerPolicy::load(dir.path()).await.unwrap();
 
         assert!(!temp.exists());
+    }
+
+    #[tokio::test]
+    async fn lists_grants_with_stable_order_and_capabilities() {
+        let dir = tempfile::tempdir().unwrap();
+        let policy = PeerPolicy::load(dir.path()).await.unwrap();
+        let first = Keys::generate().public_key();
+        let second = Keys::generate().public_key();
+
+        policy
+            .grant_with_capabilities(first, vec![PairingCapability::RelayWrite])
+            .await
+            .unwrap();
+        policy
+            .grant_with_capabilities(
+                second,
+                vec![PairingCapability::BlobRead, PairingCapability::BlobWrite],
+            )
+            .await
+            .unwrap();
+
+        let grants = policy.grants().await;
+        assert_eq!(grants.len(), 2);
+        assert!(grants[0].peer_pubkey < grants[1].peer_pubkey);
+        assert!(grants.iter().any(|grant| {
+            grant.peer_pubkey == first.to_hex()
+                && grant.capabilities == vec![PairingCapability::RelayWrite]
+        }));
     }
 }

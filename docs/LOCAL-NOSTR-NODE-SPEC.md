@@ -58,12 +58,15 @@ The native foundation and transport-neutral handshake are implemented:
 - independent host and client processes complete pairing and then prove a relay write, Blossom
   upload, and Blossom byte-range read without a public relay;
 - arm64 and x86_64 Android APKs build, and the arm64 application has run its own embedded listeners
-  on an API 36.1 emulator and a physical Pixel.
+  on an API 36.1 emulator and a physical Pixel;
+- the Earthly frontend now uses a versioned, runtime-validated platform adapter to show node state,
+  create QR/copy invitations, review and approve or reject pending claims, display capabilities,
+  list paired devices, and revoke grants; the browser adapter reports this capability as unsupported
+  without attempting native IPC.
 
 Before the interoperability proof is product-complete in the Earthly UI it still needs:
 
-- Tauri commands and QR/deep-link UI for invitation creation/import, pending claims,
-  accept/deny/revoke, and capability display;
+- peer-side invitation import and claim creation, including QR scan/deep-link handling;
 - explicit LAN listener selection plus Android/iOS local-network permission adapters;
 - relay authorization against the authenticated NIP-42 session pubkey, including separate
   read/write capabilities;

@@ -27,5 +27,5 @@ pub use pairing::{
     PendingPairingClaim, PAIRING_CLAIMS_PATH, PAIRING_CLAIM_KIND, PAIRING_INVITATION_KIND,
     PAIRING_PROTOCOL_VERSION,
 };
-pub use policy::PeerPolicy;
+pub use policy::{PeerGrant, PeerPolicy};
 pub use relay::EmbeddedRelay;

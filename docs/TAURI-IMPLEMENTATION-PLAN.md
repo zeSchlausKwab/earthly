@@ -1,9 +1,10 @@
 # Earthly Tauri Application Implementation Plan
 
-> Current release scope (July 2026): Earthly is shipping the web application first. Tauri/mobile
-> packaging, platform-protected MLS storage, and offline device transport are deferred. The active
-> private-map deployment is the browser application plus a persistent Cordn ContextVM coordinator;
-> see [`PRIVATE-MAPS-DEPLOYMENT.md`](./PRIVATE-MAPS-DEPLOYMENT.md).
+> Current release scope (July 2026): the browser application and persistent Cordn ContextVM
+> coordinator are live, and native implementation has resumed. The Tauri shell, embedded node,
+> Android host, signed pairing protocol, and first product-facing pairing administration bridge are
+> implemented. LAN exposure, peer-side invitation import, mobile lifecycle, platform-protected MLS
+> storage, and offline map regions remain staged work.
 
 Status: committed product direction
 Created: 2026-07-13
