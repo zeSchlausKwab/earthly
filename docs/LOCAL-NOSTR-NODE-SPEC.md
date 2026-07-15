@@ -79,7 +79,11 @@ The native foundation and transport-neutral handshake are implemented:
 - synchronized dataset `blob` tags and NIP-92 `imeta` hashes populate a bounded durable inventory.
   The user can explicitly mirror those hashes from the approved node's advertised Blossom endpoint;
   downloads require `blob-read`, send BUD-11 authorization, reject redirects, stream within the
-  configured size cap, verify SHA-256, and atomically enter the local content-addressed store.
+  configured size cap, verify SHA-256, and atomically enter the local content-addressed store;
+- the main Earthly webview can read local hashes through the `earthly-blob` custom protocol with
+  GET, HEAD, and single-Range semantics. Paths are exact lowercase SHA-256 values, full responses
+  are capped at 64 MiB, and larger files require bounded Range reads. Dataset resolution probes
+  this local source first and falls back to the event URL only when the hash is absent.
 
 Before the interoperability proof is product-complete in the Earthly UI it still needs:
 
@@ -87,7 +91,6 @@ Before the interoperability proof is product-complete in the Earthly UI it still
 - Android 17/iOS local-network permission adapters and denial diagnostics;
 - relay authorization against the authenticated NIP-42 session pubkey, including separate
   read/write capabilities;
-- transparent local resolution for synchronized Blossom references already mirrored by hash;
 - BUD-12 deletion, persistent blob ownership/quota metadata, and NIP-11 relay information;
 - an Android foreground service for user-visible background availability.
 

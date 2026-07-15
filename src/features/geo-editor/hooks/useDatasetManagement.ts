@@ -5,6 +5,7 @@ import { useCallback, useRef } from 'react'
 import { useChatStore } from '@/features/chat'
 import { resolveGeoEventFeatureCollection } from '@/lib/geo/resolveBlobReferences'
 import type { GeoDataset, GeoBlobReference } from '@/lib/nostr/geo-event'
+import { getLocalBlobRevision } from '@/platform/registry'
 import { useEditorStore } from '../store'
 import type { EditorBlobReference } from '../types'
 import {
@@ -17,6 +18,7 @@ import {
 interface ResolvedCache {
 	eventId?: string | null
 	featureCollection: FeatureCollection
+	localBlobRevision: number
 }
 
 function createBlankDraftSourceId() {
@@ -112,7 +114,10 @@ export function useDatasetManagement(
 	const resolvedCollectionResolver = useCallback(
 		(event: GeoDataset) => {
 			const datasetKey = getDatasetKey(event)
-			return resolvedCollectionsRef.current.get(datasetKey)?.featureCollection
+			const cached = resolvedCollectionsRef.current.get(datasetKey)
+			return cached?.localBlobRevision === getLocalBlobRevision()
+				? cached.featureCollection
+				: undefined
 		},
 		[getDatasetKey],
 	)
@@ -123,8 +128,9 @@ export function useDatasetManagement(
 				return event.featureCollection
 			}
 			const datasetKey = getDatasetKey(event)
+			const localBlobRevision = getLocalBlobRevision()
 			const cached = resolvedCollectionsRef.current.get(datasetKey)
-			if (cached && cached.eventId === event.id) {
+			if (cached && cached.eventId === event.id && cached.localBlobRevision === localBlobRevision) {
 				return cached.featureCollection
 			}
 			// Track resolving state for UI feedback
@@ -149,6 +155,7 @@ export function useDatasetManagement(
 				resolvedCollectionsRef.current.set(datasetKey, {
 					eventId: event.id,
 					featureCollection: resolved,
+					localBlobRevision,
 				})
 				return resolved
 			} finally {

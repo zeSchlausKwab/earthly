@@ -161,7 +161,11 @@ As of 2026-07-15:
 - record synchronization discovers bounded SHA-256 Blossom references. Settings → Offline can
   explicitly mirror missing files in batches from the paired descriptor, with BUD-11 authorization,
   no redirect following, streaming size enforcement, hash verification, atomic local adoption, and
-  durable per-peer progress. Transparent application-level resolution to the local copy is next;
+  durable per-peer progress;
+- the read-only `earthly-blob` protocol exposes exact local hashes to the main webview with
+  GET/HEAD/single-Range responses and a 64 MiB per-response cap. GeoJSON references resolve through
+  it before trying their network URL, and mirror completion invalidates prior failed resolutions so
+  an open map can retry without a restart;
 - the arm64 Android APK builds with the LAN interface enumerator and native HTTP pairing client;
 - the equivalent browser settings surface reports that hosting an embedded node requires the native
   app and never attempts native commands;

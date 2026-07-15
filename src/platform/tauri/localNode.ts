@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { platform } from '@tauri-apps/plugin-os'
 import {
 	nativeSchemas,
 	type LocalNodeService,
@@ -88,4 +89,11 @@ export const tauriLocalNodeService: LocalNodeService = {
 			nodeId,
 			hashes,
 		}),
+	localBlobUrl: async (sha256): Promise<string | null> => {
+		if (!/^[0-9a-f]{64}$/.test(sha256)) return null
+		const os = platform()
+		return os === 'windows' || os === 'android'
+			? `http://earthly-blob.localhost/${sha256}`
+			: `earthly-blob://localhost/${sha256}`
+	},
 }

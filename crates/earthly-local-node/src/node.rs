@@ -3,11 +3,11 @@ use std::time::Duration;
 use nostr::{Event, EventId, PublicKey};
 
 use crate::{
-    EmbeddedBlossom, EmbeddedRelay, NodeConfig, NodeDescriptor, NodeError, NodeIdentity,
-    PairingCapability, PairingClaimReceipt, PairingError, PairingInvitation, PairingManager,
-    PairingStatus, PeerGrant, PeerPolicy, PendingPairingClaim, RemoteBlobMirrorError,
-    RemoteBlobMirrorResult, RemoteNodeError, RemoteNodeRecord, RemoteNodeStore, RemoteSyncError,
-    RemoteSyncResult,
+    EmbeddedBlossom, EmbeddedRelay, LocalBlobRead, LocalBlobReadError, NodeConfig, NodeDescriptor,
+    NodeError, NodeIdentity, PairingCapability, PairingClaimReceipt, PairingError,
+    PairingInvitation, PairingManager, PairingStatus, PeerGrant, PeerPolicy, PendingPairingClaim,
+    RemoteBlobMirrorError, RemoteBlobMirrorResult, RemoteNodeError, RemoteNodeRecord,
+    RemoteNodeStore, RemoteSyncError, RemoteSyncResult,
 };
 
 /// Complete running local node. Dropping it closes both listeners and releases the data lock.
@@ -174,6 +174,18 @@ impl LocalNode {
             hashes,
         )
         .await
+    }
+
+    pub async fn read_local_blob(
+        &self,
+        hash: &str,
+        range_header: Option<&str>,
+        include_body: bool,
+        max_response_bytes: u64,
+    ) -> Result<LocalBlobRead, LocalBlobReadError> {
+        self.blossom
+            .read_local_blob(hash, range_header, include_body, max_response_bytes)
+            .await
     }
 
     pub async fn ingest_verified_event(&self, event: &Event) -> Result<bool, NodeError> {

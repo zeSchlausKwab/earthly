@@ -45,8 +45,8 @@ import {
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { getLocalNodeService } from '@/platform/registry'
 import { eventStore } from '@/lib/nostr'
+import { getLocalNodeService, notifyLocalBlobsChanged } from '@/platform/registry'
 import type {
 	LocalNodeService,
 	LocalNodeStatus,
@@ -359,6 +359,7 @@ export function OfflineSharingSection() {
 					candidate.nodeId === result.remoteNode.nodeId ? result.remoteNode : candidate,
 				),
 			)
+			notifyLocalBlobsChanged(result.items.map((item) => item.sha256))
 			toast.success(
 				`Saved ${result.items.length} referenced file${result.items.length === 1 ? '' : 's'} locally`,
 			)

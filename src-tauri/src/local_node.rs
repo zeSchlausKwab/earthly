@@ -5,19 +5,28 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use earthly_local_node::{
-    LocalNode, NodeAvailability, NodeBind, NodeConfig, NodeDescriptor, PairingCapability,
-    PairingError, PeerGrant, PendingPairingClaim, RemoteBlobMirrorError, RemoteBlobMirrorResult,
-    RemoteNodeError, RemoteNodeRecord, RemoteSyncError, RemoteSyncResult,
+    LocalBlobReadError, LocalNode, NodeAvailability, NodeBind, NodeConfig, NodeDescriptor,
+    PairingCapability, PairingError, PeerGrant, PendingPairingClaim, RemoteBlobMirrorError,
+    RemoteBlobMirrorResult, RemoteNodeError, RemoteNodeRecord, RemoteSyncError, RemoteSyncResult,
 };
 use nostr::{EventId, PublicKey};
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::http::header::{
+    ACCEPT_RANGES, ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS,
+    ACCESS_CONTROL_ALLOW_ORIGIN, ALLOW, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE,
+    ETAG, RANGE,
+};
+use tauri::http::{Method, Request, Response, StatusCode};
+use tauri::{
+    AppHandle, Manager, Runtime as TauriRuntime, State, UriSchemeContext, UriSchemeResponder,
+};
 use tokio::sync::Mutex as AsyncMutex;
 
 const MIN_LAN_DURATION_SECONDS: u64 = 60;
 const MAX_LAN_DURATION_SECONDS: u64 = 60 * 60;
 const NODE_RELEASE_ATTEMPTS: usize = 100;
 const NODE_RELEASE_RETRY: Duration = Duration::from_millis(20);
+const LOCAL_BLOB_PROTOCOL_RESPONSE_LIMIT: u64 = 64 * 1024 * 1024;
 
 #[derive(Debug)]
 pub struct LocalNodeState {
@@ -569,6 +578,171 @@ pub async fn local_node_mirror_remote_blobs_v1(
     hashes: Vec<String>,
 ) -> Result<RemoteBlobMirrorResult, LocalNodeCommandError> {
     Ok(state.node()?.mirror_remote_blobs(&node_id, hashes).await?)
+}
+
+pub fn local_blob_protocol<R: TauriRuntime>(
+    context: UriSchemeContext<'_, R>,
+    request: Request<Vec<u8>>,
+    responder: UriSchemeResponder,
+) {
+    if context.webview_label() != "main" {
+        responder.respond(local_blob_error_response(
+            StatusCode::FORBIDDEN,
+            "local blobs are available only to Earthly's main webview",
+            None,
+        ));
+        return;
+    }
+    if request.method() == Method::OPTIONS {
+        responder.respond(
+            local_blob_response_builder(StatusCode::NO_CONTENT)
+                .header(CONTENT_LENGTH, "0")
+                .body(Vec::new())
+                .expect("static local blob response is valid"),
+        );
+        return;
+    }
+    if request.method() != Method::GET && request.method() != Method::HEAD {
+        let mut response = local_blob_error_response(
+            StatusCode::METHOD_NOT_ALLOWED,
+            "local blobs support only GET and HEAD",
+            None,
+        );
+        response.headers_mut().insert(
+            ALLOW,
+            "GET, HEAD, OPTIONS".parse().expect("valid Allow header"),
+        );
+        responder.respond(response);
+        return;
+    }
+
+    let Some(hash) = request.uri().path().strip_prefix('/').filter(|path| {
+        path.len() == 64
+            && path
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    }) else {
+        responder.respond(local_blob_error_response(
+            StatusCode::BAD_REQUEST,
+            "local blob path must be a lowercase SHA-256 hash",
+            None,
+        ));
+        return;
+    };
+    let range = match request.headers().get(RANGE) {
+        Some(value) => match value.to_str() {
+            Ok(value) => Some(value.to_owned()),
+            Err(_) => {
+                responder.respond(local_blob_error_response(
+                    StatusCode::RANGE_NOT_SATISFIABLE,
+                    "invalid local blob Range header",
+                    None,
+                ));
+                return;
+            }
+        },
+        None => None,
+    };
+    let include_body = request.method() == Method::GET;
+    let hash = hash.to_owned();
+    let node = match context.app_handle().state::<LocalNodeState>().node() {
+        Ok(node) => node,
+        Err(error) => {
+            responder.respond(local_blob_error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                &error.message,
+                None,
+            ));
+            return;
+        }
+    };
+
+    tauri::async_runtime::spawn(async move {
+        let response = match node
+            .read_local_blob(
+                &hash,
+                range.as_deref(),
+                include_body,
+                LOCAL_BLOB_PROTOCOL_RESPONSE_LIMIT,
+            )
+            .await
+        {
+            Ok(blob) => {
+                let status = if blob.partial {
+                    StatusCode::PARTIAL_CONTENT
+                } else {
+                    StatusCode::OK
+                };
+                let mut builder = local_blob_response_builder(status)
+                    .header(ACCEPT_RANGES, "bytes")
+                    .header(CONTENT_LENGTH, blob.length.to_string())
+                    .header(CONTENT_TYPE, blob.media_type)
+                    .header(ETAG, format!("\"{hash}\""))
+                    .header(CACHE_CONTROL, "public, max-age=31536000, immutable")
+                    .header("x-content-type-options", "nosniff");
+                if blob.partial {
+                    let end = blob.start + blob.length - 1;
+                    builder = builder.header(
+                        CONTENT_RANGE,
+                        format!("bytes {}-{end}/{}", blob.start, blob.total_size),
+                    );
+                }
+                builder
+                    .body(blob.bytes)
+                    .expect("validated local blob response is valid")
+            }
+            Err(LocalBlobReadError::InvalidHash) => local_blob_error_response(
+                StatusCode::BAD_REQUEST,
+                "invalid local blob SHA-256",
+                None,
+            ),
+            Err(LocalBlobReadError::NotFound) => {
+                local_blob_error_response(StatusCode::NOT_FOUND, "local blob was not found", None)
+            }
+            Err(LocalBlobReadError::InvalidRange { size }) => local_blob_error_response(
+                StatusCode::RANGE_NOT_SATISFIABLE,
+                "invalid local blob range",
+                Some(format!("bytes */{size}")),
+            ),
+            Err(LocalBlobReadError::ResponseTooLarge { .. }) => local_blob_error_response(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "local blob is too large for one response; request a byte range",
+                None,
+            ),
+            Err(LocalBlobReadError::Io(_)) => local_blob_error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "local blob could not be read",
+                None,
+            ),
+        };
+        responder.respond(response);
+    });
+}
+
+fn local_blob_response_builder(status: StatusCode) -> tauri::http::response::Builder {
+    Response::builder()
+        .status(status)
+        .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .header(ACCESS_CONTROL_ALLOW_METHODS, "GET, HEAD, OPTIONS")
+        .header(ACCESS_CONTROL_ALLOW_HEADERS, "Range")
+}
+
+fn local_blob_error_response(
+    status: StatusCode,
+    message: &str,
+    content_range: Option<String>,
+) -> Response<Vec<u8>> {
+    let body = message.as_bytes().to_vec();
+    let mut builder = local_blob_response_builder(status)
+        .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+        .header(CONTENT_LENGTH, body.len().to_string())
+        .header(CACHE_CONTROL, "no-store");
+    if let Some(content_range) = content_range {
+        builder = builder.header(CONTENT_RANGE, content_range);
+    }
+    builder
+        .body(body)
+        .expect("static local blob error response is valid")
 }
 
 #[cfg(test)]

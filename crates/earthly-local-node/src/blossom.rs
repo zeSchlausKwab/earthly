@@ -19,6 +19,7 @@ use futures_util::StreamExt;
 use nostr::{Event, EventId, PublicKey, Timestamp};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use thiserror::Error;
 use tokio::fs::{self, File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, SeekFrom};
 use tokio::task::JoinHandle;
@@ -45,6 +46,30 @@ pub struct BlobDescriptor {
     #[serde(rename = "type")]
     pub media_type: String,
     pub uploaded: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LocalBlobRead {
+    pub bytes: Vec<u8>,
+    pub media_type: String,
+    pub total_size: u64,
+    pub start: u64,
+    pub length: u64,
+    pub partial: bool,
+}
+
+#[derive(Debug, Error)]
+pub enum LocalBlobReadError {
+    #[error("invalid local blob SHA-256")]
+    InvalidHash,
+    #[error("local blob was not found")]
+    NotFound,
+    #[error("requested range is invalid for a {size}-byte blob")]
+    InvalidRange { size: u64 },
+    #[error("local blob response exceeds the {limit}-byte response limit; request a byte range")]
+    ResponseTooLarge { limit: u64 },
+    #[error("local blob read failed: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 /// Running BUD-01/BUD-02/BUD-11 Blossom service.
@@ -141,6 +166,63 @@ impl EmbeddedBlossom {
             Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
             Err(error) => Err(error.into()),
         }
+    }
+
+    pub async fn read_local_blob(
+        &self,
+        hash: &str,
+        range_header: Option<&str>,
+        include_body: bool,
+        max_response_bytes: u64,
+    ) -> Result<LocalBlobRead, LocalBlobReadError> {
+        validate_hash(hash).map_err(|_| LocalBlobReadError::InvalidHash)?;
+        let path = self.store.blob_path(hash);
+        let metadata = match fs::metadata(&path).await {
+            Ok(metadata) if metadata.is_file() => metadata,
+            Ok(_) => return Err(LocalBlobReadError::NotFound),
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                return Err(LocalBlobReadError::NotFound)
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let total_size = metadata.len();
+        let range = resolve_range(range_header, total_size)
+            .map_err(|_| LocalBlobReadError::InvalidRange { size: total_size })?;
+        if include_body && range.length > max_response_bytes {
+            return Err(LocalBlobReadError::ResponseTooLarge {
+                limit: max_response_bytes,
+            });
+        }
+
+        let bytes = if include_body && range.length > 0 {
+            let capacity = usize::try_from(range.length).map_err(|_| {
+                LocalBlobReadError::ResponseTooLarge {
+                    limit: max_response_bytes,
+                }
+            })?;
+            let mut file = File::open(&path).await?;
+            file.seek(SeekFrom::Start(range.start)).await?;
+            let mut bytes = Vec::with_capacity(capacity);
+            file.take(range.length).read_to_end(&mut bytes).await?;
+            if bytes.len() != capacity {
+                return Err(LocalBlobReadError::Io(std::io::Error::new(
+                    ErrorKind::UnexpectedEof,
+                    "local blob changed while it was being read",
+                )));
+            }
+            bytes
+        } else {
+            Vec::new()
+        };
+
+        Ok(LocalBlobRead {
+            bytes,
+            media_type: detect_media_type(&path).await,
+            total_size,
+            start: range.start,
+            length: range.length,
+            partial: range.status == StatusCode::PARTIAL_CONTENT,
+        })
     }
 
     pub(crate) async fn adopt_remote_response(
@@ -301,6 +383,78 @@ mod mirror_tests {
             .unwrap_err();
         assert!(error.to_string().contains("hash mismatch"));
         assert!(!blossom.has_blob(&expected_hash).await.unwrap());
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn mirrored_blob_supports_bounded_local_range_reads() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = NodeConfig::loopback(dir.path(), crate::NodeAvailability::Process)
+            .with_ephemeral_ports();
+        let peers = PeerPolicy::load(dir.path().join("test-policy"))
+            .await
+            .unwrap();
+        let pairing = PairingManager::open(dir.path().join("test-pairing"))
+            .await
+            .unwrap();
+        let blossom = EmbeddedBlossom::start(&config, peers, pairing)
+            .await
+            .unwrap();
+
+        let bytes = b"immutable local range proof".to_vec();
+        let served = bytes.clone();
+        let hash = format!("{:x}", Sha256::digest(&bytes));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().route(
+                    "/blob",
+                    get(move || {
+                        let served = served.clone();
+                        async move { served }
+                    }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+        let response = reqwest::get(format!("http://{address}/blob"))
+            .await
+            .unwrap();
+        blossom
+            .adopt_remote_response(&hash, response)
+            .await
+            .unwrap();
+
+        let partial = blossom
+            .read_local_blob(&hash, Some("bytes=10-14"), true, 64)
+            .await
+            .unwrap();
+        assert_eq!(partial.bytes, b"local");
+        assert_eq!(partial.start, 10);
+        assert_eq!(partial.length, 5);
+        assert_eq!(partial.total_size, bytes.len() as u64);
+        assert!(partial.partial);
+
+        assert!(matches!(
+            blossom.read_local_blob(&hash, None, true, 4).await,
+            Err(LocalBlobReadError::ResponseTooLarge { limit: 4 })
+        ));
+        assert!(matches!(
+            blossom
+                .read_local_blob(&hash, Some("bytes=999-"), true, 64)
+                .await,
+            Err(LocalBlobReadError::InvalidRange { .. })
+        ));
+        let head = blossom
+            .read_local_blob(&hash, None, false, 0)
+            .await
+            .unwrap();
+        assert!(head.bytes.is_empty());
+        assert_eq!(head.length, bytes.len() as u64);
 
         server.abort();
     }

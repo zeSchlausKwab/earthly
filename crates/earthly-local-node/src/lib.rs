@@ -16,7 +16,7 @@ mod remote;
 mod remote_blob;
 mod remote_sync;
 
-pub use blossom::{BlobDescriptor, EmbeddedBlossom};
+pub use blossom::{BlobDescriptor, EmbeddedBlossom, LocalBlobRead, LocalBlobReadError};
 pub use config::{NodeBind, NodeConfig, NodeConfigError};
 pub use descriptor::{
     EndpointScope, NodeAvailability, NodeDescriptor, NodeDescriptorError, DESCRIPTOR_VERSION,

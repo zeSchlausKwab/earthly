@@ -7,7 +7,9 @@ implemented. The LAN session is explicit and expires after 15 minutes; pairing r
 approval-gated, and capability-scoped. Accepted peers can explicitly pull signed Earthly records
 with NIP-77 into their verified local database, discover SHA-256 Blossom references in those
 records, and explicitly copy the referenced immutable files into their local Blossom store. Deep
-links, transparent local-blob resolution, and platform permission-denial adapters remain.
+links and platform permission-denial adapters remain. Mirrored GeoJSON is resolved local-first
+through a read-only native custom protocol; its Range behavior is also the seam for later local
+PMTiles consumption.
 
 ## Decision
 

@@ -160,6 +160,7 @@ export interface LocalNodeService {
 	forgetRemoteNode(nodeId: string): Promise<boolean>
 	syncRemoteNode(nodeId: string): Promise<RemoteSyncResult>
 	mirrorRemoteBlobs(nodeId: string, hashes: string[]): Promise<RemoteBlobMirrorResult>
+	localBlobUrl(sha256: string): Promise<string | null>
 }
 
 export const nativeSchemas = {

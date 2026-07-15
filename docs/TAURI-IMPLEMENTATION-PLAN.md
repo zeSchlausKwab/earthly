@@ -7,8 +7,9 @@
 > approval polling, durable joined-node records, and explicit pull-only synchronization of signed
 > Earthly records are also implemented. Synchronized records now yield a durable referenced-blob
 > inventory and an explicit, authorized, hash-verifying mirror action into the local Blossom store.
-> Deep links, transparent local-blob resolution, mobile lifecycle, platform-protected MLS storage,
-> and offline map regions remain staged work.
+> Mirrored GeoJSON resolves local-first through a read-only, Range-capable native custom protocol.
+> Deep links, mobile lifecycle, platform-protected MLS storage, local PMTiles integration, and
+> complete offline map regions remain staged work.
 
 Status: committed product direction
 Created: 2026-07-13
