@@ -39,6 +39,11 @@ mapnolia-server
 # deployment artifacts
 deploy.tar.gz
 
+# Android release signing material (generated locally or in CI)
+src-tauri/gen/android/keystore.properties
+*.jks
+*.keystore
+
 # caches
 .eslintcache
 .cache

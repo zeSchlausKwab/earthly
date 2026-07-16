@@ -64,6 +64,14 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 - [ ] Checksums, SBOM, provenance, staged rollout, rollback, and incident runbook.
 - [ ] Accessibility, safe-area, keyboard, rotation, and representative MapLibre device matrix.
 
+Publication preparation checkpoint: the repository now contains public-only Android build
+configuration, protected-keystore Gradle wiring, a tag/version consistency check, deterministic
+signed arm64 APK/AAB packaging, signature and manifest verification, checksums, a GitHub release
+workflow, `0.0.1` release notes, and a `zsp` configuration that resolves to `city.earthly`. A
+disposable certificate proved the complete build locally and was then removed. The unchecked gates
+still require the real backed-up release key and CI secrets, privacy-reviewed screenshots, release-
+key upgrade evidence, and the explicit Zapstore publication action.
+
 ## Execution order
 
 1. Run the Field-session host/join/chat/revoke proof on two physical Android devices with internet
