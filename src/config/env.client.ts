@@ -66,9 +66,9 @@ function isLoopbackHostname(hostname: string): boolean {
 	)
 }
 
-function isLoopbackRelayUrl(relayUrl: string): boolean {
+function isLoopbackUrl(value: string): boolean {
 	try {
-		return isLoopbackHostname(new URL(relayUrl).hostname)
+		return isLoopbackHostname(new URL(value).hostname)
 	} catch {
 		return false
 	}
@@ -107,7 +107,7 @@ function buildWriteRelays({
 		// Don't try to publish to ws:// from an https:// page (browser blocks it).
 		if (isHttps && url.startsWith('ws://')) return false
 		// Don't try to publish to a loopback relay from a non-local origin.
-		if (!isLocalOrigin && isLoopbackRelayUrl(url)) return false
+		if (!isLocalOrigin && isLoopbackUrl(url)) return false
 		return true
 	})
 
@@ -140,7 +140,7 @@ function buildReadRelays({
 
 	const canReadRelay = (url: string) => {
 		if (isHttps && url.startsWith('ws://')) return false
-		if (!isLocalOrigin && isLoopbackRelayUrl(url)) return false
+		if (!isLocalOrigin && isLoopbackUrl(url)) return false
 		return true
 	}
 
@@ -162,7 +162,13 @@ function buildBlossomServer({
 	if (isDevelopment && isLocalOrigin) {
 		return LOCAL_DEV_BLOSSOM_URL
 	}
-	return blossomServer
+	// A Tauri WebView is not the developer's machine. If a development build
+	// inherited .env's loopback server, localhost would point at the phone.
+	// Keep the local server only for an actual local browser origin.
+	if (!isLocalOrigin && isLoopbackUrl(blossomServer)) {
+		return DEV_DEFAULTS.BLOSSOM_SERVER
+	}
+	return blossomServer || DEV_DEFAULTS.BLOSSOM_SERVER
 }
 
 const relayUrl = safeEnv(() => process.env.RELAY_URL as string, DEV_DEFAULTS.RELAY_URL)

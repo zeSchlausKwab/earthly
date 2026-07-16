@@ -117,7 +117,7 @@ import { GeoEditorMap as MapComponent } from './components/map'
 import { OsmResultsPanel } from './components/OsmResultsPanel'
 import { StudioStatusBar } from './components/StudioStatusBar'
 import { Toolbar } from './components/Toolbar'
-import type { EditorEvent, EditorFeature } from './core'
+import type { EditorEvent, EditorFeature, EditorMode } from './core'
 import {
 	MAGNIFIER_SIZE,
 	useBlobResolution,
@@ -145,6 +145,7 @@ import { useEditorStore, type MapStackEntry } from './store'
 import type { MapStackEntryType } from './store/types'
 import type { GeoSearchResult } from './types'
 import { ensureFeatureCollection, extractCollectionMeta, toEditorFeature } from './utils'
+import { getMobileDrawingGuidance, isDrawingEditorMode } from './mobileDrawingGuidance'
 
 /**
  * Phase 13 (SPEC §3.2): derive the stack-gated render set for an ephemeral entity
@@ -297,8 +298,6 @@ export function GeoEditorView() {
 	const setChatOpen = useEditorStore((state) => state.setChatOpen)
 	const toggleChat = useEditorStore((state) => state.toggleChat)
 
-	// Drawing mode state
-	const [isDrawingMode] = useState(false)
 	const [, setShowToolbar] = useState(true)
 	const mapContainerRef = useRef<HTMLDivElement>(null)
 
@@ -439,6 +438,8 @@ export function GeoEditorView() {
 	const setPanLocked = useEditorStore((state) => state.setPanLocked)
 	const canFinishDrawing = useEditorStore((state) => state.canFinishDrawing)
 	const currentMode = useEditorStore((state) => state.mode)
+	const isDrawingMode = isDrawingEditorMode(currentMode)
+	const lastMobileDrawGuideRef = useRef<EditorMode | null>(null)
 	const mapSource = useEditorStore((state) => state.mapSource)
 	const inspectorActive = useEditorStore((state) => state.inspectorActive)
 	const mapSourceKey = useMemo(() => {
@@ -554,6 +555,23 @@ export function GeoEditorView() {
 	const currentUserPubkey = currentUser?.pubkey ?? null
 	const isMobile = useIsMobile()
 	const mapPopupToolbarOffset = 112
+
+	useEffect(() => {
+		if (!isMobile || !isDrawingMode) {
+			lastMobileDrawGuideRef.current = null
+			return
+		}
+		if (panLocked || lastMobileDrawGuideRef.current === currentMode) return
+
+		lastMobileDrawGuideRef.current = currentMode
+		const description = getMobileDrawingGuidance(currentMode)
+		if (!description) return
+		toast.info('Lock panning to draw', {
+			id: 'mobile-pan-lock-guide',
+			description,
+			duration: 7_000,
+		})
+	}, [currentMode, isDrawingMode, isMobile, panLocked])
 
 	// A native pairing URL is navigation, not an alternate trust path: reveal the
 	// existing Offline settings surface, where the normal decoder and approval
@@ -1936,15 +1954,6 @@ export function GeoEditorView() {
 		}
 	}, [mapSourceKey, activeDataset, zoomToDataset])
 
-	// Pan lock sync with drawing mode
-	useEffect(() => {
-		const shouldLock = isDrawingMode
-		setPanLocked(shouldLock)
-		if (editor) {
-			editor.setPanLocked(shouldLock)
-		}
-	}, [isDrawingMode, editor, setPanLocked])
-
 	// Round D.3: the "sync default visibility on geoEvents change" effect
 	// is gone — visibility is no longer a separate sticky map. Stack
 	// membership is the canonical signal; events that aren't on the stack
@@ -2805,11 +2814,10 @@ export function GeoEditorView() {
 	// Pan lock and magnifier
 	const togglePanLock = useCallback(() => {
 		if (!editor) return
-		if (isDrawingMode) return
 		const next = !panLocked
 		editor.setPanLocked(next)
 		setPanLocked(next)
-	}, [editor, isDrawingMode, panLocked, setPanLocked])
+	}, [editor, panLocked, setPanLocked])
 
 	// Search result handling
 	const zoomToSearchResult = useCallback((result: GeoSearchResult) => {
@@ -2938,8 +2946,8 @@ export function GeoEditorView() {
 			label: panLocked ? 'Unlock pan while drawing' : 'Lock pan while drawing',
 			icon: panLocked ? Lock : LockOpen,
 			onClick: togglePanLock,
-			disabled: isDrawingMode,
 			active: panLocked,
+			attention: isMobile && isDrawingMode && !panLocked,
 		},
 		{
 			key: 'magnifier',
@@ -3557,6 +3565,7 @@ export function GeoEditorView() {
 								className={cn(
 									'h-9 w-9 shrink-0 rounded-[2px]',
 									'danger' in action && action.danger && 'hover:text-destructive',
+									'attention' in action && action.attention && 'mobile-pan-lock-attention',
 								)}
 								onClick={action.onClick}
 								disabled={'disabled' in action ? action.disabled : false}
@@ -3572,6 +3581,8 @@ export function GeoEditorView() {
 					    above are just responsive fast-access shortcuts. */}
 					<MobileToolMenu
 						panLocked={panLocked}
+						panLockAttention={isDrawingMode && !panLocked}
+						panLockTriggerAttention={isDrawingMode && !panLocked && overflowVisibleCount === 0}
 						onTogglePanLock={togglePanLock}
 						magnifierEnabled={magnifierEnabled}
 						onToggleMagnifier={toggleMagnifier}

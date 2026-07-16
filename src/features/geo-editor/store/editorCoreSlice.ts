@@ -1,4 +1,5 @@
 import type { StateCreator } from 'zustand'
+import { isDrawingEditorMode } from '../mobileDrawingGuidance'
 import { writeScopedStorage } from './persistence'
 import type { EditorCoreSlice, EditorState } from './types'
 
@@ -44,11 +45,16 @@ export const createEditorCoreSlice: StateCreator<EditorState, [], [], EditorCore
 	},
 
 	setMode: (mode) => {
-		const { editor } = get()
+		const { editor, mode: previousMode, panLocked } = get()
 		if (editor && editor.getMode() !== mode) {
 			editor.setMode(mode)
 		}
-		set({ mode })
+		const shouldUnlockPan =
+			panLocked && isDrawingEditorMode(previousMode) && !isDrawingEditorMode(mode)
+		if (shouldUnlockPan) {
+			editor?.setPanLocked(false)
+		}
+		set({ mode, ...(shouldUnlockPan ? { panLocked: false } : {}) })
 	},
 
 	setSelectedFeatureIds: (selectedFeatureIds) =>

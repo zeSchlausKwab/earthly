@@ -57,6 +57,8 @@ import { useEditorStore } from '../store'
  */
 export interface MobileToolMenuProps {
 	panLocked: boolean
+	panLockAttention?: boolean
+	panLockTriggerAttention?: boolean
 	onTogglePanLock: () => void
 	magnifierEnabled: boolean
 	onToggleMagnifier: () => void
@@ -84,6 +86,8 @@ export interface MobileToolMenuProps {
 
 export function MobileToolMenu({
 	panLocked,
+	panLockAttention = false,
+	panLockTriggerAttention = false,
 	onTogglePanLock,
 	magnifierEnabled,
 	onToggleMagnifier,
@@ -145,8 +149,11 @@ export function MobileToolMenu({
 				<Button
 					variant="ghost"
 					size="icon-sm"
-					className="h-9 w-9 shrink-0 rounded-[2px]"
-					aria-label="More tools"
+					className={cn(
+						'h-9 w-9 shrink-0 rounded-[2px]',
+						panLockTriggerAttention && 'mobile-pan-lock-attention',
+					)}
+					aria-label={panLockTriggerAttention ? 'More tools — lock panning to draw' : 'More tools'}
 					title="More tools"
 				>
 					<MoreHorizontal className="h-4 w-4" />
@@ -197,7 +204,13 @@ export function MobileToolMenu({
 						Snapping
 					</DropdownMenuCheckboxItem>
 					<DropdownMenuCheckboxItem checked={panLocked} onCheckedChange={onTogglePanLock}>
-						{panLocked ? <Lock className="h-4 w-4" /> : <LockOpen className="h-4 w-4" />}
+						{panLocked ? (
+							<Lock className="h-4 w-4" />
+						) : (
+							<LockOpen
+								className={cn('h-4 w-4', panLockAttention && 'mobile-pan-lock-attention')}
+							/>
+						)}
 						Lock pan while drawing
 					</DropdownMenuCheckboxItem>
 					<DropdownMenuCheckboxItem checked={magnifierEnabled} onCheckedChange={onToggleMagnifier}>

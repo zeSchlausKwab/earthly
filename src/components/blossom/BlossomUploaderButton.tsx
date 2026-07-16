@@ -93,6 +93,15 @@ function normalizeServerUrl(value: string): string {
 	return value.trim().replace(/\/+$/, '')
 }
 
+function isHttpServerUrl(value: string): boolean {
+	try {
+		const protocol = new URL(value).protocol
+		return protocol === 'http:' || protocol === 'https:'
+	} catch {
+		return false
+	}
+}
+
 function formatBytes(bytes?: number): string {
 	if (!bytes || bytes <= 0) return 'Unknown size'
 	if (bytes < 1024) return `${bytes} B`
@@ -148,7 +157,7 @@ function useAnnouncedBlossomServers(pubkey: string | undefined): {
 		return event.tags
 			.filter((tag) => tag[0] === 'server' && tag[1])
 			.map((tag) => normalizeServerUrl(tag[1] as string))
-			.filter(Boolean)
+			.filter(isHttpServerUrl)
 	}, [event])
 
 	return { servers, loading: !event && Boolean(pubkey) }
@@ -359,8 +368,8 @@ export function BlossomUploaderButton({
 		if (!selectedFile || !userPubkey) return
 
 		const normalizedCustomServer = normalizeServerUrl(customServer)
-		if (serverMode === 'custom' && !normalizedCustomServer) {
-			setUploadError('Enter a Blossom server URL.')
+		if (serverMode === 'custom' && !isHttpServerUrl(normalizedCustomServer)) {
+			setUploadError('Enter a valid http:// or https:// Blossom server URL.')
 			return
 		}
 
