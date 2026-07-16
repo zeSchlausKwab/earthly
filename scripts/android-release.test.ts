@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import {
 	parsePublicReleaseEnvironment,
+	parseApkCertificateFingerprint,
+	androidAssetLinksStatement,
 	releaseArtifactNames,
 	validateReleaseVersions,
 } from './android-release'
@@ -61,5 +63,22 @@ describe('Android release tooling', () => {
 			apk: 'earthly-0.0.1-arm64-v8a.apk',
 			aab: 'earthly-0.0.1-arm64-v8a.aab',
 		})
+	})
+
+	test('derives the exact Android website association from the signed APK', () => {
+		const fingerprint = parseApkCertificateFingerprint(
+			`Signer #1 certificate SHA-256 digest: ${'ab'.repeat(32)}`,
+		)
+		expect(fingerprint).toBe(Array.from({ length: 32 }, () => 'AB').join(':'))
+		expect(androidAssetLinksStatement('city.earthly', fingerprint)).toEqual([
+			{
+				relation: ['delegate_permission/common.handle_all_urls'],
+				target: {
+					namespace: 'android_app',
+					package_name: 'city.earthly',
+					sha256_cert_fingerprints: [fingerprint],
+				},
+			},
+		])
 	})
 })

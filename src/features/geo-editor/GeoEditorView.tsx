@@ -76,6 +76,7 @@ import {
 } from '@/lib/private-workspace'
 import { usePrivateWorkspaceRuntime } from '@/features/private-maps/usePrivateWorkspaceRuntime'
 import { normalizePairingInvitation } from '@/features/offline/pairingQr'
+import { earthlyAppLinkNavigationTarget } from '@/platform/nativeAppLink'
 import { useFieldSessions } from '@/features/field-sessions/model'
 import {
 	fieldSessionDatasetFactory,
@@ -604,23 +605,31 @@ export function GeoEditorView() {
 		})
 	}, [currentMode, isDrawingMode, isMobile, panLocked])
 
-	// A native pairing URL is navigation, not an alternate trust path: reveal the
-	// existing Offline settings surface, where the normal decoder and approval
-	// flow consume it. Keep the pending value until that surface has mounted.
+	// Native URLs are navigation, not alternate trust paths. Custom pairing URLs
+	// reveal the existing approval UI. A verified public Earthly URL is reduced to
+	// its path/query and reloaded under the Tauri origin; this also ensures a warm
+	// private-group invite refreshes state derived from the URL.
 	useEffect(() => {
-		const openPairingInvitation = (url: string) => {
-			if (!normalizePairingInvitation(url)) {
-				consumePendingNativeDeepLink(url)
+		const openNativeUrl = (url: string) => {
+			if (normalizePairingInvitation(url)) {
+				setSettingsTab('offline')
+				navigateToView('settings')
+				if (isMobile) selectMobileSidebarDestination('settings')
 				return
 			}
-			setSettingsTab('offline')
-			navigateToView('settings')
-			if (isMobile) selectMobileSidebarDestination('settings')
+			const currentRoute = `${window.location.pathname}${window.location.search}`
+			const route = earthlyAppLinkNavigationTarget(url, currentRoute)
+			if (route) {
+				consumePendingNativeDeepLink(url)
+				window.location.assign(route)
+				return
+			}
+			consumePendingNativeDeepLink(url)
 		}
 		const pending = getPendingNativeDeepLink()
-		if (pending) openPairingInvitation(pending)
+		if (pending) openNativeUrl(pending)
 		const onNativeLink = (event: Event) => {
-			openPairingInvitation((event as CustomEvent<NativeDeepLinkDetail>).detail.url)
+			openNativeUrl((event as CustomEvent<NativeDeepLinkDetail>).detail.url)
 		}
 		window.addEventListener(NATIVE_DEEP_LINK_EVENT, onNativeLink)
 		return () => window.removeEventListener(NATIVE_DEEP_LINK_EVENT, onNativeLink)

@@ -50,7 +50,8 @@ bun run release:android:build
 
 The command verifies the APK signature, application id, version name, and version code; verifies the
 AAB signature; then writes stable artifacts, checksums, and a commit-bound manifest to
-`out/android/0.0.1/`.
+`out/android/0.0.1/`. It also derives the release certificate fingerprint from the verified APK and
+emits the exact `assetlinks.json` statement for `city.earthly`.
 
 The GitHub `Android release` workflow performs the same build from protected secrets. A `v0.0.1`
 tag must match all three project versions and attaches the verified files to the GitHub release.
@@ -93,6 +94,9 @@ receipts in the release notes/runbook.
 3. Create and back up the release keystore; add the protected CI secrets.
 4. Run the workflow manually, install the release candidate, and verify data-preserving upgrades
    between two builds signed by the release key.
-5. Tag `v0.0.1`, inspect the GitHub release hashes and manifest, then publish with `zsp`.
-6. Install from Zapstore on a clean phone and repeat login, map, Private-group, Field-session, QR,
+5. Publish the generated `assetlinks.json` at
+   `https://earthly.city/.well-known/assetlinks.json` with `application/json`, no redirects, deploy
+   the site, and verify the domain association on Android.
+6. Tag `v0.0.1`, inspect the GitHub release hashes and manifest, then publish with `zsp`.
+7. Install from Zapstore on a clean phone and repeat login, map, Private-group, Field-session, QR,
    NIP-46, Lightning, restart, and diagnostics smoke tests.

@@ -63,6 +63,12 @@
         {
           "scheme": ["earthly"],
           "appLink": false
+        },
+        {
+          "scheme": ["https"],
+          "host": "earthly.city",
+          "pathPrefix": ["/"],
+          "appLink": true
         }
       ]
     }

@@ -107,6 +107,31 @@ export function releaseArtifactNames(metadata: AndroidReleaseMetadata): {
 	return { apk: `${stem}.apk`, aab: `${stem}.aab` }
 }
 
+export function parseApkCertificateFingerprint(output: string): string {
+	const digest = /certificate SHA-256 digest:\s*([0-9a-f]{64})/iu.exec(output)?.[1]
+	if (!digest) throw new Error('Could not read the APK signing certificate fingerprint')
+	return digest
+		.toUpperCase()
+		.match(/.{2}/gu)
+		?.join(':') ?? ''
+}
+
+export function androidAssetLinksStatement(
+	packageName: string,
+	certificateFingerprint: string,
+): unknown[] {
+	return [
+		{
+			relation: ['delegate_permission/common.handle_all_urls'],
+			target: {
+				namespace: 'android_app',
+				package_name: packageName,
+				sha256_cert_fingerprints: [certificateFingerprint],
+			},
+		},
+	]
+}
+
 function cargoPackageVersion(contents: string): string {
 	const packageSection = contents.split(/^\[package\]\s*$/mu)[1]?.split(/^\[/mu)[0]
 	const version = /^version\s*=\s*"([^"]+)"\s*$/mu.exec(packageSection ?? '')?.[1]
@@ -239,8 +264,11 @@ async function findAndroidBuildTool(name: string): Promise<string> {
 	throw new Error(`${name} was not found below ${directory}`)
 }
 
-async function verifyApk(apk: string, expected: AndroidReleaseMetadata): Promise<void> {
-	await capture([await findAndroidBuildTool('apksigner'), 'verify', '--verbose', apk], 'APK signature verification')
+async function verifyApk(apk: string, expected: AndroidReleaseMetadata): Promise<string> {
+	const signature = await capture(
+		[await findAndroidBuildTool('apksigner'), 'verify', '--verbose', '--print-certs', apk],
+		'APK signature verification',
+	)
 	const badging = await capture([await findAndroidBuildTool('aapt'), 'dump', 'badging', apk], 'APK metadata inspection')
 	const packageLine = badging.split(/\r?\n/u).find((line) => line.startsWith('package:')) ?? ''
 	for (const [label, value] of [
@@ -252,6 +280,7 @@ async function verifyApk(apk: string, expected: AndroidReleaseMetadata): Promise
 			throw new Error(`Release APK ${label} does not match ${value}: ${packageLine}`)
 		}
 	}
+	return parseApkCertificateFingerprint(signature)
 }
 
 async function sha256(path: string): Promise<string> {
@@ -293,7 +322,7 @@ async function build(): Promise<void> {
 
 	const apk = await findBuiltArtifact('.apk')
 	const aab = await findBuiltArtifact('.aab')
-	await verifyApk(apk, metadata)
+	const certificateFingerprint = await verifyApk(apk, metadata)
 	await capture(['jarsigner', '-verify', aab], 'AAB signature verification')
 
 	const outputDirectory = join(REPO_ROOT, 'out', 'android', metadata.versionName)
@@ -311,6 +340,7 @@ async function build(): Promise<void> {
 		schemaVersion: 1,
 		...metadata,
 		commit,
+		certificateFingerprint,
 		artifacts: [
 			{ file: names.apk, sha256: apkHash },
 			{ file: names.aab, sha256: aabHash },
@@ -322,6 +352,10 @@ async function build(): Promise<void> {
 			`${apkHash}  ${names.apk}\n${aabHash}  ${names.aab}\n`,
 		),
 		writeFile(join(outputDirectory, 'release-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`),
+		writeFile(
+			join(outputDirectory, 'assetlinks.json'),
+			`${JSON.stringify(androidAssetLinksStatement(metadata.packageName, certificateFingerprint), null, 2)}\n`,
+		),
 	])
 	console.log(`Signed Android release written to ${relative(REPO_ROOT, outputDirectory)}`)
 }
