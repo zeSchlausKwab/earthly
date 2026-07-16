@@ -847,6 +847,7 @@ async fn authorize(
     let mut action_matches = false;
     let mut server_tags = Vec::new();
     let mut hash_tags = Vec::new();
+    let mut field_session_tags = Vec::new();
     for tag in event.tags.iter() {
         let values = tag.as_slice();
         match values.first().map(String::as_str) {
@@ -855,6 +856,7 @@ async fn authorize(
             }
             Some("server") if values.len() == 2 => server_tags.push(values[1].as_str()),
             Some("x") if values.len() == 2 => hash_tags.push(values[1].as_str()),
+            Some("h") if values.len() == 2 => field_session_tags.push(values[1].as_str()),
             _ => {}
         }
     }
@@ -876,10 +878,15 @@ async fn authorize(
         "upload" => PairingCapability::BlobWrite,
         _ => return Err(BlossomError::unauthorized()),
     };
+    let field_session_id = match field_session_tags.as_slice() {
+        [] => None,
+        [session_id] => Some(*session_id),
+        _ => return Err(BlossomError::unauthorized()),
+    };
     if event.pubkey != state.owner
         && !state
             .peers
-            .allows_capability(&event.pubkey, required_capability)
+            .allows_scoped_capability(&event.pubkey, required_capability, field_session_id)
             .await
     {
         return Err(BlossomError::new(

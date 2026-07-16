@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fmt;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -14,6 +15,8 @@ use nostr_relay_builder::LocalRelay;
 use url::Url;
 
 use crate::{NodeConfig, NodeError, PairingCapability, PeerPolicy};
+
+const FIELD_SESSION_TAG: SingleLetterTag = SingleLetterTag::lowercase(Alphabet::H);
 
 /// Running persistent Nostr relay owned by the local node.
 #[derive(Debug, Clone)]
@@ -40,7 +43,10 @@ impl EmbeddedRelay {
             })
             .max_filter_limit(config.max_relay_filter_limit)
             .default_filter_limit(config.max_relay_filter_limit.min(100))
-            .nip42_policy(PairedSessionPolicy { peers });
+            .nip42_policy(PairedSessionPolicy {
+                peers,
+                database: Arc::clone(&database),
+            });
 
         if config.relay_port != 0 {
             builder = builder.port(config.relay_port);
@@ -94,10 +100,7 @@ impl EmbeddedRelay {
         .collect::<Vec<_>>();
         let filter = Filter::new()
             .kinds(kinds)
-            .custom_tag(
-                SingleLetterTag::lowercase(Alphabet::H),
-                session_id.to_owned(),
-            )
+            .custom_tag(FIELD_SESSION_TAG, session_id.to_owned())
             .limit(2_000);
         let events = self
             .database
@@ -158,6 +161,7 @@ fn open_database(path: &Path) -> Result<NostrLMDB, NodeError> {
 #[derive(Clone)]
 struct PairedSessionPolicy {
     peers: PeerPolicy,
+    database: Arc<dyn NostrDatabase>,
 }
 
 impl fmt::Debug for PairedSessionPolicy {
@@ -180,7 +184,7 @@ impl Nip42Policy for PairedSessionPolicy {
                 Nip42PolicyAction::Read => PairingCapability::RelayRead,
                 Nip42PolicyAction::Write => PairingCapability::RelayWrite,
             };
-            if self.peers.allows_capability(public_key, capability).await {
+            if self.peers.has_any_capability(public_key, capability).await {
                 PolicyResult::Accept
             } else {
                 PolicyResult::Reject(format!(
@@ -193,15 +197,186 @@ impl Nip42Policy for PairedSessionPolicy {
             }
         })
     }
+
+    fn admit_event<'a>(
+        &'a self,
+        public_key: &'a nostr::PublicKey,
+        event: &'a Event,
+        _addr: &'a SocketAddr,
+    ) -> nostr::util::BoxedFuture<'a, PolicyResult> {
+        Box::pin(async move {
+            let capability = PairingCapability::RelayWrite;
+            if self.peers.allows_capability(public_key, capability).await {
+                return PolicyResult::Accept;
+            }
+            let Some(session_id) = event_field_session_id(event) else {
+                return PolicyResult::Reject(
+                    "field-session writes require exactly one authorized h tag".to_owned(),
+                );
+            };
+            if self
+                .peers
+                .allows_scoped_capability(public_key, capability, Some(session_id))
+                .await
+            {
+                PolicyResult::Accept
+            } else {
+                PolicyResult::Reject("event belongs to an unauthorized field session".to_owned())
+            }
+        })
+    }
+
+    fn admit_query<'a>(
+        &'a self,
+        public_key: &'a nostr::PublicKey,
+        filter: &'a Filter,
+        _addr: &'a SocketAddr,
+    ) -> nostr::util::BoxedFuture<'a, PolicyResult> {
+        Box::pin(async move {
+            let capability = PairingCapability::RelayRead;
+            if self.peers.allows_capability(public_key, capability).await {
+                return PolicyResult::Accept;
+            }
+            let Some(session_id) = filter_field_session_id(filter) else {
+                if !is_id_hydration_filter(filter) {
+                    return PolicyResult::Reject(
+                        "field-session reads require exactly one authorized #h filter".to_owned(),
+                    );
+                }
+                let expected = filter.ids.as_ref().map_or(0, BTreeSet::len);
+                let events = match self.database.query(filter.clone()).await {
+                    Ok(events) => events.into_iter().collect::<Vec<_>>(),
+                    Err(_) => {
+                        return PolicyResult::Reject(
+                            "unable to authorize field-session event hydration".to_owned(),
+                        )
+                    }
+                };
+                if events.len() != expected {
+                    return PolicyResult::Reject(
+                        "field-session hydration contains an unknown event".to_owned(),
+                    );
+                }
+                for event in &events {
+                    let Some(session_id) = event_field_session_id(event) else {
+                        return PolicyResult::Reject(
+                            "field-session hydration contains an unscoped event".to_owned(),
+                        );
+                    };
+                    if !self
+                        .peers
+                        .allows_scoped_capability(public_key, capability, Some(session_id))
+                        .await
+                    {
+                        return PolicyResult::Reject(
+                            "field-session hydration contains an unauthorized event".to_owned(),
+                        );
+                    }
+                }
+                return PolicyResult::Accept;
+            };
+            if self
+                .peers
+                .allows_scoped_capability(public_key, capability, Some(session_id))
+                .await
+            {
+                PolicyResult::Accept
+            } else {
+                PolicyResult::Reject("query belongs to an unauthorized field session".to_owned())
+            }
+        })
+    }
+}
+
+fn is_id_hydration_filter(filter: &Filter) -> bool {
+    filter.ids.as_ref().is_some_and(|ids| !ids.is_empty())
+        && filter.authors.is_none()
+        && filter.kinds.is_none()
+        && filter.search.is_none()
+        && filter.since.is_none()
+        && filter.until.is_none()
+        && filter.generic_tags.is_empty()
+}
+
+fn event_field_session_id(event: &Event) -> Option<&str> {
+    let mut values = event
+        .tags
+        .iter()
+        .filter(|tag| tag.single_letter_tag() == Some(FIELD_SESSION_TAG))
+        .filter_map(|tag| tag.content());
+    let session_id = values.next()?;
+    values.next().is_none().then_some(session_id)
+}
+
+fn filter_field_session_id(filter: &Filter) -> Option<&str> {
+    let values = filter.generic_tags.get(&FIELD_SESSION_TAG)?;
+    (values.len() == 1).then(|| values.iter().next().expect("length checked").as_str())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::NodeAvailability;
-    use nostr::{EventBuilder, Keys};
+    use nostr::{EventBuilder, Keys, Tag};
     use nostr_sdk::{Client, Filter, SyncDirection, SyncOptions};
     use std::time::Duration;
+
+    fn policy_addr() -> SocketAddr {
+        "127.0.0.1:4242".parse().unwrap()
+    }
+
+    #[tokio::test]
+    async fn paired_session_policy_rejects_cross_session_reads_and_writes() {
+        let peer = Keys::generate();
+        let peers = PeerPolicy::default();
+        peers
+            .grant_for_field_session(
+                peer.public_key(),
+                "survey-a".to_owned(),
+                vec![PairingCapability::RelayRead, PairingCapability::RelayWrite],
+            )
+            .await
+            .unwrap();
+        let policy = PairedSessionPolicy {
+            peers,
+            database: Arc::new(nostr_database::MemoryDatabase::default()),
+        };
+        let allowed_event = EventBuilder::text_note("allowed")
+            .tags([Tag::parse(["h", "survey-a"]).unwrap()])
+            .sign_with_keys(&peer)
+            .unwrap();
+        let denied_event = EventBuilder::text_note("denied")
+            .tags([Tag::parse(["h", "survey-b"]).unwrap()])
+            .sign_with_keys(&peer)
+            .unwrap();
+        let allowed_filter = Filter::new().custom_tag(FIELD_SESSION_TAG, "survey-a");
+        let denied_filter = Filter::new().custom_tag(FIELD_SESSION_TAG, "survey-b");
+
+        assert!(matches!(
+            policy
+                .admit_event(&peer.public_key(), &allowed_event, &policy_addr())
+                .await,
+            PolicyResult::Accept
+        ));
+        assert!(matches!(
+            policy
+                .admit_event(&peer.public_key(), &denied_event, &policy_addr())
+                .await,
+            PolicyResult::Reject(_)
+        ));
+        assert!(matches!(
+            policy
+                .admit_query(&peer.public_key(), &allowed_filter, &policy_addr())
+                .await,
+            PolicyResult::Accept
+        ));
+        assert!(matches!(
+            policy
+                .admit_query(&peer.public_key(), &denied_filter, &policy_addr())
+                .await,
+            PolicyResult::Reject(_)
+        ));
+    }
 
     #[tokio::test]
     async fn relay_uses_ephemeral_loopback_port() {
@@ -222,6 +397,7 @@ mod tests {
         let peers = PeerPolicy::default();
         let policy = PairedSessionPolicy {
             peers: peers.clone(),
+            database: Arc::new(nostr_database::MemoryDatabase::default()),
         };
         let peer = Keys::generate().public_key();
         let address = "127.0.0.1:12345".parse().unwrap();

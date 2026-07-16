@@ -144,6 +144,26 @@ pub trait Nip42Policy: fmt::Debug + Send + Sync {
         action: Nip42PolicyAction,
         addr: &'a SocketAddr,
     ) -> BoxedFuture<'a, PolicyResult>;
+
+    /// Check whether the authenticated session may publish this event.
+    fn admit_event<'a>(
+        &'a self,
+        public_key: &'a PublicKey,
+        _event: &'a Event,
+        addr: &'a SocketAddr,
+    ) -> BoxedFuture<'a, PolicyResult> {
+        self.admit_session(public_key, Nip42PolicyAction::Write, addr)
+    }
+
+    /// Check whether the authenticated session may issue this filter.
+    fn admit_query<'a>(
+        &'a self,
+        public_key: &'a PublicKey,
+        _filter: &'a Filter,
+        addr: &'a SocketAddr,
+    ) -> BoxedFuture<'a, PolicyResult> {
+        self.admit_session(public_key, Nip42PolicyAction::Read, addr)
+    }
 }
 
 /// Testing options

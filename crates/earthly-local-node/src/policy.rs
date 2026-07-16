@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -14,12 +14,20 @@ use crate::{NodeError, PairingCapability};
 pub struct PeerGrant {
     pub peer_pubkey: String,
     pub capabilities: Vec<PairingCapability>,
+    pub field_sessions: Vec<FieldSessionGrant>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldSessionGrant {
+    pub session_id: String,
+    pub capabilities: Vec<PairingCapability>,
 }
 
 /// Shared, runtime-updatable pubkey allowlist used by node services.
 #[derive(Clone, Debug)]
 pub struct PeerPolicy {
-    allowed: Arc<RwLock<HashMap<PublicKey, BTreeSet<PairingCapability>>>>,
+    allowed: Arc<RwLock<HashMap<PublicKey, GrantRecord>>>,
     store_dir: Option<Arc<PathBuf>>,
 }
 
@@ -49,12 +57,14 @@ impl PeerPolicy {
                 NodeError::PolicyStore(format!("invalid peer grant filename {name}"))
             })?;
             let bytes = tokio::fs::read(entry.path()).await?;
-            let capabilities = if bytes.is_empty() {
-                PairingCapability::initial_set().into_iter().collect()
+            let record = if bytes.is_empty() {
+                GrantRecord {
+                    capabilities: PairingCapability::initial_set().into_iter().collect(),
+                    field_sessions: BTreeMap::new(),
+                }
             } else {
                 let record = serde_json::from_slice::<GrantRecord>(&bytes)
-                    .map_err(|error| NodeError::PolicyStore(error.to_string()))?
-                    .capabilities;
+                    .map_err(|error| NodeError::PolicyStore(error.to_string()))?;
                 if record.is_empty() {
                     return Err(NodeError::PolicyStore(format!(
                         "peer grant {name} has no capabilities"
@@ -62,7 +72,7 @@ impl PeerPolicy {
                 }
                 record
             };
-            allowed.insert(public_key, capabilities);
+            allowed.insert(public_key, record);
         }
         Ok(Self {
             allowed: Arc::new(RwLock::new(allowed)),
@@ -93,13 +103,41 @@ impl PeerPolicy {
                 "peer capabilities must be unique".to_owned(),
             ));
         }
-        if allowed.get(&public_key) == Some(&capabilities) {
+        let mut record = allowed.get(&public_key).cloned().unwrap_or_default();
+        if record.capabilities == capabilities {
             return Ok(false);
         }
+        record.capabilities = capabilities;
         if let Some(store_dir) = &self.store_dir {
-            persist_grant(store_dir, &public_key, &capabilities).await?;
+            persist_grant(store_dir, &public_key, &record).await?;
         }
-        allowed.insert(public_key, capabilities);
+        allowed.insert(public_key, record);
+        Ok(true)
+    }
+
+    pub async fn grant_for_field_session(
+        &self,
+        public_key: PublicKey,
+        session_id: String,
+        capabilities: Vec<PairingCapability>,
+    ) -> Result<bool, NodeError> {
+        validate_capability_set(&capabilities)?;
+        if session_id.is_empty() {
+            return Err(NodeError::PolicyStore(
+                "field-session id must not be empty".to_owned(),
+            ));
+        }
+        let mut allowed = self.allowed.write().await;
+        let mut record = allowed.get(&public_key).cloned().unwrap_or_default();
+        let capabilities: BTreeSet<_> = capabilities.into_iter().collect();
+        if record.field_sessions.get(&session_id) == Some(&capabilities) {
+            return Ok(false);
+        }
+        record.field_sessions.insert(session_id, capabilities);
+        if let Some(store_dir) = &self.store_dir {
+            persist_grant(store_dir, &public_key, &record).await?;
+        }
+        allowed.insert(public_key, record);
         Ok(true)
     }
 
@@ -112,6 +150,33 @@ impl PeerPolicy {
             remove_grant(store_dir, public_key).await?;
         }
         allowed.remove(public_key);
+        Ok(true)
+    }
+
+    pub async fn revoke_field_session(
+        &self,
+        public_key: &PublicKey,
+        session_id: &str,
+    ) -> Result<bool, NodeError> {
+        let mut allowed = self.allowed.write().await;
+        let Some(mut record) = allowed.get(public_key).cloned() else {
+            return Ok(false);
+        };
+        if record.field_sessions.remove(session_id).is_none() {
+            return Ok(false);
+        }
+        if let Some(store_dir) = &self.store_dir {
+            if record.is_empty() {
+                remove_grant(store_dir, public_key).await?;
+            } else {
+                persist_grant(store_dir, public_key, &record).await?;
+            }
+        }
+        if record.is_empty() {
+            allowed.remove(public_key);
+        } else {
+            allowed.insert(*public_key, record);
+        }
         Ok(true)
     }
 
@@ -128,7 +193,46 @@ impl PeerPolicy {
             .read()
             .await
             .get(public_key)
-            .is_some_and(|capabilities| capabilities.contains(&capability))
+            .is_some_and(|record| record.capabilities.contains(&capability))
+    }
+
+    pub async fn allows_scoped_capability(
+        &self,
+        public_key: &PublicKey,
+        capability: PairingCapability,
+        field_session_id: Option<&str>,
+    ) -> bool {
+        self.allowed
+            .read()
+            .await
+            .get(public_key)
+            .is_some_and(|record| {
+                record.capabilities.contains(&capability)
+                    || field_session_id.is_some_and(|session_id| {
+                        record
+                            .field_sessions
+                            .get(session_id)
+                            .is_some_and(|capabilities| capabilities.contains(&capability))
+                    })
+            })
+    }
+
+    pub async fn has_any_capability(
+        &self,
+        public_key: &PublicKey,
+        capability: PairingCapability,
+    ) -> bool {
+        self.allowed
+            .read()
+            .await
+            .get(public_key)
+            .is_some_and(|record| {
+                record.capabilities.contains(&capability)
+                    || record
+                        .field_sessions
+                        .values()
+                        .any(|capabilities| capabilities.contains(&capability))
+            })
     }
 
     pub async fn len(&self) -> usize {
@@ -143,9 +247,17 @@ impl PeerPolicy {
         let allowed = self.allowed.read().await;
         let mut grants: Vec<_> = allowed
             .iter()
-            .map(|(peer, capabilities)| PeerGrant {
+            .map(|(peer, record)| PeerGrant {
                 peer_pubkey: peer.to_hex(),
-                capabilities: capabilities.iter().copied().collect(),
+                capabilities: record.capabilities.iter().copied().collect(),
+                field_sessions: record
+                    .field_sessions
+                    .iter()
+                    .map(|(session_id, capabilities)| FieldSessionGrant {
+                        session_id: session_id.clone(),
+                        capabilities: capabilities.iter().copied().collect(),
+                    })
+                    .collect(),
             })
             .collect();
         grants.sort_by(|left, right| left.peer_pubkey.cmp(&right.peer_pubkey));
@@ -162,16 +274,25 @@ impl Default for PeerPolicy {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GrantRecord {
+    #[serde(default)]
     capabilities: BTreeSet<PairingCapability>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    field_sessions: BTreeMap<String, BTreeSet<PairingCapability>>,
+}
+
+impl GrantRecord {
+    fn is_empty(&self) -> bool {
+        self.capabilities.is_empty() && self.field_sessions.is_empty()
+    }
 }
 
 async fn persist_grant(
     store_dir: &Path,
     public_key: &PublicKey,
-    capabilities: &BTreeSet<PairingCapability>,
+    record: &GrantRecord,
 ) -> Result<(), NodeError> {
     use tokio::io::AsyncWriteExt;
 
@@ -189,14 +310,26 @@ async fn persist_grant(
     #[cfg(unix)]
     options.mode(0o600);
     let mut file = options.open(&temp_path).await?;
-    let bytes = serde_json::to_vec(&GrantRecord {
-        capabilities: capabilities.clone(),
-    })
-    .map_err(|error| NodeError::PolicyStore(error.to_string()))?;
+    let bytes =
+        serde_json::to_vec(record).map_err(|error| NodeError::PolicyStore(error.to_string()))?;
     file.write_all(&bytes).await?;
     file.sync_all().await?;
     tokio::fs::rename(temp_path, path).await?;
     sync_directory(store_dir).await
+}
+
+fn validate_capability_set(capabilities: &[PairingCapability]) -> Result<(), NodeError> {
+    if capabilities.is_empty() {
+        return Err(NodeError::PolicyStore(
+            "peer capabilities must not be empty".to_owned(),
+        ));
+    }
+    if capabilities.iter().copied().collect::<BTreeSet<_>>().len() != capabilities.len() {
+        return Err(NodeError::PolicyStore(
+            "peer capabilities must be unique".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 async fn remove_grant(store_dir: &Path, public_key: &PublicKey) -> Result<(), NodeError> {
@@ -352,5 +485,108 @@ mod tests {
             grant.peer_pubkey == first.to_hex()
                 && grant.capabilities == vec![PairingCapability::RelayWrite]
         }));
+    }
+
+    #[tokio::test]
+    async fn field_session_grants_are_scoped_persistent_and_independently_revocable() {
+        let dir = tempfile::tempdir().unwrap();
+        let public_key = Keys::generate().public_key();
+        let policy = PeerPolicy::load(dir.path()).await.unwrap();
+
+        policy
+            .grant_for_field_session(
+                public_key,
+                "morning-survey".to_owned(),
+                vec![PairingCapability::RelayRead, PairingCapability::RelayWrite],
+            )
+            .await
+            .unwrap();
+        policy
+            .grant_for_field_session(
+                public_key,
+                "evening-survey".to_owned(),
+                vec![PairingCapability::RelayRead],
+            )
+            .await
+            .unwrap();
+
+        let restored = PeerPolicy::load(dir.path()).await.unwrap();
+        assert!(
+            !restored
+                .allows_capability(&public_key, PairingCapability::RelayRead)
+                .await
+        );
+        assert!(
+            restored
+                .allows_scoped_capability(
+                    &public_key,
+                    PairingCapability::RelayWrite,
+                    Some("morning-survey"),
+                )
+                .await
+        );
+        assert!(
+            !restored
+                .allows_scoped_capability(
+                    &public_key,
+                    PairingCapability::RelayWrite,
+                    Some("evening-survey"),
+                )
+                .await
+        );
+        assert!(
+            !restored
+                .allows_scoped_capability(
+                    &public_key,
+                    PairingCapability::RelayRead,
+                    Some("unapproved-survey"),
+                )
+                .await
+        );
+
+        assert!(restored
+            .revoke_field_session(&public_key, "morning-survey")
+            .await
+            .unwrap());
+        let restored = PeerPolicy::load(dir.path()).await.unwrap();
+        assert!(restored.allows(&public_key).await);
+        assert!(
+            !restored
+                .allows_scoped_capability(
+                    &public_key,
+                    PairingCapability::RelayWrite,
+                    Some("morning-survey"),
+                )
+                .await
+        );
+        assert!(
+            restored
+                .allows_scoped_capability(
+                    &public_key,
+                    PairingCapability::RelayRead,
+                    Some("evening-survey"),
+                )
+                .await
+        );
+    }
+
+    #[tokio::test]
+    async fn global_grants_remain_valid_across_field_sessions() {
+        let public_key = Keys::generate().public_key();
+        let policy = PeerPolicy::default();
+        policy
+            .grant_with_capabilities(public_key, vec![PairingCapability::RelayRead])
+            .await
+            .unwrap();
+
+        assert!(
+            policy
+                .allows_scoped_capability(
+                    &public_key,
+                    PairingCapability::RelayRead,
+                    Some("any-field-session"),
+                )
+                .await
+        );
     }
 }

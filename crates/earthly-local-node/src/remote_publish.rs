@@ -1,4 +1,4 @@
-use nostr::Event;
+use nostr::{Alphabet, Event, SingleLetterTag};
 use nostr_sdk::prelude::ClientBuilder;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -22,6 +22,8 @@ pub enum RemotePublishError {
     MissingRelayWrite,
     #[error("the submitted event signature is invalid: {0}")]
     InvalidEvent(String),
+    #[error("the submitted event does not belong to the selected field session")]
+    FieldSessionMismatch,
     #[error("remote relay publication failed: {0}")]
     Relay(String),
 }
@@ -41,6 +43,16 @@ pub(crate) async fn publish_remote_event(
     }
     if !record.capabilities.contains(&PairingCapability::RelayWrite) {
         return Err(RemotePublishError::MissingRelayWrite);
+    }
+    if let Some(field_session) = &record.field_session {
+        let mut session_tags = event
+            .tags
+            .iter()
+            .filter(|tag| tag.single_letter_tag() == Some(SingleLetterTag::lowercase(Alphabet::H)))
+            .filter_map(|tag| tag.content());
+        if session_tags.next() != Some(field_session.id.as_str()) || session_tags.next().is_some() {
+            return Err(RemotePublishError::FieldSessionMismatch);
+        }
     }
 
     let relay_url = record.descriptor.relay_url.to_string();

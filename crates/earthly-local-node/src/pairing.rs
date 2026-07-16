@@ -365,6 +365,8 @@ pub struct PendingPairingClaim {
     pub peer_pubkey: String,
     pub peer_name: Option<String>,
     pub requested_capabilities: Vec<PairingCapability>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field_session: Option<FieldSessionInfo>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -544,6 +546,7 @@ impl PairingManager {
                 peer_pubkey: stored.claim.pubkey.to_hex(),
                 peer_name: content.peer_name,
                 requested_capabilities: content.requested_capabilities,
+                field_session: stored.invitation.content()?.field_session,
             });
         }
         result.sort_by(|left, right| left.claim_id.cmp(&right.claim_id));
@@ -603,16 +606,34 @@ impl PairingManager {
                 "approved invitation is neither active nor consumed".to_owned(),
             ));
         }
-        peers
-            .grant_with_capabilities(stored.claim.pubkey, content.requested_capabilities.clone())
-            .await
-            .map_err(|error| PairingError::Policy(error.to_string()))?;
+        let field_session = stored.invitation.content()?.field_session;
+        match &field_session {
+            Some(session) => {
+                peers
+                    .grant_for_field_session(
+                        stored.claim.pubkey,
+                        session.id.clone(),
+                        content.requested_capabilities.clone(),
+                    )
+                    .await
+            }
+            None => {
+                peers
+                    .grant_with_capabilities(
+                        stored.claim.pubkey,
+                        content.requested_capabilities.clone(),
+                    )
+                    .await
+            }
+        }
+        .map_err(|error| PairingError::Policy(error.to_string()))?;
 
         let summary = PendingPairingClaim {
             claim_id: stored.claim.id.to_hex(),
             peer_pubkey: stored.claim.pubkey.to_hex(),
             peer_name: content.peer_name,
             requested_capabilities: content.requested_capabilities,
+            field_session,
         };
         write_status_idempotent(&self.decision_path(claim_id), &PairingStatus::Accepted).await?;
         self.reject_competing_claims(stored.invitation.event.id, claim_id)
@@ -1040,6 +1061,18 @@ mod tests {
     use super::*;
     use crate::{LocalNode, NodeAvailability, NodeConfig};
 
+    fn field_session(id: &str) -> FieldSessionInfo {
+        FieldSessionInfo {
+            id: id.to_owned(),
+            name: format!("Survey {id}"),
+            description: None,
+            internet_policy: FieldSessionInternetPolicy::Never,
+            conversation_policy: FieldSessionConversationPolicy::NearbyOnly,
+            allow_peer_writes: true,
+            context_coordinates: Vec::new(),
+        }
+    }
+
     #[tokio::test]
     async fn signed_invitation_round_trips_and_grants_once() {
         let dir = tempfile::tempdir().unwrap();
@@ -1090,6 +1123,58 @@ mod tests {
             node.submit_pairing_claim(replay).await,
             Err(PairingError::AlreadyUsed)
         ));
+    }
+
+    #[tokio::test]
+    async fn field_invitation_approval_grants_only_its_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let config =
+            NodeConfig::loopback(dir.path(), NodeAvailability::Process).with_ephemeral_ports();
+        let node = LocalNode::start(config).await.unwrap();
+        let invitation = node
+            .create_field_session_invitation(
+                Duration::from_secs(60),
+                vec![PairingCapability::RelayRead, PairingCapability::RelayWrite],
+                field_session("morning-survey"),
+            )
+            .await
+            .unwrap();
+        let peer = Keys::generate();
+        let claim = invitation
+            .create_claim(
+                &peer,
+                vec![PairingCapability::RelayRead, PairingCapability::RelayWrite],
+                Some("field phone".to_owned()),
+            )
+            .unwrap();
+        let receipt = node.submit_pairing_claim(claim).await.unwrap();
+        let pending = node.pending_pairing_claims().await.unwrap();
+        assert_eq!(
+            pending[0].field_session,
+            Some(field_session("morning-survey"))
+        );
+
+        let approved = node
+            .approve_pairing_claim(EventId::from_hex(&receipt.claim_id).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            approved.field_session,
+            Some(field_session("morning-survey"))
+        );
+        let grants = node.peer_grants().await;
+        let grant = grants
+            .iter()
+            .find(|grant| grant.peer_pubkey == peer.public_key().to_hex())
+            .unwrap();
+        assert!(grant.capabilities.is_empty());
+        assert_eq!(grant.field_sessions.len(), 1);
+        assert_eq!(grant.field_sessions[0].session_id, "morning-survey");
+
+        node.revoke_peer_field_session(&peer.public_key(), "morning-survey")
+            .await
+            .unwrap();
+        assert!(!node.peer_is_granted(&peer.public_key()).await);
     }
 
     #[tokio::test]

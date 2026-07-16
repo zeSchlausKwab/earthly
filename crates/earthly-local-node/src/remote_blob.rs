@@ -109,7 +109,17 @@ pub(crate) async fn mirror_remote_blobs(
 
         let response = client
             .get(record.descriptor.blossom_url.join(hash)?)
-            .header("authorization", download_authorization(&keys, hash)?)
+            .header(
+                "authorization",
+                download_authorization(
+                    &keys,
+                    hash,
+                    record
+                        .field_session
+                        .as_ref()
+                        .map(|session| session.id.as_str()),
+                )?,
+            )
             .send()
             .await?;
         if !response.status().is_success() {
@@ -140,19 +150,30 @@ pub(crate) async fn mirror_remote_blobs(
     })
 }
 
-fn download_authorization(keys: &Keys, hash: &str) -> Result<String, RemoteBlobMirrorError> {
+fn download_authorization(
+    keys: &Keys,
+    hash: &str,
+    field_session_id: Option<&str>,
+) -> Result<String, RemoteBlobMirrorError> {
     let now = Timestamp::now();
-    let event = EventBuilder::new(
-        Kind::Custom(BLOSSOM_AUTHORIZATION_KIND),
-        "Download paired Earthly blob",
-    )
-    .tags([
+    let mut tags = vec![
         Tag::parse(["t", "get"])
             .map_err(|error| RemoteBlobMirrorError::Authorization(error.to_string()))?,
         Tag::expiration(now + 300),
         Tag::parse(["x", hash])
             .map_err(|error| RemoteBlobMirrorError::Authorization(error.to_string()))?,
-    ])
+    ];
+    if let Some(session_id) = field_session_id {
+        tags.push(
+            Tag::parse(["h", session_id])
+                .map_err(|error| RemoteBlobMirrorError::Authorization(error.to_string()))?,
+        );
+    }
+    let event = EventBuilder::new(
+        Kind::Custom(BLOSSOM_AUTHORIZATION_KIND),
+        "Download paired Earthly blob",
+    )
+    .tags(tags)
     .custom_created_at(now - 60)
     .sign_with_keys(keys)
     .map_err(|error| RemoteBlobMirrorError::Authorization(error.to_string()))?;

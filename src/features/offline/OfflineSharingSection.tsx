@@ -240,6 +240,11 @@ export function OfflineSharingSection() {
 				: 0,
 		[nowSeconds, status],
 	)
+	const globalClaims = useMemo(() => claims.filter((claim) => !claim.fieldSession), [claims])
+	const globalGrants = useMemo(
+		() => grants.filter((grant) => grant.capabilities.length > 0),
+		[grants],
+	)
 
 	useEffect(() => {
 		if (invitation && remainingSeconds === 0) setInvitation(null)
@@ -672,7 +677,7 @@ export function OfflineSharingSection() {
 						) : null}
 					</section>
 
-					{claims.length > 0 ? (
+					{globalClaims.length > 0 ? (
 						<section className="space-y-2" aria-labelledby="pairing-requests-heading">
 							<div className="flex items-center justify-between">
 								<h4
@@ -681,9 +686,9 @@ export function OfflineSharingSection() {
 								>
 									Pairing requests
 								</h4>
-								<Badge className="rounded-[2px]">{claims.length} pending</Badge>
+								<Badge className="rounded-[2px]">{globalClaims.length} pending</Badge>
 							</div>
-							{claims.map((claim) => (
+							{globalClaims.map((claim) => (
 								<div
 									key={claim.claimId}
 									className="space-y-3 border border-primary/40 bg-primary/5 p-3"
@@ -737,12 +742,12 @@ export function OfflineSharingSection() {
 						>
 							Applications with access
 						</h4>
-						{grants.length === 0 ? (
+						{globalGrants.length === 0 ? (
 							<div className="border border-dashed border-border p-4 text-sm text-muted-foreground">
 								No applications have access to this node yet.
 							</div>
 						) : (
-							grants.map((grant) => (
+							globalGrants.map((grant) => (
 								<div key={grant.peerPubkey} className="space-y-2 border border-border p-3">
 									<div className="flex items-center gap-2">
 										<Smartphone className="h-4 w-4 text-muted-foreground" />

@@ -69,6 +69,18 @@ export const tauriLocalNodeService: LocalNodeService = {
 			throw commandError(error)
 		}
 	},
+	revokePeerFieldSession: async (peerPubkey, sessionId): Promise<boolean> => {
+		try {
+			return Boolean(
+				await invoke('local_node_revoke_peer_field_session_v1', {
+					peerPubkey,
+					sessionId,
+				}),
+			)
+		} catch (error) {
+			throw commandError(error)
+		}
+	},
 	joinInvitation: (invitation, peerName): Promise<RemoteNodeRecord> =>
 		invokeValidated('local_node_join_invitation_v1', nativeSchemas.remoteNode, {
 			invitation,

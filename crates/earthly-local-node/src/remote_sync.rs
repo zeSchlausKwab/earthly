@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{collections::BTreeSet, iter};
 
-use nostr::{Event, Filter, Keys, Kind};
+use nostr::{Alphabet, Event, Filter, Keys, Kind, SingleLetterTag};
 use nostr_database::NostrDatabase;
 use nostr_sdk::prelude::{ClientBuilder, SyncDirection, SyncOptions};
 use serde::{Deserialize, Serialize};
@@ -70,16 +70,20 @@ pub(crate) async fn sync_remote_node(
         .map_err(|error| RemoteSyncError::Relay(error.to_string()))?;
     client.connect().await;
 
-    let kinds = EARTHLY_SYNC_KIND_NUMBERS
-        .iter()
-        .copied()
-        .map(Kind::from)
-        .collect::<Vec<_>>();
     let options = SyncOptions::new()
         .direction(SyncDirection::Down)
         .initial_timeout(Duration::from_secs(5));
     let first_reconciliation = client
-        .sync_with([relay_url.as_str()], Filter::new().kinds(kinds), &options)
+        .sync_with(
+            [relay_url.as_str()],
+            synchronization_filter(
+                record
+                    .field_session
+                    .as_ref()
+                    .map(|session| session.id.as_str()),
+            ),
+            &options,
+        )
         .await;
     let reconciliation = match first_reconciliation {
         Ok(reconciliation) if !reconciliation.success.is_empty() => reconciliation,
@@ -96,15 +100,15 @@ pub(crate) async fn sync_remote_node(
                     .unwrap_or_else(|| "the host did not complete reconciliation".to_owned()),
                 Err(error) => error.to_string(),
             };
-            let retry_kinds = EARTHLY_SYNC_KIND_NUMBERS
-                .iter()
-                .copied()
-                .map(Kind::from)
-                .collect::<Vec<_>>();
             match client
                 .sync_with(
                     [relay_url.as_str()],
-                    Filter::new().kinds(retry_kinds),
+                    synchronization_filter(
+                        record
+                            .field_session
+                            .as_ref()
+                            .map(|session| session.id.as_str()),
+                    ),
                     &options,
                 )
                 .await
@@ -125,15 +129,15 @@ pub(crate) async fn sync_remote_node(
         // A NIP-42 relay can challenge the first post-negentropy REQ. The pool authenticates the
         // installation, but nostr-sdk 0.44 does not replay that closed REQ. Reconcile once more on
         // the now-authenticated connection so the missing events are actually downloaded.
-        let retry_kinds = EARTHLY_SYNC_KIND_NUMBERS
-            .iter()
-            .copied()
-            .map(Kind::from)
-            .collect::<Vec<_>>();
         let retry = match client
             .sync_with(
                 [relay_url.as_str()],
-                Filter::new().kinds(retry_kinds),
+                synchronization_filter(
+                    record
+                        .field_session
+                        .as_ref()
+                        .map(|session| session.id.as_str()),
+                ),
                 &options,
             )
             .await
@@ -211,6 +215,22 @@ pub(crate) async fn sync_remote_node(
     })
 }
 
+fn synchronization_filter(field_session_id: Option<&str>) -> Filter {
+    let kinds = EARTHLY_SYNC_KIND_NUMBERS
+        .iter()
+        .copied()
+        .map(Kind::from)
+        .collect::<Vec<_>>();
+    let filter = Filter::new().kinds(kinds);
+    match field_session_id {
+        Some(session_id) => filter.custom_tag(
+            SingleLetterTag::lowercase(Alphabet::H),
+            session_id.to_owned(),
+        ),
+        None => filter,
+    }
+}
+
 fn extract_blob_hashes(events: &[Event]) -> Vec<String> {
     let mut hashes = BTreeSet::new();
     for event in events {
@@ -255,6 +275,19 @@ mod tests {
         assert!(EARTHLY_SYNC_KIND_NUMBERS.contains(&37_522));
         assert!(!EARTHLY_SYNC_KIND_NUMBERS.contains(&0));
         assert!(!EARTHLY_SYNC_KIND_NUMBERS.contains(&17_375));
+    }
+
+    #[test]
+    fn field_session_synchronization_filter_contains_exact_h_scope() {
+        let filter = synchronization_filter(Some("survey-a"));
+        let values = filter
+            .generic_tags
+            .get(&SingleLetterTag::lowercase(Alphabet::H))
+            .unwrap();
+        assert_eq!(
+            values.iter().map(String::as_str).collect::<Vec<_>>(),
+            ["survey-a"]
+        );
     }
 
     #[test]

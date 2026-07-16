@@ -372,6 +372,40 @@ impl InnerLocalRelay {
         None
     }
 
+    async fn nip42_event_policy_rejection(
+        &self,
+        session: &Session<'_>,
+        event: &Event,
+        addr: &SocketAddr,
+    ) -> Option<String> {
+        let public_key = session.nip42.public_key.as_ref()?;
+        for policy in &self.nip42_policy {
+            if let PolicyResult::Reject(message) =
+                policy.admit_event(public_key, event, addr).await
+            {
+                return Some(message);
+            }
+        }
+        None
+    }
+
+    async fn nip42_query_policy_rejection(
+        &self,
+        session: &Session<'_>,
+        filter: &Filter,
+        addr: &SocketAddr,
+    ) -> Option<String> {
+        let public_key = session.nip42.public_key.as_ref()?;
+        for policy in &self.nip42_policy {
+            if let PolicyResult::Reject(message) =
+                policy.admit_query(public_key, filter, addr).await
+            {
+                return Some(message);
+            }
+        }
+        None
+    }
+
     async fn handle_client_msg<S>(
         &self,
         session: &mut Session<'_>,
@@ -484,7 +518,7 @@ impl InnerLocalRelay {
 
                 if require_nip42_auth {
                     if let Some(message) = self
-                        .nip42_policy_rejection(session, Nip42PolicyAction::Write, addr)
+                        .nip42_event_policy_rejection(session, &event, addr)
                         .await
                     {
                         return send_msg(
@@ -684,7 +718,7 @@ impl InnerLocalRelay {
                         .await;
                     }
                     if let Some(message) = self
-                        .nip42_policy_rejection(session, Nip42PolicyAction::Read, addr)
+                        .nip42_query_policy_rejection(session, &filter, addr)
                         .await
                     {
                         return send_msg(
@@ -775,7 +809,7 @@ impl InnerLocalRelay {
                         .await;
                     }
                     if let Some(message) = self
-                        .nip42_policy_rejection(session, Nip42PolicyAction::Read, addr)
+                        .nip42_query_policy_rejection(session, &filter, addr)
                         .await
                     {
                         return send_msg(
@@ -949,22 +983,24 @@ impl InnerLocalRelay {
                 )
                 .await;
             }
-            if let Some(message) = self
-                .nip42_policy_rejection(session, Nip42PolicyAction::Read, addr)
-                .await
-            {
-                return send_msg(
-                    ws_tx,
-                    RelayMessage::Closed {
-                        subscription_id,
-                        message: Cow::Owned(format!(
-                            "{}: {}",
-                            MachineReadablePrefix::Blocked,
-                            message
-                        )),
-                    },
-                )
-                .await;
+            for filter in &filters {
+                if let Some(message) = self
+                    .nip42_query_policy_rejection(session, filter, addr)
+                    .await
+                {
+                    return send_msg(
+                        ws_tx,
+                        RelayMessage::Closed {
+                            subscription_id,
+                            message: Cow::Owned(format!(
+                                "{}: {}",
+                                MachineReadablePrefix::Blocked,
+                                message
+                            )),
+                        },
+                    )
+                    .await;
+                }
             }
         }
 

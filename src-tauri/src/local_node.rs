@@ -595,6 +595,21 @@ pub async fn local_node_revoke_peer_v1(
 }
 
 #[tauri::command]
+pub async fn local_node_revoke_peer_field_session_v1(
+    state: State<'_, LocalNodeState>,
+    peer_pubkey: String,
+    session_id: String,
+) -> Result<bool, LocalNodeCommandError> {
+    let peer = PublicKey::from_hex(&peer_pubkey)
+        .map_err(|_| LocalNodeCommandError::invalid_identifier("peer public key"))?;
+    state
+        .node()?
+        .revoke_peer_field_session(&peer, &session_id)
+        .await
+        .map_err(|error| LocalNodeCommandError::new("revoke-failed", error.to_string()))
+}
+
+#[tauri::command]
 pub async fn local_node_join_invitation_v1(
     state: State<'_, LocalNodeState>,
     invitation: String,

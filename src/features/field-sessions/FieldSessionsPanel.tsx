@@ -215,6 +215,17 @@ export function FieldSessionsPanel({
 				: null,
 		[remoteNodes, selected],
 	)
+	const selectedClaims = useMemo(
+		() => claims.filter((claim) => claim.fieldSession?.id === selected?.id),
+		[claims, selected?.id],
+	)
+	const selectedGrants = useMemo(
+		() =>
+			grants.filter((grant) =>
+				grant.fieldSessions.some((sessionGrant) => sessionGrant.sessionId === selected?.id),
+			),
+		[grants, selected?.id],
+	)
 	const messages = useMemo(
 		() =>
 			selected
@@ -442,8 +453,8 @@ export function FieldSessionsPanel({
 
 	const revokeGrant = (grant: PeerGrant) =>
 		run(`revoke:${grant.peerPubkey}`, async () => {
-			if (!service) return
-			await service.revokePeer(grant.peerPubkey)
+			if (!service || !selected) return
+			await service.revokePeerFieldSession(grant.peerPubkey, selected.id)
 			await refreshNode()
 			toast.success('Device removed from future nearby updates')
 		})
@@ -807,7 +818,7 @@ export function FieldSessionsPanel({
 					</TabsTrigger>
 					<TabsTrigger value="people" className="relative rounded-none text-[10px]">
 						<Users /> People
-						{claims.length > 0 ? (
+						{selectedClaims.length > 0 ? (
 							<span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-primary" />
 						) : null}
 					</TabsTrigger>
@@ -992,7 +1003,7 @@ export function FieldSessionsPanel({
 								{operation === 'invite' ? <Loader2 className="animate-spin" /> : <QrCode />}
 								Invite a nearby phone
 							</Button>
-							{claims.map((claim) => (
+							{selectedClaims.map((claim) => (
 								<div key={claim.claimId} className="border border-primary/35 bg-primary/5 p-3">
 									<p className="font-mono text-[9px] uppercase text-primary">Access request</p>
 									<p className="mt-1 text-xs font-semibold">
@@ -1012,16 +1023,18 @@ export function FieldSessionsPanel({
 								Approved nearby devices
 							</p>
 							<div className="divide-y divide-border border-y border-border">
-								{grants.length === 0 ? (
+								{selectedGrants.length === 0 ? (
 									<p className="py-4 text-xs text-muted-foreground">No participant phones yet.</p>
 								) : (
-									grants.map((grant) => (
+									selectedGrants.map((grant) => (
 										<div key={grant.peerPubkey} className="flex items-center gap-2 py-2">
 											<Smartphone className="h-4 w-4 text-muted-foreground" />
 											<div className="min-w-0 flex-1">
 												<p className="font-mono text-[10px]">{shortKey(grant.peerPubkey)}</p>
 												<p className="text-[9px] text-muted-foreground">
-													{grant.capabilities.includes('relay-write')
+													{grant.fieldSessions
+														.find((sessionGrant) => sessionGrant.sessionId === selected.id)
+														?.capabilities.includes('relay-write')
 														? 'Can contribute'
 														: 'Read only'}
 												</p>

@@ -84,13 +84,20 @@ export const pendingPairingClaimSchema = z.object({
 	peerPubkey: z.string().regex(/^[0-9a-f]{64}$/),
 	peerName: z.string().min(1).nullable().optional(),
 	requestedCapabilities: z.array(pairingCapabilitySchema).min(1),
+	fieldSession: fieldSessionInfoSchema.optional(),
 })
 
 export type PendingPairingClaim = z.infer<typeof pendingPairingClaimSchema>
 
+export const fieldSessionGrantSchema = z.object({
+	sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,96}$/),
+	capabilities: z.array(pairingCapabilitySchema).min(1),
+})
+
 export const peerGrantSchema = z.object({
 	peerPubkey: z.string().regex(/^[0-9a-f]{64}$/),
-	capabilities: z.array(pairingCapabilitySchema).min(1),
+	capabilities: z.array(pairingCapabilitySchema),
+	fieldSessions: z.array(fieldSessionGrantSchema).default([]),
 })
 
 export type PeerGrant = z.infer<typeof peerGrantSchema>
@@ -355,6 +362,7 @@ export interface LocalNodeService {
 	rejectClaim(claimId: string, reason: string): Promise<void>
 	peerGrants(): Promise<PeerGrant[]>
 	revokePeer(peerPubkey: string): Promise<boolean>
+	revokePeerFieldSession(peerPubkey: string, sessionId: string): Promise<boolean>
 	joinInvitation(invitation: string, peerName?: string): Promise<RemoteNodeRecord>
 	remoteNodes(): Promise<RemoteNodeRecord[]>
 	refreshRemoteNode(nodeId: string): Promise<RemoteNodeRecord>

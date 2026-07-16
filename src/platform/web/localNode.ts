@@ -19,6 +19,7 @@ export const webLocalNodeService: LocalNodeService = {
 	rejectClaim: async () => unsupported(),
 	peerGrants: async () => unsupported(),
 	revokePeer: async () => unsupported(),
+	revokePeerFieldSession: async () => unsupported(),
 	joinInvitation: async () => unsupported(),
 	remoteNodes: async () => unsupported(),
 	refreshRemoteNode: async () => unsupported(),

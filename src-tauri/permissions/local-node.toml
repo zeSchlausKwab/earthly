@@ -13,6 +13,7 @@ commands.allow = [
   "local_node_reject_claim_v1",
   "local_node_peer_grants_v1",
   "local_node_revoke_peer_v1",
+  "local_node_revoke_peer_field_session_v1",
   "local_node_join_invitation_v1",
   "local_node_remote_nodes_v1",
   "local_node_refresh_remote_node_v1",

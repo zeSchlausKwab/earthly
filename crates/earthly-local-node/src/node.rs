@@ -85,6 +85,16 @@ impl LocalNode {
         self.peers.revoke(public_key).await
     }
 
+    pub async fn revoke_peer_field_session(
+        &self,
+        public_key: &PublicKey,
+        session_id: &str,
+    ) -> Result<bool, NodeError> {
+        self.peers
+            .revoke_field_session(public_key, session_id)
+            .await
+    }
+
     pub async fn create_pairing_invitation(
         &self,
         ttl: Duration,
@@ -589,6 +599,39 @@ mod tests {
         assert_eq!(published.event_id, message.id.to_hex());
         assert_ne!(message.pubkey, peer.identity_public_key());
 
+        let wrong_session_message = EventBuilder::new(
+            Kind::Custom(37_523),
+            r#"{"version":1,"type":"message","text":"wrong survey"}"#,
+        )
+        .tags([
+            Tag::parse(["d", "field-message-wrong-session"]).unwrap(),
+            Tag::parse(["h", "another-survey"]).unwrap(),
+            Tag::parse(["type", "message"]).unwrap(),
+        ])
+        .sign_with_keys(&active_user)
+        .unwrap();
+        assert!(matches!(
+            peer.publish_remote_event(&pending.node_id, wrong_session_message)
+                .await,
+            Err(crate::RemotePublishError::FieldSessionMismatch)
+        ));
+
+        let blob_bytes = b"field-session attachment".to_vec();
+        let blob_hash = format!("{:x}", Sha256::digest(&blob_bytes));
+        let upload = reqwest::Client::new()
+            .put(host.descriptor().blossom_url.join("upload").unwrap())
+            .header("content-type", "application/octet-stream")
+            .header("x-sha-256", &blob_hash)
+            .header(
+                "authorization",
+                authorization(&host.identity.keys(), "upload", &blob_hash),
+            )
+            .body(blob_bytes)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(upload.status(), reqwest::StatusCode::CREATED);
+
         let dataset = EventBuilder::new(
             Kind::Custom(37_515),
             r#"{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[16.37,48.21]},"properties":{"name":"Spring"}}]}"#,
@@ -598,6 +641,12 @@ mod tests {
             Tag::parse(["h", "water-survey"]).unwrap(),
             Tag::parse(["t", "field-session"]).unwrap(),
             Tag::parse(["bbox", "16.37,48.21,16.37,48.21"]).unwrap(),
+            Tag::parse([
+                "imeta",
+                "url https://field-host.invalid/spring-photo",
+                &format!("x {blob_hash}"),
+            ])
+            .unwrap(),
         ])
         .sign_with_keys(&active_user)
         .unwrap();
@@ -621,6 +670,13 @@ mod tests {
         assert_eq!(observer_events.len(), 2);
         assert!(observer_events.contains(&message));
         assert!(observer_events.contains(&dataset));
+
+        let mirrored = observer
+            .mirror_remote_blobs(&observer_pending.node_id, vec![blob_hash.clone()])
+            .await
+            .unwrap();
+        assert_eq!(mirrored.items.len(), 1);
+        assert_eq!(mirrored.items[0].sha256, blob_hash);
     }
 
     #[tokio::test]
