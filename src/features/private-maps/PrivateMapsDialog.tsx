@@ -9,6 +9,7 @@ import {
 	Plus,
 	QrCode,
 	RefreshCw,
+	ScanLine,
 	Settings2,
 	ShieldCheck,
 	ShieldMinus,
@@ -48,6 +49,7 @@ import { GeoCommentForm } from '@/features/social/comments/GeoCommentForm'
 import { cn } from '@/lib/utils'
 import { PrivateCommentItem } from './PrivateCommentItem'
 import { PrivateGeometryReferences, type PrivateDatasetActions } from './PrivateGeometryReferences'
+import { PrivateInviteScannerDialog } from './PrivateInviteScannerDialog'
 import { usePrivateWorkspaceRuntime } from './usePrivateWorkspaceRuntime'
 
 function shortKey(value: string) {
@@ -97,7 +99,8 @@ export function PrivateGroupsPanel({
 		workspaceId: string
 		requests: WorkspaceJoinRequest[]
 	}>({ workspaceId: '', requests: [] })
-	const [invitation] = useState(invitationFromLocation)
+	const [invitation, setInvitation] = useState(invitationFromLocation)
+	const [inviteScannerOpen, setInviteScannerOpen] = useState(false)
 	const [showCreate, setShowCreate] = useState(false)
 	const [name, setName] = useState('')
 	const [description, setDescription] = useState('')
@@ -295,6 +298,22 @@ export function PrivateGroupsPanel({
 					: 'No approved invitations yet',
 			)
 		})
+
+	const handleScannedInvite = ({
+		workspaceId,
+		invitation: scannedInvitation,
+	}: {
+		workspaceId: string
+		invitation: string
+	}) => {
+		setInvitation(scannedInvitation)
+		setInviteScannerOpen(false)
+		navigateToPrivateGroup(workspaceId)
+		const url = new URL(location.href)
+		url.searchParams.set('private-invite', scannedInvitation)
+		history.replaceState(history.state, '', url)
+		toast.success('Private-group invitation scanned')
+	}
 
 	const handleFetchRequests = () =>
 		run('check join requests', async () => {
@@ -811,6 +830,23 @@ export function PrivateGroupsPanel({
 						>
 							<Plus /> New private group
 						</Button>
+					) : null}
+					{isTauri() ? (
+						<>
+							<Button
+								variant="outline"
+								size="sm"
+								className="w-full"
+								onClick={() => setInviteScannerOpen(true)}
+							>
+								<ScanLine /> Scan invite QR
+							</Button>
+							<PrivateInviteScannerDialog
+								open={inviteScannerOpen}
+								onOpenChange={setInviteScannerOpen}
+								onInvite={handleScannedInvite}
+							/>
+						</>
 					) : null}
 					<PanelNotice>
 						Group data is MLS-encrypted; Cordn is reached through ContextVM over Nostr.
