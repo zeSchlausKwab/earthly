@@ -31,6 +31,11 @@ const MAX_PENDING_CLAIMS: usize = 64;
 const MAX_PENDING_PER_INVITATION: usize = 8;
 const MAX_PEER_NAME_BYTES: usize = 128;
 const MAX_REJECTION_REASON_BYTES: usize = 256;
+const MAX_FIELD_SESSION_ID_BYTES: usize = 96;
+const MAX_FIELD_SESSION_NAME_BYTES: usize = 120;
+const MAX_FIELD_SESSION_DESCRIPTION_BYTES: usize = 500;
+const MAX_FIELD_SESSION_CONTEXTS: usize = 16;
+const MAX_FIELD_SESSION_CONTEXT_BYTES: usize = 320;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -55,6 +60,91 @@ impl PairingCapability {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FieldSessionInternetPolicy {
+    Never,
+    Ask,
+    Automatic,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FieldSessionConversationPolicy {
+    NearbyOnly,
+    IncludeWhenPublishing,
+}
+
+/// Human-facing policy attached to a signed pairing invitation.
+///
+/// This is intentionally presentation and delivery intent, not cryptographic
+/// privacy. The local node remains the authority for the offered capabilities.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldSessionInfo {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub internet_policy: FieldSessionInternetPolicy,
+    pub conversation_policy: FieldSessionConversationPolicy,
+    pub allow_peer_writes: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context_coordinates: Vec<String>,
+}
+
+impl FieldSessionInfo {
+    pub fn validate(&self) -> Result<(), PairingError> {
+        if self.id.is_empty()
+            || self.id.len() > MAX_FIELD_SESSION_ID_BYTES
+            || !self
+                .id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        {
+            return Err(PairingError::InvalidInvitation(
+                "field-session id must contain 1 to 96 URL-safe bytes".to_owned(),
+            ));
+        }
+        if self.name.trim() != self.name
+            || self.name.is_empty()
+            || self.name.len() > MAX_FIELD_SESSION_NAME_BYTES
+        {
+            return Err(PairingError::InvalidInvitation(
+                "field-session name must be trimmed and contain 1 to 120 UTF-8 bytes".to_owned(),
+            ));
+        }
+        if self.description.as_ref().is_some_and(|description| {
+            description.trim() != description
+                || description.is_empty()
+                || description.len() > MAX_FIELD_SESSION_DESCRIPTION_BYTES
+        }) {
+            return Err(PairingError::InvalidInvitation(
+                "field-session description must be trimmed and contain at most 500 UTF-8 bytes"
+                    .to_owned(),
+            ));
+        }
+        if self.context_coordinates.len() > MAX_FIELD_SESSION_CONTEXTS
+            || self.context_coordinates.iter().any(|coordinate| {
+                coordinate.is_empty()
+                    || coordinate.len() > MAX_FIELD_SESSION_CONTEXT_BYTES
+                    || coordinate.trim() != coordinate
+            })
+        {
+            return Err(PairingError::InvalidInvitation(
+                "field-session context scope is invalid".to_owned(),
+            ));
+        }
+        let unique = self.context_coordinates.iter().collect::<BTreeSet<_>>();
+        if unique.len() != self.context_coordinates.len() {
+            return Err(PairingError::InvalidInvitation(
+                "field-session context scope must be unique".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PairingInvitationContent {
@@ -63,6 +153,8 @@ pub struct PairingInvitationContent {
     pub nonce: String,
     pub expires_at: u64,
     pub capabilities: Vec<PairingCapability>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field_session: Option<FieldSessionInfo>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -151,6 +243,19 @@ impl PairingInvitation {
             .map_err(|error| PairingError::InvalidInvitation(error.to_string()))?;
         validate_nonce(&content.nonce)?;
         validate_capabilities(&content.capabilities, false)?;
+        if let Some(field_session) = &content.field_session {
+            field_session.validate()?;
+            if field_session.allow_peer_writes
+                != content
+                    .capabilities
+                    .contains(&PairingCapability::RelayWrite)
+            {
+                return Err(PairingError::InvalidInvitation(
+                    "field-session contribution policy does not match offered relay access"
+                        .to_owned(),
+                ));
+            }
+        }
 
         let expiration =
             self.event.tags.expiration().ok_or_else(|| {
@@ -312,12 +417,35 @@ impl PairingManager {
         ttl: Duration,
         capabilities: Vec<PairingCapability>,
     ) -> Result<PairingInvitation, PairingError> {
+        self.create_invitation_for_session(identity, descriptor, ttl, capabilities, None)
+            .await
+    }
+
+    pub async fn create_invitation_for_session(
+        &self,
+        identity: &NodeIdentity,
+        descriptor: &NodeDescriptor,
+        ttl: Duration,
+        capabilities: Vec<PairingCapability>,
+        field_session: Option<FieldSessionInfo>,
+    ) -> Result<PairingInvitation, PairingError> {
         if ttl.is_zero() || ttl > MAX_INVITATION_TTL {
             return Err(PairingError::InvalidInvitation(
                 "invitation lifetime must be between one second and ten minutes".to_owned(),
             ));
         }
         validate_capabilities(&capabilities, false)?;
+        if let Some(field_session) = &field_session {
+            field_session.validate()?;
+            if field_session.allow_peer_writes
+                != capabilities.contains(&PairingCapability::RelayWrite)
+            {
+                return Err(PairingError::InvalidInvitation(
+                    "field-session contribution policy does not match offered relay access"
+                        .to_owned(),
+                ));
+            }
+        }
         let now = Timestamp::now();
         let expires_at = now.as_secs() + ttl.as_secs();
         let nonce = Keys::generate().secret_key().to_secret_hex();
@@ -327,6 +455,7 @@ impl PairingManager {
             nonce,
             expires_at,
             capabilities,
+            field_session,
         };
         let event = identity.sign(
             EventBuilder::new(

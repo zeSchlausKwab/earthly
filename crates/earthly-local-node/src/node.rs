@@ -6,11 +6,12 @@ use nostr::{Event, EventBuilder, EventId, Kind, PublicKey, Tag, Timestamp};
 use serde::Serialize;
 
 use crate::{
-    BlobDescriptor, EmbeddedBlossom, EmbeddedRelay, LocalBlobRead, LocalBlobReadError, NodeConfig,
-    NodeDescriptor, NodeError, NodeIdentity, PairingCapability, PairingClaimReceipt, PairingError,
-    PairingInvitation, PairingManager, PairingStatus, PeerGrant, PeerPolicy, PendingPairingClaim,
-    PublicBlobDownloadError, RemoteBlobMirrorError, RemoteBlobMirrorResult, RemoteNodeError,
-    RemoteNodeRecord, RemoteNodeStore, RemoteSyncError, RemoteSyncResult,
+    BlobDescriptor, EmbeddedBlossom, EmbeddedRelay, FieldSessionInfo, LocalBlobRead,
+    LocalBlobReadError, NodeConfig, NodeDescriptor, NodeError, NodeIdentity, PairingCapability,
+    PairingClaimReceipt, PairingError, PairingInvitation, PairingManager, PairingStatus, PeerGrant,
+    PeerPolicy, PendingPairingClaim, PublicBlobDownloadError, RemoteBlobMirrorError,
+    RemoteBlobMirrorResult, RemoteNodeError, RemoteNodeRecord, RemoteNodeStore, RemotePublishError,
+    RemotePublishResult, RemoteSyncError, RemoteSyncResult,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -91,6 +92,23 @@ impl LocalNode {
     ) -> Result<PairingInvitation, PairingError> {
         self.pairing
             .create_invitation(&self.identity, &self.descriptor, ttl, capabilities)
+            .await
+    }
+
+    pub async fn create_field_session_invitation(
+        &self,
+        ttl: Duration,
+        capabilities: Vec<PairingCapability>,
+        field_session: FieldSessionInfo,
+    ) -> Result<PairingInvitation, PairingError> {
+        self.pairing
+            .create_invitation_for_session(
+                &self.identity,
+                &self.descriptor,
+                ttl,
+                capabilities,
+                Some(field_session),
+            )
             .await
     }
 
@@ -177,6 +195,30 @@ impl LocalNode {
             node_id,
         )
         .await
+    }
+
+    pub async fn publish_remote_event(
+        &self,
+        node_id: &str,
+        event: Event,
+    ) -> Result<RemotePublishResult, RemotePublishError> {
+        let result = crate::remote_publish::publish_remote_event(
+            self.identity.keys(),
+            &self.remote_nodes,
+            node_id,
+            event.clone(),
+        )
+        .await?;
+        // Keep the author's own installation converged immediately. This also
+        // means the field-session UI survives a restart before its next pull.
+        self.ingest_verified_event(&event)
+            .await
+            .map_err(|error| RemotePublishError::Relay(error.to_string()))?;
+        Ok(result)
+    }
+
+    pub async fn field_session_events(&self, session_id: &str) -> Result<Vec<Event>, NodeError> {
+        self.relay.field_session_events(session_id).await
     }
 
     pub async fn mirror_remote_blobs(
@@ -451,6 +493,77 @@ mod tests {
             second_sync.remote_node.discovered_blob_hashes,
             vec![blob_hash]
         );
+    }
+
+    #[tokio::test]
+    async fn accepted_field_device_publishes_as_the_active_user_and_every_peer_can_reconcile() {
+        let host_dir = tempfile::tempdir().unwrap();
+        let peer_dir = tempfile::tempdir().unwrap();
+        let host = LocalNode::start(
+            NodeConfig::loopback(host_dir.path(), NodeAvailability::Process).with_ephemeral_ports(),
+        )
+        .await
+        .unwrap();
+        let peer = LocalNode::start(
+            NodeConfig::loopback(peer_dir.path(), NodeAvailability::Process).with_ephemeral_ports(),
+        )
+        .await
+        .unwrap();
+        let field_session = FieldSessionInfo {
+            id: "water-survey".to_owned(),
+            name: "Water survey".to_owned(),
+            description: Some("Nearby collaboration proof".to_owned()),
+            internet_policy: crate::FieldSessionInternetPolicy::Never,
+            conversation_policy: crate::FieldSessionConversationPolicy::NearbyOnly,
+            allow_peer_writes: true,
+            context_coordinates: Vec::new(),
+        };
+        let invitation = host
+            .create_field_session_invitation(
+                Duration::from_secs(60),
+                PairingCapability::initial_set(),
+                field_session.clone(),
+            )
+            .await
+            .unwrap();
+        let pending = peer
+            .join_pairing_invitation(
+                &invitation.encode().unwrap(),
+                Some("Survey phone".to_owned()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(pending.field_session, Some(field_session));
+        host.approve_pairing_claim(EventId::from_hex(&pending.claim_id).unwrap())
+            .await
+            .unwrap();
+        peer.refresh_remote_node(&pending.node_id).await.unwrap();
+
+        // The installation key authenticates the relay connection, but the
+        // immutable record retains the active Earthly user's Nostr authorship.
+        let active_user = Keys::generate();
+        let message = EventBuilder::new(
+            Kind::Custom(37_523),
+            r#"{"version":1,"type":"message","text":"found the spring"}"#,
+        )
+        .tags([
+            Tag::parse(["d", "field-message-1"]).unwrap(),
+            Tag::parse(["h", "water-survey"]).unwrap(),
+            Tag::parse(["type", "message"]).unwrap(),
+        ])
+        .sign_with_keys(&active_user)
+        .unwrap();
+        let published = peer
+            .publish_remote_event(&pending.node_id, message.clone())
+            .await
+            .unwrap();
+        assert_eq!(published.event_id, message.id.to_hex());
+        assert_ne!(message.pubkey, peer.identity_public_key());
+
+        let host_events = host.field_session_events("water-survey").await.unwrap();
+        assert_eq!(host_events, vec![message.clone()]);
+        let peer_events = peer.field_session_events("water-survey").await.unwrap();
+        assert_eq!(peer_events, vec![message]);
     }
 
     #[tokio::test]

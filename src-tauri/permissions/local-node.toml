@@ -18,6 +18,9 @@ commands.allow = [
   "local_node_refresh_remote_node_v1",
   "local_node_forget_remote_node_v1",
   "local_node_sync_remote_node_v1",
+  "local_node_publish_remote_event_v1",
+  "local_node_ingest_event_v1",
+  "local_node_field_session_events_v1",
   "local_node_mirror_remote_blobs_v1",
   "local_node_blob_access_v1",
 ]

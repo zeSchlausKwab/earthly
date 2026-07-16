@@ -48,12 +48,33 @@ export const localBlobAccessSchema = z.object({
 
 export type LocalBlobAccess = z.infer<typeof localBlobAccessSchema>
 
+export const fieldSessionInternetPolicySchema = z.enum(['never', 'ask', 'automatic'])
+export const fieldSessionConversationPolicySchema = z.enum([
+	'nearby-only',
+	'include-when-publishing',
+])
+
+export const fieldSessionInfoSchema = z.object({
+	id: z.string().regex(/^[A-Za-z0-9_-]{1,96}$/),
+	name: z.string().trim().min(1).max(120),
+	description: z.string().trim().min(1).max(500).optional(),
+	internetPolicy: fieldSessionInternetPolicySchema,
+	conversationPolicy: fieldSessionConversationPolicySchema,
+	allowPeerWrites: z.boolean(),
+	contextCoordinates: z.array(z.string().trim().min(1).max(320)).max(16).default([]),
+})
+
+export type FieldSessionInfo = z.infer<typeof fieldSessionInfoSchema>
+export type FieldSessionInternetPolicy = z.infer<typeof fieldSessionInternetPolicySchema>
+export type FieldSessionConversationPolicy = z.infer<typeof fieldSessionConversationPolicySchema>
+
 export const pairingInvitationSchema = z.object({
 	version: z.literal(1),
 	encoded: z.string().startsWith('earthly-pair-v1:'),
 	expiresAt: z.number().int().positive(),
 	capabilities: z.array(pairingCapabilitySchema).min(1),
 	descriptor: nodeDescriptorSchema,
+	fieldSession: fieldSessionInfoSchema.optional(),
 })
 
 export type PairingInvitation = z.infer<typeof pairingInvitationSchema>
@@ -104,6 +125,7 @@ export const remoteNodeRecordSchema = z.object({
 	peerPubkey: z.string().regex(/^[0-9a-f]{64}$/),
 	peerName: z.string().min(1).nullable().optional(),
 	capabilities: z.array(pairingCapabilitySchema).min(1),
+	fieldSession: fieldSessionInfoSchema.optional(),
 	status: pairingStatusSchema,
 	updatedAt: z.number().int().positive(),
 	lastSync: remoteSyncCheckpointSchema.optional(),
@@ -124,6 +146,13 @@ export const syncedNostrEventSchema = z.object({
 })
 
 export type SyncedNostrEvent = z.infer<typeof syncedNostrEventSchema>
+
+export const remotePublishResultSchema = z.object({
+	nodeId: z.string().regex(/^[0-9a-f]{64}$/),
+	eventId: z.string().regex(/^[0-9a-f]{64}$/),
+})
+
+export type RemotePublishResult = z.infer<typeof remotePublishResultSchema>
 
 export const remoteSyncResultSchema = z.object({
 	nodeId: z.string().regex(/^[0-9a-f]{64}$/),
@@ -320,7 +349,7 @@ export interface LocalNodeService {
 	networkAddresses(): Promise<NetworkAddress[]>
 	enableLan(address: string, durationSeconds: number): Promise<LocalNodeStatus>
 	disableLan(): Promise<LocalNodeStatus>
-	createInvitation(): Promise<PairingInvitation>
+	createInvitation(fieldSession?: FieldSessionInfo): Promise<PairingInvitation>
 	pendingClaims(): Promise<PendingPairingClaim[]>
 	approveClaim(claimId: string): Promise<PendingPairingClaim>
 	rejectClaim(claimId: string, reason: string): Promise<void>
@@ -331,6 +360,9 @@ export interface LocalNodeService {
 	refreshRemoteNode(nodeId: string): Promise<RemoteNodeRecord>
 	forgetRemoteNode(nodeId: string): Promise<boolean>
 	syncRemoteNode(nodeId: string): Promise<RemoteSyncResult>
+	publishRemoteEvent(nodeId: string, event: SyncedNostrEvent): Promise<RemotePublishResult>
+	ingestLocalEvent(event: SyncedNostrEvent): Promise<SyncedNostrEvent>
+	fieldSessionEvents(sessionId: string): Promise<SyncedNostrEvent[]>
 	mirrorRemoteBlobs(nodeId: string, hashes: string[]): Promise<RemoteBlobMirrorResult>
 	localBlobAccess(sha256: string): Promise<LocalBlobAccess | null>
 	localBlobUrl(sha256: string): Promise<string | null>
@@ -346,6 +378,9 @@ export const nativeSchemas = {
 	remoteNode: remoteNodeRecordSchema,
 	remoteNodes: z.array(remoteNodeRecordSchema),
 	remoteSync: remoteSyncResultSchema,
+	remotePublish: remotePublishResultSchema,
+	nostrEvent: syncedNostrEventSchema,
+	nostrEvents: z.array(syncedNostrEventSchema),
 	remoteBlobMirror: remoteBlobMirrorResultSchema,
 	localBlobAccess: localBlobAccessSchema,
 	outboxItem: outboxItemSchema,

@@ -56,6 +56,18 @@ test('Private groups can be opened as a routed panel', async ({ earthly }) => {
 	).toBeVisible()
 })
 
+test('Field sessions are a routed native workspace', async ({ earthly }) => {
+	await earthly.open({ tour: 'seen' })
+	await openPanel(earthly, 'Field sessions')
+	await expect(
+		earthly.page
+			.locator('h2:visible')
+			.filter({ hasText: /^Field sessions$/ })
+			.first(),
+	).toBeVisible()
+	await expect(earthly.page.getByText('Earthly app required', { exact: true })).toBeVisible()
+})
+
 test('Sync & delivery is reachable and describes browser delivery honestly', async ({
 	earthly,
 }) => {

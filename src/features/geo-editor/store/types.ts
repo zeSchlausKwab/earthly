@@ -13,6 +13,7 @@ export type SidebarViewMode =
 	| 'datasets'
 	| 'map-stack'
 	| 'contexts'
+	| 'field-sessions'
 	| 'private-groups'
 	| 'context-editor'
 	| 'stories'
@@ -41,6 +42,7 @@ export interface RouteSnapshot {
 	naddr?: string
 	contextNaddr?: string
 	contextCoordinate?: string
+	fieldSessionId?: string
 	privateGroupId?: string
 }
 
@@ -193,6 +195,7 @@ export type MobilePanelTab =
 	| 'datasets'
 	| 'map-stack'
 	| 'contexts'
+	| 'field-sessions'
 	| 'private-groups'
 	| 'context-editor'
 	| 'edit'

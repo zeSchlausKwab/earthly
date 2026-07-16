@@ -3,12 +3,12 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 
-use nostr::Event;
+use nostr::{Alphabet, Event, Filter, Kind, SingleLetterTag};
 use nostr_database::{NostrDatabase, SaveEventStatus};
 use nostr_lmdb::NostrLMDB;
 use nostr_relay_builder::builder::{
     Nip42Policy, Nip42PolicyAction, PolicyResult, RateLimit, RelayBuilder, RelayBuilderNip42,
-    RelayBuilderNip42Mode, WritePolicy,
+    RelayBuilderNip42Mode,
 };
 use nostr_relay_builder::LocalRelay;
 use url::Url;
@@ -40,9 +40,6 @@ impl EmbeddedRelay {
             })
             .max_filter_limit(config.max_relay_filter_limit)
             .default_filter_limit(config.max_relay_filter_limit.min(100))
-            .write_policy(PairedAuthorPolicy {
-                peers: peers.clone(),
-            })
             .nip42_policy(PairedSessionPolicy { peers });
 
         if config.relay_port != 0 {
@@ -77,6 +74,45 @@ impl EmbeddedRelay {
         Arc::clone(&self.database)
     }
 
+    pub async fn field_session_events(&self, session_id: &str) -> Result<Vec<Event>, NodeError> {
+        if session_id.is_empty()
+            || session_id.len() > 96
+            || !session_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        {
+            return Err(NodeError::RelayDatabase(
+                "invalid field-session identifier".to_owned(),
+            ));
+        }
+        let kinds = [
+            5_u16, 7, 1_630, 1_631, 1_632, 1_633, 9_735, 34_444, 37_515, 37_517, 37_518, 37_519,
+            37_520, 37_521, 37_522, 37_523,
+        ]
+        .into_iter()
+        .map(Kind::from)
+        .collect::<Vec<_>>();
+        let filter = Filter::new()
+            .kinds(kinds)
+            .custom_tag(
+                SingleLetterTag::lowercase(Alphabet::H),
+                session_id.to_owned(),
+            )
+            .limit(2_000);
+        let events = self
+            .database
+            .query(filter)
+            .await
+            .map_err(|error| NodeError::RelayDatabase(error.to_string()))?;
+        let mut events = events.into_iter().collect::<Vec<_>>();
+        events.sort_by(|left, right| {
+            left.created_at
+                .cmp(&right.created_at)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        Ok(events)
+    }
+
     /// Persist a signed event through the trusted in-process path.
     ///
     /// This path is intentionally separate from relay writes: it verifies the original event and
@@ -90,7 +126,14 @@ impl EmbeddedRelay {
             .save_event(event)
             .await
             .map_err(|error| NodeError::RelayDatabase(error.to_string()))?;
-        Ok(matches!(status, SaveEventStatus::Success))
+        let saved = matches!(status, SaveEventStatus::Success);
+        if saved {
+            // The trusted in-process path shares the same live semantics as an
+            // ordinary relay EVENT: connected field-session subscribers should
+            // not have to wait for a reconciliation pass to observe it.
+            self.inner.notify_event(event.clone());
+        }
+        Ok(saved)
     }
 
     pub fn shutdown(&self) {
@@ -110,11 +153,6 @@ fn open_database(path: &Path) -> Result<NostrLMDB, NodeError> {
         .max_readers(64)
         .build()
         .map_err(|error| NodeError::RelayDatabase(error.to_string()))
-}
-
-#[derive(Clone)]
-struct PairedAuthorPolicy {
-    peers: PeerPolicy,
 }
 
 #[derive(Clone)]
@@ -157,34 +195,6 @@ impl Nip42Policy for PairedSessionPolicy {
     }
 }
 
-impl fmt::Debug for PairedAuthorPolicy {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("PairedAuthorPolicy")
-            .finish_non_exhaustive()
-    }
-}
-
-impl WritePolicy for PairedAuthorPolicy {
-    fn admit_event<'a>(
-        &'a self,
-        event: &'a Event,
-        _addr: &'a SocketAddr,
-    ) -> nostr::util::BoxedFuture<'a, PolicyResult> {
-        Box::pin(async move {
-            if self
-                .peers
-                .allows_capability(&event.pubkey, PairingCapability::RelayWrite)
-                .await
-            {
-                PolicyResult::Accept
-            } else {
-                PolicyResult::Reject("blocked: author is not paired".to_owned())
-            }
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,29 +215,6 @@ mod tests {
         assert_eq!(relay.url().host_str(), Some("127.0.0.1"));
         assert_ne!(relay.url().port(), Some(0));
         relay.shutdown();
-    }
-
-    #[tokio::test]
-    async fn write_policy_rejects_unpaired_authors() {
-        let peers = PeerPolicy::default();
-        let policy = PairedAuthorPolicy {
-            peers: peers.clone(),
-        };
-        let keys = Keys::generate();
-        let event = EventBuilder::text_note("paired author policy")
-            .sign_with_keys(&keys)
-            .unwrap();
-        let address = "127.0.0.1:12345".parse().unwrap();
-
-        assert!(matches!(
-            policy.admit_event(&event, &address).await,
-            PolicyResult::Reject(_)
-        ));
-        peers.grant(keys.public_key()).await.unwrap();
-        assert!(matches!(
-            policy.admit_event(&event, &address).await,
-            PolicyResult::Accept
-        ));
     }
 
     #[tokio::test]

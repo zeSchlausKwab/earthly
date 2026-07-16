@@ -12,7 +12,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
 use crate::{
-    NodeDescriptor, PairingCapability, PairingClaimContent, PairingClaimReceipt,
+    FieldSessionInfo, NodeDescriptor, PairingCapability, PairingClaimContent, PairingClaimReceipt,
     PairingClaimRequest, PairingError, PairingInvitation, PairingStatus, PAIRING_CLAIMS_PATH,
 };
 
@@ -37,6 +37,8 @@ pub struct RemoteNodeRecord {
     pub peer_pubkey: String,
     pub peer_name: Option<String>,
     pub capabilities: Vec<PairingCapability>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field_session: Option<FieldSessionInfo>,
     pub status: PairingStatus,
     pub updated_at: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -72,6 +74,18 @@ impl RemoteNodeRecord {
             return Err(RemoteNodeError::InvalidRecord(
                 "capabilities must be unique and non-empty".to_owned(),
             ));
+        }
+        if let Some(field_session) = &self.field_session {
+            field_session
+                .validate()
+                .map_err(|error| RemoteNodeError::InvalidRecord(error.to_string()))?;
+            if field_session.allow_peer_writes
+                != self.capabilities.contains(&PairingCapability::RelayWrite)
+            {
+                return Err(RemoteNodeError::InvalidRecord(
+                    "field-session contribution policy does not match relay grant".to_owned(),
+                ));
+            }
         }
         if self
             .last_sync
@@ -155,6 +169,7 @@ impl RemoteNodeStore {
             peer_pubkey: claim.pubkey.to_hex(),
             peer_name: claim_content.peer_name,
             capabilities: claim_content.requested_capabilities,
+            field_session: invitation_content.field_session,
             status: receipt.status,
             updated_at: Timestamp::now().as_secs(),
             last_sync: None,

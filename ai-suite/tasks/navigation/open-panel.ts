@@ -5,6 +5,7 @@ import type { AiTaskMetadata } from '../../core/task'
 export type EarthlyPanel =
 	| 'Datasets'
 	| 'Contexts'
+	| 'Field sessions'
 	| 'Private groups'
 	| 'Stories'
 	| 'Sightings'
@@ -27,6 +28,7 @@ export const openPanelTask: AiTaskMetadata = {
 const desktopRoutes: Record<EarthlyPanel, string> = {
 	Datasets: '/datasets',
 	Contexts: '/contexts',
+	'Field sessions': '/field-sessions',
 	'Private groups': '/private-groups',
 	Stories: '/stories',
 	Sightings: '/sightings',

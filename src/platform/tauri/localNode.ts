@@ -4,6 +4,7 @@ import {
 	nativeSchemas,
 	type LocalNodeService,
 	type LocalNodeStatus,
+	type FieldSessionInfo,
 	type NetworkAddress,
 	type PairingInvitation,
 	type PendingPairingClaim,
@@ -11,6 +12,8 @@ import {
 	type RemoteNodeRecord,
 	type RemoteBlobMirrorResult,
 	type RemoteSyncResult,
+	type RemotePublishResult,
+	type SyncedNostrEvent,
 } from '../contracts'
 
 function commandError(error: unknown): Error {
@@ -44,8 +47,8 @@ export const tauriLocalNodeService: LocalNodeService = {
 		}),
 	disableLan: (): Promise<LocalNodeStatus> =>
 		invokeValidated('local_node_disable_lan_v1', nativeSchemas.status),
-	createInvitation: (): Promise<PairingInvitation> =>
-		invokeValidated('local_node_create_invitation_v1', nativeSchemas.invitation),
+	createInvitation: (fieldSession?: FieldSessionInfo): Promise<PairingInvitation> =>
+		invokeValidated('local_node_create_invitation_v1', nativeSchemas.invitation, { fieldSession }),
 	pendingClaims: (): Promise<PendingPairingClaim[]> =>
 		invokeValidated('local_node_pending_claims_v1', nativeSchemas.pendingClaims),
 	approveClaim: (claimId): Promise<PendingPairingClaim> =>
@@ -84,6 +87,17 @@ export const tauriLocalNodeService: LocalNodeService = {
 	},
 	syncRemoteNode: (nodeId): Promise<RemoteSyncResult> =>
 		invokeValidated('local_node_sync_remote_node_v1', nativeSchemas.remoteSync, { nodeId }),
+	publishRemoteEvent: (nodeId, event): Promise<RemotePublishResult> =>
+		invokeValidated('local_node_publish_remote_event_v1', nativeSchemas.remotePublish, {
+			nodeId,
+			event,
+		}),
+	ingestLocalEvent: (event): Promise<SyncedNostrEvent> =>
+		invokeValidated('local_node_ingest_event_v1', nativeSchemas.nostrEvent, { event }),
+	fieldSessionEvents: (sessionId): Promise<SyncedNostrEvent[]> =>
+		invokeValidated('local_node_field_session_events_v1', nativeSchemas.nostrEvents, {
+			sessionId,
+		}),
 	mirrorRemoteBlobs: (nodeId, hashes): Promise<RemoteBlobMirrorResult> =>
 		invokeValidated('local_node_mirror_remote_blobs_v1', nativeSchemas.remoteBlobMirror, {
 			nodeId,

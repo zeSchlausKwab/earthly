@@ -12,6 +12,7 @@ import {
 	ArrowLeft,
 	Pencil,
 	Radio,
+	RadioTower,
 	Search,
 	Settings2,
 	UserCircle,
@@ -36,6 +37,7 @@ import { UserProfilePanel } from './UserProfilePanel'
 import { GeoEditorInfoPanelContent } from './GeoEditorInfoPanel'
 import { HelpPanel } from './HelpPanel'
 import { PrivateGroupsPanel } from '../features/private-maps/PrivateMapsDialog'
+import { FieldSessionsPanel } from '../features/field-sessions/FieldSessionsPanel'
 import type { PrivateDatasetActions } from '../features/private-maps/PrivateGeometryReferences'
 import { LoginSessionButtons } from '../features/auth/LoginSessionButtons'
 import { SignedOutCta } from '../features/auth/SignedOutCta'
@@ -68,6 +70,7 @@ type EntityWorkspace = 'geometry' | 'context' | 'story' | 'sighting' | 'beacon'
 type WorkViewMode =
 	| 'datasets'
 	| 'contexts'
+	| 'field-sessions'
 	| 'private-groups'
 	| 'stories'
 	| 'sightings'
@@ -78,6 +81,7 @@ type MetaViewMode = 'posts' | 'delivery' | 'wallet' | 'settings' | 'help'
 const WORK_VIEW_MODES: WorkViewMode[] = [
 	'datasets',
 	'contexts',
+	'field-sessions',
 	'private-groups',
 	'stories',
 	'sightings',
@@ -102,6 +106,7 @@ const workNavItems: {
 }[] = [
 	{ mode: 'datasets', title: 'Datasets', icon: Database },
 	{ mode: 'contexts', title: 'Contexts', icon: Globe },
+	{ mode: 'field-sessions', title: 'Field sessions', icon: RadioTower },
 	{ mode: 'private-groups', title: 'Private groups', icon: UsersRound },
 	{ mode: 'stories', title: 'Stories', icon: BookOpen },
 	{ mode: 'sightings', title: 'Sightings', icon: Eye },
@@ -440,10 +445,12 @@ export function AppSidebar({
 	const {
 		navigateToView,
 		navigateToPrivateGroup,
+		navigateToFieldSession,
 		navigateToContext,
 		clearContextScope,
 		contextNaddr,
 		privateGroupId,
+		fieldSessionId,
 		encodeContextNaddr,
 	} = useRouting()
 	const setStance = useEditorStore((state) => state.setStance)
@@ -1024,6 +1031,8 @@ export function AppSidebar({
 				return <GeoDatasetsPanelContent mode="datasets" {...datasetsPanelProps} />
 			case 'contexts':
 				return <GeoDatasetsPanelContent mode="contexts" {...datasetsPanelProps} />
+			case 'field-sessions':
+				return <FieldSessionsPanel />
 			case 'private-groups':
 				return (
 					<PrivateGroupsPanel
@@ -1096,6 +1105,15 @@ export function AppSidebar({
 			navigateToPrivateGroup(privateGroupId)
 			return
 		}
+		if (activeWorkMode === 'field-sessions' && fieldSessionId) {
+			setViewContextState(null)
+			setViewDatasetState(null)
+			setViewStoryState(null)
+			onClearSightingView?.()
+			setShowEntityAsFullPanel(false)
+			navigateToFieldSession(fieldSessionId)
+			return
+		}
 		handleSelectWorkMode(activeWorkMode)
 	}
 	const renderBackToCatalogBar = () => (
@@ -1109,7 +1127,9 @@ export function AppSidebar({
 				Back to{' '}
 				{activeWorkMode === 'private-groups' && privateGroupId
 					? 'private group'
-					: activeWorkModeLabel}
+					: activeWorkMode === 'field-sessions' && fieldSessionId
+						? 'field session'
+						: activeWorkModeLabel}
 			</span>
 		</button>
 	)
@@ -1350,6 +1370,10 @@ export function AppSidebar({
 								<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
 									Encrypted workspace
 								</div>
+							) : contentMode === 'field-sessions' ? (
+								<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
+									Nearby workspace
+								</div>
 							) : contentMode === 'delivery' ? (
 								<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
 									Native delivery ledger
@@ -1401,14 +1425,17 @@ export function AppSidebar({
 							</span>
 						</div>
 					</div>
-					{currentUserPubkey && contentMode !== 'private-groups' && contentMode !== 'delivery' && (
-						<WorkspaceDraftNavigator
-							onStartNewDataset={onStartNewDataset}
-							onSwitchWorkspace={onSwitchWorkspace}
-							onDeleteWorkspace={onDeleteWorkspace}
-							onAddDraftToWorkspace={onAddDraftToWorkspace}
-						/>
-					)}
+					{currentUserPubkey &&
+						contentMode !== 'private-groups' &&
+						contentMode !== 'field-sessions' &&
+						contentMode !== 'delivery' && (
+							<WorkspaceDraftNavigator
+								onStartNewDataset={onStartNewDataset}
+								onSwitchWorkspace={onSwitchWorkspace}
+								onDeleteWorkspace={onDeleteWorkspace}
+								onAddDraftToWorkspace={onAddDraftToWorkspace}
+							/>
+						)}
 				</SidebarHeader>
 
 				<SidebarContent className="p-2">

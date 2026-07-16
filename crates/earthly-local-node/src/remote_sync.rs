@@ -12,7 +12,7 @@ use crate::{PairingCapability, PairingStatus, RemoteNodeError, RemoteNodeRecord,
 
 const EARTHLY_SYNC_KIND_NUMBERS: &[u16] = &[
     5, 7, 1630, 1631, 1632, 1633, 9735, 34_444, 37_515, 37_517, 37_518, 37_519, 37_520, 37_521,
-    37_522,
+    37_522, 37_523,
 ];
 const MAX_RESPONSE_EVENTS: usize = 2_000;
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;

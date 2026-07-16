@@ -15,6 +15,26 @@ through a read-only native custom protocol; its Range behavior is also the seam 
 PMTiles consumption. Relay queries, counts, negentropy reconciliation, live reads, and writes are
 bound to the authenticated installation pubkey and its separate durable pairing capabilities.
 
+Implementation checkpoint, 2026-07-16: the raw pairing and pull controls now have a first-class
+product surface named **Field sessions**. A Field session is a nearby collaboration workspace, not
+an MLS group and not merely a transfer dialog:
+
+- `/fieldsession/:id` keeps the active nearby scope visible beside the map;
+- a host selects the local address, starts a bounded LAN session, chooses whether participants may
+  contribute, and issues a signed QR/link invitation containing the Field-session metadata;
+- participant installations request access and authenticate with their durable installation key;
+- records retain the active Earthly user's independent Nostr signature;
+- kind `37523` messages carry an `h` tag with the Field-session id, are submitted to the host relay,
+  and are reconciled by the other approved devices without any public relay;
+- **Nearby only** is the release behavior. **Ask before internet sync** records intent in the
+  session model but does not publish anything globally in `0.0.1`.
+
+The current installation grant authorizes access to the embedded node; it is not an MLS-style
+per-session confidentiality boundary. A previously approved installation remains trusted until the
+host revokes it. Use a Private group for end-to-end encrypted membership. Per-session grant scopes,
+session-bound geometry/datasets, and an explicit promotion flow from nearby records to global Nostr
+are follow-up work, not hidden behavior in `0.0.1`.
+
 ## Decision
 
 Earthly v1 uses an IP network as the data bearer and keeps pairing independent from discovery and
@@ -174,3 +194,6 @@ reasonable Apple-to-Apple optimization only if measured product demand justifies
   be replayed on another node.
 - BLE bootstrap, if added, exchanges only the invitation/control envelope; data-path tests verify
   that large content upgrades to Wi-Fi/IP.
+- A participant installation authenticates independently from the active user's signing key,
+  publishes a Field-session message to the host, and both installations reconcile the identical
+  signed record without internet access.

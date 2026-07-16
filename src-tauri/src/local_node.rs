@@ -5,12 +5,12 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use earthly_local_node::{
-    LocalBlobAccess, LocalBlobReadError, LocalNode, NodeAvailability, NodeBind, NodeConfig,
-    NodeDescriptor, PairingCapability, PairingError, PeerGrant, PendingPairingClaim,
-    RemoteBlobMirrorError, RemoteBlobMirrorResult, RemoteNodeError, RemoteNodeRecord,
-    RemoteSyncError, RemoteSyncResult,
+    FieldSessionInfo, LocalBlobAccess, LocalBlobReadError, LocalNode, NodeAvailability, NodeBind,
+    NodeConfig, NodeDescriptor, NodeError, PairingCapability, PairingError, PeerGrant,
+    PendingPairingClaim, RemoteBlobMirrorError, RemoteBlobMirrorResult, RemoteNodeError,
+    RemoteNodeRecord, RemotePublishError, RemotePublishResult, RemoteSyncError, RemoteSyncResult,
 };
-use nostr::{EventId, PublicKey};
+use nostr::{Event, EventId, PublicKey};
 use serde::Serialize;
 use tauri::http::header::{
     ACCEPT_RANGES, ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS,
@@ -271,6 +271,18 @@ impl From<RemoteSyncError> for LocalNodeCommandError {
     }
 }
 
+impl From<RemotePublishError> for LocalNodeCommandError {
+    fn from(error: RemotePublishError) -> Self {
+        Self::new("remote-publish-failed", error.to_string())
+    }
+}
+
+impl From<NodeError> for LocalNodeCommandError {
+    fn from(error: NodeError) -> Self {
+        Self::new("local-node-failed", error.to_string())
+    }
+}
+
 impl From<RemoteBlobMirrorError> for LocalNodeCommandError {
     fn from(error: RemoteBlobMirrorError) -> Self {
         Self::new("remote-blob-mirror-failed", error.to_string())
@@ -285,6 +297,7 @@ pub struct PairingInvitationView {
     expires_at: u64,
     capabilities: Vec<PairingCapability>,
     descriptor: NodeDescriptor,
+    field_session: Option<FieldSessionInfo>,
 }
 
 fn now_seconds() -> u64 {
@@ -496,14 +509,30 @@ pub async fn local_node_disable_lan_v1(
 #[tauri::command]
 pub async fn local_node_create_invitation_v1(
     state: State<'_, LocalNodeState>,
+    field_session: Option<FieldSessionInfo>,
 ) -> Result<PairingInvitationView, LocalNodeCommandError> {
     let node = state.node()?;
-    let invitation = node
-        .create_pairing_invitation(
-            Duration::from_secs(10 * 60),
-            PairingCapability::initial_set(),
-        )
-        .await?;
+    let capabilities = match &field_session {
+        Some(session) if !session.allow_peer_writes => PairingCapability::initial_set()
+            .into_iter()
+            .filter(|capability| *capability != PairingCapability::RelayWrite)
+            .collect(),
+        _ => PairingCapability::initial_set(),
+    };
+    let invitation = match field_session {
+        Some(session) => {
+            node.create_field_session_invitation(
+                Duration::from_secs(10 * 60),
+                capabilities,
+                session,
+            )
+            .await?
+        }
+        None => {
+            node.create_pairing_invitation(Duration::from_secs(10 * 60), capabilities)
+                .await?
+        }
+    };
     let content = invitation.content()?;
     Ok(PairingInvitationView {
         version: content.version,
@@ -511,6 +540,7 @@ pub async fn local_node_create_invitation_v1(
         expires_at: content.expires_at,
         capabilities: content.capabilities,
         descriptor: content.descriptor,
+        field_session: content.field_session,
     })
 }
 
@@ -608,6 +638,33 @@ pub async fn local_node_sync_remote_node_v1(
     node_id: String,
 ) -> Result<RemoteSyncResult, LocalNodeCommandError> {
     Ok(state.node()?.sync_remote_node(&node_id).await?)
+}
+
+#[tauri::command]
+pub async fn local_node_publish_remote_event_v1(
+    state: State<'_, LocalNodeState>,
+    node_id: String,
+    event: Event,
+) -> Result<RemotePublishResult, LocalNodeCommandError> {
+    Ok(state.node()?.publish_remote_event(&node_id, event).await?)
+}
+
+#[tauri::command]
+pub async fn local_node_ingest_event_v1(
+    state: State<'_, LocalNodeState>,
+    event: Event,
+) -> Result<Event, LocalNodeCommandError> {
+    let node = state.node()?;
+    node.ingest_verified_event(&event).await?;
+    Ok(event)
+}
+
+#[tauri::command]
+pub async fn local_node_field_session_events_v1(
+    state: State<'_, LocalNodeState>,
+    session_id: String,
+) -> Result<Vec<Event>, LocalNodeCommandError> {
+    Ok(state.node()?.field_session_events(&session_id).await?)
 }
 
 #[tauri::command]

@@ -790,9 +790,10 @@ Physical S9 acceptance now verifies that a downloaded hiking fixture, the select
 source, the last viewport, and a signature-checked cached kind-34444 announcement survive a cold
 restart with Wi-Fi and mobile data disabled. Panning and zooming after restart produced fresh,
 uncached `200`/`206` reads from the phone's own embedded Blossom hash while internet access failed.
-Remaining gates are physical two-device blob-transfer acceptance, the offline-authoring/outbox
-journey, integrity repair, reference-counted blob garbage collection, disk-pressure behavior, and
-announced style/sprite artifacts.
+Remaining gates are physical two-device blob-transfer acceptance, integrity repair,
+reference-counted blob garbage collection, disk-pressure behavior, and announced style/sprite
+artifacts. The general offline-authoring/global-outbox journey is deliberately not a `0.0.1` gate;
+the release instead proves explicit nearby collaboration through Field sessions.
 
 ### Phase 9 — Durable native publish outbox
 
@@ -823,9 +824,23 @@ exclusion, retry scheduling, per-relay results, start/resume/connectivity replay
 mobile **Sync & delivery** ledger are implemented. The ledger uses a metadata-only native summary
 command with bounded delivered history, so large signed GeoJSON payloads are not cloned into React
 and no actionable pending item is hidden.
-Unit, contract, routing, build, and responsive browser checks pass. The remaining exit gate is the
-physical Android journey: author a sighting with networking disabled, terminate and restart the app,
-confirm the queued record, reconnect, and verify relay delivery after another clean restart.
+Unit, contract, routing, build, and responsive browser checks pass. The generic offline-authoring
+journey remains a later product phase: the native ledger is retained, but `0.0.1` does not imply
+that locally authored records will automatically become public.
+
+### Phase 9a — Field sessions for explicit nearby collaboration
+
+Implementation status (2026-07-16): the native node accepts user-signed records over a connection
+authenticated by an approved installation, and a dedicated `/fieldsession/:id` workspace is
+available on desktop and mobile. It includes host/start, signed QR/link invitation, paste/photo
+join, approval, revocation, nearby chat reconciliation, people/settings tabs, and a persistent map
+badge that distinguishes nearby delivery intent from internet publication. Kind `37523` is the
+initial session record kind and uses an `h` session tag.
+
+The first slice is intentionally access-controlled rather than MLS encrypted. Private groups remain
+the confidentiality boundary. Before Field sessions can claim full map authoring parity, Earthly
+still needs session-bound geometry/dataset publishing, Map Stack projection, physical two-Android
+acceptance, and a later explicit promotion action for records the user chooses to publish globally.
 
 ### Phase 10 — Bundles, file associations, deep links, and sharing
 

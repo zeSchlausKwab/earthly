@@ -15,6 +15,7 @@ mod public_blob;
 mod relay;
 mod remote;
 mod remote_blob;
+mod remote_publish;
 mod remote_sync;
 
 pub use blossom::{BlobDescriptor, EmbeddedBlossom, LocalBlobRead, LocalBlobReadError};
@@ -26,6 +27,7 @@ pub use error::NodeError;
 pub use identity::NodeIdentity;
 pub use node::{LocalBlobAccess, LocalNode};
 pub use pairing::{
+    FieldSessionConversationPolicy, FieldSessionInfo, FieldSessionInternetPolicy,
     PairingCapability, PairingClaimContent, PairingClaimReceipt, PairingClaimRequest, PairingError,
     PairingInvitation, PairingInvitationContent, PairingManager, PairingStatus,
     PendingPairingClaim, PAIRING_CLAIMS_PATH, PAIRING_CLAIM_KIND, PAIRING_INVITATION_KIND,
@@ -41,4 +43,5 @@ pub use remote::{
 pub use remote_blob::{
     RemoteBlobMirrorError, RemoteBlobMirrorItem, RemoteBlobMirrorResult, RemoteBlobMirrorState,
 };
+pub use remote_publish::{RemotePublishError, RemotePublishResult};
 pub use remote_sync::{RemoteSyncError, RemoteSyncResult};

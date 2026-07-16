@@ -2,7 +2,7 @@
 
 Status date: 2026-07-16
 
-Current version: `0.1.0`
+Current release target: `0.0.1`
 
 Release boundary: Android only; macOS is a development host. iOS, Windows, and Linux are deferred.
 
@@ -22,6 +22,10 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 - [x] Embedded persistent Nostr relay and Blossom service.
 - [x] Explicit LAN exposure, signed pairing, approval, revocation, and deep links.
 - [x] Pull reconciliation of signed Earthly records and verified referenced blobs.
+- [x] First-class Field-session routes and responsive workspace with host/join, signed QR invites,
+      approvals, participant writes, nearby chat, device revocation, and explicit delivery policy.
+- [ ] Physical two-phone Field-session UAT with internet disabled: host, approve, bidirectional chat,
+      revoke, reconnect, and restart both apps.
 - [x] Local content-addressed range protocol used by the PMTiles client.
 - [x] Mirrored raster and vector PMTiles can become the restart-persistent offline basemap.
 - [ ] Two-device UAT of a mirrored PMTiles map with internet disabled and both apps restarted.
@@ -30,7 +34,7 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 - [ ] Saved-region integrity repair, reference-counted blob garbage collection, and disk-pressure
       recovery.
 - [x] Crash-safe SQLite signed-event outbox with immutable events and per-relay acknowledgements.
-- [ ] Physical Android process-death UAT for offline create/edit and later authenticated delivery.
+- [ ] Physical Android process-death UAT for the native delivery ledger.
 - [ ] Suspend/resume and low-storage recovery tests on supported Android versions.
 - [x] Timed, user-visible foreground service for background local-node availability.
 - [ ] Physical-device interop for NIP-46 signer and Lightning-wallet intents.
@@ -52,10 +56,16 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 
 ## Execution order
 
-1. Run the saved-region and mirrored-PMTiles offline proof on two physical Android devices.
-2. Prove the durable native publish outbox across offline authoring and Android process death.
+1. Run the Field-session host/join/chat/revoke proof on two physical Android devices with internet
+   disabled.
+2. Run the saved-region and mirrored-PMTiles offline proof on two physical Android devices.
 3. Close saved-region repair/garbage collection, diagnostics, and storage-pressure behavior.
 4. Add protected AAB signing and release CI, then run upgrade and staged-release rehearsals.
+
+The general "author anything offline, then decide later whether to publish globally" journey is
+explicitly shelved for `0.0.1`. The native outbox machinery remains, but it is not being presented
+as the Field-session model. Session-bound map authoring and deliberate promotion to public Nostr
+will be planned together after the first release.
 
 Physical lifecycle evidence currently covers Android 10/API 29. Notification-permission denial and
 foreground-service restrictions still need matrix coverage on Android 13–16 before public release.

@@ -115,6 +115,32 @@ describe('parsePathSegments — private groups', () => {
 	})
 })
 
+describe('parsePathSegments — Field sessions', () => {
+	test('/field-sessions opens the collection panel', () => {
+		expect(parsePathSegments(['field-sessions'])).toEqual({
+			focusType: 'none',
+			sidebarView: 'field-sessions',
+		})
+	})
+
+	test('/fieldsession/:id opens one nearby collaboration space', () => {
+		expect(parsePathSegments(['fieldsession', 'survey-123'])).toEqual({
+			focusType: 'none',
+			sidebarView: 'field-sessions',
+			fieldSessionId: 'survey-123',
+		})
+		expect(buildRoutePath({ sidebarView: 'field-sessions', fieldSessionId: 'survey 123' })).toBe(
+			'/fieldsession/survey%20123',
+		)
+	})
+
+	test('a nested route keeps the Field-session scope', () => {
+		expect(buildRoutePath({ sidebarView: 'edit', fieldSessionId: 'survey-123' })).toBe(
+			'/fieldsession/survey-123/edit',
+		)
+	})
+})
+
 describe('parsePathSegments — scoped /context branch is UNCHANGED', () => {
 	test('/context/:naddr/:view stays a context-scoped RouteState (not a share match)', () => {
 		const result = parsePathSegments(['context', CTX_NADDR, 'datasets'])

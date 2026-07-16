@@ -16,6 +16,7 @@ import {
 	Pencil,
 	Plus,
 	Radio,
+	RadioTower,
 	Settings2,
 	User,
 	UsersRound,
@@ -33,6 +34,7 @@ import { StoriesPanelContent, type StoriesPanelProps } from '@/components/Storie
 import { UserProfilePanel } from '@/components/UserProfilePanel'
 import { ShoutboxPanel } from '@/features/social/shoutbox'
 import { PrivateGroupsPanel } from '@/features/private-maps/PrivateMapsDialog'
+import { FieldSessionsPanel } from '@/features/field-sessions/FieldSessionsPanel'
 import type { PrivateDatasetActions } from '@/features/private-maps/PrivateGeometryReferences'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -56,6 +58,7 @@ export type MobilePanelTab =
 	| 'datasets'
 	| 'map-stack'
 	| 'contexts'
+	| 'field-sessions'
 	| 'private-groups'
 	| 'context-editor'
 	| 'edit'
@@ -185,6 +188,7 @@ const TAB_CONFIG: { id: MobilePanelTab; label: string; icon: typeof Database }[]
 	{ id: 'datasets', label: 'Datasets', icon: Database },
 	{ id: 'map-stack', label: 'Map', icon: Layers },
 	{ id: 'contexts', label: 'Contexts', icon: Globe },
+	{ id: 'field-sessions', label: 'Field sessions', icon: RadioTower },
 	{ id: 'private-groups', label: 'Private groups', icon: UsersRound },
 	{ id: 'context-editor', label: 'Ctx Editor', icon: FilePenLine },
 	{ id: 'edit', label: 'Editor', icon: Pencil },
@@ -209,7 +213,15 @@ const tabMeta = (id: MobilePanelTab) => TAB_CONFIG.find((tab) => tab.id === id) 
 const SIDEBAR_GROUPS: { label: string; tabs: MobilePanelTab[] }[] = [
 	{
 		label: 'Explore',
-		tabs: ['datasets', 'contexts', 'private-groups', 'stories', 'sightings', 'beacons'],
+		tabs: [
+			'datasets',
+			'contexts',
+			'field-sessions',
+			'private-groups',
+			'stories',
+			'sightings',
+			'beacons',
+		],
 	},
 	{ label: 'Communication', tabs: ['chat', 'posts'] },
 	{ label: 'Device', tabs: ['delivery'] },
@@ -738,6 +750,7 @@ export function MobilePanel(props: MobilePanelProps) {
 										</div>
 										{mobileSidebarOpen &&
 										mobilePanelTab !== 'private-groups' &&
+										mobilePanelTab !== 'field-sessions' &&
 										mobilePanelTab !== 'delivery' ? (
 											<div className="shrink-0 border-b border-border bg-card px-3 py-1.5">
 												<div className="flex items-center gap-1.5">
@@ -863,6 +876,8 @@ export function MobilePanel(props: MobilePanelProps) {
 														onMentionZoomTo={onMentionZoomTo}
 													/>
 												) : null}
+
+												{mobilePanelTab === 'field-sessions' ? <FieldSessionsPanel /> : null}
 
 												{mobilePanelTab === 'context-editor' ? (
 													<GeoEditorInfoPanelContent

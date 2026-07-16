@@ -19,6 +19,7 @@ import {
 	PanelTopOpen,
 	Plus,
 	Radio,
+	RadioTower,
 	Redo2,
 	Search,
 	Spline,
@@ -74,6 +75,7 @@ import {
 } from '@/lib/private-workspace'
 import { usePrivateWorkspaceRuntime } from '@/features/private-maps/usePrivateWorkspaceRuntime'
 import { normalizePairingInvitation } from '@/features/offline/pairingQr'
+import { useFieldSessions } from '@/features/field-sessions/model'
 import {
 	consumePendingNativeDeepLink,
 	getPendingNativeDeepLink,
@@ -262,6 +264,7 @@ export function GeoEditorView() {
 		contextCoordinate,
 		userPubkey,
 		privateGroupId,
+		fieldSessionId,
 		commentId: focusCommentId,
 	} = useRouting()
 	const {
@@ -455,6 +458,11 @@ export function GeoEditorView() {
 
 	// External data
 	const { events: geoEvents } = useGeoDatasets()
+	const fieldSessions = useFieldSessions()
+	const fieldSession = useMemo(
+		() => fieldSessions.find((session) => session.id === fieldSessionId),
+		[fieldSessionId, fieldSessions],
+	)
 	const privateWorkspace = useMemo(
 		() =>
 			privateGroupId
@@ -3305,6 +3313,17 @@ export function GeoEditorView() {
 							{privateWorkspace.metadata?.name ?? 'Private group'}
 						</span>
 						<span className="text-muted-foreground">· MLS-encrypted saves</span>
+					</div>
+				</div>
+			) : null}
+			{fieldSession ? (
+				<div className="pointer-events-none absolute right-2 top-2 z-20 md:top-[calc(var(--shell-toolbar-h)+0.5rem)]">
+					<div className="flex items-center gap-1.5 rounded-[2px] border border-emerald-500/35 bg-background/95 px-2 py-1.5 text-[10px] font-medium text-foreground shadow-sm backdrop-blur">
+						<RadioTower className="h-3 w-3 text-emerald-600" />
+						<span className="max-w-40 truncate">{fieldSession.name}</span>
+						<span className="text-muted-foreground">
+							· {fieldSession.internetPolicy === 'never' ? 'nearby only' : 'nearby now'}
+						</span>
 					</div>
 				</div>
 			) : null}
