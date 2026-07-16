@@ -147,6 +147,62 @@ describe('local node platform contracts', () => {
 		).toEqual({ removedBlobs: 2, reclaimedBytes: 1_024, retainedBlobs: 1 })
 	})
 
+	test('accepts a redacted support report without identities or content', () => {
+		const report = {
+			schemaVersion: 1 as const,
+			generatedAt: 1_900_000_000,
+			app: { version: '0.0.1', targetOs: 'android', targetArch: 'aarch64' },
+			privacy: { redacted: true as const, excludes: ['identities', 'geometry'] },
+			localNode: {
+				state: 'running' as const,
+				endpointScope: 'loopback' as const,
+				availability: 'process' as const,
+				lanActive: false,
+				globalPeerGrants: 0,
+				fieldSessionGrants: 2,
+				fieldSessionScopes: 1,
+				pendingClaims: 0,
+				remoteNodes: 1,
+				remotePending: 0,
+				remoteAccepted: 1,
+				remoteRejected: 0,
+				remoteFieldSessions: 1,
+				discoveredBlobs: 2,
+				mirroredBlobs: 1,
+				storageAvailableBytes: 1_024,
+				storageTotalBytes: 2_048,
+				collectionErrors: [],
+			},
+			savedRegions: {
+				total: 1,
+				planned: 0,
+				downloading: 0,
+				ready: 1,
+				failed: 0,
+				activeDownloads: 0,
+				blobReferences: 2,
+				uniqueAvailableBlobs: 2,
+				managedBlobs: 2,
+				managedBytes: 1_024,
+				orphanedManagedBlobs: 0,
+			},
+			publishOutbox: {
+				total: 1,
+				queued: 0,
+				delivering: 0,
+				delivered: 1,
+				partial: 0,
+				retryWait: 0,
+				rejected: 0,
+				discarded: 0,
+				relayPending: 0,
+				relayAcknowledged: 1,
+				relayRejected: 0,
+			},
+		}
+		expect(nativeSchemas.supportDiagnosticReport.parse(report)).toEqual(report)
+	})
+
 	test('accepts the versioned native outbox delivery state', () => {
 		const eventId = 'e'.repeat(64)
 		const item = {

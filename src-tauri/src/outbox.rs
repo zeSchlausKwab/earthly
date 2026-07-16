@@ -38,6 +38,72 @@ impl OutboxState {
             OutboxCommandError::new("outbox-lock-failed", "The publish outbox is unavailable")
         })
     }
+
+    pub(crate) fn diagnostic_summary(&self) -> Result<OutboxDiagnosticSummary, OutboxCommandError> {
+        let connection = self.connection()?;
+        let (total, queued, delivering, delivered, partial, retry_wait, rejected, discarded) =
+            connection.query_row(
+                "SELECT COUNT(*),
+                    COALESCE(SUM(state = 'queued'), 0),
+                    COALESCE(SUM(state = 'delivering'), 0),
+                    COALESCE(SUM(state = 'delivered'), 0),
+                    COALESCE(SUM(state = 'partial'), 0),
+                    COALESCE(SUM(state = 'retry_wait'), 0),
+                    COALESCE(SUM(state = 'rejected'), 0),
+                    COALESCE(SUM(state = 'discarded'), 0)
+             FROM outbox_items",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                    ))
+                },
+            )?;
+        let (relay_pending, relay_acknowledged, relay_rejected) = connection.query_row(
+            "SELECT COALESCE(SUM(state = 'pending'), 0),
+                    COALESCE(SUM(state = 'acknowledged'), 0),
+                    COALESCE(SUM(state = 'rejected'), 0)
+             FROM outbox_relays",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        Ok(OutboxDiagnosticSummary {
+            total,
+            queued,
+            delivering,
+            delivered,
+            partial,
+            retry_wait,
+            rejected,
+            discarded,
+            relay_pending,
+            relay_acknowledged,
+            relay_rejected,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutboxDiagnosticSummary {
+    total: u64,
+    queued: u64,
+    delivering: u64,
+    delivered: u64,
+    partial: u64,
+    retry_wait: u64,
+    rejected: u64,
+    discarded: u64,
+    relay_pending: u64,
+    relay_acknowledged: u64,
+    relay_rejected: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -900,6 +966,18 @@ mod tests {
         let state =
             OutboxState::open(directory.path().join("earthly.sqlite3")).expect("outbox database");
         (directory, state)
+    }
+
+    #[test]
+    fn diagnostic_summary_contains_counts_without_event_content() {
+        let (_directory, state) = test_state();
+        let summary = state.diagnostic_summary().unwrap();
+
+        assert_eq!(summary, OutboxDiagnosticSummary::default());
+        let json = serde_json::to_string(&summary).unwrap();
+        assert!(!json.contains("eventJson"));
+        assert!(!json.contains("relayUrl"));
+        assert!(!json.contains("lastError"));
     }
 
     fn signed_event(kind: u16) -> Event {

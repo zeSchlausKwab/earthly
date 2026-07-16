@@ -340,6 +340,74 @@ export interface SavedRegionService {
 	listenProgress(listener: (progress: SavedRegionProgress) => void): Promise<() => void>
 }
 
+const diagnosticCountSchema = z.number().int().nonnegative()
+
+export const supportDiagnosticReportSchema = z.object({
+	schemaVersion: z.literal(1),
+	generatedAt: z.number().int().positive(),
+	app: z.object({
+		version: z.string().min(1),
+		targetOs: z.string().min(1),
+		targetArch: z.string().min(1),
+	}),
+	privacy: z.object({
+		redacted: z.literal(true),
+		excludes: z.array(z.string().min(1)).min(1),
+	}),
+	localNode: z.object({
+		state: z.enum(['starting', 'running', 'failed']),
+		endpointScope: z.enum(['loopback', 'local-network']).nullable(),
+		availability: z.enum(['process', 'foreground', 'foreground-service']).nullable(),
+		lanActive: z.boolean(),
+		globalPeerGrants: diagnosticCountSchema,
+		fieldSessionGrants: diagnosticCountSchema,
+		fieldSessionScopes: diagnosticCountSchema,
+		pendingClaims: diagnosticCountSchema.nullable(),
+		remoteNodes: diagnosticCountSchema,
+		remotePending: diagnosticCountSchema,
+		remoteAccepted: diagnosticCountSchema,
+		remoteRejected: diagnosticCountSchema,
+		remoteFieldSessions: diagnosticCountSchema,
+		discoveredBlobs: diagnosticCountSchema,
+		mirroredBlobs: diagnosticCountSchema,
+		storageAvailableBytes: diagnosticCountSchema.nullable(),
+		storageTotalBytes: diagnosticCountSchema.nullable(),
+		collectionErrors: z.array(z.string().min(1)),
+	}),
+	savedRegions: z.object({
+		total: diagnosticCountSchema,
+		planned: diagnosticCountSchema,
+		downloading: diagnosticCountSchema,
+		ready: diagnosticCountSchema,
+		failed: diagnosticCountSchema,
+		activeDownloads: diagnosticCountSchema,
+		blobReferences: diagnosticCountSchema,
+		uniqueAvailableBlobs: diagnosticCountSchema,
+		managedBlobs: diagnosticCountSchema,
+		managedBytes: diagnosticCountSchema,
+		orphanedManagedBlobs: diagnosticCountSchema,
+	}),
+	publishOutbox: z.object({
+		total: diagnosticCountSchema,
+		queued: diagnosticCountSchema,
+		delivering: diagnosticCountSchema,
+		delivered: diagnosticCountSchema,
+		partial: diagnosticCountSchema,
+		retryWait: diagnosticCountSchema,
+		rejected: diagnosticCountSchema,
+		discarded: diagnosticCountSchema,
+		relayPending: diagnosticCountSchema,
+		relayAcknowledged: diagnosticCountSchema,
+		relayRejected: diagnosticCountSchema,
+	}),
+})
+
+export type SupportDiagnosticReport = z.infer<typeof supportDiagnosticReportSchema>
+
+export interface SupportDiagnosticsService {
+	collect(): Promise<SupportDiagnosticReport>
+}
+
 export interface OutboxEnqueueRequest {
 	version: 1
 	eventJson: string
@@ -407,4 +475,5 @@ export const nativeSchemas = {
 	savedRegions: z.array(savedRegionSchema),
 	savedRegionProgress: savedRegionProgressSchema,
 	savedRegionGarbageCollection: savedRegionGarbageCollectionSchema,
+	supportDiagnosticReport: supportDiagnosticReportSchema,
 }

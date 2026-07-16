@@ -17,6 +17,7 @@
     },
     "local-node-admin",
     "publish-outbox",
-    "saved-regions"
+    "saved-regions",
+    "support-diagnostics"
   ]
 }

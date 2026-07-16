@@ -1,0 +1,6 @@
+"$schema" = "schemas/schema.json"
+
+[[permission]]
+identifier = "support-diagnostics"
+description = "Allows the Earthly main window to export a redacted native support report."
+commands.allow = ["support_diagnostics_v1"]

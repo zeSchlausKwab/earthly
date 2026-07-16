@@ -51,6 +51,68 @@ impl SavedRegionState {
         })
     }
 
+    pub(crate) fn diagnostic_summary(
+        &self,
+    ) -> Result<SavedRegionDiagnosticSummary, SavedRegionCommandError> {
+        let connection = self.connection()?;
+        let (total, planned, downloading, ready, failed) = connection.query_row(
+            "SELECT COUNT(*),
+                    COALESCE(SUM(status = 'planned'), 0),
+                    COALESCE(SUM(status = 'downloading'), 0),
+                    COALESCE(SUM(status = 'ready'), 0),
+                    COALESCE(SUM(status = 'failed'), 0)
+             FROM saved_regions",
+            [],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )?;
+        let (blob_references, unique_available_blobs) = connection.query_row(
+            "SELECT COUNT(*),
+                    COUNT(DISTINCT CASE WHEN state = 'available' THEN sha256 END)
+             FROM saved_region_blobs",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let (managed_blobs, managed_bytes) = connection.query_row(
+            "SELECT COUNT(*), COALESCE(SUM(actual_size), 0)
+             FROM saved_region_managed_blobs",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let orphaned_managed_blobs = orphaned_managed_blobs(&connection)?.len() as u64;
+        drop(connection);
+        let active_downloads = self
+            .downloads
+            .lock()
+            .map_err(|_| {
+                SavedRegionCommandError::new(
+                    "region-download-unavailable",
+                    "The saved-region download lock is unavailable",
+                )
+            })?
+            .len() as u64;
+        Ok(SavedRegionDiagnosticSummary {
+            total,
+            planned,
+            downloading,
+            ready,
+            failed,
+            active_downloads,
+            blob_references,
+            unique_available_blobs,
+            managed_blobs,
+            managed_bytes,
+            orphaned_managed_blobs,
+        })
+    }
+
     fn begin_download(&self, id: &str) -> Result<CancellationToken, SavedRegionCommandError> {
         let mut downloads = self.downloads.lock().map_err(|_| {
             SavedRegionCommandError::new(
@@ -256,6 +318,22 @@ pub struct SavedRegionGarbageCollection {
     removed_blobs: usize,
     reclaimed_bytes: u64,
     retained_blobs: usize,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedRegionDiagnosticSummary {
+    total: u64,
+    planned: u64,
+    downloading: u64,
+    ready: u64,
+    failed: u64,
+    active_downloads: u64,
+    blob_references: u64,
+    unique_available_blobs: u64,
+    managed_blobs: u64,
+    managed_bytes: u64,
+    orphaned_managed_blobs: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -1396,5 +1474,35 @@ mod tests {
             assert_eq!(region.blobs[0].state, SavedRegionBlobState::Missing);
             assert_eq!(region.last_error.as_deref(), Some("integrity check failed"));
         }
+    }
+
+    #[test]
+    fn diagnostic_summary_exposes_only_saved_map_counts() {
+        let (_directory, state) = state();
+        let hash = "a".repeat(64);
+        let mut connection = state.connection().unwrap();
+        create_region(&mut connection, input("private-place-name", &hash)).unwrap();
+        record_managed_blob(
+            &connection,
+            &BlobDescriptor {
+                url: format!("http://127.0.0.1/{hash}.pmtiles").parse().unwrap(),
+                sha256: hash.clone(),
+                size: 42,
+                media_type: "application/vnd.pmtiles".to_owned(),
+                uploaded: now_seconds(),
+            },
+        )
+        .unwrap();
+        drop(connection);
+
+        let summary = state.diagnostic_summary().unwrap();
+        assert_eq!(summary.total, 1);
+        assert_eq!(summary.planned, 1);
+        assert_eq!(summary.managed_blobs, 1);
+        assert_eq!(summary.managed_bytes, 42);
+        let json = serde_json::to_string(&summary).unwrap();
+        assert!(!json.contains("private-place-name"));
+        assert!(!json.contains(&hash));
+        assert!(!json.contains("127.0.0.1"));
     }
 }

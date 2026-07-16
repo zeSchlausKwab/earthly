@@ -39,6 +39,7 @@ import { UserProfile } from '@/components/user-profile'
 import { SessionsManager } from '@/features/auth/SessionsManager'
 import { ChatSettingsSection } from '@/features/chat'
 import { OfflineSharingSection } from '@/features/offline/OfflineSharingSection'
+import { OfflineDiagnosticsSection } from '@/features/offline/OfflineDiagnosticsSection'
 import { SavedRegionsSection } from '@/features/offline/saved-regions/SavedRegionsSection'
 import { UserRelayManager } from '@/features/settings/UserRelayManager'
 import { Badge } from '@/components/ui/badge'
@@ -912,6 +913,7 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 					<div className="space-y-4">
 						<SavedRegionsSection />
 						<OfflineSharingSection />
+						<OfflineDiagnosticsSection />
 					</div>
 				</SettingsShell>
 			</TabsContent>

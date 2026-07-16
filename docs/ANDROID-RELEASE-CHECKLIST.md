@@ -42,7 +42,8 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 - [ ] Suspend/resume and low-storage recovery tests on supported Android versions.
 - [x] Timed, user-visible foreground service for background local-node availability.
 - [ ] Physical-device interop for NIP-46 signer and Lightning-wallet intents.
-- [ ] Redacted diagnostics export suitable for alpha support.
+- [x] Redacted diagnostics export suitable for alpha support, using the Android share sheet and a
+      copy/download fallback without identities, endpoints, content, hashes, or map locations.
 
 ## Public release gate
 

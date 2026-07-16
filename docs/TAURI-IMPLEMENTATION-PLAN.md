@@ -609,8 +609,11 @@ On startup, a bounded recovery pass reconciles staging jobs and database state. 
 verification is explicit or scheduled when charging/idle, not forced on every launch.
 
 Native logs use structured fields: subsystem, operation, job id, region id, hash prefix, platform,
-duration, bytes, result, and safe error code. A diagnostics export redacts URLs containing tokens,
-event content configured as private, wallet material, and all signing data.
+duration, bytes, result, and safe error code. The user-exported support report is stricter than the
+native log: it contains only application/platform facts and aggregate node, Field-session,
+saved-region, storage, and outbox counts. It excludes account and installation keys, node and event
+ids, endpoints, URLs, invites, tokens, hashes, messages, event bodies, session names, map bounds,
+coordinates, and geometry.
 
 ## 14. Implementation phases
 
@@ -911,6 +914,12 @@ Exit criteria:
 - signing and store submissions run from protected CI workflows;
 - upgrade tests cover every released native schema version;
 - support can diagnose failures from a redacted user-exported report.
+
+Implementation checkpoint (2026-07-16): the Android Offline settings surface can collect a
+schema-validated native report and open the system share sheet. Desktop fallback copies and
+downloads the same JSON. Rust tests assert that saved-map and outbox summaries expose aggregate
+counts without names, hashes, URLs, event bodies, or relay errors. Distribution signing, upgrade
+fixtures, and operational runbooks remain release work.
 
 ## 15. Test strategy
 

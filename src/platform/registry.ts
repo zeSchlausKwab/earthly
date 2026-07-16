@@ -1,5 +1,10 @@
 import { isTauri } from '@/config/platform'
-import type { LocalNodeService, PublishOutboxService, SavedRegionService } from './contracts'
+import type {
+	LocalNodeService,
+	PublishOutboxService,
+	SavedRegionService,
+	SupportDiagnosticsService,
+} from './contracts'
 import { webLocalNodeService } from './web/localNode'
 import { webSavedRegionService } from './web/savedRegions'
 
@@ -7,6 +12,7 @@ let localNodeServicePromise: Promise<LocalNodeService> | null = null
 let nativeDeepLinksPromise: Promise<void> | null = null
 let publishOutboxServicePromise: Promise<PublishOutboxService | null> | null = null
 let savedRegionServicePromise: Promise<SavedRegionService> | null = null
+let supportDiagnosticsServicePromise: Promise<SupportDiagnosticsService | null> | null = null
 let pendingNativeDeepLink: string | null = null
 
 export const LOCAL_BLOBS_CHANGED_EVENT = 'earthly:local-blobs-changed'
@@ -44,6 +50,16 @@ export function getSavedRegionService(): Promise<SavedRegionService> {
 		? import('./tauri/savedRegions').then(({ tauriSavedRegionService }) => tauriSavedRegionService)
 		: Promise.resolve(webSavedRegionService)
 	return savedRegionServicePromise
+}
+
+/** Redacted native health reports are available only where the embedded node exists. */
+export function getSupportDiagnosticsService(): Promise<SupportDiagnosticsService | null> {
+	supportDiagnosticsServicePromise ??= isTauri()
+		? import('./tauri/diagnostics').then(
+				({ tauriSupportDiagnosticsService }) => tauriSupportDiagnosticsService,
+			)
+		: Promise.resolve(null)
+	return supportDiagnosticsServicePromise
 }
 
 /** Notify mounted delivery surfaces after an enqueue or state transition. */

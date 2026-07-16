@@ -1,8 +1,10 @@
 mod android_lifecycle;
+mod diagnostics;
 mod local_node;
 mod outbox;
 mod saved_regions;
 
+use diagnostics::support_diagnostics_v1;
 use local_node::{
     local_node_approve_claim_v1, local_node_blob_access_v1, local_node_create_invitation_v1,
     local_node_disable_lan_v1, local_node_enable_lan_v1, local_node_field_session_events_v1,
@@ -83,6 +85,7 @@ pub fn run() {
             saved_region_remove_v1,
             saved_region_repair_v1,
             saved_region_collect_garbage_v1,
+            support_diagnostics_v1,
         ])
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;

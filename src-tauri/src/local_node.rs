@@ -6,8 +6,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use earthly_local_node::{
     FieldSessionInfo, LocalBlobAccess, LocalBlobReadError, LocalNode, NodeAvailability, NodeBind,
-    NodeConfig, NodeDescriptor, NodeError, PairingCapability, PairingError, PeerGrant,
-    PendingPairingClaim, RemoteBlobMirrorError, RemoteBlobMirrorResult, RemoteNodeError,
+    NodeConfig, NodeDescriptor, NodeError, PairingCapability, PairingError, PairingStatus,
+    PeerGrant, PendingPairingClaim, RemoteBlobMirrorError, RemoteBlobMirrorResult, RemoteNodeError,
     RemoteNodeRecord, RemotePublishError, RemotePublishResult, RemoteSyncError, RemoteSyncResult,
 };
 use nostr::{Event, EventId, PublicKey};
@@ -213,6 +213,125 @@ pub enum LocalNodeStatus {
     Failed {
         message: String,
     },
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalNodeDiagnosticSummary {
+    state: String,
+    endpoint_scope: Option<String>,
+    availability: Option<String>,
+    lan_active: bool,
+    global_peer_grants: usize,
+    field_session_grants: usize,
+    field_session_scopes: usize,
+    pending_claims: Option<usize>,
+    remote_nodes: usize,
+    remote_pending: usize,
+    remote_accepted: usize,
+    remote_rejected: usize,
+    remote_field_sessions: usize,
+    discovered_blobs: usize,
+    mirrored_blobs: usize,
+    storage_available_bytes: Option<u64>,
+    storage_total_bytes: Option<u64>,
+    collection_errors: Vec<String>,
+}
+
+impl LocalNodeState {
+    pub(crate) async fn diagnostic_summary(&self) -> LocalNodeDiagnosticSummary {
+        let (state, node) = {
+            let runtime = match self.runtime.read() {
+                Ok(runtime) => runtime,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            match &*runtime {
+                Runtime::Starting => ("starting", None),
+                Runtime::Failed { .. } => ("failed", None),
+                Runtime::Running(node) => ("running", Some(Arc::clone(node))),
+            }
+        };
+        let mut summary = LocalNodeDiagnosticSummary {
+            state: state.to_owned(),
+            ..Default::default()
+        };
+        let Some(node) = node else {
+            return summary;
+        };
+
+        summary.endpoint_scope = Some(
+            match node.descriptor().scope {
+                earthly_local_node::EndpointScope::Loopback => "loopback",
+                earthly_local_node::EndpointScope::LocalNetwork => "local-network",
+            }
+            .to_owned(),
+        );
+        summary.availability = Some(
+            match node.descriptor().availability {
+                NodeAvailability::Process => "process",
+                NodeAvailability::Foreground => "foreground",
+                NodeAvailability::ForegroundService => "foreground-service",
+            }
+            .to_owned(),
+        );
+        summary.lan_active = self.lan_expires_at.load(Ordering::SeqCst) > now_seconds();
+
+        let grants = node.peer_grants().await;
+        summary.global_peer_grants = grants
+            .iter()
+            .filter(|grant| !grant.capabilities.is_empty())
+            .count();
+        summary.field_session_grants = grants.iter().map(|grant| grant.field_sessions.len()).sum();
+        summary.field_session_scopes = grants
+            .iter()
+            .flat_map(|grant| {
+                grant
+                    .field_sessions
+                    .iter()
+                    .map(|session| &session.session_id)
+            })
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
+
+        match node.pending_pairing_claims().await {
+            Ok(claims) => summary.pending_claims = Some(claims.len()),
+            Err(_) => summary
+                .collection_errors
+                .push("pending-claims-unavailable".to_owned()),
+        }
+        match node.remote_nodes().await {
+            Ok(remotes) => {
+                summary.remote_nodes = remotes.len();
+                for remote in remotes {
+                    match remote.status {
+                        PairingStatus::Pending => summary.remote_pending += 1,
+                        PairingStatus::Accepted => summary.remote_accepted += 1,
+                        PairingStatus::Rejected { .. } => summary.remote_rejected += 1,
+                    }
+                    summary.remote_field_sessions += usize::from(remote.field_session.is_some());
+                    summary.discovered_blobs = summary
+                        .discovered_blobs
+                        .saturating_add(remote.discovered_blob_hashes.len());
+                    summary.mirrored_blobs = summary
+                        .mirrored_blobs
+                        .saturating_add(remote.mirrored_blob_hashes.len());
+                }
+            }
+            Err(_) => summary
+                .collection_errors
+                .push("remote-nodes-unavailable".to_owned()),
+        }
+        match node.blob_storage_status() {
+            Ok(storage) => {
+                summary.storage_available_bytes = Some(storage.available_bytes);
+                summary.storage_total_bytes = Some(storage.total_bytes);
+            }
+            Err(_) => summary
+                .collection_errors
+                .push("storage-unavailable".to_owned()),
+        }
+        summary
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
