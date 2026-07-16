@@ -8,9 +8,9 @@ Release boundary: Android only; macOS is a development host. iOS, Windows, and L
 
 ## Readiness estimate
 
-- Private Android alpha: approximately 82% complete.
-- Public Android release: approximately 52% complete.
-- Embedded-node and offline-sharing foundation: approximately 92% complete.
+- Private Android alpha: approximately 85% complete.
+- Public Android release: approximately 55% complete.
+- Embedded-node and offline-sharing foundation: approximately 95% complete.
 
 The percentages describe release risk, not source-code volume. The Tauri shell is no longer the
 uncertain part; offline product behavior, Android lifecycle, recovery, signing, and operations are.
@@ -39,7 +39,6 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 - [ ] Android low-storage/write-failure recovery UAT. Preflight, write-failure classification, and
       user-facing cleanup/smaller-area/resume guidance are implemented; physical evidence remains.
 - [x] Crash-safe SQLite signed-event outbox with immutable events and per-relay acknowledgements.
-- [ ] Physical Android process-death UAT for the native delivery ledger.
 - [ ] Suspend/resume and low-storage recovery tests on supported Android versions.
 - [x] Timed, user-visible foreground service for background local-node availability.
 - [x] Nearby polling pauses while hidden and refreshes immediately on foreground/network return.
@@ -56,6 +55,8 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 - [ ] Verified `https://earthly.city` Android App Links and deployed `assetlinks.json` for the
       final release-signing certificate.
 - [ ] Release AAB build, install, upgrade, data-retention, and uninstall tests.
+- [ ] Physical Android process-death UAT for the retained native delivery ledger. This validates
+      ordinary public publishing durability; it does not gate the `0.0.1` Field-session model.
 - [ ] Automated Rust, browser, Android build, and physical-device smoke gates.
 - [ ] Storage migrations and upgrade fixtures for every shipped Android schema.
 - [ ] Android permission, notification, battery, metered-network, and disk-pressure UX.
@@ -68,7 +69,8 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 1. Run the Field-session host/join/chat/revoke proof on two physical Android devices with internet
    disabled.
 2. Run the saved-region and mirrored-PMTiles offline proof on two physical Android devices.
-3. Close diagnostics and physical low-storage/write-failure behavior.
+3. Complete physical low-storage/write-failure evidence without manufacturing disk pressure on a
+   user's primary device.
 4. Add protected AAB signing and release CI, then run upgrade and staged-release rehearsals.
 
 The general "author anything offline, then decide later whether to publish globally" journey is
@@ -77,8 +79,12 @@ as the Field-session model. Field-session map authoring is explicitly nearby-onl
 promotion to public Nostr will be planned after the first release.
 
 Physical lifecycle evidence covers Android 10/API 29 and a radio-disabled force-stop/relaunch on
-Android 16/API 36. Active foreground-service resume, notification-permission denial, and storage-
-pressure behavior still need representative matrix coverage before public release.
+Android 16/API 36. The current `0.0.1` (`versionCode` 1001) upgrade and cold launch pass on a Pixel
+10 Pro XL without clearing its app data. Active foreground-service resume, notification-permission
+denial, and storage-pressure behavior still need representative matrix coverage before public
+release. The Pixel currently has ample free storage, so Earthly will not fill it merely to produce
+an artificial low-space failure; deterministic boundary tests cover that behavior until an
+appropriate disposable or naturally constrained device is available.
 
 Work that is intentionally not on this release path: iOS initialization and signing, Windows/Linux
 build closure, desktop installers/updaters, and native platform-protected MLS key storage.

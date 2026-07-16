@@ -802,8 +802,10 @@ The built-in Protomaps flavor remains the self-contained cartographic fallback: 
 labels from device fonts and optional pictograms degrade through the missing-image handler without
 fetching font or sprite CDNs. Mapnolia's published v0.2 announcement contract does not yet contain
 the designed style/sprite references.
-Remaining gates are physical two-device blob-transfer acceptance and Android low-storage/write-
-failure UAT. The general
+The single-device `0.0.1` offline implementation is complete and cold-start verified on Android
+16/API 36. Remaining acceptance gates are a physical two-device, internet-disabled Field-session
+and blob-transfer journey, plus Android low-storage/write-failure evidence on an appropriate test
+device. The general
 offline-authoring/global-outbox journey is deliberately not a `0.0.1` gate; the release instead
 proves explicit nearby collaboration through Field sessions.
 
