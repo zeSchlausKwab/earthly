@@ -7,7 +7,7 @@ use tokio::net::lookup_host;
 use tokio_util::sync::CancellationToken;
 use url::{Host, Url};
 
-use crate::{BlobDescriptor, EmbeddedBlossom};
+use crate::{BlobDescriptor, EmbeddedBlossom, NodeError};
 
 const MAX_MIRRORS: usize = 8;
 
@@ -33,8 +33,17 @@ pub enum PublicBlobDownloadError {
     Payment,
     #[error("map download was cancelled")]
     Cancelled,
+    #[error("local map storage failed: {0}")]
+    Storage(String),
     #[error("all map mirrors failed: {0}")]
     AllMirrorsFailed(String),
+}
+
+fn local_blob_error(error: NodeError) -> PublicBlobDownloadError {
+    match error {
+        NodeError::Io(error) => PublicBlobDownloadError::Storage(error.to_string()),
+        error => PublicBlobDownloadError::AllMirrorsFailed(error.to_string()),
+    }
 }
 
 pub(crate) async fn download_public_blob(
@@ -65,7 +74,7 @@ async fn download_public_blob_with_policy(
     if let Some(descriptor) = blossom
         .local_blob_descriptor(hash)
         .await
-        .map_err(|error| PublicBlobDownloadError::AllMirrorsFailed(error.to_string()))?
+        .map_err(local_blob_error)?
     {
         return Ok(PublicBlobDownload {
             descriptor,
@@ -130,6 +139,9 @@ async fn download_public_blob_with_policy(
             }
             Err(_error) if cancellation.is_cancelled() => {
                 return Err(PublicBlobDownloadError::Cancelled)
+            }
+            Err(NodeError::Io(error)) => {
+                return Err(PublicBlobDownloadError::Storage(error.to_string()))
             }
             Err(error) => failures.push(format!("{}: {error}", url.host_str().unwrap_or("mirror"))),
         }

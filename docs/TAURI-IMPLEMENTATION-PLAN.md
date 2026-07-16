@@ -796,8 +796,14 @@ uncached `200`/`206` reads from the phone's own embedded Blossom hash while inte
 The saved-region manager can now re-hash files on demand, invalidate every manifest sharing a
 missing or corrupt hash, resume only the missing content, and reclaim files it originally downloaded
 once no saved region or mirrored peer references them. Downloads preflight known byte requirements
-while reserving device free space. Remaining gates are physical two-device blob-transfer
-acceptance, Android low-storage/write-failure UAT, and announced style/sprite artifacts. The general
+while reserving device free space. Local write failures are distinguished from mirror failures;
+the UI explains cleanup, smaller-area, and resume recovery without discarding verified chunks.
+The built-in Protomaps flavor remains the self-contained cartographic fallback: MapLibre generates
+labels from device fonts and optional pictograms degrade through the missing-image handler without
+fetching font or sprite CDNs. Mapnolia's published v0.2 announcement contract does not yet contain
+the designed style/sprite references.
+Remaining gates are physical two-device blob-transfer acceptance and Android low-storage/write-
+failure UAT. The general
 offline-authoring/global-outbox journey is deliberately not a `0.0.1` gate; the release instead
 proves explicit nearby collaboration through Field sessions.
 

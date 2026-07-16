@@ -36,7 +36,8 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
       manifest removal controls.
 - [x] Saved-region integrity repair, saved-region-owned reference-counted blob cleanup, and
       low-space download preflight.
-- [ ] Android low-storage/write-failure recovery UAT and user-facing storage-pressure guidance.
+- [ ] Android low-storage/write-failure recovery UAT. Preflight, write-failure classification, and
+      user-facing cleanup/smaller-area/resume guidance are implemented; physical evidence remains.
 - [x] Crash-safe SQLite signed-event outbox with immutable events and per-relay acknowledgements.
 - [ ] Physical Android process-death UAT for the native delivery ledger.
 - [ ] Suspend/resume and low-storage recovery tests on supported Android versions.

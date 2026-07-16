@@ -3,10 +3,16 @@ import type maplibregl from 'maplibre-gl'
 import type { PmtilesKind } from '@/lib/localPmtiles'
 import type { MapSource, OverlayStyleDescriptor } from './types'
 
-const PROTOMAPS_GLYPHS = 'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf'
-const PROTOMAPS_SPRITE_LIGHT = 'https://protomaps.github.io/basemaps-assets/sprites/v4/light'
 const PROTOMAPS_ATTRIBUTION =
 	'<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>'
+
+/*
+ * MapLibre 5 renders glyphs from local device fonts when a style omits its
+ * `glyphs` URL. The shared missing-image handler supplies transparent
+ * placeholders for optional Protomaps pictograms when `sprite` is omitted.
+ * Keeping both URLs absent makes a verified local PMTiles archive genuinely
+ * self-contained instead of silently depending on a CDN after restart.
+ */
 
 /**
  * Build the inline MapLibre style for the `blossom` map source — uses the
@@ -59,8 +65,6 @@ export function buildBlossomStyle(
 
 	return {
 		version: 8,
-		glyphs: PROTOMAPS_GLYPHS,
-		sprite: PROTOMAPS_SPRITE_LIGHT,
 		sources,
 		layers,
 	}
@@ -90,8 +94,6 @@ export function buildPmtilesStyle(
 	}
 	return {
 		version: 8,
-		glyphs: PROTOMAPS_GLYPHS,
-		sprite: PROTOMAPS_SPRITE_LIGHT,
 		sources: {
 			protomaps: {
 				type: 'vector',

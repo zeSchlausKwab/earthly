@@ -23,6 +23,7 @@ import { formatBytes } from '@/lib/blossom/blossomUpload'
 import type { SavedRegion, SavedRegionProgress, SavedRegionService } from '@/platform/contracts'
 import { getSavedRegionService, notifyLocalBlobsChanged } from '@/platform/registry'
 import { planSavedRegion } from './planSavedRegion'
+import { savedRegionStorageGuidance, type SavedRegionStorageGuidance } from './storageGuidance'
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error)
@@ -59,6 +60,17 @@ export function SavedRegionsSection() {
 	const [name, setName] = useState('Offline map')
 	const [bbox, setBbox] = useState<[number, number, number, number] | null>(null)
 	const [operation, setOperation] = useState<string | null>('loading')
+	const [storageGuidance, setStorageGuidance] = useState<SavedRegionStorageGuidance | null>(null)
+
+	const reportFailure = useCallback((error: unknown) => {
+		const guidance = savedRegionStorageGuidance(error)
+		if (guidance) {
+			setStorageGuidance(guidance)
+			toast.error(guidance.title)
+			return
+		}
+		toast.error(errorMessage(error))
+	}, [])
 
 	const refresh = useCallback(
 		async (nextService?: SavedRegionService) => {
@@ -92,6 +104,10 @@ export function SavedRegionsSection() {
 				setRegions(await nextService.list())
 				unlisten = await nextService.listenProgress((progress) => {
 					setRegions((current) => current.map((region) => mergeProgress(region, progress)))
+					const guidance = progress.errorCode
+						? savedRegionStorageGuidance(progress.errorCode)
+						: null
+					if (guidance) setStorageGuidance(guidance)
 				})
 			} catch (error) {
 				toast.error(errorMessage(error))
@@ -143,15 +159,16 @@ export function SavedRegionsSection() {
 				const region = await service.download(regionId)
 				setRegions((current) => [region, ...current.filter((item) => item.id !== region.id)])
 				notifyLocalBlobsChanged(region.blobs.map((blob) => blob.sha256))
+				setStorageGuidance(null)
 				toast.success(`${region.name} is ready offline`)
 			} catch (error) {
-				toast.error(errorMessage(error))
+				reportFailure(error)
 				await refresh()
 			} finally {
 				setOperation(null)
 			}
 		},
-		[refresh, service],
+		[refresh, reportFailure, service],
 	)
 
 	const save = useCallback(async () => {
@@ -184,10 +201,10 @@ export function SavedRegionsSection() {
 			setOperation(null)
 			await download(region.id)
 		} catch (error) {
-			toast.error(errorMessage(error))
+			reportFailure(error)
 			setOperation(null)
 		}
-	}, [bbox, download, layer, name, preview, service, source])
+	}, [bbox, download, layer, name, preview, reportFailure, service, source])
 
 	const cancel = useCallback(
 		async (regionId: string) => {
@@ -249,6 +266,7 @@ export function SavedRegionsSection() {
 		try {
 			const result = await service.collectGarbage()
 			if (result.removedBlobs > 0) {
+				setStorageGuidance(null)
 				toast.success(
 					`${result.removedBlobs} unused ${result.removedBlobs === 1 ? 'file' : 'files'} removed · ${formatBytes(result.reclaimedBytes)}`,
 				)
@@ -304,6 +322,16 @@ export function SavedRegionsSection() {
 					<RefreshCw className="size-4" />
 				</Button>
 			</div>
+
+			{storageGuidance ? (
+				<div className="space-y-1 border border-amber-500/50 bg-amber-500/10 p-3 text-xs">
+					<div className="flex items-center gap-2 font-semibold text-amber-800 dark:text-amber-300">
+						<AlertTriangle className="size-4 shrink-0" />
+						{storageGuidance.title}
+					</div>
+					<p className="pl-6 text-muted-foreground">{storageGuidance.detail}</p>
+				</div>
+			) : null}
 
 			<div className="space-y-2 border-t pt-3">
 				<Label htmlFor="saved-region-name">Area name</Label>

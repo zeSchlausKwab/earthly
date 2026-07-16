@@ -922,6 +922,10 @@ fn download_error(error: PublicBlobDownloadError) -> SavedRegionCommandError {
         PublicBlobDownloadError::Cancelled => {
             SavedRegionCommandError::new("region-download-cancelled", message)
         }
+        PublicBlobDownloadError::Storage(_) => SavedRegionCommandError::new(
+            "region-storage-write-failed",
+            "Earthly could not finish writing the offline map. Free device storage or clean unused files, then choose Resume; verified files are kept.",
+        ),
         PublicBlobDownloadError::UnsafeUrl(_) => {
             SavedRegionCommandError::new("region-unsafe-mirror", message)
         }
@@ -955,17 +959,36 @@ async fn ensure_download_space(
     let storage = node.blob_storage_status().map_err(|error| {
         SavedRegionCommandError::new("region-storage-failed", error.to_string())
     })?;
-    let reserve = (storage.total_bytes / 50)
-        .clamp(MIN_FREE_SPACE_RESERVE_BYTES, MAX_FREE_SPACE_RESERVE_BYTES);
-    if required_bytes > storage.available_bytes.saturating_sub(reserve) {
+    let reserve = download_space_reserve(storage.total_bytes);
+    if !download_space_available(required_bytes, storage.available_bytes, reserve) {
         return Err(SavedRegionCommandError::new(
             "region-insufficient-storage",
             format!(
-                "This offline map needs about {required_bytes} more bytes, but the device must keep {reserve} bytes free"
+                "This offline map needs about {} more, while Earthly keeps {} free for Android. Clean unused files, free storage, or choose a smaller area.",
+                format_storage_size(required_bytes),
+                format_storage_size(reserve),
             ),
         ));
     }
     Ok(())
+}
+
+fn download_space_reserve(total_bytes: u64) -> u64 {
+    (total_bytes / 50).clamp(MIN_FREE_SPACE_RESERVE_BYTES, MAX_FREE_SPACE_RESERVE_BYTES)
+}
+
+fn download_space_available(required_bytes: u64, available_bytes: u64, reserve_bytes: u64) -> bool {
+    required_bytes <= available_bytes.saturating_sub(reserve_bytes)
+}
+
+fn format_storage_size(bytes: u64) -> String {
+    const MIB: u64 = 1024 * 1024;
+    const GIB: u64 = 1024 * MIB;
+    if bytes >= GIB {
+        format!("{:.1} GiB", bytes as f64 / GIB as f64)
+    } else {
+        format!("{:.0} MiB", bytes as f64 / MIB as f64)
+    }
 }
 
 async fn collect_orphaned_blobs(
@@ -1414,6 +1437,39 @@ mod tests {
             create_region(&mut connection, duplicate).unwrap_err().code,
             "invalid-region-blob"
         );
+    }
+
+    #[test]
+    fn download_space_guard_keeps_android_headroom() {
+        let small_device = 1024 * 1024 * 1024_u64;
+        let large_device = 256 * 1024 * 1024 * 1024_u64;
+        assert_eq!(
+            download_space_reserve(small_device),
+            MIN_FREE_SPACE_RESERVE_BYTES
+        );
+        assert_eq!(
+            download_space_reserve(large_device),
+            MAX_FREE_SPACE_RESERVE_BYTES
+        );
+
+        let reserve = download_space_reserve(64 * 1024 * 1024 * 1024);
+        assert!(download_space_available(
+            512 * 1024 * 1024,
+            1024 * 1024 * 1024,
+            reserve
+        ));
+        assert!(!download_space_available(
+            900 * 1024 * 1024,
+            1024 * 1024 * 1024,
+            reserve
+        ));
+        assert!(!download_space_available(1, reserve, reserve));
+    }
+
+    #[test]
+    fn storage_pressure_messages_use_readable_units() {
+        assert_eq!(format_storage_size(42 * 1024 * 1024), "42 MiB");
+        assert_eq!(format_storage_size(1536 * 1024 * 1024), "1.5 GiB");
     }
 
     #[test]

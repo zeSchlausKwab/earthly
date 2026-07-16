@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { buildPmtilesStyle } from './buildStyles'
+import { buildBlossomStyle, buildPmtilesStyle } from './buildStyles'
 
 describe('buildPmtilesStyle', () => {
 	test('uses the Protomaps vector style for vector archives', () => {
@@ -10,6 +10,16 @@ describe('buildPmtilesStyle', () => {
 		expect(source && 'url' in source ? source.url : null).toBe(
 			'pmtiles://http://earthly-blob.localhost/hash',
 		)
+		expect(style.glyphs).toBeUndefined()
+		expect(style.sprite).toBeUndefined()
+		expect(style.layers.some((layer) => layer.type === 'symbol')).toBe(true)
+	})
+
+	test('keeps the chunked Blossom fallback independent of font and sprite CDNs', () => {
+		const style = buildBlossomStyle(14, [])
+		expect(style.glyphs).toBeUndefined()
+		expect(style.sprite).toBeUndefined()
+		expect(style.layers.some((layer) => layer.type === 'symbol')).toBe(true)
 	})
 
 	test('uses one raster layer for image-tile archives', () => {

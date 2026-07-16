@@ -8,13 +8,7 @@ import {
 	type SavedRegionProgress,
 	type SavedRegionService,
 } from '../contracts'
-
-function commandError(error: unknown): Error {
-	if (typeof error === 'object' && error !== null && 'message' in error) {
-		return new Error(String(error.message))
-	}
-	return new Error(String(error))
-}
+import { platformCommandError } from '../errors'
 
 async function invokeValidated<T>(
 	command: string,
@@ -24,7 +18,7 @@ async function invokeValidated<T>(
 	try {
 		return schema.parse(await invoke(command, args))
 	} catch (error) {
-		throw commandError(error)
+		throw platformCommandError(error)
 	}
 }
 
@@ -42,14 +36,14 @@ export const tauriSavedRegionService: SavedRegionService = {
 		try {
 			return Boolean(await invoke('saved_region_cancel_v1', { id }))
 		} catch (error) {
-			throw commandError(error)
+			throw platformCommandError(error)
 		}
 	},
 	remove: async (id: string): Promise<boolean> => {
 		try {
 			return Boolean(await invoke('saved_region_remove_v1', { id }))
 		} catch (error) {
-			throw commandError(error)
+			throw platformCommandError(error)
 		}
 	},
 	collectGarbage: (): Promise<SavedRegionGarbageCollection> =>
