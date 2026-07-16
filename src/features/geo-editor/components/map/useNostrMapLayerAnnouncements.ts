@@ -7,6 +7,7 @@ import {
 } from '@/lib/nostr/map-layer-set/trust'
 import { MAP_LAYER_SET_KIND } from '@/lib/nostr/kinds'
 import { useTimeline } from '@/lib/nostr/hooks'
+import { readCachedMapLayerSet, writeCachedMapLayerSet } from '@/lib/nostr/map-layer-set/cache'
 import { useEditorStore, type MapLayerState } from '../../store'
 import { getMirroredPmtiles, setPmworldState } from './pmtilesProtocols'
 import type { AnnouncementRecord, MapSource } from './types'
@@ -37,11 +38,19 @@ export function useNostrMapLayerAnnouncements(mapSource: MapSource): number | nu
 			limit: 50,
 		},
 	])
+	const cachedLayerSetEvent = useMemo(
+		() => readCachedMapLayerSet(config.trustedMapnoliaPubkeys),
+		[],
+	)
 
 	// Stable "latest event" so our effect doesn't re-trigger on every render.
 	const latestLayerSetEvent = useMemo(
-		() => selectLatestTrustedMapLayerSet(mapLayerSetEvents, config.trustedMapnoliaPubkeys),
-		[mapLayerSetEvents],
+		() =>
+			selectLatestTrustedMapLayerSet(
+				cachedLayerSetEvent ? [...mapLayerSetEvents, cachedLayerSetEvent] : mapLayerSetEvents,
+				config.trustedMapnoliaPubkeys,
+			),
+		[mapLayerSetEvents, cachedLayerSetEvent],
 	)
 
 	const latestLayerSetContent = latestLayerSetEvent?.content ?? null
@@ -49,6 +58,11 @@ export function useNostrMapLayerAnnouncements(mapSource: MapSource): number | nu
 		() => (latestLayerSetContent ? parseMapLayerSetContent(latestLayerSetContent) : null),
 		[latestLayerSetContent],
 	)
+
+	useEffect(() => {
+		if (!latestLayerSetEvent) return
+		writeCachedMapLayerSet(latestLayerSetEvent, config.trustedMapnoliaPubkeys)
+	}, [latestLayerSetEvent])
 
 	useEffect(() => {
 		const { setMapLayers, setAnnouncementSource } = useEditorStore.getState()

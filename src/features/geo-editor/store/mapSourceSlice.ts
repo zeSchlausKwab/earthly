@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand'
 import { readStoredLocalPmtiles, writeStoredLocalPmtiles } from '@/lib/localPmtiles'
+import { readStoredMapSourcePreference, writeStoredMapSourcePreference } from '@/lib/mapSession'
 import type { EditorState, MapSourceSlice } from './types'
 
 function initialMapSource(): MapSourceSlice['mapSource'] {
@@ -12,6 +13,12 @@ function initialMapSource(): MapSourceSlice['mapSource'] {
 			localBlobHash: stored.sha256,
 			pmtilesKind: stored.kind,
 			boundsLocked: true,
+		}
+	}
+	if (readStoredMapSourcePreference()?.type === 'blossom') {
+		return {
+			type: 'blossom',
+			location: 'remote',
 		}
 	}
 	return {
@@ -51,6 +58,10 @@ export const createMapSourceSlice: StateCreator<EditorState, [], [], MapSourceSl
 		} else {
 			writeStoredLocalPmtiles(null)
 		}
+		writeStoredMapSourcePreference({
+			version: 1,
+			type: mapSource.type === 'blossom' ? 'blossom' : 'default',
+		})
 		set({ mapSource })
 	},
 	setShowMapSettings: (showMapSettings) => set({ showMapSettings }),

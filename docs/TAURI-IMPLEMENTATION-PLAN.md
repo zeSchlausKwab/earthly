@@ -786,9 +786,13 @@ removal. Android PMTiles resolution tries the verified local protocol before net
 removal. Android PMTiles resolution requests short-lived, hash-scoped access to its own embedded
 Blossom and tries that ordinary HTTP range source before network mirrors. Paired devices transfer
 complete immutable blobs once; they are not expected to remain available as remote range servers.
-Remaining gates are physical two-device/offline restart acceptance, integrity repair,
-reference-counted blob garbage collection, disk-pressure behavior, and announced style/sprite
-artifacts.
+Physical S9 acceptance now verifies that a downloaded hiking fixture, the selected trusted map
+source, the last viewport, and a signature-checked cached kind-34444 announcement survive a cold
+restart with Wi-Fi and mobile data disabled. Panning and zooming after restart produced fresh,
+uncached `200`/`206` reads from the phone's own embedded Blossom hash while internet access failed.
+Remaining gates are physical two-device blob-transfer acceptance, the offline-authoring/outbox
+journey, integrity repair, reference-counted blob garbage collection, disk-pressure behavior, and
+announced style/sprite artifacts.
 
 ### Phase 9 — Durable native publish outbox
 
