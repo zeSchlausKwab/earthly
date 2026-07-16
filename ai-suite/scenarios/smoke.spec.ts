@@ -56,6 +56,17 @@ test('Private groups can be opened as a routed panel', async ({ earthly }) => {
 	).toBeVisible()
 })
 
+test('Sync & delivery is reachable and describes browser delivery honestly', async ({
+	earthly,
+}) => {
+	await earthly.open({ tour: 'seen' })
+	await openPanel(earthly, 'Sync & delivery')
+	await expect(
+		earthly.page.getByText('Available in the Earthly Android app', { exact: true }),
+	).toBeVisible()
+	await expect(earthly.page.getByText(/web app publishes directly/i)).toBeVisible()
+})
+
 test('the web app describes native offline sharing without pretending to host a node', async ({
 	earthly,
 }) => {

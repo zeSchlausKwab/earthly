@@ -18,6 +18,7 @@ const SIDEBAR_VIEW_MODES: SidebarViewMode[] = [
 	'combined',
 	'edit',
 	'posts',
+	'delivery',
 	'settings',
 	'help',
 	'user',

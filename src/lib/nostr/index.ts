@@ -20,7 +20,7 @@ import { NostrIDB, openDB } from 'nostr-idb'
 import type { Filter, NostrEvent } from 'nostr-tools'
 import type { IAccount } from 'applesauce-accounts'
 import { EMPTY, filter, firstValueFrom, NEVER, of, race, timeout, TimeoutError, timer } from 'rxjs'
-import { getPublishOutboxService } from '@/platform/registry'
+import { getPublishOutboxService, notifyPublishOutboxChanged } from '@/platform/registry'
 import type { OutboxItem, OutboxRelayResult, PublishOutboxService } from '@/platform/contracts'
 
 // Bun HMR bundler tree-shaking bug: rxjs/index.js re-exports some values via
@@ -443,8 +443,10 @@ async function deliverOutboxItem(service: PublishOutboxService, item: OutboxItem
 	try {
 		const responses = await pool.publish(targetRelays, event)
 		await service.recordResults(item.id, relayResults(responses))
+		notifyPublishOutboxChanged()
 	} catch (error) {
 		await service.recordResults(item.id, failedRelayResults(targetRelays, error))
+		notifyPublishOutboxChanged()
 	}
 }
 
@@ -457,6 +459,7 @@ export function flushPublishOutbox(): Promise<void> {
 		.then(async (service) => {
 			if (!service) return
 			const due = await service.flush()
+			if (due.length > 0) notifyPublishOutboxChanged()
 			for (const item of due) await deliverOutboxItem(service, item)
 		})
 		.catch((error) => console.warn('[nostr] native outbox replay failed', error))
@@ -540,6 +543,7 @@ export async function publish(event: NostrEvent, options: PublishOptions = {}) {
 					: requiredPublishRelays(targetRelays, config.writeRelays),
 			})
 		: null
+	if (queued) notifyPublishOutboxChanged()
 	eventStore.add(event)
 	const deliveryRelays = queued ? pendingOutboxRelays(queued) : targetRelays
 	if (deliveryRelays.length === 0) return []
@@ -555,11 +559,15 @@ export async function publish(event: NostrEvent, options: PublishOptions = {}) {
 	}
 	try {
 		const responses = await pool.publish(deliveryRelays, event)
-		if (outbox && queued) await outbox.recordResults(queued.id, relayResults(responses))
+		if (outbox && queued) {
+			await outbox.recordResults(queued.id, relayResults(responses))
+			notifyPublishOutboxChanged()
+		}
 		return responses
 	} catch (error) {
 		if (outbox && queued) {
 			await outbox.recordResults(queued.id, failedRelayResults(deliveryRelays, error))
+			notifyPublishOutboxChanged()
 		}
 		throw error
 	}

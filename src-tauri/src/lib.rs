@@ -11,8 +11,8 @@ use local_node::{
     local_node_sync_remote_node_v1, LocalNodeState,
 };
 use outbox::{
-    outbox_discard_v1, outbox_enqueue_v1, outbox_flush_v1, outbox_list_v1,
-    outbox_record_results_v1, outbox_retry_v1, OutboxState,
+    outbox_discard_v1, outbox_enqueue_v1, outbox_flush_v1, outbox_list_summaries_v1,
+    outbox_list_v1, outbox_record_results_v1, outbox_retry_v1, OutboxState,
 };
 use tauri::Manager;
 
@@ -58,6 +58,7 @@ pub fn run() {
             local_node_mirror_remote_blobs_v1,
             outbox_enqueue_v1,
             outbox_list_v1,
+            outbox_list_summaries_v1,
             outbox_flush_v1,
             outbox_record_results_v1,
             outbox_retry_v1,

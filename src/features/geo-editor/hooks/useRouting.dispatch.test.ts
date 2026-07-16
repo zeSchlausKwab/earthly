@@ -152,6 +152,13 @@ describe('parsePathSegments — malformed naddr does not crash (D-11 / T-13-02-M
 })
 
 describe('parsePathSegments — landing default', () => {
+	test('/delivery opens the native delivery ledger', () => {
+		expect(parsePathSegments(['delivery'])).toEqual({
+			focusType: 'none',
+			sidebarView: 'delivery',
+		})
+	})
+
 	test('an empty landing path opens the default sightings feed', () => {
 		expect(parsePathSegments([])).toEqual({
 			focusType: 'none',

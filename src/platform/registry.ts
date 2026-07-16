@@ -9,6 +9,7 @@ let pendingNativeDeepLink: string | null = null
 
 export const LOCAL_BLOBS_CHANGED_EVENT = 'earthly:local-blobs-changed'
 export const NATIVE_DEEP_LINK_EVENT = 'earthly:native-deep-link'
+export const PUBLISH_OUTBOX_CHANGED_EVENT = 'earthly:publish-outbox-changed'
 
 export interface LocalBlobsChangedDetail {
 	hashes: string[]
@@ -34,6 +35,12 @@ export function getPublishOutboxService(): Promise<PublishOutboxService | null> 
 		? import('./tauri/outbox').then(({ tauriPublishOutboxService }) => tauriPublishOutboxService)
 		: Promise.resolve(null)
 	return publishOutboxServicePromise
+}
+
+/** Notify mounted delivery surfaces after an enqueue or state transition. */
+export function notifyPublishOutboxChanged(): void {
+	if (typeof window === 'undefined') return
+	window.dispatchEvent(new Event(PUBLISH_OUTBOX_CHANGED_EVENT))
 }
 
 /** Start the OS URL bridge once; the browser build deliberately remains inert. */

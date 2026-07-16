@@ -4,6 +4,7 @@ import type { FeatureCollection } from 'geojson'
 import {
 	BookOpen,
 	ArrowLeft,
+	CloudUpload,
 	Database,
 	Eye,
 	FilePenLine,
@@ -49,6 +50,7 @@ import { MapSettingsPanel } from './MapSettingsPanel'
 import { ChatPanel } from '@/features/chat'
 import { Nip60Wallet } from '@/features/wallet/components/Nip60Wallet'
 import { useRouting } from '../hooks/useRouting'
+import { PublishOutboxPanel } from '@/features/delivery'
 
 export type MobilePanelTab =
 	| 'datasets'
@@ -63,6 +65,7 @@ export type MobilePanelTab =
 	| 'chat'
 	| 'profile'
 	| 'posts'
+	| 'delivery'
 	| 'wallet'
 	| 'settings'
 	| 'help'
@@ -188,6 +191,7 @@ const TAB_CONFIG: { id: MobilePanelTab; label: string; icon: typeof Database }[]
 	{ id: 'chat', label: 'AI chat', icon: MessageCircle },
 	{ id: 'profile', label: 'My entities', icon: User },
 	{ id: 'posts', label: 'Local posts', icon: MessageSquare },
+	{ id: 'delivery', label: 'Sync & delivery', icon: CloudUpload },
 	{ id: 'wallet', label: 'Wallet', icon: Wallet },
 	{ id: 'settings', label: 'Settings', icon: Settings2 },
 	{ id: 'help', label: 'Help', icon: HelpCircle },
@@ -208,6 +212,7 @@ const SIDEBAR_GROUPS: { label: string; tabs: MobilePanelTab[] }[] = [
 		tabs: ['datasets', 'contexts', 'private-groups', 'stories', 'sightings', 'beacons'],
 	},
 	{ label: 'Communication', tabs: ['chat', 'posts'] },
+	{ label: 'Device', tabs: ['delivery'] },
 	{ label: 'Account', tabs: ['profile', 'wallet', 'settings', 'help'] },
 ]
 
@@ -731,7 +736,9 @@ export function MobilePanel(props: MobilePanelProps) {
 												</Button>
 											</div>
 										</div>
-										{mobileSidebarOpen && mobilePanelTab !== 'private-groups' ? (
+										{mobileSidebarOpen &&
+										mobilePanelTab !== 'private-groups' &&
+										mobilePanelTab !== 'delivery' ? (
 											<div className="shrink-0 border-b border-border bg-card px-3 py-1.5">
 												<div className="flex items-center gap-1.5">
 													<div className="w-full">
@@ -990,6 +997,8 @@ export function MobilePanel(props: MobilePanelProps) {
 														<ShoutboxPanel />
 													</div>
 												) : null}
+
+												{mobilePanelTab === 'delivery' ? <PublishOutboxPanel /> : null}
 
 												{mobilePanelTab === 'wallet' ? (
 													<div className="-mx-3 -mb-4 -mt-2 h-full p-4">

@@ -12,8 +12,11 @@
 > capabilities across ordinary and NIP-77 access. Versioned pairing deep links now converge on the
 > existing approval-gated join flow across cold start and an already-running app. Mirrored PMTiles
 > archives can now be validated, rendered locally as vector or raster maps, and retained as the
-> selected Android basemap across restart. Complete saved regions, crash-safe offline publishing,
-> Android foreground lifecycle, and release distribution remain staged work.
+> selected Android basemap across restart. Crash-safe signed-event publishing now uses a native
+> SQLite outbox with per-relay acknowledgements, lifecycle replay, and a user-facing delivery
+> ledger. Time-bounded nearby sharing is backed by Android's visible `connectedDevice` foreground
+> service. Complete saved regions, the physical offline-authoring acceptance journey, and release
+> distribution remain staged work.
 
 Status: committed product direction
 Created: 2026-07-13
@@ -345,6 +348,7 @@ Keep commands coarse enough to preserve transactions and avoid chatty IPC:
 
 - `outbox_enqueue_v1`
 - `outbox_list_v1`
+- `outbox_list_summaries_v1`
 - `outbox_retry_v1`
 - `outbox_discard_v1`
 - `outbox_flush_v1`
@@ -793,6 +797,15 @@ The native boundary stores and validates only already-signed events; it never re
 signing key. Delivery currently returns through the existing Applesauce pool so NIP-42 challenges
 can use the active signer. A future fully native delivery worker is valid only with an explicit
 delegated authentication design; it must not expand native key custody implicitly.
+
+Implementation status (2026-07-16): the SQLite state machine, signed-byte validation, beacon
+exclusion, retry scheduling, per-relay results, start/resume/connectivity replay, and the desktop and
+mobile **Sync & delivery** ledger are implemented. The ledger uses a metadata-only native summary
+command with bounded delivered history, so large signed GeoJSON payloads are not cloned into React
+and no actionable pending item is hidden.
+Unit, contract, routing, build, and responsive browser checks pass. The remaining exit gate is the
+physical Android journey: author a sighting with networking disabled, terminate and restart the app,
+confirm the queued record, reconnect, and verify relay delivery after another clean restart.
 
 ### Phase 10 — Bundles, file associations, deep links, and sharing
 

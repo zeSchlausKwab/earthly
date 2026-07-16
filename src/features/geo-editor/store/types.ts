@@ -25,6 +25,7 @@ export type SidebarViewMode =
 	| 'user'
 	| 'wallet'
 	| 'chat'
+	| 'delivery'
 
 export type SettingsTab = 'map' | 'profile' | 'relays' | 'offline' | 'chat' | 'sessions'
 
@@ -196,6 +197,7 @@ export type MobilePanelTab =
 	| 'chat'
 	| 'profile'
 	| 'posts'
+	| 'delivery'
 	| 'wallet'
 	| 'settings'
 	| 'help'

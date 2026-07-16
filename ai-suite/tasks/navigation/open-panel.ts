@@ -11,6 +11,7 @@ export type EarthlyPanel =
 	| 'Beacons'
 	| 'Profile'
 	| 'Posts'
+	| 'Sync & delivery'
 	| 'Wallet'
 	| 'Settings'
 	| 'Help'
@@ -32,6 +33,7 @@ const desktopRoutes: Record<EarthlyPanel, string> = {
 	Beacons: '/beacons',
 	Profile: '/user',
 	Posts: '/posts',
+	'Sync & delivery': '/delivery',
 	Wallet: '/wallet',
 	Settings: '/settings',
 	Help: '/help',

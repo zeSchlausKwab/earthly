@@ -97,9 +97,11 @@ services. Release WebViews permit cleartext only to `127.0.0.1`/`localhost`; deb
 cleartext development endpoints. Connections to another device's offline node must go through the
 native peer transport rather than granting the WebView unrestricted cleartext LAN access.
 
-The local node currently has process/foreground availability on Android. A production background
-node requires a user-visible Android foreground service and the associated lifecycle and notification
-work; an APK build alone does not make it continuously available in the background.
+Nearby sharing can remain available while Earthly is backgrounded through a user-visible Android
+foreground service. It starts only after the user explicitly enables a bounded LAN session, requests
+notification permission where Android requires it, uses the `connectedDevice` service type, displays
+the selected address and expiry, and stops when sharing is disabled or expires. Ordinary map use
+does not start this service, and the app does not auto-start it at boot.
 
 ### Pairing deep links
 
@@ -175,7 +177,7 @@ the adapter that needs them; do not add shell or broad filesystem access as a co
 
 ## Current status
 
-As of 2026-07-15:
+As of 2026-07-16:
 
 - the web production build passes;
 - the Rust workspace passes unit and network integration tests;
@@ -216,5 +218,14 @@ As of 2026-07-15:
   app and never attempts native commands;
 - mirrored PMTiles archives can be header-validated through bounded native range reads, rendered as
   vector or raster sources, selected from joined-device storage, and restored after app restart;
-- Android permission adapters, foreground-service lifecycle, saved regions, durable publishing,
-  and release signing are pending. iOS, Windows, and Linux are outside the current release gate.
+- signed non-beacon Nostr events are durably enqueued in native SQLite before the first network
+  attempt. Start, resume, connectivity recovery, and user actions replay byte-identical events while
+  recording per-relay acknowledgements. Desktop and mobile navigation expose a reactive **Sync &
+  delivery** ledger with pending/history views, manual send, retry, and discard controls;
+- the delivery ledger reads metadata-only IPC rows with bounded successful history, keeping large
+  signed GeoJSON payloads out of React without hiding an actionable pending item;
+- Android LAN sharing uses a visible, time-bounded `connectedDevice` foreground service and the
+  notification-permission adapter rather than relying on WebView lifetime alone;
+- saved regions, the physical offline-sighting outbox acceptance journey, Android release signing,
+  and store distribution remain pending. iOS, Windows, and Linux are outside the current release
+  gate.

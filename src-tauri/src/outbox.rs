@@ -11,6 +11,7 @@ use tauri::State;
 const PROTOCOL_VERSION: u8 = 1;
 const LIVE_BEACON_KIND: u16 = 37_521;
 const MAX_RETRY_DELAY_SECONDS: u64 = 15 * 60;
+const SUMMARY_DELIVERED_HISTORY_LIMIT: u64 = 200;
 
 #[derive(Debug)]
 pub struct OutboxState {
@@ -213,6 +214,47 @@ pub struct OutboxItemView {
     updated_at: u64,
     last_error: Option<String>,
     relays: Vec<OutboxRelayView>,
+}
+
+/// Delivery-ledger row returned to the webview. Deliberately omits
+/// `event_json`: a signed GeoJSON event can be large and the status UI never
+/// needs to clone those bytes across IPC.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutboxItemSummaryView {
+    version: u8,
+    id: String,
+    event_id: String,
+    event_kind: u16,
+    routing: OutboxRouting,
+    target_pubkey: Option<String>,
+    state: OutboxItemState,
+    attempt_count: u64,
+    next_attempt_at: Option<u64>,
+    created_at: u64,
+    updated_at: u64,
+    last_error: Option<String>,
+    relays: Vec<OutboxRelayView>,
+}
+
+impl From<OutboxItemView> for OutboxItemSummaryView {
+    fn from(item: OutboxItemView) -> Self {
+        Self {
+            version: item.version,
+            id: item.id,
+            event_id: item.event_id,
+            event_kind: item.event_kind,
+            routing: item.routing,
+            target_pubkey: item.target_pubkey,
+            state: item.state,
+            attempt_count: item.attempt_count,
+            next_attempt_at: item.next_attempt_at,
+            created_at: item.created_at,
+            updated_at: item.updated_at,
+            last_error: item.last_error,
+            relays: item.relays,
+        }
+    }
 }
 
 fn configure_and_migrate(connection: &Connection) -> Result<(), OutboxCommandError> {
@@ -539,6 +581,39 @@ fn list(connection: &Connection) -> Result<Vec<OutboxItemView>, OutboxCommandErr
         .collect()
 }
 
+fn list_summaries(
+    connection: &Connection,
+) -> Result<Vec<OutboxItemSummaryView>, OutboxCommandError> {
+    let mut statement = connection.prepare(
+        "SELECT id FROM (
+             SELECT id, created_at FROM outbox_items
+             WHERE state NOT IN ('discarded', 'delivered')
+             UNION ALL
+             SELECT id, created_at FROM (
+                 SELECT id, created_at FROM outbox_items
+                 WHERE state = 'delivered'
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT ?1
+             )
+         )
+         ORDER BY created_at DESC, id DESC",
+    )?;
+    let ids = statement
+        .query_map(params![SUMMARY_DELIVERED_HISTORY_LIMIT], |row| {
+            row.get::<_, String>(0)
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    ids.into_iter()
+        .map(|id| {
+            load_item(connection, &id)?
+                .map(OutboxItemSummaryView::from)
+                .ok_or_else(|| {
+                    OutboxCommandError::new("outbox-corrupt", "An outbox item disappeared")
+                })
+        })
+        .collect()
+}
+
 fn flush(connection: &mut Connection) -> Result<Vec<OutboxItemView>, OutboxCommandError> {
     let now = now_seconds();
     let transaction = connection.transaction()?;
@@ -770,6 +845,14 @@ pub fn outbox_list_v1(
 }
 
 #[tauri::command]
+pub fn outbox_list_summaries_v1(
+    state: State<'_, OutboxState>,
+) -> Result<Vec<OutboxItemSummaryView>, OutboxCommandError> {
+    let connection = state.connection()?;
+    list_summaries(&connection)
+}
+
+#[tauri::command]
 pub fn outbox_flush_v1(
     state: State<'_, OutboxState>,
 ) -> Result<Vec<OutboxItemView>, OutboxCommandError> {
@@ -852,6 +935,40 @@ mod tests {
         assert_eq!(first.event_json, event.as_json());
         assert_eq!(second.id, first.id);
         assert_eq!(list(&connection).expect("list").len(), 1);
+        let summaries = list_summaries(&connection).expect("summaries");
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].event_id, event.id.to_hex());
+        assert_eq!(summaries[0].event_kind, 1);
+    }
+
+    #[test]
+    fn summary_history_never_hides_actionable_items() {
+        let (_directory, state) = test_state();
+        let pending_event = signed_event(1);
+        let mut connection = state.connection().expect("connection");
+        let pending = enqueue(&mut connection, enqueue_input(&pending_event)).expect("pending");
+
+        for _ in 0..=SUMMARY_DELIVERED_HISTORY_LIMIT {
+            let delivered_event = signed_event(1);
+            let delivered =
+                enqueue(&mut connection, enqueue_input(&delivered_event)).expect("delivered");
+            connection
+                .execute(
+                    "UPDATE outbox_items SET state = 'delivered' WHERE id = ?1",
+                    params![delivered.id],
+                )
+                .expect("mark delivered");
+        }
+
+        let summaries = list_summaries(&connection).expect("summaries");
+        assert_eq!(
+            summaries
+                .iter()
+                .filter(|item| item.state == OutboxItemState::Delivered)
+                .count(),
+            SUMMARY_DELIVERED_HISTORY_LIMIT as usize
+        );
+        assert!(summaries.iter().any(|item| item.event_id == pending.id));
     }
 
     #[test]

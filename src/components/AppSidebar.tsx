@@ -4,6 +4,7 @@ import {
 	Globe,
 	HelpCircle,
 	BookOpen,
+	CloudUpload,
 	Eye,
 	Newspaper,
 	PanelLeftClose,
@@ -60,6 +61,7 @@ import type { EditorFeature } from '../features/geo-editor/core'
 import { EntitySearchPopover, type EntitySearchResult } from './entity-search'
 import { WorkspaceDraftNavigator } from './WorkspaceDraftNavigator'
 import { Button } from './ui/button'
+import { PublishOutboxPanel } from '../features/delivery'
 
 type SidebarContentMode = Exclude<SidebarViewMode, 'combined'>
 type EntityWorkspace = 'geometry' | 'context' | 'story' | 'sighting' | 'beacon'
@@ -71,7 +73,7 @@ type WorkViewMode =
 	| 'sightings'
 	| 'beacons'
 	| 'user'
-type MetaViewMode = 'posts' | 'wallet' | 'settings' | 'help'
+type MetaViewMode = 'posts' | 'delivery' | 'wallet' | 'settings' | 'help'
 
 const WORK_VIEW_MODES: WorkViewMode[] = [
 	'datasets',
@@ -82,7 +84,7 @@ const WORK_VIEW_MODES: WorkViewMode[] = [
 	'beacons',
 	'user',
 ]
-const META_VIEW_MODES: MetaViewMode[] = ['posts', 'wallet', 'settings', 'help']
+const META_VIEW_MODES: MetaViewMode[] = ['posts', 'delivery', 'wallet', 'settings', 'help']
 
 // Round H.3/H.4: the rail's browse destinations (Datasets / Contexts / My
 // Entities + footer meta) are the always-present list. The Round-F.4
@@ -113,6 +115,7 @@ const metaNavItems: {
 	icon: typeof Settings2
 }[] = [
 	{ mode: 'posts', title: 'Local posts', icon: Newspaper },
+	{ mode: 'delivery', title: 'Sync & delivery', icon: CloudUpload },
 	{ mode: 'wallet', title: 'Wallet', icon: Wallet },
 	{ mode: 'settings', title: 'Settings', icon: Settings2 },
 	{ mode: 'help', title: 'Help', icon: HelpCircle },
@@ -1058,6 +1061,8 @@ export function AppSidebar({
 		switch (mode) {
 			case 'posts':
 				return <ShoutboxPanel />
+			case 'delivery':
+				return <PublishOutboxPanel />
 			case 'wallet':
 				return (
 					<div className="p-4">
@@ -1345,6 +1350,10 @@ export function AppSidebar({
 								<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
 									Encrypted workspace
 								</div>
+							) : contentMode === 'delivery' ? (
+								<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
+									Native delivery ledger
+								</div>
 							) : (
 								<EntitySearchPopover
 									sources={{ contexts: mapContextEvents }}
@@ -1392,7 +1401,7 @@ export function AppSidebar({
 							</span>
 						</div>
 					</div>
-					{currentUserPubkey && contentMode !== 'private-groups' && (
+					{currentUserPubkey && contentMode !== 'private-groups' && contentMode !== 'delivery' && (
 						<WorkspaceDraftNavigator
 							onStartNewDataset={onStartNewDataset}
 							onSwitchWorkspace={onSwitchWorkspace}

@@ -194,6 +194,13 @@ export const outboxItemSchema = z.object({
 
 export type OutboxItem = z.infer<typeof outboxItemSchema>
 
+/** Lightweight ledger row for UI/status surfaces. Signed event bytes stay on
+ * the native side so a history of large GeoJSON events is never cloned into
+ * React merely to render delivery state. */
+export const outboxItemSummarySchema = outboxItemSchema.omit({ eventJson: true })
+
+export type OutboxItemSummary = z.infer<typeof outboxItemSummarySchema>
+
 export interface OutboxEnqueueRequest {
 	version: 1
 	eventJson: string
@@ -206,6 +213,7 @@ export interface OutboxEnqueueRequest {
 export interface PublishOutboxService {
 	enqueue(input: OutboxEnqueueRequest): Promise<OutboxItem>
 	list(): Promise<OutboxItem[]>
+	listSummaries(): Promise<OutboxItemSummary[]>
 	flush(): Promise<OutboxItem[]>
 	recordResults(id: string, results: OutboxRelayResult[]): Promise<OutboxItem>
 	retry(id: string): Promise<OutboxItem>
@@ -246,4 +254,5 @@ export const nativeSchemas = {
 	remoteBlobMirror: remoteBlobMirrorResultSchema,
 	outboxItem: outboxItemSchema,
 	outboxItems: z.array(outboxItemSchema),
+	outboxItemSummaries: z.array(outboxItemSummarySchema),
 }

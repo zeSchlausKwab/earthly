@@ -142,5 +142,7 @@ describe('local node platform contracts', () => {
 		}
 		expect(outboxItemSchema.parse(item).id).toBe(eventId)
 		expect(nativeSchemas.outboxItems.parse([item])).toHaveLength(1)
+		const { eventJson: _signedBytes, ...summary } = item
+		expect(nativeSchemas.outboxItemSummaries.parse([summary])).toHaveLength(1)
 	})
 })
