@@ -1,0 +1,10 @@
+[[permission]]
+identifier = "saved-regions"
+description = "Allows the Earthly main window to plan, download, resume, cancel, and remove verified offline map regions."
+commands.allow = [
+  "saved_region_create_v1",
+  "saved_region_list_v1",
+  "saved_region_download_v1",
+  "saved_region_cancel_v1",
+  "saved_region_remove_v1",
+]

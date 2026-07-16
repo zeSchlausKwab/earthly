@@ -40,6 +40,14 @@ export const localNodeStatusSchema = z.union([
 
 export type LocalNodeStatus = z.infer<typeof localNodeStatusSchema>
 
+export const localBlobAccessSchema = z.object({
+	url: z.string().url(),
+	authorization: z.string().startsWith('Nostr '),
+	expiresAt: z.number().int().positive(),
+})
+
+export type LocalBlobAccess = z.infer<typeof localBlobAccessSchema>
+
 export const pairingInvitationSchema = z.object({
 	version: z.literal(1),
 	encoded: z.string().startsWith('earthly-pair-v1:'),
@@ -201,6 +209,92 @@ export const outboxItemSummarySchema = outboxItemSchema.omit({ eventJson: true }
 
 export type OutboxItemSummary = z.infer<typeof outboxItemSummarySchema>
 
+export const savedRegionBlobRoleSchema = z.enum(['basemap', 'overlay', 'style', 'sprite'])
+export const savedRegionBlobStateSchema = z.enum(['missing', 'available', 'failed'])
+export const savedRegionStatusSchema = z.enum(['planned', 'downloading', 'ready', 'failed'])
+
+export const savedRegionBlobSchema = z.object({
+	sha256: z.string().regex(/^[0-9a-f]{64}$/),
+	role: savedRegionBlobRoleSchema,
+	required: z.boolean(),
+	ordinal: z.number().int().nonnegative(),
+	expectedSize: z.number().int().positive().nullable(),
+	actualSize: z.number().int().nonnegative().nullable(),
+	mediaType: z.string().min(1).nullable(),
+	state: savedRegionBlobStateSchema,
+	mirrorUrls: z.array(z.string().url()).min(1).max(8),
+	lastError: z.string().nullable(),
+})
+
+export const savedRegionSchema = z.object({
+	version: z.literal(1),
+	id: z.string().min(1).max(64),
+	name: z.string().min(1).max(120),
+	bbox: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+	sourcePubkey: z.string().regex(/^[0-9a-f]{64}$/),
+	announcementId: z.string().regex(/^[0-9a-f]{64}$/),
+	status: savedRegionStatusSchema,
+	bytesTotal: z.number().int().nonnegative().nullable(),
+	bytesDone: z.number().int().nonnegative(),
+	blobsTotal: z.number().int().nonnegative(),
+	blobsDone: z.number().int().nonnegative(),
+	createdAt: z.number().int().positive(),
+	updatedAt: z.number().int().positive(),
+	lastError: z.string().nullable(),
+	blobs: z.array(savedRegionBlobSchema),
+})
+
+export const savedRegionProgressSchema = savedRegionSchema
+	.pick({
+		status: true,
+		bytesTotal: true,
+		bytesDone: true,
+		blobsTotal: true,
+		blobsDone: true,
+	})
+	.extend({
+		regionId: z.string().min(1).max(64),
+		currentHash: z
+			.string()
+			.regex(/^[0-9a-f]{64}$/)
+			.nullable(),
+		errorCode: z.string().min(1).nullable(),
+		message: z.string().nullable(),
+	})
+
+export type SavedRegion = z.infer<typeof savedRegionSchema>
+export type SavedRegionProgress = z.infer<typeof savedRegionProgressSchema>
+export type SavedRegionBlobRole = z.infer<typeof savedRegionBlobRoleSchema>
+
+export interface SavedRegionBlobInput {
+	sha256: string
+	role: SavedRegionBlobRole
+	required: boolean
+	ordinal: number
+	expectedSize?: number
+	mirrorUrls: string[]
+}
+
+export interface SavedRegionCreateRequest {
+	version: 1
+	id: string
+	name: string
+	bbox: [number, number, number, number]
+	sourcePubkey: string
+	announcementId: string
+	blobs: SavedRegionBlobInput[]
+}
+
+export interface SavedRegionService {
+	readonly supported: boolean
+	create(input: SavedRegionCreateRequest): Promise<SavedRegion>
+	list(): Promise<SavedRegion[]>
+	download(id: string): Promise<SavedRegion>
+	cancel(id: string): Promise<boolean>
+	remove(id: string): Promise<boolean>
+	listenProgress(listener: (progress: SavedRegionProgress) => void): Promise<() => void>
+}
+
 export interface OutboxEnqueueRequest {
 	version: 1
 	eventJson: string
@@ -238,6 +332,7 @@ export interface LocalNodeService {
 	forgetRemoteNode(nodeId: string): Promise<boolean>
 	syncRemoteNode(nodeId: string): Promise<RemoteSyncResult>
 	mirrorRemoteBlobs(nodeId: string, hashes: string[]): Promise<RemoteBlobMirrorResult>
+	localBlobAccess(sha256: string): Promise<LocalBlobAccess | null>
 	localBlobUrl(sha256: string): Promise<string | null>
 }
 
@@ -252,7 +347,11 @@ export const nativeSchemas = {
 	remoteNodes: z.array(remoteNodeRecordSchema),
 	remoteSync: remoteSyncResultSchema,
 	remoteBlobMirror: remoteBlobMirrorResultSchema,
+	localBlobAccess: localBlobAccessSchema,
 	outboxItem: outboxItemSchema,
 	outboxItems: z.array(outboxItemSchema),
 	outboxItemSummaries: z.array(outboxItemSummarySchema),
+	savedRegion: savedRegionSchema,
+	savedRegions: z.array(savedRegionSchema),
+	savedRegionProgress: savedRegionProgressSchema,
 }

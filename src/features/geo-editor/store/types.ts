@@ -5,6 +5,7 @@ import type { MapContext } from '@/lib/nostr/map-context'
 import type { ContextFilterMode } from '@/lib/context/validation'
 import type { ContextMapScopeMode } from '@/lib/context/scope'
 import type { PmtilesKind } from '@/lib/localPmtiles'
+import type { MapChunkAnnouncementRecord } from '@/lib/nostr/map-layer-set'
 import type { EditorFeature, EditorMode, GeoEditor } from '../core'
 import type { CollectionMeta, EditorBlobReference, GeoSearchResult } from '../types'
 
@@ -62,6 +63,7 @@ export interface EditorStats {
 }
 
 export interface AnnouncementSourceMeta {
+	eventId: string | null
 	name: string | null
 	about: string | null
 	pubkey: string | null
@@ -79,6 +81,7 @@ export interface MapLayerState {
 	blossomServers?: string[]
 	file?: string
 	pmtilesType?: string
+	announcement?: MapChunkAnnouncementRecord
 }
 
 /**

@@ -25,5 +25,6 @@ export const webLocalNodeService: LocalNodeService = {
 	forgetRemoteNode: async () => unsupported(),
 	syncRemoteNode: async () => unsupported(),
 	mirrorRemoteBlobs: async () => unsupported(),
+	localBlobAccess: async () => null,
 	localBlobUrl: async () => null,
 }

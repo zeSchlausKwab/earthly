@@ -5,9 +5,10 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use earthly_local_node::{
-    LocalBlobReadError, LocalNode, NodeAvailability, NodeBind, NodeConfig, NodeDescriptor,
-    PairingCapability, PairingError, PeerGrant, PendingPairingClaim, RemoteBlobMirrorError,
-    RemoteBlobMirrorResult, RemoteNodeError, RemoteNodeRecord, RemoteSyncError, RemoteSyncResult,
+    LocalBlobAccess, LocalBlobReadError, LocalNode, NodeAvailability, NodeBind, NodeConfig,
+    NodeDescriptor, PairingCapability, PairingError, PeerGrant, PendingPairingClaim,
+    RemoteBlobMirrorError, RemoteBlobMirrorResult, RemoteNodeError, RemoteNodeRecord,
+    RemoteSyncError, RemoteSyncResult,
 };
 use nostr::{EventId, PublicKey};
 use serde::Serialize;
@@ -99,7 +100,7 @@ impl LocalNodeState {
         }
     }
 
-    fn node(&self) -> Result<Arc<LocalNode>, LocalNodeCommandError> {
+    pub(crate) fn node(&self) -> Result<Arc<LocalNode>, LocalNodeCommandError> {
         let runtime = match self.runtime.read() {
             Ok(runtime) => runtime,
             Err(poisoned) => poisoned.into_inner(),
@@ -243,6 +244,14 @@ impl LocalNodeCommandError {
         )
     }
 }
+
+impl std::fmt::Display for LocalNodeCommandError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for LocalNodeCommandError {}
 
 impl From<PairingError> for LocalNodeCommandError {
     fn from(error: PairingError) -> Self {
@@ -608,6 +617,17 @@ pub async fn local_node_mirror_remote_blobs_v1(
     hashes: Vec<String>,
 ) -> Result<RemoteBlobMirrorResult, LocalNodeCommandError> {
     Ok(state.node()?.mirror_remote_blobs(&node_id, hashes).await?)
+}
+
+#[tauri::command]
+pub fn local_node_blob_access_v1(
+    state: State<'_, LocalNodeState>,
+    sha256: String,
+) -> Result<LocalBlobAccess, LocalNodeCommandError> {
+    state
+        .node()?
+        .local_blob_access(&sha256)
+        .map_err(|error| LocalNodeCommandError::new("local-blob-access-failed", error.to_string()))
 }
 
 pub fn local_blob_protocol<R: TauriRuntime>(

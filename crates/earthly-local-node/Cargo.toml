@@ -20,7 +20,7 @@ nostr-database = "0.44.0"
 nostr-lmdb = "0.44.1"
 nostr-relay-builder = "0.44.1"
 nostr-sdk = "0.44.1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

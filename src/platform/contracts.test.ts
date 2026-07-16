@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+	localBlobAccessSchema,
 	localNodeStatusSchema,
 	nativeSchemas,
 	outboxItemSchema,
@@ -19,6 +20,16 @@ const descriptor = {
 } as const
 
 describe('local node platform contracts', () => {
+	test('accepts a short-lived authenticated local blob endpoint', () => {
+		expect(
+			localBlobAccessSchema.parse({
+				url: `http://127.0.0.1:17448/${'a'.repeat(64)}`,
+				authorization: 'Nostr signed-event',
+				expiresAt: 1_800_000_000,
+			}),
+		).toMatchObject({ authorization: 'Nostr signed-event' })
+	})
+
 	test('accepts the versioned running status returned by Rust', () => {
 		expect(nativeSchemas.status.parse({ state: 'running', descriptor })).toEqual({
 			state: 'running',

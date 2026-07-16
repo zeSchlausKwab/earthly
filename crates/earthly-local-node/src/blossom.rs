@@ -37,6 +37,7 @@ use crate::{
 const X_SHA_256: &str = "x-sha-256";
 const X_REASON: &str = "x-reason";
 const AUTHORIZATION_KIND: u16 = 24_242;
+const DOWNLOAD_PROGRESS_INTERVAL_BYTES: u64 = 4 * 1024 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct BlobDescriptor {
@@ -87,6 +88,7 @@ impl EmbeddedBlossom {
         config: &NodeConfig,
         peers: PeerPolicy,
         pairing: PairingManager,
+        owner: PublicKey,
     ) -> Result<Self, NodeError> {
         config.validate()?;
         let store = BlobStore::open(config.data_dir.join("blossom")).await?;
@@ -100,6 +102,7 @@ impl EmbeddedBlossom {
             store: store.clone(),
             peers,
             pairing,
+            owner,
             base_url: url.clone(),
             server_host: url.host_str().unwrap_or_default().to_owned(),
             max_blob_bytes: config.max_blob_bytes,
@@ -168,6 +171,35 @@ impl EmbeddedBlossom {
         }
     }
 
+    pub(crate) async fn local_blob_descriptor(
+        &self,
+        hash: &str,
+    ) -> Result<Option<BlobDescriptor>, NodeError> {
+        validate_hash(hash).map_err(|error| NodeError::Blossom(error.reason.to_owned()))?;
+        let path = self.store.blob_path(hash);
+        let metadata = match fs::metadata(&path).await {
+            Ok(metadata) if metadata.is_file() => metadata,
+            Ok(_) => {
+                return Err(NodeError::Blossom(
+                    "local blob target is not a regular file".to_owned(),
+                ))
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let media_type = detect_media_type(&path).await;
+        descriptor(
+            &self.url,
+            &path,
+            hash.to_owned(),
+            metadata.len(),
+            media_type,
+        )
+        .await
+        .map(Some)
+        .map_err(|error| NodeError::Blossom(error.reason.to_owned()))
+    }
+
     pub async fn read_local_blob(
         &self,
         hash: &str,
@@ -230,6 +262,17 @@ impl EmbeddedBlossom {
         hash: &str,
         response: reqwest::Response,
     ) -> Result<(BlobDescriptor, bool), NodeError> {
+        self.adopt_remote_response_cancellable(hash, response, None, None)
+            .await
+    }
+
+    pub(crate) async fn adopt_remote_response_cancellable(
+        &self,
+        hash: &str,
+        response: reqwest::Response,
+        cancellation: Option<&CancellationToken>,
+        progress: Option<&(dyn Fn(u64) + Send + Sync)>,
+    ) -> Result<(BlobDescriptor, bool), NodeError> {
         validate_hash(hash).map_err(|error| NodeError::Blossom(error.reason.to_owned()))?;
         let target_path = self.store.blob_path(hash);
         match fs::metadata(&target_path).await {
@@ -279,8 +322,23 @@ impl EmbeddedBlossom {
         let mut stream = response.bytes_stream();
         let mut hasher = Sha256::new();
         let mut size = 0_u64;
+        let mut last_reported_size = 0_u64;
 
-        while let Some(chunk) = stream.next().await {
+        loop {
+            let next = if let Some(cancellation) = cancellation {
+                tokio::select! {
+                    _ = cancellation.cancelled() => {
+                        discard_staging(&staging_path).await;
+                        return Err(NodeError::Blossom("remote blob download cancelled".to_owned()));
+                    }
+                    chunk = stream.next() => chunk,
+                }
+            } else {
+                stream.next().await
+            };
+            let Some(chunk) = next else {
+                break;
+            };
             let chunk = match chunk {
                 Ok(chunk) => chunk,
                 Err(error) => {
@@ -302,6 +360,15 @@ impl EmbeddedBlossom {
                 discard_staging(&staging_path).await;
                 return Err(error.into());
             }
+            if size.saturating_sub(last_reported_size) >= DOWNLOAD_PROGRESS_INTERVAL_BYTES {
+                if let Some(progress) = progress {
+                    progress(size);
+                }
+                last_reported_size = size;
+            }
+        }
+        if let Some(progress) = progress {
+            progress(size);
         }
         if let Err(error) = file.sync_all().await {
             discard_staging(&staging_path).await;
@@ -358,9 +425,14 @@ mod mirror_tests {
         let pairing = PairingManager::open(dir.path().join("test-pairing"))
             .await
             .unwrap();
-        let blossom = EmbeddedBlossom::start(&config, peers, pairing)
-            .await
-            .unwrap();
+        let blossom = EmbeddedBlossom::start(
+            &config,
+            peers,
+            pairing,
+            nostr::Keys::generate().public_key(),
+        )
+        .await
+        .unwrap();
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -398,9 +470,14 @@ mod mirror_tests {
         let pairing = PairingManager::open(dir.path().join("test-pairing"))
             .await
             .unwrap();
-        let blossom = EmbeddedBlossom::start(&config, peers, pairing)
-            .await
-            .unwrap();
+        let blossom = EmbeddedBlossom::start(
+            &config,
+            peers,
+            pairing,
+            nostr::Keys::generate().public_key(),
+        )
+        .await
+        .unwrap();
 
         let bytes = b"immutable local range proof".to_vec();
         let served = bytes.clone();
@@ -465,6 +542,7 @@ struct BlossomState {
     store: BlobStore,
     peers: PeerPolicy,
     pairing: PairingManager,
+    owner: PublicKey,
     base_url: Url,
     server_host: String,
     max_blob_bytes: u64,
@@ -798,10 +876,11 @@ async fn authorize(
         "upload" => PairingCapability::BlobWrite,
         _ => return Err(BlossomError::unauthorized()),
     };
-    if !state
-        .peers
-        .allows_capability(&event.pubkey, required_capability)
-        .await
+    if event.pubkey != state.owner
+        && !state
+            .peers
+            .allows_capability(&event.pubkey, required_capability)
+            .await
     {
         return Err(BlossomError::new(
             StatusCode::FORBIDDEN,

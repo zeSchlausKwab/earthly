@@ -1,0 +1,401 @@
+import {
+	AlertTriangle,
+	CheckCircle2,
+	Download,
+	HardDrive,
+	Loader2,
+	MapPinned,
+	RefreshCw,
+	Square,
+	Trash2,
+	X,
+} from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Progress } from '@/components/ui/progress'
+import { useEditorStore } from '@/features/geo-editor/store'
+import { formatBytes } from '@/lib/blossom/blossomUpload'
+import type { SavedRegion, SavedRegionProgress, SavedRegionService } from '@/platform/contracts'
+import { getSavedRegionService, notifyLocalBlobsChanged } from '@/platform/registry'
+import { planSavedRegion } from './planSavedRegion'
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error)
+}
+
+function progressValue(region: SavedRegion): number {
+	if (region.bytesTotal && region.bytesTotal > 0) {
+		return Math.min(100, (region.bytesDone / region.bytesTotal) * 100)
+	}
+	if (region.blobsTotal > 0) return Math.min(100, (region.blobsDone / region.blobsTotal) * 100)
+	return 0
+}
+
+function mergeProgress(region: SavedRegion, progress: SavedRegionProgress): SavedRegion {
+	if (region.id !== progress.regionId) return region
+	return {
+		...region,
+		status: progress.status,
+		bytesTotal: progress.bytesTotal,
+		bytesDone: progress.bytesDone,
+		blobsTotal: progress.blobsTotal,
+		blobsDone: progress.blobsDone,
+		lastError: progress.message,
+	}
+}
+
+export function SavedRegionsSection() {
+	const editor = useEditorStore((state) => state.editor)
+	const mapAreaRect = useEditorStore((state) => state.mapAreaRect)
+	const mapLayers = useEditorStore((state) => state.mapLayers)
+	const source = useEditorStore((state) => state.announcementSource)
+	const [service, setService] = useState<SavedRegionService | null>(null)
+	const [regions, setRegions] = useState<SavedRegion[]>([])
+	const [name, setName] = useState('Offline map')
+	const [bbox, setBbox] = useState<[number, number, number, number] | null>(null)
+	const [operation, setOperation] = useState<string | null>('loading')
+
+	const refresh = useCallback(
+		async (nextService?: SavedRegionService) => {
+			const activeService = nextService ?? service
+			if (!activeService) return
+			try {
+				setRegions(await activeService.list())
+			} catch (error) {
+				toast.error(errorMessage(error))
+			}
+		},
+		[service],
+	)
+
+	const captureCurrentView = useCallback(() => {
+		const bounds = editor?.getMapBounds()
+		if (!bounds) {
+			toast.error('The map view is not ready yet')
+			return
+		}
+		setBbox(bounds)
+	}, [editor])
+
+	useEffect(() => {
+		let active = true
+		let unlisten: (() => void) | undefined
+		void getSavedRegionService().then(async (nextService) => {
+			if (!active) return
+			setService(nextService)
+			try {
+				setRegions(await nextService.list())
+				unlisten = await nextService.listenProgress((progress) => {
+					setRegions((current) => current.map((region) => mergeProgress(region, progress)))
+				})
+			} catch (error) {
+				toast.error(errorMessage(error))
+			} finally {
+				if (active) setOperation(null)
+			}
+		})
+		return () => {
+			active = false
+			unlisten?.()
+		}
+	}, [])
+
+	useEffect(() => {
+		if (!bbox && editor) captureCurrentView()
+	}, [bbox, editor, captureCurrentView])
+
+	const layer = useMemo(
+		() =>
+			mapLayers.find(
+				(candidate) =>
+					candidate.enabled && candidate.kind === 'chunked-vector' && candidate.announcement,
+			) ??
+			mapLayers.find((candidate) => candidate.kind === 'chunked-vector' && candidate.announcement),
+		[mapLayers],
+	)
+
+	const preview = useMemo(() => {
+		if (!bbox || !layer || !source?.trusted || !source.pubkey || !source.eventId) return null
+		try {
+			return planSavedRegion({
+				id: 'preview',
+				name,
+				bbox,
+				sourcePubkey: source.pubkey,
+				announcementId: source.eventId,
+				layer,
+			})
+		} catch (error) {
+			return error instanceof Error ? error : new Error(String(error))
+		}
+	}, [bbox, layer, name, source])
+
+	const download = useCallback(
+		async (regionId: string) => {
+			if (!service) return
+			setOperation(regionId)
+			try {
+				const region = await service.download(regionId)
+				setRegions((current) => [region, ...current.filter((item) => item.id !== region.id)])
+				notifyLocalBlobsChanged(region.blobs.map((blob) => blob.sha256))
+				toast.success(`${region.name} is ready offline`)
+			} catch (error) {
+				toast.error(errorMessage(error))
+				await refresh()
+			} finally {
+				setOperation(null)
+			}
+		},
+		[refresh, service],
+	)
+
+	const save = useCallback(async () => {
+		if (
+			!service ||
+			preview instanceof Error ||
+			!preview ||
+			!bbox ||
+			!layer ||
+			!source?.pubkey ||
+			!source.eventId
+		)
+			return
+		if (!name.trim()) {
+			toast.error('Give this offline map a name')
+			return
+		}
+		setOperation('create')
+		try {
+			const plan = planSavedRegion({
+				id: crypto.randomUUID(),
+				name,
+				bbox,
+				sourcePubkey: source.pubkey,
+				announcementId: source.eventId,
+				layer,
+			})
+			const region = await service.create(plan.request)
+			setRegions((current) => [region, ...current])
+			setOperation(null)
+			await download(region.id)
+		} catch (error) {
+			toast.error(errorMessage(error))
+			setOperation(null)
+		}
+	}, [bbox, download, layer, name, preview, service, source])
+
+	const cancel = useCallback(
+		async (regionId: string) => {
+			if (!service) return
+			try {
+				await service.cancel(regionId)
+			} catch (error) {
+				toast.error(errorMessage(error))
+			}
+		},
+		[service],
+	)
+
+	const remove = useCallback(
+		async (region: SavedRegion) => {
+			if (!service) return
+			setOperation(`remove:${region.id}`)
+			try {
+				await service.remove(region.id)
+				setRegions((current) => current.filter((item) => item.id !== region.id))
+				toast.success(`${region.name} removed from saved regions`)
+			} catch (error) {
+				toast.error(errorMessage(error))
+			} finally {
+				setOperation(null)
+			}
+		},
+		[service],
+	)
+
+	if (service && !service.supported) {
+		return (
+			<section className="rounded-none border bg-card p-4">
+				<div className="flex gap-3">
+					<HardDrive className="mt-0.5 size-5 text-muted-foreground" />
+					<div>
+						<h3 className="font-semibold">Saved map regions</h3>
+						<p className="mt-1 text-sm text-muted-foreground">
+							Downloadable map regions are available in the Earthly Android app. The browser keeps
+							using streamed map tiles.
+						</p>
+					</div>
+				</div>
+			</section>
+		)
+	}
+
+	return (
+		<section className="space-y-3 rounded-none border bg-card p-4">
+			<div className="flex items-start justify-between gap-3">
+				<div className="flex gap-3">
+					<div className="grid size-9 shrink-0 place-items-center bg-primary text-primary-foreground">
+						<MapPinned className="size-5" />
+					</div>
+					<div>
+						<h3 className="font-semibold">Saved map regions</h3>
+						<p className="text-xs text-muted-foreground">
+							Verified map files survive restarts and are used before network mirrors.
+						</p>
+					</div>
+				</div>
+				<Button
+					variant="ghost"
+					size="icon"
+					onClick={() => void refresh()}
+					aria-label="Refresh saved regions"
+				>
+					<RefreshCw className="size-4" />
+				</Button>
+			</div>
+
+			<div className="space-y-2 border-t pt-3">
+				<Label htmlFor="saved-region-name">Area name</Label>
+				<Input
+					id="saved-region-name"
+					value={name}
+					onChange={(event) => setName(event.target.value)}
+					maxLength={120}
+					placeholder="Weekend hike"
+				/>
+				<div className="grid grid-cols-2 gap-2">
+					<Button type="button" variant="outline" onClick={captureCurrentView}>
+						<MapPinned className="size-4" /> Current view
+					</Button>
+					<Button
+						type="button"
+						variant="outline"
+						disabled={!mapAreaRect}
+						onClick={() => mapAreaRect && setBbox(mapAreaRect.bbox)}
+					>
+						<Square className="size-4" /> Drawn area
+					</Button>
+				</div>
+				{bbox ? (
+					<p className="font-mono text-[10px] text-muted-foreground">
+						{bbox.map((value) => value.toFixed(3)).join(' · ')}
+					</p>
+				) : null}
+				{preview && !(preview instanceof Error) ? (
+					<div className="flex items-center justify-between border bg-muted/40 px-3 py-2 text-xs">
+						<span>{preview.chunkCount} verified map files</span>
+						<strong>
+							{preview.bytesTotal === null
+								? 'Size calculated while downloading'
+								: formatBytes(preview.bytesTotal)}
+						</strong>
+					</div>
+				) : (
+					<div className="flex gap-2 border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+						<AlertTriangle className="size-4 shrink-0 text-amber-600" />
+						<span>
+							{preview instanceof Error
+								? preview.message
+								: 'Choose Blossom Map Discovery and wait for a trusted map announcement.'}
+						</span>
+					</div>
+				)}
+				<Button
+					className="w-full"
+					disabled={!service || operation !== null || !preview || preview instanceof Error}
+					onClick={() => void save()}
+				>
+					{operation === 'create' ? (
+						<Loader2 className="size-4 animate-spin" />
+					) : (
+						<Download className="size-4" />
+					)}
+					Save & download
+				</Button>
+			</div>
+
+			{regions.length > 0 ? (
+				<div className="space-y-2 border-t pt-3">
+					<p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+						On this device
+					</p>
+					{regions.map((region) => (
+						<div key={region.id} className="space-y-2 border p-3">
+							<div className="flex items-start justify-between gap-2">
+								<div className="min-w-0">
+									<p className="truncate text-sm font-semibold">{region.name}</p>
+									<p className="text-xs text-muted-foreground">
+										{region.blobsDone}/{region.blobsTotal} files
+										{region.bytesTotal ? ` · ${formatBytes(region.bytesTotal)}` : ''}
+									</p>
+								</div>
+								<Badge
+									variant={region.status === 'ready' ? 'default' : 'outline'}
+									className="rounded-none"
+								>
+									{region.status === 'ready' ? <CheckCircle2 className="mr-1 size-3" /> : null}
+									{region.status}
+								</Badge>
+							</div>
+							<Progress value={progressValue(region)} className="h-1.5 rounded-none" />
+							{region.lastError ? (
+								<p className="text-xs text-destructive">{region.lastError}</p>
+							) : null}
+							<div className="flex gap-2">
+								{region.status === 'downloading' ? (
+									<Button
+										size="sm"
+										variant="outline"
+										className="flex-1"
+										onClick={() => void cancel(region.id)}
+									>
+										<X className="size-4" /> Cancel
+									</Button>
+								) : region.status !== 'ready' ? (
+									<Button
+										size="sm"
+										variant="outline"
+										className="flex-1"
+										disabled={operation !== null}
+										onClick={() => void download(region.id)}
+									>
+										<Download className="size-4" /> Resume
+									</Button>
+								) : (
+									<div className="flex flex-1 items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400">
+										<CheckCircle2 className="size-4" /> Available without internet
+									</div>
+								)}
+								<Button
+									size="icon-sm"
+									variant="ghost"
+									disabled={region.status === 'downloading' || operation !== null}
+									onClick={() => void remove(region)}
+									aria-label={`Remove ${region.name} from saved regions`}
+								>
+									{operation === `remove:${region.id}` ? (
+										<Loader2 className="size-4 animate-spin" />
+									) : (
+										<Trash2 className="size-4" />
+									)}
+								</Button>
+							</div>
+						</div>
+					))}
+					<p className="text-[11px] text-muted-foreground">
+						Removing a region removes its manifest. Shared content-addressed files remain available
+						to other offline features.
+					</p>
+				</div>
+			) : operation === 'loading' ? (
+				<div className="flex items-center gap-2 border-t pt-3 text-xs text-muted-foreground">
+					<Loader2 className="size-4 animate-spin" /> Loading saved regions…
+				</div>
+			) : null}
+		</section>
+	)
+}

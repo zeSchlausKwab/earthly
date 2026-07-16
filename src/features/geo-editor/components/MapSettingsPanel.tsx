@@ -39,6 +39,7 @@ import { UserProfile } from '@/components/user-profile'
 import { SessionsManager } from '@/features/auth/SessionsManager'
 import { ChatSettingsSection } from '@/features/chat'
 import { OfflineSharingSection } from '@/features/offline/OfflineSharingSection'
+import { SavedRegionsSection } from '@/features/offline/saved-regions/SavedRegionsSection'
 import { UserRelayManager } from '@/features/settings/UserRelayManager'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -905,10 +906,13 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 
 			<TabsContent value="offline" className="mt-0">
 				<SettingsShell
-					title="Offline sharing"
-					description="Pair nearby applications with Earthly’s embedded relay and file service."
+					title="Offline"
+					description="Keep map areas on this device or pair nearby apps without internet access."
 				>
-					<OfflineSharingSection />
+					<div className="space-y-4">
+						<SavedRegionsSection />
+						<OfflineSharingSection />
+					</div>
 				</SettingsShell>
 			</TabsContent>
 

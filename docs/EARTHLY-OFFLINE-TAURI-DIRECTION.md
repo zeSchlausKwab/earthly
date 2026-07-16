@@ -163,15 +163,26 @@ than embedding an Overpass engine.
 
 - A PWA manifest exists, but no service worker is registered.
 - `nostr-idb` persists up to 20,000 events and some timelines hydrate cache-first.
-- `publish()` broadcasts first and only then adds the event to the local store; there is no
-  durable retry queue.
+- Native non-beacon publishing persists immutable signed events in a SQLite outbox before the first
+  relay attempt and exposes retry/discard state in the delivery ledger.
 - `pmworld://` supports ordered `blossomServers[]` range-read failover, retains the legacy singular
   field, and can resolve verified native blobs through Earthly's local protocol.
 - Kind-34444 subscriptions and selection are constrained to configured trusted publisher pubkeys;
   malformed or unsafe announcement content is rejected before it reaches map state.
+- Android has a durable saved-region catalog and bbox planner for chunked Mapnolia basemaps. Native
+  downloads stream to staging, rotate trusted mirrors, verify SHA-256 identities, survive restart as
+  resumable plans, and are consumed local-first from the installation's authenticated embedded
+  Blossom HTTP service.
 - Earthly has QR/link and PNG export UI, but no offline bundle format or OS share-sheet bridge.
 - ContextVM Valhalla route and isochrone client methods already exist.
-- No Tauri scaffold, Rust workspace, OPFS region store, or native protocol bridge exists.
+- The Tauri Android shell, Rust workspace, embedded relay/Blossom node, native Range protocol,
+  pairing, and physical-device development install path exist. Browser OPFS regions remain future
+  work, as do native region repair and reference-counted blob garbage collection.
+
+The nearby-map boundary is transfer, not remote tile streaming: pairing authorizes discovery and a
+one-time immutable blob copy. The receiver verifies the advertised SHA-256 while adopting the file,
+then all PMTiles range reads come from its own embedded Blossom. Losing the peer after the transfer
+must not affect the saved map.
 
 ## Dependency order
 

@@ -11,6 +11,7 @@ mod identity;
 mod node;
 mod pairing;
 mod policy;
+mod public_blob;
 mod relay;
 mod remote;
 mod remote_blob;
@@ -23,7 +24,7 @@ pub use descriptor::{
 };
 pub use error::NodeError;
 pub use identity::NodeIdentity;
-pub use node::LocalNode;
+pub use node::{LocalBlobAccess, LocalNode};
 pub use pairing::{
     PairingCapability, PairingClaimContent, PairingClaimReceipt, PairingClaimRequest, PairingError,
     PairingInvitation, PairingInvitationContent, PairingManager, PairingStatus,
@@ -31,6 +32,7 @@ pub use pairing::{
     PAIRING_PROTOCOL_VERSION,
 };
 pub use policy::{PeerGrant, PeerPolicy};
+pub use public_blob::PublicBlobDownloadError;
 pub use relay::EmbeddedRelay;
 pub use remote::{
     RemoteNodeError, RemoteNodeRecord, RemoteNodeStore, RemoteSyncCheckpoint,

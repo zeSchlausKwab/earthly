@@ -226,6 +226,7 @@ As of 2026-07-16:
   signed GeoJSON payloads out of React without hiding an actionable pending item;
 - Android LAN sharing uses a visible, time-bounded `connectedDevice` foreground service and the
   notification-permission adapter rather than relying on WebView lifetime alone;
-- saved regions, the physical offline-sighting outbox acceptance journey, Android release signing,
-  and store distribution remain pending. iOS, Windows, and Linux are outside the current release
-  gate.
+- trusted-announcement saved regions now provide native verified downloads, persisted progress,
+  cancel/resume, and cold-start local-first PMTiles. Physical saved-region and offline-sighting
+  acceptance, region repair/reference-counted garbage collection, Android release signing, and
+  store distribution remain pending. iOS, Windows, and Linux are outside the current release gate.

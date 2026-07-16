@@ -89,6 +89,10 @@ export const tauriLocalNodeService: LocalNodeService = {
 			nodeId,
 			hashes,
 		}),
+	localBlobAccess: async (sha256) => {
+		if (!/^[0-9a-f]{64}$/.test(sha256)) return null
+		return invokeValidated('local_node_blob_access_v1', nativeSchemas.localBlobAccess, { sha256 })
+	},
 	localBlobUrl: async (sha256): Promise<string | null> => {
 		if (!/^[0-9a-f]{64}$/.test(sha256)) return null
 		const os = platform()

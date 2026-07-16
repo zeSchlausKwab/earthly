@@ -1,8 +1,13 @@
 import maplibregl from 'maplibre-gl'
 import { PMTiles, Protocol, TileType } from 'pmtiles'
 import { config } from '@/config/env.client'
-import { MirrorPmtilesSource } from '@/lib/mapnolia/MirrorPmtilesSource'
+import { isTauri } from '@/config/platform'
+import {
+	MirrorPmtilesSource,
+	type LocalPmtilesAccessProvider,
+} from '@/lib/mapnolia/MirrorPmtilesSource'
 import { lonLatToWorldGeohash, tileCenterLonLat } from '@/lib/worldGeohash'
+import { getLocalNodeService } from '@/platform/registry'
 import type { AnnouncementRecord } from './types'
 
 /**
@@ -27,8 +32,15 @@ const pmworldState = {
 /** Cache for PMTiles instances. Shared across remounts (intentional). */
 export const pmtilesCache: Record<string, PMTiles> = {}
 
+function nativeLocalBlobAccess(file: string): LocalPmtilesAccessProvider | undefined {
+	if (!isTauri()) return undefined
+	const hash = file.match(/^([0-9a-f]{64})(?:\.pmtiles)?$/u)?.[1]
+	if (!hash) return undefined
+	return async () => (await getLocalNodeService()).localBlobAccess(hash)
+}
+
 export function getMirroredPmtiles(file: string, blossomServers: readonly string[]): PMTiles {
-	const source = new MirrorPmtilesSource(file, blossomServers)
+	const source = new MirrorPmtilesSource(file, blossomServers, nativeLocalBlobAccess(file))
 	const key = source.getKey()
 	let pmtiles = pmtilesCache[key]
 	if (!pmtiles) {

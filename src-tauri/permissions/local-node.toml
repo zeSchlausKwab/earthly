@@ -19,4 +19,5 @@ commands.allow = [
   "local_node_forget_remote_node_v1",
   "local_node_sync_remote_node_v1",
   "local_node_mirror_remote_blobs_v1",
+  "local_node_blob_access_v1",
 ]

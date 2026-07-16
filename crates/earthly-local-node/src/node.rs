@@ -1,14 +1,18 @@
 use std::time::Duration;
 
-use nostr::{Event, EventId, PublicKey};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+use nostr::{Event, EventBuilder, EventId, Kind, PublicKey, Tag, Timestamp};
+use serde::Serialize;
 
 use crate::{
-    EmbeddedBlossom, EmbeddedRelay, LocalBlobRead, LocalBlobReadError, NodeConfig, NodeDescriptor,
-    NodeError, NodeIdentity, PairingCapability, PairingClaimReceipt, PairingError,
+    BlobDescriptor, EmbeddedBlossom, EmbeddedRelay, LocalBlobRead, LocalBlobReadError, NodeConfig,
+    NodeDescriptor, NodeError, NodeIdentity, PairingCapability, PairingClaimReceipt, PairingError,
     PairingInvitation, PairingManager, PairingStatus, PeerGrant, PeerPolicy, PendingPairingClaim,
-    RemoteBlobMirrorError, RemoteBlobMirrorResult, RemoteNodeError, RemoteNodeRecord,
-    RemoteNodeStore, RemoteSyncError, RemoteSyncResult,
+    PublicBlobDownloadError, RemoteBlobMirrorError, RemoteBlobMirrorResult, RemoteNodeError,
+    RemoteNodeRecord, RemoteNodeStore, RemoteSyncError, RemoteSyncResult,
 };
+use tokio_util::sync::CancellationToken;
 
 /// Complete running local node. Dropping it closes both listeners and releases the data lock.
 #[derive(Debug)]
@@ -22,6 +26,14 @@ pub struct LocalNode {
     blossom: EmbeddedBlossom,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalBlobAccess {
+    pub url: String,
+    pub authorization: String,
+    pub expires_at: u64,
+}
+
 impl LocalNode {
     pub async fn start(config: NodeConfig) -> Result<Self, NodeError> {
         config.validate()?;
@@ -30,7 +42,13 @@ impl LocalNode {
         let pairing = PairingManager::open(config.data_dir.join("pairing")).await?;
         let remote_nodes = RemoteNodeStore::open(config.data_dir.join("remote-nodes")).await?;
         let relay = EmbeddedRelay::start(&config, peers.clone()).await?;
-        let blossom = EmbeddedBlossom::start(&config, peers.clone(), pairing.clone()).await?;
+        let blossom = EmbeddedBlossom::start(
+            &config,
+            peers.clone(),
+            pairing.clone(),
+            identity.public_key(),
+        )
+        .await?;
         let descriptor = NodeDescriptor::new(
             identity.public_key_hex(),
             relay.url().clone(),
@@ -186,6 +204,67 @@ impl LocalNode {
         self.blossom
             .read_local_blob(hash, range_header, include_body, max_response_bytes)
             .await
+    }
+
+    pub fn local_blob_access(&self, hash: &str) -> Result<LocalBlobAccess, NodeError> {
+        if hash.len() != 64
+            || !hash
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(NodeError::Blossom("invalid local blob SHA-256".to_owned()));
+        }
+        let now = Timestamp::now();
+        let expires_at = now.as_secs() + 5 * 60;
+        let event = self.identity.sign(
+            EventBuilder::new(
+                Kind::Custom(24_242),
+                "Read an immutable blob from this Earthly installation",
+            )
+            .tags([
+                Tag::parse(["t", "get"]).map_err(|error| NodeError::Blossom(error.to_string()))?,
+                Tag::expiration(Timestamp::from(expires_at)),
+                Tag::parse(["x", hash]).map_err(|error| NodeError::Blossom(error.to_string()))?,
+            ])
+            .custom_created_at(now - 60),
+        )?;
+        let encoded = URL_SAFE_NO_PAD.encode(
+            serde_json::to_vec(&event).map_err(|error| NodeError::Blossom(error.to_string()))?,
+        );
+        Ok(LocalBlobAccess {
+            url: self
+                .descriptor
+                .blossom_url
+                .join(hash)
+                .map_err(|error| NodeError::Blossom(error.to_string()))?
+                .to_string(),
+            authorization: format!("Nostr {encoded}"),
+            expires_at,
+        })
+    }
+
+    pub async fn local_blob_descriptor(
+        &self,
+        hash: &str,
+    ) -> Result<Option<BlobDescriptor>, NodeError> {
+        self.blossom.local_blob_descriptor(hash).await
+    }
+
+    pub async fn download_public_blob(
+        &self,
+        hash: &str,
+        mirror_urls: Vec<String>,
+        cancellation: &CancellationToken,
+        progress: Option<&(dyn Fn(u64) + Send + Sync)>,
+    ) -> Result<BlobDescriptor, PublicBlobDownloadError> {
+        crate::public_blob::download_public_blob(
+            &self.blossom,
+            hash,
+            mirror_urls,
+            cancellation,
+            progress,
+        )
+        .await
     }
 
     pub async fn ingest_verified_event(&self, event: &Event) -> Result<bool, NodeError> {
@@ -409,6 +488,17 @@ mod tests {
         assert_eq!(upload.status(), reqwest::StatusCode::CREATED);
 
         let blob_url = first_node.descriptor().blossom_url.join(&hash).unwrap();
+        let local_access = first_node.local_blob_access(&hash).unwrap();
+        let owner_partial = client
+            .get(&local_access.url)
+            .header("authorization", local_access.authorization)
+            .header("range", "bytes=0-6")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(owner_partial.status(), reqwest::StatusCode::PARTIAL_CONTENT);
+        assert_eq!(owner_partial.bytes().await.unwrap().as_ref(), b"earthly");
+
         let partial = client
             .get(blob_url.clone())
             .header("authorization", authorization(&peer, "get", &hash))

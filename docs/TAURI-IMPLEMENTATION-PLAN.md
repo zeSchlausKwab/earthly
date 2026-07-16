@@ -15,7 +15,9 @@
 > selected Android basemap across restart. Crash-safe signed-event publishing now uses a native
 > SQLite outbox with per-relay acknowledgements, lifecycle replay, and a user-facing delivery
 > ledger. Time-bounded nearby sharing is backed by Android's visible `connectedDevice` foreground
-> service. Complete saved regions, the physical offline-authoring acceptance journey, and release
+> service. Trusted announcements now produce durable bbox-scoped region manifests, and Android can
+> stream, hash-verify, cancel/resume, and use their PMTiles files local-first after restart. Physical
+> saved-region/offline-authoring acceptance, integrity repair and garbage collection, and release
 > distribution remain staged work.
 
 Status: committed product direction
@@ -776,8 +778,17 @@ Exit criteria:
 
 Implementation status (2026-07-16): trusted Mapnolia publisher configuration, author-filtered
 kind-34444 subscriptions, bounded announcement validation, legacy `blossomServer` compatibility,
-ordered `blossomServers[]`, and PMTiles range-read mirror failover are implemented. The native
-saved-region catalog, verified download jobs, reference-counted removal, and region UI remain.
+ordered `blossomServers[]`, and PMTiles range-read mirror failover are implemented. The bbox planner
+now selects exact content-addressed chunks; the native SQLite catalog persists progress and restart
+recovery; the Rust downloader enforces HTTPS/public-address policy, mirror failover, cancellation,
+and SHA-256 adoption; and the Offline settings UI exposes size, progress, cancel/resume, and manifest
+removal. Android PMTiles resolution tries the verified local protocol before network mirrors on a
+removal. Android PMTiles resolution requests short-lived, hash-scoped access to its own embedded
+Blossom and tries that ordinary HTTP range source before network mirrors. Paired devices transfer
+complete immutable blobs once; they are not expected to remain available as remote range servers.
+Remaining gates are physical two-device/offline restart acceptance, integrity repair,
+reference-counted blob garbage collection, disk-pressure behavior, and announced style/sprite
+artifacts.
 
 ### Phase 9 — Durable native publish outbox
 

@@ -66,6 +66,7 @@ export function useNostrMapLayerAnnouncements(mapSource: MapSource): number | nu
 			const getTag = (key: string) =>
 				latestLayerSetEvent.tags?.find((t: string[]) => t[0] === key)?.[1] ?? null
 			setAnnouncementSource({
+				eventId: latestLayerSetEvent.id ?? null,
 				name: getTag('name'),
 				about: getTag('about'),
 				pubkey: latestLayerSetEvent.pubkey ?? null,
@@ -101,6 +102,7 @@ export function useNostrMapLayerAnnouncements(mapSource: MapSource): number | nu
 				blossomServers: normalizeMapLayerMirrors(layer, config.blossomServer),
 				file: 'file' in layer ? layer.file : undefined,
 				pmtilesType: 'pmtilesType' in layer ? layer.pmtilesType : undefined,
+				announcement: 'announcement' in layer ? layer.announcement : undefined,
 			}))
 			setMapLayers(layerStates)
 		} else {
