@@ -88,9 +88,18 @@ bun run tauri:android:install:dev
 The command reads each device's primary ABI, builds only the required Tauri targets, and installs the
 matching split APKs in parallel. It uses `adb install -r -t`, so an existing Earthly installation and
 its local app data are retained. Devices reported by ADB as `offline` or `unauthorized` are called out
-and skipped; inspect the connection state with `adb devices -l`. The native package is a debug build,
-while its bundled frontend uses the live-safe `.env.production` configuration selected by Tauri's
-`beforeBuildCommand`.
+and skipped; inspect the connection state with `adb devices -l`. The native package is normally a
+debug build, while its bundled frontend uses the live-safe `.env.production` configuration selected
+by Tauri's `beforeBuildCommand`. If Android rejects that large artifact with
+`INSTALL_FAILED_INSUFFICIENT_STORAGE`, the script automatically rebuilds only the affected ABI as a
+compact optimized APK, signs it with the standard development key, and retries without clearing app
+data. To choose that smaller artifact immediately, run:
+
+```sh
+bun run tauri:android:install:optimized
+```
+
+Use `bun run tauri:android:install:dev --help` for all modes.
 
 The Android app declares `INTERNET` because it hosts and consumes the embedded Nostr and Blossom
 services. Release WebViews permit cleartext only to `127.0.0.1`/`localhost`; debug builds permit
