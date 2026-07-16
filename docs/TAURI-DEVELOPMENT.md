@@ -78,6 +78,20 @@ For an x86_64 emulator, replace `aarch64` with `x86_64`. The APK is emitted belo
 `src-tauri/gen/android/app/build/outputs/apk/`. Build outputs, generated Rust/JNI links, machine-local
 SDK paths, and signing files remain ignored.
 
+To build and install a debug-signed development APK on every authorized device currently visible to
+ADB (USB and Wi-Fi debugging are both supported), run:
+
+```sh
+bun run tauri:android:install:dev
+```
+
+The command reads each device's primary ABI, builds only the required Tauri targets, and installs the
+matching split APKs in parallel. It uses `adb install -r -t`, so an existing Earthly installation and
+its local app data are retained. Devices reported by ADB as `offline` or `unauthorized` are called out
+and skipped; inspect the connection state with `adb devices -l`. The native package is a debug build,
+while its bundled frontend uses the live-safe `.env.production` configuration selected by Tauri's
+`beforeBuildCommand`.
+
 The Android app declares `INTERNET` because it hosts and consumes the embedded Nostr and Blossom
 services. Release WebViews permit cleartext only to `127.0.0.1`/`localhost`; debug builds permit
 cleartext development endpoints. Connections to another device's offline node must go through the

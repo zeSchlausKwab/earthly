@@ -10,6 +10,7 @@
     "tauri:build": "tauri build",
     "tauri:android:init": "tauri android init --ci",
     "tauri:android:build": "tauri android build --apk --ci",
+    "tauri:android:install:dev": "bun run scripts/install-android-dev.ts",
     "tauri:frontend": "bun --hot src/index.ts --host 0.0.0.0",
     "dev": "./scripts/dev-clean.sh",
     "seed": "bun run scripts/seed.ts",
