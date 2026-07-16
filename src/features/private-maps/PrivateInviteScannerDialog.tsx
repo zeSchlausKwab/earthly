@@ -68,7 +68,7 @@ export function PrivateInviteScannerDialog({
 						Scan private-group invite
 					</DialogTitle>
 					<DialogDescription>
-						Point this phone at the invitation QR shown on another device.
+						Point the camera at the invitation QR shown on another device.
 					</DialogDescription>
 				</DialogHeader>
 

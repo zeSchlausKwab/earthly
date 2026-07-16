@@ -8,6 +8,71 @@ import { PrivateWorkspaceService } from './service'
 import { MemoryPrivateWorkspaceStore, type StoredWorkspace } from './storage'
 
 describe('PrivateWorkspaceService synchronization', () => {
+	test('recovers a join request from transient Cordn response loss', async () => {
+		const adminSecretKey = generateSecretKey()
+		const guestSecretKey = generateSecretKey()
+		const guestPubkey = getPublicKey(guestSecretKey)
+		const coordinatorPubkey = 'b'.repeat(64)
+		const issuedAt = 1_700_000_000
+		const invitation = await createPrivateMapInvitation({
+			signer: {
+				signEvent: async (event) => finalizeEvent(event, adminSecretKey),
+			},
+			workspaceId: 'workspace-1',
+			groupId: 'group-1',
+			adminPubkey: getPublicKey(adminSecretKey),
+			coordinatorPubkey,
+			relays: ['ws://localhost:3334'],
+			nonce: 'response-loss',
+			issuedAt,
+		})
+		let publishedRef = ''
+		let publishedLastResort = false
+		let publishAttempts = 0
+		let joinRequestAttempts = 0
+		const coordinator = {
+			publishKeyPackage: async ({ kp_ref }: { kp_ref: string; kp_64: string }) => {
+				publishAttempts += 1
+				publishedRef = kp_ref
+				publishedLastResort = true
+				throw new Error('MCP error -32001: Request timed out')
+			},
+			listKeyPackages: async () => ({
+				keyPackages: [
+					{
+						pk: guestPubkey,
+						kp_ref: publishedRef,
+						last_resort: publishedLastResort,
+						at: issuedAt,
+					},
+				],
+			}),
+			storeJoinRequest: async () => {
+				joinRequestAttempts += 1
+				if (joinRequestAttempts === 1) throw new Error('MCP error -32001: Request timed out')
+				return { at: issuedAt + 1 }
+			},
+			disconnect: async () => undefined,
+		} as unknown as PrivateWorkspaceCoordinator
+		const service = new PrivateWorkspaceService({
+			signer: {
+				getPublicKey: async () => guestPubkey,
+				signEvent: async (event) => finalizeEvent(event, guestSecretKey),
+			} as NostrSigner,
+			store: new MemoryPrivateWorkspaceStore(),
+			coordinatorPubkey,
+			relays: ['ws://localhost:3334'],
+			createCoordinator: () => coordinator,
+			now: () => issuedAt * 1000,
+		})
+
+		const pending = await service.requestToJoin(invitation)
+
+		expect(pending.workspaceId).toBe('workspace-1')
+		expect(publishAttempts).toBe(1)
+		expect(joinRequestAttempts).toBe(2)
+	})
+
 	test('rejects an expired signed invitation before contacting its coordinator', async () => {
 		const adminSecretKey = generateSecretKey()
 		const guestSecretKey = generateSecretKey()

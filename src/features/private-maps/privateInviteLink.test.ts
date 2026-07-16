@@ -32,6 +32,16 @@ describe('private invite QR links', () => {
 		})
 	})
 
+	test('accepts surrounding whitespace from a pasted invitation link', () => {
+		const invitation = invitationToken('workspace-1')
+		const url = `https://earthly.city/privategroup/workspace-1?private-invite=${invitation}`
+
+		expect(parsePrivateInviteLink(`  ${url}\n`)).toEqual({
+			workspaceId: 'workspace-1',
+			invitation,
+		})
+	})
+
 	test('accepts the earlier hyphenated preview route', () => {
 		const invitation = invitationToken('workspace-1')
 

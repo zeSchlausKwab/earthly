@@ -8,7 +8,7 @@ export interface ParsedPrivateInviteLink {
 	invitation: string
 }
 
-/** Validate a scanned invite link before routing it into the local MLS workspace flow. */
+/** Validate an entered or scanned invite link before routing it into the MLS workspace flow. */
 export function parsePrivateInviteLink(
 	value: string,
 	nowMilliseconds = Date.now(),
@@ -17,7 +17,7 @@ export function parsePrivateInviteLink(
 	try {
 		url = new URL(value.trim())
 	} catch {
-		throw new Error('Scan an Earthly private-group invitation QR code')
+		throw new Error('Enter or scan an Earthly private-group invitation link')
 	}
 
 	if (url.protocol !== 'https:' && url.protocol !== 'http:') {
@@ -29,7 +29,7 @@ export function parsePrivateInviteLink(
 		segments.length !== 2 ||
 		(segments[0] !== 'privategroup' && segments[0] !== 'private-group')
 	) {
-		throw new Error('The QR code does not contain an Earthly private-group route')
+		throw new Error('The invitation link does not contain an Earthly private-group route')
 	}
 
 	const invitationValues = url.searchParams.getAll('private-invite')

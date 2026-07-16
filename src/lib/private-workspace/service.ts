@@ -61,6 +61,33 @@ export const PRIVATE_WORKSPACE_CHAT_KIND = 9
 
 const MAX_SKIPPED_COORDINATOR_MESSAGES = 32
 const MAX_MEMBERSHIP_RECOVERY_PASSES = 4
+const MAX_TRANSIENT_COORDINATOR_ATTEMPTS = 3
+
+function isTransientCoordinatorError(error: unknown): boolean {
+	const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+	return /(?:timed?\s*out|timeout|connection\s+(?:closed|reset|lost)|relay.*(?:unavailable|disconnected|not connected)|network.*unavailable)/iu.test(
+		message,
+	)
+}
+
+function waitForCoordinatorRetry(attempt: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, attempt * 300))
+}
+
+async function retryTransientCoordinatorCall<T>(operation: () => Promise<T>): Promise<T> {
+	let lastError: unknown
+	for (let attempt = 1; attempt <= MAX_TRANSIENT_COORDINATOR_ATTEMPTS; attempt += 1) {
+		try {
+			return await operation()
+		} catch (error) {
+			lastError = error
+			if (!isTransientCoordinatorError(error) || attempt === MAX_TRANSIENT_COORDINATOR_ATTEMPTS)
+				throw error
+			await waitForCoordinatorRetry(attempt)
+		}
+	}
+	throw lastError
+}
 
 type CoordinatorFactory = (options: {
 	serverPubkey: string
@@ -139,6 +166,42 @@ export class PrivateWorkspaceService {
 		})
 		this.coordinators.set(key, coordinator)
 		return coordinator
+	}
+
+	private async publishJoinKeyPackage(
+		coordinator: PrivateWorkspaceCoordinator,
+		ownerPubkey: string,
+		input: { kp_ref: string; kp_64: string },
+	) {
+		let uncertainPublish = false
+		let lastError: unknown
+
+		for (let attempt = 1; attempt <= MAX_TRANSIENT_COORDINATOR_ATTEMPTS; attempt += 1) {
+			try {
+				return await coordinator.publishKeyPackage(input)
+			} catch (error) {
+				lastError = error
+				const transient = isTransientCoordinatorError(error)
+				if (!transient && !uncertainPublish) throw error
+				uncertainPublish ||= transient
+
+				try {
+					const available = await coordinator.listKeyPackages()
+					const published = available.keyPackages.find(
+						(item) => item.pk === ownerPubkey && item.kp_ref === input.kp_ref,
+					)
+					if (published) return published
+				} catch (listError) {
+					if (!isTransientCoordinatorError(listError)) throw listError
+					lastError = listError
+				}
+
+				if (!transient || attempt === MAX_TRANSIENT_COORDINATOR_ATTEMPTS) throw lastError
+				await waitForCoordinatorRetry(attempt)
+			}
+		}
+
+		throw lastError
 	}
 
 	private administratorPolicy(workspace: StoredWorkspace): AdministratorPolicyState {
@@ -286,7 +349,7 @@ export class PrivateWorkspaceService {
 		await this.options.store.putKeyPackage(storedKeyPackage)
 
 		const coordinator = this.coordinator(invitation.coordinatorPubkey, invitation.relays)
-		const published = await coordinator.publishKeyPackage({
+		const published = await this.publishJoinKeyPackage(coordinator, ownerPubkey, {
 			kp_ref: artifacts.keyPackageRef,
 			kp_64: artifacts.keyPackageBase64,
 		})
@@ -298,10 +361,12 @@ export class PrivateWorkspaceService {
 		}
 		storedKeyPackage.published = true
 		await this.options.store.putKeyPackage(storedKeyPackage)
-		await coordinator.storeJoinRequest({
-			gid: invitation.groupId,
-			kp_ref: artifacts.keyPackageRef,
-		})
+		await retryTransientCoordinatorCall(() =>
+			coordinator.storeJoinRequest({
+				gid: invitation.groupId,
+				kp_ref: artifacts.keyPackageRef,
+			}),
+		)
 
 		const pending: PendingWorkspaceJoin = {
 			ownerPubkey,

@@ -4,6 +4,7 @@ import {
 	Copy,
 	Database,
 	KeyRound,
+	Link2,
 	LockKeyhole,
 	MessageSquareText,
 	Plus,
@@ -50,6 +51,7 @@ import { cn } from '@/lib/utils'
 import { PrivateCommentItem } from './PrivateCommentItem'
 import { PrivateGeometryReferences, type PrivateDatasetActions } from './PrivateGeometryReferences'
 import { PrivateInviteScannerDialog } from './PrivateInviteScannerDialog'
+import { parsePrivateInviteLink, type ParsedPrivateInviteLink } from './privateInviteLink'
 import { usePrivateWorkspaceRuntime } from './usePrivateWorkspaceRuntime'
 
 function shortKey(value: string) {
@@ -100,6 +102,7 @@ export function PrivateGroupsPanel({
 		requests: WorkspaceJoinRequest[]
 	}>({ workspaceId: '', requests: [] })
 	const [invitation, setInvitation] = useState(invitationFromLocation)
+	const [inviteLinkInput, setInviteLinkInput] = useState('')
 	const [inviteScannerOpen, setInviteScannerOpen] = useState(false)
 	const [showCreate, setShowCreate] = useState(false)
 	const [name, setName] = useState('')
@@ -299,20 +302,30 @@ export function PrivateGroupsPanel({
 			)
 		})
 
-	const handleScannedInvite = ({
-		workspaceId,
-		invitation: scannedInvitation,
-	}: {
-		workspaceId: string
-		invitation: string
-	}) => {
+	const openInvite = ({ workspaceId, invitation: scannedInvitation }: ParsedPrivateInviteLink) => {
 		setInvitation(scannedInvitation)
 		setInviteScannerOpen(false)
 		navigateToPrivateGroup(workspaceId)
 		const url = new URL(location.href)
+		url.pathname = `/privategroup/${encodeURIComponent(workspaceId)}`
+		url.search = ''
 		url.searchParams.set('private-invite', scannedInvitation)
 		history.replaceState(history.state, '', url)
+	}
+
+	const handleScannedInvite = (invite: ParsedPrivateInviteLink) => {
+		openInvite(invite)
 		toast.success('Private-group invitation scanned')
+	}
+
+	const handleOpenInviteLink = (event: React.FormEvent<HTMLFormElement>) => {
+		event.preventDefault()
+		void run('open invitation', async () => {
+			const parsed = parsePrivateInviteLink(inviteLinkInput)
+			openInvite(parsed)
+			setInviteLinkInput('')
+			toast.success('Private-group invitation opened')
+		})
 	}
 
 	const handleFetchRequests = () =>
@@ -790,7 +803,12 @@ export function PrivateGroupsPanel({
 										onClick={handleRequestJoin}
 										disabled={Boolean(busy)}
 									>
-										<UserPlus /> Request access
+										{busy === 'request access' ? (
+											<RefreshCw className="animate-spin" />
+										) : (
+											<UserPlus />
+										)}
+										{busy === 'request access' ? 'Connecting…' : 'Request access'}
 									</Button>
 								) : null}
 								{pendingForRoute ? (
@@ -831,23 +849,36 @@ export function PrivateGroupsPanel({
 							<Plus /> New private group
 						</Button>
 					) : null}
-					{isTauri() ? (
-						<>
-							<Button
-								variant="outline"
-								size="sm"
-								className="w-full"
-								onClick={() => setInviteScannerOpen(true)}
-							>
-								<ScanLine /> Scan invite QR
-							</Button>
-							<PrivateInviteScannerDialog
-								open={inviteScannerOpen}
-								onOpenChange={setInviteScannerOpen}
-								onInvite={handleScannedInvite}
-							/>
-						</>
-					) : null}
+					<form className="flex gap-1.5" onSubmit={handleOpenInviteLink}>
+						<Input
+							aria-label="Private group invitation link"
+							className="h-8 min-w-0 text-xs"
+							placeholder="Paste invitation link"
+							value={inviteLinkInput}
+							onChange={(event) => setInviteLinkInput(event.target.value)}
+						/>
+						<Button
+							type="submit"
+							variant="outline"
+							size="sm"
+							disabled={!inviteLinkInput.trim() || Boolean(busy)}
+						>
+							<Link2 /> Open
+						</Button>
+					</form>
+					<Button
+						variant="outline"
+						size="sm"
+						className="w-full"
+						onClick={() => setInviteScannerOpen(true)}
+					>
+						<ScanLine /> Scan invite QR
+					</Button>
+					<PrivateInviteScannerDialog
+						open={inviteScannerOpen}
+						onOpenChange={setInviteScannerOpen}
+						onInvite={handleScannedInvite}
+					/>
 					<PanelNotice>
 						Group data is MLS-encrypted; Cordn is reached through ContextVM over Nostr.
 					</PanelNotice>
