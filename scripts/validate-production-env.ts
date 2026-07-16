@@ -135,6 +135,19 @@ export function validateProductionEnv(
 			errors.push('BLOSSOM_SERVER must be a valid URL')
 		}
 	}
+	const trustedMapnoliaPubkeys = relayUrls(env.MAPNOLIA_TRUSTED_PUBKEYS)
+	if (trustedMapnoliaPubkeys.length === 0) {
+		errors.push('MAPNOLIA_TRUSTED_PUBKEYS must contain at least one public key')
+	} else {
+		for (const pubkey of trustedMapnoliaPubkeys) {
+			if (!HEX_64.test(pubkey)) {
+				errors.push(
+					'MAPNOLIA_TRUSTED_PUBKEYS must contain comma-separated lowercase hexadecimal public keys',
+				)
+				break
+			}
+		}
+	}
 	for (const name of [
 		'CORDN_MAX_AGE_DAYS',
 		'CORDN_RATE_LIMIT_REFILL_PER_MINUTE',

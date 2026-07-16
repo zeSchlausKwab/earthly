@@ -25,6 +25,7 @@ function validEnvironment(): Record<string, string> {
 		CORDN_MAX_KEY_PACKAGES_PER_IDENTITY: '50',
 		CORDN_MAX_LAST_RESORT_KEY_PACKAGES_PER_IDENTITY: '1',
 		BLOSSOM_SERVER: 'https://blossom.earthly.city',
+		MAPNOLIA_TRUSTED_PUBKEYS: '5'.repeat(64),
 	}
 }
 
@@ -64,6 +65,20 @@ describe('production environment validation', () => {
 
 		expect(validateProductionEnv(env).errors).toContain(
 			"CORDN_SERVER_PRIVATE_KEY must not use Earthly's public development key",
+		)
+	})
+
+	test('rejects missing or malformed trusted Mapnolia authors', () => {
+		const missing = validEnvironment()
+		missing.MAPNOLIA_TRUSTED_PUBKEYS = ''
+		expect(validateProductionEnv(missing).errors.join('\n')).toContain(
+			'MAPNOLIA_TRUSTED_PUBKEYS',
+		)
+
+		const malformed = validEnvironment()
+		malformed.MAPNOLIA_TRUSTED_PUBKEYS = 'not-a-pubkey'
+		expect(validateProductionEnv(malformed).errors.join('\n')).toContain(
+			'MAPNOLIA_TRUSTED_PUBKEYS',
 		)
 	})
 })

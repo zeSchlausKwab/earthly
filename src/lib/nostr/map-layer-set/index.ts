@@ -8,7 +8,7 @@
 
 import { EventCast, type CastRefEventStore } from 'applesauce-core/casts'
 import { getOrComputeCachedValue } from 'applesauce-core/helpers/cache'
-import { type KnownEvent, type NostrEvent } from 'applesauce-core/helpers/event'
+import type { KnownEvent, NostrEvent } from 'applesauce-core/helpers/event'
 import { MAP_LAYER_SET_KIND } from '@/lib/nostr/kinds'
 import type { BBox } from '@/lib/worldGeohash'
 
@@ -19,26 +19,31 @@ export type MapChunkAnnouncementRecord = Record<
 	{ bbox: BBox; file: string; maxZoom: number; size?: number }
 >
 
+export interface MapLayerMirrors {
+	/** Ordered mirrors. New announcements should use this field. */
+	blossomServers?: string[]
+	/** Legacy single-server field retained for existing publishers. */
+	blossomServer?: string
+}
+
 export type MapLayerDescriptor =
-	| {
+	| (MapLayerMirrors & {
 			id: string
 			title: string
 			kind: 'chunked-vector'
-			blossomServer: string
 			announcement: MapChunkAnnouncementRecord
 			defaultEnabled?: boolean
 			defaultOpacity?: number
-	  }
-	| {
+	  })
+	| (MapLayerMirrors & {
 			id: string
 			title: string
 			kind: 'pmtiles' | 'file'
-			blossomServer: string
 			file: string
 			pmtilesType?: string
 			defaultEnabled?: boolean
 			defaultOpacity?: number
-	  }
+	  })
 
 export interface MapLayerSetAnnouncementPayload {
 	version?: 1
@@ -77,7 +82,7 @@ export class MapLayerSet extends EventCast<MapLayerSetEvent> {
 		super(event, store)
 	}
 
-	get kind() {
+	override get kind() {
 		return this.event.kind
 	}
 	get pubkey() {

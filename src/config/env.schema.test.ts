@@ -6,6 +6,7 @@ describe('frontend environment allow-list', () => {
 		expect(FRONTEND_ENV_KEYS).not.toContain('CLIENT_KEY' as never)
 		expect(FRONTEND_ENV_KEYS).not.toContain('SERVER_KEY' as never)
 		expect(FRONTEND_ENV_KEYS).not.toContain('APP_PRIVATE_KEY' as never)
+		expect(FRONTEND_ENV_KEYS).toContain('MAPNOLIA_TRUSTED_PUBKEYS')
 	})
 
 	test('does not retain the retired shared client key', () => {
@@ -15,5 +16,11 @@ describe('frontend environment allow-list', () => {
 		})
 
 		expect('CLIENT_KEY' in parsed).toBe(false)
+	})
+
+	test('rejects an invalid trusted Mapnolia author list', () => {
+		expect(() =>
+			parseEnv({ NODE_ENV: 'production', MAPNOLIA_TRUSTED_PUBKEYS: 'not-a-pubkey' }),
+		).toThrow()
 	})
 })

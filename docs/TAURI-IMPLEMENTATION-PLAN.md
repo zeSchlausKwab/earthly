@@ -774,6 +774,11 @@ Exit criteria:
 - auth/payment failures remain actionable and are never retried as transient failures;
 - tampered mirror content is rejected and the next mirror is attempted.
 
+Implementation status (2026-07-16): trusted Mapnolia publisher configuration, author-filtered
+kind-34444 subscriptions, bounded announcement validation, legacy `blossomServer` compatibility,
+ordered `blossomServers[]`, and PMTiles range-read mirror failover are implemented. The native
+saved-region catalog, verified download jobs, reference-counted removal, and region UI remain.
+
 ### Phase 9 — Durable native publish outbox
 
 Deliver:

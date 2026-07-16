@@ -66,6 +66,7 @@ export interface AnnouncementSourceMeta {
 	about: string | null
 	pubkey: string | null
 	createdAt: number | null
+	trusted: boolean
 }
 
 export interface MapLayerState {
@@ -75,6 +76,7 @@ export interface MapLayerState {
 	enabled: boolean
 	opacity: number
 	blossomServer?: string
+	blossomServers?: string[]
 	file?: string
 	pmtilesType?: string
 }

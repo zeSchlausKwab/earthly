@@ -25,6 +25,7 @@ import {
 	HardDrive,
 	Loader2,
 	Radio,
+	ShieldCheck,
 	Server,
 } from 'lucide-react'
 import { FileSource } from 'pmtiles'
@@ -717,6 +718,10 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 									{announcementSource.name || 'Announcement Source'}
 								</span>
 							</div>
+							<div className="flex items-center gap-1.5 pl-6 text-xs text-emerald-700">
+								<ShieldCheck className="h-3.5 w-3.5" />
+								Trusted map publisher
+							</div>
 							{announcementSource.about && (
 								<p className="pl-6 text-xs text-muted-foreground">{announcementSource.about}</p>
 							)}
@@ -833,7 +838,7 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 					{!announcementSource && mapLayers.length === 0 ? (
 						<div className="flex items-center gap-2 border-t pt-2 text-xs italic text-muted-foreground">
 							<Radio className="h-4 w-4" />
-							<span>Waiting for layer announcements...</span>
+							<span>Waiting for a trusted layer announcement...</span>
 						</div>
 					) : null}
 				</>

@@ -20,10 +20,13 @@
  * broadly via `readRelays`.
  */
 
+import { DEFAULT_MAPNOLIA_TRUSTED_PUBKEY } from './env.schema'
+
 const DEV_DEFAULTS = {
 	RELAY_URL: 'wss://relay.earthly.city',
 	SERVER_PUBKEY: 'ceadb7d5b739189fb3ecb7023a0c3f55d8995404d7750f5068865decf8b304cc',
 	BLOSSOM_SERVER: 'https://blossom.earthly.city',
+	MAPNOLIA_TRUSTED_PUBKEYS: DEFAULT_MAPNOLIA_TRUSTED_PUBKEY,
 } as const
 
 const LOCAL_DEV_RELAY_URL = 'ws://localhost:3334'
@@ -45,6 +48,15 @@ function parseRelayList(value: string): string[] {
 		.split(',')
 		.map((url) => url.trim())
 		.filter(Boolean)
+}
+
+function parsePublicKeyList(value: string): string[] {
+	return dedupe(
+		value
+			.split(',')
+			.map((key) => key.trim())
+			.filter((key) => /^[0-9a-f]{64}$/u.test(key)),
+	)
 }
 
 function getBrowserLocation(): Pick<Location, 'hostname' | 'protocol'> | null {
@@ -180,6 +192,12 @@ const blossomServer = safeEnv(
 const isProduction = safeEnv(() => process.env.NODE_ENV === 'production', false)
 const isDevelopment = safeEnv(() => process.env.NODE_ENV !== 'production', true)
 const configuredCordnServerPubkey = safeEnv(() => process.env.CORDN_SERVER_PUBKEY as string, '')
+const trustedMapnoliaPubkeys = parsePublicKeyList(
+	safeEnv(
+		() => process.env.MAPNOLIA_TRUSTED_PUBKEYS as string,
+		DEV_DEFAULTS.MAPNOLIA_TRUSTED_PUBKEYS,
+	),
+)
 
 const writeRelays = buildWriteRelays({ relayUrl, isDevelopment })
 const readRelays = buildReadRelays({ writeRelays, relayUrl, extraReadRelays })
@@ -227,6 +245,9 @@ export const config = {
 
 	/** Blossom server URL for fetching PMTiles chunks */
 	blossomServer: buildBlossomServer({ blossomServer, isDevelopment }),
+
+	/** Authors allowed to select remote Mapnolia layers and offline-region provenance. */
+	trustedMapnoliaPubkeys,
 
 	/** Whether running in production mode */
 	isProduction,

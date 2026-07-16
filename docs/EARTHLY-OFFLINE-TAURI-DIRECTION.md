@@ -159,16 +159,16 @@ For Overpass-like use cases, Earthly should consume precomputed thematic kind-37
 datasets (water, huts, trail facilities) and include selected datasets in offline bundles rather
 than embedding an Overpass engine.
 
-## Current Earthly baseline (verified 2026-07-13)
+## Current Earthly baseline (updated 2026-07-16)
 
 - A PWA manifest exists, but no service worker is registered.
 - `nostr-idb` persists up to 20,000 events and some timelines hydrate cache-first.
 - `publish()` broadcasts first and only then adds the event to the local store; there is no
   durable retry queue.
-- `pmworld://` reads directly from one `blossomServer`; no local blob source or mirror failover is
-  present.
-- The kind-34444 Cast says callers should trust-filter authors, but the active subscription asks
-  for the latest event from any pubkey. The basemap-hijack gap remains.
+- `pmworld://` supports ordered `blossomServers[]` range-read failover, retains the legacy singular
+  field, and can resolve verified native blobs through Earthly's local protocol.
+- Kind-34444 subscriptions and selection are constrained to configured trusted publisher pubkeys;
+  malformed or unsafe announcement content is rejected before it reaches map state.
 - Earthly has QR/link and PNG export UI, but no offline bundle format or OS share-sheet bridge.
 - ContextVM Valhalla route and isochrone client methods already exist.
 - No Tauri scaffold, Rust workspace, OPFS region store, or native protocol bridge exists.

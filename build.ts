@@ -149,6 +149,9 @@ console.log(`   SERVER_PUBKEY: ${env.SERVER_PUBKEY.slice(0, 16)}...`);
 console.log(
 	`   CORDN_SERVER_PUBKEY: ${env.CORDN_SERVER_PUBKEY ? `${env.CORDN_SERVER_PUBKEY.slice(0, 16)}...` : "disabled"}`,
 );
+console.log(
+	`   MAPNOLIA_TRUSTED_PUBKEYS: ${env.MAPNOLIA_TRUSTED_PUBKEYS.split(",").filter(Boolean).length} configured`,
+);
 console.log();
 
 // Build define object for frontend env injection
