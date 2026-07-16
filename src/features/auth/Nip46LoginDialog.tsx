@@ -57,7 +57,9 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 
 	const [state, setState] = useState<ConnectionState>('idle')
 	const [error, setError] = useState<string | null>(null)
-	const [selectedRelay, setSelectedRelay] = useState(DEFAULT_RELAYS[0]!.value)
+	const [selectedRelay, setSelectedRelay] = useState(
+		DEFAULT_RELAYS[0]?.value ?? 'wss://relay.earthly.city',
+	)
 
 	// Scan tab state — the URI we display + the signer we're awaiting on
 	const [connectionUri, setConnectionUri] = useState('')
@@ -69,6 +71,10 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 	const [showScanner, setShowScanner] = useState(false)
 	const [scanError, setScanError] = useState<string | null>(null)
 	const [rememberMe, setRememberMe] = useState(true)
+	const rememberMeRef = useRef(rememberMe)
+	const onSuccessRef = useRef(onSuccess)
+	rememberMeRef.current = rememberMe
+	onSuccessRef.current = onSuccess
 
 	const cleanup = useCallback(() => {
 		abortRef.current?.abort()
@@ -77,19 +83,22 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 		signerRef.current = null
 	}, [])
 
-	const handleOpenChange = (isOpen: boolean) => {
-		setOpen(isOpen)
-		if (!isOpen) {
-			cleanup()
-			setState('idle')
-			setError(null)
-			setConnectionUri('')
-			setBunkerUrl('')
-			setShowScanner(false)
-			setScanError(null)
-			setRememberMe(true)
-		}
-	}
+	const handleOpenChange = useCallback(
+		(isOpen: boolean) => {
+			setOpen(isOpen)
+			if (!isOpen) {
+				cleanup()
+				setState('idle')
+				setError(null)
+				setConnectionUri('')
+				setBunkerUrl('')
+				setShowScanner(false)
+				setScanError(null)
+				setRememberMe(true)
+			}
+		},
+		[cleanup],
+	)
 
 	const handleRelayChange = (relay: string) => {
 		setSelectedRelay(relay)
@@ -104,9 +113,12 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 	// Drives the scan tab: spin up a NostrConnectSigner, show its URI,
 	// wait for the remote to ping back, then create an account.
 	useEffect(() => {
-		if (!open || activeTab !== 'scan' || connectionUri) return
+		if (!open || activeTab !== 'scan') return
 
 		let cancelled = false
+		let handedOff = false
+		let ownedSigner: NostrConnectSigner | null = null
+		let ownedAbort: AbortController | null = null
 		const run = async () => {
 			setState('generating')
 			setError(null)
@@ -120,6 +132,7 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 					relays: [selectedRelay],
 					signer: localSigner,
 				})
+				ownedSigner = ncSigner
 				signerRef.current = ncSigner
 
 				const uri = ncSigner.getNostrConnectURI(APP_METADATA)
@@ -128,6 +141,7 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 				setState('waiting')
 
 				const abort = new AbortController()
+				ownedAbort = abort
 				abortRef.current = abort
 
 				await ncSigner.waitForSigner(abort.signal)
@@ -135,11 +149,15 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 
 				const pubkey = await ncSigner.getPublicKey()
 				const account = new NostrConnectAccount(pubkey, ncSigner)
-				loginWithAccount(account, { remember: rememberMe })
+				loginWithAccount(account, { remember: rememberMeRef.current })
+				// The account now owns the live signer. Closing the dialog must not
+				// close the connection it just adopted.
+				handedOff = true
+				if (signerRef.current === ncSigner) signerRef.current = null
+				if (abortRef.current === abort) abortRef.current = null
 
 				setState('connected')
-				onSuccess?.()
-				setOpen(false)
+				onSuccessRef.current?.()
 				handleOpenChange(false)
 			} catch (err) {
 				if (cancelled) return
@@ -152,11 +170,17 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 		run()
 		return () => {
 			cancelled = true
+			if (!handedOff) {
+				ownedAbort?.abort()
+				void ownedSigner?.close().catch(() => {})
+				if (signerRef.current === ownedSigner) signerRef.current = null
+				if (abortRef.current === ownedAbort) abortRef.current = null
+			}
 		}
 		// rememberMe intentionally omitted — flipping it after the fact shouldn't
 		// re-trigger the connection, just affect the next add
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [open, activeTab, connectionUri, selectedRelay])
+	}, [open, activeTab, selectedRelay, handleOpenChange])
 
 	const handlePasteLogin = async () => {
 		if (!bunkerUrl.trim()) {
