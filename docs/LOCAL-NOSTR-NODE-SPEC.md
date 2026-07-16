@@ -35,9 +35,8 @@ With internet access disabled:
 7. It retrieves the blob with `HEAD`, `GET`, and multiple Range requests.
 8. Earthly is restarted.
 9. The client reconnects and recovers the same event and blob.
-10. An unpaired client is denied relay writes and protected Blossom operations. Pairing-aware relay
-    reads become part of this gate once the selected relay exposes the authenticated session pubkey
-    to query policy.
+10. An unpaired client is denied relay reads, writes, reconciliation, and protected Blossom
+    operations.
 
 The reference client must depend only on published protocols and the pairing document. It may not
 import Earthly application code.
@@ -256,11 +255,11 @@ the claim status to `accepted`. Each step is idempotent so the same approval can
 crash without allowing another winner. Replaying the invitation returns a conflict. Rejection
 records a terminal status but does not consume the invitation.
 
-The v1 implementation offers and enforces `relay.write`, `blob.read`, and `blob.write`. The broader
-capability names above are reserved for the endpoints that implement them. The selected relay
-dependency requires NIP-42 authentication for reads but does not expose the authenticated pubkey to
-its query-policy hook; therefore pubkey-specific `relay.read` authorization remains an explicit
-upstream integration gap and is not offered by v1 invitations.
+The v1 implementation offers and enforces distinct relay-read, relay-write, blob-read, blob-write,
+blob-list-own, blob-delete-own, and blob-mirror capabilities. Earthly's narrow relay fork exposes
+the authenticated NIP-42 pubkey to query and write policy, including NIP-45 counts and NIP-77
+negentropy. Field-session grants additionally require an exact authorized `h` scope; raw pairing
+may deliberately create a node-wide grant.
 
 Kinds `24243` and `24244`, the HTTP paths, and the invitation prefix are an Earthly interoperability
 draft. They are not registered Nostr kinds and no NIP or BUD number is claimed.

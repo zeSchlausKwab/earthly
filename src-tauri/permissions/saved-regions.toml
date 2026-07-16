@@ -7,4 +7,6 @@ commands.allow = [
   "saved_region_download_v1",
   "saved_region_cancel_v1",
   "saved_region_remove_v1",
+  "saved_region_repair_v1",
+  "saved_region_collect_garbage_v1",
 ]

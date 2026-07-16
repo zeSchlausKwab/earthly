@@ -18,8 +18,9 @@ use outbox::{
     outbox_list_v1, outbox_record_results_v1, outbox_retry_v1, OutboxState,
 };
 use saved_regions::{
-    saved_region_cancel_v1, saved_region_create_v1, saved_region_download_v1, saved_region_list_v1,
-    saved_region_remove_v1, SavedRegionState,
+    saved_region_cancel_v1, saved_region_collect_garbage_v1, saved_region_create_v1,
+    saved_region_download_v1, saved_region_list_v1, saved_region_remove_v1, saved_region_repair_v1,
+    SavedRegionState,
 };
 use tauri::Manager;
 
@@ -80,6 +81,8 @@ pub fn run() {
             saved_region_download_v1,
             saved_region_cancel_v1,
             saved_region_remove_v1,
+            saved_region_repair_v1,
+            saved_region_collect_garbage_v1,
         ])
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;

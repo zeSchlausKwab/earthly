@@ -11,6 +11,12 @@ use crate::{BlobDescriptor, EmbeddedBlossom};
 
 const MAX_MIRRORS: usize = 8;
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PublicBlobDownload {
+    pub descriptor: BlobDescriptor,
+    pub created: bool,
+}
+
 #[derive(Debug, Error)]
 pub enum PublicBlobDownloadError {
     #[error("invalid blob SHA-256")]
@@ -37,7 +43,7 @@ pub(crate) async fn download_public_blob(
     mirror_urls: Vec<String>,
     cancellation: &CancellationToken,
     progress: Option<&(dyn Fn(u64) + Send + Sync)>,
-) -> Result<BlobDescriptor, PublicBlobDownloadError> {
+) -> Result<PublicBlobDownload, PublicBlobDownloadError> {
     download_public_blob_with_policy(blossom, hash, mirror_urls, cancellation, progress, false)
         .await
 }
@@ -49,7 +55,7 @@ async fn download_public_blob_with_policy(
     cancellation: &CancellationToken,
     progress: Option<&(dyn Fn(u64) + Send + Sync)>,
     allow_test_loopback: bool,
-) -> Result<BlobDescriptor, PublicBlobDownloadError> {
+) -> Result<PublicBlobDownload, PublicBlobDownloadError> {
     if !is_sha256(hash) {
         return Err(PublicBlobDownloadError::InvalidHash);
     }
@@ -61,7 +67,10 @@ async fn download_public_blob_with_policy(
         .await
         .map_err(|error| PublicBlobDownloadError::AllMirrorsFailed(error.to_string()))?
     {
-        return Ok(descriptor);
+        return Ok(PublicBlobDownload {
+            descriptor,
+            created: false,
+        });
     }
 
     let mut failures = Vec::new();
@@ -113,7 +122,12 @@ async fn download_public_blob_with_policy(
             .adopt_remote_response_cancellable(hash, response, Some(cancellation), progress)
             .await
         {
-            Ok((descriptor, _created)) => return Ok(descriptor),
+            Ok((descriptor, created)) => {
+                return Ok(PublicBlobDownload {
+                    descriptor,
+                    created,
+                })
+            }
             Err(_error) if cancellation.is_cancelled() => {
                 return Err(PublicBlobDownloadError::Cancelled)
             }
@@ -287,9 +301,13 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(descriptor.sha256, hash);
-        assert_eq!(descriptor.size, expected.len() as u64);
-        assert!(blossom.has_blob(&descriptor.sha256).await.unwrap());
+        assert_eq!(descriptor.descriptor.sha256, hash);
+        assert_eq!(descriptor.descriptor.size, expected.len() as u64);
+        assert!(descriptor.created);
+        assert!(blossom
+            .has_blob(&descriptor.descriptor.sha256)
+            .await
+            .unwrap());
     }
 
     async fn start_server(body: Vec<u8>) -> SocketAddr {

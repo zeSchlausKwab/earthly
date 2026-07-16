@@ -18,7 +18,10 @@ mod remote_blob;
 mod remote_publish;
 mod remote_sync;
 
-pub use blossom::{BlobDescriptor, EmbeddedBlossom, LocalBlobRead, LocalBlobReadError};
+pub use blossom::{
+    BlobDescriptor, BlobStorageStatus, EmbeddedBlossom, LocalBlobIntegrity, LocalBlobRead,
+    LocalBlobReadError,
+};
 pub use config::{NodeBind, NodeConfig, NodeConfigError};
 pub use descriptor::{
     EndpointScope, NodeAvailability, NodeDescriptor, NodeDescriptorError, DESCRIPTOR_VERSION,
@@ -34,7 +37,7 @@ pub use pairing::{
     PAIRING_PROTOCOL_VERSION,
 };
 pub use policy::{PeerGrant, PeerPolicy};
-pub use public_blob::PublicBlobDownloadError;
+pub use public_blob::{PublicBlobDownload, PublicBlobDownloadError};
 pub use relay::EmbeddedRelay;
 pub use remote::{
     RemoteNodeError, RemoteNodeRecord, RemoteNodeStore, RemoteSyncCheckpoint,

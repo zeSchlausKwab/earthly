@@ -66,8 +66,8 @@ describe('local node platform contracts', () => {
 			claimId: 'b'.repeat(64),
 			peerPubkey: 'c'.repeat(64),
 			peerName: 'Trail phone',
-			capabilities: ['relay-write', 'blob-read'],
-			status: { state: 'pending' },
+			capabilities: ['relay-write', 'blob-read'] as Array<'relay-write' | 'blob-read'>,
+			status: { state: 'pending' as const },
 			updatedAt: 1_900_000_000,
 		}
 		expect(remoteNodeRecordSchema.parse(remote)).toEqual({
@@ -84,8 +84,8 @@ describe('local node platform contracts', () => {
 			descriptor,
 			claimId: 'b'.repeat(64),
 			peerPubkey: 'c'.repeat(64),
-			capabilities: ['relay-read'],
-			status: { state: 'accepted' },
+			capabilities: ['relay-read'] as Array<'relay-read'>,
+			status: { state: 'accepted' as const },
 			updatedAt: 1_900_000_000,
 			lastSync: { syncedAt: 1_900_000_000, receivedEvents: 0 },
 			discoveredBlobHashes: ['d'.repeat(64)],
@@ -123,6 +123,28 @@ describe('local node platform contracts', () => {
 			remoteNode,
 		}
 		expect(remoteBlobMirrorResultSchema.parse(result)).toEqual(result)
+	})
+
+	test('keeps saved-region progress and storage cleanup contracts distinct', () => {
+		const progress = {
+			regionId: 'weekend-hike',
+			status: 'downloading' as const,
+			bytesTotal: 1_024,
+			bytesDone: 512,
+			blobsTotal: 2,
+			blobsDone: 1,
+			currentHash: 'd'.repeat(64),
+			errorCode: null,
+			message: null,
+		}
+		expect(nativeSchemas.savedRegionProgress.parse(progress)).toEqual(progress)
+		expect(
+			nativeSchemas.savedRegionGarbageCollection.parse({
+				removedBlobs: 2,
+				reclaimedBytes: 1_024,
+				retainedBlobs: 1,
+			}),
+		).toEqual({ removedBlobs: 2, reclaimedBytes: 1_024, retainedBlobs: 1 })
 	})
 
 	test('accepts the versioned native outbox delivery state', () => {

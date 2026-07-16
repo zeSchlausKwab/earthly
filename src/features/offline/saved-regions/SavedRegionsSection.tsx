@@ -6,6 +6,7 @@ import {
 	Loader2,
 	MapPinned,
 	RefreshCw,
+	ShieldCheck,
 	Square,
 	Trash2,
 	X,
@@ -217,6 +218,52 @@ export function SavedRegionsSection() {
 		[service],
 	)
 
+	const repair = useCallback(
+		async (region: SavedRegion) => {
+			if (!service) return
+			setOperation(`repair:${region.id}`)
+			try {
+				const repaired = await service.repair(region.id)
+				setRegions((current) =>
+					current.map((candidate) => (candidate.id === repaired.id ? repaired : candidate)),
+				)
+				notifyLocalBlobsChanged(repaired.blobs.map((blob) => blob.sha256))
+				if (repaired.status === 'ready') {
+					toast.success(`${repaired.name} passed its integrity check`)
+				} else {
+					toast.warning(`${repaired.name} needs missing files to be downloaded again`)
+				}
+			} catch (error) {
+				toast.error(errorMessage(error))
+				await refresh()
+			} finally {
+				setOperation(null)
+			}
+		},
+		[refresh, service],
+	)
+
+	const cleanup = useCallback(async () => {
+		if (!service) return
+		setOperation('cleanup')
+		try {
+			const result = await service.collectGarbage()
+			if (result.removedBlobs > 0) {
+				toast.success(
+					`${result.removedBlobs} unused ${result.removedBlobs === 1 ? 'file' : 'files'} removed · ${formatBytes(result.reclaimedBytes)}`,
+				)
+			} else if (result.retainedBlobs > 0) {
+				toast.info('Unused files are still referenced by a mirrored peer')
+			} else {
+				toast.info('Offline map storage is already tidy')
+			}
+		} catch (error) {
+			toast.error(errorMessage(error))
+		} finally {
+			setOperation(null)
+		}
+	}, [service])
+
 	if (service && !service.supported) {
 		return (
 			<section className="rounded-none border bg-card p-4">
@@ -374,6 +421,19 @@ export function SavedRegionsSection() {
 									size="icon-sm"
 									variant="ghost"
 									disabled={region.status === 'downloading' || operation !== null}
+									onClick={() => void repair(region)}
+									aria-label={`Check ${region.name} offline files`}
+								>
+									{operation === `repair:${region.id}` ? (
+										<Loader2 className="size-4 animate-spin" />
+									) : (
+										<ShieldCheck className="size-4" />
+									)}
+								</Button>
+								<Button
+									size="icon-sm"
+									variant="ghost"
+									disabled={region.status === 'downloading' || operation !== null}
 									onClick={() => void remove(region)}
 									aria-label={`Remove ${region.name} from saved regions`}
 								>
@@ -387,8 +447,8 @@ export function SavedRegionsSection() {
 						</div>
 					))}
 					<p className="text-[11px] text-muted-foreground">
-						Removing a region removes its manifest. Shared content-addressed files remain available
-						to other offline features.
+						Removing a region also reclaims files downloaded solely for saved maps. Files used by
+						another saved map or mirrored peer remain available.
 					</p>
 				</div>
 			) : operation === 'loading' ? (
@@ -396,6 +456,22 @@ export function SavedRegionsSection() {
 					<Loader2 className="size-4 animate-spin" /> Loading saved regions…
 				</div>
 			) : null}
+
+			<Button
+				type="button"
+				variant="outline"
+				size="sm"
+				className="w-full"
+				disabled={!service || operation !== null}
+				onClick={() => void cleanup()}
+			>
+				{operation === 'cleanup' ? (
+					<Loader2 className="size-4 animate-spin" />
+				) : (
+					<HardDrive className="size-4" />
+				)}
+				Clean unused files
+			</Button>
 		</section>
 	)
 }

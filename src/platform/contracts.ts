@@ -298,8 +298,15 @@ export const savedRegionProgressSchema = savedRegionSchema
 		message: z.string().nullable(),
 	})
 
+export const savedRegionGarbageCollectionSchema = z.object({
+	removedBlobs: z.number().int().nonnegative(),
+	reclaimedBytes: z.number().int().nonnegative(),
+	retainedBlobs: z.number().int().nonnegative(),
+})
+
 export type SavedRegion = z.infer<typeof savedRegionSchema>
 export type SavedRegionProgress = z.infer<typeof savedRegionProgressSchema>
+export type SavedRegionGarbageCollection = z.infer<typeof savedRegionGarbageCollectionSchema>
 export type SavedRegionBlobRole = z.infer<typeof savedRegionBlobRoleSchema>
 
 export interface SavedRegionBlobInput {
@@ -326,8 +333,10 @@ export interface SavedRegionService {
 	create(input: SavedRegionCreateRequest): Promise<SavedRegion>
 	list(): Promise<SavedRegion[]>
 	download(id: string): Promise<SavedRegion>
+	repair(id: string): Promise<SavedRegion>
 	cancel(id: string): Promise<boolean>
 	remove(id: string): Promise<boolean>
+	collectGarbage(): Promise<SavedRegionGarbageCollection>
 	listenProgress(listener: (progress: SavedRegionProgress) => void): Promise<() => void>
 }
 
@@ -397,4 +406,5 @@ export const nativeSchemas = {
 	savedRegion: savedRegionSchema,
 	savedRegions: z.array(savedRegionSchema),
 	savedRegionProgress: savedRegionProgressSchema,
+	savedRegionGarbageCollection: savedRegionGarbageCollectionSchema,
 }

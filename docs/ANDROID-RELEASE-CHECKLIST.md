@@ -10,7 +10,7 @@ Release boundary: Android only; macOS is a development host. iOS, Windows, and L
 
 - Private Android alpha: approximately 82% complete.
 - Public Android release: approximately 52% complete.
-- Embedded-node and offline-sharing foundation: approximately 88% complete.
+- Embedded-node and offline-sharing foundation: approximately 92% complete.
 
 The percentages describe release risk, not source-code volume. The Tauri shell is no longer the
 uncertain part; offline product behavior, Android lifecycle, recovery, signing, and operations are.
@@ -34,8 +34,9 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 - [ ] Two-device UAT of a mirrored PMTiles map with internet disabled and both apps restarted.
 - [x] Saved-region catalog with coverage planning, size, progress, cancellation, resume, and
       manifest removal controls.
-- [ ] Saved-region integrity repair, reference-counted blob garbage collection, and disk-pressure
-      recovery.
+- [x] Saved-region integrity repair, saved-region-owned reference-counted blob cleanup, and
+      low-space download preflight.
+- [ ] Android low-storage/write-failure recovery UAT and user-facing storage-pressure guidance.
 - [x] Crash-safe SQLite signed-event outbox with immutable events and per-relay acknowledgements.
 - [ ] Physical Android process-death UAT for the native delivery ledger.
 - [ ] Suspend/resume and low-storage recovery tests on supported Android versions.
@@ -62,7 +63,7 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 1. Run the Field-session host/join/chat/revoke proof on two physical Android devices with internet
    disabled.
 2. Run the saved-region and mirrored-PMTiles offline proof on two physical Android devices.
-3. Close saved-region repair/garbage collection, diagnostics, and storage-pressure behavior.
+3. Close diagnostics and physical low-storage/write-failure behavior.
 4. Add protected AAB signing and release CI, then run upgrade and staged-release rehearsals.
 
 The general "author anything offline, then decide later whether to publish globally" journey is

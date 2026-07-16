@@ -302,13 +302,28 @@ impl LocalNode {
         self.blossom.local_blob_descriptor(hash).await
     }
 
+    pub async fn verify_local_blob(
+        &self,
+        hash: &str,
+    ) -> Result<crate::LocalBlobIntegrity, NodeError> {
+        self.blossom.verify_local_blob(hash).await
+    }
+
+    pub async fn remove_local_blob(&self, hash: &str) -> Result<bool, NodeError> {
+        self.blossom.remove_local_blob(hash).await
+    }
+
+    pub fn blob_storage_status(&self) -> Result<crate::BlobStorageStatus, NodeError> {
+        self.blossom.blob_storage_status()
+    }
+
     pub async fn download_public_blob(
         &self,
         hash: &str,
         mirror_urls: Vec<String>,
         cancellation: &CancellationToken,
         progress: Option<&(dyn Fn(u64) + Send + Sync)>,
-    ) -> Result<BlobDescriptor, PublicBlobDownloadError> {
+    ) -> Result<crate::PublicBlobDownload, PublicBlobDownloadError> {
         crate::public_blob::download_public_blob(
             &self.blossom,
             hash,

@@ -790,10 +790,13 @@ Physical S9 acceptance now verifies that a downloaded hiking fixture, the select
 source, the last viewport, and a signature-checked cached kind-34444 announcement survive a cold
 restart with Wi-Fi and mobile data disabled. Panning and zooming after restart produced fresh,
 uncached `200`/`206` reads from the phone's own embedded Blossom hash while internet access failed.
-Remaining gates are physical two-device blob-transfer acceptance, integrity repair,
-reference-counted blob garbage collection, disk-pressure behavior, and announced style/sprite
-artifacts. The general offline-authoring/global-outbox journey is deliberately not a `0.0.1` gate;
-the release instead proves explicit nearby collaboration through Field sessions.
+The saved-region manager can now re-hash files on demand, invalidate every manifest sharing a
+missing or corrupt hash, resume only the missing content, and reclaim files it originally downloaded
+once no saved region or mirrored peer references them. Downloads preflight known byte requirements
+while reserving device free space. Remaining gates are physical two-device blob-transfer
+acceptance, Android low-storage/write-failure UAT, and announced style/sprite artifacts. The general
+offline-authoring/global-outbox journey is deliberately not a `0.0.1` gate; the release instead
+proves explicit nearby collaboration through Field sessions.
 
 ### Phase 9 — Durable native publish outbox
 
@@ -841,11 +844,13 @@ Earthly draw/edit workflow. Their latest versions project into the Field-session
 Stack; removing one from the stack is respected until the user explicitly restores it.
 
 The first slice is intentionally access-controlled rather than MLS encrypted. Private groups remain
-the confidentiality boundary. Frontend unit coverage, a three-node native reconciliation test, and
-physical editor/UI checks on two Android phones cover the dataset slice. Remaining work is a full
-internet-disabled physical acceptance journey, other relevant Earthly entity types, per-session
-installation grants, and a later explicit promotion action for records the user chooses to publish
-globally.
+the confidentiality boundary. Field approvals now persist grants for exactly one session. Relay
+queries, counts, negentropy, live delivery, and writes require that exact `h` scope; referenced
+Blossom objects use the same scoped capability. Raw device pairing remains an explicit node-wide
+operation. Frontend unit coverage, a three-node native reconciliation/blob test, and physical
+editor/UI checks on two Android phones cover the dataset slice. Remaining work is a full
+internet-disabled physical acceptance journey, other relevant Earthly entity types, and a later
+explicit promotion action for records the user chooses to publish globally.
 
 ### Phase 10 — Bundles, file associations, deep links, and sharing
 

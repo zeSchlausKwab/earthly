@@ -50,6 +50,20 @@ pub struct BlobDescriptor {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LocalBlobIntegrity {
+    Missing,
+    Verified(BlobDescriptor),
+    Corrupt { actual_sha256: String },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlobStorageStatus {
+    pub available_bytes: u64,
+    pub total_bytes: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LocalBlobRead {
     pub bytes: Vec<u8>,
     pub media_type: String,
@@ -198,6 +212,73 @@ impl EmbeddedBlossom {
         .await
         .map(Some)
         .map_err(|error| NodeError::Blossom(error.reason.to_owned()))
+    }
+
+    pub(crate) async fn verify_local_blob(
+        &self,
+        hash: &str,
+    ) -> Result<LocalBlobIntegrity, NodeError> {
+        validate_hash(hash).map_err(|error| NodeError::Blossom(error.reason.to_owned()))?;
+        let path = self.store.blob_path(hash);
+        let metadata = match fs::metadata(&path).await {
+            Ok(metadata) if metadata.is_file() => metadata,
+            Ok(_) => {
+                return Err(NodeError::Blossom(
+                    "local blob target is not a regular file".to_owned(),
+                ))
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                return Ok(LocalBlobIntegrity::Missing)
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let mut file = File::open(&path).await?;
+        let mut hasher = Sha256::new();
+        let mut buffer = vec![0_u8; 1024 * 1024];
+        loop {
+            let read = file.read(&mut buffer).await?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+        }
+        let actual_sha256 = format!("{:x}", hasher.finalize());
+        if actual_sha256 != hash {
+            return Ok(LocalBlobIntegrity::Corrupt { actual_sha256 });
+        }
+        let media_type = detect_media_type(&path).await;
+        let descriptor = descriptor(
+            &self.url,
+            &path,
+            hash.to_owned(),
+            metadata.len(),
+            media_type,
+        )
+        .await
+        .map_err(|error| NodeError::Blossom(error.reason.to_owned()))?;
+        Ok(LocalBlobIntegrity::Verified(descriptor))
+    }
+
+    pub(crate) async fn remove_local_blob(&self, hash: &str) -> Result<bool, NodeError> {
+        validate_hash(hash).map_err(|error| NodeError::Blossom(error.reason.to_owned()))?;
+        let path = self.store.blob_path(hash);
+        match fs::remove_file(&path).await {
+            Ok(()) => {
+                if let Some(parent) = path.parent() {
+                    let _ = fs::remove_dir(parent).await;
+                }
+                Ok(true)
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub(crate) fn blob_storage_status(&self) -> Result<BlobStorageStatus, NodeError> {
+        Ok(BlobStorageStatus {
+            available_bytes: fs2::available_space(&self.store.blobs)?,
+            total_bytes: fs2::total_space(&self.store.blobs)?,
+        })
     }
 
     pub async fn read_local_blob(
@@ -413,6 +494,52 @@ mod mirror_tests {
     use super::*;
     use axum::routing::get;
     use sha2::{Digest, Sha256};
+
+    async fn test_blossom(dir: &tempfile::TempDir) -> EmbeddedBlossom {
+        let config = NodeConfig::loopback(dir.path(), crate::NodeAvailability::Process)
+            .with_ephemeral_ports();
+        let peers = PeerPolicy::load(dir.path().join("test-policy"))
+            .await
+            .unwrap();
+        let pairing = PairingManager::open(dir.path().join("test-pairing"))
+            .await
+            .unwrap();
+        EmbeddedBlossom::start(
+            &config,
+            peers,
+            pairing,
+            nostr::Keys::generate().public_key(),
+        )
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn verifies_detects_and_removes_local_blob_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let blossom = test_blossom(&dir).await;
+        let bytes = b"verified saved map";
+        let hash = format!("{:x}", Sha256::digest(bytes));
+        let path = blossom.store.blob_path(&hash);
+        fs::create_dir_all(path.parent().unwrap()).await.unwrap();
+        fs::write(&path, bytes).await.unwrap();
+
+        assert!(matches!(
+            blossom.verify_local_blob(&hash).await.unwrap(),
+            LocalBlobIntegrity::Verified(_)
+        ));
+        fs::write(&path, b"tampered").await.unwrap();
+        assert!(matches!(
+            blossom.verify_local_blob(&hash).await.unwrap(),
+            LocalBlobIntegrity::Corrupt { .. }
+        ));
+        assert!(blossom.remove_local_blob(&hash).await.unwrap());
+        assert_eq!(
+            blossom.verify_local_blob(&hash).await.unwrap(),
+            LocalBlobIntegrity::Missing
+        );
+        assert!(blossom.blob_storage_status().unwrap().available_bytes > 0);
+    }
 
     #[tokio::test]
     async fn corrupt_remote_blob_is_discarded_before_local_adoption() {

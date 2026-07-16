@@ -9,7 +9,9 @@ export const webSavedRegionService: SavedRegionService = {
 	create: async () => unsupported(),
 	list: async () => [],
 	download: async () => unsupported(),
+	repair: async () => unsupported(),
 	cancel: async () => false,
 	remove: async () => unsupported(),
+	collectGarbage: async () => unsupported(),
 	listenProgress: async () => () => undefined,
 }

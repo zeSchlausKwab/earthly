@@ -34,12 +34,17 @@ an MLS group and not merely a transfer dialog:
 - **Nearby only** is the release behavior. **Ask before internet sync** records intent in the
   session model but does not publish anything globally in `0.0.1`.
 
-The current installation grant authorizes access to the embedded node; it is not an MLS-style
-per-session confidentiality boundary. A previously approved installation remains trusted until the
-host revokes it. Use a Private group for end-to-end encrypted membership. Per-session grant scopes,
-additional Earthly entity types, and an explicit promotion flow from nearby records to global Nostr
-are follow-up work, not hidden behavior in `0.0.1`. Field-session geometry is nearby-scoped signed
-Nostr data; it is not encrypted merely because it remains off the public internet.
+Raw device pairing can still create an explicit node-wide grant, but Field-session approval creates
+a grant for exactly one Field-session id. The embedded relay enforces that scope on live queries,
+counts, negentropy reconciliation, and writes; Blossom enforces the same scope when a Field record
+references an immutable attachment. Revoking a participant from one Field session does not silently
+alter another session's membership.
+
+This access control is not an MLS-style confidentiality boundary. Use a Private group for
+end-to-end encrypted membership. Additional Earthly entity types and an explicit promotion flow
+from nearby records to global Nostr are follow-up work, not hidden behavior in `0.0.1`.
+Field-session geometry is nearby-scoped signed Nostr data; it is not encrypted merely because it
+remains off the public internet.
 
 ## Decision
 

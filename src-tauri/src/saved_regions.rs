@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use earthly_local_node::{BlobDescriptor, PublicBlobDownloadError};
+use earthly_local_node::{BlobDescriptor, LocalBlobIntegrity, PublicBlobDownloadError};
 use nostr::{EventId, PublicKey};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -15,11 +15,14 @@ use crate::local_node::LocalNodeState;
 const PROTOCOL_VERSION: u8 = 1;
 const MAX_REGION_BLOBS: usize = 2_048;
 const PROGRESS_EVENT: &str = "saved-region-progress-v1";
+const MIN_FREE_SPACE_RESERVE_BYTES: u64 = 32 * 1024 * 1024;
+const MAX_FREE_SPACE_RESERVE_BYTES: u64 = 256 * 1024 * 1024;
 
 #[derive(Debug)]
 pub struct SavedRegionState {
     connection: Mutex<Connection>,
     downloads: Mutex<HashMap<String, CancellationToken>>,
+    maintenance: tokio::sync::RwLock<()>,
 }
 
 impl SavedRegionState {
@@ -35,6 +38,7 @@ impl SavedRegionState {
         Ok(Self {
             connection: Mutex::new(connection),
             downloads: Mutex::new(HashMap::new()),
+            maintenance: tokio::sync::RwLock::new(()),
         })
     }
 
@@ -246,6 +250,14 @@ pub struct SavedRegionProgress {
     message: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedRegionGarbageCollection {
+    removed_blobs: usize,
+    reclaimed_bytes: u64,
+    retained_blobs: usize,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SavedRegionCommandError {
@@ -319,11 +331,21 @@ fn configure_and_migrate(connection: &Connection) -> Result<(), SavedRegionComma
          CREATE INDEX IF NOT EXISTS saved_region_status
            ON saved_regions(status, updated_at);
          CREATE INDEX IF NOT EXISTS saved_region_blob_hash
-           ON saved_region_blobs(sha256);",
+           ON saved_region_blobs(sha256);
+         CREATE TABLE IF NOT EXISTS saved_region_managed_blobs (
+           sha256 TEXT PRIMARY KEY,
+           actual_size INTEGER NOT NULL,
+           created_at INTEGER NOT NULL,
+           last_error TEXT
+         );",
     )?;
     let now = now_seconds();
     connection.execute(
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (2, ?1)",
+        params![now],
+    )?;
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (3, ?1)",
         params![now],
     )?;
     connection.execute(
@@ -700,6 +722,102 @@ fn mark_blob(
     Ok(())
 }
 
+fn record_managed_blob(
+    connection: &Connection,
+    descriptor: &BlobDescriptor,
+) -> Result<(), SavedRegionCommandError> {
+    connection.execute(
+        "INSERT INTO saved_region_managed_blobs(sha256, actual_size, created_at, last_error)
+         VALUES (?1, ?2, ?3, NULL)
+         ON CONFLICT(sha256) DO UPDATE SET actual_size = excluded.actual_size, last_error = NULL",
+        params![descriptor.sha256, descriptor.size, now_seconds()],
+    )?;
+    Ok(())
+}
+
+fn mark_hash_missing(
+    connection: &mut Connection,
+    hash: &str,
+    message: &str,
+) -> Result<(), SavedRegionCommandError> {
+    let transaction = connection.transaction()?;
+    transaction.execute(
+        "UPDATE saved_region_blobs
+         SET state = 'missing', actual_size = NULL, media_type = NULL, last_error = ?2
+         WHERE sha256 = ?1",
+        params![hash, message],
+    )?;
+    transaction.execute(
+        "UPDATE saved_regions
+         SET status = 'planned', updated_at = ?2, last_error = ?3
+         WHERE id IN (SELECT DISTINCT region_id FROM saved_region_blobs WHERE sha256 = ?1)",
+        params![hash, now_seconds(), message],
+    )?;
+    transaction.commit()?;
+    Ok(())
+}
+
+fn remove_region_manifest(
+    connection: &mut Connection,
+    id: &str,
+) -> Result<(bool, Vec<String>), SavedRegionCommandError> {
+    let transaction = connection.transaction()?;
+    let candidates = {
+        let mut statement = transaction.prepare(
+            "SELECT DISTINCT managed.sha256
+             FROM saved_region_managed_blobs managed
+             JOIN saved_region_blobs region_blob ON region_blob.sha256 = managed.sha256
+             WHERE region_blob.region_id = ?1",
+        )?;
+        let rows = statement
+            .query_map(params![id], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows
+    };
+    let removed = transaction.execute("DELETE FROM saved_regions WHERE id = ?1", params![id])? > 0;
+    let mut orphaned = Vec::new();
+    if removed {
+        for hash in candidates {
+            let references: u64 = transaction.query_row(
+                "SELECT COUNT(*) FROM saved_region_blobs WHERE sha256 = ?1",
+                params![hash],
+                |row| row.get(0),
+            )?;
+            if references == 0 {
+                orphaned.push(hash);
+            }
+        }
+    }
+    transaction.commit()?;
+    Ok((removed, orphaned))
+}
+
+fn orphaned_managed_blobs(
+    connection: &Connection,
+) -> Result<Vec<(String, u64)>, SavedRegionCommandError> {
+    let mut statement = connection.prepare(
+        "SELECT managed.sha256, managed.actual_size
+         FROM saved_region_managed_blobs managed
+         WHERE NOT EXISTS (
+           SELECT 1 FROM saved_region_blobs region_blob
+           WHERE region_blob.sha256 = managed.sha256
+         )
+         ORDER BY managed.created_at, managed.sha256",
+    )?;
+    let rows = statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+fn forget_managed_blob(connection: &Connection, hash: &str) -> Result<(), SavedRegionCommandError> {
+    connection.execute(
+        "DELETE FROM saved_region_managed_blobs WHERE sha256 = ?1",
+        params![hash],
+    )?;
+    Ok(())
+}
+
 fn progress(region: &SavedRegionView, current_hash: Option<String>) -> SavedRegionProgress {
     SavedRegionProgress {
         region_id: region.id.clone(),
@@ -733,11 +851,100 @@ fn download_error(error: PublicBlobDownloadError) -> SavedRegionCommandError {
     }
 }
 
+async fn ensure_download_space(
+    node: &earthly_local_node::LocalNode,
+    region: &SavedRegionView,
+) -> Result<(), SavedRegionCommandError> {
+    let mut required_bytes = 0_u64;
+    let mut checked = BTreeSet::new();
+    for blob in &region.blobs {
+        if !checked.insert(blob.sha256.clone()) {
+            continue;
+        }
+        match node.local_blob_descriptor(&blob.sha256).await {
+            Ok(Some(_)) => continue,
+            Ok(None) => {
+                required_bytes = required_bytes.saturating_add(blob.expected_size.unwrap_or(0));
+            }
+            Err(error) => {
+                return Err(SavedRegionCommandError::new(
+                    "region-storage-failed",
+                    error.to_string(),
+                ))
+            }
+        }
+    }
+    let storage = node.blob_storage_status().map_err(|error| {
+        SavedRegionCommandError::new("region-storage-failed", error.to_string())
+    })?;
+    let reserve = (storage.total_bytes / 50)
+        .clamp(MIN_FREE_SPACE_RESERVE_BYTES, MAX_FREE_SPACE_RESERVE_BYTES);
+    if required_bytes > storage.available_bytes.saturating_sub(reserve) {
+        return Err(SavedRegionCommandError::new(
+            "region-insufficient-storage",
+            format!(
+                "This offline map needs about {required_bytes} more bytes, but the device must keep {reserve} bytes free"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+async fn collect_orphaned_blobs(
+    state: &SavedRegionState,
+    node: &earthly_local_node::LocalNode,
+) -> Result<SavedRegionGarbageCollection, SavedRegionCommandError> {
+    let orphans = {
+        let connection = state.connection()?;
+        orphaned_managed_blobs(&connection)?
+    };
+    let protected = node
+        .remote_nodes()
+        .await
+        .map_err(|error| SavedRegionCommandError::new("region-storage-failed", error.to_string()))?
+        .into_iter()
+        .flat_map(|remote| remote.mirrored_blob_hashes)
+        .collect::<BTreeSet<_>>();
+    let mut removed_blobs = 0;
+    let mut reclaimed_bytes = 0_u64;
+    let mut retained_blobs = 0;
+    for (hash, size) in orphans {
+        if protected.contains(&hash) {
+            retained_blobs += 1;
+            continue;
+        }
+        match node.remove_local_blob(&hash).await {
+            Ok(removed) => {
+                let connection = state.connection()?;
+                forget_managed_blob(&connection, &hash)?;
+                if removed {
+                    removed_blobs += 1;
+                    reclaimed_bytes = reclaimed_bytes.saturating_add(size);
+                }
+            }
+            Err(error) => {
+                retained_blobs += 1;
+                let connection = state.connection()?;
+                connection.execute(
+                    "UPDATE saved_region_managed_blobs SET last_error = ?2 WHERE sha256 = ?1",
+                    params![hash, error.to_string()],
+                )?;
+            }
+        }
+    }
+    Ok(SavedRegionGarbageCollection {
+        removed_blobs,
+        reclaimed_bytes,
+        retained_blobs,
+    })
+}
+
 #[tauri::command]
-pub fn saved_region_create_v1(
+pub async fn saved_region_create_v1(
     state: State<'_, SavedRegionState>,
     input: SavedRegionCreateInput,
 ) -> Result<SavedRegionView, SavedRegionCommandError> {
+    let _maintenance = state.maintenance.read().await;
     let mut connection = state.connection()?;
     create_region(&mut connection, input)
 }
@@ -757,22 +964,26 @@ pub async fn saved_region_download_v1(
     node_state: State<'_, LocalNodeState>,
     id: String,
 ) -> Result<SavedRegionView, SavedRegionCommandError> {
+    let _maintenance = state.maintenance.read().await;
     let cancellation = state.begin_download(&id)?;
     let result = async {
-        {
-            let connection = state.connection()?;
-            update_region_status(&connection, &id, SavedRegionStatus::Downloading, None)?;
-        }
         let node = node_state.node().map_err(|error| {
             SavedRegionCommandError::new("region-node-unavailable", error.to_string())
         })?;
-        let initial = {
+        let mut initial = {
             let connection = state.connection()?;
             load_region(&connection, &id)?
         }
         .ok_or_else(|| {
             SavedRegionCommandError::new("region-not-found", "The saved region does not exist")
         })?;
+        ensure_download_space(&node, &initial).await?;
+        {
+            let connection = state.connection()?;
+            update_region_status(&connection, &id, SavedRegionStatus::Downloading, None)?;
+        }
+        initial.status = SavedRegionStatus::Downloading;
+        initial.last_error = None;
         let _ = app.emit(PROGRESS_EVENT, progress(&initial, None));
 
         for blob in initial.blobs {
@@ -782,8 +993,8 @@ pub async fn saved_region_download_v1(
                     "Region download was cancelled",
                 ));
             }
-            let descriptor = match node.local_blob_descriptor(&blob.sha256).await {
-                Ok(Some(descriptor)) => descriptor,
+            let (descriptor, managed) = match node.local_blob_descriptor(&blob.sha256).await {
+                Ok(Some(descriptor)) => (descriptor, false),
                 Ok(None) => {
                     let current = {
                         let connection = state.connection()?;
@@ -822,14 +1033,16 @@ pub async fn saved_region_download_v1(
                             },
                         );
                     };
-                    node.download_public_blob(
-                        &blob.sha256,
-                        blob.mirror_urls.clone(),
-                        &cancellation,
-                        Some(&report_progress),
-                    )
-                    .await
-                    .map_err(download_error)?
+                    let downloaded = node
+                        .download_public_blob(
+                            &blob.sha256,
+                            blob.mirror_urls.clone(),
+                            &cancellation,
+                            Some(&report_progress),
+                        )
+                        .await
+                        .map_err(download_error)?;
+                    (downloaded.descriptor, downloaded.created)
                 }
                 Err(error) => {
                     return Err(SavedRegionCommandError::new(
@@ -840,6 +1053,9 @@ pub async fn saved_region_download_v1(
             };
             {
                 let connection = state.connection()?;
+                if managed {
+                    record_managed_blob(&connection, &descriptor)?;
+                }
                 mark_blob(&connection, &id, &blob, &descriptor)?;
             }
             let current = {
@@ -884,6 +1100,102 @@ pub async fn saved_region_download_v1(
 }
 
 #[tauri::command]
+pub async fn saved_region_repair_v1(
+    state: State<'_, SavedRegionState>,
+    node_state: State<'_, LocalNodeState>,
+    id: String,
+) -> Result<SavedRegionView, SavedRegionCommandError> {
+    let _maintenance = state.maintenance.write().await;
+    if state
+        .downloads
+        .lock()
+        .map_err(|_| {
+            SavedRegionCommandError::new(
+                "region-download-unavailable",
+                "The saved-region download lock is unavailable",
+            )
+        })?
+        .contains_key(&id)
+    {
+        return Err(SavedRegionCommandError::new(
+            "region-download-active",
+            "Cancel the active download before repairing this region",
+        ));
+    }
+    let node = node_state.node().map_err(|error| {
+        SavedRegionCommandError::new("region-node-unavailable", error.to_string())
+    })?;
+    let initial = {
+        let connection = state.connection()?;
+        load_region(&connection, &id)?
+    }
+    .ok_or_else(|| {
+        SavedRegionCommandError::new("region-not-found", "The saved region does not exist")
+    })?;
+    let mut missing = 0usize;
+    for blob in &initial.blobs {
+        match node
+            .verify_local_blob(&blob.sha256)
+            .await
+            .map_err(|error| {
+                SavedRegionCommandError::new("region-storage-failed", error.to_string())
+            })? {
+            LocalBlobIntegrity::Verified(descriptor) => {
+                let connection = state.connection()?;
+                if let Err(error) = mark_blob(&connection, &id, blob, &descriptor) {
+                    update_region_status(
+                        &connection,
+                        &id,
+                        SavedRegionStatus::Failed,
+                        Some(&error.message),
+                    )?;
+                    return Err(error);
+                }
+            }
+            LocalBlobIntegrity::Missing => {
+                missing += 1;
+                let mut connection = state.connection()?;
+                mark_hash_missing(
+                    &mut connection,
+                    &blob.sha256,
+                    "An offline map file is missing; choose Resume to restore it.",
+                )?;
+            }
+            LocalBlobIntegrity::Corrupt { actual_sha256 } => {
+                missing += 1;
+                node.remove_local_blob(&blob.sha256)
+                    .await
+                    .map_err(|error| {
+                        SavedRegionCommandError::new("region-storage-failed", error.to_string())
+                    })?;
+                let mut connection = state.connection()?;
+                mark_hash_missing(
+                    &mut connection,
+                    &blob.sha256,
+                    &format!(
+                        "An offline map file failed verification ({actual_sha256}); choose Resume to restore it."
+                    ),
+                )?;
+            }
+        }
+    }
+    let connection = state.connection()?;
+    update_region_status(
+        &connection,
+        &id,
+        if missing == 0 {
+            SavedRegionStatus::Ready
+        } else {
+            SavedRegionStatus::Planned
+        },
+        (missing > 0).then_some("Some offline map files need to be downloaded again."),
+    )?;
+    load_region(&connection, &id)?.ok_or_else(|| {
+        SavedRegionCommandError::new("region-not-found", "The saved region does not exist")
+    })
+}
+
+#[tauri::command]
 pub fn saved_region_cancel_v1(
     state: State<'_, SavedRegionState>,
     id: String,
@@ -892,10 +1204,12 @@ pub fn saved_region_cancel_v1(
 }
 
 #[tauri::command]
-pub fn saved_region_remove_v1(
+pub async fn saved_region_remove_v1(
     state: State<'_, SavedRegionState>,
+    node_state: State<'_, LocalNodeState>,
     id: String,
 ) -> Result<bool, SavedRegionCommandError> {
+    let _maintenance = state.maintenance.write().await;
     if state
         .downloads
         .lock()
@@ -912,10 +1226,29 @@ pub fn saved_region_remove_v1(
             "Cancel the active download before removing this region",
         ));
     }
-    Ok(state
-        .connection()?
-        .execute("DELETE FROM saved_regions WHERE id = ?1", params![id])?
-        > 0)
+    let (removed, _orphaned) = {
+        let mut connection = state.connection()?;
+        remove_region_manifest(&mut connection, &id)?
+    };
+    if removed {
+        let node = node_state.node().map_err(|error| {
+            SavedRegionCommandError::new("region-node-unavailable", error.to_string())
+        })?;
+        let _ = collect_orphaned_blobs(&state, &node).await?;
+    }
+    Ok(removed)
+}
+
+#[tauri::command]
+pub async fn saved_region_collect_garbage_v1(
+    state: State<'_, SavedRegionState>,
+    node_state: State<'_, LocalNodeState>,
+) -> Result<SavedRegionGarbageCollection, SavedRegionCommandError> {
+    let _maintenance = state.maintenance.write().await;
+    let node = node_state.node().map_err(|error| {
+        SavedRegionCommandError::new("region-node-unavailable", error.to_string())
+    })?;
+    collect_orphaned_blobs(&state, &node).await
 }
 
 #[cfg(test)]
@@ -1003,5 +1336,65 @@ mod tests {
             create_region(&mut connection, duplicate).unwrap_err().code,
             "invalid-region-blob"
         );
+    }
+
+    #[test]
+    fn managed_blob_is_collectable_only_after_its_last_region_reference() {
+        let (_directory, state) = state();
+        let hash = "e".repeat(64);
+        let mut connection = state.connection().unwrap();
+        create_region(&mut connection, input("north", &hash)).unwrap();
+        create_region(&mut connection, input("south", &hash)).unwrap();
+        record_managed_blob(
+            &connection,
+            &BlobDescriptor {
+                url: format!("http://127.0.0.1/{hash}.pmtiles").parse().unwrap(),
+                sha256: hash.clone(),
+                size: 42,
+                media_type: "application/vnd.pmtiles".to_owned(),
+                uploaded: now_seconds(),
+            },
+        )
+        .unwrap();
+
+        let (removed, orphaned) = remove_region_manifest(&mut connection, "north").unwrap();
+        assert!(removed);
+        assert!(orphaned.is_empty());
+        assert!(orphaned_managed_blobs(&connection).unwrap().is_empty());
+
+        let (removed, orphaned) = remove_region_manifest(&mut connection, "south").unwrap();
+        assert!(removed);
+        assert_eq!(orphaned, vec![hash.clone()]);
+        assert_eq!(
+            orphaned_managed_blobs(&connection).unwrap(),
+            vec![(hash, 42)]
+        );
+    }
+
+    #[test]
+    fn integrity_failure_invalidates_every_region_sharing_the_hash() {
+        let (_directory, state) = state();
+        let hash = "f".repeat(64);
+        let mut connection = state.connection().unwrap();
+        create_region(&mut connection, input("first", &hash)).unwrap();
+        create_region(&mut connection, input("second", &hash)).unwrap();
+        connection
+            .execute(
+                "UPDATE saved_region_blobs SET state = 'available', actual_size = 42",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute("UPDATE saved_regions SET status = 'ready'", [])
+            .unwrap();
+
+        mark_hash_missing(&mut connection, &hash, "integrity check failed").unwrap();
+
+        for id in ["first", "second"] {
+            let region = load_region(&connection, id).unwrap().unwrap();
+            assert_eq!(region.status, SavedRegionStatus::Planned);
+            assert_eq!(region.blobs[0].state, SavedRegionBlobState::Missing);
+            assert_eq!(region.last_error.as_deref(), Some("integrity check failed"));
+        }
     }
 }
