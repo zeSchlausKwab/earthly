@@ -5,6 +5,7 @@ import { getLocalNodeService } from '@/platform/registry'
 import type { LocalNodeService, RemoteNodeRecord } from '@/platform/contracts'
 import { fieldSessionIdForEvent } from './events'
 import { recordFromRemoteNode, upsertFieldSession, type FieldSessionRecord } from './model'
+import { transitionFieldSessionEventScope } from './transportState'
 
 const POLL_INTERVAL_MS = 3_000
 
@@ -16,11 +17,9 @@ function orderEvents(events: NostrEvent[]): NostrEvent[] {
 
 async function acceptedRemote(
 	service: LocalNodeService,
-	session: FieldSessionRecord,
+	hostNodeId: string,
 ): Promise<RemoteNodeRecord | null> {
-	let remote = (await service.remoteNodes()).find(
-		(candidate) => candidate.nodeId === session.hostNodeId,
-	)
+	let remote = (await service.remoteNodes()).find((candidate) => candidate.nodeId === hostNodeId)
 	if (remote?.status.state === 'pending') {
 		try {
 			remote = await service.refreshRemoteNode(remote.nodeId)
@@ -36,25 +35,32 @@ async function acceptedRemote(
 export function useFieldSessionTransport(session?: FieldSessionRecord) {
 	const [events, setEvents] = useState<NostrEvent[]>([])
 	const refreshInFlight = useRef(false)
+	const visibleSessionId = useRef<string>()
+	const activeSessionId = useRef(session?.id)
+	activeSessionId.current = session?.id
+	const sessionId = session?.id
+	const sessionRole = session?.role
+	const hostNodeId = session?.hostNodeId
 
 	const refresh = useCallback(async () => {
-		if (!session || refreshInFlight.current) return
+		if (!sessionId || !sessionRole || !hostNodeId || refreshInFlight.current) return
 		refreshInFlight.current = true
 		try {
 			const service = await getLocalNodeService()
 			if (!service.supported) return
-			if (session.role === 'participant') {
-				const remote = await acceptedRemote(service, session)
+			if (sessionRole === 'participant') {
+				const remote = await acceptedRemote(service, hostNodeId)
 				if (remote) {
-					const sync = await service.syncRemoteNode(session.hostNodeId)
+					const sync = await service.syncRemoteNode(hostNodeId)
 					for (const event of sync.events as NostrEvent[]) {
 						if (verifyEvent(event)) eventStore.add(event)
 					}
 				}
 			}
-			const scoped = ((await service.fieldSessionEvents(session.id)) as NostrEvent[]).filter(
-				(event) => verifyEvent(event) && fieldSessionIdForEvent(event) === session.id,
+			const scoped = ((await service.fieldSessionEvents(sessionId)) as NostrEvent[]).filter(
+				(event) => verifyEvent(event) && fieldSessionIdForEvent(event) === sessionId,
 			)
+			if (activeSessionId.current !== sessionId) return
 			for (const event of scoped) eventStore.add(event)
 			setEvents(orderEvents(scoped))
 		} catch {
@@ -64,37 +70,47 @@ export function useFieldSessionTransport(session?: FieldSessionRecord) {
 		} finally {
 			refreshInFlight.current = false
 		}
-	}, [session])
+	}, [hostNodeId, sessionId, sessionRole])
 
 	const publishEvent = useCallback(
 		async (event: NostrEvent) => {
-			if (!session) throw new Error('Open a Field session before saving nearby records')
-			if (!verifyEvent(event) || fieldSessionIdForEvent(event) !== session.id) {
+			if (!sessionId || !sessionRole || !hostNodeId) {
+				throw new Error('Open a Field session before saving nearby records')
+			}
+			if (!verifyEvent(event) || fieldSessionIdForEvent(event) !== sessionId) {
 				throw new Error('The signed record is not scoped to this Field session')
 			}
 			const service = await getLocalNodeService()
 			if (!service.supported) throw new Error('Field sessions require the Earthly app')
-			if (session.role === 'host') {
+			if (sessionRole === 'host') {
 				await service.ingestLocalEvent(event)
 			} else {
-				const remote = await acceptedRemote(service, session)
+				const remote = await acceptedRemote(service, hostNodeId)
 				if (!remote) throw new Error('The field host has not approved this device yet')
-				await service.publishRemoteEvent(session.hostNodeId, event)
+				await service.publishRemoteEvent(hostNodeId, event)
 			}
 			eventStore.add(event)
 			setEvents((current) => orderEvents([...current, event]))
 			await refresh()
 		},
-		[refresh, session],
+		[hostNodeId, refresh, sessionId, sessionRole],
 	)
 
 	useEffect(() => {
-		setEvents([])
-		if (!session) return
+		setEvents((current) => {
+			const transition = transitionFieldSessionEventScope(
+				current,
+				visibleSessionId.current,
+				sessionId,
+			)
+			visibleSessionId.current = transition.sessionId
+			return transition.events
+		})
+		if (!sessionId) return
 		void refresh()
 		const timer = window.setInterval(() => void refresh(), POLL_INTERVAL_MS)
 		return () => window.clearInterval(timer)
-	}, [refresh, session])
+	}, [refresh, sessionId])
 
 	return { events, publishEvent, refresh }
 }

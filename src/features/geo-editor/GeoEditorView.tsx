@@ -3463,7 +3463,8 @@ export function GeoEditorView() {
 						<RadioTower className="h-3 w-3 text-emerald-600" />
 						<span className="max-w-40 truncate">{fieldSession.name}</span>
 						<span className="text-muted-foreground">
-							· {fieldSession.internetPolicy === 'never' ? 'nearby only' : 'nearby now'}
+							· {fieldSession.role} ·{' '}
+							{fieldSession.internetPolicy === 'never' ? 'nearby only' : 'nearby now'}
 						</span>
 					</div>
 				</div>
