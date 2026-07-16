@@ -37,7 +37,10 @@ import { UserProfilePanel } from './UserProfilePanel'
 import { GeoEditorInfoPanelContent } from './GeoEditorInfoPanel'
 import { HelpPanel } from './HelpPanel'
 import { PrivateGroupsPanel } from '../features/private-maps/PrivateMapsDialog'
-import { FieldSessionsPanel } from '../features/field-sessions/FieldSessionsPanel'
+import {
+	FieldSessionsPanel,
+	type FieldDatasetActions,
+} from '../features/field-sessions/FieldSessionsPanel'
 import type { PrivateDatasetActions } from '../features/private-maps/PrivateGeometryReferences'
 import { LoginSessionButtons } from '../features/auth/LoginSessionButtons'
 import { SignedOutCta } from '../features/auth/SignedOutCta'
@@ -207,6 +210,10 @@ interface AppSidebarProps {
 	onLoadDataset: (event: GeoDataset) => void
 	onStartNewDataset?: () => void
 	privateDatasetActions?: PrivateDatasetActions
+	fieldDatasetActions?: FieldDatasetActions
+	fieldSessionEvents?: import('nostr-tools').NostrEvent[]
+	onPublishFieldSessionEvent?: (event: import('nostr-tools').NostrEvent) => Promise<void>
+	onRefreshFieldSessionEvents?: () => Promise<void>
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void
 	onAddDraftToWorkspace?: (workspaceId: string) => void | Promise<void>
@@ -229,7 +236,7 @@ interface AppSidebarProps {
 	onExitFocus: () => void
 	multiSelectModifier?: string
 	onCommentGeometryVisibility?: (
-		comment: import('@/lib/nostr/geo-comment').GeoComment,
+		comment: import('@/features/geo-editor/hooks/useCommentGeometry').CommentGeometryRecord,
 		visible: boolean,
 	) => void
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
@@ -347,6 +354,10 @@ export function AppSidebar({
 	onLoadDataset,
 	onStartNewDataset,
 	privateDatasetActions,
+	fieldDatasetActions,
+	fieldSessionEvents,
+	onPublishFieldSessionEvent,
+	onRefreshFieldSessionEvents,
 	onSwitchWorkspace,
 	onDeleteWorkspace,
 	onAddDraftToWorkspace,
@@ -1032,7 +1043,20 @@ export function AppSidebar({
 			case 'contexts':
 				return <GeoDatasetsPanelContent mode="contexts" {...datasetsPanelProps} />
 			case 'field-sessions':
-				return <FieldSessionsPanel />
+				return (
+					<FieldSessionsPanel
+						onStartNewDataset={onStartNewDataset}
+						datasetActions={fieldDatasetActions}
+						fieldSessionEvents={fieldSessionEvents}
+						onPublishFieldSessionEvent={onPublishFieldSessionEvent}
+						onRefreshFieldSessionEvents={onRefreshFieldSessionEvents}
+						onCommentGeometryVisibility={onCommentGeometryVisibility}
+						onZoomToBounds={onZoomToBounds}
+						availableFeatures={availableFeatures}
+						onMentionVisibilityToggle={onMentionVisibilityToggle}
+						onMentionZoomTo={onMentionZoomTo}
+					/>
+				)
 			case 'private-groups':
 				return (
 					<PrivateGroupsPanel

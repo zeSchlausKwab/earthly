@@ -79,6 +79,7 @@ const sourceLabel: Record<MapStackEntry['source'], string> = {
 	story: 'story',
 	'geo-query': 'in view',
 	'private-group': 'private group',
+	'field-session': 'field session',
 }
 
 /**

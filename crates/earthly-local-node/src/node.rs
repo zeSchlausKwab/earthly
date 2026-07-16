@@ -403,7 +403,6 @@ mod tests {
         )
         .await
         .unwrap();
-
         let invitation = host
             .create_pairing_invitation(Duration::from_secs(60), PairingCapability::initial_set())
             .await
@@ -499,6 +498,7 @@ mod tests {
     async fn accepted_field_device_publishes_as_the_active_user_and_every_peer_can_reconcile() {
         let host_dir = tempfile::tempdir().unwrap();
         let peer_dir = tempfile::tempdir().unwrap();
+        let observer_dir = tempfile::tempdir().unwrap();
         let host = LocalNode::start(
             NodeConfig::loopback(host_dir.path(), NodeAvailability::Process).with_ephemeral_ports(),
         )
@@ -506,6 +506,12 @@ mod tests {
         .unwrap();
         let peer = LocalNode::start(
             NodeConfig::loopback(peer_dir.path(), NodeAvailability::Process).with_ephemeral_ports(),
+        )
+        .await
+        .unwrap();
+        let observer = LocalNode::start(
+            NodeConfig::loopback(observer_dir.path(), NodeAvailability::Process)
+                .with_ephemeral_ports(),
         )
         .await
         .unwrap();
@@ -533,11 +539,34 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(pending.field_session, Some(field_session));
+        assert_eq!(pending.field_session, Some(field_session.clone()));
         host.approve_pairing_claim(EventId::from_hex(&pending.claim_id).unwrap())
             .await
             .unwrap();
         peer.refresh_remote_node(&pending.node_id).await.unwrap();
+
+        let observer_invitation = host
+            .create_field_session_invitation(
+                Duration::from_secs(60),
+                PairingCapability::initial_set(),
+                field_session,
+            )
+            .await
+            .unwrap();
+        let observer_pending = observer
+            .join_pairing_invitation(
+                &observer_invitation.encode().unwrap(),
+                Some("Observer phone".to_owned()),
+            )
+            .await
+            .unwrap();
+        host.approve_pairing_claim(EventId::from_hex(&observer_pending.claim_id).unwrap())
+            .await
+            .unwrap();
+        observer
+            .refresh_remote_node(&observer_pending.node_id)
+            .await
+            .unwrap();
 
         // The installation key authenticates the relay connection, but the
         // immutable record retains the active Earthly user's Nostr authorship.
@@ -560,10 +589,38 @@ mod tests {
         assert_eq!(published.event_id, message.id.to_hex());
         assert_ne!(message.pubkey, peer.identity_public_key());
 
+        let dataset = EventBuilder::new(
+            Kind::Custom(37_515),
+            r#"{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[16.37,48.21]},"properties":{"name":"Spring"}}]}"#,
+        )
+        .tags([
+            Tag::parse(["d", "spring-dataset"]).unwrap(),
+            Tag::parse(["h", "water-survey"]).unwrap(),
+            Tag::parse(["t", "field-session"]).unwrap(),
+            Tag::parse(["bbox", "16.37,48.21,16.37,48.21"]).unwrap(),
+        ])
+        .sign_with_keys(&active_user)
+        .unwrap();
+        peer.publish_remote_event(&pending.node_id, dataset.clone())
+            .await
+            .unwrap();
+        observer
+            .sync_remote_node(&observer_pending.node_id)
+            .await
+            .unwrap();
+
         let host_events = host.field_session_events("water-survey").await.unwrap();
-        assert_eq!(host_events, vec![message.clone()]);
+        assert_eq!(host_events.len(), 2);
+        assert!(host_events.contains(&message));
+        assert!(host_events.contains(&dataset));
         let peer_events = peer.field_session_events("water-survey").await.unwrap();
-        assert_eq!(peer_events, vec![message]);
+        assert_eq!(peer_events.len(), 2);
+        assert!(peer_events.contains(&message));
+        assert!(peer_events.contains(&dataset));
+        let observer_events = observer.field_session_events("water-survey").await.unwrap();
+        assert_eq!(observer_events.len(), 2);
+        assert!(observer_events.contains(&message));
+        assert!(observer_events.contains(&dataset));
     }
 
     #[tokio::test]

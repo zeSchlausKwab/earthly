@@ -24,8 +24,11 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 - [x] Pull reconciliation of signed Earthly records and verified referenced blobs.
 - [x] First-class Field-session routes and responsive workspace with host/join, signed QR invites,
       approvals, participant writes, nearby chat, device revocation, and explicit delivery policy.
+- [x] Nearby dataset authoring/editing, optional note geometry, Field-session geometry overview,
+      and Map Stack projection without automatically resurrecting removed datasets.
 - [ ] Physical two-phone Field-session UAT with internet disabled: host, approve, bidirectional chat,
-      revoke, reconnect, and restart both apps.
+      draw/edit/inspect geometry, verify peer reconciliation, revoke, reconnect, and restart both
+      apps.
 - [x] Local content-addressed range protocol used by the PMTiles client.
 - [x] Mirrored raster and vector PMTiles can become the restart-persistent offline basemap.
 - [ ] Two-device UAT of a mirrored PMTiles map with internet disabled and both apps restarted.
@@ -64,8 +67,8 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 
 The general "author anything offline, then decide later whether to publish globally" journey is
 explicitly shelved for `0.0.1`. The native outbox machinery remains, but it is not being presented
-as the Field-session model. Session-bound map authoring and deliberate promotion to public Nostr
-will be planned together after the first release.
+as the Field-session model. Field-session map authoring is explicitly nearby-only; deliberate
+promotion to public Nostr will be planned after the first release.
 
 Physical lifecycle evidence currently covers Android 10/API 29. Notification-permission denial and
 foreground-service restrictions still need matrix coverage on Android 13–16 before public release.

@@ -835,12 +835,17 @@ authenticated by an approved installation, and a dedicated `/fieldsession/:id` w
 available on desktop and mobile. It includes host/start, signed QR/link invitation, paste/photo
 join, approval, revocation, nearby chat reconciliation, people/settings tabs, and a persistent map
 badge that distinguishes nearby delivery intent from internet publication. Kind `37523` is the
-initial session record kind and uses an `h` session tag.
+session-note kind and uses an `h` session tag. Notes may contain text, an optional GeoJSON
+attachment, or both. Signed kind-`37515` datasets use that same Field-session scope and the shared
+Earthly draw/edit workflow. Their latest versions project into the Field-session Map tab and Map
+Stack; removing one from the stack is respected until the user explicitly restores it.
 
 The first slice is intentionally access-controlled rather than MLS encrypted. Private groups remain
-the confidentiality boundary. Before Field sessions can claim full map authoring parity, Earthly
-still needs session-bound geometry/dataset publishing, Map Stack projection, physical two-Android
-acceptance, and a later explicit promotion action for records the user chooses to publish globally.
+the confidentiality boundary. Frontend unit coverage, a three-node native reconciliation test, and
+physical editor/UI checks on two Android phones cover the dataset slice. Remaining work is a full
+internet-disabled physical acceptance journey, other relevant Earthly entity types, per-session
+installation grants, and a later explicit promotion action for records the user chooses to publish
+globally.
 
 ### Phase 10 — Bundles, file associations, deep links, and sharing
 

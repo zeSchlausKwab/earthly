@@ -1,5 +1,5 @@
 import { Eye, EyeOff, MapPin } from 'lucide-react'
-import type { GeoComment } from '@/lib/nostr/geo-comment'
+import type { CommentGeometryRecord } from '@/features/geo-editor/hooks/useCommentGeometry'
 import { RichContentRenderer } from '@/components/editor'
 import { UserProfile } from '@/components/user-profile/UserProfile'
 import { Button } from '@/components/ui/button'
@@ -19,7 +19,7 @@ function formatRelativeTime(createdAt: number) {
 	return date.toLocaleDateString()
 }
 
-export function PrivateCommentItem({
+export function PrivateCommentItem<T extends CommentGeometryRecord>({
 	comment,
 	geometryVisible,
 	onGeometryVisibilityChange,
@@ -28,10 +28,10 @@ export function PrivateCommentItem({
 	onMentionVisibilityToggle,
 	onMentionZoomTo,
 }: {
-	comment: GeoComment
+	comment: T
 	geometryVisible: boolean
-	onGeometryVisibilityChange?: (comment: GeoComment, visible: boolean) => void
-	onZoomToGeometry?: (comment: GeoComment) => void
+	onGeometryVisibilityChange?: (comment: T, visible: boolean) => void
+	onZoomToGeometry?: (comment: T) => void
 	availableFeatures?: GeoFeatureItem[]
 	onMentionVisibilityToggle?: (
 		address: string,

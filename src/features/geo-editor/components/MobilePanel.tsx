@@ -34,7 +34,10 @@ import { StoriesPanelContent, type StoriesPanelProps } from '@/components/Storie
 import { UserProfilePanel } from '@/components/UserProfilePanel'
 import { ShoutboxPanel } from '@/features/social/shoutbox'
 import { PrivateGroupsPanel } from '@/features/private-maps/PrivateMapsDialog'
-import { FieldSessionsPanel } from '@/features/field-sessions/FieldSessionsPanel'
+import {
+	FieldSessionsPanel,
+	type FieldDatasetActions,
+} from '@/features/field-sessions/FieldSessionsPanel'
 import type { PrivateDatasetActions } from '@/features/private-maps/PrivateGeometryReferences'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -87,6 +90,10 @@ export interface MobilePanelProps {
 	onLoadDataset: (event: GeoDataset) => void
 	onStartNewDataset?: () => void
 	privateDatasetActions?: PrivateDatasetActions
+	fieldDatasetActions?: FieldDatasetActions
+	fieldSessionEvents?: import('nostr-tools').NostrEvent[]
+	onPublishFieldSessionEvent?: (event: import('nostr-tools').NostrEvent) => Promise<void>
+	onRefreshFieldSessionEvents?: () => Promise<void>
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void
 	onToggleVisibility: (event: GeoDataset) => void
@@ -113,7 +120,7 @@ export interface MobilePanelProps {
 	onOpenDebug?: (event: GeoDataset | MapContext) => void
 	onExitViewMode?: () => void
 	onCommentGeometryVisibility?: (
-		comment: import('@/lib/nostr/geo-comment').GeoComment,
+		comment: import('@/features/geo-editor/hooks/useCommentGeometry').CommentGeometryRecord,
 		visible: boolean,
 	) => void
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
@@ -266,6 +273,10 @@ export function MobilePanel(props: MobilePanelProps) {
 		onLoadDataset,
 		onStartNewDataset,
 		privateDatasetActions,
+		fieldDatasetActions,
+		fieldSessionEvents,
+		onPublishFieldSessionEvent,
+		onRefreshFieldSessionEvents,
 		onSwitchWorkspace,
 		onDeleteWorkspace,
 		onToggleVisibility,
@@ -877,7 +888,20 @@ export function MobilePanel(props: MobilePanelProps) {
 													/>
 												) : null}
 
-												{mobilePanelTab === 'field-sessions' ? <FieldSessionsPanel /> : null}
+												{mobilePanelTab === 'field-sessions' ? (
+													<FieldSessionsPanel
+														onStartNewDataset={onStartNewDataset}
+														datasetActions={fieldDatasetActions}
+														fieldSessionEvents={fieldSessionEvents}
+														onPublishFieldSessionEvent={onPublishFieldSessionEvent}
+														onRefreshFieldSessionEvents={onRefreshFieldSessionEvents}
+														onCommentGeometryVisibility={onCommentGeometryVisibility}
+														onZoomToBounds={handleMobileZoomToBounds}
+														availableFeatures={availableFeatures}
+														onMentionVisibilityToggle={onMentionVisibilityToggle}
+														onMentionZoomTo={onMentionZoomTo}
+													/>
+												) : null}
 
 												{mobilePanelTab === 'context-editor' ? (
 													<GeoEditorInfoPanelContent

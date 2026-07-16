@@ -78,7 +78,7 @@ export interface MobileToolMenuProps {
 	onProposeEdit?: (description: string) => void
 	canProposeEdit?: boolean
 	isPublishing?: boolean
-	privateMode?: boolean
+	publishMode?: 'public' | 'private' | 'field'
 	onOsmClick?: () => void
 	onOsmView?: () => void
 	onOsmAdvanced?: () => void
@@ -105,7 +105,7 @@ export function MobileToolMenu({
 	onProposeEdit,
 	canProposeEdit,
 	isPublishing,
-	privateMode = false,
+	publishMode = 'public',
 	onOsmClick,
 	onOsmView,
 	onOsmAdvanced,
@@ -350,18 +350,32 @@ export function MobileToolMenu({
 				{canPublishUpdate || canPublishCopy || canProposeEdit ? (
 					<>
 						<DropdownMenuSeparator />
-						<DropdownMenuLabel>{privateMode ? 'Private save' : 'Publish'}</DropdownMenuLabel>
+						<DropdownMenuLabel>
+							{publishMode === 'private'
+								? 'Private save'
+								: publishMode === 'field'
+									? 'Nearby save'
+									: 'Publish'}
+						</DropdownMenuLabel>
 						<DropdownMenuGroup>
 							{onPublishUpdate ? (
 								<DropdownMenuItem disabled={!canPublishUpdate} onSelect={onPublishUpdate}>
 									<RefreshCw className="h-4 w-4" />
-									{privateMode ? 'Update private dataset' : 'Update existing'}
+									{publishMode === 'private'
+										? 'Update private dataset'
+										: publishMode === 'field'
+											? 'Update nearby dataset'
+											: 'Update existing'}
 								</DropdownMenuItem>
 							) : null}
 							{onPublishCopy ? (
 								<DropdownMenuItem disabled={!canPublishCopy} onSelect={onPublishCopy}>
 									<CopyPlus className="h-4 w-4" />
-									{privateMode ? 'Save as new private dataset' : 'Fork as new dataset'}
+									{publishMode === 'private'
+										? 'Save as new private dataset'
+										: publishMode === 'field'
+											? 'Save as new nearby dataset'
+											: 'Fork as new dataset'}
 								</DropdownMenuItem>
 							) : null}
 							{onProposeEdit && canProposeEdit ? (

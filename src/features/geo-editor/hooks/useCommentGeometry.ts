@@ -1,14 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import type maplibregl from 'maplibre-gl'
-import type { GeoComment } from '@/lib/nostr/geo-comment'
 import type { CommentAnnotationPopupData } from '../components/CommentAnnotationPopup'
+
+export interface CommentGeometryRecord {
+	id?: string
+	commentId?: string
+	pubkey: string
+	text: string
+	created_at: number
+	geojson?: FeatureCollection
+	rootAddress?: string
+}
 
 interface CommentLayerEntry {
 	sourceId: string
 	layerIds: string[]
 	cursorLayerIds: string[]
-	comment: GeoComment
+	comment: CommentGeometryRecord
 	handleClick: (event: maplibregl.MapLayerMouseEvent) => void
 	handleMouseMove: (event: maplibregl.MapLayerMouseEvent) => void
 	handleMouseLeave: () => void
@@ -51,7 +60,7 @@ function getDefaultTextFontStack(
 	return null
 }
 
-function buildOverlayCollection(comment: GeoComment): FeatureCollection {
+function buildOverlayCollection(comment: CommentGeometryRecord): FeatureCollection {
 	const collection = comment.geojson ?? { type: 'FeatureCollection', features: [] }
 	return {
 		type: 'FeatureCollection',
@@ -73,7 +82,7 @@ export function useCommentGeometry(
 	mapReady = false,
 ) {
 	const commentGeometryLayers = useRef<Map<string, CommentLayerEntry>>(new Map())
-	const desiredVisibleComments = useRef<Map<string, GeoComment>>(new Map())
+	const desiredVisibleComments = useRef<Map<string, CommentGeometryRecord>>(new Map())
 	const [annotationPopupData, setAnnotationPopupData] = useState<CommentAnnotationPopupData | null>(
 		null,
 	)
@@ -116,7 +125,7 @@ export function useCommentGeometry(
 	)
 
 	const showCommentLayers = useCallback(
-		(comment: GeoComment) => {
+		(comment: CommentGeometryRecord) => {
 			if (!mapReady || !mapRef.current) return
 
 			const commentId = comment.commentId ?? comment.id ?? ''
@@ -295,7 +304,7 @@ export function useCommentGeometry(
 	)
 
 	const handleCommentGeometryVisibility = useCallback(
-		(comment: GeoComment, visible: boolean) => {
+		(comment: CommentGeometryRecord, visible: boolean) => {
 			const commentId = comment.commentId ?? comment.id ?? ''
 			if (!commentId) return
 
@@ -319,7 +328,7 @@ export function useCommentGeometry(
 	 * removes its annotations from the map.
 	 */
 	const pruneCommentGeometry = useCallback(
-		(isAnchored: (comment: GeoComment) => boolean) => {
+		(isAnchored: (comment: CommentGeometryRecord) => boolean) => {
 			for (const [commentId, comment] of [...desiredVisibleComments.current]) {
 				if (isAnchored(comment)) continue
 				desiredVisibleComments.current.delete(commentId)

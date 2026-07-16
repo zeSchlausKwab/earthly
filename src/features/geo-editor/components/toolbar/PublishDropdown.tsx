@@ -22,7 +22,7 @@ export interface PublishDropdownProps {
 	onPublishUpdate?: () => void
 	onPublishCopy?: () => void
 	onProposeEdit?: (description: string) => void
-	privateMode?: boolean
+	publishMode?: 'public' | 'private' | 'field'
 	small?: boolean
 }
 
@@ -36,7 +36,7 @@ export function PublishDropdown({
 	onPublishUpdate,
 	onPublishCopy,
 	onProposeEdit,
-	privateMode = false,
+	publishMode = 'public',
 	small,
 }: PublishDropdownProps) {
 	const [open, setOpen] = useState(false)
@@ -45,6 +45,8 @@ export function PublishDropdown({
 	const iconSize = small ? 'h-3.5 w-3.5' : 'h-4 w-4'
 	const buttonSize = small ? 'h-8' : 'h-9'
 	const trimmedProposalDescription = proposalDescription.trim()
+	const workspaceMode = publishMode !== 'public'
+	const workspaceLabel = publishMode === 'private' ? 'private' : 'nearby'
 
 	const resetProposalComposer = () => {
 		setComposingProposal(false)
@@ -54,7 +56,7 @@ export function PublishDropdown({
 	// Determine primary action based on state
 	const hasPrimaryAction = canPublishUpdate || canPublishNew
 	const primaryIcon = canPublishUpdate ? RefreshCw : UploadCloud
-	const primaryLabel = canPublishUpdate ? 'Update' : privateMode ? 'Save' : 'Publish'
+	const primaryLabel = canPublishUpdate ? 'Update' : workspaceMode ? 'Save' : 'Publish'
 	const primaryAction = canPublishUpdate ? onPublishUpdate : onPublishNew
 	const PrimaryIcon = primaryIcon
 
@@ -104,7 +106,11 @@ export function PublishDropdown({
 						</Button>
 					</TooltipTrigger>
 					<TooltipContent side="bottom" sideOffset={8}>
-						<p>{privateMode ? `${primaryLabel} encrypted dataset` : `${primaryLabel} dataset`}</p>
+						<p>
+							{workspaceMode
+								? `${primaryLabel} ${workspaceLabel} dataset`
+								: `${primaryLabel} dataset`}
+						</p>
 					</TooltipContent>
 				</Tooltip>
 			</TooltipProvider>
@@ -147,8 +153,10 @@ export function PublishDropdown({
 						<p>
 							{viewingOnly
 								? "You're editing someone else's dataset"
-								: privateMode
-									? 'Private save options'
+								: workspaceMode
+									? publishMode === 'private'
+										? 'Private save options'
+										: 'Nearby save options'
 									: 'Publish options'}
 						</p>
 					</TooltipContent>
@@ -169,13 +177,21 @@ export function PublishDropdown({
 					{canPublishNew && (
 						<DropdownMenuItem onClick={onPublishNew}>
 							<UploadCloud className="h-4 w-4" />
-							{privateMode ? 'Save new private dataset' : 'Publish new dataset'}
+							{publishMode === 'private'
+								? 'Save new private dataset'
+								: publishMode === 'field'
+									? 'Save new nearby dataset'
+									: 'Publish new dataset'}
 						</DropdownMenuItem>
 					)}
 					{canPublishUpdate && (
 						<DropdownMenuItem onClick={onPublishUpdate}>
 							<RefreshCw className="h-4 w-4" />
-							{privateMode ? 'Update private dataset' : 'Update existing'}
+							{publishMode === 'private'
+								? 'Update private dataset'
+								: publishMode === 'field'
+									? 'Update nearby dataset'
+									: 'Update existing'}
 						</DropdownMenuItem>
 					)}
 					{canPublishCopy && (
@@ -183,7 +199,11 @@ export function PublishDropdown({
 							<DropdownMenuSeparator />
 							<DropdownMenuItem onClick={onPublishCopy}>
 								<CopyPlus className="h-4 w-4" />
-								{privateMode ? 'Save as new private dataset' : 'Fork as new dataset'}
+								{publishMode === 'private'
+									? 'Save as new private dataset'
+									: publishMode === 'field'
+										? 'Save as new nearby dataset'
+										: 'Fork as new dataset'}
 							</DropdownMenuItem>
 						</>
 					)}

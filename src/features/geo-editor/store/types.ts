@@ -123,6 +123,7 @@ export type MapStackEntrySource =
 	| 'proposal'
 	| 'workspace'
 	| 'private-group'
+	| 'field-session'
 	/** Round C.4: auto-populated on cold-start Browse so the user lands on
 	 * something instead of a blank map. Distinguishable from `manual` so we
 	 * can avoid re-triggering after a clear and so future Clear UX can opt

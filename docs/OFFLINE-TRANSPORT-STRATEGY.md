@@ -25,15 +25,21 @@ an MLS group and not merely a transfer dialog:
 - participant installations request access and authenticate with their durable installation key;
 - records retain the active Earthly user's independent Nostr signature;
 - kind `37523` messages carry an `h` tag with the Field-session id, are submitted to the host relay,
-  and are reconciled by the other approved devices without any public relay;
+  and may include an optional GeoJSON attachment;
+- ordinary signed Earthly datasets (kind `37515`) use the same `h` scope, can be created and edited
+  with the shared map editor, and are reconciled by the other approved devices without any public
+  relay;
+- nearby datasets appear in the Field-session Map tab and Map Stack, while a dataset explicitly
+  removed from the stack stays removed until the user adds it again;
 - **Nearby only** is the release behavior. **Ask before internet sync** records intent in the
   session model but does not publish anything globally in `0.0.1`.
 
 The current installation grant authorizes access to the embedded node; it is not an MLS-style
 per-session confidentiality boundary. A previously approved installation remains trusted until the
 host revokes it. Use a Private group for end-to-end encrypted membership. Per-session grant scopes,
-session-bound geometry/datasets, and an explicit promotion flow from nearby records to global Nostr
-are follow-up work, not hidden behavior in `0.0.1`.
+additional Earthly entity types, and an explicit promotion flow from nearby records to global Nostr
+are follow-up work, not hidden behavior in `0.0.1`. Field-session geometry is nearby-scoped signed
+Nostr data; it is not encrypted merely because it remains off the public internet.
 
 ## Decision
 

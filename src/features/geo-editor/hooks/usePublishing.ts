@@ -115,7 +115,13 @@ interface UsePublishingOptions {
 	privateWorkspaceId?: string
 	publishPrivateDataset?: (
 		collection: FeatureCollection,
-		options?: { datasetId?: string; name?: string },
+		options?: { datasetId?: string; name?: string; previous?: GeoDataset },
+	) => Promise<GeoDataset>
+	/** Active nearby Field session. Writes use the embedded relay and never the public publisher. */
+	fieldSessionId?: string
+	publishFieldDataset?: (
+		collection: FeatureCollection,
+		options?: { datasetId?: string; name?: string; previous?: GeoDataset },
 	) => Promise<GeoDataset>
 }
 
@@ -145,8 +151,13 @@ export function usePublishing({
 	encodeGeoEventNaddr,
 	privateWorkspaceId,
 	publishPrivateDataset,
+	fieldSessionId,
+	publishFieldDataset,
 }: UsePublishingOptions) {
 	void resolvedCollectionResolver
+	const workspaceMode = privateWorkspaceId ? 'private' : fieldSessionId ? 'field' : 'public'
+	const workspacePublisher = privateWorkspaceId ? publishPrivateDataset : publishFieldDataset
+	const hasWorkspaceScope = workspaceMode !== 'public'
 	// Store state
 	const editor = useEditorStore((state) => state.editor)
 	const features = useEditorStore((state) => state.features)
@@ -480,14 +491,15 @@ export function usePublishing({
 		[setMode, setViewMode, setViewDataset],
 	)
 
-	const finishPrivateDatasetSave = useCallback(
+	const finishWorkspaceDatasetSave = useCallback(
 		(
 			dataset: GeoDataset,
 			collection: FeatureCollection,
 			action: 'saved' | 'updated' | 'copied',
 		) => {
-			setPublishMessage(`Private dataset ${action}.`)
-			toast.success(`Private dataset ${action}.`)
+			const label = workspaceMode === 'private' ? 'Private dataset' : 'Nearby dataset'
+			setPublishMessage(`${label} ${action}.`)
+			toast.success(`${label} ${action}.`)
 			setIsDirty(false)
 			setActiveDataset(dataset)
 			setActiveDatasetContextRefs([])
@@ -496,6 +508,7 @@ export function usePublishing({
 			switchToDatasetViewMode(dataset)
 		},
 		[
+			workspaceMode,
 			setPublishMessage,
 			setIsDirty,
 			setActiveDataset,
@@ -527,10 +540,10 @@ export function usePublishing({
 		try {
 			const collection = buildCollectionFromEditor()
 			if (!collection) throw new Error('No features to publish')
-			if (privateWorkspaceId) {
-				if (!publishPrivateDataset) throw new Error('The private group is not available')
-				const dataset = await publishPrivateDataset(collection)
-				finishPrivateDatasetSave(dataset, collection, 'saved')
+			if (hasWorkspaceScope) {
+				if (!workspacePublisher) throw new Error('The active workspace is not available')
+				const dataset = await workspacePublisher(collection)
+				finishWorkspaceDatasetSave(dataset, collection, 'saved')
 				return
 			}
 
@@ -587,9 +600,9 @@ export function usePublishing({
 		setPublishMessage,
 		setPublishError,
 		buildCollectionFromEditor,
-		privateWorkspaceId,
-		publishPrivateDataset,
-		finishPrivateDatasetSave,
+		hasWorkspaceScope,
+		workspacePublisher,
+		finishWorkspaceDatasetSave,
 		serializeBlobReferences,
 		activeDatasetContextRefs,
 		buildCollectionStub,
@@ -706,16 +719,17 @@ export function usePublishing({
 			return
 		}
 
-		if (privateWorkspaceId) {
+		if (hasWorkspaceScope) {
 			try {
-				if (!publishPrivateDataset) throw new Error('The private group is not available')
-				const dataset = await publishPrivateDataset(collection, {
+				if (!workspacePublisher) throw new Error('The active workspace is not available')
+				const dataset = await workspacePublisher(collection, {
 					datasetId: activeDataset.dTag,
+					previous: activeDataset,
 				})
-				finishPrivateDatasetSave(dataset, collection, 'updated')
+				finishWorkspaceDatasetSave(dataset, collection, 'updated')
 			} catch (error) {
-				console.error('Failed to update private dataset', error)
-				setPublishError('Failed to update private dataset. Check the group connection.')
+				console.error('Failed to update workspace dataset', error)
+				setPublishError('Failed to update dataset. Check the workspace connection.')
 			} finally {
 				setIsPublishing(false)
 			}
@@ -780,9 +794,9 @@ export function usePublishing({
 		setPublishError,
 		currentUserPubkey,
 		buildCollectionFromEditor,
-		privateWorkspaceId,
-		publishPrivateDataset,
-		finishPrivateDatasetSave,
+		hasWorkspaceScope,
+		workspacePublisher,
+		finishWorkspaceDatasetSave,
 		serializeBlobReferences,
 		activeDatasetContextRefs,
 		buildCollectionStub,
@@ -805,10 +819,10 @@ export function usePublishing({
 		try {
 			const collection = buildCollectionFromEditor()
 			if (!collection) throw new Error('No features to publish')
-			if (privateWorkspaceId) {
-				if (!publishPrivateDataset) throw new Error('The private group is not available')
-				const dataset = await publishPrivateDataset(collection)
-				finishPrivateDatasetSave(dataset, collection, 'copied')
+			if (hasWorkspaceScope) {
+				if (!workspacePublisher) throw new Error('The active workspace is not available')
+				const dataset = await workspacePublisher(collection)
+				finishWorkspaceDatasetSave(dataset, collection, 'copied')
 				return
 			}
 
@@ -862,9 +876,9 @@ export function usePublishing({
 		setPublishMessage,
 		setPublishError,
 		buildCollectionFromEditor,
-		privateWorkspaceId,
-		publishPrivateDataset,
-		finishPrivateDatasetSave,
+		hasWorkspaceScope,
+		workspacePublisher,
+		finishWorkspaceDatasetSave,
 		serializeBlobReferences,
 		activeDatasetContextRefs,
 		buildCollectionStub,
@@ -941,8 +955,8 @@ export function usePublishing({
 
 	const handleDeleteDataset = useCallback(
 		async (event: GeoDataset, onClear: () => void) => {
-			if (privateWorkspaceId) {
-				toast.error('Private dataset deletion is not available yet.')
+			if (hasWorkspaceScope) {
+				toast.error('Workspace dataset deletion is not available yet.')
 				return
 			}
 			const signer = accounts.signer
@@ -967,7 +981,7 @@ export function usePublishing({
 				toast.error('Failed to delete dataset. Check console for details.')
 			}
 		},
-		[activeDataset, getDatasetKey, getDatasetName, privateWorkspaceId],
+		[activeDataset, getDatasetKey, getDatasetName, hasWorkspaceScope],
 	)
 
 	// Check if there's a collection blob reference (uploaded to Blossom)
@@ -979,13 +993,13 @@ export function usePublishing({
 	const canPublishNew =
 		features.length > 0 &&
 		!activeDataset &&
-		(privateWorkspaceId || hasCollectionBlob || (collection ? !isOverSizeLimit(collection) : true))
+		(hasWorkspaceScope || hasCollectionBlob || (collection ? !isOverSizeLimit(collection) : true))
 	const canPublishUpdate =
 		!!activeDataset && currentUserPubkey === activeDataset?.pubkey && features.length > 0 && isDirty
 	const canPublishCopy =
 		!!activeDataset && currentUserPubkey !== activeDataset?.pubkey && features.length > 0
 	const canProposeEdit =
-		!privateWorkspaceId &&
+		!hasWorkspaceScope &&
 		!!activeDataset &&
 		currentUserPubkey !== activeDataset?.pubkey &&
 		features.length > 0

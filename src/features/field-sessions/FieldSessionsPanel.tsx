@@ -1,4 +1,6 @@
 import { useActiveAccount } from 'applesauce-react/hooks'
+import { castEvent } from 'applesauce-core/casts'
+import type { FeatureCollection } from 'geojson'
 import {
 	ArrowLeft,
 	Check,
@@ -12,7 +14,6 @@ import {
 	QrCode,
 	RadioTower,
 	RefreshCw,
-	Send,
 	Settings2,
 	ShieldCheck,
 	Smartphone,
@@ -28,6 +29,13 @@ import { verifyEvent, type NostrEvent } from 'nostr-tools'
 import { QRCodeSVG } from 'qrcode.react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { GlyphTile, ListRow, RowActionButton, RowBadge } from '@/components/entity-list'
+import {
+	DatasetGlyphIcon,
+	LoadEditorActionIcon,
+	MapStackActionIcon,
+	ZoomActionIcon,
+} from '@/components/entity-action-icons'
 import { UserProfile } from '@/components/user-profile/UserProfile'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -51,6 +59,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { useRouting } from '@/features/geo-editor/hooks/useRouting'
 import { eventStore } from '@/lib/nostr'
+import { useEditorStore } from '@/features/geo-editor/store'
+import type { CommentGeometryRecord } from '@/features/geo-editor/hooks/useCommentGeometry'
+import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
+import { GeoCommentForm } from '@/features/social/comments/GeoCommentForm'
+import { PrivateCommentItem } from '@/features/private-maps/PrivateCommentItem'
+import { computeCommentBbox } from '@/lib/nostr/geo-comment'
+import { GeoDataset } from '@/lib/nostr/geo-event'
 import type {
 	LocalNodeService,
 	LocalNodeStatus,
@@ -75,7 +90,12 @@ import {
 	useFieldSessions,
 	type FieldSessionRecord,
 } from './model'
-import { fieldSessionMessageTemplate, parseFieldSessionMessage } from './events'
+import {
+	fieldSessionMessageTemplate,
+	latestFieldSessionDatasetEvents,
+	parseFieldSessionMessage,
+} from './events'
+import { fieldDatasetStackEntryId } from './fieldDatasetStack'
 
 const FIELD_SESSION_SECONDS = 60 * 60
 const POLL_INTERVAL_MS = 3_000
@@ -109,8 +129,57 @@ function EmptyNativeState({ reason }: { reason: string }) {
 	)
 }
 
-export function FieldSessionsPanel() {
+function messageGeometryRecord(
+	message: NonNullable<ReturnType<typeof parseFieldSessionMessage>>,
+): CommentGeometryRecord {
+	return {
+		id: message.event.id,
+		commentId: message.event.id,
+		pubkey: message.event.pubkey,
+		text: message.text,
+		created_at: message.event.created_at,
+		geojson: message.geometry,
+	}
+}
+
+export interface FieldDatasetActions {
+	getDatasetKey: (event: GeoDataset) => string
+	getDatasetName: (event: GeoDataset) => string
+	onAddToMap: (event: GeoDataset) => void
+	onRemoveFromMap: (event: GeoDataset) => void
+	onZoomTo: (event: GeoDataset) => void
+	onLoadIntoEditor: (event: GeoDataset) => void
+}
+
+export function FieldSessionsPanel({
+	onStartNewDataset,
+	datasetActions,
+	fieldSessionEvents = [],
+	onPublishFieldSessionEvent,
+	onRefreshFieldSessionEvents,
+	onCommentGeometryVisibility,
+	onZoomToBounds,
+	availableFeatures = [],
+	onMentionVisibilityToggle,
+	onMentionZoomTo,
+}: {
+	onStartNewDataset?: () => void
+	datasetActions?: FieldDatasetActions
+	fieldSessionEvents?: NostrEvent[]
+	onPublishFieldSessionEvent?: (event: NostrEvent) => Promise<void>
+	onRefreshFieldSessionEvents?: () => Promise<void>
+	onCommentGeometryVisibility?: (comment: CommentGeometryRecord, visible: boolean) => void
+	onZoomToBounds?: (bounds: [number, number, number, number]) => void
+	availableFeatures?: GeoFeatureItem[]
+	onMentionVisibilityToggle?: (
+		address: string,
+		featureId: string | undefined,
+		visible: boolean,
+	) => void
+	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
+}) {
 	const activeAccount = useActiveAccount()
+	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const sessions = useFieldSessions()
 	const { fieldSessionId, navigateToFieldSession, navigateToView } = useRouting()
 	const [service, setService] = useState<LocalNodeService | null>(null)
@@ -120,8 +189,6 @@ export function FieldSessionsPanel() {
 	const [claims, setClaims] = useState<PendingPairingClaim[]>([])
 	const [grants, setGrants] = useState<PeerGrant[]>([])
 	const [remoteNodes, setRemoteNodes] = useState<RemoteNodeRecord[]>([])
-	const [messages, setMessages] = useState<ReturnType<typeof parseFieldSessionMessage>[]>([])
-	const [allSessionEvents, setAllSessionEvents] = useState<NostrEvent[]>([])
 	const [detailTab, setDetailTab] = useState<DetailTab>('chat')
 	const [operation, setOperation] = useState<string | null>(null)
 	const [name, setName] = useState('')
@@ -132,9 +199,9 @@ export function FieldSessionsPanel() {
 	const [invitation, setInvitation] = useState<PairingInvitation | null>(null)
 	const [inviteOpen, setInviteOpen] = useState(false)
 	const [joinOpen, setJoinOpen] = useState(false)
-	const [draftMessage, setDraftMessage] = useState('')
+	const [visibleAttachmentIds, setVisibleAttachmentIds] = useState<Set<string>>(new Set())
 	const refreshInFlight = useRef(false)
-	const recordsInFlight = useRef(false)
+	const visibleAttachmentRecordsRef = useRef(new Map<string, CommentGeometryRecord>())
 	const scanInputRef = useRef<HTMLInputElement>(null)
 
 	const selected = useMemo(
@@ -147,6 +214,58 @@ export function FieldSessionsPanel() {
 				? (remoteNodes.find((remote) => remote.nodeId === selected.hostNodeId) ?? null)
 				: null,
 		[remoteNodes, selected],
+	)
+	const messages = useMemo(
+		() =>
+			selected
+				? fieldSessionEvents
+						.map((event) => parseFieldSessionMessage(event, selected.id))
+						.filter((message) => message !== null)
+				: [],
+		[fieldSessionEvents, selected],
+	)
+	const datasets = useMemo(
+		() =>
+			selected
+				? latestFieldSessionDatasetEvents(fieldSessionEvents, selected.id).map((event) =>
+						castEvent(event, GeoDataset, eventStore),
+					)
+				: [],
+		[fieldSessionEvents, selected],
+	)
+	const messageGeometryRecords = useMemo(
+		() => messages.filter((message) => message.geometry).map(messageGeometryRecord),
+		[messages],
+	)
+
+	useEffect(() => {
+		const previous = visibleAttachmentRecordsRef.current
+		const next = new Map(messageGeometryRecords.map((record) => [record.commentId ?? '', record]))
+		const newlyAdded = new Set<string>()
+		for (const [id, record] of previous) {
+			if (!next.has(id)) onCommentGeometryVisibility?.(record, false)
+		}
+		for (const [id, record] of next) {
+			if (!previous.has(id)) {
+				newlyAdded.add(id)
+				onCommentGeometryVisibility?.(record, true)
+			}
+		}
+		visibleAttachmentRecordsRef.current = next
+		setVisibleAttachmentIds((current) => {
+			const ids = new Set([...current].filter((id) => next.has(id)))
+			for (const id of newlyAdded) ids.add(id)
+			return ids
+		})
+	}, [messageGeometryRecords, onCommentGeometryVisibility])
+
+	useEffect(
+		() => () => {
+			for (const record of visibleAttachmentRecordsRef.current.values()) {
+				onCommentGeometryVisibility?.(record, false)
+			}
+		},
+		[onCommentGeometryVisibility],
 	)
 
 	useEffect(() => {
@@ -206,39 +325,6 @@ export function FieldSessionsPanel() {
 		}
 	}, [service])
 
-	const refreshRecords = useCallback(async () => {
-		if (!service || !selected || recordsInFlight.current) return
-		recordsInFlight.current = true
-		try {
-			if (selected.role === 'participant' && selectedRemote?.status.state === 'accepted') {
-				const sync = await service.syncRemoteNode(selected.hostNodeId)
-				const hydrated = sync.events as NostrEvent[]
-				for (const event of hydrated) {
-					if (verifyEvent(event)) eventStore.add(event)
-				}
-				setRemoteNodes((current) =>
-					current.map((remote) =>
-						remote.nodeId === sync.remoteNode.nodeId ? sync.remoteNode : remote,
-					),
-				)
-			}
-			const events = (await service.fieldSessionEvents(selected.id)) as NostrEvent[]
-			const verified = events.filter(verifyEvent)
-			setAllSessionEvents(verified)
-			setMessages(
-				verified
-					.map((event) => parseFieldSessionMessage(event, selected.id))
-					.filter((message) => message !== null),
-			)
-		} catch (error) {
-			// Reconciliation is intentionally quiet. The explicit refresh control
-			// remains available when a nearby host temporarily disappears.
-			console.warn('[field-session] reconciliation failed', error)
-		} finally {
-			recordsInFlight.current = false
-		}
-	}, [selected, selectedRemote?.status.state, service])
-
 	useEffect(() => {
 		if (!service) return
 		void refreshNode()
@@ -246,17 +332,6 @@ export function FieldSessionsPanel() {
 		const timer = window.setInterval(() => void refreshNode(), POLL_INTERVAL_MS)
 		return () => window.clearInterval(timer)
 	}, [refreshNode, service])
-
-	useEffect(() => {
-		if (!selected || !service?.supported) {
-			setMessages([])
-			setAllSessionEvents([])
-			return
-		}
-		void refreshRecords()
-		const timer = window.setInterval(() => void refreshRecords(), POLL_INTERVAL_MS)
-		return () => window.clearInterval(timer)
-	}, [refreshRecords, selected, service?.supported])
 
 	const run = async (key: string, action: () => Promise<void>) => {
 		setOperation(key)
@@ -373,15 +448,18 @@ export function FieldSessionsPanel() {
 			toast.success('Device removed from future nearby updates')
 		})
 
-	const sendMessage = () =>
-		run('send', async () => {
+	const sendMessage = async (text: string, geometry?: FeatureCollection) => {
+		setOperation('send')
+		try {
 			if (!service || !selected) return
 			if (!activeAccount?.signer) throw new Error('Sign in before posting to the Field session')
 			const signed = (await activeAccount.signer.signEvent(
-				fieldSessionMessageTemplate(selected.id, draftMessage),
+				fieldSessionMessageTemplate(selected.id, text, geometry),
 			)) as NostrEvent
 			if (!verifyEvent(signed)) throw new Error('The signer returned an invalid event')
-			if (selected.role === 'host') {
+			if (onPublishFieldSessionEvent) {
+				await onPublishFieldSessionEvent(signed)
+			} else if (selected.role === 'host') {
 				await service.ingestLocalEvent(signed)
 			} else {
 				if (selectedRemote?.status.state !== 'accepted') {
@@ -390,9 +468,14 @@ export function FieldSessionsPanel() {
 				await service.publishRemoteEvent(selected.hostNodeId, signed)
 			}
 			eventStore.add(signed)
-			setDraftMessage('')
-			await refreshRecords()
-		})
+			await onRefreshFieldSessionEvents?.()
+		} catch (error) {
+			toast.error(errorMessage(error))
+			throw error
+		} finally {
+			setOperation(null)
+		}
+	}
 
 	const stopSession = () =>
 		run('stop', async () => {
@@ -616,8 +699,27 @@ export function FieldSessionsPanel() {
 		status.descriptor.scope === 'local-network'
 	const remoteAccepted = selectedRemote?.status.state === 'accepted'
 	const sessionLive = selected.role === 'host' ? hostLive : Boolean(remoteAccepted)
-	const geometryEvents = allSessionEvents.filter((event) => event.kind !== 37_523)
 	const canContribute = selected.role === 'host' || selected.allowPeerWrites
+	const refreshWorkspace = async () => {
+		await Promise.all([refreshNode(), onRefreshFieldSessionEvents?.()])
+	}
+	const setAttachmentVisibility = (record: CommentGeometryRecord, visible: boolean) => {
+		const id = record.commentId ?? record.id ?? ''
+		if (!id) return
+		setVisibleAttachmentIds((current) => {
+			const next = new Set(current)
+			if (visible) next.add(id)
+			else next.delete(id)
+			return next
+		})
+		onCommentGeometryVisibility?.(record, visible)
+	}
+	const zoomToAttachment = (record: CommentGeometryRecord) => {
+		const bounds = computeCommentBbox(record.geojson)
+		if (!bounds) return
+		setAttachmentVisibility(record, true)
+		onZoomToBounds?.(bounds)
+	}
 
 	return (
 		<div className="space-y-4 p-2">
@@ -649,7 +751,7 @@ export function FieldSessionsPanel() {
 					<Button
 						variant="ghost"
 						size="icon-sm"
-						onClick={() => void refreshRecords()}
+						onClick={() => void refreshWorkspace()}
 						aria-label="Refresh Field session"
 					>
 						<RefreshCw />
@@ -725,55 +827,37 @@ export function FieldSessionsPanel() {
 								</p>
 							</div>
 						) : (
-							messages.map((message) =>
-								message ? (
-									<article key={message.event.id} className="py-3">
-										<div className="flex items-center gap-2">
-											<UserProfile
-												pubkey={message.event.pubkey}
-												mode="avatar-name"
-												size="xs"
-												interactive={false}
-												className="min-w-0 flex-1"
-											/>
-											<time className="font-mono text-[9px] text-muted-foreground">
-												{new Date(message.event.created_at * 1000).toLocaleTimeString([], {
-													hour: '2-digit',
-													minute: '2-digit',
-												})}
-											</time>
-										</div>
-										<p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">
-											{message.text}
-										</p>
-									</article>
-								) : null,
-							)
+							messages.map((message) => {
+								const record = messageGeometryRecord(message)
+								return (
+									<PrivateCommentItem
+										key={message.event.id}
+										comment={record}
+										geometryVisible={visibleAttachmentIds.has(message.event.id)}
+										onGeometryVisibilityChange={setAttachmentVisibility}
+										onZoomToGeometry={zoomToAttachment}
+										availableFeatures={availableFeatures}
+										onMentionVisibilityToggle={onMentionVisibilityToggle}
+										onMentionZoomTo={onMentionZoomTo}
+									/>
+								)
+							})
 						)}
 					</div>
-					{activeAccount && canContribute ? (
-						<div className="grid grid-cols-[1fr_auto] gap-2">
-							<Textarea
-								value={draftMessage}
-								onChange={(event) => setDraftMessage(event.target.value)}
-								placeholder="Message everyone in this Field session…"
-								rows={3}
-							/>
-							<Button
-								type="button"
-								className="h-auto w-11"
-								onClick={() => void sendMessage()}
-								disabled={!draftMessage.trim() || operation !== null || !sessionLive}
-								aria-label="Send field message"
-							>
-								{operation === 'send' ? <Loader2 className="animate-spin" /> : <Send />}
-							</Button>
-						</div>
+					{activeAccount && canContribute && sessionLive ? (
+						<GeoCommentForm
+							onSubmit={sendMessage}
+							placeholder="Comment in this Field session…"
+							availableFeatures={availableFeatures}
+							searchRelayMentions={false}
+						/>
 					) : (
 						<p className="border border-dashed border-border p-3 text-xs text-muted-foreground">
 							{!activeAccount
 								? 'Sign in to contribute. The nearby device grant and your Nostr authorship are separate.'
-								: 'This Field session is read-only for participant phones.'}
+								: !canContribute
+									? 'This Field session is read-only for participant phones.'
+									: 'Reconnect to the field host before posting.'}
 						</p>
 					)}
 				</TabsContent>
@@ -782,7 +866,9 @@ export function FieldSessionsPanel() {
 					<div className="grid grid-cols-2 gap-2">
 						<div className="border border-border p-3">
 							<Database className="mb-2 h-4 w-4 text-primary" />
-							<p className="text-lg font-semibold">{geometryEvents.length}</p>
+							<p className="text-lg font-semibold">
+								{datasets.length + messageGeometryRecords.length}
+							</p>
 							<p className="font-mono text-[9px] uppercase text-muted-foreground">Map records</p>
 						</div>
 						<div className="border border-border p-3">
@@ -791,10 +877,108 @@ export function FieldSessionsPanel() {
 							<p className="font-mono text-[9px] uppercase text-muted-foreground">Field notes</p>
 						</div>
 					</div>
-					<div className="border border-dashed border-border p-4 text-xs leading-relaxed text-muted-foreground">
-						Map entities tagged for this session will appear here and in the Map Stack. Chat
-						transport is active now; session-bound drawing is the next vertical slice.
+					<p className="text-[11px] leading-relaxed text-muted-foreground">
+						Nearby datasets and optional note attachments. Removing a dataset from the Map Stack
+						does not delete it from the Field session.
+					</p>
+					{datasets.length === 0 && messageGeometryRecords.length === 0 ? (
+						<div className="border-y border-border px-3 py-8 text-center">
+							<DatasetGlyphIcon className="mx-auto mb-2 h-7 w-7 text-muted-foreground" />
+							<p className="text-xs font-medium">No nearby geometry yet</p>
+							<p className="mt-1 text-[11px] text-muted-foreground">
+								Create a dataset or attach a drawing to a field note.
+							</p>
+						</div>
+					) : null}
+					<div className="border-t border-border">
+						{datasets.map((dataset) => {
+							const datasetKey =
+								datasetActions?.getDatasetKey(dataset) ?? dataset.datasetId ?? dataset.event.id
+							const title =
+								datasetActions?.getDatasetName(dataset) ?? dataset.datasetId ?? 'Nearby dataset'
+							const entryId = fieldDatasetStackEntryId(selected.id, datasetKey)
+							const isInMapStack = Boolean(mapStackEntries[entryId])
+							const showAndZoom = () => {
+								if (!datasetActions) return
+								if (!isInMapStack) datasetActions.onAddToMap(dataset)
+								datasetActions.onZoomTo(dataset)
+							}
+							return (
+								<ListRow
+									key={entryId}
+									leading={<GlyphTile icon={DatasetGlyphIcon} />}
+									title={title}
+									onTitleClick={datasetActions ? showAndZoom : undefined}
+									titleAriaLabel={`Show and zoom to ${title}`}
+									badges={
+										<RowBadge
+											label={`${dataset.featureCollection.features.length} feature${dataset.featureCollection.features.length === 1 ? '' : 's'}`}
+											className="bg-info/10 text-info"
+										/>
+									}
+									meta={
+										<UserProfile
+											pubkey={dataset.pubkey}
+											mode="avatar-name"
+											size="xs"
+											interactive={false}
+										/>
+									}
+									note="Signed nearby Field-session geometry"
+									actions={
+										datasetActions ? (
+											<>
+												<RowActionButton
+													icon={MapStackActionIcon}
+													label={isInMapStack ? 'Remove from map stack' : 'Add to map stack'}
+													active={isInMapStack}
+													onClick={() =>
+														isInMapStack
+															? datasetActions.onRemoveFromMap(dataset)
+															: datasetActions.onAddToMap(dataset)
+													}
+												/>
+												<RowActionButton
+													icon={ZoomActionIcon}
+													label="Zoom to dataset"
+													onClick={showAndZoom}
+												/>
+												<RowActionButton
+													icon={LoadEditorActionIcon}
+													label="Edit nearby dataset"
+													onClick={() => datasetActions.onLoadIntoEditor(dataset)}
+												/>
+											</>
+										) : undefined
+									}
+								/>
+							)
+						})}
 					</div>
+					{messageGeometryRecords.length > 0 ? (
+						<div className="space-y-0">
+							<div className="border-y border-border bg-muted/25 px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+								Field-note attachments
+							</div>
+							{messageGeometryRecords.map((record) => (
+								<PrivateCommentItem
+									key={record.commentId}
+									comment={record}
+									geometryVisible={visibleAttachmentIds.has(record.commentId ?? '')}
+									onGeometryVisibilityChange={setAttachmentVisibility}
+									onZoomToGeometry={zoomToAttachment}
+									availableFeatures={availableFeatures}
+								/>
+							))}
+						</div>
+					) : null}
+					<Button
+						className="w-full"
+						onClick={onStartNewDataset}
+						disabled={!onStartNewDataset || !activeAccount || !canContribute || !sessionLive}
+					>
+						<UploadCloud /> New nearby dataset
+					</Button>
 				</TabsContent>
 
 				<TabsContent value="people" className="mt-3 space-y-3">

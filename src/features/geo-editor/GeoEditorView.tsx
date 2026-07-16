@@ -1,4 +1,5 @@
 import { useActiveAccount } from 'applesauce-react/hooks'
+import { castEvent } from 'applesauce-core/casts'
 import {
 	BookOpen,
 	Database,
@@ -27,7 +28,7 @@ import {
 	Undo2,
 	Waypoints,
 } from 'lucide-react'
-import type { Geometry } from 'geojson'
+import type { FeatureCollection, Geometry } from 'geojson'
 import type maplibregl from 'maplibre-gl'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -58,7 +59,7 @@ import { useBeacons } from '@/lib/hooks/useBeacons'
 import { RunningBeaconBanner } from '@/components/RunningBeaconBanner'
 import type { LiveBeacon } from '@/lib/nostr/live-beacon'
 import { formatExpiryCountdown } from '@/lib/nostr/temporal-sighting'
-import { nip19 } from 'nostr-tools'
+import { nip19, type NostrEvent } from 'nostr-tools'
 import type { Article } from '@/lib/nostr/article'
 import { ARTICLE_KIND, LIVE_BEACON_KIND } from '@/lib/nostr/kinds'
 import { isExpired } from '@/lib/nostr/expiry'
@@ -66,9 +67,9 @@ import { unixNow } from 'applesauce-core/helpers/time'
 import { deleteStory } from '@/lib/nostr/story'
 import { deleteSighting, type TemporalSighting } from '@/lib/nostr/temporal-sighting'
 import { bboxFromGeometry } from '@/lib/geo/bbox'
-import type { GeoDataset } from '@/lib/nostr/geo-event'
+import { GeoDataset } from '@/lib/nostr/geo-event'
 import { type MapContext, deleteMapContext } from '@/lib/nostr/map-context'
-import { accounts } from '@/lib/nostr'
+import { accounts, eventStore } from '@/lib/nostr'
 import {
 	privateWorkspaceIdForDataset,
 	projectPrivateWorkspaceDatasets,
@@ -76,6 +77,16 @@ import {
 import { usePrivateWorkspaceRuntime } from '@/features/private-maps/usePrivateWorkspaceRuntime'
 import { normalizePairingInvitation } from '@/features/offline/pairingQr'
 import { useFieldSessions } from '@/features/field-sessions/model'
+import {
+	fieldSessionDatasetFactory,
+	fieldSessionIdForEvent,
+	latestFieldSessionDatasetEvents,
+} from '@/features/field-sessions/events'
+import { useFieldSessionTransport } from '@/features/field-sessions/useFieldSessionTransport'
+import {
+	fieldDatasetStackEntryId,
+	planFieldDatasetStackReconciliation,
+} from '@/features/field-sessions/fieldDatasetStack'
 import {
 	consumePendingNativeDeepLink,
 	getPendingNativeDeepLink,
@@ -414,6 +425,7 @@ export function GeoEditorView() {
 		}
 		return ids
 	}, [privateWorkspaceAccount?.pubkey])
+	const dismissedFieldDatasetIdsRef = useRef(new Set<string>())
 	const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta)
 	const hydrateEditorSessionForPubkey = useEditorStore(
 		(state) => state.hydrateEditorSessionForPubkey,
@@ -463,6 +475,17 @@ export function GeoEditorView() {
 		() => fieldSessions.find((session) => session.id === fieldSessionId),
 		[fieldSessionId, fieldSessions],
 	)
+	const datasetPublishMode = privateGroupId ? 'private' : fieldSessionId ? 'field' : 'public'
+	const fieldTransport = useFieldSessionTransport(fieldSession)
+	const fieldGeoEvents = useMemo(
+		() =>
+			fieldSessionId
+				? latestFieldSessionDatasetEvents(fieldTransport.events, fieldSessionId).map((event) =>
+						castEvent(event, GeoDataset, eventStore),
+					)
+				: [],
+		[fieldSessionId, fieldTransport.events],
+	)
 	const privateWorkspace = useMemo(
 		() =>
 			privateGroupId
@@ -478,8 +501,8 @@ export function GeoEditorView() {
 		[privateWorkspace],
 	)
 	const mapGeoEvents = useMemo(
-		() => (privateGeoEvents.length > 0 ? [...geoEvents, ...privateGeoEvents] : geoEvents),
-		[geoEvents, privateGeoEvents],
+		() => [...geoEvents, ...privateGeoEvents, ...fieldGeoEvents],
+		[geoEvents, privateGeoEvents, fieldGeoEvents],
 	)
 	useEffect(() => {
 		if (!privateWorkspaceRuntime || !privateGroupId || !privateWorkspaceId) return
@@ -860,6 +883,67 @@ export function GeoEditorView() {
 		dismissedPrivateDatasetIds,
 	])
 
+	const addFieldDatasetToMapStack = useCallback(
+		(event: GeoDataset) => {
+			if (!fieldSessionId) return
+			const datasetKey = getDatasetKey(event)
+			const id = fieldDatasetStackEntryId(fieldSessionId, datasetKey)
+			dismissedFieldDatasetIdsRef.current.delete(id)
+			const existing = useEditorStore.getState().mapStackEntries[id]
+			addMapStackEntry({
+				id,
+				entityType: 'dataset',
+				entityKey: datasetKey,
+				title: getDatasetName(event),
+				source: 'field-session',
+				visible: existing?.visible ?? true,
+				pinned: existing?.pinned ?? false,
+				isolated: existing?.isolated,
+				exclusions: existing?.exclusions,
+			})
+		},
+		[fieldSessionId, getDatasetKey, getDatasetName, addMapStackEntry],
+	)
+
+	// Nearby datasets follow the same non-resurrection contract as private
+	// geometry: new records appear once, while an explicit Map Stack removal is
+	// remembered until the user adds the dataset again from the Field session.
+	useEffect(() => {
+		const stack = useEditorStore.getState()
+		const plan = planFieldDatasetStackReconciliation({
+			sessionId: fieldSessionId,
+			datasets: fieldGeoEvents.map((dataset) => ({
+				datasetKey: getDatasetKey(dataset),
+				title: getDatasetName(dataset),
+			})),
+			entries: stack.mapStackEntries,
+			order: stack.mapStackOrder,
+			dismissedIds: dismissedFieldDatasetIdsRef.current,
+		})
+
+		for (const id of plan.remove) removeMapStackEntry(id)
+		for (const item of plan.upsert) {
+			addMapStackEntry({
+				id: item.id,
+				entityType: 'dataset',
+				entityKey: item.datasetKey,
+				title: item.title,
+				source: 'field-session',
+				visible: item.existing?.visible ?? true,
+				pinned: item.existing?.pinned ?? false,
+				isolated: item.existing?.isolated,
+				exclusions: item.existing?.exclusions,
+			})
+		}
+	}, [
+		fieldSessionId,
+		fieldGeoEvents,
+		getDatasetKey,
+		getDatasetName,
+		addMapStackEntry,
+		removeMapStackEntry,
+	])
+
 	// Phase 13 (SPEC §3.4): put an individual Sighting on the Map Stack, mirroring
 	// addDatasetToMapStack. entityKey = naddr (dTag/id fallback) — the SAME key the
 	// stack-derived selector resolves under. A deep link (`source: 'route'`) lands
@@ -960,6 +1044,9 @@ export function GeoEditorView() {
 			if (entry.source === 'private-group') {
 				dismissedPrivateDatasetIds().add(entry.id)
 			}
+			if (entry.source === 'field-session') {
+				dismissedFieldDatasetIdsRef.current.add(entry.id)
+			}
 			removeMapStackEntry(entry.id)
 		},
 		[removeMapStackEntry, tearDownEditSession, dismissedPrivateDatasetIds],
@@ -974,6 +1061,16 @@ export function GeoEditorView() {
 			if (entry) removeFromMapStack(entry)
 		},
 		[privateGroupId, getDatasetKey, removeFromMapStack],
+	)
+
+	const removeFieldDatasetFromMapStack = useCallback(
+		(event: GeoDataset) => {
+			if (!fieldSessionId) return
+			const id = fieldDatasetStackEntryId(fieldSessionId, getDatasetKey(event))
+			const entry = useEditorStore.getState().mapStackEntries[id]
+			if (entry) removeFromMapStack(entry)
+		},
+		[fieldSessionId, getDatasetKey, removeFromMapStack],
 	)
 
 	/**
@@ -1264,6 +1361,36 @@ export function GeoEditorView() {
 		},
 		[privateWorkspaceRuntime, privateGroupId],
 	)
+	const publishFieldDataset = useCallback(
+		async (
+			collection: FeatureCollection,
+			options?: { datasetId?: string; name?: string; previous?: GeoDataset },
+		) => {
+			if (!fieldSession || !fieldSessionId) {
+				throw new Error('The Field session is not available on this device')
+			}
+			if (fieldSession.role === 'participant' && !fieldSession.allowPeerWrites) {
+				throw new Error('This Field session is read-only on participant phones')
+			}
+			const signer = accounts.signer
+			if (!signer) throw new Error('Sign in before saving nearby geometry')
+
+			let factory = fieldSessionDatasetFactory(collection, fieldSessionId, options?.previous)
+			if (options?.datasetId && !options.previous) {
+				factory = factory.modifyPublicTags((tags) => [
+					...tags.filter((tag) => tag[0] !== 'd'),
+					['d', options.datasetId as string],
+				])
+			}
+			const signed = (await factory.sign(signer)) as NostrEvent
+			if (fieldSessionIdForEvent(signed) !== fieldSessionId) {
+				throw new Error('The nearby dataset lost its Field-session scope before signing')
+			}
+			await fieldTransport.publishEvent(signed)
+			return castEvent(signed, GeoDataset, eventStore)
+		},
+		[fieldSession, fieldSessionId, fieldTransport.publishEvent],
+	)
 	const navigateToEntityFocus = useCallback(
 		(
 			focusType: 'geoevent' | 'mapcontext',
@@ -1272,10 +1399,10 @@ export function GeoEditorView() {
 		) => {
 			// Projected private datasets have no public naddr route. Keep inspection
 			// inside /privategroup/:id so opening a map row cannot drop the MLS scope.
-			if (privateGroupId && focusType === 'geoevent') return
+			if ((privateGroupId || fieldSessionId) && focusType === 'geoevent') return
 			navigateTo(focusType, naddr, sidebarView)
 		},
-		[privateGroupId, navigateTo],
+		[privateGroupId, fieldSessionId, navigateTo],
 	)
 
 	const {
@@ -1300,6 +1427,8 @@ export function GeoEditorView() {
 		encodeGeoEventNaddr,
 		privateWorkspaceId: privateGroupId,
 		publishPrivateDataset: privateGroupId ? publishPrivateDataset : undefined,
+		fieldSessionId,
+		publishFieldDataset: fieldSessionId ? publishFieldDataset : undefined,
 	})
 
 	/**
@@ -3044,6 +3173,14 @@ export function GeoEditorView() {
 		onZoomTo: zoomToDataset,
 		onLoadIntoEditor: handleDatasetSelect,
 	}
+	const fieldDatasetActions = {
+		getDatasetKey,
+		getDatasetName,
+		onAddToMap: addFieldDatasetToMapStack,
+		onRemoveFromMap: removeFieldDatasetFromMapStack,
+		onZoomTo: zoomToDataset,
+		onLoadIntoEditor: handleDatasetSelect,
+	}
 
 	// Entity editors are mutually exclusive: close any OTHER open editor before
 	// starting a new one so a lingering editor (e.g. an unfinished Story) can't leak
@@ -3076,6 +3213,10 @@ export function GeoEditorView() {
 					onLoadDataset={handleDatasetSelect}
 					onStartNewDataset={startNewDataset}
 					privateDatasetActions={privateDatasetActions}
+					fieldDatasetActions={fieldDatasetActions}
+					fieldSessionEvents={fieldTransport.events}
+					onPublishFieldSessionEvent={fieldTransport.publishEvent}
+					onRefreshFieldSessionEvents={fieldTransport.refresh}
 					onSwitchWorkspace={switchToWorkspace}
 					onDeleteWorkspace={deleteWorkspace}
 					onAddDraftToWorkspace={createDraftInWorkspace}
@@ -3389,7 +3530,7 @@ export function GeoEditorView() {
 							canPublishCopy,
 							onProposeEdit: handleProposeEdit,
 							canProposeEdit,
-							privateMode: Boolean(privateGroupId),
+							publishMode: datasetPublishMode,
 							isPublishing,
 						}}
 						isMobile={isMobile}
@@ -3450,6 +3591,10 @@ export function GeoEditorView() {
 					onLoadDataset={loadDatasetForEditing}
 					onStartNewDataset={startNewDataset}
 					privateDatasetActions={privateDatasetActions}
+					fieldDatasetActions={fieldDatasetActions}
+					fieldSessionEvents={fieldTransport.events}
+					onPublishFieldSessionEvent={fieldTransport.publishEvent}
+					onRefreshFieldSessionEvents={fieldTransport.refresh}
 					onSwitchWorkspace={switchToWorkspace}
 					onDeleteWorkspace={deleteWorkspace}
 					onToggleVisibility={handleToggleVisibilityWithExitFocus}
@@ -3619,7 +3764,7 @@ export function GeoEditorView() {
 						onProposeEdit={handleProposeEdit}
 						canProposeEdit={canProposeEdit}
 						isPublishing={isPublishing}
-						privateMode={Boolean(privateGroupId)}
+						publishMode={datasetPublishMode}
 						onOsmClick={handleOsmQueryClick}
 						onOsmView={handleOsmQueryView}
 						onOsmAdvanced={() => setImportOsmDialogOpen(true)}
@@ -3641,7 +3786,7 @@ export function GeoEditorView() {
 						onClick={handlePublishNew}
 						disabled={!canPublishNew}
 					>
-						{privateGroupId ? 'Save' : 'Publish'}
+						{datasetPublishMode === 'public' ? 'Publish' : 'Save'}
 					</Button>
 				</div>
 			)}
