@@ -49,7 +49,9 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 
 ## Public release gate
 
-- [ ] Final application id, product name, icons, versionCode/versionName policy, and store listing.
+- [x] Final application id (`city.earthly`), product name, adaptive icons, and release version policy:
+      user-visible `0.0.1`, Android `versionCode` 1001, monotonically increasing thereafter.
+- [ ] Zapstore listing copy, screenshots, feature graphic, category, and support links.
 - [ ] Protected release keystore and CI-based AAB signing; no signing material in the repository.
 - [ ] Verified `https://earthly.city` Android App Links and deployed `assetlinks.json` for the
       final release-signing certificate.
