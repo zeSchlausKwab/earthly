@@ -5,7 +5,7 @@
   "identifier": "city.earthly",
   "build": {
     "beforeDevCommand": "bun run tauri:frontend",
-    "beforeBuildCommand": "bun run build",
+    "beforeBuildCommand": "bun run build:production",
     "devUrl": "http://localhost:3000",
     "frontendDist": "../dist"
   },
