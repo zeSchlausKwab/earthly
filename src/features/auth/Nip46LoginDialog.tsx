@@ -1,9 +1,10 @@
 import { NostrConnectAccount } from 'applesauce-accounts/accounts'
 import { NostrConnectSigner, PrivateKeySigner } from 'applesauce-signers'
 import { Scanner } from '@yudiel/react-qr-scanner'
-import { Loader2, QrCode } from 'lucide-react'
+import { ExternalLink, Loader2, QrCode } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -24,6 +25,7 @@ import {
 	SelectValue,
 } from '@/components/ui/select'
 import { allowRelays, loginWithAccount } from '@/lib/nostr'
+import { openExternalProtocol } from '@/platform/externalProtocol'
 
 interface Nip46LoginDialogProps {
 	trigger: React.ReactNode
@@ -213,6 +215,16 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 		setScanError(`Error accessing camera: ${err instanceof Error ? err.message : 'Unknown error'}`)
 	}, [])
 
+	const handleOpenSigner = async () => {
+		if (!connectionUri) return
+		try {
+			await openExternalProtocol(connectionUri)
+		} catch (err) {
+			console.error('Unable to open remote signer', err)
+			toast.error('No compatible signer app could open this request')
+		}
+	}
+
 	useEffect(() => () => cleanup(), [cleanup])
 
 	return (
@@ -305,11 +317,11 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 										Scan this QR code with your remote signer app (e.g., Amber)
 									</div>
 
-									<a
-										href={connectionUri}
-										className="block hover:opacity-90 transition-opacity bg-card p-4 rounded-lg"
-										target="_blank"
-										rel="noopener noreferrer"
+									<button
+										type="button"
+										onClick={() => void handleOpenSigner()}
+										className="mx-auto flex max-w-full flex-col items-center gap-2 rounded-lg bg-card p-4 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+										aria-label="Open connection request in a remote signer app"
 									>
 										<QRCodeSVG
 											value={connectionUri}
@@ -317,8 +329,12 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 											bgColor="#ffffff"
 											fgColor="#000000"
 											level="L"
+											className="h-auto max-w-full"
 										/>
-									</a>
+										<span className="flex items-center gap-1 text-xs font-medium text-foreground">
+											<ExternalLink className="h-3.5 w-3.5" /> Open signer app
+										</span>
+									</button>
 
 									{state === 'waiting' && (
 										<div className="flex items-center justify-center gap-2">

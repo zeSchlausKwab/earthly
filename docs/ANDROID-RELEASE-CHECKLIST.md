@@ -1,6 +1,6 @@
 # Earthly Android release checklist
 
-Status date: 2026-07-15
+Status date: 2026-07-16
 
 Current version: `0.1.0`
 
@@ -30,12 +30,15 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 - [ ] Physical Android process-death UAT for offline create/edit and later authenticated delivery.
 - [ ] Suspend/resume and low-storage recovery tests on supported Android versions.
 - [x] Timed, user-visible foreground service for background local-node availability.
+- [ ] Physical-device interop for NIP-46 signer and Lightning-wallet intents.
 - [ ] Redacted diagnostics export suitable for alpha support.
 
 ## Public release gate
 
 - [ ] Final application id, product name, icons, versionCode/versionName policy, and store listing.
 - [ ] Protected release keystore and CI-based AAB signing; no signing material in the repository.
+- [ ] Verified `https://earthly.city` Android App Links and deployed `assetlinks.json` for the
+      final release-signing certificate.
 - [ ] Release AAB build, install, upgrade, data-retention, and uninstall tests.
 - [ ] Automated Rust, browser, Android build, and physical-device smoke gates.
 - [ ] Storage migrations and upgrade fixtures for every shipped Android schema.

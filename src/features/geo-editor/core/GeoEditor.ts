@@ -941,6 +941,24 @@ export class GeoEditor {
 		const previousMode = this.mode
 		this.mode = mode
 
+		if (previousMode !== mode && this.isDrawMode(previousMode)) {
+			switch (previousMode) {
+				case 'draw_point':
+					this.drawPointMode.reset()
+					break
+				case 'draw_linestring':
+					this.drawLineMode.reset()
+					break
+				case 'draw_polygon':
+					this.drawPolygonMode.reset()
+					break
+				case 'draw_annotation':
+					this.drawAnnotationMode.reset()
+					break
+			}
+			this.emitDrawChange()
+		}
+
 		if (previousMode === 'edit' && mode !== 'edit') {
 			this.editMode.reset()
 			this.renderVertices()

@@ -3579,6 +3579,7 @@ export function GeoEditorView() {
 						onExportSHP={exportSHP}
 						onImport={handleImport}
 						onClear={handleClear}
+						onCancelEditing={tearDownEditSession}
 						canExport={stats.total > 0}
 						canClear={stats.total > 0}
 						onPublishUpdate={handlePublishUpdate}

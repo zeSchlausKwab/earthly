@@ -70,6 +70,7 @@
     "@tanstack/react-table": "^8.21.3",
     "@tauri-apps/api": "2.11.1",
     "@tauri-apps/plugin-deep-link": "2.4.9",
+    "@tauri-apps/plugin-opener": "2.5.4",
     "@tauri-apps/plugin-os": "2.3.2",
     "@tiptap/extension-image": "^3.27.1",
     "@tiptap/extension-link": "^3.27.1",

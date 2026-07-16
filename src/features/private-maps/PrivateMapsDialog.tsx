@@ -7,6 +7,7 @@ import {
 	LockKeyhole,
 	MessageSquareText,
 	Plus,
+	QrCode,
 	RefreshCw,
 	Settings2,
 	ShieldCheck,
@@ -18,6 +19,7 @@ import {
 } from 'lucide-react'
 import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { FeatureCollection } from 'geojson'
+import { QRCodeSVG } from 'qrcode.react'
 import { toast } from 'sonner'
 import {
 	EmbeddedListPanelContext,
@@ -33,6 +35,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { config } from '@/config'
+import { isTauri } from '@/config/platform'
 import {
 	PRIVATE_WORKSPACE_CHAT_KIND,
 	projectPrivateWorkspaceComments,
@@ -99,6 +102,10 @@ export function PrivateGroupsPanel({
 	const [name, setName] = useState('')
 	const [description, setDescription] = useState('')
 	const [basemap, setBasemap] = useState('Local PMTiles when available')
+	const [inviteLinkState, setInviteLinkState] = useState<{
+		workspaceId: string
+		url: string
+	} | null>(null)
 	const [visibleCommentState, setVisibleCommentState] = useState<{
 		workspaceId?: string
 		ids: Set<string>
@@ -155,6 +162,10 @@ export function PrivateGroupsPanel({
 	const administrators = selected && service ? service.administrators(selected) : []
 	const pendingForRoute = Boolean(privateGroupId && pendingWorkspaceIds.has(privateGroupId))
 	const selectedSyncState = selected ? snapshot.syncByWorkspace[selected.workspaceId] : undefined
+	const inviteLink =
+		inviteLinkState && inviteLinkState.workspaceId === selected?.workspaceId
+			? inviteLinkState.url
+			: undefined
 	const visibleCommentIds =
 		visibleCommentState.workspaceId === privateGroupId ? visibleCommentState.ids : new Set<string>()
 
@@ -218,19 +229,42 @@ export function PrivateGroupsPanel({
 			toast.success('Private group created locally')
 		})
 
+	const createInviteLink = async () => {
+		if (!runtime || !service || !selected)
+			throw new Error('Open a private group as an administrator first')
+		const token = await runtime.perform((workspaceService) =>
+			workspaceService.createInvitation(selected.workspaceId),
+		)
+		// Native WebViews have an internal origin that is meaningless on another
+		// phone. Share the public HTTPS route so the link works in a browser today
+		// and becomes an Android App Link once release signing is configured.
+		const url = new URL(isTauri() ? 'https://earthly.city' : location.href)
+		url.pathname = `/privategroup/${encodeURIComponent(selected.workspaceId)}`
+		url.search = ''
+		url.hash = ''
+		url.searchParams.set('private-invite', token)
+		const value = url.toString()
+		setInviteLinkState({ workspaceId: selected.workspaceId, url: value })
+		return value
+	}
+
 	const handleCopyInvite = () =>
 		run('create invitation', async () => {
-			if (!runtime || !service || !selected) return
-			const token = await runtime.perform((workspaceService) =>
-				workspaceService.createInvitation(selected.workspaceId),
-			)
-			const url = new URL(location.href)
-			url.pathname = `/privategroup/${encodeURIComponent(selected.workspaceId)}`
-			url.search = ''
-			url.hash = ''
-			url.searchParams.set('private-invite', token)
-			await navigator.clipboard.writeText(url.toString())
+			const value = await createInviteLink()
+			await navigator.clipboard.writeText(value)
 			toast.success('Signed 24-hour private-group invitation copied')
+		})
+
+	const handleShowInviteQr = () =>
+		run('create invitation', async () => {
+			await createInviteLink()
+		})
+
+	const handleCopyShownInvite = () =>
+		run('copy invitation', async () => {
+			if (!inviteLink) throw new Error('Create an invitation QR first')
+			await navigator.clipboard.writeText(inviteLink)
+			toast.success('Private-group invitation copied')
 		})
 
 	const handleRequestJoin = () =>
@@ -565,11 +599,40 @@ export function PrivateGroupsPanel({
 												<Copy /> Copy invite
 											</Button>
 										) : null}
+										{selected.role === 'administrator' ? (
+											<Button
+												className="col-span-2"
+												variant="outline"
+												size="sm"
+												onClick={handleShowInviteQr}
+												disabled={Boolean(busy)}
+											>
+												<QrCode /> Create invite QR
+											</Button>
+										) : null}
 									</div>
 									{selected.role === 'administrator' ? (
 										<p className="text-[10px] leading-relaxed text-muted-foreground">
 											New invitation links are administrator-signed and expire after 24 hours.
 										</p>
+									) : null}
+									{inviteLink ? (
+										<div className="space-y-2 rounded-[2px] border border-border bg-muted/25 p-3 text-center">
+											<div className="mx-auto w-fit max-w-full rounded-[2px] bg-white p-2">
+												<QRCodeSVG value={inviteLink} size={208} className="h-auto max-w-full" />
+											</div>
+											<p className="text-[10px] leading-relaxed text-muted-foreground">
+												Scan on the invited device. The signed link expires after 24 hours.
+											</p>
+											<Button
+												variant="outline"
+												size="sm"
+												onClick={handleCopyShownInvite}
+												disabled={Boolean(busy)}
+											>
+												<Copy /> Copy this invitation
+											</Button>
+										</div>
 									) : null}
 
 									<div className="grid grid-cols-2 gap-px overflow-hidden rounded-[2px] border border-border bg-border font-mono text-[9.5px]">

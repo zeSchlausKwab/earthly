@@ -34,6 +34,7 @@ pub fn run() {
     let app = builder
         .plugin(android_lifecycle::init())
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_os::init())
         .manage(LocalNodeState::starting())
         .register_asynchronous_uri_scheme_protocol("earthly-blob", local_node::local_blob_protocol)

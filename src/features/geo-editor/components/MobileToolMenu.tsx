@@ -24,6 +24,7 @@ import {
 	Trash2,
 	Type,
 	Upload,
+	XCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -63,6 +64,8 @@ export interface MobileToolMenuProps {
 	onExportSHP?: () => void
 	onImport?: (file: File) => void
 	onClear: () => void
+	/** Leave the dataset editor while keeping its persisted workspace draft. */
+	onCancelEditing?: () => void
 	canExport: boolean
 	canClear: boolean
 	onPublishUpdate?: () => void
@@ -88,6 +91,7 @@ export function MobileToolMenu({
 	onExportSHP,
 	onImport,
 	onClear,
+	onCancelEditing,
 	canExport,
 	canClear,
 	onPublishUpdate,
@@ -133,6 +137,7 @@ export function MobileToolMenu({
 	const canDissolve = canExecuteEditorCommand('dissolve_selected_lines')
 	const canSimplify = canExecuteEditorCommand('simplify_selected_features')
 	const canBoolean = canExecuteEditorCommand('start_boolean_union')
+	const isDrawing = mode.startsWith('draw_')
 
 	return (
 		<DropdownMenu>
@@ -148,6 +153,16 @@ export function MobileToolMenu({
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent side="top" align="end" className="max-h-[70vh] w-60 overflow-y-auto">
+				{mode !== 'select' ? (
+					<>
+						<DropdownMenuLabel>Active mode</DropdownMenuLabel>
+						<DropdownMenuItem onSelect={() => setMode('select')}>
+							<XCircle className="h-4 w-4" />
+							{isDrawing ? 'Cancel drawing' : 'Return to select'}
+						</DropdownMenuItem>
+						<DropdownMenuSeparator />
+					</>
+				) : null}
 				<DropdownMenuLabel>History</DropdownMenuLabel>
 				<DropdownMenuGroup>
 					<DropdownMenuItem disabled={!canUndo} onSelect={() => executeEditorCommand('undo')}>
@@ -355,6 +370,12 @@ export function MobileToolMenu({
 					<Trash2 className="h-4 w-4" />
 					Clear draft
 				</DropdownMenuItem>
+				{onCancelEditing ? (
+					<DropdownMenuItem variant="destructive" onSelect={onCancelEditing}>
+						<XCircle className="h-4 w-4" />
+						Exit editing
+					</DropdownMenuItem>
+				) : null}
 			</DropdownMenuContent>
 			{onImport ? (
 				<Input
