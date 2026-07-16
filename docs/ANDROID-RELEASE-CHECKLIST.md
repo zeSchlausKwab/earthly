@@ -42,6 +42,7 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 - [ ] Physical Android process-death UAT for the native delivery ledger.
 - [ ] Suspend/resume and low-storage recovery tests on supported Android versions.
 - [x] Timed, user-visible foreground service for background local-node availability.
+- [x] Nearby polling pauses while hidden and refreshes immediately on foreground/network return.
 - [ ] Physical-device interop for NIP-46 signer and Lightning-wallet intents.
 - [x] Redacted diagnostics export suitable for alpha support, using the Android share sheet and a
       copy/download fallback without identities, endpoints, content, hashes, or map locations.
@@ -73,8 +74,9 @@ explicitly shelved for `0.0.1`. The native outbox machinery remains, but it is n
 as the Field-session model. Field-session map authoring is explicitly nearby-only; deliberate
 promotion to public Nostr will be planned after the first release.
 
-Physical lifecycle evidence currently covers Android 10/API 29. Notification-permission denial and
-foreground-service restrictions still need matrix coverage on Android 13–16 before public release.
+Physical lifecycle evidence covers Android 10/API 29 and a radio-disabled force-stop/relaunch on
+Android 16/API 36. Active foreground-service resume, notification-permission denial, and storage-
+pressure behavior still need representative matrix coverage before public release.
 
 Work that is intentionally not on this release path: iOS initialization and signing, Windows/Linux
 build closure, desktop installers/updaters, and native platform-protected MLS key storage.

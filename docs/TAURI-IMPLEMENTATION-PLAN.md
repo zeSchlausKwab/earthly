@@ -896,6 +896,12 @@ session transfers data to paired devices over a local network. It is timed, begi
 explicit foreground user action, never auto-starts at boot, and requests notification permission
 before exposing LAN listeners. Ordinary map use does not start the service.
 
+Nearby status and reconciliation polling now runs only while the app is visible. Returning to the
+foreground or regaining network connectivity triggers an immediate refresh, avoiding both hidden
+three-second wakeups and a stale waiting-for-approval screen after Android resumes the WebView.
+Physical radio-disabled force-stop/relaunch startup passes on Android 16/API 36; active foreground-
+service resume and storage-pressure interruption still require matrix evidence.
+
 Exit criteria:
 
 - the hiking workflow passes on the supported physical Android versions;

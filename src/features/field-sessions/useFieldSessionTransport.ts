@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { verifyEvent, type NostrEvent } from 'nostr-tools'
+import { useForegroundPolling } from '@/hooks/useForegroundPolling'
 import { eventStore } from '@/lib/nostr'
 import { getLocalNodeService } from '@/platform/registry'
 import type { LocalNodeService, RemoteNodeRecord } from '@/platform/contracts'
@@ -35,7 +36,7 @@ async function acceptedRemote(
 export function useFieldSessionTransport(session?: FieldSessionRecord) {
 	const [events, setEvents] = useState<NostrEvent[]>([])
 	const refreshInFlight = useRef(false)
-	const visibleSessionId = useRef<string>()
+	const visibleSessionId = useRef<string | undefined>(undefined)
 	const activeSessionId = useRef(session?.id)
 	activeSessionId.current = session?.id
 	const sessionId = session?.id
@@ -106,11 +107,9 @@ export function useFieldSessionTransport(session?: FieldSessionRecord) {
 			visibleSessionId.current = transition.sessionId
 			return transition.events
 		})
-		if (!sessionId) return
-		void refresh()
-		const timer = window.setInterval(() => void refresh(), POLL_INTERVAL_MS)
-		return () => window.clearInterval(timer)
-	}, [refresh, sessionId])
+	}, [sessionId])
+
+	useForegroundPolling(refresh, POLL_INTERVAL_MS, Boolean(sessionId))
 
 	return { events, publishEvent, refresh }
 }

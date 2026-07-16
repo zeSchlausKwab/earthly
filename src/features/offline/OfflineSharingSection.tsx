@@ -49,6 +49,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { eventStore } from '@/lib/nostr'
 import { inspectPmtiles } from '@/lib/localPmtiles'
 import { useEditorStore } from '@/features/geo-editor/store'
+import { useForegroundPolling } from '@/hooks/useForegroundPolling'
 import {
 	consumePendingNativeDeepLink,
 	getLocalNodeService,
@@ -216,18 +217,15 @@ export function OfflineSharingSection() {
 	}, [service])
 
 	useEffect(() => {
-		if (!service) return
-		void refresh()
-		if (!service.supported) return
-		const refreshTimer = window.setInterval(() => void refresh(), 3_000)
-		return () => window.clearInterval(refreshTimer)
+		if (service) void refresh()
 	}, [refresh, service])
 
-	useEffect(() => {
-		if (!invitation && !(status.state === 'running' && status.lanExpiresAt)) return
-		const timer = window.setInterval(() => setNowSeconds(Math.floor(Date.now() / 1000)), 1_000)
-		return () => window.clearInterval(timer)
-	}, [invitation, status])
+	useForegroundPolling(refresh, 3_000, Boolean(service?.supported))
+	useForegroundPolling(
+		() => setNowSeconds(Math.floor(Date.now() / 1000)),
+		1_000,
+		Boolean(invitation || (status.state === 'running' && status.lanExpiresAt)),
+	)
 
 	const remainingSeconds = useMemo(
 		() => (invitation ? Math.max(0, invitation.expiresAt - nowSeconds) : 0),

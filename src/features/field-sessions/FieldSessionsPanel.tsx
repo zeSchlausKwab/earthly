@@ -63,6 +63,7 @@ import { useEditorStore } from '@/features/geo-editor/store'
 import type { CommentGeometryRecord } from '@/features/geo-editor/hooks/useCommentGeometry'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { GeoCommentForm } from '@/features/social/comments/GeoCommentForm'
+import { useForegroundPolling } from '@/hooks/useForegroundPolling'
 import { PrivateCommentItem } from '@/features/private-maps/PrivateCommentItem'
 import { computeCommentBbox } from '@/lib/nostr/geo-comment'
 import { GeoDataset } from '@/lib/nostr/geo-event'
@@ -337,12 +338,10 @@ export function FieldSessionsPanel({
 	}, [service])
 
 	useEffect(() => {
-		if (!service) return
-		void refreshNode()
-		if (!service.supported) return
-		const timer = window.setInterval(() => void refreshNode(), POLL_INTERVAL_MS)
-		return () => window.clearInterval(timer)
+		if (service) void refreshNode()
 	}, [refreshNode, service])
+
+	useForegroundPolling(refreshNode, POLL_INTERVAL_MS, Boolean(service?.supported))
 
 	const run = async (key: string, action: () => Promise<void>) => {
 		setOperation(key)
