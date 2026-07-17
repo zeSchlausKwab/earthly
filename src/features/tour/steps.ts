@@ -1,4 +1,9 @@
 import type { DriveStep } from 'driver.js'
+import { isTauri } from '@/config/platform'
+
+const desktopExistingKeyHelp = isTauri()
+	? 'Import your <code style="font-size:.8em;background:rgba(0,0,0,.08);padding:1px 4px;border-radius:3px">nsec</code>'
+	: 'Import your <code style="font-size:.8em;background:rgba(0,0,0,.08);padding:1px 4px;border-radius:3px">nsec</code> or use a browser extension (NIP-07)'
 
 function mediaBlock(opts: { screenshot?: string; video?: string; alt?: string }): string {
 	if (opts.video) {
@@ -84,7 +89,7 @@ export const desktopTourSteps: DriveStep[] = [
 				</p>
 				<ul style="margin:0 0 8px;padding-left:1.2em;line-height:1.8">
 					<li>🆕 <strong>New user?</strong> Use the guided wizard to generate a key and save a printable backup PDF</li>
-					<li>🗝️ <strong>Have a Nostr key?</strong> Import your <code style="font-size:.8em;background:rgba(0,0,0,.08);padding:1px 4px;border-radius:3px">nsec</code> or use a browser extension (NIP-07)</li>
+					<li>🗝️ <strong>Have a Nostr key?</strong> ${desktopExistingKeyHelp}</li>
 					<li>⚡ <strong>Advanced:</strong> Connect via NIP-46 remote signing from another device</li>
 				</ul>
 				<p style="margin:0;font-size:.85em;opacity:.7">
@@ -430,7 +435,7 @@ export const mobileTourSteps: DriveStep[] = [
 				<p style="margin:0 0 8px">
 					Earthly uses <strong>Nostr</strong> for identity — a key pair you control,
 					no email or password. Tap <strong>You</strong> to sign in: create a new key,
-					import one, use a browser extension, or connect a remote signer.
+					import one, or connect a remote signer.
 				</p>
 				<p style="margin:0;font-size:.85em;opacity:.7">
 					Your key never leaves your device unencrypted. You are your own account.

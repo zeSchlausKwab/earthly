@@ -20,7 +20,6 @@ import {
 	PanelTopOpen,
 	Plus,
 	Radio,
-	RadioTower,
 	Redo2,
 	Search,
 	Spline,
@@ -33,6 +32,7 @@ import type maplibregl from 'maplibre-gl'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { AppSidebar } from '@/components/AppSidebar'
+import type { LocalDraftDestinationOption } from '@/components/WorkspaceDraftNavigator'
 import { ControlButton, ControlGroup } from '@/components/ui/map'
 import { BlossomUploadDialog } from '@/components/BlossomUploadDialog'
 import { DebugDialog } from '@/components/DebugDialog'
@@ -134,6 +134,13 @@ import { GeoEditorMap as MapComponent } from './components/map'
 import { OsmResultsPanel } from './components/OsmResultsPanel'
 import { StudioStatusBar } from './components/StudioStatusBar'
 import { Toolbar } from './components/Toolbar'
+import { CurrentDestinationPill } from './components/CurrentDestinationPill'
+import {
+	canUploadToPublicBlossom,
+	publishChannelMatchesDatasetScope,
+	resolveAuthoringDestination,
+	resolveAuthoringPublishChannel,
+} from './components/authoringDestination'
 import type { EditorEvent, EditorFeature, EditorMode } from './core'
 import {
 	MAGNIFIER_SIZE,
@@ -158,7 +165,7 @@ import {
 } from './hooks'
 import { exportShapefile, importShapefile } from './shapefile'
 import { getGeoJsonPasteCandidate } from './geoJsonPaste'
-import { useEditorStore, type MapStackEntry } from './store'
+import { useEditorStore, type MapStackEntry, type PublishChannel } from './store'
 import type { MapStackEntryType } from './store/types'
 import type { GeoSearchResult } from './types'
 import { ensureFeatureCollection, extractCollectionMeta, toEditorFeature } from './utils'
@@ -312,6 +319,9 @@ export function GeoEditorView() {
 		navigateTo,
 		navigateToContext,
 		navigateToView,
+		navigateToUnscopedView,
+		navigateToPrivateGroup,
+		navigateToFieldSession,
 		clearFocus,
 		clearContextScope,
 		encodeGeoEventNaddr,
@@ -451,8 +461,19 @@ export function GeoEditorView() {
 	const setContextMapScopeMode = useEditorStore((state) => state.setContextMapScopeMode)
 	const setContextFilterMode = useEditorStore((state) => state.setContextFilterMode)
 	const activeDataset = useEditorStore((state) => state.activeDataset)
+	const setActiveDataset = useEditorStore((state) => state.setActiveDataset)
+	const setIsDirty = useEditorStore((state) => state.setIsDirty)
 	const activeDatasetContextRefs = useEditorStore((state) => state.activeDatasetContextRefs)
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
+	const activeDraftPublishChannel = useEditorStore((state) => {
+		const activeDraftId = state.activeGeoEditDraftId
+		return activeDraftId ? (state.geoEditDrafts[activeDraftId]?.publishChannel ?? null) : null
+	})
+	const activeWorkspaceDatasetKey = useEditorStore((state) => {
+		const workspace = state.activeWorkspaceId ? state.workspaces[state.activeWorkspaceId] : null
+		return workspace?.datasetKey ?? null
+	})
+	const stance = useEditorStore((state) => state.stance)
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const mapStackOrder = useEditorStore((state) => state.mapStackOrder)
 	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
@@ -517,29 +538,104 @@ export function GeoEditorView() {
 	// External data
 	const { events: geoEvents } = useGeoDatasets()
 	const fieldSessions = useFieldSessions()
-	const fieldSession = useMemo(
-		() => fieldSessions.find((session) => session.id === fieldSessionId),
-		[fieldSessionId, fieldSessions],
+	const localDraftDestinationOptions = useMemo<LocalDraftDestinationOption[]>(
+		() => [
+			{
+				id: 'public',
+				label: 'Public',
+				publishChannel: { kind: 'public' },
+			},
+			...privateWorkspaceSnapshot.workspaces
+				.filter((workspace) => workspace.status === 'active')
+				.map((workspace) => ({
+					id: `private-group:${workspace.workspaceId}`,
+					label: `Private · ${workspace.metadata?.name || workspace.workspaceId.slice(0, 8)}`,
+					publishChannel: {
+						kind: 'private-group' as const,
+						id: workspace.workspaceId,
+					},
+				})),
+			...fieldSessions
+				.filter((session) => session.state === 'active')
+				.map((session) => ({
+					id: `field-session:${session.id}`,
+					label: `Nearby · ${session.name}`,
+					publishChannel: { kind: 'field-session' as const, id: session.id },
+				})),
+		],
+		[privateWorkspaceSnapshot.workspaces, fieldSessions],
 	)
-	const datasetPublishMode = privateGroupId ? 'private' : fieldSessionId ? 'field' : 'public'
+	const routePublishChannel = useMemo<PublishChannel>(
+		() =>
+			privateGroupId
+				? { kind: 'private-group', id: privateGroupId }
+				: fieldSessionId
+					? { kind: 'field-session', id: fieldSessionId }
+					: { kind: 'public' },
+		[privateGroupId, fieldSessionId],
+	)
+	// Once a local draft exists, its persisted channel is authoritative. The URL
+	// only suggests a channel for a draft that has not been created yet.
+	const authoringPublishChannel = resolveAuthoringPublishChannel(
+		activeDraftPublishChannel,
+		routePublishChannel,
+	)
+	const authoringPrivateGroupId =
+		authoringPublishChannel.kind === 'private-group' ? authoringPublishChannel.id : undefined
+	const authoringFieldSessionId =
+		authoringPublishChannel.kind === 'field-session' ? authoringPublishChannel.id : undefined
+	const draftChannelOwnsMapScope = stance === 'author' && Boolean(activeDraftPublishChannel)
+	const privateWorkspaceScopeId = draftChannelOwnsMapScope
+		? authoringPrivateGroupId
+		: privateGroupId
+	const fieldSessionScopeId = draftChannelOwnsMapScope ? authoringFieldSessionId : fieldSessionId
+	const fieldSession = useMemo(
+		() => fieldSessions.find((session) => session.id === fieldSessionScopeId),
+		[fieldSessionScopeId, fieldSessions],
+	)
+	const authoringFieldSession = useMemo(
+		() => fieldSessions.find((session) => session.id === authoringFieldSessionId),
+		[authoringFieldSessionId, fieldSessions],
+	)
+	const authoringFieldSessionWritable = Boolean(
+		authoringFieldSession &&
+			(authoringFieldSession.role !== 'participant' || authoringFieldSession.allowPeerWrites),
+	)
+	const datasetPublishMode =
+		authoringPublishChannel.kind === 'private-group'
+			? 'private'
+			: authoringPublishChannel.kind === 'field-session'
+				? 'field'
+				: authoringPublishChannel.kind === 'unresolved'
+					? 'private'
+					: 'public'
 	const fieldTransport = useFieldSessionTransport(fieldSession)
 	const fieldGeoEvents = useMemo(
 		() =>
-			fieldSessionId
-				? latestFieldSessionDatasetEvents(fieldTransport.events, fieldSessionId).map((event) =>
+			fieldSessionScopeId
+				? latestFieldSessionDatasetEvents(fieldTransport.events, fieldSessionScopeId).map((event) =>
 						castEvent(event, GeoDataset, eventStore),
 					)
 				: [],
-		[fieldSessionId, fieldTransport.events],
+		[fieldSessionScopeId, fieldTransport.events],
 	)
 	const privateWorkspace = useMemo(
 		() =>
-			privateGroupId
+			privateWorkspaceScopeId
 				? privateWorkspaceSnapshot.workspaces.find(
-						(workspace) => workspace.workspaceId === privateGroupId,
+						(workspace) => workspace.workspaceId === privateWorkspaceScopeId,
 					)
 				: undefined,
-		[privateGroupId, privateWorkspaceSnapshot.workspaces],
+		[privateWorkspaceScopeId, privateWorkspaceSnapshot.workspaces],
+	)
+	const authoringPrivateWorkspace = useMemo(
+		() =>
+			authoringPrivateGroupId
+				? privateWorkspaceSnapshot.workspaces.find(
+						(workspace) => workspace.workspaceId === authoringPrivateGroupId,
+					)
+				: undefined,
+		[authoringPrivateGroupId, privateWorkspaceSnapshot.workspaces],
 	)
 	const privateWorkspaceId = privateWorkspace?.workspaceId
 	const privateGeoEvents = useMemo(
@@ -551,9 +647,9 @@ export function GeoEditorView() {
 		[geoEvents, privateGeoEvents, fieldGeoEvents],
 	)
 	useEffect(() => {
-		if (!privateWorkspaceRuntime || !privateGroupId || !privateWorkspaceId) return
-		return privateWorkspaceRuntime.watchWorkspace(privateGroupId)
-	}, [privateWorkspaceRuntime, privateGroupId, privateWorkspaceId])
+		if (!privateWorkspaceRuntime || !privateWorkspaceScopeId || !privateWorkspaceId) return
+		return privateWorkspaceRuntime.watchWorkspace(privateWorkspaceScopeId)
+	}, [privateWorkspaceRuntime, privateWorkspaceScopeId, privateWorkspaceId])
 	const { events: mapContextEvents } = useMapContexts()
 	// Groups (kind 37518, slimmed) the contributor can `c`-attach to (GROUP-02).
 	const { events: groups } = useGroups()
@@ -838,9 +934,214 @@ export function GeoEditorView() {
 		switchToWorkspace,
 		deleteWorkspace,
 		createDraftInWorkspace,
+		loadDraftInWorkspace,
+		deleteDraftInWorkspace,
 		tearDownEditSession,
-		startNewDataset,
+		startNewDataset: startNewDatasetWithOptions,
 	} = useDatasetManagement(map, mapGeoEvents)
+
+	const surfaceDraftOnMobile = useCallback(() => {
+		if (!isMobile) return
+		closeMobileSidebar()
+		openMobilePanel('map-stack')
+		setMobilePanelSnap('half')
+	}, [closeMobileSidebar, isMobile, openMobilePanel, setMobilePanelSnap])
+
+	const startNewDataset = useCallback(() => {
+		startNewDatasetWithOptions({ publishChannel: routePublishChannel })
+		if (useEditorStore.getState().activeGeoEditDraftId) surfaceDraftOnMobile()
+	}, [routePublishChannel, startNewDatasetWithOptions, surfaceDraftOnMobile])
+
+	const syncRouteToDraftChannel = useCallback(
+		(publishChannel: PublishChannel | null) => {
+			if (publishChannel?.kind === 'private-group') {
+				if (privateGroupId !== publishChannel.id) {
+					navigateToPrivateGroup(publishChannel.id)
+				}
+				return
+			}
+			if (publishChannel?.kind === 'field-session') {
+				if (fieldSessionId !== publishChannel.id) {
+					navigateToFieldSession(publishChannel.id)
+				}
+				return
+			}
+			if (privateGroupId || fieldSessionId) {
+				navigateToUnscopedView('drafts')
+			}
+		},
+		[
+			fieldSessionId,
+			navigateToFieldSession,
+			navigateToPrivateGroup,
+			navigateToUnscopedView,
+			privateGroupId,
+		],
+	)
+
+	const readActiveWorkspaceDraftChannel = useCallback((workspaceId: string) => {
+		const state = useEditorStore.getState()
+		if (state.activeWorkspaceId !== workspaceId) return null
+		const workspace = state.workspaces[workspaceId]
+		const draftId = workspace?.activeDraftId ?? state.activeGeoEditDraftId
+		return draftId ? (state.geoEditDrafts[draftId]?.publishChannel ?? null) : null
+	}, [])
+
+	const handleSwitchWorkspace = useCallback(
+		async (workspaceId: string) => {
+			await switchToWorkspace(workspaceId, { publishChannel: routePublishChannel })
+			syncRouteToDraftChannel(readActiveWorkspaceDraftChannel(workspaceId))
+			if (readActiveWorkspaceDraftChannel(workspaceId)) surfaceDraftOnMobile()
+		},
+		[
+			readActiveWorkspaceDraftChannel,
+			routePublishChannel,
+			surfaceDraftOnMobile,
+			switchToWorkspace,
+			syncRouteToDraftChannel,
+		],
+	)
+
+	const handleAddDraftToWorkspace = useCallback(
+		async (workspaceId: string) => {
+			await createDraftInWorkspace(workspaceId, { publishChannel: routePublishChannel })
+			syncRouteToDraftChannel(readActiveWorkspaceDraftChannel(workspaceId))
+			if (readActiveWorkspaceDraftChannel(workspaceId)) surfaceDraftOnMobile()
+		},
+		[
+			createDraftInWorkspace,
+			readActiveWorkspaceDraftChannel,
+			routePublishChannel,
+			surfaceDraftOnMobile,
+			syncRouteToDraftChannel,
+		],
+	)
+
+	const handleLoadDraft = useCallback(
+		(workspaceId: string, draftId: string) => {
+			loadDraftInWorkspace(workspaceId, draftId)
+			syncRouteToDraftChannel(readActiveWorkspaceDraftChannel(workspaceId))
+			if (readActiveWorkspaceDraftChannel(workspaceId)) surfaceDraftOnMobile()
+		},
+		[
+			loadDraftInWorkspace,
+			readActiveWorkspaceDraftChannel,
+			surfaceDraftOnMobile,
+			syncRouteToDraftChannel,
+		],
+	)
+
+	const handleDeleteDraft = useCallback(
+		(workspaceId: string, draftId: string) => {
+			const before = useEditorStore.getState()
+			const workspace = before.workspaces[workspaceId]
+			const deletingActiveDraft =
+				before.activeWorkspaceId === workspaceId &&
+				(workspace?.activeDraftId === draftId || before.activeGeoEditDraftId === draftId)
+			deleteDraftInWorkspace(workspaceId, draftId)
+			if (!deletingActiveDraft) return
+			syncRouteToDraftChannel(readActiveWorkspaceDraftChannel(workspaceId))
+		},
+		[deleteDraftInWorkspace, readActiveWorkspaceDraftChannel, syncRouteToDraftChannel],
+	)
+
+	const handleDeleteWorkspace = useCallback(
+		async (workspaceId: string) => {
+			const wasActive = useEditorStore.getState().activeWorkspaceId === workspaceId
+			await deleteWorkspace(workspaceId)
+			if (!wasActive) return
+			const nextWorkspaceId = useEditorStore.getState().activeWorkspaceId
+			syncRouteToDraftChannel(
+				nextWorkspaceId ? readActiveWorkspaceDraftChannel(nextWorkspaceId) : null,
+			)
+		},
+		[deleteWorkspace, readActiveWorkspaceDraftChannel, syncRouteToDraftChannel],
+	)
+
+	const handleResolveDraftDestination = useCallback(
+		(workspaceId: string, draftId: string, publishChannel: PublishChannel) => {
+			const state = useEditorStore.getState()
+			const workspace = state.workspaces[workspaceId]
+			const draft = state.geoEditDrafts[draftId]
+			if (!workspace || !draft || draft.sourceId !== workspace.sourceId) return
+			state.saveGeoEditDraft(draftId, { publishChannel })
+			if (
+				state.activeWorkspaceId === workspaceId &&
+				(workspace.activeDraftId === draftId || state.activeGeoEditDraftId === draftId)
+			) {
+				syncRouteToDraftChannel(publishChannel)
+			}
+			toast.success('Draft destination set', {
+				description:
+					publishChannel.kind === 'public'
+						? 'This draft can now be published publicly.'
+						: publishChannel.kind === 'private-group'
+							? 'This draft will be saved to the selected private group.'
+							: 'This draft will be shared with the selected field session.',
+			})
+		},
+		[syncRouteToDraftChannel],
+	)
+
+	const loadDatasetForCurrentChannel = useCallback(
+		(event: GeoDataset) => {
+			const privateWorkspaceId = privateWorkspaceIdForDataset(event)
+			const nearbySessionId = fieldSessionIdForEvent(event.event)
+			const publishChannel: PublishChannel = privateWorkspaceId
+				? { kind: 'private-group', id: privateWorkspaceId }
+				: nearbySessionId
+					? { kind: 'field-session', id: nearbySessionId }
+					: { kind: 'public' }
+			return loadDatasetForEditing(event, { publishChannel })
+		},
+		[loadDatasetForEditing],
+	)
+
+	const activeDatasetKey = useMemo(
+		() => (activeDataset ? getDatasetKey(activeDataset) : null),
+		[activeDataset, getDatasetKey],
+	)
+	const activeDatasetMatchesDraftChannel = useMemo(() => {
+		if (!activeDataset || !activeDraftPublishChannel) return false
+		return publishChannelMatchesDatasetScope(activeDraftPublishChannel, {
+			privateGroupId: privateWorkspaceIdForDataset(activeDataset) ?? undefined,
+			fieldSessionId: fieldSessionIdForEvent(activeDataset.event) ?? undefined,
+		})
+	}, [activeDataset, activeDraftPublishChannel])
+	const draftSourceIdentityPending = Boolean(
+		activeDraftPublishChannel &&
+			activeWorkspaceDatasetKey &&
+			(activeDatasetKey !== activeWorkspaceDatasetKey || !activeDatasetMatchesDraftChannel),
+	)
+	const draftSourceCandidates = useMemo(() => {
+		if (activeDraftPublishChannel?.kind === 'private-group') return privateGeoEvents
+		if (activeDraftPublishChannel?.kind === 'field-session') return fieldGeoEvents
+		if (activeDraftPublishChannel?.kind === 'public') return geoEvents
+		return []
+	}, [activeDraftPublishChannel, fieldGeoEvents, geoEvents, privateGeoEvents])
+
+	// Local drafts can be opened from the unscoped /drafts route before their
+	// private-group or Field-session event is in the current map collection.
+	// Once the persisted channel activates that scope, restore the original
+	// dataset identity without replacing the draft's saved geometry or metadata.
+	// Publishing stays blocked while the source is unresolved, so an update can
+	// never be mistaken for a new dataset during this short hand-off.
+	useEffect(() => {
+		if (!activeWorkspaceDatasetKey || !draftSourceIdentityPending) return
+		const sourceDataset = draftSourceCandidates.find(
+			(event) => getDatasetKey(event) === activeWorkspaceDatasetKey,
+		)
+		if (!sourceDataset) return
+		setActiveDataset(sourceDataset)
+		setIsDirty(true)
+	}, [
+		activeWorkspaceDatasetKey,
+		draftSourceCandidates,
+		draftSourceIdentityPending,
+		getDatasetKey,
+		setActiveDataset,
+		setIsDirty,
+	])
 
 	// Plan 13-06 (UAT test 5b — kill the add-to-stack phantom): a per-entry
 	// RESOLVED-ENTITY cache. `addBeaconToMapStack`/`addSightingToMapStack` deposit the
@@ -876,7 +1177,7 @@ export function GeoEditorView() {
 
 	const addPrivateDatasetToMapStack = useCallback(
 		(event: GeoDataset) => {
-			const workspaceId = privateWorkspaceIdForDataset(event) ?? privateGroupId
+			const workspaceId = privateWorkspaceIdForDataset(event) ?? privateWorkspaceScopeId
 			if (!workspaceId) return
 			const datasetKey = getDatasetKey(event)
 			const id = privateDatasetStackEntryId(workspaceId, datasetKey)
@@ -894,7 +1195,13 @@ export function GeoEditorView() {
 				exclusions: existing?.exclusions,
 			})
 		},
-		[privateGroupId, getDatasetKey, getDatasetName, addMapStackEntry, dismissedPrivateDatasetIds],
+		[
+			privateWorkspaceScopeId,
+			getDatasetKey,
+			getDatasetName,
+			addMapStackEntry,
+			dismissedPrivateDatasetIds,
+		],
 	)
 
 	// A private-group route is an encrypted map scope. New decrypted datasets are
@@ -903,7 +1210,7 @@ export function GeoEditorView() {
 	useEffect(() => {
 		const stack = useEditorStore.getState()
 		const plan = planPrivateDatasetStackReconciliation({
-			workspaceId: privateGroupId,
+			workspaceId: privateWorkspaceScopeId,
 			datasets: privateGeoEvents.map((dataset) => ({
 				datasetKey: getDatasetKey(dataset),
 				title: getDatasetName(dataset),
@@ -928,7 +1235,7 @@ export function GeoEditorView() {
 			})
 		}
 	}, [
-		privateGroupId,
+		privateWorkspaceScopeId,
 		privateGeoEvents,
 		getDatasetKey,
 		getDatasetName,
@@ -939,9 +1246,9 @@ export function GeoEditorView() {
 
 	const addFieldDatasetToMapStack = useCallback(
 		(event: GeoDataset) => {
-			if (!fieldSessionId) return
+			if (!fieldSessionScopeId) return
 			const datasetKey = getDatasetKey(event)
-			const id = fieldDatasetStackEntryId(fieldSessionId, datasetKey)
+			const id = fieldDatasetStackEntryId(fieldSessionScopeId, datasetKey)
 			dismissedFieldDatasetIdsRef.current.delete(id)
 			const existing = useEditorStore.getState().mapStackEntries[id]
 			addMapStackEntry({
@@ -956,7 +1263,7 @@ export function GeoEditorView() {
 				exclusions: existing?.exclusions,
 			})
 		},
-		[fieldSessionId, getDatasetKey, getDatasetName, addMapStackEntry],
+		[fieldSessionScopeId, getDatasetKey, getDatasetName, addMapStackEntry],
 	)
 
 	// Nearby datasets follow the same non-resurrection contract as private
@@ -965,7 +1272,7 @@ export function GeoEditorView() {
 	useEffect(() => {
 		const stack = useEditorStore.getState()
 		const plan = planFieldDatasetStackReconciliation({
-			sessionId: fieldSessionId,
+			sessionId: fieldSessionScopeId,
 			datasets: fieldGeoEvents.map((dataset) => ({
 				datasetKey: getDatasetKey(dataset),
 				title: getDatasetName(dataset),
@@ -990,7 +1297,7 @@ export function GeoEditorView() {
 			})
 		}
 	}, [
-		fieldSessionId,
+		fieldSessionScopeId,
 		fieldGeoEvents,
 		getDatasetKey,
 		getDatasetName,
@@ -1108,23 +1415,23 @@ export function GeoEditorView() {
 
 	const removePrivateDatasetFromMapStack = useCallback(
 		(event: GeoDataset) => {
-			const workspaceId = privateWorkspaceIdForDataset(event) ?? privateGroupId
+			const workspaceId = privateWorkspaceIdForDataset(event) ?? privateWorkspaceScopeId
 			if (!workspaceId) return
 			const id = privateDatasetStackEntryId(workspaceId, getDatasetKey(event))
 			const entry = useEditorStore.getState().mapStackEntries[id]
 			if (entry) removeFromMapStack(entry)
 		},
-		[privateGroupId, getDatasetKey, removeFromMapStack],
+		[privateWorkspaceScopeId, getDatasetKey, removeFromMapStack],
 	)
 
 	const removeFieldDatasetFromMapStack = useCallback(
 		(event: GeoDataset) => {
-			if (!fieldSessionId) return
-			const id = fieldDatasetStackEntryId(fieldSessionId, getDatasetKey(event))
+			if (!fieldSessionScopeId) return
+			const id = fieldDatasetStackEntryId(fieldSessionScopeId, getDatasetKey(event))
 			const entry = useEditorStore.getState().mapStackEntries[id]
 			if (entry) removeFromMapStack(entry)
 		},
-		[fieldSessionId, getDatasetKey, removeFromMapStack],
+		[fieldSessionScopeId, getDatasetKey, removeFromMapStack],
 	)
 
 	/**
@@ -1154,8 +1461,6 @@ export function GeoEditorView() {
 		}
 		clearMapStack()
 	}, [clearMapStack, dismissedPrivateDatasetIds])
-
-	const stance = useEditorStore((state) => state.stance)
 
 	// Entering the author stance (a geometry draft) surfaces the Map Stack panel —
 	// the draft entry there hosts the editor forms (editor-in-Map-Stack). Mobile
@@ -1398,38 +1703,42 @@ export function GeoEditorView() {
 			collection: import('geojson').FeatureCollection,
 			options?: { datasetId?: string; name?: string },
 		) => {
-			if (!privateWorkspaceRuntime || !privateGroupId) {
+			if (!privateWorkspaceRuntime || !authoringPrivateGroupId) {
 				throw new Error('The private group is not available in this browser profile')
 			}
 			const envelope = await privateWorkspaceRuntime.perform((service) =>
-				service.sendDataset(privateGroupId, collection, options),
+				service.sendDataset(authoringPrivateGroupId, collection, options),
 			)
 			const workspace = privateWorkspaceRuntime
 				.getSnapshot()
-				.workspaces.find((item) => item.workspaceId === privateGroupId)
+				.workspaces.find((item) => item.workspaceId === authoringPrivateGroupId)
 			const dataset = workspace
 				? projectPrivateWorkspaceDatasets(workspace).find((item) => item.event.id === envelope.id)
 				: undefined
 			if (!dataset) throw new Error('The encrypted dataset could not be opened after saving')
 			return dataset
 		},
-		[privateWorkspaceRuntime, privateGroupId],
+		[privateWorkspaceRuntime, authoringPrivateGroupId],
 	)
 	const publishFieldDataset = useCallback(
 		async (
 			collection: FeatureCollection,
 			options?: { datasetId?: string; name?: string; previous?: GeoDataset },
 		) => {
-			if (!fieldSession || !fieldSessionId) {
+			if (!authoringFieldSession || !authoringFieldSessionId) {
 				throw new Error('The Field session is not available on this device')
 			}
-			if (fieldSession.role === 'participant' && !fieldSession.allowPeerWrites) {
+			if (authoringFieldSession.role === 'participant' && !authoringFieldSession.allowPeerWrites) {
 				throw new Error('This Field session is read-only on participant phones')
 			}
 			const signer = accounts.signer
 			if (!signer) throw new Error('Sign in before saving nearby geometry')
 
-			let factory = fieldSessionDatasetFactory(collection, fieldSessionId, options?.previous)
+			let factory = fieldSessionDatasetFactory(
+				collection,
+				authoringFieldSessionId,
+				options?.previous,
+			)
 			if (options?.datasetId && !options.previous) {
 				factory = factory.modifyPublicTags((tags) => [
 					...tags.filter((tag) => tag[0] !== 'd'),
@@ -1437,13 +1746,13 @@ export function GeoEditorView() {
 				])
 			}
 			const signed = (await factory.sign(signer)) as NostrEvent
-			if (fieldSessionIdForEvent(signed) !== fieldSessionId) {
+			if (fieldSessionIdForEvent(signed) !== authoringFieldSessionId) {
 				throw new Error('The nearby dataset lost its Field-session scope before signing')
 			}
 			await fieldTransport.publishEvent(signed)
 			return castEvent(signed, GeoDataset, eventStore)
 		},
-		[fieldSession, fieldSessionId, fieldTransport.publishEvent],
+		[authoringFieldSession, authoringFieldSessionId, fieldTransport.publishEvent],
 	)
 	const navigateToEntityFocus = useCallback(
 		(
@@ -1453,10 +1762,10 @@ export function GeoEditorView() {
 		) => {
 			// Projected private datasets have no public naddr route. Keep inspection
 			// inside /privategroup/:id so opening a map row cannot drop the MLS scope.
-			if ((privateGroupId || fieldSessionId) && focusType === 'geoevent') return
+			if ((privateWorkspaceScopeId || fieldSessionScopeId) && focusType === 'geoevent') return
 			navigateTo(focusType, naddr, sidebarView)
 		},
-		[privateGroupId, fieldSessionId, navigateTo],
+		[privateWorkspaceScopeId, fieldSessionScopeId, navigateTo],
 	)
 
 	const {
@@ -1472,17 +1781,29 @@ export function GeoEditorView() {
 		canPublishCopy,
 		canProposeEdit,
 	} = usePublishing({
-		currentUserPubkey,
+		currentUserPubkey: currentUserPubkey ?? undefined,
 		getDatasetName,
 		getDatasetKey,
 		groups,
 		resolvedCollectionResolver,
 		navigateTo,
 		encodeGeoEventNaddr,
-		privateWorkspaceId: privateGroupId,
-		publishPrivateDataset: privateGroupId ? publishPrivateDataset : undefined,
-		fieldSessionId,
-		publishFieldDataset: fieldSessionId ? publishFieldDataset : undefined,
+		privateWorkspaceId: authoringPrivateGroupId,
+		publishPrivateDataset:
+			authoringPrivateGroupId && authoringPrivateWorkspace && privateWorkspaceRuntime
+				? publishPrivateDataset
+				: undefined,
+		fieldSessionId: authoringFieldSessionId,
+		publishFieldDataset:
+			authoringFieldSessionId && authoringFieldSessionWritable ? publishFieldDataset : undefined,
+		publishBoundaryResolved:
+			authoringPublishChannel.kind !== 'unresolved' && !draftSourceIdentityPending,
+		publishBoundaryMessage:
+			authoringPublishChannel.kind === 'unresolved'
+				? 'Choose a destination before publishing this legacy draft.'
+				: draftSourceIdentityPending
+					? 'Wait for Earthly to restore the original dataset before publishing this draft.'
+					: undefined,
 	})
 
 	/**
@@ -1616,6 +1937,164 @@ export function GeoEditorView() {
 			}) ?? null
 		)
 	}, [focusedType, focusedNaddr, mapContextEvents, encodeContextNaddr])
+
+	const destinationContextCoordinate =
+		authoringPublishChannel.kind === 'public'
+			? activeDraftPublishChannel
+				? (activeDatasetContextRefs[0] ?? null)
+				: (contextCoordinate ?? null)
+			: null
+	const destinationContext = useMemo(
+		() =>
+			destinationContextCoordinate
+				? (mapContextEvents.find(
+						(context) => getContextCoordinate(context) === destinationContextCoordinate,
+					) ?? null)
+				: null,
+		[destinationContextCoordinate, mapContextEvents],
+	)
+	const destinationContextNaddr = useMemo(() => {
+		if (destinationContext) return encodeContextNaddr(destinationContext)
+		if (!destinationContextCoordinate) return null
+		const [kindValue, pubkey, ...identifierParts] = destinationContextCoordinate.split(':')
+		const identifier = identifierParts.join(':')
+		const kind = Number.parseInt(kindValue ?? '', 10)
+		if (!Number.isFinite(kind) || !pubkey || !identifier) return null
+		try {
+			return nip19.naddrEncode({ kind, pubkey, identifier })
+		} catch {
+			return null
+		}
+	}, [destinationContext, destinationContextCoordinate, encodeContextNaddr])
+	const currentDestination = useMemo(() => {
+		if (authoringPublishChannel.kind === 'unresolved') {
+			return resolveAuthoringDestination({
+				publishChannel: 'unresolved',
+				reason: authoringPublishChannel.reason,
+				canLeave: true,
+			})
+		}
+		if (authoringPublishChannel.kind === 'private-group') {
+			return resolveAuthoringDestination({
+				publishChannel: 'private-group',
+				group: {
+					id: authoringPublishChannel.id,
+					label: authoringPrivateWorkspace?.metadata?.name,
+					availability: authoringPrivateWorkspace ? 'available' : 'unavailable',
+				},
+				canLeave: true,
+			})
+		}
+		if (authoringPublishChannel.kind === 'field-session') {
+			return resolveAuthoringDestination({
+				publishChannel: 'field-session',
+				session: {
+					id: authoringPublishChannel.id,
+					label: authoringFieldSession?.name,
+					availability: authoringFieldSessionWritable ? 'available' : 'unavailable',
+				},
+				canLeave: true,
+			})
+		}
+
+		return resolveAuthoringDestination({
+			publishChannel: 'public',
+			context: destinationContextCoordinate
+				? {
+						id: destinationContextCoordinate,
+						label: `${
+							destinationContext?.context.name ||
+							destinationContext?.contextId ||
+							destinationContext?.dTag ||
+							'Unnamed context'
+						}${activeDatasetContextRefs.length > 1 ? ` +${activeDatasetContextRefs.length - 1}` : ''}`,
+						availability: destinationContext ? 'available' : 'unavailable',
+					}
+				: null,
+			canLeave: Boolean(destinationContextCoordinate),
+		})
+	}, [
+		authoringPublishChannel,
+		authoringPrivateWorkspace,
+		authoringFieldSession,
+		authoringFieldSessionWritable,
+		destinationContextCoordinate,
+		destinationContext,
+		activeDatasetContextRefs.length,
+	])
+
+	const openCurrentDestination = useCallback(() => {
+		if (currentDestination.kind === 'unresolved') {
+			navigateToUnscopedView('drafts')
+			if (isMobile) selectMobileSidebarDestination('drafts')
+			return
+		}
+		if (currentDestination.kind === 'private-group') {
+			navigateToPrivateGroup(currentDestination.target.id)
+			if (isMobile) selectMobileSidebarDestination('private-groups')
+			return
+		}
+		if (currentDestination.kind === 'field-session') {
+			navigateToFieldSession(currentDestination.target.id)
+			if (isMobile) selectMobileSidebarDestination('field-sessions')
+			return
+		}
+		if (currentDestination.kind === 'public-context' && destinationContextNaddr) {
+			navigateToContext(destinationContextNaddr, 'contexts')
+			if (isMobile) selectMobileSidebarDestination('contexts')
+			return
+		}
+		navigateToView('contexts')
+		if (isMobile) selectMobileSidebarDestination('contexts')
+	}, [
+		currentDestination,
+		destinationContextNaddr,
+		isMobile,
+		navigateToContext,
+		navigateToFieldSession,
+		navigateToPrivateGroup,
+		navigateToUnscopedView,
+		navigateToView,
+		selectMobileSidebarDestination,
+	])
+
+	const leaveCurrentDestination = useCallback(() => {
+		if (
+			currentDestination.kind === 'private-group' ||
+			currentDestination.kind === 'field-session' ||
+			currentDestination.kind === 'unresolved'
+		) {
+			if (activeDraftPublishChannel) {
+				tearDownEditSession()
+				toast.success('Draft retained in Local drafts')
+			}
+			navigateToUnscopedView('datasets')
+			if (isMobile) {
+				closeMobileSidebar()
+				setMobilePanelOpen(false)
+			}
+			return
+		}
+
+		if (currentDestination.kind === 'public-context') {
+			setActiveDatasetContextRefs([])
+			if (contextNaddr) clearContextScope()
+			if (focusedType === 'mapcontext') clearFocus()
+		}
+	}, [
+		activeDraftPublishChannel,
+		clearContextScope,
+		clearFocus,
+		closeMobileSidebar,
+		contextNaddr,
+		currentDestination,
+		focusedType,
+		isMobile,
+		navigateToUnscopedView,
+		setActiveDatasetContextRefs,
+		setMobilePanelOpen,
+		tearDownEditSession,
+	])
 
 	// Note: `focusedDataset` was only ever read by the now-removed toolbar focus
 	// label. The focus state itself still drives routing + sidebar — see
@@ -2457,9 +2936,9 @@ export function GeoEditorView() {
 		navigateToContext,
 		navigateToView,
 		clearFocus,
-		loadDatasetForEditing,
+		loadDatasetForEditing: loadDatasetForCurrentChannel,
 		startNewDataset,
-		switchToWorkspace,
+		switchToWorkspace: handleSwitchWorkspace,
 		handleInspectDataset,
 	})
 
@@ -3122,7 +3601,7 @@ export function GeoEditorView() {
 			availableFeatures={availableFeatures}
 			getDatasetName={getDatasetName}
 			onStartNewDataset={startNewDataset}
-			onSwitchWorkspace={switchToWorkspace}
+			onSwitchWorkspace={handleSwitchWorkspace}
 			onOpenSettings={() => navigateToView('settings')}
 			onClose={() => setChatOpen(false)}
 		/>
@@ -3260,7 +3739,7 @@ export function GeoEditorView() {
 					geoEvents={scopedGeoEvents}
 					mapContextEvents={mapContextEvents}
 					activeDataset={activeDataset}
-					currentUserPubkey={currentUserPubkey}
+					currentUserPubkey={currentUserPubkey ?? undefined}
 					datasetVisibility={effectiveVisibility}
 					isPublishing={isPublishing}
 					deletingKey={deletingKey}
@@ -3271,9 +3750,13 @@ export function GeoEditorView() {
 					fieldSessionEvents={fieldTransport.events}
 					onPublishFieldSessionEvent={fieldTransport.publishEvent}
 					onRefreshFieldSessionEvents={fieldTransport.refresh}
-					onSwitchWorkspace={switchToWorkspace}
-					onDeleteWorkspace={deleteWorkspace}
-					onAddDraftToWorkspace={createDraftInWorkspace}
+					onSwitchWorkspace={handleSwitchWorkspace}
+					onDeleteWorkspace={handleDeleteWorkspace}
+					onAddDraftToWorkspace={handleAddDraftToWorkspace}
+					onLoadDraft={handleLoadDraft}
+					onDeleteDraft={handleDeleteDraft}
+					draftDestinationOptions={localDraftDestinationOptions}
+					onResolveDraftDestination={handleResolveDraftDestination}
 					onToggleVisibility={handleToggleVisibilityWithExitFocus}
 					onToggleAllVisibility={handleToggleAllVisibilityWithExitFocus}
 					onZoomToDataset={zoomToDataset}
@@ -3348,7 +3831,11 @@ export function GeoEditorView() {
 					onZoomToFeature={handleZoomToFeature}
 					onExitViewMode={exitViewMode}
 					// Blossom upload props - callback adds blob ref to store, does NOT publish
-					featureCollectionForUpload={memoizedFeatureCollection}
+					featureCollectionForUpload={
+						canUploadToPublicBlossom(authoringPublishChannel)
+							? memoizedFeatureCollection
+							: undefined
+					}
 					onBlossomUploadComplete={handleBlobUploadComplete}
 					// Contributor Group-attach publish wiring (GROUP-02/04)
 					onPublishNew={handlePublishNew}
@@ -3505,27 +3992,14 @@ export function GeoEditorView() {
 					onClose={handleCloseAnnotationPopup}
 				/>
 			)}
-			{privateWorkspace ? (
-				<div className="pointer-events-none absolute right-2 top-2 z-20 md:top-[calc(var(--shell-toolbar-h)+0.5rem)]">
-					<div className="flex items-center gap-1.5 rounded-[2px] border border-primary/35 bg-background/95 px-2 py-1.5 text-[10px] font-medium text-foreground shadow-sm backdrop-blur">
-						<Lock className="h-3 w-3 text-primary" />
-						<span className="max-w-40 truncate">
-							{privateWorkspace.metadata?.name ?? 'Private group'}
-						</span>
-						<span className="text-muted-foreground">· MLS-encrypted saves</span>
-					</div>
-				</div>
-			) : null}
-			{fieldSession ? (
-				<div className="pointer-events-none absolute right-2 top-2 z-20 md:top-[calc(var(--shell-toolbar-h)+0.5rem)]">
-					<div className="flex items-center gap-1.5 rounded-[2px] border border-emerald-500/35 bg-background/95 px-2 py-1.5 text-[10px] font-medium text-foreground shadow-sm backdrop-blur">
-						<RadioTower className="h-3 w-3 text-emerald-600" />
-						<span className="max-w-40 truncate">{fieldSession.name}</span>
-						<span className="text-muted-foreground">
-							· {fieldSession.role} ·{' '}
-							{fieldSession.internetPolicy === 'never' ? 'nearby only' : 'nearby now'}
-						</span>
-					</div>
+			{isMobile ? (
+				<div className="pointer-events-auto absolute left-2 top-[max(0.5rem,env(safe-area-inset-top))] z-20 md:hidden">
+					<CurrentDestinationPill
+						destination={currentDestination}
+						variant="mobile"
+						onActivate={openCurrentDestination}
+						onLeave={leaveCurrentDestination}
+					/>
 				</div>
 			) : null}
 			{mapError && (
@@ -3609,6 +4083,9 @@ export function GeoEditorView() {
 						onToggleMapStack={toggleToolbarMapStack}
 						onToggleChat={toggleChat}
 						onExitFocus={exitViewMode}
+						destination={currentDestination}
+						onActivateDestination={openCurrentDestination}
+						onLeaveDestination={leaveCurrentDestination}
 					/>
 				</div>
 			</div>
@@ -3648,15 +4125,20 @@ export function GeoEditorView() {
 					deletingKey={deletingKey}
 					isFocused={isFocused}
 					multiSelectModifier={multiSelectModifierLabel}
-					onLoadDataset={loadDatasetForEditing}
+					onLoadDataset={loadDatasetForCurrentChannel}
 					onStartNewDataset={startNewDataset}
 					privateDatasetActions={privateDatasetActions}
 					fieldDatasetActions={fieldDatasetActions}
 					fieldSessionEvents={fieldTransport.events}
 					onPublishFieldSessionEvent={fieldTransport.publishEvent}
 					onRefreshFieldSessionEvents={fieldTransport.refresh}
-					onSwitchWorkspace={switchToWorkspace}
-					onDeleteWorkspace={deleteWorkspace}
+					onSwitchWorkspace={handleSwitchWorkspace}
+					onDeleteWorkspace={handleDeleteWorkspace}
+					onAddDraftToWorkspace={handleAddDraftToWorkspace}
+					onLoadDraft={handleLoadDraft}
+					onDeleteDraft={handleDeleteDraft}
+					draftDestinationOptions={localDraftDestinationOptions}
+					onResolveDraftDestination={handleResolveDraftDestination}
 					onToggleVisibility={handleToggleVisibilityWithExitFocus}
 					onToggleAllVisibility={handleToggleAllVisibilityWithExitFocus}
 					onZoomToDataset={zoomToDataset}
@@ -3729,7 +4211,11 @@ export function GeoEditorView() {
 					onAdjustBeacon={handleAdjustBeacon}
 					onClearBeaconView={clearBeaconView}
 					onZoomToFeature={handleZoomToFeature}
-					featureCollectionForUpload={memoizedFeatureCollection}
+					featureCollectionForUpload={
+						canUploadToPublicBlossom(authoringPublishChannel)
+							? memoizedFeatureCollection
+							: undefined
+					}
 					onBlossomUploadComplete={handleBlobUploadComplete}
 					focusCommentId={focusCommentId}
 					onFilteredDatasetKeysChange={handleFilteredDatasetKeysChange}

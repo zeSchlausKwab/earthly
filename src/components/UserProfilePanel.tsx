@@ -1,6 +1,6 @@
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Database, Eye, Globe, Layers, MessageCircle, MessageSquare, Trash2 } from 'lucide-react'
+import { Database, Eye, Globe, Layers, MessageSquare, Trash2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { GeoProposal } from '@/lib/nostr/geo-proposal'
 import { castEvent } from 'applesauce-core/casts'
@@ -318,7 +318,7 @@ export function UserProfilePanel({
 		if (isOwnProfile) {
 			items.push({
 				id: 'workspaces',
-				label: 'Workspaces',
+				label: 'Saved work',
 				count: sortedWorkspaces.length,
 				icon: Layers,
 			})
@@ -739,106 +739,117 @@ export function UserProfilePanel({
 				)
 			) : !isOwnProfile ? (
 				<p className="text-xs text-muted-foreground">
-					Workspace management is only available on your profile.
+					Saved work is only available on your profile.
 				</p>
 			) : sortedWorkspaces.length === 0 ? (
-				<p className="text-xs text-muted-foreground">No local workspaces yet.</p>
+				<div className="space-y-1 text-xs text-muted-foreground">
+					<p>No work saved on this device yet.</p>
+					<p>Start drawing to create a recoverable local draft before you publish.</p>
+				</div>
 			) : (
-				<div className="space-y-2">
-					{sortedWorkspaces.map((workspace) => {
-						const isActive = workspace.id === activeWorkspaceId
-						const isDeleting = deletingWorkspaceId === workspace.id
-						const isConfirmingDelete = confirmingWorkspaceId === workspace.id
-						return (
-							<div
-								key={workspace.id}
-								className="rounded-xl border border-border/70 bg-card/70 px-3 py-3 shadow-sm"
-							>
-								<div className="flex items-start justify-between gap-3">
-									<div className="min-w-0 space-y-1">
-										<div className="flex flex-wrap items-center gap-2">
-											<p className="truncate text-sm font-medium text-foreground">
-												{workspace.label}
-											</p>
-											<span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-												{workspace.kind === 'scratch' ? 'draft' : 'dataset'}
-											</span>
-											{isActive ? (
-												<span className="rounded-full bg-ok/15 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-ok">
-													Active
+				<div className="space-y-3">
+					<p className="text-xs leading-relaxed text-muted-foreground">
+						Earthly keeps unfinished drawings and dataset edits on this device, so closing the app
+						does not lose them. Publishing remains a separate step.
+					</p>
+					<div className="space-y-2">
+						{sortedWorkspaces.map((workspace) => {
+							const isActive = workspace.id === activeWorkspaceId
+							const isDeleting = deletingWorkspaceId === workspace.id
+							const isConfirmingDelete = confirmingWorkspaceId === workspace.id
+							const displayLabel = getSavedWorkLabel(workspace.label)
+							return (
+								<div
+									key={workspace.id}
+									className="rounded-xl border border-border/70 bg-card/70 px-3 py-3 shadow-sm"
+								>
+									<div className="flex items-start justify-between gap-3">
+										<div className="min-w-0 space-y-1">
+											<div className="flex flex-wrap items-center gap-2">
+												<p className="truncate text-sm font-medium text-foreground">
+													{displayLabel}
+												</p>
+												<span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+													{workspace.kind === 'scratch' ? 'new drawing' : 'dataset edit'}
 												</span>
-											) : null}
+												{isActive ? (
+													<span className="rounded-full bg-ok/15 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-ok">
+														Current
+													</span>
+												) : null}
+											</div>
+											<p className="text-xs text-muted-foreground">
+												Updated {new Date(workspace.updatedAt).toLocaleString()}
+											</p>
 										</div>
-										<p className="text-xs text-muted-foreground">
-											Updated {new Date(workspace.updatedAt).toLocaleString()}
-										</p>
-										<div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
-											<span>{workspace.activeDraftId ? 'Draft linked' : 'No draft linked'}</span>
-											<span className="inline-flex items-center gap-1">
-												<MessageCircle className="h-3 w-3" />
-												{workspace.chatSessionId ? 'Chat attached' : 'No chat'}
-											</span>
-										</div>
-									</div>
-									<div className="flex shrink-0 items-center gap-2">
-										{!isActive && onSwitchWorkspace ? (
-											<Button
-												size="sm"
-												variant="outline"
-												onClick={() => onSwitchWorkspace(workspace.id)}
-												disabled={isDeleting || isConfirmingDelete}
-											>
-												Open
-											</Button>
-										) : null}
-										<Button
-											size="sm"
-											variant="ghost"
-											className="text-destructive hover:text-destructive"
-											onClick={() =>
-												setConfirmingWorkspaceId((current) =>
-													current === workspace.id ? null : workspace.id,
-												)
-											}
-											disabled={!onDeleteWorkspace || isDeleting}
-										>
-											<Trash2 className="mr-1 h-3.5 w-3.5" />
-											{isConfirmingDelete ? 'Cancel' : isDeleting ? 'Deleting...' : 'Delete'}
-										</Button>
-									</div>
-								</div>
-								{isConfirmingDelete ? (
-									<div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-[11px] text-destructive">
-										<span className="min-w-0 flex-1 truncate">
-											Remove workspace "{workspace.label}"?
-										</span>
 										<div className="flex shrink-0 items-center gap-2">
+											{!isActive && onSwitchWorkspace ? (
+												<Button
+													size="sm"
+													variant="outline"
+													onClick={() => onSwitchWorkspace(workspace.id)}
+													disabled={isDeleting || isConfirmingDelete}
+												>
+													Resume
+												</Button>
+											) : null}
 											<Button
 												size="sm"
 												variant="ghost"
-												className="h-7 px-2 text-[11px]"
-												onClick={() => setConfirmingWorkspaceId(null)}
-												disabled={isDeleting}
+												className="text-destructive hover:text-destructive"
+												onClick={() =>
+													setConfirmingWorkspaceId((current) =>
+														current === workspace.id ? null : workspace.id,
+													)
+												}
+												disabled={!onDeleteWorkspace || isDeleting}
 											>
-												Keep
-											</Button>
-											<Button
-												size="sm"
-												variant="destructive"
-												className="h-7 px-2 text-[11px]"
-												onClick={() => void handleDeleteWorkspace(workspace.id)}
-												disabled={isDeleting}
-											>
-												{isDeleting ? 'Deleting...' : 'Delete'}
+												<Trash2 className="mr-1 h-3.5 w-3.5" />
+												{isConfirmingDelete ? 'Cancel' : isDeleting ? 'Deleting...' : 'Delete'}
 											</Button>
 										</div>
 									</div>
-								) : null}
-							</div>
-						)
-					})}
+									{isConfirmingDelete ? (
+										<div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-[11px] text-destructive">
+											<span className="min-w-0 flex-1 truncate">
+												Remove “{displayLabel}” and its unpublished drafts from this device?
+											</span>
+											<div className="flex shrink-0 items-center gap-2">
+												<Button
+													size="sm"
+													variant="ghost"
+													className="h-7 px-2 text-[11px]"
+													onClick={() => setConfirmingWorkspaceId(null)}
+													disabled={isDeleting}
+												>
+													Keep
+												</Button>
+												<Button
+													size="sm"
+													variant="destructive"
+													className="h-7 px-2 text-[11px]"
+													onClick={() => void handleDeleteWorkspace(workspace.id)}
+													disabled={isDeleting}
+												>
+													{isDeleting ? 'Deleting...' : 'Delete'}
+												</Button>
+											</div>
+										</div>
+									) : null}
+								</div>
+							)
+						})}
+					</div>
 				</div>
 			)}
 		</div>
 	)
+}
+
+function getSavedWorkLabel(label: string): string {
+	const normalized = label.trim().toLowerCase()
+	if (!normalized || normalized === 'untitled workspace' || normalized === 'untitled') {
+		return 'Untitled draft'
+	}
+	return label
 }

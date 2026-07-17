@@ -47,6 +47,8 @@ import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
 import type { EntitySearchResult } from './entity-search'
 import type { EditorFeature } from '../features/geo-editor/core'
 import type { BlossomUploadResult } from '../lib/blossom/blossomUpload'
+import { privateWorkspaceIdForDataset } from '@/lib/private-workspace'
+import { fieldSessionIdForEvent } from '@/features/field-sessions/events'
 
 type ContextPropertyTypeHint = 'string' | 'number' | 'integer' | 'boolean'
 
@@ -341,14 +343,30 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 		if (activeDraft?.sourceId === currentDraftSourceId) return
 
 		const store = useEditorStore.getState()
+		const privateGroupId = activeDataset ? privateWorkspaceIdForDataset(activeDataset) : undefined
+		const fieldSessionId = activeDataset ? fieldSessionIdForEvent(activeDataset.event) : undefined
 		createGeoEditDraft(currentDraftSourceId, {
 			name: store.collectionMeta.name,
 			description: store.collectionMeta.description,
 			collectionMeta: store.collectionMeta,
 			features: store.features,
 			selectedFeatureIds: store.selectedFeatureIds,
+			publishChannel: privateGroupId
+				? { kind: 'private-group', id: privateGroupId }
+				: fieldSessionId
+					? { kind: 'field-session', id: fieldSessionId }
+					: { kind: 'public' },
+			contextRefs: store.activeDatasetContextRefs,
+			blobReferences: store.blobReferences,
 		})
-	}, [contextEditorMode, viewMode, currentDraftSourceId, activeDraft?.sourceId, createGeoEditDraft])
+	}, [
+		contextEditorMode,
+		viewMode,
+		currentDraftSourceId,
+		activeDraft?.sourceId,
+		activeDataset,
+		createGeoEditDraft,
+	])
 	// Toggle to view mode - show the active dataset in view mode
 	const handleSwitchToView = () => {
 		if (activeDataset) {

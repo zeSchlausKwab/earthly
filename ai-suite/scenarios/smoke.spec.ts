@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { createIdentity } from '../tasks/auth/create-identity'
 import { signIn } from '../tasks/auth/sign-in'
 import { createStoryDraft } from '../tasks/create/story'
+import { startDataset } from '../tasks/create/dataset'
 import { openPanel } from '../tasks/navigation/open-panel'
 import { completeTour, skipTour } from '../tasks/onboarding/tour'
 
@@ -43,6 +44,38 @@ test('anonymous first visit can skip the tour', async ({ earthly }) => {
 test('Contexts can be opened through the current viewport navigation', async ({ earthly }) => {
 	await earthly.open({ tour: 'seen' })
 	await openPanel(earthly, 'Contexts')
+})
+
+test('unfinished dataset is recoverable from Local drafts', async ({ earthly }) => {
+	await earthly.open({ tour: 'seen' })
+	const draft = await startDataset(earthly)
+	await draft.nameInput.fill('Recoverable trail sketch')
+	await expect(draft.nameInput).toHaveValue('Recoverable trail sketch')
+	if (earthly.isMobile) {
+		await earthly.page.getByRole('button', { name: 'More tools', exact: true }).click()
+		await earthly.page.getByRole('menuitem', { name: 'Exit editing', exact: true }).click()
+		await expect(earthly.page.getByRole('button', { name: 'Menu', exact: true })).toBeVisible()
+	}
+	await openPanel(earthly, 'Local drafts')
+	const panel = earthly.page.getByRole('region', { name: 'Local drafts' })
+	const localDraftHeadings = earthly.page.getByRole('heading', {
+		name: 'Local drafts',
+		exact: true,
+	})
+	await expect(localDraftHeadings.first()).toBeVisible()
+	if (earthly.isMobile) await expect(localDraftHeadings).toHaveCount(1)
+	await expect(earthly.page.getByText(/saved on this device/i).first()).toBeVisible()
+	const expandDrafts = panel.getByRole('button', { name: 'Expand saved drafts' }).first()
+	if (await expandDrafts.isVisible()) await expandDrafts.click()
+	const recoverableDraft = panel.getByRole('button', {
+		name: /^Recoverable trail sketch Public$/i,
+	})
+	await expect(recoverableDraft).toBeVisible()
+	if (earthly.isMobile) {
+		await recoverableDraft.click()
+		await expect(earthly.page.getByRole('dialog', { name: 'Earthly navigation' })).toBeHidden()
+		await expect(earthly.page.getByTestId('mobile-sheet')).toBeVisible()
+	}
 })
 
 test('Private groups can be opened as a routed panel', async ({ earthly }) => {

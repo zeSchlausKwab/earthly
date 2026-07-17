@@ -3,6 +3,7 @@ import { useAccountManager, useAccounts, useActiveAccount } from 'applesauce-rea
 import { AppWindowIcon, KeyRoundIcon, LogOut, QrCodeIcon, Users } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { shouldOfferNip07Login } from './loginCapabilities'
 import { Nip46LoginDialog } from './Nip46LoginDialog'
 import { SignupDialog } from './SignupDialog'
 import { Button } from '@/components/ui/button'
@@ -81,6 +82,7 @@ export function SessionsManager() {
 	const manager = useAccountManager()
 	const accounts = useAccounts()
 	const active = useActiveAccount()
+	const offerNip07Login = shouldOfferNip07Login()
 
 	const [loading, setLoading] = useState(false)
 	const [showSignupDialog, setShowSignupDialog] = useState(false)
@@ -147,21 +149,23 @@ export function SessionsManager() {
 						</TooltipTrigger>
 						<TooltipContent>Create or import a private key</TooltipContent>
 					</Tooltip>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								variant="outline"
-								size="sm"
-								className="flex-1"
-								onClick={handleNip07Login}
-								disabled={loading}
-							>
-								<AppWindowIcon className="w-4 h-4 mr-1" />
-								Extension
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>Use browser extension (NIP-07)</TooltipContent>
-					</Tooltip>
+					{offerNip07Login && (
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									variant="outline"
+									size="sm"
+									className="flex-1"
+									onClick={handleNip07Login}
+									disabled={loading}
+								>
+									<AppWindowIcon className="w-4 h-4 mr-1" />
+									Extension
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent>Use browser extension (NIP-07)</TooltipContent>
+						</Tooltip>
+					)}
 					<Nip46LoginDialog
 						trigger={
 							<Button

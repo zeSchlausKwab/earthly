@@ -178,6 +178,14 @@ describe('parsePathSegments — malformed naddr does not crash (D-11 / T-13-02-M
 })
 
 describe('parsePathSegments — landing default', () => {
+	test('/drafts opens local drafts and round-trips through the canonical route', () => {
+		expect(parsePathSegments(['drafts'])).toEqual({
+			focusType: 'none',
+			sidebarView: 'drafts',
+		})
+		expect(buildRoutePath({ sidebarView: 'drafts' })).toBe('/drafts')
+	})
+
 	test('/delivery opens the native delivery ledger', () => {
 		expect(parsePathSegments(['delivery'])).toEqual({
 			focusType: 'none',

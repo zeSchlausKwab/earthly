@@ -11,6 +11,7 @@ import type { CollectionMeta, EditorBlobReference, GeoSearchResult } from '../ty
 
 export type SidebarViewMode =
 	| 'datasets'
+	| 'drafts'
 	| 'map-stack'
 	| 'contexts'
 	| 'field-sessions'
@@ -196,6 +197,7 @@ export interface MapStackEntry {
 
 export type MobilePanelTab =
 	| 'datasets'
+	| 'drafts'
 	| 'map-stack'
 	| 'contexts'
 	| 'field-sessions'
@@ -227,7 +229,24 @@ export interface MobilePanelResume {
 	snap: MobilePanelSnap
 }
 
+/**
+ * The transport boundary a draft will be published through. This is persisted
+ * with the draft instead of inferred from the current route so reopening a
+ * private or field draft outside its original screen cannot silently turn it
+ * into a public publish.
+ */
+export type PublishChannel =
+	| { kind: 'public' }
+	| { kind: 'private-group'; id: string }
+	| { kind: 'field-session'; id: string }
+	| { kind: 'unresolved'; reason: 'legacy' | 'invalid' }
+
 export interface GeoCollectionEditDraft {
+	/**
+	 * Version 1 is a legacy draft that predates persisted destination/context
+	 * state. Any write upgrades it to version 2.
+	 */
+	persistenceVersion: 1 | 2
 	id: string
 	sourceId: string
 	name: string
@@ -235,6 +254,9 @@ export interface GeoCollectionEditDraft {
 	collectionMeta: CollectionMeta
 	features: EditorFeature[]
 	selectedFeatureIds: string[]
+	publishChannel: PublishChannel
+	contextRefs: string[]
+	blobReferences: EditorBlobReference[]
 	createdAt: number
 	updatedAt: number
 }
@@ -284,7 +306,14 @@ export interface DraftSlice {
 		seed?: Partial<
 			Pick<
 				GeoCollectionEditDraft,
-				'name' | 'description' | 'collectionMeta' | 'features' | 'selectedFeatureIds'
+				| 'name'
+				| 'description'
+				| 'collectionMeta'
+				| 'features'
+				| 'selectedFeatureIds'
+				| 'publishChannel'
+				| 'contextRefs'
+				| 'blobReferences'
 			>
 		>,
 	) => string
@@ -294,12 +323,21 @@ export interface DraftSlice {
 		updates: Partial<
 			Pick<
 				GeoCollectionEditDraft,
-				'sourceId' | 'name' | 'description' | 'collectionMeta' | 'features' | 'selectedFeatureIds'
+				| 'sourceId'
+				| 'name'
+				| 'description'
+				| 'collectionMeta'
+				| 'features'
+				| 'selectedFeatureIds'
+				| 'publishChannel'
+				| 'contextRefs'
+				| 'blobReferences'
 			>
 		>,
 	) => void
 	loadGeoEditDraft: (id: string) => void
 	deleteGeoEditDraft: (id: string) => void
+	deleteGeoEditDraftsBySourceId: (sourceId: string) => void
 }
 
 export interface WorkspaceSlice {

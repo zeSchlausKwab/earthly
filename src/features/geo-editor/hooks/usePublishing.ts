@@ -123,6 +123,9 @@ interface UsePublishingOptions {
 		collection: FeatureCollection,
 		options?: { datasetId?: string; name?: string; previous?: GeoDataset },
 	) => Promise<GeoDataset>
+	/** False for quarantined drafts whose historical destination cannot be proven. */
+	publishBoundaryResolved?: boolean
+	publishBoundaryMessage?: string
 }
 
 /**
@@ -153,11 +156,19 @@ export function usePublishing({
 	publishPrivateDataset,
 	fieldSessionId,
 	publishFieldDataset,
+	publishBoundaryResolved = true,
+	publishBoundaryMessage = 'Choose a verified destination before publishing this draft.',
 }: UsePublishingOptions) {
 	void resolvedCollectionResolver
 	const workspaceMode = privateWorkspaceId ? 'private' : fieldSessionId ? 'field' : 'public'
 	const workspacePublisher = privateWorkspaceId ? publishPrivateDataset : publishFieldDataset
 	const hasWorkspaceScope = workspaceMode !== 'public'
+	// A persisted private/nearby draft may be reopened while its group or field
+	// session is unavailable. Keep the channel intact, but do not present a Save
+	// action that could fail over to the public publisher. The caller restores the
+	// scoped publisher only after the destination has been resolved locally.
+	const workspacePublisherReady =
+		publishBoundaryResolved && (!hasWorkspaceScope || Boolean(workspacePublisher))
 	// Store state
 	const editor = useEditorStore((state) => state.editor)
 	const features = useEditorStore((state) => state.features)
@@ -533,6 +544,10 @@ export function usePublishing({
 
 	const handlePublishNew = useCallback(async () => {
 		if (!editor) return
+		if (!publishBoundaryResolved) {
+			setPublishError(publishBoundaryMessage)
+			return
+		}
 		setIsPublishing(true)
 		setPublishMessage('Preparing dataset...')
 		setPublishError(null)
@@ -596,6 +611,8 @@ export function usePublishing({
 		}
 	}, [
 		editor,
+		publishBoundaryResolved,
+		publishBoundaryMessage,
 		setIsPublishing,
 		setPublishMessage,
 		setPublishError,
@@ -621,6 +638,10 @@ export function usePublishing({
 	 */
 	const handlePublishWithBlossomUpload = useCallback(
 		async (blobResult: { sha256: string; url: string; size: number }) => {
+			if (!publishBoundaryResolved || hasWorkspaceScope) {
+				setPublishError('External public storage is unavailable for this draft destination.')
+				return
+			}
 			const signer = accounts.signer
 			if (!signer) {
 				setPublishError('No active account.')
@@ -681,6 +702,8 @@ export function usePublishing({
 			}
 		},
 		[
+			publishBoundaryResolved,
+			hasWorkspaceScope,
 			setIsPublishing,
 			setPublishMessage,
 			setPublishError,
@@ -702,6 +725,10 @@ export function usePublishing({
 
 	const handlePublishUpdate = useCallback(async () => {
 		if (!editor || !activeDataset) return
+		if (!publishBoundaryResolved) {
+			setPublishError(publishBoundaryMessage)
+			return
+		}
 		setIsPublishing(true)
 		setPublishMessage('Updating dataset...')
 		setPublishError(null)
@@ -788,6 +815,8 @@ export function usePublishing({
 		}
 	}, [
 		editor,
+		publishBoundaryResolved,
+		publishBoundaryMessage,
 		activeDataset,
 		setIsPublishing,
 		setPublishMessage,
@@ -812,6 +841,10 @@ export function usePublishing({
 
 	const handlePublishCopy = useCallback(async () => {
 		if (!editor) return
+		if (!publishBoundaryResolved) {
+			setPublishError(publishBoundaryMessage)
+			return
+		}
 		setIsPublishing(true)
 		setPublishMessage('Creating copy...')
 		setPublishError(null)
@@ -872,6 +905,8 @@ export function usePublishing({
 		}
 	}, [
 		editor,
+		publishBoundaryResolved,
+		publishBoundaryMessage,
 		setIsPublishing,
 		setPublishMessage,
 		setPublishError,
@@ -894,6 +929,10 @@ export function usePublishing({
 	const handleProposeEdit = useCallback(
 		async (description: string) => {
 			if (!editor || !activeDataset) return
+			if (!publishBoundaryResolved) {
+				setPublishError(publishBoundaryMessage)
+				return
+			}
 			setIsPublishing(true)
 			setPublishMessage('Creating edit proposal...')
 			setPublishError(null)
@@ -943,6 +982,8 @@ export function usePublishing({
 		},
 		[
 			editor,
+			publishBoundaryResolved,
+			publishBoundaryMessage,
 			activeDataset,
 			setIsPublishing,
 			setPublishMessage,
@@ -993,12 +1034,21 @@ export function usePublishing({
 	const canPublishNew =
 		features.length > 0 &&
 		!activeDataset &&
+		workspacePublisherReady &&
 		(hasWorkspaceScope || hasCollectionBlob || (collection ? !isOverSizeLimit(collection) : true))
 	const canPublishUpdate =
-		!!activeDataset && currentUserPubkey === activeDataset?.pubkey && features.length > 0 && isDirty
+		workspacePublisherReady &&
+		!!activeDataset &&
+		currentUserPubkey === activeDataset?.pubkey &&
+		features.length > 0 &&
+		isDirty
 	const canPublishCopy =
-		!!activeDataset && currentUserPubkey !== activeDataset?.pubkey && features.length > 0
+		workspacePublisherReady &&
+		!!activeDataset &&
+		currentUserPubkey !== activeDataset?.pubkey &&
+		features.length > 0
 	const canProposeEdit =
+		publishBoundaryResolved &&
 		!hasWorkspaceScope &&
 		!!activeDataset &&
 		currentUserPubkey !== activeDataset?.pubkey &&

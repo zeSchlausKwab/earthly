@@ -7,6 +7,7 @@ export type { SidebarViewMode }
 
 /** All valid sidebar view mode values */
 const SIDEBAR_VIEW_MODES: SidebarViewMode[] = [
+	'drafts',
 	'datasets',
 	'map-stack',
 	'contexts',
@@ -452,12 +453,22 @@ export function useRouting() {
 				// Private groups are their own encrypted scope; a public Context filter
 				// must not leak into or wrap their route.
 				contextNaddr:
-					view === 'private-groups' || view === 'field-sessions'
+					view === 'drafts' || view === 'private-groups' || view === 'field-sessions'
 						? undefined
 						: currentRoute.contextNaddr,
-				privateGroupId: view === 'private-groups' ? undefined : currentRoute.privateGroupId,
-				fieldSessionId: view === 'field-sessions' ? undefined : currentRoute.fieldSessionId,
+				privateGroupId:
+					view === 'drafts' || view === 'private-groups' ? undefined : currentRoute.privateGroupId,
+				fieldSessionId:
+					view === 'drafts' || view === 'field-sessions' ? undefined : currentRoute.fieldSessionId,
 			})
+		},
+		[commit],
+	)
+
+	/** Leave every private/nearby/context route boundary and open a root catalog. */
+	const navigateToUnscopedView = useCallback(
+		(view: SidebarViewMode) => {
+			commit({ sidebarView: view })
 		},
 		[commit],
 	)
@@ -623,6 +634,7 @@ export function useRouting() {
 	return {
 		route,
 		navigateToView,
+		navigateToUnscopedView,
 		navigateToPrivateGroup,
 		navigateToFieldSession,
 		navigateTo,

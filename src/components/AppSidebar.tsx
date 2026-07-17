@@ -6,6 +6,7 @@ import {
 	BookOpen,
 	CloudUpload,
 	Eye,
+	FilePenLine,
 	Newspaper,
 	PanelLeftClose,
 	PanelLeftOpen,
@@ -64,13 +65,19 @@ import { useRouting, type SidebarViewMode } from '../features/geo-editor/hooks/u
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
 import type { EditorFeature } from '../features/geo-editor/core'
 import { EntitySearchPopover, type EntitySearchResult } from './entity-search'
-import { WorkspaceDraftNavigator } from './WorkspaceDraftNavigator'
+import {
+	LocalDraftsPanel,
+	type LocalDraftDestinationOption,
+	type WorkspaceDraftNavigatorProps,
+	WorkspaceDraftNavigator,
+} from './WorkspaceDraftNavigator'
 import { Button } from './ui/button'
 import { PublishOutboxPanel } from '../features/delivery'
 
 type SidebarContentMode = Exclude<SidebarViewMode, 'combined'>
 type EntityWorkspace = 'geometry' | 'context' | 'story' | 'sighting' | 'beacon'
 type WorkViewMode =
+	| 'drafts'
 	| 'datasets'
 	| 'contexts'
 	| 'field-sessions'
@@ -82,6 +89,7 @@ type WorkViewMode =
 type MetaViewMode = 'posts' | 'delivery' | 'wallet' | 'settings' | 'help'
 
 const WORK_VIEW_MODES: WorkViewMode[] = [
+	'drafts',
 	'datasets',
 	'contexts',
 	'field-sessions',
@@ -107,6 +115,7 @@ const workNavItems: {
 	title: string
 	icon: typeof Database
 }[] = [
+	{ mode: 'drafts', title: 'Local drafts', icon: FilePenLine },
 	{ mode: 'datasets', title: 'Datasets', icon: Database },
 	{ mode: 'contexts', title: 'Contexts', icon: Globe },
 	{ mode: 'field-sessions', title: 'Field sessions', icon: RadioTower },
@@ -217,6 +226,10 @@ interface AppSidebarProps {
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void
 	onAddDraftToWorkspace?: (workspaceId: string) => void | Promise<void>
+	onLoadDraft?: (workspaceId: string, draftId: string) => void | Promise<void>
+	onDeleteDraft?: (workspaceId: string, draftId: string) => void | Promise<void>
+	draftDestinationOptions?: LocalDraftDestinationOption[]
+	onResolveDraftDestination?: WorkspaceDraftNavigatorProps['onResolveDraftDestination']
 	onToggleVisibility: (event: GeoDataset) => void
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: GeoDataset) => void
@@ -361,6 +374,10 @@ export function AppSidebar({
 	onSwitchWorkspace,
 	onDeleteWorkspace,
 	onAddDraftToWorkspace,
+	onLoadDraft,
+	onDeleteDraft,
+	draftDestinationOptions,
+	onResolveDraftDestination,
 	onToggleVisibility,
 	onToggleAllVisibility,
 	onZoomToDataset,
@@ -1038,6 +1055,19 @@ export function AppSidebar({
 
 	const renderWorkContent = (mode: WorkViewMode) => {
 		switch (mode) {
+			case 'drafts':
+				return (
+					<LocalDraftsPanel
+						onStartNewDataset={onStartNewDataset}
+						onSwitchWorkspace={onSwitchWorkspace}
+						onDeleteWorkspace={onDeleteWorkspace}
+						onAddDraftToWorkspace={onAddDraftToWorkspace}
+						onLoadDraft={onLoadDraft}
+						onDeleteDraft={onDeleteDraft}
+						destinationOptions={draftDestinationOptions}
+						onResolveDraftDestination={onResolveDraftDestination}
+					/>
+				)
 			case 'datasets':
 				return <GeoDatasetsPanelContent mode="datasets" {...datasetsPanelProps} />
 			case 'contexts':
@@ -1390,13 +1420,17 @@ export function AppSidebar({
 					    items carry that role now, with derived active state. */}
 					<div className="flex w-full items-center gap-2">
 						<div className="min-w-0 flex-1">
-							{contentMode === 'private-groups' ? (
+							{contentMode === 'drafts' ? (
 								<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
-									Encrypted workspace
+									Saved on this device
+								</div>
+							) : contentMode === 'private-groups' ? (
+								<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
+									Private group records
 								</div>
 							) : contentMode === 'field-sessions' ? (
 								<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
-									Nearby workspace
+									Field session records
 								</div>
 							) : contentMode === 'delivery' ? (
 								<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
@@ -1408,7 +1442,7 @@ export function AppSidebar({
 									entityTypes={['context']}
 									onSelect={handleContextScopeSelect}
 									placeholder={
-										activeContextScopeLabel ? activeContextScopeLabel : 'Filter by context…'
+										activeContextScopeLabel ? activeContextScopeLabel : 'Browse all contexts'
 									}
 									searchMode="local"
 									compact
@@ -1417,14 +1451,14 @@ export function AppSidebar({
 						</div>
 
 						<div className="flex shrink-0 items-center gap-1">
-							{contextNaddr ? (
+							{contextNaddr && contentMode !== 'drafts' ? (
 								<Button
 									type="button"
 									variant="ghost"
 									size="icon-sm"
 									onClick={clearContextScope}
-									title="Leave context scope"
-									aria-label="Leave context scope"
+									title="Clear context browse scope"
+									aria-label="Clear context browse scope"
 									className="h-7 w-7"
 								>
 									<X className="h-3.5 w-3.5" />
@@ -1449,17 +1483,18 @@ export function AppSidebar({
 							</span>
 						</div>
 					</div>
-					{currentUserPubkey &&
-						contentMode !== 'private-groups' &&
-						contentMode !== 'field-sessions' &&
-						contentMode !== 'delivery' && (
-							<WorkspaceDraftNavigator
-								onStartNewDataset={onStartNewDataset}
-								onSwitchWorkspace={onSwitchWorkspace}
-								onDeleteWorkspace={onDeleteWorkspace}
-								onAddDraftToWorkspace={onAddDraftToWorkspace}
-							/>
-						)}
+					{contentMode !== 'drafts' && contentMode !== 'delivery' && (
+						<WorkspaceDraftNavigator
+							onStartNewDataset={onStartNewDataset}
+							onSwitchWorkspace={onSwitchWorkspace}
+							onDeleteWorkspace={onDeleteWorkspace}
+							onAddDraftToWorkspace={onAddDraftToWorkspace}
+							onLoadDraft={onLoadDraft}
+							onDeleteDraft={onDeleteDraft}
+							destinationOptions={draftDestinationOptions}
+							onResolveDraftDestination={onResolveDraftDestination}
+						/>
+					)}
 				</SidebarHeader>
 
 				<SidebarContent className="p-2">

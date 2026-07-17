@@ -12,6 +12,7 @@ import type { MobilePanelTab, SidebarViewMode } from './types'
 // view/tab added on one side without the other fails loudly here.
 
 const ALL_TABS: MobilePanelTab[] = [
+	'drafts',
 	'datasets',
 	'map-stack',
 	'contexts',
@@ -32,6 +33,7 @@ const ALL_TABS: MobilePanelTab[] = [
 ]
 
 const ALL_VIEWS: SidebarViewMode[] = [
+	'drafts',
 	'datasets',
 	'map-stack',
 	'contexts',

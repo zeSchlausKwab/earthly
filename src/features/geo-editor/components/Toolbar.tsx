@@ -90,6 +90,8 @@ import {
 import { OSM_FILTER_PRESETS } from './toolbar/OsmImportPopover'
 import { useResponsiveToolbar } from './toolbar/useResponsiveToolbar'
 import { Input } from '@/components/ui/input'
+import { CurrentDestinationPill } from './CurrentDestinationPill'
+import type { ResolvedAuthoringDestination } from './authoringDestination'
 
 interface DatasetActionsProps {
 	onExportGeoJSON?: () => void
@@ -129,6 +131,9 @@ interface ToolbarProps {
 	onToggleChat?: () => void
 	/** E.3: exits the Focus stance — wired to the interactive stance pill. */
 	onExitFocus?: () => void
+	destination?: ResolvedAuthoringDestination
+	onActivateDestination?: () => void
+	onLeaveDestination?: () => void
 }
 
 interface MapStateClusterProps {
@@ -399,6 +404,9 @@ export function Toolbar({
 	onToggleMapStack,
 	onToggleChat,
 	onExitFocus,
+	destination,
+	onActivateDestination,
+	onLeaveDestination,
 }: ToolbarProps) {
 	const editor = useEditorStore((state) => state.editor)
 	const mode = useEditorStore((state) => state.mode)
@@ -1304,7 +1312,20 @@ export function Toolbar({
 					/>
 					<Divider />
 
-					{/* Topic 4: file / draw / edit menus (priority-expanding) */}
+					{/* Topic 4: one truthful authoring destination. This is distinct
+					    from Browse / Inspect / Edit stance and from Map Stack isolation. */}
+					{destination ? (
+						<>
+							<CurrentDestinationPill
+								destination={destination}
+								onActivate={onActivateDestination}
+								onLeave={onLeaveDestination}
+							/>
+							<Divider />
+						</>
+					) : null}
+
+					{/* Topic 5: file / draw / edit menus (priority-expanding) */}
 					{desktopCommandMenubar}
 
 					{/* Grow-spacer: once the priority-expanding menus can't grow any

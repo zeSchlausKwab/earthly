@@ -51,6 +51,12 @@ import { useEditorStore, type MapStackEntry, type MobilePanelSnap } from '../sto
 import { mobileTabToView } from '../store/mobileTabRoute'
 import { SignedOutCta } from '@/features/auth/SignedOutCta'
 import { LoginSessionButtons } from '@/features/auth/LoginSessionButtons'
+import {
+	countVisibleLocalDraftWorkspaces,
+	LocalDraftsPanel,
+	type LocalDraftDestinationOption,
+	type WorkspaceDraftNavigatorProps,
+} from '@/components/WorkspaceDraftNavigator'
 import { MapSettingsPanel } from './MapSettingsPanel'
 import { ChatPanel } from '@/features/chat'
 import { Nip60Wallet } from '@/features/wallet/components/Nip60Wallet'
@@ -58,6 +64,7 @@ import { useRouting } from '../hooks/useRouting'
 import { PublishOutboxPanel } from '@/features/delivery'
 
 export type MobilePanelTab =
+	| 'drafts'
 	| 'datasets'
 	| 'map-stack'
 	| 'contexts'
@@ -96,6 +103,11 @@ export interface MobilePanelProps {
 	onRefreshFieldSessionEvents?: () => Promise<void>
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void
+	onAddDraftToWorkspace?: (workspaceId: string) => void | Promise<void>
+	onLoadDraft?: (workspaceId: string, draftId: string) => void | Promise<void>
+	onDeleteDraft?: (workspaceId: string, draftId: string) => void | Promise<void>
+	draftDestinationOptions?: LocalDraftDestinationOption[]
+	onResolveDraftDestination?: WorkspaceDraftNavigatorProps['onResolveDraftDestination']
 	onToggleVisibility: (event: GeoDataset) => void
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: GeoDataset) => void
@@ -189,6 +201,7 @@ export interface MobilePanelProps {
 }
 
 const TAB_CONFIG: { id: MobilePanelTab; label: string; icon: typeof Database }[] = [
+	{ id: 'drafts', label: 'Local drafts', icon: FilePenLine },
 	{ id: 'sightings', label: 'Sightings', icon: Eye },
 	{ id: 'beacons', label: 'Live beacons', icon: Radio },
 	{ id: 'stories', label: 'Stories', icon: BookOpen },
@@ -218,6 +231,7 @@ const tabMeta = (id: MobilePanelTab) => TAB_CONFIG.find((tab) => tab.id === id) 
  * are reached via a "+ new" action, not the switcher.
  */
 const SIDEBAR_GROUPS: { label: string; tabs: MobilePanelTab[] }[] = [
+	{ label: 'Your work', tabs: ['drafts'] },
 	{
 		label: 'Explore',
 		tabs: [
@@ -279,6 +293,11 @@ export function MobilePanel(props: MobilePanelProps) {
 		onRefreshFieldSessionEvents,
 		onSwitchWorkspace,
 		onDeleteWorkspace,
+		onAddDraftToWorkspace,
+		onLoadDraft,
+		onDeleteDraft,
+		draftDestinationOptions,
+		onResolveDraftDestination,
 		onToggleVisibility,
 		onToggleAllVisibility,
 		onZoomToDataset,
@@ -389,6 +408,13 @@ export function MobilePanel(props: MobilePanelProps) {
 	// of living in a separate panel.
 	const editorStance = useEditorStore((state) => state.stance)
 	const draftEditorSlot = useEditorStore((state) => state.draftEditorSlot)
+	const localDraftCount = useEditorStore((state) =>
+		countVisibleLocalDraftWorkspaces(
+			state.workspaces,
+			state.geoEditDrafts,
+			state.activeWorkspaceId,
+		),
+	)
 
 	const handleClose = () => setMobilePanelOpen(false)
 	const sidebarIsMenu = mobileSidebarMode === 'menu'
@@ -482,7 +508,13 @@ export function MobilePanel(props: MobilePanelProps) {
 	}
 
 	const panelCount = (id: MobilePanelTab): number | undefined =>
-		id === 'datasets' ? geoEvents.length : id === 'contexts' ? mapContextEvents.length : undefined
+		id === 'drafts'
+			? localDraftCount
+			: id === 'datasets'
+				? geoEvents.length
+				: id === 'contexts'
+					? mapContextEvents.length
+					: undefined
 	const selectPanel = (id: MobilePanelTab) => {
 		if (id === 'edit') {
 			// The geometry-editor opener owns its own navigation (draft/workspace
@@ -506,17 +538,19 @@ export function MobilePanel(props: MobilePanelProps) {
 
 	// The "+ new" action in the sheet header, per active browse tab.
 	const newAction: { label: string; onClick: () => void } | null =
-		mobilePanelTab === 'datasets' && onStartNewDataset
-			? { label: 'New dataset', onClick: onStartNewDataset }
-			: mobilePanelTab === 'contexts' && onCreateContext
-				? { label: 'New context', onClick: onCreateContext }
-				: mobilePanelTab === 'sightings' && sightingsPanelProps
-					? { label: 'New sighting', onClick: sightingsPanelProps.onCreateSighting }
-					: mobilePanelTab === 'beacons' && beaconsPanelProps
-						? { label: 'Share live location', onClick: beaconsPanelProps.onShareLocation }
-						: mobilePanelTab === 'stories' && storiesPanelProps
-							? { label: 'New story', onClick: storiesPanelProps.onCreateStory }
-							: null
+		mobilePanelTab === 'drafts' && onStartNewDataset
+			? { label: 'New draft', onClick: onStartNewDataset }
+			: mobilePanelTab === 'datasets' && onStartNewDataset
+				? { label: 'New dataset', onClick: onStartNewDataset }
+				: mobilePanelTab === 'contexts' && onCreateContext
+					? { label: 'New context', onClick: onCreateContext }
+					: mobilePanelTab === 'sightings' && sightingsPanelProps
+						? { label: 'New sighting', onClick: sightingsPanelProps.onCreateSighting }
+						: mobilePanelTab === 'beacons' && beaconsPanelProps
+							? { label: 'Share live location', onClick: beaconsPanelProps.onShareLocation }
+							: mobilePanelTab === 'stories' && storiesPanelProps
+								? { label: 'New story', onClick: storiesPanelProps.onCreateStory }
+								: null
 
 	// The entity/geometry editor — rendered in the Map Stack draft slot while
 	// authoring a draft (editor-in-Map-Stack), otherwise in the 'edit' tab body
@@ -654,7 +688,9 @@ export function MobilePanel(props: MobilePanelProps) {
 													<p className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
 														Earthly
 													</p>
-													<h2 className="text-lg font-semibold text-foreground">Map workspace</h2>
+													<h2 className="text-lg font-semibold text-foreground">
+														Map & saved work
+													</h2>
 												</div>
 												<Button
 													variant="ghost"
@@ -762,6 +798,7 @@ export function MobilePanel(props: MobilePanelProps) {
 										{mobileSidebarOpen &&
 										mobilePanelTab !== 'private-groups' &&
 										mobilePanelTab !== 'field-sessions' &&
+										mobilePanelTab !== 'drafts' &&
 										mobilePanelTab !== 'delivery' ? (
 											<div className="shrink-0 border-b border-border bg-card px-3 py-1.5">
 												<div className="flex items-center gap-1.5">
@@ -770,7 +807,7 @@ export function MobilePanel(props: MobilePanelProps) {
 															sources={{ contexts: mapContextEvents }}
 															entityTypes={['context']}
 															onSelect={handleContextScopeSelect}
-															placeholder={activeContextScopeLabel ?? 'No context filter'}
+															placeholder={activeContextScopeLabel ?? 'Browse all contexts'}
 															searchMode="local"
 															compact
 														/>
@@ -781,7 +818,7 @@ export function MobilePanel(props: MobilePanelProps) {
 															variant="outline"
 															size="icon-sm"
 															onClick={clearContextScope}
-															aria-label="Leave context scope"
+															aria-label="Clear context browse scope"
 														>
 															<X className="h-3.5 w-3.5" />
 														</Button>
@@ -791,6 +828,21 @@ export function MobilePanel(props: MobilePanelProps) {
 										) : null}
 										<EmbeddedListPanelContext.Provider value={true}>
 											<div className="flex-1 overflow-y-auto px-3 pb-4 pt-2">
+												{mobilePanelTab === 'drafts' ? (
+													<div className="-mx-3 -mb-4 -mt-2 h-full min-h-[18rem]">
+														<LocalDraftsPanel
+															onStartNewDataset={onStartNewDataset}
+															onSwitchWorkspace={onSwitchWorkspace}
+															onDeleteWorkspace={onDeleteWorkspace}
+															onAddDraftToWorkspace={onAddDraftToWorkspace}
+															onLoadDraft={onLoadDraft}
+															onDeleteDraft={onDeleteDraft}
+															destinationOptions={draftDestinationOptions}
+															onResolveDraftDestination={onResolveDraftDestination}
+															showPanelHeader={false}
+														/>
+													</div>
+												) : null}
 												{mobilePanelTab === 'datasets' ? (
 													<GeoDatasetsPanelContent
 														mode="datasets"

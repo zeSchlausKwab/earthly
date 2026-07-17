@@ -55,6 +55,7 @@ export type {
 	MobilePanelResume,
 	GeoCollectionEditDraft,
 	GeoEditorWorkspace,
+	PublishChannel,
 	SidebarViewMode,
 	SettingsTab,
 	Stance,

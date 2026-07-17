@@ -12,6 +12,7 @@ import {
 import { nip19 } from 'nostr-tools'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { shouldOfferNip07Login } from './loginCapabilities'
 import { Nip46LoginDialog } from './Nip46LoginDialog'
 import { SignupDialog } from './SignupDialog'
 import { Button } from '@/components/ui/button'
@@ -32,6 +33,7 @@ export function LoginSessionButtons() {
 	const manager = useAccountManager()
 	const active = useActiveAccount()
 	const allAccounts = useAccounts()
+	const offerNip07Login = shouldOfferNip07Login()
 
 	const [loading, setLoading] = useState(false)
 	const [showSignupDialog, setShowSignupDialog] = useState(false)
@@ -130,24 +132,26 @@ export function LoginSessionButtons() {
 							<p className="text-xs text-muted-foreground">Create or import a private key</p>
 						</TooltipContent>
 					</Tooltip>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								variant={'default'}
-								size="icon"
-								className="h-10 w-10"
-								aria-label="Sign in with browser extension"
-								onClick={handleNip07Login}
-								disabled={loading}
-							>
-								<AppWindowIcon className="w-5 h-5" />
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>
-							<p className="font-medium">Browser extension</p>
-							<p className="text-xs text-muted-foreground">Sign in with Alby, nos2x, etc.</p>
-						</TooltipContent>
-					</Tooltip>
+					{offerNip07Login && (
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									variant={'default'}
+									size="icon"
+									className="h-10 w-10"
+									aria-label="Sign in with browser extension"
+									onClick={handleNip07Login}
+									disabled={loading}
+								>
+									<AppWindowIcon className="w-5 h-5" />
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent>
+								<p className="font-medium">Browser extension</p>
+								<p className="text-xs text-muted-foreground">Sign in with Alby, nos2x, etc.</p>
+							</TooltipContent>
+						</Tooltip>
+					)}
 					<Tooltip>
 						<Nip46LoginDialog
 							trigger={

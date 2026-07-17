@@ -3,10 +3,13 @@ import type { FeatureCollection } from 'geojson'
 import maplibregl from 'maplibre-gl'
 import { useCallback, useRef } from 'react'
 import { useChatStore } from '@/features/chat'
+import { fieldSessionIdForEvent } from '@/features/field-sessions/events'
 import { resolveGeoEventFeatureCollection } from '@/lib/geo/resolveBlobReferences'
 import type { GeoDataset, GeoBlobReference } from '@/lib/nostr/geo-event'
+import { privateWorkspaceIdForDataset } from '@/lib/private-workspace/projection'
 import { getLocalBlobRevision } from '@/platform/registry'
-import { useEditorStore } from '../store'
+import { publishChannelMatchesDatasetScope } from '../components/authoringDestination'
+import { useEditorStore, type PublishChannel } from '../store'
 import type { EditorBlobReference } from '../types'
 import {
 	convertGeoEventsToEditorFeatures,
@@ -19,6 +22,33 @@ interface ResolvedCache {
 	eventId?: string | null
 	featureCollection: FeatureCollection
 	localBlobRevision: number
+}
+
+/**
+ * A caller creating a draft must state its non-public boundary explicitly.
+ * Existing drafts always keep their persisted channel when reopened.
+ */
+export interface DraftAuthoringOptions {
+	publishChannel?: PublishChannel
+}
+
+const PUBLIC_PUBLISH_CHANNEL: PublishChannel = { kind: 'public' }
+
+function datasetMatchesPublishChannel(event: GeoDataset, publishChannel: PublishChannel): boolean {
+	return publishChannelMatchesDatasetScope(publishChannel, {
+		privateGroupId: privateWorkspaceIdForDataset(event) ?? undefined,
+		fieldSessionId: fieldSessionIdForEvent(event.event) ?? undefined,
+	})
+}
+
+function mostRecentDraftForSource(
+	store: ReturnType<typeof useEditorStore.getState>,
+	sourceId: string,
+	excludeDraftId?: string,
+) {
+	return Object.values(store.geoEditDrafts)
+		.filter((draft) => draft.sourceId === sourceId && draft.id !== excludeDraftId)
+		.sort((a, b) => b.updatedAt - a.updatedAt)[0]
 }
 
 function createBlankDraftSourceId() {
@@ -69,6 +99,7 @@ export function useDatasetManagement(
 	const editor = useEditorStore((state) => state.editor)
 	const setFeatures = useEditorStore((state) => state.setFeatures)
 	const setActiveDataset = useEditorStore((state) => state.setActiveDataset)
+	const setIsDirty = useEditorStore((state) => state.setIsDirty)
 	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
 	const removeMapStackEntry = useEditorStore((state) => state.removeMapStackEntry)
 	const recordRecentEntity = useEditorStore((state) => state.recordRecentEntity)
@@ -92,8 +123,12 @@ export function useDatasetManagement(
 	const setDatasetResolvingProgress = useEditorStore((state) => state.setDatasetResolvingProgress)
 	const setActiveGeoEditDraftId = useEditorStore((state) => state.setActiveGeoEditDraftId)
 	const createGeoEditDraft = useEditorStore((state) => state.createGeoEditDraft)
+	const saveGeoEditDraft = useEditorStore((state) => state.saveGeoEditDraft)
 	const loadGeoEditDraft = useEditorStore((state) => state.loadGeoEditDraft)
 	const deleteGeoEditDraft = useEditorStore((state) => state.deleteGeoEditDraft)
+	const deleteGeoEditDraftsBySourceId = useEditorStore(
+		(state) => state.deleteGeoEditDraftsBySourceId,
+	)
 	const createWorkspace = useEditorStore((state) => state.createWorkspace)
 	const updateWorkspace = useEditorStore((state) => state.updateWorkspace)
 	const deleteWorkspaceState = useEditorStore((state) => state.deleteWorkspace)
@@ -284,12 +319,13 @@ export function useDatasetManagement(
 		],
 	)
 
-	const switchToWorkspace = useCallback(
-		async (workspaceId: string) => {
+	const loadDraftInWorkspace = useCallback(
+		(workspaceId: string, draftId: string) => {
 			if (!editor) return
 			const store = useEditorStore.getState()
 			const workspace = store.workspaces[workspaceId]
-			if (!workspace) return
+			const draft = store.geoEditDrafts[draftId]
+			if (!workspace || !draft || draft.sourceId !== workspace.sourceId) return
 
 			setActiveWorkspaceId(workspaceId)
 			const chatSessionId = workspace.chatSessionId ?? createWorkspaceChat()
@@ -300,7 +336,95 @@ export function useDatasetManagement(
 
 			const event = workspace.datasetKey
 				? (geoEventsRef.current.find(
-						(geoEvent) => getDatasetKey(geoEvent) === workspace.datasetKey,
+						(geoEvent) =>
+							getDatasetKey(geoEvent) === workspace.datasetKey &&
+							datasetMatchesPublishChannel(geoEvent, draft.publishChannel),
+					) ?? null)
+				: null
+			const isLegacyDraft = draft.persistenceVersion === 1
+			const contextRefs = isLegacyDraft ? (event?.contextReferences ?? []) : draft.contextRefs
+			const blobReferences = isLegacyDraft
+				? convertGeoBlobReferencesToEditor(event?.blobReferences ?? [])
+				: draft.blobReferences
+
+			// Apply the persisted payload to both the actual editor and Zustand before
+			// changing the active draft id. This keeps geometry and destination atomic.
+			applyEditingState({
+				features: draft.features,
+				activeDataset: event,
+				contextRefs,
+				collectionMeta: draft.collectionMeta,
+				blobReferences,
+			})
+			if (isLegacyDraft) {
+				// Legacy drafts keep their quarantined destination. Restoring attachments
+				// must never infer Public from the route that happens to be open.
+				saveGeoEditDraft(draft.id, {
+					contextRefs,
+					blobReferences,
+				})
+			}
+			loadGeoEditDraft(draft.id)
+			// A persisted revision of an existing dataset represents recoverable
+			// unpublished work. Keep Update available once its source identity is
+			// resolved, even after a reload or revision switch.
+			setIsDirty(Boolean(workspace.datasetKey))
+			updateWorkspace(workspaceId, { activeDraftId: draft.id })
+		},
+		[
+			editor,
+			setActiveWorkspaceId,
+			createWorkspaceChat,
+			updateWorkspace,
+			activateWorkspaceChat,
+			getDatasetKey,
+			convertGeoBlobReferencesToEditor,
+			applyEditingState,
+			saveGeoEditDraft,
+			loadGeoEditDraft,
+			setIsDirty,
+		],
+	)
+
+	const switchToWorkspace = useCallback(
+		async (workspaceId: string, options?: DraftAuthoringOptions) => {
+			if (!editor) return
+			const store = useEditorStore.getState()
+			const workspace = store.workspaces[workspaceId]
+			if (!workspace) return
+
+			const activeDraft = workspace.activeDraftId
+				? store.geoEditDrafts[workspace.activeDraftId]
+				: undefined
+			const draft =
+				activeDraft?.sourceId === workspace.sourceId
+					? activeDraft
+					: mostRecentDraftForSource(store, workspace.sourceId)
+			if (draft) {
+				loadDraftInWorkspace(workspaceId, draft.id)
+				return
+			}
+
+			// An empty compatibility workspace has no destination to inherit. Only a
+			// caller with an explicit channel may create its first draft.
+			const publishChannel = options?.publishChannel
+			if (!publishChannel) {
+				setPublishError('Choose a destination before adding a draft to this saved work.')
+				return
+			}
+
+			setActiveWorkspaceId(workspaceId)
+			const chatSessionId = workspace.chatSessionId ?? createWorkspaceChat()
+			if (!workspace.chatSessionId) {
+				updateWorkspace(workspaceId, { chatSessionId })
+			}
+			activateWorkspaceChat(chatSessionId)
+
+			const event = workspace.datasetKey
+				? (geoEventsRef.current.find(
+						(geoEvent) =>
+							getDatasetKey(geoEvent) === workspace.datasetKey &&
+							datasetMatchesPublishChannel(geoEvent, publishChannel),
 					) ?? null)
 				: null
 
@@ -312,23 +436,6 @@ export function useDatasetManagement(
 					setPublishError('Failed to restore dataset blobs for this workspace.')
 					return
 				}
-			}
-
-			const draft = workspace.activeDraftId ? store.geoEditDrafts[workspace.activeDraftId] : null
-			if (draft) {
-				applyEditingState({
-					features: draft.features,
-					activeDataset: event,
-					contextRefs:
-						event?.contextReferences ??
-						(workspace.kind === 'scratch' && activeContextScopeCoordinate
-							? [activeContextScopeCoordinate]
-							: []),
-					collectionMeta: draft.collectionMeta,
-					blobReferences: event?.blobReferences ?? [],
-				})
-				loadGeoEditDraft(draft.id)
-				return
 			}
 
 			if (event) {
@@ -351,6 +458,9 @@ export function useDatasetManagement(
 					collectionMeta,
 					features: datasetFeatures,
 					selectedFeatureIds: [],
+					publishChannel,
+					contextRefs: event.contextReferences,
+					blobReferences: convertGeoBlobReferencesToEditor(event.blobReferences),
 				})
 				updateWorkspace(workspaceId, {
 					activeDraftId: draftId,
@@ -374,6 +484,9 @@ export function useDatasetManagement(
 				collectionMeta,
 				features: [],
 				selectedFeatureIds: [],
+				publishChannel,
+				contextRefs,
+				blobReferences: [],
 			})
 			updateWorkspace(workspaceId, {
 				activeDraftId: draftId,
@@ -387,12 +500,13 @@ export function useDatasetManagement(
 			getDatasetKey,
 			ensureResolvedFeatureCollection,
 			setPublishError,
+			loadDraftInWorkspace,
 			applyEditingState,
-			activeContextScopeCoordinate,
-			loadGeoEditDraft,
+			convertGeoBlobReferencesToEditor,
 			resolvedCollectionResolver,
 			createGeoEditDraft,
 			updateWorkspace,
+			activeContextScopeCoordinate,
 		],
 	)
 
@@ -495,7 +609,7 @@ export function useDatasetManagement(
 	)
 
 	const loadDatasetForEditing = useCallback(
-		async (event: GeoDataset) => {
+		async (event: GeoDataset, options?: DraftAuthoringOptions) => {
 			if (!editor) return
 			const datasetKey = getDatasetKey(event)
 			// Round G.2: loading for edit counts as a recent interaction too.
@@ -505,7 +619,7 @@ export function useDatasetManagement(
 				(workspace) => workspace.sourceId === draftSourceId,
 			)
 			if (existingWorkspace?.activeDraftId) {
-				await switchToWorkspace(existingWorkspace.id)
+				await switchToWorkspace(existingWorkspace.id, options)
 				return
 			}
 			try {
@@ -549,6 +663,9 @@ export function useDatasetManagement(
 				collectionMeta,
 				features: datasetFeatures,
 				selectedFeatureIds: [],
+				publishChannel: options?.publishChannel ?? PUBLIC_PUBLISH_CHANNEL,
+				contextRefs: event.contextReferences,
+				blobReferences: convertGeoBlobReferencesToEditor(event.blobReferences),
 			})
 			updateWorkspace(workspaceId, {
 				activeDraftId: draftId,
@@ -569,6 +686,7 @@ export function useDatasetManagement(
 			updateWorkspace,
 			applyEditingState,
 			createGeoEditDraft,
+			convertGeoBlobReferencesToEditor,
 			setPublishError,
 			recordRecentEntity,
 		],
@@ -621,6 +739,36 @@ export function useDatasetManagement(
 		removeMapStackEntry,
 	])
 
+	const deleteDraftInWorkspace = useCallback(
+		(workspaceId: string, draftId: string) => {
+			const store = useEditorStore.getState()
+			const workspace = store.workspaces[workspaceId]
+			const draft = store.geoEditDrafts[draftId]
+			if (!workspace || !draft || draft.sourceId !== workspace.sourceId) return
+
+			const sibling = mostRecentDraftForSource(store, workspace.sourceId, draftId)
+			const deletingCurrentDraft =
+				store.activeWorkspaceId === workspaceId &&
+				(workspace.activeDraftId === draftId || store.activeGeoEditDraftId === draftId)
+
+			// Move the workspace pointer before deleting. The legacy store deletion
+			// schedules cleanup only when the pointer still targets the deleted draft;
+			// preselecting the sibling prevents that race and preserves its channel.
+			updateWorkspace(workspaceId, { activeDraftId: sibling?.id ?? null })
+			deleteGeoEditDraft(draftId)
+
+			if (!deletingCurrentDraft) return
+			if (sibling) {
+				loadDraftInWorkspace(workspaceId, sibling.id)
+				return
+			}
+			// Deleting the last revision ends editing. It must not manufacture a
+			// channel-less replacement that silently defaults to Public.
+			tearDownEditSession()
+		},
+		[deleteGeoEditDraft, loadDraftInWorkspace, tearDownEditSession, updateWorkspace],
+	)
+
 	const deleteWorkspace = useCallback(
 		async (workspaceId: string) => {
 			const store = useEditorStore.getState()
@@ -637,11 +785,8 @@ export function useDatasetManagement(
 			if (workspace.chatSessionId) {
 				useChatStore.getState().deleteChat(workspace.chatSessionId)
 			}
-			if (workspace.activeDraftId) {
-				deleteGeoEditDraft(workspace.activeDraftId)
-			}
-
 			deleteWorkspaceState(workspaceId)
+			deleteGeoEditDraftsBySourceId(workspace.sourceId)
 
 			if (!isActiveWorkspace) return
 			if (nextWorkspaceId && editor) {
@@ -655,27 +800,64 @@ export function useDatasetManagement(
 
 			useEditorStore.getState().setActiveGeoEditDraftId(null)
 		},
-		[tearDownEditSession, deleteGeoEditDraft, deleteWorkspaceState, editor, switchToWorkspace],
+		[
+			tearDownEditSession,
+			deleteGeoEditDraftsBySourceId,
+			deleteWorkspaceState,
+			editor,
+			switchToWorkspace,
+		],
 	)
 
 	const createDraftInWorkspace = useCallback(
-		async (workspaceId: string) => {
+		async (workspaceId: string, options?: DraftAuthoringOptions) => {
 			if (!editor) return
 			const beforeSwitch = useEditorStore.getState()
-			if (!beforeSwitch.workspaces[workspaceId]) return
+			const targetWorkspace = beforeSwitch.workspaces[workspaceId]
+			if (!targetWorkspace) return
+			const targetHasDraft = Boolean(
+				mostRecentDraftForSource(beforeSwitch, targetWorkspace.sourceId),
+			)
 			if (beforeSwitch.activeWorkspaceId !== workspaceId) {
-				await switchToWorkspace(workspaceId)
+				await switchToWorkspace(workspaceId, options)
+				// For an empty target, switchToWorkspace either created the first
+				// explicitly-channelled draft or refused the unsafe operation. Do not
+				// create a second revision in the same click.
+				if (!targetHasDraft) return
 			}
 
 			const store = useEditorStore.getState()
 			const workspace = store.workspaces[workspaceId]
 			if (!workspace) return
+			const activeDraft = workspace.activeDraftId
+				? store.geoEditDrafts[workspace.activeDraftId]
+				: undefined
+			const inheritedDraft =
+				activeDraft?.sourceId === workspace.sourceId
+					? activeDraft
+					: mostRecentDraftForSource(store, workspace.sourceId)
+			// A new revision belongs to the same authoring destination as the saved
+			// work it extends. The current route is only a fallback for a genuinely
+			// empty workspace; it must never retarget an existing private/nearby draft.
+			const publishChannel = inheritedDraft?.publishChannel ?? options?.publishChannel
+			if (!publishChannel) {
+				setPublishError('Choose a destination before adding a draft to this saved work.')
+				return
+			}
 
 			if (workspace.datasetKey) {
 				const event =
 					geoEventsRef.current.find(
-						(geoEvent) => getDatasetKey(geoEvent) === workspace.datasetKey,
+						(geoEvent) =>
+							getDatasetKey(geoEvent) === workspace.datasetKey &&
+							datasetMatchesPublishChannel(geoEvent, publishChannel),
 					) ?? null
+				if (!event) {
+					setPublishError(
+						'Wait for Earthly to restore the original dataset before adding another draft.',
+					)
+					return
+				}
 				if (event) {
 					try {
 						await ensureResolvedFeatureCollection(event)
@@ -706,6 +888,9 @@ export function useDatasetManagement(
 						collectionMeta,
 						features: datasetFeatures,
 						selectedFeatureIds: [],
+						publishChannel,
+						contextRefs: event.contextReferences,
+						blobReferences: convertGeoBlobReferencesToEditor(event.blobReferences),
 					})
 					updateWorkspace(workspaceId, {
 						activeDraftId: draftId,
@@ -715,7 +900,12 @@ export function useDatasetManagement(
 			}
 
 			const collectionMeta = createDefaultCollectionMeta()
-			const contextRefs = activeContextScopeCoordinate ? [activeContextScopeCoordinate] : []
+			const contextRefs =
+				store.activeDatasetContextRefs.length > 0
+					? store.activeDatasetContextRefs
+					: activeContextScopeCoordinate
+						? [activeContextScopeCoordinate]
+						: []
 			applyEditingState({
 				features: [],
 				activeDataset: null,
@@ -729,6 +919,9 @@ export function useDatasetManagement(
 				collectionMeta,
 				features: [],
 				selectedFeatureIds: [],
+				publishChannel,
+				contextRefs,
+				blobReferences: [],
 			})
 			updateWorkspace(workspaceId, {
 				activeDraftId: draftId,
@@ -743,6 +936,7 @@ export function useDatasetManagement(
 			resolvedCollectionResolver,
 			applyEditingState,
 			createGeoEditDraft,
+			convertGeoBlobReferencesToEditor,
 			updateWorkspace,
 			activeContextScopeCoordinate,
 		],
@@ -752,43 +946,49 @@ export function useDatasetManagement(
 	 * Start a new dataset editing session.
 	 * Clears any existing data and switches to edit mode.
 	 */
-	const startNewDataset = useCallback(() => {
-		if (!editor) return
-		const collectionMeta = createDefaultCollectionMeta()
-		const contextRefs = activeContextScopeCoordinate ? [activeContextScopeCoordinate] : []
-		const draftSourceId = createBlankDraftSourceId()
-		const workspaceId = createWorkspace({
-			sourceId: draftSourceId,
-			label: 'Untitled workspace',
-			kind: 'scratch',
-			chatSessionId: createWorkspaceChat(),
-		})
-		applyEditingState({
-			features: [],
-			activeDataset: null,
-			contextRefs,
-			collectionMeta,
-			blobReferences: [],
-		})
-		const draftId = createGeoEditDraft(draftSourceId, {
-			name: '',
-			description: '',
-			collectionMeta,
-			features: [],
-			selectedFeatureIds: [],
-		})
-		updateWorkspace(workspaceId, {
-			activeDraftId: draftId,
-		})
-	}, [
-		editor,
-		activeContextScopeCoordinate,
-		createWorkspace,
-		createWorkspaceChat,
-		applyEditingState,
-		createGeoEditDraft,
-		updateWorkspace,
-	])
+	const startNewDataset = useCallback(
+		(options?: DraftAuthoringOptions) => {
+			if (!editor) return
+			const collectionMeta = createDefaultCollectionMeta()
+			const contextRefs = activeContextScopeCoordinate ? [activeContextScopeCoordinate] : []
+			const draftSourceId = createBlankDraftSourceId()
+			const workspaceId = createWorkspace({
+				sourceId: draftSourceId,
+				label: 'Untitled workspace',
+				kind: 'scratch',
+				chatSessionId: createWorkspaceChat(),
+			})
+			applyEditingState({
+				features: [],
+				activeDataset: null,
+				contextRefs,
+				collectionMeta,
+				blobReferences: [],
+			})
+			const draftId = createGeoEditDraft(draftSourceId, {
+				name: '',
+				description: '',
+				collectionMeta,
+				features: [],
+				selectedFeatureIds: [],
+				publishChannel: options?.publishChannel ?? PUBLIC_PUBLISH_CHANNEL,
+				contextRefs,
+				blobReferences: [],
+			})
+			updateWorkspace(workspaceId, {
+				activeDraftId: draftId,
+			})
+		},
+		[
+			editor,
+			activeContextScopeCoordinate,
+			createWorkspace,
+			createWorkspaceChat,
+			applyEditingState,
+			createGeoEditDraft,
+			updateWorkspace,
+		],
+	)
 
 	/**
 	 * Cancel editing and return to view mode.
@@ -811,6 +1011,8 @@ export function useDatasetManagement(
 		toggleDatasetVisibility,
 		toggleAllDatasetVisibility,
 		loadDatasetForEditing,
+		loadDraftInWorkspace,
+		deleteDraftInWorkspace,
 		switchToWorkspace,
 		deleteWorkspace,
 		createDraftInWorkspace,

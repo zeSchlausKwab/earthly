@@ -2,6 +2,7 @@ import { ExtensionAccount } from 'applesauce-accounts/accounts'
 import { AppWindowIcon, KeyRoundIcon, QrCodeIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { shouldOfferNip07Login } from './loginCapabilities'
 import { Nip46LoginDialog } from './Nip46LoginDialog'
 import { SignupDialog } from './SignupDialog'
 import { Button } from '@/components/ui/button'
@@ -11,7 +12,7 @@ import { loginWithAccount } from '@/lib/nostr'
 /**
  * The standard signed-out state (UI/UX audit P1 #3): every surface that needs
  * an identity explains itself AND offers the way in — one labeled primary
- * action plus the two alternative sign-in methods. Replaces the dead-end
+ * action plus the sign-in methods available on the current platform. Replaces the dead-end
  * "sign in to view X" messages that offered no sign-in control (which mobile
  * users otherwise had to hunt down in Settings → Accounts).
  */
@@ -28,6 +29,7 @@ export function SignedOutCta({
 }) {
 	const [loading, setLoading] = useState(false)
 	const [showSignupDialog, setShowSignupDialog] = useState(false)
+	const offerNip07Login = shouldOfferNip07Login()
 
 	const handleNip07Login = async () => {
 		try {
@@ -51,10 +53,12 @@ export function SignedOutCta({
 				Sign in or create identity
 			</Button>
 			<div className="flex items-center gap-2">
-				<Button variant="outline" size="sm" onClick={handleNip07Login} disabled={loading}>
-					<AppWindowIcon className="h-4 w-4" />
-					Extension
-				</Button>
+				{offerNip07Login && (
+					<Button variant="outline" size="sm" onClick={handleNip07Login} disabled={loading}>
+						<AppWindowIcon className="h-4 w-4" />
+						Extension
+					</Button>
+				)}
 				<Nip46LoginDialog
 					trigger={
 						<Button variant="outline" size="sm" disabled={loading}>

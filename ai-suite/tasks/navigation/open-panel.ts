@@ -3,6 +3,7 @@ import type { EarthlySession } from '../../core/session'
 import type { AiTaskMetadata } from '../../core/task'
 
 export type EarthlyPanel =
+	| 'Local drafts'
 	| 'Datasets'
 	| 'Contexts'
 	| 'Field sessions'
@@ -26,6 +27,7 @@ export const openPanelTask: AiTaskMetadata = {
 }
 
 const desktopRoutes: Record<EarthlyPanel, string> = {
+	'Local drafts': '/drafts',
 	Datasets: '/datasets',
 	Contexts: '/contexts',
 	'Field sessions': '/field-sessions',
