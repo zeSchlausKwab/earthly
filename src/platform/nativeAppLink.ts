@@ -39,5 +39,28 @@ export function earthlyAppLinkNavigationTarget(
 	currentRoute: string,
 ): string | null {
 	const route = earthlyRouteFromAppLink(value)
-	return route && route !== currentRoute ? route : null
+	if (!route) return null
+	try {
+		const target = new URL(route, EARTHLY_APP_LINK_ORIGIN)
+		const current = new URL(currentRoute, EARTHLY_APP_LINK_ORIGIN)
+		if (target.pathname !== current.pathname) return route
+
+		// Earthly adds runtime-owned query state such as the `ms` map-stack
+		// projection after boot. Extra current parameters do not make a retained
+		// Android launch URL a new destination, but every parameter carried by the
+		// incoming link must still match so invites and explicit tabs can change.
+		for (const key of new Set(target.searchParams.keys())) {
+			const targetValues = target.searchParams.getAll(key)
+			const currentValues = current.searchParams.getAll(key)
+			if (
+				targetValues.length !== currentValues.length ||
+				targetValues.some((targetValue, index) => targetValue !== currentValues[index])
+			) {
+				return route
+			}
+		}
+		return null
+	} catch {
+		return route !== currentRoute ? route : null
+	}
 }

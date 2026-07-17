@@ -36,6 +36,21 @@ describe('Android App Link routing', () => {
 		).toBeNull()
 	})
 
+	test('does not replay a retained launch URL after Earthly adds runtime route state', () => {
+		expect(
+			earthlyAppLinkNavigationTarget(
+				'https://earthly.city/field-sessions',
+				'/field-sessions?ms=sighting-layer%3Aall%2Cbeacon-layer%3Aall',
+			),
+		).toBeNull()
+		expect(
+			earthlyAppLinkNavigationTarget(
+				'https://earthly.city/private-groups?tab=invites',
+				'/private-groups?tab=invites&ms=sighting-layer%3Aall',
+			),
+		).toBeNull()
+	})
+
 	test('navigates once when an Android App Link targets a different route', () => {
 		expect(
 			earthlyAppLinkNavigationTarget(
@@ -43,5 +58,11 @@ describe('Android App Link routing', () => {
 				'/private-groups',
 			),
 		).toBe('/field-sessions')
+		expect(
+			earthlyAppLinkNavigationTarget(
+				'https://earthly.city/private-groups?tab=invites',
+				'/private-groups?tab=settings&ms=sighting-layer%3Aall',
+			),
+		).toBe('/private-groups?tab=invites')
 	})
 })
