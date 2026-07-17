@@ -153,6 +153,10 @@ function isEmulator(serial: string): boolean {
 	return serial.startsWith('emulator-')
 }
 
+export function shouldUseCleanInstall(options: AndroidE2EOptions, serial: string): boolean {
+	return options.build && !options.preserveData && isEmulator(serial)
+}
+
 async function delay(milliseconds: number): Promise<void> {
 	await new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
@@ -304,6 +308,17 @@ async function buildAndInstall(serial: string, testVariant: AndroidTestVariant):
 	)
 }
 
+async function prepareCleanInstall(serial: string, options: AndroidE2EOptions): Promise<void> {
+	if (!shouldUseCleanInstall(options, serial)) return
+	console.log('Removing the previous Earthly emulator install to free package staging space…')
+	await capture(['adb', '-s', serial, 'uninstall', TEST_PACKAGE], 'Removing the Android test app', {
+		allowFailure: true,
+	})
+	await capture(['adb', '-s', serial, 'uninstall', PACKAGE], 'Removing Earthly from the emulator', {
+		allowFailure: true,
+	})
+}
+
 async function resetEmulatorData(serial: string, options: AndroidE2EOptions): Promise<void> {
 	if (options.preserveData || !isEmulator(serial)) return
 	console.log('Resetting Earthly app data on the emulator…')
@@ -343,6 +358,7 @@ async function runSmoke(options: AndroidE2EOptions): Promise<void> {
 	const serial = await ensureEmulator(options)
 	const testVariant = await testVariantForDevice(serial)
 	console.log(`Using Android target ${serial}.`)
+	await prepareCleanInstall(serial, options)
 	if (options.build) await buildAndInstall(serial, testVariant)
 	if (!(await Bun.file(testVariant.apkPath).exists())) {
 		throw new Error(

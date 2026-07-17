@@ -61,8 +61,13 @@ export async function openPanel(earthly: EarthlySession, panel: EarthlyPanel): P
 		return
 	}
 
-	await earthly.page.getByRole('button', { name: 'Menu', exact: true }).click()
 	const drawer = earthly.page.getByRole('dialog', { name: 'Earthly navigation' })
+	if (await drawer.isVisible()) {
+		const backToMenu = drawer.getByRole('button', { name: 'Back to menu', exact: true })
+		if (await backToMenu.isVisible()) await backToMenu.click()
+	} else {
+		await earthly.page.getByRole('button', { name: 'Menu', exact: true }).click()
+	}
 	await expect(drawer).toBeVisible()
 	await drawer.getByRole('button', { name: new RegExp(`^${visibleLabel}(?:\\s|$)`) }).click()
 	await expect(

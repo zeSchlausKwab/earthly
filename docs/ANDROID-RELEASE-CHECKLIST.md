@@ -1,6 +1,6 @@
 # Earthly Android release checklist
 
-Status date: 2026-07-16
+Status date: 2026-07-17
 
 Current release target: `0.0.1`
 
@@ -8,14 +8,14 @@ Release boundary: Android only; macOS is a development host. iOS, Windows, and L
 
 ## Readiness estimate
 
-- Private Android alpha: approximately 85% complete.
-- Public Android release: approximately 55% complete.
+- Installable Android feedback build: approximately 95% complete.
+- Zapstore `0.0.1` publication: approximately 75% complete.
 - Embedded-node and offline-sharing foundation: approximately 95% complete.
 
 The percentages describe release risk, not source-code volume. The Tauri shell is no longer the
 uncertain part; offline product behavior, Android lifecycle, recovery, signing, and operations are.
 
-## Private alpha gate
+## Feedback-build product gate
 
 - [x] Shared React application boots inside Tauri on Android.
 - [x] Reproducible arm64 debug APK builds and installs on physical hardware.
@@ -45,41 +45,55 @@ uncertain part; offline product behavior, Android lifecycle, recovery, signing, 
 - [ ] Physical-device interop for NIP-46 signer and Lightning-wallet intents.
 - [x] Redacted diagnostics export suitable for alpha support, using the Android share sheet and a
       copy/download fallback without identities, endpoints, content, hashes, or map locations.
+- [x] Required network and location capabilities are declared, Android backup/device-transfer is
+      disabled for WebView and MLS state, and local-draft save failures remain visible to the user.
+- [x] Cold and warm Android App Links are covered on the emulator across Field sessions, Private
+      groups, and Local drafts without reloading the WebView.
 
-## Public release gate
+## `0.0.1` publication gate
 
 - [x] Final application id (`city.earthly`), product name, adaptive icons, and release version policy:
       user-visible `0.0.1`, Android `versionCode` 1001, monotonically increasing thereafter.
 - [ ] Zapstore listing copy, screenshots, feature graphic, category, and support links.
-- [ ] Protected release keystore and CI-based AAB signing; no signing material in the repository.
+- [ ] Publish a concise alpha privacy/support disclosure covering local keys and drafts, location
+      use, Cordn metadata exposure, diagnostics, and the current export/delete limitations.
+- [ ] Create and back up the protected release keystore and configure CI secrets; no signing
+      material in the repository.
 - [ ] Verified `https://earthly.city` Android App Links and deployed `assetlinks.json` for the
       final release-signing certificate.
-- [ ] Release AAB build, install, upgrade, data-retention, and uninstall tests.
-- [ ] Physical Android process-death UAT for the retained native delivery ledger. This validates
-      ordinary public publishing durability; it does not gate the `0.0.1` Field-session model.
-- [ ] Automated Rust, browser, Android build, and physical-device smoke gates.
-- [ ] Storage migrations and upgrade fixtures for every shipped Android schema.
-- [ ] Android permission, notification, battery, metered-network, and disk-pressure UX.
-- [ ] Privacy disclosure, data export/delete behavior, and support policy.
-- [ ] Checksums, SBOM, provenance, staged rollout, rollback, and incident runbook.
-- [ ] Accessibility, safe-area, keyboard, rotation, and representative MapLibre device matrix.
+- [ ] Build the signed APK/AAB, install the APK on a clean phone, and verify one same-key upgrade
+      without losing the user's local data.
+- [ ] Tag `v0.0.1`, inspect the generated hashes/manifest, publish through Zapstore, then install the
+      Zapstore artifact and repeat the short release smoke.
+
+## Post-feedback hardening (not a `0.0.1` blocker)
+
+- Physical Android process-death coverage for the ordinary public-publishing delivery ledger.
+- Exhaustive storage migrations and upgrade fixtures for every Android schema.
+- Full permission-denial, notification, battery, metered-network, and disk-pressure UX matrix.
+- SBOM/provenance, staged rollout automation, rollback rehearsal, and incident runbook.
+- Exhaustive accessibility, safe-area, keyboard, rotation, and representative MapLibre device
+  coverage beyond the release phones and emulator.
 
 Publication preparation checkpoint: the repository now contains public-only Android build
 configuration, protected-keystore Gradle wiring, a tag/version consistency check, deterministic
 signed arm64 APK/AAB packaging, signature and manifest verification, checksums, a GitHub release
 workflow, `0.0.1` release notes, and a `zsp` configuration that resolves to `city.earthly`. A
-disposable certificate proved the complete build locally and was then removed. The unchecked gates
-still require the real backed-up release key and CI secrets, privacy-reviewed screenshots, release-
-key upgrade evidence, and the explicit Zapstore publication action.
+disposable certificate proved the complete build locally and was then removed. The unchecked
+publication gates require the real backed-up release key and CI secrets, privacy-reviewed
+screenshots, release-key upgrade evidence, domain association, and the explicit Zapstore
+publication action. The longer hardening list follows user feedback instead of delaying it.
 
 ## Execution order
 
-1. Run the Field-session host/join/chat/revoke proof on two physical Android devices with internet
-   disabled.
-2. Run the saved-region and mirrored-PMTiles offline proof on two physical Android devices.
-3. Complete physical low-storage/write-failure evidence without manufacturing disk pressure on a
-   user's primary device.
-4. Add protected AAB signing and release CI, then run upgrade and staged-release rehearsals.
+1. Unlock both release phones and run the short Field-session host/join/chat/draw/edit/revoke proof
+   with internet disabled, then repeat the saved-region/mirrored-PMTiles restart proof.
+2. Run the physical NIP-46, Lightning intent, location grant/denial, suspend/resume, and diagnostics
+   smoke. Record defects; do not expand this into a broad redesign unless a journey is blocked.
+3. Capture privacy-reviewed screenshots, create and back up the release key, configure CI signing,
+   and install the signed candidate plus one same-key upgrade.
+4. Deploy `assetlinks.json`, tag `v0.0.1`, publish with `zsp`, and install the Zapstore artifact on a
+   clean phone for the final short smoke.
 
 The general "author anything offline, then decide later whether to publish globally" journey is
 explicitly shelved for `0.0.1`. The native outbox machinery remains, but it is not being presented

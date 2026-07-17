@@ -19,6 +19,57 @@ CORDN_SERVER_PUBKEY=${'c'.repeat(64)}
 `
 
 describe('Android release tooling', () => {
+	test('declares required device capabilities without permitting Android backups', async () => {
+		const manifest = await Bun.file(
+			new URL('../src-tauri/gen/android/app/src/main/AndroidManifest.xml', import.meta.url),
+		).text()
+		const permissions = Array.from(
+			manifest.matchAll(/<uses-permission\s+android:name="([^"]+)"\s*\/>/gu),
+			(match) => match[1],
+		)
+
+		for (const permission of [
+			'android.permission.INTERNET',
+			'android.permission.ACCESS_NETWORK_STATE',
+			'android.permission.ACCESS_COARSE_LOCATION',
+			'android.permission.ACCESS_FINE_LOCATION',
+		]) {
+			expect(permissions.filter((candidate) => candidate === permission)).toHaveLength(1)
+		}
+
+		const applicationDeclaration = manifest.match(/<application\b[^>]*>/u)?.[0]
+		expect(applicationDeclaration).toBeDefined()
+		expect(applicationDeclaration).toContain('android:allowBackup="false"')
+		expect(applicationDeclaration).toContain('android:dataExtractionRules="@xml/data_extraction_rules"')
+		expect(applicationDeclaration).toContain('android:fullBackupContent="@xml/backup_rules"')
+
+		const backupDomains = [
+			'root',
+			'file',
+			'database',
+			'sharedpref',
+			'external',
+			'device_root',
+			'device_file',
+			'device_database',
+			'device_sharedpref',
+		]
+		const legacyBackupRules = await Bun.file(
+			new URL('../src-tauri/gen/android/app/src/main/res/xml/backup_rules.xml', import.meta.url),
+		).text()
+		const dataExtractionRules = await Bun.file(
+			new URL('../src-tauri/gen/android/app/src/main/res/xml/data_extraction_rules.xml', import.meta.url),
+		).text()
+
+		for (const domain of backupDomains) {
+			const exclusion = `<exclude domain="${domain}" path="." />`
+			expect(legacyBackupRules.split(exclusion)).toHaveLength(2)
+			expect(dataExtractionRules.split(exclusion)).toHaveLength(3)
+		}
+		expect(dataExtractionRules).toContain('<cloud-backup>')
+		expect(dataExtractionRules).toContain('<device-transfer>')
+	})
+
 	test('accepts only the public Android build environment', () => {
 		expect(parsePublicReleaseEnvironment(publicEnvironment)).toEqual({
 			RELAY_URL: 'wss://relay.earthly.city',

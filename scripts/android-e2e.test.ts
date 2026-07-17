@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { instrumentationSucceeded, parseAndroidE2EOptions } from './android-e2e'
+import {
+	instrumentationSucceeded,
+	parseAndroidE2EOptions,
+	shouldUseCleanInstall,
+} from './android-e2e'
 
 describe('Android E2E runner', () => {
 	test('defaults to a clean emulator smoke run', () => {
@@ -44,5 +48,17 @@ describe('Android E2E runner', () => {
 		expect(instrumentationSucceeded('Time: 12.5\n\nOK (2 tests)\n')).toBe(true)
 		expect(instrumentationSucceeded('FAILURES!!!\nTests run: 2, Failures: 1')).toBe(false)
 		expect(instrumentationSucceeded('INSTRUMENTATION_FAILED')).toBe(false)
+	})
+
+	test('uses destructive clean installs only for disposable emulator builds', () => {
+		const defaults = parseAndroidE2EOptions([])
+		expect(shouldUseCleanInstall(defaults, 'emulator-5554')).toBe(true)
+		expect(shouldUseCleanInstall(defaults, 'physical-phone')).toBe(false)
+		expect(
+			shouldUseCleanInstall(parseAndroidE2EOptions(['--preserve-data']), 'emulator-5554'),
+		).toBe(false)
+		expect(shouldUseCleanInstall(parseAndroidE2EOptions(['--no-build']), 'emulator-5554')).toBe(
+			false,
+		)
 	})
 })

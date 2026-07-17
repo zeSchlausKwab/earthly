@@ -12,7 +12,10 @@ bun run e2e:android:emulator
 bun run e2e:android:smoke
 ```
 
-`e2e:android:smoke` starts the configured AVD if necessary, builds and installs the current development app, clears Earthly's emulator data, installs the test APK, and runs the smoke scenario. Set `EARTHLY_ANDROID_AVD` or pass `--avd NAME` to use another AVD.
+`e2e:android:smoke` starts the configured AVD if necessary, removes the previous disposable emulator
+install, builds and installs the current development app, installs the test APK, and runs the smoke
+scenario. Removing the old package gives Android enough staging room for Earthly's large debug APK.
+Set `EARTHLY_ANDROID_AVD` or pass `--avd NAME` to use another AVD.
 
 Useful development variants:
 
@@ -26,7 +29,11 @@ The default path refuses physical phones. A deliberate physical run requires `--
 
 ## First scenario
 
-`smoke.workspace-app-links` opens the Private groups and Field sessions collection routes as Android App Links. It verifies each panel becomes visible, stays visible through several refresh periods, and does not show Earthly's runtime error overlay. The stability window specifically protects against the store/subscription loops that previously made both panels blink.
+`smoke.workspace-app-links` opens Field sessions, Private groups, and Local drafts as consecutive
+Android App Links in one Activity. It verifies each panel becomes visible, stays visible through
+several refresh periods, and does not show Earthly's runtime error overlay. The warm transitions
+protect against retained cold-launch URLs stealing a newer route, while the stability window
+protects against the store/subscription loops that previously made the collaboration panels blink.
 
 The scenario is read-only. It does not author records or point a mutating flow at a public relay. Failure diagnostics are written to the ignored `android-suite/artifacts/` directory: instrumentation output, Logcat, the accessibility hierarchy, and a screenshot.
 

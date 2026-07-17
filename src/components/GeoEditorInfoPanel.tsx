@@ -49,6 +49,7 @@ import type { EditorFeature } from '../features/geo-editor/core'
 import type { BlossomUploadResult } from '../lib/blossom/blossomUpload'
 import { privateWorkspaceIdForDataset } from '@/lib/private-workspace'
 import { fieldSessionIdForEvent } from '@/features/field-sessions/events'
+import { LocalDraftPersistenceWarning } from '@/features/geo-editor/components/LocalDraftPersistenceWarning'
 
 type ContextPropertyTypeHint = 'string' | 'number' | 'integer' | 'boolean'
 
@@ -885,6 +886,7 @@ export function GeoEditorInfoPanelContent(props: GeoEditorInfoPanelProps) {
 	// Edit mode - compact layout
 	return (
 		<div className="space-y-2 text-sm">
+			<LocalDraftPersistenceWarning currentUserPubkey={currentUserPubkey ?? null} />
 			{/* Header — only rendered when it has content (a fresh draft has neither
 			    the View button nor a dataset name, so we skip it to avoid an empty
 			    separator above the stats row). */}

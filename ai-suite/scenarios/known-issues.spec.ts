@@ -49,10 +49,7 @@ test('mobile panel choices update the canonical route @regression', async ({
 	expect.soft(new URL(earthly.page.url()).pathname).toBe('/contexts')
 	await earthly.page.reload()
 	await expect(
-		earthly.page
-			.locator('button:visible')
-			.filter({ hasText: /^Contexts/ })
-			.first(),
+		earthly.page.getByRole('heading', { name: 'Contexts', exact: true }).first(),
 	).toBeVisible()
 })
 
@@ -115,7 +112,7 @@ test('mobile keyboard users can reach primary navigation promptly @regression', 
 		timeout: 15_000,
 	})
 	const stops = await walkKeyboardOrder(earthly, 25)
-	expect(stops.some(({ name }) => name === 'Explore')).toBe(true)
+	expect(stops.some(({ name }) => name === 'Menu')).toBe(true)
 })
 
 // FIXED (audit P1 #5): the desktop shell keeps a 25rem minimum, preserving at

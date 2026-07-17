@@ -72,6 +72,16 @@ function PanelNotice({ children }: { children: ReactNode }) {
 	)
 }
 
+function PrivateGroupsSecurityNotice() {
+	return (
+		<PanelNotice>
+			<span className="font-medium text-foreground">Experimental in 0.0.1.</span> MLS encrypts group
+			records before Cordn stores them; membership and traffic timing remain visible. Avoid highly
+			sensitive operations for now.
+		</PanelNotice>
+	)
+}
+
 export function PrivateGroupsPanel({
 	onStartNewDataset,
 	datasetActions,
@@ -174,6 +184,15 @@ export function PrivateGroupsPanel({
 			: undefined
 	const visibleCommentIds =
 		visibleCommentState.workspaceId === privateGroupId ? visibleCommentState.ids : new Set<string>()
+
+	// Warm Android App Links now update the existing WebView instead of reloading
+	// it. Keep invite state in sync with that external/browser navigation while
+	// leaving scanner/paste flows free to set the same state directly.
+	useEffect(() => {
+		const syncInvitationFromRoute = () => setInvitation(invitationFromLocation())
+		window.addEventListener('popstate', syncInvitationFromRoute)
+		return () => window.removeEventListener('popstate', syncInvitationFromRoute)
+	}, [])
 
 	useEffect(() => {
 		if (!runtime || !privateGroupId || !selectedWorkspaceId) return
@@ -474,6 +493,9 @@ export function PrivateGroupsPanel({
 											{selected.metadata?.description || 'No description'}
 										</p>
 									</div>
+								</div>
+								<div className="mt-2">
+									<PrivateGroupsSecurityNotice />
 								</div>
 							</section>
 
@@ -776,15 +798,12 @@ export function PrivateGroupsPanel({
 											decrypted.
 										</p>
 									</section>
-
-									<PanelNotice>
-										MLS encrypts group records before the Cordn ContextVM coordinator stores them.
-									</PanelNotice>
 								</TabsContent>
 							</Tabs>
 						</div>
 					) : (
 						<div className="h-full space-y-3 overflow-y-auto px-2 py-3">
+							<PrivateGroupsSecurityNotice />
 							<div className="rounded-[2px] border border-border bg-card p-3 text-center">
 								<LockKeyhole className="mx-auto mb-2 h-7 w-7 text-primary" />
 								<h2 className="text-sm font-semibold text-foreground">
@@ -879,9 +898,7 @@ export function PrivateGroupsPanel({
 						onOpenChange={setInviteScannerOpen}
 						onInvite={handleScannedInvite}
 					/>
-					<PanelNotice>
-						Group data is MLS-encrypted; Cordn is reached through ContextVM over Nostr.
-					</PanelNotice>
+					<PrivateGroupsSecurityNotice />
 					{invitation ? (
 						<div className="rounded-[2px] border border-primary/30 bg-primary/5 p-2 text-[11px]">
 							A private-group invitation is ready. Open its detail route to request access.

@@ -79,7 +79,7 @@ import { normalizePairingInvitation } from '@/features/offline/pairingQr'
 import { useSavedRegionDeletionSync } from '@/features/offline/saved-regions/useSavedRegionDeletionSync'
 import { useSavedRegionHydration } from '@/features/offline/saved-regions/useSavedRegionHydration'
 import type { DeletionTarget } from '@/lib/nostr/deletionCache'
-import { earthlyAppLinkNavigationTarget } from '@/platform/nativeAppLink'
+import { navigateToEarthlyAppLinkInPlace } from '@/platform/nativeAppLink'
 import { useFieldSessions } from '@/features/field-sessions/model'
 import {
 	fieldSessionDatasetFactory,
@@ -748,8 +748,9 @@ export function GeoEditorView() {
 
 	// Native URLs are navigation, not alternate trust paths. Custom pairing URLs
 	// reveal the existing approval UI. A verified public Earthly URL is reduced to
-	// its path/query and reloaded under the Tauri origin; this also ensures a warm
-	// private-group invite refreshes state derived from the URL.
+	// its path/query and applied inside the existing Tauri WebView. Keeping the
+	// WebView alive prevents Android's retained cold-launch URL from winning a
+	// reload race after a newer warm App Link arrives.
 	useEffect(() => {
 		const openNativeUrl = (url: string) => {
 			if (normalizePairingInvitation(url)) {
@@ -758,11 +759,8 @@ export function GeoEditorView() {
 				if (isMobile) selectMobileSidebarDestination('settings')
 				return
 			}
-			const currentRoute = `${window.location.pathname}${window.location.search}`
-			const route = earthlyAppLinkNavigationTarget(url, currentRoute)
-			if (route) {
+			if (navigateToEarthlyAppLinkInPlace(url)) {
 				consumePendingNativeDeepLink(url)
-				window.location.assign(route)
 				return
 			}
 			consumePendingNativeDeepLink(url)

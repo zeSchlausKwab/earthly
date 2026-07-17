@@ -27,7 +27,8 @@ export const androidTasks: AndroidTaskDefinition[] = [
 export const androidScenarios: AndroidScenarioDefinition[] = [
 	{
 		id: 'smoke.workspace-app-links',
-		description: 'Open Private groups and Field sessions through App Links and verify both remain stable.',
+		description:
+			'Open Field sessions, Private groups, and Local drafts through consecutive cold/warm App Links and verify every surface remains stable.',
 		tasks: ['app.open-link', 'surface.await-visible', 'surface.assert-stable'],
 	},
 ]
