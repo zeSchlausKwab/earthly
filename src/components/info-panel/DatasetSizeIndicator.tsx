@@ -176,7 +176,7 @@ export function DatasetSizeIndicator({
 						{isOverLimit
 							? isStoredExternally
 								? 'Stored externally'
-								: 'Dataset too large'
+								: 'Upload required'
 							: 'Dataset size OK'}
 					</span>
 				</div>
@@ -200,12 +200,13 @@ export function DatasetSizeIndicator({
 				<div className="space-y-2">
 					{isStoredExternally ? (
 						<p className="text-[10px] text-ok">
-							This dataset exceeds the Nostr event limit, but it already has an external blob
-							reference.
+							This dataset exceeds the safe inline publish limit, but it already has an external
+							blob reference.
 						</p>
 					) : (
 						<p className="text-[10px] text-primary">
-							This dataset exceeds the Nostr event limit. Upload to Blossom to store externally.
+							This dataset exceeds the safe inline publish limit. Upload to Blossom to store it
+							externally.
 						</p>
 					)}
 

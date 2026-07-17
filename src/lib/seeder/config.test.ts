@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'bun:test'
 import { devUser1 } from '@/lib/fixtures'
 import {
+	DEFAULT_BLOSSOM_SERVER_URL,
 	DEFAULT_RELAY_URL,
 	isLoopbackRelayURL,
 	parseSeederArgs,
 	SeederConfigError,
+	validateBlossomServerURL,
 	validateRelayURL,
 } from './config'
 
@@ -43,14 +45,34 @@ describe('isLoopbackRelayURL', () => {
 	})
 })
 
+describe('validateBlossomServerURL', () => {
+	it('accepts HTTP(S), normalizes trailing slashes, and performs no liveness request', () => {
+		expect(validateBlossomServerURL('http://localhost:3544/')).toBe('http://localhost:3544')
+		expect(validateBlossomServerURL('https://blossom.example')).toBe('https://blossom.example')
+	})
+
+	it('rejects malformed and non-HTTP(S) targets', () => {
+		expect(() => validateBlossomServerURL('not a url')).toThrow(SeederConfigError)
+		expect(() => validateBlossomServerURL('ws://localhost:3544')).toThrow(/http:\/\//)
+	})
+})
+
 describe('parseSeederArgs', () => {
 	it('parses a plain command with defaults', () => {
 		const config = parseSeederArgs(['full'], {})
 		expect(config.command).toBe('full')
 		expect(config.relay).toBe(DEFAULT_RELAY_URL)
+		expect(config.blossomServer).toBe(DEFAULT_BLOSSOM_SERVER_URL)
 		expect(config.dryRun).toBe(false)
 		expect(config.keyHex).toBe(devUser1.sk)
 		expect(config.keySource).toBe('devUser1')
+	})
+
+	it('reads the canonical Blossom target from BLOSSOM_SERVER', () => {
+		const config = parseSeederArgs(['canonical', '--dry-run'], {
+			BLOSSOM_SERVER: 'https://blossom.example/',
+		})
+		expect(config.blossomServer).toBe('https://blossom.example')
 	})
 
 	it('parses flags', () => {

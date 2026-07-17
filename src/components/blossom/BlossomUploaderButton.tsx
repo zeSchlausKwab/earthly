@@ -14,14 +14,12 @@
 import {
 	createDeleteAuth,
 	createListAuth,
-	createUploadAuth,
 	type BlobDescriptor,
 	type SignedEvent,
 	type Signer,
 } from 'blossom-client-sdk'
 import { deleteBlob } from 'blossom-client-sdk/actions/delete'
 import { listBlobs } from 'blossom-client-sdk/actions/list'
-import { uploadBlob } from 'blossom-client-sdk/actions/upload'
 import { use$, useActiveAccount } from 'applesauce-react/hooks'
 import {
 	Check,
@@ -53,6 +51,7 @@ import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { downscaleImageToLimit } from '@/lib/blossom/downscaleImage'
+import { uploadBlobWithBlossyV02Compat } from '@/lib/blossom/uploadCompat'
 import { accounts, eventStore } from '@/lib/nostr'
 import { cn } from '@/lib/utils'
 
@@ -405,25 +404,12 @@ export function BlossomUploaderButton({
 			}
 
 			setUploadProgress(20)
-			const auth = await createUploadAuth(makeBlossomSigner(), uploadFile, {
+			const descriptor = await uploadBlobWithBlossyV02Compat(targets, uploadFile, {
+				signer: makeBlossomSigner(),
 				message: `Upload ${uploadFile.name}`,
 				expiration: Math.floor(Date.now() / 1000) + 5 * 60,
+				onAuthCreated: () => setUploadProgress(40),
 			})
-			setUploadProgress(40)
-
-			let lastError: unknown = null
-			let descriptor: BlobDescriptor | null = null
-			for (const server of targets) {
-				try {
-					descriptor = await uploadBlob(server, uploadFile, { auth })
-					break
-				} catch (err) {
-					lastError = err
-				}
-			}
-			if (!descriptor) {
-				throw lastError instanceof Error ? lastError : new Error('All servers rejected the upload.')
-			}
 			setUploadProgress(100)
 
 			const result = descriptorToResult(descriptor, 'upload', uploadFile.name)

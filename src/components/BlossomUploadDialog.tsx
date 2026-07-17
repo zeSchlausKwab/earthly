@@ -1,7 +1,7 @@
 /**
  * Blossom Upload Dialog
  *
- * Shows a warning when dataset size exceeds the Nostr event limit
+ * Shows a warning when dataset size exceeds the safe inline publish limit
  * and offers to upload the geometry to the Blossom server.
  *
  * After upload, shows the URL with options to copy/open it.
@@ -182,8 +182,8 @@ export function BlossomUploadDialog({
 						) : isOverLimit ? (
 							<>
 								Your dataset is <strong>{formatBytes(size)}</strong>, which exceeds the{' '}
-								<strong>{formatBytes(BLOSSOM_UPLOAD_THRESHOLD_BYTES)}</strong> limit for Nostr
-								events.
+								<strong>{formatBytes(BLOSSOM_UPLOAD_THRESHOLD_BYTES)}</strong> safe inline publish
+								limit.
 							</>
 						) : (
 							<>

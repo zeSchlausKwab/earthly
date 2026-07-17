@@ -13,6 +13,7 @@ export const SEED_COMMANDS = ['minimal', 'full', 'sightings', 'canonical', 'purg
 export type SeedCommand = (typeof SEED_COMMANDS)[number]
 
 export const DEFAULT_RELAY_URL = 'ws://localhost:3334'
+export const DEFAULT_BLOSSOM_SERVER_URL = 'http://localhost:3544'
 
 export type SeedKeySource = 'flag' | 'SEED_KEY' | 'APP_PRIVATE_KEY' | 'devUser1'
 
@@ -20,6 +21,8 @@ export interface SeederConfig {
 	command: SeedCommand
 	/** Validated relay URL (loopback unless --allow-remote). */
 	relay: string
+	/** HTTP(S) Blossom target used when canonical dataset content exceeds the relay budget. */
+	blossomServer: string
 	allowRemote: boolean
 	/** Hex secret key used for owner/app-signed events. */
 	keyHex: string
@@ -76,6 +79,22 @@ export function validateRelayURL(url: string, allowRemote: boolean): string {
 	return url
 }
 
+/** Validate the Blossom upload target without performing a liveness check. */
+export function validateBlossomServerURL(url: string): string {
+	let parsed: URL
+	try {
+		parsed = new URL(url)
+	} catch {
+		throw new SeederConfigError(`Invalid Blossom server URL: "${url}"`)
+	}
+	if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+		throw new SeederConfigError(
+			`Blossom server URL must use http:// or https:// (got "${parsed.protocol}//" in ${url})`,
+		)
+	}
+	return url.replace(/\/+$/, '')
+}
+
 const HEX_KEY_PATTERN = /^[0-9a-f]{64}$/i
 
 function resolveKey(
@@ -126,6 +145,9 @@ export function seederUsage(): string {
 		'  --verbose         log each published event',
 		'  --only <name>     canonical/purge: run a single sub-seeder',
 		'  --force           purge: skip the confirmation prompt',
+		'',
+		'Environment:',
+		`  BLOSSOM_SERVER    canonical overflow upload target (default ${DEFAULT_BLOSSOM_SERVER_URL})`,
 	].join('\n')
 }
 
@@ -191,7 +213,21 @@ export function parseSeederArgs(
 	}
 
 	relay = validateRelayURL(relay, allowRemote)
+	const blossomServer = validateBlossomServerURL(
+		env.BLOSSOM_SERVER?.trim() || DEFAULT_BLOSSOM_SERVER_URL,
+	)
 	const { keyHex, keySource } = resolveKey(keyFlag, command, env)
 
-	return { command, relay, allowRemote, keyHex, keySource, dryRun, verbose, only, force }
+	return {
+		command,
+		relay,
+		blossomServer,
+		allowRemote,
+		keyHex,
+		keySource,
+		dryRun,
+		verbose,
+		only,
+		force,
+	}
 }
