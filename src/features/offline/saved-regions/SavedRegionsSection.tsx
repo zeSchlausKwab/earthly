@@ -11,8 +11,11 @@ import {
 	Trash2,
 	X,
 } from 'lucide-react'
+import { use$ } from 'applesauce-react/hooks'
+import type { NostrEvent } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { config } from '@/config/env.client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,10 +23,28 @@ import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { formatBytes } from '@/lib/blossom/blossomUpload'
+import { eventStore, isEventDeleted } from '@/lib/nostr'
+import { deletionTargetForEvent, deletionTargetsEvent } from '@/lib/nostr/deletionCache'
+import {
+	ARTICLE_KIND,
+	GEO_COMMENT_KIND,
+	GEO_EVENT_KIND,
+	MAP_CONTEXT_KIND,
+	MAP_LAYER_SET_KIND,
+	TEMPORAL_SIGHTING_KIND,
+} from '@/lib/nostr/kinds'
+import { readCachedMapLayerSet } from '@/lib/nostr/map-layer-set/cache'
 import type { SavedRegion, SavedRegionProgress, SavedRegionService } from '@/platform/contracts'
 import { getSavedRegionService, notifyLocalBlobsChanged } from '@/platform/registry'
 import { planSavedRegion } from './planSavedRegion'
+import { selectSavedRegionEvents, type SavedRegionEventSelection } from './selectSavedRegionEvents'
 import { savedRegionStorageGuidance, type SavedRegionStorageGuidance } from './storageGuidance'
+import { useSavedRegionDeletionSync } from './useSavedRegionDeletionSync'
+import {
+	setSavedRegionDeletionTargets,
+	unregisterSavedRegionDeletionTargets,
+	useSavedRegionHydration,
+} from './useSavedRegionHydration'
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error)
@@ -50,7 +71,78 @@ function mergeProgress(region: SavedRegion, progress: SavedRegionProgress): Save
 	}
 }
 
+const SAVED_REGION_CANDIDATE_KINDS = [
+	0,
+	GEO_EVENT_KIND,
+	GEO_COMMENT_KIND,
+	MAP_CONTEXT_KIND,
+	ARTICLE_KIND,
+	TEMPORAL_SIGHTING_KIND,
+]
+const MAX_SAVED_REGION_CANDIDATES = 50_000
+
+function selectContentForRegion(
+	bbox: [number, number, number, number],
+	source: { eventId: string | null; pubkey: string | null },
+	includeEarthlyContent: boolean,
+	candidateEvents: readonly NostrEvent[],
+): SavedRegionEventSelection {
+	const eventId = source.eventId
+	const pubkey = source.pubkey
+	if (candidateEvents.length > MAX_SAVED_REGION_CANDIDATES) {
+		throw new Error('Too many loaded Earthly records to plan this area safely')
+	}
+	if (!eventId || !pubkey) throw new Error('The trusted map announcement is not available')
+	const stored = eventStore.getEvent(eventId)
+	const cached = readCachedMapLayerSet(config.trustedMapnoliaPubkeys)
+	const announcement = stored?.id === eventId ? stored : cached?.id === eventId ? cached : null
+	if (!announcement || announcement.kind !== MAP_LAYER_SET_KIND || announcement.pubkey !== pubkey) {
+		throw new Error('Reload the trusted map announcement before saving this area')
+	}
+	if (isEventDeleted(announcement)) {
+		throw new Error('The trusted map announcement was deleted; refresh map discovery')
+	}
+	const selection = selectSavedRegionEvents({
+		bbox,
+		events: includeEarthlyContent ? candidateEvents.filter((event) => !isEventDeleted(event)) : [],
+		requiredEvents: [announcement],
+	})
+	if (selection.truncated) {
+		throw new Error('This area contains too many Earthly records; save a smaller area')
+	}
+	return selection
+}
+
+function retainRelevantDeletionEvents(
+	events: readonly NostrEvent[],
+	deletions: readonly NostrEvent[],
+): NostrEvent[] {
+	const eventsByAuthor = new Map<string, NostrEvent[]>()
+	for (const event of events) {
+		const authored = eventsByAuthor.get(event.pubkey) ?? []
+		authored.push(event)
+		eventsByAuthor.set(event.pubkey, authored)
+	}
+	const relevant = new Map<string, NostrEvent>()
+	for (const deletion of deletions) {
+		if (
+			eventsByAuthor.get(deletion.pubkey)?.some((target) => deletionTargetsEvent(deletion, target))
+		) {
+			relevant.set(deletion.id, deletion)
+		}
+	}
+	return [
+		...[...relevant.values()].sort(
+			(left, right) => left.created_at - right.created_at || left.id.localeCompare(right.id),
+		),
+		...events,
+	]
+}
+
 export function SavedRegionsSection() {
+	const savedContentHydration = useSavedRegionHydration()
+	const candidateEvents =
+		use$(() => eventStore.timeline({ kinds: SAVED_REGION_CANDIDATE_KINDS }), []) ?? []
 	const editor = useEditorStore((state) => state.editor)
 	const mapAreaRect = useEditorStore((state) => state.mapAreaRect)
 	const mapLayers = useEditorStore((state) => state.mapLayers)
@@ -58,9 +150,52 @@ export function SavedRegionsSection() {
 	const [service, setService] = useState<SavedRegionService | null>(null)
 	const [regions, setRegions] = useState<SavedRegion[]>([])
 	const [name, setName] = useState('Offline map')
+	const [includeEarthlyContent, setIncludeEarthlyContent] = useState(true)
 	const [bbox, setBbox] = useState<[number, number, number, number] | null>(null)
 	const [operation, setOperation] = useState<string | null>('loading')
 	const [storageGuidance, setStorageGuidance] = useState<SavedRegionStorageGuidance | null>(null)
+	const sourceDeletionTargets = useMemo(
+		() =>
+			source?.pubkey && source.eventId ? [{ pubkey: source.pubkey, eventId: source.eventId }] : [],
+		[source?.eventId, source?.pubkey],
+	)
+	const deletionCandidateSelection = useMemo(() => {
+		if (!service?.supported || !bbox || !source?.trusted || !source.pubkey || !source.eventId) {
+			return null
+		}
+		try {
+			return selectContentForRegion(bbox, source, includeEarthlyContent, candidateEvents)
+		} catch (error) {
+			return error instanceof Error ? error : new Error(String(error))
+		}
+	}, [bbox, candidateEvents, includeEarthlyContent, service?.supported, source])
+	const deletionSync = useSavedRegionDeletionSync(
+		deletionCandidateSelection && !(deletionCandidateSelection instanceof Error)
+			? deletionCandidateSelection.events
+			: [],
+		Boolean(
+			service?.supported &&
+				source?.pubkey &&
+				bbox &&
+				!(deletionCandidateSelection instanceof Error),
+		),
+		sourceDeletionTargets,
+	)
+	const deletionsReady = deletionSync.ready
+	const incompleteRegionIds = useMemo(
+		() =>
+			new Set(
+				savedContentHydration.state === 'ready' ? savedContentHydration.incompleteRegionIds : [],
+			),
+		[savedContentHydration],
+	)
+	const deferredRegionIds = useMemo(
+		() =>
+			new Set(
+				savedContentHydration.state === 'ready' ? savedContentHydration.deferredRegionIds : [],
+			),
+		[savedContentHydration],
+	)
 
 	const reportFailure = useCallback((error: unknown) => {
 		const guidance = savedRegionStorageGuidance(error)
@@ -135,8 +270,27 @@ export function SavedRegionsSection() {
 		[mapLayers],
 	)
 
+	const eventSelection = useMemo(() => {
+		if (
+			!service?.supported ||
+			!deletionsReady ||
+			!bbox ||
+			!source?.trusted ||
+			!source.pubkey ||
+			!source.eventId
+		)
+			return null
+		try {
+			return selectContentForRegion(bbox, source, includeEarthlyContent, candidateEvents)
+		} catch (error) {
+			return error instanceof Error ? error : new Error(String(error))
+		}
+	}, [bbox, candidateEvents, deletionsReady, includeEarthlyContent, service?.supported, source])
+
 	const preview = useMemo(() => {
-		if (!bbox || !layer || !source?.trusted || !source.pubkey || !source.eventId) return null
+		if (!bbox || !layer || !source?.trusted || !source.pubkey || !source.eventId || !eventSelection)
+			return null
+		if (eventSelection instanceof Error) return eventSelection
 		try {
 			return planSavedRegion({
 				id: 'preview',
@@ -145,11 +299,12 @@ export function SavedRegionsSection() {
 				sourcePubkey: source.pubkey,
 				announcementId: source.eventId,
 				layer,
+				events: retainRelevantDeletionEvents(eventSelection.events, deletionSync.deletions),
 			})
 		} catch (error) {
 			return error instanceof Error ? error : new Error(String(error))
 		}
-	}, [bbox, layer, name, source])
+	}, [bbox, deletionSync.deletions, eventSelection, layer, name, source])
 
 	const download = useCallback(
 		async (regionId: string) => {
@@ -172,6 +327,11 @@ export function SavedRegionsSection() {
 	)
 
 	const save = useCallback(async () => {
+		if (!deletionsReady) {
+			if (deletionSync.error) toast.error(deletionSync.error)
+			else toast.info('Checking deleted Earthly records before saving')
+			return
+		}
 		if (
 			!service ||
 			preview instanceof Error ||
@@ -188,6 +348,16 @@ export function SavedRegionsSection() {
 		}
 		setOperation('create')
 		try {
+			const selectedEvents = selectContentForRegion(
+				bbox,
+				source,
+				includeEarthlyContent,
+				candidateEvents,
+			)
+			const retainedEvents = retainRelevantDeletionEvents(
+				selectedEvents.events,
+				deletionSync.deletions,
+			)
 			const plan = planSavedRegion({
 				id: crypto.randomUUID(),
 				name,
@@ -195,8 +365,13 @@ export function SavedRegionsSection() {
 				sourcePubkey: source.pubkey,
 				announcementId: source.eventId,
 				layer,
+				events: retainedEvents,
 			})
 			const region = await service.create(plan.request)
+			setSavedRegionDeletionTargets(region.id, [
+				{ pubkey: region.sourcePubkey, eventId: region.announcementId },
+				...selectedEvents.events.map(deletionTargetForEvent),
+			])
 			setRegions((current) => [region, ...current])
 			setOperation(null)
 			await download(region.id)
@@ -204,7 +379,21 @@ export function SavedRegionsSection() {
 			reportFailure(error)
 			setOperation(null)
 		}
-	}, [bbox, download, layer, name, preview, reportFailure, service, source])
+	}, [
+		bbox,
+		candidateEvents,
+		deletionSync.deletions,
+		deletionSync.error,
+		deletionsReady,
+		download,
+		includeEarthlyContent,
+		layer,
+		name,
+		preview,
+		reportFailure,
+		service,
+		source,
+	])
 
 	const cancel = useCallback(
 		async (regionId: string) => {
@@ -224,6 +413,7 @@ export function SavedRegionsSection() {
 			setOperation(`remove:${region.id}`)
 			try {
 				await service.remove(region.id)
+				unregisterSavedRegionDeletionTargets(region.id)
 				setRegions((current) => current.filter((item) => item.id !== region.id))
 				toast.success(`${region.name} removed from saved regions`)
 			} catch (error) {
@@ -360,14 +550,44 @@ export function SavedRegionsSection() {
 						{bbox.map((value) => value.toFixed(3)).join(' · ')}
 					</p>
 				) : null}
+				<label className="flex cursor-pointer items-start gap-3 border p-3">
+					<input
+						type="checkbox"
+						checked={includeEarthlyContent}
+						onChange={(event) => setIncludeEarthlyContent(event.target.checked)}
+						className="mt-0.5"
+					/>
+					<span>
+						<span className="block text-xs font-semibold">Include Earthly content</span>
+						<span className="block text-[10px] leading-relaxed text-muted-foreground">
+							Keep the datasets, groups, stories, sightings, comments, and contributor names
+							currently loaded for this area.
+						</span>
+					</span>
+				</label>
 				{preview && !(preview instanceof Error) ? (
-					<div className="flex items-center justify-between border bg-muted/40 px-3 py-2 text-xs">
-						<span>{preview.chunkCount} verified map files</span>
-						<strong>
-							{preview.bytesTotal === null
-								? 'Size calculated while downloading'
-								: formatBytes(preview.bytesTotal)}
-						</strong>
+					<div className="space-y-1 border bg-muted/40 px-3 py-2 text-xs">
+						<div className="flex items-center justify-between">
+							<span>
+								{preview.chunkCount} verified map files
+								{preview.request.blobs.length > preview.chunkCount
+									? ` · ${preview.request.blobs.length - preview.chunkCount} geometry files`
+									: ''}
+							</span>
+							<strong>
+								{preview.bytesTotal === null
+									? 'Size calculated while downloading'
+									: formatBytes(preview.bytesTotal)}
+							</strong>
+						</div>
+						{eventSelection && !(eventSelection instanceof Error) ? (
+							<div className="flex items-center justify-between text-muted-foreground">
+								<span>
+									{eventSelection.counts.total - eventSelection.counts.required} Earthly records
+								</span>
+								<span>{formatBytes(eventSelection.counts.bytesTotal)} metadata</span>
+							</div>
+						) : null}
 					</div>
 				) : (
 					<div className="flex gap-2 border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
@@ -379,9 +599,24 @@ export function SavedRegionsSection() {
 						</span>
 					</div>
 				)}
+				{deletionSync.error ? (
+					<p className="flex items-start gap-2 text-xs text-destructive">
+						<AlertTriangle className="mt-0.5 size-3.5 shrink-0" /> {deletionSync.error}
+					</p>
+				) : !deletionsReady ? (
+					<p className="flex items-center gap-2 text-xs text-muted-foreground">
+						<Loader2 className="size-3.5 animate-spin" /> Checking deleted Earthly records…
+					</p>
+				) : null}
 				<Button
 					className="w-full"
-					disabled={!service || operation !== null || !preview || preview instanceof Error}
+					disabled={
+						!service ||
+						operation !== null ||
+						!preview ||
+						preview instanceof Error ||
+						!deletionsReady
+					}
 					onClick={() => void save()}
 				>
 					{operation === 'create' ? (
@@ -407,13 +642,38 @@ export function SavedRegionsSection() {
 										{region.blobsDone}/{region.blobsTotal} files
 										{region.bytesTotal ? ` · ${formatBytes(region.bytesTotal)}` : ''}
 									</p>
+									<p className="text-[10px] text-muted-foreground">
+										{deferredRegionIds.has(region.id)
+											? 'Earthly content was not restored at startup to protect device memory'
+											: incompleteRegionIds.has(region.id)
+												? 'Some pinned records are missing · save this area again'
+												: region.eventsCount > 1
+													? `${region.eventsCount - 1} Earthly records kept offline`
+													: region.eventsCount === 1
+														? 'Map identity kept offline'
+														: 'Legacy map · Earthly content not pinned'}
+									</p>
 								</div>
 								<Badge
-									variant={region.status === 'ready' ? 'default' : 'outline'}
+									variant={
+										region.status === 'ready' &&
+										!incompleteRegionIds.has(region.id) &&
+										!deferredRegionIds.has(region.id)
+											? 'default'
+											: 'outline'
+									}
 									className="rounded-none"
 								>
-									{region.status === 'ready' ? <CheckCircle2 className="mr-1 size-3" /> : null}
-									{region.status}
+									{incompleteRegionIds.has(region.id) || deferredRegionIds.has(region.id) ? (
+										<AlertTriangle className="mr-1 size-3 text-amber-600" />
+									) : region.status === 'ready' ? (
+										<CheckCircle2 className="mr-1 size-3" />
+									) : null}
+									{deferredRegionIds.has(region.id)
+										? 'content deferred'
+										: incompleteRegionIds.has(region.id)
+											? 'content incomplete'
+											: region.status}
 								</Badge>
 							</div>
 							<Progress value={progressValue(region)} className="h-1.5 rounded-none" />
@@ -440,6 +700,10 @@ export function SavedRegionsSection() {
 									>
 										<Download className="size-4" /> Resume
 									</Button>
+								) : incompleteRegionIds.has(region.id) || deferredRegionIds.has(region.id) ? (
+									<div className="flex flex-1 items-center gap-2 text-xs text-amber-700 dark:text-amber-300">
+										<AlertTriangle className="size-4" /> Map available · content not loaded
+									</div>
 								) : (
 									<div className="flex flex-1 items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400">
 										<CheckCircle2 className="size-4" /> Available without internet

@@ -82,6 +82,13 @@ export function parsePublicReleaseEnvironment(contents: string): Record<string, 
 	return values
 }
 
+export function androidReleaseBuildEnvironment(contents: string): Record<string, string> {
+	return {
+		...parsePublicReleaseEnvironment(contents),
+		EARTHLY_PUBLIC_ENV_PRELOADED: '1',
+	}
+}
+
 export function validateReleaseVersions(versions: ReleaseVersions, gitRef?: string): string[] {
 	const errors: string[] = []
 	if (versions.packageVersion !== versions.tauriVersion) {
@@ -301,7 +308,7 @@ async function check(): Promise<AndroidReleaseMetadata> {
 async function build(): Promise<void> {
 	const metadata = await check()
 	await signingProperties()
-	const publicEnvironment = parsePublicReleaseEnvironment(await readFile(PUBLIC_ENV_PATH, 'utf8'))
+	const publicEnvironment = androidReleaseBuildEnvironment(await readFile(PUBLIC_ENV_PATH, 'utf8'))
 	await run(
 		[
 			process.execPath,

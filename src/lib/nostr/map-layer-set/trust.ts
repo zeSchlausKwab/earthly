@@ -11,6 +11,10 @@ const PMTILES_FILE_PATTERN = /^[0-9a-f]{64}(?:\.pmtiles)?$/u
 const MAX_ANNOUNCEMENT_BYTES = 5 * 1024 * 1024
 const MAX_LAYERS = 64
 const MAX_CHUNKS = 50_000
+export const MAX_MAP_LAYER_BLOB_BYTES = 2 * 1024 * 1024 * 1024
+export const MAX_MAP_LAYER_MIRRORS = 8
+export const MAX_MAP_LAYER_MIRROR_URL_BYTES = 2_048
+const UTF8_ENCODER = new TextEncoder()
 
 type MapLayerSetCandidate = Pick<NostrEvent, 'id' | 'pubkey' | 'created_at' | 'content' | 'tags'>
 
@@ -44,7 +48,14 @@ function validBbox(value: unknown): value is [number, number, number, number] {
 function normalizeMirrorUrl(value: unknown): string | null {
 	if (typeof value !== 'string') return null
 	try {
-		const url = new URL(value.trim())
+		const trimmed = value.trim()
+		if (
+			trimmed.length === 0 ||
+			UTF8_ENCODER.encode(trimmed).byteLength > MAX_MAP_LAYER_MIRROR_URL_BYTES
+		) {
+			return null
+		}
+		const url = new URL(trimmed)
 		if (url.username || url.password || url.search || url.hash) return null
 		const loopback = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(url.hostname)
 		if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) return null
@@ -56,16 +67,24 @@ function normalizeMirrorUrl(value: unknown): string | null {
 
 /** Return a stable, deduplicated mirror order with the deployment fallback last. */
 export function normalizeMapLayerMirrors(layer: MapLayerMirrors, fallback?: string): string[] {
-	const candidates = [
-		...(Array.isArray(layer.blossomServers) ? layer.blossomServers : []),
-		layer.blossomServer,
-		fallback,
-	]
-	const normalized = candidates.flatMap((candidate) => {
+	const normalized: string[] = []
+	const seen = new Set<string>()
+	const add = (candidate: unknown) => {
+		if (normalized.length >= MAX_MAP_LAYER_MIRRORS) return
 		const url = normalizeMirrorUrl(candidate)
-		return url ? [url] : []
-	})
-	return normalized.filter((url, index) => normalized.indexOf(url) === index)
+		if (!url || seen.has(url)) return
+		seen.add(url)
+		normalized.push(url)
+	}
+	if (Array.isArray(layer.blossomServers)) {
+		for (const candidate of layer.blossomServers) {
+			add(candidate)
+			if (normalized.length >= MAX_MAP_LAYER_MIRRORS) return normalized
+		}
+	}
+	add(layer.blossomServer)
+	add(fallback)
+	return normalized
 }
 
 function normalizeCommonLayer(value: Record<string, unknown>) {
@@ -83,9 +102,22 @@ function normalizeCommonLayer(value: Record<string, unknown>) {
 	) {
 		return null
 	}
+	if (
+		value.blossomServers !== undefined &&
+		(!Array.isArray(value.blossomServers) ||
+			value.blossomServers.length > MAX_MAP_LAYER_MIRRORS ||
+			value.blossomServers.some((server) => typeof server !== 'string'))
+	) {
+		return null
+	}
+	if (value.blossomServer !== undefined && typeof value.blossomServer !== 'string') return null
+	const signedMirrorCount =
+		(Array.isArray(value.blossomServers) ? value.blossomServers.length : 0) +
+		(typeof value.blossomServer === 'string' ? 1 : 0)
+	if (signedMirrorCount > MAX_MAP_LAYER_MIRRORS) return null
 	const blossomServers = normalizeMapLayerMirrors({
 		blossomServers: Array.isArray(value.blossomServers)
-			? value.blossomServers.filter((server): server is string => typeof server === 'string')
+			? (value.blossomServers as string[])
 			: undefined,
 		blossomServer: typeof value.blossomServer === 'string' ? value.blossomServer : undefined,
 	})
@@ -120,7 +152,10 @@ function normalizeAnnouncement(value: unknown): MapChunkAnnouncementRecord | nul
 		}
 		if (
 			chunk.size !== undefined &&
-			(typeof chunk.size !== 'number' || !Number.isSafeInteger(chunk.size) || chunk.size <= 0)
+			(typeof chunk.size !== 'number' ||
+				!Number.isSafeInteger(chunk.size) ||
+				chunk.size <= 0 ||
+				chunk.size > MAX_MAP_LAYER_BLOB_BYTES)
 		) {
 			return null
 		}
@@ -162,7 +197,9 @@ export function parseMapLayerSetContent(content: string): MapLayerSetAnnouncemen
 	if (!content || content.length > MAX_ANNOUNCEMENT_BYTES) return null
 	try {
 		const value = objectValue(JSON.parse(content))
-		if (!value || !Array.isArray(value.layers) || value.layers.length > MAX_LAYERS) return null
+		if (value?.version !== 1 || !Array.isArray(value.layers) || value.layers.length > MAX_LAYERS) {
+			return null
+		}
 		const layers = value.layers.map(normalizeLayer)
 		if (layers.some((layer) => layer === null)) return null
 		return { version: 1, layers: layers as MapLayerDescriptor[] }
@@ -183,7 +220,7 @@ export function selectLatestTrustedMapLayerSet<T extends MapLayerSetCandidate>(
 		if (
 			!best ||
 			event.created_at > best.created_at ||
-			(event.created_at === best.created_at && event.id > best.id)
+			(event.created_at === best.created_at && event.id < best.id)
 		) {
 			best = event
 		}

@@ -343,7 +343,7 @@ impl EmbeddedBlossom {
         hash: &str,
         response: reqwest::Response,
     ) -> Result<(BlobDescriptor, bool), NodeError> {
-        self.adopt_remote_response_cancellable(hash, response, None, None)
+        self.adopt_remote_response_cancellable(hash, response, None, None, None)
             .await
     }
 
@@ -353,6 +353,7 @@ impl EmbeddedBlossom {
         response: reqwest::Response,
         cancellation: Option<&CancellationToken>,
         progress: Option<&(dyn Fn(u64) + Send + Sync)>,
+        max_bytes: Option<u64>,
     ) -> Result<(BlobDescriptor, bool), NodeError> {
         validate_hash(hash).map_err(|error| NodeError::Blossom(error.reason.to_owned()))?;
         let target_path = self.store.blob_path(hash);
@@ -379,9 +380,12 @@ impl EmbeddedBlossom {
             Err(error) => return Err(error.into()),
         }
 
+        let max_blob_bytes = max_bytes
+            .map(|limit| limit.min(self.max_blob_bytes))
+            .unwrap_or(self.max_blob_bytes);
         if response
             .content_length()
-            .is_some_and(|size| size > self.max_blob_bytes)
+            .is_some_and(|size| size > max_blob_bytes)
         {
             return Err(NodeError::Blossom(
                 "remote blob exceeds the configured size limit".to_owned(),
@@ -430,7 +434,7 @@ impl EmbeddedBlossom {
                 }
             };
             size = size.saturating_add(chunk.len() as u64);
-            if size > self.max_blob_bytes {
+            if size > max_blob_bytes {
                 discard_staging(&staging_path).await;
                 return Err(NodeError::Blossom(
                     "remote blob exceeds the configured size limit".to_owned(),

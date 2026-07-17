@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { config } from '@/config/env.client'
+import { useSavedRegionDeletionSync } from '@/features/offline/saved-regions/useSavedRegionDeletionSync'
 import {
 	normalizeMapLayerMirrors,
 	parseMapLayerSetContent,
@@ -7,7 +8,13 @@ import {
 } from '@/lib/nostr/map-layer-set/trust'
 import { MAP_LAYER_SET_KIND } from '@/lib/nostr/kinds'
 import { useTimeline } from '@/lib/nostr/hooks'
-import { readCachedMapLayerSet, writeCachedMapLayerSet } from '@/lib/nostr/map-layer-set/cache'
+import {
+	getCachedMapLayerSetInvalidationRevision,
+	isMapLayerSetEventDeleted,
+	readCachedMapLayerSet,
+	subscribeCachedMapLayerSetInvalidation,
+	writeCachedMapLayerSet,
+} from '@/lib/nostr/map-layer-set/cache'
 import { useEditorStore, type MapLayerState } from '../../store'
 import { getMirroredPmtiles, setPmworldState } from './pmtilesProtocols'
 import type { AnnouncementRecord, MapSource } from './types'
@@ -38,19 +45,42 @@ export function useNostrMapLayerAnnouncements(mapSource: MapSource): number | nu
 			limit: 50,
 		},
 	])
-	const cachedLayerSetEvent = useMemo(
-		() => readCachedMapLayerSet(config.trustedMapnoliaPubkeys),
-		[],
+	const cacheInvalidationRevision = useSyncExternalStore(
+		subscribeCachedMapLayerSetInvalidation,
+		getCachedMapLayerSetInvalidationRevision,
+		getCachedMapLayerSetInvalidationRevision,
 	)
+	const cachedLayerSetEvent = useMemo(() => {
+		void cacheInvalidationRevision
+		return readCachedMapLayerSet(config.trustedMapnoliaPubkeys)
+	}, [cacheInvalidationRevision])
+	const deletionCandidates = useMemo(
+		() => (cachedLayerSetEvent ? [...mapLayerSetEvents, cachedLayerSetEvent] : mapLayerSetEvents),
+		[mapLayerSetEvents, cachedLayerSetEvent],
+	)
+	const announcementDeletionSync = useSavedRegionDeletionSync(
+		deletionCandidates,
+		mapSource.type === 'blossom' && deletionCandidates.length > 0,
+	)
+	const visibleMapLayerSetEvents = useMemo(() => {
+		void cacheInvalidationRevision
+		if (!announcementDeletionSync.localReady) return []
+		return mapLayerSetEvents.filter((event) => !isMapLayerSetEventDeleted(event))
+	}, [mapLayerSetEvents, cacheInvalidationRevision, announcementDeletionSync.localReady])
+	const locallyCheckedCachedLayerSetEvent = announcementDeletionSync.localReady
+		? cachedLayerSetEvent
+		: null
 
 	// Stable "latest event" so our effect doesn't re-trigger on every render.
 	const latestLayerSetEvent = useMemo(
 		() =>
 			selectLatestTrustedMapLayerSet(
-				cachedLayerSetEvent ? [...mapLayerSetEvents, cachedLayerSetEvent] : mapLayerSetEvents,
+				locallyCheckedCachedLayerSetEvent
+					? [...visibleMapLayerSetEvents, locallyCheckedCachedLayerSetEvent]
+					: visibleMapLayerSetEvents,
 				config.trustedMapnoliaPubkeys,
 			),
-		[mapLayerSetEvents, cachedLayerSetEvent],
+		[visibleMapLayerSetEvents, locallyCheckedCachedLayerSetEvent],
 	)
 
 	const latestLayerSetContent = latestLayerSetEvent?.content ?? null
@@ -106,18 +136,23 @@ export function useNostrMapLayerAnnouncements(mapSource: MapSource): number | nu
 
 		// Populate layer state for UI
 		if (payload?.layers) {
-			const layerStates: MapLayerState[] = payload.layers.map((layer) => ({
-				id: layer.id,
-				title: layer.title,
-				kind: layer.kind,
-				enabled: layer.defaultEnabled ?? true,
-				opacity: layer.defaultOpacity ?? 1,
-				blossomServer: normalizeMapLayerMirrors(layer, config.blossomServer)[0],
-				blossomServers: normalizeMapLayerMirrors(layer, config.blossomServer),
-				file: 'file' in layer ? layer.file : undefined,
-				pmtilesType: 'pmtilesType' in layer ? layer.pmtilesType : undefined,
-				announcement: 'announcement' in layer ? layer.announcement : undefined,
-			}))
+			const layerStates: MapLayerState[] = payload.layers.map((layer) => {
+				const signedBlossomServers = normalizeMapLayerMirrors(layer)
+				const runtimeBlossomServers = normalizeMapLayerMirrors(layer, config.blossomServer)
+				return {
+					id: layer.id,
+					title: layer.title,
+					kind: layer.kind,
+					enabled: layer.defaultEnabled ?? true,
+					opacity: layer.defaultOpacity ?? 1,
+					blossomServer: runtimeBlossomServers[0],
+					blossomServers: runtimeBlossomServers,
+					signedBlossomServers,
+					file: 'file' in layer ? layer.file : undefined,
+					pmtilesType: 'pmtilesType' in layer ? layer.pmtilesType : undefined,
+					announcement: 'announcement' in layer ? layer.announcement : undefined,
+				}
+			})
 			setMapLayers(layerStates)
 		} else {
 			setMapLayers([])

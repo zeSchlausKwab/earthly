@@ -321,6 +321,7 @@ impl LocalNode {
         &self,
         hash: &str,
         mirror_urls: Vec<String>,
+        expected_size: Option<u64>,
         cancellation: &CancellationToken,
         progress: Option<&(dyn Fn(u64) + Send + Sync)>,
     ) -> Result<crate::PublicBlobDownload, PublicBlobDownloadError> {
@@ -328,6 +329,26 @@ impl LocalNode {
             &self.blossom,
             hash,
             mirror_urls,
+            expected_size,
+            cancellation,
+            progress,
+        )
+        .await
+    }
+
+    pub async fn download_public_content_blob(
+        &self,
+        hash: &str,
+        source_urls: Vec<String>,
+        expected_size: Option<u64>,
+        cancellation: &CancellationToken,
+        progress: Option<&(dyn Fn(u64) + Send + Sync)>,
+    ) -> Result<crate::PublicBlobDownload, PublicBlobDownloadError> {
+        crate::public_blob::download_public_content_blob(
+            &self.blossom,
+            hash,
+            source_urls,
+            expected_size,
             cancellation,
             progress,
         )

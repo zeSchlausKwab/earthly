@@ -76,6 +76,9 @@ import {
 } from '@/lib/private-workspace'
 import { usePrivateWorkspaceRuntime } from '@/features/private-maps/usePrivateWorkspaceRuntime'
 import { normalizePairingInvitation } from '@/features/offline/pairingQr'
+import { useSavedRegionDeletionSync } from '@/features/offline/saved-regions/useSavedRegionDeletionSync'
+import { useSavedRegionHydration } from '@/features/offline/saved-regions/useSavedRegionHydration'
+import type { DeletionTarget } from '@/lib/nostr/deletionCache'
 import { earthlyAppLinkNavigationTarget } from '@/platform/nativeAppLink'
 import { useFieldSessions } from '@/features/field-sessions/model'
 import {
@@ -259,7 +262,49 @@ export function shouldSweepStackEntry(status: { resolved: boolean; expired: bool
 	return !status.resolved || status.expired
 }
 
+const NO_SAVED_REGION_EVENTS: readonly NostrEvent[] = []
+
+function SavedRegionDeletionMonitor({
+	regionId,
+	targets,
+}: {
+	regionId: string
+	targets: readonly DeletionTarget[]
+}) {
+	const sync = useSavedRegionDeletionSync(NO_SAVED_REGION_EVENTS, targets.length > 0, targets)
+	useEffect(() => {
+		if (!sync.error) return
+		toast.warning('Saved-area deletion monitoring is paused', {
+			id: `saved-region-deletion-sync-${regionId}`,
+			description: sync.error,
+		})
+	}, [regionId, sync.error])
+	return null
+}
+
 export function GeoEditorView() {
+	const savedRegionHydration = useSavedRegionHydration()
+	useEffect(() => {
+		if (savedRegionHydration.state === 'ready' && savedRegionHydration.missing > 0) {
+			toast.warning('Some saved Earthly content is incomplete', {
+				id: 'saved-region-content-incomplete',
+				description: `${savedRegionHydration.missing} signed ${savedRegionHydration.missing === 1 ? 'record is' : 'records are'} missing or damaged. The saved map remains available; replace the affected saved area while online to restore its content.`,
+			})
+		} else if (
+			savedRegionHydration.state === 'ready' &&
+			savedRegionHydration.deferredRegionIds.length > 0
+		) {
+			toast.info('Some saved Earthly content was left unloaded', {
+				id: 'saved-region-content-deferred',
+				description: `${savedRegionHydration.deferredRegionIds.length} saved ${savedRegionHydration.deferredRegionIds.length === 1 ? 'area exceeded' : 'areas exceeded'} the safe startup memory budget. Their map files remain available offline.`,
+			})
+		} else if (savedRegionHydration.state === 'failed') {
+			toast.error('Saved Earthly content could not be restored', {
+				id: 'saved-region-content-hydration-failed',
+				description: savedRegionHydration.message,
+			})
+		}
+	}, [savedRegionHydration])
 	const map = useRef<maplibregl.Map | null>(null)
 	const [mounted, setMounted] = useState(false)
 	const {
@@ -3319,6 +3364,11 @@ export function GeoEditorView() {
 				/>
 			}
 		>
+			{savedRegionHydration.state === 'ready'
+				? Object.entries(savedRegionHydration.regionDeletionTargets).map(([regionId, targets]) => (
+						<SavedRegionDeletionMonitor key={regionId} regionId={regionId} targets={targets} />
+					))
+				: null}
 			<MapComponent
 				className="w-full h-full touch-none"
 				onLoad={(m) => {

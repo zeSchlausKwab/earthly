@@ -145,6 +145,68 @@ describe('local node platform contracts', () => {
 				retainedBlobs: 1,
 			}),
 		).toEqual({ removedBlobs: 2, reclaimedBytes: 1_024, retainedBlobs: 1 })
+		expect(
+			nativeSchemas.savedRegionDeletionRetention.parse({
+				retainedEvents: 1,
+				regionAttachments: 2,
+			}),
+		).toEqual({ retainedEvents: 1, regionAttachments: 2 })
+	})
+
+	test('requires saved-region hydration to account for every manifest event id', () => {
+		const event = {
+			id: 'a'.repeat(64),
+			pubkey: 'b'.repeat(64),
+			created_at: 1_900_000_000,
+			kind: 37_515,
+			tags: [['d', 'offline-dataset']],
+			content: '{}',
+			sig: 'c'.repeat(128),
+		}
+		const hydration = {
+			regionId: 'weekend-hike',
+			expectedEvents: 2,
+			cursor: 0,
+			nextCursor: null,
+			events: [event],
+			missingEventIds: ['d'.repeat(64)],
+		}
+		expect(nativeSchemas.savedRegionEventHydration.parse(hydration)).toEqual(hydration)
+		expect(() =>
+			nativeSchemas.savedRegionEventHydration.parse({
+				...hydration,
+				expectedEvents: 3,
+			}),
+		).toThrow('manifest count')
+		expect(() =>
+			nativeSchemas.savedRegionEventHydration.parse({
+				...hydration,
+				expectedEvents: 129,
+				events: Array.from({ length: 128 }, (_, index) => ({
+					...event,
+					id: index.toString(16).padStart(64, '0'),
+				})),
+			}),
+		).toThrow('record limit')
+		expect(() =>
+			nativeSchemas.savedRegionEventHydration.parse({
+				...hydration,
+				expectedEvents: 2,
+				nextCursor: 1,
+				events: [],
+				missingEventIds: [],
+			}),
+		).toThrow('cursor is inconsistent')
+		expect(
+			nativeSchemas.savedRegionEventHydration.parse({
+				...hydration,
+				expectedEvents: 4_097,
+				cursor: 4_096,
+				nextCursor: null,
+				events: [event],
+				missingEventIds: [],
+			}),
+		).toMatchObject({ expectedEvents: 4_097, cursor: 4_096 })
 	})
 
 	test('accepts a redacted support report without identities or content', () => {

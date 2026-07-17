@@ -16,9 +16,14 @@
 > SQLite outbox with per-relay acknowledgements, lifecycle replay, and a user-facing delivery
 > ledger. Time-bounded nearby sharing is backed by Android's visible `connectedDevice` foreground
 > service. Trusted announcements now produce durable bbox-scoped region manifests, and Android can
-> stream, hash-verify, cancel/resume, and use their PMTiles files local-first after restart. Physical
-> saved-region/offline-authoring acceptance, integrity repair and garbage collection, and release
-> distribution remain staged work.
+> stream, hash-verify, cancel/resume, and use their PMTiles files local-first after restart. A saved
+> region also retains a bounded, immutable snapshot of its signed public Earthly records and any
+> hash-bound external GeoJSON they reference. Blob repair and reference-safe garbage collection are
+> implemented. A bounded, target-scoped NIP-09 pass now gates saves, persists verified tombstones,
+> restores them before snapshot hydration, and follows later deletions for retained records.
+> Complete relay-backed candidate acquisition, repair of missing event snapshots, a physical
+> cold-start audit of every saved entity view, offline-authoring acceptance, and release distribution
+> remain staged work.
 
 Status: committed product direction
 Created: 2026-07-13
@@ -68,9 +73,11 @@ That foundation then supports the offline hiking workflow:
 
 1. The user opens Earthly on desktop or mobile and selects a geographic region.
 2. Earthly resolves the trusted Mapnolia announcement and shows the required basemap, overlay,
-   style, sprite, and Earthly-event storage size.
-3. The native backend downloads immutable blobs with mirror failover, verifies their SHA-256
-   hashes, and atomically saves a region manifest.
+   style, sprite, external geometry, and Earthly-event storage size.
+3. Earthly performs a bounded targeted deletion check for the exact records it will retain. The
+   native backend then independently validates the trusted announcement, signed blob manifest, and
+   event snapshot before saving them transactionally and downloading immutable blobs with
+   hash-verifying mirror failover.
 4. After a restart with all networking disabled, the map opens, pans, and zooms throughout the
    saved region. Saved datasets, groups, stories, sightings, comments, and profiles remain
    readable.
@@ -142,11 +149,13 @@ Use each storage engine for the shape it handles best:
    addressed by SHA-256.
 2. **rust-nostr LMDB store** — validated Nostr events queried through the rust-nostr database
    abstraction.
-3. **SQLite application database** — regions, blob references, download jobs, outbox state,
-   per-relay acknowledgements, settings metadata, and migrations.
+3. **SQLite application database** — regions, blob references, bounded immutable signed-event
+   snapshots, download jobs, outbox state, per-relay acknowledgements, settings metadata, and
+   migrations.
 
-Do not put multi-gigabyte blobs in SQLite or LMDB. Do not use JSON files as the authoritative
-outbox or region catalog.
+Do not put PMTiles, media, or external GeoJSON blobs in SQLite or LMDB. The saved-region event
+snapshot is separately count- and byte-bounded; larger referenced content remains in the verified
+filesystem blob store. Do not use JSON files as the authoritative outbox or region catalog.
 
 ### 3.4 Embedded local node
 
@@ -328,14 +337,14 @@ Keep commands coarse enough to preserve transactions and avoid chatty IPC:
 ### Storage and regions
 
 - `storage_status_v1`
-- `region_plan_v1`
-- `region_save_v1`
-- `region_cancel_v1`
-- `region_list_v1`
-- `region_verify_v1`
-- `region_remove_v1`
-- `region_repair_v1`
-- `storage_gc_v1`
+- `saved_region_create_v1`
+- `saved_region_list_v1`
+- `saved_region_events_v1`
+- `saved_region_download_v1`
+- `saved_region_cancel_v1`
+- `saved_region_repair_v1`
+- `saved_region_remove_v1`
+- `saved_region_collect_garbage_v1`
 
 ### Events
 
@@ -394,18 +403,24 @@ The initial migration defines:
 
 - `schema_migrations(version, applied_at)`
 - `blobs(hash, size, media_type, verified_at, last_accessed_at, created_at)`
-- `regions(id, name, bbox_json, source_pubkey, announcement_id, status, created_at, updated_at)`
-- `region_blobs(region_id, hash, role, required, ordinal)`
-- `region_events(region_id, event_id, role)`
+- `saved_regions(id, name, bbox_json, source_pubkey, announcement_id, status, created_at,
+  updated_at, last_error)`
+- `saved_region_blobs(region_id, sha256, role, required, ordinal, expected_size, actual_size,
+  media_type, state, mirror_urls_json, last_error)`
+- `saved_region_managed_blobs(sha256, actual_size, created_at, last_error)`
+- `saved_region_event_objects(event_id, event_json, kind, author_pubkey, stored_at)`
+- `saved_region_events(region_id, event_id, kind, author_pubkey, ordinal)`
 - `download_jobs(id, region_id, state, bytes_total, bytes_done, error_code, updated_at)`
 - `outbox_items(id, event_json, event_id, event_kind, routing, target_pubkey, state,
   attempt_count, next_attempt_at, created_at, updated_at, last_error)`
 - `outbox_relays(outbox_id, relay_url, required, state, attempts, acknowledged_at, last_error)`
 - `settings(key, value_json, updated_at)` for non-secret native metadata only.
 
-Foreign keys are enabled. Region/blob reference changes and outbox transitions are transactional.
-Migrations are forward-only, idempotent under restart, and backed up before any destructive
-transformation.
+Foreign keys are enabled. Region/blob reference changes, the immutable event-object snapshot and
+its ordered per-region references, and outbox transitions are transactional. Removing a region
+cascades its ordered event references; unreferenced event objects and managed blobs are reclaimed
+without deleting objects still shared by another region. Migrations are forward-only, idempotent
+under restart, and backed up before any destructive transformation.
 
 ### 7.3 Outbox states
 
@@ -433,16 +448,21 @@ the exclusion in addition to the TypeScript call site.
 ### 8.1 Region planning
 
 The planner receives a trusted, validated Mapnolia announcement plus a bbox and selected layers.
-It resolves intersecting chunks, styles, sprites, and optional Earthly event coverage. Planning
-returns:
+It resolves intersecting chunks, styles, sprites, a bounded signed Earthly-event snapshot, and
+hash-bound external GeoJSON referenced by selected datasets. Planning returns:
 
 - exact content hashes and ordered mirror URLs;
 - known and unknown byte counts;
 - already-present and missing bytes;
 - warnings for incomplete coverage or absent metadata;
-- the source pubkey and announcement id to pin as provenance.
+- the source pubkey, announcement id, and selected layer id to pin as provenance;
+- ordered signed records plus their count and serialized-byte total.
 
-A region cannot enter `ready` state unless every required artifact is verified.
+A region cannot enter `ready` state unless every required artifact is verified. Native creation
+does not trust the TypeScript DTO alone: it verifies that the source is in the build's Mapnolia
+allowlist, finds the exact signed kind-34444 announcement, and derives the expected basemap and
+external-content hash/size sets from the selected signed layer and datasets before committing the
+manifest.
 
 ### 8.2 Downloading
 
@@ -485,9 +505,43 @@ The adapter must preserve replaceable-event semantics expected by Applesauce. Ru
 event JSON, ids, and signatures before database insertion; TypeScript still applies Earthly model
 version, expiration, schema, and mute/filter policy before display.
 
-Saved regions pin their provenance announcement and selected Earthly events. General cache
-retention may be bounded, but pinned events cannot be evicted until all owning regions/bundles are
-removed.
+Saved-region durability does not rely on the general LMDB cache retaining a replaceable event.
+Creation verifies every selected event id and signature, then writes the exact serialized event
+once to `saved_region_event_objects` and records its ordered membership in `saved_region_events` in
+the same SQLite transaction as the region manifest. Multiple regions deduplicate an identical event
+id while retaining independent references; replacing a current cache record cannot mutate an older
+saved snapshot.
+
+The initial content snapshot is intentionally bounded to 4,096 events and 16 MiB of serialized
+event JSON per region. A separate reserve of another 4,096 events and 16 MiB is available only for
+verified deletion tombstones that arrive during the region's lifetime. `saved_region_events_v1`
+hydrates the combined manifest in pages of at most 128 records, revalidates each exact object, and
+returns explicit missing or corrupt ids rather than silently claiming a complete region. Removing
+the last referencing region makes its immutable objects eligible for garbage collection. Native
+creation also caps the catalog at 16 saved regions so startup work and ongoing monitors remain
+bounded.
+
+Deletion knowledge is handled explicitly rather than inferred from absence. Before creating a
+snapshot, Earthly builds bounded kind-5 queries for the exact event ids and replaceable addresses it
+will retain, constrained by each target's author. It reads the browser cache and configured content
+relays, signature-checks tombstones, applies them oldest-first, and keeps Save disabled when the
+bounded response budget or durable cache write fails. Authorized tombstones evict only records from
+the same author at or before the deletion timestamp.
+
+On a cold restart with intact application data, native-pinned tombstones are restored before
+ordinary snapshot events enter Applesauce; exact `e`-only tombstones are also checked explicitly
+for addressable records. A target-scoped live subscription follows later deletions for hydrated or
+newly saved records and appends relevant, verified tombstones to the owning native manifests. A
+short-lived native race journal bridges a deletion that reaches the app immediately before a new
+region is committed; it accepts only tombstones with recognized target pointers and is compacted
+after attachment or expiry. This closes the deletion-resurrection path for known saved targets
+without claiming a full relay-history index.
+
+Startup hydration has an application-wide 20,000-event/64 MiB ordinary-record budget. Each region
+is staged atomically: if it would exceed that budget, its ordinary records remain deferred rather
+than partially appearing, while its target identities and native tombstones are still scanned and
+restored. A separate 4,096-event/16 MiB deletion-memory budget prevents tombstone replay from
+becoming unbounded.
 
 ## 10. Bundle format
 
@@ -727,7 +781,8 @@ Deliver:
 - `src/platform` contracts, capability registry, web adapters, and Tauri adapters;
 - typed invoke/event helpers with Zod validation and one application bootstrap path;
 - Applesauce integration through the ordinary embedded relay interface;
-- region event pinning, retention policy, and offline-state audit of saved entity views;
+- immutable region event snapshots, retention policy, and offline-state audit of saved entity
+  views;
 - platform and node diagnostics UI;
 - contract tests against both web and native adapter families.
 
@@ -736,9 +791,35 @@ Exit criteria:
 - feature modules contain no direct `@tauri-apps/*` imports;
 - the browser build excludes native modules cleanly and unsupported capabilities are truthful;
 - cached announcements, datasets, groups, stories, sightings, comments, and profiles hydrate after
-  a cold offline restart through the local relay;
+  a cold offline restart from the native saved-region snapshot;
 - expired and legacy-incompatible events remain filtered by existing Earthly policy;
 - Tauri IPC and node descriptor version mismatches fail safely.
+
+Implementation status (2026-07-17): typed web/native contracts, the region manifest commands, the
+immutable SQLite event-object store, ordered per-region references, and bounded paginated hydration
+are implemented. The TypeScript selector reserves the exact signed kind-34444 source announcement
+first, then deterministically retains current public spatial datasets, Groups, stories, and
+unexpired sightings, followed by referenced Groups, reachable comment threads, and author profiles.
+It excludes private/Field-session records, expired sightings, live-beacon traffic, malformed
+records, and stale replaceable versions. Native validation independently enforces the allowed kinds,
+public scope, signatures, the one matching provenance announcement, 4,096-event/16 MiB initial
+content ceiling, reserved deletion capacity, and 16-region catalog ceiling.
+
+Save now waits for a bounded, author-and-target-constrained NIP-09 cache/relay pass. Verified
+tombstones are durably cached, authorized targets are evicted without a buffered-write race, cold
+hydration restores native-pinned deletion state before adding snapshot events, and ongoing
+target-scoped subscriptions retain later relevant deletions in the owning manifests. Cache
+readiness is reported separately from relay completion so locally known deletions take effect
+without waiting for a slow relay. The implementation reports persistence failure rather than
+claiming the deletion check completed.
+
+Remaining Phase 6 work is to replace selection from the currently loaded in-memory EventStore with
+complete relay-backed candidate acquisition, physically audit each entity view after a cold start
+with networking disabled, and add native repair for missing or damaged event snapshot objects.
+Deletion synchronization remains deliberately bounded to the exact candidate/saved target set; it
+is not a general Nostr history index. Before expanding beyond the 16-region release limit, the
+per-region live monitors should be consolidated behind a shared target-deduplicating scheduler and
+global request budget. Until those checks pass, the offline-Nostr exit criterion remains open.
 
 ### Phase 7 — Native content catalog and local PMTiles access
 
@@ -769,26 +850,32 @@ Deliver:
 - streaming native download manager with mirror failover;
 - hash verification, deduplication, resume, cancellation, repair, and reference-counted removal;
 - saved-region UI with coverage, progress, storage, and error states;
-- local-first PMTiles and style/sprite resolution.
+- local-first PMTiles and style/sprite resolution;
+- exact signed public Earthly-event snapshots and retention of referenced external GeoJSON blobs.
 
 Exit criteria:
 
 - a defined hiking fixture downloads, verifies, survives restart, and renders with networking
   disabled;
 - shared blobs are downloaded once and are not removed while referenced;
+- referenced external GeoJSON is hash-verified and opens from the local blob store after restart;
 - auth/payment failures remain actionable and are never retried as transient failures;
 - tampered mirror content is rejected and the next mirror is attempted.
 
-Implementation status (2026-07-16): trusted Mapnolia publisher configuration, author-filtered
+Implementation status (2026-07-17): trusted Mapnolia publisher configuration, author-filtered
 kind-34444 subscriptions, bounded announcement validation, legacy `blossomServer` compatibility,
-ordered `blossomServers[]`, and PMTiles range-read mirror failover are implemented. The bbox planner
-now selects exact content-addressed chunks; the native SQLite catalog persists progress and restart
-recovery; the Rust downloader enforces HTTPS/public-address policy, mirror failover, cancellation,
-and SHA-256 adoption; and the Offline settings UI exposes size, progress, cancel/resume, and manifest
-removal. Android PMTiles resolution tries the verified local protocol before network mirrors on a
-removal. Android PMTiles resolution requests short-lived, hash-scoped access to its own embedded
-Blossom and tries that ordinary HTTP range source before network mirrors. Paired devices transfer
-complete immutable blobs once; they are not expected to remain available as remote range servers.
+ordered `blossomServers[]`, and PMTiles range-read mirror failover are implemented. The Android
+build embeds a non-empty validated public-key allowlist from release configuration, and native
+region creation rejects any other source even if the frontend configuration differs. It also
+verifies the exact signed announcement, selected layer, intersecting chunk hashes/sizes, and the
+external-content hashes/sizes declared by selected signed datasets before accepting the manifest.
+The bbox planner selects exact content-addressed chunks; the native SQLite catalog persists progress
+and restart recovery; the Rust downloader enforces HTTPS/public-address policy, mirror failover,
+cancellation, and SHA-256 adoption; and the Offline settings UI exposes size, progress,
+cancel/resume, and manifest removal. Android PMTiles resolution requests short-lived, hash-scoped
+access to its own embedded Blossom and tries that ordinary HTTP range source before network mirrors.
+Paired devices transfer complete immutable blobs once; they are not expected to remain available as
+remote range servers.
 Physical S9 acceptance now verifies that a downloaded hiking fixture, the selected trusted map
 source, the last viewport, and a signature-checked cached kind-34444 announcement survive a cold
 restart with Wi-Fi and mobile data disabled. Panning and zooming after restart produced fresh,
@@ -802,12 +889,30 @@ The built-in Protomaps flavor remains the self-contained cartographic fallback: 
 labels from device fonts and optional pictograms degrade through the missing-image handler without
 fetching font or sprite CDNs. Mapnolia's published v0.2 announcement contract does not yet contain
 the designed style/sprite references.
-The single-device `0.0.1` offline implementation is complete and cold-start verified on Android
-16/API 36. Remaining acceptance gates are a physical two-device, internet-disabled Field-session
-and blob-transfer journey, plus Android low-storage/write-failure evidence on an appropriate test
-device. The general
+
+Selected datasets' signed raw `blob` tags now add required `content` artifacts to the same region
+plan. References are deterministically deduplicated by SHA-256, retain up to eight ordered HTTPS
+mirrors, contribute their known sizes to storage preflight and free-space reservation, and are
+stored in the shared content-addressed blob store. Each external GeoJSON object is limited to 50 MiB
+even when the server omits `Content-Length`. The planner and downloader require one lowercase
+SHA-256 identity and reject credentials, queries, fragments, localhost, `.local`, IP-literal or
+non-public DNS targets, redirects, oversized bodies, and hash mismatches. Unlike Mapnolia archive
+mirrors, a safe URL carried by the signed dataset may use a non-hash pathname; the downloaded bytes
+still become authoritative only after SHA-256 verification and atomic adoption. Invalid references
+fail the save visibly instead of producing a misleading partially offline dataset.
+
+The single-device `0.0.1` basemap path is cold-start verified on Android 16/API 36. The full saved
+Earthly-content path is not yet physically signed off: it still needs a cold-start audit that opens
+the retained entity views and external GeoJSON with networking disabled. Other remaining acceptance
+gates are a physical two-device, internet-disabled Field-session and blob-transfer journey, plus
+Android low-storage/write-failure evidence on an appropriate test device. The general
 offline-authoring/global-outbox journey is deliberately not a `0.0.1` gate; the release instead
 proves explicit nearby collaboration through Field sessions.
+
+Next implementation order: acquire the full bbox candidate graph from bounded relay/cache queries
+instead of only the current EventStore; add explicit repair/rebuild for incomplete event snapshots;
+run the physical Android cold-start audit including external GeoJSON; then close the two-device
+Field-session/blob-transfer and low-storage acceptance evidence.
 
 ### Phase 9 — Durable native publish outbox
 
@@ -946,8 +1051,13 @@ fixtures, and operational runbooks remain release work.
 - outbox retry scheduling and relay policy;
 - ZIP traversal and decompression-limit defenses;
 - Serde command compatibility;
-- event id/signature rejection;
-- garbage collection reference safety.
+- event id/signature rejection and native Mapnolia allowlist/signed-manifest binding;
+- immutable event snapshot ordering, deduplication, pagination, corruption reporting, and
+  reference-safe garbage collection;
+- deletion-journal pointer validation, expiry/compaction, create-time race attachment, and reserved
+  tombstone capacity;
+- external-content size limits, streamed-body limits, hash verification, mirror failover, and SSRF
+  rejection including IPv4-mapped IPv6 addresses.
 
 ### TypeScript tests
 
@@ -955,6 +1065,15 @@ fixtures, and operational runbooks remain release work.
 - runtime capability selection;
 - local-first source choice;
 - region planning DTO validation;
+- deterministic saved-event graph selection, dependency ordering, replaceable-event tie-breaking,
+  and count/byte truncation;
+- external GeoJSON reference validation, hash deduplication, size accounting, and mirror limits;
+- paginated snapshot hydration, overlapping-region deduplication, and incomplete-region reporting;
+- targeted deletion-filter construction, signature/author/timestamp enforcement, durable tombstone
+  application, buffered-write race protection, and cold-hydration ordering including `e`-only
+  deletions;
+- deletion-sync lifecycle behavior across local-cache readiness, relay EOSE/error, live arrivals,
+  and newest-address-tombstone replay;
 - offline UI state reducers;
 - outbox state presentation;
 - deep-link normalization;
@@ -1441,7 +1560,8 @@ The Tauri implementation is complete when:
 
 - the canonical offline hiking journey passes on the supported physical Android versions;
 - offline maps use verified native blobs through correct Range responses;
-- offline Nostr reads survive restarts through the embedded event database;
+- offline Nostr reads survive restart from immutable saved-region snapshots, including a physical
+  cold-start audit of all supported entity views and explicit handling of missing snapshot objects;
 - signed publishes are crash-safe and eventually delivered with transparent relay state;
 - `.earthly` bundles safely round-trip on Android;
 - native deep links, QR, geolocation, file dialogs, and sharing have permission-aware UX;

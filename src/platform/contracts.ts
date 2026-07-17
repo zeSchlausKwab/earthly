@@ -245,7 +245,13 @@ export const outboxItemSummarySchema = outboxItemSchema.omit({ eventJson: true }
 
 export type OutboxItemSummary = z.infer<typeof outboxItemSummarySchema>
 
-export const savedRegionBlobRoleSchema = z.enum(['basemap', 'overlay', 'style', 'sprite'])
+export const savedRegionBlobRoleSchema = z.enum([
+	'basemap',
+	'overlay',
+	'style',
+	'sprite',
+	'content',
+])
 export const savedRegionBlobStateSchema = z.enum(['missing', 'available', 'failed'])
 export const savedRegionStatusSchema = z.enum(['planned', 'downloading', 'ready', 'failed'])
 
@@ -274,6 +280,7 @@ export const savedRegionSchema = z.object({
 	bytesDone: z.number().int().nonnegative(),
 	blobsTotal: z.number().int().nonnegative(),
 	blobsDone: z.number().int().nonnegative(),
+	eventsCount: z.number().int().nonnegative(),
 	createdAt: z.number().int().positive(),
 	updatedAt: z.number().int().positive(),
 	lastError: z.string().nullable(),
@@ -304,9 +311,65 @@ export const savedRegionGarbageCollectionSchema = z.object({
 	retainedBlobs: z.number().int().nonnegative(),
 })
 
+export const savedRegionDeletionRetentionSchema = z.object({
+	retainedEvents: z.number().int().nonnegative(),
+	regionAttachments: z.number().int().nonnegative(),
+})
+
+export const savedRegionEventHydrationSchema = z
+	.object({
+		regionId: z.string().min(1).max(64),
+		expectedEvents: z.number().int().nonnegative().max(8_192),
+		cursor: z.number().int().nonnegative().max(8_192),
+		nextCursor: z.number().int().positive().max(8_192).nullable(),
+		events: z.array(syncedNostrEventSchema).max(128),
+		missingEventIds: z.array(z.string().regex(/^[0-9a-f]{64}$/)).max(128),
+	})
+	.superRefine((hydration, context) => {
+		const ids = [...hydration.events.map((event) => event.id), ...hydration.missingEventIds]
+		if (ids.length > 128) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Saved-region event hydration page exceeds its record limit',
+			})
+		}
+		if (new Set(ids).size !== ids.length) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Saved-region event hydration contains duplicate ids',
+			})
+		}
+		const consumed = hydration.cursor + ids.length
+		if (consumed > hydration.expectedEvents) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Saved-region event hydration exceeds its manifest count',
+			})
+		}
+		if (hydration.nextCursor === null) {
+			if (consumed !== hydration.expectedEvents) {
+				context.addIssue({
+					code: 'custom',
+					message: 'Final saved-region event page does not match its manifest count',
+				})
+			}
+		} else if (
+			ids.length === 0 ||
+			hydration.nextCursor !== consumed ||
+			hydration.nextCursor >= hydration.expectedEvents
+		) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Saved-region event hydration cursor is inconsistent',
+			})
+		}
+	})
+
 export type SavedRegion = z.infer<typeof savedRegionSchema>
 export type SavedRegionProgress = z.infer<typeof savedRegionProgressSchema>
 export type SavedRegionGarbageCollection = z.infer<typeof savedRegionGarbageCollectionSchema>
+export type SavedRegionDeletionRetention = z.infer<typeof savedRegionDeletionRetentionSchema>
+export type SavedRegionEventHydration = z.infer<typeof savedRegionEventHydrationSchema>
 export type SavedRegionBlobRole = z.infer<typeof savedRegionBlobRoleSchema>
 
 export interface SavedRegionBlobInput {
@@ -323,15 +386,19 @@ export interface SavedRegionCreateRequest {
 	id: string
 	name: string
 	bbox: [number, number, number, number]
+	layerId: string
 	sourcePubkey: string
 	announcementId: string
 	blobs: SavedRegionBlobInput[]
+	events: SyncedNostrEvent[]
 }
 
 export interface SavedRegionService {
 	readonly supported: boolean
 	create(input: SavedRegionCreateRequest): Promise<SavedRegion>
 	list(): Promise<SavedRegion[]>
+	events(id: string, cursor?: number): Promise<SavedRegionEventHydration>
+	retainDeletions(events: SyncedNostrEvent[]): Promise<SavedRegionDeletionRetention>
 	download(id: string): Promise<SavedRegion>
 	repair(id: string): Promise<SavedRegion>
 	cancel(id: string): Promise<boolean>
@@ -473,7 +540,9 @@ export const nativeSchemas = {
 	outboxItemSummaries: z.array(outboxItemSummarySchema),
 	savedRegion: savedRegionSchema,
 	savedRegions: z.array(savedRegionSchema),
+	savedRegionEventHydration: savedRegionEventHydrationSchema,
 	savedRegionProgress: savedRegionProgressSchema,
 	savedRegionGarbageCollection: savedRegionGarbageCollectionSchema,
+	savedRegionDeletionRetention: savedRegionDeletionRetentionSchema,
 	supportDiagnosticReport: supportDiagnosticReportSchema,
 }

@@ -4,6 +4,8 @@ import {
 	nativeSchemas,
 	type SavedRegion,
 	type SavedRegionCreateRequest,
+	type SavedRegionDeletionRetention,
+	type SavedRegionEventHydration,
 	type SavedRegionGarbageCollection,
 	type SavedRegionProgress,
 	type SavedRegionService,
@@ -28,6 +30,19 @@ export const tauriSavedRegionService: SavedRegionService = {
 		invokeValidated('saved_region_create_v1', nativeSchemas.savedRegion, { input }),
 	list: (): Promise<SavedRegion[]> =>
 		invokeValidated('saved_region_list_v1', nativeSchemas.savedRegions),
+	events: (id: string, cursor = 0): Promise<SavedRegionEventHydration> =>
+		invokeValidated('saved_region_events_v1', nativeSchemas.savedRegionEventHydration, {
+			id,
+			cursor,
+		}),
+	retainDeletions: (events): Promise<SavedRegionDeletionRetention> =>
+		invokeValidated(
+			'saved_region_retain_deletions_v1',
+			nativeSchemas.savedRegionDeletionRetention,
+			{
+				input: { version: 1, events },
+			},
+		),
 	download: (id: string): Promise<SavedRegion> =>
 		invokeValidated('saved_region_download_v1', nativeSchemas.savedRegion, { id }),
 	repair: (id: string): Promise<SavedRegion> =>

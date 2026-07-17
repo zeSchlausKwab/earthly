@@ -21,8 +21,8 @@ use outbox::{
 };
 use saved_regions::{
     saved_region_cancel_v1, saved_region_collect_garbage_v1, saved_region_create_v1,
-    saved_region_download_v1, saved_region_list_v1, saved_region_remove_v1, saved_region_repair_v1,
-    SavedRegionState,
+    saved_region_download_v1, saved_region_events_v1, saved_region_list_v1, saved_region_remove_v1,
+    saved_region_repair_v1, saved_region_retain_deletions_v1, SavedRegionState,
 };
 use tauri::Manager;
 
@@ -80,6 +80,8 @@ pub fn run() {
             outbox_discard_v1,
             saved_region_create_v1,
             saved_region_list_v1,
+            saved_region_events_v1,
+            saved_region_retain_deletions_v1,
             saved_region_download_v1,
             saved_region_cancel_v1,
             saved_region_remove_v1,

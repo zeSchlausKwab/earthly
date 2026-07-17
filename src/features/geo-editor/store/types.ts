@@ -81,6 +81,8 @@ export interface MapLayerState {
 	opacity: number
 	blossomServer?: string
 	blossomServers?: string[]
+	/** Mirrors authenticated by the signed layer announcement, without runtime fallbacks. */
+	signedBlossomServers?: string[]
 	file?: string
 	pmtilesType?: string
 	announcement?: MapChunkAnnouncementRecord

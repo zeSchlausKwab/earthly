@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
 	parsePublicReleaseEnvironment,
+	androidReleaseBuildEnvironment,
 	parseApkCertificateFingerprint,
 	androidAssetLinksStatement,
 	releaseArtifactNames,
@@ -36,6 +37,13 @@ describe('Android release tooling', () => {
 		expect(() =>
 			parsePublicReleaseEnvironment(publicEnvironment.replace('https://blossom.earthly.city', 'http://localhost:3544')),
 		).toThrow('BLOSSOM_SERVER must use https://')
+	})
+
+	test('marks the validated environment as authoritative for Cargo and the frontend build', () => {
+		const environment = androidReleaseBuildEnvironment(publicEnvironment)
+
+		expect(environment.MAPNOLIA_TRUSTED_PUBKEYS).toBe('a'.repeat(64))
+		expect(environment.EARTHLY_PUBLIC_ENV_PRELOADED).toBe('1')
 	})
 
 	test('requires aligned versions and a matching release tag', () => {
