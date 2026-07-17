@@ -16,6 +16,7 @@ export interface AndroidInstallOptions {
 	optimized: boolean
 	debugOnly: boolean
 	help: boolean
+	serials: string[]
 }
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -64,8 +65,30 @@ export function tauriTargetForAbi(abi: string): TauriAndroidTarget | undefined {
 }
 
 export function parseInstallOptions(argv: string[]): AndroidInstallOptions {
-	const options: AndroidInstallOptions = { optimized: false, debugOnly: false, help: false }
-	for (const argument of argv) {
+	const options: AndroidInstallOptions = {
+		optimized: false,
+		debugOnly: false,
+		help: false,
+		serials: [],
+	}
+	for (let index = 0; index < argv.length; index += 1) {
+		const argument = argv[index]
+		if (!argument) continue
+		if (argument === '--serial') {
+			const serial = argv[index + 1]
+			if (!serial || serial.startsWith('-')) {
+				throw new Error('--serial requires an ADB device serial')
+			}
+			options.serials.push(serial)
+			index += 1
+			continue
+		}
+		if (argument.startsWith('--serial=')) {
+			const serial = argument.slice('--serial='.length)
+			if (!serial) throw new Error('--serial requires an ADB device serial')
+			options.serials.push(serial)
+			continue
+		}
 		switch (argument) {
 			case '--optimized':
 				options.optimized = true
@@ -95,11 +118,12 @@ function printUsage(): void {
 	console.log(`Install Earthly on every authorized Android device
 
 Usage:
-  bun run tauri:android:install:dev [--optimized | --debug-only]
+  bun run tauri:android:install:dev [--optimized | --debug-only] [--serial DEVICE]
 
 Options:
   --optimized   Build the compact optimized APK immediately
   --debug-only  Do not retry a low-storage device with an optimized APK
+  --serial      Install only on this ADB serial; repeat for multiple devices
   --help, -h    Show this help
 
 The default builds debuggable split APKs. If Android rejects one for insufficient
@@ -282,8 +306,18 @@ async function main(): Promise<void> {
 		return
 	}
 	const devices = parseAdbDevices(await capture(['adb', 'devices', '-l'], 'ADB discovery'))
-	const ready = devices.filter((device) => device.state === 'device')
-	const unavailable = devices.filter((device) => device.state !== 'device')
+	const selected =
+		options.serials.length > 0
+			? devices.filter((device) => options.serials.includes(device.serial))
+			: devices
+	const missing = options.serials.filter(
+		(serial) => !devices.some((device) => device.serial === serial),
+	)
+	if (missing.length > 0) {
+		throw new Error(`Requested Android device is not connected: ${missing.join(', ')}`)
+	}
+	const ready = selected.filter((device) => device.state === 'device')
+	const unavailable = selected.filter((device) => device.state !== 'device')
 
 	for (const device of unavailable) {
 		console.warn(`Skipping ${device.serial}: ADB state is ${device.state}`)

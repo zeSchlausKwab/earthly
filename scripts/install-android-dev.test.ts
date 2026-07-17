@@ -33,19 +33,47 @@ emulator-5554 unauthorized transport_id:20
 	})
 
 	test('parses optimized and debug-only modes and rejects conflicts', () => {
-		expect(parseInstallOptions([])).toEqual({ optimized: false, debugOnly: false, help: false })
+		expect(parseInstallOptions([])).toEqual({
+			optimized: false,
+			debugOnly: false,
+			help: false,
+			serials: [],
+		})
 		expect(parseInstallOptions(['--optimized'])).toEqual({
 			optimized: true,
 			debugOnly: false,
 			help: false,
+			serials: [],
 		})
 		expect(parseInstallOptions(['--debug-only'])).toEqual({
 			optimized: false,
 			debugOnly: true,
 			help: false,
+			serials: [],
 		})
 		expect(() => parseInstallOptions(['--optimized', '--debug-only'])).toThrow()
 		expect(() => parseInstallOptions(['--mystery'])).toThrow('Unknown option')
+	})
+
+	test('targets one or more explicit ADB serials', () => {
+		expect(
+			parseInstallOptions([
+				'--serial',
+				'emulator-5554',
+				'--serial=adb-Pixel._adb-tls-connect._tcp',
+			]),
+		).toEqual({
+			optimized: false,
+			debugOnly: false,
+			help: false,
+			serials: ['emulator-5554', 'adb-Pixel._adb-tls-connect._tcp'],
+		})
+		expect(() => parseInstallOptions(['--serial'])).toThrow(
+			'--serial requires an ADB device serial',
+		)
+		expect(() => parseInstallOptions(['--serial='])).toThrow(
+			'--serial requires an ADB device serial',
+		)
 	})
 
 	test('retries only Android installer storage failures with an optimized APK', () => {

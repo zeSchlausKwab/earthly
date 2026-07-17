@@ -51,6 +51,7 @@ src-tauri/gen/android/keystore.properties
 
 # Earthly AI/E2E suite artifacts
 ai-suite/artifacts
+android-suite/artifacts
 
 # IntelliJ based IDEs
 .idea
