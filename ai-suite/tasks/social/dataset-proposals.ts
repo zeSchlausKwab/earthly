@@ -1,6 +1,7 @@
 import { expect } from '@playwright/test'
 import type { EarthlySession } from '../../core/session'
 import type { AiTaskMetadata } from '../../core/task'
+import { addPointToGeometryDraft, geometryDraftSnapshot } from '../create/geometry'
 
 export const reviewDatasetProposalTask: AiTaskMetadata = {
 	id: 'social.review-dataset-proposal',
@@ -26,15 +27,24 @@ export const proposeDatasetEditTask: AiTaskMetadata = {
 	viewports: 'desktop',
 }
 
-export async function proposeDatasetEdit(
+export const proposeDatasetGeometryEditTask: AiTaskMetadata = {
+	id: 'social.propose-dataset-geometry-edit',
+	summary:
+		'Load another author’s Dataset, add real geometry, and send the changed copy as an edit proposal.',
+	preconditions: ['Signed-in non-owner persona', 'Published Dataset URL'],
+	sideEffects: ['Publishes a geometry-changing Dataset proposal to the local development relay'],
+	viewports: 'desktop',
+}
+
+export interface DatasetGeometryProposalResult {
+	beforeFeatureCount: number
+	proposedFeatureCount: number
+}
+
+async function submitCurrentDatasetProposal(
 	earthly: EarthlySession,
-	datasetUrl: string,
 	description: string,
 ): Promise<void> {
-	const url = new URL(datasetUrl)
-	await earthly.open({ path: `${url.pathname}${url.search}`, tour: 'seen' })
-	await earthly.page.getByRole('button', { name: 'Load copy', exact: true }).click()
-	await expect(earthly.page.getByPlaceholder('Name').first()).toBeVisible()
 	await earthly.page.getByText('File', { exact: true }).first().click()
 	await earthly.page.getByRole('menuitem', { name: /Propose edit to owner/ }).click()
 	const dialog = earthly.page.getByRole('dialog', { name: 'Propose edit to owner' })
@@ -44,6 +54,36 @@ export async function proposeDatasetEdit(
 	await expect(earthly.page.getByText('Edit proposal sent to the dataset owner.')).toBeVisible({
 		timeout: 15_000,
 	})
+}
+
+export async function proposeDatasetEdit(
+	earthly: EarthlySession,
+	datasetUrl: string,
+	description: string,
+): Promise<void> {
+	const url = new URL(datasetUrl)
+	await earthly.open({ path: `${url.pathname}${url.search}`, tour: 'seen' })
+	await earthly.page.getByRole('button', { name: 'Load copy', exact: true }).click()
+	await expect(earthly.page.getByPlaceholder('Name').first()).toBeVisible()
+	await submitCurrentDatasetProposal(earthly, description)
+}
+
+export async function proposeDatasetGeometryEdit(
+	earthly: EarthlySession,
+	datasetUrl: string,
+	description: string,
+): Promise<DatasetGeometryProposalResult> {
+	const url = new URL(datasetUrl)
+	await earthly.open({ path: `${url.pathname}${url.search}`, tour: 'seen' })
+	await earthly.page.getByRole('button', { name: 'Load copy', exact: true }).click()
+	await expect(earthly.page.getByPlaceholder('Name').first()).toBeVisible()
+	await expect
+		.poll(async () => (await geometryDraftSnapshot(earthly)).featureCount)
+		.toBeGreaterThan(0)
+	const beforeFeatureCount = (await geometryDraftSnapshot(earthly)).featureCount
+	const proposedFeatureCount = await addPointToGeometryDraft(earthly, 0.72, 0.42)
+	await submitCurrentDatasetProposal(earthly, description)
+	return { beforeFeatureCount, proposedFeatureCount }
 }
 
 async function openProposalsPanel(earthly: EarthlySession): Promise<void> {

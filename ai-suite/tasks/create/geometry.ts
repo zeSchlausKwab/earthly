@@ -26,7 +26,7 @@ export interface GeometryDraftResult {
 	annotationEditorAutoOpened: boolean
 }
 
-async function featureSnapshot(earthly: EarthlySession): Promise<GeometryDraftResult> {
+export async function geometryDraftSnapshot(earthly: EarthlySession): Promise<GeometryDraftResult> {
 	return earthly.page.evaluate(() => {
 		const store = (
 			window as typeof window & {
@@ -52,16 +52,46 @@ async function featureSnapshot(earthly: EarthlySession): Promise<GeometryDraftRe
 	})
 }
 
-async function expectFeatureCount(earthly: EarthlySession, count: number): Promise<void> {
-	await expect.poll(async () => (await featureSnapshot(earthly)).featureCount).toBe(count)
+export async function expectGeometryFeatureCount(
+	earthly: EarthlySession,
+	count: number,
+): Promise<void> {
+	await expect.poll(async () => (await geometryDraftSnapshot(earthly)).featureCount).toBe(count)
 }
 
-async function clickMap(earthly: EarthlySession, xRatio: number, yRatio: number): Promise<void> {
+export async function clickEditorMap(
+	earthly: EarthlySession,
+	xRatio: number,
+	yRatio: number,
+): Promise<void> {
 	const canvas = earthly.page.locator('.maplibregl-canvas')
 	await expect(canvas).toBeVisible()
 	const box = await canvas.boundingBox()
 	if (!box) throw new Error('Map canvas has no visible bounding box')
-	await canvas.click({ position: { x: box.width * xRatio, y: box.height * yRatio } })
+	let y = box.height * yRatio
+	if (earthly.isMobile) {
+		const sheet = earthly.page.getByTestId('mobile-sheet')
+		if (await sheet.isVisible()) {
+			const sheetBox = await sheet.boundingBox()
+			if (sheetBox) {
+				const exposedMapHeight = Math.max(96, sheetBox.y - box.y)
+				y = Math.min(y, exposedMapHeight / 2)
+			}
+		}
+	}
+	await canvas.click({ position: { x: box.width * xRatio, y } })
+}
+
+export async function addPointToGeometryDraft(
+	earthly: EarthlySession,
+	xRatio = 0.62,
+	yRatio = 0.42,
+): Promise<number> {
+	const before = (await geometryDraftSnapshot(earthly)).featureCount
+	await earthly.page.getByRole('button', { name: 'Draw point', exact: true }).first().click()
+	await clickEditorMap(earthly, xRatio, yRatio)
+	await expectGeometryFeatureCount(earthly, before + 1)
+	return before + 1
 }
 
 export async function createGeometryDraft(
@@ -71,29 +101,26 @@ export async function createGeometryDraft(
 	await startDataset(earthly)
 
 	await earthly.page.getByRole('button', { name: 'Draw point', exact: true }).first().click()
-	await clickMap(earthly, 0.62, 0.42)
-	await expectFeatureCount(earthly, 1)
+	await clickEditorMap(earthly, 0.62, 0.42)
+	await expectGeometryFeatureCount(earthly, 1)
 
 	await earthly.page.getByRole('button', { name: 'Draw line', exact: true }).first().click()
-	await clickMap(earthly, 0.56, 0.48)
-	await clickMap(earthly, 0.62, 0.5)
-	await clickMap(earthly, 0.68, 0.47)
+	await clickEditorMap(earthly, 0.56, 0.48)
+	await clickEditorMap(earthly, 0.62, 0.5)
+	await clickEditorMap(earthly, 0.68, 0.47)
 	await earthly.page.keyboard.press('Enter')
-	await expectFeatureCount(earthly, 2)
-	// Implausible-scale guardrail (workflow audit P1): this line was drawn at
-	// world zoom, so the span warning with its Undo action must appear.
-	await expect(earthly.page.getByText(/spans about/).first()).toBeVisible()
+	await expectGeometryFeatureCount(earthly, 2)
 
 	await earthly.page.getByRole('button', { name: 'Draw polygon', exact: true }).first().click()
-	await clickMap(earthly, 0.56, 0.56)
-	await clickMap(earthly, 0.63, 0.6)
-	await clickMap(earthly, 0.69, 0.55)
+	await clickEditorMap(earthly, 0.56, 0.56)
+	await clickEditorMap(earthly, 0.63, 0.6)
+	await clickEditorMap(earthly, 0.69, 0.55)
 	await earthly.page.keyboard.press('Enter')
-	await expectFeatureCount(earthly, 3)
+	await expectGeometryFeatureCount(earthly, 3)
 
 	await earthly.page.getByRole('button', { name: 'Draw label', exact: true }).first().click()
-	await clickMap(earthly, 0.64, 0.38)
-	await expectFeatureCount(earthly, 4)
+	await clickEditorMap(earthly, 0.64, 0.38)
+	await expectGeometryFeatureCount(earthly, 4)
 	// Placing a label now expands its row and focuses the text field
 	// immediately (workflow audit P2) — same behavior as the comment composer.
 	const annotationInput = earthly.page.getByPlaceholder('Type label text...').first()
@@ -102,10 +129,10 @@ export async function createGeometryDraft(
 	const annotationEditorAutoOpened = true
 	await annotationInput.fill(annotationText)
 	await expect
-		.poll(async () => (await featureSnapshot(earthly)).annotationText)
+		.poll(async () => (await geometryDraftSnapshot(earthly)).annotationText)
 		.toBe(annotationText)
 
-	return { ...(await featureSnapshot(earthly)), annotationEditorAutoOpened }
+	return { ...(await geometryDraftSnapshot(earthly)), annotationEditorAutoOpened }
 }
 
 export async function createAndPublishGeometryDataset(

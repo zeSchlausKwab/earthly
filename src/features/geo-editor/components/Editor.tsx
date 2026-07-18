@@ -70,6 +70,10 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 		const updateHistory = () => {
 			setHistoryState(editor.history.canUndo(), editor.history.canRedo())
 		}
+		const updateFeaturesAndHistory = () => {
+			updateFeatures()
+			updateHistory()
+		}
 
 		const handleDrawChange = () => {
 			setCanFinishDrawing(editor.canFinishDrawing())
@@ -91,9 +95,11 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 		editor.on('selection.change', updateSelection)
 		editor.on('draw.change', handleDrawChange)
 
-		// History events
-		editor.on('undo', updateHistory)
-		editor.on('redo', updateHistory)
+		// Undo/redo mutate the editor's internal feature map without emitting the
+		// create/update/delete events. Mirror both geometry and history so the
+		// sidebar, draft persistence, and map core cannot disagree.
+		editor.on('undo', updateFeaturesAndHistory)
+		editor.on('redo', updateFeaturesAndHistory)
 		editor.on('create', updateHistory)
 		editor.on('update', updateHistory)
 		editor.on('delete', updateHistory)

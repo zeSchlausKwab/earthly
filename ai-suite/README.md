@@ -13,7 +13,9 @@ by default because that command resets and seeds the relay.
 bun run ai:list
 bun run ai:typecheck
 bun run ai:e2e
+bun run ai:e2e:editor
 bun run ai:audit
+bun run ai:audit:editor
 bun run ai:audit:workflows
 bun run ai:known-issues
 bun run ai:verify
@@ -78,6 +80,31 @@ runs the regular and audit groups sequentially. Run any individual group with th
 `@workflow-audit` scenarios publish disposable events to the local development relay. They are
 excluded from regular E2E and `ai:verify`; run them deliberately with `bun run ai:audit:workflows`.
 Earthly's localhost relay router must keep public writes disabled throughout these scenarios.
+
+## GeoEditor refactor safety net
+
+`@editor-contract` is the fast, non-publishing characterization layer for the GeoEditor. It covers
+cancel/unlock recovery, undo/redo, geometry draft reload, and the active draft's Map Stack
+lifecycle on desktop and mobile where the product surface exists. It is part of the regular
+`ai:e2e` run and can be run alone with `bun run ai:e2e:editor` while changing editor internals.
+
+`@editor-ux-audit` captures comparable browser-health, surface inventory, and screenshots at
+browse, new-draft, drawing, and cancelled-drawing states. Run it with `bun run ai:audit:editor`.
+Its evidence is deliberately separate from the pass/fail contract so UI improvements do not turn
+into brittle pixel assertions.
+
+Deep collaborative drawing remains in `@workflow-audit` because it publishes local Nostr events.
+That group exercises point/line/polygon/label comment attachments, default annotation visibility,
+hide/show, zoom and reload durability, plus a Dataset proposal that changes geometry and becomes
+the accepted canonical version. Run it only against the disposable local relay with
+`bun run ai:audit:workflows`.
+
+The `mobile` Playwright project is a responsive-browser contract, not an Android WebView test. Use
+`bun run e2e:android:smoke` for Tauri commands, app links, intents, permissions, safe areas, and
+process-lifecycle behavior; `bun run e2e:android:emulator` starts or selects the deterministic AVD.
+Deep multi-persona collaboration currently stays in the browser suite because the NIP-07 test
+personas are browser adapters. Promote only the smallest native-critical journeys to Android
+instrumentation instead of duplicating the whole browser matrix.
 
 ## Personas and safety
 

@@ -4,6 +4,11 @@ import { startDatasetTask } from './tasks/create/dataset'
 import { createContextTask } from './tasks/create/context'
 import { createGeometryDraftTask, publishGeometryDatasetTask } from './tasks/create/geometry'
 import { createStoryDraftTask, publishStoryTask } from './tasks/create/story'
+import {
+	cancelDrawingTask,
+	mapStackDraftLifecycleTask,
+	undoRedoGeometryTask,
+} from './tasks/editor/lifecycle'
 import { monitorBrowserHealthTask } from './tasks/diagnostics/browser-health'
 import { inspectSurfaceTask } from './tasks/diagnostics/inspect-surface'
 import { keyboardWalkTask } from './tasks/diagnostics/keyboard-walk'
@@ -15,10 +20,12 @@ import {
 	postCommentTask,
 	replyToCommentTask,
 	toggleCommentAnnotationsTask,
+	verifyCommentAnnotationDurabilityTask,
 } from './tasks/social/comments'
 import {
 	decideDatasetProposalTask,
 	proposeDatasetEditTask,
+	proposeDatasetGeometryEditTask,
 	reviewDatasetProposalTask,
 } from './tasks/social/dataset-proposals'
 import {
@@ -38,15 +45,20 @@ const tasks = [
 	replyToCommentTask,
 	postAnnotatedCommentTask,
 	toggleCommentAnnotationsTask,
+	verifyCommentAnnotationDurabilityTask,
 	reviewDatasetProposalTask,
 	decideDatasetProposalTask,
 	proposeDatasetEditTask,
+	proposeDatasetGeometryEditTask,
 	proposeStoryEditTask,
 	acceptStoryEditTask,
 	rejectStoryEditTask,
 	seedStoryProposalTask,
 	seedDatasetProposalTask,
 	startDatasetTask,
+	cancelDrawingTask,
+	undoRedoGeometryTask,
+	mapStackDraftLifecycleTask,
 	createContextTask,
 	createGeometryDraftTask,
 	publishGeometryDatasetTask,

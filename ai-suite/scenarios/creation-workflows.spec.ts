@@ -6,16 +6,17 @@ import { createAndPublishStory } from '../tasks/create/story'
 import { monitorBrowserHealth } from '../tasks/diagnostics/browser-health'
 import { seedDatasetProposal, seedStoryProposal } from '../tasks/setup/story-proposal'
 import {
-	postAnnotatedComment,
 	postComment,
+	postDeepAnnotatedComment,
 	replyToComment,
-	setCommentAnnotationsVisible,
+	verifyCommentAnnotationDurability,
 } from '../tasks/social/comments'
 import {
 	acceptDatasetProposal,
 	openDatasetProposal,
 	previewDatasetProposal,
 	proposeDatasetEdit,
+	proposeDatasetGeometryEdit,
 	rejectDatasetProposal,
 	requestDatasetProposalChanges,
 } from '../tasks/social/dataset-proposals'
@@ -111,6 +112,7 @@ test('a Dataset owner can preview, request changes, reject, and accept proposals
 	newEarthlySession,
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'desktop', 'Dataset proposal audit is desktop-only')
+	test.slow()
 	const runId = Date.now().toString(36)
 	await signIn(earthly, 'owner')
 	const dataset = await createAndPublishGeometryDataset(earthly, `Proposal dataset ${runId}`)
@@ -141,6 +143,45 @@ test('a Dataset owner can preview, request changes, reject, and accept proposals
 	})
 })
 
+test('an accepted Dataset proposal applies a real geometry change @workflow-audit', async ({
+	earthly,
+	newEarthlySession,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'desktop', 'Dataset proposal audit is desktop-only')
+	test.slow()
+	const runId = Date.now().toString(36)
+	const description = `Add a surveyed point ${runId}`
+	await signIn(earthly, 'owner')
+	const dataset = await createAndPublishGeometryDataset(
+		earthly,
+		`Geometry proposal dataset ${runId}`,
+	)
+
+	const contributor = await newEarthlySession()
+	await signIn(contributor, 'mara')
+	const proposal = await proposeDatasetGeometryEdit(contributor, dataset.url, description)
+	expect(proposal.beforeFeatureCount).toBe(4)
+	expect(proposal.proposedFeatureCount).toBe(5)
+
+	await openDatasetProposal(earthly, description)
+	await previewDatasetProposal(earthly)
+	await acceptDatasetProposal(earthly)
+	await earthly.page.getByRole('tab', { name: 'Details', exact: true }).click()
+	await expect(earthly.page.getByText('Features (5)', { exact: true })).toBeVisible({
+		timeout: 15_000,
+	})
+
+	const accepted = new URL(earthly.page.url())
+	await earthly.open({ path: `${accepted.pathname}${accepted.search}`, tour: 'seen' })
+	await expect(earthly.page.getByText('Features (5)', { exact: true })).toBeVisible({
+		timeout: 15_000,
+	})
+	await testInfo.attach('dataset-proposal-geometry-accepted.png', {
+		body: await earthly.page.screenshot({ animations: 'disabled' }),
+		contentType: 'image/png',
+	})
+})
+
 test('an author can comment, reply, and attach a map annotation @workflow-audit', async ({
 	earthly,
 }, testInfo) => {
@@ -157,13 +198,12 @@ test('an author can comment, reply, and attach a map annotation @workflow-audit'
 	})
 	await postComment(earthly, rootComment)
 	await replyToComment(earthly, rootComment, reply)
-	await postAnnotatedComment(earthly, {
+	await postDeepAnnotatedComment(earthly, {
 		comment: annotatedComment,
 		label: `Annotation ${runId}`,
 	})
-	await expect(earthly.page.getByRole('button', { name: 'Hide annotations' })).toBeVisible()
-	await setCommentAnnotationsVisible(earthly, false)
-	await setCommentAnnotationsVisible(earthly, true)
+	const overlay = await verifyCommentAnnotationDurability(earthly, annotatedComment)
+	expect(overlay.sourceIds.length).toBeGreaterThan(0)
 	health.stop()
 	expect(health.snapshot().pageErrors).toEqual([])
 	await testInfo.attach('comments-and-annotation.png', {

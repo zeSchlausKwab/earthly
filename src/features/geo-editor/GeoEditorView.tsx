@@ -3328,7 +3328,6 @@ export function GeoEditorView() {
 			focusHandledRef.current = null
 			return
 		}
-		if (focusHandledRef.current === routeKey) return
 
 		// Skip if no focus route (just sidebar view change)
 		// If there's a specific focus route (e.g. /datasets/geoevent/...), handle zoom
@@ -3378,12 +3377,14 @@ export function GeoEditorView() {
 					}) || encodeGeoEventNaddr(event) === route.naddr,
 			)
 			if (dataset) {
+				const handledKey = `${routeKey}:${dataset.id}`
+				if (focusHandledRef.current === handledKey) return
 				addDatasetToMapStack(dataset, 'route')
 				handleInspectDataset(dataset)
 				// Shared-link contract: landing zooms to the entity, not just
 				// stacks it — the recipient should SEE what was shared.
 				zoomToDataset(dataset)
-				focusHandledRef.current = routeKey
+				focusHandledRef.current = handledKey
 			}
 		} else if (route.focusType === 'mapcontext') {
 			const context = mapContextEvents.find(
@@ -3395,8 +3396,10 @@ export function GeoEditorView() {
 					}) || encodeContextNaddr(ctx) === route.naddr,
 			)
 			if (context) {
+				const handledKey = `${routeKey}:${context.id}`
+				if (focusHandledRef.current === handledKey) return
 				handleInspectContext(context)
-				focusHandledRef.current = routeKey
+				focusHandledRef.current = handledKey
 			}
 		} else if (route.focusType === 'story') {
 			const story = stories.find(
@@ -3405,8 +3408,10 @@ export function GeoEditorView() {
 					encodeStoryNaddr(s) === route.naddr,
 			)
 			if (story) {
+				const handledKey = `${routeKey}:${story.id}`
+				if (focusHandledRef.current === handledKey) return
 				handleInspectStory(story)
-				focusHandledRef.current = routeKey
+				focusHandledRef.current = handledKey
 			}
 		} else if (route.focusType === 'sighting') {
 			// D-08: resolve the /sighting/:naddr deep link via useSightings (already
@@ -3418,6 +3423,8 @@ export function GeoEditorView() {
 					encodeSightingNaddr(s) === route.naddr,
 			)
 			if (sighting) {
+				const handledKey = `${routeKey}:${sighting.id}`
+				if (focusHandledRef.current === handledKey) return
 				// Phase 13 (D-03/SPEC §2.2): the routed sighting lands on the Map Stack
 				// ISOLATED (deep-link-solo), mirroring the dataset route dispatch above
 				// (addDatasetToMapStack(dataset, 'route')). This replaces any ambient
@@ -3426,7 +3433,7 @@ export function GeoEditorView() {
 				// WR-06: thread the OG comment deep link so SightingViewPanel focuses it,
 				// mirroring the geoevent/story comment-focus wiring.
 				handleInspectSighting(sighting, route.commentId)
-				focusHandledRef.current = routeKey
+				focusHandledRef.current = handledKey
 			}
 		} else if (route.focusType === 'beacon') {
 			// D-11: resolve the /beacon/:naddr deep link (account-free). Check the
@@ -3440,6 +3447,8 @@ export function GeoEditorView() {
 				encodeBeaconNaddr(b) === route.naddr
 			const beacon = beacons.find(matchesBeacon) ?? routedBeacons.find(matchesBeacon)
 			if (beacon) {
+				const handledKey = `${routeKey}:${beacon.id}`
+				if (focusHandledRef.current === handledKey) return
 				// Phase 13 (D-03/SPEC §2.2): the routed beacon lands on the Map Stack
 				// ISOLATED (deep-link-solo). This is what makes a link-only / deep-linked
 				// beacon render now that the `66a155e` side-channel is gone — the isolated
@@ -3450,7 +3459,7 @@ export function GeoEditorView() {
 				// mirroring the Sighting comment-focus wiring above. Closes the
 				// beacon /beacon/:naddr/comment/:id gap — parity across all five kinds.
 				handleInspectBeacon(beacon, route.commentId)
-				focusHandledRef.current = routeKey
+				focusHandledRef.current = handledKey
 			}
 		}
 	}, [
