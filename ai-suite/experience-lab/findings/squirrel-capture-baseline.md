@@ -13,14 +13,18 @@ and description, publish publicly, find the result in Sightings, inspect another
 begin a second capture. `Public · Unattached` remained visible throughout. The browser reported no
 console errors, page errors, failed requests, or error responses.
 
+The first iteration now keeps observation time, lifespan, and Context attachment behind one
+mobile-only `More options` disclosure. The public defaults remain unchanged, desktop and edit
+surfaces remain expanded, and the form still has exactly one publish action.
+
 Photo upload was not exercised because the deterministic localhost suite does not yet provide a
 fake Blossom target. The run therefore does not prove the journey's media outcome.
 
 | Rubric | Score | Evidence |
 | --- | ---: | --- |
 | Entry | 3 | The bottom-dock Create action exposes Sighting directly. |
-| Completion | 2 | Publishing succeeds, but the primary action begins below the initial editor viewport. |
-| Decisions | 2 | Observation time, lifespan, and Context attachment are presented during a quick capture. |
+| Completion | 2 | Publishing succeeds; the action is no longer behind advanced choices, but still begins below the initial half-sheet viewport. |
+| Decisions | 3 | Quick capture presents title, note, and photos; time, lifespan, and Context are optional disclosure. |
 | Vocabulary | 2 | “Sighting” and “What did you see?” are clear; `Unattached` and Context remain product terms. |
 | Destination | 3 | `Public · Unattached` is visible before and after publishing. |
 | Recovery | 3 | Cancellation returns to a usable map and another placement can begin. |
@@ -71,7 +75,12 @@ fake Blossom target. The run therefore does not prove the journey's media outcom
 - Proposed experiment: preserve the current defaults behind a single “More options” disclosure or
   provide a sheet-aware sticky publish action. Do not remove expiry or Context functionality.
 - Complexity cost: one progressive-disclosure rule; avoid a second independent publish mechanism.
-- Disposition: **experiment** after a human session validates the abandonment risk.
+- Disposition: **contracted/improved**. Mobile create now exposes one `More options` row for time,
+  lifespan, and Context while desktop and mobile edit remain expanded. A focused product contract
+  proves the defaults are hidden, the full controls remain reachable, entered work survives
+  toggling, and only one Publish Sighting action exists. Publish is still below the initial
+  half-sheet viewport, so a human session should decide whether a sticky action earns its added
+  layout complexity.
 
 ### EXP-SQ-004 — Placement guidance competes with the destination indicator
 
@@ -110,6 +119,19 @@ fake Blossom target. The run therefore does not prove the journey's media outcom
 - Proposed experiment: derive the sheet's semantic title and icon from inspect versus edit state.
 - Complexity cost: reuse existing panel state; do not add another sheet mode.
 - Disposition: **investigate** as a cross-entity issue.
+
+### EXP-SQ-007 — Placement could arm before the map editor was ready
+
+- Severity: **serious friction**
+- Step: placement after recovery
+- Observation: under the full parallel editor suite, the placement prompt could appear before the
+  GeoEditor instance finished mounting. React considered placement armed, but no draw mode had
+  been applied, so tapping the map did nothing indefinitely.
+- Capabilities: capture, location, recovery
+- Related journeys: every map-first creation path
+- Complexity cost: no new state or UI; reconcile the existing armed state when the editor arrives.
+- Disposition: **contracted/fixed**. Late editor initialization now adopts an already-armed
+  Sighting placement, and the mobile quick-capture contract reuses the canonical placement task.
 
 ## Coverage gaps
 

@@ -64,6 +64,12 @@ export interface GroupAttachFieldProps {
 	isPublishing?: boolean
 	/** Publish button copy when no Group is attached (defaults to "Publish"). */
 	publishLabel?: string
+	/**
+	 * Whether to show the Context picker and its advisory validation feedback.
+	 * The publish control is deliberately independent and remains rendered when
+	 * these optional controls are progressively disclosed elsewhere.
+	 */
+	showAttachmentControls?: boolean
 }
 
 export function GroupAttachField({
@@ -74,6 +80,7 @@ export function GroupAttachField({
 	canPublish,
 	isPublishing = false,
 	publishLabel = 'Publish',
+	showAttachmentControls = true,
 }: GroupAttachFieldProps) {
 	const { events: groups } = useGroups()
 	const [open, setOpen] = useState(false)
@@ -221,128 +228,134 @@ export function GroupAttachField({
 
 	return (
 		<div className="space-y-2">
-			{/* ── Attach-to-a-Group picker ─────────────────────────────────────── */}
-			<div className="space-y-2">
-				<Popover open={open} onOpenChange={setOpen}>
-					<PopoverTrigger asChild>
-						<Button
-							type="button"
-							variant="outline"
-							aria-haspopup="listbox"
-							aria-expanded={open}
-							className="h-8 w-full justify-between rounded-none text-[13px] font-normal"
-						>
-							<span className="truncate text-muted-foreground">Attach to a Context</span>
-							<ChevronsUpDown className="size-3.5 shrink-0 opacity-50" />
-						</Button>
-					</PopoverTrigger>
-					<PopoverContent
-						className="w-[var(--radix-popover-trigger-width)] rounded-none p-0"
-						align="start"
-					>
-						<Command>
-							<CommandInput placeholder="Search Contexts…" className="text-[13px]" />
-							<CommandList>
-								<CommandEmpty className="py-4 text-center text-[13px] text-muted-foreground">
-									No Contexts found.
-								</CommandEmpty>
-								<CommandGroup>
-									{groups.map((group) => {
-										const coordinate = group.groupCoordinate
-										const isAttached = coordinate ? contextRefs.includes(coordinate) : false
-										return (
-											<CommandItem
-												key={coordinate ?? group.id}
-												value={`${group.group.name} ${coordinate ?? ''}`}
-												onSelect={() => handleSelect(group)}
-												className="gap-2 rounded-none text-[13px]"
-											>
-												<Check
-													className={cn(
-														'size-3.5 shrink-0',
-														isAttached ? 'opacity-100' : 'opacity-0',
-													)}
-												/>
-												<span className="truncate">{group.group.name || 'Untitled Context'}</span>
-												<span className="ml-auto text-[11px] uppercase tracking-wide text-muted-foreground">
-													{group.group.governance}
-												</span>
-											</CommandItem>
-										)
-									})}
-								</CommandGroup>
-							</CommandList>
-						</Command>
-					</PopoverContent>
-				</Popover>
-
-				{/* Attached-Group chips with detach */}
-				{hasAttachedGroups && (
-					<div className="flex flex-wrap gap-1">
-						{attachedGroups.map((group) => {
-							const coordinate = group.groupCoordinate
-							if (!coordinate) return null
-							return (
-								<span
-									key={coordinate}
-									className="inline-flex items-center gap-1 border border-border px-2 py-0.5 text-[11px] text-foreground"
+			{showAttachmentControls ? (
+				<>
+					{/* ── Attach-to-a-Group picker ─────────────────────────────────── */}
+					<div className="space-y-2">
+						<Popover open={open} onOpenChange={setOpen}>
+							<PopoverTrigger asChild>
+								<Button
+									type="button"
+									variant="outline"
+									aria-haspopup="listbox"
+									aria-expanded={open}
+									className="h-8 w-full justify-between rounded-none text-[13px] font-normal"
 								>
-									{group.group.name || 'Untitled Context'}
-									<button
-										type="button"
-										onClick={() => handleDetach(coordinate)}
-										aria-label={`Detach from ${group.group.name || 'Context'}`}
-										className="text-muted-foreground hover:text-foreground"
-									>
-										<X className="size-3" />
-									</button>
-								</span>
-							)
-						})}
+									<span className="truncate text-muted-foreground">Attach to a Context</span>
+									<ChevronsUpDown className="size-3.5 shrink-0 opacity-50" />
+								</Button>
+							</PopoverTrigger>
+							<PopoverContent
+								className="w-[var(--radix-popover-trigger-width)] rounded-none p-0"
+								align="start"
+							>
+								<Command>
+									<CommandInput placeholder="Search Contexts…" className="text-[13px]" />
+									<CommandList>
+										<CommandEmpty className="py-4 text-center text-[13px] text-muted-foreground">
+											No Contexts found.
+										</CommandEmpty>
+										<CommandGroup>
+											{groups.map((group) => {
+												const coordinate = group.groupCoordinate
+												const isAttached = coordinate ? contextRefs.includes(coordinate) : false
+												return (
+													<CommandItem
+														key={coordinate ?? group.id}
+														value={`${group.group.name} ${coordinate ?? ''}`}
+														onSelect={() => handleSelect(group)}
+														className="gap-2 rounded-none text-[13px]"
+													>
+														<Check
+															className={cn(
+																'size-3.5 shrink-0',
+																isAttached ? 'opacity-100' : 'opacity-0',
+															)}
+														/>
+														<span className="truncate">
+															{group.group.name || 'Untitled Context'}
+														</span>
+														<span className="ml-auto text-[11px] uppercase tracking-wide text-muted-foreground">
+															{group.group.governance}
+														</span>
+													</CommandItem>
+												)
+											})}
+										</CommandGroup>
+									</CommandList>
+								</Command>
+							</PopoverContent>
+						</Popover>
+
+						{/* Attached-Group chips with detach */}
+						{hasAttachedGroups && (
+							<div className="flex flex-wrap gap-1">
+								{attachedGroups.map((group) => {
+									const coordinate = group.groupCoordinate
+									if (!coordinate) return null
+									return (
+										<span
+											key={coordinate}
+											className="inline-flex items-center gap-1 border border-border px-2 py-0.5 text-[11px] text-foreground"
+										>
+											{group.group.name || 'Untitled Context'}
+											<button
+												type="button"
+												onClick={() => handleDetach(coordinate)}
+												aria-label={`Detach from ${group.group.name || 'Context'}`}
+												className="text-muted-foreground hover:text-foreground"
+											>
+												<X className="size-3" />
+											</button>
+										</span>
+									)
+								})}
+							</div>
+						)}
 					</div>
-				)}
-			</div>
 
-			{/* ── Off-thread advisory validation feedback ──────────────────────── */}
-			{checking && (
-				<div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-					<Spinner className="size-3.5" />
-					Checking against {schemaGroupName}'s rules…
-				</div>
-			)}
+					{/* ── Off-thread advisory validation feedback ──────────────────── */}
+					{checking && (
+						<div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+							<Spinner className="size-3.5" />
+							Checking against {schemaGroupName}'s rules…
+						</div>
+					)}
 
-			{!checking && workerFailed && (
-				<Alert variant="default" className="border-l-2 border-l-amber-500 text-primary">
-					<AlertDescription className="text-primary">
-						Couldn't check this contribution right now. It's shown unfiltered.
-					</AlertDescription>
-				</Alert>
-			)}
+					{!checking && workerFailed && (
+						<Alert variant="default" className="border-l-2 border-l-amber-500 text-primary">
+							<AlertDescription className="text-primary">
+								Couldn't check this contribution right now. It's shown unfiltered.
+							</AlertDescription>
+						</Alert>
+					)}
 
-			{!checking && visibleWarnings.length > 0 && (
-				<Alert variant="default" className="border-l-2 border-l-amber-500 text-primary">
-					<AlertTitle className="text-primary">
-						This dataset doesn't match {schemaGroupName}'s rules
-					</AlertTitle>
-					<AlertDescription className="text-primary">
-						<ul className="mt-1 space-y-1">
-							{visibleWarnings.map((warning) => (
-								<li key={warning.id} className="flex items-start justify-between gap-2">
-									<span>{warning.message}</span>
-									<button
-										type="button"
-										onClick={() => handleDismissWarning(warning)}
-										aria-label="Dismiss warning"
-										className="shrink-0 text-primary/70 hover:text-primary dark:hover:text-primary"
-									>
-										<X className="size-3" />
-									</button>
-								</li>
-							))}
-						</ul>
-					</AlertDescription>
-				</Alert>
-			)}
+					{!checking && visibleWarnings.length > 0 && (
+						<Alert variant="default" className="border-l-2 border-l-amber-500 text-primary">
+							<AlertTitle className="text-primary">
+								This dataset doesn't match {schemaGroupName}'s rules
+							</AlertTitle>
+							<AlertDescription className="text-primary">
+								<ul className="mt-1 space-y-1">
+									{visibleWarnings.map((warning) => (
+										<li key={warning.id} className="flex items-start justify-between gap-2">
+											<span>{warning.message}</span>
+											<button
+												type="button"
+												onClick={() => handleDismissWarning(warning)}
+												aria-label="Dismiss warning"
+												className="shrink-0 text-primary/70 hover:text-primary dark:hover:text-primary"
+											>
+												<X className="size-3" />
+											</button>
+										</li>
+									))}
+								</ul>
+							</AlertDescription>
+						</Alert>
+					)}
+				</>
+			) : null}
 
 			{/* ── Publish control — NEVER disabled by the validation verdict (GROUP-04) ── */}
 			<Button

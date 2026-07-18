@@ -65,6 +65,14 @@ test('a casual observer can recover, publish a squirrel sighting, and continue @
 		)
 		expect(form.headings.some((heading) => heading.text === 'New Sighting')).toBe(true)
 		expect(form.visibleAlerts.join(' ')).not.toContain('Lock panning to draw')
+		await expect(earthly.page.getByRole('button', { name: /More options/ })).toHaveAttribute(
+			'aria-expanded',
+			'false',
+		)
+		await expect(earthly.page.getByText('Observation time', { exact: true })).toBeHidden()
+		await expect(
+			earthly.page.getByRole('button', { name: 'Publish Sighting', exact: true }),
+		).toHaveCount(1)
 		await publishSighting(earthly, {
 			title,
 			description: 'A small red squirrel carrying an acorn beside the old oak.',

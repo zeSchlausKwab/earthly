@@ -1,7 +1,12 @@
 import { test, expect } from '../fixtures/earthly'
+import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identity'
 import { startDataset } from '../tasks/create/dataset'
 import { clickEditorMap, expectGeometryFeatureCount } from '../tasks/create/geometry'
-import { cancelSightingPlacement, startSightingPlacement } from '../tasks/create/sighting'
+import {
+	cancelSightingPlacement,
+	placeSighting,
+	startSightingPlacement,
+} from '../tasks/create/sighting'
 import {
 	cancelDrawingAndVerifyRecovery,
 	editorLifecycleSnapshot,
@@ -81,4 +86,35 @@ test('mobile Sighting pin-drop does not show dataset lock-and-drag guidance @edi
 	await expect(earthly.page.getByText('Lock panning to draw')).toBeHidden()
 	await cancelSightingPlacement(earthly)
 	await expect(earthly.page.getByText('Lock panning to draw')).toBeHidden()
+})
+
+test('mobile quick Sighting capture progressively discloses advanced controls @editor-contract', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'mobile', 'The compact authoring path is mobile-only')
+	await authorizeJourneyIdentity(earthly, 'owner')
+	await startSightingPlacement(earthly)
+	await placeSighting(earthly)
+
+	const title = earthly.page.getByLabel('Title', { exact: true })
+	const moreOptions = earthly.page.getByRole('button', { name: /More options/ })
+	const publish = earthly.page.getByRole('button', { name: 'Publish Sighting', exact: true })
+	await title.fill('Squirrel draft survives disclosure')
+
+	await expect(moreOptions).toHaveAttribute('aria-expanded', 'false')
+	await expect(earthly.page.getByText('Observation time', { exact: true })).toBeHidden()
+	await expect(earthly.page.getByText('Fade from map', { exact: true })).toBeHidden()
+	await expect(earthly.page.getByRole('button', { name: 'Attach to a Context' })).toBeHidden()
+	await expect(publish).toHaveCount(1)
+	await expect(publish).toBeVisible()
+
+	await moreOptions.click()
+	await expect(moreOptions).toHaveAttribute('aria-expanded', 'true')
+	await expect(earthly.page.getByText('Observation time', { exact: true })).toBeVisible()
+	await expect(earthly.page.getByText('Fade from map', { exact: true })).toBeVisible()
+	await expect(earthly.page.getByRole('button', { name: 'Attach to a Context' })).toBeVisible()
+
+	await moreOptions.click()
+	await expect(title).toHaveValue('Squirrel draft survives disclosure')
+	await expect(publish).toHaveCount(1)
 })

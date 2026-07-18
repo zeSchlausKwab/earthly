@@ -3072,6 +3072,18 @@ export function GeoEditorView() {
 		sightingPlacementArmedRef.current = sightingPlacementArmed
 	}, [sightingPlacementArmed])
 
+	// The responsive shell can become interactive a moment before the GeoEditor
+	// instance finishes mounting. If Sighting creation is armed during that gap,
+	// `armSightingPlacement` cannot set a mode yet and the visible map prompt would
+	// otherwise accept taps that do nothing. Reconcile the late editor with the
+	// already-armed lifecycle state as soon as it exists.
+	useEffect(() => {
+		if (!editor || !sightingPlacementArmed) return
+		sightingPlacementArmedRef.current = true
+		editor.setTouchTapDrawEnabled(true)
+		if (editor.getMode() !== 'draw_point') editor.setMode('draw_point')
+	}, [editor, sightingPlacementArmed])
+
 	// Intercept the GeoEditor 'create' event ONLY while a Sighting placement is
 	// armed: capture the placed feature's geometry, open the editor with it, and
 	// remove the transient point from the editor's feature set (it isn't a dataset
