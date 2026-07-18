@@ -1,0 +1,52 @@
+grid-columns: 2
+
+classes: {
+  ui: { style.fill: "#fff3c4"; style.stroke: "#a86f00" }
+  runtime: { style.fill: "#e8f2ff"; style.stroke: "#2869a6" }
+  seam: { style.fill: "#f2eaff"; style.stroke: "#7652a8"; style.stroke-width: 2 }
+  state: { style.fill: "#ebf8ef"; style.stroke: "#31834e" }
+  external: { style.fill: "#f4f4f4"; style.stroke: "#686868" }
+}
+
+react: "React integration" {
+  direction: down
+  panels: "Private groups UI\nchat · geometry · settings · invitations" { class: ui }
+  hook: "Account-scoped runtime hook" { class: seam }
+  projection: "Workspace projection\nrecords into map stack/editor" { class: seam }
+
+  panels -> hook
+  hook -> projection
+}
+
+private_workspace: "Private workspace deep module" {
+  direction: down
+  runtime: "PrivateWorkspaceRuntime\nserialized mutations + adaptive polling + snapshots" { class: runtime }
+  service: "PrivateWorkspaceService\nworkspace · membership · messages · recovery · sync" { class: runtime }
+  mls: "ts-mls engine\nepoch state + encrypted application records" { class: runtime }
+  policy: "Authorization and role policy" { class: runtime }
+  storage: "Browser workspace store\nMLS state + journals + cursors" { class: state }
+  coordinator: "Coordinator client\nContextVM transport" { class: seam }
+
+  runtime -> service
+  service -> mls
+  service -> policy
+  service -> storage
+  service -> coordinator
+}
+
+delivery: "Delivery infrastructure" {
+  cordn: "Cordn ContextVM server\nordered opaque records + key packages" { class: external }
+  relay: "Nostr relay\ntransport for ContextVM" { class: external }
+
+  cordn -> relay
+}
+
+map: "Shared map/editor" {
+  stack: "Map stack + normal geometry tools\nprivate destination retained" { class: seam }
+}
+
+react.hook -> private_workspace.runtime
+private_workspace.coordinator -> delivery.cordn
+react.projection -> map.stack
+private_workspace.storage -> react.projection: "decrypted records"
+map.stack -> private_workspace.service: "encrypted publish path"

@@ -1,0 +1,75 @@
+grid-columns: 2
+
+classes: {
+  entry: {
+    style.fill: "#fff3c4"
+    style.stroke: "#a86f00"
+    style.stroke-width: 2
+  }
+  core: {
+    style.fill: "#e8f2ff"
+    style.stroke: "#2869a6"
+  }
+  state: {
+    style.fill: "#ebf8ef"
+    style.stroke: "#31834e"
+  }
+  native: {
+    style.fill: "#f2eaff"
+    style.stroke: "#7652a8"
+  }
+  external: {
+    style.fill: "#f4f4f4"
+    style.stroke: "#686868"
+  }
+}
+
+clients: "User-facing runtimes" {
+  direction: down
+  web: "Web browser" { class: entry }
+  android: "Android app\nTauri WebView" { class: entry }
+}
+
+application: "Shared Earthly React application" {
+  direction: down
+  shell: "GeoEditorView\napplication composition root" { class: core }
+  features: "Feature clusters\neditor · social · chat · private groups · field sessions" { class: core }
+  nostr: "Nostr runtime\nEventStore · RelayPool · accounts · publish" { class: state }
+  editor_state: "Editor state\nZustand slices + browser persistence" { class: state }
+  platform: "Platform registry\ncapability contracts" { class: core }
+
+  shell -> features
+  features -> nostr
+  features -> editor_state
+  features -> platform
+}
+
+native_runtime: "Native runtime (Android release target)" {
+  direction: down
+  adapters: "Tauri TypeScript adapters\nZod-validated command boundary" { class: native }
+  commands: "Tauri command handlers\ndeep links · lifecycle · custom blob URI" { class: native }
+  node: "earthly-local-node crate\nidentity · policy · pairing · relay · Blossom" { class: native }
+  sqlite: "Native durable state\npublish outbox · saved regions" { class: state }
+
+  adapters -> commands -> node
+  commands -> sqlite
+}
+
+network: "Network-owned dependencies" {
+  direction: down
+  relays: "Nostr relays\npublic records + ContextVM transport" { class: external }
+  blossom: "Blossom servers\nimages · files · PMTiles" { class: external }
+  cordn: "Cordn coordinator\nencrypted MLS record delivery" { class: external }
+  geo_mcp: "Earthly ContextVM server\ngeo and web tools" { class: external }
+  llm: "OpenAI-compatible model providers\nRoutstr · local · custom" { class: external }
+}
+
+clients.web -> application.shell: "loads"
+clients.android -> application.shell: "loads same bundle"
+application.platform -> native_runtime.adapters: "native only"
+application.nostr -> network.relays: "REQ / EVENT / NIP-77"
+application.features -> network.blossom: "content-addressed blobs"
+application.features -> network.cordn: "ContextVM over Nostr"
+application.features -> network.geo_mcp: "MCP over Nostr"
+application.features -> network.llm: "streamed chat completion"
+native_runtime.node -> clients.android: "offline host / peer traffic"

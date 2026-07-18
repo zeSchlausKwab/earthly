@@ -1,0 +1,59 @@
+grid-columns: 2
+
+classes: {
+  ui: { style.fill: "#fff3c4"; style.stroke: "#a86f00" }
+  seam: { style.fill: "#f2eaff"; style.stroke: "#7652a8"; style.stroke-width: 2 }
+  native: { style.fill: "#e8f2ff"; style.stroke: "#2869a6" }
+  state: { style.fill: "#ebf8ef"; style.stroke: "#31834e" }
+  peer: { style.fill: "#f4f4f4"; style.stroke: "#686868" }
+}
+
+frontend: "Shared React frontend" {
+  direction: down
+  offline_ui: "Offline settings\npairing · sharing · diagnostics" { class: ui }
+  field_ui: "Field sessions\nchat + geometry + policy" { class: ui }
+  saved_ui: "Saved regions + delivery ledger" { class: ui }
+  registry: "Platform registry" { class: seam }
+  contracts: "Versioned Zod contracts\nLocalNode · Outbox · SavedRegion · Diagnostics" { class: seam }
+
+  offline_ui -> registry
+  field_ui -> registry
+  saved_ui -> registry
+  registry -> contracts
+}
+
+browser: "Browser implementation" {
+  web: "Capability-limited adapters\nno embedded node or durable publish outbox" { class: peer }
+}
+
+tauri: "Tauri implementation" {
+  direction: down
+  adapters: "TypeScript invoke adapters\nresponse validation" { class: native }
+  commands: "Rust command handlers\nlifecycle · deep links · earthly-blob URI" { class: native }
+  node: "earthly-local-node\npersistent identity + scoped peer policy" { class: native }
+  relay: "Embedded Nostr relay\nLMDB-backed records" { class: native }
+  blossom: "Embedded Blossom\nverified content-addressed blobs" { class: native }
+  durable: "SQLite state\npublish outbox + saved regions" { class: state }
+
+  adapters -> commands
+  commands -> node
+  node -> relay
+  node -> blossom
+  commands -> durable
+}
+
+peer: "Paired Earthly phone" {
+  app: "Installation identity\nscoped grants" { class: peer }
+  relay_client: "NIP-77 sync + remote publish" { class: peer }
+  blob_client: "authorized blob mirror" { class: peer }
+
+  app -> relay_client
+  app -> blob_client
+}
+
+frontend.contracts -> browser.web: "web runtime"
+frontend.contracts -> tauri.adapters: "native runtime"
+peer.relay_client -> tauri.relay: "LAN after signed pairing"
+peer.blob_client -> tauri.blossom: "verified transfer"
+tauri.relay -> frontend.field_ui: "hydrate central EventStore"
+tauri.durable -> frontend.saved_ui: "reactive summaries"

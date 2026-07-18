@@ -1,0 +1,62 @@
+grid-columns: 2
+
+classes: {
+  ui: { style.fill: "#fff3c4"; style.stroke: "#a86f00" }
+  engine: { style.fill: "#e8f2ff"; style.stroke: "#2869a6" }
+  seam: { style.fill: "#f2eaff"; style.stroke: "#7652a8"; style.stroke-width: 2 }
+  safety: { style.fill: "#fff0ed"; style.stroke: "#b64a3a" }
+  external: { style.fill: "#f4f4f4"; style.stroke: "#686868" }
+}
+
+chat: "Chat feature" {
+  direction: down
+  panel: "ChatPanel\nconversation UI + disclosures" { class: ui }
+  store: "Chat Zustand store\nsessions · persistence · streaming · tool loop" { class: engine }
+  request: "Request context + prompt steering\nmap/editor/session context" { class: engine }
+  provider: "Provider adapter\nmodel discovery · SSE · Cashu" { class: seam }
+
+  panel -> store
+  store -> request
+  store -> provider
+}
+
+tools: "Typed tool execution" {
+  direction: down
+  registry: "Unified tool registry\nschema · handler · kind" { class: seam }
+  dispatch: "Thin tool-call dispatcher" { class: seam }
+  safety: "Authoring safety gate\npending diffs · validation · approval" { class: safety }
+  editor_tools: "Editor and authoring tools" { class: engine }
+  entity_tools: "Nostr entity + search tools" { class: engine }
+  remote_tools: "Remote MCP tools" { class: engine }
+  code_tool: "run_code host" { class: engine }
+
+  registry -> dispatch
+  dispatch -> safety
+  safety -> editor_tools
+  dispatch -> entity_tools
+  dispatch -> remote_tools
+  dispatch -> code_tool
+}
+
+workers: "Constrained workers" {
+  direction: down
+  sandbox: "QuickJS/WASM sandbox\ncurated Turf + captured output" { class: safety }
+  ingest: "File ingest worker\nCSV · GeoJSON · XLSX · text" { class: safety }
+}
+
+dependencies: "Owned elsewhere" {
+  direction: down
+  authoring: "Editor Authoring facade" { class: seam }
+  nostr: "Nostr runtime + EventStore" { class: seam }
+  mcp: "ContextVM/MCP server" { class: external }
+  models: "OpenAI-compatible providers" { class: external }
+}
+
+chat.store -> tools.registry: "model tool calls"
+chat.provider -> dependencies.models: "completion stream"
+tools.editor_tools -> dependencies.authoring
+tools.entity_tools -> dependencies.nostr
+tools.remote_tools -> dependencies.mcp
+tools.code_tool -> workers.sandbox
+tools.dispatch -> workers.ingest
+workers.sandbox -> dependencies.authoring: "validated replay on host"

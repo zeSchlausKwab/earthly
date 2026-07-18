@@ -1,338 +1,233 @@
-# 🌍 Earthly
+# Earthly
 
-Earthly is a Nostr-native collaborative mapping application for creating, publishing, and exploring GeoJSON datasets over a decentralized relay network. It combines a mobile-friendly map editor, blossom-hosted PMTiles basemaps, and social features like comments and reactions on top of geographic data.
+Earthly is a collaborative map editor built on Nostr. It lets people draw and publish geographic datasets, organize them into groups, discuss places with geometry-aware comments, share live or time-bounded observations, and collaborate in encrypted private maps or nearby field sessions.
 
-## ✨ Features
+The same React application runs on the web and in the Android app. The Android build adds a local Nostr relay and Blossom server, device pairing, saved regions, durable delivery, deep links, and offline field collaboration through a reusable Rust node.
 
-- 🧵 Nostr-native geo entities: datasets, map contexts, comments, and edit proposals (kinds 37515, 37518, 37517, 37519)
-- 🌸 Blossom-hosted PMTiles basemaps and overlay layers, announced via Nostr
-- 🧩 Chunked Protomaps basemap: 120GB+ global tiles split into geohash-based PMTiles chunks
-- 🗺️ MapLibre GL editor with touch-first drawing tools (points, lines, polygons, multi-geometries)
-- 🔍 Precise mobile drawing: pan-lock, long-press point creation, magnifier lens
-- 🛠️ Geometry editing: move, rotate, merge/split multi-geometries with gizmos
-- 🚀 Dataset publishing, versioning, and loading workflow backed by Nostr events
-- 💬 GeoJSON-aware comments and annotations on datasets and contexts
+[Open Earthly](https://earthly.city) · [Architecture](docs/architecture/overview.md) · [Entity specification](SPEC.md) · [Android development](docs/TAURI-DEVELOPMENT.md)
 
-## 🧰 Tech Stack
+## What Earthly supports
 
-- ⚡ Runtime: Bun (not Node.js)
-- 🧩 Frontend: React 19 + TypeScript
-- 🧱 Backend: Bun.serve() HTTP server
-- 🛰️ Relay: Go (Khatru-based Nostr relay)
-- 🗺️ Mapping: MapLibre GL + Protomaps PMTiles basemaps
-- 🧠 State: Zustand
-- 🔑 Nostr: Nostr Dev Kit (NDK + @nostr-dev-kit/react)
-- 🎨 Styling: Tailwind CSS v4 + Radix UI components
+- Touch-first GeoJSON drawing and editing for points, lines, polygons, and multi-geometries.
+- Public, versioned geographic entities published to Nostr relays.
+- Groups/topics that curate or accept attached datasets and other geo entities.
+- Geometry-aware comments, replies, edit proposals, stories, sightings, and live beacons.
+- Images and large/content-addressed files stored on Blossom-compatible servers.
+- PMTiles basemaps and overlays discovered through trusted Nostr announcements.
+- MLS-encrypted private groups with invitations, roles, chat, comments, and shared geometry.
+- Nearby field sessions where paired Earthly phones can publish, sync, and mirror blobs on a local network.
+- Native saved regions and a durable publish outbox for Android.
+- AI-assisted mapping with typed editor tools, remote ContextVM/MCP tools, guarded bulk edits, file ingest, and a QuickJS geospatial sandbox.
+- Responsive desktop and mobile navigation with one visible authoring destination.
 
-See [CLAUDE.md](./CLAUDE.md) and [SPEC.md](./SPEC.md) for a deeper overview of the editor and event formats.
+## Architecture at a glance
 
-## 🗂️ Project Structure
+![Earthly system context](docs/architecture/diagrams/system-context.svg)
 
-High-level layout:
+Earthly has four important architectural boundaries:
+
+1. The geo editor owns geometry interaction, while publishing owns the destination.
+2. The Nostr runtime owns the shared EventStore, relay pool, accounts, cache, and public publish path.
+3. Platform contracts keep browser and Tauri capabilities behind validated adapters.
+4. Private MLS groups and nearby field sessions share map/editor projection, but retain different delivery and trust models.
+
+Read the canonical architecture set for module ownership, data flow, invariants, refactoring pressure points, and test surfaces:
+
+- [System overview](docs/architecture/overview.md)
+- [Editor and publishing](docs/architecture/editor.md)
+- [AI chat and tool execution](docs/architecture/chat.md)
+- [Native application and offline system](docs/architecture/native-and-offline.md)
+- [MLS private collaboration](docs/architecture/private-collaboration.md)
+
+## Technology
+
+| Area | Implementation |
+| --- | --- |
+| Web/runtime | Bun, React 19, TypeScript |
+| UI/state | Tailwind CSS 4, Radix/Base UI, Zustand |
+| Mapping | MapLibre GL, PMTiles, Turf, GeoJSON |
+| Nostr | Applesauce accounts/actions/core/loaders/relay/signers, `nostr-idb`, `nostr-tools` |
+| Private collaboration | `ts-mls`, Cordn-compatible ContextVM coordinator |
+| AI chat | OpenAI-compatible streaming, ContextVM/MCP, QuickJS/WASM workers |
+| Native app | Tauri 2, Rust, Android |
+| Local/offline node | Embedded Nostr relay, embedded Blossom, signed pairing and scoped peer policy |
+| Public relay | Go, Khatru, LMDB, Bleve geo/search index |
+| Validation/testing | Zod, Bun test, Playwright, Android UI Automator, Rust tests |
+
+## Repository map
 
 ```text
 src/
-  components/          Shared UI and panels
+  components/               Shared application UI
   features/
-    geo-editor/        Map editor feature (core engine + UI)
-  config/              Environment and platform config
-  lib/                 Shared libraries (Nostr, geo, hooks)
-  ctxcn/               ContextVM / MCP client
-  index.ts             Bun web server and map-layer announcer
-  blossom.ts           Blossom blob server (PMTiles + blobs)
+    geo-editor/              Editor engine, map shell, publishing, workspaces
+    chat/                    AI conversation runtime, tools, safety, workers
+    private-maps/            Private-group React integration
+    field-sessions/          Nearby collaboration UI and transport hydration
+    offline/                 Pairing, saved-region, and diagnostics surfaces
+    social/                  Public entity/social feature UI
+  lib/
+    nostr/                   EventStore, relay/accounts/cache/publish and entities
+    private-workspace/       MLS state, policy, service, runtime, projection
+  platform/                  Browser/Tauri capability contracts and adapters
+  index.ts                   Bun HTTP/SPA/OG/NIP-05 server
+  frontend.tsx               React entry point
 
-map-scripts/           PMTiles chunking and layer tools
-relay/                 Go Khatru relay
-docs/                  Operational docs (Blossom, chunking)
-contextvm/             ContextVM server configuration
-data/                  Example GeoJSON datasets
-styles/                Global CSS
-ARCHITECTURE_ANALYSIS.md  Generated architecture overview
-SPEC.md                   Nostr GeoJSON event specification
+src-tauri/                   Tauri shell and native command implementations
+crates/earthly-local-node/   Reusable Rust local node
+crates/nostr-relay-builder/  Embedded relay builder fork/patches
+relay/                       Public Go relay and geo search index
+contextvm/                   Earthly geo/web MCP server over Nostr
+ai-suite/                    Browser tasks and Playwright scenarios
+android-suite/               Deterministic Android emulator tests
+docs/                        Architecture, native, deployment, and operations docs
 ```
 
-Key modules:
+## Getting started
 
-- 🧩 Frontend entry: [frontend.tsx](src/frontend.tsx) and [App.tsx](src/App.tsx)
-- 🌐 Bun server and map announcement publisher: [index.ts](src/index.ts)
-- 🌸 Blossom blob server (BUD-01): [blossom.ts](src/blossom.ts)
-- Geo editor feature:
-  - Core engine and managers: [GeoEditor.ts](src/features/geo-editor/core/GeoEditor.ts) and managers under `core/managers/`
-  - Editor orchestration: [GeoEditorView.tsx](src/features/geo-editor/GeoEditorView.tsx)
-  - Zustand store: [store.ts](src/features/geo-editor/store.ts)
-  - Map component and PMTiles integration: [Map.tsx](src/features/geo-editor/components/Map.tsx)
-- Nostr event wrappers:
-  - GeoJSON datasets: [NDKGeoEvent.ts](src/lib/ndk/NDKGeoEvent.ts)
-  - Map contexts: [NDKMapContextEvent.ts](src/lib/ndk/NDKMapContextEvent.ts)
-  - Geo edit proposals: [NDKGeoEditProposalEvent.ts](src/lib/ndk/NDKGeoEditProposalEvent.ts)
-  - Map layer set announcement: [NDKMapLayerSetEvent.ts](src/lib/ndk/NDKMapLayerSetEvent.ts)
-  - Geo comments: [NDKGeoCommentEvent.ts](src/lib/ndk/NDKGeoCommentEvent.ts)
-- 🧰 PMTiles chunking tools and announcements: [map-scripts/index.ts](map-scripts/index.ts)
+### Prerequisites
 
-For a detailed, generated breakdown of components, sizes, and diagrams, see [ARCHITECTURE_ANALYSIS.md](./ARCHITECTURE_ANALYSIS.md).
+For web development:
 
-## 🌸 Blossom-Hosted PMTiles and Map Announcements
+- [Bun](https://bun.sh/) 1.3 or newer;
+- Go for the local relay;
+- Docker for the pinned Cordn development coordinator, or Corepack/pnpm for the source fallback.
 
-Earthly uses Protomaps PMTiles to serve global basemaps and raster/vector overlays as single files, accessed via HTTP range requests instead of traditional `{z}/{x}/{y}` tile servers.
+For Android development, also install Rust, Android Studio/SDK/NDK, platform tools, and the required Rust Android targets. Run `bunx tauri info` to inspect the local toolchain.
 
-Because a full global PMTiles archive can exceed 120GB, the project includes a chunking system:
+### Install
 
-- 🧩 The `map-scripts` tool splits a source PMTiles basemap into geohash-based chunks (e.g. `g`, `u`, `v`, ...) and writes them to `map-chunks/` with SHA-256 filenames.
-- 📣 For each geohash, an `announcement.json` entry maps:
-
-  ```json
-  "g": {
-    "bbox": [-45, 45, 0, 90],
-    "file": "0239b11d1d780978d8ccb203907c38cf803b46ace4ea64893d4f0eff3b522bd0.pmtiles",
-    "maxZoom": 16
-  }
-  ```
-
-- 🚚 These files are served by the dedicated Blossom server (`src/blossom.ts`), which supports range requests and multiple blob types.
-- 🧵 On startup, the Bun server (`src/index.ts`) reads:
-  - `map-chunks/announcement.json` (chunked-vector basemap)
-  - Any `*.announcement.json` PMTiles overlay descriptors
-  and publishes a Nostr kind `15000` “map layer set” event signed by the server key.
-- 🧭 The React map component (`src/features/geo-editor/components/Map.tsx`) subscribes to these kind `15000` announcements, selects the latest, and:
-  - Configures a `pmworld://` protocol that looks up the current map center’s geohash and routes tile requests to the appropriate Blossom-hosted PMTiles chunk.
-  - Builds a MapLibre style with a chunked-vector Protomaps basemap and optional raster overlay layers.
-
-This architecture yields distributed, “unruggable” maps: as long as PMTiles blobs remain on Blossom-compatible storage, clients can discover and render them via Nostr announcements without relying on a single HTTP tile server.
-
-## ✍️ Geo Editor and Mobile Drawing
-
-The geo editor is designed to work well on both desktop and mobile:
-
-- 📍 Draw points, lines, polygons, and multi-geometries
-- 🧰 Transform geometry with move/rotate gizmos
-- 🧩 Merge and split multi-geometries
-- 🔒 Lock panning on mobile to improve touch accuracy
-- ⏱️ Create points via long-press with a preview before releasing
-- 🔎 Optional magnifier lens for pixel-precise placement
-- 🪟 All edits are reflected live in the side panels (properties, metadata, blob references)
-
-Editor orchestration lives in `src/features/geo-editor/GeoEditorView.tsx`, with core logic encapsulated in the `GeoEditor` class and its managers.
-
-## 🤝 Entity Architecture
-
-Earthly's active Nostr model is centered on four geo entities: dataset (`37515`), map context (`37518`), geo comment (`37517`), and geo edit proposal (`37519`).
-
-The key idea is simple:
-
-- datasets carry publishable geometry,
-- contexts shape how datasets are grouped and validated,
-- comments add threaded discussion,
-- proposals suggest replacement geometry for a dataset lineage.
-
-```mermaid
-flowchart LR
-    D["Dataset 37515<br/>FeatureCollection + metadata"]
-    C["Map Context 37518<br/>taxonomy / validation / hybrid"]
-    CM["Geo Comment 37517<br/>text + optional GeoJSON"]
-    R["Reply Comment 37517"]
-    P["Geo Edit Proposal 37519<br/>full replacement geometry"]
-    S["Proposal Status 1630-1633<br/>draft / open / applied / closed"]
-    D2["Next Dataset Version 37515<br/>same d-tag lineage"]
-
-    D -- "c tag attaches to context" --> C
-    C -- "fixedReferences pin datasets/features" --> D
-    CM -- "root thread on dataset" --> D
-    CM -- "root thread on context" --> C
-    R -- "reply to comment" --> CM
-    P -- "a tag targets dataset" --> D
-    S -- "a/e tags resolve proposal state" --> P
-    P -- "accepted -> republishes dataset" --> D2
-    D -- "same d + p tag history" --> D2
+```sh
+bun install --frozen-lockfile
 ```
 
-Current-model note:
+### Run the browser development stack
 
-- Kind `37516` collections are deprecated in the active app model and have been superseded by map contexts.
-- Some legacy `collection` tags still exist for compatibility, but the runtime model is dataset + context, not dataset + collection.
-
-### Context View Model
-
-Contexts do not own foreign geometry directly. They assemble a view from two lanes:
-
-- Sticky lane: datasets or features pinned by the context author via `fixedReferences`.
-- Foreign lane: datasets that self-attach via `["c", "<kind>:<pubkey>:<d>"]`.
-
-```mermaid
-flowchart LR
-    CX["Context 37518"]
-    FIX["Sticky lane<br/>fixedReferences"]
-    DATA["Datasets 37515"]
-    ATT["Foreign candidates<br/>matching c tag"]
-    ALLOW{"allowForeignAttachments?"}
-    UNION["Context dataset set<br/>sticky + allowed foreign"]
-    MODE{"contextUse / filter mode"}
-    VIS["Visible map lane"]
-    IGN["Ignore foreign lane"]
-    STRICT["Strict validation<br/>only valid datasets"]
-    WARN["Warn / off<br/>show datasets with status"]
-
-    CX --> FIX
-    DATA --> ATT
-    ATT --> ALLOW
-    ALLOW -- "no" --> IGN
-    ALLOW -- "yes" --> UNION
-    FIX --> UNION
-    CX --> MODE
-    UNION --> MODE
-    MODE -- "taxonomy" --> VIS
-    MODE -- "validation or hybrid + strict" --> STRICT --> VIS
-    MODE -- "validation or hybrid + warn/off" --> WARN --> VIS
+```sh
+bun run dev
 ```
 
-## 🔄 Runtime Flows
+This command starts the local Go relay on `ws://localhost:3334`, resets and seeds it, starts the ContextVM server, starts a pinned Cordn-compatible coordinator, and runs the Bun/React development server at `http://localhost:3000`.
 
-### Materialization And Publish Gate
+> `bun run dev` intentionally resets the local development relay. Do not point this workflow at a public relay or use it for durable local data.
 
-Datasets and contexts are treated as parameterized replaceable lineages in the UI by collapsing relay results to the latest `kind:pubkey:d` coordinate.
+The local script does not launch a Blossom server. Network image/file operations use the configured Blossom URL; production-safe defaults are applied outside a loopback browser origin.
 
-```mermaid
-flowchart LR
-    RELAY["Relay events"]
-    SUB["useStations / useMapContexts"]
-    LATEST["Latest by kind:pubkey:d"]
-    VIEW["Materialized dataset / context"]
-    EDIT["Editor draft"]
-    CHECK{"Required contexts valid?"}
-    BLOCK["Block publish"]
-    PUB["Publish dataset 37515"]
+Useful focused commands:
 
-    RELAY --> SUB --> LATEST --> VIEW --> EDIT --> CHECK
-    CHECK -- "no" --> BLOCK
-    CHECK -- "yes" --> PUB
+```sh
+bun run relay              # local Go relay only
+bun run cordn:dev           # local Cordn coordinator only
+bun run tauri:frontend      # frontend only, used by Tauri
+bun run seed:entities       # seed current entity model
+bun run seed:sightings      # seed temporal sightings
 ```
 
-### Social Layer
+## Build and run
 
-Comments add threaded discussion to datasets or contexts. Proposals add reviewable replacement geometry to datasets.
-
-```mermaid
-flowchart LR
-    TARGET["Dataset or Context"]
-    COMMENT["Top-level comment 37517"]
-    REPLY["Reply comment 37517"]
-    PROP["Proposal 37519"]
-    REVIEW["Owner review"]
-    APPLIED["Status 1631 applied"]
-    CLOSED["Status 1632 closed"]
-
-    TARGET --> COMMENT --> REPLY
-    TARGET --> PROP --> REVIEW
-    REVIEW --> APPLIED
-    REVIEW --> CLOSED
+```sh
+bun run build               # build the web bundle into dist/
+bun run build:production    # validate/load production env, then build
+bun run start               # serve a production bundle with Bun
 ```
 
-### Proposal Acceptance
+Production configuration is documented by [`.env.production.example`](.env.production.example). Private keys remain server-side; only the allowlisted values in [`src/config/env.schema.ts`](src/config/env.schema.ts) are injected into the frontend bundle.
 
-Accepting a proposal does not mutate the proposal event. It creates a new dataset version in the target lineage and then records proposal status.
+Important public configuration:
 
-```mermaid
-flowchart LR
-    P0["Proposal 37519<br/>replacement FeatureCollection"]
-    T0["Target dataset 37515<br/>current lineage head"]
-    COPY["Carry forward metadata<br/>hashtags / collection refs / context refs / relay hints"]
-    UPD["PublishUpdate()<br/>new dataset version"]
-    S0["Status 1631<br/>applied"]
+| Variable | Purpose |
+| --- | --- |
+| `RELAY_URL` | Comma-separated primary Nostr relay URLs |
+| `EXTRA_READ_RELAYS` | Optional read-only relay extensions |
+| `BLOSSOM_SERVER` | Default Blossom base URL |
+| `SERVER_PUBKEY` | Earthly ContextVM server identity |
+| `CORDN_SERVER_PUBKEY` | Cordn-compatible private-group coordinator identity |
+| `MAPNOLIA_TRUSTED_PUBKEYS` | Trusted kind-34444 map-layer announcers |
 
-    P0 --> COPY
-    T0 --> COPY
-    COPY --> UPD --> S0
+Local loopback development isolates writes from public relays even when broader read relays are configured. See [relay stages](docs/RELAY_STAGES.md).
+
+## Android development
+
+Install a development build on every authorized USB or Wi-Fi ADB device:
+
+```sh
+bun run tauri:android:install:dev
 ```
 
-## 🔧 Environment and Configuration
+Build a debug APK directly:
 
-Environment variables are validated via `src/config/env.schema.ts` and exposed to:
-
-- Backend: `src/config/env.server.ts`
-- Frontend: `src/config/env.client.ts`
-
-Key variables:
-
-- `RELAY_URL` – primary Nostr relay WebSocket URL
-- `SERVER_KEY` – server private key (used to sign map announcements)
-- `SERVER_PUBKEY` – public key for the ContextVM geo server
-- `CLIENT_KEY` – client private key for ContextVM communication
-- `APP_PRIVATE_KEY` – app private key for backend signing (optional)
-- `BLOSSOM_SERVER` – base URL for Blossom map chunks (default: `https://blossom.earthly.city`)
-- `NODE_ENV` – `development` | `production` | `test`
-
-## 📦 Installation
-
-Install dependencies:
-
-```bash
-bun install
+```sh
+bun run tauri:android:init
+bun run tauri:android:build --debug --target aarch64
 ```
 
-## ▶️ Running the App
+Use `x86_64` for the standard emulator target. The supported release target is Android; desktop Tauri builds are useful for development, while iOS, Windows, Linux, and macOS distribution are currently deferred.
 
-Development workflow:
+See [Tauri development](docs/TAURI-DEVELOPMENT.md) for toolchain setup, pairing, local-node behavior, Android lifecycle rules, and current status.
 
-```bash
-# Start Bun dev server with HMR
-bun dev
+## Tests and checks
 
-# Start Go relay on port 3334
-bun relay
-
-# Optional: start Blossom server for local PMTiles
-bun run blossom
+```sh
+bun run test                # TypeScript/Bun tests
+bun run lint                # Biome checks
+cargo test --workspace      # native/local-node tests
+cd relay && go test ./...   # relay and search tests
 ```
 
-Production workflow:
+Browser journeys and audits run against an already-running loopback server:
 
-```bash
-# Build frontend bundle
-bun run build
-# or
-bun run build:production
-
-# Start production server (serves dist/ and publishes layer announcements)
-bun start
+```sh
+bun run ai:list
+bun run ai:typecheck
+bun run ai:e2e
+bun run ai:audit
+bun run ai:verify
 ```
 
-Map chunking and PMTiles layers:
+Android-only integration runs on an emulator by default:
 
-```bash
-# Chunk a large PMTiles basemap into geohash-based chunks
-bun run chunk            # default precision=1, maxZoom=8
-
-# Custom chunking (e.g. higher zooms)
-bun run chunk 2 10
-
-# Add a custom PMTiles layer (raster or vector) as an overlay
-bun run add-layer
+```sh
+bun run e2e:android:list
+bun run e2e:android:emulator
+bun run e2e:android:smoke
 ```
 
-For detailed VPS and Blossom setup, see:
+Read [`ai-suite/README.md`](ai-suite/README.md) before adding browser automation and [`android-suite/README.md`](android-suite/README.md) before adding emulator scenarios.
 
-- [docs/VPS_CHUNKING.md](docs/VPS_CHUNKING.md)
-- [docs/BLOSSOM_SERVER.md](docs/BLOSSOM_SERVER.md)
+## Nostr entity model
 
-## 🧪 Testing and Linting
+The active application model is documented in [`SPEC.md`](SPEC.md). Its primary kinds are:
 
-Lint the codebase with Biome:
+| Kind | Entity |
+| ---: | --- |
+| `37515` | GeoJSON dataset |
+| `37517` | Geo comment |
+| `37518` | Group/topic |
+| `37519` | Geo edit proposal |
+| `37520` | Story/article |
+| `37521` | Live beacon |
+| `37522` | Temporal sighting |
+| `34444` | Trusted map-layer-set announcement |
 
-```bash
-bun run lint
+Kind `37516` collections are not part of the active UI model. New-model groups, stories, beacons, and sightings carry an explicit model-version discriminator; legacy/malformed records are skipped rather than partially rendered.
+
+## Diagrams
+
+Architecture diagrams are stored as D2 source plus generated SVG. After installing [D2 v0.7.1](https://github.com/terrastruct/d2/releases/tag/v0.7.1), regenerate them with:
+
+```sh
+bun run docs:diagrams
 ```
 
-Auto-fix lint issues:
+The SVGs are committed so normal readers and GitHub do not require a diagram tool.
 
-```bash
-bun run lint:fix
-```
+## Operations and releases
 
-Tests are run via Bun’s built-in test runner (see `bun test` or individual test files such as `map-scripts/geohashWorld.test.ts`).
+- [VPS operations](docs/VPS_OPS.md)
+- [Private maps deployment](docs/PRIVATE-MAPS-DEPLOYMENT.md)
+- [Android release](docs/ANDROID-RELEASE.md)
+- [Android update and release](docs/ANDROID-UPDATE-RELEASE.md)
 
-## 📚 Further Reading
+## License
 
-- Editor internals and refactoring notes: [GEO_EDITOR_README.md](GEO_EDITOR_README.md)
-- Generated architecture diagrams and component inventory: [ARCHITECTURE_ANALYSIS.md](ARCHITECTURE_ANALYSIS.md)
-- Nostr GeoJSON event spec: [SPEC.md](SPEC.md)
-- Geo entity relationships and graph prompts: [docs/NOSTR_GEO_ENTITIES_ARCHITECTURE.md](docs/NOSTR_GEO_ENTITIES_ARCHITECTURE.md)
-- Map context explainer and context-specific graph prompts: [docs/MAP_CONTEXT_SIMPLE_EXPLAINER.md](docs/MAP_CONTEXT_SIMPLE_EXPLAINER.md)
+[MIT](LICENSE.md)

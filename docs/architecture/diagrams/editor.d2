@@ -1,0 +1,63 @@
+grid-columns: 2
+
+classes: {
+  ui: { style.fill: "#fff3c4"; style.stroke: "#a86f00" }
+  engine: { style.fill: "#e8f2ff"; style.stroke: "#2869a6" }
+  state: { style.fill: "#ebf8ef"; style.stroke: "#31834e" }
+  seam: { style.fill: "#f2eaff"; style.stroke: "#7652a8"; style.stroke-width: 2 }
+  destination: { style.fill: "#f4f4f4"; style.stroke: "#686868" }
+}
+
+composition: "Application composition" {
+  direction: down
+  view: "GeoEditorView\nmap + panels + routing + feature coordination" { class: ui }
+  components: "Desktop and mobile surfaces\ntoolbars · drawers · inspectors · lists" { class: ui }
+  hooks: "Feature hooks\nsubscriptions · workspaces · destinations · publishing" { class: ui }
+
+  view -> components
+  view -> hooks
+}
+
+state: "Editor state and persistence" {
+  direction: down
+  zustand: "EditorState\n14 composed Zustand slices" { class: state }
+  drafts: "Draft and workspace persistence\nunpublished geometry + metadata" { class: state }
+  map_stack: "Map stack and catalog\nvisible and carried entities" { class: state }
+
+  zustand -> drafts
+  zustand -> map_stack
+}
+
+editor: "Geometry engine" {
+  direction: down
+  geo_editor: "GeoEditor public API" { class: engine }
+  modes: "DrawMode · EditMode" { class: engine }
+  managers: "Managers\nhistory · selection · rendering · snap · transform · boolean" { class: engine }
+  commands: "Editor commands\nshared toolbar/AI operations" { class: seam }
+  authoring: "createAuthoring(editor)\nframework-agnostic mutation facade" { class: seam }
+
+  geo_editor -> modes
+  geo_editor -> managers
+  commands -> geo_editor
+  authoring -> commands
+  authoring -> geo_editor
+}
+
+publishing: "Destination boundary" {
+  direction: down
+  boundary: "Resolved authoring destination\npublic · private · field" { class: seam }
+  public: "Public publisher\nsigned Nostr events" { class: destination }
+  private: "Private workspace publisher\nMLS application records" { class: destination }
+  field: "Field-session publisher\nembedded or paired local node" { class: destination }
+
+  boundary -> public
+  boundary -> private
+  boundary -> field
+}
+
+composition.hooks -> state.zustand
+composition.components -> editor.geo_editor: "user gestures"
+editor.geo_editor -> state.zustand: "editor events / mirror"
+composition.hooks -> publishing.boundary
+state.drafts -> publishing.boundary: "destination provenance"
+editor.authoring -> state.zustand: "metadata + normalized writes"
