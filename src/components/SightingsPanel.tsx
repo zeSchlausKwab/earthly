@@ -20,7 +20,12 @@ import { useEditorStore } from '@/features/geo-editor/store'
 import { getSightingMapStackKey } from '@/features/geo-editor/mapStackEntityKeys'
 import { useSightings } from '@/lib/hooks/useSightings'
 import { type TemporalSighting, readSightingDraft } from '@/lib/nostr/temporal-sighting'
-import { BulkMapStackButton, EntityListTable, ListPanel } from '@/components/entity-list'
+import {
+	AggregateMapLayerControl,
+	BulkMapStackButton,
+	EntityListTable,
+	ListPanel,
+} from '@/components/entity-list'
 import {
 	createSightingColumns,
 	type SightingColumnsContext,
@@ -71,12 +76,30 @@ export function SightingsPanelContent({
 }: SightingsPanelProps) {
 	const filterState = useFilterState()
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
+	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
+	const setMapStackEntryVisible = useEditorStore((state) => state.setMapStackEntryVisible)
 	// useSightings already drops expired at the subscription (SIGHT-03).
 	const { events: sightings, eose } = useSightings()
 	const now = unixNow()
 
 	const result = useSortedFilteredItems(sightings, sightingFilterConfig, filterState)
 	const displayed = result.items
+	const allSightingsLayer = mapStackEntries['sighting-layer:all']
+	const allSightingsVisible = Boolean(allSightingsLayer?.visible)
+	const toggleAllSightingsLayer = useCallback(() => {
+		if (allSightingsLayer) {
+			setMapStackEntryVisible(allSightingsLayer.id, !allSightingsLayer.visible)
+			return
+		}
+		addMapStackEntry({
+			entityType: 'sighting-layer',
+			entityKey: 'all',
+			title: 'All sightings',
+			source: 'manual',
+			visible: true,
+			pinned: false,
+		})
+	}, [allSightingsLayer, addMapStackEntry, setMapStackEntryVisible])
 
 	// Detect a local (unpublished) draft per Sighting so the row shows a Draft chip.
 	const draftKeys = useMemo(() => {
@@ -141,6 +164,15 @@ export function SightingsPanelContent({
 			count={result.totalCount}
 			onNew={onCreateSighting}
 			newLabel="New Sighting"
+			headerExtra={
+				<AggregateMapLayerControl
+					title="All sightings layer"
+					description="Show every current sighting on the map, independent of these filters."
+					count={sightings.length}
+					visible={allSightingsVisible}
+					onToggle={toggleAllSightingsLayer}
+				/>
+			}
 			titleAccessory={
 				<BulkMapStackButton
 					count={stackableFilteredSightings.length}

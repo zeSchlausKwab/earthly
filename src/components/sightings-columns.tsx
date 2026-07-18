@@ -7,7 +7,8 @@ import {
 	LoadEditorActionIcon,
 	ZoomActionIcon,
 } from '@/components/entity-action-icons'
-import { GlyphTile, ListRow, RowActionButton, RowBadge } from '@/components/entity-list'
+import { CoverThumb, GlyphTile, ListRow, RowActionButton, RowBadge } from '@/components/entity-list'
+import { ImageGalleryDialog } from '@/components/media/ImageGalleryDialog'
 import { GeoSocialActions } from '@/features/social/comments/GeoSocialActions'
 import { UserProfile } from '@/components/user-profile'
 import {
@@ -61,6 +62,8 @@ function SightingListRow({
 	const title = content.title?.trim() || 'Untitled'
 	const cue = sightingCue(sighting, now)
 	const expiryCountdown = formatExpiryCountdown(sighting.expiresAt, now)
+	const images = sighting.images
+	const primaryImage = sighting.primaryImage
 	const rowRef = useRef<HTMLDivElement | null>(null)
 
 	// When a map-marker click selects this Sighting, bring its row into view.
@@ -71,7 +74,30 @@ function SightingListRow({
 	return (
 		<ListRow
 			rowRef={rowRef}
-			leading={<GlyphTile icon={Eye} className="bg-primary/15 text-primary" />}
+			leading={
+				primaryImage?.url ? (
+					<ImageGalleryDialog
+						images={images}
+						title={title}
+						trigger={
+							<button
+								type="button"
+								aria-label={`View photos for ${title}`}
+								className="block rounded-[2px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							>
+								<CoverThumb
+									src={primaryImage.url}
+									alt={primaryImage.alt ?? `${title} primary photo`}
+									fallbackIcon={Eye}
+									fallbackClassName="bg-primary/15 text-primary"
+								/>
+							</button>
+						}
+					/>
+				) : (
+					<GlyphTile icon={Eye} className="bg-primary/15 text-primary" />
+				)
+			}
 			title={title}
 			selected={isSelected}
 			onTitleClick={() => context.onOpen(sighting)}
@@ -80,6 +106,12 @@ function SightingListRow({
 			badges={
 				<>
 					<RowBadge label={cue.label} className={cue.className} />
+					{images.length > 1 ? (
+						<RowBadge
+							label={`${images.length} photos`}
+							className="border border-border text-muted-foreground"
+						/>
+					) : null}
 					{hasLocalDraft ? (
 						<RowBadge label="Draft" className="border border-border text-muted-foreground" />
 					) : null}
