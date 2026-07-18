@@ -25,6 +25,12 @@ import {
 } from './lib/og'
 
 const isProduction = process.env.NODE_ENV === 'production'
+const NIP05_DOCUMENT_PATH = join(process.cwd(), 'src', '.well-known', 'nostr.json')
+const NIP05_HEADERS = {
+	'Access-Control-Allow-Origin': '*',
+	'Cache-Control': 'public, max-age=300',
+	'Content-Type': 'application/json; charset=utf-8',
+} as const
 
 console.log(`Starting server in ${isProduction ? 'production' : 'development'} mode`)
 console.log(`NODE_ENV: ${process.env.NODE_ENV}`)
@@ -370,6 +376,16 @@ async function handleOGImageRoute(req: BunRouteRequest): Promise<Response> {
 
 // Define route handlers that work in both modes
 const apiRoutes: Record<string, BunRoute> = {
+	// NIP-05 (§ "Allowing access from JavaScript apps") requires wildcard CORS.
+	// Keeping this as an exact route also guarantees that the well-known request
+	// never falls through to the SPA index or an HTTP redirect.
+	'/.well-known/nostr.json': async () => {
+		const document = file(NIP05_DOCUMENT_PATH)
+		if (!(await document.exists())) {
+			return new Response('Not found', { status: 404, headers: NIP05_HEADERS })
+		}
+		return new Response(document, { headers: NIP05_HEADERS })
+	},
 	'/api/hello': {
 		async GET(_req: BunRouteRequest) {
 			return Response.json({

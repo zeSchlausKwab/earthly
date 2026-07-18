@@ -1,0 +1,10 @@
+{
+  "names": {
+    "_": "6ef777a78b2405fad6b4db2a619116441123b03cf148688084280db15439dac4"
+  },
+  "relays": {
+    "6ef777a78b2405fad6b4db2a619116441123b03cf148688084280db15439dac4": [
+      "wss://relay.earthly.city"
+    ]
+  }
+}
