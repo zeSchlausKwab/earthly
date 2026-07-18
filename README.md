@@ -1,10 +1,25 @@
-# Earthly
+<h1 align="center">
+  <img src="docs/text_logo_rose.svg" alt="Earthly.city" width="560">
+</h1>
 
 Earthly is a collaborative map editor built on Nostr that helps people turn local knowledge into useful, shared maps. Draw and publish geographic datasets, bring them together in groups, discuss places with geometry-aware comments, share live observations, and collaborate privately or nearby—even when the internet is unreliable.
 
 The same React application runs on the web and in the Android app. The Android build adds a local Nostr relay and Blossom server, device pairing, saved regions, durable delivery, deep links, and offline field collaboration through a reusable Rust node.
 
-[Open Earthly](https://earthly.city) · [Architecture](docs/architecture/overview.md) · [Entity specification](SPEC.md) · [Android development](docs/TAURI-DEVELOPMENT.md)
+<p align="center">
+  <a href="https://earthly.city">Open Earthly</a> ·
+  <a href="docs/architecture/overview.md">Architecture</a> ·
+  <a href="SPEC.md">Entity specification</a> ·
+  <a href="docs/TAURI-DEVELOPMENT.md">Android development</a>
+</p>
+
+<p align="center">
+  <a href="docs/image_web.png">
+    <img src="docs/image_web.png" alt="Earthly's web workspace showing curated public contexts, a map stack, and a global submarine-cable map">
+  </a>
+  <br>
+  <sub>Explore shared geographic knowledge, compose layers, and inspect rich map entities. Click to view full size.</sub>
+</p>
 
 ## What Earthly supports
 
@@ -19,6 +34,36 @@ The same React application runs on the web and in the Android app. The Android b
 - 📲 Native saved regions and a durable publish outbox for Android.
 - ✨ AI-assisted mapping with typed editor tools, remote ContextVM/MCP tools, guarded bulk edits, file ingest, and a QuickJS geospatial sandbox.
 - Responsive desktop and mobile navigation with one visible authoring destination.
+
+## From research desk to fieldwork
+
+### Build rich maps with an AI collaborator
+
+Earthly's mapping assistant works inside the editor: it can reason over the current map, use typed tools, create geometry, and help turn geographic research into structured, reviewable work.
+
+<p align="center">
+  <a href="docs/image_wb_chat.png">
+    <img src="docs/image_wb_chat.png" alt="Earthly's AI mapping workspace building an annotated Belt and Road map beside a story and tool conversation">
+  </a>
+  <br>
+  <sub>A story, its datasets, the live map, and the tool-using assistant remain visible together. Click to view full size.</sub>
+</p>
+
+### Carry the same map into the field
+
+<p align="center">
+  <img src="docs/square_logo.png" alt="Earthly Android app icon" width="72">
+  <br>
+  <strong>The full Earthly workspace, shaped for touch.</strong>
+</p>
+
+<p align="center">
+  <a href="docs/image_mobile.png">
+    <img src="docs/image_mobile.png" alt="Earthly's Android map view with touch controls and mobile bottom navigation" width="360">
+  </a>
+  <br>
+  <sub>Browse, draw, inspect layers, and collaborate from the Android app—even across a nearby field network.</sub>
+</p>
 
 ## Architecture at a glance
 
