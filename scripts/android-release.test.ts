@@ -5,6 +5,7 @@ import {
 	parseApkCertificateFingerprint,
 	androidAssetLinksStatement,
 	releaseArtifactNames,
+	validateZapstoreReleaseSource,
 	validateReleaseVersions,
 } from './android-release'
 
@@ -122,6 +123,35 @@ describe('Android release tooling', () => {
 			apk: 'earthly-0.0.1-arm64-v8a.apk',
 			aab: 'earthly-0.0.1-arm64-v8a.aab',
 		})
+	})
+
+	test('keeps Zapstore and CI artifact paths aligned with the current version', async () => {
+		const metadata = {
+			packageName: 'city.earthly',
+			versionName: '0.0.2',
+			versionCode: 1002,
+		}
+		expect(
+			validateZapstoreReleaseSource(
+				'release_source: ./out/android/0.0.2/earthly-0.0.2-arm64-v8a.apk\n',
+				metadata,
+			),
+		).toEqual([])
+		expect(
+			validateZapstoreReleaseSource(
+				'release_source: ./out/android/0.0.1/earthly-0.0.1-arm64-v8a.apk\n',
+				metadata,
+			),
+		).toEqual([
+			'zapstore.yaml release_source must be ./out/android/0.0.2/earthly-0.0.2-arm64-v8a.apk, got ./out/android/0.0.1/earthly-0.0.1-arm64-v8a.apk',
+		])
+
+		const workflow = await Bun.file(
+			new URL('../.github/workflows/android-release.yml', import.meta.url),
+		).text()
+		expect(workflow).toContain('earthly-android-${{ env.EARTHLY_VERSION }}')
+		expect(workflow).toContain('out/android/${{ env.EARTHLY_VERSION }}/')
+		expect(workflow).not.toContain('out/android/0.0.1')
 	})
 
 	test('derives the exact Android website association from the signed APK', () => {

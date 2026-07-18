@@ -1,5 +1,8 @@
 # Earthly Android release process
 
+For version bumps and Zapstore updates after the initial publication, follow
+[`ANDROID-UPDATE-RELEASE.md`](./ANDROID-UPDATE-RELEASE.md).
+
 Earthly `0.0.1` is distributed as a signed arm64 APK for Zapstore and a signed AAB retained for
 future store distribution. The signing certificate is the update identity: every published Android
 build must use the same protected key.

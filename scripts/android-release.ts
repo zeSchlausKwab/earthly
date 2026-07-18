@@ -12,6 +12,7 @@ const PUBLIC_ENV_PATH = join(REPO_ROOT, 'config', 'android-release.env')
 const TAURI_CONFIG_PATH = join(REPO_ROOT, 'src-tauri', 'tauri.conf.json')
 const CARGO_MANIFEST_PATH = join(REPO_ROOT, 'src-tauri', 'Cargo.toml')
 const PACKAGE_PATH = join(REPO_ROOT, 'package.json')
+const ZAPSTORE_CONFIG_PATH = join(REPO_ROOT, 'zapstore.yaml')
 const KEYSTORE_PROPERTIES_PATH = join(
 	REPO_ROOT,
 	'src-tauri',
@@ -112,6 +113,17 @@ export function releaseArtifactNames(metadata: AndroidReleaseMetadata): {
 } {
 	const stem = `earthly-${metadata.versionName}-arm64-v8a`
 	return { apk: `${stem}.apk`, aab: `${stem}.aab` }
+}
+
+export function validateZapstoreReleaseSource(
+	contents: string,
+	metadata: AndroidReleaseMetadata,
+): string[] {
+	const configured = /^release_source:\s*(\S+)\s*$/mu.exec(contents)?.[1]
+	const expected = `./out/android/${metadata.versionName}/${releaseArtifactNames(metadata).apk}`
+	return configured === expected
+		? []
+		: [`zapstore.yaml release_source must be ${expected}, got ${configured ?? 'missing'}`]
 }
 
 export function parseApkCertificateFingerprint(output: string): string {
@@ -299,6 +311,11 @@ async function sha256(path: string): Promise<string> {
 async function check(): Promise<AndroidReleaseMetadata> {
 	const metadata = await readReleaseMetadata()
 	parsePublicReleaseEnvironment(await readFile(PUBLIC_ENV_PATH, 'utf8'))
+	const zapstoreErrors = validateZapstoreReleaseSource(
+		await readFile(ZAPSTORE_CONFIG_PATH, 'utf8'),
+		metadata,
+	)
+	if (zapstoreErrors.length > 0) throw new Error(zapstoreErrors.join('\n'))
 	console.log(
 		`Android release metadata is consistent: ${metadata.packageName} ${metadata.versionName} (${metadata.versionCode}).`,
 	)

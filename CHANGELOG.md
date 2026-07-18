@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.2] - 2026-07-18
+
+- Fixed Private-group invitation buttons becoming permanently disabled in the Android app.
+- Private-group administrators can now create signed invitation links and QR codes from local MLS
+  state even while the Cordn coordinator is slow or temporarily offline.
+- Added hard deadlines and actionable feedback for stalled Cordn and Android clipboard operations.
+
 ## [0.0.1] - 2026-07-16
 
 Earthly's first Android release includes:
