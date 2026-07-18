@@ -62,6 +62,7 @@ import { ChatPanel } from '@/features/chat'
 import { Nip60Wallet } from '@/features/wallet/components/Nip60Wallet'
 import { useRouting } from '../hooks/useRouting'
 import { PublishOutboxPanel } from '@/features/delivery'
+import { MobilePanelHeaderActionProvider } from './MobilePanelHeaderAction'
 
 export type MobilePanelTab =
 	| 'drafts'
@@ -415,6 +416,7 @@ export function MobilePanel(props: MobilePanelProps) {
 			state.activeWorkspaceId,
 		),
 	)
+	const [headerActionTarget, setHeaderActionTarget] = useState<HTMLDivElement | null>(null)
 
 	const handleClose = () => setMobilePanelOpen(false)
 	const sidebarIsMenu = mobileSidebarMode === 'menu'
@@ -556,68 +558,70 @@ export function MobilePanel(props: MobilePanelProps) {
 	// authoring a draft (editor-in-Map-Stack), otherwise in the 'edit' tab body
 	// (e.g. a sighting/story/context inspected from a link).
 	const editorPanel = (
-		<GeoEditorInfoPanelContent
-			currentUserPubkey={currentUserPubkey}
-			onLoadDataset={onLoadDataset}
-			onStartNewDataset={onStartNewDataset}
-			onSwitchWorkspace={onSwitchWorkspace}
-			onOpenGeometryEditor={onOpenGeometryEditor}
-			onToggleVisibility={onToggleVisibility}
-			onZoomToDataset={handleMobileZoomToDataset}
-			onDeleteDataset={onDeleteDataset}
-			onDeleteContext={onDeleteContext}
-			deletingKey={deletingKey}
-			onExitViewMode={onExitViewMode}
-			onClose={handleClose}
-			getDatasetKey={getDatasetKey}
-			getDatasetName={getDatasetName}
-			onCommentGeometryVisibility={onCommentGeometryVisibility}
-			onZoomToBounds={handleMobileZoomToBounds}
-			availableFeatures={availableFeatures}
-			onMentionVisibilityToggle={onMentionVisibilityToggle}
-			onMentionZoomTo={onMentionZoomTo}
-			isMentionVisible={isMentionVisible}
-			onToggleProposalOverlay={onToggleProposalOverlay}
-			onProposalAccepted={onProposalAccepted}
-			visibleProposalIds={visibleProposalIds}
-			contextEditorMode={contextEditorMode}
-			editingContext={editingContext}
-			onSaveContext={onSaveContext}
-			onCloseContextEditor={onCloseContextEditor}
-			storyEditorMode={storyEditorMode}
-			editingStory={editingStory}
-			onSaveStory={onSaveStory}
-			onCloseStoryEditor={onCloseStoryEditor}
-			onEditStory={onEditStory}
-			onStoryUpdated={onStoryUpdated}
-			onDeleteStory={onDeleteStory}
-			beaconControlMode={beaconControlMode}
-			adjustingBeacon={adjustingBeacon}
-			viewBeacon={viewBeacon}
-			beaconIsStarting={beaconIsStarting}
-			beaconFocusCommentId={beaconFocusCommentId}
-			onStartBeacon={onStartBeacon}
-			onCloseBeaconControl={onCloseBeaconControl}
-			onStopBeacon={onStopBeacon}
-			onAdjustBeacon={onAdjustBeacon}
-			onZoomToBeacon={onWatchOnMapBeacon}
-			onAddBeaconToMapStack={onAddBeaconToMapStack}
-			sightingEditorMode={sightingEditorMode}
-			editingSighting={editingSighting}
-			viewSighting={viewSighting}
-			sightingFocusCommentId={sightingFocusCommentId}
-			placedSightingGeometry={placedSightingGeometry}
-			onDrawSightingArea={onDrawSightingArea}
-			onSaveSighting={onSaveSighting}
-			onCloseSightingEditor={onCloseSightingEditor}
-			onEditSighting={onEditSighting}
-			onDeleteSighting={onDeleteSighting}
-			mapContextEvents={mapContextEvents}
-			onZoomToFeature={onZoomToFeature}
-			featureCollectionForUpload={featureCollectionForUpload}
-			onBlossomUploadComplete={onBlossomUploadComplete}
-			focusCommentId={focusCommentId}
-		/>
+		<MobilePanelHeaderActionProvider target={headerActionTarget}>
+			<GeoEditorInfoPanelContent
+				currentUserPubkey={currentUserPubkey}
+				onLoadDataset={onLoadDataset}
+				onStartNewDataset={onStartNewDataset}
+				onSwitchWorkspace={onSwitchWorkspace}
+				onOpenGeometryEditor={onOpenGeometryEditor}
+				onToggleVisibility={onToggleVisibility}
+				onZoomToDataset={handleMobileZoomToDataset}
+				onDeleteDataset={onDeleteDataset}
+				onDeleteContext={onDeleteContext}
+				deletingKey={deletingKey}
+				onExitViewMode={onExitViewMode}
+				onClose={handleClose}
+				getDatasetKey={getDatasetKey}
+				getDatasetName={getDatasetName}
+				onCommentGeometryVisibility={onCommentGeometryVisibility}
+				onZoomToBounds={handleMobileZoomToBounds}
+				availableFeatures={availableFeatures}
+				onMentionVisibilityToggle={onMentionVisibilityToggle}
+				onMentionZoomTo={onMentionZoomTo}
+				isMentionVisible={isMentionVisible}
+				onToggleProposalOverlay={onToggleProposalOverlay}
+				onProposalAccepted={onProposalAccepted}
+				visibleProposalIds={visibleProposalIds}
+				contextEditorMode={contextEditorMode}
+				editingContext={editingContext}
+				onSaveContext={onSaveContext}
+				onCloseContextEditor={onCloseContextEditor}
+				storyEditorMode={storyEditorMode}
+				editingStory={editingStory}
+				onSaveStory={onSaveStory}
+				onCloseStoryEditor={onCloseStoryEditor}
+				onEditStory={onEditStory}
+				onStoryUpdated={onStoryUpdated}
+				onDeleteStory={onDeleteStory}
+				beaconControlMode={beaconControlMode}
+				adjustingBeacon={adjustingBeacon}
+				viewBeacon={viewBeacon}
+				beaconIsStarting={beaconIsStarting}
+				beaconFocusCommentId={beaconFocusCommentId}
+				onStartBeacon={onStartBeacon}
+				onCloseBeaconControl={onCloseBeaconControl}
+				onStopBeacon={onStopBeacon}
+				onAdjustBeacon={onAdjustBeacon}
+				onZoomToBeacon={onWatchOnMapBeacon}
+				onAddBeaconToMapStack={onAddBeaconToMapStack}
+				sightingEditorMode={sightingEditorMode}
+				editingSighting={editingSighting}
+				viewSighting={viewSighting}
+				sightingFocusCommentId={sightingFocusCommentId}
+				placedSightingGeometry={placedSightingGeometry}
+				onDrawSightingArea={onDrawSightingArea}
+				onSaveSighting={onSaveSighting}
+				onCloseSightingEditor={onCloseSightingEditor}
+				onEditSighting={onEditSighting}
+				onDeleteSighting={onDeleteSighting}
+				mapContextEvents={mapContextEvents}
+				onZoomToFeature={onZoomToFeature}
+				featureCollectionForUpload={featureCollectionForUpload}
+				onBlossomUploadComplete={onBlossomUploadComplete}
+				focusCommentId={focusCommentId}
+			/>
+		</MobilePanelHeaderActionProvider>
 	)
 
 	// Mobile has two deliberately different surfaces: horizontal navigation and
@@ -770,6 +774,7 @@ export function MobilePanel(props: MobilePanelProps) {
 												</span>
 											) : null}
 											<div className="ml-auto flex items-center gap-1">
+												<div ref={setHeaderActionTarget} className="flex min-w-0 items-center" />
 												{newAction && mobileSidebarOpen ? (
 													<Button
 														type="button"

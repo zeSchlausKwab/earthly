@@ -54,6 +54,10 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Textarea } from '@/components/ui/textarea'
 import { GroupAttachField } from '@/features/geo-editor/components/GroupAttachField'
+import {
+	MobilePanelHeaderActions,
+	useMobilePanelHeaderActionTarget,
+} from '@/features/geo-editor/components/MobilePanelHeaderAction'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { eventStore } from '@/lib/nostr'
 import {
@@ -166,6 +170,7 @@ export function SightingEditorPanel({
 }: SightingEditorPanelProps) {
 	const currentUser = useActiveAccount()
 	const isMobile = useIsMobile()
+	const mobileHeaderActionTarget = useMobilePanelHeaderActionTarget()
 
 	const initial = useMemo(() => readInitialContent(initialSighting), [initialSighting])
 	// Editing a *published* Sighting switches the submit to "Save changes" and the
@@ -315,6 +320,11 @@ export function SightingEditorPanel({
 
 	return (
 		<EntityPanelShell title={isEditing ? 'Edit Sighting' : 'New Sighting'}>
+			<MobilePanelHeaderActions>
+				<Button type="button" variant="ghost" size="sm" onClick={onClose}>
+					Cancel
+				</Button>
+			</MobilePanelHeaderActions>
 			<EntityPanelSurface tone="context" className="space-y-4">
 				<EntityPanelSectionHeader
 					eyebrow="Sighting"
@@ -586,14 +596,17 @@ export function SightingEditorPanel({
 					isPublishing={isSaving}
 					publishLabel={isEditing ? 'Save changes' : 'Publish Sighting'}
 					showAttachmentControls={advancedControlsVisible}
+					publishControlTarget={mobileHeaderActionTarget}
 				/>
 				<div className="flex flex-wrap items-center justify-end gap-2">
 					<Button variant="outline" onClick={handleSaveDraft} className="rounded-none">
 						Save draft
 					</Button>
-					<Button variant="outline" onClick={onClose} className="rounded-none">
-						Cancel
-					</Button>
+					{!mobileHeaderActionTarget ? (
+						<Button variant="outline" onClick={onClose} className="rounded-none">
+							Cancel
+						</Button>
+					) : null}
 				</div>
 			</EntityPanelSurface>
 		</EntityPanelShell>

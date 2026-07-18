@@ -34,6 +34,10 @@ import {
 	EntityPanelSurface,
 } from '@/components/info-panel/EntityPanelShell'
 import { Button } from '@/components/ui/button'
+import {
+	MobilePanelHeaderActions,
+	useMobilePanelHeaderActionTarget,
+} from '@/features/geo-editor/components/MobilePanelHeaderAction'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
@@ -109,6 +113,7 @@ export function BeaconControlPanel({
 	onStart,
 	onClose,
 }: BeaconControlPanelProps) {
+	const mobileHeaderActionTarget = useMobilePanelHeaderActionTarget()
 	const [label, setLabel] = useState(initialLabel ?? '')
 	const [timeBoxPreset, setTimeBoxPreset] = useState<TimeBoxPreset>(DEFAULT_TIME_BOX_PRESET)
 	const [customMinutes, setCustomMinutes] = useState<string>('')
@@ -159,6 +164,16 @@ export function BeaconControlPanel({
 
 	return (
 		<EntityPanelShell title={isAdjusting ? 'Adjust your beacon' : 'Share your live location'}>
+			<MobilePanelHeaderActions>
+				<div className="flex items-center gap-1">
+					<Button type="button" variant="ghost" size="sm" onClick={onClose}>
+						Cancel
+					</Button>
+					<Button type="button" size="sm" onClick={handleStart} disabled={!canStart}>
+						{isStarting ? 'Starting…' : isAdjusting ? 'Update' : 'Start beacon'}
+					</Button>
+				</div>
+			</MobilePanelHeaderActions>
 			<EntityPanelSurface tone="context" className="space-y-6">
 				<EntityPanelSectionHeader
 					eyebrow="Beacon"
@@ -323,17 +338,26 @@ export function BeaconControlPanel({
 						{identity === 'my-account' ? CONSENT_MY_ACCOUNT : CONSENT_DEFAULT}
 					</p>
 					{permissionBlocked ? <p className="text-xs text-destructive">{PERMISSION_COPY}</p> : null}
-					<Button
-						type="button"
-						onClick={handleStart}
-						disabled={!canStart}
-						className="h-12 w-full rounded-none bg-primary text-primary-foreground"
-					>
-						{isStarting ? 'Starting…' : 'Start beacon'}
-					</Button>
-					<Button type="button" variant="outline" onClick={onClose} className="w-full rounded-none">
-						Cancel
-					</Button>
+					{!mobileHeaderActionTarget ? (
+						<>
+							<Button
+								type="button"
+								onClick={handleStart}
+								disabled={!canStart}
+								className="h-12 w-full rounded-none bg-primary text-primary-foreground"
+							>
+								{isStarting ? 'Starting…' : 'Start beacon'}
+							</Button>
+							<Button
+								type="button"
+								variant="outline"
+								onClick={onClose}
+								className="w-full rounded-none"
+							>
+								Cancel
+							</Button>
+						</>
+					) : null}
 				</div>
 			</EntityPanelSurface>
 		</EntityPanelShell>

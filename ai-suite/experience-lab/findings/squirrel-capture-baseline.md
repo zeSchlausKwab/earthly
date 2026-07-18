@@ -15,7 +15,9 @@ console errors, page errors, failed requests, or error responses.
 
 The first iteration now keeps observation time, lifespan, and Context attachment behind one
 mobile-only `More options` disclosure. The public defaults remain unchanged, desktop and edit
-surfaces remain expanded, and the form still has exactly one publish action.
+surfaces remain expanded, and the form still has exactly one publish action. The canonical publish
+control now stays in the mobile sheet header beside an explicit Cancel action, so it remains
+available while the form scrolls.
 
 Photo upload was not exercised because the deterministic localhost suite does not yet provide a
 fake Blossom target. The run therefore does not prove the journey's media outcome.
@@ -23,7 +25,7 @@ fake Blossom target. The run therefore does not prove the journey's media outcom
 | Rubric | Score | Evidence |
 | --- | ---: | --- |
 | Entry | 3 | The bottom-dock Create action exposes Sighting directly. |
-| Completion | 2 | Publishing succeeds; the action is no longer behind advanced choices, but still begins below the initial half-sheet viewport. |
+| Completion | 3 | Publishing succeeds and the one canonical action remains visible in the persistent sheet header. |
 | Decisions | 3 | Quick capture presents title, note, and photos; time, lifespan, and Context are optional disclosure. |
 | Vocabulary | 2 | “Sighting” and “What did you see?” are clear; `Unattached` and Context remain product terms. |
 | Destination | 3 | `Public · Unattached` is visible before and after publishing. |
@@ -75,12 +77,12 @@ fake Blossom target. The run therefore does not prove the journey's media outcom
 - Proposed experiment: preserve the current defaults behind a single “More options” disclosure or
   provide a sheet-aware sticky publish action. Do not remove expiry or Context functionality.
 - Complexity cost: one progressive-disclosure rule; avoid a second independent publish mechanism.
-- Disposition: **contracted/improved**. Mobile create now exposes one `More options` row for time,
-  lifespan, and Context while desktop and mobile edit remain expanded. A focused product contract
-  proves the defaults are hidden, the full controls remain reachable, entered work survives
-  toggling, and only one Publish Sighting action exists. Publish is still below the initial
-  half-sheet viewport, so a human session should decide whether a sticky action earns its added
-  layout complexity.
+- Disposition: **contracted/fixed**. Mobile create exposes one `More options` row for time,
+  lifespan, and Context while desktop and mobile edit remain expanded. The one canonical publish
+  control portals into the persistent sheet header with Cancel; it is not duplicated in the form.
+  A shared header-action slot now also supports Story, Context, and Beacon editors while retaining
+  each editor's own validation and loading state. Focused contracts prove the defaults are hidden,
+  advanced controls remain reachable, entered work survives toggling, and the action is visible.
 
 ### EXP-SQ-004 — Placement guidance competes with the destination indicator
 

@@ -107,6 +107,7 @@ test('mobile quick Sighting capture progressively discloses advanced controls @e
 	await expect(earthly.page.getByRole('button', { name: 'Attach to a Context' })).toBeHidden()
 	await expect(publish).toHaveCount(1)
 	await expect(publish).toBeVisible()
+	await expect(earthly.page.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible()
 
 	await moreOptions.click()
 	await expect(moreOptions).toHaveAttribute('aria-expanded', 'true')
@@ -117,4 +118,37 @@ test('mobile quick Sighting capture progressively discloses advanced controls @e
 	await moreOptions.click()
 	await expect(title).toHaveValue('Squirrel draft survives disclosure')
 	await expect(publish).toHaveCount(1)
+})
+
+test('mobile non-geometry editors keep their primary actions in the sheet header @editor-contract', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'mobile', 'The persistent action slot is mobile-only')
+	await authorizeJourneyIdentity(earthly, 'owner')
+
+	await earthly.page.getByRole('button', { name: 'Create', exact: true }).click()
+	await earthly.page.getByRole('menuitem', { name: 'Story', exact: true }).click()
+	await expect(earthly.page.getByText('New Story').first()).toBeVisible()
+	await expect(
+		earthly.page.getByRole('button', { name: 'Publish Story', exact: true }),
+	).toBeVisible()
+	await expect(earthly.page.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(1)
+	await earthly.page.getByRole('button', { name: 'Cancel', exact: true }).click()
+
+	await earthly.page.getByRole('button', { name: 'Create', exact: true }).click()
+	await earthly.page.getByRole('menuitem', { name: 'Context', exact: true }).click()
+	await expect(earthly.page.getByText('Create Context').first()).toBeVisible()
+	await expect(
+		earthly.page.getByRole('button', { name: 'Create Context', exact: true }),
+	).toBeVisible()
+	await expect(earthly.page.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(1)
+	await earthly.page.getByRole('button', { name: 'Cancel', exact: true }).click()
+
+	await earthly.page.getByRole('button', { name: 'Create', exact: true }).click()
+	await earthly.page.getByRole('menuitem', { name: 'Live beacon', exact: true }).click()
+	await expect(earthly.page.getByText('Share your live location').first()).toBeVisible()
+	await expect(
+		earthly.page.getByRole('button', { name: 'Start beacon', exact: true }),
+	).toBeVisible()
+	await expect(earthly.page.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(1)
 })

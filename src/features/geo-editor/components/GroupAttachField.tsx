@@ -19,6 +19,7 @@
 
 import { Check, ChevronsUpDown, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { filterForeignAttachment } from '@/lib/group'
 import { useGroups } from '@/lib/hooks/useGroups'
 import type { Group } from '@/lib/nostr/group'
@@ -70,6 +71,8 @@ export interface GroupAttachFieldProps {
 	 * these optional controls are progressively disclosed elsewhere.
 	 */
 	showAttachmentControls?: boolean
+	/** Optional mobile-sheet target for the single canonical publish control. */
+	publishControlTarget?: HTMLElement | null
 }
 
 export function GroupAttachField({
@@ -81,6 +84,7 @@ export function GroupAttachField({
 	isPublishing = false,
 	publishLabel = 'Publish',
 	showAttachmentControls = true,
+	publishControlTarget,
 }: GroupAttachFieldProps) {
 	const { events: groups } = useGroups()
 	const [open, setOpen] = useState(false)
@@ -225,6 +229,19 @@ export function GroupAttachField({
 	// — a plain valid attach reads as the normal publish label (no bare "anyway").
 	const resolvedPublishLabel =
 		hasAttachedGroups && visibleWarnings.length > 0 ? 'Publish anyway' : publishLabel
+	const publishControl = (
+		<Button
+			type="button"
+			onClick={() => void onPublish()}
+			disabled={!canPublish || isPublishing}
+			className={cn(
+				'h-8 rounded-none bg-primary text-[13px] text-primary-foreground hover:bg-primary/90',
+				publishControlTarget ? 'w-auto px-3' : 'w-full',
+			)}
+		>
+			{isPublishing ? 'Publishing…' : resolvedPublishLabel}
+		</Button>
+	)
 
 	return (
 		<div className="space-y-2">
@@ -358,14 +375,7 @@ export function GroupAttachField({
 			) : null}
 
 			{/* ── Publish control — NEVER disabled by the validation verdict (GROUP-04) ── */}
-			<Button
-				type="button"
-				onClick={() => void onPublish()}
-				disabled={!canPublish || isPublishing}
-				className="h-8 w-full rounded-none bg-primary text-[13px] text-primary-foreground hover:bg-primary/90"
-			>
-				{isPublishing ? 'Publishing…' : resolvedPublishLabel}
-			</Button>
+			{publishControlTarget ? createPortal(publishControl, publishControlTarget) : publishControl}
 		</div>
 	)
 }

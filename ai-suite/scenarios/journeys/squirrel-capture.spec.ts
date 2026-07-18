@@ -73,6 +73,10 @@ test('a casual observer can recover, publish a squirrel sighting, and continue @
 		await expect(
 			earthly.page.getByRole('button', { name: 'Publish Sighting', exact: true }),
 		).toHaveCount(1)
+		await expect(
+			earthly.page.getByRole('button', { name: 'Publish Sighting', exact: true }),
+		).toBeVisible()
+		await expect(earthly.page.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible()
 		await publishSighting(earthly, {
 			title,
 			description: 'A small red squirrel carrying an acorn beside the old oak.',
