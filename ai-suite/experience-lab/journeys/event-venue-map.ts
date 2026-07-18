@@ -51,7 +51,9 @@ export const eventVenueMapJourney = defineJourney({
 	],
 	parityExpectation:
 		'Desktop authors the venue; mobile consumes and navigates it without losing scope.',
-	automationLevel: 'exploratory',
-	knownGaps: ['The canonical venue entity composition needs validation through the first run.'],
+	automationLevel: 'experience-audit',
+	knownGaps: [
+		'Android process, outdoor readability, congested connectivity, and live organizer updates remain untested.',
+	],
 	tags: ['desktop', 'mobile', 'handoff', 'event', 'first-cohort'],
 })

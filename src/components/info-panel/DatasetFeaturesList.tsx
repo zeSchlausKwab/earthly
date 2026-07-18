@@ -234,7 +234,7 @@ export function DatasetFeaturesList({
 						name = 'External geometry'
 					} else if (isAnnotation) {
 						const text = feature.properties?.text as string | undefined
-						name = text ? `"${text.slice(0, 20)}${text.length > 20 ? '…' : ''}"` : 'Annotation'
+						name = text ? `${text.slice(0, 20)}${text.length > 20 ? '…' : ''}` : 'Unnamed label'
 					} else {
 						const id = feature.id ?? index
 						name = `${feature.geometry?.type ?? 'Unknown'} • ${String(id).slice(0, 6)}`

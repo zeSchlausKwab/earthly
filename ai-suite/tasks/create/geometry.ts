@@ -1,4 +1,4 @@
-import { expect } from '@playwright/test'
+import { expect, type Locator } from '@playwright/test'
 import type { EarthlySession } from '../../core/session'
 import type { AiTaskMetadata } from '../../core/task'
 import { startDataset } from './dataset'
@@ -94,6 +94,54 @@ export async function addPointToGeometryDraft(
 	return before + 1
 }
 
+export async function addPolygonToGeometryDraft(
+	earthly: EarthlySession,
+	points: ReadonlyArray<readonly [xRatio: number, yRatio: number]>,
+): Promise<number> {
+	if (points.length < 3) throw new Error('A polygon draft requires at least three points')
+	const before = (await geometryDraftSnapshot(earthly)).featureCount
+	await earthly.page.getByRole('button', { name: 'Draw polygon', exact: true }).first().click()
+	for (const [xRatio, yRatio] of points) await clickEditorMap(earthly, xRatio, yRatio)
+	await earthly.page.keyboard.press('Enter')
+	await expectGeometryFeatureCount(earthly, before + 1)
+	return before + 1
+}
+
+export async function addLabelToGeometryDraft(
+	earthly: EarthlySession,
+	text: string,
+	xRatio: number,
+	yRatio: number,
+): Promise<Locator> {
+	const before = (await geometryDraftSnapshot(earthly)).featureCount
+	await earthly.page.getByRole('button', { name: 'Draw label', exact: true }).first().click()
+	await clickEditorMap(earthly, xRatio, yRatio)
+	await expectGeometryFeatureCount(earthly, before + 1)
+	const labelInput = earthly.page.getByPlaceholder('Type label text...').last()
+	await expect(labelInput).toBeVisible()
+	await labelInput.fill(text)
+	await expect(labelInput).toHaveValue(text)
+	return labelInput
+}
+
+export async function publishCurrentGeometryDataset(earthly: EarthlySession): Promise<string> {
+	let publishButton = earthly.page.getByRole('button', { name: 'Publish', exact: true })
+	if (!(await publishButton.isVisible())) {
+		await earthly.page.getByText('File', { exact: true }).first().click()
+		publishButton = earthly.page.getByRole('menuitem', {
+			name: 'Publish new dataset',
+			exact: true,
+		})
+	}
+	await expect(publishButton).toBeEnabled()
+	await publishButton.click()
+	await expect(earthly.page.getByText('Dataset overview')).toBeVisible({ timeout: 15_000 })
+	await expect
+		.poll(() => new URL(earthly.page.url()).pathname, { timeout: 15_000 })
+		.toMatch(/^\/datasets\/geoevent\//)
+	return earthly.page.url()
+}
+
 export async function createGeometryDraft(
 	earthly: EarthlySession,
 	annotationText = 'AI suite map label',
@@ -141,21 +189,6 @@ export async function createAndPublishGeometryDataset(
 ): Promise<GeometryDraftResult & { url: string }> {
 	const result = await createGeometryDraft(earthly)
 	await earthly.page.getByPlaceholder('Name').first().fill(name)
-	let publishButton = earthly.page.getByRole('button', { name: 'Publish', exact: true })
-	if (!(await publishButton.isVisible())) {
-		await earthly.page.getByText('File', { exact: true }).first().click()
-		publishButton = earthly.page.getByRole('menuitem', {
-			name: 'Publish new dataset',
-			exact: true,
-		})
-	}
-	await expect(publishButton).toBeEnabled()
-	await publishButton.click()
-	await expect(earthly.page.getByText('Dataset overview')).toBeVisible({ timeout: 15_000 })
-	// Publish now lands on the published Dataset's canonical entity route
-	// (workflow audit P1) — no catalog round-trip or address recovery needed.
-	await expect
-		.poll(() => new URL(earthly.page.url()).pathname, { timeout: 15_000 })
-		.toMatch(/^\/datasets\/geoevent\//)
-	return { ...result, url: earthly.page.url() }
+	const url = await publishCurrentGeometryDataset(earthly)
+	return { ...result, url }
 }

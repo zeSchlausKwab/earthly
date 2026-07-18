@@ -320,9 +320,9 @@ export function ShareExportPopover({ small = false }: ShareExportPopoverProps) {
 		if (focusedType === 'geoevent') {
 			const meta = resolveFeatureCollectionMeta(viewDataset?.featureCollection)
 			return {
-				title: meta.name ?? focusedIdentifier ?? 'Feature collection',
+				title: meta.name ?? focusedIdentifier ?? 'Dataset',
 				description: meta.description,
-				subjectLabel: 'feature collection',
+				subjectLabel: 'dataset',
 			}
 		}
 		if (focusedType === 'mapcontext') {

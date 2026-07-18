@@ -16,6 +16,7 @@ import { inspectSurfaceTask } from './tasks/diagnostics/inspect-surface'
 import { observeJourneyStepTask } from './tasks/diagnostics/journey-observation'
 import { keyboardWalkTask } from './tasks/diagnostics/keyboard-walk'
 import { openPanelTask } from './tasks/navigation/open-panel'
+import { copyCurrentShareLinkTask } from './tasks/navigation/share-current-view'
 import { completeTourTask, inspectTourTask, skipTourTask } from './tasks/onboarding/tour'
 import { seedDatasetProposalTask, seedStoryProposalTask } from './tasks/setup/story-proposal'
 import {
@@ -45,6 +46,7 @@ const tasks = [
 	skipTourTask,
 	inspectTourTask,
 	openPanelTask,
+	copyCurrentShareLinkTask,
 	postCommentTask,
 	replyToCommentTask,
 	postAnnotatedCommentTask,
