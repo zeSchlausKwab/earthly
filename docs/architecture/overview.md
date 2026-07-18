@@ -134,10 +134,10 @@ Use this sequence when one of the opportunities becomes active work:
 
 ## Rendering the diagrams
 
-Install [D2 v0.7.1](https://github.com/terrastruct/d2/releases/tag/v0.7.1) and run:
+Run:
 
 ```sh
 bun run docs:diagrams
 ```
 
-Set `D2_BIN=/path/to/d2` to use a non-global binary. Generated SVGs are committed so GitHub and offline readers do not need D2 installed.
+When D2 is absent, the script downloads the pinned [D2 v0.7.1 release](https://github.com/terrastruct/d2/releases/tag/v0.7.1), verifies the platform-specific SHA-256 checksum, and caches the executable under `.cache/tools`. Set `D2_BIN=/path/to/d2` to use an existing pinned binary, or `EARTHLY_TOOLS_CACHE=/path` to change the cache root. Generated SVGs are committed so GitHub and offline readers do not need D2 installed.

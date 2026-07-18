@@ -213,13 +213,13 @@ Kind `37516` collections are not part of the active UI model. New-model groups, 
 
 ## Diagrams
 
-Architecture diagrams are stored as D2 source plus generated SVG. After installing [D2 v0.7.1](https://github.com/terrastruct/d2/releases/tag/v0.7.1), regenerate them with:
+Architecture diagrams are stored as D2 source plus generated SVG. Regenerate them with:
 
 ```sh
 bun run docs:diagrams
 ```
 
-The SVGs are committed so normal readers and GitHub do not require a diagram tool.
+The command downloads the pinned D2 v0.7.1 binary from the [official release](https://github.com/terrastruct/d2/releases/tag/v0.7.1), verifies its SHA-256 checksum, and caches it under `.cache/tools` when D2 is not already installed. Set `D2_BIN=/path/to/d2` to use an existing pinned binary. The SVGs are committed so normal readers and GitHub do not require a diagram tool.
 
 ## Operations and releases
 
