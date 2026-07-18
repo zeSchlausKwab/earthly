@@ -151,6 +151,9 @@ describe('Android release tooling', () => {
 		).text()
 		expect(workflow).toContain('earthly-android-${{ env.EARTHLY_VERSION }}')
 		expect(workflow).toContain('out/android/${{ env.EARTHLY_VERSION }}/')
+		expect(workflow).toContain(`VERSION="$(bun -p 'require("./package.json").version')"`)
+		expect(workflow).toContain('test -n "$VERSION"')
+		expect(workflow).toContain('fail_on_unmatched_files: true')
 		expect(workflow).not.toContain('out/android/0.0.1')
 	})
 

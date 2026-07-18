@@ -44,7 +44,11 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Read release version
-        run: echo "EARTHLY_VERSION=$(bun -p 'require(\"./package.json\").version')" >> "$GITHUB_ENV"
+        run: |
+          set -euo pipefail
+          VERSION="$(bun -p 'require("./package.json").version')"
+          test -n "$VERSION"
+          printf 'EARTHLY_VERSION=%s\n' "$VERSION" >> "$GITHUB_ENV"
 
       - name: Validate release metadata
         run: bun run release:android:check
@@ -84,6 +88,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
             out/android/${{ env.EARTHLY_VERSION }}/earthly-${{ env.EARTHLY_VERSION }}-arm64-v8a.apk
             out/android/${{ env.EARTHLY_VERSION }}/earthly-${{ env.EARTHLY_VERSION }}-arm64-v8a.aab
