@@ -316,7 +316,10 @@ export class PrivateWorkspaceService {
 
 	async createInvitation(workspaceId: string): Promise<string> {
 		const ownerPubkey = await this.ownerPubkey()
-		const workspace = await this.syncWorkspace(workspaceId)
+		// Invitations contain only signed, already-persisted group coordinates.
+		// Requiring a coordinator round trip here made the invite UI depend on
+		// network health even though no MLS state is changed or published.
+		const workspace = await this.requireWorkspace(ownerPubkey, workspaceId)
 		this.requireAdministrator(workspace, ownerPubkey, 'invite members')
 		return createPrivateMapInvitation({
 			signer: this.options.signer,

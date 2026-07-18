@@ -15,6 +15,30 @@ type CoordinatorOptions = {
 	signer: NostrSigner
 }
 
+export const CORDN_REQUEST_TIMEOUT_MS = 30_000
+
+export async function withCoordinatorDeadline<T>(
+	operation: Promise<T>,
+	label: string,
+	timeoutMs = CORDN_REQUEST_TIMEOUT_MS,
+): Promise<T> {
+	let timeout: ReturnType<typeof setTimeout> | undefined
+	try {
+		return await Promise.race([
+			operation,
+			new Promise<T>((_, reject) => {
+				timeout = setTimeout(
+					() =>
+						reject(new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)} seconds`)),
+					timeoutMs,
+				)
+			}),
+		])
+	} finally {
+		if (timeout) clearTimeout(timeout)
+	}
+}
+
 function structured<T>(result: unknown, method: string): T {
 	if (!result || typeof result !== 'object' || !('structuredContent' in result)) {
 		throw new Error(`Coordinator returned no structured result for ${method}`)
@@ -74,8 +98,8 @@ export class CordnCoordinatorClient implements PrivateWorkspaceCoordinator {
 	}
 
 	async disconnect(): Promise<void> {
-		await Promise.allSettled([this.stableConnected, this.deliveryConnected])
 		await Promise.allSettled([this.stableTransport.close(), this.deliveryTransport.close()])
+		await Promise.allSettled([this.stableConnected, this.deliveryConnected])
 	}
 
 	private async call<T>(
@@ -84,10 +108,15 @@ export class CordnCoordinatorClient implements PrivateWorkspaceCoordinator {
 		args: Record<string, unknown>,
 	): Promise<T> {
 		const client = identity === 'stable' ? this.stableClient : this.deliveryClient
-		await (identity === 'stable' ? this.stableConnected : this.deliveryConnected)
+		await withCoordinatorDeadline(
+			identity === 'stable' ? this.stableConnected : this.deliveryConnected,
+			`${method} coordinator connection`,
+		)
 		const result = await client.callTool({ name: method, arguments: args }, undefined, {
 			onprogress: () => undefined,
+			timeout: CORDN_REQUEST_TIMEOUT_MS,
 			resetTimeoutOnProgress: true,
+			maxTotalTimeout: CORDN_REQUEST_TIMEOUT_MS,
 		})
 		return structured<T>(result, method)
 	}

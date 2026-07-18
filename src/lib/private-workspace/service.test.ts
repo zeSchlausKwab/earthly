@@ -3,11 +3,45 @@ import type { NostrSigner } from '@contextvm/sdk'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools'
 import type { PrivateWorkspaceCoordinator } from './contracts'
 import { createPrivateEnvelope } from './envelope'
-import { createPrivateMapInvitation, PRIVATE_MAP_INVITATION_TTL_SECONDS } from './invitation'
+import {
+	createPrivateMapInvitation,
+	decodePrivateMapInvitation,
+	PRIVATE_MAP_INVITATION_TTL_SECONDS,
+} from './invitation'
 import { PrivateWorkspaceService } from './service'
 import { MemoryPrivateWorkspaceStore, type StoredWorkspace } from './storage'
 
 describe('PrivateWorkspaceService synchronization', () => {
+	test('creates an administrator invitation from local MLS state without contacting Cordn', async () => {
+		const secretKey = generateSecretKey()
+		const ownerPubkey = getPublicKey(secretKey)
+		const coordinatorPubkey = 'b'.repeat(64)
+		let coordinatorConnections = 0
+		const service = new PrivateWorkspaceService({
+			signer: {
+				getPublicKey: async () => ownerPubkey,
+				signEvent: async (event) => finalizeEvent(event, secretKey),
+			} as NostrSigner,
+			store: new MemoryPrivateWorkspaceStore(),
+			coordinatorPubkey,
+			relays: ['ws://localhost:3334'],
+			createCoordinator: () => {
+				coordinatorConnections += 1
+				throw new Error('Invitation creation must not require Cordn')
+			},
+			now: () => 1_700_000_000_000,
+		})
+		const workspace = await service.createWorkspace({ name: 'Offline invite' })
+
+		const invitation = decodePrivateMapInvitation(
+			await service.createInvitation(workspace.workspaceId),
+		)
+
+		expect(invitation.workspaceId).toBe(workspace.workspaceId)
+		expect(invitation.adminPubkey).toBe(ownerPubkey)
+		expect(coordinatorConnections).toBe(0)
+	})
+
 	test('recovers a join request from transient Cordn response loss', async () => {
 		const adminSecretKey = generateSecretKey()
 		const guestSecretKey = generateSecretKey()

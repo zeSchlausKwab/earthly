@@ -102,6 +102,17 @@ export class PrivateWorkspaceRuntime {
 		})
 	}
 
+	/**
+	 * Sign a shareable invitation from persisted group coordinates.
+	 *
+	 * This intentionally bypasses the MLS mutation queue: invitation creation is
+	 * read-only and must remain available when a background coordinator sync is
+	 * slow or offline.
+	 */
+	createInvitation(workspaceId: string): Promise<string> {
+		return this.service.createInvitation(workspaceId)
+	}
+
 	async syncWorkspace(workspaceId: string, reportFailure = true): Promise<boolean> {
 		if (this.pendingSyncs.has(workspaceId)) return false
 		this.pendingSyncs.add(workspaceId)

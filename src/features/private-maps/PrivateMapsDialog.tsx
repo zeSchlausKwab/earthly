@@ -51,6 +51,7 @@ import { cn } from '@/lib/utils'
 import { PrivateCommentItem } from './PrivateCommentItem'
 import { PrivateGeometryReferences, type PrivateDatasetActions } from './PrivateGeometryReferences'
 import { PrivateInviteScannerDialog } from './PrivateInviteScannerDialog'
+import { copyPrivateInviteText } from './privateInviteClipboard'
 import { parsePrivateInviteLink, type ParsedPrivateInviteLink } from './privateInviteLink'
 import { usePrivateWorkspaceRuntime } from './usePrivateWorkspaceRuntime'
 
@@ -257,9 +258,7 @@ export function PrivateGroupsPanel({
 	const createInviteLink = async () => {
 		if (!runtime || !service || !selected)
 			throw new Error('Open a private group as an administrator first')
-		const token = await runtime.perform((workspaceService) =>
-			workspaceService.createInvitation(selected.workspaceId),
-		)
+		const token = await runtime.createInvitation(selected.workspaceId)
 		// Native WebViews have an internal origin that is meaningless on another
 		// phone. Share the public HTTPS route so the link works in a browser today
 		// and becomes an Android App Link once release signing is configured.
@@ -274,9 +273,9 @@ export function PrivateGroupsPanel({
 	}
 
 	const handleCopyInvite = () =>
-		run('create invitation', async () => {
+		run('copy invitation', async () => {
 			const value = await createInviteLink()
-			await navigator.clipboard.writeText(value)
+			await copyPrivateInviteText(value)
 			toast.success('Signed 24-hour private-group invitation copied')
 		})
 
@@ -288,7 +287,7 @@ export function PrivateGroupsPanel({
 	const handleCopyShownInvite = () =>
 		run('copy invitation', async () => {
 			if (!inviteLink) throw new Error('Create an invitation QR first')
-			await navigator.clipboard.writeText(inviteLink)
+			await copyPrivateInviteText(inviteLink)
 			toast.success('Private-group invitation copied')
 		})
 
@@ -650,7 +649,12 @@ export function PrivateGroupsPanel({
 												onClick={handleCopyInvite}
 												disabled={Boolean(busy)}
 											>
-												<Copy /> Copy invite
+												{busy === 'copy invitation' ? (
+													<RefreshCw className="animate-spin" />
+												) : (
+													<Copy />
+												)}
+												{busy === 'copy invitation' ? 'Copying…' : 'Copy invite'}
 											</Button>
 										) : null}
 										{selected.role === 'administrator' ? (
@@ -661,7 +665,12 @@ export function PrivateGroupsPanel({
 												onClick={handleShowInviteQr}
 												disabled={Boolean(busy)}
 											>
-												<QrCode /> Create invite QR
+												{busy === 'create invitation' ? (
+													<RefreshCw className="animate-spin" />
+												) : (
+													<QrCode />
+												)}
+												{busy === 'create invitation' ? 'Creating…' : 'Create invite QR'}
 											</Button>
 										) : null}
 									</div>
@@ -684,7 +693,12 @@ export function PrivateGroupsPanel({
 												onClick={handleCopyShownInvite}
 												disabled={Boolean(busy)}
 											>
-												<Copy /> Copy this invitation
+												{busy === 'copy invitation' ? (
+													<RefreshCw className="animate-spin" />
+												) : (
+													<Copy />
+												)}
+												{busy === 'copy invitation' ? 'Copying…' : 'Copy this invitation'}
 											</Button>
 										</div>
 									) : null}

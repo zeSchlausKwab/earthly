@@ -93,4 +93,36 @@ describe('PrivateWorkspaceRuntime', () => {
 		expect(notifications).toBe(0)
 		unsubscribe()
 	})
+
+	test('creates a read-only invitation while a coordinator sync is still pending', async () => {
+		let release!: () => void
+		const barrier = new Promise<void>((resolve) => {
+			release = resolve
+		})
+		const fake = {
+			listWorkspaces: async () => [storedWorkspace(1)],
+			listPendingJoins: async () => [],
+			syncWorkspaceResult: async () => {
+				await barrier
+				return { workspace: storedWorkspace(1), changed: false }
+			},
+			createInvitation: async () => 'signed-local-invitation',
+			resetConnections: async () => undefined,
+			dispose: async () => undefined,
+		} as unknown as PrivateWorkspaceService
+		const runtime = new PrivateWorkspaceRuntime(fake)
+		const pendingSync = runtime.syncWorkspace('workspace-1', false)
+		await Promise.resolve()
+
+		const invitation = await Promise.race([
+			runtime.createInvitation('workspace-1'),
+			new Promise<string>((_, reject) =>
+				setTimeout(() => reject(new Error('Invitation waited for the coordinator queue')), 100),
+			),
+		])
+
+		expect(invitation).toBe('signed-local-invitation')
+		release()
+		await pendingSync
+	})
 })
