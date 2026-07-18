@@ -1,6 +1,6 @@
 # Earthly
 
-Earthly is a collaborative map editor built on Nostr. It lets people draw and publish geographic datasets, organize them into groups, discuss places with geometry-aware comments, share live or time-bounded observations, and collaborate in encrypted private maps or nearby field sessions.
+Earthly is a collaborative map editor built on Nostr that helps people turn local knowledge into useful, shared maps. Draw and publish geographic datasets, bring them together in groups, discuss places with geometry-aware comments, share live observations, and collaborate privately or nearby—even when the internet is unreliable.
 
 The same React application runs on the web and in the Android app. The Android build adds a local Nostr relay and Blossom server, device pairing, saved regions, durable delivery, deep links, and offline field collaboration through a reusable Rust node.
 
@@ -8,16 +8,16 @@ The same React application runs on the web and in the Android app. The Android b
 
 ## What Earthly supports
 
-- Touch-first GeoJSON drawing and editing for points, lines, polygons, and multi-geometries.
+- 🗺️ Touch-first GeoJSON drawing and editing for points, lines, polygons, and multi-geometries.
 - Public, versioned geographic entities published to Nostr relays.
 - Groups/topics that curate or accept attached datasets and other geo entities.
-- Geometry-aware comments, replies, edit proposals, stories, sightings, and live beacons.
+- 💬 Geometry-aware comments, replies, edit proposals, stories, sightings, and live beacons.
 - Images and large/content-addressed files stored on Blossom-compatible servers.
 - PMTiles basemaps and overlays discovered through trusted Nostr announcements.
-- MLS-encrypted private groups with invitations, roles, chat, comments, and shared geometry.
-- Nearby field sessions where paired Earthly phones can publish, sync, and mirror blobs on a local network.
-- Native saved regions and a durable publish outbox for Android.
-- AI-assisted mapping with typed editor tools, remote ContextVM/MCP tools, guarded bulk edits, file ingest, and a QuickJS geospatial sandbox.
+- 🔒 MLS-encrypted private groups with invitations, roles, chat, comments, and shared geometry.
+- 🥾 Nearby field sessions where paired Earthly phones can publish, sync, and mirror blobs on a local network.
+- 📲 Native saved regions and a durable publish outbox for Android.
+- ✨ AI-assisted mapping with typed editor tools, remote ContextVM/MCP tools, guarded bulk edits, file ingest, and a QuickJS geospatial sandbox.
 - Responsive desktop and mobile navigation with one visible authoring destination.
 
 ## Architecture at a glance
