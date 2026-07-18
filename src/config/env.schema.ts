@@ -7,6 +7,20 @@
 
 import { z } from 'zod'
 
+export const DEFAULT_MAPNOLIA_TRUSTED_PUBKEY =
+	'58f35635deac8768c0412484baab3462963053cf67384495bae29b114dec083f'
+
+const publicKeyListSchema = z.string().refine(
+	(value) => {
+		const keys = value
+			.split(',')
+			.map((key) => key.trim())
+			.filter(Boolean)
+		return keys.length > 0 && keys.every((key) => /^[0-9a-f]{64}$/u.test(key))
+	},
+	{ message: 'must contain one or more comma-separated lowercase hexadecimal public keys' },
+)
+
 /**
  * Zod schema defining all environment variables with their types and defaults.
  *
@@ -50,11 +64,8 @@ export const envSchema = z.object({
 		.length(64)
 		.default('ceadb7d5b739189fb3ecb7023a0c3f55d8995404d7750f5068865decf8b304cc'),
 
-	/** Client private key for ContextVM communication */
-	CLIENT_KEY: z
-		.string()
-		.length(64)
-		.default('4e842ce1a820603c44f6ce3c4acd6527fdeb4898a9023d84bed51c1b4417eb5c'),
+	/** Public key of the Cordn-compatible private-map coordinator */
+	CORDN_SERVER_PUBKEY: z.union([z.string().length(64), z.literal('')]).default(''),
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// App Configuration
@@ -71,6 +82,9 @@ export const envSchema = z.object({
 				? 'https://blossom.earthly.city'
 				: 'http://localhost:3544',
 		),
+
+	/** Trusted kind-34444 Mapnolia announcement authors, never signing credentials. */
+	MAPNOLIA_TRUSTED_PUBKEYS: publicKeyListSchema.default(DEFAULT_MAPNOLIA_TRUSTED_PUBKEY),
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// Web Search Configuration
@@ -97,8 +111,9 @@ export const FRONTEND_ENV_KEYS = [
 	'RELAY_URL',
 	'EXTRA_READ_RELAYS',
 	'SERVER_PUBKEY',
-	'CLIENT_KEY',
+	'CORDN_SERVER_PUBKEY',
 	'BLOSSOM_SERVER',
+	'MAPNOLIA_TRUSTED_PUBKEYS',
 	'NODE_ENV',
 ] as const
 

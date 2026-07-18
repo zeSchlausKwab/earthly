@@ -1,4 +1,9 @@
 import type { DriveStep } from 'driver.js'
+import { isTauri } from '@/config/platform'
+
+const desktopExistingKeyHelp = isTauri()
+	? 'Import your <code style="font-size:.8em;background:rgba(0,0,0,.08);padding:1px 4px;border-radius:3px">nsec</code>'
+	: 'Import your <code style="font-size:.8em;background:rgba(0,0,0,.08);padding:1px 4px;border-radius:3px">nsec</code> or use a browser extension (NIP-07)'
 
 function mediaBlock(opts: { screenshot?: string; video?: string; alt?: string }): string {
 	if (opts.video) {
@@ -84,7 +89,7 @@ export const desktopTourSteps: DriveStep[] = [
 				</p>
 				<ul style="margin:0 0 8px;padding-left:1.2em;line-height:1.8">
 					<li>🆕 <strong>New user?</strong> Use the guided wizard to generate a key and save a printable backup PDF</li>
-					<li>🗝️ <strong>Have a Nostr key?</strong> Import your <code style="font-size:.8em;background:rgba(0,0,0,.08);padding:1px 4px;border-radius:3px">nsec</code> or use a browser extension (NIP-07)</li>
+					<li>🗝️ <strong>Have a Nostr key?</strong> ${desktopExistingKeyHelp}</li>
 					<li>⚡ <strong>Advanced:</strong> Connect via NIP-46 remote signing from another device</li>
 				</ul>
 				<p style="margin:0;font-size:.85em;opacity:.7">
@@ -384,14 +389,15 @@ export const mobileTourSteps: DriveStep[] = [
 					The dock at the bottom is your navigation:
 				</p>
 				<ul style="margin:0 0 8px;padding-left:1.2em;line-height:1.8">
-					<li><strong>Map</strong> — recent sightings near you</li>
-					<li><strong>Explore</strong> — browse published datasets</li>
-					<li><strong>Live</strong> — live location beacons</li>
-					<li><strong>You</strong> — your profile and everything you've published</li>
+					<li><strong>Menu</strong> — account, drafts, lists, groups, sessions, and settings</li>
+					<li><strong>Search</strong> — find places and map entities</li>
+					<li><strong>+</strong> — create something new</li>
+					<li><strong>Map stack</strong> — control what is visible on the map</li>
+					<li><strong>Map</strong> — close panels and return to the map</li>
 				</ul>
 				<p style="margin:0;font-size:.85em;opacity:.7">
-					The sheet's header pill opens the full panel switcher — Stories, Contexts,
-					Local posts, Wallet, Settings, and Help all live there.
+					Choose a section from <strong>Menu</strong>; inspections and map-bound tools open
+					in the sheet so you can keep seeing the map.
 				</p>
 			`,
 			side: 'top',
@@ -421,16 +427,16 @@ export const mobileTourSteps: DriveStep[] = [
 		},
 	},
 
-	// ── 5. You / identity ──────────────────────────────────────────────────────
+	// ── 5. Menu / identity ─────────────────────────────────────────────────────
 	{
-		element: '[data-tour="mobile-dock-you"]',
+		element: '[data-tour="mobile-dock-menu"]',
 		popover: {
 			title: '🔑 Your Nostr Identity',
 			description: `
 				<p style="margin:0 0 8px">
 					Earthly uses <strong>Nostr</strong> for identity — a key pair you control,
-					no email or password. Tap <strong>You</strong> to sign in: create a new key,
-					import one, use a browser extension, or connect a remote signer.
+					no email or password. Tap <strong>Menu</strong>; the account controls at the top
+					let you create a key, import one, or connect a remote signer.
 				</p>
 				<p style="margin:0;font-size:.85em;opacity:.7">
 					Your key never leaves your device unencrypted. You are your own account.
@@ -452,7 +458,7 @@ export const mobileTourSteps: DriveStep[] = [
 				<ol style="margin:0 0 10px;padding-left:1.4em;line-height:2">
 					<li>Explore the map and browse nearby sightings</li>
 					<li>Tap <strong>+</strong> and add a <strong>Sighting</strong> or start a <strong>Dataset</strong></li>
-					<li>Sign in from <strong>You</strong> when you're ready to publish</li>
+					<li>Open <strong>Menu</strong> and sign in when you're ready to publish</li>
 				</ol>
 				<p style="margin:0;font-size:.85em;opacity:.7">
 					Replay this tour anytime from <strong>Help</strong> in the panel switcher.

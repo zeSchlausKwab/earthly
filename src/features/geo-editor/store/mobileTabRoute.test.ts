@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { mobileTabToView, viewToMobileTab } from './mobileTabRoute'
+import {
+	isMobileMapSurfaceTab,
+	isMobileSidebarTab,
+	mobileTabToView,
+	viewToMobileTab,
+} from './mobileTabRoute'
 import type { MobilePanelTab, SidebarViewMode } from './types'
 
 // Audit P1 #6: mobile destinations and sidebar views are the same set of
@@ -7,9 +12,12 @@ import type { MobilePanelTab, SidebarViewMode } from './types'
 // view/tab added on one side without the other fails loudly here.
 
 const ALL_TABS: MobilePanelTab[] = [
+	'drafts',
 	'datasets',
 	'map-stack',
 	'contexts',
+	'field-sessions',
+	'private-groups',
 	'context-editor',
 	'edit',
 	'sightings',
@@ -18,15 +26,19 @@ const ALL_TABS: MobilePanelTab[] = [
 	'chat',
 	'profile',
 	'posts',
+	'delivery',
 	'wallet',
 	'settings',
 	'help',
 ]
 
 const ALL_VIEWS: SidebarViewMode[] = [
+	'drafts',
 	'datasets',
 	'map-stack',
 	'contexts',
+	'field-sessions',
+	'private-groups',
 	'context-editor',
 	'stories',
 	'sightings',
@@ -34,6 +46,7 @@ const ALL_VIEWS: SidebarViewMode[] = [
 	'combined',
 	'edit',
 	'posts',
+	'delivery',
 	'settings',
 	'help',
 	'user',
@@ -61,5 +74,15 @@ describe('mobileTabRoute — tab↔view mapping', () => {
 				expect(viewToMobileTab(view)).not.toBeNull()
 			}
 		}
+	})
+
+	test('every tab belongs to exactly one mobile surface', () => {
+		for (const tab of ALL_TABS) {
+			expect(Number(isMobileMapSurfaceTab(tab)) + Number(isMobileSidebarTab(tab))).toBe(1)
+		}
+	})
+
+	test('only map-bound destinations use the bottom sheet', () => {
+		expect(ALL_TABS.filter(isMobileMapSurfaceTab)).toEqual(['map-stack', 'context-editor', 'edit'])
 	})
 })

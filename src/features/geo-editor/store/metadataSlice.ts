@@ -1,10 +1,11 @@
 import type { StateCreator } from 'zustand'
 import { writePersistedGeoCollectionDraftState } from './editorCoreSlice'
+import { normalizeDraftContextRefs } from './draftSlice'
 import type { EditorState, MetadataSlice } from './types'
 
 export const createMetadataSlice: StateCreator<EditorState, [], [], MetadataSlice> = (
 	set,
-	_get,
+	get,
 ) => ({
 	collectionMeta: {
 		name: '',
@@ -46,7 +47,13 @@ export const createMetadataSlice: StateCreator<EditorState, [], [], MetadataSlic
 
 	setActiveDataset: (activeDataset) => set({ activeDataset, isDirty: false }),
 	setIsDirty: (isDirty) => set({ isDirty }),
-	setActiveDatasetContextRefs: (activeDatasetContextRefs) => set({ activeDatasetContextRefs }),
+	setActiveDatasetContextRefs: (references) => {
+		const activeDatasetContextRefs = normalizeDraftContextRefs(references)
+		set({ activeDatasetContextRefs })
+		const { activeGeoEditDraftId, geoEditDrafts } = get()
+		if (!activeGeoEditDraftId || !geoEditDrafts[activeGeoEditDraftId]) return
+		get().saveGeoEditDraft(activeGeoEditDraftId, { contextRefs: activeDatasetContextRefs })
+	},
 	setDatasetResolving: (datasetKey, resolving) =>
 		set((state) => {
 			const next = new Set(state.resolvingDatasets)

@@ -1,9 +1,10 @@
 import { NostrConnectAccount } from 'applesauce-accounts/accounts'
 import { NostrConnectSigner, PrivateKeySigner } from 'applesauce-signers'
 import { Scanner } from '@yudiel/react-qr-scanner'
-import { Loader2, QrCode } from 'lucide-react'
+import { ExternalLink, Loader2, QrCode } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -24,6 +25,7 @@ import {
 	SelectValue,
 } from '@/components/ui/select'
 import { allowRelays, loginWithAccount } from '@/lib/nostr'
+import { openExternalProtocol } from '@/platform/externalProtocol'
 
 interface Nip46LoginDialogProps {
 	trigger: React.ReactNode
@@ -55,7 +57,9 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 
 	const [state, setState] = useState<ConnectionState>('idle')
 	const [error, setError] = useState<string | null>(null)
-	const [selectedRelay, setSelectedRelay] = useState(DEFAULT_RELAYS[0]!.value)
+	const [selectedRelay, setSelectedRelay] = useState(
+		DEFAULT_RELAYS[0]?.value ?? 'wss://relay.earthly.city',
+	)
 
 	// Scan tab state — the URI we display + the signer we're awaiting on
 	const [connectionUri, setConnectionUri] = useState('')
@@ -67,6 +71,10 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 	const [showScanner, setShowScanner] = useState(false)
 	const [scanError, setScanError] = useState<string | null>(null)
 	const [rememberMe, setRememberMe] = useState(true)
+	const rememberMeRef = useRef(rememberMe)
+	const onSuccessRef = useRef(onSuccess)
+	rememberMeRef.current = rememberMe
+	onSuccessRef.current = onSuccess
 
 	const cleanup = useCallback(() => {
 		abortRef.current?.abort()
@@ -75,19 +83,22 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 		signerRef.current = null
 	}, [])
 
-	const handleOpenChange = (isOpen: boolean) => {
-		setOpen(isOpen)
-		if (!isOpen) {
-			cleanup()
-			setState('idle')
-			setError(null)
-			setConnectionUri('')
-			setBunkerUrl('')
-			setShowScanner(false)
-			setScanError(null)
-			setRememberMe(true)
-		}
-	}
+	const handleOpenChange = useCallback(
+		(isOpen: boolean) => {
+			setOpen(isOpen)
+			if (!isOpen) {
+				cleanup()
+				setState('idle')
+				setError(null)
+				setConnectionUri('')
+				setBunkerUrl('')
+				setShowScanner(false)
+				setScanError(null)
+				setRememberMe(true)
+			}
+		},
+		[cleanup],
+	)
 
 	const handleRelayChange = (relay: string) => {
 		setSelectedRelay(relay)
@@ -102,9 +113,12 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 	// Drives the scan tab: spin up a NostrConnectSigner, show its URI,
 	// wait for the remote to ping back, then create an account.
 	useEffect(() => {
-		if (!open || activeTab !== 'scan' || connectionUri) return
+		if (!open || activeTab !== 'scan') return
 
 		let cancelled = false
+		let handedOff = false
+		let ownedSigner: NostrConnectSigner | null = null
+		let ownedAbort: AbortController | null = null
 		const run = async () => {
 			setState('generating')
 			setError(null)
@@ -118,6 +132,7 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 					relays: [selectedRelay],
 					signer: localSigner,
 				})
+				ownedSigner = ncSigner
 				signerRef.current = ncSigner
 
 				const uri = ncSigner.getNostrConnectURI(APP_METADATA)
@@ -126,6 +141,7 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 				setState('waiting')
 
 				const abort = new AbortController()
+				ownedAbort = abort
 				abortRef.current = abort
 
 				await ncSigner.waitForSigner(abort.signal)
@@ -133,11 +149,15 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 
 				const pubkey = await ncSigner.getPublicKey()
 				const account = new NostrConnectAccount(pubkey, ncSigner)
-				loginWithAccount(account, { remember: rememberMe })
+				loginWithAccount(account, { remember: rememberMeRef.current })
+				// The account now owns the live signer. Closing the dialog must not
+				// close the connection it just adopted.
+				handedOff = true
+				if (signerRef.current === ncSigner) signerRef.current = null
+				if (abortRef.current === abort) abortRef.current = null
 
 				setState('connected')
-				onSuccess?.()
-				setOpen(false)
+				onSuccessRef.current?.()
 				handleOpenChange(false)
 			} catch (err) {
 				if (cancelled) return
@@ -150,11 +170,17 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 		run()
 		return () => {
 			cancelled = true
+			if (!handedOff) {
+				ownedAbort?.abort()
+				void ownedSigner?.close().catch(() => {})
+				if (signerRef.current === ownedSigner) signerRef.current = null
+				if (abortRef.current === ownedAbort) abortRef.current = null
+			}
 		}
 		// rememberMe intentionally omitted — flipping it after the fact shouldn't
 		// re-trigger the connection, just affect the next add
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [open, activeTab, connectionUri, selectedRelay])
+	}, [open, activeTab, selectedRelay, handleOpenChange])
 
 	const handlePasteLogin = async () => {
 		if (!bunkerUrl.trim()) {
@@ -212,6 +238,16 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 		console.error(err)
 		setScanError(`Error accessing camera: ${err instanceof Error ? err.message : 'Unknown error'}`)
 	}, [])
+
+	const handleOpenSigner = async () => {
+		if (!connectionUri) return
+		try {
+			await openExternalProtocol(connectionUri)
+		} catch (err) {
+			console.error('Unable to open remote signer', err)
+			toast.error('No compatible signer app could open this request')
+		}
+	}
 
 	useEffect(() => () => cleanup(), [cleanup])
 
@@ -305,11 +341,11 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 										Scan this QR code with your remote signer app (e.g., Amber)
 									</div>
 
-									<a
-										href={connectionUri}
-										className="block hover:opacity-90 transition-opacity bg-card p-4 rounded-lg"
-										target="_blank"
-										rel="noopener noreferrer"
+									<button
+										type="button"
+										onClick={() => void handleOpenSigner()}
+										className="mx-auto flex max-w-full flex-col items-center gap-2 rounded-lg bg-card p-4 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+										aria-label="Open connection request in a remote signer app"
 									>
 										<QRCodeSVG
 											value={connectionUri}
@@ -317,8 +353,12 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 											bgColor="#ffffff"
 											fgColor="#000000"
 											level="L"
+											className="h-auto max-w-full"
 										/>
-									</a>
+										<span className="flex items-center gap-1 text-xs font-medium text-foreground">
+											<ExternalLink className="h-3.5 w-3.5" /> Open signer app
+										</span>
+									</button>
 
 									{state === 'waiting' && (
 										<div className="flex items-center justify-center gap-2">

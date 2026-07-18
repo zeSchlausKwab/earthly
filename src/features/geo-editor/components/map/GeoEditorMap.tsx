@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { Map as McnMap, MapControls, useMap, type LocateCoords } from '@/components/ui/map'
 import { resolveBasemapStyles, useBasemapStyle } from '@/lib/basemap'
 import { config } from '@/config/env.client'
+import { readStoredMapViewport, writeStoredMapViewport } from '@/lib/mapSession'
 import { ensurePmtilesProtocolsRegistered } from './pmtilesProtocols'
 import { DEFAULT_STYLE_URL, useBlossomOverlays, useMapSourceStyle } from './useMapSourceStyle'
 import { useMapLayerStateSync } from './useMapLayerStateSync'
@@ -51,6 +52,10 @@ export interface GeoEditorMapProps {
 	showPitch?: boolean
 	/** Include the mercator/globe projection toggle. Default: true when showControls is true. */
 	showGlobe?: boolean
+	/** Include the built-in locate control. Default: true. */
+	showLocate?: boolean
+	/** Collapse MapLibre attribution behind its info button. Default: true. */
+	attributionCompact?: boolean
 	/**
 	 * Extra controls rendered inside the MapControls column, after the built-in
 	 * groups. Use `ControlGroup` + `ControlButton` from `@/components/ui/map`
@@ -97,11 +102,14 @@ export function GeoEditorMap({
 	controlsPosition = 'bottom-right',
 	showPitch = true,
 	showGlobe = true,
+	showLocate = true,
+	attributionCompact = true,
 	controlsChildren,
 	onLocate,
 }: GeoEditorMapProps) {
-	const center = centerProp ?? DEFAULT_CENTER
-	const zoom = zoomProp ?? DEFAULT_ZOOM
+	const storedViewport = useMemo(() => readStoredMapViewport(), [])
+	const center = centerProp ?? storedViewport?.center ?? DEFAULT_CENTER
+	const zoom = zoomProp ?? storedViewport?.zoom ?? DEFAULT_ZOOM
 
 	// Nostr layer-set discovery (kind 34444). Drives `useEditorStore.mapLayers`
 	// and surfaces `tileSourceMaxZoom` once the announced PMTiles header is
@@ -142,7 +150,15 @@ export function GeoEditorMap({
 	// Initial viewport (uncontrolled — mapcn's controlled mode requires
 	// onViewportChange, which we don't expose). Memoised so identity stays
 	// stable across renders and mapcn's init reads it once.
-	const initialViewport = useMemo(() => ({ center, zoom }), [center, zoom])
+	const initialViewport = useMemo(
+		() => ({
+			center,
+			zoom,
+			bearing: storedViewport?.bearing ?? 0,
+			pitch: storedViewport?.pitch ?? 0,
+		}),
+		[center, zoom, storedViewport],
+	)
 
 	// Adapt mapcn's `{longitude, latitude, accuracy}` to our existing
 	// `{lon, lat, accuracy}` shape so consumers don't need to change.
@@ -168,6 +184,7 @@ export function GeoEditorMap({
 			className={className}
 			renderWorldCopies={true}
 			maxZoom={22}
+			attributionControl={{ compact: attributionCompact }}
 			// preserveDrawingBuffer moved into canvasContextAttributes in
 			// maplibre-gl 5.x. Required for canvas snapshot export (share image).
 			canvasContextAttributes={{ preserveDrawingBuffer: true }}
@@ -178,7 +195,7 @@ export function GeoEditorMap({
 					position={controlsPosition}
 					showZoom
 					showCompass
-					showLocate
+					showLocate={showLocate}
 					showFullscreen
 					showPitch={showPitch}
 					showProjection={showGlobe}
@@ -212,6 +229,23 @@ function MapInternals({
 	useDisplayIconImages(map, isLoaded)
 	useMapLayerStateSync(map, isLoaded)
 	usePmtilesBoundsLock(map, isLoaded, mapSource)
+
+	useEffect(() => {
+		if (!map || !isLoaded) return
+		const persistViewport = () => {
+			const center = map.getCenter().wrap()
+			writeStoredMapViewport({
+				version: 1,
+				center: [center.lng, center.lat],
+				zoom: map.getZoom(),
+				bearing: map.getBearing(),
+				pitch: map.getPitch(),
+			})
+		}
+		persistViewport()
+		map.on('moveend', persistViewport)
+		return () => map.off('moveend', persistViewport)
+	}, [map, isLoaded])
 
 	// Fire onLoad exactly once when the map first becomes loaded.
 	const onLoadFiredRef = useRef(false)

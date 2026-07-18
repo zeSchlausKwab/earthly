@@ -1,0 +1,1244 @@
+// Copyright (c) 2022-2023 Yuki Kishimoto
+// Copyright (c) 2023-2025 Rust Nostr Developers
+// Distributed under the MIT software license
+
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+use async_utility::futures_util::stream::{self, SplitSink};
+use async_utility::futures_util::{SinkExt, StreamExt};
+use async_wsocket::native::{self, Message, WebSocketStream};
+use atomic_destructor::AtomicDestroyer;
+use negentropy::{Id, Negentropy, NegentropyStorageVector};
+use nostr_database::prelude::*;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::TcpListener;
+use tokio::sync::{broadcast, Notify, OnceCell, Semaphore};
+
+use super::session::{Nip42Session, RateLimiterResponse, Session, Tokens};
+use super::util;
+#[cfg(feature = "tor")]
+use crate::builder::RelayBuilderHiddenService;
+use crate::builder::{
+    Nip42Policy, Nip42PolicyAction, PolicyResult, QueryPolicy, RateLimit, RelayBuilder,
+    RelayBuilderMode, RelayBuilderNip42, RelayTestOptions, WritePolicy,
+};
+use crate::error::Error;
+
+type WsTx<S> = SplitSink<WebSocketStream<S>, Message>;
+const P_TAG: SingleLetterTag = SingleLetterTag::lowercase(Alphabet::P);
+
+#[derive(Debug, Clone)]
+pub(super) struct InnerLocalRelay {
+    ip: IpAddr,
+    addr: OnceCell<SocketAddr>,
+    database: Arc<dyn NostrDatabase>,
+    shutdown: Arc<Notify>,
+    /// Channel to notify new event received
+    ///
+    /// Every session will listen and check own subscriptions
+    new_event: broadcast::Sender<Event>,
+    mode: RelayBuilderMode,
+    rate_limit: RateLimit,
+    connections_limit: Arc<Semaphore>,
+    max_subid_length: usize,
+    max_filter_limit: Option<usize>,
+    default_filter_limit: usize,
+    auth_dm: bool,
+    min_pow: Option<u8>, // TODO: use AtomicU8 to allow to change it?
+    #[cfg(feature = "tor")]
+    tor: Option<RelayBuilderHiddenService>,
+    #[cfg(feature = "tor")]
+    hidden_service: OnceCell<Option<String>>,
+    write_policy: Vec<Arc<dyn WritePolicy>>,
+    query_policy: Vec<Arc<dyn QueryPolicy>>,
+    nip42: Option<RelayBuilderNip42>,
+    nip42_policy: Vec<Arc<dyn Nip42Policy>>,
+    test: RelayTestOptions,
+    running: Arc<AtomicBool>,
+}
+
+impl AtomicDestroyer for InnerLocalRelay {
+    fn on_destroy(&self) {
+        self.shutdown();
+    }
+}
+
+impl InnerLocalRelay {
+    pub fn new(builder: RelayBuilder) -> Self {
+        // TODO: check if configured memory database with events option disabled
+
+        // Get IP
+        let ip: IpAddr = builder.addr.unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
+
+        // Compose local address
+        let addr: OnceCell<SocketAddr> = match builder.port {
+            Some(port) => OnceCell::from(SocketAddr::new(ip, port)),
+            None => OnceCell::new(),
+        };
+
+        // Channels
+        let (new_event, ..) = broadcast::channel(1024);
+
+        let max_connections: usize = builder.max_connections.unwrap_or(Semaphore::MAX_PERMITS);
+
+        // Compose relay
+        Self {
+            ip,
+            addr,
+            database: builder.database,
+            shutdown: Arc::new(Notify::new()),
+            new_event,
+            mode: builder.mode,
+            rate_limit: builder.rate_limit,
+            connections_limit: Arc::new(Semaphore::new(max_connections)),
+            max_subid_length: builder.max_subid_length,
+            max_filter_limit: builder.max_filter_limit,
+            default_filter_limit: builder.default_filter_limit,
+            auth_dm: builder.auth_dm,
+            min_pow: builder.min_pow,
+            #[cfg(feature = "tor")]
+            tor: builder.tor,
+            #[cfg(feature = "tor")]
+            hidden_service: OnceCell::new(),
+            write_policy: builder.write_plugins,
+            query_policy: builder.query_plugins,
+            nip42: builder.nip42,
+            nip42_policy: builder.nip42_plugins,
+            test: builder.test,
+            running: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    async fn addr(&self) -> &SocketAddr {
+        self.addr
+            .get_or_init(|| async {
+                let port: u16 = util::find_available_port(self.ip).await;
+                SocketAddr::new(self.ip, port)
+            })
+            .await
+    }
+
+    /// Start socket to listen for new websocket connections
+    pub async fn run(&self) -> Result<(), Error> {
+        if self.running.load(Ordering::SeqCst) {
+            return Err(Error::AlreadyRunning);
+        }
+
+        // Get the address
+        let addr: &SocketAddr = self.addr().await;
+
+        // Start listener
+        let listener: TcpListener = TcpListener::bind(&addr).await?;
+
+        let r: Self = self.clone();
+        tokio::spawn(async move {
+            r.running.store(true, Ordering::SeqCst);
+
+            loop {
+                tokio::select! {
+                    output = listener.accept() => {
+                        match output {
+                            Ok((stream, addr)) => {
+                                let r1: Self = r.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = r1.handle_connection(stream, addr).await {
+                                        tracing::warn!("{e}");
+                                    }
+                                });
+                            }
+                            Err(e) => {
+                                tracing::warn!("Can't accept incoming connection: {e}");
+                            }
+                        }
+                    }
+                    _ = r.shutdown.notified() => break,
+                }
+            }
+
+            r.running.store(false, Ordering::SeqCst);
+
+            tracing::info!("Local relay listener loop terminated.");
+        });
+
+        Ok(())
+    }
+
+    #[inline]
+    pub async fn url(&self) -> RelayUrl {
+        let addr: &SocketAddr = self.addr().await;
+        let addr: String = format!("ws://{addr}");
+        // SAFETY: must be a valid address
+        RelayUrl::parse(&addr).unwrap()
+    }
+
+    #[inline]
+    #[cfg(feature = "tor")]
+    pub async fn hidden_service(&self) -> Result<&Option<String>, Error> {
+        self.hidden_service
+            .get_or_try_init(|| async {
+                match &self.tor {
+                    Some(opts) => {
+                        let addr = self.addr().await;
+                        let service = native::tor::launch_onion_service(
+                            opts.nickname.clone(),
+                            *addr,
+                            80,
+                            opts.custom_path.as_ref(),
+                        )
+                        .await?;
+                        Ok(service.onion_name().map(|n| format!("ws://{n}")))
+                    }
+                    None => Ok(None),
+                }
+            })
+            .await
+    }
+
+    pub fn notify_event(&self, event: Event) -> bool {
+        self.new_event.send(event).is_ok()
+    }
+
+    #[inline]
+    pub fn shutdown(&self) {
+        // There are at least 2 waiters
+        self.shutdown.notify_waiters()
+    }
+
+    /// Handle already upgraded HTTP request
+    pub(crate) async fn handle_upgraded_connection<S>(
+        &self,
+        stream: S,
+        addr: SocketAddr,
+    ) -> Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        if let Some(unresponsive_connection) = self.test.unresponsive_connection {
+            tokio::time::sleep(unresponsive_connection).await;
+        }
+
+        // Accept websocket
+        let ws_stream = native::take_upgraded(stream).await;
+
+        self.handle_websocket(ws_stream, addr).await?;
+
+        Ok(())
+    }
+
+    /// Pass bare [TcpStream] for handling
+    async fn handle_connection<S>(self, raw_stream: S, addr: SocketAddr) -> Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        if let Some(unresponsive_connection) = self.test.unresponsive_connection {
+            tokio::time::sleep(unresponsive_connection).await;
+        }
+
+        // Accept websocket
+        let ws_stream = native::accept(raw_stream).await?;
+
+        self.handle_websocket(ws_stream, addr).await?;
+
+        Ok(())
+    }
+
+    /// Handle websocket connection
+    async fn handle_websocket<S>(
+        &self,
+        ws_stream: WebSocketStream<S>,
+        addr: SocketAddr,
+    ) -> Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        // Try to acquire connection limit
+        let permit = self.connections_limit.try_acquire()?;
+
+        tracing::debug!("WebSocket connection established: {addr}");
+
+        let mut new_event = self.new_event.subscribe();
+
+        let (mut tx, mut rx) = ws_stream.split();
+
+        let mut session: Session = Session {
+            subscriptions: HashMap::new(),
+            negentropy_subscription: HashMap::new(),
+            nip42: Nip42Session::default(),
+            tokens: Tokens::new(self.rate_limit.notes_per_minute),
+        };
+
+        loop {
+            tokio::select! {
+                msg = rx.next() => {
+                    match msg {
+                        Some(Ok(msg)) => {
+                            match msg {
+                                Message::Text(json) => {
+                                    tracing::trace!("Received {json}");
+                                    self.handle_client_msg(&mut session, &mut tx, ClientMessage::from_json(json.as_bytes())?, &addr)
+                                        .await?;
+                                }
+                                Message::Binary(..) => {
+                                    let msg =
+                                        RelayMessage::Notice(Cow::Borrowed("binary messages are not processed by this relay"));
+                                    if let Err(e) = send_msg(&mut tx, msg).await {
+                                        tracing::error!("Can't send msg to client: {e}");
+                                    }
+                                }
+                                Message::Ping(..) => {}
+                                Message::Pong(..) => {}
+                                Message::Close(..) => {}
+                                Message::Frame(..) => {}
+                            }
+                        }
+                        Some(Err(e)) => tracing::error!("Can't handle websocket msg: {e}"),
+                        None => break,
+                    }
+                }
+                event = new_event.recv() => {
+                    if let Ok(event) = event {
+                        if self.requires_nip42(Nip42PolicyAction::Read) {
+                            if let Some(message) = self
+                                .nip42_policy_rejection(&session, Nip42PolicyAction::Read, &addr)
+                                .await
+                            {
+                                send_msg(
+                                    &mut tx,
+                                    RelayMessage::Notice(Cow::Owned(format!(
+                                        "{}: {}",
+                                        MachineReadablePrefix::Blocked,
+                                        message
+                                    ))),
+                                )
+                                .await?;
+                                break;
+                            }
+                        }
+                         // Iter subscriptions
+                        'sub_iter: for (subscription_id, filter) in session.subscriptions.iter() {
+                            for filter in filter.iter() {
+                                // Check if event matches filter
+                                if filter.match_event(&event, MatchEventOptions::new()) {
+                                    send_msg(&mut tx, RelayMessage::Event{
+                                        subscription_id: Cow::Borrowed(subscription_id),
+                                        event: Cow::Borrowed(&event)
+                                    }).await?;
+
+                                    // Found a match, stop iterating the filters and continue with the next subscription
+                                    continue 'sub_iter;
+                                }
+                            }
+
+                        }
+                    }
+                }
+                _ = self.shutdown.notified() => break,
+            }
+        }
+
+        // Drop connection permit
+        drop(permit);
+
+        tracing::debug!("WebSocket connection terminated for {addr}");
+
+        Ok(())
+    }
+
+    fn requires_nip42(&self, action: Nip42PolicyAction) -> bool {
+        self.nip42.as_ref().is_some_and(|nip42| match action {
+            Nip42PolicyAction::Read => nip42.mode.is_read(),
+            Nip42PolicyAction::Write => nip42.mode.is_write(),
+        })
+    }
+
+    async fn nip42_policy_rejection(
+        &self,
+        session: &Session<'_>,
+        action: Nip42PolicyAction,
+        addr: &SocketAddr,
+    ) -> Option<String> {
+        let public_key = session.nip42.public_key.as_ref()?;
+        for policy in &self.nip42_policy {
+            if let PolicyResult::Reject(message) =
+                policy.admit_session(public_key, action, addr).await
+            {
+                return Some(message);
+            }
+        }
+        None
+    }
+
+    async fn nip42_event_policy_rejection(
+        &self,
+        session: &Session<'_>,
+        event: &Event,
+        addr: &SocketAddr,
+    ) -> Option<String> {
+        let public_key = session.nip42.public_key.as_ref()?;
+        for policy in &self.nip42_policy {
+            if let PolicyResult::Reject(message) =
+                policy.admit_event(public_key, event, addr).await
+            {
+                return Some(message);
+            }
+        }
+        None
+    }
+
+    async fn nip42_query_policy_rejection(
+        &self,
+        session: &Session<'_>,
+        filter: &Filter,
+        addr: &SocketAddr,
+    ) -> Option<String> {
+        let public_key = session.nip42.public_key.as_ref()?;
+        for policy in &self.nip42_policy {
+            if let PolicyResult::Reject(message) =
+                policy.admit_query(public_key, filter, addr).await
+            {
+                return Some(message);
+            }
+        }
+        None
+    }
+
+    async fn handle_client_msg<S>(
+        &self,
+        session: &mut Session<'_>,
+        ws_tx: &mut WsTx<S>,
+        msg: ClientMessage<'_>,
+        addr: &SocketAddr,
+    ) -> Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        match msg {
+            ClientMessage::Event(event) => {
+                // Check rate limit
+                if let RateLimiterResponse::Limited =
+                    session.check_rate_limit(self.rate_limit.notes_per_minute)
+                {
+                    return send_msg(
+                        ws_tx,
+                        RelayMessage::Ok {
+                            event_id: event.id,
+                            status: false,
+                            message: Cow::Owned(format!(
+                                "{}: slow down",
+                                MachineReadablePrefix::RateLimited
+                            )),
+                        },
+                    )
+                    .await;
+                }
+
+                if !event.verify_id() {
+                    return send_msg(
+                        ws_tx,
+                        RelayMessage::Ok {
+                            event_id: event.id,
+                            status: false,
+                            message: Cow::Owned(format!(
+                                "{}: invalid event ID",
+                                MachineReadablePrefix::Invalid
+                            )),
+                        },
+                    )
+                    .await;
+                }
+
+                // Check POW
+                if let Some(difficulty) = self.min_pow {
+                    if !event.id.check_pow(difficulty) {
+                        return send_msg(
+                            ws_tx,
+                            RelayMessage::Ok {
+                                event_id: event.id,
+                                status: false,
+                                message: Cow::Owned(format!(
+                                    "{}: required a difficulty >= {difficulty}",
+                                    MachineReadablePrefix::Pow
+                                )),
+                            },
+                        )
+                        .await;
+                    }
+                }
+
+                if !event.verify_signature() {
+                    return send_msg(
+                        ws_tx,
+                        RelayMessage::Ok {
+                            event_id: event.id,
+                            status: false,
+                            message: Cow::Owned(format!(
+                                "{}: invalid event signature",
+                                MachineReadablePrefix::Invalid
+                            )),
+                        },
+                    )
+                    .await;
+                }
+
+                // Check if it's configured to require NIP42 authentication for writing
+                let require_nip42_auth = self.requires_nip42(Nip42PolicyAction::Write);
+
+                // Check if it's a protected event
+                let is_protected: bool = event.is_protected();
+
+                // Check if authentication is required
+                if (require_nip42_auth || is_protected) && !session.nip42.is_authenticated() {
+                    // Generate and send AUTH challenge
+                    send_msg(
+                        ws_tx,
+                        RelayMessage::Auth {
+                            challenge: Cow::Owned(session.nip42.generate_challenge()),
+                        },
+                    )
+                    .await?;
+
+                    // Return error
+                    return send_msg(
+                        ws_tx,
+                        RelayMessage::Ok {
+                            event_id: event.id,
+                            status: false,
+                            message: Cow::Owned(format!(
+                                "{}: you must auth",
+                                MachineReadablePrefix::AuthRequired
+                            )),
+                        },
+                    )
+                    .await;
+                }
+
+                if require_nip42_auth {
+                    if let Some(message) = self
+                        .nip42_event_policy_rejection(session, &event, addr)
+                        .await
+                    {
+                        return send_msg(
+                            ws_tx,
+                            RelayMessage::Ok {
+                                event_id: event.id,
+                                status: false,
+                                message: Cow::Owned(format!(
+                                    "{}: {}",
+                                    MachineReadablePrefix::Blocked,
+                                    message
+                                )),
+                            },
+                        )
+                        .await;
+                    }
+                }
+
+                if is_protected {
+                    if let Some(authenticated_public_key) = &session.nip42.public_key {
+                        // Block if the event author not matches the authenticated public key
+                        if event.pubkey != *authenticated_public_key {
+                            return send_msg(
+                                ws_tx,
+                                RelayMessage::Ok {
+                                    event_id: event.id,
+                                    status: false,
+                                    message: Cow::Owned(format!(
+                                        "{}: this event may only be published by its author",
+                                        MachineReadablePrefix::Blocked
+                                    )),
+                                },
+                            )
+                            .await;
+                        }
+                    }
+                }
+
+                // check write policy
+                for policy in self.write_policy.iter() {
+                    let event_id = event.id;
+                    if let PolicyResult::Reject(m) = policy.admit_event(&event, addr).await {
+                        return send_msg(
+                            ws_tx,
+                            RelayMessage::Ok {
+                                event_id,
+                                status: false,
+                                message: Cow::Owned(format!(
+                                    "{}: {}",
+                                    MachineReadablePrefix::Blocked,
+                                    m
+                                )),
+                            },
+                        )
+                        .await;
+                    }
+                }
+
+                // Check if event already exists
+                let event_status = self.database.check_id(&event.id).await?;
+                match event_status {
+                    DatabaseEventStatus::Saved => {
+                        return send_msg(
+                            ws_tx,
+                            RelayMessage::Ok {
+                                event_id: event.id,
+                                status: true,
+                                message: Cow::Owned(format!(
+                                    "{}: already have this event",
+                                    MachineReadablePrefix::Duplicate
+                                )),
+                            },
+                        )
+                        .await;
+                    }
+                    DatabaseEventStatus::Deleted => {
+                        return send_msg(
+                            ws_tx,
+                            RelayMessage::Ok {
+                                event_id: event.id,
+                                status: false,
+                                message: Cow::Owned(format!(
+                                    "{}: this event is deleted",
+                                    MachineReadablePrefix::Blocked
+                                )),
+                            },
+                        )
+                        .await;
+                    }
+                    DatabaseEventStatus::NotExistent => {}
+                }
+
+                // Check mode
+                if let RelayBuilderMode::PublicKey(pk) = self.mode {
+                    let authored: bool = event.pubkey == pk;
+                    let tagged: bool = event.tags.public_keys().any(|p| p == &pk);
+
+                    if !authored && !tagged {
+                        return send_msg(
+                            ws_tx,
+                            RelayMessage::Ok {
+                                event_id: event.id,
+                                status: false,
+                                message: Cow::Owned(format!(
+                                    "{}: event not related to owner of this relay",
+                                    MachineReadablePrefix::Blocked
+                                )),
+                            },
+                        )
+                        .await;
+                    }
+                }
+
+                if event.kind.is_ephemeral() {
+                    let event_id = event.id;
+
+                    // Broadcast to channel
+                    self.new_event.send(event.into_owned())?;
+
+                    // Send OK message
+                    return send_msg(
+                        ws_tx,
+                        RelayMessage::Ok {
+                            event_id,
+                            status: true,
+                            message: Cow::Owned(String::new()),
+                        },
+                    )
+                    .await;
+                }
+
+                let msg: RelayMessage = match self.database.save_event(&event).await {
+                    Ok(status) => {
+                        // TODO: match status
+                        if status.is_success() {
+                            let event_id = event.id;
+
+                            // Broadcast to channel
+                            self.new_event.send(event.into_owned())?;
+
+                            // Reply to client
+                            RelayMessage::Ok {
+                                event_id,
+                                status: true,
+                                message: Cow::Owned(String::new()),
+                            }
+                        } else {
+                            RelayMessage::Ok {
+                                event_id: event.id,
+                                status: false,
+                                message: Cow::Owned(format!(
+                                    "{}: unknown",
+                                    MachineReadablePrefix::Error
+                                )),
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Can't save event into database: {e}");
+                        RelayMessage::Ok {
+                            event_id: event.id,
+                            status: false,
+                            message: Cow::Owned(format!(
+                                "{}: database error",
+                                MachineReadablePrefix::Error
+                            )),
+                        }
+                    }
+                };
+
+                send_msg(ws_tx, msg).await
+            }
+            ClientMessage::Req {
+                subscription_id,
+                filters,
+            } => {
+                self.handle_req(
+                    session,
+                    ws_tx,
+                    addr,
+                    subscription_id,
+                    filters.into_iter().map(|f| f.into_owned()).collect(),
+                )
+                .await
+            }
+            ClientMessage::Count {
+                subscription_id,
+                filter,
+            } => {
+                if self.requires_nip42(Nip42PolicyAction::Read) {
+                    if !session.nip42.is_authenticated() {
+                        return send_auth_and_close(
+                            ws_tx,
+                            subscription_id,
+                            session.nip42.generate_challenge(),
+                        )
+                        .await;
+                    }
+                    if let Some(message) = self
+                        .nip42_query_policy_rejection(session, &filter, addr)
+                        .await
+                    {
+                        return send_msg(
+                            ws_tx,
+                            RelayMessage::Closed {
+                                subscription_id,
+                                message: Cow::Owned(format!(
+                                    "{}: {}",
+                                    MachineReadablePrefix::Blocked,
+                                    message
+                                )),
+                            },
+                        )
+                        .await;
+                    }
+                }
+                let count: usize = self.database.count(filter.into_owned()).await?;
+                send_msg(
+                    ws_tx,
+                    RelayMessage::Count {
+                        subscription_id,
+                        count,
+                    },
+                )
+                .await
+            }
+            ClientMessage::Close(subscription_id) => {
+                session.subscriptions.remove(&subscription_id);
+                Ok(())
+            }
+            ClientMessage::Auth(event) => {
+                let relay_url = self.url().await;
+                match session.nip42.check_challenge(&event, &relay_url) {
+                    Ok(()) => {
+                        send_msg(
+                            ws_tx,
+                            RelayMessage::Ok {
+                                event_id: event.id,
+                                status: true,
+                                message: Cow::Owned(String::new()),
+                            },
+                        )
+                        .await
+                    }
+                    Err(e) => {
+                        send_msg(
+                            ws_tx,
+                            RelayMessage::Ok {
+                                event_id: event.id,
+                                status: false,
+                                message: Cow::Owned(format!(
+                                    "{}: {e}",
+                                    MachineReadablePrefix::AuthRequired
+                                )),
+                            },
+                        )
+                        .await
+                    }
+                }
+            }
+            ClientMessage::NegOpen {
+                subscription_id,
+                filter,
+                initial_message,
+                ..
+            } => {
+                // TODO: check number of neg subscriptions
+
+                if self.requires_nip42(Nip42PolicyAction::Read) {
+                    if !session.nip42.is_authenticated() {
+                        send_msg(
+                            ws_tx,
+                            RelayMessage::Auth {
+                                challenge: Cow::Owned(session.nip42.generate_challenge()),
+                            },
+                        )
+                        .await?;
+                        return send_msg(
+                            ws_tx,
+                            RelayMessage::NegErr {
+                                subscription_id,
+                                message: Cow::Owned(format!(
+                                    "{}: you must auth",
+                                    MachineReadablePrefix::AuthRequired
+                                )),
+                            },
+                        )
+                        .await;
+                    }
+                    if let Some(message) = self
+                        .nip42_query_policy_rejection(session, &filter, addr)
+                        .await
+                    {
+                        return send_msg(
+                            ws_tx,
+                            RelayMessage::NegErr {
+                                subscription_id,
+                                message: Cow::Owned(format!(
+                                    "{}: {}",
+                                    MachineReadablePrefix::Blocked,
+                                    message
+                                )),
+                            },
+                        )
+                        .await;
+                    }
+                }
+
+                // Query database
+                let items = self.database.negentropy_items(filter.into_owned()).await?;
+
+                tracing::debug!(
+                    id = %subscription_id,
+                    "Found {} items for negentropy reconciliation.",
+                    items.len()
+                );
+
+                // Construct negentropy storage, add items and seal
+                let mut storage = NegentropyStorageVector::with_capacity(items.len());
+                for (id, timestamp) in items.into_iter() {
+                    let id: Id = Id::from_byte_array(id.to_bytes());
+                    storage.insert(timestamp.as_secs(), id)?;
+                }
+                storage.seal()?;
+
+                // Construct negentropy client
+                let mut negentropy = Negentropy::owned(storage, 60_000)?;
+
+                // Reconcile
+                let bytes: Vec<u8> = hex::decode(initial_message.as_ref())?;
+                let message: Vec<u8> = negentropy.reconcile(&bytes)?;
+
+                // Reply
+                send_msg(
+                    ws_tx,
+                    RelayMessage::NegMsg {
+                        subscription_id: Cow::Borrowed(&subscription_id),
+                        message: Cow::Owned(hex::encode(message)),
+                    },
+                )
+                .await?;
+
+                // Update subscriptions
+                session
+                    .negentropy_subscription
+                    .insert(subscription_id.into_owned(), negentropy);
+                Ok(())
+            }
+            ClientMessage::NegMsg {
+                subscription_id,
+                message,
+            } => {
+                if self.requires_nip42(Nip42PolicyAction::Read) {
+                    if let Some(policy_message) = self
+                        .nip42_policy_rejection(session, Nip42PolicyAction::Read, addr)
+                        .await
+                    {
+                        session.negentropy_subscription.remove(&subscription_id);
+                        return send_msg(
+                            ws_tx,
+                            RelayMessage::NegErr {
+                                subscription_id,
+                                message: Cow::Owned(format!(
+                                    "{}: {}",
+                                    MachineReadablePrefix::Blocked,
+                                    policy_message
+                                )),
+                            },
+                        )
+                        .await;
+                    }
+                }
+                match session.negentropy_subscription.get_mut(&subscription_id) {
+                    Some(negentropy) => {
+                        // Reconcile
+                        let bytes: Vec<u8> = hex::decode(message.as_ref())?;
+                        let message = negentropy.reconcile(&bytes)?;
+
+                        // Reply
+                        send_msg(
+                            ws_tx,
+                            RelayMessage::NegMsg {
+                                subscription_id,
+                                message: Cow::Owned(hex::encode(message)),
+                            },
+                        )
+                        .await
+                    }
+                    None => {
+                        send_msg(
+                            ws_tx,
+                            RelayMessage::NegErr {
+                                subscription_id,
+                                message: Cow::Owned(format!(
+                                    "{}: subscription not found",
+                                    MachineReadablePrefix::Error
+                                )),
+                            },
+                        )
+                        .await
+                    }
+                }
+            }
+            ClientMessage::NegClose { subscription_id } => {
+                session.negentropy_subscription.remove(&subscription_id);
+                Ok(())
+            }
+        }
+    }
+
+    async fn handle_req<S>(
+        &self,
+        session: &mut Session<'_>,
+        ws_tx: &mut WsTx<S>,
+        addr: &SocketAddr,
+        subscription_id: Cow<'_, SubscriptionId>,
+        mut filters: Vec<Filter>,
+    ) -> Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        // Check the subscription ID length
+        if subscription_id.as_str().chars().count() > self.max_subid_length {
+            return send_msg(
+                ws_tx,
+                RelayMessage::Closed {
+                    subscription_id,
+                    message: Cow::Owned(format!(
+                        "{}: subscription ID exceeds max length {}",
+                        MachineReadablePrefix::Blocked,
+                        self.max_subid_length
+                    )),
+                },
+            )
+            .await;
+        }
+
+        // Check number of subscriptions
+        if session.subscriptions.len() >= self.rate_limit.max_reqs
+            && !session.subscriptions.contains_key(&subscription_id)
+        {
+            return send_msg(
+                ws_tx,
+                RelayMessage::Closed {
+                    subscription_id,
+                    message: Cow::Owned(format!(
+                        "{}: too many REQs",
+                        MachineReadablePrefix::RateLimited
+                    )),
+                },
+            )
+            .await;
+        }
+
+        // Check NIP42
+        if self.requires_nip42(Nip42PolicyAction::Read) {
+            if !session.nip42.is_authenticated() {
+                return send_auth_and_close(
+                    ws_tx,
+                    subscription_id,
+                    session.nip42.generate_challenge(),
+                )
+                .await;
+            }
+            for filter in &filters {
+                if let Some(message) = self
+                    .nip42_query_policy_rejection(session, filter, addr)
+                    .await
+                {
+                    return send_msg(
+                        ws_tx,
+                        RelayMessage::Closed {
+                            subscription_id,
+                            message: Cow::Owned(format!(
+                                "{}: {}",
+                                MachineReadablePrefix::Blocked,
+                                message
+                            )),
+                        },
+                    )
+                    .await;
+                }
+            }
+        }
+
+        // Check if NIP-42 DMs are enabled and any filter includes the GiftWrap kind
+        if let Some(giftwraps_filters) = self
+            .auth_dm
+            .then(|| find_filters_with_kind(&filters, &Kind::GiftWrap))
+            .flatten()
+        {
+            let Some(ref pkey) = session.nip42.public_key else {
+                // The user must be authenticated to access DMs
+                return send_auth_and_close(
+                    ws_tx,
+                    subscription_id,
+                    session.nip42.generate_challenge(),
+                )
+                .await;
+            };
+
+            let hex_pkey = pkey.to_hex();
+            for filter in giftwraps_filters {
+                let Some(p_tag) = filter.generic_tags.get(&P_TAG) else {
+                    // Reject if no "p" tag is present (requesting all relay DMs)
+                    return send_gift_wrap_error(ws_tx, subscription_id).await;
+                };
+
+                if p_tag.len() != 1 || p_tag.iter().next().expect("length is 1") != &hex_pkey {
+                    // Reject if multiple public keys or wrong public key
+                    return send_gift_wrap_error(ws_tx, subscription_id).await;
+                }
+            }
+        }
+
+        for filter in filters.iter_mut() {
+            match filter.limit {
+                Some(filter_limit) => {
+                    // Filter limit set, check if it's within the limit
+                    if let Some(max_limit) = self.max_filter_limit {
+                        // If the limit is greater than the max limit, use the max limit
+                        if filter_limit > max_limit {
+                            filter.limit = Some(max_limit)
+                        }
+                    }
+                }
+                // No limit set, if the filter has IDs, set the limit to the number of IDs, otherwise to the default limit.
+                None => match filter.ids.as_ref() {
+                    Some(ids) => {
+                        filter.limit = Some(ids.len());
+                    }
+                    None => filter.limit = Some(self.default_filter_limit),
+                },
+            }
+        }
+
+        // check query policy plugins
+        for plugin in self.query_policy.iter() {
+            for filter in filters.iter() {
+                if let PolicyResult::Reject(msg) = plugin.admit_query(filter, addr).await {
+                    return send_msg(
+                        ws_tx,
+                        RelayMessage::Closed {
+                            subscription_id,
+                            message: Cow::Owned(format!(
+                                "{}: {}",
+                                MachineReadablePrefix::Error,
+                                msg
+                            )),
+                        },
+                    )
+                    .await;
+                }
+            }
+        }
+
+        // Check if subscription has IDs
+        let ids_len: Option<usize> = filters
+            .iter()
+            .map(|f| f.ids.as_ref().map(|ids| ids.len()))
+            .sum();
+
+        // Query database
+        let events: Events = if self.test.send_random_events {
+            let mut events: Events = Events::default();
+
+            let keys = Keys::generate();
+
+            for _ in 0..500 {
+                events.insert(EventBuilder::text_note("Test").sign_with_keys(&keys)?);
+            }
+
+            events
+        } else {
+            let mut events: Events = Events::default();
+
+            for filter in filters.iter() {
+                let res = self.database.query(filter.clone()).await?;
+                events = events.merge(res);
+            }
+
+            events
+        };
+
+        let events_len: usize = events.len();
+
+        tracing::debug!("Found {events_len} events for subscription '{subscription_id}'",);
+
+        let mut json_msgs: Vec<String> = Vec::with_capacity(events_len + 1);
+
+        // Add events
+        json_msgs.extend(events.into_iter().map(|event| {
+            RelayMessage::Event {
+                subscription_id: Cow::Borrowed(subscription_id.as_ref()),
+                event: Cow::Owned(event),
+            }
+            .as_json()
+        }));
+
+        // Add EOSE message
+        json_msgs.push(
+            RelayMessage::EndOfStoredEvents(Cow::Borrowed(subscription_id.as_ref())).as_json(),
+        );
+
+        match ids_len {
+            // Requested IDs len is the same as the query output, close the subscription.
+            Some(ids_len) if ids_len == events_len => {
+                json_msgs.push(
+                    RelayMessage::Closed {
+                        subscription_id,
+                        message: Cow::Borrowed(""),
+                    }
+                    .as_json(),
+                );
+            }
+            // The stored events are all served, but miss some: save the subscription.
+            _ => {
+                // Save the subscription
+                session
+                    .subscriptions
+                    .insert(subscription_id.clone().into_owned(), filters);
+            }
+        }
+
+        // Send JSON messages
+        send_json_msgs(ws_tx, json_msgs).await
+    }
+}
+
+#[inline]
+async fn send_msg<S>(tx: &mut WsTx<S>, msg: RelayMessage<'_>) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    tx.send(Message::Text(msg.as_json().into())).await?;
+    Ok(())
+}
+
+async fn send_auth_and_close<S>(
+    tx: &mut WsTx<S>,
+    subscription_id: Cow<'_, SubscriptionId>,
+    challenge: String,
+) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    // Generate and send AUTH challenge
+    send_msg(
+        tx,
+        RelayMessage::Auth {
+            challenge: Cow::Owned(challenge),
+        },
+    )
+    .await?;
+
+    // Return error
+    send_msg(
+        tx,
+        RelayMessage::Closed {
+            subscription_id,
+            message: Cow::Owned(format!(
+                "{}: you must auth",
+                MachineReadablePrefix::AuthRequired
+            )),
+        },
+    )
+    .await
+}
+
+/// Finds filters containing the specified kind. Returns `None` if no such
+/// filters exist.
+fn find_filters_with_kind<'a>(filters: &'a [Filter], kind: &Kind) -> Option<Vec<&'a Filter>> {
+    let mut match_filters = Vec::new();
+
+    for filter in filters {
+        if filter
+            .kinds
+            .as_ref()
+            .is_some_and(|kinds| kinds.contains(kind))
+        {
+            match_filters.push(filter);
+        }
+    }
+
+    if match_filters.is_empty() {
+        return None;
+    }
+
+    Some(match_filters)
+}
+
+/// Send gift wrap error, when a user ask for someone else DMs
+#[inline]
+async fn send_gift_wrap_error<S>(
+    tx: &mut WsTx<S>,
+    subscription_id: Cow<'_, SubscriptionId>,
+) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    send_msg(
+        tx,
+        RelayMessage::Closed {
+            subscription_id,
+            message: Cow::Owned(format!(
+                "{}: you cannot request another user's gift wrap",
+                MachineReadablePrefix::Error
+            )),
+        },
+    )
+    .await
+}
+
+#[inline]
+async fn send_json_msgs<I, S>(tx: &mut WsTx<S>, json_msgs: I) -> Result<()>
+where
+    I: IntoIterator<Item = String>,
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let mut stream = stream::iter(json_msgs.into_iter()).map(|msg| Ok(Message::Text(msg.into())));
+    tx.send_all(&mut stream).await?;
+    Ok(())
+}

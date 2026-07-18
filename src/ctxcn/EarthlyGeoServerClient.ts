@@ -8,6 +8,7 @@ import {
 } from '@contextvm/sdk'
 import { config } from '@/config'
 import { readRelaysFor } from '@/lib/nostr/relay-router'
+import { getContextVmSessionPrivateKey } from './clientIdentity'
 
 export interface SearchLocationInput {
 	/**
@@ -757,8 +758,9 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 			version: '1.0.0',
 		})
 
-		// Runtime config takes precedence over generated fallbacks so local dev uses the local relay/server.
-		const resolvedPrivateKey = options.privateKey || config.clientKey || ''
+		// Explicit credentials support tests and standalone consumers. Earthly itself uses a fresh,
+		// process-local transport identity instead of shipping a shared private key in its bundle.
+		const resolvedPrivateKey = options.privateKey || getContextVmSessionPrivateKey()
 
 		// Use options.signer if provided, otherwise create from resolved private key
 		const signer = options.signer || new PrivateKeySigner(resolvedPrivateKey)

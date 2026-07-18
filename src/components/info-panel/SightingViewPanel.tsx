@@ -31,7 +31,8 @@
  */
 
 import { unixNow } from 'applesauce-core/helpers/time'
-import { LocateFixed, MapPlus, Pencil } from 'lucide-react'
+import { Images, LocateFixed, MapPlus, Pencil } from 'lucide-react'
+import { ImageGalleryDialog } from '@/components/media/ImageGalleryDialog'
 import type { GeoComment } from '@/lib/nostr/geo-comment'
 import { CommentsPanel } from '@/features/social/comments'
 import { isExpired } from '@/lib/nostr/expiry'
@@ -136,6 +137,8 @@ export function SightingViewPanel({
 	const isOwner = !!currentUserPubkey && currentUserPubkey === sighting.pubkey
 	const sightingKey = sighting.dTag ?? sighting.id ?? null
 	const isDeleting = sightingKey ? deletingKey === `sighting:${sightingKey}` : false
+	const images = sighting.images
+	const primaryImage = sighting.primaryImage
 
 	const obsState = classifyObservationState(content.start, content.end, now)
 	const range = formatObservationRange(content.start, content.end)
@@ -213,6 +216,30 @@ export function SightingViewPanel({
 							<span className="text-[11px] text-muted-foreground">{expiryCountdown}</span>
 						) : null}
 					</div>
+
+					{primaryImage?.url ? (
+						<ImageGalleryDialog
+							images={images}
+							title={title}
+							trigger={
+								<button
+									type="button"
+									className="group relative block w-full overflow-hidden rounded-[2px] border border-border bg-muted text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+									aria-label={`View ${images.length === 1 ? 'photo' : `${images.length} photos`} for ${title}`}
+								>
+									<img
+										src={primaryImage.url}
+										alt={primaryImage.alt ?? `${title} primary photo`}
+										className="aspect-video w-full object-cover transition-transform duration-200 group-hover:scale-[1.015]"
+									/>
+									<span className="absolute right-2 bottom-2 flex items-center gap-1 rounded-[2px] bg-black/65 px-2 py-1 text-[11px] font-medium text-white">
+										<Images className="h-3.5 w-3.5" />
+										{images.length === 1 ? 'View photo' : `View ${images.length} photos`}
+									</span>
+								</button>
+							}
+						/>
+					) : null}
 
 					{/* Description — escaped React text node only (T-11-04-02). */}
 					{description ? (

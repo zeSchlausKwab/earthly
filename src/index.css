@@ -42,6 +42,31 @@ body::before {
   }
 }
 
+@keyframes mobile-pan-lock-nudge {
+  0%, 48%, 100% {
+    transform: rotate(0deg) scale(1);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-edit) 45%, transparent);
+  }
+  8% {
+    transform: rotate(-8deg) scale(1.05);
+  }
+  16% {
+    transform: rotate(8deg) scale(1.05);
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent-edit) 0%, transparent);
+  }
+  24% {
+    transform: rotate(-5deg) scale(1.03);
+  }
+  32% {
+    transform: rotate(5deg) scale(1.03);
+  }
+}
+
+.mobile-pan-lock-attention {
+  color: var(--accent-edit) !important;
+  animation: mobile-pan-lock-nudge 1.6s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion) {
   *,
   ::before,

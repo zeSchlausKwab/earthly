@@ -13,6 +13,7 @@ import {
 	WORKER_ASSETS,
 	type WorkerId,
 } from "./src/lib/workers/workerAssets";
+import { ensureHtmlEntrypoint } from "./scripts/ensure-html-entrypoint";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
 	console.log(`
@@ -145,7 +146,12 @@ const env = envResult.data;
 console.log("📋 Environment configuration:");
 console.log(`   RELAY_URL: ${env.RELAY_URL}`);
 console.log(`   SERVER_PUBKEY: ${env.SERVER_PUBKEY.slice(0, 16)}...`);
-console.log(`   CLIENT_KEY: ${env.CLIENT_KEY.slice(0, 16)}...`);
+console.log(
+	`   CORDN_SERVER_PUBKEY: ${env.CORDN_SERVER_PUBKEY ? `${env.CORDN_SERVER_PUBKEY.slice(0, 16)}...` : "disabled"}`,
+);
+console.log(
+	`   MAPNOLIA_TRUSTED_PUBKEYS: ${env.MAPNOLIA_TRUSTED_PUBKEYS.split(",").filter(Boolean).length} configured`,
+);
 console.log();
 
 // Build define object for frontend env injection
@@ -195,6 +201,13 @@ const result = await Bun.build({
 });
 
 const end = performance.now();
+
+const htmlEntrypoint = await ensureHtmlEntrypoint(result.outputs, "/");
+if (htmlEntrypoint.corrected) {
+	console.warn(
+		`⚠️ Corrected Bun HTML module entry to ${htmlEntrypoint.scriptPath}`,
+	);
+}
 
 const outputTable = result.outputs.map((output) => ({
 	File: path.relative(process.cwd(), output.path),

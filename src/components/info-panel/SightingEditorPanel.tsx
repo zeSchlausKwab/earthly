@@ -328,7 +328,6 @@ export function SightingEditorPanel({
 						<div className="grid grid-cols-3 gap-2">
 							{images.map((image, index) => (
 								<div key={image.url} className="group relative border border-border">
-									{/* biome-ignore lint/performance/noImgElement: plain thumbnails */}
 									<img
 										src={image.url}
 										alt={image.alt ?? `Photo ${index + 1}`}
@@ -369,11 +368,12 @@ export function SightingEditorPanel({
 					) : null}
 					<BlossomUploaderButton
 						accept="image/*"
+						multiple
 						buttonLabel={images.length > 0 ? 'Add another photo' : 'Add a photo'}
 						buttonVariant="outline"
 						buttonSize="sm"
 						title="Add a photo"
-						description="Uploaded to your Blossom server (defaults to blossom.earthly.city, images scaled to ≤1 MB). The first photo becomes the map pin thumbnail."
+						description="Select one or more photos. They upload to your Blossom server (defaults to blossom.earthly.city, images scaled to ≤1 MB). The first photo becomes the primary image."
 						onUploaded={(result) =>
 							setImages((current) => {
 								if (current.some((entry) => entry.url === result.url)) return current
@@ -390,7 +390,7 @@ export function SightingEditorPanel({
 						}
 					/>
 					<p className="text-xs text-muted-foreground">
-						The first photo is shown in the pin bubble on the map.
+						The first photo is shown on the map, in lists, and in the sighting inspector.
 					</p>
 				</div>
 				{!hasPlacement ? (

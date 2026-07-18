@@ -20,6 +20,12 @@ import { NostrIDB, openDB } from 'nostr-idb'
 import type { Filter, NostrEvent } from 'nostr-tools'
 import type { IAccount } from 'applesauce-accounts'
 import { EMPTY, filter, firstValueFrom, NEVER, of, race, timeout, TimeoutError, timer } from 'rxjs'
+import {
+	getPublishOutboxService,
+	getSavedRegionService,
+	notifyPublishOutboxChanged,
+} from '@/platform/registry'
+import type { OutboxItem, OutboxRelayResult, PublishOutboxService } from '@/platform/contracts'
 
 // Bun HMR bundler tree-shaking bug: rxjs/index.js re-exports some values via
 // source files that Bun's HMR runtime can stub without populating. Referencing
@@ -30,8 +36,17 @@ void NEVER
 void timeout
 void TimeoutError
 import { config } from '@/config'
-import { eventStore } from './store'
+import {
+	applyVerifiedDeletionToCache,
+	type DeletionEventCache,
+	filterDeletedCacheWrites,
+	verifiedDeletionEvent,
+} from './deletionCache'
+import { eventStore, isEventDeleted } from './store'
 import { cacheQueryableFilters } from './filterGuards'
+import { LIVE_BEACON_KIND } from './kinds'
+import { invalidateCachedMapLayerSetForDeletion } from './map-layer-set/cache'
+import { failedRelayResults, pendingOutboxRelays, requiredPublishRelays } from './publishOutbox'
 import {
 	bucketForKind,
 	guardedWebSocketCtor,
@@ -41,7 +56,7 @@ import {
 
 // The single EventStore singleton, constructed in ./store so service modules can
 // import it without going through (or being defeated by a test mock of) this barrel.
-export { eventStore } from './store'
+export { eventStore, isEventDeleted } from './store'
 
 // Shared tag read/write seam (SPEC-02) — re-exported for ergonomic access.
 export * from './tags'
@@ -227,21 +242,55 @@ function disableCache(idb: NostrIDB) {
 		.finally(() => closeCacheDb(idb))
 }
 
+interface FlushableNostrIDB {
+	flush(): Promise<void>
+	flushDeletionWrites(): Promise<void>
+	writeInterval?: ReturnType<typeof setTimeout>
+}
+
 function createCache(db: ConstructorParameters<typeof NostrIDB>[0]) {
 	const idb = new NostrIDB(db, { cacheIndexes: 2000, maxEvents: 20_000 })
-	const flushable = idb as unknown as { flush: () => Promise<void> }
+	const flushable = idb as unknown as FlushableNostrIDB
 	const flush = flushable.flush.bind(idb)
+	let flushTail = Promise.resolve()
 
-	flushable.flush = async () => {
-		try {
-			await flush()
-		} catch (err) {
-			logCacheError('flush', err)
-			disableCache(idb)
-		}
+	const runFlush = (reportFailure: boolean) => {
+		const operation = flushTail.then(async () => {
+			// The upstream private flush schedules its next cycle. Cancel the prior one
+			// before a manual deletion flush so repeated tombstones cannot multiply timers.
+			if (flushable.writeInterval) {
+				clearTimeout(flushable.writeInterval)
+				flushable.writeInterval = undefined
+			}
+			try {
+				await flush()
+			} catch (err) {
+				logCacheError('flush', err)
+				disableCache(idb)
+				if (reportFailure) throw err
+			}
+		})
+		// Keep subsequent scheduled/manual cycles usable without hiding this caller's error.
+		flushTail = operation.catch(() => undefined)
+		return operation
 	}
 
+	flushable.flush = () => runFlush(false)
+	flushable.flushDeletionWrites = () => runFlush(true)
+
 	return idb
+}
+
+function deletionCacheFor(idb: NostrIDB): DeletionEventCache {
+	const flushable = idb as unknown as FlushableNostrIDB
+	return {
+		add: (event) => idb.add(event),
+		query: (filters) => idb.query(filters),
+		deleteEvent: (eventId) => idb.deleteEvent(eventId),
+		deleteReplaceable: (pubkey, kind, identifier) =>
+			idb.deleteReplaceable(pubkey, kind, identifier),
+		flush: () => flushable.flushDeletionWrites(),
+	}
 }
 
 /**
@@ -260,13 +309,56 @@ export const cacheReady = hasIndexedDB
 			})
 	: Promise.resolve()
 
+/**
+ * Apply a signature-checked NIP-09 event to the in-memory store and durable browser cache.
+ * Applesauce intentionally keeps deletion state outside insert$, so kind 5 needs this explicit
+ * path to prevent cached targets from reappearing after a cold restart.
+ */
+export type DeletionIngestResult = 'applied' | 'invalid' | 'cache-error'
+
+export async function ingestDeletionEvent(
+	event: NostrEvent,
+	options: { retainNative?: boolean } = {},
+): Promise<DeletionIngestResult> {
+	const verified = verifiedDeletionEvent(event)
+	if (!verified) return 'invalid'
+	// A durability failure must never keep an otherwise valid deletion visible in
+	// the current process. Apply it first, then report persistence health to gates.
+	eventStore.add(verified)
+	invalidateCachedMapLayerSetForDeletion(verified, config.trustedMapnoliaPubkeys)
+	if (options.retainNative !== false) {
+		try {
+			const savedRegions = await getSavedRegionService()
+			await savedRegions.retainDeletions([verified])
+		} catch (error) {
+			logCacheError('native deletion retention', error)
+			return 'cache-error'
+		}
+	}
+
+	await cacheReady
+	const activeCache = cache
+	if (!activeCache) return 'applied'
+	try {
+		await applyVerifiedDeletionToCache(deletionCacheFor(activeCache), verified)
+	} catch (error) {
+		logCacheError('deletion write', error)
+		return 'cache-error'
+	}
+	return 'applied'
+}
+
 /** Pipe newly-added events into the cache in batches. Cleanup on HMR. */
 const stopPersist = hasIndexedDB
 	? persistEventsToCache(eventStore, async (events: NostrEvent[]) => {
 			await cacheReady
-			if (!cache) return
+			const activeCache = cache
+			if (!activeCache) return
 
-			const results = await Promise.allSettled(events.map((event) => cache?.add(event)))
+			// A target can enter this helper's five-second buffer before its deletion arrives.
+			// Re-check at write time so that late tombstone cannot be undone by the buffer.
+			const persistable = filterDeletedCacheWrites(events, isEventDeleted)
+			const results = await Promise.allSettled(persistable.map((event) => activeCache.add(event)))
 			for (const result of results) {
 				if (result.status === 'rejected') logCacheError('write', result.reason)
 			}
@@ -289,6 +381,18 @@ async function cacheRequest(filters: Filter[]): Promise<NostrEvent[]> {
 		logCacheError('query', err)
 		return []
 	}
+}
+
+/**
+ * Strict cache read for safety gates. Unlike normal UI hydration, callers must
+ * distinguish a genuinely empty result from unavailable or failed IndexedDB.
+ */
+export async function queryCacheStrict(filters: Filter[]): Promise<NostrEvent[]> {
+	await cacheReady
+	if (!cache) throw new Error('The local Nostr cache is unavailable')
+	const queryableFilters = cacheQueryableFilters(filters)
+	if (queryableFilters.length === 0) return []
+	return cache.query(queryableFilters)
 }
 
 /**
@@ -421,6 +525,63 @@ function withConfiguredBaseline(routed: string[]): string[] {
 	return [...new Set([...config.writeRelays, ...routed])]
 }
 
+function relayResults(
+	responses: Array<{ from: string; ok: boolean; message?: string }>,
+): OutboxRelayResult[] {
+	return responses.map((response) => ({
+		relayUrl: response.from,
+		ok: response.ok,
+		...(response.message ? { message: response.message } : {}),
+	}))
+}
+
+async function deliverOutboxItem(service: PublishOutboxService, item: OutboxItem): Promise<void> {
+	const targetRelays = pendingOutboxRelays(item)
+	if (targetRelays.length === 0) return
+	const event = JSON.parse(item.eventJson) as NostrEvent
+	if (event.kind === 5) await ingestDeletionEvent(event)
+	else eventStore.add(event)
+	try {
+		const responses = await pool.publish(targetRelays, event)
+		await service.recordResults(item.id, relayResults(responses))
+		notifyPublishOutboxChanged()
+	} catch (error) {
+		await service.recordResults(item.id, failedRelayResults(targetRelays, error))
+		notifyPublishOutboxChanged()
+	}
+}
+
+let outboxFlushPromise: Promise<void> | null = null
+let outboxReplayStarted = false
+
+/** Replay due native publishes without ever requesting or persisting a signing key. */
+export function flushPublishOutbox(): Promise<void> {
+	outboxFlushPromise ??= getPublishOutboxService()
+		.then(async (service) => {
+			if (!service) return
+			const due = await service.flush()
+			if (due.length > 0) notifyPublishOutboxChanged()
+			for (const item of due) await deliverOutboxItem(service, item)
+		})
+		.catch((error) => console.warn('[nostr] native outbox replay failed', error))
+		.finally(() => {
+			outboxFlushPromise = null
+		})
+	return outboxFlushPromise
+}
+
+/** Start the Android resume/online replay hooks once. */
+export function startPublishOutbox(): Promise<void> {
+	if (!outboxReplayStarted && typeof window !== 'undefined') {
+		outboxReplayStarted = true
+		window.addEventListener('online', () => void flushPublishOutbox())
+		document.addEventListener('visibilitychange', () => {
+			if (document.visibilityState === 'visible') void flushPublishOutbox()
+		})
+	}
+	return flushPublishOutbox()
+}
+
 /**
  * One-stop publish: broadcast to relays, add to the local store, return the
  * relay responses. Use this in place of `event.publish()` from NDK.
@@ -467,9 +628,51 @@ export async function publish(event: NostrEvent, options: PublishOptions = {}) {
 		targetRelays = withConfiguredBaseline(inboxes)
 	}
 
-	const responses = await pool.publish(targetRelays, event)
-	eventStore.add(event)
-	return responses
+	const outbox = event.kind === LIVE_BEACON_KIND ? null : await getPublishOutboxService()
+	const durableRouting: PublishRouting = relays ? 'configured' : routing
+	const queued = outbox
+		? await outbox.enqueue({
+				version: 1,
+				eventJson: JSON.stringify(event),
+				routing: durableRouting,
+				...(target && !relays && (routing === 'inbox' || routing === 'reply')
+					? { targetPubkey: target }
+					: {}),
+				relayUrls: targetRelays,
+				requiredRelayUrls: relays
+					? targetRelays
+					: requiredPublishRelays(targetRelays, config.writeRelays),
+			})
+		: null
+	if (queued) notifyPublishOutboxChanged()
+	if (event.kind === 5) await ingestDeletionEvent(event)
+	else eventStore.add(event)
+	const deliveryRelays = queued ? pendingOutboxRelays(queued) : targetRelays
+	if (deliveryRelays.length === 0) return []
+	// Normal native authoring succeeds once the immutable signed event is durable.
+	// Delivery continues in the background and survives process death. Explicit
+	// relay-management publishes remain synchronous because that UI displays each
+	// relay's immediate response.
+	if (outbox && queued && !relays) {
+		void deliverOutboxItem(outbox, queued).catch((error) =>
+			console.warn('[nostr] initial native outbox delivery failed', error),
+		)
+		return []
+	}
+	try {
+		const responses = await pool.publish(deliveryRelays, event)
+		if (outbox && queued) {
+			await outbox.recordResults(queued.id, relayResults(responses))
+			notifyPublishOutboxChanged()
+		}
+		return responses
+	} catch (error) {
+		if (outbox && queued) {
+			await outbox.recordResults(queued.id, failedRelayResults(deliveryRelays, error))
+			notifyPublishOutboxChanged()
+		}
+		throw error
+	}
 }
 
 /**

@@ -22,19 +22,27 @@ import {
 	EyeOff,
 	Globe,
 	GripVertical,
+	HardDrive,
 	Loader2,
 	Radio,
+	ShieldCheck,
 	Server,
 } from 'lucide-react'
+import { FileSource } from 'pmtiles'
 import type React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { BlossomUploaderButton } from '@/components/blossom/BlossomUploaderButton'
 import { BASEMAP_STYLE_OPTIONS, useBasemapStyle } from '@/lib/basemap'
+import { inspectPmtiles } from '@/lib/localPmtiles'
 import { UserProfile } from '@/components/user-profile'
 import { SessionsManager } from '@/features/auth/SessionsManager'
 import { ChatSettingsSection } from '@/features/chat'
+import { OfflineSharingSection } from '@/features/offline/OfflineSharingSection'
+import { OfflineDiagnosticsSection } from '@/features/offline/OfflineDiagnosticsSection'
+import { SavedRegionsSection } from '@/features/offline/saved-regions/SavedRegionsSection'
 import { UserRelayManager } from '@/features/settings/UserRelayManager'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -51,10 +59,9 @@ import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { useEditorStore, type MapLayerState } from '../store'
+import { useEditorStore, type MapLayerState, type SettingsTab } from '../store'
 
 type MapSourceType = 'default' | 'pmtiles' | 'blossom'
-type SettingsTab = 'map' | 'profile' | 'relays' | 'chat' | 'sessions'
 type MapSettingsPanelMode = 'full' | 'map-only'
 
 interface ProfileDraft {
@@ -389,6 +396,9 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 				location: mapSource.location,
 				url: mapSource.url,
 				file: mapSource.file,
+				localBlobHash: mapSource.localBlobHash,
+				pmtilesKind: mapSource.pmtilesKind,
+				boundsLocked: mapSource.boundsLocked,
 			})
 		} else if (value === 'blossom') {
 			setMapSource({
@@ -399,9 +409,14 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 	}
 
 	const handleLocationChange = (value: 'remote' | 'local') => {
+		const keepNativeUrl = value === 'local' && Boolean(mapSource.localBlobHash)
 		setMapSource({
 			...mapSource,
 			location: value,
+			url: keepNativeUrl ? mapSource.url : undefined,
+			file: value === 'local' ? mapSource.file : undefined,
+			localBlobHash: keepNativeUrl ? mapSource.localBlobHash : undefined,
+			pmtilesKind: keepNativeUrl ? mapSource.pmtilesKind : undefined,
 		})
 	}
 
@@ -409,16 +424,28 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 		setMapSource({
 			...mapSource,
 			url: e.target.value,
+			localBlobHash: undefined,
+			pmtilesKind: undefined,
 		})
 	}
 
-	const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+	const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
 		const file = e.target.files?.[0]
-		if (file) {
+		if (!file) return
+		try {
+			const inspected = await inspectPmtiles(new FileSource(file))
 			setMapSource({
 				...mapSource,
 				file,
+				url: undefined,
+				localBlobHash: undefined,
+				pmtilesKind: inspected.kind,
 			})
+		} catch (error) {
+			e.currentTarget.value = ''
+			toast.error(
+				error instanceof Error ? error.message : 'That file is not a valid PMTiles archive',
+			)
 		}
 	}
 
@@ -619,25 +646,44 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 							</div>
 						) : (
 							<div className="space-y-2">
-								<Label>File</Label>
+								<Label>Offline archive</Label>
+								{mapSource.localBlobHash ? (
+									<div className="flex items-center gap-2 border border-border bg-muted/40 p-2.5">
+										<HardDrive className="h-4 w-4 shrink-0 text-primary" />
+										<div className="min-w-0 flex-1">
+											<p className="text-xs font-medium text-foreground">Saved on this device</p>
+											<p className="truncate font-mono text-[10px] text-muted-foreground">
+												{mapSource.localBlobHash}
+											</p>
+										</div>
+										<Badge variant="outline" className="rounded-[2px] capitalize">
+											{mapSource.pmtilesKind ?? 'PMTiles'}
+										</Badge>
+									</div>
+								) : null}
 								<div className="flex gap-2">
 									<Button
 										variant="outline"
 										className="w-full"
 										onClick={() => fileInputRef.current?.click()}
 									>
-										{mapSource.file ? mapSource.file.name : 'Select File'}
+										{mapSource.file
+											? mapSource.file.name
+											: mapSource.localBlobHash
+												? 'Choose another file'
+												: 'Select file'}
 									</Button>
 									<Input
 										type="file"
 										ref={fileInputRef}
 										className="hidden"
 										accept=".pmtiles"
-										onChange={handleFileChange}
+										onChange={(event) => void handleFileChange(event)}
 									/>
 								</div>
 								<p className="text-xs text-muted-foreground">
-									Select a local `.pmtiles` file from your device.
+									Mirrored native archives survive restart. Files chosen through the picker remain
+									available only for this app session.
 								</p>
 							</div>
 						)}
@@ -673,6 +719,10 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 								<span className="text-sm font-medium">
 									{announcementSource.name || 'Announcement Source'}
 								</span>
+							</div>
+							<div className="flex items-center gap-1.5 pl-6 text-xs text-emerald-700">
+								<ShieldCheck className="h-3.5 w-3.5" />
+								Trusted map publisher
 							</div>
 							{announcementSource.about && (
 								<p className="pl-6 text-xs text-muted-foreground">{announcementSource.about}</p>
@@ -790,7 +840,7 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 					{!announcementSource && mapLayers.length === 0 ? (
 						<div className="flex items-center gap-2 border-t pt-2 text-xs italic text-muted-foreground">
 							<Radio className="h-4 w-4" />
-							<span>Waiting for layer announcements...</span>
+							<span>Waiting for a trusted layer announcement...</span>
 						</div>
 					) : null}
 				</>
@@ -822,6 +872,9 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 				<TabsTrigger value="relays" className="flex-none rounded-none px-3 text-xs sm:text-sm">
 					Relays
 				</TabsTrigger>
+				<TabsTrigger value="offline" className="flex-none rounded-none px-3 text-xs sm:text-sm">
+					Offline
+				</TabsTrigger>
 				<TabsTrigger value="chat" className="flex-none rounded-none px-3 text-xs sm:text-sm">
 					Chat
 				</TabsTrigger>
@@ -849,6 +902,19 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 					description="Manage the NIP-65 relay list used for account reads, writes, and discovery."
 				>
 					<UserRelayManager />
+				</SettingsShell>
+			</TabsContent>
+
+			<TabsContent value="offline" className="mt-0">
+				<SettingsShell
+					title="Offline"
+					description="Keep map areas on this device or pair nearby apps without internet access."
+				>
+					<div className="space-y-4">
+						<SavedRegionsSection />
+						<OfflineSharingSection />
+						<OfflineDiagnosticsSection />
+					</div>
 				</SettingsShell>
 			</TabsContent>
 

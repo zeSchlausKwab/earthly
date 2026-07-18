@@ -12,6 +12,7 @@ cleanup() {
   pkill -f "go run.*relay"
   pkill -f "bun.*contextvm"
   pkill -f "bun --hot"
+  docker rm -f earthly-cordn >/dev/null 2>&1 || true
   
   # Kill process on port 3334
   lsof -ti:3334 | xargs kill -9 2>/dev/null
@@ -53,6 +54,12 @@ bun run seed:sightings
 echo "🤖 Starting ContextVM..."
 bun run contextvm/server.ts &
 CONTEXTVM_PID=$!
+
+# Start the pinned Cordn-compatible MLS delivery coordinator. It uses the same
+# local relay and a documented insecure development-only key.
+echo "🔐 Starting private-map coordinator..."
+./scripts/cordn-dev.sh &
+CORDN_PID=$!
 
 # Start Blossom server in background
 # echo "🌸 Starting Blossom server..."

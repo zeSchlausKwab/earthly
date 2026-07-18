@@ -26,8 +26,8 @@ export const serverConfig = {
 	/** Public key of the ContextVM geo server */
 	serverPubkey: serverEnv.SERVER_PUBKEY,
 
-	/** Client private key for ContextVM communication */
-	clientKey: serverEnv.CLIENT_KEY,
+	/** Public key of the Cordn-compatible private-map coordinator */
+	cordnServerPubkey: serverEnv.CORDN_SERVER_PUBKEY,
 
 	/** App private key for signing */
 	appPrivateKey: serverEnv.APP_PRIVATE_KEY,

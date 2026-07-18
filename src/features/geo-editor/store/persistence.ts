@@ -1,5 +1,68 @@
 import { getCurrentPubkey } from '@/lib/wallet/currentUser'
 
+export interface ScopedStorageWriteFailure {
+	baseKey: string
+	scopedKey: string
+	scope: string | null
+	message: string
+	failedAt: number
+}
+
+export type ScopedStorageWriteFailures = Readonly<Record<string, ScopedStorageWriteFailure>>
+
+let scopedStorageWriteFailures: ScopedStorageWriteFailures = {}
+const scopedStorageWriteFailureListeners = new Set<() => void>()
+
+function notifyScopedStorageWriteFailureListeners(): void {
+	for (const listener of scopedStorageWriteFailureListeners) listener()
+}
+
+function describeStorageError(error: unknown): string {
+	if (error instanceof Error && error.message.trim()) return error.message.trim()
+	return 'Browser storage is unavailable.'
+}
+
+function recordScopedStorageWriteFailure(
+	baseKey: string,
+	scopedKey: string,
+	scope: string | null,
+	error: unknown,
+): void {
+	scopedStorageWriteFailures = {
+		...scopedStorageWriteFailures,
+		[scopedKey]: {
+			baseKey,
+			scopedKey,
+			scope,
+			message: describeStorageError(error),
+			failedAt: Date.now(),
+		},
+	}
+	notifyScopedStorageWriteFailureListeners()
+}
+
+function clearScopedStorageWriteFailure(scopedKey: string): void {
+	if (!scopedStorageWriteFailures[scopedKey]) return
+	const next = { ...scopedStorageWriteFailures }
+	delete next[scopedKey]
+	scopedStorageWriteFailures = next
+	notifyScopedStorageWriteFailureListeners()
+}
+
+/**
+ * Session-lifetime view of storage writes that have failed and have not yet
+ * succeeded on a later retry. UI can subscribe to this without persisting the
+ * warning in the same storage that just failed.
+ */
+export function getScopedStorageWriteFailures(): ScopedStorageWriteFailures {
+	return scopedStorageWriteFailures
+}
+
+export function subscribeScopedStorageWriteFailures(listener: () => void): () => void {
+	scopedStorageWriteFailureListeners.add(listener)
+	return () => scopedStorageWriteFailureListeners.delete(listener)
+}
+
 function getScopedStorageKey(baseKey: string, pubkey?: string | null): string {
 	const scope = pubkey ?? getCurrentPubkey()
 	return scope ? `${baseKey}:${scope.slice(0, 8)}` : `${baseKey}:guest`
@@ -22,9 +85,13 @@ export function readScopedStorage<T>(baseKey: string, fallback: T, pubkey?: stri
 export function writeScopedStorage<T>(baseKey: string, value: T, pubkey?: string | null): void {
 	if (typeof window === 'undefined') return
 
+	const scope = pubkey ?? getCurrentPubkey()
+	const scopedKey = getScopedStorageKey(baseKey, pubkey)
 	try {
-		window.localStorage.setItem(getScopedStorageKey(baseKey, pubkey), JSON.stringify(value))
+		window.localStorage.setItem(scopedKey, JSON.stringify(value))
+		clearScopedStorageWriteFailure(scopedKey)
 	} catch (error) {
 		console.warn(`Failed to write scoped storage for ${baseKey}`, error)
+		recordScopedStorageWriteFailure(baseKey, scopedKey, scope, error)
 	}
 }

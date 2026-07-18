@@ -11,12 +11,15 @@ import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import { upgradeLegacyHashRoute } from './features/geo-editor/hooks/useRouting'
 // Import for side-effects: instantiates eventStore, pool, accounts, cache, etc.
-import { accounts, eventStore } from './lib/nostr'
+import { accounts, eventStore, startPublishOutbox } from './lib/nostr'
+import { startNativeDeepLinks } from './platform/registry'
 
 // Phase 1.2: rewrite a legacy `#/…` hash route to its clean-path equivalent
 // before React mounts, so the first parseLocation() the app runs already sees
 // the canonical URL (fixes report 7.5 — `/#/datasets` deep-links).
 upgradeLegacyHashRoute()
+void startNativeDeepLinks()
+void startPublishOutbox()
 
 const elem = document.getElementById('root')!
 

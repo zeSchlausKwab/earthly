@@ -1,0 +1,23 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Minimum permissions for the Earthly main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "deep-link:default",
+    "os:allow-platform",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "bunker:*" },
+        { "url": "lightning:*" },
+        { "url": "nostrconnect:*" }
+      ]
+    },
+    "local-node-admin",
+    "publish-outbox",
+    "saved-regions",
+    "support-diagnostics"
+  ]
+}

@@ -1,0 +1,45 @@
+repository: https://github.com/zeSchlausKwab/earthly
+release_source: ./out/android/0.0.1/earthly-0.0.1-arm64-v8a.apk
+
+name: Earthly
+summary: Collaborative maps built on Nostr
+description: |
+  Earthly is a touch-first collaborative mapping app for creating, discussing,
+  and sharing geographic datasets over Nostr.
+
+  Draw points, lines, and polygons; publish versioned GeoJSON datasets; annotate
+  maps with geographic comments; and work in MLS-encrypted Private groups.
+  Android Field sessions add explicit nearby-only collaboration over a shared
+  Wi-Fi network or hotspot, including chat, map editing, and one-time mirroring
+  of referenced map files for offline use.
+
+  Earthly includes its own local relay and Blossom service. Core nearby and
+  offline workflows do not require a separate companion relay app.
+tags:
+  - maps
+  - navigation
+  - collaboration
+  - nostr
+license: MIT
+website: https://earthly.city
+icon: ./src-tauri/icons/icon.png
+release_notes: ./CHANGELOG.md
+images:
+  - ./release-assets/zapstore/0.0.1/01-map.png
+  - ./release-assets/zapstore/0.0.1/02-map.png
+  - ./release-assets/zapstore/0.0.1/03-map.png
+  - ./release-assets/zapstore/0.0.1/04-map.png
+  - ./release-assets/zapstore/0.0.1/05-map.png
+  - ./release-assets/zapstore/0.0.1/06-map.png
+supported_nips:
+  - "01"
+  - "07"
+  - "19"
+  - "25"
+  - "42"
+  - "46"
+  - "55"
+  - "57"
+  - "65"
+  - "77"
+min_allowed_version_code: 1001

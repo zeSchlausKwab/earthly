@@ -12,8 +12,7 @@
  * own that surface, and the map controls column stays short for drawing.
  */
 
-import { Crosshair, Moon, Search, Sun } from 'lucide-react'
-import { useState } from 'react'
+import { Crosshair, Moon, Sun } from 'lucide-react'
 import { ControlButton, ControlGroup } from '@/components/ui/map'
 import { useTheme } from '@/lib/theme'
 import { ShareExportPopover } from './share/ShareExportPopover'
@@ -30,7 +29,8 @@ export function MobileMapActions({ onSearchResultSelect }: MobileMapActionsProps
 	const [theme, setTheme] = useTheme()
 	const isDark = theme === 'dark'
 
-	const [searchOpen, setSearchOpen] = useState(false)
+	const searchOpen = useEditorStore((state) => state.mobileSearchOpen)
+	const setSearchOpen = useEditorStore((state) => state.setMobileSearchOpen)
 	const searchQuery = useEditorStore((state) => state.searchQuery)
 	const searchResults = useEditorStore((state) => state.searchResults)
 	const searchLoading = useEditorStore((state) => state.searchLoading)
@@ -56,9 +56,6 @@ export function MobileMapActions({ onSearchResultSelect }: MobileMapActionsProps
 	return (
 		<>
 			<ControlGroup>
-				<ControlButton label="Search places" onClick={() => setSearchOpen((open) => !open)}>
-					<Search className="h-4 w-4" />
-				</ControlButton>
 				<ControlButton
 					label={inspectorActive ? 'Disable location lookup' : 'Enable location lookup'}
 					onClick={toggleInspector}

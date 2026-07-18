@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { DEFAULT_SIDEBAR_VIEW } from '../defaults'
-import { parsePathSegments } from './useRouting'
+import { buildRoutePath, parsePathSegments } from './useRouting'
 
 // XCUT-02 (D-08/D-09): the five per-kind share-form parsers collapsed into one
 // SHARE_ROUTES lookup + one generic dispatch body. These assertions pin the
@@ -75,6 +75,72 @@ describe('parsePathSegments — /comment/:id suffix', () => {
 	})
 })
 
+describe('parsePathSegments — private groups', () => {
+	test('/private-groups opens the collection panel', () => {
+		expect(parsePathSegments(['private-groups'])).toEqual({
+			focusType: 'none',
+			sidebarView: 'private-groups',
+		})
+	})
+
+	test('/privategroup/:id opens one opaque local MLS workspace', () => {
+		expect(parsePathSegments(['privategroup', 'workspace-123'])).toEqual({
+			focusType: 'none',
+			sidebarView: 'private-groups',
+			privateGroupId: 'workspace-123',
+		})
+	})
+
+	test('/privategroup/:id/edit keeps the encrypted scope while authoring', () => {
+		expect(parsePathSegments(['privategroup', 'workspace-123', 'edit'])).toEqual({
+			focusType: 'none',
+			sidebarView: 'edit',
+			privateGroupId: 'workspace-123',
+		})
+		expect(buildRoutePath({ sidebarView: 'edit', privateGroupId: 'workspace-123' })).toBe(
+			'/privategroup/workspace-123/edit',
+		)
+	})
+
+	test('private-group detail navigation builds the canonical route', () => {
+		expect(buildRoutePath({ sidebarView: 'private-groups', privateGroupId: 'workspace 123' })).toBe(
+			'/privategroup/workspace%20123',
+		)
+	})
+
+	test('the hyphenated preview route remains readable', () => {
+		expect(parsePathSegments(['private-group', 'workspace-123']).privateGroupId).toBe(
+			'workspace-123',
+		)
+	})
+})
+
+describe('parsePathSegments — Field sessions', () => {
+	test('/field-sessions opens the collection panel', () => {
+		expect(parsePathSegments(['field-sessions'])).toEqual({
+			focusType: 'none',
+			sidebarView: 'field-sessions',
+		})
+	})
+
+	test('/fieldsession/:id opens one nearby collaboration space', () => {
+		expect(parsePathSegments(['fieldsession', 'survey-123'])).toEqual({
+			focusType: 'none',
+			sidebarView: 'field-sessions',
+			fieldSessionId: 'survey-123',
+		})
+		expect(buildRoutePath({ sidebarView: 'field-sessions', fieldSessionId: 'survey 123' })).toBe(
+			'/fieldsession/survey%20123',
+		)
+	})
+
+	test('a nested route keeps the Field-session scope', () => {
+		expect(buildRoutePath({ sidebarView: 'edit', fieldSessionId: 'survey-123' })).toBe(
+			'/fieldsession/survey-123/edit',
+		)
+	})
+})
+
 describe('parsePathSegments — scoped /context branch is UNCHANGED', () => {
 	test('/context/:naddr/:view stays a context-scoped RouteState (not a share match)', () => {
 		const result = parsePathSegments(['context', CTX_NADDR, 'datasets'])
@@ -112,6 +178,21 @@ describe('parsePathSegments — malformed naddr does not crash (D-11 / T-13-02-M
 })
 
 describe('parsePathSegments — landing default', () => {
+	test('/drafts opens local drafts and round-trips through the canonical route', () => {
+		expect(parsePathSegments(['drafts'])).toEqual({
+			focusType: 'none',
+			sidebarView: 'drafts',
+		})
+		expect(buildRoutePath({ sidebarView: 'drafts' })).toBe('/drafts')
+	})
+
+	test('/delivery opens the native delivery ledger', () => {
+		expect(parsePathSegments(['delivery'])).toEqual({
+			focusType: 'none',
+			sidebarView: 'delivery',
+		})
+	})
+
 	test('an empty landing path opens the default sightings feed', () => {
 		expect(parsePathSegments([])).toEqual({
 			focusType: 'none',

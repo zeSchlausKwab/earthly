@@ -1,5 +1,7 @@
 # dependencies (bun install)
 node_modules
+/target
+/src-tauri/gen/schemas
 
 # map-chunks
 map-chunks
@@ -37,6 +39,11 @@ mapnolia-server
 # deployment artifacts
 deploy.tar.gz
 
+# Android release signing material (generated locally or in CI)
+src-tauri/gen/android/keystore.properties
+*.jks
+*.keystore
+
 # caches
 .eslintcache
 .cache
@@ -44,6 +51,7 @@ deploy.tar.gz
 
 # Earthly AI/E2E suite artifacts
 ai-suite/artifacts
+android-suite/artifacts
 
 # IntelliJ based IDEs
 .idea

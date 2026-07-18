@@ -4,13 +4,18 @@ import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import type { ContextFilterMode } from '@/lib/context/validation'
 import type { ContextMapScopeMode } from '@/lib/context/scope'
+import type { PmtilesKind } from '@/lib/localPmtiles'
+import type { MapChunkAnnouncementRecord } from '@/lib/nostr/map-layer-set'
 import type { EditorFeature, EditorMode, GeoEditor } from '../core'
 import type { CollectionMeta, EditorBlobReference, GeoSearchResult } from '../types'
 
 export type SidebarViewMode =
 	| 'datasets'
+	| 'drafts'
 	| 'map-stack'
 	| 'contexts'
+	| 'field-sessions'
+	| 'private-groups'
 	| 'context-editor'
 	| 'stories'
 	| 'sightings'
@@ -23,6 +28,9 @@ export type SidebarViewMode =
 	| 'user'
 	| 'wallet'
 	| 'chat'
+	| 'delivery'
+
+export type SettingsTab = 'map' | 'profile' | 'relays' | 'offline' | 'chat' | 'sessions'
 
 /**
  * Phase 1.3: the minimal parsed-route shape consumed by `applyRouteState`. A
@@ -35,6 +43,8 @@ export interface RouteSnapshot {
 	naddr?: string
 	contextNaddr?: string
 	contextCoordinate?: string
+	fieldSessionId?: string
+	privateGroupId?: string
 }
 
 export interface ApplyRouteStateOptions {
@@ -56,10 +66,12 @@ export interface EditorStats {
 }
 
 export interface AnnouncementSourceMeta {
+	eventId: string | null
 	name: string | null
 	about: string | null
 	pubkey: string | null
 	createdAt: number | null
+	trusted: boolean
 }
 
 export interface MapLayerState {
@@ -69,8 +81,12 @@ export interface MapLayerState {
 	enabled: boolean
 	opacity: number
 	blossomServer?: string
+	blossomServers?: string[]
+	/** Mirrors authenticated by the signed layer announcement, without runtime fallbacks. */
+	signedBlossomServers?: string[]
 	file?: string
 	pmtilesType?: string
+	announcement?: MapChunkAnnouncementRecord
 }
 
 /**
@@ -109,6 +125,8 @@ export type MapStackEntrySource =
 	| 'comment'
 	| 'proposal'
 	| 'workspace'
+	| 'private-group'
+	| 'field-session'
 	/** Round C.4: auto-populated on cold-start Browse so the user lands on
 	 * something instead of a blank map. Distinguishable from `manual` so we
 	 * can avoid re-triggering after a clear and so future Clear UX can opt
@@ -179,8 +197,11 @@ export interface MapStackEntry {
 
 export type MobilePanelTab =
 	| 'datasets'
+	| 'drafts'
 	| 'map-stack'
 	| 'contexts'
+	| 'field-sessions'
+	| 'private-groups'
 	| 'context-editor'
 	| 'edit'
 	| 'sightings'
@@ -189,6 +210,7 @@ export type MobilePanelTab =
 	| 'chat'
 	| 'profile'
 	| 'posts'
+	| 'delivery'
 	| 'wallet'
 	| 'settings'
 	| 'help'
@@ -198,7 +220,33 @@ export type MobilePanelTab =
  *  full ≈ 92% (the outliner, full height). */
 export type MobilePanelSnap = 'peek' | 'half' | 'full'
 
+/** The mobile navigation drawer has a compact destination menu and a wider
+ * content state for lists/account surfaces. */
+export type MobileSidebarMode = 'menu' | 'content'
+
+export interface MobilePanelResume {
+	tab: MobilePanelTab
+	snap: MobilePanelSnap
+}
+
+/**
+ * The transport boundary a draft will be published through. This is persisted
+ * with the draft instead of inferred from the current route so reopening a
+ * private or field draft outside its original screen cannot silently turn it
+ * into a public publish.
+ */
+export type PublishChannel =
+	| { kind: 'public' }
+	| { kind: 'private-group'; id: string }
+	| { kind: 'field-session'; id: string }
+	| { kind: 'unresolved'; reason: 'legacy' | 'invalid' }
+
 export interface GeoCollectionEditDraft {
+	/**
+	 * Version 1 is a legacy draft that predates persisted destination/context
+	 * state. Any write upgrades it to version 2.
+	 */
+	persistenceVersion: 1 | 2
 	id: string
 	sourceId: string
 	name: string
@@ -206,6 +254,9 @@ export interface GeoCollectionEditDraft {
 	collectionMeta: CollectionMeta
 	features: EditorFeature[]
 	selectedFeatureIds: string[]
+	publishChannel: PublishChannel
+	contextRefs: string[]
+	blobReferences: EditorBlobReference[]
 	createdAt: number
 	updatedAt: number
 }
@@ -255,7 +306,14 @@ export interface DraftSlice {
 		seed?: Partial<
 			Pick<
 				GeoCollectionEditDraft,
-				'name' | 'description' | 'collectionMeta' | 'features' | 'selectedFeatureIds'
+				| 'name'
+				| 'description'
+				| 'collectionMeta'
+				| 'features'
+				| 'selectedFeatureIds'
+				| 'publishChannel'
+				| 'contextRefs'
+				| 'blobReferences'
 			>
 		>,
 	) => string
@@ -265,12 +323,21 @@ export interface DraftSlice {
 		updates: Partial<
 			Pick<
 				GeoCollectionEditDraft,
-				'sourceId' | 'name' | 'description' | 'collectionMeta' | 'features' | 'selectedFeatureIds'
+				| 'sourceId'
+				| 'name'
+				| 'description'
+				| 'collectionMeta'
+				| 'features'
+				| 'selectedFeatureIds'
+				| 'publishChannel'
+				| 'contextRefs'
+				| 'blobReferences'
 			>
 		>,
 	) => void
 	loadGeoEditDraft: (id: string) => void
 	deleteGeoEditDraft: (id: string) => void
+	deleteGeoEditDraftsBySourceId: (sourceId: string) => void
 }
 
 export interface WorkspaceSlice {
@@ -458,6 +525,9 @@ export interface UISlice {
 	mobilePanelOpen: boolean
 	mobilePanelTab: MobilePanelTab
 	mobilePanelSnap: MobilePanelSnap
+	mobileSidebarOpen: boolean
+	mobileSidebarMode: MobileSidebarMode
+	mobilePanelResumeOnSidebarClose: MobilePanelResume | null
 	inspectorActive: boolean
 	sidebarViewMode: SidebarViewMode
 	sidebarExpanded: boolean
@@ -468,7 +538,7 @@ export interface UISlice {
 	mapStackOpen: boolean
 	/** Deep-link target tab for the settings panel (e.g. from the status-bar
 	 *  relay indicator). Consumed by MapSettingsPanel; null = its own default. */
-	settingsTab: 'map' | 'profile' | 'relays' | 'chat' | 'sessions' | null
+	settingsTab: SettingsTab | null
 	/** DOM slot in the Map Stack's expanded draft entry that the sidebar editor
 	 *  portals into (editor-in-Map-Stack). Null when no draft slot is mounted. */
 	draftEditorSlot: HTMLElement | null
@@ -490,9 +560,13 @@ export interface UISlice {
 	setMobilePanelSnap: (snap: MobilePanelSnap) => void
 	openMobilePanel: (tab?: MobilePanelTab) => void
 	closeMobilePanel: () => void
+	openMobileSidebar: (tab?: MobilePanelTab) => void
+	showMobileSidebarMenu: () => void
+	selectMobileSidebarDestination: (tab: MobilePanelTab) => void
+	closeMobileSidebar: () => void
 	setInspectorActive: (active: boolean) => void
 	setSidebarViewMode: (mode: SidebarViewMode) => void
-	setSettingsTab: (tab: 'profile' | 'relays' | 'chat' | 'sessions' | null) => void
+	setSettingsTab: (tab: SettingsTab | null) => void
 	setDraftEditorSlot: (el: HTMLElement | null) => void
 	setSidebarExpanded: (expanded: boolean) => void
 	toggleSidebarExpanded: () => void
@@ -544,6 +618,8 @@ export interface MapSourceSlice {
 		location: 'remote' | 'local'
 		url?: string
 		file?: File
+		localBlobHash?: string
+		pmtilesKind?: PmtilesKind
 		blossomServer?: string
 		boundsLocked?: boolean
 	}

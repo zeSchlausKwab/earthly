@@ -1,4 +1,14 @@
-import { Check, Copy, Heart, Loader2, MessageCircle, PencilLine, Share2, Zap } from 'lucide-react'
+import {
+	Check,
+	Copy,
+	ExternalLink,
+	Heart,
+	Loader2,
+	MessageCircle,
+	PencilLine,
+	Share2,
+	Zap,
+} from 'lucide-react'
 import { use$, useActiveAccount } from 'applesauce-react/hooks'
 import { ZapRequestFactory } from 'applesauce-common/factories'
 import { getInvoice, parseLNURLOrAddress } from 'applesauce-common/helpers'
@@ -28,6 +38,7 @@ import { accounts, eventStore, readRelaysFor } from '@/lib/nostr'
 import { useTimeline } from '@/lib/nostr/hooks'
 import { useGeoReactions, type ReactableEvent } from '../hooks/useGeoReactions'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { normalizeLightningUri, openExternalProtocol } from '@/platform/externalProtocol'
 
 interface GeoSocialActionsProps {
 	/** Any Nostr event that can receive reactions */
@@ -279,6 +290,16 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 		}
 	}, [invoice])
 
+	const handleOpenWallet = useCallback(async () => {
+		if (!invoice) return
+		try {
+			await openExternalProtocol(normalizeLightningUri(invoice))
+		} catch (error) {
+			console.error('Unable to open Lightning wallet', error)
+			toast.error('No compatible Lightning wallet could open this invoice')
+		}
+	}, [invoice])
+
 	const customAmountValue = Number.parseInt(customAmount, 10)
 
 	return (
@@ -302,9 +323,17 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 							<span className="font-semibold">{invoiceAmount?.toLocaleString() ?? '—'} sats</span>
 						</div>
 						<div className="flex justify-center">
-							<div className="rounded-lg border bg-card p-4">
-								<QRCodeSVG value={invoice} size={208} />
-							</div>
+							<button
+								type="button"
+								onClick={() => void handleOpenWallet()}
+								className="flex flex-col items-center gap-2 rounded-lg border bg-card p-4 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								aria-label="Open zap invoice in a Lightning wallet"
+							>
+								<QRCodeSVG value={normalizeLightningUri(invoice)} size={208} />
+								<span className="flex items-center gap-1 text-xs font-medium text-foreground">
+									<ExternalLink className="h-3.5 w-3.5" /> Open Lightning wallet
+								</span>
+							</button>
 						</div>
 						<div className="space-y-2">
 							<p className="text-sm font-medium text-foreground">Lightning invoice</p>

@@ -18,11 +18,16 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import simplify from '@turf/simplify'
 import type { PrivateKeySigner } from 'applesauce-signers'
+import type { Signer as BlossomSigner } from 'blossom-client-sdk'
 import type { Feature, FeatureCollection, LineString, MultiLineString } from 'geojson'
+import { uploadBlobWithBlossyV02Compat } from '@/lib/blossom/uploadCompat'
 import type { MapContextContent } from '@/lib/nostr/map-context'
 import { MapContextFactory } from '@/lib/nostr/map-context/factory'
 import { GeoDatasetFactory } from '@/lib/nostr/geo-event/factory'
+import { computeChecksum } from '@/lib/nostr/geo-event/helpers'
 import { MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
+import { MAX_INLINE_DATASET_CONTENT_BYTES } from '@/lib/nostr/limits'
+import { MODEL_VERSION } from '@/lib/nostr/modelVersion'
 import { type BoundingBox, bboxFromFeatures } from '../geo/bbox'
 import { geohashFromBbox } from '../geo/hash'
 import type { SeedRelayClient } from '../relay/publish'
@@ -34,6 +39,231 @@ const BASE_RIPS = join(import.meta.dir, '../../../../base-assets/base_rips')
 // ported verbatim from the original script — free of context plumbing.
 let client: SeedRelayClient
 let relayUrl: string
+let blossomServer: string
+let dryRun: boolean
+
+const GEOJSON_MIME_TYPE = 'application/geo+json'
+
+export interface CanonicalDatasetContentPlan {
+	/** Exact string that will be used as the full inline event content or Blossom payload. */
+	content: string
+	/** UTF-8 bytes, matching both the relay codec and the uploaded Blob. */
+	contentBytes: number
+	externalize: boolean
+}
+
+export interface CanonicalDatasetBlob {
+	sha256: string
+	url: string
+	size: number
+	dryRun: boolean
+}
+
+interface CanonicalDatasetBlobUploadInput {
+	blossomServer: string
+	signer: PrivateKeySigner
+	content: string
+	contentBytes: number
+}
+
+type UploadedCanonicalDatasetBlob = Omit<CanonicalDatasetBlob, 'dryRun'>
+
+export type CanonicalDatasetBlobUploader = (
+	input: CanonicalDatasetBlobUploadInput,
+) => Promise<UploadedCanonicalDatasetBlob>
+
+export interface ResolveCanonicalDatasetBlobOptions {
+	blossomServer: string
+	signer: PrivateKeySigner
+	dryRun: boolean
+	uploader?: CanonicalDatasetBlobUploader
+}
+
+export interface BuildCanonicalDatasetEventInput {
+	signer: PrivateKeySigner
+	datasetId: string
+	featureCollection: FeatureCollection & Record<string, unknown>
+	hashtags: string[]
+	contextCoordinate: string
+	relayUrl: string
+	blob?: CanonicalDatasetBlob
+}
+
+export type CanonicalContextContent = MapContextContent & {
+	modelVersion: typeof MODEL_VERSION
+	governance: 'open' | 'closed'
+}
+
+/**
+ * Canonical contexts straddle the current Group inspector and the legacy map
+ * scope until those consumers share one model. Dual-compatible content keeps
+ * the Group gate valid without losing `allowForeignAttachments` on the map.
+ */
+export function buildCanonicalContextContent(content: MapContextContent): CanonicalContextContent {
+	return {
+		...content,
+		modelVersion: MODEL_VERSION,
+		governance: content.allowForeignAttachments ? 'open' : 'closed',
+	}
+}
+
+/**
+ * Decide from the exact UTF-8 event content, not JavaScript character count.
+ * The shared budget leaves headroom below LMDB betterbinary's 65,535-byte
+ * content ceiling.
+ */
+export function planCanonicalDatasetContent(
+	fc: FeatureCollection & Record<string, unknown>,
+	maxInlineBytes = MAX_INLINE_DATASET_CONTENT_BYTES,
+): CanonicalDatasetContentPlan {
+	const content = JSON.stringify(fc)
+	const contentBytes = new TextEncoder().encode(content).length
+	return {
+		content,
+		contentBytes,
+		externalize: contentBytes > maxInlineBytes,
+	}
+}
+
+function canonicalBlossomUrl(server: string, sha256: string): string {
+	const url = new URL(server)
+	url.pathname = `/${sha256}`
+	url.search = ''
+	url.hash = ''
+	return url.toString()
+}
+
+async function uploadCanonicalDatasetBlob({
+	blossomServer,
+	signer,
+	content,
+	contentBytes,
+}: CanonicalDatasetBlobUploadInput): Promise<UploadedCanonicalDatasetBlob> {
+	const blob = new Blob([new TextEncoder().encode(content)], { type: GEOJSON_MIME_TYPE })
+	const blossomSigner: BlossomSigner = async (draft) => signer.signEvent(draft)
+	const descriptor = await uploadBlobWithBlossyV02Compat(blossomServer, blob, {
+		signer: blossomSigner,
+		message: `Upload canonical GeoJSON (${contentBytes} bytes)`,
+		expiration: Math.floor(Date.now() / 1000) + 5 * 60,
+	})
+	return {
+		sha256: descriptor.sha256,
+		url: descriptor.url,
+		size: descriptor.size,
+	}
+}
+
+/**
+ * Resolve the blob descriptor for an oversized dataset. Dry runs stop before
+ * auth construction or the injected upload seam, deriving the standard
+ * content-addressed Blossom URL locally instead.
+ */
+export async function resolveCanonicalDatasetBlob(
+	plan: CanonicalDatasetContentPlan,
+	options: ResolveCanonicalDatasetBlobOptions,
+): Promise<CanonicalDatasetBlob> {
+	if (!plan.externalize) {
+		throw new Error('Canonical dataset fits inline; refusing an unnecessary Blossom upload.')
+	}
+	const sha256 = await computeChecksum(plan.content)
+	if (!sha256) throw new Error('SHA-256 is unavailable; cannot externalize canonical dataset.')
+
+	if (options.dryRun) {
+		return {
+			sha256,
+			url: canonicalBlossomUrl(options.blossomServer, sha256),
+			size: plan.contentBytes,
+			dryRun: true,
+		}
+	}
+
+	const uploaded = await (options.uploader ?? uploadCanonicalDatasetBlob)({
+		blossomServer: options.blossomServer,
+		signer: options.signer,
+		content: plan.content,
+		contentBytes: plan.contentBytes,
+	})
+	if (uploaded.sha256 !== sha256) {
+		throw new Error(`Blossom checksum mismatch: expected ${sha256}, received ${uploaded.sha256}.`)
+	}
+	if (uploaded.size !== plan.contentBytes) {
+		throw new Error(
+			`Blossom size mismatch: expected ${plan.contentBytes}, received ${uploaded.size}.`,
+		)
+	}
+	return { ...uploaded, dryRun: false }
+}
+
+/** SPEC §1.5 collection placeholder, matching the GeoEditor publishing path. */
+export function buildCanonicalDatasetStub(
+	collection: FeatureCollection & Record<string, unknown>,
+	collectionBlobUrl: string,
+): FeatureCollection & Record<string, unknown> {
+	const stub: FeatureCollection & Record<string, unknown> = {
+		type: 'FeatureCollection',
+		features: [
+			{
+				type: 'Feature',
+				id: 'external-geometry-placeholder',
+				geometry: null,
+				properties: {
+					externalPlaceholder: true,
+					blobUrl: collectionBlobUrl,
+					name: 'External geometry',
+				},
+			} as unknown as Feature,
+		],
+	}
+	if (collection.name) stub.name = collection.name
+	if (collection.description) stub.description = collection.description
+	if (collection.properties) stub.properties = collection.properties
+	return stub
+}
+
+/** Build either the legacy inline event or the small Blossom-reference stub. */
+export async function buildCanonicalDatasetEvent({
+	signer,
+	datasetId,
+	featureCollection,
+	hashtags,
+	contextCoordinate,
+	relayUrl,
+	blob,
+}: BuildCanonicalDatasetEventInput) {
+	const bbox = bboxFromFeatures(featureCollection.features)
+	const geohash = geohashFromBbox(bbox)
+	let factory = GeoDatasetFactory.create(featureCollection)
+		.bbox(bbox)
+		.geohash(geohash)
+		.hashtags(hashtags)
+		.relayHints([relayUrl])
+		.contextReferences([contextCoordinate])
+		.modifyPublicTags(withDTag(datasetId))
+
+	if (blob) {
+		const stubContent = JSON.stringify(buildCanonicalDatasetStub(featureCollection, blob.url))
+		const stubBytes = new TextEncoder().encode(stubContent).length
+		if (stubBytes > MAX_INLINE_DATASET_CONTENT_BYTES) {
+			throw new Error(
+				`Canonical dataset ${datasetId} external stub is still too large (${stubBytes} bytes).`,
+			)
+		}
+		factory = factory
+			.blobReferences([
+				{
+					scope: 'collection',
+					url: blob.url,
+					sha256: blob.sha256,
+					size: blob.size,
+					mimeType: GEOJSON_MIME_TYPE,
+				},
+			])
+			.content(stubContent)
+			.withContentMetadata()
+	}
+
+	return factory.sign(signer)
+}
 
 /** Pin an explicit `d` tag (canonical seeds use stable, well-known ids). */
 function withDTag(id: string) {
@@ -48,7 +278,7 @@ async function publishContext(
 	hashtags: string[],
 	bbox?: BoundingBox,
 ): Promise<string> {
-	let factory = MapContextFactory.create(content)
+	let factory = MapContextFactory.create(buildCanonicalContextContent(content))
 		.hashtags(hashtags)
 		.relayHints([relayUrl])
 		.modifyPublicTags(withDTag(contextId))
@@ -76,20 +306,34 @@ async function publishDataset(
 	hashtags: string[],
 	contextCoordinate: string,
 ): Promise<void> {
-	const bbox = bboxFromFeatures(fc.features)
-	const geohash = geohashFromBbox(bbox)
-	const sizeKB = Math.round(JSON.stringify(fc).length / 1024)
+	const plan = planCanonicalDatasetContent(fc)
+	const blob = plan.externalize
+		? await resolveCanonicalDatasetBlob(plan, {
+				blossomServer,
+				signer,
+				dryRun,
+			})
+		: undefined
+	if (blob) {
+		console.log(
+			`  [externalize${blob.dryRun ? ':dry-run' : ''}] ${datasetId} — ${plan.contentBytes} bytes -> ${blob.url} (sha256=${blob.sha256})`,
+		)
+	}
 
-	const event = await GeoDatasetFactory.create(fc)
-		.bbox(bbox)
-		.geohash(geohash)
-		.hashtags(hashtags)
-		.relayHints([relayUrl])
-		.contextReferences([contextCoordinate])
-		.modifyPublicTags(withDTag(datasetId))
-		.sign(signer)
+	const event = await buildCanonicalDatasetEvent({
+		signer,
+		datasetId,
+		featureCollection: fc,
+		hashtags,
+		contextCoordinate,
+		relayUrl,
+		blob,
+	})
 	await client.publish(event)
-	console.log(`  [dataset] ${datasetId} — ${fc.features.length} features, ~${sizeKB}KB`)
+	const sizeKB = Math.round(plan.contentBytes / 1024)
+	console.log(
+		`  [dataset] ${datasetId} — ${fc.features.length} features, ~${sizeKB}KB${blob ? ' (Blossom stub)' : ''}`,
+	)
 }
 
 // ── Sea Cables ────────────────────────────────────────────────────────────────
@@ -1933,6 +2177,8 @@ function isMissingDataError(err: unknown): boolean {
 export async function runCanonical(ctx: SeederContext): Promise<void> {
 	client = ctx.client
 	relayUrl = ctx.client.url
+	blossomServer = ctx.config.blossomServer
+	dryRun = ctx.config.dryRun
 
 	const only = ctx.config.only
 	if (only && !(CANONICAL_SEEDERS as readonly string[]).includes(only)) {
@@ -1942,6 +2188,7 @@ export async function runCanonical(ctx: SeederContext): Promise<void> {
 	const signer = ctx.owner.signer
 	const pubkey = ctx.owner.pubkey
 	console.log(`[seed_canonical] Relay: ${relayUrl}`)
+	console.log(`[seed_canonical] Blossom: ${blossomServer}`)
 	console.log(`[seed_canonical] Signing as ${pubkey.slice(0, 16)}... (${ctx.config.keySource})`)
 
 	for (const name of CANONICAL_SEEDERS) {

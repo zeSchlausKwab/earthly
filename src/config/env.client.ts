@@ -20,15 +20,19 @@
  * broadly via `readRelays`.
  */
 
+import { DEFAULT_MAPNOLIA_TRUSTED_PUBKEY } from './env.schema'
+
 const DEV_DEFAULTS = {
 	RELAY_URL: 'wss://relay.earthly.city',
 	SERVER_PUBKEY: 'ceadb7d5b739189fb3ecb7023a0c3f55d8995404d7750f5068865decf8b304cc',
-	CLIENT_KEY: '4e842ce1a820603c44f6ce3c4acd6527fdeb4898a9023d84bed51c1b4417eb5c',
 	BLOSSOM_SERVER: 'https://blossom.earthly.city',
+	MAPNOLIA_TRUSTED_PUBKEYS: DEFAULT_MAPNOLIA_TRUSTED_PUBKEY,
 } as const
 
 const LOCAL_DEV_RELAY_URL = 'ws://localhost:3334'
 const LOCAL_DEV_BLOSSOM_URL = 'http://localhost:3544'
+const LOCAL_DEV_CORDN_SERVER_PUBKEY =
+	'79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
 
 function safeEnv<T>(getValue: () => T, fallback: T): T {
 	try {
@@ -44,6 +48,15 @@ function parseRelayList(value: string): string[] {
 		.split(',')
 		.map((url) => url.trim())
 		.filter(Boolean)
+}
+
+function parsePublicKeyList(value: string): string[] {
+	return dedupe(
+		value
+			.split(',')
+			.map((key) => key.trim())
+			.filter((key) => /^[0-9a-f]{64}$/u.test(key)),
+	)
 }
 
 function getBrowserLocation(): Pick<Location, 'hostname' | 'protocol'> | null {
@@ -65,9 +78,9 @@ function isLoopbackHostname(hostname: string): boolean {
 	)
 }
 
-function isLoopbackRelayUrl(relayUrl: string): boolean {
+function isLoopbackUrl(value: string): boolean {
 	try {
-		return isLoopbackHostname(new URL(relayUrl).hostname)
+		return isLoopbackHostname(new URL(value).hostname)
 	} catch {
 		return false
 	}
@@ -106,7 +119,7 @@ function buildWriteRelays({
 		// Don't try to publish to ws:// from an https:// page (browser blocks it).
 		if (isHttps && url.startsWith('ws://')) return false
 		// Don't try to publish to a loopback relay from a non-local origin.
-		if (!isLocalOrigin && isLoopbackRelayUrl(url)) return false
+		if (!isLocalOrigin && isLoopbackUrl(url)) return false
 		return true
 	})
 
@@ -139,7 +152,7 @@ function buildReadRelays({
 
 	const canReadRelay = (url: string) => {
 		if (isHttps && url.startsWith('ws://')) return false
-		if (!isLocalOrigin && isLoopbackRelayUrl(url)) return false
+		if (!isLocalOrigin && isLoopbackUrl(url)) return false
 		return true
 	}
 
@@ -161,7 +174,13 @@ function buildBlossomServer({
 	if (isDevelopment && isLocalOrigin) {
 		return LOCAL_DEV_BLOSSOM_URL
 	}
-	return blossomServer
+	// A Tauri WebView is not the developer's machine. If a development build
+	// inherited .env's loopback server, localhost would point at the phone.
+	// Keep the local server only for an actual local browser origin.
+	if (!isLocalOrigin && isLoopbackUrl(blossomServer)) {
+		return DEV_DEFAULTS.BLOSSOM_SERVER
+	}
+	return blossomServer || DEV_DEFAULTS.BLOSSOM_SERVER
 }
 
 const relayUrl = safeEnv(() => process.env.RELAY_URL as string, DEV_DEFAULTS.RELAY_URL)
@@ -172,6 +191,13 @@ const blossomServer = safeEnv(
 )
 const isProduction = safeEnv(() => process.env.NODE_ENV === 'production', false)
 const isDevelopment = safeEnv(() => process.env.NODE_ENV !== 'production', true)
+const configuredCordnServerPubkey = safeEnv(() => process.env.CORDN_SERVER_PUBKEY as string, '')
+const trustedMapnoliaPubkeys = parsePublicKeyList(
+	safeEnv(
+		() => process.env.MAPNOLIA_TRUSTED_PUBKEYS as string,
+		DEV_DEFAULTS.MAPNOLIA_TRUSTED_PUBKEYS,
+	),
+)
 
 const writeRelays = buildWriteRelays({ relayUrl, isDevelopment })
 const readRelays = buildReadRelays({ writeRelays, relayUrl, extraReadRelays })
@@ -185,8 +211,14 @@ export const config = {
 	/** Public key of the ContextVM geo server */
 	serverPubkey: safeEnv(() => process.env.SERVER_PUBKEY as string, DEV_DEFAULTS.SERVER_PUBKEY),
 
-	/** Client private key for ContextVM communication */
-	clientKey: safeEnv(() => process.env.CLIENT_KEY as string, DEV_DEFAULTS.CLIENT_KEY),
+	/** Cordn-compatible coordinator used for MLS private maps. */
+	cordnServerPubkey:
+		isDevelopment && isLoopbackHostname(getBrowserLocation()?.hostname ?? '')
+			? LOCAL_DEV_CORDN_SERVER_PUBKEY
+			: configuredCordnServerPubkey,
+
+	/** Default delivery relay set. Invitations carry their selected set explicitly. */
+	cordnRelays: writeRelays,
 
 	/**
 	 * Relays this client publishes to. In dev: locked to the local relay.
@@ -213,6 +245,9 @@ export const config = {
 
 	/** Blossom server URL for fetching PMTiles chunks */
 	blossomServer: buildBlossomServer({ blossomServer, isDevelopment }),
+
+	/** Authors allowed to select remote Mapnolia layers and offline-region provenance. */
+	trustedMapnoliaPubkeys,
 
 	/** Whether running in production mode */
 	isProduction,

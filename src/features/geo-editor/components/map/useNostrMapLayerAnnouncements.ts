@@ -1,11 +1,22 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { config } from '@/config/env.client'
-import type { MapLayerSetAnnouncementPayload } from '@/lib/nostr/map-layer-set'
+import { useSavedRegionDeletionSync } from '@/features/offline/saved-regions/useSavedRegionDeletionSync'
+import {
+	normalizeMapLayerMirrors,
+	parseMapLayerSetContent,
+	selectLatestTrustedMapLayerSet,
+} from '@/lib/nostr/map-layer-set/trust'
 import { MAP_LAYER_SET_KIND } from '@/lib/nostr/kinds'
 import { useTimeline } from '@/lib/nostr/hooks'
+import {
+	getCachedMapLayerSetInvalidationRevision,
+	isMapLayerSetEventDeleted,
+	readCachedMapLayerSet,
+	subscribeCachedMapLayerSetInvalidation,
+	writeCachedMapLayerSet,
+} from '@/lib/nostr/map-layer-set/cache'
 import { useEditorStore, type MapLayerState } from '../../store'
-import { PMTiles } from 'pmtiles'
-import { pmtilesCache, setPmworldState } from './pmtilesProtocols'
+import { getMirroredPmtiles, setPmworldState } from './pmtilesProtocols'
 import type { AnnouncementRecord, MapSource } from './types'
 
 /**
@@ -24,30 +35,64 @@ export function useNostrMapLayerAnnouncements(mapSource: MapSource): number | nu
 
 	// IMPORTANT: pre-applesauce NDK required at least one filter; we always
 	// subscribe and only *use* the result when mapSource.type === 'blossom'.
-	const mapLayerSetEvents = useTimeline([{ kinds: [MAP_LAYER_SET_KIND], limit: 50 }])
+	const mapLayerSetEvents = useTimeline([
+		{
+			kinds: [MAP_LAYER_SET_KIND],
+			authors:
+				config.trustedMapnoliaPubkeys.length > 0
+					? [...config.trustedMapnoliaPubkeys]
+					: ['0'.repeat(64)],
+			limit: 50,
+		},
+	])
+	const cacheInvalidationRevision = useSyncExternalStore(
+		subscribeCachedMapLayerSetInvalidation,
+		getCachedMapLayerSetInvalidationRevision,
+		getCachedMapLayerSetInvalidationRevision,
+	)
+	const cachedLayerSetEvent = useMemo(() => {
+		void cacheInvalidationRevision
+		return readCachedMapLayerSet(config.trustedMapnoliaPubkeys)
+	}, [cacheInvalidationRevision])
+	const deletionCandidates = useMemo(
+		() => (cachedLayerSetEvent ? [...mapLayerSetEvents, cachedLayerSetEvent] : mapLayerSetEvents),
+		[mapLayerSetEvents, cachedLayerSetEvent],
+	)
+	const announcementDeletionSync = useSavedRegionDeletionSync(
+		deletionCandidates,
+		mapSource.type === 'blossom' && deletionCandidates.length > 0,
+	)
+	const visibleMapLayerSetEvents = useMemo(() => {
+		void cacheInvalidationRevision
+		if (!announcementDeletionSync.localReady) return []
+		return mapLayerSetEvents.filter((event) => !isMapLayerSetEventDeleted(event))
+	}, [mapLayerSetEvents, cacheInvalidationRevision, announcementDeletionSync.localReady])
+	const locallyCheckedCachedLayerSetEvent = announcementDeletionSync.localReady
+		? cachedLayerSetEvent
+		: null
 
 	// Stable "latest event" so our effect doesn't re-trigger on every render.
-	const latestLayerSetEvent = useMemo(() => {
-		let best: (typeof mapLayerSetEvents)[number] | null = null
-		for (const ev of mapLayerSetEvents) {
-			if (!best) {
-				best = ev
-				continue
-			}
-			const a = ev.created_at ?? 0
-			const b = best.created_at ?? 0
-			if (a > b) {
-				best = ev
-			} else if (a === b) {
-				const aid = ev.id ?? ''
-				const bid = best.id ?? ''
-				if (aid > bid) best = ev
-			}
-		}
-		return best ?? null
-	}, [mapLayerSetEvents])
+	const latestLayerSetEvent = useMemo(
+		() =>
+			selectLatestTrustedMapLayerSet(
+				locallyCheckedCachedLayerSetEvent
+					? [...visibleMapLayerSetEvents, locallyCheckedCachedLayerSetEvent]
+					: visibleMapLayerSetEvents,
+				config.trustedMapnoliaPubkeys,
+			),
+		[visibleMapLayerSetEvents, locallyCheckedCachedLayerSetEvent],
+	)
 
 	const latestLayerSetContent = latestLayerSetEvent?.content ?? null
+	const payload = useMemo(
+		() => (latestLayerSetContent ? parseMapLayerSetContent(latestLayerSetContent) : null),
+		[latestLayerSetContent],
+	)
+
+	useEffect(() => {
+		if (!latestLayerSetEvent) return
+		writeCachedMapLayerSet(latestLayerSetEvent, config.trustedMapnoliaPubkeys)
+	}, [latestLayerSetEvent])
 
 	useEffect(() => {
 		const { setMapLayers, setAnnouncementSource } = useEditorStore.getState()
@@ -65,26 +110,17 @@ export function useNostrMapLayerAnnouncements(mapSource: MapSource): number | nu
 			const getTag = (key: string) =>
 				latestLayerSetEvent.tags?.find((t: string[]) => t[0] === key)?.[1] ?? null
 			setAnnouncementSource({
+				eventId: latestLayerSetEvent.id ?? null,
 				name: getTag('name'),
 				about: getTag('about'),
 				pubkey: latestLayerSetEvent.pubkey ?? null,
 				createdAt: latestLayerSetEvent.created_at ?? null,
+				trusted: true,
 			})
 		} else {
 			setAnnouncementSource(null)
 		}
 
-		let payload: MapLayerSetAnnouncementPayload | null = null
-		if (latestLayerSetContent) {
-			try {
-				const parsed = JSON.parse(latestLayerSetContent) as Partial<MapLayerSetAnnouncementPayload>
-				if (parsed && Array.isArray(parsed.layers)) {
-					payload = parsed as MapLayerSetAnnouncementPayload
-				}
-			} catch {
-				payload = null
-			}
-		}
 		const chunkedVectorLayer = payload?.layers.find((l) => l.kind === 'chunked-vector') ?? null
 
 		const announcement = (
@@ -93,29 +129,30 @@ export function useNostrMapLayerAnnouncements(mapSource: MapSource): number | nu
 				: null
 		) as AnnouncementRecord | null
 
-		const announcedServer =
-			chunkedVectorLayer &&
-			'blossomServer' in chunkedVectorLayer &&
-			typeof chunkedVectorLayer.blossomServer === 'string'
-				? chunkedVectorLayer.blossomServer.trim()
-				: undefined
-
-		// Prefer announced server, fall back to config default.
-		const blossomServer = announcedServer || config.blossomServer
-		setPmworldState({ blossomServer })
+		const blossomServers = chunkedVectorLayer
+			? normalizeMapLayerMirrors(chunkedVectorLayer, config.blossomServer)
+			: [config.blossomServer]
+		setPmworldState({ blossomServers })
 
 		// Populate layer state for UI
 		if (payload?.layers) {
-			const layerStates: MapLayerState[] = payload.layers.map((layer) => ({
-				id: layer.id,
-				title: layer.title,
-				kind: layer.kind,
-				enabled: layer.defaultEnabled ?? true,
-				opacity: layer.defaultOpacity ?? 1,
-				blossomServer: 'blossomServer' in layer ? layer.blossomServer : undefined,
-				file: 'file' in layer ? layer.file : undefined,
-				pmtilesType: 'pmtilesType' in layer ? layer.pmtilesType : undefined,
-			}))
+			const layerStates: MapLayerState[] = payload.layers.map((layer) => {
+				const signedBlossomServers = normalizeMapLayerMirrors(layer)
+				const runtimeBlossomServers = normalizeMapLayerMirrors(layer, config.blossomServer)
+				return {
+					id: layer.id,
+					title: layer.title,
+					kind: layer.kind,
+					enabled: layer.defaultEnabled ?? true,
+					opacity: layer.defaultOpacity ?? 1,
+					blossomServer: runtimeBlossomServers[0],
+					blossomServers: runtimeBlossomServers,
+					signedBlossomServers,
+					file: 'file' in layer ? layer.file : undefined,
+					pmtilesType: 'pmtilesType' in layer ? layer.pmtilesType : undefined,
+					announcement: 'announcement' in layer ? layer.announcement : undefined,
+				}
+			})
 			setMapLayers(layerStates)
 		} else {
 			setMapLayers([])
@@ -158,12 +195,7 @@ export function useNostrMapLayerAnnouncements(mapSource: MapSource): number | nu
 
 				// Probe first PMTiles file for actual maxZoom
 				try {
-					const pmtilesUrl = `${blossomServer}/${firstRecord.file}`
-					let pm = pmtilesCache[pmtilesUrl]
-					if (!pm) {
-						pm = new PMTiles(pmtilesUrl)
-						pmtilesCache[pmtilesUrl] = pm
-					}
+					const pm = getMirroredPmtiles(firstRecord.file, blossomServers)
 					const header = await pm.getHeader()
 					if (cancelled) return
 
@@ -193,7 +225,7 @@ export function useNostrMapLayerAnnouncements(mapSource: MapSource): number | nu
 		return () => {
 			cancelled = true
 		}
-	}, [mapSource.type, latestLayerSetContent, latestLayerSetEvent])
+	}, [mapSource.type, latestLayerSetEvent, payload])
 
 	return tileSourceMaxZoom
 }

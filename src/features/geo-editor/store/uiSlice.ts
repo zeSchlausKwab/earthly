@@ -17,6 +17,9 @@ export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set) =
 	mobilePanelOpen: false,
 	mobilePanelTab: 'sightings',
 	mobilePanelSnap: 'peek',
+	mobileSidebarOpen: false,
+	mobileSidebarMode: 'menu',
+	mobilePanelResumeOnSidebarClose: null,
 	inspectorActive: false,
 	sidebarViewMode: DEFAULT_SIDEBAR_VIEW,
 	sidebarExpanded: false,
@@ -53,20 +56,59 @@ export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set) =
 			mobileSearchOpen: state === 'search',
 			mobileActionsOpen: state === 'actions',
 		}),
-	setMobilePanelOpen: (open) =>
-		set((state) => ({
-			mobilePanelOpen: open,
-			mobilePanelSnap: open ? 'peek' : state.mobilePanelSnap,
-		})),
+	setMobilePanelOpen: (mobilePanelOpen) => set({ mobilePanelOpen }),
 	setMobilePanelTab: (tab) => set({ mobilePanelTab: tab }),
 	setMobilePanelSnap: (mobilePanelSnap) => set({ mobilePanelSnap }),
 	openMobilePanel: (tab) =>
 		set((state) => ({
 			mobilePanelOpen: true,
 			mobilePanelTab: tab ?? state.mobilePanelTab,
-			mobilePanelSnap: 'peek',
+			mobilePanelSnap: 'half',
+			mobileSidebarOpen: false,
+			mobilePanelResumeOnSidebarClose: null,
 		})),
 	closeMobilePanel: () => set({ mobilePanelOpen: false }),
+	openMobileSidebar: (tab) =>
+		set((state) => ({
+			mobileSidebarOpen: true,
+			mobileSidebarMode: tab ? 'content' : 'menu',
+			mobilePanelTab: tab ?? state.mobilePanelTab,
+			mobilePanelResumeOnSidebarClose: state.mobilePanelOpen
+				? { tab: state.mobilePanelTab, snap: state.mobilePanelSnap }
+				: null,
+			mobilePanelOpen: false,
+		})),
+	showMobileSidebarMenu: () =>
+		set({
+			mobileSidebarOpen: true,
+			mobileSidebarMode: 'menu',
+			mobilePanelResumeOnSidebarClose: null,
+			mobilePanelOpen: false,
+		}),
+	selectMobileSidebarDestination: (mobilePanelTab) =>
+		set({
+			mobileSidebarOpen: true,
+			mobileSidebarMode: 'content',
+			mobilePanelTab,
+			mobilePanelResumeOnSidebarClose: null,
+			mobilePanelOpen: false,
+		}),
+	closeMobileSidebar: () =>
+		set((state) => {
+			const resume = state.mobilePanelResumeOnSidebarClose
+			return {
+				mobileSidebarOpen: false,
+				mobileSidebarMode: 'menu',
+				mobilePanelResumeOnSidebarClose: null,
+				...(resume
+					? {
+							mobilePanelOpen: true,
+							mobilePanelTab: resume.tab,
+							mobilePanelSnap: 'peek' as const,
+						}
+					: {}),
+			}
+		}),
 	setInspectorActive: (active) => set({ inspectorActive: active }),
 	setSidebarViewMode: (mode) => set({ sidebarViewMode: mode }),
 	setSettingsTab: (settingsTab) => set({ settingsTab }),

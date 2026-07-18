@@ -1,7 +1,13 @@
 import maplibregl from 'maplibre-gl'
 import { PMTiles, Protocol, TileType } from 'pmtiles'
 import { config } from '@/config/env.client'
+import { isTauri } from '@/config/platform'
+import {
+	MirrorPmtilesSource,
+	type LocalPmtilesAccessProvider,
+} from '@/lib/mapnolia/MirrorPmtilesSource'
 import { lonLatToWorldGeohash, tileCenterLonLat } from '@/lib/worldGeohash'
+import { getLocalNodeService } from '@/platform/registry'
 import type { AnnouncementRecord } from './types'
 
 /**
@@ -20,11 +26,29 @@ const pmworldState = {
 	announcement: null as AnnouncementRecord | null,
 	precision: 1,
 	maxZoom: 8,
-	blossomServer: config.blossomServer as string,
+	blossomServers: [config.blossomServer] as string[],
 }
 
 /** Cache for PMTiles instances. Shared across remounts (intentional). */
 export const pmtilesCache: Record<string, PMTiles> = {}
+
+function nativeLocalBlobAccess(file: string): LocalPmtilesAccessProvider | undefined {
+	if (!isTauri()) return undefined
+	const hash = file.match(/^([0-9a-f]{64})(?:\.pmtiles)?$/u)?.[1]
+	if (!hash) return undefined
+	return async () => (await getLocalNodeService()).localBlobAccess(hash)
+}
+
+export function getMirroredPmtiles(file: string, blossomServers: readonly string[]): PMTiles {
+	const source = new MirrorPmtilesSource(file, blossomServers, nativeLocalBlobAccess(file))
+	const key = source.getKey()
+	let pmtiles = pmtilesCache[key]
+	if (!pmtiles) {
+		pmtiles = new PMTiles(source)
+		pmtilesCache[key] = pmtiles
+	}
+	return pmtiles
+}
 
 let pmworldProtocolRegistered = false
 let pmtilesProtocolRegistered = false
@@ -90,12 +114,7 @@ export function ensurePmtilesProtocolsRegistered(): void {
 			const record = findLongestPrefixMatch(pmworldState.announcement, gh)
 			if (!record) return { data: new Uint8Array() }
 
-			const pmtilesUrl = `${pmworldState.blossomServer}/${record.file}`
-			let pm = pmtilesCache[pmtilesUrl]
-			if (!pm) {
-				pm = new PMTiles(pmtilesUrl)
-				pmtilesCache[pmtilesUrl] = pm
-			}
+			const pm = getMirroredPmtiles(record.file, pmworldState.blossomServers)
 
 			const header = await pm.getHeader()
 			const resp = await pm.getZxy(z, x, y, abortController.signal)
@@ -119,11 +138,16 @@ export function setPmworldState(next: {
 	precision?: number
 	maxZoom?: number
 	blossomServer?: string
+	blossomServers?: string[]
 }): void {
 	if (next.announcement !== undefined) pmworldState.announcement = next.announcement
 	if (next.precision !== undefined) pmworldState.precision = next.precision
 	if (next.maxZoom !== undefined) pmworldState.maxZoom = next.maxZoom
-	if (next.blossomServer !== undefined) pmworldState.blossomServer = next.blossomServer
+	if (next.blossomServers !== undefined && next.blossomServers.length > 0) {
+		pmworldState.blossomServers = [...next.blossomServers]
+	} else if (next.blossomServer !== undefined) {
+		pmworldState.blossomServers = [next.blossomServer]
+	}
 }
 
 export function getPmworldMaxZoom(): number {

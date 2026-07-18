@@ -1,0 +1,78 @@
+# Pinned crates.io manifest for Earthly's documented 0.44.1 compatibility patch.
+# Upstream examples and development-only dependencies are intentionally omitted.
+
+[package]
+edition = "2021"
+rust-version = "1.70.0"
+name = "nostr-relay-builder"
+version = "0.44.1"
+authors = [
+    "Yuki Kishimoto <yukikishimoto@protonmail.com>",
+    "Rust Nostr Developers",
+]
+build = false
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "Build your own custom nostr relay!"
+homepage = "https://github.com/rust-nostr/nostr"
+readme = "README.md"
+keywords = [
+    "nostr",
+    "relay",
+    "builder",
+]
+license = "MIT"
+repository = "https://github.com/rust-nostr/nostr.git"
+
+[features]
+default = []
+tor = ["async-wsocket/tor-launch-service"]
+
+[lib]
+name = "nostr_relay_builder"
+path = "src/lib.rs"
+
+[dependencies.async-utility]
+version = "0.3"
+
+[dependencies.async-wsocket]
+version = "0.13"
+
+[dependencies.atomic-destructor]
+version = "0.3"
+default-features = false
+
+[dependencies.hex]
+version = "0.4"
+features = ["std"]
+default-features = false
+
+[dependencies.negentropy]
+version = "0.5"
+features = ["std"]
+default-features = false
+
+[dependencies.nostr]
+version = "0.44"
+features = ["std"]
+default-features = false
+
+[dependencies.nostr-database]
+version = "0.44"
+default-features = false
+
+[dependencies.tokio]
+version = ">=1.37"
+features = [
+    "macros",
+    "net",
+    "sync",
+]
+default-features = false
+
+[dependencies.tracing]
+version = "0.1"
+default-features = false

@@ -11,9 +11,11 @@ set -e
 echo "🏗️  Building Earthly for production..."
 echo ""
 
-# Load environment variables
-# Priority: .env.production > .env
-if [ -f .env.production ]; then
+# A signed Android release preloads its validated public configuration in the
+# parent process so Cargo and the nested frontend build compile the same values.
+if [ "${EARTHLY_PUBLIC_ENV_PRELOADED:-}" = "1" ]; then
+    echo "📋 Using preloaded public application environment"
+elif [ -f .env.production ]; then
     echo "📋 Loading environment from .env.production"
     set -a
     source .env.production
@@ -28,6 +30,14 @@ else
 fi
 
 echo ""
+
+if [ "${EARTHLY_PUBLIC_ENV_PRELOADED:-}" = "1" ]; then
+    : # The Android release wrapper already validated its public environment.
+elif [ -f .env.production ]; then
+    bun --env-file=.env.production scripts/validate-production-env.ts
+elif [ "${NODE_ENV:-}" = "production" ]; then
+    bun scripts/validate-production-env.ts
+fi
 
 # Build the frontend (build.ts validates env and shows config)
 bun run build.ts

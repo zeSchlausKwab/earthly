@@ -1,4 +1,5 @@
 import type { BBox } from '@/lib/worldGeohash'
+import type { PmtilesKind } from '@/lib/localPmtiles'
 
 /**
  * Map source spec preserved verbatim from the pre-mapcn implementation.
@@ -15,6 +16,10 @@ export interface MapSource {
 	location: 'remote' | 'local'
 	url?: string
 	file?: File
+	/** Native content-addressed archive selected from Earthly's local blob store. */
+	localBlobHash?: string
+	/** Header-derived rendering mode; raster archives cannot use the Protomaps vector style. */
+	pmtilesKind?: PmtilesKind
 	/** Base URL for fetching PMTiles chunks (used with blossom map discovery) */
 	blossomServer?: string
 	/** Lock map zoom/pan to the bounds of the PMTiles source */

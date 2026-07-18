@@ -1,5 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
+import {
+	getLocalBlobRevision,
+	LOCAL_BLOBS_CHANGED_EVENT,
+	type LocalBlobsChangedDetail,
+} from '@/platform/registry'
 
 interface UseBlobResolutionParams {
 	geoEvents: GeoDataset[]
@@ -15,7 +20,31 @@ export function useBlobResolution({
 	onResolved,
 }: UseBlobResolutionParams) {
 	const processedBlobEventsRef = useRef<Set<string>>(new Set())
+	const [localBlobRevision, setLocalBlobRevision] = useState(getLocalBlobRevision)
 
+	useEffect(() => {
+		const handleLocalBlobsChanged = (event: Event) => {
+			const detail = (event as CustomEvent<LocalBlobsChangedDetail>).detail
+			const changed = new Set(detail?.hashes ?? [])
+			for (const dataset of geoEvents) {
+				if (
+					dataset.id &&
+					dataset.blobReferences.some(
+						(reference) => reference.sha256 && changed.has(reference.sha256.toLowerCase()),
+					)
+				) {
+					processedBlobEventsRef.current.delete(dataset.id)
+				}
+			}
+			setLocalBlobRevision(detail?.revision ?? getLocalBlobRevision())
+		}
+		window.addEventListener(LOCAL_BLOBS_CHANGED_EVENT, handleLocalBlobsChanged)
+		return () => window.removeEventListener(LOCAL_BLOBS_CHANGED_EVENT, handleLocalBlobsChanged)
+	}, [geoEvents])
+
+	// The revision is an explicit invalidation token: its value is not read by the resolver, but a
+	// change must rerun this effect after matching processed IDs are removed above.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: localBlobRevision intentionally invalidates resolved blob work
 	useEffect(() => {
 		let cancelled = false
 		const eventsToProcess = geoEvents.filter(
@@ -51,5 +80,5 @@ export function useBlobResolution({
 		return () => {
 			cancelled = true
 		}
-	}, [geoEvents, ensureResolvedFeatureCollection, isMountedRef, onResolved])
+	}, [geoEvents, ensureResolvedFeatureCollection, isMountedRef, localBlobRevision, onResolved])
 }

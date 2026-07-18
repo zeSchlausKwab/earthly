@@ -1,8 +1,7 @@
 import { useActiveAccount } from 'applesauce-react/hooks'
+import { castEvent } from 'applesauce-core/casts'
 import {
-	Activity,
 	BookOpen,
-	Compass,
 	Database,
 	Download,
 	Eye,
@@ -10,10 +9,13 @@ import {
 	Hexagon,
 	Lock,
 	LockOpen,
+	Layers,
+	Map as MapIcon,
 	MapPin,
 	MapPinned,
 	MessageSquare,
 	MessageSquareOff,
+	Menu,
 	MousePointer2,
 	PanelTopOpen,
 	Plus,
@@ -23,14 +25,14 @@ import {
 	Spline,
 	Trash2,
 	Undo2,
-	User,
 	Waypoints,
 } from 'lucide-react'
-import type { Geometry } from 'geojson'
+import type { FeatureCollection, Geometry } from 'geojson'
 import type maplibregl from 'maplibre-gl'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { AppSidebar } from '@/components/AppSidebar'
+import type { LocalDraftDestinationOption } from '@/components/WorkspaceDraftNavigator'
 import { ControlButton, ControlGroup } from '@/components/ui/map'
 import { BlossomUploadDialog } from '@/components/BlossomUploadDialog'
 import { DebugDialog } from '@/components/DebugDialog'
@@ -57,7 +59,7 @@ import { useBeacons } from '@/lib/hooks/useBeacons'
 import { RunningBeaconBanner } from '@/components/RunningBeaconBanner'
 import type { LiveBeacon } from '@/lib/nostr/live-beacon'
 import { formatExpiryCountdown } from '@/lib/nostr/temporal-sighting'
-import { nip19 } from 'nostr-tools'
+import { nip19, type NostrEvent } from 'nostr-tools'
 import type { Article } from '@/lib/nostr/article'
 import { ARTICLE_KIND, LIVE_BEACON_KIND } from '@/lib/nostr/kinds'
 import { isExpired } from '@/lib/nostr/expiry'
@@ -65,9 +67,40 @@ import { unixNow } from 'applesauce-core/helpers/time'
 import { deleteStory } from '@/lib/nostr/story'
 import { deleteSighting, type TemporalSighting } from '@/lib/nostr/temporal-sighting'
 import { bboxFromGeometry } from '@/lib/geo/bbox'
-import type { GeoDataset } from '@/lib/nostr/geo-event'
+import { GeoDataset } from '@/lib/nostr/geo-event'
 import { type MapContext, deleteMapContext } from '@/lib/nostr/map-context'
-import { accounts } from '@/lib/nostr'
+import { accounts, eventStore } from '@/lib/nostr'
+import {
+	privateWorkspaceIdForDataset,
+	projectPrivateWorkspaceDatasets,
+} from '@/lib/private-workspace'
+import { usePrivateWorkspaceRuntime } from '@/features/private-maps/usePrivateWorkspaceRuntime'
+import { normalizePairingInvitation } from '@/features/offline/pairingQr'
+import { useSavedRegionDeletionSync } from '@/features/offline/saved-regions/useSavedRegionDeletionSync'
+import { useSavedRegionHydration } from '@/features/offline/saved-regions/useSavedRegionHydration'
+import type { DeletionTarget } from '@/lib/nostr/deletionCache'
+import { navigateToEarthlyAppLinkInPlace } from '@/platform/nativeAppLink'
+import { useFieldSessions } from '@/features/field-sessions/model'
+import {
+	fieldSessionDatasetFactory,
+	fieldSessionIdForEvent,
+	latestFieldSessionDatasetEvents,
+} from '@/features/field-sessions/events'
+import { useFieldSessionTransport } from '@/features/field-sessions/useFieldSessionTransport'
+import {
+	fieldDatasetStackEntryId,
+	planFieldDatasetStackReconciliation,
+} from '@/features/field-sessions/fieldDatasetStack'
+import {
+	consumePendingNativeDeepLink,
+	getPendingNativeDeepLink,
+	NATIVE_DEEP_LINK_EVENT,
+	type NativeDeepLinkDetail,
+} from '@/platform/registry'
+import {
+	planPrivateDatasetStackReconciliation,
+	privateDatasetStackEntryId,
+} from '@/features/private-maps/privateDatasetStack'
 import {
 	defaultContextFilterMode,
 	getContextCoordinate,
@@ -88,7 +121,7 @@ import { ImportOsmDialog } from './components/ImportOsmDialog'
 import { LocationInspectorPopup } from './components/LocationInspectorPopup'
 import { Magnifier } from './components/Magnifier'
 import { MapFeatureHoverOverlay } from './components/MapFeatureHoverOverlay'
-import { DETENT_VH, MobilePanel, type MobilePanelTab } from './components/MobilePanel'
+import { mobilePanelHeightPx, MobilePanel } from './components/MobilePanel'
 import { MobileToolMenu } from './components/MobileToolMenu'
 import { CommentAnnotationPopup } from './components/CommentAnnotationPopup'
 import type { CommentAnnotationPopupData } from './components/CommentAnnotationPopup'
@@ -101,7 +134,14 @@ import { GeoEditorMap as MapComponent } from './components/map'
 import { OsmResultsPanel } from './components/OsmResultsPanel'
 import { StudioStatusBar } from './components/StudioStatusBar'
 import { Toolbar } from './components/Toolbar'
-import type { EditorEvent, EditorFeature } from './core'
+import { CurrentDestinationPill } from './components/CurrentDestinationPill'
+import {
+	canUploadToPublicBlossom,
+	publishChannelMatchesDatasetScope,
+	resolveAuthoringDestination,
+	resolveAuthoringPublishChannel,
+} from './components/authoringDestination'
+import type { EditorEvent, EditorFeature, EditorMode } from './core'
 import {
 	MAGNIFIER_SIZE,
 	useBlobResolution,
@@ -125,11 +165,11 @@ import {
 } from './hooks'
 import { exportShapefile, importShapefile } from './shapefile'
 import { getGeoJsonPasteCandidate } from './geoJsonPaste'
-import { useEditorStore, type MapStackEntry } from './store'
-import { mobileTabToView } from './store/mobileTabRoute'
+import { useEditorStore, type MapStackEntry, type PublishChannel } from './store'
 import type { MapStackEntryType } from './store/types'
 import type { GeoSearchResult } from './types'
 import { ensureFeatureCollection, extractCollectionMeta, toEditorFeature } from './utils'
+import { getMobileDrawingGuidance, isDrawingEditorMode } from './mobileDrawingGuidance'
 
 /**
  * Phase 13 (SPEC §3.2): derive the stack-gated render set for an ephemeral entity
@@ -229,9 +269,76 @@ export function shouldSweepStackEntry(status: { resolved: boolean; expired: bool
 	return !status.resolved || status.expired
 }
 
+const NO_SAVED_REGION_EVENTS: readonly NostrEvent[] = []
+
+function SavedRegionDeletionMonitor({
+	regionId,
+	targets,
+}: {
+	regionId: string
+	targets: readonly DeletionTarget[]
+}) {
+	const sync = useSavedRegionDeletionSync(NO_SAVED_REGION_EVENTS, targets.length > 0, targets)
+	useEffect(() => {
+		if (!sync.error) return
+		toast.warning('Saved-area deletion monitoring is paused', {
+			id: `saved-region-deletion-sync-${regionId}`,
+			description: sync.error,
+		})
+	}, [regionId, sync.error])
+	return null
+}
+
 export function GeoEditorView() {
+	const savedRegionHydration = useSavedRegionHydration()
+	useEffect(() => {
+		if (savedRegionHydration.state === 'ready' && savedRegionHydration.missing > 0) {
+			toast.warning('Some saved Earthly content is incomplete', {
+				id: 'saved-region-content-incomplete',
+				description: `${savedRegionHydration.missing} signed ${savedRegionHydration.missing === 1 ? 'record is' : 'records are'} missing or damaged. The saved map remains available; replace the affected saved area while online to restore its content.`,
+			})
+		} else if (
+			savedRegionHydration.state === 'ready' &&
+			savedRegionHydration.deferredRegionIds.length > 0
+		) {
+			toast.info('Some saved Earthly content was left unloaded', {
+				id: 'saved-region-content-deferred',
+				description: `${savedRegionHydration.deferredRegionIds.length} saved ${savedRegionHydration.deferredRegionIds.length === 1 ? 'area exceeded' : 'areas exceeded'} the safe startup memory budget. Their map files remain available offline.`,
+			})
+		} else if (savedRegionHydration.state === 'failed') {
+			toast.error('Saved Earthly content could not be restored', {
+				id: 'saved-region-content-hydration-failed',
+				description: savedRegionHydration.message,
+			})
+		}
+	}, [savedRegionHydration])
 	const map = useRef<maplibregl.Map | null>(null)
 	const [mounted, setMounted] = useState(false)
+	const {
+		route,
+		navigateTo,
+		navigateToContext,
+		navigateToView,
+		navigateToUnscopedView,
+		navigateToPrivateGroup,
+		navigateToFieldSession,
+		clearFocus,
+		clearContextScope,
+		encodeGeoEventNaddr,
+		encodeContextNaddr,
+		isFocused,
+		contextNaddr,
+		contextCoordinate,
+		userPubkey,
+		privateGroupId,
+		fieldSessionId,
+		commentId: focusCommentId,
+	} = useRouting()
+	const {
+		account: privateWorkspaceAccount,
+		runtime: privateWorkspaceRuntime,
+		snapshot: privateWorkspaceSnapshot,
+	} = usePrivateWorkspaceRuntime()
 
 	// Query-by-view (Map Stack header toggle): viewport relay geo queries on
 	// pan/zoom feeding the stack's "Geo query" section. Reads its own enabled
@@ -261,8 +368,6 @@ export function GeoEditorView() {
 	const setChatOpen = useEditorStore((state) => state.setChatOpen)
 	const toggleChat = useEditorStore((state) => state.toggleChat)
 
-	// Drawing mode state
-	const [isDrawingMode] = useState(false)
 	const [, setShowToolbar] = useState(true)
 	const mapContainerRef = useRef<HTMLDivElement>(null)
 
@@ -356,8 +461,19 @@ export function GeoEditorView() {
 	const setContextMapScopeMode = useEditorStore((state) => state.setContextMapScopeMode)
 	const setContextFilterMode = useEditorStore((state) => state.setContextFilterMode)
 	const activeDataset = useEditorStore((state) => state.activeDataset)
+	const setActiveDataset = useEditorStore((state) => state.setActiveDataset)
+	const setIsDirty = useEditorStore((state) => state.setIsDirty)
 	const activeDatasetContextRefs = useEditorStore((state) => state.activeDatasetContextRefs)
 	const setActiveDatasetContextRefs = useEditorStore((state) => state.setActiveDatasetContextRefs)
+	const activeDraftPublishChannel = useEditorStore((state) => {
+		const activeDraftId = state.activeGeoEditDraftId
+		return activeDraftId ? (state.geoEditDrafts[activeDraftId]?.publishChannel ?? null) : null
+	})
+	const activeWorkspaceDatasetKey = useEditorStore((state) => {
+		const workspace = state.activeWorkspaceId ? state.workspaces[state.activeWorkspaceId] : null
+		return workspace?.datasetKey ?? null
+	})
+	const stance = useEditorStore((state) => state.stance)
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 	const mapStackOrder = useEditorStore((state) => state.mapStackOrder)
 	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
@@ -366,6 +482,17 @@ export function GeoEditorView() {
 	const setMapStackEntryExclusions = useEditorStore((state) => state.setMapStackEntryExclusions)
 	const removeMapStackEntry = useEditorStore((state) => state.removeMapStackEntry)
 	const clearMapStack = useEditorStore((state) => state.clearMapStack)
+	const dismissedPrivateDatasetIdsByAccountRef = useRef(new Map<string, Set<string>>())
+	const dismissedPrivateDatasetIds = useCallback(() => {
+		const accountKey = privateWorkspaceAccount?.pubkey ?? 'signed-out'
+		let ids = dismissedPrivateDatasetIdsByAccountRef.current.get(accountKey)
+		if (!ids) {
+			ids = new Set<string>()
+			dismissedPrivateDatasetIdsByAccountRef.current.set(accountKey, ids)
+		}
+		return ids
+	}, [privateWorkspaceAccount?.pubkey])
+	const dismissedFieldDatasetIdsRef = useRef(new Set<string>())
 	const setCollectionMeta = useEditorStore((state) => state.setCollectionMeta)
 	const hydrateEditorSessionForPubkey = useEditorStore(
 		(state) => state.hydrateEditorSessionForPubkey,
@@ -380,13 +507,21 @@ export function GeoEditorView() {
 	const mobilePanelSnap = useEditorStore((state) => state.mobilePanelSnap)
 	const setMobilePanelOpen = useEditorStore((state) => state.setMobilePanelOpen)
 	const setMobilePanelSnap = useEditorStore((state) => state.setMobilePanelSnap)
-	const setMobilePanelTab = useEditorStore((state) => state.setMobilePanelTab)
+	const mobileSidebarOpen = useEditorStore((state) => state.mobileSidebarOpen)
+	const openMobileSidebar = useEditorStore((state) => state.openMobileSidebar)
+	const selectMobileSidebarDestination = useEditorStore(
+		(state) => state.selectMobileSidebarDestination,
+	)
+	const closeMobileSidebar = useEditorStore((state) => state.closeMobileSidebar)
+	const setMobileSearchOpen = useEditorStore((state) => state.setMobileSearchOpen)
 	// Mobile Tools/Search/Actions toggles are no longer used — the responsive
 	// toolbar replaces them. Store fields stay for backward compat.
 	const panLocked = useEditorStore((state) => state.panLocked)
 	const setPanLocked = useEditorStore((state) => state.setPanLocked)
 	const canFinishDrawing = useEditorStore((state) => state.canFinishDrawing)
 	const currentMode = useEditorStore((state) => state.mode)
+	const isDrawingMode = isDrawingEditorMode(currentMode)
+	const lastMobileDrawGuideRef = useRef<EditorMode | null>(null)
 	const mapSource = useEditorStore((state) => state.mapSource)
 	const inspectorActive = useEditorStore((state) => state.inspectorActive)
 	const mapSourceKey = useMemo(() => {
@@ -402,6 +537,119 @@ export function GeoEditorView() {
 
 	// External data
 	const { events: geoEvents } = useGeoDatasets()
+	const fieldSessions = useFieldSessions()
+	const localDraftDestinationOptions = useMemo<LocalDraftDestinationOption[]>(
+		() => [
+			{
+				id: 'public',
+				label: 'Public',
+				publishChannel: { kind: 'public' },
+			},
+			...privateWorkspaceSnapshot.workspaces
+				.filter((workspace) => workspace.status === 'active')
+				.map((workspace) => ({
+					id: `private-group:${workspace.workspaceId}`,
+					label: `Private · ${workspace.metadata?.name || workspace.workspaceId.slice(0, 8)}`,
+					publishChannel: {
+						kind: 'private-group' as const,
+						id: workspace.workspaceId,
+					},
+				})),
+			...fieldSessions
+				.filter((session) => session.state === 'active')
+				.map((session) => ({
+					id: `field-session:${session.id}`,
+					label: `Nearby · ${session.name}`,
+					publishChannel: { kind: 'field-session' as const, id: session.id },
+				})),
+		],
+		[privateWorkspaceSnapshot.workspaces, fieldSessions],
+	)
+	const routePublishChannel = useMemo<PublishChannel>(
+		() =>
+			privateGroupId
+				? { kind: 'private-group', id: privateGroupId }
+				: fieldSessionId
+					? { kind: 'field-session', id: fieldSessionId }
+					: { kind: 'public' },
+		[privateGroupId, fieldSessionId],
+	)
+	// Once a local draft exists, its persisted channel is authoritative. The URL
+	// only suggests a channel for a draft that has not been created yet.
+	const authoringPublishChannel = resolveAuthoringPublishChannel(
+		activeDraftPublishChannel,
+		routePublishChannel,
+	)
+	const authoringPrivateGroupId =
+		authoringPublishChannel.kind === 'private-group' ? authoringPublishChannel.id : undefined
+	const authoringFieldSessionId =
+		authoringPublishChannel.kind === 'field-session' ? authoringPublishChannel.id : undefined
+	const draftChannelOwnsMapScope = stance === 'author' && Boolean(activeDraftPublishChannel)
+	const privateWorkspaceScopeId = draftChannelOwnsMapScope
+		? authoringPrivateGroupId
+		: privateGroupId
+	const fieldSessionScopeId = draftChannelOwnsMapScope ? authoringFieldSessionId : fieldSessionId
+	const fieldSession = useMemo(
+		() => fieldSessions.find((session) => session.id === fieldSessionScopeId),
+		[fieldSessionScopeId, fieldSessions],
+	)
+	const authoringFieldSession = useMemo(
+		() => fieldSessions.find((session) => session.id === authoringFieldSessionId),
+		[authoringFieldSessionId, fieldSessions],
+	)
+	const authoringFieldSessionWritable = Boolean(
+		authoringFieldSession &&
+			(authoringFieldSession.role !== 'participant' || authoringFieldSession.allowPeerWrites),
+	)
+	const datasetPublishMode =
+		authoringPublishChannel.kind === 'private-group'
+			? 'private'
+			: authoringPublishChannel.kind === 'field-session'
+				? 'field'
+				: authoringPublishChannel.kind === 'unresolved'
+					? 'private'
+					: 'public'
+	const fieldTransport = useFieldSessionTransport(fieldSession)
+	const fieldGeoEvents = useMemo(
+		() =>
+			fieldSessionScopeId
+				? latestFieldSessionDatasetEvents(fieldTransport.events, fieldSessionScopeId).map((event) =>
+						castEvent(event, GeoDataset, eventStore),
+					)
+				: [],
+		[fieldSessionScopeId, fieldTransport.events],
+	)
+	const privateWorkspace = useMemo(
+		() =>
+			privateWorkspaceScopeId
+				? privateWorkspaceSnapshot.workspaces.find(
+						(workspace) => workspace.workspaceId === privateWorkspaceScopeId,
+					)
+				: undefined,
+		[privateWorkspaceScopeId, privateWorkspaceSnapshot.workspaces],
+	)
+	const authoringPrivateWorkspace = useMemo(
+		() =>
+			authoringPrivateGroupId
+				? privateWorkspaceSnapshot.workspaces.find(
+						(workspace) => workspace.workspaceId === authoringPrivateGroupId,
+					)
+				: undefined,
+		[authoringPrivateGroupId, privateWorkspaceSnapshot.workspaces],
+	)
+	const privateWorkspaceId = privateWorkspace?.workspaceId
+	const privateGeoEvents = useMemo(
+		() => (privateWorkspace ? projectPrivateWorkspaceDatasets(privateWorkspace) : []),
+		[privateWorkspace],
+	)
+	const mapGeoEvents = useMemo(
+		() => [...geoEvents, ...privateGeoEvents, ...fieldGeoEvents],
+		[geoEvents, privateGeoEvents, fieldGeoEvents],
+	)
+	useEffect(() => {
+		if (!privateWorkspaceRuntime || !privateWorkspaceScopeId || !privateWorkspaceId) return
+		return privateWorkspaceRuntime.watchWorkspace(privateWorkspaceScopeId)
+	}, [privateWorkspaceRuntime, privateWorkspaceScopeId, privateWorkspaceId])
 	const { events: mapContextEvents } = useMapContexts()
 	// Groups (kind 37518, slimmed) the contributor can `c`-attach to (GROUP-02).
 	const { events: groups } = useGroups()
@@ -480,6 +728,51 @@ export function GeoEditorView() {
 	const currentUserPubkey = currentUser?.pubkey ?? null
 	const isMobile = useIsMobile()
 	const mapPopupToolbarOffset = 112
+
+	useEffect(() => {
+		if (!isMobile || !isDrawingMode) {
+			lastMobileDrawGuideRef.current = null
+			return
+		}
+		if (panLocked || lastMobileDrawGuideRef.current === currentMode) return
+
+		lastMobileDrawGuideRef.current = currentMode
+		const description = getMobileDrawingGuidance(currentMode)
+		if (!description) return
+		toast.info('Lock panning to draw', {
+			id: 'mobile-pan-lock-guide',
+			description,
+			duration: 7_000,
+		})
+	}, [currentMode, isDrawingMode, isMobile, panLocked])
+
+	// Native URLs are navigation, not alternate trust paths. Custom pairing URLs
+	// reveal the existing approval UI. A verified public Earthly URL is reduced to
+	// its path/query and applied inside the existing Tauri WebView. Keeping the
+	// WebView alive prevents Android's retained cold-launch URL from winning a
+	// reload race after a newer warm App Link arrives.
+	useEffect(() => {
+		const openNativeUrl = (url: string) => {
+			if (normalizePairingInvitation(url)) {
+				setSettingsTab('offline')
+				navigateToView('settings')
+				if (isMobile) selectMobileSidebarDestination('settings')
+				return
+			}
+			if (navigateToEarthlyAppLinkInPlace(url)) {
+				consumePendingNativeDeepLink(url)
+				return
+			}
+			consumePendingNativeDeepLink(url)
+		}
+		const pending = getPendingNativeDeepLink()
+		if (pending) openNativeUrl(pending)
+		const onNativeLink = (event: Event) => {
+			openNativeUrl((event as CustomEvent<NativeDeepLinkDetail>).detail.url)
+		}
+		window.addEventListener(NATIVE_DEEP_LINK_EVENT, onNativeLink)
+		return () => window.removeEventListener(NATIVE_DEEP_LINK_EVENT, onNativeLink)
+	}, [isMobile, navigateToView, selectMobileSidebarDestination, setSettingsTab])
 
 	const clearAnnotationPopupHideTimeout = useCallback(() => {
 		if (annotationPopupHideTimeoutRef.current !== null) {
@@ -605,34 +898,24 @@ export function GeoEditorView() {
 		}
 	}, [isMobile, selectionCount, openMobilePanel, setMobilePanelSnap])
 
-	// Mobile §14a: keep a live map inset above the sheet — pad the camera by the
-	// active detent's height (in px) so recenters/fitBounds keep the edited
-	// geometry visible above the drawer. Desktop clears the padding.
+	// Keep camera moves and MapLibre attribution above the exact live sheet
+	// height. The old percentage approximation disagreed with the fixed peek
+	// detent and let the sheet cover both geometry and attribution.
 	useEffect(() => {
 		const mapInstance = map.current
-		if (!mapInstance || !mounted) return
 		const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 0
 		const rawBottom =
-			isMobile && mobilePanelOpen
-				? Math.round((DETENT_VH[mobilePanelSnap] / 100) * viewportHeight)
-				: 0
+			isMobile && mobilePanelOpen ? Math.round(mobilePanelHeightPx(mobilePanelSnap)) : 0
+		mapContainerRef.current?.style.setProperty('--mobile-sheet-height', `${rawBottom}px`)
+		if (!mapInstance || !mounted) return
 		// Never pad away the whole map — keep a usable strip so MapLibre always has
 		// a positive padded viewport to center within.
 		const bottom = Math.max(0, Math.min(rawBottom, viewportHeight - 80))
 		mapInstance.easeTo({ padding: { top: 0, right: 0, bottom, left: 0 }, duration: 200 })
-	}, [isMobile, mobilePanelOpen, mobilePanelSnap, mounted])
-
-	// Mobile §14a: the bottom sheet is the universal panel container — always
-	// present at peek minimum, never a toggled popover. Keep it open on mobile.
-	// Double-check the CURRENT store value, not just the render snapshot: on a
-	// deep-link mount the route-restore (applyRouteState) opens the sheet at
-	// 'half' between this effect's render and its run, and re-calling
-	// setMobilePanelOpen(true) would reset that snap back to 'peek'.
-	useEffect(() => {
-		if (isMobile && !mobilePanelOpen && !useEditorStore.getState().mobilePanelOpen) {
-			setMobilePanelOpen(true)
+		return () => {
+			mapContainerRef.current?.style.setProperty('--mobile-sheet-height', '0px')
 		}
-	}, [isMobile, mobilePanelOpen, setMobilePanelOpen])
+	}, [isMobile, mobilePanelOpen, mobilePanelSnap, mounted])
 
 	// Custom hooks
 	const {
@@ -649,50 +932,214 @@ export function GeoEditorView() {
 		switchToWorkspace,
 		deleteWorkspace,
 		createDraftInWorkspace,
+		loadDraftInWorkspace,
+		deleteDraftInWorkspace,
 		tearDownEditSession,
-		startNewDataset: startNewDatasetBase,
-	} = useDatasetManagement(map, geoEvents)
+		startNewDataset: startNewDatasetWithOptions,
+	} = useDatasetManagement(map, mapGeoEvents)
 
-	// Workflow audit P1: starting a dataset at world zoom invites accidental
-	// continent-scale shapes. If geolocation is ALREADY granted, fly to the
-	// user's area (never triggers a new permission prompt); otherwise nudge
-	// them to pick an area before drawing. The hard guardrail (the span
-	// warning on create) lives in Editor.tsx.
-	const nudgeToLocalDrawExtent = useCallback(() => {
-		const mapInstance = map.current
-		if (!mapInstance || mapInstance.getZoom() >= 8) return
-		const hint = () =>
-			toast.info('Zoom into your area before drawing', {
-				description:
-					'You are viewing the whole world — shapes drawn at this scale come out kilometers wide.',
-			})
-		if (typeof navigator === 'undefined' || !navigator.permissions?.query) {
-			hint()
-			return
-		}
-		navigator.permissions
-			.query({ name: 'geolocation' })
-			.then((status) => {
-				if (status.state !== 'granted') {
-					hint()
-					return
-				}
-				navigator.geolocation.getCurrentPosition(
-					(pos) =>
-						mapInstance.flyTo({
-							center: [pos.coords.longitude, pos.coords.latitude],
-							zoom: 13,
-						}),
-					() => hint(),
-				)
-			})
-			.catch(() => hint())
-	}, [])
+	const surfaceDraftOnMobile = useCallback(() => {
+		if (!isMobile) return
+		closeMobileSidebar()
+		openMobilePanel('map-stack')
+		setMobilePanelSnap('half')
+	}, [closeMobileSidebar, isMobile, openMobilePanel, setMobilePanelSnap])
 
 	const startNewDataset = useCallback(() => {
-		startNewDatasetBase()
-		nudgeToLocalDrawExtent()
-	}, [startNewDatasetBase, nudgeToLocalDrawExtent])
+		startNewDatasetWithOptions({ publishChannel: routePublishChannel })
+		if (useEditorStore.getState().activeGeoEditDraftId) surfaceDraftOnMobile()
+	}, [routePublishChannel, startNewDatasetWithOptions, surfaceDraftOnMobile])
+
+	const syncRouteToDraftChannel = useCallback(
+		(publishChannel: PublishChannel | null) => {
+			if (publishChannel?.kind === 'private-group') {
+				if (privateGroupId !== publishChannel.id) {
+					navigateToPrivateGroup(publishChannel.id)
+				}
+				return
+			}
+			if (publishChannel?.kind === 'field-session') {
+				if (fieldSessionId !== publishChannel.id) {
+					navigateToFieldSession(publishChannel.id)
+				}
+				return
+			}
+			if (privateGroupId || fieldSessionId) {
+				navigateToUnscopedView('drafts')
+			}
+		},
+		[
+			fieldSessionId,
+			navigateToFieldSession,
+			navigateToPrivateGroup,
+			navigateToUnscopedView,
+			privateGroupId,
+		],
+	)
+
+	const readActiveWorkspaceDraftChannel = useCallback((workspaceId: string) => {
+		const state = useEditorStore.getState()
+		if (state.activeWorkspaceId !== workspaceId) return null
+		const workspace = state.workspaces[workspaceId]
+		const draftId = workspace?.activeDraftId ?? state.activeGeoEditDraftId
+		return draftId ? (state.geoEditDrafts[draftId]?.publishChannel ?? null) : null
+	}, [])
+
+	const handleSwitchWorkspace = useCallback(
+		async (workspaceId: string) => {
+			await switchToWorkspace(workspaceId, { publishChannel: routePublishChannel })
+			syncRouteToDraftChannel(readActiveWorkspaceDraftChannel(workspaceId))
+			if (readActiveWorkspaceDraftChannel(workspaceId)) surfaceDraftOnMobile()
+		},
+		[
+			readActiveWorkspaceDraftChannel,
+			routePublishChannel,
+			surfaceDraftOnMobile,
+			switchToWorkspace,
+			syncRouteToDraftChannel,
+		],
+	)
+
+	const handleAddDraftToWorkspace = useCallback(
+		async (workspaceId: string) => {
+			await createDraftInWorkspace(workspaceId, { publishChannel: routePublishChannel })
+			syncRouteToDraftChannel(readActiveWorkspaceDraftChannel(workspaceId))
+			if (readActiveWorkspaceDraftChannel(workspaceId)) surfaceDraftOnMobile()
+		},
+		[
+			createDraftInWorkspace,
+			readActiveWorkspaceDraftChannel,
+			routePublishChannel,
+			surfaceDraftOnMobile,
+			syncRouteToDraftChannel,
+		],
+	)
+
+	const handleLoadDraft = useCallback(
+		(workspaceId: string, draftId: string) => {
+			loadDraftInWorkspace(workspaceId, draftId)
+			syncRouteToDraftChannel(readActiveWorkspaceDraftChannel(workspaceId))
+			if (readActiveWorkspaceDraftChannel(workspaceId)) surfaceDraftOnMobile()
+		},
+		[
+			loadDraftInWorkspace,
+			readActiveWorkspaceDraftChannel,
+			surfaceDraftOnMobile,
+			syncRouteToDraftChannel,
+		],
+	)
+
+	const handleDeleteDraft = useCallback(
+		(workspaceId: string, draftId: string) => {
+			const before = useEditorStore.getState()
+			const workspace = before.workspaces[workspaceId]
+			const deletingActiveDraft =
+				before.activeWorkspaceId === workspaceId &&
+				(workspace?.activeDraftId === draftId || before.activeGeoEditDraftId === draftId)
+			deleteDraftInWorkspace(workspaceId, draftId)
+			if (!deletingActiveDraft) return
+			syncRouteToDraftChannel(readActiveWorkspaceDraftChannel(workspaceId))
+		},
+		[deleteDraftInWorkspace, readActiveWorkspaceDraftChannel, syncRouteToDraftChannel],
+	)
+
+	const handleDeleteWorkspace = useCallback(
+		async (workspaceId: string) => {
+			const wasActive = useEditorStore.getState().activeWorkspaceId === workspaceId
+			await deleteWorkspace(workspaceId)
+			if (!wasActive) return
+			const nextWorkspaceId = useEditorStore.getState().activeWorkspaceId
+			syncRouteToDraftChannel(
+				nextWorkspaceId ? readActiveWorkspaceDraftChannel(nextWorkspaceId) : null,
+			)
+		},
+		[deleteWorkspace, readActiveWorkspaceDraftChannel, syncRouteToDraftChannel],
+	)
+
+	const handleResolveDraftDestination = useCallback(
+		(workspaceId: string, draftId: string, publishChannel: PublishChannel) => {
+			const state = useEditorStore.getState()
+			const workspace = state.workspaces[workspaceId]
+			const draft = state.geoEditDrafts[draftId]
+			if (!workspace || !draft || draft.sourceId !== workspace.sourceId) return
+			state.saveGeoEditDraft(draftId, { publishChannel })
+			if (
+				state.activeWorkspaceId === workspaceId &&
+				(workspace.activeDraftId === draftId || state.activeGeoEditDraftId === draftId)
+			) {
+				syncRouteToDraftChannel(publishChannel)
+			}
+			toast.success('Draft destination set', {
+				description:
+					publishChannel.kind === 'public'
+						? 'This draft can now be published publicly.'
+						: publishChannel.kind === 'private-group'
+							? 'This draft will be saved to the selected private group.'
+							: 'This draft will be shared with the selected field session.',
+			})
+		},
+		[syncRouteToDraftChannel],
+	)
+
+	const loadDatasetForCurrentChannel = useCallback(
+		(event: GeoDataset) => {
+			const privateWorkspaceId = privateWorkspaceIdForDataset(event)
+			const nearbySessionId = fieldSessionIdForEvent(event.event)
+			const publishChannel: PublishChannel = privateWorkspaceId
+				? { kind: 'private-group', id: privateWorkspaceId }
+				: nearbySessionId
+					? { kind: 'field-session', id: nearbySessionId }
+					: { kind: 'public' }
+			return loadDatasetForEditing(event, { publishChannel })
+		},
+		[loadDatasetForEditing],
+	)
+
+	const activeDatasetKey = useMemo(
+		() => (activeDataset ? getDatasetKey(activeDataset) : null),
+		[activeDataset, getDatasetKey],
+	)
+	const activeDatasetMatchesDraftChannel = useMemo(() => {
+		if (!activeDataset || !activeDraftPublishChannel) return false
+		return publishChannelMatchesDatasetScope(activeDraftPublishChannel, {
+			privateGroupId: privateWorkspaceIdForDataset(activeDataset) ?? undefined,
+			fieldSessionId: fieldSessionIdForEvent(activeDataset.event) ?? undefined,
+		})
+	}, [activeDataset, activeDraftPublishChannel])
+	const draftSourceIdentityPending = Boolean(
+		activeDraftPublishChannel &&
+			activeWorkspaceDatasetKey &&
+			(activeDatasetKey !== activeWorkspaceDatasetKey || !activeDatasetMatchesDraftChannel),
+	)
+	const draftSourceCandidates = useMemo(() => {
+		if (activeDraftPublishChannel?.kind === 'private-group') return privateGeoEvents
+		if (activeDraftPublishChannel?.kind === 'field-session') return fieldGeoEvents
+		if (activeDraftPublishChannel?.kind === 'public') return geoEvents
+		return []
+	}, [activeDraftPublishChannel, fieldGeoEvents, geoEvents, privateGeoEvents])
+
+	// Local drafts can be opened from the unscoped /drafts route before their
+	// private-group or Field-session event is in the current map collection.
+	// Once the persisted channel activates that scope, restore the original
+	// dataset identity without replacing the draft's saved geometry or metadata.
+	// Publishing stays blocked while the source is unresolved, so an update can
+	// never be mistaken for a new dataset during this short hand-off.
+	useEffect(() => {
+		if (!activeWorkspaceDatasetKey || !draftSourceIdentityPending) return
+		const sourceDataset = draftSourceCandidates.find(
+			(event) => getDatasetKey(event) === activeWorkspaceDatasetKey,
+		)
+		if (!sourceDataset) return
+		setActiveDataset(sourceDataset)
+		setIsDirty(true)
+	}, [
+		activeWorkspaceDatasetKey,
+		draftSourceCandidates,
+		draftSourceIdentityPending,
+		getDatasetKey,
+		setActiveDataset,
+		setIsDirty,
+	])
 
 	// Plan 13-06 (UAT test 5b — kill the add-to-stack phantom): a per-entry
 	// RESOLVED-ENTITY cache. `addBeaconToMapStack`/`addSightingToMapStack` deposit the
@@ -725,6 +1172,136 @@ export function GeoEditorView() {
 		},
 		[addMapStackEntry, getDatasetKey, getDatasetName],
 	)
+
+	const addPrivateDatasetToMapStack = useCallback(
+		(event: GeoDataset) => {
+			const workspaceId = privateWorkspaceIdForDataset(event) ?? privateWorkspaceScopeId
+			if (!workspaceId) return
+			const datasetKey = getDatasetKey(event)
+			const id = privateDatasetStackEntryId(workspaceId, datasetKey)
+			dismissedPrivateDatasetIds().delete(id)
+			const existing = useEditorStore.getState().mapStackEntries[id]
+			addMapStackEntry({
+				id,
+				entityType: 'dataset',
+				entityKey: datasetKey,
+				title: getDatasetName(event),
+				source: 'private-group',
+				visible: existing?.visible ?? true,
+				pinned: existing?.pinned ?? false,
+				isolated: existing?.isolated,
+				exclusions: existing?.exclusions,
+			})
+		},
+		[
+			privateWorkspaceScopeId,
+			getDatasetKey,
+			getDatasetName,
+			addMapStackEntry,
+			dismissedPrivateDatasetIds,
+		],
+	)
+
+	// A private-group route is an encrypted map scope. New decrypted datasets are
+	// added once, while existing Map Stack state remains user-owned. Explicitly
+	// removed entries stay dismissed until the Geometry tab adds them again.
+	useEffect(() => {
+		const stack = useEditorStore.getState()
+		const plan = planPrivateDatasetStackReconciliation({
+			workspaceId: privateWorkspaceScopeId,
+			datasets: privateGeoEvents.map((dataset) => ({
+				datasetKey: getDatasetKey(dataset),
+				title: getDatasetName(dataset),
+			})),
+			entries: stack.mapStackEntries,
+			order: stack.mapStackOrder,
+			dismissedIds: dismissedPrivateDatasetIds(),
+		})
+
+		for (const id of plan.remove) removeMapStackEntry(id)
+		for (const item of plan.upsert) {
+			addMapStackEntry({
+				id: item.id,
+				entityType: 'dataset',
+				entityKey: item.datasetKey,
+				title: item.title,
+				source: 'private-group',
+				visible: item.existing?.visible ?? true,
+				pinned: item.existing?.pinned ?? false,
+				isolated: item.existing?.isolated,
+				exclusions: item.existing?.exclusions,
+			})
+		}
+	}, [
+		privateWorkspaceScopeId,
+		privateGeoEvents,
+		getDatasetKey,
+		getDatasetName,
+		addMapStackEntry,
+		removeMapStackEntry,
+		dismissedPrivateDatasetIds,
+	])
+
+	const addFieldDatasetToMapStack = useCallback(
+		(event: GeoDataset) => {
+			if (!fieldSessionScopeId) return
+			const datasetKey = getDatasetKey(event)
+			const id = fieldDatasetStackEntryId(fieldSessionScopeId, datasetKey)
+			dismissedFieldDatasetIdsRef.current.delete(id)
+			const existing = useEditorStore.getState().mapStackEntries[id]
+			addMapStackEntry({
+				id,
+				entityType: 'dataset',
+				entityKey: datasetKey,
+				title: getDatasetName(event),
+				source: 'field-session',
+				visible: existing?.visible ?? true,
+				pinned: existing?.pinned ?? false,
+				isolated: existing?.isolated,
+				exclusions: existing?.exclusions,
+			})
+		},
+		[fieldSessionScopeId, getDatasetKey, getDatasetName, addMapStackEntry],
+	)
+
+	// Nearby datasets follow the same non-resurrection contract as private
+	// geometry: new records appear once, while an explicit Map Stack removal is
+	// remembered until the user adds the dataset again from the Field session.
+	useEffect(() => {
+		const stack = useEditorStore.getState()
+		const plan = planFieldDatasetStackReconciliation({
+			sessionId: fieldSessionScopeId,
+			datasets: fieldGeoEvents.map((dataset) => ({
+				datasetKey: getDatasetKey(dataset),
+				title: getDatasetName(dataset),
+			})),
+			entries: stack.mapStackEntries,
+			order: stack.mapStackOrder,
+			dismissedIds: dismissedFieldDatasetIdsRef.current,
+		})
+
+		for (const id of plan.remove) removeMapStackEntry(id)
+		for (const item of plan.upsert) {
+			addMapStackEntry({
+				id: item.id,
+				entityType: 'dataset',
+				entityKey: item.datasetKey,
+				title: item.title,
+				source: 'field-session',
+				visible: item.existing?.visible ?? true,
+				pinned: item.existing?.pinned ?? false,
+				isolated: item.existing?.isolated,
+				exclusions: item.existing?.exclusions,
+			})
+		}
+	}, [
+		fieldSessionScopeId,
+		fieldGeoEvents,
+		getDatasetKey,
+		getDatasetName,
+		addMapStackEntry,
+		removeMapStackEntry,
+	])
 
 	// Phase 13 (SPEC §3.4): put an individual Sighting on the Map Stack, mirroring
 	// addDatasetToMapStack. entityKey = naddr (dTag/id fallback) — the SAME key the
@@ -823,9 +1400,36 @@ export function GeoEditorView() {
 				tearDownEditSession()
 				return
 			}
+			if (entry.source === 'private-group') {
+				dismissedPrivateDatasetIds().add(entry.id)
+			}
+			if (entry.source === 'field-session') {
+				dismissedFieldDatasetIdsRef.current.add(entry.id)
+			}
 			removeMapStackEntry(entry.id)
 		},
-		[removeMapStackEntry, tearDownEditSession],
+		[removeMapStackEntry, tearDownEditSession, dismissedPrivateDatasetIds],
+	)
+
+	const removePrivateDatasetFromMapStack = useCallback(
+		(event: GeoDataset) => {
+			const workspaceId = privateWorkspaceIdForDataset(event) ?? privateWorkspaceScopeId
+			if (!workspaceId) return
+			const id = privateDatasetStackEntryId(workspaceId, getDatasetKey(event))
+			const entry = useEditorStore.getState().mapStackEntries[id]
+			if (entry) removeFromMapStack(entry)
+		},
+		[privateWorkspaceScopeId, getDatasetKey, removeFromMapStack],
+	)
+
+	const removeFieldDatasetFromMapStack = useCallback(
+		(event: GeoDataset) => {
+			if (!fieldSessionScopeId) return
+			const id = fieldDatasetStackEntryId(fieldSessionScopeId, getDatasetKey(event))
+			const entry = useEditorStore.getState().mapStackEntries[id]
+			if (entry) removeFromMapStack(entry)
+		},
+		[fieldSessionScopeId, getDatasetKey, removeFromMapStack],
 	)
 
 	/**
@@ -847,10 +1451,14 @@ export function GeoEditorView() {
 	)
 
 	const clearMapStackAndVisibility = useCallback(() => {
+		const stack = useEditorStore.getState()
+		for (const id of stack.mapStackOrder) {
+			if (stack.mapStackEntries[id]?.source === 'private-group') {
+				dismissedPrivateDatasetIds().add(id)
+			}
+		}
 		clearMapStack()
-	}, [clearMapStack])
-
-	const stance = useEditorStore((state) => state.stance)
+	}, [clearMapStack, dismissedPrivateDatasetIds])
 
 	// Entering the author stance (a geometry draft) surfaces the Map Stack panel —
 	// the draft entry there hosts the editor forms (editor-in-Map-Stack). Mobile
@@ -868,13 +1476,12 @@ export function GeoEditorView() {
 		prevStanceRef.current = stance
 		if (stance !== 'author' || wasAuthor) return
 		if (isMobile) {
-			setMobilePanelTab('map-stack')
-			setMobilePanelOpen(true)
+			openMobilePanel('map-stack')
 			setMobilePanelSnap('half')
 			return
 		}
 		setMapStackOpen(true)
-	}, [isMobile, stance, setMobilePanelTab, setMobilePanelOpen, setMobilePanelSnap, setMapStackOpen])
+	}, [isMobile, stance, openMobilePanel, setMobilePanelSnap, setMapStackOpen])
 
 	// Round C.5: stack ⇄ URL serialization. Read URL params on mount once data
 	// is loaded; afterwards push stack mutations back to the URL (debounced via
@@ -986,7 +1593,7 @@ export function GeoEditorView() {
 			const shareableEntries = mapStackOrder
 				.map((id) => mapStackEntries[id])
 				.filter((entry): entry is MapStackEntry => Boolean(entry))
-				.filter((entry) => entry.entityType !== 'draft')
+				.filter((entry) => entry.entityType !== 'draft' && entry.source !== 'private-group')
 			const tokens = shareableEntries.map((entry) => `${entry.entityType}:${entry.entityKey}`)
 			if (tokens.length > 0) {
 				params.set('ms', tokens.join(','))
@@ -1089,23 +1696,75 @@ export function GeoEditorView() {
 	const setBlossomUploadDialogOpen = useEditorStore((state) => state.setBlossomUploadDialogOpen)
 	const pendingPublishCollection = useEditorStore((state) => state.pendingPublishCollection)
 
-	// Routing hook for URL-based focus mode. Declared before usePublishing so the
-	// publish success paths can land on the published entity's canonical route.
-	const {
-		route,
-		navigateTo,
-		navigateToContext,
-		navigateToView,
-		clearFocus,
-		clearContextScope,
-		encodeGeoEventNaddr,
-		encodeContextNaddr,
-		isFocused,
-		contextNaddr,
-		contextCoordinate,
-		userPubkey,
-		commentId: focusCommentId,
-	} = useRouting()
+	const publishPrivateDataset = useCallback(
+		async (
+			collection: import('geojson').FeatureCollection,
+			options?: { datasetId?: string; name?: string },
+		) => {
+			if (!privateWorkspaceRuntime || !authoringPrivateGroupId) {
+				throw new Error('The private group is not available in this browser profile')
+			}
+			const envelope = await privateWorkspaceRuntime.perform((service) =>
+				service.sendDataset(authoringPrivateGroupId, collection, options),
+			)
+			const workspace = privateWorkspaceRuntime
+				.getSnapshot()
+				.workspaces.find((item) => item.workspaceId === authoringPrivateGroupId)
+			const dataset = workspace
+				? projectPrivateWorkspaceDatasets(workspace).find((item) => item.event.id === envelope.id)
+				: undefined
+			if (!dataset) throw new Error('The encrypted dataset could not be opened after saving')
+			return dataset
+		},
+		[privateWorkspaceRuntime, authoringPrivateGroupId],
+	)
+	const publishFieldDataset = useCallback(
+		async (
+			collection: FeatureCollection,
+			options?: { datasetId?: string; name?: string; previous?: GeoDataset },
+		) => {
+			if (!authoringFieldSession || !authoringFieldSessionId) {
+				throw new Error('The Field session is not available on this device')
+			}
+			if (authoringFieldSession.role === 'participant' && !authoringFieldSession.allowPeerWrites) {
+				throw new Error('This Field session is read-only on participant phones')
+			}
+			const signer = accounts.signer
+			if (!signer) throw new Error('Sign in before saving nearby geometry')
+
+			let factory = fieldSessionDatasetFactory(
+				collection,
+				authoringFieldSessionId,
+				options?.previous,
+			)
+			if (options?.datasetId && !options.previous) {
+				factory = factory.modifyPublicTags((tags) => [
+					...tags.filter((tag) => tag[0] !== 'd'),
+					['d', options.datasetId as string],
+				])
+			}
+			const signed = (await factory.sign(signer)) as NostrEvent
+			if (fieldSessionIdForEvent(signed) !== authoringFieldSessionId) {
+				throw new Error('The nearby dataset lost its Field-session scope before signing')
+			}
+			await fieldTransport.publishEvent(signed)
+			return castEvent(signed, GeoDataset, eventStore)
+		},
+		[authoringFieldSession, authoringFieldSessionId, fieldTransport.publishEvent],
+	)
+	const navigateToEntityFocus = useCallback(
+		(
+			focusType: 'geoevent' | 'mapcontext',
+			naddr: string,
+			sidebarView?: 'datasets' | 'contexts',
+		) => {
+			// Projected private datasets have no public naddr route. Keep inspection
+			// inside /privategroup/:id so opening a map row cannot drop the MLS scope.
+			if ((privateWorkspaceScopeId || fieldSessionScopeId) && focusType === 'geoevent') return
+			navigateTo(focusType, naddr, sidebarView)
+		},
+		[privateWorkspaceScopeId, fieldSessionScopeId, navigateTo],
+	)
 
 	const {
 		handlePublishNew,
@@ -1120,13 +1779,29 @@ export function GeoEditorView() {
 		canPublishCopy,
 		canProposeEdit,
 	} = usePublishing({
-		currentUserPubkey,
+		currentUserPubkey: currentUserPubkey ?? undefined,
 		getDatasetName,
 		getDatasetKey,
 		groups,
 		resolvedCollectionResolver,
 		navigateTo,
 		encodeGeoEventNaddr,
+		privateWorkspaceId: authoringPrivateGroupId,
+		publishPrivateDataset:
+			authoringPrivateGroupId && authoringPrivateWorkspace && privateWorkspaceRuntime
+				? publishPrivateDataset
+				: undefined,
+		fieldSessionId: authoringFieldSessionId,
+		publishFieldDataset:
+			authoringFieldSessionId && authoringFieldSessionWritable ? publishFieldDataset : undefined,
+		publishBoundaryResolved:
+			authoringPublishChannel.kind !== 'unresolved' && !draftSourceIdentityPending,
+		publishBoundaryMessage:
+			authoringPublishChannel.kind === 'unresolved'
+				? 'Choose a destination before publishing this legacy draft.'
+				: draftSourceIdentityPending
+					? 'Wait for Earthly to restore the original dataset before publishing this draft.'
+					: undefined,
 	})
 
 	/**
@@ -1206,9 +1881,9 @@ export function GeoEditorView() {
 		handleInspectDatasetWithoutFocus,
 		handleOpenDebug,
 	} = useViewMode({
-		geoEvents,
+		geoEvents: mapGeoEvents,
 		onEnsureInfoPanelVisible: ensureInfoPanelVisible,
-		onNavigateToFocus: navigateTo,
+		onNavigateToFocus: navigateToEntityFocus,
 		onClearRouteFocus: clearFocus,
 		onZoomToDataset: zoomToDataset,
 	})
@@ -1260,6 +1935,164 @@ export function GeoEditorView() {
 			}) ?? null
 		)
 	}, [focusedType, focusedNaddr, mapContextEvents, encodeContextNaddr])
+
+	const destinationContextCoordinate =
+		authoringPublishChannel.kind === 'public'
+			? activeDraftPublishChannel
+				? (activeDatasetContextRefs[0] ?? null)
+				: (contextCoordinate ?? null)
+			: null
+	const destinationContext = useMemo(
+		() =>
+			destinationContextCoordinate
+				? (mapContextEvents.find(
+						(context) => getContextCoordinate(context) === destinationContextCoordinate,
+					) ?? null)
+				: null,
+		[destinationContextCoordinate, mapContextEvents],
+	)
+	const destinationContextNaddr = useMemo(() => {
+		if (destinationContext) return encodeContextNaddr(destinationContext)
+		if (!destinationContextCoordinate) return null
+		const [kindValue, pubkey, ...identifierParts] = destinationContextCoordinate.split(':')
+		const identifier = identifierParts.join(':')
+		const kind = Number.parseInt(kindValue ?? '', 10)
+		if (!Number.isFinite(kind) || !pubkey || !identifier) return null
+		try {
+			return nip19.naddrEncode({ kind, pubkey, identifier })
+		} catch {
+			return null
+		}
+	}, [destinationContext, destinationContextCoordinate, encodeContextNaddr])
+	const currentDestination = useMemo(() => {
+		if (authoringPublishChannel.kind === 'unresolved') {
+			return resolveAuthoringDestination({
+				publishChannel: 'unresolved',
+				reason: authoringPublishChannel.reason,
+				canLeave: true,
+			})
+		}
+		if (authoringPublishChannel.kind === 'private-group') {
+			return resolveAuthoringDestination({
+				publishChannel: 'private-group',
+				group: {
+					id: authoringPublishChannel.id,
+					label: authoringPrivateWorkspace?.metadata?.name,
+					availability: authoringPrivateWorkspace ? 'available' : 'unavailable',
+				},
+				canLeave: true,
+			})
+		}
+		if (authoringPublishChannel.kind === 'field-session') {
+			return resolveAuthoringDestination({
+				publishChannel: 'field-session',
+				session: {
+					id: authoringPublishChannel.id,
+					label: authoringFieldSession?.name,
+					availability: authoringFieldSessionWritable ? 'available' : 'unavailable',
+				},
+				canLeave: true,
+			})
+		}
+
+		return resolveAuthoringDestination({
+			publishChannel: 'public',
+			context: destinationContextCoordinate
+				? {
+						id: destinationContextCoordinate,
+						label: `${
+							destinationContext?.context.name ||
+							destinationContext?.contextId ||
+							destinationContext?.dTag ||
+							'Unnamed context'
+						}${activeDatasetContextRefs.length > 1 ? ` +${activeDatasetContextRefs.length - 1}` : ''}`,
+						availability: destinationContext ? 'available' : 'unavailable',
+					}
+				: null,
+			canLeave: Boolean(destinationContextCoordinate),
+		})
+	}, [
+		authoringPublishChannel,
+		authoringPrivateWorkspace,
+		authoringFieldSession,
+		authoringFieldSessionWritable,
+		destinationContextCoordinate,
+		destinationContext,
+		activeDatasetContextRefs.length,
+	])
+
+	const openCurrentDestination = useCallback(() => {
+		if (currentDestination.kind === 'unresolved') {
+			navigateToUnscopedView('drafts')
+			if (isMobile) selectMobileSidebarDestination('drafts')
+			return
+		}
+		if (currentDestination.kind === 'private-group') {
+			navigateToPrivateGroup(currentDestination.target.id)
+			if (isMobile) selectMobileSidebarDestination('private-groups')
+			return
+		}
+		if (currentDestination.kind === 'field-session') {
+			navigateToFieldSession(currentDestination.target.id)
+			if (isMobile) selectMobileSidebarDestination('field-sessions')
+			return
+		}
+		if (currentDestination.kind === 'public-context' && destinationContextNaddr) {
+			navigateToContext(destinationContextNaddr, 'contexts')
+			if (isMobile) selectMobileSidebarDestination('contexts')
+			return
+		}
+		navigateToView('contexts')
+		if (isMobile) selectMobileSidebarDestination('contexts')
+	}, [
+		currentDestination,
+		destinationContextNaddr,
+		isMobile,
+		navigateToContext,
+		navigateToFieldSession,
+		navigateToPrivateGroup,
+		navigateToUnscopedView,
+		navigateToView,
+		selectMobileSidebarDestination,
+	])
+
+	const leaveCurrentDestination = useCallback(() => {
+		if (
+			currentDestination.kind === 'private-group' ||
+			currentDestination.kind === 'field-session' ||
+			currentDestination.kind === 'unresolved'
+		) {
+			if (activeDraftPublishChannel) {
+				tearDownEditSession()
+				toast.success('Draft retained in Local drafts')
+			}
+			navigateToUnscopedView('datasets')
+			if (isMobile) {
+				closeMobileSidebar()
+				setMobilePanelOpen(false)
+			}
+			return
+		}
+
+		if (currentDestination.kind === 'public-context') {
+			setActiveDatasetContextRefs([])
+			if (contextNaddr) clearContextScope()
+			if (focusedType === 'mapcontext') clearFocus()
+		}
+	}, [
+		activeDraftPublishChannel,
+		clearContextScope,
+		clearFocus,
+		closeMobileSidebar,
+		contextNaddr,
+		currentDestination,
+		focusedType,
+		isMobile,
+		navigateToUnscopedView,
+		setActiveDatasetContextRefs,
+		setMobilePanelOpen,
+		tearDownEditSession,
+	])
 
 	// Note: `focusedDataset` was only ever read by the now-removed toolbar focus
 	// label. The focus state itself still drives routing + sidebar — see
@@ -1324,7 +2157,7 @@ export function GeoEditorView() {
 	])
 
 	const scopedGeoEvents = useMemo(() => {
-		if (!mapFilterContext || !mapFilterContextCoordinate) return geoEvents
+		if (!mapFilterContext || !mapFilterContextCoordinate) return mapGeoEvents
 		if (mapFilterContext.context.contextUse === 'taxonomy') {
 			return activeContextDatasets
 		}
@@ -1343,7 +2176,7 @@ export function GeoEditorView() {
 		activeContextValidationByDatasetKey,
 		getDatasetKey,
 		contextFilterMode,
-		geoEvents,
+		mapGeoEvents,
 	])
 
 	// Stack = visibility. Under the Round C/D invariant, the map renders exactly
@@ -1396,7 +2229,7 @@ export function GeoEditorView() {
 					? new Set([isolatedEntry.entityKey])
 					: curatedKeysFor(isolatedEntry)
 			if (isolatedKeys.size === 0) return []
-			return geoEvents.filter((event) => isolatedKeys.has(getDatasetKey(event)))
+			return mapGeoEvents.filter((event) => isolatedKeys.has(getDatasetKey(event)))
 		}
 
 		// Round G.1: stack order is render order. Each dataset key gets the rank
@@ -1416,12 +2249,12 @@ export function GeoEditorView() {
 			}
 		}
 		if (rankByKey.size === 0) return []
-		return geoEvents
+		return mapGeoEvents
 			.filter((event) => rankByKey.has(getDatasetKey(event)))
 			.sort(
 				(a, b) => (rankByKey.get(getDatasetKey(a)) ?? 0) - (rankByKey.get(getDatasetKey(b)) ?? 0),
 			)
-	}, [geoEvents, getDatasetKey, mapStackEntries, mapStackOrder, mapContextEvents])
+	}, [geoEvents, mapGeoEvents, getDatasetKey, mapStackEntries, mapStackOrder, mapContextEvents])
 
 	// Phase 13 (SPEC §3.2): sightings/beacons render from STACK MEMBERSHIP, not
 	// unconditionally. These mirror `visibleGeoEvents` — an aggregate `*-layer`
@@ -1696,10 +2529,10 @@ export function GeoEditorView() {
 	// Available features for $ mentions in comments
 	// We want to allow mentioning any loaded dataset, not just visible ones
 	const geoEventsForMentions = useMemo(() => {
-		if (!viewingDataset) return geoEvents
-		if (geoEvents.some((ev) => ev.id === viewingDataset.id)) return geoEvents
-		return [...geoEvents, viewingDataset]
-	}, [geoEvents, viewingDataset])
+		if (!viewingDataset) return mapGeoEvents
+		if (mapGeoEvents.some((ev) => ev.id === viewingDataset.id)) return mapGeoEvents
+		return [...mapGeoEvents, viewingDataset]
+	}, [mapGeoEvents, viewingDataset])
 
 	const availableFeatures = useAvailableGeoFeatures(
 		geoEventsForMentions,
@@ -1789,29 +2622,16 @@ export function GeoEditorView() {
 		}
 	}, [mapSourceKey, activeDataset, zoomToDataset])
 
-	// Pan lock sync with drawing mode
-	useEffect(() => {
-		const shouldLock = isDrawingMode
-		setPanLocked(shouldLock)
-		if (editor) {
-			editor.setPanLocked(shouldLock)
-		}
-	}, [isDrawingMode, editor, setPanLocked])
-
 	// Round D.3: the "sync default visibility on geoEvents change" effect
 	// is gone — visibility is no longer a separate sticky map. Stack
 	// membership is the canonical signal; events that aren't on the stack
 	// simply aren't rendered, regardless of how many datasets land in the
 	// subscription. This drops O(geoEvents) work on every relay update too.
 
-	// Initialize mobile/desktop UI. On mobile the bottom sheet is the universal
-	// panel container (§14a) — always present at peek, so we OPEN it here rather
-	// than closing it. Skip when already open (fresh store read, not the render
-	// snapshot): on a deep-link mount the route-restore has already opened the
-	// sheet at 'half', and setMobilePanelOpen(true) resets the snap to 'peek'.
+	// Initialize platform chrome. Mobile starts map-first with both transient
+	// surfaces closed; route restoration may still open the appropriate one.
 	useEffect(() => {
 		if (isMobile) {
-			if (!useEditorStore.getState().mobilePanelOpen) setMobilePanelOpen(true)
 			setShowToolbar(false)
 			setShowTips(false)
 		} else {
@@ -1820,7 +2640,7 @@ export function GeoEditorView() {
 			setShowToolbar(true)
 			setShowTips(true)
 		}
-	}, [isMobile, setMobilePanelOpen, setShowTips, setShowDatasetsPanel, setShowInfoPanel])
+	}, [isMobile, setShowTips, setShowDatasetsPanel, setShowInfoPanel])
 
 	// Handle pmtiles URL param on app load
 	const setMapSource = useEditorStore((state) => state.setMapSource)
@@ -2114,9 +2934,9 @@ export function GeoEditorView() {
 		navigateToContext,
 		navigateToView,
 		clearFocus,
-		loadDatasetForEditing,
+		loadDatasetForEditing: loadDatasetForCurrentChannel,
 		startNewDataset,
-		switchToWorkspace,
+		switchToWorkspace: handleSwitchWorkspace,
 		handleInspectDataset,
 	})
 
@@ -2404,10 +3224,10 @@ export function GeoEditorView() {
 		const wasReady = prevEntityEditorReadyRef.current
 		prevEntityEditorReadyRef.current = mobileEntityEditorReady
 		if (!wasReady && mobileEntityEditorReady) {
-			setMobilePanelTab('edit')
+			openMobilePanel('edit')
 			setMobilePanelSnap('half')
 		}
-	}, [isMobile, mobileEntityEditorReady, setMobilePanelTab, setMobilePanelSnap])
+	}, [isMobile, mobileEntityEditorReady, openMobilePanel, setMobilePanelSnap])
 
 	// Sighting pin-drop is map-first: when placement arms (create mode, no geometry
 	// yet), drop the sheet to peek so the whole map is reachable for dropping the
@@ -2426,16 +3246,17 @@ export function GeoEditorView() {
 		const wasActive = prevSightingPlacementRef.current
 		prevSightingPlacementRef.current = sightingPlacementActive
 		if (!wasActive && sightingPlacementActive) {
-			setMobilePanelSnap('peek')
+			setMobilePanelOpen(false)
 		} else if (wasActive && !sightingPlacementActive && placedSightingGeometry != null) {
-			setMobilePanelTab('edit')
+			openMobilePanel('edit')
 			setMobilePanelSnap('half')
 		}
 	}, [
 		isMobile,
 		sightingPlacementActive,
 		placedSightingGeometry,
-		setMobilePanelTab,
+		openMobilePanel,
+		setMobilePanelOpen,
 		setMobilePanelSnap,
 	])
 	// Auto-off on user pan (drag). Programmatic recenters use easeTo, not drag.
@@ -2661,11 +3482,10 @@ export function GeoEditorView() {
 	// Pan lock and magnifier
 	const togglePanLock = useCallback(() => {
 		if (!editor) return
-		if (isDrawingMode) return
 		const next = !panLocked
 		editor.setPanLocked(next)
 		setPanLocked(next)
-	}, [editor, isDrawingMode, panLocked, setPanLocked])
+	}, [editor, panLocked, setPanLocked])
 
 	// Search result handling
 	const zoomToSearchResult = useCallback((result: GeoSearchResult) => {
@@ -2743,7 +3563,7 @@ export function GeoEditorView() {
 		handleToggleVisibilityWithExitFocus,
 		handleToggleAllVisibilityWithExitFocus,
 	} = useMentionActions({
-		geoEvents,
+		geoEvents: mapGeoEvents,
 		resolvedCollectionResolver,
 		handleZoomToBounds,
 		zoomToDataset,
@@ -2779,7 +3599,7 @@ export function GeoEditorView() {
 			availableFeatures={availableFeatures}
 			getDatasetName={getDatasetName}
 			onStartNewDataset={startNewDataset}
-			onSwitchWorkspace={switchToWorkspace}
+			onSwitchWorkspace={handleSwitchWorkspace}
 			onOpenSettings={() => navigateToView('settings')}
 			onClose={() => setChatOpen(false)}
 		/>
@@ -2794,8 +3614,8 @@ export function GeoEditorView() {
 			label: panLocked ? 'Unlock pan while drawing' : 'Lock pan while drawing',
 			icon: panLocked ? Lock : LockOpen,
 			onClick: togglePanLock,
-			disabled: isDrawingMode,
 			active: panLocked,
+			attention: isMobile && isDrawingMode && !panLocked,
 		},
 		{
 			key: 'magnifier',
@@ -2876,24 +3696,23 @@ export function GeoEditorView() {
 		onDeleteStory: handleDeleteStory,
 		deletingKey,
 	}
+	const privateDatasetActions = {
+		getDatasetKey,
+		getDatasetName,
+		onAddToMap: addPrivateDatasetToMapStack,
+		onRemoveFromMap: removePrivateDatasetFromMapStack,
+		onZoomTo: zoomToDataset,
+		onLoadIntoEditor: handleDatasetSelect,
+	}
+	const fieldDatasetActions = {
+		getDatasetKey,
+		getDatasetName,
+		onAddToMap: addFieldDatasetToMapStack,
+		onRemoveFromMap: removeFieldDatasetFromMapStack,
+		onZoomTo: zoomToDataset,
+		onLoadIntoEditor: handleDatasetSelect,
+	}
 
-	// §14a bottom dock: the top-level destinations that replace the tool strip on the
-	// browse/inspect stances. Each raises the sheet and swaps its tab; Create (a
-	// separate center button) enters the Author stance, which swaps the dock out for
-	// the tool strip.
-	const mobileDockItems: {
-		key: string
-		label: string
-		icon: typeof MapPin
-		tab: MobilePanelTab
-	}[] = [
-		{ key: 'map', label: 'Map', icon: MapPin, tab: 'sightings' },
-		{ key: 'explore', label: 'Explore', icon: Compass, tab: 'datasets' },
-		// "Live", not "Activity": the destination is live location beacons, and the
-		// label should say what it opens (audit P2 #9).
-		{ key: 'live', label: 'Live', icon: Activity, tab: 'beacons' },
-		{ key: 'you', label: 'You', icon: User, tab: 'profile' },
-	]
 	// Entity editors are mutually exclusive: close any OTHER open editor before
 	// starting a new one so a lingering editor (e.g. an unfinished Story) can't leak
 	// into the next entity's surface (incl. the dataset draft's Map Stack editor).
@@ -2908,24 +3727,6 @@ export function GeoEditorView() {
 		if (keep !== 'beacon') handleCloseBeaconControl()
 		create()
 	}
-	const handleDockSelect = (tab: MobilePanelTab) => {
-		// Re-tapping the active destination collapses back to peek (map owns the
-		// screen); otherwise swap the tab and rise to half. The sheet is always open
-		// on mobile, so we set the snap directly — calling setMobilePanelOpen(true)
-		// would force snap back to 'peek' and defeat the rise.
-		if (mobilePanelTab === tab && mobilePanelSnap !== 'peek') {
-			setMobilePanelSnap('peek')
-			return
-		}
-		// Dock selection is a real navigation: write the URL through the same
-		// canonical router as the desktop rail so history, reload, and share links
-		// agree with the visible destination (audit P1 #6). The tab is also set
-		// directly — in-app pushState deliberately skips route→tab derivation.
-		navigateToView(mobileTabToView(tab))
-		setMobilePanelTab(tab)
-		setMobilePanelSnap('half')
-	}
-
 	return (
 		<StudioShell
 			mapContainerRef={mapContainerRef}
@@ -2936,15 +3737,24 @@ export function GeoEditorView() {
 					geoEvents={scopedGeoEvents}
 					mapContextEvents={mapContextEvents}
 					activeDataset={activeDataset}
-					currentUserPubkey={currentUserPubkey}
+					currentUserPubkey={currentUserPubkey ?? undefined}
 					datasetVisibility={effectiveVisibility}
 					isPublishing={isPublishing}
 					deletingKey={deletingKey}
 					onLoadDataset={handleDatasetSelect}
 					onStartNewDataset={startNewDataset}
-					onSwitchWorkspace={switchToWorkspace}
-					onDeleteWorkspace={deleteWorkspace}
-					onAddDraftToWorkspace={createDraftInWorkspace}
+					privateDatasetActions={privateDatasetActions}
+					fieldDatasetActions={fieldDatasetActions}
+					fieldSessionEvents={fieldTransport.events}
+					onPublishFieldSessionEvent={fieldTransport.publishEvent}
+					onRefreshFieldSessionEvents={fieldTransport.refresh}
+					onSwitchWorkspace={handleSwitchWorkspace}
+					onDeleteWorkspace={handleDeleteWorkspace}
+					onAddDraftToWorkspace={handleAddDraftToWorkspace}
+					onLoadDraft={handleLoadDraft}
+					onDeleteDraft={handleDeleteDraft}
+					draftDestinationOptions={localDraftDestinationOptions}
+					onResolveDraftDestination={handleResolveDraftDestination}
 					onToggleVisibility={handleToggleVisibilityWithExitFocus}
 					onToggleAllVisibility={handleToggleAllVisibilityWithExitFocus}
 					onZoomToDataset={zoomToDataset}
@@ -3019,7 +3829,11 @@ export function GeoEditorView() {
 					onZoomToFeature={handleZoomToFeature}
 					onExitViewMode={exitViewMode}
 					// Blossom upload props - callback adds blob ref to store, does NOT publish
-					featureCollectionForUpload={memoizedFeatureCollection}
+					featureCollectionForUpload={
+						canUploadToPublicBlossom(authoringPublishChannel)
+							? memoizedFeatureCollection
+							: undefined
+					}
 					onBlossomUploadComplete={handleBlobUploadComplete}
 					// Contributor Group-attach publish wiring (GROUP-02/04)
 					onPublishNew={handlePublishNew}
@@ -3035,6 +3849,11 @@ export function GeoEditorView() {
 				/>
 			}
 		>
+			{savedRegionHydration.state === 'ready'
+				? Object.entries(savedRegionHydration.regionDeletionTargets).map(([regionId, targets]) => (
+						<SavedRegionDeletionMonitor key={regionId} regionId={regionId} targets={targets} />
+					))
+				: null}
 			<MapComponent
 				className="w-full h-full touch-none"
 				onLoad={(m) => {
@@ -3047,6 +3866,7 @@ export function GeoEditorView() {
 				}}
 				mapSource={mapSource}
 				onLocate={handleLocate}
+				attributionCompact={!isMobile}
 				// On mobile the bottom sheet + tool strip/dock occupy the lower edge,
 				// so the control stack lives top-right (clear of the sheet at every
 				// detent). Desktop keeps them bottom-right (thumb-free, above the status bar).
@@ -3170,6 +3990,16 @@ export function GeoEditorView() {
 					onClose={handleCloseAnnotationPopup}
 				/>
 			)}
+			{isMobile ? (
+				<div className="pointer-events-auto absolute left-2 top-[max(0.5rem,env(safe-area-inset-top))] z-20 md:hidden">
+					<CurrentDestinationPill
+						destination={currentDestination}
+						variant="mobile"
+						onActivate={openCurrentDestination}
+						onLeave={leaveCurrentDestination}
+					/>
+				</div>
+			) : null}
 			{mapError && (
 				<div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-destructive/10 border border-destructive/40 text-destructive px-4 py-3 rounded z-50">
 					<p className="font-bold">Map Error</p>
@@ -3232,6 +4062,7 @@ export function GeoEditorView() {
 							canPublishCopy,
 							onProposeEdit: handleProposeEdit,
 							canProposeEdit,
+							publishMode: datasetPublishMode,
 							isPublishing,
 						}}
 						isMobile={isMobile}
@@ -3250,6 +4081,9 @@ export function GeoEditorView() {
 						onToggleMapStack={toggleToolbarMapStack}
 						onToggleChat={toggleChat}
 						onExitFocus={exitViewMode}
+						destination={currentDestination}
+						onActivateDestination={openCurrentDestination}
+						onLeaveDestination={leaveCurrentDestination}
 					/>
 				</div>
 			</div>
@@ -3289,10 +4123,20 @@ export function GeoEditorView() {
 					deletingKey={deletingKey}
 					isFocused={isFocused}
 					multiSelectModifier={multiSelectModifierLabel}
-					onLoadDataset={loadDatasetForEditing}
+					onLoadDataset={loadDatasetForCurrentChannel}
 					onStartNewDataset={startNewDataset}
-					onSwitchWorkspace={switchToWorkspace}
-					onDeleteWorkspace={deleteWorkspace}
+					privateDatasetActions={privateDatasetActions}
+					fieldDatasetActions={fieldDatasetActions}
+					fieldSessionEvents={fieldTransport.events}
+					onPublishFieldSessionEvent={fieldTransport.publishEvent}
+					onRefreshFieldSessionEvents={fieldTransport.refresh}
+					onSwitchWorkspace={handleSwitchWorkspace}
+					onDeleteWorkspace={handleDeleteWorkspace}
+					onAddDraftToWorkspace={handleAddDraftToWorkspace}
+					onLoadDraft={handleLoadDraft}
+					onDeleteDraft={handleDeleteDraft}
+					draftDestinationOptions={localDraftDestinationOptions}
+					onResolveDraftDestination={handleResolveDraftDestination}
 					onToggleVisibility={handleToggleVisibilityWithExitFocus}
 					onToggleAllVisibility={handleToggleAllVisibilityWithExitFocus}
 					onZoomToDataset={zoomToDataset}
@@ -3365,7 +4209,11 @@ export function GeoEditorView() {
 					onAdjustBeacon={handleAdjustBeacon}
 					onClearBeaconView={clearBeaconView}
 					onZoomToFeature={handleZoomToFeature}
-					featureCollectionForUpload={memoizedFeatureCollection}
+					featureCollectionForUpload={
+						canUploadToPublicBlossom(authoringPublishChannel)
+							? memoizedFeatureCollection
+							: undefined
+					}
 					onBlossomUploadComplete={handleBlobUploadComplete}
 					focusCommentId={focusCommentId}
 					onFilteredDatasetKeysChange={handleFilteredDatasetKeysChange}
@@ -3380,7 +4228,7 @@ export function GeoEditorView() {
 			{/* Mobile tool strip (redesign §14a Row 0) — pinned at the very bottom;
 			    the sheet docks directly above it. Draw tools left, Publish right. */}
 			{isMobile && stance === 'author' && (
-				<div className="fixed inset-x-0 bottom-0 z-50 flex h-[52px] items-center gap-1.5 border-t border-border bg-[var(--surface-chrome)] px-2 md:hidden">
+				<div className="fixed inset-x-0 bottom-0 z-[60] flex min-h-[calc(var(--mobile-dock-height)+env(safe-area-inset-bottom))] items-center gap-1.5 border-t border-border bg-[var(--surface-chrome)] px-2 pb-[env(safe-area-inset-bottom)] md:hidden">
 					<div className="inline-flex shrink-0 overflow-hidden rounded-[2px] border border-border">
 						{(
 							[
@@ -3425,6 +4273,7 @@ export function GeoEditorView() {
 								className={cn(
 									'h-9 w-9 shrink-0 rounded-[2px]',
 									'danger' in action && action.danger && 'hover:text-destructive',
+									'attention' in action && action.attention && 'mobile-pan-lock-attention',
 								)}
 								onClick={action.onClick}
 								disabled={'disabled' in action ? action.disabled : false}
@@ -3440,6 +4289,8 @@ export function GeoEditorView() {
 					    above are just responsive fast-access shortcuts. */}
 					<MobileToolMenu
 						panLocked={panLocked}
+						panLockAttention={isDrawingMode && !panLocked}
+						panLockTriggerAttention={isDrawingMode && !panLocked && overflowVisibleCount === 0}
 						onTogglePanLock={togglePanLock}
 						magnifierEnabled={magnifierEnabled}
 						onToggleMagnifier={toggleMagnifier}
@@ -3447,6 +4298,7 @@ export function GeoEditorView() {
 						onExportSHP={exportSHP}
 						onImport={handleImport}
 						onClear={handleClear}
+						onCancelEditing={tearDownEditSession}
 						canExport={stats.total > 0}
 						canClear={stats.total > 0}
 						onPublishUpdate={handlePublishUpdate}
@@ -3456,6 +4308,7 @@ export function GeoEditorView() {
 						onProposeEdit={handleProposeEdit}
 						canProposeEdit={canProposeEdit}
 						isPublishing={isPublishing}
+						publishMode={datasetPublishMode}
 						onOsmClick={handleOsmQueryClick}
 						onOsmView={handleOsmQueryView}
 						onOsmAdvanced={() => setImportOsmDialogOpen(true)}
@@ -3477,40 +4330,40 @@ export function GeoEditorView() {
 						onClick={handlePublishNew}
 						disabled={!canPublishNew}
 					>
-						Publish
+						{datasetPublishMode === 'public' ? 'Publish' : 'Save'}
 					</Button>
 				</div>
 			)}
-			{/* Mobile bottom dock (§14a "switch top-level: Map · Explore · Create ·
-			    Activity · You"). Shown on the browse/inspect stances; entering the
-			    Author stance swaps it for the tool strip above. Create sits center as
-			    an amber square and starts a new dataset (⇒ Author). */}
+			{/* Map-first mobile dock. Navigation opens horizontally; map-bound work
+			    opens vertically. Create remains the additive center action. */}
 			{isMobile && stance !== 'author' && (
 				<nav
 					aria-label="Primary"
 					data-tour="mobile-dock"
-					className="fixed inset-x-0 bottom-0 z-50 flex h-[52px] items-stretch justify-around border-t border-border bg-[var(--surface-chrome)] px-1 md:hidden"
+					className="fixed inset-x-0 bottom-0 z-[60] flex min-h-[calc(var(--mobile-dock-height)+env(safe-area-inset-bottom))] items-stretch justify-around border-t border-border bg-[var(--surface-chrome)] px-1 pb-[env(safe-area-inset-bottom)] md:hidden"
 				>
-					{mobileDockItems.slice(0, 2).map((item) => {
-						const ItemIcon = item.icon
-						const active = mobilePanelTab === item.tab
-						return (
-							<button
-								key={item.key}
-								type="button"
-								onClick={() => handleDockSelect(item.tab)}
-								aria-pressed={active}
-								data-tour={`mobile-dock-${item.key}`}
-								className={cn(
-									'flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] transition-colors',
-									active ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
-								)}
-							>
-								<ItemIcon className="h-5 w-5" />
-								{item.label}
-							</button>
-						)
-					})}
+					<button
+						type="button"
+						onClick={() => (mobileSidebarOpen ? closeMobileSidebar() : openMobileSidebar())}
+						aria-pressed={mobileSidebarOpen}
+						data-tour="mobile-dock-menu"
+						className={cn(
+							'flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] transition-colors',
+							mobileSidebarOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+						)}
+					>
+						<Menu className="h-5 w-5" />
+						Menu
+					</button>
+					<button
+						type="button"
+						onClick={() => setMobileSearchOpen(true)}
+						data-tour="mobile-dock-search"
+						className="flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] text-muted-foreground transition-colors hover:text-foreground"
+					>
+						<Search className="h-5 w-5" />
+						Search
+					</button>
 					<DropdownMenu>
 						<DropdownMenuTrigger asChild>
 							<button
@@ -3549,26 +4402,32 @@ export function GeoEditorView() {
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
-					{mobileDockItems.slice(2).map((item) => {
-						const ItemIcon = item.icon
-						const active = mobilePanelTab === item.tab
-						return (
-							<button
-								key={item.key}
-								type="button"
-								onClick={() => handleDockSelect(item.tab)}
-								aria-pressed={active}
-								data-tour={`mobile-dock-${item.key}`}
-								className={cn(
-									'flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] transition-colors',
-									active ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
-								)}
-							>
-								<ItemIcon className="h-5 w-5" />
-								{item.label}
-							</button>
-						)
-					})}
+					<button
+						type="button"
+						onClick={toggleToolbarMapStack}
+						aria-pressed={toolbarMapStackOpen}
+						data-tour="mobile-dock-map-stack"
+						className={cn(
+							'flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] transition-colors',
+							toolbarMapStackOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+						)}
+					>
+						<Layers className="h-5 w-5" />
+						Map stack
+					</button>
+					<button
+						type="button"
+						onClick={() => {
+							closeMobileSidebar()
+							setMobilePanelOpen(false)
+							setMobileSearchOpen(false)
+						}}
+						data-tour="mobile-dock-map"
+						className="flex flex-1 flex-col items-center justify-center gap-0.5 text-[9px] text-muted-foreground transition-colors hover:text-foreground"
+					>
+						<MapIcon className="h-5 w-5" />
+						Map
+					</button>
 				</nav>
 			)}
 			{debugEvent && (

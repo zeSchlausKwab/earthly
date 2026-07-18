@@ -7,7 +7,7 @@
  */
 
 import { Label } from '@radix-ui/react-label'
-import { Check, Copy, Loader2, Zap } from 'lucide-react'
+import { Check, Copy, ExternalLink, Loader2, Zap } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { type DepositSession, getMintHostname, startLightningDeposit } from '@/lib/wallet'
+import { normalizeLightningUri, openExternalProtocol } from '@/platform/externalProtocol'
 
 interface DepositLightningModalProps {
 	open: boolean
@@ -103,6 +104,16 @@ export function DepositLightningModal({
 		}
 	}
 
+	const handleOpenWallet = async () => {
+		if (!session) return
+		try {
+			await openExternalProtocol(normalizeLightningUri(session.invoice))
+		} catch (err) {
+			console.error('Unable to open Lightning wallet', err)
+			toast.error('No compatible Lightning wallet could open this invoice')
+		}
+	}
+
 	const handleClose = () => {
 		abortRef.current?.abort()
 		abortRef.current = null
@@ -139,9 +150,17 @@ export function DepositLightningModal({
 				) : session ? (
 					<div className="space-y-4">
 						<div className="flex justify-center">
-							<div className="p-4 bg-card rounded-lg">
-								<QRCodeSVG value={session.invoice} size={200} />
-							</div>
+							<button
+								type="button"
+								onClick={() => void handleOpenWallet()}
+								className="flex flex-col items-center gap-2 rounded-lg bg-card p-4 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								aria-label="Open invoice in a Lightning wallet"
+							>
+								<QRCodeSVG value={normalizeLightningUri(session.invoice)} size={200} />
+								<span className="flex items-center gap-1 text-xs font-medium text-foreground">
+									<ExternalLink className="h-3.5 w-3.5" /> Open Lightning wallet
+								</span>
+							</button>
 						</div>
 						<div className="space-y-2">
 							<p className="text-sm font-medium">Lightning Invoice</p>

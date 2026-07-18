@@ -7,9 +7,12 @@ export type { SidebarViewMode }
 
 /** All valid sidebar view mode values */
 const SIDEBAR_VIEW_MODES: SidebarViewMode[] = [
+	'drafts',
 	'datasets',
 	'map-stack',
 	'contexts',
+	'field-sessions',
+	'private-groups',
 	'context-editor',
 	'stories',
 	'sightings',
@@ -17,6 +20,7 @@ const SIDEBAR_VIEW_MODES: SidebarViewMode[] = [
 	'combined',
 	'edit',
 	'posts',
+	'delivery',
 	'settings',
 	'help',
 	'user',
@@ -42,6 +46,10 @@ export interface RouteState {
 	commentId?: string
 	/** Current sidebar view mode */
 	sidebarView: SidebarViewMode
+	/** Local MLS workspace identifier for a `/privategroup/:id` detail route. */
+	privateGroupId?: string
+	/** Local collaboration identifier for a `/fieldsession/:id` detail route. */
+	fieldSessionId?: string
 	/** User pubkey for user profile routes (hex format) */
 	userPubkey?: string
 }
@@ -133,6 +141,28 @@ export function parsePathSegments(segments: string[]): RouteState {
 			focusType: 'none',
 			sidebarView: 'user',
 			userPubkey,
+		}
+	}
+
+	// Private groups use the same collection/detail route grammar as Earthly's
+	// public entities, but the opaque id addresses local MLS state rather than a
+	// public Nostr event: /private-groups and /privategroup/:id. Accept the
+	// earlier hyphenated preview route so copied development invites still open.
+	if ((first === 'privategroup' || first === 'private-group') && segments[1]) {
+		const nestedView = segments[2]
+		return {
+			focusType: 'none',
+			sidebarView: nestedView && isSidebarViewMode(nestedView) ? nestedView : 'private-groups',
+			privateGroupId: segments[1],
+		}
+	}
+
+	if ((first === 'fieldsession' || first === 'field-session') && segments[1]) {
+		const nestedView = segments[2]
+		return {
+			focusType: 'none',
+			sidebarView: nestedView && isSidebarViewMode(nestedView) ? nestedView : 'field-sessions',
+			fieldSessionId: segments[1],
 		}
 	}
 
@@ -299,13 +329,25 @@ export function buildRoutePath({
 	focusType,
 	naddr,
 	commentId,
+	privateGroupId,
+	fieldSessionId,
 }: {
 	sidebarView: SidebarViewMode
 	contextNaddr?: string
 	focusType?: 'geoevent' | 'mapcontext' | 'story' | 'sighting' | 'beacon'
 	naddr?: string
 	commentId?: string
+	privateGroupId?: string
+	fieldSessionId?: string
 }): string {
+	if (fieldSessionId) {
+		const root = `/fieldsession/${encodeURIComponent(fieldSessionId)}`
+		return sidebarView === 'field-sessions' ? root : `${root}/${sidebarView}`
+	}
+	if (privateGroupId) {
+		const root = `/privategroup/${encodeURIComponent(privateGroupId)}`
+		return sidebarView === 'private-groups' ? root : `${root}/${sidebarView}`
+	}
 	const root = contextNaddr ? `/context/${contextNaddr}/${sidebarView}` : `/${sidebarView}`
 	if (focusType && naddr) {
 		if (commentId) {
@@ -406,7 +448,41 @@ export function useRouting() {
 	const navigateToView = useCallback(
 		(view: SidebarViewMode) => {
 			const currentRoute = parseLocation()
-			commit({ sidebarView: view, contextNaddr: currentRoute.contextNaddr })
+			commit({
+				sidebarView: view,
+				// Private groups are their own encrypted scope; a public Context filter
+				// must not leak into or wrap their route.
+				contextNaddr:
+					view === 'drafts' || view === 'private-groups' || view === 'field-sessions'
+						? undefined
+						: currentRoute.contextNaddr,
+				privateGroupId:
+					view === 'drafts' || view === 'private-groups' ? undefined : currentRoute.privateGroupId,
+				fieldSessionId:
+					view === 'drafts' || view === 'field-sessions' ? undefined : currentRoute.fieldSessionId,
+			})
+		},
+		[commit],
+	)
+
+	/** Leave every private/nearby/context route boundary and open a root catalog. */
+	const navigateToUnscopedView = useCallback(
+		(view: SidebarViewMode) => {
+			commit({ sidebarView: view })
+		},
+		[commit],
+	)
+
+	const navigateToPrivateGroup = useCallback(
+		(privateGroupId: string) => {
+			commit({ sidebarView: 'private-groups', privateGroupId })
+		},
+		[commit],
+	)
+
+	const navigateToFieldSession = useCallback(
+		(fieldSessionId: string) => {
+			commit({ sidebarView: 'field-sessions', fieldSessionId })
 		},
 		[commit],
 	)
@@ -558,6 +634,9 @@ export function useRouting() {
 	return {
 		route,
 		navigateToView,
+		navigateToUnscopedView,
+		navigateToPrivateGroup,
+		navigateToFieldSession,
 		navigateTo,
 		navigateToComment,
 		navigateToContext,
@@ -577,6 +656,10 @@ export function useRouting() {
 		contextCoordinate: route.contextCoordinate,
 		/** User pubkey from route (for user profile pages) */
 		userPubkey: route.userPubkey,
+		/** Selected local MLS workspace from `/privategroup/:id`. */
+		privateGroupId: route.privateGroupId,
+		/** Selected nearby collaboration space from `/fieldsession/:id`. */
+		fieldSessionId: route.fieldSessionId,
 		/** Comment d-tag deep-linked beneath the focused entity route */
 		commentId: route.commentId,
 	}

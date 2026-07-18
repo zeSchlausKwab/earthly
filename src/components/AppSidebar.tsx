@@ -4,16 +4,20 @@ import {
 	Globe,
 	HelpCircle,
 	BookOpen,
+	CloudUpload,
 	Eye,
+	FilePenLine,
 	Newspaper,
 	PanelLeftClose,
 	PanelLeftOpen,
 	ArrowLeft,
 	Pencil,
 	Radio,
+	RadioTower,
 	Search,
 	Settings2,
 	UserCircle,
+	UsersRound,
 	Wallet,
 	X,
 } from 'lucide-react'
@@ -33,6 +37,12 @@ import { BeaconsPanelContent } from './BeaconsPanel'
 import { UserProfilePanel } from './UserProfilePanel'
 import { GeoEditorInfoPanelContent } from './GeoEditorInfoPanel'
 import { HelpPanel } from './HelpPanel'
+import { PrivateGroupsPanel } from '../features/private-maps/PrivateMapsDialog'
+import {
+	FieldSessionsPanel,
+	type FieldDatasetActions,
+} from '../features/field-sessions/FieldSessionsPanel'
+import type { PrivateDatasetActions } from '../features/private-maps/PrivateGeometryReferences'
 import { LoginSessionButtons } from '../features/auth/LoginSessionButtons'
 import { SignedOutCta } from '../features/auth/SignedOutCta'
 import {
@@ -55,23 +65,41 @@ import { useRouting, type SidebarViewMode } from '../features/geo-editor/hooks/u
 import type { GeoFeatureItem } from './editor/GeoRichTextEditor'
 import type { EditorFeature } from '../features/geo-editor/core'
 import { EntitySearchPopover, type EntitySearchResult } from './entity-search'
-import { WorkspaceDraftNavigator } from './WorkspaceDraftNavigator'
+import {
+	LocalDraftsPanel,
+	type LocalDraftDestinationOption,
+	type WorkspaceDraftNavigatorProps,
+	WorkspaceDraftNavigator,
+} from './WorkspaceDraftNavigator'
 import { Button } from './ui/button'
+import { PublishOutboxPanel } from '../features/delivery'
 
 type SidebarContentMode = Exclude<SidebarViewMode, 'combined'>
 type EntityWorkspace = 'geometry' | 'context' | 'story' | 'sighting' | 'beacon'
-type WorkViewMode = 'datasets' | 'contexts' | 'stories' | 'sightings' | 'beacons' | 'user'
-type MetaViewMode = 'posts' | 'wallet' | 'settings' | 'help'
+type WorkViewMode =
+	| 'drafts'
+	| 'datasets'
+	| 'contexts'
+	| 'field-sessions'
+	| 'private-groups'
+	| 'stories'
+	| 'sightings'
+	| 'beacons'
+	| 'user'
+type MetaViewMode = 'posts' | 'delivery' | 'wallet' | 'settings' | 'help'
 
 const WORK_VIEW_MODES: WorkViewMode[] = [
+	'drafts',
 	'datasets',
 	'contexts',
+	'field-sessions',
+	'private-groups',
 	'stories',
 	'sightings',
 	'beacons',
 	'user',
 ]
-const META_VIEW_MODES: MetaViewMode[] = ['posts', 'wallet', 'settings', 'help']
+const META_VIEW_MODES: MetaViewMode[] = ['posts', 'delivery', 'wallet', 'settings', 'help']
 
 // Round H.3/H.4: the rail's browse destinations (Datasets / Contexts / My
 // Entities + footer meta) are the always-present list. The Round-F.4
@@ -87,8 +115,11 @@ const workNavItems: {
 	title: string
 	icon: typeof Database
 }[] = [
+	{ mode: 'drafts', title: 'Local drafts', icon: FilePenLine },
 	{ mode: 'datasets', title: 'Datasets', icon: Database },
 	{ mode: 'contexts', title: 'Contexts', icon: Globe },
+	{ mode: 'field-sessions', title: 'Field sessions', icon: RadioTower },
+	{ mode: 'private-groups', title: 'Private groups', icon: UsersRound },
 	{ mode: 'stories', title: 'Stories', icon: BookOpen },
 	{ mode: 'sightings', title: 'Sightings', icon: Eye },
 	{ mode: 'beacons', title: 'Beacons', icon: Radio },
@@ -101,6 +132,7 @@ const metaNavItems: {
 	icon: typeof Settings2
 }[] = [
 	{ mode: 'posts', title: 'Local posts', icon: Newspaper },
+	{ mode: 'delivery', title: 'Sync & delivery', icon: CloudUpload },
 	{ mode: 'wallet', title: 'Wallet', icon: Wallet },
 	{ mode: 'settings', title: 'Settings', icon: Settings2 },
 	{ mode: 'help', title: 'Help', icon: HelpCircle },
@@ -186,9 +218,18 @@ interface AppSidebarProps {
 	deletingKey: string | null
 	onLoadDataset: (event: GeoDataset) => void
 	onStartNewDataset?: () => void
+	privateDatasetActions?: PrivateDatasetActions
+	fieldDatasetActions?: FieldDatasetActions
+	fieldSessionEvents?: import('nostr-tools').NostrEvent[]
+	onPublishFieldSessionEvent?: (event: import('nostr-tools').NostrEvent) => Promise<void>
+	onRefreshFieldSessionEvents?: () => Promise<void>
 	onSwitchWorkspace?: (workspaceId: string) => void
 	onDeleteWorkspace?: (workspaceId: string) => void
 	onAddDraftToWorkspace?: (workspaceId: string) => void | Promise<void>
+	onLoadDraft?: (workspaceId: string, draftId: string) => void | Promise<void>
+	onDeleteDraft?: (workspaceId: string, draftId: string) => void | Promise<void>
+	draftDestinationOptions?: LocalDraftDestinationOption[]
+	onResolveDraftDestination?: WorkspaceDraftNavigatorProps['onResolveDraftDestination']
 	onToggleVisibility: (event: GeoDataset) => void
 	onToggleAllVisibility: (visible: boolean) => void
 	onZoomToDataset: (event: GeoDataset) => void
@@ -208,7 +249,7 @@ interface AppSidebarProps {
 	onExitFocus: () => void
 	multiSelectModifier?: string
 	onCommentGeometryVisibility?: (
-		comment: import('@/lib/nostr/geo-comment').GeoComment,
+		comment: import('@/features/geo-editor/hooks/useCommentGeometry').CommentGeometryRecord,
 		visible: boolean,
 	) => void
 	onZoomToBounds?: (bounds: [number, number, number, number]) => void
@@ -325,9 +366,18 @@ export function AppSidebar({
 	deletingKey,
 	onLoadDataset,
 	onStartNewDataset,
+	privateDatasetActions,
+	fieldDatasetActions,
+	fieldSessionEvents,
+	onPublishFieldSessionEvent,
+	onRefreshFieldSessionEvents,
 	onSwitchWorkspace,
 	onDeleteWorkspace,
 	onAddDraftToWorkspace,
+	onLoadDraft,
+	onDeleteDraft,
+	draftDestinationOptions,
+	onResolveDraftDestination,
 	onToggleVisibility,
 	onToggleAllVisibility,
 	onZoomToDataset,
@@ -420,8 +470,18 @@ export function AppSidebar({
 	const setViewDatasetState = useEditorStore((state) => state.setViewDataset)
 	const setViewContextState = useEditorStore((state) => state.setViewContext)
 	const setViewStoryState = useEditorStore((state) => state.setViewStory)
-	const { navigateToView, navigateToContext, clearContextScope, contextNaddr, encodeContextNaddr } =
-		useRouting()
+	const {
+		navigateToView,
+		navigateToPrivateGroup,
+		navigateToFieldSession,
+		navigateToContext,
+		clearContextScope,
+		contextNaddr,
+		privateGroupId,
+		fieldSessionId,
+		encodeContextNaddr,
+	} = useRouting()
+	const setStance = useEditorStore((state) => state.setStance)
 
 	const [splitWithEditor, setSplitWithEditor] = useState(viewMode === 'combined')
 	const [activeEntity, setActiveEntity] = useState<EntityWorkspace>('geometry')
@@ -995,10 +1055,50 @@ export function AppSidebar({
 
 	const renderWorkContent = (mode: WorkViewMode) => {
 		switch (mode) {
+			case 'drafts':
+				return (
+					<LocalDraftsPanel
+						onStartNewDataset={onStartNewDataset}
+						onSwitchWorkspace={onSwitchWorkspace}
+						onDeleteWorkspace={onDeleteWorkspace}
+						onAddDraftToWorkspace={onAddDraftToWorkspace}
+						onLoadDraft={onLoadDraft}
+						onDeleteDraft={onDeleteDraft}
+						destinationOptions={draftDestinationOptions}
+						onResolveDraftDestination={onResolveDraftDestination}
+					/>
+				)
 			case 'datasets':
 				return <GeoDatasetsPanelContent mode="datasets" {...datasetsPanelProps} />
 			case 'contexts':
 				return <GeoDatasetsPanelContent mode="contexts" {...datasetsPanelProps} />
+			case 'field-sessions':
+				return (
+					<FieldSessionsPanel
+						onStartNewDataset={onStartNewDataset}
+						datasetActions={fieldDatasetActions}
+						fieldSessionEvents={fieldSessionEvents}
+						onPublishFieldSessionEvent={onPublishFieldSessionEvent}
+						onRefreshFieldSessionEvents={onRefreshFieldSessionEvents}
+						onCommentGeometryVisibility={onCommentGeometryVisibility}
+						onZoomToBounds={onZoomToBounds}
+						availableFeatures={availableFeatures}
+						onMentionVisibilityToggle={onMentionVisibilityToggle}
+						onMentionZoomTo={onMentionZoomTo}
+					/>
+				)
+			case 'private-groups':
+				return (
+					<PrivateGroupsPanel
+						onStartNewDataset={onStartNewDataset}
+						datasetActions={privateDatasetActions}
+						onCommentGeometryVisibility={onCommentGeometryVisibility}
+						onZoomToBounds={onZoomToBounds}
+						availableFeatures={availableFeatures}
+						onMentionVisibilityToggle={onMentionVisibilityToggle}
+						onMentionZoomTo={onMentionZoomTo}
+					/>
+				)
 			case 'stories':
 				return <StoriesPanelContent {...storiesPanelProps} />
 			case 'sightings':
@@ -1024,6 +1124,8 @@ export function AppSidebar({
 		switch (mode) {
 			case 'posts':
 				return <ShoutboxPanel />
+			case 'delivery':
+				return <PublishOutboxPanel />
 			case 'wallet':
 				return (
 					<div className="p-4">
@@ -1046,14 +1148,43 @@ export function AppSidebar({
 	// route back was hunting for the rail nav item.
 	const activeWorkModeLabel =
 		workNavItems.find((item) => item.mode === activeWorkMode)?.title ?? 'list'
+	const handleBackToWorkSurface = () => {
+		if (activeWorkMode === 'private-groups' && privateGroupId) {
+			setViewContextState(null)
+			setViewDatasetState(null)
+			setViewStoryState(null)
+			onClearSightingView?.()
+			setStance(useEditorStore.getState().mapStackEntries['draft:active'] ? 'author' : 'browse')
+			setShowEntityAsFullPanel(false)
+			navigateToPrivateGroup(privateGroupId)
+			return
+		}
+		if (activeWorkMode === 'field-sessions' && fieldSessionId) {
+			setViewContextState(null)
+			setViewDatasetState(null)
+			setViewStoryState(null)
+			onClearSightingView?.()
+			setShowEntityAsFullPanel(false)
+			navigateToFieldSession(fieldSessionId)
+			return
+		}
+		handleSelectWorkMode(activeWorkMode)
+	}
 	const renderBackToCatalogBar = () => (
 		<button
 			type="button"
-			onClick={() => handleSelectWorkMode(activeWorkMode)}
+			onClick={handleBackToWorkSurface}
 			className="flex w-full shrink-0 items-center gap-1.5 border-b border-border px-3 py-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
 		>
 			<ArrowLeft className="h-3.5 w-3.5 shrink-0" />
-			<span className="truncate">Back to {activeWorkModeLabel}</span>
+			<span className="truncate">
+				Back to{' '}
+				{activeWorkMode === 'private-groups' && privateGroupId
+					? 'private group'
+					: activeWorkMode === 'field-sessions' && fieldSessionId
+						? 'field session'
+						: activeWorkModeLabel}
+			</span>
 		</button>
 	)
 
@@ -1289,27 +1420,45 @@ export function AppSidebar({
 					    items carry that role now, with derived active state. */}
 					<div className="flex w-full items-center gap-2">
 						<div className="min-w-0 flex-1">
-							<EntitySearchPopover
-								sources={{ contexts: mapContextEvents }}
-								entityTypes={['context']}
-								onSelect={handleContextScopeSelect}
-								placeholder={
-									activeContextScopeLabel ? activeContextScopeLabel : 'Filter by context…'
-								}
-								searchMode="local"
-								compact
-							/>
+							{contentMode === 'drafts' ? (
+								<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
+									Saved on this device
+								</div>
+							) : contentMode === 'private-groups' ? (
+								<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
+									Private group records
+								</div>
+							) : contentMode === 'field-sessions' ? (
+								<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
+									Field session records
+								</div>
+							) : contentMode === 'delivery' ? (
+								<div className="flex h-7 items-center font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
+									Native delivery ledger
+								</div>
+							) : (
+								<EntitySearchPopover
+									sources={{ contexts: mapContextEvents }}
+									entityTypes={['context']}
+									onSelect={handleContextScopeSelect}
+									placeholder={
+										activeContextScopeLabel ? activeContextScopeLabel : 'Browse all contexts'
+									}
+									searchMode="local"
+									compact
+								/>
+							)}
 						</div>
 
 						<div className="flex shrink-0 items-center gap-1">
-							{contextNaddr ? (
+							{contextNaddr && contentMode !== 'drafts' ? (
 								<Button
 									type="button"
 									variant="ghost"
 									size="icon-sm"
 									onClick={clearContextScope}
-									title="Leave context scope"
-									aria-label="Leave context scope"
+									title="Clear context browse scope"
+									aria-label="Clear context browse scope"
 									className="h-7 w-7"
 								>
 									<X className="h-3.5 w-3.5" />
@@ -1334,12 +1483,16 @@ export function AppSidebar({
 							</span>
 						</div>
 					</div>
-					{currentUserPubkey && (
+					{contentMode !== 'drafts' && contentMode !== 'delivery' && (
 						<WorkspaceDraftNavigator
 							onStartNewDataset={onStartNewDataset}
 							onSwitchWorkspace={onSwitchWorkspace}
 							onDeleteWorkspace={onDeleteWorkspace}
 							onAddDraftToWorkspace={onAddDraftToWorkspace}
+							onLoadDraft={onLoadDraft}
+							onDeleteDraft={onDeleteDraft}
+							destinationOptions={draftDestinationOptions}
+							onResolveDraftDestination={onResolveDraftDestination}
 						/>
 					)}
 				</SidebarHeader>

@@ -14,14 +14,12 @@
 import {
 	createDeleteAuth,
 	createListAuth,
-	createUploadAuth,
 	type BlobDescriptor,
 	type SignedEvent,
 	type Signer,
 } from 'blossom-client-sdk'
 import { deleteBlob } from 'blossom-client-sdk/actions/delete'
 import { listBlobs } from 'blossom-client-sdk/actions/list'
-import { uploadBlob } from 'blossom-client-sdk/actions/upload'
 import { use$, useActiveAccount } from 'applesauce-react/hooks'
 import {
 	Check,
@@ -53,6 +51,7 @@ import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { downscaleImageToLimit } from '@/lib/blossom/downscaleImage'
+import { uploadBlobWithBlossyV02Compat } from '@/lib/blossom/uploadCompat'
 import { accounts, eventStore } from '@/lib/nostr'
 import { cn } from '@/lib/utils'
 
@@ -77,6 +76,9 @@ export interface BlossomUploaderResult {
 interface BlossomUploaderButtonProps {
 	onUploaded: (result: BlossomUploaderResult) => void
 	accept?: string
+	/** Allow selecting and uploading several files in one action. Each completed
+	 * upload is emitted through `onUploaded` in the user's selected order. */
+	multiple?: boolean
 	currentUrl?: string
 	title?: string
 	description?: string
@@ -91,6 +93,15 @@ interface BlossomUploaderButtonProps {
 
 function normalizeServerUrl(value: string): string {
 	return value.trim().replace(/\/+$/, '')
+}
+
+function isHttpServerUrl(value: string): boolean {
+	try {
+		const protocol = new URL(value).protocol
+		return protocol === 'http:' || protocol === 'https:'
+	} catch {
+		return false
+	}
 }
 
 function formatBytes(bytes?: number): string {
@@ -148,7 +159,7 @@ function useAnnouncedBlossomServers(pubkey: string | undefined): {
 		return event.tags
 			.filter((tag) => tag[0] === 'server' && tag[1])
 			.map((tag) => normalizeServerUrl(tag[1] as string))
-			.filter(Boolean)
+			.filter(isHttpServerUrl)
 	}, [event])
 
 	return { servers, loading: !event && Boolean(pubkey) }
@@ -157,6 +168,7 @@ function useAnnouncedBlossomServers(pubkey: string | undefined): {
 export function BlossomUploaderButton({
 	onUploaded,
 	accept = 'image/*',
+	multiple = false,
 	currentUrl,
 	title = 'Upload To Blossom',
 	description = 'Upload an image, reuse an existing blob, or repair a broken Blossom URL.',
@@ -172,8 +184,8 @@ export function BlossomUploaderButton({
 	const userPubkey = activeAccount?.pubkey
 
 	const [open, setOpen] = useState(false)
-	const [selectedFile, setSelectedFile] = useState<File | null>(null)
-	const [selectedPreviewUrl, setSelectedPreviewUrl] = useState<string | null>(null)
+	const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+	const [selectedPreviewUrls, setSelectedPreviewUrls] = useState<string[]>([])
 	const [serverMode, setServerMode] = useState<ServerMode>('recommended')
 	const [customServer, setCustomServer] = useState(defaultServer)
 	const [uploading, setUploading] = useState(false)
@@ -194,14 +206,12 @@ export function BlossomUploaderButton({
 	}, [defaultServer])
 
 	useEffect(() => {
-		if (!selectedFile) {
-			setSelectedPreviewUrl(null)
-			return
+		const previewUrls = selectedFiles.map((file) => URL.createObjectURL(file))
+		setSelectedPreviewUrls(previewUrls)
+		return () => {
+			for (const previewUrl of previewUrls) URL.revokeObjectURL(previewUrl)
 		}
-		const previewUrl = URL.createObjectURL(selectedFile)
-		setSelectedPreviewUrl(previewUrl)
-		return () => URL.revokeObjectURL(previewUrl)
-	}, [selectedFile])
+	}, [selectedFiles])
 
 	const filteredLibraryItems = useMemo(
 		() => libraryItems.filter((item) => item.url && isAcceptedBlob(item, accept)),
@@ -212,7 +222,8 @@ export function BlossomUploaderButton({
 	const hasCustomServer = normalizeServerUrl(customServer).length > 0
 
 	const resetTransientState = useCallback(() => {
-		setSelectedFile(null)
+		setSelectedFiles([])
+		if (fileInputRef.current) fileInputRef.current.value = ''
 		setServerMode('recommended')
 		setUploadProgress(0)
 		setUploadError(null)
@@ -356,11 +367,11 @@ export function BlossomUploaderButton({
 	}, [currentUrl, userPubkey, announcedServers, defaultServer, onUploaded, closeDialog])
 
 	const handleUpload = useCallback(async () => {
-		if (!selectedFile || !userPubkey) return
+		if (selectedFiles.length === 0 || !userPubkey) return
 
 		const normalizedCustomServer = normalizeServerUrl(customServer)
-		if (serverMode === 'custom' && !normalizedCustomServer) {
-			setUploadError('Enter a Blossom server URL.')
+		if (serverMode === 'custom' && !isHttpServerUrl(normalizedCustomServer)) {
+			setUploadError('Enter a valid http:// or https:// Blossom server URL.')
 			return
 		}
 
@@ -383,43 +394,48 @@ export function BlossomUploaderButton({
 				throw new Error('No Blossom server available.')
 			}
 
-			// blossom.earthly.city caps uploads at ~1 MB — downscale images in
-			// the browser when the default server is among the targets (SPEC §7.3).
-			// Must happen before auth: the upload auth binds to the file hash.
-			let uploadFile = selectedFile
 			const normalizedDefault = normalizeServerUrl(defaultServer)
-			if (targets.some((server) => normalizeServerUrl(server) === normalizedDefault)) {
-				uploadFile = await downscaleImageToLimit(selectedFile)
-				if (uploadFile !== selectedFile) {
-					toast.info(`Image downscaled to ${(uploadFile.size / 1024).toFixed(0)} kB for upload`)
+			const usesDefaultServer = targets.some(
+				(server) => normalizeServerUrl(server) === normalizedDefault,
+			)
+			const completed: BlossomUploaderResult[] = []
+
+			for (const [index, selectedFile] of selectedFiles.entries()) {
+				// blossom.earthly.city caps uploads at ~1 MB — downscale images in
+				// the browser when the default server is among the targets (SPEC §7.3).
+				// Must happen before auth: the upload auth binds to the file hash.
+				let uploadFile = selectedFile
+				if (usesDefaultServer) {
+					uploadFile = await downscaleImageToLimit(selectedFile)
+					if (uploadFile !== selectedFile) {
+						toast.info(
+							`${selectedFile.name} downscaled to ${(uploadFile.size / 1024).toFixed(0)} kB`,
+						)
+					}
 				}
+
+				const progressBase = (index / selectedFiles.length) * 100
+				const progressSpan = 100 / selectedFiles.length
+				setUploadProgress(Math.round(progressBase + progressSpan * 0.2))
+				const descriptor = await uploadBlobWithBlossyV02Compat(targets, uploadFile, {
+					signer: makeBlossomSigner(),
+					message: `Upload ${uploadFile.name}`,
+					expiration: Math.floor(Date.now() / 1000) + 5 * 60,
+					onAuthCreated: () => setUploadProgress(Math.round(progressBase + progressSpan * 0.45)),
+				})
+
+				const result = descriptorToResult(descriptor, 'upload', uploadFile.name)
+				completed.push(result)
+				onUploaded(result)
+				setUploadProgress(Math.round(progressBase + progressSpan))
 			}
 
-			setUploadProgress(20)
-			const auth = await createUploadAuth(makeBlossomSigner(), uploadFile, {
-				message: `Upload ${uploadFile.name}`,
-				expiration: Math.floor(Date.now() / 1000) + 5 * 60,
-			})
-			setUploadProgress(40)
-
-			let lastError: unknown = null
-			let descriptor: BlobDescriptor | null = null
-			for (const server of targets) {
-				try {
-					descriptor = await uploadBlob(server, uploadFile, { auth })
-					break
-				} catch (err) {
-					lastError = err
-				}
-			}
-			if (!descriptor) {
-				throw lastError instanceof Error ? lastError : new Error('All servers rejected the upload.')
-			}
-			setUploadProgress(100)
-
-			const result = descriptorToResult(descriptor, 'upload', uploadFile.name)
-			onUploaded(result)
-			toast.success('Uploaded to Blossom', { description: result.url })
+			toast.success(
+				completed.length === 1
+					? 'Uploaded to Blossom'
+					: `Uploaded ${completed.length} images to Blossom`,
+				completed.length === 1 ? { description: completed[0]?.url } : undefined,
+			)
 			closeDialog()
 		} catch (error) {
 			console.error('Failed to upload to blossom:', error)
@@ -430,7 +446,7 @@ export function BlossomUploaderButton({
 			setUploading(false)
 		}
 	}, [
-		selectedFile,
+		selectedFiles,
 		userPubkey,
 		customServer,
 		serverMode,
@@ -529,10 +545,11 @@ export function BlossomUploaderButton({
 										ref={fileInputRef}
 										type="file"
 										accept={accept}
+										multiple={multiple}
 										className="hidden"
 										onChange={(event) => {
-											const nextFile = event.target.files?.[0] ?? null
-											setSelectedFile(nextFile)
+											const nextFiles = Array.from(event.target.files ?? [])
+											setSelectedFiles(multiple ? nextFiles : nextFiles.slice(0, 1))
 											setUploadError(null)
 										}}
 									/>
@@ -542,15 +559,22 @@ export function BlossomUploaderButton({
 										onClick={() => fileInputRef.current?.click()}
 										className={cn(
 											'flex min-h-[18rem] w-full flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-card px-4 py-8 text-center transition hover:border-border hover:bg-muted',
-											selectedFile && 'border-ok/40 bg-ok/15',
+											selectedFiles.length > 0 && 'border-ok/40 bg-ok/15',
 										)}
 									>
-										{selectedPreviewUrl ? (
-											<img
-												src={selectedPreviewUrl}
-												alt={selectedFile?.name ?? 'Selected upload'}
-												className="h-28 w-28 rounded-lg border border-border object-cover shadow-sm"
-											/>
+										{selectedPreviewUrls[0] ? (
+											<div className="relative">
+												<img
+													src={selectedPreviewUrls[0]}
+													alt={selectedFiles[0]?.name ?? 'Selected upload'}
+													className="h-28 w-28 rounded-lg border border-border object-cover shadow-sm"
+												/>
+												{selectedFiles.length > 1 ? (
+													<span className="absolute -right-2 -bottom-2 rounded-full bg-primary px-2 py-1 text-xs font-semibold text-primary-foreground shadow-sm">
+														+{selectedFiles.length - 1}
+													</span>
+												) : null}
+											</div>
 										) : (
 											<div className="flex h-28 w-28 items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground">
 												<ImageIcon className="h-8 w-8" />
@@ -558,10 +582,15 @@ export function BlossomUploaderButton({
 										)}
 										<div className="max-w-full space-y-1">
 											<p className="break-all text-sm font-medium text-foreground">
-												{selectedFile ? selectedFile.name : 'Select an image'}
+												{selectedFiles.length > 1
+													? `${selectedFiles.length} images selected`
+													: selectedFiles[0]?.name ||
+														(multiple ? 'Select images' : 'Select an image')}
 											</p>
 											<p className="text-xs text-muted-foreground">
-												{selectedFile ? formatBytes(selectedFile.size) : 'Click to browse'}
+												{selectedFiles.length > 0
+													? formatBytes(selectedFiles.reduce((total, file) => total + file.size, 0))
+													: 'Click to browse'}
 											</p>
 										</div>
 									</button>
@@ -586,7 +615,7 @@ export function BlossomUploaderButton({
 										<Button
 											type="button"
 											onClick={() => void handleUpload()}
-											disabled={!selectedFile || uploading || healing}
+											disabled={selectedFiles.length === 0 || uploading || healing}
 											className="min-w-28"
 										>
 											{uploading ? (
@@ -594,7 +623,9 @@ export function BlossomUploaderButton({
 											) : (
 												<CloudUpload className="h-4 w-4" />
 											)}
-											Upload
+											{selectedFiles.length > 1
+												? `Upload ${selectedFiles.length} images`
+												: 'Upload'}
 										</Button>
 										{canHealCurrentUrl ? (
 											<Button

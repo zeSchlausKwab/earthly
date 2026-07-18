@@ -111,6 +111,21 @@ interface UsePublishingOptions {
 		datasetId?: string
 		dTag?: string
 	}) => string | null
+	/** Active MLS workspace. When set, dataset writes stay encrypted and never hit public relays. */
+	privateWorkspaceId?: string
+	publishPrivateDataset?: (
+		collection: FeatureCollection,
+		options?: { datasetId?: string; name?: string; previous?: GeoDataset },
+	) => Promise<GeoDataset>
+	/** Active nearby Field session. Writes use the embedded relay and never the public publisher. */
+	fieldSessionId?: string
+	publishFieldDataset?: (
+		collection: FeatureCollection,
+		options?: { datasetId?: string; name?: string; previous?: GeoDataset },
+	) => Promise<GeoDataset>
+	/** False for quarantined drafts whose historical destination cannot be proven. */
+	publishBoundaryResolved?: boolean
+	publishBoundaryMessage?: string
 }
 
 /**
@@ -137,8 +152,23 @@ export function usePublishing({
 	resolvedCollectionResolver,
 	navigateTo,
 	encodeGeoEventNaddr,
+	privateWorkspaceId,
+	publishPrivateDataset,
+	fieldSessionId,
+	publishFieldDataset,
+	publishBoundaryResolved = true,
+	publishBoundaryMessage = 'Choose a verified destination before publishing this draft.',
 }: UsePublishingOptions) {
 	void resolvedCollectionResolver
+	const workspaceMode = privateWorkspaceId ? 'private' : fieldSessionId ? 'field' : 'public'
+	const workspacePublisher = privateWorkspaceId ? publishPrivateDataset : publishFieldDataset
+	const hasWorkspaceScope = workspaceMode !== 'public'
+	// A persisted private/nearby draft may be reopened while its group or field
+	// session is unavailable. Keep the channel intact, but do not present a Save
+	// action that could fail over to the public publisher. The caller restores the
+	// scoped publisher only after the destination has been resolved locally.
+	const workspacePublisherReady =
+		publishBoundaryResolved && (!hasWorkspaceScope || Boolean(workspacePublisher))
 	// Store state
 	const editor = useEditorStore((state) => state.editor)
 	const features = useEditorStore((state) => state.features)
@@ -472,6 +502,34 @@ export function usePublishing({
 		[setMode, setViewMode, setViewDataset],
 	)
 
+	const finishWorkspaceDatasetSave = useCallback(
+		(
+			dataset: GeoDataset,
+			collection: FeatureCollection,
+			action: 'saved' | 'updated' | 'copied',
+		) => {
+			const label = workspaceMode === 'private' ? 'Private dataset' : 'Nearby dataset'
+			setPublishMessage(`${label} ${action}.`)
+			toast.success(`${label} ${action}.`)
+			setIsDirty(false)
+			setActiveDataset(dataset)
+			setActiveDatasetContextRefs([])
+			setCollectionMeta(extractCollectionMeta(collection))
+			setSelectedFeatureIds([])
+			switchToDatasetViewMode(dataset)
+		},
+		[
+			workspaceMode,
+			setPublishMessage,
+			setIsDirty,
+			setActiveDataset,
+			setActiveDatasetContextRefs,
+			setCollectionMeta,
+			setSelectedFeatureIds,
+			switchToDatasetViewMode,
+		],
+	)
+
 	/** Land the author on the just-published dataset's canonical reader route
 	 *  (workflow audit P1): the completion destination is the entity itself —
 	 *  where it can be verified, shared, and discussed — not the catalog. */
@@ -486,6 +544,10 @@ export function usePublishing({
 
 	const handlePublishNew = useCallback(async () => {
 		if (!editor) return
+		if (!publishBoundaryResolved) {
+			setPublishError(publishBoundaryMessage)
+			return
+		}
 		setIsPublishing(true)
 		setPublishMessage('Preparing dataset...')
 		setPublishError(null)
@@ -493,6 +555,12 @@ export function usePublishing({
 		try {
 			const collection = buildCollectionFromEditor()
 			if (!collection) throw new Error('No features to publish')
+			if (hasWorkspaceScope) {
+				if (!workspacePublisher) throw new Error('The active workspace is not available')
+				const dataset = await workspacePublisher(collection)
+				finishWorkspaceDatasetSave(dataset, collection, 'saved')
+				return
+			}
 
 			const signer = accounts.signer
 			if (!signer) {
@@ -543,10 +611,15 @@ export function usePublishing({
 		}
 	}, [
 		editor,
+		publishBoundaryResolved,
+		publishBoundaryMessage,
 		setIsPublishing,
 		setPublishMessage,
 		setPublishError,
 		buildCollectionFromEditor,
+		hasWorkspaceScope,
+		workspacePublisher,
+		finishWorkspaceDatasetSave,
 		serializeBlobReferences,
 		activeDatasetContextRefs,
 		buildCollectionStub,
@@ -565,6 +638,10 @@ export function usePublishing({
 	 */
 	const handlePublishWithBlossomUpload = useCallback(
 		async (blobResult: { sha256: string; url: string; size: number }) => {
+			if (!publishBoundaryResolved || hasWorkspaceScope) {
+				setPublishError('External public storage is unavailable for this draft destination.')
+				return
+			}
 			const signer = accounts.signer
 			if (!signer) {
 				setPublishError('No active account.')
@@ -625,6 +702,8 @@ export function usePublishing({
 			}
 		},
 		[
+			publishBoundaryResolved,
+			hasWorkspaceScope,
 			setIsPublishing,
 			setPublishMessage,
 			setPublishError,
@@ -646,6 +725,10 @@ export function usePublishing({
 
 	const handlePublishUpdate = useCallback(async () => {
 		if (!editor || !activeDataset) return
+		if (!publishBoundaryResolved) {
+			setPublishError(publishBoundaryMessage)
+			return
+		}
 		setIsPublishing(true)
 		setPublishMessage('Updating dataset...')
 		setPublishError(null)
@@ -660,6 +743,23 @@ export function usePublishing({
 		if (!collection) {
 			setPublishError('Draw or load geometry before publishing.')
 			setIsPublishing(false)
+			return
+		}
+
+		if (hasWorkspaceScope) {
+			try {
+				if (!workspacePublisher) throw new Error('The active workspace is not available')
+				const dataset = await workspacePublisher(collection, {
+					datasetId: activeDataset.dTag,
+					previous: activeDataset,
+				})
+				finishWorkspaceDatasetSave(dataset, collection, 'updated')
+			} catch (error) {
+				console.error('Failed to update workspace dataset', error)
+				setPublishError('Failed to update dataset. Check the workspace connection.')
+			} finally {
+				setIsPublishing(false)
+			}
 			return
 		}
 
@@ -715,12 +815,17 @@ export function usePublishing({
 		}
 	}, [
 		editor,
+		publishBoundaryResolved,
+		publishBoundaryMessage,
 		activeDataset,
 		setIsPublishing,
 		setPublishMessage,
 		setPublishError,
 		currentUserPubkey,
 		buildCollectionFromEditor,
+		hasWorkspaceScope,
+		workspacePublisher,
+		finishWorkspaceDatasetSave,
 		serializeBlobReferences,
 		activeDatasetContextRefs,
 		buildCollectionStub,
@@ -736,6 +841,10 @@ export function usePublishing({
 
 	const handlePublishCopy = useCallback(async () => {
 		if (!editor) return
+		if (!publishBoundaryResolved) {
+			setPublishError(publishBoundaryMessage)
+			return
+		}
 		setIsPublishing(true)
 		setPublishMessage('Creating copy...')
 		setPublishError(null)
@@ -743,6 +852,12 @@ export function usePublishing({
 		try {
 			const collection = buildCollectionFromEditor()
 			if (!collection) throw new Error('No features to publish')
+			if (hasWorkspaceScope) {
+				if (!workspacePublisher) throw new Error('The active workspace is not available')
+				const dataset = await workspacePublisher(collection)
+				finishWorkspaceDatasetSave(dataset, collection, 'copied')
+				return
+			}
 
 			const signer = accounts.signer
 			if (!signer) {
@@ -790,10 +905,15 @@ export function usePublishing({
 		}
 	}, [
 		editor,
+		publishBoundaryResolved,
+		publishBoundaryMessage,
 		setIsPublishing,
 		setPublishMessage,
 		setPublishError,
 		buildCollectionFromEditor,
+		hasWorkspaceScope,
+		workspacePublisher,
+		finishWorkspaceDatasetSave,
 		serializeBlobReferences,
 		activeDatasetContextRefs,
 		buildCollectionStub,
@@ -809,6 +929,10 @@ export function usePublishing({
 	const handleProposeEdit = useCallback(
 		async (description: string) => {
 			if (!editor || !activeDataset) return
+			if (!publishBoundaryResolved) {
+				setPublishError(publishBoundaryMessage)
+				return
+			}
 			setIsPublishing(true)
 			setPublishMessage('Creating edit proposal...')
 			setPublishError(null)
@@ -858,6 +982,8 @@ export function usePublishing({
 		},
 		[
 			editor,
+			publishBoundaryResolved,
+			publishBoundaryMessage,
 			activeDataset,
 			setIsPublishing,
 			setPublishMessage,
@@ -870,6 +996,10 @@ export function usePublishing({
 
 	const handleDeleteDataset = useCallback(
 		async (event: GeoDataset, onClear: () => void) => {
+			if (hasWorkspaceScope) {
+				toast.error('Workspace dataset deletion is not available yet.')
+				return
+			}
 			const signer = accounts.signer
 			if (!signer) {
 				toast.error('No active account.')
@@ -892,7 +1022,7 @@ export function usePublishing({
 				toast.error('Failed to delete dataset. Check console for details.')
 			}
 		},
-		[activeDataset, getDatasetKey, getDatasetName],
+		[activeDataset, getDatasetKey, getDatasetName, hasWorkspaceScope],
 	)
 
 	// Check if there's a collection blob reference (uploaded to Blossom)
@@ -904,13 +1034,25 @@ export function usePublishing({
 	const canPublishNew =
 		features.length > 0 &&
 		!activeDataset &&
-		(hasCollectionBlob || (collection ? !isOverSizeLimit(collection) : true))
+		workspacePublisherReady &&
+		(hasWorkspaceScope || hasCollectionBlob || (collection ? !isOverSizeLimit(collection) : true))
 	const canPublishUpdate =
-		!!activeDataset && currentUserPubkey === activeDataset?.pubkey && features.length > 0 && isDirty
+		workspacePublisherReady &&
+		!!activeDataset &&
+		currentUserPubkey === activeDataset?.pubkey &&
+		features.length > 0 &&
+		isDirty
 	const canPublishCopy =
-		!!activeDataset && currentUserPubkey !== activeDataset?.pubkey && features.length > 0
+		workspacePublisherReady &&
+		!!activeDataset &&
+		currentUserPubkey !== activeDataset?.pubkey &&
+		features.length > 0
 	const canProposeEdit =
-		!!activeDataset && currentUserPubkey !== activeDataset?.pubkey && features.length > 0
+		publishBoundaryResolved &&
+		!hasWorkspaceScope &&
+		!!activeDataset &&
+		currentUserPubkey !== activeDataset?.pubkey &&
+		features.length > 0
 
 	return {
 		// Actions

@@ -1,0 +1,27 @@
+[[permission]]
+identifier = "local-node-admin"
+description = "Allows the Earthly main window to inspect its embedded node and administer local pairing grants."
+commands.allow = [
+  "local_node_status",
+  "local_node_status_v1",
+  "local_node_network_addresses_v1",
+  "local_node_enable_lan_v1",
+  "local_node_disable_lan_v1",
+  "local_node_create_invitation_v1",
+  "local_node_pending_claims_v1",
+  "local_node_approve_claim_v1",
+  "local_node_reject_claim_v1",
+  "local_node_peer_grants_v1",
+  "local_node_revoke_peer_v1",
+  "local_node_revoke_peer_field_session_v1",
+  "local_node_join_invitation_v1",
+  "local_node_remote_nodes_v1",
+  "local_node_refresh_remote_node_v1",
+  "local_node_forget_remote_node_v1",
+  "local_node_sync_remote_node_v1",
+  "local_node_publish_remote_event_v1",
+  "local_node_ingest_event_v1",
+  "local_node_field_session_events_v1",
+  "local_node_mirror_remote_blobs_v1",
+  "local_node_blob_access_v1",
+]

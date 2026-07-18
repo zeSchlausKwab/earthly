@@ -54,6 +54,8 @@ export interface GeoRichTextEditorProps {
 	placeholder?: string
 	/** Available features for $ mentions */
 	availableFeatures?: GeoFeatureItem[]
+	/** Whether `$` suggestions may query public relays in addition to local features */
+	searchRelayMentions?: boolean
 	/** Called when content changes */
 	onChange?: (text: string) => void
 	/** Called when a feature is dropped */
@@ -116,6 +118,7 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 			initialValue = '',
 			placeholder = 'Type here... Use $ to mention features',
 			availableFeatures = [],
+			searchRelayMentions = true,
 			onChange,
 			onFeatureDrop,
 			onMentionVisibilityToggle,
@@ -144,6 +147,8 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 		const editorContainerRef = useRef<HTMLDivElement>(null)
 		const suggestionCommandRef = useRef<((item: GeoFeatureItem) => void) | null>(null)
 		const suggestionStateRef = useRef<SuggestionState | null>(null)
+		const relayMentionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+		const relayMentionQueryRef = useRef<string>('')
 
 		useEffect(() => {
 			suggestionStateRef.current = suggestion
@@ -155,6 +160,14 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 		useEffect(() => {
 			availableFeaturesRef.current = availableFeatures
 		}, [availableFeatures])
+		const searchRelayMentionsRef = useRef(searchRelayMentions)
+		useEffect(() => {
+			searchRelayMentionsRef.current = searchRelayMentions
+			if (!searchRelayMentions && relayMentionTimerRef.current) {
+				clearTimeout(relayMentionTimerRef.current)
+				relayMentionTimerRef.current = null
+			}
+		}, [searchRelayMentions])
 
 		// Create a name resolver that looks up names from available features by address
 		const createNameResolver = useCallback(
@@ -187,19 +200,18 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 		// items), relay results (unloaded datasets/groups/stories) merge into
 		// the open suggestion state when they arrive. Guarded by a query
 		// token so stale responses never overwrite a newer query's list.
-		const relayMentionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-		const relayMentionQueryRef = useRef<string>('')
-
 		// Stable ([] deps) so the memoized mention extension never has to be
 		// recreated. Suggestions cannot open on a disabled/read-only editor,
 		// so no gating is needed here.
 		const queueRelayMentionSearch = useCallback((query: string) => {
 			relayMentionQueryRef.current = query
 			if (relayMentionTimerRef.current) clearTimeout(relayMentionTimerRef.current)
+			if (!searchRelayMentionsRef.current) return
 			if (query.trim().length < 2) return
 
 			relayMentionTimerRef.current = setTimeout(() => {
 				void searchMentionEntities(query).then((relayItems) => {
+					if (!searchRelayMentionsRef.current) return
 					if (relayItems.length === 0) return
 					if (relayMentionQueryRef.current !== query) return
 					setSuggestion((prev) => {

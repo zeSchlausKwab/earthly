@@ -4,16 +4,15 @@
  * Uploads GeoJSON FeatureCollections to a Blossom server (BUD-02) with NIP-98
  * Nostr authentication signed by the active applesauce account.
  *
- * Replaces the previous NDK-based implementation. Uses `blossom-client-sdk`
- * for the actual HTTP + auth event construction.
+ * Replaces the previous NDK-based implementation.
  */
 
-import { createUploadAuth, type Signer } from 'blossom-client-sdk'
-import { uploadBlob } from 'blossom-client-sdk/actions/upload'
+import type { Signer } from 'blossom-client-sdk'
 import type { FeatureCollection } from 'geojson'
 import type { EventTemplate } from 'nostr-tools'
 import { getBlossomServerUrl } from '@/features/geo-editor/constants'
 import { accounts } from '@/lib/nostr'
+import { uploadBlobWithBlossyV02Compat } from './uploadCompat'
 
 export interface BlossomUploadResult {
 	/** SHA-256 hash of the uploaded content */
@@ -63,17 +62,13 @@ export async function uploadGeoJsonToBlossom(
 
 	onProgress?.(10)
 
-	// blossom-client-sdk computes the sha256 itself when given a Blob, but
-	// we sign the auth event over it explicitly so we control the message text.
-	const auth = await createUploadAuth(makeBlossomSigner(), blob, {
-		message: `Upload GeoJSON (${size} bytes)`,
-		expiration: Math.floor(Date.now() / 1000) + 5 * 60,
-	})
-
-	onProgress?.(30)
-
 	try {
-		const result = await uploadBlob(blossomServer, blob, { auth })
+		const result = await uploadBlobWithBlossyV02Compat(blossomServer, blob, {
+			signer: makeBlossomSigner(),
+			message: `Upload GeoJSON (${size} bytes)`,
+			expiration: Math.floor(Date.now() / 1000) + 5 * 60,
+			onAuthCreated: () => onProgress?.(30),
+		})
 		onProgress?.(100)
 		return {
 			sha256: result.sha256,

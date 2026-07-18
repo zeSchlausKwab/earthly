@@ -164,8 +164,9 @@ export function ChatPanel({
 	} = useChatStore()
 	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
 	const updateWorkspace = useEditorStore((state) => state.updateWorkspace)
-	const setMobilePanelTab = useEditorStore((state) => state.setMobilePanelTab)
-	const setMobilePanelOpen = useEditorStore((state) => state.setMobilePanelOpen)
+	const selectMobileSidebarDestination = useEditorStore(
+		(state) => state.selectMobileSidebarDestination,
+	)
 	const editorFeatures = useEditorStore((state) => state.features)
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 
@@ -515,8 +516,7 @@ export function ChatPanel({
 			return
 		}
 		if (isMobile) {
-			setMobilePanelTab('settings')
-			setMobilePanelOpen(true)
+			selectMobileSidebarDestination('settings')
 			return
 		}
 		navigateToRoute('/settings')

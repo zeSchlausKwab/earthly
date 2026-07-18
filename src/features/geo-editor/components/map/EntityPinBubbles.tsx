@@ -13,16 +13,17 @@
  *
  * Implementation: one maplibregl.Marker per entity (anchor bottom, offset above
  * the dot) whose element hosts a React portal — so avatars stay reactive to
- * profile loads. Clicking a bubble opens the entity in the right-sidebar
- * inspect view, exactly like clicking the base marker. Image load failures
- * hide the img and leave the base marker visible (rendering is never gated on
- * media, SPEC §5.1/§6.1).
+ * profile loads. Image load failures hide the img and leave the base marker
+ * visible (rendering is never gated on media, SPEC §5.1/§6.1). Sighting bubbles
+ * select the entity and open its image gallery; beacon bubbles open the entity
+ * inspector directly.
  */
 
 import { use$ } from 'applesauce-react/hooks'
 import maplibregl from 'maplibre-gl'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { ImageGalleryDialog } from '@/components/media/ImageGalleryDialog'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import type { LiveBeacon } from '@/lib/nostr/live-beacon'
@@ -143,28 +144,34 @@ export function EntityPinBubbles({
 				return createPortal(
 					entry.kind === 'sighting' && entry.sighting ? (
 						<BubbleWithTail>
-							<button
-								type="button"
+							<ImageGalleryDialog
+								images={entry.sighting.images}
 								title={entry.title}
-								aria-label={`Open sighting: ${entry.title}`}
-								tabIndex={isMobile ? -1 : undefined}
-								className="block h-12 w-12 cursor-pointer overflow-hidden rounded-full border-2 border-background bg-card shadow-md transition-transform hover:scale-110"
-								onClick={() => entry.sighting && onInspectSighting?.(entry.sighting)}
-							>
-								<img
-									src={entry.imageUrl}
-									alt={entry.title}
-									loading="lazy"
-									className="h-full w-full object-cover"
-									onError={(event) => {
-										// Broken image → hide the bubble; the base marker stays.
-										const host = event.currentTarget.closest<HTMLElement>(
-											'.earthly-pin-bubble-host',
-										)
-										if (host) host.style.display = 'none'
-									}}
-								/>
-							</button>
+								trigger={
+									<button
+										type="button"
+										title={entry.title}
+										aria-label={`View photos for sighting: ${entry.title}`}
+										tabIndex={isMobile ? -1 : undefined}
+										className="block h-12 w-12 cursor-pointer overflow-hidden rounded-full border-2 border-background bg-card shadow-md transition-transform hover:scale-110"
+										onClick={() => entry.sighting && onInspectSighting?.(entry.sighting)}
+									>
+										<img
+											src={entry.imageUrl}
+											alt={entry.title}
+											loading="lazy"
+											className="h-full w-full object-cover"
+											onError={(event) => {
+												// Broken image → hide the bubble; the base marker stays.
+												const host = event.currentTarget.closest<HTMLElement>(
+													'.earthly-pin-bubble-host',
+												)
+												if (host) host.style.display = 'none'
+											}}
+										/>
+									</button>
+								}
+							/>
 						</BubbleWithTail>
 					) : entry.beacon ? (
 						<BubbleWithTail>

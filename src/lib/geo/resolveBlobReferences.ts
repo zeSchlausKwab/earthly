@@ -1,5 +1,6 @@
 import type { Feature, FeatureCollection, Geometry } from 'geojson'
 import type { GeoBlobReference, GeoDataset } from '@/lib/nostr/geo-event'
+import { getLocalNodeService } from '@/platform/registry'
 import {
 	isGeoJsonFeature,
 	isGeoJsonFeatureCollection,
@@ -52,6 +53,28 @@ async function verifyBlobSha256(text: string, expectedHex: string): Promise<bool
 		.map((byte) => byte.toString(16).padStart(2, '0'))
 		.join('')
 	return actualHex === expectedHex.toLowerCase()
+}
+
+async function parseVerifiedBlobPayload(
+	text: string,
+	expectedHash: string | undefined,
+	sourceUrl: string,
+): Promise<BlobPayload | null> {
+	if (expectedHash && !(await verifyBlobSha256(text, expectedHash))) {
+		console.warn(
+			`Blob ${sourceUrl} failed sha256 verification (expected ${expectedHash}). Discarding.`,
+		)
+		return null
+	}
+
+	const json = await parseJsonInWorker(text)
+	if (!isGeoJsonFeatureCollection(json) && !isGeoJsonFeature(json) && !isGeoJsonGeometry(json)) {
+		console.warn(
+			`Blob payload at ${sourceUrl} is not a valid GeoJSON Feature, FeatureCollection, or Geometry.`,
+		)
+		return null
+	}
+	return json
 }
 
 /** In-flight fetches by URL, so concurrent callers share one network round-trip. */
@@ -178,52 +201,56 @@ async function fetchWithProgress(
 async function fetchBlobReference(
 	reference: GeoBlobReference,
 	onProgress?: BlobProgressCallback,
+	localBlobUrl?: (sha256: string) => Promise<string | null>,
 ): Promise<BlobPayload | null> {
-	const cached = blobCache.get(reference.url)
+	const validHash = reference.sha256?.toLowerCase().match(/^[0-9a-f]{64}$/)?.[0]
+	const cacheKey = validHash ? `sha256:${validHash}` : reference.url
+	const cached = blobCache.get(cacheKey)
 	if (cached) return cached
-
-	// Already known to be unfetchable — skip silently.
-	if (failedUrls.has(reference.url)) {
-		return null
-	}
 
 	if (!globalThis.fetch) {
 		throw new Error('fetch API is not available in this environment.')
 	}
 
-	// Coalesce concurrent fetches of the same URL into a single round-trip.
-	const existing = inFlight.get(reference.url)
+	// Coalesce equal content hashes even when events carry different mirror URLs.
+	const existing = inFlight.get(cacheKey)
 	if (existing) return existing
 
 	const pending = (async () => {
 		try {
-			const text = await fetchWithProgress(reference.url, reference.size, onProgress)
-
-			// SPEC §1.5.1: when the blob tag carries a sha256, verify the payload.
-			// A mismatch means the server returned corrupted or substituted data.
-			if (reference.sha256 && !(await verifyBlobSha256(text, reference.sha256))) {
-				console.warn(
-					`Blob ${reference.url} failed sha256 verification (expected ${reference.sha256}). Discarding.`,
-				)
+			let payload: BlobPayload | null = null
+			if (validHash) {
+				const resolveLocalUrl =
+					localBlobUrl ??
+					(async (sha256: string) => {
+						try {
+							return await (await getLocalNodeService()).localBlobUrl(sha256)
+						} catch {
+							return null
+						}
+					})
+				const localUrl = await resolveLocalUrl(validHash)
+				if (localUrl) {
+					try {
+						const text = await fetchWithProgress(localUrl, reference.size, onProgress, 1)
+						payload = await parseVerifiedBlobPayload(text, validHash, localUrl)
+					} catch {
+						// A missing or temporarily unavailable local copy falls through to the signed
+						// event's source URL. The local protocol never resolves arbitrary URLs.
+					}
+				}
+			}
+			if (payload === null) {
+				if (failedUrls.has(reference.url)) return null
+				const text = await fetchWithProgress(reference.url, reference.size, onProgress)
+				payload = await parseVerifiedBlobPayload(text, reference.sha256, reference.url)
+			}
+			if (payload === null) {
 				failedUrls.add(reference.url)
 				return null
 			}
-
-			const json = await parseJsonInWorker(text)
-
-			if (
-				!isGeoJsonFeatureCollection(json) &&
-				!isGeoJsonFeature(json) &&
-				!isGeoJsonGeometry(json)
-			) {
-				console.warn(
-					`Blob payload at ${reference.url} is not a valid GeoJSON Feature, FeatureCollection, or Geometry.`,
-				)
-				failedUrls.add(reference.url)
-				return null
-			}
-			blobCache.set(reference.url, json)
-			return json
+			blobCache.set(cacheKey, payload)
+			return payload
 		} catch (error) {
 			failedUrls.add(reference.url)
 			// Log with status detail so 404s are obviously distinguishable from network errors.
@@ -236,17 +263,19 @@ async function fetchBlobReference(
 			}
 			return null
 		} finally {
-			inFlight.delete(reference.url)
+			inFlight.delete(cacheKey)
 		}
 	})()
 
-	inFlight.set(reference.url, pending)
+	inFlight.set(cacheKey, pending)
 	return pending
 }
 
 export interface ResolveOptions {
 	/** Called with aggregated progress across all blob references */
 	onProgress?: BlobProgressCallback
+	/** Test/alternate-runtime seam; native Earthly uses its hash-addressed local protocol. */
+	localBlobUrl?: (sha256: string) => Promise<string | null>
 }
 
 export async function resolveGeoEventFeatureCollection(
@@ -280,7 +309,7 @@ export async function resolveGeoEventFeatureCollection(
 				}
 			: undefined
 
-		const payload = await fetchBlobReference(reference, refProgress)
+		const payload = await fetchBlobReference(reference, refProgress, options?.localBlobUrl)
 
 		// Mark this reference as complete
 		completedSize += refSize

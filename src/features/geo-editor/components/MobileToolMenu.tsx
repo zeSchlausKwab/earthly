@@ -24,6 +24,7 @@ import {
 	Trash2,
 	Type,
 	Upload,
+	XCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -56,6 +57,8 @@ import { useEditorStore } from '../store'
  */
 export interface MobileToolMenuProps {
 	panLocked: boolean
+	panLockAttention?: boolean
+	panLockTriggerAttention?: boolean
 	onTogglePanLock: () => void
 	magnifierEnabled: boolean
 	onToggleMagnifier: () => void
@@ -63,6 +66,8 @@ export interface MobileToolMenuProps {
 	onExportSHP?: () => void
 	onImport?: (file: File) => void
 	onClear: () => void
+	/** Leave the dataset editor while keeping its persisted workspace draft. */
+	onCancelEditing?: () => void
 	canExport: boolean
 	canClear: boolean
 	onPublishUpdate?: () => void
@@ -73,6 +78,7 @@ export interface MobileToolMenuProps {
 	onProposeEdit?: (description: string) => void
 	canProposeEdit?: boolean
 	isPublishing?: boolean
+	publishMode?: 'public' | 'private' | 'field'
 	onOsmClick?: () => void
 	onOsmView?: () => void
 	onOsmAdvanced?: () => void
@@ -80,6 +86,8 @@ export interface MobileToolMenuProps {
 
 export function MobileToolMenu({
 	panLocked,
+	panLockAttention = false,
+	panLockTriggerAttention = false,
 	onTogglePanLock,
 	magnifierEnabled,
 	onToggleMagnifier,
@@ -87,6 +95,7 @@ export function MobileToolMenu({
 	onExportSHP,
 	onImport,
 	onClear,
+	onCancelEditing,
 	canExport,
 	canClear,
 	onPublishUpdate,
@@ -96,6 +105,7 @@ export function MobileToolMenu({
 	onProposeEdit,
 	canProposeEdit,
 	isPublishing,
+	publishMode = 'public',
 	onOsmClick,
 	onOsmView,
 	onOsmAdvanced,
@@ -131,6 +141,7 @@ export function MobileToolMenu({
 	const canDissolve = canExecuteEditorCommand('dissolve_selected_lines')
 	const canSimplify = canExecuteEditorCommand('simplify_selected_features')
 	const canBoolean = canExecuteEditorCommand('start_boolean_union')
+	const isDrawing = mode.startsWith('draw_')
 
 	return (
 		<DropdownMenu>
@@ -138,14 +149,27 @@ export function MobileToolMenu({
 				<Button
 					variant="ghost"
 					size="icon-sm"
-					className="h-9 w-9 shrink-0 rounded-[2px]"
-					aria-label="More tools"
+					className={cn(
+						'h-9 w-9 shrink-0 rounded-[2px]',
+						panLockTriggerAttention && 'mobile-pan-lock-attention',
+					)}
+					aria-label={panLockTriggerAttention ? 'More tools — lock panning to draw' : 'More tools'}
 					title="More tools"
 				>
 					<MoreHorizontal className="h-4 w-4" />
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent side="top" align="end" className="max-h-[70vh] w-60 overflow-y-auto">
+				{mode !== 'select' ? (
+					<>
+						<DropdownMenuLabel>Active mode</DropdownMenuLabel>
+						<DropdownMenuItem onSelect={() => setMode('select')}>
+							<XCircle className="h-4 w-4" />
+							{isDrawing ? 'Cancel drawing' : 'Return to select'}
+						</DropdownMenuItem>
+						<DropdownMenuSeparator />
+					</>
+				) : null}
 				<DropdownMenuLabel>History</DropdownMenuLabel>
 				<DropdownMenuGroup>
 					<DropdownMenuItem disabled={!canUndo} onSelect={() => executeEditorCommand('undo')}>
@@ -180,7 +204,13 @@ export function MobileToolMenu({
 						Snapping
 					</DropdownMenuCheckboxItem>
 					<DropdownMenuCheckboxItem checked={panLocked} onCheckedChange={onTogglePanLock}>
-						{panLocked ? <Lock className="h-4 w-4" /> : <LockOpen className="h-4 w-4" />}
+						{panLocked ? (
+							<Lock className="h-4 w-4" />
+						) : (
+							<LockOpen
+								className={cn('h-4 w-4', panLockAttention && 'mobile-pan-lock-attention')}
+							/>
+						)}
 						Lock pan while drawing
 					</DropdownMenuCheckboxItem>
 					<DropdownMenuCheckboxItem checked={magnifierEnabled} onCheckedChange={onToggleMagnifier}>
@@ -320,18 +350,32 @@ export function MobileToolMenu({
 				{canPublishUpdate || canPublishCopy || canProposeEdit ? (
 					<>
 						<DropdownMenuSeparator />
-						<DropdownMenuLabel>Publish</DropdownMenuLabel>
+						<DropdownMenuLabel>
+							{publishMode === 'private'
+								? 'Private save'
+								: publishMode === 'field'
+									? 'Nearby save'
+									: 'Publish'}
+						</DropdownMenuLabel>
 						<DropdownMenuGroup>
 							{onPublishUpdate ? (
 								<DropdownMenuItem disabled={!canPublishUpdate} onSelect={onPublishUpdate}>
 									<RefreshCw className="h-4 w-4" />
-									Update existing
+									{publishMode === 'private'
+										? 'Update private dataset'
+										: publishMode === 'field'
+											? 'Update nearby dataset'
+											: 'Update existing'}
 								</DropdownMenuItem>
 							) : null}
 							{onPublishCopy ? (
 								<DropdownMenuItem disabled={!canPublishCopy} onSelect={onPublishCopy}>
 									<CopyPlus className="h-4 w-4" />
-									Fork as new dataset
+									{publishMode === 'private'
+										? 'Save as new private dataset'
+										: publishMode === 'field'
+											? 'Save as new nearby dataset'
+											: 'Fork as new dataset'}
 								</DropdownMenuItem>
 							) : null}
 							{onProposeEdit && canProposeEdit ? (
@@ -353,6 +397,12 @@ export function MobileToolMenu({
 					<Trash2 className="h-4 w-4" />
 					Clear draft
 				</DropdownMenuItem>
+				{onCancelEditing ? (
+					<DropdownMenuItem variant="destructive" onSelect={onCancelEditing}>
+						<XCircle className="h-4 w-4" />
+						Exit editing
+					</DropdownMenuItem>
+				) : null}
 			</DropdownMenuContent>
 			{onImport ? (
 				<Input

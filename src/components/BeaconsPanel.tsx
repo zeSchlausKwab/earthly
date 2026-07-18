@@ -22,7 +22,12 @@ import { useEditorStore } from '@/features/geo-editor/store'
 import { getBeaconMapStackKey } from '@/features/geo-editor/mapStackEntityKeys'
 import { useBeacons, beaconState } from '@/lib/hooks/useBeacons'
 import type { LiveBeacon } from '@/lib/nostr/live-beacon'
-import { BulkMapStackButton, EntityListTable, ListPanel } from '@/components/entity-list'
+import {
+	AggregateMapLayerControl,
+	BulkMapStackButton,
+	EntityListTable,
+	ListPanel,
+} from '@/components/entity-list'
 import {
 	createBeaconColumns,
 	type BeaconColumnsContext,
@@ -72,11 +77,29 @@ export function BeaconsPanelContent({
 }: BeaconsPanelProps) {
 	const filterState = useFilterState()
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
+	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
+	const setMapStackEntryVisible = useEditorStore((state) => state.setMapStackEntryVisible)
 	const { events: beacons, eose } = useBeacons()
 	const now = unixNow()
 
 	const result = useSortedFilteredItems(beacons, beaconFilterConfig, filterState)
 	const displayed = result.items
+	const allBeaconsLayer = mapStackEntries['beacon-layer:all']
+	const allBeaconsVisible = Boolean(allBeaconsLayer?.visible)
+	const toggleAllBeaconsLayer = useCallback(() => {
+		if (allBeaconsLayer) {
+			setMapStackEntryVisible(allBeaconsLayer.id, !allBeaconsLayer.visible)
+			return
+		}
+		addMapStackEntry({
+			entityType: 'beacon-layer',
+			entityKey: 'all',
+			title: 'Live beacons',
+			source: 'manual',
+			visible: true,
+			pinned: false,
+		})
+	}, [allBeaconsLayer, addMapStackEntry, setMapStackEntryVisible])
 
 	const columnsContext: BeaconColumnsContext = useMemo(
 		() => ({
@@ -139,6 +162,16 @@ export function BeaconsPanelContent({
 			count={liveCount > 0 ? `${liveCount} live` : rows.length}
 			onNew={onShareLocation}
 			newLabel="Share live location"
+			headerExtra={
+				<AggregateMapLayerControl
+					title="Live beacons layer"
+					description="Show all discoverable live beacons on the map, independent of these filters."
+					count={beacons.length}
+					visible={allBeaconsVisible}
+					onToggle={toggleAllBeaconsLayer}
+					accent="ok"
+				/>
+			}
 			titleAccessory={
 				<BulkMapStackButton
 					count={stackableFilteredBeacons.length}

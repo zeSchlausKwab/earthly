@@ -1,5 +1,7 @@
 import { useCallback } from 'react'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
+import { privateWorkspaceIdForDataset } from '@/lib/private-workspace'
+import { privateDatasetStackEntryId } from '@/features/private-maps/privateDatasetStack'
 import { useEditorStore } from '../store'
 
 interface UseMentionActionsParams {
@@ -105,22 +107,31 @@ export function useMentionActions({
 				return
 			}
 			const key = getDatasetKey(dataset)
-			const entryId = `dataset:${key}`
-			if (mapStackEntries[entryId]) {
+			const privateWorkspaceId = privateWorkspaceIdForDataset(dataset)
+			const privateEntryId = privateWorkspaceId
+				? privateDatasetStackEntryId(privateWorkspaceId, key)
+				: undefined
+			const existingEntry =
+				(privateEntryId ? mapStackEntries[privateEntryId] : undefined) ??
+				Object.values(mapStackEntries).find(
+					(entry) => entry.entityType === 'dataset' && entry.entityKey === key,
+				)
+			if (existingEntry) {
 				// Already stacked (auto-stacked Story ref, or a previously-shown ref):
 				// flip visibility in place so source/order/pin survive and the
 				// resolver-backed chip icon tracks the map exactly.
-				setMapStackEntryVisible(entryId, visible)
+				setMapStackEntryVisible(existingEntry.id, visible)
 			} else if (visible) {
 				const collectionName = (
 					dataset.featureCollection as GeoJSON.FeatureCollection & { name?: unknown }
 				).name
 				addMapStackEntry({
+					id: privateEntryId,
 					entityType: 'dataset',
 					entityKey: key,
 					title:
 						(typeof collectionName === 'string' && collectionName) || dataset.dTag || dataset.id,
-					source: 'comment',
+					source: privateWorkspaceId ? 'private-group' : 'comment',
 					visible: true,
 					pinned: false,
 				})

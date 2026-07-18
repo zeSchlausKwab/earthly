@@ -17,3 +17,15 @@ export function viewToMobileTab(view: SidebarViewMode): MobilePanelTab | null {
 	if (view === 'combined') return null
 	return view
 }
+
+const MOBILE_MAP_SURFACE_TABS = new Set<MobilePanelTab>(['map-stack', 'context-editor', 'edit'])
+
+/** Map-bound surfaces belong in the vertical sheet. Every other destination is
+ * navigation/discovery/account content and belongs in the horizontal drawer. */
+export function isMobileMapSurfaceTab(tab: MobilePanelTab): boolean {
+	return MOBILE_MAP_SURFACE_TABS.has(tab)
+}
+
+export function isMobileSidebarTab(tab: MobilePanelTab): boolean {
+	return !isMobileMapSurfaceTab(tab)
+}
