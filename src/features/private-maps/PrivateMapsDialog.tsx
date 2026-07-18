@@ -76,9 +76,9 @@ function PanelNotice({ children }: { children: ReactNode }) {
 function PrivateGroupsSecurityNotice() {
 	return (
 		<PanelNotice>
-			<span className="font-medium text-foreground">Experimental in 0.0.1.</span> MLS encrypts group
-			records before Cordn stores them; membership and traffic timing remain visible. Avoid highly
-			sensitive operations for now.
+			<span className="font-medium text-foreground">Experimental.</span> MLS encrypts group records
+			before Cordn stores them; membership and traffic timing remain visible. Avoid highly sensitive
+			operations for now.
 		</PanelNotice>
 	)
 }
