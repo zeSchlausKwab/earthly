@@ -1,4 +1,4 @@
-grid-columns: 2
+grid-columns: 1
 
 classes: {
   entry: {
@@ -14,9 +14,10 @@ classes: {
     style.fill: "#ebf8ef"
     style.stroke: "#31834e"
   }
-  native: {
+  seam: {
     style.fill: "#f2eaff"
     style.stroke: "#7652a8"
+    style.stroke-width: 2
   }
   external: {
     style.fill: "#f4f4f4"
@@ -24,52 +25,43 @@ classes: {
   }
 }
 
-clients: "User-facing runtimes" {
-  direction: down
+clients: "Clients" {
+  grid-columns: 2
   web: "Web browser" { class: entry }
   android: "Android app\nTauri WebView" { class: entry }
 }
 
-application: "Shared Earthly React application" {
+application: "Shared Earthly application" {
   direction: down
-  shell: "GeoEditorView\napplication composition root" { class: core }
-  features: "Feature clusters\neditor · social · chat · private groups · field sessions" { class: core }
-  nostr: "Nostr runtime\nEventStore · RelayPool · accounts · publish" { class: state }
-  editor_state: "Editor state\nZustand slices + browser persistence" { class: state }
-  platform: "Platform registry\ncapability contracts" { class: core }
+  shell: "React application shell\nrouting · responsive UI · feature coordination" { class: core }
+  capabilities: "Product capabilities\nmap editor · social entities · AI chat\nprivate groups · field sessions" { class: core }
+  data: "Client-owned state\nEventStore · editor store · accounts · drafts" { class: state }
 
-  shell -> features
-  features -> nostr
-  features -> editor_state
-  features -> platform
+  shell -> capabilities -> data
 }
 
-native_runtime: "Native runtime (Android release target)" {
-  direction: down
-  adapters: "Tauri TypeScript adapters\nZod-validated command boundary" { class: native }
-  commands: "Tauri command handlers\ndeep links · lifecycle · custom blob URI" { class: native }
-  node: "earthly-local-node crate\nidentity · policy · pairing · relay · Blossom" { class: native }
-  sqlite: "Native durable state\npublish outbox · saved regions" { class: state }
+delivery: "Delivery and storage" {
+  grid-columns: 2
 
-  adapters -> commands -> node
-  commands -> sqlite
+  network: "Network services" {
+    grid-columns: 2
+    nostr: "Nostr relays\npublic records + ContextVM transport" { class: external }
+    blossom: "Blossom servers\nimages · files · PMTiles" { class: external }
+    coordination: "Private and geo services\nCordn coordinator · Earthly MCP" { class: external }
+    models: "Model providers\nRoutstr · local · custom" { class: external }
+  }
+
+  native: "Android local runtime" {
+    direction: down
+    bridge: "Validated Tauri platform bridge" { class: seam }
+    node: "Embedded Earthly node\nidentity · pairing · relay · Blossom" { class: seam }
+    durable: "Native durable state\npublish outbox · saved regions" { class: state }
+
+    bridge -> node
+    bridge -> durable
+  }
 }
 
-network: "Network-owned dependencies" {
-  direction: down
-  relays: "Nostr relays\npublic records + ContextVM transport" { class: external }
-  blossom: "Blossom servers\nimages · files · PMTiles" { class: external }
-  cordn: "Cordn coordinator\nencrypted MLS record delivery" { class: external }
-  geo_mcp: "Earthly ContextVM server\ngeo and web tools" { class: external }
-  llm: "OpenAI-compatible model providers\nRoutstr · local · custom" { class: external }
-}
-
-clients.web -> application.shell: "loads"
-clients.android -> application.shell: "loads same bundle"
-application.platform -> native_runtime.adapters: "native only"
-application.nostr -> network.relays: "REQ / EVENT / NIP-77"
-application.features -> network.blossom: "content-addressed blobs"
-application.features -> network.cordn: "ContextVM over Nostr"
-application.features -> network.geo_mcp: "MCP over Nostr"
-application.features -> network.llm: "streamed chat completion"
-native_runtime.node -> clients.android: "offline host / peer traffic"
+clients -> application: "same frontend"
+application -> delivery.network: "online delivery and services"
+application -> delivery.native: "Android capabilities and verified local data"

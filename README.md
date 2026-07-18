@@ -22,7 +22,22 @@ The same React application runs on the web and in the Android app. The Android b
 
 ## Architecture at a glance
 
-![Earthly system context](docs/architecture/diagrams/system-context.svg)
+```mermaid
+flowchart TB
+    WEB["Web browser"]
+    ANDROID["Android app"]
+    APP["Shared React application<br/>map editor · social entities · AI chat · collaboration"]
+    NATIVE["Android local runtime<br/>Tauri · embedded relay/Blossom · outbox · saved regions"]
+    NETWORK["Network services<br/>Nostr · Blossom · Cordn · Earthly MCP · model providers"]
+
+    WEB --> APP
+    ANDROID --> APP
+    ANDROID --> NATIVE
+    NATIVE -->|"verified offline records and native capabilities"| APP
+    APP --> NETWORK
+```
+
+[Open the detailed system context](docs/architecture/diagrams/system-context.svg).
 
 Earthly has four important architectural boundaries:
 
