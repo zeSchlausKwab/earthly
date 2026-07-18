@@ -24,6 +24,13 @@ license: MIT
 website: https://earthly.city
 icon: ./src-tauri/icons/icon.png
 release_notes: ./CHANGELOG.md
+images:
+  - ./release-assets/zapstore/0.0.1/01-map.png
+  - ./release-assets/zapstore/0.0.1/02-map.png
+  - ./release-assets/zapstore/0.0.1/03-map.png
+  - ./release-assets/zapstore/0.0.1/04-map.png
+  - ./release-assets/zapstore/0.0.1/05-map.png
+  - ./release-assets/zapstore/0.0.1/06-map.png
 supported_nips:
   - "01"
   - "07"

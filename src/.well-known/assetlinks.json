@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "city.earthly",
+      "sha256_cert_fingerprints": [
+        "EA:5C:20:C3:42:1C:E5:16:20:64:F7:15:C5:F1:25:C4:F1:7B:CD:38:46:9C:AF:D1:A0:F5:CA:AB:52:82:02:81"
+      ]
+    }
+  }
+]
