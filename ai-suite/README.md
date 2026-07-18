@@ -11,6 +11,9 @@ by default because that command resets and seeds the relay.
 
 ```bash
 bun run ai:list
+bun run experience:list
+bun run experience:card -- --journey squirrel-capture
+bun run experience:audit -- --project mobile
 bun run ai:typecheck
 bun run ai:e2e
 bun run ai:e2e:editor
@@ -43,7 +46,8 @@ traces for failures.
 
 - `core/` — environment guards, readiness, the `EarthlySession` interface, and task metadata.
 - `fixtures/` — Playwright fixtures exposed to scenarios.
-- `personas/` — deterministic local identities and browser-extension adapters.
+- `test-identities/` — deterministic local identities and browser-extension adapters.
+- `experience-lab/` — behavioral personas, journeys, review lenses, and human session cards.
 - `tasks/` — reusable Earthly actions. Tasks own selectors and action sequencing.
 - `scenarios/` — product claims composed from tasks.
 - `scratch/` — disposable scripts and investigations.
@@ -81,6 +85,12 @@ runs the regular and audit groups sequentially. Run any individual group with th
 excluded from regular E2E and `ai:verify`; run them deliberately with `bun run ai:audit:workflows`.
 Earthly's localhost relay router must keep public writes disabled throughout these scenarios.
 
+`@experience-audit` scenarios are persona-constrained journey replays. They record structured step
+evidence but do not turn subjective experience judgments into pass/fail assertions. Start from a
+fresh `bun run dev` when event counts matter, then run them deliberately with
+`bun run experience:audit`. Stable behavior discovered by a journey belongs in a narrower product
+contract such as `@editor-contract`; experience audits are excluded from ordinary `ai:e2e`.
+
 ## GeoEditor refactor safety net
 
 `@editor-contract` is the fast, non-publishing characterization layer for the GeoEditor. It covers
@@ -103,12 +113,12 @@ The `mobile` Playwright project is a responsive-browser contract, not an Android
 `bun run e2e:android:smoke` for Tauri commands, app links, intents, permissions, safe areas, and
 process-lifecycle behavior; `bun run e2e:android:emulator` starts or selects the deterministic AVD.
 Deep multi-persona collaboration currently stays in the browser suite because the NIP-07 test
-personas are browser adapters. Promote only the smallest native-critical journeys to Android
+identities are browser adapters. Promote only the smallest native-critical journeys to Android
 instrumentation instead of duplicating the whole browser matrix.
 
 ## Personas and safety
 
-`owner` and contributor personas reuse the development identities from `src/lib/fixtures.ts`. They
+`owner` and contributor test identities reuse the development identities from `src/lib/fixtures.ts`. They
 are public test keys and must only be used with local development relays. The NIP-07 adapter signs in
 through Earthly's real browser-extension login control and can sign local test events.
 

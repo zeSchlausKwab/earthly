@@ -1,6 +1,7 @@
 import { test, expect } from '../fixtures/earthly'
 import { startDataset } from '../tasks/create/dataset'
 import { clickEditorMap, expectGeometryFeatureCount } from '../tasks/create/geometry'
+import { cancelSightingPlacement, startSightingPlacement } from '../tasks/create/sighting'
 import {
 	cancelDrawingAndVerifyRecovery,
 	editorLifecycleSnapshot,
@@ -63,4 +64,21 @@ test('Map Stack Clear preserves and can isolate the active draft @editor-contrac
 	const result = await exerciseMapStackDraftLifecycle(earthly)
 	expect(result.mapStack.some((entry) => entry.id === 'draft:active')).toBe(true)
 	expect(result.mapStack.some((entry) => entry.isolated)).toBe(false)
+})
+
+test('mobile Sighting pin-drop does not show dataset lock-and-drag guidance @editor-contract', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'mobile', 'Sighting guidance differs on the mobile map')
+	await earthly.open({ tour: 'seen' })
+	await startSightingPlacement(earthly)
+	await earthly.page.evaluate(
+		() =>
+			new Promise<void>((resolve) =>
+				requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+			),
+	)
+	await expect(earthly.page.getByText('Lock panning to draw')).toBeHidden()
+	await cancelSightingPlacement(earthly)
+	await expect(earthly.page.getByText('Lock panning to draw')).toBeHidden()
 })

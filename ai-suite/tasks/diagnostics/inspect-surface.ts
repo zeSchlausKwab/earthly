@@ -29,6 +29,7 @@ export interface SurfaceAudit {
 	undersizedControls: SurfaceElementFinding[]
 	clippedControls: SurfaceElementFinding[]
 	tinyText: SurfaceElementFinding[]
+	repeatedControlNames: Array<{ name: string; count: number }>
 	visibleControlCount: number
 }
 
@@ -94,6 +95,12 @@ export async function inspectSurface(earthly: EarthlySession): Promise<SurfaceAu
 			),
 		).filter(visible)
 		const minimumTarget = viewport.width < 768 ? 44 : 32
+		const controlNameCounts = new Map<string, number>()
+		for (const control of controls) {
+			const controlName = textName(control)
+			if (controlName)
+				controlNameCounts.set(controlName, (controlNameCounts.get(controlName) ?? 0) + 1)
+		}
 		const documentOverflowX = Math.max(
 			0,
 			Math.round(document.documentElement.scrollWidth - viewport.width),
@@ -138,6 +145,10 @@ export async function inspectSurface(earthly: EarthlySession): Promise<SurfaceAu
 					)
 				})
 				.map(describe),
+			repeatedControlNames: Array.from(controlNameCounts.entries())
+				.filter(([, count]) => count > 1)
+				.sort((left, right) => right[1] - left[1])
+				.map(([name, count]) => ({ name, count })),
 			visibleControlCount: controls.length,
 		}
 	})

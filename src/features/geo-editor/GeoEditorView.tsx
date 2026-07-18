@@ -349,6 +349,10 @@ export function GeoEditorView() {
 	const [resolvedCollectionsVersion, setResolvedCollectionsVersion] = useState(0)
 	const [mapPopupsEnabled, setMapPopupsEnabled] = useState(true)
 	const [mapPopupPlacement, setMapPopupPlacement] = useState<MapPopupPlacement>('dock')
+	// Mutable intent flag shared by the generic mobile-drawing guidance and the
+	// later Sighting controller. Sighting pin-drop has its own tap-specific prompt;
+	// showing the dataset lock/drag guidance at the same time is contradictory.
+	const sightingPlacementArmedRef = useRef(false)
 	// Viewport width — drives how many mobile tool-strip overflow actions fit in
 	// the strip vs. collapse into the ••• menu (measured, not fixed breakpoints).
 	const [viewportWidth, setViewportWidth] = useState(() =>
@@ -730,8 +734,9 @@ export function GeoEditorView() {
 	const mapPopupToolbarOffset = 112
 
 	useEffect(() => {
-		if (!isMobile || !isDrawingMode) {
+		if (!isMobile || !isDrawingMode || sightingPlacementArmedRef.current) {
 			lastMobileDrawGuideRef.current = null
+			toast.dismiss('mobile-pan-lock-guide')
 			return
 		}
 		if (panLocked || lastMobileDrawGuideRef.current === currentMode) return
@@ -3021,7 +3026,6 @@ export function GeoEditorView() {
 	// ── Temporal Sighting create/edit + map-first pin-drop (Phase 11, D-01/D-02/D-07) ──
 	// A ref mirror of `placementArmed` so the editor 'create' listener (registered
 	// once) reads the latest armed state without re-subscribing.
-	const sightingPlacementArmedRef = useRef(false)
 	const armSightingPlacement = useCallback(() => {
 		sightingPlacementArmedRef.current = true
 		// Map-first pin-drop: a single touch tap must place the point even with pan
