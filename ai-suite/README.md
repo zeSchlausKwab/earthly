@@ -14,6 +14,7 @@ bun run ai:list
 bun run experience:list
 bun run experience:card -- --journey squirrel-capture
 bun run experience:audit -- --project mobile
+bun run experience:audit:ai -- --project desktop
 bun run ai:typecheck
 bun run ai:e2e
 bun run ai:e2e:editor
@@ -32,6 +33,9 @@ Configuration:
 - Local commands always launch a visible browser so a developer can watch the workflow.
 - `AI_SUITE_SLOW_MO` — visible action delay in milliseconds; defaults to `75` locally.
 - `CI=1` — the only headless mode; also enables CI retries and disables the action delay.
+- `EARTHLY_LIVE_AI_SETTINGS_FILE` — opt-in path to a live-provider v2 settings snapshot. Repository
+  paths are accepted only under ignored `ai-suite/.secrets/`; live runs disable traces and failure
+  screenshots to keep authorization material out of artifacts.
 
 Install the browser once after installing dependencies:
 
@@ -90,6 +94,12 @@ evidence but do not turn subjective experience judgments into pass/fail assertio
 fresh `bun run dev` when event counts matter, then run them deliberately with
 `bun run experience:audit`. Stable behavior discovered by a journey belongs in a narrower product
 contract such as `@editor-contract`; experience audits are excluded from ordinary `ai:e2e`.
+
+AI-assisted journeys split deterministic product contracts from live-model judgment. The
+deterministic provider controls only `/models` and `/chat/completions`; Earthly's real streaming,
+tool dispatch, diff approval, editor, and publishing code remain in the loop. `@live-ai` is an
+explicit paid/networked smoke that loads credentials from an ignored local file and must never use
+private or unpublished data. Run it separately with `bun run experience:audit:ai:live`.
 
 ## GeoEditor refactor safety net
 

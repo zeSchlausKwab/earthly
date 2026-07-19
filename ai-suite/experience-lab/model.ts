@@ -34,6 +34,7 @@ export type Capability =
 	| 'recover'
 	| 'resume'
 	| 'transition'
+	| 'ai-assist'
 
 export interface ExperiencePersona {
 	id: string

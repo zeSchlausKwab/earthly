@@ -7,8 +7,8 @@ import { validateExperienceCatalog, type ExperienceCatalog } from './model'
 describe('Earthly Journey Lab catalog', () => {
 	test('the first cohort has valid persona and journey references', () => {
 		expect(validateExperienceCatalog(experienceCatalog)).toEqual([])
-		expect(experienceCatalog.personas).toHaveLength(5)
-		expect(experienceCatalog.journeys).toHaveLength(3)
+		expect(experienceCatalog.personas).toHaveLength(9)
+		expect(experienceCatalog.journeys).toHaveLength(6)
 	})
 
 	test('rejects a journey actor that has no experience persona', () => {

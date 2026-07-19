@@ -1,6 +1,12 @@
 import { createIdentityTask } from './tasks/auth/create-identity'
 import { authorizeJourneyIdentityTask } from './tasks/auth/authorize-journey-identity'
 import { signInTask } from './tasks/auth/sign-in'
+import {
+	approveAiEditTask,
+	configureChatProviderTask,
+	openAiChatTask,
+	sendAiChatMessageTask,
+} from './tasks/chat/conversation'
 import { startDatasetTask } from './tasks/create/dataset'
 import { createContextTask } from './tasks/create/context'
 import { createGeometryDraftTask, publishGeometryDatasetTask } from './tasks/create/geometry'
@@ -19,6 +25,7 @@ import { openPanelTask } from './tasks/navigation/open-panel'
 import { copyCurrentShareLinkTask } from './tasks/navigation/share-current-view'
 import { completeTourTask, inspectTourTask, skipTourTask } from './tasks/onboarding/tour'
 import { installSimulatedNativeLocalNodeTask } from './tasks/setup/simulated-native-local-node'
+import { installDeterministicChatProviderTask } from './tasks/setup/deterministic-chat-provider'
 import { seedDatasetProposalTask, seedStoryProposalTask } from './tasks/setup/story-proposal'
 import {
 	postAnnotatedCommentTask,
@@ -43,6 +50,10 @@ const tasks = [
 	createIdentityTask,
 	authorizeJourneyIdentityTask,
 	signInTask,
+	configureChatProviderTask,
+	openAiChatTask,
+	sendAiChatMessageTask,
+	approveAiEditTask,
 	completeTourTask,
 	skipTourTask,
 	inspectTourTask,
@@ -63,6 +74,7 @@ const tasks = [
 	seedStoryProposalTask,
 	seedDatasetProposalTask,
 	installSimulatedNativeLocalNodeTask,
+	installDeterministicChatProviderTask,
 	startDatasetTask,
 	cancelDrawingTask,
 	undoRedoGeometryTask,

@@ -3,9 +3,16 @@ import { eventOrganizer } from './personas/event-organizer'
 import { eventVisitor } from './personas/event-visitor'
 import { fieldCrewMember } from './personas/field-crew-member'
 import { forestryPlanner } from './personas/forestry-planner'
+import { spatialDataAnalyst } from './personas/spatial-data-analyst'
+import { curiousMapExplorer } from './personas/curious-map-explorer'
+import { deliveryDispatcher } from './personas/delivery-dispatcher'
+import { deliveryDriver } from './personas/delivery-driver'
 import { eventVenueMapJourney } from './journeys/event-venue-map'
 import { forestryFieldSurveyJourney } from './journeys/forestry-field-survey'
 import { squirrelCaptureJourney } from './journeys/squirrel-capture'
+import { conversationalSpatialResearchJourney } from './journeys/conversational-spatial-research'
+import { conversationalNearbyDiscoveryJourney } from './journeys/conversational-nearby-discovery'
+import { aiAssistedDeliveryHandoffJourney } from './journeys/ai-assisted-delivery-handoff'
 import { accessibilityLens } from './lenses/accessibility'
 import { platformParityLens } from './lenses/platform-parity'
 import { privacyDestinationLens } from './lenses/privacy-destination'
@@ -24,8 +31,19 @@ export const experienceCatalog = {
 		eventVisitor,
 		forestryPlanner,
 		fieldCrewMember,
+		spatialDataAnalyst,
+		curiousMapExplorer,
+		deliveryDispatcher,
+		deliveryDriver,
 	],
-	journeys: [squirrelCaptureJourney, eventVenueMapJourney, forestryFieldSurveyJourney],
+	journeys: [
+		squirrelCaptureJourney,
+		eventVenueMapJourney,
+		forestryFieldSurveyJourney,
+		conversationalSpatialResearchJourney,
+		conversationalNearbyDiscoveryJourney,
+		aiAssistedDeliveryHandoffJourney,
+	],
 	lenses: [accessibilityLens, privacyDestinationLens, platformParityLens, productComplexityLens],
 } as const satisfies ExperienceCatalog
 
