@@ -8,11 +8,13 @@ import {
 	hideAiChat,
 	openAiChat,
 	sendAiChatMessage,
+	startNewAiChat,
 } from '../../tasks/chat/conversation'
 import {
 	expectGeometryFeatureCount,
 	publishCurrentGeometryDataset,
 } from '../../tasks/create/geometry'
+import { createStoryDraft } from '../../tasks/create/story'
 import { installDeterministicChatProvider } from '../../tasks/setup/deterministic-chat-provider'
 
 const run: ScenarioRunDefinition = {
@@ -31,6 +33,12 @@ const run: ScenarioRunDefinition = {
 
 const prompt =
 	'Find public drinking-water points around these trailheads and create 15-minute walking catchments. Keep the result editable and show me any proposed map changes before applying them.'
+
+const unrelatedStory = {
+	title: 'Notes for an unrelated coastal-risk review',
+	summary: 'A separate research task started after the drinking-water analysis.',
+	body: 'Collect source material about port exposure without changing the trailhead Dataset.',
+}
 
 test('an analyst turns a chat proposal into a canonical Dataset @experience-audit @ai-journey @journey-conversational-spatial-research', async ({
 	earthly,
@@ -92,7 +100,7 @@ test('an analyst turns a chat proposal into a canonical Dataset @experience-audi
 		expect(requestRounds[0]?.toolNames).toContain('set_dataset_metadata')
 		expect(requestRounds[1]?.messageRoles).toContain('tool')
 
-		await publishCurrentGeometryDataset(earthly)
+		const publishedDatasetUrl = await publishCurrentGeometryDataset(earthly)
 		await recorder.observe(
 			'dataset-published',
 			'The AI-assisted draft publishes through the same Dataset workflow as manual geometry.',
@@ -103,6 +111,26 @@ test('an analyst turns a chat proposal into a canonical Dataset @experience-audi
 		await recorder.observe(
 			'chat-left-result-retained',
 			'Closing the assistant preserves the canonical Dataset inspector and map result.',
+		)
+
+		await openAiChat(earthly)
+		const chatTransition = await startNewAiChat(earthly)
+		expect(chatTransition.newChatId).not.toBe(chatTransition.previousChatId)
+		await expect(earthly.page.getByText(prompt, { exact: true })).toBeHidden()
+		await expectGeometryFeatureCount(earthly, 4)
+		await recorder.observe(
+			'new-chat-same-editor-state',
+			'New chat clears the visible transcript but keeps the published Dataset geometry loaded as the current editor state.',
+		)
+
+		await hideAiChat(earthly)
+		await createStoryDraft(earthly, unrelatedStory)
+		await expect(earthly.page.getByLabel('Title')).toHaveValue(unrelatedStory.title)
+		await expectGeometryFeatureCount(earthly, 4)
+		expect(earthly.page.url()).not.toBe(publishedDatasetUrl)
+		await recorder.observe(
+			'unrelated-story-draft-started',
+			'An unrelated Story draft opens successfully while the prior Dataset geometry remains loaded in the editor store behind the new task.',
 		)
 	} finally {
 		evidence = await recorder.finish()

@@ -31,6 +31,14 @@ export const sendAiChatMessageTask: AiTaskMetadata = {
 	viewports: 'both',
 }
 
+export const startNewAiChatTask: AiTaskMetadata = {
+	id: 'chat.start-new',
+	summary: 'Start a distinct empty AI conversation while leaving the current Earthly task intact.',
+	preconditions: ['AI chat is open'],
+	sideEffects: ['Creates and selects a new local chat session'],
+	viewports: 'both',
+}
+
 export const approveAiEditTask: AiTaskMetadata = {
 	id: 'chat.approve-edit',
 	summary: 'Approve a pending AI-proposed editor diff through its visible inline gate.',
@@ -71,17 +79,36 @@ export async function openAiChat(earthly: EarthlySession): Promise<void> {
 			}
 			await drawer.getByRole('button', { name: /^AI chat(?:\s|$)/ }).click()
 		}
+		await expect(drawer).toBeVisible()
 	} else {
 		const showChat = earthly.page.getByRole('button', { name: 'Show AI chat', exact: true })
 		if (await showChat.isVisible()) {
 			await showChat.click()
 		}
+		await expect(
+			earthly.page.getByRole('button', { name: 'Hide AI chat', exact: true }),
+		).toBeVisible()
 	}
-	await expect(earthly.page.getByText('AI Chat', { exact: true }).last()).toBeVisible()
 	await expect(composer).toBeEnabled({ timeout: 15_000 })
 }
 
 export type AiChatSendOutcome = 'chat-visible' | 'chat-replaced-by-editor'
+
+export interface NewAiChatResult {
+	previousChatId: string
+	newChatId: string
+}
+
+export async function startNewAiChat(earthly: EarthlySession): Promise<NewAiChatResult> {
+	const chatSelector = earthly.page.getByRole('combobox', { name: 'Select chat', exact: true })
+	const composer = earthly.page.getByPlaceholder('Type a message...')
+	await expect(chatSelector).toBeEnabled()
+	const previousChatId = await chatSelector.inputValue()
+	await earthly.page.getByRole('button', { name: 'New chat', exact: true }).click()
+	await expect.poll(() => chatSelector.inputValue()).not.toBe(previousChatId)
+	await expect(composer).toHaveValue('')
+	return { previousChatId, newChatId: await chatSelector.inputValue() }
+}
 
 export async function sendAiChatMessage(
 	earthly: EarthlySession,

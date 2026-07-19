@@ -6,6 +6,7 @@ import {
 	configureChatProviderTask,
 	openAiChatTask,
 	sendAiChatMessageTask,
+	startNewAiChatTask,
 } from './tasks/chat/conversation'
 import { startDatasetTask } from './tasks/create/dataset'
 import { createContextTask } from './tasks/create/context'
@@ -57,6 +58,7 @@ const tasks = [
 	configureChatProviderTask,
 	openAiChatTask,
 	sendAiChatMessageTask,
+	startNewAiChatTask,
 	approveAiEditTask,
 	completeTourTask,
 	skipTourTask,

@@ -19,17 +19,20 @@ export const conversationalSpatialResearchJourney = defineJourney({
 		seededData: ['Synthetic trailheads and drinking-water results supplied by the model fixture.'],
 	},
 	taskPrompt:
-		'Find public drinking-water points around the trailheads, create 15-minute walking catchments, review the proposed geometry, save it as a Dataset, then close chat and keep editing.',
+		'Find public drinking-water points around the trailheads, create 15-minute walking catchments, review the proposed geometry, save it as a Dataset, close chat, start a new conversation, then begin an unrelated Story draft.',
 	primaryOutcome:
-		'The assistant produces ordinary Earthly geometry that the analyst explicitly approves, publishes, inspects, and can continue editing without the chat.',
+		'The assistant produces ordinary Earthly geometry that the analyst explicitly approves, publishes, and leaves behind while moving through a new conversation into an unrelated authoring task.',
 	proof: [
 		'Tool use and the proposed diff are visible before mutation.',
 		'Approved geometry exists in the canonical editor and publishes as a Dataset.',
 		'Closing chat preserves the published map result.',
+		'New chat changes the conversation without masquerading as a new workspace or clearing editor state.',
+		'An unrelated Story draft can be started after the Dataset task without reviving its transcript.',
 	],
 	understandingChecks: [
 		'The analyst can distinguish assistant prose, proposed edits, and published data.',
 		'The provider boundary and current authoring destination remain visible.',
+		'The analyst can distinguish a new conversation from a new workspace or a new entity task.',
 	],
 	recoveryBranches: [
 		{
@@ -40,8 +43,14 @@ export const conversationalSpatialResearchJourney = defineJourney({
 			trigger: 'The model stream stalls or chat is closed.',
 			success: 'The analyst can stop the run and continue with ordinary editor controls.',
 		},
+		{
+			trigger: 'The analyst finishes or pauses the Dataset and begins unrelated work.',
+			success:
+				'The new task makes retained chat, workspace, editor, and map state explicit rather than silently carrying it forward.',
+		},
 	],
-	followUpTask: 'Hide AI chat, inspect the published Dataset, and begin a manual correction.',
+	followUpTask:
+		'Hide AI chat, inspect the published Dataset, create a new chat, then save an unrelated Story draft and identify which task state remains active.',
 	capabilities: [
 		'ai-assist',
 		'discover',

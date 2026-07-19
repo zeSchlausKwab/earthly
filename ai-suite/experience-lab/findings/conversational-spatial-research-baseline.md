@@ -24,6 +24,16 @@ results existed. The analyst published the draft through the ordinary Dataset ac
 ordinary Dataset inspector with all four named features, closed AI chat, and retained the inspector
 and mapped result. The browser reported no console or page errors.
 
+The extended transition replay then reopened the assistant and selected **New chat**. This created a
+distinct empty conversation and hid the research transcript, but retained the same four-feature
+Dataset as the active editor workspace. The chat implementation also rebound that workspace to the
+new conversation. After the analyst hid chat and saved an unrelated Story draft, Earthly correctly
+opened `/stories` and preserved the Story fields, yet Map Stack still presented the trailhead Dataset
+under **Editing** and the editor store still contained its four features. The published Dataset, its
+locally active editing workspace, the old research chat, the new empty chat, and the unrelated Story
+draft therefore all coexisted without a single explanation of which task was current, paused, or
+finished.
+
 This is a product-contract proof, not an intelligence proof. The fixture supplied synthetic
 geometry directly; it did not query OpenStreetMap, calculate real walking catchments, judge spatial
 quality, or establish source provenance. A separate live smoke exists but requires an ignored local
@@ -33,11 +43,11 @@ settings file, disables credential-bearing Playwright artifacts, and uses a read
 | --- | ---: | --- |
 | Entry | 3 | Chat is one persistent toolbar action and opens with provider, model, tools, safety, and destination visible. |
 | Completion | 3 | The proposal became a named, published, inspectable four-feature Dataset. |
-| Decisions | 3 | The inline diff blocked mutation until Apply and exposed Cancel as an equal recovery action. |
+| Decisions | 2 | The inline diff clearly gates mutation, but New chat, workspace state, and starting another entity have no equivalent task-boundary explanation. |
 | Vocabulary | 2 | Dataset and geometry language fit the analyst; `binding`, tool names, and model rounds remain implementation-oriented. |
 | Destination | 3 | `Public · Unattached` remained explicit from the empty map through the AI-authored draft and publication. |
 | Recovery | 3 | Cancel was available before apply, undo after apply, and ordinary editor controls remained available. |
-| Continuation | 3 | The published result remained after chat closed and exposed the normal Edit action. |
+| Continuation | 2 | An unrelated Story can be started, but the prior Dataset remains actively editing and the new chat silently inherits its workspace binding. |
 | Return | 3 | Encrypted provider settings survived a reload before the journey began. |
 | Parity | 1 | Canonical Dataset reuse supports later viewers, but no mobile AI or handoff behavior was exercised. |
 | Confidence | 2 | Tool/editor boundaries are strong; source and answer quality are intentionally outside this replay. |
@@ -123,6 +133,31 @@ settings file, disables credential-bearing Playwright artifacts, and uses a read
 - Complexity cost: none; preserve the separation between assistant visibility and task state.
 - Disposition: **contract** on desktop and seek parity evidence on mobile.
 
+### EXP-AI-012 — Chat, workspace, editor, and entity tasks have independent hidden lifecycles
+
+- Severity: **serious friction / wrong-task risk**
+- Step: published Dataset → New chat → unrelated Story draft
+- Observation: **New chat** creates a distinct empty transcript, but it does not create or leave the
+  current workspace. Instead, `ChatPanel.handleCreateChat` silently updates the active workspace's
+  `chatSessionId` to the new conversation. The already-published Dataset remains represented by an
+  active local editing workspace with four features. Starting and saving an unrelated Story changes
+  the route and left editor successfully, while Map Stack continues to label the Dataset as
+  **Editing** and the geometry remains loaded behind the Story task. None of these transitions says
+  whether the Dataset was finished, paused, still dirty, or intentionally attached to the new chat.
+- Capabilities: ai-assist, author-geometry, author-story, organize, recover, resume, transition
+- Related journeys: any analyst starting a second query, interrupted field work, switching between
+  private/public destinations, and every future multi-document workflow.
+- Shared-product hypothesis: conversation, workspace, and entity are separate concepts, but task
+  transitions need one explicit contract. **New chat** should mean conversation only and must not
+  silently reassign workspace ownership. Starting another entity should make the previous authoring
+  task's state visible as finished, paused, or still active, while allowing its map layers to remain
+  intentionally visible without calling the whole task current.
+- Complexity cost: lower if the shell owns a single active-task/paused-task lifecycle and chats are
+  explicit optional attachments; severe if each editor, route, and assistant independently mutates
+  workspace bindings and Map Stack state.
+- Disposition: **investigate across the delivery journey and workspace simplification work** before
+  designing UI; retain this replay as the transition baseline.
+
 ## Cross-journey synthesis so far
 
 | Shared product behavior | Evidence | Current position |
@@ -133,6 +168,7 @@ settings file, disables credential-bearing Playwright artifacts, and uses a read
 | Reuse an entity in another destination | Forestry remains blocked; delivery is specified but not replayed | Still requires source/target/provenance semantics before UI. |
 | Multiple desktop work surfaces compete for map area | First clearly measured in the analyst journey | Gather dispatcher and deep-editor evidence before a shell experiment. |
 | Provenance survives beyond conversation | Not yet provided by the AI Dataset | Investigate as a cross-domain entity concern rather than chat-only transcript copy. |
+| Starting unrelated work does not retire prior task state | New chat rebinds the Dataset workspace; Story opens while Dataset remains Editing | Define one explicit active/paused/finished task contract across chat, workspaces, editors, and Map Stack. |
 
 ## Coverage gaps
 
@@ -147,3 +183,7 @@ settings file, disables credential-bearing Playwright artifacts, and uses a read
   content is never added to external-model context implicitly.
 - Ask real analysts which provenance fields and approval detail are necessary before they trust a
   generated Dataset.
+- Repeat the transition with a dirty unpublished Dataset, then exercise resume, discard, and explicit
+  completion so the future task lifecycle covers loss prevention as well as published work.
+- Verify whether switching back to the original chat restores its original workspace association or
+  whether **New chat** has permanently reassigned the active workspace.
