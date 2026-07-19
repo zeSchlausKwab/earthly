@@ -16,6 +16,7 @@ import {
 } from '../../tasks/create/geometry'
 import { createStoryDraft } from '../../tasks/create/story'
 import { editorLifecycleSnapshot } from '../../tasks/editor/lifecycle'
+import { openPanel } from '../../tasks/navigation/open-panel'
 import { installDeterministicChatProvider } from '../../tasks/setup/deterministic-chat-provider'
 
 const run: ScenarioRunDefinition = {
@@ -76,12 +77,36 @@ test('an analyst turns a chat proposal into a canonical Dataset @experience-audi
 
 		await approveAiEdit(earthly)
 		await expectGeometryFeatureCount(earthly, 4)
+		await expect(earthly.page.getByText('Geometries (4)', { exact: true })).toBeVisible()
+		await earthly.page.getByRole('button', { name: 'Close map stack', exact: true }).click()
+		await openPanel(earthly, 'Local drafts')
+		await expect(earthly.page.getByText('Geometries (4)', { exact: true })).toBeHidden()
+		await earthly.page.evaluate(() => {
+			const store = (
+				window as typeof window & {
+					__earthlyEditorStore?: {
+						getState(): { removeMapStackEntry(id: string): void }
+					}
+				}
+			).__earthlyEditorStore
+			if (!store) throw new Error('Earthly editor debug store is unavailable')
+			store.getState().removeMapStackEntry('draft:active')
+		})
+		await earthly.page
+			.getByRole('button', { name: 'Open Trailhead water catchments in geometry editor' })
+			.click()
+		await expect(earthly.page.getByText('Geometries (4)', { exact: true })).toBeVisible()
+		expect(
+			(await editorLifecycleSnapshot(earthly)).mapStack.some(
+				(entry) => entry.id === 'draft:active',
+			),
+		).toBe(true)
 		await expect(earthly.page.getByText(/I added two synthetic drinking-water points/)).toBeVisible(
 			{ timeout: 15_000 },
 		)
 		await recorder.observe(
 			'proposal-applied',
-			'The accepted proposal exists as ordinary editable geometry and the assistant reports completion.',
+			'The accepted proposal exposes its four-item geometry list, and the chat target restores that editor after the analyst visits Local drafts.',
 		)
 
 		const requestRounds = provider.requests()

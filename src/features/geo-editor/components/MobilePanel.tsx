@@ -1056,6 +1056,7 @@ export function MobilePanel(props: MobilePanelProps) {
 															mapContextEvents={mapContextEvents}
 															availableFeatures={availableFeatures}
 															getDatasetName={getDatasetName}
+															onOpenAuthoringTarget={onOpenDraftEditor}
 															onOpenSettings={() => selectPanel('settings')}
 														/>
 													</div>

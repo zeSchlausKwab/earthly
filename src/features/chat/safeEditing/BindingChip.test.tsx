@@ -18,6 +18,7 @@ describe('BindingChip render (SAFE-01 / D-03)', () => {
 				needsAutoCreate={false}
 				safetyLevel={2}
 				onToggleAutoAccept={() => {}}
+				onOpenTarget={() => {}}
 			/>,
 		)
 		expect(html).toContain('Berlin Bike Lanes')
@@ -25,6 +26,8 @@ describe('BindingChip render (SAFE-01 / D-03)', () => {
 		expect(html.toLowerCase()).toContain('unsaved')
 		// feature count is shown
 		expect(html).toContain('42')
+		expect(html).toContain('Open geometry editor')
+		expect(html).toContain('aria-label="Open Berlin Bike Lanes in geometry editor"')
 	})
 
 	test('shows conversation-only scope when no authoring target exists', () => {

@@ -12,6 +12,7 @@ interface AssistantSidebarProps {
 	mapContextEvents: MapContext[]
 	availableFeatures: GeoFeatureItem[]
 	getDatasetName: (event: GeoDataset) => string
+	onOpenAuthoringTarget: () => void
 	onOpenSettings: () => void
 	onClose: () => void
 }
@@ -22,6 +23,7 @@ export function AssistantSidebar({
 	mapContextEvents,
 	availableFeatures,
 	getDatasetName,
+	onOpenAuthoringTarget,
 	onOpenSettings,
 }: AssistantSidebarProps) {
 	return (
@@ -46,6 +48,7 @@ export function AssistantSidebar({
 					mapContextEvents={mapContextEvents}
 					availableFeatures={availableFeatures}
 					getDatasetName={getDatasetName}
+					onOpenAuthoringTarget={onOpenAuthoringTarget}
 					onOpenSettings={onOpenSettings}
 				/>
 			</div>

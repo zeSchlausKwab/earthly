@@ -1860,6 +1860,23 @@ export function GeoEditorView() {
 	// Edit-isolation reuses the row's Focus button (draft.isolated). Declared
 	// after useRouting so `navigateToView` is in scope.
 	const openDraftEditor = useCallback(() => {
+		const state = useEditorStore.getState()
+		if (
+			!state.mapStackEntries['draft:active'] &&
+			(state.activeGeoEditDraftId || state.activeWorkspaceId || state.features.length > 0)
+		) {
+			addMapStackEntry({
+				id: 'draft:active',
+				entityType: 'draft',
+				entityKey: 'draft:active',
+				title:
+					state.collectionMeta.name ||
+					(state.activeDataset ? getDatasetName(state.activeDataset) : 'Untitled draft'),
+				source: 'workspace',
+				visible: true,
+				pinned: false,
+			})
+		}
 		// The entity panel is multiplexed on viewDataset/viewContext — clear those
 		// so it shows the editor (not whatever was being inspected), put the store
 		// in edit mode, restore the author stance (the toolbar pill + rail surface
@@ -1870,7 +1887,27 @@ export function GeoEditorView() {
 		setViewModeState('edit')
 		setStance('author')
 		navigateToView('edit')
-	}, [navigateToView, setViewContext, setViewDatasetState, setViewModeState, setStance])
+		if (isMobile) {
+			closeMobileSidebar()
+			openMobilePanel('map-stack')
+			setMobilePanelSnap('half')
+		} else {
+			setMapStackOpen(true)
+		}
+	}, [
+		addMapStackEntry,
+		closeMobileSidebar,
+		getDatasetName,
+		isMobile,
+		navigateToView,
+		openMobilePanel,
+		setMapStackOpen,
+		setMobilePanelSnap,
+		setStance,
+		setViewContext,
+		setViewDatasetState,
+		setViewModeState,
+	])
 
 	const zoomToDraft = useCallback(async () => {
 		const drawn = (features ?? []).filter((feature) => feature.geometry !== null)
@@ -3637,6 +3674,7 @@ export function GeoEditorView() {
 			mapContextEvents={mapContextEvents}
 			availableFeatures={availableFeatures}
 			getDatasetName={getDatasetName}
+			onOpenAuthoringTarget={openDraftEditor}
 			onOpenSettings={() => navigateToView('settings')}
 			onClose={() => setChatOpen(false)}
 		/>

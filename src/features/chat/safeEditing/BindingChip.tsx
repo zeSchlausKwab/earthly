@@ -1,4 +1,4 @@
-import { Crosshair, MessageCircle } from 'lucide-react'
+import { Crosshair, ListTree, MessageCircle } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useEditorStore } from '@/features/geo-editor/store'
@@ -39,6 +39,8 @@ export interface BindingChipProps {
 	 * `setSafetyLevel`; turning ON requests Level 3, OFF requests Level 2 (D-12).
 	 */
 	onToggleAutoAccept: (nextLevel: SafetyLevel) => void
+	/** Opens the editor surface for the concrete target. Omitted in conversation-only scope. */
+	onOpenTarget?: () => void
 }
 
 export function BindingChip({
@@ -48,6 +50,7 @@ export function BindingChip({
 	needsAutoCreate,
 	safetyLevel,
 	onToggleAutoAccept,
+	onOpenTarget,
 }: BindingChipProps) {
 	const autoAcceptOn = safetyLevel === 3
 	const featureLabel = featureCount === 1 ? 'feature' : 'features'
@@ -77,6 +80,18 @@ export function BindingChip({
 						<span className="flex-shrink-0 text-edit">
 							· {featureCount} {featureLabel}
 						</span>
+					) : null}
+					{!needsAutoCreate && onOpenTarget ? (
+						<button
+							type="button"
+							onClick={onOpenTarget}
+							className="ml-0.5 inline-flex shrink-0 items-center gap-1 border-edit/30 border-l pl-1.5 font-semibold hover:text-foreground"
+							aria-label={`Open ${name} in geometry editor`}
+							title="Open geometry editor"
+						>
+							<ListTree className="h-3 w-3" aria-hidden="true" />
+							<span>Open</span>
+						</button>
 					) : null}
 				</div>
 				{needsAutoCreate ? (
@@ -116,7 +131,7 @@ export function BindingChip({
  * (SAFE-01) — it always renders either a conversation-only scope or a concrete
  * authoring identity.
  */
-export function BindingChipContainer() {
+export function BindingChipContainer({ onOpenTarget }: { onOpenTarget?: () => void }) {
 	const collectionMeta = useEditorStore((state) => state.collectionMeta)
 	const featureCount = useEditorStore((state) => state.features.length)
 	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
@@ -139,6 +154,7 @@ export function BindingChipContainer() {
 			needsAutoCreate={binding.needsAutoCreate}
 			safetyLevel={safetyLevel}
 			onToggleAutoAccept={setSafetyLevel}
+			onOpenTarget={binding.needsAutoCreate ? undefined : onOpenTarget}
 		/>
 	)
 }

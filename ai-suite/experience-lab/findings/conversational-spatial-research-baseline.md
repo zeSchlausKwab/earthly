@@ -21,6 +21,10 @@ review.
 Dirty unpublished-task resume/discard semantics and applying the same explicit parking contract to
 every other entity editor remain follow-up work rather than being inferred from this one Story path.
 
+`EXP-AI-013` was discovered in a human Paris-tour replay and fixed in the same lifecycle boundary:
+geometry baked directly from an MCP result now creates the ordinary active draft before import, and
+the chat target pill provides an **Open** action that restores the geometry editor from another panel.
+
 ## Result
 
 The analyst imported a no-secret model fixture through the real Chat settings UI. The settings were
@@ -169,6 +173,23 @@ settings file, disables credential-bearing Playwright artifacts, and uses a read
   workspace bindings and Map Stack state.
 - Disposition: **resolved and contracted for conversation switching and Dataset → Story parking**.
   Retain the baseline for the remaining dirty-draft and cross-entity lifecycle cases.
+
+### EXP-AI-013 — Generated map geometry had no visible working-set handoff
+
+- Severity: **blocker** for acting on a successful AI result
+- Source: human desktop replay, “Can you create me a one-day tour through this city with 2 or 3
+  important sights?”, 2026-07-19
+- Observed behavior: the route and three sights rendered on the map and the chat target reported four
+  features, but the Map Stack contained only the aggregate Sighting and Beacon layers. No geometry
+  list was visible from the result.
+- Root cause: `toEditor=true` MCP results were baked after tool dispatch without entering the shared
+  draft lifecycle. The route was therefore the first editor mutation but never established the
+  `draft:active` Map Stack entry that hosts the geometry list.
+- Shared product behavior: every editable AI map result—direct GeoJSON, route, isochrone, OSM query,
+  or boundary—must land in the same recoverable Dataset draft. Its chat target must remain an
+  actionable return path after the user visits another panel.
+- Disposition: **resolved and contracted** by the tool-result authoring test and the spatial-research
+  journey, which proves the geometry list is visible and recoverable through the target's Open action.
 
 ## Cross-journey synthesis so far
 

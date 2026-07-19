@@ -101,6 +101,7 @@ interface ChatPanelProps {
 	mapContextEvents?: MapContext[]
 	availableFeatures?: GeoFeatureItem[]
 	getDatasetName?: (event: GeoDataset) => string
+	onOpenAuthoringTarget?: () => void
 	onOpenSettings?: () => void
 }
 
@@ -127,6 +128,7 @@ export function ChatPanel({
 	mapContextEvents = [],
 	availableFeatures = [],
 	getDatasetName = defaultGetDatasetName,
+	onOpenAuthoringTarget,
 	onOpenSettings,
 }: ChatPanelProps) {
 	const {
@@ -694,7 +696,7 @@ export function ChatPanel({
 				</div>
 
 				{/* Bound-target chip + "Just accept" toggle — always visible (SAFE-01 / SAFE-04 / D-12) */}
-				<BindingChipContainer />
+				<BindingChipContainer onOpenTarget={onOpenAuthoringTarget} />
 
 				{/* Diagnostics */}
 				<div className="min-w-0">
