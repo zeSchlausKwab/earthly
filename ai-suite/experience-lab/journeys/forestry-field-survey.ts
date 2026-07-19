@@ -59,9 +59,10 @@ export const forestryFieldSurveyJourney = defineJourney({
 	],
 	parityExpectation:
 		'Browser owns planning and multi-persona orchestration; Android owns native links, transport, permissions, resume, and process lifecycle.',
-	automationLevel: 'exploratory',
+	automationLevel: 'experience-audit',
 	knownGaps: [
-		'Automated multi-device local transport remains narrower than the browser collaboration suite.',
+		'The experience audit covers the browser/native handoff and an Android-shaped host surface, not real Wi-Fi transport.',
+		'Pairing, participant writes, fan-out, reconnect, and process lifecycle still require Android and physical-device evidence.',
 	],
 	tags: ['desktop', 'android', 'field-session', 'offline', 'first-cohort'],
 })

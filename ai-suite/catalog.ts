@@ -18,6 +18,7 @@ import { keyboardWalkTask } from './tasks/diagnostics/keyboard-walk'
 import { openPanelTask } from './tasks/navigation/open-panel'
 import { copyCurrentShareLinkTask } from './tasks/navigation/share-current-view'
 import { completeTourTask, inspectTourTask, skipTourTask } from './tasks/onboarding/tour'
+import { installSimulatedNativeLocalNodeTask } from './tasks/setup/simulated-native-local-node'
 import { seedDatasetProposalTask, seedStoryProposalTask } from './tasks/setup/story-proposal'
 import {
 	postAnnotatedCommentTask,
@@ -61,6 +62,7 @@ const tasks = [
 	rejectStoryEditTask,
 	seedStoryProposalTask,
 	seedDatasetProposalTask,
+	installSimulatedNativeLocalNodeTask,
 	startDatasetTask,
 	cancelDrawingTask,
 	undoRedoGeometryTask,

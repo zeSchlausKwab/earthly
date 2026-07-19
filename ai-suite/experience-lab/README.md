@@ -23,5 +23,8 @@ bun run experience:audit -- --project mobile
 - Run evidence belongs in ignored Playwright artifacts. Only triaged findings are versioned.
 - Hypothetical AI behavior is not user validation; preserve the evidence level.
 - A finding is not automatically a feature request. Map it to shared capabilities first.
+- Keep findings in research until they recur across at least two meaningfully different journeys
+  or reveal a blocker, data-loss, privacy, security, or accessibility failure. During a research
+  cohort, add evidence and contracts for current behavior; do not interleave speculative UI fixes.
 - Start event-count-sensitive audits from a fresh `bun run dev`; the command resets and seeds the
   local LMDB relay before serving Earthly.
