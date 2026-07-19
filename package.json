@@ -42,7 +42,7 @@
     "experience:list": "bun run ai-suite/experience-lab/catalog.ts",
     "experience:card": "bun run ai-suite/experience-lab/session-card.ts",
     "experience:audit": "playwright test -c ai-suite/playwright.config.ts --grep @experience-audit",
-    "experience:audit:ai": "playwright test -c ai-suite/playwright.config.ts --grep @journey-conversational-spatial-research --grep-invert @live-ai",
+    "experience:audit:ai": "playwright test -c ai-suite/playwright.config.ts --grep @ai-journey --grep-invert @live-ai --workers=1",
     "experience:audit:ai:live": "playwright test -c ai-suite/playwright.config.ts --grep @live-ai",
     "ai:typecheck": "tsc -p ai-suite/tsconfig.json --noEmit",
     "ai:e2e": "playwright test -c ai-suite/playwright.config.ts --grep-invert '@audit|@workflow-audit|@experience-audit'",

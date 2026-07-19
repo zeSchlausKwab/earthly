@@ -26,6 +26,10 @@ import { copyCurrentShareLinkTask } from './tasks/navigation/share-current-view'
 import { completeTourTask, inspectTourTask, skipTourTask } from './tasks/onboarding/tour'
 import { installSimulatedNativeLocalNodeTask } from './tasks/setup/simulated-native-local-node'
 import { installDeterministicChatProviderTask } from './tasks/setup/deterministic-chat-provider'
+import {
+	installDeterministicGeolocationTask,
+	recoverDeviceLocationTask,
+} from './tasks/setup/deterministic-geolocation'
 import { seedDatasetProposalTask, seedStoryProposalTask } from './tasks/setup/story-proposal'
 import {
 	postAnnotatedCommentTask,
@@ -75,6 +79,8 @@ const tasks = [
 	seedDatasetProposalTask,
 	installSimulatedNativeLocalNodeTask,
 	installDeterministicChatProviderTask,
+	installDeterministicGeolocationTask,
+	recoverDeviceLocationTask,
 	startDatasetTask,
 	cancelDrawingTask,
 	undoRedoGeometryTask,

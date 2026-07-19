@@ -62,24 +62,47 @@ export async function configureChatProvider(
 }
 
 export async function openAiChat(earthly: EarthlySession): Promise<void> {
+	const composer = earthly.page.getByPlaceholder('Type a message...')
 	if (earthly.isMobile) {
 		const drawer = earthly.page.getByRole('dialog', { name: 'Earthly navigation' })
-		if (!(await drawer.isVisible())) {
-			await earthly.page.getByRole('button', { name: 'Menu', exact: true }).click()
+		if (!(await drawer.isVisible()) || !(await composer.isVisible())) {
+			if (!(await drawer.isVisible())) {
+				await earthly.page.getByRole('button', { name: 'Menu', exact: true }).click()
+			}
+			await drawer.getByRole('button', { name: /^AI chat(?:\s|$)/ }).click()
 		}
-		await drawer.getByRole('button', { name: /^AI chat(?:\s|$)/ }).click()
 	} else {
-		await earthly.page.getByRole('button', { name: 'Show AI chat', exact: true }).click()
+		const showChat = earthly.page.getByRole('button', { name: 'Show AI chat', exact: true })
+		if (await showChat.isVisible()) {
+			await showChat.click()
+		}
 	}
 	await expect(earthly.page.getByText('AI Chat', { exact: true }).last()).toBeVisible()
-	await expect(earthly.page.getByPlaceholder('Type a message...')).toBeEnabled({ timeout: 15_000 })
+	await expect(composer).toBeEnabled({ timeout: 15_000 })
 }
 
-export async function sendAiChatMessage(earthly: EarthlySession, prompt: string): Promise<void> {
+export type AiChatSendOutcome = 'chat-visible' | 'chat-replaced-by-editor'
+
+export async function sendAiChatMessage(
+	earthly: EarthlySession,
+	prompt: string,
+): Promise<AiChatSendOutcome> {
 	const composer = earthly.page.getByPlaceholder('Type a message...')
 	await composer.fill(prompt)
-	await earthly.page.getByRole('button', { name: 'Send', exact: true }).click()
-	await expect(earthly.page.getByText(prompt, { exact: true })).toBeVisible()
+	await composer.press('Enter')
+	const visiblePrompt = earthly.page.getByText(prompt, { exact: true })
+	const workspaceChip = earthly.page.getByText('Untitled draft', { exact: true }).first()
+	const stopEditing = earthly.page.getByRole('button', { name: 'Stop editing', exact: true })
+	const readOutcome = async (): Promise<AiChatSendOutcome | 'pending'> => {
+		if (await visiblePrompt.isVisible()) return 'chat-visible'
+		if (await stopEditing.isVisible()) return 'chat-replaced-by-editor'
+		if ((await workspaceChip.isVisible()) && (await composer.inputValue()) === '') {
+			return 'chat-replaced-by-editor'
+		}
+		return 'pending'
+	}
+	await expect.poll(readOutcome).not.toBe('pending')
+	return (await readOutcome()) as AiChatSendOutcome
 }
 
 export async function approveAiEdit(earthly: EarthlySession): Promise<void> {
@@ -91,7 +114,9 @@ export async function approveAiEdit(earthly: EarthlySession): Promise<void> {
 
 export async function hideAiChat(earthly: EarthlySession): Promise<void> {
 	if (earthly.isMobile) {
-		await earthly.page.getByRole('button', { name: 'Close', exact: true }).last().click()
+		const drawer = earthly.page.getByRole('dialog', { name: 'Earthly navigation' })
+		await drawer.getByRole('button', { name: 'Close AI chat', exact: true }).click()
+		await expect(drawer).toBeHidden()
 		return
 	}
 	await earthly.page.getByRole('button', { name: 'Hide AI chat', exact: true }).click()

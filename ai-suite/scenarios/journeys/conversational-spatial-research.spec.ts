@@ -32,7 +32,7 @@ const run: ScenarioRunDefinition = {
 const prompt =
 	'Find public drinking-water points around these trailheads and create 15-minute walking catchments. Keep the result editable and show me any proposed map changes before applying them.'
 
-test('an analyst turns a chat proposal into a canonical Dataset @experience-audit @journey-conversational-spatial-research', async ({
+test('an analyst turns a chat proposal into a canonical Dataset @experience-audit @ai-journey @journey-conversational-spatial-research', async ({
 	earthly,
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'desktop', 'Spatial research begins on the desktop surface')
@@ -54,7 +54,19 @@ test('an analyst turns a chat proposal into a canonical Dataset @experience-audi
 			'The model, provider type, tool policy, safety posture, and empty composer are visible together.',
 		)
 
-		await sendAiChatMessage(earthly, prompt)
+		let sendOutcome = await sendAiChatMessage(earthly, prompt)
+		if (sendOutcome === 'chat-replaced-by-editor') {
+			await openAiChat(earthly)
+			// The nearby-discovery baseline records the current first-message race in
+			// detail. Recover once here so this older journey keeps exercising the
+			// deeper proposal, approval, and publishing path.
+			if (provider.requests().length === 0) {
+				sendOutcome = await sendAiChatMessage(earthly, prompt)
+				if (sendOutcome === 'chat-replaced-by-editor') {
+					await openAiChat(earthly)
+				}
+			}
+		}
 		await expect(earthly.page.getByText('write_geojson_to_editor', { exact: true })).toBeVisible({
 			timeout: 15_000,
 		})
