@@ -15,6 +15,7 @@ describe('BindingChip render (SAFE-01 / D-03)', () => {
 				name="Berlin Bike Lanes"
 				unsaved
 				featureCount={42}
+				needsAutoCreate={false}
 				safetyLevel={2}
 				onToggleAutoAccept={() => {}}
 			/>,
@@ -26,17 +27,20 @@ describe('BindingChip render (SAFE-01 / D-03)', () => {
 		expect(html).toContain('42')
 	})
 
-	test("falls back to the 'Untitled draft' name", () => {
+	test('shows conversation-only scope when no authoring target exists', () => {
 		const html = renderToStaticMarkup(
 			<BindingChip
 				name="Untitled draft"
 				unsaved={false}
 				featureCount={0}
+				needsAutoCreate
 				safetyLevel={2}
 				onToggleAutoAccept={() => {}}
 			/>,
 		)
-		expect(html).toContain('Untitled draft')
+		expect(html).toContain('Conversation only')
+		expect(html).toContain('AI edits will start a local draft for review')
+		expect(html).not.toContain('Untitled draft')
 	})
 })
 
@@ -47,6 +51,7 @@ describe('Just accept toggle (SAFE-04 / D-12)', () => {
 				name="X"
 				unsaved={false}
 				featureCount={1}
+				needsAutoCreate={false}
 				safetyLevel={3}
 				onToggleAutoAccept={() => {}}
 			/>,
@@ -58,6 +63,7 @@ describe('Just accept toggle (SAFE-04 / D-12)', () => {
 				name="X"
 				unsaved={false}
 				featureCount={1}
+				needsAutoCreate={false}
 				safetyLevel={2}
 				onToggleAutoAccept={() => {}}
 			/>,
@@ -88,18 +94,19 @@ describe('Just accept toggle (SAFE-04 / D-12)', () => {
 })
 
 describe('always-visible invariant (SAFE-01)', () => {
-	test('renders even with zero features / nothing meaningful bound (never null)', () => {
+	test('renders the conversation scope even when nothing is bound (never null)', () => {
 		const html = renderToStaticMarkup(
 			<BindingChip
 				name="Untitled draft"
 				unsaved={false}
 				featureCount={0}
+				needsAutoCreate
 				safetyLevel={2}
 				onToggleAutoAccept={() => {}}
 			/>,
 		)
 		expect(html.length).toBeGreaterThan(0)
-		expect(html).toContain('Untitled draft')
+		expect(html).toContain('Conversation only')
 	})
 })
 

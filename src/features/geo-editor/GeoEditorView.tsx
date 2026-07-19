@@ -166,6 +166,8 @@ import {
 import { exportShapefile, importShapefile } from './shapefile'
 import { getGeoJsonPasteCandidate } from './geoJsonPaste'
 import { useEditorStore, type MapStackEntry, type PublishChannel } from './store'
+import { useChatStore } from '@/features/chat'
+import { registerDatasetDraftEnsurer } from './authoringTaskBridge'
 import type { MapStackEntryType } from './store/types'
 import type { GeoSearchResult } from './types'
 import { ensureFeatureCollection, extractCollectionMeta, toEditorFeature } from './utils'
@@ -954,6 +956,17 @@ export function GeoEditorView() {
 		startNewDatasetWithOptions({ publishChannel: routePublishChannel })
 		if (useEditorStore.getState().activeGeoEditDraftId) surfaceDraftOnMobile()
 	}, [routePublishChannel, startNewDatasetWithOptions, surfaceDraftOnMobile])
+
+	const ensureAiDatasetDraft = useCallback(() => {
+		const state = useEditorStore.getState()
+		if (state.activeGeoEditDraftId || state.features.length > 0) return
+		startNewDatasetWithOptions({
+			publishChannel: routePublishChannel,
+			chatSessionId: useChatStore.getState().activeChatId,
+		})
+	}, [routePublishChannel, startNewDatasetWithOptions])
+
+	useEffect(() => registerDatasetDraftEnsurer(ensureAiDatasetDraft), [ensureAiDatasetDraft])
 
 	const syncRouteToDraftChannel = useCallback(
 		(publishChannel: PublishChannel | null) => {
@@ -2990,6 +3003,7 @@ export function GeoEditorView() {
 		navigateTo,
 		navigateToView,
 		clearFocus,
+		onBeforeAuthoring: tearDownEditSession,
 	})
 
 	const handleDeleteStory = useCallback(
@@ -3623,8 +3637,6 @@ export function GeoEditorView() {
 			mapContextEvents={mapContextEvents}
 			availableFeatures={availableFeatures}
 			getDatasetName={getDatasetName}
-			onStartNewDataset={startNewDataset}
-			onSwitchWorkspace={handleSwitchWorkspace}
 			onOpenSettings={() => navigateToView('settings')}
 			onClose={() => setChatOpen(false)}
 		/>

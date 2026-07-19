@@ -3,7 +3,8 @@ import type { CollectionMeta } from '@/features/geo-editor/types'
 /**
  * SAFE-01 — pure binding resolver (D-01 / D-02 / D-03).
  *
- * The chat is always explicitly bound to a target dataset. This resolver is a PURE function
+ * A mutation is always explicitly bound to a target dataset. Read-only chat may remain
+ * conversation-only. This resolver is a PURE function
  * over the editor-store identity fields — it does NOT subscribe to the store and does NOT
  * mount React (the `BindingChip` in Plan 05 reads the store and feeds this resolver), so it is
  * headlessly testable. It also NEVER refuses a mutation: when there is genuinely no bound

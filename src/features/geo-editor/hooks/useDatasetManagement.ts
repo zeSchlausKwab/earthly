@@ -30,6 +30,8 @@ interface ResolvedCache {
  */
 export interface DraftAuthoringOptions {
 	publishChannel?: PublishChannel
+	/** Associate an AI-created draft with the conversation that caused the mutation. */
+	chatSessionId?: string | null
 }
 
 const PUBLIC_PUBLISH_CHANNEL: PublishChannel = { kind: 'public' }
@@ -956,7 +958,7 @@ export function useDatasetManagement(
 				sourceId: draftSourceId,
 				label: 'Untitled workspace',
 				kind: 'scratch',
-				chatSessionId: createWorkspaceChat(),
+				chatSessionId: options?.chatSessionId ?? createWorkspaceChat(),
 			})
 			applyEditingState({
 				features: [],

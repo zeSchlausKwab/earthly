@@ -24,6 +24,7 @@ export const conversationalNearbyDiscoveryJourney = defineJourney({
 		'A novice gets a small, understandable set of spatial options and can return to the map without losing them or entering authoring accidentally.',
 	proof: [
 		'Location denial and grant each have a comprehensible recovery path.',
+		'A read-only conversation does not create a Dataset draft or enter authoring.',
 		'A refinement changes the mapped recommendation rather than only the prose.',
 		'Closing chat retains the selected result or route on the map.',
 	],

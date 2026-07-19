@@ -26,8 +26,8 @@ export const conversationalSpatialResearchJourney = defineJourney({
 		'Tool use and the proposed diff are visible before mutation.',
 		'Approved geometry exists in the canonical editor and publishes as a Dataset.',
 		'Closing chat preserves the published map result.',
-		'New chat changes the conversation without masquerading as a new workspace or clearing editor state.',
-		'An unrelated Story draft can be started after the Dataset task without reviving its transcript.',
+		'New conversation changes the transcript without retargeting the Dataset saved work.',
+		'An unrelated Story parks Dataset editing while retaining the published Dataset map layer.',
 	],
 	understandingChecks: [
 		'The analyst can distinguish assistant prose, proposed edits, and published data.',

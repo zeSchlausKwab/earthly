@@ -100,11 +100,14 @@ export interface NewAiChatResult {
 }
 
 export async function startNewAiChat(earthly: EarthlySession): Promise<NewAiChatResult> {
-	const chatSelector = earthly.page.getByRole('combobox', { name: 'Select chat', exact: true })
+	const chatSelector = earthly.page.getByRole('combobox', {
+		name: 'Select conversation',
+		exact: true,
+	})
 	const composer = earthly.page.getByPlaceholder('Type a message...')
 	await expect(chatSelector).toBeEnabled()
 	const previousChatId = await chatSelector.inputValue()
-	await earthly.page.getByRole('button', { name: 'New chat', exact: true }).click()
+	await earthly.page.getByRole('button', { name: 'New conversation', exact: true }).click()
 	await expect.poll(() => chatSelector.inputValue()).not.toBe(previousChatId)
 	await expect(composer).toHaveValue('')
 	return { previousChatId, newChatId: await chatSelector.inputValue() }

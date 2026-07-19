@@ -8,6 +8,18 @@
 - Model lane: controlled OpenAI-compatible fixture using a read-only `get_editor_state` call
 - Research status: **context gathering only; no product UI experiment was implemented**
 
+## First-pass implementation update — 2026-07-19
+
+`EXP-AI-006` is now resolved and protected by the deterministic mobile journey. A read-only prompt
+stays in **Conversation only** scope, completes the two-round `get_editor_state` exchange, and does
+not create or surface a Dataset draft. The first actual AI mutation now lazily creates a local draft
+at the authoring gate, using the current route destination and originating conversation. Generic
+conversation create/switch/delete actions no longer rewrite saved-work associations.
+
+The other findings in this baseline remain open: location-denial recovery, transient inspectable map
+results, progressive disclosure, and mobile route/surface agreement were deliberately not bundled
+into this first pass.
+
 ## Result
 
 The nearby journey is currently **blocked before refinement**. The explorer denied location once,
@@ -48,7 +60,7 @@ permission denial was logged as a console error.
 
 ## Triaged findings
 
-### EXP-AI-006 — Every chat message is coupled to an authoring workspace
+### EXP-AI-006 — Every chat message was coupled to an authoring workspace
 
 - Severity: **blocker** for read-only mobile AI journeys
 - Step: first prompt submitted
@@ -66,8 +78,8 @@ permission denial was logged as a console error.
 - Complexity cost: lower if the tool registry declares which operations require authoring and one host
   boundary ensures a workspace just before an approved mutation; high if each chat surface guesses
   intent and pre-creates drafts.
-- Disposition: **blocker to fix after the research cohort**, then rerun this journey from the first
-  prompt through refinement.
+- Disposition: **resolved and contracted** for conversation-only submission and lazy draft creation.
+  Refinement and transient mapped recommendations remain separate open work under `EXP-AI-008`.
 
 ### EXP-AI-007 — Location denial is encoded as a transient icon, not a recovery path
 

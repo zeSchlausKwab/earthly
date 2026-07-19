@@ -35,7 +35,7 @@ const run: ScenarioRunDefinition = {
 
 const firstPrompt = 'I have 45 minutes. Find a quiet park and coffee nearby, without a car.'
 
-test('a nearby explorer recovers location, reaches the current blocker, and returns to the map @experience-audit @ai-journey @journey-conversational-nearby-discovery', async ({
+test('a nearby explorer can ask a read-only question without starting an authoring task @experience-audit @ai-journey @journey-conversational-nearby-discovery', async ({
 	earthly,
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'mobile', 'Nearby discovery evaluates the mobile surface')
@@ -79,39 +79,34 @@ test('a nearby explorer recovers location, reaches the current blocker, and retu
 		)
 
 		const firstSendOutcome = await sendAiChatMessage(earthly, firstPrompt)
-		expect(firstSendOutcome).toBe('chat-replaced-by-editor')
+		expect(firstSendOutcome).toBe('chat-visible')
 		await expectGeometryFeatureCount(earthly, 0)
 		await recorder.observe(
-			'first-prompt-displaced',
-			'Sending a first read-only question creates an empty Dataset workspace and replaces chat with the editor while the message continues in the background.',
+			'first-prompt-stays-in-conversation',
+			'Sending a read-only question keeps the conversation visible and does not create an empty Dataset draft.',
 		)
-		const stopEditing = earthly.page.getByRole('button', { name: 'Stop editing', exact: true })
-		if (await stopEditing.isVisible()) {
-			await stopEditing.click()
-			await openAiChat(earthly)
-		}
-		await expectGeometryFeatureCount(earthly, 0)
-		const firstRequestStarted = provider.requests().length > 0
-		if (firstRequestStarted) {
-			await expect(
-				earthly.page.getByText(/Two synthetic candidates are Riverside Park/),
-			).toBeVisible({ timeout: 15_000 })
-		}
+		await expect(
+			earthly.page.getByRole('button', { name: 'Stop editing', exact: true }),
+		).toBeHidden()
+		await expect(earthly.page.getByText(/Two synthetic candidates are Riverside Park/)).toBeVisible(
+			{
+				timeout: 15_000,
+			},
+		)
 		await recorder.observe(
-			'chat-recovered',
-			firstRequestStarted
-				? 'Stopping the unintended edit returns to chat and reveals a prose-only answer; the low-patience journey still abandons before refinement.'
-				: 'Stopping the unintended edit returns to an empty chat because the displaced first message never reached the model.',
+			'answer-visible',
+			'The prose-only answer remains in the conversation and the explorer can continue or leave without recovering from an unintended editor state.',
 		)
 
 		const requestRounds = provider.requests()
-		expect([0, 2]).toContain(requestRounds.length)
-		if (requestRounds.length === 2) {
-			expect(requestRounds[0]?.toolNames).toContain('get_editor_state')
-			expect(requestRounds[1]?.messageRoles).toContain('tool')
-		}
+		expect(requestRounds).toHaveLength(2)
+		expect(requestRounds[0]?.toolNames).toContain('get_editor_state')
+		expect(requestRounds[1]?.messageRoles).toContain('tool')
 
 		await hideAiChat(earthly)
+		await expect(
+			earthly.page.getByRole('button', { name: 'Stop editing', exact: true }),
+		).toBeHidden()
 		await expect(earthly.page.getByText('Garden Court Park', { exact: false })).toBeHidden()
 		await expectGeometryFeatureCount(earthly, 0)
 		await earthly.page.getByRole('button', { name: 'Map stack', exact: true }).click()

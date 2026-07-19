@@ -15,6 +15,7 @@ import {
 	publishCurrentGeometryDataset,
 } from '../../tasks/create/geometry'
 import { createStoryDraft } from '../../tasks/create/story'
+import { editorLifecycleSnapshot } from '../../tasks/editor/lifecycle'
 import { installDeterministicChatProvider } from '../../tasks/setup/deterministic-chat-provider'
 
 const run: ScenarioRunDefinition = {
@@ -62,19 +63,8 @@ test('an analyst turns a chat proposal into a canonical Dataset @experience-audi
 			'The model, provider type, tool policy, safety posture, and empty composer are visible together.',
 		)
 
-		let sendOutcome = await sendAiChatMessage(earthly, prompt)
-		if (sendOutcome === 'chat-replaced-by-editor') {
-			await openAiChat(earthly)
-			// The nearby-discovery baseline records the current first-message race in
-			// detail. Recover once here so this older journey keeps exercising the
-			// deeper proposal, approval, and publishing path.
-			if (provider.requests().length === 0) {
-				sendOutcome = await sendAiChatMessage(earthly, prompt)
-				if (sendOutcome === 'chat-replaced-by-editor') {
-					await openAiChat(earthly)
-				}
-			}
-		}
+		const sendOutcome = await sendAiChatMessage(earthly, prompt)
+		expect(sendOutcome).toBe('chat-visible')
 		await expect(earthly.page.getByText('write_geojson_to_editor', { exact: true })).toBeVisible({
 			timeout: 15_000,
 		})
@@ -114,23 +104,39 @@ test('an analyst turns a chat proposal into a canonical Dataset @experience-audi
 		)
 
 		await openAiChat(earthly)
+		const taskBeforeConversationChange = await editorLifecycleSnapshot(earthly)
+		expect(taskBeforeConversationChange.activeWorkspaceChatSessionId).not.toBeNull()
 		const chatTransition = await startNewAiChat(earthly)
 		expect(chatTransition.newChatId).not.toBe(chatTransition.previousChatId)
 		await expect(earthly.page.getByText(prompt, { exact: true })).toBeHidden()
 		await expectGeometryFeatureCount(earthly, 4)
+		const taskAfterConversationChange = await editorLifecycleSnapshot(earthly)
+		expect(taskAfterConversationChange.activeWorkspaceId).toBe(
+			taskBeforeConversationChange.activeWorkspaceId,
+		)
+		expect(taskAfterConversationChange.activeWorkspaceChatSessionId).toBe(
+			taskBeforeConversationChange.activeWorkspaceChatSessionId,
+		)
 		await recorder.observe(
-			'new-chat-same-editor-state',
-			'New chat clears the visible transcript but keeps the published Dataset geometry loaded as the current editor state.',
+			'new-conversation-same-task',
+			'New conversation clears the transcript without retargeting the saved Dataset task or changing its geometry.',
 		)
 
 		await hideAiChat(earthly)
 		await createStoryDraft(earthly, unrelatedStory)
 		await expect(earthly.page.getByLabel('Title')).toHaveValue(unrelatedStory.title)
-		await expectGeometryFeatureCount(earthly, 4)
+		await expectGeometryFeatureCount(earthly, 0)
+		const parkedState = await editorLifecycleSnapshot(earthly)
+		expect(parkedState.activeDraftId).toBeNull()
+		expect(parkedState.activeWorkspaceId).toBeNull()
+		expect(parkedState.mapStack.some((entry) => entry.id === 'draft:active')).toBe(false)
+		expect(parkedState.mapStack.some((entry) => entry.title === 'Trailhead water catchments')).toBe(
+			true,
+		)
 		expect(earthly.page.url()).not.toBe(publishedDatasetUrl)
 		await recorder.observe(
-			'unrelated-story-draft-started',
-			'An unrelated Story draft opens successfully while the prior Dataset geometry remains loaded in the editor store behind the new task.',
+			'unrelated-story-task-started',
+			'An unrelated Story parks Dataset editing while the published catchments remain available as an ordinary map layer.',
 		)
 	} finally {
 		evidence = await recorder.finish()

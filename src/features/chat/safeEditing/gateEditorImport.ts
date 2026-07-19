@@ -19,6 +19,7 @@
  */
 
 import { useEditorStore } from '@/features/geo-editor/store'
+import { ensureDatasetDraftForMutation } from '@/features/geo-editor/authoringTaskBridge'
 import { toEditorFeature } from '@/features/geo-editor/utils'
 import type { EditorFeature } from '@/features/geo-editor/core'
 import { type GateResult, type GateStatus, createAuthoringGate } from './AuthoringGate'
@@ -70,6 +71,7 @@ export async function gateEditorImport(
 	let pendingId: string | null = null
 	const gate = createAuthoringGate(editor, {
 		getSafetyLevel,
+		ensureBinding: ensureDatasetDraftForMutation,
 		emitDiffBlock: (diff) => {
 			const handle = emitDiffBlock(diff)
 			pendingId = handle.id

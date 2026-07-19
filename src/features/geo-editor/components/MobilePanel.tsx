@@ -1056,8 +1056,6 @@ export function MobilePanel(props: MobilePanelProps) {
 															mapContextEvents={mapContextEvents}
 															availableFeatures={availableFeatures}
 															getDatasetName={getDatasetName}
-															onStartNewDataset={onStartNewDataset}
-															onSwitchWorkspace={onSwitchWorkspace}
 															onOpenSettings={() => selectPanel('settings')}
 														/>
 													</div>

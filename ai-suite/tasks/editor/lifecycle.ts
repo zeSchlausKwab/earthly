@@ -39,6 +39,8 @@ export interface EditorLifecycleSnapshot {
 	canUndo: boolean
 	canRedo: boolean
 	activeDraftId: string | null
+	activeWorkspaceId: string | null
+	activeWorkspaceChatSessionId: string | null
 	mapStack: Array<{
 		id: string
 		entityType: string
@@ -62,6 +64,8 @@ export async function editorLifecycleSnapshot(
 						panLocked: boolean
 						history: { canUndo: boolean; canRedo: boolean }
 						activeGeoEditDraftId: string | null
+						activeWorkspaceId: string | null
+						workspaces: Record<string, { chatSessionId: string | null }>
 						mapStackEntries: Record<
 							string,
 							{
@@ -80,6 +84,9 @@ export async function editorLifecycleSnapshot(
 		).__earthlyEditorStore
 		if (!store) throw new Error('Earthly editor debug store is unavailable')
 		const state = store.getState()
+		const activeWorkspace = state.activeWorkspaceId
+			? state.workspaces[state.activeWorkspaceId]
+			: null
 		return {
 			featureCount: state.features.length,
 			mode: state.mode,
@@ -87,6 +94,8 @@ export async function editorLifecycleSnapshot(
 			canUndo: state.history.canUndo,
 			canRedo: state.history.canRedo,
 			activeDraftId: state.activeGeoEditDraftId,
+			activeWorkspaceId: state.activeWorkspaceId,
+			activeWorkspaceChatSessionId: activeWorkspace?.chatSessionId ?? null,
 			mapStack: state.mapStackOrder
 				.map((id) => state.mapStackEntries[id])
 				.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)),

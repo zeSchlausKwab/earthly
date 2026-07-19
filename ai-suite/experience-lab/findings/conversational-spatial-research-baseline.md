@@ -9,6 +9,18 @@
   without explicit local configuration and was not run against a paid provider
 - Research status: **context gathering only; no product UI experiment was implemented**
 
+## First-pass implementation update — 2026-07-19
+
+The transition portion of `EXP-AI-012` is now resolved for the replayed path. **New conversation**
+changes only the transcript and leaves the Dataset's saved-work association untouched. Starting an
+unrelated Story parks Dataset editing: the active draft/workspace and `draft:active` Map Stack entry
+are cleared, while the published Dataset remains visible as an ordinary map layer. Chat now labels
+the no-target state **Conversation only** and explains that an AI edit will start a local draft for
+review.
+
+Dirty unpublished-task resume/discard semantics and applying the same explicit parking contract to
+every other entity editor remain follow-up work rather than being inferred from this one Story path.
+
 ## Result
 
 The analyst imported a no-secret model fixture through the real Chat settings UI. The settings were
@@ -133,7 +145,7 @@ settings file, disables credential-bearing Playwright artifacts, and uses a read
 - Complexity cost: none; preserve the separation between assistant visibility and task state.
 - Disposition: **contract** on desktop and seek parity evidence on mobile.
 
-### EXP-AI-012 — Chat, workspace, editor, and entity tasks have independent hidden lifecycles
+### EXP-AI-012 — Chat, workspace, editor, and entity tasks had independent hidden lifecycles
 
 - Severity: **serious friction / wrong-task risk**
 - Step: published Dataset → New chat → unrelated Story draft
@@ -155,8 +167,8 @@ settings file, disables credential-bearing Playwright artifacts, and uses a read
 - Complexity cost: lower if the shell owns a single active-task/paused-task lifecycle and chats are
   explicit optional attachments; severe if each editor, route, and assistant independently mutates
   workspace bindings and Map Stack state.
-- Disposition: **investigate across the delivery journey and workspace simplification work** before
-  designing UI; retain this replay as the transition baseline.
+- Disposition: **resolved and contracted for conversation switching and Dataset → Story parking**.
+  Retain the baseline for the remaining dirty-draft and cross-entity lifecycle cases.
 
 ## Cross-journey synthesis so far
 
@@ -168,7 +180,7 @@ settings file, disables credential-bearing Playwright artifacts, and uses a read
 | Reuse an entity in another destination | Forestry remains blocked; delivery is specified but not replayed | Still requires source/target/provenance semantics before UI. |
 | Multiple desktop work surfaces compete for map area | First clearly measured in the analyst journey | Gather dispatcher and deep-editor evidence before a shell experiment. |
 | Provenance survives beyond conversation | Not yet provided by the AI Dataset | Investigate as a cross-domain entity concern rather than chat-only transcript copy. |
-| Starting unrelated work does not retire prior task state | New chat rebinds the Dataset workspace; Story opens while Dataset remains Editing | Define one explicit active/paused/finished task contract across chat, workspaces, editors, and Map Stack. |
+| Starting unrelated work retires active editing without hiding map context | New conversation preserves the Dataset association; Story parks its editor while the published layer remains | Extend the same explicit active/paused/finished contract to dirty drafts and every entity editor. |
 
 ## Coverage gaps
 
