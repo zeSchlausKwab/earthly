@@ -68,7 +68,8 @@ multi-organizer updates, poor-network use, Android behavior, or outdoor human co
 - Proposed experiment: derive the sheet title/icon from inspect versus author state while retaining
   the same sheet and route lifecycle.
 - Complexity cost: one semantic mapping in the existing shell; do not add another panel mode.
-- Disposition: **investigate** as a cross-entity correction.
+- Disposition: **contracted/fixed** through the shared mobile sheet presentation. A read-only venue
+  Dataset is now announced as `Dataset`, while actual create/edit tasks retain authoring language.
 
 ### EXP-EV-004 — Venue authoring exposes a very dense desktop surface
 

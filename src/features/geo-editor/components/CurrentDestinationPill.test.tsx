@@ -78,7 +78,9 @@ describe('CurrentDestinationPill', () => {
 		expect(html).toContain('Public')
 		expect(html).not.toContain('Public context')
 		expect(html).toContain('Roman ruins')
-		expect(html).toContain('min-h-9')
+		expect(html).toContain('data-slot="badge"')
+		expect(html).toContain('rounded-full')
+		expect(html).toContain('h-7')
 	})
 
 	test('announces quarantined legacy drafts without suggesting a public destination', () => {

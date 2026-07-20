@@ -5,7 +5,7 @@
 - Personas: `forestry-planner`, `field-crew-member`
 - Platforms: desktop web planning → Android-shaped mobile host surface, 390 × 844
 - Evidence level: **hypothetical automated replay**, not user validation
-- Research status: **context gathering only; no product UI experiment was implemented**
+- Research status: baseline preserved; shared mobile transition corrections implemented on 2026-07-20
 
 ## Result
 
@@ -100,7 +100,10 @@ offline behavior. The core planner-to-crew outcome therefore remains incomplete.
   compositional rule for which surface owns focus. This is broader than a Field-session fix.
 - Complexity cost: potentially low if an existing global action closes transient navigation before
   arming; higher if each feature handles the transition separately.
-- Disposition: **investigate** across more exit-and-restart journeys before changing behavior.
+- Disposition: **contracted/fixed** at the shared mobile action boundary. Starting any global create
+  action now closes navigation, the map-bound sheet, and search before arming the new task, so a
+  Sighting cannot begin behind a drawer. A focused mobile contract starts placement from an open
+  navigation drawer and verifies Cancel is immediately reachable.
 
 ### EXP-FS-005 — Small map controls now recur across two mobile personas
 
@@ -115,7 +118,8 @@ offline behavior. The core planner-to-crew outcome therefore remains incomplete.
   grouping, not a forestry-specific request.
 - Complexity cost: enlarging every control would consume scarce map space; grouping and task-aware
   visibility need evidence from more journeys before an experiment.
-- Disposition: **investigate**; evidence threshold is met, but the research cohort remains open.
+- Disposition: **deferred**. Evidence remains strong, but map-control enlargement was explicitly
+  left out of this shell pass pending a grouping and visibility decision.
 
 ## Cross-journey synthesis so far
 
@@ -123,9 +127,9 @@ offline behavior. The core planner-to-crew outcome therefore remains incomplete.
 | --- | --- | --- |
 | One explicit authoring destination | Public Sighting, public venue Dataset, named Nearby Field session | Preserve and extend the same model to every scoped destination. |
 | Reuse an entity in another destination | Forestry is blocked; venue sharing proves canonical public links only | Define content-transfer and provenance semantics before UI. |
-| Leave one task and safely begin another | Squirrel succeeds from a clean map; venue visitor exits inspection; forestry stacks a drawer and capture | Gather more scoped-exit evidence before changing shell behavior. |
-| Mobile inspector versus editor semantics | Independently reproduced by Squirrel and Event | Already cross-cutting; keep in the synthesis backlog during the research freeze. |
-| Mobile map-control target size | Independently reproduced by Squirrel and Forestry | Cross-persona evidence exists; wait for prioritization/context evidence. |
+| Leave one task and safely begin another | Squirrel succeeds from a clean map; venue visitor exits inspection; forestry formerly stacked a drawer and capture | Global create now normalizes transient mobile surfaces before arming the task. |
+| Mobile inspector versus editor semantics | Independently reproduced by Squirrel and Event | Corrected through one shared semantic presentation mapping. |
+| Mobile map-control target size | Independently reproduced by Squirrel and Forestry | Cross-persona evidence exists; intentionally deferred pending grouping and visibility design. |
 
 ## Coverage gaps
 

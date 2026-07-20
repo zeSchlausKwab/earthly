@@ -562,7 +562,10 @@ export interface UISlice {
 	closeMobilePanel: () => void
 	openMobileSidebar: (tab?: MobilePanelTab) => void
 	showMobileSidebarMenu: () => void
-	selectMobileSidebarDestination: (tab: MobilePanelTab) => void
+	selectMobileSidebarDestination: (
+		tab: MobilePanelTab,
+		options?: { preserveSuspendedPanel?: boolean },
+	) => void
 	closeMobileSidebar: () => void
 	setInspectorActive: (active: boolean) => void
 	setSidebarViewMode: (mode: SidebarViewMode) => void

@@ -6,7 +6,7 @@
 - Platform: mobile web, 390 × 844
 - Evidence level: **hypothetical automated replay**, not user or recommendation-quality validation
 - Model lane: controlled OpenAI-compatible fixture using a read-only `get_editor_state` call
-- Research status: **context gathering only; no product UI experiment was implemented**
+- Research status: baseline preserved; targeted responsive shell corrections implemented on 2026-07-20
 
 ## First-pass implementation update — 2026-07-19
 
@@ -19,6 +19,17 @@ conversation create/switch/delete actions no longer rewrite saved-work associati
 The other findings in this baseline remain open: location-denial recovery, transient inspectable map
 results, progressive disclosure, and mobile route/surface agreement were deliberately not bundled
 into this first pass.
+
+## Mobile shell implementation update — 2026-07-20
+
+`EXP-AI-007` and the route/surface portion of `EXP-AI-010` are now resolved for responsive mobile.
+Location denial produces a persistent explanation, a retry state, and a **Search for a place**
+fallback. The authoring dock now retains a global Menu action; opening AI chat temporarily suspends
+the map-bound editor sheet, and closing chat restores the same sheet detent, draft, and `/edit`
+route. Search, destination, and placement guidance also occupy explicit non-overlapping map lanes.
+
+The transient recommendation lifecycle (`EXP-AI-008`), novice chat density (`EXP-AI-009`), and real
+Android permission/settings behavior remain open.
 
 ## Result
 
@@ -95,8 +106,10 @@ permission denial was logged as a console error.
   cross-feature permission/recovery contract should explain purpose, state, retry, and manual fallback.
 - Complexity cost: low if location consumers share one state machine and message vocabulary; high if
   each feature owns separate permission copy and retry controls.
-- Disposition: **investigate** with Android permission behavior and the delivery journey before a
-  shared UI is designed.
+- Disposition: **resolved and contracted for responsive mobile**. The locate control retains a
+  visible retry state, Earthly explains permission denial, and the toast offers **Search for a
+  place** as a manual fallback. Real Android `Don't ask again`, settings return, and process restart
+  remain native coverage rather than a reason to withhold the responsive recovery path.
 
 ### EXP-AI-008 — Earthly lacks a transient, inspectable map-result lifecycle
 
@@ -150,7 +163,10 @@ permission denial was logged as a console error.
   route/history restoration.
 - Complexity cost: lower if routing and shell ownership are centralized in the GeoEditor refactor;
   high if individual panels patch history and visibility independently.
-- Disposition: **combine with EXP-AI-004** as evidence for the future shell refactor.
+- Disposition: **resolved and contracted for the replayed mobile transition**. Authoring no longer
+  removes global navigation. Menu content temporarily suspends the map-bound sheet; closing it
+  restores the prior detent and draft and changes `/chat` back to `/edit`. Broader responsive shell
+  composition remains related to `EXP-AI-004`, but this route/surface mismatch is no longer open.
 
 ### EXP-AI-011 — A blocked AI task does not trap the user
 
@@ -185,7 +201,7 @@ permission denial was logged as a console error.
 - Decide whether a transient map result is a Map Stack entry, a workspace artifact, a Context-like
   entity, or another domain concept only after the delivery journey supplies a second use case.
 - Exercise denial through real Android permission UI, including **Don’t ask again**, settings recovery,
-  process restart, and a manual-place fallback.
+  and process restart; responsive manual-place fallback is now contracted.
 - Verify route/back behavior for every mobile navigation drawer destination, not only AI chat.
 - Test whether transient recommendations should survive reload, expire, or require an explicit Save.
 - Ask novice participants which assistant metadata creates trust and which reads as developer noise.

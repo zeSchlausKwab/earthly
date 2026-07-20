@@ -31,21 +31,22 @@ describe('mobile surface state machine', () => {
 		expect(state.mobileSidebarOpen).toBe(false)
 	})
 
-	test('opening the menu over an inspector restores it at peek on close', () => {
+	test('opening the menu over a map-bound sheet restores the same detent on close', () => {
 		harness.getState().openMobilePanel('edit')
+		harness.getState().setMobilePanelSnap('full')
 		harness.getState().openMobileSidebar()
 
 		expect(harness.getState().mobilePanelOpen).toBe(false)
 		expect(harness.getState().mobilePanelResumeOnSidebarClose).toEqual({
 			tab: 'edit',
-			snap: 'half',
+			snap: 'full',
 		})
 
 		harness.getState().closeMobileSidebar()
 		const state = harness.getState()
 		expect(state.mobilePanelOpen).toBe(true)
 		expect(state.mobilePanelTab).toBe('edit')
-		expect(state.mobilePanelSnap).toBe('peek')
+		expect(state.mobilePanelSnap).toBe('full')
 	})
 
 	test('choosing navigation content clears the suspended inspector', () => {
@@ -58,5 +59,18 @@ describe('mobile surface state machine', () => {
 		expect(state.mobilePanelOpen).toBe(false)
 		expect(state.mobilePanelTab).toBe('contexts')
 		expect(state.mobilePanelResumeOnSidebarClose).toBeNull()
+	})
+
+	test('authoring can visit navigation content without losing the suspended editor', () => {
+		harness.getState().openMobilePanel('edit')
+		harness.getState().setMobilePanelSnap('full')
+		harness.getState().openMobileSidebar()
+		harness.getState().selectMobileSidebarDestination('chat', { preserveSuspendedPanel: true })
+		harness.getState().closeMobileSidebar()
+
+		const state = harness.getState()
+		expect(state.mobilePanelOpen).toBe(true)
+		expect(state.mobilePanelTab).toBe('edit')
+		expect(state.mobilePanelSnap).toBe('full')
 	})
 })

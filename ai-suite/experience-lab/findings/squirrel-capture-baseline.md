@@ -96,7 +96,10 @@ fake Blossom target. The run therefore does not prove the journey's media outcom
 - Proposed experiment: reserve a mobile top-safe lane or position transient placement guidance
   below the destination indicator.
 - Complexity cost: layout only; no new control.
-- Disposition: **experiment**.
+- Disposition: **contracted/fixed**. The destination is now a compact centered badge in the first
+  top-safe lane. Search and placement guidance share a separate second lane, and placement is
+  suppressed while search is open. A Pixel-sized editor contract verifies their bounding boxes do
+  not overlap each other or the right-hand map controls.
 
 ### EXP-SQ-005 — Mobile map controls are below the suite's 44 px target baseline
 
@@ -108,7 +111,8 @@ fake Blossom target. The run therefore does not prove the journey's media outcom
 - Capabilities: discover, location, inspect, accessibility across all journeys
 - Complexity cost: increasing targets reduces already-scarce map space, so controls may need
   progressive grouping rather than simple enlargement.
-- Disposition: **investigate** across personas before changing global map chrome.
+- Disposition: **deferred**. The recurring evidence remains valid, but this UI pass deliberately
+  leaves map-control sizing unchanged until grouping and task-aware visibility are designed.
 
 ### EXP-SQ-006 — Inspector semantics still read “Editor”
 
@@ -120,7 +124,9 @@ fake Blossom target. The run therefore does not prove the journey's media outcom
 - Related journeys: every entity-inspection journey
 - Proposed experiment: derive the sheet's semantic title and icon from inspect versus edit state.
 - Complexity cost: reuse existing panel state; do not add another sheet mode.
-- Disposition: **investigate** as a cross-entity issue.
+- Disposition: **contracted/fixed**. The existing sheet now derives its title and icon from the
+  active entity and intent: for example `Dataset`, `Sighting`, `New story`, or `Edit context`.
+  Inspectors use inspect semantics without introducing another panel mode.
 
 ### EXP-SQ-007 — Placement could arm before the map editor was ready
 

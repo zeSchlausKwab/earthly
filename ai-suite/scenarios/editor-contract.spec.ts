@@ -14,6 +14,10 @@ import {
 	undoRedoGeometry,
 } from '../tasks/editor/lifecycle'
 import { openPanel } from '../tasks/navigation/open-panel'
+import {
+	attemptDeniedDeviceLocation,
+	installDeterministicGeolocation,
+} from '../tasks/setup/deterministic-geolocation'
 
 test('cancel drawing unlocks panning and leaves the editor usable @editor-contract', async ({
 	earthly,
@@ -151,4 +155,100 @@ test('mobile non-geometry editors keep their primary actions in the sheet header
 		earthly.page.getByRole('button', { name: 'Start beacon', exact: true }),
 	).toBeVisible()
 	await expect(earthly.page.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(1)
+})
+
+test('mobile Dataset editing keeps global navigation and restores its map-bound sheet @editor-contract', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'mobile', 'The author dock is mobile-only')
+	await earthly.open({ tour: 'seen' })
+	const draft = await startDataset(earthly)
+	await draft.nameInput.fill('Menu-safe mobile draft')
+
+	const menu = earthly.page.getByRole('button', { name: 'Menu', exact: true })
+	await expect(menu).toBeVisible()
+	await menu.click()
+	const drawer = earthly.page.getByRole('dialog', { name: 'Earthly navigation' })
+	await expect(drawer).toBeVisible()
+	await drawer.getByRole('button', { name: /^AI chat(?:\s|$)/ }).click()
+	await expect(drawer.getByRole('heading', { name: 'AI chat', exact: true })).toBeVisible()
+	await expect.poll(() => new URL(earthly.page.url()).pathname).toBe('/chat')
+
+	await drawer.getByRole('button', { name: 'Close AI chat', exact: true }).click()
+	await expect(drawer).toBeHidden()
+	await expect.poll(() => new URL(earthly.page.url()).pathname).toBe('/edit')
+	await expect(earthly.page.getByTestId('mobile-sheet')).toBeVisible()
+	await expect(earthly.page.getByPlaceholder('Name').first()).toHaveValue('Menu-safe mobile draft')
+	await expect(menu).toBeVisible()
+})
+
+test('mobile global create closes navigation before arming map placement @editor-contract', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'mobile', 'The mobile drawer owns this transition')
+	await earthly.open({ tour: 'seen' })
+	await earthly.page.getByRole('button', { name: 'Menu', exact: true }).click()
+	const drawer = earthly.page.getByRole('dialog', { name: 'Earthly navigation' })
+	await expect(drawer).toBeVisible()
+
+	await startSightingPlacement(earthly)
+	await expect(drawer).toBeHidden()
+	await expect(earthly.page.getByRole('button', { name: 'Cancel placement' })).toBeVisible()
+	await cancelSightingPlacement(earthly)
+})
+
+test('mobile destination, search, and placement guidance occupy separate map lanes @editor-contract', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'mobile', 'The overlay lanes are mobile-only')
+	await earthly.open({ tour: 'seen' })
+
+	const destination = earthly.page.getByRole('group', {
+		name: /Current destination: Public.*Unattached/,
+	})
+	const destinationBox = await destination.boundingBox()
+	const viewport = earthly.page.viewportSize()
+	expect(destinationBox).not.toBeNull()
+	expect(viewport).not.toBeNull()
+	expect(
+		Math.abs(
+			(destinationBox?.x ?? 0) + (destinationBox?.width ?? 0) / 2 - (viewport?.width ?? 0) / 2,
+		),
+	).toBeLessThan(3)
+
+	await earthly.page.getByRole('button', { name: 'Search', exact: true }).click()
+	const search = earthly.page.getByRole('search', { name: 'Search places' })
+	await expect(search).toBeVisible()
+	const searchBox = await search.boundingBox()
+	const zoomInBox = await earthly.page.getByRole('button', { name: 'Zoom in' }).boundingBox()
+	expect(searchBox).not.toBeNull()
+	expect(zoomInBox).not.toBeNull()
+	expect((searchBox?.y ?? 0) >= (destinationBox?.y ?? 0) + (destinationBox?.height ?? 0)).toBe(true)
+	expect((searchBox?.x ?? 0) + (searchBox?.width ?? 0) <= (zoomInBox?.x ?? 0)).toBe(true)
+	await earthly.page.getByRole('button', { name: 'Close search', exact: true }).click()
+
+	await startSightingPlacement(earthly)
+	const placement = earthly.page.getByTestId('sighting-placement-prompt')
+	const placementBox = await placement.boundingBox()
+	expect(placementBox).not.toBeNull()
+	expect((placementBox?.y ?? 0) >= (destinationBox?.y ?? 0) + (destinationBox?.height ?? 0)).toBe(
+		true,
+	)
+	await cancelSightingPlacement(earthly)
+})
+
+test('mobile location denial explains recovery and offers manual search @editor-contract', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'mobile', 'The compact recovery action is mobile-only')
+	await installDeterministicGeolocation(earthly, {
+		latitude: 48.2082,
+		longitude: 16.3738,
+	})
+	await earthly.open({ tour: 'seen' })
+	await attemptDeniedDeviceLocation(earthly)
+
+	await expect(earthly.page.getByText('Location access blocked', { exact: true })).toBeVisible()
+	await earthly.page.getByRole('button', { name: 'Search for a place', exact: true }).click()
+	await expect(earthly.page.getByRole('search', { name: 'Search places' })).toBeVisible()
 })

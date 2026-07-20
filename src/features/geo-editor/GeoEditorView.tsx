@@ -519,6 +519,7 @@ export function GeoEditorView() {
 		(state) => state.selectMobileSidebarDestination,
 	)
 	const closeMobileSidebar = useEditorStore((state) => state.closeMobileSidebar)
+	const mobileSearchOpen = useEditorStore((state) => state.mobileSearchOpen)
 	const setMobileSearchOpen = useEditorStore((state) => state.setMobileSearchOpen)
 	// Mobile Tools/Search/Actions toggles are no longer used — the responsive
 	// toolbar replaces them. Store fields stay for backward compat.
@@ -3607,6 +3608,33 @@ export function GeoEditorView() {
 		[],
 	)
 
+	const handleLocateError = useCallback(
+		(error: GeolocationPositionError | Error) => {
+			const permissionDenied = 'code' in error && error.code === 1
+			toast.error(permissionDenied ? 'Location access blocked' : 'Location unavailable', {
+				description: permissionDenied
+					? 'Allow location access in your browser or app settings, then retry—or search for a place instead.'
+					: 'Earthly could not determine your position. Retry or search for a place instead.',
+				duration: 10_000,
+				action: isMobile
+					? {
+							label: 'Search for a place',
+							onClick: () => setMobileSearchOpen(true),
+						}
+					: undefined,
+			})
+		},
+		[isMobile, setMobileSearchOpen],
+	)
+
+	const closeMobileNavigation = useCallback(() => {
+		const state = useEditorStore.getState()
+		if (state.mobileSidebarMode === 'content') {
+			navigateToView(state.mapStackEntries['draft:active'] ? 'edit' : 'sightings')
+		}
+		closeMobileSidebar()
+	}, [closeMobileSidebar, navigateToView])
+
 	const handleSearchResultSelect = useCallback(
 		(result: GeoSearchResult) => {
 			zoomToSearchResult(result)
@@ -3729,7 +3757,7 @@ export function GeoEditorView() {
 		const ITEM_W = 42 // 36px button + 6px gap
 		// Fixed strip content: px-2 padding + draw-tools group + the always-present
 		// ••• menu + Publish + a Finish button (when drawing) + inter-item gaps.
-		const fixed = 16 + 146 + 42 + 60 + 18 + (stripHasFinish ? 66 : 0)
+		const fixed = 16 + 42 + 146 + 42 + 60 + 18 + (stripHasFinish ? 66 : 0)
 		const available = viewportWidth - fixed
 		const count = Math.floor(available / ITEM_W)
 		return Math.max(0, Math.min(mobileOverflowActions.length, count))
@@ -3796,6 +3824,11 @@ export function GeoEditorView() {
 	// first would disarm the pin-drop (`editor.setMode('select')`) in the same tick as
 	// the create arms it (`setMode('draw_point')`), which cancels the placement.
 	const startCreate = (create: () => void, keep?: 'story' | 'context' | 'sighting' | 'beacon') => {
+		if (isMobile) {
+			closeMobileSidebar()
+			setMobilePanelOpen(false)
+			setMobileSearchOpen(false)
+		}
 		if (keep !== 'story') handleCloseStoryEditor()
 		if (keep !== 'context') handleCloseContextEditor()
 		if (keep !== 'sighting') handleCloseSightingEditor()
@@ -3941,6 +3974,7 @@ export function GeoEditorView() {
 				}}
 				mapSource={mapSource}
 				onLocate={handleLocate}
+				onLocateError={handleLocateError}
 				attributionCompact={!isMobile}
 				// On mobile the bottom sheet + tool strip/dock occupy the lower edge,
 				// so the control stack lives top-right (clear of the sheet at every
@@ -4066,7 +4100,7 @@ export function GeoEditorView() {
 				/>
 			)}
 			{isMobile ? (
-				<div className="pointer-events-auto absolute left-2 top-[max(0.5rem,env(safe-area-inset-top))] z-20 md:hidden">
+				<div className="pointer-events-auto absolute left-1/2 top-[max(0.5rem,env(safe-area-inset-top))] z-30 -translate-x-1/2 md:hidden">
 					<CurrentDestinationPill
 						destination={currentDestination}
 						variant="mobile"
@@ -4084,14 +4118,17 @@ export function GeoEditorView() {
 			{/* Map-first pin-drop overlay (Phase 11, D-01): shown while a Sighting
 					    placement is armed. "Click the map to drop your sighting" + a
 					    "Cancel placement" button (Esc is the keyboard alternative). */}
-			{sightingPlacementArmed && (
-				<div className="pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2">
-					<div className="pointer-events-auto flex items-center gap-3 rounded-none border border-border bg-background/95 px-4 py-2 text-sm shadow-lg backdrop-blur">
+			{sightingPlacementArmed && !mobileSearchOpen && (
+				<div
+					data-testid="sighting-placement-prompt"
+					className="pointer-events-none absolute left-1/2 top-[calc(max(0.5rem,env(safe-area-inset-top))+2.5rem)] z-30 w-[calc(100%-5rem)] max-w-sm -translate-x-1/2"
+				>
+					<div className="pointer-events-auto flex items-center justify-between gap-2 rounded-full border border-border bg-background/95 py-1.5 pl-3 pr-1.5 text-xs shadow-lg backdrop-blur">
 						<span className="text-foreground">Click the map to drop your sighting</span>
 						<button
 							type="button"
 							onClick={cancelSightingPlacement}
-							className="rounded-none border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+							className="shrink-0 rounded-full border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground"
 						>
 							Cancel placement
 						</button>
@@ -4304,6 +4341,17 @@ export function GeoEditorView() {
 			    the sheet docks directly above it. Draw tools left, Publish right. */}
 			{isMobile && stance === 'author' && (
 				<div className="fixed inset-x-0 bottom-0 z-[60] flex min-h-[calc(var(--mobile-dock-height)+env(safe-area-inset-bottom))] items-center gap-1.5 border-t border-border bg-[var(--surface-chrome)] px-2 pb-[env(safe-area-inset-bottom)] md:hidden">
+					<Button
+						variant={mobileSidebarOpen ? 'secondary' : 'ghost'}
+						size="icon-sm"
+						className="h-9 w-9 shrink-0 rounded-[2px]"
+						onClick={() => (mobileSidebarOpen ? closeMobileNavigation() : openMobileSidebar())}
+						aria-label="Menu"
+						aria-pressed={mobileSidebarOpen}
+						data-tour="mobile-dock-menu"
+					>
+						<Menu className="h-4 w-4" />
+					</Button>
 					<div className="inline-flex shrink-0 overflow-hidden rounded-[2px] border border-border">
 						{(
 							[
@@ -4419,7 +4467,7 @@ export function GeoEditorView() {
 				>
 					<button
 						type="button"
-						onClick={() => (mobileSidebarOpen ? closeMobileSidebar() : openMobileSidebar())}
+						onClick={() => (mobileSidebarOpen ? closeMobileNavigation() : openMobileSidebar())}
 						aria-pressed={mobileSidebarOpen}
 						data-tour="mobile-dock-menu"
 						className={cn(
@@ -4493,7 +4541,7 @@ export function GeoEditorView() {
 					<button
 						type="button"
 						onClick={() => {
-							closeMobileSidebar()
+							if (mobileSidebarOpen) closeMobileNavigation()
 							setMobilePanelOpen(false)
 							setMobileSearchOpen(false)
 						}}

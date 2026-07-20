@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import {
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+	type PointerEvent as ReactPointerEvent,
+} from 'react'
 import { createPortal } from 'react-dom'
 import type { FeatureCollection } from 'geojson'
 import {
@@ -63,6 +69,7 @@ import { Nip60Wallet } from '@/features/wallet/components/Nip60Wallet'
 import { useRouting } from '../hooks/useRouting'
 import { PublishOutboxPanel } from '@/features/delivery'
 import { MobilePanelHeaderActionProvider } from './MobilePanelHeaderAction'
+import { resolveMobileEditPanelPresentation } from './mobileEditPanelPresentation'
 
 export type MobilePanelTab =
 	| 'drafts'
@@ -409,6 +416,9 @@ export function MobilePanel(props: MobilePanelProps) {
 	// of living in a separate panel.
 	const editorStance = useEditorStore((state) => state.stance)
 	const draftEditorSlot = useEditorStore((state) => state.draftEditorSlot)
+	const viewDataset = useEditorStore((state) => state.viewDataset)
+	const viewContext = useEditorStore((state) => state.viewContext)
+	const viewStory = useEditorStore((state) => state.viewStory)
 	const localDraftCount = useEditorStore((state) =>
 		countVisibleLocalDraftWorkspaces(
 			state.workspaces,
@@ -420,6 +430,10 @@ export function MobilePanel(props: MobilePanelProps) {
 
 	const handleClose = () => setMobilePanelOpen(false)
 	const sidebarIsMenu = mobileSidebarMode === 'menu'
+	const closeNavigationSurface = useCallback(() => {
+		if (!sidebarIsMenu) navigateToView(editorStance === 'author' ? 'edit' : 'sightings')
+		closeMobileSidebar()
+	}, [closeMobileSidebar, editorStance, navigateToView, sidebarIsMenu])
 	const leaveSidebar = () => {
 		if (mobileSidebarOpen) closeMobileSidebar()
 	}
@@ -446,7 +460,7 @@ export function MobilePanel(props: MobilePanelProps) {
 			if (event.key !== 'Escape') return
 			if (mobileSidebarOpen) {
 				if (!sidebarIsMenu) showMobileSidebarMenu()
-				else closeMobileSidebar()
+				else closeNavigationSurface()
 				return
 			}
 			setMobilePanelOpen(false)
@@ -454,7 +468,7 @@ export function MobilePanel(props: MobilePanelProps) {
 		window.addEventListener('keydown', handleKeyDown)
 		return () => window.removeEventListener('keydown', handleKeyDown)
 	}, [
-		closeMobileSidebar,
+		closeNavigationSurface,
 		mobilePanelOpen,
 		mobileSidebarOpen,
 		setMobilePanelOpen,
@@ -530,12 +544,27 @@ export function MobilePanel(props: MobilePanelProps) {
 			// (audit P1 #6). The tab is also set directly — in-app pushState
 			// deliberately skips route→tab derivation.
 			navigateToView(mobileTabToView(id))
-			selectMobileSidebarDestination(id)
+			selectMobileSidebarDestination(id, {
+				preserveSuspendedPanel: editorStance === 'author',
+			})
 		}
 		setMobilePanelTab(id)
 	}
 	const activeMeta = tabMeta(mobilePanelTab)
-	const ActiveIcon = activeMeta.icon
+	const editPresentation = resolveMobileEditPanelPresentation({
+		contextEditorMode,
+		storyEditorMode,
+		sightingEditorMode,
+		beaconControlMode,
+		hasViewedDataset: viewDataset != null,
+		hasViewedContext: viewContext != null,
+		hasViewedStory: viewStory != null,
+		hasViewedSighting: viewSighting != null,
+		hasViewedBeacon: viewBeacon != null,
+	})
+	const activeLabel = mobilePanelTab === 'edit' ? editPresentation.label : activeMeta.label
+	const ActiveIcon =
+		mobilePanelTab === 'edit' && editPresentation.intent === 'inspect' ? Eye : activeMeta.icon
 	const activeCount = panelCount(mobilePanelTab)
 
 	// The "+ new" action in the sheet header, per active browse tab.
@@ -640,13 +669,13 @@ export function MobilePanel(props: MobilePanelProps) {
 									type="button"
 									aria-label="Close navigation"
 									className="fixed inset-0 z-40 bg-black/35 md:hidden"
-									onClick={closeMobileSidebar}
+									onClick={closeNavigationSurface}
 								/>
 							) : null}
 							<div
 								data-testid={mobileSidebarOpen ? 'mobile-sidebar' : 'mobile-sheet'}
 								role="dialog"
-								aria-label={mobileSidebarOpen ? 'Earthly navigation' : `${activeMeta.label} panel`}
+								aria-label={mobileSidebarOpen ? 'Earthly navigation' : `${activeLabel} panel`}
 								className={cn(
 									'fixed z-40 flex flex-col overflow-hidden border-border bg-card md:hidden',
 									mobileSidebarOpen
@@ -699,7 +728,7 @@ export function MobilePanel(props: MobilePanelProps) {
 												<Button
 													variant="ghost"
 													size="icon-sm"
-													onClick={closeMobileSidebar}
+													onClick={closeNavigationSurface}
 													aria-label="Close navigation"
 												>
 													<X className="h-4 w-4" />
@@ -767,7 +796,7 @@ export function MobilePanel(props: MobilePanelProps) {
 												</Button>
 											) : null}
 											<ActiveIcon className="h-4 w-4 text-primary" />
-											<h2 className="text-sm font-semibold text-foreground">{activeMeta.label}</h2>
+											<h2 className="text-sm font-semibold text-foreground">{activeLabel}</h2>
 											{activeCount != null ? (
 												<span className="font-mono text-[9px] text-muted-foreground">
 													{activeCount}
@@ -793,8 +822,8 @@ export function MobilePanel(props: MobilePanelProps) {
 													type="button"
 													size="icon-sm"
 													variant="ghost"
-													onClick={mobileSidebarOpen ? closeMobileSidebar : handleClose}
-													aria-label={`Close ${activeMeta.label}`}
+													onClick={mobileSidebarOpen ? closeNavigationSurface : handleClose}
+													aria-label={`Close ${activeLabel}`}
 												>
 													<X className="h-4 w-4" />
 												</Button>

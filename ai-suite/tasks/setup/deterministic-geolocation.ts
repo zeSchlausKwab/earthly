@@ -104,12 +104,14 @@ export async function installDeterministicGeolocation(
 export async function attemptDeniedDeviceLocation(earthly: EarthlySession): Promise<void> {
 	const locate = earthly.page.getByRole('button', { name: 'Track my location', exact: true })
 	await locate.click()
-	await expect(locate.locator('svg.text-destructive')).toBeVisible()
+	await expect(
+		earthly.page.getByRole('button', { name: 'Retry location', exact: true }),
+	).toBeVisible()
 }
 
 export async function grantAndTrackDeviceLocation(earthly: EarthlySession): Promise<void> {
 	await earthly.page.evaluate(() => window.__earthlyTestGeolocation?.grant())
-	await earthly.page.getByRole('button', { name: 'Track my location', exact: true }).click()
+	await earthly.page.getByRole('button', { name: 'Retry location', exact: true }).click()
 	await expect(
 		earthly.page.getByRole('button', { name: 'Stop tracking location', exact: true }),
 	).toBeVisible()

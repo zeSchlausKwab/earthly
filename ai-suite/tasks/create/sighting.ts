@@ -36,7 +36,9 @@ export async function cancelSightingPlacement(earthly: EarthlySession): Promise<
 
 export async function placeSighting(earthly: EarthlySession): Promise<void> {
 	await clickEditorMap(earthly, 0.58, 0.36)
-	await expect(earthly.page.getByRole('heading', { name: 'New Sighting' })).toBeVisible()
+	await expect(
+		earthly.page.getByRole('heading', { name: 'New Sighting', exact: true }),
+	).toBeVisible()
 }
 
 export async function publishSighting(
