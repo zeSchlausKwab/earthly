@@ -137,7 +137,7 @@ test('an organizer can hand a named venue map to a mobile visitor @experience-au
 		)
 
 		const venuePath = new URL(visitor.page.url()).pathname
-		await visitor.page.getByRole('button', { name: 'Close Editor', exact: true }).click()
+		await visitor.page.getByRole('button', { name: 'Close Dataset', exact: true }).click()
 		await expect(visitor.page.locator('.maplibregl-canvas')).toBeVisible()
 		await expect.poll(() => new URL(visitor.page.url()).pathname).toBe(venuePath)
 		await visitorRecorder.observe(

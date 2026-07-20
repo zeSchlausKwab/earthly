@@ -1,6 +1,6 @@
 [package]
 name = "earthly-desktop"
-version = "0.0.2"
+version = "0.0.3"
 description = "Earthly native application shell"
 authors = ["Earthly contributors"]
 edition = "2021"
