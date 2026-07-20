@@ -153,9 +153,7 @@ export function GeoCommentItem({
 				{hasGeojson && (
 					<div className="mt-2 flex items-center gap-2 rounded-md bg-ok/15 border border-ok/40 px-2 py-1 text-xs text-ok">
 						<MapPin className="h-3.5 w-3.5 flex-shrink-0" />
-						<span>
-							{featureCount} geometry{featureCount === 1 ? '' : 'ies'}
-						</span>
+						<span>{featureCount === 1 ? '1 geometry' : `${featureCount} geometries`}</span>
 
 						{/* Visibility toggle */}
 						<Tooltip>

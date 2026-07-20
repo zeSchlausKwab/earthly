@@ -1,8 +1,0 @@
-/* Earthly Design System — global entry point.
-   Consumers link THIS file only. Keep it @import lines only. */
-@import "./tokens/fonts.css";
-@import "./tokens/shadcn.css";
-@import "./tokens/colors.css";
-@import "./tokens/typography.css";
-@import "./tokens/spacing.css";
-@import "./tokens/elevation.css";

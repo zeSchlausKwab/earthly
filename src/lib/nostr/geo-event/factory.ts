@@ -80,6 +80,11 @@ export class GeoDatasetFactory extends EventFactory<typeof GEO_EVENT_KIND> {
 
 		return new GeoDatasetFactory((resolve) => {
 			const tpl = blankEventTemplate(GEO_EVENT_KIND)
+			// Addressable replacements must be strictly newer than the event they
+			// replace. A fast create→update flow can otherwise land in the same Unix
+			// second and leave relays to their id tie-break, making the accepted update
+			// disappear after reload.
+			tpl.created_at = Math.max(tpl.created_at, previous.created_at + 1)
 			tpl.content = JSON.stringify(fc)
 			tpl.tags = [
 				['d', datasetId],

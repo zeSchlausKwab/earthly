@@ -1,4 +1,4 @@
-import { Crosshair } from 'lucide-react'
+import { Crosshair, ListTree, MessageCircle } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useEditorStore } from '@/features/geo-editor/store'
@@ -20,9 +20,8 @@ import { resolveBinding } from './binding'
  * unit test without the live editor store.
  *
  * INVARIANT (SAFE-01): the chip NEVER returns null — visibility is the security
- * property (T-05-20). It always shows a target (auto-create-and-bind reflects an
- * 'Untitled draft' identity at the resolver/gate layer; the chip just renders
- * whatever identity it is handed).
+ * property (T-05-20). It distinguishes a conversation with no authoring target
+ * from a conversation working against a loaded dataset or local draft.
  */
 export interface BindingChipProps {
 	/** Display name of the bound dataset ('Untitled draft' fallback supplied by the resolver). */
@@ -31,6 +30,8 @@ export interface BindingChipProps {
 	unsaved: boolean
 	/** Number of features in the bound target. */
 	featureCount: number
+	/** True when chat has no current authoring target. */
+	needsAutoCreate: boolean
 	/** The user's persisted safety posture (SAFE-04). */
 	safetyLevel: SafetyLevel
 	/**
@@ -38,37 +39,66 @@ export interface BindingChipProps {
 	 * `setSafetyLevel`; turning ON requests Level 3, OFF requests Level 2 (D-12).
 	 */
 	onToggleAutoAccept: (nextLevel: SafetyLevel) => void
+	/** Opens the editor surface for the concrete target. Omitted in conversation-only scope. */
+	onOpenTarget?: () => void
 }
 
 export function BindingChip({
 	name,
 	unsaved,
 	featureCount,
+	needsAutoCreate,
 	safetyLevel,
 	onToggleAutoAccept,
+	onOpenTarget,
 }: BindingChipProps) {
 	const autoAcceptOn = safetyLevel === 3
 	const featureLabel = featureCount === 1 ? 'feature' : 'features'
 
 	return (
-		<div className="flex items-center justify-between gap-2 text-xs">
+		<div className="flex items-start justify-between gap-2 text-xs">
 			{/* Bound-target chip — always visible (SAFE-01) */}
-			<div className="flex min-w-0 items-center gap-1.5 rounded-full border border-edit/40 bg-edit/15 px-2 py-0.5 text-edit">
-				<Crosshair className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
-				<span className="truncate font-medium" title={name}>
-					{name}
-				</span>
-				{unsaved ? (
-					<span
-						className="flex-shrink-0 rounded-full bg-primary/10 px-1 text-[10px] font-medium uppercase tracking-wide text-primary"
-						title="Unsaved in-memory edits"
-					>
-						unsaved
+			<div className="min-w-0">
+				<div className="flex min-w-0 items-center gap-1.5 rounded-full border border-edit/40 bg-edit/15 px-2 py-0.5 text-edit">
+					{needsAutoCreate ? (
+						<MessageCircle className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
+					) : (
+						<Crosshair className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
+					)}
+					<span className="truncate font-medium" title={needsAutoCreate ? undefined : name}>
+						{needsAutoCreate ? 'Conversation only' : name}
 					</span>
+					{!needsAutoCreate && unsaved ? (
+						<span
+							className="flex-shrink-0 rounded-full bg-primary/10 px-1 text-[10px] font-medium uppercase tracking-wide text-primary"
+							title="Unsaved in-memory edits"
+						>
+							unsaved
+						</span>
+					) : null}
+					{!needsAutoCreate ? (
+						<span className="flex-shrink-0 text-edit">
+							· {featureCount} {featureLabel}
+						</span>
+					) : null}
+					{!needsAutoCreate && onOpenTarget ? (
+						<button
+							type="button"
+							onClick={onOpenTarget}
+							className="ml-0.5 inline-flex shrink-0 items-center gap-1 border-edit/30 border-l pl-1.5 font-semibold hover:text-foreground"
+							aria-label={`Open ${name} in geometry editor`}
+							title="Open geometry editor"
+						>
+							<ListTree className="h-3 w-3" aria-hidden="true" />
+							<span>Open</span>
+						</button>
+					) : null}
+				</div>
+				{needsAutoCreate ? (
+					<p className="mt-1 pl-1 text-[11px] text-muted-foreground">
+						AI edits will start a local draft for review.
+					</p>
 				) : null}
-				<span className="flex-shrink-0 text-edit">
-					· {featureCount} {featureLabel}
-				</span>
 			</div>
 
 			{/* "Just accept" (Level 3) toggle — prominent, in the header, NOT in settings (D-12) */}
@@ -98,10 +128,10 @@ export function BindingChip({
  * region. It reads the editor-store identity, feeds it through the Plan-03
  * `resolveBinding`, reads `safetyLevel` from the chat store, and wires
  * `setSafetyLevel` as the toggle handler. Like the chip, it NEVER returns null
- * (SAFE-01) — it always renders an identity (the resolver supplies the
- * 'Untitled draft' fallback / auto-create signal).
+ * (SAFE-01) — it always renders either a conversation-only scope or a concrete
+ * authoring identity.
  */
-export function BindingChipContainer() {
+export function BindingChipContainer({ onOpenTarget }: { onOpenTarget?: () => void }) {
 	const collectionMeta = useEditorStore((state) => state.collectionMeta)
 	const featureCount = useEditorStore((state) => state.features.length)
 	const activeGeoEditDraftId = useEditorStore((state) => state.activeGeoEditDraftId)
@@ -121,8 +151,10 @@ export function BindingChipContainer() {
 			name={binding.name}
 			unsaved={binding.unsaved}
 			featureCount={binding.featureCount}
+			needsAutoCreate={binding.needsAutoCreate}
 			safetyLevel={safetyLevel}
 			onToggleAutoAccept={setSafetyLevel}
+			onOpenTarget={binding.needsAutoCreate ? undefined : onOpenTarget}
 		/>
 	)
 }

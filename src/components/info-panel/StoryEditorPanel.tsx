@@ -50,6 +50,10 @@ import {
 } from '@/components/ui/alert-dialog'
 import { AspectRatio } from '@/components/ui/aspect-ratio'
 import { Button } from '@/components/ui/button'
+import {
+	MobilePanelHeaderActions,
+	useMobilePanelHeaderActionTarget,
+} from '@/features/geo-editor/components/MobilePanelHeaderAction'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -116,6 +120,7 @@ export function StoryEditorPanel({
 	availableFeatures = [],
 }: StoryEditorPanelProps) {
 	const currentUser = useActiveAccount()
+	const mobileHeaderActionTarget = useMobilePanelHeaderActionTarget()
 	const bodyEditorRef = useRef<GeoRichTextEditorRef>(null)
 
 	const initial = useMemo(() => readInitialContent(initialStory), [initialStory])
@@ -245,6 +250,16 @@ export function StoryEditorPanel({
 
 	return (
 		<EntityPanelShell title={isEditing ? 'Edit Story' : 'New Story'}>
+			<MobilePanelHeaderActions>
+				<div className="flex items-center gap-1">
+					<Button type="button" variant="ghost" size="sm" onClick={onClose}>
+						Cancel
+					</Button>
+					<Button type="button" size="sm" onClick={handleSave} disabled={isSaving || !currentUser}>
+						{isSaving ? 'Publishing…' : isEditing ? 'Save changes' : 'Publish Story'}
+					</Button>
+				</div>
+			</MobilePanelHeaderActions>
 			<EntityPanelSurface tone="context" className="space-y-3">
 				<EntityPanelSectionHeader
 					eyebrow="Story"
@@ -389,16 +404,20 @@ Type @ to reference a dataset, feature, image, or video.`}
 					<Button variant="outline" onClick={handleSaveDraft} className="rounded-none">
 						Save draft
 					</Button>
-					<Button variant="outline" onClick={onClose} className="rounded-none">
-						Cancel
-					</Button>
-					<Button
-						onClick={handleSave}
-						disabled={isSaving || !currentUser}
-						className="rounded-none bg-primary text-primary-foreground"
-					>
-						{isSaving ? 'Publishing…' : isEditing ? 'Save changes' : 'Publish Story'}
-					</Button>
+					{!mobileHeaderActionTarget ? (
+						<>
+							<Button variant="outline" onClick={onClose} className="rounded-none">
+								Cancel
+							</Button>
+							<Button
+								onClick={handleSave}
+								disabled={isSaving || !currentUser}
+								className="rounded-none bg-primary text-primary-foreground"
+							>
+								{isSaving ? 'Publishing…' : isEditing ? 'Save changes' : 'Publish Story'}
+							</Button>
+						</>
+					) : null}
 				</div>
 			</EntityPanelSurface>
 		</EntityPanelShell>

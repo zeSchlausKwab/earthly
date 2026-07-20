@@ -17,6 +17,7 @@ import { EarthlyGeoServerClient } from '@/ctxcn/EarthlyGeoServerClient'
 import { createAuthoring } from '@/features/geo-editor/api'
 import { executeEditorAiTool, getEditorAiToolDefinitions } from '@/features/geo-editor/commands'
 import { useEditorStore } from '@/features/geo-editor/store'
+import { ensureDatasetDraftForMutation } from '@/features/geo-editor/authoringTaskBridge'
 import {
 	getMapContextSnapshot,
 	getCompactMapContextForTool,
@@ -306,7 +307,8 @@ function registerHostBuiltins(): void {
 		name: 'set_dataset_metadata',
 		kind: 'host-builtin',
 		schema: schemaFor('set_dataset_metadata'),
-		handler: (args) => {
+		handler: async (args) => {
+			await ensureDatasetDraftForMutation()
 			const editor = useEditorStore.getState().editor
 			if (!editor) {
 				throw new Error('Map editor is not ready. Open the map editor first, then try again.')

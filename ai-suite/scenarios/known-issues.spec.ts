@@ -105,12 +105,12 @@ test('mobile keyboard users can reach primary navigation promptly @regression', 
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'mobile', 'The audited focus-order defect is mobile-specific')
 	await earthly.open({ tour: 'seen' })
-	// The defect only reproduces once sighting markers are in the tab order —
-	// on a slow relay the walk would otherwise reach the dock and flake as an
-	// unexpected pass. Wait for the first marker before walking.
-	await expect(earthly.page.getByRole('button', { name: /^Open sighting:/ }).first()).toBeVisible({
-		timeout: 15_000,
-	})
+	// Wait for a real photo bubble before walking so the assertion still covers
+	// a populated map on slow relays. Mobile bubbles deliberately leave the
+	// ordinary tab order, but retain their user-facing image-gallery name.
+	await expect(
+		earthly.page.getByRole('button', { name: /^View photos for sighting:/ }).first(),
+	).toBeVisible({ timeout: 15_000 })
 	const stops = await walkKeyboardOrder(earthly, 25)
 	expect(stops.some(({ name }) => name === 'Menu')).toBe(true)
 })

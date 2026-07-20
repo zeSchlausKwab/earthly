@@ -64,7 +64,9 @@ body::before {
 
 .mobile-pan-lock-attention {
   color: var(--accent-edit) !important;
-  animation: mobile-pan-lock-nudge 1.6s ease-in-out infinite;
+  /* Attention should be noticeable without making the control a permanently
+     moving target for touch, switch access, or automation. */
+  animation: mobile-pan-lock-nudge 1.6s ease-in-out 2;
 }
 
 @media (prefers-reduced-motion) {

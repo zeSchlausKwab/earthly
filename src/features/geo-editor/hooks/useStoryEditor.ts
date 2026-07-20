@@ -14,6 +14,7 @@ interface UseStoryEditorParams {
 	) => void
 	navigateToView: (view: SidebarViewMode) => void
 	clearFocus: () => void
+	onBeforeAuthoring?: () => void
 }
 
 /**
@@ -30,6 +31,7 @@ export function useStoryEditor({
 	navigateTo,
 	navigateToView,
 	clearFocus,
+	onBeforeAuthoring,
 }: UseStoryEditorParams) {
 	const setShowInfoPanel = useEditorStore((state) => state.setShowInfoPanel)
 	const setViewModeState = useEditorStore((state) => state.setViewMode)
@@ -99,6 +101,7 @@ export function useStoryEditor({
 	)
 
 	const handleCreateStory = useCallback(() => {
+		onBeforeAuthoring?.()
 		clearStoryEditorModes()
 		setStoryEditorMode('create')
 		prepareNonGeometryWorkspace()
@@ -110,6 +113,7 @@ export function useStoryEditor({
 		navigateToView,
 		isMobile,
 		setShowInfoPanel,
+		onBeforeAuthoring,
 	])
 
 	// Chat seam: the `write_story_draft` tool cannot reach this hook's local
@@ -130,6 +134,7 @@ export function useStoryEditor({
 
 	const handleEditStory = useCallback(
 		(story: Article) => {
+			onBeforeAuthoring?.()
 			clearStoryEditorModes()
 			setStoryEditorMode('edit')
 			setEditingStory(story)
@@ -143,6 +148,7 @@ export function useStoryEditor({
 			navigateToView,
 			isMobile,
 			setShowInfoPanel,
+			onBeforeAuthoring,
 		],
 	)
 

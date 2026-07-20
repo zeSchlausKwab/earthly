@@ -18,6 +18,9 @@
  *   (c) Group attach (SIGHT-02) — `GroupAttachField` drives `contextReferences()`
  *       (the `c` tag). The off-thread schema validator is warn-not-block; publish
  *       is NEVER disabled by the verdict (GROUP-04).
+ * On mobile create, those three advanced decisions sit behind one `More options`
+ * disclosure. Desktop and every edit flow stay expanded, and the canonical
+ * `GroupAttachField` still owns the only publish action.
  *
  * The placed `geometry` arrives as a prop from the GeoEditorView pin-drop wiring
  * (D-01/D-02) and is stored into content on submit. Publish/edit goes through the
@@ -34,7 +37,7 @@ import type { MediaAttachment } from 'applesauce-common/helpers/file-metadata'
 import { castEvent } from 'applesauce-core/casts'
 import { useActiveAccount } from 'applesauce-react/hooks'
 import type { Geometry, LineString, Point, Polygon } from 'geojson'
-import { CalendarIcon } from 'lucide-react'
+import { CalendarIcon, ChevronDown, SlidersHorizontal } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import {
 	EntityPanelSectionHeader,
@@ -44,12 +47,18 @@ import {
 import { BlossomUploaderButton } from '@/components/blossom/BlossomUploaderButton'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Textarea } from '@/components/ui/textarea'
 import { GroupAttachField } from '@/features/geo-editor/components/GroupAttachField'
+import {
+	MobilePanelHeaderActions,
+	useMobilePanelHeaderActionTarget,
+} from '@/features/geo-editor/components/MobilePanelHeaderAction'
+import { useIsMobile } from '@/lib/hooks/useIsMobile'
 import { eventStore } from '@/lib/nostr'
 import {
 	NEW_SIGHTING_DRAFT_KEY,
@@ -160,6 +169,8 @@ export function SightingEditorPanel({
 	onSave,
 }: SightingEditorPanelProps) {
 	const currentUser = useActiveAccount()
+	const isMobile = useIsMobile()
+	const mobileHeaderActionTarget = useMobilePanelHeaderActionTarget()
 
 	const initial = useMemo(() => readInitialContent(initialSighting), [initialSighting])
 	// Editing a *published* Sighting switches the submit to "Save changes" and the
@@ -188,6 +199,13 @@ export function SightingEditorPanel({
 	)
 	const [isSaving, setIsSaving] = useState(false)
 	const [saveError, setSaveError] = useState<string | null>(null)
+	const [advancedOpen, setAdvancedOpen] = useState(
+		() =>
+			isEditing ||
+			initial.start !== undefined ||
+			initial.end !== undefined ||
+			initial.contextRefs.length > 0,
+	)
 
 	// Reset all fields when the edited Sighting changes.
 	useEffect(() => {
@@ -203,7 +221,13 @@ export function SightingEditorPanel({
 		setImages(initialSighting?.images ?? [])
 		setGeometry(next.geometry)
 		setSaveError(null)
-	}, [initialSighting])
+		setAdvancedOpen(
+			isEditing ||
+				next.start !== undefined ||
+				next.end !== undefined ||
+				next.contextRefs.length > 0,
+		)
+	}, [initialSighting, isEditing])
 
 	// A freshly-placed geometry (pin-drop or area redraw) replaces the current one.
 	useEffect(() => {
@@ -211,6 +235,7 @@ export function SightingEditorPanel({
 	}, [placedGeometry])
 
 	const draftKey = initial.draftKey
+	const advancedControlsVisible = !isMobile || isEditing || advancedOpen
 
 	const hasPlacement = Boolean(geometry)
 	const signerReady = Boolean(currentUser)
@@ -295,6 +320,11 @@ export function SightingEditorPanel({
 
 	return (
 		<EntityPanelShell title={isEditing ? 'Edit Sighting' : 'New Sighting'}>
+			<MobilePanelHeaderActions>
+				<Button type="button" variant="ghost" size="sm" onClick={onClose}>
+					Cancel
+				</Button>
+			</MobilePanelHeaderActions>
 			<EntityPanelSurface tone="context" className="space-y-4">
 				<EntityPanelSectionHeader
 					eyebrow="Sighting"
@@ -407,124 +437,155 @@ export function SightingEditorPanel({
 				) : null}
 			</EntityPanelSurface>
 
-			{/* ── Observation time (D-03) — collapsed "Observed now" by default ── */}
-			<EntityPanelSurface tone="neutral" className="space-y-4">
-				<EntityPanelSectionHeader eyebrow="When" title="Observation time" />
-				{!timeExpanded ? (
-					<div className="flex items-center justify-between gap-2">
-						<span className="text-sm text-foreground">Observed now</span>
-						<button
-							type="button"
-							onClick={() => setTimeExpanded(true)}
-							className="text-xs text-muted-foreground underline-offset-2 hover:underline"
-						>
-							Adjust time
-						</button>
-					</div>
-				) : (
-					<div className="space-y-3">
-						<div className="space-y-2">
-							<Label>Observed</Label>
-							<Popover>
-								<PopoverTrigger asChild>
-									<Button
-										type="button"
-										variant="outline"
-										className="h-8 w-full justify-start gap-2 rounded-none text-[13px] font-normal"
-									>
-										<CalendarIcon className="size-3.5 opacity-60" />
-										{formatEpochDate(start)}
-									</Button>
-								</PopoverTrigger>
-								<PopoverContent className="w-auto rounded-none p-0" align="start">
-									<Calendar
-										mode="single"
-										selected={start ? new Date(start * 1000) : undefined}
-										onSelect={(date) => setStart(date ? dateToEpochSeconds(date) : undefined)}
-									/>
-								</PopoverContent>
-							</Popover>
-						</div>
-						<div className="space-y-2">
-							<Label>Until (optional)</Label>
-							<Popover>
-								<PopoverTrigger asChild>
-									<Button
-										type="button"
-										variant="outline"
-										className="h-8 w-full justify-start gap-2 rounded-none text-[13px] font-normal"
-									>
-										<CalendarIcon className="size-3.5 opacity-60" />
-										{formatEpochDate(end)}
-									</Button>
-								</PopoverTrigger>
-								<PopoverContent className="w-auto rounded-none p-0" align="start">
-									<Calendar
-										mode="single"
-										selected={end ? new Date(end * 1000) : undefined}
-										onSelect={(date) => setEnd(date ? dateToEpochSeconds(date) : undefined)}
-									/>
-								</PopoverContent>
-							</Popover>
-						</div>
-					</div>
-				)}
-			</EntityPanelSurface>
-
-			{/* ── NIP-40 expiry preset (D-04) — default "After 1 month" ── */}
-			<EntityPanelSurface tone="neutral" className="space-y-4">
-				<EntityPanelSectionHeader eyebrow="Lifespan" title="Fade from map" />
-				<RadioGroup
-					value={expiryPreset}
-					onValueChange={(value) => setExpiryPreset(value as ExpiryPreset)}
-					className="gap-2"
-				>
-					{EXPIRY_PRESETS.map((preset) => {
-						const selected = expiryPreset === preset.value
-						return (
-							<label
-								key={preset.value}
-								htmlFor={`expiry-${preset.value}`}
-								className={
-									selected
-										? 'flex cursor-pointer items-center gap-2 border border-primary px-2 py-1.5 text-sm ring-1 ring-primary'
-										: 'flex cursor-pointer items-center gap-2 border border-border px-2 py-1.5 text-sm'
-								}
-							>
-								<RadioGroupItem id={`expiry-${preset.value}`} value={preset.value} />
-								<span>{preset.label}</span>
-							</label>
-						)
-					})}
-				</RadioGroup>
-				{expiryPreset === 'custom' ? (
-					<Popover>
-						<PopoverTrigger asChild>
-							<Button
+			<Collapsible
+				open={advancedControlsVisible}
+				onOpenChange={isMobile && !isEditing ? setAdvancedOpen : undefined}
+			>
+				{isMobile && !isEditing ? (
+					<EntityPanelSurface tone="neutral">
+						<CollapsibleTrigger asChild>
+							<button
 								type="button"
-								variant="outline"
-								className="h-8 w-full justify-start gap-2 rounded-none text-[13px] font-normal"
+								className="group flex min-h-11 w-full items-center gap-3 text-left"
 							>
-								<CalendarIcon className="size-3.5 opacity-60" />
-								{formatEpochDate(customExpiryEpoch)}
-							</Button>
-						</PopoverTrigger>
-						<PopoverContent className="w-auto rounded-none p-0" align="start">
-							<Calendar
-								mode="single"
-								selected={customExpiryEpoch ? new Date(customExpiryEpoch * 1000) : undefined}
-								onSelect={(date) =>
-									setCustomExpiryEpoch(date ? dateToEpochSeconds(date) : undefined)
-								}
-							/>
-						</PopoverContent>
-					</Popover>
+								<span className="flex size-8 shrink-0 items-center justify-center border border-border bg-muted/35 text-muted-foreground">
+									<SlidersHorizontal className="size-4" />
+								</span>
+								<span className="min-w-0 flex-1">
+									<span className="block text-sm font-semibold text-foreground">More options</span>
+									<span className="block text-xs text-muted-foreground">
+										Time, lifespan, and Context
+									</span>
+								</span>
+								<ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+							</button>
+						</CollapsibleTrigger>
+					</EntityPanelSurface>
 				) : null}
-			</EntityPanelSurface>
+
+				<CollapsibleContent className="space-y-3">
+					{/* ── Observation time (D-03) — collapsed "Observed now" by default ── */}
+					<EntityPanelSurface tone="neutral" className="space-y-4">
+						<EntityPanelSectionHeader eyebrow="When" title="Observation time" />
+						{!timeExpanded ? (
+							<div className="flex items-center justify-between gap-2">
+								<span className="text-sm text-foreground">Observed now</span>
+								<button
+									type="button"
+									onClick={() => setTimeExpanded(true)}
+									className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+								>
+									Adjust time
+								</button>
+							</div>
+						) : (
+							<div className="space-y-3">
+								<div className="space-y-2">
+									<Label>Observed</Label>
+									<Popover>
+										<PopoverTrigger asChild>
+											<Button
+												type="button"
+												variant="outline"
+												className="h-8 w-full justify-start gap-2 rounded-none text-[13px] font-normal"
+											>
+												<CalendarIcon className="size-3.5 opacity-60" />
+												{formatEpochDate(start)}
+											</Button>
+										</PopoverTrigger>
+										<PopoverContent className="w-auto rounded-none p-0" align="start">
+											<Calendar
+												mode="single"
+												selected={start ? new Date(start * 1000) : undefined}
+												onSelect={(date) => setStart(date ? dateToEpochSeconds(date) : undefined)}
+											/>
+										</PopoverContent>
+									</Popover>
+								</div>
+								<div className="space-y-2">
+									<Label>Until (optional)</Label>
+									<Popover>
+										<PopoverTrigger asChild>
+											<Button
+												type="button"
+												variant="outline"
+												className="h-8 w-full justify-start gap-2 rounded-none text-[13px] font-normal"
+											>
+												<CalendarIcon className="size-3.5 opacity-60" />
+												{formatEpochDate(end)}
+											</Button>
+										</PopoverTrigger>
+										<PopoverContent className="w-auto rounded-none p-0" align="start">
+											<Calendar
+												mode="single"
+												selected={end ? new Date(end * 1000) : undefined}
+												onSelect={(date) => setEnd(date ? dateToEpochSeconds(date) : undefined)}
+											/>
+										</PopoverContent>
+									</Popover>
+								</div>
+							</div>
+						)}
+					</EntityPanelSurface>
+
+					{/* ── NIP-40 expiry preset (D-04) — default "After 1 month" ── */}
+					<EntityPanelSurface tone="neutral" className="space-y-4">
+						<EntityPanelSectionHeader eyebrow="Lifespan" title="Fade from map" />
+						<RadioGroup
+							value={expiryPreset}
+							onValueChange={(value) => setExpiryPreset(value as ExpiryPreset)}
+							className="gap-2"
+						>
+							{EXPIRY_PRESETS.map((preset) => {
+								const selected = expiryPreset === preset.value
+								return (
+									<label
+										key={preset.value}
+										htmlFor={`expiry-${preset.value}`}
+										className={
+											selected
+												? 'flex cursor-pointer items-center gap-2 border border-primary px-2 py-1.5 text-sm ring-1 ring-primary'
+												: 'flex cursor-pointer items-center gap-2 border border-border px-2 py-1.5 text-sm'
+										}
+									>
+										<RadioGroupItem id={`expiry-${preset.value}`} value={preset.value} />
+										<span>{preset.label}</span>
+									</label>
+								)
+							})}
+						</RadioGroup>
+						{expiryPreset === 'custom' ? (
+							<Popover>
+								<PopoverTrigger asChild>
+									<Button
+										type="button"
+										variant="outline"
+										className="h-8 w-full justify-start gap-2 rounded-none text-[13px] font-normal"
+									>
+										<CalendarIcon className="size-3.5 opacity-60" />
+										{formatEpochDate(customExpiryEpoch)}
+									</Button>
+								</PopoverTrigger>
+								<PopoverContent className="w-auto rounded-none p-0" align="start">
+									<Calendar
+										mode="single"
+										selected={customExpiryEpoch ? new Date(customExpiryEpoch * 1000) : undefined}
+										onSelect={(date) =>
+											setCustomExpiryEpoch(date ? dateToEpochSeconds(date) : undefined)
+										}
+									/>
+								</PopoverContent>
+							</Popover>
+						) : null}
+					</EntityPanelSurface>
+				</CollapsibleContent>
+			</Collapsible>
 
 			{/* ── Group attach (SIGHT-02) + submit. Publish NEVER disabled by verdict ── */}
 			<EntityPanelSurface tone="neutral" className="space-y-3">
-				<EntityPanelSectionHeader eyebrow="Optional" title="Add to a Context (optional)" />
+				{advancedControlsVisible ? (
+					<EntityPanelSectionHeader eyebrow="Optional" title="Add to a Context (optional)" />
+				) : null}
 				{saveError && <p className="text-xs text-destructive">{saveError}</p>}
 				<GroupAttachField
 					contextRefs={contextRefs}
@@ -534,14 +595,18 @@ export function SightingEditorPanel({
 					canPublish={hasPlacement && signerReady}
 					isPublishing={isSaving}
 					publishLabel={isEditing ? 'Save changes' : 'Publish Sighting'}
+					showAttachmentControls={advancedControlsVisible}
+					publishControlTarget={mobileHeaderActionTarget}
 				/>
 				<div className="flex flex-wrap items-center justify-end gap-2">
 					<Button variant="outline" onClick={handleSaveDraft} className="rounded-none">
 						Save draft
 					</Button>
-					<Button variant="outline" onClick={onClose} className="rounded-none">
-						Cancel
-					</Button>
+					{!mobileHeaderActionTarget ? (
+						<Button variant="outline" onClick={onClose} className="rounded-none">
+							Cancel
+						</Button>
+					) : null}
 				</div>
 			</EntityPanelSurface>
 		</EntityPanelShell>

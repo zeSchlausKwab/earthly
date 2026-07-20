@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.0.3] - 2026-07-20
+
+- Redesigned the mobile authoring shell so Menu and AI chat remain available while drawing, with
+  the active draft and panel position restored when returning to the map.
+- Added a compact centered destination badge, a cleaner place-search surface, non-overlapping map
+  guidance, actionable location-permission recovery, and accurate inspect/create/edit panel titles.
+- Simplified mobile Sighting capture with persistent primary actions and progressive disclosure for
+  advanced choices while preserving the complete editing workflow.
+- Separated ordinary AI conversations from Dataset authoring, clarified conversation and task
+  transitions, and made AI-generated geometry enter the normal recoverable Dataset draft lifecycle.
+- Expanded deterministic mobile and deep-editor journey coverage for drawing recovery, comments,
+  annotations, proposals, AI-assisted authoring, and switching safely between unrelated tasks.
+
 ## [0.0.2] - 2026-07-18
 
 - Fixed Private-group invitation buttons becoming permanently disabled in the Android app.

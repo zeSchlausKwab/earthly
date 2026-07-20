@@ -49,3 +49,40 @@ The indicator's close action leaves the current destination or scope while prese
 
 - **Workspace** — overloaded across local drafts, MLS groups, field sessions, and AI chat. Keep it internal unless referring to a specific legacy type.
 - **Isolated** for destination — reserved for Map Stack visibility. Use **Unattached** when a public record has no Context.
+
+## Experience development language
+
+**Test identity**:
+A deterministic account and signer used to execute automated scenarios. A test identity has credentials but no assumed goals, patience, or product sophistication.
+_Avoid_: Persona, test user
+
+**Experience persona**:
+A behavioral archetype defined by a job, product and domain sophistication, patience, constraints, and abandonment triggers. It never contains credentials and may be used by different test identities.
+_Avoid_: Test identity, demographic profile
+
+**Journey**:
+An end-to-end user goal with an entry state, outcome, recovery branch, and follow-up task. A collaborative journey may involve several experience personas in different roles.
+_Avoid_: Test case, feature tour
+
+**Scenario run**:
+One experience persona attempting one journey on a particular platform and under stated conditions such as connectivity, privacy, and starting state.
+_Avoid_: Journey, persona
+
+**Capability**:
+A reusable product behavior that supports one or more journey steps, such as capture, inspect, organize, share, recover, or synchronize. Capabilities are the unit used to find common ground between personas.
+_Avoid_: Persona feature
+
+**Experience finding**:
+An observed blocker, confusion, contradiction, recovery failure, or product opportunity from a scenario run. A finding records its evidence level and affected capabilities; it is not automatically a feature request.
+_Avoid_: Requirement, user request
+
+**Evidence level**:
+The provenance of an experience persona or finding: hypothetical, stakeholder-informed, user-observed, or repeatedly validated. Simulated behavior must never be presented as user validation.
+
+**Intent lane**:
+A lightweight entry path shaped around Explore, Capture, Coordinate, Build, or Analyze. An intent lane reveals appropriate complexity without becoming a persistent mode that locks the user out of other work.
+_Avoid_: App mode, persona mode
+
+**Review lens**:
+A stakeholder perspective applied after a scenario run, such as accessibility, privacy, domain practice, product strategy, or platform parity. A review lens evaluates a journey but does not pretend to be its user.
+_Avoid_: Persona

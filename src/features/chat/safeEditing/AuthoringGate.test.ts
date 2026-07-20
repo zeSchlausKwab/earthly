@@ -170,10 +170,12 @@ describe('createAuthoringGate — SAFE-03 / SAFE-04', () => {
 	test('Level 1 + pure-add: Cancel leaves the editor unchanged', async () => {
 		const editor = createHeadlessEditor()
 		const requestConfirm = mock(async () => 'cancel' as const)
+		const ensureBinding = mock(async () => {})
 		const gate = createAuthoringGate(editor, {
 			getSafetyLevel: () => 1,
 			emitDiffBlock: () => {},
 			requestConfirm,
+			ensureBinding,
 		})
 
 		const result = await gate.review(addProposal([makePoint('a1')]))
@@ -181,6 +183,31 @@ describe('createAuthoringGate — SAFE-03 / SAFE-04', () => {
 		expect(result.status).toBe('cancelled')
 		expect(editor.getFeature('a1')).toBeUndefined()
 		expect(editor.getAllFeatures()).toHaveLength(0)
+		expect(ensureBinding).toHaveBeenCalledTimes(0)
+	})
+
+	test('creates a missing binding only after the mutation is approved', async () => {
+		const editor = createHeadlessEditor()
+		let approved = false
+		const requestConfirm = mock(async () => {
+			approved = true
+			return 'apply' as const
+		})
+		const ensureBinding = mock(async () => {
+			expect(approved).toBe(true)
+		})
+		const gate = createAuthoringGate(editor, {
+			getSafetyLevel: () => 1,
+			emitDiffBlock: () => {},
+			requestConfirm,
+			ensureBinding,
+		})
+
+		const result = await gate.review(addProposal([makePoint('a1')]))
+
+		expect(result.status).toBe('applied')
+		expect(ensureBinding).toHaveBeenCalledTimes(1)
+		expect(editor.getFeature('a1')).toBeDefined()
 	})
 
 	// (d) Level 3 + modify/delete applies WITHOUT awaiting confirm but STILL snapshots + emits diff.

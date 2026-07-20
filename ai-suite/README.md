@@ -11,9 +11,15 @@ by default because that command resets and seeds the relay.
 
 ```bash
 bun run ai:list
+bun run experience:list
+bun run experience:card -- --journey squirrel-capture
+bun run experience:audit -- --project mobile
+bun run experience:audit:ai -- --project desktop
 bun run ai:typecheck
 bun run ai:e2e
+bun run ai:e2e:editor
 bun run ai:audit
+bun run ai:audit:editor
 bun run ai:audit:workflows
 bun run ai:known-issues
 bun run ai:verify
@@ -27,6 +33,9 @@ Configuration:
 - Local commands always launch a visible browser so a developer can watch the workflow.
 - `AI_SUITE_SLOW_MO` — visible action delay in milliseconds; defaults to `75` locally.
 - `CI=1` — the only headless mode; also enables CI retries and disables the action delay.
+- `EARTHLY_LIVE_AI_SETTINGS_FILE` — opt-in path to a live-provider v2 settings snapshot. Repository
+  paths are accepted only under ignored `ai-suite/.secrets/`; live runs disable traces and failure
+  screenshots to keep authorization material out of artifacts.
 
 Install the browser once after installing dependencies:
 
@@ -41,7 +50,8 @@ traces for failures.
 
 - `core/` — environment guards, readiness, the `EarthlySession` interface, and task metadata.
 - `fixtures/` — Playwright fixtures exposed to scenarios.
-- `personas/` — deterministic local identities and browser-extension adapters.
+- `test-identities/` — deterministic local identities and browser-extension adapters.
+- `experience-lab/` — behavioral personas, journeys, review lenses, and human session cards.
 - `tasks/` — reusable Earthly actions. Tasks own selectors and action sequencing.
 - `scenarios/` — product claims composed from tasks.
 - `scratch/` — disposable scripts and investigations.
@@ -79,9 +89,46 @@ runs the regular and audit groups sequentially. Run any individual group with th
 excluded from regular E2E and `ai:verify`; run them deliberately with `bun run ai:audit:workflows`.
 Earthly's localhost relay router must keep public writes disabled throughout these scenarios.
 
+`@experience-audit` scenarios are persona-constrained journey replays. They record structured step
+evidence but do not turn subjective experience judgments into pass/fail assertions. Start from a
+fresh `bun run dev` when event counts matter, then run them deliberately with
+`bun run experience:audit`. Stable behavior discovered by a journey belongs in a narrower product
+contract such as `@editor-contract`; experience audits are excluded from ordinary `ai:e2e`.
+
+AI-assisted journeys split deterministic product contracts from live-model judgment. The
+deterministic provider controls only `/models` and `/chat/completions`; Earthly's real streaming,
+tool dispatch, diff approval, editor, and publishing code remain in the loop. `@live-ai` is an
+explicit paid/networked smoke that loads credentials from an ignored local file and must never use
+private or unpublished data. Run it separately with `bun run experience:audit:ai:live`.
+
+## GeoEditor refactor safety net
+
+`@editor-contract` is the fast, non-publishing characterization layer for the GeoEditor. It covers
+cancel/unlock recovery, undo/redo, geometry draft reload, and the active draft's Map Stack
+lifecycle on desktop and mobile where the product surface exists. It is part of the regular
+`ai:e2e` run and can be run alone with `bun run ai:e2e:editor` while changing editor internals.
+
+`@editor-ux-audit` captures comparable browser-health, surface inventory, and screenshots at
+browse, new-draft, drawing, and cancelled-drawing states. Run it with `bun run ai:audit:editor`.
+Its evidence is deliberately separate from the pass/fail contract so UI improvements do not turn
+into brittle pixel assertions.
+
+Deep collaborative drawing remains in `@workflow-audit` because it publishes local Nostr events.
+That group exercises point/line/polygon/label comment attachments, default annotation visibility,
+hide/show, zoom and reload durability, plus a Dataset proposal that changes geometry and becomes
+the accepted canonical version. Run it only against the disposable local relay with
+`bun run ai:audit:workflows`.
+
+The `mobile` Playwright project is a responsive-browser contract, not an Android WebView test. Use
+`bun run e2e:android:smoke` for Tauri commands, app links, intents, permissions, safe areas, and
+process-lifecycle behavior; `bun run e2e:android:emulator` starts or selects the deterministic AVD.
+Deep multi-persona collaboration currently stays in the browser suite because the NIP-07 test
+identities are browser adapters. Promote only the smallest native-critical journeys to Android
+instrumentation instead of duplicating the whole browser matrix.
+
 ## Personas and safety
 
-`owner` and contributor personas reuse the development identities from `src/lib/fixtures.ts`. They
+`owner` and contributor test identities reuse the development identities from `src/lib/fixtures.ts`. They
 are public test keys and must only be used with local development relays. The NIP-07 adapter signs in
 through Earthly's real browser-extension login control and can sign local test events.
 

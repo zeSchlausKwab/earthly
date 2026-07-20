@@ -139,7 +139,7 @@ const EMPTY_CHAT_DIAGNOSTICS: ChatDiagnostics = {
 	completedAt: null,
 }
 
-const DEFAULT_CHAT_TITLE = 'New chat'
+const DEFAULT_CHAT_TITLE = 'New conversation'
 const MAX_CHAT_TITLE_CHARS = 60
 
 export interface ChatSession {
@@ -1219,7 +1219,7 @@ export const useChatStore = create<ChatStore>()(
 
 			createChat: () => {
 				// Abort any in-flight stream rather than silently no-opping. A stuck or
-				// runaway stream pins isStreaming true; if "New chat" just returned here
+				// runaway stream pins isStreaming true; if "New conversation" just returned here
 				// the user would be locked out with no recourse but a page reload.
 				if (get().isStreaming) {
 					get().cancelStream()

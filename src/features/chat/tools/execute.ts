@@ -11,6 +11,7 @@
 
 import type { ToolCall, ToolExecutionContext, ToolResult } from './types'
 import { TO_EDITOR_COMPATIBLE_TOOLS } from './types'
+import { ensureDatasetDraftForMutation } from '@/features/geo-editor/authoringTaskBridge'
 import {
 	serializeToolResult,
 	parseToolCallArguments,
@@ -52,6 +53,10 @@ export async function executeToolCall(
 		let result: unknown = dispatched
 
 		if (args.toEditor && TO_EDITOR_COMPATIBLE_TOOLS.has(toolCall.function.name)) {
+			// `toEditor` is an authoring operation even though the originating tool is
+			// read-only MCP. Establish the local draft before baking its result so the
+			// geometry appears in Saved work, the Map Stack, and the editor list.
+			await ensureDatasetDraftForMutation()
 			const bakeResult = toEditorFromToolResultValue(result, Boolean(args.replaceExisting))
 			result = {
 				...compactToolResultAfterBake(result),

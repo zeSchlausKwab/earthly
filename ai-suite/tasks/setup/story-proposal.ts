@@ -3,7 +3,7 @@ import { finalizeEvent } from 'nostr-tools/pure'
 import { Relay } from 'nostr-tools/relay'
 import type { EarthlySession } from '../../core/session'
 import type { AiTaskMetadata } from '../../core/task'
-import { personas, type PersonaId } from '../../personas'
+import { testIdentities, type TestIdentityId } from '../../test-identities'
 
 const LOCAL_RELAY = 'ws://localhost:3334'
 const STORY_PROPOSAL_KIND = 37519
@@ -29,7 +29,7 @@ export const seedDatasetProposalTask: AiTaskMetadata = {
 
 function hexToBytes(value: string): Uint8Array {
 	const pairs = value.match(/.{2}/g)
-	if (pairs?.length !== 32) throw new Error('Persona secret key must be 32 bytes')
+	if (pairs?.length !== 32) throw new Error('Test identity secret key must be 32 bytes')
 	return Uint8Array.from(pairs.map((pair) => Number.parseInt(pair, 16)))
 }
 
@@ -37,7 +37,7 @@ export async function seedStoryProposal(
 	earthly: EarthlySession,
 	storyUrl: string,
 	proposedBody: string,
-	personaId: PersonaId = 'mara',
+	identityId: TestIdentityId = 'mara',
 ): Promise<void> {
 	if (!earthly.environment.baseURL.startsWith('http://localhost:')) {
 		throw new Error('Story proposal fixtures are restricted to the localhost AI-suite target')
@@ -60,7 +60,7 @@ export async function seedStoryProposal(
 				['p', decoded.data.pubkey],
 			],
 		},
-		hexToBytes(personas[personaId].secretKeyHex),
+		hexToBytes(testIdentities[identityId].secretKeyHex),
 	)
 	const relay = await Relay.connect(LOCAL_RELAY)
 	try {
@@ -74,7 +74,7 @@ export async function seedDatasetProposal(
 	earthly: EarthlySession,
 	datasetUrl: string,
 	description: string,
-	personaId: PersonaId = 'mara',
+	identityId: TestIdentityId = 'mara',
 ): Promise<void> {
 	if (!earthly.environment.baseURL.startsWith('http://localhost:')) {
 		throw new Error('Dataset proposal fixtures are restricted to the localhost AI-suite target')
@@ -110,7 +110,7 @@ export async function seedDatasetProposal(
 				['description', description],
 			],
 		},
-		hexToBytes(personas[personaId].secretKeyHex),
+		hexToBytes(testIdentities[identityId].secretKeyHex),
 	)
 	const relay = await Relay.connect(LOCAL_RELAY)
 	try {

@@ -11,7 +11,14 @@ export function App() {
 	return (
 		<TooltipProvider>
 			<GeoEditorView />
-			<Toaster position="bottom-right" />
+			<Toaster
+				position="bottom-right"
+				mobileOffset={{
+					bottom: 'calc(var(--mobile-dock-height) + env(safe-area-inset-bottom) + 12px)',
+					right: 8,
+					left: 8,
+				}}
+			/>
 			<TourManager />
 		</TooltipProvider>
 	)

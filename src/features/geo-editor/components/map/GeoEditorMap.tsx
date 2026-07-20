@@ -69,6 +69,8 @@ export interface GeoEditorMapProps {
 	 * `@/components/ui/map`.
 	 */
 	onLocate?: (coords: GeoEditorLocate) => void
+	/** Fired when the browser or operating system rejects a location request. */
+	onLocateError?: (error: GeolocationPositionError | Error) => void
 }
 
 /**
@@ -106,6 +108,7 @@ export function GeoEditorMap({
 	attributionCompact = true,
 	controlsChildren,
 	onLocate,
+	onLocateError,
 }: GeoEditorMapProps) {
 	const storedViewport = useMemo(() => readStoredMapViewport(), [])
 	const center = centerProp ?? storedViewport?.center ?? DEFAULT_CENTER
@@ -203,6 +206,7 @@ export function GeoEditorMap({
 					// watchPosition, accuracy surfaced, click-again-to-stop.
 					enableLocateTracking
 					onLocate={handleLocate}
+					onLocateError={onLocateError}
 				>
 					{controlsChildren}
 				</MapControls>

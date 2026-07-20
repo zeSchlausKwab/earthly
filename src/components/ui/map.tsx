@@ -776,6 +776,8 @@ type MapControlsProps = {
    * or an error occurs (so the caller can clear any rendered marker).
    */
   onLocate?: (coords: LocateCoords | null) => void;
+  /** Surface geolocation failures so the product can explain recovery. */
+  onLocateError?: (error: GeolocationPositionError | Error) => void;
   /**
    * Custom controls rendered as additional groups after all the built-in
    * ones. Compose with the exported `ControlGroup` + `ControlButton` to
@@ -842,6 +844,7 @@ function MapControls({
   className,
   enableLocateTracking = false,
   onLocate,
+  onLocateError,
   children,
 }: MapControlsProps) {
   const { map } = useMap();
@@ -896,11 +899,12 @@ function MapControls({
         },
         (error) => {
           console.error("Error getting location:", error);
+          onLocateError?.(error);
           setWaitingForLocation(false);
         },
       );
     }
-  }, [map, onLocate]);
+  }, [map, onLocate, onLocateError]);
 
   // Tracking-mode handlers — start/stop continuous watchPosition. Used when
   // `enableLocateTracking` is true. First fix triggers a flyTo, subsequent
@@ -918,8 +922,7 @@ function MapControls({
   const startLocateTracking = useCallback(() => {
     if (!("geolocation" in navigator)) {
       setLocateStatus("error");
-      // Auto-reset after 3s so the icon doesn't stay stuck.
-      window.setTimeout(() => setLocateStatus("idle"), 3000);
+      onLocateError?.(new Error("Geolocation is unavailable on this device."));
       return;
     }
     setLocateStatus("loading");
@@ -944,15 +947,15 @@ function MapControls({
       (error) => {
         console.error("Geolocation error:", error);
         setLocateStatus("error");
+        onLocateError?.(error);
         if (locateWatchRef.current !== null) {
           navigator.geolocation.clearWatch(locateWatchRef.current);
           locateWatchRef.current = null;
         }
-        window.setTimeout(() => setLocateStatus("idle"), 3000);
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 },
     );
-  }, [map, onLocate]);
+  }, [map, onLocate, onLocateError]);
 
   const handleLocateTracking = useCallback(() => {
     if (locateStatus === "tracking" || locateStatus === "loading") {
@@ -1037,6 +1040,8 @@ function MapControls({
     const trackingLabel =
       locateStatus === "tracking"
         ? "Stop tracking location"
+        : locateStatus === "error"
+          ? "Retry location"
         : "Track my location";
     const icon =
       locateStatus === "loading" ? (

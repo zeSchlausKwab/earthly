@@ -101,8 +101,7 @@ interface ChatPanelProps {
 	mapContextEvents?: MapContext[]
 	availableFeatures?: GeoFeatureItem[]
 	getDatasetName?: (event: GeoDataset) => string
-	onStartNewDataset?: () => void
-	onSwitchWorkspace?: (workspaceId: string) => void
+	onOpenAuthoringTarget?: () => void
 	onOpenSettings?: () => void
 }
 
@@ -129,8 +128,7 @@ export function ChatPanel({
 	mapContextEvents = [],
 	availableFeatures = [],
 	getDatasetName = defaultGetDatasetName,
-	onStartNewDataset,
-	onSwitchWorkspace,
+	onOpenAuthoringTarget,
 	onOpenSettings,
 }: ChatPanelProps) {
 	const {
@@ -162,8 +160,6 @@ export function ChatPanel({
 		setReferences,
 		cancelStream,
 	} = useChatStore()
-	const activeWorkspaceId = useEditorStore((state) => state.activeWorkspaceId)
-	const updateWorkspace = useEditorStore((state) => state.updateWorkspace)
 	const selectMobileSidebarDestination = useEditorStore(
 		(state) => state.selectMobileSidebarDestination,
 	)
@@ -321,16 +317,6 @@ export function ChatPanel({
 		}
 	}, [provider, providerOverrides, selectedModel])
 
-	const ensureChatWorkspace = () => {
-		const store = useEditorStore.getState()
-		if (store.activeWorkspaceId) {
-			onSwitchWorkspace?.(store.activeWorkspaceId)
-			return true
-		}
-		onStartNewDataset?.()
-		return Boolean(useEditorStore.getState().activeWorkspaceId)
-	}
-
 	const visionTier: ImageVisionTier = visionSupport
 	const hasAttachedImage = useMemo(
 		() => attachedFiles.some((file) => file.status === 'image'),
@@ -363,7 +349,6 @@ export function ChatPanel({
 					})
 				: undefined
 		setInput('')
-		if (!ensureChatWorkspace()) return
 		await sendMessage(message, {
 			referenceContextMessage: buildReferenceContextMessage(references),
 			selectionContextMessage: selectionContextEnabled
@@ -382,11 +367,6 @@ export function ChatPanel({
 		}
 	}
 
-	const bindActiveWorkspaceChat = (chatId: string | null) => {
-		if (!activeWorkspaceId || !chatId) return
-		updateWorkspace(activeWorkspaceId, { chatSessionId: chatId })
-	}
-
 	// No isStreaming guards here: the store actions are the recovery path for a
 	// stuck/runaway stream — createChat/switchChat cancel any in-flight run, and
 	// deleteChat aborts the active chat's stream (and safely no-ops when a
@@ -394,19 +374,15 @@ export function ChatPanel({
 	// store actions were written to break.
 	const handleCreateChat = () => {
 		createChat()
-		const nextChatId = useChatStore.getState().activeChatId
-		bindActiveWorkspaceChat(nextChatId)
 	}
 
 	const handleSwitchChat = (chatId: string) => {
 		switchChat(chatId)
-		bindActiveWorkspaceChat(chatId)
 	}
 
 	const handleDeleteChat = () => {
 		if (!activeChatId) return
 		deleteChat(activeChatId)
-		bindActiveWorkspaceChat(useChatStore.getState().activeChatId)
 	}
 
 	const handleExportConversation = async () => {
@@ -590,7 +566,7 @@ export function ChatPanel({
 						className="h-8 text-xs"
 						onClick={handleCreateChat}
 					>
-						New chat
+						New conversation
 					</Button>
 					{/* Deliberately NOT disabled while streaming: createChat/switchChat
 					    cancel any in-flight (or stuck/runaway) stream themselves — these
@@ -603,12 +579,12 @@ export function ChatPanel({
 							const chatId = event.target.value
 							if (chatId) handleSwitchChat(chatId)
 						}}
-						aria-label="Select chat"
+						aria-label="Select conversation"
 						className="min-w-0 flex-1"
 					>
 						{activeChatSession ? null : (
 							<NativeSelectOption value="" disabled>
-								Select chat
+								Select conversation
 							</NativeSelectOption>
 						)}
 						{sortedChatSessions.map((chat) => (
@@ -634,7 +610,8 @@ export function ChatPanel({
 						size="icon"
 						onClick={handleDeleteChat}
 						disabled={!activeChatId}
-						title="Delete chat"
+						title="Delete conversation"
+						aria-label="Delete conversation"
 					>
 						<Trash2 className="h-4 w-4" />
 					</Button>
@@ -719,7 +696,7 @@ export function ChatPanel({
 				</div>
 
 				{/* Bound-target chip + "Just accept" toggle — always visible (SAFE-01 / SAFE-04 / D-12) */}
-				<BindingChipContainer />
+				<BindingChipContainer onOpenTarget={onOpenAuthoringTarget} />
 
 				{/* Diagnostics */}
 				<div className="min-w-0">

@@ -166,6 +166,8 @@ import {
 import { exportShapefile, importShapefile } from './shapefile'
 import { getGeoJsonPasteCandidate } from './geoJsonPaste'
 import { useEditorStore, type MapStackEntry, type PublishChannel } from './store'
+import { useChatStore } from '@/features/chat'
+import { registerDatasetDraftEnsurer } from './authoringTaskBridge'
 import type { MapStackEntryType } from './store/types'
 import type { GeoSearchResult } from './types'
 import { ensureFeatureCollection, extractCollectionMeta, toEditorFeature } from './utils'
@@ -349,6 +351,10 @@ export function GeoEditorView() {
 	const [resolvedCollectionsVersion, setResolvedCollectionsVersion] = useState(0)
 	const [mapPopupsEnabled, setMapPopupsEnabled] = useState(true)
 	const [mapPopupPlacement, setMapPopupPlacement] = useState<MapPopupPlacement>('dock')
+	// Mutable intent flag shared by the generic mobile-drawing guidance and the
+	// later Sighting controller. Sighting pin-drop has its own tap-specific prompt;
+	// showing the dataset lock/drag guidance at the same time is contradictory.
+	const sightingPlacementArmedRef = useRef(false)
 	// Viewport width — drives how many mobile tool-strip overflow actions fit in
 	// the strip vs. collapse into the ••• menu (measured, not fixed breakpoints).
 	const [viewportWidth, setViewportWidth] = useState(() =>
@@ -513,6 +519,7 @@ export function GeoEditorView() {
 		(state) => state.selectMobileSidebarDestination,
 	)
 	const closeMobileSidebar = useEditorStore((state) => state.closeMobileSidebar)
+	const mobileSearchOpen = useEditorStore((state) => state.mobileSearchOpen)
 	const setMobileSearchOpen = useEditorStore((state) => state.setMobileSearchOpen)
 	// Mobile Tools/Search/Actions toggles are no longer used — the responsive
 	// toolbar replaces them. Store fields stay for backward compat.
@@ -730,8 +737,9 @@ export function GeoEditorView() {
 	const mapPopupToolbarOffset = 112
 
 	useEffect(() => {
-		if (!isMobile || !isDrawingMode) {
+		if (!isMobile || !isDrawingMode || sightingPlacementArmedRef.current) {
 			lastMobileDrawGuideRef.current = null
+			toast.dismiss('mobile-pan-lock-guide')
 			return
 		}
 		if (panLocked || lastMobileDrawGuideRef.current === currentMode) return
@@ -949,6 +957,17 @@ export function GeoEditorView() {
 		startNewDatasetWithOptions({ publishChannel: routePublishChannel })
 		if (useEditorStore.getState().activeGeoEditDraftId) surfaceDraftOnMobile()
 	}, [routePublishChannel, startNewDatasetWithOptions, surfaceDraftOnMobile])
+
+	const ensureAiDatasetDraft = useCallback(() => {
+		const state = useEditorStore.getState()
+		if (state.activeGeoEditDraftId || state.features.length > 0) return
+		startNewDatasetWithOptions({
+			publishChannel: routePublishChannel,
+			chatSessionId: useChatStore.getState().activeChatId,
+		})
+	}, [routePublishChannel, startNewDatasetWithOptions])
+
+	useEffect(() => registerDatasetDraftEnsurer(ensureAiDatasetDraft), [ensureAiDatasetDraft])
 
 	const syncRouteToDraftChannel = useCallback(
 		(publishChannel: PublishChannel | null) => {
@@ -1842,6 +1861,23 @@ export function GeoEditorView() {
 	// Edit-isolation reuses the row's Focus button (draft.isolated). Declared
 	// after useRouting so `navigateToView` is in scope.
 	const openDraftEditor = useCallback(() => {
+		const state = useEditorStore.getState()
+		if (
+			!state.mapStackEntries['draft:active'] &&
+			(state.activeGeoEditDraftId || state.activeWorkspaceId || state.features.length > 0)
+		) {
+			addMapStackEntry({
+				id: 'draft:active',
+				entityType: 'draft',
+				entityKey: 'draft:active',
+				title:
+					state.collectionMeta.name ||
+					(state.activeDataset ? getDatasetName(state.activeDataset) : 'Untitled draft'),
+				source: 'workspace',
+				visible: true,
+				pinned: false,
+			})
+		}
 		// The entity panel is multiplexed on viewDataset/viewContext — clear those
 		// so it shows the editor (not whatever was being inspected), put the store
 		// in edit mode, restore the author stance (the toolbar pill + rail surface
@@ -1852,7 +1888,27 @@ export function GeoEditorView() {
 		setViewModeState('edit')
 		setStance('author')
 		navigateToView('edit')
-	}, [navigateToView, setViewContext, setViewDatasetState, setViewModeState, setStance])
+		if (isMobile) {
+			closeMobileSidebar()
+			openMobilePanel('map-stack')
+			setMobilePanelSnap('half')
+		} else {
+			setMapStackOpen(true)
+		}
+	}, [
+		addMapStackEntry,
+		closeMobileSidebar,
+		getDatasetName,
+		isMobile,
+		navigateToView,
+		openMobilePanel,
+		setMapStackOpen,
+		setMobilePanelSnap,
+		setStance,
+		setViewContext,
+		setViewDatasetState,
+		setViewModeState,
+	])
 
 	const zoomToDraft = useCallback(async () => {
 		const drawn = (features ?? []).filter((feature) => feature.geometry !== null)
@@ -2985,6 +3041,7 @@ export function GeoEditorView() {
 		navigateTo,
 		navigateToView,
 		clearFocus,
+		onBeforeAuthoring: tearDownEditSession,
 	})
 
 	const handleDeleteStory = useCallback(
@@ -3021,7 +3078,6 @@ export function GeoEditorView() {
 	// ── Temporal Sighting create/edit + map-first pin-drop (Phase 11, D-01/D-02/D-07) ──
 	// A ref mirror of `placementArmed` so the editor 'create' listener (registered
 	// once) reads the latest armed state without re-subscribing.
-	const sightingPlacementArmedRef = useRef(false)
 	const armSightingPlacement = useCallback(() => {
 		sightingPlacementArmedRef.current = true
 		// Map-first pin-drop: a single touch tap must place the point even with pan
@@ -3067,6 +3123,18 @@ export function GeoEditorView() {
 	useEffect(() => {
 		sightingPlacementArmedRef.current = sightingPlacementArmed
 	}, [sightingPlacementArmed])
+
+	// The responsive shell can become interactive a moment before the GeoEditor
+	// instance finishes mounting. If Sighting creation is armed during that gap,
+	// `armSightingPlacement` cannot set a mode yet and the visible map prompt would
+	// otherwise accept taps that do nothing. Reconcile the late editor with the
+	// already-armed lifecycle state as soon as it exists.
+	useEffect(() => {
+		if (!editor || !sightingPlacementArmed) return
+		sightingPlacementArmedRef.current = true
+		editor.setTouchTapDrawEnabled(true)
+		if (editor.getMode() !== 'draw_point') editor.setMode('draw_point')
+	}, [editor, sightingPlacementArmed])
 
 	// Intercept the GeoEditor 'create' event ONLY while a Sighting placement is
 	// armed: capture the placed feature's geometry, open the editor with it, and
@@ -3328,7 +3396,6 @@ export function GeoEditorView() {
 			focusHandledRef.current = null
 			return
 		}
-		if (focusHandledRef.current === routeKey) return
 
 		// Skip if no focus route (just sidebar view change)
 		// If there's a specific focus route (e.g. /datasets/geoevent/...), handle zoom
@@ -3378,12 +3445,14 @@ export function GeoEditorView() {
 					}) || encodeGeoEventNaddr(event) === route.naddr,
 			)
 			if (dataset) {
+				const handledKey = `${routeKey}:${dataset.id}`
+				if (focusHandledRef.current === handledKey) return
 				addDatasetToMapStack(dataset, 'route')
 				handleInspectDataset(dataset)
 				// Shared-link contract: landing zooms to the entity, not just
 				// stacks it — the recipient should SEE what was shared.
 				zoomToDataset(dataset)
-				focusHandledRef.current = routeKey
+				focusHandledRef.current = handledKey
 			}
 		} else if (route.focusType === 'mapcontext') {
 			const context = mapContextEvents.find(
@@ -3395,8 +3464,10 @@ export function GeoEditorView() {
 					}) || encodeContextNaddr(ctx) === route.naddr,
 			)
 			if (context) {
+				const handledKey = `${routeKey}:${context.id}`
+				if (focusHandledRef.current === handledKey) return
 				handleInspectContext(context)
-				focusHandledRef.current = routeKey
+				focusHandledRef.current = handledKey
 			}
 		} else if (route.focusType === 'story') {
 			const story = stories.find(
@@ -3405,8 +3476,10 @@ export function GeoEditorView() {
 					encodeStoryNaddr(s) === route.naddr,
 			)
 			if (story) {
+				const handledKey = `${routeKey}:${story.id}`
+				if (focusHandledRef.current === handledKey) return
 				handleInspectStory(story)
-				focusHandledRef.current = routeKey
+				focusHandledRef.current = handledKey
 			}
 		} else if (route.focusType === 'sighting') {
 			// D-08: resolve the /sighting/:naddr deep link via useSightings (already
@@ -3418,6 +3491,8 @@ export function GeoEditorView() {
 					encodeSightingNaddr(s) === route.naddr,
 			)
 			if (sighting) {
+				const handledKey = `${routeKey}:${sighting.id}`
+				if (focusHandledRef.current === handledKey) return
 				// Phase 13 (D-03/SPEC §2.2): the routed sighting lands on the Map Stack
 				// ISOLATED (deep-link-solo), mirroring the dataset route dispatch above
 				// (addDatasetToMapStack(dataset, 'route')). This replaces any ambient
@@ -3426,7 +3501,7 @@ export function GeoEditorView() {
 				// WR-06: thread the OG comment deep link so SightingViewPanel focuses it,
 				// mirroring the geoevent/story comment-focus wiring.
 				handleInspectSighting(sighting, route.commentId)
-				focusHandledRef.current = routeKey
+				focusHandledRef.current = handledKey
 			}
 		} else if (route.focusType === 'beacon') {
 			// D-11: resolve the /beacon/:naddr deep link (account-free). Check the
@@ -3440,6 +3515,8 @@ export function GeoEditorView() {
 				encodeBeaconNaddr(b) === route.naddr
 			const beacon = beacons.find(matchesBeacon) ?? routedBeacons.find(matchesBeacon)
 			if (beacon) {
+				const handledKey = `${routeKey}:${beacon.id}`
+				if (focusHandledRef.current === handledKey) return
 				// Phase 13 (D-03/SPEC §2.2): the routed beacon lands on the Map Stack
 				// ISOLATED (deep-link-solo). This is what makes a link-only / deep-linked
 				// beacon render now that the `66a155e` side-channel is gone — the isolated
@@ -3450,7 +3527,7 @@ export function GeoEditorView() {
 				// mirroring the Sighting comment-focus wiring above. Closes the
 				// beacon /beacon/:naddr/comment/:id gap — parity across all five kinds.
 				handleInspectBeacon(beacon, route.commentId)
-				focusHandledRef.current = routeKey
+				focusHandledRef.current = handledKey
 			}
 		}
 	}, [
@@ -3531,6 +3608,33 @@ export function GeoEditorView() {
 		[],
 	)
 
+	const handleLocateError = useCallback(
+		(error: GeolocationPositionError | Error) => {
+			const permissionDenied = 'code' in error && error.code === 1
+			toast.error(permissionDenied ? 'Location access blocked' : 'Location unavailable', {
+				description: permissionDenied
+					? 'Allow location access in your browser or app settings, then retry—or search for a place instead.'
+					: 'Earthly could not determine your position. Retry or search for a place instead.',
+				duration: 10_000,
+				action: isMobile
+					? {
+							label: 'Search for a place',
+							onClick: () => setMobileSearchOpen(true),
+						}
+					: undefined,
+			})
+		},
+		[isMobile, setMobileSearchOpen],
+	)
+
+	const closeMobileNavigation = useCallback(() => {
+		const state = useEditorStore.getState()
+		if (state.mobileSidebarMode === 'content') {
+			navigateToView(state.mapStackEntries['draft:active'] ? 'edit' : 'sightings')
+		}
+		closeMobileSidebar()
+	}, [closeMobileSidebar, navigateToView])
+
 	const handleSearchResultSelect = useCallback(
 		(result: GeoSearchResult) => {
 			zoomToSearchResult(result)
@@ -3598,8 +3702,7 @@ export function GeoEditorView() {
 			mapContextEvents={mapContextEvents}
 			availableFeatures={availableFeatures}
 			getDatasetName={getDatasetName}
-			onStartNewDataset={startNewDataset}
-			onSwitchWorkspace={handleSwitchWorkspace}
+			onOpenAuthoringTarget={openDraftEditor}
 			onOpenSettings={() => navigateToView('settings')}
 			onClose={() => setChatOpen(false)}
 		/>
@@ -3654,7 +3757,7 @@ export function GeoEditorView() {
 		const ITEM_W = 42 // 36px button + 6px gap
 		// Fixed strip content: px-2 padding + draw-tools group + the always-present
 		// ••• menu + Publish + a Finish button (when drawing) + inter-item gaps.
-		const fixed = 16 + 146 + 42 + 60 + 18 + (stripHasFinish ? 66 : 0)
+		const fixed = 16 + 42 + 146 + 42 + 60 + 18 + (stripHasFinish ? 66 : 0)
 		const available = viewportWidth - fixed
 		const count = Math.floor(available / ITEM_W)
 		return Math.max(0, Math.min(mobileOverflowActions.length, count))
@@ -3721,6 +3824,11 @@ export function GeoEditorView() {
 	// first would disarm the pin-drop (`editor.setMode('select')`) in the same tick as
 	// the create arms it (`setMode('draw_point')`), which cancels the placement.
 	const startCreate = (create: () => void, keep?: 'story' | 'context' | 'sighting' | 'beacon') => {
+		if (isMobile) {
+			closeMobileSidebar()
+			setMobilePanelOpen(false)
+			setMobileSearchOpen(false)
+		}
 		if (keep !== 'story') handleCloseStoryEditor()
 		if (keep !== 'context') handleCloseContextEditor()
 		if (keep !== 'sighting') handleCloseSightingEditor()
@@ -3866,6 +3974,7 @@ export function GeoEditorView() {
 				}}
 				mapSource={mapSource}
 				onLocate={handleLocate}
+				onLocateError={handleLocateError}
 				attributionCompact={!isMobile}
 				// On mobile the bottom sheet + tool strip/dock occupy the lower edge,
 				// so the control stack lives top-right (clear of the sheet at every
@@ -3991,7 +4100,7 @@ export function GeoEditorView() {
 				/>
 			)}
 			{isMobile ? (
-				<div className="pointer-events-auto absolute left-2 top-[max(0.5rem,env(safe-area-inset-top))] z-20 md:hidden">
+				<div className="pointer-events-auto absolute left-1/2 top-[max(0.5rem,env(safe-area-inset-top))] z-30 -translate-x-1/2 md:hidden">
 					<CurrentDestinationPill
 						destination={currentDestination}
 						variant="mobile"
@@ -4009,14 +4118,17 @@ export function GeoEditorView() {
 			{/* Map-first pin-drop overlay (Phase 11, D-01): shown while a Sighting
 					    placement is armed. "Click the map to drop your sighting" + a
 					    "Cancel placement" button (Esc is the keyboard alternative). */}
-			{sightingPlacementArmed && (
-				<div className="pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2">
-					<div className="pointer-events-auto flex items-center gap-3 rounded-none border border-border bg-background/95 px-4 py-2 text-sm shadow-lg backdrop-blur">
+			{sightingPlacementArmed && !mobileSearchOpen && (
+				<div
+					data-testid="sighting-placement-prompt"
+					className="pointer-events-none absolute left-1/2 top-[calc(max(0.5rem,env(safe-area-inset-top))+2.5rem)] z-30 w-[calc(100%-5rem)] max-w-sm -translate-x-1/2"
+				>
+					<div className="pointer-events-auto flex items-center justify-between gap-2 rounded-full border border-border bg-background/95 py-1.5 pl-3 pr-1.5 text-xs shadow-lg backdrop-blur">
 						<span className="text-foreground">Click the map to drop your sighting</span>
 						<button
 							type="button"
 							onClick={cancelSightingPlacement}
-							className="rounded-none border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+							className="shrink-0 rounded-full border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground"
 						>
 							Cancel placement
 						</button>
@@ -4229,6 +4341,17 @@ export function GeoEditorView() {
 			    the sheet docks directly above it. Draw tools left, Publish right. */}
 			{isMobile && stance === 'author' && (
 				<div className="fixed inset-x-0 bottom-0 z-[60] flex min-h-[calc(var(--mobile-dock-height)+env(safe-area-inset-bottom))] items-center gap-1.5 border-t border-border bg-[var(--surface-chrome)] px-2 pb-[env(safe-area-inset-bottom)] md:hidden">
+					<Button
+						variant={mobileSidebarOpen ? 'secondary' : 'ghost'}
+						size="icon-sm"
+						className="h-9 w-9 shrink-0 rounded-[2px]"
+						onClick={() => (mobileSidebarOpen ? closeMobileNavigation() : openMobileSidebar())}
+						aria-label="Menu"
+						aria-pressed={mobileSidebarOpen}
+						data-tour="mobile-dock-menu"
+					>
+						<Menu className="h-4 w-4" />
+					</Button>
 					<div className="inline-flex shrink-0 overflow-hidden rounded-[2px] border border-border">
 						{(
 							[
@@ -4344,7 +4467,7 @@ export function GeoEditorView() {
 				>
 					<button
 						type="button"
-						onClick={() => (mobileSidebarOpen ? closeMobileSidebar() : openMobileSidebar())}
+						onClick={() => (mobileSidebarOpen ? closeMobileNavigation() : openMobileSidebar())}
 						aria-pressed={mobileSidebarOpen}
 						data-tour="mobile-dock-menu"
 						className={cn(
@@ -4418,7 +4541,7 @@ export function GeoEditorView() {
 					<button
 						type="button"
 						onClick={() => {
-							closeMobileSidebar()
+							if (mobileSidebarOpen) closeMobileNavigation()
 							setMobilePanelOpen(false)
 							setMobileSearchOpen(false)
 						}}

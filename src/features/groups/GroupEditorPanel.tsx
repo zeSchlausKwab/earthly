@@ -41,6 +41,10 @@ import {
 	EntityPanelSurface,
 } from '@/components/info-panel/EntityPanelShell'
 import { Button } from '@/components/ui/button'
+import {
+	MobilePanelHeaderActions,
+	useMobilePanelHeaderActionTarget,
+} from '@/features/geo-editor/components/MobilePanelHeaderAction'
 import { Card, CardContent } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -164,6 +168,7 @@ export function GroupEditorPanel({
 	availableFeatures = [],
 }: GroupEditorPanelProps) {
 	const currentUser = useActiveAccount()
+	const mobileHeaderActionTarget = useMobilePanelHeaderActionTarget()
 	const initial = useMemo(() => readInitialGroupContent(initialContext), [initialContext])
 	const descriptionEditorRef = useRef<GeoRichTextEditorRef>(null)
 
@@ -437,6 +442,16 @@ export function GroupEditorPanel({
 
 	return (
 		<EntityPanelShell title={isEditing ? 'Edit Context' : 'Create Context'}>
+			<MobilePanelHeaderActions>
+				<div className="flex items-center gap-1">
+					<Button type="button" variant="ghost" size="sm" onClick={onClose}>
+						Cancel
+					</Button>
+					<Button type="button" size="sm" onClick={handleSave} disabled={isSaving || !currentUser}>
+						{isSaving ? 'Saving…' : isEditing ? 'Save Context' : 'Create Context'}
+					</Button>
+				</div>
+			</MobilePanelHeaderActions>
 			<EntityPanelSurface tone="context" className="space-y-3">
 				<EntityPanelSectionHeader
 					eyebrow="Narrative"
@@ -800,18 +815,20 @@ Write in Markdown. Use $ to insert datasets, Groups, or features.`}
 
 			<EntityPanelSurface tone="neutral" className="space-y-2">
 				{saveError && <p className="text-xs text-destructive">{saveError}</p>}
-				<div className="flex items-center justify-end gap-2">
-					<Button variant="outline" onClick={onClose} className="rounded-none">
-						Cancel
-					</Button>
-					<Button
-						onClick={handleSave}
-						disabled={isSaving || !currentUser}
-						className="rounded-none bg-primary text-primary-foreground"
-					>
-						{isSaving ? 'Saving…' : isEditing ? 'Save Context' : 'Create Context'}
-					</Button>
-				</div>
+				{!mobileHeaderActionTarget ? (
+					<div className="flex items-center justify-end gap-2">
+						<Button variant="outline" onClick={onClose} className="rounded-none">
+							Cancel
+						</Button>
+						<Button
+							onClick={handleSave}
+							disabled={isSaving || !currentUser}
+							className="rounded-none bg-primary text-primary-foreground"
+						>
+							{isSaving ? 'Saving…' : isEditing ? 'Save Context' : 'Create Context'}
+						</Button>
+					</div>
+				) : null}
 			</EntityPanelSurface>
 		</EntityPanelShell>
 	)

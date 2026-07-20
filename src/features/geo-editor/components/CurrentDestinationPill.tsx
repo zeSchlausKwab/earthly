@@ -1,5 +1,6 @@
 import { CircleHelp, Globe2, Lock, MapPinned, RadioTower, TriangleAlert, X } from 'lucide-react'
 import type { ComponentType, SVGProps } from 'react'
+import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import type { ResolvedAuthoringDestination } from './authoringDestination'
 
@@ -86,20 +87,19 @@ export function CurrentDestinationPill({
 	const availabilitySuffix = destination.availability === 'unavailable' ? ', unavailable' : ''
 	const IconContents = <DestinationContents destination={destination} />
 
-	return (
+	const fieldset = (
 		<fieldset
 			aria-label={`Current destination: ${destination.accessibleLabel}`}
-			data-slot="current-destination-pill"
 			data-destination-kind={destination.kind}
 			data-publish-channel={destination.publishChannel}
 			data-availability={destination.availability}
 			data-variant={variant}
 			className={cn(
-				'm-0 inline-flex min-w-0 items-stretch overflow-hidden rounded-[2px] border p-0 text-xs shadow-sm',
+				'm-0 inline-flex min-w-0 items-stretch overflow-hidden border p-0 text-xs shadow-sm',
 				destinationTone(destination),
 				variant === 'mobile'
-					? 'min-h-9 max-w-[min(88vw,26rem)] bg-background/95 backdrop-blur'
-					: 'h-7 max-w-80',
+					? 'h-7 max-w-[calc(100vw-6.5rem)] rounded-full bg-background/95 text-[11px] backdrop-blur'
+					: 'h-7 max-w-80 rounded-[2px]',
 				className,
 			)}
 		>
@@ -143,5 +143,13 @@ export function CurrentDestinationPill({
 				</button>
 			) : null}
 		</fieldset>
+	)
+
+	if (variant !== 'mobile') return fieldset
+
+	return (
+		<Badge asChild variant="outline" className="h-7 rounded-full p-0">
+			{fieldset}
+		</Badge>
 	)
 }

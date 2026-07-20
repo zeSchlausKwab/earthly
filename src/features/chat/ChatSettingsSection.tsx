@@ -202,7 +202,7 @@ export function ChatSettingsSection() {
 				{/* NOT disabled while streaming: a stuck isStreaming flag would lock the
 				    user out of their own settings with no visual cue (Radix disabled
 				    selects look normal but swallow clicks). Switching provider cancels
-				    any in-flight response instead — same recovery contract as New chat. */}
+				    any in-flight response instead — same recovery contract as New conversation. */}
 				<div className="flex items-center gap-2">
 					<NativeSelect
 						id="chat-provider-select"

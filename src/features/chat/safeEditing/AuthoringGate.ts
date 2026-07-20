@@ -15,15 +15,15 @@
  *
  * Flow per apply unit (the WHOLE tool call / recorded run_code batch is ONE unit
  * → one snapshot → one diff block → one undo step — Open Question 3 / D-11):
- *   1. ensure a binding (auto-create-and-bind via the Plan-03 resolver, injected);
- *   2. dry-run the proposal against a CLONE of the current set (never the real
+ *   1. dry-run the proposal against a CLONE of the current set (never the real
  *      editor) to produce the proposed EditorFeature[];
- *   3. classifyMutation(editor.getAllFeatures(), proposed, intent) → DatasetDiff;
- *   4. decide via the safety level + D-07:
+ *   2. classifyMutation(editor.getAllFeatures(), proposed, intent) → DatasetDiff;
+ *   3. decide via the safety level + D-07:
  *        - pure-add OR Level 3 → snapshot, emit diff, commit immediately;
  *        - Level 1 (any change incl. adds) OR Level 2 with modify/delete present →
  *          emit diff, AWAIT requestConfirm; on Apply snapshot + commit, on Cancel
  *          discard with ZERO editor mutation.
+ *   4. only on the apply path, ensure a durable binding immediately before commit.
  *
  * The real apply ALWAYS routes through createAuthoring / the Plan-01 verbs, so it
  * flows through runInterceptors (no bypass — T-05-17). The gate never calls
@@ -136,25 +136,23 @@ export function createAuthoringGate(editor: GeoEditor, deps: AuthoringGateDeps) 
 	 * snapshot per apply unit (D-11) so SAFE-06 undo reverts the whole unit as one
 	 * step. `getAllFeatures()` is re-read here so `commit` sees the live set.
 	 */
-	function applyNow(proposal: GateProposal): void {
+	async function applyNow(proposal: GateProposal): Promise<void> {
+		if (deps.ensureBinding) await deps.ensureBinding()
 		editor.pushDatasetSnapshot(proposal.label)
 		proposal.commit(authoring, editor.getAllFeatures())
 	}
 
 	async function review(proposal: GateProposal): Promise<GateResult> {
-		// (1) Ensure a bound target (auto-create-and-bind, Plan 05) before anything.
-		if (deps.ensureBinding) await deps.ensureBinding()
-
-		// (2) Dry-run against a CLONE of the current set — never the real editor
+		// (1) Dry-run against a CLONE of the current set — never the real editor
 		// (T-05-18). classifyMutation is pure and holds no editor reference, so the
 		// proposed set is computed without touching editor state.
 		const current = editor.getAllFeatures()
 		const proposed = proposal.computeProposed(current)
 
-		// (3) Classify add/modify/delete by id against the live (un-compacted) set.
+		// (2) Classify add/modify/delete by id against the live (un-compacted) set.
 		const diff = classifyMutation(current, proposed, proposal.intent)
 
-		// (4) The diff is ALWAYS emitted so the action is visible + recorded — even on
+		// (3) The diff is ALWAYS emitted so the action is visible + recorded — even on
 		// an immediate apply (D-12) and even if the user later cancels.
 		deps.emitDiffBlock(diff)
 
@@ -162,7 +160,7 @@ export function createAuthoringGate(editor: GeoEditor, deps: AuthoringGateDeps) 
 
 		// Immediate-apply path: pure-add (non-destructive) OR Level 3 (trust + undo).
 		if (!requiresConfirmation(level, diff)) {
-			applyNow(proposal)
+			await applyNow(proposal)
 			return { status: 'applied', diff }
 		}
 
@@ -174,7 +172,7 @@ export function createAuthoringGate(editor: GeoEditor, deps: AuthoringGateDeps) 
 			return { status: 'cancelled', diff }
 		}
 
-		applyNow(proposal)
+		await applyNow(proposal)
 		return { status: 'applied', diff }
 	}
 

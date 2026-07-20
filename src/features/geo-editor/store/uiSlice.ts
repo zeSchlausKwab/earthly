@@ -73,26 +73,28 @@ export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set) =
 			mobileSidebarOpen: true,
 			mobileSidebarMode: tab ? 'content' : 'menu',
 			mobilePanelTab: tab ?? state.mobilePanelTab,
-			mobilePanelResumeOnSidebarClose: state.mobilePanelOpen
-				? { tab: state.mobilePanelTab, snap: state.mobilePanelSnap }
-				: null,
+			mobilePanelResumeOnSidebarClose:
+				state.mobilePanelResumeOnSidebarClose ??
+				(state.mobilePanelOpen ? { tab: state.mobilePanelTab, snap: state.mobilePanelSnap } : null),
 			mobilePanelOpen: false,
 		})),
 	showMobileSidebarMenu: () =>
-		set({
+		set((state) => ({
 			mobileSidebarOpen: true,
 			mobileSidebarMode: 'menu',
-			mobilePanelResumeOnSidebarClose: null,
+			mobilePanelResumeOnSidebarClose: state.mobilePanelResumeOnSidebarClose,
 			mobilePanelOpen: false,
-		}),
-	selectMobileSidebarDestination: (mobilePanelTab) =>
-		set({
+		})),
+	selectMobileSidebarDestination: (mobilePanelTab, options) =>
+		set((state) => ({
 			mobileSidebarOpen: true,
 			mobileSidebarMode: 'content',
 			mobilePanelTab,
-			mobilePanelResumeOnSidebarClose: null,
+			mobilePanelResumeOnSidebarClose: options?.preserveSuspendedPanel
+				? state.mobilePanelResumeOnSidebarClose
+				: null,
 			mobilePanelOpen: false,
-		}),
+		})),
 	closeMobileSidebar: () =>
 		set((state) => {
 			const resume = state.mobilePanelResumeOnSidebarClose
@@ -104,7 +106,7 @@ export const createUISlice: StateCreator<EditorState, [], [], UISlice> = (set) =
 					? {
 							mobilePanelOpen: true,
 							mobilePanelTab: resume.tab,
-							mobilePanelSnap: 'peek' as const,
+							mobilePanelSnap: resume.snap,
 						}
 					: {}),
 			}

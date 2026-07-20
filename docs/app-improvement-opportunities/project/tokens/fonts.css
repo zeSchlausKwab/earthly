@@ -1,4 +1,0 @@
-/* Fonts — CDN-linked (Google Fonts) for now.
-   IBM Plex Sans = UI, JetBrains Mono = values/labels, Playfair Display = editorial display.
-   NOTE: self-host binaries for production; flagged in readme.md. */
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:wght@600;700;800&display=swap");
