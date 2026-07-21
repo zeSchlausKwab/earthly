@@ -29,7 +29,7 @@ sequenceDiagram
         User->>Gate: Approve or reject
     end
     Gate->>Host: Execute permitted operation
-    Host-->>Store: Structured tool result
+    Host-->>Store: Structured tool result + duration/size diagnostics
     Store->>Model: Continue conversation
     Model-->>UI: Final streamed answer
 ```
@@ -78,7 +78,27 @@ Potentially destructive edits can produce pending diffs and require approval. Th
 
 ### Remote tools
 
-Remote MCP tools are externally fallible. Their schemas are synchronized into the registry, but the remote server remains the owner of execution and availability.
+Remote MCP tools are externally fallible. Their schemas are generated from the live ContextVM contract with `ctxcn` and synchronized into the registry, but the remote server remains the owner of execution and availability.
+
+Research is intentionally federated rather than tied to one search API. `web_search` queries the VPS-local SearXNG instance, Wikipedia, and Wikidata concurrently, deduplicates their results, and reports per-provider health. `wikipedia_lookup` supports exact pages, nearby pages, and full-text discovery. Partial coverage is a valid result: one challenged or unavailable provider must not discard useful answers from the others.
+
+For source-to-map work, `wikipedia_extract` provides a two-stage contract: inspect an article outline, then page through one structured table. Results retain the article revision, section, table index/caption, and source-row number. Researched features can therefore carry traceable provenance rather than relying on brittle HTML fragments or model memory.
+
+### Transactional dataset commits
+
+`Authoring.commitDataset` is the preferred boundary for a complete model-authored dataset. Before any editor mutation, it validates the whole FeatureCollection for non-empty geometry, unique IDs, finite WGS84 coordinates, serializable values, and placeholder leakage. Research flows may additionally require per-feature source and coordinate-precision provenance. Geometry and collection metadata are then replaced as one facade operation; unexpected failures restore the previous geometry and metadata.
+
+This is stronger than a sequence of `writeGeoJSON` plus `setDatasetMetadata` calls: a half-built dataset is never intentionally exposed to the editor. Mutation counts describe the committed result and can be trusted without a redundant read-back call.
+
+### Search and selection semantics
+
+`find_features` is an explicitly read-only predicate preview. `select_features` applies the same host-evaluated predicate to the full bound dataset and replaces the editor's actual selection in one UI update. This naming matters because later `$selected` operations must reflect a visible, real selection rather than an invisible list of matching IDs.
+
+### Transcript compression and diagnostics
+
+Consecutive multi-tool activity is presented as one collapsible **Working on your map** operation, grouped into research, build, refine, and inspect phases. The underlying assistant messages, tool calls, results, call IDs, errors, and pending approval cards remain intact; this is presentation compression, not conversation-history compression.
+
+Per-turn diagnostics are cumulative across retries and tool rounds. They report model request count, estimated aggregate input/output tokens, total tool-result bytes, total tool duration, and per-tool calls/duration/bytes/errors. The existing model-loop limits and sandbox safety budgets are deliberately separate policy decisions and are unchanged by this observability work.
 
 ## Invariants
 
@@ -99,6 +119,7 @@ Remote MCP tools are externally fallible. Their schemas are synchronized into th
 - QuickJS sandbox, output-capture, top-level-return, WASM-reuse, and pathfinding tests.
 - Ingest parser, worker client, file guards, and send-path tests.
 - Browser AI scenarios for visible chat/editor journeys.
+- A deterministic source-to-map browser journey that approves one grouped operation, commits exactly one provenance-valid dataset, and rejects placeholder leakage.
 
 ## Pressure points
 
@@ -132,8 +153,11 @@ Preserve these journeys and boundaries:
 
 - streaming text with cancellation and recovery;
 - multiple ordered tool calls in one response;
+- raw tool-call/result ordering underneath grouped operation presentation;
 - tool schema validation and call-ID integrity;
 - user approval for gated mutations;
+- all-or-nothing dataset validation and provenance retention;
+- read-only feature discovery versus visible editor selection;
 - code sandbox isolation and host-side replay;
 - file ingest without blocking the UI thread;
 - bounded request context and large-geometry optimization;

@@ -66,7 +66,7 @@ test('an analyst turns a chat proposal into a canonical Dataset @experience-audi
 
 		const sendOutcome = await sendAiChatMessage(earthly, prompt)
 		expect(sendOutcome).toBe('chat-visible')
-		await expect(earthly.page.getByText('write_geojson_to_editor', { exact: true })).toBeVisible({
+		await expect(earthly.page.getByText('Working on your map', { exact: true })).toBeVisible({
 			timeout: 15_000,
 		})
 		await expectGeometryFeatureCount(earthly, 0)

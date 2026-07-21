@@ -36,6 +36,7 @@ import { registerGeometryTools } from './geometry-tools'
 import { registerIngestTools } from './ingest-tools'
 import { registerPrimitiveTools } from './primitives-tools'
 import { registerSearchTools } from './search-tools'
+import { getWikipediaFetchRedirect } from './source-routing'
 import { geoStaticToolSchemas } from './schemas'
 import {
 	asFeatureObject,
@@ -1021,9 +1022,12 @@ function registerRemoteMcpTools(): void {
 		origin: REMOTE_MCP_ORIGIN,
 		schema: schemaFor('fetch_url'),
 		handler: async (args) => {
-			const client = getGeoClient()
 			const url = typeof args.url === 'string' ? args.url.trim() : ''
 			if (!url) throw new Error('url must be a non-empty string')
+			const wikipediaRedirect = getWikipediaFetchRedirect(url)
+			if (wikipediaRedirect) return wikipediaRedirect
+
+			const client = getGeoClient()
 			const maxLength = toFiniteNumber(args.maxLength)
 			const response = await client.FetchUrl(url, maxLength)
 			return extractMcpToolResult('fetch_url', response)
@@ -1037,6 +1041,8 @@ function registerRemoteMcpTools(): void {
 		schema: schemaFor('wikipedia_lookup'),
 		handler: async (args) => {
 			const client = getGeoClient()
+			const query =
+				typeof args.query === 'string' && args.query.trim() ? args.query.trim() : undefined
 			const title =
 				typeof args.title === 'string' && args.title.trim() ? args.title.trim() : undefined
 			const lat = toFiniteNumber(args.lat)
@@ -1044,11 +1050,43 @@ function registerRemoteMcpTools(): void {
 			const radius = toFiniteNumber(args.radius)
 			const limit = toFiniteNumber(args.limit)
 			const language = typeof args.language === 'string' ? args.language : undefined
-			if (!title && (lat === undefined || lon === undefined)) {
-				throw new Error("Either 'title' or both 'lat' and 'lon' are required")
+			if (!query && !title && (lat === undefined || lon === undefined)) {
+				throw new Error("Either 'query', 'title', or both 'lat' and 'lon' are required")
 			}
-			const response = await client.WikipediaLookup(title, lat, lon, radius, limit, language)
+			const response = await client.WikipediaLookup(query, title, lat, lon, radius, limit, language)
 			return extractMcpToolResult('wikipedia_lookup', response)
+		},
+	})
+
+	register({
+		name: 'wikipedia_extract',
+		kind: 'remote-mcp',
+		origin: REMOTE_MCP_ORIGIN,
+		schema: schemaFor('wikipedia_extract'),
+		handler: async (args) => {
+			const client = getGeoClient()
+			const url = typeof args.url === 'string' && args.url.trim() ? args.url.trim() : undefined
+			const title =
+				typeof args.title === 'string' && args.title.trim() ? args.title.trim() : undefined
+			if (!url && !title) throw new Error("Either 'url' or 'title' is required")
+			const language = typeof args.language === 'string' ? args.language : undefined
+			const mode = args.mode === 'table' ? 'table' : args.mode === 'outline' ? 'outline' : undefined
+			const tableIndex = toFiniteNumber(args.tableIndex)
+			const rowOffset = toFiniteNumber(args.rowOffset)
+			const rowLimit = toFiniteNumber(args.rowLimit)
+			if (mode === 'table' && tableIndex === undefined) {
+				throw new Error('tableIndex is required in table mode')
+			}
+			const response = await client.WikipediaExtract(
+				url,
+				title,
+				language,
+				mode,
+				tableIndex,
+				rowOffset,
+				rowLimit,
+			)
+			return extractMcpToolResult('wikipedia_extract', response)
 		},
 	})
 }

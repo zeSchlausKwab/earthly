@@ -135,6 +135,18 @@ export function validateProductionEnv(
 			errors.push('BLOSSOM_SERVER must be a valid URL')
 		}
 	}
+	if (!env.SEARXNG_URL) {
+		errors.push('SEARXNG_URL must point to Earthly\'s private loopback SearXNG service')
+	} else {
+		try {
+			const url = new URL(env.SEARXNG_URL)
+			if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '::1'].includes(url.hostname)) {
+				errors.push('SEARXNG_URL must use the private loopback service in production')
+			}
+		} catch {
+			errors.push('SEARXNG_URL must be a valid URL')
+		}
+	}
 	const trustedMapnoliaPubkeys = relayUrls(env.MAPNOLIA_TRUSTED_PUBKEYS)
 	if (trustedMapnoliaPubkeys.length === 0) {
 		errors.push('MAPNOLIA_TRUSTED_PUBKEYS must contain at least one public key')

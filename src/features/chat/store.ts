@@ -116,7 +116,16 @@ interface ChatDiagnostics {
 	estimatedCompletionTokens: number | null
 	finishReason: string | null
 	requestMessageCount: number
+	modelRequestCount: number
+	cumulativeEstimatedPromptTokens: number
+	cumulativeEstimatedCompletionTokens: number
 	toolCallCount: number
+	toolResultBytes: number
+	totalToolDurationMs: number
+	toolStats: Record<
+		string,
+		{ calls: number; durationMs: number; resultBytes: number; errors: number }
+	>
 	round: number
 	startedAt: number | null
 	completedAt: number | null
@@ -133,10 +142,29 @@ const EMPTY_CHAT_DIAGNOSTICS: ChatDiagnostics = {
 	estimatedCompletionTokens: null,
 	finishReason: null,
 	requestMessageCount: 0,
+	modelRequestCount: 0,
+	cumulativeEstimatedPromptTokens: 0,
+	cumulativeEstimatedCompletionTokens: 0,
 	toolCallCount: 0,
+	toolResultBytes: 0,
+	totalToolDurationMs: 0,
+	toolStats: {},
 	round: 0,
 	startedAt: null,
 	completedAt: null,
+}
+
+function utf8ByteLength(value: string): number {
+	return new TextEncoder().encode(value).length
+}
+
+function serializedToolResultIsError(content: string): boolean {
+	try {
+		const value = JSON.parse(content) as Record<string, unknown>
+		return value.ok === false && typeof value.kind === 'string'
+	} catch {
+		return false
+	}
 }
 
 const DEFAULT_CHAT_TITLE = 'New conversation'
@@ -1724,6 +1752,12 @@ export const useChatStore = create<ChatStore>()(
 					let oneShotVisionMessages: ChatMessage[] = []
 					let oneShotGeometryContextMessage = geometryContextMessage
 					let totalToolCalls = 0
+					let modelRequestCount = 0
+					let cumulativeEstimatedPromptTokens = 0
+					let cumulativeEstimatedCompletionTokens = 0
+					let toolResultBytes = 0
+					let totalToolDurationMs = 0
+					let toolStats: ChatDiagnostics['toolStats'] = {}
 					let round = 0
 					const effectiveContextTokens = getEffectiveContextTokens(model, providerConfig)
 					const requiresReasoningContent = providerMayRequireReasoningContent(
@@ -1761,12 +1795,39 @@ export const useChatStore = create<ChatStore>()(
 							estimatedCompletionTokens: null,
 							finishReason: null,
 							requestMessageCount: 0,
+							modelRequestCount: 0,
+							cumulativeEstimatedPromptTokens: 0,
+							cumulativeEstimatedCompletionTokens: 0,
 							toolCallCount: 0,
+							toolResultBytes: 0,
+							totalToolDurationMs: 0,
+							toolStats: {},
 							round: 0,
 							startedAt: streamStartAt,
 							completedAt: null,
 						},
 					})
+
+					const recordModelRequest = (promptTokens: number) => {
+						modelRequestCount += 1
+						cumulativeEstimatedPromptTokens += promptTokens
+						set((state) => ({
+							diagnostics: {
+								...state.diagnostics,
+								modelRequestCount,
+								cumulativeEstimatedPromptTokens,
+							},
+						}))
+					}
+					const recordModelCompletion = (completionTokens: number) => {
+						cumulativeEstimatedCompletionTokens += completionTokens
+						set((state) => ({
+							diagnostics: {
+								...state.diagnostics,
+								cumulativeEstimatedCompletionTokens,
+							},
+						}))
+					}
 
 					// Loop to handle tool calls until the model returns a final answer.
 					while (true) {
@@ -1861,6 +1922,7 @@ export const useChatStore = create<ChatStore>()(
 							let lastError: unknown
 							for (let attempt = 0; attempt <= OVERLOAD_RETRY_DELAYS_MS.length; attempt += 1) {
 								try {
+									recordModelRequest(estimatedPromptTokens)
 									result = await makeRequest(requestMessages, outputBudget)
 									lastError = null
 									break
@@ -1919,11 +1981,13 @@ export const useChatStore = create<ChatStore>()(
 								providerConfig,
 								emergencyPromptTokens,
 							)
+							recordModelRequest(emergencyPromptTokens)
 							result = await makeRequest(emergencyMessages, emergencyOutputBudget)
 						}
 						if (!result) {
 							throw new Error('Chat request finished without a result.')
 						}
+						recordModelCompletion(result.estimatedCompletionTokens)
 
 						// If we got tool calls, execute them and continue
 						if (result.toolCalls.length > 0) {
@@ -2021,6 +2085,7 @@ export const useChatStore = create<ChatStore>()(
 								// the transcript can render the card inline at this turn.
 								setPendingDiffToolContext(toolCall.id)
 								let toolResult: Awaited<ReturnType<typeof executeToolCall>>
+								const toolStartedAt = performance.now()
 								try {
 									toolResult = await executeToolCall(toolCall, {
 										attachedGeometry: geometryAttachment,
@@ -2029,6 +2094,35 @@ export const useChatStore = create<ChatStore>()(
 								} finally {
 									setPendingDiffToolContext(null)
 								}
+								const toolDurationMs = performance.now() - toolStartedAt
+								const resultBytes = utf8ByteLength(toolResult.content)
+								const previousToolStats = toolStats[toolCall.function.name] ?? {
+									calls: 0,
+									durationMs: 0,
+									resultBytes: 0,
+									errors: 0,
+								}
+								toolStats = {
+									...toolStats,
+									[toolCall.function.name]: {
+										calls: previousToolStats.calls + 1,
+										durationMs: previousToolStats.durationMs + toolDurationMs,
+										resultBytes: previousToolStats.resultBytes + resultBytes,
+										errors:
+											previousToolStats.errors +
+											(serializedToolResultIsError(toolResult.content) ? 1 : 0),
+									},
+								}
+								toolResultBytes += resultBytes
+								totalToolDurationMs += toolDurationMs
+								set((state) => ({
+									diagnostics: {
+										...state.diagnostics,
+										toolResultBytes,
+										totalToolDurationMs,
+										toolStats,
+									},
+								}))
 
 								// Re-check AFTER the await: the run may have been superseded
 								// while this tool executed (e.g. STOP while a safe-editing gate

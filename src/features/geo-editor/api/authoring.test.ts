@@ -96,7 +96,7 @@ describe('createAuthoring — addFeature (D-10/D-11, T-02-04 reuse)', () => {
 })
 
 describe('createAuthoring — writeGeoJSON replace (D-11 replace semantics)', () => {
-	it('replaces the editor feature set; counts.created === features.length', () => {
+	it('replaces the editor feature set and reports actual stored changes', () => {
 		const editor = createHeadlessEditor()
 		const authoring = createAuthoring(editor)
 
@@ -107,7 +107,9 @@ describe('createAuthoring — writeGeoJSON replace (D-11 replace semantics)', ()
 		const result = authoring.writeGeoJSON(dupIdCollection.features, { replace: true })
 
 		expect(result.ok).toBe(true)
-		expect(result.counts.created).toBe(dupIdCollection.features.length)
+		expect(result.counts.created).toBe(1)
+		expect(result.counts.deleted).toBe(1)
+		expect(result.counts.skippedDuplicates).toBe(1)
 		// dupIdCollection has two features with the same id → one stored after replace.
 		const ids = editor.getAllFeatures().map((f) => f.id)
 		expect(ids).toEqual(['dup-id'])
@@ -123,7 +125,104 @@ describe('createAuthoring — writeGeoJSON replace (D-11 replace semantics)', ()
 		const result = authoring.writeGeoJSON(emptyFeatureCollection.features, { replace: true })
 		expect(result.ok).toBe(true)
 		expect(result.counts.created).toBe(0)
+		expect(result.counts.deleted).toBe(1)
 		expect(editor.getAllFeatures()).toHaveLength(0)
+	})
+})
+
+describe('createAuthoring — commitDataset (validated atomic replace)', () => {
+	beforeEach(() => {
+		useEditorStore.setState({
+			collectionMeta: createDefaultCollectionMeta(),
+			activeGeoEditDraftId: null,
+		})
+	})
+
+	it('commits validated geometry, metadata, and provenance in one result', () => {
+		const editor = createHeadlessEditor()
+		const authoring = createAuthoring(editor)
+		const feature = {
+			type: 'Feature' as const,
+			id: 'researched-1',
+			geometry: { type: 'Point' as const, coordinates: [14.3, 46.6] },
+			properties: {
+				name: 'Example',
+				sourceUrl: 'https://en.wikipedia.org/wiki/Example',
+				sourceTitle: 'Example',
+				sourceRevisionId: 123,
+				sourceSection: 'Current cases',
+				sourceTable: 0,
+				sourceRow: 1,
+				sourceRetrievedAt: '2026-07-21T00:00:00.000Z',
+				coordinatePrecision: 'representative',
+			},
+		}
+
+		const result = authoring.commitDataset({
+			featureCollection: { type: 'FeatureCollection', features: [feature] },
+			metadata: { name: 'Researched places', properties: { source: 'Wikipedia' } },
+			requireFeatureProvenance: true,
+		})
+
+		expect(result.counts.created).toBe(1)
+		expect(result.validation).toEqual({
+			featureCount: 1,
+			provenanceFeatureCount: 1,
+			geometryTypes: { Point: 1 },
+		})
+		expect(result.metadata.name).toBe('Researched places')
+		expect(editor.getFeature('researched-1')?.properties?.sourceRow).toBe(1)
+	})
+
+	it('rejects the entire dataset before replacing existing state', () => {
+		const editor = createHeadlessEditor()
+		const authoring = createAuthoring(editor)
+		authoring.addFeature(singlePointCollection.features[0])
+		authoring.setDatasetMetadata({ name: 'Keep me' })
+
+		expect(() =>
+			authoring.commitDataset({
+				featureCollection: {
+					type: 'FeatureCollection',
+					features: [
+						{
+							type: 'Feature',
+							id: 'broken',
+							geometry: { type: 'Point', coordinates: [999, 46] },
+							properties: { description: 'undefined' },
+						},
+					],
+				},
+				metadata: { name: 'Do not apply' },
+			}),
+		).toThrow(/Dataset validation failed/)
+
+		expect(editor.getAllFeatures().map((feature) => feature.id)).toEqual(['test-point-1'])
+		expect(useEditorStore.getState().collectionMeta.name).toBe('Keep me')
+	})
+
+	it('rejects malformed geometry and non-serializable properties without mutating state', () => {
+		const editor = createHeadlessEditor()
+		const authoring = createAuthoring(editor)
+		authoring.addFeature(singlePointCollection.features[0])
+
+		expect(() =>
+			authoring.commitDataset({
+				featureCollection: {
+					type: 'FeatureCollection',
+					features: [
+						{
+							type: 'Feature',
+							id: 'malformed',
+							geometry: { type: 'Point', coordinates: ['east', 46] } as never,
+							properties: { unsafe: BigInt(1) },
+						},
+					],
+				},
+			}),
+		).toThrow(/not JSON-serializable|mixes positions/)
+
+		expect(editor.getAllFeatures().map((feature) => feature.id)).toEqual(['test-point-1'])
 	})
 })
 

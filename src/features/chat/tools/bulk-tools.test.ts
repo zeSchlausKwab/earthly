@@ -23,7 +23,7 @@ import {
 /**
  * TOOLS-02 / TOOLS-03 / TOOLS-04 / STYLE-01 / STYLE-02 behavior contract, FIRST.
  *
- * The five bulk tools — batch_edit_features, select_features, dedup_features,
+ * The bulk tools — batch_edit_features, find_features, select_features, dedup_features,
  * validate_geometry, style_by_attribute — driven through the registry dispatch
  * against a headless editor (the ingest-tools.test.ts idiom), asserting against
  * useEditorStore.getState().editor?.getAllFeatures().
@@ -36,7 +36,8 @@ import {
  *   - gate: a bulk modify snapshots once, classifies `modify`, Cancel rolls back
  *     to zero net mutation.
  *   - dedup deletes via intent:'delete' so Level-2 confirms (Pitfall 6).
- *   - select_features + validate_geometry are read-only (no editor mutation).
+ *   - find_features + validate_geometry are read-only; select_features changes
+ *     transient map selection but never geometry.
  *   - style_by_attribute materializes canonical style keys; unknown key throws
  *     InvalidStyleOptionError (Pitfall 3); STYLE-02 round-trip preserves them.
  */
@@ -82,6 +83,15 @@ function onlyPendingDiff() {
 	return entry
 }
 
+async function waitForPendingDiff() {
+	for (let attempt = 0; attempt < 20; attempt += 1) {
+		const pending = getAllPendingDiffs().filter((diff) => diff.status === 'pending')
+		if (pending.length > 0) return onlyPendingDiff()
+		await Promise.resolve()
+	}
+	return onlyPendingDiff()
+}
+
 beforeEach(() => {
 	const editor = createHeadlessEditor()
 	useEditorStore.getState().setEditor(editor)
@@ -101,10 +111,11 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('registerBulkTools — all five tools registered + advertised', () => {
-	it('registers batch_edit_features, select_features, dedup_features, validate_geometry, style_by_attribute', () => {
+	it('registers find/select, edit, dedup, validate, and style tools', () => {
 		const names = advertise().map((t) => t.function.name)
 		for (const tool of [
 			'batch_edit_features',
+			'find_features',
 			'select_features',
 			'dedup_features',
 			'validate_geometry',
@@ -265,8 +276,7 @@ describe('batch_edit_features gate flow (TOOLS-02 gate)', () => {
 		})
 
 		// The gate emitted exactly one pending diff (one snapshot per batch, D-11).
-		await Promise.resolve()
-		const entry = onlyPendingDiff()
+		const entry = await waitForPendingDiff()
 		expect(entry.diff.modified.length).toBe(2)
 		expect(entry.diff.added).toEqual([])
 		expect(entry.diff.deleted).toEqual([])
@@ -291,12 +301,12 @@ describe('parsePredicate per-op value validation (CR-02)', () => {
 			/op 'in' requires an array/,
 		)
 		// Non-array value (a string).
-		expect(() =>
-			parsePredicate({ all: [{ field: 'category', op: 'in', value: 'port' }] }),
-		).toThrow(/op 'in' requires an array/)
+		expect(() => parsePredicate({ all: [{ field: 'category', op: 'in', value: 'port' }] })).toThrow(
+			/op 'in' requires an array/,
+		)
 	})
 
-	it("numeric ops require a numeric value; eq/neq/contains require a defined value", () => {
+	it('numeric ops require a numeric value; eq/neq/contains require a defined value', () => {
 		expect(() => parsePredicate({ all: [{ field: 'pop', op: 'gt', value: 'lots' }] })).toThrow(
 			/requires a numeric/,
 		)
@@ -312,7 +322,7 @@ describe('parsePredicate per-op value validation (CR-02)', () => {
 		})
 	})
 
-	it("a malformed in clause routed through select_features surfaces a self-correctable ToolError, not a raw crash", async () => {
+	it('a malformed in clause routed through select_features surfaces a self-correctable ToolError, not a raw crash', async () => {
 		seedFeatures([pointFeature('a', [0, 0], { category: 'port' })])
 		const result = await dispatch('select_features', {
 			predicate: { all: [{ field: 'category', op: 'in' }] },
@@ -354,11 +364,11 @@ describe('batch_edit_features no-op (CR-03)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// select_features (TOOLS-03 select) — read-only
+// find_features + select_features — honest preview vs map-selection semantics
 // ---------------------------------------------------------------------------
 
-describe('select_features (TOOLS-03 select — read-only full-set)', () => {
-	it('returns matched ids/summary and performs NO editor mutation', async () => {
+describe('find_features + select_features (TOOLS-03)', () => {
+	it('find_features previews without changing selection or geometry', async () => {
 		const features = [
 			pointFeature('a', [0, 0], { category: 'port' }),
 			pointFeature('b', [1, 1], { category: 'port' }),
@@ -367,7 +377,7 @@ describe('select_features (TOOLS-03 select — read-only full-set)', () => {
 		seedFeatures(features)
 		const beforeSnapshot = JSON.stringify(allFeatures())
 
-		const result = await dispatch('select_features', {
+		const result = await dispatch('find_features', {
 			predicate: { all: [{ field: 'category', op: 'eq', value: 'port' }] },
 		})
 		expect(isToolError(result)).toBe(false)
@@ -376,6 +386,28 @@ describe('select_features (TOOLS-03 select — read-only full-set)', () => {
 		expect([...typed.matchedIds].sort()).toEqual(['a', 'b'])
 		// Read-only: nothing changed in the editor.
 		expect(JSON.stringify(allFeatures())).toBe(beforeSnapshot)
+		expect(useEditorStore.getState().editor?.getSelectedFeatures()).toEqual([])
+	})
+
+	it('select_features replaces the real map selection with every match', async () => {
+		seedFeatures([
+			pointFeature('a', [0, 0], { category: 'port' }),
+			pointFeature('b', [1, 1], { category: 'port' }),
+			pointFeature('c', [2, 2], { category: 'airport' }),
+		])
+		const result = await dispatch('select_features', {
+			predicate: { all: [{ field: 'category', op: 'eq', value: 'port' }] },
+		})
+		expect(isToolError(result)).toBe(false)
+		expect((result as { selected: number }).selected).toBe(2)
+		expect(
+			useEditorStore
+				.getState()
+				.editor?.getSelectedFeatures()
+				.map((feature) => feature.id)
+				.sort(),
+		).toEqual(['a', 'b'])
+		expect(allFeatures()).toHaveLength(3)
 	})
 })
 
@@ -409,8 +441,7 @@ describe('dedup_features (TOOLS-03 dedup — keep-first, delete intent / Pitfall
 		])
 
 		const pending = dispatch('dedup_features', { by: 'geometry' })
-		await Promise.resolve()
-		const entry = onlyPendingDiff()
+		const entry = await waitForPendingDiff()
 		// The dropped ids classify as DELETIONS (intent:'delete'), so Level 2 confirms.
 		expect(entry.diff.deleted.map((f) => f.id)).toEqual(['b'])
 

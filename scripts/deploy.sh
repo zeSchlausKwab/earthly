@@ -42,7 +42,8 @@ echo "Validating production identities, URLs, and Cordn persistence..."
 )
 
 if [[ "$mode" == "--check" ]]; then
-  bash -n scripts/deploy.sh scripts/deploy-remote.sh scripts/start-cordn-production.sh
+  bash -n scripts/deploy.sh scripts/deploy-remote.sh scripts/start-cordn-production.sh \
+    scripts/start-searxng.sh scripts/stop-searxng.sh scripts/setup-searxng-vps.sh
   echo "Deployment configuration and shell scripts are valid; no build, upload, or restart was performed."
   exit 0
 fi
@@ -59,6 +60,7 @@ archive_paths=(
   public/
   relay/
   contextvm/
+  infra/
   scripts/
   docs/
   ecosystem.config.cjs

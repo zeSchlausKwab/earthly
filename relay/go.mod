@@ -5,6 +5,7 @@ go 1.25
 require (
 	fiatjaf.com/nostr v0.0.0-20260701134336-94cc8043858a
 	github.com/blevesearch/bleve/v2 v2.4.4
+	go.etcd.io/bbolt v1.4.2
 )
 
 require (
@@ -67,7 +68,6 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.59.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	go.etcd.io/bbolt v1.4.2 // indirect
 	golang.org/x/crypto v0.39.0 // indirect
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 // indirect
 	golang.org/x/net v0.41.0 // indirect

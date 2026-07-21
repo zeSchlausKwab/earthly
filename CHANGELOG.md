@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.4] - 2026-07-21
+
+- Replaced the unreliable third-party web-search dependency with federated Wikipedia, Wikidata,
+  and Earthly-hosted SearXNG search that retains useful partial results during provider outages.
+- Added full-text Wikipedia research alongside exact-title and nearby-article lookup.
+- Hardened AI URL reading against local-network access, unsafe redirects, oversized responses, and
+  abusive concurrent traffic.
+- Updated the generated ContextVM client and removed a first-call connection race that could cause
+  intermittent MCP timeouts.
+
 ## [0.0.3] - 2026-07-20
 
 - Redesigned the mobile authoring shell so Menu and AI chat remain available while drawing, with

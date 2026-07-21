@@ -31,12 +31,29 @@ function styleByAttributeDescription(): string {
 	return tool?.function.description ?? ''
 }
 
+function wikipediaExtractDescription(): string {
+	const tool = getGeoTools().find((candidate) => candidate.function.name === 'wikipedia_extract')
+	expect(tool).toBeDefined()
+	return tool?.function.description ?? ''
+}
+
 describe('fix #4 — agent map-context steering', () => {
 	const text = mapContextText()
 
 	it('steers toward known coordinates over geocoding', () => {
 		expect(text).toMatch(/known coordinates/i)
 		expect(text).toMatch(/search_location/i)
+	})
+
+	it('prefers spatial fields already present in structured sources before geocoding', () => {
+		expect(text).toMatch(/source-provided spatial data/i)
+		expect(text).toMatch(/latitude\/longitude|GeoJSON|WKT/i)
+		expect(text).toMatch(/geocode only rows whose source.*lacks/i)
+	})
+
+	it('defines complete extraction pages independently of prompt-window previews', () => {
+		expect(text).toMatch(/pagination\.status/i)
+		expect(text).toMatch(/complete.*full table/i)
 	})
 
 	it('discourages gratuitous OSM relation/boundary fetches', () => {
@@ -80,6 +97,15 @@ describe('fix #4 — agent map-context steering', () => {
 	it('frames generalized-data honesty instead of external verification', () => {
 		expect(text).toMatch(/GENERALIZED cartography/i)
 		expect(text).toMatch(/systematic underestimates/i)
+	})
+})
+
+describe('structured extraction steering', () => {
+	it('advertises the unambiguous pagination contract on wikipedia_extract', () => {
+		const description = wikipediaExtractDescription()
+		expect(description).toMatch(/pagination\.status/i)
+		expect(description).toMatch(/complete.*full table/i)
+		expect(description).toMatch(/more.*nextOffset/i)
 	})
 })
 

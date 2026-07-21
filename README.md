@@ -108,7 +108,7 @@ Read the canonical architecture set for module ownership, data flow, invariants,
 | Mapping | MapLibre GL, PMTiles, Turf, GeoJSON |
 | Nostr | Applesauce accounts/actions/core/loaders/relay/signers, `nostr-idb`, `nostr-tools` |
 | Private collaboration | `ts-mls`, Cordn-compatible ContextVM coordinator |
-| AI chat | OpenAI-compatible streaming, ContextVM/MCP, QuickJS/WASM workers |
+| AI chat and research | OpenAI-compatible streaming, ContextVM/MCP, self-hosted SearXNG, Wikipedia/Wikidata, QuickJS/WASM workers |
 | Native app | Tauri 2, Rust, Android |
 | Local/offline node | Embedded Nostr relay, embedded Blossom, signed pairing and scoped peer policy |
 | Public relay | Go, Khatru, LMDB, Bleve geo/search index |
@@ -192,6 +192,8 @@ bun run start               # serve a production bundle with Bun
 ```
 
 Production configuration is documented by [`.env.production.example`](.env.production.example). Private keys remain server-side; only the allowlisted values in [`src/config/env.schema.ts`](src/config/env.schema.ts) are injected into the frontend bundle.
+
+The ContextVM research tools use a private, loopback-only SearXNG service and degrade to Wikipedia/Wikidata when a provider is unavailable. See the [SearXNG operations guide](docs/operations/searxng.md) for the one-time VPS setup and routine health checks.
 
 Important public configuration:
 

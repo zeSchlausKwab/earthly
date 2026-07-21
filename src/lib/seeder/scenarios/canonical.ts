@@ -109,8 +109,7 @@ export function buildCanonicalContextContent(content: MapContextContent): Canoni
 
 /**
  * Decide from the exact UTF-8 event content, not JavaScript character count.
- * The shared budget leaves headroom below LMDB betterbinary's 65,535-byte
- * content ceiling.
+ * The shared budget matches Earthly's advertised 1 MiB relay content policy.
  */
 export function planCanonicalDatasetContent(
 	fc: FeatureCollection & Record<string, unknown>,

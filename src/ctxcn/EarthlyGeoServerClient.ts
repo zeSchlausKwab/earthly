@@ -149,14 +149,21 @@ export interface QueryOsmNearbyInput {
 	 * OSM tag filters
 	 */
 	filters?: {
-		[k: string]: string | string[]
+		[k: string]: string | [string, ...string[]]
 	}
 	/**
-	 * Alternative filter groups combined with OR semantics.
+	 * Alternative filter groups combined with OR semantics. Each object is an AND group; the array is matched as OR.
+	 *
+	 * @minItems 1
 	 */
-	filterSets?: {
-		[k: string]: string | string[]
-	}[]
+	filterSets?: [
+		{
+			[k: string]: string | [string, ...string[]]
+		},
+		...{
+			[k: string]: string | [string, ...string[]]
+		}[],
+	]
 	/**
 	 * Maximum results to return
 	 */
@@ -201,14 +208,21 @@ export interface QueryOsmBboxInput {
 	 * OSM tag filters
 	 */
 	filters?: {
-		[k: string]: string | string[]
+		[k: string]: string | [string, ...string[]]
 	}
 	/**
-	 * Alternative filter groups combined with OR semantics.
+	 * Alternative filter groups combined with OR semantics. Each object is an AND group; the array is matched as OR.
+	 *
+	 * @minItems 1
 	 */
-	filterSets?: {
-		[k: string]: string | string[]
-	}[]
+	filterSets?: [
+		{
+			[k: string]: string | [string, ...string[]]
+		},
+		...{
+			[k: string]: string | [string, ...string[]]
+		}[],
+	]
 	/**
 	 * Maximum results to return
 	 */
@@ -539,7 +553,7 @@ export interface WebSearchInput {
 	 */
 	limit?: number
 	/**
-	 * SearXNG search categories, comma-separated (e.g., "general", "science", "it"). Default: "general"
+	 * SearXNG search categories, comma-separated (e.g., "general", "science", "it"). Wikipedia and Wikidata are always searched. Default: "general"
 	 */
 	categories?: string
 	/**
@@ -552,6 +566,16 @@ export interface WebSearchOutput {
 	result: {
 		query: string
 		count: number
+		/**
+		 * Whether every configured search provider answered successfully
+		 */
+		coverage: 'complete' | 'partial' | 'unavailable'
+		providers: {
+			name: string
+			status: 'ok' | 'error' | 'unavailable'
+			count: number
+			error?: string
+		}[]
 		results: {
 			title: string
 			url: string
@@ -602,7 +626,11 @@ export interface FetchUrlOutput {
 
 export interface WikipediaLookupInput {
 	/**
-	 * Wikipedia article title (e.g., "Mount Everest"). Either title or lat+lon is required.
+	 * Full-text Wikipedia search query (e.g., "Roman ruins Carinthia"). Query takes precedence over title and coordinates.
+	 */
+	query?: string
+	/**
+	 * Exact Wikipedia article title (e.g., "Mount Everest"). Either query, title, or lat+lon is required.
 	 */
 	title?: string
 	/**
@@ -629,7 +657,7 @@ export interface WikipediaLookupInput {
 
 export interface WikipediaLookupOutput {
 	result: {
-		mode: 'title' | 'geosearch'
+		mode: 'search' | 'title' | 'geosearch'
 		/**
 		 * The title or coordinate query used
 		 */
@@ -658,6 +686,115 @@ export interface WikipediaLookupOutput {
 	}
 }
 
+export interface WikipediaExtractInput {
+	/**
+	 * A wikipedia.org article URL. Either url or title is required.
+	 */
+	url?: string
+	/**
+	 * Exact Wikipedia article title. Either title or url is required.
+	 */
+	title?: string
+	/**
+	 * Wikipedia language code when title is used (default: "en").
+	 */
+	language?: string
+	/**
+	 * "outline" lists sections and table shapes with samples; "table" returns a page of rows from tableIndex. Default: "outline".
+	 */
+	mode?: 'outline' | 'table'
+	/**
+	 * Zero-based table index. Required in table mode.
+	 */
+	tableIndex?: number
+	/**
+	 * Zero-based data-row offset in table mode (default: 0).
+	 */
+	rowOffset?: number
+	/**
+	 * Maximum rows returned in table mode (default: 50, max: 200).
+	 */
+	rowLimit?: number
+}
+
+export interface WikipediaExtractOutput {
+	result: {
+		mode: 'outline' | 'table'
+		source: {
+			title: string
+			url: string
+			pageId: number | null
+			revisionId: number | null
+			language: string
+			/**
+			 * ISO 8601 retrieval timestamp
+			 */
+			retrievedAt: string
+		}
+		lead: string
+		sections: {
+			index: string
+			level: number
+			title: string
+			anchor: string
+		}[]
+		tables: {
+			index: number
+			sectionIndex: string | null
+			sectionTitle: string | null
+			caption: string | null
+			headers: string[]
+			rowCount: number
+			sampleRows?: {
+				[k: string]: string
+			}[]
+			rows?: {
+				sourceRow: number
+				cells: {
+					[k: string]: string
+				}
+			}[]
+		}[]
+		table?: {
+			index: number
+			sectionIndex: string | null
+			sectionTitle: string | null
+			caption: string | null
+			headers: string[]
+			rowCount: number
+			sampleRows?: {
+				[k: string]: string
+			}[]
+			rows?: {
+				sourceRow: number
+				cells: {
+					[k: string]: string
+				}
+			}[]
+		}
+		offset?: number
+		returnedRows?: number
+		totalRows?: number
+		truncated?: boolean
+		pagination?: {
+			/**
+			 * "complete" is the only status where this response contains the full table; "more" has a next page; "final_page" still omits earlier rows.
+			 */
+			status: 'complete' | 'more' | 'final_page'
+			offset: number
+			returnedRows: number
+			totalRows: number
+			hasPrevious: boolean
+			hasNext: boolean
+			nextOffset: number | null
+			/**
+			 * Explicit model-facing statement of table coverage and next action
+			 */
+			message: string
+		}
+	}
+}
+
 export type EarthlyGeoServer = {
 	SearchLocation: (query: string, limit?: number) => Promise<SearchLocationOutput>
 	ReverseLookup: (lat: number, lon: number, zoom?: number) => Promise<ReverseLookupOutput>
@@ -667,6 +804,7 @@ export type EarthlyGeoServer = {
 		lon: number,
 		radius?: number,
 		filters?: object,
+		filterSets?: object[],
 		limit?: number,
 		includeRelations?: boolean,
 	) => Promise<QueryOsmNearbyOutput>
@@ -676,6 +814,7 @@ export type EarthlyGeoServer = {
 		east: number,
 		north: number,
 		filters?: object,
+		filterSets?: object[],
 		limit?: number,
 		includeRelations?: boolean,
 	) => Promise<QueryOsmBboxOutput>
@@ -716,7 +855,7 @@ export type EarthlyGeoServer = {
 		south: number,
 		east: number,
 		north: number,
-		maxZoom?: number,
+		maxZoom: number | undefined,
 		blossomServer: string,
 	) => Promise<CreateMapExtractOutput>
 	CreateMapUpload: (requestId: string, signedEvent: object) => Promise<CreateMapUploadOutput>
@@ -728,6 +867,7 @@ export type EarthlyGeoServer = {
 	) => Promise<WebSearchOutput>
 	FetchUrl: (url: string, maxLength?: number) => Promise<FetchUrlOutput>
 	WikipediaLookup: (
+		query?: string,
 		title?: string,
 		lat?: number,
 		lon?: number,
@@ -735,27 +875,30 @@ export type EarthlyGeoServer = {
 		limit?: number,
 		language?: string,
 	) => Promise<WikipediaLookupOutput>
+	WikipediaExtract: (
+		url?: string,
+		title?: string,
+		language?: string,
+		mode?: string,
+		tableIndex?: number,
+		rowOffset?: number,
+		rowLimit?: number,
+	) => Promise<WikipediaExtractOutput>
 }
 
 export class EarthlyGeoServerClient implements EarthlyGeoServer {
 	static readonly SERVER_PUBKEY = 'ceadb7d5b739189fb3ecb7023a0c3f55d8995404d7750f5068865decf8b304cc'
-	static readonly DEFAULT_RELAYS = [
-		// "ws://localhost:3334",
-		'wss://relay.earthly.city',
-		'wss://relay2.contextvm.org',
-	]
+	static readonly DEFAULT_RELAYS = ['wss://relay.earthly.city', 'wss://relay2.contextvm.org']
 	private client: Client
 	private transport: Transport
+	private connectionPromise: Promise<void>
 
 	constructor(
-		options: Partial<NostrTransportOptions> & {
-			privateKey?: string
-			relays?: string[]
-		} = {},
+		options: Partial<NostrTransportOptions> & { privateKey?: string; relays?: string[] } = {},
 	) {
 		this.client = new Client({
 			name: 'EarthlyGeoServerClient',
-			version: '1.0.0',
+			version: '0.2.1',
 		})
 
 		// Explicit credentials support tests and standalone consumers. Earthly itself uses a fresh,
@@ -764,11 +907,8 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 
 		// Use options.signer if provided, otherwise create from resolved private key
 		const signer = options.signer || new PrivateKeySigner(resolvedPrivateKey)
-		// Route through the relay router's discovery bucket: local relay in dev
-		// (bun dev runs the ContextVM geo server against it), configured relays in
-		// prod. DEFAULT_RELAYS remains ONLY for standalone consumers that construct
-		// this client outside the app (config missing entirely) — never as a dev
-		// fallback, which used to leak MCP traffic to public relays.
+		// Route through the app's discovery bucket. DEFAULT_RELAYS is only for standalone consumers
+		// that construct this generated client without Earthly's runtime configuration.
 		const routedRelays = readRelaysFor('discovery')
 		const relays =
 			options.relays ||
@@ -783,19 +923,14 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 			signer,
 			relayHandler,
 			isStateless: true,
-			// CEP-22 oversized-payload transfer. Enabled is already the SDK default
-			// (threshold ~48 KB, receiver max 100 MiB, reassembly + digest automatic),
-			// but we set it explicitly to document intent and give a stable hook for
-			// tuning thresholds/policy later. This is what lets the client accept FULL
-			// (non-simplified) geometry once the geo server drops its 42 KB truncation
-			// cap — see .planning/backlog/cvm-osm-cache.md. Placed before `...rest` so
-			// callers can still override per-instance.
+			// CEP-22 oversized transfer support is explicit so generated-client refreshes cannot
+			// silently remove the geometry/tool-result transport policy.
 			oversizedTransfer: { enabled: true },
 			...rest,
 		})
 
-		// Auto-connect in constructor
-		this.client.connect(this.transport).catch((error) => {
+		this.connectionPromise = this.client.connect(this.transport)
+		this.connectionPromise.catch((error) => {
 			console.error(`Failed to connect to server: ${error}`)
 		})
 	}
@@ -804,47 +939,29 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 		await this.transport.close()
 	}
 
-	/**
-	 * Passthrough to the MCP SDK `client.listTools()` — fetches the connected server's
-	 * live tool manifest (the `tools/list` MCP method). Poll-based (NOT push): over the
-	 * stateless Nostr transport (`isStateless: true`) server-initiated
-	 * `notifications/tools/list_changed` is not guaranteed, so callers must poll
-	 * (Pitfall 3, D-05). Returns the raw SDK result whose `tools` array each carries
-	 * `{ name, description?, inputSchema }`.
-	 *
-	 * Whether the live Earthly geo server actually implements `tools/list` is the
-	 * UNVERIFIED assumption A1 — this method exists to network-spike that gate before
-	 * any mcp-sync build is committed.
-	 */
 	async listTools(): Promise<Awaited<ReturnType<Client['listTools']>>> {
+		await this.connectionPromise
 		return this.client.listTools()
 	}
 
-	/**
-	 * Generic passthrough for invoking a remote MCP tool by name (D-05). Used by
-	 * the poll-based `mcp-sync` registrations: tools discovered via `listTools()`
-	 * get a thin handler that routes the call through the SAME stateless transport
-	 * + error-unwrapping path (`call`) the hand-written handlers use. Returns the
-	 * unwrapped structured result (or parsed text content); throws on `isError`.
-	 */
 	async callRemoteTool<T = unknown>(name: string, args: Record<string, unknown>): Promise<T> {
 		return this.call<T>(name, args)
 	}
 
 	private async call<T = unknown>(name: string, args: Record<string, unknown>): Promise<T> {
+		await this.connectionPromise
 		const result = await this.client.callTool({
 			name,
 			arguments: { ...args },
 		})
-		// Check for error responses
 		if (result.isError) {
 			const structured = result.structuredContent as Record<string, unknown> | undefined
 			const errorText =
 				(structured && typeof structured.error === 'string' && structured.error) ||
 				(Array.isArray(result.content)
 					? result.content
-							.filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-							.map((b) => b.text)
+							.filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+							.map((block) => block.text)
 							.join('\n')
 					: 'Unknown error')
 			throw new Error(errorText)
@@ -852,14 +969,11 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 		if (result.structuredContent !== undefined) {
 			return result.structuredContent as T
 		}
-		// Fallback: parse the first text content block as JSON
 		if (Array.isArray(result.content)) {
 			const textBlock = result.content.find(
 				(block): block is { type: 'text'; text: string } => block.type === 'text',
 			)
-			if (textBlock) {
-				return JSON.parse(textBlock.text) as T
-			}
+			if (textBlock) return JSON.parse(textBlock.text) as T
 		}
 		throw new Error(`MCP tool "${name}" returned no usable content`)
 	}
@@ -901,6 +1015,7 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 	 * @param {number} lon Longitude coordinate
 	 * @param {number} radius [optional] Search radius in meters (1-5000)
 	 * @param {object} filters [optional] OSM tag filters
+	 * @param {object[]} filterSets [optional] Alternative filter groups combined with OR semantics. Each object is an AND group; the array is matched as OR.
 	 * @param {number} limit [optional] Maximum results to return
 	 * @param {boolean} includeRelations [optional] Include relation features (administrative boundaries, routes). Default false.
 	 * @returns {Promise<QueryOsmNearbyOutput>} The result of the query_osm_nearby operation
@@ -945,6 +1060,7 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 	 * @param {number} east Eastern longitude
 	 * @param {number} north Northern latitude
 	 * @param {object} filters [optional] OSM tag filters
+	 * @param {object[]} filterSets [optional] Alternative filter groups combined with OR semantics. Each object is an AND group; the array is matched as OR.
 	 * @param {number} limit [optional] Maximum results to return
 	 * @param {boolean} includeRelations [optional] Include relation features (administrative boundaries, routes). Default false.
 	 * @returns {Promise<QueryOsmBboxOutput>} The result of the query_osm_bbox operation
@@ -1110,17 +1226,10 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 		south: number,
 		east: number,
 		north: number,
-		maxZoom?: number,
+		maxZoom: number | undefined,
 		blossomServer: string,
 	): Promise<CreateMapExtractOutput> {
-		return this.call('create_map_extract', {
-			west,
-			south,
-			east,
-			north,
-			maxZoom,
-			blossomServer,
-		})
+		return this.call('create_map_extract', { west, south, east, north, maxZoom, blossomServer })
 	}
 
 	/**
@@ -1134,10 +1243,10 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 	}
 
 	/**
-	 * Search the web using SearXNG. Returns titles, URLs, and content snippets from multiple search engines.
+	 * Search Wikipedia, Wikidata, and Earthly's private SearXNG instance in parallel. Returns partial results with provider health when one source is unavailable.
 	 * @param {string} query Search query string
 	 * @param {number} limit [optional] Maximum number of results to return (default: 5, max: 20)
-	 * @param {string} categories [optional] SearXNG search categories, comma-separated (e.g., "general", "science", "it"). Default: "general"
+	 * @param {string} categories [optional] SearXNG search categories, comma-separated (e.g., "general", "science", "it"). Wikipedia and Wikidata are always searched. Default: "general"
 	 * @param {string} language [optional] Language code for results (e.g., "en", "de"). Default: "en"
 	 * @returns {Promise<WebSearchOutput>} The result of the web_search operation
 	 */
@@ -1161,8 +1270,9 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 	}
 
 	/**
-	 * Look up Wikipedia articles by title or by geographic coordinates. Returns article summaries and coordinates.
-	 * @param {string} title [optional] Wikipedia article title (e.g., "Mount Everest"). Either title or lat+lon is required.
+	 * Search Wikipedia full text, look up an exact title, or find nearby articles by geographic coordinates. Returns article summaries and coordinates.
+	 * @param {string} query [optional] Full-text Wikipedia search query (e.g., "Roman ruins Carinthia"). Query takes precedence over title and coordinates.
+	 * @param {string} title [optional] Exact Wikipedia article title (e.g., "Mount Everest"). Either query, title, or lat+lon is required.
 	 * @param {number} lat [optional] Latitude for geographic article search. Must be paired with lon.
 	 * @param {number} lon [optional] Longitude for geographic article search. Must be paired with lat.
 	 * @param {number} radius [optional] Search radius in meters for geo lookup (default: 1000, max: 10000)
@@ -1171,6 +1281,7 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 	 * @returns {Promise<WikipediaLookupOutput>} The result of the wikipedia_lookup operation
 	 */
 	async WikipediaLookup(
+		query?: string,
 		title?: string,
 		lat?: number,
 		lon?: number,
@@ -1178,13 +1289,37 @@ export class EarthlyGeoServerClient implements EarthlyGeoServer {
 		limit?: number,
 		language?: string,
 	): Promise<WikipediaLookupOutput> {
-		return this.call('wikipedia_lookup', {
+		return this.call('wikipedia_lookup', { query, title, lat, lon, radius, limit, language })
+	}
+
+	/**
+	 * Inspect a Wikipedia article's sections and tables, then retrieve a bounded page of structured table rows. Table results include pagination.status: complete means the response contains the full table, more points to pagination.nextOffset, and final_page still omits earlier rows. Every response includes article, revision, section, table, and row provenance suitable for researched map datasets.
+	 * @param {string} url [optional] A wikipedia.org article URL. Either url or title is required.
+	 * @param {string} title [optional] Exact Wikipedia article title. Either title or url is required.
+	 * @param {string} language [optional] Wikipedia language code when title is used (default: "en").
+	 * @param {string} mode [optional] "outline" lists sections and table shapes with samples; "table" returns a page of rows from tableIndex. Default: "outline".
+	 * @param {number} tableIndex [optional] Zero-based table index. Required in table mode.
+	 * @param {number} rowOffset [optional] Zero-based data-row offset in table mode (default: 0).
+	 * @param {number} rowLimit [optional] Maximum rows returned in table mode (default: 50, max: 200).
+	 * @returns {Promise<WikipediaExtractOutput>} The result of the wikipedia_extract operation
+	 */
+	async WikipediaExtract(
+		url?: string,
+		title?: string,
+		language?: string,
+		mode?: string,
+		tableIndex?: number,
+		rowOffset?: number,
+		rowLimit?: number,
+	): Promise<WikipediaExtractOutput> {
+		return this.call('wikipedia_extract', {
+			url,
 			title,
-			lat,
-			lon,
-			radius,
-			limit,
 			language,
+			mode,
+			tableIndex,
+			rowOffset,
+			rowLimit,
 		})
 	}
 }

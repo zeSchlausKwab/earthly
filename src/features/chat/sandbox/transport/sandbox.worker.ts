@@ -173,6 +173,7 @@ export const MAX_RECORDED_ARG_BYTES = 4 * 1024 * 1024
 const AUTHORING_METHODS = [
 	'addFeature',
 	'writeGeoJSON',
+	'commitDataset',
 	'circle',
 	'buffer',
 	'setDatasetMetadata',

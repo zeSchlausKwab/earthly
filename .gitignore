@@ -30,6 +30,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .env.test.local
 .env.production
 .env.production.local
+infra/searxng/.env
+data/events-lmdb/
+data/search/
 
 # mapnolia (config contains private key, data is blob storage, binary is downloaded)
 mapnolia.config.json

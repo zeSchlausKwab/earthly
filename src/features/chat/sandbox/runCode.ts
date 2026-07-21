@@ -93,6 +93,7 @@ const MAX_REPLAY_CALLS = 2000
 const REPLAYABLE_AUTHORING_OPS = new Set([
 	'addFeature',
 	'writeGeoJSON',
+	'commitDataset',
 	'circle',
 	'buffer',
 	'setDatasetMetadata',
@@ -134,7 +135,7 @@ const runCodeSchema: Tool = {
 		name: 'run_code',
 		description:
 			'Run JavaScript inside an isolated sandbox to author map geometry programmatically or compute over ingested data. ' +
-			'The sandbox exposes EXACTLY six globals — `authoring` (the map-mutation API: addFeature, writeGeoJSON, circle, buffer, setDatasetMetadata), ' +
+			'The sandbox exposes EXACTLY six globals — `authoring` (the map-mutation API: addFeature, writeGeoJSON, commitDataset, circle, buffer, setDatasetMetadata), ' +
 			'`turf` (a curated @turf/turf subset: circle, distance, buffer, area, length, bearing, destination, point, lineString, along, nearestPointOnLine, booleanPointInPolygon, centroid, bbox, bboxPolygon, booleanIntersects, cleanCoords, difference, explode, featureCollection, intersect, lineSlice, nearestPoint, polygonToLine, simplify, union), ' +
 			'`data` (read-only: `data.datasets[handleId]` = the ARRAY of ingested rows for that handle (only for handles you pass in `handles`); ' +
 			'`data.features` = an ARRAY of GeoJSON Features for the current map — iterate it directly, e.g. `data.features.find(...)` / `data.features.map(...)`, NOT `data.features.features` (it is a Feature[], not a FeatureCollection)), ' +
@@ -145,6 +146,7 @@ const runCodeSchema: Tool = {
 			'Drawing happens via `authoring.*` — pass a GeoJSON Feature (a bare Geometry is auto-wrapped). ' +
 			'`authoring.writeGeoJSON(input, { replace? })` accepts a Feature[], a FeatureCollection object, OR a single Feature; ' +
 			'`replace` defaults to false (append). ' +
+			'For a complete researched result, prefer ONE `authoring.commitDataset({ featureCollection, metadata?, requireFeatureProvenance? })` call: it validates the whole collection before atomically replacing geometry + metadata. Set requireFeatureProvenance:true when rows came from wikipedia_extract. ' +
 			'To set DATASET-level metadata (name/description/arbitrary collection properties), call ' +
 			'`authoring.setDatasetMetadata({ name?, description?, color?, properties? })` (or the `set_dataset_metadata` tool outside run_code) — ' +
 			'do NOT stamp `dataset_name`/`dataset_description` onto every feature. After a successful run, TRUST the returned `counts` ' +
