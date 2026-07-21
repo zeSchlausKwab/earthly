@@ -58,6 +58,9 @@ bun --env-file=.env scripts/validate-production-env.ts
 echo "Building Earthly relay..."
 (cd relay && CGO_ENABLED=1 go build -o relay .)
 
+echo "Starting private loopback-only SearXNG..."
+bash scripts/start-searxng.sh
+
 # Mapnolia is still distributed separately from this repository. Download next
 # to the live binary and atomically rename it so a running process never causes
 # ETXTBSY or observes a partially written executable.
@@ -165,7 +168,9 @@ for attempt in {1..15}; do
     fi
   done
   if [[ "$current_observation_ready" == "true" ]] && \
-     curl -fsS http://127.0.0.1:3000/ >/dev/null; then
+     curl -fsS http://127.0.0.1:3000/ >/dev/null && \
+     curl -fsS --max-time 5 \
+       'http://127.0.0.1:8888/search?q=earthly&format=json' >/dev/null; then
     ready_observations=$((ready_observations + 1))
     if [[ "$ready_observations" -ge 3 ]]; then
       services_ready=true

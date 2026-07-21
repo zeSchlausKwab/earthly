@@ -37,6 +37,8 @@ import {
   fetchUrlOutputSchema,
   wikipediaLookupInputSchema,
   wikipediaLookupOutputSchema,
+  wikipediaExtractInputSchema,
+  wikipediaExtractOutputSchema,
 } from "./web-schemas.ts";
 import { reverseLookup, searchLocation } from "./tools/nominatim.ts";
 import {
@@ -59,7 +61,9 @@ import {
 import { webSearch } from "./tools/web-search.ts";
 import { fetchUrl } from "./tools/fetch-url.ts";
 import { wikipediaLookup } from "./tools/wikipedia.ts";
+import { wikipediaExtract } from "./tools/wikipedia-extract.ts";
 import { valhallaIsochrone, valhallaRoute } from "./tools/valhalla.ts";
+import { researchToolLimiter } from "./research-tool-limiter.ts";
 
 // Configuration from validated environment
 const SERVER_PRIVATE_KEY =
@@ -107,6 +111,13 @@ function estimateStructuredContentBytes(structuredContent: unknown): number {
     },
   };
   return TEXT_ENCODER.encode(JSON.stringify(messageEnvelope)).length;
+}
+
+function requestClientPubkey(extra: { _meta?: unknown }): string {
+  const metadata = extra._meta as Record<string, unknown> | undefined;
+  return typeof metadata?.clientPubkey === "string"
+    ? metadata.clientPubkey
+    : "unknown-client";
 }
 
 function roundCoordinate(value: number, precision: number): number {
@@ -366,7 +377,7 @@ async function main() {
   // 2. Create and Configure the MCP Server
   const mcpServer = new McpServer({
     name: "earthly-geo-server",
-    version: "0.0.2",
+    version: "0.2.1",
   });
 
   // 9. Register Tool: Search Locations (Nominatim)
@@ -1209,20 +1220,23 @@ async function main() {
     },
   );
 
-  // 16. Register Tool: Web Search (SearXNG)
+  // 16. Register Tool: Federated Web Search
   mcpServer.registerTool(
     "web_search",
     {
-      title: "Web Search (SearXNG)",
+      title: "Federated Web Search",
       description:
-        "Search the web using SearXNG. Returns titles, URLs, and content snippets from multiple search engines.",
+        "Search Wikipedia, Wikidata, and Earthly's private SearXNG instance in parallel. Returns partial results with provider health when one source is unavailable.",
       inputSchema: webSearchInputSchema,
       outputSchema: webSearchOutputSchema,
     },
-    async ({ query, limit, categories, language }) => {
+    async ({ query, limit, categories, language }, extra) => {
       try {
         console.log(`🔍 Web search: ${query}`);
-        const result = await webSearch(query, limit, categories, language);
+        const result = await researchToolLimiter.run(
+          requestClientPubkey(extra),
+          () => webSearch(query, limit, categories, language),
+        );
         return {
           content: [],
           structuredContent: { result },
@@ -1248,10 +1262,13 @@ async function main() {
       inputSchema: fetchUrlInputSchema,
       outputSchema: fetchUrlOutputSchema,
     },
-    async ({ url, maxLength }) => {
+    async ({ url, maxLength }, extra) => {
       try {
         console.log(`🌐 Fetching URL: ${url}`);
-        const result = await fetchUrl(url, maxLength);
+        const result = await researchToolLimiter.run(
+          requestClientPubkey(extra),
+          () => fetchUrl(url, maxLength),
+        );
         console.log(
           `📦 Fetched: ${result.title || url} (${result.textLength} chars)`,
         );
@@ -1276,22 +1293,30 @@ async function main() {
     {
       title: "Wikipedia Lookup",
       description:
-        "Look up Wikipedia articles by title or by geographic coordinates. Returns article summaries and coordinates.",
+        "Search Wikipedia full text, look up an exact title, or find nearby articles by geographic coordinates. Returns article summaries and coordinates.",
       inputSchema: wikipediaLookupInputSchema,
       outputSchema: wikipediaLookupOutputSchema,
     },
-    async ({ title, lat, lon, radius, limit, language }) => {
+    async ({ query, title, lat, lon, radius, limit, language }, extra) => {
       try {
-        const mode = title ? `title: ${title}` : `geo: ${lat},${lon}`;
+        const mode = query
+          ? `search: ${query}`
+          : title
+            ? `title: ${title}`
+            : `geo: ${lat},${lon}`;
         console.log(`📚 Wikipedia lookup: ${mode}`);
-        const result = await wikipediaLookup({
-          title,
-          lat,
-          lon,
-          radius,
-          limit,
-          language,
-        });
+        const result = await researchToolLimiter.run(
+          requestClientPubkey(extra),
+          () => wikipediaLookup({
+            query,
+            title,
+            lat,
+            lon,
+            radius,
+            limit,
+            language,
+          }),
+        );
         console.log(`📦 Found ${result.count} articles`);
         return {
           content: [],
@@ -1308,16 +1333,48 @@ async function main() {
     },
   );
 
-  // 19. Configure the Nostr Server Transport
+  // 19. Register Tool: Structured Wikipedia Extraction
+  mcpServer.registerTool(
+    "wikipedia_extract",
+    {
+      title: "Structured Wikipedia Extraction",
+      description:
+        "Inspect a Wikipedia article's sections and tables, then retrieve a bounded page of structured table rows. Table results include pagination.status: complete means the response contains the full table, more points to pagination.nextOffset, and final_page still omits earlier rows. Every response includes article, revision, section, table, and row provenance suitable for researched map datasets.",
+      inputSchema: wikipediaExtractInputSchema,
+      outputSchema: wikipediaExtractOutputSchema,
+    },
+    async ({ url, title, language, mode, tableIndex, rowOffset, rowLimit }, extra) => {
+      try {
+        console.log(`📑 Wikipedia extraction: ${url || title}`);
+        const result = await researchToolLimiter.run(
+          requestClientPubkey(extra),
+          () => wikipediaExtract({ url, title, language, mode, tableIndex, rowOffset, rowLimit }),
+        );
+        console.log(`📦 Extracted ${result.tables.length} table outlines`);
+        return { content: [], structuredContent: { result } };
+      } catch (error: any) {
+        console.error(`❌ Wikipedia extraction failed: ${error.message}`);
+        return {
+          content: [],
+          structuredContent: { error: error.message },
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // 20. Configure the Nostr Server Transport
   const serverTransport = new NostrServerTransport({
     signer,
     relayHandler: relayPool,
-    isPublicServer: true, // Announce this server on the Nostr network
+    isAnnouncedServer: true,
+    injectClientPubkey: true,
+    maxSessions: 1_000,
     serverInfo: {
       name: "Earthly Geo Server",
       website: "https://earthly.city",
       about:
-        "Geocoding, OSM entity/boundary queries, Valhalla routing, web search, URL fetching, and Wikipedia lookups.",
+        "Geocoding, OSM entity/boundary queries, Valhalla routing, web search, URL fetching, and provenance-aware Wikipedia extraction.",
       picture: "https://openmaptiles.org/img/home-banner-map.png",
     },
   });
@@ -1343,6 +1400,7 @@ async function main() {
   console.log("   - web_search");
   console.log("   - fetch_url");
   console.log("   - wikipedia_lookup");
+  console.log("   - wikipedia_extract");
   console.log(`\n🔑 Client should use server pubkey: ${serverPubkey}`);
   console.log("💡 Press Ctrl+C to exit.\n");
 

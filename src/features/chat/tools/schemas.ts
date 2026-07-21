@@ -740,7 +740,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'web_search',
 			description:
-				'Search the web for information. Returns titles, URLs, and content snippets. Useful for finding current information, facts, and context about places, topics, or anything else.',
+				'Search the web, Wikipedia, and Wikidata in parallel. Returns titles, URLs, snippets, and provider coverage. Useful for current information and background research; partial results remain usable when one source is unavailable.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -770,7 +770,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'fetch_url',
 			description:
-				'Fetch a URL and extract its readable text content. Useful for reading articles, documentation, or any web page. Returns cleaned text with title and description.',
+				'Fetch a non-Wikipedia URL and extract its readable text content. Useful for reading articles, documentation, reports, or other web pages after web_search. Wikipedia URLs return a structured redirect to wikipedia_extract.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -792,10 +792,14 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'wikipedia_lookup',
 			description:
-				'Look up Wikipedia articles by title or geographic coordinates. For geo-mapping context, use lat/lon to find articles about nearby landmarks and places. Returns article summaries.',
+				'Search Wikipedia full text, look up an exact title, or find nearby articles by coordinates. For research use query; for geo-mapping context use lat/lon. Returns article summaries.',
 			parameters: {
 				type: 'object',
 				properties: {
+					query: {
+						type: 'string',
+						description: 'Full-text search query (e.g., "Roman ruins Carinthia")',
+					},
 					title: {
 						type: 'string',
 						description: 'Article title (e.g., "Mount Everest")',
@@ -820,6 +824,30 @@ export const geoStaticToolSchemas: Tool[] = [
 						type: 'string',
 						description: 'Wikipedia language code (default: "en")',
 					},
+				},
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'wikipedia_extract',
+			description:
+				'Extract structured sections or a paged table from one Wikipedia article. Use outline first to discover table indexes, then table mode for rows. The table result has an explicit pagination.status contract: complete means this response contains the full table; more means continue at pagination.nextOffset; final_page still omits earlier rows. Returns article revision plus section/table/source-row provenance; prefer this over fetch_url for Wikipedia tables.',
+			parameters: {
+				type: 'object',
+				properties: {
+					url: { type: 'string', description: 'Wikipedia article URL' },
+					title: { type: 'string', description: 'Exact article title when URL is unavailable' },
+					language: { type: 'string', description: 'Wikipedia language code (default: en)' },
+					mode: {
+						type: 'string',
+						enum: ['outline', 'table'],
+						description: 'outline discovers sections/tables; table returns bounded rows',
+					},
+					tableIndex: { type: 'number', description: 'Zero-based table index for table mode' },
+					rowOffset: { type: 'number', description: 'Zero-based data row offset' },
+					rowLimit: { type: 'number', description: 'Rows to return (default 50, max 200)' },
 				},
 			},
 		},
@@ -902,9 +930,9 @@ export const geoStaticToolSchemas: Tool[] = [
 	{
 		type: 'function',
 		function: {
-			name: 'select_features',
+			name: 'find_features',
 			description:
-				'READ-ONLY targeting tool (TOOLS-03 select). Returns which features in the ENTIRE bound dataset match a predicate — matched count, total, the matched feature ids, and a small name/id sample. Does NOT change the map (no style, no edit, no delete). The host reads the full dataset itself: you supply ONLY a predicate, never a feature/id list. Use this to scope before a batch edit, style, or dedup.',
+				'READ-ONLY predicate preview. Returns which features in the entire bound dataset match — count, ids, and a small label sample — without changing map selection or geometry. Use it to inspect a rule before a batch edit, style, or dedup.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -946,6 +974,54 @@ export const geoStaticToolSchemas: Tool[] = [
 											description:
 												'The value to compare against (omit for exists/missing; array for in; number for lt/lte/gt/gte).',
 										},
+									},
+									required: ['field', 'op'],
+								},
+							},
+						},
+						required: ['all'],
+					},
+				},
+				required: ['predicate'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'select_features',
+			description:
+				'Select every feature in the entire bound dataset that matches a host-evaluated predicate. This replaces the current visible map selection so subsequent $selected operations act on exactly these features. It never edits or deletes geometry.',
+			parameters: {
+				type: 'object',
+				properties: {
+					predicate: {
+						type: 'object',
+						description:
+							'A flat AND-list of clauses. Empty all:[] selects every feature. Use find_features first if the predicate needs a read-only preview.',
+						properties: {
+							all: {
+								type: 'array',
+								items: {
+									type: 'object',
+									properties: {
+										field: { type: 'string' },
+										op: {
+											type: 'string',
+											enum: [
+												'eq',
+												'neq',
+												'exists',
+												'missing',
+												'contains',
+												'in',
+												'lt',
+												'lte',
+												'gt',
+												'gte',
+											],
+										},
+										value: {},
 									},
 									required: ['field', 'op'],
 								},

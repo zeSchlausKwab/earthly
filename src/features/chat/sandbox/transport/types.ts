@@ -11,7 +11,7 @@
 /** A recorded `authoring.*` call (buffer-then-apply, RESEARCH Pattern 2 A-sync). */
 export interface RecordedCall {
 	/**
-	 * Authoring method name: addFeature | writeGeoJSON | circle | buffer.
+	 * Authoring method name: addFeature | writeGeoJSON | commitDataset | circle | buffer.
 	 * `editorCommand` is NOT sandbox-reachable (CR-01) — every replayed op must
 	 * route through `runInterceptors()` on the host.
 	 */

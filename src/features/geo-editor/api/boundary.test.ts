@@ -189,6 +189,7 @@ describe('Authoring surface is geometry-only (V4 access-control / T-02-03)', () 
 			'addFeature',
 			'buffer',
 			'circle',
+			'commitDataset',
 			'deleteFeatures',
 			'editorCommand',
 			'getDatasetMetadata',

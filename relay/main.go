@@ -20,8 +20,10 @@ import (
 	"fiatjaf.com/nostr/eventstore/lmdb"
 	"fiatjaf.com/nostr/khatru"
 	"fiatjaf.com/nostr/khatru/policies"
+	"fiatjaf.com/nostr/nip11"
 
 	"github.com/schlaus/earthly-relay/earthlysearch"
+	"github.com/schlaus/earthly-relay/largecontent"
 )
 
 var (
@@ -46,6 +48,7 @@ func main() {
 	slog.SetDefault(logger)
 
 	lmdbPath := filepath.Join(*dataDir, "events-lmdb")
+	largeContentPath := filepath.Join(*dataDir, "large-event-content.db")
 	searchPath := filepath.Join(*dataDir, "search")
 
 	if *resetAll {
@@ -60,6 +63,10 @@ func main() {
 		if err := os.RemoveAll(lmdbPath); err != nil {
 			fatal(logger, "failed to reset event store", err)
 		}
+		logger.Warn("resetting large event content", "path", largeContentPath)
+		if err := os.Remove(largeContentPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			fatal(logger, "failed to reset large event content", err)
+		}
 	}
 	if *resetIndex {
 		logger.Warn("resetting search index", "path", searchPath)
@@ -72,9 +79,10 @@ func main() {
 		fatal(logger, "failed to create data dir", err)
 	}
 
-	db := &lmdb.LMDBBackend{Path: lmdbPath}
+	rawDB := &lmdb.LMDBBackend{Path: lmdbPath}
+	db := largecontent.New(rawDB, largeContentPath)
 	if err := db.Init(); err != nil {
-		fatal(logger, "failed to initialize LMDB", err)
+		fatal(logger, "failed to initialize event store", err)
 	}
 	defer db.Close()
 
@@ -102,6 +110,10 @@ func main() {
 	relay.Info.Description = "Nostr relay for collaborative geographic mapping. Geo-aware NIP-50 search — capability document at /earthly-search."
 	relay.Info.Icon = "https://earthly.city/icons/logo.png"
 	relay.Info.Contact = "https://github.com/schlaus/earthly-rewrite"
+	relay.Info.Limitation = &nip11.RelayLimitationDocument{
+		MaxMessageLength: int(relay.MaxMessageSize),
+		MaxContentLength: largecontent.MaxContentBytes,
+	}
 	relay.Info.AddSupportedNIP(40)
 	relay.Info.AddSupportedNIP(50)
 	if pk, err := nostr.PubKeyFromHex("96c727f4d1ea18a80d03621520ebfe3c9be1387033009a4f5b65959d09222eec"); err == nil {
@@ -171,6 +183,15 @@ func main() {
 		func(ctx context.Context, evt nostr.Event) (bool, string) {
 			if diskFull.Load() {
 				return true, "blocked: relay storage is full"
+			}
+			return false, ""
+		},
+		func(ctx context.Context, evt nostr.Event) (bool, string) {
+			if len(evt.Content) > largecontent.MaxContentBytes {
+				return true, fmt.Sprintf(
+					"blocked: event content exceeds the %d-byte relay limit",
+					largecontent.MaxContentBytes,
+				)
 			}
 			return false, ""
 		},

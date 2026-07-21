@@ -12,8 +12,24 @@
 export type { MutationIntent, MutationResult, MutationCounts } from './results'
 export type { Interceptor, InterceptorContext } from './interceptor'
 export { runInterceptors } from './interceptor'
-export type { Authoring, DatasetMetadataInput, DatasetMetadataResult } from './authoring'
+export type {
+	Authoring,
+	CommitDatasetInput,
+	CommitDatasetResult,
+	DatasetMetadataInput,
+	DatasetMetadataResult,
+} from './authoring'
 export { createAuthoring } from './authoring'
+export type {
+	CoordinatePrecision,
+	DatasetValidationOptions,
+	DatasetValidationSummary,
+} from './datasetValidation'
+export {
+	COORDINATE_PRECISION_VALUES,
+	DatasetValidationError,
+	validateDataset,
+} from './datasetValidation'
 export type {
 	MakeBufferOptions,
 	MakeCircleOptions,

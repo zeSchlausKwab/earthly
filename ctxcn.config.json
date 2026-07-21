@@ -1,6 +1,7 @@
 {
   "source": "src/ctxcn",
   "relays": [
+    "ws://localhost:3334",
     "wss://relay.earthly.city",
     "wss://relay2.contextvm.org"
   ],

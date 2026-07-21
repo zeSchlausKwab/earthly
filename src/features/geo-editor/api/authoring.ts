@@ -43,6 +43,7 @@ import {
 } from './primitives'
 import type { MutationCounts, MutationResult } from './results'
 import { runInterceptors } from './interceptor'
+import { type DatasetValidationSummary, validateDataset } from './datasetValidation'
 
 /** Default import source recorded on features written through the facade. */
 const DEFAULT_SOURCE = 'chat_tool'
@@ -170,6 +171,17 @@ export interface DatasetMetadataResult {
 	customPropertyCount: number
 }
 
+export interface CommitDatasetInput {
+	featureCollection: FeatureCollection
+	metadata?: DatasetMetadataInput
+	requireFeatureProvenance?: boolean
+}
+
+export interface CommitDatasetResult extends MutationResult {
+	validation: DatasetValidationSummary
+	metadata: DatasetMetadataResult
+}
+
 /**
  * The Authoring facade surface (D-10). Geometry + dataset-metadata — exported for
  * sandbox/mock use in Phase 4. Do NOT add signer/wallet/store/getState here (V4).
@@ -199,6 +211,13 @@ export interface Authoring {
 		input: Feature[] | FeatureCollection | Feature,
 		options?: { replace?: boolean },
 	): MutationResult
+	/**
+	 * Validate a complete dataset before replacing editor geometry and metadata in
+	 * one operation. On any unexpected write failure the previous geometry and
+	 * collection metadata are restored. Researched datasets can require explicit
+	 * per-feature provenance.
+	 */
+	commitDataset(input: CommitDatasetInput): CommitDatasetResult
 	/**
 	 * Thin passthrough to the existing editor-command execution. Scaffold only —
 	 * Plan 04's registry wires real dispatch + validation. Returns the native
@@ -328,16 +347,29 @@ export function createAuthoring(editor: GeoEditor): Authoring {
 
 		// Replace path: clear + set. `editor.setFeatures` does not emit yet (Plan 03).
 		if (replace) {
+			const previousIds = new Set(editor.getAllFeatures().map((feature) => feature.id))
+			const byId = new Map(normalized.map((feature) => [feature.id, feature]))
+			const next = [...byId.values()]
+			const nextIds = new Set(next.map((feature) => feature.id))
+			const created = [...nextIds].filter((id) => !previousIds.has(id)).length
+			const updated = [...nextIds].filter((id) => previousIds.has(id)).length
+			const deleted = [...previousIds].filter((id) => !nextIds.has(id)).length
 			const { intent } = runInterceptors({
 				intent: 'add',
-				featureIds: normalized.map((f) => f.id),
+				featureIds: next.map((f) => f.id),
 			})
-			editor.setFeatures(normalized)
+			editor.setFeatures(next)
 			return {
 				ok: true,
 				intent,
-				featureIds: normalized.map((f) => f.id),
-				counts: { ...emptyCounts(), created: normalized.length },
+				featureIds: next.map((f) => f.id),
+				counts: {
+					...emptyCounts(),
+					created,
+					updated,
+					deleted,
+					skippedDuplicates: normalized.length - next.length,
+				},
 			}
 		}
 
@@ -495,9 +527,34 @@ export function createAuthoring(editor: GeoEditor): Authoring {
 		return snapshotMeta(next)
 	}
 
+	function commitDataset(input: CommitDatasetInput): CommitDatasetResult {
+		const validation = validateDataset(input.featureCollection, {
+			requireFeatureProvenance: input.requireFeatureProvenance,
+		})
+		const previousFeatures = editor.getAllFeatures()
+		const previousMeta = { ...useEditorStore.getState().collectionMeta }
+		let geometryMutated = false
+		try {
+			// Treat any failure inside the replace path as potentially partial. The
+			// editor may have changed its feature map before rendering or an event
+			// subscriber throws, so rollback must not depend on a successful return.
+			geometryMutated = true
+			const mutation = writeGeoJSON(input.featureCollection, { replace: true })
+			const metadata = input.metadata ? setDatasetMetadata(input.metadata) : getDatasetMetadata()
+			return { ...mutation, validation, metadata }
+		} catch (error) {
+			if (geometryMutated) {
+				editor.setFeatures(previousFeatures)
+				useEditorStore.getState().setCollectionMeta(previousMeta)
+			}
+			throw error
+		}
+	}
+
 	return {
 		addFeature,
 		writeGeoJSON,
+		commitDataset,
 		editorCommand,
 		circle,
 		buffer,

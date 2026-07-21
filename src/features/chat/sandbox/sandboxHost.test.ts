@@ -86,13 +86,15 @@ describe('surface (CODE-02) — only the four injected globals are present', () 
 		expect(result.returnValue).toBe('object,object,function')
 	})
 
-	it('CR-01: authoring exposes the four write ops + the benign metadata op (no editorCommand)', async () => {
+	it('CR-01: authoring exposes validated commit + primitive writes + benign metadata (no editorCommand)', async () => {
 		const result = await runSandbox(`Object.keys(authoring).sort().join(',')`)
 		expect(result.ok).toBe(true)
 		// The four interceptor-routed write ops PLUS setDatasetMetadata (a benign
 		// dataset-level metadata op, no geometry/secrets). editorCommand bypasses
 		// runInterceptors() so it must still NOT be sandbox-reachable.
-		expect(result.returnValue).toBe('addFeature,buffer,circle,setDatasetMetadata,writeGeoJSON')
+		expect(result.returnValue).toBe(
+			'addFeature,buffer,circle,commitDataset,setDatasetMetadata,writeGeoJSON',
+		)
 	})
 
 	it('CR-01: authoring.editorCommand is undefined inside the boundary', async () => {

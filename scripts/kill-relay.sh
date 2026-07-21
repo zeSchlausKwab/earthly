@@ -18,11 +18,12 @@ fi
 echo "🔍 Looking for go run relay processes..."
 pkill -f "go run.*relay" && echo "✅ Killed go run relay processes" || echo "✅ No go run relay processes found"
 
-# Wipe the canonical LMDB event store and its derived search index. The relay
-# migrated away from events.db; leaving LMDB behind made every `bun run dev`
+# Wipe the canonical LMDB event store, large-content sidecar, and derived
+# search index. Leaving any canonical part behind would make `bun run dev`
 # accumulate another complete seed set while claiming the database was clean.
 echo "🗑️  Wiping database and search index..."
 rm -rf relay/data/events-lmdb
+rm -f relay/data/large-event-content.db
 rm -rf relay/data/search
 echo "✅ Database wiped"
 

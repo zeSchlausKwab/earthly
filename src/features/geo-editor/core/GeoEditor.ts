@@ -1552,6 +1552,19 @@ export class GeoEditor {
 		})
 	}
 
+	/** Replace the current map selection with every existing id in one UI update. */
+	selectFeatures(featureIds: string[]): void {
+		const present = featureIds.filter((featureId) => this.features.has(featureId))
+		this.selection.clearSelection()
+		this.selection.select(present)
+		this.updateActiveStates()
+		if (this.mode === 'edit') this.renderVertices()
+		this.emit('selection.change', {
+			type: 'selection.change',
+			features: this.getSelectedFeatures(),
+		})
+	}
+
 	getSelectedFeatures(): EditorFeature[] {
 		const selectedIds = this.selection.getSelected()
 		return selectedIds

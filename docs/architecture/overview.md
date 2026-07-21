@@ -47,7 +47,7 @@ The current release target is web plus Android. Desktop Tauri builds are useful 
 | Tauri shell | Owns OS lifecycle, command registration, deep links, SQLite services, and the local-blob URI | [`src-tauri/src/lib.rs`](../../src-tauri/src/lib.rs) |
 | Local node | Reusable Rust module for identity, policy, pairing, embedded relay/Blossom, peer sync, and blob transfer | [`crates/earthly-local-node/`](../../crates/earthly-local-node) |
 | Geo relay | Stores Nostr events in LMDB and maintains a derived Bleve geo/search index | [`relay/`](../../relay) |
-| ContextVM geo server | Provides geocoding and web-aware MCP tools over Nostr | [`contextvm/`](../../contextvm) |
+| ContextVM geo server | Provides geocoding and federated research tools over Nostr, combining private SearXNG search with Wikipedia/Wikidata fallbacks | [`contextvm/`](../../contextvm) |
 
 ## Data ownership
 

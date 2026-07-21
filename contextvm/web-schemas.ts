@@ -1,7 +1,11 @@
 import { z } from "zod";
 
+const languageCodeSchema = z
+	.string()
+	.regex(/^[a-z][a-z0-9-]{0,11}$/iu, "Use a short Wikipedia/IETF language code");
+
 // ==========================================
-// Web Search Schemas (SearXNG)
+// Federated Web Search Schemas
 // ==========================================
 
 export const webSearchResultSchema = z.object({
@@ -9,6 +13,13 @@ export const webSearchResultSchema = z.object({
 	url: z.string(),
 	content: z.string().describe("Snippet/summary from the search engine"),
 	engine: z.string().describe("Search engine that returned this result"),
+});
+
+export const webSearchProviderSchema = z.object({
+	name: z.string(),
+	status: z.enum(["ok", "error", "unavailable"]),
+	count: z.number().int().min(0),
+	error: z.string().optional(),
 });
 
 export const webSearchInputSchema = {
@@ -26,10 +37,9 @@ export const webSearchInputSchema = {
 		.string()
 		.optional()
 		.describe(
-			'SearXNG search categories, comma-separated (e.g., "general", "science", "it"). Default: "general"',
+			'SearXNG search categories, comma-separated (e.g., "general", "science", "it"). Wikipedia and Wikidata are always searched. Default: "general"',
 		),
-	language: z
-		.string()
+	language: languageCodeSchema
 		.optional()
 		.describe(
 			'Language code for results (e.g., "en", "de"). Default: "en"',
@@ -40,6 +50,10 @@ export const webSearchOutputSchema = {
 	result: z.object({
 		query: z.string(),
 		count: z.number(),
+		coverage: z
+			.enum(["complete", "partial", "unavailable"])
+			.describe("Whether every configured search provider answered successfully"),
+		providers: z.array(webSearchProviderSchema),
 		results: z.array(webSearchResultSchema),
 	}),
 };
@@ -58,10 +72,19 @@ export type WebSearchResult = {
 	engine: string;
 };
 
+export type WebSearchProvider = {
+	name: string;
+	status: "ok" | "error" | "unavailable";
+	count: number;
+	error?: string;
+};
+
 export type WebSearchOutput = {
 	result: {
 		query: string;
 		count: number;
+		coverage: "complete" | "partial" | "unavailable";
+		providers: WebSearchProvider[];
 		results: WebSearchResult[];
 	};
 };
@@ -146,11 +169,17 @@ export const wikipediaArticleSchema = z.object({
 });
 
 export const wikipediaLookupInputSchema = {
+	query: z
+		.string()
+		.optional()
+		.describe(
+			'Full-text Wikipedia search query (e.g., "Roman ruins Carinthia"). Query takes precedence over title and coordinates.',
+		),
 	title: z
 		.string()
 		.optional()
 		.describe(
-			'Wikipedia article title (e.g., "Mount Everest"). Either title or lat+lon is required.',
+			'Exact Wikipedia article title (e.g., "Mount Everest"). Either query, title, or lat+lon is required.',
 		),
 	lat: z
 		.number()
@@ -186,8 +215,7 @@ export const wikipediaLookupInputSchema = {
 		.describe(
 			"Max articles to return for geo search (default: 5, max: 10)",
 		),
-	language: z
-		.string()
+	language: languageCodeSchema
 		.optional()
 		.describe(
 			'Wikipedia language code (default: "en"). Examples: "en", "de", "fr", "ja"',
@@ -196,7 +224,7 @@ export const wikipediaLookupInputSchema = {
 
 export const wikipediaLookupOutputSchema = {
 	result: z.object({
-		mode: z.enum(["title", "geosearch"]),
+		mode: z.enum(["search", "title", "geosearch"]),
 		query: z.string().describe("The title or coordinate query used"),
 		count: z.number(),
 		articles: z.array(wikipediaArticleSchema),
@@ -204,6 +232,7 @@ export const wikipediaLookupOutputSchema = {
 };
 
 export type WikipediaLookupInput = {
+	query?: string;
 	title?: string;
 	lat?: number;
 	lon?: number;
@@ -223,9 +252,180 @@ export type WikipediaArticle = {
 
 export type WikipediaLookupOutput = {
 	result: {
-		mode: "title" | "geosearch";
+		mode: "search" | "title" | "geosearch";
 		query: string;
 		count: number;
 		articles: WikipediaArticle[];
+	};
+};
+
+// ==========================================
+// Structured Wikipedia Extraction Schemas
+// ==========================================
+
+export const wikipediaSourceSchema = z.object({
+	title: z.string(),
+	url: z.string().url(),
+	pageId: z.number().int().nullable(),
+	revisionId: z.number().int().nullable(),
+	language: languageCodeSchema,
+	retrievedAt: z.string().describe("ISO 8601 retrieval timestamp"),
+});
+
+export const wikipediaTableSchema = z.object({
+	index: z.number().int().min(0),
+	sectionIndex: z.string().nullable(),
+	sectionTitle: z.string().nullable(),
+	caption: z.string().nullable(),
+	headers: z.array(z.string()),
+	rowCount: z.number().int().min(0),
+	sampleRows: z.array(z.record(z.string(), z.string())).optional(),
+	rows: z
+		.array(
+			z.object({
+				sourceRow: z.number().int().min(1),
+				cells: z.record(z.string(), z.string()),
+			}),
+		)
+		.optional(),
+});
+
+export const wikipediaTablePaginationSchema = z.object({
+	status: z
+		.enum(["complete", "more", "final_page"])
+		.describe(
+			'"complete" is the only status where this response contains the full table; "more" has a next page; "final_page" still omits earlier rows.',
+		),
+	offset: z.number().int().min(0),
+	returnedRows: z.number().int().min(0),
+	totalRows: z.number().int().min(0),
+	hasPrevious: z.boolean(),
+	hasNext: z.boolean(),
+	nextOffset: z.number().int().min(0).nullable(),
+	message: z.string().describe("Explicit model-facing statement of table coverage and next action"),
+});
+
+export const wikipediaExtractInputSchema = {
+	url: z
+		.string()
+		.url()
+		.optional()
+		.describe("A wikipedia.org article URL. Either url or title is required."),
+	title: z
+		.string()
+		.optional()
+		.describe("Exact Wikipedia article title. Either title or url is required."),
+	language: languageCodeSchema
+		.optional()
+		.describe('Wikipedia language code when title is used (default: "en").'),
+	mode: z
+		.enum(["outline", "table"])
+		.optional()
+		.describe(
+			'"outline" lists sections and table shapes with samples; "table" returns a page of rows from tableIndex. Default: "outline".',
+		),
+	tableIndex: z
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.describe("Zero-based table index. Required in table mode."),
+	rowOffset: z
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.describe("Zero-based data-row offset in table mode (default: 0)."),
+	rowLimit: z
+		.number()
+		.int()
+		.min(1)
+		.max(200)
+		.optional()
+		.describe("Maximum rows returned in table mode (default: 50, max: 200)."),
+};
+
+export const wikipediaExtractOutputSchema = {
+	result: z.object({
+		mode: z.enum(["outline", "table"]),
+		source: wikipediaSourceSchema,
+		lead: z.string(),
+		sections: z.array(
+			z.object({
+				index: z.string(),
+				level: z.number().int(),
+				title: z.string(),
+				anchor: z.string(),
+			}),
+		),
+		tables: z.array(wikipediaTableSchema),
+		table: wikipediaTableSchema.optional(),
+		offset: z.number().int().min(0).optional(),
+		returnedRows: z.number().int().min(0).optional(),
+		totalRows: z.number().int().min(0).optional(),
+		truncated: z.boolean().optional(),
+		pagination: wikipediaTablePaginationSchema.optional(),
+	}),
+};
+
+export type WikipediaExtractInput = {
+	url?: string;
+	title?: string;
+	language?: string;
+	mode?: "outline" | "table";
+	tableIndex?: number;
+	rowOffset?: number;
+	rowLimit?: number;
+};
+
+export type WikipediaSource = {
+	title: string;
+	url: string;
+	pageId: number | null;
+	revisionId: number | null;
+	language: string;
+	retrievedAt: string;
+};
+
+export type WikipediaTable = {
+	index: number;
+	sectionIndex: string | null;
+	sectionTitle: string | null;
+	caption: string | null;
+	headers: string[];
+	rowCount: number;
+	sampleRows?: Array<Record<string, string>>;
+	rows?: Array<{ sourceRow: number; cells: Record<string, string> }>;
+};
+
+export type WikipediaTablePagination = {
+	status: "complete" | "more" | "final_page";
+	offset: number;
+	returnedRows: number;
+	totalRows: number;
+	hasPrevious: boolean;
+	hasNext: boolean;
+	nextOffset: number | null;
+	message: string;
+};
+
+export type WikipediaExtractOutput = {
+	result: {
+		mode: "outline" | "table";
+		source: WikipediaSource;
+		lead: string;
+		sections: Array<{
+			index: string;
+			level: number;
+			title: string;
+			anchor: string;
+		}>;
+		tables: WikipediaTable[];
+		table?: WikipediaTable;
+		offset?: number;
+		returnedRows?: number;
+		totalRows?: number;
+		truncated?: boolean;
+		pagination?: WikipediaTablePagination;
 	};
 };

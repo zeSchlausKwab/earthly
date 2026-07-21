@@ -8,9 +8,15 @@ Design document: [docs/GEO_SEARCH_REWRITE.md](../docs/GEO_SEARCH_REWRITE.md)
 
 ## Architecture
 
-- **Events:** LMDB (`fiatjaf.com/nostr/eventstore/lmdb`) — canonical storage.
+- **Events:** a composite canonical store. LMDB
+  (`fiatjaf.com/nostr/eventstore/lmdb`) retains indexes and ordinary events;
+  a bbolt sidecar retains bodies above the upstream codec's 65,535-byte field.
+  Reads rehydrate the byte-identical signed event before it leaves the store.
+- **Size policy:** event content is accepted through 1 MiB and the same limit is
+  advertised in NIP-11. Larger geographic datasets use Blossom references.
 - **Search/geo:** bleve v2 with geoshape fields (`earthlysearch/` package) —
-  derived data, rebuilt from LMDB via `--reindex` or automatically when empty.
+  derived data, rebuilt from the canonical store via `--reindex` or automatically
+  when empty.
 - **Expiry:** khatru's NIP-40 manager deletes expired events (beacons,
   sightings) from both stores; query paths additionally exclude them.
 - **Disk budget:** below `--min-free-bytes` free space the relay refuses

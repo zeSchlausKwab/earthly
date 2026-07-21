@@ -8,9 +8,11 @@
  * form the Phase-2 circular-init cycle that crashes the dev bundler at bootstrap
  * (a null `./registry` during HMR) — see Pitfall 4 / `primitives-tools.ts`.
  *
- * Plan 06-04 landed the two READ-ONLY tools:
- *   - `select_features`  (TOOLS-03 select half) — returns matched ids + a summary
- *     over the FULL bound dataset; NO gate, NO snapshot, NO mutation.
+ * Plan 06-04 landed the predicate and validation tools:
+ *   - `find_features` — returns matched ids + a summary over the FULL bound
+ *     dataset without changing geometry or selection.
+ *   - `select_features` — resolves the same predicate over the full dataset and
+ *     replaces the actual transient editor selection in one UI update.
  *   - `validate_geometry` (TOOLS-04) — returns a per-feature topology report over the
  *     full bound dataset; READ-ONLY (Phase 7 owns fixing).
  *
@@ -360,15 +362,15 @@ function parseStyleBuckets(raw: unknown): StyleBucket[] {
  * imported) to keep the registry ↔ bulk-tools edge one-way and avoid a dev-bundler
  * circular-init crash (Pitfall 4 / mirrors `registerIngestTools`).
  *
- * Plan 06-04 registers the two READ-ONLY tools below. Plan 06-05 extends this same
- * function with the gated destructive tools.
+ * Plan 06-04 registered the read/selection tools below. Plan 06-05 extended this
+ * same function with the gated destructive tools.
  */
 export function registerBulkTools(register: (entry: ToolEntry) => void): void {
-	// --- select_features (TOOLS-03 select) — READ-ONLY ----------------------
+	// --- find_features — READ-ONLY predicate preview ------------------------
 	register({
-		name: 'select_features',
+		name: 'find_features',
 		kind: 'host-builtin',
-		schema: schemaFor('select_features'),
+		schema: schemaFor('find_features'),
 		handler: (args) => {
 			const editor = requireEditor()
 			const scope = resolveSelectionScope(args.predicate)
@@ -378,6 +380,28 @@ export function registerBulkTools(register: (entry: ToolEntry) => void): void {
 			const matchedIds = matched.map((f) => String(f.id))
 			return {
 				matched: matchedIds.length,
+				total: all.length,
+				matchedIds,
+				sample: matched.slice(0, SELECT_SAMPLE_SIZE).map(featureLabel),
+			}
+		},
+	})
+
+	// --- select_features — transiently changes the actual map selection -----
+	register({
+		name: 'select_features',
+		kind: 'host-builtin',
+		schema: schemaFor('select_features'),
+		handler: (args) => {
+			const editor = requireEditor()
+			const scope = resolveSelectionScope(args.predicate)
+			const all = editor.getAllFeatures()
+			const matched = scope.filter(all)
+			const matchedIds = matched.map((feature) => String(feature.id))
+			editor.selectFeatures(matchedIds)
+			return {
+				matched: matchedIds.length,
+				selected: editor.getSelectedFeatures().length,
 				total: all.length,
 				matchedIds,
 				sample: matched.slice(0, SELECT_SAMPLE_SIZE).map(featureLabel),

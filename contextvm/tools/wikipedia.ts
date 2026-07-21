@@ -8,14 +8,29 @@ const REQUEST_TIMEOUT_MS = 10_000;
 const MAX_EXTRACT_CHARS = 4000;
 
 export interface WikipediaLookupResult {
-  mode: "title" | "geosearch";
+  mode: "search" | "title" | "geosearch";
   query: string;
   count: number;
   articles: WikipediaArticle[];
 }
 
+export interface WikidataSearchResult {
+  title: string;
+  url: string;
+  content: string;
+  engine: "wikidata";
+}
+
 function wikiApiBase(language: string): string {
   return `https://${language}.wikipedia.org/w/api.php`;
+}
+
+function normalizeLanguage(language: string | undefined): string {
+  const normalized = language?.trim().toLowerCase() || "en";
+  if (!/^[a-z][a-z0-9-]{0,11}$/u.test(normalized)) {
+    throw new Error("Invalid Wikipedia language code");
+  }
+  return normalized;
 }
 
 function wikiArticleUrl(language: string, title: string): string {
@@ -59,6 +74,101 @@ async function fetchWikiApi(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function searchByQuery(
+  query: string,
+  limit: number,
+  language: string,
+): Promise<WikipediaLookupResult> {
+  const data = await fetchWikiApi(wikiApiBase(language), {
+    action: "query",
+    generator: "search",
+    gsrsearch: query,
+    gsrlimit: limit.toString(),
+    gsrnamespace: "0",
+    prop: "extracts|coordinates|description",
+    exintro: "1",
+    explaintext: "1",
+    exlimit: limit.toString(),
+    redirects: "1",
+  });
+
+  const wikiQuery = data.query as
+    | { pages?: Record<string, Record<string, unknown>> }
+    | undefined;
+  const pages = Object.entries(wikiQuery?.pages || {}).sort(([, left], [, right]) => {
+    const leftIndex = typeof left.index === "number" ? left.index : Number.MAX_SAFE_INTEGER;
+    const rightIndex = typeof right.index === "number" ? right.index : Number.MAX_SAFE_INTEGER;
+    return leftIndex - rightIndex;
+  });
+  const articles: WikipediaArticle[] = [];
+
+  for (const [pageId, page] of pages) {
+    let extract = typeof page.extract === "string" ? page.extract : "";
+    if (extract.length > MAX_EXTRACT_CHARS) {
+      extract = `${extract.slice(0, MAX_EXTRACT_CHARS)}...`;
+    }
+    const coords = (
+      page.coordinates as Array<{ lat: number; lon: number }> | undefined
+    )?.[0];
+    const title = typeof page.title === "string" ? page.title : query;
+
+    articles.push({
+      title,
+      pageId: Number.parseInt(pageId),
+      url: wikiArticleUrl(language, title),
+      extract,
+      coordinates: coords ? { lat: coords.lat, lon: coords.lon } : null,
+      description: typeof page.description === "string" ? page.description : null,
+    });
+  }
+
+  return {
+    mode: "search",
+    query,
+    count: articles.length,
+    articles,
+  };
+}
+
+export async function searchWikidata(
+  query: string,
+  limit: number,
+  language: string,
+): Promise<WikidataSearchResult[]> {
+  const normalizedLanguage = normalizeLanguage(language);
+  const data = await fetchWikiApi("https://www.wikidata.org/w/api.php", {
+    action: "wbsearchentities",
+    search: query,
+    language: normalizedLanguage,
+    uselang: normalizedLanguage,
+    type: "item",
+    limit: limit.toString(),
+  });
+  const results = Array.isArray(data.search)
+    ? (data.search as Array<Record<string, unknown>>)
+    : [];
+
+  return results.flatMap((item) => {
+    const id = typeof item.id === "string" ? item.id : "";
+    const label = typeof item.label === "string" ? item.label : id;
+    if (!id || !label) return [];
+    const description =
+      typeof item.description === "string" ? item.description.trim() : "";
+    const aliases = Array.isArray(item.aliases)
+      ? item.aliases.filter((alias): alias is string => typeof alias === "string").slice(0, 4)
+      : [];
+    const content = [description, aliases.length > 0 ? `Also known as: ${aliases.join(", ")}` : ""]
+      .filter(Boolean)
+      .join(". ");
+    return [{
+      title: label,
+      url: `https://www.wikidata.org/wiki/${encodeURIComponent(id)}`,
+      content,
+      engine: "wikidata" as const,
+    }];
+  });
 }
 
 async function lookupByTitle(
@@ -200,6 +310,7 @@ async function lookupByCoordinates(
 }
 
 export async function wikipediaLookup(options: {
+  query?: string;
   title?: string;
   lat?: number;
   lon?: number;
@@ -207,15 +318,25 @@ export async function wikipediaLookup(options: {
   limit?: number;
   language?: string;
 }): Promise<WikipediaLookupResult> {
-  const lang = options.language || "en";
+  const lang = normalizeLanguage(options.language);
+  const hasQuery =
+    typeof options.query === "string" && options.query.trim().length > 0;
   const hasTitle =
     typeof options.title === "string" && options.title.trim().length > 0;
   const hasCoords =
     typeof options.lat === "number" && typeof options.lon === "number";
 
-  if (!hasTitle && !hasCoords) {
+  if (!hasQuery && !hasTitle && !hasCoords) {
     throw new Error(
-      "Either 'title' or both 'lat' and 'lon' must be provided.",
+      "Either 'query', 'title', or both 'lat' and 'lon' must be provided.",
+    );
+  }
+
+  if (hasQuery) {
+    return searchByQuery(
+      options.query!.trim(),
+      Math.min(Math.max(options.limit ?? DEFAULT_LIMIT, 1), 10),
+      lang,
     );
   }
 

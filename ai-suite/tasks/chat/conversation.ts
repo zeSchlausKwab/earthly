@@ -139,7 +139,11 @@ export async function approveAiEdit(earthly: EarthlySession): Promise<void> {
 	const apply = earthly.page.getByRole('button', { name: 'Apply', exact: true })
 	await expect(apply).toBeVisible({ timeout: 15_000 })
 	await apply.click()
-	await expect(earthly.page.getByText('Applied', { exact: true })).toBeVisible()
+	// Multi-tool runs may collapse their raw result cards after approval. The
+	// status remains in the DOM for transcript fidelity even when it is hidden
+	// inside the operation disclosure, while the actionable Apply control is gone.
+	await expect(apply).toBeHidden()
+	await expect(earthly.page.getByText('Applied', { exact: true })).toHaveCount(1)
 }
 
 export async function hideAiChat(earthly: EarthlySession): Promise<void> {

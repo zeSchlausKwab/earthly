@@ -1,4 +1,4 @@
-import { Fragment, memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { FeatureCollection } from 'geojson'
 import { resolveProvider, useChatStore } from './store'
 import { composeOutboundContent } from './composeOutboundContent'
@@ -71,6 +71,11 @@ import {
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { ChatReference } from './store'
+import {
+	buildChatTimeline,
+	TOOL_OPERATION_PHASE_LABELS,
+	type ToolOperationGroup,
+} from './chatTimeline'
 
 const EMPTY_STATE_PROMPTS = [
 	'Get me the route from Linz to Vienna and bring it to the editor.',
@@ -539,20 +544,7 @@ export function ChatPanel({
 		}
 		return map
 	}, [messages])
-	const renderedMessages = useMemo(() => {
-		const seen = new Map<string, number>()
-		return messages.map((message) => {
-			const contentPreview = contentToDisplayText(message.content).slice(0, 80)
-			const toolCallKey = message.tool_calls?.map((call) => call.id).join(',') ?? ''
-			const baseKey = `${message.role}|${message.tool_call_id ?? ''}|${toolCallKey}|${contentPreview}`
-			const nextCount = (seen.get(baseKey) ?? 0) + 1
-			seen.set(baseKey, nextCount)
-			return {
-				message,
-				key: `${baseKey}|${nextCount}`,
-			}
-		})
-	}, [messages])
+	const timelineItems = useMemo(() => buildChatTimeline(messages), [messages])
 
 	return (
 		<div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
@@ -722,14 +714,38 @@ export function ChatPanel({
 								~completion {diagnostics.estimatedCompletionTokens.toLocaleString()} tok
 							</span>
 						) : null}
+						{diagnostics.modelRequestCount > 0 ? (
+							<span className="max-w-full rounded border px-1.5 py-0.5 break-words">
+								requests {diagnostics.modelRequestCount}
+							</span>
+						) : null}
+						{diagnostics.cumulativeEstimatedPromptTokens > 0 ? (
+							<span className="max-w-full rounded border px-1.5 py-0.5 break-words">
+								Σ input ~{diagnostics.cumulativeEstimatedPromptTokens.toLocaleString()} tok
+							</span>
+						) : null}
+						{diagnostics.cumulativeEstimatedCompletionTokens > 0 ? (
+							<span className="max-w-full rounded border px-1.5 py-0.5 break-words">
+								Σ output ~{diagnostics.cumulativeEstimatedCompletionTokens.toLocaleString()} tok
+							</span>
+						) : null}
 						{diagnostics.finishReason ? (
 							<span className="max-w-full rounded border px-1.5 py-0.5 break-words">
 								finish {diagnostics.finishReason}
 							</span>
 						) : null}
 						{diagnostics.toolCallCount > 0 ? (
-							<span className="max-w-full rounded border px-1.5 py-0.5 break-words">
-								tools {diagnostics.toolCallCount}
+							<span
+								className="max-w-full rounded border px-1.5 py-0.5 break-words"
+								title={Object.entries(diagnostics.toolStats)
+									.map(
+										([name, stats]) =>
+											`${name}: ${stats.calls} calls, ${(stats.durationMs / 1000).toFixed(1)}s, ${Math.ceil(stats.resultBytes / 1024)} KiB, ${stats.errors} errors`,
+									)
+									.join('\n')}
+							>
+								tools {diagnostics.toolCallCount} · {Math.ceil(diagnostics.toolResultBytes / 1024)}{' '}
+								KiB · {(diagnostics.totalToolDurationMs / 1000).toFixed(1)}s
 							</span>
 						) : null}
 						{isStreaming ? (
@@ -791,16 +807,25 @@ export function ChatPanel({
 					</div>
 				) : (
 					<>
-						{renderedMessages.map(({ message, key }) => (
-							<Fragment key={key}>
-								<MessageBubble message={message} runCodeSourceByCallId={runCodeSourceByCallId} />
-								{/* Safe-editing diff cards render INLINE under the tool turn
-								    that emitted them — temporal order, not a trailing clump. */}
-								{message.role === 'tool' && typeof message.tool_call_id === 'string' ? (
-									<InlineDiffCards toolCallId={message.tool_call_id} />
-								) : null}
-							</Fragment>
-						))}
+						{timelineItems.map((item) =>
+							item.type === 'tool-operation-group' ? (
+								<ToolOperationDisclosure
+									key={item.key}
+									group={item}
+									runCodeSourceByCallId={runCodeSourceByCallId}
+								/>
+							) : (
+								<div key={item.key} className="space-y-2">
+									<MessageBubble
+										message={item.message}
+										runCodeSourceByCallId={runCodeSourceByCallId}
+									/>
+									{item.message.role === 'tool' && typeof item.message.tool_call_id === 'string' ? (
+										<InlineDiffCards toolCallId={item.message.tool_call_id} />
+									) : null}
+								</div>
+							),
+						)}
 
 						{/* Streaming message */}
 						{isStreaming && streamingContent && (
@@ -1690,6 +1715,49 @@ function ChatMarkdownContent({
 // whole chat store). Without memo, every completed bubble re-renders + re-parses
 // its markdown on each frame. messages refs are stable across frames (only
 // streamingContent changes), so memo lets the static history skip those renders.
+function ToolOperationDisclosure({
+	group,
+	runCodeSourceByCallId,
+}: {
+	group: ToolOperationGroup
+	runCodeSourceByCallId: Map<string, string>
+}) {
+	const phases = Object.entries(group.phaseCounts).filter(([, count]) => count > 0) as Array<
+		[keyof typeof group.phaseCounts, number]
+	>
+	return (
+		<details className="group ml-8 min-w-0 overflow-hidden rounded-lg border border-orange-200/80 bg-orange-50/50 dark:border-orange-900/60 dark:bg-orange-950/20">
+			<summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-3 py-2 text-xs marker:hidden">
+				<Wrench className="h-3.5 w-3.5 shrink-0 text-orange-600 dark:text-orange-400" />
+				<span className="font-medium text-foreground">Working on your map</span>
+				<span className="text-muted-foreground">{group.toolCalls.length} actions</span>
+				{group.errorCount > 0 ? (
+					<span className="rounded bg-destructive/10 px-1.5 py-0.5 text-destructive">
+						{group.errorCount} tool {group.errorCount === 1 ? 'error' : 'errors'}
+					</span>
+				) : null}
+				<span className="ml-auto text-muted-foreground group-open:hidden">Show details</span>
+				<span className="ml-auto hidden text-muted-foreground group-open:inline">Hide details</span>
+				<div className="basis-full pl-5 text-[11px] text-muted-foreground">
+					{phases
+						.map(([phase, count]) => `${TOOL_OPERATION_PHASE_LABELS[phase]} ${count}`)
+						.join(' · ')}
+				</div>
+			</summary>
+			<div className="space-y-3 border-t border-orange-200/70 p-3 dark:border-orange-900/50">
+				{group.messages.map((message, index) => (
+					<div key={`${group.key}-${index}`} className="space-y-2">
+						<MessageBubble message={message} runCodeSourceByCallId={runCodeSourceByCallId} />
+						{message.role === 'tool' && typeof message.tool_call_id === 'string' ? (
+							<InlineDiffCards toolCallId={message.tool_call_id} />
+						) : null}
+					</div>
+				))}
+			</div>
+		</details>
+	)
+}
+
 const MessageBubble = memo(function MessageBubble({
 	message,
 	isStreaming,

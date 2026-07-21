@@ -15,7 +15,10 @@ export const installDeterministicChatProviderTask: AiTaskMetadata = {
 export const DETERMINISTIC_CHAT_BASE_URL = 'http://model.earthly.localhost/v1'
 export const DETERMINISTIC_CHAT_MODEL_ID = 'earthly-spatial-fixture'
 
-export type DeterministicChatScenario = 'spatial-research' | 'nearby-discovery'
+export type DeterministicChatScenario =
+	| 'spatial-research'
+	| 'nearby-discovery'
+	| 'source-to-map-research'
 
 const scenarioModels: Record<DeterministicChatScenario, { id: string; name: string }> = {
 	'spatial-research': {
@@ -25,6 +28,10 @@ const scenarioModels: Record<DeterministicChatScenario, { id: string; name: stri
 	'nearby-discovery': {
 		id: 'earthly-nearby-fixture',
 		name: 'Earthly nearby fixture',
+	},
+	'source-to-map-research': {
+		id: 'earthly-source-to-map-fixture',
+		name: 'Earthly source-to-map fixture',
 	},
 }
 
@@ -88,6 +95,46 @@ const syntheticSpatialDraft = {
 					],
 				],
 			},
+		},
+	],
+} as const
+
+const syntheticSourcedDraft = {
+	type: 'FeatureCollection',
+	features: [
+		{
+			type: 'Feature',
+			id: 'current-case-1',
+			properties: {
+				name: 'Synthetic current case A',
+				classification: 'exclave',
+				sourceUrl: 'https://en.wikipedia.org/wiki/Enclave_and_exclave',
+				sourceTitle: 'Enclave and exclave',
+				sourceRevisionId: 123456,
+				sourceSection: 'True exclaves',
+				sourceTable: 0,
+				sourceRow: 1,
+				sourceRetrievedAt: '2026-07-21T00:00:00.000Z',
+				coordinatePrecision: 'representative',
+			},
+			geometry: { type: 'Point', coordinates: [8.4, 47.6] },
+		},
+		{
+			type: 'Feature',
+			id: 'current-case-2',
+			properties: {
+				name: 'Synthetic current case B',
+				classification: 'exclave',
+				sourceUrl: 'https://en.wikipedia.org/wiki/Enclave_and_exclave',
+				sourceTitle: 'Enclave and exclave',
+				sourceRevisionId: 123456,
+				sourceSection: 'True exclaves',
+				sourceTable: 0,
+				sourceRow: 2,
+				sourceRetrievedAt: '2026-07-21T00:00:00.000Z',
+				coordinatePrecision: 'representative',
+			},
+			geometry: { type: 'Point', coordinates: [7.2, 43.8] },
 		},
 	],
 } as const
@@ -231,7 +278,58 @@ async function fulfillModelRoute(
 				'tool_calls',
 				model.id,
 			)
-	const bodyText = scenario === 'nearby-discovery' ? nearbyBodyText : spatialBodyText
+	const sourceToMapCode = `
+		authoring.commitDataset({
+			featureCollection: ${JSON.stringify(syntheticSourcedDraft)},
+			metadata: {
+				name: 'Current sourced cases',
+				description: 'Deterministic provenance-aware source-to-map fixture.',
+				properties: { sourceUrl: 'https://en.wikipedia.org/wiki/Enclave_and_exclave' }
+			},
+			requireFeatureProvenance: true
+		})
+		'Committed 2 provenance-validated features'
+	`
+	const sourceToMapBodyText = hasToolResultForCurrentTurn
+		? streamBody(
+				{
+					role: 'assistant',
+					content:
+						'I created one validated Dataset containing exactly the two synthetic current cases. Every feature retains article revision, section, table, row, retrieval time, and coordinate-precision provenance.',
+				},
+				'stop',
+				model.id,
+			)
+		: streamBody(
+				{
+					role: 'assistant',
+					tool_calls: [
+						{
+							index: 0,
+							id: 'call-source-state',
+							type: 'function',
+							function: { name: 'get_editor_state', arguments: '{}' },
+						},
+						{
+							index: 1,
+							id: 'call-source-commit',
+							type: 'function',
+							function: {
+								name: 'run_code',
+								arguments: JSON.stringify({ code: sourceToMapCode }),
+							},
+						},
+					],
+				},
+				'tool_calls',
+				model.id,
+			)
+	const bodyText =
+		scenario === 'nearby-discovery'
+			? nearbyBodyText
+			: scenario === 'source-to-map-research'
+				? sourceToMapBodyText
+				: spatialBodyText
 
 	await route.fulfill({
 		status: 200,
