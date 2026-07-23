@@ -742,7 +742,11 @@ export function GeoEditorView() {
 			toast.dismiss('mobile-pan-lock-guide')
 			return
 		}
-		if (panLocked || lastMobileDrawGuideRef.current === currentMode) return
+		if (panLocked) {
+			toast.dismiss('mobile-pan-lock-guide')
+			return
+		}
+		if (lastMobileDrawGuideRef.current === currentMode) return
 
 		lastMobileDrawGuideRef.current = currentMode
 		const description = getMobileDrawingGuidance(currentMode)

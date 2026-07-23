@@ -422,10 +422,27 @@ export const GeoCommentForm = forwardRef<HTMLTextAreaElement, GeoCommentFormProp
 									<span className="border border-border px-2 py-0.5 font-medium text-foreground">
 										{totalFeatureCount} geometry attached
 									</span>
-									{geometrySummary.labels > 0 && <span>{geometrySummary.labels} labels</span>}
-									{geometrySummary.points > 0 && <span>{geometrySummary.points} points</span>}
-									{geometrySummary.lines > 0 && <span>{geometrySummary.lines} lines</span>}
-									{geometrySummary.polygons > 0 && <span>{geometrySummary.polygons} polygons</span>}
+									{geometrySummary.labels > 0 && (
+										<span>
+											{geometrySummary.labels} {geometrySummary.labels === 1 ? 'label' : 'labels'}
+										</span>
+									)}
+									{geometrySummary.points > 0 && (
+										<span>
+											{geometrySummary.points} {geometrySummary.points === 1 ? 'point' : 'points'}
+										</span>
+									)}
+									{geometrySummary.lines > 0 && (
+										<span>
+											{geometrySummary.lines} {geometrySummary.lines === 1 ? 'line' : 'lines'}
+										</span>
+									)}
+									{geometrySummary.polygons > 0 && (
+										<span>
+											{geometrySummary.polygons}{' '}
+											{geometrySummary.polygons === 1 ? 'polygon' : 'polygons'}
+										</span>
+									)}
 								</div>
 							)}
 						</>
