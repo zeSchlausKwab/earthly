@@ -41,10 +41,14 @@ export async function placeMobilePrecisionPoint(
 	if (!earthly.isMobile) throw new Error('Mobile precision drawing requires the mobile viewport')
 
 	const before = (await geometryDraftSnapshot(earthly)).featureCount
-	await earthly.page.getByRole('button', { name: 'Draw point', exact: true }).tap()
-	await earthly.page.getByRole('button', { name: 'Lock pan while drawing', exact: true }).tap()
+	const mobileSheet = earthly.page.getByTestId('mobile-sheet')
+	await earthly.page.getByRole('button', { name: 'Draw point', exact: true }).first().tap()
+	await earthly.page
+		.getByRole('button', { name: 'Lock pan while drawing', exact: true })
+		.first()
+		.tap()
 	await expect(earthly.page.getByText('Lock panning to draw', { exact: true })).toBeHidden()
-	await earthly.page.getByRole('button', { name: 'More tools', exact: true }).tap()
+	await earthly.page.getByRole('button', { name: 'More tools', exact: true }).first().tap()
 	await earthly.page.getByRole('menuitemcheckbox', { name: 'Magnifier', exact: true }).tap()
 
 	const magnifier = earthly.page.getByTestId('map-magnifier')
@@ -55,7 +59,6 @@ export async function placeMobilePrecisionPoint(
 	await expect(canvas).toBeVisible()
 	const canvasBox = await canvas.boundingBox()
 	if (!canvasBox) throw new Error('Map canvas has no visible bounding box')
-	const mobileSheet = earthly.page.getByTestId('mobile-sheet')
 	const sheetBox = (await mobileSheet.isVisible()) ? await mobileSheet.boundingBox() : null
 	const exposedMapHeight = sheetBox
 		? Math.max(96, sheetBox.y - canvasBox.y)

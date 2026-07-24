@@ -1,4 +1,8 @@
+import { devices } from '@playwright/test'
+import { resolveEnvironment } from '../core/environment'
+import { EarthlySession } from '../core/session'
 import { test, expect } from '../fixtures/earthly'
+import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identity'
 import { signIn } from '../tasks/auth/sign-in'
 import { createContext } from '../tasks/create/context'
 import { createAndPublishGeometryDataset, createGeometryDraft } from '../tasks/create/geometry'
@@ -144,8 +148,8 @@ test('a Dataset owner can preview, request changes, reject, and accept proposals
 })
 
 test('an accepted Dataset proposal applies a real geometry change @workflow-audit', async ({
+	browser,
 	earthly,
-	newEarthlySession,
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'desktop', 'Dataset proposal audit is desktop-only')
 	test.slow()
@@ -157,11 +161,19 @@ test('an accepted Dataset proposal applies a real geometry change @workflow-audi
 		`Geometry proposal dataset ${runId}`,
 	)
 
-	const contributor = await newEarthlySession()
-	await signIn(contributor, 'mara')
-	const proposal = await proposeDatasetGeometryEdit(contributor, dataset.url, description)
-	expect(proposal.beforeFeatureCount).toBe(4)
-	expect(proposal.proposedFeatureCount).toBe(5)
+	const contributorContext = await browser.newContext({
+		...devices['Pixel 7'],
+		viewport: { width: 390, height: 844 },
+	})
+	const contributor = new EarthlySession(await contributorContext.newPage(), resolveEnvironment())
+	try {
+		await authorizeJourneyIdentity(contributor, 'mara')
+		const proposal = await proposeDatasetGeometryEdit(contributor, dataset.url, description)
+		expect(proposal.beforeFeatureCount).toBe(4)
+		expect(proposal.proposedFeatureCount).toBe(5)
+	} finally {
+		await contributorContext.close()
+	}
 
 	await openDatasetProposal(earthly, description)
 	await previewDatasetProposal(earthly)

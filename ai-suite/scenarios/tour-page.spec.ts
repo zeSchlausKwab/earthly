@@ -9,7 +9,10 @@ test.describe('product tour route', () => {
 		await expect(page).toHaveTitle(/Tour Earthly/)
 		await expect(page.getByRole('heading', { level: 1 })).toHaveText(/Maps become shared places/)
 		await expect(page.locator('canvas[aria-label="Map"]')).toHaveCount(0)
-		await expect(page.locator('video')).toHaveCount(3)
+		await expect(page.locator('video')).toHaveCount(4)
+		await expect(
+			page.getByRole('heading', { name: 'Let the field propose. Keep the owner in control.' }),
+		).toBeVisible()
 		await expect(page.getByRole('link', { name: 'Open Earthly' }).first()).toHaveAttribute(
 			'href',
 			'/',
@@ -50,6 +53,9 @@ test.describe('product tour route', () => {
 			'/static/tour/mobile-drawing-magnifier.mp4',
 			'/static/tour/mobile-drawing-magnifier.webm',
 			'/static/tour/mobile-drawing-magnifier-poster.png',
+			'/static/tour/collaborative-map-proposal.mp4',
+			'/static/tour/collaborative-map-proposal.webm',
+			'/static/tour/collaborative-map-proposal-poster.png',
 		]) {
 			const response = await request.get(new URL(path, baseURL).toString())
 			expect(response.ok(), `${path} should be available`).toBe(true)

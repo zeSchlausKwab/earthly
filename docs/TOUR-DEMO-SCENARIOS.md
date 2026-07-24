@@ -158,24 +158,20 @@ touch-placement task only after the scratch recording proves the gesture.
 **Assets:** `mobile-drawing-magnifier.mp4`, `mobile-drawing-magnifier.webm`,
 `mobile-drawing-magnifier-poster.png`.
 
-## Next production wave
-
 ### Film 07 — Propose a better map
 
-**Priority:** 3
+**Status:** Complete
 
 **Perspective:** Forestry contractor in the field; operations planner on desktop
 
 **Hero candidate:** No—feature chapter
 
-**Readiness:** The real geometry-proposal, preview, and acceptance workflow already has coverage
-
 **Promise:** People can improve a shared map without taking control away from its owner.
 
-Suggested story:
+Story:
 
-> On Vancouver Island, a contractor finds a washed-out culvert on a logging road and proposes a
-> corrected access route. The operations planner previews the geometry change and accepts it.
+> On Vancouver Island, a contractor finds a damaged bridge on West Woss Road and proposes a
+> surveyed bypass. The operations planner previews the geometry change and accepts it.
 
 Beat sheet:
 
@@ -189,12 +185,18 @@ Beat sheet:
 **Chapter explanation:** Signed Nostr events, authorship, proposal status, preview before acceptance,
 and the difference between public collaboration and a private group.
 
-**Automation foundation:** `social.propose-dataset-geometry-edit`,
-`social.review-dataset-proposal`, and `social.decide-dataset-proposal`. Mobile contributor support
-should be proven before recording; desktop-to-desktop is the truthful fallback.
+The base map uses the real OpenStreetMap geometry for the unpaved West Woss Road bridge and its
+adjacent road segments. The operations block, protection buffer, damage report, and bypass are
+explicitly illustrative scenario data.
 
-**Suggested assets:** `collaborative-map-proposal.mp4`, `collaborative-map-proposal.webm`,
+**Automation foundation:** `social.propose-dataset-geometry-edit`,
+`social.review-dataset-proposal`, `social.decide-dataset-proposal`, and
+`editor.place-mobile-precision-point`. The mobile-to-desktop workflow has scenario coverage.
+
+**Assets:** `collaborative-map-proposal.mp4`, `collaborative-map-proposal.webm`,
 `collaborative-map-proposal-poster.png`.
+
+## Next production wave
 
 ### Film 08 — Tell the story around the map
 

@@ -4,6 +4,7 @@ import {
 	ArrowRight,
 	ArrowUp,
 	Braces,
+	CheckCircle2,
 	ChevronRight,
 	Compass,
 	Download,
@@ -14,7 +15,9 @@ import {
 	Network,
 	Radio,
 	Route,
+	ScanSearch,
 	Share2,
+	TreePine,
 	Users,
 	WifiOff,
 } from 'lucide-react'
@@ -618,6 +621,7 @@ export function TourPage() {
 				<nav aria-label="Tour chapters">
 					<a href="#create">Create</a>
 					<a href="#participate">Participate</a>
+					<a href="#collaborate">Collaborate</a>
 					<a href="#foundation">Foundation</a>
 					<a href="#possibilities">Possibilities</a>
 				</nav>
@@ -663,7 +667,7 @@ export function TourPage() {
 					<div className="tour-hero-copy">
 						<p className="tour-eyebrow">
 							<span>Earthly field guide</span>
-							<span>01—06</span>
+							<span>01—07</span>
 						</p>
 						<h1 id="tour-heading">
 							Maps become <br />
@@ -875,6 +879,80 @@ export function TourPage() {
 							</span>
 						</div>
 					</aside>
+				</section>
+
+				<section
+					className="tour-chapter tour-collaborate"
+					id="collaborate"
+					aria-labelledby="collaborate-heading"
+				>
+					<div className="tour-chapter-marker" aria-hidden="true">
+						<span>03</span>
+						<i />
+					</div>
+					<div className="tour-chapter-intro">
+						<p className="tour-kicker">Public collaboration</p>
+						<h2 id="collaborate-heading">
+							Let the field propose.
+							<br />
+							Keep the owner in control.
+						</h2>
+						<p>
+							On West Woss Road in Vancouver Island, a contractor marks a damaged bridge and traces
+							a surveyed bypass from her phone. The operations planner sees a signed proposal,
+							previews the exact geometry, and decides whether it becomes canonical.
+						</p>
+					</div>
+					<div className="tour-chapter-index">
+						<span>03 / COLLABORATE</span>
+						<p>Mobile field edits, signed proposals, geometry preview, owner acceptance</p>
+					</div>
+
+					<figure className="tour-collaborate-film">
+						<div className="tour-media-frame tour-media-frame-wide">
+							<div className="tour-media-bar">
+								<span>
+									<i />
+									Nimpkish forestry access · Woss
+								</span>
+								<code>MOBILE → DESKTOP · ACTUAL UI</code>
+							</div>
+							<ProductFilm
+								label="Earthly forestry contractor proposing a damaged bridge and bypass from mobile for desktop owner review"
+								mp4="collaborative-map-proposal.mp4"
+								poster="collaborative-map-proposal-poster.png"
+								webm="collaborative-map-proposal.webm"
+							/>
+						</div>
+						<figcaption>
+							<span>FILM 07 · PUBLIC PROPOSAL</span>
+							<p>
+								The shared map changes only after its owner inspects and accepts the contributor’s
+								two geometry edits.
+							</p>
+						</figcaption>
+					</figure>
+
+					<section className="tour-collaboration-flow" aria-label="How a public map proposal works">
+						<article>
+							<TreePine aria-hidden="true" />
+							<span>01 / FIELD</span>
+							<h3>Draw what changed</h3>
+							<p>The contributor works in an editable copy and keeps the original map intact.</p>
+						</article>
+						<article>
+							<ScanSearch aria-hidden="true" />
+							<span>02 / REVIEW</span>
+							<h3>Preview the geometry</h3>
+							<p>The owner sees the proposed point and route before making a decision.</p>
+						</article>
+						<article>
+							<CheckCircle2 aria-hidden="true" />
+							<span>03 / ACCEPT</span>
+							<h3>Publish a signed revision</h3>
+							<p>Acceptance creates an attributable update to the canonical Dataset.</p>
+						</article>
+					</section>
 				</section>
 
 				<section className="tour-foundation" id="foundation" aria-labelledby="foundation-heading">
