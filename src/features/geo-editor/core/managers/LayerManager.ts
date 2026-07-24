@@ -14,7 +14,12 @@ import {
 	pointLabelAnchorExpression,
 	pointLabelRadialOffsetExpression,
 } from '../../icons/displayIcon'
-import { LINE_ARROW_IMAGE_ID } from '../../icons/registerDisplayIconImages'
+import {
+	GIZMO_MOVE_IMAGE_ID,
+	GIZMO_ROTATE_IMAGE_ID,
+	GIZMO_SCALE_IMAGE_ID,
+	LINE_ARROW_IMAGE_ID,
+} from '../../icons/registerDisplayIconImages'
 
 const FALLBACK_TEXT_FONT_STACK = ['Open Sans Regular', 'Arial Unicode MS Regular']
 
@@ -46,6 +51,7 @@ export class LayerManager {
 	readonly LAYER_POINT = 'geo-editor-point'
 	readonly LAYER_POINT_ICON = 'geo-editor-point-icon'
 	readonly LAYER_LABEL = 'geo-editor-label'
+	readonly LAYER_LINE_LABEL = 'geo-editor-line-label'
 	readonly LAYER_ANNOTATION_ANCHOR = 'geo-editor-annotation-anchor'
 	readonly LAYER_ANNOTATION = 'geo-editor-annotation'
 	readonly LAYER_VERTEX = 'geo-editor-vertex'
@@ -59,6 +65,7 @@ export class LayerManager {
 	readonly LAYER_GIZMO_ROTATE = 'geo-editor-gizmo-rotate'
 	readonly LAYER_GIZMO_MOVE = 'geo-editor-gizmo-move'
 	readonly LAYER_GIZMO_SCALE = 'geo-editor-gizmo-scale'
+	readonly LAYER_GIZMO_ICONS = 'geo-editor-gizmo-icons'
 	readonly LAYER_CURSOR = 'geo-editor-cursor'
 
 	onAdd(map: MapLibreMap): void {
@@ -361,11 +368,11 @@ export class LayerManager {
 							['linear'],
 							['coalesce', ['get', 'strokeWidth'], 2],
 							1,
-							0.28,
+							0.48,
 							4,
-							0.38,
+							0.62,
 							10,
-							0.55,
+							0.82,
 						],
 						'icon-rotate': ['get', 'arrowBearing'],
 						'icon-rotation-alignment': 'map',
@@ -563,6 +570,8 @@ export class LayerManager {
 						['==', ['get', 'meta'], 'feature'],
 						['!=', ['get', 'featureType'], 'annotation'],
 						['has', 'label'],
+						['!=', ['geometry-type'], 'LineString'],
+						['!=', ['geometry-type'], 'MultiLineString'],
 					],
 					layout: {
 						'text-field': ['get', 'label'],
@@ -574,6 +583,41 @@ export class LayerManager {
 						'text-radial-offset': pointLabelRadialOffsetExpression(12),
 						'text-allow-overlap': false,
 						'text-ignore-placement': false,
+					},
+					paint: {
+						'text-color': '#374151',
+						'text-halo-color': '#ffffff',
+						'text-halo-width': 1.5,
+					},
+				})
+			}
+
+			// Line labels need their own layer: point placement anchors text at the
+			// first coordinate, while line-center follows and centers on the path.
+			if (!this.map.getLayer(this.LAYER_LINE_LABEL)) {
+				this.map.addLayer({
+					id: this.LAYER_LINE_LABEL,
+					type: 'symbol',
+					source: this.SOURCE_ID,
+					filter: [
+						'all',
+						['==', ['get', 'meta'], 'feature'],
+						['has', 'label'],
+						[
+							'any',
+							['==', ['geometry-type'], 'LineString'],
+							['==', ['geometry-type'], 'MultiLineString'],
+						],
+					],
+					layout: {
+						'symbol-placement': 'line-center',
+						'text-field': ['get', 'label'],
+						'text-font': annotationTextFont,
+						'text-size': 12,
+						'text-rotation-alignment': 'map',
+						'text-keep-upright': true,
+						'text-allow-overlap': true,
+						'text-ignore-placement': true,
 					},
 					paint: {
 						'text-color': '#374151',
@@ -643,7 +687,7 @@ export class LayerManager {
 					source: this.SOURCE_GIZMO,
 					filter: ['==', ['get', 'meta'], 'gizmo-rotate'],
 					paint: {
-						'circle-radius': 8,
+						'circle-radius': 11,
 						'circle-color': '#f97316',
 						'circle-stroke-width': 2,
 						'circle-stroke-color': '#1d4ed8',
@@ -659,7 +703,7 @@ export class LayerManager {
 					source: this.SOURCE_GIZMO,
 					filter: ['==', ['get', 'meta'], 'gizmo-move'],
 					paint: {
-						'circle-radius': 7,
+						'circle-radius': 11,
 						'circle-color': '#22c55e',
 						'circle-stroke-width': 2,
 						'circle-stroke-color': '#166534',
@@ -675,10 +719,41 @@ export class LayerManager {
 					source: this.SOURCE_GIZMO,
 					filter: ['==', ['get', 'meta'], 'gizmo-scale'],
 					paint: {
-						'circle-radius': 8,
+						'circle-radius': 11,
 						'circle-color': '#a855f7',
 						'circle-stroke-width': 2,
 						'circle-stroke-color': '#581c87',
+					},
+				})
+			}
+
+			if (!this.map.getLayer(this.LAYER_GIZMO_ICONS)) {
+				this.map.addLayer({
+					id: this.LAYER_GIZMO_ICONS,
+					type: 'symbol',
+					source: this.SOURCE_GIZMO,
+					filter: [
+						'any',
+						['==', ['get', 'meta'], 'gizmo-rotate'],
+						['==', ['get', 'meta'], 'gizmo-move'],
+						['==', ['get', 'meta'], 'gizmo-scale'],
+					],
+					layout: {
+						'icon-image': [
+							'match',
+							['get', 'meta'],
+							'gizmo-rotate',
+							GIZMO_ROTATE_IMAGE_ID,
+							'gizmo-scale',
+							GIZMO_SCALE_IMAGE_ID,
+							GIZMO_MOVE_IMAGE_ID,
+						],
+						'icon-size': 0.5,
+						'icon-allow-overlap': true,
+						'icon-ignore-placement': true,
+					},
+					paint: {
+						'icon-color': '#ffffff',
 					},
 				})
 			}
@@ -761,6 +836,7 @@ export class LayerManager {
 			if (this.map.getLayer(this.LAYER_MIDPOINT)) this.map.removeLayer(this.LAYER_MIDPOINT)
 			if (this.map.getLayer(this.LAYER_VERTEX)) this.map.removeLayer(this.LAYER_VERTEX)
 			if (this.map.getLayer(this.LAYER_CURSOR)) this.map.removeLayer(this.LAYER_CURSOR)
+			if (this.map.getLayer(this.LAYER_GIZMO_ICONS)) this.map.removeLayer(this.LAYER_GIZMO_ICONS)
 			if (this.map.getLayer(this.LAYER_GIZMO_SCALE)) this.map.removeLayer(this.LAYER_GIZMO_SCALE)
 			if (this.map.getLayer(this.LAYER_GIZMO_MOVE)) this.map.removeLayer(this.LAYER_GIZMO_MOVE)
 			if (this.map.getLayer(this.LAYER_GIZMO_ROTATE)) this.map.removeLayer(this.LAYER_GIZMO_ROTATE)
@@ -768,6 +844,7 @@ export class LayerManager {
 			if (this.map.getLayer(this.LAYER_GIZMO_LINE)) this.map.removeLayer(this.LAYER_GIZMO_LINE)
 			if (this.map.getLayer(this.LAYER_SELECTION_POINT))
 				this.map.removeLayer(this.LAYER_SELECTION_POINT)
+			if (this.map.getLayer(this.LAYER_LINE_LABEL)) this.map.removeLayer(this.LAYER_LINE_LABEL)
 			if (this.map.getLayer(this.LAYER_LABEL)) this.map.removeLayer(this.LAYER_LABEL)
 			if (this.map.getLayer(this.LAYER_ANNOTATION)) this.map.removeLayer(this.LAYER_ANNOTATION)
 			if (this.map.getLayer(this.LAYER_ANNOTATION_ANCHOR))

@@ -59,6 +59,9 @@ const CANVAS_SIZE_PX = GLYPH_RASTER_PX + CANVAS_PADDING_PX * 2
 const FALLBACK_DOT_RADIUS_PX = 28
 /** SDF image used by line endpoint symbol layers. */
 export const LINE_ARROW_IMAGE_ID = 'earthly:line-arrowhead'
+export const GIZMO_MOVE_IMAGE_ID = 'earthly:gizmo-move'
+export const GIZMO_ROTATE_IMAGE_ID = 'earthly:gizmo-rotate'
+export const GIZMO_SCALE_IMAGE_ID = 'earthly:gizmo-scale'
 
 /** Rasterized-icon cache shared across maps and style reloads. */
 const rasterizedIconCache = new Map<string, Promise<ImageData | null>>()
@@ -68,6 +71,7 @@ const ownedImageIds = new WeakMap<MapLibreMap, Set<string>>()
 
 let fallbackImageData: ImageData | null | undefined
 let lineArrowImageData: ImageData | null | undefined
+const gizmoImageData = new Map<string, ImageData>()
 
 function canRasterize(): boolean {
 	return typeof document !== 'undefined' && typeof Image !== 'undefined'
@@ -172,6 +176,76 @@ function getLineArrowImageData(): ImageData | null {
 	return lineArrowImageData
 }
 
+function getGizmoImageData(id: string): ImageData | null {
+	const cached = gizmoImageData.get(id)
+	if (cached) return cached
+	if (!canRasterize()) return null
+	const drawn = createCanvas(CANVAS_SIZE_PX)
+	if (!drawn) return null
+
+	const center = CANVAS_SIZE_PX / 2
+	const ctx = drawn.ctx
+	ctx.strokeStyle = '#000'
+	ctx.fillStyle = '#000'
+	ctx.lineWidth = 6
+	ctx.lineCap = 'round'
+	ctx.lineJoin = 'round'
+	ctx.beginPath()
+
+	if (id === GIZMO_MOVE_IMAGE_ID) {
+		ctx.moveTo(center, 13)
+		ctx.lineTo(center, CANVAS_SIZE_PX - 13)
+		ctx.moveTo(13, center)
+		ctx.lineTo(CANVAS_SIZE_PX - 13, center)
+		const arrowTips: Array<[number, number, number, number, number, number]> = [
+			[center, 13, center - 7, 21, center + 7, 21],
+			[
+				center,
+				CANVAS_SIZE_PX - 13,
+				center - 7,
+				CANVAS_SIZE_PX - 21,
+				center + 7,
+				CANVAS_SIZE_PX - 21,
+			],
+			[13, center, 21, center - 7, 21, center + 7],
+			[
+				CANVAS_SIZE_PX - 13,
+				center,
+				CANVAS_SIZE_PX - 21,
+				center - 7,
+				CANVAS_SIZE_PX - 21,
+				center + 7,
+			],
+		]
+		for (const [x, y, ax, ay, bx, by] of arrowTips) {
+			ctx.moveTo(ax, ay)
+			ctx.lineTo(x, y)
+			ctx.lineTo(bx, by)
+		}
+	} else if (id === GIZMO_SCALE_IMAGE_ID) {
+		ctx.moveTo(16, CANVAS_SIZE_PX - 16)
+		ctx.lineTo(CANVAS_SIZE_PX - 16, 16)
+		ctx.moveTo(16, CANVAS_SIZE_PX - 16)
+		ctx.lineTo(17, CANVAS_SIZE_PX - 29)
+		ctx.moveTo(16, CANVAS_SIZE_PX - 16)
+		ctx.lineTo(29, CANVAS_SIZE_PX - 17)
+		ctx.moveTo(CANVAS_SIZE_PX - 16, 16)
+		ctx.lineTo(CANVAS_SIZE_PX - 17, 29)
+		ctx.moveTo(CANVAS_SIZE_PX - 16, 16)
+		ctx.lineTo(CANVAS_SIZE_PX - 29, 17)
+	} else {
+		ctx.arc(center, center, 20, Math.PI * 0.2, Math.PI * 1.9)
+		ctx.moveTo(center + 19, center - 8)
+		ctx.lineTo(center + 25, center - 19)
+		ctx.lineTo(center + 12, center - 20)
+	}
+	ctx.stroke()
+
+	const data = sdfImageDataFromCanvas(ctx, CANVAS_SIZE_PX)
+	gizmoImageData.set(id, data)
+	return data
+}
+
 function getOwnedIds(map: MapLibreMap): Set<string> {
 	let owned = ownedImageIds.get(map)
 	if (!owned) {
@@ -228,6 +302,10 @@ export function registerDisplayIconImages(map: MapLibreMap): void {
 	registerFallbackIconImage(map)
 	const arrowData = getLineArrowImageData()
 	if (arrowData) addOrReplaceImage(map, LINE_ARROW_IMAGE_ID, arrowData, true)
+	for (const id of [GIZMO_MOVE_IMAGE_ID, GIZMO_ROTATE_IMAGE_ID, GIZMO_SCALE_IMAGE_ID]) {
+		const data = getGizmoImageData(id)
+		if (data) addOrReplaceImage(map, id, data, true)
+	}
 	if (!canRasterize()) return
 
 	for (const id of BUNDLED_DISPLAY_ICON_IDS) {
@@ -255,6 +333,11 @@ export function handleMissingDisplayIconImage(map: MapLibreMap, id: string): boo
 	if (id === LINE_ARROW_IMAGE_ID) {
 		const arrowData = getLineArrowImageData()
 		if (arrowData) addOrReplaceImage(map, id, arrowData, true)
+		return true
+	}
+	if (id === GIZMO_MOVE_IMAGE_ID || id === GIZMO_ROTATE_IMAGE_ID || id === GIZMO_SCALE_IMAGE_ID) {
+		const data = getGizmoImageData(id)
+		if (data) addOrReplaceImage(map, id, data, true)
 		return true
 	}
 	if (id !== FALLBACK_ICON_IMAGE_ID && !id.startsWith(`${LUCIDE_NAMESPACE}:`)) return false

@@ -7,6 +7,7 @@ export type EditorCommandId =
 	| 'redo'
 	| 'toggle_snapping'
 	| 'insert_primitive'
+	| 'start_primitive_drawing'
 	| 'start_arrow_drawing'
 	| 'delete_selected_features'
 	| 'duplicate_selected_features'
@@ -65,6 +66,7 @@ const EDITOR_MODE_VALUES: EditorMode[] = [
 	'draw_point',
 	'draw_linestring',
 	'draw_polygon',
+	'draw_primitive',
 	'draw_annotation',
 	'edit',
 	'select',
@@ -260,6 +262,30 @@ const editorCommands: EditorCommandDefinition[] = [
 			syncHistoryState(state)
 			return success('insert_primitive', `Inserted a ${args.shape}.`, {
 				featureId: feature.id,
+				shape: args.shape,
+			})
+		},
+	},
+	{
+		id: 'start_primitive_drawing',
+		label: 'Draw shape',
+		description: 'Start an interactive two-point basic-shape drawing.',
+		canExecute: (state) => Boolean(state.editor),
+		execute: (state, args) => {
+			const editor = state.editor
+			if (!editor) return failure('start_primitive_drawing', 'Map editor is not ready.')
+			if (
+				typeof args.shape !== 'string' ||
+				!PRIMITIVE_SHAPES.includes(args.shape as PrimitiveShape)
+			) {
+				return failure(
+					'start_primitive_drawing',
+					`shape must be one of: ${PRIMITIVE_SHAPES.join(', ')}`,
+				)
+			}
+			editor.startPrimitiveDrawing(args.shape as PrimitiveShape)
+			return success('start_primitive_drawing', `Started drawing a ${args.shape}.`, {
+				mode: 'draw_primitive',
 				shape: args.shape,
 			})
 		},

@@ -79,6 +79,7 @@ const REMOTE_LINE_ARROW_LAYER = 'geo-editor-remote-line-arrow'
 const REMOTE_POINT_LAYER = 'geo-editor-remote-point'
 const REMOTE_POINT_ICON_LAYER = 'geo-editor-remote-point-icon'
 const REMOTE_LABEL_LAYER = 'geo-editor-remote-label'
+const REMOTE_LINE_LABEL_LAYER = 'geo-editor-remote-line-label'
 const REMOTE_ANNOTATION_ANCHOR_LAYER = 'geo-editor-remote-annotation-anchor'
 const REMOTE_ANNOTATION_LAYER = 'geo-editor-remote-annotation'
 const BLOB_PREVIEW_SOURCE_ID = 'geo-editor-blob-preview'
@@ -143,6 +144,7 @@ export {
 	REMOTE_LINE_DOTTED_LAYER,
 	REMOTE_POINT_LAYER,
 	REMOTE_LABEL_LAYER,
+	REMOTE_LINE_LABEL_LAYER,
 	REMOTE_ANNOTATION_ANCHOR_LAYER,
 	REMOTE_ANNOTATION_LAYER,
 	REMOTE_POLYGON_PROXY_LAYER,
@@ -678,11 +680,11 @@ export function useMapLayers({
 								['linear'],
 								['coalesce', ['get', 'strokeWidth'], 2],
 								1,
-								0.28,
+								0.48,
 								4,
-								0.38,
+								0.62,
 								10,
-								0.55,
+								0.82,
 							],
 							'icon-rotate': ['get', 'arrowBearing'],
 							'icon-rotation-alignment': 'map',
@@ -814,7 +816,13 @@ export function useMapLayers({
 						id: REMOTE_LABEL_LAYER,
 						type: 'symbol',
 						source: REMOTE_SOURCE_ID,
-						filter: ['all', ['has', 'label'], ['!=', ['get', 'featureType'], 'annotation']],
+						filter: [
+							'all',
+							['has', 'label'],
+							['!=', ['get', 'featureType'], 'annotation'],
+							['!=', ['geometry-type'], 'LineString'],
+							['!=', ['geometry-type'], 'MultiLineString'],
+						],
 						layout: {
 							'text-field': ['get', 'label'],
 							'text-font': textFont,
@@ -825,6 +833,39 @@ export function useMapLayers({
 							'text-radial-offset': pointLabelRadialOffsetExpression(12),
 							'text-allow-overlap': false,
 							'text-ignore-placement': false,
+						},
+						paint: {
+							'text-color': '#374151',
+							'text-halo-color': '#ffffff',
+							'text-halo-width': 1.5,
+							'text-opacity': ['case', ['boolean', ['get', 'collapseToPointProxy'], false], 0, 1],
+						},
+					})
+				}
+
+				if (textFont && !mapInstance.getLayer(REMOTE_LINE_LABEL_LAYER)) {
+					mapInstance.addLayer({
+						id: REMOTE_LINE_LABEL_LAYER,
+						type: 'symbol',
+						source: REMOTE_SOURCE_ID,
+						filter: [
+							'all',
+							['has', 'label'],
+							[
+								'any',
+								['==', ['geometry-type'], 'LineString'],
+								['==', ['geometry-type'], 'MultiLineString'],
+							],
+						],
+						layout: {
+							'symbol-placement': 'line-center',
+							'text-field': ['get', 'label'],
+							'text-font': textFont,
+							'text-size': 12,
+							'text-rotation-alignment': 'map',
+							'text-keep-upright': true,
+							'text-allow-overlap': true,
+							'text-ignore-placement': true,
 						},
 						paint: {
 							'text-color': '#374151',

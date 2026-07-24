@@ -5,6 +5,7 @@ export type EditorMode =
 	| 'draw_point'
 	| 'draw_linestring'
 	| 'draw_polygon'
+	| 'draw_primitive'
 	| 'draw_annotation'
 	| 'edit'
 	| 'select'

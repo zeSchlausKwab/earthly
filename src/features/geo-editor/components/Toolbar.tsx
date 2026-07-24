@@ -558,7 +558,7 @@ export function Toolbar({
 	const handleArrowDrawing = () => runEditorCommand('start_arrow_drawing', { placement: 'end' })
 	const handleInsertPrimitive = (
 		shape: 'rectangle' | 'square' | 'circle' | 'triangle' | 'diamond',
-	) => runEditorCommand('insert_primitive', { shape })
+	) => runEditorCommand('start_primitive_drawing', { shape })
 	const handleToggleEditIsolation = () => toggleEditIsolation()
 	const handleToggleInspector = () => {
 		if (inspectorActive) {
@@ -758,13 +758,18 @@ export function Toolbar({
 				small
 			/>
 			<MenubarMenu>
-				<MenubarTrigger
-					className="h-8 w-8 rounded-none p-0"
-					disabled={isEditingDisabled}
-					aria-label="Insert shape"
-					title="Insert shape"
-				>
-					<Shapes className="h-3.5 w-3.5" />
+				<MenubarTrigger asChild>
+					<Button
+						type="button"
+						size="icon"
+						variant={mode === 'draw_primitive' ? 'default' : 'outline'}
+						className="h-8 w-8 rounded-none"
+						disabled={isEditingDisabled}
+						aria-label="Draw shape"
+						title="Draw shape"
+					>
+						<Shapes className="h-3.5 w-3.5" />
+					</Button>
 				</MenubarTrigger>
 				<MenubarContent align="start" className="min-w-48">
 					<ToolbarMenuItem

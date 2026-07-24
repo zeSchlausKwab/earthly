@@ -2,19 +2,23 @@ import { describe, expect, test } from 'bun:test'
 import { createHeadlessEditor } from './test-harness'
 
 describe('GeoEditor primitives', () => {
-	test.each([
-		'rectangle',
-		'square',
-		'circle',
-		'triangle',
-		'diamond',
-	] as const)('inserts and selects a %s polygon', (shape) => {
+	test('starts human shape drawing without spawning geometry', () => {
 		const editor = createHeadlessEditor()
 
-		const feature = editor.insertPrimitive(shape)
+		editor.startPrimitiveDrawing('circle')
+
+		expect(editor.getMode()).toBe('draw_primitive')
+		expect(editor.getAllFeatures()).toHaveLength(0)
+		editor.destroy()
+	})
+
+	test('keeps programmatic insertion available for AI commands', () => {
+		const editor = createHeadlessEditor()
+
+		const feature = editor.insertPrimitive('triangle')
 
 		expect(feature.geometry.type).toBe('Polygon')
-		expect(feature.properties?.primitiveShape).toBe(shape)
+		expect(feature.properties?.primitiveShape).toBe('triangle')
 		expect(editor.getSelectedFeatures().map((item) => item.id)).toEqual([feature.id])
 		expect(editor.getMode()).toBe('select')
 		expect(editor.history.canUndo()).toBe(true)
