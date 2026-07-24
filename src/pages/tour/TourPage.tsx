@@ -1,9 +1,13 @@
 import {
 	ArrowDown,
+	ArrowLeft,
 	ArrowRight,
+	ArrowUp,
 	Braces,
 	ChevronRight,
 	Compass,
+	Download,
+	ExternalLink,
 	Map as MapIcon,
 	MapPin,
 	MessageCircle,
@@ -14,11 +18,17 @@ import {
 	Users,
 	WifiOff,
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react'
+import { GithubIcon } from '../../components/icons/GithubIcon'
 import earthlyMark from '../../assets/square_logo_rose.svg'
 import './tour-page.css'
 
 const TOUR_ASSET_ROOT = '/static/tour'
+const EARTHLY_GITHUB_URL = 'https://github.com/zeSchlausKwab/earthly'
+const EARTHLY_APK_URL =
+	'https://github.com/zeSchlausKwab/earthly/releases/download/v0.0.3/earthly-0.0.3-arm64-v8a.apk'
+const EARTHLY_ZAPSTORE_URL =
+	'https://zapstore.dev/apps/naddr1qqxxx6t50yhx2ctjw35xc7gprpmhxue69uhhyetvv9uju7npwpehgmmjv5hxgetkqgsxaamh579jgp06666dk2npjytygyfrkq70zjrgszzzsrd32sua43qrqsqqqlstt49k8z'
 
 type ProductFilmProps = {
 	className?: string
@@ -27,6 +37,138 @@ type ProductFilmProps = {
 	poster: string
 	webm: string
 }
+
+type HeroStory = {
+	chapterHref: string
+	chapterLabel: string
+	description: string
+	filmNumber: string
+	format: 'desktop' | 'mobile'
+	frameCode: string
+	frameLabel: string
+	id: string
+	kicker: string
+	tabLabel: string
+	tabMeta: string
+	title: string
+	video: {
+		label: string
+		mp4: string
+		poster: string
+		webm: string
+	}
+}
+
+const heroStories: HeroStory[] = [
+	{
+		id: 'festival-authoring',
+		filmNumber: 'FILM 01',
+		format: 'desktop',
+		tabLabel: 'Make the map',
+		tabMeta: 'Desktop authoring',
+		frameLabel: 'Live product',
+		frameCode: 'DESKTOP · GEOJSON EDITOR',
+		kicker: 'Author the ground truth',
+		title: 'Turn a plan into a living map.',
+		description:
+			'A real Earthly session redraws a festival plan, adds the practical details visitors need, and keeps every shape editable.',
+		chapterHref: '#create',
+		chapterLabel: 'Explore mapmaking',
+		video: {
+			label: 'Earthly desktop editor building a festival map',
+			mp4: 'festival-map-editor.mp4',
+			poster: 'festival-map-editor-poster.png',
+			webm: 'festival-map-editor.webm',
+		},
+	},
+	{
+		id: 'visitor-participation',
+		filmNumber: 'FILM 02',
+		format: 'mobile',
+		tabLabel: 'Join the place',
+		tabMeta: 'Mobile visitor',
+		frameLabel: 'Visitor view',
+		frameCode: 'MOBILE · COMMENT + SHARE',
+		kicker: 'Meet on the map',
+		title: 'Comment, attach, and share a point.',
+		description:
+			'The visitor opens a stage, adds a comment with an exact meeting point, and shares the place without losing its context.',
+		chapterHref: '#participate',
+		chapterLabel: 'Follow the visitor',
+		video: {
+			label: 'Earthly mobile visitor commenting on a stage and sharing a point',
+			mp4: 'visitor-comment-share.mp4',
+			poster: 'visitor-comment-share-poster.png',
+			webm: 'visitor-comment-share.webm',
+		},
+	},
+	{
+		id: 'private-coordination',
+		filmNumber: 'FILM 03',
+		format: 'desktop',
+		tabLabel: 'Work in private',
+		tabMeta: 'Desktop ↔ mobile',
+		frameLabel: 'Private coordination',
+		frameCode: 'WEB + MOBILE · MLS',
+		kicker: 'Keep the crew connected',
+		title: 'Coordinate privately, across devices.',
+		description:
+			'A coordinator creates an MLS-protected festival group, Mara joins from her phone, and the operations desk answers by drawing the exact Crew Gate on the map.',
+		chapterHref: '/private-groups',
+		chapterLabel: 'Open private groups',
+		video: {
+			label:
+				'Earthly private group created on desktop, joined from a phone, and answered on desktop',
+			mp4: 'private-group-cross-device.mp4',
+			poster: 'private-group-cross-device-poster.png',
+			webm: 'private-group-cross-device.webm',
+		},
+	},
+	{
+		id: 'ai-map-story',
+		filmNumber: 'FILM 04',
+		format: 'desktop',
+		tabLabel: 'Ask Earthly',
+		tabMeta: 'AI map + Story',
+		frameLabel: 'AI-assisted mapping',
+		frameCode: 'DESKTOP · AI + GEOJSON',
+		kicker: 'Delegate the cartography',
+		title: 'Ask once. Get a map—and its story.',
+		description:
+			'A short prompt becomes a 117-feature Belt and Road Dataset with distinct port anchors, annotated nodes, maritime routes, and potential Arctic passages—then a Story cites the signed map inline.',
+		chapterHref: '#foundation',
+		chapterLabel: 'See how it stays yours',
+		video: {
+			label:
+				'Earthly AI creating a Belt and Road map, showing its actions, and publishing a Story with an inline Dataset reference',
+			mp4: 'ai-belt-road-story.mp4',
+			poster: 'ai-belt-road-story-poster.png',
+			webm: 'ai-belt-road-story.webm',
+		},
+	},
+	{
+		id: 'hormuz-shipping-network',
+		filmNumber: 'FILM 05',
+		format: 'desktop',
+		tabLabel: 'Trace the routes',
+		tabMeta: 'AI global routes',
+		frameLabel: 'AI-assisted routing',
+		frameCode: 'DESKTOP · PORTS + ROUTES',
+		kicker: 'Make the network legible',
+		title: 'Turn a chokepoint into a global network.',
+		description:
+			'A concise correction turns the map outward: 24 Persian Gulf port and chokepoint markers connect through Hormuz to seven labeled global destinations across seven representative corridors.',
+		chapterHref: '#possibilities',
+		chapterLabel: 'Imagine your own network',
+		video: {
+			label:
+				'Earthly AI replacing internal Persian Gulf lanes with outbound shipping corridors through Hormuz to major global ports',
+			mp4: 'hormuz-ports-shipping.mp4',
+			poster: 'hormuz-ports-shipping-poster.png',
+			webm: 'hormuz-ports-shipping.webm',
+		},
+	},
+]
 
 function usePrefersReducedMotion() {
 	const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
@@ -47,10 +189,20 @@ function useTourHashNavigation() {
 		let animationFrame = 0
 		let disposed = false
 		let isInitialLocation = true
+		const resetScroller = (scroller: HTMLElement) => {
+			const previousScrollBehavior = scroller.style.scrollBehavior
+			scroller.style.scrollBehavior = 'auto'
+			scroller.scrollTop = 0
+			scroller.style.scrollBehavior = previousScrollBehavior
+		}
 		const alignBelowNavigation = (target: HTMLElement) => {
 			const scroller = document.querySelector<HTMLElement>('.tour-page')
 			const navigation = document.querySelector<HTMLElement>('.tour-nav')
 			if (!scroller) return
+			if (target === scroller) {
+				resetScroller(scroller)
+				return
+			}
 
 			const previousScrollBehavior = scroller.style.scrollBehavior
 			scroller.style.scrollBehavior = 'auto'
@@ -70,6 +222,13 @@ function useTourHashNavigation() {
 
 			window.cancelAnimationFrame(animationFrame)
 			animationFrame = window.requestAnimationFrame(() => {
+				const scroller = document.querySelector<HTMLElement>('.tour-page')
+				if (target.id === 'tour-top' && scroller) {
+					resetScroller(scroller)
+					isInitialLocation = false
+					return
+				}
+
 				if (isInitialLocation) {
 					alignBelowNavigation(target)
 					isInitialLocation = false
@@ -84,13 +243,31 @@ function useTourHashNavigation() {
 				target.scrollIntoView({ block: 'start' })
 			})
 		}
+		const handleSameHashLink = (event: MouseEvent) => {
+			const link =
+				event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href]') : null
+			if (!link) return
+			const destination = new URL(link.href, window.location.href)
+			if (
+				destination.origin !== window.location.origin ||
+				destination.pathname !== window.location.pathname ||
+				!destination.hash ||
+				destination.hash !== window.location.hash
+			) {
+				return
+			}
+			window.cancelAnimationFrame(animationFrame)
+			animationFrame = window.requestAnimationFrame(scrollToHash)
+		}
 
 		scrollToHash()
 		window.addEventListener('hashchange', scrollToHash)
+		document.addEventListener('click', handleSameHashLink)
 		return () => {
 			disposed = true
 			window.cancelAnimationFrame(animationFrame)
 			window.removeEventListener('hashchange', scrollToHash)
+			document.removeEventListener('click', handleSameHashLink)
 		}
 	}, [])
 }
@@ -138,6 +315,168 @@ function ProductFilm({ className, label, mp4, poster, webm }: ProductFilmProps) 
 			<source src={`${TOUR_ASSET_ROOT}/${webm}`} type="video/webm" />
 			<source src={`${TOUR_ASSET_ROOT}/${mp4}`} type="video/mp4" />
 		</video>
+	)
+}
+
+function HeroStoryFilm({ story }: { story: HeroStory }) {
+	return (
+		<div className="tour-media-frame tour-media-frame-desktop">
+			<div className="tour-media-bar">
+				<span>
+					<i />
+					{story.frameLabel}
+				</span>
+				<code>{story.frameCode}</code>
+			</div>
+			{story.format === 'desktop' ? (
+				<ProductFilm
+					label={story.video.label}
+					mp4={story.video.mp4}
+					poster={story.video.poster}
+					webm={story.video.webm}
+				/>
+			) : (
+				<div className="tour-hero-mobile-film">
+					<div className="tour-hero-mobile-story">
+						<span>VISITOR MODE / MARA</span>
+						<strong>The conversation has coordinates.</strong>
+						<p>Open the stage, attach a meeting point, and send the place itself.</p>
+						<ul aria-label="Mobile visitor actions">
+							<li>
+								<MessageCircle aria-hidden="true" />
+								Comment
+							</li>
+							<li>
+								<MapPin aria-hidden="true" />
+								Attach
+							</li>
+							<li>
+								<Share2 aria-hidden="true" />
+								Share
+							</li>
+						</ul>
+					</div>
+					<div className="tour-hero-mobile-device">
+						<div className="tour-hero-mobile-speaker" aria-hidden="true" />
+						<ProductFilm
+							className="tour-hero-mobile-video"
+							label={story.video.label}
+							mp4={story.video.mp4}
+							poster={story.video.poster}
+							webm={story.video.webm}
+						/>
+					</div>
+				</div>
+			)}
+			<span className="tour-corner tour-corner-nw" />
+			<span className="tour-corner tour-corner-se" />
+		</div>
+	)
+}
+
+function HeroStorySlider() {
+	const [activeStoryIndex, setActiveStoryIndex] = useState(0)
+	const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
+	const sliderId = useId()
+	const activeStory = heroStories[activeStoryIndex] ?? heroStories[0]
+	if (!activeStory) return null
+
+	const selectAdjacentStory = (direction: -1 | 1) => {
+		setActiveStoryIndex((currentIndex) => {
+			return (currentIndex + direction + heroStories.length) % heroStories.length
+		})
+	}
+
+	const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
+		let nextIndex: number | null = null
+		if (event.key === 'ArrowRight') {
+			nextIndex = (currentIndex + 1) % heroStories.length
+		} else if (event.key === 'ArrowLeft') {
+			nextIndex = (currentIndex - 1 + heroStories.length) % heroStories.length
+		} else if (event.key === 'Home') {
+			nextIndex = 0
+		} else if (event.key === 'End') {
+			nextIndex = heroStories.length - 1
+		}
+
+		if (nextIndex === null) return
+		event.preventDefault()
+		setActiveStoryIndex(nextIndex)
+		tabRefs.current[nextIndex]?.focus()
+	}
+
+	return (
+		<section className="tour-story-slider" aria-label="Featured Earthly product films">
+			<div className="tour-slider-navigation">
+				<div className="tour-slider-tabs" role="tablist" aria-label="Featured product films">
+					{heroStories.map((story, index) => (
+						<button
+							key={story.id}
+							ref={(node) => {
+								tabRefs.current[index] = node
+							}}
+							id={`${sliderId}-tab-${index}`}
+							type="button"
+							role="tab"
+							aria-controls={`${sliderId}-panel`}
+							aria-selected={activeStoryIndex === index}
+							tabIndex={activeStoryIndex === index ? 0 : -1}
+							onClick={() => setActiveStoryIndex(index)}
+							onKeyDown={(event) => handleTabKeyDown(event, index)}
+						>
+							<span>{String(index + 1).padStart(2, '0')}</span>
+							<strong>{story.tabLabel}</strong>
+							<small>{story.tabMeta}</small>
+						</button>
+					))}
+				</div>
+				<div className="tour-slider-arrows">
+					<button
+						type="button"
+						aria-label="Previous product film"
+						onClick={() => selectAdjacentStory(-1)}
+					>
+						<ArrowLeft aria-hidden="true" />
+					</button>
+					<button
+						type="button"
+						aria-label="Next product film"
+						onClick={() => selectAdjacentStory(1)}
+					>
+						<ArrowRight aria-hidden="true" />
+					</button>
+				</div>
+			</div>
+
+			<div
+				id={`${sliderId}-panel`}
+				className="tour-slider-panel"
+				role="tabpanel"
+				aria-labelledby={`${sliderId}-tab-${activeStoryIndex}`}
+			>
+				<div key={activeStory.id} className="tour-hero-slide">
+					<HeroStoryFilm story={activeStory} />
+					<div className="tour-story-explanation">
+						<div className="tour-story-number">
+							<span>{activeStory.filmNumber}</span>
+							<small>
+								{String(activeStoryIndex + 1).padStart(2, '0')} /{' '}
+								{String(heroStories.length).padStart(2, '0')}
+							</small>
+						</div>
+						<div className="tour-story-copy">
+							<p>{activeStory.kicker}</p>
+							<h2>{activeStory.title}</h2>
+							<span>{activeStory.description}</span>
+						</div>
+						<a className="tour-story-link" href={activeStory.chapterHref}>
+							{activeStory.chapterLabel}
+							<ArrowRight aria-hidden="true" />
+						</a>
+					</div>
+				</div>
+			</div>
+		</section>
 	)
 }
 
@@ -236,10 +575,40 @@ export function TourPage() {
 					<a href="#foundation">Foundation</a>
 					<a href="#possibilities">Possibilities</a>
 				</nav>
-				<a className="tour-nav-cta" href="/">
-					Open Earthly
-					<ArrowRight aria-hidden="true" />
-				</a>
+				<div className="tour-nav-actions">
+					<a
+						className="tour-nav-link"
+						href={EARTHLY_GITHUB_URL}
+						target="_blank"
+						rel="noreferrer"
+						aria-label="Earthly on GitHub"
+					>
+						<GithubIcon />
+						<span>GitHub</span>
+					</a>
+					<a
+						className="tour-nav-link"
+						href={EARTHLY_ZAPSTORE_URL}
+						target="_blank"
+						rel="noreferrer"
+						aria-label="Install Earthly from Zapstore"
+					>
+						<span>Zapstore</span>
+						<ExternalLink aria-hidden="true" />
+					</a>
+					<a
+						className="tour-nav-link"
+						href={EARTHLY_APK_URL}
+						aria-label="Download the Earthly Android APK from GitHub"
+					>
+						<Download aria-hidden="true" />
+						<span>APK</span>
+					</a>
+					<a className="tour-nav-cta" href="/">
+						Open Earthly
+						<ArrowRight aria-hidden="true" />
+					</a>
+				</div>
 			</header>
 
 			<main>
@@ -248,7 +617,7 @@ export function TourPage() {
 					<div className="tour-hero-copy">
 						<p className="tour-eyebrow">
 							<span>Earthly field guide</span>
-							<span>01—04</span>
+							<span>01—05</span>
 						</p>
 						<h1 id="tour-heading">
 							Maps become <br />
@@ -278,27 +647,7 @@ export function TourPage() {
 					</div>
 
 					<div className="tour-hero-media">
-						<div className="tour-media-frame tour-media-frame-desktop">
-							<div className="tour-media-bar">
-								<span>
-									<i />
-									Live product
-								</span>
-								<code>DESKTOP · GEOJSON EDITOR</code>
-							</div>
-							<ProductFilm
-								label="Earthly desktop editor building a festival map"
-								mp4="festival-map-editor.mp4"
-								poster="festival-map-editor-poster.png"
-								webm="festival-map-editor.webm"
-							/>
-							<span className="tour-corner tour-corner-nw" />
-							<span className="tour-corner tour-corner-se" />
-						</div>
-						<p className="tour-film-note">
-							<span>FILM 01</span>A real Earthly session redraws a festival plan and turns it into
-							an editable shared dataset.
-						</p>
+						<HeroStorySlider />
 					</div>
 
 					<a className="tour-scroll-cue" href="#tour-promises" aria-label="Continue tour">
@@ -600,7 +949,7 @@ export function TourPage() {
 				<p>Collaborative maps on open protocols.</p>
 				<a href="#tour-top">
 					Back to top
-					<ArrowDown aria-hidden="true" />
+					<ArrowUp aria-hidden="true" />
 				</a>
 			</footer>
 		</div>

@@ -137,6 +137,10 @@ export async function sendAiChatMessage(
 
 export async function approveAiEdit(earthly: EarthlySession): Promise<void> {
 	const apply = earthly.page.getByRole('button', { name: 'Apply', exact: true })
+	if (!(await apply.isVisible())) {
+		const showDetails = earthly.page.getByText('Show details', { exact: true }).last()
+		if (await showDetails.isVisible()) await showDetails.click()
+	}
 	await expect(apply).toBeVisible({ timeout: 15_000 })
 	await apply.click()
 	// Multi-tool runs may collapse their raw result cards after approval. The
