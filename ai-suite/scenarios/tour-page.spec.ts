@@ -29,11 +29,19 @@ test.describe('product tour route', () => {
 			/https:\/\/zapstore\.dev\/apps\/naddr/,
 		)
 		await expect(
-			page.getByRole('link', { name: 'Download the Earthly Android APK from GitHub' }),
+			page.locator(
+				'a[href="https://github.com/zeSchlausKwab/earthly/releases/latest/download/earthly-android-arm64-v8a.apk"]',
+			),
+		).toHaveCount(2)
+		await expect(
+			page.getByRole('link', { name: 'Download Earthly for macOS from GitHub' }),
 		).toHaveAttribute(
 			'href',
-			'https://github.com/zeSchlausKwab/earthly/releases/download/v0.0.3/earthly-0.0.3-arm64-v8a.apk',
+			'https://github.com/zeSchlausKwab/earthly/releases/latest/download/earthly-macos-aarch64.dmg',
 		)
+		await expect(
+			page.getByRole('heading', { name: 'Take Earthly beyond the browser.' }),
+		).toBeVisible()
 
 		const horizontalOverflow = await page.evaluate(
 			() => document.documentElement.scrollWidth - document.documentElement.clientWidth,

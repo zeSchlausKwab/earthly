@@ -26,6 +26,7 @@ import { verifyEvent, type NostrEvent } from 'nostr-tools'
 import { QRCodeSVG } from 'qrcode.react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { NativeAppDownloadLinks } from '@/components/NativeAppDownloadLinks'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -448,6 +449,7 @@ export function OfflineSharingSection() {
 						The web app can join ordinary relays, but it does not expose a local relay or file
 						server to other applications.
 					</p>
+					<NativeAppDownloadLinks />
 				</div>
 			</div>
 		)

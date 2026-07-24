@@ -51,8 +51,10 @@ Create a production application and installer for the current desktop platform:
 bun run tauri:build
 ```
 
-On macOS the unsigned local artifacts beneath `target/release/bundle/` are development output. The
-current release target is Android; macOS, iOS, Windows, and Linux distribution is deferred.
+On macOS the artifacts beneath `target/release/bundle/` are unsigned unless a Developer ID identity
+is available to Tauri. Earthly currently publishes an Apple-silicon DMG to GitHub alongside each
+release as an unsigned preview. It is not published to Zapstore. Signing, notarization, universal
+macOS binaries, iOS, Windows, and Linux distribution remain deferred.
 
 ## Android
 

@@ -15,6 +15,7 @@ import { use$ } from 'applesauce-react/hooks'
 import type { NostrEvent } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { NativeAppDownloadLinks } from '@/components/NativeAppDownloadLinks'
 import { config } from '@/config/env.client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -480,9 +481,10 @@ export function SavedRegionsSection() {
 					<div>
 						<h3 className="font-semibold">Saved map regions</h3>
 						<p className="mt-1 text-sm text-muted-foreground">
-							Downloadable map regions are available in the Earthly Android app. The browser keeps
+							Downloadable map regions are available in the native Earthly apps. The browser keeps
 							using streamed map tiles.
 						</p>
+						<NativeAppDownloadLinks />
 					</div>
 				</div>
 			</section>

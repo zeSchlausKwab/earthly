@@ -30,6 +30,7 @@ import { verifyEvent, type NostrEvent } from 'nostr-tools'
 import { QRCodeSVG } from 'qrcode.react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { NativeAppDownloadLinks } from '@/components/NativeAppDownloadLinks'
 import { GlyphTile, ListRow, RowActionButton, RowBadge } from '@/components/entity-list'
 import {
 	DatasetGlyphIcon,
@@ -127,6 +128,7 @@ function EmptyNativeState({ reason }: { reason: string }) {
 			<Smartphone className="mb-3 h-8 w-8 text-muted-foreground" />
 			<h3 className="text-sm font-semibold">Earthly app required</h3>
 			<p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">{reason}</p>
+			<NativeAppDownloadLinks className="justify-center" />
 		</div>
 	)
 }
@@ -552,7 +554,7 @@ export function FieldSessionsPanel({
 					reason={
 						status.state === 'unsupported'
 							? status.reason
-							: 'Field sessions use the embedded relay in the Earthly Android app.'
+							: 'Field sessions use the embedded relay in the Earthly Android or macOS app.'
 					}
 				/>
 			</div>

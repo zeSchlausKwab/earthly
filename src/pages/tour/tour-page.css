@@ -1555,6 +1555,117 @@
 	border-left: 1px solid var(--tour-line);
 }
 
+.tour-downloads {
+	display: grid;
+	grid-template-columns: minmax(280px, 0.72fr) minmax(560px, 1.28fr);
+	gap: clamp(48px, 7vw, 110px);
+	padding: clamp(90px, 10vw, 150px) max(clamp(24px, 7vw, 120px), calc((100vw - var(--tour-max)) / 2 + 80px));
+	border-top: 1px solid var(--tour-line);
+	background: #e7dfd4;
+}
+
+.tour-downloads-heading h2 {
+	margin-top: 24px;
+	font-family: var(--font-display);
+	font-size: clamp(42px, 5vw, 72px);
+	line-height: 0.98;
+	letter-spacing: -0.055em;
+}
+
+.tour-downloads-heading > p:last-child {
+	max-width: 530px;
+	margin-top: 24px;
+	color: var(--tour-ink-soft);
+	font-size: 14px;
+	line-height: 1.7;
+}
+
+.tour-download-cards {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	border: 1px solid var(--tour-line-strong);
+	background: rgba(248, 245, 239, 0.5);
+}
+
+.tour-download-cards article {
+	display: flex;
+	min-height: 390px;
+	flex-direction: column;
+	padding: clamp(26px, 3vw, 42px);
+}
+
+.tour-download-cards article + article {
+	border-left: 1px solid var(--tour-line-strong);
+}
+
+.tour-download-platform {
+	display: flex;
+	align-items: center;
+	gap: 17px;
+}
+
+.tour-download-platform > svg {
+	width: 32px;
+	height: 32px;
+	color: var(--tour-rose);
+}
+
+.tour-download-platform span {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+
+.tour-download-platform small {
+	font-family: var(--font-mono);
+	font-size: 8px;
+	font-weight: 700;
+	letter-spacing: 0.12em;
+}
+
+.tour-download-platform strong {
+	font-family: var(--font-display);
+	font-size: 29px;
+	line-height: 1;
+}
+
+.tour-download-cards article > p {
+	margin-top: 52px;
+	color: var(--tour-ink-soft);
+	font-size: 13px;
+	line-height: 1.65;
+}
+
+.tour-download-actions {
+	display: flex;
+	align-items: flex-start;
+	flex-direction: column;
+	gap: 17px;
+	margin-top: auto;
+	padding-top: 36px;
+}
+
+.tour-download-actions > span {
+	color: var(--tour-ink-soft);
+	font-family: var(--font-mono);
+	font-size: 8px;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+.tour-download-actions .tour-text-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 11px;
+	font-weight: 700;
+}
+
+.tour-download-actions .tour-text-link svg {
+	width: 13px;
+	height: 13px;
+}
+
 .tour-use-case-top {
 	display: flex;
 	align-items: center;
@@ -1891,6 +2002,10 @@
 		grid-template-columns: 1fr;
 	}
 
+	.tour-downloads {
+		grid-template-columns: 1fr;
+	}
+
 	.tour-use-cases article {
 		min-height: 350px;
 	}
@@ -1946,6 +2061,27 @@
 
 	.tour-nav-link span {
 		display: none;
+	}
+
+	.tour-nav-link-apk {
+		display: none;
+	}
+
+	.tour-downloads {
+		padding: 82px 18px;
+	}
+
+	.tour-download-cards {
+		grid-template-columns: 1fr;
+	}
+
+	.tour-download-cards article {
+		min-height: 330px;
+	}
+
+	.tour-download-cards article + article {
+		border-top: 1px solid var(--tour-line-strong);
+		border-left: 0;
 	}
 
 	.tour-hero {

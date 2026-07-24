@@ -154,6 +154,7 @@ describe('Android release tooling', () => {
 		expect(workflow).toContain(`VERSION="$(bun -p 'require("./package.json").version')"`)
 		expect(workflow).toContain('test -n "$VERSION"')
 		expect(workflow).toContain('fail_on_unmatched_files: true')
+		expect(workflow).toContain('earthly-android-arm64-v8a.apk')
 		expect(workflow).not.toContain('out/android/0.0.1')
 	})
 

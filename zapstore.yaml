@@ -1,5 +1,5 @@
 repository: https://github.com/zeSchlausKwab/earthly
-release_source: ./out/android/0.0.4/earthly-0.0.4-arm64-v8a.apk
+release_source: ./out/android/0.0.5/earthly-0.0.5-arm64-v8a.apk
 pubkey: npub1dmmh0futyszl4445mv4xrygkgsgj8vpu79yx3qyy9qxmz4pemtzqlqmc87
 name: Earthly
 summary: Collaborative maps built on Nostr

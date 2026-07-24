@@ -10,6 +10,7 @@ import {
 	Compass,
 	Download,
 	ExternalLink,
+	Laptop,
 	Map as MapIcon,
 	MapPin,
 	MessageCircle,
@@ -19,6 +20,7 @@ import {
 	Route,
 	ScanSearch,
 	Share2,
+	Smartphone,
 	TreePine,
 	Users,
 	WifiOff,
@@ -26,14 +28,15 @@ import {
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react'
 import { GithubIcon } from '../../components/icons/GithubIcon'
 import earthlyMark from '../../assets/square_logo_rose.svg'
+import {
+	EARTHLY_ANDROID_APK_URL,
+	EARTHLY_GITHUB_REPOSITORY_URL,
+	EARTHLY_MACOS_DMG_URL,
+	EARTHLY_ZAPSTORE_URL,
+} from '../../config/app-downloads'
 import './tour-page.css'
 
 const TOUR_ASSET_ROOT = '/static/tour'
-const EARTHLY_GITHUB_URL = 'https://github.com/zeSchlausKwab/earthly'
-const EARTHLY_APK_URL =
-	'https://github.com/zeSchlausKwab/earthly/releases/download/v0.0.3/earthly-0.0.3-arm64-v8a.apk'
-const EARTHLY_ZAPSTORE_URL =
-	'https://zapstore.dev/apps/naddr1qqxxx6t50yhx2ctjw35xc7gprpmhxue69uhhyetvv9uju7npwpehgmmjv5hxgetkqgsxaamh579jgp06666dk2npjytygyfrkq70zjrgszzzsrd32sua43qrqsqqqlstt49k8z'
 
 type ProductFilmProps = {
 	className?: string
@@ -631,7 +634,7 @@ export function TourPage() {
 				<div className="tour-nav-actions">
 					<a
 						className="tour-nav-link"
-						href={EARTHLY_GITHUB_URL}
+						href={EARTHLY_GITHUB_REPOSITORY_URL}
 						target="_blank"
 						rel="noreferrer"
 						aria-label="Earthly on GitHub"
@@ -650,12 +653,20 @@ export function TourPage() {
 						<ExternalLink aria-hidden="true" />
 					</a>
 					<a
-						className="tour-nav-link"
-						href={EARTHLY_APK_URL}
+						className="tour-nav-link tour-nav-link-apk"
+						href={EARTHLY_ANDROID_APK_URL}
 						aria-label="Download the Earthly Android APK from GitHub"
 					>
 						<Download aria-hidden="true" />
 						<span>APK</span>
+					</a>
+					<a
+						className="tour-nav-link"
+						href={EARTHLY_MACOS_DMG_URL}
+						aria-label="Download Earthly for macOS from GitHub"
+					>
+						<Laptop aria-hidden="true" />
+						<span>macOS</span>
 					</a>
 					<a className="tour-nav-cta" href="/">
 						Open Earthly
@@ -1111,6 +1122,62 @@ export function TourPage() {
 								</ul>
 							</article>
 						))}
+					</div>
+				</section>
+
+				<section className="tour-downloads" id="apps" aria-labelledby="apps-heading">
+					<div className="tour-downloads-heading">
+						<p className="tour-kicker">Native when the network is not</p>
+						<h2 id="apps-heading">Take Earthly beyond the browser.</h2>
+						<p>
+							The web app is the quickest way into a public map. Install Earthly when you need
+							nearby Field sessions, saved offline regions, and a durable native delivery queue.
+						</p>
+					</div>
+					<div className="tour-download-cards">
+						<article>
+							<div className="tour-download-platform">
+								<Smartphone aria-hidden="true" />
+								<span>
+									<small>FIELD + MOBILE</small>
+									<strong>Android</strong>
+								</span>
+							</div>
+							<p>
+								Use touch-first drawing, QR invitations, offline maps, and nearby collaboration from
+								a phone or tablet.
+							</p>
+							<div className="tour-download-actions">
+								<a className="tour-button tour-button-primary" href={EARTHLY_ZAPSTORE_URL}>
+									Get it on Zapstore
+									<ExternalLink aria-hidden="true" />
+								</a>
+								<a className="tour-text-link" href={EARTHLY_ANDROID_APK_URL}>
+									Download APK
+									<Download aria-hidden="true" />
+								</a>
+							</div>
+						</article>
+						<article>
+							<div className="tour-download-platform">
+								<Laptop aria-hidden="true" />
+								<span>
+									<small>DESKTOP + NATIVE</small>
+									<strong>macOS</strong>
+								</span>
+							</div>
+							<p>
+								Keep the full desktop workspace while adding local services, Field sessions, and
+								native offline storage on Apple silicon.
+							</p>
+							<div className="tour-download-actions">
+								<a className="tour-button tour-button-primary" href={EARTHLY_MACOS_DMG_URL}>
+									Download for macOS
+									<Download aria-hidden="true" />
+								</a>
+								<span>Apple silicon · unsigned preview</span>
+							</div>
+						</article>
 					</div>
 				</section>
 
