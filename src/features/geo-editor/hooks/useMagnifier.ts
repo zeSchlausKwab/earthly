@@ -17,7 +17,7 @@ export function useMagnifier(mapRef: React.RefObject<maplibregl.Map | null>) {
 	const [magnifierEnabled, setMagnifierEnabled] = useState(false)
 	const [magnifierVisible, setMagnifierVisible] = useState(false)
 	const [magnifierPosition, setMagnifierPosition] = useState({ x: 0, y: 0 })
-	const [magnifierCenter, setMagnifierCenter] = useState<[number, number]>([0, 0])
+	const [magnifierCenter, setMagnifierCenter] = useState<[number, number] | null>(null)
 	const [magnifierZoomOffset, setMagnifierZoomOffset] = useState(1)
 	const [magnifierMenuOpen, setMagnifierMenuOpen] = useState(false)
 	const magnifierLongPressTimerRef = useRef<number | null>(null)

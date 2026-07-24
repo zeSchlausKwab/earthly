@@ -6,8 +6,9 @@ The tour should explain Earthly through short, truthful product stories rather t
 checklist. Every film follows one person, starts with a recognizable need, performs the action in
 the real Earthly UI, and ends on a visible result on the map.
 
-The Donau Festival map is the recurring setting. It gives the films continuity while still allowing
-different perspectives: organizer, visitor, contributor, field crew, and editor.
+The first three films share the Donau Festival setting. New films deliberately rotate industries,
+continents, and terrain so Earthly reads as a general spatial tool rather than a festival-specific
+product. Vienna is retired as a setting for future recordings.
 
 ## Presentation model
 
@@ -116,52 +117,54 @@ representative connections, not official traffic-separation schemes.
 **Assets:** `hormuz-ports-shipping.mp4`, `hormuz-ports-shipping.webm`,
 `hormuz-ports-shipping-poster.png`.
 
-## Next production wave
-
 ### Film 06 — Draw precisely on a phone
 
-**Priority:** 1
+**Status:** Complete
 
-**Perspective:** Accessibility volunteer on mobile
+**Perspective:** Hiker on mobile
 
 **Hero candidate:** Yes
 
-**Readiness:** Product UI exists; touch-and-magnifier recording needs a focused proof
+**Readiness:** Real touch synthesis and the magnifier interaction are proven
 
-**Promise:** Detailed map work is practical in the field, even when a finger covers the exact point.
+**Promise:** Detailed map work stays practical on a remote trail, even without connectivity.
 
-Suggested story:
+Story:
 
-> A volunteer maps the accessible entrance beside a stage and traces the short approach route.
+> Near Refugio Chileno in Torres del Paine, a hiker marks a reported creek-crossing hazard
+> precisely and draws a safe detour for friends after the device goes offline.
 
 Beat sheet:
 
-1. Open the festival map already zoomed to the relevant stage and entrance.
-2. Start a small map edit or mobile Dataset draft.
+1. Open the saved W Trek area around the remote crossing.
+2. Start “W Trek · Friends offline map” as a mobile Dataset draft.
 3. Select the point or line drawing tool.
 4. Enable the magnifier.
-5. Use a real touch gesture so the magnifier follows the finger while the entrance or route is
-   placed precisely.
-6. Finish the geometry, label it “Accessible entrance,” and end on the saved result.
+5. Disconnect the browser and verify that the edit continues locally.
+6. Use real touch gestures so the magnifier follows the finger while “Creek crossing hazard” and
+   “Safe detour” are placed precisely.
+7. Finish on both geometries with the offline state still visible.
 
 **Visual requirement:** The magnifier must be unmistakably visible during placement. Do not replace
 it with a post-production circle or fake zoom. If Playwright touch synthesis cannot drive it
 faithfully, record this film through an Android emulator while keeping the same scripted scenario.
 
-**Chapter explanation:** Pan lock, magnifier zoom, mobile drawing tools, recoverable local drafts,
-and editing the same GeoJSON on phone and desktop.
+**Chapter explanation:** Pan lock, magnifier zoom, mobile drawing tools, offline basemaps,
+recoverable local drafts, and sharing the same GeoJSON when the group reconnects.
 
 **Automation foundation:** `create.start-dataset`, the mobile editor contract, and a new reusable
 touch-placement task only after the scratch recording proves the gesture.
 
-**Suggested assets:** `mobile-drawing-magnifier.mp4`, `mobile-drawing-magnifier.webm`,
+**Assets:** `mobile-drawing-magnifier.mp4`, `mobile-drawing-magnifier.webm`,
 `mobile-drawing-magnifier-poster.png`.
+
+## Next production wave
 
 ### Film 07 — Propose a better map
 
 **Priority:** 3
 
-**Perspective:** Mara contributes on mobile; the map owner reviews on desktop
+**Perspective:** Forestry contractor in the field; operations planner on desktop
 
 **Hero candidate:** No—feature chapter
 
@@ -171,17 +174,17 @@ touch-placement task only after the scratch recording proves the gesture.
 
 Suggested story:
 
-> Mara notices a missing water refill point. She adds it to a proposed copy of the festival map.
-> The organizer previews the exact geometry change and accepts it.
+> On Vancouver Island, a contractor finds a washed-out culvert on a logging road and proposes a
+> corrected access route. The operations planner previews the geometry change and accepts it.
 
 Beat sheet:
 
-1. Mara opens the published festival Dataset on her phone.
-2. She chooses to propose an edit and places the missing refill point.
-3. Cut to the organizer’s desktop with the incoming proposal.
+1. The contractor opens the published forestry operations Dataset on a phone.
+2. They place the blocked culvert and draw the usable road alignment in a proposed copy.
+3. Cut to the operations planner’s desktop with the incoming proposal.
 4. Preview the proposal so the new geometry is visually distinct from the canonical map.
 5. Accept it.
-6. End on the updated festival Dataset with the new point now canonical.
+6. End on the updated access map with the new point and road now canonical.
 
 **Chapter explanation:** Signed Nostr events, authorship, proposal status, preview before acceptance,
 and the difference between public collaboration and a private group.
@@ -197,7 +200,7 @@ should be proven before recording; desktop-to-desktop is the truthful fallback.
 
 **Priority:** 4
 
-**Perspective:** Festival editor on desktop; reader on mobile
+**Perspective:** Natural-history editor on desktop; student on mobile
 
 **Hero candidate:** No—feature chapter
 
@@ -207,15 +210,15 @@ should be proven before recording; desktop-to-desktop is the truthful fallback.
 
 Suggested story:
 
-> The editor publishes “Tonight at Donau Festival,” links the relevant stages and entrance map, and
-> a visitor opens the Story on a phone and jumps from the text to the place.
+> An editor publishes “Why the Galápagos Islands Evolved Differently,” links species and geology
+> layers, and a student jumps from an inline fact to the exact island on the map.
 
 Beat sheet:
 
 1. Create a Story with a title, short introduction, and one map reference.
 2. Publish it and transition into the reader view.
 3. Cut to mobile and open the same Story.
-4. Tap the referenced stage or Dataset.
+4. Tap a referenced species sighting or island Dataset.
 5. End with the map centered on that place while the Story remains the source of context.
 
 The longer chapter cut can add editorial collaboration: Mara proposes a corrected paragraph and
@@ -233,23 +236,23 @@ publishing, and proposal-based editing.
 
 **Priority:** 5
 
-**Perspective:** Festival field crew on Android
+**Perspective:** Disaster-response team on Android
 
 **Hero candidate:** Yes, once the native flow is proven
 
 **Readiness:** Host and nearby-destination behavior are covered; real multi-device transport needs
 proof before it is promised on film
 
-**Promise:** A crew can create and exchange spatial field records on a nearby network without
-depending on the public internet.
+**Promise:** A response team can create and exchange spatial field records on a nearby network
+without public internet or grid power.
 
 First truthful cut:
 
 1. Open Field sessions in the Android app.
-2. Start “Donau Festival setup crew.”
+2. Start “Efate cyclone response.”
 3. Make the “Nearby only” destination and host role clearly visible.
 4. Create a nearby Dataset.
-5. Draw a blocked entrance, temporary toilet, or safety point on the festival map.
+5. Draw a blocked road, water-distribution point, or medical station on the Efate response map.
 6. Leave the nearby destination and show that the ordinary public workspace remains separate.
 
 Full two-device cut, only after transport is proven:
@@ -270,6 +273,25 @@ the Android runtime when showing the local node itself.
 **Suggested assets:** `field-session-nearby.mp4`, `field-session-nearby.webm`,
 `field-session-nearby-poster.png`.
 
+## Canonical scenario palette
+
+These settings are the default source material for subsequent films. Locations should change only
+when the product flow needs geography that is more truthful or visually legible.
+
+| Scenario | Primary setting | Product story |
+| --- | --- | --- |
+| Logging company | Vancouver Island, Canada | Harvest blocks, access roads, culverts, machinery sightings, and field-to-office map proposals |
+| Maritime insurance analysis | Singapore and the Malacca Strait | Ports, vessel corridors, congestion and piracy exposure, claims annotations, and a sourced risk Story |
+| Festival organization | Roskilde, Denmark | Site planning, private crews, visitor facilities, temporary changes, and public participation |
+| Hiking tour with friends — offline | W Trek, Torres del Paine, Chile | Downloaded area, trail hazards, magnifier drawing, local drafts, and sharing after reconnection |
+| Delivery company | Mexico City, Mexico | Depot territories, delivery stops, traffic-aware route alternatives, failed-delivery notes, and dispatch collaboration |
+| Data science | Chicago, United States | Import public datasets, style and compare layers, derive spatial patterns, and publish a reproducible explainer |
+| Disaster relief — offline / no electricity | Efate, Vanuatu | Nearby field session, blocked roads, water and medical points, device-to-device exchange, and delayed publishing |
+| Map encyclopedia / education / trivia | Galápagos Islands, Ecuador | Linked Stories, species and geology layers, quiz-like map exploration, sources, and inline map references |
+| Real estate presentation | Lisbon, Portugal | Walking and transit isochrones, schools and amenities, commute comparisons, and a narrative property presentation |
+
+Avoid returning to Vienna in new recordings. Geographic variety is part of the product story.
+
 ## Additional scenario backlog
 
 These are good chapter films after the five requested feature stories:
@@ -282,9 +304,9 @@ without turning every observation into a permanent Dataset.
 
 ### Organize a festival Context
 
-An organizer gathers the site plan, program Story, accessibility map, and visitor reports into one
-Context. This explains how Earthly can present a coherent project without copying its underlying
-content.
+At Roskilde, an organizer gathers the site plan, program Story, accessibility map, and visitor
+reports into one Context. This explains how Earthly can present a coherent project without copying
+its underlying content.
 
 ### Share live location or a beacon
 
@@ -302,16 +324,18 @@ Publish a small map, inspect or copy its canonical link, and open it in a second
 film with a concise technical panel explaining GeoJSON, Nostr event signatures, relays, and why the
 content is not trapped in an Earthly account.
 
-## Recommended order
+## Recommended next order
 
-1. **Mobile drawing and magnifier proof.** It is the most visually distinctive remaining feature
-   and reveals early whether browser touch recording is sufficient or Android capture is required.
-2. **AI-assisted festival map.** The deterministic workflow exists and gives the tour a strong
-   headline feature.
-3. **Public map proposal.** Most of the cross-persona automation already exists.
-4. **Story to map.** Record creation and reading first; add editorial proposals to the longer cut.
-5. **Field session.** Produce the honest host-only cut first, then upgrade it when a real two-device
-   nearby exchange is demonstrably repeatable.
+1. **Logging map proposal.** Most of the cross-persona automation already exists and the
+   Vancouver Island setting naturally explains field-to-office review.
+2. **Maritime insurance analysis.** Build on the proven AI map workflow while shifting from
+   infrastructure inventory to risk reasoning around Singapore and the Malacca Strait.
+3. **Efate field session.** Produce the honest host-only cut first, then upgrade it when a real
+   two-device nearby exchange is demonstrably repeatable.
+4. **Galápagos Story to map.** Record creation and reading first; add editorial proposals to the
+   longer cut.
+5. **Lisbon real-estate presentation.** Pair isochrones and amenities with a polished Story once
+   the analysis flow is ready to record.
 
 After Films 04 and 05, reassess the hero order. A likely five-story slider is:
 

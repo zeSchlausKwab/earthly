@@ -47,6 +47,9 @@ test.describe('product tour route', () => {
 			'/static/tour/ai-belt-road-story.webm',
 			'/static/tour/hormuz-ports-shipping.mp4',
 			'/static/tour/hormuz-ports-shipping.webm',
+			'/static/tour/mobile-drawing-magnifier.mp4',
+			'/static/tour/mobile-drawing-magnifier.webm',
+			'/static/tour/mobile-drawing-magnifier-poster.png',
 		]) {
 			const response = await request.get(new URL(path, baseURL).toString())
 			expect(response.ok(), `${path} should be available`).toBe(true)
@@ -66,6 +69,7 @@ test.describe('product tour route', () => {
 		const privateStory = page.getByRole('tab', { name: /Work in private/ })
 		const aiStory = page.getByRole('tab', { name: /Ask Earthly/ })
 		const hormuzStory = page.getByRole('tab', { name: /Trace the routes/ })
+		const offlineDrawingStory = page.getByRole('tab', { name: /Draw offline/ })
 		const storyPanel = page.getByRole('tabpanel')
 
 		await expect(firstStory).toHaveAttribute('aria-selected', 'true')
@@ -108,6 +112,15 @@ test.describe('product tour route', () => {
 		await expect(
 			storyPanel.getByLabel(
 				'Earthly AI replacing internal Persian Gulf lanes with outbound shipping corridors through Hormuz to major global ports',
+			),
+		).toBeVisible()
+
+		await page.getByRole('button', { name: 'Next product film' }).click()
+		await expect(offlineDrawingStory).toHaveAttribute('aria-selected', 'true')
+		await expect(storyPanel).toContainText('Draw precisely—even offline.')
+		await expect(
+			storyPanel.getByLabel(
+				'Earthly mobile hiker drawing a creek-crossing hazard and safe detour offline with the live magnifier in Torres del Paine',
 			),
 		).toBeVisible()
 

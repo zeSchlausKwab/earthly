@@ -48,6 +48,15 @@ type HeroStory = {
 	frameLabel: string
 	id: string
 	kicker: string
+	mobileStory?: {
+		actions: Array<{
+			icon: typeof MapPin
+			label: string
+		}>
+		copy: string
+		eyebrow: string
+		title: string
+	}
 	tabLabel: string
 	tabMeta: string
 	title: string
@@ -93,6 +102,16 @@ const heroStories: HeroStory[] = [
 		title: 'Comment, attach, and share a point.',
 		description:
 			'The visitor opens a stage, adds a comment with an exact meeting point, and shares the place without losing its context.',
+		mobileStory: {
+			eyebrow: 'VISITOR MODE / MARA',
+			title: 'The conversation has coordinates.',
+			copy: 'Open the stage, attach a meeting point, and send the place itself.',
+			actions: [
+				{ icon: MessageCircle, label: 'Comment' },
+				{ icon: MapPin, label: 'Attach' },
+				{ icon: Share2, label: 'Share' },
+			],
+		},
 		chapterHref: '#participate',
 		chapterLabel: 'Follow the visitor',
 		video: {
@@ -166,6 +185,38 @@ const heroStories: HeroStory[] = [
 			mp4: 'hormuz-ports-shipping.mp4',
 			poster: 'hormuz-ports-shipping-poster.png',
 			webm: 'hormuz-ports-shipping.webm',
+		},
+	},
+	{
+		id: 'offline-trail-edit',
+		filmNumber: 'FILM 06',
+		format: 'mobile',
+		tabLabel: 'Draw offline',
+		tabMeta: 'Mobile magnifier',
+		frameLabel: 'Offline field edit',
+		frameCode: 'MOBILE · TOUCH + MAGNIFIER',
+		kicker: 'Keep mapping beyond the signal',
+		title: 'Draw precisely—even offline.',
+		description:
+			'Near Refugio Chileno in Torres del Paine, a hiker disconnects, marks a creek-crossing hazard with the live magnifier, and traces a safe detour for friends.',
+		mobileStory: {
+			eyebrow: 'W TREK / TORRES DEL PAINE',
+			title: 'A safer trail starts under your finger.',
+			copy: 'Lose the signal, keep the map, and place the detail exactly where your group needs it.',
+			actions: [
+				{ icon: WifiOff, label: 'Offline' },
+				{ icon: MapPin, label: 'Magnify' },
+				{ icon: Route, label: 'Detour' },
+			],
+		},
+		chapterHref: '#create',
+		chapterLabel: 'Explore mobile mapmaking',
+		video: {
+			label:
+				'Earthly mobile hiker drawing a creek-crossing hazard and safe detour offline with the live magnifier in Torres del Paine',
+			mp4: 'mobile-drawing-magnifier.mp4',
+			poster: 'mobile-drawing-magnifier-poster.png',
+			webm: 'mobile-drawing-magnifier.webm',
 		},
 	},
 ]
@@ -319,6 +370,7 @@ function ProductFilm({ className, label, mp4, poster, webm }: ProductFilmProps) 
 }
 
 function HeroStoryFilm({ story }: { story: HeroStory }) {
+	const mobileStory = story.mobileStory
 	return (
 		<div className="tour-media-frame tour-media-frame-desktop">
 			<div className="tour-media-bar">
@@ -338,22 +390,16 @@ function HeroStoryFilm({ story }: { story: HeroStory }) {
 			) : (
 				<div className="tour-hero-mobile-film">
 					<div className="tour-hero-mobile-story">
-						<span>VISITOR MODE / MARA</span>
-						<strong>The conversation has coordinates.</strong>
-						<p>Open the stage, attach a meeting point, and send the place itself.</p>
-						<ul aria-label="Mobile visitor actions">
-							<li>
-								<MessageCircle aria-hidden="true" />
-								Comment
-							</li>
-							<li>
-								<MapPin aria-hidden="true" />
-								Attach
-							</li>
-							<li>
-								<Share2 aria-hidden="true" />
-								Share
-							</li>
+						<span>{mobileStory?.eyebrow}</span>
+						<strong>{mobileStory?.title}</strong>
+						<p>{mobileStory?.copy}</p>
+						<ul aria-label={`${story.tabLabel} actions`}>
+							{mobileStory?.actions.map(({ icon: Icon, label }) => (
+								<li key={label}>
+									<Icon aria-hidden="true" />
+									{label}
+								</li>
+							))}
 						</ul>
 					</div>
 					<div className="tour-hero-mobile-device">
@@ -617,7 +663,7 @@ export function TourPage() {
 					<div className="tour-hero-copy">
 						<p className="tour-eyebrow">
 							<span>Earthly field guide</span>
-							<span>01—05</span>
+							<span>01—06</span>
 						</p>
 						<h1 id="tour-heading">
 							Maps become <br />
@@ -640,8 +686,8 @@ export function TourPage() {
 						<div className="tour-hero-coordinate">
 							<MapPin aria-hidden="true" />
 							<span>
-								DONAUINSEL, VIENNA
-								<small>48.246° N · 16.397° E</small>
+								FIELD TO GLOBAL
+								<small>LOCAL-FIRST · OPEN GEOGRAPHY</small>
 							</span>
 						</div>
 					</div>
