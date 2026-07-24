@@ -1,4 +1,4 @@
-import { bearing, featureCollection, centerOfMass } from '@turf/turf'
+import { bearing, distance, featureCollection, centerOfMass } from '@turf/turf'
 import type { Feature, FeatureCollection, Position } from 'geojson'
 import type {
 	MapGeoJSONFeature,
@@ -32,7 +32,9 @@ import type {
 	EditorFeature,
 	EditorMode,
 	GeoEditorOptions,
+	PrimitiveShape,
 } from './types'
+import { collectLineArrowFeatures } from '../utils/lineArrows'
 
 type ScreenPoint = { x: number; y: number }
 type PointerOffset = { x: number; y: number }
@@ -43,13 +45,14 @@ interface SelectionDragState {
 	hasMoved: boolean
 }
 
-type TransformDragType = 'rotate' | 'move'
+type TransformDragType = 'rotate' | 'move' | 'scale'
 
 interface TransformDragState {
 	type: TransformDragType
 	center: Position
 	startPointer: Position
 	startBearing?: number
+	startDistance?: number
 	baseFeatures: EditorFeature[]
 	lastFeatures?: EditorFeature[]
 	dragPanWasEnabled: boolean
@@ -267,11 +270,19 @@ export class GeoEditor {
 		this.map.on('mouseleave', this.layers.LAYER_GIZMO_MOVE, () => {
 			this.map.getCanvas().style.cursor = ''
 		})
+		this.map.on('mouseenter', this.layers.LAYER_GIZMO_SCALE, () => {
+			this.map.getCanvas().style.cursor = 'nwse-resize'
+		})
+		this.map.on('mouseleave', this.layers.LAYER_GIZMO_SCALE, () => {
+			this.map.getCanvas().style.cursor = ''
+		})
 
 		// Cursor feedback for selectable features in select mode
 		const selectableLayers = [
 			this.layers.LAYER_FILL,
 			this.layers.LAYER_LINE,
+			this.layers.LAYER_LINE_DASHED,
+			this.layers.LAYER_LINE_DOTTED,
 			this.layers.LAYER_POINT,
 			this.layers.LAYER_POINT_ICON,
 			this.layers.LAYER_ANNOTATION_ANCHOR,
@@ -354,6 +365,8 @@ export class GeoEditor {
 			layers: [
 				this.layers.LAYER_FILL,
 				this.layers.LAYER_LINE,
+				this.layers.LAYER_LINE_DASHED,
+				this.layers.LAYER_LINE_DOTTED,
 				this.layers.LAYER_POINT,
 				this.layers.LAYER_POINT_ICON,
 				this.layers.LAYER_ANNOTATION_ANCHOR,
@@ -426,6 +439,8 @@ export class GeoEditor {
 				layers: [
 					this.layers.LAYER_FILL,
 					this.layers.LAYER_LINE,
+					this.layers.LAYER_LINE_DASHED,
+					this.layers.LAYER_LINE_DOTTED,
 					this.layers.LAYER_POINT,
 					this.layers.LAYER_POINT_ICON,
 				],
@@ -832,7 +847,11 @@ export class GeoEditor {
 	private tryStartTransformDrag(e: MapMouseEvent): boolean {
 		if (this.mode !== 'select') return false
 		const gizmoFeatures = this.map.queryRenderedFeatures(e.point, {
-			layers: [this.layers.LAYER_GIZMO_ROTATE, this.layers.LAYER_GIZMO_MOVE],
+			layers: [
+				this.layers.LAYER_GIZMO_ROTATE,
+				this.layers.LAYER_GIZMO_MOVE,
+				this.layers.LAYER_GIZMO_SCALE,
+			],
 		})
 
 		if (gizmoFeatures.length === 0) return false
@@ -847,6 +866,11 @@ export class GeoEditor {
 		}
 		if (meta === 'gizmo-move') {
 			this.startTransformDrag('move', pointer)
+			e.preventDefault()
+			return true
+		}
+		if (meta === 'gizmo-scale') {
+			this.startTransformDrag('scale', pointer)
 			e.preventDefault()
 			return true
 		}
@@ -868,6 +892,7 @@ export class GeoEditor {
 			center,
 			startPointer: pointer,
 			startBearing: type === 'rotate' ? bearing(center, pointer) : undefined,
+			startDistance: type === 'scale' ? distance(center, pointer) : undefined,
 			baseFeatures,
 			dragPanWasEnabled,
 		}
@@ -893,6 +918,13 @@ export class GeoEditor {
 			const angleDelta = currentBearing - startBearing
 			updatedFeatures = state.baseFeatures.map((feature) =>
 				this.transform.rotate(feature, { center: state.center, angle: angleDelta }),
+			)
+		} else if (state.type === 'scale') {
+			const startDistance = state.startDistance ?? distance(state.center, state.startPointer)
+			const currentDistance = distance(state.center, pointer)
+			const scale = Math.min(20, Math.max(0.05, currentDistance / Math.max(startDistance, 1e-9)))
+			updatedFeatures = state.baseFeatures.map((feature) =>
+				this.transform.scale(feature, { center: state.center, scale }),
 			)
 		} else {
 			updatedFeatures = state.baseFeatures.map((feature) =>
@@ -939,6 +971,7 @@ export class GeoEditor {
 
 	setMode(mode: EditorMode): void {
 		const previousMode = this.mode
+		if (mode === 'draw_linestring') this.drawLineMode.setArrowDefaults({})
 		this.mode = mode
 
 		if (previousMode !== mode && this.isDrawMode(previousMode)) {
@@ -982,6 +1015,97 @@ export class GeoEditor {
 
 	getMode(): EditorMode {
 		return this.mode
+	}
+
+	startArrowDrawing(placement: 'start' | 'end' | 'both' = 'end'): void {
+		this.setMode('draw_linestring')
+		this.drawLineMode.setArrowDefaults({
+			arrowStart: placement === 'start' || placement === 'both',
+			arrowEnd: placement === 'end' || placement === 'both',
+		})
+		this.emitDrawChange()
+		this.render()
+	}
+
+	/**
+	 * Insert a screen-sized primitive at the viewport center, then select it so
+	 * the move/rotate/scale gizmo is immediately available.
+	 */
+	insertPrimitive(shape: PrimitiveShape): EditorFeature {
+		const canvas = this.map.getCanvas()
+		const centerX = Math.max(1, canvas.clientWidth || canvas.width || 800) / 2
+		const centerY = Math.max(1, canvas.clientHeight || canvas.height || 600) / 2
+		const toPosition = (x: number, y: number): Position => {
+			const lngLat = this.map.unproject([x, y])
+			return [lngLat.lng, lngLat.lat]
+		}
+		const close = (coordinates: Position[]): Position[] => [
+			...coordinates,
+			coordinates[0] as Position,
+		]
+		let coordinates: Position[]
+
+		switch (shape) {
+			case 'rectangle':
+				coordinates = close([
+					toPosition(centerX - 70, centerY - 42),
+					toPosition(centerX + 70, centerY - 42),
+					toPosition(centerX + 70, centerY + 42),
+					toPosition(centerX - 70, centerY + 42),
+				])
+				break
+			case 'triangle':
+				coordinates = close([
+					toPosition(centerX, centerY - 64),
+					toPosition(centerX + 62, centerY + 48),
+					toPosition(centerX - 62, centerY + 48),
+				])
+				break
+			case 'diamond':
+				coordinates = close([
+					toPosition(centerX, centerY - 62),
+					toPosition(centerX + 62, centerY),
+					toPosition(centerX, centerY + 62),
+					toPosition(centerX - 62, centerY),
+				])
+				break
+			case 'circle':
+				coordinates = close(
+					Array.from({ length: 48 }, (_, index) => {
+						const angle = (index / 48) * Math.PI * 2
+						return toPosition(centerX + Math.cos(angle) * 58, centerY + Math.sin(angle) * 58)
+					}),
+				)
+				break
+			case 'square':
+			default:
+				coordinates = close([
+					toPosition(centerX - 55, centerY - 55),
+					toPosition(centerX + 55, centerY - 55),
+					toPosition(centerX + 55, centerY + 55),
+					toPosition(centerX - 55, centerY + 55),
+				])
+		}
+
+		const feature: EditorFeature = {
+			type: 'Feature',
+			id: crypto.randomUUID(),
+			geometry: { type: 'Polygon', coordinates: [coordinates] },
+			properties: {
+				meta: 'feature',
+				primitiveShape: shape,
+				fillColor: '#1d4ed8',
+				fillOpacity: 0.15,
+				strokeColor: '#1d4ed8',
+				strokeWidth: 2,
+			},
+		}
+		this.addFeature(feature)
+		this.selection.clearSelection()
+		this.selection.select(feature.id)
+		this.setMode('select')
+		this.emit('selection.change', { type: 'selection.change', features: [feature] })
+		return feature
 	}
 
 	toggleSnapping(): boolean {
@@ -1982,6 +2106,7 @@ export class GeoEditor {
 		const currentDrawFeature =
 			this.drawLineMode.getCurrentFeature() || this.drawPolygonMode.getCurrentFeature()
 		if (currentDrawFeature) features.push(currentDrawFeature as Feature)
+		features.push(...collectLineArrowFeatures(features))
 		return { type: 'FeatureCollection', features }
 	}
 

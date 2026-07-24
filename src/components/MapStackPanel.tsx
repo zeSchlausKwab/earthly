@@ -401,7 +401,7 @@ function EntryRow({
 		// biome-ignore lint/a11y/noStaticElementInteractions: drag-to-reorder container; all click targets inside are real buttons, and reordering stays reachable via the row action buttons for keyboard users.
 		<div
 			className={cn(
-				'group relative flex cursor-grab flex-col rounded-md border bg-card transition-colors active:cursor-grabbing',
+				'group relative flex flex-col rounded-md border bg-card transition-colors',
 				isolated
 					? 'border-primary/40 bg-primary/10 shadow-[inset_3px_0_0_0] shadow-primary'
 					: 'border-border',
@@ -409,11 +409,6 @@ function EntryRow({
 				isReorderTarget && 'border-info/40 shadow-[0_-2px_0_0] shadow-info',
 			)}
 			data-isolated={isolated ? 'true' : undefined}
-			draggable
-			onDragStart={(event) => {
-				event.dataTransfer.setData(STACK_REORDER_MIME, entry.id)
-				event.dataTransfer.effectAllowed = 'move'
-			}}
 			onDragOver={(event) => {
 				if (!hasStackReorderData(event)) return
 				event.preventDefault()
@@ -434,9 +429,10 @@ function EntryRow({
 			}}
 		>
 			<div className={cn('flex items-start', compact ? 'gap-1.5 p-1 pl-1.5' : 'gap-2 p-2 pl-2.5')}>
-				<div
+				<button
+					type="button"
 					className={cn(
-						'flex shrink-0 items-center justify-center rounded-md',
+						'flex shrink-0 cursor-grab items-center justify-center rounded-md active:cursor-grabbing',
 						entry.entityType === 'draft'
 							? 'bg-ok/15 text-ok'
 							: isolated
@@ -444,6 +440,13 @@ function EntryRow({
 								: 'bg-muted text-muted-foreground',
 						compact ? 'mt-0.5 h-6 w-6' : 'mt-1 h-7 w-7',
 					)}
+					draggable
+					onDragStart={(event) => {
+						event.dataTransfer.setData(STACK_REORDER_MIME, entry.id)
+						event.dataTransfer.effectAllowed = 'move'
+					}}
+					title="Drag to reorder"
+					aria-label={`Drag ${displayTitle} to reorder`}
 				>
 					{entry.entityType === 'dataset' ? (
 						<Database className={actionIconClassName} />
@@ -462,7 +465,7 @@ function EntryRow({
 					) : (
 						<Layers className={actionIconClassName} />
 					)}
-				</div>
+				</button>
 				<div className="min-w-0 flex-1">
 					<div className="flex min-w-0 items-center gap-1.5">
 						<div

@@ -57,6 +57,8 @@ const CANVAS_PADDING_PX = SDF_RADIUS_PX * (1 - SDF_CUTOFF)
 const CANVAS_SIZE_PX = GLYPH_RASTER_PX + CANVAS_PADDING_PX * 2
 /** Raster radius of the fallback dot (rendered ≈ 4px at the default radius 6). */
 const FALLBACK_DOT_RADIUS_PX = 28
+/** SDF image used by line endpoint symbol layers. */
+export const LINE_ARROW_IMAGE_ID = 'earthly:line-arrowhead'
 
 /** Rasterized-icon cache shared across maps and style reloads. */
 const rasterizedIconCache = new Map<string, Promise<ImageData | null>>()
@@ -65,6 +67,7 @@ const rasterizedIconCache = new Map<string, Promise<ImageData | null>>()
 const ownedImageIds = new WeakMap<MapLibreMap, Set<string>>()
 
 let fallbackImageData: ImageData | null | undefined
+let lineArrowImageData: ImageData | null | undefined
 
 function canRasterize(): boolean {
 	return typeof document !== 'undefined' && typeof Image !== 'undefined'
@@ -144,6 +147,31 @@ function getFallbackMarkerImageData(): ImageData | null {
 	return fallbackImageData
 }
 
+/**
+ * A north-pointing filled arrowhead whose tip sits at the image anchor. MapLibre
+ * rotates the image by the endpoint bearing; keeping the tip at the anchor
+ * makes the arrow terminate exactly at the LineString coordinate.
+ */
+function getLineArrowImageData(): ImageData | null {
+	if (lineArrowImageData !== undefined) return lineArrowImageData
+	if (!canRasterize()) return null
+
+	const drawn = createCanvas(CANVAS_SIZE_PX)
+	if (!drawn) return null
+
+	const center = CANVAS_SIZE_PX / 2
+	drawn.ctx.beginPath()
+	drawn.ctx.moveTo(center, center)
+	drawn.ctx.lineTo(center - 23, center + 34)
+	drawn.ctx.lineTo(center + 23, center + 34)
+	drawn.ctx.closePath()
+	drawn.ctx.fillStyle = '#000'
+	drawn.ctx.fill()
+
+	lineArrowImageData = sdfImageDataFromCanvas(drawn.ctx, CANVAS_SIZE_PX)
+	return lineArrowImageData
+}
+
 function getOwnedIds(map: MapLibreMap): Set<string> {
 	let owned = ownedImageIds.get(map)
 	if (!owned) {
@@ -198,6 +226,8 @@ function rasterizeBundledIcon(id: string): Promise<ImageData | null> {
  */
 export function registerDisplayIconImages(map: MapLibreMap): void {
 	registerFallbackIconImage(map)
+	const arrowData = getLineArrowImageData()
+	if (arrowData) addOrReplaceImage(map, LINE_ARROW_IMAGE_ID, arrowData, true)
 	if (!canRasterize()) return
 
 	for (const id of BUNDLED_DISPLAY_ICON_IDS) {
@@ -222,6 +252,11 @@ export function registerDisplayIconImages(map: MapLibreMap): void {
  * was handled, false when the generic handler should take over.
  */
 export function handleMissingDisplayIconImage(map: MapLibreMap, id: string): boolean {
+	if (id === LINE_ARROW_IMAGE_ID) {
+		const arrowData = getLineArrowImageData()
+		if (arrowData) addOrReplaceImage(map, id, arrowData, true)
+		return true
+	}
 	if (id !== FALLBACK_ICON_IMAGE_ID && !id.startsWith(`${LUCIDE_NAMESPACE}:`)) return false
 
 	const data = getFallbackMarkerImageData()

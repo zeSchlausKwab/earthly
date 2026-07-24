@@ -15,6 +15,7 @@ import {
 	ShieldCheck,
 	ShieldMinus,
 	ShieldPlus,
+	Trash2,
 	UserMinus,
 	UserPlus,
 	UsersRound,
@@ -28,6 +29,7 @@ import {
 	GlyphTile,
 	ListPanel,
 	ListRow,
+	RowActionButton,
 	RowBadge,
 } from '@/components/entity-list'
 import { SignedOutCta } from '@/features/auth/SignedOutCta'
@@ -427,6 +429,22 @@ export function PrivateGroupsPanel({
 			toast.success(administrator ? 'Member promoted to administrator' : 'Administrator demoted')
 		})
 
+	const handleDeleteWorkspace = (workspaceId: string, workspaceName: string) => {
+		if (
+			!window.confirm(
+				`Delete "${workspaceName}" from this device? This removes the local encrypted state and cannot erase copies held by other members.`,
+			)
+		) {
+			return
+		}
+		void run('delete private group', async () => {
+			if (!runtime) return
+			await runtime.perform((workspaceService) => workspaceService.deleteWorkspace(workspaceId))
+			if (privateGroupId === workspaceId) navigateToView('private-groups')
+			toast.success('Private group deleted from this device')
+		})
+	}
+
 	if (!activeAccount) {
 		return (
 			<div className="p-2">
@@ -812,6 +830,26 @@ export function PrivateGroupsPanel({
 											decrypted.
 										</p>
 									</section>
+									<section className="space-y-2 border-t border-border pt-3">
+										<p className="text-[10px] leading-relaxed text-muted-foreground">
+											Deleting removes this installation’s encrypted copy. It cannot erase records
+											already received by the coordinator or other members.
+										</p>
+										<Button
+											variant="destructive"
+											size="sm"
+											className="w-full"
+											disabled={Boolean(busy)}
+											onClick={() =>
+												handleDeleteWorkspace(
+													selected.workspaceId,
+													selected.metadata?.name ?? 'Private group',
+												)
+											}
+										>
+											<Trash2 /> Delete from this device
+										</Button>
+									</section>
 								</TabsContent>
 							</Tabs>
 						</div>
@@ -1003,6 +1041,20 @@ export function PrivateGroupsPanel({
 								</>
 							}
 							note={workspace.metadata?.description || 'MLS-protected map workspace'}
+							actions={
+								<RowActionButton
+									icon={Trash2}
+									label={`Delete ${workspace.metadata?.name ?? 'private group'} from this device`}
+									hover="hover:text-destructive"
+									disabled={Boolean(busy)}
+									onClick={() =>
+										handleDeleteWorkspace(
+											workspace.workspaceId,
+											workspace.metadata?.name ?? 'Private group',
+										)
+									}
+								/>
+							}
 						/>
 					))}
 				</div>

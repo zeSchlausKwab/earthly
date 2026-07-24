@@ -18,6 +18,7 @@ import {
 	ShieldCheck,
 	Smartphone,
 	Square,
+	Trash2,
 	UploadCloud,
 	UserPlus,
 	Users,
@@ -501,6 +502,34 @@ export function FieldSessionsPanel({
 				toast.success('Field session removed from this device')
 			}
 		})
+
+	const deleteSession = () => {
+		if (!selected) return
+		if (
+			!window.confirm(
+				`Delete "${selected.name}" from this device? Nearby records stored by other devices are not erased.`,
+			)
+		) {
+			return
+		}
+		void run('delete', async () => {
+			if (!service) return
+			if (selected.role === 'host') {
+				if (
+					selected.state === 'active' &&
+					'descriptor' in status &&
+					status.descriptor.scope === 'local-network'
+				) {
+					setStatus(await service.disableLan())
+				}
+			} else {
+				await service.forgetRemoteNode(selected.hostNodeId)
+			}
+			removeFieldSession(selected.id)
+			navigateToView('field-sessions')
+			toast.success('Field session deleted from this device')
+		})
+	}
 
 	if (!service || status.state === 'starting') {
 		return (
@@ -1093,8 +1122,16 @@ export function FieldSessionsPanel({
 						Approved installations authenticate to the field host. Use a Private group when records
 						require end-to-end group encryption.
 					</div>
-					<Button variant="destructive" className="w-full" onClick={() => void stopSession()}>
+					<Button variant="outline" className="w-full" onClick={() => void stopSession()}>
 						<Square /> {selected.role === 'host' ? 'End on this device' : 'Leave this session'}
+					</Button>
+					<Button
+						variant="destructive"
+						className="w-full"
+						onClick={deleteSession}
+						disabled={operation !== null}
+					>
+						<Trash2 /> Delete from this device
 					</Button>
 				</TabsContent>
 			</Tabs>

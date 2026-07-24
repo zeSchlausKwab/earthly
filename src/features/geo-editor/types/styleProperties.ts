@@ -31,6 +31,8 @@ export interface LineStringStyleProperties {
 	strokeWidth: number
 	strokeOpacity: number
 	lineDash: 'solid' | 'dashed' | 'dotted'
+	arrowStart: boolean
+	arrowEnd: boolean
 	label?: string
 }
 
@@ -66,6 +68,8 @@ export const STYLE_PROPERTY_KEYS: StylePropertyKey[] = [
 	'fillOpacity',
 	'strokeOpacity',
 	'lineDash',
+	'arrowStart',
+	'arrowEnd',
 	'label',
 	'displayIcon',
 ]
@@ -90,6 +94,8 @@ export const DEFAULT_LINESTRING_STYLE: LineStringStyleProperties = {
 	strokeWidth: 2,
 	strokeOpacity: 1,
 	lineDash: 'solid',
+	arrowStart: false,
+	arrowEnd: false,
 }
 
 export const DEFAULT_POLYGON_STYLE: PolygonStyleProperties = {

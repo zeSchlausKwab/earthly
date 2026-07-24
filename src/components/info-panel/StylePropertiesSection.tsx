@@ -5,7 +5,6 @@ import {
 	DEFAULT_POINT_STYLE,
 	DEFAULT_POLYGON_STYLE,
 	getGeometryCategory,
-	type GeometryCategory,
 } from '@/features/geo-editor/types/styleProperties'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { Button } from '../ui/button'
@@ -48,6 +47,16 @@ export function StylePropertiesSection({ feature }: StylePropertiesSectionProps)
 		editor.updateFeature(feature.id, { ...feature, properties: nextProperties })
 	}
 
+	const onArrowheadsChange = (value: 'none' | 'start' | 'end' | 'both') => {
+		if (!editor) return
+		const nextProperties = { ...feature.properties }
+		if (value === 'start' || value === 'both') nextProperties.arrowStart = true
+		else delete nextProperties.arrowStart
+		if (value === 'end' || value === 'both') nextProperties.arrowEnd = true
+		else delete nextProperties.arrowEnd
+		editor.updateFeature(feature.id, { ...feature, properties: nextProperties })
+	}
+
 	const resetToDefaults = () => {
 		if (!editor) return
 		const defaults =
@@ -62,7 +71,7 @@ export function StylePropertiesSection({ feature }: StylePropertiesSectionProps)
 			...defaults,
 			label: undefined,
 		}
-		delete nextProperties.displayIcon
+		delete (nextProperties as Record<string, unknown>).displayIcon
 
 		editor.updateFeature(feature.id, {
 			...feature,
@@ -94,7 +103,11 @@ export function StylePropertiesSection({ feature }: StylePropertiesSectionProps)
 			)}
 
 			{category === 'LineString' && (
-				<LineStringStyleControls feature={feature} onStyleChange={onStyleChange} />
+				<LineStringStyleControls
+					feature={feature}
+					onStyleChange={onStyleChange}
+					onArrowheadsChange={onArrowheadsChange}
+				/>
 			)}
 
 			{category === 'Polygon' && (
@@ -186,10 +199,20 @@ function PointStyleControls({
 function LineStringStyleControls({
 	feature,
 	onStyleChange,
+	onArrowheadsChange,
 }: {
 	feature: EditorFeature
 	onStyleChange: (key: string, value: string | number) => void
+	onArrowheadsChange: (value: 'none' | 'start' | 'end' | 'both') => void
 }) {
+	const arrowheads =
+		feature.properties?.arrowStart && feature.properties?.arrowEnd
+			? 'both'
+			: feature.properties?.arrowStart
+				? 'start'
+				: feature.properties?.arrowEnd
+					? 'end'
+					: 'none'
 	return (
 		<div className="space-y-1.5">
 			{/* Color & Pattern Row */}
@@ -242,6 +265,21 @@ function LineStringStyleControls({
 						onChange={(e) => onStyleChange('strokeOpacity', Number(e.target.value))}
 					/>
 				</div>
+			</div>
+			<div className="flex items-center gap-1">
+				<span className="w-12 text-[10px] text-muted-foreground">Arrows</span>
+				<select
+					className="h-6 flex-1 rounded border border-border bg-card px-1 text-xs"
+					value={arrowheads}
+					onChange={(event) =>
+						onArrowheadsChange(event.target.value as 'none' | 'start' | 'end' | 'both')
+					}
+				>
+					<option value="none">None</option>
+					<option value="end">End</option>
+					<option value="start">Start</option>
+					<option value="both">Both ends</option>
+				</select>
 			</div>
 		</div>
 	)

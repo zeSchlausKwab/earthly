@@ -53,6 +53,9 @@ export const CANONICAL_STYLE_KEYS = [
 	'strokeOpacity',
 	'strokeWidth',
 	'radius',
+	'lineDash',
+	'arrowStart',
+	'arrowEnd',
 	'label',
 	'displayIcon',
 	'name',
@@ -75,6 +78,8 @@ const OPACITY_KEYS = new Set(['fillOpacity', 'strokeOpacity'])
 const POSITIVE_NUMBER_KEYS = new Set(['strokeWidth', 'radius'])
 /** Canonical keys whose value must be a string (metadata / label). */
 const STRING_KEYS = new Set(['label', 'name', 'description'])
+const LINE_DASH_KEYS = new Set(['lineDash'])
+const BOOLEAN_KEYS = new Set(['arrowStart', 'arrowEnd'])
 
 /**
  * Style + metadata options accepted by `makeCircle` / `makeBuffer` (alongside
@@ -95,6 +100,12 @@ export interface FeatureStyleOptions {
 	strokeWidth?: number
 	/** Point radius (px), > 0. */
 	radius?: number
+	/** Line pattern. */
+	lineDash?: 'solid' | 'dashed' | 'dotted'
+	/** Render an outward-facing arrowhead at the line start. */
+	arrowStart?: boolean
+	/** Render an arrowhead at the line end. */
+	arrowEnd?: boolean
 	/** Feature label text rendered on the map. */
 	label?: string
 	/**
@@ -119,7 +130,7 @@ const ACCEPTED_OPTION_NAMES = [...CANONICAL_STYLE_KEYS, ...ALIAS_OPTION_KEYS]
  */
 const RESERVED_PRIMITIVE_KEYS = new Set(['units', 'steps'])
 
-function validateValue(canonicalKey: string, value: unknown): string | number {
+function validateValue(canonicalKey: string, value: unknown): string | number | boolean {
 	if (canonicalKey === 'displayIcon') {
 		// Namespaced icon id — must be a bundled `lucide:<name>` (Phase 1). The
 		// dedicated validator's message names the format, flags that remote
@@ -154,6 +165,22 @@ function validateValue(canonicalKey: string, value: unknown): string | number {
 		}
 		return value
 	}
+	if (LINE_DASH_KEYS.has(canonicalKey)) {
+		if (value !== 'solid' && value !== 'dashed' && value !== 'dotted') {
+			throw new InvalidStyleOptionError(
+				`Style option '${canonicalKey}' must be 'solid', 'dashed', or 'dotted' (got ${String(value)}).`,
+			)
+		}
+		return value
+	}
+	if (BOOLEAN_KEYS.has(canonicalKey)) {
+		if (typeof value !== 'boolean') {
+			throw new InvalidStyleOptionError(
+				`Style option '${canonicalKey}' must be a boolean (got ${String(value)}).`,
+			)
+		}
+		return value
+	}
 	// Should be unreachable: every canonical key is in exactly one validator set.
 	throw new InvalidStyleOptionError(`Unsupported style option '${canonicalKey}'.`)
 }
@@ -174,8 +201,8 @@ function validateValue(canonicalKey: string, value: unknown): string | number {
  */
 export function normalizeStyleOptions(
 	options: Record<string, unknown> = {},
-): Record<string, string | number> {
-	const out: Record<string, string | number> = {}
+): Record<string, string | number | boolean> {
+	const out: Record<string, string | number | boolean> = {}
 
 	for (const [rawKey, value] of Object.entries(options)) {
 		if (RESERVED_PRIMITIVE_KEYS.has(rawKey)) continue

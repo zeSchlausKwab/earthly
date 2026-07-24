@@ -1,5 +1,10 @@
 import type { FeatureCollection } from 'geojson'
-import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl'
+import type {
+	FilterSpecification,
+	GeoJSONSource,
+	LineLayerSpecification,
+	Map as MapLibreMap,
+} from 'maplibre-gl'
 import {
 	displayIconColorExpression,
 	displayIconDiscRadiusExpression,
@@ -9,6 +14,7 @@ import {
 	pointLabelAnchorExpression,
 	pointLabelRadialOffsetExpression,
 } from '../../icons/displayIcon'
+import { LINE_ARROW_IMAGE_ID } from '../../icons/registerDisplayIconImages'
 
 const FALLBACK_TEXT_FONT_STACK = ['Open Sans Regular', 'Arial Unicode MS Regular']
 
@@ -33,6 +39,9 @@ export class LayerManager {
 
 	// Layer IDs
 	readonly LAYER_LINE = 'geo-editor-line'
+	readonly LAYER_LINE_DASHED = 'geo-editor-line-dashed'
+	readonly LAYER_LINE_DOTTED = 'geo-editor-line-dotted'
+	readonly LAYER_LINE_ARROW = 'geo-editor-line-arrow'
 	readonly LAYER_FILL = 'geo-editor-fill'
 	readonly LAYER_POINT = 'geo-editor-point'
 	readonly LAYER_POINT_ICON = 'geo-editor-point-icon'
@@ -49,6 +58,7 @@ export class LayerManager {
 	readonly LAYER_GIZMO_CENTER = 'geo-editor-gizmo-center'
 	readonly LAYER_GIZMO_ROTATE = 'geo-editor-gizmo-rotate'
 	readonly LAYER_GIZMO_MOVE = 'geo-editor-gizmo-move'
+	readonly LAYER_GIZMO_SCALE = 'geo-editor-gizmo-scale'
 	readonly LAYER_CURSOR = 'geo-editor-cursor'
 
 	onAdd(map: MapLibreMap): void {
@@ -252,6 +262,7 @@ export class LayerManager {
 							['==', ['geometry-type'], 'MultiPolygon'],
 						],
 						['any', ['==', ['get', 'meta'], 'feature'], ['==', ['get', 'meta'], 'feature-temp']],
+						['any', ['!', ['has', 'lineDash']], ['==', ['get', 'lineDash'], 'solid']],
 					],
 					paint: {
 						'line-color': [
@@ -267,6 +278,109 @@ export class LayerManager {
 							['coalesce', ['get', 'strokeWidth'], 2],
 						],
 						'line-opacity': ['coalesce', ['get', 'strokeOpacity'], 1],
+					},
+				})
+			}
+
+			// Dash arrays cannot reliably be driven by a data expression in MapLibre,
+			// so each pattern gets a layer with a fixed `line-dasharray`.
+			const patternedLinePaint: NonNullable<LineLayerSpecification['paint']> = {
+				'line-color': [
+					'case',
+					['==', ['get', 'active'], true],
+					'#1d4ed8',
+					['coalesce', ['get', 'strokeColor'], ['get', 'color'], '#3bb2d0'],
+				],
+				'line-width': [
+					'case',
+					['==', ['get', 'active'], true],
+					4,
+					['coalesce', ['get', 'strokeWidth'], 2],
+				],
+				'line-opacity': ['coalesce', ['get', 'strokeOpacity'], 1],
+			}
+			const patternedLineGeometryFilter: FilterSpecification = [
+				'any',
+				['==', ['geometry-type'], 'LineString'],
+				['==', ['geometry-type'], 'Polygon'],
+				['==', ['geometry-type'], 'MultiLineString'],
+				['==', ['geometry-type'], 'MultiPolygon'],
+			]
+			const patternedLineMetaFilter: FilterSpecification = [
+				'any',
+				['==', ['get', 'meta'], 'feature'],
+				['==', ['get', 'meta'], 'feature-temp'],
+			]
+
+			if (!this.map.getLayer(this.LAYER_LINE_DASHED)) {
+				this.map.addLayer({
+					id: this.LAYER_LINE_DASHED,
+					type: 'line',
+					source: this.SOURCE_ID,
+					filter: [
+						'all',
+						patternedLineGeometryFilter,
+						patternedLineMetaFilter,
+						['==', ['get', 'lineDash'], 'dashed'],
+					],
+					paint: {
+						...patternedLinePaint,
+						'line-dasharray': [4, 2],
+					},
+				})
+			}
+
+			if (!this.map.getLayer(this.LAYER_LINE_DOTTED)) {
+				this.map.addLayer({
+					id: this.LAYER_LINE_DOTTED,
+					type: 'line',
+					source: this.SOURCE_ID,
+					filter: [
+						'all',
+						patternedLineGeometryFilter,
+						patternedLineMetaFilter,
+						['==', ['get', 'lineDash'], 'dotted'],
+					],
+					paint: {
+						...patternedLinePaint,
+						'line-dasharray': [1, 2],
+					},
+				})
+			}
+
+			if (!this.map.getLayer(this.LAYER_LINE_ARROW)) {
+				this.map.addLayer({
+					id: this.LAYER_LINE_ARROW,
+					type: 'symbol',
+					source: this.SOURCE_ID,
+					filter: ['==', ['get', 'meta'], 'arrowhead'],
+					layout: {
+						'icon-image': LINE_ARROW_IMAGE_ID,
+						'icon-size': [
+							'interpolate',
+							['linear'],
+							['coalesce', ['get', 'strokeWidth'], 2],
+							1,
+							0.28,
+							4,
+							0.38,
+							10,
+							0.55,
+						],
+						'icon-rotate': ['get', 'arrowBearing'],
+						'icon-rotation-alignment': 'map',
+						'icon-pitch-alignment': 'map',
+						'icon-allow-overlap': true,
+						'icon-ignore-placement': true,
+					},
+					paint: {
+						'icon-color': [
+							'case',
+							['==', ['get', 'active'], true],
+							'#1d4ed8',
+							['coalesce', ['get', 'strokeColor'], '#3bb2d0'],
+						],
+						'icon-opacity': ['coalesce', ['get', 'strokeOpacity'], 1],
 					},
 				})
 			}
@@ -553,6 +667,22 @@ export class LayerManager {
 				})
 			}
 
+			// 10a. Gizmo scale handle layer
+			if (!this.map.getLayer(this.LAYER_GIZMO_SCALE)) {
+				this.map.addLayer({
+					id: this.LAYER_GIZMO_SCALE,
+					type: 'circle',
+					source: this.SOURCE_GIZMO,
+					filter: ['==', ['get', 'meta'], 'gizmo-scale'],
+					paint: {
+						'circle-radius': 8,
+						'circle-color': '#a855f7',
+						'circle-stroke-width': 2,
+						'circle-stroke-color': '#581c87',
+					},
+				})
+			}
+
 			// 11. Cursor indicator layer
 			if (!this.map.getLayer(this.LAYER_CURSOR)) {
 				this.map.addLayer({
@@ -631,6 +761,7 @@ export class LayerManager {
 			if (this.map.getLayer(this.LAYER_MIDPOINT)) this.map.removeLayer(this.LAYER_MIDPOINT)
 			if (this.map.getLayer(this.LAYER_VERTEX)) this.map.removeLayer(this.LAYER_VERTEX)
 			if (this.map.getLayer(this.LAYER_CURSOR)) this.map.removeLayer(this.LAYER_CURSOR)
+			if (this.map.getLayer(this.LAYER_GIZMO_SCALE)) this.map.removeLayer(this.LAYER_GIZMO_SCALE)
 			if (this.map.getLayer(this.LAYER_GIZMO_MOVE)) this.map.removeLayer(this.LAYER_GIZMO_MOVE)
 			if (this.map.getLayer(this.LAYER_GIZMO_ROTATE)) this.map.removeLayer(this.LAYER_GIZMO_ROTATE)
 			if (this.map.getLayer(this.LAYER_GIZMO_CENTER)) this.map.removeLayer(this.LAYER_GIZMO_CENTER)
@@ -645,6 +776,9 @@ export class LayerManager {
 			if (this.map.getLayer(this.LAYER_POINT)) this.map.removeLayer(this.LAYER_POINT)
 			if (this.map.getLayer(this.LAYER_SELECTION_LINE))
 				this.map.removeLayer(this.LAYER_SELECTION_LINE)
+			if (this.map.getLayer(this.LAYER_LINE_ARROW)) this.map.removeLayer(this.LAYER_LINE_ARROW)
+			if (this.map.getLayer(this.LAYER_LINE_DOTTED)) this.map.removeLayer(this.LAYER_LINE_DOTTED)
+			if (this.map.getLayer(this.LAYER_LINE_DASHED)) this.map.removeLayer(this.LAYER_LINE_DASHED)
 			if (this.map.getLayer(this.LAYER_LINE)) this.map.removeLayer(this.LAYER_LINE)
 			if (this.map.getLayer(this.LAYER_SELECTION_FILL))
 				this.map.removeLayer(this.LAYER_SELECTION_FILL)

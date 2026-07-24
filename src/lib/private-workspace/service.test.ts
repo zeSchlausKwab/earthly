@@ -12,6 +12,29 @@ import { PrivateWorkspaceService } from './service'
 import { MemoryPrivateWorkspaceStore, type StoredWorkspace } from './storage'
 
 describe('PrivateWorkspaceService synchronization', () => {
+	test('deletes a private workspace from the current installation', async () => {
+		const secretKey = generateSecretKey()
+		const ownerPubkey = getPublicKey(secretKey)
+		const store = new MemoryPrivateWorkspaceStore()
+		const service = new PrivateWorkspaceService({
+			signer: {
+				getPublicKey: async () => ownerPubkey,
+				signEvent: async (event) => finalizeEvent(event, secretKey),
+			} as NostrSigner,
+			store,
+			coordinatorPubkey: 'b'.repeat(64),
+			relays: ['ws://localhost:3334'],
+			createCoordinator: () => {
+				throw new Error('Local deletion must not contact Cordn')
+			},
+		})
+		const workspace = await service.createWorkspace({ name: 'Delete me' })
+
+		await service.deleteWorkspace(workspace.workspaceId)
+
+		expect(await service.listWorkspaces()).toEqual([])
+	})
+
 	test('creates an administrator invitation from local MLS state without contacting Cordn', async () => {
 		const secretKey = generateSecretKey()
 		const ownerPubkey = getPublicKey(secretKey)

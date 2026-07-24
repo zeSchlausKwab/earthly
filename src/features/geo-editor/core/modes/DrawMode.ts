@@ -77,6 +77,15 @@ export class DrawPointMode extends DrawMode {
 
 export class DrawLineStringMode extends DrawMode {
 	readonly type: DrawFeatureType = 'LineString'
+	private arrowDefaults: { arrowStart?: true; arrowEnd?: true } = {}
+
+	setArrowDefaults(defaults: { arrowStart?: boolean; arrowEnd?: boolean }): void {
+		this.arrowDefaults = {
+			...(defaults.arrowStart ? { arrowStart: true as const } : {}),
+			...(defaults.arrowEnd ? { arrowEnd: true as const } : {}),
+		}
+		this.reset()
+	}
 
 	onClick(e: MapMouseEvent): EditorFeature | null {
 		const lngLat = e.lngLat
@@ -93,6 +102,7 @@ export class DrawLineStringMode extends DrawMode {
 					coordinates: [...this.coordinates],
 				},
 				properties: {
+					...this.arrowDefaults,
 					meta: 'feature-temp',
 				},
 			}
@@ -114,6 +124,7 @@ export class DrawLineStringMode extends DrawMode {
 					coordinates: tempCoords,
 				},
 				properties: {
+					...this.arrowDefaults,
 					meta: 'feature-temp',
 				},
 			}
@@ -130,6 +141,7 @@ export class DrawLineStringMode extends DrawMode {
 					coordinates: [...this.coordinates],
 				},
 				properties: {
+					...this.arrowDefaults,
 					meta: 'feature',
 				},
 			}
@@ -152,6 +164,7 @@ export class DrawLineStringMode extends DrawMode {
 						coordinates: [...this.coordinates],
 					},
 					properties: {
+						...this.arrowDefaults,
 						meta: 'feature-temp',
 					},
 				}
