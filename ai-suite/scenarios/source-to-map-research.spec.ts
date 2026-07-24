@@ -6,6 +6,7 @@ import {
 	openAiChat,
 	sendAiChatMessage,
 } from '../tasks/chat/conversation'
+import { startDataset } from '../tasks/create/dataset'
 import { expectGeometryFeatureCount } from '../tasks/create/geometry'
 import { installDeterministicChatProvider } from '../tasks/setup/deterministic-chat-provider'
 
@@ -19,6 +20,7 @@ test('structured research commits one provenance-valid Dataset behind a compact 
 	await authorizeJourneyIdentity(earthly, 'owner')
 	await configureChatProvider(earthly, provider.settings)
 	await earthly.open({ tour: 'preserve' })
+	await startDataset(earthly)
 	await openAiChat(earthly)
 	await sendAiChatMessage(
 		earthly,
@@ -28,15 +30,18 @@ test('structured research commits one provenance-valid Dataset behind a compact 
 	const operation = earthly.page.getByText('Working on your map', { exact: true })
 	await expect(operation).toBeVisible({ timeout: 15_000 })
 	await expect(earthly.page.getByText('2 actions', { exact: true })).toBeVisible()
-	await expectGeometryFeatureCount(earthly, 0)
+	// The safe-edit preview is rendered in the editor before approval so the
+	// author can inspect the real geometry. Apply makes that preview canonical.
+	await expectGeometryFeatureCount(earthly, 2)
 	await approveAiEdit(earthly)
 	await expectGeometryFeatureCount(earthly, 2)
 	await expect(earthly.page.getByText(/I created one validated Dataset/)).toBeVisible({
 		timeout: 15_000,
 	})
-	await expect(earthly.page.getByText('requests 2', { exact: true })).toBeVisible()
-	await expect(earthly.page.getByText(/^Σ input ~/)).toBeVisible()
-	await expect(earthly.page.getByText(/^Σ output ~/)).toBeVisible()
+	await earthly.page.getByRole('button', { name: 'Chat usage details', exact: true }).click()
+	await expect(earthly.page.getByText('2 requests', { exact: true }).last()).toBeVisible()
+	await expect(earthly.page.getByText('Cumulative input', { exact: true })).toBeVisible()
+	await expect(earthly.page.getByText('Cumulative output', { exact: true })).toBeVisible()
 
 	const sourced = await earthly.page.evaluate(() => {
 		const editor = (

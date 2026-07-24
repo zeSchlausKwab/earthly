@@ -273,6 +273,16 @@ export class PrivateWorkspaceService {
 		return this.options.store.listPendingJoins(await this.ownerPubkey())
 	}
 
+	/**
+	 * Delete this installation's encrypted workspace state. This intentionally
+	 * does not claim to erase records already held by the coordinator or peers.
+	 */
+	async deleteWorkspace(workspaceId: string): Promise<void> {
+		const ownerPubkey = await this.ownerPubkey()
+		await this.requireWorkspace(ownerPubkey, workspaceId)
+		await this.options.store.deleteWorkspace(ownerPubkey, workspaceId)
+	}
+
 	async createWorkspace(metadata: WorkspaceMetadata): Promise<StoredWorkspace> {
 		if (!metadata.name.trim()) throw new Error('Private map name is required')
 		const ownerPubkey = await this.ownerPubkey()

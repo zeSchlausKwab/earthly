@@ -22,6 +22,8 @@ import {
 	pointLabelAnchorExpression,
 	pointLabelRadialOffsetExpression,
 } from '../icons/displayIcon'
+import { LINE_ARROW_IMAGE_ID } from '../icons/registerDisplayIconImages'
+import { collectLineArrowFeatures } from '../utils/lineArrows'
 import { useEditorStore } from '../store'
 import { convertGeoEventsToFeatureCollection } from '../utils'
 
@@ -71,9 +73,13 @@ function getDefaultTextFontStack(
 const REMOTE_SOURCE_ID = 'geo-editor-remote-datasets'
 const REMOTE_FILL_LAYER = 'geo-editor-remote-fill'
 const REMOTE_LINE_LAYER = 'geo-editor-remote-line'
+const REMOTE_LINE_DASHED_LAYER = 'geo-editor-remote-line-dashed'
+const REMOTE_LINE_DOTTED_LAYER = 'geo-editor-remote-line-dotted'
+const REMOTE_LINE_ARROW_LAYER = 'geo-editor-remote-line-arrow'
 const REMOTE_POINT_LAYER = 'geo-editor-remote-point'
 const REMOTE_POINT_ICON_LAYER = 'geo-editor-remote-point-icon'
 const REMOTE_LABEL_LAYER = 'geo-editor-remote-label'
+const REMOTE_LINE_LABEL_LAYER = 'geo-editor-remote-line-label'
 const REMOTE_ANNOTATION_ANCHOR_LAYER = 'geo-editor-remote-annotation-anchor'
 const REMOTE_ANNOTATION_LAYER = 'geo-editor-remote-annotation'
 const BLOB_PREVIEW_SOURCE_ID = 'geo-editor-blob-preview'
@@ -134,8 +140,11 @@ const LINE_PROXY_MAX_LENGTH_PX = 18
 export {
 	REMOTE_FILL_LAYER,
 	REMOTE_LINE_LAYER,
+	REMOTE_LINE_DASHED_LAYER,
+	REMOTE_LINE_DOTTED_LAYER,
 	REMOTE_POINT_LAYER,
 	REMOTE_LABEL_LAYER,
+	REMOTE_LINE_LABEL_LAYER,
 	REMOTE_ANNOTATION_ANCHOR_LAYER,
 	REMOTE_ANNOTATION_LAYER,
 	REMOTE_POLYGON_PROXY_LAYER,
@@ -599,9 +608,13 @@ export function useMapLayers({
 						type: 'line',
 						source: REMOTE_SOURCE_ID,
 						filter: [
-							'any',
-							['==', ['geometry-type'], 'LineString'],
-							['==', ['geometry-type'], 'MultiLineString'],
+							'all',
+							[
+								'any',
+								['==', ['geometry-type'], 'LineString'],
+								['==', ['geometry-type'], 'MultiLineString'],
+							],
+							['any', ['!', ['has', 'lineDash']], ['==', ['get', 'lineDash'], 'solid']],
 						],
 						paint: {
 							'line-color': ['coalesce', ['get', 'strokeColor'], ['get', 'color'], '#1d4ed8'],
@@ -615,6 +628,76 @@ export function useMapLayers({
 						},
 					})
 				}
+				const remotePatternedLinePaint: NonNullable<maplibregl.LineLayerSpecification['paint']> = {
+					'line-color': ['coalesce', ['get', 'strokeColor'], ['get', 'color'], '#1d4ed8'],
+					'line-width': ['coalesce', ['get', 'strokeWidth'], 2],
+					'line-opacity': [
+						'case',
+						['boolean', ['get', 'collapseToPointProxy'], false],
+						0,
+						['coalesce', ['get', 'strokeOpacity'], 1],
+					],
+				}
+				const remoteLineGeometryFilter: maplibregl.FilterSpecification = [
+					'any',
+					['==', ['geometry-type'], 'LineString'],
+					['==', ['geometry-type'], 'MultiLineString'],
+				]
+				if (!mapInstance.getLayer(REMOTE_LINE_DASHED_LAYER)) {
+					mapInstance.addLayer({
+						id: REMOTE_LINE_DASHED_LAYER,
+						type: 'line',
+						source: REMOTE_SOURCE_ID,
+						filter: ['all', remoteLineGeometryFilter, ['==', ['get', 'lineDash'], 'dashed']],
+						paint: {
+							...remotePatternedLinePaint,
+							'line-dasharray': [4, 2],
+						},
+					})
+				}
+				if (!mapInstance.getLayer(REMOTE_LINE_DOTTED_LAYER)) {
+					mapInstance.addLayer({
+						id: REMOTE_LINE_DOTTED_LAYER,
+						type: 'line',
+						source: REMOTE_SOURCE_ID,
+						filter: ['all', remoteLineGeometryFilter, ['==', ['get', 'lineDash'], 'dotted']],
+						paint: {
+							...remotePatternedLinePaint,
+							'line-dasharray': [1, 2],
+						},
+					})
+				}
+				if (!mapInstance.getLayer(REMOTE_LINE_ARROW_LAYER)) {
+					mapInstance.addLayer({
+						id: REMOTE_LINE_ARROW_LAYER,
+						type: 'symbol',
+						source: REMOTE_SOURCE_ID,
+						filter: ['==', ['get', 'meta'], 'arrowhead'],
+						layout: {
+							'icon-image': LINE_ARROW_IMAGE_ID,
+							'icon-size': [
+								'interpolate',
+								['linear'],
+								['coalesce', ['get', 'strokeWidth'], 2],
+								1,
+								0.48,
+								4,
+								0.62,
+								10,
+								0.82,
+							],
+							'icon-rotate': ['get', 'arrowBearing'],
+							'icon-rotation-alignment': 'map',
+							'icon-pitch-alignment': 'map',
+							'icon-allow-overlap': true,
+							'icon-ignore-placement': true,
+						},
+						paint: {
+							'icon-color': ['coalesce', ['get', 'strokeColor'], '#1d4ed8'],
+							'icon-opacity': ['coalesce', ['get', 'strokeOpacity'], 1],
+						},
+					})
+				}
 				// Point layer (excludes annotations)
 				if (!mapInstance.getLayer(REMOTE_POINT_LAYER)) {
 					mapInstance.addLayer({
@@ -625,6 +708,7 @@ export function useMapLayers({
 							'all',
 							['any', ['==', ['geometry-type'], 'Point'], ['==', ['geometry-type'], 'MultiPoint']],
 							['!=', ['get', 'featureType'], 'annotation'],
+							['!=', ['get', 'meta'], 'arrowhead'],
 						],
 						paint: {
 							// Iconed points reuse this circle as the glyph's backing disc
@@ -732,7 +816,13 @@ export function useMapLayers({
 						id: REMOTE_LABEL_LAYER,
 						type: 'symbol',
 						source: REMOTE_SOURCE_ID,
-						filter: ['all', ['has', 'label'], ['!=', ['get', 'featureType'], 'annotation']],
+						filter: [
+							'all',
+							['has', 'label'],
+							['!=', ['get', 'featureType'], 'annotation'],
+							['!=', ['geometry-type'], 'LineString'],
+							['!=', ['geometry-type'], 'MultiLineString'],
+						],
 						layout: {
 							'text-field': ['get', 'label'],
 							'text-font': textFont,
@@ -743,6 +833,39 @@ export function useMapLayers({
 							'text-radial-offset': pointLabelRadialOffsetExpression(12),
 							'text-allow-overlap': false,
 							'text-ignore-placement': false,
+						},
+						paint: {
+							'text-color': '#374151',
+							'text-halo-color': '#ffffff',
+							'text-halo-width': 1.5,
+							'text-opacity': ['case', ['boolean', ['get', 'collapseToPointProxy'], false], 0, 1],
+						},
+					})
+				}
+
+				if (textFont && !mapInstance.getLayer(REMOTE_LINE_LABEL_LAYER)) {
+					mapInstance.addLayer({
+						id: REMOTE_LINE_LABEL_LAYER,
+						type: 'symbol',
+						source: REMOTE_SOURCE_ID,
+						filter: [
+							'all',
+							['has', 'label'],
+							[
+								'any',
+								['==', ['geometry-type'], 'LineString'],
+								['==', ['geometry-type'], 'MultiLineString'],
+							],
+						],
+						layout: {
+							'symbol-placement': 'line-center',
+							'text-field': ['get', 'label'],
+							'text-font': textFont,
+							'text-size': 12,
+							'text-rotation-alignment': 'map',
+							'text-keep-upright': true,
+							'text-allow-overlap': true,
+							'text-ignore-placement': true,
 						},
 						paint: {
 							'text-color': '#374151',
@@ -1270,6 +1393,14 @@ export function useMapLayers({
 									}
 								: feature,
 						),
+						...collectLineArrowFeatures(
+							nonPointFeatures.filter(
+								(feature, index) =>
+									!collapseToProxyById.has(
+										String(feature.id ?? feature.properties?.featureId ?? index),
+									),
+							),
+						),
 						...annotationFeatures,
 					],
 				}
@@ -1375,6 +1506,8 @@ export function useMapLayers({
 		REMOTE_SOURCE_ID,
 		REMOTE_FILL_LAYER,
 		REMOTE_LINE_LAYER,
+		REMOTE_LINE_DASHED_LAYER,
+		REMOTE_LINE_DOTTED_LAYER,
 		REMOTE_ANNOTATION_LAYER,
 		BLOB_PREVIEW_SOURCE_ID,
 		CLUSTERED_SOURCE_ID,

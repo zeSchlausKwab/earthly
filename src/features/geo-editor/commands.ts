@@ -1,4 +1,4 @@
-import type { EditorMode } from './core'
+import type { EditorMode, PrimitiveShape } from './core'
 import { useEditorStore } from './store'
 
 export type EditorCommandId =
@@ -6,6 +6,9 @@ export type EditorCommandId =
 	| 'undo'
 	| 'redo'
 	| 'toggle_snapping'
+	| 'insert_primitive'
+	| 'start_primitive_drawing'
+	| 'start_arrow_drawing'
 	| 'delete_selected_features'
 	| 'duplicate_selected_features'
 	| 'merge_selected_features'
@@ -63,12 +66,15 @@ const EDITOR_MODE_VALUES: EditorMode[] = [
 	'draw_point',
 	'draw_linestring',
 	'draw_polygon',
+	'draw_primitive',
 	'draw_annotation',
 	'edit',
 	'select',
 	'box_select',
 	'static',
 ]
+const PRIMITIVE_SHAPES: PrimitiveShape[] = ['rectangle', 'square', 'circle', 'triangle', 'diamond']
+const ARROW_PLACEMENTS = ['start', 'end', 'both'] as const
 
 function isEditorMode(value: unknown): value is EditorMode {
 	return typeof value === 'string' && EDITOR_MODE_VALUES.includes(value as EditorMode)
@@ -219,6 +225,102 @@ const editorCommands: EditorCommandDefinition[] = [
 			state.setSnappingEnabled(next)
 			return success('toggle_snapping', `Snapping ${next ? 'enabled' : 'disabled'}.`, {
 				snappingEnabled: next,
+			})
+		},
+	},
+	{
+		id: 'insert_primitive',
+		label: 'Insert shape',
+		description: 'Insert a basic shape at the center of the current map.',
+		canExecute: (state) => Boolean(state.editor),
+		ai: {
+			toolName: 'editor_insert_primitive',
+			description:
+				'Insert a rectangle, square, circle, triangle, or diamond at the map center and select it for scaling.',
+			parameters: {
+				type: 'object',
+				properties: {
+					shape: {
+						type: 'string',
+						description: 'Primitive shape to insert.',
+						enum: PRIMITIVE_SHAPES,
+					},
+				},
+				required: ['shape'],
+			},
+		},
+		execute: (state, args) => {
+			const editor = state.editor
+			if (!editor) return failure('insert_primitive', 'Map editor is not ready.')
+			if (
+				typeof args.shape !== 'string' ||
+				!PRIMITIVE_SHAPES.includes(args.shape as PrimitiveShape)
+			) {
+				return failure('insert_primitive', `shape must be one of: ${PRIMITIVE_SHAPES.join(', ')}`)
+			}
+			const feature = editor.insertPrimitive(args.shape as PrimitiveShape)
+			syncHistoryState(state)
+			return success('insert_primitive', `Inserted a ${args.shape}.`, {
+				featureId: feature.id,
+				shape: args.shape,
+			})
+		},
+	},
+	{
+		id: 'start_primitive_drawing',
+		label: 'Draw shape',
+		description: 'Start an interactive two-point basic-shape drawing.',
+		canExecute: (state) => Boolean(state.editor),
+		execute: (state, args) => {
+			const editor = state.editor
+			if (!editor) return failure('start_primitive_drawing', 'Map editor is not ready.')
+			if (
+				typeof args.shape !== 'string' ||
+				!PRIMITIVE_SHAPES.includes(args.shape as PrimitiveShape)
+			) {
+				return failure(
+					'start_primitive_drawing',
+					`shape must be one of: ${PRIMITIVE_SHAPES.join(', ')}`,
+				)
+			}
+			editor.startPrimitiveDrawing(args.shape as PrimitiveShape)
+			return success('start_primitive_drawing', `Started drawing a ${args.shape}.`, {
+				mode: 'draw_primitive',
+				shape: args.shape,
+			})
+		},
+	},
+	{
+		id: 'start_arrow_drawing',
+		label: 'Draw arrow',
+		description: 'Start drawing a line with arrowheads enabled by default.',
+		canExecute: (state) => Boolean(state.editor),
+		ai: {
+			toolName: 'editor_start_arrow_drawing',
+			description: 'Start line drawing with an arrowhead at the end, start, or both endpoints.',
+			parameters: {
+				type: 'object',
+				properties: {
+					placement: {
+						type: 'string',
+						description: 'Where arrowheads should be rendered. Defaults to end.',
+						enum: [...ARROW_PLACEMENTS],
+					},
+				},
+			},
+		},
+		execute: (state, args) => {
+			const editor = state.editor
+			if (!editor) return failure('start_arrow_drawing', 'Map editor is not ready.')
+			const placement =
+				typeof args.placement === 'string' &&
+				ARROW_PLACEMENTS.includes(args.placement as (typeof ARROW_PLACEMENTS)[number])
+					? (args.placement as (typeof ARROW_PLACEMENTS)[number])
+					: 'end'
+			editor.startArrowDrawing(placement)
+			return success('start_arrow_drawing', `Arrow drawing started (${placement}).`, {
+				mode: 'draw_linestring',
+				placement,
 			})
 		},
 	},

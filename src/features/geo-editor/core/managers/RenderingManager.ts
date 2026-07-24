@@ -64,7 +64,7 @@ export class RenderingManager {
 	}
 
 	/**
-	 * Render the transform gizmo (rotate/move handles)
+	 * Render the transform gizmo (rotate/move/scale handles)
 	 */
 	renderGizmo(
 		mode: EditorMode,
@@ -87,6 +87,7 @@ export class RenderingManager {
 
 		const rotateHandle = this.getRotationHandlePosition(center)
 		const moveHandle = this.getMoveHandlePosition(center)
+		const scaleHandle = this.getScaleHandlePosition(center)
 
 		source.setData({
 			type: 'FeatureCollection',
@@ -104,6 +105,14 @@ export class RenderingManager {
 					geometry: {
 						type: 'LineString',
 						coordinates: [center, moveHandle],
+					},
+					properties: { meta: 'gizmo-line' },
+				},
+				{
+					type: 'Feature',
+					geometry: {
+						type: 'LineString',
+						coordinates: [center, scaleHandle],
 					},
 					properties: { meta: 'gizmo-line' },
 				},
@@ -130,6 +139,14 @@ export class RenderingManager {
 						coordinates: moveHandle,
 					},
 					properties: { meta: 'gizmo-move' },
+				},
+				{
+					type: 'Feature',
+					geometry: {
+						type: 'Point',
+						coordinates: scaleHandle,
+					},
+					properties: { meta: 'gizmo-scale' },
 				},
 			],
 		})
@@ -291,6 +308,15 @@ export class RenderingManager {
 		const lat = center[1] ?? 0
 		const projected = this.map.project({ lng, lat })
 		const handlePoint = this.map.unproject([projected.x + 60, projected.y])
+		return [handlePoint.lng, handlePoint.lat]
+	}
+
+	private getScaleHandlePosition(center: Position): Position {
+		if (!this.map) return center
+		const lng = center[0] ?? 0
+		const lat = center[1] ?? 0
+		const projected = this.map.project({ lng, lat })
+		const handlePoint = this.map.unproject([projected.x + 48, projected.y + 48])
 		return [handlePoint.lng, handlePoint.lat]
 	}
 }

@@ -18,6 +18,7 @@ import {
 	ShieldCheck,
 	Smartphone,
 	Square,
+	Trash2,
 	UploadCloud,
 	UserPlus,
 	Users,
@@ -29,6 +30,7 @@ import { verifyEvent, type NostrEvent } from 'nostr-tools'
 import { QRCodeSVG } from 'qrcode.react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { NativeAppDownloadLinks } from '@/components/NativeAppDownloadLinks'
 import { GlyphTile, ListRow, RowActionButton, RowBadge } from '@/components/entity-list'
 import {
 	DatasetGlyphIcon,
@@ -126,6 +128,7 @@ function EmptyNativeState({ reason }: { reason: string }) {
 			<Smartphone className="mb-3 h-8 w-8 text-muted-foreground" />
 			<h3 className="text-sm font-semibold">Earthly app required</h3>
 			<p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">{reason}</p>
+			<NativeAppDownloadLinks className="justify-center" />
 		</div>
 	)
 }
@@ -502,6 +505,34 @@ export function FieldSessionsPanel({
 			}
 		})
 
+	const deleteSession = () => {
+		if (!selected) return
+		if (
+			!window.confirm(
+				`Delete "${selected.name}" from this device? Nearby records stored by other devices are not erased.`,
+			)
+		) {
+			return
+		}
+		void run('delete', async () => {
+			if (!service) return
+			if (selected.role === 'host') {
+				if (
+					selected.state === 'active' &&
+					'descriptor' in status &&
+					status.descriptor.scope === 'local-network'
+				) {
+					setStatus(await service.disableLan())
+				}
+			} else {
+				await service.forgetRemoteNode(selected.hostNodeId)
+			}
+			removeFieldSession(selected.id)
+			navigateToView('field-sessions')
+			toast.success('Field session deleted from this device')
+		})
+	}
+
 	if (!service || status.state === 'starting') {
 		return (
 			<div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
@@ -523,7 +554,7 @@ export function FieldSessionsPanel({
 					reason={
 						status.state === 'unsupported'
 							? status.reason
-							: 'Field sessions use the embedded relay in the Earthly Android app.'
+							: 'Field sessions use the embedded relay in the Earthly Android or macOS app.'
 					}
 				/>
 			</div>
@@ -1093,8 +1124,16 @@ export function FieldSessionsPanel({
 						Approved installations authenticate to the field host. Use a Private group when records
 						require end-to-end group encryption.
 					</div>
-					<Button variant="destructive" className="w-full" onClick={() => void stopSession()}>
+					<Button variant="outline" className="w-full" onClick={() => void stopSession()}>
 						<Square /> {selected.role === 'host' ? 'End on this device' : 'Leave this session'}
+					</Button>
+					<Button
+						variant="destructive"
+						className="w-full"
+						onClick={deleteSession}
+						disabled={operation !== null}
+					>
+						<Trash2 /> Delete from this device
 					</Button>
 				</TabsContent>
 			</Tabs>

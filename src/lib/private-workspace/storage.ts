@@ -125,6 +125,7 @@ export interface PrivateWorkspaceStore {
 	listWorkspaces(ownerPubkey: string): Promise<StoredWorkspace[]>
 	getWorkspace(ownerPubkey: string, workspaceId: string): Promise<StoredWorkspace | undefined>
 	putWorkspace(workspace: StoredWorkspace): Promise<void>
+	deleteWorkspace(ownerPubkey: string, workspaceId: string): Promise<void>
 	putKeyPackage(keyPackage: StoredMlsKeyPackage): Promise<void>
 	getKeyPackage(
 		ownerPubkey: string,
@@ -214,6 +215,10 @@ export class BrowserPrivateWorkspaceStore implements PrivateWorkspaceStore {
 		)
 	}
 
+	deleteWorkspace(ownerPubkey: string, workspaceId: string) {
+		return this.delete('workspaces', workspaceKey(ownerPubkey, workspaceId))
+	}
+
 	putKeyPackage(keyPackage: StoredMlsKeyPackage) {
 		return this.put(
 			'keyPackages',
@@ -254,6 +259,9 @@ export class MemoryPrivateWorkspaceStore implements PrivateWorkspaceStore {
 	}
 	async putWorkspace(workspace: StoredWorkspace) {
 		this.workspaces.set(workspaceKey(workspace.ownerPubkey, workspace.workspaceId), workspace)
+	}
+	async deleteWorkspace(ownerPubkey: string, workspaceId: string) {
+		this.workspaces.delete(workspaceKey(ownerPubkey, workspaceId))
 	}
 	async putKeyPackage(keyPackage: StoredMlsKeyPackage) {
 		this.keyPackages.set(

@@ -14,6 +14,7 @@ export const installDeterministicChatProviderTask: AiTaskMetadata = {
 
 export const DETERMINISTIC_CHAT_BASE_URL = 'http://model.earthly.localhost/v1'
 export const DETERMINISTIC_CHAT_MODEL_ID = 'earthly-spatial-fixture'
+export const DETERMINISTIC_CHAT_SECONDARY_MODEL_ID = 'earthly-compact-fixture'
 
 export type DeterministicChatScenario =
 	| 'spatial-research'
@@ -180,6 +181,13 @@ async function fulfillModelRoute(
 						id: model.id,
 						name: model.name,
 						context_length: 16_384,
+						supports_tools: true,
+						architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+					},
+					{
+						id: DETERMINISTIC_CHAT_SECONDARY_MODEL_ID,
+						name: 'Earthly compact fixture',
+						context_length: 8_192,
 						supports_tools: true,
 						architecture: { input_modalities: ['text'], output_modalities: ['text'] },
 					},

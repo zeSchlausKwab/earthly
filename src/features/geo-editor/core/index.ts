@@ -16,6 +16,7 @@ export type {
 	EditorStyles,
 	GeoEditorOptions,
 	HistoryAction,
+	PrimitiveShape,
 	SelectionBounds,
 	SnapResult,
 	TransformOptions,

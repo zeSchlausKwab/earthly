@@ -1,5 +1,7 @@
 import {
 	Combine,
+	ArrowUpRight,
+	Circle,
 	Copy,
 	CopyPlus,
 	Crosshair,
@@ -22,13 +24,17 @@ import {
 	PlusCircle,
 	RefreshCw,
 	Route,
+	Shapes,
 	Scan,
 	Search,
 	Settings2,
 	Sparkles,
 	Split as SplitIcon,
 	SquareDashedMousePointer,
+	Square,
 	Sun,
+	Triangle,
+	Diamond,
 	Type,
 	Trash2,
 	Undo2,
@@ -549,6 +555,10 @@ export function Toolbar({
 	}
 
 	const handleToggleSnapping = () => runEditorCommand('toggle_snapping')
+	const handleArrowDrawing = () => runEditorCommand('start_arrow_drawing', { placement: 'end' })
+	const handleInsertPrimitive = (
+		shape: 'rectangle' | 'square' | 'circle' | 'triangle' | 'diamond',
+	) => runEditorCommand('start_primitive_drawing', { shape })
 	const handleToggleEditIsolation = () => toggleEditIsolation()
 	const handleToggleInspector = () => {
 		if (inspectorActive) {
@@ -743,9 +753,52 @@ export function Toolbar({
 			<DrawButtonGroup
 				mode={mode}
 				onModeChange={handleModeChange}
+				onArrowDraw={handleArrowDrawing}
 				disabled={isEditingDisabled}
 				small
 			/>
+			<MenubarMenu>
+				<MenubarTrigger asChild>
+					<Button
+						type="button"
+						size="icon"
+						variant={mode === 'draw_primitive' ? 'default' : 'outline'}
+						className="h-8 w-8 rounded-none"
+						disabled={isEditingDisabled}
+						aria-label="Draw shape"
+						title="Draw shape"
+					>
+						<Shapes className="h-3.5 w-3.5" />
+					</Button>
+				</MenubarTrigger>
+				<MenubarContent align="start" className="min-w-48">
+					<ToolbarMenuItem
+						icon={Square}
+						label="Rectangle"
+						onSelect={() => handleInsertPrimitive('rectangle')}
+					/>
+					<ToolbarMenuItem
+						icon={Square}
+						label="Square"
+						onSelect={() => handleInsertPrimitive('square')}
+					/>
+					<ToolbarMenuItem
+						icon={Circle}
+						label="Circle"
+						onSelect={() => handleInsertPrimitive('circle')}
+					/>
+					<ToolbarMenuItem
+						icon={Triangle}
+						label="Triangle"
+						onSelect={() => handleInsertPrimitive('triangle')}
+					/>
+					<ToolbarMenuItem
+						icon={Diamond}
+						label="Diamond"
+						onSelect={() => handleInsertPrimitive('diamond')}
+					/>
+				</MenubarContent>
+			</MenubarMenu>
 			{/* OsmImportPopover moved out of Draw — rendered as a standalone
 			    button next to the File menu so it's always reachable. */}
 		</div>
@@ -870,6 +923,12 @@ export function Toolbar({
 								<Route className="h-4 w-4" />
 								<span>Line</span>
 							</MenubarRadioItem>
+							<ToolbarMenuItem
+								icon={ArrowUpRight}
+								label="Arrow"
+								onSelect={handleArrowDrawing}
+								disabled={isEditingDisabled}
+							/>
 							<MenubarRadioItem
 								value="draw_polygon"
 								disabled={isEditingDisabled}
@@ -887,6 +946,39 @@ export function Toolbar({
 								<span>Label</span>
 							</MenubarRadioItem>
 						</MenubarRadioGroup>
+						<MenubarSub>
+							<MenubarSubTrigger className="gap-2">
+								<Shapes className="h-4 w-4" />
+								<span>Shapes</span>
+							</MenubarSubTrigger>
+							<MenubarSubContent className="min-w-48">
+								<ToolbarMenuItem
+									icon={Square}
+									label="Rectangle"
+									onSelect={() => handleInsertPrimitive('rectangle')}
+								/>
+								<ToolbarMenuItem
+									icon={Square}
+									label="Square"
+									onSelect={() => handleInsertPrimitive('square')}
+								/>
+								<ToolbarMenuItem
+									icon={Circle}
+									label="Circle"
+									onSelect={() => handleInsertPrimitive('circle')}
+								/>
+								<ToolbarMenuItem
+									icon={Triangle}
+									label="Triangle"
+									onSelect={() => handleInsertPrimitive('triangle')}
+								/>
+								<ToolbarMenuItem
+									icon={Diamond}
+									label="Diamond"
+									onSelect={() => handleInsertPrimitive('diamond')}
+								/>
+							</MenubarSubContent>
+						</MenubarSub>
 						<MenubarSeparator />
 						<MenubarSub>
 							<MenubarSubTrigger className="gap-2">
@@ -1120,6 +1212,7 @@ export function Toolbar({
 										<DrawButtonGroup
 											mode={mode}
 											onModeChange={handleModeChange}
+											onArrowDraw={handleArrowDrawing}
 											disabled={isEditingDisabled}
 											small
 										/>

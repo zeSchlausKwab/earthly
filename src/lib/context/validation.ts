@@ -34,9 +34,7 @@ export function getContextCoordinate(context: MapContext): string | null {
 	return context.contextCoordinate ?? null
 }
 
-export function getEffectiveContextUse(
-	context: MapContext,
-): MapContext['context']['contextUse'] {
+export function getEffectiveContextUse(context: MapContext): MapContext['context']['contextUse'] {
 	if (!context.context.allowForeignAttachments) return 'taxonomy'
 	return context.context.contextUse
 }
@@ -139,6 +137,9 @@ function featurePropertiesForValidation(feature: Feature): Record<string, unknow
 		'fillOpacity',
 		'strokeOpacity',
 		'lineDash',
+		'arrowStart',
+		'arrowEnd',
+		'primitiveShape',
 		'label',
 	])
 	const rootDomainProperties: Record<string, unknown> = {}
@@ -153,9 +154,7 @@ function featurePropertiesForValidation(feature: Feature): Record<string, unknow
 	return merged
 }
 
-export function getContextAllowedGeometryTypes(
-	context: MapContext,
-): MapContextGeometryType[] {
+export function getContextAllowedGeometryTypes(context: MapContext): MapContextGeometryType[] {
 	const constraints = asRecord(context.context.geometryConstraints)
 	const allowedTypesRaw = Array.isArray(constraints?.allowedTypes) ? constraints.allowedTypes : []
 	const allowedTypeSet = new Set<MapContextGeometryType>()
@@ -168,9 +167,7 @@ export function getContextAllowedGeometryTypes(
 	return Array.from(allowedTypeSet.values())
 }
 
-export function getContextRequiredPropertyDefaults(
-	context: MapContext,
-): Record<string, unknown> {
+export function getContextRequiredPropertyDefaults(context: MapContext): Record<string, unknown> {
 	if (!contextCanValidateDatasets(context)) return {}
 
 	const schema = asRecord(context.context.schema)

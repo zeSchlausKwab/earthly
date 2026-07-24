@@ -13,6 +13,7 @@ import {
 	exerciseMapStackDraftLifecycle,
 	undoRedoGeometry,
 } from '../tasks/editor/lifecycle'
+import { placeMobilePrecisionPoint } from '../tasks/editor/mobile-precision-drawing'
 import { openPanel } from '../tasks/navigation/open-panel'
 import {
 	attemptDeniedDeviceLocation,
@@ -35,6 +36,18 @@ test('geometry can be undone and redone from viewport controls @editor-contract'
 	const result = await undoRedoGeometry(earthly)
 	expect(result.featureCount).toBe(1)
 	expect(result.canUndo).toBe(true)
+})
+
+test('mobile magnifier is ready before touch and follows precision placement @editor-contract', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'mobile', 'The precision magnifier is mobile-only')
+	await earthly.open({ tour: 'seen' })
+	await startDataset(earthly)
+	const result = await placeMobilePrecisionPoint(earthly)
+	expect(result.featureCount).toBe(1)
+	expect(result.magnifierPreloaded).toBe(true)
+	expect(result.magnifierVisibleDuringTouch).toBe(true)
 })
 
 test('geometry and metadata in an unfinished draft survive reload @editor-contract', async ({

@@ -5,39 +5,68 @@
  * It is included in `src/index.html`.
  */
 
-import { AccountsProvider, EventStoreProvider } from 'applesauce-react/providers'
-import { StrictMode } from 'react'
+import { StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { App } from './App'
-import { upgradeLegacyHashRoute } from './features/geo-editor/hooks/useRouting'
-// Import for side-effects: instantiates eventStore, pool, accounts, cache, etc.
-import { accounts, eventStore, startPublishOutbox } from './lib/nostr'
-import { startNativeDeepLinks } from './platform/registry'
+import './index.css'
 
-// Phase 1.2: rewrite a legacy `#/…` hash route to its clean-path equivalent
-// before React mounts, so the first parseLocation() the app runs already sees
-// the canonical URL (fixes report 7.5 — `/#/datasets` deep-links).
-upgradeLegacyHashRoute()
-void startNativeDeepLinks()
-void startPublishOutbox()
+const elem = document.getElementById('root')
+if (!elem) throw new Error('Earthly root element was not found')
 
-const elem = document.getElementById('root')!
-
-const app = (
-	<StrictMode>
-		<EventStoreProvider eventStore={eventStore}>
-			<AccountsProvider manager={accounts}>
-				<App />
-			</AccountsProvider>
-		</EventStoreProvider>
-	</StrictMode>
-)
-
-if (import.meta.hot) {
-	// With hot module reloading, `import.meta.hot.data` is persisted.
-	import.meta.hot.data.root ??= createRoot(elem)
-	import.meta.hot.data.root.render(app)
-} else {
-	// The hot module reloading API is not available in production.
-	createRoot(elem).render(app)
+function isTourPathname(pathname: string) {
+	return pathname.replace(/\/+$/, '') === '/tour'
 }
+
+async function createApplication(): Promise<ReactNode> {
+	if (isTourPathname(window.location.pathname)) {
+		const { TourPage } = await import('./pages/tour/TourPage')
+		return (
+			<StrictMode>
+				<TourPage />
+			</StrictMode>
+		)
+	}
+
+	const [
+		{ AccountsProvider, EventStoreProvider },
+		{ App },
+		{ upgradeLegacyHashRoute },
+		{ accounts, eventStore, startPublishOutbox },
+		{ startNativeDeepLinks },
+	] = await Promise.all([
+		import('applesauce-react/providers'),
+		import('./App'),
+		import('./features/geo-editor/hooks/useRouting'),
+		import('./lib/nostr'),
+		import('./platform/registry'),
+	])
+
+	// Rewrite legacy `#/…` routes before the editor mounts so its first location
+	// parse sees the canonical clean path.
+	upgradeLegacyHashRoute()
+	void startNativeDeepLinks()
+	void startPublishOutbox()
+
+	return (
+		<StrictMode>
+			<EventStoreProvider eventStore={eventStore}>
+				<AccountsProvider manager={accounts}>
+					<App />
+				</AccountsProvider>
+			</EventStoreProvider>
+		</StrictMode>
+	)
+}
+
+async function renderApplication() {
+	const application = await createApplication()
+	if (import.meta.hot) {
+		// With hot module reloading, `import.meta.hot.data` is persisted.
+		import.meta.hot.data.root ??= createRoot(elem)
+		import.meta.hot.data.root.render(application)
+		return
+	}
+
+	createRoot(elem).render(application)
+}
+
+void renderApplication()

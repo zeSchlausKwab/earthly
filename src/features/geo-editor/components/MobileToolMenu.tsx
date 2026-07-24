@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react'
 import {
+	ArrowUpRight,
+	Circle,
 	Combine,
 	Copy,
 	CopyPlus,
@@ -18,9 +20,13 @@ import {
 	MoreHorizontal,
 	RefreshCw,
 	Route,
+	Shapes,
 	Search,
 	Split as SplitIcon,
 	SquareDashedMousePointer,
+	Square,
+	Triangle,
+	Diamond,
 	Trash2,
 	Type,
 	Upload,
@@ -196,6 +202,55 @@ export function MobileToolMenu({
 						<Type className="h-4 w-4" />
 						Label
 					</DropdownMenuItem>
+					<DropdownMenuItem
+						onSelect={() => executeEditorCommand('start_arrow_drawing', { placement: 'end' })}
+					>
+						<ArrowUpRight className="h-4 w-4" />
+						Draw arrow
+					</DropdownMenuItem>
+					<DropdownMenuSub>
+						<DropdownMenuSubTrigger>
+							<Shapes className="h-4 w-4" />
+							Insert shape
+						</DropdownMenuSubTrigger>
+						<DropdownMenuSubContent className="w-48">
+							<DropdownMenuItem
+								onSelect={() =>
+									executeEditorCommand('start_primitive_drawing', { shape: 'rectangle' })
+								}
+							>
+								<Square className="h-4 w-4" /> Rectangle
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onSelect={() =>
+									executeEditorCommand('start_primitive_drawing', { shape: 'square' })
+								}
+							>
+								<Square className="h-4 w-4" /> Square
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onSelect={() =>
+									executeEditorCommand('start_primitive_drawing', { shape: 'circle' })
+								}
+							>
+								<Circle className="h-4 w-4" /> Circle
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onSelect={() =>
+									executeEditorCommand('start_primitive_drawing', { shape: 'triangle' })
+								}
+							>
+								<Triangle className="h-4 w-4" /> Triangle
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onSelect={() =>
+									executeEditorCommand('start_primitive_drawing', { shape: 'diamond' })
+								}
+							>
+								<Diamond className="h-4 w-4" /> Diamond
+							</DropdownMenuItem>
+						</DropdownMenuSubContent>
+					</DropdownMenuSub>
 					<DropdownMenuCheckboxItem
 						checked={snappingEnabled}
 						onCheckedChange={() => executeEditorCommand('toggle_snapping')}

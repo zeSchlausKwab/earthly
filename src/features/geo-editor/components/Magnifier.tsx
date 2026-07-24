@@ -1,5 +1,5 @@
 import maplibregl from 'maplibre-gl'
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 interface MagnifierProps {
 	enabled: boolean
@@ -22,36 +22,35 @@ export function Magnifier({
 }: MagnifierProps) {
 	const containerRef = useRef<HTMLDivElement>(null)
 	const mapRef = useRef<maplibregl.Map | null>(null)
+	const [mapReady, setMapReady] = useState(false)
 
 	useEffect(() => {
-		if (!enabled || !visible) return
+		if (!enabled) return
 		if (!containerRef.current) return
 		if (!mainMap) return
 
-		if (!mapRef.current) {
-			mapRef.current = new maplibregl.Map({
-				container: containerRef.current,
-				style: mainMap.getStyle() as any,
-				center: mainMap.getCenter(),
-				zoom: mainMap.getZoom() + zoomOffset,
-				interactive: false,
-				attributionControl: false,
-				preserveDrawingBuffer: true,
-			} as any)
+		setMapReady(false)
+		mapRef.current = new maplibregl.Map({
+			container: containerRef.current,
+			style: mainMap.getStyle() as any,
+			center: mainMap.getCenter(),
+			zoom: mainMap.getZoom() + zoomOffset,
+			interactive: false,
+			attributionControl: false,
+			preserveDrawingBuffer: true,
+		} as any)
 
-			mapRef.current.dragPan.disable()
-			mapRef.current.scrollZoom.disable()
-			mapRef.current.touchZoomRotate.disable()
-			mapRef.current.doubleClickZoom.disable()
-		} else {
-			mapRef.current.resize()
-		}
+		mapRef.current.dragPan.disable()
+		mapRef.current.scrollZoom.disable()
+		mapRef.current.touchZoomRotate.disable()
+		mapRef.current.doubleClickZoom.disable()
+		mapRef.current.once('idle', () => setMapReady(true))
 
 		return () => {
 			mapRef.current?.remove()
 			mapRef.current = null
 		}
-	}, [enabled, visible, mainMap, zoomOffset])
+	}, [enabled, mainMap, zoomOffset])
 
 	useEffect(() => {
 		if (!enabled) return
@@ -66,22 +65,27 @@ export function Magnifier({
 		mapRef.current.resize()
 	}, [center, enabled, mainMap, zoomOffset])
 
-	if (!enabled || !visible) return null
+	if (!enabled) return null
 
 	return (
 		<div
+			data-testid="map-magnifier"
+			data-ready={mapReady}
+			aria-hidden="true"
 			className="pointer-events-none absolute z-40"
 			style={{
 				width: size,
 				height: size,
 				left: position.x - size / 2,
 				top: position.y - size / 2,
+				visibility: visible ? 'visible' : 'hidden',
 			}}
 		>
 			<div className="relative h-full w-full overflow-hidden rounded-full border border-border bg-card shadow-xl">
 				<div ref={containerRef} className="h-full w-full" />
 				<div className="pointer-events-none absolute inset-0 flex items-center justify-center">
 					<svg
+						aria-hidden="true"
 						width="24"
 						height="24"
 						viewBox="0 0 24 24"

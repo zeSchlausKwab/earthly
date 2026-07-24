@@ -5,6 +5,7 @@ export type EditorMode =
 	| 'draw_point'
 	| 'draw_linestring'
 	| 'draw_polygon'
+	| 'draw_primitive'
 	| 'draw_annotation'
 	| 'edit'
 	| 'select'
@@ -12,6 +13,7 @@ export type EditorMode =
 	| 'static'
 
 export type DrawFeatureType = 'Point' | 'LineString' | 'Polygon'
+export type PrimitiveShape = 'rectangle' | 'square' | 'circle' | 'triangle' | 'diamond'
 
 export interface GeoEditorOptions {
 	modes?: EditorMode[]
@@ -74,6 +76,9 @@ export interface EditorFeature extends Feature {
 		// LineString style properties
 		strokeOpacity?: number // Line opacity (0-1)
 		lineDash?: 'solid' | 'dashed' | 'dotted' // Line dash pattern
+		arrowStart?: boolean // Render an outward-facing arrowhead at the first coordinate
+		arrowEnd?: boolean // Render an arrowhead at the final coordinate
+		primitiveShape?: PrimitiveShape
 
 		// Polygon style properties
 		fillColor?: string // Polygon fill color

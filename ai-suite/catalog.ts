@@ -11,13 +11,18 @@ import {
 import { startDatasetTask } from './tasks/create/dataset'
 import { createContextTask } from './tasks/create/context'
 import { createGeometryDraftTask, publishGeometryDatasetTask } from './tasks/create/geometry'
-import { createStoryDraftTask, publishStoryTask } from './tasks/create/story'
+import {
+	createStoryDraftTask,
+	insertStoryReferenceTask,
+	publishStoryTask,
+} from './tasks/create/story'
 import { createSightingTask } from './tasks/create/sighting'
 import {
 	cancelDrawingTask,
 	mapStackDraftLifecycleTask,
 	undoRedoGeometryTask,
 } from './tasks/editor/lifecycle'
+import { placeMobilePrecisionPointTask } from './tasks/editor/mobile-precision-drawing'
 import { monitorBrowserHealthTask } from './tasks/diagnostics/browser-health'
 import { inspectSurfaceTask } from './tasks/diagnostics/inspect-surface'
 import { observeJourneyStepTask } from './tasks/diagnostics/journey-observation'
@@ -87,10 +92,12 @@ const tasks = [
 	cancelDrawingTask,
 	undoRedoGeometryTask,
 	mapStackDraftLifecycleTask,
+	placeMobilePrecisionPointTask,
 	createContextTask,
 	createGeometryDraftTask,
 	publishGeometryDatasetTask,
 	createStoryDraftTask,
+	insertStoryReferenceTask,
 	publishStoryTask,
 	createSightingTask,
 	monitorBrowserHealthTask,

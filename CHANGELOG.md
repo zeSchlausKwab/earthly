@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.0.5] - 2026-07-24
+
+- Added a guided product tour with real desktop and mobile films for map authoring, private
+  collaboration, AI-assisted research, offline drawing, public proposals, and map-backed Stories.
+- Added native app download paths throughout the tour and every web-only capability gate, including
+  Field sessions, saved regions, the embedded local node, and durable delivery.
+- Added an Apple-silicon macOS DMG preview to the GitHub release alongside the signed Android
+  artifacts.
+- Added multi-step rectangle, circle, triangle, and arrow drawing; visible scaling controls;
+  larger line arrowheads; centered line labels; and correctly rendered dashed lines.
+- Added deletion flows for Private groups and Field sessions, plus clearer chat configuration and
+  compact model, provider, tool, and token details.
+- Improved AI-generated maps, geographic research fallbacks, and Overpass query handling.
+
 ## [0.0.4] - 2026-07-21
 
 - Replaced the unreliable third-party web-search dependency with federated Wikipedia, Wikidata,

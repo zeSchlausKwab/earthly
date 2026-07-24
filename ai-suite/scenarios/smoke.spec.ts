@@ -99,6 +99,14 @@ test('Field sessions are a routed native workspace', async ({ earthly }) => {
 			.first(),
 	).toBeVisible()
 	await expect(earthly.page.getByText('Earthly app required', { exact: true })).toBeVisible()
+	await expect(earthly.page.getByRole('link', { name: 'Get Android app' })).toHaveAttribute(
+		'href',
+		/https:\/\/zapstore\.dev\/apps\//,
+	)
+	await expect(earthly.page.getByRole('link', { name: 'Download for macOS' })).toHaveAttribute(
+		'href',
+		/\/releases\/latest\/download\/earthly-macos-aarch64\.dmg$/,
+	)
 })
 
 test('Sync & delivery is reachable and describes browser delivery honestly', async ({
@@ -107,9 +115,11 @@ test('Sync & delivery is reachable and describes browser delivery honestly', asy
 	await earthly.open({ tour: 'seen' })
 	await openPanel(earthly, 'Sync & delivery')
 	await expect(
-		earthly.page.getByText('Available in the Earthly Android app', { exact: true }),
+		earthly.page.getByText('Available in the native Earthly apps', { exact: true }),
 	).toBeVisible()
 	await expect(earthly.page.getByText(/web app publishes directly/i)).toBeVisible()
+	await expect(earthly.page.getByRole('link', { name: 'Get Android app' })).toBeVisible()
+	await expect(earthly.page.getByRole('link', { name: 'Download for macOS' })).toBeVisible()
 })
 
 test('the web app describes native offline sharing without pretending to host a node', async ({
@@ -120,6 +130,8 @@ test('the web app describes native offline sharing without pretending to host a 
 	await earthly.page.getByRole('tab', { name: 'Offline', exact: true }).click()
 	await expect(earthly.page.getByText('Native app required', { exact: true })).toBeVisible()
 	await expect(earthly.page.getByText(/does not expose a local relay or file server/)).toBeVisible()
+	await expect(earthly.page.getByRole('link', { name: 'Get Android app' })).toHaveCount(2)
+	await expect(earthly.page.getByRole('link', { name: 'Download for macOS' })).toHaveCount(2)
 })
 
 test('the native command bridge exposes local-node pairing controls', async ({

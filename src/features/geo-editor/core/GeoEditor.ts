@@ -1,4 +1,4 @@
-import { bearing, featureCollection, centerOfMass } from '@turf/turf'
+import { bearing, distance, featureCollection, centerOfMass } from '@turf/turf'
 import type { Feature, FeatureCollection, Position } from 'geojson'
 import type {
 	MapGeoJSONFeature,
@@ -24,6 +24,7 @@ import {
 	DrawPointMode,
 	DrawPolygonMode,
 } from './modes/DrawMode'
+import { DrawPrimitiveMode } from './modes/DrawPrimitiveMode'
 import { EditMode } from './modes/EditMode'
 import type {
 	EditorEvent,
@@ -32,7 +33,9 @@ import type {
 	EditorFeature,
 	EditorMode,
 	GeoEditorOptions,
+	PrimitiveShape,
 } from './types'
+import { collectLineArrowFeatures } from '../utils/lineArrows'
 
 type ScreenPoint = { x: number; y: number }
 type PointerOffset = { x: number; y: number }
@@ -43,13 +46,14 @@ interface SelectionDragState {
 	hasMoved: boolean
 }
 
-type TransformDragType = 'rotate' | 'move'
+type TransformDragType = 'rotate' | 'move' | 'scale'
 
 interface TransformDragState {
 	type: TransformDragType
 	center: Position
 	startPointer: Position
 	startBearing?: number
+	startDistance?: number
 	baseFeatures: EditorFeature[]
 	lastFeatures?: EditorFeature[]
 	dragPanWasEnabled: boolean
@@ -84,6 +88,7 @@ export class GeoEditor {
 	private drawPointMode: DrawPointMode
 	private drawLineMode: DrawLineStringMode
 	private drawPolygonMode: DrawPolygonMode
+	private drawPrimitiveMode: DrawPrimitiveMode
 	private drawAnnotationMode: DrawAnnotationMode
 	private editMode: EditMode
 	private doubleClickZoomDisabled: boolean = false
@@ -152,7 +157,15 @@ export class GeoEditor {
 		this.map = map
 		this.multiSelectModifier = this.detectMultiSelectModifier()
 		this.options = {
-			modes: options.modes || ['draw_point', 'draw_linestring', 'draw_polygon', 'edit', 'select'],
+			modes: options.modes || [
+				'draw_point',
+				'draw_linestring',
+				'draw_polygon',
+				'draw_primitive',
+				'draw_annotation',
+				'edit',
+				'select',
+			],
 			defaultMode: options.defaultMode || 'static',
 			features: options.features || ['Point', 'LineString', 'Polygon'],
 			snapping: options.snapping ?? true,
@@ -189,6 +202,7 @@ export class GeoEditor {
 		this.drawPointMode = new DrawPointMode()
 		this.drawLineMode = new DrawLineStringMode()
 		this.drawPolygonMode = new DrawPolygonMode()
+		this.drawPrimitiveMode = new DrawPrimitiveMode()
 		this.drawAnnotationMode = new DrawAnnotationMode()
 		this.editMode = new EditMode()
 
@@ -209,6 +223,7 @@ export class GeoEditor {
 		this.drawPointMode.onAdd(this.map)
 		this.drawLineMode.onAdd(this.map)
 		this.drawPolygonMode.onAdd(this.map)
+		this.drawPrimitiveMode.onAdd(this.map)
 		this.drawAnnotationMode.onAdd(this.map)
 		this.editMode.onAdd(this.map)
 
@@ -267,11 +282,19 @@ export class GeoEditor {
 		this.map.on('mouseleave', this.layers.LAYER_GIZMO_MOVE, () => {
 			this.map.getCanvas().style.cursor = ''
 		})
+		this.map.on('mouseenter', this.layers.LAYER_GIZMO_SCALE, () => {
+			this.map.getCanvas().style.cursor = 'nwse-resize'
+		})
+		this.map.on('mouseleave', this.layers.LAYER_GIZMO_SCALE, () => {
+			this.map.getCanvas().style.cursor = ''
+		})
 
 		// Cursor feedback for selectable features in select mode
 		const selectableLayers = [
 			this.layers.LAYER_FILL,
 			this.layers.LAYER_LINE,
+			this.layers.LAYER_LINE_DASHED,
+			this.layers.LAYER_LINE_DOTTED,
 			this.layers.LAYER_POINT,
 			this.layers.LAYER_POINT_ICON,
 			this.layers.LAYER_ANNOTATION_ANCHOR,
@@ -341,6 +364,14 @@ export class GeoEditor {
 			}
 			this.emitDrawChange()
 			this.render()
+		} else if (this.mode === 'draw_primitive') {
+			const feature = this.drawPrimitiveMode.onClick(e)
+			if (feature) {
+				this.addFeature(feature)
+				this.emit('create', { type: 'create', features: [feature] })
+			}
+			this.emitDrawChange()
+			this.render()
 		} else if (this.mode === 'select' || this.mode === 'box_select') {
 			this.handleSelectClick(e)
 		} else if (this.mode === 'edit') {
@@ -354,6 +385,8 @@ export class GeoEditor {
 			layers: [
 				this.layers.LAYER_FILL,
 				this.layers.LAYER_LINE,
+				this.layers.LAYER_LINE_DASHED,
+				this.layers.LAYER_LINE_DOTTED,
 				this.layers.LAYER_POINT,
 				this.layers.LAYER_POINT_ICON,
 				this.layers.LAYER_ANNOTATION_ANCHOR,
@@ -426,6 +459,8 @@ export class GeoEditor {
 				layers: [
 					this.layers.LAYER_FILL,
 					this.layers.LAYER_LINE,
+					this.layers.LAYER_LINE_DASHED,
+					this.layers.LAYER_LINE_DOTTED,
 					this.layers.LAYER_POINT,
 					this.layers.LAYER_POINT_ICON,
 				],
@@ -582,7 +617,11 @@ export class GeoEditor {
 		if (this.shouldShowCursorIndicator()) {
 			const { position } = this.getAdjustedPointerPosition(e)
 			this.rendering.updateCursorIndicator(position, true)
-			if (this.mode === 'draw_linestring' || this.mode === 'draw_polygon') {
+			if (
+				this.mode === 'draw_linestring' ||
+				this.mode === 'draw_polygon' ||
+				this.mode === 'draw_primitive'
+			) {
 				e.lngLat.lng = position[0]
 				e.lngLat.lat = position[1]
 			}
@@ -595,6 +634,9 @@ export class GeoEditor {
 			this.render()
 		} else if (this.mode === 'draw_polygon') {
 			this.drawPolygonMode.onMove(e)
+			this.render()
+		} else if (this.mode === 'draw_primitive') {
+			this.drawPrimitiveMode.onMove(e)
 			this.render()
 		} else if (this.mode === 'edit') {
 			const state = this.editMode.getState()
@@ -727,6 +769,14 @@ export class GeoEditor {
 				this.emit('create', { type: 'create', features: [feature] })
 			}
 			this.render()
+		} else if (this.mode === 'draw_primitive') {
+			const feature = this.drawPrimitiveMode.onKeyDown(e)
+			if (feature) {
+				this.addFeature(feature)
+				this.emit('create', { type: 'create', features: [feature] })
+			}
+			this.emitDrawChange()
+			this.render()
 		}
 	}
 
@@ -832,7 +882,11 @@ export class GeoEditor {
 	private tryStartTransformDrag(e: MapMouseEvent): boolean {
 		if (this.mode !== 'select') return false
 		const gizmoFeatures = this.map.queryRenderedFeatures(e.point, {
-			layers: [this.layers.LAYER_GIZMO_ROTATE, this.layers.LAYER_GIZMO_MOVE],
+			layers: [
+				this.layers.LAYER_GIZMO_ROTATE,
+				this.layers.LAYER_GIZMO_MOVE,
+				this.layers.LAYER_GIZMO_SCALE,
+			],
 		})
 
 		if (gizmoFeatures.length === 0) return false
@@ -847,6 +901,11 @@ export class GeoEditor {
 		}
 		if (meta === 'gizmo-move') {
 			this.startTransformDrag('move', pointer)
+			e.preventDefault()
+			return true
+		}
+		if (meta === 'gizmo-scale') {
+			this.startTransformDrag('scale', pointer)
 			e.preventDefault()
 			return true
 		}
@@ -868,6 +927,7 @@ export class GeoEditor {
 			center,
 			startPointer: pointer,
 			startBearing: type === 'rotate' ? bearing(center, pointer) : undefined,
+			startDistance: type === 'scale' ? distance(center, pointer) : undefined,
 			baseFeatures,
 			dragPanWasEnabled,
 		}
@@ -893,6 +953,13 @@ export class GeoEditor {
 			const angleDelta = currentBearing - startBearing
 			updatedFeatures = state.baseFeatures.map((feature) =>
 				this.transform.rotate(feature, { center: state.center, angle: angleDelta }),
+			)
+		} else if (state.type === 'scale') {
+			const startDistance = state.startDistance ?? distance(state.center, state.startPointer)
+			const currentDistance = distance(state.center, pointer)
+			const scale = Math.min(20, Math.max(0.05, currentDistance / Math.max(startDistance, 1e-9)))
+			updatedFeatures = state.baseFeatures.map((feature) =>
+				this.transform.scale(feature, { center: state.center, scale }),
 			)
 		} else {
 			updatedFeatures = state.baseFeatures.map((feature) =>
@@ -939,6 +1006,7 @@ export class GeoEditor {
 
 	setMode(mode: EditorMode): void {
 		const previousMode = this.mode
+		if (mode === 'draw_linestring') this.drawLineMode.setArrowDefaults({})
 		this.mode = mode
 
 		if (previousMode !== mode && this.isDrawMode(previousMode)) {
@@ -951,6 +1019,9 @@ export class GeoEditor {
 					break
 				case 'draw_polygon':
 					this.drawPolygonMode.reset()
+					break
+				case 'draw_primitive':
+					this.drawPrimitiveMode.reset()
 					break
 				case 'draw_annotation':
 					this.drawAnnotationMode.reset()
@@ -982,6 +1053,60 @@ export class GeoEditor {
 
 	getMode(): EditorMode {
 		return this.mode
+	}
+
+	startArrowDrawing(placement: 'start' | 'end' | 'both' = 'end'): void {
+		this.setMode('draw_linestring')
+		this.drawLineMode.setArrowDefaults({
+			arrowStart: placement === 'start' || placement === 'both',
+			arrowEnd: placement === 'end' || placement === 'both',
+		})
+		this.emitDrawChange()
+		this.render()
+	}
+
+	startPrimitiveDrawing(shape: PrimitiveShape): void {
+		this.setMode('draw_primitive')
+		this.drawPrimitiveMode.setShape(shape)
+		this.emitDrawChange()
+		this.render()
+	}
+
+	/**
+	 * Programmatic insertion for AI/editor commands. Human toolbar actions use
+	 * `startPrimitiveDrawing` and its two-point interaction instead.
+	 */
+	insertPrimitive(shape: PrimitiveShape): EditorFeature {
+		const canvas = this.map.getCanvas()
+		const centerX = Math.max(1, canvas.clientWidth || canvas.width || 800) / 2
+		const centerY = Math.max(1, canvas.clientHeight || canvas.height || 600) / 2
+		const isCornerShape = shape === 'rectangle' || shape === 'square'
+		const start = isCornerShape
+			? [centerX - 60, centerY - (shape === 'square' ? 60 : 40)]
+			: [centerX, centerY]
+		const end = isCornerShape
+			? [centerX + 60, centerY + (shape === 'square' ? 60 : 40)]
+			: [centerX + 64, centerY]
+		const eventAt = ([x, y]: number[]): MapMouseEvent => {
+			const lngLat = this.map.unproject([x ?? centerX, y ?? centerY])
+			return { lngLat } as MapMouseEvent
+		}
+
+		const mode = new DrawPrimitiveMode()
+		mode.onAdd(this.map)
+		mode.setShape(shape)
+		mode.onClick(eventAt(start))
+		mode.onMove(eventAt(end))
+		const feature = mode.onClick(eventAt(end))
+		mode.onRemove()
+		if (!feature) throw new Error(`Failed to create ${shape}`)
+
+		this.addFeature(feature)
+		this.selection.clearSelection()
+		this.selection.select(feature.id)
+		this.setMode('select')
+		this.emit('selection.change', { type: 'selection.change', features: [feature] })
+		return feature
 	}
 
 	toggleSnapping(): boolean {
@@ -1752,6 +1877,7 @@ export class GeoEditor {
 		this.drawPointMode.onRemove()
 		this.drawLineMode.onRemove()
 		this.drawPolygonMode.onRemove()
+		this.drawPrimitiveMode.onRemove()
 		this.drawAnnotationMode.onRemove()
 		this.editMode.onRemove()
 
@@ -1799,7 +1925,10 @@ export class GeoEditor {
 
 	private shouldShowCursorIndicator(): boolean {
 		return (
-			this.mode === 'draw_point' || this.mode === 'draw_linestring' || this.mode === 'draw_polygon'
+			this.mode === 'draw_point' ||
+			this.mode === 'draw_linestring' ||
+			this.mode === 'draw_polygon' ||
+			this.mode === 'draw_primitive'
 		)
 	}
 
@@ -1808,6 +1937,7 @@ export class GeoEditor {
 			mode === 'draw_point' ||
 			mode === 'draw_linestring' ||
 			mode === 'draw_polygon' ||
+			mode === 'draw_primitive' ||
 			mode === 'draw_annotation'
 		)
 	}
@@ -1970,6 +2100,19 @@ export class GeoEditor {
 			}
 			this.emitDrawChange()
 			this.render()
+			return
+		}
+
+		if (this.mode === 'draw_primitive') {
+			const feature = this.drawPrimitiveMode.onClick({
+				lngLat: { lng: position[0], lat: position[1] },
+			} as MapMouseEvent)
+			if (feature) {
+				this.addFeature(feature)
+				this.emit('create', { type: 'create', features: [feature] })
+			}
+			this.emitDrawChange()
+			this.render()
 		}
 	}
 
@@ -1980,8 +2123,11 @@ export class GeoEditor {
 	private getFeatureCollection(): FeatureCollection {
 		const features: Feature[] = Array.from(this.features.values()) as Feature[]
 		const currentDrawFeature =
-			this.drawLineMode.getCurrentFeature() || this.drawPolygonMode.getCurrentFeature()
+			this.drawLineMode.getCurrentFeature() ||
+			this.drawPolygonMode.getCurrentFeature() ||
+			this.drawPrimitiveMode.getCurrentFeature()
 		if (currentDrawFeature) features.push(currentDrawFeature as Feature)
+		features.push(...collectLineArrowFeatures(features))
 		return { type: 'FeatureCollection', features }
 	}
 

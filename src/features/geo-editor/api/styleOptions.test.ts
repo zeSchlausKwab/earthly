@@ -8,6 +8,22 @@ describe('normalizeStyleOptions (UAT styling gap-closure)', () => {
 		expect(normalizeStyleOptions({ strokeColor: '#0000ff' })).toEqual({ strokeColor: '#0000ff' })
 	})
 
+	it('accepts line patterns and arrowhead properties', () => {
+		expect(
+			normalizeStyleOptions({
+				lineDash: 'dashed',
+				arrowStart: true,
+				arrowEnd: false,
+			}),
+		).toEqual({
+			lineDash: 'dashed',
+			arrowStart: true,
+			arrowEnd: false,
+		})
+		expect(() => normalizeStyleOptions({ lineDash: 'broken' })).toThrow(InvalidStyleOptionError)
+		expect(() => normalizeStyleOptions({ arrowEnd: 'yes' })).toThrow(InvalidStyleOptionError)
+	})
+
 	it('normalizes forgiving aliases to canonical renderer keys', () => {
 		expect(normalizeStyleOptions({ fill: '#ff0000' })).toEqual({ fillColor: '#ff0000' })
 		expect(normalizeStyleOptions({ stroke: '#0000ff' })).toEqual({ strokeColor: '#0000ff' })

@@ -1,4 +1,4 @@
-import { MapPin, Pentagon, Route, Type } from 'lucide-react'
+import { ArrowUpRight, MapPin, Pentagon, Route, Type } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ButtonGroup } from '@/components/ui/button-group'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -7,6 +7,7 @@ import type { EditorMode } from '@/features/geo-editor/core'
 export interface DrawButtonGroupProps {
 	mode: EditorMode
 	onModeChange: (mode: EditorMode) => void
+	onArrowDraw?: () => void
 	disabled?: boolean
 	small?: boolean
 }
@@ -18,7 +19,13 @@ const drawModes = [
 	{ key: 'draw_annotation', icon: Type, label: 'Draw label' },
 ] as const
 
-export function DrawButtonGroup({ mode, onModeChange, disabled, small }: DrawButtonGroupProps) {
+export function DrawButtonGroup({
+	mode,
+	onModeChange,
+	onArrowDraw,
+	disabled,
+	small,
+}: DrawButtonGroupProps) {
 	const iconSize = small ? 'h-3.5 w-3.5' : 'h-4 w-4'
 	const buttonSize = small ? 'h-8 w-8' : 'h-9 w-9'
 
@@ -45,6 +52,26 @@ export function DrawButtonGroup({ mode, onModeChange, disabled, small }: DrawBut
 						</TooltipContent>
 					</Tooltip>
 				))}
+				{onArrowDraw ? (
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<Button
+								type="button"
+								size="icon"
+								variant="outline"
+								disabled={disabled}
+								onClick={onArrowDraw}
+								className={`${buttonSize} rounded-none`}
+								aria-label="Draw arrow"
+							>
+								<ArrowUpRight className={iconSize} />
+							</Button>
+						</TooltipTrigger>
+						<TooltipContent side="bottom" sideOffset={8}>
+							<p>Draw arrow</p>
+						</TooltipContent>
+					</Tooltip>
+				) : null}
 			</ButtonGroup>
 		</TooltipProvider>
 	)

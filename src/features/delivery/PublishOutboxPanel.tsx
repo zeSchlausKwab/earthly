@@ -12,6 +12,7 @@ import {
 	WifiOff,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { NativeAppDownloadLinks } from '@/components/NativeAppDownloadLinks'
 import { ListPanel } from '@/components/entity-list/ListPanel'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -251,11 +252,12 @@ export function PublishOutboxPanel() {
 			{!native ? (
 				<Alert className="rounded-none border-dashed p-3">
 					<CloudUpload className="h-4 w-4" />
-					<AlertTitle>Available in the Earthly Android app</AlertTitle>
+					<AlertTitle>Available in the native Earthly apps</AlertTitle>
 					<AlertDescription>
-						The web app publishes directly. Android stores signed changes first, then delivers them
-						when a connection is available.
+						The web app publishes directly. Android and macOS store signed changes first, then
+						deliver them when a connection is available.
 					</AlertDescription>
+					<NativeAppDownloadLinks />
 				</Alert>
 			) : loadError ? (
 				<Alert variant="destructive" className="rounded-none p-3">

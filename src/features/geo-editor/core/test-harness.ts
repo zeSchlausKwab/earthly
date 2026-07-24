@@ -75,11 +75,18 @@ export function createMockMap(): MapLibreMap {
 		}),
 		getCanvas: () => ({
 			style: { cursor: '' },
+			clientWidth: 800,
+			clientHeight: 600,
+			width: 800,
+			height: 600,
 			getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
 		}),
 		// Projection
 		project: (lngLat: [number, number]) => ({ x: lngLat[0], y: lngLat[1] }),
-		unproject: (point: { x: number; y: number }) => ({ lng: point.x, lat: point.y }),
+		unproject: (point: { x: number; y: number } | [number, number]) => ({
+			lng: Array.isArray(point) ? point[0] : point.x,
+			lat: Array.isArray(point) ? point[1] : point.y,
+		}),
 		// Queries
 		queryRenderedFeatures: () => [],
 		// Interaction sub-controllers

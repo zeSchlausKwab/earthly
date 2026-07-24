@@ -30,6 +30,7 @@ import {
 } from '@/lib/nostr/kinds'
 import type { EditorFeature } from '@/features/geo-editor/core'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -52,7 +53,10 @@ import {
 	Copy,
 	ArrowDownToLine,
 	Code2,
-	Bug,
+	ChevronDown,
+	Download,
+	Gauge,
+	MessageSquarePlus,
 } from 'lucide-react'
 import { preloadWorldData } from '@/lib/geo/worldData'
 import { estimateTokens, type ChatMessage, type ToolCall, type ProviderType } from './routstr'
@@ -95,6 +99,38 @@ const PROVIDER_LABELS: Record<ProviderType, string> = {
 	lmstudio: 'LM Studio',
 	ollama: 'Ollama',
 	custom: 'Custom endpoint',
+}
+
+function formatCompactNumber(value: number): string {
+	if (value >= 1_000_000) {
+		return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1).replace(/\.0$/, '')}m`
+	}
+	if (value >= 1_000) {
+		return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1).replace(/\.0$/, '')}k`
+	}
+	return value.toLocaleString()
+}
+
+function formatProviderEndpoint(baseUrl: string): string {
+	const normalized = baseUrl.trim()
+	if (!normalized) return 'Endpoint not configured'
+	try {
+		const url = new URL(normalized)
+		return `${url.host}${url.pathname === '/' ? '' : url.pathname.replace(/\/$/, '')}`
+	} catch {
+		return normalized
+	}
+}
+
+function ChatMetric({ label, title, value }: { label: string; title?: string; value: string }) {
+	return (
+		<div className="min-w-0 rounded-md bg-muted/35 px-2.5 py-2" title={title}>
+			<dt className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+				{label}
+			</dt>
+			<dd className="mt-0.5 truncate text-xs font-medium text-foreground">{value}</dd>
+		</div>
+	)
 }
 
 function formatChatSessionOption(chat: { title: string; updatedAt: number }): string {
@@ -157,6 +193,7 @@ export function ChatPanel({
 		provider,
 		providerOverrides,
 		loadModels,
+		setSelectedModel,
 		sendMessage,
 		createChat,
 		switchChat,
@@ -208,6 +245,8 @@ export function ChatPanel({
 	const [sendAnyway, setSendAnyway] = useState(false)
 	const [visionSupport, setVisionSupport] = useState<VisionSupport>('no-vision')
 	const [nowMs, setNowMs] = useState(Date.now())
+	const [connectionDetailsOpen, setConnectionDetailsOpen] = useState(false)
+	const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
 	const messagesEndRef = useRef<HTMLDivElement>(null)
 	const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -489,6 +528,11 @@ export function ChatPanel({
 	)
 	const selectedModelLabel = selectedModelData?.name ?? 'No model selected'
 	const providerLabel = PROVIDER_LABELS[provider]
+	const providerConfig = useMemo(
+		() => resolveProvider(provider, providerOverrides),
+		[provider, providerOverrides],
+	)
+	const providerEndpointLabel = formatProviderEndpoint(providerConfig.baseUrl)
 	const isWalletRequired = provider === 'routstr'
 	const canSend = !!selectedModel && (!isWalletRequired || walletStatus === 'ready')
 	const handleOpenSettings = () => {
@@ -522,6 +566,19 @@ export function ChatPanel({
 	}, [streamPhase])
 	const contextTokenDisplay =
 		diagnostics.effectiveContextTokens ?? selectedModelData?.contextLength ?? null
+	const contextUsageSummary = contextTokenDisplay
+		? diagnostics.estimatedPromptTokens
+			? `${formatCompactNumber(diagnostics.estimatedPromptTokens)} / ${formatCompactNumber(contextTokenDisplay)}`
+			: formatCompactNumber(contextTokenDisplay)
+		: 'Unknown'
+	const requestSummary = `${diagnostics.modelRequestCount} ${
+		diagnostics.modelRequestCount === 1 ? 'request' : 'requests'
+	}`
+	const activitySummary = isStreaming
+		? `${phaseLabel}${stalledSeconds > 0 ? ` · ${stalledSeconds}s` : ''}`
+		: diagnostics.toolCallCount > 0
+			? `${diagnostics.toolCallCount} tool ${diagnostics.toolCallCount === 1 ? 'call' : 'calls'}`
+			: 'Idle'
 	// Pair each run_code tool call (which carries the source `code` argument) with
 	// its later role:'tool' result message by tool_call_id, so MessageBubble can
 	// render the source + output together as a single CodeRunDisclosure block
@@ -547,18 +604,20 @@ export function ChatPanel({
 	const timelineItems = useMemo(() => buildChatTimeline(messages), [messages])
 
 	return (
-		<div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-			{/* Header with provider, model picker and wallet info */}
-			<div className="p-3 border-b space-y-2">
-				<div className="flex items-center gap-2">
+		<section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden" aria-label="AI chat">
+			<div className="space-y-2 border-b bg-background/95 px-3 py-2.5">
+				<div className="flex items-center gap-1.5">
 					<Button
 						type="button"
 						variant="outline"
 						size="sm"
-						className="h-8 text-xs"
+						className="h-8 shrink-0 gap-1.5 px-2.5 text-xs"
+						aria-label="New conversation"
 						onClick={handleCreateChat}
 					>
-						New conversation
+						<MessageSquarePlus className="h-3.5 w-3.5" />
+						<span className="hidden sm:inline">New conversation</span>
+						<span className="sm:hidden">New</span>
 					</Button>
 					{/* Deliberately NOT disabled while streaming: createChat/switchChat
 					    cancel any in-flight (or stuck/runaway) stream themselves — these
@@ -589,17 +648,19 @@ export function ChatPanel({
 						type="button"
 						variant="ghost"
 						size="icon"
+						className="h-8 w-8 shrink-0"
 						onClick={handleExportConversation}
 						disabled={messages.length === 0}
 						title="Export conversation (copy JSON + download .json)"
 						aria-label="Export conversation"
 					>
-						<Bug className="h-4 w-4" />
+						<Download className="h-4 w-4" />
 					</Button>
 					<Button
 						type="button"
 						variant="ghost"
 						size="icon"
+						className="h-8 w-8 shrink-0"
 						onClick={handleDeleteChat}
 						disabled={!activeChatId}
 						title="Delete conversation"
@@ -609,153 +670,231 @@ export function ChatPanel({
 					</Button>
 				</div>
 
-				<div className="flex items-center gap-2">
-					<div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border bg-muted/20 px-2.5 py-2">
-						<Bot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-						<div className="min-w-0">
-							<p className="flex items-center gap-1.5 truncate text-xs font-medium">
-								<span className="truncate">{providerLabel}</span>
-								{provider === 'routstr' ? <DangerIndicator /> : null}
-								<span className="shrink-0">·</span>
-								<span className="truncate">{selectedModelLabel}</span>
-							</p>
-							<p className="truncate text-[11px] text-muted-foreground">
-								Configure provider, model, tools, and credentials in Settings
-							</p>
+				<Collapsible open={connectionDetailsOpen} onOpenChange={setConnectionDetailsOpen}>
+					<div className="overflow-hidden rounded-lg border bg-muted/15">
+						<div className="flex min-w-0 items-stretch">
+							<CollapsibleTrigger asChild>
+								<button
+									type="button"
+									className="group flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-left outline-none transition-colors hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+									aria-label="AI connection details"
+								>
+									<span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
+										<Bot className="h-3.5 w-3.5" />
+									</span>
+									<span className="min-w-0 flex-1">
+										<span className="flex min-w-0 items-center gap-1.5">
+											<span className="truncate text-xs font-semibold">{selectedModelLabel}</span>
+											{provider === 'routstr' ? <DangerIndicator /> : null}
+										</span>
+										<span className="block truncate text-[10px] text-muted-foreground">
+											{providerLabel} · {providerEndpointLabel}
+										</span>
+									</span>
+									<ChevronDown
+										className={cn(
+											'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
+											connectionDetailsOpen && 'rotate-180',
+										)}
+									/>
+								</button>
+							</CollapsibleTrigger>
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon"
+								className="h-auto w-9 shrink-0 rounded-none border-l"
+								onClick={handleOpenSettings}
+								title="Open provider settings"
+								aria-label="Open provider settings"
+							>
+								<Settings2 className="h-3.5 w-3.5" />
+							</Button>
 						</div>
-					</div>
-					<Button
-						type="button"
-						variant="outline"
-						size="icon"
-						onClick={handleOpenSettings}
-						title="Open chat settings"
-						aria-label="Open chat settings"
-					>
-						<Settings2 className="h-4 w-4" />
-					</Button>
-				</div>
 
-				{/* Wallet status / provider info and tools toggle */}
-				<div className="flex items-center justify-between text-sm">
-					{isWalletRequired ? (
-						<div className="flex items-center gap-1.5 text-muted-foreground">
-							<Wallet className="h-3.5 w-3.5" />
-							{walletStatus === 'ready' ? (
-								<div className="flex min-w-0 items-center gap-1.5">
-									<span className="shrink-0">{walletBalance.toLocaleString()} sats</span>
-									{paymentMintDisplay ? (
-										<>
-											<span className="shrink-0 text-muted-foreground/70">·</span>
-											<Tooltip>
-												<TooltipTrigger asChild>
-													<span
-														className={cn(
-															'max-w-[14rem] truncate text-xs',
-															paymentMint.defaultMint && paymentMint.source !== 'default'
-																? 'text-orange-500 dark:text-orange-400'
-																: 'text-muted-foreground',
-														)}
-													>
-														{paymentMintDisplay}
-													</span>
-												</TooltipTrigger>
-												<TooltipContent side="top" sideOffset={6} className="max-w-xs">
-													{paymentMintTooltip}
-												</TooltipContent>
-											</Tooltip>
-										</>
-									) : null}
+						<CollapsibleContent className="border-t bg-background/75 px-2.5 py-2.5">
+							<div className="grid grid-cols-[4.25rem_minmax(0,1fr)] items-center gap-x-2 gap-y-2">
+								<label
+									htmlFor="chat-inline-model-select"
+									className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
+								>
+									Model
+								</label>
+								<NativeSelect
+									id="chat-inline-model-select"
+									aria-label="Select chat model"
+									value={selectedModel ?? ''}
+									onChange={(event) => setSelectedModel(event.target.value)}
+									disabled={modelsLoading || isStreaming || models.length === 0}
+									className="w-full"
+								>
+									{selectedModel ? null : (
+										<NativeSelectOption value="" disabled>
+											{modelsLoading ? 'Loading models…' : 'Select model'}
+										</NativeSelectOption>
+									)}
+									{models.map((model) => (
+										<NativeSelectOption key={model.id} value={model.id}>
+											{model.name}
+										</NativeSelectOption>
+									))}
+								</NativeSelect>
+
+								<span className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+									Provider
+								</span>
+								<div className="min-w-0">
+									<p className="flex min-w-0 items-center gap-1.5 text-xs font-medium">
+										<span className="truncate">{providerLabel}</span>
+										{provider === 'routstr' ? <DangerIndicator /> : null}
+									</p>
+									<p
+										className="truncate text-[10px] text-muted-foreground"
+										title={providerConfig.baseUrl}
+									>
+										{providerEndpointLabel}
+									</p>
 								</div>
-							) : (
-								<span className="text-destructive">Wallet not connected</span>
-							)}
-						</div>
-					) : (
-						<div className="flex items-center gap-1.5 text-muted-foreground text-xs">
-							<Server className="h-3.5 w-3.5" />
-							<span>Local - free</span>
-						</div>
-					)}
-					{totalSpent > 0 ? (
-						<span className="text-xs text-muted-foreground">Spent: {totalSpent} sats</span>
-					) : (
-						<div className="flex items-center gap-1.5 text-muted-foreground text-xs">
-							<MapPin className="h-3 w-3" />
-							<span>Tools {toolsEnabled ? 'enabled' : 'disabled'}</span>
-						</div>
-					)}
-				</div>
+							</div>
+
+							<div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-1.5 border-t pt-2.5 text-[10px] text-muted-foreground">
+								{isWalletRequired ? (
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<span className="inline-flex max-w-full items-center gap-1 rounded-full border bg-background px-2 py-1">
+												<Wallet className="h-3 w-3 shrink-0" />
+												<span className="truncate">
+													{walletStatus === 'ready'
+														? `${walletBalance.toLocaleString()} sats${totalSpent > 0 ? ` · ${totalSpent} spent` : ''}`
+														: 'Wallet not connected'}
+												</span>
+											</span>
+										</TooltipTrigger>
+										{paymentMintTooltip ? (
+											<TooltipContent side="top" sideOffset={6} className="max-w-xs">
+												{paymentMintDisplay ? (
+													<p className="mb-1 font-medium">{paymentMintDisplay}</p>
+												) : null}
+												<p>{paymentMintTooltip}</p>
+											</TooltipContent>
+										) : null}
+									</Tooltip>
+								) : (
+									<span className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-1">
+										<Server className="h-3 w-3" />
+										Local · free
+									</span>
+								)}
+								<span className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-1">
+									<MapPin className="h-3 w-3" />
+									Tools {toolsEnabled ? 'enabled' : 'disabled'}
+								</span>
+								<span className="ml-auto text-[10px]">
+									Provider and credentials stay in Settings
+								</span>
+							</div>
+						</CollapsibleContent>
+					</div>
+				</Collapsible>
 
 				{/* Bound-target chip + "Just accept" toggle — always visible (SAFE-01 / SAFE-04 / D-12) */}
 				<BindingChipContainer onOpenTarget={onOpenAuthoringTarget} />
 
-				{/* Diagnostics */}
-				<div className="min-w-0">
-					<div className="flex min-w-0 flex-wrap items-center gap-1 pb-0.5 text-[11px] text-muted-foreground">
-						{contextTokenDisplay ? (
-							<span className="max-w-full rounded border px-1.5 py-0.5 break-words">
-								{diagnostics.effectiveContextTokens ? 'ctx' : 'ctx(model)'}{' '}
-								{contextTokenDisplay.toLocaleString()}
-							</span>
-						) : null}
-						{diagnostics.promptBudgetTokens ? (
-							<span className="max-w-full rounded border px-1.5 py-0.5 break-words">
-								prompt budget {diagnostics.promptBudgetTokens.toLocaleString()}
-							</span>
-						) : null}
-						{diagnostics.estimatedPromptTokens ? (
-							<span className="max-w-full rounded border px-1.5 py-0.5 break-words">
-								~prompt {diagnostics.estimatedPromptTokens.toLocaleString()} tok
-							</span>
-						) : null}
-						{diagnostics.estimatedCompletionTokens ? (
-							<span className="max-w-full rounded border px-1.5 py-0.5 break-words">
-								~completion {diagnostics.estimatedCompletionTokens.toLocaleString()} tok
-							</span>
-						) : null}
-						{diagnostics.modelRequestCount > 0 ? (
-							<span className="max-w-full rounded border px-1.5 py-0.5 break-words">
-								requests {diagnostics.modelRequestCount}
-							</span>
-						) : null}
-						{diagnostics.cumulativeEstimatedPromptTokens > 0 ? (
-							<span className="max-w-full rounded border px-1.5 py-0.5 break-words">
-								Σ input ~{diagnostics.cumulativeEstimatedPromptTokens.toLocaleString()} tok
-							</span>
-						) : null}
-						{diagnostics.cumulativeEstimatedCompletionTokens > 0 ? (
-							<span className="max-w-full rounded border px-1.5 py-0.5 break-words">
-								Σ output ~{diagnostics.cumulativeEstimatedCompletionTokens.toLocaleString()} tok
-							</span>
-						) : null}
-						{diagnostics.finishReason ? (
-							<span className="max-w-full rounded border px-1.5 py-0.5 break-words">
-								finish {diagnostics.finishReason}
-							</span>
-						) : null}
-						{diagnostics.toolCallCount > 0 ? (
-							<span
-								className="max-w-full rounded border px-1.5 py-0.5 break-words"
-								title={Object.entries(diagnostics.toolStats)
-									.map(
-										([name, stats]) =>
-											`${name}: ${stats.calls} calls, ${(stats.durationMs / 1000).toFixed(1)}s, ${Math.ceil(stats.resultBytes / 1024)} KiB, ${stats.errors} errors`,
-									)
-									.join('\n')}
+				<Collapsible open={diagnosticsOpen} onOpenChange={setDiagnosticsOpen}>
+					<div className="overflow-hidden rounded-md border">
+						<CollapsibleTrigger asChild>
+							<button
+								type="button"
+								className="flex min-h-8 w-full min-w-0 items-center gap-1.5 px-2.5 py-1.5 text-left text-[10px] text-muted-foreground outline-none transition-colors hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+								aria-label="Chat usage details"
 							>
-								tools {diagnostics.toolCallCount} · {Math.ceil(diagnostics.toolResultBytes / 1024)}{' '}
-								KiB · {(diagnostics.totalToolDurationMs / 1000).toFixed(1)}s
-							</span>
-						) : null}
-						{isStreaming ? (
-							<span className="max-w-full rounded border px-1.5 py-0.5 break-words">
-								{phaseLabel}
-								{stalledSeconds > 0 ? ` · ${stalledSeconds}s` : ''}
-							</span>
-						) : null}
+								<Gauge className="h-3.5 w-3.5 shrink-0" />
+								<span className="shrink-0 font-medium text-foreground">
+									Context {contextUsageSummary}
+								</span>
+								<span aria-hidden="true" className="text-border">
+									/
+								</span>
+								<span className="shrink-0">{requestSummary}</span>
+								<span aria-hidden="true" className="hidden text-border sm:inline">
+									/
+								</span>
+								<span className="hidden min-w-0 truncate sm:inline">{activitySummary}</span>
+								<ChevronDown
+									className={cn(
+										'ml-auto h-3.5 w-3.5 shrink-0 transition-transform',
+										diagnosticsOpen && 'rotate-180',
+									)}
+								/>
+							</button>
+						</CollapsibleTrigger>
+						<CollapsibleContent className="border-t bg-muted/10 p-2">
+							<dl className="grid grid-cols-2 gap-1.5">
+								<ChatMetric
+									label="Context window"
+									value={contextTokenDisplay ? contextTokenDisplay.toLocaleString() : 'Unknown'}
+								/>
+								<ChatMetric
+									label="Prompt budget"
+									value={
+										diagnostics.promptBudgetTokens
+											? diagnostics.promptBudgetTokens.toLocaleString()
+											: 'Not calculated'
+									}
+								/>
+								<ChatMetric
+									label="Current prompt"
+									value={
+										diagnostics.estimatedPromptTokens
+											? `~${diagnostics.estimatedPromptTokens.toLocaleString()} tokens`
+											: 'No request yet'
+									}
+								/>
+								<ChatMetric
+									label="Expected reply"
+									value={
+										diagnostics.estimatedCompletionTokens
+											? `~${diagnostics.estimatedCompletionTokens.toLocaleString()} tokens`
+											: 'Not estimated'
+									}
+								/>
+								<ChatMetric label="Model requests" value={requestSummary} />
+								<ChatMetric
+									label="Current phase"
+									value={activitySummary}
+									title={
+										isStreaming && stalledSeconds > 0
+											? `${phaseLabel}; ${stalledSeconds}s since the last model or tool progress`
+											: undefined
+									}
+								/>
+								<ChatMetric
+									label="Cumulative input"
+									value={`~${diagnostics.cumulativeEstimatedPromptTokens.toLocaleString()} tokens`}
+								/>
+								<ChatMetric
+									label="Cumulative output"
+									value={`~${diagnostics.cumulativeEstimatedCompletionTokens.toLocaleString()} tokens`}
+								/>
+								<ChatMetric
+									label="Tool work"
+									value={
+										diagnostics.toolCallCount > 0
+											? `${diagnostics.toolCallCount} calls · ${Math.ceil(diagnostics.toolResultBytes / 1024)} KiB · ${(diagnostics.totalToolDurationMs / 1000).toFixed(1)}s`
+											: 'No tool calls'
+									}
+									title={Object.entries(diagnostics.toolStats)
+										.map(
+											([name, stats]) =>
+												`${name}: ${stats.calls} calls, ${(stats.durationMs / 1000).toFixed(1)}s, ${Math.ceil(stats.resultBytes / 1024)} KiB, ${stats.errors} errors`,
+										)
+										.join('\n')}
+								/>
+								<ChatMetric label="Finish reason" value={diagnostics.finishReason ?? 'Pending'} />
+							</dl>
+						</CollapsibleContent>
 					</div>
-				</div>
+				</Collapsible>
 
 				{/* Errors */}
 				{modelsError && (
@@ -1006,7 +1145,7 @@ export function ChatPanel({
 					</div>
 				</div>
 			</form>
-		</div>
+		</section>
 	)
 }
 
@@ -1725,6 +1864,18 @@ function ToolOperationDisclosure({
 	const phases = Object.entries(group.phaseCounts).filter(([, count]) => count > 0) as Array<
 		[keyof typeof group.phaseCounts, number]
 	>
+	const seenMessageKeys = new Map<string, number>()
+	const keyedMessages = group.messages.map((message) => {
+		const signature = [
+			message.role,
+			message.tool_call_id ?? '',
+			message.tool_calls?.map((call) => call.id).join(',') ?? '',
+			contentToDisplayText(message.content),
+		].join(':')
+		const occurrence = (seenMessageKeys.get(signature) ?? 0) + 1
+		seenMessageKeys.set(signature, occurrence)
+		return { key: `${group.key}:${signature}:${occurrence}`, message }
+	})
 	return (
 		<details className="group ml-8 min-w-0 overflow-hidden rounded-lg border border-orange-200/80 bg-orange-50/50 dark:border-orange-900/60 dark:bg-orange-950/20">
 			<summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-3 py-2 text-xs marker:hidden">
@@ -1745,8 +1896,8 @@ function ToolOperationDisclosure({
 				</div>
 			</summary>
 			<div className="space-y-3 border-t border-orange-200/70 p-3 dark:border-orange-900/50">
-				{group.messages.map((message, index) => (
-					<div key={`${group.key}-${index}`} className="space-y-2">
+				{keyedMessages.map(({ key, message }) => (
+					<div key={key} className="space-y-2">
 						<MessageBubble message={message} runCodeSourceByCallId={runCodeSourceByCallId} />
 						{message.role === 'tool' && typeof message.tool_call_id === 'string' ? (
 							<InlineDiffCards toolCallId={message.tool_call_id} />
