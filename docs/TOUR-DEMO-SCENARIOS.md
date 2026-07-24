@@ -196,43 +196,46 @@ explicitly illustrative scenario data.
 **Assets:** `collaborative-map-proposal.mp4`, `collaborative-map-proposal.webm`,
 `collaborative-map-proposal-poster.png`.
 
-## Next production wave
-
 ### Film 08 — Tell the story around the map
 
-**Priority:** 4
+**Status:** Complete
 
 **Perspective:** Natural-history editor on desktop; student on mobile
 
 **Hero candidate:** No—feature chapter
 
-**Readiness:** Story creation, publishing, reading, and edit proposals already have workflow coverage
-
 **Promise:** Maps can carry narrative, sources, and practical context—not only shapes.
 
-Suggested story:
+Story:
 
-> An editor publishes “Why the Galápagos Islands Evolved Differently,” links species and geology
-> layers, and a student jumps from an inline fact to the exact island on the map.
+> An editor publishes “Why the Galápagos evolved differently,” links a real island atlas and
+> Sierra Negra inline, and a student moves from the question to the exact evidence on mobile.
 
 Beat sheet:
 
-1. Create a Story with a title, short introduction, and one map reference.
-2. Publish it and transition into the reader view.
-3. Cut to mobile and open the same Story.
-4. Tap a referenced species sighting or island Dataset.
-5. End with the map centered on that place while the Story remains the source of context.
+1. Import a Galápagos evolution atlas built from real island outlines.
+2. Create a sourced Story asking which side of the archipelago is youngest.
+3. Insert the atlas and Sierra Negra as inline references, preview, and publish.
+4. Cut to a fresh mobile reader and reveal the atlas geometry.
+5. Pull the Story down to compare the warm younger west with the cooler older east.
+6. Return to the Story, open Sierra Negra, and zoom to the feature on Isabela.
 
-The longer chapter cut can add editorial collaboration: Mara proposes a corrected paragraph and
-the owner reviews and accepts it.
+The island outlines come from OpenStreetMap. The western/eastern age framing follows the
+[UNESCO World Heritage description](https://whc.unesco.org/en/list/1/) of the archipelago, while
+the Sierra Negra location is checked against the
+[Smithsonian Global Volcanism Program](https://volcano.si.edu/volcano.cfm?vn=353050). Styles are
+editorial and intentionally make the age contrast legible.
 
 **Chapter explanation:** Long-form Nostr content, local-first drafts, map references, signed
 publishing, and proposal-based editing.
 
-**Automation foundation:** `create.story-draft`, `create.publish-story`,
-`social.propose-story-edit`, and `social.accept-story-edit`.
+**Automation foundation:** `create.story-draft`, `create.insert-story-reference`, and
+`create.publish-story`. The desktop author-to-mobile reader workflow has scenario coverage,
+including map zoom from both Dataset and feature references.
 
-**Suggested assets:** `story-to-map.mp4`, `story-to-map.webm`, `story-to-map-poster.png`.
+**Assets:** `story-to-map.mp4`, `story-to-map.webm`, `story-to-map-poster.png`.
+
+## Next production wave
 
 ### Film 09 — Keep working nearby
 
@@ -328,27 +331,27 @@ content is not trapped in an Earthly account.
 
 ## Recommended next order
 
-1. **Logging map proposal.** Most of the cross-persona automation already exists and the
-   Vancouver Island setting naturally explains field-to-office review.
-2. **Maritime insurance analysis.** Build on the proven AI map workflow while shifting from
+1. **Maritime insurance analysis.** Build on the proven AI map workflow while shifting from
    infrastructure inventory to risk reasoning around Singapore and the Malacca Strait.
-3. **Efate field session.** Produce the honest host-only cut first, then upgrade it when a real
+2. **Efate field session.** Produce the honest host-only cut first, then upgrade it when a real
    two-device nearby exchange is demonstrably repeatable.
-4. **Galápagos Story to map.** Record creation and reading first; add editorial proposals to the
-   longer cut.
-5. **Lisbon real-estate presentation.** Pair isochrones and amenities with a polished Story once
+3. **Lisbon real-estate presentation.** Pair isochrones and amenities with a polished Story once
    the analysis flow is ready to record.
+4. **Mexico City delivery routes.** Show a dispatcher comparing route alternatives and handing
+   exceptions back to a driver.
+5. **Chicago data science.** Import, style, compare, and explain a public spatial Dataset as a
+   reproducible analysis.
 
-After Films 04 and 05, reassess the hero order. A likely five-story slider is:
+The hero currently rotates through six product flows:
 
 1. Make the map
-2. Ask Earthly
-3. Draw on mobile
-4. Work in private
-5. Work nearby
+2. Join the place
+3. Work in private
+4. Ask Earthly
+5. Trace the routes
+6. Draw offline
 
-“Join the place,” public collaboration, and Stories can remain prominent immediately below the
-hero as chapter films.
+Public collaboration and Stories remain prominent immediately below the hero as chapter films.
 
 ## Definition of done for each film
 

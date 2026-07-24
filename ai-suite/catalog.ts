@@ -11,7 +11,11 @@ import {
 import { startDatasetTask } from './tasks/create/dataset'
 import { createContextTask } from './tasks/create/context'
 import { createGeometryDraftTask, publishGeometryDatasetTask } from './tasks/create/geometry'
-import { createStoryDraftTask, publishStoryTask } from './tasks/create/story'
+import {
+	createStoryDraftTask,
+	insertStoryReferenceTask,
+	publishStoryTask,
+} from './tasks/create/story'
 import { createSightingTask } from './tasks/create/sighting'
 import {
 	cancelDrawingTask,
@@ -93,6 +97,7 @@ const tasks = [
 	createGeometryDraftTask,
 	publishGeometryDatasetTask,
 	createStoryDraftTask,
+	insertStoryReferenceTask,
 	publishStoryTask,
 	createSightingTask,
 	monitorBrowserHealthTask,

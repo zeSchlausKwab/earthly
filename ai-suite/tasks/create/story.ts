@@ -24,6 +24,17 @@ export const publishStoryTask: AiTaskMetadata = {
 	viewports: 'both',
 }
 
+export const insertStoryReferenceTask: AiTaskMetadata = {
+	id: 'create.insert-story-reference',
+	summary: 'Insert a Dataset or feature reference through the Story editor mention picker.',
+	preconditions: [
+		'Open Story editor',
+		'Referenced entity is loaded or published to the local relay',
+	],
+	sideEffects: ['Adds an inline Nostr reference to the current Story draft'],
+	viewports: 'desktop',
+}
+
 export async function createStoryDraft(
 	earthly: EarthlySession,
 	input: StoryDraftInput,
@@ -49,6 +60,25 @@ export async function publishOpenStory(earthly: EarthlySession): Promise<void> {
 	await expect(publishButton).toBeEnabled()
 	await publishButton.click()
 	await expect(earthly.page.getByText('New Story').first()).toBeHidden()
+}
+
+export async function insertStoryReference(
+	earthly: EarthlySession,
+	input: { query: string; expectedName: string },
+): Promise<void> {
+	const editor = earthly.page.locator('.ProseMirror[contenteditable="true"]').first()
+	await expect(editor).toBeVisible()
+	await editor.focus()
+	const isMac = await earthly.page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform))
+	await earthly.page.keyboard.press(isMac ? 'Meta+ArrowDown' : 'Control+End')
+	await editor.pressSequentially(`$${input.query}`, { delay: 15 })
+	const escapedName = input.expectedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+	const option = earthly.page
+		.getByRole('button', { name: new RegExp(`^${escapedName}(?:\\s|$)`) })
+		.last()
+	await expect(option).toBeVisible({ timeout: 10_000 })
+	await option.click()
+	await expect(editor.getByText(input.expectedName, { exact: true })).toBeVisible()
 }
 
 export async function createAndPublishStory(

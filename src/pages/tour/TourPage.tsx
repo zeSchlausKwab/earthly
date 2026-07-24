@@ -3,6 +3,7 @@ import {
 	ArrowLeft,
 	ArrowRight,
 	ArrowUp,
+	BookOpen,
 	Braces,
 	CheckCircle2,
 	ChevronRight,
@@ -13,6 +14,7 @@ import {
 	MapPin,
 	MessageCircle,
 	Network,
+	NotebookTabs,
 	Radio,
 	Route,
 	ScanSearch,
@@ -622,6 +624,7 @@ export function TourPage() {
 					<a href="#create">Create</a>
 					<a href="#participate">Participate</a>
 					<a href="#collaborate">Collaborate</a>
+					<a href="#learn">Learn</a>
 					<a href="#foundation">Foundation</a>
 					<a href="#possibilities">Possibilities</a>
 				</nav>
@@ -667,7 +670,7 @@ export function TourPage() {
 					<div className="tour-hero-copy">
 						<p className="tour-eyebrow">
 							<span>Earthly field guide</span>
-							<span>01—07</span>
+							<span>01—08</span>
 						</p>
 						<h1 id="tour-heading">
 							Maps become <br />
@@ -951,6 +954,76 @@ export function TourPage() {
 							<span>03 / ACCEPT</span>
 							<h3>Publish a signed revision</h3>
 							<p>Acceptance creates an attributable update to the canonical Dataset.</p>
+						</article>
+					</section>
+				</section>
+
+				<section className="tour-chapter tour-learn" id="learn" aria-labelledby="learn-heading">
+					<div className="tour-chapter-marker" aria-hidden="true">
+						<span>04</span>
+						<i />
+					</div>
+					<div className="tour-chapter-intro">
+						<p className="tour-kicker">Map encyclopedia</p>
+						<h2 id="learn-heading">
+							A Story can open
+							<br />
+							the map beneath it.
+						</h2>
+						<p>
+							In the Galápagos, an editor turns a geographic question into a sourced Story. A
+							student opens the referenced atlas on a phone, compares the younger western islands
+							with the older east, then jumps directly to Sierra Negra.
+						</p>
+					</div>
+					<div className="tour-chapter-index">
+						<span>04 / LEARN</span>
+						<p>Long-form Stories, inline map references, mobile reading, evidence in place</p>
+					</div>
+
+					<figure className="tour-learn-film">
+						<div className="tour-media-frame tour-media-frame-wide">
+							<div className="tour-media-bar">
+								<span>
+									<i />
+									Galápagos evolution atlas · Ecuador
+								</span>
+								<code>DESKTOP → MOBILE · ACTUAL UI</code>
+							</div>
+							<ProductFilm
+								label="Earthly editor publishing a Galápagos evolution Story whose inline Dataset and Sierra Negra references open on a student's phone"
+								mp4="story-to-map.mp4"
+								poster="story-to-map-poster.png"
+								webm="story-to-map.webm"
+							/>
+						</div>
+						<figcaption>
+							<span>FILM 08 · MAP ENCYCLOPEDIA</span>
+							<p>
+								The narrative remains readable, while each inline reference can reveal its geometry
+								and move the map to the evidence.
+							</p>
+						</figcaption>
+					</figure>
+
+					<section className="tour-learning-flow" aria-label="How a map-backed Story works">
+						<article>
+							<BookOpen aria-hidden="true" />
+							<span>01 / READ</span>
+							<h3>Begin with a question</h3>
+							<p>The Story gives the map a thesis, context, and sources—not just a title.</p>
+						</article>
+						<article>
+							<NotebookTabs aria-hidden="true" />
+							<span>02 / REVEAL</span>
+							<h3>Open the referenced atlas</h3>
+							<p>An inline Dataset becomes a visible layer without leaving the reading flow.</p>
+						</article>
+						<article>
+							<ScanSearch aria-hidden="true" />
+							<span>03 / EXPLORE</span>
+							<h3>Move to the evidence</h3>
+							<p>A feature reference can frame the exact island, port, trail, or observation.</p>
 						</article>
 					</section>
 				</section>
