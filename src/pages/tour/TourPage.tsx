@@ -25,7 +25,14 @@ import {
 	Users,
 	WifiOff,
 } from 'lucide-react'
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react'
+import {
+	type KeyboardEvent,
+	type PointerEvent as ReactPointerEvent,
+	useEffect,
+	useId,
+	useRef,
+	useState,
+} from 'react'
 import { GithubIcon } from '../../components/icons/GithubIcon'
 import earthlyMark from '../../assets/square_logo_rose.svg'
 import {
@@ -78,55 +85,46 @@ type HeroStory = {
 
 const heroStories: HeroStory[] = [
 	{
-		id: 'festival-authoring',
+		id: 'beira-response-draft',
 		filmNumber: 'FILM 01',
 		format: 'desktop',
-		tabLabel: 'Make the map',
-		tabMeta: 'Desktop authoring',
-		frameLabel: 'Live product',
-		frameCode: 'DESKTOP · GEOJSON EDITOR',
-		kicker: 'Author the ground truth',
-		title: 'Turn a plan into a living map.',
+		tabLabel: 'Draft the plan',
+		tabMeta: 'Human authoring',
+		frameLabel: 'Cyclone response drill',
+		frameCode: 'BEIRA · DESKTOP EDITOR',
+		kicker: 'Draw what operations need',
+		title: 'Build the response plan by hand.',
 		description:
-			'A real Earthly session redraws a festival plan, adds the practical details visitors need, and keeps every shape editable.',
+			'In Beira, a coordinator redraws a flood forecast, dashed evacuation routes, command post, and three relief camps—then adds field clinic, clean water, shelter, logistics, radio, and reunification points.',
 		chapterHref: '#create',
 		chapterLabel: 'Explore mapmaking',
 		video: {
-			label: 'Earthly desktop editor building a festival map',
-			mp4: 'festival-map-editor.mp4',
-			poster: 'festival-map-editor-poster.png',
-			webm: 'festival-map-editor.webm',
+			label: 'Earthly desktop editor drafting a cyclone response map for Beira',
+			mp4: 'beira-cyclone-draft.mp4',
+			poster: 'beira-cyclone-draft-poster.png',
+			webm: 'beira-cyclone-draft.webm',
 		},
 	},
 	{
-		id: 'visitor-participation',
+		id: 'porto-ai-home-search',
 		filmNumber: 'FILM 02',
-		format: 'mobile',
-		tabLabel: 'Join the place',
-		tabMeta: 'Mobile visitor',
-		frameLabel: 'Visitor view',
-		frameCode: 'MOBILE · COMMENT + SHARE',
-		kicker: 'Meet on the map',
-		title: 'Comment, attach, and share a point.',
+		format: 'desktop',
+		tabLabel: 'Ask where to live',
+		tabMeta: 'AI spatial analysis',
+		frameLabel: 'AI-assisted search',
+		frameCode: 'PORTO · CHAT + ISOCHRONE',
+		kicker: 'Ask in ordinary language',
+		title: 'Turn a life question into a spatial answer.',
 		description:
-			'The visitor opens a stage, adds a comment with an exact meeting point, and shares the place without losing its context.',
-		mobileStory: {
-			eyebrow: 'VISITOR MODE / MARA',
-			title: 'The conversation has coordinates.',
-			copy: 'Open the stage, attach a meeting point, and send the place itself.',
-			actions: [
-				{ icon: MessageCircle, label: 'Comment' },
-				{ icon: MapPin, label: 'Attach' },
-				{ icon: Share2, label: 'Share' },
-			],
-		},
-		chapterHref: '#participate',
-		chapterLabel: 'Follow the visitor',
+			'A concise question maps a 20-minute bicycle catchment around Casa da Música, then layers the parks, groceries, and metro stops that make a Porto apartment work.',
+		chapterHref: '#analyze',
+		chapterLabel: 'Explore AI spatial analysis',
 		video: {
-			label: 'Earthly mobile visitor commenting on a stage and sharing a point',
-			mp4: 'visitor-comment-share.mp4',
-			poster: 'visitor-comment-share-poster.png',
-			webm: 'visitor-comment-share.webm',
+			label:
+				'Earthly AI mapping a Porto apartment search with a bicycle isochrone and nearby amenities',
+			mp4: 'porto-ai-home-search.mp4',
+			poster: 'porto-ai-home-search-poster.png',
+			webm: 'porto-ai-home-search.webm',
 		},
 	},
 	{
@@ -431,6 +429,11 @@ function HeroStoryFilm({ story }: { story: HeroStory }) {
 function HeroStorySlider() {
 	const [activeStoryIndex, setActiveStoryIndex] = useState(0)
 	const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
+	const swipeRef = useRef<{
+		pointerId: number
+		startX: number
+		startY: number
+	} | null>(null)
 	const sliderId = useId()
 	const activeStory = heroStories[activeStoryIndex] ?? heroStories[0]
 	if (!activeStory) return null
@@ -457,6 +460,26 @@ function HeroStorySlider() {
 		event.preventDefault()
 		setActiveStoryIndex(nextIndex)
 		tabRefs.current[nextIndex]?.focus()
+	}
+
+	const handleSwipeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
+		if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return
+		swipeRef.current = {
+			pointerId: event.pointerId,
+			startX: event.clientX,
+			startY: event.clientY,
+		}
+	}
+
+	const handleSwipeEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+		const swipe = swipeRef.current
+		swipeRef.current = null
+		if (!swipe || swipe.pointerId !== event.pointerId) return
+
+		const deltaX = event.clientX - swipe.startX
+		const deltaY = event.clientY - swipe.startY
+		if (Math.abs(deltaX) < 52 || Math.abs(deltaX) <= Math.abs(deltaY) * 1.2) return
+		selectAdjacentStory(deltaX < 0 ? 1 : -1)
 	}
 
 	return (
@@ -507,6 +530,11 @@ function HeroStorySlider() {
 				className="tour-slider-panel"
 				role="tabpanel"
 				aria-labelledby={`${sliderId}-tab-${activeStoryIndex}`}
+				onPointerDown={handleSwipeStart}
+				onPointerUp={handleSwipeEnd}
+				onPointerCancel={() => {
+					swipeRef.current = null
+				}}
 			>
 				<div key={activeStory.id} className="tour-hero-slide">
 					<HeroStoryFilm story={activeStory} />
@@ -802,6 +830,79 @@ export function TourPage() {
 							</p>
 						</article>
 					</div>
+
+					<section
+						className="tour-ai-point"
+						id="analyze"
+						aria-labelledby="analyze-heading"
+					>
+						<div className="tour-ai-point-copy">
+							<div className="tour-ai-point-number" aria-hidden="true">
+								<span>01B</span>
+								<i />
+								<small>ANALYZE</small>
+							</div>
+							<p className="tour-kicker">A second way to draw</p>
+							<h3 id="analyze-heading">Ask the map to do the legwork.</h3>
+							<p>
+								Earthly can turn an ordinary life question into editable spatial analysis. The
+								answer is not a screenshot: the travel-time area, destination, parks, groceries,
+								and transit stops all remain map features.
+							</p>
+							<blockquote>
+								“Show me where to look for a flat in Porto if I want to cycle to Casa da Música
+								in 20 minutes and live near parks, groceries and the metro.”
+							</blockquote>
+							<ol className="tour-ai-point-steps">
+								<li>
+									<span>01</span>
+									<div>
+										<strong>Ask naturally</strong>
+										<p>No query language or long specification.</p>
+									</div>
+								</li>
+								<li>
+									<span>02</span>
+									<div>
+										<strong>See the reasoning</strong>
+										<p>Expand the actions while Earthly builds the answer.</p>
+									</div>
+								</li>
+								<li>
+									<span>03</span>
+									<div>
+										<strong>Keep the geography</strong>
+										<p>Edit, publish, or combine every resulting feature.</p>
+									</div>
+								</li>
+							</ol>
+						</div>
+
+						<figure className="tour-ai-point-film">
+							<div className="tour-media-frame tour-media-frame-wide">
+								<div className="tour-media-bar">
+									<span>
+										<i />
+										Porto home search · Casa da Música
+									</span>
+									<code>CHAT → ISOCHRONE · ACTUAL UI</code>
+								</div>
+								<ProductFilm
+									label="Earthly AI mapping a Porto apartment search with a bicycle isochrone and nearby amenities"
+									mp4="porto-ai-home-search.mp4"
+									poster="porto-ai-home-search-poster.png"
+									webm="porto-ai-home-search.webm"
+								/>
+							</div>
+							<figcaption>
+								<span>FILM 02 · AI SPATIAL ANALYSIS</span>
+								<p>
+									A 20-minute cycling catchment becomes a legible search map with semantic
+									icons for the everyday amenities around it.
+								</p>
+							</figcaption>
+						</figure>
+					</section>
 				</section>
 
 				<section

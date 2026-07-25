@@ -61,6 +61,7 @@ import {
 	normalizeGeoJsonToFeatures,
 	parseGeoJsonArg,
 	parseSingleFeatureArg,
+	prepareMapToolFeaturesForEditor,
 	toFiniteNumber,
 } from './helpers'
 import {
@@ -970,7 +971,10 @@ function registerRemoteMcpTools(): void {
 			const matchedByName = name
 				? validFeatures.filter((feature) => featureMatchesName(feature, name))
 				: validFeatures
-			const selected = matchedByName.length > 0 ? matchedByName : validFeatures
+			const selected = prepareMapToolFeaturesForEditor(
+				'import_osm_to_editor',
+				matchedByName.length > 0 ? matchedByName : validFeatures,
+			)
 
 			const importResult = importFeaturesToEditor(selected, replaceExisting)
 

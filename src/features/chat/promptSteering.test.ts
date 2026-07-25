@@ -98,6 +98,14 @@ describe('fix #4 — agent map-context steering', () => {
 		expect(text).toMatch(/GENERALIZED cartography/i)
 		expect(text).toMatch(/systematic underestimates/i)
 	})
+
+	it('keeps bulk map labels literal and the visible result legible', () => {
+		expect(text).toMatch(/MAP LEGIBILITY/i)
+		expect(text).toMatch(/label.*literal display text/i)
+		expect(text).toMatch(/Do not write `\{name\}`/i)
+		expect(text).toMatch(/6–12 nearest or representative/i)
+		expect(text).toMatch(/distinct colors\/icons/i)
+	})
 })
 
 describe('structured extraction steering', () => {
@@ -154,5 +162,29 @@ describe('display-icon authoring steering', () => {
 		const description = styleByAttributeDescription()
 		expect(description).toContain('displayIcon')
 		expect(description).toContain('lucide:')
+	})
+
+	it('requires semantic POI points to use icons instead of plain dots', () => {
+		const text = mapContextText()
+		expect(text).toMatch(/every imported Point.*meaningful category icon/i)
+		expect(text).toContain('lucide:store')
+		expect(text).toContain('lucide:train-front')
+		expect(styleByAttributeDescription()).toMatch(/every Point category.*plain dots/i)
+	})
+
+	it('documents labels as literal text in the styling tool itself', () => {
+		const description = styleByAttributeDescription()
+		expect(description).toMatch(/label.*literal display text/i)
+		expect(description).toContain('{name}')
+		expect(description).toMatch(/omit labels on dense bulk results/i)
+	})
+})
+
+describe('travel-time overlay steering', () => {
+	it('keeps isochrones cool-colored, transparent, and visually subordinate', () => {
+		const text = mapContextText()
+		expect(text).toMatch(/TRAVEL-TIME OVERLAYS/i)
+		expect(text).toMatch(/never yellow or orange/i)
+		expect(text).toMatch(/fillOpacity 0\.08–0\.12/)
 	})
 })
