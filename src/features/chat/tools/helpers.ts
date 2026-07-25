@@ -732,6 +732,109 @@ export function parseToolCallArguments(rawArguments: string | undefined): Record
 
 // --- Editor Import ---
 
+type PointImportStyle = {
+	displayIcon: string
+	color: string
+}
+
+const OSM_TOOL_NAMES = new Set([
+	'import_osm_to_editor',
+	'query_osm_by_id',
+	'query_osm_nearby',
+	'query_osm_bbox',
+	'query_osm_area',
+])
+
+function toolFeatureProperty(
+	properties: GeoJSON.GeoJsonProperties,
+	key: string,
+): string | undefined {
+	if (!properties) return undefined
+	const direct = properties[key]
+	if (typeof direct === 'string' && direct.trim()) return direct.trim().toLowerCase()
+	const tags = properties.tags
+	if (!tags || typeof tags !== 'object' || Array.isArray(tags)) return undefined
+	const nested = (tags as Record<string, unknown>)[key]
+	return typeof nested === 'string' && nested.trim() ? nested.trim().toLowerCase() : undefined
+}
+
+function osmPointImportStyle(feature: GeoJSON.Feature): PointImportStyle {
+	const properties = feature.properties
+	const leisure = toolFeatureProperty(properties, 'leisure')
+	const natural = toolFeatureProperty(properties, 'natural')
+	const shop = toolFeatureProperty(properties, 'shop')
+	const amenity = toolFeatureProperty(properties, 'amenity')
+	const railway = toolFeatureProperty(properties, 'railway')
+	const publicTransport = toolFeatureProperty(properties, 'public_transport')
+	const tourism = toolFeatureProperty(properties, 'tourism')
+
+	if (
+		['park', 'garden', 'nature_reserve'].includes(leisure ?? '') ||
+		['wood', 'tree', 'tree_row'].includes(natural ?? '')
+	) {
+		return { displayIcon: 'lucide:trees', color: '#15803d' }
+	}
+	if (shop || amenity === 'marketplace') {
+		return { displayIcon: 'lucide:store', color: '#ea580c' }
+	}
+	if (
+		['station', 'halt', 'tram_stop', 'subway_entrance'].includes(railway ?? '') ||
+		['station', 'stop_position', 'platform'].includes(publicTransport ?? '')
+	) {
+		return { displayIcon: 'lucide:train-front', color: '#7c3aed' }
+	}
+	if (
+		['arts_centre', 'theatre', 'music_venue'].includes(amenity ?? '') ||
+		['attraction', 'museum', 'gallery'].includes(tourism ?? '')
+	) {
+		return { displayIcon: 'lucide:landmark', color: '#dc2626' }
+	}
+	return { displayIcon: 'lucide:map-pin', color: '#475569' }
+}
+
+export function prepareMapToolFeaturesForEditor(
+	toolName: string,
+	features: GeoJSON.Feature[],
+): GeoJSON.Feature[] {
+	return features.map((feature) => {
+		const properties = feature.properties ?? {}
+		if (
+			toolName === 'valhalla_isochrone' &&
+			['Polygon', 'MultiPolygon'].includes(feature.geometry?.type ?? '')
+		) {
+			return {
+				...feature,
+				properties: {
+					...properties,
+					fillColor: '#38bdf8',
+					fillOpacity: 0.1,
+					strokeColor: '#0284c7',
+					strokeOpacity: 0.6,
+					strokeWidth: 2,
+				},
+			}
+		}
+		if (
+			OSM_TOOL_NAMES.has(toolName) &&
+			['Point', 'MultiPoint'].includes(feature.geometry?.type ?? '') &&
+			typeof properties.displayIcon !== 'string'
+		) {
+			const style = osmPointImportStyle(feature)
+			return {
+				...feature,
+				properties: {
+					...properties,
+					displayIcon: style.displayIcon,
+					...(typeof properties.color === 'string' || typeof properties.fillColor === 'string'
+						? {}
+						: { color: style.color }),
+				},
+			}
+		}
+		return feature
+	})
+}
+
 export function importFeaturesToEditor(features: GeoJSON.Feature[], replaceExisting: boolean) {
 	// D-09: the store is now a one-way read-mirror — do NOT write it here. Geometry
 	// goes through the Authoring API (INFRA-02), which is the only caller of
@@ -1100,8 +1203,12 @@ function parseToolResultContent(content: string): unknown {
 export function toEditorFromToolResultValue(
 	resultValue: unknown,
 	replaceExisting: boolean,
+	toolName?: string,
 ): GeometryBakeResult {
-	const features = extractGeoJsonFeaturesFromUnknown(resultValue)
+	const extractedFeatures = extractGeoJsonFeaturesFromUnknown(resultValue)
+	const features = toolName
+		? prepareMapToolFeaturesForEditor(toolName, extractedFeatures)
+		: extractedFeatures
 	if (features.length === 0) {
 		throw new Error('No geometry found in tool result to import.')
 	}

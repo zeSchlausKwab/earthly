@@ -113,7 +113,9 @@ export function PrivateGroupsPanel({
 	const [joinRequestState, setJoinRequestState] = useState<{
 		workspaceId: string
 		requests: WorkspaceJoinRequest[]
-	}>({ workspaceId: '', requests: [] })
+		checked: boolean
+	}>({ workspaceId: '', requests: [], checked: false })
+	const [checkingJoinRequests, setCheckingJoinRequests] = useState(false)
 	const [invitation, setInvitation] = useState(invitationFromLocation)
 	const [inviteLinkInput, setInviteLinkInput] = useState('')
 	const [inviteScannerOpen, setInviteScannerOpen] = useState(false)
@@ -348,16 +350,25 @@ export function PrivateGroupsPanel({
 		})
 	}
 
-	const handleFetchRequests = () =>
-		run('check join requests', async () => {
-			if (!runtime || !service || !selected) return
-			setJoinRequestState({
-				workspaceId: selected.workspaceId,
-				requests: await runtime.perform((workspaceService) =>
-					workspaceService.fetchJoinRequests(selected.workspaceId),
-				),
-			})
-		})
+	const handleFetchRequests = async () => {
+		if (!runtime || !service || !selected || checkingJoinRequests) return
+		const workspaceId = selected.workspaceId
+		setCheckingJoinRequests(true)
+		try {
+			const requests = await runtime.fetchJoinRequests(workspaceId)
+			setJoinRequestState({ workspaceId, requests, checked: true })
+			toast.success(
+				requests.length > 0
+					? `${requests.length} pending join request${requests.length === 1 ? '' : 's'}`
+					: 'No pending join requests',
+			)
+		} catch (error) {
+			console.error('[private-groups] check join requests failed', error)
+			toast.error(error instanceof Error ? error.message : 'Could not check join requests')
+		} finally {
+			setCheckingJoinRequests(false)
+		}
+	}
 
 	const handleApprove = (request: WorkspaceJoinRequest) =>
 		run('approve member', async () => {
@@ -748,9 +759,14 @@ export function PrivateGroupsPanel({
 													size="sm"
 													variant="outline"
 													onClick={handleFetchRequests}
-													disabled={Boolean(busy)}
+													disabled={checkingJoinRequests || Boolean(busy)}
 												>
-													<UserPlus /> Check requests
+													{checkingJoinRequests ? (
+														<RefreshCw className="animate-spin" />
+													) : (
+														<UserPlus />
+													)}
+													{checkingJoinRequests ? 'Checking…' : 'Check requests'}
 												</Button>
 											) : null}
 										</div>
@@ -797,6 +813,20 @@ export function PrivateGroupsPanel({
 												</div>
 											))}
 										</div>
+										{checkingJoinRequests ? (
+											<p
+												className="text-[10px] leading-relaxed text-muted-foreground"
+												role="status"
+											>
+												Checking Cordn for pending join requests…
+											</p>
+										) : joinRequestState.workspaceId === selected.workspaceId &&
+											joinRequestState.checked &&
+											joinRequests.length === 0 ? (
+											<p className="text-[10px] leading-relaxed text-muted-foreground">
+												No pending join requests found.
+											</p>
+										) : null}
 										{joinRequests.map((request) => (
 											<div
 												key={request.kp_ref}

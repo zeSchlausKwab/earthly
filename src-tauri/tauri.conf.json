@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Earthly",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "identifier": "city.earthly",
   "build": {
     "beforeDevCommand": "bun run tauri:frontend",
@@ -44,7 +44,7 @@
     "active": true,
     "targets": "all",
     "android": {
-      "versionCode": 1005
+      "versionCode": 1006
     },
     "icon": [
       "icons/32x32.png",

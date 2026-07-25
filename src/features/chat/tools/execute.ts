@@ -57,7 +57,11 @@ export async function executeToolCall(
 			// read-only MCP. Establish the local draft before baking its result so the
 			// geometry appears in Saved work, the Map Stack, and the editor list.
 			await ensureDatasetDraftForMutation()
-			const bakeResult = toEditorFromToolResultValue(result, Boolean(args.replaceExisting))
+			const bakeResult = toEditorFromToolResultValue(
+				result,
+				Boolean(args.replaceExisting),
+				toolCall.function.name,
+			)
 			result = {
 				...compactToolResultAfterBake(result),
 				editorImport: bakeResult,

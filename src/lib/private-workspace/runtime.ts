@@ -1,5 +1,5 @@
 import type { PendingWorkspaceJoin, StoredWorkspace } from './storage'
-import type { PrivateWorkspaceService } from './service'
+import type { PrivateWorkspaceService, WorkspaceJoinRequest } from './service'
 
 export type PrivateWorkspaceSyncState = 'idle' | 'syncing' | 'current' | 'offline'
 
@@ -111,6 +111,19 @@ export class PrivateWorkspaceRuntime {
 	 */
 	createInvitation(workspaceId: string): Promise<string> {
 		return this.service.createInvitation(workspaceId)
+	}
+
+	/**
+	 * Read pending join requests without waiting behind MLS mutations or the
+	 * selected workspace's background message sync.
+	 */
+	async fetchJoinRequests(workspaceId: string): Promise<WorkspaceJoinRequest[]> {
+		try {
+			return await this.service.fetchJoinRequests(workspaceId)
+		} catch (error) {
+			await this.service.resetConnections()
+			throw error
+		}
 	}
 
 	async syncWorkspace(workspaceId: string, reportFailure = true): Promise<boolean> {

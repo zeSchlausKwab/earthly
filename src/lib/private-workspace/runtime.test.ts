@@ -125,4 +125,47 @@ describe('PrivateWorkspaceRuntime', () => {
 		release()
 		await pendingSync
 	})
+
+	test('checks join requests while a background coordinator sync is still pending', async () => {
+		let release!: () => void
+		const barrier = new Promise<void>((resolve) => {
+			release = resolve
+		})
+		const requests = [
+			{
+				workspaceId: 'workspace-1',
+				pk: 'c'.repeat(64),
+				kp_ref: 'pending-key-package',
+				at: 1_700_000_001,
+			},
+		]
+		const fake = {
+			listWorkspaces: async () => [storedWorkspace(1)],
+			listPendingJoins: async () => [],
+			syncWorkspaceResult: async () => {
+				await barrier
+				return { workspace: storedWorkspace(1), changed: false }
+			},
+			fetchJoinRequests: async () => requests,
+			resetConnections: async () => undefined,
+			dispose: async () => undefined,
+		} as unknown as PrivateWorkspaceService
+		const runtime = new PrivateWorkspaceRuntime(fake)
+		const pendingSync = runtime.syncWorkspace('workspace-1', false)
+		await Promise.resolve()
+
+		const result = await Promise.race([
+			runtime.fetchJoinRequests('workspace-1'),
+			new Promise<never>((_, reject) =>
+				setTimeout(
+					() => reject(new Error('Join-request check waited for the coordinator queue')),
+					100,
+				),
+			),
+		])
+
+		expect(result).toEqual(requests)
+		release()
+		await pendingSync
+	})
 })

@@ -615,7 +615,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'valhalla_isochrone',
 			description:
-				'Compute travel-time contours around a location using Valhalla. Returns GeoJSON contour features.',
+				'Compute travel-time contours around a location using Valhalla. Returns GeoJSON contour features. When imported into the editor, isochrones receive a quiet cool-blue default style (10% fill opacity) so they remain a background overlay rather than obscuring POIs or streets.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -1258,9 +1258,11 @@ export const geoStaticToolSchemas: Tool[] = [
 				'every matching feature across the full dataset — this is ONE rule pass, NOT a per-feature ' +
 				'recolor loop. Features matching no bucket are LEFT UNTOUCHED unless you supply a `fallback`. ' +
 				'Style keys MUST be canonical: color, fillColor, strokeColor, fillOpacity, strokeOpacity, ' +
-				'strokeWidth, radius, label, displayIcon. For Point icons, displayIcon must be a bundled ' +
-				'Lucide id such as `lucide:tree-pine` or `lucide:anchor` (never a URL). Aliases ' +
-				'fill/stroke/width/opacity are accepted. An unknown key ' +
+				'strokeWidth, radius, label, displayIcon. `label` is literal display text only: never pass ' +
+				'`{name}` or another template, and omit labels on dense bulk results. For Point icons, displayIcon must be a bundled ' +
+				'Lucide id such as `lucide:tree-pine` or `lucide:anchor` (never a URL). ' +
+				'For semantic POI maps, use displayIcon on every Point category rather than leaving plain dots. ' +
+				'Aliases fill/stroke/width/opacity are accepted. An unknown key ' +
 				'is rejected so you can correct it. Styles persist as plain properties and survive save/reload. ' +
 				'Changes pass through the diff/preview safety gate.',
 			parameters: {
@@ -1312,7 +1314,7 @@ export const geoStaticToolSchemas: Tool[] = [
 								style: {
 									type: 'object',
 									description:
-										'Canonical style keys: color, fillColor, strokeColor, fillOpacity, strokeOpacity, strokeWidth, radius, label, displayIcon (`lucide:<name>` for Point features).',
+										'Canonical style keys: color, fillColor, strokeColor, fillOpacity, strokeOpacity, strokeWidth, radius, label, displayIcon (`lucide:<name>` for Point features). `label` is literal text, not a `{name}` template; omit it for dense results.',
 									additionalProperties: true,
 								},
 							},
@@ -1327,7 +1329,7 @@ export const geoStaticToolSchemas: Tool[] = [
 							style: {
 								type: 'object',
 								description:
-									'Canonical style keys (same set as a bucket style, including displayIcon as `lucide:<name>`).',
+									'Canonical style keys (same set as a bucket style, including displayIcon as `lucide:<name>`). Labels are literal text only and should be omitted for dense results.',
 								additionalProperties: true,
 							},
 						},

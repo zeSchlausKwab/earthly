@@ -9,7 +9,10 @@ test.describe('product tour route', () => {
 		await expect(page).toHaveTitle(/Tour Earthly/)
 		await expect(page.getByRole('heading', { level: 1 })).toHaveText(/Maps become shared places/)
 		await expect(page.locator('canvas[aria-label="Map"]')).toHaveCount(0)
-		await expect(page.locator('video')).toHaveCount(5)
+		await expect(page.locator('video')).toHaveCount(6)
+		await expect(
+			page.getByRole('heading', { name: 'Ask the map to do the legwork.' }),
+		).toBeVisible()
 		await expect(
 			page.getByRole('heading', { name: 'Let the field propose. Keep the owner in control.' }),
 		).toBeVisible()
@@ -49,8 +52,51 @@ test.describe('product tour route', () => {
 		expect(horizontalOverflow).toBeLessThanOrEqual(1)
 	})
 
+	test('places the Porto AI analysis between map creation and participation', async ({
+		page,
+		baseURL,
+	}) => {
+		await page.goto(new URL('/tour', baseURL).toString(), {
+			waitUntil: 'domcontentloaded',
+		})
+
+		const create = page.locator('#create')
+		const analysis = page.locator('#analyze')
+		const participate = page.locator('#participate')
+
+		await expect(analysis).toContainText('20-minute cycling catchment')
+		await expect(
+			analysis.getByLabel(
+				'Earthly AI mapping a Porto apartment search with a bicycle isochrone and nearby amenities',
+			),
+		).toBeVisible()
+		expect(
+			await page.evaluate(() => {
+				const createNode = document.getElementById('create')
+				const analysisNode = document.getElementById('analyze')
+				const participateNode = document.getElementById('participate')
+				if (!createNode || !analysisNode || !participateNode) return false
+				return (
+					createNode.contains(analysisNode) &&
+					Boolean(
+						analysisNode.compareDocumentPosition(participateNode) &
+							Node.DOCUMENT_POSITION_FOLLOWING,
+					)
+				)
+			}),
+		).toBe(true)
+		await expect(create).toBeVisible()
+		await expect(participate).toBeVisible()
+	})
+
 	test('serves the product films from stable public URLs', async ({ request, baseURL }) => {
 		for (const path of [
+			'/static/tour/beira-cyclone-draft.mp4',
+			'/static/tour/beira-cyclone-draft.webm',
+			'/static/tour/beira-cyclone-draft-poster.png',
+			'/static/tour/porto-ai-home-search.mp4',
+			'/static/tour/porto-ai-home-search.webm',
+			'/static/tour/porto-ai-home-search-poster.png',
 			'/static/tour/festival-map-editor.mp4',
 			'/static/tour/festival-map-editor.webm',
 			'/static/tour/visitor-comment-share.mp4',
@@ -84,8 +130,8 @@ test.describe('product tour route', () => {
 			waitUntil: 'domcontentloaded',
 		})
 
-		const firstStory = page.getByRole('tab', { name: /Make the map/ })
-		const visitorStory = page.getByRole('tab', { name: /Join the place/ })
+		const firstStory = page.getByRole('tab', { name: /Draft the plan/ })
+		const portoStory = page.getByRole('tab', { name: /Ask where to live/ })
 		const privateStory = page.getByRole('tab', { name: /Work in private/ })
 		const aiStory = page.getByRole('tab', { name: /Ask Earthly/ })
 		const hormuzStory = page.getByRole('tab', { name: /Trace the routes/ })
@@ -93,15 +139,17 @@ test.describe('product tour route', () => {
 		const storyPanel = page.getByRole('tabpanel')
 
 		await expect(firstStory).toHaveAttribute('aria-selected', 'true')
-		await expect(storyPanel).toContainText('Turn a plan into a living map.')
+		await expect(storyPanel).toContainText('Build the response plan by hand.')
 
 		await firstStory.focus()
 		await firstStory.press('ArrowRight')
-		await expect(visitorStory).toBeFocused()
-		await expect(visitorStory).toHaveAttribute('aria-selected', 'true')
-		await expect(storyPanel).toContainText('Comment, attach, and share a point.')
+		await expect(portoStory).toBeFocused()
+		await expect(portoStory).toHaveAttribute('aria-selected', 'true')
+		await expect(storyPanel).toContainText('Turn a life question into a spatial answer.')
 		await expect(
-			storyPanel.getByLabel('Earthly mobile visitor commenting on a stage and sharing a point'),
+			storyPanel.getByLabel(
+				'Earthly AI mapping a Porto apartment search with a bicycle isochrone and nearby amenities',
+			),
 		).toBeVisible()
 		const horizontalOverflow = await page.evaluate(
 			() => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -145,6 +193,57 @@ test.describe('product tour route', () => {
 		).toBeVisible()
 
 		await page.getByRole('button', { name: 'Next product film' }).click()
+		await expect(firstStory).toHaveAttribute('aria-selected', 'true')
+	})
+
+	test('swipes between featured films on a mobile viewport', async ({ page, baseURL }) => {
+		await page.setViewportSize({ width: 390, height: 844 })
+		await page.goto(new URL('/tour', baseURL).toString(), {
+			waitUntil: 'domcontentloaded',
+		})
+
+		const firstStory = page.getByRole('tab', { name: /Draft the plan/ })
+		const portoStory = page.getByRole('tab', { name: /Ask where to live/ })
+		const storyPanel = page.getByRole('tabpanel')
+		await expect(firstStory).toHaveAttribute('aria-selected', 'true')
+
+		await storyPanel.dispatchEvent('pointerdown', {
+			pointerId: 1,
+			pointerType: 'touch',
+			isPrimary: true,
+			clientX: 330,
+			clientY: 420,
+			buttons: 1,
+		})
+		await storyPanel.dispatchEvent('pointerup', {
+			pointerId: 1,
+			pointerType: 'touch',
+			isPrimary: true,
+			clientX: 72,
+			clientY: 426,
+			buttons: 0,
+		})
+
+		await expect(portoStory).toHaveAttribute('aria-selected', 'true')
+		await expect(storyPanel).toContainText('Turn a life question into a spatial answer.')
+
+		await storyPanel.dispatchEvent('pointerdown', {
+			pointerId: 2,
+			pointerType: 'touch',
+			isPrimary: true,
+			clientX: 70,
+			clientY: 420,
+			buttons: 1,
+		})
+		await storyPanel.dispatchEvent('pointerup', {
+			pointerId: 2,
+			pointerType: 'touch',
+			isPrimary: true,
+			clientX: 326,
+			clientY: 423,
+			buttons: 0,
+		})
+
 		await expect(firstStory).toHaveAttribute('aria-selected', 'true')
 	})
 
