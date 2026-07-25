@@ -397,8 +397,12 @@ export class PrivateWorkspaceService {
 
 	async fetchJoinRequests(workspaceId: string): Promise<WorkspaceJoinRequest[]> {
 		const ownerPubkey = await this.ownerPubkey()
-		const workspace = await this.syncWorkspace(workspaceId)
-		if (!this.administratorPolicy(workspace).administrators.includes(ownerPubkey)) return []
+		const workspace = await this.requireWorkspace(ownerPubkey, workspaceId)
+		if (
+			workspace.status !== 'active' ||
+			!this.administratorPolicy(workspace).administrators.includes(ownerPubkey)
+		)
+			return []
 		const coordinator = this.coordinator(workspace.coordinatorPubkey, workspace.relays)
 		const result = await coordinator.takeJoinRequests({ gid: workspace.groupId })
 		return result.requests.map((request) => ({ ...request, workspaceId }))

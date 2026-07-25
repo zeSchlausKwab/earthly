@@ -65,6 +65,55 @@ describe('PrivateWorkspaceService synchronization', () => {
 		expect(coordinatorConnections).toBe(0)
 	})
 
+	test('checks join requests without waiting for an unrelated message sync', async () => {
+		const secretKey = generateSecretKey()
+		const ownerPubkey = getPublicKey(secretKey)
+		const coordinatorPubkey = 'b'.repeat(64)
+		const coordinator = {
+			fetchMessages: async () => new Promise<never>(() => undefined),
+			takeJoinRequests: async () => ({
+				requests: [
+					{
+						pk: 'c'.repeat(64),
+						kp_ref: 'pending-key-package',
+						at: 1_700_000_001,
+					},
+				],
+			}),
+			disconnect: async () => undefined,
+		} as unknown as PrivateWorkspaceCoordinator
+		const service = new PrivateWorkspaceService({
+			signer: {
+				getPublicKey: async () => ownerPubkey,
+				signEvent: async (event) => finalizeEvent(event, secretKey),
+			} as NostrSigner,
+			store: new MemoryPrivateWorkspaceStore(),
+			coordinatorPubkey,
+			relays: ['ws://localhost:3334'],
+			createCoordinator: () => coordinator,
+		})
+		const workspace = await service.createWorkspace({ name: 'Request check' })
+
+		const requests = await Promise.race([
+			service.fetchJoinRequests(workspace.workspaceId),
+			new Promise<never>((_, reject) =>
+				setTimeout(
+					() => reject(new Error('Join-request check waited for an unrelated message sync')),
+					100,
+				),
+			),
+		])
+
+		expect(requests).toEqual([
+			{
+				workspaceId: workspace.workspaceId,
+				pk: 'c'.repeat(64),
+				kp_ref: 'pending-key-package',
+				at: 1_700_000_001,
+			},
+		])
+	})
+
 	test('recovers a join request from transient Cordn response loss', async () => {
 		const adminSecretKey = generateSecretKey()
 		const guestSecretKey = generateSecretKey()
