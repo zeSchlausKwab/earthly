@@ -78,7 +78,10 @@ test.describe('product tour route', () => {
 				if (!createNode || !analysisNode || !participateNode) return false
 				return (
 					createNode.contains(analysisNode) &&
-					Boolean(analysisNode.compareDocumentPosition(participateNode) & Node.DOCUMENT_POSITION_FOLLOWING)
+					Boolean(
+						analysisNode.compareDocumentPosition(participateNode) &
+							Node.DOCUMENT_POSITION_FOLLOWING,
+					)
 				)
 			}),
 		).toBe(true)

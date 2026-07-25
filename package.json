@@ -1,6 +1,6 @@
 {
   "name": "earthly",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Collaborative geographic mapping on Nostr",
   "private": true,
   "type": "module",

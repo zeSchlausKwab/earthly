@@ -831,11 +831,7 @@ export function TourPage() {
 						</article>
 					</div>
 
-					<section
-						className="tour-ai-point"
-						id="analyze"
-						aria-labelledby="analyze-heading"
-					>
+					<section className="tour-ai-point" id="analyze" aria-labelledby="analyze-heading">
 						<div className="tour-ai-point-copy">
 							<div className="tour-ai-point-number" aria-hidden="true">
 								<span>01B</span>
@@ -846,12 +842,12 @@ export function TourPage() {
 							<h3 id="analyze-heading">Ask the map to do the legwork.</h3>
 							<p>
 								Earthly can turn an ordinary life question into editable spatial analysis. The
-								answer is not a screenshot: the travel-time area, destination, parks, groceries,
-								and transit stops all remain map features.
+								answer is not a screenshot: the travel-time area, destination, parks, groceries, and
+								transit stops all remain map features.
 							</p>
 							<blockquote>
-								“Show me where to look for a flat in Porto if I want to cycle to Casa da Música
-								in 20 minutes and live near parks, groceries and the metro.”
+								“Show me where to look for a flat in Porto if I want to cycle to Casa da Música in
+								20 minutes and live near parks, groceries and the metro.”
 							</blockquote>
 							<ol className="tour-ai-point-steps">
 								<li>
@@ -897,8 +893,8 @@ export function TourPage() {
 							<figcaption>
 								<span>FILM 02 · AI SPATIAL ANALYSIS</span>
 								<p>
-									A 20-minute cycling catchment becomes a legible search map with semantic
-									icons for the everyday amenities around it.
+									A 20-minute cycling catchment becomes a legible search map with semantic icons for
+									the everyday amenities around it.
 								</p>
 							</figcaption>
 						</figure>

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.6] - 2026-07-25
+
+- Fixed Private-group join-request checks so they no longer wait behind background message sync,
+  keep unrelated controls usable, and show clear progress, empty-result, and error feedback.
+- Improved AI-generated maps with semantic icons for imported places, quieter travel-time overlays,
+  and stronger guidance for readable labels and points of interest.
+- Expanded the product tour with a manually drafted Beira cyclone-response map and an AI-assisted
+  Porto home-search map.
+
 ## [0.0.5] - 2026-07-24
 
 - Added a guided product tour with real desktop and mobile films for map authoring, private
