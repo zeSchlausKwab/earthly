@@ -1,5 +1,6 @@
 import { isTauri } from '@/config/platform'
 import type {
+	AccountSessionService,
 	LocalNodeService,
 	PublishOutboxService,
 	SavedRegionService,
@@ -9,6 +10,7 @@ import { webLocalNodeService } from './web/localNode'
 import { webSavedRegionService } from './web/savedRegions'
 
 let localNodeServicePromise: Promise<LocalNodeService> | null = null
+let accountSessionServicePromise: Promise<AccountSessionService | null> | null = null
 let nativeDeepLinksPromise: Promise<void> | null = null
 let publishOutboxServicePromise: Promise<PublishOutboxService | null> | null = null
 let savedRegionServicePromise: Promise<SavedRegionService> | null = null
@@ -29,6 +31,16 @@ export interface NativeDeepLinkDetail {
 }
 
 let localBlobRevision = 0
+
+/** The browser keeps its existing localStorage session; native shells add a durable mirror. */
+export function getAccountSessionService(): Promise<AccountSessionService | null> {
+	accountSessionServicePromise ??= isTauri()
+		? import('./tauri/accountSessions').then(
+				({ tauriAccountSessionService }) => tauriAccountSessionService,
+			)
+		: Promise.resolve(null)
+	return accountSessionServicePromise
+}
 
 export function getLocalNodeService(): Promise<LocalNodeService> {
 	localNodeServicePromise ??= isTauri()

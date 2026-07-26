@@ -1,5 +1,21 @@
 import { z } from 'zod'
 
+export const accountSessionSchema = z.object({
+	version: z.literal(1),
+	accountsJson: z
+		.string()
+		.min(2)
+		.max(1024 * 1024),
+	activeAccountId: z.string().min(1).max(512).nullable(),
+})
+
+export type AccountSession = z.infer<typeof accountSessionSchema>
+
+export interface AccountSessionService {
+	load(): Promise<AccountSession | null>
+	save(input: AccountSession): Promise<AccountSession>
+}
+
 export const pairingCapabilitySchema = z.enum([
 	'relay-read',
 	'relay-write',
@@ -521,6 +537,7 @@ export interface LocalNodeService {
 }
 
 export const nativeSchemas = {
+	accountSession: accountSessionSchema,
 	status: nativeLocalNodeStatusSchema,
 	invitation: pairingInvitationSchema,
 	pendingClaims: z.array(pendingPairingClaimSchema),

@@ -15,6 +15,7 @@
         { "url": "nostrconnect:*" }
       ]
     },
+    "account-session",
     "local-node-admin",
     "publish-outbox",
     "saved-regions",

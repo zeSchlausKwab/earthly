@@ -19,8 +19,20 @@ import { NostrConnectSigner } from 'applesauce-signers'
 import { NostrIDB, openDB } from 'nostr-idb'
 import type { Filter, NostrEvent } from 'nostr-tools'
 import type { IAccount } from 'applesauce-accounts'
-import { EMPTY, filter, firstValueFrom, NEVER, of, race, timeout, TimeoutError, timer } from 'rxjs'
 import {
+	EMPTY,
+	filter,
+	firstValueFrom,
+	NEVER,
+	of,
+	race,
+	timeout,
+	TimeoutError,
+	timer,
+	type Subscription,
+} from 'rxjs'
+import {
+	getAccountSessionService,
 	getPublishOutboxService,
 	getSavedRegionService,
 	notifyPublishOutboxChanged,
@@ -53,6 +65,7 @@ import {
 	readRelays$,
 	shouldCollapseWritesToLocal,
 } from './relay-router'
+import { createAccountSessionSnapshot, reconcileAccountSession } from './accountPersistence'
 
 // The single EventStore singleton, constructed in ./store so service modules can
 // import it without going through (or being defeated by a test mock of) this barrel.
@@ -192,6 +205,55 @@ accounts.active$.subscribe((account) => {
 	if (account) localStorage.setItem(ACTIVE_ACCOUNT_STORAGE_KEY, account.id)
 	else localStorage.removeItem(ACTIVE_ACCOUNT_STORAGE_KEY)
 })
+
+let nativeAccountSessionService: Awaited<ReturnType<typeof getAccountSessionService>> = null
+let nativeAccountWriteTail: Promise<void> = Promise.resolve()
+let accountPersistenceInitialization: Promise<void> | null = null
+let nativeAccountSubscriptions: Subscription[] = []
+
+function persistNativeAccountSession(): Promise<void> {
+	const service = nativeAccountSessionService
+	if (!service) return Promise.resolve()
+	const snapshot = createAccountSessionSnapshot(accounts)
+	const write = nativeAccountWriteTail
+		.catch(() => undefined)
+		.then(() => service.save(snapshot))
+		.then(() => undefined)
+	nativeAccountWriteTail = write
+	return write
+}
+
+function reportNativeAccountPersistenceFailure(error: unknown) {
+	console.error('[nostr] failed to persist the native account session', error)
+}
+
+/**
+ * Hydrate the native durable account mirror before React mounts. Android
+ * WebView localStorage can lag behind a process stop, so an empty/stale web
+ * cache is repaired from SQLite before signed-in surfaces render.
+ */
+export function initializeAccountPersistence(): Promise<void> {
+	accountPersistenceInitialization ??= getAccountSessionService()
+		.then(async (service) => {
+			if (!service) return
+			await reconcileAccountSession(accounts, service)
+			nativeAccountSessionService = service
+			nativeAccountSubscriptions = [
+				accounts.accounts$.subscribe(() => {
+					void persistNativeAccountSession().catch(reportNativeAccountPersistenceFailure)
+				}),
+				accounts.active$.subscribe(() => {
+					void persistNativeAccountSession().catch(reportNativeAccountPersistenceFailure)
+				}),
+			]
+			await persistNativeAccountSession()
+		})
+		.catch((error) => {
+			nativeAccountSessionService = null
+			console.error('[nostr] failed to initialize native account persistence', error)
+		})
+	return accountPersistenceInitialization
+}
 
 /**
  * IndexedDB-backed event cache. Only instantiated in browsers — seed scripts
@@ -689,7 +751,11 @@ export async function publish(event: NostrEvent, options: PublishOptions = {}) {
 // biome-ignore lint/suspicious/noExplicitAny: see comment above
 type AnyAccount = IAccount<any, any, any>
 
-export function loginWithAccount(account: AnyAccount, options: { remember?: boolean } = {}) {
+export async function loginWithAccount(
+	account: AnyAccount,
+	options: { remember?: boolean } = {},
+): Promise<void> {
+	await initializeAccountPersistence()
 	const { remember = true } = options
 
 	// Replace any prior account for the same pubkey to avoid duplicates.
@@ -700,17 +766,36 @@ export function loginWithAccount(account: AnyAccount, options: { remember?: bool
 	account.metadata = { ...(account.metadata ?? {}), ephemeral: !remember }
 	accounts.addAccount(account)
 	accounts.setActive(account)
+	await persistNativeAccountSession()
 }
 
 /** Log out the active account. Removes it entirely (forgets persisted data). */
-export function logoutActive() {
+export async function logoutActive(): Promise<void> {
+	await initializeAccountPersistence()
 	const active = accounts.active
 	if (!active) return
 	accounts.removeAccount(active)
+	await persistNativeAccountSession()
+}
+
+/** Switch accounts and wait until the remembered native session is durable. */
+export async function switchActiveAccount(account: AnyAccount): Promise<void> {
+	await initializeAccountPersistence()
+	accounts.setActive(account)
+	await persistNativeAccountSession()
+}
+
+/** Remove a saved account and wait until the native session reflects it. */
+export async function removeAccountSession(account: AnyAccount): Promise<void> {
+	await initializeAccountPersistence()
+	accounts.removeAccount(account)
+	await persistNativeAccountSession()
 }
 
 if (import.meta.hot) {
 	import.meta.hot.dispose(() => {
+		for (const subscription of nativeAccountSubscriptions) subscription.unsubscribe()
+		nativeAccountSubscriptions = []
 		stopPersist()
 		const activeCache = cache
 		cache = null

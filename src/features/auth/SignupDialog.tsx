@@ -262,7 +262,7 @@ export function SignupDialog({ open, onOpenChange, onSuccess }: SignupDialogProp
 	/** Logs the user in by registering their key as the active applesauce account. */
 	const loginWithSigner = async (active: PrivateKeySigner) => {
 		const account = PrivateKeyAccount.fromKey(bytesToHex(active.key))
-		loginWithAccount(account, { remember: rememberMe })
+		await loginWithAccount(account, { remember: rememberMe })
 	}
 
 	const handleBeginnerNext = async () => {
@@ -325,7 +325,7 @@ export function SignupDialog({ open, onOpenChange, onSuccess }: SignupDialogProp
 		setLoading(true)
 		try {
 			const account = PrivateKeyAccount.fromKey(privateKeyHex)
-			loginWithAccount(account, { remember: rememberMe })
+			await loginWithAccount(account, { remember: rememberMe })
 			onSuccess?.()
 			onOpenChange(false)
 		} catch (error) {
@@ -364,10 +364,10 @@ export function SignupDialog({ open, onOpenChange, onSuccess }: SignupDialogProp
 	return (
 		<>
 			<Dialog open={open} onOpenChange={onOpenChange}>
-				<DialogContent className="max-w-lg">
-					<DialogHeader>
-						<DialogTitle>{title}</DialogTitle>
-						<DialogDescription>{description}</DialogDescription>
+				<DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto p-5 sm:max-w-2xl sm:gap-6 sm:p-7">
+					<DialogHeader className="gap-1.5 pr-8">
+						<DialogTitle className="text-lg">{title}</DialogTitle>
+						<DialogDescription className="text-sm">{description}</DialogDescription>
 					</DialogHeader>
 
 					{nsec && (
@@ -377,20 +377,20 @@ export function SignupDialog({ open, onOpenChange, onSuccess }: SignupDialogProp
 					)}
 
 					{view === 'choose' && (
-						<div className="space-y-3 py-2">
+						<div className="space-y-5 py-1">
 							<Button
 								type="button"
 								variant="outline"
-								className="w-full text-left p-5 rounded-xl border-2 border-primary bg-primary/5 hover:bg-primary/10 transition-colors cursor-pointer group h-auto items-center justify-start"
+								className="group h-auto w-full cursor-pointer items-center justify-start whitespace-normal rounded-xl border-2 border-primary bg-primary/5 p-5 text-left transition-colors hover:bg-primary/10 sm:p-6"
 								onClick={() => setView('beginner-keys')}
 							>
-								<div className="flex items-center gap-3 w-full">
-									<div className="p-2 bg-primary rounded-lg shrink-0">
-										<Sparkles className="h-4 w-4 text-primary-foreground" />
+								<div className="flex min-w-0 w-full items-center gap-4">
+									<div className="shrink-0 rounded-lg bg-primary p-2.5">
+										<Sparkles className="h-5 w-5 text-primary-foreground" />
 									</div>
-									<div>
-										<div className="font-semibold">New to Nostr? Get your identity</div>
-										<div className="text-sm text-muted-foreground">
+									<div className="min-w-0 flex-1">
+										<div className="text-base font-semibold">New to Nostr? Get your identity</div>
+										<div className="mt-1 text-sm font-normal text-muted-foreground">
 											Guided setup with key backup and profile
 										</div>
 									</div>
@@ -403,34 +403,34 @@ export function SignupDialog({ open, onOpenChange, onSuccess }: SignupDialogProp
 									<span className="w-full border-t" />
 								</div>
 								<div className="relative flex justify-center text-xs uppercase">
-									<span className="bg-background px-2 text-muted-foreground">
+									<span className="bg-popover px-3 text-center text-muted-foreground">
 										or, if you know what you're doing
 									</span>
 								</div>
 							</div>
 
-							<div className="grid grid-cols-2 gap-2">
+							<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 								<Button
 									type="button"
 									variant="outline"
-									className="w-full text-left p-4 rounded-lg h-auto flex-col items-start justify-start hover:bg-muted/80 transition-colors cursor-pointer"
+									className="h-auto min-w-0 w-full cursor-pointer flex-col items-start justify-start whitespace-normal rounded-xl p-5 text-left transition-colors hover:bg-muted/80"
 									onClick={() => setView('expert-create')}
 								>
-									<Key className="h-5 w-5 mb-2 text-muted-foreground" />
-									<div className="font-medium text-sm">Generate new key</div>
-									<div className="text-xs text-muted-foreground mt-0.5">
+									<Key className="mb-3 h-5 w-5 text-muted-foreground" />
+									<div className="text-sm font-semibold">Generate new key</div>
+									<div className="mt-1 text-xs font-normal text-muted-foreground">
 										Create a fresh private key
 									</div>
 								</Button>
 								<Button
 									type="button"
 									variant="outline"
-									className="w-full text-left p-4 rounded-lg h-auto flex-col items-start justify-start hover:bg-muted/80 transition-colors cursor-pointer"
+									className="h-auto min-w-0 w-full cursor-pointer flex-col items-start justify-start whitespace-normal rounded-xl p-5 text-left transition-colors hover:bg-muted/80"
 									onClick={() => setView('expert-import')}
 								>
-									<ArrowRight className="h-5 w-5 mb-2 text-muted-foreground" />
-									<div className="font-medium text-sm">Import existing key</div>
-									<div className="text-xs text-muted-foreground mt-0.5">
+									<ArrowRight className="mb-3 h-5 w-5 text-muted-foreground" />
+									<div className="text-sm font-semibold">Import existing key</div>
+									<div className="mt-1 text-xs font-normal text-muted-foreground">
 										Use your nsec or hex key
 									</div>
 								</Button>

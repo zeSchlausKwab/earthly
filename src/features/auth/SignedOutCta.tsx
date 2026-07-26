@@ -35,7 +35,7 @@ export function SignedOutCta({
 		try {
 			setLoading(true)
 			const account = await ExtensionAccount.fromExtension()
-			loginWithAccount(account, { remember: true })
+			await loginWithAccount(account, { remember: true })
 		} catch (error) {
 			console.error('Extension login failed:', error)
 			toast.error('Could not connect to a browser extension. Is one installed?')

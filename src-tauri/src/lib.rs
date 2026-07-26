@@ -1,9 +1,11 @@
+mod account_session;
 mod android_lifecycle;
 mod diagnostics;
 mod local_node;
 mod outbox;
 mod saved_regions;
 
+use account_session::{account_session_load_v1, account_session_save_v1, AccountSessionState};
 use diagnostics::support_diagnostics_v1;
 use local_node::{
     local_node_approve_claim_v1, local_node_blob_access_v1, local_node_create_invitation_v1,
@@ -49,6 +51,8 @@ pub fn run() {
         .manage(LocalNodeState::starting())
         .register_asynchronous_uri_scheme_protocol("earthly-blob", local_node::local_blob_protocol)
         .invoke_handler(tauri::generate_handler![
+            account_session_load_v1,
+            account_session_save_v1,
             local_node_status,
             local_node_status_v1,
             local_node_network_addresses_v1,
@@ -91,6 +95,9 @@ pub fn run() {
         ])
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
+            app.manage(AccountSessionState::open(
+                app_data_dir.join("earthly.sqlite3"),
+            )?);
             app.manage(OutboxState::open(app_data_dir.join("earthly.sqlite3"))?);
             app.manage(SavedRegionState::open(
                 app_data_dir.join("earthly.sqlite3"),

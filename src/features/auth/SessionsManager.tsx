@@ -1,5 +1,5 @@
 import { ExtensionAccount } from 'applesauce-accounts/accounts'
-import { useAccountManager, useAccounts, useActiveAccount } from 'applesauce-react/hooks'
+import { useAccounts, useActiveAccount } from 'applesauce-react/hooks'
 import { AppWindowIcon, KeyRoundIcon, LogOut, QrCodeIcon, Users } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -11,7 +11,7 @@ import { ButtonGroup } from '@/components/ui/button-group'
 import { Label } from '@/components/ui/label'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { UserProfile } from '@/components/user-profile'
-import { loginWithAccount } from '@/lib/nostr'
+import { loginWithAccount, removeAccountSession, switchActiveAccount } from '@/lib/nostr'
 
 interface SessionItemProps {
 	pubkey: string
@@ -79,7 +79,6 @@ function SessionItem({ pubkey, isActive, onSwitch, onRemove }: SessionItemProps)
  * later if you prefer; the functionality is identical.
  */
 export function SessionsManager() {
-	const manager = useAccountManager()
 	const accounts = useAccounts()
 	const active = useActiveAccount()
 	const offerNip07Login = shouldOfferNip07Login()
@@ -91,7 +90,7 @@ export function SessionsManager() {
 		try {
 			setLoading(true)
 			const account = await ExtensionAccount.fromExtension()
-			loginWithAccount(account, { remember: true })
+			await loginWithAccount(account, { remember: true })
 		} catch (error) {
 			console.error('Extension login failed:', error)
 			toast.error('Could not connect to a browser extension. Is one installed?')
@@ -125,8 +124,8 @@ export function SessionsManager() {
 							key={account.id}
 							pubkey={account.pubkey}
 							isActive={account.id === active?.id}
-							onSwitch={() => manager.setActive(account)}
-							onRemove={() => manager.removeAccount(account)}
+							onSwitch={() => void switchActiveAccount(account)}
+							onRemove={() => void removeAccountSession(account)}
 						/>
 					))}
 				</div>

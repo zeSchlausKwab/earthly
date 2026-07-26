@@ -20,6 +20,22 @@ const descriptor = {
 } as const
 
 describe('local node platform contracts', () => {
+	test('accepts a bounded durable native account session', () => {
+		const session = {
+			version: 1 as const,
+			accountsJson: '[{"id":"nsec:abc","type":"nsec"}]',
+			activeAccountId: 'nsec:abc',
+		}
+
+		expect(nativeSchemas.accountSession.parse(session)).toEqual(session)
+		expect(() =>
+			nativeSchemas.accountSession.parse({
+				...session,
+				accountsJson: 'x'.repeat(1024 * 1024 + 1),
+			}),
+		).toThrow()
+	})
+
 	test('accepts a short-lived authenticated local blob endpoint', () => {
 		expect(
 			localBlobAccessSchema.parse({
