@@ -1,8 +1,12 @@
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { hexToBytes } from '@noble/hashes/utils.js'
 import { file, serve } from 'bun'
+import type { FeatureCollection } from 'geojson'
+import { nip19 } from 'nostr-tools'
 import { getPublicKey } from 'nostr-tools/pure'
 import { serverConfig } from './config/env.server'
+import { GEO_EVENT_KIND } from './lib/nostr/kinds'
 import { buildWorkerSource } from './lib/workers/buildWorker'
 import { WORKER_ASSETS, type WorkerId } from './lib/workers/workerAssets'
 import {
@@ -18,10 +22,19 @@ import {
 	fetchCachedBeaconEventOGData,
 	fetchCachedSightingEventOGData,
 	fetchCachedStoryEventOGData,
+	createOGImageVersion,
 	getOGImageHeaders,
 	getOGRouteHeaders,
+	getOrCreateOGImage,
+	getPublicBaseUrl,
 	generateOGImagePNG,
-	warmOGCache,
+	OG_IMAGE_RENDER_VERSION,
+	parseOGImageVersion,
+	resolveOGGeoBlobReferences,
+	type GeoEventOGData,
+	type OGCacheStatus,
+	type OGCacheType,
+	type OGImageOptions,
 } from './lib/og'
 
 const isProduction = process.env.NODE_ENV === 'production'
@@ -50,12 +63,102 @@ type BunRoute =
 			>
 	  >
 
+interface ReferencedMapPreview {
+	featureCollection?: FeatureCollection
+	bbox?: [number, number, number, number]
+	eventIds: string[]
+}
+
+function datasetAddressToNaddr(address: string): string | null {
+	if (address.startsWith('naddr1')) {
+		try {
+			const decoded = nip19.decode(address)
+			return decoded.type === 'naddr' && decoded.data.kind === GEO_EVENT_KIND ? address : null
+		} catch {
+			return null
+		}
+	}
+	const match = address.match(/^(\d+):([0-9a-f]{64}):(.+)$/u)
+	if (!match?.[1] || !match[2] || !match[3] || Number(match[1]) !== GEO_EVENT_KIND) return null
+	return nip19.naddrEncode({
+		kind: GEO_EVENT_KIND,
+		pubkey: match[2],
+		identifier: match[3],
+		relays: [serverConfig.relayUrl],
+	})
+}
+
+function mergeBboxes(
+	bboxes: Array<[number, number, number, number] | undefined>,
+): [number, number, number, number] | undefined {
+	const defined = bboxes.filter(
+		(bbox): bbox is [number, number, number, number] => bbox !== undefined,
+	)
+	if (defined.length === 0) return undefined
+	return [
+		Math.min(...defined.map((bbox) => bbox[0])),
+		Math.min(...defined.map((bbox) => bbox[1])),
+		Math.max(...defined.map((bbox) => bbox[2])),
+		Math.max(...defined.map((bbox) => bbox[3])),
+	]
+}
+
+async function resolveDatasetPreviewGeometry(
+	dataset: GeoEventOGData,
+): Promise<FeatureCollection | undefined> {
+	if (!dataset.blobReferences?.length) return dataset.featureCollection
+	const resolved = await resolveOGGeoBlobReferences(
+		dataset.featureCollection ?? { type: 'FeatureCollection', features: [] },
+		dataset.blobReferences,
+	)
+	return resolved.totalFeatureCount > 0 ? resolved.featureCollection : dataset.featureCollection
+}
+
+async function resolveReferencedMap(
+	addresses: string[],
+	resolveExternalGeometry = false,
+): Promise<ReferencedMapPreview> {
+	const naddrs = addresses
+		.map(datasetAddressToNaddr)
+		.filter((value): value is string => value !== null)
+		.slice(0, 4)
+	if (naddrs.length === 0) return { eventIds: [] }
+
+	const resolved = await Promise.all(
+		naddrs.map((naddr) =>
+			fetchCachedGeoEventOGData(naddr, serverConfig.relayUrl, { waitForFreshMs: 2500 }),
+		),
+	)
+	const datasets = resolved.flatMap(({ data }) => (data ? [data] : []))
+	const previewCollections = resolveExternalGeometry
+		? await Promise.all(datasets.map(resolveDatasetPreviewGeometry))
+		: datasets.map((dataset) => dataset.featureCollection)
+	const features = previewCollections
+		.flatMap((featureCollection) => featureCollection?.features ?? [])
+		.slice(0, 600)
+
+	return {
+		featureCollection: features.length > 0 ? { type: 'FeatureCollection', features } : undefined,
+		bbox: mergeBboxes(datasets.map((dataset) => dataset.bbox)),
+		eventIds: datasets.map((dataset) => dataset.eventId).sort(),
+	}
+}
+
+function createPreviewIdentity(
+	primaryEventId: string | undefined,
+	dependencyIds: string[],
+): string | undefined {
+	if (!primaryEventId || dependencyIds.length === 0) return primaryEventId
+	return createHash('sha256')
+		.update([primaryEventId, ...dependencyIds].join(':'))
+		.digest('hex')
+}
+
 /**
  * Get base URL from request for OG tags
  */
 function getBaseUrl(req: Request): string {
-	const url = new URL(req.url)
-	return `${url.protocol}//${url.host}`
+	return getPublicBaseUrl(req, serverConfig.publicBaseUrl)
 }
 
 /**
@@ -82,7 +185,9 @@ function serveBuiltFile(builtFile: ReturnType<typeof file>, pathname: string): R
 }
 
 /**
- * Handle OG routes for crawlers, serve SPA for regular users
+ * Serve a stable metadata document for every clean dataset URL. The document
+ * redirects browsers into the hash-based SPA, but does not rely on a brittle
+ * crawler user-agent allow-list to decide whether metadata is present.
  */
 async function handleGeoEventRoute(req: BunRouteRequest): Promise<Response> {
 	const naddr = req.params.naddr ?? ''
@@ -93,30 +198,28 @@ async function handleGeoEventRoute(req: BunRouteRequest): Promise<Response> {
 		return Response.redirect(baseUrl, 302)
 	}
 
-	if (isCrawler(req)) {
-		const { data, cacheStatus } = await fetchCachedGeoEventOGData(naddr, serverConfig.relayUrl)
-		const html = generateGeoEventOGHtml(
-			baseUrl,
-			naddr,
-			data?.title ?? 'Geographic Dataset',
-			data?.description ?? 'View this geographic dataset on Earthly',
-		)
-		return new Response(html, {
-			headers: getOGRouteHeaders(cacheStatus),
-		})
-	}
-
-	warmOGCache('geoevent', naddr, serverConfig.relayUrl)
-
-	// For regular users, redirect to hash-based route
-	if (commentId) {
-		return Response.redirect(`${baseUrl}/#/datasets/geoevent/${naddr}/comment/${commentId}`, 302)
-	}
-	return Response.redirect(`${baseUrl}/#/datasets/geoevent/${naddr}`, 302)
+	const { data, cacheStatus } = await fetchCachedGeoEventOGData(naddr, serverConfig.relayUrl, {
+		waitForFreshMs: 3000,
+	})
+	const redirectUrl = commentId
+		? `${baseUrl}/#/datasets/geoevent/${naddr}/comment/${commentId}`
+		: undefined
+	const html = generateGeoEventOGHtml(
+		baseUrl,
+		naddr,
+		data?.title ?? 'Geographic Dataset',
+		data?.description ?? 'View this geographic dataset on Earthly',
+		undefined,
+		data?.eventId,
+		redirectUrl,
+	)
+	return new Response(html, {
+		headers: getOGRouteHeaders(cacheStatus),
+	})
 }
 
 /**
- * Handle /context/:naddr — OG HTML for crawlers, redirect for users
+ * Handle /context/:naddr with stable metadata plus an SPA redirect.
  */
 async function handleContextRoute(req: BunRouteRequest): Promise<Response> {
 	const naddr = req.params.naddr ?? ''
@@ -127,31 +230,32 @@ async function handleContextRoute(req: BunRouteRequest): Promise<Response> {
 		return Response.redirect(baseUrl, 302)
 	}
 
-	if (isCrawler(req)) {
-		const { data, cacheStatus } = await fetchCachedContextEventOGData(naddr, serverConfig.relayUrl)
-		const html = generateContextOGHtml(
-			baseUrl,
-			naddr,
-			data?.title ?? 'Map Context',
-			data?.description ?? 'Explore this geographic context on Earthly',
-			data?.image,
-		)
-		return new Response(html, {
-			headers: getOGRouteHeaders(cacheStatus),
-		})
-	}
-
-	warmOGCache('context', naddr, serverConfig.relayUrl)
-
-	if (commentId) {
-		return Response.redirect(`${baseUrl}/#/contexts/mapcontext/${naddr}/comment/${commentId}`, 302)
-	}
-
-	return Response.redirect(`${baseUrl}/#/contexts/mapcontext/${naddr}`, 302)
+	const { data, cacheStatus } = await fetchCachedContextEventOGData(naddr, serverConfig.relayUrl, {
+		waitForFreshMs: 3000,
+	})
+	const redirectUrl = commentId
+		? `${baseUrl}/#/contexts/mapcontext/${naddr}/comment/${commentId}`
+		: undefined
+	const referencedMap = data?.image
+		? { eventIds: [] }
+		: await resolveReferencedMap(data?.referencedAddresses ?? [])
+	const imageIdentity = createPreviewIdentity(data?.eventId, referencedMap.eventIds)
+	const html = generateContextOGHtml(
+		baseUrl,
+		naddr,
+		data?.title ?? 'Map Context',
+		data?.description ?? 'Explore this geographic context on Earthly',
+		undefined,
+		imageIdentity,
+		redirectUrl,
+	)
+	return new Response(html, {
+		headers: getOGRouteHeaders(cacheStatus),
+	})
 }
 
 /**
- * Handle /story/:naddr — OG HTML for crawlers (D-04), redirect for users
+ * Handle /story/:naddr with stable metadata plus an SPA redirect (D-04).
  */
 async function handleStoryRoute(req: BunRouteRequest): Promise<Response> {
 	const naddr = req.params.naddr ?? ''
@@ -162,27 +266,28 @@ async function handleStoryRoute(req: BunRouteRequest): Promise<Response> {
 		return Response.redirect(baseUrl, 302)
 	}
 
-	if (isCrawler(req)) {
-		const { data, cacheStatus } = await fetchCachedStoryEventOGData(naddr, serverConfig.relayUrl)
-		const html = generateStoryOGHtml(
-			baseUrl,
-			naddr,
-			data?.title ?? 'Story',
-			data?.description ?? 'Read this story on Earthly',
-			data?.image,
-		)
-		return new Response(html, {
-			headers: getOGRouteHeaders(cacheStatus),
-		})
-	}
-
-	warmOGCache('story', naddr, serverConfig.relayUrl)
-
-	if (commentId) {
-		return Response.redirect(`${baseUrl}/#/stories/story/${naddr}/comment/${commentId}`, 302)
-	}
-
-	return Response.redirect(`${baseUrl}/#/stories/story/${naddr}`, 302)
+	const { data, cacheStatus } = await fetchCachedStoryEventOGData(naddr, serverConfig.relayUrl, {
+		waitForFreshMs: 3000,
+	})
+	const redirectUrl = commentId
+		? `${baseUrl}/#/stories/story/${naddr}/comment/${commentId}`
+		: undefined
+	const referencedMap = data?.image
+		? { eventIds: [] }
+		: await resolveReferencedMap(data?.referencedAddresses ?? [])
+	const imageIdentity = createPreviewIdentity(data?.eventId, referencedMap.eventIds)
+	const html = generateStoryOGHtml(
+		baseUrl,
+		naddr,
+		data?.title ?? 'Story',
+		data?.description ?? 'Read this story on Earthly',
+		undefined,
+		imageIdentity,
+		redirectUrl,
+	)
+	return new Response(html, {
+		headers: getOGRouteHeaders(cacheStatus),
+	})
 }
 
 /**
@@ -202,26 +307,23 @@ async function handleSightingRoute(req: BunRouteRequest): Promise<Response> {
 		return Response.redirect(baseUrl, 302)
 	}
 
-	if (isCrawler(req)) {
-		const { data, cacheStatus } = await fetchCachedSightingEventOGData(naddr, serverConfig.relayUrl)
-		const html = generateSightingOGHtml(
-			baseUrl,
-			naddr,
-			data?.title ?? 'Sighting',
-			data?.description ?? 'See this sighting on Earthly',
-		)
-		return new Response(html, {
-			headers: getOGRouteHeaders(cacheStatus),
-		})
-	}
-
-	warmOGCache('sighting', naddr, serverConfig.relayUrl)
-
-	if (commentId) {
-		return Response.redirect(`${baseUrl}/#/sightings/sighting/${naddr}/comment/${commentId}`, 302)
-	}
-
-	return Response.redirect(`${baseUrl}/#/sightings/sighting/${naddr}`, 302)
+	const { data, cacheStatus } = await fetchCachedSightingEventOGData(naddr, serverConfig.relayUrl, {
+		waitForFreshMs: 3000,
+	})
+	const redirectUrl = commentId
+		? `${baseUrl}/#/sightings/sighting/${naddr}/comment/${commentId}`
+		: undefined
+	const html = generateSightingOGHtml(
+		baseUrl,
+		naddr,
+		data?.title ?? 'Sighting',
+		data?.description ?? 'See this sighting on Earthly',
+		data?.eventId,
+		redirectUrl,
+	)
+	return new Response(html, {
+		headers: getOGRouteHeaders(cacheStatus),
+	})
 }
 
 /**
@@ -244,131 +346,189 @@ async function handleBeaconRoute(req: BunRouteRequest): Promise<Response> {
 		return Response.redirect(baseUrl, 302)
 	}
 
-	if (isCrawler(req)) {
-		const { data, cacheStatus } = await fetchCachedBeaconEventOGData(naddr, serverConfig.relayUrl)
-		const html = generateBeaconOGHtml(
-			baseUrl,
-			naddr,
-			data?.title ?? 'Live location',
-			data?.description ?? 'Live location — may have ended. Watch it on Earthly.',
-		)
-		return new Response(html, {
-			headers: getOGRouteHeaders(cacheStatus),
-		})
-	}
-
-	warmOGCache('beacon', naddr, serverConfig.relayUrl)
-
-	if (commentId) {
-		return Response.redirect(`${baseUrl}/#/beacons/beacon/${naddr}/comment/${commentId}`, 302)
-	}
-
-	return Response.redirect(`${baseUrl}/#/beacons/beacon/${naddr}`, 302)
+	const { data, cacheStatus } = await fetchCachedBeaconEventOGData(naddr, serverConfig.relayUrl, {
+		waitForFreshMs: 3000,
+	})
+	const redirectUrl = commentId
+		? `${baseUrl}/#/beacons/beacon/${naddr}/comment/${commentId}`
+		: undefined
+	const html = generateBeaconOGHtml(
+		baseUrl,
+		naddr,
+		data?.title ?? 'Live location',
+		data?.description ?? 'Live location — may have ended. Watch it on Earthly.',
+		data?.eventId,
+		redirectUrl,
+	)
+	return new Response(html, {
+		headers: getOGRouteHeaders(cacheStatus),
+	})
 }
 
 /**
  * Handle /og/image/:type/:naddr — generate and serve a PNG OG image
  */
-async function handleOGImageRoute(req: BunRouteRequest): Promise<Response> {
-	const { type, naddr } = req.params
-	if (!naddr || !type) {
-		return new Response('Not found', { status: 404 })
-	}
+interface OGImageModel {
+	primaryEventId?: string
+	imageIdentity?: string
+	cacheStatus: OGCacheStatus
+	options: OGImageOptions
+}
 
-	try {
-		if (type === 'context') {
-			const { data, cacheStatus } = await fetchCachedContextEventOGData(
-				naddr,
-				serverConfig.relayUrl,
-				{ waitForFreshMs: 1500 },
-			)
+class OGImageVersionUnavailableError extends Error {}
 
-			const png = await generateOGImagePNG({
+function isOGCacheType(value: string): value is OGCacheType {
+	return ['context', 'geoevent', 'story', 'sighting', 'beacon'].includes(value)
+}
+
+async function resolveOGImageModel(type: OGCacheType, naddr: string): Promise<OGImageModel> {
+	if (type === 'context') {
+		const { data, cacheStatus } = await fetchCachedContextEventOGData(
+			naddr,
+			serverConfig.relayUrl,
+			{ waitForFreshMs: 1500 },
+		)
+		const referencedMap = data?.image
+			? { eventIds: [] }
+			: await resolveReferencedMap(data?.referencedAddresses ?? [], true)
+		return {
+			primaryEventId: data?.eventId,
+			imageIdentity: createPreviewIdentity(data?.eventId, referencedMap.eventIds),
+			cacheStatus,
+			options: {
 				title: data?.title ?? 'Map Context',
 				description: data?.description ?? 'Explore this geographic context on Earthly',
 				backgroundImageUrl: data?.image,
-			})
-
-			if (!png) return new Response('Image generation failed', { status: 500 })
-			const body = new Uint8Array(png).buffer
-			return new Response(body, { headers: getOGImageHeaders(cacheStatus) })
+				featureCollection: referencedMap.featureCollection,
+				bbox: referencedMap.bbox ?? data?.bbox,
+			},
 		}
+	}
 
-		if (type === 'geoevent') {
-			const { data, cacheStatus } = await fetchCachedGeoEventOGData(naddr, serverConfig.relayUrl, {
-				waitForFreshMs: 1500,
-			})
-
-			const png = await generateOGImagePNG({
+	if (type === 'geoevent') {
+		const { data, cacheStatus } = await fetchCachedGeoEventOGData(naddr, serverConfig.relayUrl, {
+			waitForFreshMs: 1500,
+		})
+		return {
+			primaryEventId: data?.eventId,
+			imageIdentity: data?.eventId,
+			cacheStatus,
+			options: {
 				title: data?.title ?? 'Geographic Dataset',
 				description: data?.description ?? 'View this geographic dataset on Earthly',
-			})
-
-			if (!png) return new Response('Image generation failed', { status: 500 })
-			const body = new Uint8Array(png).buffer
-			return new Response(body, { headers: getOGImageHeaders(cacheStatus) })
+				featureCollection: data ? await resolveDatasetPreviewGeometry(data) : undefined,
+				bbox: data?.bbox,
+			},
 		}
+	}
 
-		if (type === 'story') {
-			const { data, cacheStatus } = await fetchCachedStoryEventOGData(
-				naddr,
-				serverConfig.relayUrl,
-				{ waitForFreshMs: 1500 },
-			)
-
-			const png = await generateOGImagePNG({
+	if (type === 'story') {
+		const { data, cacheStatus } = await fetchCachedStoryEventOGData(naddr, serverConfig.relayUrl, {
+			waitForFreshMs: 1500,
+		})
+		const referencedMap = data?.image
+			? { eventIds: [] }
+			: await resolveReferencedMap(data?.referencedAddresses ?? [], true)
+		return {
+			primaryEventId: data?.eventId,
+			imageIdentity: createPreviewIdentity(data?.eventId, referencedMap.eventIds),
+			cacheStatus,
+			options: {
 				title: data?.title ?? 'Story',
 				description: data?.description ?? 'Read this story on Earthly',
 				backgroundImageUrl: data?.image,
-			})
-
-			if (!png) return new Response('Image generation failed', { status: 500 })
-			const body = new Uint8Array(png).buffer
-			return new Response(body, { headers: getOGImageHeaders(cacheStatus) })
+				featureCollection: referencedMap.featureCollection,
+				bbox: referencedMap.bbox ?? data?.bbox,
+			},
 		}
+	}
 
-		if (type === 'sighting') {
-			// SIGHT-03 (Pitfall P-1): fetchCachedSightingEventOGData returns null for an
-			// expired sighting, so an expired card image falls back to the generic
-			// title/description — the sighting content is never leaked.
-			const { data, cacheStatus } = await fetchCachedSightingEventOGData(
-				naddr,
-				serverConfig.relayUrl,
-				{ waitForFreshMs: 1500 },
-			)
-
-			const png = await generateOGImagePNG({
+	if (type === 'sighting') {
+		const { data, cacheStatus } = await fetchCachedSightingEventOGData(
+			naddr,
+			serverConfig.relayUrl,
+			{ waitForFreshMs: 1500 },
+		)
+		return {
+			primaryEventId: data?.eventId,
+			imageIdentity: data?.eventId,
+			cacheStatus,
+			options: {
 				title: data?.title ?? 'Sighting',
 				description: data?.description ?? 'See this sighting on Earthly',
-			})
-
-			if (!png) return new Response('Image generation failed', { status: 500 })
-			const body = new Uint8Array(png).buffer
-			return new Response(body, { headers: getOGImageHeaders(cacheStatus) })
+			},
 		}
+	}
 
-		if (type === 'beacon') {
-			// T-12-05-OGLEAK (Pitfall P-1): fetchCachedBeaconEventOGData returns null
-			// for an expired beacon, so an expired card image falls back to the generic
-			// title/description — the beacon's label is never leaked.
-			const { data, cacheStatus } = await fetchCachedBeaconEventOGData(
-				naddr,
-				serverConfig.relayUrl,
-				{ waitForFreshMs: 1500 },
-			)
+	const { data, cacheStatus } = await fetchCachedBeaconEventOGData(naddr, serverConfig.relayUrl, {
+		waitForFreshMs: 1500,
+	})
+	return {
+		primaryEventId: data?.eventId,
+		imageIdentity: data?.eventId,
+		cacheStatus,
+		options: {
+			title: data?.title ?? 'Live location',
+			description: data?.description ?? 'Live location — may have ended.',
+		},
+	}
+}
 
-			const png = await generateOGImagePNG({
-				title: data?.title ?? 'Live location',
-				description: data?.description ?? 'Live location — may have ended.',
-			})
-
-			if (!png) return new Response('Image generation failed', { status: 500 })
-			const body = new Uint8Array(png).buffer
-			return new Response(body, { headers: getOGImageHeaders(cacheStatus) })
-		}
-
+async function handleOGImageRoute(req: BunRouteRequest): Promise<Response> {
+	const { type: rawType, naddr, version } = req.params
+	if (!naddr || !rawType || !isOGCacheType(rawType)) {
 		return new Response('Not found', { status: 404 })
+	}
+	const type = rawType
+	const requestedVersion = version ? parseOGImageVersion(version) : null
+	if (version && !requestedVersion) return new Response('Not found', { status: 404 })
+
+	try {
+		if (requestedVersion && version) {
+			let metadataCacheStatus: OGCacheStatus | undefined
+			const result = await getOrCreateOGImage({
+				type,
+				version,
+				render: async () => {
+					const model = await resolveOGImageModel(type, naddr)
+					metadataCacheStatus = model.cacheStatus
+					if (
+						(model.imageIdentity !== requestedVersion.eventId &&
+							model.primaryEventId !== requestedVersion.eventId) ||
+						requestedVersion.rendererVersion !== OG_IMAGE_RENDER_VERSION
+					) {
+						throw new OGImageVersionUnavailableError()
+					}
+					return generateOGImagePNG(model.options)
+				},
+			})
+			return new Response(new Uint8Array(result.png).buffer, {
+				headers: getOGImageHeaders(metadataCacheStatus, result.cacheStatus),
+			})
+		}
+
+		const model = await resolveOGImageModel(type, naddr)
+		const currentVersion = createOGImageVersion(model.imageIdentity)
+		if (currentVersion) {
+			const result = await getOrCreateOGImage({
+				type,
+				version: currentVersion,
+				render: () => generateOGImagePNG(model.options),
+			})
+			return new Response(new Uint8Array(result.png).buffer, {
+				headers: getOGImageHeaders(model.cacheStatus, result.cacheStatus),
+			})
+		}
+
+		const png = await generateOGImagePNG(model.options)
+		if (!png) return new Response('Image generation failed', { status: 500 })
+		return new Response(new Uint8Array(png).buffer, {
+			headers: getOGImageHeaders(model.cacheStatus),
+		})
 	} catch (err) {
+		if (err instanceof OGImageVersionUnavailableError) {
+			return new Response('Image version is not available', { status: 404 })
+		}
 		console.error('[OG image route] Error:', err)
 		return new Response('Internal server error', { status: 500 })
 	}
@@ -435,7 +595,7 @@ if (!isProduction) {
 	}
 
 	if (isProduction) {
-		// OG routes for social media crawlers (production only)
+		// Stable public entity/OG routes (production only).
 		const ogRoutes: Record<string, BunRoute> = {
 			'/geoevent/:naddr': handleGeoEventRoute,
 			'/geoevent/:naddr/comment/:commentId': handleGeoEventRoute,
@@ -447,6 +607,7 @@ if (!isProduction) {
 			'/sighting/:naddr/comment/:commentId': handleSightingRoute,
 			'/beacon/:naddr': handleBeaconRoute,
 			'/beacon/:naddr/comment/:commentId': handleBeaconRoute,
+			'/og/image/:type/:naddr/:version': handleOGImageRoute,
 			'/og/image/:type/:naddr': handleOGImageRoute,
 		}
 

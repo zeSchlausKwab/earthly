@@ -193,6 +193,8 @@ bun run start               # serve a production bundle with Bun
 
 Production configuration is documented by [`.env.production.example`](.env.production.example). Private keys remain server-side; only the allowlisted values in [`src/config/env.schema.ts`](src/config/env.schema.ts) are injected into the frontend bundle.
 
+Dataset, Context, and Story share links render content-addressed 1200×630 map previews. The server keeps metadata in `data/og-cache.sqlite` and rendered PNGs in `data/og-images/`; keep `data/` writable in production. Image maintenance runs opportunistically and retains at most 5,000 images or 512 MiB, removing previews older than 180 days.
+
 The ContextVM research tools use a private, loopback-only SearXNG service and degrade to Wikipedia/Wikidata when a provider is unavailable. See the [SearXNG operations guide](docs/operations/searxng.md) for the one-time VPS setup and routine health checks.
 
 Important public configuration:
@@ -201,6 +203,7 @@ Important public configuration:
 | --- | --- |
 | `RELAY_URL` | Comma-separated primary Nostr relay URLs |
 | `EXTRA_READ_RELAYS` | Optional read-only relay extensions |
+| `PUBLIC_BASE_URL` | Trusted public origin for canonical and social-preview URLs |
 | `BLOSSOM_SERVER` | Default Blossom base URL |
 | `SERVER_PUBKEY` | Earthly ContextVM server identity |
 | `CORDN_SERVER_PUBKEY` | Cordn-compatible private-group coordinator identity |

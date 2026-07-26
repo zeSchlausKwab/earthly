@@ -1,21 +1,34 @@
 import { nip19 } from 'nostr-tools'
+import type { FeatureCollection } from 'geojson'
 import { ARTICLE_KIND, GEO_EVENT_KIND, TEMPORAL_SIGHTING_KIND } from '../nostr/kinds'
+import { getBlobReferences, type GeoBlobReference } from '../nostr/geo-event/helpers'
 import { fetchEventFromRelay } from './relayFetch'
 
 export interface GeoEventOGData {
+	eventId: string
+	createdAt: number
 	title: string
 	description: string
 	image?: string
 	featureCount?: number
+	featureCollection?: FeatureCollection
+	blobReferences?: GeoBlobReference[]
+	bbox?: [number, number, number, number]
 }
 
 export interface StoryOGData {
+	eventId: string
+	createdAt: number
 	title: string
 	description: string
 	image?: string
+	bbox?: [number, number, number, number]
+	referencedAddresses: string[]
 }
 
 export interface SightingOGData {
+	eventId: string
+	createdAt: number
 	title: string
 	description: string
 	/**
@@ -80,14 +93,28 @@ export function decodeNaddr(naddr: string): {
 	}
 }
 
-interface NostrEvent {
-	id: string
-	pubkey: string
-	created_at: number
-	kind: number
-	tags: string[][]
-	content: string
-	sig: string
+function parseBbox(raw: string | undefined): [number, number, number, number] | undefined {
+	if (!raw) return undefined
+	const values = raw.split(',').map((part) => Number(part.trim()))
+	if (values.length !== 4 || values.some((value) => !Number.isFinite(value))) {
+		return undefined
+	}
+	const [west, south, east, north] = values as [number, number, number, number]
+	if (west > east || south > north) return undefined
+	return [west, south, east, north]
+}
+
+function samplePreviewFeatures(
+	featureCollection: FeatureCollection,
+	limit = 600,
+): FeatureCollection {
+	if (featureCollection.features.length <= limit) return featureCollection
+	const step = featureCollection.features.length / limit
+	const features = Array.from(
+		{ length: limit },
+		(_, index) => featureCollection.features[Math.floor(index * step)],
+	).filter((feature): feature is FeatureCollection['features'][number] => Boolean(feature))
+	return { ...featureCollection, features }
 }
 
 /**
@@ -113,10 +140,15 @@ export async function fetchGeoEventOGData(
 	let featureCount = 0
 	let title = ''
 	let description = ''
+	let featureCollection: FeatureCollection | undefined
 
 	try {
-		const fc = JSON.parse(event.content)
+		const fc = JSON.parse(event.content) as FeatureCollection & {
+			name?: string
+			description?: string
+		}
 		if (fc.type === 'FeatureCollection' && Array.isArray(fc.features)) {
+			featureCollection = samplePreviewFeatures(fc)
 			featureCount = fc.features.length
 
 			// Try to extract title/description from first feature or collection properties
@@ -132,6 +164,7 @@ export async function fetchGeoEventOGData(
 		// Invalid JSON content
 	}
 
+	const blobReferences = getBlobReferences(event)
 	// Look for title tag
 	const titleTag = event.tags.find((t) => t[0] === 'title')
 	if (titleTag?.[1]) title = titleTag[1]
@@ -152,9 +185,14 @@ export async function fetchGeoEventOGData(
 	}
 
 	return {
+		eventId: event.id,
+		createdAt: event.created_at,
 		title: title || 'Geographic Dataset',
 		description: description || 'View this geographic dataset on Earthly',
 		featureCount,
+		featureCollection,
+		blobReferences: blobReferences.length > 0 ? blobReferences : undefined,
+		bbox: parseBbox(event.tags.find((tag) => tag[0] === 'bbox')?.[1]),
 	}
 }
 
@@ -215,9 +253,15 @@ export async function fetchStoryOGData(
 	}
 
 	return {
+		eventId: event.id,
+		createdAt: event.created_at,
 		title: title || 'Story',
 		description: description || 'Read this story on Earthly',
 		image,
+		bbox: parseBbox(event.tags.find((tag) => tag[0] === 'bbox')?.[1]),
+		referencedAddresses: event.tags
+			.filter((tag) => tag[0] === 'a' && typeof tag[1] === 'string')
+			.map((tag) => tag[1] as string),
 	}
 }
 
@@ -293,6 +337,8 @@ export async function fetchSightingOGData(
 	const contentExpiresAt = expirationSeconds === null ? null : expirationSeconds * 1000
 
 	return {
+		eventId: event.id,
+		createdAt: event.created_at,
 		title: title || 'Sighting',
 		description: description || 'See this sighting on Earthly',
 		contentExpiresAt,

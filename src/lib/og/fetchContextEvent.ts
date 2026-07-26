@@ -1,80 +1,15 @@
 import { nip19 } from 'nostr-tools'
 import { MAP_CONTEXT_KIND } from '../nostr/kinds'
+import { fetchEventFromRelay } from './relayFetch'
 
 export interface ContextEventOGData {
+	eventId: string
+	createdAt: number
 	title: string
 	description: string
 	image?: string
 	bbox?: [number, number, number, number] // west, south, east, north
-}
-
-interface NostrEvent {
-	id: string
-	pubkey: string
-	created_at: number
-	kind: number
-	tags: string[][]
-	content: string
-	sig: string
-}
-
-/**
- * WR-05: kind 37518 is parameterized-replaceable, so a relay MAY stream an older
- * version before the newest. Add an explicit `limit: 1` AND collect every matching
- * EVENT until EOSE, resolving with the highest-`created_at` event (newest-wins)
- * rather than the first frame received. Mirrors `fetchEvent.ts`.
- */
-async function fetchEventFromRelay(
-	relayUrl: string,
-	filter: { kinds: number[]; authors: string[]; '#d': string[] },
-	timeoutMs = 5000,
-): Promise<NostrEvent | null> {
-	const wsUrl = relayUrl.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:')
-
-	return new Promise((resolve) => {
-		let newest: NostrEvent | null = null
-
-		const finish = () => {
-			clearTimeout(timeout)
-			try {
-				ws.send(JSON.stringify(['CLOSE', subId]))
-			} catch {
-				// socket may already be closing — ignore
-			}
-			ws.close()
-			resolve(newest)
-		}
-
-		const timeout = setTimeout(finish, timeoutMs)
-
-		const ws = new WebSocket(wsUrl)
-		const subId = crypto.randomUUID().slice(0, 8)
-
-		ws.onopen = () => {
-			ws.send(JSON.stringify(['REQ', subId, { ...filter, limit: 1 }]))
-		}
-
-		ws.onmessage = (msg) => {
-			try {
-				const data = JSON.parse(msg.data as string)
-				if (data[0] === 'EVENT' && data[1] === subId) {
-					const event = data[2] as NostrEvent
-					if (!newest || event.created_at > newest.created_at) {
-						newest = event
-					}
-				} else if (data[0] === 'EOSE' && data[1] === subId) {
-					finish()
-				}
-			} catch {
-				// Ignore parse errors
-			}
-		}
-
-		ws.onerror = () => {
-			clearTimeout(timeout)
-			resolve(newest)
-		}
-	})
+	referencedAddresses: string[]
 }
 
 function parseBbox(raw: string | undefined): [number, number, number, number] | undefined {
@@ -107,16 +42,21 @@ export async function fetchContextEventOGData(
 		let title = ''
 		let description = ''
 		let image: string | undefined
+		let contentReferences: string[] = []
 
 		try {
 			const content = JSON.parse(event.content) as {
 				name?: string
 				description?: string
 				image?: string
+				references?: string[]
 			}
 			title = content.name ?? ''
 			description = content.description ?? ''
 			image = content.image
+			contentReferences = Array.isArray(content.references)
+				? content.references.filter((value): value is string => typeof value === 'string')
+				: []
 		} catch {
 			// Invalid JSON
 		}
@@ -130,10 +70,18 @@ export async function fetchContextEventOGData(
 		const bbox = parseBbox(bboxTag?.[1])
 
 		return {
+			eventId: event.id,
+			createdAt: event.created_at,
 			title: title || 'Map Context',
 			description: description || 'A geographic context on Earthly',
 			image,
 			bbox,
+			referencedAddresses: [
+				...event.tags
+					.filter((tag) => tag[0] === 'a' && typeof tag[1] === 'string')
+					.map((tag) => tag[1] as string),
+				...contentReferences,
+			].filter((value, index, values) => values.indexOf(value) === index),
 		}
 	} catch {
 		return null

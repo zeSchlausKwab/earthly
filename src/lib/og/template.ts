@@ -1,10 +1,19 @@
+import { createOGImageVersion } from './imageVersion'
+
 export interface OGMeta {
 	title: string
 	description: string
 	image?: string
+	/** Clean, crawlable URL used for canonical and Open Graph identity. */
 	url: string
+	/** Client-side application URL used only for the browser redirect. */
+	redirectUrl?: string
 	type?: 'website' | 'article'
 	siteName?: string
+	imageWidth?: number
+	imageHeight?: number
+	imageType?: string
+	imageAlt?: string
 }
 
 const DEFAULT_IMAGE = '/static/og-default.png'
@@ -19,8 +28,13 @@ export function generateOGHtml(meta: OGMeta): string {
 		description,
 		image = DEFAULT_IMAGE,
 		url,
+		redirectUrl = url,
 		type = 'website',
 		siteName = SITE_NAME,
+		imageWidth,
+		imageHeight,
+		imageType,
+		imageAlt = `${title} — Earthly map preview`,
 	} = meta
 
 	const safeTitle = escapeHtml(title)
@@ -36,8 +50,24 @@ export function generateOGHtml(meta: OGMeta): string {
 	// inline-script sink.
 	const safeUrl = sanitizeUrl(url, '/')
 	const safeUrlAttr = escapeHtml(safeUrl)
-	const safeUrlJs = escapeJsString(safeUrl)
-	const safeImageAttr = escapeHtml(sanitizeUrl(image, DEFAULT_IMAGE))
+	const safeRedirectUrl = sanitizeUrl(redirectUrl, safeUrl)
+	const safeRedirectUrlAttr = escapeHtml(safeRedirectUrl)
+	const safeRedirectUrlJs = escapeJsString(safeRedirectUrl)
+	const safeImage = sanitizeUrl(image, DEFAULT_IMAGE)
+	const safeImageAttr = escapeHtml(safeImage)
+	const safeImageAlt = escapeHtml(imageAlt)
+	const secureImageMeta = safeImage.startsWith('https:')
+		? `\n  <meta property="og:image:secure_url" content="${safeImageAttr}">`
+		: ''
+	const imageTypeMeta = imageType
+		? `\n  <meta property="og:image:type" content="${escapeHtml(imageType)}">`
+		: ''
+	const imageWidthMeta = imageWidth
+		? `\n  <meta property="og:image:width" content="${imageWidth}">`
+		: ''
+	const imageHeightMeta = imageHeight
+		? `\n  <meta property="og:image:height" content="${imageHeight}">`
+		: ''
 
 	return `<!DOCTYPE html>
 <html lang="en">
@@ -49,34 +79,55 @@ export function generateOGHtml(meta: OGMeta): string {
   <title>${safeTitle} | ${siteName}</title>
   <meta name="title" content="${safeTitle} | ${siteName}">
   <meta name="description" content="${truncatedDescription}">
+  <link rel="canonical" href="${safeUrlAttr}">
 
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="${type}">
   <meta property="og:url" content="${safeUrlAttr}">
   <meta property="og:title" content="${safeTitle}">
   <meta property="og:description" content="${truncatedDescription}">
-  <meta property="og:image" content="${safeImageAttr}">
+  <meta property="og:image" content="${safeImageAttr}">${secureImageMeta}${imageTypeMeta}${imageWidthMeta}${imageHeightMeta}
+  <meta property="og:image:alt" content="${safeImageAlt}">
   <meta property="og:site_name" content="${siteName}">
 
   <!-- Twitter -->
-  <meta property="twitter:card" content="summary_large_image">
-  <meta property="twitter:url" content="${safeUrlAttr}">
-  <meta property="twitter:title" content="${safeTitle}">
-  <meta property="twitter:description" content="${truncatedDescription}">
-  <meta property="twitter:image" content="${safeImageAttr}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:url" content="${safeUrlAttr}">
+  <meta name="twitter:title" content="${safeTitle}">
+  <meta name="twitter:description" content="${truncatedDescription}">
+  <meta name="twitter:image" content="${safeImageAttr}">
+  <meta name="twitter:image:alt" content="${safeImageAlt}">
 
   <!-- Redirect to SPA after brief delay for non-crawlers that slipped through -->
-  <meta http-equiv="refresh" content="0;url=${safeUrlAttr}">
+  <meta http-equiv="refresh" content="0;url=${safeRedirectUrlAttr}">
 </head>
 <body>
   <noscript>
     <h1>${safeTitle}</h1>
     <p>${truncatedDescription}</p>
-    <p><a href="${safeUrlAttr}">View on Earthly</a></p>
+    <p><a href="${safeRedirectUrlAttr}">View on Earthly</a></p>
   </noscript>
-  <script>window.location.href = ${safeUrlJs};</script>
+  <script>window.location.href = ${safeRedirectUrlJs};</script>
 </body>
 </html>`
+}
+
+function getGeneratedImageUrl(
+	baseUrl: string,
+	type: string,
+	naddr: string,
+	eventId?: string,
+): string {
+	const immutableVersion = createOGImageVersion(eventId)
+	return `${baseUrl}/og/image/${type}/${naddr}${immutableVersion ? `/${immutableVersion}` : ''}`
+}
+
+function generatedImageMeta() {
+	return {
+		imageWidth: 1200,
+		imageHeight: 630,
+		imageType: 'image/png',
+	} as const
 }
 
 /**
@@ -89,6 +140,10 @@ export function generateHomeOGHtml(baseUrl: string): string {
 			'Collaborative geographic mapping on Nostr. Create, share, and explore GeoJSON datasets with a decentralized community.',
 		url: baseUrl,
 		image: `${baseUrl}/static/og-default.png`,
+		imageWidth: 408,
+		imageHeight: 300,
+		imageType: 'image/png',
+		imageAlt: 'Earthly — collaborative maps on Nostr',
 	})
 }
 
@@ -101,15 +156,19 @@ export function generateGeoEventOGHtml(
 	title: string,
 	description: string,
 	image?: string,
+	eventId?: string,
+	redirectUrl?: string,
 ): string {
 	return generateOGHtml({
 		title: title || 'Geographic Dataset',
 		description:
 			description ||
 			'View this geographic dataset on Earthly, a collaborative mapping platform on Nostr.',
-		url: `${baseUrl}/#/datasets/geoevent/${naddr}`,
-		image: image || `${baseUrl}/og/image/geoevent/${naddr}`,
+		url: `${baseUrl}/geoevent/${naddr}`,
+		redirectUrl: redirectUrl || `${baseUrl}/#/datasets/geoevent/${naddr}`,
+		image: image || getGeneratedImageUrl(baseUrl, 'geoevent', naddr, eventId),
 		type: 'article',
+		...(image ? {} : generatedImageMeta()),
 	})
 }
 
@@ -122,15 +181,19 @@ export function generateContextOGHtml(
 	title: string,
 	description: string,
 	image?: string,
+	eventId?: string,
+	redirectUrl?: string,
 ): string {
 	return generateOGHtml({
 		title: title || 'Map Context',
 		description:
 			description ||
 			'Explore this geographic context on Earthly, a collaborative mapping platform on Nostr.',
-		url: `${baseUrl}/#/contexts/mapcontext/${naddr}`,
-		image: image || `${baseUrl}/og/image/context/${naddr}`,
+		url: `${baseUrl}/context/${naddr}`,
+		redirectUrl: redirectUrl || `${baseUrl}/#/contexts/mapcontext/${naddr}`,
+		image: image || getGeneratedImageUrl(baseUrl, 'context', naddr, eventId),
 		type: 'article',
+		...(image ? {} : generatedImageMeta()),
 	})
 }
 
@@ -146,14 +209,18 @@ export function generateStoryOGHtml(
 	title: string,
 	description: string,
 	image?: string,
+	eventId?: string,
+	redirectUrl?: string,
 ): string {
 	return generateOGHtml({
 		title: title || 'Story',
 		description:
 			description || 'Read this story on Earthly, a collaborative mapping platform on Nostr.',
-		url: `${baseUrl}/#/stories/story/${naddr}`,
-		image: image || `${baseUrl}/og/image/story/${naddr}`,
+		url: `${baseUrl}/story/${naddr}`,
+		redirectUrl: redirectUrl || `${baseUrl}/#/stories/story/${naddr}`,
+		image: image || getGeneratedImageUrl(baseUrl, 'story', naddr, eventId),
 		type: 'article',
+		...(image ? {} : generatedImageMeta()),
 	})
 }
 
@@ -169,14 +236,18 @@ export function generateSightingOGHtml(
 	naddr: string,
 	title: string,
 	description: string,
+	eventId?: string,
+	redirectUrl?: string,
 ): string {
 	return generateOGHtml({
 		title: title || 'Sighting',
 		description:
 			description || 'See this sighting on Earthly, a collaborative mapping platform on Nostr.',
-		url: `${baseUrl}/#/sightings/sighting/${naddr}`,
-		image: `${baseUrl}/og/image/sighting/${naddr}`,
+		url: `${baseUrl}/sighting/${naddr}`,
+		redirectUrl: redirectUrl || `${baseUrl}/#/sightings/sighting/${naddr}`,
+		image: getGeneratedImageUrl(baseUrl, 'sighting', naddr, eventId),
 		type: 'article',
+		...generatedImageMeta(),
 	})
 }
 
@@ -194,13 +265,17 @@ export function generateBeaconOGHtml(
 	naddr: string,
 	title: string,
 	description: string,
+	eventId?: string,
+	redirectUrl?: string,
 ): string {
 	return generateOGHtml({
 		title: title || 'Live location',
 		description: description || 'Live location — may have ended. Watch it on Earthly.',
-		url: `${baseUrl}/#/beacons/beacon/${naddr}`,
-		image: `${baseUrl}/og/image/beacon/${naddr}`,
+		url: `${baseUrl}/beacon/${naddr}`,
+		redirectUrl: redirectUrl || `${baseUrl}/#/beacons/beacon/${naddr}`,
+		image: getGeneratedImageUrl(baseUrl, 'beacon', naddr, eventId),
 		type: 'article',
+		...generatedImageMeta(),
 	})
 }
 

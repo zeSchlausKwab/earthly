@@ -6,6 +6,7 @@ describe('frontend environment allow-list', () => {
 		expect(FRONTEND_ENV_KEYS).not.toContain('CLIENT_KEY' as never)
 		expect(FRONTEND_ENV_KEYS).not.toContain('SERVER_KEY' as never)
 		expect(FRONTEND_ENV_KEYS).not.toContain('APP_PRIVATE_KEY' as never)
+		expect(FRONTEND_ENV_KEYS).not.toContain('PUBLIC_BASE_URL' as never)
 		expect(FRONTEND_ENV_KEYS).toContain('MAPNOLIA_TRUSTED_PUBKEYS')
 	})
 
@@ -21,6 +22,14 @@ describe('frontend environment allow-list', () => {
 	test('rejects an invalid trusted Mapnolia author list', () => {
 		expect(() =>
 			parseEnv({ NODE_ENV: 'production', MAPNOLIA_TRUSTED_PUBKEYS: 'not-a-pubkey' }),
+		).toThrow()
+	})
+
+	test('uses a trusted HTTPS public origin in production', () => {
+		const parsed = parseEnv({ NODE_ENV: 'production' })
+		expect(parsed.PUBLIC_BASE_URL).toBe('https://earthly.city')
+		expect(() =>
+			parseEnv({ NODE_ENV: 'production', PUBLIC_BASE_URL: 'javascript:alert(1)' }),
 		).toThrow()
 	})
 })

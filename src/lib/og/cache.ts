@@ -63,7 +63,10 @@ const inflightRefreshes = new Map<string, Promise<CachedOGRecord | null>>()
 let cacheDb: Database | null | undefined
 
 function getCacheKey(type: OGCacheType, naddr: string): string {
-	return `${type}:${naddr}`
+	// v4 payloads can carry verified Blossom-backed geometry in addition to
+	// inline map data. The schema prefix prevents older bbox-only rows from
+	// suppressing the richer preview for their remaining TTL after deployment.
+	return `v4:${type}:${naddr}`
 }
 
 function getCacheDb(): Database | null {
@@ -327,11 +330,17 @@ export function getOGRouteHeaders(cacheStatus: OGCacheStatus): Record<string, st
 	}
 }
 
-export function getOGImageHeaders(cacheStatus: OGCacheStatus): Record<string, string> {
+export function getOGImageHeaders(
+	cacheStatus: OGCacheStatus | undefined,
+	imageCacheStatus?: 'hit' | 'miss',
+): Record<string, string> {
 	return {
 		'Content-Type': 'image/png',
-		'Cache-Control': 'public, max-age=300, s-maxage=300',
-		'X-Earthly-OG-Cache': cacheStatus,
+		'Cache-Control': imageCacheStatus
+			? 'public, max-age=31536000, s-maxage=31536000, immutable'
+			: 'public, max-age=300, s-maxage=300',
+		...(cacheStatus ? { 'X-Earthly-OG-Cache': cacheStatus } : {}),
+		...(imageCacheStatus ? { 'X-Earthly-OG-Image-Cache': imageCacheStatus } : {}),
 	}
 }
 

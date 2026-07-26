@@ -33,6 +33,8 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 infra/searxng/.env
 data/events-lmdb/
 data/search/
+data/og-cache.sqlite*
+data/og-images/
 
 # mapnolia (config contains private key, data is blob storage, binary is downloaded)
 mapnolia.config.json
