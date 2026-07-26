@@ -67,6 +67,7 @@ archive_paths=(
   Caddyfile
   package.json
   bun.lock
+  tsconfig.json
 )
 if [[ -d legacy-db && -f legacy-db/latest.sql ]]; then
   archive_paths+=(legacy-db/)

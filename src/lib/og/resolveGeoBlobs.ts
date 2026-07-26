@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { Feature, FeatureCollection } from 'geojson'
-import { normalizeGeoJsonToFeatureCollection } from '@/lib/geo/normalizeGeoJSON'
-import type { GeoBlobReference } from '@/lib/nostr/geo-event/helpers'
+import { normalizeGeoJsonToFeatureCollection } from '../geo/normalizeGeoJSON'
+import type { GeoBlobReference } from '../nostr/geo-event/helpers'
 import { assertPublicHttpUrl } from './publicRemote'
 
 const MAX_PREVIEW_BLOB_REFERENCES = 4

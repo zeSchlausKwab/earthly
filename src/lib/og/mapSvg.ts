@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import type { Feature, FeatureCollection, GeoJsonProperties, Geometry, Position } from 'geojson'
 import { bboxClip } from '@turf/bbox-clip'
-import { LUCIDE_ICONS } from '@/features/geo-editor/icons/lucideIcons'
+import { LUCIDE_ICONS } from '../../features/geo-editor/icons/lucideIcons'
 
 export type Bbox = [number, number, number, number]
 
