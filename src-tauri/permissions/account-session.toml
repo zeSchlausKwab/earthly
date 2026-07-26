@@ -1,0 +1,6 @@
+"$schema" = "schemas/schema.json"
+
+[[permission]]
+identifier = "account-session"
+description = "Allows the Earthly main window to restore and durably save remembered Nostr accounts."
+commands.allow = ["account_session_load_v1", "account_session_save_v1"]

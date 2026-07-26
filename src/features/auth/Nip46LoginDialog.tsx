@@ -149,7 +149,7 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 
 				const pubkey = await ncSigner.getPublicKey()
 				const account = new NostrConnectAccount(pubkey, ncSigner)
-				loginWithAccount(account, { remember: rememberMeRef.current })
+				await loginWithAccount(account, { remember: rememberMeRef.current })
 				// The account now owns the live signer. Closing the dialog must not
 				// close the connection it just adopted.
 				handedOff = true
@@ -205,7 +205,7 @@ export function Nip46LoginDialog({ trigger, onSuccess }: Nip46LoginDialogProps) 
 			})
 			const pubkey = await ncSigner.getPublicKey()
 			const account = new NostrConnectAccount(pubkey, ncSigner)
-			loginWithAccount(account, { remember: rememberMe })
+			await loginWithAccount(account, { remember: rememberMe })
 
 			setState('connected')
 			onSuccess?.()

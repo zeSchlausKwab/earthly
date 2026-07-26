@@ -5,6 +5,33 @@ import { walkKeyboardOrder } from '../tasks/diagnostics/keyboard-walk'
 import { openPanel } from '../tasks/navigation/open-panel'
 import { inspectTourTargets } from '../tasks/onboarding/tour'
 
+test('Connect to Nostr choices fit a generous desktop dialog @regression', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'desktop', 'The reported overflow is desktop-specific')
+	await earthly.open({ tour: 'seen' })
+	await earthly.page.getByRole('button', { name: 'Get a Nostr identity' }).click()
+
+	const dialog = earthly.page.getByRole('dialog', { name: 'Connect to Nostr' })
+	await expect(dialog).toBeVisible()
+	const layout = await dialog.evaluate((element) => {
+		const rect = element.getBoundingClientRect()
+		return {
+			clientWidth: element.clientWidth,
+			scrollWidth: element.scrollWidth,
+			width: rect.width,
+			left: rect.left,
+			right: rect.right,
+			viewportWidth: document.documentElement.clientWidth,
+		}
+	})
+
+	expect(layout.width).toBeGreaterThanOrEqual(640)
+	expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth + 1)
+	expect(layout.left).toBeGreaterThanOrEqual(16)
+	expect(layout.right).toBeLessThanOrEqual(layout.viewportWidth - 16)
+})
+
 // FIXED (audit P1 #1/#4): the tour is viewport-split; every anchored step must
 // point at a visible control. Steps without a target (welcome, finale, and the
 // desktop collaboration concept step) are intentionally centered.

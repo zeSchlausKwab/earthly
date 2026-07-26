@@ -30,7 +30,7 @@ async function createApplication(): Promise<ReactNode> {
 		{ AccountsProvider, EventStoreProvider },
 		{ App },
 		{ upgradeLegacyHashRoute },
-		{ accounts, eventStore, startPublishOutbox },
+		{ accounts, eventStore, initializeAccountPersistence, startPublishOutbox },
 		{ startNativeDeepLinks },
 	] = await Promise.all([
 		import('applesauce-react/providers'),
@@ -43,6 +43,7 @@ async function createApplication(): Promise<ReactNode> {
 	// Rewrite legacy `#/…` routes before the editor mounts so its first location
 	// parse sees the canonical clean path.
 	upgradeLegacyHashRoute()
+	await initializeAccountPersistence()
 	void startNativeDeepLinks()
 	void startPublishOutbox()
 

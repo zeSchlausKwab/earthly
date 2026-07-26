@@ -1,5 +1,5 @@
 import { ExtensionAccount } from 'applesauce-accounts/accounts'
-import { useAccountManager, useAccounts, useActiveAccount } from 'applesauce-react/hooks'
+import { useAccounts, useActiveAccount } from 'applesauce-react/hooks'
 import {
 	AppWindowIcon,
 	ChevronDown,
@@ -27,10 +27,9 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { UserProfile } from '@/components/user-profile'
-import { loginWithAccount, logoutActive } from '@/lib/nostr'
+import { loginWithAccount, logoutActive, switchActiveAccount } from '@/lib/nostr'
 
 export function LoginSessionButtons() {
-	const manager = useAccountManager()
 	const active = useActiveAccount()
 	const allAccounts = useAccounts()
 	const offerNip07Login = shouldOfferNip07Login()
@@ -42,7 +41,7 @@ export function LoginSessionButtons() {
 		try {
 			setLoading(true)
 			const account = await ExtensionAccount.fromExtension()
-			loginWithAccount(account, { remember: true })
+			await loginWithAccount(account, { remember: true })
 		} catch (error) {
 			console.error('Extension login failed:', error)
 			toast.error('Could not connect to a browser extension. Is one installed?')
@@ -90,7 +89,10 @@ export function LoginSessionButtons() {
 									Switch account
 								</DropdownMenuLabel>
 								{otherAccounts.map((account) => (
-									<DropdownMenuItem key={account.id} onClick={() => manager.setActive(account)}>
+									<DropdownMenuItem
+										key={account.id}
+										onClick={() => void switchActiveAccount(account)}
+									>
 										<UserProfile
 											pubkey={account.pubkey}
 											mode="avatar-name"
@@ -105,7 +107,7 @@ export function LoginSessionButtons() {
 
 						<DropdownMenuSeparator />
 						<DropdownMenuItem
-							onClick={() => logoutActive()}
+							onClick={() => void logoutActive()}
 							className="text-destructive focus:text-destructive"
 						>
 							<LogOutIcon className="h-4 w-4" />
