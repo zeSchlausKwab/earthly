@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.7] - 2026-07-26
+
+- Fixed remembered Nostr identities being lost when Android stopped and cold-started the app by
+  adding an app-private durable account-session mirror that restores before the interface mounts.
+- Made login, logout, account switching, and account removal wait for native session persistence
+  while keeping “Stay logged in” disabled accounts memory-only.
+- Redesigned the Connect to Nostr dialog with a wider desktop layout, more generous spacing,
+  responsive mobile choices, safe text wrapping, and bounded scrolling on short screens.
+
 ## [0.0.6] - 2026-07-25
 
 - Fixed Private-group join-request checks so they no longer wait behind background message sync,
