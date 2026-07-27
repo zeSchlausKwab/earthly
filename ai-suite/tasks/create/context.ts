@@ -29,5 +29,8 @@ export async function createContext(earthly: EarthlySession, input: ContextInput
 	await expect(
 		earthly.page.getByRole('heading', { name: 'Create Context', exact: true }),
 	).toBeHidden()
+	if (earthly.isMobile) {
+		await openPanel(earthly, 'Contexts')
+	}
 	await expect(earthly.page.getByText(input.name, { exact: true }).first()).toBeVisible()
 }

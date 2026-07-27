@@ -7,10 +7,10 @@
  *
  *   - Prod: all buckets use the configured relay sets.
  *   - Dev: CONTENT entities (datasets, comments, groups, stories, beacons,
- *     sightings, proposals, reactions, zaps…) talk ONLY to the local dev relay.
- *     PROFILE (kind 0/3/10002) and WALLET (NIP-60/61) data may still be read
- *     from public relays. DISCOVERY (ContextVM RPC, entity search) follows
- *     content rules.
+ *     sightings, proposals, reactions, cached zap counts…) talk ONLY to the
+ *     local dev relay. PROFILE (kind 0/3/10002), WALLET (NIP-60/61), and the
+ *     transaction-scoped ZAP receipt workflow may read configured public
+ *     relays. DISCOVERY (ContextVM RPC, entity search) follows content rules.
  *   - Dev flags (persisted in localStorage) can opt in to public reads
  *     (debugging) or public writes (authoring). Defaults: both OFF.
  *
@@ -28,7 +28,7 @@
 import { BehaviorSubject, map, type Observable } from 'rxjs'
 import { config } from '@/config'
 
-export type RelayBucket = 'content' | 'profile' | 'wallet' | 'discovery'
+export type RelayBucket = 'content' | 'profile' | 'wallet' | 'zap' | 'discovery'
 
 /** Dev-only escape hatches. Ignored entirely in production. */
 export interface DevRelayFlags {
@@ -109,9 +109,9 @@ export function resolveReadRelays(args: {
 }): string[] {
 	const { bucket, isDevelopment, flags, readRelays, writeRelays } = args
 	if (!isDevelopment) return readRelays
-	// Dev: profile + wallet may read broadly; content + discovery stay local
-	// unless the debugging flag is set.
-	if (bucket === 'profile' || bucket === 'wallet') return readRelays
+	// Dev: profile, wallet, and an active NIP-57 zap workflow may read broadly;
+	// ordinary content/discovery stay local unless the debugging flag is set.
+	if (bucket === 'profile' || bucket === 'wallet' || bucket === 'zap') return readRelays
 	return flags.allowPublicReads ? readRelays : writeRelays
 }
 

@@ -11,7 +11,14 @@ import { hexToBytes } from '@noble/hashes/utils.js'
 import { PrivateKeySigner } from 'applesauce-signers'
 import type { EventTemplate, NostrEvent } from 'nostr-tools'
 import { getPublicKey } from 'nostr-tools/pure'
-import { devUser1, devUser2, devUser3, devUser4, devUser5 } from '@/lib/fixtures'
+import {
+	devUser1,
+	devUser2,
+	devUser3,
+	devUser4,
+	devUser5,
+	WALLETED_USER_LUD16,
+} from '@/lib/fixtures'
 
 export interface SeedIdentity {
 	name: string
@@ -61,6 +68,7 @@ export async function signProfile(
 		content: JSON.stringify({
 			name: identity.name,
 			display_name: identity.name,
+			lud16: WALLETED_USER_LUD16,
 			...(about ? { about } : {}),
 			...extra,
 		}),

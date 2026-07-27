@@ -127,6 +127,16 @@ bun run release:zapstore:check
 SIGN_WITH=browser bun run release:zapstore:publish
 ```
 
+If that exact version has already been published and must intentionally be replaced, use Zapstore
+Publisher's overwrite mode:
+
+```sh
+SIGN_WITH=browser zsp publish --overwrite-release zapstore.yaml
+```
+
+Use `--overwrite-release` only for a deliberate replacement of the version currently referenced by
+`zapstore.yaml`. A normal new version should use the standard publish command above.
+
 The CI-generated `assetlinks.json` should retain the existing release certificate fingerprint. If
 the fingerprint changes, stop: that APK cannot update existing installations.
 

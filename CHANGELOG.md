@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.9] - 2026-07-27
+
+- Fixed likes disappearing when an entity drawer was closed, reopened, or reactively refreshed,
+  while keeping large Dataset lists on one efficient account-level reaction subscription.
+- Fixed NIP-57 zap requests so Lightning providers receive valid request JSON and can publish
+  verified receipts to publicly reachable relays even during local development.
+- Kept generated invoices open across entity-surface changes, added recipient and self-payment
+  guidance, showed verified zap confirmation, and closed the dialog shortly after receipt.
+
 ## [0.0.8] - 2026-07-27
 
 - Fixed successful Lightning zap dialogs disappearing before users could see confirmation.

@@ -2,7 +2,7 @@ import { hexToBytes } from '@noble/hashes/utils.js'
 import { finalizeEvent, SimplePool } from 'nostr-tools'
 import { test, expect } from '../fixtures/earthly'
 import { testIdentities } from '../test-identities'
-import { signIn } from '../tasks/auth/sign-in'
+import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identity'
 import { createContext } from '../tasks/create/context'
 import { openPanel } from '../tasks/navigation/open-panel'
 
@@ -14,34 +14,49 @@ async function publishLocal(pool: SimplePool, event: ReturnType<typeof finalizeE
 	await Promise.all(pool.publish([LOCAL_RELAY], event))
 }
 
-test('a Context like is reflected immediately in the entity row @social-actions', async ({
-	earthly,
-}, testInfo) => {
-	test.skip(testInfo.project.name !== 'desktop', 'Local NIP-07 persona login is desktop-only')
+test('a Context like survives the entity panel remount @social-actions', async ({ earthly }) => {
 	const runId = Date.now().toString(36)
-	await signIn(earthly, 'owner')
+	await authorizeJourneyIdentity(earthly, 'owner')
 	await createContext(earthly, {
 		name: `Social actions ${runId}`,
 		description: 'A local-only Context used to verify entity reactions.',
 	})
 
-	const contextRow = earthly.page
-		.getByRole('button', { name: `Inspect context Social actions ${runId}`, exact: true })
-		.locator('xpath=ancestor::*[.//button[@aria-label="Zap"]][1]')
+	const getContextRow = () =>
+		earthly.page
+			.getByRole('button', { name: `Inspect context Social actions ${runId}`, exact: true })
+			.first()
+			.locator('xpath=ancestor::*[.//button[@aria-label="Zap"]][1]')
+	const contextRow = getContextRow()
 	await contextRow.getByRole('button', { name: 'Like', exact: true }).click()
 	await expect(contextRow.getByRole('button', { name: 'Unlike', exact: true })).toBeVisible()
-	await contextRow.getByRole('button', { name: 'Unlike', exact: true }).click()
-	await expect(contextRow.getByRole('button', { name: 'Like', exact: true })).toBeVisible()
+
+	if (earthly.isMobile) {
+		await earthly.page.getByRole('button', { name: 'Close Contexts', exact: true }).click()
+		await openPanel(earthly, 'Contexts')
+	} else {
+		await openPanel(earthly, 'Datasets')
+		await openPanel(earthly, 'Contexts')
+	}
+
+	const remountedContextRow = getContextRow()
+	await expect(
+		remountedContextRow.getByRole('button', { name: 'Unlike', exact: true }),
+	).toBeVisible()
+	await remountedContextRow.getByRole('button', { name: 'Unlike', exact: true }).click()
+	await expect(remountedContextRow.getByRole('button', { name: 'Like', exact: true })).toBeVisible()
 })
 
 test('a paid zap stays visible with confirmation instead of dismissing itself @social-actions', async ({
 	earthly,
-}, testInfo) => {
-	test.skip(testInfo.project.name !== 'desktop', 'Local NIP-07 persona login is desktop-only')
+}) => {
 	const pool = new SimplePool()
 	const owner = testIdentities.owner
 	const secretKey = hexToBytes(owner.secretKeyHex)
 	const runId = Date.now().toString(36)
+	const callbackCapture: {
+		zapRequest: { kind: number; tags: string[][] } | null
+	} = { zapRequest: null }
 
 	await publishLocal(
 		pool,
@@ -60,6 +75,12 @@ test('a paid zap stays visible with confirmation instead of dismissing itself @s
 	)
 	await earthly.page.route('https://payments.test/**', async (route) => {
 		const url = new URL(route.request().url())
+		if (url.pathname === '/callback') {
+			callbackCapture.zapRequest = JSON.parse(url.searchParams.get('nostr') ?? '') as {
+				kind: number
+				tags: string[][]
+			}
+		}
 		await route.fulfill({
 			status: 200,
 			contentType: 'application/json',
@@ -78,7 +99,7 @@ test('a paid zap stays visible with confirmation instead of dismissing itself @s
 	})
 
 	try {
-		await signIn(earthly, 'owner')
+		await authorizeJourneyIdentity(earthly, 'owner')
 		await openPanel(earthly, 'Wallet')
 		await earthly.page.getByRole('button', { name: 'Add NWC wallet', exact: true }).click()
 		await expect(
@@ -87,7 +108,7 @@ test('a paid zap stays visible with confirmation instead of dismissing itself @s
 		await earthly.page
 			.getByLabel('NWC connection')
 			.fill(
-				`nostr+walletconnect://${owner.publicKey}?relay=${encodeURIComponent(LOCAL_RELAY)}&secret=${owner.secretKeyHex}`,
+				`nostr+walletconnect://${owner.publicKey}?relay=${encodeURIComponent(LOCAL_RELAY)}&secret=${owner.secretKeyHex}&lud16=${encodeURIComponent('owner@payments.test')}`,
 			)
 		await earthly.page.getByRole('button', { name: 'Save wallet', exact: true }).click()
 		await expect(earthly.page.getByRole('button', { name: 'Replace', exact: true })).toBeVisible()
@@ -98,6 +119,7 @@ test('a paid zap stays visible with confirmation instead of dismissing itself @s
 		})
 		const contextRow = earthly.page
 			.getByRole('button', { name: `Inspect context Zap lifecycle ${runId}`, exact: true })
+			.first()
 			.locator('xpath=ancestor::*[.//button[@aria-label="Zap"]][1]')
 		await contextRow.getByRole('button', { name: 'Zap', exact: true }).click()
 		await earthly.page.getByRole('button', { name: 'Custom', exact: true }).click()
@@ -108,6 +130,16 @@ test('a paid zap stays visible with confirmation instead of dismissing itself @s
 		await expect(earthly.page.getByRole('button', { name: 'Copy invoice' })).toBeVisible()
 		await expect(
 			earthly.page.getByRole('button', { name: 'Pay with NWC wallet', exact: true }),
+		).toBeVisible()
+		expect(callbackCapture.zapRequest?.kind).toBe(9734)
+		expect(callbackCapture.zapRequest?.tags.find((tag) => tag[0] === 'relays')?.slice(1)).toContain(
+			'wss://relay.earthly.city',
+		)
+		await expect(
+			earthly.page.getByText(
+				'This invoice belongs to your connected NWC wallet. A self-payment may only show its routing fee; use another wallet to test an incoming zap.',
+				{ exact: true },
+			),
 		).toBeVisible()
 
 		const contexts = await pool.querySync(
@@ -120,6 +152,21 @@ test('a paid zap stays visible with confirmation instead of dismissing itself @s
 		const identifier = target?.tags.find((tag) => tag[0] === 'd')?.[1]
 		expect(identifier).toBeTruthy()
 
+		if (earthly.isMobile) {
+			await earthly.page
+				.locator('button')
+				.filter({ hasText: /^Map$/ })
+				.last()
+				.evaluate((button: HTMLButtonElement) => button.click())
+		} else {
+			await earthly.page
+				.locator('button')
+				.filter({ hasText: /^Datasets/ })
+				.first()
+				.evaluate((button: HTMLButtonElement) => button.click())
+		}
+		await expect(earthly.page.getByRole('heading', { name: 'Send a zap' })).toBeVisible()
+
 		await publishLocal(
 			pool,
 			finalizeEvent(
@@ -129,6 +176,7 @@ test('a paid zap stays visible with confirmation instead of dismissing itself @s
 					tags: [
 						['bolt11', TWO_THOUSAND_SAT_INVOICE],
 						['a', `37518:${owner.publicKey}:${identifier}`],
+						['description', JSON.stringify(callbackCapture.zapRequest)],
 					],
 					content: '',
 				},
@@ -140,6 +188,9 @@ test('a paid zap stays visible with confirmation instead of dismissing itself @s
 		await expect(
 			earthly.page.getByRole('dialog').getByText('Zap received', { exact: true }),
 		).toBeVisible()
+		await expect(earthly.page.getByRole('heading', { name: 'Send a zap' })).toBeHidden({
+			timeout: 4_000,
+		})
 	} finally {
 		pool.destroy()
 	}

@@ -1,10 +1,10 @@
-import { useActiveAccount } from 'applesauce-react/hooks'
+import { use$, useActiveAccount } from 'applesauce-react/hooks'
 import { ReactionFactory } from 'applesauce-common/factories'
 import { DeleteFactory } from 'applesauce-core/factories'
 import { getNutzapAmount, NUTZAP_KIND } from 'applesauce-wallet/helpers'
 import type { NostrEvent } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { accounts, publish } from '@/lib/nostr'
+import { accounts, eventStore, publish } from '@/lib/nostr'
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import type { Article } from '@/lib/nostr/article'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
@@ -70,12 +70,6 @@ export interface UseGeoReactionsResult {
 	isLoading: boolean
 	/** Toggle the current user's reaction. */
 	toggleReaction: () => Promise<void>
-	/** Open the zap dialog. */
-	openZapDialog: () => void
-	/** Zap dialog open state */
-	zapDialogOpen: boolean
-	/** Close zap dialog */
-	closeZapDialog: () => void
 }
 
 /**
@@ -86,7 +80,6 @@ export function useGeoReactions({
 	loadCounts = true,
 }: UseGeoReactionsOptions): UseGeoReactionsResult {
 	const currentUser = useActiveAccount()
-	const [zapDialogOpen, setZapDialogOpen] = useState(false)
 	const [isReacting, setIsReacting] = useState(false)
 	const [optimisticReaction, setOptimisticReaction] = useState<NostrEvent | null>(null)
 	const [suppressedReactionId, setSuppressedReactionId] = useState<string | null>(null)
@@ -113,14 +106,17 @@ export function useGeoReactions({
 	// Build filter for reactions (kind 7)
 	// Use #a tag for addressable events, #e tag for regular events
 	const reactionFilters = useMemo(() => {
-		if (!loadCounts) return []
 		if (!target?.id && !targetAddress) return []
+
+		const authors = !loadCounts && currentUser?.pubkey ? [currentUser.pubkey] : undefined
+		if (!loadCounts && !authors) return []
 
 		if (isAddressable && targetAddress) {
 			return [
 				{
 					kinds: [7 as number],
 					'#a': [targetAddress],
+					...(authors ? { authors } : {}),
 				},
 			]
 		}
@@ -131,12 +127,13 @@ export function useGeoReactions({
 				{
 					kinds: [7 as number],
 					'#e': [target.id],
+					...(authors ? { authors } : {}),
 				},
 			]
 		}
 
 		return []
-	}, [target?.id, targetAddress, isAddressable, loadCounts])
+	}, [currentUser?.pubkey, target?.id, targetAddress, isAddressable, loadCounts])
 
 	// Build filter for zaps (kind 9735)
 	const zapFilters = useMemo(() => {
@@ -165,9 +162,16 @@ export function useGeoReactions({
 		return []
 	}, [target?.id, targetAddress, isAddressable, loadCounts])
 
-	const { events: reactionEvents, eose: reactionsEose } = useTimelineWithEose(
-		reactionFilters.length ? reactionFilters : null,
+	const { events: subscribedReactionEvents, eose: reactionsEose } = useTimelineWithEose(
+		loadCounts && reactionFilters.length ? reactionFilters : null,
 	)
+	const localReactionEvents =
+		use$(
+			() =>
+				!loadCounts && reactionFilters.length ? eventStore.timeline(reactionFilters) : undefined,
+			[currentUser?.pubkey, isAddressable, loadCounts, target?.id, targetAddress],
+		) ?? []
+	const reactionEvents = loadCounts ? subscribedReactionEvents : localReactionEvents
 	const { events: zapEvents, eose: zapsEose } = useTimelineWithEose(
 		zapFilters.length ? zapFilters : null,
 	)
@@ -186,9 +190,10 @@ export function useGeoReactions({
 			!reactionEvents.some((event) => event.id === optimisticReaction.id),
 	)
 	const userHasReacted = Boolean(currentUserReaction || hasOptimisticReaction)
-	const reactionCount =
-		reactionEvents.filter((event) => event.id !== suppressedReactionId).length +
-		(hasOptimisticReaction ? 1 : 0)
+	const reactionCount = loadCounts
+		? reactionEvents.filter((event) => event.id !== suppressedReactionId).length +
+			(hasOptimisticReaction ? 1 : 0)
+		: 0
 
 	const targetKey = targetAddress ?? target?.id ?? null
 	// biome-ignore lint/correctness/useExhaustiveDependencies: changing account or target must clear row-local optimistic state.
@@ -274,14 +279,6 @@ export function useGeoReactions({
 		}
 	}, [currentUser, currentUserReaction, optimisticReaction, suppressedReactionId, target])
 
-	const openZapDialog = useCallback(() => {
-		setZapDialogOpen(true)
-	}, [])
-
-	const closeZapDialog = useCallback(() => {
-		setZapDialogOpen(false)
-	}, [])
-
 	return {
 		reactionCount,
 		zapCount,
@@ -290,8 +287,5 @@ export function useGeoReactions({
 		userHasZapped,
 		isLoading: reactionsLoading || zapsLoading || isReacting,
 		toggleReaction,
-		openZapDialog,
-		zapDialogOpen,
-		closeZapDialog,
 	}
 }

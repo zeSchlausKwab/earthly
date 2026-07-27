@@ -1,7 +1,8 @@
 # Relay Stages — the isolation contract
 
-**One sentence:** in dev, content lives ONLY on the local relay; profile and wallet data may be
-read from public relays; nothing is written publicly unless you flip an explicit dev flag.
+**One sentence:** in dev, content lives ONLY on the local relay; profile, wallet, and active NIP-57
+zap receipt workflows may read from public relays; nothing is written publicly by Earthly unless
+you flip an explicit dev flag.
 
 Enforced by `src/lib/nostr/relay-router.ts`. If you touch relay selection anywhere, route it
 through the router — never hard-code a relay URL in feature code.
@@ -12,9 +13,10 @@ Every read/write belongs to one bucket, classified by event kind (`bucketForKind
 
 | Bucket | Kinds | Dev reads | Dev writes | Prod |
 |---|---|---|---|---|
-| **content** | 37515–37522, 34444, comments, reactions 7, zaps 9734/9735, proposal status 163x, and **every kind not listed below** (safe default) | local relay only | local relay only | configured relays |
+| **content** | 37515–37522, 34444, comments, reactions 7, cached zap counts 9735, proposal status 163x, and **every kind not listed below** (safe default) | local relay only | local relay only | configured relays |
 | **profile** | 0, 3, 10002, 10065 | public allowed | local only (NIP-65 publishes collapse to local) | configured relays |
 | **wallet** | 17375, 7375, 7376, 7374, 10019, 9321 | public allowed | **exception:** wallet ActionRunner publishes to the wallet's real relays even in dev — NIP-60 state is per-user, NIP-44-encrypted, and forking it across relay sets corrupts the user's real wallet | wallet relays + outboxes |
+| **zap** | Explicit, transaction-scoped NIP-57 receipt subscription | public allowed so the remote LNURL provider can return a receipt | Earthly does not publish the receipt; the LNURL provider publishes kind 9735 to the relays advertised in the signed request | configured relays |
 | **discovery** | ContextVM/MCP transport, NIP-50 entity search | local relay only (`bun dev` runs a local geo server) | n/a (RPC) | configured relays |
 
 ## Dev flags (settings → Relays → "Dev relay isolation")
@@ -91,8 +93,8 @@ regardless of `RELAY_URL` — a dev geo server must not announce or answer on pu
 ## How to verify
 
 1. `bun dev`, open the app, DevTools → Network → WS: every socket is `ws://localhost:3334`,
-   except wallet/profile reads (`wss://…` from `RELAY_URL`/`EXTRA_READ_RELAYS`) and any wallet
-   or bunker relays you use.
+   except wallet/profile reads (`wss://…` from `RELAY_URL`/`EXTRA_READ_RELAYS`), an active zap
+   receipt subscription, and any wallet or bunker relays you use.
 2. Flip **allowPublicReads**: newly-mounted content views may open configured public read
    sockets; nothing else changes.
 3. Watch the console for `[relay-router] BLOCKED` — it must stay silent in normal use.

@@ -86,6 +86,15 @@ in the shell environment:
 SIGN_WITH=browser bun run release:zapstore:publish
 ```
 
+To deliberately replace an already-published release with the same version, run:
+
+```sh
+SIGN_WITH=browser zsp publish --overwrite-release zapstore.yaml
+```
+
+Do not use `--overwrite-release` for an ordinary version update; increment the release version and
+use the standard publish command instead.
+
 The publish step uploads the APK and media to Blossom and publishes the NIP-82 application, release,
 and asset events. Record the resulting event ids, APK certificate fingerprint, hashes, and relay
 receipts in the release notes/runbook.

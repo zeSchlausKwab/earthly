@@ -1,4 +1,5 @@
 import {
+	AlertTriangle,
 	Check,
 	Copy,
 	ExternalLink,
@@ -36,7 +37,7 @@ import {
 	MAP_CONTEXT_KIND,
 	TEMPORAL_SIGHTING_KIND,
 } from '@/lib/nostr/kinds'
-import { accounts, eventStore, readRelaysFor } from '@/lib/nostr'
+import { accounts, eventStore } from '@/lib/nostr'
 import { useTimeline } from '@/lib/nostr/hooks'
 import { useGeoReactions, type ReactableEvent } from '../hooks/useGeoReactions'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -45,6 +46,8 @@ import { earthlyPublicUrl } from '@/platform/publicUrl'
 import { payInvoiceWithNwc } from '@/lib/wallet/nwc'
 import { sendNutzap, useWallet } from '@/lib/wallet'
 import { useNwcConnection } from '@/features/wallet/hooks/useNwcConnection'
+import { zapReceiptDeliveryRelays, zapReceiptWatchRelays } from '../zap/receiptRelays'
+import { useZapDialogStore } from '../zap/store'
 
 interface GeoSocialActionsProps {
 	/** Any Nostr event that can receive reactions */
@@ -82,6 +85,7 @@ function getEntitySharePath(
 }
 
 const COMMON_ZAP_AMOUNTS = [10, 21, 100, 210, 500, 1000] as const
+const ZAP_RECEIPT_CLOSE_DELAY_MS = 1_800
 
 function buildTargetAddress(target: ReactableEvent | null): string | null {
 	if (!target?.kind || !target.pubkey) return null
@@ -134,6 +138,13 @@ interface NostrLnurlSpec {
 
 /** Extract a Lightning address (lud16) or LNURLp (lud06) from a kind 0 event. */
 function getLightningEndpointFromProfile(profileEvent: NostrEvent | undefined): URL | undefined {
+	const candidate = getLightningIdentifierFromProfile(profileEvent)
+	return candidate ? parseLNURLOrAddress(candidate) : undefined
+}
+
+function getLightningIdentifierFromProfile(
+	profileEvent: NostrEvent | undefined,
+): string | undefined {
 	if (!profileEvent) return undefined
 	let parsed: { lud16?: string; lud06?: string }
 	try {
@@ -141,9 +152,7 @@ function getLightningEndpointFromProfile(profileEvent: NostrEvent | undefined): 
 	} catch {
 		return undefined
 	}
-	const candidate = parsed.lud16 ?? parsed.lud06
-	if (!candidate) return undefined
-	return parseLNURLOrAddress(candidate)
+	return parsed.lud16 ?? parsed.lud06
 }
 
 interface ZapDialogProps {
@@ -167,19 +176,32 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 	const [isPayingWithNwc, setIsPayingWithNwc] = useState(false)
 	const [nwcPaymentSent, setNwcPaymentSent] = useState(false)
 	const receiptEventIdRef = useRef<string | null>(null)
+	const zapRequestIdRef = useRef<string | null>(null)
+	const receiptPubkeyRef = useRef<string | null>(null)
 	const { connection: nwcConnection } = useNwcConnection()
 	const walletState = useWallet()
+	const receiptDeliveryRelays = useMemo(zapReceiptDeliveryRelays, [])
+	const receiptWatchRelays = useMemo(zapReceiptWatchRelays, [])
 
 	const zapFilters = useMemo(() => {
 		const filters = buildZapFilters(target)
 		return filters.length ? filters : null
 	}, [target])
-	const zapReceiptEvents = useTimeline(open ? zapFilters : null)
+	const zapReceiptEvents = useTimeline(open ? zapFilters : null, receiptWatchRelays)
 
 	// Read recipient's profile (kind 0) to extract their Lightning endpoint.
 	const recipientProfileEvent = use$(
 		() => (target?.pubkey ? eventStore.replaceable(0, target.pubkey) : undefined),
 		[target?.pubkey],
+	)
+	const recipientLightningIdentifier = useMemo(
+		() => getLightningIdentifierFromProfile(recipientProfileEvent),
+		[recipientProfileEvent],
+	)
+	const isNwcSelfPayment = Boolean(
+		nwcConnection?.lud16 &&
+			recipientLightningIdentifier?.includes('@') &&
+			nwcConnection.lud16.toLowerCase() === recipientLightningIdentifier.toLowerCase(),
 	)
 	const recipientNutzapEvents = useTimeline(
 		open && target?.pubkey
@@ -202,6 +224,8 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 		setIsPayingWithNwc(false)
 		setNwcPaymentSent(false)
 		receiptEventIdRef.current = null
+		zapRequestIdRef.current = null
+		receiptPubkeyRef.current = null
 	}, [])
 
 	const handleClose = useCallback(() => {
@@ -218,9 +242,17 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 	useEffect(() => {
 		if (!open || !invoice) return
 
-		const matchingReceipt = zapReceiptEvents.find(
-			(event) => event.tags.find((t) => t[0] === 'bolt11')?.[1] === invoice,
-		)
+		const matchingReceipt = zapReceiptEvents.find((event) => {
+			if (event.tags.find((tag) => tag[0] === 'bolt11')?.[1] !== invoice) return false
+			if (receiptPubkeyRef.current && event.pubkey !== receiptPubkeyRef.current) return false
+			const description = event.tags.find((tag) => tag[0] === 'description')?.[1]
+			if (!description || !zapRequestIdRef.current) return false
+			try {
+				return (JSON.parse(description) as NostrEvent).id === zapRequestIdRef.current
+			} catch {
+				return false
+			}
+		})
 		if (!matchingReceipt) return
 
 		const receiptId = matchingReceipt.id ?? invoice
@@ -229,6 +261,12 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 		setZapReceived(true)
 		toast.success('Zap received')
 	}, [invoice, open, zapReceiptEvents])
+
+	useEffect(() => {
+		if (!open || !zapReceived) return
+		const closeTimer = window.setTimeout(handleClose, ZAP_RECEIPT_CLOSE_DELAY_MS)
+		return () => window.clearTimeout(closeTimer)
+	}, [handleClose, open, zapReceived])
 
 	const generateInvoice = useCallback(
 		async (amountSats: number) => {
@@ -280,19 +318,22 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 				// The relays tag tells the recipient's LNURL server where to publish the
 				// zap receipt — route it where we read content (local relay in dev).
 				const targetEvent = rawNostrEvent(target)
-				const relays = readRelaysFor('content')
-				const zapRequest = await ZapRequestFactory.event(targetEvent, amountMsats, relays).sign(
-					signer,
-				)
+				const zapRequest = await ZapRequestFactory.event(
+					targetEvent,
+					amountMsats,
+					receiptDeliveryRelays,
+				).sign(signer)
 
 				// Step 3: Call the LNURL callback with the zap request and amount.
 				const callbackUrl = new URL(spec.callback)
 				callbackUrl.searchParams.set('amount', String(amountMsats))
-				callbackUrl.searchParams.set('nostr', encodeURIComponent(JSON.stringify(zapRequest)))
+				callbackUrl.searchParams.set('nostr', JSON.stringify(zapRequest))
 
 				const pr = await getInvoice(callbackUrl)
 				if (!pr) throw new Error('Unable to fetch a Lightning invoice.')
 
+				zapRequestIdRef.current = zapRequest.id
+				receiptPubkeyRef.current = spec.nostrPubkey ?? null
 				setInvoice(pr)
 				setInvoiceAmount(amountSats)
 			} catch (error) {
@@ -304,7 +345,7 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 				setIsGenerating(false)
 			}
 		},
-		[currentUser?.pubkey, recipientProfileEvent, target],
+		[currentUser?.pubkey, receiptDeliveryRelays, recipientProfileEvent, target],
 	)
 
 	const handleCopyInvoice = useCallback(async () => {
@@ -420,6 +461,21 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 							<span>Zap amount</span>
 							<span className="font-semibold">{invoiceAmount?.toLocaleString() ?? '—'} sats</span>
 						</div>
+						{recipientLightningIdentifier ? (
+							<div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-sm">
+								<span className="text-muted-foreground">Recipient</span>
+								<span className="truncate font-medium">{recipientLightningIdentifier}</span>
+							</div>
+						) : null}
+						{isNwcSelfPayment ? (
+							<div className="flex gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm">
+								<AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+								<p>
+									This invoice belongs to your connected NWC wallet. A self-payment may only show
+									its routing fee; use another wallet to test an incoming zap.
+								</p>
+							</div>
+						) : null}
 						<div className="flex justify-center">
 							<button
 								type="button"
@@ -608,6 +664,13 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 	)
 }
 
+export function ZapDialogHost() {
+	const target = useZapDialogStore((state) => state.target)
+	const close = useZapDialogStore((state) => state.close)
+
+	return target ? <ZapDialog target={target} open onClose={close} /> : null
+}
+
 function buildSharePath(target: ReactableEvent): string | null {
 	if (!target.kind) return null
 
@@ -675,17 +738,9 @@ export function GeoSocialActions({
 	loadCounts = true,
 }: GeoSocialActionsProps) {
 	const currentUser = useActiveAccount()
-	const {
-		reactionCount,
-		zapCount,
-		userHasReacted,
-		userHasZapped,
-		isLoading,
-		toggleReaction,
-		openZapDialog,
-		zapDialogOpen,
-		closeZapDialog,
-	} = useGeoReactions({ target, loadCounts })
+	const { reactionCount, zapCount, userHasReacted, userHasZapped, isLoading, toggleReaction } =
+		useGeoReactions({ target, loadCounts })
+	const openZapDialog = useZapDialogStore((state) => state.open)
 	const sharePath = useMemo(() => buildSharePath(target), [target])
 
 	const formatCount = (count: number): string => {
@@ -712,7 +767,7 @@ export function GeoSocialActions({
 			toast.info('Please log in to zap')
 			return
 		}
-		openZapDialog()
+		openZapDialog(target)
 	}
 
 	const handleShare = async () => {
@@ -734,126 +789,117 @@ export function GeoSocialActions({
 	const iconSize = compact ? 'h-3.5 w-3.5' : 'h-4 w-4'
 
 	return (
-		<>
-			<div className={`flex items-center gap-1 ${className}`}>
-				{/* Heart/Reaction Button */}
+		<div className={`flex items-center gap-1 ${className}`}>
+			{/* Heart/Reaction Button */}
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<Button
+						variant="ghost"
+						size={buttonSize}
+						onClick={handleReaction}
+						disabled={isLoading}
+						aria-label={userHasReacted ? 'Unlike' : 'Like'}
+						className={`gap-1 ${
+							userHasReacted
+								? 'text-destructive hover:text-destructive'
+								: 'text-muted-foreground hover:text-destructive'
+						} rounded-none px-2 text-xs`}
+					>
+						<Heart className={`${iconSize} ${userHasReacted ? 'fill-current' : ''}`} />
+						{reactionCount > 0 && (
+							<span className="text-xs font-medium">{formatCount(reactionCount)}</span>
+						)}
+					</Button>
+				</TooltipTrigger>
+				<TooltipContent>
+					{userHasReacted ? 'You liked this' : currentUser ? 'Like' : 'Log in to like'}
+				</TooltipContent>
+			</Tooltip>
+
+			{/* Lightning/Zap Button */}
+			{showZapButton && (
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<Button
 							variant="ghost"
 							size={buttonSize}
-							onClick={handleReaction}
-							disabled={isLoading}
-							aria-label={userHasReacted ? 'Unlike' : 'Like'}
+							onClick={handleZap}
+							disabled={isLoading || !currentUser}
+							aria-label={userHasZapped ? 'You zapped this' : currentUser ? 'Zap' : 'Log in to zap'}
 							className={`gap-1 ${
-								userHasReacted
-									? 'text-destructive hover:text-destructive'
-									: 'text-muted-foreground hover:text-destructive'
+								userHasZapped
+									? 'text-primary hover:text-primary'
+									: 'text-muted-foreground hover:text-primary'
 							} rounded-none px-2 text-xs`}
 						>
-							<Heart className={`${iconSize} ${userHasReacted ? 'fill-current' : ''}`} />
-							{reactionCount > 0 && (
-								<span className="text-xs font-medium">{formatCount(reactionCount)}</span>
-							)}
+							<Zap className={`${iconSize} ${userHasZapped ? 'fill-current' : ''}`} />
+							{zapCount > 0 && <span className="text-xs font-medium">{formatCount(zapCount)}</span>}
 						</Button>
 					</TooltipTrigger>
 					<TooltipContent>
-						{userHasReacted ? 'You liked this' : currentUser ? 'Like' : 'Log in to like'}
+						{userHasZapped ? 'You zapped this' : currentUser ? 'Zap' : 'Log in to zap'}
 					</TooltipContent>
 				</Tooltip>
+			)}
 
-				{/* Lightning/Zap Button */}
-				{showZapButton && (
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								variant="ghost"
-								size={buttonSize}
-								onClick={handleZap}
-								disabled={isLoading || !currentUser}
-								aria-label={
-									userHasZapped ? 'You zapped this' : currentUser ? 'Zap' : 'Log in to zap'
-								}
-								className={`gap-1 ${
-									userHasZapped
-										? 'text-primary hover:text-primary'
-										: 'text-muted-foreground hover:text-primary'
-								} rounded-none px-2 text-xs`}
-							>
-								<Zap className={`${iconSize} ${userHasZapped ? 'fill-current' : ''}`} />
-								{zapCount > 0 && (
-									<span className="text-xs font-medium">{formatCount(zapCount)}</span>
-								)}
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>
-							{userHasZapped ? 'You zapped this' : currentUser ? 'Zap' : 'Log in to zap'}
-						</TooltipContent>
-					</Tooltip>
-				)}
+			{showShareButton && sharePath && (
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							type="button"
+							variant="ghost"
+							size={buttonSize}
+							onClick={handleShare}
+							aria-label="Share"
+							className="gap-1 rounded-none px-2 text-xs text-muted-foreground hover:text-info"
+						>
+							<Share2 className={iconSize} />
+							{!compact ? <span className="text-xs font-medium">Share</span> : null}
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent>Copy share link</TooltipContent>
+				</Tooltip>
+			)}
 
-				{showShareButton && sharePath && (
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								type="button"
-								variant="ghost"
-								size={buttonSize}
-								onClick={handleShare}
-								aria-label="Share"
-								className="gap-1 rounded-none px-2 text-xs text-muted-foreground hover:text-info"
-							>
-								<Share2 className={iconSize} />
-								{!compact ? <span className="text-xs font-medium">Share</span> : null}
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>Copy share link</TooltipContent>
-					</Tooltip>
-				)}
+			{showAnnotateButton && onAnnotateClick && (
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							variant="ghost"
+							size={buttonSize}
+							onClick={onAnnotateClick}
+							className="gap-1 rounded-none px-2 text-xs text-primary hover:text-primary"
+						>
+							<PencilLine className={iconSize} />
+							{!compact && <span className="text-xs font-medium">Annotate</span>}
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent>Add comment annotation</TooltipContent>
+				</Tooltip>
+			)}
 
-				{showAnnotateButton && onAnnotateClick && (
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								variant="ghost"
-								size={buttonSize}
-								onClick={onAnnotateClick}
-								className="gap-1 rounded-none px-2 text-xs text-primary hover:text-primary"
-							>
-								<PencilLine className={iconSize} />
-								{!compact && <span className="text-xs font-medium">Annotate</span>}
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>Add comment annotation</TooltipContent>
-					</Tooltip>
-				)}
-
-				{/* Comment/Reply Button */}
-				{showCommentButton && onReplyClick && (
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								variant="ghost"
-								size={buttonSize}
-								onClick={onReplyClick}
-								aria-label="Reply"
-								className="gap-1 rounded-none px-2 text-xs text-muted-foreground hover:text-ok"
-							>
-								<MessageCircle className={iconSize} />
-								{commentCount > 0 ? (
-									<span className="text-xs font-medium">{formatCount(commentCount)}</span>
-								) : !compact ? (
-									<span className="text-xs font-medium">Reply</span>
-								) : null}
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>Reply</TooltipContent>
-					</Tooltip>
-				)}
-			</div>
-			{showZapButton ? (
-				<ZapDialog target={target} open={zapDialogOpen} onClose={closeZapDialog} />
-			) : null}
-		</>
+			{/* Comment/Reply Button */}
+			{showCommentButton && onReplyClick && (
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							variant="ghost"
+							size={buttonSize}
+							onClick={onReplyClick}
+							aria-label="Reply"
+							className="gap-1 rounded-none px-2 text-xs text-muted-foreground hover:text-ok"
+						>
+							<MessageCircle className={iconSize} />
+							{commentCount > 0 ? (
+								<span className="text-xs font-medium">{formatCount(commentCount)}</span>
+							) : !compact ? (
+								<span className="text-xs font-medium">Reply</span>
+							) : null}
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent>Reply</TooltipContent>
+				</Tooltip>
+			)}
+		</div>
 	)
 }

@@ -27,7 +27,7 @@ describe('resolveReadRelays', () => {
 	const base = { readRelays: PUBLIC, writeRelays: LOCAL }
 
 	test('prod: every bucket reads broadly', () => {
-		for (const bucket of ['content', 'profile', 'wallet', 'discovery'] as const) {
+		for (const bucket of ['content', 'profile', 'wallet', 'zap', 'discovery'] as const) {
 			expect(resolveReadRelays({ bucket, isDevelopment: false, flags: OFF, ...base })).toEqual(
 				PUBLIC,
 			)
@@ -40,8 +40,8 @@ describe('resolveReadRelays', () => {
 		}
 	})
 
-	test('dev: profile and wallet may read from public relays', () => {
-		for (const bucket of ['profile', 'wallet'] as const) {
+	test('dev: profile, wallet, and active zap workflows may read from public relays', () => {
+		for (const bucket of ['profile', 'wallet', 'zap'] as const) {
 			expect(resolveReadRelays({ bucket, isDevelopment: true, flags: OFF, ...base })).toEqual(
 				PUBLIC,
 			)
