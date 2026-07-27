@@ -29,6 +29,7 @@ export {
 	recoverFromCouch,
 	removeNutzapMint,
 	sendCashuToken,
+	sendNutzap,
 	setMints,
 	setWalletRelays,
 	startLightningDeposit,

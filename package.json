@@ -115,6 +115,7 @@
     "applesauce-relay": "^6.2.1",
     "applesauce-signers": "^6.2.2",
     "applesauce-wallet": "^6.2.0",
+    "applesauce-wallet-connect": "^6.2.0",
     "blossom-client-sdk": "^5.0.0",
     "bun-plugin-tailwind": "^0.1.2",
     "class-variance-authority": "^0.7.1",

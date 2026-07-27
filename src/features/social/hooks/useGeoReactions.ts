@@ -1,7 +1,9 @@
 import { useActiveAccount } from 'applesauce-react/hooks'
 import { ReactionFactory } from 'applesauce-common/factories'
+import { DeleteFactory } from 'applesauce-core/factories'
+import { getNutzapAmount, NUTZAP_KIND } from 'applesauce-wallet/helpers'
 import type { NostrEvent } from 'nostr-tools'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { accounts, publish } from '@/lib/nostr'
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import type { Article } from '@/lib/nostr/article'
@@ -9,6 +11,17 @@ import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { GeoComment } from '@/lib/nostr/geo-comment'
 import type { MapContext } from '@/lib/nostr/map-context'
 import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
+import type { LiveBeacon } from '@/lib/nostr/live-beacon'
+
+interface ReactableEventCast {
+	readonly event: NostrEvent
+	readonly kind: number
+	readonly pubkey: string
+	readonly id?: string
+	readonly dTag?: string
+	readonly tags?: string[][]
+	rawEvent?: () => NostrEvent
+}
 
 /** Any Nostr event that can receive reactions */
 export type ReactableEvent =
@@ -16,8 +29,24 @@ export type ReactableEvent =
 	| MapContext
 	| Article
 	| TemporalSighting
+	| LiveBeacon
 	| GeoComment
+	| ReactableEventCast
 	| NostrEvent
+
+function unwrapReactableEvent(target: ReactableEvent): NostrEvent {
+	const wrapped = (target as { event?: NostrEvent }).event
+	if (wrapped) return wrapped
+	const rawEvent = (target as { rawEvent?: () => NostrEvent }).rawEvent
+	return typeof rawEvent === 'function' ? rawEvent() : (target as NostrEvent)
+}
+
+function getReactableDTag(target: ReactableEvent): string | undefined {
+	return (
+		(target as { dTag?: string }).dTag ??
+		unwrapReactableEvent(target).tags.find((tag) => tag[0] === 'd')?.[1]
+	)
+}
 
 export interface UseGeoReactionsOptions {
 	/** The event to fetch reactions for */
@@ -39,9 +68,9 @@ export interface UseGeoReactionsResult {
 	userHasZapped: boolean
 	/** Loading state */
 	isLoading: boolean
-	/** Toggle reaction (add if not reacted, would need delete support for removal) */
+	/** Toggle the current user's reaction. */
 	toggleReaction: () => Promise<void>
-	/** Open zap dialog (mock for now) */
+	/** Open the zap dialog. */
 	openZapDialog: () => void
 	/** Zap dialog open state */
 	zapDialogOpen: boolean
@@ -59,11 +88,13 @@ export function useGeoReactions({
 	const currentUser = useActiveAccount()
 	const [zapDialogOpen, setZapDialogOpen] = useState(false)
 	const [isReacting, setIsReacting] = useState(false)
+	const [optimisticReaction, setOptimisticReaction] = useState<NostrEvent | null>(null)
+	const [suppressedReactionId, setSuppressedReactionId] = useState<string | null>(null)
 
 	// Check if target is an addressable event (has dTag)
 	const isAddressable = useMemo(() => {
 		if (!target) return false
-		return 'dTag' in target && !!target.dTag
+		return Boolean(getReactableDTag(target))
 	}, [target])
 
 	// Build the address for addressable events
@@ -72,7 +103,7 @@ export function useGeoReactions({
 
 		const targetKind = target.kind
 		const targetPubkey = target.pubkey
-		const targetDTag = (target as { dTag?: string }).dTag
+		const targetDTag = getReactableDTag(target)
 
 		if (!targetKind || !targetPubkey || !targetDTag) return null
 
@@ -115,7 +146,7 @@ export function useGeoReactions({
 		if (isAddressable && targetAddress) {
 			return [
 				{
-					kinds: [9735 as number],
+					kinds: [9735 as number, NUTZAP_KIND],
 					'#a': [targetAddress],
 				},
 			]
@@ -125,7 +156,7 @@ export function useGeoReactions({
 		if (target?.id) {
 			return [
 				{
-					kinds: [9735 as number],
+					kinds: [9735 as number, NUTZAP_KIND],
 					'#e': [target.id],
 				},
 			]
@@ -143,18 +174,39 @@ export function useGeoReactions({
 	const reactionsLoading = loadCounts && !reactionsEose
 	const zapsLoading = loadCounts && !zapsEose
 
-	const reactionCount = reactionEvents.length
+	const currentUserReaction = useMemo(() => {
+		if (!currentUser?.pubkey) return undefined
+		return reactionEvents.find(
+			(event) => event.pubkey === currentUser.pubkey && event.id !== suppressedReactionId,
+		)
+	}, [currentUser?.pubkey, reactionEvents, suppressedReactionId])
+	const hasOptimisticReaction = Boolean(
+		optimisticReaction &&
+			optimisticReaction.id !== suppressedReactionId &&
+			!reactionEvents.some((event) => event.id === optimisticReaction.id),
+	)
+	const userHasReacted = Boolean(currentUserReaction || hasOptimisticReaction)
+	const reactionCount =
+		reactionEvents.filter((event) => event.id !== suppressedReactionId).length +
+		(hasOptimisticReaction ? 1 : 0)
 
-	const userHasReacted = useMemo(() => {
-		if (!currentUser?.pubkey) return false
-		return reactionEvents.some((e) => e.pubkey === currentUser.pubkey)
-	}, [reactionEvents, currentUser?.pubkey])
+	const targetKey = targetAddress ?? target?.id ?? null
+	// biome-ignore lint/correctness/useExhaustiveDependencies: changing account or target must clear row-local optimistic state.
+	useEffect(() => {
+		setOptimisticReaction(null)
+		setSuppressedReactionId(null)
+	}, [currentUser?.pubkey, targetKey])
 
 	const { zapCount, zapAmount, userHasZapped } = useMemo(() => {
 		let total = 0
 		let hasZapped = false
 
 		for (const zap of zapEvents) {
+			if (zap.kind === NUTZAP_KIND) {
+				total += getNutzapAmount(zap) ?? 0
+				if (zap.pubkey === currentUser?.pubkey) hasZapped = true
+				continue
+			}
 			const bolt11 = zap.tags.find((t) => t[0] === 'bolt11')?.[1]
 			if (bolt11) {
 				// Placeholder amount; production code would decode the bolt11 invoice.
@@ -182,10 +234,6 @@ export function useGeoReactions({
 		if (!target || !currentUser) {
 			throw new Error('Target or user not available')
 		}
-		if (userHasReacted) {
-			// Reactions aren't toggleable without a follow-up deletion event.
-			return
-		}
 		const signer = accounts.signer
 		if (!signer) throw new Error('No active account')
 
@@ -198,12 +246,33 @@ export function useGeoReactions({
 					: typeof (target as { rawEvent?: () => NostrEvent }).rawEvent === 'function'
 						? (target as { rawEvent: () => NostrEvent }).rawEvent()
 						: (target as NostrEvent)
-			const signed = await ReactionFactory.create(raw, '❤️').sign(signer)
-			await publish(signed, { routing: 'outbox' })
+			const existingReaction = currentUserReaction ?? optimisticReaction
+			if (existingReaction && existingReaction.id !== suppressedReactionId) {
+				setOptimisticReaction(null)
+				setSuppressedReactionId(existingReaction.id)
+				try {
+					const deletion = await DeleteFactory.fromEvents([existingReaction]).sign(signer)
+					await publish(deletion, { routing: 'outbox' })
+				} catch (error) {
+					setSuppressedReactionId(null)
+					if (existingReaction === optimisticReaction) setOptimisticReaction(existingReaction)
+					throw error
+				}
+			} else {
+				const signed = await ReactionFactory.create(raw, '❤️').sign(signer)
+				setSuppressedReactionId(null)
+				setOptimisticReaction(signed)
+				try {
+					await publish(signed, { routing: 'outbox' })
+				} catch (error) {
+					setOptimisticReaction(null)
+					throw error
+				}
+			}
 		} finally {
 			setIsReacting(false)
 		}
-	}, [target, currentUser, userHasReacted])
+	}, [currentUser, currentUserReaction, optimisticReaction, suppressedReactionId, target])
 
 	const openZapDialog = useCallback(() => {
 		setZapDialogOpen(true)

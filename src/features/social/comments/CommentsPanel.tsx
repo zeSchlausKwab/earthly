@@ -7,6 +7,7 @@ import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { GeoComment } from '@/lib/nostr/geo-comment'
 import type { MapContext } from '@/lib/nostr/map-context'
 import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
+import type { LiveBeacon } from '@/lib/nostr/live-beacon'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { GeoCommentItem } from './GeoCommentItem'
@@ -18,7 +19,7 @@ const ROOT_COMPOSER_ID = 'root'
 
 interface CommentsPanelProps {
 	/** The dataset, context, Story, or Sighting to show comments for */
-	target: GeoDataset | MapContext | Article | TemporalSighting | null
+	target: GeoDataset | MapContext | Article | TemporalSighting | LiveBeacon | null
 	/** Callback when a comment's GeoJSON visibility is toggled */
 	onCommentGeojsonVisibilityChange?: (comment: GeoComment, visible: boolean) => void
 	/** Callback to zoom to a comment's GeoJSON */
@@ -73,6 +74,7 @@ export function CommentsPanel({
 	const initializedCommentIdsRef = useRef<Set<string>>(new Set())
 	const commentsListRef = useRef<HTMLDivElement>(null)
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: changing the selected entity resets its composer and annotation state.
 	useEffect(() => {
 		setActiveComposerId(ROOT_COMPOSER_ID)
 		setEntityAnnotationsVisible(true)

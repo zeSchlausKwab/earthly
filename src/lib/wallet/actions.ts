@@ -15,11 +15,13 @@
  */
 
 import { getEncodedToken, getTokenMetadata, MintQuoteState, type Token } from '@cashu/cashu-ts'
+import type { Action } from 'applesauce-actions'
 import {
 	AddNutzapInfoMint,
 	ConsolidateTokens,
 	CreateWallet,
 	MintTokens,
+	NutzapEvent,
 	ReceiveNutzaps,
 	ReceiveToken,
 	RecoverFromCouch,
@@ -32,6 +34,7 @@ import {
 } from 'applesauce-wallet/actions'
 import {
 	getProofUID,
+	getNutzapInfoP2PKPubkey,
 	getTokenContent,
 	getTokenDeletedIds,
 	isTokenContentUnlocked,
@@ -39,6 +42,7 @@ import {
 import { generateSecretKey } from 'nostr-tools'
 import type { NostrEvent } from 'nostr-tools'
 import { couch, getCashuWallet, getWalletSnapshot, walletActions } from './runtime'
+import { eventStore } from '@/lib/nostr'
 
 /**
  * Default relays for newly created wallets. Wallet events are encrypted
@@ -263,6 +267,70 @@ export async function sendCashuToken(
 		if (!encoded) throw new Error('Failed to create token')
 		return encoded
 	})
+}
+
+/**
+ * Spend this NIP-60 wallet's existing proofs into a NIP-61 nutzap.
+ *
+ * The swap creates fresh proofs locked to the recipient's advertised P2PK key,
+ * publishes the nutzap to their advertised relays, then records the sender's
+ * change and spend history through the same crash-safe TokensOperation used by
+ * ordinary eCash sends.
+ */
+export async function sendNutzap(
+	target: NostrEvent,
+	amountSats: number,
+	options: { mint: string; comment?: string },
+): Promise<void> {
+	if (!Number.isSafeInteger(amountSats) || amountSats <= 0) {
+		throw new Error('Nutzap amount must be a positive whole number of sats.')
+	}
+
+	const recipientInfo = eventStore.getReplaceable(10019, target.pubkey)
+	if (!recipientInfo) throw new Error('Recipient nutzap information is unavailable.')
+	const p2pk = getNutzapInfoP2PKPubkey(recipientInfo)
+	if (!p2pk) throw new Error('Recipient has not configured a nutzap public key.')
+
+	await withSpendLock(() =>
+		walletActions.run(SendNutzapFromWallet, target, amountSats, {
+			...options,
+			p2pk,
+		}),
+	)
+}
+
+/** Exported action builder so the proof-locking/publish sequence can be tested without a live mint. */
+export function SendNutzapFromWallet(
+	target: NostrEvent,
+	amountSats: number,
+	options: { mint: string; p2pk: string; comment?: string },
+): Action {
+	return async ({ run }) => {
+		await run(
+			TokensOperation,
+			amountSats,
+			async ({ selectedProofs, mint, cashuWallet }) => {
+				const { keep, send } = await cashuWallet.ops
+					.send(amountSats, selectedProofs)
+					.asP2PK({ pubkey: options.p2pk })
+					.keyset(getProofKeysetId(selectedProofs))
+					.run()
+				await run(
+					NutzapEvent,
+					target,
+					{ mint, proofs: send, unit: 'sat' },
+					{ comment: options.comment, couch },
+				)
+				return { change: keep.length > 0 ? keep : undefined }
+			},
+			{
+				mint: options.mint,
+				couch,
+				getCashuWallet,
+				tokenSelection: selectSpendableTokens,
+			},
+		)
+	}
 }
 
 /**
