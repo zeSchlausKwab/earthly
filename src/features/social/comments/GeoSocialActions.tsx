@@ -7,11 +7,13 @@ import {
 	MessageCircle,
 	PencilLine,
 	Share2,
+	WalletCards,
 	Zap,
 } from 'lucide-react'
 import { use$, useActiveAccount } from 'applesauce-react/hooks'
 import { ZapRequestFactory } from 'applesauce-common/factories'
 import { getInvoice, parseLNURLOrAddress } from 'applesauce-common/helpers'
+import { getNutzapInfoMints, NUTZAP_INFO_KIND } from 'applesauce-wallet/helpers/nutzap-info'
 import type { NostrEvent } from 'nostr-tools'
 import { nip19 } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -40,6 +42,9 @@ import { useGeoReactions, type ReactableEvent } from '../hooks/useGeoReactions'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { normalizeLightningUri, openExternalProtocol } from '@/platform/externalProtocol'
 import { earthlyPublicUrl } from '@/platform/publicUrl'
+import { payInvoiceWithNwc } from '@/lib/wallet/nwc'
+import { sendNutzap, useWallet } from '@/lib/wallet'
+import { useNwcConnection } from '@/features/wallet/hooks/useNwcConnection'
 
 interface GeoSocialActionsProps {
 	/** Any Nostr event that can receive reactions */
@@ -79,8 +84,10 @@ function getEntitySharePath(
 const COMMON_ZAP_AMOUNTS = [10, 21, 100, 210, 500, 1000] as const
 
 function buildTargetAddress(target: ReactableEvent | null): string | null {
-	if (!target || !('dTag' in target) || !target.dTag || !target.kind || !target.pubkey) return null
-	return `${target.kind}:${target.pubkey}:${target.dTag}`
+	if (!target?.kind || !target.pubkey) return null
+	const raw = rawNostrEvent(target)
+	const dTag = (target as { dTag?: string }).dTag ?? raw.tags.find((tag) => tag[0] === 'd')?.[1]
+	return dTag ? `${target.kind}:${target.pubkey}:${dTag}` : null
 }
 
 function buildZapFilters(target: ReactableEvent | null) {
@@ -111,6 +118,8 @@ function rawNostrEvent(target: ReactableEvent): NostrEvent {
 	if ('event' in target && (target as { event?: NostrEvent }).event) {
 		return (target as { event: NostrEvent }).event
 	}
+	const rawEvent = (target as { rawEvent?: () => NostrEvent }).rawEvent
+	if (typeof rawEvent === 'function') return rawEvent()
 	return target as NostrEvent
 }
 
@@ -152,7 +161,14 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 	const [isGenerating, setIsGenerating] = useState(false)
 	const [generationError, setGenerationError] = useState<string | null>(null)
 	const [copied, setCopied] = useState(false)
+	const [zapReceived, setZapReceived] = useState(false)
+	const [nutzapSent, setNutzapSent] = useState(false)
+	const [isSendingNutzap, setIsSendingNutzap] = useState(false)
+	const [isPayingWithNwc, setIsPayingWithNwc] = useState(false)
+	const [nwcPaymentSent, setNwcPaymentSent] = useState(false)
 	const receiptEventIdRef = useRef<string | null>(null)
+	const { connection: nwcConnection } = useNwcConnection()
+	const walletState = useWallet()
 
 	const zapFilters = useMemo(() => {
 		const filters = buildZapFilters(target)
@@ -165,6 +181,12 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 		() => (target?.pubkey ? eventStore.replaceable(0, target.pubkey) : undefined),
 		[target?.pubkey],
 	)
+	const recipientNutzapEvents = useTimeline(
+		open && target?.pubkey
+			? { kinds: [NUTZAP_INFO_KIND], authors: [target.pubkey], limit: 1 }
+			: null,
+	)
+	const recipientNutzapInfo = recipientNutzapEvents[0]
 
 	const resetDialogState = useCallback(() => {
 		setSelectedAmount(null)
@@ -174,6 +196,11 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 		setIsGenerating(false)
 		setGenerationError(null)
 		setCopied(false)
+		setZapReceived(false)
+		setNutzapSent(false)
+		setIsSendingNutzap(false)
+		setIsPayingWithNwc(false)
+		setNwcPaymentSent(false)
 		receiptEventIdRef.current = null
 	}, [])
 
@@ -199,9 +226,9 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 		const receiptId = matchingReceipt.id ?? invoice
 		if (receiptEventIdRef.current === receiptId) return
 		receiptEventIdRef.current = receiptId
+		setZapReceived(true)
 		toast.success('Zap received')
-		handleClose()
-	}, [handleClose, invoice, open, zapReceiptEvents])
+	}, [invoice, open, zapReceiptEvents])
 
 	const generateInvoice = useCallback(
 		async (amountSats: number) => {
@@ -218,6 +245,8 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 			setIsGenerating(true)
 			setGenerationError(null)
 			setCopied(false)
+			setZapReceived(false)
+			setNwcPaymentSent(false)
 			receiptEventIdRef.current = null
 
 			try {
@@ -302,6 +331,60 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 	}, [invoice])
 
 	const customAmountValue = Number.parseInt(customAmount, 10)
+	const chosenAmount =
+		typeof selectedAmount === 'number'
+			? selectedAmount
+			: selectedAmount === 'custom' && Number.isFinite(customAmountValue) && customAmountValue > 0
+				? customAmountValue
+				: null
+	const eligibleNutzapMint = useMemo(() => {
+		if (!recipientNutzapInfo || !chosenAmount || !walletState.ready) return null
+		const recipientMints = new Set(
+			getNutzapInfoMints(recipientNutzapInfo)
+				.filter(({ units }) => !units?.length || units.includes('sat'))
+				.map(({ mint }) => mint),
+		)
+		return (
+			walletState.mints.find(
+				(mint) => recipientMints.has(mint) && (walletState.balance?.[mint] ?? 0) >= chosenAmount,
+			) ?? null
+		)
+	}, [chosenAmount, recipientNutzapInfo, walletState.balance, walletState.mints, walletState.ready])
+
+	const handleSendNutzap = useCallback(async () => {
+		if (!chosenAmount || !eligibleNutzapMint) return
+		setIsSendingNutzap(true)
+		setGenerationError(null)
+		try {
+			await sendNutzap(rawNostrEvent(target), chosenAmount, { mint: eligibleNutzapMint })
+			setInvoiceAmount(chosenAmount)
+			setNutzapSent(true)
+			toast.success('Nutzap sent')
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Failed to send nutzap.'
+			setGenerationError(message)
+			toast.error(message)
+		} finally {
+			setIsSendingNutzap(false)
+		}
+	}, [chosenAmount, eligibleNutzapMint, target])
+
+	const handlePayWithNwc = useCallback(async () => {
+		if (!invoice || !nwcConnection) return
+		setIsPayingWithNwc(true)
+		setGenerationError(null)
+		try {
+			await payInvoiceWithNwc(nwcConnection, invoice)
+			setNwcPaymentSent(true)
+			toast.success('Payment sent from NWC wallet')
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'NWC payment failed.'
+			setGenerationError(message)
+			toast.error(message)
+		} finally {
+			setIsPayingWithNwc(false)
+		}
+	}, [invoice, nwcConnection])
 
 	return (
 		<Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && handleClose()}>
@@ -312,12 +395,26 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 						Send a zap
 					</DialogTitle>
 					<DialogDescription>
-						Choose an amount, generate a Lightning invoice, then scan the QR code or copy the
-						invoice into your wallet.
+						Choose an amount and send it with an available wallet or a Lightning invoice.
 					</DialogDescription>
 				</DialogHeader>
 
-				{invoice ? (
+				{nutzapSent ? (
+					<div className="space-y-4 py-4 text-center">
+						<div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-ok/15">
+							<Check className="h-6 w-6 text-ok" />
+						</div>
+						<div>
+							<p className="font-semibold text-ok">Nutzap sent</p>
+							<p className="mt-1 text-sm text-muted-foreground">
+								{invoiceAmount?.toLocaleString() ?? '—'} sats were sent from your Cashu wallet.
+							</p>
+						</div>
+						<Button type="button" onClick={handleClose}>
+							Done
+						</Button>
+					</div>
+				) : invoice ? (
 					<div className="space-y-4">
 						<div className="flex items-center justify-between gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm text-primary">
 							<span>Zap amount</span>
@@ -351,9 +448,45 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 								</Button>
 							</div>
 						</div>
-						<div className="flex items-center gap-2 rounded-lg border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
-							<Loader2 className="h-4 w-4 animate-spin" />
-							Waiting for zap receipt...
+						{nwcConnection ? (
+							<Button
+								type="button"
+								className="w-full"
+								onClick={() => void handlePayWithNwc()}
+								disabled={isPayingWithNwc || nwcPaymentSent || zapReceived}
+							>
+								{isPayingWithNwc ? (
+									<Loader2 className="h-4 w-4 animate-spin" />
+								) : nwcPaymentSent || zapReceived ? (
+									<Check className="h-4 w-4" />
+								) : (
+									<WalletCards className="h-4 w-4" />
+								)}
+								{zapReceived
+									? 'Zap confirmed'
+									: nwcPaymentSent
+										? 'Payment sent'
+										: 'Pay with NWC wallet'}
+							</Button>
+						) : null}
+						{generationError ? <p className="text-sm text-destructive">{generationError}</p> : null}
+						<div
+							className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+								zapReceived
+									? 'border-ok/40 bg-ok/10 text-ok'
+									: 'border-border bg-muted text-muted-foreground'
+							}`}
+						>
+							{zapReceived ? (
+								<Check className="h-4 w-4" />
+							) : (
+								<Loader2 className="h-4 w-4 animate-spin" />
+							)}
+							{zapReceived
+								? 'Zap received'
+								: nwcPaymentSent
+									? 'Payment sent — waiting for zap receipt...'
+									: 'Waiting for zap receipt...'}
 						</div>
 						<div className="flex justify-between gap-2">
 							<Button
@@ -382,9 +515,9 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 									variant={selectedAmount === amount ? 'default' : 'outline'}
 									onClick={() => {
 										setSelectedAmount(amount)
-										void generateInvoice(amount)
+										setGenerationError(null)
 									}}
-									disabled={isGenerating}
+									disabled={isGenerating || isSendingNutzap}
 									className="justify-center"
 								>
 									{amount}
@@ -409,33 +542,62 @@ function ZapDialog({ target, open, onClose }: ZapDialogProps) {
 								<label className="text-sm font-medium text-foreground" htmlFor="custom-zap-amount">
 									Custom amount
 								</label>
-								<div className="flex gap-2">
-									<Input
-										id="custom-zap-amount"
-										type="number"
-										min={1}
-										step={1}
-										value={customAmount}
-										onChange={(event) => setCustomAmount(event.target.value)}
-										placeholder="Amount in sats"
-									/>
+								<Input
+									id="custom-zap-amount"
+									type="number"
+									min={1}
+									step={1}
+									value={customAmount}
+									onChange={(event) => setCustomAmount(event.target.value)}
+									placeholder="Amount in sats"
+								/>
+							</div>
+						) : null}
+
+						{chosenAmount ? (
+							<div className="space-y-2 rounded-lg border border-border p-3">
+								<p className="text-sm font-medium">Payment method</p>
+								{eligibleNutzapMint ? (
 									<Button
 										type="button"
-										onClick={() => void generateInvoice(customAmountValue)}
-										disabled={
-											isGenerating || !Number.isFinite(customAmountValue) || customAmountValue <= 0
-										}
+										className="w-full"
+										onClick={() => void handleSendNutzap()}
+										disabled={isSendingNutzap || isGenerating}
 									>
-										Generate
+										{isSendingNutzap ? (
+											<Loader2 className="h-4 w-4 animate-spin" />
+										) : (
+											<Zap className="h-4 w-4" />
+										)}
+										Send nutzap from Cashu wallet
 									</Button>
-								</div>
+								) : null}
+								<Button
+									type="button"
+									variant={eligibleNutzapMint ? 'outline' : 'default'}
+									className="w-full"
+									onClick={() => void generateInvoice(chosenAmount)}
+									disabled={isGenerating || isSendingNutzap}
+								>
+									{isGenerating ? (
+										<Loader2 className="h-4 w-4 animate-spin" />
+									) : (
+										<ExternalLink className="h-4 w-4" />
+									)}
+									Generate Lightning invoice
+								</Button>
 							</div>
 						) : null}
 
 						{generationError ? <p className="text-sm text-destructive">{generationError}</p> : null}
 
 						<div className="flex justify-end">
-							<Button type="button" variant="ghost" onClick={handleClose} disabled={isGenerating}>
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={handleClose}
+								disabled={isGenerating || isSendingNutzap}
+							>
 								Cancel
 							</Button>
 						</div>

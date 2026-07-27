@@ -55,6 +55,7 @@ import {
 import { SignedOutCta } from '@/features/auth/SignedOutCta'
 import { DepositLightningModal } from './DepositLightningModal'
 import { NutzapsSection } from './NutzapsSection'
+import { NwcWalletSection } from './NwcWalletSection'
 import { ReceiveEcashModal } from './ReceiveEcashModal'
 import { SendEcashModal } from './SendEcashModal'
 import { WalletToolsSection } from './WalletToolsSection'
@@ -71,6 +72,26 @@ type Section = 'mints' | 'transactions' | 'tokens' | 'nutzaps' | 'tools' | null
 
 export function Nip60Wallet() {
 	const account = useActiveAccount()
+	if (!account) {
+		return (
+			<div className="bg-muted rounded-lg">
+				<SignedOutCta
+					title="Wallet"
+					description="Sign in to connect a wallet and send or receive zaps."
+				/>
+			</div>
+		)
+	}
+
+	return (
+		<div className="space-y-3">
+			<NwcWalletSection />
+			<Nip60WalletContent />
+		</div>
+	)
+}
+
+function Nip60WalletContent() {
 	const { loading, syncing, exists, unlocked, ready, balance, totalBalance, mints, wallet } =
 		useWallet()
 	const tokens = use$(() => wallet?.tokens$, [wallet])
@@ -159,17 +180,6 @@ export function Nip60Wallet() {
 		} finally {
 			setIsSavingMints(false)
 		}
-	}
-
-	if (!account) {
-		return (
-			<div className="bg-muted rounded-lg">
-				<SignedOutCta
-					title="Wallet"
-					description="Sign in to view your wallet and send or receive zaps."
-				/>
-			</div>
-		)
 	}
 
 	if (!exists) {

@@ -25,7 +25,7 @@ export class Group extends EventCast<GroupEvent> {
 	}
 
 	// Raw-event proxies (mirror GeoDataset/MapContext).
-	get kind() {
+	override get kind() {
 		return this.event.kind
 	}
 	get pubkey() {
@@ -40,13 +40,18 @@ export class Group extends EventCast<GroupEvent> {
 	get created_at() {
 		return this.event.created_at
 	}
-	get id() {
+	override get id() {
 		return this.event.id
 	}
 
 	/** The addressable `d`-tag value. */
 	get groupId() {
+		// biome-ignore lint/style/noNonNullAssertion: isGroup validates the required d tag in the constructor.
 		return getGroupId(this.event)!
+	}
+	/** Alias for `groupId` — the addressable d-tag value. */
+	get dTag() {
+		return getGroupId(this.event)
 	}
 
 	/** The slimmed governance content payload. */
