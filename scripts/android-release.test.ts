@@ -12,7 +12,7 @@ import {
 const publicEnvironment = `
 # Public only
 RELAY_URL=wss://relay.earthly.city
-EXTRA_READ_RELAYS=
+EXTRA_READ_RELAYS=wss://nos.lol,wss://relay.nostr.net
 BLOSSOM_SERVER=https://blossom.earthly.city
 MAPNOLIA_TRUSTED_PUBKEYS=${'a'.repeat(64)}
 SERVER_PUBKEY=${'b'.repeat(64)}
@@ -74,7 +74,7 @@ describe('Android release tooling', () => {
 	test('accepts only the public Android build environment', () => {
 		expect(parsePublicReleaseEnvironment(publicEnvironment)).toEqual({
 			RELAY_URL: 'wss://relay.earthly.city',
-			EXTRA_READ_RELAYS: '',
+			EXTRA_READ_RELAYS: 'wss://nos.lol,wss://relay.nostr.net',
 			BLOSSOM_SERVER: 'https://blossom.earthly.city',
 			MAPNOLIA_TRUSTED_PUBKEYS: 'a'.repeat(64),
 			SERVER_PUBKEY: 'b'.repeat(64),
@@ -96,6 +96,32 @@ describe('Android release tooling', () => {
 
 		expect(environment.MAPNOLIA_TRUSTED_PUBKEYS).toBe('a'.repeat(64))
 		expect(environment.EARTHLY_PUBLIC_ENV_PRELOADED).toBe('1')
+	})
+
+	test('keeps browser and Android catalog relay sets aligned', async () => {
+		const androidEnvironment = parsePublicReleaseEnvironment(
+			await Bun.file(
+				new URL('../config/android-release.env', import.meta.url),
+			).text(),
+		)
+		const browserEnvironment = Object.fromEntries(
+			(
+				await Bun.file(
+					new URL('../.env.production.example', import.meta.url),
+				).text()
+			)
+				.split(/\r?\n/u)
+				.map((line) => line.trim())
+				.filter((line) => line && !line.startsWith('#') && line.includes('='))
+				.map((line) => {
+					const separator = line.indexOf('=')
+					return [line.slice(0, separator), line.slice(separator + 1)]
+				}),
+		)
+
+		expect(androidEnvironment.EXTRA_READ_RELAYS).not.toBe('')
+		expect(browserEnvironment.EXTRA_READ_RELAYS).toBe(androidEnvironment.EXTRA_READ_RELAYS)
+		expect(browserEnvironment.RELAY_URL).toBe(androidEnvironment.RELAY_URL)
 	})
 
 	test('requires aligned versions and a matching release tag', () => {

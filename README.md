@@ -202,7 +202,7 @@ Important public configuration:
 | Variable | Purpose |
 | --- | --- |
 | `RELAY_URL` | Comma-separated primary Nostr relay URLs |
-| `EXTRA_READ_RELAYS` | Optional read-only relay extensions |
+| `EXTRA_READ_RELAYS` | Read-only public catalog relays; keep browser and native release values aligned |
 | `PUBLIC_BASE_URL` | Trusted public origin for canonical and social-preview URLs |
 | `BLOSSOM_SERVER` | Default Blossom base URL |
 | `SERVER_PUBKEY` | Earthly ContextVM server identity |

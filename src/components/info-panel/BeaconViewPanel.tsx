@@ -36,6 +36,7 @@ import { unixNow } from 'applesauce-core/helpers/time'
 import { LocateFixed, MapPlus, Navigation, Pencil } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
 import { toast } from 'sonner'
+import { earthlyPublicUrl } from '@/platform/publicUrl'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CommentsPanel } from '@/features/social/comments'
@@ -196,7 +197,7 @@ export function BeaconViewPanel({
 			// the sidebar-tail branch and opened the beacon LIST. Beacon comment
 			// sharing stays on the shared CommentsPanel / GeoSocialActions pipeline
 			// (already canonical via b6492c3).
-			const url = new URL(`/beacon/${naddr}`, window.location.origin).toString()
+			const url = earthlyPublicUrl(`/beacon/${naddr}`)
 			void navigator.clipboard?.writeText(url)
 			toast.success('Link copied — anyone with it can watch')
 		} catch {
