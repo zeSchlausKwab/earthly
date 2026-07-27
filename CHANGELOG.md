@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.8] - 2026-07-27
+
+- Fixed successful Lightning zap dialogs disappearing before users could see confirmation.
+- Added Nostr Wallet Connect wallets with pasted or camera-scanned NIP-47 connection QR codes and
+  direct payment of zap invoices from Earthly.
+- Added direct NIP-61 nutzaps from compatible NIP-60 Cashu wallets when recipients advertise a
+  supported mint and nutzap key.
+- Restored immediate like and unlike feedback across Contexts, Datasets, Stories, Sightings,
+  Private groups, Live Beacons, comments, and shoutbox posts.
+
 ## [0.0.7] - 2026-07-26
 
 - Fixed remembered Nostr identities being lost when Android stopped and cold-started the app by
