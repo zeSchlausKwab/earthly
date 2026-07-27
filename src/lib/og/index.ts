@@ -36,4 +36,24 @@ export {
 	fetchContextEventOGData,
 	type ContextEventOGData,
 } from './fetchContextEvent'
-export { generateOGImagePNG, type OGImageOptions } from './renderImage'
+export {
+	generateOGImagePNG,
+	generateOGImageSvg,
+	type OGImageOptions,
+} from './renderImage'
+export {
+	getOrCreateOGImage,
+	pruneOGImageCache,
+	type OGImageCacheStatus,
+} from './imageCache'
+export {
+	resolveOGGeoBlobReferences,
+	type ResolvedOGGeoBlobs,
+	type ResolveOGGeoBlobsOptions,
+} from './resolveGeoBlobs'
+export {
+	createOGImageVersion,
+	OG_IMAGE_RENDER_VERSION,
+	parseOGImageVersion,
+} from './imageVersion'
+export { getPublicBaseUrl } from './origin'

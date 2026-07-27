@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useRouting } from '../../hooks/useRouting'
+import { earthlyPublicUrl } from '@/platform/publicUrl'
 import { useEditorStore } from '../../store'
 
 type ShareAspect = '16:9' | '4:3' | '1:1' | '3:4'
@@ -281,21 +282,19 @@ export function ShareExportPopover({ small = false }: ShareExportPopoverProps) {
 	// /context/:naddr and /geoevent/:naddr serve OG HTML to crawlers and the
 	// SPA renders the same clean path for regular users (Round I — no more #/).
 	const shareRouteUrl = useMemo(() => {
-		if (typeof window === 'undefined') return 'https://earthly.city'
-		const origin = window.location.origin
 		if (focusedType === 'mapcontext' && (focusedNaddr || route.contextNaddr)) {
-			return `${origin}/context/${focusedNaddr ?? route.contextNaddr}`
+			return earthlyPublicUrl(`/context/${focusedNaddr ?? route.contextNaddr}`)
 		}
 		if (focusedType === 'geoevent' && focusedNaddr) {
-			return `${origin}/geoevent/${focusedNaddr}`
+			return earthlyPublicUrl(`/geoevent/${focusedNaddr}`)
 		}
 		if (route.contextNaddr) {
-			return `${origin}/context/${route.contextNaddr}`
+			return earthlyPublicUrl(`/context/${route.contextNaddr}`)
 		}
 		if (route.naddr) {
-			return `${origin}/geoevent/${route.naddr}`
+			return earthlyPublicUrl(`/geoevent/${route.naddr}`)
 		}
-		return window.location.href
+		return earthlyPublicUrl()
 	}, [focusedType, focusedNaddr, route.contextNaddr, route.naddr])
 
 	const [sharePopoverOpen, setSharePopoverOpen] = useState(false)

@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/select'
 import { allowRelays, loginWithAccount } from '@/lib/nostr'
 import { openExternalProtocol } from '@/platform/externalProtocol'
+import { earthlyPublicOrigin } from '@/platform/publicUrl'
 
 interface Nip46LoginDialogProps {
 	trigger: React.ReactNode
@@ -45,7 +46,7 @@ const DEFAULT_RELAYS = [
 
 const APP_METADATA = {
 	name: 'Earthly City',
-	url: typeof window !== 'undefined' ? window.location.origin : 'https://earthly.city',
+	url: earthlyPublicOrigin(),
 	permissions: NostrConnectSigner.buildSigningPermissions([0, 1, 3, 10002]),
 }
 

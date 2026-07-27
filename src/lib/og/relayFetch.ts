@@ -7,6 +7,8 @@
  * (the Plan-01 `fetchBeacon.test.ts` contract pins this exact import path).
  */
 
+import { verifyEvent } from 'nostr-tools/pure'
+
 export interface RelayFetchEvent {
 	id: string
 	pubkey: string
@@ -37,8 +39,11 @@ export async function fetchEventFromRelay(
 
 	return new Promise((resolve) => {
 		let newest: RelayFetchEvent | null = null
+		let finished = false
 
 		const finish = () => {
+			if (finished) return
+			finished = true
 			clearTimeout(timeout)
 			try {
 				ws.send(JSON.stringify(['CLOSE', subId]))
@@ -64,7 +69,18 @@ export async function fetchEventFromRelay(
 				if (data[0] === 'EVENT' && data[1] === subId) {
 					// Collect until EOSE; keep the highest created_at (newest-wins).
 					const event = data[2] as RelayFetchEvent
-					if (!newest || event.created_at > newest.created_at) {
+					const eventDTag = event.tags?.find((tag) => tag[0] === 'd')?.[1]
+					const matchesFilter =
+						filter.kinds.includes(event.kind) &&
+						filter.authors.includes(event.pubkey) &&
+						typeof eventDTag === 'string' &&
+						filter['#d'].includes(eventDTag)
+					if (!matchesFilter || !verifyEvent(event)) return
+					if (
+						!newest ||
+						event.created_at > newest.created_at ||
+						(event.created_at === newest.created_at && event.id > newest.id)
+					) {
 						newest = event
 					}
 				} else if (data[0] === 'EOSE' && data[1] === subId) {
@@ -76,8 +92,8 @@ export async function fetchEventFromRelay(
 		}
 
 		ws.onerror = () => {
-			clearTimeout(timeout)
-			resolve(newest)
+			finish()
 		}
+		ws.onclose = finish
 	})
 }

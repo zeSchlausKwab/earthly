@@ -1,4 +1,5 @@
-const EARTHLY_APP_LINK_ORIGIN = 'https://earthly.city'
+import { EARTHLY_PUBLIC_ORIGIN } from './publicUrl'
+
 const MAX_APP_LINK_LENGTH = 32 * 1024
 const RUNTIME_OWNED_QUERY_PARAMETERS = new Set(['ms', 'ex', 'iso'])
 
@@ -22,7 +23,7 @@ export function earthlyRouteFromAppLink(value: string): string | null {
 	try {
 		const url = new URL(candidate)
 		if (
-			url.origin !== EARTHLY_APP_LINK_ORIGIN ||
+			url.origin !== EARTHLY_PUBLIC_ORIGIN ||
 			url.username !== '' ||
 			url.password !== '' ||
 			url.hash !== '' ||
@@ -46,8 +47,8 @@ export function earthlyAppLinkNavigationTarget(value: string, currentRoute: stri
 	const route = earthlyRouteFromAppLink(value)
 	if (!route) return null
 	try {
-		const target = new URL(route, EARTHLY_APP_LINK_ORIGIN)
-		const current = new URL(currentRoute, EARTHLY_APP_LINK_ORIGIN)
+		const target = new URL(route, EARTHLY_PUBLIC_ORIGIN)
+		const current = new URL(currentRoute, EARTHLY_PUBLIC_ORIGIN)
 		if (target.pathname !== current.pathname) return route
 
 		// Earthly adds `ms`/`ex`/`iso` map-stack state after boot. Those parameters

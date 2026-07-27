@@ -32,6 +32,9 @@ export const serverConfig = {
 	/** App private key for signing */
 	appPrivateKey: serverEnv.APP_PRIVATE_KEY,
 
+	/** Trusted public origin for canonical and Open Graph URLs */
+	publicBaseUrl: serverEnv.PUBLIC_BASE_URL.replace(/\/+$/u, ''),
+
 	/** Blossom base URL used by the server when publishing map layer set announcements */
 	blossomServer: serverEnv.BLOSSOM_SERVER,
 

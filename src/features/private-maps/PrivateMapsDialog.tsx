@@ -39,7 +39,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { config } from '@/config'
-import { isTauri } from '@/config/platform'
+import { earthlyPublicUrl } from '@/platform/publicUrl'
 import {
 	PRIVATE_WORKSPACE_CHAT_KIND,
 	projectPrivateWorkspaceComments,
@@ -266,7 +266,7 @@ export function PrivateGroupsPanel({
 		// Native WebViews have an internal origin that is meaningless on another
 		// phone. Share the public HTTPS route so the link works in a browser today
 		// and becomes an Android App Link once release signing is configured.
-		const url = new URL(isTauri() ? 'https://earthly.city' : location.href)
+		const url = new URL(earthlyPublicUrl())
 		url.pathname = `/privategroup/${encodeURIComponent(selected.workspaceId)}`
 		url.search = ''
 		url.hash = ''

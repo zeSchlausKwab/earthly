@@ -135,6 +135,15 @@ export function validateProductionEnv(
 			errors.push('BLOSSOM_SERVER must be a valid URL')
 		}
 	}
+	if (env.PUBLIC_BASE_URL) {
+		try {
+			if (new URL(env.PUBLIC_BASE_URL).protocol !== 'https:') {
+				errors.push('PUBLIC_BASE_URL must use https:// in production')
+			}
+		} catch {
+			errors.push('PUBLIC_BASE_URL must be a valid URL')
+		}
+	}
 	if (!env.SEARXNG_URL) {
 		errors.push('SEARXNG_URL must point to Earthly\'s private loopback SearXNG service')
 	} else {

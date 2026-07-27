@@ -74,6 +74,19 @@ export const envSchema = z.object({
 	/** App private key for signing (backend only) */
 	APP_PRIVATE_KEY: z.string().length(64).optional(),
 
+	/**
+	 * Trusted public origin for server-rendered canonical and Open Graph URLs.
+	 * This is intentionally backend-only: it prevents reverse-proxy Host/protocol
+	 * details from leaking into public share metadata.
+	 */
+	PUBLIC_BASE_URL: z
+		.string()
+		.url()
+		.refine((value) => value.startsWith('http://') || value.startsWith('https://'), {
+			message: 'must use http or https',
+		})
+		.default('https://earthly.city'),
+
 	/** Blossom base URL used by the server when publishing map layer set announcements (backend only) */
 	BLOSSOM_SERVER: z
 		.string()

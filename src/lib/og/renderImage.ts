@@ -1,6 +1,7 @@
-import { lookup } from 'node:dns/promises'
-import { isIP } from 'node:net'
 import { join } from 'node:path'
+import type { FeatureCollection } from 'geojson'
+import { renderOGMapSvg, type Bbox } from './mapSvg'
+import { assertPublicHttpUrl } from './publicRemote'
 
 const OG_WIDTH = 1200
 const OG_HEIGHT = 630
@@ -9,8 +10,10 @@ const OG_HEIGHT = 630
 // or accidental multi-hundred-MB response (T-10-15).
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
-// Common font paths on Linux servers (checked in order)
-const SYSTEM_FONT_PATHS = [
+// A production dependency supplies deterministic fonts even on a minimal VPS.
+// System paths remain as a development/distribution fallback.
+const REGULAR_FONT_PATHS = [
+	join(process.cwd(), 'node_modules/dejavu-fonts-ttf/ttf/DejaVuSans.ttf'),
 	'/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
 	'/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
 	'/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf',
@@ -21,12 +24,16 @@ const SYSTEM_FONT_PATHS = [
 	'/Library/Fonts/Arial.ttf',
 	'/System/Library/Fonts/Supplemental/Arial.ttf',
 ]
+const BOLD_FONT_PATHS = [
+	join(process.cwd(), 'node_modules/dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf'),
+	'/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+]
 
 // ─── WASM + font singleton ────────────────────────────────────────────────────
 
 // biome-ignore lint/suspicious/noExplicitAny: resvg dynamic import
 let ResvgClass: any = null
-let fontBuffer: Uint8Array | null = null
+const fontBuffers: Uint8Array[] = []
 let initPromise: Promise<void> | null = null
 
 async function ensureResvg(): Promise<void> {
@@ -40,24 +47,23 @@ async function ensureResvg(): Promise<void> {
 			ResvgClass = Resvg
 
 			// @resvg/resvg-wasm WASM build ignores loadSystemFonts — must use fontBuffers
-			for (const fontPath of SYSTEM_FONT_PATHS) {
-				try {
-					const f = Bun.file(fontPath)
-					if (await f.exists()) {
-						fontBuffer = new Uint8Array(await f.arrayBuffer())
-						// IN-01: removed the per-font-load console.log (per-crawl noise in
-						// production OG-image logs).
-						break
+			for (const candidates of [REGULAR_FONT_PATHS, BOLD_FONT_PATHS]) {
+				for (const fontPath of candidates) {
+					try {
+						const f = Bun.file(fontPath)
+						if (await f.exists()) {
+							fontBuffers.push(new Uint8Array(await f.arrayBuffer()))
+							break
+						}
+					} catch {
+						// try next
 					}
-				} catch {
-					// try next
 				}
 			}
 
-			if (!fontBuffer) {
+			if (fontBuffers.length === 0) {
 				console.warn(
-					'[OG] No system font found — text will not render in OG images.\n' +
-						'     Install fonts-dejavu-core (apt) or fonts-liberation (apt) on the server.',
+					'[OG] Bundled and system fonts are unavailable — text will not render in OG images.',
 				)
 			}
 		})()
@@ -67,78 +73,8 @@ async function ensureResvg(): Promise<void> {
 
 // ─── Image fetching ───────────────────────────────────────────────────────────
 
-/**
- * Reject IPv4 literals in private, loopback, link-local (incl. the
- * 169.254.169.254 cloud-metadata endpoint), CGNAT, or reserved/multicast
- * ranges. (T-10-15)
- */
-function isBlockedIPv4(ip: string): boolean {
-	const parts = ip.split('.').map(Number)
-	if (parts.length !== 4 || parts.some((p) => Number.isNaN(p) || p < 0 || p > 255)) return true
-	const [a, b] = parts
-	if (a === 0 || a === 10 || a === 127) return true // this-network, private, loopback
-	if (a === 169 && b === 254) return true // link-local incl. cloud metadata
-	if (a === 172 && b >= 16 && b <= 31) return true // private
-	if (a === 192 && b === 168) return true // private
-	if (a === 192 && b === 0) return true // IETF protocol assignments
-	if (a === 100 && b >= 64 && b <= 127) return true // CGNAT
-	if (a === 198 && (b === 18 || b === 19)) return true // benchmarking
-	if (a >= 224) return true // multicast + reserved
-	return false
-}
-
-/** Reject IPv6 loopback, ULA (fc00::/7), link-local (fe80::/10), and IPv4-mapped internals. (T-10-15) */
-function isBlockedIPv6(ip: string): boolean {
-	const addr = ip.toLowerCase().split('%')[0] // strip zone id
-	if (addr === '::1' || addr === '::') return true
-	const v4mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/)
-	if (v4mapped) return isBlockedIPv4(v4mapped[1])
-	const head = addr.split(':')[0]
-	if (/^f[cd]/.test(head)) return true // fc00::/7 unique-local
-	if (/^fe[89ab]/.test(head)) return true // fe80::/10 link-local
-	return false
-}
-
-function isBlockedAddress(ip: string): boolean {
-	const kind = isIP(ip)
-	if (kind === 4) return isBlockedIPv4(ip)
-	if (kind === 6) return isBlockedIPv6(ip)
-	return true // not a parseable IP → block
-}
-
-/**
- * Validate a user-supplied image URL before the server fetches it (SSRF guard,
- * T-10-15). Allows only http(s); resolves the hostname and blocks the request
- * if ANY resolved address is private/loopback/link-local/reserved, which also
- * defeats public-DNS-name → internal-IP tricks. Returns the URL to fetch, or
- * null to skip.
- */
-async function assertPublicImageUrl(rawUrl: string): Promise<URL | null> {
-	let parsed: URL
-	try {
-		parsed = new URL(rawUrl)
-	} catch {
-		return null
-	}
-	if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
-
-	const hostname = parsed.hostname.replace(/^\[|\]$/g, '') // strip IPv6 brackets
-	try {
-		if (isIP(hostname)) {
-			if (isBlockedAddress(hostname)) return null
-		} else {
-			const resolved = await lookup(hostname, { all: true })
-			if (resolved.length === 0) return null
-			if (resolved.some((r) => isBlockedAddress(r.address))) return null
-		}
-	} catch {
-		return null
-	}
-	return parsed
-}
-
 async function fetchImageAsBase64(url: string): Promise<string | null> {
-	const safeUrl = await assertPublicImageUrl(url)
+	const safeUrl = await assertPublicHttpUrl(url)
 	if (!safeUrl) return null
 	try {
 		const res = await fetch(safeUrl.href, {
@@ -155,7 +91,7 @@ async function fetchImageAsBase64(url: string): Promise<string | null> {
 		const buf = await res.arrayBuffer()
 		if (buf.byteLength > MAX_IMAGE_BYTES) return null
 		const b64 = Buffer.from(buf).toString('base64')
-		return `data:${contentType.split(';')[0].trim()};base64,${b64}`
+		return `data:${(contentType.split(';')[0] ?? 'image/png').trim()};base64,${b64}`
 	} catch {
 		return null
 	}
@@ -176,28 +112,56 @@ function truncate(text: string, maxChars: number): string {
 	return `${text.slice(0, maxChars - 1)}\u2026`
 }
 
+function wrapWords(text: string, maxCharsPerLine: number, maxLines: number): string[] {
+	const words = text.trim().split(/\s+/u).filter(Boolean)
+	if (words.length === 0) return ['']
+	const lines: string[] = []
+	let current = ''
+	for (const word of words) {
+		const candidate = current ? `${current} ${word}` : word
+		if (candidate.length <= maxCharsPerLine || current.length === 0) {
+			current = candidate
+			continue
+		}
+		lines.push(current)
+		current = word
+		if (lines.length === maxLines - 1) break
+	}
+	if (current && lines.length < maxLines) {
+		const consumed = lines.join(' ').length + (lines.length > 0 ? 1 : 0)
+		lines.push(truncate(text.slice(consumed), maxCharsPerLine))
+	}
+	return lines.slice(0, maxLines)
+}
+
 // ─── SVG composition ──────────────────────────────────────────────────────────
 
 interface RenderOptions {
 	title: string
 	description: string
 	backgroundImageUrl?: string | null
+	featureCollection?: FeatureCollection | null
+	bbox?: Bbox | null
 }
 
-async function buildSvg(opts: RenderOptions): Promise<string> {
-	const { title, description, backgroundImageUrl } = opts
+export async function generateOGImageSvg(opts: RenderOptions): Promise<string> {
+	const { title, description, backgroundImageUrl, featureCollection, bbox } = opts
 
 	const photoBgDataUrl = backgroundImageUrl ? await fetchImageAsBase64(backgroundImageUrl) : null
 	const hasPhoto = photoBgDataUrl !== null
+	const hasMap = !hasPhoto && Boolean(featureCollection || bbox)
+	const map = hasMap ? await renderOGMapSvg({ featureCollection, bbox }) : ''
 
-	const safeTitle = escapeXml(truncate(title, 58))
-	const safeDesc = escapeXml(truncate(description, 95))
-	const titleFontSize = safeTitle.length > 42 ? 38 : 46
+	const titleLines = wrapWords(truncate(title, 88), 45, 2).map(escapeXml)
+	const safeDesc = escapeXml(truncate(description, 86))
+	const titleFontSize = titleLines.length > 1 || title.length > 42 ? 38 : 46
 
 	const background = hasPhoto
 		? `<rect width="${OG_WIDTH}" height="${OG_HEIGHT}" fill="#111"/>
   <image xlink:href="${photoBgDataUrl}" x="0" y="0" width="${OG_WIDTH}" height="${OG_HEIGHT}" preserveAspectRatio="xMidYMid slice" clip-path="url(#frame)"/>`
-		: `<defs>
+		: hasMap
+			? map
+			: `<defs>
     <linearGradient id="brandBg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#0d2b1e"/>
       <stop offset="50%" stop-color="#102840"/>
@@ -212,15 +176,24 @@ async function buildSvg(opts: RenderOptions): Promise<string> {
   <circle cx="960" cy="180" r="280" fill="white" fill-opacity="0.025"/>
   <circle cx="960" cy="180" r="160" fill="white" fill-opacity="0.025"/>`
 
-	// Photo bg needs both top and bottom fade; branded bg only needs top
-	const overlays = hasPhoto
-		? `<rect width="${OG_WIDTH}" height="90" fill="url(#topFade)"/>
-  <rect y="${OG_HEIGHT - 280}" width="${OG_WIDTH}" height="280" fill="url(#bottomFade)"/>`
-		: `<rect width="${OG_WIDTH}" height="90" fill="url(#topFade)"/>`
+	// Map/photo backgrounds need a bottom readability scrim; the branded
+	// fallback already has enough contrast.
+	const overlays =
+		hasPhoto || hasMap
+			? `<rect width="${OG_WIDTH}" height="90" fill="url(#topFade)"/>
+  <rect y="${OG_HEIGHT - 260}" width="${OG_WIDTH}" height="260" fill="url(#bottomFade)"/>`
+			: `<rect width="${OG_WIDTH}" height="90" fill="url(#topFade)"/>`
 
 	// On branded bg text sits higher with a subtle divider
-	const textY = hasPhoto ? OG_HEIGHT - 100 : OG_HEIGHT - 130
-	const descY = hasPhoto ? OG_HEIGHT - 52 : OG_HEIGHT - 76
+	const hasTwoTitleLines = titleLines.length > 1
+	const textY =
+		hasPhoto || hasMap
+			? OG_HEIGHT - (hasTwoTitleLines ? 146 : 100)
+			: OG_HEIGHT - (hasTwoTitleLines ? 174 : 130)
+	const descY = hasPhoto || hasMap ? OG_HEIGHT - 52 : OG_HEIGHT - 76
+	const titleMarkup = titleLines
+		.map((line, index) => `<tspan x="48" y="${textY + index * 44}">${line}</tspan>`)
+		.join('')
 
 	return `<svg width="${OG_WIDTH}" height="${OG_HEIGHT}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
   <defs>
@@ -235,6 +208,9 @@ async function buildSvg(opts: RenderOptions): Promise<string> {
     <clipPath id="frame">
       <rect width="${OG_WIDTH}" height="${OG_HEIGHT}"/>
     </clipPath>
+    <clipPath id="map-frame">
+      <rect width="${OG_WIDTH}" height="${OG_HEIGHT}"/>
+    </clipPath>
   </defs>
 
   ${background}
@@ -246,10 +222,10 @@ async function buildSvg(opts: RenderOptions): Promise<string> {
   <ellipse cx="30" cy="40" rx="5.5" ry="11" stroke="white" stroke-width="1" fill="none" opacity="0.7"/>
   <text x="50" y="48" font-size="20" font-weight="bold" font-family="DejaVu Sans,Arial,Helvetica,sans-serif" fill="white" opacity="0.9">earthly.city</text>
 
-  ${!hasPhoto ? `<line x1="48" y1="${textY - 28}" x2="${OG_WIDTH - 48}" y2="${textY - 28}" stroke="white" stroke-opacity="0.12" stroke-width="1"/>` : ''}
+  ${!hasPhoto && !hasMap ? `<line x1="48" y1="${textY - 28}" x2="${OG_WIDTH - 48}" y2="${textY - 28}" stroke="white" stroke-opacity="0.12" stroke-width="1"/>` : ''}
 
   <!-- Title -->
-  <text x="48" y="${textY}" font-size="${titleFontSize}" font-weight="bold" font-family="DejaVu Sans,Arial,Helvetica,sans-serif" fill="white">${safeTitle}</text>
+  <text font-size="${titleFontSize}" font-weight="bold" font-family="DejaVu Sans,Arial,Helvetica,sans-serif" fill="white">${titleMarkup}</text>
 
   <!-- Description -->
   <text x="48" y="${descY}" font-size="24" font-family="DejaVu Sans,Arial,Helvetica,sans-serif" fill="white" opacity="0.75">${safeDesc}</text>
@@ -266,6 +242,8 @@ export interface OGImageOptions {
 	title: string
 	description: string
 	backgroundImageUrl?: string | null
+	featureCollection?: FeatureCollection | null
+	bbox?: Bbox | null
 }
 
 /**
@@ -278,11 +256,10 @@ export async function generateOGImagePNG(opts: OGImageOptions): Promise<Uint8Arr
 		await ensureResvg()
 		if (!ResvgClass) return null
 
-		const svg = await buildSvg(opts)
+		const svg = await generateOGImageSvg(opts)
 
-		const fontOptions = fontBuffer
-			? { loadSystemFonts: false, fontBuffers: [fontBuffer] }
-			: { loadSystemFonts: true }
+		const fontOptions =
+			fontBuffers.length > 0 ? { loadSystemFonts: false, fontBuffers } : { loadSystemFonts: true }
 
 		const resvg = new ResvgClass(svg, {
 			fitTo: { mode: 'width', value: OG_WIDTH },

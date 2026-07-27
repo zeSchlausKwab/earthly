@@ -3,6 +3,8 @@ import { decodeNaddr, isOGEventExpired, readOGExpirationSeconds } from './fetchE
 import { fetchEventFromRelay } from './relayFetch'
 
 export interface BeaconOGData {
+	eventId: string
+	createdAt: number
 	title: string
 	description: string
 	/**
@@ -81,6 +83,8 @@ export async function fetchBeaconOGData(
 	const contentExpiresAt = expirationSeconds === null ? null : expirationSeconds * 1000
 
 	return {
+		eventId: event.id,
+		createdAt: event.created_at,
 		title: title || 'Live location',
 		description: description || 'Watch this live location on Earthly',
 		contentExpiresAt,

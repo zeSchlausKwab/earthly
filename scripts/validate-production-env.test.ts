@@ -24,7 +24,9 @@ function validEnvironment(): Record<string, string> {
 		CORDN_RATE_LIMIT_IDLE_TTL_SECONDS: '3600',
 		CORDN_MAX_KEY_PACKAGES_PER_IDENTITY: '50',
 		CORDN_MAX_LAST_RESORT_KEY_PACKAGES_PER_IDENTITY: '1',
+		PUBLIC_BASE_URL: 'https://earthly.city',
 		BLOSSOM_SERVER: 'https://blossom.earthly.city',
+		SEARXNG_URL: 'http://127.0.0.1:8888',
 		MAPNOLIA_TRUSTED_PUBKEYS: '5'.repeat(64),
 	}
 }
@@ -79,6 +81,14 @@ describe('production environment validation', () => {
 		malformed.MAPNOLIA_TRUSTED_PUBKEYS = 'not-a-pubkey'
 		expect(validateProductionEnv(malformed).errors.join('\n')).toContain(
 			'MAPNOLIA_TRUSTED_PUBKEYS',
+		)
+	})
+
+	test('rejects an insecure public metadata origin', () => {
+		const env = validEnvironment()
+		env.PUBLIC_BASE_URL = 'http://earthly.city'
+		expect(validateProductionEnv(env).errors).toContain(
+			'PUBLIC_BASE_URL must use https:// in production',
 		)
 	})
 })

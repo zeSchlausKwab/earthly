@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { generateOGHtml, generateStoryOGHtml } from './template'
+import { generateGeoEventOGHtml, generateOGHtml, generateStoryOGHtml } from './template'
 
 // Regression coverage for T-10-09 (OG-HTML XSS). The Story title/summary are
 // untrusted author content and `image`/`url` can be fully attacker-controlled
@@ -64,7 +64,43 @@ describe('generateOGHtml — XSS hardening (T-10-09)', () => {
 			'https://cdn.example.com/cover.jpg',
 		)
 		expect(html).toContain('content="https://cdn.example.com/cover.jpg"')
-		expect(html).toContain('https://earthly.city/#/stories/story/naddr1abc')
+		expect(html).toContain(
+			'<meta property="og:url" content="https://earthly.city/story/naddr1abc">',
+		)
+		expect(html).toContain(
+			'window.location.href = "https://earthly.city/#/stories/story/naddr1abc"',
+		)
 		expect(html).toContain('<title>My Story | Earthly</title>')
+	})
+})
+
+describe('entity OG metadata contract', () => {
+	test('uses the clean URL as canonical while redirecting a browser into the SPA', () => {
+		const html = generateGeoEventOGHtml(
+			'https://earthly.city',
+			'naddr1dataset',
+			'Ports',
+			'Major ports',
+			undefined,
+			'a'.repeat(64),
+		)
+
+		expect(html).toContain(
+			'<link rel="canonical" href="https://earthly.city/geoevent/naddr1dataset">',
+		)
+		expect(html).toContain(
+			'<meta property="og:url" content="https://earthly.city/geoevent/naddr1dataset">',
+		)
+		expect(html).toContain(
+			'content="https://earthly.city/og/image/geoevent/naddr1dataset/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-v2"',
+		)
+		expect(html).toContain('<meta property="og:image:secure_url"')
+		expect(html).toContain('<meta property="og:image:type" content="image/png">')
+		expect(html).toContain('<meta property="og:image:width" content="1200">')
+		expect(html).toContain('<meta property="og:image:height" content="630">')
+		expect(html).toContain('<meta name="twitter:card" content="summary_large_image">')
+		expect(html).toContain(
+			'window.location.href = "https://earthly.city/#/datasets/geoevent/naddr1dataset"',
+		)
 	})
 })

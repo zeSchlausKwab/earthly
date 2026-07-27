@@ -39,6 +39,7 @@ import { useTimeline } from '@/lib/nostr/hooks'
 import { useGeoReactions, type ReactableEvent } from '../hooks/useGeoReactions'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { normalizeLightningUri, openExternalProtocol } from '@/platform/externalProtocol'
+import { earthlyPublicUrl } from '@/platform/publicUrl'
 
 interface GeoSocialActionsProps {
 	/** Any Nostr event that can receive reactions */
@@ -558,10 +559,8 @@ export function GeoSocialActions({
 			return
 		}
 
-		const shareUrl = new URL(sharePath, window.location.origin)
-
 		try {
-			await navigator.clipboard.writeText(shareUrl.toString())
+			await navigator.clipboard.writeText(earthlyPublicUrl(sharePath))
 			toast.success('Share link copied')
 		} catch (error) {
 			console.error('Failed to copy share link:', error)

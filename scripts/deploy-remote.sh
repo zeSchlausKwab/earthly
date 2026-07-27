@@ -55,6 +55,9 @@ echo "Installing frozen production dependencies..."
 bun install --frozen-lockfile --production
 bun --env-file=.env scripts/validate-production-env.ts
 
+echo "Preflighting production server imports..."
+bun -e "await import('./src/lib/og/index.ts')"
+
 echo "Building Earthly relay..."
 (cd relay && CGO_ENABLED=1 go build -o relay .)
 
