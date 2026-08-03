@@ -16,6 +16,8 @@ import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import { extractReferencedCoordinates, setAddressReferenceTags } from '@/lib/nostr/references'
 import { noteSessionPublish } from '@/lib/nostr/sessionPublishes'
 import type { SchemaRuleError } from '@/lib/validation/schema.worker'
+import { privateDatasetStackEntryId } from '@/features/private-maps/privateDatasetStack'
+import { fieldDatasetStackEntryId } from '@/features/field-sessions/fieldDatasetStack'
 import type { EditorFeature } from '../core'
 import { useEditorStore, type SidebarViewMode } from '../store'
 import type { EditorBlobReference } from '../types'
@@ -190,6 +192,9 @@ export function usePublishing({
 	const setMode = useEditorStore((state) => state.setMode)
 	const setViewMode = useEditorStore((state) => state.setViewMode)
 	const setViewDataset = useEditorStore((state) => state.setViewDataset)
+	const setStance = useEditorStore((state) => state.setStance)
+	const addMapStackEntry = useEditorStore((state) => state.addMapStackEntry)
+	const removeMapStackEntry = useEditorStore((state) => state.removeMapStackEntry)
 
 	// Blossom dialog state
 	const setBlossomUploadDialogOpen = useEditorStore((state) => state.setBlossomUploadDialogOpen)
@@ -495,11 +500,47 @@ export function usePublishing({
 	// the catalog with a stale "Failed to publish" error (workflow audit P1).
 	const switchToDatasetViewMode = useCallback(
 		(dataset: GeoDataset) => {
+			// A successful save ends the map's draft representation and restores the
+			// saved dataset under the same scope-specific identity used by stack
+			// reconciliation. This keeps public, private, and nearby saves single-row.
+			removeMapStackEntry('draft:active')
+			const datasetKey = getDatasetKey(dataset)
+			const scopedEntry = privateWorkspaceId
+				? {
+						id: privateDatasetStackEntryId(privateWorkspaceId, datasetKey),
+						source: 'private-group' as const,
+					}
+				: fieldSessionId
+					? {
+							id: fieldDatasetStackEntryId(fieldSessionId, datasetKey),
+							source: 'field-session' as const,
+						}
+					: { source: 'route' as const }
+			addMapStackEntry({
+				...scopedEntry,
+				entityType: 'dataset',
+				entityKey: datasetKey,
+				title: getDatasetName(dataset),
+				visible: true,
+				pinned: false,
+			})
 			setMode('select')
 			setViewMode('view')
 			setViewDataset(dataset)
+			setStance('focus')
 		},
-		[setMode, setViewMode, setViewDataset],
+		[
+			addMapStackEntry,
+			fieldSessionId,
+			getDatasetKey,
+			getDatasetName,
+			privateWorkspaceId,
+			removeMapStackEntry,
+			setMode,
+			setStance,
+			setViewDataset,
+			setViewMode,
+		],
 	)
 
 	const finishWorkspaceDatasetSave = useCallback(

@@ -32,6 +32,7 @@ export const createMapSourceSlice: StateCreator<EditorState, [], [], MapSourceSl
 	mapSource: initialMapSource(),
 	showMapSettings: false,
 	pointClusteringEnabled: false,
+	calloutsEnabled: true,
 	geometryPointProxyEnabled: false,
 
 	mapLayers: [],
@@ -66,6 +67,7 @@ export const createMapSourceSlice: StateCreator<EditorState, [], [], MapSourceSl
 	},
 	setShowMapSettings: (showMapSettings) => set({ showMapSettings }),
 	setPointClusteringEnabled: (pointClusteringEnabled) => set({ pointClusteringEnabled }),
+	setCalloutsEnabled: (calloutsEnabled) => set({ calloutsEnabled }),
 	setGeometryPointProxyEnabled: (geometryPointProxyEnabled) => set({ geometryPointProxyEnabled }),
 
 	setMapLayers: (mapLayers) => set({ mapLayers }),

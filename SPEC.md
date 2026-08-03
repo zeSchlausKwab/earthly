@@ -160,6 +160,59 @@ Individual features inside the FeatureCollection MAY carry canonical style prope
 - The namespace prefix is forward-compatible: a later phase may add a remote-URL namespace (`https://…` icon sources). Clients MUST treat unrecognized namespaces/names as "no icon they can resolve" and MUST fall back to a **visible** default marker — a point with an unknown `displayIcon` must never disappear from the map.
 - `displayIcon` composes with the other point style properties: `radius` scales the icon footprint, and `label` still renders. The reference renderer derives the glyph and the ring around the backing disc from `strokeColor` (white when unset) and fills the disc itself with `color`, so per-feature category colors stay visible on iconed points.
 
+### 1.8 Map callouts (`Feature.properties["earthly:callouts"]`)
+
+A Feature MAY own authored contextual cards that are presented on the map without hover or selection. A callout is content of its subject Feature: it is not a new Nostr kind, a synthetic GeoJSON Feature, or an annotation geometry. The canonical property is an array so one Feature can own any number of callouts:
+
+```json
+{
+  "earthly:callouts": [
+    {
+      "id": "north-entrance",
+      "title": "Access",
+      "text": "Use the north entrance. See nostr:naddr1…#trailhead",
+      "media": [
+        {
+          "url": "https://blossom.example/abc.jpg",
+          "mimeType": "image/jpeg",
+          "sha256": "abc…",
+          "dimensions": "1600x900",
+          "alt": "North entrance"
+        }
+      ],
+      "placement": {
+        "side": "right",
+        "offset": [12, -8],
+        "leader": "line"
+      }
+    }
+  ]
+}
+```
+
+#### 1.8.1 Content
+
+- `id` and `text` are REQUIRED strings. `id` MUST be unique among callouts on the owning Feature and SHOULD remain stable across edits.
+- `title` is an OPTIONAL short string. `text` is plain authored text; Markdown support is not required.
+- `text` MAY contain the same NIP-21 dataset/feature references used by comments: `nostr:naddr1…` and `nostr:naddr1…#featureId`. Clients SHOULD render recognized references as interactive show/hide and zoom targets.
+- `media` is an OPTIONAL ordered list. Each item MUST have `url`; `mimeType`, `sha256`, `size`, `dimensions`, `alt`, `blurhash`, and `thumbnailUrl` are optional. Images and videos are supported. Publishers SHOULD mirror unique callout media into the Dataset event's NIP-92 `imeta` tags (§7.3); the Feature property remains authoritative for which media belongs to which callout.
+- Clients MUST preserve unknown callout fields for forward compatibility when editing is lossless at the containing GeoJSON level.
+
+#### 1.8.2 Authored placement
+
+- The owning geometry is the geographic anchor. A renderer SHOULD choose a representative visible portion of that geometry; it MUST NOT persist a second anchor coordinate merely to follow pan/zoom.
+- `placement.side` is OPTIONAL and one of `auto`, `top`, `right`, `bottom`, or `left`. It is a preference, not an absolute layout guarantee.
+- `placement.offset` is OPTIONAL `[x,y]` in CSS pixels relative to the preferred screen placement. It is intentionally screen-space so the card remains readable across zoom levels.
+- `placement.leader` is OPTIONAL and one of `line` or `none`. A leader is derived presentation between geometry and card; it is not a persisted LineString. This is independent of line-feature arrowheads (`arrowStart`/`arrowEnd`).
+
+#### 1.8.3 Responsive presentation
+
+- Authored callout count is unlimited. Clients MUST NOT delete, truncate, or rewrite callout content because a map is dense.
+- When the owning geometry has no visible representative point, its callout is hidden. When visible, a renderer MAY flip or clamp the card into the safe viewport and MAY transition it among `full`, `compact`, and `collapsed` display states when the full card would be unreadable or collide. These states are transient and MUST NOT modify the Feature property.
+- Selected or explicitly expanded callouts SHOULD be brought forward and shown full when the viewport can contain them.
+- Text uses readable screen-space sizing. It SHOULD remain fixed across normal zoom changes rather than continuously shrinking with geographic scale.
+- A map-level callout visibility toggle affects local presentation only and MUST NOT change authored content.
+
 ---
 
 ## 2 Geo Comment (kind 37517)
@@ -378,20 +431,20 @@ The disjointness rule is enforced at write time, not merely documented: `setLabe
 
 ### 7.3 Media attachments (NIP-92 `imeta`)
 
-Entities that support image attachments (Live Beacon §5.1, Temporal Sighting §6.1, and
-optionally Story §4 for the cover image) use NIP-92 `imeta` tags — one tag per image, each a
+Entities that support media attachments (Live Beacon §5.1, Temporal Sighting §6.1,
+Dataset callouts §1.8, and optionally Story §4 for the cover image) use NIP-92 `imeta` tags — one tag per attachment, each a
 list of space-delimited `key value` fields:
 
 `["imeta", "url <https-url>", "m <mime>", "x <sha256-hex>", "dim <width>x<height>", "blurhash <hash>"]`
 
 - `url` is mandatory; all other fields are optional but recommended (`dim` for layout,
   `x` for Blossom-verifiable integrity, `blurhash` for placeholders).
-- **Order is meaningful: the first `imeta` tag is the primary image.** Re-ordering tags is how
+- **Order is meaningful: the first `imeta` tag is the primary attachment.** Re-ordering tags is how
   a publisher changes the primary.
-- Images SHOULD be hosted on a Blossom server (default `blossom.earthly.city`, which caps
+- Media SHOULD be hosted on a Blossom server (default `blossom.earthly.city`, which caps
   uploads at ~1 MB after client-side downscaling); the `x` field then equals the Blossom blob
   hash, so any BUD-compatible server can serve the file.
-- Clients MUST render entities normally when images fail to load.
+- Clients MUST render entities normally when media fails to load.
 
 ---
 

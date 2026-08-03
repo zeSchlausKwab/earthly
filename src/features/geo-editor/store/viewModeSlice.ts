@@ -42,8 +42,8 @@ export const createViewModeSlice: StateCreator<EditorState, [], [], ViewModeSlic
 		set((state) => {
 			const hasFocus = route.focusType !== 'none'
 			// "Edit session live" = the `draft:active` map-stack entry exists. It is
-			// added in exactly one place (applyEditingState) and removed in exactly
-			// one (tearDownEditSession) — the Phase 1.4 invariant — so it is the one
+			// added by applyEditingState and removed by teardown or a successful
+			// publish replacement, so it is the one
 			// honest signal that the geometry editor owns a draft. (Note:
 			// `activeGeoEditDraftId` is only ever cleared, never assigned, so it
 			// cannot serve as this signal.)

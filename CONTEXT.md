@@ -50,6 +50,16 @@ The indicator's close action leaves the current destination or scope while prese
 - **Workspace** — overloaded across local drafts, MLS groups, field sessions, and AI chat. Keep it internal unless referring to a specific legacy type.
 - **Isolated** for destination — reserved for Map Stack visibility. Use **Unattached** when a public record has no Context.
 
+## Map content language
+
+**Map callout**:
+An author-owned contextual card attached to a geometry and presented on the map without requiring hover or selection. The geometry owns its callouts; compact, collapsed, or hidden states are local presentation only.
+_Avoid_: Annotation, popup, overlay box
+
+**Annotation**:
+A text-bearing point geometry whose map position is its authored subject. Unlike a map callout, it is geometry rather than contextual content owned by another geometry.
+_Avoid_: Callout
+
 ## Experience development language
 
 **Test identity**:

@@ -34,4 +34,5 @@ export const NON_CUSTOM_EDITOR_PROPERTY_KEYS = new Set([
 	'textHaloWidth',
 	'displayIcon',
 	'primitiveShape',
+	'earthly:callouts',
 ])

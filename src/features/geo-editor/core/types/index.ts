@@ -1,5 +1,13 @@
 import type { Feature, FeatureCollection, GeoJsonProperties, Geometry, Position } from 'geojson'
 import type { Map, MapMouseEvent, MapTouchEvent } from 'maplibre-gl'
+import type { MapCallout } from '@/lib/geo/callouts'
+
+export type {
+	MapCallout,
+	MapCalloutLeader,
+	MapCalloutMedia,
+	MapCalloutSide,
+} from '@/lib/geo/callouts'
 
 export type EditorMode =
 	| 'draw_point'
@@ -86,6 +94,7 @@ export interface EditorFeature extends Feature {
 
 		// Label (all geometry types)
 		label?: string // Text label displayed at centroid
+		'earthly:callouts'?: MapCallout[]
 
 		// ============================================================================
 		// Annotation-specific properties (flat for MapLibre compatibility)

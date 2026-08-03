@@ -15,6 +15,7 @@ import {
 	MapPin,
 	Magnet,
 	MessageCircle,
+	MessageSquarePlus,
 	Merge,
 	Minus,
 	Moon,
@@ -135,6 +136,12 @@ interface ToolbarProps {
 	chatOpen?: boolean
 	onToggleMapStack?: () => void
 	onToggleChat?: () => void
+	/** Start or cancel creation of a map callout. */
+	onOpenSelectedCallout?: () => void
+	selectedFeatureCount?: number
+	selectedFeatureHasCallout?: boolean
+	calloutComposerActive?: boolean
+	calloutAnchorDrawing?: boolean
 	/** E.3: exits the Focus stance — wired to the interactive stance pill. */
 	onExitFocus?: () => void
 	destination?: ResolvedAuthoringDestination
@@ -409,6 +416,11 @@ export function Toolbar({
 	chatOpen = false,
 	onToggleMapStack,
 	onToggleChat,
+	onOpenSelectedCallout,
+	selectedFeatureCount = 0,
+	selectedFeatureHasCallout = false,
+	calloutComposerActive = false,
+	calloutAnchorDrawing = false,
 	onExitFocus,
 	destination,
 	onActivateDestination,
@@ -1420,6 +1432,47 @@ export function Toolbar({
 
 					{/* Topic 5: file / draw / edit menus (priority-expanding) */}
 					{desktopCommandMenubar}
+					{isAuthoring ? (
+						<TooltipProvider>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<Button
+										type="button"
+										variant={calloutComposerActive || calloutAnchorDrawing ? 'default' : 'outline'}
+										size="icon-sm"
+										onClick={onOpenSelectedCallout}
+										aria-label={
+											calloutAnchorDrawing
+												? 'Cancel callout anchor'
+												: calloutComposerActive
+													? 'Cancel new map callout'
+													: selectedFeatureHasCallout
+														? 'Add another map callout'
+														: 'Add map callout'
+										}
+										className="h-8 w-8 shrink-0 rounded-none"
+									>
+										<MessageSquarePlus className="h-3.5 w-3.5" />
+									</Button>
+								</TooltipTrigger>
+								<TooltipContent side="bottom" sideOffset={8}>
+									<p>
+										{calloutAnchorDrawing
+											? 'Cancel callout anchor'
+											: calloutComposerActive
+												? 'Cancel new map callout'
+												: selectedFeatureCount === 0
+													? 'Draw a point anchor and add a map callout'
+													: selectedFeatureCount > 1
+														? 'Select a single geometry to add a map callout'
+														: selectedFeatureHasCallout
+															? 'Add another map callout'
+															: 'Add map callout'}
+									</p>
+								</TooltipContent>
+							</Tooltip>
+						</TooltipProvider>
+					) : null}
 
 					{/* Grow-spacer: once the priority-expanding menus can't grow any
 					    further, this invisible element takes the slack and pushes the

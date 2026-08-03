@@ -33,6 +33,7 @@ import { registerEntityTools } from './entity-tools'
 import { registerGeoAwarenessTools } from './geo-awareness-tools'
 import { registerStoryTools } from './story-tools'
 import { registerGeometryTools } from './geometry-tools'
+import { registerCalloutTools } from './callout-tools'
 import { registerIngestTools } from './ingest-tools'
 import { registerPrimitiveTools } from './primitives-tools'
 import { registerSearchTools } from './search-tools'
@@ -1150,6 +1151,7 @@ function bootstrapRegistry(): void {
 	// `./registry` back, so this edge is one-way and does not form the Phase-2
 	// circular-init cycle (Pitfall 6).
 	registerGeometryTools(register)
+	registerCalloutTools(register)
 	// Same injected-`register` idiom: search-tools registers search_entities +
 	// query_entities_in_area (host-builtin relay queries over the src/lib/search
 	// facade). It imports ONLY a type from `./registry` back (one-way edge).

@@ -255,6 +255,20 @@ export function useDatasetManagement(
 			blobReferences: GeoBlobReference[]
 		}) => {
 			if (!editor) return
+			// The editable draft replaces its published source on the map. Keeping both
+			// stack entries renders the same geometry (and its callouts) twice while the
+			// author is editing. Match by entityKey rather than entry id so scoped
+			// private/field dataset rows are suspended as well as ordinary public rows.
+			if (activeDataset) {
+				const activeDatasetKey = getDatasetKey(activeDataset)
+				const stack = useEditorStore.getState()
+				for (const id of stack.mapStackOrder) {
+					const entry = stack.mapStackEntries[id]
+					if (entry?.entityType === 'dataset' && entry.entityKey === activeDatasetKey) {
+						removeMapStackEntry(id)
+					}
+				}
+			}
 			setActiveGeoEditDraftId(null)
 			editor.setFeatures(features)
 			setFeatures(features)
@@ -318,6 +332,8 @@ export function useDatasetManagement(
 			setStance,
 			addMapStackEntry,
 			getDatasetName,
+			getDatasetKey,
+			removeMapStackEntry,
 		],
 	)
 
@@ -694,11 +710,12 @@ export function useDatasetManagement(
 		],
 	)
 
-	// Phase 1.1: the single, complete edit-session teardown. Previously split
+	// Phase 1.1: the single, complete cancelled/stopped edit-session teardown. Previously split
 	// across `clearEditingSession` (full teardown, but no viewMode reset) and
 	// `cancelEditing` (reset viewMode/viewDataset, but left `draft:active` on
 	// the stack AND stance on author — bug 3.6). This unifies both: it is the
-	// ONLY place `draft:active` is removed (the draft invariant, Phase 1.4).
+	// normal place `draft:active` is removed (the successful publish transition
+	// also replaces it with the saved dataset row; see usePublishing).
 	const tearDownEditSession = useCallback(() => {
 		if (!editor) return
 		setActiveGeoEditDraftId(null)
