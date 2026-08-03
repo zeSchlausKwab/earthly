@@ -1,10 +1,8 @@
 /**
  * THE canonical geohash implementation for the seeding pipeline.
  *
- * Historically this bit-interleaving encoder was copy-pasted verbatim into
- * scripts/seed.ts, scripts/gen_geo_events.ts and scripts/seed_canonical_data.ts
- * (and privately into src/lib/nostr/geo-event/helpers.ts). Seed code imports it
- * from here and nowhere else.
+ * The retired seed scripts once carried copies of this encoder. The unified
+ * seeder imports it from here and nowhere else.
  */
 
 const BASE32 = '0123456789bcdefghjkmnpqrstuvwxyz'

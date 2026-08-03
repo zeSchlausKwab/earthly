@@ -229,11 +229,13 @@ function FeatureRow({
 				{callouts.length > 0 ? (
 					<span
 						className="flex items-center gap-1 rounded-sm bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-						aria-label={`${callouts.length} map callout${callouts.length === 1 ? '' : 's'}`}
 						title={`${callouts.length} map callout${callouts.length === 1 ? '' : 's'}`}
 					>
-						<MessageSquare className="h-3 w-3" />
-						{callouts.length}
+						<MessageSquare className="h-3 w-3" aria-hidden="true" />
+						<span aria-hidden="true">{callouts.length}</span>
+						<span className="sr-only">
+							{callouts.length} map callout{callouts.length === 1 ? '' : 's'}
+						</span>
 					</span>
 				) : null}
 

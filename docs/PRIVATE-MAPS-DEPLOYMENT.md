@@ -20,7 +20,7 @@ public key; the matching private key exists only in the VPS `.env` and Cordn pro
 
 ## Prepare configuration
 
-1. Copy `.env.deploy.example` to `.env` and set the SSH target.
+1. Copy `.env.deploy.example` to `.env.deploy` and set the SSH target.
 2. Copy `.env.production.example` to `.env.production`.
 3. Generate two distinct secp256k1 keypairs: one for Earthly's geo ContextVM server and one for
    Cordn. Never reuse an account key or the public local-development scalar `1`.
@@ -30,7 +30,7 @@ public key; the matching private key exists only in the VPS `.env` and Cordn pro
 
 ```bash
 bun --env-file=.env.production scripts/validate-production-env.ts
-./scripts/deploy.sh --check
+bun run deploy:check
 ```
 
 `--check` validates both environment files and the deployment shell without building, connecting to
@@ -58,11 +58,18 @@ The deploy user needs these commands on `PATH`:
 
 - Bun and PM2;
 - Go with CGO support for the Earthly relay;
-- Caddy, with permission to replace/reload its configuration;
+- Caddy with a readable, valid configuration and an active systemd service;
+- Docker and its Compose plugin for private loopback SearXNG;
 - `curl`, `tar`, `sha256sum`, and standard GNU userland tools.
 
 The deployment directory defaults to `/var/www/earthly`. The deploy user must be able to write it.
-No Docker daemon, root access, or public HTTP endpoint is needed for Cordn.
+No public HTTP endpoint is needed for Cordn. Run `bun run setup:vps` to prepare
+the release/shared directories and audit these prerequisites before the first deploy.
+
+Caddy remains administrator-managed VPS infrastructure. Application deployments
+do not overwrite `/etc/caddy/Caddyfile`; this preserves the independently managed
+Blossom route and TLS settings. Change and reload Caddy explicitly when public
+routes actually change.
 
 ## Deploy
 
@@ -70,27 +77,31 @@ No Docker daemon, root access, or public HTTP endpoint is needed for Cordn.
 bun run deploy
 ```
 
-The local deploy script validates the production environment before building, creates the browser
-bundle with the validated Cordn public key, uploads the release and production environment over
-SSH, then runs the remote activation script.
+The local deploy script validates the production environment before building,
+stages only runtime files known to Git plus the generated browser bundle, rejects
+environment files and ignored relay output, uploads SHA-256 checksums for every
+deployment input, and then runs the remote activation script.
 
 Remote activation:
 
+- verifies the uploaded archive, production environment, activator, and optional
+  Mapnolia configuration checksums and rejects unsafe archive paths;
+- extracts into a new release directory without changing the active release;
 - installs exactly `bun.lock` with production dependencies;
 - builds the Go relay;
 - restarts only `earthly-*` PM2 processes, leaving unrelated VPS apps untouched;
-- downloads the architecture-specific `cordn-rs` v0.4.0 release and verifies its pinned SHA-256;
+- downloads pinned, checksum-verified Cordn v0.4.0, Mapnolia v0.1.3, and PMTiles v1.29.1 binaries into the shared cache;
 - supervises `earthly-cordn` with PM2 using SQLite storage and abuse limits;
-- preserves `data/cordn/` outside release archives across application deployments;
+- preserves logs, binary caches, and the SearXNG secret under `$VPS_PATH/shared`;
+- references existing legacy relay, Cordn, backup, and Mapnolia stores in place
+  instead of copying live databases or large tile stores during first activation;
 - stops Cordn and writes a consistent compressed SQLite-directory snapshot before replacing its
   process. Snapshots live in `backups/cordn/` and default to 14-day retention.
 - retains the previous versioned Cordn binary and restores it automatically when replacement startup
   fails;
-- downloads Mapnolia beside the live executable and replaces it atomically, avoiding partial binaries
-  and replacement failures while the previous process is still running;
-- keeps the currently served browser entrypoint active while the release is prepared, verifies the
-  generated module asset, and switches the HTML atomically only after all five PM2 services and the
-  loopback web endpoint remain ready across consecutive checks.
+- starts the staged release and observes all five PM2 processes plus the web and SearXNG endpoints;
+- changes `$VPS_PATH/current` only after successful health observations;
+- restores the previous runtime automatically after a failed activation and retains it for `bash ops/vps/rollback.sh`.
 
 ## Verify
 
@@ -99,7 +110,7 @@ On the VPS:
 ```bash
 pm2 list
 pm2 logs earthly-cordn --lines 100
-test -s /var/www/earthly/data/cordn/cordn.sqlite
+test -s /var/www/earthly/shared/data/cordn/cordn.sqlite
 ```
 
 Then verify `https://earthly.city`, `wss://relay.earthly.city`, and the complete private-group flow
@@ -118,5 +129,4 @@ available.
 - Cordn stores opaque MLS ciphertext and routing metadata, not map plaintext or epoch secrets.
 - Browser MLS state remains origin-bound IndexedDB state. This web release makes no Tauri or
   hardware-backed storage claim.
-- The Mapnolia binary is still fetched from its latest GitHub release by the existing deployment
-  path. Pinning it by version and checksum is a separate supply-chain hardening item.
+- Update pinned native tool versions and all architecture-specific checksums in the same reviewed change.

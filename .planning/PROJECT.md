@@ -160,14 +160,14 @@ If we ship clean orchestration + classical utility but no AI demo, this project 
 - **Comments side-rail / shelf badge** — Per `UX_REWRITE.md` §9. Comments stay in current inspector location.
 - **"Curate from Nostr corpus" as a primary AI use case** — Data-starved. The Nostr corpus is not dense enough for "find Roman ruins in Carinthia" to return interesting results today. Keep the plumbing; don't demo it.
 - **Rewriting stable components in isolation** — This was the failure mode of the previous attempt. List components, panel shells, form components are fine in isolation. Amend orchestration; don't reimplement leaves.
-- **Seed-script migration off NDK** — NDK compat shim works; this is separate cleanup tracked in `.planning/codebase/CONCERNS.md`.
+- **Seed-script migration off NDK (resolved 2026-08-03)** — the unified seeder no longer uses the retired NDK compatibility shim; the archived scripts and shim were removed during repository housekeeping.
 - **Two-tier UI (casual mode vs power mode)** — Considered and rejected. "Visible but ignorable" is the chosen path. Don't fork the UI.
 
 ## Context
 
 - **v1.1 AI Chat shipped 2026-06-23** (7 phases, 33 plans, 64 tasks). New runtime surface: a QuickJS-WASM-in-Worker code sandbox, off-thread ingest workers (papaparse + exceljs), turf-based geometry primitives/optimization, and the repo's first `bun:test` suite (grown alongside the milestone). Provider settings are now encrypted-to-self in localStorage. Two debug sessions and a Phase 06 verification flag remain open for live in-browser human confirmation only (see STATE.md → Deferred Items); the implementations carry regression tests.
 - **Established app, not greenfield**. Earthly has been running. The codebase is mapped in `.planning/codebase/` (refreshed 2026-05-24). Validated requirements above were inferred from that map.
-- **Applesauce migration is done** for the main app. Seed scripts still import NDK through a compat shim — tracked separately, not in this project.
+- **Applesauce migration is done** for the main app and unified seeder. The retired NDK seed compatibility path was removed on 2026-08-03.
 - **`UX_REWRITE.md` (repo root)** is the locked design spec for the orchestration cleanup. Design locked on 2026-05-08. It is the binding spec for Pillar 1.
 - **Previous UX rewrite attempt failed** because the executing agent reimplemented stable components (lists, panels) instead of amending orchestration. The current branch (`feature/new-ux-applesauce`) carries some of that work; we will salvage selectively.
 - **The maintainer cannot dogfood the app right now** because the UX is too confusing to be enjoyable. This is the lever for prioritizing Pillar 1 above Pillar 3.

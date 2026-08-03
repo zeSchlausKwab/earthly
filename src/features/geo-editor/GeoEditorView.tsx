@@ -2386,14 +2386,14 @@ export function GeoEditorView() {
 		stance,
 		viewMode,
 	])
-	const visibleCalloutDatasets = useMemo(
-		() =>
-			visibleGeoEvents.map((event) => ({
-				key: getDatasetKey(event),
-				collection: resolvedCollectionResolver(event) ?? event.featureCollection,
-			})),
-		[visibleGeoEvents, getDatasetKey, resolvedCollectionResolver, resolvedCollectionsVersion],
-	)
+	const visibleCalloutDatasets = useMemo(() => {
+		// Resolved collections live outside React; this counter invalidates the derived list.
+		void resolvedCollectionsVersion
+		return visibleGeoEvents.map((event) => ({
+			key: getDatasetKey(event),
+			collection: resolvedCollectionResolver(event) ?? event.featureCollection,
+		}))
+	}, [visibleGeoEvents, getDatasetKey, resolvedCollectionResolver, resolvedCollectionsVersion])
 
 	// Phase 13 (SPEC §3.2): sightings/beacons render from STACK MEMBERSHIP, not
 	// unconditionally. These mirror `visibleGeoEvents` — an aggregate `*-layer`

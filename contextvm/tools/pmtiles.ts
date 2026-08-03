@@ -8,7 +8,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, rm, stat } from "node:fs/promises";
+import { access, mkdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 // PMTiles source - will be loaded from global basemap
@@ -19,22 +19,20 @@ const PROJECT_ROOT = join(import.meta.dir, "..", "..");
 
 /**
  * Get the path to the pmtiles binary based on platform.
- * - Mac (darwin): uses pmtiles-cli at project root (for development)
- * - Linux: uses contextvm/bin/pmtiles-linux-amd64 (for production)
+ * Production sets PMTILES_CLI_PATH to its verified release binary. Local
+ * development uses the pinned tool cache populated by `bun run tools:pmtiles`.
  */
 function getPmtilesBinPath(): string {
-	const platform = process.platform;
-	
-	if (platform === "darwin") {
-		// Mac development: use pmtiles-cli at project root
-		return join(PROJECT_ROOT, "pmtiles-cli");
-	} else if (platform === "linux") {
-		// Linux production: use contextvm/bin binary
-		return join(import.meta.dir, "..", "bin", "pmtiles-linux-amd64");
-	} else {
-		// Fallback: try project root
-		return join(PROJECT_ROOT, "pmtiles-cli");
-	}
+	if (process.env.PMTILES_CLI_PATH) return process.env.PMTILES_CLI_PATH;
+	const architecture = process.arch === "x64" ? "amd64" : process.arch;
+	return join(
+		PROJECT_ROOT,
+		".cache",
+		"tools",
+		"pmtiles-v1.29.1",
+		`${process.platform}-${architecture}`,
+		"pmtiles",
+	);
 }
 
 // Temp directory for extractions
@@ -251,6 +249,13 @@ async function runPmtilesExtract(args: {
 	];
 
 	const pmtilesBin = getPmtilesBinPath();
+	try {
+		await access(pmtilesBin);
+	} catch {
+		throw new Error(
+			`PMTiles CLI is not installed at ${pmtilesBin}. Run \`bun run tools:pmtiles\` before using map extraction.`,
+		);
+	}
 	const proc = spawn(pmtilesBin, childArgs, {
 		stdio: ["ignore", "pipe", "pipe"],
 	});

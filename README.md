@@ -140,6 +140,7 @@ relay/                       Public Go relay and geo search index
 contextvm/                   Earthly geo/web MCP server over Nostr
 ai-suite/                    Browser tasks and Playwright scenarios
 android-suite/               Deterministic Android emulator tests
+ops/vps/                     Deployment, activation, runtime, and rollback module
 docs/                        Architecture, native, deployment, and operations docs
 ```
 
@@ -170,6 +171,10 @@ bun run dev
 This command starts the local Go relay on `ws://localhost:3334`, resets and seeds it, starts the ContextVM server, starts a pinned Cordn-compatible coordinator, and runs the Bun/React development server at `http://localhost:3000`.
 
 > `bun run dev` intentionally resets the local development relay. Do not point this workflow at a public relay or use it for durable local data.
+
+Preview ignored build/test output that can be reclaimed with `bun run clean:artifacts`.
+Removal is explicit via `bun run clean:artifacts:apply`; source files, tool caches,
+downloaded basemaps, and relay data are outside that command's target list.
 
 The local script does not launch a Blossom server. Network image/file operations use the configured Blossom URL; production-safe defaults are applied outside a loopback browser origin.
 

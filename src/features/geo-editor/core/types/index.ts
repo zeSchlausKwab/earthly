@@ -1,5 +1,5 @@
-import type { Feature, FeatureCollection, GeoJsonProperties, Geometry, Position } from 'geojson'
-import type { Map, MapMouseEvent, MapTouchEvent } from 'maplibre-gl'
+import type { Feature, GeoJsonProperties, Position } from 'geojson'
+import type { Map as MapLibreMap } from 'maplibre-gl'
 import type { MapCallout } from '@/lib/geo/callouts'
 
 export type {
@@ -157,7 +157,7 @@ export interface EditorEvent {
 export type EditorEventHandler = (event: EditorEvent) => void
 
 export interface IManager {
-	onAdd(map: Map): void
+	onAdd(map: MapLibreMap): void
 	onRemove(): void
 }
 
