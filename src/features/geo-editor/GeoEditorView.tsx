@@ -2,6 +2,7 @@ import { useActiveAccount } from 'applesauce-react/hooks'
 import { castEvent } from 'applesauce-core/casts'
 import {
 	BookOpen,
+	CircleDot,
 	Database,
 	Download,
 	Eye,
@@ -13,10 +14,12 @@ import {
 	Map as MapIcon,
 	MapPin,
 	MapPinned,
+	Maximize2,
 	MessageSquare,
 	MessageSquareOff,
 	MessageSquarePlus,
 	Menu,
+	Minimize2,
 	MousePointer2,
 	PanelTopOpen,
 	Plus,
@@ -130,6 +133,11 @@ import type { MapPopupPlacement } from './components/map-popup-positioning'
 import { UserLocationMarker } from './components/UserLocationMarker'
 import { EntityPinBubbles } from './components/map/EntityPinBubbles'
 import { MapCallouts } from './callouts/MapCallouts'
+import {
+	calloutDisplayModeActionLabel,
+	nextCalloutDisplayMode,
+	type CalloutDisplayMode,
+} from './callouts/layout'
 import { getFeatureCallouts, withFeatureCallouts, type MapCallout } from '@/lib/geo/callouts'
 import { MobileMapActions } from './components/MobileMapActions'
 import { SightingPlacementPreview } from './components/SightingPlacementPreview'
@@ -353,6 +361,10 @@ export function GeoEditorView() {
 	const [deletingKey, setDeletingKey] = useState<string | null>(null)
 	const [resolvedCollectionsVersion, setResolvedCollectionsVersion] = useState(0)
 	const [mapPopupsEnabled, setMapPopupsEnabled] = useState(true)
+	const [calloutDisplayMode, setCalloutDisplayMode] = useState<CalloutDisplayMode>('full')
+	const cycleCalloutDisplayMode = useCallback(() => {
+		setCalloutDisplayMode(nextCalloutDisplayMode)
+	}, [])
 	const [mapPopupPlacement, setMapPopupPlacement] = useState<MapPopupPlacement>('dock')
 	// Mutable intent flag shared by the generic mobile-drawing guidance and the
 	// later Sighting controller. Sighting pin-drop has its own tap-specific prompt;
@@ -4118,12 +4130,27 @@ export function GeoEditorView() {
 							<ControlButton
 								onClick={() => setCalloutsEnabled(!calloutsEnabled)}
 								label={calloutsEnabled ? 'Hide map callouts' : 'Show map callouts'}
+								pressed={calloutsEnabled}
 							>
 								<MapPin className="h-4 w-4" />
 							</ControlButton>
 							<ControlButton
+								onClick={cycleCalloutDisplayMode}
+								label={calloutDisplayModeActionLabel(calloutDisplayMode)}
+								disabled={!calloutsEnabled}
+							>
+								{calloutDisplayMode === 'full' ? (
+									<Maximize2 className="h-4 w-4" />
+								) : calloutDisplayMode === 'compact' ? (
+									<Minimize2 className="h-4 w-4" />
+								) : (
+									<CircleDot className="h-4 w-4" />
+								)}
+							</ControlButton>
+							<ControlButton
 								onClick={() => setMapPopupsEnabled((current) => !current)}
 								label={mapPopupsEnabled ? 'Disable map popups' : 'Enable map popups'}
+								pressed={mapPopupsEnabled}
 							>
 								{mapPopupsEnabled ? (
 									<MessageSquare className="h-4 w-4" />
@@ -4141,6 +4168,7 @@ export function GeoEditorView() {
 										: 'Show popups above geometry'
 								}
 								disabled={!mapPopupsEnabled}
+								pressed={mapPopupPlacement === 'dock'}
 							>
 								{mapPopupPlacement === 'geometry' ? (
 									<MapPinned className="h-4 w-4" />
@@ -4153,7 +4181,13 @@ export function GeoEditorView() {
 						// Mobile browse/inspect: desktop-toolbar parity actions (search,
 						// location lookup, theme, share). Hidden while authoring — the
 						// edit tool strip + MobileToolMenu own that surface.
-						<MobileMapActions onSearchResultSelect={handleSearchResultSelect} />
+						<MobileMapActions
+							onSearchResultSelect={handleSearchResultSelect}
+							calloutsEnabled={calloutsEnabled}
+							calloutDisplayMode={calloutDisplayMode}
+							onToggleCallouts={() => setCalloutsEnabled(!calloutsEnabled)}
+							onCycleCalloutDisplayMode={cycleCalloutDisplayMode}
+						/>
 					) : null
 				}
 			>
@@ -4180,6 +4214,7 @@ export function GeoEditorView() {
 				mapRef={map}
 				mounted={mounted}
 				enabled={calloutsEnabled}
+				displayMode={calloutDisplayMode}
 				draftFeatures={features}
 				draftVisible={stance === 'author' && viewMode === 'edit'}
 				selectedFeatureIds={selectedFeatureIds}

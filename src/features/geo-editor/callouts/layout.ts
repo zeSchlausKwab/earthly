@@ -2,6 +2,28 @@ import type { MapCalloutSide } from '@/lib/geo/callouts'
 
 export type CalloutDisplayMode = 'full' | 'compact' | 'collapsed'
 
+export function nextCalloutDisplayMode(mode: CalloutDisplayMode): CalloutDisplayMode {
+	switch (mode) {
+		case 'full':
+			return 'compact'
+		case 'compact':
+			return 'collapsed'
+		case 'collapsed':
+			return 'full'
+	}
+}
+
+export function calloutDisplayModeActionLabel(mode: CalloutDisplayMode): string {
+	switch (mode) {
+		case 'full':
+			return 'Callout size: full. Switch to compact'
+		case 'compact':
+			return 'Callout size: compact. Switch to pins'
+		case 'collapsed':
+			return 'Callout size: pins. Switch to full'
+	}
+}
+
 export interface ScreenPoint {
 	x: number
 	y: number
@@ -54,9 +76,9 @@ export function defaultCalloutDisplayMode({
 	const estimatedCoverage =
 		(calloutCount * ESTIMATED_DEFAULT_CARD_SIZE.width * ESTIMATED_DEFAULT_CARD_SIZE.height) /
 		viewportArea
-	const compactBelowZoom = viewport.width < 640 ? 5.5 : 4.25
+	const compactBelowZoom = viewport.width < 640 ? 3.25 : 2.25
 
-	return zoom < compactBelowZoom || estimatedCoverage > 0.22 ? 'compact' : 'full'
+	return zoom < compactBelowZoom || estimatedCoverage > 0.4 ? 'compact' : 'full'
 }
 
 function sideOrder(side: MapCalloutSide): Exclude<MapCalloutSide, 'auto'>[] {
@@ -132,8 +154,9 @@ export function resolveCalloutLayout(
 	)
 
 	for (const candidate of ordered) {
+		const fullMode = { mode: 'full' as const, size: candidate.fullSize }
 		const fallbackModes: Array<{ mode: CalloutDisplayMode; size: ScreenSize }> = [
-			{ mode: 'full', size: candidate.fullSize },
+			fullMode,
 			{ mode: 'compact', size: COMPACT_SIZE },
 			{ mode: 'collapsed', size: COLLAPSED_SIZE },
 		]
@@ -141,7 +164,7 @@ export function resolveCalloutLayout(
 			({ mode }) => mode === (candidate.initialMode ?? 'full'),
 		)
 		const modes = candidate.priority
-			? [fallbackModes[0]]
+			? [fullMode]
 			: fallbackModes.slice(Math.max(0, initialModeIndex))
 
 		let resolved: ResolvedCalloutLayout | null = null

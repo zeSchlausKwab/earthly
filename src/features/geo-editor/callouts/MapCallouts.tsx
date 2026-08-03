@@ -26,7 +26,12 @@ import {
 	type MapCalloutSide,
 } from '@/lib/geo/callouts'
 import type { EditorFeature } from '../core/types'
-import { resolveCalloutLayout, type ScreenPoint } from './layout'
+import {
+	defaultCalloutDisplayMode,
+	resolveCalloutLayout,
+	type CalloutDisplayMode,
+	type ScreenPoint,
+} from './layout'
 
 export interface VisibleCalloutDataset {
 	key: string
@@ -37,6 +42,7 @@ interface MapCalloutsProps {
 	mapRef: RefObject<maplibregl.Map | null>
 	mounted: boolean
 	enabled: boolean
+	displayMode: CalloutDisplayMode
 	draftFeatures: EditorFeature[]
 	draftVisible: boolean
 	selectedFeatureIds: string[]
@@ -138,11 +144,25 @@ function screenAnchorForFeature(
 	return null
 }
 
-function estimatedFullHeight(callout: MapCallout | null, editing: boolean): number {
+function estimatedFullHeight(
+	callout: MapCallout | null,
+	editing: boolean,
+	expanded: boolean,
+): number {
 	if (editing) return callout ? 268 : 196
+	if (!expanded) return 82 + (callout?.media?.length ? 16 : 0)
 	const text = callout?.text ?? ''
-	const lines = Math.min(7, Math.max(1, text.split('\n').length + Math.ceil(text.length / 44)))
-	return Math.min(268, 52 + lines * 17 + (callout?.media?.length ? 112 : 0))
+	const lines = Math.min(16, Math.max(1, text.split('\n').length + Math.ceil(text.length / 44)))
+	return Math.min(340, 44 + lines * 15 + (callout?.media?.length ? 112 : 0))
+}
+
+function calloutNeedsExpansion(callout: MapCallout | null): boolean {
+	if (!callout) return false
+	return (
+		Boolean(callout.media?.length) ||
+		callout.text.length > 116 ||
+		callout.text.split('\n').length > 3
+	)
 }
 
 function isVideo(media: MapCalloutMedia): boolean {
@@ -155,7 +175,7 @@ function CalloutMediaPreview({ media }: { media: MapCalloutMedia[] }) {
 	const first = media[0]
 	if (!first) return null
 	return (
-		<div className="relative mt-2 h-[104px] overflow-hidden rounded-[3px] border border-black/10 bg-muted">
+		<div className="relative mt-1.5 h-24 overflow-hidden rounded-[3px] border border-black/10 bg-muted">
 			{isVideo(first) ? (
 				<video
 					controls
@@ -218,6 +238,7 @@ export function MapCallouts({
 	mapRef,
 	mounted,
 	enabled,
+	displayMode,
 	draftFeatures,
 	draftVisible,
 	selectedFeatureIds,
@@ -258,6 +279,9 @@ export function MapCallouts({
 	}, [mapRef, mounted])
 
 	useEffect(() => () => dragCleanupRef.current?.(), [])
+	useEffect(() => {
+		if (displayMode !== 'full') setExpandedKey(null)
+	}, [displayMode])
 
 	const entries = useMemo(() => {
 		const result: CalloutEntry[] = []
@@ -407,18 +431,33 @@ export function MapCallouts({
 			visibleEntries.find(({ entry }) => entry.editable && entry.selected)?.entry.key ??
 			visibleEntries.find(({ entry }) => entry.editable)?.entry.key ??
 			null)
+	const automaticDisplayMode = defaultCalloutDisplayMode({
+		zoom: map.getZoom(),
+		viewport,
+		calloutCount: visibleEntries.length,
+	})
 	const layouts = resolveCalloutLayout(
-		visibleEntries.map(({ entry, anchor }) => ({
-			key: entry.key,
-			anchor,
-			preferredSide: entry.callout?.placement?.side ?? 'auto',
-			offset: dragOffsets[entry.key] ?? entry.callout?.placement?.offset ?? [0, 0],
-			fullSize: {
-				width: Math.min(286, Math.max(210, viewport.width - 24)),
-				height: estimatedFullHeight(entry.callout, entry.editable),
-			},
-			priority: automaticPriorityKey === entry.key || expandedKey === entry.key,
-		})),
+		visibleEntries.map(({ entry, anchor }) => {
+			const explicitlyExpanded = expandedKey === entry.key
+			return {
+				key: entry.key,
+				anchor,
+				preferredSide: entry.callout?.placement?.side ?? 'auto',
+				offset: dragOffsets[entry.key] ?? entry.callout?.placement?.offset ?? [0, 0],
+				fullSize: {
+					width: Math.min(
+						entry.editable || explicitlyExpanded ? 286 : 252,
+						Math.max(196, viewport.width - 24),
+					),
+					height: estimatedFullHeight(entry.callout, entry.editable, explicitlyExpanded),
+				},
+				priority:
+					entry.callout === null ||
+					explicitlyExpanded ||
+					(displayMode === 'full' && automaticPriorityKey === entry.key),
+				initialMode: displayMode === 'full' ? automaticDisplayMode : displayMode,
+			}
+		}),
 		viewport,
 	)
 
@@ -447,6 +486,7 @@ export function MapCallouts({
 				const entry = entryByKey.get(layout.key)
 				if (!entry) return null
 				const callout = entry.callout
+				const explicitlyExpanded = expandedKey === layout.key
 				const cardStyle = {
 					left: layout.card.x,
 					top: layout.card.y,
@@ -456,29 +496,33 @@ export function MapCallouts({
 
 				if (layout.mode === 'collapsed') {
 					return (
-						<button
+						<div
 							key={layout.key}
-							type="button"
 							style={cardStyle}
-							onClick={() => setExpandedKey(layout.key)}
-							className="pointer-events-auto absolute flex items-center justify-center rounded-full border border-foreground/20 bg-background/95 text-foreground shadow-md backdrop-blur transition-transform hover:scale-105"
-							aria-label={`Expand callout${callout?.title ? `: ${callout.title}` : ''}`}
+							data-callout-state="collapsed"
+							className="pointer-events-none absolute flex items-center justify-center"
 						>
-							<MapPin className="h-4 w-4" />
-						</button>
+							<button
+								type="button"
+								onClick={() => setExpandedKey(layout.key)}
+								className="pointer-events-auto flex size-[30px] items-center justify-center rounded-full border border-foreground/20 bg-background/95 text-foreground shadow-md backdrop-blur transition-transform hover:scale-105"
+								aria-label={`Expand callout${callout?.title ? `: ${callout.title}` : ''}`}
+							>
+								<MapPin className="h-3.5 w-3.5" />
+							</button>
+						</div>
 					)
 				}
 
 				if (layout.mode === 'compact') {
 					return (
-						<button
+						<div
 							key={layout.key}
-							type="button"
 							style={cardStyle}
-							onClick={() => setExpandedKey(layout.key)}
-							className="pointer-events-auto absolute flex items-center gap-2 overflow-hidden rounded-[4px] border border-foreground/15 bg-background/95 px-2.5 text-left shadow-md backdrop-blur"
+							data-callout-state="compact"
+							className="pointer-events-none absolute flex items-center gap-1.5 overflow-hidden rounded-[4px] border border-foreground/15 bg-background/95 px-2 text-left shadow-md backdrop-blur"
 						>
-							<MapPin className="h-4 w-4 shrink-0 text-primary" />
+							<MapPin className="h-3.5 w-3.5 shrink-0 text-primary" />
 							<span className="min-w-0 flex-1">
 								{callout?.title ? (
 									<span className="block truncate text-[11px] font-semibold">{callout.title}</span>
@@ -487,8 +531,15 @@ export function MapCallouts({
 									{callout?.text || 'Map callout'}
 								</span>
 							</span>
-							<ChevronDown className="h-3.5 w-3.5 -rotate-90 text-muted-foreground" />
-						</button>
+							<button
+								type="button"
+								onClick={() => setExpandedKey(layout.key)}
+								className="pointer-events-auto -mr-1 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+								aria-label={`Expand callout${callout?.title ? `: ${callout.title}` : ''}`}
+							>
+								<ChevronDown className="h-3.5 w-3.5 -rotate-90" />
+							</button>
+						</div>
 					)
 				}
 
@@ -497,8 +548,10 @@ export function MapCallouts({
 						key={layout.key}
 						style={cardStyle}
 						data-callout-state="full"
+						data-callout-expanded={explicitlyExpanded ? 'true' : 'false'}
 						className={cn(
-							'pointer-events-auto absolute overflow-hidden rounded-[5px] border border-foreground/15 bg-background/95 text-foreground shadow-[0_10px_28px_rgba(0,0,0,0.18)] backdrop-blur-md',
+							'absolute overflow-hidden rounded-[5px] border border-foreground/15 bg-background/95 text-foreground shadow-[0_8px_22px_rgba(0,0,0,0.16)] backdrop-blur-md',
+							entry.editable || explicitlyExpanded ? 'pointer-events-auto' : 'pointer-events-none',
 							entry.selected && 'border-primary/55 ring-1 ring-primary/20',
 						)}
 					>
@@ -655,41 +708,58 @@ export function MapCallouts({
 								/>
 							)
 						) : (
-							<div className="flex h-full flex-col p-3">
-								<div className="mb-1 flex items-start gap-2">
-									<MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+							<div className="flex h-full flex-col p-2">
+								<div className="mb-0.5 flex items-start gap-1.5">
+									<MapPin className="mt-px h-3 w-3 shrink-0 text-primary" />
 									<div className="min-w-0 flex-1">
 										{callout?.title ? (
-											<h3 className="text-xs font-semibold leading-tight">{callout.title}</h3>
+											<h3 className="truncate text-[11px] font-semibold leading-tight">
+												{callout.title}
+											</h3>
 										) : null}
 									</div>
-									{expandedKey === layout.key ? (
+									{explicitlyExpanded || calloutNeedsExpansion(callout) ? (
 										<button
 											type="button"
-											onClick={() => setExpandedKey(null)}
-											className="rounded p-0.5 text-muted-foreground hover:text-foreground"
-											aria-label="Close expanded callout"
+											onClick={() => setExpandedKey(explicitlyExpanded ? null : layout.key)}
+											className="pointer-events-auto -mr-1 -mt-1 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+											aria-label={`${explicitlyExpanded ? 'Collapse' : 'Expand'} callout${callout?.title ? `: ${callout.title}` : ''}`}
 										>
-											<X className="h-3.5 w-3.5" />
+											<ChevronDown
+												className={cn(
+													'h-3.5 w-3.5 transition-transform',
+													explicitlyExpanded && 'rotate-180',
+												)}
+											/>
 										</button>
 									) : null}
 								</div>
-								<div className="min-h-0 flex-1 overflow-y-auto text-xs leading-[1.45]">
+								<div
+									className={cn(
+										'min-h-0 flex-1 text-[11px] leading-[1.35]',
+										explicitlyExpanded ? 'overflow-y-auto' : 'overflow-hidden',
+									)}
+								>
 									<RichContentRenderer
 										content={callout?.text ?? ''}
 										availableFeatures={availableFeatures}
 										onMentionVisibilityToggle={onMentionVisibilityToggle}
 										onMentionZoomTo={onMentionZoomTo}
-										className="text-xs"
+										className={cn(
+											'pointer-events-none !space-y-1 !text-[11px] !leading-[1.35] [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_h1]:!text-xs [&_h2]:!text-xs [&_h3]:!text-xs [&_h4]:!text-xs',
+											!explicitlyExpanded && 'line-clamp-3',
+										)}
 									/>
-									{callout?.media?.length ? <CalloutMediaPreview media={callout.media} /> : null}
+									{explicitlyExpanded && callout?.media?.length ? (
+										<CalloutMediaPreview media={callout.media} />
+									) : null}
 								</div>
 								{callout?.media?.[0] ? (
 									<a
 										href={callout.media[0].url}
 										target="_blank"
 										rel="noreferrer"
-										className="mt-1 inline-flex items-center gap-1 self-end text-[10px] text-muted-foreground hover:text-foreground"
+										className="pointer-events-auto mt-1 inline-flex items-center gap-1 self-end text-[10px] text-muted-foreground hover:text-foreground"
 									>
 										Open media <ExternalLink className="h-3 w-3" />
 									</a>

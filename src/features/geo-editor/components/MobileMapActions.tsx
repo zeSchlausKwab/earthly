@@ -5,16 +5,17 @@
  *
  * Rendered inside the map's control stack (`controlsChildren`, top-right on
  * mobile) as a ControlGroup so it visually matches the zoom/locate built-ins.
- * Everything is store/hook-driven — the only prop is the search-result
- * handler GeoEditorView already owns (same one the desktop Toolbar uses).
+ * Most actions are store/hook-driven; map-visual toggles are passed down from
+ * GeoEditorView so desktop and mobile share the same local presentation state.
  *
  * Deliberately NOT rendered in edit mode: the edit tool strip + MobileToolMenu
  * own that surface, and the map controls column stays short for drawing.
  */
 
-import { Crosshair, Moon, Sun } from 'lucide-react'
+import { CircleDot, Crosshair, MapPin, Maximize2, Minimize2, Moon, Sun } from 'lucide-react'
 import { ControlButton, ControlGroup } from '@/components/ui/map'
 import { useTheme } from '@/lib/theme'
+import { calloutDisplayModeActionLabel, type CalloutDisplayMode } from '../callouts/layout'
 import { ShareExportPopover } from './share/ShareExportPopover'
 import { MobileSearch } from './MobileSearch'
 import type { GeoSearchResult } from '../types'
@@ -23,9 +24,19 @@ import { useEditorStore } from '../store'
 
 interface MobileMapActionsProps {
 	onSearchResultSelect: (result: GeoSearchResult) => void
+	calloutsEnabled: boolean
+	calloutDisplayMode: CalloutDisplayMode
+	onToggleCallouts: () => void
+	onCycleCalloutDisplayMode: () => void
 }
 
-export function MobileMapActions({ onSearchResultSelect }: MobileMapActionsProps) {
+export function MobileMapActions({
+	onSearchResultSelect,
+	calloutsEnabled,
+	calloutDisplayMode,
+	onToggleCallouts,
+	onCycleCalloutDisplayMode,
+}: MobileMapActionsProps) {
 	const [theme, setTheme] = useTheme()
 	const isDark = theme === 'dark'
 
@@ -55,6 +66,28 @@ export function MobileMapActions({ onSearchResultSelect }: MobileMapActionsProps
 
 	return (
 		<>
+			<ControlGroup>
+				<ControlButton
+					label={calloutsEnabled ? 'Hide map callouts' : 'Show map callouts'}
+					onClick={onToggleCallouts}
+					pressed={calloutsEnabled}
+				>
+					<MapPin className="h-4 w-4" />
+				</ControlButton>
+				<ControlButton
+					label={calloutDisplayModeActionLabel(calloutDisplayMode)}
+					onClick={onCycleCalloutDisplayMode}
+					disabled={!calloutsEnabled}
+				>
+					{calloutDisplayMode === 'full' ? (
+						<Maximize2 className="h-4 w-4" />
+					) : calloutDisplayMode === 'compact' ? (
+						<Minimize2 className="h-4 w-4" />
+					) : (
+						<CircleDot className="h-4 w-4" />
+					)}
+				</ControlButton>
+			</ControlGroup>
 			<ControlGroup>
 				<ControlButton
 					label={inspectorActive ? 'Disable location lookup' : 'Enable location lookup'}

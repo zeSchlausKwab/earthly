@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { defaultCalloutDisplayMode, resolveCalloutLayout } from './layout'
+import {
+	calloutDisplayModeActionLabel,
+	defaultCalloutDisplayMode,
+	nextCalloutDisplayMode,
+	resolveCalloutLayout,
+} from './layout'
 
 describe('responsive map callout layout', () => {
 	test('keeps readable screen-space dimensions across zoom-independent layout passes', () => {
@@ -60,9 +65,19 @@ describe('responsive map callout layout', () => {
 		expect(layouts[0]?.mode).toBe('full')
 	})
 
-	test('starts with compact cards when the current zoom is too small for readable text', () => {
+	test('keeps three-line cards through intermediate zoom levels', () => {
+		expect(
+			defaultCalloutDisplayMode({
+				zoom: 2.75,
+				viewport: { width: 1200, height: 800 },
+				calloutCount: 12,
+			}),
+		).toBe('full')
+	})
+
+	test('starts with compact cards only when the current zoom is too small for readable text', () => {
 		const initialMode = defaultCalloutDisplayMode({
-			zoom: 3.75,
+			zoom: 2,
 			viewport: { width: 1200, height: 800 },
 			calloutCount: 2,
 		})
@@ -89,12 +104,19 @@ describe('responsive map callout layout', () => {
 			defaultCalloutDisplayMode({
 				zoom: 8,
 				viewport: { width: 900, height: 600 },
-				calloutCount: 6,
+				calloutCount: 10,
 			}),
 		).toBe('compact')
 	})
 
-	test('lets a local collapse-all preference skip directly to markers', () => {
+	test('cycles the map control through full cards, compact summaries, and pins', () => {
+		expect(nextCalloutDisplayMode('full')).toBe('compact')
+		expect(nextCalloutDisplayMode('compact')).toBe('collapsed')
+		expect(nextCalloutDisplayMode('collapsed')).toBe('full')
+		expect(calloutDisplayModeActionLabel('full')).toBe('Callout size: full. Switch to compact')
+	})
+
+	test('lets the collapsed cycle state skip directly to markers', () => {
 		const [layout] = resolveCalloutLayout(
 			[
 				{
