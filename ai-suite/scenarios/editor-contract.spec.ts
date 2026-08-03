@@ -1,7 +1,11 @@
 import { test, expect } from '../fixtures/earthly'
 import { authorizeJourneyIdentity } from '../tasks/auth/authorize-journey-identity'
 import { startDataset } from '../tasks/create/dataset'
-import { clickEditorMap, expectGeometryFeatureCount } from '../tasks/create/geometry'
+import {
+	clickEditorMap,
+	expectGeometryFeatureCount,
+	geometryDraftSnapshot,
+} from '../tasks/create/geometry'
 import {
 	cancelSightingPlacement,
 	placeSighting,
@@ -14,6 +18,12 @@ import {
 	undoRedoGeometry,
 } from '../tasks/editor/lifecycle'
 import { placeMobilePrecisionPoint } from '../tasks/editor/mobile-precision-drawing'
+import {
+	addMapCallout,
+	cycleMapCalloutDisplayMode,
+	dragSelectedMapCallout,
+	editFirstMapCalloutText,
+} from '../tasks/editor/callouts'
 import { openPanel } from '../tasks/navigation/open-panel'
 import {
 	attemptDeniedDeviceLocation,
@@ -36,6 +46,116 @@ test('geometry can be undone and redone from viewport controls @editor-contract'
 	const result = await undoRedoGeometry(earthly)
 	expect(result.featureCount).toBe(1)
 	expect(result.canUndo).toBe(true)
+})
+
+test('map callouts are authored on-map, movable, and locally hideable @editor-contract', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'desktop', 'The direct map-control toggle is desktop-only')
+	await earthly.open({ tour: 'seen' })
+	await startDataset(earthly)
+	await earthly.page.getByRole('button', { name: 'Draw point', exact: true }).first().click()
+	await clickEditorMap(earthly, 0.62, 0.42)
+	await expectGeometryFeatureCount(earthly, 1)
+	await earthly.page.getByRole('button', { name: 'Select mode', exact: true }).click()
+	await clickEditorMap(earthly, 0.62, 0.42)
+	await expect(earthly.page.getByTestId('map-callout-composer')).toBeHidden()
+
+	const authored = await addMapCallout(earthly, 'Context that stays on the map')
+	expect(authored.text).toBe('Context that stays on the map')
+	const moved = await dragSelectedMapCallout(earthly, { x: 42, y: -24 })
+	expect(moved.offset).not.toEqual([0, 0])
+	const edited = await editFirstMapCalloutText(earthly, 'Context edited directly on the map')
+	expect(edited.text).toBe('Context edited directly on the map')
+
+	const displayModeControl = earthly.page.getByRole('button', {
+		name: 'Callout size: full. Switch to compact',
+		exact: true,
+	})
+	await displayModeControl.hover()
+	await expect(earthly.page.getByRole('tooltip')).toContainText(
+		'Callout size: full. Switch to compact',
+	)
+	await cycleMapCalloutDisplayMode(earthly, 'full', 'compact')
+	await cycleMapCalloutDisplayMode(earthly, 'compact', 'collapsed')
+	await cycleMapCalloutDisplayMode(earthly, 'collapsed', 'full')
+
+	await earthly.page.getByRole('button', { name: 'Hide map callouts' }).click()
+	await expect(earthly.page.locator('[data-callout-state="full"]')).toBeHidden()
+	await earthly.page.getByRole('button', { name: 'Show map callouts' }).click()
+	await expect(
+		earthly.page
+			.locator('[data-callout-state="full"]')
+			.filter({ hasText: 'Context edited directly on the map' }),
+	).toBeVisible()
+})
+
+test('callout creation draws a point anchor when nothing is selected @editor-contract', async ({
+	earthly,
+}) => {
+	await earthly.open({ tour: 'seen' })
+	await startDataset(earthly)
+	await expectGeometryFeatureCount(earthly, 0)
+
+	const authored = await addMapCallout(earthly, 'Callout with a fresh anchor')
+	const geometry = await geometryDraftSnapshot(earthly)
+	expect(authored.text).toBe('Callout with a fresh anchor')
+	expect(geometry.featureCount).toBe(1)
+	expect(geometry.geometryTypes).toEqual(['Point'])
+})
+
+test('geometry editor represents and can remove an attached callout @editor-contract', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'desktop', 'The floating Map Stack editor is desktop-only')
+	await earthly.open({ tour: 'seen' })
+	await startDataset(earthly)
+	await addMapCallout(earthly, 'Remove me from the geometry')
+
+	const mapStack = earthly.page.getByRole('region', { name: 'Map stack' })
+	if (!(await mapStack.isVisible())) {
+		await earthly.page.getByRole('button', { name: 'Show map stack' }).click()
+	}
+	await expect(mapStack).toBeVisible()
+	await expect(mapStack.getByLabel('1 map callout', { exact: true })).toBeVisible()
+	await mapStack.getByRole('button', { name: /^Expand Point/ }).click()
+	await expect(mapStack.getByText('Map callouts (1)', { exact: true })).toBeVisible()
+	await mapStack
+		.getByRole('button', { name: 'Remove map callout: Remove me from the geometry', exact: true })
+		.click()
+
+	await expect(mapStack.getByLabel('1 map callout', { exact: true })).toBeHidden()
+	await expect(
+		earthly.page
+			.locator('[data-callout-state="full"]')
+			.filter({ hasText: 'Remove me from the geometry' }),
+	).toBeHidden()
+	await expectGeometryFeatureCount(earthly, 1)
+})
+
+test('mobile callouts stay readable in the exposed map above the sheet @editor-contract', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'mobile', 'This verifies mobile callout placement')
+	await earthly.open({ tour: 'seen' })
+	await startDataset(earthly)
+	await earthly.page.getByRole('button', { name: 'Draw point', exact: true }).first().click()
+	await clickEditorMap(earthly, 0.62, 0.42)
+	await expectGeometryFeatureCount(earthly, 1)
+	await earthly.page.getByRole('button', { name: 'Select / pan', exact: true }).click()
+	await clickEditorMap(earthly, 0.62, 0.42)
+	await expect(earthly.page.getByTestId('map-callout-composer')).toBeHidden()
+	await addMapCallout(earthly, 'Readable mobile context')
+
+	const card = earthly.page
+		.locator('[data-callout-state="full"]')
+		.filter({ hasText: 'Readable mobile context' })
+	const sheet = earthly.page.getByTestId('mobile-sheet')
+	await expect(card).toBeVisible()
+	await expect(sheet).toBeVisible()
+	const [cardBox, sheetBox] = await Promise.all([card.boundingBox(), sheet.boundingBox()])
+	if (!cardBox || !sheetBox) throw new Error('Callout or mobile sheet has no bounding box')
+	expect(cardBox.y + cardBox.height).toBeLessThanOrEqual(sheetBox.y + 1)
 })
 
 test('mobile magnifier is ready before touch and follows precision placement @editor-contract', async ({

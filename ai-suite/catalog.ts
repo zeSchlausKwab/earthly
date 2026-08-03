@@ -23,6 +23,7 @@ import {
 	undoRedoGeometryTask,
 } from './tasks/editor/lifecycle'
 import { placeMobilePrecisionPointTask } from './tasks/editor/mobile-precision-drawing'
+import { addMapCalloutTask } from './tasks/editor/callouts'
 import { monitorBrowserHealthTask } from './tasks/diagnostics/browser-health'
 import { inspectSurfaceTask } from './tasks/diagnostics/inspect-surface'
 import { observeJourneyStepTask } from './tasks/diagnostics/journey-observation'
@@ -93,6 +94,7 @@ const tasks = [
 	undoRedoGeometryTask,
 	mapStackDraftLifecycleTask,
 	placeMobilePrecisionPointTask,
+	addMapCalloutTask,
 	createContextTask,
 	createGeometryDraftTask,
 	publishGeometryDatasetTask,
