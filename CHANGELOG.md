@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.1.0] - 2026-08-03
+
+- Added always-visible, geometry-attached map callouts that authors can create from the toolbar or
+  AI chat, edit directly on the map, remove from either editing surface, and place independently
+  from their anchor geometry.
+- Added automatic callout layout, overlap and off-screen collapsing, three user-controlled display
+  states, compact three-line previews, expansion controls, and map interaction that remains usable
+  beneath dense callout collections.
+- Fixed inspected Datasets remaining duplicated in the Map Stack when entering edit mode, and made
+  callout creation fall back to drawing an anchor point when no geometry is selected.
+
+- Consolidated VPS deployment, activation, runtime operations, SearXNG, and rollback under
+  `ops/vps`, with versioned releases, verified uploads, safe in-place legacy data handling, pinned
+  native tools, and automatic recovery after failed activation.
+- Removed retired seed programs, unused starter assets, stale deployment scripts, and two large
+  committed PMTiles binaries in favor of a checksum-verified local tool cache.
+- Added a dry-run-first cleanup command for known generated build and test artifacts.
+
 ## [0.0.9] - 2026-07-27
 
 - Fixed likes disappearing when an entity drawer was closed, reopened, or reactively refreshed,

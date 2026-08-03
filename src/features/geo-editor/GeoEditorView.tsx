@@ -2,6 +2,7 @@ import { useActiveAccount } from 'applesauce-react/hooks'
 import { castEvent } from 'applesauce-core/casts'
 import {
 	BookOpen,
+	CircleDot,
 	Database,
 	Download,
 	Eye,
@@ -13,9 +14,12 @@ import {
 	Map as MapIcon,
 	MapPin,
 	MapPinned,
+	Maximize2,
 	MessageSquare,
 	MessageSquareOff,
+	MessageSquarePlus,
 	Menu,
+	Minimize2,
 	MousePointer2,
 	PanelTopOpen,
 	Plus,
@@ -128,6 +132,13 @@ import type { CommentAnnotationPopupData } from './components/CommentAnnotationP
 import type { MapPopupPlacement } from './components/map-popup-positioning'
 import { UserLocationMarker } from './components/UserLocationMarker'
 import { EntityPinBubbles } from './components/map/EntityPinBubbles'
+import { MapCallouts } from './callouts/MapCallouts'
+import {
+	calloutDisplayModeActionLabel,
+	nextCalloutDisplayMode,
+	type CalloutDisplayMode,
+} from './callouts/layout'
+import { getFeatureCallouts, withFeatureCallouts, type MapCallout } from '@/lib/geo/callouts'
 import { MobileMapActions } from './components/MobileMapActions'
 import { SightingPlacementPreview } from './components/SightingPlacementPreview'
 import { GeoEditorMap as MapComponent } from './components/map'
@@ -350,6 +361,10 @@ export function GeoEditorView() {
 	const [deletingKey, setDeletingKey] = useState<string | null>(null)
 	const [resolvedCollectionsVersion, setResolvedCollectionsVersion] = useState(0)
 	const [mapPopupsEnabled, setMapPopupsEnabled] = useState(true)
+	const [calloutDisplayMode, setCalloutDisplayMode] = useState<CalloutDisplayMode>('full')
+	const cycleCalloutDisplayMode = useCallback(() => {
+		setCalloutDisplayMode(nextCalloutDisplayMode)
+	}, [])
 	const [mapPopupPlacement, setMapPopupPlacement] = useState<MapPopupPlacement>('dock')
 	// Mutable intent flag shared by the generic mobile-drawing guidance and the
 	// later Sighting controller. Sighting pin-drop has its own tap-specific prompt;
@@ -454,6 +469,11 @@ export function GeoEditorView() {
 	const featuresRef = useRef<EditorFeature[]>([])
 	const stats = useEditorStore((state) => state.stats)
 	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
+	const [calloutAuthoringFeatureId, setCalloutAuthoringFeatureId] = useState<string | null>(null)
+	const [calloutAnchorDrawing, setCalloutAnchorDrawing] = useState(false)
+	const calloutAnchorExistingFeatureIdsRef = useRef<Set<string>>(new Set())
+	const calloutsEnabled = useEditorStore((state) => state.calloutsEnabled)
+	const setCalloutsEnabled = useEditorStore((state) => state.setCalloutsEnabled)
 	const selectionCount = selectedFeatureIds.length
 	const setSelectedFeatureIds = useEditorStore((state) => state.setSelectedFeatureIds)
 	const setViewModeState = useEditorStore((state) => state.setViewMode)
@@ -1707,6 +1727,38 @@ export function GeoEditorView() {
 	// Store state for viewMode
 	const viewMode = useEditorStore((state) => state.viewMode)
 
+	useEffect(() => {
+		if (!calloutAuthoringFeatureId) return
+		if (
+			selectedFeatureIds.length !== 1 ||
+			selectedFeatureIds[0] !== calloutAuthoringFeatureId ||
+			stance !== 'author' ||
+			viewMode !== 'edit'
+		) {
+			setCalloutAuthoringFeatureId(null)
+		}
+	}, [calloutAuthoringFeatureId, selectedFeatureIds, stance, viewMode])
+
+	useEffect(() => {
+		if (!calloutAnchorDrawing) return
+		const anchor = features.find(
+			(feature) =>
+				feature.geometry.type === 'Point' &&
+				!calloutAnchorExistingFeatureIdsRef.current.has(feature.id),
+		)
+		if (!anchor) return
+		setSelectedFeatureIds([anchor.id])
+		setCalloutAuthoringFeatureId(anchor.id)
+		setCalloutAnchorDrawing(false)
+		executeEditorCommand('set_mode', { mode: 'select' })
+	}, [calloutAnchorDrawing, features, setSelectedFeatureIds])
+
+	useEffect(() => {
+		if (calloutAnchorDrawing && currentMode !== 'draw_point') {
+			setCalloutAnchorDrawing(false)
+		}
+	}, [calloutAnchorDrawing, currentMode])
+
 	// Consolidate a viewed Story's inline geo-refs with the map stack: fetch the
 	// referenced datasets on demand, auto-stack them visible so the article's
 	// geometry shows on open, and expose the map-stack-derived eye state for the
@@ -2241,12 +2293,19 @@ export function GeoEditorView() {
 
 	// Stack = visibility. Under the Round C/D invariant, the map renders exactly
 	// what's on the map stack — no scope filters, no focus filter, no separate
-	// edit-isolation toggle. The only override is map-stack isolation (Round B):
+	// edit-isolation toggle. The active draft replaces its published source even
+	// when a stacked Context also curates that source. The other override is
+	// map-stack isolation (Round B):
 	// when one entry is isolated only its keys render. Draft entries don't
 	// contribute keys, so an isolated draft naturally produces []. Context
 	// entries (C.2) expand to their curated datasets, minus any keys the user
 	// has unchecked in the inline expand panel (`entry.exclusions`).
 	const visibleGeoEvents = useMemo(() => {
+		const sourceIsReplacedByDraft = (event: GeoDataset) =>
+			stance === 'author' &&
+			viewMode === 'edit' &&
+			activeDatasetKey !== null &&
+			getDatasetKey(event) === activeDatasetKey
 		const contextByKey = new Map<string, MapContext>()
 		for (const ctx of mapContextEvents) {
 			const key = ctx.contextCoordinate ?? ctx.id ?? ctx.contextId ?? ctx.dTag
@@ -2289,7 +2348,9 @@ export function GeoEditorView() {
 					? new Set([isolatedEntry.entityKey])
 					: curatedKeysFor(isolatedEntry)
 			if (isolatedKeys.size === 0) return []
-			return mapGeoEvents.filter((event) => isolatedKeys.has(getDatasetKey(event)))
+			return mapGeoEvents.filter(
+				(event) => isolatedKeys.has(getDatasetKey(event)) && !sourceIsReplacedByDraft(event),
+			)
 		}
 
 		// Round G.1: stack order is render order. Each dataset key gets the rank
@@ -2310,11 +2371,29 @@ export function GeoEditorView() {
 		}
 		if (rankByKey.size === 0) return []
 		return mapGeoEvents
-			.filter((event) => rankByKey.has(getDatasetKey(event)))
+			.filter((event) => rankByKey.has(getDatasetKey(event)) && !sourceIsReplacedByDraft(event))
 			.sort(
 				(a, b) => (rankByKey.get(getDatasetKey(a)) ?? 0) - (rankByKey.get(getDatasetKey(b)) ?? 0),
 			)
-	}, [geoEvents, mapGeoEvents, getDatasetKey, mapStackEntries, mapStackOrder, mapContextEvents])
+	}, [
+		activeDatasetKey,
+		geoEvents,
+		getDatasetKey,
+		mapContextEvents,
+		mapGeoEvents,
+		mapStackEntries,
+		mapStackOrder,
+		stance,
+		viewMode,
+	])
+	const visibleCalloutDatasets = useMemo(() => {
+		// Resolved collections live outside React; this counter invalidates the derived list.
+		void resolvedCollectionsVersion
+		return visibleGeoEvents.map((event) => ({
+			key: getDatasetKey(event),
+			collection: resolvedCollectionResolver(event) ?? event.featureCollection,
+		}))
+	}, [visibleGeoEvents, getDatasetKey, resolvedCollectionResolver, resolvedCollectionsVersion])
 
 	// Phase 13 (SPEC §3.2): sightings/beacons render from STACK MEMBERSHIP, not
 	// unconditionally. These mirror `visibleGeoEvents` — an aggregate `*-layer`
@@ -3683,6 +3762,67 @@ export function GeoEditorView() {
 	})
 
 	const multiSelectModifierLabel = editor?.getMultiSelectModifierLabel() ?? 'Shift'
+	const calloutComposerActive =
+		selectedFeatureIds.length === 1 && calloutAuthoringFeatureId === selectedFeatureIds[0]
+	const selectedFeatureHasCallout = useMemo(() => {
+		if (selectedFeatureIds.length !== 1) return false
+		const feature = features.find((item) => item.id === selectedFeatureIds[0])
+		return feature ? getFeatureCallouts(feature).length > 0 : false
+	}, [features, selectedFeatureIds])
+	const handleOpenSelectedCallout = useCallback(() => {
+		if (calloutAnchorDrawing) {
+			setCalloutAnchorDrawing(false)
+			executeEditorCommand('set_mode', { mode: 'select' })
+			return
+		}
+		if (selectedFeatureIds.length === 0) {
+			setCalloutsEnabled(true)
+			setMapStackOpen(false)
+			setCalloutAuthoringFeatureId(null)
+			calloutAnchorExistingFeatureIdsRef.current = new Set(features.map((feature) => feature.id))
+			setCalloutAnchorDrawing(true)
+			executeEditorCommand('set_mode', { mode: 'draw_point' })
+			toast.info('Place the callout anchor', {
+				description: 'Click the map to add a point and write its callout.',
+			})
+			return
+		}
+		if (selectedFeatureIds.length > 1) {
+			toast.info('Select a single geometry', {
+				description: 'A map callout belongs to one geometry.',
+			})
+			return
+		}
+		const selectedFeatureId = selectedFeatureIds[0] ?? ''
+		const feature = editor?.getFeature(selectedFeatureId)
+		if (!feature) return
+		if (calloutAuthoringFeatureId === selectedFeatureId) {
+			setCalloutAuthoringFeatureId(null)
+			return
+		}
+		setCalloutsEnabled(true)
+		setMapStackOpen(false)
+		executeEditorCommand('set_mode', { mode: 'select' })
+		setCalloutAuthoringFeatureId(selectedFeatureId)
+		handleZoomToFeature(feature)
+	}, [
+		calloutAuthoringFeatureId,
+		calloutAnchorDrawing,
+		editor,
+		features,
+		handleZoomToFeature,
+		selectedFeatureIds,
+		setCalloutsEnabled,
+		setMapStackOpen,
+	])
+	const handleCalloutsChange = useCallback(
+		(featureId: string, callouts: MapCallout[]) => {
+			const feature = editor?.getFeature(featureId)
+			if (!editor || !feature) return
+			editor.updateFeature(featureId, withFeatureCallouts(feature, callouts))
+		},
+		[editor],
+	)
 
 	// Desktop status bar + chat are passed to StudioShell as slots; the shell
 	// owns the responsive frame (widths/insets from the --shell-* CSS vars).
@@ -3988,8 +4128,29 @@ export function GeoEditorView() {
 					!isMobile ? (
 						<ControlGroup>
 							<ControlButton
+								onClick={() => setCalloutsEnabled(!calloutsEnabled)}
+								label={calloutsEnabled ? 'Hide map callouts' : 'Show map callouts'}
+								pressed={calloutsEnabled}
+							>
+								<MapPin className="h-4 w-4" />
+							</ControlButton>
+							<ControlButton
+								onClick={cycleCalloutDisplayMode}
+								label={calloutDisplayModeActionLabel(calloutDisplayMode)}
+								disabled={!calloutsEnabled}
+							>
+								{calloutDisplayMode === 'full' ? (
+									<Maximize2 className="h-4 w-4" />
+								) : calloutDisplayMode === 'compact' ? (
+									<Minimize2 className="h-4 w-4" />
+								) : (
+									<CircleDot className="h-4 w-4" />
+								)}
+							</ControlButton>
+							<ControlButton
 								onClick={() => setMapPopupsEnabled((current) => !current)}
 								label={mapPopupsEnabled ? 'Disable map popups' : 'Enable map popups'}
+								pressed={mapPopupsEnabled}
 							>
 								{mapPopupsEnabled ? (
 									<MessageSquare className="h-4 w-4" />
@@ -4007,6 +4168,7 @@ export function GeoEditorView() {
 										: 'Show popups above geometry'
 								}
 								disabled={!mapPopupsEnabled}
+								pressed={mapPopupPlacement === 'dock'}
 							>
 								{mapPopupPlacement === 'geometry' ? (
 									<MapPinned className="h-4 w-4" />
@@ -4019,7 +4181,13 @@ export function GeoEditorView() {
 						// Mobile browse/inspect: desktop-toolbar parity actions (search,
 						// location lookup, theme, share). Hidden while authoring — the
 						// edit tool strip + MobileToolMenu own that surface.
-						<MobileMapActions onSearchResultSelect={handleSearchResultSelect} />
+						<MobileMapActions
+							onSearchResultSelect={handleSearchResultSelect}
+							calloutsEnabled={calloutsEnabled}
+							calloutDisplayMode={calloutDisplayMode}
+							onToggleCallouts={() => setCalloutsEnabled(!calloutsEnabled)}
+							onCycleCalloutDisplayMode={cycleCalloutDisplayMode}
+						/>
 					) : null
 				}
 			>
@@ -4041,6 +4209,23 @@ export function GeoEditorView() {
 				beacons={visibleBeaconsFromStack}
 				onInspectSighting={handleInspectSighting}
 				onInspectBeacon={handleInspectBeacon}
+			/>
+			<MapCallouts
+				mapRef={map}
+				mounted={mounted}
+				enabled={calloutsEnabled}
+				displayMode={calloutDisplayMode}
+				draftFeatures={features}
+				draftVisible={stance === 'author' && viewMode === 'edit'}
+				selectedFeatureIds={selectedFeatureIds}
+				authoringFeatureId={calloutAuthoringFeatureId}
+				canAuthor={stance === 'author' && viewMode === 'edit'}
+				visibleDatasets={visibleCalloutDatasets}
+				availableFeatures={availableFeatures}
+				onCalloutsChange={handleCalloutsChange}
+				onComposerComplete={() => setCalloutAuthoringFeatureId(null)}
+				onMentionVisibilityToggle={handleMentionVisibilityToggle}
+				onMentionZoomTo={handleMentionZoomTo}
 			/>
 			{/* Amber preview of the Sighting geometry being placed/edited — the
 			    transient draw feature is deleted after capture, so this is the only
@@ -4196,6 +4381,11 @@ export function GeoEditorView() {
 						chatOpen={desktopChatOpen}
 						onToggleMapStack={toggleToolbarMapStack}
 						onToggleChat={toggleChat}
+						onOpenSelectedCallout={handleOpenSelectedCallout}
+						selectedFeatureCount={selectedFeatureIds.length}
+						selectedFeatureHasCallout={selectedFeatureHasCallout}
+						calloutComposerActive={calloutComposerActive}
+						calloutAnchorDrawing={calloutAnchorDrawing}
 						onExitFocus={exitViewMode}
 						destination={currentDestination}
 						onActivateDestination={openCurrentDestination}
@@ -4387,6 +4577,32 @@ export function GeoEditorView() {
 							)
 						})}
 					</div>
+					<Button
+						variant={calloutComposerActive || calloutAnchorDrawing ? 'default' : 'ghost'}
+						size="icon-sm"
+						className="h-9 w-9 shrink-0 rounded-[2px]"
+						onClick={handleOpenSelectedCallout}
+						aria-label={
+							calloutAnchorDrawing
+								? 'Cancel callout anchor'
+								: calloutComposerActive
+									? 'Cancel new map callout'
+									: selectedFeatureHasCallout
+										? 'Add another map callout'
+										: 'Add map callout'
+						}
+						title={
+							calloutAnchorDrawing
+								? 'Cancel callout anchor'
+								: calloutComposerActive
+									? 'Cancel new map callout'
+									: selectedFeatureHasCallout
+										? 'Add another map callout'
+										: 'Add map callout'
+						}
+					>
+						<MessageSquarePlus className="h-4 w-4" />
+					</Button>
 					{/* Responsive overflow (§14a): items extract into the strip as the
 					    screen grows (measured show-what-fits, priority: lock → snapping →
 					    the rest) and collapse into ••• as it shrinks. */}

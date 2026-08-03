@@ -31,4 +31,41 @@ describe('GeoDatasetFactory.update', () => {
 		expect(update.tags).toContainEqual(['v', '5'])
 		expect(update.tags).toContainEqual(['p', previous.id])
 	})
+
+	test('mirrors structured callout media into NIP-92 imeta tags', async () => {
+		const withCalloutMedia: FeatureCollection = {
+			type: 'FeatureCollection',
+			features: [
+				{
+					type: 'Feature',
+					geometry: { type: 'Point', coordinates: [16.37, 48.21] },
+					properties: {
+						'earthly:callouts': [
+							{
+								id: 'callout-1',
+								text: 'A view',
+								media: [
+									{
+										url: 'https://media.example/view.jpg',
+										mimeType: 'image/jpeg',
+										sha256: 'f'.repeat(64),
+										alt: 'Mountain view',
+									},
+								],
+							},
+						],
+					},
+				},
+			],
+		}
+
+		const created = await GeoDatasetFactory.create(withCalloutMedia)
+		expect(created.tags).toContainEqual([
+			'imeta',
+			'url https://media.example/view.jpg',
+			'm image/jpeg',
+			`x ${'f'.repeat(64)}`,
+			'alt Mountain view',
+		])
+	})
 })

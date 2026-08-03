@@ -30,7 +30,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .env.test.local
 .env.production
 .env.production.local
+.env.deploy
 infra/searxng/.env
+ops/vps/searxng/.env
 data/events-lmdb/
 data/search/
 data/og-cache.sqlite*
@@ -41,7 +43,7 @@ mapnolia.config.json
 mapnolia-data
 mapnolia-server
 
-# deployment artifacts
+# Legacy deployment artifacts (new releases stage outside the checkout)
 deploy.tar.gz
 
 # Android release signing material (generated locally or in CI)

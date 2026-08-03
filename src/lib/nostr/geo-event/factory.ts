@@ -12,7 +12,7 @@
  *     await GeoDatasetFactory.create(fc).as(signer).hashtags(['nature']).sign()
  */
 
-import { geohashPrefixes } from '../tags'
+import { geohashPrefixes, setImages } from '../tags'
 import {
 	blankEventTemplate,
 	DeleteFactory,
@@ -25,6 +25,7 @@ import type { FeatureCollection } from 'geojson'
 import { generateShortDTag } from '@/lib/nostr/dTag'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import { publish } from '..'
+import { collectCalloutMedia } from '@/lib/geo/callouts'
 import {
 	blobReferenceToTag,
 	computeBboxFor,
@@ -49,6 +50,19 @@ export class GeoDatasetFactory extends EventFactory<typeof GEO_EVENT_KIND> {
 		return new GeoDatasetFactory((resolve) => {
 			const tpl = blankEventTemplate(GEO_EVENT_KIND)
 			tpl.content = JSON.stringify(fc)
+			tpl.tags = setImages(
+				tpl.tags,
+				collectCalloutMedia(fc).map((media) => ({
+					url: media.url,
+					type: media.mimeType,
+					sha256: media.sha256,
+					size: media.size,
+					dimensions: media.dimensions,
+					alt: media.alt,
+					blurhash: media.blurhash,
+					thumbnail: media.thumbnailUrl,
+				})),
+			)
 			// blankEventTemplate may already include a random `d`; only add one
 			// if it's missing.
 			if (!tpl.tags.some((t) => t[0] === 'd')) {
@@ -86,11 +100,23 @@ export class GeoDatasetFactory extends EventFactory<typeof GEO_EVENT_KIND> {
 			// disappear after reload.
 			tpl.created_at = Math.max(tpl.created_at, previous.created_at + 1)
 			tpl.content = JSON.stringify(fc)
-			tpl.tags = [
-				['d', datasetId],
-				['v', String(nextVersion)],
-				['p', previous.id],
-			]
+			tpl.tags = setImages(
+				[
+					['d', datasetId],
+					['v', String(nextVersion)],
+					['p', previous.id],
+				],
+				collectCalloutMedia(fc).map((media) => ({
+					url: media.url,
+					type: media.mimeType,
+					sha256: media.sha256,
+					size: media.size,
+					dimensions: media.dimensions,
+					alt: media.alt,
+					blurhash: media.blurhash,
+					thumbnail: media.thumbnailUrl,
+				})),
+			)
 			resolve(tpl)
 		})
 	}

@@ -1436,4 +1436,111 @@ export const geoStaticToolSchemas: Tool[] = [
 			},
 		},
 	},
+	{
+		type: 'function',
+		function: {
+			name: 'add_feature_callout',
+			description:
+				'Attach an always-visible contextual map callout to one feature. The callout is authored content stored on that GeoJSON feature. Plain text may include nostr:naddr geo references; media uses structured NIP-92-compatible fields.',
+			parameters: {
+				type: 'object',
+				properties: {
+					featureId: { type: 'string', description: 'Existing editor feature id.' },
+					text: { type: 'string', description: 'Plain callout text.' },
+					title: { type: 'string', description: 'Optional short title.' },
+					media: {
+						type: 'array',
+						description: 'Optional image/video attachments in authored order.',
+						items: {
+							type: 'object',
+							properties: {
+								url: { type: 'string' },
+								mimeType: { type: 'string' },
+								sha256: { type: 'string' },
+								size: { type: 'number' },
+								dimensions: { type: 'string' },
+								alt: { type: 'string' },
+								thumbnailUrl: { type: 'string' },
+							},
+							required: ['url'],
+						},
+					},
+					placementSide: {
+						type: 'string',
+						enum: ['auto', 'top', 'right', 'bottom', 'left'],
+					},
+					offset: {
+						type: 'array',
+						description: 'Optional authored [x,y] offset in CSS pixels.',
+						items: { type: 'number' },
+						minItems: 2,
+						maxItems: 2,
+					},
+					leader: { type: 'string', enum: ['line', 'none'] },
+				},
+				required: ['featureId', 'text'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'update_feature_callout',
+			description:
+				'Update one existing map callout by feature id and callout id. Only supplied fields change.',
+			parameters: {
+				type: 'object',
+				properties: {
+					featureId: { type: 'string' },
+					calloutId: { type: 'string' },
+					text: { type: 'string' },
+					title: { type: 'string', description: 'Use an empty string to remove the title.' },
+					media: {
+						type: 'array',
+						description: 'Replacement attachment list; an empty array removes all media.',
+						items: {
+							type: 'object',
+							properties: {
+								url: { type: 'string' },
+								mimeType: { type: 'string' },
+								sha256: { type: 'string' },
+								size: { type: 'number' },
+								dimensions: { type: 'string' },
+								alt: { type: 'string' },
+								thumbnailUrl: { type: 'string' },
+							},
+							required: ['url'],
+						},
+					},
+					placementSide: {
+						type: 'string',
+						enum: ['auto', 'top', 'right', 'bottom', 'left'],
+					},
+					offset: {
+						type: 'array',
+						items: { type: 'number' },
+						minItems: 2,
+						maxItems: 2,
+					},
+					leader: { type: 'string', enum: ['line', 'none'] },
+				},
+				required: ['featureId', 'calloutId'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'remove_feature_callout',
+			description: 'Remove one authored map callout without deleting its geometry.',
+			parameters: {
+				type: 'object',
+				properties: {
+					featureId: { type: 'string' },
+					calloutId: { type: 'string' },
+				},
+				required: ['featureId', 'calloutId'],
+			},
+		},
+	},
 ]

@@ -41,9 +41,9 @@ export const createMapStackSlice: StateCreator<EditorState, [], [], MapStackSlic
 	},
 
 	// Phase 1.4 — the DRAFT INVARIANT. The `draft:active` entry represents a live
-	// geometry edit session, not an ordinary stack item. It is added in exactly
-	// one place (applyEditingState) and removed in exactly one place
-	// (tearDownEditSession). No navigation, inspect, or catalog handler may remove
+	// geometry edit session, not an ordinary stack item. It is added by
+	// applyEditingState and removed by teardown or the successful publish transition.
+	// No navigation, inspect, or catalog handler may remove
 	// it through this method — removing the draft IS "stop editing", so route such
 	// requests through tearDownEditSession instead (see GeoEditorView's
 	// removeFromMapStack draft branch). Keeping the draft on the stack regardless

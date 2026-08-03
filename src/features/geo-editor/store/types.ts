@@ -628,6 +628,8 @@ export interface MapSourceSlice {
 	}
 	showMapSettings: boolean
 	pointClusteringEnabled: boolean
+	/** Local presentation toggle; does not mutate authored callout content. */
+	calloutsEnabled: boolean
 	/** Collapse tiny remote polygons/lines to point proxies at far zoom (OFF by default). */
 	geometryPointProxyEnabled: boolean
 
@@ -644,6 +646,7 @@ export interface MapSourceSlice {
 	setMapSource: (source: MapSourceSlice['mapSource']) => void
 	setShowMapSettings: (show: boolean) => void
 	setPointClusteringEnabled: (enabled: boolean) => void
+	setCalloutsEnabled: (enabled: boolean) => void
 	setGeometryPointProxyEnabled: (enabled: boolean) => void
 	setMapLayers: (layers: MapLayerState[]) => void
 	updateMapLayerState: (

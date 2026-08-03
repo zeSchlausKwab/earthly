@@ -1,4 +1,12 @@
-import { AlertTriangle, ChevronDown, ChevronRight, Locate, Plus, Trash2 } from 'lucide-react'
+import {
+	AlertTriangle,
+	ChevronDown,
+	ChevronRight,
+	Locate,
+	MessageSquare,
+	Plus,
+	Trash2,
+} from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { EditorFeature } from '@/features/geo-editor/core'
 import { useEditorStore } from '@/features/geo-editor/store'
@@ -7,6 +15,7 @@ import { cn } from '@/lib/utils'
 import { GeoRichTextEditor, type GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { getFeatureCallouts, withFeatureCallouts } from '@/lib/geo/callouts'
 import { GeometryBadge, GeometryDisplay } from './GeometryDisplay'
 import { StylePropertiesSection } from '../StylePropertiesSection'
 
@@ -182,6 +191,7 @@ function FeatureRow({
 	}
 
 	const customProperties = feature.properties?.customProperties ?? {}
+	const callouts = getFeatureCallouts(feature)
 	const hasValidationIssues = Boolean(validationIssues && validationIssues.length > 0)
 	const validationSummary = validationIssues?.slice(0, 3).join(' | ')
 	const newPropertyTypeHint = propertyTypeHints?.get(newPropKey.trim())
@@ -195,7 +205,13 @@ function FeatureRow({
 		>
 			{/* Row header */}
 			<div className="flex items-center gap-1 px-1.5 py-1">
-				<Button type="button" variant="ghost" size="icon-sm" onClick={onToggleExpand}>
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon-sm"
+					onClick={onToggleExpand}
+					aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${name}`}
+				>
 					{isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
 				</Button>
 
@@ -209,6 +225,19 @@ function FeatureRow({
 				>
 					{name}
 				</Button>
+
+				{callouts.length > 0 ? (
+					<span
+						className="flex items-center gap-1 rounded-sm bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+						title={`${callouts.length} map callout${callouts.length === 1 ? '' : 's'}`}
+					>
+						<MessageSquare className="h-3 w-3" aria-hidden="true" />
+						<span aria-hidden="true">{callouts.length}</span>
+						<span className="sr-only">
+							{callouts.length} map callout{callouts.length === 1 ? '' : 's'}
+						</span>
+					</span>
+				) : null}
 
 				{hasValidationIssues && (
 					<div className="flex items-center gap-1 text-primary" title={validationSummary}>
@@ -241,6 +270,46 @@ function FeatureRow({
 			{/* Expanded content */}
 			{isExpanded && (
 				<div className="border-t border-border px-2 py-2 bg-muted/50 space-y-2">
+					{callouts.length > 0 ? (
+						<div className="space-y-1 rounded border border-border bg-card p-1.5">
+							<div className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+								<MessageSquare className="h-3 w-3" />
+								Map callouts ({callouts.length})
+							</div>
+							{callouts.map((callout) => {
+								const label = callout.title || callout.text || 'Untitled callout'
+								return (
+									<div
+										key={callout.id}
+										className="flex items-center gap-1.5 rounded bg-muted/60 px-1.5 py-1"
+									>
+										<span className="min-w-0 flex-1 truncate text-[11px]" title={label}>
+											{label}
+										</span>
+										<Button
+											type="button"
+											variant="ghost"
+											size="icon-sm"
+											className="h-6 w-6 text-destructive hover:text-destructive"
+											onClick={() => {
+												if (!editor) return
+												editor.updateFeature(
+													feature.id,
+													withFeatureCallouts(
+														feature,
+														callouts.filter((item) => item.id !== callout.id),
+													),
+												)
+											}}
+											aria-label={`Remove map callout: ${label}`}
+										>
+											<Trash2 className="h-3 w-3" />
+										</Button>
+									</div>
+								)
+							})}
+						</div>
+					) : null}
 					{hasValidationIssues && (
 						<div className="rounded border border-primary/40 bg-primary/10 px-2 py-1">
 							<div className="mb-1 flex items-center gap-1 text-[10px] font-medium text-primary uppercase tracking-wide">

@@ -347,6 +347,8 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 	const setMapSource = useEditorStore((state) => state.setMapSource)
 	const pointClusteringEnabled = useEditorStore((state) => state.pointClusteringEnabled)
 	const setPointClusteringEnabled = useEditorStore((state) => state.setPointClusteringEnabled)
+	const calloutsEnabled = useEditorStore((state) => state.calloutsEnabled)
+	const setCalloutsEnabled = useEditorStore((state) => state.setCalloutsEnabled)
 	const geometryPointProxyEnabled = useEditorStore((state) => state.geometryPointProxyEnabled)
 	const setGeometryPointProxyEnabled = useEditorStore((state) => state.setGeometryPointProxyEnabled)
 	const mapLayers = useEditorStore((state) => state.mapLayers)
@@ -504,6 +506,25 @@ export function MapSettingsPanel({ mode = 'full' }: { mode?: MapSettingsPanelMod
 	}, [requestedTab, setRequestedTab])
 	const mapSettingsContent = (
 		<div className="space-y-4">
+			<div className="rounded-lg border bg-card p-3">
+				<div className="flex items-start justify-between gap-4">
+					<div className="space-y-1">
+						<Label htmlFor="map-callouts" className="text-sm font-medium">
+							Map callouts
+						</Label>
+						<p className="text-xs text-muted-foreground">
+							Show contextual cards authored directly on geometry.
+						</p>
+					</div>
+					<Switch
+						id="map-callouts"
+						checked={calloutsEnabled}
+						onCheckedChange={setCalloutsEnabled}
+						aria-label="Toggle map callouts"
+					/>
+				</div>
+			</div>
+
 			<div className="rounded-lg border bg-card p-3">
 				<div className="flex items-start justify-between gap-4">
 					<div className="space-y-1">

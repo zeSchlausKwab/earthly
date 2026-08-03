@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import type { Root } from 'react-dom/client'
 import type { GeoEditor, EditorFeature } from '../core'
 import type { GeoCollectionEditDraft, GeoEditorWorkspace } from '../store'
+import type { GeoDataset } from '@/lib/nostr/geo-event'
 
 let act: typeof import('react').act
 let createElement: typeof import('react').createElement
@@ -89,10 +90,10 @@ async function flush(action?: () => void | Promise<void>) {
 	})
 }
 
-async function mountHook() {
+async function mountHook(geoEvents: GeoDataset[] = []) {
 	let latest: ReturnType<typeof useDatasetManagement> | null = null
 	function Probe(): ReactNode {
-		latest = useDatasetManagement({ current: null }, [])
+		latest = useDatasetManagement({ current: null }, geoEvents)
 		return null
 	}
 	const container = document.createElement('div')
@@ -151,6 +152,46 @@ afterEach(async () => {
 })
 
 describe('local draft transitions', () => {
+	test('editing a stacked dataset replaces its published map row with the draft row', async () => {
+		const feature = point('feature-a', 14)
+		const dataset = {
+			id: 'event-1',
+			pubkey: 'owner',
+			datasetId: 'dataset-1',
+			dTag: 'dataset-1',
+			hashtags: [],
+			contextReferences: [],
+			blobReferences: [],
+			featureCollection: {
+				type: 'FeatureCollection',
+				name: 'Callout dataset',
+				features: [feature],
+			},
+			event: { id: 'event-1', pubkey: 'owner', kind: 37515, created_at: 1, tags: [], content: '' },
+		} as unknown as GeoDataset
+		const editor = {
+			setFeatures: (_features: EditorFeature[]) => {},
+		} as unknown as GeoEditor
+		useEditorStore.setState({ editor, features: [] })
+		useEditorStore.getState().addMapStackEntry({
+			entityType: 'dataset',
+			entityKey: 'owner:dataset-1',
+			title: 'Callout dataset',
+			source: 'route',
+			visible: true,
+			pinned: false,
+		})
+		const current = await mountHook([dataset])
+
+		await flush(() => current().loadDatasetForEditing(dataset))
+
+		const state = useEditorStore.getState()
+		expect(state.mapStackEntries['dataset:owner:dataset-1']).toBeUndefined()
+		expect(state.mapStackEntries['draft:active']?.entityType).toBe('draft')
+		expect(state.mapStackOrder).toContain('draft:active')
+		expect(state.features).toHaveLength(1)
+	})
+
 	test('loading a revision changes the persisted channel and the actual editor geometry together', async () => {
 		const featureA = point('feature-a', 14)
 		const featureB = point('feature-b', 15)

@@ -44,6 +44,9 @@ const REFINE_TOOLS = new Set([
 	'style_by_attribute',
 	'editor_delete_selected',
 	'editor_update_feature',
+	'add_feature_callout',
+	'update_feature_callout',
+	'remove_feature_callout',
 ])
 const INSPECT_TOOLS = new Set([
 	'get_editor_state',

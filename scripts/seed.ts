@@ -11,9 +11,6 @@
  * The structural leak guard lives in the config parser: a non-loopback
  * --relay without --allow-remote is a hard error before anything runs.
  * See docs/RELAY_STAGES.md § Seeding and src/lib/seeder/ for the layers.
- *
- * The pre-unification scripts are archived under scripts/seed-legacy/ for one
- * release and will then be deleted.
  */
 
 import { parseSeederArgs, SeederConfigError, seederUsage } from '@/lib/seeder/config'

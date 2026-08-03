@@ -31,6 +31,11 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const defaultStyles = {
   dark: "https://tiles.openfreemap.org/styles/dark",
@@ -806,28 +811,38 @@ function ControlButton({
   label,
   children,
   disabled = false,
+  pressed,
 }: {
   onClick: () => void;
   label: string;
   children: React.ReactNode;
   disabled?: boolean;
+  pressed?: boolean;
 }) {
   return (
-    <button
-      onClick={onClick}
-      aria-label={label}
-      type="button"
-      className={cn(
-        "flex size-8 items-center justify-center transition-all",
-        "first:rounded-t-md last:rounded-b-md",
-        "hover:bg-accent dark:hover:bg-accent/40",
-        "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset",
-        "disabled:pointer-events-none disabled:opacity-50",
-      )}
-      disabled={disabled}
-    >
-      {children}
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={onClick}
+          aria-label={label}
+          aria-pressed={pressed}
+          type="button"
+          className={cn(
+            "flex size-8 items-center justify-center transition-all",
+            "first:rounded-t-md last:rounded-b-md",
+            "hover:bg-accent dark:hover:bg-accent/40",
+            "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset",
+            "disabled:pointer-events-none disabled:opacity-50",
+          )}
+          disabled={disabled}
+        >
+          {children}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="left" sideOffset={6}>
+        {label}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

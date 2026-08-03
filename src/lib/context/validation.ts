@@ -141,6 +141,7 @@ function featurePropertiesForValidation(feature: Feature): Record<string, unknow
 		'arrowEnd',
 		'primitiveShape',
 		'label',
+		'earthly:callouts',
 	])
 	const rootDomainProperties: Record<string, unknown> = {}
 	Object.entries(base).forEach(([key, value]) => {
