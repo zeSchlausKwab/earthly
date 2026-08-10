@@ -1,6 +1,19 @@
 import { mergeAttributes, Node } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from '@tiptap/react'
-import { ExternalLink, LocateFixed, MapPin, Eye, EyeOff, Maximize2 } from 'lucide-react'
+import {
+	ExternalLink,
+	Eye,
+	EyeOff,
+	FileText,
+	Globe,
+	Layers3,
+	LocateFixed,
+	Map as MapIcon,
+	MapPin,
+	Maximize2,
+	Shapes,
+} from 'lucide-react'
+import { nip19 } from 'nostr-tools'
 import { useState } from 'react'
 import {
 	extractGeoReferences,
@@ -9,6 +22,7 @@ import {
 	stringifyGeoReference,
 } from '@/lib/geo/reference'
 import { stringifyNostrAddressReference } from '@/lib/nostr/references'
+import { ARTICLE_KIND, MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
 import { Button } from '../ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 
@@ -19,6 +33,39 @@ export interface GeoMentionAttrs {
 	featureId?: string
 	/** Display name for the mention */
 	displayName: string
+	/** User-visible spatial reference type. Not part of the serialized URI. */
+	referenceType?: GeoMentionReferenceType
+}
+
+export type GeoMentionReferenceType =
+	| 'dataset'
+	| 'context'
+	| 'feature'
+	| 'story'
+	| 'coordinate'
+	| 'osm'
+
+function inferNostrReferenceType(address: string, featureId?: string): GeoMentionReferenceType {
+	if (featureId) return 'feature'
+	try {
+		const decoded = nip19.decode(address)
+		if (decoded.type !== 'naddr') return 'dataset'
+		switch (decoded.data.kind) {
+			case MAP_CONTEXT_KIND:
+				return 'context'
+			case ARTICLE_KIND:
+				return 'story'
+			default:
+				return 'dataset'
+		}
+	} catch {
+		return 'dataset'
+	}
+}
+
+function referenceTypeLabel(type: GeoMentionReferenceType): string {
+	if (type === 'osm') return 'OSM'
+	return `${type.charAt(0).toUpperCase()}${type.slice(1)}`
 }
 
 /** Callbacks for geo mention interactions */
@@ -44,6 +91,14 @@ function GeoMentionNodeView({ node, deleteNode, editor }: NodeViewProps) {
 	)
 	const isOsmReference = reference?.kind === 'osm'
 	const isCoordinateReference = reference?.kind === 'coordinate'
+	const referenceType: GeoMentionReferenceType =
+		attrs.referenceType ??
+		(isCoordinateReference
+			? 'coordinate'
+			: isOsmReference
+				? 'osm'
+				: inferNostrReferenceType(address, featureId))
+	const typeLabel = referenceTypeLabel(referenceType)
 	const referenceText = reference
 		? stringifyGeoReference(reference)
 		: stringifyNostrAddressReference({ address, featureId })
@@ -68,17 +123,36 @@ function GeoMentionNodeView({ node, deleteNode, editor }: NodeViewProps) {
 		callbacks?.onZoomTo?.(address, featureId)
 	}
 
+	const referenceIcon = (() => {
+		switch (referenceType) {
+			case 'coordinate':
+				return <LocateFixed className="h-3 w-3 flex-shrink-0" />
+			case 'dataset':
+				return <Layers3 className="h-3 w-3 flex-shrink-0" />
+			case 'feature':
+				return <Shapes className="h-3 w-3 flex-shrink-0" />
+			case 'osm':
+				return <MapIcon className="h-3 w-3 flex-shrink-0" />
+			case 'context':
+				return <Globe className="h-3 w-3 flex-shrink-0" />
+			case 'story':
+				return <FileText className="h-3 w-3 flex-shrink-0" />
+			default:
+				return <MapPin className="h-3 w-3 flex-shrink-0" />
+		}
+	})()
+
 	return (
 		<NodeViewWrapper as="span" className="inline">
 			<span
-				className="inline-flex items-center gap-0.5 rounded-md bg-info/15 border border-info/40 px-1.5 py-0.5 text-xs font-medium text-info mx-0.5"
+				className="mx-0.5 inline-flex items-center gap-1 border border-info/40 bg-info/15 px-1.5 py-0.5 text-xs font-medium text-info"
+				data-reference-type={typeLabel}
 				contentEditable={false}
 			>
-				{isCoordinateReference ? (
-					<LocateFixed className="h-3 w-3 flex-shrink-0" />
-				) : (
-					<MapPin className="h-3 w-3 flex-shrink-0" />
-				)}
+				{referenceIcon}
+				<span className="border-r border-info/30 pr-1 text-[8px] font-semibold uppercase tracking-[0.1em] opacity-80">
+					{typeLabel}
+				</span>
 				<span className="truncate max-w-[120px]" title={referenceText}>
 					{displayName}
 				</span>
@@ -185,6 +259,9 @@ export const GeoMentionNode = Node.create<GeoMentionNodeOptions>({
 			featureId: {
 				default: null,
 			},
+			referenceType: {
+				default: null,
+			},
 			displayName: {
 				default: 'Unknown',
 			},
@@ -262,6 +339,10 @@ function parseInlineContent(
 			attrs: {
 				address,
 				featureId,
+				referenceType:
+					match.reference.kind === 'nostr'
+						? inferNostrReferenceType(address, featureId ?? undefined)
+						: match.reference.kind,
 				displayName:
 					match.reference.kind === 'nostr'
 						? resolveMentionDisplayName(address, featureId, nameResolver)

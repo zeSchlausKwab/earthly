@@ -35,7 +35,14 @@ import {
 } from 'lucide-react'
 import type { FeatureCollection, Geometry } from 'geojson'
 import type maplibregl from 'maplibre-gl'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	type MouseEvent as ReactMouseEvent,
+} from 'react'
 import { toast } from 'sonner'
 import { AppSidebar } from '@/components/AppSidebar'
 import type { LocalDraftDestinationOption } from '@/components/WorkspaceDraftNavigator'
@@ -336,6 +343,7 @@ export function GeoEditorView() {
 	}, [savedRegionHydration])
 	const map = useRef<maplibregl.Map | null>(null)
 	const [mounted, setMounted] = useState(false)
+	const [loadedMap, setLoadedMap] = useState<maplibregl.Map | null>(null)
 	const {
 		route,
 		navigateTo,
@@ -386,33 +394,33 @@ export function GeoEditorView() {
 		[],
 	)
 
-	// Coordinate references use an explicit, temporary crosshair mode. The next
-	// map click inserts an RFC 5870 `geo:lat,lon` mention at the editor cursor;
 	// Escape or the banner button cancels without changing the article.
 	useEffect(() => {
-		const mapInstance = map.current
-		if (!mapInstance || !mounted || coordinatePickRequestId === null) return
-		const canvas = mapInstance.getCanvas()
-		const previousCursor = canvas.style.cursor
-		canvas.style.cursor = 'crosshair'
-
-		const onMapClick = (event: maplibregl.MapMouseEvent) => {
-			completeCoordinateReferencePick({
-				longitude: event.lngLat.lng,
-				latitude: event.lngLat.lat,
-			})
-		}
+		if (coordinatePickRequestId === null) return
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (event.key === 'Escape') cancelCoordinateReferencePick()
 		}
-		mapInstance.once('click', onMapClick)
 		window.addEventListener('keydown', onKeyDown)
-		return () => {
-			mapInstance.off('click', onMapClick)
-			window.removeEventListener('keydown', onKeyDown)
-			canvas.style.cursor = previousCursor
-		}
-	}, [coordinatePickRequestId, map, mounted])
+		return () => window.removeEventListener('keydown', onKeyDown)
+	}, [coordinatePickRequestId])
+
+	const handleCoordinateReferenceMapClick = useCallback(
+		(event: ReactMouseEvent<HTMLButtonElement>) => {
+			if (!loadedMap || !getCoordinateReferencePickRequest()) return
+			const lngLat =
+				event.detail === 0
+					? loadedMap.getCenter()
+					: (() => {
+							const canvasBounds = loadedMap.getCanvas().getBoundingClientRect()
+							return loadedMap.unproject([
+								event.clientX - canvasBounds.left,
+								event.clientY - canvasBounds.top,
+							])
+						})()
+			completeCoordinateReferencePick({ longitude: lngLat.lng, latitude: lngLat.lat })
+		},
+		[loadedMap],
+	)
 	// Mutable intent flag shared by the generic mobile-drawing guidance and the
 	// later Sighting controller. Sighting pin-drop has its own tap-specific prompt;
 	// showing the dataset lock/drag guidance at the same time is contradictory.
@@ -4179,9 +4187,13 @@ export function GeoEditorView() {
 					))
 				: null}
 			<MapComponent
-				className="w-full h-full touch-none"
+				className={cn(
+					'w-full h-full touch-none',
+					coordinatePickRequestId !== null && 'earthly-coordinate-pick-active',
+				)}
 				onLoad={(m) => {
 					map.current = m
+					setLoadedMap(m)
 					setMounted(true)
 					if (process.env.NODE_ENV !== 'production' && typeof window !== 'undefined') {
 						// Dev-only debug handle (pairs with __earthlyPool/__earthlyEventStore).
@@ -4263,12 +4275,35 @@ export function GeoEditorView() {
 					) : null
 				}
 			>
+				{coordinatePickRequestId !== null && loadedMap && (
+					<button
+						type="button"
+						className="absolute inset-0 z-30 cursor-crosshair border-0 bg-transparent p-0"
+						onClick={handleCoordinateReferenceMapClick}
+						aria-label="Choose coordinate on map; press Enter to use the map center"
+					/>
+				)}
 				<Editor />
 			</MapComponent>
 			{coordinatePickRequestId !== null && (
-				<div className="pointer-events-auto absolute left-1/2 top-[calc(var(--shell-toolbar-h)+0.75rem)] z-40 flex -translate-x-1/2 items-center gap-2 border border-primary/40 bg-card px-3 py-2 text-xs shadow-lg">
-					<Crosshair className="h-4 w-4 text-primary" />
-					<span>Click the map to insert this coordinate into the article.</span>
+				<div
+					role="status"
+					aria-live="polite"
+					className="pointer-events-auto absolute left-1/2 top-[calc(var(--shell-toolbar-h)+0.75rem)] z-40 flex -translate-x-1/2 items-center gap-2 border border-primary/40 bg-card px-3 py-2 text-xs shadow-lg"
+				>
+					<span className="flex h-7 w-7 flex-shrink-0 items-center justify-center border border-primary/30 bg-primary/10">
+						<Crosshair className="h-4 w-4 text-primary" />
+					</span>
+					<span className="flex min-w-0 flex-col">
+						<span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-primary">
+							Coordinate reference
+						</span>
+						<span>
+							{loadedMap
+								? 'Click the map to insert this coordinate into the article.'
+								: 'Preparing the map for coordinate selection…'}
+						</span>
+					</span>
 					<Button
 						type="button"
 						variant="ghost"

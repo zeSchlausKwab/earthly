@@ -12,19 +12,25 @@ import {
 	useImperativeHandle,
 	useMemo,
 	useEffect,
+	type CSSProperties,
 } from 'react'
+import { createPortal } from 'react-dom'
 import {
 	Bold,
 	ChevronDown,
 	ChevronUp,
 	Code2,
 	Crosshair,
+	FileText,
 	Globe,
 	Heading2,
 	Italic,
+	Layers3,
 	List,
+	Map as MapIcon,
 	MapPin,
 	Quote,
+	Shapes,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -115,6 +121,40 @@ interface SuggestionState {
 }
 
 type GeoSuggestionProps = SuggestionProps<GeoFeatureItem, GeoFeatureItem>
+
+export function getGeoReferenceTypeLabel(item: GeoFeatureItem): string {
+	switch (item.entityType) {
+		case 'coordinate-picker':
+		case 'coordinate':
+			return 'Coordinate'
+		case 'dataset':
+			return 'Dataset'
+		case 'feature':
+			return 'Feature'
+		case 'osm':
+			return 'OSM'
+		case 'context':
+			return 'Context'
+		case 'story':
+			return 'Story'
+		default:
+			return 'Reference'
+	}
+}
+
+function getSuggestionDescription(item: GeoFeatureItem): string {
+	if (item.entityType === 'coordinate-picker') return 'Click once on the map'
+	if (item.entityType === 'feature') {
+		return [item.geometryType, item.datasetName].filter(Boolean).join(' · ') || 'Dataset geometry'
+	}
+	if (item.entityType === 'osm') return item.geometryType || 'OpenStreetMap object'
+	if (item.entityType === 'dataset') {
+		return item.datasetName && item.datasetName !== item.name
+			? item.datasetName
+			: 'Complete dataset'
+	}
+	return item.datasetName || item.geometryType || 'Spatial reference'
+}
 
 /**
  * Rich text editor with inline geo mention support.
@@ -379,6 +419,7 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 									address: item.address,
 									featureId: item.featureId,
 									displayName: item.name,
+									referenceType: item.entityType,
 								},
 							})
 							.insertContent(' ')
@@ -439,6 +480,7 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 								address,
 								featureId: null,
 								displayName: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+								referenceType: 'coordinate',
 							},
 						})
 						.insertContent(' ')
@@ -476,6 +518,18 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 			}
 			if (item.entityType === 'context') {
 				return <Globe className="h-4 w-4 flex-shrink-0 text-primary" />
+			}
+			if (item.entityType === 'dataset') {
+				return <Layers3 className="h-4 w-4 flex-shrink-0 text-primary" />
+			}
+			if (item.entityType === 'feature') {
+				return <Shapes className="h-4 w-4 flex-shrink-0 text-primary" />
+			}
+			if (item.entityType === 'osm') {
+				return <MapIcon className="h-4 w-4 flex-shrink-0 text-primary" />
+			}
+			if (item.entityType === 'story') {
+				return <FileText className="h-4 w-4 flex-shrink-0 text-primary" />
 			}
 			return <MapPin className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
 		}
@@ -542,6 +596,7 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 								address: item.address,
 								featureId: item.featureId,
 								displayName: item.name,
+								referenceType: item.entityType,
 							},
 						})
 						.insertContent(' ')
@@ -615,6 +670,7 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 								address: item.address,
 								featureId: item.featureId,
 								displayName: item.name,
+								referenceType: item.entityType,
 							},
 						})
 						.insertContent(' ')
@@ -628,26 +684,31 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 			[editor, onFeatureDrop],
 		)
 
-		// Calculate suggestion popup position
-		const suggestionStyle = (() => {
-			if (!suggestion.clientRect) return {}
-
-			const rootRect = rootRef.current?.getBoundingClientRect()
-			if (!rootRect) {
-				return {
-					position: 'fixed' as const,
-					top: suggestion.clientRect.bottom + 4,
-					left: suggestion.clientRect.left,
-				}
-			}
-
-			// Use absolute positioning relative to the root wrapper. This avoids issues with
-			// `position: fixed` inside transformed ancestors (common in modals/sheets).
-			return {
-				position: 'absolute' as const,
-				top: suggestion.clientRect.bottom - rootRect.top + 4,
-				left: suggestion.clientRect.left - rootRect.left,
-			}
+		// Render the suggestion layer at the viewport level so narrow Story panels and
+		// split-view overflow never crop it. Positioning also flips above the cursor
+		// when there is more room there.
+		const suggestionStyle: CSSProperties | null = (() => {
+			if (!suggestion.clientRect || typeof window === 'undefined') return null
+			const viewportPadding = 8
+			const gap = 6
+			const width = Math.min(352, window.innerWidth - viewportPadding * 2)
+			const estimatedHeight = Math.min(360, 42 + suggestion.items.length * 58)
+			const spaceBelow = window.innerHeight - suggestion.clientRect.bottom - gap - viewportPadding
+			const spaceAbove = suggestion.clientRect.top - gap - viewportPadding
+			const placeAbove = spaceBelow < Math.min(180, estimatedHeight) && spaceAbove > spaceBelow
+			const availableHeight = Math.max(120, placeAbove ? spaceAbove : spaceBelow)
+			const maxHeight = Math.min(360, availableHeight)
+			const left = Math.min(
+				Math.max(viewportPadding, suggestion.clientRect.left),
+				window.innerWidth - width - viewportPadding,
+			)
+			const top = placeAbove
+				? Math.max(
+						viewportPadding,
+						suggestion.clientRect.top - gap - Math.min(estimatedHeight, maxHeight),
+					)
+				: suggestion.clientRect.bottom + gap
+			return { position: 'fixed', left, top, width, maxHeight }
 		})()
 
 		return (
@@ -686,7 +747,7 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 									)}
 									Format
 								</Button>
-								<span className="text-[9px] text-muted-foreground">$ inserts nostr refs</span>
+								<span className="text-[9px] text-muted-foreground">$ inserts references</span>
 							</div>
 							{isToolbarExpanded && (
 								<div className="flex flex-wrap items-center gap-1 border-b border-border bg-card px-2 py-1">
@@ -800,45 +861,68 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 					)}
 				</div>
 
-				{/* Suggestion popup */}
-				{suggestion.isOpen && (
-					<div
-						ref={suggestionRef}
-						className="absolute z-50 w-64 max-h-48 overflow-y-auto rounded-md border border-border bg-card shadow-lg"
-						style={suggestionStyle}
-					>
-						{suggestion.items.length > 0 ? (
-							suggestion.items.map((item, index) => (
-								<button
-									key={item.id}
-									type="button"
-									className={`
-										w-full flex items-center gap-2 px-3 py-2 text-left text-sm
-										${index === suggestion.selectedIndex ? 'bg-info/15 text-info' : 'hover:bg-muted'}
-									`}
-									onClick={() => selectSuggestion(item)}
-								>
-									{getSuggestionIcon(item)}
-									<div className="flex-1 min-w-0">
-										<div className="font-medium truncate">{item.name}</div>
-										{item.datasetName && (
-											<div className="text-xs text-muted-foreground truncate">
-												{item.datasetName}
-											</div>
-										)}
-									</div>
-									{item.geometryType && (
-										<span className="text-xs text-muted-foreground flex-shrink-0">
-											{item.geometryType}
-										</span>
-									)}
-								</button>
-							))
-						) : (
-							<div className="px-3 py-2 text-xs text-muted-foreground">No matches</div>
-						)}
-					</div>
-				)}
+				{/* The suggestion popup is portaled below, outside panel overflow. */}
+				{suggestion.isOpen &&
+					suggestionStyle &&
+					typeof document !== 'undefined' &&
+					createPortal(
+						<div
+							ref={suggestionRef}
+							role="listbox"
+							aria-label="Spatial references"
+							className="z-[100] overflow-y-auto border border-border bg-card shadow-xl"
+							style={suggestionStyle}
+						>
+							<div className="sticky top-0 z-10 border-b border-border bg-muted px-3 py-2">
+								<div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground">
+									Insert map reference
+								</div>
+								<div className="mt-0.5 text-[10px] text-muted-foreground">
+									Choose what this part of the article points to
+								</div>
+							</div>
+							{suggestion.items.length > 0 ? (
+								suggestion.items.map((item, index) => {
+									const typeLabel = getGeoReferenceTypeLabel(item)
+									return (
+										<button
+											key={item.id}
+											type="button"
+											className={cn(
+												'flex w-full items-start gap-2.5 border-b border-border/60 px-3 py-2.5 text-left text-sm last:border-b-0 hover:bg-muted',
+												index === suggestion.selectedIndex && 'bg-info/15',
+											)}
+											onMouseDown={(event) => event.preventDefault()}
+											onClick={() => selectSuggestion(item)}
+										>
+											<span className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center border border-border bg-muted/60">
+												{getSuggestionIcon(item)}
+											</span>
+											<span className="min-w-0 flex-1">
+												<span className="block truncate font-medium text-foreground">
+													{item.name}
+												</span>
+												<span className="mt-1 flex min-w-0 items-center gap-1.5">
+													<span
+														data-reference-type={typeLabel}
+														className="flex-shrink-0 border border-primary/35 bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-primary"
+													>
+														{typeLabel}
+													</span>
+													<span className="truncate text-[10px] text-muted-foreground">
+														{getSuggestionDescription(item)}
+													</span>
+												</span>
+											</span>
+										</button>
+									)
+								})
+							) : (
+								<div className="px-3 py-3 text-xs text-muted-foreground">No matches</div>
+							)}
+						</div>,
+						document.body,
+					)}
 			</div>
 		)
 	},

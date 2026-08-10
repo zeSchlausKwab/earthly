@@ -24,6 +24,12 @@ body::before {
   display: none;
 }
 
+/* MapLibre updates its inline grab cursor on pointer movement. Coordinate
+   reference mode must remain visually distinct even outside Dataset editing. */
+.earthly-coordinate-pick-active .maplibregl-canvas {
+  cursor: crosshair !important;
+}
+
 @keyframes slide {
   from {
     background-position: 0 0;

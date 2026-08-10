@@ -36,18 +36,27 @@ export const insertStoryReferenceTask: AiTaskMetadata = {
 	viewports: 'desktop',
 }
 
-export async function insertStoryCoordinateReference(earthly: EarthlySession): Promise<string> {
+export async function openStoryReferencePicker(earthly: EarthlySession): Promise<void> {
 	const editor = earthly.page.locator('.ProseMirror[contenteditable="true"]').first()
 	await expect(editor).toBeVisible()
-	await earthly.page.getByTitle('Reference a coordinate from the map').click()
+	await editor.focus()
+	const isMac = await earthly.page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform))
+	await earthly.page.keyboard.press(isMac ? 'Meta+ArrowDown' : 'Control+End')
+	await editor.pressSequentially('$')
+	await expect(earthly.page.getByRole('listbox', { name: 'Spatial references' })).toBeVisible()
+}
+
+export async function pickStoryCoordinateFromOpenPicker(earthly: EarthlySession): Promise<string> {
+	const editor = earthly.page.locator('.ProseMirror[contenteditable="true"]').first()
+	await earthly.page.getByRole('button', { name: 'Pick a coordinate on the map' }).click()
 	await expect(
 		earthly.page.getByText('Click the map to insert this coordinate into the article.'),
-	).toBeVisible()
+	).toBeVisible({ timeout: 15_000 })
 
-	const canvas = earthly.page.locator('.maplibregl-canvas').first()
-	await expect(canvas).toBeVisible()
-	await expect(canvas).toHaveCSS('cursor', 'crosshair')
-	const mapBounds = await canvas.boundingBox()
+	const pickerSurface = earthly.page.getByRole('button', { name: 'Choose coordinate on map' })
+	await expect(pickerSurface).toBeVisible()
+	await expect(pickerSurface).toHaveCSS('cursor', 'crosshair')
+	const mapBounds = await pickerSurface.boundingBox()
 	if (!mapBounds) throw new Error('Map is not available for coordinate picking')
 	// The map stack occupies the upper-left of the canvas. Pick an unobstructed
 	// point on the right so this exercises the same visible click a user makes.
@@ -64,6 +73,11 @@ export async function insertStoryCoordinateReference(earthly: EarthlySession): P
 	const reference = await mention.getAttribute('title')
 	if (!reference?.startsWith('geo:')) throw new Error('Coordinate picker did not insert a geo URI')
 	return reference
+}
+
+export async function insertStoryCoordinateReference(earthly: EarthlySession): Promise<string> {
+	await openStoryReferencePicker(earthly)
+	return pickStoryCoordinateFromOpenPicker(earthly)
 }
 
 export async function createStoryDraft(
