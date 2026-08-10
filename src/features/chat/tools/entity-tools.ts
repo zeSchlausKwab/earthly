@@ -32,7 +32,12 @@ import {
 	getLabels,
 	getReferencedAddresses,
 } from '@/lib/nostr/tags'
-import { coordinateToNaddrReference } from '@/lib/nostr/references'
+import {
+	coordinateToNaddrReference,
+	parseNostrAddressReference,
+	stringifyNostrAddressReference,
+} from '@/lib/nostr/references'
+import { stringifyGeoReference, type OsmElementType } from '@/lib/geo/reference'
 import type { ToolEntry } from './registry'
 import type { Tool } from './types'
 
@@ -58,28 +63,34 @@ export interface ParsedEntityReference {
 	kind: number
 	pubkey: string
 	identifier: string
+	featureId?: string
 }
 
 /**
  * Accepts `nostr:naddr1…`, bare `naddr1…`, or a `kind:pubkey:d` coordinate.
- * A trailing `#featureId` fragment is tolerated (and ignored — pass featureId
- * as its own argument).
+ * A trailing percent-encoded `#featureId` fragment is returned to the caller,
+ * so a fine-grained mention can be passed directly without duplicating args.
  */
 export function parseEntityReference(value: unknown): ParsedEntityReference {
 	if (typeof value !== 'string' || !value.trim()) {
 		throw new Error('reference must be a non-empty string (naddr or kind:pubkey:d coordinate).')
 	}
 	let raw = value.trim()
-	const hashIndex = raw.indexOf('#')
-	if (hashIndex !== -1) raw = raw.slice(0, hashIndex)
-	if (raw.startsWith('nostr:')) raw = raw.slice('nostr:'.length)
+	let featureId: string | undefined
+	if (raw.startsWith('nostr:') || raw.startsWith('naddr1')) {
+		const parsed = parseNostrAddressReference(raw.startsWith('nostr:') ? raw : `nostr:${raw}`)
+		if (parsed) {
+			raw = parsed.address
+			featureId = parsed.featureId
+		}
+	}
 
 	if (raw.startsWith('naddr1')) {
 		try {
 			const decoded = nip19.decode(raw)
 			if (decoded.type !== 'naddr') throw new Error('not an naddr')
 			const { kind, pubkey, identifier } = decoded.data
-			return { kind, pubkey, identifier }
+			return { kind, pubkey, identifier, ...(featureId ? { featureId } : {}) }
 		} catch {
 			throw new Error(`Could not decode naddr: ${raw.slice(0, 24)}…`)
 		}
@@ -101,7 +112,7 @@ export function parseEntityReference(value: unknown): ParsedEntityReference {
 
 // ── relay fetch ────────────────────────────────────────────────────────
 
-function fetchLatestByCoordinate(ref: ParsedEntityReference): Promise<NostrEvent | null> {
+export function fetchLatestByCoordinate(ref: ParsedEntityReference): Promise<NostrEvent | null> {
 	const cached = eventStore.getReplaceable(ref.kind, ref.pubkey, ref.identifier)
 	if (cached) return Promise.resolve(cached)
 
@@ -173,7 +184,52 @@ interface GeoJsonFeatureLike {
 	geometry?: { type?: string } | null
 }
 
-function shapeDataset(event: NostrEvent, featureId: string | undefined): Record<string, unknown> {
+const OMITTED_INVENTORY_PROPERTIES = new Set([
+	'color',
+	'fillColor',
+	'fillOpacity',
+	'strokeColor',
+	'strokeOpacity',
+	'strokeWidth',
+	'displayIcon',
+	'label',
+])
+
+function compactFeatureProperties(
+	properties: Record<string, unknown> | null | undefined,
+): Record<string, string | number | boolean> | undefined {
+	if (!properties) return undefined
+	const entries = Object.entries(properties).flatMap(([key, value]) => {
+		if (OMITTED_INVENTORY_PROPERTIES.has(key)) return []
+		if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
+			return []
+		}
+		return [[key, value] as const]
+	})
+	return entries.length > 0 ? Object.fromEntries(entries.slice(0, 8)) : undefined
+}
+
+function osmReferenceForFeature(feature: GeoJsonFeatureLike): string | undefined {
+	const properties = feature.properties
+	const direct = [feature.id, properties?.osmRef, properties?.osm_ref, properties?.['@id']]
+	for (const candidate of direct) {
+		if (typeof candidate !== 'string' && typeof candidate !== 'number') continue
+		const match = String(candidate).match(/^(node|way|relation)[/:](\d+)$/i)
+		if (!match?.[1] || !match[2]) continue
+		return stringifyGeoReference({
+			kind: 'osm',
+			elementType: match[1].toLowerCase() as OsmElementType,
+			id: match[2],
+		})
+	}
+	return undefined
+}
+
+function shapeDataset(
+	event: NostrEvent,
+	featureId: string | undefined,
+	datasetMention: string | null,
+): Record<string, unknown> {
 	let collection: { name?: unknown; description?: unknown; features?: unknown } = {}
 	try {
 		collection = JSON.parse(event.content) as typeof collection
@@ -209,12 +265,37 @@ function shapeDataset(event: NostrEvent, featureId: string | undefined): Record<
 		}
 	}
 
-	const inventory = features.slice(0, MAX_FEATURE_LIST).map((feature, index) => ({
-		id: typeof feature.id === 'string' || typeof feature.id === 'number' ? feature.id : index,
-		name: str(feature.properties?.name),
-		geometry: feature.geometry?.type ?? 'Unknown',
-		displayIcon: str(feature.properties?.displayIcon),
-	}))
+	const parsedDatasetMention = parseNostrAddressReference(datasetMention)
+	const inventory = features.slice(0, MAX_FEATURE_LIST).map((feature, index) => {
+		const id =
+			typeof feature.id === 'string' || typeof feature.id === 'number'
+				? String(feature.id)
+				: String(index)
+		const pointCoordinates =
+			feature.geometry?.type === 'Point' &&
+			Array.isArray((feature.geometry as { coordinates?: unknown }).coordinates)
+				? (feature.geometry as { coordinates: unknown[] }).coordinates.slice(0, 2)
+				: undefined
+		return {
+			id,
+			name: str(feature.properties?.name),
+			geometry: feature.geometry?.type ?? 'Unknown',
+			displayIcon: str(feature.properties?.displayIcon),
+			...(parsedDatasetMention
+				? {
+						reference: stringifyNostrAddressReference({
+							address: parsedDatasetMention.address,
+							featureId: id,
+						}),
+					}
+				: {}),
+			...(osmReferenceForFeature(feature) ? { osmReference: osmReferenceForFeature(feature) } : {}),
+			...(pointCoordinates ? { coordinates: pointCoordinates } : {}),
+			...(compactFeatureProperties(feature.properties)
+				? { properties: compactFeatureProperties(feature.properties) }
+				: {}),
+		}
+	})
 
 	return {
 		name: str(collection.name),
@@ -281,7 +362,7 @@ const readEntitySchema: Tool = {
 	function: {
 		name: 'read_entity',
 		description:
-			"Fetch ONE Earthly entity's full content by reference — use after search_entities (which only returns summaries) or when the user attaches/mentions an entity. Accepts an naddr (nostr:naddr1…) or a kind:pubkey:d coordinate. Returns the full story Markdown body with its referenced mentions, a group/context's content and curated references, or a dataset's metadata and feature inventory. For datasets, pass featureId to get that single feature's full GeoJSON instead of the inventory.",
+			"Fetch ONE Earthly entity's full content by reference — use after search_entities (which only returns summaries) or when the user attaches/mentions an entity. Accepts an naddr (nostr:naddr1…), including an encoded #featureId selector, or a kind:pubkey:d coordinate. Returns the full story Markdown body with its referenced mentions, a group/context's content and curated references, or a dataset's metadata and feature inventory. Dataset inventory rows include ready-to-cite fine-grained references, OSM references when present, Point coordinates, and compact semantic properties. An explicit featureId overrides the selector in reference.",
 		parameters: {
 			type: 'object',
 			properties: {
@@ -333,10 +414,12 @@ export function registerEntityTools(register: (entry: ToolEntry) => void): void 
 				return { ok: false, error: 'expired', message: 'This entity has expired.' }
 			}
 
-			const featureId = typeof args.featureId === 'string' ? args.featureId : undefined
+			const featureId = typeof args.featureId === 'string' ? args.featureId : ref.featureId
+			const coordinate = `${ref.kind}:${ref.pubkey}:${ref.identifier}`
+			const mention = coordinateToNaddrReference(coordinate)
 			let shaped: Record<string, unknown>
 			if (ref.kind === GEO_EVENT_KIND) {
-				shaped = shapeDataset(event, featureId)
+				shaped = shapeDataset(event, featureId, mention)
 			} else if (ref.kind === ARTICLE_KIND) {
 				shaped = shapeStory(event)
 			} else if (ref.kind === MAP_CONTEXT_KIND) {
@@ -345,14 +428,13 @@ export function registerEntityTools(register: (entry: ToolEntry) => void): void 
 				shaped = shapeTimestamped(event)
 			}
 
-			const coordinate = `${ref.kind}:${ref.pubkey}:${ref.identifier}`
 			const hashtags = getHashtags(event)
 			const labels = getLabels(event)
 			return {
 				ok: true,
 				type,
 				coordinate,
-				mention: coordinateToNaddrReference(coordinate),
+				mention,
 				author: event.pubkey,
 				updatedAt: event.created_at,
 				...(getBbox(event) ? { bbox: getBbox(event) } : {}),

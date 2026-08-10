@@ -2,6 +2,8 @@ import { useCallback } from 'react'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import { privateWorkspaceIdForDataset } from '@/lib/private-workspace'
 import { privateDatasetStackEntryId } from '@/features/private-maps/privateDatasetStack'
+import { geoReferenceLabel, parseGeoReference } from '@/lib/geo/reference'
+import { datasetReferenceEntryId } from '../referenceMapStack'
 import { useEditorStore } from '../store'
 
 interface UseMentionActionsParams {
@@ -66,6 +68,16 @@ export function useMentionActions({
 
 	const handleMentionZoomTo = useCallback(
 		(address: string, featureId: string | undefined) => {
+			const spatialReference = parseGeoReference(address)
+			if (spatialReference?.kind === 'coordinate') {
+				handleZoomToBounds([
+					spatialReference.longitude,
+					spatialReference.latitude,
+					spatialReference.longitude,
+					spatialReference.latitude,
+				])
+				return
+			}
 			const dataset = resolveNaddrToDataset(address)
 			if (!dataset) {
 				console.warn('Could not find dataset for address:', address)
@@ -100,7 +112,26 @@ export function useMentionActions({
 	)
 
 	const handleMentionVisibilityToggle = useCallback(
-		(address: string, _featureId: string | undefined, visible: boolean) => {
+		(address: string, featureId: string | undefined, visible: boolean) => {
+			const spatialReference = parseGeoReference(address)
+			if (spatialReference?.kind === 'coordinate') {
+				const entryId = `coordinate:${address}`
+				const existing = mapStackEntries[entryId]
+				if (existing) {
+					setMapStackEntryVisible(entryId, visible)
+				} else if (visible) {
+					addMapStackEntry({
+						id: entryId,
+						entityType: 'coordinate',
+						entityKey: address,
+						title: geoReferenceLabel(spatialReference),
+						source: 'comment',
+						visible: true,
+						pinned: false,
+					})
+				}
+				return
+			}
 			const dataset = resolveNaddrToDataset(address)
 			if (!dataset) {
 				console.warn('Could not find dataset for address:', address)
@@ -111,11 +142,9 @@ export function useMentionActions({
 			const privateEntryId = privateWorkspaceId
 				? privateDatasetStackEntryId(privateWorkspaceId, key)
 				: undefined
-			const existingEntry =
-				(privateEntryId ? mapStackEntries[privateEntryId] : undefined) ??
-				Object.values(mapStackEntries).find(
-					(entry) => entry.entityType === 'dataset' && entry.entityKey === key,
-				)
+			const entryId =
+				privateEntryId && !featureId ? privateEntryId : datasetReferenceEntryId(key, featureId)
+			const existingEntry = mapStackEntries[entryId]
 			if (existingEntry) {
 				// Already stacked (auto-stacked Story ref, or a previously-shown ref):
 				// flip visibility in place so source/order/pin survive and the
@@ -125,12 +154,26 @@ export function useMentionActions({
 				const collectionName = (
 					dataset.featureCollection as GeoJSON.FeatureCollection & { name?: unknown }
 				).name
+				const collection = resolvedCollectionResolver?.(dataset) ?? dataset.featureCollection
+				const referencedFeature = featureId
+					? collection.features.find(
+							(feature) => String(feature.id) === featureId || feature.properties?.id === featureId,
+						)
+					: undefined
+				const featureTitle =
+					typeof referencedFeature?.properties?.name === 'string'
+						? referencedFeature.properties.name
+						: featureId
 				addMapStackEntry({
-					id: privateEntryId,
+					id: entryId,
 					entityType: 'dataset',
 					entityKey: key,
 					title:
-						(typeof collectionName === 'string' && collectionName) || dataset.dTag || dataset.id,
+						featureTitle ||
+						(typeof collectionName === 'string' && collectionName) ||
+						dataset.dTag ||
+						dataset.id,
+					featureIds: featureId ? [featureId] : undefined,
 					source: privateWorkspaceId ? 'private-group' : 'comment',
 					visible: true,
 					pinned: false,
@@ -143,6 +186,7 @@ export function useMentionActions({
 			addMapStackEntry,
 			setMapStackEntryVisible,
 			mapStackEntries,
+			resolvedCollectionResolver,
 		],
 	)
 

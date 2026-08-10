@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { nip19 } from 'nostr-tools'
 import type { Article } from '@/lib/nostr/article'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import { parseStoryRefs } from './useStoryMapRefs'
@@ -10,12 +11,12 @@ import { parseStoryRefs } from './useStoryMapRefs'
 
 const PK = 'a'.repeat(64)
 
-function fakeStory(referencedAddresses: string[], title = 'A Story'): Article {
+function fakeStory(referencedAddresses: string[], title = 'A Story', content = ''): Article {
 	return {
 		referencedAddresses,
 		pubkey: PK,
 		dTag: 'story-1',
-		article: { title },
+		article: { title, content },
 	} as unknown as Article
 }
 
@@ -29,6 +30,24 @@ const STORY_VIA = {
 describe('parseStoryRefs', () => {
 	test('returns [] for a null story', () => {
 		expect(parseStoryRefs(null)).toEqual([])
+	})
+
+	test('keeps exact feature selectors from inline Story references', () => {
+		const naddr = nip19.naddrEncode({
+			kind: GEO_EVENT_KIND,
+			pubkey: PK,
+			identifier: 'east-german-travel',
+		})
+		const coordinate = `${GEO_EVENT_KIND}:${PK}:east-german-travel`
+		const refs = parseStoryRefs(
+			fakeStory(
+				[coordinate],
+				'A Story',
+				`Crossing nostr:${naddr}#relation%2F62504 and nostr:${naddr}#checkpoint-alpha.`,
+			),
+		)
+		expect(refs.map((ref) => ref.featureId)).toEqual(['relation/62504', 'checkpoint-alpha'])
+		expect(refs[0]?.entryId).toContain('relation%2F62504')
 	})
 
 	test('derives dataset key + entry id from a 37515 coordinate', () => {

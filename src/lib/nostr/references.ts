@@ -5,10 +5,41 @@ export interface NostrAddressReference {
 	featureId?: string
 }
 
-const NADDR_REFERENCE_PATTERN = /nostr:(naddr1[a-z0-9]+)(#([a-zA-Z0-9_-]+))?/gi
+/**
+ * Feature ids are URI-fragment data, not a restricted Earthly identifier.
+ * GeoJSON permits arbitrary string ids and OSM-derived datasets commonly use
+ * values such as `relation/62504`. Canonical references therefore percent-
+ * encode the fragment. The conservative scanner character class deliberately
+ * excludes prose punctuation so a trailing full stop is never swallowed.
+ */
+const ENCODED_FEATURE_ID_PATTERN = '[a-zA-Z0-9_%~-]+'
+const NADDR_REFERENCE_PATTERN = new RegExp(
+	`nostr:(naddr1[a-z0-9]+)(?:#(${ENCODED_FEATURE_ID_PATTERN}))?`,
+	'gi',
+)
+
+export function encodeNostrFeatureId(featureId: string): string {
+	// encodeURIComponent leaves a few punctuation characters unescaped. Escape
+	// them as well so inline-reference boundaries stay unambiguous in prose.
+	return encodeURIComponent(featureId).replace(
+		/[.!'()*]/g,
+		(character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+	)
+}
+
+export function decodeNostrFeatureId(encodedFeatureId: string): string | null {
+	try {
+		const decoded = decodeURIComponent(encodedFeatureId)
+		return decoded || null
+	} catch {
+		return null
+	}
+}
 
 export function stringifyNostrAddressReference(reference: NostrAddressReference): string {
-	return `nostr:${reference.address}${reference.featureId ? `#${reference.featureId}` : ''}`
+	return `nostr:${reference.address}${
+		reference.featureId ? `#${encodeNostrFeatureId(reference.featureId)}` : ''
+	}`
 }
 
 export function parseNostrAddressReference(
@@ -17,11 +48,17 @@ export function parseNostrAddressReference(
 	if (!value) return null
 	const trimmed = value.trim()
 	if (!trimmed) return null
-	const match = trimmed.match(/^nostr:(naddr1[a-z0-9]+)(?:#([a-zA-Z0-9_-]+))?$/i)
+	const match = trimmed.match(/^nostr:(naddr1[a-z0-9]+)(?:#(.+))?$/i)
 	if (!match?.[1]) return null
+	let featureId: string | undefined
+	if (match[2]) {
+		const decoded = decodeNostrFeatureId(match[2])
+		if (!decoded) return null
+		featureId = decoded
+	}
 	return {
 		address: match[1],
-		featureId: match[2] || undefined,
+		featureId,
 	}
 }
 
@@ -36,9 +73,18 @@ export function extractNostrAddressReferences(
 	while (match !== null) {
 		const address = match[1]
 		if (address) {
+			let featureId: string | undefined
+			if (match[2]) {
+				const decoded = decodeNostrFeatureId(match[2])
+				if (!decoded) {
+					match = NADDR_REFERENCE_PATTERN.exec(text)
+					continue
+				}
+				featureId = decoded
+			}
 			references.push({
 				address,
-				featureId: match[3] || undefined,
+				featureId,
 			})
 		}
 		match = NADDR_REFERENCE_PATTERN.exec(text)

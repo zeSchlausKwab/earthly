@@ -3,6 +3,7 @@ import {
 	ChevronDown,
 	ChevronRight,
 	ChevronUp,
+	Crosshair,
 	Database,
 	Layers,
 	Loader2,
@@ -116,6 +117,8 @@ export function entryTypeMetaLabel(entityType: MapStackEntry['entityType']): str
 			return 'sighting'
 		case 'beacon':
 			return 'beacon'
+		case 'coordinate':
+			return 'coordinate'
 		case 'sighting-layer':
 			return 'sightings layer'
 		case 'beacon-layer':
@@ -456,6 +459,8 @@ function EntryRow({
 						<PencilLine className={actionIconClassName} />
 					) : entry.entityType === 'sighting' ? (
 						<MapPin className={actionIconClassName} />
+					) : entry.entityType === 'coordinate' ? (
+						<Crosshair className={actionIconClassName} />
 					) : entry.entityType === 'beacon' ? (
 						<Radio className={actionIconClassName} />
 					) : entry.entityType === 'sighting-layer' ? (
@@ -869,7 +874,11 @@ function CarriedGroupCard({
 					{group.entries.map((entry) => {
 						const dataset =
 							entry.entityType === 'dataset' ? datasetByKey.get(entry.entityKey) : undefined
-						const name = dataset ? getDatasetName(dataset) : entry.title || entry.entityKey
+						const name = dataset
+							? entry.featureIds?.length
+								? `${entry.title} · ${getDatasetName(dataset)}`
+								: getDatasetName(dataset)
+							: entry.title || entry.entityKey
 						return (
 							<div
 								key={entry.id}
@@ -879,7 +888,11 @@ function CarriedGroupCard({
 									!entry.visible && 'opacity-60',
 								)}
 							>
-								<Database className="h-3 w-3 shrink-0 text-muted-foreground" />
+								{entry.entityType === 'coordinate' ? (
+									<Crosshair className="h-3 w-3 shrink-0 text-muted-foreground" />
+								) : (
+									<Database className="h-3 w-3 shrink-0 text-muted-foreground" />
+								)}
 								<span className="min-w-0 flex-1 truncate text-foreground">{name}</span>
 								{dataset ? (
 									<>
@@ -994,7 +1007,9 @@ function EntryGroupList({
 		// their title through `entityTypeLabel` so an aggregate layer always reads
 		// "Sightings"/"Live beacons" even if seeded without an explicit title.
 		const title = dataset
-			? getDatasetName(dataset)
+			? entry.featureIds?.length
+				? `${entry.title} · ${getDatasetName(dataset)}`
+				: getDatasetName(dataset)
 			: entry.entityType === 'sighting-layer' ||
 					entry.entityType === 'beacon-layer' ||
 					entry.entityType === 'sighting' ||

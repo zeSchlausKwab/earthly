@@ -75,6 +75,7 @@ import {
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { ChatReference } from './store'
+import { stringifyNostrAddressReference } from '@/lib/nostr/references'
 import {
 	buildChatTimeline,
 	TOOL_OPERATION_PHASE_LABELS,
@@ -1219,7 +1220,10 @@ function buildReferenceContextMessage(references: ChatReference[]): string | und
 	if (references.length === 0) return undefined
 	const lines = references.map((reference, index) => {
 		const mention = reference.address
-			? `nostr:${reference.address}${reference.featureId ? `#${reference.featureId}` : ''}`
+			? stringifyNostrAddressReference({
+					address: reference.address,
+					featureId: reference.featureId,
+				})
 			: null
 		const parts = [
 			`${index + 1}. type=${reference.type}`,
@@ -1606,7 +1610,7 @@ function parseChatMarkdown(text: string): ChatMarkdownBlock[] {
 			flushList()
 			blocks.push({
 				type: 'quote',
-				tokens: parseChatMarkdownInlineTokens(quoteMatch[1]),
+				tokens: parseChatMarkdownInlineTokens(quoteMatch[1] ?? ''),
 			})
 			continue
 		}

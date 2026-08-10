@@ -3,6 +3,7 @@ import { castEvent } from 'applesauce-core/casts'
 import {
 	BookOpen,
 	CircleDot,
+	Crosshair,
 	Database,
 	Download,
 	Eye,
@@ -30,6 +31,7 @@ import {
 	Trash2,
 	Undo2,
 	Waypoints,
+	X,
 } from 'lucide-react'
 import type { FeatureCollection, Geometry } from 'geojson'
 import type maplibregl from 'maplibre-gl'
@@ -183,6 +185,13 @@ import type { MapStackEntryType } from './store/types'
 import type { GeoSearchResult } from './types'
 import { ensureFeatureCollection, extractCollectionMeta, toEditorFeature } from './utils'
 import { getMobileDrawingGuidance, isDrawingEditorMode } from './mobileDrawingGuidance'
+import { deriveReferenceMapRenderState, featureMatchesReferenceSelector } from './referenceMapStack'
+import {
+	cancelCoordinateReferencePick,
+	completeCoordinateReferencePick,
+	getCoordinateReferencePickRequest,
+	subscribeCoordinateReferencePickRequests,
+} from './coordinateReferencePickerBridge'
 
 /**
  * Phase 13 (SPEC §3.2): derive the stack-gated render set for an ephemeral entity
@@ -366,6 +375,44 @@ export function GeoEditorView() {
 		setCalloutDisplayMode(nextCalloutDisplayMode)
 	}, [])
 	const [mapPopupPlacement, setMapPopupPlacement] = useState<MapPopupPlacement>('dock')
+	const [coordinatePickRequestId, setCoordinatePickRequestId] = useState<number | null>(
+		() => getCoordinateReferencePickRequest()?.id ?? null,
+	)
+	useEffect(
+		() =>
+			subscribeCoordinateReferencePickRequests(() => {
+				setCoordinatePickRequestId(getCoordinateReferencePickRequest()?.id ?? null)
+			}),
+		[],
+	)
+
+	// Coordinate references use an explicit, temporary crosshair mode. The next
+	// map click inserts an RFC 5870 `geo:lat,lon` mention at the editor cursor;
+	// Escape or the banner button cancels without changing the article.
+	useEffect(() => {
+		const mapInstance = map.current
+		if (!mapInstance || !mounted || coordinatePickRequestId === null) return
+		const canvas = mapInstance.getCanvas()
+		const previousCursor = canvas.style.cursor
+		canvas.style.cursor = 'crosshair'
+
+		const onMapClick = (event: maplibregl.MapMouseEvent) => {
+			completeCoordinateReferencePick({
+				longitude: event.lngLat.lng,
+				latitude: event.lngLat.lat,
+			})
+		}
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') cancelCoordinateReferencePick()
+		}
+		mapInstance.once('click', onMapClick)
+		window.addEventListener('keydown', onKeyDown)
+		return () => {
+			mapInstance.off('click', onMapClick)
+			window.removeEventListener('keydown', onKeyDown)
+			canvas.style.cursor = previousCursor
+		}
+	}, [coordinatePickRequestId, map, mounted])
 	// Mutable intent flag shared by the generic mobile-drawing guidance and the
 	// later Sighting controller. Sighting pin-drop has its own tap-specific prompt;
 	// showing the dataset lock/drag guidance at the same time is contradictory.
@@ -2386,14 +2433,37 @@ export function GeoEditorView() {
 		stance,
 		viewMode,
 	])
+	const referenceMapRenderState = useMemo(
+		() => deriveReferenceMapRenderState(mapStackOrder.map((entryId) => mapStackEntries[entryId])),
+		[mapStackEntries, mapStackOrder],
+	)
 	const visibleCalloutDatasets = useMemo(() => {
 		// Resolved collections live outside React; this counter invalidates the derived list.
 		void resolvedCollectionsVersion
-		return visibleGeoEvents.map((event) => ({
-			key: getDatasetKey(event),
-			collection: resolvedCollectionResolver(event) ?? event.featureCollection,
-		}))
-	}, [visibleGeoEvents, getDatasetKey, resolvedCollectionResolver, resolvedCollectionsVersion])
+		return visibleGeoEvents.map((event) => {
+			const key = getDatasetKey(event)
+			const collection = resolvedCollectionResolver(event) ?? event.featureCollection
+			const selector = referenceMapRenderState.datasetFeatureSelectors[key]
+			return {
+				key,
+				collection:
+					selector === undefined || selector === null
+						? collection
+						: {
+								...collection,
+								features: collection.features.filter((feature) =>
+									featureMatchesReferenceSelector(feature, selector),
+								),
+							},
+			}
+		})
+	}, [
+		visibleGeoEvents,
+		getDatasetKey,
+		referenceMapRenderState,
+		resolvedCollectionResolver,
+		resolvedCollectionsVersion,
+	])
 
 	// Phase 13 (SPEC §3.2): sightings/beacons render from STACK MEMBERSHIP, not
 	// unconditionally. These mirror `visibleGeoEvents` — an aggregate `*-layer`
@@ -2695,6 +2765,8 @@ export function GeoEditorView() {
 		visibleBeacons: visibleBeaconsFromStack,
 		resolvedCollectionResolver,
 		resolvedCollectionsVersion,
+		datasetFeatureSelectors: referenceMapRenderState.datasetFeatureSelectors,
+		coordinateReferences: referenceMapRenderState.coordinates,
 	})
 
 	// Keep the viewport focused on the most recently loaded geometry after map source swaps.
@@ -4193,6 +4265,22 @@ export function GeoEditorView() {
 			>
 				<Editor />
 			</MapComponent>
+			{coordinatePickRequestId !== null && (
+				<div className="pointer-events-auto absolute left-1/2 top-[calc(var(--shell-toolbar-h)+0.75rem)] z-40 flex -translate-x-1/2 items-center gap-2 border border-primary/40 bg-card px-3 py-2 text-xs shadow-lg">
+					<Crosshair className="h-4 w-4 text-primary" />
+					<span>Click the map to insert this coordinate into the article.</span>
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-xs"
+						onClick={cancelCoordinateReferencePick}
+						aria-label="Cancel coordinate reference"
+						title="Cancel (Esc)"
+					>
+						<X className="h-3.5 w-3.5" />
+					</Button>
+				</div>
+			)}
 			{/* User location marker - pulsating blue dot */}
 			<UserLocationMarker
 				map={map.current}

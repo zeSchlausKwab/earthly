@@ -26,13 +26,44 @@ export const publishStoryTask: AiTaskMetadata = {
 
 export const insertStoryReferenceTask: AiTaskMetadata = {
 	id: 'create.insert-story-reference',
-	summary: 'Insert a Dataset or feature reference through the Story editor mention picker.',
+	summary:
+		'Insert a Dataset, feature, OSM element, or map-picked coordinate through the Story editor.',
 	preconditions: [
 		'Open Story editor',
 		'Referenced entity is loaded or published to the local relay',
 	],
-	sideEffects: ['Adds an inline Nostr reference to the current Story draft'],
+	sideEffects: ['Adds an inline spatial reference to the current Story draft'],
 	viewports: 'desktop',
+}
+
+export async function insertStoryCoordinateReference(earthly: EarthlySession): Promise<string> {
+	const editor = earthly.page.locator('.ProseMirror[contenteditable="true"]').first()
+	await expect(editor).toBeVisible()
+	await earthly.page.getByTitle('Reference a coordinate from the map').click()
+	await expect(
+		earthly.page.getByText('Click the map to insert this coordinate into the article.'),
+	).toBeVisible()
+
+	const canvas = earthly.page.locator('.maplibregl-canvas').first()
+	await expect(canvas).toBeVisible()
+	await expect(canvas).toHaveCSS('cursor', 'crosshair')
+	const mapBounds = await canvas.boundingBox()
+	if (!mapBounds) throw new Error('Map is not available for coordinate picking')
+	// The map stack occupies the upper-left of the canvas. Pick an unobstructed
+	// point on the right so this exercises the same visible click a user makes.
+	await earthly.page.mouse.click(
+		mapBounds.x + mapBounds.width * 0.72,
+		mapBounds.y + mapBounds.height * 0.55,
+	)
+	await expect(
+		earthly.page.getByText('Click the map to insert this coordinate into the article.'),
+	).toBeHidden()
+
+	const mention = editor.locator('[title^="geo:"]').last()
+	await expect(mention).toBeVisible()
+	const reference = await mention.getAttribute('title')
+	if (!reference?.startsWith('geo:')) throw new Error('Coordinate picker did not insert a geo URI')
+	return reference
 }
 
 export async function createStoryDraft(

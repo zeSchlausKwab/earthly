@@ -18,6 +18,7 @@ import {
 	ChevronDown,
 	ChevronUp,
 	Code2,
+	Crosshair,
 	Globe,
 	Heading2,
 	Italic,
@@ -29,6 +30,8 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { GeoMentionNode, serializeToText, parseFromText } from './GeoMentionExtension'
 import { mergeMentionItems, searchMentionEntities } from './mentionSearch'
+import { stringifyGeoReference } from '@/lib/geo/reference'
+import { requestCoordinateReferencePick } from '@/features/geo-editor/coordinateReferencePickerBridge'
 
 export interface GeoFeatureItem {
 	/** Unique identifier */
@@ -38,7 +41,14 @@ export interface GeoFeatureItem {
 	/** The naddr1... address */
 	address: string
 	/** Entity type for reference rendering */
-	entityType?: 'dataset' | 'context' | 'feature' | 'story'
+	entityType?:
+		| 'dataset'
+		| 'context'
+		| 'feature'
+		| 'story'
+		| 'coordinate'
+		| 'osm'
+		| 'coordinate-picker'
 	/** Feature ID within the dataset (optional for dataset-level refs) */
 	featureId?: string
 	/** Geometry type for icon */
@@ -149,6 +159,8 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 		const suggestionStateRef = useRef<SuggestionState | null>(null)
 		const relayMentionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 		const relayMentionQueryRef = useRef<string>('')
+		const coordinatePickerCancelRef = useRef<(() => void) | null>(null)
+		const beginCoordinatePickRef = useRef<(() => void) | null>(null)
 
 		useEffect(() => {
 			suggestionStateRef.current = suggestion
@@ -184,16 +196,27 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 		// Filter features based on query
 		const filterFeatures = useCallback((query: string): GeoFeatureItem[] => {
 			const features = availableFeaturesRef.current
-			if (!query) return features.slice(0, 10)
+			const coordinatePicker: GeoFeatureItem = {
+				id: 'action:pick-coordinate',
+				name: 'Pick a coordinate on the map',
+				address: '',
+				entityType: 'coordinate-picker',
+				geometryType: 'Coordinate',
+			}
+			if (!query) return [coordinatePicker, ...features.slice(0, 9)]
 			const lowerQuery = query.toLowerCase()
-			return features
+			const matches = features
 				.filter(
 					(f) =>
 						f.name.toLowerCase().includes(lowerQuery) ||
 						f.featureId?.toLowerCase().includes(lowerQuery) ||
 						f.datasetName?.toLowerCase().includes(lowerQuery),
 				)
-				.slice(0, 10)
+				.slice(0, 9)
+			const pickerMatches = ['coordinate', 'location', 'point', 'map'].some((term) =>
+				term.includes(lowerQuery),
+			)
+			return pickerMatches ? [coordinatePicker, ...matches] : matches
 		}, [])
 
 		// Relay entity suggestions: local matches render instantly (sync
@@ -339,6 +362,12 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 					},
 					command: ({ editor, range, props }) => {
 						const item = props as unknown as GeoFeatureItem
+						if (item.entityType === 'coordinate-picker') {
+							editor.chain().focus().deleteRange(range).run()
+							setSuggestion((prev) => ({ ...prev, isOpen: false }))
+							beginCoordinatePickRef.current?.()
+							return
+						}
 
 						editor
 							.chain()
@@ -394,6 +423,39 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 
 		const editorMinHeight = Math.max(rows * 26, readOnly ? 0 : 88)
 
+		const beginCoordinatePick = useCallback(() => {
+			if (!editor || disabled || readOnly) return
+			coordinatePickerCancelRef.current?.()
+			coordinatePickerCancelRef.current = requestCoordinateReferencePick(
+				({ latitude, longitude }) => {
+					coordinatePickerCancelRef.current = null
+					const address = stringifyGeoReference({ kind: 'coordinate', latitude, longitude })
+					editor
+						.chain()
+						.focus()
+						.insertContent({
+							type: 'geoMention',
+							attrs: {
+								address,
+								featureId: null,
+								displayName: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+							},
+						})
+						.insertContent(' ')
+						.run()
+				},
+			)
+		}, [disabled, editor, readOnly])
+		beginCoordinatePickRef.current = beginCoordinatePick
+
+		useEffect(
+			() => () => {
+				coordinatePickerCancelRef.current?.()
+				coordinatePickerCancelRef.current = null
+			},
+			[],
+		)
+
 		useEffect(() => {
 			if (!editor) return
 			const dom = editor.view.dom as HTMLElement
@@ -409,6 +471,9 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 		}, [])
 
 		const getSuggestionIcon = (item: GeoFeatureItem) => {
+			if (item.entityType === 'coordinate-picker' || item.entityType === 'coordinate') {
+				return <Crosshair className="h-4 w-4 flex-shrink-0 text-primary" />
+			}
 			if (item.entityType === 'context') {
 				return <Globe className="h-4 w-4 flex-shrink-0 text-primary" />
 			}
@@ -691,6 +756,18 @@ export const GeoRichTextEditor = forwardRef<GeoRichTextEditorRef, GeoRichTextEdi
 										title="Quote"
 									>
 										<Quote className="h-3.5 w-3.5" />
+									</Button>
+									<div className="mx-1 h-4 w-px bg-muted" />
+									<Button
+										type="button"
+										variant="ghost"
+										size="icon-sm"
+										className="h-7 w-7 rounded-none"
+										onClick={beginCoordinatePick}
+										disabled={disabled}
+										title="Reference a coordinate from the map"
+									>
+										<Crosshair className="h-3.5 w-3.5" />
 									</Button>
 								</div>
 							)}

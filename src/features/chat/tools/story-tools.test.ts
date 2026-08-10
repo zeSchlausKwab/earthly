@@ -1,4 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
+import { finalizeEvent, generateSecretKey, nip19 } from 'nostr-tools'
+import { eventStore } from '@/lib/nostr'
+import { ARTICLE_KIND } from '@/lib/nostr/kinds'
+import { MODEL_VERSION } from '@/lib/nostr/modelVersion'
 import {
 	getStoryEditorOpenRequest,
 	resetStoryEditorOpenRequests,
@@ -143,6 +147,41 @@ describe('story draft tools', () => {
 		// A follow-up write fires a NEW nonce so an already-open panel re-prefills.
 		await call('write_story_draft', { title: 'Surfaced v2', markdown: 'body 2' })
 		expect(getStoryEditorOpenRequest()?.nonce).toBe(2)
+	})
+
+	it('writes an existing published Story into its edit-draft slot', async () => {
+		const identifier = 'east-german-travel'
+		const event = finalizeEvent(
+			{
+				kind: ARTICLE_KIND,
+				created_at: Math.floor(Date.now() / 1000),
+				tags: [['d', identifier]],
+				content: JSON.stringify({
+					modelVersion: MODEL_VERSION,
+					title: 'East German travel',
+					content: 'Published body',
+				}),
+			},
+			generateSecretKey(),
+		)
+		const pubkey = event.pubkey
+		eventStore.add(event)
+		const storyReference = `nostr:${nip19.naddrEncode({
+			kind: ARTICLE_KIND,
+			pubkey,
+			identifier,
+		})}`
+
+		const result = await call('write_story_draft', {
+			storyReference,
+			title: 'East German travel',
+			markdown: 'Updated with fine-grained references.',
+		})
+		expect(result).toMatchObject({ ok: true, draftKey: identifier, mode: 'edit' })
+		expect(getStoryEditorOpenRequest()).toMatchObject({
+			mode: 'edit',
+			story: { dTag: identifier, pubkey },
+		})
 	})
 
 	it('does not fire an open request when the overwrite gate rejects the write', async () => {

@@ -254,7 +254,20 @@ Kind constant: `src/lib/nostr/kinds.ts:11` (`GEO_COMMENT_KIND = 37517`).
 
 ### 2.4 Inline Geometry References
 
-Comments may reference datasets or specific features inline using NIP-21 URIs: `nostr:naddr1...` for a dataset, `nostr:naddr1...#featureId` for a specific feature within a dataset. Clients SHOULD render these as interactive elements (show/hide on map, zoom-to-bounds).
+Comments and Stories may carry the following inline spatial references:
+
+| Target | Canonical form | Example |
+|--------|----------------|---------|
+| Dataset | NIP-21 address URI | `nostr:naddr1...` |
+| Feature inside a Dataset | NIP-21 address plus Earthly fragment selector | `nostr:naddr1...#relation%2F62504` |
+| Coordinate | RFC 5870 geo URI (latitude, longitude order) | `geo:52.516275,13.377704` |
+| OpenStreetMap element | Canonical element URL | `https://www.openstreetmap.org/relation/62504` |
+
+The feature selector is an Earthly extension to the NIP-21 address. It is the Feature's stable `Feature.id`, percent-encoded as URI-fragment data; legacy unescaped identifiers containing only letters, digits, `_`, and `-` remain valid. GeoJSON uses longitude/latitude coordinate order internally, while the persisted `geo:` URI deliberately follows RFC 5870 latitude/longitude order.
+
+References are **live pointers**. Resolving a Dataset or Feature always uses the newest replaceable Dataset event at that address. A client MUST show an unresolved state when the referenced Feature id no longer exists; it MUST NOT silently substitute another feature or a historical Dataset version. Authors who need a stable long-term snapshot SHOULD fork the Dataset and reference the fork.
+
+Clients SHOULD render recognized references as interactive elements. Activating a Dataset renders the whole Dataset. Activating a Feature renders only that Feature, even though its parent Dataset is fetched as the resolution unit. Activating a coordinate renders one temporary map pin. OSM references link to the canonical OSM element; resolving their geometry is optional and MUST NOT block article rendering.
 
 ### 2.5 Example Reply
 
@@ -329,6 +342,10 @@ Kind constant: `src/lib/nostr/kinds.ts:24` (`ARTICLE_KIND = 37520`). Scaffold: `
 ### 4.1 Inline naddr → `a` mirror (Phase 10)
 
 Inline `nostr:naddr…` mentions in the Markdown body SHOULD be mirrored into queryable `a` tags (`<kind>:<pubkey>:<d>`), exactly as the Group curated lane does (§3.3). This lets relays answer "which Stories reference this Dataset?" without parsing Markdown. **The authoring UI that performs the mirror is Phase 10**; Phase 8 ships the Factory+Cast scaffold and the shared `a` seam.
+
+Feature fragments do not change the mirrored coordinate: both `nostr:naddr…` and `nostr:naddr…#featureId` mirror the parent Dataset's `<kind>:<pubkey>:<d>` exactly once. The Markdown body remains authoritative for the fine-grained selector. `geo:` and OpenStreetMap URLs have no Nostr address coordinate and therefore do not create `a` tags.
+
+The Story editor's `$` reference menu SHOULD offer loaded Datasets and their Features, OSM identities discovered on those Features, and an explicit **Pick a coordinate on the map** action. Coordinate picking is a temporary crosshair mode: the next map click inserts the `geo:` reference at the preserved text cursor; Escape or Cancel exits without changing the Story.
 
 ### 4.2 Guard
 

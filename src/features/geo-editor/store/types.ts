@@ -98,6 +98,7 @@ export interface MapLayerState {
  */
 export type MapStackEntryType =
 	| 'dataset'
+	| 'coordinate'
 	| 'context'
 	| 'comment'
 	| 'proposal'
@@ -174,6 +175,8 @@ export interface MapStackEntry {
 	entityType: MapStackEntryType
 	entityKey: string
 	title: string
+	/** Present on a dataset entry when it represents only these feature ids. */
+	featureIds?: string[]
 	source: MapStackEntrySource
 	/** Set when a carrier entity auto-stacked this entry — see MapStackEntryVia. */
 	via?: MapStackEntryVia

@@ -26,6 +26,10 @@ import { LINE_ARROW_IMAGE_ID } from '../icons/registerDisplayIconImages'
 import { collectLineArrowFeatures } from '../utils/lineArrows'
 import { useEditorStore } from '../store'
 import { convertGeoEventsToFeatureCollection } from '../utils'
+import {
+	featureMatchesReferenceSelector,
+	type VisibleCoordinateReference,
+} from '../referenceMapStack'
 
 function isExternalPlaceholder(properties: unknown): boolean {
 	if (!properties || typeof properties !== 'object') return false
@@ -479,6 +483,10 @@ interface UseMapLayersOptions {
 	resolvedCollectionResolver: (event: GeoDataset) => FeatureCollection | undefined
 	/** Version counter that increments when resolved blob data changes, triggers re-render */
 	resolvedCollectionsVersion: number
+	/** Exact feature filters derived from fine-grained map-stack references. */
+	datasetFeatureSelectors?: Record<string, string[] | null>
+	/** Visible RFC 5870 coordinate references rendered as standalone pins. */
+	coordinateReferences?: VisibleCoordinateReference[]
 }
 
 export function useMapLayers({
@@ -489,6 +497,8 @@ export function useMapLayers({
 	visibleBeacons = [],
 	resolvedCollectionResolver,
 	resolvedCollectionsVersion,
+	datasetFeatureSelectors = {},
+	coordinateReferences = [],
 }: UseMapLayersOptions) {
 	const [remoteLayersReady, setRemoteLayersReady] = useState(false)
 	const [styleInitVersion, setStyleInitVersion] = useState(0)
@@ -1339,9 +1349,35 @@ export function useMapLayers({
 				const clusteredSource = map.getSource(CLUSTERED_SOURCE_ID) as GeoJSONSource | undefined
 				if (!source) return
 
-				const collection = convertGeoEventsToFeatureCollection(
-					visibleGeoEvents,
-					resolvedCollectionResolver,
+				const collection = convertGeoEventsToFeatureCollection(visibleGeoEvents, (event) => {
+					const resolved = resolvedCollectionResolver(event)
+					const source = resolved ?? event.featureCollection
+					const datasetKey = `${event.pubkey}:${event.datasetId ?? event.id}`
+					const selector = datasetFeatureSelectors[datasetKey]
+					if (selector === undefined || selector === null) return source
+					return {
+						...source,
+						features: source.features.filter((feature) =>
+							featureMatchesReferenceSelector(feature, selector),
+						),
+					}
+				})
+				collection.features.push(
+					...coordinateReferences.map((coordinate) => ({
+						type: 'Feature' as const,
+						id: coordinate.entryId,
+						geometry: {
+							type: 'Point' as const,
+							coordinates: [coordinate.longitude, coordinate.latitude],
+						},
+						properties: {
+							name: coordinate.title,
+							label: coordinate.title,
+							displayIcon: 'lucide:map-pin',
+							color: '#2563eb',
+							reference: coordinate.reference,
+						},
+					})),
 				)
 
 				// Filter out placeholder features and features with null geometry
@@ -1440,6 +1476,8 @@ export function useMapLayers({
 		visibleGeoEvents,
 		resolvedCollectionResolver,
 		resolvedCollectionsVersion,
+		datasetFeatureSelectors,
+		coordinateReferences,
 		remoteLayersReady,
 		mapRef,
 		pointClusteringEnabled,
