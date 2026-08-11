@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.1] - 2026-08-11
+
+- Added fine-grained Story references to individual Dataset geometries, OpenStreetMap elements,
+  and coordinates, with typed mentions, map focus, and support in both user and AI authoring.
+- Added advanced geometry tools for splitting lines and polygons, polygon and line offsets by
+  distance or map drag, and line-to-polygon corridors, exposed through the editor and AI chat.
+- Fixed coordinate picking while authoring Stories outside Dataset edit mode, improved reference
+  type labels, and kept the picker visible beside the map.
+- Fixed drawn polygon cuts by snapping cutter endpoints to rendered boundaries and sharing exact
+  topology nodes between cutters and polygons; failed cuts now report their real error.
+- Kept focused Dataset and Context landings free of unrelated Sighting and Live Beacon layers, and
+  made Nostr timelines incorporate newly published and updated records without waiting for reload.
+
 ## [0.1.0] - 2026-08-03
 
 - Added always-visible, geometry-attached map callouts that authors can create from the toolbar or
