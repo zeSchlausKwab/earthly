@@ -5,14 +5,12 @@
  * "subscribe-then-read-from-store" pattern that applesauce uses.
  */
 
-import { mapEventsToStore } from 'applesauce-core'
 import { use$ } from 'applesauce-react/hooks'
-import type { GroupReqMessage } from 'applesauce-relay'
 import type { Filter, NostrEvent } from 'nostr-tools'
 import { useEffect, useMemo, useState } from 'react'
-import { filter as rxFilter, map, tap } from 'rxjs'
 import { eventStore, pool, queryCache } from './index'
 import { filterList, filterRequestKey } from './filterGuards'
+import { startLiveTimelineSubscription } from './liveTimeline'
 import { bucketForKind, readRelaysFor } from './relay-router'
 
 /**
@@ -21,17 +19,6 @@ import { bucketForKind, readRelaysFor } from './relay-router'
  * and let late events stream in.
  */
 const EOSE_TIMEOUT_MS = 4_000
-
-type EventMessage = Extract<GroupReqMessage, { type: 'EVENT' }>
-type RelayDoneMessage = Extract<GroupReqMessage, { type: 'EOSE' | 'ERROR' | 'CLOSED' }>
-
-function isEventMessage(message: GroupReqMessage): message is EventMessage {
-	return message.type === 'EVENT'
-}
-
-function isRelayDoneMessage(message: GroupReqMessage): message is RelayDoneMessage {
-	return message.type === 'EOSE' || message.type === 'ERROR' || message.type === 'CLOSED'
-}
 
 function filtersFromKey(filterKey: string | null): Filter | Filter[] | null {
 	return filterKey ? (JSON.parse(filterKey) as Filter | Filter[]) : null
@@ -85,16 +72,12 @@ export function useTimeline(filters: Filter | Filter[] | null, relays?: string[]
 		if (!activeFilters) return undefined
 
 		const activeRelays = relaysFromKey(relayKey)
-		const subscription = pool
-			.req(activeRelays, activeFilters)
-			.pipe(
-				rxFilter(isEventMessage),
-				map((message) => message.event),
-				mapEventsToStore(eventStore),
-			)
-			.subscribe()
-
-		return () => subscription.unsubscribe()
+		return startLiveTimelineSubscription({
+			pool,
+			store: eventStore,
+			relays: activeRelays,
+			filters: activeFilters,
+		})
 	}, [filterKey, relayKey])
 
 	const events = use$(() => {
@@ -156,27 +139,24 @@ export function useTimelineWithEose(
 		const eoseTimeout = setTimeout(() => setEose(true), EOSE_TIMEOUT_MS)
 
 		const doneRelays = new Set<string>()
-		const subscription = pool
-			.req(activeRelays, activeFilters)
-			.pipe(
-				tap((message) => {
-					if (!isRelayDoneMessage(message)) return
-					doneRelays.add(message.from)
-					if (doneRelays.size >= activeRelays.length) {
-						clearTimeout(eoseTimeout)
-						setEose(true)
-					}
-				}),
-				rxFilter(isEventMessage),
-				map((message) => message.event),
-				mapEventsToStore(eventStore),
-			)
-			.subscribe()
+		const stopSubscription = startLiveTimelineSubscription({
+			pool,
+			store: eventStore,
+			relays: activeRelays,
+			filters: activeFilters,
+			onRelayDone: (relay) => {
+				doneRelays.add(relay)
+				if (doneRelays.size >= activeRelays.length) {
+					clearTimeout(eoseTimeout)
+					setEose(true)
+				}
+			},
+		})
 
 		return () => {
 			cancelled = true
 			clearTimeout(eoseTimeout)
-			subscription.unsubscribe()
+			stopSubscription()
 		}
 	}, [filterKey, relayKey])
 

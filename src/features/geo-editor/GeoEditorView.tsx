@@ -61,6 +61,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { executeEditorCommand } from './commands'
+import { shouldSeedAggregateLayers } from './aggregateLayerSeed'
 import { StudioShell } from './components/StudioShell'
 import { useAvailableGeoFeatures } from '@/lib/hooks/useAvailableGeoFeatures'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
@@ -1743,12 +1744,14 @@ export function GeoEditorView() {
 	useEffect(() => {
 		if (aggregateLayersSeededRef.current) return
 		if (stance === 'author' || !stackUrlHydrated) return
-		// Only seed on a genuine cold-start (no shared `?ms=` stack to reconstruct).
-		if (new URLSearchParams(window.location.search).has('ms')) {
-			aggregateLayersSeededRef.current = true
-			return
-		}
 		aggregateLayersSeededRef.current = true
+		const shouldSeed = shouldSeedAggregateLayers({
+			stance,
+			stackUrlHydrated,
+			hasSharedStack: new URLSearchParams(window.location.search).has('ms'),
+			route,
+		})
+		if (!shouldSeed) return
 		// Idempotent: addMapStackEntry keys by `${entityType}:${entityKey}` so a
 		// second call with entityKey 'all' is a no-op merge, never a duplicate row.
 		const hasSightingLayer = mapStackOrder.some(
@@ -1777,7 +1780,7 @@ export function GeoEditorView() {
 				pinned: false,
 			})
 		}
-	}, [stance, stackUrlHydrated, mapStackEntries, mapStackOrder, addMapStackEntry])
+	}, [stance, stackUrlHydrated, route, mapStackEntries, mapStackOrder, addMapStackEntry])
 
 	// Store state for viewMode
 	const viewMode = useEditorStore((state) => state.viewMode)
