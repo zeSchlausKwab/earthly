@@ -35,12 +35,115 @@ import { buildPostWriteValidation } from '@/features/chat/safeEditing/autoValida
 import { gateBulkApply } from '@/features/chat/safeEditing/gateBulkEdit'
 import { getSafetyLevel } from '@/features/chat/safeEditing/safetyAccess'
 import { createAuthoring } from '@/features/geo-editor/api/authoring'
+import type { GeometryOperationRequest, PrimitiveUnits } from '@/features/geo-editor/api'
 import { BLOSSOM_UPLOAD_THRESHOLD_BYTES } from '@/features/geo-editor/constants'
 import type { GeoEditor } from '@/features/geo-editor/core/GeoEditor'
 import { useEditorStore } from '@/features/geo-editor/store'
 // TYPE-ONLY import from the registry (never the value `register`) — Pitfall 6.
 import type { ToolEntry } from './registry'
 import { schemaFor } from './schemas'
+import type { Tool } from './types'
+
+const GEOMETRY_UNITS: PrimitiveUnits[] = ['meters', 'kilometers', 'miles']
+
+const splitFeatureSchema: Tool = {
+	type: 'function',
+	function: {
+		name: 'split_feature',
+		description:
+			'Split an existing line or polygon feature. Lines can be split by a point coordinate or a crossing line/polyline; polygons require a crossing line/polyline. By default the source is replaced by the resulting parts.',
+		parameters: {
+			type: 'object',
+			properties: {
+				featureId: { type: 'string', description: 'Id of the editor feature to split.' },
+				cutterType: {
+					type: 'string',
+					description: 'Use point for a line split, or line for a line/polygon cut.',
+					enum: ['point', 'line'],
+				},
+				coordinate: {
+					type: 'array',
+					description: 'Point cutter as [longitude, latitude]. Required for cutterType point.',
+				},
+				coordinates: {
+					type: 'array',
+					description:
+						'Line/polyline cutter as [[longitude, latitude], ...]. Required for cutterType line.',
+				},
+				pointSnapToleranceMeters: {
+					type: 'number',
+					description: 'Maximum distance for projecting a point cutter onto a line. Default 25.',
+				},
+				resultMode: {
+					type: 'string',
+					description: "'replace' removes the source; 'copy' preserves it. Default replace.",
+					enum: ['replace', 'copy'],
+				},
+			},
+			required: ['featureId', 'cutterType'],
+		},
+	},
+}
+
+const offsetFeatureSchema: Tool = {
+	type: 'function',
+	function: {
+		name: 'offset_feature',
+		description:
+			'Create an expanded/inset polygon or a left/right parallel line from an existing feature. Distance and units are explicit. The source is preserved by default.',
+		parameters: {
+			type: 'object',
+			properties: {
+				featureId: { type: 'string', description: 'Id of the polygon or line to offset.' },
+				distance: { type: 'number', description: 'Positive offset distance.' },
+				units: {
+					type: 'string',
+					description: "Distance units. Default 'meters'.",
+					enum: GEOMETRY_UNITS,
+				},
+				direction: {
+					type: 'string',
+					description:
+						'Use outward/inward for polygons or left/right relative to line direction for lines.',
+					enum: ['outward', 'inward', 'left', 'right'],
+				},
+				resultMode: {
+					type: 'string',
+					description: "'copy' preserves the source; 'replace' removes it. Default copy.",
+					enum: ['copy', 'replace'],
+				},
+			},
+			required: ['featureId', 'distance', 'units', 'direction'],
+		},
+	},
+}
+
+const createCorridorSchema: Tool = {
+	type: 'function',
+	function: {
+		name: 'create_line_corridor',
+		description:
+			'Create a symmetric polygon corridor from a line or polyline. Width is the total width across both sides of the centerline. The source line is preserved by default.',
+		parameters: {
+			type: 'object',
+			properties: {
+				featureId: { type: 'string', description: 'Id of the source line or polyline.' },
+				width: { type: 'number', description: 'Positive total corridor width.' },
+				units: {
+					type: 'string',
+					description: "Width units. Default 'meters'.",
+					enum: GEOMETRY_UNITS,
+				},
+				resultMode: {
+					type: 'string',
+					description: "'copy' preserves the line; 'replace' removes it. Default copy.",
+					enum: ['copy', 'replace'],
+				},
+			},
+			required: ['featureId', 'width', 'units'],
+		},
+	},
+}
 
 /**
  * An absurd-ceiling guard for `targetBytes` (V5 / T-07-11 DoS). A budget above this is
@@ -62,6 +165,62 @@ function requireEditor(): GeoEditor {
 		throw new Error('Map editor is not ready. Open the map editor first, then try again.')
 	}
 	return editor
+}
+
+function requiredFeatureId(args: Record<string, unknown>): string {
+	const featureId = args.featureId
+	if (typeof featureId !== 'string' || !featureId.trim()) {
+		throw new Error('featureId must be a non-empty string.')
+	}
+	return featureId.trim()
+}
+
+function parseUnits(value: unknown): PrimitiveUnits {
+	return typeof value === 'string' && (GEOMETRY_UNITS as string[]).includes(value)
+		? (value as PrimitiveUnits)
+		: 'meters'
+}
+
+function parseResultMode(value: unknown, fallback: 'replace' | 'copy'): 'replace' | 'copy' {
+	return value === 'replace' || value === 'copy' ? value : fallback
+}
+
+function numericArg(args: Record<string, unknown>, key: string): number {
+	const value = args[key]
+	if (typeof value !== 'number') throw new Error(`${key} must be a number.`)
+	return value
+}
+
+async function gateGeometryOperation(
+	editor: GeoEditor,
+	label: string,
+	featureId: string,
+	request: GeometryOperationRequest,
+	resultMode: 'replace' | 'copy',
+) {
+	let featureIds: string[] = []
+	const outcome = await gateBulkApply(
+		editor,
+		{ getSafetyLevel, label },
+		resultMode === 'replace' ? 'modify' : 'add',
+		() => {
+			const result = createAuthoring(editor).geometryOperation(featureId, request, resultMode)
+			if (!result.ok) throw new Error(`Feature '${featureId}' was not found.`)
+			featureIds = result.featureIds.slice(1)
+		},
+	)
+	const touched =
+		outcome.status === 'applied'
+			? featureIds
+					.map((id) => editor.getFeature(id))
+					.filter((feature): feature is NonNullable<typeof feature> => Boolean(feature))
+			: []
+	return {
+		cancelled: outcome.status === 'cancelled',
+		sourceFeatureId: featureId,
+		resultFeatureIds: outcome.status === 'applied' ? featureIds : [],
+		...(touched.length > 0 ? { validation: await buildPostWriteValidation(touched) } : {}),
+	}
 }
 
 /** Format a byte count compactly (e.g. `12.0MB`, `0.9MB`, `8.4kB`, `512B`). */
@@ -121,6 +280,112 @@ export function applyOptimizedCollection(
  * circular-init crash (Pitfall 6 / mirrors `registerBulkTools`).
  */
 export function registerGeometryTools(register: (entry: ToolEntry) => void): void {
+	register({
+		name: 'split_feature',
+		kind: 'authoring-primitive',
+		schema: splitFeatureSchema,
+		handler: async (args) => {
+			const editor = requireEditor()
+			const featureId = requiredFeatureId(args)
+			const cutterType = args.cutterType
+			let cutter: GeoJSON.Point | GeoJSON.LineString
+			if (cutterType === 'point') {
+				const coordinate = args.coordinate
+				if (
+					!Array.isArray(coordinate) ||
+					coordinate.length < 2 ||
+					typeof coordinate[0] !== 'number' ||
+					typeof coordinate[1] !== 'number' ||
+					!Number.isFinite(coordinate[0]) ||
+					!Number.isFinite(coordinate[1])
+				) {
+					throw new Error('coordinate must be [longitude, latitude] for a point split.')
+				}
+				cutter = { type: 'Point', coordinates: [coordinate[0], coordinate[1]] }
+			} else if (cutterType === 'line') {
+				const coordinates = args.coordinates
+				if (
+					!Array.isArray(coordinates) ||
+					coordinates.length < 2 ||
+					!coordinates.every(
+						(coordinate) =>
+							Array.isArray(coordinate) &&
+							coordinate.length >= 2 &&
+							typeof coordinate[0] === 'number' &&
+							typeof coordinate[1] === 'number' &&
+							Number.isFinite(coordinate[0]) &&
+							Number.isFinite(coordinate[1]),
+					)
+				) {
+					throw new Error(
+						'coordinates must be an array of at least two [longitude, latitude] positions.',
+					)
+				}
+				cutter = { type: 'LineString', coordinates: coordinates as GeoJSON.Position[] }
+			} else {
+				throw new Error("cutterType must be 'point' or 'line'.")
+			}
+
+			return gateGeometryOperation(
+				editor,
+				'Split geometry',
+				featureId,
+				{
+					kind: 'split',
+					cutter,
+					...(typeof args.pointSnapToleranceMeters === 'number'
+						? { pointSnapToleranceMeters: args.pointSnapToleranceMeters }
+						: {}),
+				},
+				parseResultMode(args.resultMode, 'replace'),
+			)
+		},
+	})
+
+	register({
+		name: 'offset_feature',
+		kind: 'authoring-primitive',
+		schema: offsetFeatureSchema,
+		handler: async (args) => {
+			const editor = requireEditor()
+			const featureId = requiredFeatureId(args)
+			const direction = args.direction
+			if (!['outward', 'inward', 'left', 'right'].includes(String(direction))) {
+				throw new Error('direction must be outward, inward, left, or right.')
+			}
+			const distance = numericArg(args, 'distance')
+			const units = parseUnits(args.units)
+			const request: GeometryOperationRequest =
+				direction === 'outward' || direction === 'inward'
+					? { kind: 'offset-polygon', distance, units, direction }
+					: { kind: 'offset-line', distance, units, side: direction as 'left' | 'right' }
+			return gateGeometryOperation(
+				editor,
+				'Offset geometry',
+				featureId,
+				request,
+				parseResultMode(args.resultMode, 'copy'),
+			)
+		},
+	})
+
+	register({
+		name: 'create_line_corridor',
+		kind: 'authoring-primitive',
+		schema: createCorridorSchema,
+		handler: async (args) => {
+			const editor = requireEditor()
+			const featureId = requiredFeatureId(args)
+			return gateGeometryOperation(
+				editor,
+				'Create line corridor',
+				featureId,
+				{ kind: 'corridor', width: numericArg(args, 'width'), units: parseUnits(args.units) },
+				parseResultMode(args.resultMode, 'copy'),
+			)
+		},
+	})
+
 	// --- optimize_geometry (GEO-01/02/03) — GATED whole-dataset MODIFY -----------
 	register({
 		name: 'optimize_geometry',

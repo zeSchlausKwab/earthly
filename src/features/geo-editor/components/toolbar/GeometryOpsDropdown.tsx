@@ -1,4 +1,16 @@
-import { Combine, Link2, Merge, Minus, Route, Split as SplitIcon } from 'lucide-react'
+import {
+	BetweenHorizontalStart,
+	Combine,
+	GitFork,
+	Link2,
+	Merge,
+	Minus,
+	MousePointer2,
+	MoveHorizontal,
+	Route,
+	Scissors,
+	Split as SplitIcon,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
 	DropdownMenu,
@@ -6,8 +18,19 @@ import {
 	DropdownMenuItem,
 	DropdownMenuLabel,
 	DropdownMenuSeparator,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import type { GeometryInteractionKind } from '../../core/types'
+import {
+	canUseGeometryOperationTarget,
+	derivedGeometryOperationChoices,
+	splitGeometryOperationChoices,
+	type GeometryOperationIcon,
+	type NumericGeometryOperation,
+} from '../../geometryOperationCatalog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 export interface GeometryOpsDropdownProps {
@@ -26,6 +49,10 @@ export interface GeometryOpsDropdownProps {
 	canSimplify?: boolean
 	canBooleanOps?: boolean
 	booleanOpActive?: { type: 'union' | 'difference' }
+	onStartGeometryOperation: (kind: GeometryInteractionKind) => void
+	onOpenNumericGeometryOperation: (operation: NumericGeometryOperation) => void
+	canOperateOnLine?: boolean
+	canOperateOnPolygon?: boolean
 	small?: boolean
 }
 
@@ -45,10 +72,21 @@ export function GeometryOpsDropdown({
 	canSimplify,
 	canBooleanOps,
 	booleanOpActive,
+	onStartGeometryOperation,
+	onOpenNumericGeometryOperation,
+	canOperateOnLine,
+	canOperateOnPolygon,
 	small,
 }: GeometryOpsDropdownProps) {
 	const iconSize = small ? 'h-3.5 w-3.5' : 'h-4 w-4'
 	const buttonSize = small ? 'h-8 w-8' : 'h-9 w-9'
+	const operationIcons: Record<GeometryOperationIcon, typeof Scissors> = {
+		split: Scissors,
+		branch: GitFork,
+		'polygon-offset': BetweenHorizontalStart,
+		parallel: MoveHorizontal,
+		corridor: Route,
+	}
 
 	return (
 		<TooltipProvider delayDuration={500}>
@@ -81,7 +119,7 @@ export function GeometryOpsDropdown({
 					</DropdownMenuItem>
 					<DropdownMenuItem onClick={onSplit} disabled={!canSplit}>
 						<SplitIcon className="h-4 w-4" />
-						Split Multi
+						Explode Multipart
 					</DropdownMenuItem>
 					<DropdownMenuItem onClick={onSimplify} disabled={!canSimplify}>
 						<Route className="h-4 w-4" />
@@ -103,6 +141,74 @@ export function GeometryOpsDropdown({
 							</DropdownMenuItem>
 						</>
 					)}
+					<DropdownMenuSeparator />
+					<DropdownMenuSub>
+						<DropdownMenuSubTrigger>
+							<Scissors className="h-4 w-4" />
+							Cut / Split
+						</DropdownMenuSubTrigger>
+						<DropdownMenuSubContent className="w-64">
+							{splitGeometryOperationChoices.map((choice) => {
+								const OperationIcon = operationIcons[choice.icon]
+								return (
+									<DropdownMenuItem
+										key={choice.kind}
+										disabled={
+											!canUseGeometryOperationTarget(
+												choice.target,
+												canOperateOnLine,
+												canOperateOnPolygon,
+											)
+										}
+										onSelect={() => onStartGeometryOperation(choice.kind)}
+									>
+										<OperationIcon className="h-4 w-4" />
+										<span className="flex flex-col">
+											<span>{choice.label}</span>
+											<span className="text-[10px] text-muted-foreground">{choice.typeFlow}</span>
+										</span>
+									</DropdownMenuItem>
+								)
+							})}
+						</DropdownMenuSubContent>
+					</DropdownMenuSub>
+					<DropdownMenuSub>
+						<DropdownMenuSubTrigger>
+							<MoveHorizontal className="h-4 w-4" />
+							Offset / Corridor
+						</DropdownMenuSubTrigger>
+						<DropdownMenuSubContent className="w-64">
+							{derivedGeometryOperationChoices.map((choice) => {
+								const OperationIcon = operationIcons[choice.icon]
+								return (
+									<DropdownMenuSub key={choice.numericKind}>
+										<DropdownMenuSubTrigger
+											disabled={
+												!canUseGeometryOperationTarget(
+													choice.target,
+													canOperateOnLine,
+													canOperateOnPolygon,
+												)
+											}
+										>
+											<OperationIcon className="h-4 w-4" />
+											{choice.typeFlow}
+										</DropdownMenuSubTrigger>
+										<DropdownMenuSubContent>
+											<DropdownMenuItem
+												onSelect={() => onOpenNumericGeometryOperation(choice.numericKind)}
+											>
+												{choice.numericMenuLabel}
+											</DropdownMenuItem>
+											<DropdownMenuItem onSelect={() => onStartGeometryOperation(choice.dragKind)}>
+												<MousePointer2 className="h-4 w-4" /> Drag on map
+											</DropdownMenuItem>
+										</DropdownMenuSubContent>
+									</DropdownMenuSub>
+								)
+							})}
+						</DropdownMenuSubContent>
+					</DropdownMenuSub>
 					<DropdownMenuSeparator />
 					<DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
 						Boolean

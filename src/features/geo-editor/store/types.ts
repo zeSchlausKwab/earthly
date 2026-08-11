@@ -288,6 +288,7 @@ export interface EditorCoreSlice {
 	panLocked: boolean
 	canFinishDrawing: boolean
 	history: { canUndo: boolean; canRedo: boolean }
+	geometryOperation: import('../core/types').ActiveGeometryInteraction | null
 
 	setEditor: (editor: GeoEditor | null) => void
 	setFeatures: (features: EditorFeature[]) => void
@@ -297,6 +298,9 @@ export interface EditorCoreSlice {
 	setPanLocked: (locked: boolean) => void
 	setCanFinishDrawing: (canFinish: boolean) => void
 	setHistoryState: (canUndo: boolean, canRedo: boolean) => void
+	setGeometryOperation: (
+		operation: import('../core/types').ActiveGeometryInteraction | null,
+	) => void
 	updateStats: () => void
 }
 

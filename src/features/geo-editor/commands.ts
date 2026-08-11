@@ -20,6 +20,9 @@ export type EditorCommandId =
 	| 'cancel_boolean_operation'
 	| 'finish_drawing'
 	| 'simplify_selected_features'
+	| 'start_geometry_operation'
+	| 'apply_geometry_operation'
+	| 'cancel_geometry_operation'
 
 export type EditorCommandArgs = Record<string, unknown>
 type EditorStoreSnapshot = ReturnType<typeof useEditorStore.getState>
@@ -75,6 +78,14 @@ const EDITOR_MODE_VALUES: EditorMode[] = [
 ]
 const PRIMITIVE_SHAPES: PrimitiveShape[] = ['rectangle', 'square', 'circle', 'triangle', 'diamond']
 const ARROW_PLACEMENTS = ['start', 'end', 'both'] as const
+const GEOMETRY_INTERACTION_KINDS = [
+	'split-line-point',
+	'split-line-line',
+	'split-polygon-line',
+	'offset-polygon-drag',
+	'offset-line-drag',
+	'corridor-drag',
+] as const
 
 function isEditorMode(value: unknown): value is EditorMode {
 	return typeof value === 'string' && EDITOR_MODE_VALUES.includes(value as EditorMode)
@@ -134,6 +145,110 @@ function parseLineMergeTolerance(value: unknown): number {
 }
 
 const editorCommands: EditorCommandDefinition[] = [
+	{
+		id: 'start_geometry_operation',
+		label: 'Start geometry operation',
+		description: 'Start a multi-step split or drag-offset interaction.',
+		canExecute: (state) => Boolean(state.editor && state.editor.getSelectedFeatures().length === 1),
+		execute: (state, args) => {
+			const editor = state.editor
+			if (!editor) return failure('start_geometry_operation', 'Map editor is not ready.')
+			if (
+				typeof args.kind !== 'string' ||
+				!GEOMETRY_INTERACTION_KINDS.includes(
+					args.kind as (typeof GEOMETRY_INTERACTION_KINDS)[number],
+				)
+			) {
+				return failure(
+					'start_geometry_operation',
+					`kind must be one of: ${GEOMETRY_INTERACTION_KINDS.join(', ')}`,
+				)
+			}
+			if (
+				!editor.startGeometryInteraction(args.kind as (typeof GEOMETRY_INTERACTION_KINDS)[number])
+			) {
+				return failure(
+					'start_geometry_operation',
+					'Select exactly one compatible line or polygon first.',
+				)
+			}
+			return success('start_geometry_operation', 'Geometry operation started.', {
+				kind: args.kind,
+			})
+		},
+	},
+	{
+		id: 'apply_geometry_operation',
+		label: 'Apply geometry operation',
+		description: 'Apply a numeric polygon offset, line offset, or corridor operation.',
+		canExecute: (state) => Boolean(state.editor && state.editor.getSelectedFeatures().length === 1),
+		execute: (state, args) => {
+			const editor = state.editor
+			if (!editor) return failure('apply_geometry_operation', 'Map editor is not ready.')
+			const selected = editor.getSelectedFeatures()
+			if (selected.length !== 1) {
+				return failure('apply_geometry_operation', 'Select exactly one line or polygon first.')
+			}
+			const target = selected[0]
+			if (!target)
+				return failure('apply_geometry_operation', 'The selected feature is unavailable.')
+			const distance = args.distance
+			const units = args.units === 'kilometers' || args.units === 'miles' ? args.units : 'meters'
+			const resultMode = args.resultMode === 'replace' ? 'replace' : 'copy'
+			try {
+				let request: import('./api/geometryOperations').GeometryOperationRequest
+				if (args.kind === 'offset-polygon') {
+					if (args.direction !== 'outward' && args.direction !== 'inward') {
+						return failure('apply_geometry_operation', 'Choose outward or inward.')
+					}
+					request = {
+						kind: 'offset-polygon',
+						distance: distance as number,
+						units,
+						direction: args.direction,
+					}
+				} else if (args.kind === 'offset-line') {
+					if (args.direction !== 'left' && args.direction !== 'right') {
+						return failure('apply_geometry_operation', 'Choose left or right.')
+					}
+					request = {
+						kind: 'offset-line',
+						distance: distance as number,
+						units,
+						side: args.direction,
+					}
+				} else if (args.kind === 'corridor') {
+					request = { kind: 'corridor', width: distance as number, units }
+				} else {
+					return failure(
+						'apply_geometry_operation',
+						'kind must be offset-polygon, offset-line, or corridor.',
+					)
+				}
+				const applied = editor.applyGeometryOperation(target.id, request, resultMode)
+				syncHistoryState(state)
+				return success('apply_geometry_operation', 'Geometry operation applied.', {
+					featureIds: applied.resultFeatureIds,
+				})
+			} catch (error) {
+				return failure(
+					'apply_geometry_operation',
+					error instanceof Error ? error.message : 'Geometry operation failed.',
+				)
+			}
+		},
+	},
+	{
+		id: 'cancel_geometry_operation',
+		label: 'Cancel geometry operation',
+		description: 'Cancel the active split or drag-offset interaction.',
+		canExecute: (state) => Boolean(state.editor?.getGeometryOperation()),
+		execute: (state) => {
+			if (!state.editor) return failure('cancel_geometry_operation', 'Map editor is not ready.')
+			state.editor.cancelGeometryOperation()
+			return success('cancel_geometry_operation', 'Geometry operation cancelled.')
+		},
+	},
 	{
 		id: 'set_mode',
 		label: 'Set mode',

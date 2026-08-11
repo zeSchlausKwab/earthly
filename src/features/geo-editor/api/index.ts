@@ -42,6 +42,15 @@ export {
 	makeBuffer,
 	makeCircle,
 } from './primitives'
+export type {
+	GeometryOperationKind,
+	GeometryOperationRequest,
+	GeometryOperationResult,
+} from './geometryOperations'
+export {
+	GeometryOperationError,
+	performGeometryOperation,
+} from './geometryOperations'
 export type { FeatureStyleOptions } from './styleOptions'
 export {
 	CANONICAL_STYLE_KEYS,

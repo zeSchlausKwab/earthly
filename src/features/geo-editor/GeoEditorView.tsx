@@ -27,6 +27,7 @@ import {
 	Radio,
 	Redo2,
 	Search,
+	Scissors,
 	Spline,
 	Trash2,
 	Undo2,
@@ -603,6 +604,7 @@ export function GeoEditorView() {
 	const setPanLocked = useEditorStore((state) => state.setPanLocked)
 	const canFinishDrawing = useEditorStore((state) => state.canFinishDrawing)
 	const currentMode = useEditorStore((state) => state.mode)
+	const geometryOperation = useEditorStore((state) => state.geometryOperation)
 	const isDrawingMode = isDrawingEditorMode(currentMode)
 	const lastMobileDrawGuideRef = useRef<EditorMode | null>(null)
 	const mapSource = useEditorStore((state) => state.mapSource)
@@ -4313,6 +4315,41 @@ export function GeoEditorView() {
 						size="icon-xs"
 						onClick={cancelCoordinateReferencePick}
 						aria-label="Cancel coordinate reference"
+						title="Cancel (Esc)"
+					>
+						<X className="h-3.5 w-3.5" />
+					</Button>
+				</div>
+			)}
+			{geometryOperation !== null && coordinatePickRequestId === null && (
+				<div
+					role="status"
+					aria-live="polite"
+					className="pointer-events-auto absolute left-1/2 top-[calc(var(--shell-toolbar-h)+0.75rem)] z-40 flex w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 items-center gap-2 border border-primary/40 bg-card px-3 py-2 text-xs shadow-lg"
+				>
+					<span className="flex h-7 w-7 flex-shrink-0 items-center justify-center border border-primary/30 bg-primary/10">
+						<Scissors className="h-4 w-4 text-primary" />
+					</span>
+					<span className="flex min-w-0 flex-1 flex-col">
+						<span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-primary">
+							Geometry operation · {geometryOperation.inputMode === 'drag' ? 'Drag' : 'Draw'}
+						</span>
+						<span>{geometryOperation.error ?? geometryOperation.instruction}</span>
+						{geometryOperation.distanceMeters !== undefined ? (
+							<span className="font-mono text-[10px] text-muted-foreground">
+								{geometryOperation.kind === 'corridor-drag'
+									? `Width ${(geometryOperation.distanceMeters * 2).toFixed(1)} m`
+									: `${geometryOperation.distanceMeters.toFixed(1)} m`}
+								{geometryOperation.direction ? ` · ${geometryOperation.direction}` : ''}
+							</span>
+						) : null}
+					</span>
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-xs"
+						onClick={() => executeEditorCommand('cancel_geometry_operation')}
+						aria-label="Cancel geometry operation"
 						title="Cancel (Esc)"
 					>
 						<X className="h-3.5 w-3.5" />

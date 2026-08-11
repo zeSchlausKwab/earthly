@@ -1,6 +1,7 @@
 import {
 	Combine,
 	ArrowUpRight,
+	BetweenHorizontalStart,
 	Circle,
 	Copy,
 	CopyPlus,
@@ -10,6 +11,7 @@ import {
 	EyeOff,
 	FileText,
 	GitPullRequest,
+	GitFork,
 	Layers,
 	Link2,
 	MapPin,
@@ -21,12 +23,14 @@ import {
 	Moon,
 	MousePointerClick,
 	MousePointer2,
+	MoveHorizontal,
 	Pentagon,
 	PlusCircle,
 	RefreshCw,
 	Route,
 	Shapes,
 	Scan,
+	Scissors,
 	Search,
 	Settings2,
 	Sparkles,
@@ -75,6 +79,12 @@ import { useTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 import { canExecuteEditorCommand, executeEditorCommand, type EditorCommandId } from '../commands'
 import type { EditorMode } from '../core'
+import {
+	canUseGeometryOperationTarget,
+	derivedGeometryOperationChoices,
+	splitGeometryOperationChoices,
+	type GeometryOperationIcon,
+} from '../geometryOperationCatalog'
 import { useEditorStore } from '../store'
 import type { GeoSearchResult } from '../types'
 import { CreateMapPopover } from './CreateMapPopover'
@@ -86,6 +96,7 @@ import {
 	DrawButtonGroup,
 	FileDropdown,
 	GeometryOpsDropdown,
+	GeometryOperationDialog,
 	IconButtonRow,
 	OsmImportPopover,
 	ProposalDialog,
@@ -93,12 +104,21 @@ import {
 	SessionButton,
 	SimplifyDialog,
 	type ToolbarButton,
+	type NumericGeometryOperation,
 } from './toolbar/index'
 import { OSM_FILTER_PRESETS } from './toolbar/OsmImportPopover'
 import { useResponsiveToolbar } from './toolbar/useResponsiveToolbar'
 import { Input } from '@/components/ui/input'
 import { CurrentDestinationPill } from './CurrentDestinationPill'
 import type { ResolvedAuthoringDestination } from './authoringDestination'
+
+const geometryOperationIcons: Record<GeometryOperationIcon, typeof Scissors> = {
+	split: Scissors,
+	branch: GitFork,
+	'polygon-offset': BetweenHorizontalStart,
+	parallel: MoveHorizontal,
+	corridor: Route,
+}
 
 interface DatasetActionsProps {
 	onExportGeoJSON?: () => void
@@ -491,6 +511,8 @@ export function Toolbar({
 	const fileInputRef = useRef<HTMLInputElement>(null)
 	const [magicPopoverOpen, setMagicPopoverOpen] = useState(false)
 	const [simplifyDialogOpen, setSimplifyDialogOpen] = useState(false)
+	const [numericGeometryOperation, setNumericGeometryOperation] =
+		useState<NumericGeometryOperation | null>(null)
 
 	// Search results dropdown needs to escape the toolbar's `overflow-x-auto`
 	// wrapper (CSS forces overflow-y: auto whenever overflow-x: auto, which
@@ -626,6 +648,15 @@ export function Toolbar({
 	const canSimplifySelected = canExecuteEditorCommand('simplify_selected_features')
 	const canStartBooleanOps = canExecuteEditorCommand('start_boolean_union')
 	const booleanOpActive = editor?.getBooleanOperation()
+	const selectedGeometry = editor?.getSelectedFeatures()[0]?.geometry.type
+	const hasSingleSelection = (editor?.getSelectedFeatures().length ?? 0) === 1
+	const canOperateOnLine =
+		hasSingleSelection &&
+		(selectedGeometry === 'LineString' || selectedGeometry === 'MultiLineString')
+	const canOperateOnPolygon =
+		hasSingleSelection && (selectedGeometry === 'Polygon' || selectedGeometry === 'MultiPolygon')
+	const startGeometryOperation = (kind: import('../core/types').GeometryInteractionKind) =>
+		runEditorCommand('start_geometry_operation', { kind })
 
 	// Button sections
 	const selectButtons: ToolbarButton[] = [
@@ -741,6 +772,10 @@ export function Toolbar({
 		canSimplify: canSimplifySelected,
 		canBooleanOps: canStartBooleanOps,
 		booleanOpActive,
+		onStartGeometryOperation: startGeometryOperation,
+		onOpenNumericGeometryOperation: setNumericGeometryOperation,
+		canOperateOnLine,
+		canOperateOnPolygon,
 	}
 
 	const canPublishFromMenu = Boolean(
@@ -1118,7 +1153,7 @@ export function Toolbar({
 								/>
 								<ToolbarMenuItem
 									icon={SplitIcon}
-									label="Split Multi"
+									label="Explode Multipart"
 									onSelect={() => runEditorCommand('split_selected_features')}
 									disabled={!canSplitSelected}
 								/>
@@ -1144,6 +1179,67 @@ export function Toolbar({
 									onSelect={() => runEditorCommand('dissolve_selected_lines')}
 									disabled={!canDissolveLines}
 								/>
+								<MenubarSeparator />
+								<MenubarSub>
+									<MenubarSubTrigger className="gap-2">
+										<Scissors className="h-4 w-4 text-muted-foreground" />
+										Cut / Split
+									</MenubarSubTrigger>
+									<MenubarSubContent className="min-w-64">
+										{splitGeometryOperationChoices.map((choice) => (
+											<ToolbarMenuItem
+												key={choice.kind}
+												icon={geometryOperationIcons[choice.icon]}
+												label={`${choice.label} · ${choice.typeFlow}`}
+												onSelect={() => startGeometryOperation(choice.kind)}
+												disabled={
+													!canUseGeometryOperationTarget(
+														choice.target,
+														canOperateOnLine,
+														canOperateOnPolygon,
+													)
+												}
+											/>
+										))}
+									</MenubarSubContent>
+								</MenubarSub>
+								<MenubarSub>
+									<MenubarSubTrigger className="gap-2">
+										<MoveHorizontal className="h-4 w-4 text-muted-foreground" />
+										Offset / Corridor
+									</MenubarSubTrigger>
+									<MenubarSubContent className="min-w-64">
+										{derivedGeometryOperationChoices.map((choice) => {
+											const OperationIcon = geometryOperationIcons[choice.icon]
+											return (
+												<MenubarSub key={choice.numericKind}>
+													<MenubarSubTrigger
+														disabled={
+															!canUseGeometryOperationTarget(
+																choice.target,
+																canOperateOnLine,
+																canOperateOnPolygon,
+															)
+														}
+														className="gap-2"
+													>
+														<OperationIcon className="h-4 w-4" /> {choice.typeFlow}
+													</MenubarSubTrigger>
+													<MenubarSubContent>
+														<MenubarItem
+															onSelect={() => setNumericGeometryOperation(choice.numericKind)}
+														>
+															{choice.numericMenuLabel}
+														</MenubarItem>
+														<MenubarItem onSelect={() => startGeometryOperation(choice.dragKind)}>
+															Drag on map
+														</MenubarItem>
+													</MenubarSubContent>
+												</MenubarSub>
+											)
+										})}
+									</MenubarSubContent>
+								</MenubarSub>
 								<MenubarSeparator />
 								<MenubarLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
 									Boolean
@@ -1698,6 +1794,13 @@ export function Toolbar({
 				    here was removed to avoid a duplicate message. */}
 			</div>
 			<SimplifyDialog open={simplifyDialogOpen} onOpenChange={setSimplifyDialogOpen} />
+			<GeometryOperationDialog
+				operation={numericGeometryOperation}
+				open={numericGeometryOperation !== null}
+				onOpenChange={(open) => {
+					if (!open) setNumericGeometryOperation(null)
+				}}
+			/>
 			<ProposalDialog
 				open={proposalDialogOpen}
 				onOpenChange={setProposalDialogOpen}

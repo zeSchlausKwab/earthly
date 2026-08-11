@@ -79,6 +79,37 @@ describe('registerGeometryTools — optimize_geometry registered + advertised', 
 	})
 })
 
+describe('registerGeometryTools — fine-grained geometry operations', () => {
+	it('advertises split, offset, and corridor tools with explicit operation choices', () => {
+		const tools = new Map(advertise().map((tool) => [tool.function.name, tool.function]))
+		expect(registry.has('split_feature')).toBe(true)
+		expect(registry.has('offset_feature')).toBe(true)
+		expect(registry.has('create_line_corridor')).toBe(true)
+
+		const splitSchema = tools.get('split_feature')?.parameters as {
+			properties?: Record<string, { enum?: string[] }>
+			required?: string[]
+		}
+		expect(splitSchema.required).toContain('featureId')
+		expect(splitSchema.required).toContain('cutterType')
+		expect(splitSchema.properties?.cutterType?.enum).toEqual(['point', 'line'])
+
+		const offsetSchema = tools.get('offset_feature')?.parameters as {
+			properties?: Record<string, { enum?: string[] }>
+			required?: string[]
+		}
+		expect(offsetSchema.required).toContain('distance')
+		expect(offsetSchema.properties?.direction?.enum).toEqual(['outward', 'inward', 'left', 'right'])
+
+		const corridorSchema = tools.get('create_line_corridor')?.parameters as {
+			properties?: Record<string, unknown>
+			required?: string[]
+		}
+		expect(corridorSchema.required).toContain('width')
+		expect(corridorSchema.properties).toHaveProperty('resultMode')
+	})
+})
+
 describe('optimize_geometry — schema (D-04, target-only)', () => {
 	it('exposes ONLY an optional targetBytes; no feature/id array', () => {
 		const tool = advertise().find((t) => t.function.name === 'optimize_geometry')

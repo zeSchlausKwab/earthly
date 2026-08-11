@@ -23,6 +23,24 @@ export type EditorMode =
 export type DrawFeatureType = 'Point' | 'LineString' | 'Polygon'
 export type PrimitiveShape = 'rectangle' | 'square' | 'circle' | 'triangle' | 'diamond'
 
+export type GeometryInteractionKind =
+	| 'split-line-point'
+	| 'split-line-line'
+	| 'split-polygon-line'
+	| 'offset-polygon-drag'
+	| 'offset-line-drag'
+	| 'corridor-drag'
+
+export interface ActiveGeometryInteraction {
+	kind: GeometryInteractionKind
+	targetFeatureId: string
+	inputMode: 'draw' | 'drag'
+	instruction: string
+	distanceMeters?: number
+	direction?: 'outward' | 'inward' | 'left' | 'right' | 'both'
+	error?: string
+}
+
 export interface GeoEditorOptions {
 	modes?: EditorMode[]
 	defaultMode?: EditorMode
@@ -147,11 +165,13 @@ export type EditorEventType =
 	| 'redo'
 	| 'snap'
 	| 'draw.change'
+	| 'geometry.operation.change'
 
 export interface EditorEvent {
 	type: EditorEventType
 	features?: EditorFeature[]
 	mode?: EditorMode
+	geometryOperation?: ActiveGeometryInteraction | null
 }
 
 export type EditorEventHandler = (event: EditorEvent) => void
@@ -172,6 +192,7 @@ export interface EditorOperationContext {
 	}
 	history: {
 		recordUpdate(newFeatures: EditorFeature[], oldFeatures: EditorFeature[]): void
+		recordCreate(features: EditorFeature[]): void
 	}
 	transform: {
 		simplify(feature: EditorFeature, tolerance: number): EditorFeature
