@@ -121,7 +121,7 @@ export function getMapContextSnapshot() {
 		.map((entryId) => store.mapStackEntries[entryId])
 		.filter(
 			(entry): entry is NonNullable<typeof entry> =>
-				Boolean(entry) && entry.entityType === 'dataset' && entry.visible !== false,
+				entry !== undefined && entry.entityType === 'dataset' && entry.visible !== false,
 		)
 		.map((entry) => entry.entityKey)
 
@@ -224,8 +224,11 @@ export function createMapContextSystemMessage(): ChatMessage | null {
 			'You have map-editing tool access in this chat.',
 			'DATA SOURCE ORDER — pick the FIRST tier that can answer: (1) BUNDLED WORLD LAYERS via run_code (instant, local, no network): country outlines/areas/borders, coastlines, offshore work, major named rivers/lakes, land-vs-water tests, world cities, sea routing. (2) OSM tools ONLY for what world layers do not carry: POIs, streets, buildings, small/local admin areas, fine local geometry — they are SLOW remote calls with tight size budgets that TRUNCATE big geometries. (3) wikipedia_lookup/web_search for facts; when a Wikipedia table is the actual dataset, use wikipedia_extract outline then paged table rows instead of fetch_url. (4) fetch_url for non-Wikipedia pages. Never use web text as geometry. Do NOT "verify" world-layer computations against OSM or the web — state the resolution caveat instead.',
 			'SOURCE-PROVIDED SPATIAL DATA — before geocoding, inspect structured source rows, files, and API results for usable spatial fields such as latitude/longitude, coordinate pairs, GeoJSON, WKT, or geohashes. Normalize those values and preserve their source precision and provenance. Geocode only rows whose source genuinely lacks usable spatial data.',
+			'RESEARCH BUDGET — keep research proportional to the requested map. Batch independent lookups when a tool supports it, reuse facts and coordinates already returned, and stop researching once authoritative sources are sufficient to build the requested result. Do not repeatedly verify the same settled fact through different search tools.',
+			'WORKFLOW COMPLETION — carry an agreed multi-step request through to its final artifact unless a real blocker requires user input. Do not pause after an intermediate map write merely to ask whether to continue. If the user asked for both a dataset and a Story, finish the dataset first and then write or update the Story draft in the same workflow.',
 			'STRUCTURED EXTRACTION PAGINATION — in a table result, pagination.status="complete" is the only status that means the response contains the full table. status="more" requires the nextOffset page; status="final_page" still omits earlier rows. Outline sampleRows are previews, but table rows accompanied by status="complete" are not.',
 			'RESEARCHED DATASETS — preserve provenance on every derived feature: sourceUrl, sourceTitle, sourceRevisionId, sourceSection, sourceTable, sourceRow, sourceRetrievedAt, and coordinatePrecision (exact, approximate, or representative). Keep the source classification verbatim; do not silently broaden terms such as exclave to enclave, disputed territory, or historical case. Build and validate the complete FeatureCollection before one authoring.commitDataset(...) call.',
+			'HISTORICAL PRECISION — distinguish historical administrative entities from present-day boundary proxies and special-status cities. State the mapping basis in dataset metadata instead of presenting modern boundaries as exact historical jurisdictions.',
 			'World layers are GENERALIZED cartography (1:110m / 1:50m). Rankings, topology, routing, and anchoring are reliable; ABSOLUTE lengths of fractal features (coastlines!) are systematic underestimates — say so when reporting them instead of hunting for other sources.',
 			'If the user asks to draw/create/edit map features, call tools instead of replying that you cannot edit the map.',
 			'For draw requests, generate GeoJSON yourself and call add_feature_to_editor or write_geojson_to_editor directly.',
@@ -264,7 +267,7 @@ export function createMapContextSystemMessage(): ChatMessage | null {
 			'For land/water splitting (offshore lines, "how much crosses land"), use world.isOnLand([lon,lat]) per vertex inside run_code — do not marshal the land mask yourself.',
 			'Recipe — offshore offset line ("follow the coastline of X, N km out to sea"), ONE run_code call, no OSM: take the country polygon from world.get("countries_110m"), ring = turf.polygonToLine(turf.buffer(country, N, {units:"kilometers"})), split the ring into segments and keep those whose midpoint has world.isOnLand(mid) === false, then authoring.writeGeoJSON the kept segments.',
 			'Trust tool results: after a successful authoring write (a tool result with created/updated/deleted counts), do NOT re-verify with capture_map_snapshot or get_editor_state. The write result is authoritative.',
-			'To compose a long-form article/story, write it into the local draft with write_story_draft (Markdown body; cite datasets/entities inline as nostr:naddr1…, optionally #featureId). You cannot publish anything — the user reviews and publishes the draft in the Story editor. Use read_entity first to pull the full content of anything you cite; use search_entities to discover references.',
+			'To compose a long-form article/story, use write_story_draft. Omit storyReference for a new Story; pass the existing Story naddr to update it in edit mode. Use read_entity first to pull the published Story and dataset inventory. Prefer the ready-to-cite feature references returned in that inventory; coordinates use geo:latitude,longitude and OSM elements use canonical openstreetmap.org URLs. If you refine cited dataset features later in the request, refresh the same Story draft rather than stopping to ask whether it should be updated. You cannot publish — the user reviews and publishes in the Story editor.',
 			...(sessionPublishBlock ? [sessionPublishBlock] : []),
 			`Current map state JSON:\n${JSON.stringify(compact)}`,
 		].join('\n\n'),

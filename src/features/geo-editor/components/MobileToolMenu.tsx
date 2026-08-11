@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import {
 	ArrowUpRight,
+	BetweenHorizontalStart,
 	Circle,
 	Combine,
 	Copy,
@@ -10,6 +11,7 @@ import {
 	Edit3,
 	EyeOff,
 	GitPullRequest,
+	GitFork,
 	Link2,
 	Lock,
 	LockOpen,
@@ -17,11 +19,13 @@ import {
 	Merge,
 	Minus,
 	MousePointer2,
+	MoveHorizontal,
 	MoreHorizontal,
 	RefreshCw,
 	Route,
 	Shapes,
 	Search,
+	Scissors,
 	Split as SplitIcon,
 	SquareDashedMousePointer,
 	Square,
@@ -49,9 +53,27 @@ import {
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { canExecuteEditorCommand, executeEditorCommand } from '../commands'
+import {
+	canUseGeometryOperationTarget,
+	derivedGeometryOperationChoices,
+	splitGeometryOperationChoices,
+	type GeometryOperationIcon,
+} from '../geometryOperationCatalog'
 import { ProposalDialog } from './toolbar/ProposalDialog'
+import {
+	GeometryOperationDialog,
+	type NumericGeometryOperation,
+} from './toolbar/GeometryOperationDialog'
 import type { EditorMode } from '../core'
 import { useEditorStore } from '../store'
+
+const geometryOperationIcons: Record<GeometryOperationIcon, typeof Scissors> = {
+	split: Scissors,
+	branch: GitFork,
+	'polygon-offset': BetweenHorizontalStart,
+	parallel: MoveHorizontal,
+	corridor: Route,
+}
 
 /**
  * MobileToolMenu — the mobile tool strip's ••• overflow. It mirrors the full
@@ -117,6 +139,8 @@ export function MobileToolMenu({
 	onOsmAdvanced,
 }: MobileToolMenuProps) {
 	const [proposalDialogOpen, setProposalDialogOpen] = useState(false)
+	const [numericGeometryOperation, setNumericGeometryOperation] =
+		useState<NumericGeometryOperation | null>(null)
 	const mode = useEditorStore((state) => state.mode)
 	const snappingEnabled = useEditorStore((state) => state.snappingEnabled)
 	const inspectorActive = useEditorStore((state) => state.inspectorActive)
@@ -126,6 +150,20 @@ export function MobileToolMenu({
 	)
 	const setMapStackEntryIsolated = useEditorStore((state) => state.setMapStackEntryIsolated)
 	const fileInputRef = useRef<HTMLInputElement>(null)
+	const features = useEditorStore((state) => state.features)
+	const selectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
+	const selectedFeature =
+		selectedFeatureIds.length === 1
+			? features.find((feature) => feature.id === selectedFeatureIds[0])
+			: undefined
+	const canOperateOnLine =
+		selectedFeature?.geometry.type === 'LineString' ||
+		selectedFeature?.geometry.type === 'MultiLineString'
+	const canOperateOnPolygon =
+		selectedFeature?.geometry.type === 'Polygon' ||
+		selectedFeature?.geometry.type === 'MultiPolygon'
+	const startGeometryOperation = (kind: import('../core/types').GeometryInteractionKind) =>
+		executeEditorCommand('start_geometry_operation', { kind })
 
 	const setMode = (next: EditorMode) => executeEditorCommand('set_mode', { mode: next })
 	const toggleInspector = () => {
@@ -322,7 +360,7 @@ export function MobileToolMenu({
 							onSelect={() => executeEditorCommand('split_selected_features')}
 						>
 							<SplitIcon className="h-4 w-4" />
-							Split Multi
+							Explode Multipart
 						</DropdownMenuItem>
 						<DropdownMenuItem
 							disabled={!canSimplify}
@@ -346,6 +384,73 @@ export function MobileToolMenu({
 							<Combine className="h-4 w-4" />
 							Dissolve lines
 						</DropdownMenuItem>
+						<DropdownMenuSeparator />
+						<DropdownMenuSub>
+							<DropdownMenuSubTrigger>
+								<Scissors className="h-4 w-4" />
+								Cut / Split
+							</DropdownMenuSubTrigger>
+							<DropdownMenuSubContent className="w-64">
+								{splitGeometryOperationChoices.map((choice) => {
+									const OperationIcon = geometryOperationIcons[choice.icon]
+									return (
+										<DropdownMenuItem
+											key={choice.kind}
+											disabled={
+												!canUseGeometryOperationTarget(
+													choice.target,
+													canOperateOnLine,
+													canOperateOnPolygon,
+												)
+											}
+											onSelect={() => startGeometryOperation(choice.kind)}
+										>
+											<OperationIcon className="h-4 w-4" />
+											<span className="flex flex-col">
+												<span>{choice.label}</span>
+												<span className="text-[10px] text-muted-foreground">{choice.typeFlow}</span>
+											</span>
+										</DropdownMenuItem>
+									)
+								})}
+							</DropdownMenuSubContent>
+						</DropdownMenuSub>
+						<DropdownMenuSub>
+							<DropdownMenuSubTrigger>
+								<MoveHorizontal className="h-4 w-4" />
+								Offset / Corridor
+							</DropdownMenuSubTrigger>
+							<DropdownMenuSubContent className="w-64">
+								{derivedGeometryOperationChoices.map((choice) => {
+									const OperationIcon = geometryOperationIcons[choice.icon]
+									return (
+										<DropdownMenuSub key={choice.numericKind}>
+											<DropdownMenuSubTrigger
+												disabled={
+													!canUseGeometryOperationTarget(
+														choice.target,
+														canOperateOnLine,
+														canOperateOnPolygon,
+													)
+												}
+											>
+												<OperationIcon className="h-4 w-4" /> {choice.typeFlow}
+											</DropdownMenuSubTrigger>
+											<DropdownMenuSubContent>
+												<DropdownMenuItem
+													onSelect={() => setNumericGeometryOperation(choice.numericKind)}
+												>
+													{choice.numericMenuLabel}
+												</DropdownMenuItem>
+												<DropdownMenuItem onSelect={() => startGeometryOperation(choice.dragKind)}>
+													Drag on map
+												</DropdownMenuItem>
+											</DropdownMenuSubContent>
+										</DropdownMenuSub>
+									)
+								})}
+							</DropdownMenuSubContent>
+						</DropdownMenuSub>
 						<DropdownMenuSeparator />
 						<DropdownMenuItem
 							disabled={!canBoolean}
@@ -480,6 +585,13 @@ export function MobileToolMenu({
 					onSubmit={(description) => onProposeEdit(description)}
 				/>
 			) : null}
+			<GeometryOperationDialog
+				operation={numericGeometryOperation}
+				open={numericGeometryOperation !== null}
+				onOpenChange={(open) => {
+					if (!open) setNumericGeometryOperation(null)
+				}}
+			/>
 		</DropdownMenu>
 	)
 }

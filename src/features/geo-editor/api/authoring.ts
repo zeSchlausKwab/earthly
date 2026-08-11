@@ -44,6 +44,8 @@ import {
 import type { MutationCounts, MutationResult } from './results'
 import { runInterceptors } from './interceptor'
 import { type DatasetValidationSummary, validateDataset } from './datasetValidation'
+import type { GeometryOperationRequest } from './geometryOperations'
+import type { GeometryOperationResultMode } from '../core/managers/GeometryOperationsManager'
 
 /** Default import source recorded on features written through the facade. */
 const DEFAULT_SOURCE = 'chat_tool'
@@ -258,6 +260,18 @@ export interface Authoring {
 		options?: MakeBufferOptions,
 	): MutationResult
 	/**
+	 * Apply a split, polygon offset, parallel-line offset, or corridor operation to
+	 * an existing editor feature. The geometry is produced by the same pure kernel
+	 * used by interactive tools. `replace` removes the source; `copy` preserves it.
+	 * Chat callers wrap this in the safe-editing gate, which owns the dataset-level
+	 * snapshot; this facade commit therefore does not add a second history action.
+	 */
+	geometryOperation(
+		targetFeatureId: string,
+		request: GeometryOperationRequest,
+		resultMode?: GeometryOperationResultMode,
+	): MutationResult
+	/**
 	 * Modify an existing feature by id (INFRA-02, intent:'modify'). Normalizes the
 	 * replacement via `toEditorFeature` (PRESERVING the original id), classifies
 	 * `intent:'modify'` through `runInterceptors`, and updates the editor in place.
@@ -452,6 +466,34 @@ export function createAuthoring(editor: GeoEditor): Authoring {
 		return { ...result, featureIds }
 	}
 
+	function geometryOperation(
+		targetFeatureId: string,
+		request: GeometryOperationRequest,
+		resultMode: GeometryOperationResultMode = request.kind === 'split' ? 'replace' : 'copy',
+	): MutationResult {
+		if (!editor.getFeature(targetFeatureId)) {
+			return { ok: false, intent: 'modify', featureIds: [], counts: emptyCounts() }
+		}
+		const requestedIntent = resultMode === 'replace' ? 'modify' : 'add'
+		const { intent } = runInterceptors({
+			intent: requestedIntent,
+			featureIds: [targetFeatureId],
+		})
+		const applied = editor.applyGeometryOperation(targetFeatureId, request, resultMode, {
+			recordHistory: false,
+		})
+		return {
+			ok: true,
+			intent,
+			featureIds: [applied.sourceFeatureId, ...applied.resultFeatureIds],
+			counts: {
+				...emptyCounts(),
+				created: applied.createdCount,
+				deleted: applied.deletedCount,
+			},
+		}
+	}
+
 	function modifyFeature(
 		featureId: string,
 		feature: Feature,
@@ -558,6 +600,7 @@ export function createAuthoring(editor: GeoEditor): Authoring {
 		editorCommand,
 		circle,
 		buffer,
+		geometryOperation,
 		modifyFeature,
 		deleteFeatures,
 		setDatasetMetadata,

@@ -58,7 +58,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { subscribeStoryEditorOpenRequests } from '@/features/geo-editor/storyEditorBridge'
+import {
+	getStoryEditorOpenRequest,
+	subscribeStoryEditorOpenRequests,
+} from '@/features/geo-editor/storyEditorBridge'
 import { accounts, eventStore } from '@/lib/nostr'
 import { Article, type ArticleContent, getArticleContent, isArticle } from '@/lib/nostr/article'
 import {
@@ -91,6 +94,17 @@ function readInitialContent(initialStory?: Article | null): {
 	body: string
 	draftKey: string
 } {
+	const draftKey = initialStory?.dTag ?? NEW_STORY_DRAFT_KEY
+	const draft = readStoryDraft(draftKey)
+	if (draft) {
+		return {
+			title: draft.title ?? '',
+			summary: draft.summary ?? '',
+			image: draft.image ?? '',
+			body: draft.content ?? '',
+			draftKey,
+		}
+	}
 	const editedEvent = initialStory?.rawEvent()
 	if (editedEvent && isArticle(editedEvent)) {
 		const content = getArticleContent(editedEvent)
@@ -99,16 +113,14 @@ function readInitialContent(initialStory?: Article | null): {
 			summary: content.summary ?? '',
 			image: content.image ?? '',
 			body: content.content ?? '',
-			draftKey: initialStory?.dTag ?? NEW_STORY_DRAFT_KEY,
+			draftKey,
 		}
 	}
-	const draftKey = initialStory?.dTag ?? NEW_STORY_DRAFT_KEY
-	const draft = readStoryDraft(draftKey)
 	return {
-		title: draft?.title ?? '',
-		summary: draft?.summary ?? '',
-		image: draft?.image ?? '',
-		body: draft?.content ?? '',
+		title: '',
+		summary: '',
+		image: '',
+		body: '',
 		draftKey,
 	}
 }
@@ -151,15 +163,23 @@ export function StoryEditorPanel({
 		setSaveError(null)
 	}, [initialStory])
 
-	// Chat seam (storyEditorBridge): the panel reads the local draft only on
-	// mount, so when the AI's `write_story_draft` fires while this panel is
-	// ALREADY open in create mode, re-run the pre-fill so the freshly written
-	// draft replaces the stale fields. Published-story edits (initialStory set)
-	// are untouched — the AI tool never writes those draft slots.
+	// Chat seam (storyEditorBridge): re-run pre-fill when AI writes either the
+	// new-story slot or the d-tag slot of the published Story already being edited.
 	useEffect(() => {
-		if (initialStory) return
 		return subscribeStoryEditorOpenRequests(() => {
-			const next = readInitialContent(null)
+			const request = getStoryEditorOpenRequest()
+			if (initialStory) {
+				if (
+					request?.mode !== 'edit' ||
+					request.story?.dTag !== initialStory.dTag ||
+					request.story?.pubkey !== initialStory.pubkey
+				) {
+					return
+				}
+			} else if (request?.mode !== 'create') {
+				return
+			}
+			const next = readInitialContent(initialStory)
 			setTitle(next.title)
 			setSummary(next.summary)
 			setImage(next.image)
@@ -326,7 +346,7 @@ export function StoryEditorPanel({
 				<EntityPanelSectionHeader
 					eyebrow="Narrative"
 					title="Write your story"
-					description="Markdown is stored verbatim. Type @ to reference a dataset, feature, image, or video."
+					description="Markdown is stored verbatim. Type $ to reference a dataset, feature, OSM element, or coordinate."
 				/>
 				<Tabs
 					value={bodyTab}
@@ -355,7 +375,7 @@ export function StoryEditorPanel({
 							onChange={setBody}
 							availableFeatures={availableFeatures}
 							placeholder={`Start writing…
-Type @ to reference a dataset, feature, image, or video.`}
+Type $ to reference a dataset, feature, OSM element, or coordinate.`}
 							rows={12}
 							className="min-h-[320px] w-full"
 						/>

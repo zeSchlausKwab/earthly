@@ -1,17 +1,71 @@
 import { mergeAttributes, Node } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from '@tiptap/react'
-import { MapPin, Eye, EyeOff, Maximize2 } from 'lucide-react'
+import {
+	ExternalLink,
+	Eye,
+	EyeOff,
+	FileText,
+	Globe,
+	Layers3,
+	LocateFixed,
+	Map as MapIcon,
+	MapPin,
+	Maximize2,
+	Shapes,
+} from 'lucide-react'
+import { nip19 } from 'nostr-tools'
 import { useState } from 'react'
+import {
+	extractGeoReferences,
+	geoReferenceLabel,
+	parseGeoReference,
+	stringifyGeoReference,
+} from '@/lib/geo/reference'
+import { stringifyNostrAddressReference } from '@/lib/nostr/references'
+import { ARTICLE_KIND, MAP_CONTEXT_KIND } from '@/lib/nostr/kinds'
 import { Button } from '../ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 
 export interface GeoMentionAttrs {
-	/** The naddr1... address of the dataset */
+	/** Bare naddr1..., geo: URI, or canonical OpenStreetMap URL. */
 	address: string
 	/** Optional feature ID within the dataset */
 	featureId?: string
 	/** Display name for the mention */
 	displayName: string
+	/** User-visible spatial reference type. Not part of the serialized URI. */
+	referenceType?: GeoMentionReferenceType
+}
+
+export type GeoMentionReferenceType =
+	| 'dataset'
+	| 'context'
+	| 'feature'
+	| 'story'
+	| 'coordinate'
+	| 'osm'
+
+function inferNostrReferenceType(address: string, featureId?: string): GeoMentionReferenceType {
+	if (featureId) return 'feature'
+	try {
+		const decoded = nip19.decode(address)
+		if (decoded.type !== 'naddr') return 'dataset'
+		switch (decoded.data.kind) {
+			case MAP_CONTEXT_KIND:
+				return 'context'
+			case ARTICLE_KIND:
+				return 'story'
+			default:
+				return 'dataset'
+		}
+	} catch {
+		return 'dataset'
+	}
+}
+
+function referenceTypeLabel(type: GeoMentionReferenceType): string {
+	if (type === 'osm') return 'OSM'
+	return `${type.charAt(0).toUpperCase()}${type.slice(1)}`
 }
 
 /** Callbacks for geo mention interactions */
@@ -32,6 +86,22 @@ export interface GeoMentionNodeOptions {
 function GeoMentionNodeView({ node, deleteNode, editor }: NodeViewProps) {
 	const attrs = node.attrs as GeoMentionAttrs
 	const { address, featureId, displayName } = attrs
+	const reference = parseGeoReference(
+		address.startsWith('naddr1') ? stringifyNostrAddressReference({ address, featureId }) : address,
+	)
+	const isOsmReference = reference?.kind === 'osm'
+	const isCoordinateReference = reference?.kind === 'coordinate'
+	const referenceType: GeoMentionReferenceType =
+		attrs.referenceType ??
+		(isCoordinateReference
+			? 'coordinate'
+			: isOsmReference
+				? 'osm'
+				: inferNostrReferenceType(address, featureId))
+	const typeLabel = referenceTypeLabel(referenceType)
+	const referenceText = reference
+		? stringifyGeoReference(reference)
+		: stringifyNostrAddressReference({ address, featureId })
 
 	// Get callbacks from extension storage (type-safe access)
 	const extension = editor.extensionManager.extensions.find((ext) => ext.name === 'geoMention')
@@ -53,22 +123,42 @@ function GeoMentionNodeView({ node, deleteNode, editor }: NodeViewProps) {
 		callbacks?.onZoomTo?.(address, featureId)
 	}
 
+	const referenceIcon = (() => {
+		switch (referenceType) {
+			case 'coordinate':
+				return <LocateFixed className="h-3 w-3 flex-shrink-0" />
+			case 'dataset':
+				return <Layers3 className="h-3 w-3 flex-shrink-0" />
+			case 'feature':
+				return <Shapes className="h-3 w-3 flex-shrink-0" />
+			case 'osm':
+				return <MapIcon className="h-3 w-3 flex-shrink-0" />
+			case 'context':
+				return <Globe className="h-3 w-3 flex-shrink-0" />
+			case 'story':
+				return <FileText className="h-3 w-3 flex-shrink-0" />
+			default:
+				return <MapPin className="h-3 w-3 flex-shrink-0" />
+		}
+	})()
+
 	return (
 		<NodeViewWrapper as="span" className="inline">
 			<span
-				className="inline-flex items-center gap-0.5 rounded-md bg-info/15 border border-info/40 px-1.5 py-0.5 text-xs font-medium text-info mx-0.5"
+				className="mx-0.5 inline-flex items-center gap-1 border border-info/40 bg-info/15 px-1.5 py-0.5 text-xs font-medium text-info"
+				data-reference-type={typeLabel}
 				contentEditable={false}
 			>
-				<MapPin className="h-3 w-3 flex-shrink-0" />
-				<span
-					className="truncate max-w-[120px]"
-					title={featureId ? `${address}#${featureId}` : address}
-				>
+				{referenceIcon}
+				<span className="border-r border-info/30 pr-1 text-[8px] font-semibold uppercase tracking-[0.1em] opacity-80">
+					{typeLabel}
+				</span>
+				<span className="truncate max-w-[120px]" title={referenceText}>
 					{displayName}
 				</span>
 
 				{/* Visibility Toggle - always shown if callback exists */}
-				{callbacks?.onVisibilityToggle && (
+				{callbacks?.onVisibilityToggle && !isOsmReference && (
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<Button
@@ -85,7 +175,7 @@ function GeoMentionNodeView({ node, deleteNode, editor }: NodeViewProps) {
 				)}
 
 				{/* Zoom Button - always shown if callback exists */}
-				{callbacks?.onZoomTo && (
+				{callbacks?.onZoomTo && !isOsmReference && (
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<Button
@@ -98,6 +188,22 @@ function GeoMentionNodeView({ node, deleteNode, editor }: NodeViewProps) {
 							</Button>
 						</TooltipTrigger>
 						<TooltipContent>Zoom to feature</TooltipContent>
+					</Tooltip>
+				)}
+
+				{isOsmReference && (
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<a
+								href={referenceText}
+								target="_blank"
+								rel="noopener noreferrer"
+								className="inline-flex h-4 w-4 items-center justify-center text-muted-foreground hover:text-info"
+							>
+								<ExternalLink className="h-3 w-3" />
+							</a>
+						</TooltipTrigger>
+						<TooltipContent>Open on OpenStreetMap</TooltipContent>
 					</Tooltip>
 				)}
 
@@ -151,6 +257,9 @@ export const GeoMentionNode = Node.create<GeoMentionNodeOptions>({
 				default: null,
 			},
 			featureId: {
+				default: null,
+			},
+			referenceType: {
 				default: null,
 			},
 			displayName: {
@@ -208,15 +317,15 @@ function parseInlineContent(
 ): TipTapNode[] | undefined {
 	if (!text) return undefined
 
-	const pattern = /nostr:(naddr1[a-z0-9]+)(#([a-zA-Z0-9_-]+))?/g
 	const content: TipTapNode[] = []
 	let lastIndex = 0
-	let match = pattern.exec(text)
-
-	while (match !== null) {
-		const matchIndex = match.index
-		const address = match[1]
-		const featureId = match[3] || null
+	for (const match of extractGeoReferences(text)) {
+		const matchIndex = match.start
+		const address =
+			match.reference.kind === 'nostr'
+				? match.reference.address
+				: stringifyGeoReference(match.reference)
+		const featureId = match.reference.kind === 'nostr' ? (match.reference.featureId ?? null) : null
 
 		if (matchIndex > lastIndex) {
 			content.push({
@@ -230,12 +339,18 @@ function parseInlineContent(
 			attrs: {
 				address,
 				featureId,
-				displayName: resolveMentionDisplayName(address, featureId, nameResolver),
+				referenceType:
+					match.reference.kind === 'nostr'
+						? inferNostrReferenceType(address, featureId ?? undefined)
+						: match.reference.kind,
+				displayName:
+					match.reference.kind === 'nostr'
+						? resolveMentionDisplayName(address, featureId, nameResolver)
+						: geoReferenceLabel(match.reference),
 			},
 		})
 
-		lastIndex = matchIndex + match[0].length
-		match = pattern.exec(text)
+		lastIndex = match.end
 	}
 
 	if (lastIndex < text.length) {
@@ -263,10 +378,11 @@ export function serializeToText(json: TipTapNode | null): string {
 		if (node.type === 'geoMention') {
 			const address = node.attrs?.address as string
 			const featureId = node.attrs?.featureId as string | undefined
-			if (featureId) {
-				return `nostr:${address}#${featureId}`
+			if (address.startsWith('naddr1')) {
+				return stringifyNostrAddressReference({ address, featureId })
 			}
-			return `nostr:${address}`
+			const reference = parseGeoReference(address)
+			return reference ? stringifyGeoReference(reference) : address
 		}
 
 		if (node.type === 'paragraph') {

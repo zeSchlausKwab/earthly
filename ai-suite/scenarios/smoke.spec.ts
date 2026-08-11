@@ -2,7 +2,11 @@ import { test, expect } from '../fixtures/earthly'
 import { readFile } from 'node:fs/promises'
 import { createIdentity } from '../tasks/auth/create-identity'
 import { signIn } from '../tasks/auth/sign-in'
-import { createStoryDraft } from '../tasks/create/story'
+import {
+	createStoryDraft,
+	openStoryReferencePicker,
+	pickStoryCoordinateFromOpenPicker,
+} from '../tasks/create/story'
 import { startDataset } from '../tasks/create/dataset'
 import { openPanel } from '../tasks/navigation/open-panel'
 import { completeTour, skipTour } from '../tasks/onboarding/tour'
@@ -331,4 +335,29 @@ test('a Story can be saved as a local draft', async ({ earthly }) => {
 		body: 'This story was composed by the Earthly AI suite.',
 	})
 	await expect(earthly.page.getByRole('button', { name: 'Save draft' })).toBeVisible()
+})
+
+test('a Story can capture a coordinate from the map', async ({ earthly }, testInfo) => {
+	test.skip(testInfo.project.name !== 'desktop', 'Coordinate picking needs the desktop split view')
+	await earthly.open({ tour: 'seen' })
+	await createStoryDraft(earthly, {
+		title: 'AI suite coordinate reference',
+		body: 'This place matters: ',
+	})
+	await openStoryReferencePicker(earthly)
+	const picker = earthly.page.getByRole('listbox', { name: 'Spatial references' })
+	await expect(picker.getByText('Coordinate', { exact: true }).first()).toBeVisible()
+	const [pickerBounds, viewport] = await Promise.all([
+		picker.boundingBox(),
+		Promise.resolve(earthly.page.viewportSize()),
+	])
+	expect(pickerBounds).not.toBeNull()
+	expect(viewport).not.toBeNull()
+	if (!pickerBounds || !viewport) throw new Error('Reference picker layout is not measurable')
+	expect(pickerBounds.x).toBeGreaterThanOrEqual(0)
+	expect(pickerBounds.x + pickerBounds.width).toBeLessThanOrEqual(viewport.width)
+	const reference = await pickStoryCoordinateFromOpenPicker(earthly)
+	expect(reference).toMatch(/^geo:-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?$/)
+	await earthly.page.getByRole('tab', { name: 'Preview', exact: true }).click()
+	await expect(earthly.page.locator(`[title="${reference}"]`).last()).toBeVisible()
 })

@@ -14,6 +14,10 @@ import {
 	undoRedoGeometry,
 } from '../tasks/editor/lifecycle'
 import { placeMobilePrecisionPoint } from '../tasks/editor/mobile-precision-drawing'
+import {
+	exerciseGeometryOperations,
+	exercisePolygonSplit,
+} from '../tasks/editor/geometry-operations'
 import { openPanel } from '../tasks/navigation/open-panel'
 import {
 	attemptDeniedDeviceLocation,
@@ -36,6 +40,27 @@ test('geometry can be undone and redone from viewport controls @editor-contract'
 	const result = await undoRedoGeometry(earthly)
 	expect(result.featureCount).toBe(1)
 	expect(result.canUndo).toBe(true)
+})
+
+test('geometry operations choose numeric or drag input before interaction @editor-contract', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'desktop', 'The desktop menu contract is exercised here')
+	await earthly.open({ tour: 'seen' })
+	const result = await exerciseGeometryOperations(earthly)
+	expect(result.numericDialogVisible).toBe(true)
+	expect(result.dragGuidanceVisible).toBe(true)
+	expect(result.splitGuidanceVisible).toBe(true)
+	expect(result.featureCount).toBe(4)
+	expect(result.geometryTypes.every((type) => type === 'LineString')).toBe(true)
+})
+
+test('a drawn line splits the selected polygon @editor-contract', async ({ earthly }, testInfo) => {
+	test.skip(testInfo.project.name !== 'desktop', 'The desktop menu contract is exercised here')
+	await earthly.open({ tour: 'seen' })
+	const result = await exercisePolygonSplit(earthly)
+	expect(result.featureCount).toBe(2)
+	expect(result.geometryTypes.every((type) => type === 'Polygon')).toBe(true)
 })
 
 test('mobile magnifier is ready before touch and follows precision placement @editor-contract', async ({

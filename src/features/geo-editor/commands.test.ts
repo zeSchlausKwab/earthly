@@ -40,9 +40,7 @@ describe('editor commands (characterization, post-registration)', () => {
 		const features = loadFeatures(editor)
 		editor.selectFeature(features[0].id)
 
-		const result: EditorCommandExecutionResult = executeEditorCommand(
-			'duplicate_selected_features',
-		)
+		const result: EditorCommandExecutionResult = executeEditorCommand('duplicate_selected_features')
 		expect(result.ok).toBe(true)
 		expect(result.commandId).toBe('duplicate_selected_features')
 		expect(typeof result.message).toBe('string')
@@ -77,6 +75,19 @@ describe('editor commands (characterization, post-registration)', () => {
 		expect(result.commandId).toBe('simplify_selected_features')
 		expect(typeof result.ok).toBe('boolean')
 		expect(typeof result.message).toBe('string')
+	})
+
+	it('finish_drawing reports the geometry operation error instead of false success', () => {
+		const editor = useEditorStore.getState().editor
+		if (!editor) throw new Error('editor not set')
+		editor.finishDrawing = () => null
+		editor.getGeometryOperation = () =>
+			({ error: 'The cutting line must cross the polygon completely.' }) as never
+
+		const result = executeEditorCommand('finish_drawing')
+
+		expect(result.ok).toBe(false)
+		expect(result.message).toBe('The cutting line must cross the polygon completely.')
 	})
 
 	it('every editor command exposes an AI tool definition consumed by the registry', () => {

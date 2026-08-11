@@ -130,6 +130,48 @@ describe('createAuthoring — writeGeoJSON replace (D-11 replace semantics)', ()
 	})
 })
 
+describe('createAuthoring — geometry operations', () => {
+	it('splits an existing line through the shared operation kernel', () => {
+		const editor = createHeadlessEditor()
+		const authoring = createAuthoring(editor)
+		authoring.addFeature({
+			type: 'Feature',
+			id: 'line-to-split',
+			properties: { name: 'Route' },
+			geometry: {
+				type: 'LineString',
+				coordinates: [
+					[0, 0],
+					[0.01, 0],
+				],
+			},
+		})
+
+		const result = authoring.geometryOperation(
+			'line-to-split',
+			{ kind: 'split', cutter: { type: 'Point', coordinates: [0.005, 0] } },
+			'replace',
+		)
+
+		expect(result.ok).toBe(true)
+		expect(result.intent).toBe('modify')
+		expect(result.counts.created).toBe(2)
+		expect(result.counts.deleted).toBe(1)
+		expect(editor.getFeature('line-to-split')).toBeUndefined()
+		expect(editor.getAllFeatures()).toHaveLength(2)
+	})
+
+	it('returns a structured no-op for an unknown target id', () => {
+		const editor = createHeadlessEditor()
+		const result = createAuthoring(editor).geometryOperation('missing', {
+			kind: 'corridor',
+			width: 20,
+		})
+		expect(result.ok).toBe(false)
+		expect(result.counts.created).toBe(0)
+	})
+})
+
 describe('createAuthoring — commitDataset (validated atomic replace)', () => {
 	beforeEach(() => {
 		useEditorStore.setState({

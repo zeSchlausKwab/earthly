@@ -4,10 +4,53 @@ import type { FeatureCollection } from 'geojson'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { MapContext } from '@/lib/nostr/map-context'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
+import { parseGeoReference, stringifyGeoReference, type OsmElementType } from '@/lib/geo/reference'
 
 interface NamedFeatureCollection extends FeatureCollection {
 	name?: string
 	properties?: { name?: string }
+}
+
+function parseOsmIdentity(value: unknown): { elementType: OsmElementType; id: string } | null {
+	if (typeof value !== 'string' && typeof value !== 'number') return null
+	const text = String(value).trim()
+	const url = parseGeoReference(text)
+	if (url?.kind === 'osm') return { elementType: url.elementType, id: url.id }
+	const match = text.match(/^(node|way|relation)[/:](\d+)$/i)
+	if (!match?.[1] || !match[2]) return null
+	return { elementType: match[1].toLowerCase() as OsmElementType, id: match[2] }
+}
+
+export function getOsmReferenceForFeature(feature: GeoJSON.Feature): string | null {
+	const properties = feature.properties as Record<string, unknown> | null | undefined
+	const directCandidates = [
+		feature.id,
+		properties?.osmRef,
+		properties?.osm_ref,
+		properties?.['@id'],
+	]
+	for (const candidate of directCandidates) {
+		const identity = parseOsmIdentity(candidate)
+		if (identity) return stringifyGeoReference({ kind: 'osm', ...identity })
+	}
+
+	const elementType = properties?.osmType ?? properties?.osm_type ?? properties?.type
+	const id = properties?.osmId ?? properties?.osm_id
+	if (
+		typeof elementType === 'string' &&
+		['node', 'way', 'relation'].includes(elementType.toLowerCase()) &&
+		(typeof id === 'string' || typeof id === 'number')
+	) {
+		const numericId = String(id).trim()
+		if (/^\d+$/.test(numericId)) {
+			return stringifyGeoReference({
+				kind: 'osm',
+				elementType: elementType.toLowerCase() as OsmElementType,
+				id: numericId,
+			})
+		}
+	}
+	return null
 }
 
 /**
@@ -83,6 +126,20 @@ export function useAvailableGeoFeatures(
 						datasetName,
 						geometryType,
 					})
+
+					const osmReference = getOsmReferenceForFeature(feature)
+					if (osmReference) {
+						const osm = parseGeoReference(osmReference)
+						items.push({
+							id: `osm:${osmReference}`,
+							name: `${featureName} on OpenStreetMap`,
+							address: osmReference,
+							entityType: 'osm',
+							datasetName,
+							geometryType:
+								osm?.kind === 'osm' ? `OSM ${osm.elementType} ${osm.id}` : 'OpenStreetMap',
+						})
+					}
 				})
 			}
 		}

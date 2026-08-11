@@ -24,6 +24,7 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 	const clearFocusedMapGeometry = useEditorStore((state) => state.clearFocusedMapGeometry)
 	const setCanFinishDrawing = useEditorStore((state) => state.setCanFinishDrawing)
 	const setHistoryState = useEditorStore((state) => state.setHistoryState)
+	const setGeometryOperation = useEditorStore((state) => state.setGeometryOperation)
 	const editor = useEditorStore((state) => state.editor)
 
 	// Subscribe to store changes that should affect the editor instance
@@ -83,6 +84,9 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 			if (e.mode) setMode(e.mode)
 			setCanFinishDrawing(editor.canFinishDrawing())
 		}
+		const handleGeometryOperationChange = (e: any) => {
+			setGeometryOperation(e.geometryOperation ?? null)
+		}
 
 		editor.on('create', updateFeatures)
 		editor.on('update', updateFeatures)
@@ -94,6 +98,7 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 		editor.on('mode.change', handleModeChange)
 		editor.on('selection.change', updateSelection)
 		editor.on('draw.change', handleDrawChange)
+		editor.on('geometry.operation.change', handleGeometryOperationChange)
 
 		// Undo/redo mutate the editor's internal feature map without emitting the
 		// create/update/delete events. Mirror both geometry and history so the
@@ -155,6 +160,7 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 		})
 
 		return () => {
+			setGeometryOperation(null)
 			setEditor(null)
 			editor.destroy()
 			editorRef.current = null

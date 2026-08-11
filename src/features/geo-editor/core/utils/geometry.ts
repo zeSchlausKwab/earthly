@@ -5,7 +5,6 @@ import {
 	midpoint as turfMidpoint,
 	lineString as turfLineString,
 	pointToLineDistance as turfPointToLineDistance,
-	nearestPointOnLine as turfNearestPointOnLine,
 	transformRotate,
 	lineSlice,
 	polygon as turfPolygon,
@@ -13,6 +12,7 @@ import {
 	buffer as turfBuffer,
 } from '@turf/turf'
 import type { Position } from 'geojson'
+import { nearestPointOnRenderedSegment } from '../../api/webMercator'
 
 const isCoordinateNumber = (value: unknown): value is number =>
 	typeof value === 'number' && !Number.isNaN(value) && Number.isFinite(value)
@@ -67,14 +67,19 @@ export function nearestPointOnLine(point: Position, line: Position[]): Position 
 		return point
 	}
 
-	try {
-		const pt = turfPoint(point)
-		const lineFeature = turfLineString(sanitizedLine)
-		const nearest = turfNearestPointOnLine(lineFeature, pt)
-		return nearest.geometry.coordinates as Position
-	} catch {
-		return point
+	let nearest = point
+	let nearestDistance = Infinity
+	for (let index = 0; index < sanitizedLine.length - 1; index += 1) {
+		const start = sanitizedLine[index]
+		const end = sanitizedLine[index + 1]
+		if (!start || !end) continue
+		const candidate = nearestPointOnRenderedSegment(point, start, end)
+		if (candidate.squaredProjectedDistance < nearestDistance) {
+			nearest = candidate.position
+			nearestDistance = candidate.squaredProjectedDistance
+		}
 	}
+	return nearest
 }
 
 export function closestVertex(

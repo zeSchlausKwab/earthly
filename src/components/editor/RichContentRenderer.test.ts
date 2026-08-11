@@ -171,4 +171,23 @@ describe('parseInlineTokens nostr:naddr references', () => {
 		expect(tokens.some((token) => token.type === 'code')).toBe(true)
 		expect(mentions(tokens)).toHaveLength(0)
 	})
+
+	test('encoded OSM-style feature ids render as feature mentions', () => {
+		const token = mentions(
+			parseInlineTokens(`nostr:${NADDR}#relation%2F62504`, availableFeatures),
+		)[0]
+		expect(token?.featureId).toBe('relation/62504')
+	})
+
+	test('coordinates and OSM element URLs render as spatial mention chips', () => {
+		const spatialMentions = mentions(
+			parseInlineTokens(
+				'At geo:52.516275,13.377704 near https://www.openstreetmap.org/relation/62422.',
+				availableFeatures,
+			),
+		)
+		expect(spatialMentions).toHaveLength(2)
+		expect(spatialMentions[0]?.address).toBe('geo:52.516275,13.377704')
+		expect(spatialMentions[1]?.displayName).toBe('OSM relation 62422')
+	})
 })

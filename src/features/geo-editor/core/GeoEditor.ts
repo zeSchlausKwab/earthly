@@ -1,5 +1,15 @@
-import { bearing, distance, featureCollection, centerOfMass } from '@turf/turf'
-import type { Feature, FeatureCollection, Position } from 'geojson'
+import {
+	bearing,
+	booleanPointInPolygon,
+	centerOfMass,
+	distance,
+	featureCollection,
+	nearestPointOnLine as turfNearestPointOnLine,
+	point as turfPoint,
+	pointToLineDistance as turfPointToLineDistance,
+	polygonToLine,
+} from '@turf/turf'
+import type { Feature, FeatureCollection, LineString, Point, Position } from 'geojson'
 import type {
 	MapGeoJSONFeature,
 	Map as MapLibreMap,
@@ -11,6 +21,7 @@ import { BooleanManager } from './managers/BooleanManager'
 import { CombineManager } from './managers/CombineManager'
 import { DatasetSnapshotManager } from './managers/DatasetSnapshotManager'
 import { HistoryManager } from './managers/HistoryManager'
+import { GeometryOperationsManager } from './managers/GeometryOperationsManager'
 import { LayerManager } from './managers/LayerManager'
 import { LineOperationsManager } from './managers/LineOperationsManager'
 import { RenderingManager } from './managers/RenderingManager'
@@ -32,13 +43,25 @@ import type {
 	EditorEventType,
 	EditorFeature,
 	EditorMode,
+	ActiveGeometryInteraction,
+	GeometryInteractionKind,
 	GeoEditorOptions,
 	PrimitiveShape,
 } from './types'
 import { collectLineArrowFeatures } from '../utils/lineArrows'
+import type { GeometryOperationRequest } from '../api/geometryOperations'
+import { performGeometryOperation } from '../api/geometryOperations'
 
 type ScreenPoint = { x: number; y: number }
 type PointerOffset = { x: number; y: number }
+
+function lineStringFeature(coordinates: Position[]): Feature<LineString> {
+	return {
+		type: 'Feature',
+		properties: {},
+		geometry: { type: 'LineString', coordinates },
+	}
+}
 
 interface SelectionDragState {
 	start: ScreenPoint
@@ -57,6 +80,13 @@ interface TransformDragState {
 	baseFeatures: EditorFeature[]
 	lastFeatures?: EditorFeature[]
 	dragPanWasEnabled: boolean
+}
+
+interface GeometryOperationDragState {
+	startScreen: ScreenPoint
+	hasMoved: boolean
+	dragPanWasEnabled: boolean
+	request?: GeometryOperationRequest
 }
 
 export class GeoEditor {
@@ -81,6 +111,7 @@ export class GeoEditor {
 	public rendering: RenderingManager
 	public combine: CombineManager
 	public lineOps: LineOperationsManager
+	public geometryOps: GeometryOperationsManager
 	public boolean: BooleanManager
 	public simplifyManager: SimplifyManager
 
@@ -98,6 +129,9 @@ export class GeoEditor {
 	private selectionDragPanWasEnabled: boolean = true
 	private skipClickUntil: number = 0
 	private transformDragState?: TransformDragState
+	private geometryOperation?: ActiveGeometryInteraction
+	private geometryOperationPreview: EditorFeature[] = []
+	private geometryOperationDragState?: GeometryOperationDragState
 	private pointerOffset: PointerOffset
 	private panLockEnabled: boolean = false
 	private panLockDragPanWasEnabled: boolean = false
@@ -195,6 +229,7 @@ export class GeoEditor {
 		this.rendering = new RenderingManager()
 		this.combine = new CombineManager(this)
 		this.lineOps = new LineOperationsManager(this)
+		this.geometryOps = new GeometryOperationsManager(this)
 		this.boolean = new BooleanManager(this)
 		this.simplifyManager = new SimplifyManager(this)
 
@@ -336,8 +371,12 @@ export class GeoEditor {
 		if (this.mode === 'draw_point') {
 			const feature = this.drawPointMode.onClick(e)
 			if (feature) {
-				this.addFeature(feature)
-				this.emit('create', { type: 'create', features: [feature] })
+				if (this.geometryOperation?.kind === 'split-line-point') {
+					this.completeGeometrySplit(feature)
+				} else {
+					this.addFeature(feature)
+					this.emit('create', { type: 'create', features: [feature] })
+				}
 			}
 		} else if (this.mode === 'draw_annotation') {
 			const feature = this.drawAnnotationMode.onClick(e)
@@ -351,8 +390,15 @@ export class GeoEditor {
 		} else if (this.mode === 'draw_linestring') {
 			const feature = this.drawLineMode.onClick(e)
 			if (feature) {
-				this.addFeature(feature)
-				this.emit('create', { type: 'create', features: [feature] })
+				if (
+					this.geometryOperation?.kind === 'split-line-line' ||
+					this.geometryOperation?.kind === 'split-polygon-line'
+				) {
+					this.completeGeometrySplit(feature)
+				} else {
+					this.addFeature(feature)
+					this.emit('create', { type: 'create', features: [feature] })
+				}
 			}
 			this.emitDrawChange()
 			this.render()
@@ -485,6 +531,19 @@ export class GeoEditor {
 
 	private onMouseDown(e: MapMouseEvent): void {
 		if (this.isTouchLikeEvent(e) && this.isDrawMode(this.mode) && !this.panLockEnabled) return
+		if (this.geometryOperation?.inputMode === 'drag') {
+			const button = (e.originalEvent as MouseEvent).button
+			if (button !== undefined && button !== 0) return
+			this.geometryOperationDragState = {
+				startScreen: { x: e.point.x, y: e.point.y },
+				hasMoved: false,
+				dragPanWasEnabled: this.map.dragPan.isEnabled(),
+			}
+			if (this.geometryOperationDragState.dragPanWasEnabled) this.map.dragPan.disable()
+			this.updateGeometryOperationDrag(e)
+			e.preventDefault()
+			return
+		}
 
 		if (this.mode === 'select') {
 			if (this.tryStartTransformDrag(e)) return
@@ -526,6 +585,10 @@ export class GeoEditor {
 	}
 
 	private onMouseUp(_e: MapMouseEvent): void {
+		if (this.geometryOperationDragState) {
+			this.finishGeometryOperationDrag(true)
+			return
+		}
 		if (this.transformDragState) {
 			this.finishTransformDrag(true)
 			return
@@ -587,8 +650,15 @@ export class GeoEditor {
 		if (this.mode === 'draw_linestring') {
 			const feature = this.drawLineMode.onKeyDown({ key: 'Enter' } as KeyboardEvent)
 			if (feature) {
-				this.addFeature(feature)
-				this.emit('create', { type: 'create', features: [feature] })
+				if (
+					this.geometryOperation?.kind === 'split-line-line' ||
+					this.geometryOperation?.kind === 'split-polygon-line'
+				) {
+					this.completeGeometrySplit(feature)
+				} else {
+					this.addFeature(feature)
+					this.emit('create', { type: 'create', features: [feature] })
+				}
 				this.render()
 			}
 		} else if (this.mode === 'draw_polygon') {
@@ -602,6 +672,10 @@ export class GeoEditor {
 	}
 
 	private onMouseMove(e: MapMouseEvent): void {
+		if (this.geometryOperationDragState) {
+			this.updateGeometryOperationDrag(e)
+			return
+		}
 		if (this.transformDragState) {
 			this.handleTransformDrag(e)
 			return
@@ -697,6 +771,12 @@ export class GeoEditor {
 			}
 		}
 
+		if (e.key === 'Escape' && this.geometryOperation) {
+			e.preventDefault()
+			this.cancelGeometryOperation()
+			return
+		}
+
 		if (e.key === 'Escape' && this.transformDragState) {
 			e.preventDefault()
 			this.finishTransformDrag(false)
@@ -758,8 +838,15 @@ export class GeoEditor {
 		if (this.mode === 'draw_linestring') {
 			const feature = this.drawLineMode.onKeyDown(e)
 			if (feature) {
-				this.addFeature(feature)
-				this.emit('create', { type: 'create', features: [feature] })
+				if (
+					this.geometryOperation?.kind === 'split-line-line' ||
+					this.geometryOperation?.kind === 'split-polygon-line'
+				) {
+					this.completeGeometrySplit(feature)
+				} else {
+					this.addFeature(feature)
+					this.emit('create', { type: 'create', features: [feature] })
+				}
 			}
 			this.render()
 		} else if (this.mode === 'draw_polygon') {
@@ -1000,12 +1087,250 @@ export class GeoEditor {
 		}
 	}
 
+	private emitGeometryOperationChange(): void {
+		this.emit('geometry.operation.change', {
+			type: 'geometry.operation.change',
+			geometryOperation: this.geometryOperation ?? null,
+		})
+	}
+
+	private clearGeometryOperationState(): void {
+		const dragState = this.geometryOperationDragState
+		if (dragState?.dragPanWasEnabled) this.map.dragPan.enable()
+		this.geometryOperationDragState = undefined
+		this.geometryOperationPreview = []
+		this.geometryOperation = undefined
+		this.map.getCanvas().style.cursor = ''
+		this.emitGeometryOperationChange()
+		this.render()
+	}
+
+	private completeGeometrySplit(cutter: EditorFeature): boolean {
+		const operation = this.geometryOperation
+		if (!operation || operation.inputMode !== 'draw') return false
+		try {
+			const request: GeometryOperationRequest =
+				cutter.geometry.type === 'Point'
+					? {
+							kind: 'split',
+							cutter: cutter as Feature<Point>,
+							pointSnapToleranceMeters: this.pointSplitToleranceMeters(cutter.geometry.coordinates),
+						}
+					: { kind: 'split', cutter: cutter as Feature<LineString> }
+			this.geometryOps.apply(operation.targetFeatureId, request, 'replace')
+			this.geometryOperation = undefined
+			this.geometryOperationPreview = []
+			this.emitGeometryOperationChange()
+			this.setMode('select')
+			return true
+		} catch (error) {
+			this.geometryOperation = {
+				...operation,
+				error: error instanceof Error ? error.message : 'Could not split the feature.',
+			}
+			this.emitGeometryOperationChange()
+			this.render()
+			return false
+		}
+	}
+
+	/** Keep manual point picking tied to the visible 10px snapping target at any zoom. */
+	private pointSplitToleranceMeters(position: Position): number {
+		const screen = this.map.project(position as [number, number])
+		const edge = this.map.unproject({ x: screen.x + 10, y: screen.y })
+		return Math.max(
+			25,
+			distance(turfPoint(position), turfPoint([edge.lng, edge.lat]), { units: 'meters' }),
+		)
+	}
+
+	private lineMeasurement(
+		feature: EditorFeature,
+		pointer: Position,
+	): { distanceMeters: number; side: 'left' | 'right' } {
+		const geometries =
+			feature.geometry.type === 'LineString'
+				? [feature.geometry.coordinates]
+				: feature.geometry.type === 'MultiLineString'
+					? feature.geometry.coordinates
+					: []
+		let best: { distanceMeters: number; side: 'left' | 'right' } | undefined
+		for (const coordinates of geometries) {
+			if (coordinates.length < 2) continue
+			const line: Feature<LineString> = {
+				type: 'Feature',
+				properties: {},
+				geometry: { type: 'LineString', coordinates },
+			}
+			const nearest = turfNearestPointOnLine(line, turfPoint(pointer), { units: 'meters' })
+			const distanceMeters = Number(nearest.properties?.dist)
+			const index = Math.min(
+				Math.max(0, Number(nearest.properties?.index) || 0),
+				coordinates.length - 2,
+			)
+			const start = coordinates[index]
+			const end = coordinates[index + 1]
+			if (!start || !end || !Number.isFinite(distanceMeters)) continue
+			const [startX, startY] = start as [number, number]
+			const [endX, endY] = end as [number, number]
+			const [pointerX, pointerY] = pointer as [number, number]
+			const cross = (endX - startX) * (pointerY - startY) - (endY - startY) * (pointerX - startX)
+			const candidate = {
+				distanceMeters,
+				side: cross >= 0 ? ('left' as const) : ('right' as const),
+			}
+			if (!best || candidate.distanceMeters < best.distanceMeters) best = candidate
+		}
+		if (!best) throw new Error('Could not measure an offset from this line.')
+		return best
+	}
+
+	private polygonBoundaryDistance(feature: EditorFeature, pointer: Position): number {
+		if (feature.geometry.type !== 'Polygon' && feature.geometry.type !== 'MultiPolygon') {
+			throw new Error('Polygon offset requires a polygon.')
+		}
+		const boundary = polygonToLine(
+			feature as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>,
+		)
+		const boundaryLines: Array<Feature<LineString>> = []
+		const collect = (candidate: GeoJSON.Feature) => {
+			if (candidate.geometry.type === 'LineString') {
+				boundaryLines.push(candidate as Feature<LineString>)
+			} else if (candidate.geometry.type === 'MultiLineString') {
+				candidate.geometry.coordinates.forEach((coordinates) => {
+					boundaryLines.push(lineStringFeature(coordinates))
+				})
+			}
+		}
+		if (boundary.type === 'FeatureCollection') boundary.features.forEach(collect)
+		else collect(boundary)
+		const pointerFeature = turfPoint(pointer)
+		const distances = boundaryLines.map((line) =>
+			turfPointToLineDistance(pointerFeature, line, { units: 'meters' }),
+		)
+		const distanceMeters = Math.min(...distances)
+		if (!Number.isFinite(distanceMeters)) throw new Error('Could not measure the polygon offset.')
+		return distanceMeters
+	}
+
+	private updateGeometryOperationDrag(e: MapMouseEvent): void {
+		const operation = this.geometryOperation
+		const dragState = this.geometryOperationDragState
+		if (!operation || !dragState) return
+		const dx = e.point.x - dragState.startScreen.x
+		const dy = e.point.y - dragState.startScreen.y
+		if (Math.hypot(dx, dy) > 3) dragState.hasMoved = true
+		const source = this.features.get(operation.targetFeatureId)
+		if (!source) {
+			this.cancelGeometryOperation()
+			return
+		}
+		const pointer: Position = [e.lngLat.lng, e.lngLat.lat]
+
+		try {
+			let request: GeometryOperationRequest
+			let distanceMeters: number
+			let direction: ActiveGeometryInteraction['direction']
+			if (operation.kind === 'offset-polygon-drag') {
+				distanceMeters = this.polygonBoundaryDistance(source, pointer)
+				direction = booleanPointInPolygon(
+					turfPoint(pointer),
+					source as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>,
+				)
+					? 'inward'
+					: 'outward'
+				request = {
+					kind: 'offset-polygon',
+					distance: Math.max(distanceMeters, 0.01),
+					units: 'meters',
+					direction,
+				}
+			} else {
+				const measurement = this.lineMeasurement(source, pointer)
+				distanceMeters = measurement.distanceMeters
+				if (operation.kind === 'offset-line-drag') {
+					direction = measurement.side
+					request = {
+						kind: 'offset-line',
+						distance: Math.max(distanceMeters, 0.01),
+						units: 'meters',
+						side: measurement.side,
+					}
+				} else {
+					direction = 'both'
+					request = {
+						kind: 'corridor',
+						width: Math.max(distanceMeters * 2, 0.02),
+						units: 'meters',
+					}
+				}
+			}
+
+			dragState.request = request
+			const preview = performGeometryOperation(source, request)
+			this.geometryOperationPreview = preview.features.map((feature) => ({
+				...(feature as EditorFeature),
+				properties: { ...(feature.properties ?? {}), meta: 'feature-temp', active: false },
+			}))
+			this.geometryOperation = {
+				...operation,
+				distanceMeters,
+				direction,
+				error: undefined,
+			}
+			this.map.getCanvas().style.cursor = 'crosshair'
+			this.emitGeometryOperationChange()
+			this.render()
+		} catch (error) {
+			this.geometryOperationPreview = []
+			this.geometryOperation = {
+				...operation,
+				error: error instanceof Error ? error.message : 'Could not preview the offset.',
+			}
+			this.emitGeometryOperationChange()
+			this.render()
+		}
+		e.preventDefault()
+	}
+
+	private finishGeometryOperationDrag(commit: boolean): void {
+		const dragState = this.geometryOperationDragState
+		const operation = this.geometryOperation
+		if (!dragState) return
+		this.geometryOperationDragState = undefined
+		if (dragState.dragPanWasEnabled) this.map.dragPan.enable()
+		this.map.getCanvas().style.cursor = ''
+
+		if (commit && dragState.hasMoved && dragState.request && operation) {
+			try {
+				this.geometryOps.apply(operation.targetFeatureId, dragState.request, 'copy')
+				this.geometryOperation = undefined
+				this.geometryOperationPreview = []
+				this.skipClickUntil = Date.now() + 250
+				this.emitGeometryOperationChange()
+				this.render()
+				return
+			} catch (error) {
+				this.geometryOperation = {
+					...operation,
+					error: error instanceof Error ? error.message : 'Could not apply the offset.',
+				}
+			}
+		}
+		this.geometryOperationPreview = []
+		this.emitGeometryOperationChange()
+		this.render()
+	}
+
 	// ==============================
 	// Public API Methods
 	// ==============================
 
 	setMode(mode: EditorMode): void {
 		const previousMode = this.mode
+		if (this.geometryOperation && mode !== previousMode) {
+			this.clearGeometryOperationState()
+		}
 		if (mode === 'draw_linestring') this.drawLineMode.setArrowDefaults({})
 		this.mode = mode
 
@@ -1070,6 +1395,72 @@ export class GeoEditor {
 		this.drawPrimitiveMode.setShape(shape)
 		this.emitDrawChange()
 		this.render()
+	}
+
+	startGeometryInteraction(kind: GeometryInteractionKind, targetFeatureId?: string): boolean {
+		const target = targetFeatureId
+			? this.features.get(targetFeatureId)
+			: this.getSelectedFeatures().length === 1
+				? this.getSelectedFeatures()[0]
+				: undefined
+		if (!target) return false
+
+		const isLine =
+			target.geometry.type === 'LineString' || target.geometry.type === 'MultiLineString'
+		const isPolygon = target.geometry.type === 'Polygon' || target.geometry.type === 'MultiPolygon'
+		if (
+			((kind === 'split-line-point' ||
+				kind === 'split-line-line' ||
+				kind === 'offset-line-drag' ||
+				kind === 'corridor-drag') &&
+				!isLine) ||
+			((kind === 'split-polygon-line' || kind === 'offset-polygon-drag') && !isPolygon)
+		) {
+			return false
+		}
+
+		const drawOperation = kind.startsWith('split-')
+		const mode: EditorMode =
+			kind === 'split-line-point'
+				? 'draw_point'
+				: kind === 'split-line-line' || kind === 'split-polygon-line'
+					? 'draw_linestring'
+					: 'select'
+		this.setMode(mode)
+		this.selection.clearSelection()
+		this.selection.select(target.id)
+		this.updateActiveStates()
+		const instruction: Record<GeometryInteractionKind, string> = {
+			'split-line-point': 'Click the line where it should be split.',
+			'split-line-line': 'Draw a line across the selected line, then press Enter.',
+			'split-polygon-line': 'Draw a line completely across the polygon, then press Enter.',
+			'offset-polygon-drag': 'Drag inward or outward from the polygon boundary.',
+			'offset-line-drag': 'Drag to the left or right of the line to create a parallel copy.',
+			'corridor-drag': 'Drag away from the line to set the total corridor width.',
+		}
+		this.geometryOperation = {
+			kind,
+			targetFeatureId: target.id,
+			inputMode: drawOperation ? 'draw' : 'drag',
+			instruction: instruction[kind],
+		}
+		this.emit('selection.change', {
+			type: 'selection.change',
+			features: [target],
+		})
+		this.emitGeometryOperationChange()
+		this.render()
+		return true
+	}
+
+	cancelGeometryOperation(): void {
+		if (!this.geometryOperation && !this.geometryOperationDragState) return
+		this.clearGeometryOperationState()
+		if (this.mode !== 'select') this.setMode('select')
+	}
+
+	getGeometryOperation(): ActiveGeometryInteraction | undefined {
+		return this.geometryOperation ? { ...this.geometryOperation } : undefined
 	}
 
 	/**
@@ -1143,8 +1534,20 @@ export class GeoEditor {
 			feature = this.drawPolygonMode.onKeyDown({ key: 'Enter' } as KeyboardEvent) ?? null
 		}
 		if (feature) {
-			this.addFeature(feature)
-			this.emit('create', { type: 'create', features: [feature] })
+			if (
+				this.geometryOperation?.kind === 'split-line-line' ||
+				this.geometryOperation?.kind === 'split-polygon-line'
+			) {
+				if (!this.completeGeometrySplit(feature)) {
+					this.render()
+					this.emitDrawChange()
+					return null
+				}
+				feature = this.getSelectedFeatures()[0] ?? feature
+			} else {
+				this.addFeature(feature)
+				this.emit('create', { type: 'create', features: [feature] })
+			}
 			this.render()
 			this.emitDrawChange()
 		}
@@ -1300,6 +1703,15 @@ export class GeoEditor {
 
 	completeBooleanOperation(secondFeatureId: string): boolean {
 		return this.boolean.complete(secondFeatureId)
+	}
+
+	applyGeometryOperation(
+		targetFeatureId: string,
+		request: import('../api/geometryOperations').GeometryOperationRequest,
+		resultMode: import('./managers/GeometryOperationsManager').GeometryOperationResultMode,
+		options?: { recordHistory?: boolean },
+	): import('./managers/GeometryOperationsManager').AppliedGeometryOperation {
+		return this.geometryOps.apply(targetFeatureId, request, resultMode, options)
 	}
 
 	addFeature(feature: EditorFeature): void {
@@ -1788,6 +2200,7 @@ export class GeoEditor {
 		} else if (action.type === 'delete') {
 			action.features.forEach((f: EditorFeature) => this.features.set(f.id, f))
 		} else if (action.type === 'update' && action.previousFeatures) {
+			action.features.forEach((f: EditorFeature) => this.features.delete(f.id))
 			action.previousFeatures.forEach((f: EditorFeature) => this.features.set(f.id, f))
 		}
 
@@ -1805,6 +2218,7 @@ export class GeoEditor {
 		} else if (action.type === 'delete') {
 			action.features.forEach((f: EditorFeature) => this.features.delete(f.id))
 		} else if (action.type === 'update') {
+			action.previousFeatures?.forEach((f: EditorFeature) => this.features.delete(f.id))
 			action.features.forEach((f: EditorFeature) => this.features.set(f.id, f))
 		}
 
@@ -2057,8 +2471,12 @@ export class GeoEditor {
 				lngLat: { lng: position[0], lat: position[1] },
 			} as MapMouseEvent)
 			if (feature) {
-				this.addFeature(feature)
-				this.emit('create', { type: 'create', features: [feature] })
+				if (this.geometryOperation?.kind === 'split-line-point') {
+					this.completeGeometrySplit(feature)
+				} else {
+					this.addFeature(feature)
+					this.emit('create', { type: 'create', features: [feature] })
+				}
 			}
 			return
 		}
@@ -2082,8 +2500,15 @@ export class GeoEditor {
 				lngLat: { lng: position[0], lat: position[1] },
 			} as MapMouseEvent)
 			if (feature) {
-				this.addFeature(feature)
-				this.emit('create', { type: 'create', features: [feature] })
+				if (
+					this.geometryOperation?.kind === 'split-line-line' ||
+					this.geometryOperation?.kind === 'split-polygon-line'
+				) {
+					this.completeGeometrySplit(feature)
+				} else {
+					this.addFeature(feature)
+					this.emit('create', { type: 'create', features: [feature] })
+				}
 			}
 			this.emitDrawChange()
 			this.render()
@@ -2127,6 +2552,7 @@ export class GeoEditor {
 			this.drawPolygonMode.getCurrentFeature() ||
 			this.drawPrimitiveMode.getCurrentFeature()
 		if (currentDrawFeature) features.push(currentDrawFeature as Feature)
+		features.push(...(this.geometryOperationPreview as Feature[]))
 		features.push(...collectLineArrowFeatures(features))
 		return { type: 'FeatureCollection', features }
 	}

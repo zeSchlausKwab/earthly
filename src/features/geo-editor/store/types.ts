@@ -98,6 +98,7 @@ export interface MapLayerState {
  */
 export type MapStackEntryType =
 	| 'dataset'
+	| 'coordinate'
 	| 'context'
 	| 'comment'
 	| 'proposal'
@@ -174,6 +175,8 @@ export interface MapStackEntry {
 	entityType: MapStackEntryType
 	entityKey: string
 	title: string
+	/** Present on a dataset entry when it represents only these feature ids. */
+	featureIds?: string[]
 	source: MapStackEntrySource
 	/** Set when a carrier entity auto-stacked this entry — see MapStackEntryVia. */
 	via?: MapStackEntryVia
@@ -285,6 +288,7 @@ export interface EditorCoreSlice {
 	panLocked: boolean
 	canFinishDrawing: boolean
 	history: { canUndo: boolean; canRedo: boolean }
+	geometryOperation: import('../core/types').ActiveGeometryInteraction | null
 
 	setEditor: (editor: GeoEditor | null) => void
 	setFeatures: (features: EditorFeature[]) => void
@@ -294,6 +298,9 @@ export interface EditorCoreSlice {
 	setPanLocked: (locked: boolean) => void
 	setCanFinishDrawing: (canFinish: boolean) => void
 	setHistoryState: (canUndo: boolean, canRedo: boolean) => void
+	setGeometryOperation: (
+		operation: import('../core/types').ActiveGeometryInteraction | null,
+	) => void
 	updateStats: () => void
 }
 

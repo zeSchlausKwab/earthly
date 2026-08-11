@@ -26,13 +26,58 @@ export const publishStoryTask: AiTaskMetadata = {
 
 export const insertStoryReferenceTask: AiTaskMetadata = {
 	id: 'create.insert-story-reference',
-	summary: 'Insert a Dataset or feature reference through the Story editor mention picker.',
+	summary:
+		'Insert a Dataset, feature, OSM element, or map-picked coordinate through the Story editor.',
 	preconditions: [
 		'Open Story editor',
 		'Referenced entity is loaded or published to the local relay',
 	],
-	sideEffects: ['Adds an inline Nostr reference to the current Story draft'],
+	sideEffects: ['Adds an inline spatial reference to the current Story draft'],
 	viewports: 'desktop',
+}
+
+export async function openStoryReferencePicker(earthly: EarthlySession): Promise<void> {
+	const editor = earthly.page.locator('.ProseMirror[contenteditable="true"]').first()
+	await expect(editor).toBeVisible()
+	await editor.focus()
+	const isMac = await earthly.page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform))
+	await earthly.page.keyboard.press(isMac ? 'Meta+ArrowDown' : 'Control+End')
+	await editor.pressSequentially('$')
+	await expect(earthly.page.getByRole('listbox', { name: 'Spatial references' })).toBeVisible()
+}
+
+export async function pickStoryCoordinateFromOpenPicker(earthly: EarthlySession): Promise<string> {
+	const editor = earthly.page.locator('.ProseMirror[contenteditable="true"]').first()
+	await earthly.page.getByRole('button', { name: 'Pick a coordinate on the map' }).click()
+	await expect(
+		earthly.page.getByText('Click the map to insert this coordinate into the article.'),
+	).toBeVisible({ timeout: 15_000 })
+
+	const pickerSurface = earthly.page.getByRole('button', { name: 'Choose coordinate on map' })
+	await expect(pickerSurface).toBeVisible()
+	await expect(pickerSurface).toHaveCSS('cursor', 'crosshair')
+	const mapBounds = await pickerSurface.boundingBox()
+	if (!mapBounds) throw new Error('Map is not available for coordinate picking')
+	// The map stack occupies the upper-left of the canvas. Pick an unobstructed
+	// point on the right so this exercises the same visible click a user makes.
+	await earthly.page.mouse.click(
+		mapBounds.x + mapBounds.width * 0.72,
+		mapBounds.y + mapBounds.height * 0.55,
+	)
+	await expect(
+		earthly.page.getByText('Click the map to insert this coordinate into the article.'),
+	).toBeHidden()
+
+	const mention = editor.locator('[title^="geo:"]').last()
+	await expect(mention).toBeVisible()
+	const reference = await mention.getAttribute('title')
+	if (!reference?.startsWith('geo:')) throw new Error('Coordinate picker did not insert a geo URI')
+	return reference
+}
+
+export async function insertStoryCoordinateReference(earthly: EarthlySession): Promise<string> {
+	await openStoryReferencePicker(earthly)
+	return pickStoryCoordinateFromOpenPicker(earthly)
 }
 
 export async function createStoryDraft(

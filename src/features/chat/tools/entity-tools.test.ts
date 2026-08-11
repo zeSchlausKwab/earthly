@@ -14,13 +14,19 @@ describe('parseEntityReference', () => {
 		})
 	})
 
-	it('strips the nostr: prefix and a #featureId fragment', () => {
+	it('strips the nostr: prefix and returns a #featureId fragment', () => {
 		const naddr = nip19.naddrEncode({ kind: 37515, pubkey: PUBKEY, identifier: 'lanes' })
 		expect(parseEntityReference(`nostr:${naddr}#feature-7`)).toEqual({
 			kind: 37515,
 			pubkey: PUBKEY,
 			identifier: 'lanes',
+			featureId: 'feature-7',
 		})
+	})
+
+	it('decodes OSM-style feature selectors from a canonical mention', () => {
+		const naddr = nip19.naddrEncode({ kind: 37515, pubkey: PUBKEY, identifier: 'lanes' })
+		expect(parseEntityReference(`nostr:${naddr}#relation%2F62504`).featureId).toBe('relation/62504')
 	})
 
 	it('accepts a kind:pubkey:d coordinate', () => {

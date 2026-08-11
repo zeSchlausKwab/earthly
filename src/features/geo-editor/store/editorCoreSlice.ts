@@ -16,6 +16,7 @@ export const createEditorCoreSlice: StateCreator<EditorState, [], [], EditorCore
 	panLocked: false,
 	canFinishDrawing: false,
 	history: { canUndo: false, canRedo: false },
+	geometryOperation: null,
 
 	setEditor: (editor) => set({ editor }),
 
@@ -92,6 +93,8 @@ export const createEditorCoreSlice: StateCreator<EditorState, [], [], EditorCore
 	setCanFinishDrawing: (canFinishDrawing) => set({ canFinishDrawing }),
 
 	setHistoryState: (canUndo, canRedo) => set({ history: { canUndo, canRedo } }),
+
+	setGeometryOperation: (geometryOperation) => set({ geometryOperation }),
 
 	updateStats: () => {
 		const { features } = get()

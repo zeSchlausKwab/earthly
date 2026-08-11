@@ -116,22 +116,6 @@ export function useStoryEditor({
 		onBeforeAuthoring,
 	])
 
-	// Chat seam: the `write_story_draft` tool cannot reach this hook's local
-	// `storyEditorMode`, so it fires a module-level open request instead
-	// (storyEditorBridge). Honor each NEW request by opening the Story editor in
-	// create mode — StoryEditorPanel pre-fills from the freshly written draft.
-	// The consumed-nonce ref starts at the CURRENT nonce so a stale request from
-	// a previous mount (e.g. HMR remount) never re-opens the editor.
-	const consumedStoryOpenNonceRef = useRef(getStoryEditorOpenRequest()?.nonce ?? 0)
-	useEffect(() => {
-		return subscribeStoryEditorOpenRequests(() => {
-			const request = getStoryEditorOpenRequest()
-			if (!request || request.nonce === consumedStoryOpenNonceRef.current) return
-			consumedStoryOpenNonceRef.current = request.nonce
-			handleCreateStory()
-		})
-	}, [handleCreateStory])
-
 	const handleEditStory = useCallback(
 		(story: Article) => {
 			onBeforeAuthoring?.()
@@ -151,6 +135,23 @@ export function useStoryEditor({
 			onBeforeAuthoring,
 		],
 	)
+
+	// Chat seam: `write_story_draft` can target either a new Story or an existing
+	// published Story. Honor every fresh request by opening the matching editor;
+	// StoryEditorPanel then reads the local draft keyed by the target d-tag.
+	const consumedStoryOpenNonceRef = useRef(getStoryEditorOpenRequest()?.nonce ?? 0)
+	useEffect(() => {
+		return subscribeStoryEditorOpenRequests(() => {
+			const request = getStoryEditorOpenRequest()
+			if (!request || request.nonce === consumedStoryOpenNonceRef.current) return
+			consumedStoryOpenNonceRef.current = request.nonce
+			if (request.mode === 'edit' && request.story) {
+				handleEditStory(request.story)
+			} else {
+				handleCreateStory()
+			}
+		})
+	}, [handleCreateStory, handleEditStory])
 
 	const handleSaveStory = useCallback(
 		(story: Article) => {

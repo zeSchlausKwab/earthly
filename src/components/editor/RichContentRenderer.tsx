@@ -1,6 +1,8 @@
-import { ExternalLink, Eye, EyeOff, MapPin, Maximize2, Play, X } from 'lucide-react'
+import { ExternalLink, Eye, EyeOff, LocateFixed, MapPin, Maximize2, Play, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { geoReferenceLabel, parseGeoReference, stringifyGeoReference } from '@/lib/geo/reference'
+import { decodeNostrFeatureId, stringifyNostrAddressReference } from '@/lib/nostr/references'
 import type { GeoFeatureItem } from './GeoRichTextEditor'
 import { Button } from '../ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
@@ -14,25 +16,29 @@ interface RichContentRendererProps {
 		visible: boolean,
 	) => void
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
+	isMentionVisible?: (address: string, featureId: string | undefined) => boolean
 	className?: string
 	emptyState?: string | null
 }
 
-interface BaseInlineToken {
-	type: 'text' | 'link' | 'mention' | 'strong' | 'emphasis' | 'code'
+interface InlineTokenBase {
 	value: string
 	/** Nested inline tokens (strong/emphasis wrap other inline content, incl. mentions) */
 	children?: InlineToken[]
 }
 
-interface MentionInlineToken extends BaseInlineToken {
+interface BaseInlineToken extends InlineTokenBase {
+	type: 'text' | 'strong' | 'emphasis' | 'code'
+}
+
+interface MentionInlineToken extends InlineTokenBase {
 	type: 'mention'
 	address: string
 	featureId?: string
 	displayName?: string
 }
 
-interface LinkInlineToken extends BaseInlineToken {
+interface LinkInlineToken extends InlineTokenBase {
 	type: 'link'
 	url: string
 }
@@ -92,7 +98,7 @@ const LABELED_MEDIA_PATTERN = /^(image|video|media)\s*:\s*(https?:\/\/[^\s<>"{}|
 const MEDIA_LABEL_ONLY_PATTERN = /^(image|video|media)\s*:\s*$/i
 const MARKDOWN_IMAGE_PATTERN = /^!\[([^\]]*)\]\((https?:\/\/[^\s<>"{}|\\^`()[\]]+)\)\s*$/i
 const TOKEN_PATTERN =
-	/(?<mentionLink>\[(?<mentionLinkLabel>[^\]]+)\]\(nostr:(?<mentionLinkAddress>naddr1[a-z0-9]+)(?:#(?<mentionLinkFeatureId>[a-zA-Z0-9_-]+))?\))|(?<link>\[(?<linkLabel>[^\]]+)\]\((?<linkUrl>https?:\/\/[^\s)]+)\))|(?<mention>nostr:(?<mentionAddress>naddr1[a-z0-9]+)(?:#(?<mentionFeatureId>[a-zA-Z0-9_-]+))?)|(?<url>https?:\/\/[^\s<>"{}|\\^`[\]]+)|(?<code>`[^`]+`)|(?<strong>\*\*[^*]+\*\*)|(?<emphasis>\*[^*\n]+\*)/gi
+	/(?<mentionLink>\[(?<mentionLinkLabel>[^\]]+)\]\(nostr:(?<mentionLinkAddress>naddr1[a-z0-9]+)(?:#(?<mentionLinkFeatureId>[a-zA-Z0-9_%~-]+))?\))|(?<spatial>geo:[+-]?(?:\d+(?:\.\d+)?|\.\d+),[+-]?(?:\d+(?:\.\d+)?|\.\d+)|https?:\/\/(?:www\.)?openstreetmap\.org\/(?:node|way|relation)\/\d+\/?)|(?<link>\[(?<linkLabel>[^\]]+)\]\((?<linkUrl>https?:\/\/[^\s)]+)\))|(?<mention>nostr:(?<mentionAddress>naddr1[a-z0-9]+)(?:#(?<mentionFeatureId>[a-zA-Z0-9_%~-]+))?)|(?<url>https?:\/\/[^\s<>"{}|\\^`[\]]+)|(?<code>`[^`]+`)|(?<strong>\*\*[^*]+\*\*)|(?<emphasis>\*[^*\n]+\*)/gi
 
 function detectMediaType(url: string): 'image' | 'video' | 'youtube' | 'link' {
 	for (const pattern of YOUTUBE_PATTERNS) {
@@ -165,7 +171,9 @@ export function parseInlineTokens(
 		if (groups.mentionLink && groups.mentionLinkAddress) {
 			// Markdown link targeting a nostr reference: [Anchorage lanes](nostr:naddr1…#feat)
 			const address = groups.mentionLinkAddress
-			const featureId = groups.mentionLinkFeatureId || undefined
+			const featureId = groups.mentionLinkFeatureId
+				? (decodeNostrFeatureId(groups.mentionLinkFeatureId) ?? undefined)
+				: undefined
 			const label = groups.mentionLinkLabel?.trim()
 			const displayName =
 				label && !/^nostr:naddr1/i.test(label)
@@ -178,6 +186,16 @@ export function parseInlineTokens(
 				featureId,
 				displayName,
 			})
+		} else if (groups.spatial) {
+			const reference = parseGeoReference(groups.spatial)
+			if (reference) {
+				tokens.push({
+					type: 'mention',
+					value: matchedValue,
+					address: stringifyGeoReference(reference),
+					displayName: geoReferenceLabel(reference),
+				})
+			}
 		} else if (groups.link && groups.linkUrl) {
 			tokens.push({
 				type: 'link',
@@ -186,7 +204,9 @@ export function parseInlineTokens(
 			})
 		} else if (groups.mention && groups.mentionAddress) {
 			const address = groups.mentionAddress
-			const featureId = groups.mentionFeatureId || undefined
+			const featureId = groups.mentionFeatureId
+				? (decodeNostrFeatureId(groups.mentionFeatureId) ?? undefined)
+				: undefined
 			tokens.push({
 				type: 'mention',
 				value: matchedValue,
@@ -206,18 +226,26 @@ export function parseInlineTokens(
 			// AI-composed prose habitually wraps references in backticks
 			// (`nostr:naddr1…`). A code span that is EXACTLY one reference renders
 			// as the mention pill; mixed-content code spans stay code.
-			const codeMention = codeValue
-				.trim()
-				.match(/^(?:nostr:)?(naddr1[a-z0-9]+)(?:#([a-zA-Z0-9_-]+))?$/i)
-			if (codeMention?.[1]) {
-				const address = codeMention[1]
-				const featureId = codeMention[2] || undefined
+			const trimmedCode = codeValue.trim()
+			const parsedCodeReference = parseGeoReference(
+				trimmedCode.startsWith('naddr1') ? `nostr:${trimmedCode}` : trimmedCode,
+			)
+			if (parsedCodeReference) {
+				const address =
+					parsedCodeReference.kind === 'nostr'
+						? parsedCodeReference.address
+						: stringifyGeoReference(parsedCodeReference)
+				const featureId =
+					parsedCodeReference.kind === 'nostr' ? parsedCodeReference.featureId : undefined
 				tokens.push({
 					type: 'mention',
 					value: matchedValue,
 					address,
 					featureId,
-					displayName: resolveMentionLabel(address, featureId, availableFeatures),
+					displayName:
+						parsedCodeReference.kind === 'nostr'
+							? resolveMentionLabel(address, featureId, availableFeatures)
+							: geoReferenceLabel(parsedCodeReference),
 				})
 			} else {
 				tokens.push({
@@ -399,7 +427,7 @@ function parseContent(text: string, availableFeatures: GeoFeatureItem[]): Conten
 			flushList()
 			blocks.push({
 				type: 'quote',
-				tokens: parseInlineTokens(quoteMatch[1], availableFeatures),
+				tokens: parseInlineTokens(quoteMatch[1] ?? '', availableFeatures),
 			})
 			continue
 		}
@@ -446,7 +474,7 @@ function tokenKey(token: InlineToken): string {
 
 type MentionCallbacks = Pick<
 	RichContentRendererProps,
-	'onMentionVisibilityToggle' | 'onMentionZoomTo'
+	'onMentionVisibilityToggle' | 'onMentionZoomTo' | 'isMentionVisible'
 >
 
 function renderInlineToken(token: InlineToken, callbacks: MentionCallbacks) {
@@ -500,31 +528,45 @@ function renderInlineToken(token: InlineToken, callbacks: MentionCallbacks) {
 		)
 	}
 
-	return <GeoMentionChip key={tokenKey(token)} token={token} {...callbacks} />
+	if (token.type === 'mention') {
+		return <GeoMentionChip key={tokenKey(token)} token={token} {...callbacks} />
+	}
+	return null
 }
 
 function GeoMentionChip({
 	token,
 	onMentionVisibilityToggle,
 	onMentionZoomTo,
+	isMentionVisible,
 }: { token: MentionInlineToken } & MentionCallbacks) {
-	const [isVisible, setIsVisible] = useState(false)
+	const [localVisible, setLocalVisible] = useState(false)
 	const address = token.address ?? ''
 	const featureId = token.featureId
+	const reference = parseGeoReference(
+		address.startsWith('naddr1') ? stringifyNostrAddressReference({ address, featureId }) : address,
+	)
+	const isOsmReference = reference?.kind === 'osm'
+	const isCoordinateReference = reference?.kind === 'coordinate'
+	const isVisible = isMentionVisible?.(address, featureId) ?? localVisible
 
 	const handleToggle = () => {
 		const next = !isVisible
-		setIsVisible(next)
+		setLocalVisible(next)
 		onMentionVisibilityToggle?.(address, featureId, next)
 	}
 
 	return (
 		<span className="mx-0.5 inline-flex items-center gap-0.5 rounded-md border border-info/40 bg-info/15 px-1.5 py-0.5 align-middle text-xs font-medium text-info">
-			<MapPin className="h-3 w-3 flex-shrink-0" />
+			{isCoordinateReference ? (
+				<LocateFixed className="h-3 w-3 flex-shrink-0" />
+			) : (
+				<MapPin className="h-3 w-3 flex-shrink-0" />
+			)}
 			<span className="max-w-[180px] truncate" title={address}>
 				{token.displayName ?? 'Reference'}
 			</span>
-			{onMentionVisibilityToggle && (
+			{onMentionVisibilityToggle && !isOsmReference && (
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<Button
@@ -543,7 +585,7 @@ function GeoMentionChip({
 					<TooltipContent>{isVisible ? 'Hide on map' : 'Show on map'}</TooltipContent>
 				</Tooltip>
 			)}
-			{onMentionZoomTo && (
+			{onMentionZoomTo && !isOsmReference && (
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<Button
@@ -560,12 +602,27 @@ function GeoMentionChip({
 					<TooltipContent>Zoom to feature</TooltipContent>
 				</Tooltip>
 			)}
+			{isOsmReference && reference && (
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<a
+							href={stringifyGeoReference(reference)}
+							target="_blank"
+							rel="noopener noreferrer"
+							className="inline-flex h-4 w-4 items-center justify-center text-muted-foreground hover:text-info"
+						>
+							<ExternalLink className="h-3 w-3" />
+						</a>
+					</TooltipTrigger>
+					<TooltipContent>Open on OpenStreetMap</TooltipContent>
+				</Tooltip>
+			)}
 		</span>
 	)
 }
 
 function renderMediaBlock(block: MediaBlock, index: number, onImageOpen?: (url: string) => void) {
-	const label = block.label ? `${block.label[0].toUpperCase()}${block.label.slice(1)}` : null
+	const label = block.label ? `${block.label.charAt(0).toUpperCase()}${block.label.slice(1)}` : null
 
 	if (block.type === 'image') {
 		return (
@@ -657,6 +714,7 @@ export function RichContentRenderer({
 	availableFeatures = [],
 	onMentionVisibilityToggle,
 	onMentionZoomTo,
+	isMentionVisible,
 	className = '',
 	emptyState = null,
 }: RichContentRendererProps) {
@@ -679,6 +737,7 @@ export function RichContentRenderer({
 							{renderInlineTokens(block.tokens, {
 								onMentionVisibilityToggle,
 								onMentionZoomTo,
+								isMentionVisible,
 							})}
 						</p>
 					)
@@ -688,6 +747,7 @@ export function RichContentRenderer({
 					const headingContent = renderInlineTokens(block.tokens, {
 						onMentionVisibilityToggle,
 						onMentionZoomTo,
+						isMentionVisible,
 					})
 					if (block.level <= 1) {
 						return (
@@ -726,6 +786,7 @@ export function RichContentRenderer({
 							{renderInlineTokens(block.tokens, {
 								onMentionVisibilityToggle,
 								onMentionZoomTo,
+								isMentionVisible,
 							})}
 						</blockquote>
 					)
@@ -743,6 +804,7 @@ export function RichContentRenderer({
 									{renderInlineTokens(item, {
 										onMentionVisibilityToggle,
 										onMentionZoomTo,
+										isMentionVisible,
 									})}
 								</li>
 							))}

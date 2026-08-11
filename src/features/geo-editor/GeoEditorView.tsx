@@ -3,6 +3,7 @@ import { castEvent } from 'applesauce-core/casts'
 import {
 	BookOpen,
 	CircleDot,
+	Crosshair,
 	Database,
 	Download,
 	Eye,
@@ -26,14 +27,23 @@ import {
 	Radio,
 	Redo2,
 	Search,
+	Scissors,
 	Spline,
 	Trash2,
 	Undo2,
 	Waypoints,
+	X,
 } from 'lucide-react'
 import type { FeatureCollection, Geometry } from 'geojson'
 import type maplibregl from 'maplibre-gl'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	type MouseEvent as ReactMouseEvent,
+} from 'react'
 import { toast } from 'sonner'
 import { AppSidebar } from '@/components/AppSidebar'
 import type { LocalDraftDestinationOption } from '@/components/WorkspaceDraftNavigator'
@@ -52,6 +62,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { executeEditorCommand } from './commands'
+import { shouldSeedAggregateLayers } from './aggregateLayerSeed'
 import { StudioShell } from './components/StudioShell'
 import { useAvailableGeoFeatures } from '@/lib/hooks/useAvailableGeoFeatures'
 import { useIsMobile } from '@/lib/hooks/useIsMobile'
@@ -183,6 +194,13 @@ import type { MapStackEntryType } from './store/types'
 import type { GeoSearchResult } from './types'
 import { ensureFeatureCollection, extractCollectionMeta, toEditorFeature } from './utils'
 import { getMobileDrawingGuidance, isDrawingEditorMode } from './mobileDrawingGuidance'
+import { deriveReferenceMapRenderState, featureMatchesReferenceSelector } from './referenceMapStack'
+import {
+	cancelCoordinateReferencePick,
+	completeCoordinateReferencePick,
+	getCoordinateReferencePickRequest,
+	subscribeCoordinateReferencePickRequests,
+} from './coordinateReferencePickerBridge'
 
 /**
  * Phase 13 (SPEC §3.2): derive the stack-gated render set for an ephemeral entity
@@ -327,6 +345,7 @@ export function GeoEditorView() {
 	}, [savedRegionHydration])
 	const map = useRef<maplibregl.Map | null>(null)
 	const [mounted, setMounted] = useState(false)
+	const [loadedMap, setLoadedMap] = useState<maplibregl.Map | null>(null)
 	const {
 		route,
 		navigateTo,
@@ -366,6 +385,44 @@ export function GeoEditorView() {
 		setCalloutDisplayMode(nextCalloutDisplayMode)
 	}, [])
 	const [mapPopupPlacement, setMapPopupPlacement] = useState<MapPopupPlacement>('dock')
+	const [coordinatePickRequestId, setCoordinatePickRequestId] = useState<number | null>(
+		() => getCoordinateReferencePickRequest()?.id ?? null,
+	)
+	useEffect(
+		() =>
+			subscribeCoordinateReferencePickRequests(() => {
+				setCoordinatePickRequestId(getCoordinateReferencePickRequest()?.id ?? null)
+			}),
+		[],
+	)
+
+	// Escape or the banner button cancels without changing the article.
+	useEffect(() => {
+		if (coordinatePickRequestId === null) return
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') cancelCoordinateReferencePick()
+		}
+		window.addEventListener('keydown', onKeyDown)
+		return () => window.removeEventListener('keydown', onKeyDown)
+	}, [coordinatePickRequestId])
+
+	const handleCoordinateReferenceMapClick = useCallback(
+		(event: ReactMouseEvent<HTMLButtonElement>) => {
+			if (!loadedMap || !getCoordinateReferencePickRequest()) return
+			const lngLat =
+				event.detail === 0
+					? loadedMap.getCenter()
+					: (() => {
+							const canvasBounds = loadedMap.getCanvas().getBoundingClientRect()
+							return loadedMap.unproject([
+								event.clientX - canvasBounds.left,
+								event.clientY - canvasBounds.top,
+							])
+						})()
+			completeCoordinateReferencePick({ longitude: lngLat.lng, latitude: lngLat.lat })
+		},
+		[loadedMap],
+	)
 	// Mutable intent flag shared by the generic mobile-drawing guidance and the
 	// later Sighting controller. Sighting pin-drop has its own tap-specific prompt;
 	// showing the dataset lock/drag guidance at the same time is contradictory.
@@ -547,6 +604,7 @@ export function GeoEditorView() {
 	const setPanLocked = useEditorStore((state) => state.setPanLocked)
 	const canFinishDrawing = useEditorStore((state) => state.canFinishDrawing)
 	const currentMode = useEditorStore((state) => state.mode)
+	const geometryOperation = useEditorStore((state) => state.geometryOperation)
 	const isDrawingMode = isDrawingEditorMode(currentMode)
 	const lastMobileDrawGuideRef = useRef<EditorMode | null>(null)
 	const mapSource = useEditorStore((state) => state.mapSource)
@@ -1688,12 +1746,14 @@ export function GeoEditorView() {
 	useEffect(() => {
 		if (aggregateLayersSeededRef.current) return
 		if (stance === 'author' || !stackUrlHydrated) return
-		// Only seed on a genuine cold-start (no shared `?ms=` stack to reconstruct).
-		if (new URLSearchParams(window.location.search).has('ms')) {
-			aggregateLayersSeededRef.current = true
-			return
-		}
 		aggregateLayersSeededRef.current = true
+		const shouldSeed = shouldSeedAggregateLayers({
+			stance,
+			stackUrlHydrated,
+			hasSharedStack: new URLSearchParams(window.location.search).has('ms'),
+			route,
+		})
+		if (!shouldSeed) return
 		// Idempotent: addMapStackEntry keys by `${entityType}:${entityKey}` so a
 		// second call with entityKey 'all' is a no-op merge, never a duplicate row.
 		const hasSightingLayer = mapStackOrder.some(
@@ -1722,7 +1782,7 @@ export function GeoEditorView() {
 				pinned: false,
 			})
 		}
-	}, [stance, stackUrlHydrated, mapStackEntries, mapStackOrder, addMapStackEntry])
+	}, [stance, stackUrlHydrated, route, mapStackEntries, mapStackOrder, addMapStackEntry])
 
 	// Store state for viewMode
 	const viewMode = useEditorStore((state) => state.viewMode)
@@ -2386,14 +2446,37 @@ export function GeoEditorView() {
 		stance,
 		viewMode,
 	])
+	const referenceMapRenderState = useMemo(
+		() => deriveReferenceMapRenderState(mapStackOrder.map((entryId) => mapStackEntries[entryId])),
+		[mapStackEntries, mapStackOrder],
+	)
 	const visibleCalloutDatasets = useMemo(() => {
 		// Resolved collections live outside React; this counter invalidates the derived list.
 		void resolvedCollectionsVersion
-		return visibleGeoEvents.map((event) => ({
-			key: getDatasetKey(event),
-			collection: resolvedCollectionResolver(event) ?? event.featureCollection,
-		}))
-	}, [visibleGeoEvents, getDatasetKey, resolvedCollectionResolver, resolvedCollectionsVersion])
+		return visibleGeoEvents.map((event) => {
+			const key = getDatasetKey(event)
+			const collection = resolvedCollectionResolver(event) ?? event.featureCollection
+			const selector = referenceMapRenderState.datasetFeatureSelectors[key]
+			return {
+				key,
+				collection:
+					selector === undefined || selector === null
+						? collection
+						: {
+								...collection,
+								features: collection.features.filter((feature) =>
+									featureMatchesReferenceSelector(feature, selector),
+								),
+							},
+			}
+		})
+	}, [
+		visibleGeoEvents,
+		getDatasetKey,
+		referenceMapRenderState,
+		resolvedCollectionResolver,
+		resolvedCollectionsVersion,
+	])
 
 	// Phase 13 (SPEC §3.2): sightings/beacons render from STACK MEMBERSHIP, not
 	// unconditionally. These mirror `visibleGeoEvents` — an aggregate `*-layer`
@@ -2695,6 +2778,8 @@ export function GeoEditorView() {
 		visibleBeacons: visibleBeaconsFromStack,
 		resolvedCollectionResolver,
 		resolvedCollectionsVersion,
+		datasetFeatureSelectors: referenceMapRenderState.datasetFeatureSelectors,
+		coordinateReferences: referenceMapRenderState.coordinates,
 	})
 
 	// Keep the viewport focused on the most recently loaded geometry after map source swaps.
@@ -4107,9 +4192,13 @@ export function GeoEditorView() {
 					))
 				: null}
 			<MapComponent
-				className="w-full h-full touch-none"
+				className={cn(
+					'w-full h-full touch-none',
+					coordinatePickRequestId !== null && 'earthly-coordinate-pick-active',
+				)}
 				onLoad={(m) => {
 					map.current = m
+					setLoadedMap(m)
 					setMounted(true)
 					if (process.env.NODE_ENV !== 'production' && typeof window !== 'undefined') {
 						// Dev-only debug handle (pairs with __earthlyPool/__earthlyEventStore).
@@ -4191,8 +4280,82 @@ export function GeoEditorView() {
 					) : null
 				}
 			>
+				{coordinatePickRequestId !== null && loadedMap && (
+					<button
+						type="button"
+						className="absolute inset-0 z-30 cursor-crosshair border-0 bg-transparent p-0"
+						onClick={handleCoordinateReferenceMapClick}
+						aria-label="Choose coordinate on map; press Enter to use the map center"
+					/>
+				)}
 				<Editor />
 			</MapComponent>
+			{coordinatePickRequestId !== null && (
+				<div
+					role="status"
+					aria-live="polite"
+					className="pointer-events-auto absolute left-1/2 top-[calc(var(--shell-toolbar-h)+0.75rem)] z-40 flex -translate-x-1/2 items-center gap-2 border border-primary/40 bg-card px-3 py-2 text-xs shadow-lg"
+				>
+					<span className="flex h-7 w-7 flex-shrink-0 items-center justify-center border border-primary/30 bg-primary/10">
+						<Crosshair className="h-4 w-4 text-primary" />
+					</span>
+					<span className="flex min-w-0 flex-col">
+						<span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-primary">
+							Coordinate reference
+						</span>
+						<span>
+							{loadedMap
+								? 'Click the map to insert this coordinate into the article.'
+								: 'Preparing the map for coordinate selection…'}
+						</span>
+					</span>
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-xs"
+						onClick={cancelCoordinateReferencePick}
+						aria-label="Cancel coordinate reference"
+						title="Cancel (Esc)"
+					>
+						<X className="h-3.5 w-3.5" />
+					</Button>
+				</div>
+			)}
+			{geometryOperation !== null && coordinatePickRequestId === null && (
+				<div
+					role="status"
+					aria-live="polite"
+					className="pointer-events-auto absolute left-1/2 top-[calc(var(--shell-toolbar-h)+0.75rem)] z-40 flex w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 items-center gap-2 border border-primary/40 bg-card px-3 py-2 text-xs shadow-lg"
+				>
+					<span className="flex h-7 w-7 flex-shrink-0 items-center justify-center border border-primary/30 bg-primary/10">
+						<Scissors className="h-4 w-4 text-primary" />
+					</span>
+					<span className="flex min-w-0 flex-1 flex-col">
+						<span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-primary">
+							Geometry operation · {geometryOperation.inputMode === 'drag' ? 'Drag' : 'Draw'}
+						</span>
+						<span>{geometryOperation.error ?? geometryOperation.instruction}</span>
+						{geometryOperation.distanceMeters !== undefined ? (
+							<span className="font-mono text-[10px] text-muted-foreground">
+								{geometryOperation.kind === 'corridor-drag'
+									? `Width ${(geometryOperation.distanceMeters * 2).toFixed(1)} m`
+									: `${geometryOperation.distanceMeters.toFixed(1)} m`}
+								{geometryOperation.direction ? ` · ${geometryOperation.direction}` : ''}
+							</span>
+						) : null}
+					</span>
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-xs"
+						onClick={() => executeEditorCommand('cancel_geometry_operation')}
+						aria-label="Cancel geometry operation"
+						title="Cancel (Esc)"
+					>
+						<X className="h-3.5 w-3.5" />
+					</Button>
+				</div>
+			)}
 			{/* User location marker - pulsating blue dot */}
 			<UserLocationMarker
 				map={map.current}

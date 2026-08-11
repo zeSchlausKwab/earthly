@@ -1,9 +1,16 @@
 import { nip19 } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { Article } from '@/lib/nostr/article'
+import { extractGeoReferences, geoReferenceLabel, stringifyGeoReference } from '@/lib/geo/reference'
 import { useTimelineWithEose } from '@/lib/nostr/hooks'
 import { GEO_EVENT_KIND } from '@/lib/nostr/kinds'
+import {
+	dedupeNostrAddressReferences,
+	extractNostrAddressReferences,
+	naddrToCoordinate,
+} from '@/lib/nostr/references'
 import { useEditorStore, type MapStackEntryVia } from '../store'
+import { datasetReferenceEntryId } from '../referenceMapStack'
 
 /**
  * Consolidate a Story's inline geo-references with the map-stack paradigm
@@ -34,6 +41,8 @@ interface ParsedStoryRef {
 	datasetKey: string
 	/** `dataset:pubkey:d` — the map-stack entry id. */
 	entryId: string
+	/** Exact feature selector, absent for a whole-dataset reference. */
+	featureId?: string
 	/**
 	 * Carrier provenance stamped onto the auto-stacked entry: the Map Stack
 	 * panel nests these entries under the Story's own row instead of showing
@@ -50,7 +59,20 @@ export function parseStoryRefs(story: Article | null): ParsedStoryRef[] {
 		title: story.article.title?.trim() || story.dTag || 'Story',
 	}
 	const out: ParsedStoryRef[] = []
-	for (const coord of story.referencedAddresses) {
+	const seenEntryIds = new Set<string>()
+	const inlineByCoordinate = new Map<string, Array<{ featureId?: string }>>()
+	for (const reference of dedupeNostrAddressReferences(
+		extractNostrAddressReferences(story.article.content),
+	)) {
+		const coordinate = naddrToCoordinate(reference.address)
+		if (!coordinate) continue
+		const current = inlineByCoordinate.get(coordinate) ?? []
+		current.push({ featureId: reference.featureId })
+		inlineByCoordinate.set(coordinate, current)
+	}
+
+	const coordinates = new Set([...story.referencedAddresses, ...inlineByCoordinate.keys()])
+	for (const coord of coordinates) {
 		const parts = coord.split(':')
 		if (parts.length < 3) continue
 		const kind = Number(parts[0])
@@ -58,9 +80,48 @@ export function parseStoryRefs(story: Article | null): ParsedStoryRef[] {
 		const identifier = parts.slice(2).join(':')
 		if (kind !== GEO_EVENT_KIND || !pubkey || !identifier) continue
 		const datasetKey = `${pubkey}:${identifier}`
-		out.push({ coord, pubkey, identifier, datasetKey, entryId: `dataset:${datasetKey}`, via })
+		const inlineSelectors = inlineByCoordinate.get(coord)
+		const selectors = inlineSelectors && inlineSelectors.length > 0 ? inlineSelectors : [{}]
+		for (const selector of selectors) {
+			const entryId = datasetReferenceEntryId(datasetKey, selector.featureId)
+			if (seenEntryIds.has(entryId)) continue
+			seenEntryIds.add(entryId)
+			out.push({
+				coord,
+				pubkey,
+				identifier,
+				datasetKey,
+				entryId,
+				featureId: selector.featureId,
+				via,
+			})
+		}
 	}
 	return out
+}
+
+function parseStoryCoordinateRefs(story: Article | null) {
+	if (!story) return []
+	const via: MapStackEntryVia = {
+		entityType: 'story',
+		entityKey: `${story.pubkey}:${story.dTag ?? ''}`,
+		title: story.article.title?.trim() || story.dTag || 'Story',
+	}
+	const seen = new Set<string>()
+	return extractGeoReferences(story.article.content).flatMap(({ reference }) => {
+		if (reference.kind !== 'coordinate') return []
+		const canonical = stringifyGeoReference(reference)
+		if (seen.has(canonical)) return []
+		seen.add(canonical)
+		return [
+			{
+				entryId: `coordinate:${canonical}`,
+				reference: canonical,
+				title: geoReferenceLabel(reference),
+				via,
+			},
+		]
+	})
 }
 
 export function useStoryMapRefs(story: Article | null) {
@@ -69,22 +130,21 @@ export function useStoryMapRefs(story: Article | null) {
 	const mapStackEntries = useEditorStore((state) => state.mapStackEntries)
 
 	const refs = useMemo(() => parseStoryRefs(story), [story])
+	const coordinateRefs = useMemo(() => parseStoryCoordinateRefs(story), [story])
 
 	// Stable identity for the ref SET — effects re-run when the referenced
 	// coordinates change, not on every new Article instance for the same story.
 	const refsKey = useMemo(
-		() =>
-			refs
-				.map((r) => r.coord)
-				.sort()
-				.join(','),
-		[refs],
+		() => [...refs.map((r) => r.entryId), ...coordinateRefs.map((r) => r.entryId)].sort().join(','),
+		[coordinateRefs, refs],
 	)
 
 	// Keep the latest parsed refs reachable from effects keyed on `refsKey`
 	// without listing the churning `refs` identity as a dependency.
 	const refsRef = useRef(refs)
 	refsRef.current = refs
+	const coordinateRefsRef = useRef(coordinateRefs)
+	coordinateRefsRef.current = coordinateRefs
 
 	// (1) Fetch-on-demand: subscribe to the referenced datasets so they enter the
 	// event store and `geoEvents`. `null` when there are no refs → no subscription.
@@ -105,12 +165,27 @@ export function useStoryMapRefs(story: Article | null) {
 	// biome-ignore lint/correctness/useExhaustiveDependencies: refsKey is the intentional trigger; refs are read via ref
 	useEffect(() => {
 		const current = refsRef.current
-		if (current.length === 0) return
+		const currentCoordinates = coordinateRefsRef.current
+		if (current.length === 0 && currentCoordinates.length === 0) return
 		for (const ref of current) {
 			addMapStackEntry({
+				id: ref.entryId,
 				entityType: 'dataset',
 				entityKey: ref.datasetKey,
-				title: ref.identifier,
+				title: ref.featureId ?? ref.identifier,
+				featureIds: ref.featureId ? [ref.featureId] : undefined,
+				source: 'story',
+				via: ref.via,
+				visible: true,
+				pinned: false,
+			})
+		}
+		for (const ref of currentCoordinates) {
+			addMapStackEntry({
+				id: ref.entryId,
+				entityType: 'coordinate',
+				entityKey: ref.reference,
+				title: ref.title,
 				source: 'story',
 				via: ref.via,
 				visible: true,
@@ -119,21 +194,29 @@ export function useStoryMapRefs(story: Article | null) {
 		}
 		return () => {
 			for (const ref of current) removeMapStackEntry(ref.entryId)
+			for (const ref of currentCoordinates) removeMapStackEntry(ref.entryId)
 		}
 	}, [refsKey, addMapStackEntry, removeMapStackEntry])
 
 	// (3) Single source of truth for an inline ref's eye state: is the resolved
 	// dataset present and visible in the map stack?
 	const isMentionVisible = useCallback(
-		(address: string, _featureId: string | undefined) => {
+		(address: string, featureId: string | undefined) => {
+			if (address.startsWith('geo:')) {
+				const entry = mapStackEntries[`coordinate:${address}`]
+				return !!entry && entry.visible !== false
+			}
 			if (!address?.startsWith('naddr1')) return false
 			try {
 				const decoded = nip19.decode(address)
 				if (decoded.type !== 'naddr') return false
 				const { kind, pubkey, identifier } = decoded.data
 				if (kind !== GEO_EVENT_KIND || !pubkey || !identifier) return false
-				const entry = mapStackEntries[`dataset:${pubkey}:${identifier}`]
-				return !!entry && entry.visible !== false
+				const datasetKey = `${pubkey}:${identifier}`
+				const exact = mapStackEntries[datasetReferenceEntryId(datasetKey, featureId)]
+				if (exact) return exact.visible !== false
+				const whole = mapStackEntries[datasetReferenceEntryId(datasetKey)]
+				return !!whole && whole.visible !== false
 			} catch {
 				return false
 			}
