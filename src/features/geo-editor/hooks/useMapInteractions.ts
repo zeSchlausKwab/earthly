@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import type maplibregl from 'maplibre-gl'
 import type { Feature, Geometry } from 'geojson'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
@@ -30,6 +30,7 @@ interface UseMapInteractionsParams {
 	getDatasetName: (event: GeoDataset) => string
 	handleInspectDatasetWithoutFocus: (event: GeoDataset) => void
 	setFeaturePopupData: (data: FeaturePopupData | null) => void
+	setGeometryChoiceData: (data: RemoteGeometryChoiceRequest | null) => void
 	/** Live list of visible Sightings, kept in a ref so the click handler resolves a
 	 * clicked marker back to its cast without re-binding on every data change. */
 	sightingsRef?: React.RefObject<TemporalSighting[]>
@@ -37,6 +38,22 @@ interface UseMapInteractionsParams {
 	onInspectSighting?: (sighting: TemporalSighting) => void
 	/** Show/clear the Sighting marker hover preview. */
 	setSightingPopupData?: (data: SightingPopupData | null) => void
+}
+
+export interface RemoteGeometryChoice {
+	id: string
+	dataset?: GeoDataset
+	datasetName: string
+	feature: Feature<Geometry>
+	featureId?: string
+	datasetId?: string
+	sourceEventId?: string
+	bbox: [number, number, number, number]
+}
+
+export interface RemoteGeometryChoiceRequest {
+	point: { x: number; y: number }
+	choices: RemoteGeometryChoice[]
 }
 
 export function useMapInteractions({
@@ -48,6 +65,7 @@ export function useMapInteractions({
 	getDatasetName,
 	handleInspectDatasetWithoutFocus,
 	setFeaturePopupData,
+	setGeometryChoiceData,
 	sightingsRef,
 	onInspectSighting,
 	setSightingPopupData,
@@ -58,6 +76,20 @@ export function useMapInteractions({
 	const mapInstance = mapRef.current
 	const isInDrawingMode = currentMode.startsWith('draw_')
 	const hoveredFeatureKeyRef = useRef<string | null>(null)
+
+	const chooseRemoteGeometry = useCallback(
+		(choice: RemoteGeometryChoice) => {
+			setGeometryChoiceData(null)
+			setFocusedMapGeometry({
+				bbox: choice.bbox,
+				datasetId: choice.datasetId ?? choice.dataset?.datasetId ?? choice.dataset?.id,
+				sourceEventId: choice.sourceEventId ?? choice.dataset?.id,
+				featureId: choice.featureId,
+			})
+			if (viewMode !== 'edit' && choice.dataset) handleInspectDatasetWithoutFocus(choice.dataset)
+		},
+		[handleInspectDatasetWithoutFocus, setFocusedMapGeometry, setGeometryChoiceData, viewMode],
+	)
 
 	useEffect(() => {
 		if (!mapInstance || !remoteLayersReady) return
@@ -108,49 +140,60 @@ export function useMapInteractions({
 			if (isInDrawingMode) {
 				hoveredFeatureKeyRef.current = null
 				setFeaturePopupData(null)
+				setGeometryChoiceData(null)
 				return
 			}
 
-			const feature = event.features?.[0]
-			if (!feature) return
-
-			const proxySourceBbox = Array.isArray(feature.properties?.proxySourceBbox)
-				? feature.properties.proxySourceBbox
-				: null
-			const bbox =
-				proxySourceBbox &&
-				proxySourceBbox.length === 4 &&
-				proxySourceBbox.every((value) => typeof value === 'number')
-					? (proxySourceBbox as [number, number, number, number])
-					: bboxFromGeometry(feature.geometry)
-			if (bbox) {
-				const props = (feature.properties ?? {}) as Record<string, unknown>
-				const featureId = props.featureId ?? props.id ?? feature.id
-				setFocusedMapGeometry({
+			const activeRemoteLayers = remoteLayers.filter((layer) => mapInstance.getLayer(layer))
+			const renderedFeatures = mapInstance.queryRenderedFeatures(event.point, {
+				layers: activeRemoteLayers,
+			})
+			const seen = new Set<string>()
+			const choices: RemoteGeometryChoice[] = []
+			for (const renderedFeature of renderedFeatures) {
+				if (!renderedFeature.properties) continue
+				const props = renderedFeature.properties as Record<string, unknown>
+				const sourceEventId = props.sourceEventId != null ? String(props.sourceEventId) : undefined
+				const datasetId = props.datasetId != null ? String(props.datasetId) : undefined
+				const featureIdValue = props.featureId ?? props.id ?? renderedFeature.id
+				const featureId = featureIdValue != null ? String(featureIdValue) : undefined
+				const dataset =
+					geoEventsRef.current.find((item) => item.id === sourceEventId) ??
+					geoEventsRef.current.find((item) => (item.datasetId ?? item.id) === datasetId)
+				const proxySourceBbox = Array.isArray(props.proxySourceBbox) ? props.proxySourceBbox : null
+				const bbox =
+					proxySourceBbox &&
+					proxySourceBbox.length === 4 &&
+					proxySourceBbox.every((value) => typeof value === 'number')
+						? (proxySourceBbox as [number, number, number, number])
+						: bboxFromGeometry(renderedFeature.geometry)
+				if (!bbox) continue
+				const subjectId =
+					dataset?.id ??
+					dataset?.datasetId ??
+					sourceEventId ??
+					datasetId ??
+					(typeof props.reference === 'string' ? props.reference : 'map')
+				const id = `${subjectId}:${featureId ?? JSON.stringify(bbox)}`
+				if (seen.has(id)) continue
+				seen.add(id)
+				choices.push({
+					id,
+					...(dataset ? { dataset } : {}),
+					datasetName: dataset ? getDatasetName(dataset) : 'Map reference',
+					feature: renderedFeature as unknown as Feature<Geometry>,
+					featureId,
+					datasetId,
+					sourceEventId,
 					bbox,
-					datasetId: props.datasetId != null ? String(props.datasetId) : undefined,
-					sourceEventId: props.sourceEventId != null ? String(props.sourceEventId) : undefined,
-					featureId: featureId != null ? String(featureId) : undefined,
 				})
 			}
 
-			// Do not inspect other datasets while in edit mode
-			if (viewMode === 'edit') {
-				hoveredFeatureKeyRef.current = null
-				setFeaturePopupData(null)
+			if (choices.length > 1) {
+				setGeometryChoiceData({ point: { x: event.point.x, y: event.point.y }, choices })
 				return
 			}
-
-			if (!feature?.properties) return
-			const sourceEventId = feature.properties.sourceEventId as string | undefined
-			const datasetId = feature.properties.datasetId as string | undefined
-
-			const dataset =
-				geoEventsRef.current.find((ev) => ev.id === sourceEventId) ??
-				geoEventsRef.current.find((ev) => (ev.datasetId ?? ev.id) === datasetId)
-
-			if (!dataset) return
-			handleInspectDatasetWithoutFocus(dataset)
+			if (choices[0]) chooseRemoteGeometry(choices[0])
 		}
 
 		const handleMapDatasetHover = (event: maplibregl.MapLayerMouseEvent) => {
@@ -332,17 +375,19 @@ export function useMapInteractions({
 	}, [
 		mapInstance,
 		isInDrawingMode,
-		handleInspectDatasetWithoutFocus,
 		geoEventsRef,
 		remoteLayersReady,
-		setFocusedMapGeometry,
 		CLUSTERED_SOURCE_ID,
 		viewMode,
 		currentUserPubkey,
 		getDatasetName,
 		setFeaturePopupData,
+		setGeometryChoiceData,
+		chooseRemoteGeometry,
 		sightingsRef,
 		onInspectSighting,
 		setSightingPopupData,
 	])
+
+	return { chooseRemoteGeometry }
 }

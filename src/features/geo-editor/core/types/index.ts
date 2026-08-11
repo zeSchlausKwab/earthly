@@ -154,6 +154,12 @@ export interface SelectionBounds {
 	west: number
 }
 
+export interface SelectionCandidateRequest {
+	featureIds: string[]
+	point: { x: number; y: number }
+	additive: boolean
+}
+
 export type EditorEventType =
 	| 'mode.change'
 	| 'create'
@@ -161,6 +167,7 @@ export type EditorEventType =
 	| 'delete'
 	| 'features.replace'
 	| 'selection.change'
+	| 'selection.candidates'
 	| 'undo'
 	| 'redo'
 	| 'snap'
@@ -172,6 +179,7 @@ export interface EditorEvent {
 	features?: EditorFeature[]
 	mode?: EditorMode
 	geometryOperation?: ActiveGeometryInteraction | null
+	selectionCandidates?: SelectionCandidateRequest | null
 }
 
 export type EditorEventHandler = (event: EditorEvent) => void

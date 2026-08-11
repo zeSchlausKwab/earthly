@@ -50,4 +50,27 @@ describe('headless GeoEditor harness', () => {
 		editor.setFeatures([makePoint('a'), makePoint('b')])
 		expect(editor.getAllFeatures()).toHaveLength(2)
 	})
+
+	test('reorderFeatures persists order and participates in undo/redo', () => {
+		const editor = createHeadlessEditor()
+		editor.setFeatures([makePoint('a'), makePoint('b'), makePoint('c')])
+
+		expect(editor.reorderFeatures(['c', 'a', 'b'])).toBe(true)
+		expect(editor.getAllFeatures().map((feature) => feature.id)).toEqual(['c', 'a', 'b'])
+		expect(editor.history.canUndo()).toBe(true)
+
+		editor.undo()
+		expect(editor.getAllFeatures().map((feature) => feature.id)).toEqual(['a', 'b', 'c'])
+
+		editor.redo()
+		expect(editor.getAllFeatures().map((feature) => feature.id)).toEqual(['c', 'a', 'b'])
+	})
+
+	test('reorderFeatures rejects incomplete feature orders', () => {
+		const editor = createHeadlessEditor()
+		editor.setFeatures([makePoint('a'), makePoint('b')])
+		expect(() => editor.reorderFeatures(['a'])).toThrow(
+			'Feature order must contain every geometry exactly once.',
+		)
+	})
 })

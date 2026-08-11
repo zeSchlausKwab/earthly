@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type maplibregl from 'maplibre-gl'
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { TemporalSighting } from '@/lib/nostr/temporal-sighting'
-import { useMapInteractions } from '../hooks/useMapInteractions'
+import { useMapInteractions, type RemoteGeometryChoiceRequest } from '../hooks/useMapInteractions'
 import { FeaturePopup, type FeaturePopupData } from './FeaturePopup'
+import { GeometryChoiceMenu } from './GeometryChoiceMenu'
 import { SightingPopup, type SightingPopupData } from './SightingPopup'
 import type { MapPopupPlacement } from './map-popup-positioning'
 
@@ -42,6 +43,9 @@ export function MapFeatureHoverOverlay({
 }: MapFeatureHoverOverlayProps) {
 	const [featurePopupData, setFeaturePopupData] = useState<FeaturePopupData | null>(null)
 	const [sightingPopupData, setSightingPopupData] = useState<SightingPopupData | null>(null)
+	const [geometryChoiceData, setGeometryChoiceData] = useState<RemoteGeometryChoiceRequest | null>(
+		null,
+	)
 	const [displayedFeaturePopupData, setDisplayedFeaturePopupData] =
 		useState<FeaturePopupData | null>(null)
 	const popupHoverRef = useRef(false)
@@ -111,7 +115,7 @@ export function MapFeatureHoverOverlay({
 		[clearHideTimeout, displayedFeaturePopupData, featurePopupData, placementMode, scheduleHide],
 	)
 
-	useMapInteractions({
+	const { chooseRemoteGeometry } = useMapInteractions({
 		mapRef,
 		remoteLayersReady,
 		CLUSTERED_SOURCE_ID: clusteredSourceId,
@@ -120,31 +124,71 @@ export function MapFeatureHoverOverlay({
 		getDatasetName,
 		handleInspectDatasetWithoutFocus,
 		setFeaturePopupData,
+		setGeometryChoiceData,
 		sightingsRef,
 		onInspectSighting,
 		setSightingPopupData,
 	})
 
-	if (!popupsEnabled || suppressed) {
+	useEffect(() => {
+		if (!geometryChoiceData) return
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') setGeometryChoiceData(null)
+		}
+		window.addEventListener('keydown', handleKeyDown)
+		return () => window.removeEventListener('keydown', handleKeyDown)
+	}, [geometryChoiceData])
+
+	if ((!popupsEnabled || suppressed) && !geometryChoiceData) {
 		return null
 	}
 
 	return (
 		<>
-			<FeaturePopup
-				data={displayedFeaturePopupData}
-				containerRef={containerRef}
-				placementMode={placementMode}
-				toolbarOffset={toolbarOffset}
-				interactive={placementMode === 'dock'}
-				onHoverChange={handlePopupHoverChange}
-			/>
-			<SightingPopup
-				data={sightingPopupData}
-				containerRef={containerRef}
-				placementMode={placementMode}
-				toolbarOffset={toolbarOffset}
-			/>
+			{geometryChoiceData ? (
+				<GeometryChoiceMenu
+					items={geometryChoiceData.choices.map((choice) => {
+						const properties = choice.feature.properties as Record<string, unknown> | null
+						return {
+							id: choice.id,
+							geometry: choice.feature.geometry,
+							isAnnotation: properties?.featureType === 'annotation',
+							name:
+								(typeof properties?.name === 'string' && properties.name) ||
+								(typeof properties?.title === 'string' && properties.title) ||
+								(typeof properties?.label === 'string' && properties.label) ||
+								`${choice.feature.geometry.type} · ${choice.featureId?.slice(0, 8) ?? 'feature'}`,
+							context: choice.datasetName,
+						}
+					})}
+					point={geometryChoiceData.point}
+					container={containerRef.current}
+					title="Choose map geometry"
+					onChoose={(choiceId) => {
+						const choice = geometryChoiceData.choices.find((item) => item.id === choiceId)
+						if (choice) chooseRemoteGeometry(choice)
+					}}
+					onClose={() => setGeometryChoiceData(null)}
+				/>
+			) : null}
+			{popupsEnabled && !suppressed ? (
+				<>
+					<FeaturePopup
+						data={displayedFeaturePopupData}
+						containerRef={containerRef}
+						placementMode={placementMode}
+						toolbarOffset={toolbarOffset}
+						interactive={placementMode === 'dock'}
+						onHoverChange={handlePopupHoverChange}
+					/>
+					<SightingPopup
+						data={sightingPopupData}
+						containerRef={containerRef}
+						placementMode={placementMode}
+						toolbarOffset={toolbarOffset}
+					/>
+				</>
+			) : null}
 		</>
 	)
 }

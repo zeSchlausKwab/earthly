@@ -1,7 +1,9 @@
 import type React from 'react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { GeoEditor } from '../core'
+import type { EditorEvent, EditorFeature, SelectionCandidateRequest } from '../core/types'
 import { useEditorStore } from '../store'
+import { GeometryChoiceMenu } from './GeometryChoiceMenu'
 import { useMap } from './map'
 
 interface EditorProps {
@@ -9,8 +11,14 @@ interface EditorProps {
 }
 
 export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
-	const { map, isLoaded } = useMap()
+	const { map } = useMap()
+	// MapLibre's full `load` event waits for visible basemap tiles. GeoEditor can
+	// bind immediately: its core defers layer creation to `style.load`, so slow
+	// third-party tiles must not keep Dataset authoring unavailable.
 	const editorRef = useRef<GeoEditor | null>(null)
+	const [selectionCandidates, setSelectionCandidates] = useState<SelectionCandidateRequest | null>(
+		null,
+	)
 	// Pitfall 2 guard: set true while applying an editor-originated mirror update so
 	// the reverse store→editor sync effect skips its push. Without this, the one-way
 	// read-mirror (D-09) round-trips: editor event → store.setFeatures → reverse effect
@@ -35,7 +43,7 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 
 	// Initialize Editor
 	useEffect(() => {
-		if (!map || !isLoaded || editorRef.current) return
+		if (!map || editorRef.current) return
 
 		const editor = new GeoEditor(map, {
 			snapping,
@@ -64,6 +72,7 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 		}
 
 		const updateSelection = () => {
+			setSelectionCandidates(null)
 			clearFocusedMapGeometry()
 			setSelectedFeatureIds(editor.selection.getSelected())
 		}
@@ -80,12 +89,15 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 			setCanFinishDrawing(editor.canFinishDrawing())
 		}
 
-		const handleModeChange = (e: any) => {
+		const handleModeChange = (e: EditorEvent) => {
 			if (e.mode) setMode(e.mode)
 			setCanFinishDrawing(editor.canFinishDrawing())
 		}
-		const handleGeometryOperationChange = (e: any) => {
+		const handleGeometryOperationChange = (e: EditorEvent) => {
 			setGeometryOperation(e.geometryOperation ?? null)
+		}
+		const handleSelectionCandidates = (event: EditorEvent) => {
+			setSelectionCandidates(event.selectionCandidates ?? null)
 		}
 
 		editor.on('create', updateFeatures)
@@ -97,6 +109,7 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 
 		editor.on('mode.change', handleModeChange)
 		editor.on('selection.change', updateSelection)
+		editor.on('selection.candidates', handleSelectionCandidates)
 		editor.on('draw.change', handleDrawChange)
 		editor.on('geometry.operation.change', handleGeometryOperationChange)
 
@@ -108,19 +121,21 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 		editor.on('create', updateHistory)
 		editor.on('update', updateHistory)
 		editor.on('delete', updateHistory)
+		editor.on('features.replace', updateHistory)
 
 		// Map Area polygon capture - when drawing for map area, capture bbox and remove the polygon
-		editor.on('create', (e: any) => {
+		editor.on('create', (e: EditorEvent) => {
 			const store = useEditorStore.getState()
 			if (!store.isDrawingMapArea) return
 
-			const features = e.features as any[] | undefined
+			const features = e.features as EditorFeature[] | undefined
 			if (!features || features.length === 0) return
 
 			const polygon = features.find((f) => f.geometry?.type === 'Polygon')
 			if (!polygon) return
 
 			// Compute bbox from polygon coordinates
+			if (polygon.geometry.type !== 'Polygon') return
 			const coords = polygon.geometry.coordinates[0] as [number, number][]
 			if (!coords || coords.length < 4) return
 
@@ -160,12 +175,25 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 		})
 
 		return () => {
+			editor.off('selection.candidates', handleSelectionCandidates)
+			setSelectionCandidates(null)
 			setGeometryOperation(null)
 			setEditor(null)
 			editor.destroy()
 			editorRef.current = null
 		}
-	}, [map, isLoaded])
+	}, [
+		map,
+		snapping,
+		setEditor,
+		setFeatures,
+		setMode,
+		setSelectedFeatureIds,
+		clearFocusedMapGeometry,
+		setCanFinishDrawing,
+		setHistoryState,
+		setGeometryOperation,
+	])
 
 	// Sync features from store to editor
 	// We need to be careful to avoid loops.
@@ -179,7 +207,7 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 	// If we update store, this effect runs.
 	// We should compare.
 	useEffect(() => {
-		if (!editorRef.current) return
+		if (!editor) return
 		// If this store change originated from an editor event (the one-way mirror),
 		// skip the reverse push — pushing it back would round-trip (Pitfall 2). Consume
 		// the flag so genuine external store writes (e.g. dataset loads) still sync.
@@ -187,31 +215,31 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 			suppressReverseSyncRef.current = false
 			return
 		}
-		const current = editorRef.current.getAllFeatures()
+		const current = editor.getAllFeatures()
 		if (JSON.stringify(current) !== JSON.stringify(storeFeatures)) {
-			editorRef.current.setFeatures(storeFeatures)
+			editor.setFeatures(storeFeatures)
 		}
 	}, [storeFeatures, editor])
 
 	// Sync mode
 	useEffect(() => {
-		if (!editorRef.current) return
-		if (editorRef.current.getMode() !== storeMode) {
-			editorRef.current.setMode(storeMode)
+		if (!editor) return
+		if (editor.getMode() !== storeMode) {
+			editor.setMode(storeMode)
 		}
 	}, [storeMode, editor])
 
 	// Sync pan lock
 	useEffect(() => {
-		if (!editorRef.current) return
-		editorRef.current.setPanLocked(storePanLocked)
+		if (!editor) return
+		editor.setPanLocked(storePanLocked)
 	}, [storePanLocked, editor])
 
 	// Sync snapping
 	useEffect(() => {
-		if (!editorRef.current) return
-		if (editorRef.current.isSnappingEnabled() !== storeSnapping) {
-			editorRef.current.setSnapping(storeSnapping)
+		if (!editor) return
+		if (editor.isSnappingEnabled() !== storeSnapping) {
+			editor.setSnapping(storeSnapping)
 		}
 	}, [storeSnapping, editor])
 
@@ -219,9 +247,9 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 	const storeSelectedFeatureIds = useEditorStore((state) => state.selectedFeatureIds)
 
 	useEffect(() => {
-		if (!editorRef.current) return
+		if (!editor) return
 
-		const currentSelection = editorRef.current.selection.getSelected()
+		const currentSelection = editor.selection.getSelected()
 		const storeSet = new Set(storeSelectedFeatureIds)
 		const currentSet = new Set(currentSelection)
 
@@ -229,19 +257,60 @@ export const Editor: React.FC<EditorProps> = ({ snapping = true }) => {
 		if (storeSet.size !== currentSet.size || ![...storeSet].every((id) => currentSet.has(id))) {
 			// Use selectFeature for the first one (clears) then additive for the rest
 			if (storeSelectedFeatureIds.length === 0) {
-				editorRef.current.selection.clearSelection()
+				editor.selection.clearSelection()
 				// Manually trigger render through setFeatures which is public
 				// We need to force a re-render - setting the same features triggers it
-				const features = editorRef.current.getAllFeatures()
-				editorRef.current.setFeatures(features)
+				const features = editor.getAllFeatures()
+				editor.setFeatures(features)
 			} else {
 				// Use public selectFeature API
 				storeSelectedFeatureIds.forEach((id, index) => {
-					editorRef.current!.selectFeature(id, index > 0)
+					editor.selectFeature(id, index > 0)
 				})
 			}
 		}
 	}, [storeSelectedFeatureIds, editor])
 
-	return null
+	useEffect(() => {
+		if (!selectionCandidates) return
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== 'Escape') return
+			editorRef.current?.dismissSelectionCandidates()
+			setSelectionCandidates(null)
+		}
+		window.addEventListener('keydown', handleKeyDown)
+		return () => window.removeEventListener('keydown', handleKeyDown)
+	}, [selectionCandidates])
+
+	if (!selectionCandidates || !editor) return null
+
+	const candidates = selectionCandidates.featureIds.flatMap((featureId) => {
+		const feature = editor.getFeature(featureId)
+		if (!feature) return []
+		const isAnnotation = feature.properties?.featureType === 'annotation'
+		return [
+			{
+				id: featureId,
+				geometry: feature.geometry,
+				isAnnotation,
+				name:
+					(feature.properties?.name as string | undefined) ||
+					(feature.properties?.text as string | undefined) ||
+					`${feature.geometry.type} · ${featureId.slice(0, 8)}`,
+			},
+		]
+	})
+
+	return (
+		<GeometryChoiceMenu
+			items={candidates}
+			point={selectionCandidates.point}
+			container={map?.getContainer()}
+			title="Choose geometry"
+			onChoose={(featureId) =>
+				editor.chooseSelectionCandidate(featureId, selectionCandidates.additive)
+			}
+			onClose={() => editor.dismissSelectionCandidates()}
+		/>
+	)
 }

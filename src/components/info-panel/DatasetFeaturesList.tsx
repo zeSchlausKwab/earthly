@@ -1,10 +1,27 @@
-import { ChevronDown, ChevronRight, Cloud } from 'lucide-react'
+import { ChevronDown, ChevronRight, Cloud, Copy, Locate, MoreHorizontal } from 'lucide-react'
 import { useState } from 'react'
 import type { Feature, FeatureCollection, Geometry, GeoJsonProperties } from 'geojson'
+import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { stringifyGeoReference } from '@/lib/geo/reference'
 import { ZoomActionIcon } from '../entity-action-icons'
 import { GeometryBadge, GeometryDisplay } from './geometry/GeometryDisplay'
+
+async function copyFeatureText(value: string, message: string): Promise<void> {
+	try {
+		await navigator.clipboard.writeText(value)
+		toast.success(message)
+	} catch {
+		toast.error('Unable to copy geometry')
+	}
+}
 
 function deriveFeatureCustomProperties(properties: GeoJsonProperties | null | undefined) {
 	if (!properties || typeof properties !== 'object') return {}
@@ -41,6 +58,8 @@ function deriveFeatureCustomProperties(properties: GeoJsonProperties | null | un
 
 interface ReadOnlyFeatureRowProps {
 	feature: Feature<Geometry | null, GeoJsonProperties>
+	featureId: string
+	datasetAddress?: string
 	name: string
 	isExpanded: boolean
 	onToggleExpand: () => void
@@ -51,6 +70,8 @@ interface ReadOnlyFeatureRowProps {
 
 function ReadOnlyFeatureRow({
 	feature,
+	featureId,
+	datasetAddress,
 	name,
 	isExpanded,
 	onToggleExpand,
@@ -61,6 +82,10 @@ function ReadOnlyFeatureRow({
 	const isExternalPlaceholder = feature.properties?.externalPlaceholder === true
 	const hasGeometry = feature.geometry !== null
 	const customProperties = deriveFeatureCustomProperties(feature.properties)
+	const featureReference = datasetAddress
+		? stringifyGeoReference({ kind: 'nostr', address: datasetAddress, featureId })
+		: null
+	const pointCoordinates = feature.geometry?.type === 'Point' ? feature.geometry.coordinates : null
 
 	return (
 		<div
@@ -97,6 +122,22 @@ function ReadOnlyFeatureRow({
 
 				<span className="flex-1 text-left truncate text-foreground">{name}</span>
 
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon-sm"
+					onClick={() =>
+						void copyFeatureText(
+							featureReference ?? JSON.stringify(feature, null, 2),
+							featureReference ? 'Feature reference copied' : 'Geometry GeoJSON copied',
+						)
+					}
+					aria-label={featureReference ? `Copy reference to ${name}` : `Copy ${name} as GeoJSON`}
+					title={featureReference ? 'Copy feature reference' : 'Copy GeoJSON'}
+				>
+					<Copy className="h-3 w-3" />
+				</Button>
+
 				{onZoomToFeature && hasGeometry ? (
 					<Button
 						type="button"
@@ -109,6 +150,46 @@ function ReadOnlyFeatureRow({
 						<ZoomActionIcon className="h-3 w-3" />
 					</Button>
 				) : null}
+
+				<DropdownMenu>
+					<DropdownMenuTrigger asChild>
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-sm"
+							aria-label={`More actions for ${name}`}
+						>
+							<MoreHorizontal className="h-3.5 w-3.5" />
+						</Button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align="end" className="min-w-44">
+						<DropdownMenuItem
+							onClick={() =>
+								void copyFeatureText(JSON.stringify(feature, null, 2), 'Geometry GeoJSON copied')
+							}
+						>
+							<Copy className="h-3.5 w-3.5" />
+							Copy GeoJSON
+						</DropdownMenuItem>
+						{pointCoordinates ? (
+							<DropdownMenuItem
+								onClick={() =>
+									void copyFeatureText(
+										stringifyGeoReference({
+											kind: 'coordinate',
+											latitude: Number(pointCoordinates[1]),
+											longitude: Number(pointCoordinates[0]),
+										}),
+										'Coordinate reference copied',
+									)
+								}
+							>
+								<Locate className="h-3.5 w-3.5" />
+								Copy coordinate reference
+							</DropdownMenuItem>
+						) : null}
+					</DropdownMenuContent>
+				</DropdownMenu>
 			</div>
 
 			{/* External placeholder info */}
@@ -178,6 +259,8 @@ interface DatasetFeaturesListProps {
 	className?: string
 	/** When provided, each geometry row gets a zoom-to button. */
 	onZoomToFeature?: (feature: Feature<Geometry | null, GeoJsonProperties>) => void
+	/** Canonical naddr of the containing Dataset, used for fine-grained feature refs. */
+	datasetAddress?: string
 }
 
 /**
@@ -189,6 +272,7 @@ export function DatasetFeaturesList({
 	hiddenFeatureIds,
 	className,
 	onZoomToFeature,
+	datasetAddress,
 }: DatasetFeaturesListProps) {
 	const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set())
 
@@ -212,19 +296,23 @@ export function DatasetFeaturesList({
 		)
 	}
 
+	const featuresWithIds = featureCollection.features.map((feature, originalIndex) => ({
+		feature,
+		originalIndex,
+		featureId:
+			typeof feature.id === 'string' || typeof feature.id === 'number'
+				? String(feature.id)
+				: String(originalIndex),
+	}))
 	const features = hiddenFeatureIds
-		? featureCollection.features.filter((feature, index) => {
-				const featureId =
-					typeof feature.id === 'string' || typeof feature.id === 'number'
-						? String(feature.id)
-						: String(index)
+		? featuresWithIds.filter(({ featureId }) => {
 				return !hiddenFeatureIds.has(featureId)
 			})
-		: featureCollection.features
+		: featuresWithIds
 
 	return (
 		<div className={cn('space-y-1', className)}>
-			{features.map((feature, index) => {
+			{features.map(({ feature, featureId, originalIndex }, index) => {
 				const isAnnotation = feature.properties?.featureType === 'annotation'
 				const isExternalPlaceholder = feature.properties?.externalPlaceholder === true
 
@@ -236,7 +324,7 @@ export function DatasetFeaturesList({
 						const text = feature.properties?.text as string | undefined
 						name = text ? `${text.slice(0, 20)}${text.length > 20 ? '…' : ''}` : 'Unnamed label'
 					} else {
-						const id = feature.id ?? index
+						const id = feature.id ?? originalIndex
 						name = `${feature.geometry?.type ?? 'Unknown'} • ${String(id).slice(0, 6)}`
 					}
 				}
@@ -245,6 +333,8 @@ export function DatasetFeaturesList({
 					<ReadOnlyFeatureRow
 						key={feature.id ?? index}
 						feature={feature as Feature<Geometry | null, GeoJsonProperties>}
+						featureId={featureId}
+						datasetAddress={datasetAddress}
 						name={name}
 						isExpanded={expandedIds.has(index)}
 						onToggleExpand={() => toggleExpand(index)}
