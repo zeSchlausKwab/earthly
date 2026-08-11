@@ -1538,7 +1538,12 @@ export class GeoEditor {
 				this.geometryOperation?.kind === 'split-line-line' ||
 				this.geometryOperation?.kind === 'split-polygon-line'
 			) {
-				this.completeGeometrySplit(feature)
+				if (!this.completeGeometrySplit(feature)) {
+					this.render()
+					this.emitDrawChange()
+					return null
+				}
+				feature = this.getSelectedFeatures()[0] ?? feature
 			} else {
 				this.addFeature(feature)
 				this.emit('create', { type: 'create', features: [feature] })

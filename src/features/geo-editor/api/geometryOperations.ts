@@ -6,8 +6,10 @@ import {
 	featureCollection,
 	intersect,
 	lineOffset,
+	lineIntersect,
 	lineSplit,
 	lineString,
+	multiPoint,
 	point,
 	pointOnFeature,
 	polygonToLine,
@@ -25,6 +27,7 @@ import type {
 	Position,
 } from 'geojson'
 import { MAX_DISTANCE_METERS, type PrimitiveUnits } from './primitives'
+import { nearestPointOnRenderedSegment } from './webMercator'
 
 export type GeometryOperationKind = 'split' | 'offset-polygon' | 'offset-line' | 'corridor'
 
@@ -115,40 +118,16 @@ function splitLinePartsByLine(
 	})
 }
 
-const WEB_MERCATOR_RADIUS = 6_378_137
-const WEB_MERCATOR_MAX_LATITUDE = 85.0511287798066
-
-function toWebMercator(position: Position): [number, number] {
-	const longitude = Number(position[0])
-	const latitude = Math.max(
-		-WEB_MERCATOR_MAX_LATITUDE,
-		Math.min(WEB_MERCATOR_MAX_LATITUDE, Number(position[1])),
-	)
-	return [
-		WEB_MERCATOR_RADIUS * longitude * (Math.PI / 180),
-		WEB_MERCATOR_RADIUS * Math.log(Math.tan(Math.PI / 4 + latitude * (Math.PI / 360))),
-	]
-}
-
-function fromWebMercator(
-	position: [number, number],
-	segmentStart: Position,
-	segmentEnd: Position,
-	fraction: number,
-): Position {
-	const longitude = (position[0] / WEB_MERCATOR_RADIUS) * (180 / Math.PI)
-	const latitude =
-		(2 * Math.atan(Math.exp(position[1] / WEB_MERCATOR_RADIUS)) - Math.PI / 2) * (180 / Math.PI)
-	const dimensions = Math.max(segmentStart.length, segmentEnd.length)
-	const result: Position = [longitude, latitude]
-	for (let index = 2; index < dimensions; index += 1) {
-		const startValue = Number(segmentStart[index])
-		const endValue = Number(segmentEnd[index])
-		if (Number.isFinite(startValue) && Number.isFinite(endValue)) {
-			result.push(startValue + (endValue - startValue) * fraction)
-		}
-	}
-	return result
+function splitLinePartsByPoints(
+	parts: Array<Feature<LineString>>,
+	positions: Position[],
+): Array<Feature<LineString>> {
+	if (positions.length === 0) return parts
+	const splitter = multiPoint(positions)
+	return parts.flatMap((part) => {
+		const split = lineSplit(part, splitter)
+		return split.features.length > 0 ? (split.features as Array<Feature<LineString>>) : [part]
+	})
 }
 
 interface NearestRenderedLinePoint {
@@ -165,30 +144,18 @@ function nearestRenderedLinePoint(
 	cutter: Feature<Point>,
 ): NearestRenderedLinePoint | undefined {
 	const cutterPosition = cutter.geometry.coordinates
-	const [pointerX, pointerY] = toWebMercator(cutterPosition)
 	let nearest: (NearestRenderedLinePoint & { squaredProjectedDistance: number }) | undefined
 
 	parts.forEach((part, partIndex) => {
 		part.geometry.coordinates.slice(0, -1).forEach((segmentStart, segmentIndex) => {
 			const segmentEnd = part.geometry.coordinates[segmentIndex + 1]
 			if (!segmentEnd) return
-			const [startX, startY] = toWebMercator(segmentStart)
-			const [endX, endY] = toWebMercator(segmentEnd)
-			const dx = endX - startX
-			const dy = endY - startY
-			const denominator = dx * dx + dy * dy
-			const fraction =
-				denominator === 0
-					? 0
-					: Math.max(
-							0,
-							Math.min(1, ((pointerX - startX) * dx + (pointerY - startY) * dy) / denominator),
-						)
-			const projected: [number, number] = [startX + dx * fraction, startY + dy * fraction]
-			const squaredProjectedDistance =
-				(pointerX - projected[0]) ** 2 + (pointerY - projected[1]) ** 2
+			const { position, fraction, squaredProjectedDistance } = nearestPointOnRenderedSegment(
+				cutterPosition,
+				segmentStart,
+				segmentEnd,
+			)
 			if (nearest && squaredProjectedDistance >= nearest.squaredProjectedDistance) return
-			const position = fromWebMercator(projected, segmentStart, segmentEnd, fraction)
 			nearest = {
 				partIndex,
 				segmentIndex,
@@ -286,22 +253,50 @@ function polygonBoundaryParts(polygon: Feature<Polygon>): Array<Feature<LineStri
 	return lineParts(boundary.geometry)
 }
 
+const TOPOLOGY_PRECISION = 7
+
+function canonicalTopologyPosition(position: Position): Position {
+	const factor = 10 ** TOPOLOGY_PRECISION
+	return position.map((value) => Math.round(Number(value) * factor) / factor)
+}
+
+function canonicalTopologyLine(line: Feature<LineString>): Feature<LineString> {
+	return lineString(line.geometry.coordinates.map(canonicalTopologyPosition))
+}
+
+function sharedTopologyIntersections(
+	boundaries: Array<Feature<LineString>>,
+	cutter: Feature<LineString>,
+): Position[] {
+	const intersections = boundaries.flatMap((boundary) =>
+		lineIntersect(boundary, cutter).features.map((intersection) =>
+			canonicalTopologyPosition(intersection.geometry.coordinates),
+		),
+	)
+	const seen = new Set<string>()
+	return intersections.filter((position) => {
+		const key = JSON.stringify(position)
+		if (seen.has(key)) return false
+		seen.add(key)
+		return true
+	})
+}
+
 function splitSinglePolygon(
 	polygon: Feature<Polygon>,
 	cutterParts: Array<Feature<LineString>>,
 ): { geometries: Polygon[]; didSplit: boolean } {
-	const boundaryParts = polygonBoundaryParts(polygon)
+	const boundaryParts = polygonBoundaryParts(polygon).map(canonicalTopologyLine)
+	const topologyCutters = cutterParts.map(canonicalTopologyLine)
 	let nodedBoundary = boundaryParts
-	for (const cutter of cutterParts) {
-		nodedBoundary = splitLinePartsByLine(nodedBoundary, cutter)
-	}
-
 	const insideCutterSegments: Array<Feature<LineString>> = []
-	for (const cutter of cutterParts) {
-		let nodedCutter: Array<Feature<LineString>> = [cutter]
-		for (const boundary of boundaryParts) {
-			nodedCutter = splitLinePartsByLine(nodedCutter, boundary)
-		}
+	for (const cutter of topologyCutters) {
+		// Derive one canonical set of nodes and use it on both sides of the
+		// topology graph. Turf otherwise rounds line/line intersections
+		// differently depending on which line is being split, leaving tiny gaps.
+		const intersections = sharedTopologyIntersections(boundaryParts, cutter)
+		nodedBoundary = splitLinePartsByPoints(nodedBoundary, intersections)
+		const nodedCutter = splitLinePartsByPoints([cutter], intersections)
 		for (const segment of nodedCutter) {
 			const representative = pointOnFeature(segment)
 			if (booleanPointInPolygon(representative, polygon, { ignoreBoundary: true })) {
@@ -314,7 +309,13 @@ function splitSinglePolygon(
 		return { geometries: [polygon.geometry], didSplit: false }
 	}
 
-	const faces = polygonize(featureCollection([...nodedBoundary, ...insideCutterSegments]))
+	// Turf's lineSplit truncates its splitter to seven decimals. Because boundary
+	// and cutter are split in opposite directions, their nominally identical
+	// intersection nodes can otherwise differ by a few billionths and polygonize
+	// treats the cut as a dangling edge. Canonicalize only the topology graph; the
+	// resulting faces are still clipped against the original polygon below.
+	const topologyLines = [...nodedBoundary, ...insideCutterSegments].map(canonicalTopologyLine)
+	const faces = polygonize(featureCollection(topologyLines))
 	const clipped: Polygon[] = []
 	const seen = new Set<string>()
 

@@ -694,7 +694,11 @@ const editorCommands: EditorCommandDefinition[] = [
 			if (!editor) return failure('finish_drawing', 'Map editor is not ready.')
 			const feature = editor.finishDrawing()
 			if (!feature) {
-				return failure('finish_drawing', 'No active line/polygon drawing can be finished yet.')
+				return failure(
+					'finish_drawing',
+					editor.getGeometryOperation()?.error ??
+						'No active line/polygon drawing can be finished yet.',
+				)
 			}
 			syncHistoryState(state)
 			return success('finish_drawing', 'Finished drawing and created a feature.', {

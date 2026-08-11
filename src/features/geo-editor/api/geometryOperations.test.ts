@@ -115,6 +115,70 @@ describe('performGeometryOperation', () => {
 		expect(Math.abs(totalArea - area(square)) / area(square)).toBeLessThan(1e-8)
 	})
 
+	it('splits map-drawn polygons when Turf intersection nodes differ below topology precision', () => {
+		const mapDrawnPolygon: Feature<Polygon> = {
+			type: 'Feature',
+			id: 'map-drawn-polygon',
+			properties: {},
+			geometry: {
+				type: 'Polygon',
+				coordinates: [
+					[
+						[-3.691406250002103, 18.22935133838716],
+						[32.87109374999787, 18.22935133838716],
+						[32.87109374999787, -21.043491216802906],
+						[-3.691406250002103, -21.043491216802906],
+						[-3.691406250002103, 18.22935133838716],
+					],
+				],
+			},
+		}
+		const result = performGeometryOperation(mapDrawnPolygon, {
+			kind: 'split',
+			cutter: {
+				type: 'LineString',
+				coordinates: [
+					[-14.76562500000179, -1.4939713066291205],
+					[43.769531249997755, -1.4939713066291205],
+				],
+			},
+		})
+
+		expect(result.features).toHaveLength(2)
+	})
+
+	it('splits a map-drawn polygon with cutter endpoints snapped to its boundary', () => {
+		const mapDrawnPolygon: Feature<Polygon> = {
+			type: 'Feature',
+			id: 'snapped-boundary-polygon',
+			properties: {},
+			geometry: {
+				type: 'Polygon',
+				coordinates: [
+					[
+						[-3.691406250002103, 18.22935133838716],
+						[32.87109374999787, 18.22935133838716],
+						[32.87109374999787, -21.043491216802906],
+						[-3.691406250002103, -21.043491216802906],
+						[-3.691406250002103, 18.22935133838716],
+					],
+				],
+			},
+		}
+		const result = performGeometryOperation(mapDrawnPolygon, {
+			kind: 'split',
+			cutter: {
+				type: 'LineString',
+				coordinates: [
+					[14.58984374999787, 18.229351338387165],
+					[14.58984374999787, -21.043491216802906],
+				],
+			},
+		})
+
+		expect(result.features).toHaveLength(2)
+	})
+
 	it('preserves a polygon hole when the cutting line does not cross it', () => {
 		const polygonWithHole: Feature<Polygon> = {
 			...square,

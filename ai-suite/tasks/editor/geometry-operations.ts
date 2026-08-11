@@ -3,6 +3,7 @@ import type { EarthlySession } from '../../core/session'
 import type { AiTaskMetadata } from '../../core/task'
 import { startDataset } from '../create/dataset'
 import {
+	addPolygonToGeometryDraft,
 	clickEditorMap,
 	expectGeometryFeatureCount,
 	geometryDraftSnapshot,
@@ -35,6 +36,29 @@ async function selectLastLine(earthly: EarthlySession): Promise<void> {
 			.reverse()
 			.find((candidate) => ['LineString', 'MultiLineString'].includes(candidate.geometry.type))
 		if (!editor || !feature) throw new Error('No line feature is available to select')
+		editor.selectFeature(feature.id)
+	})
+}
+
+async function selectLastPolygon(earthly: EarthlySession): Promise<void> {
+	await earthly.page.evaluate(() => {
+		const store = (
+			window as typeof window & {
+				__earthlyEditorStore?: {
+					getState(): {
+						editor?: {
+							getAllFeatures(): Array<{ id: string; geometry: { type: string } }>
+							selectFeature(id: string): void
+						}
+					}
+				}
+			}
+		).__earthlyEditorStore
+		const editor = store?.getState().editor
+		const feature = [...(editor?.getAllFeatures() ?? [])]
+			.reverse()
+			.find((candidate) => ['Polygon', 'MultiPolygon'].includes(candidate.geometry.type))
+		if (!editor || !feature) throw new Error('No polygon feature is available to select')
 		editor.selectFeature(feature.id)
 	})
 }
@@ -143,5 +167,75 @@ export async function exerciseGeometryOperations(
 		numericDialogVisible,
 		dragGuidanceVisible,
 		splitGuidanceVisible,
+	}
+}
+
+export async function exercisePolygonSplit(
+	earthly: EarthlySession,
+): Promise<GeometryOperationsResult> {
+	await startDataset(earthly)
+	await addPolygonToGeometryDraft(earthly, [
+		[0.48, 0.38],
+		[0.68, 0.38],
+		[0.68, 0.64],
+		[0.48, 0.64],
+	])
+	await selectLastPolygon(earthly)
+
+	await openGeometryOperations(earthly)
+	await earthly.page.getByRole('menuitem', { name: 'Cut / Split', exact: true }).hover()
+	await earthly.page.getByRole('menuitem', { name: /Polygon by drawn line/ }).click()
+	await expect(earthly.page.getByText('Geometry operation · Draw', { exact: true })).toBeVisible()
+
+	// Both clicks are deliberately just inside the polygon. The cutter is valid
+	// only if endpoint snapping reaches the visible top and bottom boundaries.
+	await clickEditorMap(earthly, 0.58, 0.385)
+	await clickEditorMap(earthly, 0.58, 0.635)
+	const snappingProbe = await earthly.page.evaluate(() => {
+		const editor = (
+			window as typeof window & {
+				__earthlyEditorStore?: {
+					getState(): {
+						editor?: {
+							getSelectedFeatures(): Array<{
+								id: string
+								geometry: { type: string; coordinates: unknown }
+							}>
+							getGeometryOperation(): unknown
+							drawLineMode?: { getCoordinates(): number[][] }
+						}
+					}
+				}
+			}
+		).__earthlyEditorStore?.getState().editor
+		const selected = editor?.getSelectedFeatures()[0]
+		const cutter = editor?.drawLineMode?.getCoordinates()
+		if (selected?.geometry.type !== 'Polygon' || !cutter || cutter.length !== 2) {
+			return { endpointsSnapped: false, selected, cutter }
+		}
+		const ring = (selected.geometry.coordinates as number[][][])[0] ?? []
+		const latitudes = ring
+			.map((position) => position[1])
+			.filter((latitude): latitude is number => typeof latitude === 'number')
+		if (latitudes.length === 0) return { endpointsSnapped: false, selected, cutter }
+		const north = Math.max(...latitudes)
+		const south = Math.min(...latitudes)
+		return {
+			endpointsSnapped:
+				Math.abs(Number(cutter[0]?.[1]) - north) < 1e-7 &&
+				Math.abs(Number(cutter[1]?.[1]) - south) < 1e-7,
+			selected,
+			cutter,
+		}
+	})
+	expect(snappingProbe.endpointsSnapped).toBe(true)
+	await earthly.page.keyboard.press('Enter')
+	await expectGeometryFeatureCount(earthly, 2)
+
+	return {
+		...(await geometryDraftSnapshot(earthly)),
+		numericDialogVisible: false,
+		dragGuidanceVisible: false,
+		splitGuidanceVisible: true,
 	}
 }
