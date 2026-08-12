@@ -317,7 +317,9 @@ release_removable=false
 if ! bash "$new_release/ops/vps/runtime.sh" restart "$new_release"; then
   echo "Release failed health checks; restoring the previous runtime" >&2
   if [[ -n "$old_release" ]]; then
-    if bash "$old_release/ops/vps/runtime.sh" restart "$old_release"; then
+    # Use the new release's runtime controller so rollback benefits from the
+    # current PM2 recreation and release-verification logic as well.
+    if bash "$new_release/ops/vps/runtime.sh" restart "$old_release"; then
       release_removable=true
     fi
   elif [[ -f "$app_root/scripts/restart-remote.sh" ]]; then

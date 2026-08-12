@@ -25,11 +25,12 @@ export PATH="$BUN_INSTALL/bin:/usr/local/go/bin:$PATH"
 export EARTHLY_RELEASE_DIR="$release_dir"
 export EARTHLY_SHARED_DIR="$shared_dir"
 
-services=(earthly-web earthly-contextvm earthly-mapnolia earthly-relay earthly-cordn)
+release_services=(earthly-web earthly-contextvm earthly-mapnolia earthly-relay)
+services=("${release_services[@]}" earthly-cordn)
 
 require_runtime_commands() {
   local command_name
-  for command_name in bun pm2 curl docker; do
+  for command_name in bun pm2 curl docker sha256sum; do
     command -v "$command_name" >/dev/null 2>&1 || {
       echo "Required runtime command is missing: $command_name" >&2
       exit 1
@@ -41,8 +42,36 @@ require_runtime_commands() {
   }
 }
 
+pm2_uses_release() {
+  pm2 jlist | \
+    EARTHLY_EXPECTED_RELEASE="$release_dir" \
+    EARTHLY_EXPECTED_BUN="$BUN_INSTALL/bin/bun" \
+    bun -e '
+    const expected = process.env.EARTHLY_EXPECTED_RELEASE
+    const bun = process.env.EARTHLY_EXPECTED_BUN
+    const scripts = new Map([
+      ["earthly-web", [`${expected}/src/index.ts`, bun]],
+      ["earthly-contextvm", [`${expected}/contextvm/server.ts`, bun]],
+      ["earthly-mapnolia", [`${expected}/mapnolia-server`, "none"]],
+      ["earthly-relay", [`${expected}/relay/relay`, "none"]],
+    ])
+    const processes = JSON.parse(await Bun.stdin.text())
+    const valid = [...scripts].every(([name, [script, interpreter]]) => {
+      const process = processes.find((entry) => entry.name === name)
+      return process?.pm2_env?.status === "online" &&
+        process.pm2_env.pm_cwd === expected &&
+        process.pm2_env.pm_exec_path === script &&
+        process.pm2_env.exec_interpreter === interpreter &&
+        process.pm2_env.exec_mode === "fork_mode"
+    })
+    process.exit(valid ? 0 : 1)
+  '
+}
+
 health_check() {
-  local service service_pid observation_ready attempt ready_observations=0
+  local service service_pid observation_ready attempt ready_observations=0 served_index_sha
+  local expected_index_sha
+  expected_index_sha="$(sha256sum "$release_dir/dist/index.html" | awk '{print $1}')"
   for attempt in {1..20}; do
     observation_ready=true
     for service in "${services[@]}"; do
@@ -52,8 +81,9 @@ health_check() {
         break
       fi
     done
-    if [[ "$observation_ready" == "true" ]] && \
-       curl -fsS --max-time 5 http://127.0.0.1:3000/ >/dev/null && \
+    served_index_sha="$(curl -fsS --max-time 5 http://127.0.0.1:3000/ | sha256sum | awk '{print $1}' || true)"
+    if [[ "$observation_ready" == "true" && "$served_index_sha" == "$expected_index_sha" ]] && \
+       pm2_uses_release && \
        curl -fsS --max-time 5 'http://127.0.0.1:8888/search?q=earthly&format=json' >/dev/null; then
       ready_observations=$((ready_observations + 1))
       if [[ "$ready_observations" -ge 3 ]]; then
@@ -92,7 +122,15 @@ restart_runtime() {
     cd "$release_dir"
     bash ops/vps/start-cordn.sh .env "$release_dir/bin/cordn-server"
   )
-  pm2 startOrReload "$release_dir/ops/vps/services.config.cjs" --update-env
+  # PM2 reloads retain an existing process's original absolute script and cwd.
+  # Release directories are immutable, so switching releases must recreate these
+  # process identities rather than reload them in place.
+  for service in "${release_services[@]}"; do
+    if pm2 describe "$service" >/dev/null 2>&1; then
+      pm2 delete "$service"
+    fi
+  done
+  pm2 start "$release_dir/ops/vps/services.config.cjs" --update-env
   health_check
   pm2 save
 }

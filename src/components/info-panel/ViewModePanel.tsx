@@ -460,6 +460,7 @@ export function ViewModePanel({
 						/>
 						<DatasetFeaturesList
 							featureCollection={viewDataset.featureCollection}
+							datasetAddress={viewDataset.address}
 							hiddenFeatureIds={hiddenFeatureIds}
 							className="max-h-[40vh] overflow-y-auto"
 							onZoomToFeature={handleZoomToFeature}

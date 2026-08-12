@@ -35,9 +35,10 @@ done < <(find "$release_root" -mindepth 1 -maxdepth 1 -type d -print0)
 }
 
 echo "Rolling back from $(basename "$current_release") to $(basename "$previous_release")..."
-if ! bash "$previous_release/ops/vps/runtime.sh" restart "$previous_release"; then
+runtime_controller="$current_release/ops/vps/runtime.sh"
+if ! bash "$runtime_controller" restart "$previous_release"; then
   echo "Previous release failed health checks; restoring the current runtime" >&2
-  bash "$current_release/ops/vps/runtime.sh" restart "$current_release" || true
+  bash "$runtime_controller" restart "$current_release" || true
   exit 1
 fi
 

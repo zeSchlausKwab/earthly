@@ -47,6 +47,7 @@ import type {
 	GeometryInteractionKind,
 	GeoEditorOptions,
 	PrimitiveShape,
+	SelectionCandidateRequest,
 } from './types'
 import { collectLineArrowFeatures } from '../utils/lineArrows'
 import type { GeometryOperationRequest } from '../api/geometryOperations'
@@ -439,16 +440,19 @@ export class GeoEditor {
 			],
 		})
 
-		if (features.length > 0) {
-			const featureId = this.getRenderedFeatureId(features[0])
+		const featureIds = this.getRenderedFeatureIds(features)
+
+		if (featureIds.length > 0) {
+			const featureId = featureIds[0]
 			if (!featureId) return
 
 			// If in boolean operation mode, complete the operation with this feature
-			if (this.boolean.getOperation()) {
+			const booleanOperation = this.boolean.getOperation()
+			if (booleanOperation) {
 				const clickedFeature = this.features.get(featureId)
 				if (
 					clickedFeature &&
-					featureId !== this.boolean.getOperation().firstFeatureId &&
+					featureId !== booleanOperation.firstFeatureId &&
 					(clickedFeature.geometry.type === 'Polygon' ||
 						clickedFeature.geometry.type === 'MultiPolygon')
 				) {
@@ -457,16 +461,19 @@ export class GeoEditor {
 				return
 			}
 
-			if (!this.isMultiSelectEvent(e.originalEvent)) {
-				this.selection.clearSelection()
+			const additive = this.isMultiSelectEvent(e.originalEvent)
+			if (featureIds.length > 1) {
+				this.requestSelectionCandidateChoice({
+					featureIds,
+					point: { x: e.point.x, y: e.point.y },
+					additive,
+				})
+				return
 			}
-			this.selection.toggleSelect(featureId)
-			this.updateActiveStates()
-			this.emit('selection.change', {
-				type: 'selection.change',
-				features: this.getSelectedFeatures(),
-			})
+
+			this.selectRenderedFeature(featureId, additive)
 		} else if (!this.isMultiSelectEvent(e.originalEvent)) {
+			this.dismissSelectionCandidates()
 			// Cancel boolean operation if clicking empty space
 			if (this.boolean.getOperation()) {
 				this.cancelBooleanOperation()
@@ -485,6 +492,7 @@ export class GeoEditor {
 		})
 
 		if (vertexFeatures.length > 0) {
+			this.dismissSelectionCandidates()
 			const vertex = vertexFeatures[0]
 			const meta = vertex.properties?.meta
 
@@ -512,19 +520,27 @@ export class GeoEditor {
 				],
 			})
 
-			if (features.length > 0) {
-				const featureId = this.getRenderedFeatureId(features[0])
+			const featureIds = this.getRenderedFeatureIds(features)
+
+			if (featureIds.length > 0) {
+				const featureId = featureIds[0]
 				if (!featureId) return
-				if (!this.isMultiSelectEvent(e.originalEvent)) {
-					this.selection.clearSelection()
+				const additive = this.isMultiSelectEvent(e.originalEvent)
+				if (featureIds.length > 1) {
+					this.requestSelectionCandidateChoice({
+						featureIds,
+						point: { x: e.point.x, y: e.point.y },
+						additive,
+					})
+					return
 				}
-				this.selection.toggleSelect(featureId)
-				this.updateActiveStates()
-				this.renderVertices()
+				this.selectRenderedFeature(featureId, additive)
 			} else if (!this.isMultiSelectEvent(e.originalEvent)) {
+				this.dismissSelectionCandidates()
 				this.selection.clearSelection()
 				this.updateActiveStates()
 				this.renderVertices()
+				this.emit('selection.change', { type: 'selection.change', features: [] })
 			}
 		}
 	}
@@ -2089,6 +2105,20 @@ export class GeoEditor {
 		})
 	}
 
+	/** Complete a map-hit choice using the same toggle semantics as a direct map click. */
+	chooseSelectionCandidate(featureId: string, additive: boolean = false): void {
+		if (!this.features.has(featureId)) return
+		this.selectRenderedFeature(featureId, additive)
+		this.dismissSelectionCandidates()
+	}
+
+	dismissSelectionCandidates(): void {
+		this.emit('selection.candidates', {
+			type: 'selection.candidates',
+			selectionCandidates: null,
+		})
+	}
+
 	/** Replace the current map selection with every existing id in one UI update. */
 	selectFeatures(featureIds: string[]): void {
 		const present = featureIds.filter((featureId) => this.features.has(featureId))
@@ -2124,6 +2154,39 @@ export class GeoEditor {
 			type: 'features.replace',
 			features: [...this.features.values()],
 		})
+	}
+
+	/**
+	 * Persist a new feature order as one undoable editor action. The order becomes
+	 * the Dataset FeatureCollection order and the draw-order tie breaker for
+	 * overlapping geometries of the same rendered type.
+	 */
+	reorderFeatures(featureIds: string[]): boolean {
+		const previous = this.getAllFeatures()
+		const previousIds = previous.map((feature) => feature.id)
+		if (
+			featureIds.length !== previousIds.length ||
+			new Set(featureIds).size !== featureIds.length ||
+			featureIds.some((featureId) => !this.features.has(featureId))
+		) {
+			throw new Error('Feature order must contain every geometry exactly once.')
+		}
+		if (featureIds.every((featureId, index) => featureId === previousIds[index])) return false
+
+		const reordered = featureIds.flatMap((featureId) => {
+			const feature = this.features.get(featureId)
+			return feature ? [feature] : []
+		})
+		this.features.clear()
+		for (const feature of reordered) this.features.set(feature.id, feature)
+		this.history.recordUpdate(reordered, previous)
+		this.render()
+		if (this.mode === 'edit') this.renderVertices()
+		this.emit('features.replace', {
+			type: 'features.replace',
+			features: this.getAllFeatures(),
+		})
+		return true
 	}
 
 	/**
@@ -2391,6 +2454,36 @@ export class GeoEditor {
 		if (typeof feature.id === 'string') return feature.id
 		if (typeof feature.id === 'number') return feature.id.toString()
 		return undefined
+	}
+
+	private getRenderedFeatureIds(features: MapGeoJSONFeature[]): string[] {
+		const seen = new Set<string>()
+		const ids: string[] = []
+		for (const feature of features) {
+			const featureId = this.getRenderedFeatureId(feature)
+			if (!featureId || seen.has(featureId) || !this.features.has(featureId)) continue
+			seen.add(featureId)
+			ids.push(featureId)
+		}
+		return ids
+	}
+
+	private requestSelectionCandidateChoice(request: SelectionCandidateRequest): void {
+		this.emit('selection.candidates', {
+			type: 'selection.candidates',
+			selectionCandidates: request,
+		})
+	}
+
+	private selectRenderedFeature(featureId: string, additive: boolean): void {
+		if (!additive) this.selection.clearSelection()
+		this.selection.toggleSelect(featureId)
+		this.updateActiveStates()
+		if (this.mode === 'edit') this.renderVertices()
+		this.emit('selection.change', {
+			type: 'selection.change',
+			features: this.getSelectedFeatures(),
+		})
 	}
 
 	private getSelectionCentroid(

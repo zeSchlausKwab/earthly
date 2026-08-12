@@ -18,6 +18,10 @@ import {
 	exerciseGeometryOperations,
 	exercisePolygonSplit,
 } from '../tasks/editor/geometry-operations'
+import {
+	exerciseGeometryWorkbench,
+	exerciseOverlappingGeometryChooser,
+} from '../tasks/editor/geometry-workbench'
 import { openPanel } from '../tasks/navigation/open-panel'
 import {
 	attemptDeniedDeviceLocation,
@@ -61,6 +65,28 @@ test('a drawn line splits the selected polygon @editor-contract', async ({ earth
 	const result = await exercisePolygonSplit(earthly)
 	expect(result.featureCount).toBe(2)
 	expect(result.geometryTypes.every((type) => type === 'Polygon')).toBe(true)
+})
+
+test('Dataset geometry rows support Finder selection, ordering, and copy actions @editor-contract', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'desktop', 'The geometry workbench is desktop-only')
+	await earthly.open({ tour: 'seen' })
+	const result = await exerciseGeometryWorkbench(earthly)
+	expect(result.selectedAfterRange).toBe(3)
+	expect(result.orderChanged).toBe(true)
+	expect(result.copyConfirmed).toBe(true)
+	expect(result.visibleTypes).toEqual(['LineString', 'Point', 'Polygon', 'Annotation'])
+})
+
+test('overlapping map geometries present an explicit chooser @editor-contract', async ({
+	earthly,
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'desktop', 'The overlap chooser contract is exercised here')
+	await earthly.open({ tour: 'seen' })
+	const result = await exerciseOverlappingGeometryChooser(earthly)
+	expect(result.candidateCount).toBe(2)
+	expect(result.selectedFeatureCount).toBe(1)
 })
 
 test('mobile magnifier is ready before touch and follows precision placement @editor-contract', async ({

@@ -1,13 +1,20 @@
 import {
 	AlertTriangle,
+	ArrowDown,
+	ArrowUp,
 	ChevronDown,
 	ChevronRight,
+	Copy,
+	CopyPlus,
+	GripVertical,
 	Locate,
 	MessageSquare,
+	MoreHorizontal,
 	Plus,
 	Trash2,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import type { EditorFeature } from '@/features/geo-editor/core'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { parseCustomValue } from '@/features/geo-editor/utils'
@@ -15,9 +22,34 @@ import { cn } from '@/lib/utils'
 import { GeoRichTextEditor, type GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { getFeatureCallouts, withFeatureCallouts } from '@/lib/geo/callouts'
+import { stringifyGeoReference } from '@/lib/geo/reference'
 import { GeometryBadge, GeometryDisplay } from './GeometryDisplay'
+import {
+	moveGeometryId,
+	reorderGeometryIds,
+	resolveGeometryRowSelection,
+	type GeometryDropPlacement,
+} from './geometryListInteractions'
 import { StylePropertiesSection } from '../StylePropertiesSection'
+
+const GEOMETRY_REORDER_MIME = 'application/earthly-geometry-row'
+
+async function copyGeometryText(value: string, successMessage: string): Promise<void> {
+	try {
+		await navigator.clipboard.writeText(value)
+		toast.success(successMessage)
+	} catch {
+		toast.error('Unable to copy geometry')
+	}
+}
 
 type ContextPropertyTypeHint = 'string' | 'number' | 'integer' | 'boolean'
 
@@ -76,6 +108,8 @@ function inferDisplayType(
 interface FeatureRowProps {
 	feature: EditorFeature
 	name: string
+	index: number
+	totalCount: number
 	isSelected: boolean
 	isExpanded: boolean
 	validationIssues?: string[]
@@ -84,6 +118,10 @@ interface FeatureRowProps {
 	onToggleExpand: () => void
 	onSelect: (event: React.MouseEvent) => void
 	onDelete: () => void
+	onDuplicate: () => void
+	onCopy: () => void
+	onMove: (offset: -1 | 1) => void
+	onReorder: (draggedId: string, targetId: string, placement: GeometryDropPlacement) => void
 	onZoomTo: () => void
 	/** Registers the annotation textarea so the table can focus it when a
 	 *  freshly drawn label should be typed into immediately. */
@@ -93,6 +131,8 @@ interface FeatureRowProps {
 function FeatureRow({
 	feature,
 	name,
+	index,
+	totalCount,
 	isSelected,
 	isExpanded,
 	validationIssues,
@@ -101,10 +141,15 @@ function FeatureRow({
 	onToggleExpand,
 	onSelect,
 	onDelete,
+	onDuplicate,
+	onCopy,
+	onMove,
+	onReorder,
 	onZoomTo,
 	annotationTextareaRef,
 }: FeatureRowProps) {
 	const editor = useEditorStore((state) => state.editor)
+	const [dropPlacement, setDropPlacement] = useState<GeometryDropPlacement | null>(null)
 
 	// Local state for new property - each row has its own
 	const [newPropKey, setNewPropKey] = useState('')
@@ -195,16 +240,56 @@ function FeatureRow({
 	const hasValidationIssues = Boolean(validationIssues && validationIssues.length > 0)
 	const validationSummary = validationIssues?.slice(0, 3).join(' | ')
 	const newPropertyTypeHint = propertyTypeHints?.get(newPropKey.trim())
+	const pointCoordinates =
+		feature.geometry.type === 'Point' ? feature.geometry.coordinates : undefined
 
 	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: drop target; keyboard reordering is available in the row action menu.
 		<div
 			className={cn(
-				'rounded border text-xs',
+				'relative rounded border text-xs',
 				isSelected ? 'border-info/40 bg-info/15' : 'border-border bg-card hover:bg-muted',
+				dropPlacement === 'before' && 'shadow-[0_-2px_0_0] shadow-info',
+				dropPlacement === 'after' && 'shadow-[0_2px_0_0] shadow-info',
 			)}
+			data-geometry-id={feature.id}
+			data-geometry-type={isAnnotation ? 'Annotation' : feature.geometry.type}
+			data-selected={isSelected ? 'true' : undefined}
+			onDragOver={(event) => {
+				if (!Array.from(event.dataTransfer.types).includes(GEOMETRY_REORDER_MIME)) return
+				event.preventDefault()
+				event.dataTransfer.dropEffect = 'move'
+				const rect = event.currentTarget.getBoundingClientRect()
+				setDropPlacement(event.clientY < rect.top + rect.height / 2 ? 'before' : 'after')
+			}}
+			onDragLeave={(event) => {
+				if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+				setDropPlacement(null)
+			}}
+			onDrop={(event) => {
+				const draggedId = event.dataTransfer.getData(GEOMETRY_REORDER_MIME)
+				if (!draggedId || !dropPlacement) return
+				event.preventDefault()
+				onReorder(draggedId, feature.id, dropPlacement)
+				setDropPlacement(null)
+			}}
 		>
 			{/* Row header */}
 			<div className="flex items-center gap-1 px-1.5 py-1">
+				<button
+					type="button"
+					draggable
+					className="flex h-7 w-5 shrink-0 cursor-grab items-center justify-center text-muted-foreground hover:text-foreground active:cursor-grabbing"
+					onDragStart={(event) => {
+						event.dataTransfer.setData(GEOMETRY_REORDER_MIME, feature.id)
+						event.dataTransfer.effectAllowed = 'move'
+					}}
+					onDragEnd={() => setDropPlacement(null)}
+					aria-label={`Drag ${name} to reorder`}
+					title="Drag to reorder"
+				>
+					<GripVertical className="h-3.5 w-3.5" />
+				</button>
 				<Button
 					type="button"
 					variant="ghost"
@@ -221,6 +306,7 @@ function FeatureRow({
 					type="button"
 					variant="ghost"
 					onClick={(e) => onSelect(e)}
+					aria-label={`Select ${name}`}
 					className="flex-1 h-auto text-left justify-start truncate px-0"
 				>
 					{name}
@@ -249,6 +335,16 @@ function FeatureRow({
 				<Button
 					size="icon-sm"
 					variant="ghost"
+					onClick={onCopy}
+					aria-label={`Copy ${name} as GeoJSON`}
+					title="Copy GeoJSON"
+				>
+					<Copy className="h-3 w-3" />
+				</Button>
+
+				<Button
+					size="icon-sm"
+					variant="ghost"
 					className="text-info hover:text-info"
 					onClick={onZoomTo}
 					aria-label="Zoom to feature"
@@ -256,15 +352,55 @@ function FeatureRow({
 					<Locate className="h-3 w-3" />
 				</Button>
 
-				<Button
-					size="icon-sm"
-					variant="ghost"
-					className="text-destructive hover:text-destructive"
-					onClick={onDelete}
-					aria-label="Delete feature"
-				>
-					<Trash2 className="h-3 w-3" />
-				</Button>
+				<DropdownMenu>
+					<DropdownMenuTrigger asChild>
+						<Button
+							type="button"
+							size="icon-sm"
+							variant="ghost"
+							aria-label={`More actions for ${name}`}
+						>
+							<MoreHorizontal className="h-3.5 w-3.5" />
+						</Button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align="end" className="min-w-44">
+						<DropdownMenuItem onClick={onDuplicate}>
+							<CopyPlus className="h-3.5 w-3.5" />
+							Duplicate geometry
+						</DropdownMenuItem>
+						{pointCoordinates ? (
+							<DropdownMenuItem
+								onClick={() =>
+									void copyGeometryText(
+										stringifyGeoReference({
+											kind: 'coordinate',
+											latitude: Number(pointCoordinates[1]),
+											longitude: Number(pointCoordinates[0]),
+										}),
+										'Coordinate reference copied',
+									)
+								}
+							>
+								<Locate className="h-3.5 w-3.5" />
+								Copy coordinate reference
+							</DropdownMenuItem>
+						) : null}
+						<DropdownMenuSeparator />
+						<DropdownMenuItem disabled={index === 0} onClick={() => onMove(-1)}>
+							<ArrowUp className="h-3.5 w-3.5" />
+							Move up
+						</DropdownMenuItem>
+						<DropdownMenuItem disabled={index === totalCount - 1} onClick={() => onMove(1)}>
+							<ArrowDown className="h-3.5 w-3.5" />
+							Move down
+						</DropdownMenuItem>
+						<DropdownMenuSeparator />
+						<DropdownMenuItem variant="destructive" onClick={onDelete}>
+							<Trash2 className="h-3.5 w-3.5" />
+							Delete geometry
+						</DropdownMenuItem>
+					</DropdownMenuContent>
+				</DropdownMenu>
 			</div>
 
 			{/* Expanded content */}
@@ -488,6 +624,7 @@ export function GeometriesTable({
 	const setModeState = useEditorStore((state) => state.setMode)
 
 	const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+	const selectionAnchorIdRef = useRef<string | null>(null)
 
 	// Immediate label entry (workflow audit P2): when a label is placed with the
 	// Draw-label tool, expand its row and focus the text field right away — the
@@ -530,25 +667,63 @@ export function GeometriesTable({
 	}
 
 	const handleSelect = (featureId: string, event: React.MouseEvent) => {
-		const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
-		const isMultiSelect = isMac ? event.metaKey : event.ctrlKey
-
-		if (isMultiSelect) {
-			// Toggle selection
-			if (selectedFeatureIds.includes(featureId)) {
-				setSelectedFeatureIds(selectedFeatureIds.filter((id) => id !== featureId))
-			} else {
-				setSelectedFeatureIds([...selectedFeatureIds, featureId])
-			}
-		} else {
-			// Single select
-			setSelectedFeatureIds([featureId])
-		}
+		const result = resolveGeometryRowSelection(
+			features.map((feature) => feature.id),
+			selectedFeatureIds,
+			selectionAnchorIdRef.current,
+			featureId,
+			{
+				additive: event.metaKey || event.ctrlKey,
+				range: event.shiftKey,
+			},
+		)
+		selectionAnchorIdRef.current = result.anchorId
+		setSelectedFeatureIds(result.selectedIds)
 	}
 
 	const handleDelete = (featureId: string) => {
 		if (!editor) return
 		editor.deleteFeatures([featureId])
+	}
+
+	const applyFeatureOrder = (orderedIds: string[]) => {
+		if (!editor) return
+		try {
+			editor.reorderFeatures(orderedIds)
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : 'Unable to reorder geometries')
+		}
+	}
+
+	const handleReorder = (draggedId: string, targetId: string, placement: GeometryDropPlacement) => {
+		applyFeatureOrder(
+			reorderGeometryIds(
+				features.map((feature) => feature.id),
+				draggedId,
+				targetId,
+				placement,
+			),
+		)
+	}
+
+	const handleMove = (featureId: string, offset: -1 | 1) => {
+		applyFeatureOrder(
+			moveGeometryId(
+				features.map((feature) => feature.id),
+				featureId,
+				offset,
+			),
+		)
+	}
+
+	const handleDuplicate = (featureId: string) => {
+		if (!editor) return
+		editor.selectFeature(featureId)
+		editor.duplicateSelectedFeatures()
+	}
+
+	const handleCopy = (feature: EditorFeature) => {
+		void copyGeometryText(JSON.stringify(feature, null, 2), 'Geometry GeoJSON copied')
 	}
 
 	const rows = useMemo(
@@ -586,11 +761,13 @@ export function GeometriesTable({
 
 	return (
 		<div className={cn('space-y-1', className)}>
-			{rows.map((row) => (
+			{rows.map((row, index) => (
 				<FeatureRow
 					key={row.feature.id}
 					feature={row.feature}
 					name={row.name}
+					index={index}
+					totalCount={rows.length}
 					isSelected={row.isSelected}
 					isExpanded={expandedIds.has(row.feature.id)}
 					validationIssues={row.validationIssues}
@@ -599,6 +776,10 @@ export function GeometriesTable({
 					onToggleExpand={() => toggleExpand(row.feature.id)}
 					onSelect={(e) => handleSelect(row.feature.id, e)}
 					onDelete={() => handleDelete(row.feature.id)}
+					onDuplicate={() => handleDuplicate(row.feature.id)}
+					onCopy={() => handleCopy(row.feature)}
+					onMove={(offset) => handleMove(row.feature.id, offset)}
+					onReorder={handleReorder}
 					onZoomTo={() => onZoomToFeature?.(row.feature)}
 					annotationTextareaRef={(el) => {
 						const id = String(row.feature.id)
