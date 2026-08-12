@@ -10,6 +10,7 @@ const bunPath = process.env.BUN_INSTALL
 const common = {
 	cwd: releaseDir,
 	instances: 1,
+	exec_mode: 'fork',
 	autorestart: true,
 	watch: false,
 	log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
