@@ -7,6 +7,18 @@ export interface ToolRedirect {
 	redirectArguments: Record<string, unknown>
 }
 
+export function isToolRedirect(value: unknown): value is ToolRedirect {
+	if (!value || typeof value !== 'object') return false
+	const candidate = value as Record<string, unknown>
+	return (
+		candidate.ok === false &&
+		candidate.kind === 'tool_redirect' &&
+		typeof candidate.redirectTool === 'string' &&
+		Boolean(candidate.redirectArguments) &&
+		typeof candidate.redirectArguments === 'object'
+	)
+}
+
 const WIKIPEDIA_ARTICLE_HOST = /^([a-z][a-z0-9-]{0,11})\.wikipedia\.org$/iu
 
 /**

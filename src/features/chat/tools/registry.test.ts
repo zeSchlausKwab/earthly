@@ -2,14 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { createHeadlessEditor } from '@/features/geo-editor/core/test-harness'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { isToolError } from './errors'
-import {
-	advertise,
-	dispatch,
-	type ToolEntry,
-	register,
-	registry,
-	unregister,
-} from './registry'
+import { advertise, dispatch, type ToolEntry, register, registry, unregister } from './registry'
 
 const TEST_TOOL: ToolEntry = {
 	name: 'test_echo_tool',
@@ -106,6 +99,8 @@ describe('tool registry', () => {
 		expect(names).toContain('get_editor_state') // host-builtin
 		expect(names).toContain('search_location') // remote-mcp
 		expect(names).toContain('valhalla_route') // remote-mcp
+		expect(names).toContain('route_over_network') // host pathfinding over line networks
+		expect(names).toContain('get_reference_boundaries') // source-selecting boundary facade
 		expect(names).toContain('editor_set_mode') // editor command (self-registered)
 		expect(names).toContain('editor_undo')
 	})
@@ -183,6 +178,52 @@ describe('set_dataset_metadata host-builtin + get_editor_state datasetMetadata (
 		}
 		expect(full.datasetMetadata?.name).toBe('Visible Name')
 		expect(full.datasetMetadata?.customProperties).toEqual({ k: 'v' })
+	})
+
+	it('get_editor_state reports fresh serialized dataset bytes after a geometry mutation', async () => {
+		const editor = createHeadlessEditor()
+		useEditorStore.getState().setEditor(editor)
+		const detailedFeatures = [
+			{
+				type: 'Feature',
+				id: 'route',
+				geometry: {
+					type: 'LineString',
+					coordinates: Array.from({ length: 120 }, (_, index) => [index / 1000, 0]),
+				},
+				properties: { kind: 'road' },
+			},
+		]
+		editor.setFeatures(detailedFeatures)
+		useEditorStore.setState({ features: detailedFeatures })
+
+		const before = (await dispatch('get_editor_state', {})) as {
+			datasetSize?: { serializedBytes: number; limitBytes: number; overLimit: boolean }
+		}
+		expect(before.datasetSize?.serializedBytes).toBeGreaterThan(0)
+
+		editor.updateFeature('route', {
+			type: 'Feature',
+			id: 'route',
+			geometry: {
+				type: 'LineString',
+				coordinates: [
+					[0, 0],
+					[0.119, 0],
+				],
+			},
+			properties: { kind: 'road' },
+		})
+		useEditorStore.setState({ features: editor.getAllFeatures() })
+
+		const after = (await dispatch('get_editor_state', {})) as {
+			datasetSize?: { serializedBytes: number; limitBytes: number; overLimit: boolean }
+		}
+		expect(after.datasetSize?.serializedBytes).toBeLessThan(
+			before.datasetSize?.serializedBytes ?? 0,
+		)
+		expect(after.datasetSize?.limitBytes).toBeGreaterThan(0)
+		expect(after.datasetSize?.overLimit).toBe(false)
 	})
 })
 

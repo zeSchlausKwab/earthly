@@ -45,6 +45,7 @@ const REFINE_TOOLS = new Set([
 	'editor_delete_selected',
 	'editor_update_feature',
 	'add_feature_callout',
+	'add_feature_callouts',
 	'update_feature_callout',
 	'remove_feature_callout',
 ])

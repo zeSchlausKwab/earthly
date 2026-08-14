@@ -13,11 +13,83 @@ import { createMapContextSystemMessage } from './tools/context'
 import { getGeoTools } from './tools/definitions'
 
 function mapContextText(): string {
-	const msg = createMapContextSystemMessage()
+	const msg = createMapContextSystemMessage('legacy')
 	expect(msg).not.toBeNull()
 	const content = msg?.content
 	return typeof content === 'string' ? content : JSON.stringify(content)
 }
+
+function compactMapContextText(): string {
+	const msg = createMapContextSystemMessage('compact', [
+		'run_code',
+		'write_geojson_to_editor',
+		'get_reference_boundaries',
+		'valhalla_route',
+		'route_over_network',
+		'add_feature_callouts',
+		'web_search',
+		'write_story_draft',
+	])
+	expect(msg).not.toBeNull()
+	return typeof msg?.content === 'string' ? msg.content : JSON.stringify(msg?.content)
+}
+
+describe('compact prompt profile', () => {
+	const compact = compactMapContextText()
+	const legacy = mapContextText()
+
+	it('retains core intent, source, precision, completion, and story invariants', () => {
+		for (const phrase of ['INTENT GATE', 'SOURCE ORDER', 'PRECISION', 'EXECUTION', 'STORIES']) {
+			expect(compact).toContain(phrase)
+		}
+		expect(compact).toMatch(/without changing the map/i)
+		expect(compact).toMatch(/never claim the editor is read-only/i)
+		expect(compact).toMatch(/get_reference_boundaries/i)
+		expect(compact).toMatch(/schematic, generalized, network-derived, or exact/i)
+		expect(compact).toMatch(/canonical encoded Nostr feature references/i)
+		expect(compact).toMatch(/basemap is context/i)
+		expect(compact).toMatch(/valhalla_route.+route_over_network/i)
+	})
+
+	it('pins the original task into a continuation prompt', () => {
+		const message = createMapContextSystemMessage('compact', ['run_code'], {
+			isContinuation: true,
+			continuationRequest: 'Create the requested rail and water corridors.',
+		})
+		const text = typeof message?.content === 'string' ? message.content : ''
+		expect(text).toContain('Original user request to finish')
+		expect(text).toContain('rail and water corridors')
+		expect(text).toMatch(/current map state/i)
+	})
+
+	it('is materially smaller than the legacy profile', () => {
+		expect(compact.length).toBeLessThan(legacy.length * 0.4)
+	})
+
+	it('requires an early visible scaffold before open-ended research', () => {
+		for (const text of [compact, legacy]) {
+			expect(text).toMatch(/FIRST VISIBLE GEOMETRY/i)
+			expect(text).toMatch(/verified anchors|points/i)
+			expect(text).toMatch(/continue.*research|research.*continue/i)
+		}
+	})
+
+	it('allows admin1 boundaries to be batched without an artificial per-call cap', () => {
+		for (const text of [compact, legacy]) {
+			expect(text).toMatch(/admin-?1.+batch|batch.+admin-?1/i)
+			expect(text).not.toMatch(/admin-?1.{0,80}at most 3|at most 3.{0,80}admin-?1/i)
+		}
+	})
+
+	it('distinguishes authored map callouts from point features', () => {
+		for (const text of [compact, legacy]) {
+			expect(text).toMatch(/MAP CALLOUTS/i)
+			expect(text).toMatch(/belong(?:s)? to|attached to.+geometry/i)
+			expect(text).toMatch(/not.+Point|never.+type.+callout/i)
+			expect(text).toMatch(/add_feature_callouts/i)
+		}
+	})
+})
 
 function runCodeDescription(): string {
 	const tool = getGeoTools().find((t) => t.function.name === 'run_code')
@@ -83,7 +155,8 @@ describe('fix #4 — agent map-context steering', () => {
 	})
 
 	it('scopes OSM boundary/line guidance to LOCAL features (no country-scale OSM)', () => {
-		expect(text).toMatch(/For LOCAL admin boundaries/i)
+		expect(text).toMatch(/Nation-state\/country outlines ALWAYS.*Natural Earth/i)
+		expect(text).toMatch(/low-level resolve_osm_entity.+explicitly needs/i)
 		expect(text).toMatch(/NEVER query OSM for a country-scale coastline/i)
 		expect(text).toMatch(/world\.get\("countries_110m"\)/)
 	})

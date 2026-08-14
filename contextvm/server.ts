@@ -40,7 +40,11 @@ import {
   wikipediaExtractInputSchema,
   wikipediaExtractOutputSchema,
 } from "./web-schemas.ts";
-import { reverseLookup, searchLocation } from "./tools/nominatim.ts";
+import {
+  NominatimRequestError,
+  reverseLookup,
+  searchLocation,
+} from "./tools/nominatim.ts";
 import {
   queryById,
   queryNearby,
@@ -82,36 +86,6 @@ const RELAYS = serverConfig.isProduction
       ]),
     ]
   : ["ws://localhost:3334"];
-const TEXT_ENCODER = new TextEncoder();
-const NOSTR_PLAINTEXT_LIMIT_BYTES = 65535;
-const TRANSPORT_RESPONSE_BUDGET_BYTES = 42_000;
-const COORDINATE_PRECISION_STEPS = [6, 5, 4] as const;
-const GEOMETRY_POINT_LIMIT_STEPS = [2000, 1000, 500, 250, 120, 80] as const;
-const FEATURE_CAP_STEPS = [200, 100, 50, 25, 10, 5, 2, 1] as const;
-
-type QueryByIdLike = {
-  feature: unknown | null;
-  osmType: "node" | "way" | "relation";
-  osmId: number;
-  transport?: Record<string, unknown>;
-};
-
-type QueryFeaturesLike = {
-  features: unknown[];
-  count: number;
-};
-
-function estimateStructuredContentBytes(structuredContent: unknown): number {
-  const messageEnvelope = {
-    jsonrpc: "2.0",
-    id: 1,
-    result: {
-      content: [],
-      structuredContent,
-    },
-  };
-  return TEXT_ENCODER.encode(JSON.stringify(messageEnvelope)).length;
-}
 
 function requestClientPubkey(extra: { _meta?: unknown }): string {
   const metadata = extra._meta as Record<string, unknown> | undefined;
@@ -228,143 +202,31 @@ function simplifyFeatureGeometry(
   };
 }
 
-function fitQueryByIdForTransport(result: QueryByIdLike): QueryByIdLike {
-  const originalBytes = estimateStructuredContentBytes({ result });
-  if (originalBytes <= TRANSPORT_RESPONSE_BUDGET_BYTES) {
-    return result;
+function structuredToolFailure(error: unknown): Record<string, unknown> {
+  if (error instanceof NominatimRequestError) {
+    return {
+      ok: false,
+      code: error.code,
+      message: error.message,
+      retryable: error.retryable,
+      retryAfterMs: error.retryAfterMs,
+      suggestedAction: error.retryable
+        ? "Retry after the indicated delay or reuse already-returned candidates."
+        : "Correct the request instead of retrying it unchanged.",
+      sideEffectsApplied: false,
+    };
   }
-
-  if (!result.feature) {
-    return result;
-  }
-
-  for (const precision of COORDINATE_PRECISION_STEPS) {
-    for (const maxPointsPerPath of GEOMETRY_POINT_LIMIT_STEPS) {
-      const candidate: QueryByIdLike = {
-        ...result,
-        feature: simplifyFeatureGeometry(
-          result.feature,
-          precision,
-          maxPointsPerPath,
-        ),
-        transport: {
-          truncated: true,
-          originalResponseBytes: originalBytes,
-          responseBudgetBytes: TRANSPORT_RESPONSE_BUDGET_BYTES,
-          coordinatePrecision: precision,
-          maxPointsPerPath,
-          hint: "Geometry simplified to fit Nostr transport size limit.",
-        },
-      };
-      if (
-        estimateStructuredContentBytes({ result: candidate }) <=
-        TRANSPORT_RESPONSE_BUDGET_BYTES
-      ) {
-        console.warn(
-          `⚠️ query_osm_by_id response truncated for transport (${originalBytes}B -> ${estimateStructuredContentBytes(
-            { result: candidate },
-          )}B).`,
-        );
-        return candidate;
-      }
-    }
-  }
-
   return {
-    ...result,
-    feature: null,
-    transport: {
-      truncated: true,
-      originalResponseBytes: originalBytes,
-      responseBudgetBytes: TRANSPORT_RESPONSE_BUDGET_BYTES,
-      hint: "Feature omitted because payload exceeded Nostr transport size. Narrow query scope.",
-    },
+    ok: false,
+    code: "tool_handler_error",
+    message: error instanceof Error ? error.message : "Tool execution failed",
+    retryable: false,
+    sideEffectsApplied: false,
   };
-}
-
-function fitQueryFeaturesForTransport(
-  result: QueryFeaturesLike,
-  toolName: string,
-): QueryFeaturesLike {
-  const originalBytes = estimateStructuredContentBytes({ result });
-  if (originalBytes <= TRANSPORT_RESPONSE_BUDGET_BYTES) {
-    return result;
-  }
-
-  const originalCount = result.features.length;
-  const capCandidates = [
-    originalCount,
-    ...FEATURE_CAP_STEPS.filter((value) => value < originalCount),
-  ];
-
-  for (const precision of COORDINATE_PRECISION_STEPS) {
-    for (const maxPointsPerPath of GEOMETRY_POINT_LIMIT_STEPS) {
-      const simplifiedFeatures = result.features.map((feature) =>
-        simplifyFeatureGeometry(feature, precision, maxPointsPerPath),
-      );
-
-      for (const cap of capCandidates) {
-        const candidateFeatures = simplifiedFeatures.slice(0, cap);
-        const candidateResult: QueryFeaturesLike & {
-          transport?: Record<string, unknown>;
-        } = {
-          ...result,
-          features: candidateFeatures,
-          count: candidateFeatures.length,
-          transport: {
-            truncated: true,
-            originalFeatureCount: originalCount,
-            returnedFeatureCount: candidateFeatures.length,
-            originalResponseBytes: originalBytes,
-            responseBudgetBytes: TRANSPORT_RESPONSE_BUDGET_BYTES,
-            coordinatePrecision: precision,
-            maxPointsPerPath,
-            hint: "Narrow bbox/radius or lower limit for full-detail geometry.",
-          },
-        };
-
-        if (
-          estimateStructuredContentBytes({ result: candidateResult }) <=
-          TRANSPORT_RESPONSE_BUDGET_BYTES
-        ) {
-          console.warn(
-            `⚠️ ${toolName} response truncated for transport (${originalBytes}B -> ${estimateStructuredContentBytes(
-              { result: candidateResult },
-            )}B).`,
-          );
-          return candidateResult;
-        }
-      }
-    }
-  }
-
-  const fallbackResult: QueryFeaturesLike & {
-    transport?: Record<string, unknown>;
-  } = {
-    ...result,
-    features: [],
-    count: 0,
-    transport: {
-      truncated: true,
-      originalFeatureCount: originalCount,
-      returnedFeatureCount: 0,
-      originalResponseBytes: originalBytes,
-      responseBudgetBytes: TRANSPORT_RESPONSE_BUDGET_BYTES,
-      hint: "No features returned because payload exceeded Nostr transport size. Use tighter filters or bbox.",
-    },
-  };
-
-  console.warn(
-    `⚠️ ${toolName} response exceeded safe transport budget (${originalBytes}B > ${TRANSPORT_RESPONSE_BUDGET_BYTES}B). Returned empty feature set.`,
-  );
-  return fallbackResult;
 }
 
 async function main() {
   console.log("🗺️ Starting ContextVM Geo Server...\n");
-  console.log(
-    `📏 Nostr safe tool-response budget: ${TRANSPORT_RESPONSE_BUDGET_BYTES}/${NOSTR_PLAINTEXT_LIMIT_BYTES} bytes`,
-  );
 
   // 1. Setup Signer and Relay Pool
   const signer = new PrivateKeySigner(SERVER_PRIVATE_KEY);
@@ -404,7 +266,7 @@ async function main() {
         console.error(`❌ Location search failed: ${error.message}`);
         return {
           content: [],
-          structuredContent: { error: error.message },
+          structuredContent: { error: structuredToolFailure(error) },
           isError: true,
         };
       }
@@ -437,7 +299,7 @@ async function main() {
         console.error(`❌ Reverse lookup failed: ${error.message}`);
         return {
           content: [],
-          structuredContent: { error: error.message },
+          structuredContent: { error: structuredToolFailure(error) },
           isError: true,
         };
       }
@@ -457,9 +319,7 @@ async function main() {
     async ({ osmType, osmId }) => {
       try {
         console.log(`🗺️ Querying OSM ${osmType}/${osmId}`);
-        const result = fitQueryByIdForTransport(
-          await queryById(osmType, osmId),
-        );
+        const result = await queryById(osmType, osmId);
 
         return {
           content: [],
@@ -497,17 +357,14 @@ async function main() {
     }) => {
       try {
         console.log(`🗺️ Querying OSM nearby: ${lat},${lon} radius=${radius}m`);
-        const result = fitQueryFeaturesForTransport(
-          await queryNearby(
-            lat,
-            lon,
-            radius,
-            filters,
-            filterSets,
-            limit,
-            Boolean(includeRelations),
-          ),
-          "query_osm_nearby",
+        const result = await queryNearby(
+          lat,
+          lon,
+          radius,
+          filters,
+          filterSets,
+          limit,
+          Boolean(includeRelations),
         );
 
         // Log response size for debugging
@@ -555,18 +412,15 @@ async function main() {
         console.log(
           `🗺️ Querying OSM bbox: [${west},${south},${east},${north}]`,
         );
-        const result = fitQueryFeaturesForTransport(
-          await queryBbox(
-            west,
-            south,
-            east,
-            north,
-            filters,
-            filterSets,
-            limit,
-            Boolean(includeRelations),
-          ),
-          "query_osm_bbox",
+        const result = await queryBbox(
+          west,
+          south,
+          east,
+          north,
+          filters,
+          filterSets,
+          limit,
+          Boolean(includeRelations),
         );
 
         // Log response size for debugging
@@ -625,13 +479,38 @@ async function main() {
           ),
         );
         const searchLimit = Math.min(50, Math.max(requestedLimit * 6, 20));
-        const searchResponses = await Promise.all(
-          queryVariants.map((queryVariant) =>
-            searchLocation(queryVariant, searchLimit, {
-              countryCode: normalizedCountryCode,
-            }),
-          ),
-        );
+        // Nominatim is a shared public service: try constrained variants in
+        // order and stop once one returns candidates. The client also
+        // coalesces/caches/rate-limits calls, but avoiding the fan-out here is
+        // the biggest protection against one entity resolution becoming five
+        // simultaneous searches.
+        const searchResponses = [];
+        for (const queryVariant of queryVariants) {
+          const response = await searchLocation(queryVariant, searchLimit, {
+            countryCode: normalizedCountryCode,
+          });
+          searchResponses.push(response);
+          const hasStrictCandidate = response.results.some((candidate) => {
+            const typeOk = preferredOsmType
+              ? candidate.osmType === preferredOsmType
+              : true;
+            const candidateCountry =
+              candidate.address?.country_code?.toLowerCase() ?? null;
+            const countryOk = normalizedCountryCode
+              ? candidateCountry !== null &&
+                candidateCountry === normalizedCountryCode
+              : true;
+            const rawAdminLevel = Number(candidate.extratags?.admin_level);
+            const adminOk =
+              typeof adminLevel !== "number" ||
+              rawAdminLevel === adminLevel ||
+              (candidate.class === "boundary" &&
+                candidate.type === "administrative" &&
+                candidate.osmType === "relation");
+            return typeOk && countryOk && adminOk;
+          });
+          if (hasStrictCandidate) break;
+        }
         const mergedResults = searchResponses.flatMap(
           (response) => response.results,
         );
@@ -885,20 +764,13 @@ async function main() {
           ) as typeof feature;
         }
 
-        const fitted = fitQueryByIdForTransport({
-          feature,
-          osmType: "relation",
-          osmId: relationId,
-        });
-
         return {
           content: [],
           structuredContent: {
             result: {
               relationId,
-              feature: fitted.feature ?? null,
+              feature: feature ?? null,
               tags: base.tags,
-              transport: fitted.transport,
             },
           },
         };
@@ -981,12 +853,6 @@ async function main() {
           ) as typeof feature;
         }
 
-        const fitted = fitQueryByIdForTransport({
-          feature,
-          osmType: "relation",
-          osmId: relationLookup.relationId,
-        });
-
         return {
           content: [],
           structuredContent: {
@@ -994,9 +860,8 @@ async function main() {
               query: queryLabel,
               relationId: relationLookup.relationId,
               candidateCount: relationLookup.candidates.length,
-              feature: fitted.feature ?? null,
+              feature: feature ?? null,
               tags: relationGeometry.tags,
-              transport: fitted.transport,
             },
           },
         };
@@ -1029,16 +894,11 @@ async function main() {
           units,
           baseUrl,
         });
-        const fitted = fitQueryByIdForTransport({
-          feature: result.feature,
-          osmType: "way",
-          osmId: 0,
-        });
         return {
           content: [],
           structuredContent: {
             result: {
-              feature: fitted.feature ?? null,
+              feature: result.feature,
               summary: result.summary,
             },
           },
@@ -1073,22 +933,12 @@ async function main() {
           polygons,
           baseUrl,
         });
-        const fitted = fitQueryFeaturesForTransport(
-          {
-            features: result.featureCollection.features ?? [],
-            count: result.featureCollection.features?.length ?? 0,
-          },
-          "valhalla_isochrone",
-        );
         return {
           content: [],
           structuredContent: {
             result: {
-              featureCollection: {
-                type: "FeatureCollection",
-                features: fitted.features,
-              },
-              count: fitted.count,
+              featureCollection: result.featureCollection,
+              count: result.featureCollection.features?.length ?? 0,
               profile: result.profile,
               contoursMinutes: result.contoursMinutes,
             },
@@ -1370,6 +1220,9 @@ async function main() {
     isAnnouncedServer: true,
     injectClientPubkey: true,
     maxSessions: 1_000,
+    // CEP-22 fragments large MCP responses after handlers return complete data.
+    // Keep this explicit even though the SDK currently enables it by default.
+    oversizedTransfer: { enabled: true },
     serverInfo: {
       name: "Earthly Geo Server",
       website: "https://earthly.city",

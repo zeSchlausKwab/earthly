@@ -28,7 +28,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'get_editor_state',
 			description:
-				"Get current map editor context (center, zoom, viewport bbox, feature count, mode). Returns compact output by default; use detail='full' only when needed.",
+				"Get current map editor context (center, zoom, viewport bbox, feature count, current serialized dataset size, mode). Returns compact output by default; use detail='full' only when needed.",
 			parameters: {
 				type: 'object',
 				properties: {
@@ -39,6 +39,60 @@ export const geoStaticToolSchemas: Tool[] = [
 						enum: ['compact', 'full'],
 					},
 				},
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'simplify_features',
+			description:
+				'Simplify every line or polygon matching a host-resolved predicate without reading or changing the visible editor selection. Preserves feature ids and properties, applies one undoable edit, and returns authoritative before/after vertex and serialized-byte counts. Use this for targeted simplification (for example only roads); use optimize_geometry only for whole-dataset publish-budget optimization.',
+			parameters: {
+				type: 'object',
+				properties: {
+					predicate: {
+						type: 'object',
+						description:
+							'Flat AND-list resolved against the full dataset, e.g. {all:[{field:"kind",op:"eq",value:"road"}]}. Supports $id and $geometryType; it is deliberately independent of UI selection.',
+						properties: {
+							all: {
+								type: 'array',
+								items: {
+									type: 'object',
+									properties: {
+										field: { type: 'string' },
+										op: {
+											type: 'string',
+											enum: [
+												'eq',
+												'neq',
+												'exists',
+												'missing',
+												'contains',
+												'icontains',
+												'in',
+												'lt',
+												'lte',
+												'gt',
+												'gte',
+											],
+										},
+										value: {},
+									},
+									required: ['field', 'op'],
+								},
+							},
+						},
+						required: ['all'],
+					},
+					tolerance: {
+						type: 'number',
+						description:
+							'Simplification tolerance in lon/lat degrees. Smaller preserves more detail. Default 0.0001.',
+					},
+				},
+				required: ['predicate'],
 			},
 		},
 	},
@@ -532,7 +586,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'get_country_boundary',
 			description:
-				'SLOW remote OSM call: get a country administrative boundary relation (admin_level=2 by default). The response is transport-simplified (~250 points per ring), so it is NOT higher fidelity than the bundled data for most uses — for country outlines, areas, or coastline work prefer world.get("countries_110m") inside run_code (instant, local). Use this only when the user explicitly needs OSM-sourced national borders.',
+				'Get a generalized nation-state boundary from the fast bundled Natural Earth countries layer. This tool never queries OSM.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -574,7 +628,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'valhalla_route',
 			description:
-				'Compute a route polyline from waypoints using Valhalla. Returns GeoJSON line geometry and summary.',
+				'Compute a network-following road, bus, bicycle, pedestrian, or truck route from waypoints using Valhalla. Prefer this over drawing coarse or straight transport lines. Returns GeoJSON line geometry labeled network-derived plus a summary.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -963,6 +1017,7 @@ export const geoStaticToolSchemas: Tool[] = [
 												'exists',
 												'missing',
 												'contains',
+												'icontains',
 												'in',
 												'lt',
 												'lte',
@@ -1014,6 +1069,7 @@ export const geoStaticToolSchemas: Tool[] = [
 												'exists',
 												'missing',
 												'contains',
+												'icontains',
 												'in',
 												'lt',
 												'lte',
@@ -1067,6 +1123,7 @@ export const geoStaticToolSchemas: Tool[] = [
 												'exists',
 												'missing',
 												'contains',
+												'icontains',
 												'in',
 												'lt',
 												'lte',
@@ -1130,6 +1187,7 @@ export const geoStaticToolSchemas: Tool[] = [
 												'exists',
 												'missing',
 												'contains',
+												'icontains',
 												'in',
 												'lt',
 												'lte',
@@ -1229,6 +1287,7 @@ export const geoStaticToolSchemas: Tool[] = [
 												'exists',
 												'missing',
 												'contains',
+												'icontains',
 												'in',
 												'lt',
 												'lte',
@@ -1260,7 +1319,7 @@ export const geoStaticToolSchemas: Tool[] = [
 				'Style keys MUST be canonical: color, fillColor, strokeColor, fillOpacity, strokeOpacity, ' +
 				'strokeWidth, radius, label, displayIcon. `label` is literal display text only: never pass ' +
 				'`{name}` or another template, and omit labels on dense bulk results. For Point icons, displayIcon must be a bundled ' +
-				'Lucide id such as `lucide:tree-pine` or `lucide:anchor` (never a URL). ' +
+				'Lucide id such as `lucide:tree-pine` or `lucide:anchor` (never a URL). On Points, `color` is the backing-disc fill (`fillColor` is accepted as an alias), `strokeColor` is the outer ring, and the glyph color is chosen automatically for contrast. ' +
 				'For semantic POI maps, use displayIcon on every Point category rather than leaving plain dots. ' +
 				'Aliases fill/stroke/width/opacity are accepted. An unknown key ' +
 				'is rejected so you can correct it. Styles persist as plain properties and survive save/reload. ' +
@@ -1296,6 +1355,7 @@ export const geoStaticToolSchemas: Tool[] = [
 															'exists',
 															'missing',
 															'contains',
+															'icontains',
 															'in',
 															'lt',
 															'lte',
@@ -1314,7 +1374,7 @@ export const geoStaticToolSchemas: Tool[] = [
 								style: {
 									type: 'object',
 									description:
-										'Canonical style keys: color, fillColor, strokeColor, fillOpacity, strokeOpacity, strokeWidth, radius, label, displayIcon (`lucide:<name>` for Point features). `label` is literal text, not a `{name}` template; omit it for dense results.',
+										'Canonical style keys: color, fillColor, strokeColor, fillOpacity, strokeOpacity, strokeWidth, radius, label, displayIcon (`lucide:<name>` for Point features). For Points, color is the backing-disc fill and fillColor is accepted as its alias; glyph contrast is automatic. `label` is literal text, not a `{name}` template; omit it for dense results.',
 									additionalProperties: true,
 								},
 							},
@@ -1441,7 +1501,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'add_feature_callout',
 			description:
-				'Attach an always-visible contextual map callout to one feature. The callout is authored content stored on that GeoJSON feature. Plain text may include nostr:naddr geo references; media uses structured NIP-92-compatible fields.',
+				'Attach an always-visible contextual map callout to one existing feature. A map callout belongs to its geometry and is not a Point feature, label, icon, popup, or feature with type="callout". Plain text may include nostr:naddr geo references; media uses structured NIP-92-compatible fields. Prefer add_feature_callouts when adding several.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -1479,6 +1539,44 @@ export const geoStaticToolSchemas: Tool[] = [
 					leader: { type: 'string', enum: ['line', 'none'] },
 				},
 				required: ['featureId', 'text'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'add_feature_callouts',
+			description:
+				'Atomically attach several always-visible map callouts to their existing owning geometries. Each callout is authored content stored on its feature; this does not create Point features. Use one batch instead of many add_feature_callout calls.',
+			parameters: {
+				type: 'object',
+				properties: {
+					callouts: {
+						type: 'array',
+						description: 'Callouts to append in authored order.',
+						items: {
+							type: 'object',
+							properties: {
+								featureId: { type: 'string', description: 'Existing owning feature id.' },
+								text: { type: 'string', description: 'Plain callout text.' },
+								title: { type: 'string', description: 'Optional short title.' },
+								placementSide: {
+									type: 'string',
+									enum: ['auto', 'top', 'right', 'bottom', 'left'],
+								},
+								offset: {
+									type: 'array',
+									items: { type: 'number' },
+									minItems: 2,
+									maxItems: 2,
+								},
+								leader: { type: 'string', enum: ['line', 'none'] },
+							},
+							required: ['featureId', 'text'],
+						},
+					},
+				},
+				required: ['callouts'],
 			},
 		},
 	},

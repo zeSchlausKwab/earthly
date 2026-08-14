@@ -62,6 +62,8 @@ export function validateImportedSnapshot(parsed: unknown): ChatSettingsSnapshot 
 					},
 					selectedModel: defaults.selectedModel,
 					toolsEnabled: defaults.toolsEnabled,
+					safetyLevel: defaults.safetyLevel,
+					promptProfile: defaults.promptProfile,
 					version: 2,
 				}
 			: migrateV1ToV2(parsed)
@@ -89,6 +91,7 @@ export function validateImportedSnapshot(parsed: unknown): ChatSettingsSnapshot 
 		// SAFE-04 / T-05-11: membership-check the imported safety level; an out-of-range or
 		// wrong-type value falls back to the safe default 2 rather than weakening gating.
 		safetyLevel: parsed.safetyLevel === 1 || parsed.safetyLevel === 3 ? parsed.safetyLevel : 2,
+		promptProfile: parsed.promptProfile === 'compact' ? 'compact' : 'legacy',
 		version: 2,
 	}
 }

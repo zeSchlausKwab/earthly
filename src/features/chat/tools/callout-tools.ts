@@ -43,6 +43,12 @@ function optionalCalloutFields(args: Record<string, unknown>): Partial<MapCallou
 	return probe
 }
 
+function calloutFromArgs(args: Record<string, unknown>): MapCallout {
+	const text = requiredString(args, 'text')
+	const base = createMapCallout(text)
+	return { ...base, ...optionalCalloutFields(args), id: base.id, text }
+}
+
 async function gateCalloutMutation(
 	editor: GeoEditor,
 	label: string,
@@ -68,20 +74,72 @@ export function registerCalloutTools(register: (entry: ToolEntry) => void): void
 		handler: async (args) => {
 			const editor = requireEditor()
 			const featureId = requiredString(args, 'featureId')
-			const text = requiredString(args, 'text')
 			const feature = editor.getFeature(featureId)
 			if (!feature) throw new Error(`Feature '${featureId}' was not found in the active dataset.`)
-			const base = createMapCallout(text)
-			const fields = optionalCalloutFields(args)
-			const callout = { ...base, ...fields, id: base.id, text }
+			const callout = calloutFromArgs(args)
 			const outcome = await gateCalloutMutation(editor, 'Add map callout', featureId, [
 				...getFeatureCallouts(feature),
 				callout,
 			])
 			return {
 				cancelled: outcome.status === 'cancelled',
+				counts: { updated: outcome.status === 'applied' ? outcome.diff.modified.length : 0 },
 				featureId,
 				calloutId: callout.id,
+			}
+		},
+	})
+
+	register({
+		name: 'add_feature_callouts',
+		kind: 'authoring-primitive',
+		schema: schemaFor('add_feature_callouts'),
+		handler: async (args) => {
+			const editor = requireEditor()
+			if (!Array.isArray(args.callouts) || args.callouts.length === 0) {
+				throw new Error('`callouts` must contain at least one callout.')
+			}
+			const additions = args.callouts.map((value) => {
+				if (!value || typeof value !== 'object' || Array.isArray(value)) {
+					throw new Error('Each callout must be an object.')
+				}
+				const entry = value as Record<string, unknown>
+				const featureId = requiredString(entry, 'featureId')
+				if (!editor.getFeature(featureId)) {
+					throw new Error(`Feature '${featureId}' was not found in the active dataset.`)
+				}
+				return { featureId, callout: calloutFromArgs(entry) }
+			})
+			const additionsByFeature = new Map<string, MapCallout[]>()
+			for (const addition of additions) {
+				additionsByFeature.set(addition.featureId, [
+					...(additionsByFeature.get(addition.featureId) ?? []),
+					addition.callout,
+				])
+			}
+			const outcome = await gateBulkApply(
+				editor,
+				{ getSafetyLevel, label: 'Add map callouts' },
+				'modify',
+				() => {
+					const authoring = createAuthoring(editor)
+					for (const [featureId, featureAdditions] of additionsByFeature) {
+						const feature = editor.getFeature(featureId)
+						if (!feature) throw new Error(`Feature '${featureId}' disappeared before apply.`)
+						authoring.modifyFeature(
+							featureId,
+							withFeatureCallouts(feature, [...getFeatureCallouts(feature), ...featureAdditions]),
+							'ai_callout_batch_tool',
+						)
+					}
+				},
+			)
+			const applied = outcome.status === 'applied'
+			return {
+				cancelled: !applied,
+				counts: { updated: applied ? outcome.diff.modified.length : 0 },
+				calloutCount: applied ? additions.length : 0,
+				featureIds: [...additionsByFeature.keys()],
 			}
 		},
 	})
@@ -118,7 +176,12 @@ export function registerCalloutTools(register: (entry: ToolEntry) => void): void
 				featureId,
 				current.map((callout) => (callout.id === calloutId ? updated : callout)),
 			)
-			return { cancelled: outcome.status === 'cancelled', featureId, calloutId }
+			return {
+				cancelled: outcome.status === 'cancelled',
+				counts: { updated: outcome.status === 'applied' ? outcome.diff.modified.length : 0 },
+				featureId,
+				calloutId,
+			}
 		},
 	})
 
@@ -142,7 +205,12 @@ export function registerCalloutTools(register: (entry: ToolEntry) => void): void
 				featureId,
 				current.filter((callout) => callout.id !== calloutId),
 			)
-			return { cancelled: outcome.status === 'cancelled', featureId, calloutId }
+			return {
+				cancelled: outcome.status === 'cancelled',
+				counts: { updated: outcome.status === 'applied' ? outcome.diff.modified.length : 0 },
+				featureId,
+				calloutId,
+			}
 		},
 	})
 }

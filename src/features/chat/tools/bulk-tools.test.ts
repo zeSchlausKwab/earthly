@@ -548,6 +548,30 @@ describe('style_by_attribute (STYLE-01 — materialize canonical style keys per 
 		expect(allFeatures().find((f) => f.id === 'rail')?.properties?.fillColor).toBeUndefined()
 	})
 
+	it('treats fillColor as a Point icon backing-disc color instead of leaving it inert', async () => {
+		setLevel(3)
+		seedFeatures([pointFeature('p', [0, 0], { category: 'port', color: '#1e40af' })])
+
+		const result = await dispatch('style_by_attribute', {
+			buckets: [
+				{
+					predicate: { all: [{ field: 'category', op: 'eq', value: 'port' }] },
+					style: {
+						displayIcon: 'lucide:anchor',
+						fillColor: '#dbeafe',
+						strokeColor: '#1e40af',
+					},
+				},
+			],
+		})
+
+		expect(isToolError(result)).toBe(false)
+		const point = allFeatures().find((feature) => feature.id === 'p')
+		expect(point?.properties?.color).toBe('#dbeafe')
+		expect(point?.properties?.strokeColor).toBe('#1e40af')
+		expect(point?.properties?.displayIcon).toBe('lucide:anchor')
+	})
+
 	it('applies fallback style ONLY when supplied (D-03)', async () => {
 		setLevel(3)
 		seedFeatures([

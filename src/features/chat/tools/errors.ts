@@ -11,6 +11,8 @@
  */
 
 export interface ToolError {
+	/** Stable failure discriminator for model/UI diagnostics. */
+	ok: false
 	/** Discriminator: unknown tool name vs. a registered handler that threw. */
 	kind: 'unknown_tool' | 'handler_error'
 	/** The tool name the model attempted to call. */
@@ -21,6 +23,11 @@ export interface ToolError {
 	origin?: string
 	/** Truncated preview of the raw arguments that triggered the failure. */
 	argumentsPreview?: string
+	code?: string
+	retryable?: boolean
+	retryAfterMs?: number
+	suggestedAction?: string
+	sideEffectsApplied?: boolean
 }
 
 /** Runtime guard: is an arbitrary value a structured ToolError? */
@@ -28,6 +35,9 @@ export function isToolError(value: unknown): value is ToolError {
 	if (!value || typeof value !== 'object') return false
 	const candidate = value as Record<string, unknown>
 	return (
+		// Old saved transcripts predate the explicit `ok:false` field. Continue
+		// recognizing those while all newly-produced errors use the full contract.
+		candidate.ok !== true &&
 		(candidate.kind === 'unknown_tool' || candidate.kind === 'handler_error') &&
 		typeof candidate.toolName === 'string' &&
 		typeof candidate.message === 'string'

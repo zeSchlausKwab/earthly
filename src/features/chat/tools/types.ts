@@ -91,6 +91,8 @@ export const TO_EDITOR_COMPATIBLE_TOOLS = new Set([
 	'get_country_boundary',
 	'valhalla_route',
 	'valhalla_isochrone',
+	'route_over_network',
+	'get_reference_boundaries',
 ])
 
 export const NAME_MATCH_KEYS = [

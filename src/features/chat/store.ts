@@ -28,8 +28,11 @@ import {
 	executeToolCall,
 	consumeMapSnapshot,
 	compactToolMessageContentForPrompt,
+	type PromptProfile,
 } from './tools'
+import { isToolError } from './tools/errors'
 import { appendRequestContextToLatestUserMessage } from './requestContext'
+import { ToolLoopRecovery } from './toolLoopRecovery'
 import { getTokenMetadata } from '@cashu/cashu-ts'
 import {
 	getWalletSnapshot,
@@ -76,16 +79,30 @@ const LMSTUDIO_HARD_CONTEXT_CAP_TOKENS = 4096
 const MAX_USER_MESSAGE_CHARS = 6000
 const MAX_ASSISTANT_MESSAGE_CHARS = 8000
 const MAX_TOOL_MESSAGE_CHARS = 12000
-const MAX_SYSTEM_MESSAGE_CHARS = 1800
+// The map policy is intentionally substantial. Whole-request token budgeting
+// below is the authoritative context limit; this per-message ceiling only
+// prevents pathological inputs and must not silently discard normal policy.
+const MAX_SYSTEM_MESSAGE_CHARS = 64_000
 const MAX_REASONING_CONTENT_CHARS = 4000
 const BUDGET_ESTIMATE_CHARS_PER_TOKEN = 2
 const MESSAGE_TOKEN_OVERHEAD = 24
 const MIN_CONTEXT_TOKENS_FOR_INLINE_IMAGE = 16000
 const STREAM_STALL_WARNING_MS = 30000
-const STREAM_STALL_TIMEOUT_MS = 120000
+// Reasoning-heavy providers can legitimately remain silent for several minutes
+// before emitting their first visible delta. Keep the warning early, but avoid
+// aborting work that is still progressing provider-side.
+export const STREAM_STALL_TIMEOUT_MS = 240000
 const STREAM_STALL_WARNING_SECONDS = STREAM_STALL_WARNING_MS / 1000
 const STREAM_STALL_TIMEOUT_SECONDS = STREAM_STALL_TIMEOUT_MS / 1000
 const OVERLOAD_RETRY_DELAYS_MS = [1500, 4000]
+
+/**
+ * Models receive every currently registered tool. The only advertisement gate
+ * is a real capability mismatch: text-only models cannot consume map snapshots.
+ */
+export function getAdvertisedGeoTools(canUseVision: boolean) {
+	return gateToolsForVision(getGeoTools(), canUseVision)
+}
 
 type StreamProgressKind =
 	| 'request_start'
@@ -120,6 +137,7 @@ interface ChatDiagnostics {
 	cumulativeEstimatedPromptTokens: number
 	cumulativeEstimatedCompletionTokens: number
 	toolCallCount: number
+	mapChangingToolResultCount: number
 	toolResultBytes: number
 	totalToolDurationMs: number
 	toolStats: Record<
@@ -129,6 +147,10 @@ interface ChatDiagnostics {
 	round: number
 	startedAt: number | null
 	completedAt: number | null
+	promptProfile: PromptProfile
+	advertisedToolCount: number
+	advertisedToolSchemaChars: number
+	systemPromptChars: number
 }
 
 const EMPTY_CHAT_DIAGNOSTICS: ChatDiagnostics = {
@@ -146,12 +168,17 @@ const EMPTY_CHAT_DIAGNOSTICS: ChatDiagnostics = {
 	cumulativeEstimatedPromptTokens: 0,
 	cumulativeEstimatedCompletionTokens: 0,
 	toolCallCount: 0,
+	mapChangingToolResultCount: 0,
 	toolResultBytes: 0,
 	totalToolDurationMs: 0,
 	toolStats: {},
 	round: 0,
 	startedAt: null,
 	completedAt: null,
+	promptProfile: 'legacy',
+	advertisedToolCount: 0,
+	advertisedToolSchemaChars: 0,
+	systemPromptChars: 0,
 }
 
 function utf8ByteLength(value: string): number {
@@ -161,7 +188,35 @@ function utf8ByteLength(value: string): number {
 function serializedToolResultIsError(content: string): boolean {
 	try {
 		const value = JSON.parse(content) as Record<string, unknown>
-		return value.ok === false && typeof value.kind === 'string'
+		return isToolError(value) || value.ok === false
+	} catch {
+		return false
+	}
+}
+
+function serializedToolResultChangedMap(content: string): boolean {
+	try {
+		const value = JSON.parse(content) as Record<string, unknown>
+		const editorImport = value.editorImport as Record<string, unknown> | undefined
+		if (typeof editorImport?.importedCount === 'number' && editorImport.importedCount > 0)
+			return true
+		if (typeof value.importedCount === 'number' && value.importedCount > 0) return true
+		const counts = value.counts as Record<string, unknown> | undefined
+		if (
+			counts &&
+			['created', 'updated', 'deleted'].some(
+				(key) => typeof counts[key] === 'number' && (counts[key] as number) > 0,
+			)
+		) {
+			return true
+		}
+		const data = value.data as Record<string, unknown> | undefined
+		return Boolean(
+			data &&
+				['createdCount', 'updatedCount', 'deletedCount'].some(
+					(key) => typeof data[key] === 'number' && (data[key] as number) > 0,
+				),
+		)
 	} catch {
 		return false
 	}
@@ -212,6 +267,7 @@ export interface ChatSettingsSnapshot {
 	// destructive only (default), 3 = trust + undo (the D-12 "just accept" toggle sets 3).
 	// Rides the same encrypt-to-self envelope as the rest of the snapshot; never a bespoke key.
 	safetyLevel: 1 | 2 | 3
+	promptProfile: PromptProfile
 	version?: 2
 }
 
@@ -232,6 +288,7 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettingsSnapshot = {
 	selectedModel: null,
 	toolsEnabled: true,
 	safetyLevel: 2,
+	promptProfile: 'legacy',
 	version: 2,
 }
 
@@ -495,7 +552,7 @@ function getMessageCharLimit(role: ChatMessage['role']): number {
 	}
 }
 
-function sanitizeMessageForPrompt(message: ChatMessage): ChatMessage {
+export function sanitizeMessageForPrompt(message: ChatMessage): ChatMessage {
 	const maxChars = getMessageCharLimit(message.role)
 	const { content } = message
 	const reasoning_content =
@@ -901,9 +958,11 @@ interface ChatState {
 	// Settings
 	toolsEnabled: boolean // Whether to send tools with requests
 	safetyLevel: 1 | 2 | 3 // Edit-safety level (SAFE-04): 1 preview-all / 2 confirm-destructive (default) / 3 trust+undo
+	promptProfile: PromptProfile
 	// Chat state
 	isStreaming: boolean
 	streamingContent: string
+	streamingReasoningContent: string
 	pendingToolCalls: ToolCall[] // Tool calls waiting to be executed
 	executingTools: boolean // Whether we're currently executing tools
 	streamPhase: StreamPhase
@@ -912,6 +971,7 @@ interface ChatState {
 	lastProgressKind: StreamProgressKind | null
 	error: string | null
 	diagnostics: ChatDiagnostics
+	lastTurnRequest: { content: string; options?: SendMessageOptions } | null
 	references: ChatReference[]
 	// Stats
 	totalSpent: number // Total sats spent in this session
@@ -928,6 +988,7 @@ interface ChatActions {
 	// Settings
 	setToolsEnabled: (enabled: boolean) => void
 	setSafetyLevel: (level: 1 | 2 | 3) => void
+	setPromptProfile: (profile: PromptProfile) => void
 	hydrateSettings: (settings: Partial<ChatSettingsSnapshot>) => void
 	setSettingsStatus: (status: SettingsStatus, error?: string | null) => void
 	requestSettingsReload: () => void
@@ -941,12 +1002,13 @@ interface ChatActions {
 	setReferences: (references: ChatReference[]) => void
 	// Chat actions
 	sendMessage: (content: string, options?: SendMessageOptions) => Promise<void>
+	retryLastMessage: () => Promise<void>
 	cancelStream: () => void
 	// Reset
 	reset: () => void
 }
 
-interface SendMessageOptions {
+export interface SendMessageOptions {
 	referenceContextMessage?: string
 	selectionContextMessage?: string
 	geometryContextMessage?: string
@@ -958,6 +1020,8 @@ interface SendMessageOptions {
 	 * the user message — carrying the handle+summary, never `fullRows`.
 	 */
 	composedContent?: ChatMessageContent
+	/** Retry an immediately-failed user turn without appending duplicate text. */
+	reuseLastUserMessage?: boolean
 }
 
 type ChatStore = ChatState & ChatActions
@@ -980,6 +1044,7 @@ function createInitialState(): ChatState {
 		toolsEnabled: true,
 		isStreaming: false,
 		streamingContent: '',
+		streamingReasoningContent: '',
 		pendingToolCalls: [],
 		executingTools: false,
 		streamPhase: 'idle',
@@ -988,6 +1053,7 @@ function createInitialState(): ChatState {
 		lastProgressKind: null,
 		error: null,
 		diagnostics: EMPTY_CHAT_DIAGNOSTICS,
+		lastTurnRequest: null,
 		references: initialChat.references,
 		totalSpent: 0,
 		totalRefunded: 0,
@@ -1042,7 +1108,7 @@ function sanitizeSessionForPersist(session: ChatSession): ChatSession {
 }
 
 export function chatStorePartialize(
-	state: ChatState,
+	state: ChatStore,
 ): Pick<ChatState, 'chatSessions' | 'activeChatId'> {
 	return {
 		chatSessions: state.chatSessions.map(sanitizeSessionForPersist),
@@ -1180,6 +1246,10 @@ export const useChatStore = create<ChatStore>()(
 				set({ safetyLevel: level })
 			},
 
+			setPromptProfile: (profile: PromptProfile) => {
+				set({ promptProfile: profile })
+			},
+
 			hydrateSettings: (settings: Partial<ChatSettingsSnapshot>) => {
 				// Invalidate any model request that started under the pre-hydration
 				// provider. Otherwise its late response can replace the imported model.
@@ -1196,6 +1266,7 @@ export const useChatStore = create<ChatStore>()(
 					selectedModel: settings.selectedModel ?? DEFAULT_CHAT_SETTINGS.selectedModel,
 					toolsEnabled: settings.toolsEnabled ?? DEFAULT_CHAT_SETTINGS.toolsEnabled,
 					safetyLevel: settings.safetyLevel ?? DEFAULT_CHAT_SETTINGS.safetyLevel,
+					promptProfile: settings.promptProfile ?? DEFAULT_CHAT_SETTINGS.promptProfile,
 					models: [],
 					modelsLoading: false,
 					modelsError: null,
@@ -1324,6 +1395,7 @@ export const useChatStore = create<ChatStore>()(
 						// is stuck disabled until a reload.
 						isStreaming: false,
 						streamingContent: '',
+						streamingReasoningContent: '',
 						executingTools: false,
 						streamWarning: null,
 						streamPhase: 'idle',
@@ -1346,11 +1418,19 @@ export const useChatStore = create<ChatStore>()(
 			},
 
 			sendMessage: async (content: string, options?: SendMessageOptions) => {
+				// Atomic turn acquisition: Zustand writes synchronously, so a second
+				// rapid submission cannot append another user turn while this one owns
+				// the stream — including when a connection makes the UI feel unresponsive.
+				if (get().isStreaming || currentStreamingChatId !== null) {
+					toast.info('A response is already in progress')
+					return
+				}
 				const targetChatId = get().activeChatId
 				// Stamp safe-editing diff blocks emitted during this run with the chat
 				// they belong to, so applied/cancelled cards render only in that chat.
 				setPendingDiffChatContext(targetChatId)
-				const { selectedModel, models, toolsEnabled, provider, providerOverrides } = get()
+				const { selectedModel, models, toolsEnabled, provider, providerOverrides, promptProfile } =
+					get()
 				const providerConfig = resolveProvider(provider, providerOverrides)
 				// Hoisted so the request-builder closure can gate capture_map_snapshot on
 				// it; assigned once vision support resolves below. Default false fails
@@ -1392,21 +1472,32 @@ export const useChatStore = create<ChatStore>()(
 				const streamRunId = currentStreamRunId + 1
 				currentStreamRunId = streamRunId
 				currentStreamingChatId = targetChatId
-				set((state) => ({
-					messages: [...state.messages, userMessage],
-					chatSessions: applyMessagesToActiveChat(state.chatSessions, targetChatId, [
-						...state.messages,
-						userMessage,
-					]),
-					isStreaming: true,
-					streamingContent: '',
-					error: null,
-					pendingToolCalls: [],
-					streamWarning: null,
-					streamPhase: 'requesting',
-					lastProgressAt: Date.now(),
-					lastProgressKind: 'request_start',
-				}))
+				set((state) => {
+					const reuseLastUserMessage =
+						options?.reuseLastUserMessage === true && state.messages.at(-1)?.role === 'user'
+					const nextMessages = reuseLastUserMessage
+						? state.messages
+						: [...state.messages, userMessage]
+					return {
+						messages: nextMessages,
+						chatSessions: applyMessagesToActiveChat(state.chatSessions, targetChatId, [
+							...nextMessages,
+						]),
+						isStreaming: true,
+						streamingContent: '',
+						streamingReasoningContent: '',
+						error: null,
+						pendingToolCalls: [],
+						streamWarning: null,
+						streamPhase: 'requesting',
+						lastProgressAt: Date.now(),
+						lastProgressKind: 'request_start',
+						lastTurnRequest: {
+							content,
+							options: options ? { ...options, reuseLastUserMessage: false } : undefined,
+						},
+					}
+				})
 
 				const isStreamRunActive = () => {
 					const state = get()
@@ -1450,6 +1541,7 @@ export const useChatStore = create<ChatStore>()(
 				const makeRequest = async (
 					requestMessages: ChatMessage[],
 					outputBudget: { maxTokens: number | undefined; costTokens: number },
+					allowTools = true,
 				): Promise<{
 					content: string
 					reasoningContent: string
@@ -1532,9 +1624,8 @@ export const useChatStore = create<ChatStore>()(
 						// vision gate (canUseVision) on the ADVERTISED surface so a no-vision
 						// (or merely 'uncertain') model never sees the tool, calls it, and
 						// then wastes a round reasoning that it cannot view the snapshot.
-						const requestTools = toolsEnabled
-							? gateToolsForVision(getGeoTools(), canUseVision)
-							: undefined
+						const requestTools =
+							toolsEnabled && allowTools ? getAdvertisedGeoTools(canUseVision) : undefined
 						console.log('[Chat] Request config:', {
 							provider: providerConfig.type,
 							model: selectedModelId,
@@ -1616,8 +1707,9 @@ export const useChatStore = create<ChatStore>()(
 							if (settled || !isStreamRunActive()) return
 							set({
 								streamingContent: accumulatedContent,
+								streamingReasoningContent: accumulatedReasoningContent,
 								lastProgressAt: Date.now(),
-								lastProgressKind: 'token',
+								lastProgressKind: accumulatedContent ? 'token' : 'reasoning',
 								streamWarning: null,
 								streamPhase: 'streaming',
 							})
@@ -1752,6 +1844,9 @@ export const useChatStore = create<ChatStore>()(
 					let oneShotVisionMessages: ChatMessage[] = []
 					let oneShotGeometryContextMessage = geometryContextMessage
 					let totalToolCalls = 0
+					const toolLoopRecovery = new ToolLoopRecovery()
+					let pendingLoopRecoveryInstruction: string | null = null
+					let mapChangingToolResultCount = 0
 					let modelRequestCount = 0
 					let cumulativeEstimatedPromptTokens = 0
 					let cumulativeEstimatedCompletionTokens = 0
@@ -1776,6 +1871,7 @@ export const useChatStore = create<ChatStore>()(
 						visionSupport === 'vision' &&
 						effectiveContextTokens >= MIN_CONTEXT_TOKENS_FOR_INLINE_IMAGE
 					const promptBudgetTokens = getPromptBudgetTokens(model, providerConfig)
+					const advertisedTools = getAdvertisedGeoTools(canUseVision)
 					const streamStartAt = Date.now()
 
 					set({
@@ -1799,12 +1895,17 @@ export const useChatStore = create<ChatStore>()(
 							cumulativeEstimatedPromptTokens: 0,
 							cumulativeEstimatedCompletionTokens: 0,
 							toolCallCount: 0,
+							mapChangingToolResultCount: 0,
 							toolResultBytes: 0,
 							totalToolDurationMs: 0,
 							toolStats: {},
 							round: 0,
 							startedAt: streamStartAt,
 							completedAt: null,
+							promptProfile,
+							advertisedToolCount: advertisedTools.length,
+							advertisedToolSchemaChars: JSON.stringify(advertisedTools).length,
+							systemPromptChars: 0,
 						},
 					})
 
@@ -1837,19 +1938,33 @@ export const useChatStore = create<ChatStore>()(
 						round += 1
 						const roundNumber = round
 						let requestMessages: ChatMessage[] = [...conversationMessages]
+						if (pendingLoopRecoveryInstruction) {
+							requestMessages.push({
+								role: 'system',
+								content: pendingLoopRecoveryInstruction,
+							})
+							pendingLoopRecoveryInstruction = null
+						}
 						if (oneShotVisionMessages.length > 0) {
 							requestMessages.push(...oneShotVisionMessages)
 							oneShotVisionMessages = []
 						}
 
+						const advertisedToolNames = toolsEnabled
+							? getAdvertisedGeoTools(canUseVision).map((tool) => tool.function.name)
+							: []
 						const systemSections = [
-							toolsEnabled ? createMapContextSystemMessage()?.content : null,
+							toolsEnabled
+								? createMapContextSystemMessage(promptProfile, advertisedToolNames)?.content
+								: null,
 							referenceContextMessage || null,
 							selectionContextMessage || null,
 							oneShotGeometryContextMessage || null,
 						]
 							.map((section) =>
-								typeof section === 'string' ? section.trim() : messageContentToText(section),
+								typeof section === 'string'
+									? section.trim()
+									: messageContentToText(section ?? null),
 							)
 							.filter((section): section is string => Boolean(section))
 						const combinedSystemMessage: ChatMessage | null =
@@ -1898,7 +2013,7 @@ export const useChatStore = create<ChatStore>()(
 						const outputBudget = deriveOutputBudget(model, providerConfig, estimatedPromptTokens)
 
 						set((state) => ({
-							streamPhase: 'streaming',
+							streamPhase: 'requesting',
 							lastProgressAt: Date.now(),
 							lastProgressKind: 'request_start',
 							diagnostics: {
@@ -1907,6 +2022,10 @@ export const useChatStore = create<ChatStore>()(
 								requestMessageCount: requestMessages.length,
 								estimatedPromptTokens,
 								round: roundNumber,
+								systemPromptChars:
+									typeof combinedSystemMessage?.content === 'string'
+										? combinedSystemMessage.content.length
+										: 0,
 							},
 						}))
 
@@ -1935,7 +2054,10 @@ export const useChatStore = create<ChatStore>()(
 										throw error
 									}
 
-									const retryDelayMs = OVERLOAD_RETRY_DELAYS_MS[attempt]
+									const retryDelayMs =
+										OVERLOAD_RETRY_DELAYS_MS[attempt] ??
+										OVERLOAD_RETRY_DELAYS_MS[OVERLOAD_RETRY_DELAYS_MS.length - 1] ??
+										1500
 									set({
 										streamPhase: 'requesting',
 										streamWarning: `Provider overloaded. Retrying in ${Math.ceil(
@@ -1998,6 +2120,7 @@ export const useChatStore = create<ChatStore>()(
 							set((state) => ({
 								executingTools: true,
 								streamingContent: '',
+								streamingReasoningContent: '',
 								streamPhase: 'executing_tools',
 								streamWarning: null,
 								lastProgressAt: Date.now(),
@@ -2160,6 +2283,25 @@ export const useChatStore = create<ChatStore>()(
 									lastProgressKind: 'tool_result',
 								})
 
+								const mapChanged = serializedToolResultChangedMap(toolResult.content)
+								if (mapChanged) mapChangingToolResultCount += 1
+								const loopRecoveryInstruction = toolLoopRecovery.observe(
+									toolCall,
+									toolResult.content,
+									mapChanged,
+								)
+								if (mapChanged) {
+									pendingLoopRecoveryInstruction = null
+								} else if (loopRecoveryInstruction) {
+									pendingLoopRecoveryInstruction = loopRecoveryInstruction
+								}
+								set((state) => ({
+									diagnostics: {
+										...state.diagnostics,
+										mapChangingToolResultCount,
+									},
+								}))
+
 								if (canUseVision && toolCall.function.name === 'capture_map_snapshot') {
 									const snapshotId = tryExtractSnapshotId(toolResult.content)
 									if (!snapshotId) continue
@@ -2217,6 +2359,7 @@ export const useChatStore = create<ChatStore>()(
 								),
 								isStreaming: false,
 								streamingContent: '',
+								streamingReasoningContent: '',
 								streamPhase: 'idle',
 								streamWarning: null,
 								lastProgressAt: Date.now(),
@@ -2238,6 +2381,7 @@ export const useChatStore = create<ChatStore>()(
 							set((state) => ({
 								isStreaming: false,
 								streamingContent: '',
+								streamingReasoningContent: '',
 								streamPhase: 'idle',
 								streamWarning: null,
 								lastProgressAt: Date.now(),
@@ -2268,6 +2412,7 @@ export const useChatStore = create<ChatStore>()(
 							set({
 								isStreaming: false,
 								streamingContent: '',
+								streamingReasoningContent: '',
 								executingTools: false,
 								streamPhase: 'idle',
 								streamWarning: null,
@@ -2278,6 +2423,7 @@ export const useChatStore = create<ChatStore>()(
 					set((state) => ({
 						isStreaming: false,
 						streamingContent: '',
+						streamingReasoningContent: '',
 						executingTools: false,
 						streamPhase: 'idle',
 						streamWarning: null,
@@ -2298,6 +2444,16 @@ export const useChatStore = create<ChatStore>()(
 				}
 			},
 
+			retryLastMessage: async () => {
+				const request = get().lastTurnRequest
+				if (!request || get().isStreaming) return
+				set({ error: null })
+				await get().sendMessage(request.content, {
+					...request.options,
+					reuseLastUserMessage: true,
+				})
+			},
+
 			cancelStream: () => {
 				if (streamAbortController) {
 					currentStreamRunId += 1
@@ -2311,6 +2467,7 @@ export const useChatStore = create<ChatStore>()(
 				set((state) => ({
 					isStreaming: false,
 					streamingContent: '',
+					streamingReasoningContent: '',
 					executingTools: false,
 					streamPhase: 'idle',
 					streamWarning: null,
@@ -2376,6 +2533,7 @@ export const chatActions = {
 	setSelectedModel: (modelId: string) => useChatStore.getState().setSelectedModel(modelId),
 	setToolsEnabled: (enabled: boolean) => useChatStore.getState().setToolsEnabled(enabled),
 	setSafetyLevel: (level: 1 | 2 | 3) => useChatStore.getState().setSafetyLevel(level),
+	setPromptProfile: (profile: PromptProfile) => useChatStore.getState().setPromptProfile(profile),
 	hydrateSettings: (settings: Partial<ChatSettingsSnapshot>) =>
 		useChatStore.getState().hydrateSettings(settings),
 	setSettingsStatus: (status: SettingsStatus, error?: string | null) =>
@@ -2384,6 +2542,7 @@ export const chatActions = {
 	notifySettingsImported: () => useChatStore.getState().notifySettingsImported(),
 	sendMessage: (content: string, options?: SendMessageOptions) =>
 		useChatStore.getState().sendMessage(content, options),
+	retryLastMessage: () => useChatStore.getState().retryLastMessage(),
 	clearMessages: () => useChatStore.getState().clearMessages(),
 	createChat: () => useChatStore.getState().createChat(),
 	switchChat: (chatId: string) => useChatStore.getState().switchChat(chatId),

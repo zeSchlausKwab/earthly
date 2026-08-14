@@ -20,6 +20,7 @@ import {
 } from './helpers'
 import { dispatch } from './registry'
 import { isToolError, type ToolError } from './errors'
+import { isToolRedirect } from './source-routing'
 
 export async function executeToolCall(
 	toolCall: ToolCall,
@@ -33,7 +34,13 @@ export async function executeToolCall(
 	try {
 		const args = parseToolCallArguments(toolCall.function.arguments)
 
-		const dispatched = await dispatch(toolCall.function.name, args, context)
+		let dispatched = await dispatch(toolCall.function.name, args, context)
+		// Structured redirects are host-side routing decisions, not failures the
+		// model should spend another round interpreting. Follow exactly once; a
+		// second redirect is returned as data to avoid redirect cycles.
+		if (isToolRedirect(dispatched)) {
+			dispatched = await dispatch(dispatched.redirectTool, dispatched.redirectArguments, context)
+		}
 
 		// Structured tool failure (unknown tool or handler error). Preserve the
 		// role:'tool' envelope (tool_call_id + content) so the model loop keeps
@@ -80,10 +87,14 @@ export async function executeToolCall(
 		// Last-resort guard: arg-parse failure or post-dispatch baking error.
 		// Surfaced in the same typed shape so the UI/model treat it uniformly.
 		const toolError: ToolError = {
+			ok: false,
 			kind: 'handler_error',
 			toolName: toolCall.function.name,
 			message: error instanceof Error ? error.message : 'Tool execution failed',
 			argumentsPreview,
+			code: 'tool_execution_error',
+			retryable: false,
+			sideEffectsApplied: false,
 		}
 		return {
 			tool_call_id: toolCall.id,

@@ -240,7 +240,10 @@ export function usePublishing({
 
 	const buildCollectionFromEditor = useCallback((): FeatureCollection | null => {
 		if (!editor) return null
-		const currentFeatures = editor.getAllFeatures()
+		// `features` is the reactive Zustand mirror. Reading only from the stable
+		// editor instance made this callback retain the previous collection identity,
+		// so size/publish previews did not rerender after simplify/update operations.
+		const currentFeatures = features
 		if (currentFeatures.length === 0) return null
 
 		const collectionName =
@@ -311,6 +314,7 @@ export function usePublishing({
 		return collection
 	}, [
 		editor,
+		features,
 		collectionMeta,
 		activeDataset,
 		getDatasetName,

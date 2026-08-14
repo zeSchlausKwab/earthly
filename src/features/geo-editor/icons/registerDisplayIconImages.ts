@@ -6,7 +6,7 @@
  * its full `lucide:<name>` id with `{ sdf: true }`, together with a
  * synchronously drawn SDF fallback dot under {@link FALLBACK_ICON_IMAGE_ID}.
  * SDF images accept the data-driven `icon-color` paint property, which is how
- * the symbol layers tint glyphs with the feature's `strokeColor` — no color
+ * the symbol layers tint glyphs for contrast with the feature's `color` — no color
  * (and no backing disc) is baked into the bitmap; the disc + ring come from
  * the circle layer underneath. Registration is idempotent and must be re-run
  * after every `style.load` — `setStyle` (theme flips, map-source switches)

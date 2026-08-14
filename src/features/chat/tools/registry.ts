@@ -14,6 +14,7 @@
  */
 
 import { EarthlyGeoServerClient } from '@/ctxcn/EarthlyGeoServerClient'
+import { loadWorldLayer } from '@/lib/geo/worldData'
 import { createAuthoring } from '@/features/geo-editor/api'
 import { executeEditorAiTool, getEditorAiToolDefinitions } from '@/features/geo-editor/commands'
 import { useEditorStore } from '@/features/geo-editor/store'
@@ -37,6 +38,11 @@ import { registerCalloutTools } from './callout-tools'
 import { registerIngestTools } from './ingest-tools'
 import { registerPrimitiveTools } from './primitives-tools'
 import { registerSearchTools } from './search-tools'
+import {
+	registerReferenceBoundaryTools,
+	selectNaturalEarthCountries,
+} from './reference-boundary-tools'
+import { registerRoutingTools } from './routing-tools'
 import { getWikipediaFetchRedirect } from './source-routing'
 import { geoStaticToolSchemas } from './schemas'
 import {
@@ -129,6 +135,7 @@ export async function dispatch(
 	const entry = registry.get(name)
 	if (!entry) {
 		return {
+			ok: false,
 			kind: 'unknown_tool',
 			toolName: name,
 			message: `Unknown tool: ${name}`,
@@ -138,9 +145,22 @@ export async function dispatch(
 		return await entry.handler(args, context)
 	} catch (error) {
 		return {
+			ok: false,
 			kind: 'handler_error',
 			toolName: name,
 			message: error instanceof Error ? error.message : 'Tool execution failed',
+			code:
+				error && typeof error === 'object' && 'code' in error
+					? String((error as { code: unknown }).code)
+					: 'tool_handler_error',
+			retryable:
+				error && typeof error === 'object' && 'retryable' in error
+					? Boolean((error as { retryable: unknown }).retryable)
+					: false,
+			...(error && typeof error === 'object' && 'retryAfterMs' in error
+				? { retryAfterMs: Number((error as { retryAfterMs: unknown }).retryAfterMs) }
+				: {}),
+			sideEffectsApplied: false,
 			...(entry.origin ? { origin: entry.origin } : {}),
 		} satisfies ToolError
 	}
@@ -630,15 +650,15 @@ function registerRemoteMcpTools(): void {
 				areaFeatures = extractPolygonAreaFeatures(relationResult.feature)
 			} else if (countryCode || countryName) {
 				areaSource = 'country_boundary'
-				const boundaryResponse = await client.GetCountryBoundary(
-					countryCode,
-					countryName,
-					2,
-					undefined,
-					undefined,
+				const boundaryResult = selectNaturalEarthCountries(
+					await loadWorldLayer('countries_110m'),
+					countryName ? [countryName] : [],
+					countryCode ? [countryCode] : [],
 				)
-				const boundaryResult = extractMcpToolResult('get_country_boundary', boundaryResponse)
-				areaFeatures = extractPolygonAreaFeatures(boundaryResult.feature)
+				areaFeatures = extractPolygonAreaFeatures({
+					type: 'FeatureCollection',
+					features: boundaryResult.features,
+				})
 			}
 
 			if (areaFeatures.length === 0) {
@@ -760,23 +780,26 @@ function registerRemoteMcpTools(): void {
 
 	register({
 		name: 'get_country_boundary',
-		kind: 'remote-mcp',
-		origin: REMOTE_MCP_ORIGIN,
+		kind: 'host-builtin',
 		schema: schemaFor('get_country_boundary'),
 		handler: async (args) => {
-			const client = getGeoClient()
 			const countryCode =
 				typeof args.countryCode === 'string' ? args.countryCode.trim().toUpperCase() : undefined
 			const name = typeof args.name === 'string' ? args.name.trim() : undefined
 			if (!countryCode && !name) throw new Error('countryCode or name is required')
-			const response = await client.GetCountryBoundary(
-				countryCode || undefined,
-				name || undefined,
-				toFiniteNumber(args.adminLevel),
-				toFiniteNumber(args.coordinatePrecision),
-				toFiniteNumber(args.maxPointsPerRing),
+			const result = selectNaturalEarthCountries(
+				await loadWorldLayer('countries_110m'),
+				name ? [name] : [],
+				countryCode ? [countryCode] : [],
 			)
-			return extractMcpToolResult('get_country_boundary', response)
+			const feature = result.features[0]
+			if (!feature)
+				throw new Error(`No bundled Natural Earth country matched ${name ?? countryCode}`)
+			return {
+				query: name ?? countryCode,
+				source: 'natural_earth_countries_110m',
+				feature,
+			}
 		},
 	})
 
@@ -809,7 +832,23 @@ function registerRemoteMcpTools(): void {
 				typeof args.units === 'string' ? args.units : undefined,
 				typeof args.baseUrl === 'string' ? args.baseUrl : undefined,
 			)
-			return extractMcpToolResult('valhalla_route', response)
+			const result = extractMcpToolResult('valhalla_route', response)
+			const feature = asFeatureObject(result.feature)
+			return {
+				...result,
+				...(feature
+					? {
+							feature: {
+								...feature,
+								properties: {
+									...(feature.properties ?? {}),
+									geometryPrecision: 'network-derived',
+									mappingBasis: 'Valhalla route over the configured transport network',
+								},
+							},
+						}
+					: {}),
+			}
 		},
 	})
 
@@ -1151,6 +1190,10 @@ function bootstrapRegistry(): void {
 	// `./registry` back, so this edge is one-way and does not form the Phase-2
 	// circular-init cycle (Pitfall 6).
 	registerGeometryTools(register)
+	// Source selection and line-network pathfinding are host-owned facades: the
+	// model asks for the result instead of orchestrating low-level plumbing.
+	registerReferenceBoundaryTools(register)
+	registerRoutingTools(register)
 	registerCalloutTools(register)
 	// Same injected-`register` idiom: search-tools registers search_entities +
 	// query_entities_in_area (host-builtin relay queries over the src/lib/search

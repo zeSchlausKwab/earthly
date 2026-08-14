@@ -216,6 +216,26 @@ describe('createAuthoring — commitDataset (validated atomic replace)', () => {
 		expect(editor.getFeature('researched-1')?.properties?.sourceRow).toBe(1)
 	})
 
+	it('rejects unknown geometry precision labels', () => {
+		const editor = createHeadlessEditor()
+		const authoring = createAuthoring(editor)
+		expect(() =>
+			authoring.commitDataset({
+				featureCollection: {
+					type: 'FeatureCollection',
+					features: [
+						{
+							type: 'Feature',
+							properties: { geometryPrecision: 'pretty close' },
+							geometry: { type: 'Point', coordinates: [12.5, 41.9] },
+						},
+					],
+				},
+				metadata: { name: 'Precision fixture' },
+			}),
+		).toThrow(/geometryPrecision must be schematic, generalized, network-derived, or exact/)
+	})
+
 	it('rejects the entire dataset before replacing existing state', () => {
 		const editor = createHeadlessEditor()
 		const authoring = createAuthoring(editor)

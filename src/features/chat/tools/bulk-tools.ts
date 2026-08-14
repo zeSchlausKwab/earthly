@@ -76,6 +76,7 @@ const PREDICATE_OPS = new Set([
 	'exists',
 	'missing',
 	'contains',
+	'icontains',
 	'in',
 	'lt',
 	'lte',
@@ -195,7 +196,10 @@ export function parsePredicate(raw: unknown): Predicate {
 		if ((op === 'lt' || op === 'lte' || op === 'gt' || op === 'gte') && typeof value !== 'number') {
 			throw new Error(`predicate op '${op}' requires a numeric \`value\``)
 		}
-		if ((op === 'eq' || op === 'neq' || op === 'contains') && value === undefined) {
+		if (
+			(op === 'eq' || op === 'neq' || op === 'contains' || op === 'icontains') &&
+			value === undefined
+		) {
 			throw new Error(`predicate op '${op}' requires a \`value\``)
 		}
 	}
@@ -322,7 +326,7 @@ function applyDeclarativeOps(
 
 /** One style bucket in `style_by_attribute` (predicate → forgiving style bag). */
 interface StyleBucket {
-	predicate: Predicate
+	matches: (feature: EditorFeature) => boolean
 	style: Record<string, unknown>
 }
 
@@ -645,6 +649,17 @@ export function registerBulkTools(register: (entry: ToolEntry) => void): void {
 					// normalizeStyleOptions throws InvalidStyleOptionError on an unknown key
 					// → surfaces as a ToolError so the model self-corrects (Pitfall 3).
 					const styleProps = normalizeStyleOptions(chosen)
+					// The point renderer uses `color` for its backing disc; `fillColor`
+					// is a polygon property. Models naturally describe that disc as a fill,
+					// so accept the harmless alias here instead of silently leaving an old
+					// point color in place (which previously hid same-colored icon glyphs).
+					if (
+						(f.geometry.type === 'Point' || f.geometry.type === 'MultiPoint') &&
+						typeof styleProps.fillColor === 'string' &&
+						styleProps.color === undefined
+					) {
+						styleProps.color = styleProps.fillColor
+					}
 					return {
 						...f,
 						properties: {

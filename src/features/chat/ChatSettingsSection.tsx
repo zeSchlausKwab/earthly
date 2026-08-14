@@ -65,6 +65,8 @@ export function ChatSettingsSection() {
 		modelsLoading,
 		modelsError,
 		toolsEnabled,
+		promptProfile,
+		safetyLevel,
 		isStreaming,
 		settingsStatus,
 		settingsError,
@@ -73,6 +75,7 @@ export function ChatSettingsSection() {
 		loadModels,
 		setSelectedModel,
 		setToolsEnabled,
+		setPromptProfile,
 		requestSettingsReload,
 		cancelStream,
 	} = useChatStore()
@@ -96,6 +99,8 @@ export function ChatSettingsSection() {
 					providerOverrides,
 					selectedModel,
 					toolsEnabled,
+					safetyLevel,
+					promptProfile,
 					version: 2,
 				})
 				await navigator.clipboard.writeText(json)
@@ -468,6 +473,27 @@ export function ChatSettingsSection() {
 						<ToggleLeft className="h-5 w-5 shrink-0" />
 					)}
 				</Button>
+			</div>
+
+			<div className="space-y-2 rounded-lg border bg-card p-3">
+				<div>
+					<Label htmlFor="chat-prompt-profile">System prompt profile</Label>
+					<p className="mt-1 text-xs text-muted-foreground">
+						Guided keeps the full quality-oriented spatial playbook. Compact is an experimental
+						profile for comparing how much the model can infer from tool descriptions alone.
+					</p>
+				</div>
+				<NativeSelect
+					id="chat-prompt-profile"
+					value={promptProfile}
+					onChange={(event) =>
+						setPromptProfile(event.target.value === 'legacy' ? 'legacy' : 'compact')
+					}
+					disabled={isStreaming}
+				>
+					<NativeSelectOption value="legacy">Guided (recommended)</NativeSelectOption>
+					<NativeSelectOption value="compact">Compact (experimental)</NativeSelectOption>
+				</NativeSelect>
 			</div>
 
 			{settingsStatus === 'loading' ? (

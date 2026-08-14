@@ -463,7 +463,7 @@ export class LayerManager {
 			}
 
 			// 5a. Point icon layer — points whose `displayIcon` style property is
-			// set render an SDF glyph tinted with the feature's `strokeColor`
+			// set render an SDF glyph automatically contrasted against `color`
 			// on top of the circle layer's color-filled disc + strokeColor ring.
 			// Unknown/unregistered icon ids resolve to the always-registered
 			// fallback marker via the `coalesce`/`image` expression, so a point

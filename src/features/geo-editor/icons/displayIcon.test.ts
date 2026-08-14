@@ -7,6 +7,7 @@ import {
 	displayIconDiscRadiusExpression,
 	displayIconImageExpression,
 	displayIconSizeExpression,
+	contrastingDisplayIconColor,
 	getDisplayIconSvg,
 	hasDisplayIconFilter,
 	isBundledDisplayIcon,
@@ -117,8 +118,13 @@ describe('MapLibre expression builders', () => {
 		])
 	})
 
-	it('icon-color tints the SDF glyph with strokeColor, white fallback', () => {
-		expect(displayIconColorExpression()).toEqual(['coalesce', ['get', 'strokeColor'], '#ffffff'])
+	it('icon-color derives high contrast from the backing-disc color, independent of its ring', () => {
+		const expression = displayIconColorExpression()
+		expect(JSON.stringify(expression)).toContain('to-rgba')
+		expect(JSON.stringify(expression)).toContain('color')
+		expect(JSON.stringify(expression)).not.toContain('strokeColor')
+		expect(contrastingDisplayIconColor('#dbeafe')).toBe('#111827')
+		expect(contrastingDisplayIconColor('#1e40af')).toBe('#ffffff')
 	})
 
 	it('icon-color activeColor overrides the tint while the feature is active', () => {
@@ -126,7 +132,7 @@ describe('MapLibre expression builders', () => {
 			'case',
 			['==', ['get', 'active'], true],
 			'#ffffff',
-			['coalesce', ['get', 'strokeColor'], '#ffffff'],
+			displayIconColorExpression(),
 		])
 	})
 

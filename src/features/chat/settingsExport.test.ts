@@ -17,6 +17,7 @@ function makeV2(): ChatSettingsSnapshot {
 		selectedModel: 'some-model',
 		toolsEnabled: false,
 		safetyLevel: 3,
+		promptProfile: 'compact',
 		version: 2,
 	}
 }

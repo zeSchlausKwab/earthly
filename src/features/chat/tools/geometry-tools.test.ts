@@ -108,6 +108,73 @@ describe('registerGeometryTools — fine-grained geometry operations', () => {
 		expect(corridorSchema.required).toContain('width')
 		expect(corridorSchema.properties).toHaveProperty('resultMode')
 	})
+
+	it('advertises predicate-targeted simplification without selection arguments', () => {
+		const tool = advertise().find((candidate) => candidate.function.name === 'simplify_features')
+		expect(tool).toBeDefined()
+		const parameters = tool?.function.parameters as {
+			properties?: Record<string, unknown>
+			required?: string[]
+		}
+		expect(parameters.required).toContain('predicate')
+		expect(parameters.properties).toHaveProperty('tolerance')
+		expect(parameters.properties).not.toHaveProperty('selected')
+		expect(parameters.properties).not.toHaveProperty('featureIds')
+	})
+})
+
+describe('simplify_features — programmatic targeting and fresh metrics', () => {
+	it('simplifies matching geometry without reading or changing the visible selection', async () => {
+		setLevel(3)
+		seedFeatures([
+			lineFeature(
+				'road',
+				Array.from({ length: 101 }, (_, index) => [index / 100, (index % 2) * 0.000001]),
+			),
+			lineFeature('rail', [
+				[0, 1],
+				[1, 1],
+			]),
+		])
+		const editor = useEditorStore.getState().editor
+		if (!editor) throw new Error('no editor')
+		const road = editor.getFeature('road')
+		const rail = editor.getFeature('rail')
+		if (!road || !rail) throw new Error('seeded features missing')
+		editor.updateFeature('road', {
+			...road,
+			properties: { kind: 'road' },
+		})
+		editor.updateFeature('rail', {
+			...rail,
+			properties: { kind: 'rail' },
+		})
+		editor.selectFeatures(['rail'])
+
+		const result = await dispatch('simplify_features', {
+			predicate: { all: [{ field: 'kind', op: 'eq', value: 'road' }] },
+			tolerance: 0.001,
+		})
+
+		expect(isToolError(result)).toBe(false)
+		expect(result).toMatchObject({ matched: 1, updated: 1, skipped: 0 })
+		const metrics = result as {
+			verticesBefore: number
+			verticesAfter: number
+			datasetBytesBefore: number
+			datasetBytesAfter: number
+		}
+		expect(metrics.verticesAfter).toBeLessThan(metrics.verticesBefore)
+		expect(metrics.datasetBytesAfter).toBeLessThan(metrics.datasetBytesBefore)
+		expect(editor.getSelectedFeatures().map((feature) => feature.id)).toEqual(['rail'])
+		expect(editor.getFeature('rail')?.geometry).toEqual({
+			type: 'LineString',
+			coordinates: [
+				[0, 1],
+				[1, 1],
+			],
+		})
+	})
 })
 
 describe('optimize_geometry — schema (D-04, target-only)', () => {
@@ -159,5 +226,36 @@ describe('optimize_geometry — gates as modify (one snapshot)', () => {
 
 		await pending.catch(() => undefined)
 		expect(isToolError(await pending.catch((e) => e))).toBe(false)
+	})
+})
+
+describe('create_line_corridor — host-side batch targeting', () => {
+	it('unions multiple predicate-selected lines in one gated apply', async () => {
+		setLevel(3)
+		seedFeatures([
+			lineFeature('river-a', [
+				[0, 0],
+				[0.02, 0],
+			]),
+			lineFeature('river-b', [
+				[0.01, -0.01],
+				[0.01, 0.01],
+			]),
+		])
+		const result = await dispatch('create_line_corridor', {
+			predicate: { all: [{ field: '$geometryType', op: 'eq', value: 'LineString' }] },
+			width: 500,
+			units: 'meters',
+			merge: 'union',
+		})
+		expect(isToolError(result)).toBe(false)
+		expect(result).toMatchObject({
+			cancelled: false,
+			merged: true,
+			sourceFeatureIds: ['river-a', 'river-b'],
+		})
+		const after = useEditorStore.getState().editor?.getAllFeatures() ?? []
+		expect(after).toHaveLength(3)
+		expect(after.at(-1)?.properties?.mappingBasis).toContain('union of 2')
 	})
 })

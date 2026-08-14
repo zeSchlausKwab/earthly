@@ -3,16 +3,20 @@ import { BUILTIN_PROVIDERS, estimateMaxCost } from './routstr'
 import type { ProviderConfig, RoutstrModel } from './routstr'
 import {
 	DEFAULT_CHAT_SETTINGS,
+	STREAM_STALL_TIMEOUT_MS,
 	TRUNCATION_CONTENT_SUFFIX,
 	chatStorePartialize,
 	compactIngestHandlePartForPrompt,
 	deriveOutputBudget,
 	describeEmptyCompletion,
 	getPromptBudgetTokens,
+	getAdvertisedGeoTools,
 	resolveProvider,
+	sanitizeMessageForPrompt,
 	useChatStore,
 } from './store'
 import type { ProviderOverrideMap } from './store'
+import { getGeoTools } from './tools'
 
 function makeModel(overrides: Partial<RoutstrModel> = {}): RoutstrModel {
 	return {
@@ -30,6 +34,39 @@ const FREE_PROVIDERS: ProviderConfig[] = [
 	BUILTIN_PROVIDERS.ollama,
 	{ type: 'custom', baseUrl: 'http://custom/v1', name: 'Custom', requiresPayment: false },
 ]
+
+describe('stream stall watchdog', () => {
+	test('allows slow reasoning providers at least four minutes without a response update', () => {
+		expect(STREAM_STALL_TIMEOUT_MS).toBeGreaterThanOrEqual(240_000)
+	})
+})
+
+describe('model tool advertisement', () => {
+	test('exposes the complete registered tool surface to vision-capable models', () => {
+		expect(getAdvertisedGeoTools(true)).toEqual(getGeoTools())
+	})
+
+	test('only removes genuinely incompatible vision tools for text-only models', () => {
+		const advertisedNames = getAdvertisedGeoTools(false).map((tool) => tool.function.name)
+		const expectedNames = getGeoTools()
+			.map((tool) => tool.function.name)
+			.filter((name) => name !== 'capture_map_snapshot')
+
+		expect(advertisedNames).toEqual(expectedNames)
+	})
+})
+
+describe('system prompt transport', () => {
+	test('retains a contemporary long map policy instead of silently cutting it at 1,800 chars', () => {
+		const tailContract = 'TAIL_CONTRACT_FIRST_VISIBLE_GEOMETRY'
+		const content = `${'policy '.repeat(3_000)}${tailContract}`
+		const sanitized = sanitizeMessageForPrompt({ role: 'system', content })
+
+		expect(sanitized.content).toBe(content)
+		expect(String(sanitized.content)).toContain(tailContract)
+		expect(String(sanitized.content)).not.toContain('[truncated for context window]')
+	})
+})
 
 function emptyOverrides(): ProviderOverrideMap {
 	return {

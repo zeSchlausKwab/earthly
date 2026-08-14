@@ -38,6 +38,7 @@ export {
 	consumeMapSnapshot,
 	getMapContextSnapshot,
 } from './context'
+export type { PromptProfile } from './context'
 
 // Geometry baking (used by ChatPanel)
 export {
