@@ -115,15 +115,29 @@ export function releaseArtifactNames(metadata: AndroidReleaseMetadata): {
 	return { apk: `${stem}.apk`, aab: `${stem}.aab` }
 }
 
-export function validateZapstoreReleaseSource(
-	contents: string,
-	metadata: AndroidReleaseMetadata,
-): string[] {
-	const configured = /^release_source:\s*(\S+)\s*$/mu.exec(contents)?.[1]
-	const expected = `./out/android/${metadata.versionName}/${releaseArtifactNames(metadata).apk}`
-	return configured === expected
-		? []
-		: [`zapstore.yaml release_source must be ${expected}, got ${configured ?? 'missing'}`]
+const ZAPSTORE_REPOSITORY = 'https://github.com/zeSchlausKwab/earthly'
+
+function yamlScalar(contents: string, key: string): string | undefined {
+	const value = new RegExp(`^${key}:\\s*(.+?)\\s*$`, 'mu').exec(contents)?.[1]
+	if (!value) return undefined
+	const quote = value.at(0)
+	return quote && quote === value.at(-1) && ['"', "'"].includes(quote)
+		? value.slice(1, -1)
+		: value
+}
+
+export function validateZapstoreGithubSource(contents: string): string[] {
+	const errors: string[] = []
+	const repository = yamlScalar(contents, 'repository')
+	if (repository !== ZAPSTORE_REPOSITORY) {
+		errors.push(
+			`zapstore.yaml repository must be ${ZAPSTORE_REPOSITORY}, got ${repository ?? 'missing'}`,
+		)
+	}
+	if (/^release_source:/mu.test(contents)) {
+		errors.push('zapstore.yaml must let zsp fetch releases from the configured GitHub repository')
+	}
+	return errors
 }
 
 export function parseApkCertificateFingerprint(output: string): string {
@@ -311,9 +325,8 @@ async function sha256(path: string): Promise<string> {
 async function check(): Promise<AndroidReleaseMetadata> {
 	const metadata = await readReleaseMetadata()
 	parsePublicReleaseEnvironment(await readFile(PUBLIC_ENV_PATH, 'utf8'))
-	const zapstoreErrors = validateZapstoreReleaseSource(
+	const zapstoreErrors = validateZapstoreGithubSource(
 		await readFile(ZAPSTORE_CONFIG_PATH, 'utf8'),
-		metadata,
 	)
 	if (zapstoreErrors.length > 0) throw new Error(zapstoreErrors.join('\n'))
 	console.log(

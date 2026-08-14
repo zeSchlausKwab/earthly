@@ -31,12 +31,12 @@ Update all release identities together:
   `bundle.android.versionCode`;
 - `src-tauri/Cargo.toml`: package `version`;
 - `Cargo.lock`: the `earthly-desktop` package version;
-- `zapstore.yaml`: `release_source` APK directory and filename;
 - `CHANGELOG.md`: a dated, user-facing entry.
 
-Do not raise `min_allowed_version_code` in `zapstore.yaml` for a routine update. Raise it only when
-older releases must deliberately be refused. The Android release workflow reads the version from
-`package.json`, so it does not need per-version path edits.
+`zapstore.yaml` discovers the latest arm64 APK from GitHub Releases, so routine releases
+do not require a per-version Zapstore edit. Do not raise `min_allowed_version_code` for a routine
+update. Raise it only when older releases must deliberately be refused. The Android release
+workflow reads the version from `package.json`, so it does not need per-version path edits.
 
 ## 2. Validate before signing
 
@@ -114,15 +114,15 @@ If the first list is empty, wait for the tag-triggered run to appear and repeat 
 
 ## 5. Verify the CI artifact and publish it to Zapstore
 
-Download the files attached to the tag into the path used by `zapstore.yaml`, replacing any local
-candidate only after CI succeeds:
+Download the files attached to the tag into a temporary directory and verify them after CI
+succeeds. Zapstore fetches the arm64 APK directly from the latest GitHub
+release; it does not depend on this local verification copy:
 
 ```sh
-rm -rf "out/android/$VERSION"
-mkdir -p "out/android/$VERSION"
-gh release download "$TAG" --dir "out/android/$VERSION"
+export RELEASE_VERIFY_DIR="$(mktemp -d)"
+gh release download "$TAG" --dir "$RELEASE_VERIFY_DIR"
 
-(cd "out/android/$VERSION" && shasum -a 256 -c SHA256SUMS.txt)
+(cd "$RELEASE_VERIFY_DIR" && shasum -a 256 -c SHA256SUMS.txt)
 bun run release:zapstore:check
 SIGN_WITH=browser bun run release:zapstore:publish
 ```
@@ -134,8 +134,8 @@ Publisher's overwrite mode:
 SIGN_WITH=browser zsp publish --overwrite-release zapstore.yaml
 ```
 
-Use `--overwrite-release` only for a deliberate replacement of the version currently referenced by
-`zapstore.yaml`. A normal new version should use the standard publish command above.
+Use `--overwrite-release` only for a deliberate replacement of the latest GitHub release. A normal
+new version should use the standard publish command above.
 
 The CI-generated `assetlinks.json` should retain the existing release certificate fingerprint. If
 the fingerprint changes, stop: that APK cannot update existing installations.
