@@ -72,7 +72,8 @@ release rehearsal. Install that version from its prebuilt releases or from sourc
 go install github.com/zapstore/zsp@v0.4.12
 ```
 
-After the signed APK exists, validate `zapstore.yaml` without publishing:
+After the signed APK is attached to the GitHub release, validate that `zapstore.yaml` discovers the
+latest arm64 APK without publishing:
 
 ```sh
 bun run release:zapstore:check

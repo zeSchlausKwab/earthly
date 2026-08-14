@@ -5,7 +5,7 @@ import {
 	parseApkCertificateFingerprint,
 	androidAssetLinksStatement,
 	releaseArtifactNames,
-	validateZapstoreReleaseSource,
+	validateZapstoreGithubSource,
 	validateReleaseVersions,
 } from './android-release'
 
@@ -151,25 +151,24 @@ describe('Android release tooling', () => {
 		})
 	})
 
-	test('keeps Zapstore and CI artifact paths aligned with the current version', async () => {
-		const metadata = {
-			packageName: 'city.earthly',
-			versionName: '0.0.2',
-			versionCode: 1002,
-		}
+	test('keeps Zapstore pointed at GitHub releases', async () => {
+		const githubConfig = `
+repository: https://github.com/zeSchlausKwab/earthly
+`
+		expect(validateZapstoreGithubSource(githubConfig)).toEqual([])
 		expect(
-			validateZapstoreReleaseSource(
-				'release_source: ./out/android/0.0.2/earthly-0.0.2-arm64-v8a.apk\n',
-				metadata,
-			),
-		).toEqual([])
-		expect(
-			validateZapstoreReleaseSource(
-				'release_source: ./out/android/0.0.1/earthly-0.0.1-arm64-v8a.apk\n',
-				metadata,
+			validateZapstoreGithubSource(
+				`${githubConfig}release_source: ./out/android/0.0.2/earthly-0.0.2-arm64-v8a.apk\n`,
 			),
 		).toEqual([
-			'zapstore.yaml release_source must be ./out/android/0.0.2/earthly-0.0.2-arm64-v8a.apk, got ./out/android/0.0.1/earthly-0.0.1-arm64-v8a.apk',
+			'zapstore.yaml must let zsp fetch releases from the configured GitHub repository',
+		])
+		expect(
+			validateZapstoreGithubSource(
+				'repository: https://github.com/example/fork\n',
+			),
+		).toEqual([
+			'zapstore.yaml repository must be https://github.com/zeSchlausKwab/earthly, got https://github.com/example/fork',
 		])
 
 		const workflow = await Bun.file(
