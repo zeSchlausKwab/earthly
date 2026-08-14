@@ -2,6 +2,13 @@ import type { Feature, FeatureCollection, Geometry, GeoJsonProperties } from 'ge
 
 export const COORDINATE_PRECISION_VALUES = ['exact', 'approximate', 'representative'] as const
 export type CoordinatePrecision = (typeof COORDINATE_PRECISION_VALUES)[number]
+export const GEOMETRY_PRECISION_VALUES = [
+	'schematic',
+	'generalized',
+	'network-derived',
+	'exact',
+] as const
+export type GeometryPrecision = (typeof GEOMETRY_PRECISION_VALUES)[number]
 
 export interface DatasetValidationOptions {
 	requireFeatureProvenance?: boolean
@@ -232,6 +239,15 @@ export function validateDataset(
 		)
 
 		if (hasProvenance(feature.properties)) provenanceFeatureCount += 1
+		const geometryPrecision = feature.properties?.geometryPrecision
+		if (
+			geometryPrecision !== undefined &&
+			!GEOMETRY_PRECISION_VALUES.includes(geometryPrecision as GeometryPrecision)
+		) {
+			issues.push(
+				`${path}.properties.geometryPrecision must be schematic, generalized, network-derived, or exact`,
+			)
+		}
 		if (options.requireFeatureProvenance) validateProvenance(feature.properties, path, issues)
 	})
 

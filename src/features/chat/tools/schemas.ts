@@ -532,7 +532,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'get_country_boundary',
 			description:
-				'SLOW remote OSM call: get a country administrative boundary relation (admin_level=2 by default). The response is transport-simplified (~250 points per ring), so it is NOT higher fidelity than the bundled data for most uses — for country outlines, areas, or coastline work prefer world.get("countries_110m") inside run_code (instant, local). Use this only when the user explicitly needs OSM-sourced national borders.',
+				'Get a generalized nation-state boundary from the fast bundled Natural Earth countries layer. This tool never queries OSM.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -574,7 +574,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'valhalla_route',
 			description:
-				'Compute a route polyline from waypoints using Valhalla. Returns GeoJSON line geometry and summary.',
+				'Compute a network-following road, bus, bicycle, pedestrian, or truck route from waypoints using Valhalla. Prefer this over drawing coarse or straight transport lines. Returns GeoJSON line geometry labeled network-derived plus a summary.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -963,6 +963,7 @@ export const geoStaticToolSchemas: Tool[] = [
 												'exists',
 												'missing',
 												'contains',
+												'icontains',
 												'in',
 												'lt',
 												'lte',
@@ -1014,6 +1015,7 @@ export const geoStaticToolSchemas: Tool[] = [
 												'exists',
 												'missing',
 												'contains',
+												'icontains',
 												'in',
 												'lt',
 												'lte',
@@ -1067,6 +1069,7 @@ export const geoStaticToolSchemas: Tool[] = [
 												'exists',
 												'missing',
 												'contains',
+												'icontains',
 												'in',
 												'lt',
 												'lte',
@@ -1130,6 +1133,7 @@ export const geoStaticToolSchemas: Tool[] = [
 												'exists',
 												'missing',
 												'contains',
+												'icontains',
 												'in',
 												'lt',
 												'lte',
@@ -1229,6 +1233,7 @@ export const geoStaticToolSchemas: Tool[] = [
 												'exists',
 												'missing',
 												'contains',
+												'icontains',
 												'in',
 												'lt',
 												'lte',
@@ -1296,6 +1301,7 @@ export const geoStaticToolSchemas: Tool[] = [
 															'exists',
 															'missing',
 															'contains',
+															'icontains',
 															'in',
 															'lt',
 															'lte',
@@ -1441,7 +1447,7 @@ export const geoStaticToolSchemas: Tool[] = [
 		function: {
 			name: 'add_feature_callout',
 			description:
-				'Attach an always-visible contextual map callout to one feature. The callout is authored content stored on that GeoJSON feature. Plain text may include nostr:naddr geo references; media uses structured NIP-92-compatible fields.',
+				'Attach an always-visible contextual map callout to one existing feature. A map callout belongs to its geometry and is not a Point feature, label, icon, popup, or feature with type="callout". Plain text may include nostr:naddr geo references; media uses structured NIP-92-compatible fields. Prefer add_feature_callouts when adding several.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -1479,6 +1485,44 @@ export const geoStaticToolSchemas: Tool[] = [
 					leader: { type: 'string', enum: ['line', 'none'] },
 				},
 				required: ['featureId', 'text'],
+			},
+		},
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'add_feature_callouts',
+			description:
+				'Atomically attach several always-visible map callouts to their existing owning geometries. Each callout is authored content stored on its feature; this does not create Point features. Use one batch instead of many add_feature_callout calls.',
+			parameters: {
+				type: 'object',
+				properties: {
+					callouts: {
+						type: 'array',
+						description: 'Callouts to append in authored order.',
+						items: {
+							type: 'object',
+							properties: {
+								featureId: { type: 'string', description: 'Existing owning feature id.' },
+								text: { type: 'string', description: 'Plain callout text.' },
+								title: { type: 'string', description: 'Optional short title.' },
+								placementSide: {
+									type: 'string',
+									enum: ['auto', 'top', 'right', 'bottom', 'left'],
+								},
+								offset: {
+									type: 'array',
+									items: { type: 'number' },
+									minItems: 2,
+									maxItems: 2,
+								},
+								leader: { type: 'string', enum: ['line', 'none'] },
+							},
+							required: ['featureId', 'text'],
+						},
+					},
+				},
+				required: ['callouts'],
 			},
 		},
 	},

@@ -1,5 +1,35 @@
 const NOMINATIM_BASE_URL = "https://nominatim.openstreetmap.org";
 const USER_AGENT = "EarthlyCity/1.0 Map MCP Server (https://earthly.city)";
+const MIN_REQUEST_INTERVAL_MS = 1000;
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_RETRIES = 2;
+
+interface CacheEntry {
+	value: unknown;
+	expiresAt: number;
+}
+
+const responseCache = new Map<string, CacheEntry>();
+const inFlightRequests = new Map<string, Promise<unknown>>();
+let requestQueue: Promise<void> = Promise.resolve();
+let nextRequestAt = 0;
+let requestIntervalMs = MIN_REQUEST_INTERVAL_MS;
+
+export class NominatimRequestError extends Error {
+	readonly code: string;
+	readonly status: number;
+	readonly retryable: boolean;
+	readonly retryAfterMs: number | null;
+
+	constructor(status: number, statusText: string, retryAfterMs: number | null) {
+		super(`Nominatim API error: ${status} ${statusText}`);
+		this.name = "NominatimRequestError";
+		this.code = `nominatim_http_${status}`;
+		this.status = status;
+		this.retryable = status === 429 || status === 503;
+		this.retryAfterMs = retryAfterMs;
+	}
+}
 
 // Raw Nominatim response shape
 export interface NominatimResult {
@@ -100,23 +130,84 @@ function normalizeResult(result: NominatimResult): NominatimLocation {
 	};
 }
 
-async function fetchJson(url: URL) {
-	const response = await fetch(url.toString(), {
-		headers: {
-			"User-Agent": USER_AGENT,
-		},
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseRetryAfter(value: string | null): number | null {
+	if (!value) return null;
+	const seconds = Number(value);
+	if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+	const timestamp = Date.parse(value);
+	return Number.isFinite(timestamp) ? Math.max(0, timestamp - Date.now()) : null;
+}
+
+async function scheduleRequest<T>(request: () => Promise<T>): Promise<T> {
+	const previous = requestQueue;
+	let release!: () => void;
+	requestQueue = new Promise<void>((resolve) => {
+		release = resolve;
 	});
-
-	if (!response.ok) {
-		if (response.status === 404) {
-			return null;
-		}
-		throw new Error(
-			`Nominatim API error: ${response.status} ${response.statusText}`,
-		);
+	await previous;
+	try {
+		const waitMs = Math.max(0, nextRequestAt - Date.now());
+		if (waitMs > 0) await sleep(waitMs);
+		nextRequestAt = Date.now() + requestIntervalMs;
+		return await request();
+	} finally {
+		release();
 	}
+}
 
-	return response.json();
+async function fetchJson(url: URL): Promise<unknown> {
+	const key = url.toString();
+	const cached = responseCache.get(key);
+	if (cached && cached.expiresAt > Date.now()) return cached.value;
+	if (cached) responseCache.delete(key);
+
+	const pending = inFlightRequests.get(key);
+	if (pending) return pending;
+
+	const request = scheduleRequest(async () => {
+		for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+			const response = await fetch(key, { headers: { "User-Agent": USER_AGENT } });
+			if (response.ok) {
+				const value = await response.json();
+				responseCache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+				return value;
+			}
+			if (response.status === 404) {
+				responseCache.set(key, { value: null, expiresAt: Date.now() + CACHE_TTL_MS });
+				return null;
+			}
+			const retryAfterMs = parseRetryAfter(response.headers.get("retry-after"));
+			const error = new NominatimRequestError(
+				response.status,
+				response.statusText,
+				retryAfterMs,
+			);
+			if (!error.retryable || attempt >= MAX_RETRIES) throw error;
+			// A retry is still a Nominatim request: preserve the one-request-per-
+			// second ceiling even when Retry-After is absent or explicitly zero.
+			await sleep(Math.max(requestIntervalMs, retryAfterMs ?? 500 * 2 ** attempt));
+			nextRequestAt = Date.now() + requestIntervalMs;
+		}
+		throw new Error("Nominatim request exhausted without a result");
+	});
+	inFlightRequests.set(key, request);
+	try {
+		return await request;
+	} finally {
+		inFlightRequests.delete(key);
+	}
+}
+
+export function resetNominatimRequestStateForTests(intervalMs = MIN_REQUEST_INTERVAL_MS): void {
+	responseCache.clear();
+	inFlightRequests.clear();
+	requestQueue = Promise.resolve();
+	nextRequestAt = 0;
+	requestIntervalMs = intervalMs;
 }
 
 export async function searchLocation(

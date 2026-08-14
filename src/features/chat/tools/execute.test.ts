@@ -4,7 +4,7 @@ import { createHeadlessEditor } from '@/features/geo-editor/core/test-harness'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { executeToolCall } from './execute'
 import { prepareMapToolFeaturesForEditor } from './helpers'
-import { type ToolEntry, register, registry } from './registry'
+import { type ToolEntry, register, registry, unregister } from './registry'
 
 const routeResult = {
 	feature: {
@@ -172,5 +172,54 @@ describe('OSM point import styling', () => {
 			displayIcon: 'lucide:star',
 			color: '#be123c',
 		})
+	})
+})
+
+describe('tool redirect execution', () => {
+	it('follows one structured redirect without spending another model round', async () => {
+		register({
+			name: 'test_redirect_source',
+			kind: 'host-builtin',
+			schema: {
+				type: 'function',
+				function: {
+					name: 'test_redirect_source',
+					description: 'fixture',
+					parameters: { type: 'object', properties: {} },
+				},
+			},
+			handler: () => ({
+				ok: false,
+				kind: 'tool_redirect',
+				toolName: 'test_redirect_source',
+				message: 'Use structured reader',
+				redirectTool: 'test_redirect_target',
+				redirectArguments: { title: 'Rome' },
+			}),
+		})
+		register({
+			name: 'test_redirect_target',
+			kind: 'host-builtin',
+			schema: {
+				type: 'function',
+				function: {
+					name: 'test_redirect_target',
+					description: 'fixture',
+					parameters: { type: 'object', properties: {} },
+				},
+			},
+			handler: (args) => ({ ok: true, title: args.title }),
+		})
+		try {
+			const result = await executeToolCall({
+				id: 'redirect-call',
+				type: 'function',
+				function: { name: 'test_redirect_source', arguments: '{}' },
+			})
+			expect(JSON.parse(result.content)).toEqual({ ok: true, title: 'Rome' })
+		} finally {
+			unregister('test_redirect_source')
+			unregister('test_redirect_target')
+		}
 	})
 })

@@ -57,6 +57,7 @@ import {
 	Download,
 	Gauge,
 	MessageSquarePlus,
+	RefreshCw,
 } from 'lucide-react'
 import { preloadWorldData } from '@/lib/geo/worldData'
 import { estimateTokens, type ChatMessage, type ToolCall, type ProviderType } from './routstr'
@@ -81,19 +82,8 @@ import {
 	TOOL_OPERATION_PHASE_LABELS,
 	type ToolOperationGroup,
 } from './chatTimeline'
-
-const EMPTY_STATE_PROMPTS = [
-	'Get me the route from Linz to Vienna and bring it to the editor.',
-	'Generate a 20-minute bicycle isochrone from the current map center and add it to the editor.',
-	'Give me all military installations as points in Saudi Arabia. Keep only features within Saudi borders and preserve useful metadata.',
-	'Give me the River Elbe within German borders only. Keep it as line geometry clipped to Germany.',
-	'Use the currently selected polygon as the search area and add all parking benches inside it.',
-	'Resolve Vienna as an OSM relation, fetch clean boundary geometry, and import it into the editor.',
-	'Import all rivers in my current viewport and label the major ones.',
-	'Capture a map snapshot and tell me what notable places are visible right now.',
-	'Use web search + Wikipedia to find historically significant places in this viewport and import matching OSM features.',
-	'Set editor mode to draw_polygon, then explain the next 2 user actions to complete a polygon.',
-] as const
+import { buildLiveAssistantMessage } from './liveAssistantMessage'
+import { EMPTY_STATE_PROMPTS } from './examplePrompts'
 
 const PROVIDER_LABELS: Record<ProviderType, string> = {
 	routstr: 'Routstr (paid)',
@@ -183,19 +173,23 @@ export function ChatPanel({
 		modelsError,
 		isStreaming,
 		streamingContent,
+		streamingReasoningContent,
 		executingTools,
 		streamPhase,
 		streamWarning,
 		lastProgressAt,
 		toolsEnabled,
+		promptProfile,
 		error,
 		totalSpent,
 		diagnostics,
+		lastTurnRequest,
 		provider,
 		providerOverrides,
 		loadModels,
 		setSelectedModel,
 		sendMessage,
+		retryLastMessage,
 		createChat,
 		switchChat,
 		deleteChat,
@@ -278,7 +272,7 @@ export function ChatPanel({
 	// animations forced synchronous layout every frame and were a major source of
 	// streaming jank. Gated on proximity so it never yanks the view away from a
 	// user who has scrolled up to read earlier messages.
-	const scrollTrigger = `${messages.length}:${streamingContent.length}:${executingTools ? 1 : 0}:${streamWarning ? 1 : 0}`
+	const scrollTrigger = `${messages.length}:${streamingContent.length}:${streamingReasoningContent.length}:${executingTools ? 1 : 0}:${streamWarning ? 1 : 0}`
 	useEffect(() => {
 		if (!scrollTrigger) return
 		const anchor = messagesEndRef.current
@@ -445,6 +439,7 @@ export function ChatPanel({
 			selectedModel,
 			models,
 			toolsEnabled,
+			promptProfile,
 			diagnostics: diagnostics as unknown as Record<string, unknown>,
 		})
 		const json = serializeConversationDump(dump)
@@ -552,9 +547,11 @@ export function ChatPanel({
 	const phaseLabel = useMemo(() => {
 		switch (streamPhase) {
 			case 'requesting':
-				return 'Requesting model'
+				return 'Waiting for first response'
 			case 'streaming':
-				return 'Streaming response'
+				return streamingReasoningContent && !streamingContent
+					? 'Streaming reasoning'
+					: 'Streaming response'
 			case 'executing_tools':
 				return 'Executing tools'
 			case 'recovering_context':
@@ -564,7 +561,11 @@ export function ChatPanel({
 			default:
 				return 'Idle'
 		}
-	}, [streamPhase])
+	}, [streamPhase, streamingContent, streamingReasoningContent])
+	const liveAssistantMessage = useMemo(
+		() => buildLiveAssistantMessage(streamingContent, streamingReasoningContent),
+		[streamingContent, streamingReasoningContent],
+	)
 	const contextTokenDisplay =
 		diagnostics.effectiveContextTokens ?? selectedModelData?.contextLength ?? null
 	const contextUsageSummary = contextTokenDisplay
@@ -891,7 +892,24 @@ export function ChatPanel({
 										)
 										.join('\n')}
 								/>
+								<ChatMetric
+									label="Map progress"
+									value={
+										diagnostics.mapChangingToolResultCount > 0
+											? `${diagnostics.mapChangingToolResultCount} map-changing result${diagnostics.mapChangingToolResultCount === 1 ? '' : 's'}`
+											: 'No map change yet'
+									}
+								/>
 								<ChatMetric label="Finish reason" value={diagnostics.finishReason ?? 'Pending'} />
+								<ChatMetric label="Prompt profile" value={diagnostics.promptProfile} />
+								<ChatMetric
+									label="Advertised tools"
+									value={`${diagnostics.advertisedToolCount} · ${Math.ceil(diagnostics.advertisedToolSchemaChars / 1024)} KiB schema`}
+								/>
+								<ChatMetric
+									label="System prompt"
+									value={`${diagnostics.systemPromptChars.toLocaleString()} chars`}
+								/>
 							</dl>
 						</CollapsibleContent>
 					</div>
@@ -968,15 +986,12 @@ export function ChatPanel({
 						)}
 
 						{/* Streaming message */}
-						{isStreaming && streamingContent && (
-							<MessageBubble
-								message={{ role: 'assistant', content: streamingContent }}
-								isStreaming
-							/>
+						{isStreaming && liveAssistantMessage && (
+							<MessageBubble message={liveAssistantMessage} isStreaming />
 						)}
 
 						{/* Streaming/executing indicator */}
-						{isStreaming && !streamingContent && (
+						{isStreaming && !liveAssistantMessage && (
 							<div className="flex gap-2">
 								<div
 									className={cn(
@@ -1032,9 +1047,22 @@ export function ChatPanel({
 
 			{/* Error display */}
 			{error && (
-				<div className="px-3 py-2 text-xs text-destructive bg-destructive/10 border-t">{error}</div>
+				<div className="flex items-center justify-between gap-3 border-t bg-destructive/10 px-3 py-2 text-xs text-destructive">
+					<span>{error}</span>
+					{lastTurnRequest && !isStreaming ? (
+						<Button
+							type="button"
+							size="sm"
+							variant="outline"
+							className="h-7 shrink-0 gap-1.5"
+							onClick={() => void retryLastMessage()}
+						>
+							<RefreshCw className="h-3.5 w-3.5" />
+							Retry
+						</Button>
+					) : null}
+				</div>
 			)}
-
 			{/* Input */}
 			<form onSubmit={handleSubmit} className="shrink-0 border-t p-3">
 				<div className="space-y-2">

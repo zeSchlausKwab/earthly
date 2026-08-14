@@ -171,6 +171,8 @@ describe('story draft tools', () => {
 			pubkey,
 			identifier,
 		})}`
+		const published = await call('read_story_draft', { storyReference })
+		expect(published).toMatchObject({ exists: true, source: 'published' })
 
 		const result = await call('write_story_draft', {
 			storyReference,

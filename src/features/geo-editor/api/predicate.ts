@@ -32,6 +32,7 @@ export type PredicateOp =
 	| { field: string; op: 'eq' | 'neq'; value: string | number | boolean }
 	| { field: string; op: 'exists' | 'missing' }
 	| { field: string; op: 'contains'; value: string }
+	| { field: string; op: 'icontains'; value: string }
 	| { field: string; op: 'in'; value: (string | number | boolean)[] }
 	| { field: string; op: 'lt' | 'lte' | 'gt' | 'gte'; value: number }
 
@@ -56,8 +57,13 @@ function isMissing(value: unknown): boolean {
 }
 
 /** Evaluate one clause against a feature's properties. */
-function matchesClause(properties: EditorFeature['properties'], clause: PredicateOp): boolean {
-	const value = properties?.[clause.field]
+function matchesClause(feature: EditorFeature, clause: PredicateOp): boolean {
+	const value =
+		clause.field === '$id'
+			? feature.id
+			: clause.field === '$geometryType'
+				? feature.geometry?.type
+				: feature.properties?.[clause.field]
 
 	switch (clause.op) {
 		case 'eq':
@@ -71,11 +77,15 @@ function matchesClause(properties: EditorFeature['properties'], clause: Predicat
 		case 'contains':
 			// Case-sensitive substring on a string property; non-string → false (no throw).
 			return typeof value === 'string' && value.includes(clause.value)
+		case 'icontains':
+			return typeof value === 'string' && value.toLowerCase().includes(clause.value.toLowerCase())
 		case 'in':
 			// Defensive (CR-02): a non-array `value` (the tool layer rejects these up
 			// front, but the engine must NEVER throw on bad input) yields no match
 			// rather than crashing on `.includes`.
-			return Array.isArray(clause.value) && clause.value.includes(value as string | number | boolean)
+			return (
+				Array.isArray(clause.value) && clause.value.includes(value as string | number | boolean)
+			)
 		case 'lt':
 		case 'lte':
 		case 'gt':
@@ -98,7 +108,7 @@ function matchesClause(properties: EditorFeature['properties'], clause: Predicat
  * `feature.properties`. An empty clause list matches every feature (vacuous truth).
  */
 export function matchesPredicate(feature: EditorFeature, predicate: Predicate): boolean {
-	return predicate.all.every((clause) => matchesClause(feature.properties, clause))
+	return predicate.all.every((clause) => matchesClause(feature, clause))
 }
 
 /**

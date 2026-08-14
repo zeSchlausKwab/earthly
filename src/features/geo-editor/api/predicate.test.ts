@@ -111,6 +111,27 @@ describe('matchesPredicate — contains (substring on string props)', () => {
 	})
 })
 
+describe('matchesPredicate — host special fields and case-insensitive contains', () => {
+	it('matches $id and $geometryType without duplicating them into properties', () => {
+		expect(
+			matchesPredicate(pointFeature('special', [0, 0], { name: 'River ELBE' }), {
+				all: [
+					{ field: '$id', op: 'eq', value: 'special' },
+					{ field: '$geometryType', op: 'eq', value: 'Point' },
+				],
+			}),
+		).toBe(true)
+	})
+
+	it('supports icontains for user-facing name matching', () => {
+		expect(
+			matchesPredicate(pointFeature('x', [0, 0], { name: 'River ELBE' }), {
+				all: [{ field: 'name', op: 'icontains', value: 'elbe' }],
+			}),
+		).toBe(true)
+	})
+})
+
 describe('matchesPredicate — in (value-in-set)', () => {
 	it('in matches when the property value is one of the set', () => {
 		const f = pointFeature('a', [0, 0], { category: 'port' })

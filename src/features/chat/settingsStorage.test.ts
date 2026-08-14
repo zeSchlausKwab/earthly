@@ -153,6 +153,21 @@ describe('migrateV1ToV2 — safetyLevel (SAFE-04 / D-09 / T-05-11)', () => {
 	})
 })
 
+describe('migrateV1ToV2 — prompt profile', () => {
+	test('defaults old snapshots to guided legacy and preserves an explicit compact cohort', () => {
+		expect(migrateV1ToV2({}).promptProfile).toBe('legacy')
+		expect(migrateV1ToV2({ providerOverrides: {}, promptProfile: 'legacy' }).promptProfile).toBe(
+			'legacy',
+		)
+		expect(migrateV1ToV2({ providerOverrides: {}, promptProfile: 'compact' }).promptProfile).toBe(
+			'compact',
+		)
+		expect(migrateV1ToV2({ providerOverrides: {}, promptProfile: 'unknown' }).promptProfile).toBe(
+			'legacy',
+		)
+	})
+})
+
 describe('saveEncryptedChatSettings → loadEncryptedChatSettings round-trip (SAFE-04)', () => {
 	// (d) a save→load encrypt→decrypt round-trip preserves the set safetyLevel.
 	// A minimal in-memory localStorage + identity-cipher signer keeps this headless.
@@ -201,6 +216,7 @@ describe('saveEncryptedChatSettings → loadEncryptedChatSettings round-trip (SA
 					selectedModel: null,
 					toolsEnabled: true,
 					safetyLevel: level,
+					promptProfile: 'compact',
 				})
 
 				const loaded = await loadEncryptedChatSettings(signer as never, pubkey)

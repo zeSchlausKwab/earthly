@@ -54,6 +54,10 @@ function normalizeSafetyLevel(value: unknown): 1 | 2 | 3 {
 	return value === 1 || value === 3 ? value : 2
 }
 
+function normalizePromptProfile(value: unknown): ChatSettingsSnapshot['promptProfile'] {
+	return value === 'compact' ? 'compact' : 'legacy'
+}
+
 function normalizeOverride(value: unknown, fallback: ProviderOverride): ProviderOverride {
 	if (!isRecord(value)) return { ...fallback }
 	const baseUrl = typeof value.baseUrl === 'string' ? value.baseUrl : fallback.baseUrl
@@ -80,6 +84,7 @@ export function migrateV1ToV2(parsed: unknown): ChatSettingsSnapshot {
 			selectedModel: defaults.selectedModel,
 			toolsEnabled: defaults.toolsEnabled,
 			safetyLevel: defaults.safetyLevel,
+			promptProfile: defaults.promptProfile,
 			version: 2,
 		}
 	}
@@ -93,6 +98,7 @@ export function migrateV1ToV2(parsed: unknown): ChatSettingsSnapshot {
 	const toolsEnabled =
 		typeof parsed.toolsEnabled === 'boolean' ? parsed.toolsEnabled : defaults.toolsEnabled
 	const safetyLevel = normalizeSafetyLevel(parsed.safetyLevel)
+	const promptProfile = normalizePromptProfile(parsed.promptProfile)
 
 	// Already v2: normalize each override field-by-field (idempotent).
 	if ('providerOverrides' in parsed) {
@@ -107,6 +113,7 @@ export function migrateV1ToV2(parsed: unknown): ChatSettingsSnapshot {
 			selectedModel,
 			toolsEnabled,
 			safetyLevel,
+			promptProfile,
 			version: 2,
 		}
 	}
@@ -126,6 +133,7 @@ export function migrateV1ToV2(parsed: unknown): ChatSettingsSnapshot {
 		selectedModel,
 		toolsEnabled,
 		safetyLevel,
+		promptProfile,
 		version: 2,
 	}
 }

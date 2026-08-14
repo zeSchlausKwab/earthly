@@ -47,6 +47,7 @@
     "test": "bun test",
     "test:private-maps": "bun build scripts/private-maps-mls-smoke.ts --target=node --outfile=.cache/private-maps-mls-smoke.mjs && node .cache/private-maps-mls-smoke.mjs && bun build scripts/private-maps-delayed-echo-smoke.ts --target=node --outfile=.cache/private-maps-delayed-echo-smoke.mjs && node .cache/private-maps-delayed-echo-smoke.mjs && bun build scripts/private-maps-established-join-smoke.ts --target=node --outfile=.cache/private-maps-established-join-smoke.mjs && node .cache/private-maps-established-join-smoke.mjs",
     "ai:list": "bun run ai-suite/catalog.ts",
+		"chat:analyze": "bun run scripts/analyze-chat-dump.ts",
     "experience:list": "bun run ai-suite/experience-lab/catalog.ts",
     "experience:card": "bun run ai-suite/experience-lab/session-card.ts",
     "experience:audit": "playwright test -c ai-suite/playwright.config.ts --grep @experience-audit",

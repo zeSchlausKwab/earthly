@@ -4,6 +4,7 @@ import { isToolError, type ToolError } from './errors'
 describe('ToolError contract', () => {
 	it('isToolError accepts a valid unknown_tool error', () => {
 		const error: ToolError = {
+			ok: false,
 			kind: 'unknown_tool',
 			toolName: 'mystery',
 			message: 'Unknown tool: mystery',
@@ -13,6 +14,7 @@ describe('ToolError contract', () => {
 
 	it('isToolError accepts a valid handler_error with origin', () => {
 		const error: ToolError = {
+			ok: false,
 			kind: 'handler_error',
 			toolName: 'search_location',
 			message: 'network down',

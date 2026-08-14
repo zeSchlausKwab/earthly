@@ -13,6 +13,7 @@ describe('AI-suite chat provider settings', () => {
 			version: 2,
 		})
 		expect(settings.safetyLevel).toBe(2)
+		expect(settings.promptProfile).toBe('compact')
 		expect(settings.providerOverrides.lmstudio).toEqual({ baseUrl: '', apiKey: '' })
 	})
 
@@ -24,6 +25,7 @@ describe('AI-suite chat provider settings', () => {
 		expect(settings.provider).toBe('custom')
 		expect(settings.providerOverrides.custom.apiKey).toBe('')
 		expect(settings.safetyLevel).toBe(1)
+		expect(settings.promptProfile).toBe('compact')
 	})
 
 	test('rejects a plaintext remote endpoint', () => {

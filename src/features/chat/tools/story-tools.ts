@@ -18,6 +18,8 @@ import { Article } from '@/lib/nostr/article'
 import { ARTICLE_KIND } from '@/lib/nostr/kinds'
 import { eventStore } from '@/lib/nostr'
 import { NEW_STORY_DRAFT_KEY, readStoryDraft, writeStoryDraft } from '@/lib/nostr/story'
+import { stringifyNostrAddressReference } from '@/lib/nostr/references'
+import { useEditorStore } from '@/features/geo-editor/store'
 import { fetchLatestByCoordinate, parseEntityReference } from './entity-tools'
 import type { ToolEntry } from './registry'
 import type { Tool } from './types'
@@ -32,10 +34,31 @@ const MAX_BODY_CHARS = 100_000
  * gate re-arms independently for each Story d-tag.
  */
 const sessionOwnedDraftKeys = new Set<string>()
+const sessionReadDraftKeys = new Set<string>()
 
 /** Test hook — re-arm the overwrite gate. */
 export function resetStoryDraftOwnership(): void {
 	sessionOwnedDraftKeys.clear()
+	sessionReadDraftKeys.clear()
+}
+
+export function normalizeStoryFeatureReferences(markdown: string): {
+	markdown: string
+	normalizedCount: number
+} {
+	let normalizedCount = 0
+	const normalized = markdown.replace(
+		/(nostr:naddr1[a-z0-9]+)#([^\s)\],;]+)/gi,
+		(_match, fullReference: string, rawFeatureId: string) => {
+			if (!rawFeatureId.includes('/') || rawFeatureId.includes('%2F')) return _match
+			normalizedCount += 1
+			return stringifyNostrAddressReference({
+				address: fullReference.slice('nostr:'.length),
+				featureId: rawFeatureId.replace(/[.!?]+$/, ''),
+			})
+		},
+	)
+	return { markdown: normalized, normalizedCount }
 }
 
 function requireString(value: unknown, name: string, max: number): string {
@@ -151,8 +174,23 @@ export function registerStoryTools(register: (entry: ToolEntry) => void): void {
 			const target = await resolveStoryTarget(args.storyReference)
 			const draftKey = target?.draftKey ?? NEW_STORY_DRAFT_KEY
 			const draft = readStoryDraft(draftKey)
+			sessionReadDraftKeys.add(draftKey)
 			if (!draft) {
-				return { ok: true, exists: false, draftKey, draft: null }
+				return {
+					ok: true,
+					exists: Boolean(target),
+					draftKey,
+					source: target ? 'published' : 'empty',
+					draft: target
+						? {
+								title: target.story.article.title ?? null,
+								summary: target.story.article.summary ?? null,
+								image: target.story.article.image ?? null,
+								markdown: target.story.article.content ?? null,
+								updatedAt: target.story.created_at * 1000,
+							}
+						: null,
+				}
 			}
 			return {
 				ok: true,
@@ -182,6 +220,11 @@ export function registerStoryTools(register: (entry: ToolEntry) => void): void {
 
 			const target = await resolveStoryTarget(args.storyReference)
 			const draftKey = target?.draftKey ?? NEW_STORY_DRAFT_KEY
+			if (target && !sessionReadDraftKeys.has(draftKey)) {
+				throw new Error(
+					'Read the existing Story with read_story_draft before updating it. This prevents rewriting published content from model memory.',
+				)
+			}
 			const existing = readStoryDraft(draftKey)
 			if (
 				existing &&
@@ -197,11 +240,12 @@ export function registerStoryTools(register: (entry: ToolEntry) => void): void {
 				)
 			}
 
+			const normalizedBody = normalizeStoryFeatureReferences(markdown)
 			writeStoryDraft(draftKey, {
 				title: title.trim(),
 				summary,
 				image,
-				content: markdown,
+				content: normalizedBody.markdown,
 			})
 			sessionOwnedDraftKeys.add(draftKey)
 
@@ -213,7 +257,17 @@ export function registerStoryTools(register: (entry: ToolEntry) => void): void {
 				ok: true,
 				draftKey,
 				mode: target ? 'edit' : 'create',
-				stats: { titleChars: title.trim().length, markdownChars: markdown.length },
+				stats: {
+					titleChars: title.trim().length,
+					markdownChars: normalizedBody.markdown.length,
+					normalizedReferenceCount: normalizedBody.normalizedCount,
+				},
+				...(useEditorStore.getState().activeDataset && useEditorStore.getState().isDirty
+					? {
+							datasetWarning:
+								'The active dataset has unpublished local edits. Publish it before publishing this Story so cited references resolve to the intended version.',
+						}
+					: {}),
 				note: REVIEW_HINT,
 			}
 		},

@@ -16,6 +16,7 @@ function buildSnapshot(
 	selectedModel: string | null,
 	toolsEnabled: boolean,
 	safetyLevel: ChatSettingsSnapshot['safetyLevel'],
+	promptProfile: ChatSettingsSnapshot['promptProfile'],
 ): ChatSettingsSnapshot {
 	return {
 		provider,
@@ -23,6 +24,7 @@ function buildSnapshot(
 		selectedModel,
 		toolsEnabled,
 		safetyLevel,
+		promptProfile,
 		version: 2,
 	}
 }
@@ -36,6 +38,7 @@ export function useChatSettingsSync(): void {
 	const selectedModel = useChatStore((state) => state.selectedModel)
 	const toolsEnabled = useChatStore((state) => state.toolsEnabled)
 	const safetyLevel = useChatStore((state) => state.safetyLevel)
+	const promptProfile = useChatStore((state) => state.promptProfile)
 	const settingsLoadNonce = useChatStore((state) => state.settingsLoadNonce)
 	const settingsImportNonce = useChatStore((state) => state.settingsImportNonce)
 
@@ -57,6 +60,7 @@ export function useChatSettingsSync(): void {
 		selectedModel,
 		toolsEnabled,
 		safetyLevel,
+		promptProfile,
 	)
 	const serializedSnapshot = JSON.stringify(snapshot)
 
@@ -84,6 +88,8 @@ export function useChatSettingsSync(): void {
 				'providerOverrides',
 				'selectedModel',
 				'toolsEnabled',
+				'promptProfile',
+				'safetyLevel',
 			] as const) {
 				if (key in parsed.state) {
 					delete parsed.state[key]

@@ -95,8 +95,12 @@ describe('buildConversationDump', () => {
 		expect(dump.endpoint.modelId).toBe('local-model-1')
 		expect(dump.endpoint.modelLabel).toBe('Local Model One')
 		expect(dump.endpoint.toolsEnabled).toBe(true)
+		expect(dump.endpoint.promptProfile).toBe('legacy')
 		expect(dump.messageCount).toBe(MESSAGES.length)
 		expect(dump.diagnostics).toEqual({ finishReason: 'tool_calls', toolCallCount: 2 })
+		expect(dump.analysis.toolCallCount).toBe(2)
+		expect(dump.analysis.toolErrorCount).toBe(1)
+		expect(dump.analysis.completedWithAssistant).toBe(true)
 	})
 
 	test('captures tool calls (id/name/arguments) and RAW tool results', () => {

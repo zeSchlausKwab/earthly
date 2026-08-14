@@ -16,9 +16,11 @@
 import type { ChatMessage, ProviderType, RoutstrModel, ToolCall } from './routstr'
 import { resolveProvider } from './store'
 import type { ChatReference, ChatSession, ProviderOverrideMap } from './store'
+import type { PromptProfile } from './tools/context'
+import { isToolError } from './tools/errors'
 
 export const CONVERSATION_DUMP_SCHEMA = 'earthly.chat.dump'
-export const CONVERSATION_DUMP_VERSION = 1 as const
+export const CONVERSATION_DUMP_VERSION = 2 as const
 
 export interface ConversationDumpInput {
 	/** Wall-clock of the export, passed in so the builder stays pure. */
@@ -31,6 +33,7 @@ export interface ConversationDumpInput {
 	selectedModel: string | null
 	models: RoutstrModel[]
 	toolsEnabled: boolean
+	promptProfile?: PromptProfile
 	/** Live `ChatDiagnostics` snapshot (loosely typed to avoid a store-internal export). */
 	diagnostics?: Record<string, unknown> | null
 }
@@ -57,11 +60,74 @@ export interface ConversationDump {
 		modelId: string | null
 		modelLabel: string | null
 		toolsEnabled: boolean
+		promptProfile: PromptProfile
 	}
+	analysis: ConversationDumpAnalysis
 	diagnostics: Record<string, unknown> | null
 	references: ChatReference[]
 	messageCount: number
 	messages: ConversationDumpMessage[]
+}
+
+export interface ConversationDumpAnalysis {
+	modelRoundCount: number
+	toolCallCount: number
+	toolErrorCount: number
+	redirectCount: number
+	repeatedToolCalls: Array<{ fingerprint: string; count: number }>
+	completedWithAssistant: boolean
+	endedOnToolResult: boolean
+	stopReason: string | null
+}
+
+function parseToolContent(content: ChatMessage['content']): unknown {
+	if (typeof content !== 'string') return null
+	try {
+		return JSON.parse(content)
+	} catch {
+		return null
+	}
+}
+
+export function analyzeConversationDumpMessages(
+	messages: readonly ChatMessage[],
+	diagnostics?: Record<string, unknown> | null,
+): ConversationDumpAnalysis {
+	const fingerprints = new Map<string, number>()
+	let modelRoundCount = 0
+	let toolCallCount = 0
+	let toolErrorCount = 0
+	let redirectCount = 0
+	for (const message of messages) {
+		if (message.role === 'assistant') {
+			modelRoundCount += 1
+			for (const call of message.tool_calls ?? []) {
+				toolCallCount += 1
+				const fingerprint = `${call.function.name}:${call.function.arguments}`
+				fingerprints.set(fingerprint, (fingerprints.get(fingerprint) ?? 0) + 1)
+			}
+		}
+		if (message.role === 'tool') {
+			const value = parseToolContent(message.content)
+			if (isToolError(value) || (value as Record<string, unknown> | null)?.ok === false) {
+				toolErrorCount += 1
+			}
+			if ((value as Record<string, unknown> | null)?.kind === 'tool_redirect') redirectCount += 1
+		}
+	}
+	const last = messages.at(-1)
+	return {
+		modelRoundCount,
+		toolCallCount,
+		toolErrorCount,
+		redirectCount,
+		repeatedToolCalls: [...fingerprints.entries()]
+			.filter(([, count]) => count > 1)
+			.map(([fingerprint, count]) => ({ fingerprint, count })),
+		completedWithAssistant: last?.role === 'assistant' && Boolean(last.content),
+		endedOnToolResult: last?.role === 'tool',
+		stopReason: typeof diagnostics?.stopReason === 'string' ? diagnostics.stopReason : null,
+	}
 }
 
 /** Build the structured, secret-free conversation dump payload. */
@@ -92,7 +158,9 @@ export function buildConversationDump(input: ConversationDumpInput): Conversatio
 			modelId: input.selectedModel,
 			modelLabel,
 			toolsEnabled: input.toolsEnabled,
+			promptProfile: input.promptProfile ?? 'legacy',
 		},
+		analysis: analyzeConversationDumpMessages(input.messages, input.diagnostics),
 		diagnostics: input.diagnostics ?? null,
 		references: input.references,
 		messageCount: input.messages.length,

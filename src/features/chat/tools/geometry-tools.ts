@@ -35,14 +35,19 @@ import { buildPostWriteValidation } from '@/features/chat/safeEditing/autoValida
 import { gateBulkApply } from '@/features/chat/safeEditing/gateBulkEdit'
 import { getSafetyLevel } from '@/features/chat/safeEditing/safetyAccess'
 import { createAuthoring } from '@/features/geo-editor/api/authoring'
+import { deleteFeaturesById } from '@/features/geo-editor/api/authoring'
+import { performGeometryOperation } from '@/features/geo-editor/api/geometryOperations'
 import type { GeometryOperationRequest, PrimitiveUnits } from '@/features/geo-editor/api'
 import { BLOSSOM_UPLOAD_THRESHOLD_BYTES } from '@/features/geo-editor/constants'
 import type { GeoEditor } from '@/features/geo-editor/core/GeoEditor'
 import { useEditorStore } from '@/features/geo-editor/store'
+import { featureCollection, union as turfUnion } from '@turf/turf'
+import type { Feature, MultiPolygon, Polygon } from 'geojson'
 // TYPE-ONLY import from the registry (never the value `register`) — Pitfall 6.
 import type { ToolEntry } from './registry'
 import { schemaFor } from './schemas'
 import type { Tool } from './types'
+import { resolveSelectionScope } from './bulk-tools'
 
 const GEOMETRY_UNITS: PrimitiveUnits[] = ['meters', 'kilometers', 'miles']
 
@@ -123,11 +128,20 @@ const createCorridorSchema: Tool = {
 	function: {
 		name: 'create_line_corridor',
 		description:
-			'Create a symmetric polygon corridor from a line or polyline. Width is the total width across both sides of the centerline. The source line is preserved by default.',
+			'Create symmetric polygon corridors from one line, explicit featureIds, or a host-resolved predicate. Width is total width across both sides. Can union overlapping outputs and applies the whole batch atomically.',
 		parameters: {
 			type: 'object',
 			properties: {
 				featureId: { type: 'string', description: 'Id of the source line or polyline.' },
+				featureIds: {
+					type: 'array',
+					description: 'Explicit source line ids. Prefer predicate for host-side bulk targeting.',
+				},
+				predicate: {
+					type: 'object',
+					description:
+						'Host-resolved feature predicate, e.g. {all:[{field:"highway",op:"exists"}]}. Special fields include $selected, $id, and $geometryType.',
+				},
 				width: { type: 'number', description: 'Positive total corridor width.' },
 				units: {
 					type: 'string',
@@ -139,8 +153,14 @@ const createCorridorSchema: Tool = {
 					description: "'copy' preserves the line; 'replace' removes it. Default copy.",
 					enum: ['copy', 'replace'],
 				},
+				merge: {
+					type: 'string',
+					description:
+						'Keep separate corridors or union overlaps into one geometry. Default separate.',
+					enum: ['separate', 'union'],
+				},
 			},
-			required: ['featureId', 'width', 'units'],
+			required: ['width', 'units'],
 		},
 	},
 }
@@ -189,6 +209,33 @@ function numericArg(args: Record<string, unknown>, key: string): number {
 	const value = args[key]
 	if (typeof value !== 'number') throw new Error(`${key} must be a number.`)
 	return value
+}
+
+function resolveCorridorTargets(editor: GeoEditor, args: Record<string, unknown>) {
+	const explicitIds = Array.isArray(args.featureIds)
+		? args.featureIds.filter((id): id is string => typeof id === 'string' && Boolean(id.trim()))
+		: typeof args.featureId === 'string' && args.featureId.trim()
+			? [args.featureId.trim()]
+			: null
+	const targets = explicitIds
+		? explicitIds
+				.map((id) => editor.getFeature(id))
+				.filter((feature): feature is NonNullable<typeof feature> => Boolean(feature))
+		: args.predicate !== undefined
+			? resolveSelectionScope(args.predicate).filter(editor.getAllFeatures())
+			: []
+	if (targets.length === 0) {
+		throw new Error('Provide featureId, featureIds, or a predicate matching at least one line.')
+	}
+	if (targets.length > 100) throw new Error('A corridor batch is limited to 100 source lines.')
+	const nonLines = targets.filter(
+		(feature) =>
+			feature.geometry.type !== 'LineString' && feature.geometry.type !== 'MultiLineString',
+	)
+	if (nonLines.length > 0) {
+		throw new Error(`Corridor targets must be lines; ${nonLines.length} target(s) were not.`)
+	}
+	return targets
 }
 
 async function gateGeometryOperation(
@@ -375,14 +422,66 @@ export function registerGeometryTools(register: (entry: ToolEntry) => void): voi
 		schema: createCorridorSchema,
 		handler: async (args) => {
 			const editor = requireEditor()
-			const featureId = requiredFeatureId(args)
-			return gateGeometryOperation(
-				editor,
-				'Create line corridor',
-				featureId,
-				{ kind: 'corridor', width: numericArg(args, 'width'), units: parseUnits(args.units) },
-				parseResultMode(args.resultMode, 'copy'),
+			const targets = resolveCorridorTargets(editor, args)
+			const width = numericArg(args, 'width')
+			const units = parseUnits(args.units)
+			const resultMode = parseResultMode(args.resultMode, 'copy')
+			const corridors = targets.flatMap((target) =>
+				performGeometryOperation(target, { kind: 'corridor', width, units }).features.map(
+					(feature) => ({
+						...feature,
+						properties: {
+							...feature.properties,
+							geometryPrecision:
+								feature.properties?.geometryPrecision ??
+								target.properties?.geometryPrecision ??
+								'schematic',
+							mappingBasis: feature.properties?.mappingBasis ?? 'derived corridor',
+						},
+					}),
+				),
 			)
+			let outputs: Feature[] = corridors
+			if (args.merge === 'union' && corridors.length > 1) {
+				const merged = turfUnion(featureCollection(corridors as Feature<Polygon | MultiPolygon>[]))
+				if (!merged) throw new Error('The corridor polygons could not be unioned.')
+				outputs = [
+					{
+						...merged,
+						properties: {
+							geometryPrecision: 'schematic',
+							mappingBasis: `union of ${targets.length} derived line corridors`,
+							sourceFeatureIds: targets.map((target) => target.id),
+						},
+					},
+				]
+			}
+
+			let resultFeatureIds: string[] = []
+			const outcome = await gateBulkApply(
+				editor,
+				{ getSafetyLevel, label: `Create ${targets.length} line corridor(s)` },
+				resultMode === 'replace' ? 'modify' : 'add',
+				() => {
+					if (resultMode === 'replace') {
+						deleteFeaturesById(
+							editor,
+							targets.map((target) => target.id),
+						)
+					}
+					resultFeatureIds = createAuthoring(editor).writeGeoJSON(outputs).featureIds
+				},
+			)
+			const touched = resultFeatureIds
+				.map((id) => editor.getFeature(id))
+				.filter((feature): feature is NonNullable<typeof feature> => Boolean(feature))
+			return {
+				cancelled: outcome.status === 'cancelled',
+				sourceFeatureIds: targets.map((target) => target.id),
+				resultFeatureIds: outcome.status === 'applied' ? resultFeatureIds : [],
+				merged: args.merge === 'union',
+				...(touched.length > 0 ? { validation: await buildPostWriteValidation(touched) } : {}),
+			}
 		},
 	})
 

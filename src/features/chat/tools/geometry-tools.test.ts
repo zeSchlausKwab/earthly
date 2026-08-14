@@ -161,3 +161,34 @@ describe('optimize_geometry — gates as modify (one snapshot)', () => {
 		expect(isToolError(await pending.catch((e) => e))).toBe(false)
 	})
 })
+
+describe('create_line_corridor — host-side batch targeting', () => {
+	it('unions multiple predicate-selected lines in one gated apply', async () => {
+		setLevel(3)
+		seedFeatures([
+			lineFeature('river-a', [
+				[0, 0],
+				[0.02, 0],
+			]),
+			lineFeature('river-b', [
+				[0.01, -0.01],
+				[0.01, 0.01],
+			]),
+		])
+		const result = await dispatch('create_line_corridor', {
+			predicate: { all: [{ field: '$geometryType', op: 'eq', value: 'LineString' }] },
+			width: 500,
+			units: 'meters',
+			merge: 'union',
+		})
+		expect(isToolError(result)).toBe(false)
+		expect(result).toMatchObject({
+			cancelled: false,
+			merged: true,
+			sourceFeatureIds: ['river-a', 'river-b'],
+		})
+		const after = useEditorStore.getState().editor?.getAllFeatures() ?? []
+		expect(after).toHaveLength(3)
+		expect(after.at(-1)?.properties?.mappingBasis).toContain('union of 2')
+	})
+})

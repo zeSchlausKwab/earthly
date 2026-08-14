@@ -90,6 +90,43 @@ function textChunk(content: string): StreamChunk {
 }
 
 describe('streamChatCompletion', () => {
+	test('streams provider-supplied reasoning deltas separately from answer text', async () => {
+		globalThis.fetch = (async () =>
+			streamResponse([
+				`data: ${JSON.stringify({
+					...textChunk(''),
+					choices: [
+						{
+							index: 0,
+							delta: { reasoning_content: 'Inspecting the selected routes…' },
+							finish_reason: null,
+						},
+					],
+				})}\n`,
+				`data: ${JSON.stringify(textChunk('Done.'))}\n`,
+				'data: [DONE]\n',
+			])) as typeof fetch
+
+		const tokens: string[] = []
+		const reasoningTokens: string[] = []
+		await streamChatCompletion(
+			request,
+			{
+				onToken: (token) => tokens.push(token),
+				onReasoningToken: (token) => reasoningTokens.push(token),
+				onComplete: () => undefined,
+				onError: (error) => {
+					throw error
+				},
+			},
+			provider,
+			'cashu-token',
+		)
+
+		expect(reasoningTokens).toEqual(['Inspecting the selected routes…'])
+		expect(tokens).toEqual(['Done.'])
+	})
+
 	test('streams line-delimited data frames without blank SSE separators', async () => {
 		globalThis.fetch = (async () =>
 			streamResponse([

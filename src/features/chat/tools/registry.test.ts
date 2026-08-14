@@ -2,14 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { createHeadlessEditor } from '@/features/geo-editor/core/test-harness'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { isToolError } from './errors'
-import {
-	advertise,
-	dispatch,
-	type ToolEntry,
-	register,
-	registry,
-	unregister,
-} from './registry'
+import { advertise, dispatch, type ToolEntry, register, registry, unregister } from './registry'
 
 const TEST_TOOL: ToolEntry = {
 	name: 'test_echo_tool',
@@ -106,6 +99,8 @@ describe('tool registry', () => {
 		expect(names).toContain('get_editor_state') // host-builtin
 		expect(names).toContain('search_location') // remote-mcp
 		expect(names).toContain('valhalla_route') // remote-mcp
+		expect(names).toContain('route_over_network') // host pathfinding over line networks
+		expect(names).toContain('get_reference_boundaries') // source-selecting boundary facade
 		expect(names).toContain('editor_set_mode') // editor command (self-registered)
 		expect(names).toContain('editor_undo')
 	})

@@ -76,6 +76,7 @@ const PREDICATE_OPS = new Set([
 	'exists',
 	'missing',
 	'contains',
+	'icontains',
 	'in',
 	'lt',
 	'lte',
@@ -195,7 +196,10 @@ export function parsePredicate(raw: unknown): Predicate {
 		if ((op === 'lt' || op === 'lte' || op === 'gt' || op === 'gte') && typeof value !== 'number') {
 			throw new Error(`predicate op '${op}' requires a numeric \`value\``)
 		}
-		if ((op === 'eq' || op === 'neq' || op === 'contains') && value === undefined) {
+		if (
+			(op === 'eq' || op === 'neq' || op === 'contains' || op === 'icontains') &&
+			value === undefined
+		) {
 			throw new Error(`predicate op '${op}' requires a \`value\``)
 		}
 	}
@@ -322,7 +326,7 @@ function applyDeclarativeOps(
 
 /** One style bucket in `style_by_attribute` (predicate → forgiving style bag). */
 interface StyleBucket {
-	predicate: Predicate
+	matches: (feature: EditorFeature) => boolean
 	style: Record<string, unknown>
 }
 

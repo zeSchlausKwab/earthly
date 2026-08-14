@@ -20,6 +20,7 @@ export type DeterministicChatScenario =
 	| 'spatial-research'
 	| 'nearby-discovery'
 	| 'source-to-map-research'
+	| 'repeated-tool-error'
 
 const scenarioModels: Record<DeterministicChatScenario, { id: string; name: string }> = {
 	'spatial-research': {
@@ -34,6 +35,10 @@ const scenarioModels: Record<DeterministicChatScenario, { id: string; name: stri
 		id: 'earthly-source-to-map-fixture',
 		name: 'Earthly source-to-map fixture',
 	},
+	'repeated-tool-error': {
+		id: 'earthly-repeated-error-fixture',
+		name: 'Earthly repeated error fixture',
+	},
 }
 
 export interface DeterministicChatRequestSummary {
@@ -41,6 +46,9 @@ export interface DeterministicChatRequestSummary {
 	messageRoles: string[]
 	toolNames: string[]
 	userMessageCount: number
+	systemPromptChars: number
+	toolSchemaChars: number
+	hasLoopRecoveryInstruction: boolean
 }
 
 export interface DeterministicChatProviderHarness {
@@ -210,6 +218,17 @@ async function fulfillModelRoute(
 		messageRoles: messages.flatMap((message) => (message.role ? [message.role] : [])),
 		toolNames,
 		userMessageCount: messages.filter((message) => message.role === 'user').length,
+		systemPromptChars: messages
+			.filter((message) => message.role === 'system')
+			.reduce(
+				(total, message) =>
+					total + (typeof message.content === 'string' ? message.content.length : 0),
+				0,
+			),
+		toolSchemaChars: JSON.stringify(body.tools ?? []).length,
+		hasLoopRecoveryInstruction: messages.some(
+			(message) => typeof message.content === 'string' && message.content.includes('LOOP RECOVERY'),
+		),
 	})
 
 	const lastUserIndex = messages.findLastIndex((message) => message.role === 'user')
@@ -332,12 +351,40 @@ async function fulfillModelRoute(
 				'tool_calls',
 				model.id,
 			)
+	const repeatedToolErrorBodyText =
+		requests.length >= 4
+			? streamBody(
+					{
+						role: 'assistant',
+						content:
+							'I recovered after three repeated tool errors without Earthly interrupting the run.',
+					},
+					'stop',
+					model.id,
+				)
+			: streamBody(
+					{
+						role: 'assistant',
+						tool_calls: [
+							{
+								index: 0,
+								id: `call-repeated-error-${requests.length}`,
+								type: 'function',
+								function: { name: 'missing_fixture_tool', arguments: '{"query":"same"}' },
+							},
+						],
+					},
+					'tool_calls',
+					model.id,
+				)
 	const bodyText =
 		scenario === 'nearby-discovery'
 			? nearbyBodyText
 			: scenario === 'source-to-map-research'
 				? sourceToMapBodyText
-				: spatialBodyText
+				: scenario === 'repeated-tool-error'
+					? repeatedToolErrorBodyText
+					: spatialBodyText
 
 	await route.fulfill({
 		status: 200,

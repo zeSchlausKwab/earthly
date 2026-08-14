@@ -3,9 +3,9 @@ import type { Feature, FeatureCollection, Geometry, Position } from "geojson";
 // Multiple Overpass API endpoints for failover
 const OVERPASS_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
-  "https://overpass.private.coffee/api/interpreter",
-  "https://overpass.kumi.systems/api/interpreter",
   "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
 ];
 const USER_AGENT = "EarthlyCity/1.0 Map MCP Server (https://earthly.city)";
 
@@ -770,9 +770,7 @@ out tags ids 25;`;
   };
 }
 
-export async function queryRelationGeometry(
-  relationId: number,
-): Promise<{
+export async function queryRelationGeometry(relationId: number): Promise<{
   feature: Feature | null;
   relation: OverpassRelation | null;
   tags: Record<string, string>;
